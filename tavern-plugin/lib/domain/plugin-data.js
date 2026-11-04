@@ -77,6 +77,18 @@ export function createPluginData({ store, now = Date.now }) {
   // Host-owned game-mode journal travels with the existing save/fork package.
   const modeOwner = '@tavern/game-mode'
   const readMode = chatId => readGame({ chatId, owner: modeOwner })
+  const actorOwner = '@tavern/game-agents'
+  async function readModeAgent(chatId, parentId, member) {
+    const record = await readGame({ chatId, owner: actorOwner })
+    return record?.parentId === parentId ? record.agents?.[member] || '' : ''
+  }
+  async function writeModeAgent(chatId, parentId, member, sessionId) {
+    return update(chatId, value => {
+      const own = ownerOf(value, actorOwner)
+      if (own.game?.parentId !== parentId) own.game = { parentId, agents: {} }
+      own.game.agents[member] = sessionId
+    })
+  }
   async function writeMode(chatId, expectedRevision, document) {
     return update(chatId, value => {
       const own = ownerOf(value, modeOwner)
@@ -130,5 +142,5 @@ export function createPluginData({ store, now = Date.now }) {
 
   async function removeChat(chatId) { await store.remove(pathFor(chatId)) }
 
-  return Object.freeze({ readMode, writeMode, saveTurn, turnsUpTo, saveGame, readGame, copyForFork, snapshot, importInto, turns, readSettings, updateSettings, removeChat, pathFor })
+  return Object.freeze({ readMode, writeMode, readModeAgent, writeModeAgent, saveTurn, turnsUpTo, saveGame, readGame, copyForFork, snapshot, importInto, turns, readSettings, updateSettings, removeChat, pathFor })
 }

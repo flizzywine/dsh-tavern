@@ -74,12 +74,13 @@ export function createPluginGameModes({ read, write, allowed, runAgent, foregrou
         doc.cursor = request.cursor
       } else {
         if (!['create', 'advance'].includes(request.op)) throw new Error('未知玩法操作')
-        const context = { gameId, signal, agent: async ({ id, system, prompt }) => {
+        const context = { gameId, signal, agent: async ({ id, member, system, prompt }) => {
           if (!active) throw new Error('玩法操作已结束')
           signal.throwIfAborted()
           if (!keyPattern.test(id) || typeof system !== 'string' || !system.trim() || typeof prompt !== 'string') throw new Error('Agent 需要 id、system、prompt')
           if (system.length + prompt.length > 200000) throw new Error('Agent 上下文超过限制')
-          return runAgent({ gameId, owner: provider.owner, id, system, prompt, signal })
+          if (member !== undefined && !keyPattern.test(member)) throw new Error('Agent 成员名称无效')
+          return runAgent({ gameId, owner: provider.owner, id, member, system, prompt, signal })
         } }
         const result = await provider[request.op]({ ...context, state: previous ? clone(doc.frames[doc.cursor].state) : null,
           input: json(request.input ?? null) })

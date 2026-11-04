@@ -55,7 +55,8 @@ export function closeOpeningTurn(session) {
 // it continues after the reserved one instead of colliding with it.
 export function releaseOpeningTurn(session, agent) {
   closeOpeningTurn(session)
-  if (agent && agent.phase && agent.phase.kind === 'idle') {
+  if (agent && agent.phase && agent.phase.kind === 'idle'
+    && sessionEvents(session).some(event => event.type === 'turn/start' && event.data?.turn === 1)) {
     agent.phase.lastTurn = Math.max(Number(agent.phase.lastTurn) || 0, 1)
   }
 }

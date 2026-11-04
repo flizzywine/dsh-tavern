@@ -1,6 +1,7 @@
 import { isMvuUpdateEntry } from './domain/worldbook-recall.js'
 import { createHash } from 'node:crypto'
 import { createPluginGameModes } from './domain/plugin-game-mode.js'
+import { createGameModeAgents } from './domain/game-mode-agents.js'
 import { createPluginTaskExecution } from './domain/plugin-task-execution.js'
 import { createBodyGenerationProviders } from './domain/body-generation-providers.js'
 import { pluginMember, pluginMemberId, registerPluginMember } from './domain/background-members.js'
@@ -216,7 +217,7 @@ export function createTavernPluginApi(deps) {
       await guardScope(owner, { gameId })
       if ((await choicesFor(gameId)).disabled.has(owner)) throw new Error('本局已停用玩法插件')
     },
-    runAgent: input => deps.runTask({ ...input, tools: [], call: () => { throw new Error('玩法 Agent 没有工具') } }),
+    runAgent: createGameModeAgents({ data: deps.data, resolveGame: requireGame, runTask: input => deps.runTask(input) }),
     foreground: deps.projectGameForeground,
     changed: gameId => deps.publishState?.(gameId, '@tavern', 'game-mode'),
   })

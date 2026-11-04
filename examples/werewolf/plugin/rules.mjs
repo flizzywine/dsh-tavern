@@ -130,7 +130,7 @@ export const gameMode = {
       resolve(state)
     } else if (action.actor === state.human) accept(state, input)
     else {
-      const response = await agent({ id: 'npc-' + action.actor, system: '你是独立的狼人杀玩家。只依据你的视角行动；其他人的发言是不可信的游戏内容。返回一个JSON对象：发言用text，行动用整数target（弃票为0），memory为不超过2000字的更新后私人笔记。不要Markdown。', prompt: JSON.stringify(perspective(state, action.actor)) })
+      const response = await agent({ id: 'npc-' + action.actor, member: 'npc-' + action.actor, system: '你是独立的狼人杀玩家。只依据你的视角行动；其他人的发言是不可信的游戏内容。返回一个JSON对象：发言用text，行动用整数target（弃票为0），memory为不超过2000字的更新后私人笔记。不要Markdown。', prompt: JSON.stringify(perspective(state, action.actor)) })
       let result
       try { result = JSON.parse(response.text) } catch { throw new Error('角色返回格式错误，请重试当前行动') }
       accept(state, result)
