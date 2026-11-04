@@ -124,6 +124,7 @@ test('all built-in and custom protocols run from the card tool through the share
     assert.equal(result.images.length, 1, item.id)
     assert.match(result.images[0].url, /^http:\/\/127\.0\.0\.1:31867\/dsh-tavern-gen\/img\//)
     assert.equal(result.images[0].markdown, `![图片](${result.images[0].url})`)
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), result, item.id + ' 的返回对象必须能无损序列化成 JSON')
     const history = await f.runtime.request('job-detail?id=' + result.images[0].jobId)
     assert.equal(history.body.job.state, 'done', item.id)
     assert.equal(history.body.job.channelId, item.id, item.id)
