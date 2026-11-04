@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c04bafc8264e79d2839a750203589906734bccdf",
-  "releaseSequence": 1169,
+  "revision": "a78d9602920d15f2ad2b9004bb1d5d11dd06c54c",
+  "releaseSequence": 1170,
   "version": "3.2.0",
   "files": [
     {
@@ -906,8 +906,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "ad430e4da66ead57e9248b235d22deec02d345b58671c8abb4d22b8e6f6c25e8",
-      "size": 5454560
+      "sha256": "eeb97b196cebcbafb5402e6585efe35ed00c8371d0c8ec9b655d5dad785cb130",
+      "size": 5456171
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2266,8 +2266,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-settlement-effect.js",
-      "sha256": "55aaf8671228fbea7a6c1373baa8826ec901741ba68c841f6b0e1f087df31482",
-      "size": 6014
+      "sha256": "16bdc5e5be79ca24cbb41f4f0e931b6c56002018a6f1bc3756fc041f92227703",
+      "size": 6991
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-settlement-engine.js",
@@ -2606,8 +2606,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/reply-prose.js",
-      "sha256": "bb53d59e63456b7aa4e681aea05f1b7f1a5be748f6a9558021ab2de2f958832d",
-      "size": 4797
+      "sha256": "9a6283b8002a63ed76638cd74c19558f02672900873949545b203312cc7bd49d",
+      "size": 4833
     },
     {
       "path": "tavern-plugin/lib/domain/reply-stream-observer.js",
@@ -3176,8 +3176,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-helper-context.js",
-      "sha256": "20c3847b020e37071f9cd0af6cfdab4fecac7104574f63b05cca64b359691227",
-      "size": 17177
+      "sha256": "281f7154f09d044780c1eae007110055073ee919edaae9b65d5bef0683ed38d0",
+      "size": 17610
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-helper-regex-api.js",
@@ -3241,8 +3241,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-script-host-adapter.js",
-      "sha256": "0b2025c13d9d523281b6a9342073c5252677d830f726743af052d42cb69a4cc5",
-      "size": 45597
+      "sha256": "a3563c0a0c588720a4579cdc351da1ad612a1c496db5c941f16470e7d31e0dde",
+      "size": 45877
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-script-prompts.js",
@@ -9526,9 +9526,9 @@
     }
   ],
   "archive": {
-    "commit": "b06d1d77a485da91f8e84e2015c8b74f77e953ea",
+    "commit": "de80177bad8ffca13b8c52f21498b461b9d84d50",
     "path": "runtime.zip",
-    "sha256": "1a04f752bd3ee4984d4dee48dd9f84653ab8264a88439c66afef9fdb079d20b2",
-    "size": 16096356
+    "sha256": "881188992c11d9e485b2421f7ec0f130732acda6eeb3a090dd51b20785a9d5a7",
+    "size": 16097332
   }
 }
