@@ -4,6 +4,19 @@
 
 浏览器侧的代码运行在 DSH 页面里，使用 DSH 提供的 `react`。插件的 `render` 函数返回 React 元素；出错时只影响这个元素，正文其余部分照常显示。
 
+## `registerGameModeView({ name, render, presentation?, lobby? })`
+
+为宿主侧 `gameMode` 注册玩法界面，两端插件归属和 `name` 必须一致。注册随插件卸载撤销。
+
+- `presentation: 'page'` 使用独立游戏页面，隐藏正文内重复的玩法界面；默认在正文内展示。宿主提供进入游戏、返回酒馆和再次进入的入口。
+- 可选 `lobby({ busy, start })` 返回开局大厅，调用 `start()` 创建本局；当前大厅入口不接收自定义开局参数，服务端 `create` 收到的 `input` 为 null。
+- `render({ gameId, data, revision, busy, paused, error, resume, advance, page, foreground })` 返回 React 元素。`data` 仅为服务端 `project` 的玩家可见投影；`page` 表示独立页面，`foreground` 表示原生正文投射模式。
+- `advance(input)` 提交结构化行动，成功返回 true，失败返回 false。自动推进应尊重 busy、paused、error，按 revision 去重；`resume()` 清除错误并恢复推进。
+
+宿主提供停止、回退和撤销回退控件；停止、失败或回退后暂停自动推进。页面关闭会卸载视图，已提交状态仍保存；再次进入读取同一局进度。自动推进由页面驱动，插件应在组件卸载时清理定时器和订阅。
+
+宿主注册、成员代理与存档契约见[玩法 API](plugin-api-game.md)。
+
 ## `registerMediaRenderer(kind, render)`
 
 为插件自定义的 `kind`（`<插件名>/<类型>`）提供显示方式，比如边下载边显示、带播放器的卡片。`image`、`video`、`audio` 由 Tavern 显示，不能替换。

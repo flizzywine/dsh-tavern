@@ -1,50 +1,10 @@
 # 插件开放层设计
 
-## 自定义玩法（gameMode，2026-11-04）
+## 自定义玩法（gameMode）
 
-宿主能力标记 `tavern.capabilities.gameMode === 1`。卡内插件通过
-`tavern.gameMode({ name, title, version, create, advance, project })` 注册整局玩法；
-浏览器侧通过 `tavernUi.registerGameModeView({ name, render, presentation?, lobby? })` 注册对应界面。
-`presentation: "page"` 让专属网页接管游玩区域，隐藏正文内的重复玩法界面；默认仍为正文内展示。
-页面可提供 `lobby({ busy, start })` 定制开局大厅，调用 `start()` 创建本局；`render` 额外收到 `page: true`。
-宿主提供返回酒馆和返回游戏入口，重新打开读取同一局进度。关闭页面会卸载视图，已提交的行动仍保存。
-两端的插件归属名和 `name` 必须一致。注册随插件卸载撤销。
+通用玩法接口已发布到 main。宿主注册、持久成员、状态投影和恢复契约见[玩法 API](../presets/tavern/skills/tavern-plugin/references/plugin-api-game.md)；独立页面与大厅见[浏览器 API](../presets/tavern/skills/tavern-plugin/references/plugin-api-ui.md)。
 
-- `create({ gameId, input, signal, agent })` 和 `advance({ gameId, state, input, signal, agent })`
-  返回 `{ state, events? }`。参数是独立副本；只有成功返回后，宿主才把状态与事件一起保存。
-- `project({ state })` 返回玩家可见的 JSON。所有秘密留在服务端状态里，不发送完整状态给页面。
-  此函数应是快速、确定性的纯计算，不调用模型或写存档。
-- `agent({ id, system, prompt })` 返回 `{ text, ... }`，使用本局后台模型创建独立子代理。
-  不继承人物卡、世界书、故事历史或工具。DSH 自身可能附带工作目录等运行信息。
-  `id` 表示逻辑角色，请求记录带角色标识；物理子会话按调用创建，不承诺永久保持同一个会话 ID。
-  角色记忆由插件写进 `state`，每次调用显式重建视角，以便回退后不残留未来知识。
-- `render({ gameId, data, revision, busy, paused, error, resume, advance })` 中 `data` 是 `project` 结果，
-  `advance(input)` 提交结构化玩家行动，成功返回 true，失败返回 false。
-  自动推进的插件应尊重 busy/paused/error，按 revision 去重；resume() 清除错误并恢复推进。
-  宿主提供开局、停止、回退和撤销回退控件；停止、失败与回退后暂停自动推进。
-
-玩法使用独立的节点时间线，与普通故事的正文轮次不同。一次 `advance` 是一个提交节点；
-回退后继续会截掉后续节点。整份玩法文档随现有插件存档导出、导入和复制携带，
-以当前玩法游标为起点；不能用普通故事的正文编辑或回退按钮修改玩法节点。
-激活玩法后的普通模型输入会被拒绝，应通过玩法面板行动。
-
-宿主按局互斥，使用 revision 拒绝过期操作；带相同 actionId 的已采用请求不再执行。
-取消、超时或卸载后的迟到结果不提交。停止不撤销已完成提交；再次推进会重新执行未提交行动，
-可能再次产生模型费用。不承诺收费请求恰好一次。默认单次操作超时十分钟。
-每个快照最多 8 MiB、每局最多 2000 个节点、整局文档最多 64 MiB。
-插件版本与存档版本必须相等；不兼容或缺失时明确失败，不回退到普通剧情生成。
-
-示例：`examples/werewolf/` 的全部规则、角色视角和界面都在卡内插件中。
-运行 `node examples/werewolf/build.mjs` 生成 `output/werewolf/六人狼人杀.dshcard`。
-导入后启用卡内插件，按宿主提示重启/刷新，配置本局后台模型，新开一局后点击开始。
-固定六人、真人座位与身份随机。玩家体验契约：领取身份 → 确认进入第一晚 →
-自己的夜间行动或自动等待 → DM 公布天亮 → 确认进入讨论 → 按顺序发言 → 投票确认 →
-DM 结算 → 确认进入下一晚或终局。预言家查验结果单独停留确认；玩家死亡后自动观战，终局揭晓身份与行动。
-NPC 自动逐步行动并逐次保存，只在玩家决策及阶段阅读点停下；不让玩家点击内部执行步骤。
-公开公告、发言与投票记录呈现在正文下的公共对话区，私密行动保留在游戏面板内。
-身份分配、阶段、计票、死亡、胜负、DM 公告全部由程序控制；LLM 只负责 NPC 发言与行动选择。
-自动推进在页面打开时运行，关闭后保留已提交进度，重新打开接续。旧版存档可接续，不重抽身份。
-新接口验证覆盖真实 DSH Agent 循环及浏览器，使用固定模型输出，不代表真实模型的推理质量。
+狼人杀是独立人物卡，其规则、界面、构建与测试由 [dshcard-werewolf](https://github.com/flizzywine/dshcard-werewolf) 维护；[下载最新版人物卡](https://github.com/flizzywine/dshcard-werewolf/releases/latest/download/werewolf.dshcard)。Tavern 只维护通用玩法能力，不内置狼人杀规则。
 
 状态：**已确认**（2026-10-09）。按「实施分期」分批实现；每一批都不改已发布的接口。
 

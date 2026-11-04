@@ -1,12 +1,14 @@
 # Tavern 插件接口总览
 
-接口版本：**6**（宿主侧；浏览器侧 `tavernUi.apiVersion` 为 **8**）
+接口版本：**7**（宿主侧；浏览器侧 `tavernUi.apiVersion` 为 **8**）
 
 DSH Tavern 把扩展功能交给第三方 **DSH 插件**：文生图、文生视频、配音，以及记忆、叙事锚点这类需要参与提示词和后台结算的功能。Tavern 提供一层稳定的接口：让插件知道「这一轮写完了、写了什么」，把图片或别的内容「挂回这一轮」，并往正文请求和后台结算里**添加**内容。v4 另提供仅对当前人物卡卡内插件开放的官方 MVU 变量结算 provider。多数是添加类接口，插件出错只会丢掉它自己那一份，游戏照常进行；少数替换类接口（如 `replaceSettlement`）让插件接管某个流程，插件失败时自动退回 Tavern 自己的做法。
 
 宿主通过 `ctx.tavern.capabilities` 公布可选能力。插件按能力名和版本探测；新增能力不要求旧插件升级接口版本。当前 `galleryProvider: 1` 可把插件自己保存的图片列入 Tavern 对话画廊，适合没有正文轮次的卡片工作台图库；`pricingProvider: 1` 让插件给界面报会话模型的价格。两者都见[媒体与数据](plugin-api-data.md)。
 
 生图扩展另提供 `imageModels: 1`（查询已配置模型、指定来源和模型生成）、`imageLibrary: 1`（提供与查询人物、服装库），用法与数据契约见[生图模型与人物、服装库](plugin-api-data.md)。
+
+独立桌游或多角色玩法使用 `capabilities.gameMode === 1`：通过 `gameMode` 管理状态、行动和玩家投影，通过 `registerGameModeView` 提供大厅与整页界面，并可复用已注册成员的持久子代理。详见[玩法 API](plugin-api-game.md)和[浏览器 API](plugin-api-ui.md)。
 
 ## 三条承诺
 

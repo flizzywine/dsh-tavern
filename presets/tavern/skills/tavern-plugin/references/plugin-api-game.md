@@ -6,6 +6,26 @@
 
 当前为 `7`，向后兼容旧版接口；浏览器侧的 `tavernUi.apiVersion` 单独计数。调用新增的 provider 接口前检查对应能力标记；旧宿主缺少能力时关闭相关功能并说明原因。
 
+## 自定义玩法 `gameMode`
+
+检查 `ctx.tavern.capabilities?.gameMode === 1`，再注册
+`ctx.tavern.gameMode({ name, title, version, create, advance, project, foreground? })`。
+`name` 使用小写字母开头的 1–64 位字母、数字、点、下划线或连字符；`version` 是存档协议的正整数版本，不是插件包的版本字符串。注册随插件卸载撤销。
+
+- `create({ gameId, input, signal, agent })` 创建本局；`advance({ gameId, state, input, signal, agent })` 推进行动。返回 `{ state, events? }`，`events` 为数组。参数为独立副本，成功后状态与事件一起保存。
+- `project({ state })` 返回玩家可见的 JSON。秘密只留在服务端 `state`，页面只接收投影。此回调应为快速确定性的纯计算。
+- 可选 `foreground({ data })` 把投影转换为非空文本，呈现在原生聊天中。只使用传入的可见数据；正文上限 2 MiB。重启后读取玩法会恢复并同步尚未加载的原生会话。
+- `agent({ id, member?, system, prompt })` 返回 `{ text, ... }`，使用本局后台模型。`id` 标识本次逻辑角色；上下文由插件显式提供，不继承普通故事、世界书或工具。DSH 自身可能附带工作目录等运行信息。
+- 需要持久角色时，先用已有的 `ctx.tavern.member({ name, title })` 注册，再将该名称传入 `agent` 的 `member`。同一局、同一插件成员复用持久子会话。每次调用会重建上下文，插件必须从当前 `state` 提供角色记忆，避免回退后的未来知识残留。省略 `member` 时不保证复用会话。
+
+前端通过 [registerGameModeView](plugin-api-ui.md#registergamemodeview-name-render-presentation-lobby) 注册行动界面。玩法激活后，普通故事生成输入被拒绝，玩家通过玩法界面提交结构化行动。
+
+一次 `advance` 是一个独立时间线节点。宿主支持停止、回退、撤销回退、存档导入导出和复制；回退后继续会截掉未来节点。普通故事的正文编辑与回退不修改玩法节点。存档 `version` 与注册版本必须相等；插件缺失或版本不兼容时明确报错。
+
+宿主按局互斥，以 revision 拒绝过期操作，相同已采用 actionId 不再执行；只有当前前台视图可推进行动。取消、超时或卸载后的迟到结果不提交。停止不撤销已提交行动，重试可能再次调用模型并产生费用。默认单次操作超时十分钟；每个快照最多 8 MiB，每局最多 2000 个节点、64 MiB。
+
+独立人物卡示例：[dshcard-werewolf](https://github.com/flizzywine/dshcard-werewolf)。规则与 UI 由人物卡维护，本体只提供通用接口。
+
 ## 正文生成器 `bodyGenerator({ name, title, prepare?, generate })`（第 7 版）
 
 检查 `ctx.tavern.capabilities?.bodyGeneration === 1` 后注册。一个生成器同时处理正常发送、最新正文重生成和最新失败输入重试。插件组织自己的上下文、调用 DSH 模型或独立子代理、解析响应，返回最终正文；宿主负责采用、保存、原生会话同步、版本通知和结算。注册返回清理函数，插件卸载自动撤销并取消运行中的回调。
