@@ -53,7 +53,7 @@ export async function connectTavern({ url, accessPin, fetchImpl = fetch }) {
 }
 
 export async function updateLibraryCard({ url, cardPath, file, password, accessPin, fetchImpl = fetch }) {
-  if (!cardPath?.startsWith('cards/')) throw new Error('请指定库中原卡路径，例如 cards/六人狼人杀.json')
+  if (!cardPath?.startsWith('cards/')) throw new Error('请指定库中原卡路径，例如 cards/人物卡.json')
   const bytes = await readFile(file), name = basename(file)
   if (!/\.(json|png|charx|dshcard)$/i.test(name)) throw new Error('支持 JSON、PNG、CHARX 和 DSHCARD')
   const request = await connectTavern({ url, accessPin, fetchImpl })

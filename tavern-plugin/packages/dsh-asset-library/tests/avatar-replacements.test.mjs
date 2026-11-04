@@ -41,4 +41,30 @@ for (const [label, retain] of [['src', retainPublishedStateImages], ['lib', buil
     assert.throws(() => retain(before, after, new Map(), [], [{ ...row(), extra: true }]), /Invalid avatar replacement/)
     assert.throws(() => retain(before, after, new Map(), [], {}), /Expected an array/)
   })
+
+  test(`${label}: avatar crop boxes are editable framing metadata, also next to an avatar replacement`, () => {
+    const cropped = pack({ avatar: B }); cropped.figures.hero.outfits[0].sprite.avatarCrop = { im001: { x: 0, y: 0, w: .5, h: .5 } }
+    assert.doesNotThrow(() => retain(pack(), cropped, new Map(), [], [row()]))
+    const cropOnly = pack(); cropOnly.figures.hero.outfits[0].sprite.avatarCropAuto = { im002: { x: .1, y: .1, w: .4, h: .4 } }
+    assert.doesNotThrow(() => retain(pack(), cropOnly))
+  })
+
+  test(`${label}: a closure rejection names the figure, outfit, image and changed field`, () => {
+    assert.throws(() => retain(pack(), pack({ avatar: B })), error => error.code === 'IMMUTABLE_IMAGE'
+      && error.path === '$.figures.hero.outfits.school.images.im001.avatar' && /\(avatar\)/.test(error.message))
+  })
+
+  test(`${label}: an explicit image removal withdraws an image no pool offers`, () => {
+    const retired = () => { const value = pack(); value.figures.hero.outfits[0].sprite.imagePools.calm.imageIds = ['im001']; return value }
+    const removed = retired(), outfit = removed.figures.hero.outfits[0]
+    delete removed.sprites.school.images.im002; delete outfit.avatars.im002; delete outfit.sprite.assets['joy.png']
+    const removal = { figureId: 'hero', outfitKey: 'school', imageId: 'im002' }
+    assert.throws(() => retain(retired(), removed), error => error.path === '$.figures.hero.outfits.school.images.im002' && /imageRemovals/.test(error.message))
+    assert.doesNotThrow(() => retain(retired(), removed, new Map(), [], [], [removal]))
+    // A pooled image is still offered and cannot be withdrawn.
+    assert.throws(() => retain(pack(), removed, new Map(), [], [], [removal]), /Only an image in no pool/)
+    const leftover = structuredClone(removed); leftover.figures.hero.outfits[0].avatars.im002 = C
+    assert.throws(() => retain(retired(), leftover, new Map(), [], [], [removal]), /still has an image, avatar/)
+    assert.throws(() => retain(retired(), removed, new Map(), [], [], [{ ...removal, extra: true }]), /Invalid image removal/)
+  })
 }
