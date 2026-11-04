@@ -37,3 +37,16 @@ test('subtitle measurement listeners and queued callbacks stop at unmount',()=>{
  assert.equal(events.size,0)
  assert.equal(fontEvents.size,0)
 })
+test('page lines are read from the text element computed style and its box room',()=>{
+ const css=values=>({lineHeight:'30px',fontSize:'20px',paddingTop:'10px',paddingBottom:'10px',getPropertyValue:key=>values[key]??''})
+ const box={clientHeight:120}
+ const subtitles=createStageSubtitles({getComputedStyle:node=>node===box?css({}):null})
+ const element=fit=>({closest:selector=>fit&&selector==='.fork-gal-box'?box:null})
+ // a box without a fitted text area: the skin's lines at the CONFIG text scale
+ assert.equal(subtitles.pageLines(element(false),css({'--gal-skin-lines':'4'}),false).lines,4)
+ assert.equal(subtitles.pageLines(element(false),css({'--gal-skin-lines':'4','--fk-text-scale':'1.25'}),false).lines,3)
+ assert.equal(subtitles.pageLines(element(false),css({}),true).lines,2)
+ // a fitted box: the whole lines its padded text area holds; a box whose height follows its lines holds its max lines
+ assert.deepEqual(subtitles.pageLines(element(true),css({'--gal-skin-lines-fit':'box','--gal-skin-lines':'2'}),false),{lineHeight:30,lines:3,fitMax:0,fitMin:1})
+ assert.deepEqual(subtitles.pageLines(element(true),css({'--gal-skin-lines-fit':'box','--art-fit-max':'2','--art-fit-min':'1'}),false),{lineHeight:30,lines:2,fitMax:2,fitMin:1})
+})
