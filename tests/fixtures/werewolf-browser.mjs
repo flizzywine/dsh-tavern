@@ -28,7 +28,7 @@ plugin.gameMode({ ...gameMode,
   // This fixture hosts the standalone board, not the native conversation graph.
   // Native foreground projection and concurrent rows have separate regressions.
   foreground: undefined,
-  create: args => { const result = gameMode.create(args); result.state.players.forEach((p, i) => { p.role = ['wolf', 'wolf', 'seer', 'villager', 'villager', 'villager'][i] }); result.state.queue = [1, 2]; return result },
+  create: args => { const result = gameMode.create({ ...args, input: { ...args.input, seat: 1 } }); result.state.players.forEach((p, i) => { p.role = ['wolf', 'wolf', 'seer', 'villager', 'villager', 'villager'][i] }); result.state.queue = [1, 2]; return result },
   advance: args => gameMode.advance({ ...args, agent: ({ id, system, prompt, signal }) => {
     if (failNextNpc) { failNextNpc = false; throw new Error('测试网络中断') }
     return native.runBackground({
@@ -109,9 +109,9 @@ try {
     const action = view.data.action
     if (action.kind === 'speak') {
       await page.getByLabel('你的发言').fill('我的发言：请按投票记录判断。')
-      await page.getByRole('button', { name: view.data.phase === 'wolf-talk' ? '发送密谈' : '结束发言', exact: true }).click()
+      await page.getByRole('button', { name: view.data.phase === 'wolf-talk' ? '发送密谈' : view.data.phase === 'last-words' ? '提交遗言' : '结束发言', exact: true }).click()
     } else if (action.kind === 'confirm') {
-      await page.getByRole('button', { name: ({identity:'我已了解，进入第一晚',inspection:'记住结果，闭眼等待',daybreak:'进入白天讨论','next-night':'进入第'+view.data.day+'晚'})[action.gate], exact:true }).click()
+      await page.getByRole('button', { name: ({identity:'我已了解，进入第一晚',inspection:'记住结果，闭眼等待',daybreak:view.data.pendingLastWords?(view.data.currentSpeaker===view.data.human?'发表我的遗言':'听取首夜遗言'):'进入白天讨论','next-night':'进入第'+view.data.day+'晚'})[action.gate], exact:true }).click()
     } else if (action.kind !== 'auto') {
       await page.getByRole('button', { name: action.targets[0] + '号', exact: true }).click()
       await page.getByRole('button', { name: ({kill:'确认袭击',inspect:'确认查验',vote:'确认投票'})[action.kind], exact:true }).click()

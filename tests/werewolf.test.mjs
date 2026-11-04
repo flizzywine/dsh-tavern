@@ -7,6 +7,44 @@ function state() {
   s.players.forEach((p, i) => { p.role = ['wolf', 'wolf', 'seer', 'villager', 'villager', 'villager'][i] })
   s.queue = [1, 2]; s.gate = null; return s
 }
+test('first-night seer gives last words with identity and inspection before living players speak', async () => {
+  const s = state(); s.phase = 'dawn'; s.queue = []; s.victim = 3;
+  s.log.push({ day: 1, actor: 3, to: 3, text: '查验结果：1号是狼人。' });
+  resolve(s);
+  assert.equal(s.phase, 'last-words');
+  assert.equal(s.players[2].alive, false);
+  await gameMode.advance({ state: s, input: null });
+  await gameMode.advance({ state: s, agent: async request => {
+    const context = JSON.parse(request.prompt);
+    assert.equal(context.self.role, '预言家');
+    assert.match(JSON.stringify(context.history), /1号是狼人/);
+    assert.equal(context.action.kind, 'speak');
+    return { text: JSON.stringify({ text: '我是预言家，1号查杀。' }) };
+  } });
+  assert.equal(s.phase, 'speech');
+  assert.equal(actionFor(s).actor, 1);
+  assert.ok(!s.queue.includes(3));
+  assert.match(gameMode.foreground({ data: project(s) }), /我是预言家，1号查杀/);
+});
+
+test('human first-night victim can submit last words once before spectating', async () => {
+  const s = state(); s.human = 3; s.phase = 'dawn'; s.queue = []; s.victim = 3;
+  resolve(s);
+  assert.equal(project(s).action.kind, 'confirm');
+  await gameMode.advance({ state: s, input: null });
+  assert.equal(project(s).action.kind, 'speak');
+  assert.equal(project(s).spectating, false);
+  await gameMode.advance({ state: s, input: { text: '我的遗言。' } });
+  assert.equal(project(s).spectating, true);
+  assert.equal(project(s).action.kind, 'auto');
+});
+
+test('default human seat is randomized while explicit seats remain supported', () => {
+  for (let seat = 1; seat <= 6; seat++) {
+    assert.equal(createState({}, (min, max) => max ? seat : 0).human, seat);
+    assert.equal(createState({ seat }).human, seat);
+  }
+});
 test('hidden roles, wolf chat and inspection never enter a villager view', () => {
   const s = state()
   accept(s, { text: '秘密狼队标记' }); accept(s, { text: '袭击3号' })
@@ -18,7 +56,7 @@ test('hidden roles, wolf chat and inspection never enter a villager view', () =>
   assert.equal(project(s).action.actor, 'auto')
   resolve(s)
   assert.equal(s.players[2].alive, false)
-  assert.equal(s.phase, 'speech')
+  assert.equal(s.phase, 'last-words')
   assert.equal(actionFor(s).gate, 'daybreak')
 })
 
@@ -45,6 +83,8 @@ test('player journey reveals identity before night and pauses on private inspect
   await gameMode.advance({ state: s, input: null, agent })
   assert.equal(project(s).phase, 'daybreak')
   assert.match(JSON.stringify(project(s).publicHistory), /4号昨夜出局/)
+  await gameMode.advance({ state: s, input: null, agent })
+  assert.equal(project(s).currentSpeaker, 4)
   await gameMode.advance({ state: s, input: null, agent })
   assert.equal(project(s).currentSpeaker, 1)
 })

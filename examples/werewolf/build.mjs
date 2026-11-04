@@ -11,7 +11,7 @@ const problem = pluginManifestProblem(pkg)
 if (problem) throw new Error(problem)
 const card = { spec: 'chara_card_v3', spec_version: '3.0', data: {
   name: '月下六席 · 狼人杀', description: '一位真人、五位独立NPC和程序DM主持的六人狼人杀。NPC使用本局后台模型，规则与主持公告由程序控制。',
-  personality: '', scenario: '', first_mes: '欢迎来到月下六席。启用卡内插件，并在下方玩法面板点击「开始 六人狼人杀」。你默认坐在1号位，身份随机分配。先领取身份并确认入夜。其他角色会自动行动，只在轮到你发言、选择目标或阅读阶段公告时停下。',
+  personality: '', scenario: '', first_mes: '欢迎来到月下六席。启用卡内插件，并在下方玩法面板点击「开始 六人狼人杀」。你的座位与身份均随机分配。先领取身份并确认入夜。其他角色会自动行动，只在轮到你发言、选择目标或阅读阶段公告时停下。',
   mes_example: '', creator: 'DSH Tavern', character_version: pkg.version, tags: ['狼人杀', '多Agent', '游戏'],
   creator_notes: '需要支持 gameMode 能力的 DSH Tavern。规则全部由卡内插件实现；每次NPC行动会调用后台模型。支持节点回退、撤销回退和存档恢复。',
   extensions: {} } }
