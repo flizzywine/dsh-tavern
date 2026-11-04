@@ -2,6 +2,7 @@
   "name": "dsh-profile-tavern",
   "version": "3.2.0",
   "scripts": {
+    "sync:desktop": "node bin/dev-sync-desktop.mjs",
     "build:client": "node bin/build-tavern-client.mjs",
     "check:client": "node bin/build-tavern-client.mjs --check",
     "install:tavern": "node ./bin/dsh-tavern.mjs install",

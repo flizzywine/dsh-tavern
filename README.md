@@ -307,6 +307,8 @@ $env:DSH_TAVERN_BIND='192.168.1.10'; dsh-tavern restart
 
 ## 参与贡献
 
+本机开发后运行 `node bin/dev-sync-desktop.mjs`（或 `pnpm sync:desktop`），构建客户端并将当前工作区代码直接复制到已安装的桌面版酒馆，包含未提交修改；保留依赖和存档，完成后重启桌面版生效。
+
 开发测试可直接复用官方桌面版 DSH，无需另装测试运行时。非默认安装位置可在仓库的 `.dsh-tavern-local.json` 中增加 `"testDesktopExecutable": "D:/Program Files/DSH/DeepSeek Harness.exe"`（保留其他已有字段；本机配置不提交），或设置环境变量 `DSH_DESKTOP_APP_EXECUTABLE`。
 
 使用 `node bin/test-tavern.mjs tests/<相关>.test.mjs` 运行相关测试。入口会显示实际 DSH 版本与路径，直接读取桌面版内置包，子进程也使用同一份依赖；不会解包、下载或修改 DSH。桌面升级后先跑相关测试，不兼容时明确失败。显式设置 `DSH_BOOT_MODULE` 仍可选择独立运行时；准备只保留桌面版时，应取消这个旧路径覆盖。未指定桌面路径时会尝试常见安装位置，再使用已有 CLI；指定路径失效时不会悄悄切换版本。
