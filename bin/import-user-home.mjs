@@ -55,7 +55,9 @@ function merge(from, to) {
   }
   if (!sameContent(from, to)) throw Error(`存在不同内容的同名存档或附件，已停止迁移：${to}`)
 }
-export function assertDesktopStopped(homes, { requireGuiClosed = false, exec = execFileSync, platform = process.platform, pid = process.pid } = {}) {
+// guiRoot limits the GUI check to executables inside that install root: other Harness
+// copies (another installation, a stale upgrade stage in the temp directory) cannot write this home.
+export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot, exec = execFileSync, platform = process.platform, pid = process.pid } = {}) {
   let output
   try {
     output = platform === 'win32'
@@ -70,6 +72,7 @@ export function assertDesktopStopped(homes, { requireGuiClosed = false, exec = e
   const own = new Set()
   for (let id = pid; id && !own.has(id); id = parents.get(id)) own.add(id)
   const normalize = value => value.replaceAll('\\', '/').toLowerCase()
+  const scope = guiRoot && normalize(path.resolve(guiRoot)).replace(/\/*$/, '/')
   for (const row of processes) {
     if (own.has(row.id)) continue
     const command = normalize(row.command).trim()
@@ -81,7 +84,7 @@ export function assertDesktopStopped(homes, { requireGuiClosed = false, exec = e
       || command.match(/^(\/[^"\n]+?\.app\/contents\/macos\/(?:deepseek harness|dsh next|dsh desktop))(?=\s|$)/)?.[1]
       || command.match(/^((?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?)(?=\s|$)/)?.[1]
       || command.split(/\s/)[0]
-    if (requireGuiClosed && /(?:^|\/)(?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?$/.test(executable)) throw Error('请完整退出 DeepSeek Harness 后再安装或迁移数据。')
+    if (requireGuiClosed && (!scope || executable.startsWith(scope)) && /(?:^|\/)(?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?$/.test(executable)) throw Error('请完整退出 DeepSeek Harness 后再安装或迁移数据。')
     if (!command.includes('dsh-desktop-host')) continue
     if (homes.some(home => command.includes(normalize(path.join(home, 'profiles'))))) throw Error('请完整退出使用源目录或目标目录的官方桌面，再迁移用户数据。')
   }

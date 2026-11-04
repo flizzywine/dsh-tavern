@@ -241,7 +241,7 @@ export async function recordInstalledRelease(options = {}) {
   return release
 }
 
-export async function installProfile(host = RUNTIME_HOST) {
+export async function installProfile(host = RUNTIME_HOST, { guiRoot } = {}) {
   const attemptId = process.env.DSH_TAVERN_INSTALL_ATTEMPT || randomUUID()
   const lease = installationState.acquireInstallation({ dshHome: DSH_ROOT, sourceRoot: SOURCE_ROOT, host, attemptId })
   let safeToRelease = true
@@ -262,7 +262,7 @@ export async function installProfile(host = RUNTIME_HOST) {
   const runInstall = (command, args, options = {}) => stage(options.label || command, () => runInstallCommand(command, args, { ...options, ...supervisedOptions() }))
   const runDsh = (command, args, options = {}) => stage(args.includes('--dump-config') ? '验证 Tavern 配置' : '读取 DSH 版本', () => runInstallDsh(command, args, { ...options, ...supervisedOptions() }))
   try {
-    const receipt = await installProfileOwned(host, { attemptId, runInstall, runDsh })
+    const receipt = await installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoot })
     // A manual local install is authoritative only after the same complete
     // validation/finalization path succeeds. Nested installs leave final status
     // to their updater, which still has to verify the bootstrap outcome.
@@ -274,7 +274,7 @@ export async function installProfile(host = RUNTIME_HOST) {
   } finally { if (safeToRelease) lease.release() }
 }
 
-async function installProfileOwned(host, { attemptId, runInstall, runDsh }) {
+async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoot }) {
   requireCommand('node', '请安装 Node.js 22.19 或更高版本')
   requireCommand('pnpm', '请运行 npm install -g pnpm')
   verifySource()
@@ -296,7 +296,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh }) {
       console.log(`${imported.alreadyImported ? '已继承过该目录，保留当前进度' : '旧目录数据继承完成'}；双方备份：${imported.backup}`)
     }
     if (host === 'desktop') {
-      bridge = beginDesktopProfileInstallation({ home: DSH_ROOT, sourceRoot: SOURCE_ROOT })
+      bridge = beginDesktopProfileInstallation({ home: DSH_ROOT, sourceRoot: SOURCE_ROOT, guiRoot })
       if (bridge) console.log(`${bridge.refreshOnly ? '原版切换组件备份' : 'Profile 完整备份'}：${bridge.backup}`)
     }
     mkdirSync(PROFILE_DIR, { recursive: true })
