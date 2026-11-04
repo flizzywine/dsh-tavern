@@ -25,7 +25,7 @@ import {createAssetEngineSettings} from './asset-engine.js'
 import {createEngineJudge} from '../../../lib/domain/engine-judge.js'
 import {createJudgeRpc} from './engine-judge.js'
 import {createDirectorProbeStore, createDirectorProbeRpc} from '../../../lib/director-probe.js'
-import {createFigureVoiceAuthoring} from './figure-voice-authoring.js'
+import {createFigureVoiceAuthoring, countServiceUsers} from './figure-voice-authoring.js'
 import {createAssetRuntime} from './asset-runtime.js'
 import {createStagePhoneHost} from './mods/phone/host.js'
 import {createTimerExtension} from './mods/timer/extension.js'
@@ -326,6 +326,8 @@ export function createStageAssets(core) {
   ctx.effect(() => assetEngineSettings.subscribe(() => figureVoiceAuthoring.invalidate()))
   ctx.effect(() => () => figureVoiceAuthoring.dispose())
   for (const name of ['assetLibrary','tts']) ctx.inject([name], child => child.effect(() => () => figureVoiceAuthoring.invalidate()))
+  ctx.inject(['assetLibrary','tts'], child => child.effect(() => child.get('tts').registerUsageSource({owner:'dsh-tavern-stage',
+    inspect:serviceId => countServiceUsers({library:child.get('assetLibrary'),tts:child.get('tts'),serviceId})})))
   const assetRuntime = createAssetRuntime({ctx, readWorkspace:readCardWorkspace, engineSettings:assetEngineSettings,
     onInvalidate:() => { void coordinationEvents?.publishAll() }})
   ctx.effect(() => () => assetRuntime.dispose())

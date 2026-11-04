@@ -49,6 +49,7 @@ export function fixture({sidebar = true, configured: initial, external = true, r
     // the route answers a code plus a sentence (routes.js); the panel must branch on the code.
     else if (method === 'deleteService' && deleteGuard && !args.force) return {ok:false,status:409,json:async () => ({error:deleteGuard,message:'服务器文案'})}
     else if (method === 'deleteService') {configured = configured.filter(p => p.id !== args.id); result = {deleted:true}}
+    else if (method === 'serviceUsage') result = {count:2}
     else if (method === 'providerVoices') result = args.serviceId === 'local:default' ? {status:'ok',source:'live',models:[],voices:[{id:'cast/aoi',label:'葵',engine:'service-engine',revision:'v1',languages:['ja'],state:'ready'}]} : voicesOf(configured.find(p => p.id === args.serviceId).kind)
     else if (method === 'voiceModelStatus') result = modelStatus(args)
     else if (method === 'listOnlinePresetVoices') result = {provider:args.provider,...voicesOf(args.provider)}
@@ -256,7 +257,7 @@ test('add service: dashed ＋ → type → name / region / key; explicit test sh
 })
 
 test('delete: unknown or existing usage asks again and then deletes with force',async () => {
-  for (const [deleteGuard,question] of [['USAGE_UNKNOWN','不确定有没有人物在用「Test Qwen」，仍要删除？'],['SERVICE_IN_USE','还有声音预设在用「Test Qwen」，仍要删除？']]) {
+  for (const [deleteGuard,question] of [['USAGE_UNKNOWN','不确定有没有人物在用「Test Qwen」，仍要删除？'],['SERVICE_IN_USE','还有 2 个人物在用「Test Qwen」，仍要删除？']]) {
     const f = fixture({external:false,deleteGuard})
     await withDom(async root => {
       await act(async () => {root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))}); await settle()
