@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import { sessionEvents } from './session-events.js'
 import { createSessionSurfaceMutator } from './session-surface-mutations.js'
 import { producerSource } from './message-source.js'
@@ -6,6 +6,7 @@ import { isTurnInput } from './session-turn-input.js'
 import { toolResultsOf } from './tool-result-message.js'
 
 export const STORY_SUBMIT_TOOL_NAME = 'submit_story'
+export const STORY_GENERATE_TOOL_NAME = 'tavern_generate_body'
 export const STORY_SUBMIT_PROMPT = [
   '<output_method>',
   '本轮所有面向玩家的输出都必须通过工具调用完成：最终输出必须调用 submit_story，完整放入 content 字符串参数。',
@@ -112,10 +113,10 @@ export function storySubmissionForTurn(session, turn) {
     if (Number(data?.turn) !== Number(turn)) continue
     if (event.type === 'assistant/message' && data.message?.source?.kind === 'model' && (!visible || visible.has(Number(event.seq ?? index)))) {
       for (const block of data.message.content || []) {
-        if (block?.type === 'tool-call' && block.name === STORY_SUBMIT_TOOL_NAME) messages.set(block.id, { index, event, block })
+        if (block?.type === 'tool-call' && [STORY_SUBMIT_TOOL_NAME, STORY_GENERATE_TOOL_NAME].includes(block.name)) messages.set(block.id, { index, event, block })
       }
     }
-    if (event.type === 'tool/call' && data.name === STORY_SUBMIT_TOOL_NAME) {
+    if (event.type === 'tool/call' && [STORY_SUBMIT_TOOL_NAME, STORY_GENERATE_TOOL_NAME].includes(data.name)) {
       const model = messages.get(data.callId)
       if (model && model.block.arguments === data.arguments) calls.set(data.callId, model)
     }
@@ -124,9 +125,22 @@ export function storySubmissionForTurn(session, turn) {
       if (block.isError) continue
       const model = calls.get(block.toolCallId)
       if (!model) continue
-      let content
-      try { content = validContent(JSON.parse(model.block.arguments).content) } catch { continue }
-      return { index: model.index, receiptIndex: Number(event.seq ?? index), event: model.event, text: content.trim(), content, toolCallId: block.toolCallId, storyToolSubmission: true }
+      let content, operationId
+      const generated = model.block.name === STORY_GENERATE_TOOL_NAME
+      try {
+        if (generated) {
+          const receipt = JSON.parse(block.content.filter(item => item.type === 'text').map(item => item.text).join(''))
+          if (receipt.version === 1 && receipt.status === 'failed') return {
+            index: model.index, event: model.event, text: '', content: '', pluginBodyGeneration: true,
+            generationError: String(receipt.message || '插件正文生成失败').slice(0, 1000)
+          }
+          content = validContent(receipt.text)
+          if (receipt.version !== 1 || typeof receipt.operationId !== 'string' || !receipt.operationId
+            || receipt.digest !== createHash('sha256').update(JSON.stringify(content)).digest('hex')) continue
+          operationId = receipt.operationId
+        } else content = validContent(JSON.parse(model.block.arguments).content)
+      } catch { continue }
+      return { index: model.index, receiptIndex: Number(event.seq ?? index), event: model.event, text: content.trim(), content, toolCallId: block.toolCallId, storyToolSubmission: true, ...(generated ? { pluginBodyGeneration: true, operationId } : {}) }
     }
   }
   return null
@@ -189,7 +203,7 @@ export function activeStoryTurn(session) {
 }
 
 /** Executed exclusively by the host; the durable tool result is the receipt. */
-export function createStorySubmissionTool({ chatForSession, enabled, isBackground = () => false }) {
+export function createStorySubmissionTool({ chatForSession, enabled, isBackground = () => false, pluginGeneration = async () => false }) {
   return {
     name: STORY_SUBMIT_TOOL_NAME,
     description: '提交本轮全部最终输出，是所有面向玩家文本的唯一出口。全部输出放入 content，不要省略；成功后结束本轮，不再补充回复。',
@@ -201,6 +215,7 @@ export function createStorySubmissionTool({ chatForSession, enabled, isBackgroun
       const session = exec?.agent?.session
       const sessionId = session?.id || ''
       if (!sessionId || isBackground(sessionId)) throw new Error('正文提交只用于前台游玩回合')
+      if (await pluginGeneration(sessionId)) throw new Error('本轮正文必须由插件生成，请调用 tavern_generate_body')
       const chat = await chatForSession(sessionId)
       if (!storyToolCallEnabled(chat, await enabled())) throw new Error('未开启输入或输出走工具调用')
       const turn = activeStoryTurn(session)

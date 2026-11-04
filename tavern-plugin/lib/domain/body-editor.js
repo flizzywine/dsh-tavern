@@ -1,7 +1,7 @@
 import { upgradeReferences } from './session-upgrade-references.js'
 import { replaceSessionSurface } from './session-surface-mutations.js'
 import { createHash, randomUUID } from 'node:crypto'
-import { editableReplyParts } from './reply-presentation.js'
+import { editableReplyParts, projectProcessedReply } from './reply-presentation.js'
 import { replyProse } from './reply-prose.js'
 import { sceneSourceDigest } from './scene-illustration.js'
 import { locateRegenerationSurface } from './rollback-surface.js'
@@ -174,7 +174,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       let index = 0
       const text = parts.map(part => part.kind === 'text' ? keepEdges(part.text, texts[index++]) : part.text).join('')
       if (text === source(message)) return present(chat)
-      const reply = await project(text, chat)
+      const reply = message.bodyRegenerationProcessed === true ? projectProcessedReply(text) : await project(text, chat)
       const patch = {
         ...replyProse(text, { ...reply, projectionText: text }),
         // The scene stays the original reply's (scene-illustration.js), however often it is reworded.

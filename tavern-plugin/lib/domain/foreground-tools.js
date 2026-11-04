@@ -1,6 +1,7 @@
 // Foreground tools a game may switch off individually. The settings panel shows
 // this catalog; visibleTools filters the mode's list by the stored names.
 export const FOREGROUND_TOOL_CATALOG = Object.freeze([
+  { name: 'tavern_generate_body', label: '插件生成正文', description: '调用选定插件生成正文；需全局选择插件生成方式。', modes: ['story', 'script'] },
   { name: 'tavern_read_variables', label: '读取变量', description: '只读查询当前变量和结算状态。' },
   { name: 'skill', label: '加载 Skill', description: '按需加载写作或任务 Skill。' },
   { name: 'tavern_read_skill_reference', label: '读取 Skill 参考', description: '读取已加载 Skill 的参考文件。' },

@@ -4,7 +4,121 @@
 
 ## `apiVersion`
 
-当前为 `4`。v4 向后兼容旧版接口；浏览器侧的 `tavernUi.apiVersion` 单独计数，当前是 `5`，不受影响。调用新增的 provider 接口前同时检查 `apiVersion >= 4` 和对应能力标记；旧版 Tavern 上没有时，关闭该插件功能并沿用原生处理。
+当前为 `7`，向后兼容旧版接口；浏览器侧的 `tavernUi.apiVersion` 单独计数。调用新增的 provider 接口前检查对应能力标记；旧宿主缺少能力时关闭相关功能并说明原因。
+
+## 正文生成器 `bodyGenerator({ name, title, prepare?, generate })`（第 7 版）
+
+检查 `ctx.tavern.capabilities?.bodyGeneration === 1` 后注册。一个生成器同时处理正常发送、最新正文重生成和最新失败输入重试。插件组织自己的上下文、调用 DSH 模型或独立子代理、解析响应，返回最终正文；宿主负责采用、保存、原生会话同步、版本通知和结算。注册返回清理函数，插件卸载自动撤销并取消运行中的回调。
+
+用户在「设置 → DSH Tavern → 剧情」先选正文生成插件，再选择「插件直接生成」或「前台检索后由插件生成」。本局设置可以覆盖全局选择，也可以恢复跟随。生成器标识由宿主组成 `插件名:name`，仅允许当前游戏作用域内已启用的插件。插件注册不会自动改变用户的选择。
+
+- **直接生成**：宿主准备人物、已激活世界书、输入和状态后直接调用插件；不额外请求前台模型。内部通过宿主工具完成原生回合收尾，插件无需调用该工具。
+- **前台检索后生成**：前台模型可以查询世界书，再调用宿主工具结束资料收集，宿主把成功查询结果加入材料并调用插件。该模式会产生额外的前台模型请求。
+
+首版仅接受文本输入；附件在调用正文模型前拒绝。使用宿主原有的发送、重生成、失败重试和停止按钮；没有单独的 `bodyRegenerator`、`startBodyRegeneration` 或任意正文提交接口。现有 `runTask` 是后台任务接口，有后台上下文和排队约束，不用于接管前台正文。
+
+### 配置快照与回调
+
+```js
+ctx.tavern.bodyGenerator({
+  name: 'my-writer',
+  title: '我的正文生成器',
+  async prepare({ gameId, reason, signal }) {
+    // readMySettings 是插件自己的 helper。返回可恢复的配置内容或固定版本。
+    const settings = await readMySettings(gameId)
+    signal.throwIfAborted()
+    return { preset: settings.preset, model: settings.model }
+  },
+  async generate({ materials, config, signal }) {
+    // compile / callModel / parse 是插件自己的 helper，不是 Tavern 接口。
+    const request = compile(config.preset, materials)
+    const response = await callModel(config.model, request, { signal })
+    signal.throwIfAborted()
+    return { text: parse(response) }
+  },
+})
+```
+
+`prepare` 可选，可异步；`reason` 为 `normal | regenerate | retry`。宿主在操作开始时调用它，并保存返回的 JSON 配置快照（最多 2 MiB）；未提供时 `config` 为 `null`。正常轮次的配置在前台检索之前冻结。回调内部不要写游戏状态或启动收费模型请求。凭据继续由 DSH 服务管理，不放入配置快照。
+
+`generate` 得到材料和配置的独立副本。返回值必须为 `{ text: string }`，非空、最多 200000 个 JavaScript 字符。宿主将文本视为插件已经完成输出处理的最终正文：刷新、编辑和 Helper 更新不会重新执行宿主正文宏或输出正则；HTML 仍通过宿主的显示流程处理。需要输出正则的插件在返回之前执行一次。模型的工具调用参数应由插件校验和解析为正文，不交给宿主猜测。
+
+两种回调都有取消信号和 10 分钟超时。传递 `signal` 到模型请求与 Worker；取消、超时、卸载后的迟到结果不会被采用。生成期间更改预设、模型或宿主生成方式只影响后续操作。生成器失败不自动重试、不切换模型或改用宿主生成。
+
+### `materials`（schemaVersion 1）
+
+| 字段 | 语义 |
+| --- | --- |
+| `schemaVersion / gameId / operationId` | 材料格式、当前游戏、操作标识；操作标识用于诊断，不是存档写权限 |
+| `reason` | `normal` 新正文、`regenerate` 最新正文替换、`retry` 最新失败输入补全 |
+| `input.raw / input.text` | 原始玩家输入、已完成本轮预处理的输入；不使用合成的重生成指令 |
+| `history` | `[{ role, text, turn?, greeting?, input? }]`；目标之前完整有效的已解析可见历史，不含目标旧正文、隐藏工作、废弃 swipe 和回退分支 |
+| `context` | `[{ id, kind, text, source }]`；已解析的材料段，`kind` 为 `character / persona / worldbook / writing-rules / guide / script / other` |
+| `identities` | `{ characterName, playerName }`，供预设的身份宏使用 |
+| `state` | `{ variables, messageVariables, status }`，输入预处理完成、正文生成之前的状态；与内部用于回退的轮前存档分开 |
+| `guidance` | 本次重生成指导；空字符串表示未提供 |
+
+`context` 的世界书段已包含当轮有效设定和成功的查询补充。查询补充只接受本轮有效的 `worldbook_list/grep/search` 和宿主世界书文件的受限 `read`；失败、隐藏、其他轮次和任意文件读取结果不会传入。已保存材料不会在恢复时重新读文件或执行宏。
+
+历史来自完整存档投影，不从压缩后的模型消息反推，也不重新执行历史宏。材料无法可靠恢复时明确失败；旧存档、已编辑输入或导入记录可能缺少必要快照。`context` 按宿主现有语义段拆分；旧人物快照中未单独保存的字段可能合并为一个人物段，不保证与 ST 原始人物字段逐项对应。
+
+插件决定如何分配模型窗口、是否摘要或筛选已提供的材料；应向用户说明自己的策略。宿主不会为插件静默截断完整历史。不要把 `context` 全部拼接后又重复插入世界书或人物段。
+
+### 提交与恢复
+
+宿主用自己保存的操作、分支、材料及正文版本校验结果，插件无需回传这些内部字段。生成期间旧正文继续有效；提交前失败或取消保留原正文。采用新正文后，即使原生同步或结算失败，也保留新正文并走恢复/重试结算，停止操作不会撤销已提交正文。
+
+同一操作重复调度共享一次执行，已持久化的成功候选可复用。崩溃遗留的运行中模型请求不自动重发；重生成的已保存候选在恢复后由用户重试时采用。模型成功返回到候选落盘之间仍有不确定窗口，不能据此承诺收费调用恰好一次。一次明确的新生成操作可以重新读取插件设置；复用已有候选时不重跑输出正则。
+
+### STcontext 0.3.x 的迁移示例
+
+保留插件的预设存储、`createDshGeneration`、Worker 编译和输出处理。将原来的两次注册替换为一次 `bodyGenerator`，移除面板中对专用重生成任务接口的调用，使用宿主的重生成/停止按钮。`apiVersion 7` 是本仓库版本，不能用 fork 的 API 8 判断兼容性，应检查 `capabilities.bodyGeneration`。
+
+以下 `legacyMaterials` 是插件内部兼容层，让现有 `compilePreset` 先继续工作；后续可直接让编译器读取分段 `context`：
+
+```js
+function legacyMaterials(m) {
+  const join = kind => m.context.filter(s => s.kind === kind).map(s => s.text).join('\n\n')
+  const kinds = { 'writing-rules': 'writingRules', guide: 'guide', script: 'scriptReference', other: 'other' }
+  return {
+    schemaVersion: 1, completeness: { history: 'all-visible' },
+    gameId: m.gameId, trigger: m.reason === 'normal' ? 'normal' : 'regenerate',
+    history: m.history,
+    input: { raw: m.input.raw, projected: m.input.text },
+    card: { name: m.identities.characterName },
+    persona: { name: m.identities.playerName, description: join('persona') },
+    cardContext: [join('character'), join('persona')].filter(Boolean).join('\n\n'),
+    worldbook: { context: join('worldbook') },
+    beforeState: { ...m.state, posture: m.state.status },
+    writingRequirements: [
+      ...m.context.filter(s => kinds[s.kind]).map(s => ({ kind: kinds[s.kind], text: s.text })),
+      ...(m.guidance ? [{ kind: 'guidance', text: m.guidance }] : []),
+    ],
+  }
+}
+
+// store、runCompiler、generateBody 均复用 STcontext 自己的实现。
+if (ctx.tavern.capabilities?.bodyGeneration === 1) {
+  ctx.tavern.bodyGenerator({
+    name: 'st-context', title: 'STcontext',
+    prepare: () => store.active(),
+    async generate({ materials, config: active, signal }) {
+      const compiled = await runCompiler('compile', {
+        document: active.document, settings: active.settings,
+        materials: legacyMaterials(materials),
+      }, { signal })
+      const response = await generateBody({ request: compiled.request, signal })
+      signal.throwIfAborted()
+      const output = await runCompiler('output', {
+        document: active.document, response, toolName: compiled.toolName,
+      }, { signal })
+      return { text: output.text }
+    },
+  })
+}
+```
+
+STcontext 的请求预览继续由插件维护；`operationId` 可用来区分不同尝试。模型响应同时含普通文本和工具正文时，插件应按声明的协议选择结果，不能简单取最长字符串。
 
 ## Provider 能力检查
 

@@ -49,6 +49,9 @@ export function createPluginHandlers(deps) {
       spawn(opener[0], opener[1], { detached: true, stdio: 'ignore', windowsHide: true }).on('error', () => {}).unref()
       return { dir: userPluginInstaller.pluginsDir }
     },
+    async bodyGenerationProviders(args) {
+      return { providers: await pluginApi.bodyGenerators.list(args?.sessionId) }
+    },
     async listGamePlugins(args) {
       return { plugins: await pluginApi.gamePlugins(str(args && args.sessionId)) }
     },

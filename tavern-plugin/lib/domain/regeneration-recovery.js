@@ -127,7 +127,18 @@ export function createRegenerationRecovery({ chats, sessions, timeline, isActive
       try {
         if (saved.sessionId !== session.id) throw new Error('重新生成恢复会话不匹配')
         if (!saved.projection || saved.projection.unplaced) throw new Error(saved.projection?.unplaced || '重新生成缺少已提交正文的投影记录')
-        applyRegenerationProjection(session, saved.projection)
+        const projected = applyRegenerationProjection(session, saved.projection)
+        if (projected?.nativeAnchor) {
+          const storyTurn = Number(saved.projection.storyTurn)
+          const row = current.messages?.find(message => message?.role === 'assistant' && Number(message.turn) === storyTurn)
+          if (row) row.nativeAnchor = projected.nativeAnchor
+          if (projected.nativeAnchor.turn !== storyTurn) {
+            current.regeneratedDshTurns = { ...current.regeneratedDshTurns, [String(storyTurn)]: projected.nativeAnchor.turn }
+            const frames = Object.values(current.foregroundFrames || {})
+            const frame = frames.reverse().find(frame => frame.branchId === current.timeline?.branchId && Number(frame.turn) === storyTurn)
+            if (frame) frame.turn = projected.nativeAnchor.turn
+          }
+        }
         if (typeof sessions.flush === 'function') await sessions.flush(session)
       } catch (error) { nativeError = error }
       endMarker(current)
@@ -146,6 +157,18 @@ export function createRegenerationRecovery({ chats, sessions, timeline, isActive
       if (chats.readState && !(await chats.readState(chatId))?.regenInProgress) return
       const chat = await chats.read(chatId)
       if (!chat || chat.regenInProgress !== true) return
+      // Independent providers have not changed story or model surface while
+      // generating. A crash only abandons their lock, never rewinds the live
+      // story or settings to an older revision.
+      if (chat.regenRecovery?.detached === true && chat.regenRecovery.phase === 'prepared') {
+        return await chats.update(chatId, current => {
+          if (current?.regenRecovery?.id !== chat.regenRecovery.id || current.regenRecovery.phase !== 'prepared') return current
+          if (current.regenRecovery.candidate) current.bodyGenerationCandidate = current.regenRecovery.candidate
+          endMarker(current)
+          current.tavernHelperLifecycleRevision = Number(current.tavernHelperLifecycleRevision || 0) + 1
+          return current
+        }, { source: 'foreground.plugin-regen-recover' })
+      }
       const sessionId = chat.regenRecovery?.sessionId || chat.sessionId
       let agent = sessions.get(sessionId)
       if (agent?.phase?.kind === 'running') return

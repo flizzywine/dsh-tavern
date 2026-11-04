@@ -94,6 +94,7 @@ function harness(mode, options = {}) {
     }
   }
   const orchestrator = createTurnOrchestrator({
+    bodyGeneration: async () => options.bodyGeneration || { mode: 'host' },
     storyToolCall: async () => options.storyToolCall === true,
     modEnabled: async (modId, cardPath) => (options.enabledMods || []).includes(modId) && cardPath === 'cards/阿芙拉.json',
     storyInputToolCall: async () => options.storyInputToolCall === true,
@@ -232,6 +233,7 @@ test('脚本提示实际走本轮准备、Frame 与一次性消费，重复准�
   const first = await run.orchestrator.prepare(input)
   assert.match(foregroundFrameText(first.frame), /王都的城门设定/)
   assert.match(foregroundFrameText(first.frame), /本轮事件要求/)
+  assert.equal(first.frame.source.regenerationState.tavernScriptPrompts.length, 2)
   assert.deepEqual(run.chat().tavernScriptPrompts, [])
   const repeated = await run.orchestrator.prepare(input)
   assert.deepEqual(repeated.frame, first.frame)
@@ -263,6 +265,9 @@ test('玩家模板先于本轮召回，重试不重复执行；提交后只产�
   await run.orchestrator.prepare(input)
   assert.equal(calls,1)
   assert.equal(first.userText,'进入少林')
+  assert.deepEqual(first.frame.source.regenerationState.variables, { place: '少林' })
+  assert.equal(first.frame.source.regenerationState.promptTemplateInput.source, '原始模板')
+  assert.equal(first.frame.source.regenerationMaterials.card.name, run.card().name)
   assert.equal(run.chat().messages.length,0)
   await run.orchestrator.finalize({...input,assistantText:'少林的僧人迎上前。'})
   assert.equal(run.chat().messages.length,2)
@@ -405,4 +410,28 @@ test('骰子工具只在本卡开了骰子 mod 时提供给正文模型，仍可
   assert.equal((await harness('script', { enabledMods: ['dsh.dice'] }).orchestrator.visibleTools('session-1')).includes('tavern_roll'), true)
   const off = harness('story', { enabledMods: ['dsh.dice'], chatFields: { disabledForegroundTools: ['tavern_roll'] } })
   assert.equal((await off.orchestrator.visibleTools('session-1')).includes('tavern_roll'), false)
+})
+
+
+test('插件新正文按处理后的原文保存，不重复运行输出宏或正则；结算仍只排一次', async () => {
+  const h = harness('story', { autoSettle: false, macros: true,
+    bodyGeneration: { mode: 'plugin-tool-call', provider: 'p:body' },
+    extensions: { regexScripts: [{ scriptName: 'double', findRegex: '/X/g', replaceString: 'XX', placement: [2] }] } })
+  const prepared = await h.orchestrator.prepare({ sessionId: 'session', turn: 2, userText: '继续', requestId: 'request' })
+  assert.equal(prepared.frame.source.bodyGeneration.provider, 'p:body')
+  assert.ok((await h.orchestrator.visibleTools('session')).includes('tavern_generate_body'))
+  const input = { sessionId: 'session', turn: 2, userText: '继续', requestId: 'request', assistantText: 'X {{setvar::output::bad}}', pluginBodyGeneration: true }
+  await assert.rejects(h.orchestrator.finalize(input), /有效的插件正文/)
+  const ready = h.chat()
+  ready.timeline.operations[prepared.frame.operationId].bodyGeneration = { status: 'ready', receipt: { text: input.assistantText } }
+  h.replaceChat(ready)
+  const saved = await h.orchestrator.finalize(input)
+  assert.equal(saved.reply.sessionText, input.assistantText)
+  const row = h.chat().messages.at(-1)
+  assert.equal(row.bodyRegenerationProcessed, true)
+  assert.equal(row.projectionText, input.assistantText)
+  assert.equal(h.chat().macroState.local.output, undefined)
+  assert.equal(h.chat().settleStatus, 'pending')
+  assert.equal((await h.orchestrator.finalize(input)).duplicate, true)
+  assert.equal(h.chat().messages.filter(row => row.role === 'assistant').length, 1)
 })

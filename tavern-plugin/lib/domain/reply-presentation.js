@@ -27,6 +27,15 @@ function targetOptions(options, isMarkdown) {
   }
 }
 
+/** A provider already resolved its output. Only split display parts; never run macros or regexes. */
+export function projectProcessedReply(value) {
+  const text = str(value)
+  const display = projectDisplayParts(text)
+  return { sourceText: text, projectionText: text, sessionText: text, displayText: text,
+    displayMode: display.parts.some(part => part.kind === 'html') ? 'html' : 'markdown',
+    displayParts: display.parts, warnings: display.warnings, applied: { session: [], display: [] } }
+}
+
 /**
  * Project one authoritative model reply independently for Session and display.
  * Regex execution only transforms strings; it never extracts HTML or changes
@@ -158,6 +167,17 @@ export function createReplyHistoryProjector({ maxCacheBytes = 16 * 1024 * 1024, 
       const projectionText = Object.prototype.hasOwnProperty.call(message, 'projectionText')
         ? str(message.projectionText)
         : sourceText
+
+      // A regeneration provider already applied its output pipeline. Preserve
+      // it on refresh too, rather than applying the game's preset a second time.
+      if (message.bodyRegenerationProcessed === true) {
+        const processed = projectProcessedReply(projectionText)
+        projections.push({ version: 2, turn, text: projectionText,
+          mode: processed.displayMode,
+          parts: structuredClone(processed.displayParts), warnings: [...processed.warnings] })
+        latestSourceBacked = hasSource
+        continue
+      }
 
       const templateDisplay = message.tavernPluginData?.template_display
       const validDisplay = templateDisplay && templateDisplay.source === sourceText && templateDisplay.swipe === (message.swipeId || 0)

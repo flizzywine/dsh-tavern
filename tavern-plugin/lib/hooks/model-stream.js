@@ -16,6 +16,7 @@ export const PROMPT_PROSE = Object.freeze({
 
 export function registerModelStreamHooks({
   agentRegistry,
+  pluginBodyGeneration,
   backgroundAgentRunner,
   chatForSession,
   chatHeaderForSession,
@@ -133,10 +134,15 @@ export function registerModelStreamHooks({
     }
     const projectedRequest = (requestHandledBy(options, 'full-template') || importContextPreparation.isPrepared(options)) ? null : foregroundStrategies.projectRequest(options, coordinates)
     if (projectedRequest !== null) return ctx.llm.stream(projectedRequest)
-    const stream = next()
     const backgroundContext = backgroundAgentRunner.requestContext(sessionId)
     const ownerSessionId = backgroundContext ? backgroundContext.parentSessionId : sessionId
     return (async function * () {
+      if (!backgroundContext && options.purpose === undefined && pluginBodyGeneration) {
+        const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
+        const direct = await pluginBodyGeneration.direct(session, options.signal)
+        if (direct) { yield * direct; return }
+      }
+      const stream = next()
       // a director already owns frozen, projected sources.
       const director = backgroundContext?.task === 'stage-director'
       if (director) assertFrozenStageRequest(backgroundContext, options)

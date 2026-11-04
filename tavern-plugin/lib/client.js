@@ -38598,7 +38598,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                 React.useEffect(function () {
                     let active = true;
                     rpc("getTavernSettings").then(function (result) {
-                        if (active) setState({ loading: false, busy: false, defaultForegroundModel: result.settings?.defaultForegroundModel || null, defaultBackgroundModel: result.settings?.defaultBackgroundModel || null, defaultWorkbenchModel: result.settings?.defaultWorkbenchModel || null, notice: "", settings: result.settings, modModelSlots: result.modModelSlots || [], scoringCatalog: result.scoringCatalog || [], modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], error: "" });
+                        if (active) setState({ loading: false, busy: false, defaultForegroundModel: result.settings?.defaultForegroundModel || null, defaultBackgroundModel: result.settings?.defaultBackgroundModel || null, defaultWorkbenchModel: result.settings?.defaultWorkbenchModel || null, notice: "", bodyGenerationProviders: result.bodyGenerationProviders || [], settings: result.settings, modModelSlots: result.modModelSlots || [], scoringCatalog: result.scoringCatalog || [], modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], error: "" });
                     }, function (error) {
                         if (active) setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, error: String(error && error.message || error) }); });
                     });
@@ -38606,7 +38606,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                 }, []);
                 React.useEffect(() => {
                     let active=true;
-                    const refresh=()=>rpc('getTavernSettings').then(result=>{if(active)setState(current=>({...current,modModelSlots:result.modModelSlots || [],settings:result.settings}));},error=>{if(active)setState(current=>({...current,error:String(error.message || error)}));});
+                    const refresh=()=>rpc('getTavernSettings').then(result=>{if(active)setState(current=>({...current,modModelSlots:result.modModelSlots || [],settings:result.settings,bodyGenerationProviders:result.bodyGenerationProviders || []}));},error=>{if(active)setState(current=>({...current,error:String(error.message || error)}));});
                     window.addEventListener('dsh-tavern-mods-changed',refresh);
                     return ()=>{active=false;window.removeEventListener('dsh-tavern-mods-changed',refresh);};
                 },[]);
@@ -38616,7 +38616,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                     try {
                         const result = await rpc("updateTavernSettings", { patch: { [name]: selection } });
                         notifySettingsChanged();
-                        setState(current => ({ ...current, [name]: result.settings[name], busy: false, notice: "已保存" }));
+                        setState(current => ({ ...current, [name]: result.settings[name], settings: result.settings, busy: false, notice: "已保存" }));
                     } catch (err) { setState(current => ({ ...current, busy: false, error: String(err.message || err) })); }
                 }
                 async function saveSlot(modModelSelection) {
@@ -38652,7 +38652,19 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                         state.settings ? h(GlobalPlayDefaults, { settings: state.settings }) : null,
                         h(TavernConversationWritingSkills, { globalDefaults: true })),
                     group("剧情", "所有游戏都按这些设置，下一轮生效。",
-                        card(sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项；关闭后仍可手动生成。只对之后的新回复生效。", false))),
+                        card(
+                            h(TavernSettingRow, { title: "正文生成插件", help: "先选择插件，再启用插件生成。插件需已加载并完成自身配置。" },
+                                h(InlineField, { kind: "menu", label: "正文生成插件", hideLabel: true, disabled: state.loading || state.busy,
+                                    value: state.settings?.storyGenerationProvider || "", options: [{ value: "", label: "未选择" },
+                                        ...(state.settings?.storyGenerationProvider && !(state.bodyGenerationProviders || []).some(item => item.id === state.settings.storyGenerationProvider)
+                                            ? [{ value: state.settings.storyGenerationProvider, label: "已选插件不可用" }] : []),
+                                        ...(state.bodyGenerationProviders || []).map(item => ({ value: item.id, label: item.title + "（" + item.owner + "）" }))],
+                                    onCommit: value => saveDefault("storyGenerationProvider", value) })),
+                            h(TavernSettingRow, { title: "正文生成方式", help: "直接生成由插件组织上下文并请求正文；检索模式先由前台收集资料。正文完成后一次性显示。本局设置可覆盖此选择。" },
+                                h(InlineField, { kind: "menu", label: "正文生成方式", hideLabel: true, disabled: state.loading || state.busy,
+                                    value: state.settings?.storyGenerationMode || "host", options: [{ value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
+                                    onCommit: value => saveDefault("storyGenerationMode", value) })),
+                            sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项；关闭后仍可手动生成。只对之后的新回复生效。", false))),
                     // one card per group; each entry (incl. the UI plugin's 界面大小 slot) is a row of it.
                     group("显示与交互", "",
                         card(sw("autoOpenStatusPanel", "进入游戏时打开酒馆状态", "进入或切换到一局游戏时，右侧面板自动展开并显示本局设置和酒馆状态。关闭后右侧面板保持你上次的样子。", true),
@@ -38662,7 +38674,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                             h(CandidatePreferencesSettings), h(HeaderItemsSettings))),
                     group("高级", "",
                         card(sw("storyInputToolCall", "输入走工具调用", "把发给模型的历史（此前的玩家消息和正文）以 submit_story 工具参数的形式回放，而不是普通对话文字；可降低续写被拒答。只影响请求，本轮输入、存档和界面保持不变。需要模型支持工具调用。", false),
-                            sw("storyOutputToolCall", "输出走工具调用", "让模型通过 submit_story 提交本轮正文，可缓解 Gemini 等模型在正文中途截断或拒答。需要模型支持工具调用；正文生成完成后一次性显示。", false),
+                            sw("storyOutputToolCall", "输出走工具调用", "仅用于宿主生成方式。让模型通过 submit_story 提交本轮正文，可缓解 Gemini 等模型在正文中途截断或拒答。需要模型支持工具调用；正文生成完成后一次性显示。", false),
                             h(PromptTemplateSettingsEntry),
                             h(ContextCompactionSettings)))
                 );
@@ -48350,6 +48362,32 @@ function createConversationSettingsModule({
     }
 
 
+    function TavernBodyGenerationSettings(props) {
+        const h = React.createElement;
+        const [data, setData] = React.useState(null), [error, setError] = React.useState(""), [busy, setBusy] = React.useState(false);
+        React.useEffect(() => {
+            let active = true;
+            rpc("getBodyGenerationSettings", { sessionId: props.sessionId }, props.sessionId).then(value => { if (active) setData(value); }, err => { if (active) setError(err.message); });
+            return () => { active = false; };
+        }, [props.sessionId]);
+        async function save(patch) {
+            setBusy(true); setError("");
+            try { setData(await rpc("setBodyGenerationSettings", { sessionId: props.sessionId, mode: data.mode, provider: data.provider, ...patch }, props.sessionId)); }
+            catch (err) { setError(String(err.message || err)); }
+            finally { setBusy(false); }
+        }
+        return h("section", { className: "dsh-local-section", "aria-label": "本局正文生成" },
+            h("h3", null, "正文生成"),
+            h(InlineField, { kind: "menu", label: "本局正文生成方式", value: data?.inherited ? "inherit" : data?.mode || "host", disabled: busy || !data,
+                options: [{ value: "inherit", label: "跟随全局设置" }, { value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
+                onCommit: value => save(value === "inherit" ? { inherit: true } : { mode: value }) }),
+            h(InlineField, { kind: "menu", label: "本局正文生成插件", value: data?.provider || "", disabled: busy || !data,
+                options: [{ value: "", label: "未选择" }, ...(data?.provider && !data.providers.some(item => item.id === data.provider) ? [{ value: data.provider, label: "已选插件不可用" }] : []), ...(data?.providers || []).map(item => ({ value: item.id, label: item.title }))],
+                onCommit: provider => save({ provider }) }),
+            h("p", { className: "dsh-local-help" }, "先选生成插件，再切换方式。修改对下一次操作生效。"),
+            error ? h("p", { role: "alert" }, error) : null);
+    }
+
     function TavernConversationPluginSettings(props) {
         const h = React.createElement;
         const [data, setData] = React.useState(null);
@@ -48463,6 +48501,7 @@ function createConversationSettingsModule({
                     h(TavernConversationPreset, { key: owner + ":preset", sessionId: owner }),
                     h(UserPreferenceProfileTab, { key: owner + ":profile", scope: { sessionId: owner }, conversationOnly: true })),
                 h(TavernConversationBackgroundModel, { key: owner, sessionId: owner }),
+                h(TavernBodyGenerationSettings, { key: owner + ":body-generation", sessionId: owner }),
                 h(TavernConversationPluginSettings, { key: owner + ":plugin-settings", sessionId: owner }),
                 h("details", { className: "dsh-local-advanced" }, h("summary", null, "高级"),
                     h(TavernConversationTools, { key: owner + ":tools", sessionId: owner }),

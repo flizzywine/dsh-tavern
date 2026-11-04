@@ -99,3 +99,15 @@ test('游玩工作过程默认隐藏、独立保存且配置类型受校验', ()
   }
   for (const showPlayProcess of [null, 'true', 1]) assert.throws(() => applyTavernSettingsPatch({}, { showPlayProcess }), /游玩过程/)
 })
+
+
+test('正文生成方式默认原生，插件模式必须指定生成器且完整往返保存', () => {
+  assert.equal(presentTavernSettings({}, {}).storyGenerationMode, 'host')
+  assert.throws(() => applyTavernSettingsPatch({}, { storyGenerationMode: 'plugin-tool-call' }), /先选择/)
+  assert.throws(() => applyTavernSettingsPatch({}, { storyGenerationMode: 'invalid' }), /无效/)
+  let value = applyTavernSettingsPatch({}, { storyGenerationProvider: 'p:body', storyGenerationMode: 'plugin-tool-call' })
+  value = presentTavernSettings(value, {})
+  assert.equal(value.storyGenerationProvider, 'p:body')
+  assert.equal(value.storyGenerationMode, 'plugin-tool-call')
+  assert.equal(applyTavernSettingsPatch(value, { storyGenerationMode: 'host' }).storyGenerationProvider, 'p:body')
+})

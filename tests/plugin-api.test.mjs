@@ -128,8 +128,8 @@ test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis �
     } })
   } })
   await tick()
-  assert.equal(tavern.apiVersion, 6)
-  assert.deepEqual(tavern.capabilities, { mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1 })
+  assert.equal(tavern.apiVersion, 7)
+  assert.deepEqual(tavern.capabilities, { mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1 })
   assert.equal(Object.isFrozen(tavern.capabilities), true)
   assert.equal(tavern.mvuProviderRegistered, undefined, 'registration guard is internal, not a plugin service method')
   assert.equal(h.api.mvuProviderRegistered('card-provider'), true)
@@ -1120,7 +1120,7 @@ test('版本失效信号：versionSignal 在正文版本被替换或删局时中
     ctx.tavern.onTimelineChanged(change => seen.push(change))
   } })
   await tick()
-  assert.equal(tavern.apiVersion, 6)
+  assert.equal(tavern.apiVersion, 7)
   assert.equal((await tavern.versionSignal({ gameId: 'game-1', turn: 3, textVersion: 'old' })).aborted, true, '不是当前版本时立即中止')
   const signal = await tavern.versionSignal({ gameId: 'game-1', turn: 3, textVersion: 'key-3' })
   h.api.timelineChanged('game-1', { kind: 'edit', turn: 3 })
@@ -1650,4 +1650,21 @@ test('managed mods wait for their optional host and rebind after stage restart',
   const second=await install();await tick();assert.equal(active,1);assert.equal(registrations,2)
   await mod.dispose();await tick();assert.equal(active,0)
   await second.dispose()
+})
+
+
+test('正文生成器通过 Cordis 注册、按卡隔离，卸载后停止可用性', { skip: !cordis }, async t => {
+  const h = await harness(t, { cardScope: async () => new Map([['body-plugin', { cards: ['/cards/a.json'] }]]), cardPathOf: async () => '/cards/a.json' })
+  const fiber = await h.root.plugin({ name: 'body-plugin', inject: ['tavern'], apply(ctx) {
+    ctx.tavern.bodyGenerator({ name: 'body', title: '正文', generate: async ({ materials }) => { materials.input.raw = 'changed'; return { text: '完整正文' } } })
+  } })
+  await tick()
+  const list = await h.api.bodyGenerators.list('game-1')
+  assert.deepEqual(list.map(item => item.id), ['body-plugin:body'])
+  const materials = { gameId: 'game-1', input: { raw: '原输入' } }
+  assert.equal((await h.api.bodyGenerators.generate(list[0].id, { materials })).text, '完整正文')
+  assert.equal(materials.input.raw, '原输入')
+  await fiber.dispose(); await tick()
+  assert.deepEqual(await h.api.bodyGenerators.list('game-1'), [])
+  await assert.rejects(h.api.bodyGenerators.generate(list[0].id, { materials }), /不可用/)
 })

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { isMvuUpdateEntry } from './domain/worldbook-recall.js'
 import { createPluginTaskExecution } from './domain/plugin-task-execution.js'
+import { createBodyGenerationProviders } from './domain/body-generation-providers.js'
 import { pluginMember, pluginMemberId, registerPluginMember } from './domain/background-members.js'
 import { CUSTOM_EVENT, STORY_EVENTS } from './domain/story-events.js'
 import { bounded, untilAborted } from './domain/plugin-callback.js'
@@ -12,7 +13,7 @@ import { normalizeGameSettings, coerceSetting, settingValues } from './domain/pl
 // The public `tavern` service for third-party DSH plugins (docs/plugin-api.md).
 // Only additive changes are allowed here: published plugins depend on every
 // name and field. Internals are reached through `deps`, never exposed.
-export const TAVERN_PLUGIN_API_VERSION = 6
+export const TAVERN_PLUGIN_API_VERSION = 7
 const TRACKER = Symbol.for('cordis.tracker')
 const SECTION_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/
 const MAX_SECTION_TEXT = 8000
@@ -176,7 +177,7 @@ export function createTavernPluginApi(deps) {
   const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
-  const capabilities = Object.freeze({ mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1 })
+  const capabilities = Object.freeze({ mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1 })
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -209,6 +210,10 @@ export function createTavernPluginApi(deps) {
     requireGame, choicesFor, snapshotOf, recordError, reservedToolNames, settlementTasks, manualTasks,
   })
   const { runSettlementTasks, manualTaskFor, runManualTask, stopTasks, runningTask, checkVersions } = taskExecution
+  const bodyGenerators = createBodyGenerationProviders({ allowed: async (owner, gameId) => {
+    await guardScope(owner, { gameId })
+    return !(await choicesFor(gameId)).disabled.has(owner)
+  } })
 
   /** Log a plugin failure; Tavern carries on with its own behaviour. */
   function recordError(_gameId, owner, stage, error) {
@@ -1068,6 +1073,15 @@ export function createTavernPluginApi(deps) {
       return await taskExecution.runAgent(ownerOf(this), input)
     },
 
+    // Host-invoked current-turn generation; plugins return processed prose, never write the save.
+    bodyGenerator({ name, title, prepare, generate } = {}) {
+      const owner = ownerOf(this)
+      sectionName(name)
+      if (typeof generate !== 'function') throw new TypeError('generate 需要一个函数')
+      if (prepare !== undefined && typeof prepare !== 'function') throw new TypeError('prepare 需要一个函数')
+      return owned(this, () => bodyGenerators.register(owner, { name, title: taskTitle(title, name), prepare, generate }), 'tavern.bodyGenerator()')
+    },
+
     // A resident background Agent of this plugin: one per game, its own Session and prompt cache.
     // Tasks given `member: name` run in it one at a time, beside Tavern's own members.
     // A resident member of this plugin: one Session per game. With `system` it has a prefix of
@@ -1529,7 +1543,8 @@ export function createTavernPluginApi(deps) {
   function stopAllTasks(gameId) {
     const ledger = ledgerRuns.get(gameId)
     ledger?.abort(new Error('玩家停止了台账整理'))
-    return stopTasks(gameId) || Boolean(ledger)
+    const body = bodyGenerators.stop(gameId)
+    return stopTasks(gameId) || Boolean(ledger) || body
   }
 
   /** A game's manual plugin tasks and the options plugins add to its settings. */
@@ -1888,7 +1903,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady,
+  return Object.freeze({ bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),

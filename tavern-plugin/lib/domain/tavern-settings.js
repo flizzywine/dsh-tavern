@@ -281,6 +281,15 @@ export function applyTavernSettingsPatch(current, patch) {
     if (!['after-fill', 'after-send'].includes(input.candidateDismissMode)) throw new Error('无效的候选项收起方式')
     next.candidateDismissMode = input.candidateDismissMode
   }
+  if (Object.hasOwn(input, 'storyGenerationMode')) {
+    if (!['host', 'plugin-direct', 'plugin-tool-call'].includes(input.storyGenerationMode)) throw new Error('正文生成方式无效')
+    next.storyGenerationMode = input.storyGenerationMode
+  }
+  if (Object.hasOwn(input, 'storyGenerationProvider')) {
+    if (typeof input.storyGenerationProvider !== 'string' || input.storyGenerationProvider.length > 240) throw new Error('正文生成插件标识无效')
+    next.storyGenerationProvider = input.storyGenerationProvider
+  }
+  if (next.storyGenerationMode?.startsWith('plugin-') && !next.storyGenerationProvider?.trim()) throw new Error('请先选择正文生成插件')
   // Two independent directions: input replays the history that is sent to the
   // model, output turns this turn's body into a submission call. Legacy switches
   // are folded into the pair and then dropped, so a later patch to one side can
@@ -409,6 +418,8 @@ export function presentTavernSettings(document, defaults) {
     candidateAutoGenerate: object(document).candidateAutoGenerate === true,
     // 自动精修: off by default, since it reviews and rewords every reply.
     polishPrereview: object(document).polishPrereview === true,
+    storyGenerationMode: ['plugin-direct', 'plugin-tool-call'].includes(document?.storyGenerationMode) ? document.storyGenerationMode : 'host',
+    storyGenerationProvider: typeof document?.storyGenerationProvider === 'string' ? document.storyGenerationProvider : '',
     storyInputToolCall: storyToolCalls.input,
     storyOutputToolCall: storyToolCalls.output,
     // Only the latest floors run a card's HTML interface; 0 renders every floor.

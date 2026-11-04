@@ -26,18 +26,20 @@ try {
     'tavern_read_skill_reference', 'tavern_read_variables',
     'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_memory_search', 'tavern_validate_card', 'tavern_read_play_chat',
     'tavern_read_script', 'tavern_read_worldbook', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_restore_card',
-    'submit_story']) {
+    'submit_story', 'tavern_generate_body']) {
     assert.equal(typeof host.registeredTools.get(name)?.execute, 'function', name + ' registered')
   }
   for (const name of ['tavern_assets_read', 'tavern_assets_patch', 'tavern_media_upload', 'tavern_assets_transfer', 'tavern_stage_read', 'tavern_stage_patch', 'tavern_mods_read', 'tavern_mods_patch', 'tavern_voice_read', 'tavern_voice_patch', 'tavern_asset_generation']) {
     assert.equal(typeof host.registeredTools.get(name)?.execute, 'function', name + ' registered by the stage')
   }
   const tavern = host.services.get('tavern')
-  assert.equal(tavern?.apiVersion, 6, 'public plugin service provided')
+  assert.equal(tavern?.apiVersion, 7, 'public plugin service provided')
   assert.deepEqual((await host.rpc('pluginMediaTurns', { sessionId: 'missing-game' })).turns, [])
   assert.deepEqual((await host.rpc('pluginMediaForTurn', { sessionId: 'missing-game', turn: 1 })).items, [])
   assert.equal((await host.rpc('getLive2dRuntime', {})).installed, false, 'the stage registers the Live2D runtime; a fresh data directory has none')
   assert.ok((await host.rpc('getTavernSettings', {})).settings)
+  assert.deepEqual((await host.rpc('bodyGenerationProviders', {})).providers, [])
+  assert.equal(typeof tavern.bodyGenerator, 'function')
   assert.deepEqual((await host.rpc('getFrameStorage', {})).values, {})
   assert.ok(await host.rpc('listCards', {}))
   host.services.get('sessions').set('stage-session', { id: 'stage-session', events: [] })

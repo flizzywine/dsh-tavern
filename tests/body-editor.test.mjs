@@ -43,6 +43,19 @@ test('peek reads the last reply\'s text while settlement runs, the same text rea
   assert.deepEqual(peeked, (await h.editor.read(h.session.id)).parts.filter(part => part.kind === 'text').map(part => part.text))
 })
 
+test('editing provider-final prose preserves its pipeline marker and bypasses host regexes', async () => {
+  const h = fixture('原正文')
+  h.change(chat => { chat.messages.at(-1).bodyRegenerationProcessed = true })
+  const editor = createBodyEditor({ ...h.options, project: () => assert.fail('final plugin text must not enter host regexes') })
+  const edit = await editor.read(h.session.id)
+  await editor.save(h.session.id, { token: edit.token, texts: ['改写 {{user}} {{setvar::x::changed}}'] })
+  const row = h.chat.messages.at(-1)
+  assert.equal(row.bodyRegenerationProcessed, true)
+  assert.equal(row.text, row.projectionText)
+  assert.equal(row.displayText, row.text)
+  assert.equal(h.session.deriveMessages().at(-1).content[0].text, row.text)
+})
+
 test('issue #72: stale bodyEdit after migration clears instead of blocking turns', async () => {
   const h = fixture('原正文')
   h.change(chat => {

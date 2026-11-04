@@ -14,6 +14,7 @@ import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-
 import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration-diagnostics.js'
 import { assistantResultForTurn } from './session-turn-result.js'
 import { plainReplyProse } from './reply-prose.js'
+import { createPluginBodyRegeneration } from './plugin-body-regeneration.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -168,7 +169,8 @@ function commitOfRound(commits, assistant, userText) {
   return key ? commits[key] : null
 }
 
-export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement, present, diagnostics, sessionPatch, repairNative }) {
+export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement, present, diagnostics, sessionPatch, repairNative,
+  readRegenerationMaterials, prepareRegenerationReply, notifyRegeneration }) {
   const { read: readChat, forSession: chatForSession, readCard: readChatCard,
     readRevision: readChatRevision, write: writeChat, update: updateChat } = chats
   const { read: readScript, continuity: scriptContinuity } = scripts
@@ -179,6 +181,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   const pendingRegenerations = new Set()
   const pendingReplays = new Set()
   const regenerationRecovery = createRegenerationRecovery({ chats, sessions, timeline, isActive: id => pendingRegenerations.has(id), repair: (sessionId, session) => repairSurface(sessionId, session) })
+  const regenerateWithProvider = createPluginBodyRegeneration({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement,
+    sessionPatch, readRegenerationMaterials, prepareRegenerationReply, notifyRegeneration,
+    recovery: regenerationRecovery, pendingRegenerations, pendingRollbacks, pendingReplays, selectTarget: selectRepairedTarget })
   // The save is the truth (Wiki「设计：native-session-repair」): when the native
   // surface no longer shows the round the save has, rewrite its tail from the save
   // instead of refusing. Repair reports its own failure and leaves a retry marker.
@@ -1402,5 +1407,5 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
   }
 
-  return Object.freeze({ regenerate, replayFailed: replayFailedTurn, recover: regenerationRecovery.recover, rollback: rollbackTurn, rollbackTo: rollbackToTurn, interrupt: interruptTurn, undoRollback })
+  return Object.freeze({ regenerate, regenerateWithProvider, replayFailed: replayFailedTurn, recover: regenerationRecovery.recover, rollback: rollbackTurn, rollbackTo: rollbackToTurn, interrupt: interruptTurn, undoRollback })
 }

@@ -53,6 +53,32 @@ function createConversationSettingsModule({
     }
 
 
+    function TavernBodyGenerationSettings(props) {
+        const h = React.createElement;
+        const [data, setData] = React.useState(null), [error, setError] = React.useState(""), [busy, setBusy] = React.useState(false);
+        React.useEffect(() => {
+            let active = true;
+            rpc("getBodyGenerationSettings", { sessionId: props.sessionId }, props.sessionId).then(value => { if (active) setData(value); }, err => { if (active) setError(err.message); });
+            return () => { active = false; };
+        }, [props.sessionId]);
+        async function save(patch) {
+            setBusy(true); setError("");
+            try { setData(await rpc("setBodyGenerationSettings", { sessionId: props.sessionId, mode: data.mode, provider: data.provider, ...patch }, props.sessionId)); }
+            catch (err) { setError(String(err.message || err)); }
+            finally { setBusy(false); }
+        }
+        return h("section", { className: "dsh-local-section", "aria-label": "本局正文生成" },
+            h("h3", null, "正文生成"),
+            h(InlineField, { kind: "menu", label: "本局正文生成方式", value: data?.inherited ? "inherit" : data?.mode || "host", disabled: busy || !data,
+                options: [{ value: "inherit", label: "跟随全局设置" }, { value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
+                onCommit: value => save(value === "inherit" ? { inherit: true } : { mode: value }) }),
+            h(InlineField, { kind: "menu", label: "本局正文生成插件", value: data?.provider || "", disabled: busy || !data,
+                options: [{ value: "", label: "未选择" }, ...(data?.provider && !data.providers.some(item => item.id === data.provider) ? [{ value: data.provider, label: "已选插件不可用" }] : []), ...(data?.providers || []).map(item => ({ value: item.id, label: item.title }))],
+                onCommit: provider => save({ provider }) }),
+            h("p", { className: "dsh-local-help" }, "先选生成插件，再切换方式。修改对下一次操作生效。"),
+            error ? h("p", { role: "alert" }, error) : null);
+    }
+
     function TavernConversationPluginSettings(props) {
         const h = React.createElement;
         const [data, setData] = React.useState(null);
@@ -166,6 +192,7 @@ function createConversationSettingsModule({
                     h(TavernConversationPreset, { key: owner + ":preset", sessionId: owner }),
                     h(UserPreferenceProfileTab, { key: owner + ":profile", scope: { sessionId: owner }, conversationOnly: true })),
                 h(TavernConversationBackgroundModel, { key: owner, sessionId: owner }),
+                h(TavernBodyGenerationSettings, { key: owner + ":body-generation", sessionId: owner }),
                 h(TavernConversationPluginSettings, { key: owner + ":plugin-settings", sessionId: owner }),
                 h("details", { className: "dsh-local-advanced" }, h("summary", null, "高级"),
                     h(TavernConversationTools, { key: owner + ":tools", sessionId: owner }),

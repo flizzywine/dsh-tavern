@@ -12,10 +12,12 @@ import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { normalizeResourcePath } from './file-resources.js'
 import { diffJson } from './json-mutation.js'
 import { hasTavernCredit, withTavernCredit } from './card-credit.js'
-import { STORY_SUBMIT_TOOL_NAME, storyToolCallEnabled } from './story-tool-submission.js'
+import { projectProcessedReply } from './reply-presentation.js'
+import { STORY_GENERATE_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, storyToolCallEnabled } from './story-tool-submission.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { variableUpdateFor } from './variable-update.js'
 import { replyProse } from './reply-prose.js'
+import { captureBodyRegenerationSource } from './body-regeneration-materials.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -470,6 +472,7 @@ export function createTurnOrchestrator(options) {
     const rosterAddendum = foregroundWorldBook && typeof options.foregroundRosterAddendum === 'function'
       ? await options.foregroundRosterAddendum({ chat, userText: runtimeUserText }) : ''
     const source = frameSource(chat, card, foregroundOperation)
+    if (typeof options.bodyGeneration === 'function') source.bodyGeneration = await (options.prepareBodyGeneration || options.bodyGeneration)(input.sessionId)
     source.card.systemPromptText = plan.systemPromptText
     source.worldBook.scriptPromptRefs = Array.isArray(scriptWorldBook && scriptWorldBook.refs) ? clone(scriptWorldBook.refs) : []
     if (scriptWorldBook && typeof scriptWorldBook.recordReads === 'function') chat.worldBookReads = scriptWorldBook.recordReads(chat.worldBookReads)
@@ -480,6 +483,9 @@ export function createTurnOrchestrator(options) {
       entries: Object.fromEntries((foregroundWorldBook.changedVirtualRefs || []).map(ref => [ref, foregroundWorldBook.virtualState.entries[ref]?.renderHash]))
     }
     source.worldBook.templateDiagnostics = Array.isArray(templateWorldBook && templateWorldBook.diagnostics) ? clone(templateWorldBook.diagnostics) : []
+    Object.assign(source, captureBodyRegenerationSource({ chat, card,
+      worldbookPrefix: foregroundWorldBook?.prefixContext ?? templateWorldBook?.prefixContext,
+      systemPromptText: plan.systemPromptText }))
     const frameInput = {
       chatId: chat.id,
       branchId: foregroundOperation.basedOn.branchId,
@@ -673,6 +679,12 @@ export function createTurnOrchestrator(options) {
     const attachments = inputAttachments(input.userContent)
     const mode = chat.mode || 'story'
     const sourceText = str(input.assistantText).trim()
+    const frame = Object.values(chat.foregroundFrames || {}).findLast(item => Number(item.turn) === turn)
+    const pluginBody = input.pluginBodyGeneration === true || frame?.source?.bodyGeneration?.mode?.startsWith('plugin-')
+    if (pluginBody) {
+      const generated = chat.timeline?.operations?.[frame?.operationId]?.bodyGeneration
+      if (generated?.status !== 'ready' || generated.receipt?.text?.trim() !== sourceText) throw new Error('本轮未取得有效的插件正文，不能保存或自动补记')
+    }
     let assistantText = sourceText
     let previousMvuVariables
     let reply = {
@@ -685,7 +697,7 @@ export function createTurnOrchestrator(options) {
       warnings: []
     }
     if (mode === 'story' || mode === 'script') {
-      if (renderMacros !== null && assistantText.includes('{{')) assistantText = renderMacros(assistantText, chat)
+      if (!pluginBody && renderMacros !== null && assistantText.includes('{{')) assistantText = renderMacros(assistantText, chat)
       previousMvuVariables = chat.promptTemplateInput?.turn === turn ? lastTavernHelperVariables([chat.promptTemplateInput.message])
         : history ? await history.previousVariables() : lastTavernHelperVariables(chat.messages)
       const extensions = typeof store.readCardExtensions === 'function'
@@ -693,7 +705,7 @@ export function createTurnOrchestrator(options) {
         : null
       const presetRegexScripts = await resolvePresetRegexScripts(chat)
       const projectionText = assistantText
-      reply = projectReply(sourceText, {
+      reply = pluginBody ? projectProcessedReply(sourceText) : projectReply(sourceText, {
         projectionText,
         regexScripts: composeTavernRegexScripts(extensions, presetRegexScripts, chat.regexOverrides && chat.regexOverrides.preset),
         placement: 2,
@@ -826,6 +838,7 @@ export function createTurnOrchestrator(options) {
           ...(input.adopt === true ? {} : {stagePageVersion: 2}),
           ts: now(),
           native: true,
+          ...(pluginBody ? { bodyRegenerationProcessed: true } : {}),
           turn: turn,
           // Where this round entered the native session; see round-anchor.js.
           ...(validAnchor(input.nativeAnchor) && input.nativeAnchor.turn === turn ? { nativeAnchor: { ...input.nativeAnchor } } : {})
@@ -923,9 +936,11 @@ export function createTurnOrchestrator(options) {
     const webTools = chat.webSearchEnabled === true ? ['web_search', 'web_fetch'] : []
     // Input replay names the submission tool in history, so either direction
     // requires it to be declared in this request.
-    const outputToolCall = (await options.storyToolCall?.()) === true
+    const pluginGeneration = (await options.bodyGeneration?.(sessionId))?.mode?.startsWith('plugin-')
+    const outputToolCall = !pluginGeneration && (await options.storyToolCall?.()) === true
     const inputToolCall = (await options.storyInputToolCall?.()) === true
     const storyTools = storyToolCallEnabled(chat, outputToolCall || inputToolCall) ? [STORY_SUBMIT_TOOL_NAME] : []
+    if (pluginGeneration && ['story', 'script'].includes(mode)) storyTools.push(STORY_GENERATE_TOOL_NAME)
     // Card workbenches keep their fixed editing tools; the per-game switches are play-only.
     if (mode === 'card') return [...CARD_MEMORY_TOOLS, 'web_search', 'web_fetch', shellToolName, ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_runtime_health', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response']
     // Search and browse expose current real files; native read is restricted
@@ -939,6 +954,7 @@ export function createTurnOrchestrator(options) {
       : [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]
     if (mode === 'story' && chat.backgroundTasks?.styleReference === true) names.push('style_reference_submit')
     const disabled = new Set(normalizeDisabledForegroundTools(chat.disabledForegroundTools))
+    if (pluginGeneration && disabled.has(STORY_GENERATE_TOOL_NAME)) throw new Error('已选择插件生成正文，但本局禁用了正文生成工具')
     return names.filter(name => !disabled.has(name))
   }
 

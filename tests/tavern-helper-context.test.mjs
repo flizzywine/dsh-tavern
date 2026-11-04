@@ -3,7 +3,21 @@ import test from 'node:test'
 import { projectOpeningCommit } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 import { projectReplyHistory } from '../tavern-plugin/lib/domain/reply-presentation.js'
 
-import { appendTavernHelperMessages, lastTavernHelperVariables, projectTavernHelperContext } from "../tavern-plugin/lib/domain/tavern-helper-context.js"
+import { appendTavernHelperMessages, lastTavernHelperVariables, projectTavernHelperContext, replaceTavernHelperMessages } from "../tavern-plugin/lib/domain/tavern-helper-context.js"
+
+test('Helper edits retain provider-final prose without replaying output macros or regexes', () => {
+  const chat = { macroState: { local: { x: 'before' } }, messages: [{ role: 'assistant', turn: 2,
+    text: '正文', projectionText: '正文', swipes: ['正文'], bodyRegenerationProcessed: true }] }
+  const text = '改写正文\n<div>{{user}}</div>{{setvar::x::changed}}'
+  replaceTavernHelperMessages(chat, [{ message_id: 0, message: text }], { regexScripts: [
+    { id: 'duplicate', findRegex: '/正文/g', replaceString: '正文正文', placement: [2] }
+  ] })
+  const row = chat.messages[0]
+  assert.equal(row.text, text)
+  assert.equal(row.displayText, text)
+  assert.equal(row.bodyRegenerationProcessed, true)
+  assert.equal(chat.macroState.local.x, 'before')
+})
 
 function macroOpeningChat() {
   const source = '{{incvar::visits}}{{User}}看向{{Char}}。'

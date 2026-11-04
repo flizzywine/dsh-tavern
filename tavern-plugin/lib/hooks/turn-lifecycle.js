@@ -14,6 +14,7 @@ import { appendStorySubmissionReminder } from '../domain/story-tool-submission.j
 
 export function registerTurnLifecycleHooks({
   autoChoices,
+  pluginBodyGeneration,
   reconcileWhenIdle,
   backgroundAgentRunner,
   hookChatForSession,
@@ -52,6 +53,11 @@ export function registerTurnLifecycleHooks({
     if (userText === '' && !inputAttachments(userContent).length) return
     const requestId = requestIdForTurn(session, payload.turn)
     const assistant = assistantResultForTurn(session, payload.turn)
+    try { await pluginBodyGeneration?.validateResult(session, payload.turn, assistant) }
+    catch (error) {
+      await turnOrchestrator.recordFailure({ sessionId, turn: payload.turn, requestId, code: 'plugin-generation', message: error.message })
+      throw error
+    }
     if (assistant === null || assistant.text === '') {
       const reasoningOnly = assistant !== null && assistant.reasoningOnly === true
       const message = reasoningOnly
@@ -72,6 +78,7 @@ export function registerTurnLifecycleHooks({
       requestId,
       userText,
       userContent,
+      pluginBodyGeneration: assistant?.pluginBodyGeneration === true,
       assistantText: assistant === null ? '' : assistant.text,
       nativeAnchor: roundAnchor(payload.turn, inputEventForTurn(session, payload.turn), assistant.event)
     })
@@ -141,6 +148,8 @@ export function registerTurnLifecycleHooks({
     }
     // The final reminder goes after those sections, so their length cannot bury
     // the one contract that must be the last thing the model reads.
+    const pluginContract = assembled.sections?.find(section => section.name === 'tavern:plugin-body-generation')
+    if (pluginContract) assembled.sections = [...assembled.sections, { ...pluginContract, name: 'tavern:plugin-body-generation-reminder' }]
     const hasSubmission = (assembled.sections || []).some(section => section.name === 'tavern:story-tool-submission')
     const outputToolCall = hasSubmission && typeof storyOutputToolCall === 'function' ? (await storyOutputToolCall()) === true : false
     return markTavernSectionsLiteral(prependSystemInstruction(appendStorySubmissionReminder(assembled, outputToolCall), chat ? runtimePrompt('system-append') : ''))

@@ -5,8 +5,9 @@ import { chromium } from 'playwright'
 // Exercise the public plugin registration and real React effects/events. Only
 // the DSH host and HTTP boundary are fixtures; no component source extraction.
 // stageClient: the page loads the built stage client through the core's hold and loader, as in production.
-export async function openTavernSettings(t, { settings, respond, exposeConversationModels = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false } = {}) {
-  const browser = await chromium.launch({ headless: true, args: ['--mute-audio'] })
+export async function openTavernSettings(t, { settings, respond, exposeConversationModels = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false, browserExecutable } = {}) {
+  const executablePath = browserExecutable || process.env.PLAYWRIGHT_EXECUTABLE_PATH
+  const browser = await chromium.launch({ headless: true, args: ['--mute-audio'], ...(executablePath ? { executablePath } : {}) })
   t.after(() => browser.close())
   const page = await browser.newPage()
   page.setDefaultTimeout(5000)
@@ -38,6 +39,7 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
       else if (method === 'getCandidatePreferences') result = { candidateDismissMode: 'after-fill' }
       else if (method === 'confirmSessionPatch') result = {}
       else if (method === 'getDefaultWritingSkills') result = { skills: [] }
+      else if (method === 'getBodyGenerationSettings') result = { inherited: true, mode: 'host', provider: '', providers: [] }
       else if (method === 'listUserPlugins') result = { plugins: [], dir: '/tmp/tavern/plugins' }
       else if (method === 'managedModsList') result = { revision: 'fixture', mods: [] }
       else if (method === 'listLegacyPlugins') result = { plugins: [] }

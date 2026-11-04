@@ -3,7 +3,8 @@ import { createHash, randomBytes } from 'node:crypto'
 import { projectPlayerContent } from './player-input-content.js'
 import { resolveRuntimePresetMacros } from './runtime-presets.js'
 import { projectRuntimePresetRequest } from './runtime-preset-lifecycle.js'
-import { STORY_INPUT_ONLY_PROMPT, STORY_SUBMIT_PROMPT, STORY_SUBMIT_PROMPT_STRICT, STORY_SUBMIT_TOOL_NAME, withStorySubmitAck } from './story-tool-submission.js'
+import { BODY_GENERATION_PROMPT } from './plugin-body-generation.js'
+import { STORY_GENERATE_TOOL_NAME, STORY_INPUT_ONLY_PROMPT, STORY_SUBMIT_PROMPT, STORY_SUBMIT_PROMPT_STRICT, STORY_SUBMIT_TOOL_NAME, withStorySubmitAck } from './story-tool-submission.js'
 import { NO_FOREGROUND_TOOLS_PROMPT, normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { projectHistoryAsToolCalls } from './history-tool-call.js'
 import { markRequestHandled, requestHandledBy } from './request-lineage.js'
@@ -313,7 +314,8 @@ export function createNativePlayOrchestrationStrategy(options) {
       // declaration is missing, so replay only when this turn offers submit_story;
       // the per-game tool switch can still remove it after the global settings say on.
       const historyWanted = typeof options.historyToolCall === 'function' ? (await options.historyToolCall()) === true : false
-      const outputWanted = typeof options.storyOutputToolCall === 'function' ? (await options.storyOutputToolCall()) === true : false
+      const pluginGeneration = (await options.bodyGeneration?.(sessionId))?.mode?.startsWith('plugin-')
+      const outputWanted = !pluginGeneration && typeof options.storyOutputToolCall === 'function' ? (await options.storyOutputToolCall()) === true : false
       const submitVisible = typeof options.visibleTools !== 'function'
         || (await options.visibleTools(sessionId)).includes(STORY_SUBMIT_TOOL_NAME)
       const submitOffered = historyWanted && submitVisible
@@ -493,7 +495,9 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (playMode) {
       const toolNames = new Set(assembly.tools.map(schema => schema.name))
       const outputToolCall = typeof options.storyOutputToolCall === 'function' ? (await options.storyOutputToolCall()) === true : false
-      if (toolNames.has(STORY_SUBMIT_TOOL_NAME)) {
+      if (toolNames.has(STORY_GENERATE_TOOL_NAME)) {
+        sections.push({ name: 'tavern:plugin-body-generation', text: BODY_GENERATION_PROMPT })
+      } else if (toolNames.has(STORY_SUBMIT_TOOL_NAME)) {
         if (outputToolCall) {
           sections.push({ name: 'tavern:story-tool-submission', text: toolNames.size === 1 ? STORY_SUBMIT_PROMPT_STRICT : STORY_SUBMIT_PROMPT })
         } else {

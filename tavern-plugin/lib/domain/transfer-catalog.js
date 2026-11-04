@@ -24,7 +24,7 @@ function uniqueEntry(used, entry) {
 // they belong to this install, and a copied key is the easiest way to leak one.
 export const TRANSFER_SETTINGS_KEYS = Object.freeze([
   'headerItems', 'viewTabs', 'candidateDismissMode', 'candidateAutoGenerate',
-  'polishPrereview', 'storyInputToolCall', 'storyOutputToolCall', 'autoOpenStatusPanel',
+  'polishPrereview', 'storyGenerationMode', 'storyGenerationProvider', 'storyInputToolCall', 'storyOutputToolCall', 'autoOpenStatusPanel',
   'contextCompaction', 'defaultPlaySettings'
 ])
 

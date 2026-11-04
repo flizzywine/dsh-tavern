@@ -282,6 +282,7 @@ export function createPlayHandlers(deps) {
       return { view: await retrySettlement(args && args.sessionId, args && args.turn, args && args.guidance) }
     },
     async interruptTurn(args, method, serverTemplate, authority) {
+      if (await deps.pluginBodyGeneration?.cancelRegeneration(args?.sessionId)) return { view: await deps.sessionView(args.sessionId) }
       const { chatForSession, interruptTurn, notifyPluginTimeline, pluginApi, reconcileStory, storyEvents } = deps
         await reconcileStory(args && args.sessionId)
         const view = await interruptTurn(args && args.sessionId, args && args.chatId)

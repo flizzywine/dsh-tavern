@@ -4,6 +4,7 @@ const helperTurns = createImmutableTurnFields()
 const helperIndex = createIndexedArrayApi({valid: row => Boolean(row && !row.stub)})
 import { assertPluginJson } from './tavern-chat-plugin-data.js'
 import { projectAgentContent } from './runtime-content-projection.js'
+import { projectProcessedReply } from './reply-presentation.js'
 import { plainReplyProse, writeReplyProse } from './reply-prose.js'
 
 function str(value) {
@@ -333,11 +334,11 @@ export function replaceTavernHelperMessages(chat, patches, { regexScripts = [] }
     // rendered message with raw swipe text or replay stateful macros for it.
     if ((writesText || swipeId !== previousSwipeId) && Array.isArray(message.swipes) && message.swipes[swipeId] !== undefined) {
       const sourceText = message.swipes[swipeId]
-      const projection = projectAgentContent(sourceText, { charName: chat.cardName, macroState: chat.macroState,
+      const projection = message.bodyRegenerationProcessed === true ? projectProcessedReply(sourceText) : projectAgentContent(sourceText, { charName: chat.cardName, macroState: chat.macroState,
         regexScripts, regexPlacement: 2, isEdit: false, depth: 0 })
       writeReplyProse(message, sourceText, projection)
       delete message.displayRuntime
-      chat.macroState = projection.macroState
+      if (message.bodyRegenerationProcessed !== true) chat.macroState = projection.macroState
     }
     updated.push({ messageId, swipeId })
   }

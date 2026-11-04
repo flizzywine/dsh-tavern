@@ -632,6 +632,7 @@ export function regenerationProjection(replacement, data, operationId) {
  * that copy — the same shape the fold writes for a live submission.
  */
 export function applyRegenerationProjection(session, projection) {
+  if (projection.kind === 'append-round') return applyIndependentRoundProjection(session, projection)
   const events = sessionEvents(session)
   const blocks = Array.isArray(projection.data?.message?.content) ? projection.data.message.content : []
   const body = blocks.filter(block => block?.type === 'text').map(block => block.text).join('')
@@ -681,6 +682,31 @@ export function applyRegenerationProjection(session, projection) {
     })
   })
   replaceCleanups()
+}
+
+/** A failed input has no body to replace. Replay its visible pair once after commit. */
+function applyIndependentRoundProjection(session, projection) {
+  const locate = () => {
+    const events = sessionEvents(session)
+    return {
+      input: events.find(event => event.type === 'user/message' && event.data?.id === projection.input?.id),
+      reply: events.find(event => event.type === 'assistant/message' && event.data?.message?.id === projection.data?.message?.id)
+    }
+  }
+  let found = locate()
+  if (!found.reply) {
+    const surface = createSessionSurfaceMutator(session)
+    surface.editStep((turn, step) => {
+      // Opening the new edit turn first keeps cleanup and both appends in one
+      // native turn. A crash can safely retry each append by its stable id.
+      clearFailedTurnSurface({ session, turn: projection.failedTurn, id: () => projection.input.id + ':cleanup' })
+      if (!found.input) surface.append('user/message', { ...projection.input, turn }, { surfaceOp: 'append' })
+      surface.append('assistant/message', { ...projection.data, turn, step }, { surfaceOp: 'append', sourceEventSeqs: [] })
+    })
+    found = locate()
+  }
+  if (!found.input || !found.reply) throw new Error('失败输入重生成缺少已提交的原生消息')
+  return { nativeAnchor: { formatVersion: 4, turn: Number(found.reply.data.turn), input: Number(found.input.seq), reply: Number(found.reply.seq) } }
 }
 
 /** Turns cut off without ending (the server stopped mid-reply) whose nodes the model still sees. */

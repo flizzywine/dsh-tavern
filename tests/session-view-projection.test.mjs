@@ -1,6 +1,38 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { projectionFixture } from './fixtures/session-view-projection.mjs'
+import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
+import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
+import { sessionViewMessageFields } from '../tavern-plugin/lib/domain/session-view-projection.js'
+
+test('cold bounded view preserves plugin output without replaying output regexes', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'plugin-output-view-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const f = projectionFixture({ readCardExtensions: async () => ({ helperScripts: [], regexScripts: [{
+    id: 'non-idempotent', findRegex: '/正文/g', replaceString: '再次处理正文',
+    placement: [2], markdownOnly: true, promptOnly: false
+  }] }) })
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  await persistence.write({ ...f.chat, _storageRevision: undefined, messages: [f.chat.messages[0],
+    { role: 'assistant', turn: 2, sourceText: '已处理正文', projectionText: '已处理正文', text: '已处理正文',
+      bodyRegenerationProcessed: true }
+  ] })
+  // Construct a fresh storage reader, as on a reopen: no complete in-memory
+  // message can supply fields omitted from the bounded read contract.
+  const cold = createChatJournalStore({ dataRoot: root })
+  const window = await cold.readWindow(f.chat.id, { limit: 1, requirePartial: true, messageFields: sessionViewMessageFields })
+  assert.equal(window.chat.messages[0].bodyRegenerationProcessed, true)
+  const view = await f.projection.project.opening(window)
+  assert.equal(view.replyProjections[0].text, '已处理正文')
+  // The rule is active for ordinary replies; only already processed output
+  // bypasses it, including after opening the persisted bounded history page.
+  const ordinary = await f.projection.project.full({ ...f.chat, id: 'ordinary',
+    messages: [{ role: 'assistant', turn: 2, sourceText: '已处理正文', projectionText: '已处理正文', text: '已处理正文' }] })
+  assert.equal(ordinary.replyProjections[0].text, '已处理再次处理正文')
+})
 
 test('header-only player name changes refresh the view and helper across repeated writes and cached reads', async () => {
   const f = projectionFixture()
