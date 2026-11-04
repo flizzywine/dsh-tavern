@@ -36,8 +36,13 @@ export type VoiceSourceKind = 'reference-list' | 'voice-id' | 'preset'
  * What it supports is the provider's own answer, per registered service instance (never per kind or name): the voice
  * services catalog (`voiceServices`) lists a provider only with the 配音来源 it reports in `capabilities.voiceSources`,
  * and UIs offer only those. A provider that can ask its server refreshes the answer in `discover()`, which the catalog
- * calls (without `wake`) before each read, so the provider caches it per service config; a protocol with nothing to ask
- * declares it from its fixed semantics or the service config. A provider that reports no `voiceSources` is not listed.
+ * calls (without `wake`) before each read, so the provider caches it per service config and a failed ask keeps the last
+ * answer (it never rejects only for that); a protocol with nothing to ask declares it from its fixed semantics. Never
+ * infer it from a URL or a name. A provider that reports no `voiceSources` is not listed.
+ *
+ * Built-in example: every Fish-protocol service takes reference audio; it has voice IDs (`voice-id`) only when its own
+ * server answers so: `GET /v1/info` `capabilities.voiceLibrary: true`, or, for a server without `/v1/info` (the
+ * official cloud), its voice library API (`GET /model`) lists public voices.
  */
 export interface Provider {
   id: string; kind: PortableVoice['kind']; revision: string

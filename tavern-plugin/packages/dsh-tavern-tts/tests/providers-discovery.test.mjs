@@ -438,13 +438,21 @@ test('the voice services catalog lists saved services and 浏览器朗读 withou
   assert.doesNotMatch(JSON.stringify(rows),/group-private|fixture\.invalid|"config"/)
 })
 
-// 配音来源 are the provider's answer per service instance: the same Fish protocol backs the official cloud (声音库 included)
-// and self-hosted servers, which say in /v1/info whether they serve a voice library.
-test('the catalog lists each service with the 配音来源 its provider reports, asking a self-hosted server once per config',async t => {
+// 配音来源 are the provider's answer per service instance: the same Fish protocol backs the official cloud and self-hosted
+// servers, and each server is asked itself — by URL and name nothing is decided.
+const fishServers = asked => async (input, init) => {
+  const url = new URL(String(input)); asked.push(url.origin + url.pathname)
+  const info = library => Response.json({models:[{id:'drama-3'}],state:'ready',capabilities:{prepareVoice:true,...(library ? {voiceLibrary:true} : {})}})
+  // the cloud has no /v1/info and its voice library lists public voices; the local server's /model is its own private IDs.
+  const routes = {'https://api.fish.audio/model':() => Response.json({total:1,items:[{_id:'v1',title:'Public',visibility:'public'}]}),
+    'http://local.invalid/v1/info':() => info(false),'http://local.invalid/model':() => Response.json({total:1,items:[{_id:'own',title:'own',visibility:'private'}]}),
+    'http://library.invalid/v1/info':() => info(true),'http://bare.invalid/model':() => Response.json({total:1,items:[{_id:'own',title:'own',visibility:'private'}]})}
+  return routes[url.origin + url.pathname]?.() || new Response('',{status:404})
+}
+test('the catalog lists each service with the 配音来源 its provider reports, asking each server once per config',async t => {
   let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}
   const tts = createTts(), asked = []
-  const info = library => ({models:[{id:'drama-3'}],state:'ready',capabilities:{prepareVoice:true,...(library ? {voiceLibrary:true} : {})}})
-  const fetch = async url => { asked.push(String(url)); return Response.json(info(String(url).includes('library.invalid'))) }
+  const fetch = fishServers(asked)
   const services = createServiceSettings({tts,fetch,get:() => settings,replace:async v => {settings=v},credentials:() => null})
   t.after(async () => {services.dispose();await tts.dispose()})
   await services.save({id:'fish',kind:'fish-audio',label:'Fish Audio',config:{url:'https://api.fish.audio',model:'s2.1-pro-free'},secrets:{key:''}})
@@ -452,11 +460,28 @@ test('the catalog lists each service with the 配音来源 its provider reports,
   await services.save({id:'fish-lib',kind:'fish-audio',config:{url:'http://library.invalid',model:'drama-3'},secrets:{key:''}})
   await services.save({id:'qwen',kind:'qwen',config:{region:'cn'},secrets:{key:''}})
   const sources = async () => Object.fromEntries((await services.voiceServices()).services.map(s => [s.id,s.sources.join('+')]))
-  const expected = {fish:'reference-list+voice-id','fish-local':'reference-list','fish-lib':'reference-list+voice-id',qwen:'preset',browser:'preset'}
+  await services.save({id:'fish-bare',kind:'fish-audio',config:{url:'http://bare.invalid',model:'drama-3'},secrets:{key:''}})
+  const expected = {fish:'reference-list+voice-id','fish-local':'reference-list','fish-lib':'reference-list+voice-id','fish-bare':'reference-list',qwen:'preset',browser:'preset'}
   assert.deepEqual(await sources(),expected)
   assert.deepEqual(await sources(),expected)
-  // the cloud is not asked; each self-hosted server once (its answer is cached per service config).
-  assert.deepEqual(asked.sort(),['http://library.invalid/v1/info','http://local.invalid/v1/info'])
+  // each server once (its answer is cached per service config): /v1/info, and the voice library only where there is none.
+  assert.deepEqual([...new Set(asked)].sort(),['http://bare.invalid/model','http://bare.invalid/v1/info','http://library.invalid/v1/info','http://local.invalid/v1/info','https://api.fish.audio/model','https://api.fish.audio/v1/info'])
+  assert.equal(asked.filter(u => u === 'https://api.fish.audio/model').length,1)
+})
+
+test('a Fish service whose server cannot be asked keeps reference audio only, and gains the voice library once it answers',async t => {
+  let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}, offline = true
+  const tts = createTts(), servers = fishServers([])
+  const fetch = async (input, init) => { if (offline) throw new TypeError('fetch failed'); return servers(input, init) }
+  const services = createServiceSettings({tts,fetch,get:() => settings,replace:async v => {settings=v},credentials:() => null})
+  t.after(async () => {services.dispose();await tts.dispose()})
+  await services.save({id:'fish',kind:'fish-audio',config:{url:'https://api.fish.audio',model:'s2.1-pro-free'},secrets:{key:''}})
+  const fish = async () => (await services.voiceServices()).services.find(s => s.id === 'fish').sources
+  assert.deepEqual(await fish(),['reference-list'])
+  offline = false
+  assert.deepEqual(await fish(),['reference-list','voice-id'])
+  offline = true
+  assert.deepEqual(await fish(),['reference-list','voice-id'])
 })
 
 test('another plugin\'s provider is listed with the 配音来源 it declares; one declaring none is not a voice service',async t => {
