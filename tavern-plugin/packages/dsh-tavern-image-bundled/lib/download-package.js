@@ -84,7 +84,7 @@ export async function createDownloadPackage(root) {
     entries.push({ name: relative, bytes })
   }
   for (const file of ['package.json', 'client.js', 'cordis.patch.yml', 'lib']) await collect(file, true)
-  for (const file of ['README.md', 'LICENSE', 'console.html', 'design-rules.md', '世界书-通用生图规则.json', 'workflows/.gitkeep', 'scripts/install-plugin.ps1', 'scripts/Install-DshTavernImage.cmd', 'scripts/Package-DshTavernImage.ps1']) await collect(file)
+  for (const file of ['card-worldbook.default.json', 'skills/image-prompt/SKILL.md', 'skills/character-authoring/SKILL.md', 'skills/character-authoring/references/design-rules.md', 'README.md', 'LICENSE', 'console.html', 'design-rules.md', '世界书-通用生图规则.json', 'workflows/.gitkeep', 'scripts/install-plugin.ps1', 'scripts/Install-DshTavernImage.cmd', 'scripts/Package-DshTavernImage.ps1']) await collect(file)
   if (!entries.some(entry => entry.name === 'lib/index.js')) throw new Error('安装包缺少插件入口')
   return zip(entries)
 }

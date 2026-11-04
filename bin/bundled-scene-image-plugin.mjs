@@ -24,7 +24,7 @@ export const SCENE_IMAGE_PACKAGE_NAME = 'dsh-tavern-image'
 export const LEGACY_SCENE_IMAGE_PACKAGE_NAME = 'dsh-tavern-comfy'
 
 /** 插件自己的数据：不随安装源复制，升级时绝不覆盖。工作流仅发行 .gitkeep 占位。 */
-const PRIVATE = /^(config(\.json)?|definitions(\.json)?|worldbook(-outfits)?(\.json)?|jobs(-store)?\.json|plans(-store)?\.json|cache|backups|reference-images|format-worldbooks|workflows|node_modules|\.git)(\/|$)/i
+const PRIVATE = /^(card-worldbook\.json|card-enabled\.json|workflows-card|skills\/image-prompt\/references|config(\.json)?|definitions(\.json)?|worldbook(-outfits)?(\.json)?|jobs(-store)?\.json|plans(-store)?\.json|cache|backups|reference-images|format-worldbooks|workflows|node_modules|\.git)(\/|$)/i
 
 /** 内置副本必须齐备的文件；缺一个就当"这份发行版没内置插件"，不去猜。 */
 const REQUIRED = ['package.json', 'lib/index.js', 'client.js', 'cordis.patch.yml']

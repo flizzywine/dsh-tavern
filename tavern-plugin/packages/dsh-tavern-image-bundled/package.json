@@ -1,6 +1,6 @@
 {
   "name": "dsh-tavern-image",
-  "version": "3.8.0",
+  "version": "3.9.0",
   "description": "DSH Tavern 剧情配图插件，支持 ComfyUI 工作流、NovelAI、OpenAI Images、Gemini、atlas cloud、自定义 API 等渠道。",
   "type": "module",
   "scripts": {
@@ -20,6 +20,10 @@
     "design-rules.md",
     "世界书-通用生图规则.json",
     "世界书-角色与服装库.json",
+    "skills/image-prompt/SKILL.md",
+    "skills/character-authoring/SKILL.md",
+    "skills/character-authoring/references/design-rules.md",
+    "card-worldbook.default.json",
     "workflows/.gitkeep",
     "scripts/Package-DshTavernImage.ps1",
     "scripts/install-plugin.ps1",

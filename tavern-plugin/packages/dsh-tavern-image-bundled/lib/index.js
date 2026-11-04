@@ -37,6 +37,7 @@ import { createComfyProgress } from './comfy-progress.js'
 import { CHARACTER_LIBRARY_VERSION, createCharacterLibrary } from './character-library.js'
 import { createDefinitionsStore } from './definitions-store.js'
 import { wardrobeSection } from './wardrobe-hints.js'
+import { runCardImage } from './card-app/generation.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
@@ -965,6 +966,16 @@ export function apply(ctx, config = {}) {
   deps.indexTap = indexTap
   let runtime = null
   const ready = () => (runtime ??= createRuntime(ctx, config, logger, deps))
+  // Optional card UI and tools share this runtime; late imports cannot resurrect a disposed plugin.
+  const installCard = () => {
+    let disposed = false, close
+    void import('./card-app/index.js').then(mod => {
+      if (!disposed) close = mod.apply(ctx, { ready })
+    }).catch(error => logger.warn?.('dsh-tavern-image: 工作台模块加载失败 ' + error.message))
+    return () => { disposed = true; close?.() }
+  }
+  if (typeof ctx.effect === 'function') ctx.effect(installCard, 'dsh-tavern-image: card studio')
+  else installCard()
 
   if (typeof ctx.inject === 'function') {
     ctx.inject(['webServer'], scoped => {
@@ -1937,7 +1948,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       return pending
     }
 
-    async function createJob(rawParams, { label = '', forceWorkflow = null, jobConfig = config, diagTrace = null, referenceSnapshot = null } = {}) {
+    async function createJob(rawParams, { label = '', forceWorkflow = null, jobConfig = config, diagTrace = null, referenceSnapshot = null, onCreated, cardRequest = false } = {}) {
       // 浏览器半边只传 tag 和 key，其余（画师串、画幅）由控制台配置兜底。
       const params = {
         tag: String(rawParams?.tag ?? ''),
@@ -1951,9 +1962,10 @@ function createRuntime(ctx, overrides, logger, deps) {
         textVersion: String(rawParams?.textVersion ?? ''),
         steps: rawParams?.steps,
         cfg: rawParams?.cfg,
+        seed: Number.isSafeInteger(rawParams?.seed) && rawParams.seed >= 0 ? rawParams.seed : undefined,
         characters: Array.isArray(rawParams?.characters) ? rawParams.characters.filter(item => item && String(item.prompt ?? '').trim()).slice(0, 8).map(item => ({ prompt: String(item.prompt).slice(0, 4000), centers: String(item.centers ?? '').slice(0, 40), uc: String(item.uc ?? '').slice(0, 4000) })) : [],
       }
-      if (rawParams?.sessionId) lastSessionId = String(rawParams.sessionId)
+      if (rawParams?.sessionId && !cardRequest) lastSessionId = String(rawParams.sessionId)
       const key = typeof rawParams?.key === 'string' ? rawParams.key.slice(0, 4000) : ''
       if (key) {
         const existing = findJob(key)
@@ -2037,6 +2049,8 @@ function createRuntime(ctx, overrides, logger, deps) {
         positive: compiled.positive, negative: compiled.negative, label, controller: control,
       }
       jobs.set(job.id, job)
+      onCreated?.(job)
+      if (job.controller.signal.aborted) return publicJob(job)
       if (diagTrace?.traceId) { diag.bindJob(job.id, diagTrace.traceId, diagTrace.imageIndex); diag.recordJob(job.id, 'job-created', { comfyId: job.comfyId, backend: job.backend, workflowId: job.workflowId, gameIdHash: job.gameId ? diag.text(job.gameId) : null, turn: job.turn, textVersion: job.textVersion }) }
     try { persistJobs() } catch {}
       if (key) byKey.set(key, job.id)
@@ -5049,6 +5063,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       currentConfig: () => config,
       currentDefinitions: () => definitions,
       characterLibrary,
+      cardWorkflows: () => usable(),
+      generateCardImage: (args, options) => runCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
+      saveCardDefinitions: (value, expectedRevision) => definitionStore.update(current => normalizeDefinitions({ ...current, ...value }), { expectedRevision, requireRevision: true }),
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
       attachTurn: async ({ gameId, turn, instruction = '' }) => {
         if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
@@ -5205,7 +5222,7 @@ function channelWithPresetParams(config) {
   const channel = activeChannel(config)
   if (!channel) return channel
   const params = activePresetParams(config)
-  if (channel.provider !== 'novelai' || !Object.keys(params).length) return channel
+  if (effectiveImageProvider(channel) !== 'novelai' || !Object.keys(params).length) return channel
   channel.options = { ...(channel.options ?? {}), ...params }
   return channel
 }
@@ -6383,7 +6400,7 @@ export function compileChannelJob({ params, config, definitions, channel = null,
   const pixels = /^(\d{2,5})\s*[x×*]\s*(\d{2,5})$/i.exec(String(params.size ?? ''))
   const size = pixels ? { width: Number(pixels[1]), height: Number(pixels[2]) } : dimensions || { width: 832, height: 1216 }
   if (![size.width, size.height].every(value => Number.isInteger(value) && value >= 64 && value <= 8192)) throw new Error('图片尺寸需在 64–8192 像素之间')
-  return { ...prepared, promptMode, characters: nativeNovelai ? characters : [], seed: randomInt(0, 2 ** 32), size, loras: [] }
+  return { ...prepared, promptMode, characters: nativeNovelai ? characters : [], seed: Number.isSafeInteger(params.seed) && params.seed >= 0 ? params.seed : randomInt(0, 2 ** 32), size, loras: [] }
 }
 
 export function compileJob({ workflow, params, config, definitions, onStage = null }) {
@@ -6400,7 +6417,7 @@ export function compileJob({ workflow, params, config, definitions, onStage = nu
   setBinding(prompt, workflow.bindings.positive, positive)
   if (workflow.bindings.negative?.length) setBinding(prompt, workflow.bindings.negative, promptMode === 'structured' ? negative : applyWeights(negative, config.weightMode))
 
-  const seed = Number.isSafeInteger(workflow.fixedSeed) && workflow.fixedSeed >= 0
+  const seed = Number.isSafeInteger(params.seed) && params.seed >= 0 ? params.seed : Number.isSafeInteger(workflow.fixedSeed) && workflow.fixedSeed >= 0
     ? workflow.fixedSeed
     : randomInt(0, 2 ** 47)
   if (workflow.bindings.seed?.length) setBinding(prompt, workflow.bindings.seed, seed)

@@ -14,7 +14,9 @@ const clientSource = await readFile(new URL('../../tavern-plugin/packages/dsh-ta
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jdbsAAAAASUVORK5CYII=', 'base64')
 const clone = value => JSON.parse(JSON.stringify(value))
 const calls = [], errors = []
-let uploads = 0, libraryRevision = 1
+let uploads = 0, libraryRevision = 1, cardEnabled = true
+let cardBook = { version: 3, revision: 'card-1', buckets: ['rules', 'examples'].map(id => ({ id, label: id, entries: [{ id: 'shared-entry', title: id + ' title', content: id + ' original', enabled: true, mode: 'always' }] })) }
+let cardRevision = 1
 const savedApiKeys = new Map()
 const workflowDetail = { file: 'workflow-a.json', prompt: {
   '2': { class_type: 'LoadImage', inputs: { image: 'pose.png' }, _meta: { title: 'Pose input (not a character ref)' } },
@@ -55,7 +57,17 @@ try {
     const body = method === 'POST' ? route.request().postDataJSON() : null
     calls.push({ path, method, query: Object.fromEntries(url.searchParams), body })
     let response = { ok: true }
-    if (path === '/state') response = publicState()
+    if (url.pathname === '/dsh-tavern-gen/api/tools-enabled') {
+      if (method === 'POST') cardEnabled = body.enabled
+      response = { ok: true, enabled: cardEnabled }
+    }
+    else if (url.pathname === '/dsh-tavern-gen/api/state' || url.pathname === '/dsh-tavern-gen/api/worldbook') response = { worldbook: clone(cardBook), config: { enabled: cardEnabled } }
+    else if (url.pathname === '/dsh-tavern-gen/api/save') {
+      if (body.content.revision !== cardBook.revision) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'REVISION_CONFLICT', error: '卡片世界书已在别处修改' }) })
+      cardBook = { ...clone(body.content), revision: 'card-' + (++cardRevision) }
+      response = { ok: true, worldbook: clone(cardBook) }
+    }
+    else if (path === '/state') response = publicState()
     else if (path === '/config') {
       if (Array.isArray(body.config.imageChannels)) {
         for (const channel of body.config.imageChannels) {
@@ -268,6 +280,36 @@ try {
   assert.equal(worldbooks.structured[0].entries[0].content, '中文结构化规则')
   assert.equal(worldbooks.natural[0].entries[0].content, 'natural content')
   assert.equal(state.config.promptMode, 'structured', 'browsing worldbooks does not switch the active prompt format')
+  // Card workbench rules retain drafts across bucket switches, including identical local entry IDs.
+  await page.getByRole('button', { name: '卡片模式世界书', exact: true }).click()
+  await page.getByText('rules title · always', { exact: true }).click()
+  await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).fill('rules draft')
+  await page.getByRole('button', { name: 'examples · 1', exact: true }).click()
+  await page.getByText('examples title · always', { exact: true }).click()
+  assert.equal(await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).inputValue(), 'examples original')
+  await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).fill('examples draft')
+  await page.getByRole('button', { name: 'rules · 1', exact: true }).click()
+  await page.getByText(/^rules title · always/).click()
+  await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).waitFor()
+  assert.equal(await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).inputValue(), 'rules draft')
+  await page.getByRole('button', { name: '保存卡片世界书', exact: true }).click()
+  await page.getByText('卡片世界书已保存', { exact: true }).waitFor()
+  assert.equal(cardBook.buckets[0].entries[0].content, 'rules draft')
+  assert.equal(cardBook.buckets[1].entries[0].content, 'examples draft')
+  await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).fill('conflicting draft')
+  cardBook.buckets[0].entries[0].content = 'saved elsewhere'
+  cardBook.revision = 'card-' + (++cardRevision)
+  await page.getByRole('button', { name: '保存卡片世界书', exact: true }).click()
+  await page.getByRole('button', { name: '重新载入卡片世界书', exact: true }).waitFor()
+  assert.equal(await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).inputValue(), 'conflicting draft')
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', { name: '重新载入卡片世界书', exact: true }).click()
+  await page.getByText('rules title · always', { exact: true }).click()
+  assert.equal(await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).inputValue(), 'saved elsewhere')
+  await Promise.all([page.waitForResponse(response => response.url().endsWith('/dsh-tavern-gen/api/tools-enabled') && response.request().method() === 'POST'), page.getByLabel('启用工作台生图', { exact: true }).click()])
+  await page.waitForFunction(() => !document.querySelector('[aria-label="启用工作台生图"]').disabled)
+  assert.equal(cardEnabled, false)
+  assert.equal(calls.some(call => call.path === '/dsh-tavern-gen/api/worldbook' && call.method === 'GET'), true)
   assert.deepEqual(errors, [])
   console.log('PASS Chromium full settings: custom URL/model/key save and masking, protocol reference capability, character/nested/shared reference drafts and saving, ordered Comfy LoadImage mapping, recoverable simple-mode migration, local-only unlink, worldbook format isolation')
   console.log('SCREENSHOT ' + screenshotPath)

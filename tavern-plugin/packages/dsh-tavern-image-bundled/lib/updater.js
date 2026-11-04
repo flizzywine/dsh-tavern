@@ -11,7 +11,7 @@ const LEGACY_PLUGIN_DIRECTORY = 'dsh-tavern-comfy'
 const PLUGIN_DIRECTORY = 'dsh-tavern-image'
 const BRANCH = 'master'
 const HASH = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/
-const PRIVATE_PATH = /^(?:config\.json|definitions\.json|worldbook(?:-outfits)?\.json|jobs-store\.json|plans-store\.json|backups(?:\/|$)|cache(?:\/|$)|reference-images(?:\/|$)|format-worldbooks(?:\/|$)|workflows\/.*\.json$)/i
+const PRIVATE_PATH = /^(?:card-worldbook\.json|card-enabled\.json|workflows-card(?:\/|$)|skills\/image-prompt\/references(?:\/|$)|config\.json|definitions\.json|worldbook(?:-outfits)?\.json|jobs-store\.json|plans-store\.json|backups(?:\/|$)|cache(?:\/|$)|reference-images(?:\/|$)|format-worldbooks(?:\/|$)|workflows\/.*\.json$)/i
 
 async function runGit(root, args) {
   try {

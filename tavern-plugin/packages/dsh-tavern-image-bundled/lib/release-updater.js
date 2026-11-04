@@ -8,8 +8,8 @@ const REPOSITORY_URL = 'https://github.com/weixinlll/dsh-tavern-image'
 const ZIP = 'dsh-tavern-image-source.zip'
 const PACKAGE_NAMES = new Set(['dsh-tavern-comfy', 'dsh-tavern-image'])
 const MAX_ZIP = 64 * 1024 * 1024
-const ALLOWED = /^(package\.json|client\.js|console\.html|cordis\.patch\.yml|design-rules\.md|README\.md|LICENSE|世界书-(通用生图规则|角色与服装库)\.json|lib\/.+|scripts\/(install-plugin\.ps1|Install-DshTavernImage\.cmd|Package-DshTavernImage\.ps1)|workflows\/\.gitkeep)$/
-const PRIVATE = /^(config(\.json)?|definitions(\.json)?|worldbook(-outfits)?(\.json)?|jobs(-store)?\.json|plans(-store)?\.json|cache|backups|node_modules|\.git)(\/|$)/i
+const ALLOWED = /^(card-worldbook\.default\.json|skills\/(?:image-prompt\/SKILL\.md|character-authoring\/(?:SKILL\.md|references\/design-rules\.md))|package\.json|client\.js|console\.html|cordis\.patch\.yml|design-rules\.md|README\.md|LICENSE|世界书-(通用生图规则|角色与服装库)\.json|lib\/.+|scripts\/(install-plugin\.ps1|Install-DshTavernImage\.cmd|Package-DshTavernImage\.ps1)|workflows\/\.gitkeep)$/
+const PRIVATE = /^(card-worldbook\.json|card-enabled\.json|workflows-card|skills\/image-prompt\/references|config(\.json)?|definitions(\.json)?|worldbook(-outfits)?(\.json)?|jobs(-store)?\.json|plans(-store)?\.json|cache|backups|node_modules|\.git)(\/|$)/i
 
 function crc32(data) {
   let crc = 0xffffffff
