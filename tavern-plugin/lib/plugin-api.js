@@ -205,7 +205,11 @@ export function createTavernPluginApi(deps) {
   const publishedStates = new Map()
   const log = deps.logger || console
   const gameModes = createPluginGameModes({
-    read: async gameId => deps.data.readMode((await requireGame(gameId)).chatId),
+    read: async gameId => {
+      if (typeof gameId !== 'string' || !gameId) return null
+      const game = await deps.resolveGame(gameId)
+      return game ? deps.data.readMode(game.chatId) : null
+    },
     write: async (gameId, revision, doc) => deps.data.writeMode((await requireGame(gameId)).chatId, revision, doc),
     allowed: async (owner, gameId) => {
       await requireGame(gameId)
@@ -1441,6 +1445,7 @@ export function createTavernPluginApi(deps) {
 
   function gameRemoved(gameId) {
     if (!gameId) return
+    gameModes.stop(gameId)
     for (const key of Array.from(publishedStates.keys())) if (key.startsWith(gameId + '\u0000')) publishedStates.delete(key)
     void checkVersions(gameId, { all: true })
     dispatch(removedHandlers, { gameId }, 'onGameRemoved')

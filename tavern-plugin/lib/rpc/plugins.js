@@ -13,6 +13,7 @@ export function createPluginHandlers(deps) {
       if (args?.op === 'list') return { modes: await pluginApi.gameModes.list(id) }
       if (args?.op === 'stop') { pluginApi.gameModes.stop(id); return { stopped: true } }
       if (!args?.op || args.op === 'view') return { mode: await pluginApi.gameModes.view(id) }
+      if ((await pluginApi.turnState(id)).busy) throw new Error('请先停止或等待正文与后台任务结束')
       return { mode: await pluginApi.gameModes.execute(id, args) }
     },
     // The page side of a plugin reads and writes the same data as its host side (tavernUi.savePluginData).

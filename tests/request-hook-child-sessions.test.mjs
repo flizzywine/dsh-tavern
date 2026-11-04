@@ -2,10 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { registerRequestHooks } from '../tavern-plugin/lib/hooks/request.js'
 
-function preStep(chats = {}) {
+function preStep(chats = {}, gameModes) {
   const handlers = {}
   const prepared = []
   registerRequestHooks({
+    gameModes,
     backgroundAgentRunner: { owns: () => false },
     cardMemory: { appendRecall: async ({ decision }) => decision },
     chatForSession: async id => chats[id],
@@ -16,8 +17,17 @@ function preStep(chats = {}) {
     sessionStore: { flush: async () => {} },
     tavernRetryLimiter: { handle: async (_payload, next) => next() }
   })
-  return { run: header => handlers['agent/pre-step']({ agent: { session: { id: 's1', header } }, step: 1, messages: [] }, async () => ({ kind: 'enter', messages: [] })), prepared }
+  return { run: header => handlers['agent/pre-step']({ agent: { session: { id: 's1', header, events: [], surface: { nodes: [] } } }, step: 1, messages: [] }, async () => ({ kind: 'enter', messages: [] })), prepared }
 }
+
+test('game modes block story generation but do not intercept card editing or child sessions', async () => {
+  const active = { active: async () => true }
+  await assert.rejects(preStep({ s1: { mode: 'story' } }, active).run({}), /玩法插件接管/)
+  const editor = preStep({ s1: { mode: 'card', messages: [] } }, { active: () => assert.fail('card editing must not query play modes') })
+  await editor.run({})
+  assert.deepEqual(editor.prepared, ['s1'])
+  assert.deepEqual(await preStep({}, active).run({ parentSession: 'game' }), { kind: 'enter', messages: [] })
+})
 
 test('child agent sessions get no Tavern turn frame or status', async () => {
   const hook = preStep()

@@ -207,6 +207,7 @@ export function createPlayHandlers(deps) {
       return { view }
     },
     async regenBody(args) {
+      if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板回退后重新行动')
       autoChoices.cancel(args && args.sessionId)
       if (args?.restyle === true) await retryStyleReference(args.sessionId, { target: 'regenerate', guidance: args.styleGuidance })
       await reconcileStory(args && args.sessionId)
@@ -217,6 +218,7 @@ export function createPlayHandlers(deps) {
       return { view }
     },
     async replayTurn(args) {
+      if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请在玩法面板重试当前行动')
       const view = await replayFailedTurn(args && args.chatId, args && args.sessionId)
       notifyPluginTimeline(args && args.sessionId, 'regenerate')
       return { view }
@@ -247,6 +249,7 @@ export function createPlayHandlers(deps) {
       return { view: await sessionView(sessionId) }
     },
     async undoRollbackTurn(args) {
+      if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板的撤销回退')
       const view = await undoRollbackTurn(args && args.sessionId, args && args.chatId)
       notifyPluginTimeline(args && args.sessionId, 'undo-rollback', { settled: true })
       return { view }
@@ -256,12 +259,14 @@ export function createPlayHandlers(deps) {
       return { alignment: await reconcileStory(args && args.sessionId, { repair: false }) }
     },
     async rollbackTurn(args) {
+      if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板的回退一步')
       await reconcileStory(args && args.sessionId)
       const view = await rollbackTurn(args && args.sessionId, args && args.chatId, args && args.expectedTurn)
       notifyPluginTimeline(args && args.sessionId, 'rollback', { turn: args && args.expectedTurn })
       return { view }
     },
     async rollbackToTurn(args) {
+      if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板回退节点')
       await reconcileStory(args && args.sessionId)
       const view = await rollbackToTurn(args && args.sessionId, args && args.chatId, args && args.turn)
       notifyPluginTimeline(args && args.sessionId, 'rollback', { turn: view?.rolledBackTo?.latest })
