@@ -181,9 +181,9 @@ const voicePaidAsk={
   get(){try{return localStorage.getItem(VOICE_PAID_ASK_KEY)!=='off';}catch(_){return true;}},
   set(on){try{if(on)localStorage.removeItem(VOICE_PAID_ASK_KEY);else localStorage.setItem(VOICE_PAID_ASK_KEY,'off');}catch(_){}}};
 // 「配音后端 ›」 with no provider opens the page as it is (its unset service kinds are rows to set up).
-function openVoiceSettings(ctx,provider,{id,add}={}){
+function openVoiceSettings(nav,provider,{id,add}={}){
   try{if(provider)sessionStorage.setItem(VOICE_FOCUS_KEY,JSON.stringify({kind:provider,...(id?{id}:{}),...(add?{add:true}:{}),at:Date.now()}));}catch(_){}
-  return ctx.nav.openTab('dsh-tts:voice');
+  return nav.openTab('dsh-tts:voice');
 }
 // re-read a useVoiceLoad in place (value kept until the new one arrives) after any
 // TTS event (a synthesis finished, presets changed) or when `deps` change after mount — a refresh never blanks the ⚠.
@@ -471,7 +471,8 @@ function VoiceMoodPick({rows,value,onPick}) {
 // field highlighted. A way not set up and not chosen shows nothing on the right. 不配音 has no settings: its whole row is
 // its radio. A row whose provider cannot speak shows ⚠ and why. `count` (在线 TTS: how many services are listed) follows
 // the title, as a heading count (R4 / R5).
-function VoiceWay({way,current,incomplete,needed,open,onUse,onToggle,state,summary,count,children}) {
+// `action`: a link after the summary (a source whose service is not set up: 「去配音后端设置 ›」).
+function VoiceWay({way,current,incomplete,needed,open,onUse,onToggle,state,summary,count,action,children}) {
   const body='ap-voice-way-'+way.id.replace(/[^A-Za-z0-9_-]/g,'-'),warn=!!state?.warn,text=warn?state.text:summary||'';
   const dot=h('span',{className:'ap-voice-way-dot','aria-hidden':true});
   return h('section',{className:'ap-voice-way','data-open':open||undefined,'data-current':current||undefined,'data-incomplete':current&&incomplete?true:undefined,'aria-label':way.title},
@@ -483,6 +484,7 @@ function VoiceWay({way,current,incomplete,needed,open,onUse,onToggle,state,summa
         !children&&dot,h('span',{className:'ap-voice-way-title'},way.title),
         count>0&&h('span',{className:'ap-voice-way-count','aria-hidden':true},count)),
       h('span',{className:'ap-voice-way-sum'+(warn?' is-warn':''),title:state?.title||undefined},warn&&h(Glyph,{name:'warning'}),text),
+      action&&h('span',{className:'ap-voice-way-action'},action),
       children?h(Glyph,{name:'chevDown'}):h('span',{className:'ap-voice-way-pad','aria-hidden':true})),
     open&&children&&h('div',{id:body,className:'ap-voice-way-body','data-needed':needed||undefined},children));
 }
@@ -516,7 +518,7 @@ function FigureVoiceField({pack,figure,status,pillRef,onOpen}) {
 // what to do, 配音语言, 试听), then 「配音来源」: the five sources in one list (the one place to choose; a way already set up in the
 // voice switches at once, one not set up yet is chosen unset and opens its settings), then
 // 「调音」 (this voice's tunings). Other pack voices and 我的模板 are in the voice's ⋯.
-function VoicePage({binding,pack,figure,rows,status,preview,speech,commitVoice,ctx,onClose}) {
+function VoicePage({binding,pack,figure,rows,status,preview,speech,commitVoice,nav,onClose}) {
   const packId=pack.manifest.id,voice=figure.voice||null,spec=figureVoiceSpec(pack,figure),sourceId=spec?voiceSourceId(spec,voice):null;
   const active=spec&&sourceId?spec.sources[sourceId]||null:null;
   const head=React.useRef(null),services=useVoiceServices(binding),readiness=useVoiceReadiness(binding),clips=useAudioPreview(binding,packId,speech);
@@ -538,12 +540,12 @@ function VoicePage({binding,pack,figure,rows,status,preview,speech,commitVoice,c
   // the popular Fish voices in the figure's
   // 配音语言 (zh / ja; other languages read both), from the 声音库 row in use (else the first), with the voice in use kept in
   // the list. The answer is shown at once (curated picks) and re-read each second while it says `refreshing`.
-  const libraryRows=ways.filter(w=>w.base==='library'),fishService=(libraryRows.find(w=>w.id===activeWay)||libraryRows[0])?.serviceId;
+  const libraryRows=ways.filter(w=>w.base==='library'&&!w.unconfigured),fishService=(libraryRows.find(w=>w.id===activeWay)||libraryRows[0])?.serviceId;
   const speakLang=primaryLanguage(spec?effectiveVoiceLanguage(voice.language,spec.language):'ja'),catalogLang=['zh','ja'].includes(speakLang)?speakLang:undefined;
   const recommended=useVoiceLoad(()=>services.loaded&&libraryRows.length&&(readiness.services||!binding.tts?.call)?voiceTts(binding).call('listRecommendedFishVoices',{...(catalogLang?{language:catalogLang}:{}),...(fishService?{serviceId:fishService}:{}),...(fishId?{selectedVoiceId:fishId}:{})}):null,
     [binding,services.loaded,libraryRows.length>0,!!readiness.services,catalogLang,fishService,fishId],{keep:true});
   const common={binding,pack,figure,spec,voice,sourceId,writer,preview:player,services,candidate,choose,setError};
-  const openSettings=ctx?.nav?.openTab?(provider,options)=>openVoiceSettings(ctx,provider,options):null;
+  const openSettings=nav?.openTab?(provider,options)=>openVoiceSettings(nav,provider,options):null;
   const provider=way=>way.provider||(way.id==='online'?entry(way)?.[1].provider:null);
   // Only the radio switches (a binding write); opening a way never does.
   const use=way=>{
@@ -587,12 +589,16 @@ function VoicePage({binding,pack,figure,rows,status,preview,speech,commitVoice,c
     error&&h('div',{role:'alert',className:'ap-alert ap-hint-chip ap-voice-error'},'\u26a0 ',error),
     // A candidate preview (a list's ▶) that failed says why here too; the saved voice's own failure sits under 试听.
     preview.state?.phase==='error'&&preview.state.key!=='saved:'+figure.id&&h('div',{role:'alert',className:'ap-alert ap-hint-chip ap-voice-error'},'\u26a0 试听失败：',preview.state.error),
-    h(VoiceHero,{...common,rows,status,notice,ctx,setNotice,readiness,openSettings,activeRow,several:!!ways.find(w=>w.bind&&w.kind===active?.kind),summary,onOthers:()=>setOthers(true),onFix:id=>setOpen(id)}),
+    h(VoiceHero,{...common,rows,status,notice,setNotice,readiness,openSettings,activeRow,several:!!ways.find(w=>w.bind&&w.kind===active?.kind),summary,onOthers:()=>setOthers(true),onFix:id=>setOpen(id)}),
     // 配音来源 (?) says the rows are the services set up in 配音后端; 「配音后端 ›」 sits fixed at the right of its heading.
     h(StageSection,{title:'配音来源',help:VOICE_WAYS_HELP,foldKey:'voice-ways',className:'ap-voice-ways-section',
         action:openSettings&&h(Button,{className:'ap-link ap-voice-backend',onClick:()=>openSettings(null)},'配音后端 ›')},
       !readiness.loaded?(readiness.error?h(VoiceLoadError,{error:readiness.error,retry:readiness.reload}):h(VoiceLoading)):
-      h('div',{className:'ap-voice-ways',role:'radiogroup','aria-label':'配音来源'},ways.map(way=>h(VoiceWay,{key:way.id,way,current:activeWay===way.id||way.id==='off'&&!spec,
+      h('div',{className:'ap-voice-ways',role:'radiogroup','aria-label':'配音来源'},ways.map(way=>way.unconfigured?
+        // The source in use names a service not set up in 配音后端: that row alone (「<服务名> · 未设置」 and the way there), no list.
+        h(VoiceWay,{key:way.id,way,current:activeWay===way.id,state:{warn:true,text:providerName(provider(way))+' · 未设置'},
+          action:openSettings&&h(Button,{className:'ap-link',onClick:()=>openSettings(provider(way))},VOICE_BACKEND_LINK)}):
+        h(VoiceWay,{key:way.id,way,current:activeWay===way.id||way.id==='off'&&!spec,
         incomplete:way.id==='off'?'':incomplete(way),open:open===way.id,onUse:()=>use(way),onToggle:()=>toggle(way),
         count:way.id==='online'?catalogServices(readiness.services,'preset').length:0,
         // Only a service that cannot speak says so (⚠ and why); the usual states (待机 / 运行中) are not written.

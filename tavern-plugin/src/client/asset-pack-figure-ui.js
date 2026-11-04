@@ -871,7 +871,7 @@ function FigureMoreMenu({figure,actions,onRemove}) {
       actions?.remove&&h(MenuItem,{danger:true,onClick:()=>{close();onRemove();}},'删除人物…'))});
 }
 const BASIC_HELP='人物本身的资料，所有服装共用。';
-function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions,ctx,narrow=false,onBack,onClose,backLabel='人物',gen,importSettei,removeFigureImage,identityBoard,tab:tabChoice,setTab,voiceOpen:voiceFirst=false}) {
+function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions,nav,narrow=false,onBack,onClose,backLabel='人物',gen,importSettei,removeFigureImage,identityBoard,tab:tabChoice,setTab,voiceOpen:voiceFirst=false}) {
   // the figure's default outfit is its first enabled one (asset-packs.md: no
   // defaultOutfit field, order is the default) — what the stage starts with and what an opening scene without its own
   // outfit uses. Figure select: the editor no longer shows or sets it (the opening outfit is chosen in
@@ -1209,7 +1209,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
           candidatePreview||(previewEmpty?still:h(FigureStillPreview,{key:(outfit?.key||'')+kind},still)),
         outfit&&tab==='edit'&&!voiceOpen&&tool)),
     h('div',{className:'ap-figure-main'},
-      voiceOpen?h(VoicePage,{binding,pack,figure,rows:figureDeclaredRows(figure,pack),status:voiceStatus,preview:voicePreview,speech,commitVoice,assignFigureVoice,ctx,onClose:closeVoice}):h(React.Fragment,null,
+      voiceOpen?h(VoicePage,{binding,pack,figure,rows:figureDeclaredRows(figure,pack),status:voiceStatus,preview:voicePreview,speech,commitVoice,assignFigureVoice,nav,onClose:closeVoice}):h(React.Fragment,null,
       h(ErrorBox,{error}),
       !narrow&&h('div',{className:'ap-detail-title'},nameInput,h('span',{className:'ap-title-tools'},enable,more)),
       !narrow&&tabs,

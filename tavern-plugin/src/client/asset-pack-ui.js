@@ -758,7 +758,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // with a chat open the library reads that card's bindings (card scope: 本卡 / 全局 / 关闭,
   // the same writer as 舞台设置). no group heads; 全局 → 本卡 → 关闭 bands,
   // each ordered by the chosen sort, in every kind tab.
-  function Home({binding,open,onOpen,sessionId,cardPath,cardStamp,filter}) {
+  function Home({binding,open,onOpen,sessionId,cardPath,cardStamp,filter,nav}) {
     const state=useLoad(binding,async()=>{await binding.loadSettings?.();return loadPackRows(binding);},[]),[query,setQuery]=React.useState(''),[kind,setKind]=React.useState(''),[draft,setDraft]=React.useState(false),[sort,setSort]=usePackSort(),[getting,setGetting]=React.useState(false),[picking,setPicking]=React.useState(null);
     React.useEffect(()=>{if(filter)setKind(filter.kind||'');},[filter]);
     const list=state.value||[],packs=list.filter(p=>!p.error),broken=list.filter(p=>p.error);
@@ -818,7 +818,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       getting&&h(PackGetSheet,{binding,packs,catalogueReady:catalogue.ready,onClose:()=>setGetting(false),onSources:catalogue.openSources,onInstalled:catalogue.installed,
         onPreview:preview=>{setGetting(false);actions.setPreview(preview);}}),
       catalogue.layer,
-      open&&h(PackModal,{key:open.packId+':'+(open.at||''),binding,packId:open.packId,initial:open,scope,packs,ctx:null,onPacksChanged:()=>state.reload(),onOpenPack:(id,k,item)=>onOpen({packId:id,kind:k,figureId:item}),onClose:changed=>{onOpen(null);if(changed)state.reload();}}));
+      open&&h(PackModal,{key:open.packId+':'+(open.at||''),binding,packId:open.packId,initial:open,scope,packs,ctx:null,nav,onPacksChanged:()=>state.reload(),onOpenPack:(id,k,item)=>onOpen({packId:id,kind:k,figureId:item}),onClose:changed=>{onOpen(null);if(changed)state.reload();}}));
   }
   // ---------- The shared pack modal (素材库 and 舞台设置; editable everywhere) ----------
   function useNarrow() {
@@ -891,7 +891,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // initial: {kind?, figureId?, tab?: 'gen' | 'voice' (stage setup wizard: the figure opens on 生图 or its 声音 page)}. scope: the surface's usePackScope (its errors show in the foot; figure-editor r4:
   // no state tag in the header — the pack's 全局 / 本卡 / 关闭 is set in the library list, not inside the pack). ctx: card context or null.
   // onClose(changed): `changed` tells the caller its cached pack snapshots are stale.
-  function PackModal({binding,packId,initial,scope,packs,ctx,onPacksChanged,onOpenPack,onClose}) {
+  // nav: the host's tab navigation (openTab) — the library's own, or the card context's (舞台设置).
+  function PackModal({binding,packId,initial,scope,packs,ctx,nav=ctx?.nav,onPacksChanged,onOpenPack,onClose}) {
     const state=useLoad(binding,()=>binding.service.getPackSnapshot({packId}),[packId]),pack=state.value,audio=useAudioPreview(binding,packId),narrow=useNarrow(),work=useTask(binding);
     // a list lamp choice is a quiet write of its own — no 正在处理…, only an error in the foot.
     const lampWork=useTask(binding);
@@ -1239,7 +1240,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       // in the name row of an entry / style / CG (its name is the page title; cg-editor redesign: a CG has a name row now).
       h(PanelBoundary,{name:'entry-detail',lead:narrowBack&&h('div',{className:'ap-detail-title ap-subhead'},h(SubpageBack,narrowBack)),resetKey:current+'/'+(drafting?'@new':selected?.id||'')+'@'+pack.revision},
       current==='directions'&&(drafting||selected)?h(StyleDetail,{key:drafting?'@new':'directions/'+selected.id,pack,asset:drafting?null:selected,commit,create:createStyle,remove:removeStyle,busy:work.busy,back:narrowBack}):
-      !selected?null:current==='figures'?h(FigureDetail,{key:selected.id,binding,pack,figure:selected,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions:figureActions(selected.id),ctx,narrow,onBack:()=>setDetail(false),onClose:close,backLabel:kinds[current],
+      !selected?null:current==='figures'?h(FigureDetail,{key:selected.id,binding,pack,figure:selected,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions:figureActions(selected.id),nav,narrow,onBack:()=>setDetail(false),onClose:close,backLabel:kinds[current],
           gen,importSettei,removeFigureImage,identityBoard:{upload:importIdentitySettei,remove:removeIdentitySettei},tab:figureTab,setTab:setFigureTab,voiceOpen:initial?.tab==='voice'&&selected.id===initial.figureId}):
         current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,card:ctx||scope?.ctx||null,back:narrowBack}):
         h(EntryDetail,{key:current+'/'+selected.id,binding,pack,packs,asset:selected,commit,audio,gen,uploadBackground,uploadVariant,card:ctx||scope?.ctx||null,remove:removeEntry,busy:work.busy,back:narrowBack,
@@ -1394,7 +1395,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     if(!available||!binding?.service||binding.service.apiVersion!==2)return h('section',{className:'ap-ui',role:'status'},h('p',{className:'ap-empty'},'素材插件不可用'));
     return h('div',{className:'ap-ui ap-library'},
       h('header',{className:'ap-head'},h('h2',null,'舞台素材')),
-      h(Home,{binding,open,onOpen:setOpen,sessionId:props.sessionId,cardPath:props.cardPath,cardStamp:props.cardStamp,filter}));
+      h(Home,{binding,open,onOpen:setOpen,sessionId:props.sessionId,cardPath:props.cardPath,cardStamp:props.cardStamp,filter,nav:props.nav}));
   }
   return stageExposed({App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
     // the stage pages' seam: names in (stageScope.names), bind / use (gal-stage.js, asset-launcher.js, settings.js).
