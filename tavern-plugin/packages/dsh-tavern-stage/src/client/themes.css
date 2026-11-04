@@ -183,7 +183,7 @@
   .fork-cg-viewer-ui { opacity: .38; }
   .fork-cg-viewer:is([data-active], [data-confirm], :has(:focus-visible)) .fork-cg-viewer-ui { opacity: 1; }
 }
-.fork-cg-viewer[data-ui="off"] .fork-cg-viewer-ui { opacity: 0; visibility: hidden; }
+.fork-cg-viewer[data-ui=off] .fork-cg-viewer-ui { opacity: 0; visibility: hidden; }
 .fork-cg-viewer-scrim { position: absolute; left: 0; right: 0; top: 0; height: 160px; background: linear-gradient(rgb(0 0 0 / .55), transparent); }
 .fork-cg-viewer-top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 16px; padding: 20px 24px 0; }
 .fork-cg-viewer-top h2 { flex: 1; text-shadow: 0 1px 3px rgb(0 0 0 / .7); }
@@ -206,7 +206,7 @@
 .fork-cg-crop-menu .fork-cg-icon { width: 16px; height: 16px; visibility: hidden; }
 .fork-cg-crop-menu [aria-checked="true"] .fork-cg-icon { visibility: visible; }
 /* 删除这张 CG？: a card hanging from 🗑 over the darkened picture; everything else steps back until it is answered. */
-.fork-cg-viewer[data-confirm] :is(.fork-cg-nav, .fork-cg-dots, .fork-cg-crop, .fork-cg-viewer-acts > :not([data-k="remove"])) { opacity: .35; pointer-events: none; }
+.fork-cg-viewer[data-confirm] :is(.fork-cg-nav, .fork-cg-dots, .fork-cg-crop, .fork-cg-viewer-acts > :not([data-k=remove])) { opacity: .35; pointer-events: none; }
 .fork-cg-viewer[data-confirm] [data-tip]::after { display: none; }
 .fork-cg-confirm { position: absolute; top: calc(100% + 14px); right: 24px; z-index: 6; box-sizing: border-box; width: min(304px, calc(100vw - 24px)); padding: 18px 16px 16px; border: 1px solid var(--cg-card-line);
   border-radius: 16px; background: var(--cg-card); box-shadow: 0 18px 48px rgb(0 0 0 / .55); color: var(--cg-ink); cursor: default; transform-origin: calc(100% - 74px) 0; animation: fork-cg-pop .16s ease-out; }
