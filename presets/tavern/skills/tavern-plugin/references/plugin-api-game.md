@@ -356,6 +356,12 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, text }) => {
 - 只负责「停」：迟到的写入照样由 `textVersion` 拦下（`saveTurnData`、`attach`、`setVariables`、`editTurn` 都会拒绝旧版本），插件不需要另做提交、回滚。
 - 插件卸载后，它取的信号不再更新。
 
+## `inspectStageAsset({ gameId, kind, ref })`（能力 `stageAssetStatus: 1`）
+
+查询本局原生舞台可用的素材引用状态。`kind` 为 `figure` 时 `ref` 是 `{packId, figureId}`；为 `asset` 时是 `{packId, kind, assetId}`。返回 `{ref, status, revision}`，状态为 `available`、`pack-unavailable`、`figure-missing`、`figure-disabled`、`asset-missing`、`asset-disabled`、`media-pending`、`stage-unavailable` 或 `changed`。`changed` 表示读取期间配置发生变化，可重新查询；`revision` 只是本次包版本，不是持久身份。非法引用抛错。查询遵循卡插件的本局作用域，未绑定或不可用的包都返回 `pack-unavailable`，不泄露其他包是否存在。
+
+这是即时诊断，不是媒体借用、持久 URL 或资源授权；状态在返回后仍可能失效。舞台关闭或素材服务不可用时应使用静态占位，旧宿主未声明该能力时同样降级。此接口不提供素材路径、凭证或受信宿主租约。
+
 ## `onGameRemoved(handler)`
 
 一局游戏被删除时调用，收到 `{ gameId }`，供插件清理自己按局保存的数据。插件挂到这局上的媒体项由 Tavern 一并清理。

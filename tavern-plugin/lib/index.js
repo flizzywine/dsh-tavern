@@ -2784,6 +2784,11 @@ export async function apply(ctx) {
     readCast,
     readRequestContext: async (sessionId, turn) => foregroundRequestContext(await chatHeaderForSession(sessionId, ['foregroundFrames', 'timeline']), turn),
     listCardPacks: sessionId => cardPacksOf(sessionId),
+    inspectStageAsset: async (sessionId, {kind, ref}) => {
+      const { inspectStageAssetRef } = await import('./domain/plugin-stage-assets.js')
+      const card = await castCardOf(sessionId)
+      return inspectStageAssetRef({kind, ref, snapshot: () => stageRuntime.assets.assetSnapshot(card.path)})
+    },
     cardScope: () => cardPlugins.scope(),
     cardPathOf: async sessionId => str((await chatHeaderForSession(str(sessionId), ['cardPath']))?.cardPath) || null,
     readCardPackFile: async (sessionId, packId, file) => {

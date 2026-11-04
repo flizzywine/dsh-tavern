@@ -68,7 +68,14 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
   }
   // A game's card speech (createAssetPackSpeech) for an authenticated page origin; null without the stage or card bindings.
   const cardSpeech=async(chat,origin)=>runtime ? (await runtime.assets.assetRuntime.consumer(chat,origin))?.speech || null : null
-  const api = Object.freeze({assets:{dialogueBubbles,cardStageMode,cardSpeech},enable,disable,
+  const assetSnapshot=async cardPath=>{
+    const installed=runtime
+    if(!installed)return null
+    const result=await installed.assets.assetRuntime.snapshot(cardPath)
+    if(!result)return null
+    return {...result,current:()=>runtime===installed && result.current()}
+  }
+  const api = Object.freeze({assets:{dialogueBubbles,cardStageMode,cardSpeech,assetSnapshot},enable,disable,
     cards(bindings) {
       phases.set('cards',[bindings])
       if(runtime)try{cards=runtime.cards(bindings)}catch(error){failed(error)}
