@@ -102,11 +102,6 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     const declaration = {voice:resolved.voiceSpec,binding:figure.voice}
     const binding = getBinding ? await getBinding(ref, declaration, {readOnly}) : await assetVoiceBinding(service, declaration, {readOnly})
     if (!binding) throw failure('SERVICE_REQUIRED')
-    // No service can speak her (zero-config): the TTS service hands back the browser, which speaks her line itself.
-    if (binding.browser) {
-      drop()
-      return {available:true,browser:structuredClone(binding.browser),voiceId:figure.voice.voice,language:voice.languages[0],scope,diagnostics:[]}
-    }
     // readings are the global active preset, applied (and part of the line
     // identity) inside dsh-tts. The empty `readings` keeps every figure's source id — and so its cached audio — unchanged.
     const revision = assetPackDigest({voice,readings:[],binding,id:figure.voice.voice,language:voice.languages[0]})

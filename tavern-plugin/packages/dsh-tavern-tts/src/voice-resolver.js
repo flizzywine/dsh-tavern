@@ -7,12 +7,6 @@ export function chooseService(source, services) {
   const compatible = services.filter(s => s.kind === source.provider)
   return compatible.find(s => s.id === source.serviceId) ?? (compatible.length === 1 ? compatible[0] : undefined)
 }
-// Zero-config default: when none of the listed services can speak this source, the browser speaks it.
-// A browser descriptor binds nothing, so no job is queued and nothing is cached.
-export const BROWSER_SERVICE = Object.freeze({serviceId:'browser',browser:Object.freeze({voice:null}),capabilities:Object.freeze({browser:true,paid:false,billing:'free'})})
-export function browserFallback(source, services) {
-  return services.some(s => s.kind === source.provider) ? null : {effective:structuredClone(BROWSER_SERVICE),issues:[]}
-}
 // every 配音来源 can be chosen before it is set up. The chosen source then
 // reports what it still lacks and stays silent; nothing falls back to another source.
 export function sourceUnsetIssue(source) {
