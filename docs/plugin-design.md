@@ -4,7 +4,10 @@
 
 宿主能力标记 `tavern.capabilities.gameMode === 1`。卡内插件通过
 `tavern.gameMode({ name, title, version, create, advance, project })` 注册整局玩法；
-浏览器侧通过 `tavernUi.registerGameModeView({ name, render })` 注册对应界面。
+浏览器侧通过 `tavernUi.registerGameModeView({ name, render, presentation?, lobby? })` 注册对应界面。
+`presentation: "page"` 让专属网页接管游玩区域，隐藏正文内的重复玩法界面；默认仍为正文内展示。
+页面可提供 `lobby({ busy, start })` 定制开局大厅，调用 `start()` 创建本局；`render` 额外收到 `page: true`。
+宿主提供返回酒馆和返回游戏入口，重新打开读取同一局进度。关闭页面会卸载视图，已提交的行动仍保存。
 两端的插件归属名和 `name` 必须一致。注册随插件卸载撤销。
 
 - `create({ gameId, input, signal, agent })` 和 `advance({ gameId, state, input, signal, agent })`
@@ -34,7 +37,7 @@
 示例：`examples/werewolf/` 的全部规则、角色视角和界面都在卡内插件中。
 运行 `node examples/werewolf/build.mjs` 生成 `output/werewolf/六人狼人杀.dshcard`。
 导入后启用卡内插件，按宿主提示重启/刷新，配置本局后台模型，新开一局后点击开始。
-固定六人、真人默认1号位、身份随机。玩家体验契约：领取身份 → 确认进入第一晚 →
+固定六人、真人座位与身份随机。玩家体验契约：领取身份 → 确认进入第一晚 →
 自己的夜间行动或自动等待 → DM 公布天亮 → 确认进入讨论 → 按顺序发言 → 投票确认 →
 DM 结算 → 确认进入下一晚或终局。预言家查验结果单独停留确认；玩家死亡后自动观战，终局揭晓身份与行动。
 NPC 自动逐步行动并逐次保存，只在玩家决策及阶段阅读点停下；不让玩家点击内部执行步骤。

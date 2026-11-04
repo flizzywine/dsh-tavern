@@ -449,7 +449,7 @@
 					const owner = ownerOf(this), key = owner + ':' + input.name;
 					return owned(this, function () {
 						if (gameModeViews.has(key)) throw new Error('玩法界面已注册');
-						gameModeViews.set(key, { owner: owner, render: input.render }); changed();
+						gameModeViews.set(key, { owner: owner, render: input.render, page: input.presentation === 'page', lobby: typeof input.lobby === 'function' ? input.lobby : null }); changed();
 						return function () { gameModeViews.delete(key); changed(); };
 					}, 'tavernUi.registerGameModeView()');
 				},

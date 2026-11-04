@@ -53,10 +53,10 @@ window.activateGamePlugin = () => { window.gamePluginReady = true; extensionVers
 const tavernSessionSignals = {subscribe: () => () => {}};
 const tavernPluginBoundary = () => function Boundary(p) { return p.children; };
 async function rpc(method, args, sessionId) { if (args.op === 'list' && !window.gamePluginReady) { window.emptyListRead = true; return {modes:[]}; } const r = await fetch('/rpc/' + method, {method:'POST',body:JSON.stringify({...args,sessionId})}); const result = await r.json(); if (!result.ok) throw Error(result.error); return result; }
-window.__ModuleLoader__ = {load: descriptor => descriptor.factory(name => modules[name]).apply({tavernUi:{registerGameModeView: input => registry.set('dsh-card-werewolf:' + input.name, {owner:'dsh-card-werewolf',render:input.render})}})};
+window.__ModuleLoader__ = {load: descriptor => descriptor.factory(name => modules[name]).apply({tavernUi:{registerGameModeView: input => registry.set('dsh-card-werewolf:' + input.name, {owner:'dsh-card-werewolf',render:input.render,page:input.presentation==='page',lobby:input.lobby})}})};
 ${pluginClient}
 ${surface}
-createRoot(document.getElementById('app')).render(React.createElement(TavernGameModeSurface,{sessionId:'werewolf-game'}));`
+createRoot(document.getElementById('app')).render(React.createElement(TavernGameModeSurface,{sessionId:'werewolf-game',pageHost:true}));`
 const server = createServer(async (req, res) => {
   if (req.url === '/') { res.setHeader('content-type', 'text/html; charset=utf-8'); res.end('<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>狼人杀验证</title><style>' + hostSkin + '\nbody{margin:16px;background:#faf9f6} #app div{background:transparent!important} #app button{background:#eee!important;color:#888!important}</style><div id="app"></div><script src="/app.js"></script>'); return }
   if (req.url === '/app.js') { res.setHeader('content-type', 'text/javascript'); res.end(script); return }
@@ -85,10 +85,10 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'mobile layout must not overflow')
   await page.screenshot({ path: join(output, 'werewolf-ui-mobile.png'), fullPage: true })
   await page.setViewportSize({ width: 1100, height: 850 })
-  await page.getByRole('button', { name: '展开视图' }).click()
-  await page.getByRole('button', { name: '收起视图' }).waitFor()
-  await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: '展开视图' }).waitFor()
+  await page.getByRole('button', { name: '返回酒馆' }).click()
+  await page.getByRole('button', { name: '返回游戏页面' }).click()
+  await page.getByRole('dialog', { name: '专属游玩页面' }).waitFor()
+  await page.getByRole('button', { name: '我已了解，进入第一晚' }).waitFor()
   await page.getByRole('button', { name: '我已了解，进入第一晚' }).click()
   await page.getByLabel('你的发言').fill('今晚一起仔细观察。')
   await page.getByRole('button', { name: '发送密谈', exact: true }).click()
@@ -121,6 +121,12 @@ try {
   await page.getByRole('region', { name: '终局复盘' }).waitFor()
   const final = (await host.rpc('gameMode', { sessionId: 'werewolf-game' })).mode
   assert.ok(final.data.winner); assert.deepEqual(errors, [])
+  const publicLog = page.getByRole('log', { name: '主持与公开发言' })
+  assert.ok(final.data.publicHistory.length > 2)
+  assert.equal(await publicLog.locator('article').count(), final.data.publicHistory.length, 'central log retains the entire public history')
+  assert.ok(await publicLog.evaluate(el => el.clientHeight >= 320 && el.scrollHeight > el.clientHeight), 'public log provides a tall scrollable viewport')
+  await publicLog.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
+  assert.equal(await publicLog.evaluate(el => el.scrollTop), 0, 'earliest records remain reachable')
   await page.screenshot({ path: join(output, 'werewolf-desktop.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: join(output, 'werewolf-mobile.png'), fullPage: true })
   await writeFile(join(output, 'browser-report.json'), JSON.stringify({ winner: final.data.winner, checkpoints: final.length, requests: native.requests.length, errors }, null, 2))

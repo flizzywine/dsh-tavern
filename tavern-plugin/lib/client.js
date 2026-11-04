@@ -32510,7 +32510,7 @@ function tavernFloorHeightRecall(key, width) {
 					const owner = ownerOf(this), key = owner + ':' + input.name;
 					return owned(this, function () {
 						if (gameModeViews.has(key)) throw new Error('玩法界面已注册');
-						gameModeViews.set(key, { owner: owner, render: input.render }); changed();
+						gameModeViews.set(key, { owner: owner, render: input.render, page: input.presentation === 'page', lobby: typeof input.lobby === 'function' ? input.lobby : null }); changed();
 						return function () { gameModeViews.delete(key); changed(); };
 					}, 'tavernUi.registerGameModeView()');
 				},
@@ -33636,6 +33636,7 @@ function tavernFloorHeightRecall(key, width) {
 				const [snapshot, setSnapshot] = React.useState(null), [modes, setModes] = React.useState([]);
 				const [error, setError] = React.useState(''), [pending, setPending] = React.useState(false);
 				const [paused, setPaused] = React.useState(false);
+                const [pageOpen, setPageOpen] = React.useState(true);
 				const actionLocks = TavernGameModeSurface.actionLocks || (TavernGameModeSurface.actionLocks = new Set());
 				React.useEffect(function () {
 					let disposed = false;
@@ -33660,12 +33661,15 @@ function tavernFloorHeightRecall(key, width) {
 					finally { if (input.op !== 'stop') actionLocks.delete(sessionId); setPending(false); }
 				}
 				if (!snapshot && !modes.length && !error) return null;
-				if (snapshot?.foreground && !props.foreground) return null;
+                const pageRenderer = snapshot ? tavernUiExtensions.gameModeView(snapshot.key) : modes.map(mode => tavernUiExtensions.gameModeView(mode.key)).find(view => view?.page);
+                if (props.pageHost && !pageRenderer?.page) return null;
+                if (!props.pageHost && pageRenderer?.page) return null;
+				if (!props.pageHost && snapshot?.foreground && !props.foreground) return null;
 				if (props.foreground && (!snapshot || props.messageId !== snapshot.foregroundMessageId)) return null;
 				const renderer = snapshot && tavernUiExtensions.gameModeView(snapshot.key);
-				return h('section', { className: 'dsh-tavern-game-mode', 'aria-label': '自定义玩法', 'data-revision': snapshot && snapshot.revision },
+				const surface = h('section', { className: 'dsh-tavern-game-mode', 'aria-label': '自定义玩法', 'data-revision': snapshot && snapshot.revision },
 					error ? h('p', { role: 'alert' }, error) : null,
-					!snapshot ? h('div', { ref: launchRef }, launchRoot && ReactDOM.createPortal(h(React.Fragment, null,
+					!snapshot && props.pageHost && pageRenderer?.lobby ? h(tavernPluginBoundary(), { owner: pageRenderer.owner }, h(pageRenderer.lobby, { busy: pending, start: function () { const mode = modes.find(mode => tavernUiExtensions.gameModeView(mode.key) === pageRenderer); if (mode) return act({ op: 'create', key: mode.key }); } })) : !snapshot ? h('div', { ref: launchRef }, launchRoot && ReactDOM.createPortal(h(React.Fragment, null,
 						h('style', null, ':host{display:block;margin:24px 0}*{box-sizing:border-box}.launch{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px;border:1px solid #bda16c66;border-radius:16px;background:linear-gradient(120deg,#101a2c,#1e2940);color:#f2eadb;font:14px/1.6 system-ui;box-shadow:0 12px 32px #07102018}.title{font-size:20px;font-weight:650}.hint{color:#b9c5d7;margin-top:4px;font-size:12px}button{flex-shrink:0;border:1px solid #eddbb6;border-radius:10px;padding:13px 24px;background:linear-gradient(120deg,#efdcaf,#c4a36c);color:#1b2230;font:650 15px/1.5 system-ui;cursor:pointer;box-shadow:0 4px 18px #0003}button:hover{filter:brightness(1.1)}button:focus-visible{outline:3px solid #fff;outline-offset:4px}button:disabled{opacity:.6;cursor:wait}@media(max-width:600px){.launch{flex-wrap:wrap;padding:20px}button{width:100%}}'),
 						modes.map(function (mode) { return h('div', { key: mode.key, className: 'launch' }, h('div', null, h('div', { className: 'title' }, mode.title), h('div', { className: 'hint' }, '准备就绪，开启你的游戏')), h('button', { type: 'button', disabled: pending, onClick: function () { act({ op: 'create', key: mode.key }); } }, pending ? '正在开启…' : '开始 ' + mode.title)); })), launchRoot)) : null,
 					snapshot ? h('div', null,
@@ -33673,8 +33677,20 @@ function tavernFloorHeightRecall(key, width) {
 						h('button', { disabled: pending || snapshot.busy || snapshot.cursor < 1, onClick: function () { act({ op: 'seek', cursor: snapshot.cursor - 1 }); } }, '回退一步'),
 						h('button', { disabled: pending || snapshot.busy || snapshot.cursor + 1 >= snapshot.length, onClick: function () { act({ op: 'seek', cursor: snapshot.cursor + 1 }); } }, '撤销回退'),
 						renderer ? h(tavernPluginBoundary(), { owner: renderer.owner, fallback: h('p', null, '玩法界面出错，请恢复插件') },
-							h(renderer.render, { gameId: sessionId, data: snapshot.data, foreground: snapshot.foreground, revision: snapshot.revision, paused: paused, error: error, resume: function () { setError(''); setPaused(false); }, busy: pending || snapshot.busy, advance: function (input) { return act({ op: 'advance', input: input }); } })) : h('p', null, '请加载对应的玩法界面插件')) : null);
+							h(renderer.render, { gameId: sessionId, data: snapshot.data, foreground: props.pageHost ? false : snapshot.foreground, page: !!props.pageHost, revision: snapshot.revision, paused: paused, error: error, resume: function () { setError(''); setPaused(false); }, busy: pending || snapshot.busy, advance: function (input) { return act({ op: 'advance', input: input }); } })) : h('p', null, '请加载对应的玩法界面插件')) : null);
+                if (!props.pageHost) return surface;
+                if (!pageOpen) return h('button', { className: 'dsh-tavern-btn', onClick: function () { setPageOpen(true); } }, '返回游戏页面');
+                return ReactDOM.createPortal(h('div', { className: 'dsh-tavern-game-page', role: 'dialog', 'aria-modal': 'true', 'aria-label': '专属游玩页面', style: { position: 'fixed', inset: '36px 0 0', zIndex: 10000, background: '#080e19', color: '#edf2fa', overflow: 'auto' } },
+                    h('style', null, '.dsh-tavern-game-page>.page-nav{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;border-bottom:1px solid #ffffff20;font:14px system-ui}.dsh-tavern-game-page button{cursor:pointer}.dsh-tavern-game-page>.dsh-tavern-game-mode{max-width:1600px;margin:auto;padding:12px 24px}.dsh-tavern-game-page>.dsh-tavern-game-mode>div>button{background:#1b293d;border:1px solid #53647d;color:#edf2fa;border-radius:6px;padding:7px 14px;margin:0 8px 10px 0}'),
+                    h('nav', { className: 'page-nav' }, h('strong', null, 'DSH Tavern · 游戏'), h('button', { className: 'dsh-tavern-btn', onClick: function () { setPageOpen(false); } }, '返回酒馆')), surface), document.body);
+
 			}
+
+            function TavernGamePage(props) {
+                const sessionId = String(props.sessionId || '');
+                if (!sessionId) return null;
+                return React.createElement(TavernGameModeSurface, { key: sessionId, sessionId: sessionId, pageHost: true });
+            }
 
 			function TavernComposerSlot(props) {
 				useTavernUiExtensions();
@@ -33694,6 +33710,7 @@ function tavernFloorHeightRecall(key, width) {
 
 			function register(input) {
 				const slots = input.slots;
+
 				input.ctx.effect(function () {
 					return slots.inject("conversation.input.dock", function () {
 						return slots.register({ name: "conversation.input.dock", id: "dsh-tavern-reply-observer", order: -300, label: "回复观察" }, TavernReplyObserver);
@@ -33707,7 +33724,7 @@ function tavernFloorHeightRecall(key, width) {
 				return function () {};
 			}
 
-			return Object.freeze({ register: register, tavernReplyState: tavernReplyState, GameModeSurface: TavernGameModeSurface });
+			return Object.freeze({ register: register, tavernReplyState: tavernReplyState, GamePage: TavernGamePage, GameModeSurface: TavernGameModeSurface });
 		}
 		const tavernReplyObserverFeature = createTavernReplyObserverFeatureModule();
 
@@ -36237,7 +36254,7 @@ function tavernFloorHeightRecall(key, width) {
 		    return [h('option', { key: '', value: 'group:' }, '未分组'), ...groups.map(group => h('option', { key: group, value: 'group:' + group }, group))];
 		  }
 		  function closeMenu() { if (menu.current) menu.current.open = false; }
-		  function toolbar() {
+		  function toolbar(extraActions) {
 		    const choices = [{ value: '*', label: '全部' }, { value: 'favorites', label: '收藏' },
 		      { value: 'group:', label: '未分组' }, ...groups.map(group => ({ value: 'group:' + group, label: group }))];
 		    const selected = choices.find(choice => choice.value === filter)?.label || '全部';
@@ -36268,9 +36285,9 @@ function tavernFloorHeightRecall(key, width) {
 		              h('button', { type: 'button', onClick: () => { closeMenu(); setManaging(true); } }, '管理分组')))),
 		        h('input', { className: 'dsh-tavern-library-search', value: query, placeholder: '搜索人物卡', 'aria-label': '搜索人物卡', onChange: event => setQuery(event.target.value) })),
 		      batch.managing ? h('div', { className: 'dsh-tavern-card-batch-panel' }, batch.toolbar(visible,
-		        h('select', { className: 'dsh-tavern-card-batch-move', value: '', disabled: disabled || !batch.paths.length, 'aria-label': '移动所选人物卡到分组', onChange: event => {
+		        h(React.Fragment, null, extraActions, h('select', { className: 'dsh-tavern-card-batch-move', value: '', disabled: disabled || !batch.paths.length, 'aria-label': '移动所选人物卡到分组', onChange: event => {
 		          submit({ action: 'cards', paths: batch.paths, group: event.target.value.slice(6) });
-		        } }, h('option', { value: '', disabled: true }, '移动到分组…'), options()))) : null,
+		        } }, h('option', { value: '', disabled: true }, '移动到分组…'), options())))) : null,
 		      managing ? h('dialog', { className: 'dsh-tavern-group-manager', 'aria-label': '管理分组',
 		        ref: element => { manager.current = element; if (element && !element.open) element.showModal(); },
 		        onCancel: () => setManaging(false), onClick: event => { if (event.target === event.currentTarget && !disabled) setManaging(false); }
@@ -37750,7 +37767,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
 					h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
 				h("input", { ref: fileRef, type: "file", accept: TAVERN_CARD_FILE_ACCEPT, style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importCard(f); e.target.value = ""; } }),
 				pendingChatImport ? h("div", { className: "dsh-tavern-side-empty", role: "status", style: { padding: "4px 6px", display: "flex", alignItems: "center", gap: "8px" } }, h("span", null, "选择这份 SillyTavern 聊天记录对应的人物卡" + (pendingChatImport.characterName ? "（记录里的角色：" + pendingChatImport.characterName + "）" : "")), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setPendingChatImport(null); } }, "取消")) : null,
-				organization.toolbar(),
+				organization.toolbar(h('button', { className: 'dsh-tavern-btn', disabled: busy || cardBatch.paths.length !== 1, title: '选中一张人物卡后上传新版替换', onClick: function () { if (cardBatch.paths.length !== 1) return; setUpdateTarget(cardBatch.paths[0]); setUpdateFile(null); setUpdateNotice(''); setUpdateError(''); updateInput.current.click(); } }, '更新')),
 				organization.visible.length ? h(React.Fragment, null, h("div", { className: "dsh-tavern-side-empty", style: { padding: "4px 6px" } }, "已绑定剧本的人物卡将自动按剧本推进；未绑定的按自由故事推进。剧本绑定在“卡片模式”中管理。"), h(TavernCardList, { place: "play", cards: organization.visible, batch: cardBatch, busy: busy, open: function (card) { if (!card.readError) preparePlayConversation(card); } })) : h(EmptyState, cards.length ? { text: "没有匹配的人物卡", icon: "search" } : { noun: "人物卡",
 					action: cardZip ? h("div", { className: "dsh-tavern-empty-actions" }, h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || cardZip.busy, onClick: cardZip.openUrl }, "从网址导入卡")) : null })
 			));
@@ -37880,12 +37897,11 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
 					h("button", { className: uiMode === "card" ? "active" : "", disabled: busy, onClick: function () { switchMode("card"); } }, "卡片")
 				),
 				h("button", { className: "dsh-tavern-side-new", disabled: busy, onClick: function () { openPicker(); } }, uiMode === "play" ? (openingPicker ? "继续开局 · " + openingPicker.card.name : "＋ 选择人物卡 · 新开游玩") : "＋ 新建卡片工作台对话"),
-                h('button', { className: 'dsh-tavern-side-new', disabled: busy, onClick: function () { setUpdatingCard(true); setUpdateTarget(''); setUpdateFile(null); setUpdateNotice(''); setUpdateError(''); void refresh(); } }, '更新'),
+                    h('input',{ref:updateInput,type:'file',accept:'.json,.png,.charx,.dshcard',style:{display:'none'},onChange:e=>{const file=e.target.files?.[0]; if(!file)return; setUpdateFile(file); setUpdatingCard(true);setUpdateNotice('');setUpdateError('');e.target.value='';}}),
                 updatingCard ? h('div', { className: 'dsh-tavern-picker-overlay' }, h('div', { className: 'dsh-tavern-card-picker', role: 'dialog', 'aria-modal': 'true', 'aria-label': '更新人物卡', style:{width:'min(640px, calc(100vw - 32px))',height:'auto',minHeight:0,padding:'24px',gap:'18px',display:'flex',flexDirection:'column'} },
                     h('div', { className: 'dsh-tavern-card-picker-head' }, h('span', null, '更新人物卡'), h('span', {className:'dsh-tavern-spacer'}), h('button', {className:'dsh-tavern-btn', disabled:busy, onClick:()=>setUpdatingCard(false)}, '关闭')),
-                    h('p', null, '选择库中的旧卡，再上传新版。原位替换内容，保留历史会话、收藏和分组；旧卡会自动备份。'),
-                    h('label', null, '要更新的卡片', h('select', { 'aria-label':'要更新的卡片', className:'dsh-tavern-input', style:{display:'block',width:'100%',padding:'10px',marginTop:'8px'}, disabled:busy, value:updateTarget, onChange:e=>{setUpdateTarget(e.target.value);setUpdateFile(null);setUpdateNotice('');setUpdateError('');} }, h('option',{value:''},'请选择人物卡'), cards.map(card=>h('option',{key:card.path,value:card.path},card.name+' · '+card.path)))),
-                    h('input',{ref:updateInput,type:'file',accept:'.json,.png,.charx,.dshcard',style:{display:'none'},onChange:e=>{setUpdateFile(e.target.files?.[0]||null);setUpdateNotice('');setUpdateError('');e.target.value='';}}),
+                    h('p', null, '上传的新版将替换选中的卡片。原位替换内容，保留历史会话、收藏和分组；旧卡会自动备份。'),
+                    h('p', null, '更新：' + (cards.find(card => card.path === updateTarget)?.name || updateTarget)),
                     h('div',{className:'dsh-tavern-picker-foot'},h('button',{className:'dsh-tavern-btn',disabled:busy||!updateTarget,onClick:()=>updateInput.current.click()},'上传新版文件'),h('span',null,updateFile?.name||'支持 JSON、PNG、CHARX、DSHCARD')),
                     updateFile ? h('p',null,'将用「'+updateFile.name+'」替换所选卡片。已有对局不重置；新版插件是否兼容旧局取决于插件。') : null,
                     updateError ? h('p',{role:'alert',className:'dsh-tavern-dock-error'},updateError) : null,
@@ -37909,7 +37925,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                     h(TavernHostCompatibility),
 					updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : "") }, updateMessage)
 				),
-				(openingPicker || (picking && uiMode === "play")) ? h("div", { key: "play-picker", className: "dsh-tavern-picker-overlay", style: { display: picking && uiMode === "play" ? undefined : "none" }, onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, playPicker) : null,
+				(openingPicker || (picking && uiMode === "play")) ? h("div", { key: "play-picker", className: "dsh-tavern-picker-overlay", style: { display: picking && uiMode === "play" && !updatingCard ? undefined : "none" }, onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, playPicker) : null,
                 picking && uiMode === "card" ? h("div", { key: "card-picker", className: "dsh-tavern-picker-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, cardPicker) : null,
 				cardZipImport ? cardZipImport.element : null
 			));
@@ -52693,10 +52709,12 @@ function createTurnRailFilter(root, options) {
 			)), "dsh-tavern: rollback-to-turn action");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-actions", order: -130, label: "候选项操作" },
-				function (props) { return React.createElement(CandidateDockActions, Object.assign({}, props, {
+				function (props) { return React.createElement(React.Fragment, null,
+                    !ctx.sessions.subagentAddress(props.sessionId) && React.createElement(tavernReplyObserverFeature.GamePage, { sessionId: props.sessionId }),
+                    React.createElement(CandidateDockActions, Object.assign({}, props, {
 					sessions: ctx.sessions,
 					executeCompact: function (sessionId) { return ctx.remote.commands.execute(sessionId, "/compact", []); }
-				})); }
+				}))); }
 			)), "dsh-tavern: candidate dock actions");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-question", order: -120, label: "下一步行动" },

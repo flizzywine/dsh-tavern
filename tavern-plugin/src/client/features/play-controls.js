@@ -1219,10 +1219,12 @@
 			)), "dsh-tavern: rollback-to-turn action");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-actions", order: -130, label: "候选项操作" },
-				function (props) { return React.createElement(CandidateDockActions, Object.assign({}, props, {
+				function (props) { return React.createElement(React.Fragment, null,
+                    !ctx.sessions.subagentAddress(props.sessionId) && React.createElement(tavernReplyObserverFeature.GamePage, { sessionId: props.sessionId }),
+                    React.createElement(CandidateDockActions, Object.assign({}, props, {
 					sessions: ctx.sessions,
 					executeCompact: function (sessionId) { return ctx.remote.commands.execute(sessionId, "/compact", []); }
-				})); }
+				}))); }
 			)), "dsh-tavern: candidate dock actions");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-question", order: -120, label: "下一步行动" },
