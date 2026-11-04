@@ -187,3 +187,70 @@ test('reference mode requires a valid attached image selection and never silentl
   const submitted = JSON.parse(calls.find(call => call.path.endsWith('/generateImage')).init.body)
   assert.equal(submitted.images.length, 2)
 })
+
+test('auto mode uses references when the picture has them and draws the rest as text', { timeout: 20000 }, async t => {
+  const fixture = await imagePluginFixture(t, { config: { generationMode: 'auto', promptMode: 'structured' } })
+  const runtime = await fixture.start()
+  const { characterImage } = await saveReferenceDefinitions(runtime)
+  const calls = []
+  await withFetch(t, atlasFetch(calls))
+
+  const background = await runtime.request('jobs', { tag: '一片森林，晨雾中的小路。' })
+  assert.equal(background.status, 200, JSON.stringify(background.body))
+  const textJob = await runtime.terminal(background.body.id)
+  assert.equal(textJob.state, 'done', textJob.error)
+  assert.equal(textJob.generationMode, 'text')
+  assert.equal(textJob.requestedGenerationMode, 'auto')
+  assert.deepEqual(textJob.references, [])
+  assert.equal(calls.filter(call => call.path.endsWith('/uploadMedia')).length, 0)
+  const textBody = JSON.parse(calls.find(call => call.path.endsWith('/generateImage')).init.body)
+  assert.equal('images' in textBody, false)
+  assert.match(textBody.prompt, /一片森林/)
+  const textInputs = await runtime.request('job-detail?id=' + background.body.id)
+  assert.deepEqual([textInputs.body.job.promptAssembly.generationMode, textInputs.body.job.promptAssembly.requestedGenerationMode], ['text', 'auto'])
+  assert.equal(textInputs.body.job.promptAssembly.referenceText, '')
+
+  const portrait = await runtime.request('jobs', { tag: scene, subjects: [{ characterId: 'lin', outfitId: 'shirt' }] })
+  assert.equal(portrait.status, 200, JSON.stringify(portrait.body))
+  const referenceJob = await runtime.terminal(portrait.body.id)
+  assert.equal(referenceJob.state, 'done', referenceJob.error)
+  assert.equal(referenceJob.generationMode, 'reference')
+  assert.equal(referenceJob.requestedGenerationMode, 'auto')
+  assert.equal(referenceJob.references.length, 2)
+  assert.equal(calls.filter(call => call.path.endsWith('/uploadMedia')).length, 2)
+  const referenceBody = JSON.parse(calls.filter(call => call.path.endsWith('/generateImage')).at(-1).init.body)
+  assert.equal(referenceBody.images.length, 2)
+  assert.equal((await runtime.request('job-detail?id=' + portrait.body.id)).body.job.promptAssembly.generationMode, 'reference')
+
+  // The persisted record keeps the effective mode, so a redraw repeats what was actually drawn.
+  const saved = await fixture.read('jobs-store.json')
+  assert.deepEqual([saved[background.body.id].generationMode, saved[background.body.id].requestedGenerationMode], ['text', 'auto'])
+  const redraw = await runtime.request('redraw', { jobId: background.body.id })
+  assert.equal(redraw.status, 200, JSON.stringify(redraw.body))
+  assert.equal((await runtime.terminal(redraw.body.jobId)).generationMode, 'text')
+  assert.equal(JSON.stringify(calls.map(call => call.init.body ?? '')).includes(characterImage.id), false)
+})
+
+test('auto mode on a channel without reference input submits text jobs', { timeout: 20000 }, async t => {
+  const fixture = await imagePluginFixture(t, {
+    config: {
+      generationMode: 'auto', imageBackend: 'custom', activeImageChannel: 'nai-chat',
+      imageChannels: [{ id: 'nai-chat', provider: 'custom', name: 'NovelAI compatible', baseUrl: 'https://nai.example.test/api/v1', model: 'nai-diffusion-5-full', apiKey: 'test-key', options: { apiProtocol: 'novelai', protocol: 'chat' } }],
+    },
+  })
+  const runtime = await fixture.start()
+  await saveReferenceDefinitions(runtime)
+  const calls = []
+  await withFetch(t, async (url, init = {}) => {
+    calls.push({ url: String(url), init })
+    if (String(url).endsWith('/chat/completions')) return imageJson({ choices: [{ message: { content: `![image](data:image/png;base64,${IMAGE_PNG.toString('base64')})` } }] })
+    assert.fail('auto mode must not upload references to a channel without reference input')
+  })
+  const result = await runtime.request('jobs', { tag: scene, subjects: [{ characterId: 'lin', outfitId: 'shirt' }] })
+  assert.equal(result.status, 200, JSON.stringify(result.body))
+  const job = await runtime.terminal(result.body.id)
+  assert.equal(job.state, 'done', job.error)
+  assert.equal(job.generationMode, 'text')
+  assert.equal(job.requestedGenerationMode, 'auto')
+  assert.equal(calls.length, 1)
+})

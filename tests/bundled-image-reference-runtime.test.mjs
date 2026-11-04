@@ -213,3 +213,21 @@ test('新Atlas上传中断记录在重启时是未提交失败而非不确定；
   const legacy = await runtime.request('jobs?id=legacy-running')
   assert.equal(legacy.body.job.state, 'uncertain')
 })
+
+test('自动模式规划：有参考图的画面用参考图，纯背景画面这一张改用文生图', async t => {
+  const calls = []
+  const output = '<images><image><regex>林月站在窗边。</regex><prompts>【人物】\n林月\n\n【动作】\n站在窗边。</prompts><subjects>[{"characterId":"lin","outfitId":""}]</subjects></image>'
+    + '<image><regex>窗外是一片森林。</regex><prompts>【环境】\n晨雾中的森林，没有人物。</prompts><subjects>[]</subjects></image></images>'
+  globalThis.fetch = atlasMock(calls)
+  const { runtime } = await prepare(t, { config: { generationMode: 'auto' }, llm: { async *stream() { yield { type: 'text-delta', text: output } } } })
+  const result = await runtime.request('plan', { text: '林月站在窗边。窗外是一片森林。', messageId: 'turn-auto', count: 2, manual: true })
+  assert.equal(result.status, 200, JSON.stringify(result.body))
+  assert.equal(result.body.plans.length, 2, JSON.stringify(result.body))
+  const [portrait, background] = await Promise.all(result.body.plans.map(plan => runtime.terminal(plan.jobId)))
+  assert.equal(portrait.state, 'done', portrait.error)
+  assert.deepEqual([portrait.generationMode, portrait.requestedGenerationMode, portrait.references.length], ['reference', 'auto', 1])
+  assert.equal(background.state, 'done', background.error)
+  assert.deepEqual([background.generationMode, background.requestedGenerationMode, background.references.length], ['text', 'auto', 0])
+  assert.match(background.submittedPrompt, /森林/)
+  assert.equal(calls.filter(c => c.url.endsWith('/uploadMedia')).length, 1)
+})
