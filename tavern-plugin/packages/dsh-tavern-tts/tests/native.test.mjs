@@ -55,7 +55,7 @@ test('native enabled setting withdraws and restores service; management and live
   const f=await profile(t),{ctx,routes,plugin}=f
   const control = async (method,args) => routes.get('/api/dsh-tts/v1/control').fetch(new Request('http://localhost/api/dsh-tts/v1/control',{method:'POST',headers:{'Content-Type':'application/json',Origin:'http://localhost'},body:JSON.stringify({method,args})}))
   const stream = routes.get('/api/dsh-tts/v1/enabled')
-  assert.equal((await stream.fetch(new Request('http://localhost/api/dsh-tts/v1/enabled'))).status,403)
+  assert.equal((await stream.fetch(new Request('http://localhost/api/dsh-tts/v1/enabled',{headers:{Origin:'https://evil.test'}}))).status,403)
   const response = await stream.fetch(new Request('http://localhost/api/dsh-tts/v1/enabled',{headers:{Origin:'http://localhost'}}))
   const reader = response.body.getReader(), read = async () => new TextDecoder().decode((await reader.read()).value)
   assert.match(await read(),/"enabled":true/)
