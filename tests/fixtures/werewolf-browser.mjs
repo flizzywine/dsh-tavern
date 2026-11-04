@@ -31,6 +31,7 @@ plugin.gameMode({ ...gameMode,
 const source = await readFile(new URL('../../tavern-plugin/src/client/features/reply-observer.js', import.meta.url), 'utf8')
 const surface = source.slice(source.indexOf('function TavernGameModeSurface('), source.indexOf('function TavernComposerSlot('))
 const pluginClient = await readFile(new URL('../../examples/werewolf/plugin/client.js', import.meta.url), 'utf8')
+const hostSkin = await readFile(new URL('../../tavern-plugin/packages/dsh-dream-skin/lib/skins/paper.css', import.meta.url), 'utf8')
 const require = createRequire(import.meta.url)
 let bundle = 'const modules = {};\n'
 for (const [name, file] of [['react', 'react.production.js'], ['scheduler', 'scheduler.production.js'], ['react-dom', 'react-dom.production.js'], ['react-dom/client', 'react-dom-client.production.js']]) {
@@ -44,12 +45,12 @@ const useTavernUiExtensions = () => {};
 const tavernSessionSignals = {subscribe: () => () => {}};
 const tavernPluginBoundary = () => function Boundary(p) { return p.children; };
 async function rpc(method, args, sessionId) { const r = await fetch('/rpc/' + method, {method:'POST',body:JSON.stringify({...args,sessionId})}); const result = await r.json(); if (!result.ok) throw Error(result.error); return result; }
-window.__ModuleLoader__ = {load: descriptor => descriptor.factory(name => React).apply({tavernUi:{registerGameModeView: input => registry.set('dsh-card-werewolf:' + input.name, {owner:'dsh-card-werewolf',render:input.render})}})};
+window.__ModuleLoader__ = {load: descriptor => descriptor.factory(name => modules[name]).apply({tavernUi:{registerGameModeView: input => registry.set('dsh-card-werewolf:' + input.name, {owner:'dsh-card-werewolf',render:input.render})}})};
 ${pluginClient}
 ${surface}
 createRoot(document.getElementById('app')).render(React.createElement(TavernGameModeSurface,{sessionId:'werewolf-game'}));`
 const server = createServer(async (req, res) => {
-  if (req.url === '/') { res.setHeader('content-type', 'text/html; charset=utf-8'); res.end('<meta charset="utf-8"><title>狼人杀验证</title><div id="app"></div><script src="/app.js"></script>'); return }
+  if (req.url === '/') { res.setHeader('content-type', 'text/html; charset=utf-8'); res.end('<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>狼人杀验证</title><style>' + hostSkin + '\nbody{margin:16px;background:#faf9f6} #app div{background:transparent!important} #app button{background:#eee!important;color:#888!important}</style><div id="app"></div><script src="/app.js"></script>'); return }
   if (req.url === '/app.js') { res.setHeader('content-type', 'text/javascript'); res.end(script); return }
   try { let body = ''; for await (const chunk of req) body += chunk; const result = await host.rpc(req.url.split('/').at(-1), JSON.parse(body)); res.end(JSON.stringify(result)) }
   catch (error) { res.end(JSON.stringify({ ok: false, error: error.message })) }
@@ -64,6 +65,17 @@ try {
   await page.goto('http://127.0.0.1:' + server.address().port)
   await page.getByRole('button', { name: '开始 六人狼人杀' }).click()
   await page.getByRole('heading', { name: '月下六席 · 狼人杀' }).waitFor()
+  const dark = await page.getByRole('main', { name: '月下六席游戏桌面' }).evaluate(el => ({ background: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }))
+  assert.deepEqual(dark, { background: 'rgb(11, 18, 32)', color: 'rgb(238, 242, 250)' })
+  await page.screenshot({ path: join(output, 'werewolf-ui-desktop.png'), fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'mobile layout must not overflow')
+  await page.screenshot({ path: join(output, 'werewolf-ui-mobile.png'), fullPage: true })
+  await page.setViewportSize({ width: 1100, height: 850 })
+  await page.getByRole('button', { name: '展开视图' }).click()
+  await page.getByRole('button', { name: '收起视图' }).waitFor()
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: '展开视图' }).waitFor()
   await page.getByLabel('你的发言').fill('今晚一起仔细观察。')
   await page.getByRole('button', { name: '提交发言' }).click()
   await page.getByRole('button', { name: '继续下一步' }).waitFor()

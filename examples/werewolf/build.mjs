@@ -12,7 +12,7 @@ if (problem) throw new Error(problem)
 const card = { spec: 'chara_card_v3', spec_version: '3.0', data: {
   name: '月下六席 · 狼人杀', description: '一位真人、五位独立NPC和DM主持的六人狼人杀。请在玩法面板点击开始；NPC和DM使用本局后台模型。',
   personality: '', scenario: '', first_mes: '欢迎来到月下六席。启用卡内插件，并在下方玩法面板点击「开始 六人狼人杀」。你默认坐在1号位，身份随机分配。每次点击推进一个行动，轮到你时发言或选择目标。',
-  mes_example: '', creator: 'DSH Tavern', character_version: '0.1.0', tags: ['狼人杀', '多Agent', '游戏'],
+  mes_example: '', creator: 'DSH Tavern', character_version: pkg.version, tags: ['狼人杀', '多Agent', '游戏'],
   creator_notes: '需要支持 gameMode 能力的 DSH Tavern。规则全部由卡内插件实现；每次NPC行动会调用后台模型。支持节点回退、撤销回退和存档恢复。',
   extensions: {} } }
 const manifest = { format: 'dshcard', formatVersion: 1, card: { version: pkg.version, title: card.data.name, author: 'DSH Tavern' },
