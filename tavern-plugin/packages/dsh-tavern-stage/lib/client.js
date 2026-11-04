@@ -13444,7 +13444,7 @@ function useWidgetStage(props) {
     context.transcripts ||= new Set();
     const [,redraw]=React.useState(0), [geometry,setGeometry]=React.useState(null), [ready,setReady]=React.useState({}), [failed,setFailed]=React.useState({});
     // The phone's band in this layout (phoneModStageSize memory) and the last measured geometry (held while the box eases).
-    const phoneBand=React.useRef({key:'',top:0,bottom:0}),measured=React.useRef(null);
+    const phoneBand=React.useRef({key:'',top:0,bottom:0}),measured=React.useRef(null),remeasure=React.useRef(null);
     // the reader's phone size and place on this device, and whether it may be dragged.
     const phonePrefs=React.useSyncExternalStore(typeof phoneModPrefs!=='undefined' ? phoneModPrefs.subscribe : ()=>()=>{},typeof phoneModPrefs!=='undefined' ? phoneModPrefs.get : ()=>null,typeof phoneModPrefs!=='undefined' ? phoneModPrefs.get : ()=>null);
     const [visible,setVisible]=React.useState({key:'',text:''}), [grants,setGrants]=React.useState({key:'',items:[]}), [history,setHistory]=React.useState(null), [sheet,setSheet]=React.useState(null);
@@ -13728,7 +13728,7 @@ function useWidgetStage(props) {
         let live=true;register(()=>{live=false;});
         const guardedMeasure=()=>{if(live&&!closed)measure();};
         guardedMeasure();const observer=new ResizeObserver(guardedMeasure);register(()=>observer.disconnect());observer.observe(root);
-        const timer=forkForeground.setInterval(guardedMeasure,100);register(()=>forkForeground.clearInterval(timer));
+        remeasure.current=guardedMeasure;register(()=>{remeasure.current=null;});
         register(()=>window.visualViewport?.removeEventListener('resize',guardedMeasure));window.visualViewport?.addEventListener('resize',guardedMeasure);
     },[props.rootRef,props.film]);
     const phone=items.find(item=>item.ref.modId==='dsh.phone'),notice=phone?.source?.messages.find(row=>row.id===phone.source.current?.id && row.side==='in');
@@ -13891,6 +13891,16 @@ function useWidgetStage(props) {
     // The phone is in hand (asked open, before its place is measured): a skin's boxless narration then takes its image band
     // under the phone, as under a shown picture, instead of the centre the phone needs (2026-10-21 「阅读」 chip).
     const phoneHeld=!paused && projected.some(item=>item.ref.modId==='dsh.phone' && item.requestedState==='open' && !item.failed);
+    // On a real phone the open phone is the device itself: its opaque full-bleed sheet covers the whole stage until it is put away.
+    const covered=!paused && projected.some(item=>item.ref.modId==='dsh.phone' && item.presentation.state==='open' && item.presentation.device?.kind==='phone' && item.isReady && !item.failed);
+    // The stage's pieces (box, top bar, figures) are re-measured every 100 ms while the stage is in view; under that cover only
+    // the viewport matters (ResizeObserver / visualViewport above), and putting the phone away measures at once.
+    React.useEffect(()=>{
+        if (covered || !remeasure.current) return;
+        remeasure.current();
+        const timer=forkForeground.setInterval(()=>remeasure.current?.(),100);
+        return()=>forkForeground.clearInterval(timer);
+    },[covered,props.rootRef,props.film]);
     const claimed=projected.find(item=>item.source?.current && item.ref.modId!=='dsh.phone' && item.presentation.state==='open' && !item.presentation.suspended && item.isReady && !item.checking);
     // an open overlay that owns scroll input — a sheet (modal reader)
     // or a held mod device (the phone, which dims the stage behind it). While one is open the stage's wheel gestures (up =
@@ -13907,7 +13917,7 @@ function useWidgetStage(props) {
         }
         if (changed) redraw(n=>n+1);
     });
-    return {items:projected,readingKey,claim:Boolean(claimed),phoneBeat,phoneLine,phoneOpen,phoneShade,phoneHeld,paused,scrollOwner:scrollOwner?.key || null,
+    return {items:projected,readingKey,claim:Boolean(claimed),phoneBeat,phoneLine,phoneOpen,phoneShade,phoneHeld,covered,paused,scrollOwner:scrollOwner?.key || null,
         scroll:event=>{if (scrollOwner && !closed) sandbox.scroll(scrollOwner.identity,event.deltaY,event.deltaMode);},viewport:geometry?.viewport,narrow:geometry?.viewport.width<700,portrait,action,place,clampPlace,adjust,resize,openKey:projected.find(item=>item.requestedState==='open')?.key,
         onVisible:value=>setVisible(old=>old.key===readingKey && old.text===value ? old : {key:readingKey,text:value}),
         onReady:(identity,value)=>setReady(old=>old[identity]===value?old:{...old,[identity]:value}),onFailure:identity=>setFailed(old=>({...old,[identity]:true}))};
@@ -14010,7 +14020,10 @@ function useWidgetVariables(props,items) {
     }
 }
 
-return {useStage:useWidgetStage,usePhoneSettings,useFaces:useCardFaces,dispose(){if(closed)return;closed=true;clean([...owned].reverse().concat([...timers.values(),...frames.values(),...idles.values()],()=>{timers.clear();frames.clear();idles.clear();safeAreaProbe?.remove();safeAreaProbe=null;stageWidgetThumbs.clear();cardFaceJobs.clear();}));}};
+// The stage-side contract for a handheld phone overlay: useStage's covered (the open phone covers the whole stage),
+// place (the shared widget placement; the clip export places its job card with it) and phoneHandheld (the phone mod's
+// device decision for a viewport: the open phone is the device itself).
+return {useStage:useWidgetStage,usePhoneSettings,useFaces:useCardFaces,place:stageWidgetSourcePlace,phoneHandheld:phoneModHandheld,dispose(){if(closed)return;closed=true;clean([...owned].reverse().concat([...timers.values(),...frames.values(),...idles.values()],()=>{timers.clear();frames.clear();idles.clear();safeAreaProbe?.remove();safeAreaProbe=null;stageWidgetThumbs.clear();cardFaceJobs.clear();}));}};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSourceWidgets};
 
