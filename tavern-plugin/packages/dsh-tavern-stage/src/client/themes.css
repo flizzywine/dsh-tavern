@@ -4993,8 +4993,11 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-item[aria-disabled="true"] { border-image-source: var(--art-mr-off); color: color-mix(in srgb, var(--art-mr-ink, var(--gal-ui-ink)) 55%, transparent); }
   /* the focused item is the focus bar (roving focus: the active item is the focused one) */
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-item:focus-visible { outline: none; }
-  .fork-gal-stage[data-fk-skin-art-menu-cursor]:not(.is-film) .fork-gal-menu-item.is-active::after { content: ""; position: absolute; top: calc(var(--art-mr-cursor-y) * var(--mu)); bottom: auto;
-    left: calc(var(--art-mr-cursor-x) * var(--mu)); width: calc(var(--art-mr-cursor-w) * var(--mu)); height: calc(var(--art-mr-cursor-h) * var(--mu)); border-radius: 0; background: var(--art-mr-cursor) 0 0 / 100% 100% no-repeat; transform: none; transition: none; }
+  /* rows.cursor rides the label: its right edge x px before the label's first glyph (any length, any align), its top y px
+     from the bar's top (the label's middle is the bar's text y) */
+  .fork-gal-stage[data-fk-skin-art-menu-cursor]:not(.is-film) .fork-gal-menu-item b { position: relative; }
+  .fork-gal-stage[data-fk-skin-art-menu-cursor]:not(.is-film) .fork-gal-menu-item.is-active b::before { content: ""; position: absolute; top: calc(50% + (var(--art-mr-cursor-y) - var(--art-mr-y)) * var(--mu)); bottom: auto;
+    right: calc(100% + var(--art-mr-cursor-x) * var(--mu)); left: auto; width: calc(var(--art-mr-cursor-w) * var(--mu)); height: calc(var(--art-mr-cursor-h) * var(--mu)); border-radius: 0; background: var(--art-mr-cursor) 0 0 / 100% 100% no-repeat; transform: none; transition: none; }
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-sep { height: 0; margin: 0; border: 0 none; }
   .fork-gal-stage[data-fk-skin-art-menu-strips~="title"]:not(.is-film) .fork-gal-menu-strip[data-show="title"] { display: flex; --s-img: var(--art-ms-title-img); --s-x: var(--art-ms-title-x); --s-y: var(--art-ms-title-y); --s-w: var(--art-ms-title-w); --s-h: var(--art-ms-title-h);
     --s-l: var(--art-ms-title-l); --s-r: var(--art-ms-title-r); --s-m: var(--art-ms-title-m); --s-font: var(--art-ms-title-font); --s-justify: var(--art-ms-title-justify); --s-ink: var(--art-ms-title-ink, var(--gal-ui-ink));
