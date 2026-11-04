@@ -16,6 +16,7 @@ const RELEASE_TTL = 5 * 60 * 1000
 // 安装 RPC 会永远不返回，设置页的「处理中…」也就永久锁住。给整段下载一个有界的截止时间。
 const ARCHIVE_TIMEOUT_MS = 30 * 1000
 const DOWNLOAD_HINT = '网络不通时，可以在仓库页面下载 ZIP 后上传'
+const ZIP_ACCEPT = 'application/zip, application/octet-stream'
 
 // jsDelivr 不给整包 ZIP，只能「文件列表 + 逐个文件」地取，所以回退路径自己拼插件目录。
 // 20 MB 是 CDN 的单文件上限；总量沿用 ZIP 解压后的上限，别让回退绕过体积限制。
@@ -58,9 +59,12 @@ export function parseGithubSource(input) {
   return { owner: parts[0], repo: parts[1], ref }
 }
 
+// 没给 accept 时不写这个请求头：Headers 会把 undefined 变成字面量 "undefined"，
+// 有的代理遇到它会挂起或重置连接（#592）。
 async function fetchOk(fetchImpl, url, accept, signal, host = 'GitHub') {
+  const headers = { ...(accept ? { Accept: accept } : {}), 'User-Agent': 'dsh-tavern' }
   let response
-  try { response = await fetchImpl(url, { headers: { Accept: accept, 'User-Agent': 'dsh-tavern' }, redirect: 'follow', ...(signal ? { signal } : {}) }) }
+  try { response = await fetchImpl(url, { headers, redirect: 'follow', ...(signal ? { signal } : {}) }) }
   catch (error) { fail('连不上 ' + host + '（' + (error?.cause?.code || error?.message || error) + '）', { network: true }) }
   return response
 }
@@ -137,7 +141,7 @@ async function githubArchive(source, { fetchImpl, timeoutMs }) {
   // 超时后 abort 底层请求，避免连接一直挂着。
   try {
     const bytes = await withDeadline(async signal => {
-      const response = await fetchOk(fetchImpl, archiveUrl, 'application/zip', signal)
+      const response = await fetchOk(fetchImpl, archiveUrl, ZIP_ACCEPT, signal)
       if (response.status === 404) {
         // 不带 ref 时 /HEAD 已是默认分支，404 只能说明仓库不存在或不是公开的。
         if (!ref) fail('找不到仓库 ' + source.owner + '/' + source.repo + '，请检查地址，或确认仓库是公开的')
