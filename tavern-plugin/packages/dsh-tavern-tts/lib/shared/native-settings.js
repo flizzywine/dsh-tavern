@@ -1,14 +1,14 @@
 // Generated from Tavern host settings by build.mjs; do not edit.
 function entryId(ctx) {
-  const entry = ctx.get('configEditor')?.entries().find(row => row.fiber === ctx.fiber)
+  const entry = ctx.get('configEditor')?.entries().find(row => row.fiber === ctx.fiber || row.fiber?.ctx?.fiber === ctx.fiber?.ctx?.fiber)
   if (!entry) throw new Error('Native settings owner is not a profile entry')
   return entry.options.id
 }
 
-// Legacy providers own sections; 0.2.1 forms own volatile fields of a profile entry.
+// Legacy providers own sections; 0.2.1+ forms own volatile fields of a profile entry.
 export function installSettingsSection(ctx, provider, section, schema, defaults, hooks) {
   if (typeof provider.installSection === 'function') return provider.installSection(ctx, section, schema, defaults, hooks)
-  hooks.setSource(() => (hooks.validate || schema)(ctx.fiber.config[section]?.get() ?? defaults))
+  hooks.setSource(() => (hooks.validate || schema)((ctx.fiber.effectiveConfig ?? ctx.fiber.config)?.[section]?.get() ?? defaults))
   ctx.on('settings/document-updated', ns => { if (ns === entryId(ctx)) hooks.onChange?.() })
 }
 
