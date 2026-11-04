@@ -431,7 +431,7 @@ test('the voice services catalog lists saved services and 浏览器朗读 withou
   const {services:rows} = await services.voiceServices()
   assert.deepEqual(rows.map(s => [s.id,s.kind,s.label,s.state,s.voiceList,s.sources.join('+')]),[
     ['mm-a','minimax','我的 MiniMax','needs-key','preset','preset'],
-    ['local-fish','fish-audio','local-fish','configured','fish-recommended','reference-list+voice-id'],
+    ['local-fish','fish-audio','local-fish','configured','provider','reference-list+voice-id'],
     ['browser','browser','浏览器朗读','ready','browser','preset']])
   assert.doesNotMatch(JSON.stringify(rows),/group-private|fixture\.invalid|"config"/)
 })

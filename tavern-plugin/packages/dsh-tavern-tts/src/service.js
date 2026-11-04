@@ -1,4 +1,4 @@
-import {resolveVoiceSpec, chooseService, describeVoiceCapabilities, sourceUnsetIssue, browserFallback} from './voice-resolver.js'
+import {resolveVoiceSpec, chooseService, describeVoiceCapabilities, sourceUnsetIssue} from './voice-resolver.js'
 import { randomBytes } from 'node:crypto'
 import { createCache } from './cache.js'
 import { createJobs } from './jobs.js'
@@ -141,9 +141,8 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       // a chosen source not set up yet stays chosen and says what it lacks.
       const unset = sourceUnsetIssue(source)
       if (unset) return unset
-      const services = await api.listServices(), browser = browserFallback(source,services)
-      if (browser) return browser
-      const selected = chooseService(source,services)
+      // A source whose service is not set up stays silent and says so (SERVICE_REQUIRED); nothing switches to the browser.
+      const selected = chooseService(source,await api.listServices())
       if (!selected) return {effective:null,issues:[{code:'SERVICE_REQUIRED'}]}
       const provider = providers.get(selected.id).provider
       if (!readOnly) await provider.discover?.()

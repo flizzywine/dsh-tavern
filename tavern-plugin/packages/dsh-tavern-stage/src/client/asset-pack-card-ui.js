@@ -198,7 +198,8 @@ function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,t
     return {card,packs,details,engine,reading};
   },[path,ready]);
   // portable figure voices do not require any preset in the machine voice catalogue.
-  const services=useLoad(binding,async()=>binding.tts?(await binding.rpc('getAssetVoiceServices')).services:null,[binding.tts]);
+  // the TTS voice services catalog: the services set up in 配音后端 (浏览器朗读 aside).
+  const services=useLoad(binding,async()=>binding.tts?(await binding.tts.call('voiceServices')).services.filter(s=>s.kind!=='browser'):null,[binding.tts]);
   React.useEffect(()=>binding.tts?.subscribe?.(()=>services.reload()),[binding.tts]);
   const writer=useStageWriter(binding,path,state,sessionId);
   // A pack lit after the load (or a changed revision) is read in full once; the page renders again when it arrives.
@@ -349,7 +350,9 @@ function useStageConfirmedVoiceWarnings(ctx) {
   const state=useVoiceLoad(async()=>Promise.all(rows.map(async row=>{
     try {
       const result=await ctx.binding.rpc('getFigureVoiceEditor',row.ref);
-      return (result.issues||[]).filter(issue=>['QWEN_MODEL_NOT_FOUND','QWEN_VOICE_UNSUPPORTED'].includes(issue.code)).map(issue=>row.figure.name+'：'+voiceIssueText(issue.code));
+      // SERVICE_REQUIRED: the source names a service not set up in 配音后端 — the figure stays silent and says so.
+      const spec=row.pack.manifest.voiceLibrary?.voices?.[row.figure.voice.voice],source=spec?.sources?.[row.figure.voice.source??spec.defaultSource];
+      return (result.issues||[]).filter(issue=>['SERVICE_REQUIRED','QWEN_MODEL_NOT_FOUND','QWEN_VOICE_UNSUPPORTED'].includes(issue.code)).map(issue=>row.figure.name+'：'+voiceIssueText(issue.code,source));
     } catch { return []; }
   })),[ctx.binding]);
   useVoiceRefresh(ctx.binding,state.reload,[key,ctx.engine?.revision]);
@@ -491,24 +494,21 @@ function voiceModeWrite(ext,patch) {
   const switched=stageSwitchPatch(ext,patch.switches);
   return Object.keys(patch.narrator).length?narratorCardPatch(switched,patch.narrator):switched;
 }
-// 通用声音 (tts.reading.dialogueVoice, global): the browser's system voices and every configured service's voices, read when
-// the menu first opens (the free listings the figure voice picker uses; a service without its key or that cannot list adds
-// no group). Keys share narratorVoiceKey.
-const VOICE_ONLINE_PRESET_KINDS=['qwen','azure','volcengine','minimax'];
-function generalServiceVoices(tts,p) {
-  if(VOICE_ONLINE_PRESET_KINDS.includes(p.kind))return tts.call('listOnlinePresetVoices',{provider:p.kind,serviceId:p.id});
-  if(p.kind==='fish-audio'&&(p.config?.url||'').replace(/\/+$/,'')==='https://api.fish.audio')return tts.call('listRecommendedFishVoices',{serviceId:p.id});
-  return tts.call('providerVoices',{serviceId:p.id});
+// 通用声音 (tts.reading.dialogueVoice, global): the browser's system voices and the voices of every service in the TTS voice
+// services catalog, listed the way the catalog says (voiceList) and read when the menu first opens; a service that needs its
+// key or cannot list adds no group. Keys share narratorVoiceKey.
+function generalServiceVoices(tts,s) {
+  if(s.voiceList==='preset')return tts.call('listOnlinePresetVoices',{provider:s.kind,serviceId:s.id});
+  if(s.voiceList==='fish-recommended')return tts.call('listRecommendedFishVoices',{serviceId:s.id});
+  return tts.call('providerVoices',{serviceId:s.id});
 }
 async function generalVoiceOptions(binding) {
   const browser=typeof window!=='undefined'&&window.speechSynthesis?await browserSpeechVoiceList(window.speechSynthesis):[];
-  const state=binding.tts?await binding.tts.call('services'):null;
-  const keyless=p=>p.check?.status==='credentials-required'||(state.running||[]).some(r=>r.id===p.id&&r.status?.state==='credentials-required');
-  const services=state?[...(state.configured||[]),...(state.running||[]).filter(p=>!(state.configured||[]).some(c=>c.id===p.id))].filter(p=>!keyless(p)):[];
-  const groups=await Promise.all(services.map(p=>generalServiceVoices(binding.tts,p).then(r=>({p,voices:r?.status==='error'?[]:r?.voices||[]}),()=>({p,voices:[]}))));
+  const services=binding.tts?(await binding.tts.call('voiceServices')).services.filter(s=>s.kind!=='browser'&&s.state!=='needs-key'):[];
+  const groups=await Promise.all(services.map(s=>generalServiceVoices(binding.tts,s).then(r=>({s,voices:r?.status==='error'?[]:r?.voices||[]}),()=>({s,voices:[]}))));
   const seen=new Set();
   return [...browser.map(v=>({value:narratorVoiceKey({browser:v.id}),label:v.label||v.id,group:'浏览器朗读'})),
-    ...groups.flatMap(({p,voices})=>voices.map(v=>({value:narratorVoiceKey({serviceId:p.id,voice:v.voiceId||v.id}),label:v.name||v.label||v.voiceId||v.id,group:p.label||p.name||p.kind})))]
+    ...groups.flatMap(({s,voices})=>voices.map(v=>({value:narratorVoiceKey({serviceId:s.id,voice:v.voiceId||v.id}),label:v.name||v.label||v.voiceId||v.id,group:s.label})))]
     .filter(o=>!seen.has(o.value)&&seen.add(o.value));
 }
 const GENERAL_DEFAULT='浏览器 · 系统默认';

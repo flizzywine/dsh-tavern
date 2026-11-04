@@ -1,26 +1,24 @@
-// The browser is the zero-config default; a compatible service never yields to it.
+// A source whose service is not set up stays silent (SERVICE_REQUIRED); nothing switches to the browser.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
 import { readFile } from 'node:fs/promises'
 import { createTts } from '../src/service.js'
-import { browserFallback } from '../src/voice-resolver.js'
 import { validateVoiceSpec } from '../src/shared/voice-schema.js'
 import { pcmWav } from '../src/providers/audio.js'
 
 const voice = {defaultSource:'cloud',sources:{cloud:{provider:'fish-audio',kind:'voice-id',voiceId:'akane'}}}, binding = {voice:'akane'}
 const fish = (id, extra = {}) => ({id,kind:'fish-audio',revision:'one',capabilities:{paid:false},health:async () => ({state:'ready'}),catalog:async () => [],synthesize:async () => pcmWav(Buffer.alloc(64,1)),...extra})
 
-test('zero services resolve to the browser descriptor, live and read-only, without binding a service', async t => {
+test('a source with no service set up for it is silent with SERVICE_REQUIRED, live and read-only', async t => {
   const tts = createTts(); t.after(() => tts.dispose())
   for (const readOnly of [false, true]) {
-    const resolved = await tts.resolveVoiceService({voice,binding},{readOnly})
-    assert.deepEqual(resolved,{effective:{serviceId:'browser',browser:{voice:null},capabilities:{browser:true,paid:false,billing:'free'}},issues:[]})
+    assert.deepEqual(await tts.resolveVoiceService({voice,binding},{readOnly}),{effective:null,issues:[{code:'SERVICE_REQUIRED'}]})
   }
   assert.equal(tts.pendingCount(),0)
-  // A service that cannot speak this source does not hold the browser back; a compatible one is used as before.
+  // A service that cannot speak this source changes nothing; a compatible one is used.
   tts.registerProvider('test',{...fish('qwen'),kind:'qwen'})
-  assert.equal((await tts.resolveVoiceService({voice,binding})).effective.serviceId,'browser')
+  assert.deepEqual((await tts.resolveVoiceService({voice,binding})).issues,[{code:'SERVICE_REQUIRED'}])
   tts.registerProvider('test',fish('cloud'))
   assert.equal((await tts.resolveVoiceService({voice,binding})).effective.serviceId,'cloud')
   // A source not set up yet still says what it lacks.
@@ -39,7 +37,6 @@ test('a source speaks through its own serviceId, else the sole compatible servic
   assert.equal(tts.chooseService(cloned('svc-b').sources.clone,await tts.listServices()).id,'svc-b')
   assert.deepEqual(await tts.resolveVoiceService({voice:cloned(),binding}),{effective:null,issues:[{code:'SERVICE_REQUIRED'}]})
   assert.equal(tts.chooseService(cloned().sources.clone,await tts.listServices()),undefined)
-  assert.equal(browserFallback(cloned('svc-b').sources.clone,await tts.listServices()),null)
 })
 
 test('a portable source may name its service; the id is validated on write', () => {

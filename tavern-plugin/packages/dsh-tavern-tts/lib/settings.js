@@ -360,7 +360,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         const keyless = !custom && (await Promise.all(kind.fields.filter(f => f.secret).map(f => describeSecret(p,f)))).some(s => !s.configured)
         const state = keyless || check?.status === 'credentials-required' ? 'needs-key' : !check ? 'configured' : ['connected','reachable'].includes(check.status) ? 'ready' : 'offline'
         return {id:p.id, kind:p.kind, label:p.label || kind.label, state, billing:fish ? custom ? 'unknown' : fishModel(p.config.model).billing : kind.paid ? 'paid' : 'free',
-          sources:fish ? ['reference-list','voice-id'] : ['preset'], voiceList:fish ? 'fish-recommended' : p.kind === 'openai-compatible' ? 'provider' : 'preset'}
+          sources:fish ? ['reference-list','voice-id'] : ['preset'], voiceList:custom ? 'provider' : fish ? 'fish-recommended' : 'preset'}
       }))
       return {services:[...services, structuredClone(BROWSER_VOICE_SERVICE)], kinds:Object.fromEntries([...PROVIDER_KINDS.map(k => [k.kind,k.label]), ['browser',BROWSER_VOICE_SERVICE.label]])}
     },
