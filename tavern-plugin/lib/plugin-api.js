@@ -179,7 +179,7 @@ export function createTavernPluginApi(deps) {
   const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
-  const capabilities = Object.freeze({ gameMode: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, cardIdentity: 1, turnWrite: 1, cardPacks: 1 })
+  const capabilities = Object.freeze({ gameMode: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, cardIdentity: 1, turnWrite: 1, cardPacks: 1, stageAssetStatus: 1 })
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -578,6 +578,12 @@ export function createTavernPluginApi(deps) {
     async listCardPacks({ gameId } = {}) {
       const game = await requireGame(gameId)
       return structuredClone((await deps.listCardPacks?.(game.sessionId)) || [])
+    },
+
+    async inspectStageAsset({ gameId, kind, ref } = {}) {
+      const game = await requireGame(gameId)
+      if (!deps.inspectStageAsset) return { ref: structuredClone(ref), status: 'stage-unavailable', revision: null }
+      return await deps.inspectStageAsset(game.sessionId, { kind, ref })
     },
 
     async readCardPackFile({ gameId, pack, path } = {}) {

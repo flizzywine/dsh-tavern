@@ -8,7 +8,7 @@ export async function inspectStageAssetRef({ ref, kind, snapshot }) {
   let presentation
   try { presentation = await snapshot() }
   catch (error) { return { ref, status: error?.code === 'REVISION_CONFLICT' ? 'changed' : 'stage-unavailable', revision: null } }
-  if (!presentation) return { ref, status: 'stage-unavailable', revision: null }
+  if (!presentation || presentation.assetLibraryAvailable === false) return { ref, status: 'stage-unavailable', revision: null }
   const pack = presentation.snapshots.find(row => row?.manifest?.id === ref.packId)
   let status = 'pack-unavailable', revision = null
   if (pack) {

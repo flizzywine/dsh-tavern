@@ -66,7 +66,7 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
     }
     if (epoch !== generation || owner !== service()) throw Object.assign(new Error('Assets changed; retry explicitly'), {code:'REVISION_CONFLICT'})
     const values = cardEngineSettings(settings.values, extension)
-    return {raw, cardRevision:cardAssetWorkspaceRevision(workspace), snapshots, globalEnabledPackIds, assetStatus,
+    return {raw, cardRevision:cardAssetWorkspaceRevision(workspace), snapshots, globalEnabledPackIds, assetStatus, assetLibraryAvailable:!!owner,
       engine:{...values, widgetsEnabled:values.dimensions.widgets},
       current:() => !disposed && epoch === generation && owner === service() && settings.revision === engineSettings.read().revision}
   }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { inspectStageAssetRef } from '../tavern-plugin/lib/domain/plugin-stage-assets.js'
+import { fixture } from './helpers/stage-director-harness.mjs'
 
 const packId = '12345678-1234-4234-8234-123456789abc'
 const figureId = '12345678-1234-4234-8234-123456789abd'
@@ -22,4 +23,17 @@ test('stage references expose availability and revision, never snapshot contents
   assert.deepEqual(await inspect('asset', asset, [pack], () => false), {ref:asset, status:'changed', revision:null})
   assert.equal((await inspectStageAssetRef({kind:'asset', ref:asset, snapshot:async () => null})).status, 'stage-unavailable')
   await assert.rejects(inspect('figure', {packId:'invalid', figureId}), {code:'INVALID_REF'})
+})
+
+test('missing asset library reports stage unavailable through the real stage snapshot', async () => {
+  const f = await fixture(async () => {})
+  try {
+    f.services.delete('assetLibrary')
+    const snapshot = await f.assets.snapshot('cards/a.json')
+    assert.ok(snapshot)
+    assert.deepEqual(snapshot.snapshots, [])
+    assert.equal(snapshot.assetLibraryAvailable, false)
+    const result = await inspectStageAssetRef({kind:'figure', ref, snapshot:() => f.assets.snapshot('cards/a.json')})
+    assert.equal(result.status, 'stage-unavailable')
+  } finally { await f.dispose() }
 })
