@@ -572,7 +572,8 @@
 					group: extra.group || "", exclude_recursion: entry.recursion.prevent_incoming, prevent_recursion: entry.recursion.prevent_outgoing,
 					delay_until_recursion: entry.recursion.delay_until === null ? false : entry.recursion.delay_until,
 					sticky: entry.effect.sticky, cooldown: entry.effect.cooldown, delay: entry.effect.delay,
-					use_group_scoring: "same_as_global", automation_id: null, group_prioritized: false, group_weight: 100
+					use_group_scoring: extra.use_group_scoring ?? "same_as_global", automation_id: extra.automation_id ?? null,
+                    group_prioritized: extra.group_prioritized ?? false, group_weight: extra.group_weight ?? 100
 				};
 			}
 			function legacyWorldbookPatch(patch, original) {
@@ -592,8 +593,10 @@
 					if (match) set("position.role", match[1]);
 				}
 				if (patch.delay_until_recursion !== undefined) set("recursion.delay_until", patch.delay_until_recursion === false ? null : patch.delay_until_recursion === true ? 1 : patch.delay_until_recursion);
-				const unsupported = { use_group_scoring: "same_as_global", automation_id: null, group_prioritized: false, group_weight: 100 };
-				for (const key of Object.keys(unsupported)) if (patch[key] !== undefined && patch[key] !== unsupported[key]) throw new Error("当前兼容层尚未支持世界书字段: " + key);
+                // Retain unsupported activation hints as round-trippable metadata.
+                for (const key of ["use_group_scoring", "automation_id", "group_prioritized", "group_weight"]) {
+                    if (patch[key] !== undefined) set("extra." + key, patch[key]);
+                }
 				return next;
 			}
 			function worldbookPayload(entries) {
@@ -847,6 +850,7 @@
 			}
 			window.toastr.warning = console.warn;
 			window.toastr.error = console.error;
+			modules.installCompatibilityApi({window, context: () => state, request: call});
 			const ready = Promise.all([
 				import(new URL("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs",document.baseURI).href),
 				import(new URL("/api/dsh-tavern/vendor/runtime-assets/yaml/index.mjs",document.baseURI).href)

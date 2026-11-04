@@ -1,0 +1,668 @@
+{
+  "repository": "N0VI028/JS-Slash-Runner",
+  "revision": "5cbd089f1217d00e1f6851f50bf451223860a9c2",
+  "functions": [
+    {
+      "name": "playAudio",
+      "category": "audio"
+    },
+    {
+      "name": "pauseAudio",
+      "category": "audio"
+    },
+    {
+      "name": "getAudioList",
+      "category": "audio"
+    },
+    {
+      "name": "replaceAudioList",
+      "category": "audio"
+    },
+    {
+      "name": "appendAudioList",
+      "category": "audio"
+    },
+    {
+      "name": "getAudioSettings",
+      "category": "audio"
+    },
+    {
+      "name": "setAudioSettings",
+      "category": "audio"
+    },
+    {
+      "name": "getCurrentAudio",
+      "category": "audio"
+    },
+    {
+      "name": "getCharacterNames",
+      "category": "character"
+    },
+    {
+      "name": "getCharacterIds",
+      "category": "character"
+    },
+    {
+      "name": "getCurrentCharacterName",
+      "category": "character"
+    },
+    {
+      "name": "getCurrentCharacterId",
+      "category": "character"
+    },
+    {
+      "name": "createCharacter",
+      "category": "character"
+    },
+    {
+      "name": "createOrReplaceCharacter",
+      "category": "character"
+    },
+    {
+      "name": "deleteCharacter",
+      "category": "character"
+    },
+    {
+      "name": "getCharacter",
+      "category": "character"
+    },
+    {
+      "name": "replaceCharacter",
+      "category": "character"
+    },
+    {
+      "name": "updateCharacterWith",
+      "category": "character"
+    },
+    {
+      "name": "getChatMessages",
+      "category": "chat_message"
+    },
+    {
+      "name": "setChatMessages",
+      "category": "chat_message"
+    },
+    {
+      "name": "createChatMessages",
+      "category": "chat_message"
+    },
+    {
+      "name": "deleteChatMessages",
+      "category": "chat_message"
+    },
+    {
+      "name": "rotateChatMessages",
+      "category": "chat_message"
+    },
+    {
+      "name": "retrieveDisplayedMessage",
+      "category": "displayed_message"
+    },
+    {
+      "name": "formatAsDisplayedMessage",
+      "category": "displayed_message"
+    },
+    {
+      "name": "refreshOneMessage",
+      "category": "displayed_message"
+    },
+    {
+      "name": "isAdmin",
+      "category": "extension"
+    },
+    {
+      "name": "getTavernHelperExtensionId",
+      "category": "extension"
+    },
+    {
+      "name": "getExtensionType",
+      "category": "extension"
+    },
+    {
+      "name": "getExtensionInstallationInfo",
+      "category": "extension"
+    },
+    {
+      "name": "isInstalledExtension",
+      "category": "extension"
+    },
+    {
+      "name": "installExtension",
+      "category": "extension"
+    },
+    {
+      "name": "uninstallExtension",
+      "category": "extension"
+    },
+    {
+      "name": "reinstallExtension",
+      "category": "extension"
+    },
+    {
+      "name": "updateExtension",
+      "category": "extension"
+    },
+    {
+      "name": "getTavernFile",
+      "category": "file"
+    },
+    {
+      "name": "uploadTavernFile",
+      "category": "file"
+    },
+    {
+      "name": "deleteTavernFile",
+      "category": "file"
+    },
+    {
+      "name": "getProxyPresetNames",
+      "category": "generate"
+    },
+    {
+      "name": "generate",
+      "category": "generate"
+    },
+    {
+      "name": "generateRaw",
+      "category": "generate"
+    },
+    {
+      "name": "getModelList",
+      "category": "generate"
+    },
+    {
+      "name": "stopGenerationById",
+      "category": "generate"
+    },
+    {
+      "name": "stopAllGeneration",
+      "category": "generate"
+    },
+    {
+      "name": "initializeGlobal",
+      "category": "global"
+    },
+    {
+      "name": "waitGlobalInitialized",
+      "category": "global"
+    },
+    {
+      "name": "importRawCharacter",
+      "category": "import_raw"
+    },
+    {
+      "name": "importRawChat",
+      "category": "import_raw"
+    },
+    {
+      "name": "importRawPreset",
+      "category": "import_raw"
+    },
+    {
+      "name": "importRawWorldbook",
+      "category": "import_raw"
+    },
+    {
+      "name": "importRawTavernRegex",
+      "category": "import_raw"
+    },
+    {
+      "name": "injectPrompts",
+      "category": "inject"
+    },
+    {
+      "name": "uninjectPrompts",
+      "category": "inject"
+    },
+    {
+      "name": "getLorebookSettings",
+      "category": "lorebook"
+    },
+    {
+      "name": "setLorebookSettings",
+      "category": "lorebook"
+    },
+    {
+      "name": "getLorebooks",
+      "category": "lorebook"
+    },
+    {
+      "name": "deleteLorebook",
+      "category": "lorebook"
+    },
+    {
+      "name": "createLorebook",
+      "category": "lorebook"
+    },
+    {
+      "name": "getCharLorebooks",
+      "category": "lorebook"
+    },
+    {
+      "name": "getCurrentCharPrimaryLorebook",
+      "category": "lorebook"
+    },
+    {
+      "name": "setCurrentCharLorebooks",
+      "category": "lorebook"
+    },
+    {
+      "name": "getChatLorebook",
+      "category": "lorebook"
+    },
+    {
+      "name": "setChatLorebook",
+      "category": "lorebook"
+    },
+    {
+      "name": "getOrCreateChatLorebook",
+      "category": "lorebook"
+    },
+    {
+      "name": "getLorebookEntries",
+      "category": "lorebook_entry"
+    },
+    {
+      "name": "replaceLorebookEntries",
+      "category": "lorebook_entry"
+    },
+    {
+      "name": "updateLorebookEntriesWith",
+      "category": "lorebook_entry"
+    },
+    {
+      "name": "setLorebookEntries",
+      "category": "lorebook_entry"
+    },
+    {
+      "name": "createLorebookEntries",
+      "category": "lorebook_entry"
+    },
+    {
+      "name": "deleteLorebookEntries",
+      "category": "lorebook_entry"
+    },
+    {
+      "name": "registerMacroLike",
+      "category": "macro_like"
+    },
+    {
+      "name": "unregisterMacroLike",
+      "category": "macro_like"
+    },
+    {
+      "name": "getPersonaNames",
+      "category": "persona"
+    },
+    {
+      "name": "getPersonaIds",
+      "category": "persona"
+    },
+    {
+      "name": "getCurrentPersonaName",
+      "category": "persona"
+    },
+    {
+      "name": "getCurrentPersonaId",
+      "category": "persona"
+    },
+    {
+      "name": "getPersonaAvatarPath",
+      "category": "persona"
+    },
+    {
+      "name": "getPersona",
+      "category": "persona"
+    },
+    {
+      "name": "createPersona",
+      "category": "persona"
+    },
+    {
+      "name": "createOrReplacePersona",
+      "category": "persona"
+    },
+    {
+      "name": "deletePersona",
+      "category": "persona"
+    },
+    {
+      "name": "replacePersona",
+      "category": "persona"
+    },
+    {
+      "name": "updatePersonaWith",
+      "category": "persona"
+    },
+    {
+      "name": "isPresetNormalPrompt",
+      "category": "preset"
+    },
+    {
+      "name": "isPresetSystemPrompt",
+      "category": "preset"
+    },
+    {
+      "name": "isPresetPlaceholderPrompt",
+      "category": "preset"
+    },
+    {
+      "name": "getPresetNames",
+      "category": "preset"
+    },
+    {
+      "name": "getLoadedPresetName",
+      "category": "preset"
+    },
+    {
+      "name": "loadPreset",
+      "category": "preset"
+    },
+    {
+      "name": "getPreset",
+      "category": "preset"
+    },
+    {
+      "name": "createPreset",
+      "category": "preset"
+    },
+    {
+      "name": "createOrReplacePreset",
+      "category": "preset"
+    },
+    {
+      "name": "deletePreset",
+      "category": "preset"
+    },
+    {
+      "name": "renamePreset",
+      "category": "preset"
+    },
+    {
+      "name": "replacePreset",
+      "category": "preset"
+    },
+    {
+      "name": "updatePresetWith",
+      "category": "preset"
+    },
+    {
+      "name": "setPreset",
+      "category": "preset"
+    },
+    {
+      "name": "getCharData",
+      "category": "raw_character"
+    },
+    {
+      "name": "getCharAvatarPath",
+      "category": "raw_character"
+    },
+    {
+      "name": "getChatHistoryBrief",
+      "category": "raw_character"
+    },
+    {
+      "name": "getChatHistoryDetail",
+      "category": "raw_character"
+    },
+    {
+      "name": "getAllEnabledScriptButtons",
+      "category": "script"
+    },
+    {
+      "name": "getScriptTrees",
+      "category": "script"
+    },
+    {
+      "name": "replaceScriptTrees",
+      "category": "script"
+    },
+    {
+      "name": "updateScriptTreesWith",
+      "category": "script"
+    },
+    {
+      "name": "triggerSlash",
+      "category": "slash"
+    },
+    {
+      "name": "formatAsTavernRegexedString",
+      "category": "tavern_regex"
+    },
+    {
+      "name": "isCharacterTavernRegexesEnabled",
+      "category": "tavern_regex"
+    },
+    {
+      "name": "getTavernRegexes",
+      "category": "tavern_regex"
+    },
+    {
+      "name": "replaceTavernRegexes",
+      "category": "tavern_regex"
+    },
+    {
+      "name": "updateTavernRegexesWith",
+      "category": "tavern_regex"
+    },
+    {
+      "name": "substitudeMacros",
+      "category": "util"
+    },
+    {
+      "name": "getLastMessageId",
+      "category": "util"
+    },
+    {
+      "name": "errorCatched",
+      "category": "util"
+    },
+    {
+      "name": "getMessageId",
+      "category": "util"
+    },
+    {
+      "name": "getVariables",
+      "category": "variables"
+    },
+    {
+      "name": "replaceVariables",
+      "category": "variables"
+    },
+    {
+      "name": "updateVariablesWith",
+      "category": "variables"
+    },
+    {
+      "name": "insertOrAssignVariables",
+      "category": "variables"
+    },
+    {
+      "name": "insertVariables",
+      "category": "variables"
+    },
+    {
+      "name": "deleteVariable",
+      "category": "variables"
+    },
+    {
+      "name": "registerVariableSchema",
+      "category": "variables"
+    },
+    {
+      "name": "getTavernHelperVersion",
+      "category": "version"
+    },
+    {
+      "name": "getTavernVersion",
+      "category": "version"
+    },
+    {
+      "name": "getWorldbookNames",
+      "category": "worldbook"
+    },
+    {
+      "name": "getGlobalWorldbookNames",
+      "category": "worldbook"
+    },
+    {
+      "name": "rebindGlobalWorldbooks",
+      "category": "worldbook"
+    },
+    {
+      "name": "getCharWorldbookNames",
+      "category": "worldbook"
+    },
+    {
+      "name": "rebindCharWorldbooks",
+      "category": "worldbook"
+    },
+    {
+      "name": "getChatWorldbookName",
+      "category": "worldbook"
+    },
+    {
+      "name": "rebindChatWorldbook",
+      "category": "worldbook"
+    },
+    {
+      "name": "getOrCreateChatWorldbook",
+      "category": "worldbook"
+    },
+    {
+      "name": "getWorldbook",
+      "category": "worldbook"
+    },
+    {
+      "name": "createWorldbook",
+      "category": "worldbook"
+    },
+    {
+      "name": "createOrReplaceWorldbook",
+      "category": "worldbook"
+    },
+    {
+      "name": "deleteWorldbook",
+      "category": "worldbook"
+    },
+    {
+      "name": "replaceWorldbook",
+      "category": "worldbook"
+    },
+    {
+      "name": "updateWorldbookWith",
+      "category": "worldbook"
+    },
+    {
+      "name": "createWorldbookEntries",
+      "category": "worldbook"
+    },
+    {
+      "name": "deleteWorldbookEntries",
+      "category": "worldbook"
+    },
+    {
+      "name": "eventOn",
+      "category": "iframe-event"
+    },
+    {
+      "name": "eventOnButton",
+      "category": "iframe-event"
+    },
+    {
+      "name": "eventMakeLast",
+      "category": "iframe-event"
+    },
+    {
+      "name": "eventMakeFirst",
+      "category": "iframe-event"
+    },
+    {
+      "name": "eventOnce",
+      "category": "iframe-event"
+    },
+    {
+      "name": "eventEmit",
+      "category": "iframe-event"
+    },
+    {
+      "name": "eventEmitAndWait",
+      "category": "iframe-event"
+    },
+    {
+      "name": "eventRemoveListener",
+      "category": "iframe-event"
+    },
+    {
+      "name": "eventClearEvent",
+      "category": "iframe-event"
+    },
+    {
+      "name": "eventClearListener",
+      "category": "iframe-event"
+    },
+    {
+      "name": "eventClearAll",
+      "category": "iframe-event"
+    },
+    {
+      "name": "getButtonEvent",
+      "category": "iframe-script"
+    },
+    {
+      "name": "getScriptButtons",
+      "category": "iframe-script"
+    },
+    {
+      "name": "replaceScriptButtons",
+      "category": "iframe-script"
+    },
+    {
+      "name": "updateScriptButtonsWith",
+      "category": "iframe-script"
+    },
+    {
+      "name": "appendInexistentScriptButtons",
+      "category": "iframe-script"
+    },
+    {
+      "name": "getScriptName",
+      "category": "iframe-script"
+    },
+    {
+      "name": "getScriptInfo",
+      "category": "iframe-script"
+    },
+    {
+      "name": "replaceScriptInfo",
+      "category": "iframe-script"
+    },
+    {
+      "name": "reloadIframe",
+      "category": "iframe-util"
+    },
+    {
+      "name": "getIframeName",
+      "category": "iframe-util"
+    },
+    {
+      "name": "getCurrentMessageId",
+      "category": "iframe-util"
+    },
+    {
+      "name": "getScriptId",
+      "category": "iframe-util"
+    },
+    {
+      "name": "getAllVariables",
+      "category": "iframe-variables"
+    }
+  ],
+  "exports": {
+    "builtin": "object",
+    "builtin_prompt_default_order": "object",
+    "default_preset": "object",
+    "RawCharacter": "function"
+  }
+}

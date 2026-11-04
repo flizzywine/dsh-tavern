@@ -6,10 +6,13 @@ export const TAVERN_COMPATIBILITY_CAPABILITIES = Object.freeze([
   ...['scrollChatToBottom', 'showLoader', 'hideLoader', 'unregisterMacro'].map(name => ({ surface: 'SillyTavern', name, policy: 'noop' })),
   ...['registerMacro', 'getRequestHeaders', 'getChatCompletionModel'].map(name => ({ surface: 'SillyTavern', name, policy: 'reject' })),
   ...['generate', 'generateRaw', 'stopGeneration', 'deleteLastMessage', 'deleteMessage', 'clearChat', 'reloadCurrentChat', 'openCharacterChat', 'openGroupChat', 'executeSlashCommandsWithOptions'].map(name => ({ surface: 'SillyTavern', name, policy: 'missing' })),
-  ...['getPreset'].map(name => ({ surface: 'TavernHelper', name, policy: 'missing' }))
 ].map(entry => Object.freeze({ ...entry, id: entry.surface + '.' + entry.name })))
 
-const catalog = new Map(TAVERN_COMPATIBILITY_CAPABILITIES.map(entry => [entry.id, entry]))
+// Continue accepting diagnostics from older clients after getPreset gained its
+// compatibility implementation; new runtimes no longer install a missing getter.
+const catalog = new Map([...TAVERN_COMPATIBILITY_CAPABILITIES,
+  { surface: 'TavernHelper', name: 'getPreset', policy: 'missing', id: 'TavernHelper.getPreset' }
+].map(entry => [entry.id, entry]))
 const types = new Set(['undefined', 'null', 'boolean', 'number', 'bigint', 'string', 'symbol', 'function', 'object'])
 const hash = value => createHash('sha256').update(value).digest('hex')
 

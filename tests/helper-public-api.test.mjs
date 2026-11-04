@@ -42,9 +42,14 @@ for (const kind of ['script', 'message']) test(kind + ' getChatMessages supports
 for (const kind of ['script', 'message']) test(kind + ' unsupported variable scopes never fall through to message data', () => {
   const state = {messages: [{message_id: 0, variables: {keep: true}}]}
   const run = kind === 'script' ? helperHostHarness(state) : messageFrame(state), api = run.window.TavernHelper
-  for (const type of ['preset', 'extension', 'typo']) {
+  for (const type of ['typo']) {
     assert.throws(() => api.getVariables({type}), error => error.code === 'TAVERN_CAPABILITY_UNSUPPORTED')
     assert.throws(() => api.replaceVariables({bad: true}, {type}), error => error.code === 'TAVERN_CAPABILITY_UNSUPPORTED')
+  }
+  for (const type of ['preset', 'extension']) {
+    assert.deepEqual(plain(api.getVariables({type})), {})
+    api.replaceVariables({local: type}, {type})
+    assert.deepEqual(plain(api.getVariables({type})), {local: type})
   }
   assert.deepEqual(plain(api.getVariables({type: 'message'})), {keep: true})
   assert.equal(run.sent.filter(row => row.type === 'dsh-tavern-helper-call').length, 0)

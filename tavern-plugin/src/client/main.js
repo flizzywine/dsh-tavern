@@ -882,6 +882,7 @@ window.__ModuleLoader__.load({
 // @include runtime/host-artifacts.js
 
 // @include runtime/helper-public-api.js
+// @include runtime/helper-compat-api.js
 // @include runtime/helper-macro-api.js
 // @include runtime/helper-display-api.js
 // @include runtime/helper-generation-api.js

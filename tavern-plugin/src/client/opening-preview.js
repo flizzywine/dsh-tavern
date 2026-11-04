@@ -207,6 +207,7 @@ function installOpeningPreviewBridge(token, preview) {
     if (data.ok) task.resolve(data.result); else task.reject(new Error(data.error || '开场选择失败'));
   }
   addEventListener('message', receive);
+  window.__dshTavernHelperCompatibility?.refresh();
 }
 
 function openingPreviewSelection(preview, swipeId) {

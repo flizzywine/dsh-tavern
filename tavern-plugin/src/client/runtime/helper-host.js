@@ -311,6 +311,7 @@
                 + 'applyVariableReceipt:' + applyTavernVariableReceipt.toString() + ','
 				+ 'createMessageReader:' + createTavernHelperMessageReader.toString() + ','
                 + 'installUtilities:' + installTavernHelperUtilities.toString() + ','
+                + 'installCompatibilityApi:' + installTavernHelperCompatibilityApi.toString() + ','
                 + 'installMacros:' + installTavernHelperMacroApi.toString() + ','
                 + 'installDisplay:' + installTavernHelperDisplayApi.toString() + ','
                 + 'installGeneration:' + installTavernHelperGenerationApi.toString() + ','

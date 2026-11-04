@@ -5,6 +5,25 @@ function installTavernHelperRegexApi(options) {
   const engine = options.createEngine()
   const placements = { user_input: 1, ai_output: 2, slash_command: 3, world_info: 5, reasoning: 6 }
 
+  target.getTavernRegexes = function (option = {}) {
+    const groups = options.context()?.regexScripts || {}
+    const types = option.type ? [option.type] : option.scope && option.scope !== 'all' ? [option.scope] : ['global', 'preset', 'character']
+    return types.flatMap(type => (Array.isArray(groups[type]) ? groups[type] : []).map(script => {
+      const source = script.source || {}, destination = script.destination || {}
+      const enabled = script.enabled !== false && script.disabled !== true
+      const places = script.placement || []
+      return {
+        id: String(script.id || ''), script_name: String(script.script_name || script.name || script.scriptName || ''), enabled,
+        ...(option.type ? {} : { scope: type }), find_regex: String(script.find_regex ?? script.findRegex ?? ''),
+        replace_string: String(script.replace_string ?? script.replaceString ?? ''), trim_strings: [...(script.trim_strings || script.trimStrings || [])],
+        source: { user_input: places.includes(1), ai_output: places.includes(2), slash_command: places.includes(3), world_info: places.includes(5), reasoning: places.includes(6), ...source },
+        destination: { display: script.markdownOnly === true, prompt: script.promptOnly === true, ...destination },
+        run_on_edit: script.run_on_edit === true || script.runOnEdit === true,
+        min_depth: script.min_depth ?? script.minDepth ?? null, max_depth: script.max_depth ?? script.maxDepth ?? null
+      }
+    })).filter(script => !option.enable_state || option.enable_state === 'all' || (option.enable_state === 'enabled' ? script.enabled : !script.enabled))
+  }
+
   function boundCharacter(state) {
     // DSH applies enabled rules on a bound card without SillyTavern's separate
     // avatar opt-in. This reports the same permission as the Helper facade's
