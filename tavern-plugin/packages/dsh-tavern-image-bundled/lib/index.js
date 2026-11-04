@@ -959,6 +959,19 @@ function characterTags(character, options = {}) {
 
 export function apply(ctx, config = {}) {
   const logger = ctx.logger ?? console
+
+  // 卡片工作台（原 dsh-tavern-gen）作为同一插件内的独立模块挂载：
+  // 工具、skill、画廊来源、设置接口都由它自己注册，与游玩模式的配图链路互不依赖。
+  // 走动态 import：卡片模块自己的依赖或数据坏了，游玩配图仍然能起来，只有卡片这一半缺席。
+  void import('./card-app/index.js')
+    .then(mod => {
+      try {
+        mod.apply(ctx, config)
+      } catch (error) {
+        logger.warn?.('dsh-tavern-image: 卡片工作台模块挂载失败 ' + (error?.message ?? error))
+      }
+    })
+    .catch(error => logger.warn?.('dsh-tavern-image: 卡片工作台模块加载失败 ' + (error?.message ?? error)))
   const deps = { llm: null, attachments: null, subagents: null, sessions: null }
   // 诊断用：DSH 往 index.html 注入的 script 行，就是客户端模块的加载清单
   const indexTap = { rows: null, at: 0, htmlLength: 0 }

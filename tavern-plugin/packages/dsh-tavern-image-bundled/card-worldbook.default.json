@@ -1,0 +1,81 @@
+{
+  "version": 3,
+  "buckets": [
+    {
+      "id": "rules",
+      "label": "规则",
+      "intro": "写图前必读。按档位挑条目：标 always 的任何题材都读全，标 nsfw 的画性场景加读，标 gore 的画猎奇加读。同档可以有多条，全部读完。",
+      "entries": [
+        {
+          "id": "01-workflow",
+          "title": "常规提示词要求",
+          "content": "# 任务、结构、负面\n\n什么时候该写图、提示词怎么拼、负面怎么处理。写任何一张图之前先读这份。\n\n## 什么时候写提示词\n\n用户要图的时候才写。不是每轮都写，也不是自动配图。\n\n触发信号：「画个春雪」「来张涩图」「换个角度再来一张」「按这个描述出图」。用户没要图的时候，不要主动写。\n\n## 流程\n\n1. 用户点名了角色 → 先调 `read_character` 拿外观，不要凭记忆写。它同时带回默认服装（defaultOutfit）和自带的其他几套（outfits），换衣服先在这两处找；公共服装库的套才调 `read_outfit`\n2. 不确定有哪些画风可填 → 调 `read_image_config`\n3. 按本手册写完整英文串\n4. 给用户过目，把提示词翻译成中文（默认不展示英文，除非用户特别要求），逐项讲清画面（主体、外观、服装、动作、表情、镜头、场景）。\n5. 用户明确同意后调 `gen_image`，提交给这个工具的必须是英文串。\n\n用户说过「不用给我看」「直接出」这类话，就是预授权跳过第 4 步，直接调 `gen_image`；图出来后仍要用中文说清画了什么（主体、外观、动作、镜头、场景），交代的是画面不是提示词串。\n\n## 一次要几张\n\n用户没指定就是 1 张。要更多时用 `count` 参数，但每张单独扣费，提交前说清楚。\n\n## 多张之间保持一致\n\n同一场景出多张、剧情没换地点也没推进时间的，重复写相同的地点、时段、天气、光线和主要道具，只更新动作、表情、镜头。\n\n不重复的话，同一个卧室两张图能画出两种光线，拼起来像两个地方。\n\n## 提示词结构\n\n分两段：**英文自然语言长句做主干**，句尾再追加逗号分隔的标签。\n\n## 主干句\n\n一句主谓宾完整的英文长句，依次覆盖：\n\n镜头景别 → 场景与光影 → 角色站位与外貌 → 动作与物理交互\n\n例：\n\n`A medium shot of the girl kneeling on the tatami by the window, warm afternoon light spilling across the floor as she reaches toward the paper crane on the desk`\n\n## 句尾标签\n\n逗号分隔追加 3~8 个核心词，把主干里没点透的点一下：\n\n`kneeling, upper body, kimono, warm light, indoors`\n\n## 硬性要求\n\n- 全英文，英文逗号分隔，**禁止分号**\n- 镜头和朝向必须写明：`from front` / `from above` / `from behind` / `from side`\n- **不要写画质词**（masterpiece / best quality / absurdres）——画风预设的负面串里已经排除了，写了浪费字数\n- **不要写画师名**——插件按画风预设自动加在最前面，重复写会打架\n- 中文只出现在解释里，提示词本身一个中文都不能有\n\n## 负面词走 negative 参数\n\n**不要写负面词** 它们走 `gen_image` 的 `negative` 参数，插件按画风预设自动补上一串写好的负面词。\n\n# 人物、多人、形态\n\n人物库十二块怎么挑、画面里有多个人时怎么区分、同一角色的多个形态怎么选。\n\n## 外观从哪来\n\n调 `read_character`，它给的是分块 tag：`face` / `faceBack` 头面，`bodySFW` / `bodyNSFW` 上半身，`lowerSFW` / `lowerNSFW` 下半身，带 `Back` 的是背面版。\n\n按镜头和衣着挑块，拼成前缀：\n\n| 画面 | 取哪几块 |\n|---|---|\n| 正面，衣服在 | `face` + `bodySFW` + `lowerSFW` |\n| 正面，赤裸 | `face` + `bodyNSFW` + `lowerNSFW` |\n| 背面，衣服在 | `faceBack` + `bodySFWBack` + `lowerSFWBack` |\n| 背面，赤裸 | `faceBack` + `bodyNSFWBack` + `lowerNSFWBack` |\n| 只拍下半身 | 不取 `face`，按穿衣 / 赤裸取下身块 |\n| 半脱 | 露出的部位取 NSFW 块，遮着的取 SFW 块，两头拼 |\n\n**每块整块原样复制，块内一个字都不要改**：括号层数、逗号位置、括号里的组合全部原样，只用逗号把块接起来。禁止去重、禁止合并同义 tag、禁止拆开括号里的词——权重掉了角色就变样。\n\n人物库的块是硬性字面量；`find_prompt` 查到的素材串只是参考，可以拆开挑着用。\n\n- `feature` 不进提示词——那是给模型挑表情动作用的参考\n- `negative` 不要写进 prompt，它走 `gen_image` 的 `negative` 参数\n## 年龄词\n\n人物库标了年龄段的角色，年龄词必须出现在 `face` 和 `faceBack` 里。\n\n漏了出图会飘成成年体型。这是外观一致性的第一道锁。\n\n## 用户库里没有的人\n\n每张图都要完整描述一遍外貌，不要因为上一张写过就省略。至少写：发色、发型、体型，再加一个记得住的特征。\n\n## 衣服\n\n人物库的 `outfits` 里有的照着写，没有的直接用英文描述。\n\n穿什么由这一张图决定。不要假设上一张穿什么这张还穿什么。\n\n## 每个人都得有区分特征\n\n画面里两个人以上时，每个人至少要写两项能区分的东西：发色发型、衣服、体型。\n\n不要用 `the man` / `she` 区分——模型会把一个人的特征套到另一个人身上。\n\n## 写清谁在做什么\n\n分别用 `the woman` / `the man`（或者各自的外观）做主语，不要只写 `they` / `the two of them`。\n\n## 人数标签\n\n句尾写清楚：`1girl, 1boy, hetero` / `2girls` / `solo`\n\n## 成年角色\n\n主干句里写 `woman` / `young woman`，不写 `girl`。句尾的人数标签 `1girl` 是语言习惯，不受这条限制。\n\n## 衣服不串\n\n一个人的衣服不要写到另一个人身上。\n\n## 角色形态\n\n人物库里同一个角色可能有多个形态条目（名字带后缀，例如「阿梅」和「阿梅（狐形）」），各自的外貌不同。\n\n- 按画面这一刻的样子选条目\n- 露出狐耳、狐尾时用狐形那份，人类模样时用人类那份\n- 正在变化的瞬间，按变化**之后**更接近的那个选，并在主干句里写清楚正在发生的变化\n- 形态变了，衣服不一定变，照常写\n- 不要只写不带形态的短名，那样会拿错条目\n\n# 画面边界与脱衣档位\n\n一帧原则、看不见的不写、景别与朝向、掰开与全身出镜，以及穿着/半脱/全露三个档位怎么判。\n\n## 画面边界\n\n单张图 = **同一时刻的一个静态瞬间**，像按快门那样。\n\n## 看不见的就不要写\n\n- 不写「从 A 到 B」的过程，只写这个瞬间落在哪\n- 不同时描述互相遮挡的部位\n- 抽象概念拆成画得出来的词：`月下` → `moonlight, night`\n- 「不出现某物」用 no + 词：`no bra` / `no panties`\n- 背影就别写瞳色\n\n**写不出具体画面的词一律不写。** 每个词都要对应画面上真实存在的东西。\n\n## 想看见就得让它进镜头\n\n要画某个部位，先让它朝向镜头，再决定配什么词。\n\n- 全身 → 只拍下半身：**去掉** `expression` / `eye color` 这类上半身词\n- 正面 → 背对：**去掉** `eye color`，**换成** `from behind`\n- 蒙眼 / 遮脸：**去掉** `eye color`，**加上** `blindfold` / `face covered`\n\n## 景别要跟得上动作\n\n动作跨到哪里，景别就得跟到哪里：\n\n- 写了抬腿、抱膝、插入，就必须 `full body` 或 `cowboy shot`\n- 写了 `close-up` 却写腿，腿会被裁在画框外，人不剩上半身\n- `close-up` / `upper body` / `portrait` 只在「这一刻的重点就是脸和反应」时才用",
+          "mode": "always",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "authoring",
+      "label": "改库",
+      "intro": "改世界书、人物库、服装库之前读。字段以这里为准，别猜。",
+      "entries": [
+        {
+          "id": "01-worldbook",
+          "title": "世界书怎么写",
+          "content": "# 世界书怎么写\n\n世界书是「分册 → 条目」两级。\n\n## 结构\n\n- **分册**（bucket）：一个大类，对应 `references/<分册id>/` 一个目录\n- **条目**（entry）：分册里的一条，一条生成一个 md 文件，文件名用条目 id\n\n按「什么时候读」分册，不按题材分：\n\n| 分册 | 什么时候读 |\n|---|---|\n| `rules` 规则 | 出图前，按条目档位读 |\n| `authoring` 改库 | 改世界书、人物库、服装库之前 |\n| `examples` 示例 | 提交前扫一遍 |\n\n档位写在**条目**上，不在分册上：\n\n| `mode` | 含义 |\n|---|---|\n| `always` | 任何题材都读 |\n| `nsfw` | 按题材加读，不选就不读 |\n| `gore` | 按题材加读，不选就不读 |\n| `lookup` | 按段检索，不通读 |\n| `manual` | 改库时读 |\n| `prescan` | 提交前扫 |\n\n同一册里可以混着不同档位，按需要给每条单独标。\n\n## 条目怎么写得让模型看得懂\n\n**标题**：四到八个字，说清这条管什么。「镜头三段」比「关于画面的一些注意事项」好一百倍。\n\n**正文开头就给判断标准**，不要先讲背景。模型读前三行就知道这条要不要用。\n\n**词表用反引号包住**（`cowgirl position`），模型一眼能认出这是要照抄的 tag，不会当成叙述。\n\n**写确定的规则，不写建议**。\n- 对：`smile` 只表示在笑，要露牙必须另加 `teeth`\n- 错：建议尽量考虑加上 teeth，这样效果可能更好\n\n**不要写「注意」「请记住」「需要强调的是」**。这些词不传递信息，只占字数。\n\n**长度**：一条别太长。单条越长，模型读完的概率越低；拆得太碎又会多几次读取。规则相互依赖的放一条，彼此独立的拆开。\n\n## 什么时候该新增条目\n\n用户说「这条规则以后都要遵守」、或者同一条规则你反复要用的时候。一次性的要求不要写进世界书。\n\n## 不能做的事\n\n- 不要按题材分册。同一条规则被劈成两半时，画半脱只能读到一半。\n- 不要用中文文件名。参考文件只认 `references/` 下的 ASCII slug，中文会校验失败。\n- 加新分册可以走保存接口。档位标对了就行，SKILL.md 不用跟着改——它只说读哪一档，不点名分册。\n",
+          "mode": "manual",
+          "enabled": true
+        },
+        {
+          "id": "02-character",
+          "title": "人物库怎么写",
+          "content": "# 人物库怎么写\n\n每个角色是人物库里的一条。字段固定，**不要自己发明**。\n\n## 字段\n\n| 字段 | 写什么 |\n|---|---|\n| `name` | 中文名，正文和提示词里称呼用 |\n| `match` | 命中别名，逗号分隔（英文名、昵称） |\n| `enabled` | 是否参与生图 |\n| `note` | 给规划模型的补充说明，可空 |\n| `traits` | 外观分块，十二块，见下 |\n| `outfits` | 这个角色自带的服装，可空 |\n| `continuity` | 跨轮一致性要求，比如发色不能变 |\n| `outfitRefs` | 另外引用公共服装库的套装，存 id 或名字 |\n| `defaultOutfit` | 默认服装，存公共服装库那套的 id；空着就退回 `outfits` 里标了 `default` 的那套 |\n\n## traits 十二块\n\n**全部英文 Tag，一个中文都不要。**\n\n| 块 | 写什么 |\n|---|---|\n| `feature` | 气质描述，不进提示词，只供规划时参考 |\n| `face` | 正面头面部：脸型、发色、发型、发长、瞳色、特殊部位（角/耳/尾） |\n| `faceBack` | 背面头面部：后脑、颈背、发尾 |\n| `bodySFW` | 穿着衣服时的上半身：胸围、腰、肤色 |\n| `bodySFWBack` | 同上，背面 |\n| `lowerSFW` | 穿着衣服时的下半身：腿型、臀、身高 |\n| `lowerSFWBack` | 同上，背面 |\n| `bodyNSFW` | 裸露的上半身 |\n| `bodyNSFWBack` | 同上，背面 |\n| `lowerNSFW` | 裸露的下半身 |\n| `lowerNSFWBack` | 同上，背面 |\n| `negative` | 这个角色不该出现的元素 |\n\n默认服装只决定 `read_character` 返回的「默认服装」是哪一套，不自动拼进提示词——这一张穿什么仍由画面决定。\n\n## 三条硬规矩\n\n**年龄词写进 `face` 和 `faceBack`，绝不写进 `negative`。** 写反了，角色特征会被负面压掉，出图飘成另一个人。\n\n**SFW 块里不写裸露词。** 写了衣服画不出来，模型会直接给这个人脱光。\n\n**正背面互斥。** 一张图只调其中一个：正面用 `face`+`bodySFW`+`lowerSFW`，背影用 `faceBack`+`bodySFWBack`+`lowerSFWBack`。背面块里不要写瞳色，背上看不见眼睛。\n\n完整规范（含例子和常见错法）在 `character-authoring` skill 里。\n",
+          "mode": "manual",
+          "enabled": true
+        },
+        {
+          "id": "03-outfit",
+          "title": "服装库怎么写",
+          "content": "# 服装库怎么写\n\n服装库是公共的，所有角色都能用。一套一条，七块固定。\n\n## 字段\n\n| 字段 | 写什么 | 例子 |\n|---|---|---|\n| `name` | 中文短名 | 常服、雨夜外衣、夏日便装 |\n| `upper` | 上身：面料、版型、颜色、领口、袖长 | `white shirt, peter pan collar, short sleeves` |\n| `lower` | 下身：裤/裙、长度、材质 | `pleated skirt, knee-length, wool` |\n| `shoes` | 鞋袜 | `leather loafers, white socks` |\n| `accessory` | 配饰，可空 | `thin silver necklace` |\n| `full` | 整套一句话兜底，单件不全时用 | `office attire` |\n| `back` | 背影专用补充，可空 | `backless, crossed straps` |\n| `negative` | 这套不该出现的元素 | `opaque, thick fabric, turtleneck` |\n\n## 三条硬规矩\n\n**只写服装本身。** 写「白色吊带连衣裙」，不写「少女穿着白色吊带连衣裙」。身体归人物库，服装库只描述衣服。\n\n**全英文 Tag，逗号分隔。** 和人物 traits 一样。\n\n**`full` 是兜底，不是必填。** 上身、下身、鞋都写全了就不需要它；只写了「一条裙子」这种单件时，用它补成整套。\n\n## 正面和背影怎么取\n\n- 正面：`upper` + `lower` + `shoes` + `accessory`\n- 背影：再加 `back`\n- 凑不齐：用 `full` 兜底\n\n`negative` 永远走 `gen_image` 的 `negative` 参数，不要写进 `prompt`。\n",
+          "mode": "manual",
+          "enabled": true
+        },
+        {
+          "id": "mvxz5d9g680",
+          "title": "改库一律走接口（重要）",
+          "content": "改 `outfits.json`、`definitions.json`、`worldbook.json` 三种库文件，一律走插件保存接口，不要用文件编辑器直接写磁盘。\n\n**唯一写入口**\n\n`POST http://<宿主>/dsh-tavern-gen/api/save`，请求体：\n{\"target\":\"outfits\",\"content\":{\"outfits\":[ ... ]}}\n\n\n`target` 只接受 `config`、`characters`、`worldbook`、`outfits` 四个值。路径前缀是 `/dsh-tavern-gen/api/save`，漏掉 `api` 段返回 405。\n\n**为什么不能直写磁盘**\n\n插件在内存里持有库，前端页面保存时会把内存里的库原样回存。直写磁盘后内存没有更新，前端空展示一次、点一次保存，磁盘内容就被覆盖成空。`lib/index.js` 的 `state` 分支为此硬报错而不回落空库，注释写明「一次空白展示就能把真实数据覆盖成空」。\n\n**接口会重建条目**\n\n- `outfits`：条目被重建为 `id`、`name`、`enabled` 加 `upper`、`lower`、`shoes`、`accessory`、`full`、`back`、`negative` 七个字段。多余字段静默丢弃。`id` 缺失时自动生成，`enabled` 缺失时默认 `true`。提交空 `outfits` 数组直接清空库。\n- `characters`、`worldbook`：整个对象原样写入，不做字段过滤。\n\n**验收**\n\n写完必须用 `read_outfit` 或 `read_character` 实读一次，读到了才算生效。文件字节数和 JSON 语法正确不构成生效证据。\n",
+          "mode": "manual",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "examples",
+      "label": "示例",
+      "intro": "提交之前扫一遍。示例照着改，检查清单逐条过。",
+      "entries": [
+        {
+          "id": "01-samples",
+          "title": "完整示例",
+          "content": "# 完整示例\n\n用户说：「画个雪莉在雨夜石阶上捡铜钱」\n\n雪莉在人物库里，外观取 `face` + `bodySFW` + `lowerSFW`。\n\n最终串：\n\n`A medium close-up of the girl crouching on wet stone steps, setting down a paper lantern with one hand while reaching toward a coin half-buried in the mud, rain dripping from the edge of her bamboo hat, bamboo grove looming behind her in the dark, white hair, one pale gold eye, small frame, wet grey short robe, upper body, crouching, reaching out, bamboo hat, wet clothes, night, rain, backlighting, from side`\n\n拆开看：\n\n- 主干：镜头（medium close-up）→ 场景（wet stone steps）→ 角色（the girl crouching）→ 动作（setting down a lantern, reaching toward a coin）\n- 句尾：外观 + 衣服 + 景别 + 姿势 + 天气 + 时间 + 打光\n- 镜头写了 `from side`，因为正面拍不到伸手够东西的侧影",
+          "mode": "prescan",
+          "enabled": true
+        },
+        {
+          "id": "02-checklist",
+          "title": "提交前检查清单",
+          "content": "# 提交前检查清单\n\n提交前逐条过一遍。只有清单，不复述规则。\n\n## 每一张都要过\n\n- [ ] 用户已经明确同意这张图\n- [ ] 提示词全英文，没有中文、没有分号\n- [ ] 镜头和朝向写了（from front / from above / from behind / from side 之一）\n- [ ] 画面里看不到的部位没有对应词\n- [ ] 没有写内心、回忆、比喻、还没发生的事\n- [ ] 没有写画质词（masterpiece / best quality / absurdres）\n- [ ] 没有写画师名\n- [ ] 人物库里的角色，年龄词带上了\n- [ ] 景别和动作对得上（写了腿就要给到全身或半身）\n\n## 最常犯的三个\n\n1. **年龄词漏了** —— 出图体型飘掉，角色认不出来\n2. **写了看不见的部位** —— 背影写瞳色、close-up 写腿，画面被拉远或者画出矛盾解剖\n3. **质量词和画师名混进 prompt** —— 插件已经按画风预设加过一遍，重复写会把权重压乱",
+          "mode": "prescan",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "library",
+      "label": "素材表",
+      "intro": "现成的提示词素材，默认留空。条目格式：`**中文名**` 换行 `` `tag 串` ``，一条一张分类卡。",
+      "entries": []
+    }
+  ]
+}
