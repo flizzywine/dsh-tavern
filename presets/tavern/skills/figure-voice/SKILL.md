@@ -37,15 +37,23 @@ description: "配置配音：TTS 语音服务、声音预设、全局读音词�
 
 ## 人物的声音
 
-1. 用 `tavern_assets_read` 的 `bindings` 找到当前卡能用的包，对这些包读 `item {kind:'figures', packId}`，按名字找到人物的 `packId` 和 `id`（`resolve` 不接受名字）；再 `tavern_voice_read figure {packId, figureId}` 读取当前绑定、包里的音色、实际生效结果和问题列表。
+1. 用 `tavern_assets_read` 的 `bindings` 找到当前卡能用的包（省略 `path` 就是当前卡；要写 `path` 时用工作台里的卡文件路径，如 `cards/xxx.json`，不是卡名），对这些包读 `item {kind:'figures', packId}`，按名字找到人物的 `packId` 和 `id`（`resolve` 不接受名字）；再 `tavern_voice_read figure {packId, figureId}` 读取当前绑定、包里的音色、实际生效结果和问题列表。
 2. 用 `assign-figure` 给人物一份新音色，原有音色保留在包里。`choice` 有两种写法：
    - `{voiceSpec:{…}}`：直接写一份音色（形状见 [声音数据](references/voice-data.md)），适用于所有来源。例如通义千问的在线声音：`tavern_voice_patch({request:{expectedRevision:'包的 revision', operation:{packId:'…', figureId:'…', operation:{action:'assign-figure', choice:{voiceSpec:{name:'林澄', language:'zh', defaultSource:'online', sources:{online:{kind:'preset', provider:'qwen', voiceName:'Cherry'}}}}}}}})`。
    - `{voiceId:'…'}`：用 `choices` 的 `voices` 里列出的现成声音（用户保存的声音预设和服务自带的声音），宿主把它转成包里的音色。`choices` 的 `recommended` 是 Fish Audio 声音库的推荐声音，用它时写 `voice-id` 来源的 `voiceSpec`。声音模板用 `templates` 和 `assign-template`。
 3. 调语速语调、改配音语言、设差分对应的调音方案，用 `binding` 或 `pack-voice`。差分到方案或情绪参考的对应只按用户指定写，不自己推测哪种情绪该用哪段录音。
 
-**浏览器朗读**不需要语音服务，免费，但系统声音列表在用户的浏览器里，工具读不到，调音方案对它也不起作用；快慢只能在舞台齿轮「设置」›「声音」的「配音倍速」里整体调（所有角色一起变，存在这台设备上）。这就是浏览器朗读能调的全部，直接这样告诉用户。用户要用浏览器朗读时，请他在素材库打开该人物的「声音」，在「配音来源」里选「浏览器朗读」再选一个系统声音。没配声音的人物（包括临时 NPC）本来就用「通用声音」朗读，它在 舞台设置 › 基础设置「配音 ›」里设置（stage-setup）。
-
 音色在包里，可能被多个人物共用。修改共用音色会影响所有用它的人物，宿主会提示并要求确认；用户只想改这一个人物时，改为给它一份独立音色。
+
+### 浏览器朗读
+
+浏览器朗读不需要语音服务，免费。来源是 `{kind:'preset', provider:'browser', voiceName}`，`voiceName` 是用户浏览器里的系统声音名，不写就是系统默认声音；系统声音列表只在浏览器里，工具读不到，源码、注册表和系统设置里也找不到，不要去翻。按下面做，这就是全部：
+
+- 包里已有浏览器朗读的音色（`figure` 读到的音色里有 `provider:'browser'` 且带 `voiceName` 的来源）：用 `binding` 让人物用它。
+- 没有：用 `assign-figure` 写一份不带 `voiceName` 的浏览器音色，例如 `choice:{voiceSpec:{name:'林澄', language:'zh', defaultSource:'browser', sources:{browser:{kind:'preset', provider:'browser'}}}}`。它用系统默认声音朗读，马上就能出声，回读时 `issues` 为空，界面显示「浏览器朗读 · 系统默认」。用户想换成别的系统声音时，请他在素材库打开该人物的「声音」，在「浏览器朗读」里选一个（▶ 可试听）。
+- 快慢：调音方案对浏览器朗读不起作用，工具也改不了。唯一的入口是舞台齿轮「设置」›「声音」›「配音」组的「配音倍速」（0.8–2.0 倍，默认 1.0 倍，所有配音一起变，存在这台设备上）。用户要"稍快一点"时，请他调到 1.1–1.2 倍。
+
+没配声音的人物（包括临时 NPC）本来就用「通用声音」朗读，默认是浏览器的系统默认声音，在 舞台设置 › 基础设置「配音 ›」里设置（stage-setup）。
 
 ## 参考音频
 
@@ -63,4 +71,4 @@ description: "配置配音：TTS 语音服务、声音预设、全局读音词�
 
 ## 完成标准
 
-写入回执成功，`tavern_voice_read figure` 显示新的绑定，`issues` 里没有新问题（例如服务缺失、语言不支持）。保存不等于能发声：不要自动试听。请用户在素材库打开该人物的「声音」，用 ▶ 或「付费试听」确认音色，或在游玩页听下一句台词。服务只说"已保存，凭据已配置/未配置"，测试过才说"连接正常"。
+写入回执成功，`tavern_voice_read figure` 显示新的绑定，`issues` 里没有新问题（例如服务缺失、语言不支持）；只剩要用户在界面里补的项（例如克隆还没有参考音频）时，如实列出并说明在哪里补。保存不等于能发声：不要自动试听。请用户在素材库打开该人物的「声音」，用 ▶ 或「付费试听」确认音色，或在游玩页听下一句台词。服务只说"已保存，凭据已配置/未配置"，测试过才说"连接正常"。

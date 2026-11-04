@@ -92,12 +92,11 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     }
     const {ref, resolved} = found, figure = resolved.value, spokenBinding = found.language ? {...figure.voice, language:found.language} : figure.voice
     const voice = figureTtsVoice(spokenBinding, resolved.voiceSpec, `${ref.packId}:${ref.figureId}`, figure.emotions)
-    // Browser speech: the browser speaks with the named system voice; nothing is bound or registered. Not picked yet = silent.
+    // Browser speech: the browser speaks with the named system voice (none named = the system default); nothing is bound or registered.
     const spoken = browserSpeechSource(resolved.voiceSpec, figure.voice)
     if (spoken) {
       drop()
-      return spoken.voiceName === undefined ? {available:false,diagnostics:['VOICE_NOT_FOUND']}
-        : {available:true,browser:{voice:spoken.voiceName},voiceId:figure.voice.voice,language:voice.languages[0],scope,diagnostics:[]}
+      return {available:true,browser:{voice:spoken.voiceName ?? ''},voiceId:figure.voice.voice,language:voice.languages[0],scope,diagnostics:[]}
     }
     const declaration = {voice:resolved.voiceSpec,binding:figure.voice}
     const binding = getBinding ? await getBinding(ref, declaration, {readOnly}) : await assetVoiceBinding(service, declaration, {readOnly})
