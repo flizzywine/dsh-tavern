@@ -651,7 +651,11 @@
 					if (!turnRef || turnRef.status !== "closed" || !data.finalNode || !tail || !tail.closing || tail.closing.finalNode.seq !== data.finalNode.seq) return undefined;
 					return { turn: turnRef, seq: data.finalNode.seq, openFile: props.openFile };
 				}, [turnRef, data.finalNode, tail, props.openFile]);
-				const mentions = React.useMemo(function () { return owner === undefined ? undefined : props.fileMentions(owner); }, [owner, props.fileMentions]);
+				// DSH 0.2.1 routed fileMentions to every chat node; 0.2.2 only injects it into its own
+				// assistant renderer, so ours supplies tavernFileMentions. A throw here would make the
+				// slot abdicate to the native renderer and show the card's raw tags.
+				const fileMentions = typeof props.fileMentions === "function" ? props.fileMentions : props.tavernFileMentions;
+				const mentions = React.useMemo(function () { return owner === undefined || typeof fileMentions !== "function" ? undefined : fileMentions(owner); }, [owner, fileMentions]);
 				const copyLabel = props.t ? props.t("copy") : "复制", copiedLabel = props.t ? props.t("copied") : "已复制";
 				const codeLabels = React.useMemo(() => ({ copyLabel, copiedLabel }), [copyLabel, copiedLabel]);
 				const superseded = galIsSuperseded(liveState.view, turn, storyTurn);
@@ -939,7 +943,12 @@
 					return input.slots.inject("conversation.chat.node", function () { return input.slots.register({
 						name: "conversation.chat.node",
 						key: "assistant-step",
-						priority: -1
+						priority: -1,
+						inject: function (sessionId) { return { tavernFileMentions: function (owner) {
+							let service = null;
+							try { service = input.ctx.get("chatFileMentions") || null; } catch (_) { service = null; }
+							return service && typeof service.forClosing === "function" ? service.forClosing(owner, sessionId) : undefined;
+						} }; }
 					}, function (props) {
 						// Hide only our model-facing seed; keep it in Session history and requests.
 						if (props.node.data.finalNode && /^tavern-seed-trajectory:v1:.+:2$/.test(String(props.node.data.finalNode.messageId || ""))) return null;
