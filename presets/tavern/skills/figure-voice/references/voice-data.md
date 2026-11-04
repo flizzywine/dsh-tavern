@@ -8,11 +8,14 @@
 
 | 来源形状 | 用途 |
 | --- | --- |
-| `voice-id` | 服务上的声音编号，例如 Fish Audio 的声音 ID |
-| `preset` | 服务的内置声音名，例如通义千问、Azure 的音色名 |
-| `reference-list` | 有序参考音频列表（每段带原文和语言），用于克隆 |
+| `voice-id` | Fish Audio 声音库的声音编号，`{kind:'voice-id', provider:'fish-audio', voiceId}` |
+| `preset` | 在线 TTS 的内置声音名，`{kind:'preset', provider:'qwen', voiceName:'Cherry'}`；`provider` 是服务类型（`qwen`、`azure`、`volcengine`、`minimax`、`openai-compatible`），可带 `model` |
+| `preset` + `provider:'browser'` | 浏览器朗读，`voiceName` 是用户浏览器里的系统声音名，只能在界面里选（见 SKILL.md） |
+| `reference-list` | 声音克隆：有序参考音频列表 `{kind:'reference-list', provider:'fish-audio', references:[{media, text, language}]}`，`media` 是上传返回的 hash |
 
-来源可选带 `serviceId`，指定由哪个已配置的服务朗读（同一种服务装了几个时才需要，例如云端 Fish Audio 和本地 Fish 服务）。没写或写的服务不在本机时，用这台电脑上唯一的同类服务；同类服务有多个又没写时，这个声音报 `SERVICE_REQUIRED`，请用户在人物「声音」里选一行。
+每个来源都可以先选后配：没有参考音频的克隆、还没选声音的声音库或在线声音都能保存，`figure` 的 `issues` 会写明还缺什么（`MISSING_REFERENCE`、`VOICE_NOT_FOUND`），人物在补齐之前不出声。
+
+来源可选带 `serviceId`，指定由哪个已配置的服务朗读（同一种服务装了几个时才需要，例如云端 Fish Audio 和本地 Fish 服务）。没写或写的服务不在本机时，用这台电脑上唯一的同类服务；本机没有这类服务，或同类服务有多个又没写时，这个声音报 `SERVICE_REQUIRED` 并保持静音，请用户在「配音后端」配好服务，或在人物「声音」里选一行。
 
 音色里不能写服务地址、密钥或本机路径；这些属于本机的语音服务。复制人物时，关联的音色及其参考音频会一起复制。
 

@@ -1,6 +1,6 @@
 ---
 name: stage-setup
-description: "galgame 舞台模式入门：给卡开舞台、设置向导、看不到立绘的排查、四态开关、皮肤、开场画面，以及配立绘与声音、本卡开模组、导入 Live2D、带素材分享卡的最短路线。开场白文字用 edit-card。"
+description: "galgame 舞台模式入门：给卡开舞台、设置向导、看不到立绘的排查、四态开关、配音方式（分角色 / 全文朗读）与通用声音、皮肤、开场画面，以及配立绘与声音、本卡开模组、导入 Live2D、带素材分享卡的最短路线。开场白文字用 edit-card。"
 ---
 
 # 舞台设置
@@ -9,7 +9,7 @@ description: "galgame 舞台模式入门：给卡开舞台、设置向导、看�
 
 - 开舞台、看不到立绘：[开舞台](references/quickstart.md)
 - 立绘与声音、皮肤、本卡模组、Live2D、分享：[常见任务](references/tasks.md)
-- 四态开关、全局写入、调用格式：[开关与皮肤](references/settings.md)
+- 四态开关、配音方式与通用声音、全局写入、调用格式：[开关与皮肤](references/settings.md)
 - 开场画面：[开场画面](references/openings.md)
 - 字体与阅读控制：[本机显示与阅读](references/local-ui.md)
 
