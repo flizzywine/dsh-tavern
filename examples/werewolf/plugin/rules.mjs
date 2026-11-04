@@ -114,6 +114,9 @@ export const gameMode = {
   name: 'six-player', title: '六人狼人杀', version: 1,
   create: ({ input }) => ({ state: createState(input) }),
   project: ({ state }) => project(state),
+  foreground: ({ data }) => data.publicHistory.length ? data.publicHistory.map(e =>
+    (e.actor === 'dm' ? 'DM · 第' + e.day + '天' : e.actor + '号 · ' + data.players.find(p => p.id === e.actor)?.name) + '\n' + e.text).join('\n\n')
+    : 'DM · 欢迎入席\n你的身份已经分配，请查看身份牌，确认后进入第一晚。',
   async advance({ state, input, agent }) {
     const action = actionFor(state), before = state.log.length
     if (!action) throw new Error('本局已结束，请另开一局')

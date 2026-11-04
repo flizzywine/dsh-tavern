@@ -33660,6 +33660,7 @@ function tavernFloorHeightRecall(key, width) {
 					finally { if (input.op !== 'stop') actionLock.current = false; setPending(false); }
 				}
 				if (!snapshot && !modes.length && !error) return null;
+				if (snapshot?.foreground && !props.foreground) return null;
 				const renderer = snapshot && tavernUiExtensions.gameModeView(snapshot.key);
 				return h('section', { className: 'dsh-tavern-game-mode', 'aria-label': '自定义玩法', 'data-revision': snapshot && snapshot.revision },
 					error ? h('p', { role: 'alert' }, error) : null,
@@ -33671,7 +33672,7 @@ function tavernFloorHeightRecall(key, width) {
 						h('button', { disabled: pending || snapshot.busy || snapshot.cursor < 1, onClick: function () { act({ op: 'seek', cursor: snapshot.cursor - 1 }); } }, '回退一步'),
 						h('button', { disabled: pending || snapshot.busy || snapshot.cursor + 1 >= snapshot.length, onClick: function () { act({ op: 'seek', cursor: snapshot.cursor + 1 }); } }, '撤销回退'),
 						renderer ? h(tavernPluginBoundary(), { owner: renderer.owner, fallback: h('p', null, '玩法界面出错，请恢复插件') },
-							h(renderer.render, { gameId: sessionId, data: snapshot.data, revision: snapshot.revision, paused: paused, error: error, resume: function () { setError(''); setPaused(false); }, busy: pending || snapshot.busy, advance: function (input) { return act({ op: 'advance', input: input }); } })) : h('p', null, '请加载对应的玩法界面插件')) : null);
+							h(renderer.render, { gameId: sessionId, data: snapshot.data, foreground: snapshot.foreground, revision: snapshot.revision, paused: paused, error: error, resume: function () { setError(''); setPaused(false); }, busy: pending || snapshot.busy, advance: function (input) { return act({ op: 'advance', input: input }); } })) : h('p', null, '请加载对应的玩法界面插件')) : null);
 			}
 
 			function TavernComposerSlot(props) {
@@ -36006,6 +36007,11 @@ function tavernFloorHeightRecall(key, width) {
 						// The process panel's copy of the answer step holds only its thinking; the story,
 						// pictures and receipts belong to the reply seat. Otherwise the body shows twice.
 						if (props.groupPart === "reasoning") return React.createElement(TavernReasoningSeat, { blocks: props.node.data.blocks, streaming: props.node.data.status === "running" });
+						if (String(props.node.data.finalNode?.messageId || '').startsWith('tavern-game-mode:')) {
+							return React.createElement('section', { className: 'dsh-tavern-game-foreground', 'aria-label': 'DM 前台记录' },
+								React.createElement('div', { style: { whiteSpace: 'pre-wrap', lineHeight: 1.8 } }, (props.node.data.blocks || []).filter(block => block.kind === 'text').map(block => block.text).join('\n')),
+								React.createElement(tavernReplyObserverFeature.GameModeSurface, { sessionId: props.sessionId, foreground: true }));
+						}
 						return React.createElement(TavernAssistantNodeView, Object.assign({}, props, { executeSlash: executeSlash }));
 					}); });
 				}, "dsh-tavern: inline assistant renderer");

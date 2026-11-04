@@ -217,6 +217,7 @@ export function createTavernPluginApi(deps) {
       if ((await choicesFor(gameId)).disabled.has(owner)) throw new Error('本局已停用玩法插件')
     },
     runAgent: input => deps.runTask({ ...input, tools: [], call: () => { throw new Error('玩法 Agent 没有工具') } }),
+    foreground: deps.projectGameForeground,
     changed: gameId => deps.publishState?.(gameId, '@tavern', 'game-mode'),
   })
 

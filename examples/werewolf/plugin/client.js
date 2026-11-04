@@ -16,7 +16,7 @@ window.__ModuleLoader__.load({ id: 'dsh-card-werewolf', factory: require => {
   @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
   `
   const labels = { identity: '领取你的身份', night: '夜晚进行中', inspection: '你的查验结果', daybreak: '天亮了', 'next-night': '白天结束', 'wolf-talk': '狼队密谈', 'wolf-vote': '狼队行动', seer: '预言家行动', dawn: '天亮', speech: '白天发言', vote: '放逐投票', verdict: '投票结算', ended: '终局复盘' }
-  function Game({ data, busy, advance, revision, paused, error, resume }) {
+  function Game({ data, busy, advance, revision, paused, error, resume, foreground }) {
     const [target, setTarget] = React.useState(null)
     const attempted = React.useRef(null)
     const [text, setText] = React.useState(''), [tab, setTab] = React.useState('all'), [expanded, setExpanded] = React.useState(false)
@@ -35,7 +35,7 @@ window.__ModuleLoader__.load({ id: 'dsh-card-werewolf', factory: require => {
     const entries = data.history.filter(e => tab === 'all' || (tab === 'private' ? e.private : !e.private))
     const button = (label, run, className = 'quiet', disabled = busy) => h('button', { type: 'button', className, disabled, onClick: run }, label)
     const content = h(React.Fragment, null, h('style', null, css),
-      h('section', { className: 'public-story', 'aria-label': '公共对话', role: 'log' }, data.publicHistory.map((e, i) => h('article', { key: i, className: e.actor === 'dm' ? 'dm-message' : 'player-message' }, h('strong', null, e.actor === 'dm' ? 'DM · 第' + e.day + '天' : e.actor + '号 · ' + data.players.find(p => p.id === e.actor)?.name), h('p', null, e.text)))),
+      !foreground && h('section', { className: 'public-story', 'aria-label': '公共对话', role: 'log' }, data.publicHistory.map((e, i) => h('article', { key: i, className: e.actor === 'dm' ? 'dm-message' : 'player-message' }, h('strong', null, e.actor === 'dm' ? 'DM · 第' + e.day + '天' : e.actor + '号 · ' + data.players.find(p => p.id === e.actor)?.name), h('p', null, e.text)))),
       h('main', { className: 'game' + (expanded ? ' expanded' : ''), 'aria-label': '月下六席游戏桌面' },
       h('header', null, h('div', { className: 'brand' }, h('span', { className: 'sigil', 'aria-hidden': true }, '☾'), h('div', null, h('div', { className: 'eyebrow' }, 'THE SIX · MOONLIT COUNCIL'), h('h1', null, '月下六席 · 狼人杀'))), button(expanded ? '收起视图' : '展开视图', () => setExpanded(!expanded), 'quiet', false)),
       h('div', { className: 'layout' }, h('section', { className: 'table' },

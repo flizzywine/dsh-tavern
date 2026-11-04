@@ -12,6 +12,7 @@ import { resolveWorldbookSkillChat } from './domain/worldbook-skill-scope.js'
 import { appendWorldbookSkillChanges } from './domain/worldbook-skill-changes.js'
 // Must stay first: it has to run before anything loads jsdom.
 import { createSessionViewProjection, sessionViewMessageFields } from './domain/session-view-projection.js'
+import { projectGameModeForeground } from './domain/game-mode-foreground.js'
 import { createNetworkToolPolicy, installNetworkToolPolicy } from './domain/network-tools.js'
 import { clearRetiredSearchProvider } from './domain/retired-search-provider.js'
 import { createConversationBackgroundSettings } from './domain/conversation-background-settings.js'
@@ -2682,6 +2683,7 @@ export async function apply(ctx) {
     const header = await chatHeaderForSession(id, ['cardPath'])
     return header ? { sessionId: id, cardPath: str(header.cardPath) } : null
   }
+  const gameForegroundQueues = new Map()
   const pluginApi = createTavernPluginApi({
     ctx,get modHost() {return ctx.get('tavernManagedModules')},
     logger: console,
@@ -2694,6 +2696,22 @@ export async function apply(ctx) {
     reservedToolNames: [...BACKGROUND_TOOLS, HISTORY_RECALL_TOOL].map(tool => tool?.name).concat(['style_reference_submit', STORY_SUBMIT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'character_design_finish', 'worldbook_search', 'web_search', 'web_fetch', 'skill']).filter(Boolean),
     media: pluginMedia,
     data: pluginData,
+    projectGameForeground(gameId, projection) {
+      const prior = gameForegroundQueues.get(gameId) || Promise.resolve()
+      const work = prior.catch(() => {}).then(async () => {
+        const chat = await chatHeaderForSession(gameId, [])
+        const latest = chat && await pluginData.readMode(chat.id)
+        if (!latest || latest.revision !== projection.revision) return
+        if (!sessionPatch.serverReady) throw new Error('玩法前台记录需要会话兼容模块，请重启酒馆后重试')
+        const session = sessionStore.get(gameId) || agentRegistry.get(gameId)?.session
+        if (!session) throw new Error('玩法前台会话尚未打开，请重新进入本局')
+        projectGameModeForeground(session, projection)
+        await sessionStore.flush(session)
+      })
+      gameForegroundQueues.set(gameId, work)
+      void work.finally(() => { if (gameForegroundQueues.get(gameId) === work) gameForegroundQueues.delete(gameId) }).catch(() => {})
+      return work
+    },
     pluginData: pluginDataStore,
     ...pluginTurns,
     resolveGalleryContext,

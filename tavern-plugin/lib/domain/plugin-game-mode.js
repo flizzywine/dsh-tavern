@@ -11,7 +11,7 @@ function json(value) {
 
 // One durable document is the transaction: cursor, snapshots and accepted actions.
 // Agents are disposable executors; only the state returned by advance is authoritative.
-export function createPluginGameModes({ read, write, allowed, runAgent, changed = () => {}, timeoutMs = 600000 }) {
+export function createPluginGameModes({ read, write, allowed, runAgent, foreground, changed = () => {}, timeoutMs = 600000 }) {
   const providers = new Map(), running = new Map()
   function register(owner, input) {
     if (!keyPattern.test(input?.name) || !Number.isSafeInteger(input?.version) || input.version < 1) throw new Error('玩法需要 name 和正整数 version')
@@ -32,12 +32,23 @@ export function createPluginGameModes({ read, write, allowed, runAgent, changed 
     if (version !== undefined && version !== provider.version) throw new Error('玩法存档版本不兼容，请恢复对应版本插件')
     return provider
   }
+  async function foregroundText(provider, data) {
+    const text = await provider.foreground({ data: clone(data) })
+    if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > 2 * 1024 * 1024) throw new Error('玩法前台正文无效')
+    return text
+  }
   async function view(gameId) {
     const doc = await read(gameId)
     if (!doc) return null
     const provider = await providerFor(gameId, doc.key, doc.version)
+    const publicView = json(await provider.project({ state: clone(doc.frames[doc.cursor].state) }))
+    const hasForeground = typeof foreground === 'function' && typeof provider.foreground === 'function'
+    if (hasForeground && !running.has(gameId)) {
+      const text = await foregroundText(provider, publicView)
+      await foreground(gameId, { key: doc.key, revision: doc.revision, text })
+    }
     return { key: doc.key, revision: doc.revision, cursor: doc.cursor, length: doc.frames.length,
-      busy: running.has(gameId), data: json(await provider.project({ state: clone(doc.frames[doc.cursor].state) })) }
+      foreground: hasForeground, busy: running.has(gameId), data: publicView }
   }
   async function execute(gameId, request) {
     if (running.has(gameId)) throw new Error('玩法正在运行')
@@ -79,7 +90,8 @@ export function createPluginGameModes({ read, write, allowed, runAgent, changed 
         doc.cursor++
       }
       // Validate the public projection before committing, so a broken result never becomes current.
-      json(await provider.project({ state: clone(doc.frames[doc.cursor].state) }))
+      const projected = json(await provider.project({ state: clone(doc.frames[doc.cursor].state) }))
+      if (typeof foreground === 'function' && typeof provider.foreground === 'function') await foregroundText(provider, projected)
       await providerFor(gameId, doc.key, doc.version)
       signal.throwIfAborted()
       doc.revision++

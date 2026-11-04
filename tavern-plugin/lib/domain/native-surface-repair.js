@@ -42,6 +42,7 @@ function chatRounds(chat) {
 // What a model would read as story after the last reply: a pending input, more
 // prose, or tool traffic. Injected context and empty tombstones are harmless.
 function isStoryResidue(event) {
+  if (event?.type === 'assistant/message' && String(event.data?.message?.id || '').startsWith('tavern-game-mode:')) return false
   if (event?.type === 'tool/result') return true
   if (event?.type === 'user/message') return isTurnInput(event.data) && textOf(event.data.content) !== ''
   if (event?.type === 'assistant/message') return textOf(event.data?.message?.content) !== ''

@@ -36,6 +36,7 @@ export function createTranscriptFold() {
   const drawn = new Map() // story -> the native turn that draws its reply
   const pending = new Map() // step -> rewrites appended in it, decided when it ends
   const stepReplies = new Map() // step -> reply appends with text
+  const gameReplies = new Map() // active game projection seq -> drawable turn
   // From the save: one entry per floor.
   const floors = []
   const usersBefore = [] // player inputs before each floor (for floors without a turn)
@@ -156,6 +157,16 @@ export function createTranscriptFold() {
         continue
       }
       if (event.type !== 'assistant/message') continue
+      if (event.surfaceOp?.op === 'replace') {
+        const range = surfaceReplacementRange(event.surfaceOp)
+        for (const [seq, turn] of gameReplies) if (seq >= range.start && seq <= range.end) {
+          gameReplies.delete(seq); dirty.add(turn)
+        }
+      }
+      if (isAppendReply(event) && String(event.data?.message?.id || '').startsWith('tavern-game-mode:') && textOf(event.data.message)) {
+        const turn = Number(event.data.turn)
+        gameReplies.set(event.seq, turn); dirty.add(turn)
+      }
       const story = storyOf(event)
       // A rollback replaces the model's surface from a round's input on: when that covers
       // the last turn's player input, the turn is rolled back, not failed and awaiting retry.
@@ -245,6 +256,7 @@ export function createTranscriptFold() {
     keepInput = next
   }
   function classify(turn) {
+    if ([...gameReplies.values()].includes(turn)) return { input: 0, reply: 1 }
     // A regeneration's attempt (the save says one is under way) has no player's input,
     // only the host's trigger card: show its reply alone, while it runs and until its
     // body is drawn as the round's. Outside a regeneration a running turn shows as drawn:

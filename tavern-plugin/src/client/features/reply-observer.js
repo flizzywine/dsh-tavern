@@ -108,6 +108,7 @@
 					finally { if (input.op !== 'stop') actionLock.current = false; setPending(false); }
 				}
 				if (!snapshot && !modes.length && !error) return null;
+				if (snapshot?.foreground && !props.foreground) return null;
 				const renderer = snapshot && tavernUiExtensions.gameModeView(snapshot.key);
 				return h('section', { className: 'dsh-tavern-game-mode', 'aria-label': '自定义玩法', 'data-revision': snapshot && snapshot.revision },
 					error ? h('p', { role: 'alert' }, error) : null,
@@ -119,7 +120,7 @@
 						h('button', { disabled: pending || snapshot.busy || snapshot.cursor < 1, onClick: function () { act({ op: 'seek', cursor: snapshot.cursor - 1 }); } }, '回退一步'),
 						h('button', { disabled: pending || snapshot.busy || snapshot.cursor + 1 >= snapshot.length, onClick: function () { act({ op: 'seek', cursor: snapshot.cursor + 1 }); } }, '撤销回退'),
 						renderer ? h(tavernPluginBoundary(), { owner: renderer.owner, fallback: h('p', null, '玩法界面出错，请恢复插件') },
-							h(renderer.render, { gameId: sessionId, data: snapshot.data, revision: snapshot.revision, paused: paused, error: error, resume: function () { setError(''); setPaused(false); }, busy: pending || snapshot.busy, advance: function (input) { return act({ op: 'advance', input: input }); } })) : h('p', null, '请加载对应的玩法界面插件')) : null);
+							h(renderer.render, { gameId: sessionId, data: snapshot.data, foreground: snapshot.foreground, revision: snapshot.revision, paused: paused, error: error, resume: function () { setError(''); setPaused(false); }, busy: pending || snapshot.busy, advance: function (input) { return act({ op: 'advance', input: input }); } })) : h('p', null, '请加载对应的玩法界面插件')) : null);
 			}
 
 			function TavernComposerSlot(props) {

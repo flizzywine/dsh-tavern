@@ -24,7 +24,7 @@ export function nativeStoryTurns(session) {
   for (const seq of session.surface?.nodes || []) {
     const event = bySeq.get(Number(seq))
     const message = event?.type === 'assistant/message' ? event.data?.message : null
-    if (message?.source?.kind !== 'model' || !text(message)) continue
+    if (message?.source?.kind !== 'model' || !text(message) || String(message.id || '').startsWith('tavern-game-mode:')) continue
     const turn = storyEventTurn(event)
     // The seed exchange and the opening are not player rounds.
     if (!(turn > 1) || String(message.id || '').startsWith('tavern-seed-trajectory:') || String(message.id || '').startsWith('tavern-opening:')) continue
