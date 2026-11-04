@@ -409,7 +409,7 @@ export function presentTavernSettings(document, defaults) {
     defaultWorkbenchModel: normalizeBackgroundModel(object(document).defaultWorkbenchModel),
     contextCompaction: compactionPolicy(object(document).contextCompaction),
     showPlayProcess: object(document).showPlayProcess === true,
-    hideContextAndReasoning: object(document).hideContextAndReasoning !== false,
+    hideContextAndReasoning: object(document).hideContextAndReasoning === true,
     headerItems: readHeaderItems(object(document).headerItems),
     viewTabs: readViewTabs(object(document).viewTabs),
     candidateDismissMode: object(document).candidateDismissMode === 'after-fill' ? 'after-fill' : 'after-send',
