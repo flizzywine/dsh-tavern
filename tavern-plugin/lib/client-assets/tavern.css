@@ -2693,6 +2693,10 @@ button.dsh-tavern-play-fullscreen {
    宿主把 utilities 设为 flex:none，这里让它在窄窗口里可以收缩，容器才能量出可用宽度。 */
 body.dsh-tavern-shell-active [data-slot="conversation.session.header.utilities"]:has(> .dsh-tavern-header-items) { display: contents; }
 body.dsh-tavern-shell-active [class*="_headerUtilities"]:has(.dsh-tavern-header-items) { flex: 0 1 auto; min-width: 0; justify-content: flex-end; }
+/* DSH 0.2.2 的「更多会话视图」（⋯）跟在视图标签后；宿主行是 align-items:flex-start，
+   皮肤加高了标签内边距后它会浮到标签文字上方，这里让它与标签垂直居中。 */
+body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] { align-self: center; }
+body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class*="_viewsMore"] { margin-top: 0; }
 .dsh-tavern-header-items {
   /* 尺寸走变量：手机和图标模式只改变量，不用和宿主规则比特异性。 */
   --dsh-tavern-header-button: 32px; --dsh-tavern-header-gap: 2px;
