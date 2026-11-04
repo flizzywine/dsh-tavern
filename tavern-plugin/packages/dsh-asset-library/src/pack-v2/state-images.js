@@ -122,8 +122,11 @@ function imageClosure(outfit, sprite, imageId) {
 }
 
 // All published image descriptors are conservative historical roots, including retired pool members.
-export function retainPublishedStateImages(before, after, avatarRewrites = new Map(), imageResolutions = []) {
+// An avatar is a derived crop of its image, not part of the pose: an explicit avatarReplacements
+// row may re-cut it in place; the image, its resources, crops and calibration stay immutable.
+export function retainPublishedStateImages(before, after, avatarRewrites = new Map(), imageResolutions = [], avatarReplacements = []) {
   const resolved = validateImageResolutions(before, after, imageResolutions)
+  const avatars = validateAvatarReplacements(before, after, avatarReplacements)
   if (before?.manifest.schemaVersion !== 2) return
   for (const [id, figure] of Object.entries(before.figures)) {
     const next = after.figures[id]
@@ -141,6 +144,7 @@ export function retainPublishedStateImages(before, after, avatarRewrites = new M
         // Only the native technical-resolution transaction can supply this map.
         // Every other image, mouth/eye, crop and anatomy field stays immutable.
         if(avatarRewrites.has(original.avatar))original.avatar=avatarRewrites.get(original.avatar)
+        if(avatars.has(id+'/'+outfit.key+'/'+imageId))original.avatar=avatars.get(id+'/'+outfit.key+'/'+imageId)
         check(canonicalJson(original) === canonicalJson(imageClosure(target,newSprite,imageId)),'$.images.'+imageId,'Published image closure changed; replace with a new image identity','IMMUTABLE_IMAGE')
       }
     }
@@ -193,6 +197,24 @@ export function replaceStateImageResolution(figure, sprites, input) {
   const resources=new Set(spriteResourcePaths(sprite))
   for(const resource of Object.keys(outfit.sprite.assets))if(!resources.has(resource))delete outfit.sprite.assets[resource]
   return imageId
+}
+
+function validateAvatarReplacements(before,after,rows) {
+  check(Array.isArray(rows),'$.avatarReplacements','Expected an array')
+  const replaced=new Map()
+  for(const row of rows) {
+    check(row&&Object.keys(row).every(key=>['figureId','outfitKey','imageId','expectedAvatar'].includes(key))&&(row.expectedAvatar===null||/^[a-f0-9]{64}$/.test(row.expectedAvatar)),'$.avatarReplacements','Invalid avatar replacement declaration')
+    const {figureId,outfitKey,imageId,expectedAvatar}=row,key=figureId+'/'+outfitKey+'/'+imageId
+    check(!replaced.has(key),'$.avatarReplacements','Duplicate avatar replacement declaration')
+    const oldOutfit=before?.figures[figureId]?.outfits.find(o=>o.key===outfitKey),newOutfit=after.figures[figureId]?.outfits.find(o=>o.key===outfitKey)
+    check(oldOutfit?.sprite?.imagePools&&imageContract.spriteImageTable(before.sprites[oldOutfit.sprite.manifestKey])?.[imageId],'$.avatarReplacements','Avatar replacement needs a published pool image','REVISION_CONFLICT')
+    const next=newOutfit?.avatars?.[imageId],current=oldOutfit.avatars?.[imageId]??null
+    check(/^[a-f0-9]{64}$/.test(next||'')&&next!==expectedAvatar,'$.avatarReplacements','Declared avatar replacement is missing')
+    // A replay of the applied replacement finds the new avatar already published.
+    check(current===expectedAvatar||current===next,'$.avatarReplacements','Avatar changed concurrently','REVISION_CONFLICT')
+    replaced.set(key,next)
+  }
+  return replaced
 }
 
 function validateImageResolutions(before,after,rows) {
