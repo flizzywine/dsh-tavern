@@ -32487,7 +32487,7 @@ function tavernFloorHeightRecall(key, width) {
 				apiVersion: 9,
 				// Independent browser feature versions, not resource authorization or host API versions.
 				getCapabilities() {
-					return { openOverlay: 1, overlayLayout: 1, stageInteraction: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
+					return { openOverlay: 1, overlayLayout: 2, stageInteraction: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
 				},
 				registerMediaRenderer(kind, render) {
 					if (typeof kind !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}\/[a-z0-9][a-z0-9._-]{0,63}$/.test(kind)) throw new TypeError("只能为插件自定义的 <插件名>/<类型> 注册显示方式");
@@ -32946,10 +32946,22 @@ function tavernFloorHeightRecall(key, width) {
 						const layoutListeners = new Set();
 						const viewport = typeof window !== "undefined" ? window.visualViewport : null;
 						const layoutTarget = typeof window !== "undefined" ? window : null;
+						// Resolve device safe-area env() in the host rather than requiring plugin CSS.
+						const safeProbe = document.createElement("div");
+						safeProbe.setAttribute("aria-hidden", "true");
+						safeProbe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)";
+						document.body.append(safeProbe);
 						function readLayout() {
-							return { left: viewport ? viewport.offsetLeft : 0, top: viewport ? viewport.offsetTop : 0,
-								width: viewport ? viewport.width : (layoutTarget ? layoutTarget.innerWidth : 0),
-								height: viewport ? viewport.height : (layoutTarget ? layoutTarget.innerHeight : 0) };
+							const left = viewport ? viewport.offsetLeft : 0, top = viewport ? viewport.offsetTop : 0;
+							const width = viewport ? viewport.width : (layoutTarget ? layoutTarget.innerWidth : 0);
+							const height = viewport ? viewport.height : (layoutTarget ? layoutTarget.innerHeight : 0);
+							const style = layoutTarget && layoutTarget.getComputedStyle ? layoutTarget.getComputedStyle(safeProbe) : null;
+							const inset = function (name) { return Math.max(0, parseFloat(style && style[name]) || 0); };
+							const x = Math.min(width, Math.max(0, inset("paddingLeft") - left)), y = Math.min(height, Math.max(0, inset("paddingTop") - top));
+							const right = Math.max(0, inset("paddingRight") - Math.max(0, (layoutTarget?.innerWidth || width) - left - width));
+							const bottom = Math.max(0, inset("paddingBottom") - Math.max(0, (layoutTarget?.innerHeight || height) - top - height));
+							return { left: left, top: top, width: width, height: height,
+								safe: { left: left + x, top: top + y, width: Math.max(0, width - x - right), height: Math.max(0, height - y - bottom) } };
 						}
 						function layoutChanged() {
 							if (closed) return;
@@ -32977,6 +32989,7 @@ function tavernFloorHeightRecall(key, width) {
 							if (layoutTarget) layoutTarget.removeEventListener("resize", layoutChanged);
 							if (viewport) { viewport.removeEventListener("resize", layoutChanged); viewport.removeEventListener("scroll", layoutChanged); }
 							layoutListeners.clear();
+							safeProbe.remove();
 							root.unmount();
 							container.remove();
 							if (input.onClose) try { input.onClose(); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }

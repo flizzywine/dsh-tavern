@@ -261,7 +261,7 @@ ctx.tavernUi.submitInput({ gameId, text: '我举盾格挡，然后反击。' })
 
 ## `getCapabilities()`（浏览器 API 第 9 版）
 
-返回新的能力快照，键是能力名，值是各能力独立的正整数版本。目前包含 `openOverlay: 1`、`overlayLayout: 1`、`stageInteraction: 1`、`watchStage: 1`、`watchTurnState: 1` 和 `callHost: 1`。能力表示浏览器接口存在，并不表示当前游戏或素材已获授权；实际调用仍由宿主检查。每次调用返回新对象，可在当前页面生命周期缓存。未知键应忽略，缺失或版本不足时使用旧路径；旧宿主没有此方法时先检测方法是否存在。浏览器 `apiVersion` 和服务端 `tavern.apiVersion` 独立，不能互相推断。
+返回新的能力快照，键是能力名，值是各能力独立的正整数版本。目前包含 `openOverlay: 1`、`overlayLayout: 2`、`stageInteraction: 1`、`watchStage: 1`、`watchTurnState: 1` 和 `callHost: 1`。能力表示浏览器接口存在，并不表示当前游戏或素材已获授权；实际调用仍由宿主检查。每次调用返回新对象，可在当前页面生命周期缓存。未知键应忽略，缺失或版本不足时使用旧路径；旧宿主没有此方法时先检测方法是否存在。浏览器 `apiVersion` 和服务端 `tavern.apiVersion` 独立，不能互相推断。
 
 ```js
 const caps = typeof ctx.tavernUi.getCapabilities === 'function' ? ctx.tavernUi.getCapabilities() : {}
@@ -287,7 +287,7 @@ const overlay = ctx.tavernUi.openOverlay({
 ```
 
 - `render` 收到 `{ gameId, close }`，返回 React 元素；界面自己负责提供关闭的按钮。第 9 版还提供 `layout`：`layout.get()` 返回 `{ left, top, width, height }`，单位为 CSS 像素，相对于布局视口；`layout.subscribe(listener)` 在视觉视口变化时通知，返回取消订阅函数。初值通过 `get()` 读取。关闭或插件卸载时宿主取消监听并清空订阅，关闭后不再通知。无 VisualViewport 时使用窗口尺寸。
-- 这是视觉视口范围，可反映常见缩放和键盘引起的视口变化，但不保证避开所有宿主浮层、设备安全区或输入法。界面仍应使用 CSS 安全区 inset 并自行处理内容溢出。旧宿主上的 `layout` 不存在，请按能力探测后降级。
+- `overlayLayout: 2` 的结果还包含 `safe: { left, top, width, height }`，是视觉视口与浏览器报告的设备安全区的交集，坐标同样相对于布局视口。宿主在视口变化时重新计算，避免键盘使视觉视口缩小时重复扣除屏幕底部 inset。浏览器不报告安全区时 inset 为零；这不能保证避开所有宿主浮层或未改变视觉视口的输入法。界面仍需处理内容溢出。旧宿主没有 `layout` 或 `safe` 时按能力探测降级。
 - 按 Esc 关闭；`dismissible: false` 时 Esc 不关闭，只能调用 `close`。
 - 关闭时调用一次 `onClose`。插件卸载时界面自动关闭。界面出错时显示一行错误和关闭按钮。
 

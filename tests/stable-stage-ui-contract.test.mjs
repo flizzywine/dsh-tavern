@@ -17,8 +17,9 @@ function events(values = {}) {
 }
 function fixture() {
   const viewport = events({ offsetLeft: 0, offsetTop: 0, width: 390, height: 700 })
-  const window = events({ visualViewport: viewport, innerWidth: 390, innerHeight: 700 })
-  const document = events({ body: { append() {} }, createElement: () => ({ setAttribute() {}, remove() {} }) })
+  const window = events({ visualViewport: viewport, innerWidth: 390, innerHeight: 700,
+    getComputedStyle: () => ({ paddingTop: '20px', paddingRight: '0px', paddingBottom: '30px', paddingLeft: '0px' }) })
+  const document = events({ body: { append() {} }, createElement: () => ({ style: {}, setAttribute() {}, remove() {} }) })
   let element, unmounted = 0, disposers = []
   const context = {
     window, document, React: { createElement: (type, props, ...children) => ({ type, props, children }) },
@@ -36,7 +37,7 @@ test('browser capability map is independent and returned as a fresh snapshot', (
   assert.equal(ui.service.apiVersion, 9)
   const caps = ui.service.getCapabilities()
   assert.equal(caps.openOverlay, 1)
-  assert.equal(caps.overlayLayout, 1)
+  assert.equal(caps.overlayLayout, 2)
   assert.equal(caps.stageDock, undefined)
   caps.openOverlay = 99
   assert.equal(ui.service.getCapabilities().openOverlay, 1)
@@ -76,6 +77,10 @@ test('overlay retains old render parameters, tracks viewport, and cleans up on u
   assert.equal(screen.gameId, 'game')
   assert.equal(typeof screen.close, 'function')
   assert.equal(screen.layout.get().width, 390)
+  assert.deepEqual(JSON.parse(JSON.stringify(screen.layout.get().safe)), { left: 0, top: 20, width: 390, height: 650 })
+  f.viewport.height = 400
+  assert.equal(screen.layout.get().safe.height, 380, 'a keyboard-sized visual viewport does not apply the bottom screen inset twice')
+  f.viewport.height = 700
   const seen = []
   const stop = screen.layout.subscribe(rect => seen.push(rect.width))
   f.viewport.width = 1280
