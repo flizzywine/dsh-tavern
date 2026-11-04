@@ -4,12 +4,9 @@ import { readFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-export async function updateLibraryCard({ url, cardPath, file, password, accessPin, fetchImpl = fetch }) {
+export async function connectTavern({ url, accessPin, fetchImpl = fetch }) {
   const endpoint = new URL(url)
   if (!['http:', 'https:'].includes(endpoint.protocol)) throw new Error('服务地址需要 HTTP 或 HTTPS')
-  if (!cardPath?.startsWith('cards/')) throw new Error('请指定库中原卡路径，例如 cards/六人狼人杀.json')
-  const bytes = await readFile(file), name = basename(file)
-  if (!/\.(json|png|charx|dshcard)$/i.test(name)) throw new Error('支持 JSON、PNG、CHARX 和 DSHCARD')
   const cookies = new Map()
   function remember(response) {
     for (const cookie of response.headers.getSetCookie()) {
@@ -26,6 +23,7 @@ export async function updateLibraryCard({ url, cardPath, file, password, accessP
     remember(login)
     if (login.status !== 302 || !cookies.size) throw new Error('桌面访问密码认证失败')
     let next = new URL(login.headers.get('location'), endpoint)
+    let initialized = false
     for (let count = 0; count < 8; count++) {
       if (next.origin !== endpoint.origin) throw new Error('拒绝向其他服务发送桌面凭据')
       const response = await fetchImpl(next, { headers: { cookie: cookieHeader(), accept: 'text/html' }, redirect: 'manual' })
@@ -35,8 +33,10 @@ export async function updateLibraryCard({ url, cardPath, file, password, accessP
         continue
       }
       if (!response.ok) throw new Error('桌面会话初始化失败，HTTP ' + response.status)
+      initialized = true
       break
     }
+    if (!initialized) throw new Error('桌面会话初始化重定向过多')
   }
   async function request(route, body, binary = false) {
     const target = new URL(endpoint)
@@ -49,6 +49,14 @@ export async function updateLibraryCard({ url, cardPath, file, password, accessP
     if (!response.ok || result.ok === false) throw new Error(result.error || '更新失败，HTTP ' + response.status)
     return result
   }
+  return request
+}
+
+export async function updateLibraryCard({ url, cardPath, file, password, accessPin, fetchImpl = fetch }) {
+  if (!cardPath?.startsWith('cards/')) throw new Error('请指定库中原卡路径，例如 cards/六人狼人杀.json')
+  const bytes = await readFile(file), name = basename(file)
+  if (!/\.(json|png|charx|dshcard)$/i.test(name)) throw new Error('支持 JSON、PNG、CHARX 和 DSHCARD')
+  const request = await connectTavern({ url, accessPin, fetchImpl })
   // Verify the selected target exists before uploading anything.
   const existing = await request('getCard', { path: cardPath })
   if (!existing.card) throw new Error('库中没有这张卡')
@@ -69,7 +77,7 @@ export async function updateLibraryCard({ url, cardPath, file, password, accessP
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [cardPath, file] = process.argv.slice(2)
   if (!cardPath || !file || !process.env.DSH_TAVERN_URL) {
-    console.error('用法：设置 DSH_TAVERN_URL 为当前桌面版的 Web 访问地址，再运行 node bin/update-library-card.mjs "cards/原卡.json" "新版.dshcard"。加密卡密码通过 DSH_CARD_PASSWORD 传入。不会启动其他服务。')
+    console.error('用法：设置 DSH_TAVERN_URL 为当前桌面版的 Web 访问地址，再运行 node bin/update-library-card.mjs "cards/原卡.json" "新版.dshcard"。桌面访问密码通过 DSH_TAVERN_ACCESS_PIN、加密卡密码通过 DSH_CARD_PASSWORD 传入。不会启动其他服务。')
     process.exitCode = 1
   } else {
     try {
