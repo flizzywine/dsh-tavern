@@ -37,7 +37,13 @@ GitHub Actions 会频繁向 `origin/main`（以及 `origin/stable`）推送 `cho
 
 main 的安装入口和备用更新清单从 jsDelivr 的 `@runtime-archive-main` 读取；该分发分支只放安装脚本、清单和 `runtime.zip`，源码仍在 main。清单固定引用不可变提交中的压缩包。分支地址最长缓存 12 小时，安装入口与清单必须来自同一次发布。
 
-每次推送后，Publish runtime manifest 工作流会刷新安装脚本、Android 入口和清单缓存，并核对 CDN 返回的清单提交号；未同步则工作流失败。遇到 `jsDelivr still serves a stale manifest` 时，手动刷新分发分支：
+每次推送后，Publish runtime manifest 工作流会核对 CDN 压缩包及四个安装入口的大小、SHA-256，只刷新内容不一致的入口。刷新接口的 HTTP 200 / `status: finished` 仍可能包含路径级 `throttled: true`；必须读取 `throttlingReset` 等待后再发请求，不能把顶层状态当成刷新成功。工作流最多等待 15 分钟，始终以实际下载内容匹配为成功条件。需要手动复核时，在已同步发布清单的干净源码副本运行：
+
+```sh
+node .github/scripts/refresh-cdn-publication.mjs flizzywine/dsh-tavern main
+```
+
+下面的单文件请求仅发送刷新操作；必须检查返回体里的路径级限流信息，并核对实际下载内容，不能仅凭命令退出码判断成功：
 
 ```sh
 b=runtime-archive-main
