@@ -123,7 +123,8 @@
 .fork-cg-white { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
 /* 回想 (the CG gallery) is a media viewer: dark whatever the stage theme, the pictures fill the space and every control
    is a glass icon over them, named in its hover tip. Grid: tiles edge to edge, titles on the picture. Viewer (「四角」):
-   title top left, ✎ 🗑 ✕ top right, ‹ › at the sides (phones: bottom corners), 差分 mini pictures bottom centre, 构图 bottom right. */
+   title top left, ✎ 🗑 ✕ top right, ‹ › at the sides (phones: bottom corners), 差分 mini pictures bottom centre, 构图 bottom right
+   (a labelled 完整 | 特写 pair, only on a CG with focus areas). */
 .fork-cg-gallery { --cg-ink: #f4f5f9; --cg-ink-2: rgb(244 245 249 / .7); --cg-glass: rgb(12 14 24 / .52); --cg-glass-hover: rgb(255 255 255 / .2);
   --cg-card: #1b1e2c; --cg-card-line: rgb(255 255 255 / .1); --cg-card-hover: rgb(255 255 255 / .08); --cg-danger: #ff7b86; --cg-danger-ink: #2a0b10; --cg-tile: #171a26; --cg-base: #0b0d14;
   position: absolute; inset: 0; z-index: 80; overflow: hidden; background: var(--cg-base); color: var(--cg-ink); font-family: var(--gal-ui-font); isolation: isolate; outline: none; }
@@ -138,7 +139,7 @@
 @media (hover: hover) {
   .fork-cg-gallery [data-tip]:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 50%; z-index: 5; transform: translateX(-50%); padding: 5px 10px; border-radius: 6px;
     background: var(--cg-card); box-shadow: 0 4px 14px rgb(0 0 0 / .4); color: var(--cg-ink); font-size: 13px; font-weight: 400; line-height: 1.4; white-space: nowrap; pointer-events: none; }
-  .fork-cg-gallery :is(.fork-cg-variant, .fork-cg-crop .fork-cg-round)[data-tip]:is(:hover, :focus-visible)::after { top: auto; bottom: calc(100% + 8px); }
+  .fork-cg-gallery .fork-cg-variant[data-tip]:is(:hover, :focus-visible)::after { top: auto; bottom: calc(100% + 8px); }
 }
 /* the picture: contain, with the same picture blurred into the letterbox. */
 .fork-cg-gallery-picture { position: absolute; inset: 0; overflow: hidden; }
@@ -201,7 +202,13 @@
 .fork-cg-variant[aria-pressed="true"] { opacity: 1; }
 .fork-cg-variant[aria-pressed="true"]::before { box-shadow: inset 0 0 0 2px var(--cg-ink); }
 .fork-cg-variant .fork-cg-gallery-missing .fork-cg-icon { width: 16px; height: 16px; }
-.fork-cg-crop { position: absolute; right: 24px; bottom: 20px; }
+.fork-cg-crop { position: absolute; right: 24px; bottom: 20px; display: flex; gap: 2px; padding: 4px; border-radius: 22px; background: var(--cg-glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.fork-cg-compose-mode { display: flex; align-items: center; gap: 6px; box-sizing: border-box; height: 36px; min-width: 0; min-height: 0; margin: 0; padding: 0 14px 0 10px; border: 0; border-radius: 18px;
+  background: none; box-shadow: none; color: var(--cg-ink-2); font-size: 14px; line-height: 1; white-space: nowrap; cursor: pointer; transition: background .15s, color .15s; }
+.fork-cg-compose-mode .fork-cg-icon { width: 18px; height: 18px; }
+.fork-cg-compose-mode:hover { background: var(--cg-card-hover); color: var(--cg-ink); }
+.fork-cg-compose-mode[aria-pressed="true"] { background: var(--cg-glass-hover); color: var(--cg-ink); font-weight: 600; }
+.fork-cg-viewer-ui:has(.fork-cg-crop) .fork-cg-variants { max-width: calc(100% - 420px); }
 .fork-cg-crop-menu { position: absolute; right: 0; bottom: calc(100% + 8px); display: flex; flex-direction: column; min-width: 9em; padding: 6px; border: 1px solid var(--cg-card-line); border-radius: 12px;
   background: var(--cg-card); box-shadow: 0 10px 30px rgb(0 0 0 / .5); }
 /* role=menu: the host's menu ground (theme.css) stays off this opaque card. */
@@ -216,7 +223,7 @@
 .fork-cg-remove-error > .fork-cg-icon { width: 18px; height: 18px; color: var(--cg-danger); }
 .fork-cg-round[aria-busy] { opacity: .5; cursor: progress; }
 @keyframes fork-cg-pop { from { opacity: 0; transform: translateY(-4px) scale(.97); } }
-.fork-gal-stage[data-reduced-motion] :is(.fork-cg-viewer-ui, .fork-cg-round, .fork-cg-variant, .fork-cg-cell-title, .fork-cg-gallery-cell .fork-cg-gallery-picture, .fork-cg-remove-error) { transition: none; animation: none; }
+.fork-gal-stage[data-reduced-motion] :is(.fork-cg-viewer-ui, .fork-cg-round, .fork-cg-compose-mode, .fork-cg-variant, .fork-cg-cell-title, .fork-cg-gallery-cell .fork-cg-gallery-picture, .fork-cg-remove-error) { transition: none; animation: none; }
 @media (max-width: 600px) {
   .fork-cg-gallery h2 { font-size: 17px; }
   .fork-cg-round { width: 40px; height: 40px; }
@@ -234,7 +241,9 @@
   .fork-cg-nav .fork-cg-icon { width: 22px; height: 22px; }
   .fork-cg-variants { bottom: 14px; gap: 4px; padding: 4px; border-radius: 12px; }
   .fork-cg-variant { flex-basis: 52px; width: 52px; height: 36px; border-radius: 7px; }
-  .fork-cg-crop { right: 60px; bottom: 16px; }
+  .fork-cg-crop { right: 12px; bottom: 66px; }
+  .fork-cg-compose-mode { height: 32px; padding: 0 12px 0 8px; font-size: 13px; }
+  .fork-cg-viewer-ui:has(.fork-cg-crop) .fork-cg-variants { max-width: calc(100% - 208px); }
   .fork-cg-remove-error { right: 12px; }
 }
 .fork-gal-stage[data-cg-visible] > :is(.fork-performance-over, .fork-performance-flash) { z-index: 1; }

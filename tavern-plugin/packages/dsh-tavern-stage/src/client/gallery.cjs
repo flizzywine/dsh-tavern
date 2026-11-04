@@ -29,7 +29,8 @@ const ICON = {
     close:['M6 6l12 12M18 6L6 18'],
     prev:['M15 5l-7 7 7 7'],
     next:['M9 5l7 7-7 7'],
-    crop:['M7 3v14h14','M3 7h14v14'],
+    full:['M4 5.5h16v13H4z','M4 15.5l4.5-4.5 4 4 2.5-2.5 5 5'],
+    zoom:['M10.5 4.5a6 6 0 1 0 0 12a6 6 0 1 0 0-12z','M15 15l5 5','M8 10.5h5M10.5 8v5'],
     lock:['M6.5 11h11v9h-11z','M9 11V8.5a3 3 0 0 1 6 0V11'],
     warn:['M12 4.5l8.5 15h-17z','M12 10v4.5','M12 17.3v.2'],
     check:['M5 12.5l4.5 4.5L19 7.5'],
@@ -197,7 +198,9 @@ function CgGallery({sessionId,store,onClose,onExit}) {
         swiped.current=true;go(dx<0?1:-1);
     }
     function viewer() {
-        const hints=item.focusHints,choices=[{key:null,label:'完整图'},...hints];
+        // 构图 only when the CG has focus areas: 「完整」|「特写」, a labelled pair; several areas put them in a menu under 特写.
+        const hints=item.focusHints,many=hints.length>1;
+        const mode=(k,label,pressed,onClick,props)=>h('button',{type:'button',className:'fork-cg-compose-mode','data-k':k,'aria-pressed':pressed,onClick,...props},icon(k),h('span',null,label));
         return h('div',{className:'fork-cg-viewer','data-ui':uiOff?'off':'on','data-active':active||undefined,
                 onClick:tap,onPointerMove:wake,onPointerLeave:()=>setActive(false),onPointerDown:swipeStart,onPointerUp:swipeEnd,onPointerCancel:()=>{swipe.current=null;}},
             h(CgGalleryImage,{image:shown?.image,authority,focus}),
@@ -214,10 +217,11 @@ function CgGallery({sessionId,store,onClose,onExit}) {
                 // 差分: a strip of mini pictures, bottom centre; the lit one is shown.
                 item.variants.length>1?h('div',{className:'fork-cg-variants',role:'group','aria-label':'差分'},item.variants.map(v=>h('button',{key:v.key,type:'button',className:'fork-cg-variant','aria-label':v.label,'data-tip':v.label,'aria-pressed':v===shown,onClick:()=>setVariant(v.key)},
                     h(CgGalleryImage,{image:v.image,authority,thumb:true})))):null,
-                hints.length?h('div',{className:'fork-cg-crop'},
-                    round('crop','构图',()=>setCropOpen(!cropOpen),{'aria-haspopup':'menu','aria-expanded':cropOpen}),
-                    cropOpen?h('div',{className:'fork-cg-crop-menu',role:'menu','aria-label':'构图'},choices.map(choice=>h('button',{key:choice.key||'full',type:'button',role:'menuitemradio','aria-checked':(focus?.key??null)===choice.key,
-                        onClick:()=>{setFocus(choice.key?choice:null);setCropOpen(false);}},icon('check'),choice.label))):null):null));
+                hints.length?h('div',{className:'fork-cg-crop',role:'group','aria-label':'构图'},
+                    mode('full','完整',!focus,()=>{setFocus(null);setCropOpen(false);}),
+                    mode('zoom','特写',!!focus,()=>{if(many)setCropOpen(!cropOpen);else setFocus(hints[0]);},many?{'aria-haspopup':'menu','aria-expanded':cropOpen}:{}),
+                    cropOpen?h('div',{className:'fork-cg-crop-menu',role:'menu','aria-label':'特写'},hints.map(choice=>h('button',{key:choice.key,type:'button',role:'menuitemradio','aria-checked':focus?.key===choice.key,
+                        onClick:()=>{setFocus(choice);setCropOpen(false);}},icon('check'),choice.label))):null):null));
     }
     function grid() {
         return h('div',{className:'fork-cg-grid-page'},
