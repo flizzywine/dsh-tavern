@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { assertPluginJson } from './tavern-chat-plugin-data.js'
+import { gameModeForegroundId } from './game-mode-foreground.js'
 
 const clone = value => structuredClone(value)
 const keyPattern = /^[a-z][a-z0-9._-]{0,63}$/
@@ -43,12 +44,13 @@ export function createPluginGameModes({ read, write, allowed, runAgent, foregrou
     const provider = await providerFor(gameId, doc.key, doc.version)
     const publicView = json(await provider.project({ state: clone(doc.frames[doc.cursor].state) }))
     const hasForeground = typeof foreground === 'function' && typeof provider.foreground === 'function'
+    const text = hasForeground ? await foregroundText(provider, publicView) : null
     if (hasForeground && !running.has(gameId)) {
-      const text = await foregroundText(provider, publicView)
       await foreground(gameId, { key: doc.key, revision: doc.revision, text })
     }
     return { key: doc.key, revision: doc.revision, cursor: doc.cursor, length: doc.frames.length,
-      foreground: hasForeground, busy: running.has(gameId), data: publicView }
+      foreground: hasForeground, foregroundMessageId: hasForeground ? gameModeForegroundId(doc.key, text) : null,
+      busy: running.has(gameId), data: publicView }
   }
   async function execute(gameId, request) {
     if (running.has(gameId)) throw new Error('玩法正在运行')

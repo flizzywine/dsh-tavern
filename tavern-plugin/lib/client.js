@@ -33636,7 +33636,7 @@ function tavernFloorHeightRecall(key, width) {
 				const [snapshot, setSnapshot] = React.useState(null), [modes, setModes] = React.useState([]);
 				const [error, setError] = React.useState(''), [pending, setPending] = React.useState(false);
 				const [paused, setPaused] = React.useState(false);
-				const actionLock = React.useRef(false);
+				const actionLocks = TavernGameModeSurface.actionLocks || (TavernGameModeSurface.actionLocks = new Set());
 				React.useEffect(function () {
 					let disposed = false;
 					async function refresh() {
@@ -33652,15 +33652,16 @@ function tavernFloorHeightRecall(key, width) {
 				}, [sessionId, extensionsVersion]);
 				async function act(input) {
 					if (input.op === 'stop' || input.op === 'seek') setPaused(true);
-					if (actionLock.current && input.op !== 'stop') return false;
-					if (input.op !== 'stop') actionLock.current = true;
+					if (actionLocks.has(sessionId) && input.op !== 'stop') return false;
+					if (input.op !== 'stop') actionLocks.add(sessionId);
 					setPending(true); setError('');
 					try { const result = await rpc('gameMode', Object.assign({ revision: snapshot && snapshot.revision, actionId: crypto.randomUUID() }, input), sessionId); if (result.mode) setSnapshot(result.mode); return true; }
 					catch (e) { setError(e.message); setPaused(true); return false; }
-					finally { if (input.op !== 'stop') actionLock.current = false; setPending(false); }
+					finally { if (input.op !== 'stop') actionLocks.delete(sessionId); setPending(false); }
 				}
 				if (!snapshot && !modes.length && !error) return null;
 				if (snapshot?.foreground && !props.foreground) return null;
+				if (props.foreground && (!snapshot || props.messageId !== snapshot.foregroundMessageId)) return null;
 				const renderer = snapshot && tavernUiExtensions.gameModeView(snapshot.key);
 				return h('section', { className: 'dsh-tavern-game-mode', 'aria-label': '自定义玩法', 'data-revision': snapshot && snapshot.revision },
 					error ? h('p', { role: 'alert' }, error) : null,
@@ -36010,7 +36011,7 @@ function tavernFloorHeightRecall(key, width) {
 						if (String(props.node.data.finalNode?.messageId || '').startsWith('tavern-game-mode:')) {
 							return React.createElement('section', { className: 'dsh-tavern-game-foreground', 'aria-label': 'DM 前台记录' },
 								React.createElement('div', { style: { whiteSpace: 'pre-wrap', lineHeight: 1.8 } }, (props.node.data.blocks || []).filter(block => block.kind === 'text').map(block => block.text).join('\n')),
-								React.createElement(tavernReplyObserverFeature.GameModeSurface, { sessionId: props.sessionId, foreground: true }));
+								React.createElement(tavernReplyObserverFeature.GameModeSurface, { sessionId: props.sessionId, foreground: true, messageId: props.node.data.finalNode.messageId }));
 						}
 						return React.createElement(TavernAssistantNodeView, Object.assign({}, props, { executeSlash: executeSlash }));
 					}); });

@@ -84,7 +84,7 @@
 				const [snapshot, setSnapshot] = React.useState(null), [modes, setModes] = React.useState([]);
 				const [error, setError] = React.useState(''), [pending, setPending] = React.useState(false);
 				const [paused, setPaused] = React.useState(false);
-				const actionLock = React.useRef(false);
+				const actionLocks = TavernGameModeSurface.actionLocks || (TavernGameModeSurface.actionLocks = new Set());
 				React.useEffect(function () {
 					let disposed = false;
 					async function refresh() {
@@ -100,15 +100,16 @@
 				}, [sessionId, extensionsVersion]);
 				async function act(input) {
 					if (input.op === 'stop' || input.op === 'seek') setPaused(true);
-					if (actionLock.current && input.op !== 'stop') return false;
-					if (input.op !== 'stop') actionLock.current = true;
+					if (actionLocks.has(sessionId) && input.op !== 'stop') return false;
+					if (input.op !== 'stop') actionLocks.add(sessionId);
 					setPending(true); setError('');
 					try { const result = await rpc('gameMode', Object.assign({ revision: snapshot && snapshot.revision, actionId: crypto.randomUUID() }, input), sessionId); if (result.mode) setSnapshot(result.mode); return true; }
 					catch (e) { setError(e.message); setPaused(true); return false; }
-					finally { if (input.op !== 'stop') actionLock.current = false; setPending(false); }
+					finally { if (input.op !== 'stop') actionLocks.delete(sessionId); setPending(false); }
 				}
 				if (!snapshot && !modes.length && !error) return null;
 				if (snapshot?.foreground && !props.foreground) return null;
+				if (props.foreground && (!snapshot || props.messageId !== snapshot.foregroundMessageId)) return null;
 				const renderer = snapshot && tavernUiExtensions.gameModeView(snapshot.key);
 				return h('section', { className: 'dsh-tavern-game-mode', 'aria-label': '自定义玩法', 'data-revision': snapshot && snapshot.revision },
 					error ? h('p', { role: 'alert' }, error) : null,

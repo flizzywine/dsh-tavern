@@ -3,6 +3,10 @@ import { sessionEvents } from './session-events.js'
 import { createSessionSurfaceMutator } from './session-surface-mutations.js'
 
 export const GAME_FOREGROUND_PREFIX = 'tavern-game-mode:'
+export function gameModeForegroundId(key, text) {
+  return GAME_FOREGROUND_PREFIX + createHash('sha256').update(key).digest('hex').slice(0, 16) + ':'
+    + createHash('sha256').update(text).digest('hex').slice(0, 24)
+}
 
 // The mode document owns the game. This native foreground message is a
 // rebuildable public transcript, including after rewind or a failed flush.
@@ -14,7 +18,7 @@ export function projectGameModeForeground(session, { key, text }) {
     && event.type === 'assistant/message' && event.data?.message?.id?.startsWith(owner))
   const content = [{ type: 'text', text }]
   if (current && JSON.stringify(current.data.message.content) === JSON.stringify(content)) return false
-  const message = { id: owner + createHash('sha256').update(text).digest('hex').slice(0, 24),
+  const message = { id: gameModeForegroundId(key, text),
     role: 'assistant', content, source: { kind: 'model', provider: 'dsh-tavern', model: 'game-dm-projection' } }
   const mutator = createSessionSurfaceMutator(session)
   mutator.editStep((turn, step) => {

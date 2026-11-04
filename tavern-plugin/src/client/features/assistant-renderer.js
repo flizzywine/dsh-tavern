@@ -953,7 +953,7 @@
 						if (String(props.node.data.finalNode?.messageId || '').startsWith('tavern-game-mode:')) {
 							return React.createElement('section', { className: 'dsh-tavern-game-foreground', 'aria-label': 'DM 前台记录' },
 								React.createElement('div', { style: { whiteSpace: 'pre-wrap', lineHeight: 1.8 } }, (props.node.data.blocks || []).filter(block => block.kind === 'text').map(block => block.text).join('\n')),
-								React.createElement(tavernReplyObserverFeature.GameModeSurface, { sessionId: props.sessionId, foreground: true }));
+								React.createElement(tavernReplyObserverFeature.GameModeSurface, { sessionId: props.sessionId, foreground: true, messageId: props.node.data.finalNode.messageId }));
 						}
 						return React.createElement(TavernAssistantNodeView, Object.assign({}, props, { executeSlash: executeSlash }));
 					}); });
