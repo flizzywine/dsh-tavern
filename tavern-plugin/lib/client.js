@@ -8989,7 +8989,7 @@ window.__ModuleLoader__.load({
 		  // figure without a voice gets a new pack voice; editing a voice that other figures share asks first (copy, or all).
 		  // Opening, choosing or saving never synthesizes; ▶ does, and a paid or unknown-cost preview asks first (billing confirm).
 		  // Missing service / key / voice → ⚠ chip, the figure stays silent (不配音); nothing silently switches service.
-		  const VOICE_PROVIDERS={'fish-audio':'Fish Audio',qwen:'通义千问',azure:'Azure',volcengine:'火山引擎','openai-compatible':'自定义语音服务',browser:'浏览器朗读'};
+		  const VOICE_PROVIDERS={'fish-audio':'Fish Audio',qwen:'通义千问',azure:'Azure',volcengine:'火山引擎',minimax:'MiniMax','openai-compatible':'自定义语音服务',browser:'浏览器朗读'};
 		  const FIGURE_VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语'],['ko','韩语'],['yue','粤语']];
 		  const VOICE_SAMPLES={ja:'こんにちは。今日もよろしくお願いします。',zh:'你好，今天也请多关照。',en:'Hello. It is good to see you today.',ko:'안녕하세요. 오늘도 잘 부탁해요.',yue:'你好，今日都請多多指教。'};
 		  const VOICE_GENDERS={female:'女声',male:'男声',neutral:'中性'};
@@ -9734,17 +9734,19 @@ window.__ModuleLoader__.load({
 		      list);
 		  }
 		  // (3) 在线 TTS: one row per online service — 通义千问 / Azure / 火山引擎 (listed
-		  // before they are set up), then every custom (OpenAI 兼容) service added in 配音 settings, under its own name. A row says its
+		  // before they are set up), every other kind configured in 配音 settings (MiniMax …), then every custom (OpenAI 兼容) service added in 配音 settings, under its own name. A row says its
 		  // state at once from the TTS `services` snapshot (未设置 / 已设置 / 就绪 / 正在检查… / ⚠ 需要密钥 / ⚠ 连不上); its voices are read
 		  // only when it is opened (▶ previews, 使用 picks). The dashed ＋ adds a custom service in 配音 settings. Several services of one
 		  // kind are a row each, under their own names, and a voice picked under one names that service (`bind`: serviceId).
 		  // 浏览器朗读: the system's own voices, free and always set up.
-		  const ONLINE_BUILTIN=['qwen','azure','volcengine','browser'];
+		  const ONLINE_BUILTIN=['qwen','azure','volcengine'];
 		  const customServices=raw=>(raw?.configured||[]).filter(c=>c.kind==='openai-compatible');
 		  function onlineProviders(raw){
 		    const of=kind=>(raw?.configured||[]).filter(c=>c.kind===kind),custom=customServices(raw);
+		    // Fish speaks through its own ways (声音克隆 / 声音库); a custom service is a row of its own below.
+		    const kinds=[...new Set([...ONLINE_BUILTIN,...(raw?.configured||[]).map(c=>c.kind).filter(k=>k!=='fish-audio'&&k!=='openai-compatible')]),'browser'];
 		    const each=(list,custom)=>list.map(c=>({key:'service:'+c.id,kind:c.kind,name:c.label||providerName(c.kind),serviceId:c.id,bind:list.length>1,custom}));
-		    return [...ONLINE_BUILTIN.flatMap(kind=>of(kind).length>1?each(of(kind),false):[{key:kind,kind,name:providerName(kind),serviceId:of(kind)[0]?.id}]),...each(custom,true)];
+		    return [...kinds.flatMap(kind=>of(kind).length>1?each(of(kind),false):[{key:kind,kind,name:providerName(kind),serviceId:of(kind)[0]?.id}]),...each(custom,true)];
 		  }
 		  // The name a saved online source reads as: the built-in service, or the custom service's own name (and, of several
 		  // services of one kind, the one it names).
