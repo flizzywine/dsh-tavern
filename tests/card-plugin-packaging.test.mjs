@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { openZipFile } from '../tavern-plugin/lib/domain/zip-file.js'
 import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
+import { readCardArchive } from '../tavern-plugin/lib/domain/card-archive.js'
+import { createCardPlugins } from '../tavern-plugin/lib/domain/card-plugins.js'
+import { pathToFileURL } from 'node:url'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 async function temp(t) {
@@ -37,6 +40,29 @@ test('hello example builds a real archive with the plugin package identity', asy
   const pkg = await manifest(target, 'hello-mood')
   assert.equal(pkg.name, 'dsh-card-hello-mood')
   assert.equal(pkg.version, '1.0.0')
+})
+
+test('werewolf dshcard imports, stages, enables and loads its packaged game mode', async t => {
+  const dir = await temp(t), target = path.join(dir, 'werewolf.dshcard')
+  const result = run(path.join(root, 'examples/werewolf/build.mjs'), target)
+  assert.equal(result.status, 0, result.stderr)
+  const zip = await openZipFile(target)
+  try {
+    const archive = await readCardArchive(zip)
+    assert.equal(archive.kind, 'dshcard')
+    const pluginsDir = path.join(dir, 'plugins')
+    const manager = createCardPlugins({ dataRoot: dir, pluginsDir })
+    const plugins = await manager.stage(zip, { cardKey: 'werewolf-test', plugins: archive.plugins })
+    await manager.enable({ cardKey: 'werewolf-test', cardPath: 'cards/werewolf.json', plugins })
+    const scoped = (await manager.scope()).get('dsh-card-werewolf')
+    assert.deepEqual(scoped.cards, ['cards/werewolf.json'])
+    const plugin = await import(pathToFileURL(path.join(pluginsDir, scoped.folder, 'index.mjs')))
+    let mode
+    plugin.apply({ tavern: { capabilities: { gameMode: 1 }, gameMode: value => { mode = value } } })
+    const initial = mode.create({ input: null }).state
+    assert.equal(initial.players.length, 6)
+    assert.equal(mode.project({ state: initial }).revealed, null)
+  } finally { await zip.close() }
 })
 
 // 大肥鱼 carries no plugin: Tavern's stage draws it from its bound packs, and it declares the stage
@@ -79,7 +105,7 @@ test('dafeiyu build and distribution compressor produce a card without a plugin 
 
 test('all card packagers reject missing, blank, and non-string identity before reading inputs or writing output', async t => {
   const dir = await temp(t)
-  await symlink(path.join(root, 'tavern-plugin'), path.join(dir, 'tavern-plugin'), 'dir')
+  await symlink(path.join(root, 'tavern-plugin'), path.join(dir, 'tavern-plugin'), process.platform === 'win32' ? 'junction' : 'dir')
   for (const relative of ['dshcard-hello/build.mjs']) {
     const script = path.join(dir, 'examples', relative), plugin = path.join(path.dirname(script), 'plugin')
     await mkdir(plugin, { recursive: true })
