@@ -10,10 +10,10 @@ async function load() {
   vm.createContext(sandbox)
   const line = name => source.match(new RegExp('^const ' + name + '=.*$', 'm'))[0]
   const between = (from, to) => source.slice(source.indexOf(from), source.indexOf(to))
-  vm.runInContext([line('VOICE_PROVIDERS'), line('providerName'),
+  vm.runInContext([line('VOICE_PROVIDERS'), line('providerName'), line('VOICE_UNSET_TEXT'), line('voiceSourceUnset'),
     between('const VOICE_WAYS=[', '// Does a row speak'),
     between('const BROWSER_ROW=', '// The name a saved online source reads as'),
-    'this.onlineProviders=onlineProviders;this.voiceWayRows=voiceWayRows;'].join('\n'), sandbox)
+    'this.onlineProviders=onlineProviders;this.voiceWayRows=voiceWayRows;this.voiceSourceUnset=voiceSourceUnset;'].join('\n'), sandbox)
   return sandbox
 }
 const plain = value => JSON.parse(JSON.stringify(value))
@@ -60,4 +60,12 @@ test('a source naming a service that is not set up keeps its way, with a row of 
   assert.deepEqual(plain(voiceWayRows(catalog, clone)).map(w => w.id), ['clone', 'browser', 'off'])
   // a browser voice is the 浏览器朗读 way, not 在线 TTS.
   assert.deepEqual(plain(voiceWayRows(catalog, {kind:'preset', provider:'browser', voiceName:'Kyoko'})).map(w => w.id), ['browser', 'off'])
+})
+
+// 浏览器朗读 without a voiceName is the system default voice: set up, never a voice still to pick.
+test('a browser source without a voice name is set up; an online one without a voice name is not', async () => {
+  const {voiceSourceUnset} = await load()
+  assert.equal(voiceSourceUnset({kind:'preset', provider:'browser'}), '')
+  assert.equal(voiceSourceUnset({kind:'preset', provider:'browser', voiceName:'Kyoko'}), '')
+  assert.equal(voiceSourceUnset({kind:'preset', provider:'qwen'}), '还没选在线声音')
 })

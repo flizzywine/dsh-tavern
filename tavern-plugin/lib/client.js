@@ -9081,7 +9081,8 @@ window.__ModuleLoader__.load({
 		  // lacks, in plain words for screen readers only (R25: on screen the page shows it — an amber radio, the
 		  // empty field highlighted, 试听 off; the host answers MISSING_REFERENCE / VOICE_NOT_FOUND for it).
 		  const VOICE_UNSET_TEXT={'reference-list':'还没有参考音频','voice-id':'还没选声音',preset:'还没选在线声音'};
-		  const voiceSourceUnset=s=>s&&(s.kind==='reference-list'?!s.references.length:s.kind==='voice-id'?!s.voiceId:!s.voiceName)?VOICE_UNSET_TEXT[s.kind]:'';
+		  // 浏览器朗读 without a voiceName is the system default voice: set up, never unset.
+		  const voiceSourceUnset=s=>s&&(s.kind==='reference-list'?!s.references.length:s.kind==='voice-id'?!s.voiceId:s.provider!=='browser'&&!s.voiceName)?VOICE_UNSET_TEXT[s.kind]:'';
 		  const VOICE_EDIT_CODES=new Set(['MISSING_REFERENCE','LANGUAGE_UNSUPPORTED','QWEN_VOICE_UNSUPPORTED','VOICE_NOT_FOUND']);
 		  const providerName=kind=>VOICE_PROVIDERS[kind]||'语音服务';
 		  // The one line that says why a voice is silent (⚠ chips, the 声音 property's tooltip).
@@ -9608,7 +9609,7 @@ window.__ModuleLoader__.load({
 		    const summary=way=>{const found=entry(way),s=found?.[1];if(!s||voiceSourceUnset(s)||!held(way))return '';
 		      if(way.base==='clone')return s.references.length+' 段录音';
 		      if(way.base==='library'){const name=recommended.value?.voices?.find(v=>v.voiceId===s.voiceId)?.name;return name&&name!==s.voiceId?name:spec.name;}
-		      if(way.base==='browser')return voiceDisplayName(s.voiceName);
+		      if(way.base==='browser')return s.voiceName?voiceDisplayName(s.voiceName):'系统默认';
 		      return onlineSourceName(s,readiness.services)+' · '+voiceDisplayName(s.voiceName);};
 		    // What the way in use still lacks (screen readers only). Shown as the amber radio and the highlighted field in its settings.
 		    const incomplete=way=>{const s=entry(way)?.[1];return s?voiceSourceUnset(s):'';};

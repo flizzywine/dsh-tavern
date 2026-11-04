@@ -51,9 +51,8 @@ export function createFigureVoiceAuthoring({getLibrary,getTts}) {
       const figure = pack?.figures[input.figureId]
       if (!figure) fail('ASSET_UNAVAILABLE')
       const voice = figure.voice && pack.manifest.voiceLibrary?.voices[figure.voice.voice]
-      // Browser speech needs no service: only a voice not picked yet is an issue.
-      const spoken = browserSpeechSource(voice, figure.voice)
-      const status = spoken ? {effective:null,issues:spoken.voiceName === undefined ? [{code:'VOICE_NOT_FOUND'}] : []} : voice && tts ? await tts.resolveVoiceService({voice,binding:figure.voice}) : {effective:null,issues:voice ? [{code:'SERVICE_REQUIRED'}] : []}
+      // Browser speech needs no service and no voice name (none = the system default): it has no issues.
+      const status = browserSpeechSource(voice, figure.voice) ? {effective:null,issues:[]} : voice && tts ? await tts.resolveVoiceService({voice,binding:figure.voice}) : {effective:null,issues:voice ? [{code:'SERVICE_REQUIRED'}] : []}
       return {packRevision:pack.revision,binding:figure.voice || null,voiceLibrary:pack.manifest.voiceLibrary || {version:1,voices:{}},...status,recommended:tts?.listRecommendedFishVoices?.().voices || []}
     },
     async choices() {
