@@ -6013,6 +6013,13 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-status[data-size="full"] { padding: 0; place-items: stretch; }
 .fork-gal-status[data-size="full"] > .fork-gal-status-sheet { width: 100%; height: 100%; border: 0; border-radius: 0; box-shadow: none;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+/* …with no title bar: the close button floats over the card's top-right corner */
+.fork-gal-stage > .fork-gal-status[data-size="full"] > .fork-gal-status-sheet > .fork-gal-status-head { position: absolute; z-index: 1;
+  top: calc(env(safe-area-inset-top) + 10px); right: calc(env(safe-area-inset-right) + 10px); padding: 0; }
+.fork-gal-status[data-size="full"] .fork-gal-status-head::after { content: none; }
+.fork-gal-stage .fork-gal-status[data-size="full"] .fork-gal-status-close { position: static; width: 40px; height: 40px; margin: 0; border-radius: 50%;
+  background: color-mix(in srgb, var(--gal-ui-surface) 55%, transparent); color: var(--gal-ui-ink); }
+.fork-gal-stage .fork-gal-status[data-size="full"] .fork-gal-status-close:hover { background: color-mix(in srgb, var(--gal-ui-surface) 75%, transparent); color: var(--gal-ui-accent); }
 .fork-gal-status-note { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; flex: 1; margin: 0; padding: 32px 20px; color: var(--gal-ui-ink-2); font-size: var(--gal-ui-meta-size); text-align: center; }
 .fork-gal-stage .fork-gal-status-note > button { min-height: 36px; padding: 6px 14px; border: 0; border-radius: var(--gal-ui-radius); background: transparent; color: var(--gal-ui-accent); font: inherit; cursor: pointer; }
 .fork-gal-stage .fork-gal-status-note > button:hover { background: var(--gal-ui-hover); }

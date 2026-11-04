@@ -91,6 +91,20 @@ test('a card without a panel ({panel:null} in the request envelope) opens to the
   assert.equal(h.built.length, 0)
   panel.dispose()
 })
+test('a full sheet has no title bar, only the close button; a window sheet keeps its title', () => {
+  const find = (node, test) => !node || typeof node !== 'object' ? null : test(node) ? node : node.children.reduce((hit, child) => hit || find(child, test), null)
+  for (const [size, title] of [['full', null], ['window', '状态']]) {
+    const React = {createElement: (type, props, ...children) => ({type, props: props || {}, children: children.flat()}),
+      useRef: () => ({current: null}), useState: initial => [initial, () => {}], useEffect() {}}
+    const panels = createStageStatusPanel({React, window: {console, addEventListener() {}, removeEventListener() {}}, document: {}, rpc: () => new Promise(() => {}), signals: {subscribe: () => () => {}}})
+    const tree = panels.Overlay({sessionId: 's1', size, onClose() {}})
+    assert.equal(tree.props['data-size'], size)
+    assert.equal(find(tree, node => node.props.className === 'fork-gal-status-title')?.children[0] ?? null, title)
+    assert.equal(find(tree, node => node.props.role === 'dialog').props['aria-label'], '状态')
+    assert.ok(find(tree, node => node.props.className === 'fork-gal-status-close'))
+    panels.dispose()
+  }
+})
 test('the panel size reaches the sheet state; an undeclared size is the window', async () => {
   for (const [size, expected] of [['full', 'full'], [undefined, 'window']]) {
     const h = harness({html: HTML, title: '状态', ...(size ? {size} : {}), figures: [], data: {variables: {}, ledger: {}}})

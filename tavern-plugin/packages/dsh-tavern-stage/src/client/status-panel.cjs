@@ -165,6 +165,8 @@ function useStatusPanel(sessionId) {
 }
 
 // size: the probe's (useStatusPanel) panel size, so a full-stage sheet opens full instead of growing after its read.
+// A full sheet has no title bar: the card draws the whole scene, and only the close button floats over its corner
+// (the title stays the dialog's accessible name; Esc and the backdrop still close it).
 function Overlay({sessionId, config, source, size, onClose}) {
     const h = React.createElement, root = React.useRef(null), body = React.useRef(null), panel = React.useRef(null), close = React.useRef(onClose);
     close.current = onClose;
@@ -203,7 +205,7 @@ function Overlay({sessionId, config, source, size, onClose}) {
         onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); close.current(); }},
         h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, 'data-phase': state.phase},
             h('header', {className: 'fork-gal-status-head'},
-                h('b', {className: 'fork-gal-status-title'}, title),
+                state.size === 'full' ? null : h('b', {className: 'fork-gal-status-title'}, title),
                 h('button', {type: 'button', className: 'fork-gal-status-close', title: '关闭状态', 'aria-label': '关闭状态', onClick: () => { sounds?.play?.('close'); close.current(); }},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),
             h('div', {ref: body, className: 'fork-gal-status-body'},
