@@ -17,6 +17,8 @@ exports.apply = function(ctx) {
       for (const fn of listeners) fn({type:'voicesChanged'})
       for (const fn of managementListeners) fn()
     }
+    // the voice services catalog (`voiceServices`) changed: a service saved, removed or checked.
+    if (['saveService','deleteService','testService','probeService'].includes(method)) for (const fn of listeners) fn({type:'servicesChanged'})
     return result
   }
   const listeners = new Set(), jobs = new Set()

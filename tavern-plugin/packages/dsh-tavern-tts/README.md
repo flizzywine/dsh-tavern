@@ -10,6 +10,17 @@ Tavern 通过公开 source/grant 接口消费声音；本包不导入、不迁�
 - 音频：`GET /api/dsh-tts/v1/audio?ticket=...`，同源、登录 Cookie、最长 60 秒 ticket、private/no-store。
 - 合成仅宿主调用：先 `registerProvider` / `registerVoiceSource`，消费者授权后 `grantConsumer`，再 `synthesize`。关闭来源/插件立即撤销访问。
 
+## 语音服务目录（对外契约）
+
+「配音后端」里已保存的语音服务，由本包公布为唯一的一份目录，素材库、舞台和第三方插件都读它，不各自写死服务种类：
+
+- 宿主：`ctx.get('tts').listVoiceServices()`；浏览器：`ttsClient.call('voiceServices')`。两者返回同一个 `VoiceServiceCatalog`（`types/index.d.ts`）。
+- `services`：每个已保存的服务一项 `{id, kind, label, state, billing, sources, voiceList}`，最后固定一项浏览器朗读（`kind:'browser'`，永远 `ready`、免费）。不含密钥、地址和 config 原文；读取不发网络请求，`state` 取本次运行最近一次连接检查的结果（`ready` / `configured` / `needs-key` / `offline`）。
+- `sources`：这个服务能接的配音来源（pack 声音来源的 `kind`）；`voiceList`：它的声音从哪里列（`fish-recommended` / `preset` / `provider` / `browser`）。
+- `kinds`：所有支持的种类及其名称，用于显示指向未配置服务的来源（「通义千问 · 未设置」）。
+- 目录变化（保存、删除、检查服务）时，`tts.subscribe` 发 `{type:'servicesChanged'}`。
+- 运行时选服务仍用 `listServices()` / `chooseService()`；改名或删字段要走 `apiVersion`。
+
 ## Fish Audio
 
 `fish-audio` 默认 Base URL `https://api.fish.audio`、模型 `s2.1-pro-free`。

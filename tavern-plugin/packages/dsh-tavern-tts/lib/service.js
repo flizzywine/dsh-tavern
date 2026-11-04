@@ -155,6 +155,8 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     },
     reading: () => structuredClone(reading()),
     readingChanged() { emit({type:'readingChanged'}) },
+    // a saved service was added, changed, removed or checked: the voice services catalog changed.
+    servicesChanged() { emit({type:'servicesChanged'}) },
     setEnabled(value) {
       alive(); enabled = value
       if (!enabled) {
