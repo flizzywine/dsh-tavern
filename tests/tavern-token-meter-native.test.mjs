@@ -40,11 +40,19 @@ test('原生 Token Meter 可统计既有无 step 的 Tavern 种子消息，且�
   for (const stage of sessionSeedTrajectoryMessages(session.id)) appendSessionEvent(session, stage.type, stage.data, stage.intent)
   const before = JSON.stringify(session.snapshotEvents())
   assert.throws(() => ctx.tokenMeter.measure(session), /assistant\/message.*no matching step\/start/)
+  const eventAt = session.eventAt
+  const hadOwnEventAt = Object.hasOwn(session, 'eventAt')
   const dispose = installTavernTokenMeter(ctx.tokenMeter)
   t.after(dispose)
   const measured = ctx.tokenMeter.measure(session)
   assert.ok(measured.totalTokens > 0)
   assert.equal(measured.nodes.length, session.header.version >= 3 ? 4 : 3)
+  // A failed unpatched measurement can leave both a host projection and a
+  // partial pricing cache. Repeated reads must recover without exposing the
+  // temporary accounting eventAt wrapper to other Session consumers.
+  assert.deepEqual(ctx.tokenMeter.measure(session), measured)
+  assert.equal(session.eventAt, eventAt)
+  assert.equal(Object.hasOwn(session, 'eventAt'), hadOwnEventAt)
   assert.equal(JSON.stringify(session.snapshotEvents()), before)
 })
 
