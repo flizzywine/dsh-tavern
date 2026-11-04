@@ -101,6 +101,17 @@ test('游玩工作过程默认隐藏、独立保存且配置类型受校验', ()
 })
 
 
+test('请求失败自动重试默认开启，关闭后往返保存且类型受校验', () => {
+  assert.equal(presentTavernSettings({}, {}).retryOnFailure, true)
+  assert.equal(presentTavernSettings({ retryOnFailure: 'off' }, {}).retryOnFailure, true)
+  const saved = applyTavernSettingsPatch({}, { retryOnFailure: false })
+  assert.equal(saved.retryOnFailure, false)
+  assert.equal(presentTavernSettings(JSON.parse(JSON.stringify(saved)), {}).retryOnFailure, false)
+  assert.equal(applyTavernSettingsPatch(saved, { retryOnFailure: true }).retryOnFailure, true)
+  for (const retryOnFailure of [null, 'false', 0]) assert.throws(() => applyTavernSettingsPatch({}, { retryOnFailure }), /自动重试/)
+})
+
+
 test('正文生成方式默认原生，插件模式必须指定生成器且完整往返保存', () => {
   assert.equal(presentTavernSettings({}, {}).storyGenerationMode, 'host')
   assert.throws(() => applyTavernSettingsPatch({}, { storyGenerationMode: 'plugin-tool-call' }), /先选择/)

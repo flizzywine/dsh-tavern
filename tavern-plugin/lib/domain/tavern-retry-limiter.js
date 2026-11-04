@@ -42,10 +42,19 @@ export function createTavernRetryLimiter(options = {}) {
   const owns = typeof options.owns === 'function' ? options.owns : function () { return false }
   const wait = typeof options.wait === 'function' ? options.wait : cancellableDelay
   const id = typeof options.id === 'function' ? options.id : function () { return randomUUID() }
+  // 设置 › 高级 › 请求失败自动重试. Off ends the failed request here: neither this
+  // limiter nor DSH's own retry policy (dsh-llm-retry, up to five requests) runs.
+  const enabled = typeof options.enabled === 'function' ? options.enabled : function () { return true }
+
+  // An unreadable settings file keeps the shipped behaviour instead of failing the turn.
+  async function retryAllowed() {
+    try { return await enabled() !== false } catch { return true }
+  }
 
   async function handle(payload, next) {
     if (!await owns(payload.agent)) return next()
     if (!retryable(payload)) return next()
+    if (!await retryAllowed()) return undefined
     const session = payload.agent && payload.agent.session
     if (!session || typeof session.append !== 'function') return next()
     const previous = priorRetry(session, payload)

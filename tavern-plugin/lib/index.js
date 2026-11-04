@@ -3897,7 +3897,9 @@ export async function apply(ctx) {
       const sessionId = agent && agent.session ? agent.session.id : ''
       if (sessionId === '') return false
       return backgroundAgentRunner.owns(sessionId) || Boolean(await chatHeaderForSession(sessionId, []))
-    }
+    },
+    // 设置 › 高级 › 请求失败自动重试: read per request so the switch needs no restart.
+    enabled: async function () { return (await readTavernSettings()).retryOnFailure !== false }
   })
 
   function clearRuntimePresetRequestState(agent) {

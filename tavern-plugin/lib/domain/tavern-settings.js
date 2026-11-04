@@ -321,6 +321,10 @@ export function applyTavernSettingsPatch(current, patch) {
     delete next.storyToolCall
     delete next.storyHistoryToolCall
   }
+  if (Object.hasOwn(input, 'retryOnFailure')) {
+    if (typeof input.retryOnFailure !== 'boolean') throw new Error('自动重试设置必须是布尔值')
+    next.retryOnFailure = input.retryOnFailure
+  }
   // 长按发送键 2 秒直接重新生成本轮正文；默认关闭，避免误触改写正文。
   if (Object.hasOwn(input, 'longPressSendRegenerate')) {
     if (typeof input.longPressSendRegenerate !== 'boolean') throw new Error('长按发送键重新生成设置必须是布尔值')
@@ -427,6 +431,9 @@ export function presentTavernSettings(document, defaults) {
     storyGenerationProvider: typeof document?.storyGenerationProvider === 'string' ? document.storyGenerationProvider : '',
     storyInputToolCall: storyToolCalls.input,
     storyOutputToolCall: storyToolCalls.output,
+    // A failed model request is resent once by default (tavern-retry-limiter); off means
+    // the turn ends right there and the reply is only remade when the player asks.
+    retryOnFailure: object(document).retryOnFailure !== false,
     // 长按 2 秒发送键直接重新生成正文；默认关闭。
     longPressSendRegenerate: object(document).longPressSendRegenerate === true,
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
