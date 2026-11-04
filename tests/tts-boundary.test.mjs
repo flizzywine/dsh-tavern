@@ -50,8 +50,8 @@ test('the TTS HTTP root is not spelled outside the plugin', () => {
 })
 
 // ctx.get('tts*') call sites (the core's line reading, speakLine, is one) and core-provided tts* services
-// (ttsReadingsEditor, ttsBrowserSpeech) today.
-const GETS = 15, PROVIDES = 2
+// (ttsReadingsEditor, ttsBrowserSpeech) today; the stage's voice service usage registration (#585) is two of them.
+const GETS = 20, PROVIDES = 2
 test('core and stage use the TTS services only within the shrink-only ceilings', () => {
   let gets = 0, provides = 0
   for (const file of coreSources()) {
