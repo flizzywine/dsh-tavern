@@ -60,6 +60,7 @@
             const [updateFile, setUpdateFile] = React.useState(null);
             const [updateNotice, setUpdateNotice] = React.useState('');
             const [updateError, setUpdateError] = React.useState('');
+            const [updateResult, setUpdateResult] = React.useState(null);
             const updateInput = React.useRef(null);
 			const [busy, setBusy] = React.useState(false);
 			const cardBatch = useCardBatchDeletion(cards, busy, setBusy, refresh, props.archiveSession);
@@ -687,8 +688,10 @@
                     const result = await importTavernCardFile(updateFile, call, setUpdateNotice, updateTarget);
                     await refresh(); notifyDataChanged(['cards']);
                     if (openingPicker?.card?.path === updateTarget) { setOpeningPicker(null); playPrewarmRef.current.cancel(); }
+                    const updated = await call('getCard', { path: updateTarget }).catch(() => null);
+                    setUpdateResult({ ...result.card, version: updated?.card?.character_version || '' });
                     setUpdateFile(null);
-                    setUpdateNotice('更新完成，历史会话关联已保留。旧卡备份：' + result.card.backupPath + (result.card.libraryNotices?.length ? '。素材提示：' + result.card.libraryNotices.join('；') : '') + (result.card.plugins?.length ? '。卡内插件已替换，请重启桌面版或刷新页面使新版生效。' : ''));
+                    setUpdateNotice('');
                 } catch (err) { setUpdateNotice(''); setUpdateError(String(err?.message || err)); }
                 finally { setBusy(false); }
             }
@@ -1048,7 +1051,7 @@
 					h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
 				h("input", { ref: fileRef, type: "file", accept: TAVERN_CARD_FILE_ACCEPT, style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importCard(f); e.target.value = ""; } }),
 				pendingChatImport ? h("div", { className: "dsh-tavern-side-empty", role: "status", style: { padding: "4px 6px", display: "flex", alignItems: "center", gap: "8px" } }, h("span", null, "选择这份 SillyTavern 聊天记录对应的人物卡" + (pendingChatImport.characterName ? "（记录里的角色：" + pendingChatImport.characterName + "）" : "")), h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { setPendingChatImport(null); } }, "取消")) : null,
-				organization.toolbar(h('button', { className: 'dsh-tavern-btn', disabled: busy || cardBatch.paths.length !== 1, title: '选中一张人物卡后上传新版替换', onClick: function () { if (cardBatch.paths.length !== 1) return; setUpdateTarget(cardBatch.paths[0]); setUpdateFile(null); setUpdateNotice(''); setUpdateError(''); updateInput.current.click(); } }, '更新')),
+				organization.toolbar(h('button', { className: 'dsh-tavern-btn', disabled: busy || cardBatch.paths.length !== 1, title: '选中一张人物卡后上传新版替换', onClick: function () { if (cardBatch.paths.length !== 1) return; setUpdateTarget(cardBatch.paths[0]); setUpdateFile(null); setUpdateNotice(''); setUpdateError(''); setUpdateResult(null); setUpdatingCard(true); } }, '更新')),
 				organization.visible.length ? h(React.Fragment, null, h("div", { className: "dsh-tavern-side-empty", style: { padding: "4px 6px" } }, "已绑定剧本的人物卡将自动按剧本推进；未绑定的按自由故事推进。剧本绑定在“卡片模式”中管理。"), h(TavernCardList, { place: "play", cards: organization.visible, batch: cardBatch, busy: busy, open: function (card) { if (!card.readError) preparePlayConversation(card); } })) : h(EmptyState, cards.length ? { text: "没有匹配的人物卡", icon: "search" } : { noun: "人物卡",
 					action: cardZip ? h("div", { className: "dsh-tavern-empty-actions" }, h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || cardZip.busy, onClick: cardZip.openUrl }, "从网址导入卡")) : null })
 			));
@@ -1178,16 +1181,8 @@
 					h("button", { className: uiMode === "card" ? "active" : "", disabled: busy, onClick: function () { switchMode("card"); } }, "卡片")
 				),
 				h("button", { className: "dsh-tavern-side-new", disabled: busy, onClick: function () { openPicker(); } }, uiMode === "play" ? (openingPicker ? "继续开局 · " + openingPicker.card.name : "＋ 选择人物卡 · 新开游玩") : "＋ 新建卡片工作台对话"),
-                    h('input',{ref:updateInput,type:'file',accept:'.json,.png,.charx,.dshcard',style:{display:'none'},onChange:e=>{const file=e.target.files?.[0]; if(!file)return; setUpdateFile(file); setUpdatingCard(true);setUpdateNotice('');setUpdateError('');e.target.value='';}}),
-                updatingCard ? h('div', { className: 'dsh-tavern-picker-overlay' }, h('div', { className: 'dsh-tavern-card-picker', role: 'dialog', 'aria-modal': 'true', 'aria-label': '更新人物卡', style:{width:'min(640px, calc(100vw - 32px))',height:'auto',minHeight:0,padding:'24px',gap:'18px',display:'flex',flexDirection:'column'} },
-                    h('div', { className: 'dsh-tavern-card-picker-head' }, h('span', null, '更新人物卡'), h('span', {className:'dsh-tavern-spacer'}), h('button', {className:'dsh-tavern-btn', disabled:busy, onClick:()=>setUpdatingCard(false)}, '关闭')),
-                    h('p', null, '上传的新版将替换选中的卡片。原位替换内容，保留历史会话、收藏和分组；旧卡会自动备份。'),
-                    h('p', null, '更新：' + (cards.find(card => card.path === updateTarget)?.name || updateTarget)),
-                    h('div',{className:'dsh-tavern-picker-foot'},h('button',{className:'dsh-tavern-btn',disabled:busy||!updateTarget,onClick:()=>updateInput.current.click()},'上传新版文件'),h('span',null,updateFile?.name||'支持 JSON、PNG、CHARX、DSHCARD')),
-                    updateFile ? h('p',null,'将用「'+updateFile.name+'」替换所选卡片。已有对局不重置；新版插件是否兼容旧局取决于插件。') : null,
-                    updateError ? h('p',{role:'alert',className:'dsh-tavern-dock-error'},updateError) : null,
-                    updateNotice ? h('p',{role:'status',style:{overflowWrap:'anywhere'}},updateNotice) : null,
-                    h('div',{className:'dsh-tavern-picker-foot'},h('button',{className:'dsh-tavern-question-primary',disabled:busy||!updateTarget||!updateFile,onClick:replaceSelectedCard},busy?'正在更新…':'更新并替换')))) : null,
+                    h('input',{ref:updateInput,type:'file',accept:'.json,.png,.charx,.dshcard',style:{display:'none'},onChange:e=>{const file=e.target.files?.[0]; if(!file)return; setUpdateFile(file); setUpdatingCard(true);setUpdateNotice('');setUpdateError('');setUpdateResult(null);e.target.value='';}}),
+                updatingCard ? h(TavernCardUpdateDialog, { target: updateTarget, name: cards.find(card => card.path === updateTarget)?.name || updateTarget, file: updateFile, notice: updateNotice, error: updateError, result: updateResult, busy, call, pick: () => updateInput.current.click(), close: () => setUpdatingCard(false), replace: replaceSelectedCard }) : null,
 				h("div", { className: "dsh-tavern-side-title dsh-tavern-history-heading" },
 					h("span", null, uiMode === "play" ? "游玩历史" : "卡片历史"),
 					h("button", { className: "dsh-tavern-history-action", disabled: busy, onClick: function () { setManaging(!managing); setSelectedChats([]); setMenuSession(null); setDeleteNotice(""); } }, managing ? "取消" : "管理")),

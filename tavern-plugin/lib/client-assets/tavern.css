@@ -458,6 +458,41 @@ body.dsh-tavern-picker-open [id^="improved-phone-floating-button-"] { visibility
 }
 .dsh-tavern-picker-group { margin-top: 10px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 700; }
 .dsh-tavern-picker-foot { position: sticky; bottom: -10px; display: flex; justify-content: flex-end; margin: 10px -10px -10px; padding: 10px; border-top: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-specific-sidebar-fill); }
+.dsh-tavern-card-update { align-self: center; flex: none; height: fit-content; min-height: 0; display: flex; flex-direction: column; width: min(600px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); box-sizing: border-box; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2); border-radius: 18px; background: var(--dsw-specific-sidebar-fill); box-shadow: 0 24px 80px #0003; color: var(--dsw-alias-label-primary); font-size: 14px; line-height: 1.6; }
+.dsh-tavern-card-update-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 24px 26px 0; }
+.dsh-tavern-card-update-label { display: block; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsh-tavern-card-update h2 { margin: 3px 0 0; font-size: 22px; font-weight: 650; letter-spacing: -.5px; }
+.dsh-tavern-card-update-body { padding: 18px 26px 24px; overflow-y: auto; min-height: 0; }
+.dsh-tavern-card-update-description { margin: 0 0 18px; color: var(--dsw-alias-label-secondary); font-size: 13px; }
+.dsh-tavern-card-update-versions { display: grid; grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr); gap: 12px; align-items: center; margin-bottom: 20px; }
+.dsh-tavern-card-update-version { min-width: 0; padding: 16px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: color-mix(in srgb, var(--dsw-alias-border-l2) 14%, transparent); }
+.dsh-tavern-card-update-version:last-child { border-color: var(--dsh-tavern-accent-border); background: var(--dsh-tavern-accent-soft); }
+.dsh-tavern-card-update-version strong { display: block; margin: 5px 0; font-size: 25px; line-height: 1.3; font-weight: 650; overflow-wrap: anywhere; }
+.dsh-tavern-card-update-name { display: block; overflow-wrap: anywhere; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-card-update-arrow { text-align: center; color: var(--dsw-alias-label-secondary); font-size: 22px; }
+.dsh-tavern-card-update-file { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 12px; }
+.dsh-tavern-card-update-file > div { min-width: 0; }
+.dsh-tavern-card-update-file strong { display: block; font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
+.dsh-tavern-card-update-file span { display: block; margin-top: 4px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsh-tavern-card-update-file button { flex-shrink: 0; }
+.dsh-tavern-card-update-foot { justify-content: flex-end; display: flex; align-items: center; gap: 10px; padding: 16px 26px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dsh-tavern-card-update-foot > span { flex: 1; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-card-update-foot button { white-space: nowrap; }
+.dsh-tavern-card-update-success { padding: 15px 17px; border-radius: 12px; background: color-mix(in srgb, #44846b 12%, transparent); }
+.dsh-tavern-card-update-success strong { color: light-dark(#286247, #9bd5b1); }
+.dsh-tavern-card-update-success p { margin: 5px 0 0; font-size: 13px; }
+.dsh-tavern-card-update-backup { margin-top: 16px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsh-tavern-card-update-backup summary { cursor: pointer; }
+.dsh-tavern-card-update-backup code { display: block; margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .dsh-tavern-card-update-head { padding: 20px 18px 0; }
+  .dsh-tavern-card-update-body { padding: 16px 18px 20px; }
+  .dsh-tavern-card-update-versions { gap: 6px; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr); }
+  .dsh-tavern-card-update-version { padding: 12px; }
+  .dsh-tavern-card-update-version strong { font-size: 21px; }
+  .dsh-tavern-card-update-foot { padding: 14px 18px; flex-wrap: wrap; }
+  .dsh-tavern-card-update-foot > span { flex-basis: 100%; }
+}
 .dsh-tavern-script-file { align-self: center; white-space: nowrap; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); padding: 6px 8px; cursor: pointer; font-size: 11px; }
 .dsh-tavern-script-file:hover { border-color: var(--dsh-tavern-accent); color: var(--dsh-tavern-accent); }
 .dsh-tavern-choice-trigger { border: 1px solid color-mix(in srgb, var(--dsh-tavern-accent) 40%, transparent); background: color-mix(in srgb, var(--dsh-tavern-accent) 10%, transparent); color: var(--dsh-tavern-accent); cursor: pointer; padding: 3px 9px; border-radius: 7px; font-size: 12px; font-weight: 650; }

@@ -566,7 +566,7 @@ export function createCardPreparation(options = {}) {
     if (request.as === 'editable') return editable
     if (request.as === 'view') return Object.assign({ id: card.id }, editable)
     if (request.as === 'detail') {
-      return Object.assign({ id: card.id }, editable, { extensions: inspectCardExtensions(request.card) })
+      return Object.assign({ id: card.id }, editable, { character_version: str(rawData(rawOf(request.card)).character_version), extensions: inspectCardExtensions(request.card) })
     }
     if (request.as === 'raw') return clone(rawOf(request.card))
     if (request.as === 'sillytavern-v3') {
