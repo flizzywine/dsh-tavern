@@ -1,0 +1,50 @@
+{
+  "schema": "dsh.skin/1",
+  "id": "backlog-avatar-sample",
+  "label": "履历头像示例",
+  "textbox": { "paint": { "bg": "#1b1420", "fg": "#f6f1f8", "fgMuted": "#bdb3c4", "accent": "#e46a8c", "onAccent": "#1b1420" } },
+  "nameplate": { "shape": "plain", "paint": { "bg": "#1b1420", "fg": "#f6f1f8" } },
+  "font": {},
+  "textFx": { "reveal": "type" },
+  "art": {
+    "screen": 1080,
+    "screenWidth": 1920,
+    "backlog": {
+      "sheet": "art/log-sheet.webp",
+      "dim": 0.55,
+      "list": [200, 120, 1520, 840],
+      "font": 30,
+      "pitch": 46,
+      "text": [80, 1100],
+      "top": 12,
+      "gap": 24,
+      "name": { "x": 24, "y": 6, "h": 40, "font": 28, "head": 48 },
+      "avatar": { "at": [0, 4], "size": [120, 120], "frame": "art/log-ring.webp", "placeholder": "initial" },
+      "plates": {
+        "speech": {
+          "images": [{ "image": "art/log-plate.webp", "ground": "#2a2030", "ink": "#f6f1f8" }],
+          "slice": [16, 24, 16, 24]
+        }
+      }
+    }
+  },
+  "devices": {
+    "mobile": {
+      "art": {
+        "backlog": {
+          "narrow": { "unit": 0.5 },
+          "avatar": {
+            "at": [0, 8],
+            "size": [198, 122],
+            "mask": "art/log-cut.webp",
+            "frame": "art/log-cut-edge.webp",
+            "cutout": { "color": "#ffffff", "width": 3 },
+            "tone": "mono",
+            "player": false,
+            "placeholder": null
+          }
+        }
+      }
+    }
+  }
+}

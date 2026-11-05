@@ -2533,6 +2533,7 @@
        }
       },
       "glyphTiles": { "$ref": "#/$defs/backlogGlyphTiles" },
+      "avatar": { "$ref": "#/$defs/backlogAvatar" },
       "plates": {
        "type": "object",
        "description": "Each entry's own plate image by its role (speech, player, narration, notice, divider); valid here and in devices.mobile.art.backlog. A role's images cycle by the entry's place among that role's entries.",
@@ -8859,6 +8860,34 @@
     "poses": { "$ref": "#/$defs/backlogPlate/properties/poses" },
     "slant": { "$ref": "#/$defs/backlogPlate/properties/slant" },
     "letter": { "enum": ["ransom"] }
+   }
+  },
+  "backlogAvatar": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": ["at", "size"],
+   "description": "C3: a face column on the art layer's spoken rows - the speaker's installed face from the stage's avatar resolver (avatarOf), its box at [x, y] design px from the entry's top-left and size [w, h]; the entry's plate and words start right of the column (x + w). Narration, notices and turn rules have no face. Valid here and in devices.mobile.art.backlog.",
+   "properties": {
+    "at": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number", "minimum": -4096, "maximum": 4096 } },
+    "size": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number", "minimum": 1, "maximum": 1024 } },
+    "mask": { "$ref": "#/$defs/image", "description": "An image whose alpha cuts the face's window (a slanted cut), stretched over the box." },
+    "frame": { "$ref": "#/$defs/image", "description": "An image drawn over the face, stretched over the box." },
+    "cutout": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": ["color", "width"],
+     "description": "A paper edge round the cut face: width design px of color (art.portrait.frame.cutout's syntax).",
+     "properties": { "color": { "$ref": "#/$defs/color" }, "width": { "type": "number", "minimum": 0.5, "maximum": 24 } }
+    },
+    "tone": { "enum": ["mono"], "description": "mono = the face shown in high-contrast grey (a display filter; the image is untouched)." },
+    "player": { "type": "boolean", "description": "true = the player's rows take a face too, when the resolver gives one; default false (none)." },
+    "placeholder": {
+     "description": "A speaker the resolver gives no face: initial = the engine's neutral disc with the name's first glyph, {image} = the skin's art. Omitted = the column stays empty, its room kept.",
+     "oneOf": [
+      { "const": "initial" },
+      { "type": "object", "additionalProperties": false, "required": ["image"], "properties": { "image": { "$ref": "#/$defs/image" } } }
+     ]
+    }
    }
   },
   "backlogGlyphTiles": {
