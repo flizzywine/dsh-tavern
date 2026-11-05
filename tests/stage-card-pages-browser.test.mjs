@@ -28,7 +28,10 @@ const STATUS = {id: 'status', label: '状态', shortcut: 's', menu: true,
   html: sheet('<div><h1>状态</h1><p id="hp">体力 —</p></div>', '#2b2030') + '<script>function show(d){document.getElementById("hp").textContent="体力 "+d.ledger.hp}show(DshCardPage.data());DshCardPage.onData(show)</script>'}
 const declared = page => { const {html, ...rest} = page; return rest }
 
-async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTitlePage = false, viewport = {width: 1280, height: 720}} = {}) {
+// A 64 px face the fixture's lease route serves for every figure avatar.
+const FACE_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAoElEQVR4nO2SQQkAQRDDKu2kVGqkrYh7hIFCBSSh4evpRSdgAtUrsgv17qITMIHqFdmFenfRCZhA9YrsQr276ARMoHpFdqHeXXQCJlC9IrtQ7y46AROoXpFdqHcXnYAJVK/ILtS7i07ABKpXZBfq3UUnYALVK7IL9e6iEzCB6hXZhXp30QmYQPWK7EK9u+gETKB6RXah3l10AiZQveKfCz1LqwFLZoqQNgAAAABJRU5ErkJggg==', 'base64')
+
+async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTitlePage = false, viewport = {width: 1280, height: 720}, characters = [], figures = []} = {}) {
   const browser = await chromium.launch({headless: true, args: ['--mute-audio', '--autoplay-policy=no-user-gesture-required']})
   t.after(() => browser.close())
   const page = await browser.newPage({viewport, deviceScaleFactor: 1})
@@ -41,6 +44,7 @@ async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTi
     if (url.origin !== CLIP_ORIGIN) return route.abort('failed')
     if (url.pathname === '/') return route.fulfill({contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><body></body>'})
     if (url.pathname === '/api/dsh-tavern/recordAudioTrace') return route.fulfill({status: 204, body: ''})
+    if (url.pathname.startsWith('/lease/')) return route.fulfill({contentType: 'image/png', body: FACE_PNG})
     const client = await readTavernClientAsset(url.pathname)
     if (client) return route.fulfill({contentType: client.mediaType, body: Buffer.from(client.body)})
     const asset = await resolveTavernRuntimeAsset(url.pathname)
@@ -48,7 +52,7 @@ async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTi
     return route.fulfill({status: 404, body: ''})
   })
   const body = roundBody([{kind: 'markdown', text: '夜色里，旅馆的灯还亮着。'}], {chatId: 'card-pages', turn: 1})
-  const config = {characters: [], voice: {enabled: false}, stage: {director: false, face: 'off', music: false, theme: 'classic'}}
+  const config = {characters, voice: {enabled: false}, stage: {director: false, face: 'off', music: false, theme: 'classic'}}
   const snapshot = {sessionId: SESSION, chatId: 'card-pages', cardPath: 'cards/card-pages.json', from: {turn: 1, para: 1}, config,
     turns: [{turn: 1, body}], paragraphs: [{turn: 1, para: 1, durationMs: 1000, text: '夜色里，旅馆的灯还亮着。'}]}
   const byId = new Map(pages.map(row => [row.id, row]))
@@ -61,6 +65,7 @@ async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTi
     case 'getStageMusicTracks': return {tracks: []}
     case 'listFonts': return {fonts: []}
     case 'getDialogueBubbles': return {config}
+    case 'leaseMedia': return {ticket: 'face:' + args.hash, revision: 'pack-1', url: '/lease/' + args.hash, expiresAt: Date.now() + 60000}
     case 'getStagePerformanceKinds': return {kinds: []}
     case 'getStageBackgrounds': return {backgrounds: []}
     case 'pluginMediaTurns': return {turns: []}
@@ -70,7 +75,7 @@ async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTi
     case 'readCardPages': return {pages: pages.map(declared), fresh}
     case 'readCardPage': {
       const row = byId.get(args.page)
-      return row ? {page: {...row, ...(args.withHtml ? {} : {html: undefined}), figures: [], preload: [], data: {ledger: {hp: 7}}, card: {name: '夜色旅馆'}}} : {page: null}
+      return row ? {page: {...row, ...(args.withHtml ? {} : {html: undefined}), figures, preload: [], data: {ledger: {hp: 7}}, card: {name: '夜色旅馆'}}} : {page: null}
     }
     // the stage's other reads (timers, mods, media): an empty answer
     default: return {}
@@ -235,4 +240,27 @@ test('跳过标题页 still opens the initial page of a fresh chat, and no page 
   await waitPage(shown.page, null)
   await shown.page.evaluate(id => window.cardPagesCore.galEnter(id, {turn: 1, para: 1}), SESSION)
   await waitPage(shown.page, 'title')
+})
+
+test('a card page gets its declared figures\' faces as data: URLs from the stage face cache', {timeout: 60000}, async t => {
+  const face = {resource: true, kind: 'media', ref: {packId: 'pack-moon', figureId: 'fig-moon'}, alias: 'fig-moon', revision: 'pack-1',
+    hash: 'a'.repeat(64), outfitKey: 'k01', stateId: 'calm', crop: null, identity: 'pack-moon:figures:fig-moon:' + 'a'.repeat(64)}
+  const characters = [{alias: 'fig-moon', name: '月见', aliases: ['小月'], ref: {packId: 'pack-moon', figureId: 'fig-moon'}, avatarMedia: {default: face, moods: {}}}]
+  const faces = {...STATUS, html: sheet('<div><h1>状态</h1><p id="face-state">无</p><img id="face" alt=""></div>', '#2b2030')
+    + '<script>function show(d){var f=(d.figures||[]).find(function(x){return x.name==="月见"});var img=document.getElementById("face");if(f&&f.avatar){img.src=f.avatar;document.getElementById("face-state").textContent="有"}}show(DshCardPage.data());DshCardPage.onData(show)</script>'}
+  const {page} = await openStage(t, {pages: [MAP, faces], characters, figures: [{name: '月见'}]})
+  await page.waitForTimeout(800)
+  await page.keyboard.press('s')
+  await waitPage(page, 'status')
+  await frameOf(page, 'status').getByText('有').waitFor()
+  const src = await frameOf(page, 'status').locator('#face').evaluate(img => img.getAttribute('src') || '')
+  assert.match(src, /^data:image\//, 'the page holds the face as a data: URL')
+  await frameOf(page, 'status').locator('#face').evaluate(img => img.decode())
+  await shot(page, 'status-face-1920.png')
+  // reopening the page (faces already prepared and converted) shows the face again
+  await page.keyboard.press('s')
+  await waitPage(page, null)
+  await page.keyboard.press('s')
+  await waitPage(page, 'status')
+  await frameOf(page, 'status').getByText('有').waitFor()
 })
