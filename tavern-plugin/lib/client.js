@@ -39221,7 +39221,10 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                 const h = React.createElement;
                 return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
                     h(SettingsGroup, {title:"酒馆插件"},
-                        h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件。"),
+                        h("p", null, "插件获取：前往 ",
+                            h("a", { href: "https://discord.gg/hYAEjKnpra", target: "_blank", rel: "noopener noreferrer" }, "Discord 交流群"),
+                            "的插件分享，查找社区作者发布的插件及使用说明。"),
+                        h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址，或上传 ZIP 安装包。不支持 SillyTavern 插件。"),
                         h(TavernUserPluginsSettings)));
             }
             // 设置 › 舞台 is the stage package's page (global-settings.js in dsh-tavern-stage, stageViews.GlobalSettings): opening it holds the

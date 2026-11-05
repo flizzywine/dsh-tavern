@@ -3,6 +3,40 @@ import test from 'node:test'
 
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
 
+for (const installed of [false, true]) {
+  test(`插件获取渠道在${installed ? '已安装插件' : '空列表'}时可见，Discord 在新页面打开`, async t => {
+    const plugins = installed
+      ? [{ folder: 'panel', name: 'dsh-tavern-worldbook-panel', version: '0.1.0', source: { kind: 'folder' }, enabled: true, state: 'loaded', reason: '' }]
+      : []
+    const { page } = await openTavernSettings(t, {
+      section: 'dsh-tavern: plugins settings section',
+      respond: method => method === 'listUserPlugins' ? { plugins, dir: '/tmp/tavern/plugins' } : undefined,
+    })
+    await page.setViewportSize({ width: installed ? 1280 : 390, height: 844 })
+    const link = page.getByRole('link', { name: 'Discord 交流群', exact: true })
+    await link.waitFor({ state: 'visible' })
+    assert.equal(await link.getAttribute('href'), 'https://discord.gg/hYAEjKnpra')
+    assert.equal(await link.getAttribute('target'), '_blank')
+    assert.deepEqual(new Set((await link.getAttribute('rel')).split(' ')), new Set(['noopener', 'noreferrer']))
+    assert.match(await link.locator('..').innerText(), /插件获取：前往 .*的插件分享，查找社区作者发布的插件及使用说明。/)
+    await page.getByText('给酒馆加功能：粘贴插件作者的 GitHub 地址，或上传 ZIP 安装包。不支持 SillyTavern 插件。', { exact: true }).waitFor()
+    await page.getByRole('button', { name: '上传 ZIP', exact: true }).waitFor()
+
+    // Keep this test offline while checking that leaving for the community does
+    // not replace settings, even after closing the new tab and opening it again.
+    await page.context().route('https://discord.gg/**', route => route.fulfill({ contentType: 'text/html', body: '<p>Community</p>' }))
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const [popup] = await Promise.all([page.waitForEvent('popup'), link.click()])
+      await popup.waitForLoadState()
+      assert.equal(popup.url(), 'https://discord.gg/hYAEjKnpra')
+      assert.equal(await popup.evaluate(() => window.opener), null)
+      await popup.close()
+      assert.equal(page.url(), 'http://tavern.test/')
+      assert.equal(await page.getByRole('button', { name: '安装', exact: true }).isVisible(), true)
+    }
+  })
+}
+
 // 设置 → 插件：已是最新时不显示更新按钮，有新版时按钮写明版本，停用/启用原地切换。
 // 手动「检查更新」跳过自动检查的缓存，按钮旁边写明结果，徽标和更新按钮随之刷新。
 test('插件列表可以手动检查更新', async t => {
