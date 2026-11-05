@@ -773,6 +773,8 @@ function stageSkinArt(document, files, entry = '') {
         if (box && art.portrait.left >= box.body[0] && art.portrait.left + art.portrait.size <= box.text[0]) {marks['data-fk-skin-art-bare']=''; tokens['--art-text-bare']=String(art.portrait.left);}
         // when off-stage (§2.7): wide stages show a face only for a speaker not drawn on stage (GalStage reads the mark).
         if (art.portrait.when === 'off-stage') marks['data-fk-skin-portrait-when']='off-stage';
+        // behind: the box art draws over the face where they meet (theme.css «art portrait behind»).
+        if (art.portrait.behind) marks['data-fk-skin-portrait-behind']='';
         // placeholder (§18 N16): the stand-in face for a speaker the avatar resolver gives none (GalStage builds it per page):
         // the engine's initial disc, or the skin's own image.
         if (art.portrait.placeholder) {

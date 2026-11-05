@@ -269,14 +269,16 @@ const skinPortraitNarrow = skinObject({width:skinNumber(32,240),x:skinNumber(-64
 // placeholder: a speaker the avatar resolver gives no face still shows one -
 // initial = the engine's neutral disc (the displayed name's first glyph in nameplate.paint), {image} = the skin's own art.
 // Undeclared: such a page stays faceless as before. phone: true = a phone portrait (640px and less) also shows the face, on its
-// narrow side (needs narrow); by default it shows none and the lines take the box's full width.
+// narrow side (needs narrow); by default it shows none and the lines take the box's full width. behind: true = on wide stages
+// the box art (and art.shape) draws over the face where they meet - the original's box over the bust's lower part; by
+// default the face stands over the box. Not with a front frame (which draws the face over the box).
 const skinPortrait = value => {
-    if (!skinObject({left:skinPx,bottom:skinPx,size:skinNumber(32,4096),source:skinPortraitSource,bust:skinBust,frame:skinPortraitFrame,narrow:skinPortraitNarrow,phone:skinEnum([true]),
+    if (!skinObject({left:skinPx,bottom:skinPx,size:skinNumber(32,4096),source:skinPortraitSource,bust:skinBust,frame:skinPortraitFrame,narrow:skinPortraitNarrow,phone:skinEnum([true]),behind:skinEnum([true]),
         when:skinEnum(['always','off-stage']),feather:skinArray(skinNumber(0,.5),4,4),placeholder:placeholder => placeholder === 'initial' || skinObject({image:skinImage},['image'])(placeholder)},['left','bottom','size'])(value)) return false;
     // A framed source (bust, sprite) needs bust and only one has it; only the live cut has a crop; a frame is the square's.
     const order = stageSkinPortraitOrder(value), framed = order.includes('bust') || order.includes('sprite');
     return framed === Object.hasOwn(value,'bust') && (!framed || order.includes('bust') === Object.hasOwn(value.bust,'crop'))
-        && !(value.frame && framed) && !(value.narrow?.name && !value.frame?.name) && !(value.phone && !value.narrow);
+        && !(value.frame && framed) && !(value.narrow?.name && !value.frame?.name) && !(value.phone && !value.narrow) && !(value.behind && value.frame?.front);
 };
 // how the items mod's card looks in this skin - the
 // original's evidence frame. frame = its image, drawn as box [centre x, centre y, width, height] on the design screen; media =
