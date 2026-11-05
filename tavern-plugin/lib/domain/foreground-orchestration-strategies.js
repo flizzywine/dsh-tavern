@@ -469,10 +469,11 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (Array.isArray(assembly.contexts)) assembly.contexts = assembly.contexts.filter(section => section.name !== 'approval:policy')
     // A plugin's own tool shows everywhere unless the plugin scoped it (tavern.toolModes).
     const group = mode === 'card' ? 'card' : 'play'
+    const tools = Array.isArray(assembly?.tools) ? assembly.tools : []
     // A plugin tool gated by tavern.toolSkills() waits for its Skill like Tavern's own.
-    const pluginNames = assembly.tools.map(schema => schema.name).filter(name => !options.controlledToolNames.has(name))
+    const pluginNames = tools.map(schema => schema.name).filter(name => !options.controlledToolNames.has(name))
     const unlocked = new Set(options.pluginToolsUnlocked ? await options.pluginToolsUnlocked(input.sessionId, pluginNames) : pluginNames)
-    assembly.tools = assembly.tools.filter(function (schema) {
+    const filteredTools = tools.filter(function (schema) {
       if (options.controlledToolNames.has(schema.name)) return visible.has(schema.name)
       if (!unlocked.has(schema.name)) return false
       const modes = options.pluginToolModes ? options.pluginToolModes(schema.name) : null
@@ -482,18 +483,21 @@ export function createNativePlayOrchestrationStrategy(options) {
     // settings panel must keep listing a tool the player has switched off.
     if (playMode && typeof options.recordTools === 'function') {
       try {
-        options.recordTools(input.sessionId, assembly.tools
+        options.recordTools(input.sessionId, filteredTools
           .filter(schema => !options.controlledToolNames.has(schema.name))
           .map(schema => ({ name: schema.name, description: String(schema.description || '') })))
       } catch { /* the tool catalog must never fail the request */ }
     }
-    if (playMode) assembly.tools = assembly.tools.filter(schema => options.controlledToolNames.has(schema.name) || !disabled.has(schema.name))
+    const finalTools = playMode ? filteredTools.filter(schema => options.controlledToolNames.has(schema.name) || !disabled.has(schema.name)) : filteredTools
+    if (assembly && (Array.isArray(assembly.tools) || assembly.tools !== undefined)) {
+      assembly.tools = finalTools
+    }
     // The submission contract follows the tools that actually survived the
     // per-game switches and the plugin scopes. When only input replay is on, the
     // tool is declared for the history but the model must write prose directly.
     // The strict wording is only true when submit_story is the single tool.
     if (playMode) {
-      const toolNames = new Set(assembly.tools.map(schema => schema.name))
+      const toolNames = new Set(finalTools.map(schema => schema.name))
       const outputToolCall = typeof options.storyOutputToolCall === 'function' ? (await options.storyOutputToolCall()) === true : false
       if (toolNames.has(STORY_GENERATE_TOOL_NAME)) {
         sections.push({ name: 'tavern:plugin-body-generation', text: BODY_GENERATION_PROMPT })
@@ -507,7 +511,7 @@ export function createNativePlayOrchestrationStrategy(options) {
         sections.push({ name: 'tavern:no-foreground-tools', text: NO_FOREGROUND_TOOLS_PROMPT })
       }
     }
-    if (playMode && assembly.tools.some(tool => tool.name === 'style_reference_submit') && options.styleReferencePrompt) {
+    if (playMode && finalTools.some(tool => tool.name === 'style_reference_submit') && options.styleReferencePrompt) {
       const text = options.styleReferencePrompt(input.chat)
       if (text) sections.push({ name: 'tavern:foreground-style-reference', text })
     }
