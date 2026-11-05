@@ -301,6 +301,12 @@ await ctx.tavern.setPlayerName({ gameId, playerName: '林岚' }) // 只修改这
 
 读这局正在玩的人物卡，返回 SillyTavern 角色卡的数据（`name`、`description`、`personality`、`scenario`、`first_mes`、`character_book`、`extensions` 等，以卡里实际有的字段为准）。开局时保存了人物卡快照的游戏，读到的是快照，和正文生成用的是同一份。返回的是副本，改它不影响游戏。
 
+## `getCardIdentity({ gameId })`（`capabilities.cardIdentity: 1`）
+
+卡作者可在卡数据的 `extensions.dsh_tavern.identity` 声明 `{ "namespace": "org.example", "id": "adventure-v1" }`。本接口从与 `getCard` 相同的本局卡数据读取，返回仅含这两个字段的新对象；缺失或不符合格式时返回 `null`。namespace 为小写 ASCII 字母和数字组成的至少两段，以点或连字符分隔，最长 128 字符；id 以 ASCII 字母或数字开头，其余只允许字母、数字、点、下划线和连字符，最长 128 字符。
+
+这是作者声明的业务标识，不是宿主签发的 UUID、唯一性证明或授权凭据。作者应使用自己控制的命名空间并维持语义；复制、导出和导入保留卡声明，作者有意制作不同业务身份时应自行更改。已保存快照的游戏读取快照，修改卡库不会追溯改写它。无声明的旧卡可继续用已有兼容判断，不能用名字或路径冒充稳定身份。接口仍执行卡内插件的作用域检查；旧宿主没有此方法时按缺失处理。
+
 ## `getCardImage({ gameId })`（第 2 版）
 
 读这局人物卡的图片，返回 `{ url, mediaType }`，卡没有图片（例如 JSON 格式的卡）时返回 `null`。`url` 是酒馆页面里可以直接显示的地址（例如 `<img src>`），只读；读到的是人物卡库里这张卡当前的图片，卡从卡库删除后返回 `null`。浏览器侧经 `callHost` 让宿主侧调用即可。
@@ -350,6 +356,12 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, text }) => {
 - 只负责「停」：迟到的写入照样由 `textVersion` 拦下（`saveTurnData`、`attach`、`setVariables`、`editTurn` 都会拒绝旧版本），插件不需要另做提交、回滚。
 - 插件卸载后，它取的信号不再更新。
 
+## `inspectStageAsset({ gameId, kind, ref })`（能力 `stageAssetStatus: 1`）
+
+查询本局原生舞台可用的素材引用状态。`kind` 为 `figure` 时 `ref` 是 `{packId, figureId}`；为 `asset` 时是 `{packId, kind, assetId}`。返回 `{ref, status, revision}`，状态为 `available`、`pack-unavailable`、`figure-missing`、`figure-disabled`、`asset-missing`、`asset-disabled`、`media-pending`、`stage-unavailable` 或 `changed`。`changed` 表示读取期间配置发生变化，可重新查询；`revision` 只是本次包版本，不是持久身份。非法引用抛错。查询遵循卡插件的本局作用域，未绑定或不可用的包都返回 `pack-unavailable`，不泄露其他包是否存在。
+
+这是即时诊断，不是媒体借用、持久 URL 或资源授权；状态在返回后仍可能失效。舞台关闭或素材服务不可用时应使用静态占位，旧宿主未声明该能力时同样降级。此接口不提供素材路径、凭证或受信宿主租约。
+
 ## `onGameRemoved(handler)`
 
 一局游戏被删除时调用，收到 `{ gameId }`，供插件清理自己按局保存的数据。插件挂到这局上的媒体项由 Tavern 一并清理。
@@ -374,6 +386,12 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
 - 改完后状态栏随即刷新，下一轮正文和后台结算都以改过的变量为准。
 - Tavern 不检查变量结构，写错了会直接影响状态栏和后续结算，请按这张卡的变量结构写。最大 1 MB。
 - 这一轮的后台结算还没结束时报 `TAVERN_PLUGIN_TURN_UNAVAILABLE`，下一轮正文已经在生成时报 `TAVERN_PLUGIN_BUSY`，都是稍后再试；在 `onTurnSettled` 里调用就不会遇到。
+
+### `getVariableSnapshot` / `commitVariables`（`capabilities.variableCommit === 1`）
+
+针对一次变量替换，可以先用 `getVariableSnapshot({ gameId, turn, textVersion })` 获取 `{ variables, variablesRevision }`，再用 `commitVariables({ gameId, turn, textVersion, variablesRevision, operationId, variables })` 提交。新变量与操作收据在同一个聊天日志条件写中保存；成功返回新的 `variablesRevision` 和 `replayed`。同一插件在同一正文版本以相同参数重试同一个 `operationId` 时返回原收据；同 ID 不同参数报 `TAVERN_PLUGIN_OPERATION_CONFLICT`。快照不匹配报 `TAVERN_PLUGIN_VARIABLE_CONFLICT`，应重新读取并由调用方重新计算。`operationId` 由调用方生成，只能含字母、数字、点、下划线、连字符，最长 128 字符。
+
+**限制：不要用此接口保证奖励或外部副作用的幂等。** `variablesRevision` 是变量内容的 SHA-256 指纹，不是单调递增计数；变量先改变又恢复为完全相同内容时无法识别中间变化（ABA）。每个正文版本最多保留 128 个收据，满后拒绝新提交并报 `TAVERN_PLUGIN_RECEIPTS_FULL`，不会静默淘汰。收据跟随该消息和正文版本：替换、删除或恢复旧存档可能移除收据，因此不能用它保证跨回退、重生成、存档导入或其他外部操作的去重。写超时结果未知，可在同一版本和相同参数下重试查询收据；旧版本或禁用插件仍会被拒绝。它不包括 `saveTurnData`、外部副作用或其他 API 的跨调用事务。
 
 ### `editTurn({ gameId, turn, textVersion, text })`
 

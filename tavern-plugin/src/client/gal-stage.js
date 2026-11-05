@@ -193,7 +193,7 @@ function bindStageViews(createViews) {
         speech:{player:voicePlayer,available:()=>!!forkTtsScope?.get('ttsClient')?.available(),speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
         sourceWidgets:{storage:(()=>{try{return localStorage;}catch{return null;}})(),foreground:forkForeground,rpc,signals:tavernSessionSignals,characters:{character:bubbleCharacter,mood:bubbleMood,moods:bubbleMoodList,actor:stageActorCharacter},avatarCache,phoneProtocol:{phoneModDirect,phoneModOwnership,run:phoneModRun},figureResolution,playerErrorText,fetch,createImageBitmap,
             sandbox:{stopSfx:()=>stageWidgetMediaOwner?.stopSfx(),scroll:(id,...args)=>stageWidgetScrollTargets.get(id)?.wheel(...args),theme:root=>stageWidgetThemeOwners.get(root)}},
-        modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readMedia:(id,args)=>rpc('readStageModMedia',args,id),readItems:(id,turn)=>rpc('getStageItems',{turn},id),readViews:id=>rpc('getModStageViews',{sessionId:id},id),subscribe:(id,...callbacks)=>tavernSessionSignals.subscribe(id,'mod-view',...callbacks),useLiveView:useLiveTavernView},
+        modSurface:{bindPluginDock:(id,bridge)=>tavernUiExtensions.bindStageDock(id,bridge),timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readMedia:(id,args)=>rpc('readStageModMedia',args,id),readItems:(id,turn)=>rpc('getStageItems',{turn},id),readViews:id=>rpc('getModStageViews',{sessionId:id},id),subscribe:(id,...callbacks)=>tavernSessionSignals.subscribe(id,'mod-view',...callbacks),useLiveView:useLiveTavernView},
         performanceSurface:{fonts:tavernFonts,resolution:galResolution,subscribeResolution:galResolutionSubscribe,policy:{stageFlashAt,stageFlashDark,stageFlashGate,stageFlashSafe,stageSafety,stageEffectHex,stageEffectRgb}},
         textIndex:{pageCards:stagePageCards},
         playbackTiming:{delay:stageAutoDelay,remaining:stageAutoRemaining},
@@ -293,13 +293,14 @@ function bindStageViews(createViews) {
         text:{performance, ResizeObserver, getComputedStyle, clock:forkForeground,
             fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed}});
     stageViews = views;
+    const stopPerformance = tavernUiExtensions.bindStagePerformance(id => views.publicPlayback.get(id));
     let stopBgm = null, disposed = false;
     const dispose = () => {
         if (disposed) return;
         disposed = true;
         if (stageViews === views) stageViews = null;
         const errors = [];
-        for (const cleanup of [() => stopBgm?.(), bgmChanged, () => views.dispose()]) {
+        for (const cleanup of [stopPerformance, () => stopBgm?.(), bgmChanged, () => views.dispose()]) {
             try { cleanup(); } catch (error) { errors.push(error); }
         }
         if (errors.length) throw new AggregateError(errors, 'Stage views cleanup failed');

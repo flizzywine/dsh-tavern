@@ -7,12 +7,25 @@ test('disabled stage does not import or initialize its implementation',async()=>
   const stage=await createOptionalStage({}, {enabled:false,load(){assert.fail('stage imported')}})
   assert.equal(stage.status(),'disabled')
   assert.equal((await stage.assets.dialogueBubbles.read('cards/a.json')).enabled,false)
+  assert.equal(await stage.assets.assetSnapshot('cards/a.json'),null)
   assert.deepEqual(await stage.assets.cardStageMode('cards/a.json'),{dialogue:false,stage:false},'no runtime: the session view publishes no stage')
   const foreground=stage.foreground({})
   assert.deepEqual((await foreground.project({},book)).view.entries,[book.view.entries[0]])
   assert.deepEqual(await foreground.preview({}),[])
   await stage.start({});stage.services({});stage.requests({},{});
   await assert.rejects(stage.cards({}).cardZipTargets.reserve(),{code:'STAGE_UNAVAILABLE'})
+})
+
+test('asset snapshot is invalidated when the stage unloads during or after a read',async()=>{
+  let finish
+  const gate=new Promise(resolve=>finish=resolve)
+  const runtime={assets:{assetRuntime:{snapshot:async()=>{await gate;return {snapshots:[],current:()=>true}}}},dispose:async()=>{}}
+  const stage=await createOptionalStage({}, {load:async()=>({createStageRuntime:()=>runtime})})
+  const pending=stage.assets.assetSnapshot('cards/a.json')
+  await stage.disable();finish()
+  const snapshot=await pending
+  assert.equal(snapshot.current(),false)
+  assert.equal(await stage.assets.assetSnapshot('cards/a.json'),null)
 })
 
 test('missing stage implementation leaves core interfaces available',async()=>{

@@ -8,6 +8,7 @@
 			const markers = [];
 			const messageActions = [];
 			const composerActions = [];
+			const stageDocks = new Map();
 			const panels = new Map();
 			const gameModeViews = new Map();
 			const startGroups = [];
@@ -41,6 +42,7 @@
 			const listeners = new Set();
 			// Tavern's own context, for the sidebar a plugin panel opens in (set at apply).
 			let host = null;
+			let stagePerformanceReader = null;
 			let version = 0;
 			function changed() { version += 1; Array.from(listeners).forEach(function (listener) { listener(); }); }
 			function ownerOf(service) {
@@ -419,7 +421,51 @@
 
 			const service = {
 				ctx: undefined,
-				apiVersion: 8,
+				apiVersion: 9,
+				// Independent browser feature versions, not resource authorization or host API versions.
+				getCapabilities() {
+					return { openOverlay: 1, overlayLayout: 2, stageInteraction: 1, stageDock: 1, stagePerformanceStatus: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
+				},
+				// Request a right-hand stage column. Failure is explicit so a caller can use overlay.
+				openStageDock(input) {
+					if (!input || typeof input.gameId !== "string" || !input.gameId || typeof input.render !== "function") throw new TypeError("openStageDock 需要 gameId 和 render");
+					if (input.onClose !== undefined && typeof input.onClose !== "function") throw new TypeError("openStageDock 的 onClose 必须是函数");
+					const owner = ownerOf(this), bridge = stageDocks.get(input.gameId);
+					if (!tavernPluginAllowed(owner, input.gameId)) return { ok: false, reason: "denied" };
+					if (!bridge) return { ok: false, reason: "stage-unavailable" };
+					const key = {}, previousFocus = document.activeElement;
+					let cleanup = function () {}, dispose = null, result;
+					dispose = owned(this, function () {
+						let closed = false, root = null, node = null, lease = null, stopScopes = function () {}, stopView = function () {};
+						const close = function (reason) {
+							if (closed) return; closed = true;
+							document.removeEventListener("keydown", onKey, true);
+							try { stopScopes(); stopView(); } catch (_) {}
+							try { if (root) root.unmount(); } catch (_) {}
+							try { if (node) node.remove(); } catch (_) {}
+							try { if (lease) lease.close(); } catch (_) {}
+							try { if (previousFocus && typeof previousFocus.focus === "function") previousFocus.focus(); } catch (_) {}
+							if (input.onClose) try { input.onClose({ gameId: input.gameId, reason: reason || "closed" }); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }
+						};
+						function onKey(event) { if (event.key === "Escape") { event.stopPropagation(); close("escape"); } }
+						lease = bridge.open(key, close);
+						if (!lease.ok) { result = lease; return function () {}; }
+						try {
+							node = document.createElement("div"); node.setAttribute("role", "region"); node.setAttribute("aria-label", input.label || "插件舞台区域"); node.setAttribute("tabindex", "-1"); node.style.cssText = "width:100%;height:100%;overflow:auto";
+							lease.node.append(node); root = require("react-dom/client").createRoot(node);
+							const h = React.createElement, handle = { ok: true, close: function () { if (typeof dispose === "function") dispose(); else cleanup(); } };
+							const fallback = h("div", { role: "alert" }, "插件 " + owner + " 的界面出错了", h("button", { type: "button", onClick: handle.close }, "关闭"));
+							function Screen() { return input.render({ gameId: input.gameId, close: handle.close }); }
+							root.render(h(tavernPluginBoundary(), { owner: owner, fallback: fallback }, h(Screen)));
+							const check = function () { if (!tavernPluginAllowed(owner, input.gameId)) close("denied"); };
+							if (typeof tavernCardPluginScopes !== "undefined") stopScopes = tavernCardPluginScopes.subscribe(check);
+							if (typeof liveTavernView !== "undefined") stopView = liveTavernView.subscribe(input.gameId, check, [["card"]]);
+							document.addEventListener("keydown", onKey, true); node.focus?.(); cleanup = function () { close("closed"); }; result = handle;
+							return cleanup;
+						} catch (error) { close("error"); throw error; }
+					}, "tavernUi.openStageDock()");
+					return result;
+				},
 				registerMediaRenderer(kind, render) {
 					if (typeof kind !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}\/[a-z0-9][a-z0-9._-]{0,63}$/.test(kind)) throw new TypeError("只能为插件自定义的 <插件名>/<类型> 注册显示方式");
 					if (typeof render !== "function") throw new TypeError("registerMediaRenderer 需要 render 函数");
@@ -443,6 +489,27 @@
 				registerComposerAction(input) {
 					const entry = Object.assign({ owner: ownerOf(this) }, action(input, "registerComposerAction"));
 					return owned(this, function () { return addTo(composerActions, entry); }, "tavernUi.registerComposerAction()");
+				},
+				// A composer action that opens a plugin-owned overlay, without replacing the native stage.
+				registerStageInteraction(input) {
+					if (!input || typeof input.render !== "function") throw new TypeError("registerStageInteraction 需要 render 函数");
+					if (input.onClose !== undefined && typeof input.onClose !== "function") throw new TypeError("registerStageInteraction 的 onClose 必须是函数");
+					const plugin = this, open = new Map();
+					const entry = Object.assign({ owner: ownerOf(this) }, action({ id: input.id, label: input.label, when: input.when, run: function (context) {
+						const gameId = String(context && context.gameId || "");
+						if (!gameId) throw new TypeError("registerStageInteraction 需要当前游戏");
+						if (open.has(gameId)) return open.get(gameId);
+						const handle = plugin.openOverlay({ gameId: gameId, render: input.render, dismissible: input.dismissible, onClose: function () {
+							open.delete(gameId);
+							if (input.onClose) input.onClose({ gameId: gameId });
+						} });
+						open.set(gameId, handle);
+						return handle;
+					} }, "registerStageInteraction"));
+					return owned(this, function () {
+						const remove = addTo(composerActions, entry);
+						return function () { remove(); Array.from(open.values()).forEach(function (handle) { handle.close(); }); open.clear(); };
+					}, "tavernUi.registerStageInteraction()");
 				},
 				registerGameModeView(input) {
 					if (!input || !/^[a-z][a-z0-9._-]{0,63}$/.test(input.name) || typeof input.render !== 'function') throw new Error('玩法界面需要 name 和 render');
@@ -708,6 +775,11 @@
 						return addTo(composerSlots, entry);
 					}, "tavernUi.registerComposerSlot()");
 				},
+				getStagePerformanceStatus(gameId) {
+					if (typeof gameId !== 'string' || !gameId) throw new TypeError('getStagePerformanceStatus 需要 gameId');
+					if (!tavernPluginAllowed(ownerOf(this), gameId)) return null;
+					return stagePerformanceReader ? stagePerformanceReader(gameId) : null;
+				},
 				// What the stage shows (apiVersion 2): the latest turns with their dialogue annotations, and the card's characters.
 				getStage(gameId, options) {
 					if (typeof gameId !== "string" || !gameId) return Promise.reject(new TypeError("getStage 需要 gameId"));
@@ -853,12 +925,53 @@
 						document.body.append(container);
 						const root = require("react-dom/client").createRoot(container);
 						let closed = false;
+						const layoutListeners = new Set();
+						const viewport = typeof window !== "undefined" ? window.visualViewport : null;
+						const layoutTarget = typeof window !== "undefined" ? window : null;
+						// Resolve device safe-area env() in the host rather than requiring plugin CSS.
+						const safeProbe = document.createElement("div");
+						safeProbe.setAttribute("aria-hidden", "true");
+						safeProbe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)";
+						document.body.append(safeProbe);
+						function readLayout() {
+							const left = viewport ? viewport.offsetLeft : 0, top = viewport ? viewport.offsetTop : 0;
+							const width = viewport ? viewport.width : (layoutTarget ? layoutTarget.innerWidth : 0);
+							const height = viewport ? viewport.height : (layoutTarget ? layoutTarget.innerHeight : 0);
+							const style = layoutTarget && layoutTarget.getComputedStyle ? layoutTarget.getComputedStyle(safeProbe) : null;
+							const inset = function (name) { return Math.max(0, parseFloat(style && style[name]) || 0); };
+							const x = Math.min(width, Math.max(0, inset("paddingLeft") - left)), y = Math.min(height, Math.max(0, inset("paddingTop") - top));
+							const right = Math.max(0, inset("paddingRight") - Math.max(0, (layoutTarget?.innerWidth || width) - left - width));
+							const bottom = Math.max(0, inset("paddingBottom") - Math.max(0, (layoutTarget?.innerHeight || height) - top - height));
+							return { left: left, top: top, width: width, height: height,
+								safe: { left: left + x, top: top + y, width: Math.max(0, width - x - right), height: Math.max(0, height - y - bottom) } };
+						}
+						function layoutChanged() {
+							if (closed) return;
+							Array.from(layoutListeners).forEach(function (listener) {
+								try { listener(readLayout()); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }
+							});
+						}
+						const layout = {
+							get: readLayout,
+							subscribe: function (listener) {
+								if (typeof listener !== "function") throw new TypeError("layout.subscribe 需要 listener 函数");
+								if (closed) return function () {};
+								layoutListeners.add(listener);
+								return function () { layoutListeners.delete(listener); };
+							}
+						};
+						if (layoutTarget) layoutTarget.addEventListener("resize", layoutChanged);
+						if (viewport) { viewport.addEventListener("resize", layoutChanged); viewport.addEventListener("scroll", layoutChanged); }
 						function onKey(event) { if (event.key === "Escape" && input.dismissible !== false) { event.stopPropagation(); handle.close(); } }
 						document.addEventListener("keydown", onKey, true);
 						cleanup = function () {
 							if (closed) return;
 							closed = true;
 							document.removeEventListener("keydown", onKey, true);
+							if (layoutTarget) layoutTarget.removeEventListener("resize", layoutChanged);
+							if (viewport) { viewport.removeEventListener("resize", layoutChanged); viewport.removeEventListener("scroll", layoutChanged); }
+							layoutListeners.clear();
+							safeProbe.remove();
 							root.unmount();
 							container.remove();
 							if (input.onClose) try { input.onClose(); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }
@@ -866,7 +979,7 @@
 						const h = React.createElement;
 						const fallback = h("div", { className: "dsh-tavern-plugin-overlay-error" }, "插件 " + owner + " 的界面出错了",
 							h("button", { type: "button", onClick: handle.close }, "关闭"));
-						function Screen() { return input.render({ gameId: String(input.gameId || ""), close: handle.close }); }
+						function Screen() { return input.render({ gameId: String(input.gameId || ""), close: handle.close, layout: layout }); }
 						root.render(h(tavernPluginBoundary(), { owner: owner, fallback: fallback }, h(Screen)));
 						return function () { cleanup(); };
 					}, "tavernUi.openOverlay()");
@@ -924,6 +1037,16 @@
 			return {
 				service: service,
 				attachHost: function (ctx) { host = ctx; },
+				bindStagePerformance: function (reader) {
+					stagePerformanceReader = reader;
+					return function () { if (stagePerformanceReader === reader) stagePerformanceReader = null; };
+				},
+				bindStageDock: function (gameId, bridge) {
+					const old = stageDocks.get(gameId);
+					if (old && old !== bridge) old.shutdown();
+					stageDocks.set(gameId, bridge);
+					return function () { if (stageDocks.get(gameId) === bridge) { stageDocks.delete(gameId); bridge.shutdown(); } };
+				},
 				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; },
 				getSnapshot: function () { return version; },
 				mediaRenderer: function (kind) { return mediaRenderers.get(kind); },

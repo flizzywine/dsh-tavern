@@ -68,3 +68,31 @@ test('mounted Mod layers stop subscriptions and fence late reads before React un
  assert.equal(rendered,1);assert.equal(reannounced,1);assert.equal(f.tasks.size,0)
  }finally{plugin.dispose();act(()=>root.unmount());f.close();globalThis.window=previous.window;globalThis.document=previous.document;globalThis.IS_REACT_ACT_ENVIRONMENT=previous.act}
 })
+
+test('plugin and mod docks arbitrate one stage and revoke on narrow resize or stage disposal', async()=>{
+ const f=fixture(),previous={window:globalThis.window,document:globalThis.document,act:globalThis.IS_REACT_ACT_ENVIRONMENT}
+ globalThis.window=f.window;globalThis.document=f.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
+ let width=1280,bridge,signal,observers=[];f.root.className='fork-gal-stage'
+ f.root.parentElement.getBoundingClientRect=()=>({width,height:720})
+ Object.defineProperties(f.root,{offsetWidth:{value:1280},offsetHeight:{value:720}})
+ f.root.style[Symbol.iterator]=function*(){}
+ f.root.getBoundingClientRect=()=>({left:0,top:0,width:1280,height:720})
+ f.window.ResizeObserver=class {constructor(fn){this.fn=fn;observers.push(this)}observe(){} unobserve(){} disconnect(){}}
+ const plugin=createStageModSurface({React,window:f.window,document:f.window.document,
+  sessions:()=>({get:()=>({getSnapshot:()=>({cursor:{},visible:true})})}),runtime:{reannounce(){}},readViews:async()=>({views:[]}),
+  subscribe:(id,onChange)=>{signal=onChange;return()=>{}},renderers:{'test/ui':({dock})=>{dock({side:'right'});return {update(){},dispose(){}}}},bindPluginDock:(id,value)=>{bridge=value;return()=>{bridge=null}}})
+ const root=createRoot(f.root),closed=[]
+ try {
+  await act(async()=>root.render(React.createElement(plugin.Layers,{sessionId:'s',stage:{turn:1},config:{}})))
+  const lease=bridge.open({},reason=>closed.push(reason));assert.equal(lease.ok,true)
+  assert.equal(bridge.open({},()=>{}).reason,'busy')
+  width=390;act(()=>observers.forEach(observer=>observer.fn()))
+  assert.deepEqual(closed,['too-narrow']);assert.equal(bridge.open({},()=>{}).reason,'too-narrow')
+  width=1280
+  const row={modId:'test',context:{settledTurn:1},view:{},manifest:{uiLayers:[{id:'one',entry:'ui',band:'audience',order:0,input:'regions',budget:{maxNodes:10,maxVisible:10}}]}}
+  act(()=>signal({snapshot:{views:[row]}}));assert.equal(bridge.open({},()=>{}).reason,'busy')
+  act(()=>f.window.dispatchEvent(new f.window.CustomEvent('dsh-tavern-mod-scope',{detail:{modId:'test',enabled:false}})))
+  const next=bridge.open({},reason=>closed.push(reason));assert.equal(next.ok,true)
+  act(()=>plugin.dispose());assert.deepEqual(closed,['too-narrow','stage-unavailable']);assert.equal(bridge,null)
+ }finally{plugin.dispose();act(()=>root.unmount());f.close();globalThis.window=previous.window;globalThis.document=previous.document;globalThis.IS_REACT_ACT_ENVIRONMENT=previous.act}
+})

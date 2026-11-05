@@ -4,6 +4,10 @@
 
 浏览器侧的代码运行在 DSH 页面里，使用 DSH 提供的 `react`。插件的 `render` 函数返回 React 元素；出错时只影响这个元素，正文其余部分照常显示。
 
+`getStagePerformanceStatus(gameId)`（`getCapabilities().stagePerformanceStatus === 1`）返回当前舞台的只读调度账本快照，或在舞台不可用、游戏不属于插件或没有活动实例时返回 `null`。字段包括 `version`、`turn`、`opened`、`visible`、`mode` 和 `ledger` 四个状态的计数；只有 performance-phase 和 mod-performance 纳入，后台隐藏或离开时计数为零。可按需重新读取，宿主卸载时不再提供快照。
+
+账本记录的是舞台调度状态，不是媒体已加载、画面已绘制或演出完整播放的证明：中断中的播放也可能计作 `played`。不得依据这些状态发奖或改写权威游戏状态；计划、路径、媒体凭证及演出参数不会暴露。
+
 ## `registerGameModeView({ name, render, presentation?, lobby? })`
 
 为宿主侧 `gameMode` 注册玩法界面，两端插件归属和 `name` 必须一致。注册随插件卸载撤销。
@@ -259,6 +263,27 @@ ctx.tavernUi.registerComposerSlot({
 ctx.tavernUi.submitInput({ gameId, text: '我举盾格挡，然后反击。' })
 ```
 
+## `getCapabilities()`（浏览器 API 第 9 版）
+
+返回新的能力快照，键是能力名，值是各能力独立的正整数版本。目前包含 `openOverlay: 1`、`overlayLayout: 2`、`stageInteraction: 1`、`stageDock: 1`、`watchStage: 1`、`watchTurnState: 1` 和 `callHost: 1`。能力表示浏览器接口存在，并不表示当前游戏或素材已获授权；实际调用仍由宿主检查。每次调用返回新对象，可在当前页面生命周期缓存。未知键应忽略，缺失或版本不足时使用旧路径；旧宿主没有此方法时先检测方法是否存在。浏览器 `apiVersion` 和服务端 `tavern.apiVersion` 独立，不能互相推断。
+
+```js
+const caps = typeof ctx.tavernUi.getCapabilities === 'function' ? ctx.tavernUi.getCapabilities() : {}
+if ((caps.overlayLayout || 0) >= 1) { /* 可使用 overlay 的 layout */ }
+```
+
+## `registerStageInteraction({ id?, label, render, when?, dismissible?, onClose? })`（第 9 版）
+
+在既有输入框操作栏注册一个入口，点击时打开插件的 overlay，关闭后回到原页面；它不替换原生舞台，也不是原生舞台 dock。按钮遵循 `registerComposerAction` 既有的可见性、权限和忙碌规则，`when` 接收同样的上下文。`render` 接收 overlay 的 `{ gameId, close, layout }`；`onClose` 接收 `{ gameId }`。同一注册和游戏的重复打开复用尚未关闭的 overlay；返回的注销函数和插件卸载都会关闭其界面。关闭后可以重新打开。
+
+旧宿主没有此方法时，卡可用 `registerComposerAction` 的 `run({ gameId })` 调用 `openOverlay` 实现同一交互；不能假定 `registerStageDock` 存在。
+
+## `openStageDock({ gameId, render, label?, onClose? })`（`stageDock: 1`）
+
+向当前已打开的原生舞台请求右侧独占区域。成功返回 `{ ok: true, close }`，`render` 收到 `{ gameId, close }`；宿主提供可滚动的区域，区域尺寸随舞台变化。失败返回 `{ ok: false, reason }`：`stage-unavailable`（舞台未打开或已卸载）、`denied`（卡作用域不匹配）、`too-narrow`（舞台容器宽度小于 900 CSS 像素）、`busy`（区域已由插件或模组占用）。失败时应使用 `openOverlay` 降级。能力存在不代表任何一局的舞台已就绪。
+
+Esc、调用 `close`、插件卸载、切局/舞台卸载、卡作用域不再允许或缩窄到 900 像素以下时关闭；`onClose({gameId, reason})` 最多调用一次，撤销原因分别为 `escape`、`closed`、`stage-unavailable`、`denied` 或 `too-narrow`。失败请求不调用 `onClose`。不可依赖舞台内部 DOM 或样式；这是一个右侧区域，不承诺对白、轮次或 `setInteractive` 状态。它不会打开舞台，也不是尚未发布的 `registerStageDock`/`showStage`。
+
 ## `openOverlay({ gameId?, render, dismissible?, onClose? })`（第 2 版）
 
 打开一层盖住整个页面的插件界面，适合战斗、地图这类需要大空间的玩法。返回 `{ close }`。
@@ -271,7 +296,8 @@ const overlay = ctx.tavernUi.openOverlay({
 })
 ```
 
-- `render` 收到 `{ gameId, close }`，返回 React 元素；界面自己负责提供关闭的按钮。
+- `render` 收到 `{ gameId, close }`，返回 React 元素；界面自己负责提供关闭的按钮。第 9 版还提供 `layout`：`layout.get()` 返回 `{ left, top, width, height }`，单位为 CSS 像素，相对于布局视口；`layout.subscribe(listener)` 在视觉视口变化时通知，返回取消订阅函数。初值通过 `get()` 读取。关闭或插件卸载时宿主取消监听并清空订阅，关闭后不再通知。无 VisualViewport 时使用窗口尺寸。
+- `overlayLayout: 2` 的结果还包含 `safe: { left, top, width, height }`，是视觉视口与浏览器报告的设备安全区的交集，坐标同样相对于布局视口。宿主在视口变化时重新计算，避免键盘使视觉视口缩小时重复扣除屏幕底部 inset。浏览器不报告安全区时 inset 为零；这不能保证避开所有宿主浮层或未改变视觉视口的输入法。界面仍需处理内容溢出。旧宿主没有 `layout` 或 `safe` 时按能力探测降级。
 - 按 Esc 关闭；`dismissible: false` 时 Esc 不关闭，只能调用 `close`。
 - 关闭时调用一次 `onClose`。插件卸载时界面自动关闭。界面出错时显示一行错误和关闭按钮。
 
@@ -378,7 +404,7 @@ ctx.tavernUi.registerTurnView({
 
 ## `registerStageView`（已停用）
 
-插件不能再替换舞台画面。舞台由 Tavern 按人物卡绑定的素材包绘制：给人物卡绑定素材包并打开对话气泡即可。调用 `registerStageView` 会直接报错。
+插件不能再替换舞台画面。舞台由 Tavern 按人物卡绑定的素材包绘制：给人物卡绑定素材包并打开对话气泡即可。调用 `registerStageView` 会返回空清理函数并在控制台提示一次，不会接管舞台。`registerStageDock` 目前不是公开接口；可以通过既有的 `registerComposerAction` 或 `registerPanel` 打开 `openOverlay`，关闭后回到原页面。
 
 ## `speak({ gameId, speaker?, text, emotion?, narration? })`、`stopSpeech()`（第 2 版）
 

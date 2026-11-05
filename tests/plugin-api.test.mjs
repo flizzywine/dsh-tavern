@@ -129,7 +129,7 @@ test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis �
   } })
   await tick()
   assert.equal(tavern.apiVersion, 7)
-  assert.deepEqual(tavern.capabilities, { gameMode: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1 })
+  assert.deepEqual(tavern.capabilities, { gameMode: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, cardIdentity: 1, turnWrite: 1, cardPacks: 1, stageAssetStatus: 1 })
   assert.equal(Object.isFrozen(tavern.capabilities), true)
   assert.equal(tavern.mvuProviderRegistered, undefined, 'registration guard is internal, not a plugin service method')
   assert.equal(h.api.mvuProviderRegistered('card-provider'), true)
@@ -678,6 +678,45 @@ test('tavern 服务：getCard、getHistory 只读；setVariables、editTurn 只�
 
   h.setLatest(turnMaterial({ turn: 4, index: 7, key: 'key-4' }))
   await assert.rejects(tavern.setVariables({ gameId: 'game-1', turn: 3, textVersion: 'key-3', variables: {} }), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' }, '不是最新一轮')
+})
+
+test('卡声明的业务身份来自本局快照，缺失或无效时降级，仍执行卡作用域检查', { skip: !cordis }, async t => {
+  let identity = { namespace: 'org.example', id: 'adventure-v1' }
+  let cardPath = '/cards/a.json'
+  const h = await harness(t, {
+    cardScope: async () => new Map([['card-plugin', { cards: ['/cards/a.json'] }]]),
+    cardPathOf: async () => cardPath,
+    readCard: async () => ({ extensions: { dsh_tavern: { identity } } }),
+  })
+  let tavern
+  await h.root.plugin({ name: 'card-plugin', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
+  await tick()
+  const result = await tavern.getCardIdentity({ gameId: 'game-1' })
+  assert.deepEqual(result, { namespace: 'org.example', id: 'adventure-v1' })
+  result.id = 'changed'
+  assert.equal((await tavern.getCardIdentity({ gameId: 'game-1' })).id, 'adventure-v1')
+  for (const value of [null, {}, { namespace: 'unqualified', id: 'x' }, { namespace: 'org.example', id: '../bad' }]) {
+    identity = value
+    assert.equal(await tavern.getCardIdentity({ gameId: 'game-1' }), null)
+  }
+  cardPath = '/cards/other.json'
+  await assert.rejects(tavern.getCardIdentity({ gameId: 'game-1' }), { code: 'TAVERN_PLUGIN_SCOPE' })
+})
+
+test('stage asset inspection honors card scope before invoking the resolver', { skip: !cordis }, async t => {
+  let path = '/cards/a.json', calls = 0
+  const h = await harness(t, {
+    cardScope: async () => new Map([['card-plugin', { cards: ['/cards/a.json'] }]]),
+    cardPathOf: async () => path,
+    inspectStageAsset: async (_session, {ref}) => { calls++; return {ref, status:'pack-unavailable', revision:null} },
+  })
+  let tavern
+  await h.root.plugin({ name:'card-plugin', inject:['tavern'], apply(ctx) { tavern = ctx.tavern } })
+  await tick()
+  assert.equal((await tavern.inspectStageAsset({gameId:'game-1', kind:'figure', ref:{}})).status, 'pack-unavailable')
+  path = '/cards/other.json'
+  await assert.rejects(tavern.inspectStageAsset({gameId:'game-1', kind:'figure', ref:{}}), {code:'TAVERN_PLUGIN_SCOPE'})
+  assert.equal(calls, 1)
 })
 
 test('tavern 服务：runTask 校验工具，模型调用的工具交给插件执行，失败记入插件错误', { skip: !cordis }, async t => {

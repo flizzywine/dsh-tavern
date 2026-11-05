@@ -29,7 +29,7 @@ function load({ allowed = () => true } = {}) {
 
 test('onPlayEvent: listener gets { type, gameId, turn, at, ...fields } and stops when unsubscribed', () => {
   const { ui, bus, views, plugin } = load()
-  assert.equal(ui.service.apiVersion, 8)
+  assert.equal(ui.service.apiVersion, 9)
   views.set('g1', { latestAssistantTurn: 4 })
   const seen = []
   const stop = plugin('stats').onPlayEvent(event => seen.push({ ...event }))

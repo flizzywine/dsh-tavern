@@ -160,7 +160,11 @@ function StageOpenings({ctx,embedded=false,pick:held,onPick,onGreetings}) {
 function OpeningScene({ctx,greeting,label,scene,onEdit,field}) {
   const addTrigger=React.useRef(null),backToAdd=()=>setTimeout(()=>addTrigger.current?.focus?.(),0);
   const draft=openingDraft(scene),cast=draft.cast,staged=openingStaged(ctx);
-  const name=alias=>stageFigure(ctx,alias).figure?.name||alias;
+  const name=alias=>{
+    const value=stageFigure(ctx,alias).figure?.name;
+    if(typeof value==='string'&&value)return value;
+    return typeof alias==='string'?alias:'角色资料暂不可用';
+  };
   const setCast=next=>onEdit({cast:next});
   const move=(index,delta)=>{const next=[...cast];[next[index],next[index+delta]]=[next[index+delta],next[index]];setCast(next);};
   const picker=(kind,label,value,onChange,art)=>{
