@@ -9,6 +9,7 @@ import { OFFICIAL_MVU_VERSION } from './official-mvu-assets.js'
 import { randomUUID } from 'node:crypto'
 import { cardOpeningChoices } from './card-openings.js'
 import { inspectWorldBookDocument, updateWorldBookDocument, exportSillyTavernWorldBook } from './worldbook-resource.js'
+import { hasInitialVariablesEntry } from './worldbook-entry-classification.js'
 import { patchTavernHelperWorldbookEntries, projectTavernHelperWorldbook, replaceTavernHelperWorldbookOperations, tavernHelperWorldbookChanges, tavernHelperWorldbookVersion } from './tavern-helper-worldbook.js'
 import { createHelperGenerationTasks } from './helper-generation-tasks.js'
 import { helperGenerationHistory } from './helper-generation-prompts.js'
@@ -133,6 +134,14 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
       return present(draft)
     },
     get(id) { return present(requireDraft(id)) },
+    // The template worker seeds initial values from world-book entries carrying the
+    // [InitialVariables] marker; without one the fork cannot produce a variable and only
+    // pays a process start (jsdom plus the template engine) before being killed again.
+    needsTemplateInitial(id) {
+      const draft = requireDraft(id)
+      const entries = draft.document ? inspectWorldBookDocument(draft.document).entries : []
+      return entries.some(entry => hasInitialVariablesEntry(entry))
+    },
     retain(id) { requireDraft(id); return { retained: true } },
     release(id) { generations.stopAll('opening:' + id); return { released: drafts.delete(id) } },
     dispose() { generations.dispose(); drafts.clear() },

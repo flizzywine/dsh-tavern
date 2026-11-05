@@ -19,6 +19,10 @@ export function createOpeningHandlers(deps) {
       return openingPreparation.select(args && args.id, args && args.openingId)
     },
     async initializeOpeningTemplate(args) {
+      // The engine seeds initial values from world-book entries naming [InitialVariables] and
+      // returns an empty set otherwise. With no such entry the fork only pays a process start
+      // (jsdom plus the 3.6 MB template engine) to compute {} — write the same result here.
+      if (!openingPreparation.needsTemplateInitial(args && args.id)) return openingInitializationPayload(openingPreparation.applyTemplateInitial(args.id, { initial: {} }), args && args.compact)
       try { return openingInitializationPayload(await openingPreparation.applyTemplateInitial(args.id, await requestPerformance.stage('templateInitialize', () => fullTemplateRuntime.forSession('opening:' + args.id).initializeVariables([]))), args.compact) } finally { fullTemplateRuntime.cancel('opening:' + args.id) }
     },
     async createOpeningPreparation(args) {

@@ -4,6 +4,16 @@ export function hasWorldbookPreprocessingSyntax(entry = {}) {
   return /^@@/m.test(String(entry.content || '')) || /\[(?:GENERATE:|RENDER:|InitialVariables|Preprocessing)|@INJECT/.test(String(entry.content || '') + '\n' + String(entry.comment || entry.title || ''))
 }
 
+// The template engine seeds a chat's initial variables from entries naming
+// [InitialVariables] in the comment or carrying the @@initial_variables operation.
+// Deliberately looser than the engine's own match: a false positive costs one worker
+// start on the unchanged path, a false negative would drop real initial values.
+export function hasInitialVariablesEntry(entry) {
+  const comment = String(entry?.comment ?? entry?.title ?? '')
+  const body = String(entry?.content ?? '')
+  return /@@initial_variables\b/.test(body) || /\[InitialVariables\]/i.test(comment)
+}
+
 // Optional plot entries are knowledge, not programs. Keep existing constant
 // MVU delivery in place so this migration does not move it into the system prefix.
 function hasRuntimeLabel(entry) {
