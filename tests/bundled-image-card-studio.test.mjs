@@ -377,3 +377,20 @@ test('worldbook projections preserve Unicode identities, reject stale saves and 
   await assert.rejects(createCardWorldbook(root).load())
   assert.equal(await readFile(join(root, 'card-worldbook.json'), 'utf8'), '{ broken JSON')
 })
+
+test('card worldbook entry routes add, edit and remove a rule without changing other entries', async t => {
+  const f = await studio(t)
+  const before = (await f.runtime.request('/dsh-tavern-gen/api/worldbook')).body.worldbook
+  const bucket = before.buckets[0].id
+  const added = await f.runtime.request('/dsh-tavern-gen/api/worldbook-add', { bucket, entry: { title: '新增规则', content: '规则正文' } })
+  assert.equal(added.status, 200, JSON.stringify(added.body))
+  const id = added.body.entry.id
+  const edited = await f.runtime.request('/dsh-tavern-gen/api/worldbook-entry', { bucket, id, patch: { title: '检索规则', content: '角色与服装素材', mode: 'lookup', enabled: false } })
+  assert.equal(edited.status, 200, JSON.stringify(edited.body))
+  assert.deepEqual(edited.body.entry, { id, title: '检索规则', content: '角色与服装素材', mode: 'lookup', enabled: false })
+  const saved = (await f.runtime.request('/dsh-tavern-gen/api/worldbook')).body.worldbook
+  assert.deepEqual(saved.buckets[0].entries.at(-1), edited.body.entry)
+  const removed = await f.runtime.request('/dsh-tavern-gen/api/worldbook-entry', { bucket, id, remove: true })
+  assert.equal(removed.status, 200)
+  assert.deepEqual(removed.body.book.buckets, before.buckets)
+})

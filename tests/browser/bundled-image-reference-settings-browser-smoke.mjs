@@ -17,6 +17,7 @@ const calls = [], errors = []
 let uploads = 0, libraryRevision = 1, cardEnabled = true
 let cardBook = { version: 3, revision: 'card-1', buckets: ['rules', 'examples'].map(id => ({ id, label: id, entries: [{ id: 'shared-entry', title: id + ' title', content: id + ' original', enabled: true, mode: 'always' }] })) }
 let cardRevision = 1
+let failCardWrites = 0
 const savedApiKeys = new Map()
 const workflowDetail = { file: 'workflow-a.json', prompt: {
   '2': { class_type: 'LoadImage', inputs: { image: 'pose.png' }, _meta: { title: 'Pose input (not a character ref)' } },
@@ -68,6 +69,22 @@ try {
       if (body.content.revision !== cardBook.revision) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'REVISION_CONFLICT', error: '卡片世界书已在别处修改' }) })
       cardBook = { ...clone(body.content), revision: 'card-' + (++cardRevision) }
       response = { ok: true, worldbook: clone(cardBook) }
+    }
+    else if (url.pathname === '/dsh-tavern-gen/api/worldbook-entry') {
+      if (failCardWrites > 0) { failCardWrites--; return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'fixture rejected card write' }) }) }
+      const bucket = cardBook.buckets.find(item => item.id === body.bucket)
+      const entry = bucket.entries.find(item => item.id === body.id)
+      if (body.remove === true) bucket.entries.splice(bucket.entries.indexOf(entry), 1)
+      else Object.assign(entry, body.patch)
+      cardBook = { ...clone(cardBook), revision: 'card-' + (++cardRevision) }
+      response = { ok: true, book: clone(cardBook), entry: clone(entry) }
+    }
+    else if (url.pathname === '/dsh-tavern-gen/api/worldbook-add') {
+      const bucket = cardBook.buckets.find(item => item.id === body.bucket)
+      const entry = { id: 'added-entry', title: body.entry.title, content: body.entry.content, mode: body.entry.mode, enabled: body.entry.enabled }
+      bucket.entries.push(entry)
+      cardBook = { ...clone(cardBook), revision: 'card-' + (++cardRevision) }
+      response = { ok: true, book: clone(cardBook), entry: clone(entry) }
     }
     else if (path === '/state') response = publicState()
     else if (path === '/config') {
@@ -291,32 +308,64 @@ try {
   assert.equal(worldbooks.structured[0].entries[0].content, '中文结构化规则')
   assert.equal(worldbooks.natural[0].entries[0].content, 'natural content')
   assert.equal(state.config.promptMode, 'structured', 'browsing worldbooks does not switch the active prompt format')
-  // Card workbench rules retain drafts across bucket switches, including identical local entry IDs.
+  // Card workbench entries save one at a time, so switching buckets first flushes the pending write.
+  const fillCardEntry = text => Promise.all([
+    page.waitForResponse(response => response.url().includes('/dsh-tavern-gen/api/worldbook-entry') && response.request().method() === 'POST'),
+    page.getByLabel('卡片条目内容 shared-entry', { exact: true }).fill(text),
+  ])
   await page.getByRole('button', { name: '卡片模式世界书', exact: true }).click()
-  await page.getByText('rules title · always', { exact: true }).click()
-  await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).fill('rules draft')
-  await page.getByRole('button', { name: 'examples · 1', exact: true }).click()
-  await page.getByText('examples title · always', { exact: true }).click()
-  assert.equal(await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).inputValue(), 'examples original')
-  await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).fill('examples draft')
-  await page.getByRole('button', { name: 'rules · 1', exact: true }).click()
-  await page.getByText(/^rules title · always/).click()
-  await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).waitFor()
-  assert.equal(await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).inputValue(), 'rules draft')
-  await page.getByRole('button', { name: '保存卡片世界书', exact: true }).click()
-  await page.getByText('卡片世界书已保存', { exact: true }).waitFor()
+  await page.getByText('1. rules title', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '编辑', exact: true }).first().click()
+  await fillCardEntry('rules draft')
   assert.equal(cardBook.buckets[0].entries[0].content, 'rules draft')
+  assert.equal(cardBook.buckets[1].entries[0].content, 'examples original', '保存当前分册不动另一册')
+  await page.getByRole('button', { name: '📖 examples（1 条）', exact: true }).click()
+  await page.getByText('1. examples title', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '编辑', exact: true }).first().click()
+  assert.equal(await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).inputValue(), 'examples original', '同名条目 ID 不串册')
+  await fillCardEntry('examples draft')
   assert.equal(cardBook.buckets[1].entries[0].content, 'examples draft')
-  await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).fill('conflicting draft')
-  cardBook.buckets[0].entries[0].content = 'saved elsewhere'
-  cardBook.revision = 'card-' + (++cardRevision)
-  await page.getByRole('button', { name: '保存卡片世界书', exact: true }).click()
-  await page.getByRole('button', { name: '重新载入卡片世界书', exact: true }).waitFor()
+  assert.equal(cardBook.buckets[0].entries[0].content, 'rules draft', '写另一册不动当前册')
+  await page.getByRole('button', { name: '📖 rules（1 条）', exact: true }).click()
+  await page.getByText('1. rules title', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '编辑', exact: true }).first().click()
+  assert.equal(await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).inputValue(), 'rules draft')
+  failCardWrites = 1
+  await fillCardEntry('conflicting draft')
+  await page.getByText('保存失败：fixture rejected card write', { exact: true }).waitFor()
   assert.equal(await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).inputValue(), 'conflicting draft')
+  assert.equal(cardBook.buckets[0].entries[0].content, 'rules draft', '失败不入库')
+  await fillCardEntry('rules retry')
+  assert.equal(cardBook.buckets[0].entries[0].content, 'rules retry')
+  await page.getByRole('button', { name: '➕ 新条目', exact: true }).click()
+  await page.getByLabel('卡片条目内容 added-entry', { exact: true }).waitFor()
+  await page.getByLabel('卡片条目标题 added-entry', { exact: true }).fill('新增规则')
+  await page.getByLabel('卡片条目内容 added-entry', { exact: true }).fill('新增规则正文')
+  await Promise.all([
+    page.waitForResponse(response => response.url().endsWith('/worldbook-entry') && response.request().postDataJSON()?.patch?.mode === 'lookup'),
+    page.getByLabel('卡片条目档位 added-entry', { exact: true }).selectOption('lookup'),
+  ])
+  assert.equal(cardBook.buckets[0].entries[1].title, '新增规则')
+  assert.equal(cardBook.buckets[0].entries[1].content, '新增规则正文')
+  assert.equal(cardBook.buckets[0].entries[1].mode, 'lookup')
+  await page.screenshot({ path: join(tmpdir(), 'dsh-card-worldbook-review.png'), fullPage: true })
+
+  // Two quick edits form one autosave batch. A failed first write must retain both edits.
+  failCardWrites = 1
+  await page.getByLabel('卡片条目内容 added-entry', { exact: true }).fill('新增规则第二版')
+  await page.getByRole('button', { name: '编辑', exact: true }).first().click()
+  await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).fill('原规则第二版')
+  await page.getByText('保存失败：fixture rejected card write', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '📖 examples（1 条）', exact: true }).click()
+  await page.getByText('1. examples title', { exact: true }).waitFor()
+  assert.equal(cardBook.buckets[0].entries[0].content, '原规则第二版')
+  assert.equal(cardBook.buckets[0].entries[1].content, '新增规则第二版')
+  await page.getByRole('button', { name: '📖 rules（2 条）', exact: true }).click()
+  await page.getByText('2. 新增规则', { exact: true }).waitFor()
   page.once('dialog', dialog => dialog.accept())
-  await page.getByRole('button', { name: '重新载入卡片世界书', exact: true }).click()
-  await page.getByText('rules title · always', { exact: true }).click()
-  assert.equal(await page.getByLabel('卡片条目内容 shared-entry', { exact: true }).inputValue(), 'saved elsewhere')
+  await page.getByRole('button', { name: '删', exact: true }).nth(1).click()
+  await page.getByRole('button', { name: '📖 rules（1 条）', exact: true }).waitFor()
+  assert.equal(cardBook.buckets[0].entries.length, 1)
   await Promise.all([page.waitForResponse(response => response.url().endsWith('/dsh-tavern-gen/api/tools-enabled') && response.request().method() === 'POST'), page.getByLabel('启用工作台生图', { exact: true }).click()])
   await page.waitForFunction(() => !document.querySelector('[aria-label="启用工作台生图"]').disabled)
   assert.equal(cardEnabled, false)

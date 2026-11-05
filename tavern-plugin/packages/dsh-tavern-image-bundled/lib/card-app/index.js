@@ -228,6 +228,17 @@ export function apply(ctx, { ready }) {
         return mutate(async () => { await enabledReady; await atomicWrite(enabledFile, { enabled: value.enabled }); enabled = value.enabled; applyTools?.(enabled); send(response, 200, { ok: true, enabled }) })
       }
       if (method === 'GET' && route === 'worldbook') return send(response, 200, { worldbook: await worldbook.load() })
+      // 面板逐条编辑：一次只写一条，串行队列保证不会和整本保存互相覆盖。
+      if (method === 'POST' && route === 'worldbook-entry') {
+        const payload = await body(request)
+        const bucket = String(payload.bucket || ''), id = String(payload.id || '')
+        if (payload.remove === true) return send(response, 200, { ok: true, ...(await worldbook.removeEntry(bucket, id)) })
+        return send(response, 200, { ok: true, ...(await worldbook.updateEntry(bucket, id, payload.patch && typeof payload.patch === 'object' ? payload.patch : {})) })
+      }
+      if (method === 'POST' && route === 'worldbook-add') {
+        const payload = await body(request)
+        return send(response, 200, { ok: true, ...(await worldbook.addEntry(String(payload.bucket || ''), payload.entry && typeof payload.entry === 'object' ? payload.entry : {})) })
+      }
       if (method === 'GET' && route === 'gallery') return send(response, 200, { items: await gallery.list(url.searchParams.get('sessionId') || undefined) })
       if (method === 'POST' && route === 'gallery-delete') return send(response, 200, { ok: true, removed: await gallery.remove(String((await body(request)).id || '')) ? 1 : 0 })
       if (method === 'POST' && route === 'gallery-clear') { await body(request); return send(response, 200, { ok: true, removed: await gallery.clear() }) }
