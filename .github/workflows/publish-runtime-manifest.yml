@@ -5,6 +5,12 @@ on:
     branches: [main, stable]
     paths-ignore:
       - dsh-tavern-runtime.json
+      - 'website/**'
+      - 'docs/**'
+      - '**/*.md'
+      - bin/build-website.mjs
+      - bin/sync-wiki-references.mjs
+      - .github/workflows/publish-website.yml
 
 permissions:
   contents: write
@@ -74,20 +80,4 @@ jobs:
       - name: Purge jsDelivr installer caches
         shell: bash
         run: |
-          expected="$(node -p "require('./dsh-tavern-runtime.json').revision")"
-          repo="${GITHUB_REPOSITORY}"
-          dist="runtime-archive-${GITHUB_REF_NAME}"
-          for f in install.ps1 install.sh android/setup.sh dsh-tavern-runtime.json; do
-            curl -fsS --retry 3 "https://purge.jsdelivr.net/gh/${repo}@${dist}/${f}" > /dev/null || true
-          done
-          served=""
-          for attempt in 1 2 3 4; do
-            sleep 15
-            served="$(curl -fsS --max-time 20 "https://cdn.jsdelivr.net/gh/${repo}@${dist}/dsh-tavern-runtime.json" | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{try{console.log(JSON.parse(s).revision)}catch{console.log('')}})" || true)"
-            if [ "$served" = "$expected" ]; then break; fi
-          done
-          echo "CDN manifest revision=${served:-<none>} expected=${expected}"
-          # Let jsDelivr fetch the new archive once, so the first installer does not wait for it.
-          commit="$(node -p "(require('./dsh-tavern-runtime.json').archive || {}).commit || ''")"
-          if [ -n "$commit" ]; then curl -fsS -o /dev/null "https://cdn.jsdelivr.net/gh/${repo}@${commit}/runtime.zip" || echo "::warning::jsDelivr could not fetch the runtime archive yet"; fi
-          if [ "$served" != "$expected" ]; then echo "::error::jsDelivr still serves a stale manifest on ${dist}"; exit 1; fi
+          node .github/scripts/refresh-cdn.mjs
