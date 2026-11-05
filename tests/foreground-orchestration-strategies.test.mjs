@@ -440,3 +440,30 @@ test('宿主 tools 不在 assembly 中时仍回写过滤结果并按批准工具
   assert.match(actual.sections.find(section => section.name === 'tavern:story-tool-submission').text, /不要调用任何其他工具/)
   assert.ok(!actual.sections.some(section => ['tavern:plugin-body-generation', 'tavern:foreground-style-reference'].includes(section.name)))
 })
+
+test('宿主全量工具表含 tavern_generate_body 时，未启用插件生成仍要求模型直接写正文', async () => {
+  let pluginGeneration = false
+  const strategy = createNativePlayOrchestrationStrategy({
+    modeFor: async () => 'story',
+    visibleTools: async () => pluginGeneration ? ['submit_story', 'tavern_generate_body'] : ['submit_story'],
+    storyOutputToolCall: async () => false,
+    resolvePreset: async () => null,
+    controlledToolNames: new Set(['submit_story', 'tavern_generate_body'])
+  })
+  const input = {
+    sessionId: 'game', chat: { mode: 'story' }, fixedSystemSections: [],
+    toolDefinitions: [{ name: 'submit_story' }, { name: 'tavern_generate_body' }, { name: 'tavern_read_variables' }]
+  }
+  const assemble = () => strategy.assembleSystemPrompt({ sections: [], contexts: [], variables: {} }, input)
+
+  const hostGenerated = await assemble()
+  assert.equal(hostGenerated.sections.some(section => section.name === 'tavern:plugin-body-generation'), false,
+    '宿主下发 tavern_generate_body 不代表本局启用了插件生成')
+  assert.match(hostGenerated.sections.find(section => section.name === 'tavern:story-tool-submission').text,
+    /历史里的 submit_story 调用只是过去正文的记录/)
+
+  pluginGeneration = true
+  const pluginGenerated = await assemble()
+  assert.ok(pluginGenerated.sections.some(section => section.name === 'tavern:plugin-body-generation'),
+    '真正启用插件生成时仍要注入插件正文契约')
+})
