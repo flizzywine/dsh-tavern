@@ -554,7 +554,8 @@ function stageSkinArt(document, files, entry = '') {
     }
     if (art.menu) {
         const m=art.menu;
-        if (m.sheet) {marks['data-fk-skin-art-menu-sheet']=''; tokens['--art-menu-sheet']=url(m.sheet);}
+        // sheet: drawn at its own aspect (contained in the game area, the panel ground round it); -w / -h its natural size
+        if (m.sheet) {const [w,h]=size(m.sheet); marks['data-fk-skin-art-menu-sheet']=''; Object.assign(tokens,{'--art-menu-sheet':url(m.sheet),'--art-menu-sheet-w':String(w),'--art-menu-sheet-h':String(h)});}
         // dim / blur / grey: the stage behind the menu darkened, blurred (design px) and greyed
         if (m.dim !== undefined || m.blur || m.grey) {marks['data-fk-skin-art-menu-dim']=''; Object.assign(tokens,{'--art-menu-dim':String(m.dim ?? 0),'--art-menu-blur':String(m.blur || 0),'--art-menu-grey':String(m.grey || 0)});}
         if (m.decor === 'hide') marks['data-fk-skin-art-menu-decor']='hide';
@@ -570,11 +571,18 @@ function stageSkinArt(document, files, entry = '') {
         // motion (§18 E3): the items' staged entrance and exit (theme.css «art menu: motion»; the stage keeps the menu
         // mounted through the exit, GalStage menuLeaving).
         for (const [key,stage] of Object.entries(m.motion || {})) {
+            if (key === 'parts') continue;
             const p='--art-mm-' + key, pose=stage.pose;
             marks['data-fk-skin-art-menu-motion']=[marks['data-fk-skin-art-menu-motion'],key,stage.fade ? key + '-fade' : ''].filter(Boolean).join(' ');
-            Object.assign(tokens,{[p + '-ms']:stage.ms + 'ms',[p + '-stagger']:(stage.stagger || 0) + 'ms',[p + '-ease']:STAGE_SKIN_EASE[stage.ease || 'out'],
+            Object.assign(tokens,{[p + '-ms']:stage.ms + 'ms',[p + '-stagger']:(stage.stagger || 0) + 'ms',[p + '-ease']:STAGE_SKIN_EASE[stage.ease || 'out'],...(stage.delay ? {[p + '-delay']:stage.delay + 'ms'} : {}),
                 [p + '-dx']:String(pose.dx || 0),[p + '-dy']:String(pose.dy || 0),[p + '-rot']:(pose.rot || 0) + 'deg',[p + '-scale']:stageSkinPoseScale(pose),[p + '-f']:`brightness(${pose.bright ?? 1})`});
         }
+        // motion.parts (§18 N21): the sheet, strips and signal each enter on their own beat (@keyframes fork-skin-menu-<part>,
+        // stageSkinMotionKeyframes)
+        const parts=Object.entries(m.motion?.parts || {});
+        if (parts.length) marks['data-fk-skin-art-menu-parts']=parts.map(([part]) => part).join(' ');
+        for (const [part,motion] of parts) Object.assign(tokens,{['--art-mp-' + part + '-ms']:motion.ms + 'ms',['--art-mp-' + part + '-delay']:(motion.delay || 0) + 'ms',
+            ['--art-mp-' + part + '-tf']:motion.steps ? `steps(${motion.steps}, end)` : STAGE_SKIN_EASE[motion.ease || 'out'],['--art-mp-' + part + '-origin']:(motion.origin || [0.5,0.5]).map(v => v * 100 + '%').join(' ')});
         for (const key of strips) {
             const s=m[key], [sw,sh]=s.image ? size(s.image) : [s.text[1],s.text[2] * 2], p='--art-ms-' + key;
             Object.assign(tokens,{[p + '-img']:s.image ? url(s.image) : 'none',[p + '-x']:String(s.x),[p + '-y']:String(s.y),[p + '-w']:String(sw),[p + '-h']:String(sh),
@@ -650,6 +658,9 @@ function stageSkinArt(document, files, entry = '') {
                 if (plate.slant !== undefined) tokens[q + '-slant']=plate.slant + 'deg';
             }
         }
+        // narrow: the same drawn sheet, title, close, row head and highlight on phones, one design px = unit CSS px; the
+        // words keep the reading size (theme.css «art backlog: phone»).
+        if (b.narrow) {marks['data-fk-skin-art-backlog-narrow']=''; tokens[p + '-nu']=b.narrow.unit + 'px';}
     }
     if (art.config) {
         const c=art.config, p='--art-cf';

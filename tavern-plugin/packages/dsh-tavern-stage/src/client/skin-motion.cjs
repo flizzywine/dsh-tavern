@@ -99,7 +99,11 @@ function stageSkinMotionKeyframes(document) {
     // layer face: the same keyframes move the face square (its % then), and leave is fork-skin-face-out.
     const percent=text => text.replace(/translate\(([-\d.]+)em,([-\d.]+)em\)/g,'translate($1%,$2%)');
     const face=document?.art?.portrait?.frame?.motion, faceFrames=face ? ['a','b'].map(n => percent(frames('fork-skin-face-in-' + n,face))).join('') + (face.leave ? percent(frames('fork-skin-face-out',face.leave)) : '') : '';
-    return [document?.textbox?.motion ? frames('fork-skin-box-page',stageSkinPageFromRest(document.textbox.motion.page)) : '',document?.nameplate?.motion ? frames('fork-skin-name-in',document.nameplate.motion) : '',faceFrames,cells,tx].join('');
+    // art.menu.motion.parts (§18 N21): dx / dy in design px of the game area (--mu), the part's ease or steps on the element.
+    const menuParts=Object.entries(document?.art?.menu?.motion?.parts || {}).map(([part,motion]) => `@keyframes fork-skin-menu-${part}{` + motion.keys.map(key =>
+        `${Math.round(key.at * 1000) / 10}%{transform:translate(calc(${key.dx || 0} * var(--mu)),calc(${key.dy || 0} * var(--mu))) rotate(${key.rot || 0}deg) scale(${stageSkinPoseScale(key).replace(' ','')})` +
+        (key.bright != null ? `;filter:brightness(${key.bright})` : '') + '}').join('') + '}').join('');
+    return [menuParts,document?.textbox?.motion ? frames('fork-skin-box-page',stageSkinPageFromRest(document.textbox.motion.page)) : '',document?.nameplate?.motion ? frames('fork-skin-name-in',document.nameplate.motion) : '',faceFrames,cells,tx].join('');
 }
 // textFx.poses as the glyph copy's tokens (theme.css «stage typewriter»): per pose its transform, filter, opacity and ink.
 function stageSkinGlyphPoses(fx) {
