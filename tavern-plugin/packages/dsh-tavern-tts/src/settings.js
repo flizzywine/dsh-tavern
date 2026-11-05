@@ -81,6 +81,7 @@ const PLAIN_ERRORS = {FISH_AUTH_FAILED:'服务要求鉴权，请填写或检查 
   CREDENTIALS_REQUIRED:'还没有填写密钥',SERVICE_OFFLINE:'连不上服务',TIMEOUT:'请求超时',ABORTED:'已取消'}
 export function plainError(error) {
   const message = String(error?.message || '')
+  if (error?.code?.startsWith('MINIMAX_')) return message
   if (error?.code === 'PROVIDER_AUTH_FAILED') return describeTtsError(error.code)
   if (PLAIN_ERRORS[error?.code]) return PLAIN_ERRORS[error.code]
   if (/[\u3400-\u9fff]/.test(message)) return message.slice(0,300)
@@ -171,6 +172,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         return listed.source === 'manual' ? { ...await a.verify(p, secret), ...listed } : { status:'connected', ...listed }
       }
       if (p.kind === 'volcengine') return { ...await a.verify(p, secret), ...await baseVoices(p, secret) }
+      if (p.kind === 'minimax') return { status:'connected', ...await a.probe(p, secret) }
       if (a.probe) await a.probe(p, secret); else await a.catalog(p, secret)
       return { status:'connected', ...await baseVoices(p, secret) }
     } catch (error) {

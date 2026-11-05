@@ -44,7 +44,14 @@ export function createMinimaxAdapter({ fetch: fetchImpl = globalThis.fetch } = {
       result = await response.json().catch(() => null)
     } catch { throw failure(signal?.aborted ? 'ABORTED' : 'MINIMAX_CONNECTION_FAILED') }
     const code = Number(result?.base_resp?.status_code || 0)
-    if (!response.ok || code) throw failure(failureCode(code, response.ok ? undefined : response.status), response.ok ? undefined : response.status)
+    if (!response.ok || code) {
+      const error = failure(failureCode(code, response.ok ? undefined : response.status), response.ok ? undefined : response.status)
+      if (path === '/v1/get_voice' && code && code !== 2049 && result.base_resp.status_msg) {
+        error.message = String(result.base_resp.status_msg)
+        if (secret.key) error.message = error.message.split(secret.key).join('[redacted]')
+      }
+      throw error
+    }
     if (!result) throw failure('MINIMAX_INVALID_AUDIO')
     return result
   }
@@ -52,7 +59,10 @@ export function createMinimaxAdapter({ fetch: fetchImpl = globalThis.fetch } = {
     async catalog() { return { items: structuredClone(MINIMAX_VOICES), manual: true } },
     async voices() { return { voices: structuredClone(MINIMAX_VOICES), models: [], source: 'builtin' } },
     // The voice listing is free and answers authentication; 测试连接 never synthesizes.
-    async probe(provider, secret) { await post(provider, secret, '/v1/get_voice', {voice_type:'system'}, undefined, 10000) },
+    async probe(provider, secret) {
+      const body = await post(provider, secret, '/v1/get_voice', {voice_type:'system'}, undefined, 10000)
+      return { voices:(body.system_voice || []).map(v => ({id:v.voice_id,label:v.voice_name || v.voice_id})), models:[], source:'live' }
+    },
     async synthesize(provider, secret, spec) {
       const body = await post(provider, secret, '/v1/t2a_v2', {model:spec.params.model || provider.config.model, text:spec.text, stream:false,
         voice_setting:{voice_id:spec.params.voice, speed:spec.params.speed ?? 1, vol:1, pitch:0, emotion:minimaxMood(spec) || 'neutral'},
