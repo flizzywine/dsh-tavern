@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { maximumBackgroundTokens, traceError } from './background-agent-task.js'
 import { createBackgroundRunLedger } from './background-run-ledger.js'
 import { memberOf, pluginMember } from './domain/background-members.js'
+import { applyAgentModelSelection } from './domain/session-model-selection.js'
 
 const LEGACY_BACKGROUND_PROVIDER = 'dsh-tavern-background'
 const BACKGROUND_PROVIDER = 'dsh-tavern-background-tools-v4'
@@ -308,6 +309,10 @@ export function createBackgroundAgentSessions(options, task) {
     }
     state.input = runtimeInput
     if (state.modelSelection) state.modelSelection.current = { ...input.selection }
+    // 0.2.2 installModelSelection no longer reads the caller's mutable selection:
+    // it only adds the switch notice. A reused resident Agent keeps its old
+    // model/selection event otherwise, so record the new one before its next step.
+    applyAgentModelSelection(handle?.agent, input.selection)
     state.refreshConfiguredTools?.()
     activeSessions.add(traceSessionId)
     requestSessions.set(traceSessionId, handle.agent.session)

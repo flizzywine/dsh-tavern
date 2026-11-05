@@ -1,4 +1,5 @@
 import {installHttpStreamPatch} from './domain/http-stream-patch.js'
+import {selectSessionModel} from './domain/session-model-selection.js'
 import {createExtensionRequests} from './domain/extension-requests.js'
 import {createModelSlotRegistry} from './domain/model-slot-registry.js'
 import {createPresentationObservers} from './domain/presentation-observers.js'
@@ -2107,9 +2108,10 @@ export async function apply(ctx) {
       selection: modelSelection,
       async selectModel(target, selection) {
         const controller = ctx.get('sessionController')
-        if (!target.agent || typeof controller?.agents?.selectForNextRequest !== 'function') throw new Error('无法设置新游戏默认前台模型')
+        if (!target.agent) throw new Error('无法设置新游戏默认前台模型')
         const resolved = await llm.resolveCallConfig(selection)
-        controller.agents.selectForNextRequest(target.agent, { provider: resolved.provider, model: resolved.model, ...(resolved.reasoningEffort ? { reasoningEffort: resolved.reasoningEffort } : {}) })
+        selectSessionModel({ agent: target.agent, controller, unsupported: '无法设置新游戏默认前台模型',
+          selection: { provider: resolved.provider, model: resolved.model, ...(resolved.reasoningEffort ? { reasoningEffort: resolved.reasoningEffort } : {}) } })
         await sessionStore.flush(target.session)
       }
     },
