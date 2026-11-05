@@ -25828,12 +25828,11 @@ function openCardPage({sessionId, page, shortcut, trustedCardMode, helperContext
         theme: copy(theme), card: {name: String(raw?.card?.name || '')}
     });
     const windows = () => [...frames.values()].map(item => item.node.contentWindow).filter(Boolean);
+    const post = (target, value) => { try { target.postMessage({type: 'dsh-card-page-data', token, data: value}, '*'); } catch (_) {} };
     function push() {
         if (closed) return;
         const value = snapshot();
-        for (const target of windows()) {
-            try { target.postMessage({type: 'dsh-card-page-data', token, data: value}, '*'); } catch (_) {}
-        }
+        for (const target of windows()) post(target, value);
     }
     function state(phase, extra) {
         if (!closed) onState({phase, label: raw?.label || '', size: raw?.size || 'window', figures: raw?.figures || [], ...extra});
@@ -25879,6 +25878,9 @@ function openCardPage({sessionId, page, shortcut, trustedCardMode, helperContext
                 node.referrerPolicy = 'no-referrer';
                 if (!descriptor.trustedCardMode) node.setAttribute('sandbox', 'allow-scripts');
                 node.srcdoc = descriptor.html;
+                // A message posted while the document still loads is lost, and the html carries the data of its mount:
+                // the loaded page gets the data as it is now (faces prepared meanwhile, a later read).
+                node.addEventListener('load', () => { if (!closed && node.contentWindow) post(node.contentWindow, snapshot()); });
                 item = {node, descriptor};
                 frames.set(descriptor.token, item);
                 target.appendChild(node);
