@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "33b312cb4ff26de88fbfd20e35dd09008fa87df4",
-  "releaseSequence": 1242,
+  "revision": "c3cf7023b249b48a3d626270f338673fc7d048f1",
+  "releaseSequence": 1243,
   "version": "3.2.0",
   "files": [
     {
@@ -916,8 +916,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "b482f96c896f9368c08d226722cc38157206e5abe3fe8bd4f993346c378c5fbd",
-      "size": 5511096
+      "sha256": "4c8eb00d7856b4eb8bcef4572651aa28a62e0865409f2920a6929ed31050e42f",
+      "size": 5513623
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1671,8 +1671,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "49b7bdcca6d71e662983e1889bb03f7b469ec5df10e807ee49be21a1d0df96ae",
-      "size": 31611
+      "sha256": "2b581278566378da4c19bfe21fdfbfd3623ac9eddf3f958b119b7124a4a71db0",
+      "size": 32369
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -3706,8 +3706,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/turn-lifecycle.js",
-      "sha256": "30f614098b661c18ea25bb9458eab9b91aec02a56e633896b049baba2c7e162e",
-      "size": 8806
+      "sha256": "3e2e149c1fc31c18c231600430ad2fd637231e794caf49beaa534f263cab2053",
+      "size": 8975
     },
     {
       "path": "tavern-plugin/lib/host/mod-dice.mjs",
@@ -9711,9 +9711,9 @@
     }
   ],
   "archive": {
-    "commit": "0f8dcae418e3e0eadcd0ad70a9f359f966dc38a0",
+    "commit": "1d13ec51d13493ab71448d1f55f9009ad1ad396a",
     "path": "runtime.zip",
-    "sha256": "08977f42a32c317a3bf5d75b7742743c43587b25328d07a76802ea3bc424812a",
-    "size": 16280011
+    "sha256": "993f948f5fb2df433225ceac2482891aa56f16cc7c2523eab0f22d0676a14f37",
+    "size": 16281098
   }
 }
