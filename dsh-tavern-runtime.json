@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "096df22b14bc61436d726d7289875d0ae8150d28",
-  "releaseSequence": 1269,
+  "revision": "ae9a79c2167e8ae0c9dea658ba935a98181eb3db",
+  "releaseSequence": 1270,
   "version": "3.2.0",
   "files": [
     {
@@ -926,8 +926,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "a6bcf23894269b42a11f4a498a2e8913f3314b051a532c6fceb4d622efe97ea3",
-      "size": 5542326
+      "sha256": "a9818c1d2f21a32ef3ced244e2047f831aa91adc42eb5e88a030a7fead2f0aaa",
+      "size": 5542533
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -8991,8 +8991,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/cache.js",
-      "sha256": "f6898e36dd5633db487e5ef3cd003c28a35911e2341ab296653900cec61a660a",
-      "size": 7657
+      "sha256": "6e29271e50930a396e4597201512327cd247a99e423058d461fc00292669a52b",
+      "size": 7426
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/client.js",
@@ -9021,8 +9021,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/loudness.js",
-      "sha256": "ca86687e92fc9f35dcf9de887f430ea936b11fa1138d3ea92658600177c8af0a",
-      "size": 1786
+      "sha256": "c8da86c9b1005b2ad4009638a115d74f029974a30d74549ab49301d1d0262b5b",
+      "size": 4159
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/model-validation.js",
@@ -9126,13 +9126,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/sample-cache.js",
-      "sha256": "3134b7da0e57e1f00c9f393eabe12b4eaed9cc3fa317cc05741a57de1f6235bb",
-      "size": 4455
+      "sha256": "048fdf7bc4e2d264a9b08ecfab22510b6e65d14f5c90a82965eff26fd4e9c2b0",
+      "size": 4755
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/service.js",
-      "sha256": "be8ca75c71990e2f183b4adae1a1030209c1abec55cde70235134bfed1439418",
-      "size": 34626
+      "sha256": "06f14e067a547e571d88addc38946e2d3f6e0707611f6db16fb310fdd4dff18a",
+      "size": 34619
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/settings-config.js",
@@ -9226,8 +9226,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/cache.js",
-      "sha256": "f6898e36dd5633db487e5ef3cd003c28a35911e2341ab296653900cec61a660a",
-      "size": 7657
+      "sha256": "6e29271e50930a396e4597201512327cd247a99e423058d461fc00292669a52b",
+      "size": 7426
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/client.css",
@@ -9261,8 +9261,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/loudness.js",
-      "sha256": "ca86687e92fc9f35dcf9de887f430ea936b11fa1138d3ea92658600177c8af0a",
-      "size": 1786
+      "sha256": "c8da86c9b1005b2ad4009638a115d74f029974a30d74549ab49301d1d0262b5b",
+      "size": 4159
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/model-validation.js",
@@ -9366,13 +9366,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/sample-cache.js",
-      "sha256": "3134b7da0e57e1f00c9f393eabe12b4eaed9cc3fa317cc05741a57de1f6235bb",
-      "size": 4455
+      "sha256": "048fdf7bc4e2d264a9b08ecfab22510b6e65d14f5c90a82965eff26fd4e9c2b0",
+      "size": 4755
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/service.js",
-      "sha256": "be8ca75c71990e2f183b4adae1a1030209c1abec55cde70235134bfed1439418",
-      "size": 34626
+      "sha256": "06f14e067a547e571d88addc38946e2d3f6e0707611f6db16fb310fdd4dff18a",
+      "size": 34619
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/settings-config.js",
@@ -9756,9 +9756,9 @@
     }
   ],
   "archive": {
-    "commit": "416d1c9883fba1679edb8a855ffbee5099faea36",
+    "commit": "673595a697c2b3d649e5f61b17511c1466e82e91",
     "path": "runtime.zip",
-    "sha256": "4b0733f5a9cb00f453850ed3061c88a4727179b7f85c0f0415ca333e9e6a7dfc",
-    "size": 16333795
+    "sha256": "8abb534e3e1190ef74d7d2e6b13b9f07e50961c165b5131c51fb42726d4c4547",
+    "size": 16335657
   }
 }
