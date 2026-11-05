@@ -10,7 +10,7 @@ for (const file of ['index.html', 'style.css', 'app.js']) {
 }
 for (const [directory, files, source] of [
   ['brand', ['favicon.svg', 'dsh-tavern-lockup.svg'], 'docs/assets/brand'],
-  ['screens', ['script-mode.png', 'card-editor.png', 'mvu-status-panel.png', 'rewrite-body.png', 'scene-image-product.png', 'overview.png'], 'docs/images/readme'],
+  ['screens', ['promo-video.jpg', 'script-mode.png', 'card-editor.png', 'mvu-status-panel.png', 'rewrite-body.png', 'scene-image-product.png', 'overview.png'], 'docs/images/readme'],
   ['testimonials', ['more-alive-and-faster.jpg', 'long-chat-memory.jpg'], 'docs/images/readme/testimonials'],
 ]) {
   await mkdir(path.join(output, 'assets', directory), { recursive: true });
