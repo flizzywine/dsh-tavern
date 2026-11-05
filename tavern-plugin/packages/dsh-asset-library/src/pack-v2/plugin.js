@@ -1,3 +1,4 @@
+import { createAssetPackService } from './service.js'
 import { createAssetPackSettings } from './native-settings.js'
 import { installAssetSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
@@ -34,6 +35,11 @@ export function apply(ctx, config = {}) {
     // a card's voice source maps to a configured voice service of the same kind (card-material.js).
     voiceChannels:async () => ((await ctx.get('tts')?.listServices()) || []).map(service => service.kind)})
   ctx.provide('assetLibrary',transport.service)
+  // Internal rollback snapshots are not public downloads; never expose this callback in the transport.
+  ctx.provide('assetLibraryCardBackup', async (file, input, consume) => {
+    const backup = createAssetPackService({...config, mediaStore, limits:PACK_BUDGET, cardTransactions:cards, privateExportFile:file, globalEnabledPackIds:() => settings.read().values.globalEnabledPackIds})
+    try { return await backup.withCardExport(input, consume) } finally { await backup.dispose() }
+  })
   ctx.provide('assetPackSettings',settings)
   registerAssetPackTransport(ctx,transport)
   ctx.effect(() => () => transport.service.dispose())

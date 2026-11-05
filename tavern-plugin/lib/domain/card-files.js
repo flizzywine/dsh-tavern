@@ -19,7 +19,7 @@ function str(value) {
 }
 
 // Card files in and out of the card library. pluginApi is a getter: it is built after the library.
-export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null, exportRoot = os.tmpdir() }) {
+export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null, withCardBackup, exportRoot = os.tmpdir() }) {
   const cardImportIdentity = createCardImportIdentity({ cardPaths: () => fileResources.list('card'), castAssets, readCardText: cardPath => fileResources.readText(cardPath) })
   async function importCard(input, options = {}) {
     // A CHARX is stored as PNG or JSON; the material any card file carries goes to its character material.
@@ -215,7 +215,10 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   // the card binds (and the packs it came with); `packIds` chooses, and a pack left out also leaves the exported card's
   // bindings. `excludeFigures` leaves figures of the packs out (e.g. the one the player plays) with the media only they
   // use. Packs can be large, so the archive is written to a spool file under exportRoot and streamed.
-  async function exportCardFile(input, { excludeFigures = [], packIds } = {}) {
+  async function exportCardFile(input, options = {}) {
+    return writeCardFile(input, options)
+  }
+  async function writeCardFile(input, { excludeFigures = [], packIds } = {}, backup = false) {
     if (!Array.isArray(excludeFigures) || excludeFigures.some(id => typeof id !== 'string')
       || packIds !== undefined && (!Array.isArray(packIds) || packIds.some(id => typeof id !== 'string'))) throw Object.assign(new Error('导出参数无效'), { code: 'TAVERN_EXPORT_INVALID' })
     let cardPath
@@ -229,7 +232,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     if (chosen && packIds.some(id => !boundIds.includes(id) && !(material.packs || []).some(ref => ref.id === id))) throw Object.assign(new Error('只能选择这张卡用到的素材包'), { code: 'TAVERN_EXPORT_INVALID' })
     // The packs the card was imported with (card-assets packs) come from their store; the bound library packs from the library.
     const importedPacks = []
-    for (const ref of (material.packs || []).filter(ref => !chosen || chosen.has(ref.id))) {
+    for (const ref of (material.packs || []).filter(ref => !backup && (!chosen || chosen.has(ref.id)))) {
       const stored = await assetPacks.readPack(ref.id, ref.contentHash)
       if (!stored) throw Object.assign(new Error('绑定素材包不存在'), { code: 'TAVERN_NOT_FOUND' })
       const files = new Map()
@@ -276,8 +279,14 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       const imported = importedPacks.map(pack => pack.manifest.id)
       const ids = boundIds.filter(id => !imported.includes(id) && (!chosen || chosen.has(id)))
       const library = assetLibrary()
-      if ((ids.length || chosen) && !library) throw Object.assign(new Error('素材库尚未就绪'), { code: 'TAVERN_EXPORT_UNAVAILABLE' })
-      const result = library ? await library.withCardExport({ path: cardPath, packIds: ids, keepPackIds: imported }, write) : await write()
+      if (!backup && (ids.length || chosen) && !library) throw Object.assign(new Error('素材库尚未就绪'), { code: 'TAVERN_EXPORT_UNAVAILABLE' })
+      // Replacement owns the card, not its installed packs: retain references without copying media.
+      const selection = backup
+        ? { path: cardPath, packIds: [], keepPackIds: [...boundIds, ...(material.packs || []).map(ref => ref.id), ...(document.data?.extensions?.dsh_tavern?.modConfigPackId ? [document.data.extensions.dsh_tavern.modConfigPackId] : [])] }
+        : { path: cardPath, packIds: ids, keepPackIds: imported }
+      const result = library ? await (backup
+        ? withCardBackup(file, selection, write)
+        : library.withCardExport(selection, write)) : await write()
       return { name: result.card.data.name || '人物卡', extension: 'dshcard', contentType: 'application/zip', file, size: result.size,
         stream: () => createReadStream(file), dispose: () => rm(directory, { recursive: true, force: true }) }
     } catch (error) { await rm(directory, { recursive: true, force: true }); throw error }
@@ -297,7 +306,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       const material = await castAssets.read(target)
       const plugins = material.plugins || []
       const choices = new Map(plugins.map(p => [p.name, p.enabled !== false]))
-      const backup = await exportCardFile(target)
+      const backup = await writeCardFile(target, {}, true)
       const recovery = path.join(path.dirname(exportRoot), 'recovery', 'card-updates')
       await mkdir(recovery, { recursive: true })
       const backupPath = path.join(recovery, path.basename(target, '.json') + '-' + Date.now() + '-' + randomUUID().slice(0, 8) + '.dshcard')

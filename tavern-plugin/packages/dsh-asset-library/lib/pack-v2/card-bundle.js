@@ -106,7 +106,7 @@ export function createCardBundleMethods(host) {
         const ids = input.packIds || value.boundPackIds
         const allowed = new Set([...value.boundPackIds, ...globalPackIds()])
         const packs = []
-        for (const id of [...new Set([...ids, ...(value.modConfigPackId ? [value.modConfigPackId] : [])])]) {
+        for (const id of [...new Set([...ids, ...(value.modConfigPackId && !(input.keepPackIds || []).includes(value.modConfigPackId) ? [value.modConfigPackId] : [])])]) {
           check(allowed.has(id), '$.packIds', 'Only packs this card uses can be embedded', 'UNBOUND_PACK')
           const pack = await load(id)
           check(pack, '$.packIds', 'Pack to embed is missing', 'ASSET_UNAVAILABLE')
