@@ -550,7 +550,7 @@ function GalStage(props) {
         const id = stageViews.controls.stageEnterPage({pages: cardPages.pages, fresh: cardPages.fresh, skip: reading.skipTitlePage === true});
         if (id === null) return;
         setHidden(false); setOpenPage(id); entrance.end();
-    }, [cardPages, stageVisit, sessionId]);
+    }, [cardPages, stageVisit, sessionId, reading.skipTitlePage]);
     const narrow = useGalNarrow(); // the one stage breakpoint, 640px
     // on phones the top bar's icons are one group centred at the top of the stage.
     const [topbarNode, topbarRef] = React.useState(null);
