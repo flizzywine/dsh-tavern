@@ -92,6 +92,15 @@ export function hostRequireCandidates({ names, pluginAnchor, env = process.env, 
       if (!anchors.some(item => item.anchor === canonical)) push('desktop-archive-canonical', canonical)
     } catch { /* A synthetic probe or an older unpacked installation. */ }
   }
+  // Standalone Windows hosts can also be launched with different path casing.
+  // Retain the original spelling for an already-loaded module, then try the
+  // on-disk spelling; defaultHostRequire still proves the live class identity.
+  if (!resources && launcher && process.platform === 'win32') {
+    try {
+      const canonical = realpathSync.native(launcher)
+      if (canonical !== launcher) push('launcher-canonical', canonical)
+    } catch { /* Synthetic or unavailable launcher. */ }
+  }
   push('plugin-package', pluginAnchor || fileURLToPath(new URL('../../package.json', import.meta.url)))
   const candidates = anchors.map(entry => ({ ...entry, require: resolveAnchorRequire(entry.anchor) }))
   const resolvable = candidates.filter(candidate => resolvesAll(candidate.require, wanted))
