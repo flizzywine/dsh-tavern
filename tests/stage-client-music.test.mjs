@@ -27,3 +27,20 @@ test('unloading music releases subscriptions and fences a late decode', async ()
   assert.equal(subscriptions,0)
   assert.equal(player.get().current,'')
 })
+
+
+test('a non-looping scene cue ends once and does not restart on resume', async () => {
+  const sources=[]
+  const buffer={duration:2,sampleRate:1,length:2,numberOfChannels:1,getChannelData:()=>new Float32Array([0.5,0.5])}
+  const context={currentTime:0,state:'running',decodeAudioData:async()=>buffer,addEventListener(){},removeEventListener(){},resume:async()=>{},createBufferSource(){
+    const source={connect(){},disconnect(){},start(){},stop(){}};sources.push(source);return source
+  }}
+  const player=createStageMusic({audio:{musicContext:()=>context,musicVoice:()=>({input:{},level:()=>1,release(){},trim(){}}),subscribe:()=>()=>{},get:()=>({music:1,muted:{}})},
+    foreground:{isAudible:()=>true,subscribeAudio:()=>()=>{},clearTimeout(){},setTimeout(){},now:()=>0},AbortController,
+    fetch:async()=>({ok:true,arrayBuffer:async()=>new ArrayBuffer(0)})})
+  await player.play('victory',true,'victory',{loop:false})
+  assert.equal(sources.length,1);assert.equal(sources[0].loop,false)
+  sources[0].onended();player.resume()
+  assert.equal(sources.length,1)
+  player.dispose()
+})

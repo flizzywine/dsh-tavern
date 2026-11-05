@@ -185,10 +185,10 @@ function GalStage(props) {
     },[sessionId]);
     const battlePresentation=candidate?.value?.presentation === 'battle';
     const candidateInteractive=Boolean(candidate && candidate.value.interactive !== false);
-    const musicKey=JSON.stringify(candidate?.value?.musicRef || null);
+    const musicKey=JSON.stringify([candidate?.value?.musicRef || null,candidate?.value?.musicLoop !== false]);
     React.useEffect(() => {
-        const owner={}; const ref=JSON.parse(musicKey);
-        if (ref) stageViews.bgm.setScene(sessionId,owner,ref);
+        const owner={}; const [ref,loop]=JSON.parse(musicKey);
+        if (ref) stageViews.bgm.setScene(sessionId,owner,ref,loop);
         return () => { if (ref) stageViews.bgm.setScene(sessionId,owner,null); };
     },[sessionId,musicKey]);
     const candidateDialogue=candidateInteractive ? candidate.value.dialogue : null;

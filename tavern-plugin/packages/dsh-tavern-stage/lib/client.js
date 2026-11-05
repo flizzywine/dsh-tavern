@@ -14243,10 +14243,10 @@ function GalStage(props) {
     },[sessionId]);
     const battlePresentation=candidate?.value?.presentation === 'battle';
     const candidateInteractive=Boolean(candidate && candidate.value.interactive !== false);
-    const musicKey=JSON.stringify(candidate?.value?.musicRef || null);
+    const musicKey=JSON.stringify([candidate?.value?.musicRef || null,candidate?.value?.musicLoop !== false]);
     React.useEffect(() => {
-        const owner={}; const ref=JSON.parse(musicKey);
-        if (ref) stageViews.bgm.setScene(sessionId,owner,ref);
+        const owner={}; const [ref,loop]=JSON.parse(musicKey);
+        if (ref) stageViews.bgm.setScene(sessionId,owner,ref,loop);
         return () => { if (ref) stageViews.bgm.setScene(sessionId,owner,null); };
     },[sessionId,musicKey]);
     const candidateDialogue=candidateInteractive ? candidate.value.dialogue : null;
@@ -26042,13 +26042,13 @@ function createStageMusic({audio:forkStageAudio, foreground:forkForeground, fetc
     function position(track) {
         if (!track) return 0;
         let time = track.offset + (track.source ? track.context.currentTime - track.started : 0);
-        if (track.loop && time >= track.loop.end) time = track.loop.start + (time - track.loop.start) % (track.loop.end - track.loop.start);
-        return time;
+        if (track.repeating && track.loop && time >= track.loop.end) time = track.loop.start + (time - track.loop.start) % (track.loop.end - track.loop.start);
+        return track.repeating ? time : Math.min(time, track.buffer?.duration ?? time);
     }
     function pause(track) {
         if (!track) return;
         track.offset = position(track); track.paused = true;
-        if (track.source) { track.source.stop(); track.source.disconnect(); track.source.buffer = null; track.source = null; }
+        if (track.source) { const source=track.source; track.source=null; source.onended=null; source.stop(); source.disconnect(); source.buffer=null; }
     }
     function release(track) {
         if (!track) return;
@@ -26057,9 +26057,10 @@ function createStageMusic({audio:forkStageAudio, foreground:forkForeground, fetc
     }
     function start(track) {
         // The sound policy (foreground.js) holds a playing track at its position while DSH Tavern is not in front.
-        if (!track || !track.buffer || track.source || track !== a || !forkForeground.isAudible()) return;
+        if (!track || !track.buffer || track.source || track.ended || track !== a || !forkForeground.isAudible()) return;
         const ctx = track.context, source = ctx.createBufferSource();
-        source.buffer = track.buffer; source.loop = true; source.loopStart = track.loop.start; source.loopEnd = track.loop.end;
+        source.buffer = track.buffer; source.loop = track.repeating; source.loopStart = track.loop.start; source.loopEnd = track.loop.end;
+        source.onended = () => { if (track.source !== source || track.repeating) return; track.source=null; source.disconnect(); source.buffer=null; track.offset=track.buffer.duration; track.ended=true; emit(); };
         source.connect(track.voice.input); source.start(0, track.offset);
         track.source = source; track.started = ctx.currentTime; track.paused = false;
         ctx.removeEventListener('statechange', track.statechange);
@@ -26086,12 +26087,13 @@ function createStageMusic({audio:forkStageAudio, foreground:forkForeground, fetc
         handoff?.(); handoff = null; stopping = null;
     }
     function configure(track, points) {
-        if (!track || track.points.loopStart === points.loopStart && track.points.loopEnd === points.loopEnd) return;
+        if (!track || track.points.loopStart === points.loopStart && track.points.loopEnd === points.loopEnd && track.repeating === (points.loop !== false)) return;
         track.points = {loopStart:points.loopStart,loopEnd:points.loopEnd};
+        track.repeating = points.loop !== false; track.ended = false;
         if (!track.buffer) return;
         const wasPaused = track.paused;
         // Started sources acquire their PCM; a point edit must also replace any baked tail.
-        pause(track); track.loop.restore?.(); track.loop = musicLoop(track.buffer, track.points);
+        pause(track); track.loop.restore?.(); track.loop = track.repeating ? musicLoop(track.buffer, track.points) : {offset:0,start:0,end:track.buffer.duration};
         track.offset = position(track); track.paused = wasPaused;
         if (!wasPaused) start(track);
     }
@@ -26103,17 +26105,17 @@ function createStageMusic({audio:forkStageAudio, foreground:forkForeground, fetc
         get() { const prefs = forkStageAudio.get(); return {current,identity:currentIdentity,paused:!a || a.paused,volume:prefs.music,muted:!!prefs.muted.music,error:failure,position:position(a),loopStart:a?.loop?.start,loopEnd:a?.loop?.end}; },
         analyser: () => a?.voice?.analyser() || null,
         // trace: the source for the audio trace (audio-trace.cjs: reason, ref, label).
-        play(url, snap = false, identity, {fadeMs = 1200, volume, loopStart, loopEnd, loudness, trace} = {}) {
+        play(url, snap = false, identity, {fadeMs = 1200, volume, loopStart, loopEnd, loop = true, loudness, trace} = {}) {
             if (disposed) return;
             if (!url) return this.stop();
             identity ??= url;
-            if (identity === currentIdentity && current && !failure) { this.trim(volume, {loopStart,loopEnd}); this.resume(); return; }
+            if (identity === currentIdentity && current && !failure) { this.trim(volume, {loopStart,loopEnd,loop}); this.resume(); return; }
             follow();
             if (a && !a.buffer && b) { release(a); a = b; b = null; }
             settle();
             if (a && !a.buffer) { release(a); a = null; }
             b = a;
-            const track = {cancel:new AbortController(),paused:false,offset:0,source:null,buffer:null,points:{loopStart,loopEnd}};
+            const track = {cancel:new AbortController(),paused:false,offset:0,source:null,buffer:null,repeating:loop !== false,ended:false,points:{loopStart,loopEnd}};
             a = track; current = url; currentIdentity = identity; failure = null;
             const complete = new Promise(resolve => { handoff = resolve; });
             // Decode is not abortable. Serialize loads so rapid selections cannot
@@ -26130,7 +26132,7 @@ function createStageMusic({audio:forkStageAudio, foreground:forkForeground, fetc
                     const buffer = await ctx.decodeAudioData(bytes);
                     if (track !== a || track.cancel.signal.aborted) return;
                     if (buffer.duration > 900 || buffer.numberOfChannels > 2 || buffer.length * buffer.numberOfChannels * 4 > 384 * 1024 * 1024) throw new Error('Unsupported music decode size');
-                    track.buffer = buffer; track.loop = musicLoop(buffer, track.points); track.offset = track.loop.offset;
+                    track.buffer = buffer; track.loop = track.repeating ? musicLoop(buffer, track.points) : {offset:0,start:0,end:buffer.duration}; track.offset = track.loop.offset;
                     track.voice = forkStageAudio.musicVoice(url, volume, identity, loudness, trace, buffer.duration);
                     if (!track.paused) start(track);
                     const previous = b, from = level(previous);
@@ -26277,7 +26279,7 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
         if (!active || !input?.enabled) return null;
         if (scene && scene.sessionId === active) {
             const track = lists.get(active)?.tracks.find(item => item.key === bgmKey(scene.ref));
-            return track ? {...track, source:'scene', snap:true} : null;
+            return track ? {...track, loop:scene.loop, source:'scene', snap:true} : null;
         }
         if (mine.follow) {
             if (performance && !performance.yielded) return performance.track && {...performance.track, key:bgmKey(performance.track.ref), source:'performance', snap:performance.snap, fadeMs:performance.fadeMs};
@@ -26322,7 +26324,7 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
             return;
         }
         if (silent()) { music.pause(); return; }
-        if (playing.identity === goal.identity && playing.current) { music.trim?.(goal.volume, {loopStart:goal.loopStart,loopEnd:goal.loopEnd}); music.resume(); return; }
+        if (playing.identity === goal.identity && playing.current) { music.trim?.(goal.volume, {loopStart:goal.loopStart,loopEnd:goal.loopEnd,loop:goal.loop}); music.resume(); return; }
         let pin = null;
         try {
             pin = goal.descriptor ? await owner()?.acquire(goal.descriptor, input.authority, {usage:'bgm'})
@@ -26343,7 +26345,7 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
         if (error) { error = false; publish(); }
         held.push({identity:goal.identity, url, volume:goal.volume, loopStart:goal.loopStart, loopEnd:goal.loopEnd, loudness:goal.loudness, release:pin ? pin.release : () => {}});
         const epoch = ++playback;
-        const done = music.play(url, goal.snap ?? input.snap, goal.identity, {fadeMs:goal.fadeMs, volume:goal.volume, loopStart:goal.loopStart, loopEnd:goal.loopEnd, loudness:goal.loudness,
+        const done = music.play(url, goal.snap ?? input.snap, goal.identity, {fadeMs:goal.fadeMs, volume:goal.volume, loopStart:goal.loopStart, loopEnd:goal.loopEnd, loop:goal.loop, loudness:goal.loudness,
             trace:{reason:'bgm:' + goal.source + (goal.restoring ? '-restore' : ''), ref:goal.ref, label:goal.name}});
         const settled = () => { if (epoch !== playback) return; if (music.get().error) { error = true; release(null); publish(); } else if (music.get().identity === goal.identity) release(goal.identity); };
         if (done) done.then(settled); else settled();
@@ -26390,10 +26392,10 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
     }
     function set(next) { if (disposed) return; mine = {...mine, ...next}; remember(); void apply(); }
     return {
-        setScene(sessionId, owner, ref) {
+        setScene(sessionId, owner, ref, loop = true) {
             if (disposed) return;
             if (!ref) { if (scene?.owner !== owner) return; scene = null; }
-            else { if (sessionId !== active) return; scene = {sessionId, owner, ref}; }
+            else { if (sessionId !== active) return; scene = {sessionId, owner, ref, loop}; }
             // Stop immediately, including any crossfade tail, before resolving the new track.
             generation++; playback++; music.stop(); release(null); void apply();
         },

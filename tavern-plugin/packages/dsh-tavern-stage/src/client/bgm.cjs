@@ -71,7 +71,7 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
         if (!active || !input?.enabled) return null;
         if (scene && scene.sessionId === active) {
             const track = lists.get(active)?.tracks.find(item => item.key === bgmKey(scene.ref));
-            return track ? {...track, source:'scene', snap:true} : null;
+            return track ? {...track, loop:scene.loop, source:'scene', snap:true} : null;
         }
         if (mine.follow) {
             if (performance && !performance.yielded) return performance.track && {...performance.track, key:bgmKey(performance.track.ref), source:'performance', snap:performance.snap, fadeMs:performance.fadeMs};
@@ -116,7 +116,7 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
             return;
         }
         if (silent()) { music.pause(); return; }
-        if (playing.identity === goal.identity && playing.current) { music.trim?.(goal.volume, {loopStart:goal.loopStart,loopEnd:goal.loopEnd}); music.resume(); return; }
+        if (playing.identity === goal.identity && playing.current) { music.trim?.(goal.volume, {loopStart:goal.loopStart,loopEnd:goal.loopEnd,loop:goal.loop}); music.resume(); return; }
         let pin = null;
         try {
             pin = goal.descriptor ? await owner()?.acquire(goal.descriptor, input.authority, {usage:'bgm'})
@@ -137,7 +137,7 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
         if (error) { error = false; publish(); }
         held.push({identity:goal.identity, url, volume:goal.volume, loopStart:goal.loopStart, loopEnd:goal.loopEnd, loudness:goal.loudness, release:pin ? pin.release : () => {}});
         const epoch = ++playback;
-        const done = music.play(url, goal.snap ?? input.snap, goal.identity, {fadeMs:goal.fadeMs, volume:goal.volume, loopStart:goal.loopStart, loopEnd:goal.loopEnd, loudness:goal.loudness,
+        const done = music.play(url, goal.snap ?? input.snap, goal.identity, {fadeMs:goal.fadeMs, volume:goal.volume, loopStart:goal.loopStart, loopEnd:goal.loopEnd, loop:goal.loop, loudness:goal.loudness,
             trace:{reason:'bgm:' + goal.source + (goal.restoring ? '-restore' : ''), ref:goal.ref, label:goal.name}});
         const settled = () => { if (epoch !== playback) return; if (music.get().error) { error = true; release(null); publish(); } else if (music.get().identity === goal.identity) release(goal.identity); };
         if (done) done.then(settled); else settled();
@@ -184,10 +184,10 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
     }
     function set(next) { if (disposed) return; mine = {...mine, ...next}; remember(); void apply(); }
     return {
-        setScene(sessionId, owner, ref) {
+        setScene(sessionId, owner, ref, loop = true) {
             if (disposed) return;
             if (!ref) { if (scene?.owner !== owner) return; scene = null; }
-            else { if (sessionId !== active) return; scene = {sessionId, owner, ref}; }
+            else { if (sessionId !== active) return; scene = {sessionId, owner, ref, loop}; }
             // Stop immediately, including any crossfade tail, before resolving the new track.
             generation++; playback++; music.stop(); release(null); void apply();
         },
