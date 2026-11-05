@@ -10,7 +10,7 @@ const ROOT = 'dsh-tavern-card-bundle.json'
 const copy = value => structuredClone(value)
 // Runs only within the storage publication gate; adapter callbacks take the card lock last.
 export function createCardBundleMethods(host) {
-  const {storage, run, load, metadata, all, verify, cas, keys, remapPack, remapValue, readZipFiles, readZipFile, exportArchive, archiveKey, limits, now, nextLocal, emit, cards, globalPackIds = () => []} = host
+  const {storage, run, readRun, privateExportFile, load, metadata, all, verify, cas, keys, remapPack, remapValue, readZipFiles, readZipFile, exportArchive, archiveKey, limits, now, nextLocal, emit, cards, globalPackIds = () => []} = host
   const previews = new Map()
   function adapter() { check(cards && ['snapshot','inspectRaw','remapRaw','bindRaw','withPrepared','recover'].every(k => typeof cards[k] === 'function'), '$.card', 'Card Preparation adapter unavailable', 'ASSET_UNAVAILABLE'); return cards }
   function sweep() { for (const [id, value] of previews) if (value.preview.expiresAt <= now()) previews.delete(id) }
@@ -99,7 +99,7 @@ export function createCardBundleMethods(host) {
     // Host-only callback (the DSH card export, core card-files.js); no file paths or executable payloads cross the remote
     // method table.
     withCardExport(input, consume) {
-      return run([], async () => {
+      return (privateExportFile ? readRun : run)([], async () => {
         const card = await adapter().snapshot({path:input.path})
         if (input.expectedRevision !== undefined) check(card.revision === input.expectedRevision, '$.expectedRevision', 'Card changed', 'REVISION_CONFLICT')
         const value = adapter().inspectRaw(card.raw)
@@ -110,7 +110,7 @@ export function createCardBundleMethods(host) {
           check(allowed.has(id), '$.packIds', 'Only packs this card uses can be embedded', 'UNBOUND_PACK')
           const pack = await load(id)
           check(pack, '$.packIds', 'Pack to embed is missing', 'ASSET_UNAVAILABLE')
-          await assertPublicPackChain(pack, metadata)
+          if (!privateExportFile) await assertPublicPackChain(pack, metadata)
           packs.push(pack)
         }
         // A chosen list (input.packIds) leaves the other packs out of the exported card's bindings; keepPackIds are
@@ -121,7 +121,7 @@ export function createCardBundleMethods(host) {
         const result = await consume({...card, raw, packs})
         check((await adapter().snapshot({path:input.path})).revision === card.revision, '$.revision', 'Card changed', 'REVISION_CONFLICT')
         return result
-      })
+      }, !!privateExportFile)
     },
     exportCardBundle(input) {
       return run([], async () => {
