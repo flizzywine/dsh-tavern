@@ -8,8 +8,9 @@ import { inputAttachments } from './player-input-content.js'
 import { bodyGenerationWorldbookResults } from './body-generation-worldbook.js'
 
 export const BODY_GENERATION_PROMPT = '<output_method>本轮正文由插件生成。最终必须调用 tavern_generate_body，参数为 {}。不得自行撰写正文，不得调用 submit_story（历史中的调用仅是旧正文记录）。工具会取得完整材料、生成并提交正文；成功后结束本轮，不要转述或补充回复。调用失败则停止，不要换用其他生成方式或重试。</output_method>'
+const routeMismatch = Symbol('body-generation-route-mismatch')
 const error = (message, stage) => Object.assign(new Error(message), {
-  code: 'TAVERN_PLUGIN_BODY_GENERATION_FAILED', ...(stage ? { stage } : {}) })
+  code: 'TAVERN_PLUGIN_BODY_GENERATION_FAILED', ...(stage ? { stage, [routeMismatch]: stage === 'route' } : {}) })
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 
 export function configuredBodyGeneration(chat, settings) {
@@ -169,7 +170,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
           // overwrite the tool list still expose this tool when plugin generation
           // is off; ending the turn here would leave an empty reply. Report a
           // real tool error instead so the model can still write the prose.
-          if (failure.stage === 'route') {
+          if (cause?.[routeMismatch]) {
             throw bodyGenerationError({ ...failure,
               message: `${failure.message}；请直接撰写本轮正文，不要调用 ${STORY_GENERATE_TOOL_NAME}` }, 'route')
           }

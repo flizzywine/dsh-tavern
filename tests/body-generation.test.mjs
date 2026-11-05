@@ -314,3 +314,13 @@ test('生成阶段的付费失败仍是终态，不让模型重试请求', async
   assert.equal(result.failure.stage, 'response')
   assert.equal(f.conclusions, 1)
 });
+
+test('插件报告 route 阶段失败时仍保持终态，重试不重复付费请求', async () => {
+  const f = fixture(async () => { throw Object.assign(new Error('插件路由请求失败'), { stage: 'route' }) })
+  const output = await f.controller.tool.execute({}, f.exec)
+  assert.equal(JSON.parse(output).status, 'failed')
+  assert.equal(f.conclusions, 1)
+  const replay = await f.controller.tool.execute({}, f.exec)
+  assert.equal(JSON.parse(replay).status, 'failed')
+  assert.equal(f.calls, 1)
+})
