@@ -180,7 +180,7 @@ export function createTavernPluginApi(deps) {
   const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
-  const capabilities = Object.freeze({ gameMode: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1 })
+  const capabilities = Object.freeze({ gameMode: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1 })
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -1098,12 +1098,12 @@ export function createTavernPluginApi(deps) {
     },
 
     // Host-invoked current-turn generation; plugins return processed prose, never write the save.
-    bodyGenerator({ name, title, prepare, generate } = {}) {
+    bodyGenerator({ name, title, prepare, generate, controlInput = false } = {}) {
       const owner = ownerOf(this)
       sectionName(name)
       if (typeof generate !== 'function') throw new TypeError('generate 需要一个函数')
       if (prepare !== undefined && typeof prepare !== 'function') throw new TypeError('prepare 需要一个函数')
-      return owned(this, () => bodyGenerators.register(owner, { name, title: taskTitle(title, name), prepare, generate }), 'tavern.bodyGenerator()')
+      return owned(this, () => bodyGenerators.register(owner, { name, title: taskTitle(title, name), prepare, generate, controlInput: controlInput === true }), 'tavern.bodyGenerator()')
     },
 
     // A resident background Agent of this plugin: one per game, its own Session and prompt cache.
