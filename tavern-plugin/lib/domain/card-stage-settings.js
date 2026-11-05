@@ -102,6 +102,11 @@ export function effectiveCardStage(extension, engine) {
   return value
 }
 
+export function cardStageVoicing(extension, engine) {
+  const stage = effectiveCardStage(extension, engine)
+  return stage.dialogue && stage.voice
+}
+
 // 自动生成选项 for a card: the global candidateAutoGenerate with this card's switch.
 export function effectiveAutoChoices(extension, globalOn) {
   return resolveSwitch(globalOn === true, extension?.stage?.switches?.autoChoices)

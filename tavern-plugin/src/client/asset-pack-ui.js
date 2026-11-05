@@ -1409,7 +1409,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h('header',{className:'ap-head'},h('h2',null,'舞台素材')),
       h(Home,{binding,open,onOpen:setOpen,sessionId:props.sessionId,cardPath:props.cardPath,cardStamp:props.cardStamp,filter,nav:props.nav}));
   }
-  return stageExposed({App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
+  return stageExposed({VoiceCataloguePicker,voiceKey,voiceFromKey,App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
     // the stage pages' seam: names in (stageScope.names), bind / use (gal-stage.js, asset-launcher.js, settings.js).
     stageScope,
     // the manager and the card's mod section, for tests and the offline screenshot harness.

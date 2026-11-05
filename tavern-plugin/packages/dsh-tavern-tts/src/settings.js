@@ -15,7 +15,7 @@ import { createModelValidation } from './model-validation.js'
 
 // 台词朗读: the voice for per-reply 🔊 (null = the browser's system default) and the narration voice (off by default).
 // A voice is the figure picker's binding: {browser:name} or {serviceId, voice}. Schemastery drops null defaults, so readingOf fills them.
-const Reading = z.object({ dialogueVoice: z.any(), narrator: z.object({ enabled: z.boolean().default(false), voice: z.any() }) })
+const Reading = z.object({ dialogueVoice: z.any(), narrator: z.object({ enabled: z.boolean().default(false), voice: z.any() }), readAloud: z.object({ voice: z.any(), auto: z.boolean().default(false) }) })
 export const Settings = z.object({ enabled: z.boolean().default(true), providers: z.array(z.any()).default([]), voices: z.array(z.any()).default([]),
   reading: Reading,
   cacheMaxGB: z.number().min(0.1).max(100).default(1).description('\u7f13\u5b58\u4e0a\u9650\uff08GB\uff09'),
@@ -40,7 +40,7 @@ export function validateSettings(value) {
 }
 export function readingOf(settings) {
   const r = settings.reading || {}
-  return { dialogueVoice: r.dialogueVoice ?? null, narrator: { enabled: r.narrator?.enabled === true, voice: r.narrator?.voice ?? null } }
+  return { dialogueVoice: r.dialogueVoice ?? null, narrator: { enabled: r.narrator?.enabled === true, voice: r.narrator?.voice ?? null }, readAloud: { voice: r.readAloud?.voice ?? null, auto: r.readAloud?.auto === true } }
 }
 const plainObject = v => v !== null && typeof v === 'object' && !Array.isArray(v)
 const voiceName = v => typeof v === 'string' && v.trim() !== '' && v.length <= 200 && !/[\u0000-\u001f]/.test(v)
@@ -58,13 +58,19 @@ function readingVoice(v, allowSilent = false) {
 // Validated once here, on write; a bad patch is a repairable INVALID_READING_VOICE.
 export function patchReading(current, patch) {
   const next = readingOf({ reading: current })
-  if (!plainObject(patch) || Object.keys(patch).some(k => !['dialogueVoice','narrator'].includes(k))) fail('INVALID_READING_VOICE')
+  if (!plainObject(patch) || Object.keys(patch).some(k => !['dialogueVoice','narrator','readAloud'].includes(k))) fail('INVALID_READING_VOICE')
   if (Object.hasOwn(patch,'dialogueVoice')) next.dialogueVoice = readingVoice(patch.dialogueVoice, true)
   if (patch.narrator !== undefined) {
     const n = patch.narrator
     if (!plainObject(n) || Object.keys(n).some(k => !['enabled','voice'].includes(k))) fail('INVALID_READING_VOICE')
     if (n.enabled !== undefined) { if (typeof n.enabled !== 'boolean') fail('INVALID_READING_VOICE'); next.narrator.enabled = n.enabled }
     if (Object.hasOwn(n,'voice')) next.narrator.voice = readingVoice(n.voice)
+  }
+  if (patch.readAloud !== undefined) {
+    const r = patch.readAloud
+    if (!plainObject(r) || Object.keys(r).some(k => !['auto','voice'].includes(k))) fail('INVALID_READING_VOICE')
+    if (r.auto !== undefined) { if (typeof r.auto !== 'boolean') fail('INVALID_READING_VOICE'); next.readAloud.auto = r.auto }
+    if (Object.hasOwn(r,'voice')) next.readAloud.voice = readingVoice(r.voice)
   }
   return next
 }
