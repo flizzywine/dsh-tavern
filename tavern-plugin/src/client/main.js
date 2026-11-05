@@ -1128,7 +1128,8 @@ function clipReplayCore() {
                 report: error => tavernErrorHub.report("舞台", error)
             });
             // registrations: what the stage client runs, as one owned lifetime, each time it mounts (dsh-tavern-stage entry.js).
-            ctx.provide("tavernStageFrontend", Object.freeze({availability: stageClientLoader.availability, registrations: stageRegistrations, report: error => tavernErrorHub.report("舞台", error), sessionInputs: () => stageSessionInputs(ctx)}));
+            // stageLeases: a gameMode view with presentation 'stage' borrowing the stage (attach/get/subscribe).
+            ctx.provide("tavernStageFrontend", Object.freeze({availability: stageClientLoader.availability, registrations: stageRegistrations, report: error => tavernErrorHub.report("舞台", error), sessionInputs: () => stageSessionInputs(ctx), stageLeases: tavernStageLeases}));
             ctx.effect(() => { stageClientHold = stageClientLoader.hold; return () => { if (stageClientHold === stageClientLoader.hold) stageClientHold = null; }; }, "dsh-tavern: stage client hold");
             ctx.effect(() => stageClientLoader.start(), "dsh-tavern: stage client loader");
 			function reconcileLibraryTabTitles() {
