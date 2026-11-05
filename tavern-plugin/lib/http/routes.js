@@ -1,3 +1,4 @@
+import { MAX_PLUGIN_DATA } from '../domain/plugin-data-store.js'
 import { bodyGenerationFailure } from '../domain/body-generation-failure.js'
 import { createReadStream } from 'node:fs'
 import { FULL_PROMPT_TEMPLATE_ASSET_PREFIX, readFullPromptTemplateAsset } from '../domain/full-prompt-template-assets.js'
@@ -15,6 +16,8 @@ import { isSameOriginRequest } from './request-origin.js'
 
 // A 50 MiB save/skill ZIP expands to 69,905,068 base64 bytes, plus its JSON envelope.
 export const DEFAULT_RPC_BODY_LIMIT = 80 * 1024 * 1024
+// Plugin data is already JSON, with a small allowance for owner/op and envelope.
+export const PLUGIN_DATA_RPC_BODY_LIMIT = MAX_PLUGIN_DATA + 64 * 1024
 
 function waitForWritable(res) {
   return new Promise(resolve => {
@@ -428,12 +431,13 @@ export function registerTavernHttpRoutes({
           }
           // Scene-image calls carry ids only: a gallery batch delete of 500 items fits easily.
           const sceneImageBodyLimit = 256 * 1024
+          const rpcBodyLimit = method === 'pluginData' ? PLUGIN_DATA_RPC_BODY_LIMIT : DEFAULT_RPC_BODY_LIMIT
           const bodyChunks = []
           let bodyBytes = 0
           for await (const chunk of req) {
             const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
             bodyBytes += bytes.length
-            if (bodyBytes > DEFAULT_RPC_BODY_LIMIT) throw new Error('RPC request exceeds 80 MiB')
+            if (bodyBytes > rpcBodyLimit) throw new Error(method === 'pluginData' ? '插件数据请求超过 256 MiB 及封装大小限制' : 'RPC request exceeds 80 MiB')
             if (assetGenerationRoute && bodyBytes > (method === 'prepareAssetGeneration' ? 45 * 1024 * 1024 : method === 'setAssetGenPrompt' ? 64 * 1024 : 16384)) throw new Error('素材生成请求过大')
             if (gameplayRoute && bodyBytes > 2 * 1024 * 1024) throw new Error('游戏 API 请求超过 2 MB')
             if (sceneImageRoute && bodyBytes > sceneImageBodyLimit) {
