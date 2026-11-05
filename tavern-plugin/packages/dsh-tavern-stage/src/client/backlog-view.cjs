@@ -54,6 +54,8 @@ function GalBacklog(props) {
         return plates.current.map.get(key);
     }
     const entries = React.useMemo(() => {
+        // lease (舞台借用): the leasing game's lines read so far, on their own - no round rule, inputs, performances or rolls.
+        if (props.lease) return stageViews.backlogRows.stageHistoryEntries(null, props.turn, props.pages || [], props.page, {}).filter(entry => entry.type !== 'turn');
         const directions=new Map(markDirections);directions.set(props.turn,props.direction);
         const text = stageViews.backlogRows.stageHistoryEntries(props.textIndex, props.turn, props.pages || [], props.page, inputs);
         const rows = stageViews.backlogRows.backlogLineKindEntries(registry ? stageViews.backlogRows.stageModHistoryEntries(text,modHistory?.turns,registry,directions) : text,directions,lineKinds);
@@ -62,12 +64,13 @@ function GalBacklog(props) {
             (value, turn) => stageViews.backlogRows.backlogPerformanceEntry(roll, value, {turn, id:{roll:value.callId}})) : rows;
         // A role the skin draws as none leaves no row (the overlay's round separators).
         return looks.roles.divider?.look === 'none' ? all.filter(entry => entry.type !== 'turn') : all;
-    }, [props.textIndex, props.turn, props.pages, props.page, props.direction, inputs,modHistory,registry,lineKinds,markDirections,rolls,looks]);
+    }, [props.lease, props.textIndex, props.turn, props.pages, props.page, props.direction, inputs,modHistory,registry,lineKinds,markDirections,rolls,looks]);
     // export mode — a band of host paragraphs up to the current page.
     const chatId = props.chatId || "";
     const currentPage = (props.pages || [])[Math.min(props.page, (props.pages || []).length - 1)];
     // clip-export.js owns the mode (isolated backlog fixtures run without it).
-    const clip = typeof useClipBacklog === "function" ? useClipBacklog(props.sessionId, chatId, props.turn ? { turn: props.turn, para: currentPage?.para || 1 } : null, entries) : GAL_NO_CLIP;
+    // (a lease's lines are no host paragraphs: nothing to export)
+    const clip = typeof useClipBacklog === "function" ? useClipBacklog(props.sessionId, chatId, props.turn && !props.lease ? { turn: props.turn, para: currentPage?.para || 1 } : null, entries) : GAL_NO_CLIP;
     const band = clip.band;
     // The last pointer on a row: a touch tap stretches the band, a long press starts it (and is not also a click).
     const press = React.useRef({ type: "", timer: 0, x: 0, y: 0, fired: false });
