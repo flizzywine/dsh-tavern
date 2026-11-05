@@ -54156,11 +54156,37 @@ const skinBacklogPlates = value => skinObject(Object.fromEntries(Object.keys(STA
 // shape, plus accent.tile: exactly one glyph of each word on this tile (picked from the same blocks, so a word always reads the
 // same). Omitted = the menu's tiles, without an accent.
 const skinBacklogGlyphTiles = skinObject({...skinGlyphTileFields,accent:skinObject({tile:skinObject({ground:skinColor,ink:skinColor},['ground','ink'])},['tile'])},['shape','tiles']);
+// avatar (C3): a face column on the art layer's spoken rows - the speaker's installed face (the stage's avatar resolver,
+// avatarOf), its box at [x, y] design px from the entry's top-left and size [w, h]; the entry's plate and words start right
+// of the column (x + w). mask = an image whose alpha cuts the face's window (a slanted cut), frame = an image drawn over it,
+// cutout = a paper edge of color, width design px, round the cut face (art.portrait.frame.cutout's syntax), tone mono = the
+// face shown in high-contrast grey (a display filter; the image is untouched). player true = the player's rows take a face
+// too, when the resolver gives one (default false: none). placeholder = a speaker the resolver gives no face: initial = the
+// engine's neutral disc with the name's first glyph, {image} = the skin's art; omitted = the column stays empty (its room
+// kept). Narration, notices and turn rules have no face. Valid wide and in devices.mobile.art.backlog.
+const STAGE_BACKLOG_AVATAR_FIELDS = Object.freeze({
+    at:[skinArray(skinPx,2,2),'at [x, y]: design px from the entry\'s top-left, each -4096..4096'],
+    size:[skinArray(skinNumber(1,1024),2,2),'size [w, h]: the face box in design px, each 1..1024'],
+    mask:[skinImage,'mask: one image file in the pack (png, webp or svg)'],
+    frame:[skinImage,'frame: one image file in the pack (png, webp or svg)'],
+    cutout:[skinObject({color:skinColor,width:skinNumber(.5,24)},['color','width']),'cutout {color, width}: a #rrggbb colour and 0.5..24 design px'],
+    tone:[skinEnum(['mono']),'tone: "mono" (or omit it for the face\'s own colours)'],
+    player:[player => typeof player === 'boolean','player: true or false'],
+    placeholder:[placeholder => placeholder === 'initial' || skinObject({image:skinImage},['image'])(placeholder),'placeholder: "initial" or {image} (or omit it for an empty column)']});
+// The first thing wrong with an avatar, as a fix (null when it is valid).
+function skinBacklogAvatarProblem(value) {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return ' must be an object {at, size, ...}';
+    for (const key of Object.keys(value)) if (!Object.hasOwn(STAGE_BACKLOG_AVATAR_FIELDS,key)) return '.' + key + ' is not an avatar field - use ' + Object.keys(STAGE_BACKLOG_AVATAR_FIELDS).join(', ');
+    for (const key of ['at','size']) if (!Object.hasOwn(value,key)) return ' needs ' + STAGE_BACKLOG_AVATAR_FIELDS[key][1];
+    for (const [key,[valid,fix]] of Object.entries(STAGE_BACKLOG_AVATAR_FIELDS)) if (Object.hasOwn(value,key) && !valid(value[key])) return '.' + key + ' ' + JSON.stringify(value[key]) + ' is invalid - ' + fix;
+    return null;
+}
+const skinBacklogAvatar = value => skinBacklogAvatarProblem(value) === null;
 const skinBacklog = skinObject({...skinArtScreen,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
     // name.letter ransom (C2): the name as glyph tiles (glyphTiles below); name.align end: the name's right edge on the text
     // column's left edge, a long name growing to the left.
     voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced,
-        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),align:skinEnum(['end'])},['x','y','h','font','head']),glyphTiles:skinBacklogGlyphTiles,
+        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),align:skinEnum(['end'])},['x','y','h','font','head']),glyphTiles:skinBacklogGlyphTiles,avatar:skinBacklogAvatar,
     scrollbar:skinObject({track:skinImage,thumb:skinImage,x:skinPx,y:skinPx,w:skinNumber(1,256),h:skinNumber(16,4096)},['track','thumb','x','y','w','h']),
     // hover = the one highlight: behind the entry under the pointer / keyboard focus and the entry the stage stands on.
     hover:skinHighlight,plates:skinBacklogPlates,
@@ -54656,6 +54682,9 @@ function stageSkinNarrationGrounds(narration) {
 }
 // at: where the document's art sits, for the messages (a devices side is checked merged, devices.<side>.art).
 function validateStageSkin(value, at = 'art') {
+    // art.backlog.avatar (C3) names its fix before the whole document's shape is checked (a devices side on its merge).
+    const avatar=value?.art?.backlog?.avatar, avatarProblem=avatar === undefined ? null : skinBacklogAvatarProblem(avatar);
+    if (avatarProblem) throw Object.assign(new Error(at + '.backlog.avatar' + avatarProblem),{code:'INVALID_SKIN'});
     const word=value?.config?.title?.word;
     if (typeof word === 'string' && !skinConfigWordOne(word)) throw Object.assign(new Error('config.title.word ' + JSON.stringify(word) + ' is not one word: the CONFIG title is 设置 - omit title.word, or name one replacement word without Latin letters, spaces or separators and never paired with 设置'),{code:'INVALID_SKIN'});
     if (!stageSkinShape(value) || new TextEncoder().encode(JSON.stringify(value)).length > (value.overlay || value.levels ? 262144 : 32768)) throw Object.assign(new Error('Invalid dsh.skin/1 document'),{code:'INVALID_SKIN'});
@@ -54772,7 +54801,7 @@ function stageSkinScreenFiles(art) {
             m.narrow?.sheet,...Object.values(m.narrow?.rows?.images || {})] : []),
         ...(k ? [k.band,k.top,k.bottom,k.button.plain,k.button.focus] : []),
         ...(b ? [b.sheet,b.hover?.image,...placed(b.title),...placed(b.close),...placed(b.name?.frame),...placed(b.name?.rule),b.scrollbar?.track,b.scrollbar?.thumb,...Object.values(b.badges || {}),
-            ...Object.values(b.plates || {}).flatMap(plate => plate.images.map(item => item.image))] : []),
+            ...Object.values(b.plates || {}).flatMap(plate => plate.images.map(item => item.image)),b.avatar?.mask,b.avatar?.frame,b.avatar?.placeholder?.image] : []),
         ...(c ? [c.sheet,...placed(c.title),...placed(c.close),c.tabs?.images.plain,c.tabs?.images.on,c.focus,...Object.values(c.slider || {}),...Object.values(c.toggle || {}),c.select?.plain,c.select?.focus] : []),
         ...Object.values(art?.voice || {}),...(art?.voice?.waves || [])].filter(value => typeof value === 'string'))];
 }
