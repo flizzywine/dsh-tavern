@@ -9,6 +9,7 @@
 为宿主侧 `gameMode` 注册玩法界面，两端插件归属和 `name` 必须一致。注册随插件卸载撤销。
 
 - `presentation: 'page'` 使用独立游戏页面，隐藏正文内重复的玩法界面；默认在正文内展示。宿主提供进入游戏、返回酒馆和再次进入的入口。
+- `presentation: 'stage'` 另需 `stage: { scene(props), hud?(props) }`，让玩法借用舞台（见下文「舞台借用」）；舞台不可用时与 `'page'` 完全相同，`render` 仍是页面视图。缺少 `stage.scene` 函数或 `stage.hud` 不是函数时注册直接报错。
 - 可选 `lobby({ busy, start })` 返回开局大厅，调用 `start()` 创建本局；当前大厅入口不接收自定义开局参数，服务端 `create` 收到的 `input` 为 null。
 - `render({ gameId, data, revision, busy, paused, error, resume, advance, page, foreground })` 返回 React 元素。`data` 仅为服务端 `project` 的玩家可见投影；`page` 表示独立页面，`foreground` 表示原生正文投射模式。
 - `advance(input)` 提交结构化行动，成功返回 true，失败返回 false。自动推进应尊重 busy、paused、error，按 revision 去重；`resume()` 清除错误并恢复推进。
@@ -16,6 +17,63 @@
 宿主提供停止、回退和撤销回退控件；停止、失败或回退后暂停自动推进。页面关闭会卸载视图，已提交状态仍保存；再次进入读取同一局进度。自动推进由页面驱动，插件应在组件卸载时清理定时器和订阅。
 
 宿主注册、成员代理与存档契约见[玩法 API](plugin-api-game.md)。
+
+### 舞台借用（`presentation: 'stage'`）
+
+玩法把一局的舞台整体借来演：人物站位、台词、配音和一块自绘的控制面板。舞台只认通用的 `StageScene`，不知道具体玩法；适配全部由卡完成。
+
+```js
+ctx.tavernUi.registerGameModeView({
+  name: 'werewolf',
+  presentation: 'stage',
+  render: PageView,                  // 舞台不可用时的页面视图
+  stage: {
+    scene: props => props.data ? { actors: [...], lines: [...] } : null,
+    hud: Hud                         // 可选，React 组件
+  }
+})
+```
+
+**借用的语义**
+
+- 借用是**整份快照、只在内存**：每次渲染由 `scene(props)` 重新给出完整场景，不是增量指令。它从不写入 Story Timeline、导演的增量/持久舞台状态或任何存档；归还后舞台回到借用前的样子。
+- 同一局同一时间只有一份借用，由舞台的 `stageLeases` 登记（挂在已有的 `tavernStageFrontend` 上）。它与上文 `acquireLease` 的「占用锁」无关。
+- 以下任一情况即归还，正文从原来的页继续：`scene()` 返回 `null`、玩法快照变为空、视图注销（含插件卸载）、这一局的舞台卸载。
+
+**页面回退**
+
+只要这一局没有舞台在消费借用，就渲染 `render` 页面视图，与 `presentation: 'page'` 相同。这包括：玩家关闭舞台（模组四态开关或本卡设置）、舞台未加载、舞台出错、片段导出。`scene()` 抛错时同样回到页面视图，并显示错误。不用舞台的卡不会加载舞台代码。
+
+**`scene(props)` → `StageScene | null`**
+
+`props` 与 `render` 相同（`gameId`、`data`、`revision`、`busy`、`paused`、`error`、`resume`、`advance`、`page`、`foreground`），另加 `GameControls`。
+
+```js
+{
+  actors: [{ name, emotion?, focus? }],          // 从左到右，最多 4 个
+  lines:  [{ id, speaker?, text, emotion? }]     // 只追加；没有 speaker 是旁白
+}
+```
+
+- `actors`：按顺序保留前 4 个能解析的人物；认不出、有歧义或重复的名字直接跳过。`focus: true` 的人物（只认第一个）点亮并向前一步，其余人物变暗；说话人仍有原有的高亮。
+- `lines`：每行要有稳定的 `id`，新内容只追加在末尾，不改已有行的 `id`。台词经舞台自己的控制器播放：皮肤的文本框、AUTO、SKIP、LOG、菜单，配音走舞台原有的语音通道，一行在首次未读显示时朗读。
+- 名字只经已有的 `resolveFigureName` 在本卡绑定的素材包里解析（精确名字或别名）。**一个名字对应多个人物即视为认不出**：没有立绘、没有配音，不猜。说话人认不出的行保留文字，但不配音。
+- `emotion` 经舞台已有的情绪归一化（本卡情绪表），认不出就不带情绪。
+- 手机上只站一个人物：有 `focus` 时是它，否则是最新一行的说话人。
+
+**`read`：阅读游标**
+
+游标由舞台按行 `id` 持有，卡不要自己推进。`read = { lineId, unread }`：`lineId` 是最后读完的一行（还没读过为 `null`），`unread` 是未读行数。玩家翻过最后一行后，新追加的行接着读；游标所在行消失时从第一行重读。
+
+**`hud(props)`：舞台上的控制面板**
+
+`hud` 收到 `{ ...props, read, device, Avatar, GameControls }`：
+
+- `device`：`'desktop'`、`'mobile-landscape'` 或 `'mobile-portrait'`（舞台已有的设备档位）。
+- `Avatar({ name, size? })`：场景里出现的名字解析出的人物头像，`size` 默认 32（px）；认不出时显示名字首字的圆形占位。
+- `GameControls`：宿主的「停止 / 回退一步 / 撤销回退」按钮组件，页面视图里的同一组，可放进面板。
+
+面板区域位于顶栏与文本框之间，在皮肤的主题作用域内（`data-device` 标在容器上）。卡的样式**只用 `--gal-ui-*` 令牌**（如 `--gal-ui-ink`、`--gal-ui-muted`、`--gal-ui-surface`、`--gal-ui-surface-2`、`--gal-ui-line`、`--gal-ui-accent`、`--gal-ui-accent-ink`、`--gal-ui-radius`、`--gal-ui-font`、`--gal-ui-shadow`、`--gal-ui-focus`），这样换皮肤自动跟着变。容器是 `pointer-events: none`，点击会穿透到舞台；卡自己的按钮等可交互元素要设回 `pointer-events: auto`。`hud` 抛错时面板显示「玩法面板出错了，舞台仍可继续」，舞台照常运行。
 
 ## `registerMediaRenderer(kind, render)`
 
