@@ -41,3 +41,14 @@ test('native and contributed actors share the skin layout and speaker priority',
   assert.equal(merged.figureLayout.slots,scene.figureLayout.slots)
   assert.equal(merged.figureLayout.framing,scene.figureLayout.framing)
 })
+
+
+test('ordinary story speaker retains priority when its stage actor is replaced',()=>{
+  const ref={packId:'p',figureId:'oak'}
+  const scene={figures:[{alias:'oak',sourceRef:ref}],effects:[],figureLayout:{priority:['oak']}}
+  const actor={instanceId:'oak',ref}
+  const rendered={alias:'candidate:oak',sourceRef:ref,speaking:true,x:0.4}
+  const result=candidateSceneMerge(scene,{},[actor],[rendered],null,null)
+  assert.deepEqual(result.figures,[rendered])
+  assert.equal(result.figureLayout.priority[0],'candidate:oak')
+})
