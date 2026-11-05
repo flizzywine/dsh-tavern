@@ -23,7 +23,7 @@ export interface AssetContentMap {
   widgets: {bundleKey:string;entry:string;settingsDefaults?:WidgetSettingValues};
 }
 export interface AssetVariants<C> {default:string;entries:Array<{id:string;name:string;content:C}>}
-export type Asset = {[K in keyof AssetContentMap]: Omit<AssetBase,keyof AssetContentMap[K] | 'category'> & {kind:K; category?: K extends 'sfx' ? string : K extends 'ambience' ? string | string[] : string[]} & (K extends 'skins' ? {} : {enabled:boolean}) & ((AssetContentMap[K] & {variants?:never}) | ({variants:AssetVariants<AssetContentMap[K]>} & {[P in keyof AssetContentMap[K]]?:never}))}[keyof AssetContentMap];
+export type Asset = {[K in keyof AssetContentMap]: Omit<AssetBase,keyof AssetContentMap[K] | 'category'> & {kind:K; category?: K extends 'sfx' ? string : K extends 'ambience' ? string | string[] : string[]} & (K extends 'skins' ? {skin?:never} : {enabled:boolean;skin?:string}) & ((AssetContentMap[K] & {variants?:never}) | ({variants:AssetVariants<AssetContentMap[K]>} & {[P in keyof AssetContentMap[K]]?:never}))}[keyof AssetContentMap];
 export function validateAssetContent<K extends keyof AssetContentMap>(kind:K,content:unknown,path?:string): AssetContentMap[K];
 export interface FileEntry { path: string; size: number; sha256: Sha256 }
 export interface BlobDescriptor { ext: 'png' | 'webp' | 'jpeg' | 'mp3' | 'ogg' | 'wav' | 'm4a' | 'flac'; mime: string; size: number }

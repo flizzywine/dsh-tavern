@@ -246,3 +246,7 @@ are revoked on expiry/release/change/detach. Control is a fixed allowlist with
 1 MiB bounded strict JSON; binary bodies use bounded upload/download tickets.
 `/v2/changes` provides the bounded invalidation feed. Package disposal revokes
 captured handlers, tickets and leases. This transport is the sole package surface.
+
+## 皮肤自带条目
+
+除皮肤外的清单条目可声明 `skin`，指向同包皮肤短 id；入口拒绝不存在的皮肤（`MISSING_DEPENDENCY`）。复制皮肤会带走所有声明归属的条目，复制条目不会反向带走皮肤；目标没有对应皮肤时拒绝发布。碰撞时改写归属 id；演出 interop 目标与计时器 onTimeup 仅在两端均复制时改写完整引用，否则保持原引用。未改写 bundle 保留摘要，改写 JSON 由现有 sealPack 重新封装，媒体仍按哈希去重。RPC 和资源寻址协议不变。
