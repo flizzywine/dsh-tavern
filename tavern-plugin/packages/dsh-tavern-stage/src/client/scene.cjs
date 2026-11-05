@@ -134,6 +134,8 @@ function galCreateScene(host, options, own) {
     const world = node(new PIXI.Container()), backdrop = node(new PIXI.Container()), layersBox = node(new PIXI.Container());
     const vignette = node(new PIXI.Sprite(generated.vignette));
     const backFx = node(new PIXI.Container()), figuresBox = node(new PIXI.Container()), frontFx = node(new PIXI.Container()), emotesBox = node(new PIXI.Container()), overlay = node(new PIXI.Container());
+    const contributedBack = node(new PIXI.Container()), contributedFront = node(new PIXI.Container()), sceneSprites = new Map();
+    backFx.addChild(contributedBack); frontFx.addChild(contributedFront);
     figuresBox.sortableChildren = true;
     backdrop.addChild(layersBox, vignette);
     // the skin's inner-monologue backdrop (art.thinking; an original's
@@ -677,6 +679,8 @@ function galCreateScene(host, options, own) {
             if (entry.leaving && (galFigureGone(entry) || now - entry.leavingSince > 2500)) { destroyFigure(entry); return; }
             entry.container.position.set(0, 0);
             entry.container.scale.set(1);
+            entry.container.rotation = 0;
+            entry.container.alpha = 1;
             const alpha = entry.alpha.v, shade = entry.shade.v;
             entry.container.visible = alpha > 0.003;
             entry.container.zIndex = entry.leaving ? 0 : figure.close ? 3 : figure.speaking ? 2 : 1;
@@ -910,7 +914,7 @@ function galCreateScene(host, options, own) {
     function tickCamera(desc, now, W, H, frame) {
         const spec=desc.camera||{},head=spec.shot==='close'?closeHeadOf(spec.target,W,H):null;
         const framing=head?galCloseFrame(head,frame,state.faceEnvironment.closeBottom,W,H,sceneLayout.layout?.head):null;
-        const camera=state.camera=cameraMotion.step({spec,framing,hasTarget:!!head,frame,W,H,now,skipping:desc.skipping,snap:desc.snap,kick:effects.zoomKick(now)});
+        const camera=state.camera=cameraMotion.step({spec,framing,hasTarget:!!head,frame,W,H,now,skipping:desc.skipping,snap:desc.snap || spec.immediate===true,kick:effects.zoomKick(now)});
         const reported=camera.key+'|'+W+'|'+H,r3=v=>Math.round(v*1000)/1000;
         if(reported!==state.cameraReported){state.cameraReported=reported;state.cameraReport={zoom:r3(camera.goal.zoom),fx:r3(camera.goal.fx),ax:r3(camera.goal.ax)};reportLayout();}
         const safe=camera.safe,shake=effects.shakeOffset(now);
@@ -920,6 +924,27 @@ function galCreateScene(host, options, own) {
         backdrop.position.set((shake.bx || 0) / safe.zoom, (shake.by || 0) / safe.zoom);
         world.scale.set(safe.zoom);
         world.rotation = safe.rotation;
+    }
+
+    function tickSceneSprites(rows) {
+        const wanted=new Set();
+        for(const row of rows || []) {
+            wanted.add(row.id);
+            let item=sceneSprites.get(row.id);
+            if(item && item.source!==row.source) { item.sprite.destroy(); item.texture.destroy(true);sceneSprites.delete(row.id);item=null; }
+            if(!item) {
+                const base=new PIXI.BaseTexture(row.source), texture=new PIXI.Texture(base), sprite=new PIXI.Sprite(texture);
+                item={source:row.source,texture,sprite};sceneSprites.set(row.id,item);
+            }
+            const layer=row.layer==='back' ? contributedBack : contributedFront;
+            if(item.sprite.parent!==layer)layer.addChild(item.sprite);
+            item.texture.baseTexture.update();
+            const frame=row.frame || {x:0,y:0,width:row.source.width,height:row.source.height};
+            item.texture.frame=new PIXI.Rectangle(frame.x,frame.y,frame.width,frame.height);
+            item.sprite.position.set(row.x,row.y); item.sprite.width=row.width;item.sprite.height=row.height;
+            item.sprite.rotation=row.rotation || 0;item.sprite.alpha=row.alpha ?? 1;item.sprite.visible=row.visible!==false;
+        }
+        for(const [id,item] of sceneSprites)if(!wanted.has(id)){item.sprite.destroy();item.texture.destroy(true);sceneSprites.delete(id);}
     }
 
     function applyQuality(next) {
@@ -989,6 +1014,17 @@ function galCreateScene(host, options, own) {
             entry.container.y += entry.headroom;
         });
         tickFaceClamp(dt, W, H, visibleFrame);
+        state.figures.forEach(entry=>{
+            const t=entry.figure.sceneTransform, body=entry.restBody;
+            if(!t || !body)return;
+            const cx=body.x+body.width/2,cy=body.y+body.height/2,sx=t.scaleX ?? 1,sy=t.scaleY ?? 1,a=t.rotation || 0,c=Math.cos(a),s=Math.sin(a),dx=t.x || 0,dy=t.y || 0;
+            const point=(x,y)=>({x:cx+(x-cx)*sx*c-(y-cy)*sy*s+dx,y:cy+(x-cx)*sx*s+(y-cy)*sy*c+dy});
+            const pos=point(entry.container.x,entry.container.y);entry.container.position.set(pos.x,pos.y);entry.container.scale.x*=sx;entry.container.scale.y*=sy;entry.container.rotation=a;entry.container.alpha=t.alpha ?? 1;
+            const bounds=r=>{const p=[point(r.x,r.y),point(r.x+r.width,r.y),point(r.x,r.y+r.height),point(r.x+r.width,r.y+r.height)],xs=p.map(v=>v.x),ys=p.map(v=>v.y);return {x:Math.min(...xs),y:Math.min(...ys),width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)};};
+            entry.restBody=bounds(body);
+            if(entry.restHead){const h=entry.restHead,r=bounds({x:h.x-h.width/2,y:h.top,width:h.width,height:h.chin-h.top});entry.restHead={...h,x:r.x+r.width/2,width:r.width,top:r.y,chin:r.y+r.height};}
+        });
+        tickSceneSprites(desc.sceneSprites);
         tickShot(desc, W, H);
         if (desc.figureMode !== "none" && !desc.shot) sampleBodies(W, H);
         tickBust(desc, now, W, H);
@@ -1205,6 +1241,7 @@ function galCreateScene(host, options, own) {
             }
             clean(()=>{if(state.pump){state.pump.stop=true;state.pump.off();state.pump=null;}});
             clean(()=>app.ticker.remove(frame));
+            for(const item of sceneSprites.values())clean(()=>{item.sprite.destroy();item.texture.destroy(true);});sceneSprites.clear();
             for(const dispose of [()=>effects.destroy(),()=>cast.dispose(),()=>sceneLayout.dispose()])clean(dispose);
             for(const entry of state.offstage.values()){if(entry.next)clean(()=>destroyFigure(entry.next));clean(()=>destroyFigure(entry));}
             for(const dispose of [()=>call.dispose(),()=>offstageBox.destroy(),()=>backgrounds.dispose(),()=>figureAssets.dispose(),()=>layered.dispose(),()=>textures.dispose(),()=>bust.dispose(),()=>thinking.dispose(),...[...renderers.values()].map(renderer=>()=>renderer.dispose()),()=>app.destroy(true,{children:true})])clean(dispose);

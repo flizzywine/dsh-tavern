@@ -7,6 +7,32 @@ import { phoneMark, phoneMarkRounds as phoneRounds } from '../../../mods/phone/c
 export function createStageHandlers(deps) {
   const { ctx } = deps
   return {
+    // Candidate only: resolve figures from this card's permitted packs through the normal resource protocol.
+    async stageSceneFigures(args, method, serverTemplate, authority) {
+      if (serverTemplate || !authority?.origin) throw new Error('Authenticated stage required')
+      const {readRoundView, assetRuntime} = deps
+      const chat = await readRoundView(args.sessionId)
+      const consumer = chat && await assetRuntime.consumer(chat, authority.origin)
+      if (!consumer?.presentation?.available()) throw new Error('Stage unavailable')
+      if (!Array.isArray(args.actors) || args.actors.length > 4) throw new Error('Invalid actors')
+      const actors = args.actors
+      for (const actor of actors) {
+        if (!actor?.ref?.packId || !actor.ref.figureId || !consumer.allowedPackIds.includes(actor.ref.packId)) throw new Error('Figure unavailable')
+      }
+      const presentation=consumer.presentation
+      await presentation.sync(actors.map(actor=>actor.ref))
+      const roster=Object.fromEntries(actors.map((actor,i)=>['candidate-'+i,{figure:actor.ref,outfitKey:actor.outfitKey,stateId:actor.stateId}]))
+      const figureRows=await presentation.figureRows(roster)
+      const actorOutfitMismatch=(actor,figure)=>actor.outfitKey && figure.outfitKey!==actor.outfitKey
+      const figures=[]
+      for (let i=0;i<actors.length;i++) {
+        const alias='candidate-'+i
+        const figure=await presentation.character(alias,{actor:roster[alias],historical:true,figureRows})
+        if(!figure.form || actorOutfitMismatch(actors[i],figure)) throw new Error('Figure or outfit unavailable')
+        figures.push(await presentation.materialize(figure,{stage:true,portrait:false,descriptors:true}))
+      }
+      return {figures}
+    },
     async readWidgetVariables(args, method, serverTemplate, authority) {
       const { widgetVariables } = deps
 return widgetVariables.read({...args,origin:authority?.origin})
@@ -67,7 +93,7 @@ return modService.builtinImages('dsh.timer')
         const event=message?.[STAGE_TIMER_FIELD]?.events?.find(row=>row.id===args.eventId),ref=event?.onTimeup
         if(!ref || !await cardStageSwitch(chat.cardPath,'performance'))return {status:'unavailable'}
         const consumer=await assetRuntime.consumer(chat,authority?.origin)
-        if(!consumer?.presentation.available() || !consumer.allowedPackIds.includes(ref.packId))return {status:'unavailable'}
+        if(!consumer?.presentation?.available() || !consumer.allowedPackIds.includes(ref.packId))return {status:'unavailable'}
         const metadata=await consumer.presentation.performanceMetadata([ref])
         const performance=await consumer.presentation.performance({ref,instanceKey:[event.id],phase:'entry'},{snapshots:metadata,engine:assetEngineSettings.read().values,isCurrent:()=>true})
         return performance.unavailable?{status:'unavailable'}:{status:'ready',performance}

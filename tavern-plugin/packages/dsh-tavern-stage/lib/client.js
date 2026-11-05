@@ -7512,6 +7512,8 @@ function galCreateScene(host, options, own) {
     const world = node(new PIXI.Container()), backdrop = node(new PIXI.Container()), layersBox = node(new PIXI.Container());
     const vignette = node(new PIXI.Sprite(generated.vignette));
     const backFx = node(new PIXI.Container()), figuresBox = node(new PIXI.Container()), frontFx = node(new PIXI.Container()), emotesBox = node(new PIXI.Container()), overlay = node(new PIXI.Container());
+    const contributedBack = node(new PIXI.Container()), contributedFront = node(new PIXI.Container()), sceneSprites = new Map();
+    backFx.addChild(contributedBack); frontFx.addChild(contributedFront);
     figuresBox.sortableChildren = true;
     backdrop.addChild(layersBox, vignette);
     // the skin's inner-monologue backdrop (art.thinking; an original's
@@ -8055,6 +8057,8 @@ function galCreateScene(host, options, own) {
             if (entry.leaving && (galFigureGone(entry) || now - entry.leavingSince > 2500)) { destroyFigure(entry); return; }
             entry.container.position.set(0, 0);
             entry.container.scale.set(1);
+            entry.container.rotation = 0;
+            entry.container.alpha = 1;
             const alpha = entry.alpha.v, shade = entry.shade.v;
             entry.container.visible = alpha > 0.003;
             entry.container.zIndex = entry.leaving ? 0 : figure.close ? 3 : figure.speaking ? 2 : 1;
@@ -8288,7 +8292,7 @@ function galCreateScene(host, options, own) {
     function tickCamera(desc, now, W, H, frame) {
         const spec=desc.camera||{},head=spec.shot==='close'?closeHeadOf(spec.target,W,H):null;
         const framing=head?galCloseFrame(head,frame,state.faceEnvironment.closeBottom,W,H,sceneLayout.layout?.head):null;
-        const camera=state.camera=cameraMotion.step({spec,framing,hasTarget:!!head,frame,W,H,now,skipping:desc.skipping,snap:desc.snap,kick:effects.zoomKick(now)});
+        const camera=state.camera=cameraMotion.step({spec,framing,hasTarget:!!head,frame,W,H,now,skipping:desc.skipping,snap:desc.snap || spec.immediate===true,kick:effects.zoomKick(now)});
         const reported=camera.key+'|'+W+'|'+H,r3=v=>Math.round(v*1000)/1000;
         if(reported!==state.cameraReported){state.cameraReported=reported;state.cameraReport={zoom:r3(camera.goal.zoom),fx:r3(camera.goal.fx),ax:r3(camera.goal.ax)};reportLayout();}
         const safe=camera.safe,shake=effects.shakeOffset(now);
@@ -8298,6 +8302,27 @@ function galCreateScene(host, options, own) {
         backdrop.position.set((shake.bx || 0) / safe.zoom, (shake.by || 0) / safe.zoom);
         world.scale.set(safe.zoom);
         world.rotation = safe.rotation;
+    }
+
+    function tickSceneSprites(rows) {
+        const wanted=new Set();
+        for(const row of rows || []) {
+            wanted.add(row.id);
+            let item=sceneSprites.get(row.id);
+            if(item && item.source!==row.source) { item.sprite.destroy(); item.texture.destroy(true);sceneSprites.delete(row.id);item=null; }
+            if(!item) {
+                const base=new PIXI.BaseTexture(row.source), texture=new PIXI.Texture(base), sprite=new PIXI.Sprite(texture);
+                item={source:row.source,texture,sprite};sceneSprites.set(row.id,item);
+            }
+            const layer=row.layer==='back' ? contributedBack : contributedFront;
+            if(item.sprite.parent!==layer)layer.addChild(item.sprite);
+            item.texture.baseTexture.update();
+            const frame=row.frame || {x:0,y:0,width:row.source.width,height:row.source.height};
+            item.texture.frame=new PIXI.Rectangle(frame.x,frame.y,frame.width,frame.height);
+            item.sprite.position.set(row.x,row.y); item.sprite.width=row.width;item.sprite.height=row.height;
+            item.sprite.rotation=row.rotation || 0;item.sprite.alpha=row.alpha ?? 1;item.sprite.visible=row.visible!==false;
+        }
+        for(const [id,item] of sceneSprites)if(!wanted.has(id)){item.sprite.destroy();item.texture.destroy(true);sceneSprites.delete(id);}
     }
 
     function applyQuality(next) {
@@ -8367,6 +8392,17 @@ function galCreateScene(host, options, own) {
             entry.container.y += entry.headroom;
         });
         tickFaceClamp(dt, W, H, visibleFrame);
+        state.figures.forEach(entry=>{
+            const t=entry.figure.sceneTransform, body=entry.restBody;
+            if(!t || !body)return;
+            const cx=body.x+body.width/2,cy=body.y+body.height/2,sx=t.scaleX ?? 1,sy=t.scaleY ?? 1,a=t.rotation || 0,c=Math.cos(a),s=Math.sin(a),dx=t.x || 0,dy=t.y || 0;
+            const point=(x,y)=>({x:cx+(x-cx)*sx*c-(y-cy)*sy*s+dx,y:cy+(x-cx)*sx*s+(y-cy)*sy*c+dy});
+            const pos=point(entry.container.x,entry.container.y);entry.container.position.set(pos.x,pos.y);entry.container.scale.x*=sx;entry.container.scale.y*=sy;entry.container.rotation=a;entry.container.alpha=t.alpha ?? 1;
+            const bounds=r=>{const p=[point(r.x,r.y),point(r.x+r.width,r.y),point(r.x,r.y+r.height),point(r.x+r.width,r.y+r.height)],xs=p.map(v=>v.x),ys=p.map(v=>v.y);return {x:Math.min(...xs),y:Math.min(...ys),width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)};};
+            entry.restBody=bounds(body);
+            if(entry.restHead){const h=entry.restHead,r=bounds({x:h.x-h.width/2,y:h.top,width:h.width,height:h.chin-h.top});entry.restHead={...h,x:r.x+r.width/2,width:r.width,top:r.y,chin:r.y+r.height};}
+        });
+        tickSceneSprites(desc.sceneSprites);
         tickShot(desc, W, H);
         if (desc.figureMode !== "none" && !desc.shot) sampleBodies(W, H);
         tickBust(desc, now, W, H);
@@ -8583,6 +8619,7 @@ function galCreateScene(host, options, own) {
             }
             clean(()=>{if(state.pump){state.pump.stop=true;state.pump.off();state.pump=null;}});
             clean(()=>app.ticker.remove(frame));
+            for(const item of sceneSprites.values())clean(()=>{item.sprite.destroy();item.texture.destroy(true);});sceneSprites.clear();
             for(const dispose of [()=>effects.destroy(),()=>cast.dispose(),()=>sceneLayout.dispose()])clean(dispose);
             for(const entry of state.offstage.values()){if(entry.next)clean(()=>destroyFigure(entry.next));clean(()=>destroyFigure(entry));}
             for(const dispose of [()=>call.dispose(),()=>offstageBox.destroy(),()=>backgrounds.dispose(),()=>figureAssets.dispose(),()=>layered.dispose(),()=>textures.dispose(),()=>bust.dispose(),()=>thinking.dispose(),...[...renderers.values()].map(renderer=>()=>renderer.dispose()),()=>app.destroy(true,{children:true})])clean(dispose);
@@ -13989,7 +14026,17 @@ return {useStage:useWidgetStage,usePhoneSettings,useFaces:useCardFaces,dispose()
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSourceWidgets};
 
-        // Complete stage controller. Display/runtime collaborators come from this plugin activation.
+        // Candidate-only composition: preserve native background and replace the represented story figures.
+function candidateSceneMerge(scene, candidate, actors, contributed, line, speaker) {
+    if (!candidate) return scene;
+    const refs=new Set(actors.map(actor=>actor.ref?.packId+'/'+actor.ref?.figureId));
+    return {...scene,figureLayout:null,hideFigures:false,figureMode:'stage',
+        figures:(candidate.replaceActors===true ? [] : scene.figures.filter(figure=>!refs.has(figure.sourceRef?.packId+'/'+figure.sourceRef?.figureId))).concat(contributed),
+        camera:candidate.camera || (line && speaker ? {shot:'close',target:'candidate:'+speaker.instanceId} : scene.camera),
+        shot:line ? null : scene.shot,sceneSprites:candidate.sprites || [],
+        effects:scene.effects.concat(candidate.effects || [])};
+}
+// Complete stage controller. Display/runtime collaborators come from this plugin activation.
 function createStageController({React:react,window,document,views:stageViews,navigation,services,legacy,options}) {
 const {useLiveView,storyTurn,useCoordination:useTavernCoordination,rpc,phoneCall:readPhoneCall,
     dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},
@@ -14123,6 +14170,39 @@ function GalStage(props) {
     const phoneModCall=readPhoneCall?.() || null;
     const h = React.createElement;
     const sessionId = props.sessionId;
+    // Experimental scoped scene lease. Native background and dialogue remain owned by the stage.
+    const [candidate, setCandidate] = React.useState(null);
+    React.useEffect(() => {
+        setCandidate(null);
+        let live=true, lease=null;
+        const bridge={
+            open(input){
+                if(!live)return {ok:false,reason:'stage-unavailable'};
+                if(lease)return {ok:false,reason:'busy'};
+                const row={...input,value:{actors:[]}};lease=row;setCandidate(row);
+                return {ok:true,update(value){if(live&&lease===row){row.value=value;setCandidate({...row});}},
+                    geometry(){return live&&lease===row ? stageViews.scene.rects(rootRef.current).filter(rect=>rect.id.startsWith('candidate:')).map(rect=>({...rect,instanceId:rect.id.slice(10)})) : [];},
+                    layout(){
+                        const root=rootRef.current;if(!live||lease!==row||!root)return null;
+                        const outer=root.getBoundingClientRect(), sx=root.clientWidth/(outer.width||1), sy=root.clientHeight/(outer.height||1);
+                        const rect=selector=>{const node=root.querySelector(selector);if(!node)return null;const r=node.getBoundingClientRect();return {x:(r.left-outer.left)*sx,y:(r.top-outer.top)*sy,width:r.width*sx,height:r.height*sy};};
+                        const top=rect('.fork-gal-topbar'),box=rect('.fork-gal-box');
+                        const y=top ? Math.max(0,top.y+top.height) : 0, bottom=box ? Math.min(root.clientHeight,box.y) : root.clientHeight;
+                        return {width:root.clientWidth,height:root.clientHeight,topBar:top,textBox:box,safe:{x:0,y,width:root.clientWidth,height:Math.max(0,bottom-y)}};
+                    },
+                    close(){if(lease===row){lease=null;if(live)setCandidate(null);}}};
+            },
+            shutdown(){if(!live)return;live=false;const old=lease;lease=null;if(old)old.onClose('stage-unavailable');}
+        };
+        const unbind=stageViews.candidateScene?.bind?.(sessionId,bridge);
+        return ()=>{bridge.shutdown();unbind?.();};
+    },[sessionId]);
+    const candidateInteractive=Boolean(candidate && candidate.value.interactive !== false);
+    const candidateDialogue=candidateInteractive ? candidate.value.dialogue : null;
+    const candidateLine=Array.isArray(candidateDialogue?.lines) ? candidateDialogue.lines[candidateDialogue.index || 0] || null : null;
+    const candidateSpeaker=(candidate?.value?.actors || []).find(actor=>candidateLine?.actorKey && String(actor.instanceId)===String(candidateLine.actorKey)) ||
+        (candidate?.value?.actors || []).find(actor=>candidateLine?.speakerRef && actor.ref?.packId===candidateLine.speakerRef.packId && actor.ref?.figureId===candidateLine.speakerRef.figureId);
+
     // Leaving or failing the stage must not leave its music playing over ordinary chat; opening it again resumes.
     // The hold is not the player's pause, so a reload or reopened chat plays again (bgm.cjs away).
     React.useEffect(() => {
@@ -14187,6 +14267,7 @@ function GalStage(props) {
     const card = subtitles.card;
     const lastCard = card >= subtitles.cards.length - 1;
     const [typed, setTyped] = React.useState(false);
+    React.useEffect(()=>{if(candidateLine)setTyped(false);},[candidateLine?.text,candidateLine?.actorKey,candidateDialogue?.index]);
     React.useLayoutEffect(function () { setTyped(false); }, [sessionId, turn, runtime.source?.generation]);
     const readingPage = transitioning ? { kind: "transition", para: pages[page]?.para || 1, text: playerInputs[turns[turnIndex + 1]] || "（这一轮没有可显示的玩家输入）" } : pages[page] || null;
     // the player's input page (「你 · 第 N 轮」) is paginated by the same pager into cards that fit the
@@ -14238,6 +14319,22 @@ function GalStage(props) {
         avatars:accepted.avatars || [], widgets:accepted.widgets || [],
         audio:{music:accepted.music,soundscape:accepted.ambience,sfx:[]}, core:accepted.layout?.core || accepted.scene?.core || ''};
     const rootRef = React.useRef(null);
+    const [sceneHudSafe,setSceneHudSafe]=React.useState(null);
+    React.useLayoutEffect(()=>{
+        if(!candidate)return;
+        const root=rootRef.current;if(!root)return;
+        const measure=()=>{
+            const outer=root.getBoundingClientRect(), sy=root.clientHeight/(outer.height || 1);
+            const top=root.querySelector('.fork-gal-topbar')?.getBoundingClientRect(), box=root.querySelector('.fork-gal-box')?.getBoundingClientRect();
+            const y=top ? Math.max(0,(top.bottom-outer.top)*sy) : 0, bottom=box ? Math.min(root.clientHeight,(box.top-outer.top)*sy) : root.clientHeight;
+            const next={top:y,bottom:Math.max(0,root.clientHeight-Math.max(y,bottom))};
+            setSceneHudSafe(old=>old && old.top===next.top && old.bottom===next.bottom ? old : next);
+        };
+        const observer=typeof window.ResizeObserver==='function' ? new window.ResizeObserver(measure) : null;
+        observer?.observe(root);root.querySelectorAll('.fork-gal-topbar,.fork-gal-box').forEach(node=>observer?.observe(node));
+        root.addEventListener('stage-layout',measure);measure();
+        return ()=>{observer?.disconnect();root.removeEventListener('stage-layout',measure);};
+    },[!!candidate]);
     // the load gate is the one readiness authority; a 入场演出 (stage-entrance.js) holds what the
     // player sees (entryGate) on loading until its cover, while the scene renderer starts as soon as the load is ready.
     // The configured skin's first bundle read holds the reveal (set below, read by the gate's poll).
@@ -14637,6 +14734,7 @@ function GalStage(props) {
         return index < 0 ? true : go(delta, true, true);
     }
     function go(delta, fromSkip, pastPictures) {
+        if(candidateInteractive)return false;
         forkLipSync.wake();
         if (awaiting || sceneHolding) return false;
         if (!fromSkip && skipLatch) { setSkipping(false); return; }
@@ -14805,7 +14903,7 @@ function GalStage(props) {
     // Every dialogue consumer resolves the same current figure ref; off-stage speakers keep their card identity.
     const speakerRows = React.useMemo(() => stageViews.speaker.rows(pack.characters), [pack.characters]);
     const stageSpeaker = React.useCallback(row => stageViews.speaker.key(config,speakerRows,row), [config,speakerRows]);
-    const speaker = stageSpeaker(current);
+    const speaker = candidateLine ? (candidateSpeaker ? 'candidate:'+candidateSpeaker.instanceId : '') : stageSpeaker(current);
     const skinSweep = useSkinSweep(activeSkin, { loading: entryGate.phase === "loading" || entryGate.phase === "slow", stage: revealed && !stageLeaving, menu: menuOpen, config: configOpen, backlog,
         // page: every page the reader turns to, a box card of a long page included (its text is replaced just as a page's);
         // the page's speaker lets transitions.page.enter.sameSpeaker keep a change of speaker quiet (§18 N14)
@@ -14832,7 +14930,7 @@ function GalStage(props) {
     const xs = Object.fromEntries(members.map(member => [member.id,member.x]));
     const items = members.map(member => {
         const selected = pack.characters.find(figure => figure.alias === member.id), input = renderInputs.get(member.id).stage;
-        return {...input,alias:member.id,x:member.x,speaking:member.id===speaker,light:member.light,color:colorOf(member.id),shade:stageViews.speaker.shade(member.id,speaker,members,state?.camera,skinFigures.dimListeners),
+        return {...input,sourceRef:selected.ref,alias:member.id,x:member.x,speaking:member.id===speaker,light:member.light,color:colorOf(member.id),shade:stageViews.speaker.shade(member.id,speaker,members,state?.camera,skinFigures.dimListeners),
             // reopening/restoring is not a new entrance (same policy as the background cut).
             visible:true,enter:forwardReading&&!skipping?'soft':'none',exit:'soft',gaze:stageViews.speaker.gaze(member.gaze,member.x,xs),act:shotHere&&shot.acts[member.id]?{name:shot.acts[member.id],nonce:shot.n}:null,
             figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
@@ -14899,7 +14997,40 @@ function GalStage(props) {
         // The inner-monologue backdrop (the resolved `thinking` effect) while the line on screen is inner monologue.
         thinking:!awaiting && !transitioning && current?.thought ? stageEffectResolve('thinking',effectTables.skin,effectTables.local) : null,
         animatedUi:Boolean(speaker || stageConfig.widgets || !typed || title || faceEmote), callView};
-    const displayScene = scene;
+    const candidateActors=candidate?.value?.actors || [];
+    const actorSignature=JSON.stringify(candidateActors.map(actor=>({ref:actor.ref,outfitKey:actor===candidateSpeaker ? candidateLine?.outfitKey || actor.outfitKey : actor.outfitKey,stateId:actor===candidateSpeaker ? candidateLine?.emotion : undefined})));
+    const candidateAuthority=JSON.stringify([runtime.source?.sessionId,runtime.source?.authorityEpoch]);
+    const [candidateFigures,setCandidateFigures]=React.useState({signature:null,figures:[]});
+    React.useEffect(()=>{
+        let live=true;const pins=[];
+        setCandidateFigures({signature:null,figures:[]});
+        if(!candidate || !candidateActors.length)return ()=>{live=false;};
+        const source=stageSessions.get(sessionId)?.getSnapshot()?.source,owner=stageSessions.resourceOwner;
+        if(!source || !owner)return ()=>{live=false;};
+        const authority=JSON.stringify([source.sessionId,source.authorityEpoch]);
+        const materialize=async value=>{
+            if(value && typeof value==='object' && value.resource===true){
+                const pin=await owner.acquire(value,authority);if(!live){pin.release();throw new Error('CANDIDATE_CLOSED');}pins.push(pin);return pin.handle.url;
+            }
+            if(Array.isArray(value))return Promise.all(value.map(materialize));
+            if(value && typeof value==='object')return Object.fromEntries(await Promise.all(Object.entries(value).map(async ([key,item])=>[key,await materialize(item)])));
+            return value;
+        };
+        rpc('stageSceneFigures',{sessionId,actors:JSON.parse(actorSignature)},sessionId)
+            .then(result=>Promise.all(result.figures.map(materialize)))
+            .then(figures=>{if(live)setCandidateFigures({signature:actorSignature,figures});})
+            .catch(error=>{if(live){console.warn('Candidate stage figures unavailable',error);candidate.onError?.({gameId:sessionId,code:'FIGURE_UNAVAILABLE',message:String(error.message || error)});}});
+        return ()=>{live=false;for(const pin of pins)pin.release();};
+    },[sessionId,actorSignature,candidateAuthority,!!candidate]);
+    const contributed = candidateActors.map((actor,index) => {
+        const selected=candidateFigures.signature===actorSignature ? candidateFigures.figures[index] : null;
+        if(!selected)return null;
+        const input=packFigureRenderInputs(selected,{sessionId}).stage;
+        if(!input)return null;
+        const key='candidate:'+String(actor.instanceId);
+        return {...input,key,alias:key,x:actor.x,ground:actor.ground,size:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking:actor===candidateSpeaker,
+            figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry?.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
+    }).filter(Boolean);
     function onSceneDebug(effect) {
         if (effect.op === "title") setTitle({ text: effect.value, nonce: "debug:" + Date.now() });
         else if (effect.op === "emote" && stageViews.emotes.kinds.includes(effect.value)) setDebugEmote({ id: effect.id, kind: effect.value, color: effect.color || colorOf(effect.id), nonce: effect.nonce });
@@ -14914,13 +15045,13 @@ function GalStage(props) {
     // a phone line is read in the phone; the dialogue box stays up and keeps the last line read
     // outside the phone (no blank, no hide, no face handoff). The phone line still types through a hidden reader, which
     // drives the phone's reveal, AUTO and the next-page cue exactly as before.
-    const phoneLine = Boolean(sourceWidget.phoneLine && current && !transitioning && !awaiting);
+    const phoneLine = Boolean(!candidateLine && sourceWidget.phoneLine && current && !transitioning && !awaiting);
     const heldBox = React.useRef(null);
     let boxIndex = page;
     if (phoneLine) { boxIndex = -1; for (let i = page - 1; i >= 0; i--) if (!phoneModBeat(receivedDirection, pages[i]?.para)) { boxIndex = i; break; } }
-    const boxLine = !phoneLine ? current : boxIndex >= 0 ? pages[boxIndex] : heldBox.current && heldBox.current.turn < turn ? heldBox.current.line : null;
+    const boxLine = candidateLine ? {kind:candidateLine.displayName ? 'line':'narration',text:candidateLine.text,mood:candidateLine.emotion,para:page+1} : !phoneLine ? current : boxIndex >= 0 ? pages[boxIndex] : heldBox.current && heldBox.current.turn < turn ? heldBox.current.line : null;
     if (!phoneLine && current && !transitioning && !current.pending) heldBox.current = { turn, line: current };
-    const boxSpeaker = phoneLine ? (boxLine?.kind === 'line' ? bubbleCharacter(config,boxLine)?.alias || '' : '') : speaker;
+    const boxSpeaker = candidateLine ? speaker : phoneLine ? (boxLine?.kind === 'line' ? bubbleCharacter(config,boxLine)?.alias || '' : '') : speaker;
     const boxMoodList = phoneLine ? bubbleMoodList(config, boxLine ? bubbleCharacter(config, boxLine)?.alias : undefined) : moodList;
     const portraitFace = !film && speaker ? portraits.get(speaker) || null : null;
     const boxFace = phoneLine ? (!film && boxSpeaker ? portraits.get(boxSpeaker) || null : null) : portraitFace;
@@ -14947,7 +15078,7 @@ function GalStage(props) {
     // A phone line keeps the held line's page key, so the box's face and gutter do not change hands.
     const boxPageKey = !phoneLine ? pageKey : heldBox.current && boxLine === heldBox.current.line ? heldBox.current.key : turn + ":" + boxIndex + ":held";
     if (!phoneLine && heldBox.current && heldBox.current.line === current) heldBox.current.key = pageKey;
-    const name = current && current.kind === "line" ? bubbleDisplayName(current, config) : "";
+    const name = candidateLine ? String(candidateLine.displayName || "") : current && current.kind === "line" ? bubbleDisplayName(current, config) : "";
     const boxName = !phoneLine ? name : boxLine && boxLine.kind === "line" ? bubbleDisplayName(boxLine, config) : "";
     // a named line the avatar resolver (portraits) gives no face shows the skin's stand-in - its image, or the engine's disc
     // with the displayed name's first glyph - in the face window; narration shows none. Without the declaration such a page
@@ -14975,13 +15106,14 @@ function GalStage(props) {
     const bustAlias = activeSkin?.resolvedArt?.bust && faceMode !== 'off' && !faceOffStage && boxSpeaker && members.some(member => member.id === boxSpeaker) ? boxSpeaker : '';
     scene.bust = bustAlias && !stageShot ? {...activeSkin.resolvedArt.bust,alias:bustAlias} : null;
     scene.shot = stageShot ? { alias: stageShot.alias, head: stageShot.head, roll: stageShot.roll } : null;
+    const displayScene=candidateSceneMerge(scene,candidate?.value,candidateActors,contributed,candidateLine,candidateSpeaker);
     // face → no-face pages clear the face before writing (useGalFaceHandoff). Every theme's text
     // column follows the gutter. Skip and backward reading show the final state at once.
     const faceSnap = skipping || !forwardReading;
     const calmMotion = reading.reducedMotion === true || typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const handoff = useGalFaceHandoff(sessionId + ":" + boxPageKey, { facing, shown: Boolean(face && (face.src || face.glyph)), moves: faceMode !== "off", snap: faceSnap || !!accepted.cg || cg.visible, calm: calmMotion, typed });
     const historyRolls=stageViews.playback.usePlayback({sessionId,runtime,reading,auto,skipping,hidden,
-        overlay:backlog||configOpen||galleryOpen||statusOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
+        overlay:candidateInteractive||backlog||configOpen||galleryOpen||statusOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
         line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
         performance:{replayable:performanceKinds.replayable,holds:modPerformances.holds,blocking:textcard.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{setEndedAt(endKey);stopSkip();},finishTyping:()=>setTyped(true)});
@@ -15030,7 +15162,7 @@ function GalStage(props) {
     const theme = stageConfig.theme || "classic";
     const classic = theme === "classic" && !advLayout;
     useFigureTextContrast(React,rootRef,true,theme,film,boxColor,boxName,boxLine?.mood);
-    const shownText = current ? (transitioning ? inputSubtitles.text : !film && classic && current.kind === "line" ? galQuoted(subtitles.text, current.pending) : subtitles.text) : "";
+    const shownText = candidateLine ? String(candidateLine.text || "") : current ? (transitioning ? inputSubtitles.text : !film && classic && current.kind === "line" ? galQuoted(subtitles.text, current.pending) : subtitles.text) : "";
     // the unfinished sentence that may still move to the next page stays
     // hidden on the last card of a streaming narration page, so the page never takes back text it showed. Only the last
     // card is the live tail: an earlier card of a streaming page is complete and types to its end (the typewriter's
@@ -15093,6 +15225,7 @@ function GalStage(props) {
         // the item glow takes the speaker's 形象色.
         // art.item (stage-skin-adv.md): the skin draws the card as the original's frame.
         modPerformances.node && React.cloneElement(modPerformances.node,{accent:color || undefined,skinItem:skinItem || undefined}),
+        candidate ? h('div',{className:'stage-scene-hud',style:{position:'absolute',left:0,right:0,top:sceneHudSafe?.top || 0,bottom:sceneHudSafe?.bottom || 0,zIndex:5,pointerEvents:'none'},onClick:event=>event.stopPropagation()},h(candidate.renderHud,{gameId:sessionId})) : null,
         h(ModStageLayers,{sessionId,config,sourceKey:receivedDirection.token?.sourceKey,stage:{title:props.data?.cardName,turn,latestTurn,scene:place,bgm:track?.name}}),
         textcard.node,
         // the CG insert page over the scene and the box, under the top bar and its notices.
@@ -15139,7 +15272,7 @@ function GalStage(props) {
         skinButtons.length || activeSkin?.resolvedArt?.decor?.length ? h(stageViews.SkinButtons, { buttons: skinButtons, decor: activeSkin.resolvedArt.decor || [], keyCaps: stageViews.controls.keyCaps, auto, skipping: skipLatch, atEnd, menuOpen,
             onBacklog: openBacklog, onAuto: () => { setSkipping(false); setAuto(!auto); }, onSkip: toggleSkip, onMenu: () => openMenu(false) }) : null,
 
-        awaiting ? h("div", { className: "fork-gal-box is-awaiting", role: "status", "aria-label": awaitingText },
+        awaiting && !candidateLine ? h("div", { className: "fork-gal-box is-awaiting", role: "status", "aria-label": awaitingText },
             activeSkin ? h(StageSkinFrame,{skin:activeSkin,page:'awaiting'}) : h(GalBoxFrame),
             // the box does not echo the submitted text (it reads in the backlog); only the wait.
             // the wait is UI, not story text - the shared wait look (UI type, accent dots and
@@ -15160,12 +15293,12 @@ function GalStage(props) {
                 name: boxName, nameArc: activeSkin?.resolvedArt?.faceName || null, tint: activeSkin?.resolvedArt?.marks['data-fk-skin-portrait-tint'] === '',
                 moodOf: activeSkin?.resolvedArt?.marks['data-fk-skin-portrait-mood'] === '' ? stateId => bubbleMoodBadge(stateId, boxMoodList, config, boxSpeaker)?.label : null }) : null,
             phoneLine ? (boxName ? h(GalNamePlate, { key: boxName, name: boxName, mood: bubbleMoodBadge(boxLine.mood, boxMoodList, config, boxSpeaker)?.label, classic, film, ransom, voiceState: "", voiceError: null, onReplay: replay }) : null) :
-            name ? h(GalNamePlate, { key: name, name, parts: nameInitials && !film ? galNameParts(name, bubbleCharacter(config, current)) : null, mood: bubbleMoodBadge(current.mood, moodList, config, speaker)?.label, classic, film, ransom, voiceState, voiceError, onReplay: replay }) : null,
-            transitioning ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
+            name ? h(GalNamePlate, { key: name, name, parts: nameInitials && !film ? galNameParts(name, bubbleCharacter(config, current)) : null, mood: bubbleMoodBadge(candidateLine?.emotion || current?.mood, moodList, config, speaker)?.label, classic, film, ransom, voiceState, voiceError, onReplay: replay }) : null,
+            transitioning && !candidateLine ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
             h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite" },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
-                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + turn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
-                    visibleKey:sourceWidget.readingKey,onVisible:value=>sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
+                (candidateLine || current) ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: candidateLine ? "candidate:" + (candidateDialogue.index || 0) + ":" + candidateLine.text : sessionId + ":" + turn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld, pending: !candidateLine && current?.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
+                    visibleKey:sourceWidget.readingKey,onVisible:value=>!candidateLine && sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
                     onReveal:ordinal=>performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]}), onDone: () => setTyped(true) }))
                     : h("span", { className: "stage-waiting" }, streaming ? "……" : "还没有正文"),
                 current && current.pending && !phoneLine ? h("span", { className: "fork-gal-typing", "aria-label": "正在生成" }, h("i"), h("i"), h("i")) : null,
@@ -15342,7 +15475,7 @@ function galNameParts(...args) { return stageViews.nameParts(...args); }
 
 return {Stage:GalStage,dispose(){if(closed)return;closed=true;clean([...cleanups].reverse().concat([...timers.values()], [...foregroundTimers].map(id=>()=>forkForeground.clearTimeout(id)),()=>{timers.clear();foregroundTimers.clear();}));}};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageController};
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageController,candidateSceneMerge};
 
         // Plugin activation owns session assembly, resources and debug registrations.
 function createStageSessions({views,navigation,clock,window,document,startLifetime,textIndex}) {
@@ -31145,6 +31278,8 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
                     const figureIdle=own(createStageFigureIdle({spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue}));
                     const figureWarp=own(createStageFigureWarp());
                     const figureTap=own(createStageFigureTap({document,geometry:figureGeometry}));
+                    // Candidate scene lease. It feeds the stage's own scene description, not another renderer.
+                    const candidateScene={bind:options.modSurface?.bindCandidateScene};
                     const modRenderers={};
                     const entranceContract=stageEntranceContract();
                     const video=own(createStageVideo(options.video));
@@ -31159,7 +31294,7 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
                     const ambience=own(createAmbience({...options.ambience, session:getSession,owner:getResourceOwner,player:() => createSoundscapePlayer(options.soundscape)}));
                     const speech=own(createStageSpeech({...options.speech,allowed:options.runtimeProtocol?.phoneBeatKernel?.phoneModAutoVoiceAllowed}));
                     const displayConsumers=own(createStageDisplayConsumers({React:options.React,displays,sfx,ambience,voice:speech}));
-                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createModNotifications:createStageModNotifications,createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
+                    const views = {candidateScene,resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createModNotifications:createStageModNotifications,createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),

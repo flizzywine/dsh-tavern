@@ -16,7 +16,7 @@ test('scene destruction attempts every owner and is idempotent after cleanup err
  const owner=name=>({dispose(){calls.push(name)},destroy(){calls.push(name)}})
  const start=source.lastIndexOf('        destroy() {'),end=source.indexOf('\n    };\n}',start)
  const destroy=vm.runInNewContext('('+source.slice(start,end).replace('destroy()','function destroy()')+')',{
-  state,renderers:new Map(),app:{ticker:{stop(){calls.push('ticker')},remove(){calls.push('remove')}},destroy(){calls.push('app')}},
+  state,sceneSprites:new Map(),renderers:new Map(),app:{ticker:{stop(){calls.push('ticker')},remove(){calls.push('remove')}},destroy(){calls.push('app')}},
   releaseForeground(){calls.push('foreground');throw Error('foreground')},releaseResolution(){calls.push('resolution')},
   faceBoxObserver:{disconnect(){calls.push('face')}},emptyThemeObserver:{disconnect(){calls.push('theme')}},stageHost:null,
   frame(){},effects:{destroy(){calls.push('effects');throw Error('effects')}},cast:owner('cast'),sceneLayout:owner('layout'),destroyFigure:entry=>calls.push(entry.id),
