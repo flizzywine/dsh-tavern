@@ -36,7 +36,7 @@ function faceDataUrl(url) {
 
 // The page's window.DshCardPage: the same object in a trusted and a sandboxed frame. Blobs arrive by postMessage and
 // become the frame's own object URLs (a sandboxed frame cannot load the host's).
-function cardPagePrelude(token, page, snapshot) {
+function cardPagePrelude(token, page, snapshot, shortcut) {
     const json = value => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
     return '<script data-dsh-card-page>(function(){var token=' + json(token) + ',page=' + json(page) + ',data=' + json(snapshot) + ',next=1,pending=Object.create(null),listeners=new Set(),assets=new Map();'
         + 'function copy(v){return JSON.parse(JSON.stringify(v));}'
@@ -44,6 +44,7 @@ function cardPagePrelude(token, page, snapshot) {
         + 'addEventListener("message",function(event){var d=event.data;if(event.source!==parent||!d||d.token!==token)return;'
         + 'if(d.type==="dsh-card-page-data"){data=d.data;listeners.forEach(function(fn){try{fn(copy(data));}catch(error){console.error(error);}});return;}'
         + 'if(d.type!=="dsh-card-page-response")return;var task=pending[d.requestId];if(!task)return;delete pending[d.requestId];if(d.ok)task.resolve(d.result);else task.reject(new Error(String(d.error||"页面请求失败")));});'
+        + 'addEventListener("keydown",function(event){if(event.isComposing||event.repeat)return;var own=' + json(shortcut || '') + ';var target=event.target,editing=target&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));if(event.key!=="Escape"&&(!own||event.key.toLowerCase()!==own||editing||event.ctrlKey||event.altKey||event.metaKey))return;event.preventDefault();call("close");});'
         + 'window.DshCardPage=Object.freeze({page:page,data:function(){return copy(data);},onData:function(fn){if(typeof fn!=="function")throw new TypeError("onData 需要一个函数");listeners.add(fn);return function(){listeners.delete(fn);};},'
         + 'close:function(){return call("close");},open:function(id){return call("open",{id:String(id==null?"":id)});},openSettings:function(){return call("settings");},'
         + 'fillInput:function(text){return call("fillInput",{text:String(text==null?"":text)});},assets:function(kind){return call("assets",{kind:String(kind||"")});},'
@@ -100,7 +101,7 @@ function createAssetReader(sessionId, page) {
 // onState({phase:'loading'|'ready'|'empty'|'error', label, size, figures, error}) drives the sheet's own chrome
 // (size 'full': the sheet fills the stage instead of the centred window). onAction(kind, arg): 'open' (page id),
 // 'settings', 'fill' (after fillInput(sessionId, text)).
-function openCardPage({sessionId, page, trustedCardMode, helperContext, host, onClose, onState, onAction}) {
+function openCardPage({sessionId, page, shortcut, trustedCardMode, helperContext, host, onClose, onState, onAction}) {
     let closed = false, raw = null, avatars = new Map(), theme = {}, helper = helperContext || null;
     let inFlight = false, again = false, faceJob = 0, token = '', content = '', readAsset = null, heldFaces = null;
     let lifecycle = null, stopLifecycle = null, stopSignals = null, stopMessages = null;
@@ -145,16 +146,6 @@ function openCardPage({sessionId, page, trustedCardMode, helperContext, host, on
             if (!closed) source.postMessage({type: 'dsh-card-page-response', token, requestId: data.requestId, ok: false, error: String(error?.message || error)}, '*');
         });
     }
-    // Keys typed inside a same-origin page do not reach the stage: Esc still closes it.
-    function escapeInside(node) {
-        let inner = null;
-        try { inner = node.contentWindow; inner.addEventListener('keydown', event => {
-            if (event.key !== 'Escape' || closed) return;
-            event.preventDefault();
-            sounds?.play?.('close');
-            onClose();
-        }); } catch (_) {}
-    }
     // The lifecycle's visible and pending documents, as retained message frames place them; the pending one stays hidden
     // until it reports ready.
     function paint(snap) {
@@ -172,7 +163,6 @@ function openCardPage({sessionId, page, trustedCardMode, helperContext, host, on
                 node.referrerPolicy = 'no-referrer';
                 if (!descriptor.trustedCardMode) node.setAttribute('sandbox', 'allow-scripts');
                 node.srcdoc = descriptor.html;
-                if (descriptor.trustedCardMode) node.addEventListener('load', () => { if (!closed) escapeInside(node); });
                 item = {node, descriptor};
                 frames.set(descriptor.token, item);
                 target.appendChild(node);
@@ -194,7 +184,7 @@ function openCardPage({sessionId, page, trustedCardMode, helperContext, host, on
         if (!target) return;
         token = pageToken();
         theme = themeTokens ? themeTokens(target) || {} : {};
-        content = cardPagePrelude(token, page, snapshot()) + html;
+        content = cardPagePrelude(token, page, snapshot(), shortcut) + html;
         window.addEventListener('message', receive);
         stopMessages = () => window.removeEventListener('message', receive);
         lifecycle = createCardFrame(frameProps());
@@ -290,7 +280,7 @@ function usePages(sessionId) {
 // A full sheet has no title bar: the card draws the whole scene, and only the close button floats over its corner
 // (the label stays the dialog's accessible name; Esc and the backdrop still close it).
 // config / source: what useFaces needs to find the declared figures' faces.
-function Overlay({sessionId, pageId, size, config, source, onClose, onAction}) {
+function Overlay({sessionId, pageId, shortcut, size, config, source, onClose, onAction}) {
     const h = React.createElement, root = React.useRef(null), body = React.useRef(null), panel = React.useRef(null);
     const close = React.useRef(onClose), act = React.useRef(onAction);
     close.current = onClose; act.current = onAction;
@@ -303,12 +293,12 @@ function Overlay({sessionId, pageId, size, config, source, onClose, onAction}) {
     const facesNow = React.useRef(null);
     React.useEffect(() => {
         if (disposed || !ready) return;
-        const current = openCardPage({sessionId, page: pageId, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
+        const current = openCardPage({sessionId, page: pageId, shortcut, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
             onClose: () => close.current?.(), onState: setState, onAction: (kind, arg) => act.current?.(kind, arg)});
         panel.current = current;
         if (facesNow.current) current.setFaces(facesNow.current);
         return () => { if (panel.current === current) panel.current = null; current.dispose(); };
-    }, [sessionId, pageId, ready, trusted]);
+    }, [sessionId, pageId, shortcut, ready, trusted]);
     React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
     const names = state.figures.map(figure => figure.name);
     const faces = useFaces ? useFaces({config, sessionId, source, names, px: FACE_PX}) : new Map();
@@ -325,7 +315,6 @@ function Overlay({sessionId, pageId, size, config, source, onClose, onAction}) {
             if (event.key !== 'Escape') return;
             event.preventDefault();
             event.stopImmediatePropagation();
-            sounds?.play?.('close');
             close.current?.();
         };
         window.addEventListener('keydown', key, true);
@@ -337,7 +326,7 @@ function Overlay({sessionId, pageId, size, config, source, onClose, onAction}) {
         h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': label, 'data-phase': state.phase},
             h('header', {className: 'fork-gal-status-head'},
                 state.size === 'full' ? null : h('b', {className: 'fork-gal-status-title'}, label),
-                h('button', {type: 'button', className: 'fork-gal-status-close', title: '关闭' + label, 'aria-label': '关闭' + label, onClick: () => { sounds?.play?.('close'); close.current?.(); }},
+                h('button', {type: 'button', className: 'fork-gal-status-close', title: '关闭' + label, 'aria-label': '关闭' + label, onClick: () => close.current?.()},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),
             h('div', {ref: body, className: 'fork-gal-status-body'},
                 state.phase === 'loading' ? h('p', {className: 'fork-gal-status-note', role: 'status'}, '正在读取' + label + '…') : null,

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
+import vm from 'node:vm'
 const {createStageStatusPanel} = createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/status-panel.cjs')
 
 const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
@@ -61,6 +62,27 @@ function fakeReact(stateOverride) {
 }
 const find = (node, test) => !node || typeof node !== 'object' ? null : test(node) ? node : node.children.reduce((hit, child) => hit || find(child, test), null)
 const text = node => !node ? '' : typeof node === 'string' ? node : node.children.map(text).join('')
+
+test('page keys close through the facade in both trust modes without taking editing shortcuts', async () => {
+  for (const trustedCardMode of [true, false]) {
+    const h = harness(), posted = [], listeners = new Map()
+    const panel = openPage(h, {trustedCardMode, shortcut: 's'})
+    await settle()
+    const prelude = /<script data-dsh-card-page>([\s\S]*?)<\/script>/.exec(h.lifecycles[0].props.content)[1]
+    const context = {window: {}, parent: {postMessage: data => posted.push(data)}, addEventListener: (type, fn) => listeners.set(type, fn)}
+    vm.runInNewContext(prelude, context)
+    const key = init => listeners.get('keydown')({key:'s',preventDefault(){}, ...init})
+    key({target:{tagName:'INPUT'}})
+    key({ctrlKey:true})
+    key({repeat:true})
+    key({isComposing:true})
+    assert.equal(posted.length, 0)
+    key({})
+    key({key:'Escape',target:{tagName:'TEXTAREA'}})
+    assert.deepEqual(posted.map(call => call.method), ['close','close'])
+    panel.dispose(); h.panels.dispose()
+  }
+})
 
 test('usePages is null for a card without pages, else {pages, fresh}', async () => {
   for (const [pages, expected] of [[{pages: [], fresh: true}, null],

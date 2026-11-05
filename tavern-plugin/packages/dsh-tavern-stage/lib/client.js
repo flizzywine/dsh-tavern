@@ -78,6 +78,9 @@ const galEntering = (function () {
     return { get: () => session, set(value) { session = value || ""; } };
 })();
 let galEntry = null;
+// One count per stage entry from text mode (galOpen): a card's showOn stage-enter page opens once per entry (controller.cjs),
+// never on a remount, a round change or a settings toggle.
+let galVisit = 0;
 function galEnter(sessionId, target) {
     if (!galStageAvailable.get()) return;
     const generation = ++galVisitGeneration;
@@ -96,6 +99,7 @@ function galEnter(sessionId, target) {
 function galOpen(sessionId, target) {
     if (!galStageAvailable.get()) return;
     playCue("open"); // ui-sfx.js (fetches only this cue; the rest follow the entry)
+    galVisit++;
     galEntry = target && Number.isInteger(target.turn) ? { sessionId, turn: target.turn, para: Math.max(1, Number(target.para) || 1), token: Date.now() } : null;
     galActive.set(sessionId);
     // Called from the click itself, so the browser grants full screen.
@@ -180,6 +184,7 @@ function galStageShortcut() {
 }
 return {galKeyboardFocus:() => document.documentElement.hasAttribute("data-fork-keynav"), galCoverChat, galUncover, galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
     getEntry: () => galEntry,
+    visit: () => galVisit,
     holdLeave(hold) {galLeaveHold = hold; return () => {if (galLeaveHold === hold) galLeaveHold = null;};}};
 }
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageNavigation};
@@ -14135,6 +14140,9 @@ const useSkinSweep=(...args)=>stageViews.transitions.useSweep(...args);
 const useStageConfigSkin=(...args)=>stageViews.skinResources.useConfig(...args);
 const useStageConsumers=(...args)=>stageViews.displayConsumers.useConsumers(...args);
 const useStageEntrance=(...args)=>stageViews.entrance.useEntrance(...args);
+// sessionId → the stage entry (navigation.visit()) whose showOn page was handled: a remount, a round change or a settings
+// toggle within the same entry from text mode does not show it again.
+const cardPageVisits = new Map();
 const useStageLoadProgress=(...args)=>stageViews.progress.useProgress(...args);
 const useStagePerformanceKinds=(...args)=>stageViews.runtimeUi.usePerformanceKinds(...args);
 const useStagePosition=(...args)=>stageViews.position.usePosition(...args);
@@ -14371,6 +14379,10 @@ function GalStage(props) {
     // other position (another page or card, a new generation, a reopened round) has not been turned past.
     const [endedAt, setEndedAt] = React.useState(null);
     const endKey = sessionId + ":" + readTurn + ":" + (runtime.source?.generation ?? "") + ":" + page + ":" + card;
+    // A card page's fillInput (page action 'fill'): once the jump lands on the latest round's last line, the round reads as
+    // ended so the end panel's 自由输入 shows the text at once.
+    const endOnArrival = React.useRef(false);
+    React.useEffect(() => { if (endOnArrival.current && atLastLine && turn === latestTurn) { endOnArrival.current = false; setEndedAt(endKey); } }, [atLastLine, turn, latestTurn, endKey]);
     const stageConfig = config.stage || {};
     const offstage = stageOffstage(config);
     const [sceneVisit, setSceneVisit] = React.useState(0);
@@ -14511,13 +14523,17 @@ function GalStage(props) {
     const [configOpen, setConfig] = React.useState(false);
     // gallery is a local modal, never a second stage cursor.
     const [galleryOpen,setGallery]=React.useState(false);
-    // 状态面板 (status-panel.cjs): the card's own panel, a local overlay like the gallery - S or the menu's 「状态」 row open it,
-    // auto / skip pause while it is up. statusPanel: the card's declaration (null: no panel, card mode, not read yet).
-    const statusPanel = stageViews.statusPanel ? stageViews.statusPanel.useStatusPanel(sessionId) : null;
-    const [statusOpen, setStatusOpen] = React.useState(false);
-    // a session whose card has no panel (or another session) has nothing open
-    React.useEffect(() => { if (!statusPanel) setStatusOpen(false); }, [statusPanel]);
-    usePlayPageEvents(sessionId, leasing ? 0 : turn, page, runtime.source?.generation, hidden || backlog || configOpen || galleryOpen || statusOpen || streaming, skipping, auto);
+    // 卡片页面 (status-panel.cjs): the card's own pages, a local overlay like the gallery - a page's shortcut, its menu row or
+    // its showOn entry open it; auto / skip pause while one is up. cardPages: {pages, fresh} (null: none, card mode, not read yet).
+    const cardPages = stageViews.statusPanel ? stageViews.statusPanel.usePages(sessionId) : null;
+    const pageList = cardPages ? cardPages.pages : [];
+    // openPage: the open page's id (null: none). Every overlay condition below reads pageOpen.
+    const [openPage, setOpenPage] = React.useState(null);
+    const openDeclared = openPage === null ? null : pageList.find(declared => declared.id === openPage) || null;
+    const pageOpen = openDeclared !== null;
+    // a session whose card has no such page (or another session) has nothing open
+    React.useEffect(() => { if (openPage !== null && !openDeclared) setOpenPage(null); }, [cardPages, openPage]);
+    usePlayPageEvents(sessionId, leasing ? 0 : turn, page, runtime.source?.generation, hidden || backlog || configOpen || galleryOpen || pageOpen || streaming, skipping, auto);
     // 场景生图 (pictures.cjs, the core's useStagePictures): this round's pictures on its paragraphs. A ready one is a CG insert
     // page after its paragraph; one being drawn is the notice's 「正在生成 CG…」. A clip export records none, and while the
     // round streams nothing is placed (as in the chat). The insert is this view's state only: { key, list, index, delta, view }.
@@ -14544,8 +14560,22 @@ function GalStage(props) {
     React.useEffect(() => { if (!lateShown) return; const timer = setTimeout(() => setPictureLate(null), 8000); return () => clearTimeout(timer); }, [lateShown]);
     // opened from the system menu's 回想 item (gal-menu.js), not from the control row.
     function openGallery() { setHidden(false); setGallery(true); }
-    function openStatus() { if (!statusPanel) return; forkLipSync.wake(); forkUiSfx.play("open"); setHidden(false); setStatusOpen(true); }
-    function closeStatus() { forkUiSfx.play("close"); backlogClosedAt.current = Date.now(); setStatusOpen(false); }
+    function openCardPage(id) { if (!pageList.some(declared => declared.id === id)) return; forkLipSync.wake(); forkUiSfx.play("open"); setHidden(false); setOpenPage(id); }
+    function closeCardPage() { forkUiSfx.play("close"); backlogClosedAt.current = Date.now(); setOpenPage(null); }
+    // A page's DshCardPage actions (status-panel.cjs onAction): open(id) switches to another page; openSettings() opens the
+    // stage's CONFIG over the page, which stays up behind it; fillInput(text) has handed the text to the 自由输入 draft
+    // (choices.cjs fill), which waits at the latest round's end - the page closes and the reader goes there (跳到最新).
+    function cardPageAction(kind, arg) {
+        if (kind === 'settings') { openConfig(); return; }
+        if (kind === 'open') { if (arg !== openPage && pageList.some(declared => declared.id === arg)) { backlogClosedAt.current = Date.now(); setOpenPage(arg); } return; }
+        if (kind !== 'fill') return;
+        setOpenPage(null);
+        backlogClosedAt.current = Date.now();
+        endOnArrival.current = true;
+        if (turn !== latestTurn) jumpLatest();
+        else if (page < pages.length - 1) jumpBack(pages.length - 1);
+        else if (atLastLine) { endOnArrival.current = false; setEndedAt(endKey); }
+    }
     const [sceneError, setSceneError] = React.useState(""); // shown in the notice stack, not over the HUD
     const [sceneReload, setSceneReload] = React.useState(0); // the notice's 重新载入 presses (GalScene props.reload)
     const configOpener = React.useRef(null);
@@ -14591,12 +14621,12 @@ function GalStage(props) {
     // so it lands in the first windowed frame. A store read + passive effect took two re-renders of the resized stage
     // (~130 ms): the window shrank, then the menu dimmed it a few frames later - a visible double flash.
     const menuRequestOpen = React.useRef(null);
-    menuRequestOpen.current = function () { if (!menuOpen && !backlog && !configOpen && !galleryOpen && !statusOpen) openMenu(true); };
+    menuRequestOpen.current = function () { if (!menuOpen && !backlog && !configOpen && !galleryOpen && !pageOpen) openMenu(true); };
     React.useLayoutEffect(() => galMenuRequest.subscribe(() => menuRequestOpen.current()), []);
     const menuActions = {
         onClose: closeMenu,
         onBacklog() { closeMenu(); openBacklog(); },
-        onStatus() { closeMenu(); openStatus(); },
+        onPage(id) { closeMenu(); openCardPage(id); },
         onGallery() { closeMenu(); openGallery(); },
         onConfig() { const opener = menuOpener.current; closeMenu(); openConfig(opener); },
         onLatest() { closeMenu(); jumpLatest(); },
@@ -14607,6 +14637,19 @@ function GalStage(props) {
         onSkip() { closeMenu(); toggleSkip(); }
     };
     const reading = useStageReading();
+    // showOn stage-enter: each entry from text mode (navigation.visit(), bumped by galOpen) opens the page stageEnterPage picks,
+    // once the declarations are read. It stands in for that visit's entrance; closing it continues with the normal resume.
+    const stageVisit = React.useSyncExternalStore(galActive.subscribe, navigation.visit);
+    React.useEffect(() => {
+        if (!cardPages || !stageVisit || galActive.get() !== sessionId || cardPageVisits.get(sessionId) === stageVisit) return;
+        cardPageVisits.set(sessionId, stageVisit);
+        const id = stageViews.controls.stageEnterPage({pages: cardPages.pages, fresh: cardPages.fresh, skip: reading.skipTitlePage === true});
+        if (id === null) {
+            if (reading.skipTitlePage === true && cardPages.pages.some(page => page.showOn && !page.initial)) jumpLatest();
+            return;
+        }
+        setHidden(false); setOpenPage(id); entrance.end();
+    }, [cardPages, stageVisit, sessionId, reading.skipTitlePage]);
     const narrow = useGalNarrow(); // the one stage breakpoint, 640px
     // on phones the top bar's icons are one group centred at the top of the stage.
     const [topbarNode, topbarRef] = React.useState(null);
@@ -14715,12 +14758,12 @@ function GalStage(props) {
         historyVoice:line=>stageVoiceHandle(sessionId,line.voice,config,line.anchor?.paragraphId),
         // only covering overlays suspend mods. Waiting for the reply, the end-of-round choices
         // and free input are play time (core-mod-architecture §暂停): the top-right launcher and an open phone stay usable.
-        reducedMotion:reading.reducedMotion, paused:hidden || backlog || configOpen || galleryOpen || statusOpen || menuOpen || transitioning || sceneHolding,
+        reducedMotion:reading.reducedMotion, paused:hidden || backlog || configOpen || galleryOpen || pageOpen || menuOpen || transitioning || sceneHolding,
         onPause:()=>{setAuto(false);setSkipping(false);} });
     const wheelGesture = React.useRef(null);
     React.useEffect(function () {
-        if (typed && lastCard && !subtitles.provisional && current && !current.pending && !transitioning && !hidden && !backlog && !configOpen && !galleryOpen && !statusOpen && !menuOpen && !sceneHolding) markRead();
-    }, [sessionId, turn, page, typed, lastCard, subtitles.provisional, current && current.text, current && current.pending, transitioning, hidden, backlog, configOpen, galleryOpen, statusOpen, menuOpen, sceneHolding]);
+        if (typed && lastCard && !subtitles.provisional && current && !current.pending && !transitioning && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen && !sceneHolding) markRead();
+    }, [sessionId, turn, page, typed, lastCard, subtitles.provisional, current && current.text, current && current.pending, transitioning, hidden, backlog, configOpen, galleryOpen, pageOpen, menuOpen, sceneHolding]);
     // the end-of-round choices and an open mod take turns. A mod still open when the choices
     // arrive (a phone run ending the round) folds back to its launcher once; the player can reopen it from the top-right
     // icon, and while it is open the choices step aside (kept mounted, so a free-input draft survives).
@@ -14892,8 +14935,8 @@ function GalStage(props) {
     const [title, setTitle] = React.useState(null);
     const endTitle = () => setTitle(old => { old?.done?.(); return null; });
     // The surface also takes a settled history page's plays (HISTORY_DWELL); the runtime decides what plays, and cancels it.
-    const modPerformances=useModPerformances(sessionId,{live:true,overlay:backlog||configOpen||galleryOpen||statusOpen||menuOpen||hidden,sourceKey:receivedDirection.token?.sourceKey,generation:receivedDirection.token?.generation,assetRevision:receivedDirection.assetRevision});
-    const textcard=useTextcardStage({sessionId,reducedMotion:reading.reducedMotion,blocked:backlog||configOpen||galleryOpen||statusOpen||menuOpen});
+    const modPerformances=useModPerformances(sessionId,{live:true,overlay:backlog||configOpen||galleryOpen||pageOpen||menuOpen||hidden,sourceKey:receivedDirection.token?.sourceKey,generation:receivedDirection.token?.generation,assetRevision:receivedDirection.assetRevision});
+    const textcard=useTextcardStage({sessionId,reducedMotion:reading.reducedMotion,blocked:backlog||configOpen||galleryOpen||pageOpen||menuOpen});
     // Auto and skip wait for each presentation's own clock; manual navigation still cancels immediately.
     const presentationBusy = textcard.busy || modPerformances.busy || !!title;
     // The timer owns a stage-open wall clock. UI playback and the selected history floor do not hold the live budget.
@@ -14906,11 +14949,11 @@ function GalStage(props) {
     const awaitingDirection = runtime.indicators.awaitingDirection;
     const audioBusy = playingHere && (!player.audio || forkForeground.isPlaying(player.audio)) && !player.error;
     const controlsInput=stageViews.input.useInput({sessionId,rootRef,
-        modal:configOpen||galleryOpen||menuOpen,backlog,status:statusOpen,statusPanel:!!statusPanel,hidden,auto,skipping,atEnd,widgetOpen:!!sourceWidget.openKey},action=>{
+        modal:configOpen||galleryOpen||menuOpen,backlog,page:pageOpen?openPage:null,pages:pageList,hidden,auto,skipping,atEnd,widgetOpen:!!sourceWidget.openKey},action=>{
         switch(action.type){
-            case 'page':input(action.delta);break;
+            // {type:'page', delta}: a page turn; {type:'page', open, id}: a card page's shortcut (or Esc / that key closing it).
+            case 'page':if(action.open===undefined)input(action.delta);else if(action.open)openCardPage(action.id);else closeCardPage();break;
             case 'backlog':action.open?openBacklog():closeBacklog();break;
-            case 'status':action.open?openStatus():closeStatus();break;
             case 'hidden':setHidden(action.value);break;
             case 'collapse-widget':sourceWidget.action(sourceWidget.openKey,'collapse');break;
             case 'menu':openMenu(false);break;
@@ -14929,7 +14972,7 @@ function GalStage(props) {
     const state = React.useMemo(() => stageViews.device.state(pack.state, device), [pack.state, device]);
     const [shot, setShot] = React.useState({key:'',n:0,acts:{},effects:[],emotes:[]});
     const [debugEmote, setDebugEmote] = React.useState(null);
-    const cg = useCgStage(sessionId,runtime.store,{paused:backlog || configOpen || galleryOpen || statusOpen || menuOpen || sceneHolding,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,forward:forwardReading && !skipping});
+    const cg = useCgStage(sessionId,runtime.store,{paused:backlog || configOpen || galleryOpen || pageOpen || menuOpen || sceneHolding,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,forward:forwardReading && !skipping});
     // The card's accent is its anchored line's speaker's 形象色, before or after that line.
     const textcardAccent = anchor => { const line = pages.find(row => row.anchor?.para === anchor?.para && row.kind === 'line'); const alias = line ? bubbleCharacter(config,line)?.alias : ''; return alias ? colorOf(alias) : ''; };
     const onPresented = useStageConsumers(sessionId,runtime.store,(effect,token) => {
@@ -15031,7 +15074,7 @@ function GalStage(props) {
     // the box is hidden (the click brings it back), a click just stopped SKIP, a text card plays, or a menu, the backlog,
     // CONFIG, the gallery or a widget reader is open. Read at click time (gal-scene.js onStageTap).
     const tapGateRef = React.useRef(() => false);
-    tapGateRef.current = () => !hidden && !controlsInput.wasInterrupted() && !textcard.up && !backlog && !configOpen && !galleryOpen && !statusOpen && !menuOpen && !sourceWidget.openKey;
+    tapGateRef.current = () => !hidden && !controlsInput.wasInterrupted() && !textcard.up && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen && !sourceWidget.openKey;
     const tapGate = React.useCallback(() => tapGateRef.current(), []);
     // A reaction still is acquired under this session's stage authority on the first tap only (gal-scene.js).
     const tapMedia = React.useCallback(descriptor => {
@@ -15170,7 +15213,7 @@ function GalStage(props) {
     const calmMotion = reading.reducedMotion === true || typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const handoff = useGalFaceHandoff(sessionId + ":" + boxPageKey, { facing, shown: Boolean(face && (face.src || face.glyph)), moves: faceMode !== "off", snap: faceSnap || !!accepted.cg || cg.visible, calm: calmMotion, typed });
     const historyRolls=stageViews.playback.usePlayback({sessionId,runtime,reading,auto,skipping,hidden,
-        overlay:backlog||configOpen||galleryOpen||statusOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
+        overlay:backlog||configOpen||galleryOpen||pageOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
         line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
         performance:{replayable:performanceKinds.replayable,holds:modPerformances.holds,blocking:textcard.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{turnPastEnd();stopSkip();},finishTyping:()=>setTyped(true)});
@@ -15179,10 +15222,10 @@ function GalStage(props) {
     React.useEffect(() => {
         if (!insert) return;
         if (skipping) { setInserted(null); return; }
-        if (!auto || hidden || backlog || configOpen || galleryOpen || statusOpen || menuOpen) return;
+        if (!auto || hidden || backlog || configOpen || galleryOpen || pageOpen || menuOpen) return;
         const timer = setTimeout(() => go(1, true), options.configText.autoDelay(reading, false, ''));
         return () => clearTimeout(timer);
-    }, [insert, auto, skipping, hidden, backlog, configOpen, galleryOpen, statusOpen, menuOpen]);
+    }, [insert, auto, skipping, hidden, backlog, configOpen, galleryOpen, pageOpen, menuOpen]);
     // Portraits retain historical stage actor keys; the card speaker identifies the same figure by ref.
     function avatarOf(entry) { return stageViews.speaker.avatarOf(config, pack.avatars, portraits, entry); }
     function nameOf(alias) { const character = bubbleCharacter(config,alias); return character && character.name || ""; }
@@ -15237,7 +15280,7 @@ function GalStage(props) {
     // landed on the stage scrolls that overlay's view; one the overlay's own view forwarded (fromView) is simply dropped.
     function wheel(event) {
         if (sourceWidget.scrollOwner) { if (!event.fromView) sourceWidget.scroll(event); return; }
-        if (backlog || configOpen || galleryOpen || statusOpen || menuOpen || Date.now() - backlogClosedAt.current < 450) return;
+        if (backlog || configOpen || galleryOpen || pageOpen || menuOpen || Date.now() - backlogClosedAt.current < 450) return;
         if (controlsInput.consumeInterrupted()) return; // this notch only stopped a fast-forward
         if (event.deltaY > 0 && !hidden && textcard.skip()) return; // hidden → the box comes back first
         const decision = stageViews.controls.wheel(wheelGesture.current, { now: Date.now(), deltaY: event.deltaY, deltaMode: event.deltaMode, typed, hidden });
@@ -15269,20 +15312,20 @@ function GalStage(props) {
     // data-reduced-motion mirrors CONFIG 「减少动态」 for CSS-only theme motion (the crt power-on/blink).
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
         busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch,
-        letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles, statusPanel: !!statusPanel }, menuActions);
-    return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (textcard.up ? " is-textcard" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-status-panel": statusPanel ? "true" : undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
+        letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles, pages: pageList }, menuActions);
+    return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (textcard.up ? " is-textcard" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
         "data-stage-lease": leasing ? leaseView.lease.owner : undefined,
         "data-fk-tx-leaving": stageLeaving || undefined, "data-fk-tx-entering": stageEntering || undefined, "data-fk-veil": veilShown.current || undefined,
         // the current skin's text percent; theme.css multiplies the skin's own sizes by it
         // and keeps the text block where the skin puts it (data-fk-text-scale: only set off 100%, so 100% is untouched).
         style: { ...(textPercent === 100 ? null : { "--fk-text-scale": textPercent / 100 }), ...(speakerTint ? { "--speaker-tint": speakerTint } : null), ...menuTint }, "data-fk-text-scale": textPercent === 100 ? undefined : textPercent,
         "data-speaker-tint": speakerTint ? "" : undefined, "data-fk-item-gain": itemHidesText || undefined, "data-fk-dialogue-held": dialogueHeld || undefined, "data-fk-shot": stageShot ? stageShot.side : undefined,
-        onClick: event => { if (galleryOpen || statusOpen || menuOpen || event.target.closest("button, a, input, textarea, select")) return; input(1); },
+        onClick: event => { if (galleryOpen || pageOpen || menuOpen || event.target.closest("button, a, input, textarea, select")) return; input(1); },
         onPointerMove: hud.onPointerMove, onPointerLeave: hud.onPointerLeave,
         // conventional galgame wheel: up opens the log, down advances.
         // A gesture that just closed the backlog does not also turn pages.
         onWheel: wheel,
-        onContextMenu: event => { event.preventDefault(); if(galleryOpen||statusOpen)return; if (hidden) setHidden(false); else setHidden(true); } },
+        onContextMenu: event => { event.preventDefault(); if(galleryOpen||pageOpen)return; if (hidden) setHidden(false); else setHidden(true); } },
         h(GalScene, { start:loadGate.visible, onPresented:revision => { loadGate.onPresented(revision); if (entryGate.visible) onPresented(revision); else if (entrance.active) heldPresented.current = revision; }, onBackdrop:loadGate.onBackdrop, scene: displayScene, onDebug: onSceneDebug, onUi, onError: setSceneError, reload: sceneReload, onLayout: setFigureLayout }),
         !accepted.cg && !cg.visible && figuresShown && !stageShot && standIns.length ? h(GalStandIns, { members: standIns, portraits, colorOf }) : null,
         cg.node,
@@ -15328,7 +15371,7 @@ function GalStage(props) {
             // the runtime notice is laid out from the top bar's own box
             // (theme.css ".fork-gal-topbar > .fork-gal-notices"), so it sits under whatever the skin puts top-right.
             (interopNotice || awaitingDirection || roundPhase || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length || live2dMissing || pictureWorking || lateShown) ?
-            h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf, statusPanel: !!statusPanel, picture: pictureWorking,
+            h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf, pages: pageList, picture: pictureWorking,
                 pictureReady: lateShown ? { onView: () => { setPictureLate(null); setInserted({key:pictureKey, list:[lateShown.picture], index:0, delta:1, view:true}); } } : null,
                 live2dRequest: live2dMissing ? live2dRequest : null, scope: sessionId }) : null)),
         // the skin's own LOG / AUTO / SKIP on the stage;
@@ -15405,7 +15448,7 @@ function GalStage(props) {
         props.choiceProps && props.choiceProps.useChat ? h(DiceThrow, { sessionId, useChat: props.choiceProps.useChat, running, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
             veiled: !entryGate.visible,
             replay: replaying && runtime.replay?.phase === 'play' ? runtime.cursor.visitId : historyRolls, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0,
-            live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !statusOpen && !menuOpen }) : null,
+            live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen }) : null,
         // Reading done: the next move sits in the middle of the screen.
         // a latest turn with nothing to read (an HTML introduction / opening chooser) is done too: the
         // panel offers 生成选项 and 自由输入 (no 重新生成); leaving is the existing 返回主页面 (R13).
@@ -15418,7 +15461,9 @@ function GalStage(props) {
         galleryOpen ? h(CgGallery,{key:sessionId,sessionId,store:runtime.store,onClose:()=>{setGallery(false);backlogClosedAt.current=Date.now();},
             // 在素材库中编辑 leaves the stage for the 素材库 tab (the stage covers the chat and its sidebar).
             onExit:()=>{setGallery(false);props.onExit();}}) : null,
-        statusOpen && statusPanel ? h(stageViews.statusPanel.Overlay, { key: sessionId, sessionId, config, source: runtime.source, size: statusPanel.size, onClose: closeStatus }) : null,
+        // CONFIG opened from a page (openSettings) stands over it: Esc, which the page takes first, closes CONFIG then.
+        pageOpen ? h(stageViews.statusPanel.Overlay, { key: sessionId + ":" + openPage, sessionId, pageId: openPage, shortcut: openDeclared.shortcut, config, source: runtime.source, size: openDeclared.size,
+            onClose: configOpen ? closeConfig : closeCardPage, onAction: cardPageAction }) : null,
         configOpen || configLeaving ? h(GalConfigScreen, { sessionId, data: props.data, tests: mixTests, textSkin: shownSkin.current, skinHud: activeSkin?.hud?.reveal || "auto", skinPending: configSkin.pending === true, onClose: closeConfig, leaving: configLeaving }) : null,
         // §18 E3: after closing, a drawn menu with an exit motion stays mounted (inert) while its items leave.
         menuOpen ? h(stageViews.menu.Menu, menuProps(false)) : menuLeaving ? h(stageViews.menu.Menu, menuProps(true)) : null,
@@ -21090,7 +21135,8 @@ function useStageEntrance(store, entrance, loadGate) {
         return () => clearTimeout(timer);
     }, [run, active, loading]);
     const overlay = !run || late && !active ? null : {loadPhase: hidden ? loadGate.phase : 'ended', bright: hidden && !!bright};
-    return {gate, active, stageAttr: active ? status.covered ? 'covered' : 'playing' : undefined, overlay,
+    // end(): the run is over without playing on (a card's showOn page stands in for the entrance on that visit).
+    return {gate, active, end: () => { if (active) patch({done: true}); }, stageAttr: active ? status.covered ? 'covered' : 'playing' : undefined, overlay,
         element: active ? React.createElement(StageEntrance, {key: 'entrance', run, ready, covered: status.covered, started: status.started, onEvent,
             onBright: () => {if(!disposed)setBright(Date.now());}}) : null};
 }
@@ -25627,28 +25673,31 @@ return {passed:stagePicturesPassed, working:stagePicturesWorking, late:stagePict
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStagePictures};
 
-        // 状态面板 (stage status panel): the card-supplied panel the stage opens with S or the menu's 「状态」 row.
-// The engine gives only the way in and the container; the card's statusPanel.html draws everything inside.
-// The html goes through the core's card-HTML frame builder unchanged (the path status bars, regex HTML and message
-// frames use): a trusted session (tavernRuntimePolicy.trustedCardMode) gets a same-origin frame with no sandbox
-// attribute, an untrusted one sandbox="allow-scripts", as retained-message-frames.js sets it. Nothing more is added.
-// Data and close reach a trusted panel through the core's trusted host facade, the way status bars reach parent.Mvu:
-// parent.DshStatusPanel (live while the frame is connected, from the first script on) and window.DshStatusPanel
-// (once the frame has loaded) are the same object: data() → the current snapshot, onData(fn) → called on every push
-// (returns its unsubscribe), close().
-// The snapshot is {variables, ledger, figures:[{name, emotion?, avatar}], theme}: the host's bounded projection of the
-// card's declared reads and ledger sections (readStatusPanel), the declared figures' faces as data: URLs
-// (useFaces, the stage's card-face lookup) and the stage skin tokens (--gal-ui-*). It is read once on open and again,
-// coalesced, after each session state signal while the panel is open.
-function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, sounds, useFaces, useLiveView, mountCardFrame, installHostFacade}) {
-const FACADE = 'DshStatusPanel', FACE_PX = 96;
+        // 卡片页面 (stage card pages): the card's extensions.dsh_tavern.pages, opened over the stage by a shortcut letter, a menu
+// row or a showOn event (the old status panel is the page with id 'status'). The engine gives only the way in, the
+// sheet and one small facade; the page's html draws everything inside.
+// Each page frame is the core's message-frame lifecycle (createCardFrame → createTavernMessageFrameLifecycle): the same
+// document, Helper and trust model as text-mode card HTML. A trusted session (tavernRuntimePolicy.trustedCardMode) gets
+// a same-origin frame with no sandbox attribute, an untrusted one sandbox="allow-scripts"; the Helper context is the
+// live view's tavernHelper, so send, generate, triggerSlash, variables, MVU and worldbook work as in a message.
+// The stage adds only window.DshCardPage (a short prelude talking to this host by postMessage; a message counts only
+// when its source is one of this page's iframe windows):
+//   page; data() → {ledger, figures:[{name, emotion?, avatar}], theme, card:{name}}; onData(fn) → its unsubscribe;
+//   close(); open(id) another page; openSettings() the stage's 设置; fillInput(text) fills the stage's 自由输入 (never sends);
+//   asset({kind, id, variant?, file?, size?}) → Promise<blob: URL> of a file of the card's own bound packs; assets(kind).
+// The data is the page's ledger sections (readCardPage), the declared figures' faces as data: URLs (useFaces) and the
+// stage skin tokens (--gal-ui-*). It is read once on open and again, coalesced, after each session state signal.
+function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, sounds, useFaces, useLiveView, createCardFrame, packService, fillInput}) {
+const FACE_PX = 96;
 let disposed = false;
-const open = new Set(), faceData = new Map();
-const read = (sessionId, withHtml) => rpc('readStatusPanel', {sessionId, withHtml}, sessionId).then(result => result?.panel || null);
+const open = new Set(), faceData = new Map(), readers = new Map();
+const readPage = (sessionId, page, withHtml) => rpc('readCardPage', {sessionId, page, withHtml}, sessionId).then(result => result?.page || null);
 const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
-const frameToken = () => 'status-panel:' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+const pageToken = () => 'card-page:' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+// The frame's turn: the latest assistant turn the Helper context knows (at least 1, as the status views use).
+const latestTurn = helper => Math.max(1, ...Object.keys(helper?.turnMessageIds || {}).map(Number).filter(Number.isFinite));
 
-// A face URL from the avatar cache (blob:) as a data: URL the panel can keep and an untrusted frame could load.
+// A face URL from the avatar cache (blob:) as a data: URL the page can keep and an untrusted frame could load.
 function faceDataUrl(url) {
     if (/^data:/i.test(url)) return Promise.resolve(url);
     if (!faceData.has(url)) faceData.set(url, window.fetch(url).then(response => response.blob()).then(blob => new Promise((resolve, reject) => {
@@ -25660,72 +25709,170 @@ function faceDataUrl(url) {
     return faceData.get(url);
 }
 
-// One open panel: the frame, its facade and the data feed. host() → the element the frame goes into.
-// onState({phase:'loading'|'ready'|'empty'|'error', title, size, figures, error}) drives the sheet's own chrome
-// (size 'full': the sheet fills the stage instead of the centred window).
-function openStatusPanel({sessionId, trustedCardMode, host, onClose, onState}) {
-    let closed = false, frame = null, releaseFacade = null, stopSignals = null, raw = null, avatars = new Map(), theme = {};
-    let inFlight = false, again = false, faceJob = 0;
-    const listeners = new Set();
+// The page's window.DshCardPage: the same object in a trusted and a sandboxed frame. Blobs arrive by postMessage and
+// become the frame's own object URLs (a sandboxed frame cannot load the host's).
+function cardPagePrelude(token, page, snapshot, shortcut) {
+    const json = value => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+    return '<script data-dsh-card-page>(function(){var token=' + json(token) + ',page=' + json(page) + ',data=' + json(snapshot) + ',next=1,pending=Object.create(null),listeners=new Set(),assets=new Map();'
+        + 'function copy(v){return JSON.parse(JSON.stringify(v));}'
+        + 'function call(method,args){return new Promise(function(resolve,reject){var id="p"+(next++);pending[id]={resolve:resolve,reject:reject};parent.postMessage({type:"dsh-card-page-call",token:token,requestId:id,method:method,args:args||{}},"*");});}'
+        + 'addEventListener("message",function(event){var d=event.data;if(event.source!==parent||!d||d.token!==token)return;'
+        + 'if(d.type==="dsh-card-page-data"){data=d.data;listeners.forEach(function(fn){try{fn(copy(data));}catch(error){console.error(error);}});return;}'
+        + 'if(d.type!=="dsh-card-page-response")return;var task=pending[d.requestId];if(!task)return;delete pending[d.requestId];if(d.ok)task.resolve(d.result);else task.reject(new Error(String(d.error||"页面请求失败")));});'
+        + 'addEventListener("keydown",function(event){if(event.isComposing||event.repeat)return;var own=' + json(shortcut || '') + ';var target=event.target,editing=target&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));if(event.key!=="Escape"&&(!own||event.key.toLowerCase()!==own||editing||event.ctrlKey||event.altKey||event.metaKey))return;event.preventDefault();call("close");});'
+        + 'window.DshCardPage=Object.freeze({page:page,data:function(){return copy(data);},onData:function(fn){if(typeof fn!=="function")throw new TypeError("onData 需要一个函数");listeners.add(fn);return function(){listeners.delete(fn);};},'
+        + 'close:function(){return call("close");},open:function(id){return call("open",{id:String(id==null?"":id)});},openSettings:function(){return call("settings");},'
+        + 'fillInput:function(text){return call("fillInput",{text:String(text==null?"":text)});},assets:function(kind){return call("assets",{kind:String(kind||"")});},'
+        + 'asset:function(ref){var key=JSON.stringify(ref||{});if(!assets.has(key)){var task=call("asset",ref||{}).then(function(blob){return URL.createObjectURL(blob);});task.catch(function(){assets.delete(key);});assets.set(key,task);}return assets.get(key);}});})();<\/script>';
+}
+
+// A media file of the card's own packs by asset id: {kind, id, variant?} for an image (a background's variant, default
+// its default), {kind:'videos', id, file?} for a file of a video bundle (default its entry; 'poster' its poster).
+// The stage service locates it in the card's bound packs (locateCardPageAsset); the reader leases and fetches the file.
+// One reader per session page for the client's lifetime: the page's preload and its later asset() calls share the blobs.
+function assetReader(sessionId, page) {
+    const key = sessionId + '\n' + page;
+    if (!readers.has(key)) readers.set(key, createAssetReader(sessionId, page));
+    return readers.get(key);
+}
+const refKey = ref => JSON.stringify([ref?.kind, ref?.id, ref?.variant, ref?.file, ref?.size]);
+function createAssetReader(sessionId, page) {
+    const blobs = new Map();
+    const service = () => { const value = packService?.(); if (!value) throw new Error('素材库尚未就绪'); return value; };
+    async function locate(ref) {
+        if (!ref || typeof ref.kind !== 'string' || typeof ref.id !== 'string') throw new Error('asset 需要 {kind, id}');
+        const result = await rpc('locateCardPageAsset', {sessionId, page, ref: {kind: ref.kind, id: ref.id, variant: ref.variant, file: ref.file, size: ref.size}}, sessionId);
+        if (!result?.place) throw new Error('本卡的素材包里没有 ' + ref.kind + ' / ' + ref.id);
+        return result.place;
+    }
+    async function fetchBlob(place) {
+        // a small image: the library's thumbnail route (webp, at most size px), no lease
+        if (place.hash && place.size) {
+            const response = await window.fetch('/api/dsh-asset-library/v2/thumbnail?v=2&packId=' + encodeURIComponent(place.packId) + '&hash=' + encodeURIComponent(place.hash) + '&size=' + place.size, {credentials: 'same-origin'});
+            if (!response.ok) throw new Error('素材读取失败 ' + response.status);
+            return await response.blob();
+        }
+        const lease = place.hash ? await service().leaseMedia({packId: place.packId, hash: place.hash}) : await service().leaseBundle({packId: place.packId, bundleKey: place.bundleKey});
+        try {
+            let url = lease.url;
+            if (!place.hash) {
+                const marker = '/lease/' + encodeURIComponent(lease.ticket) + '/';
+                url = url.slice(0, url.indexOf(marker) + marker.length) + String(place.file || '').split('/').map(encodeURIComponent).join('/');
+            }
+            const response = await window.fetch(url, {credentials: 'same-origin'});
+            if (!response.ok) throw new Error('素材读取失败 ' + response.status);
+            return await response.blob();
+        } finally { try { service().releaseLease(lease.ticket); } catch (_) {} }
+    }
+    const remember = (ref, task) => { const key = refKey(ref); blobs.set(key, task.catch(error => { blobs.delete(key); throw error; })); return blobs.get(key); };
+    const read = ref => blobs.get(refKey(ref)) || remember(ref, locate(ref).then(fetchBlob));
+    // a preload row the page read already located: fetched now
+    read.preload = ({ref, place}) => blobs.get(refKey(ref)) || remember(ref, fetchBlob(place));
+    read.list = async kind => (await rpc('listCardPageAssets', {sessionId, page, kind}, sessionId))?.assets || [];
+    return read;
+}
+
+// One open page: its frame lifecycle, the DshCardPage answers and the data feed. host() → the element the frames go into.
+// onState({phase:'loading'|'ready'|'empty'|'error', label, size, figures, error}) drives the sheet's own chrome
+// (size 'full': the sheet fills the stage instead of the centred window). onAction(kind, arg): 'open' (page id),
+// 'settings', 'fill' (after fillInput(sessionId, text)).
+function openCardPage({sessionId, page, shortcut, trustedCardMode, helperContext, host, onClose, onState, onAction}) {
+    let closed = false, raw = null, avatars = new Map(), theme = {}, helper = helperContext || null;
+    let inFlight = false, again = false, faceJob = 0, token = '', content = '', readAsset = null, heldFaces = null;
+    let lifecycle = null, stopLifecycle = null, stopSignals = null, stopMessages = null;
+    const frames = new Map(); // document token → {node, descriptor}
     const snapshot = () => ({
-        variables: copy(raw?.data?.variables || {}), ledger: copy(raw?.data?.ledger || {}),
+        ledger: copy(raw?.data?.ledger || {}),
         figures: (raw?.figures || []).map(figure => ({name: figure.name, ...(figure.emotion ? {emotion: figure.emotion} : {}), avatar: avatars.get(figure.name) || null})),
-        theme: copy(theme)
+        theme: copy(theme), card: {name: String(raw?.card?.name || '')}
     });
-    const facade = Object.freeze({
-        data: () => snapshot(),
-        onData(fn) {
-            if (typeof fn !== 'function') throw new TypeError('onData 需要一个函数');
-            listeners.add(fn);
-            return () => listeners.delete(fn);
-        },
-        close: () => { if (!closed) onClose(); }
-    });
+    const windows = () => [...frames.values()].map(item => item.node.contentWindow).filter(Boolean);
     function push() {
-        if (closed || !frame) return;
+        if (closed) return;
         const value = snapshot();
-        for (const fn of [...listeners]) {
-            try { fn(value); } catch (error) { window.console?.error?.(error); }
+        for (const target of windows()) {
+            try { target.postMessage({type: 'dsh-card-page-data', token, data: value}, '*'); } catch (_) {}
         }
     }
     function state(phase, extra) {
-        if (!closed) onState({phase, title: raw?.title || '', size: raw?.size || 'window', figures: raw?.figures || [], ...extra});
+        if (!closed) onState({phase, label: raw?.label || '', size: raw?.size || 'window', figures: raw?.figures || [], ...extra});
     }
+    async function answer(method, args) {
+        if (method === 'asset') return await readAsset(args);
+        if (method === 'assets') return await readAsset.list(String(args?.kind || ''));
+        if (method === 'fillInput') {
+            if (typeof fillInput !== 'function') throw new Error('舞台输入框不可用');
+            fillInput(sessionId, String(args?.text ?? ''));
+            onAction('fill');
+            return {filled: true};
+        }
+        if (method === 'close') { onClose(); return {closed: true}; }
+        if (method === 'open') { onAction('open', String(args?.id || '')); return {ok: true}; }
+        if (method === 'settings') { onAction('settings'); return {ok: true}; }
+        throw new Error('卡片页面不支持：' + String(method || ''));
+    }
+    function receive(event) {
+        const data = event?.data;
+        if (closed || !data || data.type !== 'dsh-card-page-call' || data.token !== token || !windows().includes(event.source)) return;
+        const source = event.source;
+        answer(data.method, data.args).then(result => {
+            if (!closed) source.postMessage({type: 'dsh-card-page-response', token, requestId: data.requestId, ok: true, result}, '*');
+        }, error => {
+            if (!closed) source.postMessage({type: 'dsh-card-page-response', token, requestId: data.requestId, ok: false, error: String(error?.message || error)}, '*');
+        });
+    }
+    // The lifecycle's visible and pending documents, as retained message frames place them; the pending one stays hidden
+    // until it reports ready.
+    function paint(snap) {
+        const target = host();
+        if (closed || !target) return;
+        const wanted = [snap.visibleDocument, snap.pendingDocument].filter(Boolean);
+        for (const [key, item] of frames) if (!wanted.some(value => value.token === key)) {
+            item.descriptor.ref(null); item.node.remove(); frames.delete(key);
+        }
+        for (const descriptor of wanted) {
+            let item = frames.get(descriptor.token);
+            if (!item) {
+                const node = document.createElement('iframe');
+                node.className = 'fork-gal-status-frame';
+                node.referrerPolicy = 'no-referrer';
+                if (!descriptor.trustedCardMode) node.setAttribute('sandbox', 'allow-scripts');
+                node.srcdoc = descriptor.html;
+                item = {node, descriptor};
+                frames.set(descriptor.token, item);
+                target.appendChild(node);
+                descriptor.ref(node);
+            }
+            const hidden = descriptor === snap.pendingDocument;
+            item.node.title = raw?.label || '页面';
+            if (hidden) item.node.setAttribute('aria-hidden', 'true'); else item.node.removeAttribute('aria-hidden');
+            Object.assign(item.node.style, hidden
+                ? {position: 'absolute', inset: '0', opacity: '0', pointerEvents: 'none'}
+                : {position: '', inset: '', opacity: '', pointerEvents: ''});
+        }
+    }
+    const frameProps = () => ({content, sessionId, turn: latestTurn(helper), partIndex: 0, panelId: 'stage-page-' + page,
+        helperContext: helper || undefined, trustedCardMode: trustedCardMode === true, eager: true, persistent: true,
+        observeMvuView: false, runtimeReporting: true});
     function mount(html) {
         const target = host();
         if (!target) return;
-        frame = document.createElement('iframe');
-        frame.className = 'fork-gal-status-frame';
-        frame.title = raw.title || '状态';
-        if (!trustedCardMode) frame.setAttribute('sandbox', 'allow-scripts');
-        frame.srcdoc = mountCardFrame({content: html, token: frameToken(), trustedCardMode: trustedCardMode === true});
+        token = pageToken();
         theme = themeTokens ? themeTokens(target) || {} : {};
-        target.appendChild(frame);
-        if (!trustedCardMode) return;
-        frame.__dshTavernSessionId = sessionId;
-        // The facade owner is the frame element: parent.DshStatusPanel resolves while it is connected, so the card's
-        // first script already sees it. Install after the frame is in the document (a detached owner retires).
-        releaseFacade = installHostFacade(window, {frameElement: frame, [FACADE]: facade}, 0, [FACADE]);
-        frame.addEventListener('load', () => {
-            if (closed) return;
-            let inner = null;
-            try { inner = frame.contentWindow; inner[FACADE] = facade; } catch (_) { return; }
-            // Keys typed inside a same-origin panel do not reach the stage: Esc still closes it.
-            inner.addEventListener('keydown', event => {
-                if (event.key !== 'Escape' || closed) return;
-                event.preventDefault();
-                sounds?.play?.('close');
-                onClose();
-            });
-        });
+        content = cardPagePrelude(token, page, snapshot(), shortcut) + html;
+        window.addEventListener('message', receive);
+        stopMessages = () => window.removeEventListener('message', receive);
+        lifecycle = createCardFrame(frameProps());
+        paint(lifecycle.snapshot());
+        stopLifecycle = lifecycle.start(paint);
     }
     function refresh() {
         if (closed || !raw) return;
         if (inFlight) { again = true; return; }
         inFlight = true;
-        Promise.resolve().then(() => read(sessionId, false)).then(next => {
+        Promise.resolve().then(() => readPage(sessionId, page, false)).then(next => {
             if (closed || !next) return;
-            raw = {...raw, title: next.title || raw.title, figures: next.figures || [], data: next.data || {}};
+            raw = {...raw, label: next.label || raw.label, figures: next.figures || [], data: next.data || {}, card: next.card || raw.card};
             push();
         }).catch(() => {}).finally(() => {
             inFlight = false;
@@ -25735,22 +25882,31 @@ function openStatusPanel({sessionId, trustedCardMode, host, onClose, onState}) {
     async function load() {
         state('loading');
         try {
-            const result = await read(sessionId, true);
+            const result = await readPage(sessionId, page, true);
             if (closed) return;
             if (!result) { raw = null; state('empty'); return; }
-            raw = {title: result.title || '', size: result.size || 'window', figures: result.figures || [], data: result.data || {}};
+            raw = {label: result.label || '', size: result.size || 'window', figures: result.figures || [], data: result.data || {}, card: result.card || {}};
+            readAsset = assetReader(sessionId, page);
+            for (const row of result.preload || []) if (row?.place) readAsset.preload(row).catch(() => {});
             state('ready');
             mount(result.html);
+            // faces handed over before the read finished
+            if (heldFaces) current.setFaces(heldFaces);
             stopSignals = signals.subscribe(sessionId, refresh);
         } catch (error) {
             if (!closed) state('error', {error: String(error?.message || error || '读取失败')});
         }
     }
-    const panel = {
-        facade,
-        get frame() { return frame; },
+    const current = {
+        get frames() { return [...frames.values()].map(item => item.node); },
+        // The live view's Helper context moved on: the lifecycle syncs it into the frame (or rebuilds when it appears).
+        setHelper(next) {
+            helper = next || null;
+            if (!closed && lifecycle) lifecycle.update(frameProps());
+        },
         // faces: Map name → face URL (useFaces). Pushes once the new set is ready, if it changed anything.
         setFaces(faces) {
+            heldFaces = faces;
             if (closed || !raw) return;
             const job = ++faceJob, entries = [...faces].filter(([name, url]) => url && raw.figures.some(figure => figure.name === name));
             Promise.all(entries.map(([name, url]) => faceDataUrl(url).then(data => [name, data], () => null))).then(list => {
@@ -25765,54 +25921,65 @@ function openStatusPanel({sessionId, trustedCardMode, host, onClose, onState}) {
         dispose() {
             if (closed) return;
             closed = true;
-            open.delete(panel);
-            listeners.clear();
+            open.delete(current);
             const errors = [];
-            for (const action of [() => stopSignals?.(), () => releaseFacade?.(), () => frame?.remove()]) {
+            for (const action of [() => stopSignals?.(), () => stopMessages?.(), () => stopLifecycle?.(),
+                () => { for (const item of frames.values()) { item.descriptor.ref(null); item.node.remove(); } frames.clear(); }]) {
                 try { action(); } catch (error) { errors.push(error); }
             }
-            frame = null;
-            if (errors.length) throw new AggregateError(errors, 'Stage status panel cleanup failed');
+            if (errors.length) throw new AggregateError(errors, 'Stage card page cleanup failed');
         }
     };
-    open.add(panel);
+    open.add(current);
     void load();
-    return panel;
+    return current;
 }
 
-// The card's panel declaration for a session, or null (no panel, card mode, or not read yet): one probe without html.
-function useStatusPanel(sessionId) {
+// The card's pages for a session: {pages, fresh} (declarations without html; fresh: no player message yet), or null
+// (no pages, card mode, or not read yet). One read per session.
+function usePages(sessionId) {
     const [value, setValue] = React.useState(null);
     React.useEffect(() => {
         setValue(null);
         if (disposed || !sessionId) return;
         let active = true;
-        Promise.resolve().then(() => read(sessionId, false)).then(result => { if (active && !disposed) setValue(result || null); }, () => {});
+        Promise.resolve().then(() => rpc('readCardPages', {sessionId}, sessionId)).then(result => {
+            if (active && !disposed) setValue(result?.pages?.length ? {pages: result.pages, fresh: result.fresh === true} : null);
+        }, () => {});
         return () => { active = false; };
     }, [sessionId]);
     return value;
 }
 
-// size: the probe's (useStatusPanel) panel size, so a full-stage sheet opens full instead of growing after its read.
+// size: the declaration's size (usePages), so a full-stage sheet opens full instead of growing after its read.
 // A full sheet has no title bar: the card draws the whole scene, and only the close button floats over its corner
-// (the title stays the dialog's accessible name; Esc and the backdrop still close it).
-function Overlay({sessionId, config, source, size, onClose}) {
-    const h = React.createElement, root = React.useRef(null), body = React.useRef(null), panel = React.useRef(null), close = React.useRef(onClose);
-    close.current = onClose;
-    const live = useLiveView ? useLiveView(sessionId, 'status-panel', [['tavernRuntimePolicy']]) : null;
+// (the label stays the dialog's accessible name; Esc and the backdrop still close it).
+// config / source: what useFaces needs to find the declared figures' faces.
+function Overlay({sessionId, pageId, shortcut, size, config, source, onClose, onAction}) {
+    const h = React.createElement, root = React.useRef(null), body = React.useRef(null), panel = React.useRef(null);
+    const close = React.useRef(onClose), act = React.useRef(onAction);
+    close.current = onClose; act.current = onAction;
+    const live = useLiveView ? useLiveView(sessionId, 'card-page', [['tavernRuntimePolicy'], ['tavernHelper']]) : null;
     const ready = !useLiveView || Boolean(live?.view);
     const trusted = useLiveView ? Boolean(live?.view?.tavernRuntimePolicy?.trustedCardMode) : true;
-    const [state, setState] = React.useState({phase: 'loading', title: '', size: size || 'window', figures: []});
+    const helper = live?.view?.tavernHelper || null, helperNow = React.useRef(helper);
+    helperNow.current = helper;
+    const [state, setState] = React.useState({phase: 'loading', label: '', size: size || 'window', figures: []});
+    const facesNow = React.useRef(null);
     React.useEffect(() => {
         if (disposed || !ready) return;
-        const current = openStatusPanel({sessionId, trustedCardMode: trusted, host: () => body.current, onClose: () => close.current(), onState: setState});
+        const current = openCardPage({sessionId, page: pageId, shortcut, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
+            onClose: () => close.current?.(), onState: setState, onAction: (kind, arg) => act.current?.(kind, arg)});
         panel.current = current;
+        if (facesNow.current) current.setFaces(facesNow.current);
         return () => { if (panel.current === current) panel.current = null; current.dispose(); };
-    }, [sessionId, ready, trusted]);
+    }, [sessionId, pageId, shortcut, ready, trusted]);
+    React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
     const names = state.figures.map(figure => figure.name);
     const faces = useFaces ? useFaces({config, sessionId, source, names, px: FACE_PX}) : new Map();
     const facesKey = JSON.stringify([...faces]);
-    React.useEffect(() => { if (state.phase === 'ready') panel.current?.setFaces(faces); }, [facesKey, state.phase]);
+    facesNow.current = faces;
+    React.useEffect(() => { panel.current?.setFaces(faces); }, [facesKey]);
     React.useEffect(() => {
         const opener = document.activeElement;
         root.current?.focus();
@@ -25823,36 +25990,36 @@ function Overlay({sessionId, config, source, size, onClose}) {
             if (event.key !== 'Escape') return;
             event.preventDefault();
             event.stopImmediatePropagation();
-            sounds?.play?.('close');
-            close.current();
+            close.current?.();
         };
         window.addEventListener('keydown', key, true);
         return () => window.removeEventListener('keydown', key, true);
     }, []);
-    const title = state.title || '状态';
-    return h('div', {className: 'fork-gal-status', 'data-size': state.size, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) close.current(); },
-        onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); close.current(); }},
-        h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, 'data-phase': state.phase},
+    const label = state.label || '页面';
+    return h('div', {className: 'fork-gal-status', 'data-size': state.size, 'data-page': pageId, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) close.current?.(); },
+        onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); close.current?.(); }},
+        h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': label, 'data-phase': state.phase},
             h('header', {className: 'fork-gal-status-head'},
-                state.size === 'full' ? null : h('b', {className: 'fork-gal-status-title'}, title),
-                h('button', {type: 'button', className: 'fork-gal-status-close', title: '关闭状态', 'aria-label': '关闭状态', onClick: () => { sounds?.play?.('close'); close.current(); }},
+                state.size === 'full' ? null : h('b', {className: 'fork-gal-status-title'}, label),
+                h('button', {type: 'button', className: 'fork-gal-status-close', title: '关闭' + label, 'aria-label': '关闭' + label, onClick: () => close.current?.()},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),
             h('div', {ref: body, className: 'fork-gal-status-body'},
-                state.phase === 'loading' ? h('p', {className: 'fork-gal-status-note', role: 'status'}, '正在读取状态…') : null,
-                state.phase === 'empty' ? h('p', {className: 'fork-gal-status-note'}, '本卡没有状态面板') : null,
-                state.phase === 'error' ? h('p', {className: 'fork-gal-status-note', role: 'alert'}, '状态读取失败',
+                state.phase === 'loading' ? h('p', {className: 'fork-gal-status-note', role: 'status'}, '正在读取' + label + '…') : null,
+                state.phase === 'empty' ? h('p', {className: 'fork-gal-status-note'}, '本卡没有这个页面') : null,
+                state.phase === 'error' ? h('p', {className: 'fork-gal-status-note', role: 'alert'}, label + '读取失败',
                     h('button', {type: 'button', onClick: () => panel.current?.retry()}, '重试')) : null)));
 }
 
-return {useStatusPanel, Overlay, open: openStatusPanel, dispose() {
+return {usePages, Overlay, open: openCardPage, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];
-    for (const panel of [...open]) {
-        try { panel.dispose(); } catch (error) { errors.push(error); }
+    for (const current of [...open]) {
+        try { current.dispose(); } catch (error) { errors.push(error); }
     }
     faceData.clear();
-    if (errors.length) throw new AggregateError(errors, 'Stage status panel cleanup failed');
+    readers.clear();
+    if (errors.length) throw new AggregateError(errors, 'Stage card page cleanup failed');
 }};
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageStatusPanel};

@@ -47941,7 +47941,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 
 		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {STAGE_PERFORMANCE_RENDERERS, STAGE_PERFORMANCE_ROLES, STAGE_PERFORMANCE_CORE,
 		    validateStagePerformanceDeclaration, createStagePerformanceRegistry, stagePerformanceKindOf, stagePerformancePointer, stagePerformanceBlocks, stagePerformancePhaseBlocks};
-		const STAGE_READING_DEFAULTS = { textSpeed: 28, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1, frameCap: null, reducedMotion:false, photosensitive:true, textScale:{}, hudReveal:null };
+		const STAGE_READING_DEFAULTS = { textSpeed: 28, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1, frameCap: null, reducedMotion:false, photosensitive:true, skipTitlePage:false, textScale:{}, hudReveal:null };
 		const STAGE_READING_LIMITS = { textSpeed: [0, 80, 2], autoWait: [0, 3000, 100], autoSpeed: [0.5, 3, 0.1], voiceRate: [0.8, 2, 0.1] }; // [min, max, step]
 		const STAGE_TEXT_SCALE = [70, 130, 5]; // [min, max, step] percent of the skin's own size
 		function stageTextScaleMap(map) {
@@ -47960,7 +47960,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    // frameCap null = not chosen: the device's own cap (galFrameRate: 30 on a handheld phone, else 60). Records before v 2
 		    // stored the old default 60 whether chosen or not, so that 60 is read as not chosen (once; the next write is v 2).
 		    if ([0, 30, 60, 120].includes(saved.frameCap) && (saved.v === 2 || saved.frameCap !== 60)) out.frameCap = saved.frameCap;
-		    for (const key of ['reducedMotion','photosensitive']) if (typeof saved[key] === 'boolean') out[key]=saved[key];
+		    for (const key of ['reducedMotion','photosensitive','skipTitlePage']) if (typeof saved[key] === 'boolean') out[key]=saved[key];
 		    if (saved.hudReveal === 'auto' || saved.hudReveal === 'always') out.hudReveal = saved.hudReveal;
 		    if (saved.textScale && typeof saved.textScale === 'object') out.textScale = stageTextScaleMap(saved.textScale);
 		    for (const key of Object.keys(STAGE_READING_LIMITS)) {
@@ -48050,6 +48050,11 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 
 		// Stable slots render only the optional plugin's current view implementation.
 		let stageViews = null;
+		// The session slash executor for card page frames (the one message frames use), made once the app context exists.
+		let stageCardPageSlashExecutor = null;
+		function stageCardPageSlash() {
+		    return stageCardPageSlashExecutor || (stageCardPageSlashExecutor = createTavernFrameSlashExecutor(tavernUiExtensions.service.ctx));
+		}
 		function GalStageHost(props) {
 		    const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
 		    return enabled && stageViews ? React.createElement(stageViews.Host, props) : null;
@@ -48134,10 +48139,12 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        gallery:{ResizeObserver, IntersectionObserver, AbortController, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, revision:usePackRevision, rpc, Spinner, EmptyState,
 		            // 回想 › 在素材库中编辑: the 素材库 tab opened at that CG entry (asset-launcher.js stageNav).
 		            openLibrary:(sessionId,target)=>stageNav(sessionId).openLibrary(target)},
-		        // 状态面板 (stage status-panel.cjs): the card's panel html through the card-HTML frame builder, its data and close
-		        // through the trusted host facade status bars use; re-read after each session state signal while open.
+		        // 卡片页面 (stage status-panel.cjs): each page frame is the core message-frame lifecycle (the text-mode card HTML
+		        // document, Helper and trust model) with the session slash executor message frames use; the page's data is re-read
+		        // after each session state signal while open; asset() reads the card's bound packs through the pack service.
 		        statusPanel:{rpc, signals:{subscribe:(id,refresh)=>tavernSessionSignals.subscribe(id,'tavern-state',refresh,()=>{},refresh)}, themeTokens:stageWidgetThemeTokens, sounds:forkUiSfx,
-		            useLiveView:useLiveTavernView, mountCardFrame:input=>buildTavernFrameDocument(input), installHostFacade:installTavernTrustedHostFacade},
+		            useLiveView:useLiveTavernView, packService:()=>packTransport?.service,
+		            createCardFrame:props=>createTavernMessageFrameLifecycle(props,{executeSlash:stageCardPageSlash()})},
 		        device:{matchMedia},
 		        mixer:{reading:stageReading, voiceRateLimits:STAGE_READING_LIMITS.voiceRate, Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},
 		        sfx:{Audio, audio:forkStageAudio, foreground:forkForeground},

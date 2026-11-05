@@ -548,7 +548,10 @@ function GalStage(props) {
         if (!cardPages || !stageVisit || galActive.get() !== sessionId || cardPageVisits.get(sessionId) === stageVisit) return;
         cardPageVisits.set(sessionId, stageVisit);
         const id = stageViews.controls.stageEnterPage({pages: cardPages.pages, fresh: cardPages.fresh, skip: reading.skipTitlePage === true});
-        if (id === null) return;
+        if (id === null) {
+            if (reading.skipTitlePage === true && cardPages.pages.some(page => page.showOn && !page.initial)) jumpLatest();
+            return;
+        }
         setHidden(false); setOpenPage(id); entrance.end();
     }, [cardPages, stageVisit, sessionId, reading.skipTitlePage]);
     const narrow = useGalNarrow(); // the one stage breakpoint, 640px
@@ -1363,7 +1366,7 @@ function GalStage(props) {
             // 在素材库中编辑 leaves the stage for the 素材库 tab (the stage covers the chat and its sidebar).
             onExit:()=>{setGallery(false);props.onExit();}}) : null,
         // CONFIG opened from a page (openSettings) stands over it: Esc, which the page takes first, closes CONFIG then.
-        pageOpen ? h(stageViews.statusPanel.Overlay, { key: sessionId + ":" + openPage, sessionId, pageId: openPage, config, source: runtime.source, size: openDeclared.size,
+        pageOpen ? h(stageViews.statusPanel.Overlay, { key: sessionId + ":" + openPage, sessionId, pageId: openPage, shortcut: openDeclared.shortcut, config, source: runtime.source, size: openDeclared.size,
             onClose: configOpen ? closeConfig : closeCardPage, onAction: cardPageAction }) : null,
         configOpen || configLeaving ? h(GalConfigScreen, { sessionId, data: props.data, tests: mixTests, textSkin: shownSkin.current, skinHud: activeSkin?.hud?.reveal || "auto", skinPending: configSkin.pending === true, onClose: closeConfig, leaving: configLeaving }) : null,
         // §18 E3: after closing, a drawn menu with an exit motion stays mounted (inert) while its items leave.
