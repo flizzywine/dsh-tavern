@@ -1,3 +1,4 @@
+import { MAX_PLUGIN_DATA } from '../domain/plugin-data-store.js'
 import { listLegacyPlugins } from '../domain/legacy-plugins.js'
 import { userPluginPaths } from '../domain/user-plugins.js'
 import { spawn } from 'node:child_process'
@@ -18,6 +19,7 @@ export function createPluginHandlers(deps) {
     },
     // The page side of a plugin reads and writes the same data as its host side (tavernUi.savePluginData).
     async pluginData(args) {
+      if (args?.op === 'limits') return { maxBytes: MAX_PLUGIN_DATA }
       const plugin = str(args && args.plugin)
       if (args && args.op === 'save') { await pluginDataStore.save(plugin, args.data); return { ok: true } }
       return { data: await pluginDataStore.read(plugin) }

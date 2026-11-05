@@ -485,6 +485,10 @@
 					return rpc("gameTitles", { gameIds: Array.isArray(gameIds) ? gameIds : [] }).then(function (reply) { return (reply && reply.games) || {}; });
 				},
 				// The plugin's own data, not tied to a game; the same copy its host side reads (tavern.readPluginData).
+				getPluginDataLimits() {
+					const owner = ownerOf(this);
+					return rpc("pluginData", { plugin: owner, op: "limits" });
+				},
 				readPluginData() {
 					let owner;
 					try { owner = ownerOf(this); } catch (error) { return Promise.reject(error); }

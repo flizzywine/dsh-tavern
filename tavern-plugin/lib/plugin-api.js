@@ -1,3 +1,4 @@
+import { MAX_PLUGIN_DATA } from './domain/plugin-data-store.js'
 import { isMvuUpdateEntry } from './domain/worldbook-recall.js'
 import { createHash } from 'node:crypto'
 import { createPluginGameModes } from './domain/plugin-game-mode.js'
@@ -747,6 +748,7 @@ export function createTavernPluginApi(deps) {
       await deps.pluginData.save(owner, data)
     },
 
+    getPluginDataLimits() { return { maxBytes: MAX_PLUGIN_DATA } },
     async readPluginData() {
       const owner = ownerOf(this)
       return deps.pluginData ? deps.pluginData.read(owner) : null

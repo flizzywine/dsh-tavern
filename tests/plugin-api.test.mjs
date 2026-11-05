@@ -1309,7 +1309,7 @@ test('skillSource：插件登记自己的 Skill 目录，卸载时撤销；卡�
   assert.deepEqual(roots, [])
 })
 
-test('插件数据：不跟某一局走，每个插件只读写自己的那一份，256 KB 上限，null 清除', { skip: !cordis }, async t => {
+test('插件数据：不跟某一局走，每个插件只读写自己的那一份，8 MiB 上限，null 清除', { skip: !cordis }, async t => {
   const { mkdtemp, rm } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
   const path = (await import('node:path')).default
@@ -1326,7 +1326,12 @@ test('插件数据：不跟某一局走，每个插件只读写自己的那一�
   assert.deepEqual(await image.readPluginData(), { endpoint: 'http://127.0.0.1:8188' })
   assert.equal(await other.readPluginData(), null, '各插件互不可见')
   await assert.rejects(image.savePluginData({}), /不能省略/)
-  await assert.rejects(image.savePluginData({ data: 'x'.repeat(300 * 1024) }), /256 KB/)
+  assert.deepEqual(image.getPluginDataLimits(), { maxBytes: 8 * 1024 * 1024 })
+  const large = { presets: '预设'.repeat(100000) }
+  await image.savePluginData({ data: large })
+  assert.deepEqual(await image.readPluginData(), large)
+  await assert.rejects(image.savePluginData({ data: 'x'.repeat(8 * 1024 * 1024) }), /8 MiB/)
+  assert.deepEqual(await image.readPluginData(), large, '超限不能破坏旧数据')
   await image.savePluginData({ data: null })
   assert.equal(await image.readPluginData(), null)
 })

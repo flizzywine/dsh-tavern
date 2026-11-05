@@ -226,7 +226,7 @@ ctx.tavernUi.watchState(gameId, 'stage', state => render(state))
 
 ### `savePluginData({ data })`、`readPluginData()`（第 3 版）
 
-插件自己的数据，**不跟某一局走**：服务地址、默认画风、全局开关这类插件设置，以及跨局的统计。每个插件一份，最多 256 KB；`data` 是能转成 JSON 的值，传 `null` 清除。`readPluginData` 没有数据时返回 `null`。
+插件自己的数据，**不跟某一局走**：服务地址、默认画风、全局开关这类插件设置，以及跨局的统计。每个插件一份，最多 **8 MiB（8 × 1024 × 1024 字节，按 JSON 序列化后的 UTF-8 字节数计算）**；`data` 是能转成 JSON 的值，传 `null` 清除。`readPluginData` 没有数据时返回 `null`。
 
 ```js
 await ctx.tavern.savePluginData({ data: { endpoint: 'http://127.0.0.1:8188', style: 'anime' } })
@@ -266,3 +266,5 @@ ctx.tavern.onGameSettingsChanged(({ gameId, values }) => { /* 玩家在本局设
 ## 插件在哪些局生效
 
 装好并启用的插件在每一局都生效，玩家要停用就在「设置 → 酒馆插件」里整体停用；卡内插件只在它那张卡的局里生效。插件出错时 Tavern 改用自己的做法，并把原因记进 Tavern 日志。
+
+宿主侧 `ctx.tavern.getPluginDataLimits()` 与浏览器侧 `await tavernUi.getPluginDataLimits()` 返回 `{ maxBytes: 8388608 }`。额度是每个插件全部全局数据的合计；拆字段或分块上传不改变合计。更新插件保留原数据，无需迁移。
