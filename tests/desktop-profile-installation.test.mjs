@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, lstatSync, realpathSync, renameSync, symlinkSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installation.mjs'
+import { beginDesktopProfileInstallation, clearUninstalledInstallationRecord } from '../bin/desktop-profile-installation.mjs'
 import { switchProfile } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
 import { removeTreeSync } from '../bin/portable-fs.mjs'
 function fixture(t) {
@@ -138,4 +138,52 @@ test('回滚清理悬空临时链接，保留后来替换的路径并报告冲�
   symlinkSync(r.tavern, link, process.platform === 'win32' ? 'junction' : 'dir')
   tx.rollback()
   assert.deepEqual(readdirSync(r.profiles).filter(name => name.startsWith('desktop.switch-stage-')), [])
+})
+
+test('卸载记录存在时重新安装：重新建立酒馆 profile 与链接，并清理 uninstalled 标记', async t => {
+  const r = fixture(t)
+  mkdirSync(path.join(r.home, 'profile-bridge'), { recursive: true })
+  const recordFile = path.join(r.home, 'profile-bridge', 'installation.json')
+  writeFileSync(recordFile, JSON.stringify({
+    schemaVersion: 1,
+    phase: 'uninstalled',
+    retained: [path.join(r.home, 'apps/dsh-tavern.switch-removed-1')],
+    dataDir: path.join(r.home, 'profile-data/tavern')
+  }))
+  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-profile-bridge'] } } }))
+  const tx = prepare(r)
+  tx.finish()
+  tx.commit()
+  assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
+  assert.equal(existsSync(recordFile), false)
+})
+
+test('酒馆 profile 缺失时，原版 desktop 已带切换组件也按首次安装重建', t => {
+  const r = fixture(t)
+  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-profile-bridge'] } } }))
+  const tx = prepare(r)
+  tx.finish(); tx.commit()
+  assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
+})
+
+test('异常或损坏的安装位置记录阻止重装，避免覆盖未恢复的安装状态', t => {
+  const r = fixture(t)
+  mkdirSync(path.join(r.home, 'profile-bridge'), { recursive: true })
+  const recordFile = path.join(r.home, 'profile-bridge', 'installation.json')
+  writeFileSync(recordFile, JSON.stringify({ schemaVersion: 1, phase: 'preparing' }))
+  assert.throws(() => beginDesktopProfileInstallation(r), /安装位置记录状态异常/)
+  writeFileSync(recordFile, '{invalid')
+  assert.throws(() => beginDesktopProfileInstallation(r), /安装位置记录不可读/)
+})
+
+test('清理卸载标记时不删除已完成的迁移登记', t => {
+  const r = fixture(t)
+  mkdirSync(path.join(r.home, 'profile-bridge'), { recursive: true })
+  const recordFile = path.join(r.home, 'profile-bridge', 'installation.json')
+  writeFileSync(recordFile, JSON.stringify({ schemaVersion: 1, phase: 'completed', entries: [] }))
+  clearUninstalledInstallationRecord(r.home)
+  assert.equal(existsSync(recordFile), true)
+  writeFileSync(recordFile, JSON.stringify({ schemaVersion: 1, phase: 'uninstalled', retained: [] }))
+  clearUninstalledInstallationRecord(r.home)
+  assert.equal(existsSync(recordFile), false)
 })

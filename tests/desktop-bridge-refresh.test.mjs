@@ -168,6 +168,15 @@ test('untrusted relocation registry cannot redirect a bridge update', t => {
   assertOld(f.original); assertPreserved(f, f.original)
 })
 
+test('uninstalled registry does not exempt a linked Tavern profile from the ordinary-path check', t => {
+  const f = fixture(t)
+  json(path.join(f.home, 'profile-bridge/installation.json'), { schemaVersion: 1, phase: 'uninstalled', retained: [] })
+  const outside = path.join(f.root, 'external-tavern')
+  fs.renameSync(f.tavern, outside); link(outside, f.tavern)
+  assert.throws(() => beginDesktopProfileInstallation(f), /切换组件目录不能经过链接/)
+  assertOld(f.original); assertPreserved(f, f.original)
+})
+
 test('updating active original fails closed while desktop is still running', async t => {
   const f = fixture(t)
   await switchProfile({ mode: 'unlink', profilesRoot: f.profiles, liveDir: f.desktop, stamp: 'active-original' })

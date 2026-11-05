@@ -11,6 +11,18 @@ const present = file => { try { lstatSync(file); return true } catch (e) { if (e
 const read = dir => JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'))
 const isTavern = doc => doc?.dsh?.profile?.bundles?.includes('dsh-tavern-plugin') || doc?.name === 'dsh-profile-tavern'
 const save = (file, value) => { writeFileSync(file + '.tmp', JSON.stringify(value, null, 2)); renameSync(file + '.tmp', file) }
+// A completed removal leaves an "uninstalled" marker so the desktop still reports
+// the app as removed. Once a new install publishes its profile, clear that marker
+// from every commit path; the record's retained directories stay on disk.
+export function clearUninstalledInstallationRecord(home) {
+  const registryFile = path.join(home, 'profile-bridge', 'installation.json')
+  try {
+    if (!existsSync(registryFile)) return true
+    if (JSON.parse(readFileSync(registryFile, 'utf8'))?.phase !== 'uninstalled') return true
+    unlinkSync(registryFile)
+    return true
+  } catch { return false }
+}
 function originalProfile(home, live, linked) {
   if (!linked && !isTavern(read(live))) return { directory: live }
   const profiles = path.join(home, 'profiles')
@@ -67,7 +79,21 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
   const profiles = path.join(home, 'profiles'), live = path.join(profiles, 'desktop'), tavern = path.join(profiles, 'tavern')
   const interrupted = (() => { try { return JSON.parse(readFileSync(path.join(home, 'profile-bridge', 'install.json'), 'utf8')).phase === 'preparing' } catch { return false } })()
   const linkedToTavern = present(live) && lstatSync(live).isSymbolicLink() && present(tavern) && realpathSync(live) === realpathSync(tavern)
-  if (!interrupted && existsSync(path.join(home, 'profile-bridge', 'installation.json'))) {
+  const installationRecord = (() => {
+    try {
+      return JSON.parse(readFileSync(path.join(home, 'profile-bridge', 'installation.json'), 'utf8'))
+    } catch (error) {
+      if (error.code === 'ENOENT') return null
+      throw Error(`安装位置记录不可读，请先恢复安装管理记录与备份：${error.message}`)
+    }
+  })()
+  const uninstalled = installationRecord?.schemaVersion === 1 && installationRecord.phase === 'uninstalled'
+  const relocated = installationRecord?.schemaVersion === 1 && installationRecord.phase === 'completed' && Array.isArray(installationRecord.entries)
+  // Only a completed relocation may own the profile. An uninstalled marker means
+  // this is a fresh install; any other or damaged registry must not silently fall
+  // through and overwrite an installation whose state has not been recovered.
+  if (!interrupted && installationRecord && !uninstalled && !relocated) throw Error('安装位置记录状态异常，请先恢复安装管理记录与备份。')
+  if (!interrupted && relocated) {
     const operationFile = path.join(home, 'profile-bridge', 'installation-operation.json')
     if (existsSync(operationFile) && JSON.parse(readFileSync(operationFile, 'utf8')).phase === 'preparing') throw Error('上次安装管理未完成，请先恢复事务与备份。')
     installationLocation.resolveInstallationApp({ dshHome: home })
@@ -76,7 +102,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
     if (!linkedToTavern && (!present(live) || !read(live)?.dsh?.profile?.bundles?.includes('dsh-profile-bridge'))) throw Error('已迁移安装的原版 desktop 配置缺少切换组件，请先恢复备份。')
     return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
   }
-  if (!interrupted && (linkedToTavern || (present(live) && !lstatSync(live).isSymbolicLink() && !isTavern(read(live)) && read(live)?.dsh?.profile?.bundles?.includes('dsh-profile-bridge')))) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
+  if (!interrupted && (linkedToTavern || (present(tavern) && present(live) && !lstatSync(live).isSymbolicLink() && !isTavern(read(live)) && read(live)?.dsh?.profile?.bundles?.includes('dsh-profile-bridge')))) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
   checkStopped()
   const state = path.join(home, 'profile-bridge')
   mkdirSync(state, { recursive: true })
@@ -127,7 +153,10 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
         move(live, path.join(backup, 'previous-desktop'))
         move(link, live)
       },
-      commit() { journal.phase = 'completed'; save(journalFile, journal); done = true },
+      commit() {
+        journal.phase = 'completed'; save(journalFile, journal); done = true
+        clearUninstalledInstallationRecord(home)
+      },
       rollback() { if (!done) { recover(journalFile, journal, moveDirectory); done = true } },
     }
   } catch (error) { recover(journalFile, journal, moveDirectory); throw error }

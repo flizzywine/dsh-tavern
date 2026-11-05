@@ -86,6 +86,7 @@ function resolveInstallationApp({ dshHome, appDir } = {}) {
     if (error.code === 'INSTALLATION_LOCATION_UNSAFE') throw error
     fail(`无法读取 ${filename} (${error.code || error.name})`)
   }
+  if (record?.schemaVersion === 1 && record.phase === 'uninstalled') return requested
   if (record?.schemaVersion !== 1 || record.phase !== 'completed' || !Array.isArray(record.entries)) fail('迁移尚未完成或记录格式不受支持')
   const destination = trusted.map(absolute(record.destination))
   const logicalApp = trusted.map(absolute(record.appDir))

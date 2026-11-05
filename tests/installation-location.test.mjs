@@ -32,6 +32,17 @@ test('unregistered installs retain default and explicitly configured paths', t =
   assert.equal(location.resolveInstallationApp({ dshHome: f.home }), f.appDir)
   assert.equal(location.resolveInstallationApp({ dshHome: f.home, appDir: f.destination }), f.destination)
 })
+test('uninstalled registry retains default and explicitly configured paths', t => {
+  const f = fixture(t)
+  writeFileSync(f.filename, JSON.stringify({ schemaVersion: 1, phase: 'uninstalled', retained: [f.appDir], dataDir: path.join(f.home, 'profile-data/tavern') }))
+  assert.equal(location.resolveInstallationApp({ dshHome: f.home }), f.appDir)
+  assert.equal(location.resolveInstallationApp({ dshHome: f.home, appDir: f.destination }), f.destination)
+})
+test('uninstalled registry with an unsupported schema is still rejected', t => {
+  const f = fixture(t)
+  writeFileSync(f.filename, JSON.stringify({ schemaVersion: 2, phase: 'uninstalled', retained: [f.appDir] }))
+  assert.throws(() => location.resolveInstallationApp({ dshHome: f.home }), /迁移尚未完成或记录格式不受支持/)
+})
 test('completed relocation resolves physical app for default, logical and physical requests', t => {
   const f = fixture(t), target = path.join(f.destination, 'app')
   for (const appDir of [undefined, f.appDir, target]) assert.equal(location.resolveInstallationApp({ dshHome: f.home, appDir }), target)
