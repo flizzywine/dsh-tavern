@@ -143,6 +143,11 @@ function StageOpenings({ctx,embedded=false,pick:held,onPick,onGreetings}) {
       open&&blocked&&h('span',{className:'ap-need'},'需要'+STAGE_NAMES.stage,' · ',h(Button,{className:'ap-inline-link',onClick:()=>ctx.enable('stage')},'去开启'))),
     open&&h('div',{className:'ap-section-body',id:bodyId},
       !value?(data.error?h(ErrorBox,{error:data.error,reload:data.reload}):h(Loading,{shape:'fields'})):h(React.Fragment,null,
+        value.entranceChoices?.length>0&&field('入场演出',h(OpeningPicker,{label:'入场演出',
+          value:ctx.ext.stage?.defaultEntrance===undefined?'inherit':openingRefKey(ctx.ext.stage.defaultEntrance),
+          options:[{value:'inherit',label:'使用全局默认'},{value:'',label:'无'},...value.entranceChoices.map(row=>({value:openingRefKey(row.value),label:row.label}))],
+          onChange:key=>ctx.writer.write(c=>{const {defaultEntrance:previous,...stage}=c.stage||{};if(key!=='inherit'){const [packId,assetId]=key.split('/');stage.defaultEntrance=key?{packId,kind:'entrances',assetId}:null;}return {stage};})}),
+          '本卡选择优先于全局默认；「无」不播放。基础设置中的入场演出开关决定是否播放。'),
         // the styled picker with each figure's face, never a native select.
         staged.length>0&&h('div',{className:'ap-section-part','data-blocked':blocked||undefined,inert:blocked||undefined},field('开场角色',h(OpeningPicker,{label:'开场角色',value:openingFigureKey(value.lead),
           options:staged.map(alias=>({value:alias,label:stageFigure(ctx,alias).figure?.name||'人物'})),art:o=>h(StageAvatar,{ctx,alias:o.value,className:'ap-avatar is-mini'}),

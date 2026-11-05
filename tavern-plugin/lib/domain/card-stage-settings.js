@@ -17,13 +17,14 @@ export function validateStageSkinSelection(skin, path) {
 export function validateCardStage(value, path = '$.stage') {
   // enabled is the single card declaration; dialogue/stage remain accepted for old cards.
   const switches = ['enabled', 'widgets', 'dialogue', 'stage']
-  shape(value, [...switches, 'switches', 'defaultSkin', 'skinChoice', 'dimensions', 'narrator'], [], path)
+  shape(value, [...switches, 'switches', 'defaultSkin', 'defaultEntrance', 'skinChoice', 'dimensions', 'narrator'], [], path)
   for (const key of switches) if (value[key] !== undefined) bool(value[key], path + '.' + key)
   // 基础设置's card layer (本卡开启 / 本卡关闭) of each four-state switch; a missing key follows the global switch.
   if (value.switches !== undefined) {
     shape(value.switches, CARD_STAGE_SWITCHES, [], path + '.switches')
     for (const [key, choice] of Object.entries(value.switches)) check(choice === 'on' || choice === 'off', path + '.switches.' + key)
   }
+  if (value.defaultEntrance !== undefined && value.defaultEntrance !== null) validateAssetRef(value.defaultEntrance, path + '.defaultEntrance', 'entrances')
   if (value.narrator !== undefined) validateNarratorSettings(value.narrator, path + '.narrator')
   // defaultSkin is the card's one skin value 「使用皮肤」: exported and imported with the card, and written by
   // CONFIG › 画面「本卡皮肤」. Presentation policy, never a recorded director operation. `skinChoice` is the retired
