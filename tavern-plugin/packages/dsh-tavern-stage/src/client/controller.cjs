@@ -171,6 +171,7 @@ function GalStage(props) {
                         const root=rootRef.current;if(!live||lease!==row||!root)return null;
                         const outer=root.getBoundingClientRect(), sx=root.clientWidth/(outer.width||1), sy=root.clientHeight/(outer.height||1);
                         const rect=selector=>{const node=root.querySelector(selector);if(!node)return null;const r=node.getBoundingClientRect();return {x:(r.left-outer.left)*sx,y:(r.top-outer.top)*sy,width:r.width*sx,height:r.height*sy};};
+                        if (row.value.presentation === 'battle') return {width:root.clientWidth,height:root.clientHeight,topBar:rect('.fork-gal-topbar'),textBox:null,safe:{x:0,y:0,width:root.clientWidth,height:root.clientHeight}};
                         const top=rect('.fork-gal-topbar'),box=rect('.fork-gal-box');
                         const y=top ? Math.max(0,top.y+top.height) : 0, bottom=box ? Math.min(root.clientHeight,box.y) : root.clientHeight;
                         return {width:root.clientWidth,height:root.clientHeight,topBar:top,textBox:box,safe:{x:0,y,width:root.clientWidth,height:Math.max(0,bottom-y)}};
@@ -182,7 +183,14 @@ function GalStage(props) {
         const unbind=stageViews.candidateScene?.bind?.(sessionId,bridge);
         return ()=>{bridge.shutdown();unbind?.();};
     },[sessionId]);
+    const battlePresentation=candidate?.value?.presentation === 'battle';
     const candidateInteractive=Boolean(candidate && candidate.value.interactive !== false);
+    const musicKey=JSON.stringify(candidate?.value?.musicRef || null);
+    React.useEffect(() => {
+        const owner={}; const ref=JSON.parse(musicKey);
+        if (ref) stageViews.bgm.setScene(sessionId,owner,ref);
+        return () => { if (ref) stageViews.bgm.setScene(sessionId,owner,null); };
+    },[sessionId,musicKey]);
     const candidateDialogue=candidateInteractive ? candidate.value.dialogue : null;
     const sceneProgress=stageSceneProgress(candidateDialogue);
     const candidateLine=Array.isArray(candidateDialogue?.lines) ? candidateDialogue.lines[candidateDialogue.index || 0] || null : null;
@@ -254,6 +262,7 @@ function GalStage(props) {
     const lastCard = card >= subtitles.cards.length - 1;
     const [typed, setTyped] = React.useState(false);
     const [sceneTalking,setSceneTalking]=React.useState('');
+    const [storyTalking,setStoryTalking]=React.useState('');
     const [sceneTypedKey,setSceneTypedKey]=React.useState('');
     const lineIdentity=candidateLine ? JSON.stringify([candidateDialogue.index,candidateLine.actorKey,candidateLine.text]) : '';
     const sceneLineRevision=React.useRef({identity:'',revision:0});
@@ -326,7 +335,7 @@ function GalStage(props) {
         observer?.observe(root);root.querySelectorAll('.fork-gal-topbar,.fork-gal-box').forEach(node=>observer?.observe(node));
         root.addEventListener('stage-layout',measure);measure();
         return ()=>{observer?.disconnect();root.removeEventListener('stage-layout',measure);};
-    },[!!candidate]);
+    },[!!candidate,battlePresentation]);
     // the load gate is the one readiness authority; a 入场演出 (stage-entrance.js) holds what the
     // player sees (entryGate) on loading until its cover, while the scene renderer starts as soon as the load is ready.
     // The configured skin's first bundle read holds the reveal (set below, read by the gate's poll).
@@ -645,7 +654,7 @@ function GalStage(props) {
     // the end-of-round choices and an open mod take turns. A mod still open when the choices
     // arrive (a phone run ending the round) folds back to its launcher once; the player can reopen it from the top-right
     // icon, and while it is open the choices step aside (kept mounted, so a free-input draft survives).
-    const choicesUp = Boolean(atEnd && (typed || openingOnly) && !hidden && props.Choices);
+    const choicesUp = Boolean(!battlePresentation && atEnd && (typed || openingOnly) && !hidden && props.Choices);
     // the veil was shown (so its leave uncovers the stage; a quick entry never showed it)
     // and the stage's reveal window (transitions.stage.enter plays on the box only then, not on every later box mount).
     const veilShown = React.useRef(false);
@@ -930,7 +939,7 @@ function GalStage(props) {
     const xs = Object.fromEntries(members.map(member => [member.id,member.x]));
     const items = members.map(member => {
         const selected = pack.characters.find(figure => figure.alias === member.id), input = renderInputs.get(member.id).stage;
-        return {...input,sourceRef:selected.ref,sourceOutfitKey:selected.outfitKey,alias:member.id,x:member.x,speaking:member.id===speaker,light:member.light,color:colorOf(member.id),shade:stageViews.speaker.shade(member.id,speaker,members,state?.camera,skinFigures.dimListeners),
+        return {...input,sourceRef:selected.ref,sourceOutfitKey:selected.outfitKey,alias:member.id,x:member.x,speaking:member.id===speaker,talking:!candidateLine && member.id===speaker && storyTalking===JSON.stringify([sessionId,turn,page,card]) && !typed && !skipping && !battlePresentation,light:member.light,color:colorOf(member.id),shade:stageViews.speaker.shade(member.id,speaker,members,state?.camera,skinFigures.dimListeners),
             // reopening/restoring is not a new entrance (same policy as the background cut).
             visible:true,enter:forwardReading&&!skipping?'soft':'none',exit:'soft',gaze:stageViews.speaker.gaze(member.gaze,member.x,xs),act:shotHere&&shot.acts[member.id]?{name:shot.acts[member.id],nonce:shot.n}:null,
             figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
@@ -1221,6 +1230,7 @@ function GalStage(props) {
     // landed on the stage scrolls that overlay's view; one the overlay's own view forwarded (fromView) is simply dropped.
     function wheel(event) {
         if (sourceWidget.scrollOwner) { if (!event.fromView) sourceWidget.scroll(event); return; }
+        if ((candidateInteractive || candidate?.value?.captureWheel === true) && !backlog && !configOpen && !galleryOpen && !statusOpen && !menuOpen) return;
         if (backlog || configOpen || galleryOpen || statusOpen || menuOpen || Date.now() - backlogClosedAt.current < 450) return;
         if (controlsInput.consumeInterrupted()) return; // this notch only stopped a fast-forward
         if (event.deltaY > 0 && !hidden && textcard.skip()) return; // hidden → the box comes back first
@@ -1272,7 +1282,7 @@ function GalStage(props) {
         // art.item (stage-skin-adv.md): the skin draws the card as the original's frame.
         modPerformances.node && React.cloneElement(modPerformances.node,{accent:color || undefined,skinItem:skinItem || undefined}),
         candidate && candidateActors.length>contributed.length ? h('div',{role:'status',style:{position:'absolute',zIndex:5,top:sceneHudSafe?.top || 0,left:'50%',transform:'translateX(-50%)',padding:'6px 12px',background:'#fff',color:'#333',pointerEvents:'none'}},candidateError ? '舞台角色素材暂不可用' : '正在准备舞台角色…') : null,
-        candidate ? h('div',{className:'stage-scene-hud',style:{position:'absolute',left:0,right:0,top:sceneHudSafe?.top || 0,bottom:sceneHudSafe?.bottom || 0,zIndex:5,pointerEvents:'none'},onClick:event=>event.stopPropagation()},h(candidate.renderHud,{gameId:sessionId})) : null,
+        candidate ? h('div',{className:'stage-scene-hud',style:{position:'absolute',left:0,right:0,top:battlePresentation ? 0 : sceneHudSafe?.top || 0,bottom:battlePresentation ? 0 : sceneHudSafe?.bottom || 0,zIndex:5,pointerEvents:'none'},onClick:event=>event.stopPropagation()},h(candidate.renderHud,{gameId:sessionId})) : null,
         h(ModStageLayers,{sessionId,config,sourceKey:receivedDirection.token?.sourceKey,stage:{title:props.data?.cardName,turn,latestTurn,scene:place,bgm:track?.name}}),
         textcard.node,
         // the CG insert page over the scene and the box, under the top bar and its notices.
@@ -1319,7 +1329,7 @@ function GalStage(props) {
         skinButtons.length || activeSkin?.resolvedArt?.decor?.length ? h(stageViews.SkinButtons, { buttons: skinButtons, decor: activeSkin.resolvedArt.decor || [], keyCaps: stageViews.controls.keyCaps, auto, skipping: skipLatch, atEnd, menuOpen,
             onBacklog: openBacklog, onAuto: () => { setSkipping(false); setAuto(!auto); }, onSkip: toggleSkip, onMenu: () => openMenu(false) }) : null,
 
-        awaiting && !candidateLine ? h("div", { className: "fork-gal-box is-awaiting", role: "status", "aria-label": awaitingText },
+        battlePresentation ? null : awaiting && !candidateLine ? h("div", { className: "fork-gal-box is-awaiting", role: "status", "aria-label": awaitingText },
             activeSkin ? h(StageSkinFrame,{skin:activeSkin,page:'awaiting'}) : h(GalBoxFrame),
             // the box does not echo the submitted text (it reads in the backlog); only the wait.
             // the wait is UI, not story text - the shared wait look (UI type, accent dots and
@@ -1346,7 +1356,7 @@ function GalStage(props) {
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
                 (candidateLine || current) ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: candidateLine ? "candidate:" + (candidateDialogue.index || 0) + ":" + candidateLine.text : sessionId + ":" + turn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: (candidateLine ? sceneTyped : typed) || skipping, hold: handoff.holding || beatHeld, pending: !candidateLine && current?.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
                     visibleKey:sourceWidget.readingKey,onVisible:value=>!candidateLine && sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
-                    onReveal:ordinal=>{if(candidateLine)setSceneTalking(sceneLineKey);performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]});}, onDone: () => {if(candidateLine){setSceneTalking('');setSceneTypedKey(sceneLineKey);}else setTyped(true);} }))
+                    onReveal:ordinal=>{if(candidateLine)setSceneTalking(sceneLineKey);else setStoryTalking(JSON.stringify([sessionId,turn,page,card]));performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]});}, onDone: () => {if(candidateLine){setSceneTalking('');setSceneTypedKey(sceneLineKey);}else {setStoryTalking('');setTyped(true);}} }))
                     : h("span", { className: "stage-waiting" }, streaming ? "……" : "还没有正文"),
                 current && current.pending && !phoneLine ? h("span", { className: "fork-gal-typing", "aria-label": "正在生成" }, h("i"), h("i"), h("i")) : null,
                 // the next-page cue is laid out with the page from its first frame and only shown when
@@ -1391,7 +1401,7 @@ function GalStage(props) {
         // Reading done: the next move sits in the middle of the screen.
         // a latest turn with nothing to read (an HTML introduction / opening chooser) is done too: the
         // panel offers 生成选项 and 自由输入 (no 重新生成); leaving is the existing 返回主页面 (R13).
-        atEnd && (typed || openingOnly) && !hidden && props.Choices ? h(props.Choices, Object.assign({}, props.choiceProps, { key: sessionId + ":" + turn, sessionId, atEnd, hidden: awaiting || Boolean(sourceWidget.openKey), waitSlot: choiceWaitSlot, waitLines,
+        !battlePresentation && atEnd && (typed || openingOnly) && !hidden && props.Choices ? h(props.Choices, Object.assign({}, props.choiceProps, { key: sessionId + ":" + turn, sessionId, atEnd, hidden: awaiting || Boolean(sourceWidget.openKey), waitSlot: choiceWaitSlot, waitLines,
             // 重新生成 — the same busy rule as the system menu's 重新生成 item.
             onRegenerate: props.Regenerate && !openingOnly ? openRegenerate : undefined, regenerateDisabled: regenerateBlocked,
             withdrawnText: withdrawal && withdrawal.landed ? withdrawal.text : "",

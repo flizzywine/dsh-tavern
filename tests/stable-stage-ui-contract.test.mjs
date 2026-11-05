@@ -209,6 +209,8 @@ test('candidate scene lease follows card scope and stage lifetime', () => {
   assert.equal(f.plugin.getCapabilities().stageSceneBackground,1)
   assert.equal(f.plugin.getCapabilities().stageScenePresentation,1)
   assert.equal(f.plugin.getCapabilities().stageSceneActorEmotion,1)
+  assert.equal(f.plugin.getCapabilities().stageSceneBattlePresentation,1)
+  assert.equal(f.plugin.getCapabilities().stageSceneMusic,1)
   assert.equal(f.plugin.openStageScene({gameId:'denied',renderHud(){}}).reason, 'denied')
   let active, updated
   const unbind=f.ui.bindStageScene('game',{
@@ -223,6 +225,9 @@ test('candidate scene lease follows card scope and stage lifetime', () => {
   assert.equal(updated.actors[0].instanceId,'one')
   lease.update({actors:[{instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.5,size:0.1}]})
   assert.throws(()=>lease.update({actors:[{instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.5,size:0.09}]}),/Invalid stage scene actors/)
+  lease.update({actors:[],presentation:'battle',musicRef:{packId:'p',kind:'music',assetId:'battle'}})
+  assert.equal(updated.presentation,'battle')
+  assert.throws(()=>lease.update({actors:[],musicRef:{packId:'p',kind:'backgrounds',assetId:'x'}}),/Invalid stage scene music/)
   assert.throws(()=>lease.update({actors:[],backgroundRef:{packId:'p',kind:'figures',assetId:'f'}}),/Invalid stage scene background/)
   assert.throws(() => lease.update({actors:[
     {instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.3},
