@@ -513,7 +513,7 @@ export function createAssetPackService(options) {
     previews.set(id, {pack, keep, preview, expiresAt, size, distribution, ...(setId ? {set:setId} : {})}); previewBytes += size
     return preview
   }
-  const cardBundles = createCardBundleMethods({storage, run, alive, load:loadForExport, metadata, exportArchive, readZipFile, archiveKey:REMOTE_ARCHIVE, all, verify, importPack, cas, keys, remapPack, remapValue, readZipFiles, limits, now, nextLocal, emit, cards:options.cardTransactions, globalPackIds:options.globalEnabledPackIds, packPreviewUsage:() => {sweep();return {count:previewCount(),bytes:previewBytes}}})
+  const cardBundles = createCardBundleMethods({storage, run, readRun, privateExportFile:options.privateExportFile, alive, load:loadForExport, metadata, exportArchive, readZipFile, archiveKey:REMOTE_ARCHIVE, all, verify, importPack, cas, keys, remapPack, remapValue, readZipFiles, limits, now, nextLocal, emit, cards:options.cardTransactions, globalPackIds:options.globalEnabledPackIds, packPreviewUsage:() => {sweep();return {count:previewCount(),bytes:previewBytes}}})
   const {disposeCardBundles, cardBundleUsage, ...bundleMethods} = cardBundles
   // One revision fence for every lease read: whole bundle payloads, a size, or one byte range.
   const leaseAccess = (entry, names, action) => readRun([entry.packId], async () => {
@@ -1204,18 +1204,20 @@ export function createAssetPackService(options) {
     },
     exportPack(input) {
       validateUuid(input.packId)
-      return run([input.packId], async () => {
+      return (options.privateExportFile ? readRun : run)([input.packId], async () => {
         let pack = await loadForExport(input.packId); cas(pack, input.expectedRevision)
         check(pack, '$.packId', 'Pack missing', 'ASSET_UNAVAILABLE')
-        await assertPublicPackChain(pack, metadata)
+        // Only a local service constructor can select a private destination, never RPC input.
+        if (!options.privateExportFile) await assertPublicPackChain(pack, metadata)
         check(budget(pack.files, limits) * 2 <= limits.spoolBytes, '$', 'Export spool budget exceeded', 'LIMIT_EXCEEDED')
         const warnings = await exportWarnings(pack)
-        return storage.temporary(async file => {
+        const write = async file => {
           await writeZip(file, [{path:'manifest.json',data:jsonBytes(pack.manifest)}, ...[...pack.files].map(([path,data]) => ({path,data,file:data.file}))])
-          const archive = await exportArchive(file)
+          const archive = options.privateExportFile ? {output:file} : await exportArchive(file)
           return {...archive, contentHash:pack.manifest.contentHash, revision:pack.local.revision, filename:pack.manifest.id + '.zip',warnings}
-        })
-      })
+        }
+        return options.privateExportFile ? write(options.privateExportFile) : storage.temporary(write)
+      }, !!options.privateExportFile)
     },
     // the 素材库's batch export — two or more whole packs, each through the
     // exportPack checks (CAS, public chain, layered export), in bounded 素材包合集 volumes. A widget default pointing into another
