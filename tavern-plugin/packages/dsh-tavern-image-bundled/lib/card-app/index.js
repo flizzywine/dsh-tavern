@@ -18,6 +18,8 @@ const SHARED_PARTS = ['body', 'full', 'bodyBack', 'fullBack', 'negative']
 const PARTS = ['upper', 'lower', 'shoes', 'accessory', 'full', 'back', 'negative']
 const text = (value, max = 8000) => typeof value === 'string' ? value.slice(0, max) : ''
 const fail = (code, message) => Object.assign(new Error(message), { code })
+// 工具返回值必须能无损序列化成 JSON：undefined 字段会让宿主判成非法输出，这里直接摘掉。
+const omitUndefined = value => Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined))
 const output = render => ({ schema: { type: 'object', additionalProperties: true }, render: render || ((_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }]) })
 const schema = (properties, required = []) => ({ type: 'object', additionalProperties: false, properties, required })
 const named = { name: { type: 'string', description: '精确 ID、名字或唯一匹配的别名，省略时列出可用项。' } }
@@ -116,13 +118,13 @@ export function apply(ctx, { ready }) {
           const result = await engine.generateCardImage({ ...args, seed: values[index] }, { ...options, key: 'card-' + randomUUID() })
           const item = await gallery.add(result, { sessionId: options.sessionId, preset: args.preset })
           const url = new URL(item.url, origin).href
-          images.push({ url, markdown: `![图片](${url})`, jobId: result.jobId, mediaType: result.mediaType, seed: result.seed, size: result.size })
+          images.push(omitUndefined({ url, markdown: `![图片](${url})`, jobId: result.jobId, mediaType: result.mediaType, seed: result.seed, size: result.size }))
         } catch (error) {
           if (!images.length) throw error
-          return { ok: false, images, error: error.message, jobId: error.jobId, requestMayHaveSucceeded: error.requestMayHaveSucceeded === true, elapsedMs: Date.now() - started }
+          return omitUndefined({ ok: false, images, error: error.message, jobId: error.jobId, requestMayHaveSucceeded: error.requestMayHaveSucceeded === true, elapsedMs: Date.now() - started })
         }
       }
-      return { ok: true, images, channel: picked.channel, promptMode: picked.promptMode, elapsedMs: Date.now() - started }
+      return omitUndefined({ ok: true, images, channel: picked.channel, promptMode: picked.promptMode, elapsedMs: Date.now() - started })
     },
   }
 
