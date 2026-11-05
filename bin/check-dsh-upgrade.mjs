@@ -5,8 +5,6 @@ import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { createHash } from 'node:crypto'
 import { selectTestRuntime, probeTestRuntime } from './test-runtime.mjs'
-import { findDshCommand, readInstallationFile } from './launcher-environment.mjs'
-import { resolveDshBootModule } from './plugin-dependencies.mjs'
 import { root, readContracts, hostReferences, addedReferences, summarizeTap, compareReports } from './dsh-contract-check.mjs'
 
 // Runs inside the selected Node/Electron, so ASAR reads and resolution use that host.
@@ -41,7 +39,9 @@ function inspectPackages(boot, names) {
   console.log(JSON.stringify(result))
 }
 
-function runRuntime(selector, manifest, temporary) {
+async function runRuntime(selector, manifest, temporary) {
+  const { findDshCommand, readInstallationFile } = await import('./launcher-environment.mjs')
+  const { resolveDshBootModule } = await import('./plugin-dependencies.mjs')
   const env = { ...process.env, TMP: temporary, TEMP: temporary, TMPDIR: temporary }
   // A selector is either an official desktop executable or a standalone boot module.
   // Explicit selection must not inherit another host's preload or boot override.
@@ -96,8 +96,8 @@ try {
       mkdirSync(scratch, { recursive: true })
       const temporary = mkdtempSync(path.join(scratch, 'run-'))
       try {
-        const baseline = values.baseline ? runRuntime(values.baseline, manifest, temporary) : undefined
-        const candidate = runRuntime(values.candidate, manifest, temporary)
+        const baseline = values.baseline ? await runRuntime(values.baseline, manifest, temporary) : undefined
+        const candidate = await runRuntime(values.candidate, manifest, temporary)
         const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true }).stdout?.trim()
         const sourceFiles = [...new Set(['config/dsh-contracts.json', ...manifest.contracts.flatMap(item => [item.adapter, ...item.tests])])].sort()
         const source = { commit: git('rev-parse', 'HEAD'), workingTree: git('status', '--porcelain'),

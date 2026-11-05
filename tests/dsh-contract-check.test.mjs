@@ -4,8 +4,22 @@ import { addedReferences, compareReports, readContracts, summarizeTap, hostRefer
 import { probeTestRuntime } from '../bin/test-runtime.mjs'
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 const tap = '# tests 2\n# pass 2\n# fail 0\n# skipped 0\n'
+test('dependency-only checks run without installed third-party packages', () => {
+  const guard = `import { registerHooks } from 'node:module';
+    registerHooks({ resolve(specifier, context, next) {
+      if (!/^(node:|file:|data:|[./])/.test(specifier)) throw Error('Unexpected external dependency: ' + specifier);
+      return next(specifier, context);
+    } });`
+  const run = spawnSync(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(guard),
+    'bin/check-dsh-upgrade.mjs', '--check-dependencies'], {
+    cwd: root, env: { ...process.env, NODE_OPTIONS: '', NODE_TEST_CONTEXT: '' }, encoding: 'utf8', windowsHide: true,
+  })
+  assert.equal(run.status, 0, run.stdout + run.stderr)
+  assert.match(run.stdout, /match the reviewed baseline/)
+})
 test('required skips, empty execution, missing summary and crashed processes never pass', () => {
   assert.equal(summarizeTap(tap, 0).status, 'passed')
   for (const [output, status] of [[tap, 1], ['', 0], [tap.replace('tests 2', 'tests 0'), 0], [tap.replace('skipped 0', 'skipped 1'), 0]]) {
