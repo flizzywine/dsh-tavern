@@ -5,11 +5,17 @@
   "bin/cli-runtime.mjs": [
     "@deepseek-ai/dsh"
   ],
+  "bin/deepseek-stream-option-patch.mjs": [
+    "@deepseek-ai/dsh-llm-deepseek"
+  ],
   "bin/desktop-host-paths.mjs": [
     "@deepseek-ai/dsh-agent"
   ],
   "bin/official-desktop-runtime.cjs": [
     "@deepseek-ai/dsh-desktop"
+  ],
+  "bin/pi-ai-nonstream-patch.mjs": [
+    "@deepseek-ai/dsh-llm-pi-ai"
   ],
   "bin/plugin-dependencies.mjs": [
     "@deepseek-ai/dsh",
@@ -27,7 +33,9 @@
   ],
   "bin/profile-installation.mjs": [
     "@deepseek-ai/dsh-client-ui-chat",
-    "@deepseek-ai/dsh-client-ui-theme"
+    "@deepseek-ai/dsh-client-ui-theme",
+    "@deepseek-ai/dsh-llm-deepseek",
+    "@deepseek-ai/dsh-llm-pi-ai"
   ],
   "bin/test-runtime.mjs": [
     "@deepseek-ai/dsh-app-boot",
