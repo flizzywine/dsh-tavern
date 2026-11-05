@@ -275,7 +275,7 @@ export async function installProfile(host = RUNTIME_HOST, { guiRoot } = {}) {
 }
 
 async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoot }) {
-  requireCommand('node', '请安装 Node.js 22.19 或更高版本')
+  requireCommand('node', '请安装 Node.js 22.19 或更高版本（DSH 0.2.2 起需要 24.9 或更高版本）')
   requireCommand('pnpm', '请运行 npm install -g pnpm')
   verifySource()
   if (host === 'cli' && existsSync(path.join(LOG_DIR, 'tavern.pid.json'))) await stopService()

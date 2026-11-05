@@ -1346,13 +1346,13 @@ if (require.main === module) {
   }
   if (-not (Test-Command 'node')) {
     Start-Process 'https://nodejs.org/'
-    throw '未找到 Node.js。请安装 Node.js 22.19 或更高版本，然后重新运行本命令。'
+    throw '未找到 Node.js。请安装 Node.js 22.19 或更高版本（DSH 0.2.2 起需要 24.9 或更高版本），然后重新运行本命令。'
   }
 
   $NodeVersionText = (& node --version).Trim()
   $NodeVersion = [version]$NodeVersionText.TrimStart('v')
   if ($NodeVersion -lt [version]'22.19.0') {
-    throw "Node.js 版本过低，需要 22.19 或更高版本（当前：$NodeVersionText）。"
+    throw "Node.js 版本过低，安装入口至少需要 22.19（DSH 0.2.2 起需要 24.9 或更高版本）（当前：$NodeVersionText）。"
   }
   # Reserve before installation markers, persistent PATH, logs or source writes.
   New-Item -ItemType Directory -Force -Path $TempDir | Out-Null

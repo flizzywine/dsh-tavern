@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
-import { adaptedDshVersion, minDshVersion, assertCompatibleDshVersion, desktopReleasesUrl, dshaReleasesUrl } from '../bin/dsh-compatibility.mjs'
+import { adaptedDshVersion, minDshVersion, assertCompatibleDshVersion, desktopReleasesUrl, dshaReleasesUrl, assertCompatibleNodeVersion, hostNodeVersion } from '../bin/dsh-compatibility.mjs'
 import { classifyDshVersion, compareDshVersions } from '../tavern-plugin/lib/domain/host-compatibility.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -11,7 +11,7 @@ const unix = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
 
 test('宿主按支持范围放行，范围外拦截；CLI 独立运行时仍精确匹配', () => {
   for (const host of ['desktop', 'android']) {
-    for (const version of [minDshVersion, adaptedDshVersion, '0.2.1-rc.3', '0.2.2']) assert.doesNotThrow(() => assertCompatibleDshVersion(version, host), version)
+    for (const version of [minDshVersion, adaptedDshVersion, '0.2.1-rc.3', '0.2.2']) assert.doesNotThrow(() => assertCompatibleDshVersion(version, host, '24.9.0'), version)
     for (const version of ['0.1.5-rc.2', '0.3.0-rc.1', '99.0.0']) {
       assert.throws(() => assertCompatibleDshVersion(version, host), error => {
         assert.match(error.message, version.startsWith('0.1.') ? /已停止安装，现有酒馆、存档和宿主都没有改动[^]*要用这个版本[^]*改装稳定版/ : /不在支持范围内；已停止安装/)
@@ -94,4 +94,57 @@ test('宿主没有补丁要改的字号代码时跳过（返回 null），不让
   t.after(() => rm(directory, { recursive: true, force: true }))
   await writeFile(`${directory}/package.json`, JSON.stringify({ name: '@deepseek-ai/dsh-client-ui-theme', version: '0.2.0' }))
   assert.equal(patchThemeFontLimit(directory), null)
+})
+
+
+test('Node 门禁覆盖 0.2.2 预发布与 24.9 边界，保留旧 DSH / 独立 CLI 的 Node 22', () => {
+  for (const dsh of ['0.2.2-alpha.3', '0.2.2-rc.1', '0.2.2', '0.2.3']) {
+    for (const node of ['22.22.2', '24.8.9']) {
+      assert.throws(() => assertCompatibleDshVersion(dsh, 'desktop', node), /需要 Node.js 24\.9\.0[^]*当前宿主 Node.js/)
+    }
+    for (const node of ['24.9.0', '24.21.0', '25.0.0']) {
+      assert.doesNotThrow(() => assertCompatibleDshVersion(dsh, 'desktop', node))
+    }
+  }
+  assert.doesNotThrow(() => assertCompatibleDshVersion(adaptedDshVersion, 'cli', '22.19.0'))
+  assert.doesNotThrow(() => assertCompatibleDshVersion('0.2.1-rc.5', 'android', '22.22.2'))
+  assert.throws(() => assertCompatibleNodeVersion(adaptedDshVersion, '22.18.0'), /22\.19\.0/)
+  assert.throws(() => assertCompatibleNodeVersion('0.2.2-rc.1', ''), /当前宿主 Node.js 未知/)
+})
+
+test('Node 探测使用桌面端指定的运行时，其余宿主使用 PATH 中的 node', () => {
+  const env = { DSH_DESKTOP_NODE_EXECUTABLE: '/desktop/node', DSH_DESKTOP_APP_EXECUTABLE: '/desktop/app' }
+  const run = (expected, version) => (command, args, options) => {
+    assert.equal(command, expected)
+    assert.deepEqual(args, ['--version'])
+    if (expected !== 'node') assert.equal(options.env.ELECTRON_RUN_AS_NODE, '1')
+    return { status: 0, stdout: version }
+  }
+  assert.equal(hostNodeVersion('desktop', { env, run: run('/desktop/node', 'v24.21.0\n') }), '24.21.0')
+  for (const host of ['cli', 'android']) {
+    assert.equal(hostNodeVersion(host, { env, run: run('node', 'v22.22.2\n') }), '22.22.2')
+  }
+  assert.throws(() => hostNodeVersion('desktop', { env, run: () => ({ status: 1, stderr: 'missing runtime' }) }), /无法读取宿主 Node.js/)
+})
+
+
+test('--check 根据指定桌面 Node 退出，不被启动检查的 Node 版本干扰', { skip: process.platform === 'win32' }, async t => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const directory = await mkdtemp(`${tmpdir()}/tavern-node-check-`)
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const executable = `${directory}/desktop node`
+  const script = fileURLToPath(new URL('../bin/dsh-compatibility.mjs', import.meta.url))
+  for (const [nodeVersion, status] of [['22.22.2', 1], ['24.8.9', 1], ['24.9.0', 0], ['24.21.0', 0]]) {
+    await writeFile(executable, `#!/bin/sh\nprintf 'v${nodeVersion}\\n'\n`, { mode: 0o755 })
+    const result = spawnSync(process.execPath, [script, '--check', 'desktop', '0.2.2-rc.1'], {
+      env: { ...process.env, DSH_DESKTOP_NODE_EXECUTABLE: executable }, encoding: 'utf8'
+    })
+    assert.equal(result.status, status, result.stderr)
+    if (status) {
+      assert.match(result.stderr, /需要 Node.js 24\.9\.0/)
+      assert.ok(result.stderr.includes(nodeVersion))
+      assert.equal(result.stdout, '')
+    } else assert.match(result.stdout, /在支持范围内/)
+  }
 })

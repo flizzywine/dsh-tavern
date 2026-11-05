@@ -26,7 +26,7 @@ test('an explicitly selected desktop wins over stale CLI and fails closed if rem
 test('explicit standalone override remains available; incompatible hosts are rejected before tests', () => {
   const runtime = selectTestRuntime({ env: { DSH_BOOT_MODULE: '/fixture/boot.js' }, discover: () => assert.fail('explicit override'), execPath: process.execPath })
   assert.equal(runtime.command, process.execPath)
-  const run = version => () => ({ status: 0, stdout: JSON.stringify({ boot: runtime.boot, version }) })
+  const run = version => () => ({ status: 0, stdout: JSON.stringify({ boot: runtime.boot, version, nodeVersion: '24.21.0' }) })
   assert.throws(() => probeTestRuntime(runtime, run('0.1.1-rc.2')), /0\.1\.1/)
   assert.equal(probeTestRuntime(runtime, run('0.2.1-rc.5')).version, '0.2.1-rc.5')
   assert.throws(() => probeTestRuntime(runtime, () => ({ status: 1, stderr: 'broken installation' })), /broken installation/)
@@ -42,4 +42,17 @@ test('selected DSH dependency routing reaches native imports and nested fixture 
   })
   assert.equal(result.status, 0, result.stderr)
   assert.equal(result.stdout.trim(), host.resolve('@deepseek-ai/dsh-session'))
+})
+
+
+test('test runner validates the selected runtime Node, independently of the parent Node', () => {
+  const runtime = { command: '/selected/desktop', args: [], env: {}, boot: '/fixture/boot.js' }
+  const run = nodeVersion => (command, args) => {
+    assert.equal(command, runtime.command)
+    assert.match(args.at(-1), /nodeVersion:process.versions.node/)
+    return { status: 0, stdout: JSON.stringify({ boot: runtime.boot, version: '0.2.2-rc.1', nodeVersion }) }
+  }
+  assert.equal(probeTestRuntime(runtime, run('24.21.0')).version, '0.2.2-rc.1')
+  assert.throws(() => probeTestRuntime(runtime, run('22.22.2')), /需要 Node.js 24\.9\.0/)
+  assert.throws(() => probeTestRuntime(runtime, run(undefined)), /当前宿主 Node.js 未知/)
 })

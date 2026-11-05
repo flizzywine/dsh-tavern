@@ -32,7 +32,7 @@ export function probeTestRuntime(runtime, run = spawnSync) {
 const r=createRequire(${JSON.stringify(runtime.anchor || runtime.boot)});
 const boot=${JSON.stringify(runtime.boot)} || r.resolve('@deepseek-ai/dsh-app-boot');
 const br=createRequire(boot);
-console.log(JSON.stringify({boot,version:br('@deepseek-ai/dsh-app-boot/package.json').version}));`
+console.log(JSON.stringify({boot,nodeVersion:process.versions.node,version:br('@deepseek-ai/dsh-app-boot/package.json').version}));`
   const result = run(runtime.command, [...runtime.args, '-e', script], {
     env: runtime.env, encoding: 'utf8', timeout: 30000, windowsHide: true,
   })
@@ -40,6 +40,6 @@ console.log(JSON.stringify({boot,version:br('@deepseek-ai/dsh-app-boot/package.j
   let report
   try { report = JSON.parse(result.stdout.trim()) } catch { throw new Error('DSH 运行时没有返回有效版本信息') }
   if (!report.boot || !report.version) throw new Error('DSH 运行时缺少入口或版本信息')
-  assertCompatibleDshVersion(report.version, 'desktop')
+  assertCompatibleDshVersion(report.version, 'desktop', report.nodeVersion || '')
   return { ...runtime, boot: report.boot, version: report.version, env: { ...runtime.env, DSH_BOOT_MODULE: report.boot } }
 }

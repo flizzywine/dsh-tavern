@@ -1,6 +1,7 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync, realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { classifyDshVersion, dshRangeLabel } from '../tavern-plugin/lib/domain/host-compatibility.js'
+import { classifyDshVersion, compareDshVersions, dshRangeLabel } from '../tavern-plugin/lib/domain/host-compatibility.js'
 
 // One release-specific source for bootstrap installers, the launcher and documentation checks.
 const compatibility = JSON.parse(readFileSync(new URL('../config/dsh-compatibility.json', import.meta.url), 'utf8'))
@@ -48,12 +49,49 @@ export function dshCompatibilityNotice(currentVersion = '', host = 'desktop') {
   return `${classifyDshVersion(currentVersion, compatibility).reason}；已停止安装，不会修改宿主版本。支持的版本：${allowed}；${hostGuidance(host)}`
 }
 
-export function assertCompatibleDshVersion(currentVersion, host = 'cli') {
+export function minimumNodeVersion(dshVersion) {
+  let minimum = compatibility.minNodeVersion
+  for (const rule of compatibility.nodeRequirements || []) {
+    if (compareDshVersions(dshVersion, rule.fromDshVersion) >= 0) minimum = rule.minNodeVersion
+  }
+  return minimum
+}
+
+// Desktop wrappers and Electron own their Node; the shell's Node may be older.
+export function hostNodeVersion(host, { env = process.env, run = spawnSync } = {}) {
+  const desktopNode = host === 'desktop' && (env.DSH_DESKTOP_NODE_EXECUTABLE || env.DSH_DESKTOP_APP_EXECUTABLE)
+  const command = desktopNode || 'node'
+  const result = run(command, ['--version'], {
+    env: desktopNode ? { ...env, ELECTRON_RUN_AS_NODE: '1' } : env,
+    encoding: 'utf8', timeout: 30_000, windowsHide: true,
+  })
+  const version = result.stdout?.trim().replace(/^v/, '')
+  if (result.error || result.status !== 0 || !/^\d+\.\d+\.\d+$/.test(version || '')) {
+    throw new Error(`无法读取宿主 Node.js 版本（${command}）：${result.error?.message || result.stderr || '版本输出无效'}`)
+  }
+  return version
+}
+
+export function assertCompatibleNodeVersion(dshVersion, nodeVersion) {
+  const minimum = minimumNodeVersion(dshVersion)
+  const version = String(nodeVersion || '').replace(/^v/, '')
+  if (!/^\d+\.\d+\.\d+$/.test(version) || compareDshVersions(version, minimum) < 0) {
+    throw new Error(`已停止安装：DSH ${dshVersion} 需要 Node.js ${minimum} 或更高版本，当前宿主 Node.js ${nodeVersion || '未知'}。请升级该宿主使用的 Node.js 后重试；官方桌面端请升级 DeepSeek Harness，命令行/Android 请升级 node。`)
+  }
+}
+
+export function assertCompatibleDshVersion(currentVersion, host = 'cli', nodeVersion) {
   if (host === 'cli') {
-    if (currentVersion === adaptedDshVersion) return
+    if (currentVersion === adaptedDshVersion) {
+      assertCompatibleNodeVersion(currentVersion, nodeVersion ?? hostNodeVersion(host))
+      return
+    }
     throw new Error(`已停止安装：独立 DSH 版本不符，当前 ${currentVersion || '未知'}，应为 ${adaptedDshVersion}。请重新安装独立运行时：设置 DSH_TAVERN_REINSTALL_RUNTIME=1 后重试安装或更新。`)
   }
-  if (classifyDshVersion(currentVersion, compatibility).status === 'allowed') return
+  if (classifyDshVersion(currentVersion, compatibility).status === 'allowed') {
+    assertCompatibleNodeVersion(currentVersion, nodeVersion ?? hostNodeVersion(host))
+    return
+  }
   throw new Error(dshCompatibilityNotice(currentVersion, host))
 }
 

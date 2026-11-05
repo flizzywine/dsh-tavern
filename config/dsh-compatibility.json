@@ -3,6 +3,10 @@
   "minDshVersion": "0.2.0-rc.2",
   "belowDshVersion": "0.3.0",
   "blockedDshVersions": [],
+  "minNodeVersion": "22.19.0",
+  "nodeRequirements": [
+    { "fromDshVersion": "0.2.2-0", "minNodeVersion": "24.9.0" }
+  ],
   "hostLinePackages": {
     "0.2.0": {
       "dsh-better-sidebar": { "version": "0.26.0", "patch": "patches/dsh-better-sidebar@0.26.0.patch" }

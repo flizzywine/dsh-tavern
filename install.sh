@@ -260,13 +260,13 @@ DSH_OFFICIAL_DESKTOP_MODULE
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "需要先安装 Node.js 22.19 或更高版本：https://nodejs.org/" >&2
+  echo "需要先安装 Node.js 22.19 或更高版本（DSH 0.2.2 起需要 24.9 或更高版本）：https://nodejs.org/" >&2
   if command -v open >/dev/null 2>&1; then open https://nodejs.org/ >/dev/null 2>&1 || true; fi
   fail "未找到 Node.js。安装后重新运行本命令。"
 fi
 
 if ! node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=19)?0:1)' >/dev/null 2>&1; then
-  fail "Node.js 版本过低，需要 22.19 或更高版本（当前：$(node --version)）。"
+  fail "Node.js 版本过低，安装入口至少需要 22.19（DSH 0.2.2 起需要 24.9 或更高版本）（当前：$(node --version)）。"
 fi
 
 # Claim the installation before creating markers, logs, source cache or profiles.
