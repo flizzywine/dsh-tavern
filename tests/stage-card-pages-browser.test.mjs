@@ -31,7 +31,30 @@ const declared = page => { const {html, ...rest} = page; return rest }
 // A 64 px face the fixture's lease route serves for every figure avatar.
 const FACE_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAoElEQVR4nO2SQQkAQRDDKu2kVGqkrYh7hIFCBSSh4evpRSdgAtUrsgv17qITMIHqFdmFenfRCZhA9YrsQr276ARMoHpFdqHeXXQCJlC9IrtQ7y46AROoXpFdqHcXnYAJVK/ILtS7i07ABKpXZBfq3UUnYALVK7IL9e6iEzCB6hXZhXp30QmYQPWK7EK9u+gETKB6RXah3l10AiZQveKfCz1LqwFLZoqQNgAAAABJRU5ErkJggg==', 'base64')
 
-async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTitlePage = false, viewport = {width: 1280, height: 720}, characters = [], figures = []} = {}) {
+// Every animation frame from the stage's first one to 600 ms after: what the player sees of the entry (sample: true).
+function startFrameSampler() {
+  window.entryFrames = []
+  let first = null
+  const opacity = node => node ? Number(getComputedStyle(node).opacity) : null
+  const tick = () => {
+    const now = performance.now(), stage = document.querySelector('.fork-gal-stage')
+    if (stage) {
+      first ??= now
+      const status = stage.querySelector(':scope > .fork-gal-status')
+      const scene = [...stage.querySelectorAll(':scope > :not(.fork-gal-status, .fork-gal-entry-overlay, .fork-gal-entrance)')]
+      window.entryFrames.push({t: Math.round(now - first), entry: stage.dataset.entry || null,
+        scene: Math.max(0, ...scene.map(opacity)), page: status?.dataset.page || null,
+        opacity: status ? Math.min(opacity(status), opacity(status.querySelector('.fork-gal-status-sheet'))) : null,
+        note: !!stage.querySelector('.fork-gal-status-note')})
+    }
+    if (first === null || now - first < 600) requestAnimationFrame(tick)
+    else window.entryFramesDone = true
+  }
+  requestAnimationFrame(tick)
+}
+const entryFrames = async page => { await page.waitForFunction(() => window.entryFramesDone === true); return page.evaluate(() => window.entryFrames) }
+
+async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTitlePage = false, viewport = {width: 1280, height: 720}, line = '夜色里，旅馆的灯还亮着。', sample = false, characters = [], figures = []} = {}) {
   const browser = await chromium.launch({headless: true, args: ['--mute-audio', '--autoplay-policy=no-user-gesture-required']})
   t.after(() => browser.close())
   const page = await browser.newPage({viewport, deviceScaleFactor: 1})
@@ -51,10 +74,10 @@ async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTi
     if (asset) return route.fulfill({contentType: asset.mediaType, body: await readFile(asset.file)})
     return route.fulfill({status: 404, body: ''})
   })
-  const body = roundBody([{kind: 'markdown', text: '夜色里，旅馆的灯还亮着。'}], {chatId: 'card-pages', turn: 1})
+  const body = roundBody([{kind: 'markdown', text: line}], {chatId: 'card-pages', turn: 1})
   const config = {characters, voice: {enabled: false}, stage: {director: false, face: 'off', music: false, theme: 'classic'}}
   const snapshot = {sessionId: SESSION, chatId: 'card-pages', cardPath: 'cards/card-pages.json', from: {turn: 1, para: 1}, config,
-    turns: [{turn: 1, body}], paragraphs: [{turn: 1, para: 1, durationMs: 1000, text: '夜色里，旅馆的灯还亮着。'}]}
+    turns: [{turn: 1, body}], paragraphs: [{turn: 1, para: 1, durationMs: 1000, text: line}]}
   const byId = new Map(pages.map(row => [row.id, row]))
   await page.exposeFunction('cardPagesTransport', async (method, args) => {
     switch (method) {
@@ -71,6 +94,7 @@ async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTi
     case 'pluginMediaTurns': return {turns: []}
     case 'phoneCallThreads': return {threads: []}
     case 'listMods': return {mods: []}
+    case 'getCgGallery': return {items: [], cursor: null}
     case 'getSession': return {view: {sessionId: SESSION, mode: 'story', cardPath: snapshot.cardPath, tavernRuntimePolicy: {trustedCardMode: true}, tavernHelper: {version: 1, lifecycleRevision: 1, stateRevision: 1, messages: [], scriptVariables: {}, chatVariables: {}}}}
     case 'readCardPages': return {pages: pages.map(declared), fresh}
     case 'readCardPage': {
@@ -88,6 +112,7 @@ async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTi
   await page.evaluate(() => { window.__name = fn => fn; window.clipOriginalVoices = new Map() })
   await page.addScriptTag({content: await browserReactScript() + `Object.assign(modules['react-dom'],modules['react-dom/client']);window.__ModuleLoader__={load(d){window.clipClient=d.factory(name=>modules[name]||{});}};`})
   await page.addScriptTag({content: await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')})
+  if (sample) await page.evaluate(startFrameSampler)
   await page.addScriptTag({content: stageClientModuleAsScript(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url), 'utf8')) + '\nwindow.clipStage=stageClientPlugin;'})
   await page.evaluate(async ({snapshot, skipTitlePage}) => {
     // The DSH host the core's slash executor writes to: the conversation input of the session.
@@ -141,7 +166,8 @@ test('entering the stage opens title; triggerSlash reaches the slash executor; M
   await frameOf(page, 'title').locator('#start').click()
   await page.waitForFunction(() => window.sent.some(row => row.submit))
   assert.deepEqual(await page.evaluate(() => window.sent), [{draft: '你好'}, {submit: 'queue', draft: '你好'}])
-  await page.keyboard.press('Escape')
+  // the title page is the entry: closing it would leave, continueGame() enters
+  await frameOf(page, 'title').locator('body').evaluate(() => { setTimeout(() => DshCardPage.continueGame()) })
   await waitPage(page, null)
 
   // (b) M opens map, M again closes it; S toggles status; Esc closes
@@ -236,7 +262,7 @@ test('跳过标题页 still opens the initial page of a fresh chat, and no page 
   // the same second entry with the switch off opens title again
   const shown = await openStage(t, {pages: [TITLE, MAP, STATUS], fresh: false})
   await waitPage(shown.page, 'title')
-  await shown.page.keyboard.press('Escape')
+  await frameOf(shown.page, 'title').locator('body').evaluate(() => { setTimeout(() => DshCardPage.continueGame()) })
   await waitPage(shown.page, null)
   await shown.page.evaluate(id => window.cardPagesCore.galEnter(id, {turn: 1, para: 1}), SESSION)
   await waitPage(shown.page, 'title')
@@ -263,4 +289,133 @@ test('a card page gets its declared figures\' faces as data: URLs from the stage
   await page.keyboard.press('s')
   await waitPage(page, 'status')
   await frameOf(page, 'status').getByText('有').waitFor()
+})
+
+// A title menu built on the DshCardPage actions: every button is disabled while its action runs and enabled again once
+// the action's Promise settles (继续 only while the chat is saved).
+const MENU_SCRIPT = '<script>var page=DshCardPage,buttons=[].slice.call(document.querySelectorAll("nav button"));function enable(){buttons.forEach(function(b){b.disabled=b.id==="continue"&&!page.data().saved;});}enable();'
+  + 'function go(action){buttons.forEach(function(b){b.disabled=true;});action().then(function(v){window.lastResult=JSON.stringify(v);},function(e){window.lastResult="error:"+e.message;}).finally(enable);}'
+  + '[["new","newGame"],["continue","continueGame"],["gallery","openGallery"],["settings","openSettings"],["exit","exit"]].forEach(function(row){document.getElementById(row[0]).onclick=function(){go(page[row[1]]);};});</script>'
+const MENU_BUTTONS = '<nav><button data-dsh-sound id="new" type="button">新游戏</button><button data-dsh-sound id="continue" type="button">继续</button><button data-dsh-sound id="gallery" type="button">回想</button><button data-dsh-sound id="settings" type="button">设置</button><button data-dsh-sound id="exit" type="button">退出</button></nav>'
+const ACTION_TITLE = {id: 'title', label: '标题', size: 'full', showOn: {event: 'stage-enter'},
+  html: sheet('<div><h1 id="title-name">夜色旅馆</h1>' + MENU_BUTTONS + '</div>', 'linear-gradient(160deg,#2a1f3d,#0d0a14)').replace('</style>', 'nav{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}</style>') + MENU_SCRIPT}
+const ACTION_OPENING = {...ACTION_TITLE, id: 'opening', label: '开场', initial: true}
+const enabled = (page, id) => frameOf(page, id).locator('nav button:not([disabled])').evaluateAll(nodes => nodes.map(node => node.id))
+const typedGlyphs = page => page.evaluate(() => [...document.querySelectorAll('.fork-gal-stage .fork-gal-type-shown, .fork-gal-stage .fork-gal-glyph')].map(node => node.textContent).join('').length)
+async function waitEnabled(page, id, expected) {
+  for (let i = 0; i < 40 && (await enabled(page, id)).join() !== expected.join(); i++) await page.waitForTimeout(100)
+  assert.deepEqual(await enabled(page, id), expected)
+}
+
+test('title actions: the line waits behind the page, 回想 stands over it, 新游戏 asks first, no button stays disabled', {timeout: 90000}, async t => {
+  const {page} = await openStage(t, {pages: [ACTION_TITLE, MAP], viewport: {width: 1920, height: 1080}})
+  await page.evaluate(() => { window.newGames = []; window.addEventListener('dsh-tavern-new-game', event => window.newGames.push(event.detail.sessionId)) })
+  await waitPage(page, 'title')
+  await frameOf(page, 'title').locator('#title-name').waitFor()
+  assert.deepEqual(await enabled(page, 'title'), ['new', 'continue', 'gallery', 'settings', 'exit'], 'a saved chat can continue')
+  // entering mid-chat: the current line (its typing, voice and AUTO) holds while the title page is up
+  await page.waitForTimeout(1500)
+  assert.equal(await typedGlyphs(page), 0, 'no glyph of the line typed behind the title page')
+  await shot(page, 'title-actions-1920.png')
+
+  // 回想 opens over the page; Esc closes it and the page is still there, its buttons enabled again
+  await frameOf(page, 'title').locator('#gallery').click()
+  await page.locator('.fork-cg-gallery').waitFor()
+  assert.equal(await openPage(page), 'title')
+  await page.keyboard.press('Escape')
+  await page.locator('.fork-cg-gallery').waitFor({state: 'detached'})
+  assert.equal(await openPage(page), 'title')
+  await waitEnabled(page, 'title', ['new', 'continue', 'gallery', 'settings', 'exit'])
+
+  // 新游戏 on a saved chat asks with the core confirm; 取消 keeps the page and enables its buttons again
+  await frameOf(page, 'title').locator('#new').click()
+  const prompt = page.locator('dialog.dsh-tavern-prompt')
+  await prompt.waitFor()
+  assert.match(await prompt.textContent(), /开始新游戏？/)
+  await prompt.getByRole('button', {name: '取消'}).click()
+  await waitEnabled(page, 'title', ['new', 'continue', 'gallery', 'settings', 'exit'])
+  assert.equal(await frameOf(page, 'title').locator('body').evaluate(() => window.lastResult), '{"started":false}')
+  assert.deepEqual(await page.evaluate(() => window.newGames), [])
+  await frameOf(page, 'title').locator('#new').click()
+  await prompt.getByRole('button', {name: '开始新游戏'}).click()
+  await page.waitForFunction(() => window.newGames.length === 1)
+  assert.deepEqual(await page.evaluate(() => window.newGames), [SESSION])
+
+  // 继续 closes the page and the line starts from where the reader is
+  await frameOf(page, 'title').locator('#continue').click()
+  await waitPage(page, null)
+  await page.waitForFunction(() => document.querySelectorAll('.fork-gal-stage .fork-gal-type-shown, .fork-gal-stage .fork-gal-glyph').length > 0)
+})
+
+test('a fresh chat: the opening page holds the first line too and 继续 is off', {timeout: 60000}, async t => {
+  const {page} = await openStage(t, {pages: [ACTION_OPENING, MAP], fresh: true, viewport: {width: 375, height: 812}})
+  await waitPage(page, 'opening')
+  await frameOf(page, 'opening').locator('#title-name').waitFor()
+  assert.deepEqual(await enabled(page, 'opening'), ['new', 'gallery', 'settings', 'exit'])
+  await page.waitForTimeout(1500)
+  assert.equal(await typedGlyphs(page), 0, 'no glyph of the first line typed behind the opening page')
+  await shot(page, 'title-actions-375.png')
+  // an unsaved chat starts a new game without asking
+  await page.evaluate(() => { window.newGames = []; window.addEventListener('dsh-tavern-new-game', event => window.newGames.push(event.detail.sessionId)) })
+  await frameOf(page, 'opening').locator('#new').click()
+  await page.waitForFunction(() => window.newGames.length === 1)
+  assert.equal(await page.locator('dialog.dsh-tavern-prompt').count(), 0)
+  await frameOf(page, 'opening').locator('body').evaluate(() => { setTimeout(() => DshCardPage.continueGame()) })
+  await waitPage(page, null)
+  await page.waitForFunction(() => document.querySelectorAll('.fork-gal-stage .fork-gal-type-shown, .fork-gal-stage .fork-gal-glyph').length > 0)
+})
+test('every stage entry, frame by frame: a title page covers the stage from its first frame; a card without one never mounts a page', {timeout: 90000}, async t => {
+  const titled = await openStage(t, {pages: [ACTION_TITLE, MAP], sample: true})
+  const frames = await entryFrames(titled.page)
+  assert.ok(frames.length >= 20, 'sampled the first 600 ms: ' + frames.length + ' frames')
+  assert.deepEqual(frames.filter(frame => frame.note), [], 'no 正在读取 frame')
+  assert.deepEqual(frames.filter(frame => frame.scene > 0 && frame.page !== 'title'), [], 'the scene never shows without the title over it')
+  assert.deepEqual(frames.filter(frame => frame.page !== null && frame.opacity !== 1), [], 'the title page does not fade in over the stage')
+  assert.equal(frames.at(-1).page, 'title', 'the title is up within 600 ms')
+  const plain = await openStage(t, {pages: [MAP, STATUS], sample: true})
+  const plainFrames = await entryFrames(plain.page)
+  assert.deepEqual(plainFrames.filter(frame => frame.page !== null || frame.note), [], 'no page is ever mounted')
+  await plain.page.waitForFunction(() => document.querySelector('.fork-gal-stage')?.dataset.entry === 'ready')
+})
+
+test('the × of a full entry page is the stage top bar × and leaves instead of entering', {timeout: 60000}, async t => {
+  const {page} = await openStage(t, {pages: [ACTION_TITLE, MAP], viewport: {width: 1920, height: 1080}})
+  await waitPage(page, 'title')
+  await frameOf(page, 'title').locator('#title-name').waitFor()
+  const close = page.locator('.fork-gal-status[data-page="title"] .fork-gal-status-close')
+  assert.equal(await close.getAttribute('aria-label'), '返回主页面')
+  const look = selector => page.locator(selector).evaluate(node => { const s = getComputedStyle(node); return {background: s.backgroundColor, radius: s.borderRadius, width: s.width, height: s.height, color: s.color, filter: s.filter, border: s.borderStyle} })
+  assert.deepEqual(await look('.fork-gal-status[data-page="title"] .fork-gal-status-close'), await look('.fork-gal-topbar .fork-gal-quit'), 'the same overlay button as 返回主页面')
+  assert.equal((await look('.fork-gal-status[data-page="title"] .fork-gal-status-close')).background, 'rgba(0, 0, 0, 0)', 'no solid plate')
+  await page.mouse.move(1000, 500)
+  await shot(page, 'title-close-1920.png')
+  // the export host's onExit is a no-op: the page stays and the stage is not entered
+  await close.click()
+  await page.waitForTimeout(800)
+  assert.equal(await openPage(page), 'title')
+  assert.equal(await typedGlyphs(page), 0, 'the × did not enter the stage')
+})
+
+test('phone width: the × of a full entry page is the 44 px top bar ×', {timeout: 60000}, async t => {
+  const {page} = await openStage(t, {pages: [ACTION_TITLE, MAP], viewport: {width: 375, height: 812}})
+  await waitPage(page, 'title')
+  await frameOf(page, 'title').locator('#title-name').waitFor()
+  const box = await page.locator('.fork-gal-status[data-page="title"] .fork-gal-status-close').boundingBox()
+  assert.deepEqual([box.width, box.height], [44, 44])
+  assert.ok(box.x + box.width <= 375 && box.y >= 0, 'inside the stage: ' + JSON.stringify(box))
+  await page.waitForTimeout(300)
+  await shot(page, 'title-close-375.png')
+})
+
+test('a window page opened while a line types does not hold it', {timeout: 60000}, async t => {
+  const line = '夜色里，旅馆的灯还亮着。'.repeat(12)
+  const {page} = await openStage(t, {pages: [MAP, STATUS], line})
+  await page.waitForFunction(() => document.querySelectorAll('.fork-gal-stage .fork-gal-type-shown, .fork-gal-stage .fork-gal-glyph').length > 0)
+  await page.keyboard.press('m')
+  await waitPage(page, 'map')
+  const before = await typedGlyphs(page)
+  await page.waitForTimeout(700)
+  const after = await typedGlyphs(page)
+  assert.equal(await openPage(page), 'map')
+  assert.ok(before < line.length && after > before, `the line goes on typing behind the map: ${before} → ${after}`)
 })

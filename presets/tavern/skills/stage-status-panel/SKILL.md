@@ -10,7 +10,7 @@ description: "编写人物卡自带的舞台卡页面（data.extensions.dsh_tave
 ## 要点
 
 - **完整的 Helper，和正文里的卡片 HTML 一样。** 页面运行在文字模式卡片 HTML 的同一个框架和信任模型里：发送、生成（`triggerSlash`、`generate`）、`setChatMessages`、聊天变量与 MVU（`getVariables`、`replaceVariables`、`Mvu`）、世界书（`getWorldbook`、`updateWorldbookWith`），受信任时还能访问父页面。规则全部照上游 Helper，舞台不另加限制。世界书写的是人物卡库里的世界书，用它的其他聊天也会看到。
-- **舞台只补一层 `DshCardPage`。** 本卡素材包的图片和视频（`asset`/`assets`）、声明的台账分区和人物头像、当前皮肤配色（`data`/`onData`），以及页面动作 `close`、`open`、`openSettings`、`fillInput`。
+- **舞台只补一层 `DshCardPage`。** 本卡素材包的图片和视频（`asset`/`assets`）、声明的台账分区和人物头像、当前皮肤配色（`data`/`onData`），以及页面动作 `close`、`open`、`openSettings`、`fillInput`；标题页还有 `newGame`、`continueGame`、`openGallery`、`exit` 和皮肤界面音效 `sound`（或给按钮加 `data-dsh-sound`），`data().saved` 告诉页面「继续」能不能用。进入舞台时打开的 showOn 页开着时舞台的这一句（配音、自动播放）等进入舞台再开始；关掉这一页是回到文字模式，进入舞台用 `continueGame()`。
 - **三种入口。** `shortcut` 是一个小写字母，按下开关这一页；`menu:true` 在 Esc 菜单里加一行；`showOn:{event:'stage-enter'}` 在玩家每次从文字模式进入舞台时打开（重新挂载、换轮、改设置不算）。加 `initial:true` 的 showOn 页只在新聊天（还没有玩家消息）时出现。
 - **每次进入只开一页，取数组里第一个匹配的。** 新聊天有 `initial` 页时开第一个 `initial` 页；否则玩家打开了舞台设置「跳过标题页」就不开页、直接继续；否则开第一个不带 `initial` 的 showOn 页。「跳过标题页」不跳过 `initial` 页。
 - **没有声明就没有入口。** 卡没有 `pages` 时没有页面行、没有页面快捷键；卡片模式下也没有。页面每次从人物卡库里的卡读取，改完保存后重新打开就是新版本，不需要「应用变化到当前游戏」。

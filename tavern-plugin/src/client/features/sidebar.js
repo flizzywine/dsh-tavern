@@ -510,6 +510,23 @@
 				window.addEventListener("dsh-tavern-start-session-opening", onStartSessionOpening);
 				return function () { window.removeEventListener("dsh-tavern-start-session-opening", onStartSessionOpening); };
 			}, [current, busy, conversationLifecycle]);
+			// A stage card page's newGame() (status-panel.cjs, after its confirm): the session's card opens to its 游戏准备, as the
+			// card list's 开始游戏 does.
+			const newGameFrom = React.useRef(null);
+			newGameFrom.current = function (sessionId) {
+				const item = history.find(function (row) { return row.sessionId === sessionId; });
+				if (!item || !item.cardPath || busy) return;
+				openPicker();
+				void call("listCards").then(function (result) {
+					const card = (result.cards || []).find(function (row) { return row.path === item.cardPath && !row.readError; });
+					if (card) return preparePlayConversation(card);
+				}).catch(function (err) { setError(String(err && err.message || err)); });
+			};
+			React.useEffect(function () {
+				const listener = function (event) { newGameFrom.current(event.detail && event.detail.sessionId); };
+				window.addEventListener("dsh-tavern-new-game", listener);
+				return function () { window.removeEventListener("dsh-tavern-new-game", listener); };
+			}, []);
 			async function retryPendingOpen() {
 				if (!pendingOpen) return;
 				setBusy(true); setError("");
