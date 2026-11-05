@@ -143,6 +143,7 @@ import { createChatHistoryImportService } from './domain/chat-history-import-ser
 import { appendSessionEvent, sessionEvents } from './domain/session-events.js'
 import { setAgentResolver } from './domain/agent-lookup.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { withHostSession } from './host/sessions.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
@@ -2260,10 +2261,7 @@ export async function apply(ctx) {
     if (!source) throw new Error('找不到要分叉的源对话')
     assertConversationForkable(source, { agentRunning: agentRegistry.get(source.sessionId)?.phase?.kind === 'running' })
     const { state, turn } = await conversationStateAtTurn(source, requestedTurn, readChatRevision)
-    let handle
-    let session = sessionStore.get(source.sessionId) || agentRegistry.get(source.sessionId)?.session
-    if (!session) { handle = await agentRegistry.resume({ resumeSessionId: source.sessionId }); session = handle.agent.session }
-    try {
+    return withHostSession({ sessions: sessionStore, agents: agentRegistry }, source.sessionId, session => {
       const references = upgradeReferences(sessionEvents(session))
       const mapped = structuredClone(state)
       for (const message of mapped.messages || []) {
@@ -2271,7 +2269,7 @@ export async function apply(ctx) {
         if (message.bodyEdit) message.bodyEdit = { ...message.bodyEdit, seq: references.sequence(message.bodyEdit.seq, message.bodyEdit.formatVersion), formatVersion: 4 }
       }
       return { source, state: mapped, turn, atSeq: conversationForkBoundary(session, state, turn) }
-    } finally { if (handle) await handle.dispose() }
+    })
   }
   // Plugin data and media are bound to text versions, whose keys hash the game id:
   // map the fork's visible turns to the new game's keys. A failure never undoes the fork.
@@ -3555,8 +3553,7 @@ export async function apply(ctx) {
     native: async id => {
       const live = sessionDebugEvidence(id)
       if (live.loaded) return live.events
-      const handle = await agentRegistry.resume({ resumeSessionId: id })
-      try { return sessionEvents(handle.agent.session) } finally { await handle.dispose() }
+      return withHostSession({ sessions: sessionStore, agents: agentRegistry }, id, session => sessionEvents(session))
     },
     requiresBrowser: async chat => hasTavernScriptRuntime(chat, (await readCardExtensions(chat.cardPath, chat))?.helperScripts)
   })

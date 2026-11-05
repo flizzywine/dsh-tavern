@@ -2,6 +2,13 @@
   "schemaVersion": 1,
   "contracts": [
     {
+      "id": "session-access",
+      "behavior": "已加载会话只借用，临时恢复的 Agent 在操作完成或失败后释放；冷会话正文投影可恢复",
+      "adapter": "tavern-plugin/lib/host/sessions.js",
+      "packages": ["@deepseek-ai/dsh-session", "@deepseek-ai/dsh-agent"],
+      "tests": ["tests/host-sessions.test.mjs", "tests/game-mode-foreground.test.mjs"]
+    },
+    {
       "id": "tool-admission",
       "behavior": "批准工具作用于最终模型请求和执行入口，执行器只影响当前 Agent",
       "adapter": "tavern-plugin/lib/host/tools.js",
