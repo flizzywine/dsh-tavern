@@ -16,9 +16,15 @@ async function helpers() {
   vm.runInContext(mods.match(/^const modSwitchOn = .*$/m)[0], sandbox)
   vm.runInContext(source.slice(source.indexOf('const STAGE_SWITCH_DEFAULTS='), source.indexOf('// cards select packs')) +
     ';this.api={stageSwitchLayers,stagePrefs,stageActive,stageSwitchPatch,stageEnable};', sandbox)
-  // 配音 › 方式 (StageVoicePage): the narrator's card layer and the mode helpers.
+  // Narrator settings share the card patch and four-state switch semantics.
   vm.runInContext(source.slice(source.indexOf('const NARRATOR_DEFAULT='), source.indexOf('// 通用声音 (tts.reading.dialogueVoice')) +
-    ';Object.assign(this.api,{cardVoiceMode,voiceModePatch,voiceModeWrite,VOICE_MODE_RESET});', sandbox)
+    ';Object.assign(this.api,{narratorLayers,narratorCardPatch,narratorWrite});', sandbox)
+  const componentNames=['InlineGrid','InlineRow','Switch','StageSwitchTag','SwitchRow','SubpageHead','Help','StageSection'];
+  Object.assign(sandbox,{React:{useRef:()=>({current:null}),useEffect:()=>{}},h:(type,props,...children)=>({type,props:props||{},children}),subpageKeys:()=>()=>{},
+    core:{VoiceCataloguePicker:'picker',voiceKey:v=>v?JSON.stringify(v):'',voiceFromKey:k=>k?JSON.parse(k):null}});
+  for(const name of componentNames)sandbox[name]=name;
+  vm.runInContext(source.slice(source.indexOf('function GeneralVoiceField('),source.indexOf('// 「入场演出 ›」'))+
+    ';Object.assign(this.api,{GeneralVoiceField,NarratorVoiceField,StageVoicePage});',sandbox);
   return sandbox.api
 }
 const plain = value => JSON.parse(JSON.stringify(value))
@@ -70,21 +76,27 @@ test('对话气泡 and 舞台模式 are two rows over one declaration; bubbles w
   assert.deepEqual(plain(stageSwitchPatch({stage:{...bubbles, switches:{music:'off'}}}, {dialogue:undefined}).stage), {switches:{music:'off'}})
 })
 
-// 方式 writes the card layer of three four-state switches in one write: 全文朗读 = fullReading on, 角色 / 旁白 off; 分角色 goes
-// back to the global switches when the global mode is 分角色, else 角色配音 on + 全文朗读 off (旁白 untouched); ⟲ clears all three.
-test('配音 › 方式 writes one card patch; the summary reads 分角色 / 全文朗读 / 关', async () => {
-  const {voiceModePatch, voiceModeWrite, VOICE_MODE_RESET, cardVoiceMode, stagePrefs, stageActive} = await helpers()
-  const ext = {stage:{enabled:true, switches:{music:'off'}}}
-  const full = plain(voiceModeWrite(ext, voiceModePatch('full', {fullReading:false})).stage)
-  assert.deepEqual(full, {enabled:true, switches:{music:'off', fullReading:'on', voice:'off'}, narrator:{enabled:false}})
-  assert.deepEqual(plain(voiceModeWrite({stage:full}, voiceModePatch('split', {fullReading:false})).stage), {enabled:true, switches:{music:'off'}})
-  assert.deepEqual(plain(voiceModeWrite({stage:{enabled:true, narrator:{enabled:true}}}, voiceModePatch('split', {fullReading:true})).stage),
-    {enabled:true, narrator:{enabled:true}, switches:{voice:'on', fullReading:'off'}})
-  assert.deepEqual(plain(voiceModeWrite({stage:full}, VOICE_MODE_RESET).stage), {enabled:true, switches:{music:'off'}})
-  const engine = {values:{stageToggles:{dialogue:false, stage:false, voice:true, fullReading:false}}}
-  const prefs = stagePrefs({stage:full}, engine)
-  assert.equal(cardVoiceMode(prefs, false), 'full'); assert.equal(stageActive(prefs).voice, false, '全文朗读 turns 角色配音 off')
-  assert.equal(cardVoiceMode(stagePrefs({stage:{enabled:true}}, engine), false), 'split')
-  assert.equal(cardVoiceMode(stagePrefs({stage:{enabled:true, switches:{voice:'off'}}}, engine), false), 'off')
-  assert.equal(cardVoiceMode(stagePrefs({stage:{enabled:false}}, engine), true), 'off', 'no bubbles: 关')
+const nodes = node => !node || typeof node !== 'object' ? [] : [node,...(node.children||[]).flat(Infinity).flatMap(nodes)]
+for (const voice of [{browser:'browser-one'},{serviceId:'service-one',voice:'speaker-one'}]) {
+  test('narrator card voice switch writes and removes its override: '+JSON.stringify(voice), async () => {
+    const api=await helpers(),writes=[];
+    const ctx={ext:{stage:{enabled:true}},writer:{reading:{narrator:{voice,enabled:false}},write:fn=>writes.push(plain(fn(ctx.ext)))}};
+    const toggle=nodes(api.NarratorVoiceField({ctx})).find(n=>n.type==='Switch');
+    toggle.props.onChange(true);
+    assert.deepEqual(writes[0].stage.narrator.voice,voice);
+    ctx.ext=writes[0];
+    nodes(api.NarratorVoiceField({ctx})).find(n=>n.type==='Switch').props.onChange(false);
+    assert.deepEqual(writes[1],{stage:{enabled:true}});
+    const page=()=>nodes(api.StageVoicePage({ctx:{...ctx,active:{dialogue:true}},onBack:()=>{}}));
+    ctx.ext={stage:{enabled:true}};
+    assert.equal(page().some(n=>n.type===api.NarratorVoiceField),false);
+    ctx.ext.stage.narrator={enabled:true};
+    assert.equal(page().some(n=>n.type===api.NarratorVoiceField),true);
+  })
+}
+test('general voice supports silent without changing narrator settings',async()=>{
+  const api=await helpers(),writes=[];
+  const field=api.GeneralVoiceField({ctx:{writer:{reading:{},setReading:p=>writes.push(plain(p))}}});
+  nodes(field).find(n=>n.type==='picker').props.onPick('silent');
+  assert.deepEqual(writes,[{dialogueVoice:{silent:true}}]);
 })

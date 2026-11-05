@@ -170,3 +170,21 @@ for (const template of [false, true]) test(`catalogue ${template ? 'template' : 
   assert.ok(reads.length > 0)
   assert.ok(reads.every(input => input.hash === hash && input.expectedRevision === 'r1' && (template ? input.templateId === ref.templateId : input.packId === ref.packId)))
 })
+for (const voice of [{browser:'Kyoko'}, {serviceId:'mm',voice:'female-shaonv'}]) test('narrator without its own voice uses general voice: ' + JSON.stringify(voice), async t => {
+  const calls = [], tts = voiceService({dialogueVoice:voice,narrator:{enabled:true,voice:null}})
+  tts.registerProvider('test', {id:'mm',kind:'minimax',revision:'r1',capabilities:{},health:async () => ({state:'ready'}),catalog:async () => [],
+    synthesize:async input => { calls.push(input); return audio }})
+  const speech = createLineSpeech({getTts:() => tts})
+  t.after(() => { speech.dispose(); tts.dispose() })
+  const result = await speech.speak({text:'Night falls.',narration:true})
+  if (voice.browser) assert.deepEqual(result,{browser:true,voice:voice.browser,text:'Night falls.'})
+  else { assert.match(result.url,/^audio:/); assert.equal(calls.length,1) }
+})
+
+test('silent general voice silences unbound speakers and fallback narration', async t => {
+  const tts = voiceService({dialogueVoice:{silent:true},narrator:{enabled:true,voice:null}})
+  const speech = createLineSpeech({getTts:() => tts})
+  t.after(() => { speech.dispose(); tts.dispose() })
+  for (const line of [{speaker:'NPC',text:'Hello.'}, {narration:true,text:'Night falls.'}])
+    assert.deepEqual(await speech.speak(line),{skip:true,reason:'silent'})
+})

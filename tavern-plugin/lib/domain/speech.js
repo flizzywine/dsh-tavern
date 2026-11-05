@@ -75,6 +75,7 @@ export function createLineSpeech({ getTts, getLibrary }) {
     return voices.get(key)
   }
   async function bindingLine(tts, binding, text, emotion) {
+    if (binding?.silent) return {skip:true, reason:'silent'}
     if (binding?.templateId || binding?.voiceId) {
       const selected = await catalogueTtsVoice(getLibrary(),tts,binding)
       if (selected.browser !== undefined) return {browser:true,voice:selected.browser,text}
@@ -122,9 +123,9 @@ export function createLineSpeech({ getTts, getLibrary }) {
     if (!text) return { skip: true, reason: 'empty' }
     if (narration) {
       if (figures) return await figureLine(tts, figures, NARRATOR_ALIAS, text, emotion) || { skip: true, reason: 'narration' }
-      const narrator = effectiveNarrator(extension, tts.reading().narrator)
+      const narrator = effectiveNarrator(extension, tts.reading().narrator, tts.reading().dialogueVoice)
       // A figure narrator ({packId, figureId}) speaks only where the stage resolves her.
-      if (!narrator.enabled || !narrator.voice || narrator.voice.browser === undefined && !narrator.voice.serviceId && !narrator.voice.voiceId && !narrator.voice.templateId) return { skip: true, reason: 'narration' }
+      if (!narrator.enabled || narrator.voice && !narrator.voice.silent && narrator.voice.browser === undefined && !narrator.voice.serviceId && !narrator.voice.voiceId && !narrator.voice.templateId) return { skip: true, reason: 'narration' }
       return bindingLine(tts, narrator.voice, text, emotion)
     }
     const name = String(speaker || '').trim()

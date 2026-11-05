@@ -6059,6 +6059,54 @@ window.__ModuleLoader__.load({
 		      error&&h('p',{className:'ap-alert',role:'alert'},error),
 		      h(Actions,null,busy&&h('span',{className:'ap-busy'},h(Spinner),'正在处理…'),h(Button,{disabled:busy,onClick:onClose},uncertain?'关闭并检查':'取消'),h(Button,{className:danger?'ap-danger-text':'',disabled:busy||uncertain,onClick:run},confirmLabel)));
 		  }
+		  // Shared voice catalogue picker for core and stage settings.
+		  const voiceKey=voice=>!voice?'':voice.silent?'silent':voice.browser?'browser:'+voice.browser:voice.serviceId?'service:'+JSON.stringify([voice.serviceId,voice.voice])
+		    :voice.templateId?'template:'+voice.templateId:voice.voiceId?'pack:'+JSON.stringify([voice.packId,voice.voiceId]):'figure:'+JSON.stringify([voice.packId,voice.figureId]);
+		  function voiceFromKey(key) {
+		    if(!key)return null;
+		    if(key==='silent')return {silent:true};
+		    if(key.startsWith('template:'))return {templateId:key.slice(9)};
+		    if(key.startsWith('pack:')){const [packId,voiceId]=JSON.parse(key.slice(5));return {packId,voiceId};}
+		    if(key.startsWith('browser:'))return {browser:key.slice(8)};
+		    if(key.startsWith('service:')){const [serviceId,voice]=JSON.parse(key.slice(8));return {serviceId,voice};}
+		    const [packId,figureId]=JSON.parse(key.slice(7));
+		    return {packId,figureId};
+		  }
+		  function generalServiceVoices(tts,s) {
+		    if(s.voiceList==='preset')return tts.call('listOnlinePresetVoices',{provider:s.kind,serviceId:s.id});
+		    if(s.voiceList==='fish-recommended')return tts.call('listRecommendedFishVoices',{serviceId:s.id});
+		    return tts.call('providerVoices',{serviceId:s.id});
+		  }
+		  async function generalVoiceOptions(binding) {
+		    const browser=typeof window!=='undefined'&&window.speechSynthesis?await browserSpeechVoiceList(window.speechSynthesis):[];
+		    const services=binding.tts?(await binding.tts.call('voiceServices')).services.filter(s=>s.kind!=='browser'&&s.state!=='needs-key'):[];
+		    const groups=await Promise.all(services.map(s=>generalServiceVoices(binding.tts,s).then(r=>({s,voices:r?.status==='error'?[]:r?.voices||[]}),()=>({s,voices:[]}))));
+		    const catalogue=await binding.service.listVoiceCatalogue();
+		    const seen=new Set();
+		    return [...catalogue.voices.map(v=>({value:voiceKey(v.ref),label:v.name,group:v.packName||'我的模板'})),...browser.map(v=>({value:voiceKey({browser:v.id}),label:v.label||v.id,group:'浏览器朗读'})),
+		      ...groups.flatMap(({s,voices})=>voices.map(v=>({value:voiceKey({serviceId:s.id,voice:v.voiceId||v.id}),label:v.name||v.label||v.voiceId||v.id,group:s.label})))]
+		      .filter(o=>!seen.has(o.value)&&seen.add(o.value));
+		  }
+		  const GENERAL_DEFAULT='浏览器 · 系统默认';
+		  function VoiceCataloguePicker({binding,value,onPick,label,leading=[]}) {
+		    const [wanted,setWanted]=React.useState(false),[query,setQuery]=React.useState('');
+		    const list=useVoiceLoad(()=>wanted?generalVoiceOptions(binding):null,[binding,wanted]);
+		    const voice=voiceFromKey(value),options=list.value||[];
+		    const found=options.find(o=>o.value===value);
+		    const shown=leading.find(o=>o.value===value)?.label||(!voice?GENERAL_DEFAULT:found?found.group+' · '+found.label:voice.browser?'浏览器 · '+voice.browser:voice.voice||voice.voiceId||voice.templateId);
+		    const needle=voiceNeedle(query.trim()),filtered=options.filter(o=>voiceMatches(needle,[o.label,o.group]));
+		    const pick=(close,key)=>{close();setQuery('');if(key!==value)onPick(key);};
+		    const item=(close,o)=>h('button',{key:o.value||'default',type:'button',role:'menuitemradio','aria-checked':o.value===value,className:'ap-menu-item',onClick:()=>pick(close,o.value)},
+		      h('span',null,o.label),o.value===value&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'})));
+		    const content=close=>[
+		      h(PackSearchBox,{key:'search',label:'搜索声音',placeholder:'搜索声音',value:query,onChange:setQuery,className:'is-compact'}),
+		      ...(!needle?leading.map(o=>item(close,o)):[]),
+		      ...filtered.flatMap((o,i)=>[o.group&&(i===0||filtered[i-1].group!==o.group)?h('div',{key:'g:'+o.group,role:'presentation',className:'fork-inline-group'},o.group):null,item(close,o)]),
+		      !list.value?h(Spinner,{key:'loading'}):needle&&!filtered.length?h(EmptyState,{key:'empty',compact:true,text:'没有找到「'+query.trim()+'」'}):null];
+		    return h(Popover,{label,className:'ap-general-voice',fit:true,limit:360,content,
+		        trigger:({open,toggle})=>h('button',{type:'button',className:'fork-inline-trigger','aria-haspopup':'menu','aria-expanded':open,'aria-label':label+'：'+shown,
+		          onClick:()=>{setWanted(true);toggle();}},h('span',{className:'fork-inline-text'},shown),h(Glyph,{name:'chevDown'}))});
+		  }
 		  // one declaration-driven renderer for a widget's shared pack defaults (its only appearance settings).
 		  // Galgame panel language: hairline rows, no boxes inside the dialog, no grey notes —
 		  // explanations live in 「?」 tips, states that need attention are ⚠ chips beside the field they belong to.
@@ -12681,7 +12729,7 @@ window.__ModuleLoader__.load({
 		    const notify=()=>{for(const fn of [...listeners])fn();};
 		    const take=next=>{({CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stageSwitchTag, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter}=next);};
 		    // The exact names the stage pages reference from this factory (its declarations and parameters) and from the core client.
-		    const names={React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+		    const names={VoiceCataloguePicker, voiceKey, voiceFromKey, generalVoiceOptions, React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
 		      EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
 		    return {names, get views(){return views;}, bound:()=>views!==null,
 		      bind(next){views=next;take(next);live2dKit=next.live2dKit||live2dOption;notify();return()=>{if(views!==next)return;views=null;take({});live2dKit=live2dOption;notify();};},
@@ -33917,94 +33965,13 @@ function tavernFloorHeightRecall(key, width) {
         function tavernReplyBody(node) {
             return (node?.blocks || []).filter(block => block.kind === "text").map(block => String(block.text || "")).join("\n");
         }
-        // 全文朗读 (config.voice.fullReading, host-decided): a reply this page saw finish streaming is read once, whole, in
-        // 通用声音 — one non-narration part with no speaker. Mounting, a refresh, history or a chat switch never reads; a new
-        // turn, any 🔊 or leaving the chat stops it. On the stage the stage reads it page by page (its text index) instead.
-        // Every mounted reply action reports the chat's one reading signal; identical signals are dropped.
-        const tavernFullReading = (function () {
-            const sessions = new Map(), listeners = new Set();
-            let reading = null;
-            function emit() { listeners.forEach(fn => fn()); }
-            function stop(sessionId) {
-                if (!reading || sessionId && reading.sessionId !== sessionId) return;
-                const lease = reading; reading = null;
-                tavernSpeech.stop(lease.owner);
-                emit();
-            }
-            function session(sessionId) {
-                let state = sessions.get(sessionId);
-                if (!state) sessions.set(sessionId, state = { count: 0, signal: null, armed: false, before: null, latest: null, generation: 0 });
-                return state;
-            }
-            async function read(sessionId, state, messageId, source) {
-                const generation = ++state.generation;
-                const data = await rpc("getDialogueBubbles", { sessionId: sessionId }, sessionId).catch(() => null);
-                if (generation !== state.generation || sessions.get(sessionId) !== state || data?.config?.voice?.fullReading !== true) return;
-                if (!ttsClientAvailable() || typeof galActive !== "undefined" && galActive.get() === sessionId) return;
-                const text = tavernBodySpeechParts(source).map(part => part.text).join(" ");
-                if (!text) return;
-                stop();
-                const owner = {};
-                reading = { sessionId, messageId, owner };
-                emit();
-                tavernSpeech.speak({ sessionId, speaker: "", parts: [{ text, narration: false }], body: true, owner }).finally(function () {
-                    if (reading?.owner === owner) { reading = null; emit(); }
-                });
-            }
-            // signal: [streaming or a new player input, the latest reply's message id, its body while idle].
-            function observe(sessionId, signal) {
-                const state = session(sessionId);
-                if (state.signal === signal) return;
-                state.signal = signal;
-                const [busy, messageId, source] = JSON.parse(signal);
-                if (busy) {
-                    if (!state.armed) { state.armed = true; state.before = state.latest; }
-                    state.generation++;
-                    stop(sessionId);
-                    return;
-                }
-                state.latest = messageId;
-                // The finished reply may land a snapshot after the stream ends: stay armed until a new reply is there.
-                if (!state.armed || !messageId || messageId === state.before) return;
-                state.armed = false;
-                if (source) void read(sessionId, state, messageId, source);
-            }
-            function attach(sessionId) {
-                const state = session(sessionId);
-                state.count++;
-                return function () {
-                    state.count--;
-                    setTimeout(function () {
-                        if (state.count > 0 || sessions.get(sessionId) !== state) return;
-                        sessions.delete(sessionId); state.generation++;
-                        stop(sessionId);
-                    }, 0);
-                };
-            }
-            return { observe, attach, stop,
-                reading: (sessionId, messageId) => Boolean(reading && reading.sessionId === sessionId && reading.messageId === messageId),
-                subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); } };
-        })();
-        function tavernFullReadingSignal(snapshot) {
-            const nodes = snapshot?.legacy?.nodes || [];
-            const busy = Boolean(snapshot?.legacy?.partial) || nodes[nodes.length - 1]?.kind === "user";
-            const messageId = latestTavernAssistantMessageId(snapshot);
-            const node = !busy && messageId ? nodes.find(item => item.kind === "assistant" && item.messageId === messageId) : null;
-            return JSON.stringify([busy, messageId, node ? tavernReplyBody(node) : ""]);
-        }
-        // 🔊 on a reply, while the voice service is on (ttsClient). Every part is sent: the host skips narration while the
-        // narrator is off.
         function TavernBodySpeechAction(props) {
             const available = usePackRevision(ttsClientAvailable);
             const source = props.useChat(function (snapshot) {
                 return tavernReplyBody((snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId));
             });
-            const signal = props.useChat(tavernFullReadingSignal);
-            React.useEffect(() => tavernFullReading.attach(props.sessionId), [props.sessionId]);
-            React.useEffect(() => tavernFullReading.observe(props.sessionId, signal), [props.sessionId, signal]);
-            const fullReading = React.useSyncExternalStore(tavernFullReading.subscribe, () => tavernFullReading.reading(props.sessionId, props.messageId));
             const parts = React.useMemo(() => tavernBodySpeechParts(source), [source]);
-            return available && source ? React.createElement(TavernSpeakButton, { key: JSON.stringify([props.sessionId, props.messageId, source]), sessionId: props.sessionId, parts, body: true, disabled: !parts.length, fullReading }) : null;
+            return available && source ? React.createElement(TavernSpeakButton, { key: JSON.stringify([props.sessionId, props.messageId, source]), sessionId: props.sessionId, parts, body: true, disabled: !parts.length }) : null;
         }
         /** A second press stops the current line/body, including synthesis still in flight. */
         function TavernSpeakButton(props) {
@@ -34012,13 +33979,11 @@ function tavernFloorHeightRecall(key, width) {
             const [playing, setPlaying] = React.useState(false);
             const run = React.useRef(null);
             React.useEffect(function () { return function () { if (run.current) { tavernSpeech.stop(run.current); run.current = null; } }; }, []);
-            // 全文朗读 of this reply shows as playing; pressing stops it.
-            const shown = playing || props.fullReading === true;
+            const shown = playing;
             const label = shown ? "停止朗读" : props.body ? "朗读正文" : "朗读这句";
             return h("button", { type: "button", className: "dsh-tavern-speak" + (shown ? " is-playing" : ""), "aria-label": label, disabled: props.disabled, title: props.disabled ? "本轮没有可朗读的正文" : label,
                 onClick: function (event) {
                     event.stopPropagation();
-                    if (!run.current && props.fullReading) { tavernFullReading.stop(props.sessionId); return; }
                     if (run.current) { tavernSpeech.stop(run.current); run.current = null; setPlaying(false); return; }
                     const token = {};
                     run.current = token;

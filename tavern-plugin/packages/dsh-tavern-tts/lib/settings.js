@@ -44,9 +44,10 @@ export function readingOf(settings) {
 }
 const plainObject = v => v !== null && typeof v === 'object' && !Array.isArray(v)
 const voiceName = v => typeof v === 'string' && v.trim() !== '' && v.length <= 200 && !/[\u0000-\u001f]/.test(v)
-function readingVoice(v) {
+function readingVoice(v, allowSilent = false) {
   if (v === null) return null
   const keys = plainObject(v) ? Object.keys(v).sort().join() : ''
+  if (allowSilent && keys === 'silent' && v.silent === true) return {silent:true}
   if (keys === 'browser' && voiceName(v.browser)) return { browser: v.browser }
   if (keys === 'serviceId,voice' && PROVIDER_ID.test(v.serviceId) && voiceName(v.voice)) return { serviceId: v.serviceId, voice: v.voice }
   const uuid = s => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s)
@@ -58,7 +59,7 @@ function readingVoice(v) {
 export function patchReading(current, patch) {
   const next = readingOf({ reading: current })
   if (!plainObject(patch) || Object.keys(patch).some(k => !['dialogueVoice','narrator'].includes(k))) fail('INVALID_READING_VOICE')
-  if (Object.hasOwn(patch,'dialogueVoice')) next.dialogueVoice = readingVoice(patch.dialogueVoice)
+  if (Object.hasOwn(patch,'dialogueVoice')) next.dialogueVoice = readingVoice(patch.dialogueVoice, true)
   if (patch.narrator !== undefined) {
     const n = patch.narrator
     if (!plainObject(n) || Object.keys(n).some(k => !['enabled','voice'].includes(k))) fail('INVALID_READING_VOICE')

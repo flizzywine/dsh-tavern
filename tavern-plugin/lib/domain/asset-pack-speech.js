@@ -43,10 +43,9 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
   // The figure's declared voice, or null when she has none here (voice off on this card, unknown name, figure off, no voice).
   async function declared(alias) {
     const engine = getEngine?.(), stage = effectiveCardStage(presentation.extension, engine)
-    // 通用声音: a browser system voice ('' = its default) or a configured service's voice. Under 全文朗读 the narrator's
-    // pages read in it too.
-    if (alias === GENERAL_VOICE && (stage.voice || stage.fullReading) || alias === NARRATOR_VOICE && stage.fullReading) {
+    if (alias === GENERAL_VOICE && stage.voice) {
       const tts = getTts(), voice = tts?.apiVersion === 1 ? tts.reading().dialogueVoice : null
+      if (voice?.silent) return null
       return voice?.voiceId || voice?.templateId ? {catalogue:voice} : voice?.serviceId ? {service:voice} : {browser:voice?.browser ?? ''}
     }
     if (!stage.voice || alias === GENERAL_VOICE) return null
@@ -54,9 +53,9 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     // configured service), whatever her 配音语言. Its global layer is tts.reading().narrator.
     if (alias === NARRATOR_VOICE) {
       const tts = getTts(), global = tts?.apiVersion === 1 ? tts.reading().narrator : null
-      const narrator = effectiveNarrator(presentation.extension, global), voice = narrator.enabled ? narrator.voice : null
-      if (!voice) return null
-      if (voice.browser) return {browser:voice.browser}
+      const narrator = effectiveNarrator(presentation.extension, global, tts?.apiVersion === 1 ? tts.reading().dialogueVoice : null), voice = narrator.enabled ? narrator.voice : null
+      if (!narrator.enabled || voice?.silent) return null
+      if (!voice || voice.browser !== undefined) return {browser:voice?.browser ?? ''}
       if (voice.serviceId) return {service:voice}
       if (voice.voiceId || voice.templateId) return {catalogue:voice}
       const resolved = await presentation.resolveFigure(voice)
