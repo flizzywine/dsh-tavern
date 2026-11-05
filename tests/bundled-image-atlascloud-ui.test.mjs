@@ -394,3 +394,32 @@ test('worldbook Atlas compatibility checkbox persists applicability for custom c
   assert.deepEqual(h.calls.map(call => call.pathname), ['/worldbook-entry', '/worldbook?format=tags'])
   assert.equal(atlasCheckbox().props.checked, false, 'unchecking removes only atlascloud')
 })
+
+for (const provider of ['openai', 'custom']) {
+  test(`${provider}: OpenAI Images channel offers 画质 自动/低/中/高 and saves the choice in channel options`, async () => {
+    const existing = channel(provider, provider === 'custom' ? { options: { apiProtocol: 'openai' } } : {})
+    const h = harness({ config: { imageBackend: provider, activeImageChannel: existing.id, imageChannels: [existing] } })
+    const quality = () => h.control('select', '画质')
+    assert.equal(quality().props.value, '', 'a channel that never chose a quality shows 自动')
+    assert.deepEqual(walk(quality(), node => node.type === 'option').map(node => [node.props.value, text(node)]),
+      [['', '自动（默认）'], ['low', '低（最快）'], ['medium', '中'], ['high', '高（最慢）']])
+    await h.change('select', '画质', 'low')
+    assert.equal(quality().props.value, 'low')
+    await h.click('保存并测试连接')
+    assert.equal(h.savedConfig.imageChannels[0].options.quality, 'low')
+    await h.change('select', '画质', '')
+    await h.click('保存并测试连接')
+    assert.equal(h.savedConfig.imageChannels[0].options.quality, '', 'back to 自动 saves the empty value the provider treats as unset')
+  })
+}
+
+test('画质 keeps a previously typed value and is hidden for protocols without a quality parameter', () => {
+  const typed = channel('openai', { options: { quality: 'auto' } })
+  const kept = harness({ config: { imageBackend: 'openai', activeImageChannel: typed.id, imageChannels: [typed] } })
+  assert.equal(kept.control('select', '画质').props.value, 'auto')
+  for (const [provider, options] of [['gemini', {}], ['grok', {}], ['seedream', {}], ['qwen', {}], ['novelai', {}], ['custom', { apiProtocol: 'seedream' }], ['custom', { apiProtocol: 'atlascloud' }]]) {
+    const existing = channel(provider, { options })
+    const h = harness({ config: { imageBackend: provider, activeImageChannel: existing.id, imageChannels: [existing] } })
+    assert.equal(walk(h.tree, node => node.props['aria-label'] === '画质').length, 0, `${provider} ${options.apiProtocol || ''}`)
+  }
+})

@@ -3396,12 +3396,12 @@ function versionsOf(jobId) {
           ['polyexponential', 'Polyexponential'],
         ]
         const storedOption = key => String((localFields.options || {})[key] ?? '')
-        const selectOptionField = (key, caption, items, fallback) => {
+        const selectOptionField = (key, caption, items, fallback, hint) => {
           const stored = storedOption(key)
           const current = stored || fallback
           const known = items.some(([value]) => value === current)
           const list = known ? items : [[current, current + '（当前值，不在列表里）'], ...items]
-          return h('div', { style: { marginBottom: '10px' } }, label(caption),
+          return h('div', { style: { marginBottom: '10px' } }, label(caption, hint),
             h('select', { 'aria-label': caption, value: current, style: full(), onChange: e => updateOption(key, e.target.value) },
               list.map(([value, text]) => h('option', { key: value, value, style: optStyle }, text))))
         }
@@ -3580,7 +3580,8 @@ function versionsOf(jobId) {
                 h('select', { 'aria-label': '多样性', value: String((localFields.options || {}).varietyBoost ?? false), style: full(), onChange: e => updateOption('varietyBoost', e.target.value === 'true') },
                   h('option', { value: 'false', style: optStyle }, '关（默认）'),
                   h('option', { value: 'true', style: optStyle }, '开（Variety Boost）')))) : null,
-            protocolBackend === 'openai' ? optionField('quality', '质量', 'auto') : null,
+            // 画质 only where the wire API has a quality tier (OpenAI Images, gpt-image models). 自动 saves an empty value, so requests stay exactly as before.
+            protocolBackend === 'openai' ? selectOptionField('quality', '画质', [['', '自动（默认）'], ['low', '低（最快）'], ['medium', '中'], ['high', '高（最慢）']], '', '仅 gpt-image 模型生效；越高越慢') : null,
             protocolBackend === 'novelai' ? h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '10px 12px' } },
               sizeField('sizeWidth', '宽（像素）', '如 832', legacySize.width),
               sizeField('sizeHeight', '高（像素）', '如 1216', legacySize.height),
