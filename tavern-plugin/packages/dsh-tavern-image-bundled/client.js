@@ -2617,6 +2617,9 @@ function versionsOf(jobId) {
       const [note, setNote] = React.useState('')
       // 正文图片显示大小：输入过程只改草稿（绝不边输边发请求），点「保存」才发一次 /config。
       // null = 跟随已保存的配置；保存成功后回到 null，输入框显示服务端确认过的值。
+      // 画风预设每套默认收起，展开状态只活在界面上。必须放在组件顶层：stylePresetCard 是普通渲染
+      // 函数并从 tab 分支里调用，在它内部用 Hook 会让钩子数量随切页变化。
+      const [openStylePresets, setOpenStylePresets] = React.useState({})
       const [displayWidthDraft, setDisplayWidthDraft] = React.useState(null)
       const [displayWidthNote, setDisplayWidthNote] = React.useState('')
       // 宽度预览用的样例图：最近一张出好的插图。抓不到就退回示意图。
@@ -5767,10 +5770,17 @@ function versionsOf(jobId) {
         )
       }
 
-      function stylePresetCard() {
+      function stylePresetCard(openPresets, setOpenPresets) {
         const presets = Array.isArray(config.stylePresets) ? config.stylePresets : []
         const active = String(config.activePreset ?? '')
         const activeName = (presets.find(p => String(p.id) === active) || {}).name
+        // 每套预设默认收起：条目一多全展开很占屏。展开状态由 SettingsPanel 传进来，不进配置。
+        const presetKey = (item, index) => String(item.id || index)
+        const anyPresetOpen = presets.some((item, index) => openPresets[presetKey(item, index)])
+        const expandPreset = id => setOpenPresets(all => Object.assign({}, all, { [id]: !all[id] }))
+        const toggleAllPresets = () => setOpenPresets(anyPresetOpen
+          ? {}
+          : Object.fromEntries(presets.map((item, index) => [presetKey(item, index), true])))
 
         const savePresets = (next) => save({ stylePresets: next })
         const patch = (i, patchObj) => {
@@ -5779,12 +5789,13 @@ function versionsOf(jobId) {
           savePresets(next)
         }
         const add = () => {
-          const next = presets.concat([{
+          const created = {
             id: 'p' + Date.now(), name: '画风 ' + (presets.length + 1),
             artist: '', negative: '', position: 'prefix', enabled: true,
-          }])
-          savePresets(next)
-          save({ activePreset: next[next.length - 1].id })
+          }
+          savePresets(presets.concat([created]))
+          save({ activePreset: created.id })
+          setOpenPresets(all => Object.assign({}, all, { [created.id]: true }))
         }
         const remove = (i) => {
           if (!confirm('删除这套画风？')) return
@@ -5835,69 +5846,85 @@ function versionsOf(jobId) {
           h('div', { style: S.row },
             h('button', { style: buttonStyle, onClick: add }, '➕ 新增一套'),
             h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px' }), onClick: () => save({ activePreset: '' }) }, '不用预设（回默认）'),
+            presets.length ? h('button', {
+              style: Object.assign({}, buttonStyle, { fontSize: '12px' }),
+              title: '展开或收起下面每一套的详细内容',
+              onClick: toggleAllPresets,
+            }, anyPresetOpen ? '▾ 收起全部' : '▸ 展开全部') : null,
           ),
           presets.length ? h('div', { style: { marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' } },
-            presets.map((p, i) => h('div', {
-              key: p.id || i,
-              style: {
-                borderRadius: '10px', padding: '10px 12px',
-                border: String(p.id) === active ? '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 75%, transparent)' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)',
-                background: String(p.id) === active ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent)' : 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)',
-              },
-            },
-              h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' } },
-                h('input', { type: 'radio', name: 'rphub-preset', checked: String(p.id) === active, title: '用这一套', onChange: () => save({ activePreset: String(p.id) }) }),
-                h('input', {
-                  type: 'text', value: p.name || '', placeholder: '这套叫什么（古风写实 / 二次元厚涂…）',
-                  style: Object.assign({}, S.input, { flex: 1, minWidth: '140px' }),
-                  onChange: e => patch(i, { name: e.target.value }),
-                }),
-                h('select', {
-                  value: p.position === 'suffix' ? 'suffix' : 'prefix',
-                  style: Object.assign({}, S.input, { width: '126px' }),
-                  onChange: e => patch(i, { position: e.target.value }),
-                  title: '这套词放在提示词的最前还是最后',
+            presets.map((p, i) => {
+              const presetId = presetKey(p, i)
+              const expanded = openPresets[presetId] === true
+              return h('div', {
+                key: p.id || i,
+                style: {
+                  borderRadius: '10px', padding: '10px 12px',
+                  border: String(p.id) === active ? '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 75%, transparent)' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)',
+                  background: String(p.id) === active ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent)' : 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)',
                 },
-                  h('option', { value: 'prefix', style: optStyle }, '放在最前面'),
-                  h('option', { value: 'suffix', style: optStyle }, '放在最后面'),
+              },
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: expanded ? '8px' : '0' } },
+                  h('input', { type: 'radio', name: 'rphub-preset', checked: String(p.id) === active, title: '用这一套', onChange: () => save({ activePreset: String(p.id) }) }),
+                  h('input', {
+                    type: 'text', value: p.name || '', placeholder: '这套叫什么（古风写实 / 二次元厚涂…）',
+                    style: Object.assign({}, S.input, { flex: 1, minWidth: '140px' }),
+                    onChange: e => patch(i, { name: e.target.value }),
+                  }),
+                  h('select', {
+                    value: p.position === 'suffix' ? 'suffix' : 'prefix',
+                    style: Object.assign({}, S.input, { width: '126px' }),
+                    onChange: e => patch(i, { position: e.target.value }),
+                    title: '这套词放在提示词的最前还是最后',
+                  },
+                    h('option', { value: 'prefix', style: optStyle }, '放在最前面'),
+                    h('option', { value: 'suffix', style: optStyle }, '放在最后面'),
+                  ),
+                  h('button', {
+                    style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 9px' }),
+                    title: expanded ? '收起这套的详细内容' : '展开这套的详细内容',
+                    onClick: () => expandPreset(presetId),
+                  }, expanded ? '▾' : '▸'),
+                  h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px', borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }), onClick: () => remove(i) }, '删'),
                 ),
-                h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px', borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }), onClick: () => remove(i) }, '删'),
-              ),
-              h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '4px' } }, '正面：画师串 / 风格词'),
-              h('textarea', {
-                value: p.artist || '', placeholder: '(@artist_a:1.1), (@artist_b:1.0), masterpiece, best quality',
-                style: ta('72px'),
-                onChange: e => patch(i, { artist: e.target.value }),
-              }),
-              h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', margin: '6px 0 4px' } }, '这套的负面固定词（会并进负面）'),
-              h('textarea', {
-                value: p.negative || '', placeholder: 'worst quality, low quality, bad hands',
-                style: ta('46px'),
-                onChange: e => patch(i, { negative: e.target.value }),
-              }),
-              h('details', { style: { marginTop: '10px' } },
-                h('summary', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', cursor: 'pointer', padding: '2px 0' } }, '这套自己的生成参数（采样 / 步数 / CFG / NovelAI 高级…；留空 = 跟随渠道）'),
-                h('div', { style: { marginTop: '8px', padding: '12px 14px', borderRadius: '8px', background: 'var(--dsw-specific-input-major)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 18%, transparent)' } },
-                  paramGroupTitle('采样', true),
-                  h('div', { style: PARAM_ROW },
-                    paramSelect(i, p, 'sampler', '采样器', PRESET_SAMPLERS),
-                    paramSelect(i, p, 'noiseSchedule', '噪点表', PRESET_NOISE)),
-                  paramGroupTitle('步数与 CFG'),
-                  h('div', { style: PARAM_ROW },
-                    paramNumber(i, p, 'steps', '步数', '1'),
-                    paramNumber(i, p, 'cfg', 'CFG', '0.1'),
-                    paramNumber(i, p, 'cfgRescale', 'CFG Rescale', '0.01')),
-                  paramGroupTitle('NovelAI 高级'),
-                  h('div', { style: PARAM_ROW },
-                    paramNumber(i, p, 'uncondScale', 'Uncond Scale', '0.1'),
-                    paramNumber(i, p, 'skipCfgAboveSigma', 'Skip CFG Sigma', '0.1')),
-                  paramGroupTitle('官方预设（NovelAI）'),
-                  h('div', { style: PARAM_ROW },
-                    paramSelect(i, p, 'ucPreset', '负面预设（ucPreset）', PRESET_UC),
-                    paramBool(i, p, 'qualityToggle', '质量词（qualityToggle）'),
-                    paramBool(i, p, 'varietyBoost', '多样性（variety_boost）'))),
-              ),
-            )),
+                expanded ? h('div', null,
+                  h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '4px' } }, '正面：画师串 / 风格词'),
+                  h('textarea', {
+                    value: p.artist || '', placeholder: '(@artist_a:1.1), (@artist_b:1.0), masterpiece, best quality',
+                    style: ta('72px'),
+                    onChange: e => patch(i, { artist: e.target.value }),
+                  }),
+                  h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', margin: '6px 0 4px' } }, '这套的负面固定词（会并进负面）'),
+                  h('textarea', {
+                    value: p.negative || '', placeholder: 'worst quality, low quality, bad hands',
+                    style: ta('46px'),
+                    onChange: e => patch(i, { negative: e.target.value }),
+                  }),
+                  h('details', { style: { marginTop: '10px' } },
+                    h('summary', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', cursor: 'pointer', padding: '2px 0' } }, '这套自己的生成参数（采样 / 步数 / CFG / NovelAI 高级…；留空 = 跟随渠道）'),
+                    h('div', { style: { marginTop: '8px', padding: '12px 14px', borderRadius: '8px', background: 'var(--dsw-specific-input-major)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 18%, transparent)' } },
+                      paramGroupTitle('采样', true),
+                      h('div', { style: PARAM_ROW },
+                        paramSelect(i, p, 'sampler', '采样器', PRESET_SAMPLERS),
+                        paramSelect(i, p, 'noiseSchedule', '噪点表', PRESET_NOISE)),
+                      paramGroupTitle('步数与 CFG'),
+                      h('div', { style: PARAM_ROW },
+                        paramNumber(i, p, 'steps', '步数', '1'),
+                        paramNumber(i, p, 'cfg', 'CFG', '0.1'),
+                        paramNumber(i, p, 'cfgRescale', 'CFG Rescale', '0.01')),
+                      paramGroupTitle('NovelAI 高级'),
+                      h('div', { style: PARAM_ROW },
+                        paramNumber(i, p, 'uncondScale', 'Uncond Scale', '0.1'),
+                        paramNumber(i, p, 'skipCfgAboveSigma', 'Skip CFG Sigma', '0.1')),
+                      paramGroupTitle('官方预设（NovelAI）'),
+                      h('div', { style: PARAM_ROW },
+                        paramSelect(i, p, 'ucPreset', '负面预设（ucPreset）', PRESET_UC),
+                        paramBool(i, p, 'qualityToggle', '质量词（qualityToggle）'),
+                        paramBool(i, p, 'varietyBoost', '多样性（variety_boost）'))),
+                  ),
+                ) : null,
+              )
+            }),
           ) : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', padding: '10px 0' } }, '还没有画风预设。点「➕ 新增一套」开始。'),
 
           h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '14px', borderTop: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)', paddingTop: '12px', marginBottom: '6px' } }, '没选预设时用的默认值'),
@@ -6159,7 +6186,7 @@ function versionsOf(jobId) {
           generationModeCard(),
           planTab(),
           section('画风'),
-          stylePresetCard(),
+          stylePresetCard(openStylePresets, setOpenStylePresets),
           h(PromptPresetCard),
         ) : null,
         tab === 'people' ? peopleTab() : null,
