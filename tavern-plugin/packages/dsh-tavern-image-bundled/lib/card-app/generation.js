@@ -52,6 +52,7 @@ export function cardSelection(config, workflows, args = {}) {
   const size = args.size || (local ? '__workflow__' : Number(configuredSize?.sizeWidth) > 0 && Number(configuredSize?.sizeHeight) > 0
     ? configuredSize.sizeWidth + 'x' + configuredSize.sizeHeight : config.imageSize || '竖图')
   return { config: next, workflow, size, promptMode, supportsSeed, seedLimit, maxReferences: channel ? imageReferenceLimit(channel) : (workflow.bindings?.referenceImages?.length || 0),
+    preset: (config.stylePresets || []).find(item => item.id === next.activePreset)?.name || '',
     channel: local ? 'ComfyUI · ' + workflow.label : channel.name || channel.id, channelId: local ? 'comfyui' : channel.id }
 }
 
@@ -90,6 +91,6 @@ export async function runCardImage(engine, args, { sessionId, signal, key, onJob
     }
     if (job?.state !== 'done') throw Object.assign(new Error(job?.error || '生图未完成，请检查配图记录'), { jobId: job?.id, requestMayHaveSucceeded: Boolean(job?.requestMayHaveSucceeded || job?.cancelMayHaveContinued) })
     return { jobId: job.id, file: job.file, mediaType: job.mediaType, seed: picked.supportsSeed ? job.seed : undefined,
-      prompt: job.positive, negative: job.negative, size: job.size ? `${job.size.width}x${job.size.height}` : '由工作流决定', channel: picked.channel, promptMode: picked.promptMode }
+      prompt: job.submittedPrompt || job.positive, negative: job.negative, preset: picked.preset, size: job.size ? `${job.size.width}x${job.size.height}` : '由工作流决定', channel: picked.channel, promptMode: picked.promptMode }
   } finally { signal?.removeEventListener('abort', abort) }
 }

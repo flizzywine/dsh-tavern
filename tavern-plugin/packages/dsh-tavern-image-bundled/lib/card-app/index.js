@@ -100,7 +100,7 @@ export function apply(ctx, { ready }) {
       subjects: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { characterId: { type: 'string' }, outfitId: { type: 'string' }, name: { type: 'string' } } }, description: 'reference 模式的本张人物与服装 ID，read_character/read_outfit 返回精确 ID。' },
       characters: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { prompt: { type: 'string' }, centers: { type: 'string' }, uc: { type: 'string' } }, required: ['prompt'] }, description: '需要区分多个人物时逐人描述。NovelAI 使用原生角色参数，其他渠道由引擎合成。' },
     }, ['prompt']),
-    output: output((_args, value) => [{ type: 'text', text: [value.ok ? '图片已生成。' : '部分图片已生成，后续任务中断，请先检查配图记录。', ...(value.images || []).map(image => `![图片](${image.url})`), value.error || ''].filter(Boolean).join('\n\n') }]),
+    output: output((_args, value) => [{ type: 'text', text: [value.ok ? '图片已生成。' : '部分图片已生成，后续任务中断，请先检查配图记录。', value.channel ? '生图渠道：' + value.channel : '', ...(value.images || []).flatMap(image => [`![图片](${image.url})`, image.prompt ? '实际提交提示词：\n' + image.prompt : '', image.negative ? '负面提示词：\n' + image.negative : '']), value.error || ''].filter(Boolean).join('\n\n') }]),
     async execute(args, exec) {
       await assertOpen()
       const count = args.count ?? 1
@@ -118,7 +118,7 @@ export function apply(ctx, { ready }) {
           const result = await engine.generateCardImage({ ...args, seed: values[index] }, { ...options, key: 'card-' + randomUUID() })
           const item = await gallery.add(result, { sessionId: options.sessionId, preset: args.preset })
           const url = new URL(item.url, origin).href
-          images.push(omitUndefined({ url, markdown: `![图片](${url})`, jobId: result.jobId, mediaType: result.mediaType, seed: result.seed, size: result.size }))
+          images.push(omitUndefined({ url, markdown: `![图片](${url})`, jobId: result.jobId, mediaType: result.mediaType, seed: result.seed, size: result.size, prompt: result.prompt, negative: result.negative, preset: result.preset }))
         } catch (error) {
           if (!images.length) throw error
           return omitUndefined({ ok: false, images, error: error.message, jobId: error.jobId, requestMayHaveSucceeded: error.requestMayHaveSucceeded === true, elapsedMs: Date.now() - started })

@@ -223,7 +223,7 @@
                   ),
                   // 展开后自动铺列：宽屏 5 列，窄了自己降。
                   open ? h('div', {
-                    style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 },
+                    style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 110px), 1fr))', gap: 8 },
                   }, group.map(tile)) : null,
                 )
               }),
