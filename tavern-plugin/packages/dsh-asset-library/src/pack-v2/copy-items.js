@@ -30,6 +30,7 @@ export function copyPackItems(source, itemRefs, manifest, files, retired) {
     const {kind, id} = queue[i]
     if (kind === 'figures') continue
     const item = asset(kind, id)
+    if (kind === 'skins') for (const owned of source.manifest.assets) if (owned.skin === id) add(owned.kind, owned.id)
     if (kind === 'widgets') for (const content of assetContents(item)) for (const ref of Object.values(content.settingsDefaults || {})) if (ref?.kind === 'backgrounds' && ref.packId === sourceId) add('backgrounds', ref.assetId)
     if (kind === 'performances') for (const content of assetContents(item)) if (content.background && asset('backgrounds',content.background)) add('backgrounds',content.background)
     if (kind === 'performances') for (const document of item.variants?Object.values(source.variantDocuments[kind+'/'+id]):[source.performances[id]]) for (const {ref} of performanceReferences(document, sourceId)) if (ref.packId === sourceId) add(ref.kind, ref.assetId)
@@ -73,6 +74,11 @@ export function copyPackItems(source, itemRefs, manifest, files, retired) {
   // materialize the complete figure mapping before rewriting any CG.
   const voices = new Map()
   const figureIds = new Map(queue.filter(item => item.kind === 'figures').map(({id}) => [id, copyFigureAssets(source, id, manifest, files, {credits:false,voices}).figureId]))
+  const rewriteRef = ref => {
+    if (ref?.packId === sourceId && ids.has(ref.kind + '/' + ref.assetId)) {
+      ref.packId = manifest.id; ref.assetId = ids.get(ref.kind + '/' + ref.assetId)
+    }
+  }
   const copied = []
   for (const {kind, id} of queue) {
     if (kind === 'figures') {
@@ -81,6 +87,8 @@ export function copyPackItems(source, itemRefs, manifest, files, retired) {
     }
     const next = structuredClone(asset(kind, id)), toId = ids.get(kind + '/' + id)
     next.id = toId
+    if (next.skin !== undefined) next.skin = ids.get('skins/' + next.skin) ?? next.skin
+    if (kind === 'timers') for (const content of assetContents(next)) rewriteRef(content.onTimeup)
     if (kind === 'performances') for (const content of assetContents(next)) if (content.background && ids.has('backgrounds/' + content.background)) content.background = ids.get('backgrounds/' + content.background)
     next.extensions = {...next.extensions,dsh_tavern:{...next.extensions?.dsh_tavern,copiedFrom:next.extensions?.dsh_tavern?.copiedFrom || {packId:sourceId,kind,assetId:id}}}
     if (kind === 'widgets') for (const content of assetContents(next)) for (const ref of Object.values(content.settingsDefaults || {})) if (ref?.kind === 'backgrounds' && ref.packId === sourceId) {
@@ -116,8 +124,9 @@ export function copyPackItems(source, itemRefs, manifest, files, retired) {
         }
         for (const block of Object.values(document.timeline)) for (const event of block.events) if (event.ref) event.ref = swap(event.ref, EVENT_KINDS[event.do])
         for (const [alias, packId] of Object.entries(document.packs)) if (packId === sourceId) delete document.packs[alias]
+        for (const operation of document.interop || []) rewriteRef(operation.target)
         document.id = toId
-        files.set(entry, jsonBytes(document))
+        if (canonicalJson(document) !== canonicalJson(documentSource)) files.set(entry, jsonBytes(document))
       }
     }
     manifest.assets.push(next)
