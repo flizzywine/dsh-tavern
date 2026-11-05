@@ -1,3 +1,4 @@
+import { createHostToolPolicy } from './host/tools.js'
 import { backgroundRequestTemperature } from './domain/background-request-temperature.js'
 import { withWorldbookFileInstructions } from './domain/worldbook-virtual-surface.js'
 import { createBackgroundProgress } from './domain/background-progress.js'
@@ -193,32 +194,35 @@ export function createBackgroundAgentTask(options) {
       })
       childCtx.systemPrompt.suppressRuntimeContext()
       childCtx.tools.restrict({ allow: isolated ? [] : state.input.task === 'phone' ? [] : ['skill', 'read', 'worldbook_list', 'worldbook_grep', 'tavern_read_skill_reference', 'web_search', ...(childCtx.tools.get?.('web_fetch') ? ['web_fetch'] : [])] })
-      childCtx.on('system-prompt/assemble', async function (_assembly, _context, next) {
-        const assembly = await next()
-        if (state.input.task === 'polish' || state.input.ownPrefix === true) {
-          const names = new Set((state.input.tools || []).map(tool => tool.name))
-          assembly.tools = (assembly.tools || []).filter(tool => names.has(tool.name))
-          assembly.sections = (assembly.sections || []).filter(section => !section?.name?.startsWith('tool:') || names.has(section.name.slice(5)))
+      const hostTools = createHostToolPolicy(childCtx)
+      childCtx.on('system-prompt/assemble', async function (_assembly, context, next) {
+        return hostTools.assemble(await next(), context, async (assembly, tools) => {
+          if (tools) assembly.tools = tools
+          if (state.input.task === 'polish' || state.input.ownPrefix === true) {
+            const names = new Set((state.input.tools || []).map(tool => tool.name))
+            assembly.tools = (assembly.tools || []).filter(tool => names.has(tool.name))
+            assembly.sections = (assembly.sections || []).filter(section => !section?.name?.startsWith('tool:') || names.has(section.name.slice(5)))
+            markTavernSectionsLiteral(assembly)
+            return assembly
+          }
+          if (!isolated) prependSystemInstruction(assembly, options.systemAppend?.())
           markTavernSectionsLiteral(assembly)
+          if (state.input.task === 'phone') {
+            assembly.sections = (assembly.sections || []).filter(function (section) {
+              return !section || typeof section.name !== 'string' || !section.name.startsWith('tool:')
+            })
+            assembly.tools = []
+            return assembly
+          }
+          if (!state.input.worldbookSkillsEnabled) {
+            assembly.sections = (assembly.sections || []).filter(section => !['tool:read', 'tool:worldbook_list', 'tool:worldbook_grep'].includes(section?.name))
+            assembly.tools = (assembly.tools || []).filter(tool => !['read', 'worldbook_list', 'worldbook_grep'].includes(tool?.name))
+          }
+          if (state.input.webSearchEnabled === true) return assembly
+          assembly.sections = (assembly.sections || []).filter(function (section) { return section && !['tool:web_search', 'tool:web_fetch'].includes(section.name) })
+          assembly.tools = (assembly.tools || []).filter(function (tool) { return tool && !['web_search', 'web_fetch'].includes(tool.name) })
           return assembly
-        }
-        if (!isolated) prependSystemInstruction(assembly, options.systemAppend?.())
-        markTavernSectionsLiteral(assembly)
-        if (state.input.task === 'phone') {
-          assembly.sections = (assembly.sections || []).filter(function (section) {
-            return !section || typeof section.name !== 'string' || !section.name.startsWith('tool:')
-          })
-          assembly.tools = []
-          return assembly
-        }
-        if (!state.input.worldbookSkillsEnabled) {
-          assembly.sections = (assembly.sections || []).filter(section => !['tool:read', 'tool:worldbook_list', 'tool:worldbook_grep'].includes(section?.name))
-          assembly.tools = (assembly.tools || []).filter(tool => !['read', 'worldbook_list', 'worldbook_grep'].includes(tool?.name))
-        }
-        if (state.input.webSearchEnabled === true) return assembly
-        assembly.sections = (assembly.sections || []).filter(function (section) { return section && !['tool:web_search', 'tool:web_fetch'].includes(section.name) })
-        assembly.tools = (assembly.tools || []).filter(function (tool) { return tool && !['web_search', 'web_fetch'].includes(tool.name) })
-        return assembly
+        })
       })
       state.refreshConfiguredTools = function () {
         if (isolated || state.stableToolDisposers) return

@@ -1,3 +1,5 @@
+import { createHostToolPolicy } from '../host/tools.js'
+
 // One policy for model visibility and dispatch. Read the owning chat through
 // Tavern's store, never through its on-disk representation or a cached tool list.
 export function createNetworkToolPolicy({ readHeader, backgroundContext, capabilityFor }) {
@@ -35,18 +37,14 @@ export function createNetworkToolPolicy({ readHeader, backgroundContext, capabil
 }
 
 export function installNetworkToolPolicy(ctx, policy) {
+  const hostTools = createHostToolPolicy(ctx, { denial: policy.denial })
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-    const assembly = await next()
-    const original = assembly.tools || []
-    assembly.tools = await policy.filter(original, context.agent?.session)
-    const removed = new Set(original.filter(tool => !assembly.tools.includes(tool)).map(tool => 'tool:' + tool.name))
-    assembly.sections = (assembly.sections || []).filter(section => !removed.has(section.name))
-    return assembly
-  })
-  // Unlike the synchronous tools.guard, this official hook can re-read settings
-  // when a model returns a call after the player has turned networking off.
-  ctx.on('tools/pre-execute', async (exec, next) => {
-    const reason = await policy.denial(exec.name, exec.agent?.session)
-    return reason ? { kind: 'deny', reason } : next()
+    return hostTools.assemble(await next(), context, async (assembly, tools) => {
+      const original = tools || []
+      assembly.tools = await policy.filter(original, context.agent?.session)
+      const removed = new Set(original.filter(tool => !assembly.tools.includes(tool)).map(tool => 'tool:' + tool.name))
+      assembly.sections = (assembly.sections || []).filter(section => !removed.has(section.name))
+      return assembly
+    })
   })
 }

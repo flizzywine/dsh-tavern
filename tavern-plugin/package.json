@@ -37,6 +37,7 @@
     "./cordis-inspect": "./lib/cordis-inspect.js",
     "./package.json": "./package.json",
     "./compaction": "./lib/agent-compaction.js",
+    "./host-tools": "./lib/host/tools.js",
     "./user-tools-bridge": "./lib/user-tools-bridge.js"
   },
   "dsh": {

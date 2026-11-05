@@ -86,6 +86,8 @@
         description: 基于 DSH 极简会话的人物卡文字游戏，复用原生输入、模型、重试、历史与上下文管理。
         order: 10
         plugins:
+          - id: tavern-native-tools
+            name: dsh-tavern-plugin/host-tools
           # Tavern preset：最终系统提示词由插件按游玩／卡片会话装配。
           - id: persona
             name: '@deepseek-ai/dsh-persona'
@@ -158,6 +160,8 @@
         id: tavern-background
         order: 11
         plugins:
+          - id: tavern-native-tools
+            name: dsh-tavern-plugin/host-tools
           # Tavern 后台 Agent 的最小 DSH 预设。
           # 提供压缩与 Tavern Skill 按需加载，不继承前台正文提示词、其他工具或正则。
           - id: tool-skill

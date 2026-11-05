@@ -1,3 +1,4 @@
+import { createHostToolPolicy } from '../host/tools.js'
 import { assistantResultForTurn } from '../domain/session-turn-result.js'
 import { inputEventForTurn } from '../domain/session-turn-input.js'
 import { roundAnchor } from '../domain/round-anchor.js'
@@ -38,13 +39,7 @@ export function registerTurnLifecycleHooks({
   turnStarted,
   userMessageForTurn,
 }) {
-  ctx.on('tools/pre-execute', async function (exec, next) {
-    const sessionId = exec.agent?.session?.id
-    if (sessionId && !backgroundAgentRunner.owns(sessionId) && foregroundStrategies.allowsTool?.(sessionId, exec.name) === false) {
-      return { kind: 'deny', reason: '该工具未在本局当前前台回合开放。' }
-    }
-    return next()
-  })
+  const hostTools = createHostToolPolicy(ctx)
 
   ctx.on('agent/turn-stopping', async function (payload) {
     const session = payload.agent && payload.agent.session
@@ -142,15 +137,14 @@ export function registerTurnLifecycleHooks({
         ? { restore: false } : undefined)
       fixedSystemSections = (native ? withVirtualWorldbook : withCurrentWorldbook)(fixedSystemSections, projected.prefixContext ?? '', chat.disabledForegroundTools)
     }
-    const assembled = await foregroundStrategies.assembleSystemPrompt(assembly, {
+    const assembled = await hostTools.assemble(assembly, context, (value, tools) => foregroundStrategies.assembleSystemPrompt(value, {
       sessionId: agent.session.id,
-      toolDefinitions: (context.toolSet || !Array.isArray(assembly.tools)) && typeof ctx.tools?.schemas === 'function'
-        ? await ctx.tools.schemas(agent, context.toolSet) : undefined,
+      toolDefinitions: tools,
       chat,
       cwd: agent.session.header && agent.session.header.cwd,
       workspaceProjection,
       fixedSystemSections
-    })
+    }))
     // Third-party plugin sections join the play prompt only, after Tavern's own.
     if (pluginPromptSections && chat && chat.requestMode !== 'sillytavern' && ['story', 'script'].includes(await turnOrchestrator.modeFor(agent.session.id))) {
       const extra = await pluginPromptSections({ gameId: agent.session.id })

@@ -41,7 +41,8 @@ export const dshFileToolNames = Object.freeze([
   'read',
   'write',
   'edit',
-  'read_image'
+  'read_image',
+  'apply_patch'
 ])
 
 function str(value) {

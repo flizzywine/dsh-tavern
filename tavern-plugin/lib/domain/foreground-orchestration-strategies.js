@@ -281,20 +281,6 @@ export function createNativePlayOrchestrationStrategy(options) {
   const enteredFronts = new Map()
   // Front texts of the step being prepared, only to label the request evidence.
   const frontTexts = new Map()
-  const foregroundToolNames = new Map()
-
-  function allowsTool(sessionId, name) {
-    const allowed = foregroundToolNames.get(str(sessionId))
-    return allowed === undefined || allowed.has(name)
-  }
-
-  function projectToolRequest(request) {
-    if (!request || request.purpose !== undefined || !Array.isArray(request.tools)) return null
-    const allowed = foregroundToolNames.get(str(request.sessionId))
-    if (allowed === undefined) return null
-    const tools = request.tools.filter(tool => allowed.has(tool.name))
-    return tools.length === request.tools.length ? null : { ...request, tools }
-  }
   // Per-session dice seed: drawn on a turn's first step, so every step of one turn rolls
   // the same and a new turn or regeneration rolls again.
   const presetSeeds = new Map()
@@ -448,7 +434,6 @@ export function createNativePlayOrchestrationStrategy(options) {
   function clearRequestState(sessionId) {
     stagedRequests.delete(str(sessionId))
     frontTexts.delete(str(sessionId))
-    foregroundToolNames.delete(str(sessionId))
   }
 
   async function assembleSystemPrompt(assembly, input) {
@@ -509,11 +494,6 @@ export function createNativePlayOrchestrationStrategy(options) {
     const finalTools = playMode ? filteredTools.filter(schema => options.controlledToolNames.has(schema.name) || !disabled.has(schema.name)) : filteredTools
     if (knownTools) {
       assembly.tools = finalTools
-      // DSH 0.2.2 overwrites assembly.tools after this waterfall. Keep the same
-      // admission at the final llm/stream boundary and at tool dispatch instead.
-      foregroundToolNames.set(str(input.sessionId), new Set(finalTools.map(tool => tool.name)))
-    } else {
-      foregroundToolNames.delete(str(input.sessionId))
     }
     // The submission contract follows the tools that actually survived the
     // per-game switches and the plugin scopes. When only input replay is on, the
@@ -542,7 +522,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     return assembly
   }
 
-  return Object.freeze({ kind: 'native-play', prepareStep, projectRequest, projectToolRequest, allowsTool, completeRequest, clearRequestState, assembleSystemPrompt })
+  return Object.freeze({ kind: 'native-play', prepareStep, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt })
 }
 
 export function createForegroundOrchestrationStrategies(options) {
@@ -577,5 +557,5 @@ export function createForegroundOrchestrationStrategies(options) {
     return await nativePlay.assembleSystemPrompt(assembly, input)
   }
 
-  return Object.freeze({ prepareStep, projectRequest, projectToolRequest: nativePlay.projectToolRequest, allowsTool: nativePlay.allowsTool, completeRequest, clearRequestState, assembleSystemPrompt })
+  return Object.freeze({ prepareStep, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt })
 }

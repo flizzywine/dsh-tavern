@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { Session } from './fixtures/dsh-session-host.mjs'
 import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
+import { dshFileToolNames } from '../tavern-plugin/lib/domain/turn-orchestration.js'
 import { createForegroundOrchestrationStrategies, createNativePlayOrchestrationStrategy } from "../tavern-plugin/lib/domain/foreground-orchestration-strategies.js"
 import { ensureSessionStablePrefix, sessionStablePrefixSections } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { ensureSessionSeedTrajectory } from '../tavern-plugin/lib/domain/session-seed-trajectory.js'
@@ -132,7 +133,7 @@ test('旧 Session 的 Tavern 开场白在请求边界恢复为合成模型来源
 
 test('新版 DSH 文件工具只向卡片 Agent 开放，不泄漏给正文 Agent', async () => {
   async function assembledToolNames(mode) {
-    const fileTools = ['read', 'write', 'edit', 'read_image']
+    const fileTools = dshFileToolNames
     const run = strategies({
       nativePlay: {
         async modeFor() { return mode },
@@ -156,7 +157,7 @@ test('新版 DSH 文件工具只向卡片 Agent 开放，不泄漏给正文 Agen
     return assembly.tools.map(function (tool) { return tool.name })
   }
 
-  assert.deepEqual(await assembledToolNames('card'), ['read', 'write', 'edit', 'read_image'])
+  assert.deepEqual(await assembledToolNames('card'), ['read', 'write', 'edit', 'read_image', 'apply_patch'])
   assert.deepEqual(await assembledToolNames('story'), ['tavern_recall_history'])
 })
 

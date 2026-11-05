@@ -19,14 +19,14 @@ import { createProfileDataStore } from '../../tavern-plugin/lib/profile-data-sto
 import { createSessionStablePrefixStorage, ensureSessionStablePrefix, sessionStablePrefixSections } from '../../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { createStoryTimeline } from '../../tavern-plugin/lib/domain/story-timeline.js'
 
-export async function createInitializationNative(bootPath, { preset, contextWindow = 2000, modelStream, cardOverrides, userPreferenceProfile, assembleStablePrefix = true } = {}) {
+export async function createInitializationNative(bootPath, { preset, contextWindow = 2000, modelStream, cardOverrides, userPreferenceProfile, assembleStablePrefix = true, nativeTools = true } = {}) {
   const bootUrl = pathToFileURL(bootPath)
   const { boot } = await import(bootUrl.href)
   const { LlmAdapter } = await import(new URL('../../dsh-llm/lib/index.js', bootUrl))
   const { Session } = await import(new URL('../../dsh-session/lib/index.js', bootUrl))
   const root = await mkdtemp(join(tmpdir(), 'tavern-initialization-native-'))
   const config = join(root, 'host.yml')
-  const toolExecutor = await import(new URL('../../dsh-tool-executor-native/lib/index.js', bootUrl)).then(() => ['dsh-tool-executor-native'], () => [])
+  const toolExecutor = !nativeTools ? [] : await import(new URL('../../dsh-tool-executor-native/lib/index.js', bootUrl)).then(() => ['dsh-tool-executor-native'], () => [])
   const packages = ['dsh-system-prompt', 'dsh-tools', ...toolExecutor, 'dsh-agent', 'dsh-llm', 'dsh-session', 'dsh-session-projection', 'dsh-token-meter', 'dsh-commands', 'dsh-agent-loop']
   await writeFile(config, packages.map(name => '- id: ' + name + '\n  name: ' + new URL('../../' + name + '/lib/index.js', bootUrl).href + '\n').join(''))
   const ctx = await boot('initialization-native-test', config)
