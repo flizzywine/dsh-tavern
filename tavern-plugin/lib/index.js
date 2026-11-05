@@ -1124,7 +1124,7 @@ export async function apply(ctx) {
   const readRoundOps = (sessionId, turn, count) => readStageChat.ops(sessionId,{turn:Number(turn) || 0,chainOnly:true},count)
   // Header plus floor count; null keeps the complete reader for legacy stories.
   async function openingStateForSession(sessionId) {
-    const selected = await chatSliceForSession(sessionId, [], [...taskStateFields, 'preparedWorldBook'])
+    const selected = await chatSliceForSession(sessionId, [], [...taskStateFields, 'preparedWorldBook', 'mvu'])
     if (!selected?.denseMessages || Object.values(selected.chat.timeline?.operations || {}).some(op => op?.kind === 'body' && op.status === 'foreground-completed')) return null
     const first = selected.messageCount === 1 ? (await chatSliceForSession(sessionId, [0], ['_storageRevision']))?.chat.messages[0] : undefined
     return { chat: selected.chat, messageCount: selected.messageCount, firstGreeting: first?.greeting === true }
@@ -3333,6 +3333,7 @@ export async function apply(ctx) {
     gameTitles, saveMaintenance, pluginApi, candidateWorldbookPreparation, backgroundTasks, queueSettlement, settlementJobs, settlementRun })
   const foregroundHandoff = createForegroundHandoff({
     turns: turnOrchestrator,
+    scriptDispatch: tavernScriptDispatch,
     store: { chatForSession, readChat, readState: taskStateReader.read, stateForSession: taskStateReader.forSession, openingStateForSession },
     tasks: backgroundTasks,
     queueBackground: queueSettlement,

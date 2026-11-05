@@ -50,6 +50,8 @@ export const PROMPT_PROSE = Object.freeze({
   // fixed examples (a mascot, a recap after narration, an unnamed overheard speaker) so speakers vary; bytes never
   // vary per turn. Only speakers without options leave the variant empty.
   p022: "@bubble:niangao|年糕||[喵～]\nYou reread Hinata's message.\n@bubble:hinata|桐谷ひなた|微笑|[明天见。]\nA voice whispers from the dark alley.\n@bubble:hooded_girl|兜帽少女||[别出声。]",
+  // the player is named once: a roster figure with a similar name (a figure whose name contains the player's name) took the player's lines.
+  p027: "The player is {{user}}; the player's own lines use the name {{user}}, never another roster entry.\n",
   p024: "Variants: ",
   p025: "none",
   p026: "These speakers joined after the speaker roster above was written; treat them as roster entries.\n",
@@ -216,14 +218,15 @@ export function bubbleInstruction(config, options = {}) {
 // The worldbook sync and prompt view consume the same rendering.
 export function bubbleFigureEntries(config, options = {}) {
   const current = options.voices ? resolveBubbleVoiceConfig(config, options.voices) : normalizeBubbleConfig(config)
-  return figureEmotionEntries(current, options.speakerRows)
+  return figureEmotionEntries(current, options.speakerRows, undefined, str(options.userName, 80) || '你')
 }
-function figureEmotionEntries(current, speakerRows = current.characters, characters = current.characters) {
+// userName: this chat's player name, or the {{user}} macro for a shared worldbook (the sync passes it).
+function figureEmotionEntries(current, speakerRows = current.characters, characters = current.characters, userName) {
   if (!current.enabled) return []
   const roster = rosterGroups(current, speakerRows, characters)
   if (!roster.lines.length) return []
   return [{figure:'common-roster', packIds:roster.packIds, name:'说话人名单', comment:'说话人名单',
-    content:promptSection('speaker_roster', PROMPT_PROSE.p001 + (roster.hasTranslation ? PROMPT_PROSE.p019 : '') + roster.lines.join('\n')), constant:true, primaryKeys:[]}]
+    content:promptSection('speaker_roster', PROMPT_PROSE.p001 + PROMPT_PROSE.p027.replaceAll('{{user}}', () => userName) + (roster.hasTranslation ? PROMPT_PROSE.p019 : '') + roster.lines.join('\n')), constant:true, primaryKeys:[]}]
 }
 // a figure recalled after the roster froze reaches the per-turn tail in the
 // roster's own line format; voice rules come along only when the frozen prefix carries none.
@@ -314,7 +317,7 @@ export function bubbleVoiceSwitches(config, character) {
 export function bubbleInstructionPreview(config, options = {}) {
   const current = options.voices ? resolveBubbleVoiceConfig(config, options.voices) : normalizeBubbleConfig(config)
   const translated = current.characters.filter(character => bubbleVoiceSwitches(current, character).voiceTranslates)
-  const roster = options.table === false ? '' : figureEmotionEntries(current, options.speakerRows)[0]?.content || ''
+  const roster = options.table === false ? '' : figureEmotionEntries(current, options.speakerRows, undefined, str(options.userName, 80) || '你')[0]?.content || ''
   // forms, then field meanings, then rules; multi-line examples close the base format in <examples>.
   const format = [
     PROMPT_PROSE.p008,

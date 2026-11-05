@@ -3,6 +3,26 @@ import test from 'node:test'
 
 import { createTavernScriptDispatch } from '../tavern-plugin/lib/domain/tavern-script-dispatch.js'
 
+test('opening readiness waits for initialization, propagates failure, and bounds a missing runtime', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const gate = createTavernScriptDispatch({ executionTimeoutMs: 1000 })
+  let ready = false
+  const pending = gate.waitUntilReady('opening').then(() => { ready = true })
+  gate.touch('opening', 'browser', false)
+  await Promise.resolve()
+  assert.equal(ready, false)
+  gate.touch('opening', 'browser', true)
+  await pending
+  assert.equal(ready, true)
+  await gate.waitUntilReady('opening')
+  const failure = assert.rejects(gate.waitUntilReady('broken'), /initialization failed/)
+  gate.touch('broken', 'browser', false, 'initialization failed')
+  await failure
+  const missing = assert.rejects(gate.waitUntilReady('missing'), /初始化尚未完成/)
+  t.mock.timers.tick(1000)
+  await missing
+})
+
 function claimAndStart(gate, sessionId, runtimeId = 'legacy') {
   const offer = gate.claim(sessionId, runtimeId, true)
   assert.ok(offer.event)

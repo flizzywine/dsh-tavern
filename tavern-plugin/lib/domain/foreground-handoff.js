@@ -28,6 +28,12 @@ export function createForegroundHandoff(options = {}) {
     // Task metadata and the opening check need the header and floor count only.
     const opening = store.openingStateForSession ? await store.openingStateForSession(input.sessionId) : null
     const chat = opening ? opening.chat : await store.chatForSession(input.sessionId)
+    // MVU's greeting/initvar path runs while floor 0 is still the latest floor.
+    // An immediate first send must wait before templates, context or body.begin
+    // capture an empty baseline and advance beyond that initialization boundary.
+    if (chat?.mvu?.enabled && chat.mvu.owner === 'official' && chat.mvu.openingInitialization?.status === 'pending') {
+      await options.scriptDispatch.waitUntilReady(input.sessionId)
+    }
     // The tasks the next turn waits for (blocksNextTurn: settlement, plugin tasks) finish first.
     if (chat !== undefined) await options.beforeNextTurn?.(chat)
     // A failed turn is cleaned up after the failure, but that may not have happened (no live
