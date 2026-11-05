@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e5f1fbdf4ece92f70fe158f9b436c1bead0e3706",
-  "releaseSequence": 1206,
+  "revision": "9a76a4d6efb7b5155aa6407d8f3c25ae34c1ae8b",
+  "releaseSequence": 1207,
   "version": "3.2.0",
   "files": [
     {
@@ -7106,8 +7106,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/index.js",
-      "sha256": "7c02ae57271051b3704bde95bf35463acc08260e13da7c7e177432cbc7a077ee",
-      "size": 27291
+      "sha256": "42d61c865f2709151d8c0b20e663d0848c55aaa68d43ece2d1d02f71b74c0343",
+      "size": 27574
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/storage.js",
@@ -9666,9 +9666,9 @@
     }
   ],
   "archive": {
-    "commit": "22c6350aa2f1868d850923db5a707b3695115894",
+    "commit": "d196ae83c3f2801b6bab525f3d871fbf2a3cb8d7",
     "path": "runtime.zip",
-    "sha256": "11d27de729ac53d77b40a1229681b488f8b2fcc062ae6dd0cc261534eaae0b5c",
-    "size": 16197332
+    "sha256": "838731bf79de9b8c9af6626cd16fa3fe998bc72d56384558a937e7d3e98968e0",
+    "size": 16197465
   }
 }
