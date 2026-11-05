@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "6d1c19b9d0ac02b49f8303802abe118ec3922214",
-  "releaseSequence": 1260,
+  "revision": "e804a520cbedfe9a597ca384d8d8a3103db3e347",
+  "releaseSequence": 1261,
   "version": "3.2.0",
   "files": [
     {
@@ -285,6 +285,11 @@
       "size": 10340
     },
     {
+      "path": "bin/pi-ai-nonstream-patch.mjs",
+      "sha256": "6519fd005fb831872e7dd2940713ae4f22cdfa6d820fc98353ded4a6cd93f6e2",
+      "size": 1468
+    },
+    {
       "path": "bin/plugin-dependencies.mjs",
       "sha256": "d4362d9726950e33bc2d8fd3fb5a24de6f5364b3bfeede69e210e84d5b1f0744",
       "size": 21659
@@ -316,8 +321,8 @@
     },
     {
       "path": "bin/profile-installation.mjs",
-      "sha256": "993f5cbd51f6922959ecb0eaa3f899939fb023b8bca3563e843fadd938149daa",
-      "size": 25114
+      "sha256": "d4ba0d871b40be9d76f8d6fb461e7b8d706a8436db8bf5245e91b191f5d5ba04",
+      "size": 26564
     },
     {
       "path": "bin/prune-installed-files.mjs",
@@ -2438,6 +2443,11 @@
       "path": "tavern-plugin/lib/domain/persistent-status-view.js",
       "sha256": "b1a0dfff747c67bb047786f5b877d1576bfa2f482621e770bd92962d35204c7a",
       "size": 13781
+    },
+    {
+      "path": "tavern-plugin/lib/domain/pi-ai-nonstream.js",
+      "sha256": "77bffe63facc790de225a309d5ea4c0c56053c2e8e2d843e10c44c8ce3c66158",
+      "size": 5241
     },
     {
       "path": "tavern-plugin/lib/domain/plain-settlement-engine.js",
@@ -9746,9 +9756,9 @@
     }
   ],
   "archive": {
-    "commit": "70923363116a8b9b36cddd5ad57fe254d0daf7da",
+    "commit": "eccbb4b6bcf51403ee8fb50f668a0797f5ed5b47",
     "path": "runtime.zip",
-    "sha256": "2a3b3ed556237d57dfb78d6907d29cdba9a42551b01754b267c84a160c579fc6",
-    "size": 16325783
+    "sha256": "1878158643ec7caff72b060b06bbe56123911f0ad53d469c975bc425feada743",
+    "size": 16328740
   }
 }
