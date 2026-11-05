@@ -29,7 +29,7 @@ const worldbooks = Object.fromEntries(['tags', 'natural', 'mixed', 'structured']
 const state = {
   referenceSupported: true, configurationWarning: '旧版 ComfyUI 简易模式已停用；原配置和数据已保留。', imageProvider: 'openai', config: { imageEnabled: true, imageBackend: 'openai', comfyMode: 'simple', comfySimple: { checkpoint: 'keep-legacy-checkpoint' }, generationMode: 'text', promptMode: 'tags', promptEffectiveFormat: 'tags', activeImageChannel: 'openai-channel',
     designPromptMode: 'auto', characterDesignRequirements: '', outfitDesignRequirements: '',
-    imageChannels: [{ id: 'openai-channel', provider: 'openai', name: 'OpenAI 渠道', baseUrl: 'https://openai.mock.invalid/v1', model: 'keep-exact-model', options: {} }], stylePresets: [], promptPresets: [{ id: 'legacy-entry', name: '旧提示词条目', positive: 'legacy positive', negative: 'legacy negative', enabled: true }] },
+    imageChannels: [{ id: 'openai-channel', provider: 'openai', name: 'OpenAI 渠道', baseUrl: 'https://openai.mock.invalid/v1', model: 'keep-exact-model', options: {} }], stylePresets: [{ id: 'preset-fold', name: '折叠测试套', artist: 'artist:fold_test', negative: 'lowres', position: 'prefix', enabled: true }], promptPresets: [{ id: 'legacy-entry', name: '旧提示词条目', positive: 'legacy positive', negative: 'legacy negative', enabled: true }] },
   definitions: { revision: String(libraryRevision), characters: [{ id: 'person-a', name: '林月', match: 'Lin Yue', cards: [], traits: { face: 'keep original traits' }, outfits: [{ id: 'outfit-a', name: '白衬衫', upper: 'white shirt', enabled: true }] }], scenes: [], props: [] },
   outfits: [{ id: 'shared-a', name: '通用外套', upper: 'coat', enabled: true }],
   worldbookFormat: 'tags', worldbookBooks: clone(worldbooks.tags), tasks: [], workflows: [{ id: 'workflow-a', label: 'Reference workflow', file: 'workflow-a.json', enabled: true, current: true, summary: { nodeCount: 5 } }], imageProviders: [{ id: 'openai', label: 'OpenAI 兼容' }, { id: 'custom', label: '自定义 API' }],
@@ -139,6 +139,15 @@ try {
     const root = modules['react-dom/client'].createRoot(document.querySelector('#root'))
     root.render(modules.react.createElement(Settings))
   })
+  // 画风预设每套默认收起，正文不进页面；选择栏的按钮负责整体展开与收起
+  const presetArtist = page.getByPlaceholder('(@artist_a:1.1), (@artist_b:1.0), masterpiece, best quality')
+  assert.equal(await presetArtist.count(), 0, '每套画风预设默认收起，正文不渲染')
+  await page.getByRole('button', { name: '▸ 展开全部', exact: true }).click()
+  await presetArtist.first().waitFor()
+  assert.equal(await presetArtist.count(), 1, '展开后正文出现')
+  await page.getByRole('button', { name: '▾ 收起全部', exact: true }).click()
+  await presetArtist.first().waitFor({ state: 'detached' })
+  assert.equal(await presetArtist.count(), 0, '收起后正文重新消失')
   await page.getByLabel('默认生图模式').selectOption('auto')
   await page.waitForFunction(() => document.querySelector('[aria-label="默认生图模式"]')?.value === 'auto')
   assert.equal(state.config.generationMode, 'auto')
