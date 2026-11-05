@@ -214,6 +214,10 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-message-select input { width: 16px; height: 16px; margin: 0; accent-color: var(--dsh-tavern-accent); cursor: inherit; }
 .dsh-tavern-message-select:has(input:disabled) { cursor: wait; opacity: .55; }
 .dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant) { position: relative; box-sizing: border-box; padding-right: 30px; }
+.dsh-tavern-user-row:has(.dsh-tavern-message-select.user),
+.dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant) { cursor: pointer; }
+.dsh-tavern-user-row:has(.dsh-tavern-message-select.user input:disabled),
+.dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant input:disabled) { cursor: wait; }
 .dsh-tavern-message-select.assistant { position: absolute; z-index: 1; top: 0; right: 0; }
 /* 勾选不仅改变小框：整条楼层用主题色底和双层描边，跨轮检查时已选目标一眼可辨。 */
 .dsh-tavern-user-row:has(.dsh-tavern-message-select.user input:checked),

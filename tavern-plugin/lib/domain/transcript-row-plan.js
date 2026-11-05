@@ -186,6 +186,12 @@ export function createTranscriptFold() {
         continue
       }
       if (!Number.isSafeInteger(story) || story < 1 || event.surfaceOp?.op !== 'replace') continue
+      // Native repair can replace a span containing many unrelated rounds. Its first
+      // rewrite keeps that round's existing drawable row; later appends are assigned by
+      // flushStep. Applying the regeneration range-tail rule here can bind the opening
+      // to an arbitrary reply that merely happens to be the span's last append.
+      const repairSource = event.data?.message?.source
+      if (repairSource?.provider === 'dsh-tavern' && repairSource?.model === 'native-repair') continue
       // A replacement is model-only: the round shows at the drawable row it covers —
       // its tail when that is a reply append (the projection's copy, or the attempt's
       // own streamed reply), else the last reply append with text inside the range (an
@@ -255,6 +261,14 @@ export function createTranscriptFold() {
     for (const turn of new Set([...keepInput, ...next])) dirty.add(turn)
     keepInput = next
   }
+  // The story round a regeneration attempt is writing: the round its replacing turn drew,
+  // or the single turn the save says is being replaced. Naming it lets the page tell
+  // "the old body moved to the attempt" apart from "nothing draws this round any more".
+  function replacingStoryOf(turn) {
+    for (const [story, drawnTurn] of drawn) if (Number(drawnTurn) === Number(turn)) return Number(story)
+    const candidates = [...replacing].filter(candidate => Number(candidate) !== Number(turn))
+    return candidates.length === 1 ? Number(candidates[0]) : 0
+  }
   function classify(turn) {
     if ([...gameReplies.values()].includes(turn)) return { input: 0, reply: 1 }
     // A regeneration's attempt (the save says one is under way) has no player's input,
@@ -262,7 +276,12 @@ export function createTranscriptFold() {
     // body is drawn as the round's. Outside a regeneration a running turn shows as drawn:
     // the log does not always mark the player's input as such.
     const attempt = regenerating && turn === last && !playerInput && (turn === open || !rounds.has(turn) && !replyStories.has(turn))
-    if (attempt) return { input: 0, reply: 1 }
+    // The attempt draws the replaced round's new body: say which round, so a page that has
+    // already shown the old body knows this is a move and may take the old row away.
+    if (attempt) {
+      const story = replacingStoryOf(turn)
+      return story > 0 && story !== turn ? { input: 0, reply: 1, story } : { input: 0, reply: 1 }
+    }
     if (turn === open) return undefined
     // The old reply a regeneration is replacing: the round shows its input only, so the
     // page does not read as two replies or as a regeneration that did nothing. The save

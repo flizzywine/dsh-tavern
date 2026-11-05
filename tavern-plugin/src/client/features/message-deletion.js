@@ -1,19 +1,20 @@
 		function tavernMessageDeletionUserSelector(turn, data) {
 			return { role: "user", turn: Number(turn), seq: Number(data && data.seq) };
 		}
-		function tavernMessageDeletionAssistantSelector(turn, storyTurn, data) {
+		function tavernMessageDeletionAssistantSelector(_turn, storyTurn, data) {
 			const finalNode = data && data.finalNode || {};
-			return { role: "assistant", turn: Number(turn), storyTurn: Number(storyTurn), seq: Number(finalNode.seq), messageId: String(finalNode.messageId) };
+			// 保留第一个参数兼容旧调用；正文删除身份不与原生 turn 绑定。
+			return { role: "assistant", storyTurn: Number(storyTurn), seq: Number(finalNode.seq), messageId: String(finalNode.messageId) };
 		}
 		function tavernMessageDeletionSelectorKey(selector) {
 			if (!selector) return "";
 			return JSON.stringify(selector.role === "assistant"
-				? [selector.role, selector.turn, selector.storyTurn, selector.seq, selector.messageId]
+				? [selector.role, selector.storyTurn, selector.seq, selector.messageId]
 				: [selector.role, selector.turn, selector.seq]);
 		}
 		function tavernMessageDeletionSelectorValid(selector) {
-			if (!selector || !Number.isFinite(selector.turn) || !Number.isFinite(selector.seq)) return false;
-			if (selector.role === "user") return true;
+			if (!selector || !Number.isFinite(selector.seq)) return false;
+			if (selector.role === "user") return Number.isFinite(selector.turn);
 			return selector.role === "assistant" && Number.isFinite(selector.storyTurn) && typeof selector.messageId === "string" && selector.messageId !== "" && selector.messageId !== "undefined";
 		}
 		function createTavernMessageDeletionStore(dependencies) {
@@ -70,7 +71,7 @@
 						keys.add(key);
 						items.push(selector.role === "user"
 							? { role: "user", turn: Number(selector.turn), seq: Number(selector.seq) }
-							: { role: "assistant", turn: Number(selector.turn), storyTurn: Number(selector.storyTurn), seq: Number(selector.seq), messageId: String(selector.messageId) });
+							: { role: "assistant", storyTurn: Number(selector.storyTurn), seq: Number(selector.seq), messageId: String(selector.messageId) });
 					}
 					publish(sessionId, selectedState(state, { items: items, keys: keys, error: "" }));
 				},
@@ -111,9 +112,26 @@
 			function TavernMessageDeletionCheckbox(props) {
 				const state = useSelection(props.sessionId);
 				const key = tavernMessageDeletionSelectorKey(props.selector);
-				if (!state.active || !tavernMessageDeletionSelectorValid(props.selector)) return null;
+				const valid = tavernMessageDeletionSelectorValid(props.selector);
+				const labelRef = React.useRef(null);
+				React.useEffect(function () {
+					const label = labelRef.current;
+					if (!state.active || state.deleting || !valid || !label) return undefined;
+					const floor = label.closest(".dsh-tavern-user-row, .dsh-tavern-assistant");
+					if (!floor) return undefined;
+					function toggleFloor(event) {
+						// 复选框与 label 自己走 onChange；其他交互控件保留原行为。
+						if (event.defaultPrevented || event.button !== 0 || label.contains(event.target)) return;
+						const target = event.target && event.target.nodeType === 1 ? event.target : event.target && event.target.parentElement;
+						if (target && target.closest("button, a, input, textarea, select, summary, [contenteditable='true'], [role='button'], [role='link']")) return;
+						store.toggle(props.sessionId, props.selector);
+					}
+					floor.addEventListener("click", toggleFloor);
+					return function () { floor.removeEventListener("click", toggleFloor); };
+				}, [props.sessionId, key, state.active, state.deleting, valid]);
+				if (!state.active || !valid) return null;
 				const label = props.selector.role === "user" ? "选择这条用户输入" : "选择这条 AI 输出";
-				return React.createElement("label", { className: "dsh-tavern-message-select " + (props.selector.role === "user" ? "user" : "assistant"), title: label },
+				return React.createElement("label", { ref: labelRef, className: "dsh-tavern-message-select " + (props.selector.role === "user" ? "user" : "assistant"), title: label },
 					React.createElement("input", { type: "checkbox", "aria-label": label, checked: state.keys.has(key), disabled: state.deleting,
 						onChange: function () { store.toggle(props.sessionId, props.selector); } }));
 			}

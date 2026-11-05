@@ -99,7 +99,7 @@ export function createSessionViewProjection({
       replyDisplay = await replyDisplayForChat(chat,card,persistedProjection,cardExtensions)
     }
     const activity = activityOf(chat)
-    const { debugTurns, latestAssistantTurn: latestStoryTurn, latestAssistantMessageId } = latestTurnFields(chat)
+    const { debugTurns, latestAssistantTurn: latestStoryTurn, latestAssistantMessageId, displayRoundOrder } = latestTurnFields(chat)
     const forkTurnsByMessageId = forkTurnsForChat(chat)
     const {inputSources,inputTemplateDisplays}=inputFieldsProjection.project(persistedProjection ? chat : {...chat,_storageRevision:undefined}, options.inputChanges)
     const cardUpdate = ['story', 'script'].includes(chat.mode || 'story') && chat.requestMode !== 'sillytavern'
@@ -180,6 +180,9 @@ export function createSessionViewProjection({
       characterDesignTask: projectCharacterDesignTask(chat),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       debugTurns,
+      // Stable round ids in save-floor order. Clients derive display ordinals and
+      // distances from this list; no saved turn or native mapping is rewritten.
+      displayRoundOrder,
       latestAssistantMessageId,
       forkTurnsByMessageId,
       latestAssistantTurn: latestStoryTurn,
@@ -232,6 +235,12 @@ export function createSessionViewProjection({
   // so plugin actions never target a turn from an earlier view.
   function latestTurnFields(chat) {
     const messages = Array.isArray(chat.messages) ? chat.messages : []
+    const displayRoundOrder = []
+    for (const message of messages) {
+      if (!message || message.role !== 'assistant') continue
+      const turn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : 0))
+      if (turn > 0) displayRoundOrder.push(turn)
+    }
     const debugTurns = []
     for (let index = messages.length - 1; index >= 0 && debugTurns.length < 12; index--) {
       const message = messages[index]
@@ -244,7 +253,7 @@ export function createSessionViewProjection({
     const latestAssistantTurn = Number(debugTurns[0]?.turn) || 0
     const liveSession = sessionStore.get(str(chat.sessionId)) || agentRegistry.get(str(chat.sessionId))?.session
     const latestAssistant = latestAssistantTurn > 0 ? assistantResultForTurn(liveSession, latestAssistantTurn) : null
-    return { debugTurns, latestAssistantTurn, latestAssistantMessageId: str(latestAssistant?.event?.data?.message?.id) }
+    return { debugTurns, latestAssistantTurn, latestAssistantMessageId: str(latestAssistant?.event?.data?.message?.id), displayRoundOrder }
   }
   function replyProjectionsOf(chat) {
     const messages = Array.isArray(chat && chat.messages) ? chat.messages : []

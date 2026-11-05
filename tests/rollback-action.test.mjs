@@ -5,6 +5,7 @@ import vm from './fixtures/client-vm.mjs'
 
 const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const component = source.slice(source.indexOf('function CandidateAction('), source.indexOf('function CandidateDockActions('))
+const roundOrdinal = source.slice(source.indexOf('function tavernRoundOrdinal('), source.indexOf('function tavernStoryTurnForDshTurn('))
 // The replay submit path sits above CandidateAction; slice it with its only helper.
 
 function harness() {
@@ -37,9 +38,10 @@ function harness() {
     submitFailedTurnReplay: async sessionId => { calls.push('replay'); return { view: {} } },
     TavernCompactionAction: function TavernCompactionAction() {}
   }
-  const actions = vm.runInNewContext(component + '; ({ CandidateAction, TavernRollbackAction, TavernUndoRollbackAction, TavernMoreActions })', context)
+  const actions = vm.runInNewContext(roundOrdinal + component + '; ({ CandidateAction, TavernRollbackAction, TavernUndoRollbackAction, TavernMoreActions, tavernRoundOrdinal })', context)
   return {
     calls,
+    ordinal: actions.tavernRoundOrdinal,
     view(value) { Object.assign(extraView, value) },
     undoTurn(value) { undoTurn = value },
     undo() { cursor = 0; return actions.TavernUndoRollbackAction({ sessionId: 'session', useSession: select => select({ running }) }) },
@@ -78,6 +80,23 @@ test('开场白不显示正文重生成入口，正式玩家轮次完成后只�
   assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项', '重新生成正文'])
   h.playerRound(false)
   assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项'])
+})
+
+test('回退标签和轮距按正文楼层顺序计算，稳定 turn 仍用于操作', () => {
+  const h = harness()
+  const displayRoundOrder = [1, 2, 3, 12, 48, 72, 75, 84]
+  h.view({ rollbackTargetTurn: 84, displayRoundOrder })
+  assert.equal(h.button().children[0], '回退第 8 轮')
+  assert.equal(h.ordinal({ displayRoundOrder }, 84) - h.ordinal({ displayRoundOrder }, 75), 1, '倒数第二轮与最后一轮只隔一楼')
+  assert.equal(h.ordinal({ displayRoundOrder: [84, 1, 75] }, 75), 3, '导入的非单调楼层也按实际顺序取序号')
+  h.undoTurn(75)
+  const undo = h.undo()
+  assert.equal(undo.children[0], '撤销回退（恢复第 7 轮）')
+  assert.equal(undo.props.title.includes('恢复第 7 轮正文'), true)
+  h.view({ displayRoundOrder: [1, 2, 3] })
+  h.undoTurn(11)
+  assert.equal(h.undo().children[0], '撤销回退（恢复第 4 轮）', '撤销目标已被删除时按恢复后的楼层位置显示')
+  assert.deepEqual(displayRoundOrder, [1, 2, 3, 12, 48, 72, 75, 84], '显示计算不改回合号')
 })
 
 test('实际回退组件在前台、后台和重生成期间禁用，完成后允许点击', async () => {

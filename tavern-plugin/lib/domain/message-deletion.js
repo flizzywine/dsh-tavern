@@ -45,17 +45,21 @@ export function normalizeMessageDeletionSelectors(items) {
   const unique = new Map()
   for (const item of items) {
     if (!item || typeof item !== 'object' || !['user', 'assistant'].includes(item.role)) throw new Error('消息删除选择器无效')
-    const turn = integer(item.turn, 1), seq = integer(item.seq)
-    if (turn === null || seq === null) throw new Error('消息删除选择器的回合或序号无效')
+    const seq = integer(item.seq)
+    if (seq === null) throw new Error('消息删除选择器的回合或序号无效')
     let selector
-    if (item.role === 'user') selector = { role: 'user', turn, seq }
-    else {
+    if (item.role === 'user') {
+      const turn = integer(item.turn, 1)
+      if (turn === null) throw new Error('消息删除选择器的回合或序号无效')
+      selector = { role: 'user', turn, seq }
+    } else {
       const storyTurn = integer(item.storyTurn, 1)
       const helperId = typeof item.messageId === 'number' ? integer(item.messageId) : null
       if (typeof item.messageId === 'number' && helperId === null) throw new Error('正文删除选择器无效')
       const messageId = helperId === null ? str(item.messageId).trim() : helperId
       if (storyTurn === null || messageId === '' || (typeof messageId !== 'number' && typeof messageId !== 'string')) throw new Error('正文删除选择器无效')
-      selector = { role: 'assistant', turn, storyTurn, seq, messageId }
+      // 正文属于剧情回合；原生 turn 只是宿主实现细节，不参与删除身份。
+      selector = { role: 'assistant', storyTurn, seq, messageId }
     }
     unique.set(JSON.stringify(selector), selector)
   }
@@ -140,8 +144,8 @@ function assistantRow(chat, selector, events) {
     const row = messages[index]
     if (row?.role !== 'assistant' || storyTurn(row) !== selector.storyTurn) continue
     const anchor = row.nativeAnchor ? upgradedAnchor(row.nativeAnchor, references) : null
-    if (anchor && (anchor.turn !== selector.turn || anchor.reply !== selector.seq)) continue
-    if (!anchor && nativeTurn(row) !== selector.turn) continue
+    // reply seq 在原生事件流中唯一；anchor.turn 可能因宿主重排而变化。
+    if (anchor && anchor.reply !== selector.seq) continue
     candidates.push({ row, index, anchor })
   }
   if (candidates.length !== 1) throw new Error('要删除的正文已经变化，请刷新后重试')
@@ -179,9 +183,9 @@ function resolveSelectors(chat, session, selectors) {
     const original = bySeq.get(selector.seq)
     let match, surfaceSeq = null, historical = null
     if (selector.role === 'assistant') {
-      if (original?.type !== 'assistant/message' || integer(original.data?.turn, 1) !== selector.turn) throw new Error('正文原生序号或回合不匹配')
+      if (original?.type !== 'assistant/message') throw new Error('正文原生序号不匹配')
       match = assistantRow(chat, selector, events)
-      if (storyTurn(match.row) !== selector.storyTurn || nativeTurn(match.row) !== selector.turn) throw new Error('正文剧情回合或原生回合不匹配')
+      if (storyTurn(match.row) !== selector.storyTurn) throw new Error('正文剧情回合不匹配')
       surfaceSeq = descendant(events, nodes, selector.seq, 'assistant/message')
       if (typeof selector.messageId !== 'number') {
         const candidates = events.filter(event => event?.type === 'assistant/message' && str(event.data?.message?.id) === selector.messageId)

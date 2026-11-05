@@ -353,7 +353,7 @@
 			}
 			function tavernAssistantViewPaths(turn, eager = true) {
 				return ["mode", eager ? "tavernHelper" : "$helperAvailable",
-					"cardSave", "tavernRuntimePolicy", "tavernMvuRuntime", "statusBarPlacement", "regenInProgress", "replacingDshTurns", "suppressedDshTurns"].map(field => [field]).concat([["$projectionTurn", String(turn)], ["$projectionLatestTurn", String(turn)]]);
+					"cardSave", "tavernRuntimePolicy", "tavernMvuRuntime", "statusBarPlacement", "regenInProgress", "replacingDshTurns", "suppressedDshTurns", "displayRoundOrder"].map(field => [field]).concat([["$projectionTurn", String(turn)], ["$projectionLatestTurn", String(turn)]]);
 			}
 			function tavernReceiptViewPaths(turn, receipt, latest) {
 				const paths = [["$mvuReceiptTurn", String(turn)], ["$settlementOwner", String(turn)], ["polishedTurns"], ["autoPolishedTurns"]];
@@ -625,10 +625,12 @@
 				const ownsTurn = !tail || !tail.closing || !data.finalNode || tail.closing.finalNode.seq === data.finalNode.seq;
 					const projection = settled && ownsTurn ? tavernProjectionForTurn(liveState.view, storyTurn) : null;
 					const latestProjectionTurn = tavernLatestProjectionTurn(liveState.view);
+				const roundDistance = storyTurn > 0 && latestProjectionTurn > 0
+					? tavernRoundOrdinal(liveState.view, latestProjectionTurn) - tavernRoundOrdinal(liveState.view, storyTurn) : 0;
 				// Only the latest 3 rounds run a card's HTML interface (heavy status bars);
 				// earlier ones show text and a 「渲染此轮」 button.
 				const [renderRound, setRenderRound] = React.useState(false);
-				const deferHtml = !renderRound && storyTurn > 0 && latestProjectionTurn - storyTurn >= 3 ? function () { setRenderRound(true); } : null;
+				const deferHtml = !renderRound && storyTurn > 0 && roundDistance >= 3 ? function () { setRenderRound(true); } : null;
                 React.useEffect(function () {
                     if(!historyNode.current || !currentView?.historyWindow || !ownsTurn || projection || storyTurn<=0 || storyTurn>=tavernLatestProjectionTurn(currentView))return;
                     let cancelWait = null;
@@ -683,9 +685,16 @@
                     tavernReplyRunWatch.mark(props.sessionId, replyMessageId);
                     if (historyNode.current) tavernReplyReveal(historyNode.current, { host: window });
                 }, [props.sessionId, replyMessageId, replyText, playView, settled]);
+                // 正文一旦画在屏幕上就记下来：之后计划重算想把这行收掉时，除非同一段正文已经
+                // 在别的行上画着（那才叫"搬走"），这一行必须留着（turn-history.js tavernShownBodies）。
+                React.useLayoutEffect(function () {
+                    if (!ownsTurn || replyText.trim() === "") return;
+                    tavernShownBodies.remember(props.sessionId, turn, storyTurn);
+                }, [props.sessionId, turn, storyTurn, replyText, ownsTurn]);
+                const rowPlan = tavernPlanOf(liveState.view);
                 // The host chat store knows the latest turn before the Tavern view has loaded (a reload, a cold chat).
                 const latestDshTurn = useTavernLatestDshTurn(props.useChat);
-                const eagerFloor = latestDshTurn !== null && turn > 0 && turn === latestDshTurn || storyTurn > 0 && latestProjectionTurn > 0 && latestProjectionTurn - storyTurn < TAVERN_EAGER_FLOORS;
+                const eagerFloor = latestDshTurn !== null && turn > 0 && turn === latestDshTurn || storyTurn > 0 && latestProjectionTurn > 0 && roundDistance < TAVERN_EAGER_FLOORS;
                 const deferredFloor = useTavernDeferredFloor(historyNode, settled && !eagerFloor && (data.blocks || []).length > 0, !sessionTransitioning && !waitingForHistory);
                 const deferredFloorText = React.useMemo(function () { return tavernFloorMeasureText(data.blocks); }, [data.blocks]);
                 const deferredFloorReserve = useTavernDeferredFloorReserve(historyNode, deferredFloor, settled, deferredFloorText, props.sessionId, storyTurn || turn);
@@ -734,10 +743,13 @@
 					mentions: mentions,
 					t: props.t
 				});
-				const distantHeight = useTavernDistantFloor(historyNode, !deferredFloor && settled && !sessionTransitioning && storyTurn > 0 && latestProjectionTurn - storyTurn >= TAVERN_LIVE_FLOORS);
+				const distantHeight = useTavernDistantFloor(historyNode, !deferredFloor && settled && !sessionTransitioning && storyTurn > 0 && roundDistance >= TAVERN_LIVE_FLOORS);
 				// A reply the row plan does not draw (an old body being regenerated, a repair
 				// copy): its row is hidden; render nothing into it either. After all hooks.
-				if (!tavernPlanShowsRow(tavernPlanOf(liveState.view), String(turn), "assistant-step")) return null;
+				// 例外：这一行已经显示过正文，而计划这次并没有在别的行上画同一段正文——那不是
+				// 搬家而是抹掉，留着这行（turn-history.js tavernShownBodies）。
+				if (!tavernPlanShowsRow(rowPlan, String(turn), "assistant-step")
+					&& !tavernPlanErasesRowForRender(props.sessionId, rowPlan, turn, liveState.view?.regenInProgress === true)) return null;
 				if (deferredFloor) return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-deferred-floor": true, "data-deferred-reserve": deferredFloorReserve > 0 ? "measured" : "fallback", style: { minHeight: (deferredFloorReserve || tavernTextMeasureFallback()) + "px" } });
 				if (!(data.status === "running" || data.status === "interrupted" || rendered.length > 0)) return null;
 				if (distantHeight > 0) return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-distant-floor": true, style: { height: distantHeight + "px" } });

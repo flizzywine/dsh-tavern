@@ -31,13 +31,13 @@ test('/delete 注册为宿主 action，只进入当前 session 的选择模式',
   assert.equal(Dock, feature.Dock)
 })
 
-test('用户和 AI selector 使用原生身份，独立跨轮多选且按 session 隔离', () => {
+test('用户 selector 使用原生 turn，AI selector 只使用剧情回合与正文身份', () => {
   const context = contextWith()
   const feature = context.createTavernMessageDeletionFeatureModule()
   const user = feature.userSelector(7, { seq: 3 })
   const assistant = feature.assistantSelector(8, 5, { finalNode: { seq: 11, messageId: 42 } })
   assert.deepEqual({ ...user }, { role: 'user', turn: 7, seq: 3 })
-  assert.deepEqual({ ...assistant }, { role: 'assistant', turn: 8, storyTurn: 5, seq: 11, messageId: '42' })
+  assert.deepEqual({ ...assistant }, { role: 'assistant', storyTurn: 5, seq: 11, messageId: '42' })
   feature.store.enter('a')
   feature.store.toggle('a', user)
   feature.store.toggle('a', assistant)
@@ -45,6 +45,17 @@ test('用户和 AI selector 使用原生身份，独立跨轮多选且按 sessio
   assert.equal(feature.store.getSnapshot('b').items.length, 0)
   feature.store.toggle('a', user)
   assert.deepEqual(JSON.parse(JSON.stringify(feature.store.getSnapshot('a').items)), JSON.parse(JSON.stringify([assistant])))
+})
+
+test('原生 turn 改变不会使已选正文变成另一项', () => {
+  const context = contextWith()
+  const feature = context.createTavernMessageDeletionFeatureModule()
+  const before = feature.assistantSelector(8, 5, { finalNode: { seq: 11, messageId: 'reply-5' } })
+  const after = feature.assistantSelector(99, 5, { finalNode: { seq: 11, messageId: 'reply-5' } })
+  feature.store.enter('a')
+  feature.store.toggle('a', before)
+  feature.store.toggle('a', after)
+  assert.equal(feature.store.getSnapshot('a').items.length, 0, '同一正文的新旧 turn 应共用选择键')
 })
 
 test('删除中锁定操作；成功清选择并刷新 view，失败保留选择', async () => {
@@ -83,7 +94,7 @@ test('删除中锁定操作；成功清选择并刷新 view，失败保留选择
   assert.equal(feature.store.getSnapshot('a').error, '删除失败')
 })
 
-test('复选框与 dock 支持独立勾选、清空、删除禁用、Esc 和取消', async t => {
+test('复选框、楼层点击与 dock 支持独立勾选、清空、删除禁用、Esc 和取消', async t => {
   const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
   const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
@@ -105,8 +116,13 @@ test('复选框与 dock 支持独立勾选、清空、删除禁用、Esc 和取�
   const assistant = feature.assistantSelector(2, 2, { finalNode: { seq: 8, messageId: 'm8' } })
   function View() {
     return React.createElement(React.Fragment, null,
-      React.createElement(feature.Checkbox, { sessionId: 'a', selector: user }),
-      React.createElement(feature.Checkbox, { sessionId: 'a', selector: assistant }),
+      React.createElement('div', { className: 'dsh-tavern-user-row' },
+        React.createElement('div', { className: 'dsh-tavern-user-bubble' }, '用户楼层'),
+        React.createElement('button', { type: 'button' }, '复制'),
+        React.createElement(feature.Checkbox, { sessionId: 'a', selector: user })),
+      React.createElement('div', { className: 'dsh-tavern-assistant' },
+        React.createElement('div', { className: 'dsh-tavern-assistant-body' }, 'AI 楼层'),
+        React.createElement(feature.Checkbox, { sessionId: 'a', selector: assistant })),
       React.createElement(feature.Dock, { sessionId: 'a' }))
   }
   root = createRoot(dom.window.document.querySelector('main'))
@@ -119,7 +135,15 @@ test('复选框与 dock 支持独立勾选、清空、删除禁用、Esc 和取�
   assert.match(dom.window.document.querySelector('.dsh-tavern-message-deletion-count').textContent, /已选 2 条/)
   await act(async () => { [...dom.window.document.querySelectorAll('button')].find(button => button.textContent === '清空').click() })
   assert.deepEqual(checkboxes().map(input => input.checked), [false, false])
-  await act(async () => { checkboxes()[0].click(); checkboxes()[1].click() })
+  await act(async () => { [...dom.window.document.querySelectorAll('button')].find(button => button.textContent === '复制').click() })
+  assert.deepEqual(checkboxes().map(input => input.checked), [false, false], '楼层内原有按钮不触发选择')
+  await act(async () => { dom.window.document.querySelector('.dsh-tavern-user-bubble').click() })
+  await act(async () => { dom.window.document.querySelector('.dsh-tavern-assistant-body').click() })
+  assert.deepEqual(checkboxes().map(input => input.checked), [true, true], '点击用户与 AI 楼层正文即可选中')
+  await act(async () => { dom.window.document.querySelector('.dsh-tavern-user-bubble').click() })
+  assert.deepEqual(checkboxes().map(input => input.checked), [false, true], '再次点击同一楼层取消选中')
+  await act(async () => { checkboxes()[0].click() })
+  assert.deepEqual(checkboxes().map(input => input.checked), [true, true], '复选框点击不会被楼层监听重复切换')
   await act(async () => { [...dom.window.document.querySelectorAll('button')].find(button => button.textContent === '删除').click() })
   await flush()
   assert.ok(checkboxes().every(input => input.disabled))

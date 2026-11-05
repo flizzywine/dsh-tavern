@@ -215,7 +215,10 @@ export function applyNativeSurfaceRepair(session, chat, plan, { repairId }) {
       if (round.standalone) continue
       const reply = write('assistant/message', { turn, step: 1, message: { id: round.greeting ? nativeOpeningMessageId(chat.id) : id + ':reply',
         role: 'assistant', content: [{ type: 'text', text: round.replyText }], source: storySource(turn) } })
-      anchors.push({ messageIndex: round.messageIndex, anchor: input ? roundAnchor(turn, input, reply) : null })
+      // The story turn belongs in the source marker; the anchor and display mapping
+      // locate the actual edit turn that the mutator assigned to this reply.
+      const replyTurn = Number(reply?.data?.turn) || turn
+      anchors.push({ messageIndex: round.messageIndex, anchor: input ? roundAnchor(replyTurn, input, reply) : null, replyTurn })
     }
     // A stale tail with nothing to write in its place: shadow it with an empty node.
     if (pending) write('assistant/message', { turn: 0, step: 1, message: { id: `tavern-native-repair:${repairId}:empty`, role: 'assistant', content: [], source } })
@@ -235,7 +238,7 @@ export function repairNativeSurface(session, chat, options) {
 export function recordNativeSurfaceRepair(current, repaired, anchors) {
   let changed = false
   if (current.nativeSync) { delete current.nativeSync; changed = true }
-  for (const { messageIndex, anchor } of anchors) {
+  for (const { messageIndex, anchor, replyTurn } of anchors) {
     const row = current.messages?.[messageIndex], read = repaired.messages?.[messageIndex]
     if (row?.role !== 'assistant' || row.text !== read?.text || Number(row.turn) !== Number(read?.turn)) continue
     // A reply whose input was deleted has no valid pair anchor. Clear the stale
@@ -246,6 +249,23 @@ export function recordNativeSurfaceRepair(current, repaired, anchors) {
     } else {
       row.nativeAnchor = anchor
       changed = true
+    }
+    const storyTurn = Number(read?.turn)
+    const nativeTurn = Number(replyTurn) || Number(anchor?.turn)
+    if (Number.isSafeInteger(storyTurn) && storyTurn > 0 && Number.isSafeInteger(nativeTurn) && nativeTurn > 0) {
+      const key = String(storyTurn)
+      const mappings = current.regeneratedDshTurns && typeof current.regeneratedDshTurns === 'object' && !Array.isArray(current.regeneratedDshTurns)
+        ? current.regeneratedDshTurns : {}
+      if (nativeTurn === storyTurn && Object.hasOwn(mappings, key)) {
+        const next = { ...mappings }
+        delete next[key]
+        if (Object.keys(next).length) current.regeneratedDshTurns = next
+        else delete current.regeneratedDshTurns
+        changed = true
+      } else if (nativeTurn !== storyTurn && Number(mappings[key]) !== nativeTurn) {
+        current.regeneratedDshTurns = { ...mappings, [key]: nativeTurn }
+        changed = true
+      }
     }
     // The rewritten reply already carries the edit; replaying the marker would target a shadowed node.
     delete row.bodyEdit

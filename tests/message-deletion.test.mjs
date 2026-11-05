@@ -118,6 +118,25 @@ test('单删 AI：Helper 数字 id 可用，保留 user 补 storyTurn、清理 c
   assert.deepEqual(nodeTexts(h.session), ['输入2', '正文2', '输入3', '', '输入4', '正文4'])
 })
 
+test('AI 正文只按 storyTurn/seq/messageId 删除，原生 turn 漂移不阻塞', async () => {
+  const h = fixture()
+  h.chat.messages[1].nativeAnchor.turn = 99
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{
+    role: 'assistant', storyTurn: 2, seq: h.selectors.a2.seq, messageId: 'out-2'
+  }] })
+  assert.equal(result.deletedCount, 1)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '输入3', '正文3', '输入4', '正文4'])
+  assert.deepEqual(nodeTexts(h.session), ['输入2', '', '输入3', '正文3', '输入4', '正文4'])
+})
+
+test('无 nativeAnchor 的旧正文也不再用原生 turn 过滤', async () => {
+  const h = fixture()
+  delete h.chat.messages[1].nativeAnchor
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ ...h.selectors.a2, turn: 99 }] })
+  assert.equal(result.deletedCount, 1)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '输入3', '正文3', '输入4', '正文4'])
+})
+
 test('跨轮非连续批量删除按连续区段写 tombstone，所有未选 surface 节点保持原 seq', async () => {
   const h = fixture(), before = h.session.surface.nodes.slice()
   const selected = new Set([h.selectors.u2.seq, h.selectors.a4.seq])

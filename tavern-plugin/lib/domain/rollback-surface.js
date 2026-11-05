@@ -206,7 +206,12 @@ export function projectedReplyTurns({ events = [], nodes = [] } = {}) {
   for (const event of events) {
     if (event?.type !== 'assistant/message' || event.surfaceOp?.op !== 'replace') continue
     if (visible.size && !visible.has(Number(event.seq))) continue
-    const story = Number(event.data?.message?.source?.tavernStoryTurn)
+    const source = event.data?.message?.source
+    // Repair rewrites a span of model context, not a regeneration projection. Its
+    // range tail can belong to any round; recordNativeSurfaceRepair stores the real
+    // edit turn instead, so this derived regeneration mapping must leave it alone.
+    if (source?.provider === 'dsh-tavern' && source?.model === 'native-repair') continue
+    const story = Number(source?.tavernStoryTurn)
     if (!Number.isSafeInteger(story) || story < 1) continue
     const range = surfaceReplacementRange(event.surfaceOp)
     const end = bySeq.get(range.end)

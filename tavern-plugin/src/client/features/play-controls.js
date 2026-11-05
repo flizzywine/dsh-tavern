@@ -605,7 +605,8 @@
             const clearIncomplete = rollbackViewState.view && rollbackViewState.view.canClearIncompleteReply === true;
 			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";
 			const targetTurn = Number(rollbackViewState.view && rollbackViewState.view.rollbackTargetTurn) || 0;
-            const targetLabel = targetTurn > 0 ? "回退第 " + targetTurn + " 轮" : "回退本轮";
+			const targetRound = tavernRoundOrdinal(rollbackViewState.view, targetTurn);
+            const targetLabel = targetRound > 0 ? "回退第 " + targetRound + " 轮" : "回退本轮";
 			const blocked = rolling || frontRunning || regenBusy || activity.busy || settlementActive;
 			async function rollback() {
 				if (!canRollback || blocked) return;
@@ -638,6 +639,10 @@
             const running = props.useSession(function (state) { return state.running === true; });
             const live = useLiveTavernView(props.sessionId, "undo:" + String(running));
             const turn = Number(live.view && live.view.undoRollbackTurn) || 0;
+			const order = live.view && live.view.displayRoundOrder;
+			// The rollback removed the target floor. Its restored ordinal is immediately
+			// after the floors that remain, not the sparse native turn saved on the undo point.
+			const round = tavernRoundOrdinal(live.view, turn, Array.isArray(order) ? order.length + 1 : turn);
             if (!turn) return null;
             async function undo() {
                 if (busy || running) return;
@@ -651,21 +656,22 @@
                 finally { setBusy(false); liveTavernView.invalidate(props.sessionId); tavernCoordination.invalidate(props.sessionId); }
             }
             return React.createElement("button", { role: "menuitem", disabled: busy || running, onClick: undo,
-                title: "恢复第 " + turn + " 轮正文和状态；新的操作会使此恢复点失效" }, busy ? "恢复中…" : "撤销回退（恢复第 " + turn + " 轮）");
+                title: "恢复第 " + round + " 轮正文和状态；新的操作会使此恢复点失效" }, busy ? "恢复中…" : "撤销回退（恢复第 " + round + " 轮）");
         }
 
         // 每轮消息上的「回退到这一轮」：一次删掉它之后的所有轮次，一次撤销即可全部恢复。
         function TavernRollbackToAction(props) {
             const messageId = String(props.messageId || "");
-            const liveState = useScopedLiveTavernView(props.sessionId, "rollback-to:" + messageId, [["mode"], ["canRollback"], ["rollbackTargetTurn"], ["forkTurnsByMessageId", messageId]]);
+            const liveState = useScopedLiveTavernView(props.sessionId, "rollback-to:" + messageId, [["mode"], ["canRollback"], ["rollbackTargetTurn"], ["displayRoundOrder"], ["forkTurnsByMessageId", messageId]]);
             const [busy, setBusy] = React.useState(false);
             const view = liveState.view;
             const turn = Number(view && view.forkTurnsByMessageId && view.forkTurnsByMessageId[messageId]) || 0;
             const latest = Number(view && view.rollbackTargetTurn) || 0;
+			const round = tavernRoundOrdinal(view, turn);
             if (!view || !isPlayMode(view.mode) || view.canRollback !== true || !(turn > 0) || !(latest > turn)) return null;
             async function rollbackTo() {
                 if (busy) return;
-                if (!await askTavernConfirm("回退到第 " + turn + " 轮？\n\n第 " + turn + " 轮之后的所有输入和正文都会删除，剧情状态回到第 " + turn + " 轮结束时。之后可在菜单里「撤销回退」一次全部恢复。", { confirmText: "回退", cancelText: "取消" })) return;
+                if (!await askTavernConfirm("回退到第 " + round + " 轮？\n\n第 " + round + " 轮之后的所有输入和正文都会删除，剧情状态回到第 " + round + " 轮结束时。之后可在菜单里「撤销回退」一次全部恢复。", { confirmText: "回退", cancelText: "取消" })) return;
                 setBusy(true);
                 try {
                     const result = await rpc("rollbackToTurn", { turn: turn }, props.sessionId);
@@ -1142,7 +1148,8 @@
 				let frame = null;
 				function applyProjectionState() {
 					frame = null;
-					historyProjection.apply(props.sessionId, transcriptTurns ? { turns: transcriptTurns, from: transcriptFrom } : null, backgroundTurns);
+					historyProjection.apply(props.sessionId, transcriptTurns ? { turns: transcriptTurns, from: transcriptFrom } : null, backgroundTurns,
+						{ regenerating: Boolean(suppressionState.view && suppressionState.view.regenInProgress === true) });
 				}
 				function scheduleProjection() {
 					if (frame === null) frame = window.requestAnimationFrame(applyProjectionState);

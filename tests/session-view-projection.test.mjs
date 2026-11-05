@@ -34,6 +34,17 @@ test('cold bounded view preserves plugin output without replaying output regexes
   assert.equal(ordinary.replyProjections[0].text, '已处理再次处理正文')
 })
 
+test('display round order follows assistant floors without rewriting sparse stable turns', async () => {
+  const f = projectionFixture()
+  const messages = [
+    { role: 'assistant', greeting: true, turn: 1, text: '开场' },
+    ...[2, 3, 12, 48, 72, 75, 84].flatMap(turn => [{ role: 'user', turn }, { role: 'assistant', turn, text: '正文 ' + turn }])
+  ]
+  const view = await f.projection.project.full({ ...f.chat, messages })
+  assert.deepEqual(view.displayRoundOrder, [1, 2, 3, 12, 48, 72, 75, 84])
+  assert.deepEqual(messages.filter(message => message.role === 'assistant').map(message => message.turn), view.displayRoundOrder)
+})
+
 test('header-only player name changes refresh the view and helper across repeated writes and cached reads', async () => {
   const f = projectionFixture()
   let chat = { ...f.chat, macroState: { userName: '你' } }

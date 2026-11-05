@@ -198,6 +198,69 @@
 		function tavernPlanOf(view) {
 			return view && view.transcriptTurns ? { turns: view.transcriptTurns, from: view.transcriptFrom } : null;
 		}
+		// 行计划是每次读视图都重算一遍的派生表：同一段正文会因为它被搬到另一行（修复轮、
+		// 重新生成的投影轮）而在半途被重新判定。已经画在屏幕上、读者已经看到的正文，不该
+		// 因为一次重算就消失——计划只能"搬走"正文，不能"抹掉"正文。藏一行只在同一段的正文
+		// 还有别的行在画时才算搬；一处都不画的计划，这一行原样留着。
+		const tavernShownBodies = (function () {
+			const sessions = new Map(), LIMIT = 32;
+			function rows(sessionId) {
+				const key = String(sessionId || "");
+				let table = sessions.get(key);
+				if (!table) {
+					table = new Map();
+					sessions.set(key, table);
+					while (sessions.size > LIMIT) sessions.delete(sessions.keys().next().value);
+				}
+				return table;
+			}
+			function remember(sessionId, turn, story) {
+				const value = Number(turn);
+				if (!Number.isSafeInteger(value) || value <= 0) return;
+				const owner = Number(story) > 0 ? Number(story) : value;
+				const table = rows(sessionId);
+				if (table.get(value) === owner) return;
+				table.set(value, owner);
+			}
+			return Object.freeze({ remember: remember, rows: rows,
+				shown: function (sessionId, turn) { return rows(sessionId).has(Number(turn)); },
+				storyOf: function (sessionId, turn) { return rows(sessionId).get(Number(turn)) || Number(turn); },
+				forget: function (sessionId, turn) { rows(sessionId).delete(Number(turn)); } });
+		})();
+		// 计划里正文落在哪些轮（drawn）、哪些轮自己那行的正文被计划收掉（hidden），
+		// 以及哪些轮的玩家输入还在画（input）：一轮连输入都不画了，就是这一轮被回退/删掉了。
+		function tavernPlanBodyDigest(plan) {
+			const drawn = new Set(), hidden = new Set(), input = new Set();
+			if (!plan || !plan.turns) return { drawn: drawn, hidden: hidden, input: input };
+			for (const key of Object.keys(plan.turns)) {
+				const entry = plan.turns[key];
+				if (!entry) continue;
+				const owner = Number(entry.story) || Number(key);
+				if (entry.reply === 1) drawn.add(owner);
+				else hidden.add(owner);
+				if (entry.input === 1) input.add(Number(key));
+			}
+			return { drawn: drawn, hidden: hidden, input: input };
+		}
+		// 这一段正文还画在别处：计划里有别的行画它，或者它自己那行不在例外里（照画）。
+		function tavernPlanDrawsBodyElsewhere(digest, plan, story) {
+			if (digest.drawn.has(story)) return true;
+			return !(plan && plan.turns && Object.prototype.hasOwnProperty.call(plan.turns, String(story)));
+		}
+		// 计划这次是不是要把一段已经画出来的正文从屏幕上抹掉（而不是搬到别处）：这一轮本身
+		// 还在（玩家的输入还画着）、计划把它这一行的正文收掉、又没有别的行画同一段正文。
+		// 只在重新生成进行中拦：那是派生表在脏状态下重算；用户主动删掉正文时计划必须照删。
+		function tavernPlanErasesRow(sessionId, plan, digest, turn, regenerating) {
+			if (regenerating !== true) return false;
+			const value = Number(turn);
+			if (!tavernShownBodies.shown(sessionId, value)) return false;
+			const story = tavernShownBodies.storyOf(sessionId, value);
+			if (!digest.hidden.has(story) || !digest.input.has(story)) return false;
+			return !tavernPlanDrawsBodyElsewhere(digest, plan, story);
+		}
+		function tavernPlanErasesRowForRender(sessionId, plan, turn, regenerating) {
+			return tavernPlanErasesRow(sessionId, plan, tavernPlanBodyDigest(plan), turn, regenerating);
+		}
 		function createTurnHistoryProjection(options) {
 			options = options || {};
 			const root = options.root || function () { return document; };
@@ -237,20 +300,30 @@
 				return result;
 			}
 			// `wholeTurns`: background Agent sessions have no plan; their rolled-back turns hide whole.
-			function apply(sessionId, plan, wholeTurns) {
+			function apply(sessionId, plan, wholeTurns, options) {
+				const regenerating = Boolean(options && options.regenerating === true);
 				// Reconcile both directions: rows a previous plan hid may show now.
 				restoreHiddenRows();
 				const whole = new Set((Array.isArray(wholeTurns) ? wholeTurns : []).map(String));
+				const digest = tavernPlanBodyDigest(plan);
 				for (const [row, turn] of rowsWithTurns()) {
 					const kind = row.getAttribute("data-chat-flow-kind");
-					if (whole.has(turn) || !tavernPlanShowsRow(plan, turn, kind)) hideRow(row);
+					// A body already on screen stays unless the plan draws it somewhere else.
+					if (whole.has(turn) || (!tavernPlanShowsRow(plan, turn, kind) && !tavernPlanErasesRow(sessionId, plan, digest, turn, regenerating))) hideRow(row);
+					if (kind !== "assistant-step" || row.style.display === "none") continue;
+					const host = row.querySelector && row.querySelector(".dsh-tavern-assistant");
+					if (!String((host || row).textContent || "").trim()) continue;
+					const entry = plan && plan.turns ? plan.turns[String(turn)] : null;
+					tavernShownBodies.remember(sessionId, turn, entry && Number(entry.story) > 0 ? Number(entry.story) : Number(turn));
 				}
 				for (const row of root().querySelectorAll('[data-chat-flow-kind="context"]')) {
 					const source = row.querySelector('[data-context-source]');
 					if (source && source.textContent.trim() === "dsh-tavern-surface-restore") hideRow(row);
 				}
 			}
-			function refresh(sessionId, view) { apply(sessionId, tavernPlanOf(view)); }
+			function refresh(sessionId, view) {
+				apply(sessionId, tavernPlanOf(view), undefined, { regenerating: Boolean(view && view.regenInProgress === true) });
+			}
 			return Object.freeze({ apply: apply, regenerated: refresh, rolledBack: refresh, restored: refresh });
 		}
 		function applyBodyRegenerationResult(options) {

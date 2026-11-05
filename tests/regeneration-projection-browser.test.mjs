@@ -98,3 +98,53 @@ test('重生成期间只藏会被替代的正文：玩家的输入留在页面�
     assert.deepEqual(result.restored, { input: false, body: false, tail: false })
   } finally { await browser.close() }
 })
+
+test('已经显示出来的正文只被"搬走"，不会被重算的行计划抹掉', async () => {
+  const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<main></main>')
+    const result = await page.evaluate(source => {
+      window.__ModuleLoader__ = { load(d) { window.client = d.factory(() => ({})) } }
+      window.eval(source)
+      const root = document.querySelector('main')
+      const projection = client.createTurnHistoryProjection({ root: () => root, storage: () => ({ getItem: () => '{}', removeItem() {} }) })
+      function row(turn, kind, text) {
+        const node = document.createElement('div')
+        node.setAttribute('data-chat-flow-kind', kind)
+        if (turn !== null) node.setAttribute('data-chat-turn', String(turn))
+        node.textContent = text
+        root.append(node)
+        return node
+      }
+      const hidden = node => getComputedStyle(node).display === 'none'
+      const input = row(84, 'user', '玩家输入')
+      const body = row(84, 'assistant-step', '已经输出的正文')
+      const tail = row(84, 'turn-tail', '')
+      // 正常状态：这一轮自己画输入与正文。
+      projection.apply('s', { turns: {}, from: null })
+      const drawn = hidden(body)
+      // 重新生成刚开始：尝试轮 90 已经画这一轮的正文（计划会带上 story:84）——搬家，旧行照旧立刻收掉。
+      projection.apply('s', { turns: { 84: { input: 1, reply: 0 }, 90: { input: 0, reply: 1, story: 84 } }, from: null }, undefined, { regenerating: true })
+      const moved = hidden(body)
+      // 尝试轮结束、投影还没落盘：计划一处都不画 story 84——这不是搬家，是抹掉，正文必须留着。
+      projection.apply('s', { turns: { 84: { input: 1, reply: 0 }, 90: { input: 0, reply: 0 } }, from: null }, undefined, { regenerating: true })
+      const gap = hidden(body)
+      // 真的回退掉这一轮（连输入都不画了）：这才是删除，允许藏。
+      projection.apply('s', { turns: { 84: { input: 0, reply: 0 } }, from: null })
+      const removed = { body: hidden(body), input: hidden(input), tail: hidden(tail) }
+      // 用户主动删掉这段正文（不是重新生成）：计划照删，不许留旧文。
+      const kept = row(95, 'user', '另一轮输入')
+      const deleted = row(95, 'assistant-step', '要删掉的正文')
+      projection.apply('s', { turns: {}, from: null }, undefined, { regenerating: true })
+      projection.apply('s', { turns: { 95: { input: 1, reply: 0 } }, from: null })
+      return { drawn, moved, gap, removed, kept: hidden(kept), deleted: hidden(deleted) }
+    }, source)
+    assert.equal(result.drawn, false, '正常状态正文可见')
+    assert.equal(result.moved, true, '正文搬到别的行时旧行可以藏')
+    assert.equal(result.gap, false, '计划一处都不画时，已显示的正文不能被抹掉')
+    assert.deepEqual(result.removed, { body: true, input: true, tail: true }, '回退掉的一轮照旧整轮藏起来')
+    assert.deepEqual({ kept: result.kept, deleted: result.deleted }, { kept: false, deleted: true }, '用户主动删除正文时计划照删')
+  } finally { await browser.close() }
+})

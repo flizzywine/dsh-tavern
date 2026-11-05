@@ -33,15 +33,20 @@ test('Chromium：/delete 进入选择模式，用户与 AI 跨轮多选后批量
     const user=feature.userSelector(2,{seq:4});
     const assistant=feature.assistantSelector(7,3,{finalNode:{seq:9,messageId:'reply-3'}});
     function View(){return React.createElement(React.Fragment,null,
-      React.createElement('div',{className:'dsh-tavern-user-row'},React.createElement(feature.Checkbox,{sessionId:'game',selector:user})),
-      React.createElement('div',{className:'dsh-tavern-assistant'},React.createElement(feature.Checkbox,{sessionId:'game',selector:assistant})),
+      React.createElement('div',{className:'dsh-tavern-user-row'},
+        React.createElement('div',{className:'dsh-tavern-user-bubble'},'用户楼层'),
+        React.createElement(feature.Checkbox,{sessionId:'game',selector:user})),
+      React.createElement('div',{className:'dsh-tavern-assistant'},
+        React.createElement('div',{className:'dsh-tavern-assistant-body'},'AI 楼层'),
+        React.createElement(feature.Checkbox,{sessionId:'game',selector:assistant})),
       React.createElement(feature.Dock,{sessionId:'game'}));}
     modules['react-dom/client'].createRoot(document.getElementById('root')).render(React.createElement(View));
     window.fixture={calls,views,notifications,invalidated};
   ` })
   await page.evaluate(() => deleteCommand.ui.run({ sessionId: 'game' }))
-  await page.getByLabel('选择这条用户输入').check()
-  await page.getByLabel('选择这条 AI 输出').check()
+  await page.locator('.dsh-tavern-user-bubble').click()
+  await page.locator('.dsh-tavern-assistant-body').click()
+  assert.deepEqual(await page.locator('input[type="checkbox"]').evaluateAll(nodes => nodes.map(node => node.checked)), [true, true])
   await page.waitForTimeout(100)
   const highlighted = await page.evaluate(() => [...document.querySelectorAll('.dsh-tavern-user-row,.dsh-tavern-assistant')].map(node => {
     const style = getComputedStyle(node)
@@ -60,7 +65,7 @@ test('Chromium：/delete 进入选择模式，用户与 AI 跨轮多选后批量
   assert.equal(result.calls[0].sessionId, 'game')
   assert.deepEqual(result.calls[0].args.items, [
     { role: 'user', turn: 2, seq: 4 },
-    { role: 'assistant', turn: 7, storyTurn: 3, seq: 9, messageId: 'reply-3' }
+    { role: 'assistant', storyTurn: 3, seq: 9, messageId: 'reply-3' }
   ])
   assert.equal(result.views.length, 1)
   assert.equal(result.notifications.length, 1)

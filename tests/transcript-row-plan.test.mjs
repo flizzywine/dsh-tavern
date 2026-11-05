@@ -102,13 +102,41 @@ test('重新生成期间：旧正文只留输入，尝试轮只画正文；落�
   const base = round(0, 1, '旧')
   const attempt = [mark(5, 'turn/start', 2), input(6, { kind: 'plugin:dsh-tavern' }), reply(7, 2, '新'), mark(8, 'step/end', 2)]
   const regeneration = { replacing: [1], inProgress: true }
-  // Running: the attempt (no player input) draws its reply, not the trigger card.
+  // Running: the attempt (no player input) draws the replaced round's new body, not the
+  // trigger card — and says so, so the page may take the old row away at once.
   const running = planTranscriptRows({ chat: chat([1]), events: [...base, ...attempt], regeneration })
-  assert.deepEqual(plain(running), { 1: { input: 1, reply: 0 }, 2: { input: 0, reply: 1 } })
+  assert.deepEqual(plain(running), { 1: { input: 1, reply: 0 }, 2: { input: 0, reply: 1, story: 1 } })
   // Ended, body not yet drawn as the round's: still the attempt's reply.
   const ended = [...base, ...attempt, mark(9, 'turn/end', 2)]
-  assert.deepEqual(plain(planTranscriptRows({ chat: chat([1]), events: ended, regeneration })), { 1: { input: 1, reply: 0 }, 2: { input: 0, reply: 1 } })
+  assert.deepEqual(plain(planTranscriptRows({ chat: chat([1]), events: ended, regeneration })), { 1: { input: 1, reply: 0 }, 2: { input: 0, reply: 1, story: 1 } })
   // Committed: the projection maps round 1 to the attempt and the regeneration is over.
   const committed = [...ended, { seq: 10, type: 'assistant/message', surfaceOp: { op: 'replace', startSeq: 7, endSeq: 7 }, data: { turn: 2, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '新' }], ...story(1) } } }]
   assert.deepEqual(plain(planTranscriptRows({ chat: chat([1]), events: committed })), { 1: { input: 1, reply: 0 }, 2: { input: 0, reply: 1, story: 1 } })
+})
+
+test('修复替换开场时，不把开场绑到范围末尾的无关回复', () => {
+  // 真实日志的形态：834 是 native-repair 写出的开场替换，覆盖 11–829；
+  // 829 恰好是原生轮 75 的拒答 append。开场自己的 append 在范围外。
+  const events = Array(837).fill(null)
+  events[3] = mark(3, 'turn/start', 1)
+  events[10] = reply(10, 1, '开场')
+  events[11] = mark(11, 'step/end', 1)
+  events[12] = mark(12, 'turn/end', 1)
+  events[820] = mark(820, 'turn/start', 75)
+  events[829] = reply(829, 75, '无关拒答')
+  events[830] = mark(830, 'step/end', 75)
+  events[831] = mark(831, 'turn/end', 75)
+  events[833] = mark(833, 'turn/start', 76)
+  events[834] = { seq: 834, type: 'assistant/message', surfaceOp: { op: 'replace', startSeq: 11, endSeq: 829 },
+    data: { turn: 76, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '修复后的开场' }],
+      source: { kind: 'model', provider: 'dsh-tavern', model: 'native-repair', tavernStoryTurn: 1 } } } }
+  events[835] = mark(835, 'step/end', 76)
+  events[836] = mark(836, 'turn/end', 76)
+  const messages = [{ role: 'assistant', greeting: true, turn: 1 }, { role: 'user', turn: 75 }, { role: 'assistant', turn: 75 }]
+  const plan = planTranscriptRows({ chat: { messages }, events })
+  assert.equal(planShowsRow(plan, { turn: 1, kind: 'assistant-step' }), true, '开场仍由自己的原生行绘制')
+  assert.equal(planStoryTurn(plan, 1), 1)
+  assert.equal(planShowsRow(plan, { turn: 75, kind: 'assistant-step' }), true, '无关回合自己的正文不丢')
+  assert.equal(planStoryTurn(plan, 75), 75)
+  assert.equal(planShowsRow(plan, { turn: 76, kind: 'assistant-step' }), false, '模型上下文修复行不进入正文')
 })

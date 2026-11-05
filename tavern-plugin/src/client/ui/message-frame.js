@@ -285,6 +285,28 @@
 			return lookup?.has(rows) ? lookup.max(rows) : rows.reduce((latest,item)=>Math.max(latest,Number(item && item.turn)||0),0);
 		}
 
+		// Presentation only: stable story turns stay untouched; the ordinal comes from
+		// the assistant floors' order whenever a label or a distance needs "第几轮".
+		function tavernRoundOrdinal(view, turn, missing) {
+			const wanted = Number(turn) || 0;
+			const fallback = missing === undefined ? wanted : missing;
+			const order = view?.displayRoundOrder;
+			if (wanted > 0 && Array.isArray(order)) {
+				// Stable turns normally increase, so thousands of floors do not turn every
+				// row render into a full-history scan. Imported non-monotone orders fall back
+				// to the array itself: floor order, not numeric order, remains authoritative.
+				let low = 0, high = order.length - 1;
+				while (low <= high) {
+					const middle = (low + high) >> 1, value = Number(order[middle]);
+					if (value === wanted) return middle + 1;
+					if (value < wanted) low = middle + 1;
+					else high = middle - 1;
+				}
+				for (let index = 0; index < order.length; index += 1) if (Number(order[index]) === wanted) return index + 1;
+			}
+			return fallback;
+		}
+
 		function tavernStoryTurnForDshTurn(view, turn) {
 			const mappings = view && view.regeneratedDshTurns && typeof view.regeneratedDshTurns === "object" ? view.regeneratedDshTurns : {};
 			const lookup = createSessionViewReader.storyTurnLookup;

@@ -4,7 +4,7 @@ import { Session } from './fixtures/dsh-session-host.mjs'
 import { appendSessionEvent, sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { replaceSessionSurface } from '../tavern-plugin/lib/domain/session-surface-mutations.js'
 import { roundAnchor } from '../tavern-plugin/lib/domain/round-anchor.js'
-import { locateRollbackSurface } from '../tavern-plugin/lib/domain/rollback-surface.js'
+import { locateRollbackSurface, projectedReplyTurns } from '../tavern-plugin/lib/domain/rollback-surface.js'
 import { nativeOpeningMessageId } from '../tavern-plugin/lib/domain/native-opening.js'
 import { planNativeSurfaceRepair, recordNativeSurfaceRepair, repairNativeSurface } from '../tavern-plugin/lib/domain/native-surface-repair.js'
 
@@ -225,6 +225,30 @@ test('修复写回存档：只给读时未变的楼层换锚点，清掉待修�
   recordNativeSurfaceRepair(moved, read, result.anchors)
   assert.deepEqual(moved.messages.at(-1).nativeAnchor, h.chat.messages.at(-1).nativeAnchor)
   assert.equal(recordNativeSurfaceRepair(structuredClone(current), read, []), false)
+})
+
+test('修复移动正文后，锚点和映射指向实际编辑轮，修复替换不冒充重新生成投影', () => {
+  const h = game(2)
+  const last = h.chat.messages.at(-1)
+  last.text = '修复后的正文'
+  h.chat.regeneratedDshTurns = { 3: 8 } // 旧生成期映射；修复会再移动一次
+  const repaired = repairNativeSurface(h.session, h.chat, { repairId: 'move' })
+  recordNativeSurfaceRepair(h.chat, h.chat, repaired.anchors)
+  const reply = sessionEvents(h.session).find(event => event.seq === last.nativeAnchor.reply)
+  assert.equal(last.turn, 3, '修复不改稳定的存档回合号')
+  assert.ok(Number(reply.data.turn) > 3)
+  assert.equal(last.nativeAnchor.turn, Number(reply.data.turn), '锚点轮号与 reply 事件的原生轮一致')
+  assert.equal(h.chat.regeneratedDshTurns[3], Number(reply.data.turn), '映射同步到正文实际所在行')
+  assert.equal(projectedReplyTurns({ events: sessionEvents(h.session), nodes: h.session.surface.nodes }).has(3), false,
+    'native-repair 替换不能再用范围尾部覆盖这个映射')
+
+  last.text = '再次修复的正文'
+  const second = repairNativeSurface(h.session, h.chat, { repairId: 'move-again' })
+  recordNativeSurfaceRepair(h.chat, h.chat, second.anchors)
+  const secondReply = sessionEvents(h.session).find(event => event.seq === last.nativeAnchor.reply)
+  assert.equal(secondReply.data.message.source.tavernStoryTurn, 3, '再次修复仍使用稳定故事号，不把上次原生位置当故事号')
+  assert.equal(last.nativeAnchor.turn, Number(secondReply.data.turn))
+  assert.equal(h.chat.regeneratedDshTurns[3], Number(secondReply.data.turn))
 })
 
 test('原生里是模型原文（未去空白、未经正则），存档里是投影后的文字：仍算一致', () => {
