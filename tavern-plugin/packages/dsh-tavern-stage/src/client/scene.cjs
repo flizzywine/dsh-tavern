@@ -672,6 +672,12 @@ function galCreateScene(host, options, own) {
             const closeOn = state.camera.closeOn;
             entry.cropped = Boolean(closeOn && figure.alias !== closeOn && !entry.leaving && galCropHidden(entry.restBody, state.camera.goal, W, H));
             galFigureStep(entry, figure, now, dt);
+            // 舞台借用 focus (cast-layout.cjs lights it): the focus actor's step forward eases in and back out like the figure's
+            // other springs; skip, snap and reduced motion take it at once.
+            const stepTo = figure.focus && !entry.leaving ? 1 : 0;
+            entry.step ||= galSpringValue(stepTo);
+            if (desc.snap || desc.skipping || desc.reducedMotion) { entry.step.v = stepTo; entry.step.d = 0; }
+            else galSpring(entry.step, stepTo, 9, dt);
             // A performance shot cuts to its subject: no fade in (tickShot hides everyone else).
             if (desc.shot && figure.alias === desc.shot.alias && figure.visible !== false && !entry.leaving) entry.alpha.v = 1;
             if (entry.leaving && (galFigureGone(entry) || now - entry.leavingSince > 2500)) { destroyFigure(entry); return; }
@@ -679,7 +685,7 @@ function galCreateScene(host, options, own) {
             entry.container.scale.set(1);
             const alpha = entry.alpha.v, shade = entry.shade.v;
             entry.container.visible = alpha > 0.003;
-            entry.container.zIndex = entry.leaving ? 0 : figure.close ? 3 : figure.speaking ? 2 : 1;
+            entry.container.zIndex = entry.leaving ? 0 : figure.close ? 3 : figure.focus || figure.speaking && !figure.dim ? 2 : 1;
             const look = tickFigureLook(entry, desc, now, dt, dofTarget);
             const key = shade.toFixed(3) + ":" + alpha.toFixed(3) + ":" + look.glow.toFixed(3) + ":" + look.shadow.toFixed(3) + ":" + backgrounds.grade.version;
             if (entry.shadeKey !== key) {
@@ -768,12 +774,15 @@ function galCreateScene(host, options, own) {
             entry.faceRest.scene = state.figureScale?.scene;
             if (old !== entry.faceRest && entry.faceRest.to.warning) console.warn("[fork-gal-scene] face-visibility-shrink", entry.figure.alias, entry.faceRest.to);
             const rest = galFaceRestFrame(entry.faceRest, now), x = W * entry.cx.v;
-            entry.container.scale.set(rest.scale);
-            entry.container.position.set(x * (1 - rest.scale), supportY * (1 - rest.scale) - rest.lift);
-            const pointX = v => x + (v - x) * rest.scale, pointY = v => supportY + (v - supportY) * rest.scale - rest.lift;
+            // the focus actor's step forward about its support point, over the face rest (the face clamp then sees it).
+            const step = stageFocusStep(entry.step?.v || 0, galBodyActAt), scale = rest.scale * step.zoom;
+            const drop = entry.restBody ? step.dy * entry.restBody.height : 0;
+            entry.container.scale.set(scale);
+            entry.container.position.set(x * (1 - scale), supportY * (1 - scale) - rest.lift + drop);
+            const pointX = v => x + (v - x) * scale, pointY = v => supportY + (v - supportY) * scale - rest.lift + drop;
             const head = entry.restHead, body = entry.restBody;
-            entry.restHead = { ...head, x: pointX(head.x), top: pointY(head.top), chin: pointY(head.chin), width: head.width * rest.scale };
-            if (body) entry.restBody = { x: pointX(body.x), y: pointY(body.y), width: body.width * rest.scale, height: body.height * rest.scale };
+            entry.restHead = { ...head, x: pointX(head.x), top: pointY(head.top), chin: pointY(head.chin), width: head.width * scale };
+            if (body) entry.restBody = { x: pointX(body.x), y: pointY(body.y), width: body.width * scale, height: body.height * scale };
             entry.faceRestCurrent = rest;
         });
     }
@@ -1309,4 +1318,11 @@ return {Scene:GalScene,create,figureRenderers:{register:registerFigureRenderer},
     if(errors.length)throw new AggregateError(errors,'Stage scene scope cleanup failed');
 }};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageScene,createStageLayeredFigures};
+// 舞台借用 focus: the focus actor steps forward and holds there - the existing 'lean' body act (galBodyActAt) at its peak,
+// eased by k (0 none .. 1 full). zoom about the support point; dy in body heights (down: nearer the viewer).
+function stageFocusStep(k, bodyActAt) {
+    if (!k) return { zoom: 1, dy: 0 };
+    const peak = bodyActAt("lean", 0.5);
+    return { zoom: 1 + (peak.zoom - 1) * k, dy: peak.dy * k };
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageScene,createStageLayeredFigures,stageFocusStep};
