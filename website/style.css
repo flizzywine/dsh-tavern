@@ -229,3 +229,15 @@ h2{font-size:40px;letter-spacing:-2px}
 }
 
 .resource-links{display:flex;gap:24px;margin-top:24px;font-size:13px;color:#a9583e}.resource-links a:hover{text-decoration:underline}.voice-count{font-size:12px;color:var(--muted);margin-top:24px}.voice-grid{display:block;columns:3;column-gap:24px}.voice-grid a{break-inside:avoid;margin-bottom:24px}.voice-grid img{max-height:none;height:auto}.header nav{gap:24px}@media(max-width:1050px){.voice-grid{columns:2}}@media(max-width:720px){.voice-grid{columns:1}.header nav{gap:12px;font-size:11px}.brand img{width:110px}.nav-install{font-size:10px;padding:7px 8px}}
+
+.comparison h2{font-size:clamp(28px,4vw,48px);letter-spacing:-1px}
+.comparison-hint{font-size:13px;color:var(--muted);margin:20px 0}
+.comparison-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
+.comparison-table{width:100%;min-width:760px;border-collapse:separate;border-spacing:0;table-layout:fixed;font-size:14px;line-height:1.8}
+.comparison-table th,.comparison-table td{padding:20px 24px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.comparison-table thead th{font-size:16px;background:#f5f0e8}
+.comparison-table th:first-child{width:16%}
+.comparison-table tbody th{font-weight:600}
+.comparison-table td:last-child,.comparison-table thead th:last-child{background:#cc785c0d}
+.comparison-table tbody tr:last-child>*{border-bottom:0}
+@media(max-width:720px){.comparison-table th,.comparison-table td{padding:16px}.comparison-table th:first-child{width:110px}}

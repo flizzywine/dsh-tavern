@@ -14,7 +14,7 @@
   <a class="skip" href="#main">跳到正文</a>
   <header class="header">
     <a class="brand" href="#" aria-label="DSH Tavern 首页"><img src="assets/brand/dsh-tavern-lockup.svg" alt="DSH 酒馆" width="164" height="44"></a>
-    <nav aria-label="主导航"><a href="#stories">游玩</a><a href="#workshop">创作</a><a href="#stage">演出</a><a href="https://github.com/flizzywine/dsh-tavern">GitHub ↗</a><a href="https://github.com/flizzywine/dsh-tavern/wiki">Wiki 文档 ↗</a></nav>
+    <nav aria-label="主导航"><a href="#stories">游玩</a><a href="#workshop">创作</a><a href="#stage">演出</a><a href="#comparison">对比</a><a href="https://github.com/flizzywine/dsh-tavern">GitHub ↗</a><a href="https://github.com/flizzywine/dsh-tavern/wiki">Wiki 文档 ↗</a></nav>
     <a class="nav-install" href="https://github.com/flizzywine/dsh-tavern#快速开始">安装酒馆 <span>↗</span></a>
   </header>
 
@@ -66,6 +66,23 @@
     </section>
 
     <section class="more-section"><div class="wrap"><div class="more-heading"><p class="eyebrow">更多功能</p><h2>更多产品特色</h2></div><div class="more-grid"><article><span>✳</span><h3>写作 Skill</h3><p>把教程与样文提炼成写作方法，打斗、悬疑、感情戏，按场景调用。</p></article><article><span>◎</span><h3>人物档案</h3><p>后台设计角色的动机、性格与关系，让反复登场的人物有迹可循。</p></article><article><span>⌘</span><h3>插件与模组</h3><p>扩展配图、语音与远程访问，或用自定义模组创造自己的玩法。</p></article><article><span>↗</span><h3>手机也能玩</h3><p>桌面游玩、Android 独立运行，也能从手机远程连接电脑上的酒馆。</p></article></div><a class="text-link" href="https://github.com/flizzywine/dsh-tavern/wiki/功能索引">按任务查阅完整文档 ↗</a></div></section>
+
+    <section class="section wrap comparison" id="comparison" aria-labelledby="comparison-title">
+<p class="eyebrow">两种游玩方式</p><h2 id="comparison-title">SillyTavern vs DSH Tavern</h2>
+<p class="comparison-hint" id="comparison-hint">手机上可左右滑动查看完整表格。</p>
+<div class="comparison-scroll" role="region" aria-labelledby="comparison-title" aria-describedby="comparison-hint" tabindex="0">
+<table class="comparison-table"><thead><tr><th scope="col">对比项</th><th scope="col">SillyTavern</th><th scope="col">DSH Tavern</th></tr></thead><tbody><tr><th scope="row"><strong>上手门槛</strong></th><td>❌ 要自己配预设、正则、扩展，学习门槛高</td><td>✅ 填好模型、导入人物卡就能玩，默认无需外部预设</td></tr>
+<tr><th scope="row"><strong>工作方式</strong></th><td>❌ 一口气：一个模型在一次请求里完成所有事</td><td>✅ 分步：正文、变量结算、候选项各自完成</td></tr>
+<tr><th scope="row">出错重来</th><td>❌ 整轮重新生成，满意的部分也一起丢掉</td><td>✅ 哪步出错重来哪步，正文和候选还能附上指导意见</td></tr>
+<tr><th scope="row">正文</th><td>❌ 写正文的同时要记住各种格式要求，注意力被分散</td><td>✅ 前台专心写正文</td></tr>
+<tr><th scope="row">状态栏</th><td>❌ 每一轮都要求模型重新输出状态栏，写长了容易掉格式</td><td>✅ 状态栏固化：MVU 版由固定模板按变量显示，不再由模型输出，绝对不会掉格式</td></tr>
+<tr><th scope="row">候选项</th><td>❌ 写正文的同时还要兼顾生成候选项，注意力涣散，还可能掉格式</td><td>✅ 和正文任务拆分，专注生成候选项；通过工具提交并校验，显示在固定面板，绝对不会掉格式</td></tr>
+<tr><th scope="row"><strong>剧情规划</strong></th><td>❌ 没有剧情规划，走向全靠模型临场发挥</td><td>✅ 多种方式规划剧情：<br>① 剧本模式，沿剧本主线发展<br>② 注入 Guide，临时规划剧情走向<br>③ 候选项自动规划下一步，避免剧情停滞</td></tr>
+<tr><th scope="row"><strong>记忆</strong></th><td>❌ 靠压缩总结提前猜测需要什么记忆，提前注入，难以预测真实需求</td><td>✅ 内置记忆检索工具，需要什么记忆，Agent 自行检索原文</td></tr>
+<tr><th scope="row">缓存与速度</th><td>❌ 未考虑缓存利用：世界书条目内容一变化，缓存就失效</td><td>✅ 缓存命中率 95% 以上，一轮约 10 秒</td></tr>
+<tr><th scope="row">写作方法</th><td>❌ 写进预设，每轮常驻提示词</td><td>✅ 写成 Skill，按场景调用</td></tr>
+<tr><th scope="row"><strong>边玩边改卡</strong></th><td>❌ 想排错或按喜好调整，都要自己翻人物卡、世界书、正则，逐项手改</td><td>✅ 边玩边改：<br>① 排查错误：有问题随时交给调试 Agent，结合实际游玩记录分析并修复<br>② 调整内容：用对话告诉 Agent 哪里不喜欢，按自己的口味微调</td></tr>
+<tr><th scope="row"><strong>酒馆生态</strong></th><td>✅ 生态极其丰富：人物卡、世界书、预设、正则、MVU、酒馆助手脚本、大量第三方插件</td><td>✅ 兼容大部分人物卡（包括 MVU、正则、酒馆助手脚本、前端美化），世界书、预设可直接导入<br>⚠️ 不支持安装酒馆插件（DSH 插件可以装），但内置了酒馆助手、MVU、提示词模板等重要插件，足以支撑大部分人物卡</td></tr></tbody></table></div></section>
 
     <section class="section wrap voices"><p class="eyebrow">用户怎么说</p><div class="voices-heading"><h2>用户反馈</h2><p>来自社区的真实反馈，体验因模型、配置和人物卡而异。</p></div><p class="voice-count">21 张社区反馈原图 · 点击可查看大图</p><div class="voice-grid"><a href="assets/testimonials/more-alive-and-faster.jpg" aria-label="查看原图：用户反馈：同样预设下比酒馆更有活人感，速度也更快"><img src="assets/testimonials/more-alive-and-faster.jpg" alt="用户反馈：同样预设下比酒馆更有活人感，速度也更快" loading="lazy"></a>
 <a href="assets/testimonials/long-chat-memory.jpg" aria-label="查看原图：用户反馈：游玩五六百层后，仍能记起开局物品的来历"><img src="assets/testimonials/long-chat-memory.jpg" alt="用户反馈：游玩五六百层后，仍能记起开局物品的来历" loading="lazy"></a>
