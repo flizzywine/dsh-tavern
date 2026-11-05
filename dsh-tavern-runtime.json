@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "8928395cfa05e3377257c78cd65778c3eeee7773",
-  "releaseSequence": 1246,
+  "revision": "98dff2af4ddb2a406624fb84bff671541dcb22ef",
+  "releaseSequence": 1247,
   "version": "3.2.0",
   "files": [
     {
@@ -5471,8 +5471,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/asset-packs/keyword-hygiene.js",
-      "sha256": "65a99d41d65e1c9345fdf7a47de2f563d06d608dafb46a11ad148fda98a5795f",
-      "size": 2232
+      "sha256": "5bfe819db60db8002124ba95086478925500c4a6f60239e7d6cb4a497a6be5ee",
+      "size": 2087
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/asset-packs/manifest.js",
@@ -6056,8 +6056,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/asset-packs/keyword-hygiene.js",
-      "sha256": "65a99d41d65e1c9345fdf7a47de2f563d06d608dafb46a11ad148fda98a5795f",
-      "size": 2232
+      "sha256": "5bfe819db60db8002124ba95086478925500c4a6f60239e7d6cb4a497a6be5ee",
+      "size": 2087
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/asset-packs/manifest.js",
@@ -9716,9 +9716,9 @@
     }
   ],
   "archive": {
-    "commit": "a88f74a48a149baf51ff0db735cb222560b8215b",
+    "commit": "e621d8af8e911386b489143bf2ef95b61713fd08",
     "path": "runtime.zip",
-    "sha256": "e1164e2561100754b0c5c29c12b23522d5fc9f8eda3a01500d000a52edf21039",
-    "size": 16305582
+    "sha256": "5142df76c47abb0c3501ec19ff1ec0e383393087051a544d8b3f149b4ce42395",
+    "size": 16305498
   }
 }
