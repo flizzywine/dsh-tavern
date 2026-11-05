@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "cdddc21ed42792b23582976f67648a7de6ffb6df",
-  "releaseSequence": 1210,
+  "revision": "5f457e546703812c1db384d97755bfe249a29aa6",
+  "releaseSequence": 1211,
   "version": "3.2.0",
   "files": [
     {
@@ -791,8 +791,8 @@
     },
     {
       "path": "tavern-plugin/cordis.patch.yml",
-      "sha256": "6d84d2cb1a5819a9c2a18028d877856c6a8240a47398ae0e7634f91cc440f35c",
-      "size": 8506
+      "sha256": "c49015eefa15479809c65be3287ffe0c5a6e23843943c39416d5a027c527d4ef",
+      "size": 8527
     },
     {
       "path": "tavern-plugin/lib/agent-compaction.js",
@@ -9666,9 +9666,9 @@
     }
   ],
   "archive": {
-    "commit": "77ee2bebcc9611aee54e3d470712a73e0fbf0007",
+    "commit": "3e83ef4d6e8c7112d390e456be6195de6e86ce34",
     "path": "runtime.zip",
-    "sha256": "dd691b388b91541e4551f9d2bbe52a3150a6300aa46447932a8c331dd66d9e6e",
-    "size": 16202901
+    "sha256": "593765d7ac6f3ac0b86bc25b999fccad9226f4ca2d59663874ae3454222088ba",
+    "size": 16202908
   }
 }
