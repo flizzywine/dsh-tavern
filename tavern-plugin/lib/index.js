@@ -114,7 +114,8 @@ import { createCardResponseTest } from './domain/card-response-test.js'
 import { createGameplayApi } from './gameplay-api.js'
 import { cardOpeningChoices } from './domain/card-openings.js'
 import { marked } from 'marked'
-import { resolveAgentCompaction } from './agent-compaction.js'
+import { resolveAgentCompaction, compactNativePlayIfNeeded } from './agent-compaction.js'
+import { warnCompactionPressureOnce } from './domain/compaction-pressure-guard.js'
 import { compactForegroundIfNeeded } from './domain/foreground-compaction.js'
 import { compactBackgroundIfNeeded, measureBackgroundBudget } from './domain/background-compaction.js'
 import { createAutoCompaction, installCompactionPolicy } from './domain/auto-compaction.js'
@@ -181,7 +182,8 @@ import { createFileResourceStore, normalizeResourcePath } from './domain/file-re
 import { createMobileCardImport } from './domain/mobile-card-import.js'
 import { createForegroundHandoff } from './domain/foreground-handoff.js'
 import { createForegroundFrameBuilder, foregroundRequestContext } from './domain/agent-input-frame.js'
-import { retireForegroundFrames } from './domain/foreground-frame-retirement.js'
+import { wholeTurnCompactionRange } from './domain/context-turns.js'
+import { compactWholeTurnsNow } from './domain/whole-turn-maintenance.js'
 import { compactionFailureMessage } from './domain/compaction-failure.js'
 import { createForegroundFrameSessionAdapter } from './domain/foreground-frame-session-adapter.js'
 import { HISTORY_RECALL_TOOL, createHistoryRecall, renderHistoryRecall } from './domain/history-recall.js'
@@ -2384,7 +2386,10 @@ export async function apply(ctx) {
     setupAgent: async function (childCtx) {
       await agentPresets.mount(childCtx, 'tavern-background')
     },
-    compactAgent: executeBackgroundCompaction,
+    compactAgent: async (agent, signal) => {
+      await configureAgentCompaction(agent)
+      return executeBackgroundCompaction(agent, signal)
+    },
     flushSession: async function (session) {
       const sessions = ctx.get('sessions')
       if (sessions === undefined) throw new Error('dsh-tavern: 缺少 sessions 服务')
@@ -2860,7 +2865,6 @@ export async function apply(ctx) {
     discarded: target => backgroundAgentRunner.discardRun(target),
     lockEvent: event => backgroundAgentRunner.noteLock(event)
   })
-  const configuredCompactionEngines = new WeakSet()
   const overflowingCompactions = new Set()
   // Rounds kept verbatim after a story summary, bounded by a share of the model window.
   async function storyRetention({ sessionId, provider, model, signal }) {
@@ -2897,11 +2901,6 @@ export async function apply(ctx) {
       agentOptions: { provider: selection.provider, model: selection.model } })
     try { return await work(handle.agent) } finally { await handle.dispose() }
   }
-  async function retireOldForegroundFrames(agent, keepTurn) {
-    const count = retireForegroundFrames(agent.session, { keepTurn })
-    if (count) await sessionStore.flush(agent.session)
-    return count
-  }
   autoCompaction = createAutoCompaction({
     readChat: chatForSession, readState: sessionStateForSession, readMetadata: taskStateReader.forSession, updateChat,
     policy: async () => (await readTavernSettings()).contextCompaction,
@@ -2911,7 +2910,7 @@ export async function apply(ctx) {
     pressure: (agent, signal, pendingMessages = [], sessionId) => {
       const measure = target => measureForegroundPressure({
         agent: target, signal, pendingMessages, projections: ctx.get('sessionProjections'),
-        defaultModel: agentDefaultModel, llm: ctx.llm, meter: ctx.get('tokenMeter')
+        defaultModel: agentDefaultModel, llm: ctx.llm, meter: ctx.get('tokenMeter'), logger: ctx.logger
       })
       return agent ? measure(agent) : withCompactionSession(sessionId, measure)
     },
@@ -2940,21 +2939,27 @@ export async function apply(ctx) {
       if (retained) return { message: `最近 ${retained} 轮剧情保留原文，暂无更早的历史需要压缩` }
       if (options.openTurnCompact) return options.openTurnCompact()
       return withCompactionSession(id, async agent => {
-        await retireOldForegroundFrames(agent, agent.phase?.kind === 'running' ? agent.phase.turn : undefined)
-        return (await agentCompaction(agent)).compactNow(agent, signal)
+        return (await configureAgentCompaction(agent)).compactNow(agent, signal)
       })
     }
   })
   async function configureAgentCompaction(agent) {
     const engine = await agentCompaction(agent)
-    if (configuredCompactionEngines.has(engine)) return engine
-    configuredCompactionEngines.add(engine)
     const dispose = installCompactionPolicy(engine, async (target, trigger, signal, fallback, forced) => {
       if (trigger !== 'context-overflow') return compactionPolicyFor(target, trigger, signal, fallback, forced)
       overflowingCompactions.add(target.session.id)
       try { return await compactionPolicyFor(target, trigger, signal, fallback, forced) }
       finally { overflowingCompactions.delete(target.session.id) }
-    }, { beforeRegion: compactionRegionGuard })
+    }, { compactNow: async (native, target, signal, sourceCommandId) => {
+      const chat = backgroundAgentRunner.owns(target.session.id) ? null : await sessionStateForSession(target.session.id)
+      return backgroundAgentRunner.owns(target.session.id) || chat && ['story', 'script', 'card'].includes(chat.mode)
+        ? compactWholeTurnsNow(engine, native, target, signal, sourceCommandId) : native.call(engine, target, signal, sourceCommandId)
+    }, selectRegion: async (target, range) => {
+      if (backgroundAgentRunner.owns(target.session.id)) return wholeTurnCompactionRange(target.session, range.start, range.end)
+      const chat = await sessionStateForSession(target.session.id)
+      return chat && ['story', 'script', 'card'].includes(chat.mode)
+        ? wholeTurnCompactionRange(target.session, range.start, range.end) : range
+    }, beforeRegion: compactionRegionGuard })
     async function compactionPolicyFor(target, trigger, signal, fallback, forced) {
       // Our early pre-step and the host hook share one pressure attempt. Overflow
       // recovery remains independent and retains the host request retry budget.
@@ -2967,7 +2972,7 @@ export async function apply(ctx) {
         return compactBackgroundIfNeeded({
           trigger, forced, native: fallback,
           pressure: () => measureBackgroundBudget({
-            agent: target, background, signal, llm: ctx.llm, meter: ctx.get('tokenMeter'),
+            agent: target, background, signal, llm: ctx.llm, meter: ctx.get('tokenMeter'), logger: ctx.logger,
             pending: pendingCompactionMessages.get(target) || []
           })
         })
@@ -2976,10 +2981,10 @@ export async function apply(ctx) {
       if (!chat || !['story', 'script'].includes(chat.mode)) return fallback()
       const pendingMessages = pendingCompactionMessages.get(target) || []
       return compactForegroundIfNeeded({
-        trigger, native: fallback, forced,
+        trigger, native: () => compactNativePlayIfNeeded(engine, target, trigger, signal, fallback), forced,
         pressure: () => measureForegroundPressure({
           agent: target, signal, pendingMessages, projections: ctx.get('sessionProjections'),
-          defaultModel: agentDefaultModel, llm: ctx.llm, meter: ctx.get('tokenMeter')
+          defaultModel: agentDefaultModel, llm: ctx.llm, meter: ctx.get('tokenMeter'), logger: ctx.logger
         }),
         record: () => autoCompaction.recordForeground(target.session.id),
         scheduled: () => autoCompaction.run(target.session.id, { agent: target, signal, openTurnCompact: forced, pendingMessages })
@@ -3000,17 +3005,22 @@ export async function apply(ctx) {
         return current
       }, { source: 'compaction.background' })
     }
-    compactionDisposers.add(dispose)
-    collectedCompactionEngines.register(engine, dispose, dispose)
+    if (dispose) {
+      compactionDisposers.add(dispose)
+      collectedCompactionEngines.register(engine, dispose, dispose)
+    }
     return engine
   }
   ctx.on('agent/pre-step', async (payload, next) => {
     const id = payload.agent.session.id, background = backgroundAgentRunner.requestContext(id)
-    // Every model step asks: the header's mode answers it.
-    const chat = background ? null : await chatHeaderForSession(id, [])
-    // Keep historical turn frames byte-stable during normal generation. Retire
-    // scaffolding only at an explicit compaction boundary, never before each step.
-    if (background && background.task === 'phone') return next()
+    const chat = background ? null : await chatHeaderForSession(id, ['contextCompaction'])
+    // old frames stay model-visible until a whole-turn compaction consumes them.
+    // ephemeral director corrections must not acquire/prune a story compaction surface.
+    if (background?.task === 'stage-director') return next()
+    if ((background && ['phone'].includes(background.task)) || chat?.mode === 'card') {
+      await configureAgentCompaction(payload.agent)
+      return next()
+    }
     if (background || chat && ['story', 'script'].includes(chat.mode)) {
       const engine = await configureAgentCompaction(payload.agent)
       pendingCompactionMessages.set(payload.agent, payload.messages || [])
@@ -3021,7 +3031,7 @@ export async function apply(ctx) {
           // Match native pressure behavior: warn, then let the request proceed.
           // A provider-confirmed overflow still has its own bounded recovery.
           const warning = compactionFailureMessage(error)
-          console.warn('dsh-tavern: 自动容量压缩未完成:', warning)
+          warnCompactionPressureOnce(payload.agent.session, ctx.logger, error)
           if (chat) await updateChatHeader(chat.id, ['contextCompaction'], header => {
             header.contextCompaction = { ...header.contextCompaction, warning }
             return header

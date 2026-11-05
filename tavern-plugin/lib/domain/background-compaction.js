@@ -1,3 +1,5 @@
+import { readCompactionPressure, requirePressureNumber } from './compaction-pressure-guard.js'
+
 // Background maintenance runs inside the owning Agent turn, never through the
 // idle Tavern compaction queue (which would wait for this same task to finish).
 export async function compactBackgroundIfNeeded({ trigger, forced, native, pressure }) {
@@ -7,7 +9,9 @@ export async function compactBackgroundIfNeeded({ trigger, forced, native, press
   const result = await native()
   if (result) return result
   const budget = await pressure()
-  if (!budget || budget.inputTokens + budget.outputTokens < budget.capacity) return null
+  // output allowance alone must never force a tiny task to compact.
+  if (!Number.isFinite(budget?.inputTokens) || !Number.isFinite(budget?.capacity)
+    || budget.capacity <= 0 || budget.inputTokens < budget.capacity) return null
   return forced()
 }
 
@@ -15,21 +19,15 @@ export async function compactBackgroundIfNeeded({ trigger, forced, native, press
 // The meter includes durable system/tools/history; pending messages have not
 // entered that surface yet. Provider-confirmed overflow remains the fallback
 // for estimation error and models without capacity metadata.
-export async function measureBackgroundBudget({ agent, background, signal, llm, meter, pending = [] }) {
-  const selection = background.selection
-  let info
-  try { info = await llm.resolveModelInfo(selection.provider, selection.model, signal) }
-  catch (error) {
-    if (signal?.aborted) throw error
-    return null
-  }
-  const capacity = info?.context?.contextWindow
-  if (!Number.isFinite(capacity) || capacity <= 0) return null
-  const previous = agent.session.requestHeader()
-  const envelope = previous ? { ...previous, config: { ...previous.config, ...selection } } : undefined
-  return {
-    inputTokens: meter.measure(agent.session, envelope).totalTokens + pending.reduce((sum, message) => sum + meter.estimateMessage(message), 0),
-    outputTokens: background.maxTokens ?? info.defaultMaxTokens ?? 0,
-    capacity
-  }
+export async function measureBackgroundBudget({ agent, background, signal, llm, meter, pending = [], logger = console }) {
+  return readCompactionPressure(agent.session, signal, logger, async () => {
+    const selection = background.selection
+    const info = await llm.resolveModelInfo(selection.provider, selection.model, signal)
+    const capacity = requirePressureNumber(info?.context?.contextWindow, 'capacity', true)
+    const previous = agent.session.requestHeader()
+    const envelope = previous ? { ...previous, config: { ...previous.config, ...selection } } : undefined
+    const inputTokens = requirePressureNumber(meter.measure(agent.session, envelope).totalTokens
+      + pending.reduce((sum, message) => sum + meter.estimateMessage(message), 0), 'input tokens')
+    return { inputTokens, outputTokens: background.maxTokens ?? info.defaultMaxTokens ?? 0, capacity }
+  })
 }

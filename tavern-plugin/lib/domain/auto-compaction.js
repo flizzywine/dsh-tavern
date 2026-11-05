@@ -130,7 +130,7 @@ export function createAutoCompaction(deps) {
       job.performed = true
       if (!recover) {
         rounds = storyRoundKeys(chat)
-        const previous = options.manual && ['partial', 'failed'].includes(state.operation?.status)
+        const previous = ((options.manual && ['partial', 'failed'].includes(state.operation?.status)) || state.operation?.status === 'deferred')
           && state.operation.branch === (chat.timeline?.branchId || '')
           && state.operation.revision === chat.timeline?.revision
           && JSON.stringify(state.operation.rounds) === JSON.stringify(rounds) ? state.operation : null
@@ -156,11 +156,17 @@ export function createAutoCompaction(deps) {
       }
     })
     try {
+      let deferred = false
+      const saveSide = side => {
+        const receipt = structuredClone(operation[side])
+        return save(chat.id, old => ({ ...old, operation: { ...old.operation, [side]: receipt } }))
+      }
       // An operation saved before a member existed has no side for it.
       const sides = ['foreground', ...TIMELINE_MEMBERS].filter(side => operation[side])
-      for (const side of sides) {
+      // independent Sessions compact in parallel; merge receipts and drain all before releasing the reservation.
+      const settled = await Promise.allSettled(sides.map(async side => {
         const target = operation[side + 'SessionId']
-        if (!target || ['succeeded', 'skipped'].includes(operation[side].status)) continue
+        if (!target || ['succeeded', 'skipped'].includes(operation[side].status)) return
         try {
           signal.throwIfAborted()
           if (operation[side].status === 'dispatching') {
@@ -170,7 +176,7 @@ export function createAutoCompaction(deps) {
           } else {
             const before = await deps.checkpoint(target)
             operation[side] = { status: 'dispatching', before }
-            await save(chat.id, old => ({ ...old, operation: structuredClone(operation) }))
+            await saveSide(side)
             if (side !== 'foreground') await deps.markBackground(chat.id, target, side)
             const result = await deps.compact(target, side, options, signal)
             operation[side] = { status: 'succeeded', after: await deps.checkpoint(target), message: result?.message || (result ? '压缩完成' : '没有可压缩的历史') }
@@ -179,13 +185,19 @@ export function createAutoCompaction(deps) {
           // A queued player message can win the idle-maintenance race. Retry at its pre-step.
           if (side === 'foreground' && !options.manual && !options.openTurnCompact && error.code === 'busy') {
             operation.foreground = { status: 'pending' }
-            operation.status = 'deferred'
-            await save(chat.id, old => ({ ...old, operation: structuredClone(operation), warning: '' }))
-            return operation
+            deferred = true
+          } else {
+            operation[side] = { status: 'failed', message: compactionFailureMessage(error) }
           }
-          operation[side] = { status: 'failed', message: compactionFailureMessage(error) }
         }
-        await save(chat.id, old => ({ ...old, operation: structuredClone(operation) }))
+        await saveSide(side)
+      }))
+      const rejected = settled.find(result => result.status === 'rejected')
+      if (rejected) throw rejected.reason
+      if (deferred) {
+        operation.status = 'deferred'
+        await save(chat.id, old => ({ ...old, operation: { ...old.operation, status: 'deferred' }, warning: '' }))
+        return operation
       }
       const success = side => ['succeeded', 'skipped'].includes(operation[side].status)
       operation.status = sides.every(success) ? 'completed' : sides.some(side => operation[side].status === 'succeeded') ? 'partial' : 'failed'
@@ -226,6 +238,7 @@ export function createAutoCompaction(deps) {
 // Ephemeron storage lets a policy and its closures die with their engine even
 // while plugin teardown still retains the returned disposer.
 const installedPolicies = new WeakMap()
+const installedPolicy = Symbol('tavern-compaction-policy')
 function policyDisposer(reference, token) {
   return () => {
     const engine = reference.deref()
@@ -234,29 +247,39 @@ function policyDisposer(reference, token) {
     if (!policy) return
     if (engine.compactIfNeeded === policy.routed) engine.compactIfNeeded = policy.original
     if (policy.region && engine.compactRegion === policy.region) engine.compactRegion = policy.originalRegion
+    if (policy.manual && engine.compactNow === policy.manual) engine.compactNow = policy.originalNow
     policies.delete(token)
     if (!policies.size) installedPolicies.delete(engine)
   }
 }
 
 /** Scope native automatic policy to bound Tavern sessions; other agents keep their host policy. */
-export function installCompactionPolicy(engine, handler, { beforeRegion } = {}) {
+export function installCompactionPolicy(engine, handler, { beforeRegion, selectRegion, compactNow } = {}) {
   if (!engine || typeof engine.compactIfNeeded !== 'function') throw new Error('当前 DSH 缺少自动压缩策略接口，请检查宿主版本')
-  const original = engine.compactIfNeeded, originalRegion = engine.compactRegion
-  if (beforeRegion && typeof originalRegion !== 'function') throw new Error('当前 DSH 缺少压缩区间保护接口')
-  const region = beforeRegion && async function (start, end, agent, signal) {
-    await beforeRegion(agent, signal)
+  const original = engine.compactIfNeeded, originalRegion = engine.compactRegion, originalNow = engine.compactNow
+  // Cordis can return different proxies for one service; the installed function is shared.
+  if (original[installedPolicy]) return
+  const manual = compactNow && function (agent, signal, sourceCommandId) {
+    return compactNow(originalNow, agent, signal, sourceCommandId)
+  }
+  if (manual) engine.compactNow = manual
+  if ((beforeRegion || selectRegion) && typeof originalRegion !== 'function') throw new Error('当前 DSH 缺少压缩区间保护接口')
+  const region = (beforeRegion || selectRegion) && async function (start, end, agent, signal) {
+    const selected = selectRegion ? await selectRegion(agent, { start, end }, signal) : { start, end }
+    if (!selected) return null
+    await beforeRegion?.(agent, signal)
     signal?.throwIfAborted()
-    return originalRegion.call(this, start, end, agent, signal)
+    return originalRegion.call(this, selected.start, selected.end, agent, signal)
   }
   if (region) engine.compactRegion = region
   async function routed(agent, trigger, signal) {
     return handler(agent, trigger, signal, () => original.call(this, agent, trigger, signal), () => original.call(this, agent, 'context-overflow', signal))
   }
+  routed[installedPolicy] = true
   engine.compactIfNeeded = routed
   let policies = installedPolicies.get(engine)
   if (!policies) installedPolicies.set(engine, policies = new Map())
   const token = Symbol('compaction-policy')
-  policies.set(token, { original, routed, originalRegion, region })
+  policies.set(token, { original, routed, originalRegion, region, originalNow, manual })
   return policyDisposer(new WeakRef(engine), token)
 }
