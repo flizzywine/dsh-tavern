@@ -14062,8 +14062,11 @@ function candidateSceneMerge(scene, candidate, actors, contributed, line, speake
     const refKey=ref=>ref?.packId+'/'+ref?.figureId;
     const readyRefs=new Set(contributed.map(figure=>refKey(figure.sourceRef)));
     const byRef=new Map();for(const actor of actors){const key=refKey(actor.ref),rows=byRef.get(key)||[];rows.push(actor);byRef.set(key,rows);}
-    return {...scene,figureLayout:null,hideFigures:false,figureMode:'stage',
-        figures:(candidate.replaceActors===true ? [] : scene.figures.filter(figure=>{const key=refKey(figure.sourceRef),wanted=byRef.get(key);return !wanted || (!readyRefs.has(key) && wanted.every(actor=>actor.outfitKey===figure.sourceOutfitKey));})).concat(contributed),
+    const figures=(candidate.replaceActors===true ? [] : scene.figures.filter(figure=>{const key=refKey(figure.sourceRef),wanted=byRef.get(key);return !wanted || (!readyRefs.has(key) && wanted.every(actor=>actor.outfitKey===figure.sourceOutfitKey));})).concat(contributed);
+    const cast=figures.filter(figure=>figure.visible!==false && figure.alias).map((figure,index)=>({alias:figure.alias,x:Number.isFinite(figure.x)?figure.x:.5,index})).sort((a,b)=>a.x-b.x||a.index-b.index).map(row=>row.alias);
+    const priority=[...(speaker ? ['candidate:'+speaker.instanceId] : []),...(scene.figureLayout?.priority || []),...cast].filter((alias,index,all)=>cast.includes(alias)&&all.indexOf(alias)===index);
+    const figureLayout={...(scene.figureLayout || {}),cast,priority};
+    return {...scene,figureLayout,hideFigures:false,figureMode:'stage',figures,
         camera:candidate.camera || scene.camera,
         shot:line ? null : scene.shot,sceneSprites:candidate.sprites || [],background:candidate.resolvedBackground || scene.background,
         effects:scene.effects.concat(candidate.effects || [])};

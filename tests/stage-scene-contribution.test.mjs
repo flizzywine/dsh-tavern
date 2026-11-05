@@ -16,3 +16,15 @@ test('contributed actors preserve the native camera and never substitute a diffe
   assert.equal(candidateSceneMerge(scene,{resolvedBackground:background},[],[],null,null).background,background)
   assert.equal(candidateSceneMerge({...scene,background}, {resolvedBackground:null},[],[],null,null).background,background)
 })
+
+test('native and contributed actors share the skin layout and speaker priority',()=>{
+  const scene={figures:[{alias:'story',x:0.5}],effects:[],camera:{},figureLayout:{cast:['story'],priority:['story'],slots:[0.2,0.5,0.8],max:3,framing:{mode:'fit'}}}
+  const actors=[{instanceId:'left',ref:{packId:'p',figureId:'a'}},{instanceId:'right',ref:{packId:'p',figureId:'b'}}]
+  const contributed=[{alias:'candidate:left',x:0.2,sourceRef:actors[0].ref},{alias:'candidate:right',x:0.8,sourceRef:actors[1].ref}]
+  const merged=candidateSceneMerge(scene,{},actors,contributed,{text:'line'},actors[1])
+  assert.deepEqual(merged.figureLayout.cast,['candidate:left','story','candidate:right'])
+  assert.equal(merged.figureLayout.priority[0],'candidate:right')
+  assert.equal(merged.figureLayout.max,3)
+  assert.equal(merged.figureLayout.slots,scene.figureLayout.slots)
+  assert.equal(merged.figureLayout.framing,scene.figureLayout.framing)
+})
