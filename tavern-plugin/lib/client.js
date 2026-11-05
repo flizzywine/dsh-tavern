@@ -54039,6 +54039,9 @@ const skinMenuStrip = skinObject(skinMenuStripFields,['x','y','text','font']);
 // variants of paint, size and tilt, picked from the word itself) - the title strip and the menu rows (art.menu.rows.letter).
 const STAGE_SKIN_MENU_LETTERS = Object.freeze(['ransom']);
 const STAGE_SKIN_GLYPH_SHAPES = Object.freeze(['torn','square','rounded','circle']);
+// A glyph-tile set (art.menu.glyphTiles; art.backlog.glyphTiles adds its accent): shape, tiles by relative weight, jitter.
+const skinGlyphTileFields = {shape:skinEnum(STAGE_SKIN_GLYPH_SHAPES),tiles:skinArray(skinObject({ground:skinColor,ink:skinColor,weight:skinNumber(1,12,true)},['ground','ink']),1,8),
+    jitter:skinObject({rotate:skinNumber(0,15),scale:skinNumber(0,.5)})};
 const skinMenuTitle = skinObject({...skinMenuStripFields,letter:skinEnum(STAGE_SKIN_MENU_LETTERS)},['x','y','text','font']);
 // A highlight drawn behind an element (the current one, or the one under the pointer and keyboard focus): its image stretched
 // over the element (irregular edges: the image's own), out = how far it overhangs the element
@@ -54106,8 +54109,7 @@ const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:
     // glyphTiles (§18 N34): how the words cut glyph by glyph (rows.letter / title.letter) are drawn - every glyph on its own
     // tile of `shape`, its ground and ink one of `tiles` by relative whole weight, turned and sized within `jitter`; the picks
     // come from the glyph and its place in the word (labels.cjs galRansomGlyphs), so a word always reads the same.
-    glyphTiles:skinObject({shape:skinEnum(STAGE_SKIN_GLYPH_SHAPES),tiles:skinArray(skinObject({ground:skinColor,ink:skinColor,weight:skinNumber(1,12,true)},['ground','ink']),1,8),
-        jitter:skinObject({rotate:skinNumber(0,15),scale:skinNumber(0,.5)})},['shape','tiles']),
+    glyphTiles:skinObject(skinGlyphTileFields,['shape','tiles']),
     // rows.slant (§18 N27): each bar this many design px right of the one above (a list along a leaning axis drawn on the sheet).
     // rows.letter (§18 N31): the labels as ransom glyph blocks (skinMenuTitle); rows.focusScale: the focused label drawn this much
     // larger (its bar and hit area unchanged), on phones too.
@@ -54144,11 +54146,21 @@ const skinBacklogVoice = value => skinRect(value) || skinObject({anchor:skinEnum
 // fixed edges carry tape, pins and tails) and overhangs the entry by out [top, right, bottom, left] design px. poses = each
 // entry's own offset (x, y design px) and turn (rot degrees), cycled by its place like art.menu.rows.poses - the hit area,
 // highlight and reading order go with the plate; slant = the words' oblique angle in degrees (a vector skew).
-const skinBacklogEntryPlate = skinObject({images:skinArray(skinObject({image:skinImage,ground:skinColor,ink:skinColor},['image','ground','ink']),1,8),slice:skinSlice,
-    out:skinArray(skinNumber(-1024,1024),4,4),poses:skinArray(skinObject({x:skinNumber(-256,256),y:skinNumber(-256,256),rot:skinNumber(-12,12)},['x','rot']),1,8),slant:skinNumber(-20,20)},['images','slice']);
-const skinBacklogPlates = value => skinObject(Object.fromEntries(Object.keys(STAGE_BACKLOG_ROLES).map(role => [role,skinBacklogEntryPlate])))(value) && Object.keys(value).length >= 1;
+// divider.letter ransom (C2): the turn rule's words as glyph tiles (art.backlog.glyphTiles, else art.menu.glyphTiles) on its plate.
+const skinBacklogEntryPlateFields = {images:skinArray(skinObject({image:skinImage,ground:skinColor,ink:skinColor},['image','ground','ink']),1,8),slice:skinSlice,
+    out:skinArray(skinNumber(-1024,1024),4,4),poses:skinArray(skinObject({x:skinNumber(-256,256),y:skinNumber(-256,256),rot:skinNumber(-12,12)},['x','rot']),1,8),slant:skinNumber(-20,20)};
+const skinBacklogEntryPlate = skinObject(skinBacklogEntryPlateFields,['images','slice']);
+const skinBacklogDividerPlate = skinObject({...skinBacklogEntryPlateFields,letter:skinEnum(STAGE_SKIN_MENU_LETTERS)},['images','slice']);
+const skinBacklogPlates = value => skinObject(Object.fromEntries(Object.keys(STAGE_BACKLOG_ROLES).map(role => [role,role === 'divider' ? skinBacklogDividerPlate : skinBacklogEntryPlate])))(value) && Object.keys(value).length >= 1;
+// glyphTiles (C2): the 履历's own glyph tiles for its ransom words (name.letter, plates.divider.letter) - art.menu.glyphTiles'
+// shape, plus accent.tile: exactly one glyph of each word on this tile (picked from the same blocks, so a word always reads the
+// same). Omitted = the menu's tiles, without an accent.
+const skinBacklogGlyphTiles = skinObject({...skinGlyphTileFields,accent:skinObject({tile:skinObject({ground:skinColor,ink:skinColor},['ground','ink'])},['tile'])},['shape','tiles']);
 const skinBacklog = skinObject({...skinArtScreen,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
-    voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced},['x','y','h','font','head']),
+    // name.letter ransom (C2): the name as glyph tiles (glyphTiles below); name.align end: the name's right edge on the text
+    // column's left edge, a long name growing to the left.
+    voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced,
+        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),align:skinEnum(['end'])},['x','y','h','font','head']),glyphTiles:skinBacklogGlyphTiles,
     scrollbar:skinObject({track:skinImage,thumb:skinImage,x:skinPx,y:skinPx,w:skinNumber(1,256),h:skinNumber(16,4096)},['track','thumb','x','y','w','h']),
     // hover = the one highlight: behind the entry under the pointer / keyboard focus and the entry the stage stands on.
     hover:skinHighlight,plates:skinBacklogPlates,
@@ -54677,6 +54689,15 @@ function validateStageSkin(value, at = 'art') {
         const ratio=skinContrast(ink,ground);
         if (ratio+1e-6 < 4.5) throw Object.assign(new Error(at + '.backlog.plates.' + role + '.images[' + index + ']: ink ' + ink + ' on ground ' + ground + ' is ' + ratio.toFixed(2) + ':1, needs 4.5:1 - darken one of them or lighten the other'),{code:'SKIN_CONTRAST'});
     });
+    // art.backlog glyph tiles (C2): a ransom word needs tiles to be drawn on (the backlog's own, else the menu's); every tile
+    // and the accent tile keep their glyph at 4.5:1 on their ground.
+    const backlog=value.art?.backlog;
+    if ((backlog?.name?.letter || backlog?.plates?.divider?.letter) && !backlog.glyphTiles && !value.art.menu?.glyphTiles)
+        throw Object.assign(new Error(at + '.backlog: name.letter / plates.divider.letter ransom needs glyph tiles - add art.backlog.glyphTiles (or art.menu.glyphTiles), or drop the letter'),{code:'INVALID_SKIN'});
+    for (const [key,tile] of [...(backlog?.glyphTiles?.tiles || []).map((tile,index) => ['tiles[' + index + ']',tile]),...(backlog?.glyphTiles?.accent ? [['accent.tile',backlog.glyphTiles.accent.tile]] : [])]) {
+        const ratio=skinContrast(tile.ink,tile.ground);
+        if (ratio+1e-6 < 4.5) throw Object.assign(new Error(at + '.backlog.glyphTiles.' + key + ': ink ' + tile.ink + ' on ground ' + tile.ground + ' is ' + ratio.toFixed(2) + ':1, needs 4.5:1 - darken one of them or lighten the other'),{code:'SKIN_CONTRAST'});
+    }
     if (stageSkinNarrationGrounds(value.art?.narration).some(ground => skinContrast(value.art.narration.ink || STAGE_NARRATION_INK,ground)+1e-6 < 4.5)) throw Object.assign(new Error('Skin narration contrast is unsafe'),{code:'SKIN_CONTRAST'});
     // A scrim fades to the scene: its base must be dark enough that light text over the scene still has a dark ground.
     if (value.textbox.layout === 'scrim' && skinLuminance(paint.bg) > 0.03) throw Object.assign(new Error('Skin scrim must be dark'),{code:'SKIN_CONTRAST'});

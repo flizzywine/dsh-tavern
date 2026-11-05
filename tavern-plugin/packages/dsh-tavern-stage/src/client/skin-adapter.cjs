@@ -626,7 +626,11 @@ function stageSkinArt(document, files, entry = '') {
             Object.assign(tokens,{[p + '-name-x']:String(b.name.x),[p + '-name-y']:String(b.name.y),[p + '-name-h']:String(b.name.h),[p + '-name-font']:String(b.name.font),[p + '-head']:String(b.name.head)});
             if (b.name.frame) {parts.push('frame'); placed(p + '-frame',b.name.frame);}
             if (b.name.rule) {parts.push('rule'); placed(p + '-rule',b.name.rule);}
+            // name.letter / align (C2): the name as glyph tiles, its right edge on the text column (theme.css 「art backlog glyph tiles」).
+            if (b.name.letter) marks['data-fk-skin-art-backlog-letter']=b.name.letter;
+            if (b.name.align) marks['data-fk-skin-art-backlog-name-align']=b.name.align;
         }
+        if (b.plates?.divider?.letter) marks['data-fk-skin-art-backlog-divider-letter']=b.plates.divider.letter;
         if (b.scrollbar) {
             const s=b.scrollbar; parts.push('bar');
             Object.assign(tokens,{[p + '-bar']:url(s.track),[p + '-thumb']:url(s.thumb),[p + '-bar-x']:String(s.x),[p + '-bar-y']:String(s.y),[p + '-bar-w']:String(s.w),[p + '-bar-h']:String(s.h)});
@@ -1043,10 +1047,13 @@ function paintStageSkin(root, document, fonts, theme, lead = false, art = null, 
 }
 // The 履历 looks (stageSkinBacklog) with art.backlog.plates' cycles per role (image and pose counts, slanted or not): the
 // backlog view marks each plated row with its place in them (theme.css 「art backlog plates」).
+// C2: the ransom words (name.letter, plates.divider.letter) and the tiles they are cut on - the backlog's own glyphTiles,
+// else the menu's (the validator requires one).
 function stageSkinBacklogLooks(document) {
-    const looks=stageSkinBacklog(document), plates=document?.art?.backlog?.plates;
-    if (!plates) return looks;
-    return {...looks,plates:Object.fromEntries(Object.entries(plates).map(([role,plate]) => [role,{images:plate.images.length,poses:plate.poses?.length || 0,slant:plate.slant !== undefined}]))};
+    const looks=stageSkinBacklog(document), b=document?.art?.backlog, plates=b?.plates;
+    const letter=b?.name?.letter || plates?.divider?.letter ? {name:b.name?.letter,divider:plates?.divider?.letter,tiles:b.glyphTiles || document.art.menu.glyphTiles} : null;
+    if (!plates && !letter) return looks;
+    return {...looks,...(plates ? {plates:Object.fromEntries(Object.entries(plates).map(([role,plate]) => [role,{images:plate.images.length,poses:plate.poses?.length || 0,slant:plate.slant !== undefined}]))} : null),...(letter ? {letter} : null)};
 }
 
 return {dispose,STAGE_SKIN_EASE,STAGE_SKIN_TX_EASE,stageSkinTxEase,stageSkinWipeClip,stageSkinTransitionList,STAGE_BACKLOG_DEFAULTS,stageSkinBacklog:stageSkinBacklogLooks,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogOutline,stageSkinInset,stageSkinSfx,stageSkinMotionKeyframes,stageSkinGlyphPoses,stageSkinEffects,stageSkinTokens,stageSkinPanelTokens,stageSkinQuickMenu,stageSkinMarks,stageSkinConfigSurface,stageSkinConfigArt,STAGE_CONFIG_DEFAULT_LOOKS,stageSkinControlIcons,stageSkinArt,stageSkinSpinner,stageSkinTint,stageSkinMenuTint,stageSkinFontFaces,applyStageSkin,stageSkinMode,applyStageSkinMode};
