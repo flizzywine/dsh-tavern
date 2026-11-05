@@ -10,7 +10,7 @@ export async function speechAudioToWav(data, mediaType) {
   const bytes = Buffer.from(data)
   if (/wav|wave/i.test(mediaType) && isWav(bytes)) return bytes
   const ffmpeg = await resolveAudioFfmpeg()
-  if (!ffmpeg) throw Object.assign(new Error('没有 ffmpeg，无法转换插件配音的音频格式'), { code: 'INVALID_AUDIO' })
+  if (!ffmpeg) throw Object.assign(new Error('插件返回的配音需要转换格式，请安装 ffmpeg，或请插件作者返回标准 WAV 音频'), { code: 'INVALID_AUDIO' })
   const pcm = await new Promise((resolve, reject) => {
     const child = spawn(ffmpeg, ['-hide_banner', '-nostdin', '-loglevel', 'error', '-i', 'pipe:0', '-map', '0:a:0', '-ac', '1', '-ar', String(RATE), '-f', 's16le', 'pipe:1'], { windowsHide: true })
     const chunks = []

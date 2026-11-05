@@ -8,6 +8,7 @@
 // @include-protocol asset-tags.cjs
 // @include-protocol audio-categories.cjs
 // @include widget-contracts.cjs
+// @include audio-loudness.js
 // one kind order — built-in kinds as listed, then mod-brought kinds grouped by mod id
 // (stable: mods sorted by id, a mod's kinds in the order it lists them). modKinds rows are [kind, modId, label].
 function kindOrder(builtin, modKinds) {
@@ -26,7 +27,7 @@ const PLAYER_ERRORS={REVISION_CONFLICT:'内容已被修改，请重新载入',
   PACK_UNAVAILABLE:'这张卡用到的一个素材包找不到了，请在 舞台设置 › 素材包 里移除或重新安装它',
   AbortError:'保存超时，结果尚未确认；请重新载入后检查',TimeoutError:'保存超时，结果尚未确认；请重新载入后检查'};
 // Names a player reads as words, not code: product names and short capitals (MP3、FLAC、CG、BGM — not HTTP or a CODE_NAME).
-const PLAYER_TERMS=/Live2D|Spine|ComfyUI|Fish Audio|WebP|\b(?!HTTP\b)[A-Z][A-Z0-9]{1,4}\b(?!_)/g;
+const PLAYER_TERMS=/ffmpeg|Live2D|Spine|ComfyUI|Fish Audio|WebP|\b(?!HTTP\b)[A-Z][A-Z0-9]{1,4}\b(?!_)/g;
 const playerErrorSeen=new Set();
 function playerPlain(text){
   const t=String(text||'').replace(/（HTTP\s*\d+）[\s\S]*$/,'').replace(/[：:]\s*[A-Za-z][\s\S]*$/,'').trim();
@@ -876,7 +877,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const bytes=new Uint8Array(await file.arrayBuffer()),ext=audioExt(bytes);
     if(!ext)throw new Error('请选择 MP3、OGG、WAV、M4A 或 FLAC 音频');
     if(bytes.length>60*1024*1024)throw new Error('音频过大（上限 60 MB）');
-    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length}};
+    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length},loudness:await measureBrowserAudio(bytes)};
   }
   const fileStem=name=>[...String(name||'').replace(/\.[^.]+$/,'').trim()].slice(0,120).join('')||'未命名';
   let entrySerial=0;
@@ -1030,7 +1031,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       const closure=await imageClosure(media);
       return enqueue(snapshot=>binding.service.patchPack({packId,expectedRevision:snapshot.revision,fileUpdates:closure.files,patch:{blobs:{...snapshot.manifest.blobs,...closure.blobs},assets:snapshot.manifest.assets.map(asset=>{
         if(asset.kind!==kind||asset.id!==assetId)return asset;
-        const change=content=>{const next={...content,media:closure.hash};delete next.pendingMedia;if(AUDIO_KINDS.includes(kind)){delete next.durationMs;delete next.loudness;}if(kind==='sfx')delete next.gainDb;return next;};
+        const change=content=>{const next={...content,media:closure.hash};delete next.pendingMedia;if(AUDIO_KINDS.includes(kind)){delete next.durationMs;next.loudness=media.loudness;}if(kind==='sfx')delete next.gainDb;return next;};
         return asset.variants?{...asset,variants:{...asset.variants,entries:asset.variants.entries.map(row=>row.id===variantId?{...row,content:change(row.content)}:row)}}:change(asset);
       })}}));
     };
@@ -1131,7 +1132,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
         const stem=fileStem(file.name),media=AUDIO_KINDS.includes(k)?await prepareAudio(file):await prepareImage(file,k==='figures'?'sprite':'background');
         if(AUDIO_KINDS.includes(k)){
           const blob=await enqueue(c=>svc.putBlob({packId,expectedRevision:c.revision,bytes:media.bytes,descriptor:media.descriptor}));
-          added.push(newFileEntry(k,newEntryId(latest.current,k)+added.length,stem,{media:blob.hash}));continue;
+          added.push(newFileEntry(k,newEntryId(latest.current,k)+added.length,stem,{media:blob.hash,loudness:media.loudness}));continue;
         }
         const closure=await imageClosure(media);
         if(k==='figures'){
