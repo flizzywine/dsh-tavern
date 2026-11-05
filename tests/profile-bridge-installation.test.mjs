@@ -4,6 +4,9 @@ import * as fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { inspectInstallation, validateInstallationRequest, performInstallation } from '../tavern-plugin/packages/dsh-profile-bridge/lib/installation.mjs'
+import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installation.mjs'
+import { switchProfile } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
+import location from '../bin/installation-location.cjs'
 const put = (p, value) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, typeof value === 'string' ? value : JSON.stringify(value)) }
 function fixture(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-management-')))
@@ -218,4 +221,98 @@ test('lease lost after mutation does not roll back under a successor owner', asy
   assert.equal(fs.lstatSync(f.app).isSymbolicLink(), true)
   assert.equal(fs.lstatSync(path.join(f.home, 'profiles/tavern')).isSymbolicLink(), false)
   assert.equal(inspectInstallation(f.paths).recoveryRequired, true)
+})
+
+
+for (const nextOperation of ['relocate', 'uninstall', 'relocate-rollback']) test(`relocated uninstall/reinstall keeps external data registered for another ${nextOperation}`, async t => {
+  const f = fixture(t)
+  put(path.join(f.paths.activeDir, 'package.json'), { name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-profile-bridge'] } } })
+  put(path.join(f.paths.activeDir, 'cordis.patch.yml'), '[]')
+  await performInstallation(plan(f))
+  const removed = await performInstallation(validateInstallationRequest(f.paths, 'uninstall', { confirmed: true }))
+  const dataDir = path.join(f.destination, 'data')
+  assert.equal(location.resolveInstallationApp({ dshHome: f.home }), f.app)
+  const tx = beginDesktopProfileInstallation({ home: f.home, sourceRoot: path.resolve('.'), checkStopped() {} })
+  put(path.join(f.home, 'profiles/tavern/package.json'), { name: 'dsh-profile-tavern', dsh: { profile: { bundles: ['dsh-tavern-plugin'] } } })
+  // Model the new app and receipt published by the main installer.
+  put(path.join(f.app, 'package.json'), { name: 'dsh-profile-tavern' })
+  put(path.join(f.app, '.dsh-tavern-local.json'), { host: 'desktop', dshHome: f.home })
+  put(path.join(f.home, 'logs/tavern-installation.json'), { host: 'desktop', dshHome: f.home, sourceRoot: f.app })
+  tx.finish(); tx.commit()
+  const record = JSON.parse(fs.readFileSync(path.join(f.paths.stateDir, 'installation.json'), 'utf8'))
+  assert.equal(record.phase, 'completed')
+  assert.equal(record.layout, 'retained-data')
+  const installed = inspectInstallation(f.paths)
+  assert.equal(installed.available, true, installed.reason)
+  assert.equal(installed.dataDir, dataDir)
+  assert.equal(fs.readFileSync(path.join(dataDir, 'sessions/session.json'), 'utf8'), 'session')
+  assert.ok(removed.retained.every(p => fs.lstatSync(p)))
+  assert.equal(location.resolveInstallationApp({ dshHome: f.home }), f.app)
+  // Updates refresh the bridge without treating data-only ownership as a full relocation.
+  const update = beginDesktopProfileInstallation({ home: f.home, sourceRoot: path.resolve('.'), checkStopped() { assert.fail('active Tavern update should not switch profiles') } })
+  assert.equal(update.refreshOnly, true)
+  update.finish(); update.commit()
+  assert.equal(inspectInstallation(f.paths).available, true)
+  await switchProfile({ mode: 'unlink', profilesRoot: path.join(f.home, 'profiles'), liveDir: f.paths.activeDir, stamp: 'after-reinstall' })
+  const destination = path.join(f.root, 'next volume')
+  if (nextOperation === 'relocate-rollback') {
+    let injected = false
+    await assert.rejects(performInstallation(validateInstallationRequest(f.paths, 'relocate', { confirmed: true, destination }), {
+      persist(file, value) {
+        if (!injected && file.endsWith('installation-operation.json') && value.phase === 'completed') {
+          injected = true
+          throw Error('injected completion failure')
+        }
+        put(file, value)
+      }
+    }), /injected completion failure/)
+    const restored = inspectInstallation(f.paths)
+    assert.equal(restored.available, true, restored.reason)
+    assert.equal(restored.dataDir, dataDir)
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.paths.stateDir, 'installation.json'), 'utf8')), record)
+    assert.equal(fs.readFileSync(path.join(dataDir, 'sessions/session.json'), 'utf8'), 'session')
+    return
+  }
+  await performInstallation(validateInstallationRequest(f.paths, nextOperation, { confirmed: true, destination }))
+  if (nextOperation === 'relocate') {
+    assert.equal(inspectInstallation(f.paths).available, true)
+    assert.equal(inspectInstallation(f.paths).dataDir, path.join(destination, 'data'))
+  } else {
+    assert.equal(fs.existsSync(f.app), false)
+    assert.equal(fs.readFileSync(path.join(dataDir, 'sessions/session.json'), 'utf8'), 'session')
+  }
+  assert.ok(removed.retained.every(p => fs.lstatSync(p)))
+})
+
+
+test('data-only ownership rejects changed aliases and overlapping app/data directories', t => {
+  const f = fixture(t)
+  const from = path.join(f.home, 'profile-data/tavern'), to = path.join(f.destination, 'data')
+  fs.mkdirSync(f.destination)
+  fs.renameSync(from, to)
+  fs.symlinkSync(to, from, process.platform === 'win32' ? 'junction' : 'dir')
+  const file = path.join(f.paths.stateDir, 'installation.json')
+  const record = { schemaVersion: 1, phase: 'completed', layout: 'retained-data', entries: [{ kind: 'data', from, to }] }
+  put(file, record)
+  assert.equal(inspectInstallation(f.paths).available, true)
+  for (const invalid of [
+    { ...record, schemaVersion: 2 },
+    { ...record, layout: 'unknown' },
+    { ...record, entries: [{ kind: 'data', from: f.app, to }] },
+    { ...record, entries: [{ kind: 'data', from, to: f.destination }] },
+    { ...record, entries: [{ kind: 'data', from, to: f.home }] },
+    { ...record, entries: [] }
+  ]) {
+    put(file, invalid)
+    assert.equal(inspectInstallation(f.paths).available, false)
+  }
+  put(file, record)
+  fs.unlinkSync(from)
+  fs.symlinkSync(f.destination, from, process.platform === 'win32' ? 'junction' : 'dir')
+  assert.equal(inspectInstallation(f.paths).available, false)
+  fs.unlinkSync(from)
+  fs.symlinkSync(to, from, process.platform === 'win32' ? 'junction' : 'dir')
+  put(path.join(f.home, 'logs/tavern-installation.json'), { host: 'desktop', dshHome: f.home, sourceRoot: path.join(to, 'app') })
+  assert.equal(inspectInstallation(f.paths).available, false)
+  assert.equal(fs.readFileSync(path.join(to, 'sessions/session.json'), 'utf8'), 'session')
 })

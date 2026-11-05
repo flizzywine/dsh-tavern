@@ -35,20 +35,27 @@ function registered(paths, trust) {
   if (!present(file)) return null
   ordinaryAncestors(file)
   const value = json(file)
+  if (!value || typeof value !== 'object') fail('安装位置记录不完整，请先恢复安装记录。')
   // Preserve old logical records on disk; use trusted physical identity in memory.
   if (canonicalAbsolute(value.appDir)) value.appDir = trust.map(value.appDir)
   if (canonicalAbsolute(value.destination)) value.destination = trust.map(value.destination)
   if (Array.isArray(value.entries)) value.entries = value.entries.map(entry => ({ ...entry, from: canonicalAbsolute(entry.from) ? trust.map(entry.from) : entry.from, to: canonicalAbsolute(entry.to) ? trust.map(entry.to) : entry.to }))
   if (value.phase === 'uninstalled') fail('酒馆已移除；数据与备份仍保留。')
-  if (value.schemaVersion !== 1 || value.phase !== 'completed' || !Array.isArray(value.entries) || value.entries.length !== 3) fail('安装位置记录不完整，请先恢复安装记录。')
-  if (!canonicalAbsolute(value.destination) || !canonicalAbsolute(value.appDir)) fail('安装位置登记必须是规范绝对路径。')
-  const expected = { app: value.appDir, profile: path.join(paths.home, 'profiles/tavern'), data: path.join(paths.home, 'profile-data/tavern') }
-  for (const root of [paths.home, ...Object.values(expected)]) {
+  const retainedData = value.layout === 'retained-data'
+  if (value.schemaVersion !== 1 || value.phase !== 'completed' || !Array.isArray(value.entries)
+    || value.entries.length !== (retainedData ? 1 : 3) || (value.layout !== undefined && !retainedData)) fail('安装位置记录不完整，请先恢复安装记录。')
+  if (!retainedData && (!canonicalAbsolute(value.destination) || !canonicalAbsolute(value.appDir))) fail('安装位置登记必须是规范绝对路径。')
+  const expected = retainedData ? { data: path.join(paths.home, 'profile-data/tavern') }
+    : { app: value.appDir, profile: path.join(paths.home, 'profiles/tavern'), data: path.join(paths.home, 'profile-data/tavern') }
+  if (!retainedData) for (const root of [paths.home, ...Object.values(expected)]) {
     if (within(value.destination, root) || within(root, value.destination)) fail('登记的迁移目标与 DSH 或原安装目录重叠。')
   }
   for (const kind of Object.keys(expected)) {
-    const entry = value.entries.find(e => e.kind === kind)
-    if (!entry || !canonicalAbsolute(entry.from) || !canonicalAbsolute(entry.to) || !same(entry.from, expected[kind]) || !same(entry.to, path.join(value.destination, kind))) fail('安装位置登记不一致。')
+    const entry = value.entries.find(e => e?.kind === kind)
+    if (!entry || !canonicalAbsolute(entry.from) || !canonicalAbsolute(entry.to) || !same(entry.from, expected[kind])) fail('安装位置登记不一致。')
+    if (retainedData) {
+      if (within(entry.to, paths.home) || within(paths.home, entry.to)) fail('保留的数据位置与 DSH 目录重叠。')
+    } else if (!same(entry.to, path.join(value.destination, kind))) fail('安装位置登记不一致。')
     ordinaryAncestors(entry.from, false); ordinaryAncestors(entry.to)
     if (!fs.lstatSync(entry.from).isSymbolicLink() || !same(trust.map(path.resolve(path.dirname(entry.from), fs.readlinkSync(entry.from))), entry.to) || !same(fs.realpathSync(entry.from), entry.to)) fail(`安装位置链接已改变：${entry.from}`)
   }
@@ -73,10 +80,11 @@ function discover(paths) {
     const protectedRoot = path.join(home, reserved)
     if (within(appDir, protectedRoot) || within(protectedRoot, appDir)) fail('酒馆程序目录与 DSH 保留目录重叠。')
   }
-  const entries = record?.entries || [
+  const retainedData = record?.layout === 'retained-data'
+  const entries = (record && !retainedData) ? record.entries : [
     { kind: 'app', from: appDir, to: appDir },
     { kind: 'profile', from: path.join(home, 'profiles/tavern'), to: path.join(home, 'profiles/tavern') },
-    { kind: 'data', from: path.join(home, 'profile-data/tavern'), to: path.join(home, 'profile-data/tavern') },
+    retainedData ? record.entries[0] : { kind: 'data', from: path.join(home, 'profile-data/tavern'), to: path.join(home, 'profile-data/tavern') },
   ]
   if (record && ![appDir, entries.find(e => e.kind === 'app').to].some(p => same(p, trust.map(receipt.sourceRoot)))) fail('安装回执与迁移位置不匹配。')
   for (const entry of entries) {
@@ -88,7 +96,7 @@ function discover(paths) {
   if (app === home || within(home, app) || present(path.join(app, '.git')) || !tavern(app) || !tavern(entries.find(e => e.kind === 'profile').to)) fail('仅支持已安装的酒馆，不支持源码目录或其他 profile。')
   const local = json(path.join(app, '.dsh-tavern-local.json'))
   if (local.host !== 'desktop' || !same(trust.map(local.dshHome || ''), home)) fail('酒馆安装归属与 DSH 目录不匹配。')
-  return { appDir: app, logicalAppDir: appDir, profileDir: entries.find(e => e.kind === 'profile').to, dataDir: entries.find(e => e.kind === 'data').to, sharedHome: home, available: true, relocated: !!record, destination: record?.destination, entries, home, stateDir }
+  return { appDir: app, logicalAppDir: appDir, profileDir: entries.find(e => e.kind === 'profile').to, dataDir: entries.find(e => e.kind === 'data').to, sharedHome: home, available: true, relocated: !!record && !retainedData, destination: record?.destination, entries, home, stateDir }
 }
 export function inspectInstallation(paths) {
   try { return discover(paths) } catch (error) { return { available: false, sharedHome: paths.home, reason: error.message, recoveryRequired: error.recoveryRequired === true } }

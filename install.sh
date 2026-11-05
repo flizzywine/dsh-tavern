@@ -701,6 +701,27 @@ function absolute(value) {
   if (typeof value !== 'string' || !path.isAbsolute(value) || /[\0\r\n]/u.test(value) || !same(path.resolve(value), value)) fail('路径不是规范的绝对路径')
   return value
 }
+// Reinstalling code does not move data that was retained on another disk.
+// Only an exact, registered data alias may cross the managed-home boundary.
+function resolveInstallationData({ dshHome, dataDir } = {}) {
+  const trusted = trustedHome(dshHome), home = trusted.physical
+  const from = path.join(home, 'profile-data', 'tavern')
+  ordinaryAncestors(path.dirname(from))
+  const to = dataDir === undefined ? from : trusted.map(absolute(dataDir))
+  let stat
+  try { stat = fs.lstatSync(from) } catch (error) { if (error.code !== 'ENOENT') throw error }
+  if (!stat?.isSymbolicLink()) {
+    if (!same(from, to)) fail('保留的数据入口已改变')
+    ordinaryAncestors(from)
+    return null
+  }
+  if (same(from, to) || overlaps(to, home)) fail('外部数据位置未登记或与 DSH 目录重叠')
+  ordinaryAncestors(to)
+  if (!fs.lstatSync(to).isDirectory() || !same(fs.realpathSync(to), to)
+    || !same(trusted.map(path.resolve(path.dirname(from), fs.readlinkSync(from))), to)
+    || !same(fs.realpathSync(from), to)) fail('保留的数据链接已改变')
+  return { kind: 'data', from, to }
+}
 function resolveInstallationApp({ dshHome, appDir } = {}) {
   const trusted = trustedHome(dshHome), home = trusted.physical
   ordinaryAncestors(path.join(home, 'profile-bridge'))
@@ -726,7 +747,21 @@ function resolveInstallationApp({ dshHome, appDir } = {}) {
     if (error.code === 'INSTALLATION_LOCATION_UNSAFE') throw error
     fail(`无法读取 ${filename} (${error.code || error.name})`)
   }
+  if (record?.schemaVersion === 1 && record.phase === 'uninstalled') {
+    const data = resolveInstallationData({ dshHome, dataDir: record.dataDir })
+    if (data && overlaps(data.to, trusted.map(requested))) fail('程序目录不能与保留的数据重叠')
+    return requested
+  }
   if (record?.schemaVersion !== 1 || record.phase !== 'completed' || !Array.isArray(record.entries)) fail('迁移尚未完成或记录格式不受支持')
+  if (record.layout === 'retained-data') {
+    const entry = record.entries[0]
+    if (record.entries.length !== 1 || entry?.kind !== 'data') fail('保留的数据登记不完整')
+    const data = resolveInstallationData({ dshHome, dataDir: absolute(entry.to) })
+    if (!data || !same(trusted.map(absolute(entry.from)), data.from)) fail('保留的数据入口不匹配')
+    if (overlaps(data.to, trusted.map(requested))) fail('程序目录不能与保留的数据重叠')
+    return requested
+  }
+  if (record.layout !== undefined) fail('不支持的安装位置布局')
   const destination = trusted.map(absolute(record.destination))
   const logicalApp = trusted.map(absolute(record.appDir))
   if (overlaps(destination, home) || overlaps(destination, logicalApp)) fail('迁移目标不能与共享 DSH 或原安装目录重叠')
@@ -754,7 +789,7 @@ function resolveInstallationApp({ dshHome, appDir } = {}) {
   if (appDir && !same(trusted.map(requested), logicalApp) && !same(trusted.map(requested), physicalApp)) fail('指定目录与已迁移的酒馆冲突')
   return physicalApp
 }
-module.exports = { resolveInstallationApp, trustedHome }
+module.exports = { resolveInstallationApp, resolveInstallationData, trustedHome }
 if (require.main === module) {
   try { console.log(resolveInstallationApp({ dshHome: process.argv[2], appDir: process.argv[3] || undefined })) }
   catch (error) { console.error(error.message); process.exitCode = 1 }

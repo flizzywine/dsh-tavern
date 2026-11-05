@@ -48,7 +48,16 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped = () 
     if (previous.schemaVersion !== 1 || !['completed', 'rolled-back'].includes(previous.phase)) throw unsafe(`切换组件更新尚未恢复，请保留备份并检查：${journalFile}`)
   }
   installationLocation.resolveInstallationApp({ dshHome: trusted.logical })
-  if (!present(path.join(state, 'installation.json'))) ordinary(path.join(profiles, 'tavern'))
+  // A completed relocation legitimately links profiles/tavern outside the tree.
+  // An "uninstalled" marker is not a relocation: keep the ordinary-path check so
+  // a leftover link cannot qualify as an already bridged installation.
+  const relocated = (() => {
+    try {
+      const record = JSON.parse(readFileSync(path.join(state, 'installation.json'), 'utf8'))
+      return record?.schemaVersion === 1 && record.phase === 'completed' && record.layout === undefined && Array.isArray(record.entries)
+    } catch { return false }
+  })()
+  if (!relocated) ordinary(path.join(profiles, 'tavern'))
   const managementFile = path.join(state, 'installation-operation.json')
   const previousManagement = present(managementFile) ? readFileSync(managementFile, 'utf8') : null
   const { lock } = acquirePendingLock(state)

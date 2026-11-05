@@ -32,6 +32,18 @@ test('unregistered installs retain default and explicitly configured paths', t =
   assert.equal(location.resolveInstallationApp({ dshHome: f.home }), f.appDir)
   assert.equal(location.resolveInstallationApp({ dshHome: f.home, appDir: f.destination }), f.destination)
 })
+test('uninstalled registry retains default and explicitly configured paths', t => {
+  const f = fixture(t)
+  unlinkSync(f.appDir); unlinkSync(path.join(f.home, 'profiles/tavern'))
+  writeFileSync(f.filename, JSON.stringify({ schemaVersion: 1, phase: 'uninstalled', retained: [f.appDir], dataDir: f.record.entries.find(e => e.kind === 'data').to }))
+  assert.equal(location.resolveInstallationApp({ dshHome: f.home }), f.appDir)
+  assert.equal(location.resolveInstallationApp({ dshHome: f.home, appDir: path.join(f.home, 'apps/custom') }), path.join(f.home, 'apps/custom'))
+})
+test('uninstalled registry with an unsupported schema is still rejected', t => {
+  const f = fixture(t)
+  writeFileSync(f.filename, JSON.stringify({ schemaVersion: 2, phase: 'uninstalled', retained: [f.appDir] }))
+  assert.throws(() => location.resolveInstallationApp({ dshHome: f.home }), /迁移尚未完成或记录格式不受支持/)
+})
 test('completed relocation resolves physical app for default, logical and physical requests', t => {
   const f = fixture(t), target = path.join(f.destination, 'app')
   for (const appDir of [undefined, f.appDir, target]) assert.equal(location.resolveInstallationApp({ dshHome: f.home, appDir }), target)
@@ -200,4 +212,24 @@ test('trusted parent identity also supports a custom app sibling without trustin
   const untrusted = path.join(f.root, 'other-link')
   symlinkSync(f.physicalUser, untrusted, process.platform === 'win32' ? 'junction' : 'dir')
   assert.equal(location.trustedHome(f.home).map(untrusted), untrusted)
+})
+
+
+test('data-only registry preserves external data ownership without redirecting the app', t => {
+  const f = fixture(t)
+  unlinkSync(f.appDir); unlinkSync(path.join(f.home, 'profiles/tavern'))
+  const data = f.record.entries.find(e => e.kind === 'data')
+  const record = { schemaVersion: 1, phase: 'completed', layout: 'retained-data', entries: [data] }
+  writeFileSync(f.filename, JSON.stringify(record))
+  assert.equal(location.resolveInstallationApp({ dshHome: f.home }), f.appDir)
+  assert.throws(() => location.resolveInstallationApp({ dshHome: f.home, appDir: f.destination }), /程序目录不能与保留的数据重叠/)
+  // A stale/tampered registration may never legitimize another data directory.
+  for (const entry of [{ ...data, from: f.appDir }, { ...data, to: f.destination }]) {
+    writeFileSync(f.filename, JSON.stringify({ ...record, entries: [entry] }))
+    assert.throws(() => location.resolveInstallationApp({ dshHome: f.home }))
+  }
+  writeFileSync(f.filename, JSON.stringify(record))
+  unlinkSync(data.from)
+  symlinkSync(f.destination, data.from, process.platform === 'win32' ? 'junction' : 'dir')
+  assert.throws(() => location.resolveInstallationApp({ dshHome: f.home }), /保留的数据链接已改变/)
 })
