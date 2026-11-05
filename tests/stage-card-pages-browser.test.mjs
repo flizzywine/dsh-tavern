@@ -13,6 +13,7 @@ import {roundBody} from '../tavern-plugin/lib/domain/round-body.js'
 import {readTavernClientAsset} from '../tavern-plugin/lib/domain/tavern-client-assets.js'
 import {resolveTavernRuntimeAsset} from '../tavern-plugin/lib/domain/tavern-runtime-assets.js'
 import {stageClientModuleAsScript} from '../tavern-plugin/packages/dsh-tavern-stage/lib/client-assets.js'
+import surfaces from '../tavern-plugin/src/client/surfaces.cjs'
 import {CLIP_ORIGIN} from '../tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export-browser.js'
 
 const shots = process.env.DSH_CARD_PAGES_SHOTS || ''
@@ -76,6 +77,8 @@ async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTi
     }
   })
   await page.goto(CLIP_ORIGIN)
+  // The isolated host does not mount tavern-presentation, which installs the production palettes.
+  await page.addStyleTag({content: surfaces.css()})
   await page.addInitScript('window.__name=fn=>fn;')
   await page.evaluate(() => { window.__name = fn => fn; window.clipOriginalVoices = new Map() })
   await page.addScriptTag({content: await browserReactScript() + `Object.assign(modules['react-dom'],modules['react-dom/client']);window.__ModuleLoader__={load(d){window.clipClient=d.factory(name=>modules[name]||{});}};`})
@@ -142,6 +145,8 @@ test('entering the stage opens title; triggerSlash reaches the slash executor; M
   await frameOf(page, 'map').locator('#map-body').waitFor()
   assert.equal(await page.locator('.fork-gal-status[data-page="map"]').getAttribute('data-size'), 'window')
   await page.waitForTimeout(400)
+  const widths = await page.locator('.fork-gal-status-sheet').evaluate(el => [...el.querySelectorAll('header, .fork-gal-status-body, iframe')].map(e => e.getBoundingClientRect().width))
+  assert.ok(Math.max(...widths) - Math.min(...widths) < 0.5, 'page frame and title bar align: ' + widths)
   await shot(page, 'map-1920.png')
   await page.keyboard.press('m')
   await waitPage(page, null)
@@ -187,6 +192,10 @@ test('entering the stage opens title; triggerSlash reaches the slash executor; M
   await skip.scrollIntoViewIfNeeded()
   assert.equal(await skip.getAttribute('aria-checked'), 'false')
   await page.waitForTimeout(400)
+  const track = await skip.locator('.fork-gal-config-switch-track').evaluate(el => ({background: getComputedStyle(el).backgroundColor, shadow: getComputedStyle(el).boxShadow, width: el.getBoundingClientRect().width}))
+  assert.notEqual(track.background, 'rgba(0, 0, 0, 0)', 'classic skin draws the off track')
+  assert.notEqual(track.shadow, 'none', 'classic skin draws the track outline')
+  assert.equal(track.width, 52)
   await shot(page, 'config-1920.png')
 
   // (e) with the switch on, a second entry into this (non-fresh) chat opens no page
