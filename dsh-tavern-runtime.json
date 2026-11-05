@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "464aa443e78aede64b0455d204b7c1544250dc0d",
-  "releaseSequence": 1222,
+  "revision": "bbf4a2bd6c671cc5f4914e1ffc2c4d03dd9e23f7",
+  "releaseSequence": 1223,
   "version": "3.2.0",
   "files": [
     {
@@ -916,8 +916,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "519c778542204408d4fb756fd745399a0f3ca1afdbb7e88c6b7112a8c49192a6",
-      "size": 5501082
+      "sha256": "96ded3fd8ed384c95cdb3f5c4a9cdba88a381463e094edd3725aaf3dedbb58c7",
+      "size": 5501750
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2376,8 +2376,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/opening-preparation.js",
-      "sha256": "e804a9e30f330426250c886df825bfa51e750a66ce4b70b33532cae6b1b44ee1",
-      "size": 21341
+      "sha256": "37c020b460bd2d8e6a706cfa876f690ded8f8258af4548452e664b30e7729245",
+      "size": 21919
     },
     {
       "path": "tavern-plugin/lib/domain/opening-setup.js",
@@ -2736,8 +2736,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/round-history.js",
-      "sha256": "41dbb4b8f10cf57b3d7bc9558096f8fc78c887da6bba0ee388c83c919826edfb",
-      "size": 97952
+      "sha256": "873e1ab984eafe0a13acca16ad5762cbefba7572fc301153c058a5d106a78cae",
+      "size": 98752
     },
     {
       "path": "tavern-plugin/lib/domain/runtime-content-projection.js",
@@ -2971,8 +2971,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-input.js",
-      "sha256": "c164a480c362b7b6e6298c2a57d36fe58f7d494653075f86a95b774222036399",
-      "size": 2008
+      "sha256": "14cd4678151bd9ce5287efe8f1a73df29c6bc7272a8509fff2c32b7cbe73eb37",
+      "size": 2919
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-jobs.js",
@@ -2986,8 +2986,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-run.js",
-      "sha256": "345bf5a756762e93dce30b503c25023ca07b045a2985ccb6c74ddec0b70cdd80",
-      "size": 10876
+      "sha256": "34e5cf90f2d0281dde73ea4aebc1aec8bcfea90039e94f31e4f7d0146a43f682",
+      "size": 11379
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-turn.js",
@@ -3546,8 +3546,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-entry-classification.js",
-      "sha256": "80be32d33aad517256b371a2536169239174c375a6fd095b7aaccfed58c0b974",
-      "size": 3188
+      "sha256": "81095028507f44374c2b2baeea839c3a0923fc41e5975a9b31c1c1f629a9b37c",
+      "size": 3760
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-entry-title.js",
@@ -3606,8 +3606,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-resource.js",
-      "sha256": "36007dfb627dd3398fc2e5b66299a187f23e7ff3e3bb6a641f951b1852276d42",
-      "size": 23050
+      "sha256": "85aab0bbcf64d9b88e081a03bd2db3f4fe616d384f04c370d9b6e8944d6a1ba7",
+      "size": 23797
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-search.js",
@@ -3861,8 +3861,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/opening.js",
-      "sha256": "30bd6b7b7b41d29e658f0304a3b9810e672eb2c346a1db6dbef46c6e113ef33f",
-      "size": 3285
+      "sha256": "6c0d59c40a6e1e74b8940dfc78d433cc1e55cf955ddfe20a7f76f6476971fbd7",
+      "size": 3764
     },
     {
       "path": "tavern-plugin/lib/rpc/play.js",
@@ -3881,8 +3881,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/resources.js",
-      "sha256": "61edee1b4806c6a8d1a6cdd3118e559adefafb5fb9078919a9fbf13ca76e04c1",
-      "size": 10341
+      "sha256": "7eaf9846c97b738aa748c299b5e1f67d0a0bcd933ed0b4e86f19ca78f12823a4",
+      "size": 10868
     },
     {
       "path": "tavern-plugin/lib/rpc/settings.js",
@@ -9701,9 +9701,9 @@
     }
   ],
   "archive": {
-    "commit": "7cdfa58d00ffce2f951f1e961d5a96763e216dad",
+    "commit": "498c8d299ae1c48374d5b905d50714a44e004dc8",
     "path": "runtime.zip",
-    "sha256": "dd128c0ae24ad10f7b0444407f270e9e86759d0b9cd6aed9a4d269c487aa9a16",
-    "size": 16243088
+    "sha256": "28ce156866d256953198ad6da73bb04da0c92aba1b4f68c0bcc605100a7d8c0f",
+    "size": 16245159
   }
 }
