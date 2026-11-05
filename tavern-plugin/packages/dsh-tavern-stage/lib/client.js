@@ -8393,9 +8393,17 @@ function galCreateScene(host, options, own) {
         });
         tickFaceClamp(dt, W, H, visibleFrame);
         state.figures.forEach(entry=>{
+            const size=entry.figure.sceneSize,shift=entry.headroom || 0;
+            if(size!==undefined && size!==1 && entry.restBody){
+                const body=entry.restBody,cx=body.x+body.width/2,cy=body.y+body.height+shift;
+                entry.container.position.set(cx+(entry.container.x-cx)*size,cy+(entry.container.y-cy)*size);
+                entry.container.scale.x*=size;entry.container.scale.y*=size;
+                entry.restBody={x:cx+(body.x-cx)*size,y:cy+(body.y+shift-cy)*size-shift,width:body.width*size,height:body.height*size};
+                if(entry.restHead){const h=entry.restHead;entry.restHead={...h,x:cx+(h.x-cx)*size,top:cy+(h.top+shift-cy)*size-shift,chin:cy+(h.chin+shift-cy)*size-shift,width:h.width*size};}
+            }
             const t=entry.figure.sceneTransform, body=entry.restBody;
             if(!t || !body)return;
-            const shift=entry.headroom || 0,cx=body.x+body.width/2,cy=body.y+body.height/2+shift,sx=t.scaleX ?? 1,sy=t.scaleY ?? 1,a=t.rotation || 0,c=Math.cos(a),s=Math.sin(a),dx=t.x || 0,dy=t.y || 0;
+            const cx=body.x+body.width/2,cy=body.y+body.height/2+shift,sx=t.scaleX ?? 1,sy=t.scaleY ?? 1,a=t.rotation || 0,c=Math.cos(a),s=Math.sin(a),dx=t.x || 0,dy=t.y || 0;
             const point=(x,y)=>({x:cx+(x-cx)*sx*c-(y-cy)*sy*s+dx,y:cy+(x-cx)*sx*s+(y-cy)*sy*c+dy});
             const pos=point(entry.container.x,entry.container.y);entry.container.position.set(pos.x,pos.y);entry.container.scale.x*=sx;entry.container.scale.y*=sy;entry.container.rotation=a;entry.container.alpha=t.alpha ?? 1;
             const bounds=r=>{const p=[point(r.x,r.y+shift),point(r.x+r.width,r.y+shift),point(r.x,r.y+r.height+shift),point(r.x+r.width,r.y+r.height+shift)],xs=p.map(v=>v.x),ys=p.map(v=>v.y);return {x:Math.min(...xs),y:Math.min(...ys)-shift,width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)};};
@@ -15053,7 +15061,7 @@ function GalStage(props) {
         const input=packFigureRenderInputs(selected,{sessionId}).stage;
         if(!input)return null;
         const key='candidate:'+String(actor.instanceId);
-        return {...input,key,sourceRef:actor.ref,alias:key,x:actor.x,ground:actor.ground,size:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking:actor===candidateSpeaker,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : 1,
+        return {...input,key,sourceRef:actor.ref,alias:key,x:actor.x,ground:actor.ground,sceneSize:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking:actor===candidateSpeaker,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : 1,
             figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry?.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     }).filter(Boolean);
     function onSceneDebug(effect) {

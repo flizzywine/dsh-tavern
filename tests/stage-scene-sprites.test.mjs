@@ -31,3 +31,17 @@ test('geometry exposes world bounds before camera projection',()=>{
   assert.equal(rects[0].worldHead.x,20)
   assert.equal(rects[0].worldHead.y,25)
 })
+
+test('explicit contribution size scales around the feet for physical and legacy actors',()=>{
+  const source=readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene.cjs',import.meta.url),'utf8')
+  const start=source.indexOf('        state.figures.forEach(entry=>{',source.indexOf('tickFaceClamp(dt, W, H, visibleFrame);'))
+  const end=source.indexOf('\n        tickSceneSprites(',start)
+  for(const mode of ['physical','legacy']){
+    const position={x:0,y:0,set(x,y){this.x=x;this.y=y}},scale={x:1,y:1}
+    const entry={figure:{sceneSize:0.1},figureResolved:{mode},headroom:0,container:{position,scale,get x(){return position.x},get y(){return position.y}},restBody:{x:0,y:0,width:100,height:200},restHead:{x:50,top:0,chin:40,width:20}}
+    vm.runInNewContext(source.slice(start,end),{state:{figures:new Map([['a',entry]])}})
+    assert.equal(entry.restBody.height,20)
+    assert.equal(entry.restBody.y+entry.restBody.height,200)
+    assert.equal(scale.x,0.1)
+  }
+})

@@ -1020,7 +1020,7 @@ function GalStage(props) {
         const input=packFigureRenderInputs(selected,{sessionId}).stage;
         if(!input)return null;
         const key='candidate:'+String(actor.instanceId);
-        return {...input,key,sourceRef:actor.ref,alias:key,x:actor.x,ground:actor.ground,size:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking:actor===candidateSpeaker,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : 1,
+        return {...input,key,sourceRef:actor.ref,alias:key,x:actor.x,ground:actor.ground,sceneSize:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking:actor===candidateSpeaker,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : 1,
             figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry?.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     }).filter(Boolean);
     function onSceneDebug(effect) {

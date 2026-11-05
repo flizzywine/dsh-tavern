@@ -207,6 +207,8 @@ test('candidate scene lease follows card scope and stage lifetime', () => {
   assert.deepEqual(advances,[1])
   lease.update({actors:[{instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.5}]})
   assert.equal(updated.actors[0].instanceId,'one')
+  lease.update({actors:[{instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.5,size:0.1}]})
+  assert.throws(()=>lease.update({actors:[{instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.5,size:0.09}]}),/Invalid stage scene actors/)
   assert.throws(() => lease.update({actors:[
     {instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.3},
     {instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.7}
