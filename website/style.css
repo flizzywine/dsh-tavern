@@ -1,6 +1,6 @@
 @charset "UTF-8";
-.hero-screen.hero-promo{display:block;transform:none}
-.hero-screen.hero-promo img{aspect-ratio:16/9;object-fit:contain}
+.hero-screen.hero-promo{display:block;transform:none;width:100%;padding:clamp(12px,1.8vw,26px);background:#f5f0e8}
+.hero-screen.hero-promo img{width:100%;height:auto;aspect-ratio:auto;object-fit:contain;border-radius:6px}
 :root{color-scheme:light;--bg:#faf9f5;--panel:#fffdf8;--paper:#141413;--muted:#6c6a64;--accent:#cc785c;--line:#e6dfd8;--serif:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;--sans:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
 
 *{box-sizing:border-box}
