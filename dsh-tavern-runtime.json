@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c3d2d99ddbfbb617882fdbb88ae1adf51e19f8b4",
-  "releaseSequence": 1239,
+  "revision": "49ffe74d296ec76af75f82136898caf1520bbe71",
+  "releaseSequence": 1240,
   "version": "3.2.0",
   "files": [
     {
@@ -5581,8 +5581,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/card-bundle.js",
-      "sha256": "776ae5ca6f14e365b70e6aefcf45939f07a6066e88c25164d406afed15894301",
-      "size": 20257
+      "sha256": "55111e9784b241f036c56e9c227e21757ee2448b8cb6c56343f368e1e4f56819",
+      "size": 20362
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/card-material.js",
@@ -5726,8 +5726,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js",
-      "sha256": "ef07e7133b4b67d1eef4fc8229a8d1d27c6141b06c02dfdd221649ea1916646c",
-      "size": 98772
+      "sha256": "0baf7e1d5a86e8e2e2ae46afbf6ab763a2436f39c0034dc5cd6532e6e50c2e38",
+      "size": 99157
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/settings-config.js",
@@ -6166,8 +6166,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/pack-v2/card-bundle.js",
-      "sha256": "776ae5ca6f14e365b70e6aefcf45939f07a6066e88c25164d406afed15894301",
-      "size": 20257
+      "sha256": "55111e9784b241f036c56e9c227e21757ee2448b8cb6c56343f368e1e4f56819",
+      "size": 20362
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/pack-v2/card-material.js",
@@ -6311,8 +6311,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js",
-      "sha256": "ef07e7133b4b67d1eef4fc8229a8d1d27c6141b06c02dfdd221649ea1916646c",
-      "size": 98772
+      "sha256": "0baf7e1d5a86e8e2e2ae46afbf6ab763a2436f39c0034dc5cd6532e6e50c2e38",
+      "size": 99157
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/pack-v2/settings-config.js",
@@ -9711,9 +9711,9 @@
     }
   ],
   "archive": {
-    "commit": "8a9a5411963a0d9160ec92dabc5f0e9f76fa50c5",
+    "commit": "06234410d4dfb3a0d4c97cbc510df38dc2450437",
     "path": "runtime.zip",
-    "sha256": "83f03478372ad617069878f60a9d92069ef480f3984904acec35a7f861099962",
-    "size": 16265705
+    "sha256": "b8869f8efe377fe899523a5f8e0a6b1d2f5530749d329252e421553190a1d804",
+    "size": 16266041
   }
 }
