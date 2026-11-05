@@ -107,6 +107,8 @@ DSH 升级检查：`node bin/check-dsh-upgrade.mjs --candidate "<桌面程序或
 
 `config/dsh-contracts.json` 集中记录宿主行为、适配位置和相关测试。必需用例失败、跳过、缺少结果或必需包不可用，检查均失败；明确列出的可选能力跳过会单独显示，不代表已验证该能力。`node bin/check-dsh-upgrade.mjs --check-dependencies` 检查维护源码中的 DSH 包引用；新增引用位置需审阅并更新 `config/dsh-dependency-baseline.json`，该清单不覆盖动态拼接名称、私有字段访问或生成/vendor 代码。
 
+`DSH compatibility checks` 在 PR 和 main 源码变更时自动检查依赖位置及检查器测试。真实宿主契约通过手动触发运行：需要配有 Node.js、PowerShell 7 和隔离 DSH 安装的专用 self-hosted runner（标签 `dsh-compatibility`），启用 `run_host` 并填写该 runner 上的 candidate/baseline 路径；不自动安装新版，不在 PR 上执行 self-hosted 任务。运行报告作为 artifact 保留 7 天。
+
 欢迎各种 PR：完善文档、写小白教程、给配置项改名、折叠复杂设置，或改进其他使用体验。当前功能繁多，特别欢迎简化、合并和删除功能的意见。
 
 Issue 只用于 Bug 反馈。大功能或行为调整请先到 [Discord 交流群](https://discord.gg/hYAEjKnpra) 讨论，确定方案后再提交 PR。
