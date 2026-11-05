@@ -4146,6 +4146,12 @@
        ],
        "description": "A phone portrait (640px and less) also shows the box face, on its narrow side (needs narrow). Default: none there - no face, no column for it, the lines from the box's left padding at its full width; the speaker's name stays."
       },
+      "behind": {
+       "enum": [
+        true
+       ],
+       "description": "On wide stages (over 640px) the box art and art.shape draw over the face where they meet - the original's box over the lower part of the bust. Default: the face stands over the box. Not with frame.front. The slash layout always stands its bust behind its drawn box."
+      },
       "placeholder": {
        "oneOf": [
         {

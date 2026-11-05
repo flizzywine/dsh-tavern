@@ -57,3 +57,11 @@ test('art.menu letters and font.menu: marks, focus scale and the menu face only 
  assert.equal(asked.find(options=>options.part==='menu').skinWins,true,'a decoration face, like the title face')
  assert.equal('--gal-ui-menu-font' in skin.stageSkinPanelTokens(doc(),menuFonts,'classic'),false)
 })
+test('art.portrait.behind marks the stage so the box art draws over the face; undeclared, no mark',()=>{
+ const skin=create()
+ const doc=portrait=>contract.validateStageSkin({schema:'dsh.skin/1',id:'face-probe',label:'face',textbox:{paint:{bg:'#0b0b0b',fg:'#ffffff'}},nameplate:{shape:'plain',paint:{bg:'#0b0b0b',fg:'#ffffff'}},font:{},textFx:{reveal:'type'},
+  art:{screen:1080,screenWidth:1920,portrait:{left:40,bottom:40,size:320,...portrait}}})
+ assert.equal(skin.stageSkinArt(doc({behind:true}),{},'skin.json').marks['data-fk-skin-portrait-behind'],'')
+ assert.equal('data-fk-skin-portrait-behind' in skin.stageSkinArt(doc({}),{},'skin.json').marks,false)
+ skin.dispose()
+})

@@ -90,3 +90,12 @@ test('font.menu names the drawn menu ransom words face; the published schema lis
   const schema=require('../tavern-plugin/packages/dsh-presentation-protocol/schema/skin.schema.json')
   assert.deepEqual(Object.keys(schema.properties.font.properties),['body','name','ui','film','menu','faces'])
 })
+test('portrait.behind lets the box draw over the face; not with a front frame; the published schema lists it',()=>{
+  const at={left:40,bottom:40,size:320}
+  assert.equal(valid({portrait:{...at,behind:true}}).art.portrait.behind,true)
+  assert.equal(Object.hasOwn(valid({portrait:at}).art.portrait,'behind'),false)
+  invalid({portrait:{...at,behind:false}})
+  invalid({portrait:{...at,behind:true,frame:{image:'art/frame.png',left:20,bottom:20,front:true}}})
+  const schema=require('../tavern-plugin/packages/dsh-presentation-protocol/schema/skin.schema.json')
+  assert.deepEqual(schema.properties.art.properties.portrait.properties.behind.enum,[true])
+})

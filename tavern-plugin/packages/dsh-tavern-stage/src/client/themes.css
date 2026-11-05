@@ -3564,6 +3564,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-portrait="avatar"]:not([data-fk-skin-layout="slash"]):not(.is-film) .fork-gal-box .fork-gal-side {
     inset: auto; left: calc((var(--art-face-l) - var(--art-face-x0)) * var(--art-u)); bottom: calc((var(--art-face-b) - var(--art-face-y0)) * var(--art-u));
     width: calc(var(--art-face-s) * var(--art-u)); height: calc(var(--art-face-s) * var(--art-u)); clip-path: none; }
+  /* art portrait behind: the box art and art.shape draw over the face where they meet (under the box art, as a behind
+     frame); undeclared, the face stands over the box. Slash stands its bust behind its drawn box anyway. */
+  .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-behind]:not([data-fk-skin-layout="slash"]):not(.is-film) .fork-gal-box .fork-gal-side { z-index: -2; }
   .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-portrait="avatar"]:not([data-fk-skin-layout="slash"]):not(.is-film) .fork-gal-box.has-face.is-facing {
     --text-left: calc((var(--art-text-l) - var(--art-body-x)) * var(--art-u)); padding-left: var(--text-left); }
   /* art bare (stageSkinArt): a face square in the box's left gutter is a column only on a page that
