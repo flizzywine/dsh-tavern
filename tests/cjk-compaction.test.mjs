@@ -49,7 +49,7 @@ test('CJK estimate counts Han, kana, Hangul, punctuation and supplementary Han; 
   assert.equal(estimateCjkText('\u4e2d\u304b\u30ca\ud55c\u3002\u{20000}abcd'), 7)
 })
 
-test('private fork: native requests preserve the previous turn byte prefix and firing-turn snapshots', t => {
+test('native requests preserve the previous turn byte prefix and firing-turn snapshots', t => {
   const old = snapshot('green-gun'), story = message('assistant', 'turn-1'), latest = snapshot('green-engine')
   const stagedRequests = new Map([['s', { scope: 'foreground', turn: 2, step: 1, snapshot: null }]])
   const strategy = createNativePlayOrchestrationStrategy({ stagedRequests })
@@ -101,7 +101,7 @@ test('retry halves retained tail and consumes additional replies, never checkpoi
   assert.ok(measureCompactionSurface(f.session, f.meter).totalTokens < 116100)
 })
 
-test('private fork: a retry cannot compact below admission just to reach the old 90% target', async () => {
+test('a retry cannot compact below admission just to reach the old 90% target', async () => {
   const f = fixture([message('system', cjk(70000)), checkpoint(cjk(2000)),
     ...Array.from({ length: 12 }, () => message('assistant', cjk(10000)))], { summary: cjk(18000) })
   await f.run()
