@@ -994,7 +994,8 @@
 							const fullscreen=document.fullscreenElement;
 							// A video inside this overlay may itself be fullscreen; never move its ancestor into it.
 							if(fullscreen && container.contains?.(fullscreen))return;
-							const parent=fullscreen || document.body;
+							// The document element already contains body; keep body theme variables and CSS inheritance.
+							const parent=fullscreen && fullscreen!==document.documentElement ? fullscreen : document.body;
 							if(container.parentNode!==parent){
 								const focus=container.contains?.(document.activeElement) ? document.activeElement : null;
 								parent.append(container);focus?.focus?.({preventScroll:true});
