@@ -9,7 +9,7 @@ for (const file of ['index.html', 'style.css', 'app.js']) {
   await cp(path.join(root, 'website', file), path.join(output, file));
 }
 for (const [directory, files, source] of [
-  ['brand', ['favicon.svg', 'dsh-tavern-lockup-on-dark.svg'], 'docs/assets/brand'],
+  ['brand', ['favicon.svg', 'dsh-tavern-lockup.svg'], 'docs/assets/brand'],
   ['screens', ['script-mode.png', 'card-editor.png', 'mvu-status-panel.png', 'rewrite-body.png', 'scene-image-product.png', 'overview.png'], 'docs/images/readme'],
   ['testimonials', ['more-alive-and-faster.jpg', 'long-chat-memory.jpg'], 'docs/images/readme/testimonials'],
 ]) {

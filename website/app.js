@@ -1,9 +1,9 @@
 const wiki = 'https://github.com/flizzywine/dsh-tavern/wiki/';
 const features = {
-  script: { image: 'script-mode.png', alt: '剧本进度和当前片段与正文并排显示', kicker: '剧本模式 / 实机画面', caption: '有主线，也有你的选择。', doc: '绑定剧本后开始游戏' },
-  memory: { image: 'overview.png', alt: '酒馆游玩界面；历史原文可由 Agent 按需检索', kicker: '长期记忆 / 游玩界面', caption: '很久以前的那一幕，依然有迹可循。', doc: '按需找回历史细节' },
-  guide: { image: 'rewrite-body.png', alt: '带意见重写当前正文，右侧为本局 Guide', kicker: 'Guide 与带意见重写 / 实机画面', caption: '不必反复抽卡，把意见告诉它。', doc: '持续-Guide' },
-  state: { image: 'mvu-status-panel.png', alt: '本轮变量结算结果与常驻 MVU 状态栏', kicker: 'MVU 状态栏 / 实机画面', caption: '前台写故事，后台照顾世界。', doc: 'MVU-变量与常驻状态栏' },
+  script: { image: 'script-mode.png', alt: '剧本进度和当前片段与正文并排显示', kicker: '剧本模式 / 实机画面', caption: '沿剧本主线发展，随时可以偏离。', doc: '绑定剧本后开始游戏' },
+  memory: { image: 'overview.png', alt: '酒馆游玩界面；历史原文可由 Agent 按需检索', kicker: '长期记忆 / 游玩界面', caption: '按需检索历史原文，找回长局中的细节。', doc: '按需找回历史细节' },
+  guide: { image: 'rewrite-body.png', alt: '带意见重写当前正文，右侧为本局 Guide', kicker: 'Guide 与带意见重写 / 实机画面', caption: '带上指导意见，重新生成当前正文。', doc: '持续-Guide' },
+  state: { image: 'mvu-status-panel.png', alt: '本轮变量结算结果与常驻 MVU 状态栏', kicker: 'MVU 状态栏 / 实机画面', caption: '前台专心写正文，后台按规则结算变量。', doc: 'MVU-变量与常驻状态栏' },
 };
 const tabs = [...document.querySelectorAll('[data-feature]')];
 function selectTab(tab, focus = false) {
