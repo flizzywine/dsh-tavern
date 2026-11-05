@@ -582,6 +582,12 @@
             StageGenerationSettings: () => React.createElement(StagePackView, { view: ui => ui.GenPromptSettings, call: engineRpc }),
             // 设置 › 舞台 › 模组管理 (mod-manager.js).
             ForkModManagerEntry: () => React.createElement(StagePackView, { view: ui => ui.ModManagerEntry, rpc, Row: TavernSettingRow }),
+            VoiceCataloguePicker:packUi.VoiceCataloguePicker, voiceKey:packUi.voiceKey, voiceFromKey:packUi.voiceFromKey,
+            useReadingBinding:() => {
+                usePackRevision(ttsClientAvailable);
+                const service = packClient(), tts = forkTtsScope?.get('ttsClient');
+                return React.useMemo(() => ({service,tts}), [service,tts]);
+            },
             // the shared row and controls of the page.
             TavernSettingRow, InlineField, Switch, HelpTip: typeof HelpTip === "function" ? HelpTip : null
         });

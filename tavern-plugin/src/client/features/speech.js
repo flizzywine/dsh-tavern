@@ -39,7 +39,7 @@
 				let heardAny = false;
 				try {
 					for (const [index, line] of lines.entries()) {
-						const reply = await rpc("speechForLine", { speaker: input.speaker || "", text: line.text, emotion: input.emotion || "neutral", narration: line.narration === true }, input.sessionId);
+						const reply = await rpc(input.line || "speechForLine", { speaker: input.speaker || "", text: line.text, emotion: input.emotion || "neutral", narration: line.narration === true }, input.sessionId);
 						if (lease.cancelled || !reply) return false;
 						// Narration stays silent while the narrator is off; the dialogue goes on.
 						if (reply.skip) { if (reply.reason === "narration" || reply.reason === "empty") continue; return false; }
@@ -62,15 +62,6 @@
 		})();
 
         // Read the prose and bubble captions, with no speaker IDs, voice directions or executable HTML.
-        function tavernSpeechPlainText(source) {
-            const text = String(source || "")
-                .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-                .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
-            const doc = new DOMParser().parseFromString(text, "text/html");
-            doc.querySelectorAll("script,style,template,iframe").forEach(node => node.remove());
-            doc.querySelectorAll("br,p,div,li,h1,h2,h3,h4,h5,h6,blockquote").forEach(node => node.append(" "));
-            return (doc.body.textContent || "").replace(/[*_~`#>|]/g, "").replace(/\s+/g, " ").trim();
-        }
         function tavernBodySpeechParts(source) {
             const parts = [];
             function append(text, narration) {
@@ -93,22 +84,6 @@
             }
             return parts;
         }
-        function tavernBodySpeechChunks(text) {
-            const chars = Array.from(text), chunks = [];
-            while (chars.length) {
-                let end = Math.min(1000, chars.length);
-                if (end < chars.length) {
-                    for (let i = end - 1; i >= end / 2; i--) {
-                        if (/[。！？.!?；;\s]/u.test(chars[i])) { end = i + 1; break; }
-                    }
-                }
-                chunks.push(chars.splice(0, end).join(""));
-            }
-            return chunks;
-        }
-        function tavernReplyBody(node) {
-            return (node?.blocks || []).filter(block => block.kind === "text").map(block => String(block.text || "")).join("\n");
-        }
         function TavernBodySpeechAction(props) {
             const available = usePackRevision(ttsClientAvailable);
             const source = props.useChat(function (snapshot) {
@@ -123,17 +98,19 @@
             const [playing, setPlaying] = React.useState(false);
             const run = React.useRef(null);
             React.useEffect(function () { return function () { if (run.current) { tavernSpeech.stop(run.current); run.current = null; } }; }, []);
-            const shown = playing;
-            const label = shown ? "停止朗读" : props.body ? "朗读正文" : "朗读这句";
+            const shown = playing || props.playing === true;
+            const label = shown ? "停止朗读" : props.label || (props.body ? "朗读正文" : "朗读这句");
             return h("button", { type: "button", className: "dsh-tavern-speak" + (shown ? " is-playing" : ""), "aria-label": label, disabled: props.disabled, title: props.disabled ? "本轮没有可朗读的正文" : label,
-                onClick: function (event) {
+                onClick: async function (event) {
                     event.stopPropagation();
+                    if (!run.current && props.playing) { props.onStop?.(); return; }
                     if (run.current) { tavernSpeech.stop(run.current); run.current = null; setPlaying(false); return; }
                     const token = {};
                     run.current = token;
                     setPlaying(true);
-                    tavernSpeech.speak({ sessionId: props.sessionId, speaker: props.speaker, text: props.text, parts: props.parts, emotion: props.emotion, body: props.body, owner: token }).finally(function () {
+                    if (props.beforeRead && !await props.beforeRead() || run.current !== token) { if (run.current === token) { run.current = null; setPlaying(false); } return; }
+                    tavernSpeech.speak({ sessionId: props.sessionId, speaker: props.speaker, text: props.text, parts: props.parts, emotion: props.emotion, body: props.body, line: props.line, owner: token }).finally(function () {
                         if (run.current === token) { run.current = null; setPlaying(false); }
                     });
-                } }, shown ? "■" : "🔊");
+                } }, shown ? "■" : props.label ? "🔊 " + props.label : "🔊");
         }

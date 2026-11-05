@@ -261,7 +261,9 @@ import { createStageReads, stageReadScope } from './domain/stage-read-projection
 import {createOptionalStage} from './optional-stage.js'
 import {createStageSwitch} from './stage-switch.js'
 import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-asset-bindings.js'
-import {effectiveAutoChoices, activeStageSkin} from './domain/card-stage-settings.js'
+import {effectiveAutoChoices, activeStageSkin, cardStageVoicing} from './domain/card-stage-settings.js'
+import {ENGINE_SECTION} from './domain/asset-engine-settings.js'
+import {settingsSectionProvider} from './native-settings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
@@ -3747,6 +3749,13 @@ export async function apply(ctx) {
     createTransferHandlers(rpcDeps),
     createImageCharacterHandlers(rpcDeps))
   const stageSwitch = await createStageSwitch({runtime:stageRuntime,store:profileData,builtin:true})
+  rpcHandlers.readAloudLine = async args => speech.read({text:args?.text})
+  rpcHandlers.readAloudState = async args => {
+    const card = await castCardOf(str(args?.sessionId)).catch(() => null)
+    const extension = card ? await cardStageExtension(card.path) : null
+    const engine = settingsSectionProvider(ctx, ENGINE_SECTION)?.describe().find(row => row.ns === ENGINE_SECTION)?.value
+    return {stepAside:stageRuntime.status() === 'ready' && cardStageVoicing(extension, engine), auto:ctx.get('tts')?.reading().readAloud.auto === true}
+  }
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
   rpcHandlers.setStageEnabled = async args => stageSwitch.setEnabled(args?.enabled)
   rpcHandlers.getCardScripts = rpcHandlers.setCardScriptMuted

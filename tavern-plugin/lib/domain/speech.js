@@ -137,6 +137,15 @@ export function createLineSpeech({ getTts, getLibrary }) {
   }
   return Object.freeze({
     async speak(line) { active++; try { return await speak(line) } finally { active-- } },
+    async read({text: raw} = {}) {
+      active++
+      try {
+        const tts = serviceOf()
+        if (!tts) return TTS_UNAVAILABLE
+        const text = speechText(raw)
+        return text ? await bindingLine(tts, tts.reading().readAloud.voice, text) : {skip:true, reason:'empty'}
+      } finally { active-- }
+    },
     pendingCount: () => active,
     dispose: reset
   })

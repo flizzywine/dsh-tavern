@@ -12752,7 +12752,7 @@ window.__ModuleLoader__.load({
 		      h('header',{className:'ap-head'},h('h2',null,'舞台素材')),
 		      h(Home,{binding,open,onOpen:setOpen,sessionId:props.sessionId,cardPath:props.cardPath,cardStamp:props.cardStamp,filter,nav:props.nav}));
 		  }
-		  return stageExposed({App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
+		  return stageExposed({VoiceCataloguePicker,voiceKey,voiceFromKey,App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
 		    // the stage pages' seam: names in (stageScope.names), bind / use (gal-stage.js, asset-launcher.js, settings.js).
 		    stageScope,
 		    // the manager and the card's mod section, for tests and the offline screenshot harness.
@@ -33895,7 +33895,7 @@ function tavernFloorHeightRecall(key, width) {
 				let heardAny = false;
 				try {
 					for (const [index, line] of lines.entries()) {
-						const reply = await rpc("speechForLine", { speaker: input.speaker || "", text: line.text, emotion: input.emotion || "neutral", narration: line.narration === true }, input.sessionId);
+						const reply = await rpc(input.line || "speechForLine", { speaker: input.speaker || "", text: line.text, emotion: input.emotion || "neutral", narration: line.narration === true }, input.sessionId);
 						if (lease.cancelled || !reply) return false;
 						// Narration stays silent while the narrator is off; the dialogue goes on.
 						if (reply.skip) { if (reply.reason === "narration" || reply.reason === "empty") continue; return false; }
@@ -33918,15 +33918,6 @@ function tavernFloorHeightRecall(key, width) {
 		})();
 
         // Read the prose and bubble captions, with no speaker IDs, voice directions or executable HTML.
-        function tavernSpeechPlainText(source) {
-            const text = String(source || "")
-                .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-                .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
-            const doc = new DOMParser().parseFromString(text, "text/html");
-            doc.querySelectorAll("script,style,template,iframe").forEach(node => node.remove());
-            doc.querySelectorAll("br,p,div,li,h1,h2,h3,h4,h5,h6,blockquote").forEach(node => node.append(" "));
-            return (doc.body.textContent || "").replace(/[*_~`#>|]/g, "").replace(/\s+/g, " ").trim();
-        }
         function tavernBodySpeechParts(source) {
             const parts = [];
             function append(text, narration) {
@@ -33949,6 +33940,45 @@ function tavernFloorHeightRecall(key, width) {
             }
             return parts;
         }
+        function TavernBodySpeechAction(props) {
+            const available = usePackRevision(ttsClientAvailable);
+            const source = props.useChat(function (snapshot) {
+                return tavernReplyBody((snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId));
+            });
+            const parts = React.useMemo(() => tavernBodySpeechParts(source), [source]);
+            return available && source ? React.createElement(TavernSpeakButton, { key: JSON.stringify([props.sessionId, props.messageId, source]), sessionId: props.sessionId, parts, body: true, disabled: !parts.length }) : null;
+        }
+        /** A second press stops the current line/body, including synthesis still in flight. */
+        function TavernSpeakButton(props) {
+            const h = React.createElement;
+            const [playing, setPlaying] = React.useState(false);
+            const run = React.useRef(null);
+            React.useEffect(function () { return function () { if (run.current) { tavernSpeech.stop(run.current); run.current = null; } }; }, []);
+            const shown = playing || props.playing === true;
+            const label = shown ? "停止朗读" : props.label || (props.body ? "朗读正文" : "朗读这句");
+            return h("button", { type: "button", className: "dsh-tavern-speak" + (shown ? " is-playing" : ""), "aria-label": label, disabled: props.disabled, title: props.disabled ? "本轮没有可朗读的正文" : label,
+                onClick: async function (event) {
+                    event.stopPropagation();
+                    if (!run.current && props.playing) { props.onStop?.(); return; }
+                    if (run.current) { tavernSpeech.stop(run.current); run.current = null; setPlaying(false); return; }
+                    const token = {};
+                    run.current = token;
+                    setPlaying(true);
+                    if (props.beforeRead && !await props.beforeRead() || run.current !== token) { if (run.current === token) { run.current = null; setPlaying(false); } return; }
+                    tavernSpeech.speak({ sessionId: props.sessionId, speaker: props.speaker, text: props.text, parts: props.parts, emotion: props.emotion, body: props.body, line: props.line, owner: token }).finally(function () {
+                        if (run.current === token) { run.current = null; setPlaying(false); }
+                    });
+                } }, shown ? "■" : props.label ? "🔊 " + props.label : "🔊");
+        }
+        function tavernSpeechPlainText(source) {
+            const text = String(source || "")
+                .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+                .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+            const doc = new DOMParser().parseFromString(text, "text/html");
+            doc.querySelectorAll("script,style,template,iframe").forEach(node => node.remove());
+            doc.querySelectorAll("br,p,div,li,h1,h2,h3,h4,h5,h6,blockquote").forEach(node => node.append(" "));
+            return (doc.body.textContent || "").replace(/[*_~`#>|]/g, "").replace(/\s+/g, " ").trim();
+        }
         function tavernBodySpeechChunks(text) {
             const chars = Array.from(text), chunks = [];
             while (chars.length) {
@@ -33965,33 +33995,107 @@ function tavernFloorHeightRecall(key, width) {
         function tavernReplyBody(node) {
             return (node?.blocks || []).filter(block => block.kind === "text").map(block => String(block.text || "")).join("\n");
         }
-        function TavernBodySpeechAction(props) {
-            const available = usePackRevision(ttsClientAvailable);
-            const source = props.useChat(function (snapshot) {
-                return tavernReplyBody((snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId));
-            });
-            const parts = React.useMemo(() => tavernBodySpeechParts(source), [source]);
-            return available && source ? React.createElement(TavernSpeakButton, { key: JSON.stringify([props.sessionId, props.messageId, source]), sessionId: props.sessionId, parts, body: true, disabled: !parts.length }) : null;
+        const tavernReadAloud = (function () {
+            const sessions = new Map(), listeners = new Set();
+            let reading = null;
+            function emit() { listeners.forEach(fn => fn()); }
+            function stop(sessionId) {
+                if (!reading || sessionId && reading.sessionId !== sessionId) return;
+                const lease = reading; reading = null;
+                tavernSpeech.stop(lease.owner);
+                emit();
+            }
+            function session(sessionId) {
+                let state = sessions.get(sessionId);
+                if (!state) sessions.set(sessionId, state = { count: 0, signal: null, armed: false, before: null, latest: null, generation: 0 });
+                return state;
+            }
+            async function read(sessionId, state, messageId, source) {
+                const generation = ++state.generation;
+                const data = await rpc("readAloudState", {}, sessionId).catch(() => null);
+                if (generation !== state.generation || sessions.get(sessionId) !== state || !data?.auto || data.stepAside) return;
+                if (!ttsClientAvailable() || typeof galActive !== "undefined" && galActive.get() === sessionId) return;
+                const text = tavernBodySpeechParts(source).map(part => part.text).join(" ");
+                if (!text) return;
+                stop();
+                const owner = {};
+                reading = { sessionId, messageId, owner };
+                emit();
+                tavernSpeech.speak({ sessionId, speaker: "", parts: [{ text, narration: false }], body: true, line: "readAloudLine", owner }).finally(function () {
+                    if (reading?.owner === owner) { reading = null; emit(); }
+                });
+            }
+            // signal: [streaming or a new player input, the latest reply's message id, its body while idle].
+            function observe(sessionId, signal) {
+                const state = session(sessionId);
+                if (state.signal === signal) return;
+                state.signal = signal;
+                const [busy, messageId, source] = JSON.parse(signal);
+                if (busy) {
+                    if (!state.armed) { state.armed = true; state.before = state.latest; }
+                    state.generation++;
+                    stop(sessionId);
+                    return;
+                }
+                state.latest = messageId;
+                // The finished reply may land a snapshot after the stream ends: stay armed until a new reply is there.
+                if (!state.armed || !messageId || messageId === state.before) return;
+                state.armed = false;
+                if (source) void read(sessionId, state, messageId, source);
+            }
+            function attach(sessionId) {
+                const state = session(sessionId);
+                state.count++;
+                return function () {
+                    state.count--;
+                    setTimeout(function () {
+                        if (state.count > 0 || sessions.get(sessionId) !== state) return;
+                        sessions.delete(sessionId); state.generation++;
+                        stop(sessionId);
+                    }, 0);
+                };
+            }
+            return { observe, attach, stop,
+                reading: (sessionId, messageId) => Boolean(reading && reading.sessionId === sessionId && reading.messageId === messageId),
+                subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); } };
+        })();
+        function tavernReadAloudSignal(snapshot) {
+            const nodes = snapshot?.legacy?.nodes || [];
+            const busy = Boolean(snapshot?.legacy?.partial) || nodes[nodes.length - 1]?.kind === "user";
+            const messageId = latestTavernAssistantMessageId(snapshot);
+            const node = !busy && messageId ? nodes.find(item => item.kind === "assistant" && item.messageId === messageId) : null;
+            return JSON.stringify([busy, messageId, node ? tavernReplyBody(node) : ""]);
         }
-        /** A second press stops the current line/body, including synthesis still in flight. */
-        function TavernSpeakButton(props) {
-            const h = React.createElement;
-            const [playing, setPlaying] = React.useState(false);
-            const run = React.useRef(null);
-            React.useEffect(function () { return function () { if (run.current) { tavernSpeech.stop(run.current); run.current = null; } }; }, []);
-            const shown = playing;
-            const label = shown ? "停止朗读" : props.body ? "朗读正文" : "朗读这句";
-            return h("button", { type: "button", className: "dsh-tavern-speak" + (shown ? " is-playing" : ""), "aria-label": label, disabled: props.disabled, title: props.disabled ? "本轮没有可朗读的正文" : label,
-                onClick: function (event) {
-                    event.stopPropagation();
-                    if (run.current) { tavernSpeech.stop(run.current); run.current = null; setPlaying(false); return; }
-                    const token = {};
-                    run.current = token;
-                    setPlaying(true);
-                    tavernSpeech.speak({ sessionId: props.sessionId, speaker: props.speaker, text: props.text, parts: props.parts, emotion: props.emotion, body: props.body, owner: token }).finally(function () {
-                        if (run.current === token) { run.current = null; setPlaying(false); }
-                    });
-                } }, shown ? "■" : "🔊");
+        function TavernReadAloudAction(props) {
+            const available = usePackRevision(ttsClientAvailable);
+            const [state, setState] = React.useState(null);
+            const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
+            const source = props.useChat(snapshot => tavernReplyBody((snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId)));
+            const signal = props.useChat(tavernReadAloudSignal);
+            React.useEffect(() => tavernReadAloud.attach(props.sessionId), [props.sessionId]);
+            React.useEffect(() => tavernReadAloud.observe(props.sessionId, signal), [props.sessionId, signal]);
+            React.useEffect(() => { if (active === props.sessionId) tavernReadAloud.stop(props.sessionId); }, [active, props.sessionId]);
+            React.useEffect(() => {
+                let live = true;
+                const refresh = () => rpc("readAloudState", {}, props.sessionId).then(value => { if (live) setState(value); }, () => { if (live) setState(null); });
+                void refresh();
+                const off = forkTtsScope?.get("ttsClient")?.subscribe(event => { if (event.type === "readingChanged") void refresh(); });
+                return () => { live = false; off?.(); };
+            }, [props.sessionId, available]);
+            const playing = React.useSyncExternalStore(tavernReadAloud.subscribe, () => tavernReadAloud.reading(props.sessionId, props.messageId));
+            if (!available || !source || !state) return null;
+            if (state.stepAside) return React.createElement(TavernBodySpeechAction, props);
+            if (active === props.sessionId) return null;
+            const text = parseBubbles(source, false).map(part => tavernSpeechPlainText(part.text)).join(" ");
+            return React.createElement(TavernSpeakButton, {
+                key:JSON.stringify([props.sessionId,props.messageId,source]),sessionId:props.sessionId,body:true,text,line:"readAloudLine",label:"朗读",playing,
+                onStop:() => tavernReadAloud.stop(props.sessionId),
+                beforeRead:async () => {
+                    const value = await rpc("readAloudState", {}, props.sessionId).catch(() => null);
+                    setState(value);
+                    return !!value && !value.stepAside && galActive.get() !== props.sessionId;
+                }
+            });
         }
 
 		// Background music: one looping track for the page. Plugins say which track plays; the player
@@ -39167,7 +39271,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
         }
 
         // Settings owns its initial snapshot; each editor saves only its own resource.
-        function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, StageGenerationSettings, TavernSettingRow, InlineField, Switch, HelpTip }) {
+        function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, StageGenerationSettings, TavernSettingRow, InlineField, Switch, HelpTip, VoiceCataloguePicker, voiceKey, voiceFromKey, useReadingBinding }) {
             // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
             const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
             function GlobalPlayDefaults({ settings }) {
@@ -39317,6 +39421,29 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                     h("header", {className:"dsh-tavern-gs-head"}, h("h2", null, title)),
                     h("div", {className:"dsh-tavern-gs-card"}, children));
             }
+            function ReadAloudSettings() {
+                const h = React.createElement, binding = useReadingBinding();
+                const [reading, setReading] = React.useState(null), [notice, setNotice] = React.useState(''), [busy, setBusy] = React.useState(false);
+                React.useEffect(() => {
+                    let active = true;
+                    const refresh = () => binding.tts.call('reading').then(value => { if (active) setReading(value.readAloud); }, () => { if (active) setNotice('无法读取朗读设置'); });
+                    if (!binding.tts?.available()) { setReading(null); return; }
+                    void refresh();
+                    const off = binding.tts.subscribe(event => { if (event.type === 'readingChanged') void refresh(); });
+                    return () => { active = false; off(); };
+                }, [binding]);
+                async function save(patch) {
+                    setBusy(true); setNotice('');
+                    try { const value = await binding.tts.call('setReading', {readAloud:patch}); setReading(value.readAloud); }
+                    catch (_) { setNotice('保存失败，请重试'); }
+                    finally { setBusy(false); }
+                }
+                return h(SettingsGroup, {title:'朗读'},
+                    !binding.tts?.available() ? h('p', {role:'status'}, '配音服务未启用') : reading ? h(React.Fragment, null,
+                        h(TavernSettingRow, {title:'朗读声音'}, h(VoiceCataloguePicker, {binding, value:voiceKey(reading.voice), label:'朗读声音', leading:[{value:'',label:'浏览器 · 系统默认'}], onPick:key => save({voice:voiceFromKey(key)})})),
+                        h(TavernSettingRow, {title:'自动朗读',help:'每条新回复用朗读声音读一次；本卡舞台配音开启时让位于角色配音。'}, h(Switch, {label:'自动朗读',checked:reading.auto,disabled:busy,onChange:auto => save({auto})}))) : h('p', {role:'status'}, '正在读取…'),
+                    notice ? h('p', {role:'status'}, notice) : null);
+            }
             function TavernPluginsSettingsSection() {
                 const h = React.createElement;
                 return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
@@ -39325,7 +39452,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                             h("a", { href: "https://discord.gg/hYAEjKnpra", target: "_blank", rel: "noopener noreferrer" }, "Discord 交流群"),
                             "的插件分享，查找社区作者发布的插件及使用说明。"),
                         h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址，或上传 ZIP 安装包。不支持 SillyTavern 插件。"),
-                        h(TavernUserPluginsSettings)));
+                        h(TavernUserPluginsSettings)), h(ReadAloudSettings));
             }
             // 设置 › 舞台 is the stage package's page (global-settings.js in dsh-tavern-stage, stageViews.GlobalSettings): opening it holds the
             // stage client (stage-client-loader.cjs hold) so the page loads for any card; the core only draws the wait. The names the
@@ -39350,6 +39477,12 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
             StageGenerationSettings: () => React.createElement(StagePackView, { view: ui => ui.GenPromptSettings, call: engineRpc }),
             // 设置 › 舞台 › 模组管理 (mod-manager.js).
             ForkModManagerEntry: () => React.createElement(StagePackView, { view: ui => ui.ModManagerEntry, rpc, Row: TavernSettingRow }),
+            VoiceCataloguePicker:packUi.VoiceCataloguePicker, voiceKey:packUi.voiceKey, voiceFromKey:packUi.voiceFromKey,
+            useReadingBinding:() => {
+                usePackRevision(ttsClientAvailable);
+                const service = packClient(), tts = forkTtsScope?.get('ttsClient');
+                return React.useMemo(() => ({service,tts}), [service,tts]);
+            },
             // the shared row and controls of the page.
             TavernSettingRow, InlineField, Switch, HelpTip: typeof HelpTip === "function" ? HelpTip : null
         });
@@ -52515,7 +52648,7 @@ function createTurnRailFilter(root, options) {
 		    const h = React.createElement;
 		    return h("span", { className: "dsh-fork-turn-actions" },
 		        latest ? h("span", { "data-fork-turn": "edit", title: "编辑正文" }, h(TavernEditBodyAction, props)) : null,
-		        h("span", { "data-fork-turn": "speech" }, h(TavernBodySpeechAction, props)),
+		        h("span", { "data-fork-turn": "speech" }, h(TavernReadAloudAction, props)),
 		        h("span", { "data-fork-turn": "receipt" }, h(ReceiptButton, props)),
 		        latest ? h("span", { "data-fork-turn": "regen" }, h(CandidateAction, Object.assign({}, props, { only: "regen" }))) : null,
 		        h("span", { "data-fork-turn": "more" }, h(TurnMenu, Object.assign({}, props, { latest: latest }))));
