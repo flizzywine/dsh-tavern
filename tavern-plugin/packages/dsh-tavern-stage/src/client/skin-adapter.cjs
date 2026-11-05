@@ -634,6 +634,18 @@ function stageSkinArt(document, files, entry = '') {
         // hover: the original's stain behind the entry under the pointer / focus and the current entry (one highlight).
         if (b.hover) {parts.push('hover'); stageSkinHighlightTokens(tokens,p + '-hover',b.hover,url);}
         marks['data-fk-skin-art-backlog-parts']=parts.join(' ');
+        // plates (C1): each role's plate images and inks by index, its slice and overhang edges, poses and slant, as
+        // --art-bl-p-<role>-* (theme.css 「art backlog plates」; the backlog view points each plated row at its own).
+        if (b.plates) {
+            marks['data-fk-skin-art-backlog-plates']=Object.keys(b.plates).join(' ');
+            for (const [role,plate] of Object.entries(b.plates)) {
+                const q=p + '-p-' + role, [st,sr,sb,sl]=stageSkinSlice(plate.slice), [ot,or,ob,ol]=plate.out || [0,0,0,0];
+                plate.images.forEach((item,index) => Object.assign(tokens,{[q + '-' + index]:url(item.image),[q + '-' + index + '-ink']:item.ink}));
+                Object.assign(tokens,{[q + '-st']:String(st),[q + '-sr']:String(sr),[q + '-sb']:String(sb),[q + '-sl']:String(sl),[q + '-ot']:String(ot),[q + '-or']:String(or),[q + '-ob']:String(ob),[q + '-ol']:String(ol)});
+                (plate.poses || []).forEach((pose,index) => Object.assign(tokens,{[q + '-pose-' + index + '-x']:String(pose.x),[q + '-pose-' + index + '-y']:String(pose.y || 0),[q + '-pose-' + index + '-rot']:pose.rot + 'deg'}));
+                if (plate.slant !== undefined) tokens[q + '-slant']=plate.slant + 'deg';
+            }
+        }
     }
     if (art.config) {
         const c=art.config, p='--art-cf';
@@ -1029,7 +1041,14 @@ function paintStageSkin(root, document, fonts, theme, lead = false, art = null, 
         for (const [name,value] of before) {if (value === null) root.removeAttribute(name); else root.setAttribute(name,value);}
     };
 }
+// The 履历 looks (stageSkinBacklog) with art.backlog.plates' cycles per role (image and pose counts, slanted or not): the
+// backlog view marks each plated row with its place in them (theme.css 「art backlog plates」).
+function stageSkinBacklogLooks(document) {
+    const looks=stageSkinBacklog(document), plates=document?.art?.backlog?.plates;
+    if (!plates) return looks;
+    return {...looks,plates:Object.fromEntries(Object.entries(plates).map(([role,plate]) => [role,{images:plate.images.length,poses:plate.poses?.length || 0,slant:plate.slant !== undefined}]))};
+}
 
-return {dispose,STAGE_SKIN_EASE,STAGE_SKIN_TX_EASE,stageSkinTxEase,stageSkinWipeClip,stageSkinTransitionList,STAGE_BACKLOG_DEFAULTS,stageSkinBacklog,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogOutline,stageSkinInset,stageSkinSfx,stageSkinMotionKeyframes,stageSkinGlyphPoses,stageSkinEffects,stageSkinTokens,stageSkinPanelTokens,stageSkinQuickMenu,stageSkinMarks,stageSkinConfigSurface,stageSkinConfigArt,STAGE_CONFIG_DEFAULT_LOOKS,stageSkinControlIcons,stageSkinArt,stageSkinSpinner,stageSkinTint,stageSkinMenuTint,stageSkinFontFaces,applyStageSkin,stageSkinMode,applyStageSkinMode};
+return {dispose,STAGE_SKIN_EASE,STAGE_SKIN_TX_EASE,stageSkinTxEase,stageSkinWipeClip,stageSkinTransitionList,STAGE_BACKLOG_DEFAULTS,stageSkinBacklog:stageSkinBacklogLooks,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogOutline,stageSkinInset,stageSkinSfx,stageSkinMotionKeyframes,stageSkinGlyphPoses,stageSkinEffects,stageSkinTokens,stageSkinPanelTokens,stageSkinQuickMenu,stageSkinMarks,stageSkinConfigSurface,stageSkinConfigArt,STAGE_CONFIG_DEFAULT_LOOKS,stageSkinControlIcons,stageSkinArt,stageSkinSpinner,stageSkinTint,stageSkinMenuTint,stageSkinFontFaces,applyStageSkin,stageSkinMode,applyStageSkinMode};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSkinAdapter};

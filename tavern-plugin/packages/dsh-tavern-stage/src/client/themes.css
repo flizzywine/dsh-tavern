@@ -5674,6 +5674,32 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 }
 /* ==== end stage skin: art tiles, confirm, highlights ==== */
 
+/* ==== art backlog plates ==== */
+/*
+   art.backlog.plates (C1): each 履历 entry on its role's own plate. stageSkinArt writes data-fk-skin-art-backlog-plates and
+   the --art-bl-p-<role>-* tokens (images and inks by index, slice and overhang edges, poses, slant); the backlog view marks
+   every plated row with data-bl-role, data-bl-plate (its image index) and data-bl-pose (its pose index), and points its --bp-*
+   at its own tokens. The plate is the row's nine-sliced border image: the edge slices at their size (tape, pins, tails), the
+   middle stretched, overhanging the row by out. The pose moves and turns the whole row, so its hit area, the highlight (sized
+   to the plate) and its focus go with it while the reading and tab order stay; slant skews only the words, never the
+   highlight or the voice control. The body takes the image's ink (checked >= 4.5:1 on its ground when the skin is written).
+   --bp-u: one design px - the art layer's (--mu), else (a phone's shared sheet) half a CSS px.
+*/
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate] { --bp-u: var(--mu, .5px);
+  --art-bl-hover-t: var(--bp-ot); --art-bl-hover-r: var(--bp-or); --art-bl-hover-b: var(--bp-ob); --art-bl-hover-l: var(--bp-ol);
+  position: relative; isolation: isolate; box-sizing: border-box; min-height: calc((var(--bp-st) + var(--bp-sb)) * var(--bp-u)); color: var(--bp-ink);
+  border-image: var(--bp) var(--bp-st) var(--bp-sr) var(--bp-sb) var(--bp-sl) fill / calc(var(--bp-st) * var(--bp-u)) calc(var(--bp-sr) * var(--bp-u)) calc(var(--bp-sb) * var(--bp-u)) calc(var(--bp-sl) * var(--bp-u))
+    / calc(var(--bp-ot) * var(--bp-u)) calc(var(--bp-or) * var(--bp-u)) calc(var(--bp-ob) * var(--bp-u)) calc(var(--bp-ol) * var(--bp-u)) stretch; }
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate][data-bl-pose] { transform: translate(calc(var(--bp-x) * var(--bp-u)), calc(var(--bp-y) * var(--bp-u))) rotate(var(--bp-rot)); }
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate] :is(.fork-gal-backlog-text, .fork-gal-backlog-input > p, .fork-gal-backlog-card > p, .fork-gal-backlog-turn > span) { color: inherit; }
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate][data-bl-slant] :is(.fork-gal-backlog-text, .fork-gal-backlog-input > p, .fork-gal-backlog-card > p, .fork-gal-backlog-turn > span) { transform: skewX(calc(-1 * var(--bp-slant))); }
+/* The plate covers the shared row highlight: without the skin's own (art.backlog.hover) keyboard focus shows the stage's ring. */
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not([data-fk-skin-art-backlog-parts~="hover"]):not(.is-film) .fork-gal-backlog [data-bl-plate]:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }
+/* A divider on its plate: the plate is the rule. */
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog .fork-gal-backlog-turn[data-bl-plate]::before,
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog .fork-gal-backlog-turn[data-bl-plate]::after { content: none; }
+/* ==== end art backlog plates ==== */
+
 /* ==== stage skin: P5 slash layout ==== */
 /* (a pop-punk menu style; no third-party asset or
    font): textbox.layout slash + nameplate ransom + cursor arrow. Pop-punk in the skin's own three paints: the plate
