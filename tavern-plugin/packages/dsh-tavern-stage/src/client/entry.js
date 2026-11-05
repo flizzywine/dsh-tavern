@@ -63,6 +63,21 @@ const stageClientPlugin = (() => {
         __STAGE_MOD_SURFACE__
         __STAGE_SOURCE_WIDGETS__
         __STAGE_CONTROLLER__
+        // 舞台借用 (lease-scene.cjs over the core's figureResolution, lease-hud.cjs): a gameMode view lending a session's stage.
+        function createStageLeaseScene(figureResolution) {
+            __STAGE_LEASE_SCENE__
+            return {leaseScene,leaseCursor};
+        }
+        __STAGE_LEASE_HUD__
+        // The lease HUD's plugin boundary: a throwing card hud shows its fallback and is reported; the stage keeps going.
+        function createStageLeaseBoundary(React,report) {
+            return class StageLeaseBoundary extends React.Component {
+                constructor(props){super(props);this.state={failed:false};}
+                static getDerivedStateFromError(){return {failed:true};}
+                componentDidCatch(error){report(error);}
+                render(){return this.state.failed?this.props.fallback:this.props.children;}
+            };
+        }
         __STAGE_SESSIONS__
         __STAGE_TEXT_INDEX__
         __STAGE_CLIENT_LIFETIME__
@@ -300,9 +315,24 @@ const stageClientPlugin = (() => {
                     views.sourceWidgets=own(createStageSourceWidgets({React:options.React,window,document,...options.sourceWidgets,views,sessions:()=>sessions}));
                     views.modSurface=own(createStageModSurface({React:options.React,window,document,...options.modSurface,sessions:()=>sessions,scene:()=>views.scene,runtime:views.sessionRuntime,renderers:modRenderers,core:options.performances?.core,useFaces:views.sourceWidgets.useFaces}));
                     if(options.statusPanel)views.statusPanel=own(createStageStatusPanel({React:options.React,window,document,...options.statusPanel,useFaces:views.sourceWidgets.useFaces}));
+                    // 舞台借用: the host's in-memory stageLeases (a gameMode view with presentation 'stage'); the controller reads a
+                    // session's lease and mounts its HUD. The clip export host lends none.
+                    if(host.stageLeases){
+                        const leases=host.stageLeases,characters=options.sourceWidgets.characters;
+                        const {leaseScene,leaseCursor}=createStageLeaseScene(options.sourceWidgets.figureResolution);
+                        const hud=createStageLeaseHud({React:options.React,Boundary:createStageLeaseBoundary(options.React,host.report),PackImage:options.backlogView.PackImage,placeholderFace:views.placeholderFace});
+                        views.lease={subscribe:(sessionId,changed)=>leases.subscribe(sessionId,changed),get:sessionId=>leases.get(sessionId),
+                            // emotions through the stage's one mood resolver (bubbleMood over the card's mood list); unknown: none
+                            scene:(scene,{rows,config})=>leaseScene(scene,{rows,normalizeEmotion:raw=>characters.mood(raw,characters.moods(config))?.id}),
+                            cursor:leaseCursor,Hud:hud.StageLeaseHud};
+                    }
                     views.sessions=sessions=own(createStageSessions({views,navigation:options.navigation,clock:options.sceneServices?.foreground,window,document,startLifetime:startStageClientLifetime,textIndex}));
                     views.controller=own(createStageController({React:options.React,window,document,views,navigation:options.navigation,services:{...(options.controller || {dialogue:{},figures:{}}),ClipStatus:clipExport?.ClipStatus},legacy:options.controllerLegacy || {},options}));
-                    Object.assign(views,own(createStageViews({...options,GalStage:views.controller.Stage,useGalEntryLoader:admission.useLoader})));
+                    // Each mounted session's stage attaches as the consumer of its lease (and detaches on unmount, a stage failure
+                    // included): while none is attached the game keeps its page view.
+                    const ControllerStage=views.controller.Stage,leases=host.stageLeases;
+                    const GalStage=leases?function StageLeaseConsumer(props){options.React.useEffect(()=>leases.attach(props.sessionId),[props.sessionId]);return options.React.createElement(ControllerStage,props);}:ControllerStage;
+                    Object.assign(views,own(createStageViews({...options,GalStage,useGalEntryLoader:admission.useLoader})));
                     if(options.globalSettings)views.GlobalSettings=createStageSettingsModule({React:options.React,...options.globalSettings,CubismCoreEntry:live2d?.Entry}).TavernStageSettingsSection;
                     // 素材库 / 舞台 tab pages: built over the core asset-pack closure and bound into it for this activation.
                     if(options.assetPack){views.assetPack=createStageAssetPackViews(options.assetPack.names);if(live2d)views.assetPack.live2dKit=live2d.previews;own({dispose:options.assetPack.bind(views.assetPack)});}

@@ -1,4 +1,14 @@
 // Viewport cast arrangement, fit transitions, and parked-figure projection.
+// 舞台借用 focus (lease-scene.cjs focus / dim): the focus actor takes the speaker's light (shade 1; scene.cjs draws it in front
+// and steps it forward), the others the listener shade (speaker.cjs). A phone's one standing figure is the first of the
+// plan's priority (the focus actor, else the speaker); the figures it parks lose focus and dim with their place.
+const CAST_FOCUS_DIM = 0.8;
+function castFocusLight(figure) {
+    if (figure.focus) return figure.shade === 1 ? figure : {...figure, shade:1};
+    if (!figure.dim) return figure;
+    const shade = Math.min(figure.shade ?? 1, CAST_FOCUS_DIM);
+    return figure.shade === shade ? figure : {...figure, shade};
+}
 function createStageCastLayout({calculate,mix}) {
     let disposed=false;const instances=new Set();
     function create({drawn=kind=>kind==='spine'}={}){
@@ -35,8 +45,8 @@ function createStageCastLayout({calculate,mix}) {
             if(closed)return [];
             if(memo&&memo.source===source&&memo.layout===arrangement)return memo.list;
             const figures=source.filter(figure=>figure&&figure.key&&(figure.kind==='static'||drawn(figure.kind)));
-            const list=arrangement?figures.map(figure=>figure.alias in arrangement.x?(figure.x===arrangement.x[figure.alias]?figure:{...figure,x:arrangement.x[figure.alias]})
-                :{...figure,visible:false,parked:true,speaking:false,talking:false,audio:null,act:null}):figures;
+            const list=arrangement?figures.map(figure=>figure.alias in arrangement.x?castFocusLight(figure.x===arrangement.x[figure.alias]?figure:{...figure,x:arrangement.x[figure.alias]})
+                :{...figure,visible:false,parked:true,speaking:false,talking:false,audio:null,act:null,focus:false,dim:false}):figures.map(castFocusLight);
             memo={source,layout:arrangement,list};return list;
         }
         const view={update,fit,project,get layout(){return layout;},get target(){return transition?{...transition.to}:{fit:1,drop:0};},dispose(){if(closed)return;closed=true;instances.delete(view);layout=seen=transition=memo=shown=null;}};
@@ -44,4 +54,4 @@ function createStageCastLayout({calculate,mix}) {
     }
     return {create,dispose(){if(disposed)return;disposed=true;for(const view of [...instances])view.dispose();}};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageCastLayout};
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageCastLayout,castFocusLight};

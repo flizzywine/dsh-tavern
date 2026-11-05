@@ -444,12 +444,16 @@
 					const entry = Object.assign({ owner: ownerOf(this) }, action(input, "registerComposerAction"));
 					return owned(this, function () { return addTo(composerActions, entry); }, "tavernUi.registerComposerAction()");
 				},
+				// presentation 'stage': the game borrows the stage (stageLeases) while a stage consumer is
+				// attached for the session; otherwise the view behaves exactly like presentation 'page'.
 				registerGameModeView(input) {
 					if (!input || !/^[a-z][a-z0-9._-]{0,63}$/.test(input.name) || typeof input.render !== 'function') throw new Error('玩法界面需要 name 和 render');
+					const stage = input.presentation === 'stage' ? input.stage : null;
+					if (input.presentation === 'stage' && (!stage || typeof stage.scene !== 'function' || (stage.hud !== undefined && typeof stage.hud !== 'function'))) throw new Error('舞台玩法界面需要 stage.scene 函数（stage.hud 可选，须为函数）');
 					const owner = ownerOf(this), key = owner + ':' + input.name;
 					return owned(this, function () {
 						if (gameModeViews.has(key)) throw new Error('玩法界面已注册');
-						gameModeViews.set(key, { owner: owner, render: input.render, page: input.presentation === 'page', lobby: typeof input.lobby === 'function' ? input.lobby : null }); changed();
+						gameModeViews.set(key, { owner: owner, render: input.render, page: input.presentation === 'page' || !!stage, stage: stage ? { scene: stage.scene, hud: stage.hud || null } : null, lobby: typeof input.lobby === 'function' ? input.lobby : null }); changed();
 						return function () { gameModeViews.delete(key); changed(); };
 					}, 'tavernUi.registerGameModeView()');
 				},
@@ -948,6 +952,30 @@
 			};
 		}
 		const tavernUiExtensions = createTavernUiExtensions();
+
+		// Stage leases (舞台借用): a gameMode view with presentation 'stage' lends the game a whole,
+		// ephemeral stage snapshot per session. Memory only: never Story Timeline, stage state or a save.
+		// The stage attaches as consumer; with no consumer the game keeps its page view.
+		function createTavernStageLeases() {
+			const leases = new Map(), consumers = new Map(), watchers = new Map();
+			function notify(sessionId) { for (const fn of Array.from(watchers.get(sessionId) || [])) fn(leases.get(sessionId) || null); }
+			return Object.freeze({
+				publish(sessionId, lease) { leases.set(sessionId, Object.freeze({ owner: lease.owner, scene: lease.scene, hud: lease.hud || null, props: lease.props })); notify(sessionId); },
+				release(sessionId, owner) { const lease = leases.get(sessionId); if (!lease || lease.owner !== owner) return; leases.delete(sessionId); notify(sessionId); },
+				get(sessionId) { return leases.get(sessionId) || null; },
+				subscribe(sessionId, fn) {
+					const set = watchers.get(sessionId) || new Set(); set.add(fn); watchers.set(sessionId, set);
+					return function () { set.delete(fn); if (!set.size && watchers.get(sessionId) === set) watchers.delete(sessionId); };
+				},
+				attach(sessionId) {
+					consumers.set(sessionId, (consumers.get(sessionId) || 0) + 1); notify(sessionId);
+					let attached = true;
+					return function () { if (!attached) return; attached = false; const count = consumers.get(sessionId) - 1; if (count > 0) consumers.set(sessionId, count); else consumers.delete(sessionId); notify(sessionId); };
+				},
+				attached(sessionId) { return consumers.has(sessionId); }
+			});
+		}
+		const tavernStageLeases = createTavernStageLeases();
 
 		// Which of several plugin views (stage, turn text) a game shows: Tavern's own, or a plugin's;
 		// remembered per browser. With no choice made a plugin view is used: installing one is asking for it.
