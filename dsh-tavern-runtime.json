@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "84ca213e13ef10e074e38b14513ac5eea0cec806",
-  "releaseSequence": 1262,
+  "revision": "1bff13c78ea0f385c6b668d1420dfd7975f476c9",
+  "releaseSequence": 1263,
   "version": "3.2.0",
   "files": [
     {
@@ -7121,7 +7121,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/BUNDLED-VERSION.json",
-      "sha256": "0b2e288db54521c236328c6d4c58fe0b69f48c5c3121f3f78f02ac5026746534",
+      "sha256": "7cec316d135ef314969f120809f1c5d9444320ca95a6658fd1bd84ea70d73c8a",
       "size": 260
     },
     {
@@ -7131,8 +7131,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/client.js",
-      "sha256": "ba522bf54dae4d800ecffa788d85a5d953402b2cffc01263ec77f0753c079052",
-      "size": 527079
+      "sha256": "d9e71b6c67a2c9be49ba47d6b7544a5c2cff565e69233c53a2dfd383c9168079",
+      "size": 527090
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/console.html",
@@ -7171,18 +7171,18 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/gallery.js",
-      "sha256": "f7277f569d940ebf7221c896cbddfb5a7f6f40ac7afb23bf9a752b558efdcc42",
-      "size": 4468
+      "sha256": "97184fb70cce8872ec4c98ca67830a481511a5f7e5e699856edc0acb78e1d2ae",
+      "size": 4485
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/generation.js",
-      "sha256": "69f5653062c25a1da18e876e63b4846bdd811ae8f6efaac3fb86237622196bb8",
-      "size": 7162
+      "sha256": "023945cd0e74415619c508d8884968379f80fa2c805689c75108745ec0dd3e70",
+      "size": 7305
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/index.js",
-      "sha256": "58e4e129d332e7b2a921693b16e04c3a2471562aed199196e403eff540f29cb9",
-      "size": 28464
+      "sha256": "9cd72365ef0f859bb974260da76b2f2ba52be1aeb711a1f2a44edb88895db383",
+      "size": 28727
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/storage.js",
@@ -7301,8 +7301,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js",
-      "sha256": "ae1f0bf2981325ac7bf9920d99389a7f0cf90a17c014db38e4042de914dbdb09",
-      "size": 389859
+      "sha256": "d56aaad25c3f6dd31cfb50ee5481640ef9abde82d8cb1b37e385a6c4d6edfa25",
+      "size": 389922
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/library-provider.js",
@@ -7546,7 +7546,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/package.json",
-      "sha256": "6309cc2efe0ecbd09b668e378419657629d2d7921e76c36d24aee0ec21794248",
+      "sha256": "d8c828b8c005e639c583d0c3863975c21347e22e19505d9d702a050a0fa11820",
       "size": 2310
     },
     {
@@ -9756,9 +9756,9 @@
     }
   ],
   "archive": {
-    "commit": "026bee8c8e4db1cb6946333cb7882c9e2f53f923",
+    "commit": "d89773391152cb5782f1dc320b4de97e9a4eb5c2",
     "path": "runtime.zip",
-    "sha256": "31c876785eec973d550a4f47095ab83f3ee19101ed3037809c0492aaaccb5f74",
-    "size": 16322271
+    "sha256": "1bce41946fdf6ece7549f2f577848f29b94a000bcbaf599433f5d35afdfefd40",
+    "size": 16322434
   }
 }
