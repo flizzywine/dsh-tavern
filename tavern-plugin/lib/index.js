@@ -28,6 +28,8 @@ import {createTavernClientAssets} from './domain/tavern-client-assets.js'
 import { registerTavernHttpRoutes } from './http/routes.js'
 import { verifyPublicHostname } from './http/public-hostname.js'
 import { installChatAnswerBootPatch } from './domain/chat-answer-boot-patch.js'
+import { installGenerationStreamModeBootPatch } from './domain/generation-stream-mode-boot-patch.js'
+import { createGenerationStreamModeStore, installGenerationStreamModeHook } from './domain/generation-stream-mode.js'
 import { registerRequestHooks } from './hooks/request.js'
 import { createWholeReadGuard, scopeTurnHooks } from './domain/whole-read-guard.js'
 import { createChatReads } from './domain/chat-reads.js'
@@ -323,6 +325,7 @@ import { createResourceHandlers } from './rpc/resources.js'
 import { createRegexHandlers } from './rpc/regex.js'
 import { createMediaHandlers } from './rpc/media.js'
 import { createSettingsHandlers } from './rpc/settings.js'
+import { createGenerationStreamModeHandlers } from './rpc/generation-stream-mode.js'
 import { createPluginHandlers } from './rpc/plugins.js'
 import { createConversationHandlers } from './rpc/conversations.js'
 import { createPlayHandlers } from './rpc/play.js'
@@ -451,6 +454,8 @@ export async function apply(ctx) {
   const cardMemory = createCardMemory({ dataRoot })
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
+  const generationStreamModes = createGenerationStreamModeStore(profileData)
+  ctx.effect(() => installGenerationStreamModeHook(ctx, () => generationStreamModes.get()))
   const frameStorage = createFrameStorage(profileData)
   const transferExports = createTransferExportStore({ root: dataRoot + '/tmp-exports' })
   const displayRuntimeStore = createDisplayRuntimeStore({ store: profileData })
@@ -3628,7 +3633,7 @@ export async function apply(ctx) {
     conversationBackgroundSettings, conversationGuides, ctx, dataRoot, deleteCard, deleteChat, deleteChats,
     deletePreset, deleteResource, deleteScript, displayRuntimeCaptures, ensureNativeCardWorkspace,
     ensureNativeOpening, exportConversation, exportGameSave, exportSettingsBundle, exportTavernLogs,
-    fileResources, forkChat, fullTemplateRuntime, getCardOpenings, groupOfMode, guideLibrary,
+    fileResources, forkChat, fullTemplateRuntime, generationStreamModes, getCardOpenings, groupOfMode, guideLibrary,
     helperGenerationPreset, helperGenerationTasks, helperHistoryAccess, hostCompatibility, importCard, exportCardFile,
     replaceCard, importCardArchiveFile, importChatHistoryText, importGameSave, importPluginCardFile, importPreset,
     importScript, importSettingsBundle, importSource, ledgerEditor, listCards, listTavernResources,
@@ -3735,6 +3740,7 @@ export async function apply(ctx) {
     createRegexHandlers(rpcDeps),
     createMediaHandlers(rpcDeps),
     createSettingsHandlers(rpcDeps),
+    createGenerationStreamModeHandlers(rpcDeps),
     createPluginHandlers(rpcDeps),
     createConversationHandlers(rpcDeps),
     createPlayHandlers(rpcDeps),
@@ -3850,6 +3856,7 @@ export async function apply(ctx) {
   })
   // A desktop host's chat view sits in a read-only app.asar: patch its answer step in the page.
   installChatAnswerBootPatch(ctx)
+  installGenerationStreamModeBootPatch(ctx)
   // Card scripts run on the server by default; DSH_TAVERN_SERVER_SCRIPTS=0 leaves them to the page.
   if (process.env.DSH_TAVERN_SERVER_SCRIPTS !== '0') {
     serverScripts = createServerScriptExecutor({
