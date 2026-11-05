@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "759bfdef0be6be1e7dd567f4612c72c4ce615fd4",
-  "releaseSequence": 1218,
+  "revision": "b4601c12a97ec21492d5ef1e3aa97201b1132a42",
+  "releaseSequence": 1219,
   "version": "3.2.0",
   "files": [
     {
@@ -7746,8 +7746,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "260709d65c46d1bcf24c71ab734558d6e50d389f1e2455af175ea036ac2b86d4",
-      "size": 3276900
+      "sha256": "467424cfd187c9971e7d1204d8430c1676e67d74cb15c3aebcc920b4a6989769",
+      "size": 3289293
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -8346,8 +8346,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs",
-      "sha256": "84a36e053f0af12e0254e7ccca6c03e41840c3ab7d8f098fa434bc075865c22d",
-      "size": 128800
+      "sha256": "713b80af0864c7aaa7a42b87c40866e751ae55d9c481a776d285bd91a8c3c4b0",
+      "size": 128951
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/controls.cjs",
@@ -8426,8 +8426,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/entry.js",
-      "sha256": "0485cc839fcc4566fd541dd55c604525052fa366e80b70925726d325efbfd7ca",
-      "size": 32259
+      "sha256": "f93158e8091487c2a604999022803645c059ed59187f7c63b2923d9ad98cbf1e",
+      "size": 32314
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/features.cjs",
@@ -8511,8 +8511,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/labels.cjs",
-      "sha256": "84715464b7b961cc3a7d76bc0be84514eb20d8bd0d3817dde894076ce2e70d49",
-      "size": 13573
+      "sha256": "5b8e193ad4346362c578ed58f48049e65804e60ba73f7173ea3ef03e952bd2a6",
+      "size": 15121
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/live2d-acts.cjs",
@@ -8571,8 +8571,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/menu.cjs",
-      "sha256": "f89e44405eb5359bd002a3e85c7876b7632c040d8dcd0111ca5ba76931f573ba",
-      "size": 15505
+      "sha256": "7b680d31193510212e25028ff1e3f6bf944ac0c063df1f0add02c008944ec34d",
+      "size": 16690
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/mixer.cjs",
@@ -8721,8 +8721,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/skin-adapter.cjs",
-      "sha256": "ed06a80ab664dbb00b4e87fbd1ae5e14c3b61af941e7726004fb8ff0ccfb04a7",
-      "size": 94819
+      "sha256": "1f09e3cc8268e0fd2f2336f32edaa2c8b6f4e171a73523efda97a1aa56ee8bb6",
+      "size": 95521
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/skin-backlog.cjs",
@@ -8771,8 +8771,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/skin-presentation.cjs",
-      "sha256": "9fca961a247f55b7ed95bd5f2a948954e5c8e3d9cb9d0a264059cacb4dae8de9",
-      "size": 15121
+      "sha256": "60b4ac86c86be4ade36ce8f9058e6220dd74e2cb781c7ef5f626aec5bc3cb198",
+      "size": 15145
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/skin-resources.cjs",
@@ -8876,8 +8876,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/themes.css",
-      "sha256": "085e76540d5ceda4d0303e0c2fdd358263e716b10cae8fb283e9c0de04508f24",
-      "size": 808849
+      "sha256": "781a71c38dabb1e17d4d6e4f974c9460c7d18899c404a92f6a37a34bdb0b2549",
+      "size": 817469
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/timer.cjs",
@@ -9691,9 +9691,9 @@
     }
   ],
   "archive": {
-    "commit": "d33e25cdf80bbd2230d4d5a7e35f844df4644243",
+    "commit": "900c5cf9227e76439eebd638151219a1f2cccbba",
     "path": "runtime.zip",
-    "sha256": "09f643358f87f615fda438d78e5a09186c787c7c78e1e38138ad4eef621ad6f3",
-    "size": 16215087
+    "sha256": "74bf6ec6f19622ec71c1e28b8eef7cfc72080aba99b9ef8c7e9403172252fbfc",
+    "size": 16221510
   }
 }
