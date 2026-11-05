@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e6574e3c26aa3903458846ffe03c945cd89d24ab",
-  "releaseSequence": 1273,
+  "revision": "6db581560961c87df325dc660a9ded04163feed9",
+  "releaseSequence": 1274,
   "version": "3.2.0",
   "files": [
     {
@@ -151,8 +151,8 @@
     },
     {
       "path": "bin/check-dsh-upgrade.mjs",
-      "sha256": "01bff82c9283ec0388cc1b55de625ceec41ac44217da4e8f1d709cc37aac7c55",
-      "size": 8265
+      "sha256": "7cf6df78f3b16ed49ed7f14f26870adfa58f9a75cc3e1b7b874fc995ddc3585d",
+      "size": 8307
     },
     {
       "path": "bin/cli-runtime.mjs",
@@ -9786,9 +9786,9 @@
     }
   ],
   "archive": {
-    "commit": "9df2f8cac3945e7e9a6211f06ece07fd9735ea2e",
+    "commit": "4923430d6ceb01e1b3819021f039545ecc7bbc5f",
     "path": "runtime.zip",
-    "sha256": "3d4f0478a95476faf01faaf5e44dea7ccdbf530888cd447c90937880484563bc",
-    "size": 16349326
+    "sha256": "fcf74123b1a2db7d0e519ac067c71d37679317ad40f3e986c0e4b0cb6a6d9d16",
+    "size": 16349345
   }
 }
