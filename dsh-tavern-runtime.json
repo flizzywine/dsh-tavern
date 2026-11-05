@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "fc1567e800002d6c08f4e117beb9b9471af3466c",
-  "releaseSequence": 1258,
+  "revision": "3555a1c46a128e4072ee74ed10ac0032b4944bc4",
+  "releaseSequence": 1259,
   "version": "3.2.0",
   "files": [
     {
@@ -1681,8 +1681,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "292cfd108832d38a928ffc8b20e34e553afde38a5a86d595e37eebc3830470b6",
-      "size": 32023
+      "sha256": "3c5757ace4fba6113f5b255b9d5e629d4f17e30a59cabe26b260bcc010a53894",
+      "size": 32447
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -2476,8 +2476,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-body-generation.js",
-      "sha256": "86cb4680750591f0bb3a0a99bcfd4cbd5935ad7213da022dcff7f04726e83e93",
-      "size": 13054
+      "sha256": "55b99e03d24956260fc7cb94dc2b886834381c74c1a56bbc87db1fed62dee284",
+      "size": 14066
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-body-regeneration.js",
@@ -9746,9 +9746,9 @@
     }
   ],
   "archive": {
-    "commit": "078b46090080e1fe819d4655d72e9c7367868a52",
+    "commit": "e282acb511a1ae80095869b02b044b958a336a1e",
     "path": "runtime.zip",
-    "sha256": "10cd27a075e0ffdee5103c845438ca90c87b08a51e34830babae5d88ab84159d",
-    "size": 16324565
+    "sha256": "981dfe1595b32e61707b25918f3c79155ea841a6b8616b8968cc44e02ca930c1",
+    "size": 16325125
   }
 }
