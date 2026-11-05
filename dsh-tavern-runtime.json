@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0f7e79b2bca02988f5f74ebbe7ff51f1f116c530",
-  "releaseSequence": 1254,
+  "revision": "c293a3e77dd9f76ca109d0544b6edb99693630f9",
+  "releaseSequence": 1255,
   "version": "3.2.0",
   "files": [
     {
@@ -8961,8 +8961,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/client.js",
-      "sha256": "b0889f6cbadb7ff4665a1f94ab82de3863039411b78da4e36e0e1f2d7c320a4a",
-      "size": 73488
+      "sha256": "2b9825cdbf618ed96c88ce1bbbf0b7377265df6f34586ee9ef71fc49dfe95ca7",
+      "size": 74479
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/core.js",
@@ -9201,8 +9201,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/client.js",
-      "sha256": "3e0f3ba063ab7927e4296f36065b9679ad7e66a4dcf62f28d37597b2c021c7be",
-      "size": 47377
+      "sha256": "085b46de504411bee780e642a1535c603c1c1146ecd3605a426b14bf8aae7ccb",
+      "size": 48368
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/core.js",
@@ -9721,9 +9721,9 @@
     }
   ],
   "archive": {
-    "commit": "3ff896db86b8217629363ef73ff9644b282b2eb0",
+    "commit": "328f8afa27cf6d5639c4e70c7e715e9151426c4c",
     "path": "runtime.zip",
-    "sha256": "b6b89086b1c268a44f6ffd62c0e2678e89be076d93c50134d755c93026457b73",
-    "size": 16311799
+    "sha256": "c09ed230c1284fe53e21f1181a2ee4a894b08790b0e8071a9eca7f180f2d9cd7",
+    "size": 16312423
   }
 }
