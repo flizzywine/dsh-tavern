@@ -277,3 +277,40 @@ test('legacy stored failures and message-only receipts remain readable', async (
   await assert.rejects(f.controller.validateResult(f.session, 2, old), /旧版错误/);
   assert.equal(f.calls, 0);
 });
+
+test('未启用插件生成时工具返回可恢复错误，不结束回合', async () => {
+  const f = fixture()
+  f.mutate(chat => { Object.values(chat.foregroundFrames)[0].source.bodyGeneration.mode = 'host' })
+  await assert.rejects(f.controller.tool.execute({}, f.exec), error => {
+    assert.match(error.message, /请直接撰写本轮正文/)
+    assert.equal(error.failure?.stage, 'route')
+    assert.equal(error.code, 'TAVERN_PLUGIN_BODY_GENERATION_FAILED')
+    return true
+  })
+  assert.equal(f.conclusions, 0, '路由不匹配不能结束回合，否则模型没有机会写正文')
+  assert.equal(f.calls, 0, '不得发起插件生成请求')
+});
+
+test('工具执行与提示词契约共用冻结路由，遗留运行帧不会另判一种模式', async () => {
+  const f = fixture()
+  f.mutate(chat => {
+    const frame = Object.values(chat.foregroundFrames)[0]
+    chat.foregroundFrames['legacy-running'] = {
+      ...copy(frame), turn: 1,
+      source: { ...frame.source, bodyGeneration: { mode: 'host', provider: '' } }
+    }
+  })
+  assert.equal((await f.controller.route('session')).mode, 'host', '契约按运行帧判定为 host')
+  await assert.rejects(f.controller.tool.execute({}, f.exec), /请直接撰写本轮正文/,
+    '按当前轮次另找帧会误判为插件生成并发出付费请求')
+  assert.equal(f.calls, 0)
+  assert.equal(f.conclusions, 0)
+});
+
+test('生成阶段的付费失败仍是终态，不让模型重试请求', async () => {
+  const f = fixture(async () => { throw Object.assign(new Error('插件超时'), { code: 'STCONTEXT_TIMEOUT', stage: 'response' }) })
+  const result = JSON.parse(await f.controller.tool.execute({}, f.exec))
+  assert.equal(result.status, 'failed')
+  assert.equal(result.failure.stage, 'response')
+  assert.equal(f.conclusions, 1)
+});
