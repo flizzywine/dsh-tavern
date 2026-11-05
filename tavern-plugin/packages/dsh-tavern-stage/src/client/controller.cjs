@@ -16,6 +16,9 @@ function candidateSceneMerge(scene, candidate, actors, contributed, line, speake
 function stageSceneActorRequest(actor, speaker, line) {
     return {instanceId:actor.instanceId,ref:actor.ref,outfitKey:actor===speaker ? line?.outfitKey || actor.outfitKey : actor.outfitKey,stateId:actor===speaker ? line?.emotion ?? actor.emotion : actor.emotion};
 }
+function stageSceneProgress(dialogue) {
+    return dialogue?.lines?.length ? {index:dialogue.index || 0,count:dialogue.lines.length} : null;
+}
 // Complete stage controller. Display/runtime collaborators come from this plugin activation.
 function createStageController({React:react,window,document,views:stageViews,navigation,services,legacy,options}) {
 const {useLiveView,storyTurn,useCoordination:useTavernCoordination,rpc,phoneCall:readPhoneCall,
@@ -181,6 +184,7 @@ function GalStage(props) {
     },[sessionId]);
     const candidateInteractive=Boolean(candidate && candidate.value.interactive !== false);
     const candidateDialogue=candidateInteractive ? candidate.value.dialogue : null;
+    const sceneProgress=stageSceneProgress(candidateDialogue);
     const candidateLine=Array.isArray(candidateDialogue?.lines) ? candidateDialogue.lines[candidateDialogue.index || 0] || null : null;
     const candidateSpeaker=(candidate?.value?.actors || []).find(actor=>candidateLine?.actorKey && String(actor.instanceId)===String(candidateLine.actorKey)) ||
         (candidate?.value?.actors || []).find(actor=>candidateLine?.speakerRef && actor.ref?.packId===candidateLine.speakerRef.packId && actor.ref?.figureId===candidateLine.speakerRef.figureId);
@@ -256,7 +260,6 @@ function GalStage(props) {
     if(sceneLineRevision.current.identity!==lineIdentity)sceneLineRevision.current={identity:lineIdentity,revision:sceneLineRevision.current.revision+1};
     const sceneLineKey=lineIdentity ? lineIdentity+':'+sceneLineRevision.current.revision : '';
     const sceneTyped=Boolean(sceneLineKey && sceneTypedKey===sceneLineKey);
-    React.useEffect(()=>{if(candidateLine)setTyped(false);},[candidateLine?.text,candidateLine?.actorKey,candidateDialogue?.index]);
     React.useLayoutEffect(function () { setTyped(false); }, [sessionId, turn, runtime.source?.generation]);
     const readingPage = transitioning ? { kind: "transition", para: pages[page]?.para || 1, text: playerInputs[turns[turnIndex + 1]] || "（这一轮没有可显示的玩家输入）" } : pages[page] || null;
     // the player's input page (「你 · 第 N 轮」) is paginated by the same pager into cards that fit the
@@ -724,8 +727,12 @@ function GalStage(props) {
     }
     function go(delta, fromSkip, pastPictures) {
         if(candidateInteractive){
-            if(candidateLine && delta>0 && !sceneTyped){setSceneTalking('');setSceneTypedKey(sceneLineKey);setTyped(true);return true;}
-            if(candidateLine && typeof candidate.onDialogueAdvance==='function'){candidate.onDialogueAdvance({gameId:sessionId,delta});return true;}
+            if(candidateLine && delta>0 && !sceneTyped){setSceneTalking('');setSceneTypedKey(sceneLineKey);return true;}
+            if(candidateLine && typeof candidate.onDialogueAdvance==='function'){
+                const index=candidateDialogue.index || 0;
+                if(index+delta<0 || index+delta>=candidateDialogue.lines.length)return false;
+                candidate.onDialogueAdvance({gameId:sessionId,delta});return true;
+            }
             return false;
         }
         forkLipSync.wake();
@@ -1242,7 +1249,7 @@ function GalStage(props) {
     // hud.timer.hide while a timer shows, in every mode, so the clock stands in one place across dialogue and debate.
     const timerHide = stageTimer.shown ? activeSkin?.resolvedArt?.timerHide || [] : [];
     const skinButtons = [...(activeSkin?.resolvedArt?.buttons || []).filter(button => !skinMode?.hide.includes(button.action) && !timerHide.includes(button.action)), ...(skinMode && !dialogueHeld && !narrow ? activeSkin?.resolvedArt?.modeButtons?.[skinMode.id] || [] : [])];
-    const backDisabled = turnIndex <= 0 && page === 0 && card === 0 && !transitioning;
+    const backDisabled = candidateLine ? (candidateDialogue.index || 0) <= 0 || typeof candidate.onDialogueAdvance !== 'function' : turnIndex <= 0 && page === 0 && card === 0 && !transitioning;
     // data-reduced-motion mirrors CONFIG 「减少动态」 for CSS-only theme motion (the crt power-on/blink).
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
         busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch, statusPanel: !!statusPanel }, menuActions);
@@ -1339,12 +1346,12 @@ function GalStage(props) {
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
                 (candidateLine || current) ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: candidateLine ? "candidate:" + (candidateDialogue.index || 0) + ":" + candidateLine.text : sessionId + ":" + turn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: (candidateLine ? sceneTyped : typed) || skipping, hold: handoff.holding || beatHeld, pending: !candidateLine && current?.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
                     visibleKey:sourceWidget.readingKey,onVisible:value=>!candidateLine && sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
-                    onReveal:ordinal=>{if(candidateLine)setSceneTalking(sceneLineKey);performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]});}, onDone: () => {if(candidateLine){setSceneTalking('');setSceneTypedKey(sceneLineKey);}setTyped(true);} }))
+                    onReveal:ordinal=>{if(candidateLine)setSceneTalking(sceneLineKey);performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]});}, onDone: () => {if(candidateLine){setSceneTalking('');setSceneTypedKey(sceneLineKey);}else setTyped(true);} }))
                     : h("span", { className: "stage-waiting" }, streaming ? "……" : "还没有正文"),
                 current && current.pending && !phoneLine ? h("span", { className: "fork-gal-typing", "aria-label": "正在生成" }, h("i"), h("i"), h("i")) : null,
                 // the next-page cue is laid out with the page from its first frame and only shown when
                 // typed, so its arrival cannot re-wrap the last line (theme.css "stage typewriter").
-                current && !current.pending ? h("span", { className: "fork-gal-next" + (activeSkin?.cursor ? " fork-skin-next" : "") + (typed && !atEnd ? "" : " is-waiting"), "aria-hidden": true }, activeSkin?.cursor ? h(StageSkinCursor,{cursor:cueCursor,active:typed&&!atEnd,snap:runtime.cursor.mode==='history'||skipping}) : null) : null),
+                (candidateLine || current && !current.pending) ? h("span", { className: "fork-gal-next" + (activeSkin?.cursor ? " fork-skin-next" : "") + ((candidateLine ? sceneTyped && typeof candidate.onDialogueAdvance==='function' && (candidateDialogue.index || 0)<candidateDialogue.lines.length-1 : typed && !atEnd) ? "" : " is-waiting"), "aria-hidden": true }, activeSkin?.cursor ? h(StageSkinCursor,{cursor:cueCursor,active:candidateLine ? sceneTyped && (candidateDialogue.index || 0)<candidateDialogue.lines.length-1 : typed&&!atEnd,snap:runtime.cursor.mode==='history'||skipping}) : null) : null),
             // while this reply's choices generate their wait sits here, under the page, in
             // the reply wait's look (StageWaitStop + StageWaitLines, portalled by gal-choices.js); empty, it takes no room.
             h("div", { ref: setChoiceWaitSlot, className: "fork-gal-box-wait" }),
@@ -1354,12 +1361,12 @@ function GalStage(props) {
             // film mode shows the page count briefly on each page turn
             // (the keyed node restarts its CSS fade); hover still shows it in full.
             h("div", { key: film ? "flash:" + pageKey : "meta", className: "fork-gal-meta" + (film ? " is-flash" : "") },
-                h("span", null, pages.length ? (page + 1) + " / " + pages.length + (streaming ? "+" : "") : "")),
+                h("span", null, candidateLine && sceneProgress ? (sceneProgress.index + 1) + " / " + sceneProgress.count : pages.length ? (page + 1) + " / " + pages.length + (streaming ? "+" : "") : "")),
             // phones show only stageViews.controls.ids(true); the rest is in the menu.
             menuFold ? null : h("div", { className: "fork-gal-controls", role: "toolbar", "aria-label": "舞台控制", "data-compact": narrow || undefined },
                 stageViews.controls.ids(narrow).filter(id => stageViews.controls.drawn(id, activeSkin)).map(id =>
-                    id === "auto" ? control("auto", auto ? "停止自动（A）" : "自动翻页（A）", () => { setSkipping(false); setAuto(!auto); }, auto) :
-                    id === "skip" ? control("skip", skipLatch ? "停止跳过" : "跳过（按住 Ctrl 快进）", toggleSkip, skipping, atEnd) :
+                    id === "auto" ? control("auto", auto ? "停止自动（A）" : "自动翻页（A）", () => { setSkipping(false); setAuto(!auto); }, auto, candidateInteractive) :
+                    id === "skip" ? control("skip", skipLatch ? "停止跳过" : "跳过（按住 Ctrl 快进）", toggleSkip, skipping, atEnd || candidateInteractive) :
                     id === "eye-off" ? control("eye-off", "隐藏文本框（H / 右键）", () => setHidden(true)) :
                     id === "chevron-left" ? control("chevron-left", "上一页（左箭头 / PageUp）", () => input(-1), undefined, backDisabled) :
                     id === "backlog" ? control("backlog", "履历（L）", openBacklog) :
@@ -1515,4 +1522,4 @@ function galNameParts(...args) { return stageViews.nameParts(...args); }
 
 return {Stage:GalStage,dispose(){if(closed)return;closed=true;clean([...cleanups].reverse().concat([...timers.values()], [...foregroundTimers].map(id=>()=>forkForeground.clearTimeout(id)),()=>{timers.clear();foregroundTimers.clear();}));}};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageController,candidateSceneMerge,stageSceneActorRequest};
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageController,candidateSceneMerge,stageSceneActorRequest,stageSceneProgress};

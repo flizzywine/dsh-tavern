@@ -2,7 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const require=createRequire(import.meta.url)
-const {candidateSceneMerge,stageSceneActorRequest}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs')
+const {candidateSceneMerge,stageSceneActorRequest,stageSceneProgress}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs')
+
+test('scene dialogue progress follows its own lines and clears on release',()=>{
+  assert.deepEqual(stageSceneProgress({lines:[{text:'battle'}],index:0}),{index:0,count:1})
+  assert.deepEqual(stageSceneProgress({lines:[{},{}],index:1}),{index:1,count:2})
+  assert.equal(stageSceneProgress(null),null)
+})
 
 test('two actors retain authored reactions while line emotion takes precedence for the speaker',()=>{
   const first={instanceId:'a',ref:{packId:'p',figureId:'a'},emotion:'calm'},second={instanceId:'b',ref:{packId:'p',figureId:'b'},emotion:'anxious'}
