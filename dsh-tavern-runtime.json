@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5a98973f68147c57f9656c32e322a1d249ef1fef",
-  "releaseSequence": 1228,
+  "revision": "365533bf01ff128bf90ec64cd1ce6bee1971f041",
+  "releaseSequence": 1229,
   "version": "3.2.0",
   "files": [
     {
@@ -476,8 +476,8 @@
     },
     {
       "path": "package.json",
-      "sha256": "2d9e0d7450dbcb2dfc4627e7a983120ebcc2ebc48fa00bac035227c638fd9376",
-      "size": 3306
+      "sha256": "e8ce86a8105a99270980cb21391f6a849164f37ce2c0f9397782f45453dd3865",
+      "size": 3417
     },
     {
       "path": "patches/dsh-better-sidebar@0.26.0.patch",
@@ -9711,9 +9711,9 @@
     }
   ],
   "archive": {
-    "commit": "4cf0c1bfe246aabe0942337185302d2f62c44517",
+    "commit": "90d6d3aa93c6f44b3fe35087ae2e9ed66a1cabbf",
     "path": "runtime.zip",
-    "sha256": "718bbf6aa202a49624b357adc1c60528fddf1bf132d0f204471bbc1712e8fb34",
-    "size": 16251017
+    "sha256": "5e15c4add98fdb46dbeec889e0c8af8969d5d89c62e2e3449d8879568d66cbbe",
+    "size": 16251051
   }
 }
