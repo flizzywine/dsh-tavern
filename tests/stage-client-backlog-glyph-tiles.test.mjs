@@ -48,7 +48,7 @@ const skinOf=document=>{
 }
 const PAGES=[['摩尔加纳','把这句话记下来。'],['A','短名。'],['摩尔加纳','再说一次。']].map(([alias,text],i)=>({kind:'line',alias,text,para:i+1,voice:{id:'v'+i,owner:'o'}}))
 
-async function open(browser,skin,viewport){
+async function open(browser,skin,viewport,pages=PAGES){
   const page=await browser.newPage({viewport}),errors=[]
   page.on('pageerror',e=>errors.push(e.message))
   await page.setContent('<!doctype html><meta charset="utf-8"><style>html,body{margin:0}</style><div class="fork-gal-stage" style="position:fixed;inset:0"></div>')
@@ -76,7 +76,7 @@ async function open(browser,skin,viewport){
       requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,50)));
     });
   `})
-  await page.evaluate(([skin,pages])=>mountBacklog(skin,pages),[skin,PAGES])
+  await page.evaluate(([skin,pages])=>mountBacklog(skin,pages),[skin,pages])
   return {page,errors}
 }
 const names=page=>page.evaluate(()=>[...document.querySelectorAll('.fork-gal-backlog-row.is-line')].map(row=>{
@@ -115,6 +115,32 @@ test('摩尔加纳 is four tiles with one stable accent, right-aligned on the te
   // re-render: the same accent index
   await page.evaluate(([skin,pages])=>mountBacklog(skin,pages),[skin,PAGES])
   assert.deepEqual((await names(page))[0].tiles,first.tiles)
+})
+
+test('a voice anchored to the row or the text column stays put under name.align end, for 萤 as for a long name',{timeout:90000},async t=>{
+  const browser=await chromium.launch({headless:true,args:['--mute-audio']});t.after(()=>browser.close())
+  const pages=[['萤','一个字的名字。'],['摩尔加纳·长长的代号','很长的名字。']].map(([alias,text],i)=>({kind:'line',alias,text,para:i+1,voice:{id:'v'+i,owner:'o'}}))
+  const place=page=>page.evaluate(()=>[...document.querySelectorAll('.fork-gal-backlog-row.is-line')].map(row=>{
+    const voice=row.querySelector('.fork-voice-button').getBoundingClientRect(),box=row.getBoundingClientRect(),text=row.querySelector('.fork-gal-backlog-text').getBoundingClientRect()
+    return {left:voice.left-box.left,top:voice.top-box.top,width:voice.width,textRight:text.right-box.left,inside:voice.right<=innerWidth && voice.width>0}
+  }))
+  for(const anchor of ['row','text']){
+    const at=[6,4],seen={}
+    for(const align of ['start','end']){
+      const doc=edit(b=>{b.voice={anchor,at,size:[40,40]};if(align==='start')delete b.name.align})
+      const {page,errors}=await open(browser,skinOf(doc),{width:1920,height:1080},pages)
+      assert.deepEqual(errors,[])
+      const rows=seen[align]=await place(page)
+      for(const row of rows){
+        assert.ok(row.inside,`${anchor}/${align}: the control is drawn on screen`)
+        assert.ok(Math.abs(row.width-40)<=1,`${anchor}/${align}: the skin's size`)
+        assert.ok(Math.abs(row.left-(anchor==='text' ? row.textRight+at[0] : at[0]))<=1,`${anchor}/${align}: left ${row.left} at its anchor + at`)
+      }
+      assert.ok(Math.abs(rows[0].left-rows[1].left)<=1 && Math.abs(rows[0].top-rows[1].top)<=1,`${anchor}/${align}: 萤 and a long name share the place`)
+      await page.close()
+    }
+    for(const i of [0,1])assert.ok(Math.abs(seen.start[i].left-seen.end[i].left)<=1 && Math.abs(seen.start[i].top-seen.end[i].top)<=1,`${anchor}: end-aligned names keep the start place`)
+  }
 })
 
 test('on a 390 px phone the tiles stay; a skin without the letter keeps the plain name',{timeout:90000},async t=>{
