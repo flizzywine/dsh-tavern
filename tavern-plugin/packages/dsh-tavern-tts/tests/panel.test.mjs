@@ -398,3 +398,22 @@ test('配音后端 page: section order, 浏览器朗读 first and fixed, no 朗�
     })
   } finally { f.dispose() }
 })
+test('plugin sections mount, update and unregister without changing backend services', async () => {
+  const f = fixture()
+  try {
+    await withDom(async root => {
+      const registry = f.services.get('ttsPanelSections')
+      const Panel = f.tabs.get('dsh-tts:voice').component
+      await act(async () => root.render(React.createElement(Panel)))
+      let off
+      await act(async () => { off = registry.register('fixture', ({ Confirm, Help }) => {
+        assert.equal(typeof Confirm, 'function'); assert.equal(typeof Help, 'function')
+        return React.createElement('div', { 'data-plugin-section': true }, 'Plugin section')
+      }) })
+      assert.equal(document.querySelector('[data-plugin-section]').textContent, 'Plugin section')
+      assert.throws(() => registry.register('fixture', () => null), /Duplicate/)
+      await act(async () => off())
+      assert.equal(document.querySelector('[data-plugin-section]'), null)
+    })
+  } finally { f.dispose() }
+})

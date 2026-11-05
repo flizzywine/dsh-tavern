@@ -473,6 +473,22 @@ exports.apply = function(ctx) {
       return intent
     } catch { return null }
   }
+  // Optional plugin-owned sections; the voice backend does not manage their services.
+  const panelSections = new Map(), panelListeners = new Set()
+  let panelSnapshot = []
+  const publishSections = () => { panelSnapshot = [...panelSections.values()]; for (const notify of panelListeners) notify() }
+  ctx.provide('ttsPanelSections', Object.freeze({
+    register(id, component) {
+      if (panelSections.has(id)) throw new Error('Duplicate TTS panel section: ' + id)
+      const entry = { id, component }
+      panelSections.set(id, entry); publishSections()
+      return () => { if (panelSections.get(id) === entry) { panelSections.delete(id); publishSections() } }
+    },
+  }))
+  function PluginSections() {
+    const sections = React.useSyncExternalStore(notify => { panelListeners.add(notify); return () => panelListeners.delete(notify) }, () => panelSnapshot)
+    return sections.map(({ id, component }) => h(component, { key: id, Confirm, Help }))
+  }
   function VoicePanel() {
     const current = React.useSyncExternalStore(fn => {stateListeners.add(fn);return () => stateListeners.delete(fn)},() => enabled)
     const [message,setMessage] = React.useState(''), services = useServiceData()
@@ -505,7 +521,7 @@ exports.apply = function(ctx) {
         }}))),
       h(Status,{label:'配音状态'},message),
       // 语音服务 → 发音字典 → 合成缓存. Who speaks with which voice is chosen in 舞台设置 › 配音 (tts.reading through setReading).
-      h(ServicesSection,{data:services}),h(ReadingsSection),h(CacheSection))
+      h(ServicesSection,{data:services}),h(PluginSections),h(ReadingsSection),h(CacheSection))
   }
   const icon = size => h('svg',{width:size || 16,height:size || 16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},
     h('path',{d:'M2.5 6.5v3M5.25 4.5v7M8 2.5v11M10.75 5v6M13.5 6.5v3',stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round'}))
