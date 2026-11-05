@@ -15810,16 +15810,15 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
         function createStageTextIndexModule({pageCards,character}) {
 
 // Host paragraphs are the only text input. The client only lays out reading cards.
-// fullReading (全文朗读, config.voice.fullReading): every bubble, thought and narration page reads in 通用声音 (generalVoice).
 function createStageTextIndex({paginate, storyTurn, superseded, projectionForTurn}) {
-    let snapshot = new Map(), bodies = new Map(), activeBranch, activeHistory, general = false, revision = 0;
+    let snapshot = new Map(), bodies = new Map(), activeBranch, activeHistory, revision = 0;
     function rowFor(turn, nativeTurn, body, old, unloaded) {
-        if (old && old.body === body && old.nativeTurn === nativeTurn && old.unloaded === unloaded && old.general === general) return old;
+        if (old && old.body === body && old.nativeTurn === nativeTurn && old.unloaded === unloaded) return old;
         const units = [], pages = [];
         for (const paragraph of body?.paragraphs || []) {
-            const unit = {...paragraph, voiceLine:[nativeTurn,paragraph.para - 1], ...(general ? {generalVoice:true} : {})};
+            const unit = {...paragraph, voiceLine:[nativeTurn,paragraph.para - 1]};
             units.push(unit);
-            const before = old?.general === general && old.units[units.length - 1];
+            const before = old?.units[units.length - 1];
             const same = before && JSON.stringify(paragraph) === JSON.stringify(old.body.paragraphs[units.length - 1]);
             unit.cards = same ? before.cards : pageCards(unit,paginate).map(({text,offset},n,all) => ({
                 kind:unit.kind,text,alias:unit.alias,name:unit.name,mood:unit.mood,thought:unit.thought,
@@ -15829,12 +15828,11 @@ function createStageTextIndex({paginate, storyTurn, superseded, projectionForTur
         }
         const parts = [{scope:JSON.stringify([activeBranch,turn]),turn,nativeTurn,index:0,order:0,projected:true,streaming:!!body?.streaming,
             units,segments:units.map(unit => unit.segment),localPages:pages}];
-        return {turn,nativeTurn,body,unloaded,general,parts,units,text:{revision:++revision,streaming:!!body?.streaming,pages,
+        return {turn,nativeTurn,body,unloaded,parts,units,text:{revision:++revision,streaming:!!body?.streaming,pages,
             hasReadableText:pages.some(page => page.text.length > 0),
             units:units.map(unit => ({...unit.source,para:unit.para,paragraphId:unit.paragraphId}))}};
     }
-    function reconcile({chat,view,branchId,fullReading}) {
-        general = fullReading === true;
+    function reconcile({chat,view,branchId}) {
         const history = JSON.stringify(view?.regeneratedDshTurns || null);
         if (activeBranch !== branchId || activeHistory !== history) {
             bodies.clear(); snapshot = new Map(); activeBranch = branchId; activeHistory = history;
@@ -15876,11 +15874,8 @@ function createStageTextIndex({paginate, storyTurn, superseded, projectionForTur
 
 // 旁白配音: every host narration unit (not a bubble, so never a thought) reads card by card - the text the
 // reader sees on that page, Markdown already stripped by the host. Whether it speaks is the handle's (config.narrator).
-// 全文朗读 (generalVoice): bubbles and thoughts read the same way, their shown text with no speaker, so the narrator's page
-// queue, cache and look-ahead read the whole reply in 通用声音 and no character voice is opened.
 function stageVoiceDescriptor(unit, settings, card) {
-    if (unit.generalVoice && unit.kind === 'line') card ||= {text:unit.text, offset:0};
-    if (unit.kind === 'narration' || unit.generalVoice && unit.kind === 'line') return card && !unit.pending && /[\p{L}\p{N}]/u.test(card.text)
+    if (unit.kind === 'narration') return card && !unit.pending && /[\p{L}\p{N}]/u.test(card.text)
         ? {narration:true, paragraphId:unit.paragraphId, lineIdentity:[...unit.voiceLine, card.offset], text:card.text} : null;
     if (unit.kind !== 'line' || unit.pending || !unit.segment) return null;
     const segment = unit.segment;
@@ -16807,15 +16802,13 @@ function createStageSessionOwner(options) {
                     if (record.context !== null && record.context !== context) {record.branch++; record.widgetHistory=null; record.widgetUi.refs.clear(); record.sources.clear(); record.prefetches.clear(); options.invalidateHistory?.(id);}
                     record.context = context;
                     let branchId = JSON.stringify([view?.chatId || id, record.branch]);
-                    // 全文朗读: every page of the reply reads in 通用声音 (text-index.cjs).
-                    const fullReading = settings?.config?.voice?.fullReading === true;
-                    let turns = record.index.reconcile({chat, view, branchId, fullReading});
+                    let turns = record.index.reconcile({chat, view, branchId});
                     const ordered = [...turns.keys()].sort((a, b) => a - b);
                     const latestNativeTurn = turns.get(ordered.at(-1))?.nativeTurn || 0;
                     if (latestNativeTurn < record.lastNativeTurn && (ordered.at(-1) || 0) < (record.lastTurns.at(-1) || 0)) {
                         record.branch++; record.sources.clear();
                         branchId = JSON.stringify([view?.chatId || id, record.branch]);
-                        turns = record.index.reconcile({chat, view, branchId, fullReading});
+                        turns = record.index.reconcile({chat, view, branchId});
                     }
                     const settingsKey = JSON.stringify(settings), prefsKey = JSON.stringify(prefs);
                     const inputs = {textIndex: turns};
@@ -28981,7 +28974,7 @@ const VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语']];
 // switch). 对话气泡 / 舞台模式 are two rows whose card layer is the card's own declaration (stage.enabled, or the
 // dialogue / stage pair for bubbles only; read through cardStageMode). Each resolves with the mods' own rule (modSwitchOn;
 // the host: card-stage-settings.js effectiveCardStage).
-const STAGE_SWITCH_DEFAULTS={dialogue:false,voice:true,fullReading:false,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true};
+const STAGE_SWITCH_DEFAULTS={dialogue:false,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true};
 const STAGE_DECLARED=['dialogue','stage'];
 // The card layer of 对话气泡 / 舞台模式 (the host: cardStageChoice); a card that declares nothing follows the global switch.
 function stageDeclared(stored,key) {
@@ -28998,8 +28991,7 @@ function stagePrefs(ext,engine) {
   return {widgets:false,...(ext?.stage||{}),...Object.fromEntries(Object.keys(global).map(key=>[key,modSwitchOn(global[key],card[key])]))};
 }
 // What actually runs: every switch needs its upstream switches in effect.
-// 全文朗读 in effect turns 角色配音 off (the host: effectiveCardStage).
-function stageActive(prefs) { const dialogue=prefs.dialogue!==false; return {dialogue,voice:dialogue&&!!prefs.voice&&!prefs.fullReading,stage:dialogue&&!!prefs.stage}; }
+function stageActive(prefs) { const dialogue=prefs.dialogue!==false; return {dialogue,voice:dialogue&&!!prefs.voice,stage:dialogue&&!!prefs.stage}; }
 // The declaration is one choice for both rows: 本卡开启 / 本卡关闭 on either row writes stage.enabled (舞台模式 本卡开启 also
 // needs 对话气泡), a 全局 choice on either clears it. Only 对话气泡 on with 舞台模式 off writes the dialogue / stage pair
 // (bubbles without the stage).
@@ -29325,17 +29317,15 @@ function stageVoiceWarning(ctx,confirmed) {
   if(ctx.ttsState==='empty')return '没有可用的语音服务';
   return confirmed.join('；');
 }
-// 「配音 ›」 — no switch: a read-only summary of how this card is voiced (cardVoiceMode) and the quiet 「›」; the whole row
-// opens the 配音 page (StageVoicePage), and coming back focuses the 「›」. A current problem is a ⚠ beside the name (text in
-// its tooltip), no pill.
+// The voice switch and its details use the same row contract as the stage's sound settings.
 function StageVoiceRow({ctx}) {
   const jump=React.useRef(null),warning=stageVoiceWarning(ctx,useStageConfirmedVoiceWarnings(ctx));
   React.useEffect(()=>{if(ctx.takeVoiceFocus?.())jump.current?.focus?.();},[]);
-  const mode=VOICE_MODE_NAMES[cardVoiceMode(ctx.prefs,narratorLayers(ctx.ext,ctx.writer.reading).effective.enabled)];
+  const blocked=!ctx.active.dialogue;
   const mark=warning&&h('span',{className:'ap-hint-mark ap-switch-warn',role:'img','aria-label':warning,title:warning},h(Glyph,{name:'warning'}));
-  return h(SwitchRow,{label:'配音',icon:'voice',status:mark||null,onOpen:pressRowJump,
-    tag:h('span',{className:'ap-voice-summary'},h('span',{className:'ap-voice-summary-text'},mode),
-      h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'配音设置（'+mode+'）',title:'配音设置',onClick:()=>ctx.onVoice()},h(Glyph,{name:'chevRight'})))});
+  return h(SwitchRow,{label:'配音',icon:'voice',disabled:blocked,help:blocked?VOICE_HELP.needBubble:undefined,onOpen:pressRowJump,
+    tag:stageSwitchTag(ctx,'voice','配音',blocked),status:h(React.Fragment,null,mark||null,
+      h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'配音设置',title:'配音设置',disabled:blocked,onClick:()=>ctx.onVoice()},h(Glyph,{name:'chevRight'})))});
 }
 const stageNeedText=(key,active)=>'需要'+stageMissing(key,active).filter(k=>k!==key).map(k=>STAGE_NAMES[k]).join('和');
 
@@ -29395,17 +29385,6 @@ function narratorLayers(ext,reading) {
   const global={...NARRATOR_DEFAULT,...reading?.narrator},card=ext?.stage?.narrator||{};
   return {global,card,effective:{enabled:modSwitchOn(global.enabled===true,narratorCardSwitch(card)),voice:card.voice!==undefined?card.voice:global.voice}};
 }
-const narratorVoiceKey=voice=>!voice?'':voice.browser?'browser:'+voice.browser:voice.serviceId?'service:'+JSON.stringify([voice.serviceId,voice.voice])
-  :voice.templateId?'template:'+voice.templateId:voice.voiceId?'pack:'+JSON.stringify([voice.packId,voice.voiceId]):'figure:'+JSON.stringify([voice.packId,voice.figureId]);
-function narratorVoiceFromKey(key) {
-  if(!key)return null;
-  if(key.startsWith('template:'))return {templateId:key.slice(9)};
-  if(key.startsWith('pack:')){const [packId,voiceId]=JSON.parse(key.slice(5));return {packId,voiceId};}
-  if(key.startsWith('browser:'))return {browser:key.slice(8)};
-  if(key.startsWith('service:')){const [serviceId,voice]=JSON.parse(key.slice(8));return {serviceId,voice};}
-  const [packId,figureId]=JSON.parse(key.slice(7));
-  return {packId,figureId};
-}
 // A card layer patch: `undefined` removes a key; an empty layer removes stage.narrator.
 function narratorCardPatch(ext,changes) {
   const next={...(ext?.stage?.narrator||{}),...changes};
@@ -29416,9 +29395,9 @@ function narratorCardPatch(ext,changes) {
 // system voices. The shown service voice (set on the 配音 page) is listed as it is.
 function narratorVoiceOptions(rows,browserVoices,{figures,shown}) {
   const people=figures?rows.filter(row=>row.figure&&row.figure.voice&&row.figure.voice.source!==null&&row.pack?.manifest.voiceLibrary?.voices[row.figure.voice.voice])
-    .map(row=>({value:narratorVoiceKey(row.ref),label:row.figure.name,group:'人物'})):[];
-  const service=shown?.serviceId?[{value:narratorVoiceKey(shown),label:shown.voice,group:'语音服务'}]:[];
-  return [{value:'',label:'未选择'},...people,...service,...(browserVoices||[]).map(voice=>({value:narratorVoiceKey({browser:voice.id}),label:voice.label,group:'浏览器朗读'}))];
+    .map(row=>({value:core.voiceKey(row.ref),label:row.figure.name,group:'人物'})):[];
+  const service=shown?.serviceId?[{value:core.voiceKey(shown),label:shown.voice,group:'语音服务'}]:[];
+  return [{value:'',label:'未选择'},...people,...service,...(browserVoices||[]).map(voice=>({value:core.voiceKey({browser:voice.id}),label:voice.label,group:'浏览器朗读'}))];
 }
 
 function narratorWrite(ctx,scope,changes) {
@@ -29426,123 +29405,39 @@ function narratorWrite(ctx,scope,changes) {
   const reset=Object.fromEntries(Object.entries(changes).map(([key,value])=>[key,value===undefined?NARRATOR_DEFAULT[key]:value]));
   return ctx.writer.setReading({narrator:reset});
 }
-// 配音 — 舞台设置 › 基础设置 「配音 ›」 and its page: 方式 (分角色 / 全文朗读), the rows of the chosen mode and 通用声音.
-// 方式 is no setting of its own: it shows and writes the card layer of three four-state switches (stage.switches.voice /
-// fullReading, stage.narrator.enabled); the host decides what runs (card-stage-settings.js effectiveCardStage: 全文朗读 in
-// effect turns 角色配音 and 旁白配音 off). Every explanation is a 「?」 tip.
-const VOICE_MODE_NAMES={split:'分角色',full:'全文朗读',off:'关'};
 const VOICE_HELP={
-  page:'这张卡怎么配音。开关和其他舞台功能一样分全局 / 本卡；通用声音所有卡通用。',
-  general:'没配声音的角色（包括临时 NPC）和全文朗读都用它。所有卡通用。',
-  role:'素材库里配了声音的角色用自己的声音，其余角色（包括临时 NPC）用通用声音。在对话气泡里播放。',
-  narr:'用这里选的声音读气泡外的叙述。在对话气泡里播放。',
-  full:'用通用声音从头读完整段正文，不分角色。',
-  needBubble:'角色配音和旁白配音在对话气泡里播放，要先打开对话气泡。',
-  mode:'分角色：角色配音、旁白配音分开开关。全文朗读：用通用声音读整段正文。两种只能用一种；这里一选，下面的开关跟着改成本卡的值。'};
-// The 「配音 ›」 summary: 全文朗读 when in effect, else 分角色 while bubbles speak (角色配音 or 旁白配音 on), else 关.
-function cardVoiceMode(prefs,narratorOn) {
-  if(prefs.fullReading)return 'full';
-  return prefs.dialogue!==false&&(prefs.voice||narratorOn)?'split':'off';
-}
-// The card patch of a 方式 choice ({switches, narrator}; `undefined` removes the key). 全文朗读: 全文朗读 本卡开启, 角色 / 旁白
-// 本卡关闭. 分角色: back to the global switches when the global mode already is 分角色, else 角色配音 本卡开启 + 全文朗读 本卡关闭
-// (旁白 untouched).
-function voiceModePatch(mode,globals) {
-  if(mode==='full')return {switches:{fullReading:'on',voice:'off'},narrator:{enabled:false}};
-  if(!globals.fullReading)return {switches:{voice:undefined,fullReading:undefined},narrator:{enabled:undefined}};
-  return {switches:{voice:'on',fullReading:'off'},narrator:{}};
-}
-const VOICE_MODE_RESET=Object.freeze({switches:{voice:undefined,fullReading:undefined},narrator:{enabled:undefined}});
-// One card write for a voiceModePatch.
-function voiceModeWrite(ext,patch) {
-  const switched=stageSwitchPatch(ext,patch.switches);
-  return Object.keys(patch.narrator).length?narratorCardPatch(switched,patch.narrator):switched;
-}
-// 通用声音 (tts.reading.dialogueVoice, global): the browser's system voices and the voices of every service in the TTS voice
-// services catalog, listed the way the catalog says (voiceList) and read when the menu first opens; a service that needs its
-// key or cannot list adds no group. Keys share narratorVoiceKey.
-function generalServiceVoices(tts,s) {
-  if(s.voiceList==='preset')return tts.call('listOnlinePresetVoices',{provider:s.kind,serviceId:s.id});
-  if(s.voiceList==='fish-recommended')return tts.call('listRecommendedFishVoices',{serviceId:s.id});
-  return tts.call('providerVoices',{serviceId:s.id});
-}
-async function generalVoiceOptions(binding) {
-  const browser=typeof window!=='undefined'&&window.speechSynthesis?await browserSpeechVoiceList(window.speechSynthesis):[];
-  const services=binding.tts?(await binding.tts.call('voiceServices')).services.filter(s=>s.kind!=='browser'&&s.state!=='needs-key'):[];
-  const groups=await Promise.all(services.map(s=>generalServiceVoices(binding.tts,s).then(r=>({s,voices:r?.status==='error'?[]:r?.voices||[]}),()=>({s,voices:[]}))));
-  const catalogue=await binding.service.listVoiceCatalogue();
-  const seen=new Set();
-  return [...catalogue.voices.map(v=>({value:narratorVoiceKey(v.ref),label:v.name,group:v.packName||'我的模板'})),...browser.map(v=>({value:narratorVoiceKey({browser:v.id}),label:v.label||v.id,group:'浏览器朗读'})),
-    ...groups.flatMap(({s,voices})=>voices.map(v=>({value:narratorVoiceKey({serviceId:s.id,voice:v.voiceId||v.id}),label:v.name||v.label||v.voiceId||v.id,group:s.label})))]
-    .filter(o=>!seen.has(o.value)&&seen.add(o.value));
-}
-const GENERAL_DEFAULT='浏览器 · 系统默认';
+  page:'配音开关分全局与本卡；通用声音所有卡通用。',
+  general:'没有单独指定声音的角色统一用这个声音',
+  narr:'读气泡外的叙述；没有单独指定声音时使用通用声音。',
+  needBubble:'角色配音和旁白配音在对话气泡里播放，要先打开对话气泡。'};
+// 通用声音 (tts.reading.dialogueVoice, global).
 function GeneralVoiceField({ctx}) {
-  const [wanted,setWanted]=React.useState(false),[query,setQuery]=React.useState('');
-  const list=useVoiceLoad(()=>wanted?generalVoiceOptions(ctx.binding):null,[ctx.binding,wanted]);
-  const voice=ctx.writer.reading?.dialogueVoice||null,value=narratorVoiceKey(voice),options=list.value||[];
-  const found=options.find(o=>o.value===value);
-  const shown=!voice?GENERAL_DEFAULT:found?found.group+' · '+found.label:voice.browser?'浏览器 · '+voice.browser:voice.voice||voice.voiceId||voice.templateId;
-  const needle=voiceNeedle(query.trim()),filtered=options.filter(o=>voiceMatches(needle,[o.label,o.group]));
-  const pick=(close,key)=>{close();setQuery('');if(key!==value)ctx.writer.setReading({dialogueVoice:narratorVoiceFromKey(key)});};
-  const item=(close,o)=>h('button',{key:o.value||'default',type:'button',role:'menuitemradio','aria-checked':o.value===value,className:'ap-menu-item',onClick:()=>pick(close,o.value)},
-    h('span',null,o.label),o.value===value&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'})));
-  const content=close=>[
-    h(PackSearchBox,{key:'search',label:'搜索声音',placeholder:'搜索声音',value:query,onChange:setQuery,className:'is-compact'}),
-    !needle&&item(close,{value:'',label:GENERAL_DEFAULT}),
-    ...filtered.flatMap((o,i)=>[o.group&&(i===0||filtered[i-1].group!==o.group)?h('div',{key:'g:'+o.group,role:'presentation',className:'fork-inline-group'},o.group):null,item(close,o)]),
-    !list.value?h(Spinner,{key:'loading'}):needle&&!filtered.length?h(EmptyState,{key:'empty',compact:true,text:'没有找到「'+query.trim()+'」'}):null];
-  return h(InlineRow,{label:'声音'},
-    h(Popover,{label:'通用声音',className:'ap-general-voice',fit:true,limit:360,content,
-      trigger:({open,toggle})=>h('button',{type:'button',className:'fork-inline-trigger','aria-haspopup':'menu','aria-expanded':open,'aria-label':'通用声音：'+shown,
-        onClick:()=>{setWanted(true);toggle();}},h('span',{className:'fork-inline-text'},shown),h(Glyph,{name:'chevDown'}))}));
+  const voice=ctx.writer.reading?.dialogueVoice;
+  return h(InlineRow,{label:'声音'},h(core.VoiceCataloguePicker,{binding:ctx.binding,value:voice?.silent?'silent':core.voiceKey(voice),
+    label:'通用声音',leading:[{value:'',label:'浏览器 · 系统默认'},{value:'silent',label:'不配音'}],
+    onPick:key=>ctx.writer.setReading({dialogueVoice:key==='silent'?{silent:true}:core.voiceFromKey(key)})}));
 }
-// 旁白配音's 声音: the card layer (OverrideDot / ⟲) shows the effective voice; 全局 edits the global narrator voice in the same field.
 function NarratorVoiceField({ctx,disabled}) {
-  const [scope,setScope]=React.useState(()=>ctx.ext?.stage?.narrator?.voice!==undefined||!ctx.writer.reading?'card':'global');
-  const catalogue=useVoiceLoad(()=>generalVoiceOptions(ctx.binding),[ctx.binding]);
-  const {global,card,effective}=narratorLayers(ctx.ext,ctx.writer.reading);
-  const shown=scope==='card'?effective.voice:global.voice;
-  const own=scope==='card'?card.voice!==undefined:global.voice!==null;
-  const existing=narratorVoiceOptions(stageFigureRows(ctx),[],{figures:scope==='card',shown});
-  const options=[...existing,...(catalogue.value||[]).filter(o=>!existing.some(e=>e.value===o.value))];
-  const value=narratorVoiceKey(shown),missing=value&&!options.some(option=>option.value===value);
+  const {global,card,effective}=narratorLayers(ctx.ext,ctx.writer.reading),own=card.voice!==undefined;
+  const scope=own?'card':'global',shown=own?card.voice:global.voice;
   return h(InlineGrid,{columns:1,label:'旁白声音'},
-    h(InlineField,{kind:'menu',label:'声音',controlLabel:'旁白声音',disabled,help:own?h(OverrideDot,{layer:scope}):null,value:missing?'':value,options,placeholder:'未选择',
-      onCommit:key=>key!==value&&narratorWrite(ctx,scope,{voice:narratorVoiceFromKey(key)}),
-      trail:[missing?h(HintLine,{key:'missing',compact:true,text:'所选声音不可用，请重新选择'}):null,
-        own?h(ResetButton,{key:'reset',label:scope==='card'?'恢复为全局':'恢复默认',disabled,onClick:()=>narratorWrite(ctx,scope,{voice:undefined})}):null,
-        ctx.writer.reading?h(ScopeSwitch,{key:'scope',className:'is-compact',value:scope,onChange:setScope,cardName:ctx.cardName||'本卡',disabled}):null]}));
+    h(InlineRow,{label:'本卡单独指定'},h(Switch,{label:'本卡单独指定',checked:own,disabled,
+      onChange:checked=>narratorWrite(ctx,'card',{voice:checked?(effective.voice??null):undefined})})),
+    h(InlineRow,{label:'旁白声音'},h(core.VoiceCataloguePicker,{binding:ctx.binding,value:core.voiceKey(shown),label:'旁白声音',
+      leading:[{value:'',label:'同通用声音'}],onPick:key=>narratorWrite(ctx,scope,{voice:core.voiceFromKey(key)})})));
 }
 function StageVoicePage({ctx,onBack}) {
   const root=React.useRef(null);
   React.useEffect(()=>{root.current?.querySelector('button')?.focus();},[]);
-  const {global,card}=stageSwitchLayers(ctx.ext,ctx.engine),narrator=narratorLayers(ctx.ext,ctx.writer.reading);
-  const mode=ctx.prefs.fullReading?'full':'split',bubble=ctx.active.dialogue;
-  const own=card.voice!==undefined||card.fullReading!==undefined||narrator.card.enabled!==undefined;
-  const write=patch=>ctx.writer.write(ext=>voiceModeWrite(ext,patch));
-  const tip=text=>bubble?text:VOICE_HELP.needBubble;
-  const narratorTag=h(StageSwitchTag,{name:'旁白配音',global:narrator.global.enabled===true,card:narratorCardSwitch(narrator.card),disabled:!bubble,
+  const narrator=narratorLayers(ctx.ext,ctx.writer.reading),bubble=ctx.active.dialogue;
+  const narratorTag=h(StageSwitchTag,{name:'旁白',global:narrator.global.enabled===true,card:narratorCardSwitch(narrator.card),disabled:!bubble,
     writeCard:value=>narratorWrite(ctx,'card',{enabled:value===undefined?undefined:value==='on'}),writeGlobal:value=>narratorWrite(ctx,'global',{enabled:value})});
-  const rows=mode==='full'?h(SwitchRow,{label:'全文朗读',icon:'note',help:VOICE_HELP.full,tag:stageSwitchTag(ctx,'fullReading','全文朗读',false)}):
-    h(React.Fragment,null,
-      !bubble&&h('div',{className:'ap-voice-need'},h(Button,{className:'ap-hint-chip',onClick:()=>ctx.writer.write(ext=>stageSwitchPatch(ext,{dialogue:'on'}))},'开启对话气泡')),
-      h('div',{className:'ap-voice-rows',role:'group','aria-label':'分角色','aria-disabled':!bubble||undefined},
-        h(SwitchRow,{label:'角色配音',icon:'voice',disabled:!bubble,help:tip(VOICE_HELP.role),tag:stageSwitchTag(ctx,'voice','角色配音',!bubble)}),
-        h(SwitchRow,{label:'旁白配音',icon:'note',disabled:!bubble,help:tip(VOICE_HELP.narr),tag:narratorTag}),
-        h(NarratorVoiceField,{ctx,disabled:!bubble})));
   return h('article',{ref:root,className:'ap-mod-detail ap-voice-page',onKeyDown:subpageKeys(onBack)},
     h(SubpageHead,{parent:'舞台设置',title:'配音',help:h(Help,{text:VOICE_HELP.page,label:'配音 说明'}),onBack}),
-    // 通用声音 first (所有卡通用), then this card's 配音方式 with the rows of the chosen mode.
     h(StageSection,{title:'通用声音',foldKey:'voice/general',help:VOICE_HELP.general},
       h(InlineGrid,{columns:1,label:'通用声音'},h(GeneralVoiceField,{ctx}))),
-    h(StageSection,{title:'配音方式',foldKey:'voice/mode'},
-    h(InlineGrid,{columns:1,label:'配音方式'},
-      h(InlineField,{kind:'menu',label:'方式',help:h(Help,{text:VOICE_HELP.mode,label:'方式 说明'}),value:mode,
-        options:[{value:'split',label:'分角色',note:'角色配音 · 旁白配音'},{value:'full',label:'全文朗读',note:'用通用声音读整段'}],
-        onCommit:next=>write(voiceModePatch(next,{fullReading:global.fullReading===true})),
-        trail:own?h(ResetButton,{label:'恢复为全局',onClick:()=>write(VOICE_MODE_RESET)}):null})),
-    rows));
+    h(SwitchRow,{label:'旁白',icon:'note',disabled:!bubble,help:bubble?VOICE_HELP.narr:VOICE_HELP.needBubble,tag:narratorTag}),
+    narrator.effective.enabled&&h(NarratorVoiceField,{ctx,disabled:!bubble}));
 }
 // 「入场演出 ›」 - the four-state switch of the stage's opening
 // performance (engine stageToggles.entrance, default on, with this card's stage.switches.entrance), placed like 演出组合; a card differs only by its packs' 入场演出

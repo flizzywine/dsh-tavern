@@ -12,7 +12,7 @@ const mode = (extension, engine) => { const value = effectiveCardStage(extension
 test('对话气泡 and 舞台模式 default off globally: an ordinary card has no stage, a declaring card does; stage cores stay on', () => {
   const ext = cardExtension()
   const engine = defaultAssetEngineSettings()
-  assert.deepEqual(engine.stageToggles, {dialogue:false,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true,fullReading:false})
+  assert.deepEqual(engine.stageToggles, {dialogue:false,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true})
   assert.deepEqual(mode(ext, engine), [false, false])
   assert.equal(effectiveCardStage({...ext, stage:{dialogue:true}}, engine).stage, false, 'bubbles alone never enable stage')
   const declared = {...ext, stage:{dialogue:true, stage:true}}
@@ -65,7 +65,7 @@ test('使用舞台 is four-state: the card declaration is its card layer, 本卡
 })
 
 test('the other switches take a card layer in stage.switches, resolved like a mod switch', () => {
-  assert.deepEqual(CARD_STAGE_SWITCHES, ['voice','music','sfx','ambience','items','performance','entrance','fullReading','autoChoices'])
+  assert.deepEqual(CARD_STAGE_SWITCHES, ['voice','music','sfx','ambience','items','performance','entrance','autoChoices'])
   const ext = cardExtension(), engine = defaultAssetEngineSettings(), with_ = switches => ({...ext, stage:{switches}})
   for (const globalOn of [false, true]) for (const choice of [undefined, 'on', 'off']) {
     const value = {...engine, stageToggles:{...engine.stageToggles, music:globalOn}}
@@ -94,4 +94,17 @@ test('the other switches take a card layer in stage.switches, resolved like a mo
 test('the card layer is the player\'s: it never leaves or arrives with a card', () => {
   const raw = {spec:'chara_card_v3', data:{extensions:{dsh_tavern:{...cardExtension(), stage:{enabled:true, switches:{music:'off'}, skinChoice:'crt'}}}}}
   assert.deepEqual(withoutPlayerChoices(raw).data.extensions.dsh_tavern.stage, {enabled:true})
+})
+
+test('retired reading switches are dropped before strict validation', () => {
+  const engine = defaultAssetEngineSettings()
+  engine.stageToggles.fullReading = true
+  assert.equal(Object.hasOwn(validateAssetEngineSettings(engine).stageToggles, 'fullReading'), false)
+  assert.deepEqual(validateCardStage({switches:{fullReading:'on',music:'off'}}).switches, {music:'off'})
+  assert.throws(() => validateCardStage({narrator:{voice:{silent:true}}}))
+})
+
+for (const voice of [{browser:'Kyoko'}, {serviceId:'mm',voice:'female-shaonv'}]) test('narrator falls back to general voice: ' + JSON.stringify(voice), () => {
+  assert.deepEqual(effectiveNarrator({stage:{narrator:{enabled:true}}}, {enabled:false,voice:null}, voice), {enabled:true,voice})
+  assert.deepEqual(effectiveNarrator({stage:{narrator:{voice:null}}}, {enabled:true,voice}, {browser:'other'}), {enabled:true,voice})
 })

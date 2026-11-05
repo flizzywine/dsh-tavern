@@ -60,3 +60,9 @@ test('pack voices and template references persist in both reading selections', a
   for (const voice of [{packId:'bad',voiceId:'v'}, {templateId:'bad'}, {templateId:'33333333-3333-4333-8333-333333333333',voice:'v'}])
     await assert.rejects(control.call('setReading',{dialogueVoice:voice}),{code:'INVALID_READING_VOICE'})
 })
+test('only the general voice accepts an explicit silent binding', async () => {
+  const {patchReading} = await import('../src/settings.js')
+  assert.deepEqual(patchReading({}, {dialogueVoice:{silent:true}}).dialogueVoice, {silent:true})
+  assert.throws(() => patchReading({}, {narrator:{voice:{silent:true}}}), {code:'INVALID_READING_VOICE'})
+  assert.throws(() => patchReading({}, {dialogueVoice:{silent:false}}), {code:'INVALID_READING_VOICE'})
+})
