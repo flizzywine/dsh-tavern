@@ -195,6 +195,8 @@ test('stage interaction uses an existing composer action, deduplicates, and disp
 test('candidate scene lease follows card scope and stage lifetime', () => {
   const f = fixture(), reasons = []
   assert.equal(f.plugin.getCapabilities().stageScene, 1)
+  assert.equal(f.plugin.getCapabilities().stageSceneBackground,1)
+  assert.equal(f.plugin.getCapabilities().stageScenePresentation,1)
   assert.equal(f.plugin.openStageScene({gameId:'denied',renderHud(){}}).reason, 'denied')
   let active, updated
   const unbind=f.ui.bindStageScene('game',{
@@ -209,6 +211,7 @@ test('candidate scene lease follows card scope and stage lifetime', () => {
   assert.equal(updated.actors[0].instanceId,'one')
   lease.update({actors:[{instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.5,size:0.1}]})
   assert.throws(()=>lease.update({actors:[{instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.5,size:0.09}]}),/Invalid stage scene actors/)
+  assert.throws(()=>lease.update({actors:[],backgroundRef:{packId:'p',kind:'figures',assetId:'f'}}),/Invalid stage scene background/)
   assert.throws(() => lease.update({actors:[
     {instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.3},
     {instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.7}

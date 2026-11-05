@@ -58,7 +58,7 @@ const {urls:layeredSpriteUrls}=services.layered || {};
 const {paint:stagePaintEmpty,palette:stageEmptyPalette}=services.canvas || {};
 const {Image,MessageChannel,MutationObserver,ResizeObserver,performance}=window;
 const getComputedStyle=(...args)=>window.getComputedStyle(...args),setTimeout=(...args)=>window.setTimeout(...args);
-const galFigureSources=new WeakMap(),instances=new Set();let disposed=false;
+const galFigureSources=new WeakMap(),galPresentationSources=new WeakMap(),instances=new Set();let disposed=false;
 // Register before creating scenes. A scene snapshots factories and owns their instances.
 // factory(scene) returns load, tick, head, hit, react, release, set, reload and dispose.
 // Model renderers own placement; sprite renderers return spriteBased:true for shared placement.
@@ -1211,6 +1211,22 @@ function galCreateScene(host, options, own) {
             return {...rect,worldBody:{...row.body,y:row.body.y+shift},worldHead:{x:head.x-head.width/2,y:head.top+shift,width:head.width,height:head.chin-head.top}};
         });
     }
+    function presentation() {
+        const backgroundsShown=[];
+        for(const layer of backgrounds.layers){
+            if(!layer.url || !(layer.sprite.alpha>0))continue;
+            let ref=null;try{ref=JSON.parse(layer.scene);}catch(_){}
+            if(ref?.kind==='backgrounds' && typeof ref.packId==='string' && typeof ref.assetId==='string')backgroundsShown.push({ref:{packId:ref.packId,kind:'backgrounds',assetId:ref.assetId},alpha:layer.sprite.alpha});
+        }
+        const actors=[];
+        for(const entry of state.figures.values()){
+            const figure=entry.figure, ref=figure.sourceRef;
+            if(!figure.alias?.startsWith('candidate:') || !ref || entry.leaving || !entry.container.visible)continue;
+            const ready=entry.kind==='static' ? !!entry.sprite && entry.loadedIdentity===figure.identity && !entry.pendingSrc : !!(entry.model || entry.sprite) && !entry.replacement;
+            if(ready)actors.push({instanceId:figure.alias.slice(10),ref:{packId:ref.packId,figureId:ref.figureId},outfitKey:figure.sourceOutfitKey || null,stateId:figure.sourceStateId || null,form:figure.kind});
+        }
+        return {backgrounds:backgroundsShown,backgroundPending:!!backgrounds.pending || backgrounds.layers.length>1,actors};
+    }
     const stageHost = host.closest('.fork-gal-stage');
     // Refresh only the shared empty texture; keep figures, transitions and configured backgrounds intact.
     const emptyThemeObserver = new MutationObserver(() => {
@@ -1227,7 +1243,7 @@ function galCreateScene(host, options, own) {
         if (state.faceEnvironment) state.faceEnvironment.boxDirty = true;
     }) : null;
     if(faceBoxObserver)own(faceBoxObserver,value=>value.disconnect());
-    if (stageHost) {galFigureSources.set(stageHost, figureRects);own(stageHost,root=>{if(galFigureSources.get(root)===figureRects)galFigureSources.delete(root);});}
+    if (stageHost) {galFigureSources.set(stageHost, figureRects);galPresentationSources.set(stageHost,presentation);own(stageHost,root=>{if(galFigureSources.get(root)===figureRects)galFigureSources.delete(root);if(galPresentationSources.get(root)===presentation)galPresentationSources.delete(root);});}
     return {
         figureRects,
         debug,
@@ -1251,6 +1267,7 @@ function galCreateScene(host, options, own) {
                 for(const type of ['pointerdown','pointermove','pointerup','pointercancel'])clean(()=>stageHost.removeEventListener(type,onStagePointer,{capture:true}));
                 clean(()=>stageHost.removeEventListener('click',onStageTap,true));
                 if(galFigureSources.get(stageHost)===figureRects)galFigureSources.delete(stageHost);
+                if(galPresentationSources.get(stageHost)===presentation)galPresentationSources.delete(stageHost);
             }
             clean(()=>{if(state.pump){state.pump.stop=true;state.pump.off();state.pump=null;}});
             clean(()=>app.ticker.remove(frame));
@@ -1353,7 +1370,7 @@ function GalScene(props) {
         error && !errorHandler ? h("p", { className: "fork-live2d-error", role: "alert" }, error) : null);
 }
 
-return {Scene:GalScene,create,figureRenderers:{register:registerFigureRenderer},rects:root=>galFigureSources.get(root)?.() || [],dispose(){
+return {Scene:GalScene,create,figureRenderers:{register:registerFigureRenderer},rects:root=>galFigureSources.get(root)?.() || [],presentation:root=>galPresentationSources.get(root)?.() || null,dispose(){
     if(disposed)return;disposed=true;figureRenderers.clear();const errors=[];
     for(const instance of [...instances])try{instance.destroy();}catch(error){errors.push(error);}
     if(errors.length)throw new AggregateError(errors,'Stage scene scope cleanup failed');

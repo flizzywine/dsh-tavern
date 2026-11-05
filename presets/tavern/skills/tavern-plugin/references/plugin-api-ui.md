@@ -4,15 +4,19 @@
 
 浏览器侧的代码运行在 DSH 页面里，使用 DSH 提供的 `react`。插件的 `render` 函数返回 React 元素；出错时只影响这个元素，正文其余部分照常显示。
 
-## 原生场景贡献（`stageScene: 1`、`stageSceneProvider: 1`）
+## 原生场景贡献（`stageScene: 1`、`stageSceneProvider: 1`、`stageSceneBackground: 1`、`stageScenePresentation: 1`）
 
 先通过 `getCapabilities()` 检查两个独立能力；缺少时使用原有入口。`registerStageSceneProvider({id, onStageReady: ({gameId}) => cleanup})` 在当前舞台就绪或插件晚注册时调用，限已授权人物卡。可返回清理函数或其 Promise；舞台离开、权限撤销或插件卸载时执行清理，迟到的清理函数也会执行。回调不应持久化舞台投影。
 
-`openStageScene({gameId, renderHud, onDialogueAdvance?, onClose?, onError?})` 返回 `{ok:false, reason}`（`denied`、`busy` 或 `stage-unavailable`）或 lease。一个舞台同时只有一个 lease。调用 `lease.update({actors, replaceActors?, interactive?, dialogue?, camera?, sprites?, effects?})` 替换当前贡献；调用 `lease.close()` 释放。关闭或切局后恢复最新正文场景。`interactive:false` 允许底层正文翻页和自动播放，并忽略贡献的 dialogue。`renderHud({gameId})` 放在文本框和顶栏之间，交互元素自行设置 `pointer-events:auto`。
+`openStageScene({gameId, renderHud, onDialogueAdvance?, onClose?, onError?})` 返回 `{ok:false, reason}`（`denied`、`busy` 或 `stage-unavailable`）或 lease。一个舞台同时只有一个 lease。调用 `lease.update({actors, replaceActors?, interactive?, dialogue?, camera?, sprites?, effects?, backgroundRef?})` 替换当前贡献；调用 `lease.close()` 释放。关闭或切局后恢复最新正文场景。`interactive:false` 允许底层正文翻页和自动播放，并忽略贡献的 dialogue。`renderHud({gameId})` 放在文本框和顶栏之间，交互元素自行设置 `pointer-events:auto`。
 
 `actors` 最多四个：`{instanceId, ref:{packId,figureId}, outfitKey?, x, visible?, ground?, size?, transform?}`；`instanceId` 非空且唯一，`x` 为 0–1 的舞台横向比例；`size` 是 0.1–2 的显示比例，默认 1，对物理标尺和旧版布局都生效，并以演员底部为锚点。宿主只解析当前卡获准的包和真实服装，异步加载失败经 `onError` 报告。`replaceActors:true` 替换正文演员，否则相同 ref 的正文演员由贡献替换；同 ref 可用不同实例 ID 多次出现。`transform:{x?,y?,scaleX?,scaleY?,rotation?,alpha?}` 是世界坐标像素偏移、围绕演员中心的比例、弧度与透明度；每次 update 可设置一帧，移除后复原。演员加载及正文布局可能有过渡，调用方应等待几何出现。
 
 `dialogue:{lines:[{speakerRef?,actorKey?,displayName?,text,emotion?,outfitKey?}],index}` 使用舞台文本框；`actorKey` 是实例 ID。主动模式下，首次前进先完成当前句打字，之后前进或后退调用 `onDialogueAdvance({gameId,delta})`（delta 为 +1 或 -1），索引由插件更新；不会翻动底层正文。`camera` 接受原生镜头 `{shot,target}` 或 `{zoom,panX,panY,rotation,immediate:true}`，手动镜头受背景边界约束；特写目标使用 `candidate:` 加实例 ID。`effects` 是已有原生效果描述，不代表任意来源动画均已适配。
+
+`backgroundRef:{packId,kind:'backgrounds',assetId}` 仅允许当前卡绑定包中已启用的背景；宿主解析并固定资源，解码完成后切换。省略或设为 null 恢复最新正文背景，关闭 lease 也会恢复；加载失败通过 `onError` 报告。此字段没有任意 URL 入口。
+
+`lease.getPresentation()` 返回 `{backgrounds:[{ref,alpha}],backgroundPending,backgroundRequest:{ref,status},actors:[{instanceId,ref,outfitKey,stateId,form}]}`，或舞台渲染器不可用时为 null。背景数组按显示层顺序给出当前可见正式引用及透明度；渲染器过渡或加载期间 `backgroundPending` 为 true。`backgroundRequest.status` 为 `story`、`loading`、`ready` 或 `error`，表示贡献引用的解析状态，`ready` 不表示转场已结束。演员数组只包含舞台报告已就绪的贡献演员，`stateId` 是已选表情状态；它不是动画每一帧或口型的像素快照。引用可用于在获授权的素材 API 中定位资源，此接口不返回路径、URL、票据或未绑定素材。
 
 `lease.getGeometry()` 返回已渲染的贡献演员 `{instanceId,body,head,worldBody,worldHead}`：`body/head` 是舞台内屏幕像素，`worldBody/worldHead` 是镜头变换之前的世界像素，与 sprites 坐标同系；尚未加载时可能为空。`lease.getLayout()` 返回 `{width,height,topBar,textBox,safe}`，坐标同样相对舞台；画布尺寸、文本框和顶栏可能随窗口、皮肤或正文改变，应在需要时重读。lease 已关闭时分别返回 `[]` 和 `null`。
 

@@ -7,7 +7,7 @@ function candidateSceneMerge(scene, candidate, actors, contributed, line, speake
     return {...scene,figureLayout:null,hideFigures:false,figureMode:'stage',
         figures:(candidate.replaceActors===true ? [] : scene.figures.filter(figure=>{const key=refKey(figure.sourceRef),wanted=byRef.get(key);return !wanted || (!readyRefs.has(key) && wanted.every(actor=>actor.outfitKey===figure.sourceOutfitKey));})).concat(contributed),
         camera:candidate.camera || scene.camera,
-        shot:line ? null : scene.shot,sceneSprites:candidate.sprites || [],
+        shot:line ? null : scene.shot,sceneSprites:candidate.sprites || [],background:candidate.resolvedBackground || scene.background,
         effects:scene.effects.concat(candidate.effects || [])};
 }
 // Complete stage controller. Display/runtime collaborators come from this plugin activation.
@@ -144,6 +144,7 @@ function GalStage(props) {
     const phoneModCall=readPhoneCall?.() || null;
     const h = React.createElement;
     const sessionId = props.sessionId;
+    const scenePresentationRequest=React.useRef({ref:null,status:'story'});
     // Experimental scoped scene lease. Native background and dialogue remain owned by the stage.
     const [candidate, setCandidate] = React.useState(null);
     React.useEffect(() => {
@@ -156,6 +157,7 @@ function GalStage(props) {
                 const row={...input,value:{actors:[]}};lease=row;setCandidate(row);
                 return {ok:true,update(value){if(live&&lease===row){row.value=value;setCandidate({...row});}},
                     geometry(){return live&&lease===row ? stageViews.scene.rects(rootRef.current).filter(rect=>rect.id.startsWith('candidate:')).map(rect=>({...rect,instanceId:rect.id.slice(10)})) : [];},
+                    presentation(){const current=live&&lease===row ? stageViews.scene.presentation(rootRef.current) : null;return current ? {...current,backgroundRequest:scenePresentationRequest.current} : null;},
                     layout(){
                         const root=rootRef.current;if(!live||lease!==row||!root)return null;
                         const outer=root.getBoundingClientRect(), sx=root.clientWidth/(outer.width||1), sy=root.clientHeight/(outer.height||1);
@@ -1020,7 +1022,7 @@ function GalStage(props) {
         const input=packFigureRenderInputs(selected,{sessionId}).stage;
         if(!input)return null;
         const key='candidate:'+String(actor.instanceId);
-        return {...input,key,sourceRef:actor.ref,alias:key,x:actor.x,ground:actor.ground,sceneSize:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking:actor===candidateSpeaker,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : 1,
+        return {...input,key,sourceRef:actor.ref,sourceOutfitKey:selected.outfitKey,sourceStateId:selected.state?.id,alias:key,x:actor.x,ground:actor.ground,sceneSize:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking:actor===candidateSpeaker,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : 1,
             figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry?.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     }).filter(Boolean);
     function onSceneDebug(effect) {
@@ -1098,7 +1100,39 @@ function GalStage(props) {
     const bustAlias = activeSkin?.resolvedArt?.bust && faceMode !== 'off' && !faceOffStage && boxSpeaker && members.some(member => member.id === boxSpeaker) ? boxSpeaker : '';
     scene.bust = bustAlias && !stageShot ? {...activeSkin.resolvedArt.bust,alias:bustAlias} : null;
     scene.shot = stageShot ? { alias: stageShot.alias, head: stageShot.head, roll: stageShot.roll } : null;
-    const displayScene=candidateSceneMerge(scene,candidate?.value,candidateActors,contributed,candidateLine,candidateSpeaker);
+    const requestedBackground=candidate?.value?.backgroundRef;
+    const backgroundKey=requestedBackground ? JSON.stringify({packId:requestedBackground.packId,kind:'backgrounds',assetId:requestedBackground.assetId}) : '';
+    const [sceneBackground,setSceneBackground]=React.useState(null);
+    const [sceneBackgroundError,setSceneBackgroundError]=React.useState('');
+    const backgroundPins=React.useRef({current:null,retired:[]});
+    React.useEffect(()=>()=>{backgroundPins.current.current?.release();for(const pin of backgroundPins.current.retired)pin.release();backgroundPins.current={current:null,retired:[]};},[sessionId,!!candidate]);
+    React.useEffect(()=>{for(const pin of backgroundPins.current.retired)pin.release();backgroundPins.current.retired=[];},[sceneBackground]);
+    React.useEffect(()=>{
+        let live=true, pin=null, adopted=false;
+        setSceneBackgroundError('');
+        if(!backgroundKey || !candidate){
+            if(backgroundPins.current.current)backgroundPins.current.retired.push(backgroundPins.current.current);
+            backgroundPins.current.current=null;setSceneBackground(null);
+            return ()=>{live=false;};
+        }
+        const source=stageSessions.get(sessionId)?.getSnapshot()?.source,owner=stageSessions.resourceOwner;
+        if(!source || !owner)return ()=>{live=false;};
+        const authority=JSON.stringify([source.sessionId,source.authorityEpoch]);
+        rpc('stageSceneBackground',{sessionId,ref:JSON.parse(backgroundKey)},sessionId)
+            .then(async result=>{
+                pin=await owner.acquire(result.media.url,authority);
+                if(!live){pin?.release();pin=null;return;}
+                const image=new window.Image();image.src=pin.handle.url;await image.decode();
+                if(!live){pin?.release();pin=null;return;}
+                if(backgroundPins.current.current)backgroundPins.current.retired.push(backgroundPins.current.current);
+                backgroundPins.current.current=pin;adopted=true;
+                setSceneBackground({key:backgroundKey,authority:candidateAuthority,background:{identity:result.media.identity,url:pin.handle.url,scene:JSON.stringify(result.ref),transition:'cut'}});
+            }).catch(error=>{if(!adopted && pin){pin.release();pin=null;}if(live){setSceneBackgroundError(String(error.message || error));candidate.onError?.({gameId:sessionId,code:'BACKGROUND_UNAVAILABLE',message:String(error.message || error)});}});
+        return ()=>{live=false;if(!adopted && pin){pin.release();pin=null;}};
+    },[sessionId,backgroundKey,candidateAuthority,!!candidate]);
+    const resolvedBackground=sceneBackground?.key===backgroundKey && sceneBackground.authority===candidateAuthority ? sceneBackground.background : null;
+    scenePresentationRequest.current={ref:backgroundKey ? JSON.parse(backgroundKey) : null,status:!backgroundKey ? 'story' : resolvedBackground ? 'ready' : sceneBackgroundError ? 'error' : 'loading'};
+    const displayScene=candidateSceneMerge(scene,candidate ? {...candidate.value,resolvedBackground} : null,candidateActors,contributed,candidateLine,candidateSpeaker);
     // face → no-face pages clear the face before writing (useGalFaceHandoff). Every theme's text
     // column follows the gutter. Skip and backward reading show the final state at once.
     const faceSnap = skipping || !forwardReading;

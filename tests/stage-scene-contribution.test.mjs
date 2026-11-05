@@ -12,4 +12,7 @@ test('contributed actors preserve the native camera and never substitute a diffe
   const rendered={sourceRef:ref}
   const result=candidateSceneMerge(scene,{},[normal],[rendered],{text:'hello'},normal)
   assert.deepEqual(result.figures,[rendered]);assert.equal(result.camera,scene.camera)
+  const background={identity:'new'}
+  assert.equal(candidateSceneMerge(scene,{resolvedBackground:background},[],[],null,null).background,background)
+  assert.equal(candidateSceneMerge({...scene,background}, {resolvedBackground:null},[],[],null,null).background,background)
 })

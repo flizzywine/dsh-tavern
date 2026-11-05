@@ -7,6 +7,17 @@ import { phoneMark, phoneMarkRounds as phoneRounds } from '../../../mods/phone/c
 export function createStageHandlers(deps) {
   const { ctx } = deps
   return {
+    async stageSceneBackground(args, method, serverTemplate, authority) {
+      if (serverTemplate || !authority?.origin) throw new Error('Authenticated stage required')
+      const ref=args?.ref
+      if (!ref || ref.kind !== 'backgrounds' || typeof ref.packId !== 'string' || typeof ref.assetId !== 'string') throw new Error('Invalid background reference')
+      const chat=await deps.readRoundView(args.sessionId)
+      const consumer=chat && await deps.assetRuntime.consumer(chat,authority.origin)
+      if (!consumer?.presentation?.available() || !consumer.allowedPackIds.includes(ref.packId)) throw new Error('Background unavailable')
+      const row=(await consumer.presentation.backgrounds()).find(item=>item.ref.packId===ref.packId && item.ref.assetId===ref.assetId)
+      if (!row?.views?.['']?.url) throw new Error('Background unavailable')
+      return {ref:row.ref,name:row.name,media:row.views['']}
+    },
     // Candidate only: resolve figures from this card's permitted packs through the normal resource protocol.
     async stageSceneFigures(args, method, serverTemplate, authority) {
       if (serverTemplate || !authority?.origin) throw new Error('Authenticated stage required')

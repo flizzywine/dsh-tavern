@@ -45,3 +45,15 @@ test('explicit contribution size scales around the feet for physical and legacy 
     assert.equal(scale.x,0.1)
   }
 })
+
+test('presentation exposes only visible references rather than resource URLs',()=>{
+  const source=readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene.cjs',import.meta.url),'utf8')
+  const start=source.indexOf('    function presentation()'),end=source.indexOf('\n    const stageHost =',start)
+  const ref={packId:'p',kind:'backgrounds',assetId:'room'}, actorRef={packId:'p',figureId:'hero'}
+  const backgrounds={pending:'',layers:[{url:'private-resource-url',scene:JSON.stringify(ref),sprite:{alpha:1}}]}
+  const state={figures:new Map([['a',{kind:'static',sprite:{},loadedIdentity:'ok',container:{visible:true},figure:{alias:'candidate:a',identity:'ok',sourceRef:actorRef,sourceOutfitKey:'outfit',sourceStateId:'joy'}}]])}
+  const result=vm.runInNewContext(source.slice(start,end)+'\npresentation',{backgrounds,state})()
+  assert.equal(result.backgrounds[0].ref.assetId,'room')
+  assert.equal(result.actors[0].stateId,'joy')
+  assert.equal(JSON.stringify(result).includes('private-resource-url'),false)
+})
