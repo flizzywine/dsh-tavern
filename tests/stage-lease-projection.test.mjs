@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {projectStageLease} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-lease-projection.js'
+import {resolution} from '../tavern-plugin/lib/domain/figure-catalogue.js'
 
 const rows = [
   {actorKey:'actor-one', name:'辉夜', aliases:['Kaguya'], ref:{packId:'11111111-1111-4111-8111-111111111111',figureId:'figure-one'}},
@@ -12,6 +13,7 @@ function consumer() {
   const calls = []
   return {calls, allowedPackIds:['11111111-1111-4111-8111-111111111111'], presentation:{
     async figureRows() {return rows},
+    async resolveName(name) {return resolution.resolveFigureName(rows, name)},
     async character(alias, options) {calls.push({alias,options}); return {alias,form:'sprite',outfitKey:'default'}},
     async materialize(character, options) {assert.equal(options.descriptors,true);return character},
     async scene(state, options) {assert.equal(options.descriptors,true);return {background:state.scene?.background || null}},

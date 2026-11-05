@@ -1,4 +1,3 @@
-import {resolution} from '../../../../lib/domain/figure-catalogue.js'
 import {validateSceneSelection} from '../../../dsh-presentation-protocol/src/asset-packs.js'
 
 // A borrowed stage is a read-only presentation, never a director record or a cast update.
@@ -7,7 +6,7 @@ export async function projectStageLease({consumer, actors = [], scene, openingSc
   const rows = await presentation.figureRows()
   const characters = [], seen = new Set()
   for (const actor of actors.slice(0, 4)) {
-    const found = resolution.resolveFigureName(rows, actor.name)
+    const found = await presentation.resolveName(actor.name)
     if (found.status !== 'resolved' || seen.has(found.actorKey)) continue
     seen.add(found.actorKey)
     const character = await presentation.character(found.actorKey, {emotion:actor.emotion, figureRows:rows, live2d, spine})

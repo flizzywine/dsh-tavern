@@ -127,7 +127,7 @@ function useStageLeaseAssets(sessionId, view, source, assetRevision) {
         if (!key) return;
         const abort = new AbortController();
         let prepared;
-        stageViews.lease.prepare(request, JSON.stringify([sessionId, source.authorityEpoch]), abort.signal).then(value => {
+        stageViews.lease?.prepare(request, JSON.stringify([sessionId, source.authorityEpoch]), abort.signal).then(value => {
             if (abort.signal.aborted) { value?.release(); return; }
             prepared = value;
             setLoaded(value ? {key, value:value.value} : null);
