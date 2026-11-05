@@ -554,7 +554,8 @@ function stageSkinArt(document, files, entry = '') {
     }
     if (art.menu) {
         const m=art.menu;
-        if (m.sheet) {marks['data-fk-skin-art-menu-sheet']=''; tokens['--art-menu-sheet']=url(m.sheet);}
+        // sheet: drawn at its own aspect (contained in the game area, the panel ground round it); -w / -h its natural size
+        if (m.sheet) {const [w,h]=size(m.sheet); marks['data-fk-skin-art-menu-sheet']=''; Object.assign(tokens,{'--art-menu-sheet':url(m.sheet),'--art-menu-sheet-w':String(w),'--art-menu-sheet-h':String(h)});}
         // dim / blur / grey: the stage behind the menu darkened, blurred (design px) and greyed
         if (m.dim !== undefined || m.blur || m.grey) {marks['data-fk-skin-art-menu-dim']=''; Object.assign(tokens,{'--art-menu-dim':String(m.dim ?? 0),'--art-menu-blur':String(m.blur || 0),'--art-menu-grey':String(m.grey || 0)});}
         if (m.decor === 'hide') marks['data-fk-skin-art-menu-decor']='hide';
@@ -570,11 +571,18 @@ function stageSkinArt(document, files, entry = '') {
         // motion (§18 E3): the items' staged entrance and exit (theme.css «art menu: motion»; the stage keeps the menu
         // mounted through the exit, GalStage menuLeaving).
         for (const [key,stage] of Object.entries(m.motion || {})) {
+            if (key === 'parts') continue;
             const p='--art-mm-' + key, pose=stage.pose;
             marks['data-fk-skin-art-menu-motion']=[marks['data-fk-skin-art-menu-motion'],key,stage.fade ? key + '-fade' : ''].filter(Boolean).join(' ');
-            Object.assign(tokens,{[p + '-ms']:stage.ms + 'ms',[p + '-stagger']:(stage.stagger || 0) + 'ms',[p + '-ease']:STAGE_SKIN_EASE[stage.ease || 'out'],
+            Object.assign(tokens,{[p + '-ms']:stage.ms + 'ms',[p + '-stagger']:(stage.stagger || 0) + 'ms',[p + '-ease']:STAGE_SKIN_EASE[stage.ease || 'out'],...(stage.delay ? {[p + '-delay']:stage.delay + 'ms'} : {}),
                 [p + '-dx']:String(pose.dx || 0),[p + '-dy']:String(pose.dy || 0),[p + '-rot']:(pose.rot || 0) + 'deg',[p + '-scale']:stageSkinPoseScale(pose),[p + '-f']:`brightness(${pose.bright ?? 1})`});
         }
+        // motion.parts (§18 N21): the sheet, strips and signal each enter on their own beat (@keyframes fork-skin-menu-<part>,
+        // stageSkinMotionKeyframes)
+        const parts=Object.entries(m.motion?.parts || {});
+        if (parts.length) marks['data-fk-skin-art-menu-parts']=parts.map(([part]) => part).join(' ');
+        for (const [part,motion] of parts) Object.assign(tokens,{['--art-mp-' + part + '-ms']:motion.ms + 'ms',['--art-mp-' + part + '-delay']:(motion.delay || 0) + 'ms',
+            ['--art-mp-' + part + '-tf']:motion.steps ? `steps(${motion.steps}, end)` : STAGE_SKIN_EASE[motion.ease || 'out'],['--art-mp-' + part + '-origin']:(motion.origin || [0.5,0.5]).map(v => v * 100 + '%').join(' ')});
         for (const key of strips) {
             const s=m[key], [sw,sh]=s.image ? size(s.image) : [s.text[1],s.text[2] * 2], p='--art-ms-' + key;
             Object.assign(tokens,{[p + '-img']:s.image ? url(s.image) : 'none',[p + '-x']:String(s.x),[p + '-y']:String(s.y),[p + '-w']:String(sw),[p + '-h']:String(sh),
@@ -626,7 +634,11 @@ function stageSkinArt(document, files, entry = '') {
             Object.assign(tokens,{[p + '-name-x']:String(b.name.x),[p + '-name-y']:String(b.name.y),[p + '-name-h']:String(b.name.h),[p + '-name-font']:String(b.name.font),[p + '-head']:String(b.name.head)});
             if (b.name.frame) {parts.push('frame'); placed(p + '-frame',b.name.frame);}
             if (b.name.rule) {parts.push('rule'); placed(p + '-rule',b.name.rule);}
+            // name.letter / align (C2): the name as glyph tiles, its right edge on the text column (theme.css 「art backlog glyph tiles」).
+            if (b.name.letter) marks['data-fk-skin-art-backlog-letter']=b.name.letter;
+            if (b.name.align) marks['data-fk-skin-art-backlog-name-align']=b.name.align;
         }
+        if (b.plates?.divider?.letter) marks['data-fk-skin-art-backlog-divider-letter']=b.plates.divider.letter;
         if (b.scrollbar) {
             const s=b.scrollbar; parts.push('bar');
             Object.assign(tokens,{[p + '-bar']:url(s.track),[p + '-thumb']:url(s.thumb),[p + '-bar-x']:String(s.x),[p + '-bar-y']:String(s.y),[p + '-bar-w']:String(s.w),[p + '-bar-h']:String(s.h)});
@@ -634,6 +646,21 @@ function stageSkinArt(document, files, entry = '') {
         // hover: the original's stain behind the entry under the pointer / focus and the current entry (one highlight).
         if (b.hover) {parts.push('hover'); stageSkinHighlightTokens(tokens,p + '-hover',b.hover,url);}
         marks['data-fk-skin-art-backlog-parts']=parts.join(' ');
+        // plates (C1): each role's plate images and inks by index, its slice and overhang edges, poses and slant, as
+        // --art-bl-p-<role>-* (theme.css 「art backlog plates」; the backlog view points each plated row at its own).
+        if (b.plates) {
+            marks['data-fk-skin-art-backlog-plates']=Object.keys(b.plates).join(' ');
+            for (const [role,plate] of Object.entries(b.plates)) {
+                const q=p + '-p-' + role, [st,sr,sb,sl]=stageSkinSlice(plate.slice), [ot,or,ob,ol]=plate.out || [0,0,0,0];
+                plate.images.forEach((item,index) => Object.assign(tokens,{[q + '-' + index]:url(item.image),[q + '-' + index + '-ink']:item.ink}));
+                Object.assign(tokens,{[q + '-st']:String(st),[q + '-sr']:String(sr),[q + '-sb']:String(sb),[q + '-sl']:String(sl),[q + '-ot']:String(ot),[q + '-or']:String(or),[q + '-ob']:String(ob),[q + '-ol']:String(ol)});
+                (plate.poses || []).forEach((pose,index) => Object.assign(tokens,{[q + '-pose-' + index + '-x']:String(pose.x),[q + '-pose-' + index + '-y']:String(pose.y || 0),[q + '-pose-' + index + '-rot']:pose.rot + 'deg'}));
+                if (plate.slant !== undefined) tokens[q + '-slant']=plate.slant + 'deg';
+            }
+        }
+        // narrow: the same drawn sheet, title, close, row head and highlight on phones, one design px = unit CSS px; the
+        // words keep the reading size (theme.css «art backlog: phone»).
+        if (b.narrow) {marks['data-fk-skin-art-backlog-narrow']=''; tokens[p + '-nu']=b.narrow.unit + 'px';}
     }
     if (art.config) {
         const c=art.config, p='--art-cf';
@@ -1029,7 +1056,17 @@ function paintStageSkin(root, document, fonts, theme, lead = false, art = null, 
         for (const [name,value] of before) {if (value === null) root.removeAttribute(name); else root.setAttribute(name,value);}
     };
 }
+// The 履历 looks (stageSkinBacklog) with art.backlog.plates' cycles per role (image and pose counts, slanted or not): the
+// backlog view marks each plated row with its place in them (theme.css 「art backlog plates」).
+// C2: the ransom words (name.letter, plates.divider.letter) and the tiles they are cut on - the backlog's own glyphTiles,
+// else the menu's (the validator requires one).
+function stageSkinBacklogLooks(document) {
+    const looks=stageSkinBacklog(document), b=document?.art?.backlog, plates=b?.plates;
+    const letter=b?.name?.letter || plates?.divider?.letter ? {name:b.name?.letter,divider:plates?.divider?.letter,tiles:b.glyphTiles || document.art.menu.glyphTiles} : null;
+    if (!plates && !letter) return looks;
+    return {...looks,...(plates ? {plates:Object.fromEntries(Object.entries(plates).map(([role,plate]) => [role,{images:plate.images.length,poses:plate.poses?.length || 0,slant:plate.slant !== undefined}]))} : null),...(letter ? {letter} : null)};
+}
 
-return {dispose,STAGE_SKIN_EASE,STAGE_SKIN_TX_EASE,stageSkinTxEase,stageSkinWipeClip,stageSkinTransitionList,STAGE_BACKLOG_DEFAULTS,stageSkinBacklog,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogOutline,stageSkinInset,stageSkinSfx,stageSkinMotionKeyframes,stageSkinGlyphPoses,stageSkinEffects,stageSkinTokens,stageSkinPanelTokens,stageSkinQuickMenu,stageSkinMarks,stageSkinConfigSurface,stageSkinConfigArt,STAGE_CONFIG_DEFAULT_LOOKS,stageSkinControlIcons,stageSkinArt,stageSkinSpinner,stageSkinTint,stageSkinMenuTint,stageSkinFontFaces,applyStageSkin,stageSkinMode,applyStageSkinMode};
+return {dispose,STAGE_SKIN_EASE,STAGE_SKIN_TX_EASE,stageSkinTxEase,stageSkinWipeClip,stageSkinTransitionList,STAGE_BACKLOG_DEFAULTS,stageSkinBacklog:stageSkinBacklogLooks,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogOutline,stageSkinInset,stageSkinSfx,stageSkinMotionKeyframes,stageSkinGlyphPoses,stageSkinEffects,stageSkinTokens,stageSkinPanelTokens,stageSkinQuickMenu,stageSkinMarks,stageSkinConfigSurface,stageSkinConfigArt,STAGE_CONFIG_DEFAULT_LOOKS,stageSkinControlIcons,stageSkinArt,stageSkinSpinner,stageSkinTint,stageSkinMenuTint,stageSkinFontFaces,applyStageSkin,stageSkinMode,applyStageSkinMode};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSkinAdapter};

@@ -2403,6 +2403,8 @@
          "minimum": 0,
          "maximum": 1024
         },
+        "letter": { "enum": ["ransom"], "description": "C2: the name as glyph tiles (art.backlog.glyphTiles, else art.menu.glyphTiles; one of them is required); the plain name stays the accessible text." },
+        "align": { "enum": ["end"], "description": "C2: end = the name's right edge on the text column's left edge; a long name grows to the left." },
         "frame": {
          "type": "object",
          "description": "A placed image: its top-left at x, y on the design screen at scale design px per image px; focus = the image under the pointer and keyboard focus.",
@@ -2528,6 +2530,20 @@
           "maximum": 1024
          }
         }
+       }
+      },
+      "glyphTiles": { "$ref": "#/$defs/backlogGlyphTiles" },
+      "plates": {
+       "type": "object",
+       "description": "Each entry's own plate image by its role (speech, player, narration, notice, divider); valid here and in devices.mobile.art.backlog. A role's images cycle by the entry's place among that role's entries.",
+       "minProperties": 1,
+       "additionalProperties": false,
+       "properties": {
+        "speech": { "$ref": "#/$defs/backlogPlate" },
+        "player": { "$ref": "#/$defs/backlogPlate" },
+        "narration": { "$ref": "#/$defs/backlogPlate" },
+        "notice": { "$ref": "#/$defs/backlogPlate" },
+        "divider": { "$ref": "#/$defs/backlogDividerPlate" }
        }
       },
       "narrow": {
@@ -8829,6 +8845,80 @@
    "maxItems": 2,
    "items": {
     "$ref": "#/$defs/color"
+   }
+  },
+  "backlogDividerPlate": {
+   "description": "The turn rule's plate (backlogPlate) plus letter: ransom = its words (第 N 轮) as glyph tiles (art.backlog.glyphTiles, else art.menu.glyphTiles; one of them is required); the text stays the accessible text.",
+   "type": "object",
+   "additionalProperties": false,
+   "required": ["images", "slice"],
+   "properties": {
+    "images": { "$ref": "#/$defs/backlogPlate/properties/images" },
+    "slice": { "$ref": "#/$defs/slice" },
+    "out": { "$ref": "#/$defs/backlogPlate/properties/out" },
+    "poses": { "$ref": "#/$defs/backlogPlate/properties/poses" },
+    "slant": { "$ref": "#/$defs/backlogPlate/properties/slant" },
+    "letter": { "enum": ["ransom"] }
+   }
+  },
+  "backlogGlyphTiles": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": ["shape", "tiles"],
+   "description": "C2: the 履历's glyph tiles for its ransom words (name.letter, plates.divider.letter) - art.menu.glyphTiles' shape, tiles and jitter, plus accent.tile: exactly one glyph of each word on this tile, picked from the same stable blocks. Omitted = art.menu.glyphTiles, without an accent. Every tile's ink and the accent's on their ground: at least 4.5:1, checked on write.",
+   "properties": {
+    "shape": { "enum": ["torn", "square", "rounded", "circle"] },
+    "tiles": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 8,
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ground", "ink"],
+      "properties": { "ground": { "$ref": "#/$defs/color" }, "ink": { "$ref": "#/$defs/color" }, "weight": { "type": "integer", "minimum": 1, "maximum": 12 } }
+     }
+    },
+    "jitter": { "type": "object", "additionalProperties": false, "properties": { "rotate": { "type": "number", "minimum": 0, "maximum": 15 }, "scale": { "type": "number", "minimum": 0, "maximum": 0.5 } } },
+    "accent": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": ["tile"],
+     "properties": { "tile": { "type": "object", "additionalProperties": false, "required": ["ground", "ink"], "properties": { "ground": { "$ref": "#/$defs/color" }, "ink": { "$ref": "#/$defs/color" } } } }
+    }
+   }
+  },
+  "backlogPlate": {
+   "type": "object",
+   "description": "A 履历 role's plate: images (1-8, cycled by the entry's place among its role's entries), each with the ground its words sit on and their ink (at least 4.5:1, checked on write); nine-sliced by slice (the fixed edges carry tape, pins and tails), overhanging the entry by out [top, right, bottom, left] design px; poses = each entry's offset (x, y design px) and turn (rot degrees), cycled by its place like menuPoses - the hit area, highlight and reading order go with the plate; slant = the words' oblique angle in degrees.",
+   "additionalProperties": false,
+   "required": ["images", "slice"],
+   "properties": {
+    "images": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 8,
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image", "ground", "ink"],
+      "properties": { "image": { "$ref": "#/$defs/image" }, "ground": { "$ref": "#/$defs/color" }, "ink": { "$ref": "#/$defs/color" } }
+     }
+    },
+    "slice": { "$ref": "#/$defs/slice" },
+    "out": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": -1024, "maximum": 1024 } },
+    "poses": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 8,
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "rot"],
+      "properties": { "x": { "type": "number", "minimum": -256, "maximum": 256 }, "y": { "type": "number", "minimum": -256, "maximum": 256 }, "rot": { "type": "number", "minimum": -12, "maximum": 12 } }
+     }
+    },
+    "slant": { "type": "number", "minimum": -20, "maximum": 20 }
    }
   },
   "menuPoses": {

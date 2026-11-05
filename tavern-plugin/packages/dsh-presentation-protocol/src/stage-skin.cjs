@@ -333,6 +333,9 @@ const skinMenuStrip = skinObject(skinMenuStripFields,['x','y','text','font']);
 // variants of paint, size and tilt, picked from the word itself) - the title strip and the menu rows (art.menu.rows.letter).
 const STAGE_SKIN_MENU_LETTERS = Object.freeze(['ransom']);
 const STAGE_SKIN_GLYPH_SHAPES = Object.freeze(['torn','square','rounded','circle']);
+// A glyph-tile set (art.menu.glyphTiles; art.backlog.glyphTiles adds its accent): shape, tiles by relative weight, jitter.
+const skinGlyphTileFields = {shape:skinEnum(STAGE_SKIN_GLYPH_SHAPES),tiles:skinArray(skinObject({ground:skinColor,ink:skinColor,weight:skinNumber(1,12,true)},['ground','ink']),1,8),
+    jitter:skinObject({rotate:skinNumber(0,15),scale:skinNumber(0,.5)})};
 const skinMenuTitle = skinObject({...skinMenuStripFields,letter:skinEnum(STAGE_SKIN_MENU_LETTERS)},['x','y','text','font']);
 // A highlight drawn behind an element (the current one, or the one under the pointer and keyboard focus): its image stretched
 // over the element (irregular edges: the image's own), out = how far it overhangs the element
@@ -400,8 +403,7 @@ const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:
     // glyphTiles (§18 N34): how the words cut glyph by glyph (rows.letter / title.letter) are drawn - every glyph on its own
     // tile of `shape`, its ground and ink one of `tiles` by relative whole weight, turned and sized within `jitter`; the picks
     // come from the glyph and its place in the word (labels.cjs galRansomGlyphs), so a word always reads the same.
-    glyphTiles:skinObject({shape:skinEnum(STAGE_SKIN_GLYPH_SHAPES),tiles:skinArray(skinObject({ground:skinColor,ink:skinColor,weight:skinNumber(1,12,true)},['ground','ink']),1,8),
-        jitter:skinObject({rotate:skinNumber(0,15),scale:skinNumber(0,.5)})},['shape','tiles']),
+    glyphTiles:skinObject(skinGlyphTileFields,['shape','tiles']),
     // rows.slant (§18 N27): each bar this many design px right of the one above (a list along a leaning axis drawn on the sheet).
     // rows.letter (§18 N31): the labels as ransom glyph blocks (skinMenuTitle); rows.focusScale: the focused label drawn this much
     // larger (its bar and hit area unchanged), on phones too.
@@ -432,11 +434,30 @@ const skinBacklogVoice = value => skinRect(value) || skinObject({anchor:skinEnum
 // baseline-box top y and height h in the entry, set at `font` px (with art.nameplate.initials the same parts and ratios),
 // over a frame image and above a rule image placed in the entry; head = the height a named entry's head takes before its
 // text (narration has none). scrollbar = a drawn indicator of the list's position (track and thumb images, x, y, w, h).
+// plates: each entry's own plate by its role (STAGE_BACKLOG_ROLES: speech = a named line, player = the player's, narration, notice = a dice /
+// tool line, divider = the turn rule). images cycle by the entry's place among its role's entries (alternating papers),
+// each with the ground its words sit on and their ink (>= 4.5:1, checked here); the image is nine-sliced by slice (the
+// fixed edges carry tape, pins and tails) and overhangs the entry by out [top, right, bottom, left] design px. poses = each
+// entry's own offset (x, y design px) and turn (rot degrees), cycled by its place like art.menu.rows.poses - the hit area,
+// highlight and reading order go with the plate; slant = the words' oblique angle in degrees (a vector skew).
+// divider.letter ransom (C2): the turn rule's words as glyph tiles (art.backlog.glyphTiles, else art.menu.glyphTiles) on its plate.
+const skinBacklogEntryPlateFields = {images:skinArray(skinObject({image:skinImage,ground:skinColor,ink:skinColor},['image','ground','ink']),1,8),slice:skinSlice,
+    out:skinArray(skinNumber(-1024,1024),4,4),poses:skinArray(skinObject({x:skinNumber(-256,256),y:skinNumber(-256,256),rot:skinNumber(-12,12)},['x','rot']),1,8),slant:skinNumber(-20,20)};
+const skinBacklogEntryPlate = skinObject(skinBacklogEntryPlateFields,['images','slice']);
+const skinBacklogDividerPlate = skinObject({...skinBacklogEntryPlateFields,letter:skinEnum(STAGE_SKIN_MENU_LETTERS)},['images','slice']);
+const skinBacklogPlates = value => skinObject(Object.fromEntries(Object.keys(STAGE_BACKLOG_ROLES).map(role => [role,role === 'divider' ? skinBacklogDividerPlate : skinBacklogEntryPlate])))(value) && Object.keys(value).length >= 1;
+// glyphTiles (C2): the 履历's own glyph tiles for its ransom words (name.letter, plates.divider.letter) - art.menu.glyphTiles'
+// shape, plus accent.tile: exactly one glyph of each word on this tile (picked from the same blocks, so a word always reads the
+// same). Omitted = the menu's tiles, without an accent.
+const skinBacklogGlyphTiles = skinObject({...skinGlyphTileFields,accent:skinObject({tile:skinObject({ground:skinColor,ink:skinColor},['ground','ink'])},['tile'])},['shape','tiles']);
 const skinBacklog = skinObject({...skinArtScreen,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
-    voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced},['x','y','h','font','head']),
+    // name.letter ransom (C2): the name as glyph tiles (glyphTiles below); name.align end: the name's right edge on the text
+    // column's left edge, a long name growing to the left.
+    voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced,
+        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),align:skinEnum(['end'])},['x','y','h','font','head']),glyphTiles:skinBacklogGlyphTiles,
     scrollbar:skinObject({track:skinImage,thumb:skinImage,x:skinPx,y:skinPx,w:skinNumber(1,256),h:skinNumber(16,4096)},['track','thumb','x','y','w','h']),
     // hover = the one highlight: behind the entry under the pointer / keyboard focus and the entry the stage stands on.
-    hover:skinHighlight,
+    hover:skinHighlight,plates:skinBacklogPlates,
     // narrow: phones draw the same sheet, title, close, row head and highlight at unit CSS px per design px (words at the reading size).
     narrow:skinObject({unit:skinNumber(0.05,0.5)},['unit']),
     // badges (§18 N26): a mod line kind's 履历 badge drawn as the skin's own image (the phone mod's 「手机」), by kind id.
@@ -927,7 +948,8 @@ function stageSkinNarrationGrounds(narration) {
     if (narration.halo === false) return scenes;
     return scenes.map(scene => skinOver(narration.halo?.color || '#000000',scene,narration.halo?.alpha ?? 1));
 }
-function validateStageSkin(value) {
+// at: where the document's art sits, for the messages (a devices side is checked merged, devices.<side>.art).
+function validateStageSkin(value, at = 'art') {
     const word=value?.config?.title?.word;
     if (typeof word === 'string' && !skinConfigWordOne(word)) throw Object.assign(new Error('config.title.word ' + JSON.stringify(word) + ' is not one word: the CONFIG title is 设置 - omit title.word, or name one replacement word without Latin letters, spaces or separators and never paired with 设置'),{code:'INVALID_SKIN'});
     if (!stageSkinShape(value) || new TextEncoder().encode(JSON.stringify(value)).length > (value.overlay || value.levels ? 262144 : 32768)) throw Object.assign(new Error('Invalid dsh.skin/1 document'),{code:'INVALID_SKIN'});
@@ -956,6 +978,20 @@ function validateStageSkin(value) {
         // art.menu.glyphTiles: each tile's glyph on its own ground.
         ...(value.art?.menu?.glyphTiles?.tiles || []).map(tile => [tile.ink,tile.ground,4.5])];
     if (pairs.some(([a,b,min]) => a && (!b || skinContrast(a,b)+1e-6 < min))) throw Object.assign(new Error('Skin text contrast is unsafe'),{code:'SKIN_CONTRAST'});
+    // art.backlog.plates: every plate image's ink on its own ground.
+    for (const [role,plate] of Object.entries(value.art?.backlog?.plates || {})) plate.images.forEach(({ink,ground},index) => {
+        const ratio=skinContrast(ink,ground);
+        if (ratio+1e-6 < 4.5) throw Object.assign(new Error(at + '.backlog.plates.' + role + '.images[' + index + ']: ink ' + ink + ' on ground ' + ground + ' is ' + ratio.toFixed(2) + ':1, needs 4.5:1 - darken one of them or lighten the other'),{code:'SKIN_CONTRAST'});
+    });
+    // art.backlog glyph tiles (C2): a ransom word needs tiles to be drawn on (the backlog's own, else the menu's); every tile
+    // and the accent tile keep their glyph at 4.5:1 on their ground.
+    const backlog=value.art?.backlog;
+    if ((backlog?.name?.letter || backlog?.plates?.divider?.letter) && !backlog.glyphTiles && !value.art.menu?.glyphTiles)
+        throw Object.assign(new Error(at + '.backlog: name.letter / plates.divider.letter ransom needs glyph tiles - add art.backlog.glyphTiles (or art.menu.glyphTiles), or drop the letter'),{code:'INVALID_SKIN'});
+    for (const [key,tile] of [...(backlog?.glyphTiles?.tiles || []).map((tile,index) => ['tiles[' + index + ']',tile]),...(backlog?.glyphTiles?.accent ? [['accent.tile',backlog.glyphTiles.accent.tile]] : [])]) {
+        const ratio=skinContrast(tile.ink,tile.ground);
+        if (ratio+1e-6 < 4.5) throw Object.assign(new Error(at + '.backlog.glyphTiles.' + key + ': ink ' + tile.ink + ' on ground ' + tile.ground + ' is ' + ratio.toFixed(2) + ':1, needs 4.5:1 - darken one of them or lighten the other'),{code:'SKIN_CONTRAST'});
+    }
     if (stageSkinNarrationGrounds(value.art?.narration).some(ground => skinContrast(value.art.narration.ink || STAGE_NARRATION_INK,ground)+1e-6 < 4.5)) throw Object.assign(new Error('Skin narration contrast is unsafe'),{code:'SKIN_CONTRAST'});
     // A scrim fades to the scene: its base must be dark enough that light text over the scene still has a dark ground.
     if (value.textbox.layout === 'scrim' && skinLuminance(paint.bg) > 0.03) throw Object.assign(new Error('Skin scrim must be dark'),{code:'SKIN_CONTRAST'});
@@ -991,7 +1027,7 @@ function validateStageSkin(value) {
         if (band && (band.offset ?? 9)+(band.height ?? 14) > (frame.insets?.[index] ?? fallback)) throw Object.assign(new Error('Skin ornament overlaps content'),{code:'SKIN_GEOMETRY'});
     }
     if (value.levels) for (const key of ['1','2','3']) if (value.levels[key]) {const look=stageSkinAppearance(value,Number(key));if (look) validateStageSkin(look);}
-    if (value.devices) for (const side of Object.keys(value.devices)) validateStageSkin(stageSkinForDevice(value,side));
+    if (value.devices) for (const side of Object.keys(value.devices)) validateStageSkin(stageSkinForDevice(value,side),'devices.' + side + '.art');
     return value;
 }
 // devices (skin-interface.md §13.2): a skin's last-resort override per device side - mobile (phones) or pc (tablets and
@@ -1029,7 +1065,8 @@ function stageSkinScreenFiles(art) {
             ...Object.values(m.tiles?.art || {}).flatMap(tile => [tile.image,tile.focus]),m.tiles?.plain,m.tiles?.hover?.image,m.signal?.image,m.signal?.alert,
             m.narrow?.sheet,...Object.values(m.narrow?.rows?.images || {})] : []),
         ...(k ? [k.band,k.top,k.bottom,k.button.plain,k.button.focus] : []),
-        ...(b ? [b.sheet,b.hover?.image,...placed(b.title),...placed(b.close),...placed(b.name?.frame),...placed(b.name?.rule),b.scrollbar?.track,b.scrollbar?.thumb,...Object.values(b.badges || {})] : []),
+        ...(b ? [b.sheet,b.hover?.image,...placed(b.title),...placed(b.close),...placed(b.name?.frame),...placed(b.name?.rule),b.scrollbar?.track,b.scrollbar?.thumb,...Object.values(b.badges || {}),
+            ...Object.values(b.plates || {}).flatMap(plate => plate.images.map(item => item.image))] : []),
         ...(c ? [c.sheet,...placed(c.title),...placed(c.close),c.tabs?.images.plain,c.tabs?.images.on,c.focus,...Object.values(c.slider || {}),...Object.values(c.toggle || {}),c.select?.plain,c.select?.focus] : []),
         ...Object.values(art?.voice || {}),...(art?.voice?.waves || [])].filter(value => typeof value === 'string'))];
 }

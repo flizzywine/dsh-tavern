@@ -1,0 +1,74 @@
+{
+  "schema": "dsh.skin/1",
+  "id": "backlog-plates-sample",
+  "label": "履历底板示例",
+  "textbox": { "paint": { "bg": "#14101c", "fg": "#f4f0fa", "fgMuted": "#b9b2c6", "accent": "#e8c26a", "onAccent": "#14101c" } },
+  "nameplate": { "shape": "plain", "paint": { "bg": "#14101c", "fg": "#f4f0fa" } },
+  "font": {},
+  "textFx": { "reveal": "type" },
+  "art": {
+    "screen": 1080,
+    "screenWidth": 1920,
+    "backlog": {
+      "sheet": "art/backlog-sheet.webp",
+      "dim": 0.6,
+      "list": [160, 120, 1500, 820],
+      "font": 30,
+      "pitch": 46,
+      "text": [240, 1360],
+      "top": 12,
+      "gap": 28,
+      "name": { "x": 40, "y": 8, "h": 44, "font": 30, "head": 52 },
+      "hover": { "image": "art/backlog-hover.webp", "out": [8, 12, 8, 12] },
+      "plates": {
+        "speech": {
+          "images": [
+            { "image": "art/plate-dialog.webp", "ground": "#1d1828", "ink": "#f4f0fa" },
+            { "image": "art/plate-dialog-alt.webp", "ground": "#e9e2d2", "ink": "#1d1828" }
+          ],
+          "slice": [24, 48, 24, 96],
+          "out": [10, 16, 10, 24]
+        },
+        "player": {
+          "images": [{ "image": "art/plate-player.webp", "ground": "#6b1424", "ink": "#ffffff" }],
+          "slice": { "edges": [24, 48, 24, 48] },
+          "poses": [{ "x": -12, "y": 4, "rot": -1.5 }, { "x": 18, "rot": 1 }]
+        },
+        "narration": {
+          "images": [{ "image": "art/plate-narration.webp", "ground": "#f1ead9", "ink": "#2a2333" }],
+          "slice": [20, 20, 20, 64],
+          "slant": 10
+        },
+        "notice": {
+          "images": [{ "image": "art/plate-notice.webp", "ground": "#ffffff", "ink": "#14101c" }],
+          "slice": [16, 16, 16, 16]
+        },
+        "divider": {
+          "images": [{ "image": "art/plate-divider.webp", "ground": "#14101c", "ink": "#e8c26a" }],
+          "slice": [0, 40, 0, 40]
+        }
+      }
+    }
+  },
+  "devices": {
+    "mobile": {
+      "art": {
+        "backlog": {
+          "narrow": { "unit": 0.3 },
+          "plates": {
+            "speech": {
+              "images": [
+                { "image": "art/sticker-a.webp", "ground": "#ffffff", "ink": "#222222" },
+                { "image": "art/sticker-b.webp", "ground": "#ffe3ec", "ink": "#3a1020" },
+                { "image": "art/sticker-c.webp", "ground": "#e3f1ff", "ink": "#10243a" }
+              ],
+              "slice": [18, 18, 18, 18],
+              "poses": [{ "x": -20, "rot": -3 }, { "x": 14, "y": -6, "rot": 2 }, { "x": -4, "y": 6, "rot": -1 }]
+            },
+            "divider": null
+          }
+        }
+      }
+    }
+  }
+}

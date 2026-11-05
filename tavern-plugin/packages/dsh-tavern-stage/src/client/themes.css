@@ -4300,9 +4300,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage[data-fk-skin-portrait-motion]:not(.is-film) .fork-gal-box .fork-gal-side[data-face-in] .fork-gal-side-img[data-out] { visibility: hidden; }
 @media (min-width: 641px) {
   .fork-gal-stage[data-fk-skin-art-menu][data-fk-skin-art-menu-motion~="enter"]:not(.is-film):not([data-reduced-motion]) > .fork-gal-menu .fork-gal-menu-list > .fork-gal-menu-item {
-    animation: fork-art-menu-in var(--art-mm-enter-ms) var(--art-mm-enter-ease) calc(var(--i) * var(--art-mm-enter-stagger)) both; }
+    animation: fork-art-menu-in var(--art-mm-enter-ms) var(--art-mm-enter-ease) calc(var(--art-mm-enter-delay, 0ms) + var(--i) * var(--art-mm-enter-stagger)) both; }
   .fork-gal-stage[data-fk-skin-art-menu][data-fk-skin-art-menu-motion~="enter-fade"]:not(.is-film):not([data-reduced-motion]) > .fork-gal-menu .fork-gal-menu-list > .fork-gal-menu-item {
-    animation: fork-art-menu-in var(--art-mm-enter-ms) var(--art-mm-enter-ease) calc(var(--i) * var(--art-mm-enter-stagger)) both, fork-art-menu-fade var(--art-mm-enter-ms) ease-out calc(var(--i) * var(--art-mm-enter-stagger)) both; }
+    animation: fork-art-menu-in var(--art-mm-enter-ms) var(--art-mm-enter-ease) calc(var(--art-mm-enter-delay, 0ms) + var(--i) * var(--art-mm-enter-stagger)) both, fork-art-menu-fade var(--art-mm-enter-ms) ease-out calc(var(--art-mm-enter-delay, 0ms) + var(--i) * var(--art-mm-enter-stagger)) both; }
   .fork-gal-stage[data-fk-skin-art-menu][data-fk-skin-art-menu-motion~="enter"]:not(.is-film):not([data-reduced-motion]) > .fork-gal-menu .fork-gal-menu-strip,
   .fork-gal-stage[data-fk-skin-art-menu][data-fk-skin-art-menu-motion~="enter"]:not(.is-film):not([data-reduced-motion]) > .fork-gal-menu::after { animation: fork-art-menu-fade var(--art-mm-enter-ms) ease-out both; }
   .fork-gal-stage[data-fk-skin-art-menu][data-fk-skin-art-menu-motion~="leave"]:not(.is-film):not([data-reduced-motion]) > .fork-gal-menu[data-leaving] .fork-gal-menu-list > .fork-gal-menu-item {
@@ -4313,6 +4313,26 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-menu][data-fk-skin-art-menu-motion~="leave"]:not(.is-film):not([data-reduced-motion]) > .fork-gal-menu[data-leaving]::after { animation: fork-art-menu-unfade var(--art-mm-leave-ms) ease-in both; }
 }
 .fork-gal-menu[data-leaving] { pointer-events: none; }
+/* art.menu.motion.parts (skin-interface.md §18 N21): the sheet, the title / keys strips and the signal each enter on their own
+   beat - @keyframes fork-skin-menu-<part> from the skin (design px), their delay holding the first pose (backwards fill), about
+   the part's origin, eased or stepped; the part replaces the strips' shared fade. Reduced motion and phones draw them at rest. */
+@media (min-width: 641px) {
+  .fork-gal-stage[data-fk-skin-art-menu-parts~="sheet"]:not(.is-film):not([data-reduced-motion]) > .fork-gal-menu:not([data-leaving])::after {
+    transform-origin: var(--art-mp-sheet-origin); animation: fork-skin-menu-sheet var(--art-mp-sheet-ms) var(--art-mp-sheet-tf) var(--art-mp-sheet-delay) both;
+    /* The stationary ::before owns the ground; scaling its spread would sweep dark bars across the stage. */
+    box-shadow: none; }
+  .fork-gal-stage[data-fk-skin-art-menu-sheet][data-fk-skin-art-menu-parts~="sheet"]:not(.is-film):not([data-reduced-motion]) > .fork-gal-menu:not([data-leaving]):not([data-dialog])::before {
+    --sw: var(--art-menu-sheet-w); --sh: var(--art-menu-sheet-h);
+    --su: min(calc(var(--art-screen-w) * var(--mu) / var(--sw)), calc(var(--art-screen) * var(--mu) / var(--sh)));
+    content: ""; inset: auto; left: calc(var(--gx) + (var(--art-screen-w) * var(--mu) - var(--sw) * var(--su)) / 2); top: calc(var(--gy) + (var(--art-screen) * var(--mu) - var(--sh) * var(--su)) / 2);
+    width: calc(var(--sw) * var(--su)); height: calc(var(--sh) * var(--su)); background: none; box-shadow: 0 0 0 200vmax var(--gal-ui-surface); }
+  .fork-gal-stage[data-fk-skin-art-menu-parts~="title"]:not(.is-film):not([data-reduced-motion]) > .fork-gal-menu:not([data-leaving]) .fork-gal-menu-strip[data-show="title"] {
+    transform-origin: var(--art-mp-title-origin); animation: fork-skin-menu-title var(--art-mp-title-ms) var(--art-mp-title-tf) var(--art-mp-title-delay) both; }
+  .fork-gal-stage[data-fk-skin-art-menu-parts~="keys"]:not(.is-film):not([data-reduced-motion]) > .fork-gal-menu:not([data-leaving]) .fork-gal-menu-strip[data-show="keys"] {
+    transform-origin: var(--art-mp-keys-origin); animation: fork-skin-menu-keys var(--art-mp-keys-ms) var(--art-mp-keys-tf) var(--art-mp-keys-delay) both; }
+  .fork-gal-stage[data-fk-skin-art-menu-parts~="signal"][data-fk-skin-art-menu-signal]:not(.is-film):not([data-reduced-motion]) > .fork-gal-menu:not([data-leaving]) > .fork-gal-menu-panel:not(.fork-gal-confirm)::after {
+    transform-origin: var(--art-mp-signal-origin); animation: fork-skin-menu-signal var(--art-mp-signal-ms) var(--art-mp-signal-tf) var(--art-mp-signal-delay) both; }
+}
 @keyframes fork-art-menu-in { from { filter: var(--art-mm-enter-f);
   transform: translate(calc(var(--art-mm-enter-dx) * var(--mu)), calc(var(--art-mm-enter-dy) * var(--mu))) rotate(var(--art-mm-enter-rot)) scale(var(--art-mm-enter-scale)); } }
 @keyframes fork-art-menu-out { to { filter: var(--art-mm-leave-f);
@@ -4978,11 +4998,19 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) > .fork-gal-config { --mu: min(calc(var(--fk-area-h) / var(--art-screen)), calc(var(--fk-area-w) / var(--art-screen-w)));
     --gx: calc(50% - var(--art-screen-w) * var(--mu) / 2); --gy: calc(50% + var(--fk-area-t) / 2 - var(--art-screen) * var(--mu) / 2); }
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) > .fork-gal-menu { display: block; }
-  /* A sheet is the panel's backdrop: stretched over the whole panel at any window shape (strip included), so its torn or
-     printed edges reach the window's edges and no scene shows beside it; the
-     placed parts (title, close, rows, list, strips) stay on the game area. Drawn as a border image (no slices, fill): the image
-     rendered at its own size and stretched as a whole, whatever its SVG root's preserveAspectRatio says. */
-  .fork-gal-stage[data-fk-skin-art-menu-sheet]:not(.is-film) > .fork-gal-menu::after { content: ""; position: absolute; inset: 0; border-image: var(--art-menu-sheet) 0 fill / 0 stretch; pointer-events: none; }
+  /* A sheet is the panel's backdrop at its own aspect (a stretched sheet turns a round print into an egg on a tablet):
+     contained in the game area and centred on it, so the placed parts (title, close, rows, list, strips) stay
+     on the art they belong to at every window shape; the panel ground (the skin's surface) fills the window round it as
+     the sheet's spread shadow, so no scene shows beside it and a sheet's own transparency still shows the scene. --su is
+     one sheet px (--art-*-sheet-w / -h its natural size). */
+  .fork-gal-stage[data-fk-skin-art-menu-sheet]:not(.is-film) > .fork-gal-menu { overflow: clip; }
+  .fork-gal-stage[data-fk-skin-art-menu-sheet]:not(.is-film) > .fork-gal-menu::after { --sw: var(--art-menu-sheet-w); --sh: var(--art-menu-sheet-h);
+    --su: min(calc(var(--art-screen-w) * var(--mu) / var(--sw)), calc(var(--art-screen) * var(--mu) / var(--sh)));
+    content: ""; position: absolute; left: calc(var(--gx) + (var(--art-screen-w) * var(--mu) - var(--sw) * var(--su)) / 2); top: calc(var(--gy) + (var(--art-screen) * var(--mu) - var(--sh) * var(--su)) / 2);
+    width: calc(var(--sw) * var(--su)); height: calc(var(--sh) * var(--su)); background: var(--art-menu-sheet) 0 0 / 100% 100% no-repeat; box-shadow: 0 0 0 200vmax var(--gal-ui-surface); pointer-events: none; }
+  /* the 重新生成 dialog takes the menu's place (menu.cjs data-dialog): the sheet, with its printed parts, leaves
+     with the tiles and strips (the hidden panel) instead of standing empty behind the dialog. */
+  .fork-gal-stage[data-fk-skin-art-menu-sheet]:not(.is-film) > .fork-gal-menu[data-dialog]::after { visibility: hidden; }
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) > .fork-gal-menu > .fork-gal-menu-panel { position: absolute; inset: 0; z-index: 1; display: block; width: auto; max-height: none; padding: 0;
     border-radius: 0; background: none; box-shadow: none; animation: none; }
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) > .fork-gal-menu > .fork-gal-menu-panel[hidden] { display: none; }
@@ -5070,31 +5098,31 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
    The tiles are cut from the skin's menu face (font.menu §18 N33, --gal-ui-menu-font; unset = the menu's own font). */
 .fork-gal-menu .fork-gal-menu-item:nth-child(odd of .fork-gal-menu-item) .fork-gal-ransom { rotate: calc(var(--gt-rot, 0deg) * -1 / 3); }
 .fork-gal-menu .fork-gal-menu-item:nth-child(even of .fork-gal-menu-item) .fork-gal-ransom { rotate: calc(var(--gt-rot, 0deg) / 4); }
-.fork-gal-menu .fork-gal-ransom > i { display: inline-block; padding: .12em .15em .1em; font-family: var(--gal-ui-menu-font, inherit); font-style: normal; line-height: 1.05; color: var(--gt-ink); background: var(--gt-ground); }
-.fork-gal-menu .fork-gal-ransom > i.fork-gal-ransom-gap { width: .3em; padding: 0; background: none; }
-.fork-gal-menu .fork-gal-ransom > i[data-latin] { font-family: var(--gal-ui-title-font, inherit); }
-.fork-gal-menu .fork-gal-ransom > i[data-r="lead"] { font-size: calc(1em + var(--gt-scale, 0) * 1em); rotate: calc(var(--gt-rot, 0deg) * -5 / 6); }
-.fork-gal-menu .fork-gal-ransom > i[data-r="0"] { font-size: calc(1em + var(--gt-scale, 0) * .6em); rotate: calc(var(--gt-rot, 0deg) / 2); }
-.fork-gal-menu .fork-gal-ransom > i[data-r="1"] { font-size: calc(1em - var(--gt-scale, 0) * .2em); rotate: calc(var(--gt-rot, 0deg) * -1); }
-.fork-gal-menu .fork-gal-ransom > i[data-r="2"] { font-size: calc(1em - var(--gt-scale, 0) * .4em); rotate: calc(var(--gt-rot, 0deg) * 5 / 6); translate: 0 calc(var(--gt-scale, 0) * -.24em); }
-.fork-gal-menu .fork-gal-ransom > i[data-r="3"] { font-size: calc(1em + var(--gt-scale, 0) * .4em); rotate: calc(var(--gt-rot, 0deg) * -1 / 3); translate: 0 calc(var(--gt-scale, 0) * .32em); }
-.fork-gal-menu .fork-gal-ransom > i[data-r="4"] { font-size: calc(1em + var(--gt-scale, 0) * .2em); rotate: var(--gt-rot, 0deg); }
-.fork-gal-menu .fork-gal-ransom > i[data-r="5"] { font-size: calc(1em - var(--gt-scale, 0) * .6em); rotate: calc(var(--gt-rot, 0deg) * -1 / 2); translate: 0 calc(var(--gt-scale, 0) * .4em); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom > i { display: inline-block; padding: .12em .15em .1em; font-family: var(--gal-ui-menu-font, inherit); font-style: normal; line-height: 1.05; color: var(--gt-ink); background: var(--gt-ground); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom > i.fork-gal-ransom-gap { width: .3em; padding: 0; background: none; }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom > i[data-latin] { font-family: var(--gal-ui-title-font, inherit); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom > i[data-r="lead"] { font-size: calc(1em + var(--gt-scale, 0) * 1em); rotate: calc(var(--gt-rot, 0deg) * -5 / 6); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom > i[data-r="0"] { font-size: calc(1em + var(--gt-scale, 0) * .6em); rotate: calc(var(--gt-rot, 0deg) / 2); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom > i[data-r="1"] { font-size: calc(1em - var(--gt-scale, 0) * .2em); rotate: calc(var(--gt-rot, 0deg) * -1); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom > i[data-r="2"] { font-size: calc(1em - var(--gt-scale, 0) * .4em); rotate: calc(var(--gt-rot, 0deg) * 5 / 6); translate: 0 calc(var(--gt-scale, 0) * -.24em); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom > i[data-r="3"] { font-size: calc(1em + var(--gt-scale, 0) * .4em); rotate: calc(var(--gt-rot, 0deg) * -1 / 3); translate: 0 calc(var(--gt-scale, 0) * .32em); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom > i[data-r="4"] { font-size: calc(1em + var(--gt-scale, 0) * .2em); rotate: var(--gt-rot, 0deg); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom > i[data-r="5"] { font-size: calc(1em - var(--gt-scale, 0) * .6em); rotate: calc(var(--gt-rot, 0deg) * -1 / 2); translate: 0 calc(var(--gt-scale, 0) * .4em); }
 /* shape rounded / circle: clean tiles with round corners, or a disc the glyph's square fits in. square: the plain tile. */
-.fork-gal-menu .fork-gal-ransom[data-shape="rounded"] > i:not(.fork-gal-ransom-gap) { border-radius: .22em; }
-.fork-gal-menu .fork-gal-ransom[data-shape="circle"] > i:not(.fork-gal-ransom-gap) { display: inline-grid; place-items: center; box-sizing: border-box; inline-size: 1.5em; block-size: 1.5em; padding: 0; border-radius: 50%; line-height: 1; }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom[data-shape="rounded"] > i:not(.fork-gal-ransom-gap) { border-radius: .22em; }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom[data-shape="circle"] > i:not(.fork-gal-ransom-gap) { display: inline-grid; place-items: center; box-sizing: border-box; inline-size: 1.5em; block-size: 1.5em; padding: 0; border-radius: 50%; line-height: 1; }
 /* shape torn: cut-outs - every tile on a ragged outline (one per variant, so a word's neighbours tear
    differently), variants 3 and 4 in the face's heaviest weight (never a synthesised one) and 4 a narrow cut; the ink rim, a thin
    paper rim outside it (the cut-out's white edge) and the cast shadow are outline filters on the word, so they follow the tear
    (ink = the panel ground, paper = the rows' ink, the title's its own). Vector, any size. */
-.fork-gal-menu .fork-gal-ransom[data-shape="torn"] { filter: drop-shadow(.045em 0 0 var(--rk-ink)) drop-shadow(-.045em 0 0 var(--rk-ink)) drop-shadow(0 .045em 0 var(--rk-ink)) drop-shadow(0 -.045em 0 var(--rk-ink)) drop-shadow(.03em 0 0 var(--rk-paper)) drop-shadow(-.03em 0 0 var(--rk-paper)) drop-shadow(0 .03em 0 var(--rk-paper)) drop-shadow(0 -.03em 0 var(--rk-paper)) drop-shadow(.07em .07em 0 var(--rk-ink)); }
-.fork-gal-menu .fork-gal-ransom[data-shape="torn"] > i:not(.fork-gal-ransom-gap) { clip-path: polygon(0% 5%, 17% 0%, 39% 4%, 62% 0%, 84% 3%, 100% 0%, 97% 26%, 100% 51%, 96% 77%, 100% 100%, 78% 96%, 53% 100%, 29% 95%, 9% 100%, 0% 96%, 4% 72%, 0% 47%, 3% 23%); }
-.fork-gal-menu .fork-gal-ransom[data-shape="torn"] > i[data-r="0"] { clip-path: polygon(3% 0%, 28% 4%, 51% 0%, 74% 5%, 100% 2%, 96% 30%, 100% 58%, 97% 100%, 70% 95%, 44% 100%, 20% 96%, 0% 100%, 4% 66%, 0% 35%); }
-.fork-gal-menu .fork-gal-ransom[data-shape="torn"] > i[data-r="1"] { clip-path: polygon(0% 0%, 23% 5%, 47% 1%, 70% 6%, 97% 0%, 100% 34%, 95% 62%, 100% 94%, 73% 100%, 49% 94%, 25% 100%, 2% 95%, 5% 60%, 0% 29%); }
-.fork-gal-menu .fork-gal-ransom[data-shape="torn"] > i[data-r="2"] { clip-path: polygon(5% 3%, 33% 0%, 58% 5%, 82% 0%, 100% 6%, 96% 41%, 100% 73%, 95% 97%, 66% 100%, 38% 95%, 12% 100%, 0% 78%, 4% 47%, 0% 18%); }
-.fork-gal-menu .fork-gal-ransom[data-shape="torn"] > i[data-r="3"] { padding-inline: .16em; font-weight: 900; font-synthesis-weight: none; clip-path: polygon(0% 6%, 21% 0%, 46% 6%, 72% 1%, 100% 5%, 97% 33%, 100% 66%, 96% 100%, 61% 96%, 33% 100%, 5% 95%, 0% 64%, 3% 34%); }
-.fork-gal-menu .fork-gal-ransom[data-shape="torn"] > i[data-r="4"] { scale: .85 1; margin-inline: -.06em; font-weight: 900; font-synthesis-weight: none; clip-path: polygon(4% 0%, 31% 6%, 63% 0%, 94% 4%, 100% 37%, 96% 70%, 100% 100%, 69% 95%, 37% 100%, 6% 96%, 0% 63%, 3% 30%); }
-.fork-gal-menu .fork-gal-ransom[data-shape="torn"] > i[data-r="5"] { clip-path: polygon(0% 3%, 26% 0%, 52% 6%, 77% 0%, 100% 4%, 95% 28%, 100% 55%, 97% 81%, 100% 97%, 75% 100%, 50% 95%, 24% 100%, 0% 96%, 5% 69%, 0% 41%, 4% 17%); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom[data-shape="torn"] { filter: drop-shadow(.045em 0 0 var(--rk-ink)) drop-shadow(-.045em 0 0 var(--rk-ink)) drop-shadow(0 .045em 0 var(--rk-ink)) drop-shadow(0 -.045em 0 var(--rk-ink)) drop-shadow(.03em 0 0 var(--rk-paper)) drop-shadow(-.03em 0 0 var(--rk-paper)) drop-shadow(0 .03em 0 var(--rk-paper)) drop-shadow(0 -.03em 0 var(--rk-paper)) drop-shadow(.07em .07em 0 var(--rk-ink)); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom[data-shape="torn"] > i:not(.fork-gal-ransom-gap) { clip-path: polygon(0% 5%, 17% 0%, 39% 4%, 62% 0%, 84% 3%, 100% 0%, 97% 26%, 100% 51%, 96% 77%, 100% 100%, 78% 96%, 53% 100%, 29% 95%, 9% 100%, 0% 96%, 4% 72%, 0% 47%, 3% 23%); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom[data-shape="torn"] > i[data-r="0"] { clip-path: polygon(3% 0%, 28% 4%, 51% 0%, 74% 5%, 100% 2%, 96% 30%, 100% 58%, 97% 100%, 70% 95%, 44% 100%, 20% 96%, 0% 100%, 4% 66%, 0% 35%); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom[data-shape="torn"] > i[data-r="1"] { clip-path: polygon(0% 0%, 23% 5%, 47% 1%, 70% 6%, 97% 0%, 100% 34%, 95% 62%, 100% 94%, 73% 100%, 49% 94%, 25% 100%, 2% 95%, 5% 60%, 0% 29%); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom[data-shape="torn"] > i[data-r="2"] { clip-path: polygon(5% 3%, 33% 0%, 58% 5%, 82% 0%, 100% 6%, 96% 41%, 100% 73%, 95% 97%, 66% 100%, 38% 95%, 12% 100%, 0% 78%, 4% 47%, 0% 18%); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom[data-shape="torn"] > i[data-r="3"] { padding-inline: .16em; font-weight: 900; font-synthesis-weight: none; clip-path: polygon(0% 6%, 21% 0%, 46% 6%, 72% 1%, 100% 5%, 97% 33%, 100% 66%, 96% 100%, 61% 96%, 33% 100%, 5% 95%, 0% 64%, 3% 34%); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom[data-shape="torn"] > i[data-r="4"] { scale: .85 1; margin-inline: -.06em; font-weight: 900; font-synthesis-weight: none; clip-path: polygon(4% 0%, 31% 6%, 63% 0%, 94% 4%, 100% 37%, 96% 70%, 100% 100%, 69% 95%, 37% 100%, 6% 96%, 0% 63%, 3% 30%); }
+:is(.fork-gal-menu, .fork-gal-backlog) .fork-gal-ransom[data-shape="torn"] > i[data-r="5"] { clip-path: polygon(0% 3%, 26% 0%, 52% 6%, 77% 0%, 100% 4%, 95% 28%, 100% 55%, 97% 81%, 100% 97%, 75% 100%, 50% 95%, 24% 100%, 0% 96%, 5% 69%, 0% 41%, 4% 17%); }
 /* ==== end stage skin: art menu ==== */
 
 /* ==== stage skin: art screens ==== */
@@ -5305,6 +5333,82 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i[data-wave="1"] { background-image: var(--art-voice-wave-1, none); }
   .fork-gal-stage[data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i[data-wave="2"] { background-image: var(--art-voice-wave-2, none); }
   .fork-gal-stage[data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i[data-wave="3"] { background-image: var(--art-voice-wave-3, none); }
+}
+/* art backlog: phone. art.backlog.narrow: the wide screen's own
+   parts on a phone - the sheet (cover), the title and close images in the head row, every entry's drawn head (voice
+   control, name over its frame and rule, initials) and the highlight - at --art-bl-nu CSS px per design px; the words keep
+   the reading size and start at the text column; turn dividers, the latest control and the list's scrolling stay shared. */
+@media (max-width: 640px) {
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) > .fork-gal-backlog { --mu: var(--art-bl-nu); --bl-nfs: max(var(--fk-min-text, 0px), var(--gal-ui-reading-size)); --bl-nt: calc(var(--art-bl-text-l) * var(--mu)); background: none; color: var(--art-backlog-ink, var(--gal-ui-ink)); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="sheet"]:not(.is-film) > .fork-gal-backlog::before { content: ""; position: absolute; inset: 0; z-index: -1; width: auto; height: auto; aspect-ratio: auto;
+    border: 0 none; background: var(--art-backlog-sheet) center / cover no-repeat; -webkit-mask: none; mask: none; animation: none; pointer-events: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) > .fork-gal-backlog::after { content: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-head { box-sizing: border-box; width: 100%; min-height: calc(var(--art-backlog-close-h, 0) * var(--mu)); justify-content: flex-start; padding: 0; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-head::after { content: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="title"]:not(.is-film) .fork-gal-backlog-title { box-sizing: border-box; align-items: center; justify-content: flex-end; gap: 0;
+    width: calc(var(--art-backlog-title-w) * var(--mu)); height: calc(var(--art-backlog-title-h) * var(--mu)); background: var(--art-backlog-title-img) 0 0 / 100% 100% no-repeat; font-size: 0; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="title"]:not(.is-film) .fork-gal-backlog-title > :is(b, .fork-gal-backlog-gem) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="title"]:not(.is-film) .fork-gal-backlog-title .fork-help-tip { margin: 0; font-size: var(--gal-ui-meta-size); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-close { top: 0; right: 0; bottom: auto; width: calc(var(--art-backlog-close-w) * var(--mu)); height: calc(var(--art-backlog-close-h) * var(--mu));
+    border-radius: 0; background: var(--art-backlog-close-img) 0 0 / 100% 100% no-repeat; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-close:is(:hover, :focus-visible) { background-image: var(--art-backlog-close-focus); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-close > svg { display: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-clip { position: absolute; right: calc(var(--art-backlog-close-w) * var(--mu)); top: calc(var(--art-backlog-close-h) * var(--mu) / 2 - 18px); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-col { width: 100%; box-sizing: border-box; padding-left: 8px; padding-right: 8px; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-row { display: block; margin: 0 0 calc(var(--art-bl-gap) * var(--mu)); padding: calc(var(--art-bl-top) * var(--mu)) 0; border-radius: 0; box-shadow: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-row.is-line { padding-top: calc((var(--art-bl-head) + var(--art-bl-top)) * var(--mu) + 6px); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-row .fork-gal-backlog-face { display: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-text { margin: 0 0 0 var(--bl-nt); font-size: var(--bl-nfs); font-family: var(--gal-skin-font-body, var(--gal-ui-font)); font-weight: var(--gal-skin-weight, 500);
+    letter-spacing: var(--gal-skin-spacing, 0); text-shadow: var(--art-text-halo, none); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-row:not(.is-narration) .fork-gal-backlog-text { color: inherit; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog.is-quoted .fork-gal-backlog-row.is-line .fork-gal-backlog-text { padding-left: 0; text-indent: 0; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-col > :is(.fork-gal-backlog-input, .fork-gal-backlog-card.is-look-row, .fork-gal-backlog-card) { padding-left: var(--bl-nt); padding-right: 0; }
+  /* The entry's head: the name at its place over its frame and rule, set in the box plate's initials. */
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name { position: absolute; display: flex; align-items: flex-end; gap: 0; left: calc(var(--art-bl-name-x) * var(--mu));
+    top: calc(var(--art-bl-name-y) * var(--mu)); height: calc(var(--art-bl-name-h) * var(--mu)); margin: 0; font-size: calc(var(--art-bl-name-font) * var(--mu)); line-height: 1; white-space: nowrap; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name b { position: relative; z-index: 1; color: inherit; font: var(--art-np-weight, 500) 1em / 1 var(--gal-skin-font-name, var(--gal-ui-font)); letter-spacing: 0; text-shadow: var(--art-np-halo, none); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name b::before,
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name b::after { content: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-initials][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name b > i { position: relative; font-style: normal; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-initials][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name b > i[data-np="lead"] { font-size: calc(var(--art-np-lead) / var(--art-np-font) * 1em); color: var(--row-color, currentColor); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-initials][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name b > i[data-np="rest"] { font-size: calc(var(--art-np-rest) / var(--art-np-font) * 1em); top: calc(var(--art-np-drop) / var(--art-np-font) * 1em); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-initials][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name b > i[data-np="given-lead"] { font-size: calc(var(--art-np-given-lead) / var(--art-np-font) * 1em); margin-left: calc(var(--art-np-gap) / var(--art-np-font) * 1em); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-initials][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name b > i[data-np="given-rest"] { font-size: calc(var(--art-np-given-rest) / var(--art-np-font) * 1em); top: calc(var(--art-np-drop) / var(--art-np-font) * 1em); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="frame"]:not(.is-film) .fork-gal-backlog-name::before,
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="rule"]:not(.is-film) .fork-gal-backlog-name::after { content: ""; position: absolute; left: calc((var(--art-bl-frame-x) - var(--art-bl-name-x)) * var(--mu)); top: calc((var(--art-bl-frame-y) - var(--art-bl-name-y)) * var(--mu));
+    width: calc(var(--art-bl-frame-w) * var(--mu)); height: calc(var(--art-bl-frame-h) * var(--mu)); background: var(--art-bl-frame-img) 0 0 / 100% 100% no-repeat; pointer-events: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="rule"]:not(.is-film) .fork-gal-backlog-name::after { left: calc((var(--art-bl-rule-x) - var(--art-bl-name-x)) * var(--mu)); top: calc((var(--art-bl-rule-y) - var(--art-bl-name-y)) * var(--mu));
+    width: calc(var(--art-bl-rule-w) * var(--mu)); height: calc(var(--art-bl-rule-h) * var(--mu)); background-image: var(--art-bl-rule-img); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > :is(.fork-gal-backlog-tag, .fork-gal-backlog-badge) { position: relative; z-index: 1; margin-left: .3em; font-size: var(--gal-ui-meta-size); }
+  /* The voice control at the skin's row place (anchor row), or after the name moved by at (anchor name), drawn from
+     art.voice; 6px of touch margin round the image. */
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-voice="row"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { position: absolute; margin: 0; translate: none;
+    left: calc((var(--art-bl-voice-x) - var(--art-bl-name-x)) * var(--mu) - 6px); top: calc((var(--art-bl-voice-y) - var(--art-bl-name-y)) * var(--mu) - 6px);
+    width: calc(var(--art-bl-voice-w, 0) * var(--mu) + 12px); height: calc(var(--art-bl-voice-h, 0) * var(--mu) + 12px); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-voice="name"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { margin-left: calc(var(--art-bl-voice-x, 0) * var(--mu) - 6px); translate: 0 calc(var(--art-bl-voice-y, 0) * var(--mu)); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { box-sizing: border-box; min-width: 0; min-height: 0; padding: 6px; border: 0 none; border-radius: 0;
+    background: var(--art-voice) center / contain no-repeat; background-origin: content-box; box-shadow: none; color: transparent; font-size: 0; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > :not(.fork-voice-spinner) { display: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button::before { content: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button:focus-visible { background-image: var(--art-voice-focus); outline: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button[data-voice-state="playing"] { background-image: var(--art-voice-on); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button[data-voice-state="loading"] { filter: brightness(.6); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button[data-voice-state="error"] { filter: grayscale(1); }
+  /* art.voice.waves (theme.css 「backlog voice waves」): the arcs are their own layers over the body, which keeps its idle /
+     focus image while the line plays (no active swap: only the arcs move). */
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button[data-voice-state="playing"] { background-image: var(--art-voice); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button[data-voice-state="playing"]:is(:hover, :focus-visible) { background-image: var(--art-voice-focus); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves { display: block; position: absolute; inset: 6px; pointer-events: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i { position: absolute; inset: 0; background: none center / contain no-repeat; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i[data-wave="1"] { background-image: var(--art-voice-wave-1, none); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i[data-wave="2"] { background-image: var(--art-voice-wave-2, none); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i[data-wave="3"] { background-image: var(--art-voice-wave-3, none); }
+  /* The highlight: the skin's image behind the current entry and the keyboard focus (touch has no hover). */
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="hover"]:not(.is-film) .fork-gal-backlog-row { isolation: isolate; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="hover"]:not(.is-film) .fork-gal-backlog-row:is(.is-here, .is-jump:hover, .is-jump:focus-visible) { background: none; outline: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="hover"]:not(.is-film) .fork-gal-backlog-row:is(.is-here, .is-jump:focus-visible)::before { content: ""; position: absolute; z-index: -1;
+    left: calc(-1 * var(--art-bl-hover-l) * var(--mu)); right: calc(-1 * var(--art-bl-hover-r) * var(--mu)); top: calc(-1 * var(--art-bl-hover-t) * var(--mu)); bottom: calc(-1 * var(--art-bl-hover-b) * var(--mu));
+    background: var(--art-bl-hover-img) 0 0 / 100% 100% no-repeat; pointer-events: none; }
 }
 /* ==== end stage skin: art screens ==== */
 /* ==== stage skin: config surface ==== */
@@ -5673,6 +5777,53 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-config-parts~="select"]:not(.is-film) .fork-gal-config-control :is(.fork-font-trigger, .fork-gal-skin-trigger):is(:hover, :focus-visible, [aria-expanded="true"]) { background-image: var(--art-cf-sel-focus); }
 }
 /* ==== end stage skin: art tiles, confirm, highlights ==== */
+
+/* ==== art backlog plates ==== */
+/*
+   art.backlog.plates (C1): each 履历 entry on its role's own plate. stageSkinArt writes data-fk-skin-art-backlog-plates and
+   the --art-bl-p-<role>-* tokens (images and inks by index, slice and overhang edges, poses, slant); the backlog view marks
+   every plated row with data-bl-role, data-bl-plate (its image index) and data-bl-pose (its pose index), and points its --bp-*
+   at its own tokens. The plate is the row's nine-sliced border image: the edge slices at their size (tape, pins, tails), the
+   middle stretched, overhanging the row by out. The pose moves and turns the whole row, so its hit area, the highlight (sized
+   to the plate) and its focus go with it while the reading and tab order stay; slant skews only the words, never the
+   highlight or the voice control. The body takes the image's ink (checked >= 4.5:1 on its ground when the skin is written).
+   --bp-u: one design px - the art layer's (--mu), else (a phone's shared sheet) half a CSS px.
+*/
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate] { --bp-u: var(--mu, .5px);
+  --art-bl-hover-t: var(--bp-ot); --art-bl-hover-r: var(--bp-or); --art-bl-hover-b: var(--bp-ob); --art-bl-hover-l: var(--bp-ol);
+  position: relative; isolation: isolate; box-sizing: border-box; min-height: calc((var(--bp-st) + var(--bp-sb)) * var(--bp-u)); color: var(--bp-ink);
+  border-image: var(--bp) var(--bp-st) var(--bp-sr) var(--bp-sb) var(--bp-sl) fill / calc(var(--bp-st) * var(--bp-u)) calc(var(--bp-sr) * var(--bp-u)) calc(var(--bp-sb) * var(--bp-u)) calc(var(--bp-sl) * var(--bp-u))
+    / calc(var(--bp-ot) * var(--bp-u)) calc(var(--bp-or) * var(--bp-u)) calc(var(--bp-ob) * var(--bp-u)) calc(var(--bp-ol) * var(--bp-u)) stretch; }
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate][data-bl-pose] { transform: translate(calc(var(--bp-x) * var(--bp-u)), calc(var(--bp-y) * var(--bp-u))) rotate(var(--bp-rot)); }
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate] :is(.fork-gal-backlog-text, .fork-gal-backlog-input > p, .fork-gal-backlog-card > p, .fork-gal-backlog-turn > span) { color: inherit; }
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate][data-bl-slant] :is(.fork-gal-backlog-text, .fork-gal-backlog-input > p, .fork-gal-backlog-card > p, .fork-gal-backlog-turn > span) { transform: skewX(calc(-1 * var(--bp-slant))); }
+/* The plate covers the shared row highlight: without the skin's own (art.backlog.hover) keyboard focus shows the stage's ring. */
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not([data-fk-skin-art-backlog-parts~="hover"]):not(.is-film) .fork-gal-backlog [data-bl-plate]:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }
+/* A divider on its plate: the plate is the rule. */
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog .fork-gal-backlog-turn[data-bl-plate]::before,
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog .fork-gal-backlog-turn[data-bl-plate]::after { content: none; }
+/* ==== end art backlog plates ==== */
+
+/* ==== art backlog glyph tiles ==== */
+/*
+   C2: with art.backlog.name.letter / plates.divider.letter ransom the speaker's name and the turn rule (第 N 轮, on its plate)
+   are cut into glyph tiles by the name plate's picker (labels.cjs; the backlog view's lettered) and drawn by the menu's tile
+   rules above («glyph tiles», shared): the tiles are art.backlog.glyphTiles (else art.menu.glyphTiles), one glyph of a word on
+   the accent tile. Off the art layer (film mode) the plain word shows; the plain word is always the accessible text.
+   name.align end (wide stages, where the text column is measured): the name's right edge on the text column's left edge, a
+   long name growing to the left; the replay control in the name's flow (no voice anchor, or anchor name) stays right after it.
+*/
+.fork-gal-backlog .fork-gal-ransom { display: none; }
+.fork-gal-stage[data-fk-skin-art-backlog-letter]:not(.is-film) .fork-gal-backlog-name .fork-gal-ransom,
+.fork-gal-stage[data-fk-skin-art-backlog-divider-letter]:not(.is-film) .fork-gal-backlog-turn .fork-gal-ransom {
+  --rk-paper: var(--art-backlog-ink, var(--gal-ui-ink)); --rk-ink: var(--gal-ui-surface); display: inline-flex; align-items: center; gap: .05em; line-height: 1; letter-spacing: 0; }
+.fork-gal-stage[data-fk-skin-art-backlog-letter]:not(.is-film) .fork-gal-backlog-name .fork-gal-ransom-text,
+.fork-gal-stage[data-fk-skin-art-backlog-divider-letter]:not(.is-film) .fork-gal-backlog-turn .fork-gal-ransom-text { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (min-width: 641px) {
+  .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name { left: auto; right: calc(100% - var(--bl-text)); }
+  .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-parts~="name"]:not([data-fk-skin-art-backlog-voice="row"]):not([data-fk-skin-art-backlog-voice="text"]):not(.is-film) .fork-gal-backlog-name > .fork-voice-button { position: absolute; left: 100%; bottom: 0; }
+}
+/* ==== end art backlog glyph tiles ==== */
 
 /* ==== stage skin: P5 slash layout ==== */
 /* (a pop-punk menu style; no third-party asset or
