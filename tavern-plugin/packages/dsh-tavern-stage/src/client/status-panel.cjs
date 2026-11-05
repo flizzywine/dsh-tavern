@@ -44,9 +44,18 @@ function faceDataUrl(url) {
 
 // The page's window.DshCardPage: the same object in a trusted and a sandboxed frame. Blobs arrive by postMessage and
 // become the frame's own object URLs (a sandboxed frame cannot load the host's).
-function cardPagePrelude(token, page, snapshot, shortcut) {
+// The stage's scrollbar rule in the page's document (theme.css «stage scrollbars»): none, unless the skin declares
+// scrollbars.page (its --fk-sb-page-* tokens on the host). :where() keeps it under the card's own CSS.
+function cardPageScrollbars(style) {
+    const token = name => style.getPropertyValue('--fk-sb-page-' + name).trim(), all = ':where(html,body,*)', thumb = token('thumb');
+    if (!thumb) return all + '{scrollbar-width:none}' + all + '::-webkit-scrollbar{display:none}';
+    const w = token('w'), track = token('track');
+    return all + '::-webkit-scrollbar{width:' + w + ';height:' + w + ';background:' + track + '}' + all + '::-webkit-scrollbar-thumb{border-radius:' + w + ';background:' + thumb + '}'
+        + all + '::-webkit-scrollbar-track,' + all + '::-webkit-scrollbar-corner{background:' + track + '}';
+}
+function cardPagePrelude(token, page, snapshot, shortcut, scrollbars) {
     const json = value => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-    return '<script data-dsh-card-page>(function(){var token=' + json(token) + ',page=' + json(page) + ',data=' + json(snapshot) + ',next=1,pending=Object.create(null),listeners=new Set(),assets=new Map();'
+    return '<style data-dsh-card-page>' + scrollbars + '</style><script data-dsh-card-page>(function(){var token=' + json(token) + ',page=' + json(page) + ',data=' + json(snapshot) + ',next=1,pending=Object.create(null),listeners=new Set(),assets=new Map();'
         + 'function copy(v){return JSON.parse(JSON.stringify(v));}'
         + 'function call(method,args){return new Promise(function(resolve,reject){var id="p"+(next++);pending[id]={resolve:resolve,reject:reject};parent.postMessage({type:"dsh-card-page-call",token:token,requestId:id,method:method,args:args||{}},"*");});}'
         + 'addEventListener("message",function(event){var d=event.data;if(event.source!==parent||!d||d.token!==token)return;'
@@ -214,7 +223,7 @@ function openCardPage({sessionId, page, shortcut, saved, trustedCardMode, helper
         if (!target) return;
         token = pageToken();
         theme = themeTokens ? themeTokens(target) || {} : {};
-        content = cardPagePrelude(token, page, snapshot(), shortcut) + html;
+        content = cardPagePrelude(token, page, snapshot(), shortcut, cardPageScrollbars(window.getComputedStyle(target))) + html;
         window.addEventListener('message', receive);
         stopMessages = () => window.removeEventListener('message', receive);
         lifecycle = createCardFrame(frameProps());

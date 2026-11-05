@@ -2299,6 +2299,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 /* Items: a label in the title face with its English caption; the highlight (pointer or keyboard) is the active surface,
    the gem and an accent bar; keyboard focus adds the theme's focus ring. */
 .fork-gal-menu-list { display: grid; gap: 3px; }
+/* a drawn menu's scroll indicators (art.menu capacity), shown only by those menus */
+.fork-gal-menu-more { display: none; }
 .fork-gal-stage .fork-gal-menu-item { position: relative; display: grid; grid-template-columns: 16px auto minmax(0, 1fr) auto; align-items: center; column-gap: 12px; box-sizing: border-box; width: 100%; min-height: clamp(46px, 5.6vh, 54px); margin: 0; padding: 8px 16px 8px 12px;
   border: 0; border-radius: calc(var(--gal-ui-radius) * .8); background: transparent; box-shadow: none; color: var(--gal-ui-ink-2); font-family: var(--gal-ui-title-font); text-align: left; cursor: pointer;
   transition: background .15s, color .15s; animation: fork-gal-menu-item .3s cubic-bezier(.2, .8, .3, 1) both; animation-delay: 60ms; }
@@ -3141,8 +3143,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-layout]:not(.is-film) .fork-gal-box .fork-gal-name { --adv-f: calc(var(--cl-fs) * var(--fk-text-scale, 1)); --p5-f: var(--adv-f); }
 .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-layout][data-fk-skin-art]:not(.is-film) .fork-gal-box .fork-gal-name { --adv-f: inherit; --p5-f: inherit; }
 .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-layout]:not(.is-film) .fork-gal-box .fork-gal-text {
-  position: static; padding: 0 var(--fk-text-bleed, 0px); text-indent: 0; scrollbar-width: none; }
-.fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-layout]:not(.is-film) .fork-gal-box .fork-gal-text::-webkit-scrollbar { display: none; }
+  position: static; padding: 0 var(--fk-text-bleed, 0px); text-indent: 0; }
 /* the ADV boxes are sized for exactly the pager's 3 lines (-adv-lines) and their name
    plates do not take a text line (ribbon sits over the edge; underline has its own reserved row), so narration does not
    inherit the classic theme's in-box name-line offset: its text starts at the box's own top padding. */
@@ -5032,6 +5033,10 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-panel > :is(.fork-gal-menu-ornament, .fork-gal-menu-frame, .fork-gal-menu-head) { display: none; }
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-list { position: absolute; left: calc(var(--gx) + var(--art-mr-x) * var(--mu));
     top: calc(var(--gy) + var(--art-mr-top) * var(--mu)); width: calc(var(--art-mr-w) * var(--mu)); gap: calc(var(--art-mr-gap) * var(--mu)); }
+  /* rows.fit (the menu's capacity): past fit design px the bars scroll inside it (menu.cjs keeps the focused bar in view; the
+     chevrons above mark the clipped edges); the list reaches 48 design px out to each side so poses and the cursor are not cut. */
+  .fork-gal-stage[data-fk-skin-art-menu-rows-fit]:not(.is-film) .fork-gal-menu-list { --mp: calc(48 * var(--mu)); max-height: calc(var(--art-mr-fit) * var(--mu)); padding: 0 var(--mp); margin: 0 calc(-1 * var(--mp));
+    overflow: hidden auto; overscroll-behavior: contain; }
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-item { display: flex; align-items: center; gap: .6em; box-sizing: border-box; width: 100%; height: calc(var(--art-mr-h) * var(--mu)); min-height: 0;
     margin: 0; padding: max(0px, calc((2 * var(--art-mr-y) - var(--art-mr-h)) * var(--mu))) calc((var(--art-mr-w) - var(--art-mr-r)) * var(--mu)) max(0px, calc((var(--art-mr-h) - 2 * var(--art-mr-y)) * var(--mu))) calc(var(--art-mr-l) * var(--mu));
     border: 0 none; border-radius: 0; background: none; box-shadow: none; color: var(--art-mr-ink, var(--gal-ui-ink)); font: var(--art-mr-weight) calc(var(--art-mr-font) * var(--mu)) / 1.2 var(--gal-ui-font); animation: none;
@@ -5676,8 +5681,37 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     width: calc(((var(--art-mt-cols) - 1) * var(--art-mt-px) + var(--art-mt-w)) * var(--mu)); justify-content: center; align-content: start;
     grid-template-columns: repeat(var(--art-mt-cols), calc(var(--art-mt-w) * var(--u))); grid-auto-rows: calc(var(--art-mt-h) * var(--u));
     column-gap: calc((var(--art-mt-px) - var(--art-mt-w)) * var(--u)); row-gap: calc((var(--art-mt-py) - var(--art-mt-h)) * var(--u)); gap: calc((var(--art-mt-py) - var(--art-mt-h)) * var(--u)) calc((var(--art-mt-px) - var(--art-mt-w)) * var(--u)); }
+  /* minScale (the menu's capacity): more rows first close their gaps (the pitch down to the cell), then scale the grid down to
+     fit but not below minScale; past it the grid scrolls inside its fit height. The list then joins the panel's flow (margins in
+     place of its offset) so the placed (at) tiles keep the panel as their box and stay put while the rows scroll; menu.cjs keeps
+     the focused row in view and marks the clipped edges (data-more), each shown by an indicator in the label ink. */
+  .fork-gal-stage[data-fk-skin-art-menu-scroll]:not(.is-film) .fork-gal-menu-list {
+    --py: max(var(--art-mt-h), min(var(--art-mt-py), calc((var(--art-mt-fit) - var(--art-mt-h)) / max(1, var(--rows) - 1))));
+    --k: max(var(--art-mt-min-scale), min(1, calc(var(--art-mt-fit) / ((var(--rows) - 1) * var(--py) + var(--art-mt-h)))));
+    position: static; margin: calc(var(--oy) + var(--art-mt-y) * var(--mu)) 0 0 calc(var(--ox) + var(--art-mt-x) * var(--mu)); max-height: calc(var(--art-mt-fit) * var(--mu));
+    overflow: hidden auto; overscroll-behavior: contain;
+    row-gap: calc((var(--py) - var(--art-mt-h)) * var(--u)); gap: calc((var(--py) - var(--art-mt-h)) * var(--u)) calc((var(--art-mt-px) - var(--art-mt-w)) * var(--u)); }
+  .fork-gal-stage[data-fk-skin-art-menu-scroll]:not(.is-film) .fork-gal-menu-panel:not(.fork-gal-confirm) { padding: 0; }
+  .fork-gal-stage[data-fk-skin-art-menu-scroll][data-fk-skin-art-menu-at~="resume"]:not(.is-film) .fork-gal-menu-item[data-item="resume"],
+  .fork-gal-stage[data-fk-skin-art-menu-scroll][data-fk-skin-art-menu-at~="backlog"]:not(.is-film) .fork-gal-menu-item[data-item="backlog"],
+  .fork-gal-stage[data-fk-skin-art-menu-scroll][data-fk-skin-art-menu-at~="gallery"]:not(.is-film) .fork-gal-menu-item[data-item="gallery"],
+  .fork-gal-stage[data-fk-skin-art-menu-scroll][data-fk-skin-art-menu-at~="config"]:not(.is-film) .fork-gal-menu-item[data-item="config"],
+  .fork-gal-stage[data-fk-skin-art-menu-scroll][data-fk-skin-art-menu-at~="keys"]:not(.is-film) .fork-gal-menu-item[data-item="keys"],
+  .fork-gal-stage[data-fk-skin-art-menu-scroll][data-fk-skin-art-menu-at~="leave"]:not(.is-film) .fork-gal-menu-item[data-item="leave"] {
+    left: calc(var(--ox) + var(--ax) * var(--mu)); top: calc(var(--oy) + var(--ay) * var(--mu)); }
+  /* the clipped edges of a scrolling list (menu.cjs data-more): a chevron in the label ink just outside the list area, per
+     mode its place (--more-x / -w the list's left and width, --more-top / -h its top and fit height, in CSS px) */
+  .fork-gal-stage[data-fk-skin-art-menu-scroll]:not(.is-film) .fork-gal-menu-more { --more-x: calc(var(--ox) + var(--art-mt-x) * var(--mu)); --more-w: calc(((var(--art-mt-cols) - 1) * var(--art-mt-px) + var(--art-mt-w)) * var(--mu));
+    --more-top: calc(var(--oy) + var(--art-mt-y) * var(--mu)); --more-h: calc(var(--art-mt-fit) * var(--mu)); --more-ink: var(--art-mt-ink, var(--gal-ui-ink)); }
+  .fork-gal-stage[data-fk-skin-art-menu-rows-fit]:not(.is-film) .fork-gal-menu-more { --more-x: calc(var(--gx) + var(--art-mr-x) * var(--mu)); --more-w: calc(var(--art-mr-w) * var(--mu));
+    --more-top: calc(var(--gy) + var(--art-mr-top) * var(--mu)); --more-h: calc(var(--art-mr-fit) * var(--mu)); --more-ink: var(--art-mr-ink, var(--gal-ui-ink)); }
+  .fork-gal-stage:is([data-fk-skin-art-menu-scroll], [data-fk-skin-art-menu-rows-fit]):not(.is-film) .fork-gal-menu-list[data-more~="up"] ~ .fork-gal-menu-more[data-edge="up"],
+  .fork-gal-stage:is([data-fk-skin-art-menu-scroll], [data-fk-skin-art-menu-rows-fit]):not(.is-film) .fork-gal-menu-list[data-more~="down"] ~ .fork-gal-menu-more[data-edge="down"] { display: block; position: absolute; z-index: 2;
+    left: var(--more-x); width: var(--more-w); height: calc(32 * var(--mu)); top: calc(var(--more-top) - 34 * var(--mu)); background: var(--more-ink); pointer-events: none;
+    clip-path: polygon(46.5% 85%, 50% 15%, 53.5% 85%, 52% 85%, 50% 45%, 48% 85%); }
+  .fork-gal-stage:is([data-fk-skin-art-menu-scroll], [data-fk-skin-art-menu-rows-fit]):not(.is-film) .fork-gal-menu-list[data-more~="down"] ~ .fork-gal-menu-more[data-edge="down"] { top: calc(var(--more-top) + var(--more-h) + 2 * var(--mu)); transform: scaleY(-1); }
   .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-sep { display: none; }
-  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item { --ti: var(--art-mt-plain, none); --tf: var(--ti); --tw: var(--art-mt-plain-w, 0); --th: var(--art-mt-plain-h, 0);
+  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item { --ti: var(--art-mt-plain, none); --tf: var(--art-mt-plain-focus, var(--ti)); --tw: var(--art-mt-plain-w, 0); --th: var(--art-mt-plain-h, 0);
     position: relative; isolation: isolate; display: block; box-sizing: border-box; width: 100%; height: 100%; min-height: 0; margin: 0; padding: 0; border: 0 none; border-radius: 0; border-image: none;
     background: none; box-shadow: none; color: var(--art-mt-ink, var(--gal-ui-ink)); animation: none; overflow: visible; }
   .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item::before { content: ""; position: absolute; z-index: -2; left: calc(50% + (var(--art-mt-dx) - var(--tw) / 2) * var(--u));
@@ -6481,3 +6515,27 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-lease-avatar { display: inline-grid; place-items: center; flex: none; box-sizing: border-box; overflow: hidden; border-radius: 50%; background: var(--gal-ui-surface-2); color: var(--gal-ui-ink); box-shadow: inset 0 0 0 1px var(--gal-ui-line); font-weight: 700; line-height: 1; }
 .fork-gal-lease-avatar-img { width: 100%; height: 100%; object-fit: cover; }
 /* ==== end stage lease HUD ==== */
+
+/* ==== stage scrollbars ==== */
+/* The stage draws no native scrollbar: wheel, touch, keys and focus-into-view still scroll every container, and clipped edges
+   carry their own cue (the Esc menu's chevrons, a fade). A skin's scrollbars.<surface> (skin-adapter: data-fk-scrollbars and
+   --fk-sb-<surface>-thumb / -track / -w on the stage root) shows a styled one on that surface instead. A card page's document
+   gets the same rule from its prelude (status-panel.cjs). */
+.fork-gal-stage, .fork-gal-stage * { scrollbar-width: none; }
+.fork-gal-stage::-webkit-scrollbar, .fork-gal-stage ::-webkit-scrollbar { display: none; }
+.fork-gal-stage[data-fk-scrollbars~="menu"] :is(.fork-gal-menu, .fork-gal-menu *) { --fk-sb-thumb: var(--fk-sb-menu-thumb); --fk-sb-track: var(--fk-sb-menu-track); --fk-sb-w: var(--fk-sb-menu-w); }
+.fork-gal-stage[data-fk-scrollbars~="backlog"] :is(.fork-gal-backlog, .fork-gal-backlog *) { --fk-sb-thumb: var(--fk-sb-backlog-thumb); --fk-sb-track: var(--fk-sb-backlog-track); --fk-sb-w: var(--fk-sb-backlog-w); }
+.fork-gal-stage[data-fk-scrollbars~="config"] :is(.fork-gal-config, .fork-gal-config *) { --fk-sb-thumb: var(--fk-sb-config-thumb); --fk-sb-track: var(--fk-sb-config-track); --fk-sb-w: var(--fk-sb-config-w); }
+.fork-gal-stage[data-fk-scrollbars~="choices"] :is(.fork-gal-choices, .fork-gal-choices *) { --fk-sb-thumb: var(--fk-sb-choices-thumb); --fk-sb-track: var(--fk-sb-choices-track); --fk-sb-w: var(--fk-sb-choices-w); }
+.fork-gal-stage[data-fk-scrollbars~="text"] :is(.fork-gal-box, .fork-gal-box *) { --fk-sb-thumb: var(--fk-sb-text-thumb); --fk-sb-track: var(--fk-sb-text-track); --fk-sb-w: var(--fk-sb-text-w); }
+.fork-gal-stage[data-fk-scrollbars~="gallery"] :is(.fork-cg-gallery, .fork-cg-gallery *, .fork-cg-viewer, .fork-cg-viewer *) { --fk-sb-thumb: var(--fk-sb-gallery-thumb); --fk-sb-track: var(--fk-sb-gallery-track); --fk-sb-w: var(--fk-sb-gallery-w); }
+/* a declared surface: scrollbar-width / -color back to auto so its ::-webkit-scrollbar parts draw */
+:is(.fork-gal-stage[data-fk-scrollbars~="menu"] :is(.fork-gal-menu, .fork-gal-menu *), .fork-gal-stage[data-fk-scrollbars~="backlog"] :is(.fork-gal-backlog, .fork-gal-backlog *),
+    .fork-gal-stage[data-fk-scrollbars~="config"] :is(.fork-gal-config, .fork-gal-config *), .fork-gal-stage[data-fk-scrollbars~="choices"] :is(.fork-gal-choices, .fork-gal-choices *),
+    .fork-gal-stage[data-fk-scrollbars~="text"] :is(.fork-gal-box, .fork-gal-box *), .fork-gal-stage[data-fk-scrollbars~="gallery"] :is(.fork-cg-gallery, .fork-cg-gallery *, .fork-cg-viewer, .fork-cg-viewer *)) {
+  scrollbar-width: auto; scrollbar-color: auto;
+  &::-webkit-scrollbar { display: block; width: var(--fk-sb-w); height: var(--fk-sb-w); background: var(--fk-sb-track); }
+  &::-webkit-scrollbar-thumb { border-radius: var(--fk-sb-w); background: var(--fk-sb-thumb); }
+  &::-webkit-scrollbar-track, &::-webkit-scrollbar-corner { background: var(--fk-sb-track); }
+}
+/* ==== end stage scrollbars ==== */

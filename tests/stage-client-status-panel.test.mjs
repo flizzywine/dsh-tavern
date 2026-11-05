@@ -22,7 +22,7 @@ function harness({page = PAGE, pages = {pages: [], fresh: false}, failRead = fal
     return frame
   }}
   const host = {appendChild: frame => { frame.isConnected = true }}
-  const window = {console,
+  const window = {console, getComputedStyle: () => ({getPropertyValue: () => ''}),
     addEventListener: (type, fn) => { if (type === 'message') messageListeners.add(fn) },
     removeEventListener: (type, fn) => { if (type === 'message') messageListeners.delete(fn) }}
   const rpc = (method, args, sessionId) => {
@@ -117,7 +117,7 @@ test('the Overlay frame is the core lifecycle with the live tavernHelper and tru
   const helper = {version: 1, turnMessageIds: {1: 1, 3: 5}, messages: []}
   const {React, cleanups} = fakeReact()
   const lifecycles = []
-  const panels = createStageStatusPanel({React, window: {console, addEventListener() {}, removeEventListener() {}}, document: {createElement: () => h.frames[h.frames.push({style: {}, contentWindow: {}, setAttribute() {}, removeAttribute() {}, addEventListener() {}, remove() {}}) - 1]},
+  const panels = createStageStatusPanel({React, window: {console, getComputedStyle: () => ({getPropertyValue: () => ''}), addEventListener() {}, removeEventListener() {}}, document: {createElement: () => h.frames[h.frames.push({style: {}, contentWindow: {}, setAttribute() {}, removeAttribute() {}, addEventListener() {}, remove() {}}) - 1]},
     rpc: (method, args) => Promise.resolve({ok: true, page: PAGE}), signals: {subscribe: () => () => {}},
     useLiveView: () => ({view: {tavernHelper: helper, tavernRuntimePolicy: {trustedCardMode: true}}}),
     createCardFrame: props => { const lifecycle = {props, update() {}, snapshot: () => ({visibleDocument: {token: 'd', html: '', trustedCardMode: true, ref() {}}}), start: () => () => {}}; lifecycles.push(lifecycle); return lifecycle }})
@@ -130,7 +130,8 @@ test('the Overlay frame is the core lifecycle with the live tavernHelper and tru
   assert.equal(props.trustedCardMode, true)
   assert.deepEqual({sessionId: props.sessionId, turn: props.turn, partIndex: props.partIndex, panelId: props.panelId, eager: props.eager, persistent: props.persistent, observeMvuView: props.observeMvuView, runtimeReporting: props.runtimeReporting},
     {sessionId: 's1', turn: 3, partIndex: 0, panelId: 'stage-page-status', eager: true, persistent: true, observeMvuView: false, runtimeReporting: true})
-  assert.match(props.content, /^<script data-dsh-card-page>[\s\S]*window\.DshCardPage=[\s\S]*<\/script>/)
+  // no skin scrollbars.page: the page's document shows no native scrollbar either, under the card's own CSS (:where)
+  assert.match(props.content, /^<style data-dsh-card-page>:where\(html,body,\*\)\{scrollbar-width:none\}[^<]*<\/style><script data-dsh-card-page>[\s\S]*window\.DshCardPage=[\s\S]*<\/script>/)
   assert.ok(props.content.endsWith(HTML))
   for (const cleanup of cleanups) cleanup()
   panels.dispose()
