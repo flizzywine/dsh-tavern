@@ -1,8 +1,6 @@
 @charset "UTF-8";
-.promo{padding-bottom:80px}
-.promo a{display:block;overflow:hidden;border:1px solid #e6dfd8;border-radius:16px}
-.promo img{width:100%;height:auto}
-@media(max-width:720px){.promo{padding-bottom:40px}}
+.hero-screen.hero-promo{display:block;transform:none}
+.hero-screen.hero-promo img{aspect-ratio:16/9;object-fit:contain}
 :root{color-scheme:light;--bg:#faf9f5;--panel:#fffdf8;--paper:#141413;--muted:#6c6a64;--accent:#cc785c;--line:#e6dfd8;--serif:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;--sans:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
 
 *{box-sizing:border-box}
