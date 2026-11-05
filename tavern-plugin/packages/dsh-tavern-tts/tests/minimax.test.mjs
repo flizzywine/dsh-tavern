@@ -37,7 +37,7 @@ test('minimax failures come back as readable Chinese messages with stable codes'
   ]
   for (const [response, code] of cases) {
     const adapter = createMinimaxAdapter({fetch:async () => response})
-    await assert.rejects(adapter.synthesize(provider,{key:'k'},{text:'x',params:{voice:'v'}}),error => error.code === code && /MiniMax/.test(error.message) && /[\u3400-\u9fff]/.test(error.message) && !error.message.includes('auth failed'))
+    await assert.rejects(adapter.synthesize(provider,{key:'k'},{text:'x',params:{voice:'v'}}),error => error.code === code && /[\u3400-\u9fff]/.test(error.message) && !error.message.includes('auth failed'))
   }
   const offline = createMinimaxAdapter({fetch:async () => { throw new Error('ECONNREFUSED https://api.minimaxi.com') }})
   await assert.rejects(offline.synthesize(provider,{key:'k'},{text:'x',params:{voice:'v'}}),error => error.code === 'MINIMAX_CONNECTION_FAILED' && !error.message.includes('ECONNREFUSED'))
@@ -52,7 +52,7 @@ test('minimax is a paid service kind with a key credential, a free connection ch
   const calls = [], registered = []
   const settings = {enabled:true,providers:[provider],voices:[]}
   const services = createServiceSettings({get:() => settings,replace:async () => {},credentials:() => ({resolve:async () => ({value:'k'}),describe:async () => ({configured:true})}),
-    fetch:async (url, options) => { calls.push({url,body:JSON.parse(options.body)}); return reply({base_resp:{status_code:0}}) },
+    fetch:async (url, options) => { calls.push({url,body:JSON.parse(options.body)}); return reply({base_resp:{status_code:0},system_voice:[{voice_id:'female-shaonv',voice_name:'少女'}]}) },
     tts:{registerProvider:(_owner, port) => { registered.push(port); return () => {} },registerVoiceSource:() => ({replace() {},dispose() {}})}})
   const result = await services.test({id:'minimax'})
   assert.equal(result.ok,true); assert.equal(result.voiceCount > 0,true)

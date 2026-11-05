@@ -17,9 +17,9 @@ function describeTtsError(code) {
     VOLCENGINE_CONNECTION_FAILED:'火山引擎连接失败或请求超时，请检查网络连接后重试。',
     VOLCENGINE_INVALID_AUDIO:'火山引擎音频响应无效或不完整，请重试；再次失败请检查火山服务状态。',
     VOLCENGINE_REQUEST_FAILED:'火山引擎拒绝了合成请求，请检查声音、资源 ID 和服务额度后重试。',
-    MINIMAX_AUTH_FAILED:'MiniMax API Key 无效或无权访问，请在配音设置中检查 API Key 与 Group ID。',
+    MINIMAX_AUTH_FAILED:'密钥无效：请确认是中国版（api.minimaxi.com）还是国际版（api.minimax.io）的密钥并填对地址',
     MINIMAX_RATE_LIMITED:'MiniMax 请求过于频繁或达到速率上限，请稍后重试。',
-    MINIMAX_BALANCE_REQUIRED:'MiniMax 账户余额不足，请在 MiniMax 控制台充值后重试。',
+    MINIMAX_BALANCE_REQUIRED:'账户余额不足',
     MINIMAX_TEXT_REJECTED:'MiniMax 拒绝合成这句台词（内容审核或无法朗读的字符），请修改台词后重播。',
     MINIMAX_INVALID_REQUEST:'MiniMax 请求参数无效，请检查音色 ID 与模型名称。',
     MINIMAX_CONNECTION_FAILED:'MiniMax 连接失败或请求超时，请检查网络与 API 根地址后重试。',
@@ -47,4 +47,4 @@ function describeTtsError(code) {
   }
   return messages[code] || ('配音请求失败' + (/^[A-Z][A-Z_]{0,79}$/.test(code || '') ? '（' + code + '）' : '') + '，请检查配音设置中的服务状态后重试。')
 }
-module.exports = { describeTtsError }
+if (typeof window === 'undefined') module.exports = { describeTtsError }

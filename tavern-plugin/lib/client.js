@@ -9096,12 +9096,61 @@ window.__ModuleLoader__.load({
 		  // voice's name (⚠ when it cannot speak), ▶ and the way into the voice page. The voice page replaces the figure column
 		  // (desktop: the preview card stays pinned beside it; phone: a full-screen sub-page with its own top bar).
 		  // one 「配音来源」 list — built from the TTS voice services catalog (tts.call('voiceServices')): Fish 声音克隆 / 声音库 and
-		  // 在线 TTS only for services set up in 配音后端, then 浏览器朗读 · 不配音 (always) — each with its state and its settings in
+		  // 在线 TTS (with a setup notice when empty), then 浏览器朗读 · 不配音 — each with its state and its settings in
 		  // place; then 「调音」.
 		  // A way picked for a voice gets added to that voice (VoicePage / useVoiceWriter.useSource); a
 		  // figure without a voice gets a new pack voice; editing a voice that other figures share asks first (copy, or all).
 		  // Opening, choosing or saving never synthesizes; ▶ does, and a paid or unknown-cost preview asks first (billing confirm).
 		  // Missing service / key / voice → ⚠ chip, the figure stays silent (不配音); nothing silently switches service.
+		  // The 语音服务 control-error messages: one authority, read by the plugin (copied into src/shared by build.mjs) and by the core route.
+		  function describeTtsError(code) {
+		    const messages = {
+		      PROVIDER_AUTH_FAILED:'语音服务要求鉴权，请在配音设置中填写或检查 API Key 与访问权限。',
+		      FISH_AUTH_FAILED:'Fish 服务要求鉴权，请在配音设置中填写或检查 API Key 与访问权限。',
+		      VOLCENGINE_AUTH_FAILED:'火山引擎 API Key 无效或无权访问，请在配音设置中填写新版控制台目标项目的 API Key，并确认已开通语音合成模型。',
+		      VOLCENGINE_RATE_LIMITED:'火山引擎并发已达上限，请等待当前合成结束后重试，或在控制台增购并发。',
+		      VOLCENGINE_TEXT_TOO_LONG:'火山引擎请求文本或请求体过长，请缩短单次合成文本后重试。',
+		      VOLCENGINE_INVALID_SPEAKER:'火山引擎音色 ID 缺失或不存在，请从控制台音色库复制正确的 Speaker ID。',
+		      VOLCENGINE_NO_READABLE_TEXT:'火山引擎未找到可朗读文本，请检查文本与配音语言后重试。',
+		      VOLCENGINE_INVALID_REQUEST:'火山引擎请求参数无效，请检查音色和资源 ID；仍失败请反馈客户端版本及错误码。',
+		      VOLCENGINE_SERVER_ERROR:'火山引擎服务端合成失败，请稍后重试；持续失败请查看火山服务状态或联系其技术支持。',
+		      VOLCENGINE_QUOTA_EXCEEDED:'火山引擎语音额度已用完，请在火山控制台补充额度后重试。',
+		      VOLCENGINE_RESOURCE_MISMATCH:'火山引擎声音与资源 ID 不匹配，请在配音设置中选择该声音对应的资源 ID。',
+		      VOLCENGINE_VOICE_FORBIDDEN:'火山引擎未授权此声音，请在火山控制台开通对应声音权限或更换声音。',
+		      VOLCENGINE_CONNECTION_FAILED:'火山引擎连接失败或请求超时，请检查网络连接后重试。',
+		      VOLCENGINE_INVALID_AUDIO:'火山引擎音频响应无效或不完整，请重试；再次失败请检查火山服务状态。',
+		      VOLCENGINE_REQUEST_FAILED:'火山引擎拒绝了合成请求，请检查声音、资源 ID 和服务额度后重试。',
+		      MINIMAX_AUTH_FAILED:'密钥无效：请确认是中国版（api.minimaxi.com）还是国际版（api.minimax.io）的密钥并填对地址',
+		      MINIMAX_RATE_LIMITED:'MiniMax 请求过于频繁或达到速率上限，请稍后重试。',
+		      MINIMAX_BALANCE_REQUIRED:'账户余额不足',
+		      MINIMAX_TEXT_REJECTED:'MiniMax 拒绝合成这句台词（内容审核或无法朗读的字符），请修改台词后重播。',
+		      MINIMAX_INVALID_REQUEST:'MiniMax 请求参数无效，请检查音色 ID 与模型名称。',
+		      MINIMAX_CONNECTION_FAILED:'MiniMax 连接失败或请求超时，请检查网络与 API 根地址后重试。',
+		      MINIMAX_INVALID_AUDIO:'MiniMax 没有返回有效音频，请重试；再次失败请检查 MiniMax 服务状态。',
+		      MINIMAX_REQUEST_FAILED:'MiniMax 拒绝了合成请求，请检查音色、模型和账户状态后重试。',
+		      SERVICE_REQUIRED:'还没有可用的语音服务，请在配音设置中配置所选声音对应的服务。',
+		      CREDENTIALS_REQUIRED:'语音服务缺少密钥，请在配音设置中填写对应服务的密钥。',
+		      MISSING_REFERENCE:'当前声音没有可用的参考音频，请在人物声音页补充当前发声方式的参考音频。',
+		      LANGUAGE_UNSUPPORTED:'当前声音不支持所选语言，请在人物声音页更换配音语言或声音。',
+		      INVALID_PATH:'本地引擎的安装路径无效，请在配音设置的本地引擎中检查安装位置。',
+		      INVALID_CONFIG:'本地引擎配置无效，请在配音设置的本地引擎中检查配置。',
+		      PORT_OCCUPIED:'本地引擎端口已被占用，请停止占用该端口的进程后重新启动引擎。',
+		      LOCAL_VOICE_PAUSED_FOR_TESTING:'本地配音因调试测试暂时暂停，测试结束后自动恢复。',
+		      SERVICE_OFFLINE:'无法连接语音服务，请在配音设置中检查服务连接或本地引擎状态。',
+		      TIMEOUT:'语音服务响应超时，请检查服务连接或本地引擎日志后重试。',
+		      PROCESS_EXITED:'本地引擎已退出，请查看本地引擎日志并重新启动。',
+		      SERVICE_START_FAILED:'本地引擎启动失败，请查看本地引擎日志并修正安装配置。',
+		      INVALID_READING_VOICE:'朗读声音设置无效：声音须是浏览器声音 {browser:名称} 或语音服务声音 {serviceId, voice}，留空用浏览器默认声音。',
+		      TTS_DISABLED:'配音服务未启用，请在配音设置中启用服务。',
+		      USAGE_UNKNOWN:'查不到有没有人物在用这个语音服务，删除前需要确认。',
+		      REVISION_CONFLICT:'声音配置已变化，请重新载入人物声音页后再试。',
+		      ABORTED:'试听已取消，请需要时重新试听。',
+		      SAMPLE_UNAVAILABLE:'暂时取不到这个声音的官方样例，请重新打开声音列表后再试。',
+		      SAMPLE_TOO_LARGE:'这个声音的官方样例文件过大，没有下载。',
+		    }
+		    return messages[code] || ('配音请求失败' + (/^[A-Z][A-Z_]{0,79}$/.test(code || '') ? '（' + code + '）' : '') + '，请检查配音设置中的服务状态后重试。')
+		  }
+		  if (typeof window === 'undefined') module.exports = { describeTtsError }
 		  const VOICE_PROVIDERS={'fish-audio':'Fish Audio',qwen:'通义千问',azure:'Azure',volcengine:'火山引擎',minimax:'MiniMax','openai-compatible':'自定义语音服务',browser:'浏览器朗读'};
 		  const FIGURE_VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语'],['ko','韩语'],['yue','粤语']];
 		  const VOICE_SAMPLES={ja:'こんにちは。今日もよろしくお願いします。',zh:'你好，今天也请多关照。',en:'Hello. It is good to see you today.',ko:'안녕하세요. 오늘도 잘 부탁해요.',yue:'你好，今日都請多多指教。'};
@@ -9117,7 +9166,7 @@ window.__ModuleLoader__.load({
 		    'openai-compatible':[{key:'speed',label:'语速',min:0.5,max:2,step:0.05,base:1,unit:'x'}]};
 		  const voiceFailure=(code,message)=>Object.assign(new Error(message||code),{code});
 		  const voiceCode=e=>typeof e?.code==='string'?e.code:e?.name==='TimeoutError'?'TIMEOUT':e?.name==='AbortError'?'ABORTED':/^[A-Z][A-Z0-9_]+$/.test(e?.message||'')?e.message:'';
-		  const VOICE_ERRORS={TTS_DISABLED:'配音插件未启用',PLUGIN_UNAVAILABLE:'配音插件未启用',SERVICE_REQUIRED:'还没有可用的语音服务',CREDENTIALS_REQUIRED:'语音服务缺少密钥',
+		  const VOICE_ERRORS={TTS_DISABLED:'配音插件未启用',PLUGIN_UNAVAILABLE:'配音插件未启用',SERVICE_REQUIRED:'这个声音绑定的服务商还没配置；请到配音后端配置，或重新选择已配置服务的音色',CREDENTIALS_REQUIRED:'语音服务缺少密钥',
 		    QWEN_MODEL_NOT_FOUND:'当前服务上次合成无法访问此模型（404），请核对模型开通状态与区域',QWEN_VOICE_UNSUPPORTED:'上次合成返回此模型不支持该音色，请重新选择音色',
 		    MISSING_REFERENCE:'这个差分没有参考录音，「默认」里也没有',PREVIEW_CONFIRMATION_REQUIRED:'付费确认已过期，请重新试听',PAID_PREVIEW_DISABLED:'这个服务不能免费试听',
 		    FISH_AUTH_FAILED:'Fish Audio 密钥无效',FISH_BILLING_REQUIRED:'Fish Audio 额度不足：去充值，或在配音设置里换回免费型号',FISH_RATE_LIMITED:'Fish Audio 请求太频繁，请稍后再试',FISH_REQUEST_FAILED:'Fish Audio 请求失败，请稍后再试',
@@ -9128,6 +9177,7 @@ window.__ModuleLoader__.load({
 		  // no code on the page — this page's sentence for a code, else the shared playerErrorText
 		  // (the host's plain Chinese sentence, Tavern `error` / TTS `message`); the code goes to the console.
 		  function voiceErrorText(e){const code=voiceCode(e);
+		    if(code.startsWith('MINIMAX_'))return describeTtsError(code);
 		    return /^(?:AUDIO_|MEDIA_)/.test(code)&&!VOICE_ERRORS[code]||e?.name==='NotAllowedError'?previewErrorText(e):playerErrorText({code,message:String(e?.message||e||'')},{codes:VOICE_ERRORS,fallback:'声音请求失败，请检查配音设置后重试。'});}
 		  // What the 试听 failure line offers: the 配音 page for a service problem, this source's settings for a voice problem.
 		  const VOICE_SERVICE_CODES=new Set(['SERVICE_REQUIRED','CREDENTIALS_REQUIRED','FISH_AUTH_FAILED','FISH_BILLING_REQUIRED','SERVICE_OFFLINE','INVALID_PATH','INVALID_CONFIG','PORT_OCCUPIED','PROCESS_EXITED','SERVICE_START_FAILED','TTS_DISABLED','QWEN_MODEL_NOT_FOUND']);
@@ -9143,8 +9193,9 @@ window.__ModuleLoader__.load({
 		  // A Latin service name gets spaces around it inside a Chinese sentence (缺少 Fish Audio 密钥 / 缺少通义千问密钥).
 		  const spacedName=name=>(/^[A-Za-z]/.test(name)?' ':'')+name+(/[A-Za-z0-9]$/.test(name)?' ':'');
 		  function voiceIssueText(code,source){
+		    if(code.startsWith('MINIMAX_'))return describeTtsError(code);
 		    const name=spacedName(providerName(source?.provider));
-		    if(code==='SERVICE_REQUIRED')return '还没有在配音后端设置'+name.trimEnd();
+		    if(code==='SERVICE_REQUIRED')return VOICE_ERRORS.SERVICE_REQUIRED;
 		    if(code==='CREDENTIALS_REQUIRED')return '缺少'+name+'密钥';
 		    // a chosen source not set up yet says what to add, never a code.
 		    if(VOICE_EDIT_CODES.has(code)&&voiceSourceUnset(source))return voiceSourceUnset(source);
@@ -9196,15 +9247,15 @@ window.__ModuleLoader__.load({
 		  const catalogServices=(catalog,kind)=>(catalog?.services||[]).filter(s=>s.kind!=='browser'&&s.sources.includes(kind));
 		  // A service instance's own name in a row title (「Fish Audio（本地 Drama 3）· 声音克隆」).
 		  const serviceTitle=(c,name)=>{const label=c.label||providerName(c.kind);return label+(/[）)]$/.test(label)?'· ':' · ')+name;};
-		  // The rows of 配音来源, from the catalog: each Fish way once per configured Fish service that serves it, 在线 TTS when an
-		  // online service is set up, 浏览器朗读 and 不配音 always. With one Fish service they read as VOICE_WAYS and write no serviceId;
+		  // The rows of 配音来源, from the catalog: each Fish way once per configured Fish service that serves it;
+		  // 在线 TTS, 浏览器朗读 and 不配音 always. With one Fish service they read as VOICE_WAYS and write no serviceId;
 		  // with several (even if only one serves the way), each row is named by its service and a choice under it writes that
 		  // service's id into the source (`bind`), since a source without one is ambiguous among them.
 		  // A way whose service is not set up shows only while the figure's source (`active`) uses it (`unconfigured`: ⚠ 未设置).
 		  // `base`: the way's VOICE_WAYS id.
 		  function voiceWayRows(catalog,active){
 		    return VOICE_WAYS.flatMap(w=>{
-		      if(w.provider==='browser'||!w.kind)return [{...w,base:w.id}];
+		      if(w.id==='online'||w.provider==='browser'||!w.kind)return [{...w,base:w.id}];
 		      const list=catalogServices(catalog,w.kind),fish=w.provider==='fish-audio'?list.filter(s=>s.kind==='fish-audio'):list;
 		      if(!fish.length)return wayHas(w,active)?[{...w,base:w.id,unconfigured:true}]:[];
 		      if(w.provider!=='fish-audio'||(catalog?.services||[]).filter(s=>s.kind==='fish-audio').length<2)return [{...w,base:w.id,serviceId:w.provider==='fish-audio'?fish[0].id:undefined}];
@@ -9252,6 +9303,12 @@ window.__ModuleLoader__.load({
 		  // can a provider speak now — read from the TTS voice services catalog (each set-up service's
 		  // state from its last check; no request). null = nothing wrong known; {warn,setup} = a problem fixed in 配音后端
 		  // (`missing`: no such service is set up there). `serviceId`: one service of several of that kind (a row of its own).
+		  function onlineHeaderState(catalog){
+		    if(!catalog)return null;
+		    const services=catalogServices(catalog,'preset');
+		    if(!services.length)return {warn:true,text:'还没有配置在线 TTS'};
+		    return services.some(s=>s.state==='ready'||s.state==='configured')?null:{warn:true,text:'在线 TTS 暂不可用，请检查配音后端'};
+		  }
 		  function voiceReadiness(catalog,provider,serviceId){
 		    // Browser speech needs no service; a device without it says so.
 		    if(provider==='browser')return typeof window!=='undefined'&&window.speechSynthesis?null:{warn:true,text:'这台设备不支持浏览器朗读'};
@@ -9571,7 +9628,7 @@ window.__ModuleLoader__.load({
 		  // its radio. A row whose provider cannot speak shows ⚠ and why. `count` (在线 TTS: how many services are listed) follows
 		  // the title, as a heading count (R4 / R5).
 		  // `action`: a link after the summary (a source whose service is not set up: 「去配音后端设置 ›」).
-		  function VoiceWay({way,current,incomplete,needed,open,onUse,onToggle,state,summary,count,action,children}) {
+		  function VoiceWay({way,current,incomplete,needed,open,onUse,onToggle,state,summary,count,action,onSetup,children}) {
 		    const body='ap-voice-way-'+way.id.replace(/[^A-Za-z0-9_-]/g,'-'),warn=!!state?.warn,text=warn?state.text:summary||'';
 		    const dot=h('span',{className:'ap-voice-way-dot','aria-hidden':true});
 		    return h('section',{className:'ap-voice-way','data-open':open||undefined,'data-current':current||undefined,'data-incomplete':current&&incomplete?true:undefined,'aria-label':way.title},
@@ -9582,7 +9639,7 @@ window.__ModuleLoader__.load({
 		            'aria-label':way.title+(children&&current?'，使用中':'')+(current&&incomplete?'，'+incomplete:'')+(text?'，'+text:'')},
 		          !children&&dot,h('span',{className:'ap-voice-way-title'},way.title),
 		          count>0&&h('span',{className:'ap-voice-way-count','aria-hidden':true},count)),
-		        h('span',{className:'ap-voice-way-sum'+(warn?' is-warn':''),title:state?.title||undefined},warn&&h(Glyph,{name:'warning'}),text),
+		        h(warn&&onSetup?'button':'span',{...(warn&&onSetup?{type:'button',onClick:onSetup}:{}),className:'ap-voice-way-sum'+(warn?' is-warn':''),title:state?.title||undefined},warn&&h(Glyph,{name:'warning'}),text),
 		        action&&h('span',{className:'ap-voice-way-action'},action),
 		        children?h(Glyph,{name:'chevDown'}):h('span',{className:'ap-voice-way-pad','aria-hidden':true})),
 		      open&&children&&h('div',{id:body,className:'ap-voice-way-body','data-needed':needed||undefined},children));
@@ -9664,12 +9721,12 @@ window.__ModuleLoader__.load({
 		      if(way.base==='clone')return s.references.length+' 段录音';
 		      if(way.base==='library'){const name=recommended.value?.voices?.find(v=>v.voiceId===s.voiceId)?.name;return name&&name!==s.voiceId?name:spec.name;}
 		      if(way.base==='browser')return s.voiceName?voiceDisplayName(s.voiceName):'系统默认';
-		      return onlineSourceName(s,readiness.services)+' · '+voiceDisplayName(s.voiceName);};
+		      return voiceDisplayName(s.voiceName);};
 		    // What the way in use still lacks (screen readers only). Shown as the amber radio and the highlighted field in its settings.
 		    const incomplete=way=>{const s=entry(way)?.[1];return s?voiceSourceUnset(s):'';};
 		    const needed=way=>activeWay===way.id&&!!incomplete(way);
 		    // The way's provider problem, once, at the top of its settings (with 去设置 when the 配音 page fixes it).
-		    const ready=way=>readiness(provider(way),way.bind?way.serviceId:undefined);
+		    const ready=way=>way.id==='online'?onlineHeaderState(readiness.services):readiness(provider(way),way.bind?way.serviceId:undefined);
 		    const fix=way=>{const state=way.id==='online'?null:ready(way);
 		      return state?.warn?h(VoiceWarn,{action:state.setup&&openSettings&&h(Button,{className:'ap-link',onClick:()=>openSettings(provider(way),way.bind?{id:way.serviceId}:undefined)},state.missing?VOICE_BACKEND_LINK:'去设置')},state.text):null;};
 		    const bodies={
@@ -9700,6 +9757,7 @@ window.__ModuleLoader__.load({
 		          h(VoiceWay,{key:way.id,way,current:activeWay===way.id||way.id==='off'&&!spec,
 		          incomplete:way.id==='off'?'':incomplete(way),open:open===way.id,onUse:()=>use(way),onToggle:()=>toggle(way),
 		          count:way.id==='online'?catalogServices(readiness.services,'preset').length:0,
+		          onSetup:way.id==='online'&&openSettings?()=>openSettings(null):undefined,
 		          // Only a service that cannot speak says so (⚠ and why); the usual states (待机 / 运行中) are not written.
 		          state:way.id==='off'?null:(r=>r?.warn?r:null)(ready(way)),summary:way.id==='off'?'':summary(way),needed:needed(way),
 		          children:bodies[way.base]&&open===way.id?h(React.Fragment,null,fix(way),bodies[way.base](way)):bodies[way.base]?true:null}))),
