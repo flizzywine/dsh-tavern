@@ -2394,11 +2394,23 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .ap-ui button.ap-reading-lang:hover:not(:disabled) { color: var(--fork-ink); }
 .ap-ui button.ap-reading-lang.is-warn { background: color-mix(in srgb, var(--fork-warn) 14%, var(--fk-current-bgSolid, Canvas)); color: var(--fork-warn); }
 .ap-reading-lang-anchor .ap-popover { min-width: 132px; }
-/* The add line: Enter in 写法 moves to 读音, Enter in 读音 adds and starts the next one; Esc closes it. */
-.ap-readings-row.is-new { grid-template-columns: minmax(0,1fr) 14px minmax(0,1fr) 102px; margin-top: 2px; }
+/* The add line: Enter in 写法 moves to 读音, Enter in 读音 (or 添加) adds and starts the next one; Esc (or ✕) closes it. */
+.ap-readings-row.is-new { grid-template-columns: minmax(0,1fr) 14px minmax(0,1fr) 66px 28px; margin-top: 2px; }
 .ap-readings-row.is-new > input.fork-readings-input { min-width: 0; }
+.ap-ui .ap-readings-row.is-new > button.ap-reading-add-confirm { justify-self: end; min-height: 0; height: 28px; padding: 0 12px; white-space: nowrap; }
+.ap-ui .ap-readings-row.is-new > button.ap-reading-add-cancel { justify-self: center; width: 26px; height: 26px; min-height: 0; padding: 0; }
 .ap-ui button.fork-inline-add.fork-readings-add { width: 28px; height: 28px; margin-top: 4px; border-radius: 8px; }
-@container (max-width: 300px) { .ap-readings-row { grid-template-columns: minmax(0,1fr) 14px minmax(0,1fr) 28px; } .ap-readings-row > .ap-reading-lang-anchor { display: none; } .ap-readings-row > .ap-reading-remove { grid-column: 4; } }
+/* While a field of the row is being edited its ✕ gives way to a ✓ that commits it (Enter and blur commit too). */
+.ap-ui .ap-readings-row button.ap-reading-confirm { display: none; grid-column: 5; justify-self: center; width: 26px; height: 26px; min-height: 0; padding: 0; border: 0; border-radius: 7px; background: var(--fork-accent-soft); color: var(--fork-accent); }
+.ap-readings-row:has(.fork-inline-input:focus) > .ap-reading-remove { display: none; }
+.ap-ui .ap-readings-row:has(.fork-inline-input:focus) > button.ap-reading-confirm { display: inline-flex; align-items: center; justify-content: center; }
+/* The entry just added: a short tint once it has been scrolled into view. */
+.ap-readings-row.is-flash { border-radius: 8px; animation: ap-reading-flash 2.4s ease-out; }
+@keyframes ap-reading-flash { 0%, 35% { background: var(--fork-accent-soft); } 100% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .ap-readings-row.is-flash { animation: none; background: var(--fork-accent-soft); } }
+.ap-reading-note { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
+@media (pointer: coarse) { .ap-ui .ap-readings-row button.ap-reading-remove, .ap-ui .ap-readings-row button.ap-reading-confirm, .ap-ui .ap-readings-row.is-new > button.ap-reading-add-cancel { width: 32px; height: 32px; } .ap-ui .ap-readings-row.is-new > button.ap-reading-add-confirm { height: 32px; } }
+@container (max-width: 300px) { .ap-readings-row { grid-template-columns: minmax(0,1fr) 14px minmax(0,1fr) 32px; } .ap-readings-row > .ap-reading-lang-anchor { display: none; } .ap-readings-row > .ap-reading-remove, .ap-ui .ap-readings-row button.ap-reading-confirm { grid-column: 4; } }
 /* the quiet 「›」 on a 基础设置 row — the 素材库 at that kind; no text, no frame. */
 .ap-ui button.ap-kind-jump { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 24px; min-height: 0; height: 24px; margin: 0 0 0 -10px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--fork-ink-2); }
 .ap-ui button.ap-kind-jump:hover:not(:disabled) { background: var(--fork-hover); color: var(--fork-ink); }
