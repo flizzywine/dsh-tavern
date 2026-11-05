@@ -5825,6 +5825,45 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 }
 /* ==== end art backlog glyph tiles ==== */
 
+/* ==== art backlog avatar ==== */
+/*
+   art.backlog.avatar (C3): a face column on the art layer's spoken rows (the player's too with avatar.player). stageSkinArt
+   writes data-fk-skin-art-backlog-avatar (its parts: mask frame cutout mono) and --art-bl-av-* (the box at x, y from the
+   entry's top-left, w by h, design px); the backlog view gives each such row data-bl-avatar and a .fork-gal-backlog-avatar
+   (the resolver's face, the placeholder, or empty with data-empty). The row - its plate and words - starts right of the
+   column (x + w); the face stands over the plate's left end (a plate's overhang can run under it) and moves with its pose.
+   mask cuts the face's window by its alpha, cutout draws a paper edge round the cut face, frame lies over it, mono shows the
+   face in high-contrast grey (a filter; the image is untouched). Narration, notices and turn rules have none.
+   --ba-u: one design px - the art layer's (--mu), else (a phone's shared sheet) half a CSS px, as the plates.
+*/
+.fork-gal-backlog .fork-gal-backlog-avatar { display: none; }
+.fork-gal-stage[data-fk-skin-art-backlog-avatar]:not(.is-film) .fork-gal-backlog [data-bl-avatar] { --ba-u: var(--mu, .5px); --ba-col: calc(max(0, var(--art-bl-av-x) + var(--art-bl-av-w)) * var(--ba-u));
+  position: relative; box-sizing: border-box; margin-left: var(--ba-col);
+  min-height: max(calc((var(--bp-st, 0) + var(--bp-sb, 0)) * var(--ba-u)), calc((var(--art-bl-av-y) + var(--art-bl-av-h)) * var(--ba-u))); }
+.fork-gal-stage[data-fk-skin-art-backlog-avatar]:not(.is-film) .fork-gal-backlog [data-bl-avatar] > .fork-gal-backlog-avatar { position: absolute; z-index: 1; display: block;
+  left: calc(var(--art-bl-av-x) * var(--ba-u) - var(--ba-col)); top: calc(var(--art-bl-av-y) * var(--ba-u));
+  width: calc(var(--art-bl-av-w) * var(--ba-u)); height: calc(var(--art-bl-av-h) * var(--ba-u)); pointer-events: none; }
+.fork-gal-stage[data-fk-skin-art-backlog-avatar]:not(.is-film) .fork-gal-backlog-avatar > b,
+.fork-gal-stage[data-fk-skin-art-backlog-avatar]:not(.is-film) .fork-gal-backlog-avatar > b > span { display: block; width: 100%; height: 100%; }
+.fork-gal-stage[data-fk-skin-art-backlog-avatar]:not(.is-film) .fork-gal-backlog-avatar > b > span { overflow: hidden; }
+.fork-gal-stage[data-fk-skin-art-backlog-avatar~="mask"]:not(.is-film) .fork-gal-backlog-avatar > b > span { -webkit-mask: var(--art-bl-av-mask) 0 0 / 100% 100% no-repeat; mask: var(--art-bl-av-mask) 0 0 / 100% 100% no-repeat; }
+.fork-gal-stage[data-fk-skin-art-backlog-avatar~="cutout"]:not(.is-film) .fork-gal-backlog-avatar:not([data-empty]) > b { --ba-cw: calc(var(--art-bl-av-cut-w) * var(--ba-u));
+  filter: drop-shadow(var(--ba-cw) 0 0 var(--art-bl-av-cut)) drop-shadow(calc(-1 * var(--ba-cw)) 0 0 var(--art-bl-av-cut)) drop-shadow(0 var(--ba-cw) 0 var(--art-bl-av-cut)) drop-shadow(0 calc(-1 * var(--ba-cw)) 0 var(--art-bl-av-cut)); }
+.fork-gal-stage[data-fk-skin-art-backlog-avatar]:not(.is-film) .fork-gal-backlog-avatar :is(img, i) { display: grid; place-items: center; box-sizing: border-box; width: 100%; height: 100%; object-fit: cover; object-position: 50% 12%; }
+.fork-gal-stage[data-fk-skin-art-backlog-avatar~="mono"]:not(.is-film) .fork-gal-backlog-avatar img { filter: grayscale(1) contrast(1.35); }
+/* placeholder initial: the name's first glyph on the engine's neutral disc; {image}: the skin's art over the box. */
+.fork-gal-stage[data-fk-skin-art-backlog-avatar]:not(.is-film) .fork-gal-backlog-avatar i { border-radius: 50%; background: var(--gal-ui-surface-2); box-shadow: inset 0 0 0 1.5px var(--gal-ui-line);
+  color: var(--gal-ui-ink); font: 600 calc(var(--art-bl-av-h) * var(--ba-u) * .42) / 1 var(--gal-ui-font); font-style: normal; }
+.fork-gal-stage[data-fk-skin-art-backlog-avatar]:not(.is-film) .fork-gal-backlog-avatar i.is-art { border-radius: 0; background: var(--art-bl-av-placeholder) 0 0 / 100% 100% no-repeat; box-shadow: none; }
+.fork-gal-stage[data-fk-skin-art-backlog-avatar~="frame"]:not(.is-film) .fork-gal-backlog-avatar:not([data-empty])::after { content: ""; position: absolute; inset: 0;
+  background: var(--art-bl-av-frame) 0 0 / 100% 100% no-repeat; pointer-events: none; }
+/* Wide stages: the words keep their design column where it still fits right of the face column. */
+@media (min-width: 641px) {
+  .fork-gal-stage[data-fk-skin-art-backlog-avatar]:not(.is-film) .fork-gal-backlog [data-bl-avatar] .fork-gal-backlog-text { --ba-text: max(0px, calc(var(--bl-text) - var(--ba-col)));
+    margin-left: var(--ba-text); width: min(var(--bl-text-w), calc(100% - var(--ba-text))); }
+}
+/* ==== end art backlog avatar ==== */
+
 /* ==== stage skin: P5 slash layout ==== */
 /* (a pop-punk menu style; no third-party asset or
    font): textbox.layout slash + nameplate ransom + cursor arrow. Pop-punk in the skin's own three paints: the plate

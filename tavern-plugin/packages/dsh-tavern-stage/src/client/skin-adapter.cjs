@@ -639,6 +639,17 @@ function stageSkinArt(document, files, entry = '') {
             if (b.name.align) marks['data-fk-skin-art-backlog-name-align']=b.name.align;
         }
         if (b.plates?.divider?.letter) marks['data-fk-skin-art-backlog-divider-letter']=b.plates.divider.letter;
+        // avatar (C3): the face column's box (design px), its window mask, frame, cut-out edge and tone as --art-bl-av-* and
+        // data-fk-skin-art-backlog-avatar (theme.css 「art backlog avatar」).
+        if (b.avatar) {
+            const a=b.avatar;
+            marks['data-fk-skin-art-backlog-avatar']=[a.mask && 'mask',a.frame && 'frame',a.cutout && 'cutout',a.tone].filter(Boolean).join(' ');
+            Object.assign(tokens,{[p + '-av-x']:String(a.at[0]),[p + '-av-y']:String(a.at[1]),[p + '-av-w']:String(a.size[0]),[p + '-av-h']:String(a.size[1])});
+            if (a.mask) tokens[p + '-av-mask']=url(a.mask);
+            if (a.frame) tokens[p + '-av-frame']=url(a.frame);
+            if (a.cutout) Object.assign(tokens,{[p + '-av-cut']:a.cutout.color,[p + '-av-cut-w']:String(a.cutout.width)});
+            if (a.placeholder?.image) tokens[p + '-av-placeholder']=url(a.placeholder.image);
+        }
         if (b.scrollbar) {
             const s=b.scrollbar; parts.push('bar');
             Object.assign(tokens,{[p + '-bar']:url(s.track),[p + '-thumb']:url(s.thumb),[p + '-bar-x']:String(s.x),[p + '-bar-y']:String(s.y),[p + '-bar-w']:String(s.w),[p + '-bar-h']:String(s.h)});
@@ -1063,8 +1074,10 @@ function paintStageSkin(root, document, fonts, theme, lead = false, art = null, 
 function stageSkinBacklogLooks(document) {
     const looks=stageSkinBacklog(document), b=document?.art?.backlog, plates=b?.plates;
     const letter=b?.name?.letter || plates?.divider?.letter ? {name:b.name?.letter,divider:plates?.divider?.letter,tiles:b.glyphTiles || document.art.menu.glyphTiles} : null;
-    if (!plates && !letter) return looks;
-    return {...looks,...(plates ? {plates:Object.fromEntries(Object.entries(plates).map(([role,plate]) => [role,{images:plate.images.length,poses:plate.poses?.length || 0,slant:plate.slant !== undefined}]))} : null),...(letter ? {letter} : null)};
+    // C3: the face column - whether the player's rows take one and what an unresolved speaker shows (initial / image / none).
+    const avatar=b?.avatar ? {player:b.avatar.player === true,placeholder:b.avatar.placeholder === 'initial' ? 'initial' : b.avatar.placeholder ? 'image' : null} : null;
+    if (!plates && !letter && !avatar) return looks;
+    return {...looks,...(plates ? {plates:Object.fromEntries(Object.entries(plates).map(([role,plate]) => [role,{images:plate.images.length,poses:plate.poses?.length || 0,slant:plate.slant !== undefined}]))} : null),...(letter ? {letter} : null),...(avatar ? {avatar} : null)};
 }
 
 return {dispose,STAGE_SKIN_EASE,STAGE_SKIN_TX_EASE,stageSkinTxEase,stageSkinWipeClip,stageSkinTransitionList,STAGE_BACKLOG_DEFAULTS,stageSkinBacklog:stageSkinBacklogLooks,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogOutline,stageSkinInset,stageSkinSfx,stageSkinMotionKeyframes,stageSkinGlyphPoses,stageSkinEffects,stageSkinTokens,stageSkinPanelTokens,stageSkinQuickMenu,stageSkinMarks,stageSkinConfigSurface,stageSkinConfigArt,STAGE_CONFIG_DEFAULT_LOOKS,stageSkinControlIcons,stageSkinArt,stageSkinSpinner,stageSkinTint,stageSkinMenuTint,stageSkinFontFaces,applyStageSkin,stageSkinMode,applyStageSkinMode};
