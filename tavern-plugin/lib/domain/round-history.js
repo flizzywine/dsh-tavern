@@ -32,6 +32,13 @@ const REGEN_WRITE_ATTEMPTS = 4
 // game: 本局设置 → 高级 → 前台工具.
 const FOREGROUND_TOOL_HINT = '也可以试试在「本局设置 → 高级 → 前台工具」关掉前台工具后再发一次。'
 
+// Whether a host accepts replacing an existing assistant message is a property of
+// the session, not of the round being regenerated: a host that refuses refuses
+// every turn of it, and one that accepts accepts the next. Probe once per session.
+// The probe clones the whole event log and folds its surface again, which on a
+// long session costs more than the replacement it is checking for.
+const replacementVerified = new WeakSet()
+
 /**
  * The input of a regeneration attempt. The provider never sees the replaced body
  * (the request projection drops it), so without guidance this is a fresh sample
@@ -280,8 +287,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     const { eventStart, msgs0, oldAssistantIndex, oldSeq, oldTurn, oldSource } = selection
     // V3 hosts may reject assistant replacements. Check an isolated copy before
-    // rolling back the Chat, cancelling settlement or paying for a new reply.
-    if (session.header?.version >= 3) {
+    // rolling back the Chat, cancelling settlement or paying for a new reply —
+    // once per session, like the bounded path.
+    if (session.header?.version >= 3 && !replacementVerified.has(session)) {
       const preview = session.constructor.fromRestore(session.id, structuredClone(sessionEvents(session)), structuredClone(session.header), session.inheritedEventCount, 'detached')
       try {
         replaceSessionSurface(preview, 'assistant/message', {
@@ -293,6 +301,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         if (sessionPatch?.serverReady) throw error
         throw new Error('当前 DSH 不支持正文替换，未启动重新生成。' + str(error?.message || error), { cause: error })
       }
+      replacementVerified.add(session)
     }
     const originalUserText = str(msgs0[oldAssistantIndex - 1].text).trim()
     let originalChat = structuredClone(chat)
@@ -519,7 +528,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     const { eventStart, msgs0, oldAssistantIndex, oldSeq, oldTurn, oldSource } = selection
     if (!Object.hasOwn(msgs0, String(oldAssistantIndex - 1))) throw new Error('没有可重新生成的玩家输入与正文组合')
-    if (session.header?.version >= 3) {
+    // Checked once per session: the preview clones the whole event log and folds
+    // its surface again, which costs more than the replacement it verifies.
+    if (session.header?.version >= 3 && !replacementVerified.has(session)) {
       const preview = session.constructor.fromRestore(session.id, structuredClone(sessionEvents(session)), structuredClone(session.header), session.inheritedEventCount, 'detached')
       try {
         replaceSessionSurface(preview, 'assistant/message', {
@@ -531,6 +542,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         if (sessionPatch?.serverReady) throw error
         throw new Error('当前 DSH 不支持正文替换，未启动重新生成。' + str(error?.message || error), { cause: error })
       }
+      replacementVerified.add(session)
     }
     const originalUser = structuredClone(msgs0[oldAssistantIndex - 1])
     const originalAssistant = structuredClone(msgs0[oldAssistantIndex])

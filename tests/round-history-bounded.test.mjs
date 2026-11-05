@@ -280,3 +280,34 @@ test('被截断的重新生成保留已生成的部分正文，两种路径结�
 // A failed turn's own cleanup (foreground.discard restoring the staged template
 // input) writes the save right after the attempt; the regeneration commit then
 // read a revision that had already moved. It used to abort the whole round.
+
+// A host that refuses an assistant replacement refuses every round of that
+// session, and one that accepts accepts the next: the probe clones the whole
+// event log and folds its surface again, so a session pays for it once.
+function previewLike(events) {
+  const stub = { id: 'session', header: { version: 3 }, events, surface: { nodes: events.map(event => event.seq) },
+    append(type, data, options = {}) {
+      const seq = events.length
+      events.push({ seq, type, data, ...options })
+      const nodes = stub.surface.nodes
+      if (options.surfaceOp?.op === 'replace') {
+        const start = nodes.indexOf(options.surfaceOp.startSeq)
+        const end = nodes.indexOf(options.surfaceOp.endSeq)
+        if (start >= 0 && end >= start) nodes.splice(start, end - start + 1, seq)
+        else nodes.push(seq)
+      } else nodes.push(seq)
+      return seq
+    } }
+  return stub
+}
+
+test('正文替换预检每场会话只做一次', async t => {
+  const h = await fixture(t, true)
+  let probes = 0
+  h.session.header = { version: 3 }
+  h.session.constructor = { fromRestore(id, seed) { probes++; return previewLike(seed) } }
+  await h.rounds.regenerate('chat', '', 'session')
+  assert.equal(probes, 1)
+  await h.rounds.regenerate('chat', '', 'session')
+  assert.equal(probes, 1)
+})
