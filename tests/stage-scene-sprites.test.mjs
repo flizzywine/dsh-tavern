@@ -21,3 +21,13 @@ test('scene sprites use the requested native layer and release their textures', 
   assert.equal(sceneSprites.size,0)
   assert.deepEqual(destroyed,['sprite','texture'])
 })
+
+test('geometry exposes world bounds before camera projection',()=>{
+  const source=readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene.cjs',import.meta.url),'utf8')
+  const start=source.indexOf('    function figureRects()'),end=source.indexOf('\n    const stageHost =',start)
+  const state={camera:{safe:{}},figures:new Map([['a',{figure:{alias:'candidate:a'},container:{visible:true},restBody:{x:10,y:20,width:30,height:40},restHead:{x:25,top:20,chin:30,width:10},headroom:5}]])}
+  const rects=vm.runInNewContext(source.slice(start,end)+'\nfigureRects',{state,figuresBox:{visible:true},app:{screen:{width:200,height:100}},galFigureRects:()=>[{id:'candidate:a',body:{x:20},head:{x:40}}]})()
+  assert.equal(rects[0].worldBody.y,25)
+  assert.equal(rects[0].worldHead.x,20)
+  assert.equal(rects[0].worldHead.y,25)
+})

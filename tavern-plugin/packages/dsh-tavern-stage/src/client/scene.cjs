@@ -1017,10 +1017,10 @@ function galCreateScene(host, options, own) {
         state.figures.forEach(entry=>{
             const t=entry.figure.sceneTransform, body=entry.restBody;
             if(!t || !body)return;
-            const cx=body.x+body.width/2,cy=body.y+body.height/2,sx=t.scaleX ?? 1,sy=t.scaleY ?? 1,a=t.rotation || 0,c=Math.cos(a),s=Math.sin(a),dx=t.x || 0,dy=t.y || 0;
+            const shift=entry.headroom || 0,cx=body.x+body.width/2,cy=body.y+body.height/2+shift,sx=t.scaleX ?? 1,sy=t.scaleY ?? 1,a=t.rotation || 0,c=Math.cos(a),s=Math.sin(a),dx=t.x || 0,dy=t.y || 0;
             const point=(x,y)=>({x:cx+(x-cx)*sx*c-(y-cy)*sy*s+dx,y:cy+(x-cx)*sx*s+(y-cy)*sy*c+dy});
             const pos=point(entry.container.x,entry.container.y);entry.container.position.set(pos.x,pos.y);entry.container.scale.x*=sx;entry.container.scale.y*=sy;entry.container.rotation=a;entry.container.alpha=t.alpha ?? 1;
-            const bounds=r=>{const p=[point(r.x,r.y),point(r.x+r.width,r.y),point(r.x,r.y+r.height),point(r.x+r.width,r.y+r.height)],xs=p.map(v=>v.x),ys=p.map(v=>v.y);return {x:Math.min(...xs),y:Math.min(...ys),width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)};};
+            const bounds=r=>{const p=[point(r.x,r.y+shift),point(r.x+r.width,r.y+shift),point(r.x,r.y+r.height+shift),point(r.x+r.width,r.y+r.height+shift)],xs=p.map(v=>v.x),ys=p.map(v=>v.y);return {x:Math.min(...xs),y:Math.min(...ys)-shift,width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)};};
             entry.restBody=bounds(body);
             if(entry.restHead){const h=entry.restHead,r=bounds({x:h.x-h.width/2,y:h.top,width:h.width,height:h.chin-h.top});entry.restHead={...h,x:r.x+r.width/2,width:r.width,top:r.y,chin:r.y+r.height};}
         });
@@ -1195,8 +1195,13 @@ function galCreateScene(host, options, own) {
         }
     };
     function figureRects() {
-        return galFigureRects(Array.from(state.figures.values(), entry => ({ id: entry.figure.alias, visible: figuresBox.visible && entry.container.visible,
-            body: entry.restBody, head: entry.restHead, shift: entry.headroom })), state.camera.safe, app.screen.width, app.screen.height);
+        const rows=Array.from(state.figures.values(), entry => ({ id: entry.figure.alias, visible: figuresBox.visible && entry.container.visible,
+            body: entry.restBody, head: entry.restHead, shift: entry.headroom }));
+        const byId=new Map(rows.map(row=>[row.id,row]));
+        return galFigureRects(rows, state.camera.safe, app.screen.width, app.screen.height).map(rect=>{
+            const row=byId.get(rect.id), shift=row.shift || 0, head=row.head;
+            return {...rect,worldBody:{...row.body,y:row.body.y+shift},worldHead:{x:head.x-head.width/2,y:head.top+shift,width:head.width,height:head.chin-head.top}};
+        });
     }
     const stageHost = host.closest('.fork-gal-stage');
     // Refresh only the shared empty texture; keep figures, transitions and configured backgrounds intact.

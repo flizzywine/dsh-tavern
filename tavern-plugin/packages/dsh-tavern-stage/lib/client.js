@@ -8395,10 +8395,10 @@ function galCreateScene(host, options, own) {
         state.figures.forEach(entry=>{
             const t=entry.figure.sceneTransform, body=entry.restBody;
             if(!t || !body)return;
-            const cx=body.x+body.width/2,cy=body.y+body.height/2,sx=t.scaleX ?? 1,sy=t.scaleY ?? 1,a=t.rotation || 0,c=Math.cos(a),s=Math.sin(a),dx=t.x || 0,dy=t.y || 0;
+            const shift=entry.headroom || 0,cx=body.x+body.width/2,cy=body.y+body.height/2+shift,sx=t.scaleX ?? 1,sy=t.scaleY ?? 1,a=t.rotation || 0,c=Math.cos(a),s=Math.sin(a),dx=t.x || 0,dy=t.y || 0;
             const point=(x,y)=>({x:cx+(x-cx)*sx*c-(y-cy)*sy*s+dx,y:cy+(x-cx)*sx*s+(y-cy)*sy*c+dy});
             const pos=point(entry.container.x,entry.container.y);entry.container.position.set(pos.x,pos.y);entry.container.scale.x*=sx;entry.container.scale.y*=sy;entry.container.rotation=a;entry.container.alpha=t.alpha ?? 1;
-            const bounds=r=>{const p=[point(r.x,r.y),point(r.x+r.width,r.y),point(r.x,r.y+r.height),point(r.x+r.width,r.y+r.height)],xs=p.map(v=>v.x),ys=p.map(v=>v.y);return {x:Math.min(...xs),y:Math.min(...ys),width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)};};
+            const bounds=r=>{const p=[point(r.x,r.y+shift),point(r.x+r.width,r.y+shift),point(r.x,r.y+r.height+shift),point(r.x+r.width,r.y+r.height+shift)],xs=p.map(v=>v.x),ys=p.map(v=>v.y);return {x:Math.min(...xs),y:Math.min(...ys)-shift,width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)};};
             entry.restBody=bounds(body);
             if(entry.restHead){const h=entry.restHead,r=bounds({x:h.x-h.width/2,y:h.top,width:h.width,height:h.chin-h.top});entry.restHead={...h,x:r.x+r.width/2,width:r.width,top:r.y,chin:r.y+r.height};}
         });
@@ -8573,8 +8573,13 @@ function galCreateScene(host, options, own) {
         }
     };
     function figureRects() {
-        return galFigureRects(Array.from(state.figures.values(), entry => ({ id: entry.figure.alias, visible: figuresBox.visible && entry.container.visible,
-            body: entry.restBody, head: entry.restHead, shift: entry.headroom })), state.camera.safe, app.screen.width, app.screen.height);
+        const rows=Array.from(state.figures.values(), entry => ({ id: entry.figure.alias, visible: figuresBox.visible && entry.container.visible,
+            body: entry.restBody, head: entry.restHead, shift: entry.headroom }));
+        const byId=new Map(rows.map(row=>[row.id,row]));
+        return galFigureRects(rows, state.camera.safe, app.screen.width, app.screen.height).map(rect=>{
+            const row=byId.get(rect.id), shift=row.shift || 0, head=row.head;
+            return {...rect,worldBody:{...row.body,y:row.body.y+shift},worldHead:{x:head.x-head.width/2,y:head.top+shift,width:head.width,height:head.chin-head.top}};
+        });
     }
     const stageHost = host.closest('.fork-gal-stage');
     // Refresh only the shared empty texture; keep figures, transitions and configured backgrounds intact.
@@ -14029,10 +14034,12 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
         // Candidate-only composition: preserve native background and replace the represented story figures.
 function candidateSceneMerge(scene, candidate, actors, contributed, line, speaker) {
     if (!candidate) return scene;
-    const refs=new Set(actors.map(actor=>actor.ref?.packId+'/'+actor.ref?.figureId));
+    const refKey=ref=>ref?.packId+'/'+ref?.figureId;
+    const readyRefs=new Set(contributed.map(figure=>refKey(figure.sourceRef)));
+    const byRef=new Map();for(const actor of actors){const key=refKey(actor.ref),rows=byRef.get(key)||[];rows.push(actor);byRef.set(key,rows);}
     return {...scene,figureLayout:null,hideFigures:false,figureMode:'stage',
-        figures:(candidate.replaceActors===true ? [] : scene.figures.filter(figure=>!refs.has(figure.sourceRef?.packId+'/'+figure.sourceRef?.figureId))).concat(contributed),
-        camera:candidate.camera || (line && speaker ? {shot:'close',target:'candidate:'+speaker.instanceId} : scene.camera),
+        figures:(candidate.replaceActors===true ? [] : scene.figures.filter(figure=>{const key=refKey(figure.sourceRef),wanted=byRef.get(key);return !wanted || (!readyRefs.has(key) && wanted.every(actor=>actor.outfitKey===figure.sourceOutfitKey));})).concat(contributed),
+        camera:candidate.camera || scene.camera,
         shot:line ? null : scene.shot,sceneSprites:candidate.sprites || [],
         effects:scene.effects.concat(candidate.effects || [])};
 }
@@ -14734,7 +14741,11 @@ function GalStage(props) {
         return index < 0 ? true : go(delta, true, true);
     }
     function go(delta, fromSkip, pastPictures) {
-        if(candidateInteractive)return false;
+        if(candidateInteractive){
+            if(candidateLine && delta>0 && !typed){setTyped(true);return true;}
+            if(candidateLine && typeof candidate.onDialogueAdvance==='function'){candidate.onDialogueAdvance({gameId:sessionId,delta});return true;}
+            return false;
+        }
         forkLipSync.wake();
         if (awaiting || sceneHolding) return false;
         if (!fromSkip && skipLatch) { setSkipping(false); return; }
@@ -14930,7 +14941,7 @@ function GalStage(props) {
     const xs = Object.fromEntries(members.map(member => [member.id,member.x]));
     const items = members.map(member => {
         const selected = pack.characters.find(figure => figure.alias === member.id), input = renderInputs.get(member.id).stage;
-        return {...input,sourceRef:selected.ref,alias:member.id,x:member.x,speaking:member.id===speaker,light:member.light,color:colorOf(member.id),shade:stageViews.speaker.shade(member.id,speaker,members,state?.camera,skinFigures.dimListeners),
+        return {...input,sourceRef:selected.ref,sourceOutfitKey:selected.outfitKey,alias:member.id,x:member.x,speaking:member.id===speaker,light:member.light,color:colorOf(member.id),shade:stageViews.speaker.shade(member.id,speaker,members,state?.camera,skinFigures.dimListeners),
             // reopening/restoring is not a new entrance (same policy as the background cut).
             visible:true,enter:forwardReading&&!skipping?'soft':'none',exit:'soft',gaze:stageViews.speaker.gaze(member.gaze,member.x,xs),act:shotHere&&shot.acts[member.id]?{name:shot.acts[member.id],nonce:shot.n}:null,
             figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
@@ -14998,13 +15009,21 @@ function GalStage(props) {
         thinking:!awaiting && !transitioning && current?.thought ? stageEffectResolve('thinking',effectTables.skin,effectTables.local) : null,
         animatedUi:Boolean(speaker || stageConfig.widgets || !typed || title || faceEmote), callView};
     const candidateActors=candidate?.value?.actors || [];
-    const actorSignature=JSON.stringify(candidateActors.map(actor=>({ref:actor.ref,outfitKey:actor===candidateSpeaker ? candidateLine?.outfitKey || actor.outfitKey : actor.outfitKey,stateId:actor===candidateSpeaker ? candidateLine?.emotion : undefined})));
+    const actorSignature=JSON.stringify(candidateActors.map(actor=>({instanceId:actor.instanceId,ref:actor.ref,outfitKey:actor===candidateSpeaker ? candidateLine?.outfitKey || actor.outfitKey : actor.outfitKey,stateId:actor===candidateSpeaker ? candidateLine?.emotion : undefined})));
     const candidateAuthority=JSON.stringify([runtime.source?.sessionId,runtime.source?.authorityEpoch]);
-    const [candidateFigures,setCandidateFigures]=React.useState({signature:null,figures:[]});
+    const [candidateFigures,setCandidateFigures]=React.useState({signature:null,figures:[],actors:[],authority:null});
+    const candidatePins=React.useRef({current:[],retired:[]});
+    const [candidateError,setCandidateError]=React.useState('');
+    React.useEffect(()=>()=>{for(const pin of [...candidatePins.current.current,...candidatePins.current.retired])pin.release();candidatePins.current={current:[],retired:[]};},[sessionId,!!candidate]);
+    React.useEffect(()=>{for(const pin of candidatePins.current.retired)pin.release();candidatePins.current.retired=[];},[candidateFigures]);
     React.useEffect(()=>{
-        let live=true;const pins=[];
-        setCandidateFigures({signature:null,figures:[]});
-        if(!candidate || !candidateActors.length)return ()=>{live=false;};
+        let live=true,adopted=false;const pins=[];
+        setCandidateError('');
+        if(!candidate || !candidateActors.length){
+            candidatePins.current.retired.push(...candidatePins.current.current);candidatePins.current.current=[];
+            setCandidateFigures({signature:null,figures:[],actors:[],authority:null});
+            return ()=>{live=false;};
+        }
         const source=stageSessions.get(sessionId)?.getSnapshot()?.source,owner=stageSessions.resourceOwner;
         if(!source || !owner)return ()=>{live=false;};
         const authority=JSON.stringify([source.sessionId,source.authorityEpoch]);
@@ -15016,19 +15035,25 @@ function GalStage(props) {
             if(value && typeof value==='object')return Object.fromEntries(await Promise.all(Object.entries(value).map(async ([key,item])=>[key,await materialize(item)])));
             return value;
         };
-        rpc('stageSceneFigures',{sessionId,actors:JSON.parse(actorSignature)},sessionId)
+        const desired=JSON.parse(actorSignature);
+        rpc('stageSceneFigures',{sessionId,actors:desired},sessionId)
             .then(result=>Promise.all(result.figures.map(materialize)))
-            .then(figures=>{if(live)setCandidateFigures({signature:actorSignature,figures});})
-            .catch(error=>{if(live){console.warn('Candidate stage figures unavailable',error);candidate.onError?.({gameId:sessionId,code:'FIGURE_UNAVAILABLE',message:String(error.message || error)});}});
-        return ()=>{live=false;for(const pin of pins)pin.release();};
+            .then(async figures=>{
+                await Promise.all(figures.map(figure=>{const stage=packFigureRenderInputs(figure,{sessionId}).stage;if(stage?.kind!=='static' || !stage.src)return null;const image=new window.Image();image.src=stage.src;return image.decode();}));
+                if(live){candidatePins.current.retired.push(...candidatePins.current.current);candidatePins.current.current=pins;adopted=true;setCandidateFigures({signature:actorSignature,figures,actors:desired,authority:candidateAuthority});}
+            })
+            .catch(error=>{if(live){live=false;for(const pin of pins)pin.release();pins.length=0;setCandidateError(String(error.message || error));console.warn('Stage scene figures unavailable',error);candidate.onError?.({gameId:sessionId,code:'FIGURE_UNAVAILABLE',message:String(error.message || error)});}});
+        return ()=>{live=false;if(!adopted)for(const pin of pins)pin.release();};
     },[sessionId,actorSignature,candidateAuthority,!!candidate]);
     const contributed = candidateActors.map((actor,index) => {
-        const selected=candidateFigures.signature===actorSignature ? candidateFigures.figures[index] : null;
+        const desired=JSON.parse(actorSignature)[index];
+        const previous=candidateFigures.authority===candidateAuthority ? candidateFigures.actors.findIndex(row=>row.instanceId===desired.instanceId && row.ref?.packId===desired.ref?.packId && row.ref?.figureId===desired.ref?.figureId && row.outfitKey===desired.outfitKey) : -1;
+        const selected=candidateFigures.signature===actorSignature && candidateFigures.authority===candidateAuthority ? candidateFigures.figures[index] : previous>=0 ? candidateFigures.figures[previous] : null;
         if(!selected)return null;
         const input=packFigureRenderInputs(selected,{sessionId}).stage;
         if(!input)return null;
         const key='candidate:'+String(actor.instanceId);
-        return {...input,key,alias:key,x:actor.x,ground:actor.ground,size:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking:actor===candidateSpeaker,
+        return {...input,key,sourceRef:actor.ref,alias:key,x:actor.x,ground:actor.ground,size:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking:actor===candidateSpeaker,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : 1,
             figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry?.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     }).filter(Boolean);
     function onSceneDebug(effect) {
@@ -15225,6 +15250,7 @@ function GalStage(props) {
         // the item glow takes the speaker's 形象色.
         // art.item (stage-skin-adv.md): the skin draws the card as the original's frame.
         modPerformances.node && React.cloneElement(modPerformances.node,{accent:color || undefined,skinItem:skinItem || undefined}),
+        candidate && candidateActors.length>contributed.length ? h('div',{role:'status',style:{position:'absolute',zIndex:5,top:sceneHudSafe?.top || 0,left:'50%',transform:'translateX(-50%)',padding:'6px 12px',background:'#fff',color:'#333',pointerEvents:'none'}},candidateError ? '舞台角色素材暂不可用' : '正在准备舞台角色…') : null,
         candidate ? h('div',{className:'stage-scene-hud',style:{position:'absolute',left:0,right:0,top:sceneHudSafe?.top || 0,bottom:sceneHudSafe?.bottom || 0,zIndex:5,pointerEvents:'none'},onClick:event=>event.stopPropagation()},h(candidate.renderHud,{gameId:sessionId})) : null,
         h(ModStageLayers,{sessionId,config,sourceKey:receivedDirection.token?.sourceKey,stage:{title:props.data?.cardName,turn,latestTurn,scene:place,bgm:track?.name}}),
         textcard.node,

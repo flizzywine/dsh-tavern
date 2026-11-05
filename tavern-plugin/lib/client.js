@@ -32527,6 +32527,7 @@ function tavernFloorHeightRecall(key, width) {
                 // The lease is scoped to this card and mounted stage.
                 openStageScene(input) {
                     if (!input || typeof input.gameId !== 'string' || !input.gameId || typeof input.renderHud !== 'function') throw new TypeError('candidate scene needs gameId and renderHud');
+                    if (input.onDialogueAdvance !== undefined && typeof input.onDialogueAdvance !== 'function') throw new TypeError('onDialogueAdvance must be a function');
                     const owner=ownerOf(this), bridge=candidateScenes.get(input.gameId);
                     if (!tavernPluginAllowed(owner,input.gameId)) return {ok:false,reason:'denied'};
                     if (!bridge) return {ok:false,reason:'stage-unavailable'};
@@ -32534,7 +32535,7 @@ function tavernFloorHeightRecall(key, width) {
                     dispose=owned(this,()=>{
                         let closed=false, stopScopes=()=>{}, stopView=()=>{};
                         const close=reason=>{if(closed)return;closed=true;stopScopes();stopView();lease?.close();input.onClose?.({gameId:input.gameId,reason});};
-                        const lease=bridge.open({renderHud:input.renderHud,onError:input.onError,onClose:close});
+                        const lease=bridge.open({renderHud:input.renderHud,onError:input.onError,onDialogueAdvance:input.onDialogueAdvance ? event=>{try{input.onDialogueAdvance(event);}catch(error){try{tavernErrorHub.report('插件 '+owner,error);}catch(_){}}} : undefined,onClose:close});
                         if(!lease.ok){result=lease;return ()=>{};}
                         const check=()=>{if(!tavernPluginAllowed(owner,input.gameId))close('denied');};
                         if(typeof tavernCardPluginScopes!=='undefined')stopScopes=tavernCardPluginScopes.subscribe(check);

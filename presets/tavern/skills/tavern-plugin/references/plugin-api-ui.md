@@ -8,15 +8,15 @@
 
 先通过 `getCapabilities()` 检查两个独立能力；缺少时使用原有入口。`registerStageSceneProvider({id, onStageReady: ({gameId}) => cleanup})` 在当前舞台就绪或插件晚注册时调用，限已授权人物卡。可返回清理函数或其 Promise；舞台离开、权限撤销或插件卸载时执行清理，迟到的清理函数也会执行。回调不应持久化舞台投影。
 
-`openStageScene({gameId, renderHud, onClose?, onError?})` 返回 `{ok:false, reason}`（`denied`、`busy` 或 `stage-unavailable`）或 lease。一个舞台同时只有一个 lease。调用 `lease.update({actors, replaceActors?, interactive?, dialogue?, camera?, sprites?, effects?})` 替换当前贡献；调用 `lease.close()` 释放。关闭或切局后恢复最新正文场景。`interactive:false` 允许底层正文翻页和自动播放，并忽略贡献的 dialogue。`renderHud({gameId})` 放在文本框和顶栏之间，交互元素自行设置 `pointer-events:auto`。
+`openStageScene({gameId, renderHud, onDialogueAdvance?, onClose?, onError?})` 返回 `{ok:false, reason}`（`denied`、`busy` 或 `stage-unavailable`）或 lease。一个舞台同时只有一个 lease。调用 `lease.update({actors, replaceActors?, interactive?, dialogue?, camera?, sprites?, effects?})` 替换当前贡献；调用 `lease.close()` 释放。关闭或切局后恢复最新正文场景。`interactive:false` 允许底层正文翻页和自动播放，并忽略贡献的 dialogue。`renderHud({gameId})` 放在文本框和顶栏之间，交互元素自行设置 `pointer-events:auto`。
 
-`actors` 最多四个：`{instanceId, ref:{packId,figureId}, outfitKey?, x, visible?, ground?, size?, transform?}`；`instanceId` 非空且唯一，`x` 为 0–1 的舞台横向比例。宿主只解析当前卡获准的包和真实服装，异步加载失败经 `onError` 报告。`replaceActors:true` 替换正文演员，否则相同 ref 的正文演员由贡献替换；同 ref 可用不同实例 ID 多次出现。`transform:{x?,y?,scaleX?,scaleY?,rotation?,alpha?}` 是画布像素偏移、围绕演员中心的比例、弧度与透明度；每次 update 可设置一帧，移除后复原。演员加载及正文布局可能有过渡，调用方应等待几何出现。
+`actors` 最多四个：`{instanceId, ref:{packId,figureId}, outfitKey?, x, visible?, ground?, size?, transform?}`；`instanceId` 非空且唯一，`x` 为 0–1 的舞台横向比例。宿主只解析当前卡获准的包和真实服装，异步加载失败经 `onError` 报告。`replaceActors:true` 替换正文演员，否则相同 ref 的正文演员由贡献替换；同 ref 可用不同实例 ID 多次出现。`transform:{x?,y?,scaleX?,scaleY?,rotation?,alpha?}` 是世界坐标像素偏移、围绕演员中心的比例、弧度与透明度；每次 update 可设置一帧，移除后复原。演员加载及正文布局可能有过渡，调用方应等待几何出现。
 
-`dialogue:{lines:[{speakerRef?,actorKey?,displayName?,text,emotion?,outfitKey?}],index}` 使用舞台文本框；`actorKey` 是实例 ID。`camera` 接受原生镜头 `{shot,target}` 或 `{zoom,panX,panY,rotation,immediate:true}`，手动镜头受背景边界约束；特写目标使用 `candidate:` 加实例 ID。`effects` 是已有原生效果描述，不代表任意来源动画均已适配。
+`dialogue:{lines:[{speakerRef?,actorKey?,displayName?,text,emotion?,outfitKey?}],index}` 使用舞台文本框；`actorKey` 是实例 ID。主动模式下，首次前进先完成当前句打字，之后前进或后退调用 `onDialogueAdvance({gameId,delta})`（delta 为 +1 或 -1），索引由插件更新；不会翻动底层正文。`camera` 接受原生镜头 `{shot,target}` 或 `{zoom,panX,panY,rotation,immediate:true}`，手动镜头受背景边界约束；特写目标使用 `candidate:` 加实例 ID。`effects` 是已有原生效果描述，不代表任意来源动画均已适配。
 
-`lease.getGeometry()` 返回已渲染的贡献演员 `{instanceId,body,head}`，矩形是舞台内屏幕像素；尚未加载时可能为空。`lease.getLayout()` 返回 `{width,height,topBar,textBox,safe}`，坐标同样相对舞台；画布尺寸、文本框和顶栏可能随窗口、皮肤或正文改变，应在需要时重读。lease 已关闭时分别返回 `[]` 和 `null`。
+`lease.getGeometry()` 返回已渲染的贡献演员 `{instanceId,body,head,worldBody,worldHead}`：`body/head` 是舞台内屏幕像素，`worldBody/worldHead` 是镜头变换之前的世界像素，与 sprites 坐标同系；尚未加载时可能为空。`lease.getLayout()` 返回 `{width,height,topBar,textBox,safe}`，坐标同样相对舞台；画布尺寸、文本框和顶栏可能随窗口、皮肤或正文改变，应在需要时重读。lease 已关闭时分别返回 `[]` 和 `null`。
 
-`sprites` 最多 128 个：`{id,source,layer:'back'|'front',x,y,width,height,frame?,rotation?,alpha?,visible?}`。`source` 必须是插件已经取得像素的 `HTMLCanvasElement`，不接受 URL；`frame:{x,y,width,height}` 从画布裁切，坐标和尺寸均为像素，旋转为弧度。画布应遵守浏览器同源与 CSP 规则；接口不会绕过素材授权或代替插件加载资源。精灵属于同一 Pixi 场景的演员前后层，随镜头变换；每次 update 替换完整列表，移除或关闭时释放宿主纹理。调用方负责帧时序、取消自己的计时器以及画布内容，不能依赖固定帧率或假定所有未来宿主无需适配。
+`sprites` 最多 128 个：`{id,source,layer:'back'|'front',x,y,width,height,frame?,rotation?,alpha?,visible?}`。`source` 必须是插件已经取得像素的 `HTMLCanvasElement`，不接受 URL；`frame:{x,y,width,height}` 从画布裁切，坐标和尺寸均为世界像素（不应再次套用屏幕位置），旋转为弧度。画布应遵守浏览器同源与 CSP 规则；接口不会绕过素材授权或代替插件加载资源。精灵属于同一 Pixi 场景的演员前后层，随镜头变换；每次 update 替换完整列表，移除或关闭时释放宿主纹理。调用方负责帧时序、取消自己的计时器以及画布内容，不能依赖固定帧率或假定所有未来宿主无需适配。
 
 `getStagePerformanceStatus(gameId)`（`getCapabilities().stagePerformanceStatus === 1`）返回当前舞台的只读调度账本快照，或在舞台不可用、游戏不属于插件或没有活动实例时返回 `null`。字段包括 `version`、`turn`、`opened`、`visible`、`mode` 和 `ledger` 四个状态的计数；只有 performance-phase 和 mod-performance 纳入，后台隐藏或离开时计数为零。可按需重新读取，宿主卸载时不再提供快照。
 

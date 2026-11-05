@@ -201,7 +201,10 @@ test('candidate scene lease follows card scope and stage lifetime', () => {
     open(input){if(active)return {ok:false,reason:'busy'};active=input;return {ok:true,update(value){updated=value},close(){active=null}}},
     shutdown(){active?.onClose('stage-unavailable')}
   })
-  const lease=f.plugin.openStageScene({gameId:'game',renderHud(){},onClose:({reason})=>reasons.push(reason)})
+  const advances=[]
+  const lease=f.plugin.openStageScene({gameId:'game',renderHud(){},onDialogueAdvance:event=>advances.push(event.delta),onClose:({reason})=>reasons.push(reason)})
+  active.onDialogueAdvance({gameId:'game',delta:1})
+  assert.deepEqual(advances,[1])
   lease.update({actors:[{instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.5}]})
   assert.equal(updated.actors[0].instanceId,'one')
   assert.throws(() => lease.update({actors:[
