@@ -9,6 +9,8 @@
 			const messageActions = [];
 			const composerActions = [];
 			const stageDocks = new Map();
+			const candidateScenes = new Map();
+			const candidateSceneProviders = new Set();
 			const panels = new Map();
 			const gameModeViews = new Map();
 			const startGroups = [];
@@ -53,6 +55,28 @@
 			function owned(service, register, label) {
 				const ctx = service && service.ctx;
 				return ctx && typeof ctx.effect === "function" ? ctx.effect(register, label) : register();
+			}
+			function stopCandidateProviderGame(provider, gameId) {
+				const run = provider.runs.get(gameId);
+				if (!run) return;
+				provider.runs.delete(gameId); run.active = false; run.stopView();
+				if (run.cleanup) { try { run.cleanup(); } catch (error) { console.error(error); } }
+			}
+			function refreshCandidateProvider(provider, gameId) {
+				const allowed = provider.active && candidateScenes.has(gameId) && tavernPluginAllowed(provider.owner, gameId);
+				if (!allowed) { stopCandidateProviderGame(provider, gameId); return; }
+				if (provider.runs.has(gameId)) return;
+				const run = {active:true, cleanup:null, stopView:()=>{}};
+				provider.runs.set(gameId, run);
+				const accept = cleanup => {
+					if (typeof cleanup !== 'function') return;
+					if (run.active) run.cleanup=cleanup; else { try { cleanup(); } catch (error) { console.error(error); } }
+				};
+				try {
+					const result=provider.onStageReady({gameId});
+					if (result && typeof result.then === 'function') Promise.resolve(result).then(accept, error=>console.error(error));
+					else accept(result);
+				} catch (error) { console.error(error); }
 			}
 			function addTo(list, entry) {
 				list.push(entry);
@@ -424,8 +448,54 @@
 				apiVersion: 9,
 				// Independent browser feature versions, not resource authorization or host API versions.
 				getCapabilities() {
-					return { openOverlay: 1, overlayLayout: 2, stageInteraction: 1, stageDock: 1, stagePerformanceStatus: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
+					return { openOverlay: 1, overlayLayout: 2, overlayFullscreen: 1, stageInteraction: 1, stageDock: 1, stagePerformanceStatus: 1, stageScene: 1, stageSceneProvider: 1, stageSceneBackground: 1, stageScenePresentation: 1, stageSceneActorEmotion: 1, stageSceneBattlePresentation: 1, stageSceneMusic: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
 				},
+				registerStageSceneProvider(input) {
+					if (!input || typeof input.id !== 'string' || !input.id || typeof input.onStageReady !== 'function') throw new TypeError('provider needs id and onStageReady');
+					const provider={owner:ownerOf(this),id:input.id,onStageReady:input.onStageReady,active:true,runs:new Map()};
+					return owned(this,()=>{
+						candidateSceneProviders.add(provider);
+						for(const id of candidateScenes.keys()) refreshCandidateProvider(provider,id);
+						return ()=>{if(!provider.active)return;provider.active=false;candidateSceneProviders.delete(provider);for(const id of [...provider.runs.keys()])stopCandidateProviderGame(provider,id);};
+					},'tavernUi.registerStageSceneProvider()');
+				},
+                // The lease is scoped to this card and mounted stage.
+                openStageScene(input) {
+                    if (!input || typeof input.gameId !== 'string' || !input.gameId || typeof input.renderHud !== 'function') throw new TypeError('candidate scene needs gameId and renderHud');
+                    if (input.onDialogueAdvance !== undefined && typeof input.onDialogueAdvance !== 'function') throw new TypeError('onDialogueAdvance must be a function');
+                    const owner=ownerOf(this), bridge=candidateScenes.get(input.gameId);
+                    if (!tavernPluginAllowed(owner,input.gameId)) return {ok:false,reason:'denied'};
+                    if (!bridge) return {ok:false,reason:'stage-unavailable'};
+                    let result, cleanup=()=>{}, dispose=null;
+                    dispose=owned(this,()=>{
+                        let closed=false, stopScopes=()=>{}, stopView=()=>{};
+                        const close=reason=>{if(closed)return;closed=true;stopScopes();stopView();lease?.close();input.onClose?.({gameId:input.gameId,reason});};
+                        const lease=bridge.open({renderHud:input.renderHud,onError:input.onError,onDialogueAdvance:input.onDialogueAdvance ? event=>{try{input.onDialogueAdvance(event);}catch(error){try{tavernErrorHub.report('插件 '+owner,error);}catch(_){}}} : undefined,onClose:close});
+                        if(!lease.ok){result=lease;return ()=>{};}
+                        const check=()=>{if(!tavernPluginAllowed(owner,input.gameId))close('denied');};
+                        if(typeof tavernCardPluginScopes!=='undefined')stopScopes=tavernCardPluginScopes.subscribe(check);
+                        if(typeof liveTavernView!=='undefined')stopView=liveTavernView.subscribe(input.gameId,check,[['card']]);
+                        cleanup=()=>close('closed');
+                        const finite=(v,min,max)=>Number.isFinite(v)&&v>=min&&v<=max;
+                        result={ok:true,update:value=>{
+                            if(!value || !Array.isArray(value.actors) || value.actors.length>4 || value.actors.some(actor=>!actor || typeof actor.instanceId!=='string' || !actor.instanceId || typeof actor.ref?.packId!=='string' || typeof actor.ref?.figureId!=='string' || !actor.ref.packId || !actor.ref.figureId || !finite(actor.x,0,1) || (actor.emotion!==undefined && (typeof actor.emotion!=='string' || actor.emotion.length>128)) || (actor.size!==undefined && !finite(actor.size,0.1,2)) || (actor.transform && Object.entries(actor.transform).some(([k,v])=>!['x','y','scaleX','scaleY','rotation','alpha'].includes(k) || !finite(v,k==='alpha'?0:k.startsWith('scale')?-8:k==='rotation'?-100:-8192,k==='alpha'?1:k.startsWith('scale')?8:k==='rotation'?100:8192)))) || new Set(value.actors.map(actor=>actor.instanceId)).size!==value.actors.length) throw new TypeError('Invalid stage scene actors');
+                            if(value.captureWheel !== undefined && typeof value.captureWheel !== 'boolean') throw new TypeError('Invalid stage scene wheel capture');
+                            if(value.presentation !== undefined && value.presentation !== 'battle') throw new TypeError('Invalid stage scene presentation');
+                            if(value.musicLoop !== undefined && typeof value.musicLoop !== 'boolean') throw new TypeError('Invalid stage scene music loop');
+                            if(value.musicRef != null && (value.musicRef.kind!=='music' || typeof value.musicRef.packId!=='string' || !value.musicRef.packId || typeof value.musicRef.assetId!=='string' || !value.musicRef.assetId)) throw new TypeError('Invalid stage scene music');
+                            const sprites=value.sprites || [];
+                            if(value.backgroundRef != null && (value.backgroundRef.kind!=='backgrounds' || typeof value.backgroundRef.packId!=='string' || !value.backgroundRef.packId || typeof value.backgroundRef.assetId!=='string' || !value.backgroundRef.assetId)) throw new TypeError('Invalid stage scene background');
+                            if(!Array.isArray(sprites) || sprites.length>128 || new Set(sprites.map(s=>s?.id)).size!==sprites.length || sprites.some(s=>{
+                                if(!s || typeof s.id!=='string' || !s.id || !window.HTMLCanvasElement || !(s.source instanceof window.HTMLCanvasElement) || !finite(s.source.width,1,4096) || !finite(s.source.height,1,4096) || !['back','front'].includes(s.layer) || !finite(s.x,-8192,8192) || !finite(s.y,-8192,8192) || !finite(s.width,1,8192) || !finite(s.height,1,8192) || (s.alpha!==undefined&&!finite(s.alpha,0,1)) || (s.rotation!==undefined&&!finite(s.rotation,-100,100)))return true;
+                                const f=s.frame;return f && (!finite(f.x,0,s.source.width) || !finite(f.y,0,s.source.height) || !finite(f.width,1,s.source.width) || !finite(f.height,1,s.source.height) || f.x+f.width>s.source.width || f.y+f.height>s.source.height);
+                            })) throw new TypeError('Invalid stage scene sprites');
+                            if(!closed){check();if(!closed)lease.update(value);}
+                        },getGeometry:()=>{if(!closed)check();return closed?[]:lease.geometry?.() || [];},getLayout:()=>{if(!closed)check();return closed?null:lease.layout?.() || null;},getPresentation:()=>{if(!closed)check();return closed?null:lease.presentation?.() || null;},close:()=>{if(typeof dispose==='function')dispose();else cleanup();}};
+                        return cleanup;
+                    },'tavernUi.openStageScene()');
+                    return result;
+                },
+
 				// Request a right-hand stage column. Failure is explicit so a caller can use overlay.
 				openStageDock(input) {
 					if (!input || typeof input.gameId !== "string" || !input.gameId || typeof input.render !== "function") throw new TypeError("openStageDock 需要 gameId 和 render");
@@ -915,6 +985,8 @@
 					if (input.onClose !== undefined && typeof input.onClose !== "function") throw new TypeError("openOverlay 的 onClose 必须是函数");
 					if (typeof document === "undefined") throw new Error("当前环境没有页面，无法打开插件界面");
 					const owner = ownerOf(this);
+					const gameId = String(input.gameId || "");
+					if (gameId && !tavernPluginAllowed(owner, gameId)) throw new Error("当前人物卡未授权此插件界面");
 					let cleanup = function () {}, dispose = null;
 					const handle = { close: function () { if (typeof dispose === "function") dispose(); else cleanup(); } };
 					dispose = owned(this, function () {
@@ -922,7 +994,19 @@
 						container.className = "dsh-tavern-plugin-overlay";
 						container.setAttribute("role", "dialog");
 						container.setAttribute("aria-modal", "true");
-						document.body.append(container);
+						function moveOverlay() {
+							const fullscreen=document.fullscreenElement;
+							// A video inside this overlay may itself be fullscreen; never move its ancestor into it.
+							if(fullscreen && container.contains?.(fullscreen))return;
+							// The document element already contains body; keep body theme variables and CSS inheritance.
+							const parent=fullscreen && fullscreen!==document.documentElement ? fullscreen : document.body;
+							if(container.parentNode!==parent){
+								const focus=container.contains?.(document.activeElement) ? document.activeElement : null;
+								parent.append(container);focus?.focus?.({preventScroll:true});
+							}
+							container.style.top=fullscreen ? '0px' : '';
+						}
+						moveOverlay();
 						const root = require("react-dom/client").createRoot(container);
 						let closed = false;
 						const layoutListeners = new Set();
@@ -962,12 +1046,19 @@
 						};
 						if (layoutTarget) layoutTarget.addEventListener("resize", layoutChanged);
 						if (viewport) { viewport.addEventListener("resize", layoutChanged); viewport.addEventListener("scroll", layoutChanged); }
+						function fullscreenChanged(){if(closed)return;moveOverlay();layoutChanged();}
+						document.addEventListener('fullscreenchange',fullscreenChanged);
+						const checkScope=()=>{if(gameId && !tavernPluginAllowed(owner,gameId))handle.close();};
+						const stopScopes=gameId && typeof tavernCardPluginScopes!=='undefined' ? tavernCardPluginScopes.subscribe(checkScope) : ()=>{};
+						const stopView=gameId && typeof liveTavernView!=='undefined' ? liveTavernView.subscribe(gameId,checkScope,[['card']]) : ()=>{};
 						function onKey(event) { if (event.key === "Escape" && input.dismissible !== false) { event.stopPropagation(); handle.close(); } }
 						document.addEventListener("keydown", onKey, true);
 						cleanup = function () {
 							if (closed) return;
 							closed = true;
 							document.removeEventListener("keydown", onKey, true);
+							document.removeEventListener('fullscreenchange',fullscreenChanged);
+							stopScopes();stopView();
 							if (layoutTarget) layoutTarget.removeEventListener("resize", layoutChanged);
 							if (viewport) { viewport.removeEventListener("resize", layoutChanged); viewport.removeEventListener("scroll", layoutChanged); }
 							layoutListeners.clear();
@@ -1041,6 +1132,16 @@
 					stagePerformanceReader = reader;
 					return function () { if (stagePerformanceReader === reader) stagePerformanceReader = null; };
 				},
+                bindStageScene: function(gameId,bridge) {
+                    const old=candidateScenes.get(gameId); if(old){for(const provider of candidateSceneProviders)stopCandidateProviderGame(provider,gameId);old.shutdown();}
+                    candidateScenes.set(gameId,bridge);
+                    const check=()=>{if(candidateScenes.get(gameId)===bridge)for(const provider of candidateSceneProviders)refreshCandidateProvider(provider,gameId);};
+                    const stopScopes=typeof tavernCardPluginScopes!=='undefined' ? tavernCardPluginScopes.subscribe(check) : ()=>{};
+                    const stopView=typeof liveTavernView!=='undefined' ? liveTavernView.subscribe(gameId,check,[['card']]) : ()=>{};
+                    check();
+                    return function(){stopScopes();stopView();if(candidateScenes.get(gameId)===bridge){candidateScenes.delete(gameId);for(const provider of candidateSceneProviders)stopCandidateProviderGame(provider,gameId);bridge.shutdown();}};
+                },
+
 				bindStageDock: function (gameId, bridge) {
 					const old = stageDocks.get(gameId);
 					if (old && old !== bridge) old.shutdown();

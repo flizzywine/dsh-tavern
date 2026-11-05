@@ -22,7 +22,7 @@ function layeredSpriteTickScene(entry, textures, PIXI, enabled) {
         images.set(url, source);
     }
     // A replace blink repaints the shared canvas when its phase changes.
-    const voice = layeredSpriteVoice(entry.figure.spriteVoiceKey, entry.figure.audio, enabled);
+    const voice = entry.figure.talking && !entry.figure.audio && enabled ? (Math.floor(performance.now()/140)%2 ? 'closed' : 'open') : entry.figure.talking===false && !entry.figure.audio ? 'closed' : layeredSpriteVoice(entry.figure.spriteVoiceKey, entry.figure.audio, enabled);
     const event = bundle.view.blink?.blend === 'replace' ? voice + '|' + (entry.spriteBlink || 'open') : voice;
     if (entry.spriteEvent !== event) {
         try {
@@ -58,7 +58,7 @@ const {urls:layeredSpriteUrls}=services.layered || {};
 const {paint:stagePaintEmpty,palette:stageEmptyPalette}=services.canvas || {};
 const {Image,MessageChannel,MutationObserver,ResizeObserver,performance}=window;
 const getComputedStyle=(...args)=>window.getComputedStyle(...args),setTimeout=(...args)=>window.setTimeout(...args);
-const galFigureSources=new WeakMap(),instances=new Set();let disposed=false;
+const galFigureSources=new WeakMap(),galPresentationSources=new WeakMap(),instances=new Set();let disposed=false;
 // Register before creating scenes. A scene snapshots factories and owns their instances.
 // factory(scene) returns load, tick, head, hit, react, release, set, reload and dispose.
 // Model renderers own placement; sprite renderers return spriteBased:true for shared placement.
@@ -134,6 +134,8 @@ function galCreateScene(host, options, own) {
     const world = node(new PIXI.Container()), backdrop = node(new PIXI.Container()), layersBox = node(new PIXI.Container());
     const vignette = node(new PIXI.Sprite(generated.vignette));
     const backFx = node(new PIXI.Container()), figuresBox = node(new PIXI.Container()), frontFx = node(new PIXI.Container()), emotesBox = node(new PIXI.Container()), overlay = node(new PIXI.Container());
+    const contributedBack = node(new PIXI.Container()), contributedFront = node(new PIXI.Container()), sceneSprites = new Map();
+    backFx.addChild(contributedBack); frontFx.addChild(contributedFront);
     figuresBox.sortableChildren = true;
     backdrop.addChild(layersBox, vignette);
     // the skin's inner-monologue backdrop (art.thinking; an original's
@@ -677,6 +679,8 @@ function galCreateScene(host, options, own) {
             if (entry.leaving && (galFigureGone(entry) || now - entry.leavingSince > 2500)) { destroyFigure(entry); return; }
             entry.container.position.set(0, 0);
             entry.container.scale.set(1);
+            entry.container.rotation = 0;
+            entry.container.alpha = 1;
             const alpha = entry.alpha.v, shade = entry.shade.v;
             entry.container.visible = alpha > 0.003;
             entry.container.zIndex = entry.leaving ? 0 : figure.close ? 3 : figure.speaking ? 2 : 1;
@@ -910,7 +914,7 @@ function galCreateScene(host, options, own) {
     function tickCamera(desc, now, W, H, frame) {
         const spec=desc.camera||{},head=spec.shot==='close'?closeHeadOf(spec.target,W,H):null;
         const framing=head?galCloseFrame(head,frame,state.faceEnvironment.closeBottom,W,H,sceneLayout.layout?.head):null;
-        const camera=state.camera=cameraMotion.step({spec,framing,hasTarget:!!head,frame,W,H,now,skipping:desc.skipping,snap:desc.snap,kick:effects.zoomKick(now)});
+        const camera=state.camera=cameraMotion.step({spec,framing,hasTarget:!!head,frame,W,H,now,skipping:desc.skipping,snap:desc.snap || spec.immediate===true,kick:effects.zoomKick(now)});
         const reported=camera.key+'|'+W+'|'+H,r3=v=>Math.round(v*1000)/1000;
         if(reported!==state.cameraReported){state.cameraReported=reported;state.cameraReport={zoom:r3(camera.goal.zoom),fx:r3(camera.goal.fx),ax:r3(camera.goal.ax)};reportLayout();}
         const safe=camera.safe,shake=effects.shakeOffset(now);
@@ -920,6 +924,27 @@ function galCreateScene(host, options, own) {
         backdrop.position.set((shake.bx || 0) / safe.zoom, (shake.by || 0) / safe.zoom);
         world.scale.set(safe.zoom);
         world.rotation = safe.rotation;
+    }
+
+    function tickSceneSprites(rows) {
+        const wanted=new Set();
+        for(const row of rows || []) {
+            wanted.add(row.id);
+            let item=sceneSprites.get(row.id);
+            if(item && item.source!==row.source) { item.sprite.destroy(); item.texture.destroy(true);sceneSprites.delete(row.id);item=null; }
+            if(!item) {
+                const base=new PIXI.BaseTexture(row.source), texture=new PIXI.Texture(base), sprite=new PIXI.Sprite(texture);
+                item={source:row.source,texture,sprite};sceneSprites.set(row.id,item);
+            }
+            const layer=row.layer==='back' ? contributedBack : contributedFront;
+            if(item.sprite.parent!==layer)layer.addChild(item.sprite);
+            item.texture.baseTexture.update();
+            const frame=row.frame || {x:0,y:0,width:row.source.width,height:row.source.height};
+            item.texture.frame=new PIXI.Rectangle(frame.x,frame.y,frame.width,frame.height);
+            item.sprite.position.set(row.x,row.y); item.sprite.width=row.width;item.sprite.height=row.height;
+            item.sprite.rotation=row.rotation || 0;item.sprite.alpha=row.alpha ?? 1;item.sprite.visible=row.visible!==false;
+        }
+        for(const [id,item] of sceneSprites)if(!wanted.has(id)){item.sprite.destroy();item.texture.destroy(true);sceneSprites.delete(id);}
     }
 
     function applyQuality(next) {
@@ -989,6 +1014,25 @@ function galCreateScene(host, options, own) {
             entry.container.y += entry.headroom;
         });
         tickFaceClamp(dt, W, H, visibleFrame);
+        state.figures.forEach(entry=>{
+            const size=entry.figure.sceneSize,shift=entry.headroom || 0;
+            if(size!==undefined && size!==1 && entry.restBody){
+                const body=entry.restBody,cx=body.x+body.width/2,cy=body.y+body.height+shift;
+                entry.container.position.set(cx+(entry.container.x-cx)*size,cy+(entry.container.y-cy)*size);
+                entry.container.scale.x*=size;entry.container.scale.y*=size;
+                entry.restBody={x:cx+(body.x-cx)*size,y:cy+(body.y+shift-cy)*size-shift,width:body.width*size,height:body.height*size};
+                if(entry.restHead){const h=entry.restHead;entry.restHead={...h,x:cx+(h.x-cx)*size,top:cy+(h.top+shift-cy)*size-shift,chin:cy+(h.chin+shift-cy)*size-shift,width:h.width*size};}
+            }
+            const t=entry.figure.sceneTransform, body=entry.restBody;
+            if(!t || !body)return;
+            const cx=body.x+body.width/2,cy=body.y+body.height/2+shift,sx=t.scaleX ?? 1,sy=t.scaleY ?? 1,a=t.rotation || 0,c=Math.cos(a),s=Math.sin(a),dx=t.x || 0,dy=t.y || 0;
+            const point=(x,y)=>({x:cx+(x-cx)*sx*c-(y-cy)*sy*s+dx,y:cy+(x-cx)*sx*s+(y-cy)*sy*c+dy});
+            const pos=point(entry.container.x,entry.container.y);entry.container.position.set(pos.x,pos.y);entry.container.scale.x*=sx;entry.container.scale.y*=sy;entry.container.rotation=a;entry.container.alpha=t.alpha ?? 1;
+            const bounds=r=>{const p=[point(r.x,r.y+shift),point(r.x+r.width,r.y+shift),point(r.x,r.y+r.height+shift),point(r.x+r.width,r.y+r.height+shift)],xs=p.map(v=>v.x),ys=p.map(v=>v.y);return {x:Math.min(...xs),y:Math.min(...ys)-shift,width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)};};
+            entry.restBody=bounds(body);
+            if(entry.restHead){const h=entry.restHead,r=bounds({x:h.x-h.width/2,y:h.top,width:h.width,height:h.chin-h.top});entry.restHead={...h,x:r.x+r.width/2,width:r.width,top:r.y,chin:r.y+r.height};}
+        });
+        tickSceneSprites(desc.sceneSprites);
         tickShot(desc, W, H);
         if (desc.figureMode !== "none" && !desc.shot) sampleBodies(W, H);
         tickBust(desc, now, W, H);
@@ -1159,8 +1203,29 @@ function galCreateScene(host, options, own) {
         }
     };
     function figureRects() {
-        return galFigureRects(Array.from(state.figures.values(), entry => ({ id: entry.figure.alias, visible: figuresBox.visible && entry.container.visible,
-            body: entry.restBody, head: entry.restHead, shift: entry.headroom })), state.camera.safe, app.screen.width, app.screen.height);
+        const rows=Array.from(state.figures.values(), entry => ({ id: entry.figure.alias, visible: figuresBox.visible && entry.container.visible,
+            body: entry.restBody, head: entry.restHead, shift: entry.headroom }));
+        const byId=new Map(rows.map(row=>[row.id,row]));
+        return galFigureRects(rows, state.camera.safe, app.screen.width, app.screen.height).map(rect=>{
+            const row=byId.get(rect.id), shift=row.shift || 0, head=row.head;
+            return {...rect,worldBody:{...row.body,y:row.body.y+shift},worldHead:{x:head.x-head.width/2,y:head.top+shift,width:head.width,height:head.chin-head.top}};
+        });
+    }
+    function presentation() {
+        const backgroundsShown=[];
+        for(const layer of backgrounds.layers){
+            if(!layer.url || !(layer.sprite.alpha>0))continue;
+            let ref=null;try{ref=JSON.parse(layer.scene);}catch(_){}
+            if(ref?.kind==='backgrounds' && typeof ref.packId==='string' && typeof ref.assetId==='string')backgroundsShown.push({ref:{packId:ref.packId,kind:'backgrounds',assetId:ref.assetId},alpha:layer.sprite.alpha});
+        }
+        const actors=[];
+        for(const entry of state.figures.values()){
+            const figure=entry.figure, ref=figure.sourceRef;
+            if(!figure.alias?.startsWith('candidate:') || !ref || entry.leaving || !entry.container.visible)continue;
+            const ready=entry.kind==='static' ? !!entry.sprite && entry.loadedIdentity===figure.identity && !entry.pendingSrc : !!(entry.model || entry.sprite) && !entry.replacement;
+            if(ready)actors.push({instanceId:figure.alias.slice(10),ref:{packId:ref.packId,figureId:ref.figureId},outfitKey:figure.sourceOutfitKey || null,stateId:figure.sourceStateId || null,form:figure.kind});
+        }
+        return {backgrounds:backgroundsShown,backgroundPending:!!backgrounds.pending || backgrounds.layers.length>1,actors};
     }
     const stageHost = host.closest('.fork-gal-stage');
     // Refresh only the shared empty texture; keep figures, transitions and configured backgrounds intact.
@@ -1178,7 +1243,7 @@ function galCreateScene(host, options, own) {
         if (state.faceEnvironment) state.faceEnvironment.boxDirty = true;
     }) : null;
     if(faceBoxObserver)own(faceBoxObserver,value=>value.disconnect());
-    if (stageHost) {galFigureSources.set(stageHost, figureRects);own(stageHost,root=>{if(galFigureSources.get(root)===figureRects)galFigureSources.delete(root);});}
+    if (stageHost) {galFigureSources.set(stageHost, figureRects);galPresentationSources.set(stageHost,presentation);own(stageHost,root=>{if(galFigureSources.get(root)===figureRects)galFigureSources.delete(root);if(galPresentationSources.get(root)===presentation)galPresentationSources.delete(root);});}
     return {
         figureRects,
         debug,
@@ -1202,9 +1267,11 @@ function galCreateScene(host, options, own) {
                 for(const type of ['pointerdown','pointermove','pointerup','pointercancel'])clean(()=>stageHost.removeEventListener(type,onStagePointer,{capture:true}));
                 clean(()=>stageHost.removeEventListener('click',onStageTap,true));
                 if(galFigureSources.get(stageHost)===figureRects)galFigureSources.delete(stageHost);
+                if(galPresentationSources.get(stageHost)===presentation)galPresentationSources.delete(stageHost);
             }
             clean(()=>{if(state.pump){state.pump.stop=true;state.pump.off();state.pump=null;}});
             clean(()=>app.ticker.remove(frame));
+            for(const item of sceneSprites.values())clean(()=>{item.sprite.destroy();item.texture.destroy(true);});sceneSprites.clear();
             for(const dispose of [()=>effects.destroy(),()=>cast.dispose(),()=>sceneLayout.dispose()])clean(dispose);
             for(const entry of state.offstage.values()){if(entry.next)clean(()=>destroyFigure(entry.next));clean(()=>destroyFigure(entry));}
             for(const dispose of [()=>call.dispose(),()=>offstageBox.destroy(),()=>backgrounds.dispose(),()=>figureAssets.dispose(),()=>layered.dispose(),()=>textures.dispose(),()=>bust.dispose(),()=>thinking.dispose(),...[...renderers.values()].map(renderer=>()=>renderer.dispose()),()=>app.destroy(true,{children:true})])clean(dispose);
@@ -1303,7 +1370,7 @@ function GalScene(props) {
         error && !errorHandler ? h("p", { className: "fork-live2d-error", role: "alert" }, error) : null);
 }
 
-return {Scene:GalScene,create,figureRenderers:{register:registerFigureRenderer},rects:root=>galFigureSources.get(root)?.() || [],dispose(){
+return {Scene:GalScene,create,figureRenderers:{register:registerFigureRenderer},rects:root=>galFigureSources.get(root)?.() || [],presentation:root=>galPresentationSources.get(root)?.() || null,dispose(){
     if(disposed)return;disposed=true;figureRenderers.clear();const errors=[];
     for(const instance of [...instances])try{instance.destroy();}catch(error){errors.push(error);}
     if(errors.length)throw new AggregateError(errors,'Stage scene scope cleanup failed');

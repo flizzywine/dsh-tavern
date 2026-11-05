@@ -26,7 +26,7 @@ const mediaViews = readFileSync(join(root, 'tavern-plugin', 'lib', 'domain', 'pl
 test('capabilities 声明 galleryProvider: 1，插件可以探测', () => {
   assert.match(
     pluginApi,
-    /capabilities\s*=\s*Object\.freeze\(\{[^}]*galleryProvider:\s*1[^}]*\}\)/,
+    /capabilities\s*=\s*Object\.freeze\(\{[^}]*galleryProvider:\s*1\b/,
     'tavern.capabilities 里应当有 galleryProvider: 1',
   )
   assert.match(pluginApi, /capabilities,/, 'capabilities 需要出现在返回给插件的对象里')

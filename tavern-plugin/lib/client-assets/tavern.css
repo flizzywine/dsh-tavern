@@ -3270,7 +3270,7 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 /* 侧边卡片是 better-sidebar 的开发者设置，玩家无需看到。 */
 [data-dsh-better-sidebar-settings-nav] { display: none !important; }
 .dsh-tavern-plugin-overlay {
-  box-sizing: border-box; position: fixed; inset: 0; z-index: 2000; overflow: auto;
+  box-sizing: border-box; position: fixed; inset: 0; z-index: 2147483002; overflow: auto;
   top: env(titlebar-area-height, 0px);
   background: var(--dsw-specific-sidebar-fill); color: var(--dsw-alias-label-primary);
 }

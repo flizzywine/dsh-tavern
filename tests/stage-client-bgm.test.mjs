@@ -53,7 +53,7 @@ test('BGM disposal clears every owner despite selector, listener, audio and pin 
 
 const {BGM_STORAGE} = createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/bgm.cjs')
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
-function leaveHarness(saved = {}) {
+function leaveHarness(saved = {}, extraTracks = []) {
   const map = new Map(Object.entries(saved)), calls = []
   let identity = null, current = '', paused = true
   const music = {get:() => ({identity,current,paused}), play:(url,snap,id) => {calls.push(['play',id]);identity=id;current=url;paused=false;return new Promise(() => {})},
@@ -65,7 +65,7 @@ function leaveHarness(saved = {}) {
     storage:{getItem:key => map.has(key) ? map.get(key) : null, setItem:(key,value) => map.set(key,String(value)), removeItem:key => map.delete(key)},
     owner:() => ({retain:id => ({handle:{url:'blob:' + id},release(){}}), acquire:async item => ({handle:{url:'blob:' + item.identity},release(){}})}),
     clock:{setTimeout:fn => {fn();return 1},clearTimeout(){}},
-    read:async () => ({tracks:[{ref:{packId:'P',kind:'music',assetId:'a'},identity:'P:music:a:h',name:'A',pack:'Pack',url:{resource:true,kind:'media',ref:{packId:'P',kind:'music',assetId:'a'},revision:'r1',hash:'h',identity:'P:music:a:h'}}]})})
+    read:async () => ({tracks:[{ref:{packId:'P',kind:'music',assetId:'a'},identity:'P:music:a:h',name:'A',pack:'Pack',url:{resource:true,kind:'media',ref:{packId:'P',kind:'music',assetId:'a'},revision:'r1',hash:'h',identity:'P:music:a:h'}},...extraTracks]})})
   return {bgm, calls, map, plays:() => calls.filter(call => call[0] === 'play').map(call => call[1])}
 }
 // Every reopened stage chat used to start with its BGM paused: leaving the stage stored a pause.
@@ -90,4 +90,21 @@ test('leaving the stage holds the music for this page only; a reload plays again
   const paused = leaveHarness(Object.fromEntries(reload.map))
   paused.bgm.activate('s');await tick()
   assert.equal(paused.bgm.get().paused,true,'the player\'s own pause survives a reload');assert.deepEqual(paused.plays(),[])
+})
+
+
+test('scene music takes the BGM channel and restores the previous choice on release', async () => {
+  const ref = {packId:'P',kind:'music',assetId:'battle'}
+  const track = {ref,identity:'battle',name:'Battle',url:{identity:'battle'}}
+  const {bgm,plays} = leaveHarness({},[track])
+  bgm.activate('s'); await tick()
+  const owner = {}
+  bgm.setScene('s',owner,ref); await tick()
+  assert.deepEqual(plays(),['P:music:a:h','battle'])
+  assert.equal(bgm.get().current.source,'scene')
+  bgm.setScene('s',{},null); await tick()
+  assert.equal(bgm.get().current.source,'scene')
+  bgm.setScene('s',owner,null); await tick()
+  assert.deepEqual(plays(),['P:music:a:h','battle','P:music:a:h'])
+  bgm.dispose()
 })

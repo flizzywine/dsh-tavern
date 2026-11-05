@@ -20,17 +20,18 @@ function fixture() {
   const window = events({ visualViewport: viewport, innerWidth: 390, innerHeight: 700,
     getComputedStyle: () => ({ paddingTop: '20px', paddingRight: '0px', paddingBottom: '30px', paddingLeft: '0px' }) })
   const document = events({ body: { append() {} }, createElement: () => ({ style: {}, setAttribute() {}, remove() {} }) })
-  let element, unmounted = 0, disposers = [], allowed = true, scopeListener
+  let element, unmounted = 0, disposers = [], allowed = true
+  const scopeListeners = new Set()
   const context = {
     window, document, React: { createElement: (type, props, ...children) => ({ type, props, children }) },
     tavernPluginBoundary: () => 'Boundary', tavernErrorHub: { report() {} }, tavernPluginAllowed: (_, gameId) => allowed && gameId !== 'denied',
-    tavernCardPluginScopes: { subscribe: fn => { scopeListener = fn; return () => { scopeListener = null } } },
+    tavernCardPluginScopes: { subscribe: fn => { scopeListeners.add(fn); return () => scopeListeners.delete(fn) } },
     require: () => ({ createRoot: () => ({ render: value => { element = value }, unmount: () => { unmounted++ } }) })
   }
   const ui = vm.runInNewContext(factory + '; createTavernUiExtensions()', context)
   const plugin = Object.create(ui.service)
   plugin.ctx = { fiber: { name: 'fixture' }, effect(register) { const dispose = register(); disposers.push(dispose); return dispose } }
-  return { ui, plugin, viewport, window, document, element: () => element, unmounted: () => unmounted, unload: () => disposers.forEach(dispose => dispose()), deny: () => { allowed = false; scopeListener?.() } }
+  return { ui, plugin, viewport, window, document, element: () => element, unmounted: () => unmounted, unload: () => disposers.forEach(dispose => dispose()), deny: () => { allowed = false; for (const fn of [...scopeListeners]) fn() } }
 }
 
 test('browser capability map is independent and returned as a fresh snapshot', () => {
@@ -39,6 +40,7 @@ test('browser capability map is independent and returned as a fresh snapshot', (
   const caps = ui.service.getCapabilities()
   assert.equal(caps.openOverlay, 1)
   assert.equal(caps.overlayLayout, 2)
+  assert.equal(caps.overlayFullscreen, 1)
   assert.equal(caps.stageDock, 1)
   caps.openOverlay = 99
   assert.equal(ui.service.getCapabilities().openOverlay, 1)
@@ -174,6 +176,16 @@ test('overlay Escape, non-dismissible mode, and repeated close preserve lifecycl
   assert.equal(g.unmounted(), 1)
 })
 
+test('game overlay closes if card authorization is revoked', () => {
+  const f=fixture()
+  assert.throws(()=>f.plugin.openOverlay({gameId:'denied',render(){}}),/未授权/)
+  let closes=0
+  f.plugin.openOverlay({gameId:'game',render(){},onClose(){closes++}})
+  f.deny()
+  assert.equal(closes,1)
+  assert.equal(f.document.count('fullscreenchange'),0)
+})
+
 
 test('stage interaction uses an existing composer action, deduplicates, and disposes its overlays', () => {
   const f = fixture()
@@ -189,4 +201,69 @@ test('stage interaction uses an existing composer action, deduplicates, and disp
   assert.equal(closes, 1)
   f.unload()
   assert.equal(closes, 1)
+})
+
+test('candidate scene lease follows card scope and stage lifetime', () => {
+  const f = fixture(), reasons = []
+  assert.equal(f.plugin.getCapabilities().stageScene, 1)
+  assert.equal(f.plugin.getCapabilities().stageSceneBackground,1)
+  assert.equal(f.plugin.getCapabilities().stageScenePresentation,1)
+  assert.equal(f.plugin.getCapabilities().stageSceneActorEmotion,1)
+  assert.equal(f.plugin.getCapabilities().stageSceneBattlePresentation,1)
+  assert.equal(f.plugin.getCapabilities().stageSceneMusic,1)
+  assert.equal(f.plugin.openStageScene({gameId:'denied',renderHud(){}}).reason, 'denied')
+  let active, updated
+  const unbind=f.ui.bindStageScene('game',{
+    open(input){if(active)return {ok:false,reason:'busy'};active=input;return {ok:true,update(value){updated=value},close(){active=null}}},
+    shutdown(){active?.onClose('stage-unavailable')}
+  })
+  const advances=[]
+  const lease=f.plugin.openStageScene({gameId:'game',renderHud(){},onDialogueAdvance:event=>advances.push(event.delta),onClose:({reason})=>reasons.push(reason)})
+  active.onDialogueAdvance({gameId:'game',delta:1})
+  assert.deepEqual(advances,[1])
+  lease.update({actors:[{instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.5}]})
+  assert.equal(updated.actors[0].instanceId,'one')
+  lease.update({actors:[{instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.5,size:0.1}]})
+  assert.throws(()=>lease.update({actors:[{instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.5,size:0.09}]}),/Invalid stage scene actors/)
+  lease.update({actors:[],presentation:'battle',musicRef:{packId:'p',kind:'music',assetId:'battle'}})
+  assert.equal(updated.presentation,'battle')
+  assert.throws(()=>lease.update({actors:[],musicRef:{packId:'p',kind:'backgrounds',assetId:'x'}}),/Invalid stage scene music/)
+  assert.throws(()=>lease.update({actors:[],backgroundRef:{packId:'p',kind:'figures',assetId:'f'}}),/Invalid stage scene background/)
+  assert.throws(() => lease.update({actors:[
+    {instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.3},
+    {instanceId:'one',ref:{packId:'p',figureId:'f'},x:0.7}
+  ]}), /Invalid stage scene actors/)
+  assert.equal(f.plugin.openStageScene({gameId:'game',renderHud(){}}).reason,'busy')
+  f.deny()
+  assert.equal(active,null)
+  assert.deepEqual(reasons,['denied'])
+  unbind()
+})
+
+test('candidate provider starts for a mounted authorized stage and cleans up a late result', async () => {
+  const f = fixture(), calls = [], cleaned = []
+  let resolve
+  const unbind = f.ui.bindStageScene('game', { shutdown() {} })
+  const unregister = f.plugin.registerStageSceneProvider({id:'scene',onStageReady:({gameId})=>{
+    calls.push(gameId)
+    return new Promise(done => { resolve=done })
+  }})
+  assert.deepEqual(calls,['game'])
+  unbind()
+  resolve(()=>cleaned.push('game'))
+  await new Promise(setImmediate)
+  assert.deepEqual(cleaned,['game'])
+  unregister()
+})
+
+test('candidate provider ends when card access is revoked', () => {
+  const f=fixture(), calls=[]
+  const remove=f.plugin.registerStageSceneProvider({id:'scene',onStageReady:({gameId})=>{
+    calls.push('start:'+gameId); return ()=>calls.push('stop:'+gameId)
+  }})
+  assert.equal(f.plugin.getCapabilities().stageSceneProvider,1)
+  const unbind=f.ui.bindStageScene('game',{shutdown(){}})
+  f.deny()
+  assert.deepEqual(calls,['start:game','stop:game'])
+  unbind(); remove()
 })
