@@ -38,6 +38,14 @@ export function registerTurnLifecycleHooks({
   turnStarted,
   userMessageForTurn,
 }) {
+  ctx.on('tools/pre-execute', async function (exec, next) {
+    const sessionId = exec.agent?.session?.id
+    if (sessionId && !backgroundAgentRunner.owns(sessionId) && foregroundStrategies.allowsTool?.(sessionId, exec.name) === false) {
+      return { kind: 'deny', reason: '该工具未在本局当前前台回合开放。' }
+    }
+    return next()
+  })
+
   ctx.on('agent/turn-stopping', async function (payload) {
     const session = payload.agent && payload.agent.session
     if (session === undefined) return
@@ -136,7 +144,7 @@ export function registerTurnLifecycleHooks({
     }
     const assembled = await foregroundStrategies.assembleSystemPrompt(assembly, {
       sessionId: agent.session.id,
-      toolDefinitions: !Array.isArray(assembly.tools) && typeof ctx.tools?.schemas === 'function'
+      toolDefinitions: (context.toolSet || !Array.isArray(assembly.tools)) && typeof ctx.tools?.schemas === 'function'
         ? await ctx.tools.schemas(agent, context.toolSet) : undefined,
       chat,
       cwd: agent.session.header && agent.session.header.cwd,

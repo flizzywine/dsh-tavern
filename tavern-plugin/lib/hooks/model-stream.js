@@ -125,6 +125,10 @@ export function registerModelStreamHooks({
     return (await modelRequestLog.list(chatId)).reduce((latest, entry) => Math.max(latest, Number(entry.turn) || 0), 0)
   }
   ctx.on('llm/stream', function (options, next) {
+    // Run independently of message/full-template projection, including on its
+    // redispatched requests. Hosts may replace the assembly's filtered tools.
+    const toolRequest = foregroundStrategies.projectToolRequest?.(options)
+    if (toolRequest) return ctx.llm.stream(toolRequest)
     const sessionId = str(options && options.sessionId)
     const coordinates = requestCoordinates.get(sessionId)
     if (coordinates !== undefined) {

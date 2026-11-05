@@ -416,11 +416,12 @@ test('宿主 system-prompt/assemble waterfall 中 assembly.tools 为 undefined �
   assert.ok(!result.sections.some(section => section.name === 'tavern:no-foreground-tools'), 'missing metadata is not an empty tool set')
 })
 
-test('宿主 tools 不在 assembly 中时，输出契约使用实际 toolSet 定义', async () => {
+test('宿主 tools 不在 assembly 中时仍回写过滤结果并按批准工具生成契约', async () => {
   const strategy = createNativePlayOrchestrationStrategy({
     modeFor: async () => 'story', visibleTools: async () => ['submit_story'],
     storyOutputToolCall: async () => true, resolvePreset: async () => null,
-    controlledToolNames: new Set(['submit_story'])
+    controlledToolNames: new Set(['submit_story', 'tavern_generate_body', 'style_reference_submit']),
+    styleReferencePrompt: () => '前台选段后继续写正文'
   })
   const assembly = { sections: [], contexts: [], variables: {} }
   const result = await strategy.assembleSystemPrompt(assembly, {
@@ -429,11 +430,12 @@ test('宿主 tools 不在 assembly 中时，输出契约使用实际 toolSet 定
   })
   assert.ok(result.sections.some(section => section.name === 'tavern:story-tool-submission'))
   assert.ok(!result.sections.some(section => section.name === 'tavern:no-foreground-tools'))
-  assert.equal(Object.hasOwn(result, 'tools'), false, 'host owns tools outside the assembly')
+  assert.deepEqual(result.tools, [{ name: 'submit_story' }])
   const actual = await strategy.assembleSystemPrompt({ sections: [] }, {
     sessionId: 'game', chat: { mode: 'story', disabledForegroundTools: ['plugin_tool'] },
-    toolDefinitions: [{ name: 'submit_story' }, { name: 'plugin_tool' }]
+    toolDefinitions: ['submit_story', 'plugin_tool', 'tavern_generate_body', 'style_reference_submit'].map(name => ({ name }))
   })
-  assert.match(actual.sections.find(section => section.name === 'tavern:story-tool-submission').text, /可以先使用已开放的其他工具/,
-    'a host-owned list must not be described as filtered by a waterfall mutation')
+  assert.deepEqual(actual.tools.map(tool => tool.name), ['submit_story'])
+  assert.match(actual.sections.find(section => section.name === 'tavern:story-tool-submission').text, /不要调用任何其他工具/)
+  assert.ok(!actual.sections.some(section => ['tavern:plugin-body-generation', 'tavern:foreground-style-reference'].includes(section.name)))
 })
