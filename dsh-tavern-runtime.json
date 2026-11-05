@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b9493d5227e7ba0aa3e5da592ea2ffca8d59aaab",
-  "releaseSequence": 1265,
+  "revision": "46f680ae202fdb628515c5bec7bb9f935ae780cb",
+  "releaseSequence": 1266,
   "version": "3.2.0",
   "files": [
     {
@@ -3791,8 +3791,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "d20dc9c833b6f6c7d234852851bb66478a8d62782eb26f8551cc5f72452617ca",
-      "size": 269031
+      "sha256": "70280a9dd18c84de60df12a1e810d37c45bed7f5012ee3794aa07911e584564f",
+      "size": 269089
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -7956,8 +7956,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-director.js",
-      "sha256": "b8274e5b27dab95b38a0bdc6fbf6eee7a5f488c81c929b701e5559bdf87449e2",
-      "size": 68322
+      "sha256": "497877066f32c7da4653059c95da4ba459078a83212cc81f897d59275abc8b32",
+      "size": 68331
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-pacing.js",
@@ -7996,8 +7996,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-director.js",
-      "sha256": "4cd99be2dd0eca8618d902e3a5441e9b6d64966b41a896c3c0f249184919809c",
-      "size": 55672
+      "sha256": "09e6530bf4fbb248d33635df18901e7788e28286c78e67bb61983e384ce7c53d",
+      "size": 55746
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-entrance.js",
@@ -8161,8 +8161,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/module.js",
-      "sha256": "68ce8c2cd14bd3fa98ed375b799f9a0f5d3a58503488236cf6150494d457217b",
-      "size": 32338
+      "sha256": "243ab57b598b8f86300c9c73021f4621b1308a70382b5de3864b167e10e44bf8",
+      "size": 32375
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/requests.js",
@@ -8171,8 +8171,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/rpc.js",
-      "sha256": "878af0f5249a9313bc9c167b0393c8e15ee25e11043b7c54d7535c7e64684854",
-      "size": 39335
+      "sha256": "bd80785907f83ce8e0e96a2f42de6fc8473329b38ce992e0daed67a214961b47",
+      "size": 39275
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/runtime.js",
@@ -9756,9 +9756,9 @@
     }
   ],
   "archive": {
-    "commit": "9030ebbc9556ef0dae98e8d0bd5bde2fca75c094",
+    "commit": "7d9723cebdd7dac18da4a7a6d583537be9bfdaf0",
     "path": "runtime.zip",
-    "sha256": "bdfe231d9c874c2496541f33afee847958d10394d31d6eca2393344edc4932e7",
-    "size": 16323342
+    "sha256": "cab1981b7e4b2b77cd6d20a641bd4d6fa09ec9c24f09656192308713e183e340",
+    "size": 16323386
   }
 }
