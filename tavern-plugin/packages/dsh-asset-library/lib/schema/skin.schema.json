@@ -2534,6 +2534,7 @@
       },
       "glyphTiles": { "$ref": "#/$defs/backlogGlyphTiles" },
       "avatar": { "$ref": "#/$defs/backlogAvatar" },
+      "roll": { "$ref": "#/$defs/backlogRoll" },
       "plates": {
        "type": "object",
        "description": "Each entry's own plate image by its role (speech, player, narration, notice, divider); valid here and in devices.mobile.art.backlog. A role's images cycle by the entry's place among that role's entries.",
@@ -8889,6 +8890,35 @@
      ]
     }
    }
+  },
+  "backlogRoll": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": ["image", "size"],
+   "description": "C4: the art layer's check line in the skin's own drawing - the mark image in place of the generic die icon, the rolled number in its ink and scale, the tier word as a tile. The words stay the engine's check line. Valid here and in devices.mobile.art.backlog.",
+   "properties": {
+    "image": { "$ref": "#/$defs/image", "description": "The check's mark (a die, a gavel), drawn at size." },
+    "size": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number", "minimum": 1, "maximum": 1024 }, "description": "[w, h] design px." },
+    "total": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": ["ink", "scale"],
+     "description": "The rolled number: its ink and its size as a multiple of the line's.",
+     "properties": { "ink": { "$ref": "#/$defs/color" }, "scale": { "type": "number", "minimum": 0.5, "maximum": 4 } }
+    },
+    "tier": {
+     "type": "object",
+     "additionalProperties": false,
+     "description": "The tier word as a tile: success for critical, success and costly results, fail for failure and fumble; ink on ground at least 4.5:1. An omitted side keeps the plain coloured word.",
+     "properties": { "success": { "$ref": "#/$defs/backlogRollTile" }, "fail": { "$ref": "#/$defs/backlogRollTile" } }
+    }
+   }
+  },
+  "backlogRollTile": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": ["ground", "ink"],
+   "properties": { "ground": { "$ref": "#/$defs/color" }, "ink": { "$ref": "#/$defs/color" } }
   },
   "backlogGlyphTiles": {
    "type": "object",
