@@ -271,7 +271,9 @@ function bindStageViews(createViews) {
         // 卡片页面 (stage status-panel.cjs): each page frame is the core message-frame lifecycle (the text-mode card HTML
         // document, Helper and trust model) with the session slash executor message frames use; the page's data is re-read
         // after each session state signal while open; asset() reads the card's bound packs through the pack service.
+        // newGame() asks with the core confirm, and the sidebar opens the session card's 游戏准备 (dsh-tavern-new-game).
         statusPanel:{rpc, signals:{subscribe:(id,refresh)=>tavernSessionSignals.subscribe(id,'tavern-state',refresh,()=>{},refresh)}, themeTokens:stageWidgetThemeTokens, sounds:forkUiSfx,
+            confirm:askTavernConfirm, newGame:sessionId=>window.dispatchEvent(new CustomEvent('dsh-tavern-new-game',{detail:{sessionId}})),
             useLiveView:useLiveTavernView, packService:()=>packTransport?.service,
             createCardFrame:props=>createTavernMessageFrameLifecycle(props,{executeSlash:stageCardPageSlash()})},
         device:{matchMedia},

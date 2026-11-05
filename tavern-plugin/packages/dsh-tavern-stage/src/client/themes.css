@@ -576,17 +576,22 @@ button.stage-wait[data-busy] { cursor: default; }
   .fork-gal-stage:is(:not([data-fk-skin-buttons]), .is-film) .fork-gal-topbar > .fork-gal-topleft { grid-column: 2; grid-row: 1; justify-content: center; }
   .fork-gal-stage:is(:not([data-fk-skin-buttons]), .is-film) .fork-gal-topbar > .fork-gal-topright { grid-column: 3; grid-row: 1; justify-self: end; }
 }
-.fork-gal-topbar:hover, .fork-gal-stage:hover .fork-gal-topbar, .fork-gal-topbar:focus-within { --gal-ui-hud-ink: var(--gal-ui-hud-ink-on); }
+.fork-gal-topbar:hover, .fork-gal-stage:hover .fork-gal-topbar, .fork-gal-topbar:focus-within,
+.fork-gal-stage:hover > .fork-gal-status[data-size="full"] .fork-gal-status-head, .fork-gal-status[data-size="full"] .fork-gal-status-head:focus-within { --gal-ui-hud-ink: var(--gal-ui-hud-ink-on); }
 /* hud.plate (§18 N13): the chips stand on the skin's opaque ground in its ink (no halo needed), so a light label never sits on a
    bright sky. */
 .fork-gal-stage[data-fk-skin-hud-plate]:not(.is-film) .fork-gal-topbar { --gal-ui-hud-ink: var(--fk-hud-plate-fg); --gal-ui-hud-ink-on: var(--fk-hud-plate-fg); --gal-ui-hud-ink-idle: var(--fk-hud-plate-fg); --gal-ui-hud-halo: var(--fk-hud-plate-bg); --gal-ui-hud-plate: var(--fk-hud-plate-bg); }
-.fork-gal-stage[data-fk-skin-hud-plate]:not(.is-film) .fork-gal-topbar :is(.fork-gal-place, .fork-gal-track, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit, .fork-gal-generate-turn) { background: var(--fk-hud-plate-bg); color: var(--fk-hud-plate-fg); filter: none; }
+.fork-gal-stage[data-fk-skin-hud-plate]:not(.is-film) .fork-gal-topbar :is(.fork-gal-place, .fork-gal-track, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit, .fork-gal-generate-turn),
+.fork-gal-stage[data-fk-skin-hud-plate]:not(.is-film) > .fork-gal-status[data-size="full"] .fork-gal-status-close { background: var(--fk-hud-plate-bg); color: var(--fk-hud-plate-fg); filter: none; }
 .fork-gal-stage .fork-gal-topbar :is(.fork-gal-place, .fork-gal-track, .fork-gal-generate-turn, .fork-gal-history-direction-progress, .fork-gal-history-direction-error, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit),
+.fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close,
 .fork-gal-stage .fork-gal-runtime-status { filter: var(--gal-ui-hud-glow); }
-.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-generate-turn, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):is(:hover, :focus-visible, [aria-expanded="true"]) {
+.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-generate-turn, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):is(:hover, :focus-visible, [aria-expanded="true"]),
+.fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close:is(:hover, :focus-visible) {
   background: var(--gal-ui-hud-hover); color: var(--gal-ui-hud-ink-on); filter: var(--gal-ui-hud-glow-on); }
 .fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):is(:hover, :focus-visible, [aria-expanded="true"]) .fork-icon { stroke-width: 2.3; }
-.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-generate-turn, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):focus-visible { outline: 2px solid var(--gal-ui-hud-ink-on); outline-offset: 1px; }
+.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-generate-turn, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):focus-visible,
+.fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close:focus-visible { outline: 2px solid var(--gal-ui-hud-ink-on); outline-offset: 1px; }
 /* Toggled (电影 on, mixer muted): accent ink and a dot under the glyph. */
 .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film[aria-pressed="true"], .fork-gal-mixer-toggle[data-level="muted"]) { color: var(--gal-ui-hud-active); }
 .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film[aria-pressed="true"], .fork-gal-mixer-toggle[data-level="muted"])::before { content: ""; position: absolute; left: calc(50% - 2px); bottom: 1px; width: 4px; height: 4px; border-radius: 50%; background: currentColor; pointer-events: none; }
@@ -624,7 +629,8 @@ button.stage-wait[data-busy] { cursor: default; }
   .fork-gal-place.is-changing .fork-gal-place-name, .fork-gal-track.is-changing .fork-gal-track-name { animation: fork-gal-hud-fade .4s ease backwards; }
   .fork-gal-track.is-changing .fork-icon { animation: none; }
 }
-.fork-gal-stage :is(.fork-gal-quit, .fork-gal-film, .fork-gal-scene-image) { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: none; box-shadow: none; color: var(--gal-ui-hud-ink); cursor: pointer; transition: color .25s, background .15s; }
+/* (a full card page's close button is this × too, over the page's top-right corner) */
+.fork-gal-stage :is(.fork-gal-quit, .fork-gal-film, .fork-gal-scene-image), .fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: none; box-shadow: none; color: var(--gal-ui-hud-ink); cursor: pointer; transition: color .25s, background .15s; }
 .fork-gal-topright { display: flex; align-items: center; gap: 4px; padding: 0; background: none; box-shadow: none; }
 /* direction/resources can be pending while the reading controls stay usable. */
 /* runtime state as a small opaque stage panel. */
@@ -2697,7 +2703,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage .fork-gal-topbar :is(.fork-gal-topleft, .fork-gal-topright) { display: contents; }
   .fork-gal-stage .fork-gal-topbar > :is(.fork-gal-topleft, .fork-gal-topright) > :not(.fork-stage-entry),
   .fork-gal-stage .fork-gal-topbar > :is(.fork-gal-topleft, .fork-gal-topright) > .fork-stage-entry > * { flex: none; }
-  .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film, .fork-gal-scene-image, .fork-gal-quit, .fork-gal-mixer-toggle, .fork-widget-menu button.fork-widget-menu-trigger) { width: 44px; height: 44px; }
+  .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film, .fork-gal-scene-image, .fork-gal-quit, .fork-gal-mixer-toggle, .fork-widget-menu button.fork-widget-menu-trigger),
+  .fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close { width: 44px; height: 44px; }
   .fork-gal-stage .fork-gal-topbar .fork-gal-generate-turn { height: 44px; }
   .fork-gal-stage .fork-gal-topbar .fork-gal-hud-line { display: flex; flex: none; align-items: center; height: 44px; }
   .fork-gal-stage .fork-gal-topbar :is(.fork-gal-place-name, .fork-gal-track-name, .fork-gal-hud-from, .fork-gal-place:not(.fork-bg-chip)) { display: none; }
@@ -6424,13 +6431,17 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-status[data-size="full"] { padding: 0; place-items: stretch; }
 .fork-gal-status[data-size="full"] > .fork-gal-status-sheet { width: 100%; height: 100%; border: 0; border-radius: 0; box-shadow: none;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-/* …with no title bar: the close button floats over the card's top-right corner */
+/* …with no title bar: the close button floats over the card's top-right corner where the top bar's × sits, drawn as it is
+   (the stage's overlay icon button, with the top bar's rules above) */
 .fork-gal-stage > .fork-gal-status[data-size="full"] > .fork-gal-status-sheet > .fork-gal-status-head { position: absolute; z-index: 1;
-  top: calc(env(safe-area-inset-top) + 10px); right: calc(env(safe-area-inset-right) + 10px); padding: 0; }
+  top: calc(env(safe-area-inset-top) + 10px); right: calc(env(safe-area-inset-right) + 12px); padding: 0; }
 .fork-gal-status[data-size="full"] .fork-gal-status-head::after { content: none; }
-.fork-gal-stage .fork-gal-status[data-size="full"] .fork-gal-status-close { position: static; width: 40px; height: 40px; margin: 0; border-radius: 50%;
-  background: color-mix(in srgb, var(--gal-ui-surface) 55%, transparent); color: var(--gal-ui-ink); }
-.fork-gal-stage .fork-gal-status[data-size="full"] .fork-gal-status-close:hover { background: color-mix(in srgb, var(--gal-ui-surface) 75%, transparent); color: var(--gal-ui-accent); }
+.fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close { top: auto; right: auto; }
+/* An entry page (a title or opening page) covers the stage from its first frame: no fade in, the sheet's own ground until
+   the card's document is ready. The stage behind it stays hidden while it loads (data-entry) and is never seen through it;
+   the loading veil still stands over it. */
+.fork-gal-stage > .fork-gal-status[data-entry-page], .fork-gal-stage > .fork-gal-status[data-entry-page] > .fork-gal-status-sheet { animation: none; }
+.fork-gal-stage[data-entry] > .fork-gal-status[data-entry-page] { opacity: 1; pointer-events: auto; transition: none; }
 .fork-gal-status-note { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; flex: 1; margin: 0; padding: 32px 20px; color: var(--gal-ui-ink-2); font-size: var(--gal-ui-meta-size); text-align: center; }
 .fork-gal-stage .fork-gal-status-note > button { min-height: 36px; padding: 6px 14px; border: 0; border-radius: var(--gal-ui-radius); background: transparent; color: var(--gal-ui-accent); font: inherit; cursor: pointer; }
 .fork-gal-stage .fork-gal-status-note > button:hover { background: var(--gal-ui-hover); }

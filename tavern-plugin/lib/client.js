@@ -22283,6 +22283,10 @@ function tavernModelRefusalNotice(text) {
 		            if (!start(key, gain, pitch, own?.loudness)) void load([key]).then(() => { if (env.now() - now < 250) start(key, gain, pitch, own?.loudness); });
 		            return true;
 		        },
+		        // A cue only the shown skin's palette voices (a card page's sound(name)): a skin without it stays silent.
+		        playSkin(cue) {
+		            return Boolean(palette && palette[cue]) && api.play(cue);
+		        },
 		        bind(node) {
 		            if (!node || !node.addEventListener) return () => {};
 		            // After the control's own handler: a cue for un-muting 界面音效 is heard, one for muting 总音量 is not,
@@ -37623,6 +37627,23 @@ function TavernCardUpdateDialog(props) {
 				window.addEventListener("dsh-tavern-start-session-opening", onStartSessionOpening);
 				return function () { window.removeEventListener("dsh-tavern-start-session-opening", onStartSessionOpening); };
 			}, [current, busy, conversationLifecycle]);
+			// A stage card page's newGame() (status-panel.cjs, after its confirm): the session's card opens to its 游戏准备, as the
+			// card list's 开始游戏 does.
+			const newGameFrom = React.useRef(null);
+			newGameFrom.current = function (sessionId) {
+				const item = history.find(function (row) { return row.sessionId === sessionId; });
+				if (!item || !item.cardPath || busy) return;
+				openPicker();
+				void call("listCards").then(function (result) {
+					const card = (result.cards || []).find(function (row) { return row.path === item.cardPath && !row.readError; });
+					if (card) return preparePlayConversation(card);
+				}).catch(function (err) { setError(String(err && err.message || err)); });
+			};
+			React.useEffect(function () {
+				const listener = function (event) { newGameFrom.current(event.detail && event.detail.sessionId); };
+				window.addEventListener("dsh-tavern-new-game", listener);
+				return function () { window.removeEventListener("dsh-tavern-new-game", listener); };
+			}, []);
 			async function retryPendingOpen() {
 				if (!pendingOpen) return;
 				setBusy(true); setError("");
@@ -48477,7 +48498,9 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        // 卡片页面 (stage status-panel.cjs): each page frame is the core message-frame lifecycle (the text-mode card HTML
 		        // document, Helper and trust model) with the session slash executor message frames use; the page's data is re-read
 		        // after each session state signal while open; asset() reads the card's bound packs through the pack service.
+		        // newGame() asks with the core confirm, and the sidebar opens the session card's 游戏准备 (dsh-tavern-new-game).
 		        statusPanel:{rpc, signals:{subscribe:(id,refresh)=>tavernSessionSignals.subscribe(id,'tavern-state',refresh,()=>{},refresh)}, themeTokens:stageWidgetThemeTokens, sounds:forkUiSfx,
+		            confirm:askTavernConfirm, newGame:sessionId=>window.dispatchEvent(new CustomEvent('dsh-tavern-new-game',{detail:{sessionId}})),
 		            useLiveView:useLiveTavernView, packService:()=>packTransport?.service,
 		            createCardFrame:props=>createTavernMessageFrameLifecycle(props,{executeSlash:stageCardPageSlash()})},
 		        device:{matchMedia},
