@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b4601c12a97ec21492d5ef1e3aa97201b1132a42",
-  "releaseSequence": 1219,
+  "revision": "4276509e1367053f3573c48700dc30765558e4b5",
+  "releaseSequence": 1220,
   "version": "3.2.0",
   "files": [
     {
@@ -191,8 +191,8 @@
     },
     {
       "path": "bin/dsh-compatibility.mjs",
-      "sha256": "0e38113b1782f90a04085953238f3ebc8ea31ac7a8f073bc7f2864627feb3088",
-      "size": 5009
+      "sha256": "da0a2434efa2a776e49ee482e3dddb0ce53aea37bf004be244dc8bb76309e3d6",
+      "size": 6923
     },
     {
       "path": "bin/dsh-tavern",
@@ -311,8 +311,8 @@
     },
     {
       "path": "bin/profile-installation.mjs",
-      "sha256": "be75c9d19f1fb319186e542f65fe5605cca2a56ff985c8754ea518f0ef086a74",
-      "size": 24340
+      "sha256": "a3d9647adfd53a7e037fc4e71b71ac1781898e3baee78351947f248bc91e7ee3",
+      "size": 24386
     },
     {
       "path": "bin/prune-installed-files.mjs",
@@ -376,8 +376,8 @@
     },
     {
       "path": "bin/test-runtime.mjs",
-      "sha256": "8465d2a9c3248138233d02ad7afc130e44a8348eecd2ff319fe2b51be4666c1a",
-      "size": 2940
+      "sha256": "82a8166f5e46e149e07ad7952f6fd3371e264d6651a5754a90ce92b0b44c11ad",
+      "size": 3000
     },
     {
       "path": "bin/test-tavern.mjs",
@@ -451,8 +451,8 @@
     },
     {
       "path": "config/dsh-compatibility.json",
-      "sha256": "9a5b85714dc106f85a8d26b79830efa1b412034d10b7fdc5b7e40594669477ca",
-      "size": 498
+      "sha256": "b316713664826b6dc5a67d4aa62e7470f55072cecf9afbdc5499145161dc2974",
+      "size": 622
     },
     {
       "path": "config/legacy-profile-patch-v0.6.yml",
@@ -466,13 +466,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "1f24d2a43b24f4ea01b1b9847bf30085c9b3dbd6cd6b008fab5e212d6cc7bd65",
-      "size": 108388
+      "sha256": "a5a81208314d1b31b51a82020c9ff845a630bb097a958af78f6b0501faaec1f0",
+      "size": 108482
     },
     {
       "path": "install.sh",
-      "sha256": "4d2b567e69fd354472ad873f41b9ee2103a6cbb71fd8f686fd4872bd5a323145",
-      "size": 80413
+      "sha256": "a6d2ba928e425534dfdf1c183aeaffd6294003976c52f04bf162fffd4794776e",
+      "size": 80507
     },
     {
       "path": "package.json",
@@ -9691,9 +9691,9 @@
     }
   ],
   "archive": {
-    "commit": "900c5cf9227e76439eebd638151219a1f2cccbba",
+    "commit": "de07946dce784a7e4c7085604615ab4bb39a4dfd",
     "path": "runtime.zip",
-    "sha256": "74bf6ec6f19622ec71c1e28b8eef7cfc72080aba99b9ef8c7e9403172252fbfc",
-    "size": 16221510
+    "sha256": "79a17ab5f386ccdedff4d2f9a9569ec973684dfcc59cc21704cb56d3fda0b47c",
+    "size": 16222305
   }
 }
