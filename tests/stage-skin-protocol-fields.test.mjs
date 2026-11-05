@@ -47,10 +47,12 @@ test('CONFIG rows may lean (row.slant degrees) and step in (row.step design px)'
   assert.deepEqual(contract.validateStageSkin(config({look:'plain',slant:-3,step:24})).config.row,{look:'plain',slant:-3,step:24})
   for(const row of [{slant:12},{step:-8},{step:65}])assert.throws(()=>contract.validateStageSkin(config(row)),{code:'INVALID_SKIN'})
 })
-test('menu words may be ransom glyph blocks (rows.letter, title.letter) and the focused label larger (rows.focusScale)',()=>{
+test('menu words may be glyph tiles (rows.letter, title.letter with glyphTiles) and the focused label larger (rows.focusScale)',()=>{
   const rows={images:{plain:'art/row.svg',focus:'art/row-on.svg'},slice:[8,40,8,40],text:[100,950,42],font:46,x:-80,y:250,gap:10}
-  const doc=contract.validateStageSkin(menu({rows:{...rows,letter:'ransom',focusScale:1.3},title:{x:240,y:40,text:[150,350,95],font:96,letter:'ransom'}}))
-  assert.deepEqual([doc.art.menu.rows.letter,doc.art.menu.rows.focusScale,doc.art.menu.title.letter],['ransom',1.3,'ransom'])
+  const glyphTiles={shape:'rounded',tiles:[{ground:'#1f4e9c',ink:'#ffffff',weight:2},{ground:'#f2c12e',ink:'#141414'}],jitter:{rotate:3}}
+  const doc=contract.validateStageSkin(menu({rows:{...rows,letter:'ransom',focusScale:1.3},title:{x:240,y:40,text:[150,350,95],font:96,letter:'ransom'},glyphTiles}))
+  assert.deepEqual([doc.art.menu.rows.letter,doc.art.menu.rows.focusScale,doc.art.menu.title.letter,doc.art.menu.glyphTiles],['ransom',1.3,'ransom',glyphTiles])
+  invalid(menu({rows:{...rows,letter:'ransom'}}).art)
   for(const extra of [{rows:{...rows,letter:'collage'}},{rows:{...rows,focusScale:2}},{keys:{x:0,y:900,text:[10,400,30],font:20,letter:'ransom'}}])invalid(menu(extra).art)
 })
 

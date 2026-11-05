@@ -331,6 +331,7 @@ const skinMenuStrip = skinObject(skinMenuStripFields,['x','y','text','font']);
 // letter ransom (§18 N31): the words cut into glyph blocks like the ransom name plate (each glyph one of a few closed
 // variants of paint, size and tilt, picked from the word itself) - the title strip and the menu rows (art.menu.rows.letter).
 const STAGE_SKIN_MENU_LETTERS = Object.freeze(['ransom']);
+const STAGE_SKIN_GLYPH_SHAPES = Object.freeze(['torn','square','rounded','circle']);
 const skinMenuTitle = skinObject({...skinMenuStripFields,letter:skinEnum(STAGE_SKIN_MENU_LETTERS)},['x','y','text','font']);
 // A highlight drawn behind an element (the current one, or the one under the pointer and keyboard focus): its image stretched
 // over the element (irregular edges: the image's own), out = how far it overhangs the element
@@ -395,6 +396,11 @@ const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:
     // topbar hidden (§18 N32): the stage's top bar (mixer, 电影模式, ✕) stays put away while the drawn menu is open - its
     // icons would sit on the art; the menu itself has 返回主页面.
     topbar:skinEnum(['shown','hidden']),
+    // glyphTiles (§18 N34): how the words cut glyph by glyph (rows.letter / title.letter) are drawn - every glyph on its own
+    // tile of `shape`, its ground and ink one of `tiles` by relative whole weight, turned and sized within `jitter`; the picks
+    // come from the glyph and its place in the word (labels.cjs galRansomGlyphs), so a word always reads the same.
+    glyphTiles:skinObject({shape:skinEnum(STAGE_SKIN_GLYPH_SHAPES),tiles:skinArray(skinObject({ground:skinColor,ink:skinColor,weight:skinNumber(1,12,true)},['ground','ink']),1,8),
+        jitter:skinObject({rotate:skinNumber(0,15),scale:skinNumber(0,.5)})},['shape','tiles']),
     // rows.slant (§18 N27): each bar this many design px right of the one above (a list along a leaning axis drawn on the sheet).
     // rows.letter (§18 N31): the labels as ransom glyph blocks (skinMenuTitle); rows.focusScale: the focused label drawn this much
     // larger (its bar and hit area unchanged), on phones too.
@@ -403,6 +409,8 @@ const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:
         letter:skinEnum(STAGE_SKIN_MENU_LETTERS),focusScale:skinNumber(1,1.6),poses:skinMenuPoses},
         ['images','slice','text','font','x','y','gap']),
     title:skinMenuTitle,info:skinMenuStrip,keys:skinMenuStrip})(value) && Object.hasOwn(value,'rows') !== Object.hasOwn(value,'tiles')
+    // the glyph cut and its tiles come together: a word is only cut where a skin says how its glyphs are drawn.
+    && Boolean(value.glyphTiles) === Boolean(value.rows?.letter || value.title?.letter)
     && (!value.narrow || Boolean(value.rows) && (!value.narrow.title || Boolean(value.title)) && (!value.narrow.signal || Boolean(value.signal && value.title)));
 // the stage's own overlays drawn as the original's
 // screens on wide stages. A placed image: its top-left at x, y on the design screen at `scale` design px per image px; focus
@@ -943,7 +951,9 @@ function validateStageSkin(value) {
         ...(value.config?.controls?.paint ? [[value.config.controls.paint.fg,value.config.controls.paint.bg,4.5],[value.config.controls.paint.fgMuted,value.config.controls.paint.bg,4.5]] : []),
         ...(value.config?.hints ? [[value.config.hints.paint.fg,value.config.hints.paint.bg,4.5]] : []),
         ...(value.config?.nav?.platePaint ? (pp => [[pp.fg,pp.bg,4.5],[pp.onFg,pp.onBg,4.5]])(value.config.nav.platePaint) : []),
-        ...(value.hud?.plate ? [[value.hud.plate.fg,value.hud.plate.bg,4.5]] : [])];
+        ...(value.hud?.plate ? [[value.hud.plate.fg,value.hud.plate.bg,4.5]] : []),
+        // art.menu.glyphTiles: each tile's glyph on its own ground.
+        ...(value.art?.menu?.glyphTiles?.tiles || []).map(tile => [tile.ink,tile.ground,4.5])];
     if (pairs.some(([a,b,min]) => a && (!b || skinContrast(a,b)+1e-6 < min))) throw Object.assign(new Error('Skin text contrast is unsafe'),{code:'SKIN_CONTRAST'});
     if (stageSkinNarrationGrounds(value.art?.narration).some(ground => skinContrast(value.art.narration.ink || STAGE_NARRATION_INK,ground)+1e-6 < 4.5)) throw Object.assign(new Error('Skin narration contrast is unsafe'),{code:'SKIN_CONTRAST'});
     // A scrim fades to the scene: its base must be dark enough that light text over the scene still has a dark ground.
