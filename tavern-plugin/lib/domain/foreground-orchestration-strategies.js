@@ -506,7 +506,13 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (playMode) {
       const toolNames = new Set(finalTools.map(schema => schema.name))
       const outputToolCall = typeof options.storyOutputToolCall === 'function' ? (await options.storyOutputToolCall()) === true : false
-      if (toolNames.has(STORY_GENERATE_TOOL_NAME)) {
+      // Hosts that overwrite assembly.tools deliver every registered tool,
+      // including tavern_generate_body when plugin generation is off. The
+      // output contract follows Tavern's own tool gate, not those raw
+      // declarations: otherwise the model is told to write no prose, the tool
+      // replies "plugin generation is not enabled" and the turn ends empty.
+      const pluginGeneration = visible.has(STORY_GENERATE_TOOL_NAME)
+      if (pluginGeneration) {
         sections.push({ name: 'tavern:plugin-body-generation', text: BODY_GENERATION_PROMPT })
       } else if (toolNames.has(STORY_SUBMIT_TOOL_NAME)) {
         if (outputToolCall) {
