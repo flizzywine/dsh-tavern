@@ -51974,15 +51974,31 @@ function createTurnRailFilter(root, options) {
 			const [placement, setPlacement] = React.useState(null);
 			const root = React.useRef(null);
 			const trigger = React.useRef(null);
+			const menuRef = React.useRef(null);
 			// The mobile composer seat scrolls (overflow-y: auto), which clipped an absolutely
 			// positioned menu to a thin strip. Anchor it to the viewport above the trigger instead.
+			// When portalled to document.body, fixed positioning is relative to viewport, avoiding
+			// parent transform/filter containing block coordinate distortions.
 			React.useLayoutEffect(function () {
 				if (!open) { setPlacement(null); return; }
 				function place() {
 					const rect = trigger.current && trigger.current.getBoundingClientRect();
 					if (!rect) return;
 					const width = document.documentElement.clientWidth || window.innerWidth;
-					setPlacement({ position: "fixed", top: "auto", left: "auto", right: Math.max(8, width - rect.right) + "px", bottom: (window.innerHeight - rect.top + 6) + "px", maxHeight: Math.max(120, rect.top - 12) + "px", overflowY: "auto" });
+					const menuWidth = 208;
+					const rightOffset = width - rect.right;
+					const left = rect.right < menuWidth + 8 ? Math.max(8, rect.left) + "px" : "auto";
+					const right = rect.right < menuWidth + 8 ? "auto" : Math.max(8, rightOffset) + "px";
+					setPlacement({
+						position: "fixed",
+						top: "auto",
+						left: left,
+						right: right,
+						bottom: (window.innerHeight - rect.top + 6) + "px",
+						maxHeight: Math.max(120, rect.top - 12) + "px",
+						overflowY: "auto",
+						zIndex: 60
+					});
 				}
 				place();
 				window.addEventListener("resize", place);
@@ -51991,21 +52007,30 @@ function createTurnRailFilter(root, options) {
 			}, [open]);
 			React.useEffect(function () {
 				if (!open) return;
-				function closeOutside(event) { if (!root.current || !root.current.contains(event.target)) setOpen(false); }
+				function closeOutside(event) {
+					if (root.current && root.current.contains(event.target)) return;
+					if (menuRef.current && menuRef.current.contains(event.target)) return;
+					setOpen(false);
+				}
 				function closeOnEscape(event) { if (event.key === "Escape") setOpen(false); }
 				document.addEventListener("pointerdown", closeOutside, true);
 				document.addEventListener("keydown", closeOnEscape);
 				return function () { document.removeEventListener("pointerdown", closeOutside, true); document.removeEventListener("keydown", closeOnEscape); };
 			}, [open]);
+			const canPortal = typeof ReactDOM !== "undefined" && !!ReactDOM && typeof ReactDOM.createPortal === "function" && typeof document !== "undefined" && !!document.body;
+			const menuContent = React.createElement("div", { ref: menuRef, className: "dsh-tavern-more-menu", role: "menu", hidden: !open, style: placement || undefined, onClick: function (event) { if (event.target && event.target.closest && event.target.closest("button:not(:disabled)")) setOpen(false); } },
+				React.createElement(TavernStopBackgroundAction, Object.assign({}, props, { inMenu: true })),
+				React.createElement(TavernEditBodyAction, props),
+				React.createElement(TavernRollbackAction, props),
+				React.createElement(TavernUndoRollbackAction, props),
+				React.createElement(TavernDebugButton, { sessionId: props.sessionId, role: "menuitem", label: "遇到问题？交给调试 Agent" }),
+				React.createElement(TavernCompactionAction, Object.assign({}, props, { inMenu: true })));
+			const renderedMenu = open && canPortal
+				? ReactDOM.createPortal(React.createElement("div", { className: "dsh-tavern-more-actions", style: { position: "static" } }, menuContent), document.body)
+				: (canPortal ? null : menuContent);
 			return React.createElement("div", { className: "dsh-tavern-more-actions", ref: root },
 				React.createElement("button", { ref: trigger, type: "button", className: "dsh-tavern-choice-trigger", "data-fork-action": "more", title: "更多操作：编辑正文、回退、压缩上下文…", "aria-haspopup": "menu", "aria-expanded": open, onClick: function () { setOpen(function (value) { return !value; }); } }, "更多 ▾"),
-				React.createElement("div", { className: "dsh-tavern-more-menu", role: "menu", hidden: !open, style: placement || undefined, onClick: function (event) { if (event.target && event.target.closest && event.target.closest("button:not(:disabled)")) setOpen(false); } },
-                    React.createElement(TavernStopBackgroundAction, Object.assign({}, props, { inMenu: true })),
-					React.createElement(TavernEditBodyAction, props),
-					React.createElement(TavernRollbackAction, props),
-                    React.createElement(TavernUndoRollbackAction, props),
-					React.createElement(TavernDebugButton, { sessionId: props.sessionId, role: "menuitem", label: "遇到问题？交给调试 Agent" }),
-					React.createElement(TavernCompactionAction, Object.assign({}, props, { inMenu: true })))
+				renderedMenu
 			);
 		}
 
