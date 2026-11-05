@@ -1429,31 +1429,36 @@ export async function apply(ctx) {
     const next = await castAssets.setPlugins(cardPath, plugins.map(plugin => ({ ...plugin, enabled: enabled === true })))
     return next.plugins
   }
-  async function deleteCard(cardPath) {
-    const plugins = (await castAssets.read(normalizeResourcePath(cardPath, 'card')).catch(() => null))?.plugins || []
-    const result = await cardDeletion.remove(cardPath)
-    if (result.deleted && plugins.length) await cardPlugins.remove({ cardKey: castAssets.keyOf(normalizeResourcePath(cardPath, 'card')), cardPath: normalizeResourcePath(cardPath, 'card'), plugins }).catch(error => console.warn('dsh-tavern: 删除卡内插件失败', error?.message || error))
-    if (result.deleted) await cardOrganization.movePath(normalizeResourcePath(cardPath, 'card'), null)
-    return result
-  }
-  // 人物卡库「复制」：与卡片工作台的 tavern_copy_card 同一份复制（工作数据与封面，换新的人物卡身份，
-  // 否则 mod 设置会跟错卡）。默认名「原名 副本」，重名时依次编号；副本放进原卡所在的分组。
+  // 人物卡库「复制」/「另存副本」: a new file with a new meta.id (or mod settings would follow the wrong card); the stage
+  // settings and pack bindings live in the card JSON (extensions.dsh_tavern) and come along. Without a name the copy
+  // keeps the card's name and is numbered 「原名 (n)」. The world book binding is keyed by card path, so the copy gets the
+  // same books (its own embedded book instead of the source's); it goes into the source's group. Chats, CG unlocks
+  // and the bound script stay with the source card.
   async function duplicateCard(cardPath, name) {
     const source = normalizeResourcePath(cardPath, 'card')
-    const workspace = await fileResources.readCard(source)
-    if (!workspace) throw new Error('人物卡不存在: ' + source)
     const chosen = str(name).trim()
-    const base = chosen || (cardPreparation.isWorkspace(workspace) ? cardPreparation.project(workspace).name : path.basename(source, '.json')) + ' 副本'
-    for (let attempt = 1; ; attempt++) {
-      try {
-        const copied = await fileResources.copyCard(source, attempt === 1 ? base : base + ' ' + attempt)
-        const group = (await cardOrganization.read()).cards[source]?.group
-        if (group) await cardOrganization.update({ action: 'cards', paths: [copied.path], group }, [copied.path])
-        return { path: copied.path, sourcePath: source, imageCopied: copied.imageCopied }
-      } catch (error) {
-        if (chosen || attempt >= 50 || !str(error?.message).startsWith('副本名称已存在')) throw error
-      }
+    const copy = chosen ? await fileResources.copyCard(source, chosen) : await fileResources.copyCard(source, source.split('/').pop(), { keepName: true, numbered: true })
+    const binding = await fileResources.worldBookBindingForCard(source)
+    const own = item => item.cardPath === source ? copy.path : item.cardPath
+    if (binding.kind === 'multiple') await fileResources.bindWorldBooks(copy.path, binding.sources.filter(item => item.available)
+      .map(item => item.kind === 'embedded' ? { kind: 'embedded', cardPath: own(item) } : { kind: 'standalone', path: item.path }))
+    else if (binding.kind === 'standalone' && binding.available) await fileResources.bindWorldBook(copy.path, binding.path)
+    else if (binding.kind === 'embedded' && binding.available) await fileResources.bindWorldBook(copy.path, { kind: 'embedded', cardPath: own(binding) })
+    else if (binding.kind === 'none') await fileResources.unbindWorldBook(copy.path)
+    const group = (await cardOrganization.read()).cards[source]?.group
+    if (group) await cardOrganization.update({ action: 'cards', paths: [copy.path], group }, [copy.path])
+    return { path: copy.path, sourcePath: source, imageCopied: copy.imageCopied }
+  }
+  async function deleteCard(cardPath) {
+    const normalized = normalizeResourcePath(cardPath, 'card')
+    const cardId = await cardStorage.resolve(normalized)
+    const plugins = (await castAssets.read(normalized)).plugins || []
+    const result = await cardStorage.withCardLock(cardId,() => cardDeletion.remove(cardPath))
+    if (result.deleted) {
+      if (plugins.length) await cardPlugins.remove({ cardKey: castAssets.keyOf(normalized), cardPath: normalized, plugins })
+      await cardOrganization.movePath(normalized, null)
     }
+    return result
   }
   const sessionInventory = createSessionInventory({
     persistence: ctx.get('sessionPersistence'), sessions: sessionStore, agents: agentRegistry,

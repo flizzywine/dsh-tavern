@@ -375,11 +375,20 @@ export function createFileResourceStore(options = {}) {
   }
 
   let copyTail = Promise.resolve()
-  function copyCard(sourcePath, name) {
+  // options.keepName keeps the character's own name (the library's 「另存副本」); only the
+  // file name differs. The agent tool keeps renaming the character to the copy's name.
+  function copyCard(sourcePath, name, options = {}) {
+    const keepName = options && options.keepName === true
     const operation = copyTail.then(async () => {
       await ensure()
       const source = normalizeResourcePath(sourcePath, 'card')
-      const stem = safeResourceName(name).replace(/\.json$/i, '')
+      let stem = safeResourceName(name).replace(/\.json$/i, '')
+      if (options.numbered) {
+        const base = source.split('/').pop().replace(/\.json$/i, '')
+        let n = 1
+        while (await exists(absolute('cards/' + base + ' (' + n + ').json')) || await originalCardName('cards/' + base + ' (' + n + ').json') !== null) n++
+        stem = base + ' (' + n + ')'
+      }
       const target = normalizeResourcePath('cards/' + stem + '.json', 'card')
       if (source === target || await exists(absolute(target)) || await originalCardName(target) !== null) throw new Error('副本名称已存在，请使用新名称: ' + stem)
       const card = await readCard(source)
@@ -390,11 +399,11 @@ export function createFileResourceStore(options = {}) {
       delete saved.path
       if (saved.raw && saved.meta) {
         saved.meta.id = randomUUID()
-        if (saved.raw.data && typeof saved.raw.data === 'object') saved.raw.data.name = stem
-        if (Object.hasOwn(saved.raw, 'name') || !saved.raw.data) saved.raw.name = stem
+        if (!keepName && saved.raw.data && typeof saved.raw.data === 'object') saved.raw.data.name = stem
+        if (!keepName && (Object.hasOwn(saved.raw, 'name') || !saved.raw.data)) saved.raw.name = stem
       } else {
-        if (saved.data && typeof saved.data === 'object') saved.data.name = stem
-        if (Object.hasOwn(saved, 'name') || !saved.data) saved.name = stem
+        if (!keepName && saved.data && typeof saved.data === 'object') saved.data.name = stem
+        if (!keepName && (Object.hasOwn(saved, 'name') || !saved.data)) saved.name = stem
         if (saved.meta && typeof saved.meta === 'object') saved.meta.id = randomUUID()
       }
       const text = JSON.stringify(saved, null, 2)
