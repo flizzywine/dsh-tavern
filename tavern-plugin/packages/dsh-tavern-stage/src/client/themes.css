@@ -106,7 +106,9 @@
    (--dsh-title-bar-strip, set by the host in title-bar compat mode, else 0). Every skin's game area (the largest rect of its
    design screen's aspect) is fitted into this area; full-screen backdrops still cover the whole stage, strip included. */
 .fork-gal-stage { --fk-area-t: var(--dsh-title-bar-strip, 0px); --fk-area-w: 100vw; --fk-area-h: calc(100vh - var(--fk-area-t)); }
-.fork-gal-stage { position: absolute; inset: 0; overflow: hidden; background: #120e1c; color: #f4f0fa; cursor: pointer; user-select: none; -webkit-user-select: none; font-family: var(--fork-font-reading, var(--fork-font-ui)); }
+/* overflow: clip, not hidden: the stage is never a scroll container, so content reaching past the screen (a skin's text
+   bleed on a phone) cannot let a focused control scroll the whole stage sideways. */
+.fork-gal-stage { position: absolute; inset: 0; overflow: clip; background: #120e1c; color: #f4f0fa; cursor: pointer; user-select: none; -webkit-user-select: none; font-family: var(--fork-font-reading, var(--fork-font-ui)); }
 /* Scene: one pixi canvas (gal-scene.js) behind the DOM text box, top bar and choices */
 .fork-gal-scene { position: absolute; inset: 0; z-index: 0; background: #0b0812; }
 .fork-gal-scene > canvas { display: block; }
