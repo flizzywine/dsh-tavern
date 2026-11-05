@@ -31,7 +31,7 @@ import {createStagePhoneHost} from './mods/phone/host.js'
 import {createTimerExtension} from './mods/timer/extension.js'
 import {createStageExtensions} from './stage-extensions.js'
 import {createWidgetVariableService} from './domain/widget-variable-service.js'
-import {createStatusPanelService} from './domain/status-panel-service.js'
+import {createCardPagesService} from './domain/status-panel-service.js'
 import {createCgGallery} from './cg-gallery.js'
 import {createSceneCg} from './scene-cg.js'
 import {readStageProjection, stageProjectionPage} from './domain/stage-projection.js'
@@ -387,12 +387,12 @@ export function createStageServices(core) {
   })
 
   // The status panel reads the library card's declared paths and ledger sections, never the chat's frozen snapshot.
-  const statusPanel = createStatusPanelService({readWorkspace:cardStorage.readWorkspace, chatForSession, index:readSessionIndex,
-    readWindow:chatPersistence.readWindow, readRevision:chatPersistence.readRevision})
+  const cardPages = createCardPagesService({readWorkspace:cardStorage.readWorkspace, chatForSession, index:readSessionIndex,
+    packSnapshot:packId => ctx.get('assetLibrary')?.getPackSnapshot({packId}).catch(() => null)})
   // no gallery state is exported through cards or asset packs.
   const cgGallery = createCgGallery({profileData,cardStorage,resolveCard:cardStorage.resolve,chatForSession,assets:assetRuntime,
     readDirection:(chat,turn) => stageDirector.get(chat,Number(turn),null,{readOnly:true}),readSettings:() => assetEngineSettings.read()})
 
   const extensions = core.stageExtensions.start({...core,widgetVariables,cgGallery})
-  return {widgetVariables, statusPanel, cgGallery, ...extensions}
+  return {widgetVariables, cardPages, cgGallery, ...extensions}
 }

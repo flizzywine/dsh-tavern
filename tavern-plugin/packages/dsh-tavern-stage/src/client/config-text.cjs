@@ -2,7 +2,7 @@ function createStageConfigText({React:react, fields, reading:sharedReading, limi
 let disposed=false;
 const cleanups=new Set();
 const stageReading={...sharedReading,set:patch=>{if(!disposed)sharedReading.set(patch);}};
-const {group:galConfigGroup,row:galConfigRow,slider:galConfigSlider}=fields;
+const {group:galConfigGroup,row:galConfigRow,slider:galConfigSlider,Switch:GalConfigSwitch}=fields;
 const React={...react,createElement(type,props,...children){
     const guarded=props&&Object.fromEntries(Object.entries(props).map(([name,value])=>[name,/^on[A-Z]/.test(name)&&typeof value==='function'?(...args)=>{if(!disposed)return value(...args);}:value]));
     return react.createElement(type,guarded,...children);
@@ -46,6 +46,7 @@ function GalConfigText(props) {
             galConfigRow("自动模式等待", galConfigSlider(["短", "长"], { min: waitMin, max: waitMax, step: waitStep, value: reading.autoWait, label: "自动模式等待",
                     valueText: (reading.autoWait / 1000).toFixed(1) + " 秒", output: (reading.autoWait / 1000).toFixed(1) + " 秒", onChange: value => stageReading.set({ autoWait: value }) }),
                 h(React.Fragment, null, h("span", null, "配音结束后的基础停顿，再除以自动阅读速度；不会截断配音。"), h("span", null, "无配音页按字数阅读，再加入相对 0.7 秒的等待增减，最后按速度缩放。等待控制停顿，速度控制整体阅读节奏。"))),
+            galConfigRow("跳过标题页", h(GalConfigSwitch, { label: "跳过标题页", checked: reading.skipTitlePage === true, onChange: on => stageReading.set({ skipTitlePage: on }) }), "进入舞台时不显示卡的标题页，直接继续；新聊天的开场页照常出现。"),
             fonts ? null : preview),
         fonts ? galConfigGroup("字体", null,
             // no context, so 「跟随样式」 follows the active stage's skin declaration

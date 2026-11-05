@@ -315,7 +315,7 @@ const stageClientPlugin = (() => {
                     stageFeatures.mount({options,views,own,window,document,getResourceOwner});
                     views.sourceWidgets=own(createStageSourceWidgets({React:options.React,window,document,...options.sourceWidgets,views,sessions:()=>sessions}));
                     views.modSurface=own(createStageModSurface({React:options.React,window,document,...options.modSurface,sessions:()=>sessions,scene:()=>views.scene,runtime:views.sessionRuntime,renderers:modRenderers,core:options.performances?.core,useFaces:views.sourceWidgets.useFaces}));
-                    if(options.statusPanel)views.statusPanel=own(createStageStatusPanel({React:options.React,window,document,...options.statusPanel,useFaces:views.sourceWidgets.useFaces}));
+                    if(options.statusPanel)views.statusPanel=own(createStageStatusPanel({React:options.React,window,document,...options.statusPanel,fillInput:choices.fill,stageEnterPage:controls.stageEnterPage,useFaces:views.sourceWidgets.useFaces}));
                     // 舞台借用: the host's in-memory stageLeases (a gameMode view with presentation 'stage'); the controller reads a
                     // session's lease and mounts its HUD. The clip export host lends none.
                     if(host.stageLeases){

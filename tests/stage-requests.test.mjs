@@ -39,3 +39,17 @@ test('disposed request lifetime refuses new calls and suppresses late results',a
   const other=createStageRequests({})
   await assert.rejects(other.call('constructor',{}),{code:'STAGE_METHOD_UNKNOWN'})
 })
+
+test('card page RPCs preserve envelopes and remove the old route',async()=>{
+  const calls=[]
+  const cardPages=Object.fromEntries(['list','read','locate','assets'].map(name=>[name,async args=>{calls.push([name,args]);return name==='read'?null:name}]))
+  const router=createStageRequests({cardPages})
+  const args={sessionId:'s',page:'map',withHtml:true,ref:{kind:'backgrounds',id:'port'}}
+  assert.equal(await router.call('readCardPages',args),'list')
+  assert.deepEqual(await router.call('readCardPage',args),{page:null})
+  assert.deepEqual(await router.call('locateCardPageAsset',args),{place:'locate'})
+  assert.deepEqual(await router.call('listCardPageAssets',args),{assets:'assets'})
+  assert.deepEqual(calls,['list','read','locate','assets'].map(name=>[name,args]))
+  assert.equal(router.handles('readStatusPanel'),false)
+  assert.equal(router.handles('writeCardPageVariables'),false)
+})

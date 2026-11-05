@@ -19,15 +19,16 @@ function own(cleanup) {
 // rows only where the screen shows no such control (options.controls: the ids the skin and width leave out - a phone, a skin
 // without drawn buttons), right after 履历; 隐藏 (H / right click) and 上一页 (← / the backlog) are keys, and the stage entries (背景, BGM,
 // 声音, 手机, 电影模式) live in the top bar, which stands over the open menu.
-// Items in display order. options: { historical, latestTurn, busy, controls, auto, skipping, atEnd, statusPanel }.
-// 状态 is a row only on a card that declares a status panel (the same flag that shows the S key).
+// Items in display order. options: { historical, latestTurn, busy, controls, auto, skipping, atEnd, pages }.
+// The card pages with menu: true are rows in declaration order, where 状态 was (a page's shortcut shows in its title).
 function galMenuItems(options) {
     const items = [{ id: "resume", label: "回到舞台", title: "回到舞台（Esc）" }];
     const controls = new Set(options?.controls || []);
     items.push({ id: "backlog", label: "履历", title: "履历（L / 滚轮向上）" });
     if (controls.has("auto")) items.push({ id: "auto", label: options.auto ? "停止自动" : "自动", title: "自动翻页（A）", on: Boolean(options.auto) });
     if (controls.has("skip")) items.push({ id: "skip", label: options.skipping ? "停止跳过" : "跳过", title: "跳过（按住 Ctrl 快进）", on: Boolean(options.skipping), disabled: Boolean(options.atEnd) && !options.skipping });
-    if (options?.statusPanel) items.push({ id: "status", label: "状态", title: "状态（S）" });
+    for (const page of options?.pages || []) if (page.menu) items.push({ id: "page:" + page.id, label: page.label,
+        ...(page.shortcut ? { title: page.label + "（" + page.shortcut.toUpperCase() + "）" } : {}) });
     // the CG gallery lives here, not as a text button in the control row.
     items.push({ id: "gallery", label: "回想", title: "回想（CG 图库）" });
     // regeneration is a latest-turn action, not historical editing; an earlier turn offers the way back instead.
@@ -60,9 +61,9 @@ function useGalMenuDirectorBusy(sessionId, turn) {
     return React.useSyncExternalStore(selection.subscribe, selection.getSnapshot, selection.getSnapshot);
 }
 
-// props: { sessionId, Regenerate, busy, historical, latestTurn, controls, auto, skipping, atEnd, touch, statusPanel, onClose(),
-// onAuto(), onSkip(), onBacklog(), onStatus(), onGallery(), onConfig(), onKeys(), onLatest(), onLeave() }.
-// statusPanel: the card declares a status panel (the 状态 row and the S key).
+// props: { sessionId, Regenerate, busy, historical, latestTurn, controls, auto, skipping, atEnd, touch, pages, onClose(),
+// onAuto(), onSkip(), onBacklog(), onPage(id), onGallery(), onConfig(), onKeys(), onLatest(), onLeave() }.
+// pages: the card's pages (the menu rows for those with menu: true).
 // Focus moves to the first item on open and back to the opener on close (not when leaving the stage, which restores
 // its own opener). Esc, right click or a click on the dimmed stage close it; the stage never sees keys typed here.
 function GalMenu(props) {
@@ -75,7 +76,7 @@ function GalMenu(props) {
     const closeRegenerate = () => { if (props.regenerate) props.onClose(); else setRegenerateOpen(false); };
     const [regenerateBusy, setRegenerateBusy] = React.useState(false);
     const items = galMenuItems({ historical: props.historical, latestTurn: props.latestTurn, busy: busy || regenerateBusy, controls: props.controls,
-        auto: props.auto, skipping: props.skipping, atEnd: props.atEnd, touch: props.touch, statusPanel: props.statusPanel });
+        auto: props.auto, skipping: props.skipping, atEnd: props.atEnd, touch: props.touch, pages: props.pages });
     const [active, setActive] = React.useState(0);
     const refs = React.useRef([]);
     const live = React.useRef(null);
@@ -101,7 +102,7 @@ function GalMenu(props) {
         forkUiSfx.play(item.id === "resume" ? "close" : "confirm");
         if (item.id === "resume") p.onClose();
         else if (item.id === "backlog") p.onBacklog();
-        else if (item.id === "status") p.onStatus();
+        else if (item.id.startsWith("page:")) p.onPage(item.id.slice("page:".length));
         else if (item.id === "gallery") p.onGallery();
         else if (item.id === "regenerate") { setActive(index); setRegenerateOpen(true); }
         else if (item.id === "auto") p.onAuto();

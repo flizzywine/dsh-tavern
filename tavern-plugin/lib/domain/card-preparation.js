@@ -3,7 +3,7 @@ import { withTavernCredit } from './card-credit.js'
 import { inspectCardExtensions } from './card-extension-reading.js'
 import { validateCardAssetExtension } from './card-asset-bindings.js'
 import { validateModSystem } from './mod-system-contract.js'
-import { validateCardStatusPanel } from './card-status-panel.js'
+import { validateCardPages } from './card-status-panel.js'
 
 function validateOptInAssets(raw, previousRaw) {
   const extension = rawData(raw).extensions?.dsh_tavern
@@ -11,8 +11,8 @@ function validateOptInAssets(raw, previousRaw) {
   if (extension !== undefined && (Object.hasOwn(extension || {}, 'assetBindings') || Object.hasOwn(previous || {}, 'assetBindings'))) validateCardAssetExtension(extension)
   if (extension?.modSystem !== undefined) validateModSystem('card', extension.modSystem)
   // checked only when this write changes it: an unchanged panel is never re-validated.
-  const panel = extension?.statusPanel
-  if (panel !== undefined && JSON.stringify(panel) !== JSON.stringify(previous?.statusPanel)) validateCardStatusPanel(panel)
+  const panel = extension?.pages
+  if (panel !== undefined && JSON.stringify(panel) !== JSON.stringify(previous?.pages)) validateCardPages(panel)
 }
 
 const TEXT_FIELDS = Object.freeze([

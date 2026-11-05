@@ -11,11 +11,17 @@ export function createStageHandlers(deps) {
       const { widgetVariables } = deps
 return widgetVariables.read({...args,origin:authority?.origin})
     },
-    async readStatusPanel(args, method, serverTemplate, authority) {
-      const { statusPanel } = deps
-      const { sessionId, withHtml } = args || {}
-      // wrapped: the request envelope spreads a bare null into {ok:true}, which a client would take for a panel.
-      return { panel: await statusPanel.read({ sessionId, withHtml }) }
+    async readCardPages(args) {
+      return deps.cardPages.list(args)
+    },
+    async readCardPage(args) {
+      return { page: await deps.cardPages.read(args) }
+    },
+    async locateCardPageAsset(args) {
+      return { place: await deps.cardPages.locate(args) }
+    },
+    async listCardPageAssets(args) {
+      return { assets: await deps.cardPages.assets(args) }
     },
     async proposeWidgetVariables(args, method, serverTemplate, authority) {
       const { widgetVariables } = deps
