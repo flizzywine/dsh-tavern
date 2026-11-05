@@ -6240,12 +6240,11 @@ window.__ModuleLoader__.load({
 		    // 演出风格 is 启用 / 关闭 as well — its pack's lamp decides where it applies.
 		    // a standalone 舞台皮肤 entry has no 状态 at all — the library only shows which skins
 		    // are imported (all of them are offered as 默认舞台皮肤) and ⋯ › 删除 removes one. Skins inside a performance are untouched.
-		    const LAMPLESS_KINDS=['skins','directions'],STATELESS_KINDS=['skins'];
-		    // a 入场演出 plays every time its card's stage opens or never - 蓝灯 / 关闭, no 绿灯; it is never
-		    // sent to the director, so it has no 触发词 or 导演说明.
-		    const BLUE_ONLY_KINDS=['entrances','videos'],UNDIRECTED_KINDS=['entrances','videos'];
+		    const LAMPLESS_KINDS=['skins','directions','entrances'],STATELESS_KINDS=['skins','entrances'];
+		    // Entrances are explicit card choices, like skins; neither is selected through lamps.
+		    const BLUE_ONLY_KINDS=['videos'],UNDIRECTED_KINDS=['entrances','videos'];
 		    const lampChoices=kind=>BLUE_ONLY_KINDS.includes(kind)?['constant','off']:undefined;
-		    const BLUE_ONLY_HELP={entrances:'蓝灯：绑定这个素材包的卡每次进入舞台都播放；关闭：不播放。',videos:'蓝灯：引用它的入场演出、演出或皮肤可以播放它；关闭：不播放（引用方改用自己的画面）。'};
+		    const BLUE_ONLY_HELP={videos:'蓝灯：引用它的入场演出、演出或皮肤可以播放它；关闭：不播放（引用方改用自己的画面）。'};
 		    const LAMPLESS_HELP={directions:'启用的演出风格每次都发给导演，不用触发词。素材包亮蓝灯（全局）时算玩家的，只亮绿灯（本卡）时算卡片作者的；两者是同类条目，可同时启用叠加，冲突由作者和玩家自行管理。导演指令的开关和每轮上限始终优先。关闭：不再发送。'};
 		    // the stored `category` reads as 「标签」 — it only filters the library.
 		    // 标签 holds several tags; each chip is one full path (/ is a level inside it).
@@ -10206,6 +10205,11 @@ window.__ModuleLoader__.load({
 		        open&&blocked&&h('span',{className:'ap-need'},'需要'+STAGE_NAMES.stage,' · ',h(Button,{className:'ap-inline-link',onClick:()=>ctx.enable('stage')},'去开启'))),
 		      open&&h('div',{className:'ap-section-body',id:bodyId},
 		        !value?(data.error?h(ErrorBox,{error:data.error,reload:data.reload}):h(Loading,{shape:'fields'})):h(React.Fragment,null,
+		          value.entranceChoices?.length>0&&field('入场演出',h(OpeningPicker,{label:'入场演出',
+		            value:ctx.ext.stage?.defaultEntrance===undefined?'inherit':openingRefKey(ctx.ext.stage.defaultEntrance),
+		            options:[{value:'inherit',label:'使用全局默认'},{value:'',label:'无'},...value.entranceChoices.map(row=>({value:openingRefKey(row.value),label:row.label}))],
+		            onChange:key=>ctx.writer.write(c=>{const {defaultEntrance:previous,...stage}=c.stage||{};if(key!=='inherit'){const [packId,assetId]=key.split('/');stage.defaultEntrance=key?{packId,kind:'entrances',assetId}:null;}return {stage};})}),
+		            '本卡选择优先于全局默认；「无」不播放。基础设置中的入场演出开关决定是否播放。'),
 		          // the styled picker with each figure's face, never a native select.
 		          staged.length>0&&h('div',{className:'ap-section-part','data-blocked':blocked||undefined,inert:blocked||undefined},field('开场角色',h(OpeningPicker,{label:'开场角色',value:openingFigureKey(value.lead),
 		            options:staged.map(alias=>({value:alias,label:stageFigure(ctx,alias).figure?.name||'人物'})),art:o=>h(StageAvatar,{ctx,alias:o.value,className:'ap-avatar is-mini'}),

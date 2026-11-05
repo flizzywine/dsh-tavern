@@ -68,7 +68,7 @@ test('the entrance follows the stage switch in effect for the card', () => {
   const PACK = '11111111-1111-4111-8111-111111111111', engine = defaultAssetEngineSettings()
   const entry = {kind:'entrances', id:'dive', name:'Dive', enabled:true, recall:{mode:'constant', keywords:[]}, directorNote:'', entrance:entranceDoc()}
   const packs = [{revision:'r', manifest:{id:PACK, name:'Pack', contentHash:'0'.repeat(64), assets:[entry], figures:[]}}]
-  const extension = {schemaVersion:1, assetBindings:{boundPackIds:[PACK]}}
+  const extension = {schemaVersion:1, assetBindings:{boundPackIds:[PACK]}, stage:{defaultEntrance:{packId:PACK, kind:'entrances', assetId:'dive'}}}
   assert.equal(selectStageEntrance(extension, packs, engine).ref.assetId, 'dive')
   assert.equal(selectStageEntrance(extension, packs, {...engine, stageToggles:{...engine.stageToggles, entrance:false}}), null)
 })

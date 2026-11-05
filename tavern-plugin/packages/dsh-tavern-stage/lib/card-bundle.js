@@ -70,8 +70,8 @@ export function createCardBundleAdapter({cardPreparation, authorizeTarget, readW
         const mapping = mappingById.get(row.target.ref?.packId)
         if (mapping) row.target.ref.packId = mapping.packId
       }
-      if (ext.stage?.defaultSkin?.packId) {
-        const ref=ext.stage.defaultSkin, mapping=mappingById.get(ref.packId);
+      for (const key of ['defaultSkin', 'defaultEntrance']) if (ext.stage?.[key]?.packId) {
+        const ref=ext.stage[key], mapping=mappingById.get(ref.packId);
         if(mapping)ref.packId=mapping.packId;
       }
       for (const scene of Object.values(ext.openings?.scenes || {})) for (const key of ['background','music']) {
