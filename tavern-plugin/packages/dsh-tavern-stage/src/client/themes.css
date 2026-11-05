@@ -2022,7 +2022,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 /* Layer rows (shared by the popover and the Config 音量 tab). */
 .fork-gal-mix { display: grid; gap: 2px; }
 .fork-gal-mix-row { display: grid; grid-template-columns: 30px 5.8em minmax(0, 1fr) 2.2em; align-items: center; column-gap: 8px; min-height: 42px; }
-.fork-gal-mix-row.is-master { margin-bottom: 4px; padding-bottom: 4px; border-bottom: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--gal-ui-line); }
+.fork-gal-mix-row.is-master { border-bottom: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--gal-ui-line); }
 .fork-gal-stage :is(.fork-gal-mix-mute, .fork-gal-mix-test) { display: grid; place-items: center; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--gal-ui-ink-2); cursor: pointer; transition: background .15s, color .15s; }
 .fork-gal-stage :is(.fork-gal-mix-mute, .fork-gal-mix-test):hover:not(:disabled) { background: var(--gal-ui-hover); color: var(--gal-ui-accent); }
 .fork-gal-stage .fork-gal-mix-row.is-muted .fork-gal-mix-mute { background: var(--gal-ui-active); color: var(--gal-ui-accent); }
@@ -2045,11 +2045,15 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage .fork-gal-mix-row.is-muted .fork-gal-slider-fill { background: var(--gal-ui-ink-disabled); }
 .fork-gal-stage :is(.fork-gal-mix-mute, .fork-gal-mix-test):focus-visible { outline: var(--gal-ui-focus); outline-offset: 1px; }
 /* Large rows (Config 音量): comfortable targets, ▶ previews at the end. */
+/* The large mixer's grid (mute, name, slider, value, test) in tokens, so the rows after it on its page share it (below). */
+.fork-gal-config { --gal-cfg-mix-hit: 46px; --gal-cfg-mix-name: 9.5em; --gal-cfg-mix-gap: 18px; --gal-cfg-mix-pad: 16px; }
+.fork-gal-config[data-layout="compact"] { --gal-cfg-mix-hit: 40px; --gal-cfg-mix-gap: 10px; --gal-cfg-mix-pad: 6px; }
 .fork-gal-mix.is-large { gap: 6px; }
-.fork-gal-mix.is-large .fork-gal-mix-row { grid-template-columns: 46px 9.5em minmax(0, 1fr) 3em 46px; column-gap: 18px; min-height: 68px; padding: 4px 16px; border-radius: var(--gal-ui-radius); transition: background .15s; }
+.fork-gal-mix.is-large .fork-gal-mix-row { grid-template-columns: var(--gal-cfg-mix-hit) var(--gal-cfg-mix-name) minmax(0, 1fr) 3em var(--gal-cfg-mix-hit); column-gap: var(--gal-cfg-mix-gap); min-height: 68px; padding: 4px var(--gal-cfg-mix-pad); border-radius: var(--gal-ui-radius); transition: background .15s; }
 .fork-gal-mix.is-large .fork-gal-mix-row:hover { background: var(--gal-ui-hover); }
-.fork-gal-mix.is-large .fork-gal-mix-row.is-master { margin-bottom: 10px; padding-bottom: 10px; border-radius: var(--gal-ui-radius) var(--gal-ui-radius) 0 0; }
-.fork-gal-mix.is-large :is(.fork-gal-mix-mute, .fork-gal-mix-test) { width: 46px; height: 46px; }
+/* 总音量 keeps the rows' rhythm: its rule sits in the same gap as every other row's, no extra room under it. */
+.fork-gal-mix.is-large .fork-gal-mix-row.is-master { border-radius: var(--gal-ui-radius) var(--gal-ui-radius) 0 0; }
+.fork-gal-mix.is-large :is(.fork-gal-mix-mute, .fork-gal-mix-test) { width: var(--gal-cfg-mix-hit); height: var(--gal-cfg-mix-hit); }
 .fork-gal-stage .fork-gal-mix.is-large .fork-gal-mix-test:disabled { color: var(--gal-ui-ink-disabled); cursor: default; }
 .fork-gal-mix-test.is-none { visibility: hidden; }
 .fork-gal-mix.is-large .fork-gal-mix-label b { font-size: clamp(17px, 1.3vw, 20px); letter-spacing: .12em; }
@@ -2095,6 +2099,10 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-config-group + .fork-gal-config-group { margin-top: clamp(20px, 3vh, 34px); }
 .fork-gal-config-caption { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--gal-ui-line); color: var(--gal-ui-accent); font: 600 13.5px/1.2 var(--gal-ui-title-font); letter-spacing: .3em; }
 .fork-gal-config-row { display: grid; grid-template-columns: 10.5em minmax(0, 1fr); align-items: center; column-gap: 24px; min-height: 66px; padding: 6px 0; }
+/* On the mixer's page (CONFIG › 声音) every row shares the mixer's grid: the label starts at the mixer names' x (after the
+   mute column) and, on the wide sheet, the control at the sliders' x. Low specificity, so a skin's row layout still wins. */
+.fork-gal-config :where(.fork-gal-config-page:has(> .fork-gal-config-group > .fork-gal-mix.is-large)) .fork-gal-config-row { padding-inline: calc(var(--gal-cfg-mix-pad) + var(--gal-cfg-mix-hit) + var(--gal-cfg-mix-gap)) var(--gal-cfg-mix-pad); }
+.fork-gal-config:not([data-layout="compact"]) :where(.fork-gal-config-page:has(> .fork-gal-config-group > .fork-gal-mix.is-large)) .fork-gal-config-row { grid-template-columns: var(--gal-cfg-mix-name) minmax(0, 1fr); column-gap: var(--gal-cfg-mix-gap); }
 .fork-gal-config-label { display: flex; align-items: center; gap: 8px; font-size: clamp(16px, 1.25vw, 19px); letter-spacing: .1em; white-space: nowrap; }
 .fork-gal-config-label b { font-weight: 600; }
 .fork-gal-config-control { min-width: 0; }
@@ -2222,7 +2230,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-config[data-layout="compact"] .fork-gal-config-page { padding: 14px 16px calc(28px + env(safe-area-inset-bottom, 0px)); overscroll-behavior: contain; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-group + .fork-gal-config-group { margin-top: 22px; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-caption { flex-wrap: wrap; row-gap: 6px; letter-spacing: .2em; white-space: nowrap; }
-.fork-gal-config[data-layout="compact"] .fork-gal-config-row { grid-template-columns: minmax(0, 1fr); row-gap: 10px; min-height: 0; padding: 12px 0; }
+.fork-gal-config[data-layout="compact"] .fork-gal-config-row { grid-template-columns: minmax(0, 1fr); row-gap: 10px; min-height: 0; padding-block: 12px; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-label { font-size: 15px; letter-spacing: .08em; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-seg { display: flex; box-sizing: border-box; width: 100%; }
 .fork-gal-stage .fork-gal-config[data-layout="compact"] .fork-gal-config-seg button { flex: 1 1 0; min-width: 0; height: 40px; padding: 0 6px; font-size: 15px; letter-spacing: .06em; white-space: nowrap; }
@@ -2237,14 +2245,12 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-config[data-layout="compact"] .fork-gal-config-preview { max-width: none; margin: 8px 0 0; padding: 10px 14px 12px; }
 /* Mixer rows: [mute] name … value [▶] on the first line, the slider under the name on the second. */
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large { gap: 4px; }
-.fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-row { grid-template-columns: 40px minmax(0, 1fr) auto 40px; grid-template-areas: "mute label value test" "mute slider slider test"; column-gap: 10px; row-gap: 4px; min-height: 0; padding: 8px 6px 12px; }
-.fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-row.is-master { margin-bottom: 6px; padding-bottom: 12px; }
+.fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-row { grid-template-columns: var(--gal-cfg-mix-hit) minmax(0, 1fr) auto var(--gal-cfg-mix-hit); grid-template-areas: "mute label value test" "mute slider slider test"; column-gap: var(--gal-cfg-mix-gap); row-gap: 4px; min-height: 0; padding: 8px var(--gal-cfg-mix-pad) 12px; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-mute { grid-area: mute; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-label { grid-area: label; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-slider { grid-area: slider; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-value { grid-area: value; font-size: 14px; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-test { grid-area: test; }
-.fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large :is(.fork-gal-mix-mute, .fork-gal-mix-test) { width: 40px; height: 40px; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-label b { font-size: 16px; letter-spacing: .08em; }
 /* ==== end stage overlays: config + mixer ==== */
 /* ==== stage system menu ==== */
