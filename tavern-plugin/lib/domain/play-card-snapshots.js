@@ -6,12 +6,12 @@ import { sanitizeAgentProjectionText } from './runtime-content-projection.js'
 import { defaultUserPreferenceProfile } from './user-preference-profile.js'
 
 export function cardContentDigest(card) { return createHash('sha256').update(JSON.stringify(withoutPresentationOnly(card ?? null))).digest('hex') }
-// The card's status panel (dsh_tavern.statusPanel) is read live from the library card, never from the game's frozen
+// The card's pages (dsh_tavern.pages) is read live from the library card, never from the game's frozen
 // card: editing it must not offer a save migration or reload the game. Cards without it hash unchanged.
 function withoutPresentationOnly(card) {
   const tavern = card?.extensions?.dsh_tavern
-  if (!tavern || typeof tavern !== 'object' || !('statusPanel' in tavern)) return card
-  const { statusPanel: _panel, ...rest } = tavern
+  if (!tavern || typeof tavern !== 'object' || !('pages' in tavern)) return card
+  const { pages: _panel, ...rest } = tavern
   return { ...card, extensions: { ...card.extensions, dsh_tavern: rest } }
 }
 // The constant entries are baked into the fixed prefix, so a game that keeps no
