@@ -18,6 +18,7 @@ import { extractDshVersion, assertCompatibleDshVersion, dshCompatibilityNotice }
 import { patchThemeFontLimit } from './theme-font-limit.mjs'
 import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
 import { patchDeepSeekStreamOption } from './deepseek-stream-option-patch.mjs'
+import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
 import { installPluginDependencies, resolveHostDependencies } from './plugin-dependencies.mjs'
 import { installBundledSceneImagePlugin } from './bundled-scene-image-plugin.mjs'
 import { isAsarPath } from './desktop-host-paths.mjs'
@@ -382,6 +383,26 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         const patched = patchDeepSeekStreamOption(deepseek.directory)
         if (patched === null) console.log('当前 DSH 的 DeepSeek 适配器与流式设置补丁不符，已跳过；非流式仍在响应完成后一次性显示。')
         else if (patched) console.log('已为 DeepSeek 适配器启用流式/非流式请求切换。')
+      }
+      let piAi = null
+      try {
+        const [adapter] = resolveHostDependencies({ dsh, host, requiredExports: {
+          '@deepseek-ai/dsh-llm-pi-ai': null,
+        } })
+        // pi-ai's package exports map has no CommonJS entry, so resolve it as a sibling
+        // of the adapter instead of asking resolveHostDependencies for its main module.
+        const sdkDirectory = [
+          path.join(path.dirname(path.dirname(adapter.directory)), '@earendil-works', 'pi-ai'),
+          path.join(adapter.directory, 'node_modules', '@earendil-works', 'pi-ai'),
+        ].find(candidate => existsSync(path.join(candidate, 'package.json')))
+        if (sdkDirectory) piAi = { adapter, sdkDirectory }
+      } catch {}
+      // pi-ai only needs this when an OpenAI-compatible provider is configured. Missing
+      // packages are not an install failure; the common buffer remains the fallback.
+      if (piAi && !isAsarPath(piAi.adapter.directory) && !isAsarPath(piAi.sdkDirectory)) {
+        const patched = patchPiAiNonStream({ adapterDirectory: piAi.adapter.directory, sdkDirectory: piAi.sdkDirectory })
+        if (patched === null) console.log('当前 DSH 的 pi-ai 适配器与非流式补丁不符，已跳过；非流式仍在响应完成后一次性显示。')
+        else if (patched) console.log('已为 pi-ai 的 OpenAI 兼容模型启用上游非流式请求。')
       }
       if (bridge) {
         // Refresh publication is reversible until the installation receipt exists.
