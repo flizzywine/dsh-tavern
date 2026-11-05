@@ -14100,7 +14100,8 @@ const {useLiveView,storyTurn,useCoordination:useTavernCoordination,rpc,phoneCall
     dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},
     figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
     DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,ClipStatus,playEvents}=services;
-const {galActive,galMenuRequest}=navigation;
+// galVisitCount: navigation.visit, read here because GalStage's own `navigation` (its paging ref) shadows the parameter.
+const {galActive,galMenuRequest,visit:galVisitCount}=navigation;
 const galCurrentEntry=()=>navigation.getEntry(),galHoldLeave=hold=>navigation.holdLeave(hold);
 const voicePlayer=options.speech?.player,bubbleCharacter=options.speaker?.character,galQuoted=options.backlogView?.galQuoted;
 const forkForeground=options.sceneServices?.foreground,forkLipSync=options.sceneServices?.lipSync,forkStageAudio=options.mixer?.audio,forkUiSfx=options.widgets?.sounds;
@@ -14639,7 +14640,7 @@ function GalStage(props) {
     const reading = useStageReading();
     // showOn stage-enter: each entry from text mode (navigation.visit(), bumped by galOpen) opens the page stageEnterPage picks,
     // once the declarations are read. It stands in for that visit's entrance; closing it continues with the normal resume.
-    const stageVisit = React.useSyncExternalStore(galActive.subscribe, navigation.visit);
+    const stageVisit = React.useSyncExternalStore(galActive.subscribe, galVisitCount);
     React.useEffect(() => {
         if (!cardPages || !stageVisit || galActive.get() !== sessionId || cardPageVisits.get(sessionId) === stageVisit) return;
         cardPageVisits.set(sessionId, stageVisit);
