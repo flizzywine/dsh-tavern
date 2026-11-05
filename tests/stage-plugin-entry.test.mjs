@@ -59,7 +59,7 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
       const session=views.sessionRuntime.createSessionOwner({sessions:{list:{getSnapshot:()=>({byId:{}}),subscribe:()=>()=>stopped++}}})
       session.start();session.dispose();assert.equal(stopped,1)
       for (const name of ['Host','Toggle','Typewriter','NarrationLines','HudLabels','NamePlate']) assert.equal(typeof views[name],'function')
-      assert.equal(views.Typewriter({text:'完整文字',instant:true}).children[0].children[0],'完整文字')
+      assert.equal(views.Typewriter({text:'完整文字',instant:true}).children[0][0].children[0],'完整文字')
       views.progress.store.begin('s',1)
       assert.equal(views.progress.store.get('s').id,1)
       seen.push('tab')
@@ -109,6 +109,52 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   await second.dispose()
   assert.equal(styles.size,0)
   await ctx.fiber.dispose()
+})
+
+test('card pages: a card without pages adds no frames, keys or menu rows; an open page keeps auto and skip paused', async () => {
+  const local = createRequire(import.meta.url)
+  const client = '../tavern-plugin/packages/dsh-tavern-stage/src/client/'
+  const controls = local(client + 'controls.cjs').createStageControls()
+  const menu = local(client + 'menu.cjs').createStageMenu({React:{},window:{},document:{},sounds:{},getSession(){}})
+  const {createStageInput} = local(client + 'input.cjs')
+  const {createStageNavigation} = local(client + 'navigation.cjs')
+  const pages = [{id:'title',label:'标题',showOn:{event:'stage-enter'},size:'full'},{id:'status',label:'状态',shortcut:'s',menu:true,size:'window'}]
+  // no pages: the built-in keys and rows only, and no entry page (so the controller never mounts a page frame).
+  assert.deepEqual(controls.shortcuts({pages:[]}),controls.shortcuts({}))
+  assert.ok(controls.shortcuts({pages:[]}).every(([, , action]) => !action.startsWith('page:')))
+  assert.ok(menu.items({pages:[]}).every(item => !item.id.startsWith('page:')))
+  assert.equal(controls.stageEnterPage({pages:[],fresh:true,skip:false}),null)
+  assert.deepEqual(menu.items({pages}).filter(item => item.id.startsWith('page:')).map(item => item.id),['page:status'])
+  const controllerSource = await readFile(new URL(client + 'controller.cjs', import.meta.url), 'utf8')
+  assert.doesNotMatch(controllerSource,/statusOpen|statusPanel\.useStatusPanel|data-status-panel/)
+  assert.match(controllerSource,/pageOpen \? h\(stageViews\.statusPanel\.Overlay/)
+  // every pause the old status panel had reads pageOpen: the playback clock (auto / skip), the insert page's auto, read marks.
+  assert.match(controllerSource,/usePlayback\(\{[^]*?overlay:backlog\|\|configOpen\|\|galleryOpen\|\|pageOpen\|\|menuOpen/)
+  assert.match(controllerSource,/if \(!auto \|\| hidden \|\| backlog \|\| configOpen \|\| galleryOpen \|\| pageOpen \|\| menuOpen\) return;/)
+  // the keyboard: with a page open neither A (auto) nor a held Ctrl (skip) reaches the reader; Esc closes the page.
+  const handlers = new Map(), timers = [], sent = []
+  const target = {addEventListener:(type,fn) => handlers.set(type,[...(handlers.get(type) || []),fn]),removeEventListener(){}}
+  const fire = (type,init) => { const event = {key:'',repeat:false,preventDefault(){},target:null,...init,type}; for (const fn of handlers.get(type) || []) fn(event) }
+  const input = createStageInput({React:{},window:target,document:target,clock:{setTimeout:fn => timers.push(fn),clearTimeout(){}},controls,navigation:{galKeyboardFocus:() => false}})
+  let state = {page:'status',pages,auto:false,skipping:false,atEnd:false}
+  const reader = input.attach(() => state,action => sent.push(action))
+  fire('keydown',{key:'a'}); fire('keydown',{key:'Control'})
+  assert.equal(timers.length,0,'a held Ctrl starts no skip while a page is open')
+  assert.deepEqual(sent,[])
+  fire('keydown',{key:'Escape'})
+  assert.deepEqual(sent,[{type:'page',open:false}])
+  state = {...state,page:null}; sent.length = 0
+  fire('keydown',{key:'s'})
+  assert.deepEqual(sent.filter(action => action.type !== 'held'),[{type:'page',open:true,id:'status'}])
+  reader.dispose()
+  // showOn counts entries from text mode: galOpen bumps the visit, leaving does not.
+  const documentStub = {documentElement:{setAttribute(){},removeAttribute(){}},querySelectorAll:() => [],fullscreenElement:null}
+  const navigation = createStageNavigation({window:{},document:documentStub,navigator:{},playCue(){},getSessionId:() => 's',getSettings:() => null})
+  const stop = navigation.galStageLifetime()
+  assert.equal(navigation.visit(),0)
+  navigation.galOpen('s'); navigation.galLeave(); navigation.galOpen('s')
+  assert.equal(navigation.visit(),2)
+  stop()
 })
 
 test('failed browser stage mount rolls back registrations and can be retried', () => {

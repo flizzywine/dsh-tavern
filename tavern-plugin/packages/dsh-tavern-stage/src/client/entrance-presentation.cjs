@@ -65,7 +65,8 @@ function useStageEntrance(store, entrance, loadGate) {
         return () => clearTimeout(timer);
     }, [run, active, loading]);
     const overlay = !run || late && !active ? null : {loadPhase: hidden ? loadGate.phase : 'ended', bright: hidden && !!bright};
-    return {gate, active, stageAttr: active ? status.covered ? 'covered' : 'playing' : undefined, overlay,
+    // end(): the run is over without playing on (a card's showOn page stands in for the entrance on that visit).
+    return {gate, active, end: () => { if (active) patch({done: true}); }, stageAttr: active ? status.covered ? 'covered' : 'playing' : undefined, overlay,
         element: active ? React.createElement(StageEntrance, {key: 'entrance', run, ready, covered: status.covered, started: status.started, onEvent,
             onBright: () => {if(!disposed)setBright(Date.now());}}) : null};
 }

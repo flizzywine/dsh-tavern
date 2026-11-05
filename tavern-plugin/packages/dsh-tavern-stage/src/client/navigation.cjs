@@ -73,6 +73,9 @@ const galEntering = (function () {
     return { get: () => session, set(value) { session = value || ""; } };
 })();
 let galEntry = null;
+// One count per stage entry from text mode (galOpen): a card's showOn stage-enter page opens once per entry (controller.cjs),
+// never on a remount, a round change or a settings toggle.
+let galVisit = 0;
 function galEnter(sessionId, target) {
     if (!galStageAvailable.get()) return;
     const generation = ++galVisitGeneration;
@@ -91,6 +94,7 @@ function galEnter(sessionId, target) {
 function galOpen(sessionId, target) {
     if (!galStageAvailable.get()) return;
     playCue("open"); // ui-sfx.js (fetches only this cue; the rest follow the entry)
+    galVisit++;
     galEntry = target && Number.isInteger(target.turn) ? { sessionId, turn: target.turn, para: Math.max(1, Number(target.para) || 1), token: Date.now() } : null;
     galActive.set(sessionId);
     // Called from the click itself, so the browser grants full screen.
@@ -175,6 +179,7 @@ function galStageShortcut() {
 }
 return {galKeyboardFocus:() => document.documentElement.hasAttribute("data-fork-keynav"), galCoverChat, galUncover, galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
     getEntry: () => galEntry,
+    visit: () => galVisit,
     holdLeave(hold) {galLeaveHold = hold; return () => {if (galLeaveHold === hold) galLeaveHold = null;};}};
 }
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageNavigation};
