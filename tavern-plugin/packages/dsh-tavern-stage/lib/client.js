@@ -14064,7 +14064,7 @@ function candidateSceneMerge(scene, candidate, actors, contributed, line, speake
     const byRef=new Map();for(const actor of actors){const key=refKey(actor.ref),rows=byRef.get(key)||[];rows.push(actor);byRef.set(key,rows);}
     const figures=(candidate.replaceActors===true ? [] : scene.figures.filter(figure=>{const key=refKey(figure.sourceRef),wanted=byRef.get(key);return !wanted || (!readyRefs.has(key) && wanted.every(actor=>actor.outfitKey===figure.sourceOutfitKey));})).concat(contributed);
     const cast=figures.filter(figure=>figure.visible!==false && figure.alias).map((figure,index)=>({alias:figure.alias,x:Number.isFinite(figure.x)?figure.x:.5,index})).sort((a,b)=>a.x-b.x||a.index-b.index).map(row=>row.alias);
-    const priority=[...(speaker ? ['candidate:'+speaker.instanceId] : []),...(scene.figureLayout?.priority || []),...cast].filter((alias,index,all)=>cast.includes(alias)&&all.indexOf(alias)===index);
+    const priority=[...(speaker ? ['candidate:'+speaker.instanceId] : figures.filter(figure=>figure.speaking).map(figure=>figure.alias)),...(scene.figureLayout?.priority || []),...cast].filter((alias,index,all)=>cast.includes(alias)&&all.indexOf(alias)===index);
     const figureLayout={...(scene.figureLayout || {}),cast,priority};
     return {...scene,figureLayout,hideFigures:false,figureMode:'stage',figures,
         camera:candidate.camera || scene.camera,
@@ -15101,6 +15101,10 @@ function GalStage(props) {
             .catch(error=>{if(live){live=false;for(const pin of pins)pin.release();pins.length=0;setCandidateError(String(error.message || error));console.warn('Stage scene figures unavailable',error);candidate.onError?.({gameId:sessionId,code:'FIGURE_UNAVAILABLE',message:String(error.message || error)});}});
         return ()=>{live=false;if(!adopted)for(const pin of pins)pin.release();};
     },[sessionId,actorSignature,candidateAuthority,!!candidate]);
+    const storyFigure=!candidateLine && (pack.characters.find(figure=>figure.alias===speaker) || bubbleCharacter(config,current));
+    const storyRef=storyFigure?.ref;
+    const storyCandidate=!candidateLine && storyRef && candidateActors.find(actor=>actor.visible!==false && actor.ref?.packId===storyRef.packId && actor.ref?.figureId===storyRef.figureId);
+    const storySpeakerOnStage=Boolean(storyCandidate || items.some(item=>item.speaking && item.visible!==false));
     const contributed = candidateActors.map((actor,index) => {
         const desired=JSON.parse(actorSignature)[index];
         const previous=candidateFigures.authority===candidateAuthority ? candidateFigures.actors.findIndex(row=>row.instanceId===desired.instanceId && row.ref?.packId===desired.ref?.packId && row.ref?.figureId===desired.ref?.figureId && row.outfitKey===desired.outfitKey) : -1;
@@ -15109,12 +15113,11 @@ function GalStage(props) {
         const input=packFigureRenderInputs(selected,{sessionId}).stage;
         if(!input)return null;
         const key='candidate:'+String(actor.instanceId);
-        const storyFigure=!candidateLine && pack.characters.find(figure=>figure.alias===speaker);
-        const storySpeaker=storyFigure && actor.ref?.packId===storyFigure.ref?.packId && actor.ref?.figureId===storyFigure.ref?.figureId && candidateActors.find(row=>row.ref?.packId===actor.ref.packId && row.ref?.figureId===actor.ref.figureId)===actor;
+        const storySpeaker=actor===storyCandidate;
         const storyInput=storySpeaker ? renderInputs.get(speaker)?.stage : null;
         const speaking=candidateLine ? actor===candidateSpeaker : Boolean(storySpeaker);
         const talking=candidateLine ? speaking && !!sceneLineKey && sceneTalking===sceneLineKey && !sceneTyped : speaking && storyTalking===JSON.stringify([sessionId,turn,page,card]) && !typed && !skipping && !battlePresentation;
-        return {...input,...(storyInput?.audio ? {audio:storyInput.audio} : null),key,sourceRef:actor.ref,sourceOutfitKey:selected.outfitKey,sourceStateId:selected.state?.id,alias:key,x:actor.x,ground:actor.ground,sceneSize:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking,talking,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : 1,
+        return {...input,...(storyInput?.audio ? {audio:storyInput.audio} : null),key,sourceRef:actor.ref,sourceOutfitKey:selected.outfitKey,sourceStateId:selected.state?.id,alias:key,x:actor.x,ground:actor.ground,sceneSize:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking,talking,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : !candidateLine && storySpeakerOnStage && !speaking && skinFigures.dimListeners !== false ? .8 : 1,
             figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry?.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     }).filter(Boolean);
     function onSceneDebug(effect) {
