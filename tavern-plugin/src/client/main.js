@@ -558,6 +558,7 @@ window.__ModuleLoader__.load({
 					if (typeof result?.errorCode === "string" && result.errorCode) error.code = result.errorCode;
 					// the cycle ids / conflicting mods the player message names (UI-CONTRACT.md 错误).
 					if (result?.errorDetails) error.details = result.errorDetails;
+					if (result?.failure) error.failure = result.failure;
 					throw error;
 				}
                 if (method === 'regenBody') tavernPlayEvents.emit('regenerate', payload.sessionId);

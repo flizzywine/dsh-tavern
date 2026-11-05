@@ -230,3 +230,50 @@ test('附件输入明确失败，失败回执保留具体原因且不调用生�
   await assert.rejects(f.controller.validateResult(f.session, 2, result), /只支持文本输入/)
   assert.equal(f.calls, 0)
 })
+
+for (const [code, category, message] of [
+  ['STCONTEXT_CONTENT_FILTER', 'content-filter', '独立生成未完整完成：Provider finish_reason: content_filter'],
+  ['STCONTEXT_CONTEXT_OVERFLOW', 'context-overflow', '服务商报告请求超过模型上下文容量'],
+  ['STCONTEXT_OUTPUT_LIMIT', 'output-limit', '输出达到长度上限'],
+  ['STCONTEXT_EMPTY', 'empty-response', '空响应'],
+  ['STCONTEXT_REASONING_ONLY', 'reasoning-only', '只有思考'],
+  ['ECONNRESET', 'network', '网络异常'],
+  ['STCONTEXT_TIMEOUT', 'timeout', '插件超时'],
+  ['STCONTEXT_PRESET', 'preset', '预设处理失败'],
+]) test('failure contract survives receipt and restart: ' + category, async () => {
+  for (const mode of ['plugin-direct', 'plugin-tool-call']) {
+    const f = fixture(async () => { throw Object.assign(new Error(message), {code, stage: 'response', details: {httpStatus: 400, providerCode: 'context_length_exceeded', response: 'PRIVATE-STORY', apiKey: 'PRIVATE-KEY'}, cause: {prompt:'PRIVATE-PROMPT'}}) });
+    f.mutate(chat => { Object.values(chat.foregroundFrames)[0].source.bodyGeneration.mode = mode });
+    const output = await f.controller.tool.execute({}, f.exec);
+    const result = receipt(f.session, output);
+    assert.equal(result.failure.code, code);
+    assert.equal(result.failure.category, category);
+    assert.equal(result.failure.stage, 'response');
+    assert.equal(result.text, '');
+    const restored = createPluginBodyGeneration(f.deps);
+    await assert.rejects(restored.validateResult(f.session, 2, result), error => {
+      assert.equal(error.code, 'TAVERN_PLUGIN_BODY_GENERATION_FAILED');
+      assert.deepEqual(error.failure, result.failure); return true;
+    });
+    const replay = JSON.parse(await restored.tool.execute({}, f.exec));
+    assert.deepEqual(replay.failure, result.failure);
+    assert.equal(f.calls, 1, 'failed operations must not repeat a paid request');
+    assert.doesNotMatch(JSON.stringify(f.state) + output, /PRIVATE-STORY|PRIVATE-KEY|PRIVATE-PROMPT/);
+    assert.equal(f.state.messages.at(-1).projectionText, '完整开场');
+  }
+});
+
+test('regeneration preserves typed failure and never reports success', async () => {
+  const f = fixture(undefined, {regenerateWithProvider: async () => { throw Object.assign(new Error('Gemini 回包被拦截或缺少唯一候选'), {code:'STCONTEXT_BLOCKED',stage:'response',details:{blockReason:'SAFETY',response:'PRIVATE'}}) }});
+  await assert.rejects(f.controller.regenerate('session'), error => error.failure.code === 'STCONTEXT_BLOCKED' && error.failure.details.blockReason === 'SAFETY' && !JSON.stringify(error.failure).includes('PRIVATE'));
+});
+
+test('legacy stored failures and message-only receipts remain readable', async () => {
+  const f = fixture();
+  f.mutate(chat => { chat.timeline.operations[f.operation.id].bodyGeneration = {status:'failed',error:'旧版错误：上下文超限'} });
+  const output = await f.controller.tool.execute({}, f.exec);
+  assert.match(JSON.parse(output).message, /旧版错误/);
+  const old = receipt(f.session, JSON.stringify({version:1,status:'failed',message:'旧版错误：上下文超限'}));
+  await assert.rejects(f.controller.validateResult(f.session, 2, old), /旧版错误/);
+  assert.equal(f.calls, 0);
+});

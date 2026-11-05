@@ -1,3 +1,4 @@
+import { bodyGenerationFailure } from './body-generation-failure.js'
 import { promptSection } from './prompt-section.js'
 import { captureChatHeader } from './chat-persistence.js'
 import { validAnchor } from './round-anchor.js'
@@ -878,6 +879,7 @@ export function createTurnOrchestrator(options) {
       requestId: str(input.requestId).trim(),
       code: str(input.code).trim() || 'foreground-failed',
       message: str(input.message).trim() || '前台正文生成失败，请重新生成本轮正文。',
+      ...(input.failure ? { failure: bodyGenerationFailure(input.failure) } : {}),
       at: now()
     }
     await store.writeChat(chat, { source: 'foreground.failure' })

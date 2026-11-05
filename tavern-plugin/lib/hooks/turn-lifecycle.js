@@ -55,7 +55,7 @@ export function registerTurnLifecycleHooks({
     const assistant = assistantResultForTurn(session, payload.turn)
     try { await pluginBodyGeneration?.validateResult(session, payload.turn, assistant) }
     catch (error) {
-      await turnOrchestrator.recordFailure({ sessionId, turn: payload.turn, requestId, code: 'plugin-generation', message: error.message })
+      await turnOrchestrator.recordFailure({ sessionId, turn: payload.turn, requestId, code: 'plugin-generation', message: error.message, failure: error.failure })
       throw error
     }
     if (assistant === null || assistant.text === '') {

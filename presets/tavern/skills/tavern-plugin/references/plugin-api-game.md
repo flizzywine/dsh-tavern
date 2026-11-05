@@ -65,6 +65,21 @@ ctx.tavern.bodyGenerator({
 
 两种回调都有取消信号和 10 分钟超时。传递 `signal` 到模型请求与 Worker；取消、超时、卸载后的迟到结果不会被采用。生成期间更改预设、模型或宿主生成方式只影响后续操作。生成器失败不自动重试、不切换模型或改用宿主生成。
 
+### 失败契约
+
+回调可抛出普通 Error，或附加 `code`、`stage`、`details`。例如：
+
+```js
+throw Object.assign(new Error('请求超过模型上下文容量'), {
+  code: 'MY_CONTEXT_OVERFLOW', stage: 'response',
+  details: { httpStatus: 400, providerCode: 'context_length_exceeded' }
+})
+```
+
+宿主保留可序列化的 `failure: { code, stage, message, details, category? }`，贯穿失败存档、version 1 工具回执、回合校验与重生成 RPC。外层错误码仍为 `TAVERN_PLUGIN_BODY_GENERATION_FAILED`。旧的普通 Error 和只有 message 的回执继续有效。已知失败类别显示中文原因，诊断信息保留原错误码和阶段。
+
+message 必须是适合玩家阅读的安全摘要（宿主最多保留 500 字符并移除常见凭据、URL 和响应尾部）；不得把请求、响应正文、剧情、思考或凭据拼进 message。details 只接收 100–599 的整数 httpStatus，以及最多 96 字符的 providerCode、finishReason、blockReason 标识（字母、数字、点、下划线、冒号、连字符）。其它字段、cause、stack 均不传播。code/stage 同样限制为 96 字符标识。宿主不代替插件解析服务商协议。
+
 ### `materials`（schemaVersion 1）
 
 | 字段 | 语义 |

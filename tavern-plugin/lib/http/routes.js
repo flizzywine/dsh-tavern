@@ -1,3 +1,4 @@
+import { bodyGenerationFailure } from '../domain/body-generation-failure.js'
 import { createReadStream } from 'node:fs'
 import { FULL_PROMPT_TEMPLATE_ASSET_PREFIX, readFullPromptTemplateAsset } from '../domain/full-prompt-template-assets.js'
 import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle } from '../domain/official-mvu-assets.js'
@@ -468,8 +469,9 @@ export function registerTavernHttpRoutes({
           const voiceCode = figureVoiceRoute ? (/^[A-Z_]+$/.test(err?.code || '') ? err.code : 'REQUEST_FAILED') : undefined
           if (voiceCode) ctx.logger?.warn(`[voice-rpc] ${pathname.split('/').at(-1)} ${voiceCode}`)
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify({ ok: false, error: voiceCode ? '声音暂时不可用' : str(err && err.message || err),
+          res.end(JSON.stringify({ ok: false, error: voiceCode ? '声音暂时不可用' : err?.failure ? bodyGenerationFailure(err).message : str(err && err.message || err),
             errorCode: voiceCode || (typeof err?.code === 'string' ? err.code : undefined),
+            ...(err?.failure ? { failure: bodyGenerationFailure(err) } : {}),
             ...(pathname.split('/').at(-1).startsWith('managedMod') && err?.details ? {errorDetails:err.details} : {}) }))
         }
       }

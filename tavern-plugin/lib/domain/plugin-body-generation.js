@@ -1,3 +1,4 @@
+import { bodyGenerationFailure, bodyGenerationError } from './body-generation-failure.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { buildBodyRegenerationMaterials, findBodyRegenerationFrame } from './body-regeneration-materials.js'
 import { activeStoryTurn, STORY_GENERATE_TOOL_NAME } from './story-tool-submission.js'
@@ -56,7 +57,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
     }
     signal.throwIfAborted()
     if (tasks.has(key)) return untilAborted(tasks.get(key), signal)
-    if (existing) throw error(existing.error || '上次插件生成未完成；请重新生成本轮，避免重复请求模型')
+    if (existing) throw bodyGenerationError(existing.failure ? { failure: existing.failure } : existing.error || '上次插件生成未完成；请重新生成本轮，避免重复请求模型')
     const toolResults = bodyGenerationWorldbookResults(session, turn, isWorldbookPath)
     const validate = async current => {
       signal.throwIfAborted()
@@ -100,7 +101,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
         await updateChat(chat.id, current => {
           const operation = current.timeline?.operations?.[operationId]
           if (operation?.status !== 'running' || !['running', ...(signal.aborted ? ['ready'] : [])].includes(operation.bodyGeneration?.status)) return undefined
-          operation.bodyGeneration = { ...operation.bodyGeneration, status: 'failed', error: String(cause?.message || cause).slice(0, 500) }
+          operation.bodyGeneration = { ...operation.bodyGeneration, status: 'failed', error: bodyGenerationFailure(cause).message, failure: bodyGenerationFailure(cause) }
           return current
         }, { source: 'foreground.plugin-generation-failed' })
         throw cause
@@ -136,7 +137,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
       const frame = findBodyRegenerationFrame(chat, turn)
       const stored = chat?.timeline?.operations?.[frame?.operationId]?.bodyGeneration
       if (!result?.pluginBodyGeneration || stored?.status !== 'ready' || stored.receipt.text.trim() !== result.text
-        || stored.receipt.operationId !== result.operationId) throw error(stored?.error || result?.generationError || '本轮未通过正文生成插件成功提交，请重新生成')
+        || stored.receipt.operationId !== result.operationId) throw bodyGenerationError(stored?.failure || result?.failure ? { failure: stored?.failure || result.failure } : stored?.error || result?.generationError || '本轮未通过正文生成插件成功提交，请重新生成')
       if ((await materialsFor(chat, turn)).digest !== stored.materialsDigest) throw error('插件正文对应的材料已过期')
     },
     tool: {
@@ -162,7 +163,8 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
           // DSH only honors concludeTurn on a successful tool execution. A typed
           // failure receipt stops the loop; turn-stopping rejects it as a body.
           exec.concludeTurn()
-          return JSON.stringify({ version: 1, status: 'failed', message: String(cause?.message || cause).slice(0, 1000) })
+          const failure = bodyGenerationFailure(cause)
+          return JSON.stringify({ version: 1, status: 'failed', message: failure.message, failure })
         }
       }
     },
@@ -182,10 +184,13 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
         validateProvider: async () => {
           if (await providers.require(selected.storyGenerationProvider, gameId) !== provider) throw error('正文生成插件已更换，请重新生成')
         },
-        generate: ({ materials, signal, snapshot }) => providers.generate(selected.storyGenerationProvider, { materials, signal, snapshot }) }))
+        generate: async ({ materials, signal, snapshot }) => {
+          try { return await providers.generate(selected.storyGenerationProvider, { materials, signal, snapshot }) }
+          catch (cause) { throw bodyGenerationError(cause) }
+        } }))
       task.pending = pending
       regenerations.set(gameId, task)
-      try { return await pending } finally { if (regenerations.get(gameId) === task) regenerations.delete(gameId) }
+      try { return await pending } catch (cause) { throw bodyGenerationError(cause, 'regenerate') } finally { if (regenerations.get(gameId) === task) regenerations.delete(gameId) }
     },
     async cancelRegeneration(gameId) {
       const task = regenerations.get(gameId)

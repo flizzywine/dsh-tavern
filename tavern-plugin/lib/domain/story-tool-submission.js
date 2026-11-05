@@ -1,3 +1,4 @@
+import { bodyGenerationFailure } from './body-generation-failure.js'
 import { randomUUID, createHash } from 'node:crypto'
 import { sessionEvents } from './session-events.js'
 import { createSessionSurfaceMutator } from './session-surface-mutations.js'
@@ -132,7 +133,8 @@ export function storySubmissionForTurn(session, turn) {
           const receipt = JSON.parse(block.content.filter(item => item.type === 'text').map(item => item.text).join(''))
           if (receipt.version === 1 && receipt.status === 'failed') return {
             index: model.index, event: model.event, text: '', content: '', pluginBodyGeneration: true,
-            generationError: String(receipt.message || '插件正文生成失败').slice(0, 1000)
+            generationError: bodyGenerationFailure(receipt.failure || receipt.message || '插件正文生成失败').message,
+            ...(receipt.failure ? { failure: bodyGenerationFailure(receipt.failure) } : {})
           }
           content = validContent(receipt.text)
           if (receipt.version !== 1 || typeof receipt.operationId !== 'string' || !receipt.operationId

@@ -1,3 +1,4 @@
+import { bodyGenerationError } from './body-generation-failure.js'
 import { randomUUID } from 'node:crypto'
 import { untilAborted } from './plugin-callback.js'
 import { publicBodyMaterials } from './body-generation-materials.js'
@@ -19,7 +20,7 @@ export function createBodyGenerationProviders({ allowed, timeoutMs = 600000 }) {
     signal?.throwIfAborted()
     const controller = new AbortController(), task = { provider, gameId, controller }
     const combined = AbortSignal.any([controller.signal, ...(signal ? [signal] : [])])
-    const timer = setTimeout(() => controller.abort(new Error('插件正文生成超时')), timeoutMs)
+    const timer = setTimeout(() => controller.abort(Object.assign(new Error('插件正文生成超时'), { code: 'TAVERN_PLUGIN_BODY_TIMEOUT' })), timeoutMs)
     running.add(task)
     try {
       const value = await untilAborted(Promise.resolve().then(() => { combined.throwIfAborted(); return callback(combined) }), combined)
@@ -49,7 +50,9 @@ export function createBodyGenerationProviders({ allowed, timeoutMs = 600000 }) {
     require: requireProvider,
     async prepare(id, { gameId, reason, signal }) {
       const provider = await requireProvider(id, gameId)
-      const config = await invoke(provider, gameId, signal, signal => provider.prepare?.({ gameId, reason, signal }))
+      let config
+      try { config = await invoke(provider, gameId, signal, signal => provider.prepare?.({ gameId, reason, signal })) }
+      catch (cause) { throw bodyGenerationError(cause, 'prepare') }
       return { config: jsonConfig(config), registration: provider.registration }
     },
     async generate(id, { materials, snapshot, signal }) {

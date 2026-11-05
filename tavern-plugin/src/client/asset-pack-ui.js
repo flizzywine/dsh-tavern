@@ -34,6 +34,13 @@ function playerPlain(text){
 }
 function playerErrorText(error,{codes,fallback='出错了，请稍后再试'}={}){
   if(!error)return '';
+  if (error.failure && typeof error.failure.message === 'string') {
+    const failure = error.failure;
+    const hints = {'content-filter':'正文生成被服务商审核拦截，请调整内容后再试','context-overflow':'正文生成超过模型上下文容量，请减少上下文','output-limit':'正文生成达到输出长度限制，请调整输出额度','reasoning-only':'模型只返回了思考，没有生成正文','empty-response':'模型没有返回正文','timeout':'插件正文生成超时，请检查服务连接和超时设置','network':'正文生成网络请求失败，请检查服务连接','preset':'正文生成预设处理失败，请检查预设配置'};
+    const message = hints[failure.category] || failure.message || fallback;
+    const details = [failure.stage, failure.code, failure.details?.httpStatus && 'HTTP ' + failure.details.httpStatus, failure.details?.providerCode, failure.details?.finishReason, failure.details?.blockReason].filter(Boolean).join(' · ');
+    return message + (details ? '（' + details + '）' : '');
+  }
   const message=typeof error==='string'?error:String(error.message||''),name=typeof error==='string'?'':String(error.name||'');
   const code=typeof error==='string'?'':String(error.code||'')||(['AbortError','TimeoutError'].includes(name)?name:'');
   const key=code||(/^[A-Z][A-Z0-9_]+$/.test(message)?message:'');
