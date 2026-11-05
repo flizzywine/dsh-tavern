@@ -5,7 +5,7 @@ import { activeWidgetKeys, widgetIsActive } from '../../../../lib/domain/widget-
 import {figureCatalogue, resolution} from '../../../../lib/domain/figure-catalogue.js'
 import skinContract from '../../../dsh-presentation-protocol/src/stage-skin.cjs'
 import performanceContract from '../../../dsh-presentation-protocol/src/performance-contract.cjs'
-import { effectiveCardStage, cardStageSkin, cardStageSkinPackIds } from '../../../../lib/domain/card-stage-settings.js'
+import { effectiveCardStage, activeStageSkin, cardStageSkin, cardStageSkinPackIds } from '../../../../lib/domain/card-stage-settings.js'
 import { readCardAssetExtension } from '../../../../lib/domain/card-asset-bindings.js'
 import { rawData } from '../../../../lib/domain/card-preparation.js'
 import {expandPerformanceDependencies, performanceWidgetDefaults} from './performance-projection.js'
@@ -388,7 +388,7 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
       const unavailable = ref => ({...plan,dependencies:[],executionDependencies:[],unavailable:{code:'PERFORMANCE_DEPENDENCY_UNAVAILABLE',ref:plan.ref,dependency:ref}})
       const widgetAllowed = (ref,asset,pack) => effectiveCardStage(extension, getEngine?.()).widgets && performanceWidgetDefaults(pack.widgets?.[ref.assetId]) !== null
       const expanded = expandPerformanceDependencies({ref:plan.ref,document:packs.get(plan.ref.packId)?.performances?.[plan.ref.assetId],snapshots:metadata,
-        authorization:{boundPackIds:extension.assetBindings.boundPackIds,widgetAllowed}})
+        authorization:{boundPackIds:getAllowedPackIds?.() || extension.assetBindings.boundPackIds,widgetAllowed}})
       if (expanded.unavailable) return {...unavailable(expanded.unavailable.dependency),unavailable:expanded.unavailable}
       const dependencies = [], executionDependencies = []
       for (const ref of expanded.refs) {
@@ -550,7 +550,8 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
       const manifests=await Promise.all(cardStageSkinPackIds(extension, getEngine?.(), getAllowedPackIds?.() || []).map(id => snapshot(id).then(pack => pack?.manifest, () => null)))
       const defaultSkin=cardStageSkin(extension, getEngine?.(), manifests).skin
       const override=skinAllowed && state.skin?.ref
-      const selectedSkin=override ? state.skin : typeof defaultSkin==='string' ? defaultSkin : {ref:defaultSkin}
+      const activeSkin=activeStageSkin({extension,engine:getEngine?.(),manifests,state:skinAllowed ? state : null})
+      const selectedSkin=activeSkin ? {ref:activeSkin,...(override ? {level:state.skin.level} : {})} : defaultSkin
       const builtin=typeof selectedSkin === 'string' ? selectedSkin : null
       let skin = builtin ? {builtin:true,document:clone(skinContract.BUILTIN_STAGE_SKINS[builtin])} : null
       if (selectedSkin?.ref) try {

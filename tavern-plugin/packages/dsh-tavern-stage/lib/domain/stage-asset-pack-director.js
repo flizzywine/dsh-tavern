@@ -11,6 +11,7 @@ import {recallFigures} from '../../../../lib/domain/figure-recall.js'
 // No asset writer, composition registration, legacy baseline reader, or story commit lives here.
 import { ASSET_PACK_FORMAT, assetRefKey, validateAssetRef, validateFigureRef, validateSceneSelection } from '../../../dsh-presentation-protocol/src/asset-packs.js'
 import { assertJson, canonicalJson, check, parseJson, shape } from '../../../dsh-presentation-protocol/src/asset-pack-json.js'
+import {activeStageSkin} from '../../../../lib/domain/card-stage-settings.js'
 import { readCardAssetExtension } from '../../../../lib/domain/card-asset-bindings.js'
 import { deepFreeze, codepointCompare } from '../../../../lib/domain/asset-pack-lexical.js'
 import { isImmutableJson } from '../../../../lib/domain/freeze-json.js'
@@ -177,15 +178,15 @@ function directorDimensions(engine) {
   return dimensions
 }
 
-function recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions, assetStatus, judgeRecall}) {
+function recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions, assetStatus, judgeRecall, engine, state}) {
   return recallAssetPacks({ snapshots, boundPackIds: extension.assetBindings.boundPackIds, globalEnabledPackIds, modAssetKinds:mods?.enabledAssetKinds,
-    units:recallUnits, dimensions, assetStatus, widgetsEnabled: dimensions.widgets, judgeRecall })
+    units:recallUnits, dimensions, assetStatus, widgetsEnabled: dimensions.widgets, judgeRecall, activeSkin:activeStageSkin({extension,engine,manifests:snapshots.map(pack=>pack.manifest),state}) })
 }
 
 /** The recalled catalogue of prepareAssetPackDirector for the same input, without the rest of the preparation. */
-export function assetPackDirectorCatalogue({ raw, snapshots = [], globalEnabledPackIds = [], engine, units, recallUnits = units, assetStatus = {}, judgeRecall, mods }) {
+export function assetPackDirectorCatalogue({ raw, snapshots = [], globalEnabledPackIds = [], engine, units, recallUnits = units, assetStatus = {}, judgeRecall, mods, record, baseline, opening }) {
   const extension = readCardAssetExtension(raw)
-  return extension ? recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions:directorDimensions(engine), assetStatus, judgeRecall}) : null
+  return extension ? recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions:directorDimensions(engine), assetStatus, judgeRecall, engine, state:record ? readAssetPackRecord(record).end : baseline || opening}) : null
 }
 
 /** Only a new Card Preparation binding extension opts in. An absent extension returns null;
@@ -212,7 +213,7 @@ export function prepareAssetPackDirector({ raw, cardRevision, snapshots = [], gl
     mods?.capabilities && !mods.capabilities[control.consumer]?.some(edge=>edge.available && edge.provider===control.provider))
   if (!continuation && previous.performance?.phase === 'exit') previous.performance = null
   validateAssetPackStage(previous)
-  const catalogue = recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions, assetStatus, judgeRecall})
+  const catalogue = recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions, assetStatus, judgeRecall, engine, state:previous})
   items = dimensions.items !== false && catalogue.candidates.props?.length ? {...items,version:2,enabled:true,catalogue:coreItemCatalogue(catalogue,snapshots)} : undefined
   // retain motion/photosensitivity safety, not presentation quotas.
   const actionCaps = { act: engine.actionCaps?.act ?? 4, beat: engine.actionCaps?.beat ?? 6 }

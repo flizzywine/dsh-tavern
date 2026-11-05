@@ -126,3 +126,8 @@ export function cardEngineSettings(engine, extension) {
   }
   return {...engine, stageToggles:Object.fromEntries(STAGE_TOGGLES.map(key => [key, stage[key]])), dimensions}
 }
+
+export function activeStageSkin({extension, engine, manifests = [], state}) {
+  const skin = state?.skin?.ref || cardStageSkin(extension, engine, manifests).skin
+  return typeof skin === 'object' ? skin : null
+}

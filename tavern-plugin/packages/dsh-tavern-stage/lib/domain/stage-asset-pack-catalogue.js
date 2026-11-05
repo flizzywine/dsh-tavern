@@ -25,7 +25,7 @@ export function stageAssetRefs(state) {
  * Widgets have one item/module availability gate; private resources never become catalogue roots.
  */
 export function recallAssetPacks({ snapshots, boundPackIds = [], globalEnabledPackIds = [], units = [],
-  dimensions = {}, assetStatus = {}, widgetsEnabled = true, judgeRecall, modAssetKinds = ['props','performances','audience','timers'], kinds = ASSET_KINDS }) {
+  dimensions = {}, assetStatus = {}, activeSkin = null, widgetsEnabled = true, judgeRecall, modAssetKinds = ['props','performances','audience','timers'], kinds = ASSET_KINDS }) {
   const ids = [...new Set([...boundPackIds, ...globalEnabledPackIds])].sort(codepointCompare)
   ids.forEach(id => validateUuid(id))
   const effective = listEffectiveAssets({snapshots,boundPackIds,globalEnabledPackIds})
@@ -49,6 +49,7 @@ export function recallAssetPacks({ snapshots, boundPackIds = [], globalEnabledPa
       check(!seen.has(key), '$.snapshots.assets', 'Duplicate asset identity'); seen.add(key)
       const status = assetStatus[key]
       let excluded = !asset.enabled ? 'disabled' : status?.available !== true ? 'asset-unavailable' : null
+      if (!excluded && asset.skin && !(activeSkin?.packId === packId && activeSkin.assetId === asset.skin)) excluded = 'skin-inactive'
       if (!excluded && ['audience','timers'].includes(asset.kind) && !modAssetKinds.includes(asset.kind)) excluded = 'mod-disabled'
       const dimension = {props:'items',backgrounds:'scene',music:'music',sfx:'sfx',ambience:'sound',looks:'lighting',widgets:'widgets',skins:'skin',performances:'performance',cg:'cg'}[asset.kind]
       if (!excluded && (dimensions[dimension] === false || asset.kind === 'sfx' && dimensions.events === false || asset.kind === 'looks' && dimensions['lighting.' + asset.layer] === false)) excluded = 'dimension-disabled'
@@ -64,9 +65,9 @@ export function recallAssetPacks({ snapshots, boundPackIds = [], globalEnabledPa
       }
       if (!excluded && asset.kind === 'performances') {
         const document = pack.performances?.[asset.id]
-        if (!boundPackIds.includes(packId)) excluded = 'performance-pack-unbound'
+        if (!asset.skin && !boundPackIds.includes(packId)) excluded = 'performance-pack-unbound'
         else if (!document) excluded = 'performance-document-missing'
-        else if (Object.values(document.packs).some(id => !boundPackIds.includes(id))) excluded = 'performance-dependency-unbound'
+        else if (Object.values(document.packs).some(id => !(asset.skin ? ids : boundPackIds).includes(id))) excluded = 'performance-dependency-unbound'
         else for (const {ref:dependency} of performanceContract.performanceReferences(document, packId)) {
           const dependencyKey = assetRefKey(dependency), resolved = assetStatus[dependencyKey]
           const item = snapshots.find(row => row.manifest.id === dependency.packId)?.manifest.assets.find(row => row.kind === dependency.kind && row.id === dependency.assetId)
