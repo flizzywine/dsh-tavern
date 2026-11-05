@@ -26,8 +26,8 @@ test('only a sample the service discovery listed is downloaded; a second play is
   assert.deepEqual(calls, [], 'nothing unlisted touches the network')
   await services.validateFishVoice({ serviceId:'fish', voiceId:'listed' })
   const first = await services.fishSample({ serviceId:'fish', voiceId:'listed' })
-  assert.match(first.url, /^\/api\/dsh-tts\/v1\/sample\?key=[a-f0-9]{40}$/); assert.deepEqual(first.loudness, level)
-  assert.equal(calls.length, 3)
+  assert.match(first.url, /^\/api\/dsh-tts\/v1\/sample\?key=[a-f0-9]{40}$/); assert.equal(first.loudness.gain, 1)
+  assert.equal(calls.length, 2)
   // A new listing re-signs the URL; the clip is the same identity and answers from the cache.
   await services.validateFishVoice({ serviceId:'fish', voiceId:'listed' })
   const before = calls.length, second = await services.fishSample({ serviceId:'fish', voiceId:'listed' })

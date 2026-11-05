@@ -8,7 +8,7 @@ import { qwenMood } from './providers/qwen.js'
 import { azureMood } from './providers/azure.js'
 import { volcengineMood } from './providers/volcengine.js'
 import { minimaxMood } from './providers/minimax.js'
-import {measureVoiceLoudness} from './loudness.js'
+import {voiceLoudnessGain} from './loudness.js'
 import { createVoiceLoudness } from './voice-loudness.js'
 import { serviceVoiceId, fail, hash, canonical, id, language, lexicon, portableVoice, voicePreset, wav, durationMs, TtsError } from './core.js'
 import { normalizeDashes } from './pronunciation.js'
@@ -298,7 +298,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       options.onLookup?.({key,found:!!cached})
       grantFor(options.grant)
       if(!cached)return null
-      const {audio}=cached,loudness=cached.loudness || await measureVoiceLoudness(audio)
+      const {audio}=cached,loudness=cached.loudness || voiceLoudnessGain(null, null)
       grantFor(options.grant)
       return {key,audio,durationMs:durationMs(audio),mime:'audio/wav',loudness}
     },
