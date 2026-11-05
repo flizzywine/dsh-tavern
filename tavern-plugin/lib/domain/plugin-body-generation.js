@@ -8,7 +8,8 @@ import { inputAttachments } from './player-input-content.js'
 import { bodyGenerationWorldbookResults } from './body-generation-worldbook.js'
 
 export const BODY_GENERATION_PROMPT = '<output_method>本轮正文由插件生成。最终必须调用 tavern_generate_body，参数为 {}。不得自行撰写正文，不得调用 submit_story（历史中的调用仅是旧正文记录）。工具会取得完整材料、生成并提交正文；成功后结束本轮，不要转述或补充回复。调用失败则停止，不要换用其他生成方式或重试。</output_method>'
-const error = message => Object.assign(new Error(message), { code: 'TAVERN_PLUGIN_BODY_GENERATION_FAILED' })
+const error = (message, stage) => Object.assign(new Error(message), {
+  code: 'TAVERN_PLUGIN_BODY_GENERATION_FAILED', ...(stage ? { stage } : {}) })
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 
 export function configuredBodyGeneration(chat, settings) {
@@ -43,8 +44,12 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
   async function generate(session, signal) {
     const turn = activeStoryTurn(session)
     const chat = await chatForSession(session.id)
-    const selected = bodyGenerationRoute(chat, await settings(), turn)
-    if (!turn || !['story', 'script'].includes(chat?.mode || 'story') || !selected.mode?.startsWith('plugin-')) throw error('当前回合未启用插件正文生成')
+    // The prompt contract and visibleTools both gate on route(sessionId), which
+    // reads the frame of the running operation. Looking the frame up by turn
+    // here can disagree after a crashed turn left an older operation running:
+    // the model is then told to call a tool that reports itself disabled.
+    const selected = await route(session.id)
+    if (!turn || !['story', 'script'].includes(chat?.mode || 'story') || !selected.mode?.startsWith('plugin-')) throw error('当前回合未启用插件正文生成', 'route')
     if (inputAttachments(inputEventForTurn(session, turn)?.data?.content).length) throw error('插件正文生成目前只支持文本输入，请移除本轮附件或切换为宿主生成')
     let materials = await materialsFor(chat, turn)
     const operationId = materials.target.operationId
@@ -142,7 +147,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
     },
     tool: {
       name: STORY_GENERATE_TOOL_NAME,
-      description: '调用已选插件生成并提交本轮完整正文。无需参数；成功后结束本轮。',
+      description: '仅在本局启用插件生成时调用，由已选插件生成并提交本轮完整正文。无需参数；成功后结束本轮。未启用时不要调用，应直接撰写正文。',
       parameters: {},
       output: { schema: { type: 'string' }, render(_args, value) { return [{ type: 'text', text: value }] } },
       isConcurrencySafe() { return false },
@@ -158,12 +163,20 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
           exec.concludeTurn()
           return JSON.stringify(receipt)
         } catch (cause) {
-          // A tool error is terminal here: do not let the model silently retry a paid request.
           if (exec.signal.aborted) throw cause
-          // DSH only honors concludeTurn on a successful tool execution. A typed
-          // failure receipt stops the loop; turn-stopping rejects it as a body.
-          exec.concludeTurn()
           const failure = bodyGenerationFailure(cause)
+          // A route mismatch is decided before any paid request. Hosts that
+          // overwrite the tool list still expose this tool when plugin generation
+          // is off; ending the turn here would leave an empty reply. Report a
+          // real tool error instead so the model can still write the prose.
+          if (failure.stage === 'route') {
+            throw bodyGenerationError({ ...failure,
+              message: `${failure.message}；请直接撰写本轮正文，不要调用 ${STORY_GENERATE_TOOL_NAME}` }, 'route')
+          }
+          // A paid failure is terminal: a typed receipt stops the loop without
+          // letting the model silently retry the request; turn-stopping rejects
+          // the receipt as a body.
+          exec.concludeTurn()
           return JSON.stringify({ version: 1, status: 'failed', message: failure.message, failure })
         }
       }
