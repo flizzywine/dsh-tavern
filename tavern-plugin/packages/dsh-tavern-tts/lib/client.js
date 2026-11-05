@@ -489,7 +489,7 @@ exports.apply = function(ctx) {
   }))
   function PluginSections() {
     const sections = React.useSyncExternalStore(notify => { panelListeners.add(notify); return () => panelListeners.delete(notify) }, () => panelSnapshot)
-    return sections.map(({ id, component }) => h(component, { key: id, Confirm, Help }))
+    return sections.map(({ id, component }) => h(component, { key: id, Confirm, Help, Button, Line }))
   }
   function VoicePanel() {
     const current = React.useSyncExternalStore(fn => {stateListeners.add(fn);return () => stateListeners.delete(fn)},() => enabled)
