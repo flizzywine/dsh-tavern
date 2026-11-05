@@ -48,17 +48,17 @@ test('前台工具关掉世界书检索后，提示不再教模型调用不存�
 
 test('system assembly excludes dynamic recovery and stays byte-identical across dynamic updates', async () => {
   const { registerTurnLifecycleHooks } = await import('../tavern-plugin/lib/hooks/turn-lifecycle.js')
-  const hooks = new Map(), calls = []
+  const hooks = new Map(), calls = [], assembledInputs = []
   const nativeSession = { id: 'game', ...session([message('first', '晴天', 'sun')]) }
   const chat = { mode: 'story', worldbookStrategy: 'native-skills', worldBookVirtualState: state(), messages: [] }
   let background = false
   registerTurnLifecycleHooks({
-    ctx: { on: (name, callback) => hooks.set(name, callback) },
+    ctx: { on: (name, callback) => hooks.set(name, callback), tools: { schemas: (_agent, toolSet) => toolSet?.schemas } },
     backgroundAgentRunner: { owns: () => background }, hookChatForSession: async () => chat,
     sessionStore: { flush: async () => assert.fail('assembly must not append restored snapshots to history') },
     turnOrchestrator: { modeFor: async () => 'story' }, ensureNativeSystemPrefix: async () => {},
     publishResourceWorkspace: async () => null, readChatCard: async () => ({}), runtimePrompt: () => '',
-    foregroundStrategies: { assembleSystemPrompt: async (assembly, options) => ({ ...assembly, sections: options.fixedSystemSections }) },
+    foregroundStrategies: { assembleSystemPrompt: async (assembly, options) => { assembledInputs.push(options); return { ...assembly, sections: options.fixedSystemSections } } },
     nativeWorldBookTemplateContext: async (_chat, _card, options) => {
       calls.push(options)
       return { prefixContext: '  STATIC EXACT\n\n' }
@@ -74,9 +74,13 @@ test('system assembly excludes dynamic recovery and stays byte-identical across 
   const changed = await assemble({}, { agent: { session: nativeSession } }, async () => ({ sections: [] }))
   assert.deepEqual(changed.sections, result.sections, 'dynamic state cannot rewrite the provider system prefix')
   assert.deepEqual(calls[1], { restore: false }, 'dynamic recovery never enters the system prefix')
+  const schemas = [{ name: 'submit_story' }]
+  await assemble({}, { agent: { session: nativeSession }, toolSet: { schemas } }, async () => ({ sections: [] }))
+  assert.equal(assembledInputs.at(-1).toolDefinitions, schemas, 'hook forwards the actual host toolSet schemas')
+  assert.equal(assembledInputs[0].toolDefinitions, undefined, 'legacy fixture has no separate toolSet')
   background = true
   await assemble({}, { agent: { session: nativeSession } }, async () => ({ sections: [] }))
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 3)
 })
 
 test('small entry edits append deltas while preserving base messages and restoration evidence', () => {

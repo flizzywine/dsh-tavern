@@ -469,7 +469,10 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (Array.isArray(assembly.contexts)) assembly.contexts = assembly.contexts.filter(section => section.name !== 'approval:policy')
     // A plugin's own tool shows everywhere unless the plugin scoped it (tavern.toolModes).
     const group = mode === 'card' ? 'card' : 'play'
-    const tools = Array.isArray(assembly?.tools) ? assembly.tools : []
+    // Some hosts supply tool schemas separately from the waterfall assembly.
+    // Missing metadata must not assert that the host offers no tools.
+    const knownTools = Array.isArray(assembly.tools) || Array.isArray(input.toolDefinitions)
+    const tools = Array.isArray(assembly.tools) ? assembly.tools : input.toolDefinitions || []
     // A plugin tool gated by tavern.toolSkills() waits for its Skill like Tavern's own.
     const pluginNames = tools.map(schema => schema.name).filter(name => !options.controlledToolNames.has(name))
     const unlocked = new Set(options.pluginToolsUnlocked ? await options.pluginToolsUnlocked(input.sessionId, pluginNames) : pluginNames)
@@ -488,7 +491,11 @@ export function createNativePlayOrchestrationStrategy(options) {
           .map(schema => ({ name: schema.name, description: String(schema.description || '') })))
       } catch { /* the tool catalog must never fail the request */ }
     }
-    const finalTools = playMode ? filteredTools.filter(schema => options.controlledToolNames.has(schema.name) || !disabled.has(schema.name)) : filteredTools
+    // Hosts with a separate toolSet have already captured their declarations and
+    // overwrite returned tools. Describe those actual declarations, rather than
+    // claiming the assembly-only filter changed what the model will receive.
+    const finalTools = !Array.isArray(assembly.tools) ? tools
+      : playMode ? filteredTools.filter(schema => options.controlledToolNames.has(schema.name) || !disabled.has(schema.name)) : filteredTools
     if (assembly && (Array.isArray(assembly.tools) || assembly.tools !== undefined)) {
       assembly.tools = finalTools
     }
@@ -507,7 +514,7 @@ export function createNativePlayOrchestrationStrategy(options) {
         } else {
           sections.push({ name: 'tavern:story-tool-submission', text: STORY_INPUT_ONLY_PROMPT })
         }
-      } else if (toolNames.size === 0) {
+      } else if (knownTools && toolNames.size === 0) {
         sections.push({ name: 'tavern:no-foreground-tools', text: NO_FOREGROUND_TOOLS_PROMPT })
       }
     }
