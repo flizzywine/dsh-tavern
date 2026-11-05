@@ -14712,7 +14712,7 @@ function GalStage(props) {
     // the end-of-round choices and an open mod take turns. A mod still open when the choices
     // arrive (a phone run ending the round) folds back to its launcher once; the player can reopen it from the top-right
     // icon, and while it is open the choices step aside (kept mounted, so a free-input draft survives).
-    const choicesUp = Boolean(!battlePresentation && atEnd && (typed || openingOnly) && !hidden && props.Choices);
+    const choicesUp = Boolean(!battlePresentation && !candidateInteractive && atEnd && (typed || openingOnly) && !hidden && props.Choices);
     // the veil was shown (so its leave uncovers the stage; a quick entry never showed it)
     // and the stage's reveal window (transitions.stage.enter plays on the box only then, not on every later box mount).
     const veilShown = React.useRef(false);
@@ -15464,7 +15464,7 @@ function GalStage(props) {
         // Reading done: the next move sits in the middle of the screen.
         // a latest turn with nothing to read (an HTML introduction / opening chooser) is done too: the
         // panel offers 生成选项 and 自由输入 (no 重新生成); leaving is the existing 返回主页面 (R13).
-        !battlePresentation && atEnd && (typed || openingOnly) && !hidden && props.Choices ? h(props.Choices, Object.assign({}, props.choiceProps, { key: sessionId + ":" + turn, sessionId, atEnd, hidden: awaiting || Boolean(sourceWidget.openKey), waitSlot: choiceWaitSlot, waitLines,
+        !battlePresentation && !candidateInteractive && atEnd && (typed || openingOnly) && !hidden && props.Choices ? h(props.Choices, Object.assign({}, props.choiceProps, { key: sessionId + ":" + turn, sessionId, atEnd, hidden: awaiting || Boolean(sourceWidget.openKey), waitSlot: choiceWaitSlot, waitLines,
             // 重新生成 — the same busy rule as the system menu's 重新生成 item.
             onRegenerate: props.Regenerate && !openingOnly ? openRegenerate : undefined, regenerateDisabled: regenerateBlocked,
             withdrawnText: withdrawal && withdrawal.landed ? withdrawal.text : "",
