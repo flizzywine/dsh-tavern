@@ -1,4 +1,4 @@
-function createStageBacklogView({React:react, window, document, stageViews, voicePlayer, useDiceBacklog, diceBacklogEntries, diceLine, useClipBacklog, useJumpLatest, JumpLatest, useFigureTextContrast, stageSkinBacklogPlateStyle, stageSkinBacklogPlate, bubbleCharacter, galQuoted, VoiceButton, PackImage, Icon, HelpTip, Spinner, getComputedStyle, ResizeObserver, setTimeout:hostSetTimeout, clearTimeout:hostClearTimeout, requestAnimationFrame:hostRequestFrame, cancelAnimationFrame:hostCancelFrame}) {
+function createStageBacklogView({React:react, window, document, stageViews, voicePlayer, useDiceBacklog, diceBacklogEntries, diceLine, useClipBacklog, useJumpLatest, JumpLatest, useFigureTextContrast, stageSkinBacklogPlateStyle, stageSkinBacklogPlate, bubbleCharacter, galQuoted, VoiceButton, PackImage, Icon, HelpTip, Spinner, ransom, getComputedStyle, ResizeObserver, setTimeout:hostSetTimeout, clearTimeout:hostClearTimeout, requestAnimationFrame:hostRequestFrame, cancelAnimationFrame:hostCancelFrame}) {
 let disposed=false;
 const cleanups=new Set(),timers=new Map(),frames=new Map();
 function own(cleanup){let active=true;const release=()=>{if(!active)return;active=false;cleanups.delete(release);cleanup();};cleanups.add(release);return release;}
@@ -83,6 +83,24 @@ function GalBacklog(props) {
         if (pose !== undefined) for (const axis of ["x", "y", "rot"]) own["--bp-" + axis] = "var(" + q + "-pose-" + pose + "-" + axis + ")";
         if (plate.slant) own["--bp-slant"] = "var(" + q + "-slant)";
         return { style: own, "data-bl-role": role, "data-bl-plate": image, "data-bl-pose": pose, "data-bl-slant": plate.slant ? "" : undefined };
+    }
+    // ransom words (C2: art.backlog.name.letter, plates.divider.letter): the plain text for screen readers and the word cut into
+    // glyph tiles by the name plate's picker (labels.cjs ransomGlyphs / ransomBlocks, ransom), shown by theme.css 「art backlog
+    // glyph tiles」. accent.tile: exactly one glyph of the word on the accent tile - the first glyph of the highest variant the
+    // picker gave (the lead only when it is alone), so a word always reads the same.
+    function lettered(text, on) {
+        const tiles = looks.letter?.tiles;
+        if (!on || !tiles || !ransom) return text;
+        const glyphs = ransom.ransomGlyphs(text, tiles.tiles), accent = tiles.accent?.tile, rank = block => block.r === "lead" ? -1 : block.r;
+        let list = tiles.tiles;
+        if (accent) {
+            let at = -1;
+            glyphs.forEach((block, index) => { if (!block.gap && (at < 0 || rank(block) > rank(glyphs[at]))) at = index; });
+            if (at >= 0) { glyphs[at] = { ...glyphs[at], tile: list.length }; list = [...list, accent]; }
+        }
+        return [h("bdi", { key: "t", className: "fork-gal-ransom-text" }, text),
+            h("bdi", { key: "r", className: "fork-gal-ransom", "aria-hidden": true, "data-shape": tiles.shape,
+                style: { "--gt-rot": (tiles.jitter?.rotate || 0) + "deg", "--gt-scale": tiles.jitter?.scale || 0 } }, ransom.ransomBlocks(h, glyphs, list))];
     }
     // export mode — a band of host paragraphs up to the current page.
     const chatId = props.chatId || "";
@@ -288,7 +306,7 @@ function GalBacklog(props) {
     function row(entry, index) {
         const ref = node => { if (node) nodes.current.set(index, node); else nodes.current.delete(index); };
         if (entry.type === "turn") return h("div", { key: entry.key, ref, className: "fork-gal-backlog-turn" + (entry.current ? " is-current" : "") + bandClass(index), role: "separator", ...plated(entry, index, lookOf(entry), index === 0 ? { marginTop: 4 } : undefined) },
-            h("span", null, "第 " + entry.turn + " 轮" + (entry.current ? " · 本轮" : "")));
+            h("span", null, lettered("第 " + entry.turn + " 轮" + (entry.current ? " · 本轮" : ""), looks.letter?.divider && looks.plates?.divider)));
         // The player's own words; as a bubble they stand on the player's side, the right (no figure layout places the player).
         if (entry.type === "input") return lookOf(entry) === "bubble"
             ? h("div", { key: entry.key, ref, className: "fork-gal-backlog-input is-look-bubble" + bandClass(index), "data-bl-role": "player", "data-bl-side": "right" },
@@ -335,7 +353,7 @@ function GalBacklog(props) {
         const go = event => { if (!pick(pos, event)) props.onJump(entry.page, entry.turn, entry.targetPara); };
         // The voice control follows the speaker's name in every look;
         // narration has no name: its narrator voice (旁白配音) stands alone in the name's place.
-        const nameRow = !line ? (voice ? h("div", { className: "fork-gal-backlog-name is-narrator" }, h(VoiceButton, { voice, glyph: "speaker" })) : null) : h("div", { className: "fork-gal-backlog-name" }, h("b", { "data-figure-ink": "4.5", "data-text": name },
+        const nameRow = !line ? (voice ? h("div", { className: "fork-gal-backlog-name is-narrator" }, h(VoiceButton, { voice, glyph: "speaker" })) : null) : h("div", { className: "fork-gal-backlog-name" }, looks.letter?.name ? h("b", { "data-text": name }, lettered(name, true)) : h("b", { "data-figure-ink": "4.5", "data-text": name },
                     props.nameParts ? props.nameParts(name, entry).map((text, index) => text ? h("i", { key: index, "data-np": ["lead", "rest", "given-lead", "given-rest"][index] }, text) : null) : name), voice ? h(VoiceButton, { voice, glyph: "speaker" }) : null, entry.thought ? h("span", { className: "fork-gal-backlog-tag" }, "心声") : null, badgePlace === "name" ? badge : null);
         const wrap = looks.roles[role]?.wrap;
         const text = h("p", { className: "fork-gal-backlog-text" }, badgePlace === "text" ? badge : null, look === "band" && wrap ? [wrap[0], entry.text, wrap[1]] : props.quote && line && look === "row" ? galQuoted(entry.text, entry.pending) : entry.text, entry.pending ? h("span", { className: "fork-gal-typing", "aria-label": "正在生成" }, h("i"), h("i"), h("i")) : null);

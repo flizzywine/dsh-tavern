@@ -1,0 +1,42 @@
+{
+  "schema": "dsh.skin/1",
+  "id": "backlog-glyph-tiles-sample",
+  "label": "履历字块示例",
+  "textbox": { "paint": { "bg": "#14101c", "fg": "#f4f0fa", "fgMuted": "#b9b2c6", "accent": "#e8c26a", "onAccent": "#14101c" } },
+  "nameplate": { "shape": "plain", "paint": { "bg": "#14101c", "fg": "#f4f0fa" } },
+  "font": {},
+  "textFx": { "reveal": "type" },
+  "art": {
+    "screen": 1080,
+    "screenWidth": 1920,
+    "backlog": {
+      "sheet": "art/poster-sheet.webp",
+      "dim": 0.5,
+      "list": [160, 120, 1500, 820],
+      "font": 30,
+      "pitch": 46,
+      "text": [420, 1400],
+      "top": 12,
+      "gap": 28,
+      "name": { "x": 40, "y": 8, "h": 48, "font": 34, "head": 60, "letter": "ransom", "align": "end" },
+      "glyphTiles": {
+        "shape": "square",
+        "tiles": [
+          { "ground": "#1a1a1a", "ink": "#f5f0e6", "weight": 2 },
+          { "ground": "#f5f0e6", "ink": "#1a1a1a", "weight": 2 },
+          { "ground": "#f2c230", "ink": "#1a1a1a" },
+          { "ground": "#1f4fa3", "ink": "#ffffff" }
+        ],
+        "jitter": { "rotate": 0, "scale": 0.1 },
+        "accent": { "tile": { "ground": "#d62f2f", "ink": "#ffffff" } }
+      },
+      "plates": {
+        "divider": {
+          "images": [{ "image": "art/poster-bar.webp", "ground": "#1a1a1a", "ink": "#f5f0e6" }],
+          "slice": [0, 24, 0, 24],
+          "letter": "ransom"
+        }
+      }
+    }
+  }
+}
