@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a771295afb3ff7bec9fb619f6fc2290daa63b622",
-  "releaseSequence": 1250,
+  "revision": "b9e960ee488cd536508b14866e308b101a0548a2",
+  "releaseSequence": 1251,
   "version": "3.2.0",
   "files": [
     {
@@ -791,8 +791,8 @@
     },
     {
       "path": "tavern-plugin/cordis.patch.yml",
-      "sha256": "c49015eefa15479809c65be3287ffe0c5a6e23843943c39416d5a027c527d4ef",
-      "size": 8527
+      "sha256": "1f9ee14dcbfe9da91b52a3f4d2a0b09caf41c2a426bc7a59b4a96807ccbb09bb",
+      "size": 8693
     },
     {
       "path": "tavern-plugin/lib/agent-compaction.js",
@@ -816,8 +816,8 @@
     },
     {
       "path": "tavern-plugin/lib/background-agent-task.js",
-      "sha256": "3508cab812d0006049b28bbb104d3744746a05409d83f076c0aa820b7a3524a9",
-      "size": 30782
+      "sha256": "52e12ca261e0e40f48a626d9a0d6bdc8efdb45a83c64887fe1c501f507b0aa77",
+      "size": 31042
     },
     {
       "path": "tavern-plugin/lib/background-run-ledger.js",
@@ -1671,8 +1671,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "e7327fa8b14e5164a70c378376435d2323664fa8d65d552f84eb4dbfe269f02b",
-      "size": 33119
+      "sha256": "292cfd108832d38a928ffc8b20e34e553afde38a5a86d595e37eebc3830470b6",
+      "size": 32023
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -2366,8 +2366,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/network-tools.js",
-      "sha256": "0d207e725d994140a35185ed656ea91b558e668e9e0c3a703a6d026e24e428f0",
-      "size": 2782
+      "sha256": "adafd7a8377247560daed36613ab2cb148c19f49f03d84d041f7f815995623ed",
+      "size": 2626
     },
     {
       "path": "tavern-plugin/lib/domain/official-mvu-assets.js",
@@ -3446,8 +3446,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "3b3e2f4242e72eb8f7ce9c09a694bf7ad5d5b5fc1c2a659bcf3b546644868f3a",
-      "size": 53814
+      "sha256": "94760abf2857bce20b44c6b6afc61acc9d9db9ba0761ebf78b0bc81821b154f2",
+      "size": 53831
     },
     {
       "path": "tavern-plugin/lib/domain/uncommitted-rounds.js",
@@ -3696,8 +3696,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/model-stream.js",
-      "sha256": "14a0e637cd3f0e318593d34bee3b2f756b3e8122323d145950752abdb46c0a89",
-      "size": 15696
+      "sha256": "e4d574e69fc7bc124b21d97d0756992788e300e39c17f5c82432275f4929936a",
+      "size": 15407
     },
     {
       "path": "tavern-plugin/lib/hooks/request.js",
@@ -3706,8 +3706,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/turn-lifecycle.js",
-      "sha256": "ad104d1a8c84253e1cfd0dfc21311bc345e9014db4116b48b5f5fe056833e582",
-      "size": 9354
+      "sha256": "4dfa81ae8b5b85f79f896061960d0381008f147109caefb6340ed42de26f32da",
+      "size": 8993
     },
     {
       "path": "tavern-plugin/lib/host/mod-dice.mjs",
@@ -3728,6 +3728,11 @@
       "path": "tavern-plugin/lib/host/mod-timer.mjs",
       "sha256": "057dc20801cc72f5f161466d4453cd32e2e508cac644d9900815a349a684f2a5",
       "size": 25159
+    },
+    {
+      "path": "tavern-plugin/lib/host/tools.js",
+      "sha256": "b9d9ebf32f065863bd801c712e13a93a6000b364e39c8689428b81c86bf02e22",
+      "size": 3080
     },
     {
       "path": "tavern-plugin/lib/http-file.js",
@@ -5386,8 +5391,8 @@
     },
     {
       "path": "tavern-plugin/package.json",
-      "sha256": "d2310db2ea5aadc740fa17cce60f17c34fc338b1c0a5e4e7b5eff264e8b710de",
-      "size": 2215
+      "sha256": "198bfce415f7f857898e0bfcc895cbd2b0d651bcdf9aee259d2c0656ab103155",
+      "size": 2258
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/build.mjs",
@@ -9716,9 +9721,9 @@
     }
   ],
   "archive": {
-    "commit": "90c808f556e5709ac922798942aba207797fbef1",
+    "commit": "f9b522cdece7b5908c2f6070749dedd8d8cd9552",
     "path": "runtime.zip",
-    "sha256": "9e25fd986fa8145f5b2222f598b0b90b8283aa6081246cbdbcaeac8b3cdb794e",
-    "size": 16307255
+    "sha256": "25db873c044d9bbc5ee6b950746a98af41386d8e84add367d8cd6ff541e73861",
+    "size": 16308237
   }
 }
