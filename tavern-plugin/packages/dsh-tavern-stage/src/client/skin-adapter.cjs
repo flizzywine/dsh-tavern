@@ -650,6 +650,15 @@ function stageSkinArt(document, files, entry = '') {
             if (a.cutout) Object.assign(tokens,{[p + '-av-cut']:a.cutout.color,[p + '-av-cut-w']:String(a.cutout.width)});
             if (a.placeholder?.image) tokens[p + '-av-placeholder']=url(a.placeholder.image);
         }
+        // roll (C4): the check line's mark (design px), the number's ink and scale and the tier tiles as --art-bl-roll-* and
+        // data-fk-skin-art-backlog-roll (its parts: total success fail; theme.css 「art backlog roll」).
+        if (b.roll) {
+            const r=b.roll;
+            marks['data-fk-skin-art-backlog-roll']=['mark',r.total && 'total',r.tier?.success && 'success',r.tier?.fail && 'fail'].filter(Boolean).join(' ');
+            Object.assign(tokens,{[p + '-roll-img']:url(r.image),[p + '-roll-w']:String(r.size[0]),[p + '-roll-h']:String(r.size[1])});
+            if (r.total) Object.assign(tokens,{[p + '-roll-ink']:r.total.ink,[p + '-roll-scale']:String(r.total.scale)});
+            for (const [side,tile] of Object.entries(r.tier || {})) Object.assign(tokens,{[p + '-roll-' + side + '-bg']:tile.ground,[p + '-roll-' + side + '-ink']:tile.ink});
+        }
         if (b.scrollbar) {
             const s=b.scrollbar; parts.push('bar');
             Object.assign(tokens,{[p + '-bar']:url(s.track),[p + '-thumb']:url(s.thumb),[p + '-bar-x']:String(s.x),[p + '-bar-y']:String(s.y),[p + '-bar-w']:String(s.w),[p + '-bar-h']:String(s.h)});
@@ -1076,8 +1085,10 @@ function stageSkinBacklogLooks(document) {
     const letter=b?.name?.letter || plates?.divider?.letter ? {name:b.name?.letter,divider:plates?.divider?.letter,tiles:b.glyphTiles || document.art.menu.glyphTiles} : null;
     // C3: the face column - whether the player's rows take one and what an unresolved speaker shows (initial / image / none).
     const avatar=b?.avatar ? {player:b.avatar.player === true,placeholder:b.avatar.placeholder === 'initial' ? 'initial' : b.avatar.placeholder ? 'image' : null} : null;
-    if (!plates && !letter && !avatar) return looks;
-    return {...looks,...(plates ? {plates:Object.fromEntries(Object.entries(plates).map(([role,plate]) => [role,{images:plate.images.length,poses:plate.poses?.length || 0,slant:plate.slant !== undefined}]))} : null),...(letter ? {letter} : null),...(avatar ? {avatar} : null)};
+    // C4: the check line draws the skin's mark beside the generic die icon (the stylesheet shows one of them).
+    const roll=b?.roll ? true : null;
+    if (!plates && !letter && !avatar && !roll) return looks;
+    return {...looks,...(roll ? {roll} : null),...(plates ? {plates:Object.fromEntries(Object.entries(plates).map(([role,plate]) => [role,{images:plate.images.length,poses:plate.poses?.length || 0,slant:plate.slant !== undefined}]))} : null),...(letter ? {letter} : null),...(avatar ? {avatar} : null)};
 }
 
 return {dispose,STAGE_SKIN_EASE,STAGE_SKIN_TX_EASE,stageSkinTxEase,stageSkinWipeClip,stageSkinTransitionList,STAGE_BACKLOG_DEFAULTS,stageSkinBacklog:stageSkinBacklogLooks,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogOutline,stageSkinInset,stageSkinSfx,stageSkinMotionKeyframes,stageSkinGlyphPoses,stageSkinEffects,stageSkinTokens,stageSkinPanelTokens,stageSkinQuickMenu,stageSkinMarks,stageSkinConfigSurface,stageSkinConfigArt,STAGE_CONFIG_DEFAULT_LOOKS,stageSkinControlIcons,stageSkinArt,stageSkinSpinner,stageSkinTint,stageSkinMenuTint,stageSkinFontFaces,applyStageSkin,stageSkinMode,applyStageSkinMode};

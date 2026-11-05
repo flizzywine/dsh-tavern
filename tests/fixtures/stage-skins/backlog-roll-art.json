@@ -1,0 +1,53 @@
+{
+  "schema": "dsh.skin/1",
+  "id": "backlog-roll-art-sample",
+  "label": "履历检定行示例",
+  "textbox": { "paint": { "bg": "#14121a", "fg": "#f2eee6", "fgMuted": "#b8b0a6", "accent": "#d8b25a", "onAccent": "#14121a" } },
+  "nameplate": { "shape": "plain", "paint": { "bg": "#14121a", "fg": "#f2eee6" } },
+  "font": {},
+  "textFx": { "reveal": "type" },
+  "art": {
+    "screen": 1080,
+    "screenWidth": 1920,
+    "backlog": {
+      "sheet": "art/court-sheet.webp",
+      "dim": 0.55,
+      "list": [200, 120, 1520, 840],
+      "font": 30,
+      "pitch": 46,
+      "text": [80, 1100],
+      "top": 12,
+      "gap": 24,
+      "name": { "x": 24, "y": 6, "h": 40, "font": 28, "head": 48 },
+      "roll": {
+        "image": "art/court-gavel.webp",
+        "size": [72, 56],
+        "total": { "ink": "#d8b25a", "scale": 1.6 },
+        "tier": {
+          "success": { "ground": "#d8b25a", "ink": "#14121a" },
+          "fail": { "ground": "#7a1222", "ink": "#ffffff" }
+        }
+      },
+      "plates": {
+        "notice": {
+          "images": [{ "image": "art/court-verdict.webp", "ground": "#1e1a24", "ink": "#f2eee6" }],
+          "slice": [16, 24, 16, 24]
+        }
+      }
+    }
+  },
+  "devices": {
+    "mobile": {
+      "art": {
+        "backlog": {
+          "narrow": { "unit": 0.5 },
+          "roll": {
+            "image": "art/poster-die.svg",
+            "size": [64, 64],
+            "tier": { "success": { "ground": "#1d3fbf", "ink": "#ffffff" } }
+          }
+        }
+      }
+    }
+  }
+}

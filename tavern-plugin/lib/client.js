@@ -54223,20 +54223,32 @@ const STAGE_BACKLOG_AVATAR_FIELDS = Object.freeze({
     tone:[skinEnum(['mono']),'tone: "mono" (or omit it for the face\'s own colours)'],
     player:[player => typeof player === 'boolean','player: true or false'],
     placeholder:[placeholder => placeholder === 'initial' || skinObject({image:skinImage},['image'])(placeholder),'placeholder: "initial" or {image} (or omit it for an empty column)']});
-// The first thing wrong with an avatar, as a fix (null when it is valid).
-function skinBacklogAvatarProblem(value) {
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) return ' must be an object {at, size, ...}';
-    for (const key of Object.keys(value)) if (!Object.hasOwn(STAGE_BACKLOG_AVATAR_FIELDS,key)) return '.' + key + ' is not an avatar field - use ' + Object.keys(STAGE_BACKLOG_AVATAR_FIELDS).join(', ');
-    for (const key of ['at','size']) if (!Object.hasOwn(value,key)) return ' needs ' + STAGE_BACKLOG_AVATAR_FIELDS[key][1];
-    for (const [key,[valid,fix]] of Object.entries(STAGE_BACKLOG_AVATAR_FIELDS)) if (Object.hasOwn(value,key) && !valid(value[key])) return '.' + key + ' ' + JSON.stringify(value[key]) + ' is invalid - ' + fix;
+// roll (C4): the 履历's check line in the skin's own drawing - image = the mark in place of the generic die icon, size [w, h]
+// design px; total = the rolled number's ink and scale (x the line's size); tier = the tier word as a tile, success (大成功,
+// 成功, 代价成功) and fail (失败, 大失败) each {ground, ink} (>= 4.5:1, checked below). The words stay the engine's check line.
+const skinBacklogRollTile = skinObject({ground:skinColor,ink:skinColor},['ground','ink']);
+const STAGE_BACKLOG_ROLL_FIELDS = Object.freeze({
+    image:[skinImage,'image: one image file in the pack (png, webp or svg)'],
+    size:[skinArray(skinNumber(1,1024),2,2),'size [w, h]: the mark in design px, each 1..1024'],
+    total:[skinObject({ink:skinColor,scale:skinNumber(.5,4)},['ink','scale']),'total {ink, scale}: a #rrggbb colour and 0.5..4 times the line\'s size'],
+    tier:[skinObject({success:skinBacklogRollTile,fail:skinBacklogRollTile}),'tier {success?, fail?}: each {ground, ink}, two #rrggbb colours']});
+// The first thing wrong with a backlog field object (avatar, roll), as a fix (null when it is valid).
+function skinFieldsProblem(value, fields, required, what) {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return ' must be an object {' + required.join(', ') + ', ...}';
+    for (const key of Object.keys(value)) if (!Object.hasOwn(fields,key)) return '.' + key + ' is not ' + what + ' field - use ' + Object.keys(fields).join(', ');
+    for (const key of required) if (!Object.hasOwn(value,key)) return ' needs ' + fields[key][1];
+    for (const [key,[valid,fix]] of Object.entries(fields)) if (Object.hasOwn(value,key) && !valid(value[key])) return '.' + key + ' ' + JSON.stringify(value[key]) + ' is invalid - ' + fix;
     return null;
 }
+const skinBacklogAvatarProblem = value => skinFieldsProblem(value,STAGE_BACKLOG_AVATAR_FIELDS,['at','size'],'an avatar');
+const skinBacklogRollProblem = value => skinFieldsProblem(value,STAGE_BACKLOG_ROLL_FIELDS,['image','size'],'a roll');
 const skinBacklogAvatar = value => skinBacklogAvatarProblem(value) === null;
+const skinBacklogRoll = value => skinBacklogRollProblem(value) === null;
 const skinBacklog = skinObject({...skinArtScreen,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
     // name.letter ransom (C2): the name as glyph tiles (glyphTiles below); name.align end: the name's right edge on the text
     // column's left edge, a long name growing to the left.
     voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced,
-        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),align:skinEnum(['end'])},['x','y','h','font','head']),glyphTiles:skinBacklogGlyphTiles,avatar:skinBacklogAvatar,
+        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),align:skinEnum(['end'])},['x','y','h','font','head']),glyphTiles:skinBacklogGlyphTiles,avatar:skinBacklogAvatar,roll:skinBacklogRoll,
     scrollbar:skinObject({track:skinImage,thumb:skinImage,x:skinPx,y:skinPx,w:skinNumber(1,256),h:skinNumber(16,4096)},['track','thumb','x','y','w','h']),
     // hover = the one highlight: behind the entry under the pointer / keyboard focus and the entry the stage stands on.
     hover:skinHighlight,plates:skinBacklogPlates,
@@ -54735,6 +54747,9 @@ function validateStageSkin(value, at = 'art') {
     // art.backlog.avatar (C3) names its fix before the whole document's shape is checked (a devices side on its merge).
     const avatar=value?.art?.backlog?.avatar, avatarProblem=avatar === undefined ? null : skinBacklogAvatarProblem(avatar);
     if (avatarProblem) throw Object.assign(new Error(at + '.backlog.avatar' + avatarProblem),{code:'INVALID_SKIN'});
+    // art.backlog.roll (C4) the same way.
+    const roll=value?.art?.backlog?.roll, rollProblem=roll === undefined ? null : skinBacklogRollProblem(roll);
+    if (rollProblem) throw Object.assign(new Error(at + '.backlog.roll' + rollProblem),{code:'INVALID_SKIN'});
     const word=value?.config?.title?.word;
     if (typeof word === 'string' && !skinConfigWordOne(word)) throw Object.assign(new Error('config.title.word ' + JSON.stringify(word) + ' is not one word: the CONFIG title is 设置 - omit title.word, or name one replacement word without Latin letters, spaces or separators and never paired with 设置'),{code:'INVALID_SKIN'});
     if (!stageSkinShape(value) || new TextEncoder().encode(JSON.stringify(value)).length > (value.overlay || value.levels ? 262144 : 32768)) throw Object.assign(new Error('Invalid dsh.skin/1 document'),{code:'INVALID_SKIN'});
@@ -54776,6 +54791,11 @@ function validateStageSkin(value, at = 'art') {
     for (const [key,tile] of [...(backlog?.glyphTiles?.tiles || []).map((tile,index) => ['tiles[' + index + ']',tile]),...(backlog?.glyphTiles?.accent ? [['accent.tile',backlog.glyphTiles.accent.tile]] : [])]) {
         const ratio=skinContrast(tile.ink,tile.ground);
         if (ratio+1e-6 < 4.5) throw Object.assign(new Error(at + '.backlog.glyphTiles.' + key + ': ink ' + tile.ink + ' on ground ' + tile.ground + ' is ' + ratio.toFixed(2) + ':1, needs 4.5:1 - darken one of them or lighten the other'),{code:'SKIN_CONTRAST'});
+    }
+    // art.backlog.roll (C4): each tier tile's word on its own ground.
+    for (const [key,tile] of Object.entries(backlog?.roll?.tier || {})) {
+        const ratio=skinContrast(tile.ink,tile.ground);
+        if (ratio+1e-6 < 4.5) throw Object.assign(new Error(at + '.backlog.roll.tier.' + key + ': ink ' + tile.ink + ' on ground ' + tile.ground + ' is ' + ratio.toFixed(2) + ':1, needs 4.5:1 - darken one of them or lighten the other'),{code:'SKIN_CONTRAST'});
     }
     if (stageSkinNarrationGrounds(value.art?.narration).some(ground => skinContrast(value.art.narration.ink || STAGE_NARRATION_INK,ground)+1e-6 < 4.5)) throw Object.assign(new Error('Skin narration contrast is unsafe'),{code:'SKIN_CONTRAST'});
     // A scrim fades to the scene: its base must be dark enough that light text over the scene still has a dark ground.
@@ -54851,7 +54871,7 @@ function stageSkinScreenFiles(art) {
             m.narrow?.sheet,...Object.values(m.narrow?.rows?.images || {})] : []),
         ...(k ? [k.band,k.top,k.bottom,k.button.plain,k.button.focus] : []),
         ...(b ? [b.sheet,b.hover?.image,...placed(b.title),...placed(b.close),...placed(b.name?.frame),...placed(b.name?.rule),b.scrollbar?.track,b.scrollbar?.thumb,...Object.values(b.badges || {}),
-            ...Object.values(b.plates || {}).flatMap(plate => plate.images.map(item => item.image)),b.avatar?.mask,b.avatar?.frame,b.avatar?.placeholder?.image] : []),
+            ...Object.values(b.plates || {}).flatMap(plate => plate.images.map(item => item.image)),b.avatar?.mask,b.avatar?.frame,b.avatar?.placeholder?.image,b.roll?.image] : []),
         ...(c ? [c.sheet,...placed(c.title),...placed(c.close),c.tabs?.images.plain,c.tabs?.images.on,c.focus,...Object.values(c.slider || {}),...Object.values(c.toggle || {}),c.select?.plain,c.select?.focus] : []),
         ...Object.values(art?.voice || {}),...(art?.voice?.waves || [])].filter(value => typeof value === 'string'))];
 }
