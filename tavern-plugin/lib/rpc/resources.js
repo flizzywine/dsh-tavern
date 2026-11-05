@@ -1,5 +1,13 @@
 import { normalizeResourcePath } from '../domain/file-resources.js'
 import { canonicalTavernSkillName } from '../domain/tavern-skills.js'
+import { worldBookViewForWire } from '../domain/worldbook-resource.js'
+
+// Records handed to the client keep only what the panels render: the server-side `rawEntry`
+// and `raw` copies of the source text stay here (they triple a large book's payload).
+function worldBookForClient(record) {
+  if (!record || typeof record !== 'object' || !record.view) return record
+  return Object.assign({}, record, { view: worldBookViewForWire(record.view) })
+}
 
 // World books, presets, skills, scripts, regex and guide libraries.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
@@ -24,13 +32,13 @@ export function createResourceHandlers(deps) {
       return { path: resourcePath, text }
     },
     async setGlobalWorldBook(args) {
-      return await worldBooks.setGlobal(args && args.source, args && args.enabled)
+      return worldBookForClient(await worldBooks.setGlobal(args && args.source, args && args.enabled))
     },
     async listWorldBooks(args) {
       return await worldBooks.catalog()
     },
     async getWorldBook(args) {
-      return await worldBooks.get(args && args.source)
+      return worldBookForClient(await worldBooks.get(args && args.source))
     },
     async getWorldBookBinding(args) {
       return { binding: await worldBooks.binding(args && args.cardPath) }
@@ -48,10 +56,10 @@ export function createResourceHandlers(deps) {
       return { binding: await worldBooks.unbind(args && args.cardPath, args && args.source) }
     },
     async importWorldBook(args) {
-      return { worldBook: await worldBooks.import(args && args.payload) }
+      return { worldBook: worldBookForClient(await worldBooks.import(args && args.payload)) }
     },
     async updateWorldBook(args) {
-      return await worldBooks.update(args && args.source, args && args.update)
+      return worldBookForClient(await worldBooks.update(args && args.source, args && args.update))
     },
     async exportWorldBook(args) {
       return { worldBook: await worldBooks.export(args && args.source) }

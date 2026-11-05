@@ -135,6 +135,21 @@ export function inspectWorldBookDocument(document, options = {}) {
   }
 }
 
+// The view carries two server-side copies of the same text: the untouched source entry
+// (`rawEntry`, used by activation, bubble sync and character-design bookkeeping) and the whole
+// source book (`raw`). Neither is rendered, so a large book sent to the client triples the
+// payload — drop both at the RPC boundary instead of the view builder.
+export function worldBookViewForWire(view) {
+  if (!view || typeof view !== 'object') return view
+  const entries = Array.isArray(view.entries) ? view.entries.map(function (entry) {
+    if (!entry || typeof entry !== 'object') return entry
+    const { rawEntry, ...rest } = entry
+    return rest
+  }) : view.entries
+  const { raw, ...rest } = view
+  return Object.assign({}, rest, { entries })
+}
+
 function standaloneEntryFromEmbedded(value, index) {
   const entry = object(value) || {}
   const extensions = object(entry.extensions) || {}

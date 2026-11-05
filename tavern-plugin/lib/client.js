@@ -42019,6 +42019,9 @@ function TavernWorldbookInspector(props) {
 			const [error, setError] = usePersistentError("世界书库");
 			const importInput = React.useRef(null);
 			const bindingDisclosure = React.useRef(null);
+			// The book and its card associations arrive separately now; late answers from a
+			// previous selection must not overwrite the current one.
+			const loadSequence = React.useRef(0);
 			const refreshModule = React.useRef(null);
 			const draftDirty = React.useRef(false);
 			const [recordStale, setRecordStale] = React.useState(false);
@@ -42040,16 +42043,25 @@ function TavernWorldbookInspector(props) {
 				setRecordStale(false);
 				if (!source) { setRecord(null); setAssociations(null); setSelectedCardPath(""); return Promise.resolve(); }
 				setRecordLoading(true); setError("");
-				return Promise.all([
-					rpcWithTimeout("getWorldBook", { source: source }, props.scope.sessionId),
-					rpcWithTimeout("getWorldBookAssociations", { source: source }, props.scope.sessionId)
-				]).then(function (results) {
-					const relations = results[1] && results[1].associations ? results[1].associations : { cards: [], boundCards: [], conflict: false };
-					setRecord(results[0]); setAssociations(relations);
-					setSelectedCardPath((relations.cards || []).find(function (card) { return !card.bound; })?.path || "");
+				// Entries paint as soon as the book is read: the association scan walks the whole
+				// card library for the binding panel below, so it must not hold the book open.
+				const loadId = ++loadSequence.current;
+				const bookRequest = rpcWithTimeout("getWorldBook", { source: source }, props.scope.sessionId).then(function (result) {
+					if (loadSequence.current !== loadId) return;
+					setRecord(result);
+					setRecordLoading(false);
 				}, function (err) {
-					setRecord(null); setAssociations(null); setSelectedCardPath(""); setError(String(err && err.message || err));
-				}).finally(function () { setRecordLoading(false); });
+					if (loadSequence.current !== loadId) return;
+					setRecord(null); setAssociations(null); setSelectedCardPath("");
+					setError(String(err && err.message || err)); setRecordLoading(false);
+				});
+				const associationRequest = rpcWithTimeout("getWorldBookAssociations", { source: source }, props.scope.sessionId).then(function (result) {
+					if (loadSequence.current !== loadId) return;
+					const relations = result && result.associations ? result.associations : { cards: [], boundCards: [], conflict: false };
+					setAssociations(relations);
+					setSelectedCardPath((relations.cards || []).find(function (card) { return !card.bound; })?.path || "");
+				}, function () {});
+				return Promise.all([bookRequest, associationRequest]);
 			}
 			function reloadAssociations(source) {
 				return rpcWithTimeout("getWorldBookAssociations", { source: source }, props.scope.sessionId).then(function (result) {
