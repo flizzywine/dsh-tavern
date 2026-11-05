@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile, rename, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { hash, fail } from './core.js'
-import { measureVoiceLoudness } from './loudness.js'
+import { hash, fail, wav } from './core.js'
+import { measureVoiceLoudness, measureVoiceLoudnessSafely, voiceLoudnessGain } from './loudness.js'
 
 // a TTS cloud provider's official voice sample is downloaded once
 // into the TTS host data dir (never the owner's chat data), measured once at that first write, and served same-origin so
@@ -56,13 +56,14 @@ export function createSampleCache({ dataDir, fetch = globalThis.fetch, measureLo
         let row = await meta(key)
         if (!row) {
           const { bytes, type } = await download(url)
-          const loudness = await measureLoudness(bytes)
+          // Vendor compressed demos are mastered; preserve their original gain.
+          const loudness = type === 'wav' ? await measureVoiceLoudnessSafely(wav(bytes), measureLoudness) : voiceLoudnessGain(null, null)
           row = { v:1, ext:type, mime:Object.keys(TYPES).find(mime => TYPES[mime] === type), size:bytes.length, loudness, at:now() }
           await mkdir(root, { recursive:true })
           await atomic(join(root, key + '.' + type), bytes); await atomic(join(root, key + '.json'), JSON.stringify(row))
           await prune(key)
         }
-        return { key, mime:row.mime, loudness:row.loudness }
+        return { key, mime:row.mime, loudness:row.ext === 'wav' ? row.loudness || voiceLoudnessGain(null, null) : voiceLoudnessGain(null, null) }
       })().finally(() => flights.delete(key)))
       return flights.get(key)
     },

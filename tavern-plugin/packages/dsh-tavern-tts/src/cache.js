@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile, rename, readdir, unlink } from 'node:fs/pro
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { hash, SHA, wav, fail } from './core.js'
-import { measureVoiceLoudness } from './loudness.js'
+import { measureVoiceLoudness, measureVoiceLoudnessSafely, voiceLoudnessGain } from './loudness.js'
 
 // Only synthesized clips owned by this directory; never scan a consumer's assets.
 export function createCache({ dataDir, maxBytes = 1024 ** 3, maxAgeDays = 30, measureLoudness = measureVoiceLoudness, onBoot = () => {} } = {}) {
@@ -66,7 +66,6 @@ export function createCache({ dataDir, maxBytes = 1024 ** 3, maxAgeDays = 30, me
         if (!entry) return null
         const audio = root ? await readFile(join(root, key + '.wav')) : entry.audio
         if(audio?.length !== entry.bytes)return null
-        wav(audio)
         return metadata ? {audio,loudness:entry.loudness} : audio
       } catch (error) {
         if (error.code === 'ENOENT' || error.code === 'INVALID_AUDIO' || error instanceof SyntaxError) return null
@@ -80,9 +79,9 @@ export function createCache({ dataDir, maxBytes = 1024 ** 3, maxAgeDays = 30, me
       if (e.bytes > maxBytes || e.access < Date.now() - maxAgeDays * 86400000) { await remove(key); return null }
       try {
         const b = root ? await readFile(join(root, key + '.wav')) : e.audio
-        // Written once by put() via tmp+rename; size plus the WAV parse rejects a torn file without rehashing every hit.
+        // Validated at put(); a size check rejects interrupted files without re-parsing.
         if (b.length !== e.bytes) { await remove(key); return null }
-        wav(b); e.access = Date.now()
+        e.access = Date.now()
         if (scope && !e.scopes.includes(scope)) { if (e.scopes.length >= 128) { await remove(key); return null }; e.scopes.push(scope) }
         if (root) await atomic(join(root, key + '.json'), JSON.stringify(e))
         return b
@@ -95,8 +94,8 @@ export function createCache({ dataDir, maxBytes = 1024 ** 3, maxAgeDays = 30, me
       if (root) { await mkdir(root, { recursive: true }); await atomic(join(root, key + '.wav'), b); await atomic(join(root, key + '.json'), JSON.stringify(e)) }
       else e.audio = b
       entries.set(key, e); await trim()
-      // Preserve a paid synthesis even if the analyzer is unavailable; retry only analysis.
-      e.loudness = await measureLoudness(b)
+      // Preserve paid audio even when optional measurement fails.
+      e.loudness = await measureVoiceLoudnessSafely(b, measureLoudness)
       if (root && entries.has(key)) await atomic(join(root, key + '.json'), JSON.stringify(e))
     }),
     loudness: key => serial(async () => {
@@ -104,12 +103,7 @@ export function createCache({ dataDir, maxBytes = 1024 ** 3, maxAgeDays = 30, me
       const entry = await find(key)
       if (!entry) fail('AUDIO_GONE')
       if (entry.bytes > maxBytes || entry.access < Date.now() - maxAgeDays * 86400000) { await remove(key); fail('AUDIO_GONE') }
-      if (!entry.loudness) {
-        const bytes = root ? await readFile(join(root, key + '.wav')) : entry.audio
-        entry.loudness = await measureLoudness(bytes)
-        if (root) await atomic(join(root, key + '.json'), JSON.stringify(entry))
-      }
-      return { ...entry.loudness }
+      return { ...(entry.loudness || voiceLoudnessGain(null, null)) }
     }),
     // Startup settings must not hydrate disk. Explicit management and writes still
     // hydrate before global age/LRU eviction; a warm cache applies limits now.

@@ -1,0 +1,72 @@
+[
+  {
+    "file": "near-clipping.wav",
+    "ffmpegI": -11.06,
+    "ffmpegTP": 0.28,
+    "jsI": -10.887,
+    "jsTP": 0.273
+  },
+  {
+    "file": "quiet.wav",
+    "ffmpegI": -68.9,
+    "ffmpegTP": -52.66,
+    "jsI": -68.729,
+    "jsTP": -52.663
+  },
+  {
+    "file": "speech-16000-0.wav",
+    "ffmpegI": -20.08,
+    "ffmpegTP": -2.24,
+    "jsI": -19.71,
+    "jsTP": -2.243
+  },
+  {
+    "file": "speech-16000-1.wav",
+    "ffmpegI": -20.37,
+    "ffmpegTP": -3.17,
+    "jsI": -20.031,
+    "jsTP": -3.171
+  },
+  {
+    "file": "speech-24000-0.wav",
+    "ffmpegI": -20.08,
+    "ffmpegTP": -2.24,
+    "jsI": -19.751,
+    "jsTP": -2.243
+  },
+  {
+    "file": "speech-24000-1.wav",
+    "ffmpegI": -20.37,
+    "ffmpegTP": -3.17,
+    "jsI": -20.072,
+    "jsTP": -3.172
+  },
+  {
+    "file": "speech-32000-0.wav",
+    "ffmpegI": -20.08,
+    "ffmpegTP": -2.24,
+    "jsI": -19.773,
+    "jsTP": -2.244
+  },
+  {
+    "file": "speech-32000-1.wav",
+    "ffmpegI": -20.37,
+    "ffmpegTP": -3.17,
+    "jsI": -20.093,
+    "jsTP": -3.171
+  },
+  {
+    "file": "speech-44100-0.wav",
+    "ffmpegI": -20.08,
+    "ffmpegTP": -2.24,
+    "jsI": -19.79,
+    "jsTP": -2.242
+  },
+  {
+    "file": "speech-44100-1.wav",
+    "ffmpegI": -20.37,
+    "ffmpegTP": -3.17,
+    "jsI": -20.11,
+    "jsTP": -3.171
+  }
+]
