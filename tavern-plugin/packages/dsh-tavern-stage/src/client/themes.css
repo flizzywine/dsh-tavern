@@ -5864,6 +5864,28 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 }
 /* ==== end art backlog avatar ==== */
 
+/* ==== art backlog roll ==== */
+/*
+   art.backlog.roll (C4): the art layer's check line (.fork-gal-backlog-roll, its tier in data-tier) in the skin's drawing.
+   stageSkinArt writes data-fk-skin-art-backlog-roll (its parts: mark total success fail) and --art-bl-roll-*; the backlog view
+   gives the line a .fork-gal-backlog-roll-mark beside the generic die icon. On the art layer the mark (--art-bl-roll-w by -h
+   design px) stands in the die's place; film mode keeps the die. total: the rolled number (.fork-roll-value) in its ink, scaled.
+   success / fail: the tier word (.fork-roll-tier) on its tile - success for critical, success and costly, fail for failure
+   and fumble (ink on ground checked >= 4.5:1 when the skin is written); an omitted side keeps the plain coloured word. The words
+   are the engine's check line unchanged. --br-u: one design px - the art layer's (--mu), else half a CSS px, as the plates.
+*/
+.fork-gal-backlog .fork-gal-backlog-roll-mark { display: none; }
+.fork-gal-stage[data-fk-skin-art-backlog-roll]:not(.is-film) .fork-gal-backlog-roll .fork-icon { display: none; }
+.fork-gal-stage[data-fk-skin-art-backlog-roll]:not(.is-film) .fork-gal-backlog-roll .fork-gal-backlog-roll-mark { --br-u: var(--mu, .5px); display: inline-block; flex: none; vertical-align: middle;
+  width: calc(var(--art-bl-roll-w) * var(--br-u)); height: calc(var(--art-bl-roll-h) * var(--br-u)); background: var(--art-bl-roll-img) 50% 50% / contain no-repeat; }
+.fork-gal-stage[data-fk-skin-art-backlog-roll~="total"]:not(.is-film) .fork-gal-backlog-roll .fork-roll-value { color: var(--art-bl-roll-ink); font-size: calc(var(--art-bl-roll-scale) * 1em); line-height: 1; }
+.fork-gal-stage[data-fk-skin-art-backlog-roll~="success"]:not(.is-film) .fork-gal-backlog-roll:is([data-tier="critical"], [data-tier="success"], [data-tier="costly"]) .fork-roll-tier,
+.fork-gal-stage[data-fk-skin-art-backlog-roll~="fail"]:not(.is-film) .fork-gal-backlog-roll:is([data-tier="failure"], [data-tier="fumble"]) .fork-roll-tier {
+  display: inline-block; padding: .1em .45em; line-height: 1.2; }
+.fork-gal-stage[data-fk-skin-art-backlog-roll~="success"]:not(.is-film) .fork-gal-backlog-roll:is([data-tier="critical"], [data-tier="success"], [data-tier="costly"]) .fork-roll-tier { color: var(--art-bl-roll-success-ink); background: var(--art-bl-roll-success-bg); }
+.fork-gal-stage[data-fk-skin-art-backlog-roll~="fail"]:not(.is-film) .fork-gal-backlog-roll:is([data-tier="failure"], [data-tier="fumble"]) .fork-roll-tier { color: var(--art-bl-roll-fail-ink); background: var(--art-bl-roll-fail-bg); }
+/* ==== end art backlog roll ==== */
+
 /* ==== stage skin: P5 slash layout ==== */
 /* (a pop-punk menu style; no third-party asset or
    font): textbox.layout slash + nameplate ransom + cursor arrow. Pop-punk in the skin's own three paints: the plate

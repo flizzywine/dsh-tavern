@@ -332,7 +332,10 @@ function GalBacklog(props) {
         // A plaque or band (overlay looks) holds the same tag and words, centred on its own plate.
         if (entry.type === "performance") {
             const look = lookOf(entry), wrap = looks.roles[entry.role]?.wrap;
-            const lead = entry.roll ? h(Icon, { key: "lead", name: "die", size: 16 }) : h("span", { key: "lead", className: "fork-gal-backlog-card-tag" }, entry.tag);
+            // art.backlog.roll (C4): the skin's mark beside the generic die; the art layer shows the mark, film mode the die.
+            const die = h(Icon, { key: "lead", name: "die", size: 16 });
+            const lead = !entry.roll ? h("span", { key: "lead", className: "fork-gal-backlog-card-tag" }, entry.tag)
+                : looks.roll ? h(React.Fragment, { key: "lead" }, die, h("i", { className: "fork-gal-backlog-roll-mark", "aria-hidden": true })) : die;
             const words = entry.roll ? diceLine(h, entry.roll) : entry.parts ? entry.parts.flatMap((part, i) => i ? [h("span", { key: i, className: "fork-gal-backlog-card-sep", "aria-hidden": true }, " / "), part] : [part]) : entry.text;
             return h("div", { key: entry.key, ref, className: "fork-gal-backlog-card fork-gal-backlog-perf is-look-" + look + (entry.roll ? " fork-gal-backlog-roll" : "") + bandClass(index),
                 "data-tier": entry.roll ? entry.roll.tier : undefined, "data-perf-kind": entry.kind, "data-bl-role": entry.role, ...plated(entry, index, look) },
