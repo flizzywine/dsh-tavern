@@ -7,6 +7,13 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+// A settlement that commits no floor (the plain engine, a plugin-replaced posture)
+// writes header fields only: the posture, the settlement status and its last run.
+// Naming them lets the commit read and patch the header instead of materializing
+// every floor to diff one posture — on a long save that read was the bulk of a
+// background settlement.
+const SETTLEMENT_HEADER_FIELDS = Object.freeze(['posture', 'settleStatus', 'settleError', 'lastSettle'])
+
 // One turn's background work (Wiki「设计：background-task-pipeline」): plugin tasks before,
 // the main settlement with plugin tasks alongside, plugin tasks after, then "turn settled".
 // The main settlement reads its input, lets the MVU or the plain engine settle, and commits;
@@ -37,7 +44,7 @@ export function createSettlementRun(deps) {
         let stat = { postureUpdated: false }
         const mvuCompletion = mvuSettlementEngine.completion({ mvuTarget, mvuResult, backgroundTasksSettings })
         const completion = {
-          ...(mvuCompletion.messageIndices ? { messageIndices: mvuCompletion.messageIndices } : {}),
+          ...(mvuCompletion.messageIndices ? { messageIndices: mvuCompletion.messageIndices } : { headerFields: SETTLEMENT_HEADER_FIELDS }),
           stateChanged: mvuCompletion.stateChanged || str(result && result.posture).trim() !== '',
           participant: taskRun.participant({ sessionId: trace.sessionId, boundary: trace.boundary }),
           apply(draft, scope) {
