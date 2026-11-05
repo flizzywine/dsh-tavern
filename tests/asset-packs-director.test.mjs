@@ -1264,3 +1264,34 @@ test('remarks add zero director section, tool schema and smart-judge request byt
   assert.deepEqual(judgeRequests(f.input.engine.judge,{material:f.input.units.join('\n'),questions:after.judgeQuestions}),judge)
   t.diagnostic(JSON.stringify({sections:sectionBytes(next),toolSchemaBytes,delta:0,judgeBytes:judge.reduce((n,r)=>n+r.bytes,0),judgeDelta:0}))
 })
+
+test('director preparation and catalogue use the injected active-skin resolver', async () => {
+  const {assetPackDirectorCatalogue} = await import('../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-director.js')
+  const {input} = await fixture()
+  const calls = []
+  input.activeStageSkin = value => { calls.push(value); return null }
+  const prepared = prepareAssetPackDirector(input)
+  assert.ok(prepared)
+  assetPackDirectorCatalogue(input)
+  assert.equal(calls.length, 2)
+  for (const call of calls) {
+    assert.equal(call.engine, input.engine)
+    assert.deepEqual(call.manifests, input.snapshots.map(pack => pack.manifest))
+    assert.deepEqual(call.extension, input.raw.extensions.dsh_tavern)
+    assert.ok(call.state)
+  }
+})
+
+test('opening-scene request reads card bindings through its injected core contract', async () => {
+  const {createStageHandlers} = await import('../tavern-plugin/packages/dsh-tavern-stage/lib/rpc.js')
+  const {input} = await fixture()
+  let read = 0
+  const handlers = createStageHandlers({
+    readCardWorkspace:async () => ({raw:input.raw}),
+    assetRuntime:{snapshot:async () => ({snapshots:input.snapshots, engine:input.engine})},
+    describeOpeningScenes:() => ({scenes:{}}),
+    readCardAssetExtension:raw => { assert.equal(raw, input.raw); read++; return raw.extensions.dsh_tavern }
+  })
+  assert.deepEqual(await handlers.getCardOpeningScenes({path:'fixture'}), {scenes:{}, entranceChoices:[]})
+  assert.equal(read, 1)
+})
