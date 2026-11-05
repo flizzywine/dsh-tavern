@@ -2530,6 +2530,19 @@
         }
        }
       },
+      "plates": {
+       "type": "object",
+       "description": "Each entry's own plate image by its role (speech, player, narration, notice, divider); valid here and in devices.mobile.art.backlog. A role's images cycle by the entry's place among that role's entries.",
+       "minProperties": 1,
+       "additionalProperties": false,
+       "properties": {
+        "speech": { "$ref": "#/$defs/backlogPlate" },
+        "player": { "$ref": "#/$defs/backlogPlate" },
+        "narration": { "$ref": "#/$defs/backlogPlate" },
+        "notice": { "$ref": "#/$defs/backlogPlate" },
+        "divider": { "$ref": "#/$defs/backlogPlate" }
+       }
+      },
       "narrow": {
        "type": "object",
        "description": "Phones (640px and less): the same sheet, title, close, row head (voice, name, frame, rule) and highlight at unit CSS px per design px; the words keep the reading size from the text column.",
@@ -8829,6 +8842,39 @@
    "maxItems": 2,
    "items": {
     "$ref": "#/$defs/color"
+   }
+  },
+  "backlogPlate": {
+   "type": "object",
+   "description": "A 履历 role's plate: images (1-8, cycled by the entry's place among its role's entries), each with the ground its words sit on and their ink (at least 4.5:1, checked on write); nine-sliced by slice (the fixed edges carry tape, pins and tails), overhanging the entry by out [top, right, bottom, left] design px; poses = each entry's offset (x, y design px) and turn (rot degrees), cycled by its place like menuPoses - the hit area, highlight and reading order go with the plate; slant = the words' oblique angle in degrees.",
+   "additionalProperties": false,
+   "required": ["images", "slice"],
+   "properties": {
+    "images": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 8,
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image", "ground", "ink"],
+      "properties": { "image": { "$ref": "#/$defs/image" }, "ground": { "$ref": "#/$defs/color" }, "ink": { "$ref": "#/$defs/color" } }
+     }
+    },
+    "slice": { "$ref": "#/$defs/slice" },
+    "out": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": -1024, "maximum": 1024 } },
+    "poses": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 8,
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "rot"],
+      "properties": { "x": { "type": "number", "minimum": -256, "maximum": 256 }, "y": { "type": "number", "minimum": -256, "maximum": 256 }, "rot": { "type": "number", "minimum": -12, "maximum": 12 } }
+     }
+    },
+    "slant": { "type": "number", "minimum": -20, "maximum": 20 }
    }
   },
   "menuPoses": {
