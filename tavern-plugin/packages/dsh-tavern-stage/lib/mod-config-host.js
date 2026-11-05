@@ -6,7 +6,7 @@ import {builtinConfigSchemas,stageConfigExports} from '../../../lib/domain/mods/
 import {rawData} from '../../../lib/domain/card-preparation.js'
 import {managedConfigSchemas} from './mod-system-execution.js'
 import {assetContent} from '../../dsh-presentation-protocol/src/asset-variant-content.js'
-import {cardStageSkin,cardStageSkinPackIds} from '../../../lib/domain/card-stage-settings.js'
+import {activeStageSkin,cardStageSkinPackIds} from '../../../lib/domain/card-stage-settings.js'
 import {cardAssetWorkspaceRevision} from '../../../lib/card-asset-bindings.js'
 import {readCardVariableSources} from '../../../lib/domain/card-variable-bindings.js'
 import skinContract from '../../dsh-presentation-protocol/src/stage-skin.cjs'
@@ -108,7 +108,7 @@ export function createModConfigHost({workbenchAuthority,root,store:managedStore,
       stage.contacts=figureCatalogue({snapshots,bindings:ext.assetBindings,globalEnabledPackIds:global,roster:state?.actors || {}}).filter(row=>row.enabled)
         .map(row=>({id:row.actorKey,name:row.name,figure:row.ref,...(row.figure.imageColor || row.figure.autoColor?{color:row.figure.imageColor || row.figure.autoColor}:{})}))
     }
-    const skinRef=state?.skin?.ref || cardStageSkin(ext,engine.values,(await Promise.all(cardStageSkinPackIds(ext,engine.values,getGlobalEnabledPackIds()).map(packId=>snapshot(packId).catch(()=>null)))).map(pack=>pack?.manifest)).skin
+    const skinRef=activeStageSkin({extension:ext,engine:engine.values,state,manifests:(await Promise.all(cardStageSkinPackIds(ext,engine.values,getGlobalEnabledPackIds()).map(packId=>snapshot(packId).catch(()=>null)))).map(pack=>pack?.manifest)})
     const skin=typeof skinRef==='string'?skinContract.BUILTIN_STAGE_SKINS[skinRef]:skinRef?(await snapshot(skinRef.packId))?.skins?.[skinRef.assetId]:null
     const appearance=skin && skinContract.stageSkinAppearance(skin,state?.skin?.level)
     if(appearance?.ui){stage.skin=Object.fromEntries(Object.entries({surface:appearance.ui.bg,line:appearance.ui.border,accent:appearance.ui.accent}).filter(([,value])=>value!==undefined));labels['/skin/surface']='舞台皮肤';labels['/skin/line']='舞台皮肤'}
