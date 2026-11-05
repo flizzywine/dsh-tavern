@@ -66,6 +66,7 @@
         - agentPresets
         - settings
         - tokenMeter
+        - connection
 
 # 0.2.0-rc.2 适配：preset 容器模型从「扫描 presets/ 目录」改为「@deepseek-ai/dsh-agent-preset
 # 声明行」。0.2.0 的 agent-preset-registry 既不扫目录也不接受 preset 路径，定义就是普通插件行；
