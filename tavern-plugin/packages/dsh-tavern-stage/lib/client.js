@@ -15366,7 +15366,9 @@ function GalStage(props) {
             h("filter", { id: "fork-gal-look-ui", colorInterpolationFilters: "sRGB", filterUnits: "userSpaceOnUse", x: "-640", y: "-640", width: "5200", height: "3400" }, h("feColorMatrix", { type: "matrix", values: "1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0" }))),
         h("div", { className: "fork-gal-letterbox", "aria-hidden": true }, h("i"), h("i")),
         // the leasing game's own controls (lease-hud.cjs), between the top bar and the text box in this skin's theme scope.
-        leasing ? h(stageViews.lease.Hud, { lease: leaseView.lease, rows: leaseHudRows(), device, read: leaseView.read }) : null,
+        // Follow the text box's held line through transitions, not the read high-water mark or game queue.
+        leasing ? h(stageViews.lease.Hud, { lease: leaseView.lease, rows: leaseHudRows(), device, read: leaseView.read,
+            displayed: boxLine ? {lineId:boxLine.lineId, speaker:boxLine.kind === 'line' ? boxLine.name || null : null} : null }) : null,
         h(stageEntryContextType().Provider, { value: entryStore }, h("div", { ref: topbarRef, className: "fork-gal-topbar", onClick: event => event.stopPropagation(), onFocus: hud.onFocus, onBlur: hud.onBlur },
             h("div", { className: "fork-gal-topleft" },
                 turn !== latestTurn && receivedDirection && !["done", "error"].includes(receivedDirection.status) ? h("div", { className: "fork-gal-history-direction", "data-state": receivedDirection.status, "aria-live": "polite" },
@@ -15671,14 +15673,16 @@ function Avatar({name, size}) {
         h(PackImage, {identity: face.identity, src: face.src, crop: face.crop, avatar: face.avatar, className: 'fork-gal-lease-avatar-img', alt: ''}));
     return h('span', {className: 'fork-gal-lease-avatar is-glyph', style, 'aria-hidden': true}, placeholderFace({}, name)?.glyph || '');
 }
-function StageLeaseHud({lease, rows, device, read}) {
+// displayed: null or {lineId, speaker: string|null}, the text box's visible line (including backward navigation).
+// read remains the monotonic read high-water mark for pacing; it is not the visible speaker.
+function StageLeaseHud({lease, rows, device, read, displayed}) {
     const h = React.createElement;
     const map = React.useMemo(() => new Map((rows || []).filter(row => row.face).map(row => [row.name, row.face])), [rows]);
     if (!lease?.hud) return null;
     return h('div', {className: 'fork-gal-lease-hud', 'data-device': device},
         h(faces().Provider, {value: map},
             h(Boundary, {key: lease.owner, owner: lease.owner, fallback: h('p', {className: 'fork-gal-lease-hud-error', role: 'status'}, '玩法面板出错了，舞台仍可继续')},
-                h(lease.hud, {...lease.props, read, device, Avatar}))));
+                h(lease.hud, {...lease.props, read, displayed, device, Avatar}))));
 }
 return {StageLeaseHud, Avatar};
 }
