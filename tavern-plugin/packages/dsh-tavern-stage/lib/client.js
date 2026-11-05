@@ -793,15 +793,16 @@ function own(cleanup) {
 // rows only where the screen shows no such control (options.controls: the ids the skin and width leave out - a phone, a skin
 // without drawn buttons), right after 履历; 隐藏 (H / right click) and 上一页 (← / the backlog) are keys, and the stage entries (背景, BGM,
 // 声音, 手机, 电影模式) live in the top bar, which stands over the open menu.
-// Items in display order. options: { historical, latestTurn, busy, controls, auto, skipping, atEnd, statusPanel }.
-// 状态 is a row only on a card that declares a status panel (the same flag that shows the S key).
+// Items in display order. options: { historical, latestTurn, busy, controls, auto, skipping, atEnd, pages }.
+// The card pages with menu: true are rows in declaration order, where 状态 was (a page's shortcut shows in its title).
 function galMenuItems(options) {
     const items = [{ id: "resume", label: "回到舞台", title: "回到舞台（Esc）" }];
     const controls = new Set(options?.controls || []);
     items.push({ id: "backlog", label: "履历", title: "履历（L / 滚轮向上）" });
     if (controls.has("auto")) items.push({ id: "auto", label: options.auto ? "停止自动" : "自动", title: "自动翻页（A）", on: Boolean(options.auto) });
     if (controls.has("skip")) items.push({ id: "skip", label: options.skipping ? "停止跳过" : "跳过", title: "跳过（按住 Ctrl 快进）", on: Boolean(options.skipping), disabled: Boolean(options.atEnd) && !options.skipping });
-    if (options?.statusPanel) items.push({ id: "status", label: "状态", title: "状态（S）" });
+    for (const page of options?.pages || []) if (page.menu) items.push({ id: "page:" + page.id, label: page.label,
+        ...(page.shortcut ? { title: page.label + "（" + page.shortcut.toUpperCase() + "）" } : {}) });
     // the CG gallery lives here, not as a text button in the control row.
     items.push({ id: "gallery", label: "回想", title: "回想（CG 图库）" });
     // regeneration is a latest-turn action, not historical editing; an earlier turn offers the way back instead.
@@ -834,9 +835,9 @@ function useGalMenuDirectorBusy(sessionId, turn) {
     return React.useSyncExternalStore(selection.subscribe, selection.getSnapshot, selection.getSnapshot);
 }
 
-// props: { sessionId, Regenerate, busy, historical, latestTurn, controls, auto, skipping, atEnd, touch, statusPanel, onClose(),
-// onAuto(), onSkip(), onBacklog(), onStatus(), onGallery(), onConfig(), onKeys(), onLatest(), onLeave() }.
-// statusPanel: the card declares a status panel (the 状态 row and the S key).
+// props: { sessionId, Regenerate, busy, historical, latestTurn, controls, auto, skipping, atEnd, touch, pages, onClose(),
+// onAuto(), onSkip(), onBacklog(), onPage(id), onGallery(), onConfig(), onKeys(), onLatest(), onLeave() }.
+// pages: the card's pages (the menu rows for those with menu: true).
 // Focus moves to the first item on open and back to the opener on close (not when leaving the stage, which restores
 // its own opener). Esc, right click or a click on the dimmed stage close it; the stage never sees keys typed here.
 function GalMenu(props) {
@@ -849,7 +850,7 @@ function GalMenu(props) {
     const closeRegenerate = () => { if (props.regenerate) props.onClose(); else setRegenerateOpen(false); };
     const [regenerateBusy, setRegenerateBusy] = React.useState(false);
     const items = galMenuItems({ historical: props.historical, latestTurn: props.latestTurn, busy: busy || regenerateBusy, controls: props.controls,
-        auto: props.auto, skipping: props.skipping, atEnd: props.atEnd, touch: props.touch, statusPanel: props.statusPanel });
+        auto: props.auto, skipping: props.skipping, atEnd: props.atEnd, touch: props.touch, pages: props.pages });
     const [active, setActive] = React.useState(0);
     const refs = React.useRef([]);
     const live = React.useRef(null);
@@ -875,7 +876,7 @@ function GalMenu(props) {
         forkUiSfx.play(item.id === "resume" ? "close" : "confirm");
         if (item.id === "resume") p.onClose();
         else if (item.id === "backlog") p.onBacklog();
-        else if (item.id === "status") p.onStatus();
+        else if (item.id.startsWith("page:")) p.onPage(item.id.slice("page:".length));
         else if (item.id === "gallery") p.onGallery();
         else if (item.id === "regenerate") { setActive(index); setRegenerateOpen(true); }
         else if (item.id === "auto") p.onAuto();
@@ -1826,9 +1827,20 @@ function createStageControls() {
 // [label, key, action, cap]. One table: the first-run key list shows label / key; a skin's key hints (art.buttons.*.hint,
 // stage-skin-buttons.js) show the action's cap (the key's name on a key cap: 按住 Ctrl -> Ctrl).
 // V replays the line's voice.
-const GAL_SHORTCUTS = [['自动', 'A', 'auto'], ['跳过', '按住 Ctrl', 'skip', 'Ctrl'], ['隐藏', 'H', 'hide'], ['履历', 'L', 'backlog'], ['状态', 'S', 'status'], ['重播配音', 'V', 'replay'], ['菜单', 'Esc', 'menu'], ['重新生成', 'G', 'regenerate'], ['回聊天', 'F12', 'exit']];
-// The 状态 key exists only when the card declares a status panel (options.statusPanel); the key list follows the same rule.
-function galShortcuts(options) { return options?.statusPanel ? GAL_SHORTCUTS : GAL_SHORTCUTS.filter(([, , action]) => action !== 'status'); }
+const GAL_SHORTCUTS = [['自动', 'A', 'auto'], ['跳过', '按住 Ctrl', 'skip', 'Ctrl'], ['隐藏', 'H', 'hide'], ['履历', 'L', 'backlog'], ['重播配音', 'V', 'replay'], ['菜单', 'Esc', 'menu'], ['重新生成', 'G', 'regenerate'], ['回聊天', 'F12', 'exit']];
+// The card pages' keys (options.pages: a page with a shortcut) sit where 状态 was, after 履历; a card without such pages has none.
+function galShortcuts(options) {
+    const pages = (options?.pages || []).filter(page => page.shortcut).map(page => [page.label, page.shortcut.toUpperCase(), 'page:' + page.id]);
+    return [...GAL_SHORTCUTS.slice(0, 4), ...pages, ...GAL_SHORTCUTS.slice(4)];
+}
+// The page a stage entry from text mode opens (null: none). fresh: the chat has no player message yet, so its initial page
+// opens even with 跳过标题页 on. Otherwise the skip switch leaves the stage at its latest round; else the first non-initial showOn page.
+function stageEnterPage({ pages, fresh, skip }) {
+    const entering = (pages || []).filter(page => page.showOn?.event === 'stage-enter');
+    if (fresh) { const initial = entering.find(page => page.initial === true); if (initial) return initial.id; }
+    if (skip) return null;
+    return entering.find(page => page.initial !== true)?.id ?? null;
+}
 // G: presses the turn-end menu's 重新生成 badge (gal-choices.js) when it is on screen and can act -
 // the key follows the control's own rule (hidden while the choices generate, disabled while the stage is busy).
 function galPressRegenerate(root) {
@@ -1893,7 +1905,7 @@ function galWheelDecision(previous, event) {
     return { state, action: event.typed && !event.hidden ? 'advance' : 'finish' };
 }
 
-return {wheel:galWheelDecision, actionFor:id => GAL_CONTROL_ACTIONS[id] || id, shortcuts:galShortcuts, keyCaps:GAL_KEY_CAPS, skipSelector:GAL_SKIP_CONTROL, actionHomes:galActionHomes, ids:galControlIds, drawn:galControlDrawn, pressRegenerate:galPressRegenerate};
+return {wheel:galWheelDecision, actionFor:id => GAL_CONTROL_ACTIONS[id] || id, shortcuts:galShortcuts, keyCaps:GAL_KEY_CAPS, skipSelector:GAL_SKIP_CONTROL, actionHomes:galActionHomes, ids:galControlIds, drawn:galControlDrawn, pressRegenerate:galPressRegenerate, stageEnterPage};
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageControls};
 
@@ -2065,7 +2077,7 @@ function GalCubismNotice({ icon, request }) {
 }
 // picture: a 场景生图 picture of this round is being drawn ({progress}: the plugin's 0..1 once it reports one, else null);
 // pictureReady: one finished after its page was read ({onView} opens its insert page where the reader is).
-function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, statusPanel = false, error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], live2dRequest = null, nameOf, scope, picture = null, pictureReady = null }) {
+function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, pages = [], error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], live2dRequest = null, nameOf, scope, picture = null, pictureReady = null }) {
     const h = React.createElement;
     const notes = diagnostics || [], cancelled = error === 'cancelled';
     const icon = h('svg', { className: 'fork-gal-runtime-icon', width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true },
@@ -2112,7 +2124,7 @@ function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, s
     return h('div', { className: 'fork-gal-notices', onWheel: event => event.stopPropagation(), onClick: event => event.stopPropagation() },
         hints?.sound ? notice('sound', 'hint', h('span', { className: 'fork-gal-runtime-icon', 'aria-hidden': true }, h(Icon, { name: 'speaker', size: 15 })), '点任意处开启声音') : null,
         hints?.keys ? h('div', { key: 'keys', className: 'fork-gal-runtime-status fork-gal-runtime-keys', 'data-tone': 'hint', role: 'note', 'aria-label': '快捷键' },
-            h('dl', null, galShortcuts({ statusPanel }).map(([label, key]) => h(React.Fragment, { key: label }, h('dt', null, h('kbd', null, key)), h('dd', null, label))))) : null,
+            h('dl', null, galShortcuts({ pages }).map(([label, key]) => h(React.Fragment, { key: label }, h('dt', null, h('kbd', null, key)), h('dd', null, label))))) : null,
         direction,
         picture ? notice('picture', 'busy', h(Spinner, { className: 'fork-gal-runtime-spinner' }), '正在生成 CG…' + (typeof picture.progress === 'number' ? ' ' + Math.round(picture.progress * 100) + '%' : '')) : null,
         pictureReady ? notice('picture-ready', 'hint', null, 'CG 已生成', null,
@@ -10886,7 +10898,7 @@ function attach(read,send){
     if(disposed)throw new Error('Stage input disposed');
     let active=true,pressedSpace=false,interrupted=false,timer=null,arm=0;
     const cleanups=[];
-    const blocked=()=>{const state=read();return state.modal||state.backlog||state.status||state.hidden;};
+    const blocked=()=>{const state=read();return state.modal||state.backlog||state.page||state.hidden;};
     function cancel(){const old=timer;timer=null;arm++;try{if(old!==null)clock.clearTimeout(old);}finally{send({type:'held',value:false});}}
     function listen(target,type,handler,capture=false){
         const guarded=event=>{if(active&&!disposed)handler(event);};
@@ -10900,7 +10912,7 @@ function attach(read,send){
         if(errors.length)throw new AggregateError(errors,'Stage input cleanup failed');
     }
     function onKey(event) {
-        const {modal,backlog,status,statusPanel,hidden,auto,root,widgetOpen}=read();
+        const {modal,backlog,page,pages,hidden,auto,root,widgetOpen}=read();
             // The Config screen and the system menu keep the keyboard (each closes itself on Esc).
             if (modal) return;
             // no stage key while an input method is composing.
@@ -10915,6 +10927,8 @@ function attach(read,send){
             // own editing keys; an invisible composer must not disable Back or Escape.
             if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) && root && root.contains(target)) return;
             const key = event.key, letter = key.length === 1 && /[a-z]/i.test(key) ? key.toLowerCase() : "";
+            // a card page's shortcut (CARD_PAGE_SHORTCUT_KEYS never takes a built-in letter) opens its page.
+            const shortcutPage = letter ? (pages || []).find(declared => declared.shortcut === letter) : undefined;
             const advance = key === " " || key === "Enter" || key === "ArrowRight" || key === "PageDown", back = key === "ArrowLeft" || key === "PageUp" || key === "Backspace";
             // letter shortcuts leave Ctrl / Alt / Meta combinations to the browser
             // (Ctrl+A, Ctrl+R, Ctrl+L); a held key turns one page and toggles once (auto-repeat is ignored).
@@ -10928,9 +10942,10 @@ function attach(read,send){
                 if (key === "Escape" || letter === "l") { event.preventDefault(); send({type:'backlog',open:false}); }
                 return;
             }
-            // The status panel keeps the keyboard the same way; S or Esc closes it.
-            if (status) {
-                if (key === "Escape" || letter === "s") { event.preventDefault(); send({type:'status',open:false}); }
+            // An open card page keeps the keyboard the same way; Esc or its own shortcut closes it.
+            if (page) {
+                const openedShortcut = (pages || []).find(declared => declared.id === page)?.shortcut;
+                if (key === "Escape" || (letter && letter === openedShortcut)) { event.preventDefault(); send({type:'page',open:false}); }
                 return;
             }
             if (letter === "l") { event.preventDefault(); send({type:'backlog',open:true}); return; }
@@ -10947,13 +10962,12 @@ function attach(read,send){
             }
             else if (letter === "h") send({type:'hidden',value:!hidden});
             else if (letter === "v") send({type:'replay'});
-            // S opens the card's status panel; a card without one has no such key.
-            else if (letter === "s") { if (statusPanel) send({type:'status',open:true}); }
             // G presses the turn-end menu's 重新生成 (the badge on the 自由输入 row,
             // gal-choices.js) - only while it is shown and can act, so the key follows the control's own rule.
             else if (letter === "g") { if (controls.pressRegenerate(root)) event.preventDefault(); }
             // Like the AUTO control: turning auto on also ends a SKIP.
             else if (letter === "a") { if (!auto) send({type:'skip',value:false}); send({type:'auto',value:!auto}); }
+            else if (shortcutPage) send({type:'page',open:true,id:shortcutPage.id});
         }
 
     function onKeyUp(event){if(event.key===' '&&pressedSpace){pressedSpace=false;event.preventDefault();}}
@@ -19582,6 +19596,13 @@ function galChoiceUntouched(editing) {
 }
 // the draft key of 「自由输入」; a suggestion's key is the text it sends.
 const GAL_FREE = "\u0000free";
+// A card page's fillInput(text) (status-panel.cjs): the text waits per session until the 自由输入 field of the end panel
+// takes it as its draft, open and focused. Only filled - the player still sends it.
+const galFills = new Map(), galFillListeners = new Set();
+function galFill(sessionId, text) {
+    galFills.set(String(sessionId), String(text));
+    for (const fn of [...galFillListeners]) fn();
+}
 function GalChoices(props) {
     const h = React.createElement;
     const sessionId = props.sessionId;
@@ -19601,6 +19622,18 @@ function GalChoices(props) {
     const [picked, setPicked] = React.useState(null);
     const editorRef = React.useRef(null);
     const requestRef = React.useRef(false);
+    React.useEffect(() => {
+        const take = () => {
+            if (!galFills.has(String(sessionId))) return;
+            const text = galFills.get(String(sessionId));
+            galFills.delete(String(sessionId));
+            setDrafts(current => ({...current, [GAL_FREE]: text}));
+            setEditingAt(GAL_FREE);
+        };
+        take();
+        galFillListeners.add(take);
+        return () => { galFillListeners.delete(take); };
+    }, [sessionId]);
     // a task the player stopped reads as never started - 生成选项 again, not an error.
     const status = panel ? panel.phase : taskForMessage ? taskForMessage.busy ? "loading" : taskForMessage.status === "succeeded" ? "ready" : taskForMessage.status === "cancelled" ? "idle" : "error" : "idle";
     const state = galEndPanelState({ status, atEnd: props.atEnd !== false && !running });
@@ -19877,7 +19910,7 @@ function GalChoices(props) {
                 h(Icon, { name: "pencil", size: 15 }), h("span", { className: "fork-gal-choice-text" }, freeDraft || "自由输入")), tool, layout.galChoiceArt()),
         error ? h("p", { className: "fork-gal-choice-error", role: "alert" }, error) : null);
 }
-return {Choices:GalChoices,dispose(){if(disposed)return;disposed=true;const errors=[];for(const fn of [...cleanups]){try{fn();}catch(error){errors.push(error);}}for(const [map,cancel] of [[timers,hostClearTimeout],[frames,hostCancelFrame]]){for(const id of map.keys()){try{cancel(id);}catch(error){errors.push(error);}}map.clear();}if(errors.length)throw new AggregateError(errors,'Choices cleanup failed');}};
+return {Choices:GalChoices,fill:galFill,pendingFill:sessionId=>galFills.get(String(sessionId)),dispose(){if(disposed)return;disposed=true;galFills.clear();galFillListeners.clear();const errors=[];for(const fn of [...cleanups]){try{fn();}catch(error){errors.push(error);}}for(const [map,cancel] of [[timers,hostClearTimeout],[frames,hostCancelFrame]]){for(const id of map.keys()){try{cancel(id);}catch(error){errors.push(error);}}map.clear();}if(errors.length)throw new AggregateError(errors,'Choices cleanup failed');}};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageChoices};
 
@@ -24161,7 +24194,7 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
 let disposed=false;
 const cleanups=new Set();
 const stageReading={...sharedReading,set:patch=>{if(!disposed)sharedReading.set(patch);}};
-const {group:galConfigGroup,row:galConfigRow,slider:galConfigSlider}=fields;
+const {group:galConfigGroup,row:galConfigRow,slider:galConfigSlider,Switch:GalConfigSwitch}=fields;
 const React={...react,createElement(type,props,...children){
     const guarded=props&&Object.fromEntries(Object.entries(props).map(([name,value])=>[name,/^on[A-Z]/.test(name)&&typeof value==='function'?(...args)=>{if(!disposed)return value(...args);}:value]));
     return react.createElement(type,guarded,...children);
@@ -24205,6 +24238,7 @@ function GalConfigText(props) {
             galConfigRow("自动模式等待", galConfigSlider(["短", "长"], { min: waitMin, max: waitMax, step: waitStep, value: reading.autoWait, label: "自动模式等待",
                     valueText: (reading.autoWait / 1000).toFixed(1) + " 秒", output: (reading.autoWait / 1000).toFixed(1) + " 秒", onChange: value => stageReading.set({ autoWait: value }) }),
                 h(React.Fragment, null, h("span", null, "配音结束后的基础停顿，再除以自动阅读速度；不会截断配音。"), h("span", null, "无配音页按字数阅读，再加入相对 0.7 秒的等待增减，最后按速度缩放。等待控制停顿，速度控制整体阅读节奏。"))),
+            galConfigRow("跳过标题页", h(GalConfigSwitch, { label: "跳过标题页", checked: reading.skipTitlePage === true, onChange: on => stageReading.set({ skipTitlePage: on }) }), "进入舞台时不显示卡的标题页，直接继续；新聊天的开场页照常出现。"),
             fonts ? null : preview),
         fonts ? galConfigGroup("字体", null,
             // no context, so 「跟随样式」 follows the active stage's skin declaration
@@ -31536,7 +31570,7 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
                     stageFeatures.mount({options,views,own,window,document,getResourceOwner});
                     views.sourceWidgets=own(createStageSourceWidgets({React:options.React,window,document,...options.sourceWidgets,views,sessions:()=>sessions}));
                     views.modSurface=own(createStageModSurface({React:options.React,window,document,...options.modSurface,sessions:()=>sessions,scene:()=>views.scene,runtime:views.sessionRuntime,renderers:modRenderers,core:options.performances?.core,useFaces:views.sourceWidgets.useFaces}));
-                    if(options.statusPanel)views.statusPanel=own(createStageStatusPanel({React:options.React,window,document,...options.statusPanel,useFaces:views.sourceWidgets.useFaces}));
+                    if(options.statusPanel)views.statusPanel=own(createStageStatusPanel({React:options.React,window,document,...options.statusPanel,fillInput:choices.fill,stageEnterPage:controls.stageEnterPage,useFaces:views.sourceWidgets.useFaces}));
                     // 舞台借用: the host's in-memory stageLeases (a gameMode view with presentation 'stage'); the controller reads a
                     // session's lease and mounts its HUD. The clip export host lends none.
                     if(host.stageLeases){
