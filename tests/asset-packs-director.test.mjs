@@ -813,7 +813,7 @@ test('director baseline and reset use stored outfit order', async () => {
   assert.equal(tx.effect().end.actors[ACTOR].outfitKey,'casual')
 })
 // frozen pack ruler inputs replace display-lock sidecars.
-test('pack ruler freezes heights, replays only prefixes, carries across turns and resets only at a director cut', async () => {
+test('pack ruler freezes heights, shrinks on exit, replays prefixes and carries across turns', async () => {
   const f=await fixture(), extension=f.input.raw.extensions.dsh_tavern
   const first=f.input.snapshots[0].figures[FIGURE_ID];first.heightCm=160
   const second=distinctMedia(first,'tall-figure');second.id=OTHER_FIGURE_ID;second.heightCm=220
@@ -831,16 +831,17 @@ test('pack ruler freezes heights, replays only prefixes, carries across turns an
   const entrance=assetPackStateAt(saved,2).figureScale
   assert.equal(entrance.hMax,220);assert.equal(entrance.rescales,1)
   assert.deepEqual(entrance.event,{kind:'rescale',at:2,from:160,warning:'mid-scene rescale'})
-  assert.equal(assetPackStateAt(saved,3).figureScale.hMax,220)
-  assert.equal(saved.end.figureScale.hMax,220);assert.equal(saved.end.figureScale.event,undefined)
+  assert.equal(assetPackStateAt(saved,3).figureScale.hMax,160)
+  assert.equal(assetPackStateAt(saved,3).figureScale.rescales,2)
+  assert.equal(saved.end.figureScale.hMax,160);assert.equal(saved.end.figureScale.event,undefined)
   first.heightCm=900;second.heightCm=20
   assert.deepEqual(assetPackStateAt(JSON.parse(JSON.stringify(saved)),1).figureScale,prefix)
   assert.equal(assetPackStateAt(saved,2).actors[TALL].ruler.heightCm,220)
   f.input.record=saved;f.input.target={...f.input.target,sourceKey:'reply-2'}
   const carried=f.prepare(), continued=transact(carried)
-  assert.equal(carried.baseline.figureScale.hMax,220)
+  assert.equal(carried.baseline.figureScale.hMax,160)
   assert.equal(continued.submit(batch([])).ok,true)
-  assert.equal(continued.effect().end.figureScale.hMax,220)
+  assert.equal(continued.effect().end.figureScale.hMax,160)
   const cut=transact(carried)
   assert.equal(cut.submit(batch([scene(),{op:"transition.play", transition:'cut'}])).ok,true)
   assert.equal(cut.effect().end.figureScale.hMax,900) // a new cut uses this turn's newly frozen inputs

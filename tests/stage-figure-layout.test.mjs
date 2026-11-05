@@ -1,4 +1,4 @@
-// Stage figure layout and camera: default slots, the default framing, the phone cap, the short-figure rescue, head
+// Stage figure layout and camera: default slots, the default framing, the phone cap, shared framing, head
 // centring, and the handheld frame rate / resolution.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -66,12 +66,11 @@ test('portrait draws the speaker alone at the lone size unless the skin declares
   assert.deepEqual([stageSkinFigures(bust).shown, stageSkinFigures(bust, true).shown, stageSkinFigures(bust, true).framing], [false, true, undefined])
 })
 
-test('a very short figure under the default camera is drawn at the ruler\'s own framing', () => {
+test('a very short figure shares the cast camera instead of changing its own zoom', () => {
   const base = {W: 1920, H: 1080, boxTop: 820, hMax: 158, groundRatio: 1, cast: ['tall', 'tiny'], priority: ['tall']}
   const bodies = {tall: {cm: 158, headRatio: 0.98, chinRatio: 0.82}, tiny: {cm: 60, headRatio: 0.98, chinRatio: 0.55}}
-  assert.deepEqual(layout({...base, bodies}).small, ['tiny'])
-  assert.deepEqual(layout({...base, bodies, framing: {scale: 1.6, top: 0.09}}).small, [], 'a skin\'s framing is kept')
-  assert.deepEqual(layout(base).small, [])
+  assert.deepEqual(layout({...base, bodies}), layout(base))
+  assert.equal(layout({...base, bodies, framing: {scale: 1.6, top: 0.09}}).fit, 1.6, 'a skin\'s framing is kept')
 })
 
 test('a pack figure stands on its head\'s centre', () => {

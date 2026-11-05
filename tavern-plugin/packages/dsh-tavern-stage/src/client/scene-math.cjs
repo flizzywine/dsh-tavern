@@ -551,9 +551,8 @@ function galFigureGone(entry) { return !entry.started || entry.alpha.v < 0.01 ||
 // Portrait (a phone: one figure by default): the skin's phone
 // cap (input.phone, phoneFigures, omitted = 1) - the first of the priority ranking, the speaker (on a narration page the
 // most recent speaker); the others wait off screen until they speak. Every drawn figure keeps the lone figure's size (the
-// width fit of one nominal body) and stands on the skin's slots for the drawn count. smallHeight / smallHeads: the
-// short-figure rescue below.
-const GAL_FIGURE_FIT = Object.freeze({ headShare: 0.155, bodyHeads: 2.2, maxOverlap: 0.3, minHeadPx: 72, feetBelow: 0.04, smallHeight: 0.9, smallHeads: 1 });
+// width fit of one nominal body) and stands on the skin's slots for the drawn count.
+const GAL_FIGURE_FIT = Object.freeze({ headShare: 0.155, bodyHeads: 2.2, maxOverlap: 0.3, minHeadPx: 72, feetBelow: 0.04 });
 // The camera when the skin declares no figures.scale / top (built-in themes too): the tallest figure's head top at 8.5%
 // of H, its head about 26% of H, the frame cutting just below the upper thighs - the galgame / ADV close framing.
 // The ruler's own (scale 1, head top 13%, head 19%) showed the knees and read as distant.
@@ -577,14 +576,9 @@ function galSlots(count, skinSlots) {
 }
 // { W, H, boxTop, hMax, groundRatio, cast: ids in stage order, priority: ids, most important first,
 //   crops: { id: share of the head-to-feet span missing below the picture }, slots: the skin's figureSlots,
-//   max: the skin's maxFigures, phone: its phoneFigures (portrait cap, omitted = 1), framing: the skin's figures {scale, top},
-//   bodies: { id: { cm: height, headRatio, chinRatio: head top / chin to feet in display heights (pack anatomy) } } }
-// -> { count, fit, drop, top (head line px), framed, head (shown head span px), x: { id: 0..1 }, visible: ids in stage order,
-//      small: ids drawn at the ruler's own size (the short-figure rescue) }
-// Short-figure rescue (a very short figure, e.g. a mascot): under the default camera a figure
-// shorter than smallHeight of the tallest present whose box line would leave less than smallHeads of its own head below
-// its chin (head and shoulders only) is drawn as the ruler frames it (scale 1, head line HEAD_TOP - the knee-up
-// framing), so a small figure whose whole body fits stands on the box again (the full-body ledge).
+//   max: the skin's maxFigures, phone: its phoneFigures (portrait cap, omitted = 1), framing: the skin's figures {scale, top} }
+// -> { count, fit, drop, top (head line px), framed, head (shown head span px), x: { id: 0..1 }, visible: ids in stage order }
+// One framing for the whole cast; face visibility is handled by the renderer's existing lift, not a per-figure zoom.
 // The skin's maxFigures  and the viewport are one cap - the smaller wins - and
 // one rule picks who stays: the priority ranking. Size and drop are the viewport fit of the drawn count; the scene ruler
 // (hMax) stays the whole present cast's, so a hidden tall figure still sets the head line.
@@ -629,17 +623,8 @@ function galFigureLayout(input) {
     const drop = Math.min(framedGround - fitGround, Math.max(0, input.boxTop + H * c.feetBelow + crop * (fitGround - top) - fitGround));
     const slots = galSlots(visible.length, input.slots);
     visible.forEach((id, i) => { x[id] = slots[i]; });
-    const framed = framing?.scale != null || framing?.top != null || ruler != null, small = [];
-    if (!framed && zoom * fit > 1 && input.bodies) {
-        const feet = fitGround + drop, perCm = figurePixelsPerCm(H, hMax) * zoom * fit;
-        for (const id of visible) {
-            const body = input.bodies[id];
-            if (!body || !(body.cm < hMax * c.smallHeight)) continue;
-            const px = figureDisplayCm(body.cm, hMax) * perCm, crown = feet - px * body.headRatio, chin = feet - px * body.chinRatio;
-            if (input.boxTop - chin < (chin - crown) * c.smallHeads) small.push(id);
-        }
-    }
-    return { count: visible.length, fit: fit * zoom, drop, top, framed, ...(ruler != null ? { ruler, shrunk: fit < 1 } : null), ...(framing?.spread != null ? { spread: framing.spread } : null), head: head * zoom * fit, x, visible, small };
+    const framed = framing?.scale != null || framing?.top != null || ruler != null;
+    return { count: visible.length, fit: fit * zoom, drop, top, framed, ...(ruler != null ? { ruler, shrunk: fit < 1 } : null), ...(framing?.spread != null ? { spread: framing.spread } : null), head: head * zoom * fit, x, visible };
 }
 // a performance's speaker shot on a W x H
 // stage. shot = {head: [centre x, top, height] (stage fractions), roll (degrees, counter-clockwise)} for the subject's side.
