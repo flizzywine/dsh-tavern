@@ -2333,6 +2333,7 @@ export async function apply(ctx) {
   const taskPolicy = input => backgroundTaskPolicies.get(input?.task) || {}
   const frozenContext = input => taskPolicy(input).frozenContext?.(input) || null
   const backgroundAgentRunner = createBackgroundAgentRunner({
+    allowRun: async input => (await pluginApi.hostBehavior.forGame(input.sessionId)).backgroundAgents,
     retirement: backgroundRetirement,
     onRunFinished: run => { try { storyEvents.emit('task-finished', run) } catch (error) { console.warn('dsh-tavern: 任务完成通知失败', str(error?.message || error)) } },
     // The browser's session list keeps a disposed subagent as an idle row until the list is
@@ -3141,7 +3142,7 @@ export async function apply(ctx) {
   })
   // 自动生成候选项: fed by live turn ends only, submitting through candidateTasks like the button.
   const autoChoices = createAutoChoices({
-    enabled: async chat => !!chat && effectiveAutoChoices(await cardStageExtension(chat.cardPath), (await readTavernSettings()).candidateAutoGenerate),
+    enabled: async chat => !!chat && (await pluginApi.hostBehavior.forGame(chat.sessionId)).backgroundAgents && effectiveAutoChoices(await cardStageExtension(chat.cardPath), (await readTavernSettings()).candidateAutoGenerate),
     async read(sessionId) {
       const chat = await chatForSession(sessionId)
       const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
@@ -3217,6 +3218,7 @@ export async function apply(ctx) {
     pluginApi, readPendingTurn: gameId => pluginTurns.readPendingTurn(gameId) })
   const plainSettlementEngine = createPlainSettlementEngine({ pluginApi, pluginSettlementProgress, settlementItems, backgroundModelSelection, postureItem, backgroundAgentRunner, agentRegistry, sessionStore })
   const settlementRun = createSettlementRun({
+    backgroundAgentRunner,
     backgroundTasks, chatPersistence, readChat, writeChat, readChatCard, taskStateReader, worldBookScanDepth,
     mvuSettlementEngine, plainSettlementEngine, pluginApi, pluginSettlementProgress, agentRegistry, storyEvents
   })

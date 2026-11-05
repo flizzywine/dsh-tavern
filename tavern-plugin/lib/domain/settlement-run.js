@@ -35,6 +35,15 @@ export function createSettlementRun(deps) {
       const trace = { sessionId: str(taskRun.participantRequest.sessionId), boundary: null }
       try {
         signal?.throwIfAborted()
+        if (deps.pluginApi?.hostBehavior && !(await deps.pluginApi.hostBehavior.forGame(snapshot.sessionId)).backgroundAgents) {
+          const completed = await taskRun.commit({ stateChanged: false, headerFields: SETTLEMENT_HEADER_FIELDS,
+            apply(draft) {
+              draft.settleStatus = 'done'; draft.settleError = null
+              draft.lastSettle = { ts: Date.now(), posture: false, raw: '', skipped: 'plugin-host-behavior' }
+            } })
+          if (completed.status === 'stale') continue
+          return
+        }
         const card = await readChatCard(snapshot)
         signal?.throwIfAborted()
         const engine = await runSettlementEngine({ snapshot, taskRun, card, signal, trace })
@@ -116,6 +125,12 @@ export function createSettlementRun(deps) {
     const { backgroundTasks, pluginApi, pluginSettlementProgress, taskStateReader } = deps
     const state = await taskStateReader.read(chatId).catch(() => null)
     const gameId = str(state?.sessionId)
+    if (gameId && pluginApi.hostBehavior && !(await pluginApi.hostBehavior.forGame(gameId)).backgroundAgents) {
+      deps.backgroundAgentRunner?.cancel(gameId)
+      await deps.backgroundAgentRunner?.releaseFor(gameId)
+      await runSettlement(chatId, signal)
+      return
+    }
     const onStart = label => pluginSettlementProgress.begin(gameId, label)
     const activity = state ? backgroundTasks.activity(state) : null
     const turnPending = () => Boolean(gameId) && activity?.role === 'settlement' && ['pending', 'running'].includes(activity.phase)
@@ -149,6 +164,7 @@ export function createSettlementRun(deps) {
     const { agentRegistry, backgroundTasks, pluginApi, pluginSettlementProgress, taskStateReader } = deps
     const chat = await taskStateReader.forSession(str(sessionId))
     if (!chat || !['story', 'script'].includes(chat.mode)) throw new Error('当前没有游玩对话')
+    if (pluginApi.hostBehavior && !(await pluginApi.hostBehavior.forGame(chat.sessionId)).backgroundAgents) throw new Error('本局插件已关闭后台任务，请使用前台对话')
     if (agentRegistry.get(chat.sessionId)?.phase?.kind === 'running' || chat.regenInProgress) throw new Error('请等待正文生成完成后再运行插件任务')
     if (pluginTaskJobs.has(chat.id)) throw new Error('已有插件任务在运行，请等它完成')
     await pluginApi.manualTaskFor(chat.sessionId, key, input)
