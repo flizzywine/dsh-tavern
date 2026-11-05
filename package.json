@@ -2,6 +2,8 @@
   "name": "dsh-profile-tavern",
   "version": "3.2.0",
   "scripts": {
+    "build:website": "node bin/build-website.mjs",
+    "wiki:references": "node bin/sync-wiki-references.mjs",
     "sync:desktop": "node bin/dev-sync-desktop.mjs",
     "build:client": "node bin/build-image-client.mjs && node bin/build-tavern-client.mjs",
     "check:client": "node bin/build-image-client.mjs --check && node bin/build-tavern-client.mjs --check",

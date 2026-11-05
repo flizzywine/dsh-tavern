@@ -17,6 +17,9 @@ docs export-ignore
 /.github export-ignore
 /claude export-ignore
 /scripts export-ignore
+/website export-ignore
+/bin/build-website.mjs export-ignore
+/bin/sync-wiki-references.mjs export-ignore
 # android/ is required by setup.sh when installing from a source archive.
 /CONTEXT.md export-ignore
 /DESIGN.md export-ignore

@@ -44,8 +44,11 @@ test('旧完整压缩包的 Unix 兜底解压也排除文档图片', { skip: pro
 
 test('README 引用的本地图片均在排除范围内，Windows 只清理临时解压目录', () => {
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
-  const images = [...readme.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map(match => match[1]).filter(url => !/^https?:/.test(url))
-  assert.ok(images.length > 20)
+  const images = [
+    ...[...readme.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map(match => match[1]),
+    ...[...readme.matchAll(/<img[^>]+src="([^"]+)"/g)].map(match => match[1]),
+  ].filter(url => !/^https?:/.test(url))
+  assert.ok(images.length > 0)
   assert.ok(images.every(file => file.startsWith('docs/')))
   assert.match(windows, /Get-ChildItem -LiteralPath \$ExtractDir -Directory -Recurse -Filter 'docs'/)
   assert.ok(windows.indexOf("-Filter 'docs'") < windows.indexOf('Get-ChildItem -LiteralPath $SourceDir.FullName -Force | Copy-Item'))

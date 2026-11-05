@@ -11,126 +11,7 @@
 
 **基于 DSH（DeepSeek Harness）的 Agent 酒馆。兼容 SillyTavern 生态，人物卡导入就能玩。**
 
-更快 · 更稳 · 更鲜活 · 所有模型都能用 · 手机也能玩
-
-[![观看 3 分钟实机演示：兼容酒馆生态，更快、更稳、更鲜活](docs/images/readme/promo-video.jpg)](https://www.bilibili.com/video/BV1MHaU6NE7S/)
-
-[下载安装](#快速开始) · [使用文档](https://github.com/flizzywine/dsh-tavern/wiki) · [宣传视频](https://www.bilibili.com/video/BV1MHaU6NE7S/) · [Discord 交流群](https://discord.gg/hYAEjKnpra)
-
-- **兼容 SillyTavern 生态**：人物卡、世界书、预设、正则美化、MVU、酒馆助手脚本，导入就能用。
-- **更快**：一轮约 10 秒，缓存命中率 95% 以上。
-- **更稳**：状态栏不再掉格式。变量由后台按规则结算，每轮附更新结果，失败可单独重试；更新与重装都保留数据。
-- **更鲜活**：同样的模型、同样的预设，比原版酒馆更有活人感。因为前台模型只管写正文，变量结算等任务性工作交给后台模型。
-- **手机也能玩**：Android 手机直接安装；电脑上运行的酒馆，手机扫码就能远程游玩。
-
-## SillyTavern vs DSH Tavern
-
-|           | SillyTavern                               | DSH Tavern                                                                                                  |
-| --------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| **上手门槛**  | ❌ 要自己配预设、正则、扩展，学习门槛高                      | ✅ 填好模型、导入人物卡就能玩，默认无需外部预设                                                                                    |
-| **工作方式**  | ❌ 一口气：一个模型在一次请求里完成所有事                     | ✅ 分步：正文、变量结算、候选项各自完成                                                                                        |
-| 出错重来      | ❌ 整轮重新生成，满意的部分也一起丢掉                       | ✅ 哪步出错重来哪步，正文和候选还能附上指导意见                                                                                    |
-| 正文        | ❌ 写正文的同时要记住各种格式要求，注意力被分散                  | ✅ 前台专心写正文                                                                                                   |
-| 状态栏       | ❌ 每一轮都要求模型重新输出状态栏，写长了容易掉格式                | ✅ 状态栏固化：MVU 版由固定模板按变量显示，不再由模型输出，绝对不会掉格式                                                                     |
-| 候选项       | ❌ 写正文的同时还要兼顾生成候选项，注意力涣散，还可能掉格式            | ✅ 和正文任务拆分，专注生成候选项；通过工具提交并校验，显示在固定面板，绝对不会掉格式                                                                 |
-| **剧情规划**  | ❌ 没有剧情规划，走向全靠模型临场发挥                       | ✅ 多种方式规划剧情：<br>① 剧本模式，沿剧本主线发展<br>② 注入 Guide，临时规划剧情走向<br>③ 候选项自动规划下一步，避免剧情停滞                                 |
-| **记忆**    | ❌ 靠压缩总结提前猜测需要什么记忆，提前注入，难以预测真实需求           | ✅ 内置记忆检索工具，需要什么记忆，Agent 自行检索原文                                                                              |
-| 缓存与速度     | ❌ 未考虑缓存利用：世界书条目内容一变化，缓存就失效                | ✅ 缓存命中率 95% 以上，一轮约 10 秒                                                                                     |
-| 写作方法      | ❌ 写进预设，每轮常驻提示词                            | ✅ 写成 Skill，按场景调用                                                                                            |
-| **边玩边改卡** | ❌ 想排错或按喜好调整，都要自己翻人物卡、世界书、正则，逐项手改          | ✅ 边玩边改：<br>① 排查错误：有问题随时交给调试 Agent，结合实际游玩记录分析并修复<br>② 调整内容：用对话告诉 Agent 哪里不喜欢，按自己的口味微调                        |
-| **酒馆生态**  | ✅ 生态极其丰富：人物卡、世界书、预设、正则、MVU、酒馆助手脚本、大量第三方插件 | ✅ 兼容大部分人物卡（包括 MVU、正则、酒馆助手脚本、前端美化），世界书、预设可直接导入<br>⚠️ 不支持安装酒馆插件（DSH 插件可以装），但内置了酒馆助手、MVU、提示词模板等重要插件，足以支撑大部分人物卡 |
-
-## 产品特色
-
-### 剧本模式
-
-导入小说、剧本或大纲，绑定到人物卡，就能走进原作亲历主线。剧本定方向和关键事件，你决定人物怎么走到那里，随时可以偏离。剧本按片段读取，再长的小说也不用整本塞进上下文。[了解更多 →](https://github.com/flizzywine/dsh-tavern/wiki/%E7%BB%91%E5%AE%9A%E5%89%A7%E6%9C%AC%E5%90%8E%E5%BC%80%E5%A7%8B%E6%B8%B8%E6%88%8F)
-
-![剧本模式：正文沿剧本推进，右侧显示剧本进度与当前片段](docs/images/readme/script-mode.png)
-
-### 长期记忆
-
-每轮正文完整保存，Agent 需要时自己回查原文，不靠摘要硬记；配合上下文压缩，玩到几百层仍能记起开局的细节。[了解更多 →](https://github.com/flizzywine/dsh-tavern/wiki/%E6%8C%89%E9%9C%80%E6%89%BE%E5%9B%9E%E5%8E%86%E5%8F%B2%E7%BB%86%E8%8A%82)
-
-### 对话式修改人物卡
-
-不用懂卡片字段，告诉 Agent 哪里不喜欢、想改成什么样，它先给方案，你确认后才写入。也能从小说里提取人物做新卡，或用同样方式修改世界书和预设。[了解更多 →](https://github.com/flizzywine/dsh-tavern/wiki/%E4%BF%AE%E6%94%B9%E4%BA%BA%E7%89%A9%E5%8D%A1%E4%B8%AD%E4%B8%8D%E5%96%9C%E6%AC%A2%E7%9A%84%E5%86%85%E5%AE%B9)
-
-![卡片模式：与 Agent 对话修改人物卡，右侧为人物卡字段](docs/images/readme/card-editor.png)
-
-### 人物卡转 MVU 版，状态栏不再掉格式
-
-正文里的状态栏老是掉格式？让 Agent 把人物卡转成 MVU 版：前台只写正文，变量由后台按规则结算，状态栏常驻右侧，原卡图片和设定都保留。[了解更多 →](https://github.com/flizzywine/dsh-tavern/wiki/%E7%8A%B6%E6%80%81%E6%A0%8F%E6%8E%89%E6%A0%BC%E5%BC%8F%E6%97%B6%EF%BC%8C%E8%BD%AC%E6%8D%A2%E4%B8%BA-MVU-%E7%89%88)
-
-### 自助调试 Agent
-
-正则没生效、美化显示不对、状态栏没更新？在右侧展开「遇到显示或生成问题？」，点「交给卡片 Agent 调试」，Agent 会读取这局的实际游玩记录和日志，分析原因并修改相关资源，不用自己翻配置猜问题。[了解更多 →](https://github.com/flizzywine/dsh-tavern/wiki/%E6%8A%8A%E6%B8%B8%E7%8E%A9%E9%97%AE%E9%A2%98%E4%BA%A4%E7%BB%99-Agent-%E8%B0%83%E8%AF%95)
-
-### Guide：给这一局注入上下文指引
-
-想要的写法、节奏或剧情走向写成一条 Guide，比如“多写心理活动，对白不超过三句”“好感度涨得慢一点”。它会注入上下文，之后每轮正文、候选和变量结算都会参考，不用每次重复。[了解更多 →](https://github.com/flizzywine/dsh-tavern/wiki/%E6%8C%81%E7%BB%AD-Guide)
-
-### 带意见重写
-
-不满意这轮回复，写上哪里要改，比如“保留事件，但减少旁白解释”，只重写这一轮，比反复抽卡更可控。[了解更多 →](https://github.com/flizzywine/dsh-tavern/wiki/%E9%87%8D%E6%96%B0%E7%94%9F%E6%88%90%E5%BD%93%E5%89%8D%E6%AD%A3%E6%96%87)
-
-![带意见重写当前正文，右侧为本局 Guide](docs/images/readme/rewrite-body.png)
-
-### 后台人物设计
-
-重要人物登场时，后台为其设计完整档案：动机、性格、外貌、说话方式、与主角的关系，之后反复出场都按同一套设定来，不会前后走样。已有设定直接复用，不重复造人。[了解更多 →](https://github.com/flizzywine/dsh-tavern/wiki/%E4%BA%BA%E7%89%A9%E6%A1%A3%E6%A1%88%E8%AE%BE%E8%AE%A1)
-
-### 写作 Skill
-
-把写作教程或喜欢的样文交给 Agent，提炼成场景写作 Skill，比如打斗、悬疑、感情戏各有一套写法；游玩时模型按场景自动选用。[了解更多 →](https://github.com/flizzywine/dsh-tavern/wiki/%E5%88%9B%E5%BB%BA%E5%86%99%E4%BD%9C-Skill)
-
-### 支持插件生态
-
-插件分两类：
-
-**DSH 插件**：酒馆运行在 DSH 上，可以直接安装其他 DSH 插件一起使用，例如手机访问的 [dsh-pocket](https://github.com/shaobeichen/dsh-pocket)、远程登录认证的 [dsh-webui-auth](https://github.com/Yuuz12/dsh-webui-auth)、语音朗读插件等。缺什么能力，也可以让 Agent 帮你写一个自定义工具。[了解更多 →](https://github.com/flizzywine/dsh-tavern/wiki/%E5%AE%89%E8%A3%85%E9%85%92%E9%A6%86%E6%8F%92%E4%BB%B6)
-
-**DSH Tavern 专属插件**：为酒馆游玩专门开发的插件。社区已有：
-
-| 插件                                                                           | 作用                                 |
-| ---------------------------------------------------------------------------- | ---------------------------------- |
-| [dsh-tavern-image](https://github.com/weixinlll/dsh-tavern-image)            | 剧情自动配图，支持 ComfyUI、NovelAI、Gemini 等多平台，带人物库 |
-
-以上为社区作者开发，更多插件见 [Discord 交流群](https://discord.gg/hYAEjKnpra)的插件分享。
-
-## 看看实际效果
-
-**MVU 状态栏**：人物状态随剧情变化，正文下方可查看本轮更新了什么。
-
-![MVU 人物卡的变量更新结果与右侧酒馆状态栏](docs/images/readme/mvu-status-panel.png)
-
-**小手机**：带小手机的人物卡也能用。
-
-**场景插画**：为当前剧情配一张图。
-
-![公开灯塔案例的场景插画与完整产品界面](docs/images/readme/scene-image-product.png)
-
-## 卡片工作台
-
-**创造你自己的人物卡。**
-
-游玩模式兼容 SillyTavern 生态，导入人物卡就能玩；卡片工作台则把「写卡 / 改卡」做成对话式工作台——不会翻字段也能自己造卡、改卡，改完直接回游玩模式开玩。
-
-### 一句话改卡
-
-不用懂人物卡结构。告诉 Agent 哪里不喜欢、想改成什么样，它先给方案，你确认后再写入。预设、世界书也能用同样方式一起改，设定更容易绑在一起。
-
-### 从零创造人物卡
-
-从小说、设定，或一句想法出发，让 Agent 抽出人物、补全设定，做成能直接开玩的卡。自己写文字大卡也行：工作台能帮忙看出架构和人物设计矛盾，给出调整建议。
-
-### 改完就能玩
-
-卡片工作台和游玩模式是同一条产品线，不是两套工具。改完设定立刻回局里验证；游玩出了问题，也能把本局记录交给调试 Agent，边玩边修。
-
-![卡片模式：与 Agent 对话修改人物卡](docs/images/readme/card-editor.png)
-
-[了解如何用对话修改人物卡 →](https://github.com/flizzywine/dsh-tavern/wiki/%E4%BF%AE%E6%94%B9%E4%BA%BA%E7%89%A9%E5%8D%A1%E4%B8%AD%E4%B8%8D%E5%96%9C%E6%AC%A2%E7%9A%84%E5%86%85%E5%AE%B9)
+[产品网站（私人预览）](https://dsh-tavern.quiet-coot-6811.chatgpt.site) · [安装](#快速开始) · [Wiki 文档](https://github.com/flizzywine/dsh-tavern/wiki) · [Discord](https://discord.gg/hYAEjKnpra)
 
 ## 快速开始
 
@@ -153,17 +34,8 @@
 
 ### Android
 
-Android 上有两种跑法：装**独立 APK**，或在 **Termux** 里跑命令行版。**要性能就选 Termux 版** —— 两边都是同一个 Ubuntu 环境，但 Termux 版外面没有 App 壳、没有 WebView 常驻和前台服务那一层，占用更低、长时间跑更稳；APK 是拿这部分性能换掉了命令行门槛。
-
-| | **APK**（大多数人用这个） | **Termux 命令行版**（性能最好） |
-|---|---|---|
-| 做法 | 内置 DSHA 与 DSH，在 proot 容器里跑完整 Ubuntu | Termux + proot-distro Ubuntu，同一套命令行版 |
-| 装机 | 装 APK，按引导自动部署 | 装 Termux，粘一条命令 |
-| 多出来的开销 | App 壳、WebView 常驻与前台服务都在跑 | 只有 Termux 与容器本身，界面交给系统浏览器 |
-| 性能 | 同样负载下多一层应用开销，重负载更容易发热降频 | 占用更低、跑得更快 —— **两种方式里性能最好** |
-| 适合 | 不想碰命令行、要在应用内更新 | 追性能、自己掌控 Node 版本与数据目录、和电脑上的命令行版共用一套玩法 |
-
-**APK**（Android 11+ / ARM64）：[下载 DSH Tavern Android APK](https://github.com/flizzywine/dsh-tavern/releases/download/v3.1/dsh-tavern-android-release.apk)。它内置 DSHA v0.2.0-rc2 与 DSH 0.2.0-rc.2，只运行酒馆自己的 `tavern` Profile，手机上只有一个 DSH 服务，装完即用。首次按引导完成环境部署后自动安装并进入；酒馆更新在应用内完成。包名独立，可与旧版 v2.1 APK、原版 DSHA 并存，旧包数据需先导出再导入。详见 [Android 安装说明](https://github.com/flizzywine/dsh-tavern/wiki/Android-%E5%AE%89%E8%A3%85%E4%B8%8E%E6%9B%B4%E6%96%B0)。
+- **独立 APK**（Android 11+ / ARM64）：[下载 APK](https://github.com/flizzywine/dsh-tavern/releases/download/v3.1/dsh-tavern-android-release.apk)，按引导部署，后续在应用内更新。可与旧版 APK、原版 DSHA 并存；旧包数据需导出再导入。[安装说明 →](https://github.com/flizzywine/dsh-tavern/wiki/Android-%E5%AE%89%E8%A3%85%E4%B8%8E%E6%9B%B4%E6%96%B0)
+- **Termux**：占用更低，适合追求性能或自行管理运行环境的用户。
 
 **Termux**：不想装 APK、或想自己掌控运行环境，用一条命令装命令行版：
 
@@ -186,7 +58,7 @@ curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/scripts/
 
 ### 命令行版（Windows / macOS / Linux，用浏览器玩）
 
-不需要桌面版。命令行版自带一套独立的 DSH，和程序、游戏数据一起装在自己的目录里（默认 `~/.dsh-tavern`），**不会改动、也不会和你已经装好的 DSH 冲突**：桌面版、全局的 `dsh` 命令照常使用，两边互不影响，可以同时运行。需要 [Node.js 22.19+](https://nodejs.org/) 和 pnpm。
+需要 [Node.js 22.19+](https://nodejs.org/) 和 pnpm。自带独立 DSH，默认安装到 `~/.dsh-tavern`，与已有桌面版或全局 DSH 互不影响。
 
 Windows（PowerShell）：
 
@@ -202,27 +74,7 @@ curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-ma
 
 装好后用 `dsh-tavern start` 启动，按显示的地址在浏览器打开；`dsh-tavern stop` / `status` / `update` 停止、查看、更新。
 
-#### 在可信局域网 / VPN 内直接访问
-
-命令行版默认只监听 `127.0.0.1`。可用 `DSH_TAVERN_BIND` 指定**本机已有的具体 IP 地址**（示例地址需替换为电脑的局域网或 VPN 地址）：
-
-```sh
-DSH_TAVERN_BIND=192.168.1.10 dsh-tavern restart
-# IPv6 不加方括号；输出的访问链接会自动加上方括号
-DSH_TAVERN_BIND=fd00::1234 dsh-tavern restart
-```
-
-PowerShell：
-
-```powershell
-$env:DSH_TAVERN_BIND='192.168.1.10'; dsh-tavern restart
-```
-
-仅 CLI 生效，不改变桌面版 / Android 宿主。可与 `DSH_TAVERN_PORT` 一起使用；不支持通配地址（`0.0.0.0` / `::`）、域名、URL 或带作用域 ID 的 IPv6（如 `fe80::1%eth0`）。地址必须已分配给本机，否则启动失败，不会回退到其他网卡。
-
-`status`、`open`、重复 `start` 和 `stop` 使用进程记录里的实际地址，不需要重复设置变量。**每次新启动（包括 `restart`、更新后的重新启动）都读取当次环境变量**；希望持续使用同一地址，请在启动环境中保留它。取消变量后运行 `restart` 即恢复仅本机访问（PowerShell：`Remove-Item Env:DSH_TAVERN_BIND`）。旧版进程记录没有地址时仍按 `127.0.0.1` 处理。
-
-**安全：这个端口具有远程代码执行能力，token 是访问凭证。** 仅在可信内网或 VPN 使用，不要直接暴露到公网，不要分享完整 token 链接；普通 HTTP 不加密，跨不可信网络应使用可信加密 VPN。此配置不会关闭鉴权，也不会自动更改防火墙、路由或 VPN。其他设备应打开启动输出中的完整地址。如果启用了 Node 环境代理（`NODE_USE_ENV_PROXY=1`），请把绑定地址加入 `NO_PROXY`（IPv6 的 URL 主机为 `[地址]`），避免自检及带 token 的链接验证经过代理；工具不会替你修改代理配置。
+局域网 / VPN 绑定与安全要求见[命令行远程访问文档](https://github.com/flizzywine/dsh-tavern/wiki/命令行版：局域网与VPN访问)。
 
 ### 手机远程访问
 
@@ -235,14 +87,10 @@ $env:DSH_TAVERN_BIND='192.168.1.10'; dsh-tavern restart
 
 在 **设置 → 模型** 填入模型服务和 API 密钥（任意模型都可以，本地模型也行），导入人物卡就能开局。[图文教程 →](https://github.com/flizzywine/dsh-tavern/wiki/%E5%AE%89%E8%A3%85%E4%B8%8E%E5%90%AF%E5%8A%A8#user-content-a02--section-5)
 
-**导出人物卡：**人物卡详情或「舞台设置 › 素材包」里的「导出」打开导出表：这张卡用到的素材包逐个列出大小，勾选的随卡打进 `.dshcard`（本卡自己的包默认勾选，通用包默认不勾，没勾的包也不再绑定到导出的卡）；勾选包里的人物可以取消，例如你自己扮演的角色。
+### 更新与数据
 
-**加密人物卡：**导入 `.dshcard`、`.charx`、普通 `.png` 或 `.json` 后，打开人物卡详情，点击「加密导出」，输入一次明文密码，即可下载当前卡片的加密 `.dshcard`。封面、插件和素材均保存在包内，封面在解锁导入后展示。导入普通卡不询问密码；导入加密卡弹出明文密码框，输错可重试，取消不会导入。导入成功后卡片已解锁，普通「导出」生成无密码卡包，无需单独解密；再次「加密导出」只为新文件设置密码，不嵌套加密，也不修改之前下载的文件。使用标准 AES-256 ZIP，无需安装外部解压程序。中文密码可在 Tavern 中使用；需要与 7-Zip 等工具互通时建议使用英文、数字和符号组合。
-
-### 更新、旧存档与切回原版
-
-- 在酒馆里点「检查更新」即可更新，也可以重新运行上面的安装命令；只替换程序，人物卡、聊天和设置都会保留。
-- 旧版本的存档：打开后在「酒馆状态」里点「迁移存档」。正文、变量、分支和历史版本都会保留。迁移后的数据目录不要再让旧宿主直接读取。
+- 点击「检查更新」或重跑安装命令，人物卡、聊天和设置都会保留。
+- 旧存档：在「酒馆状态」点击「迁移存档」，保留正文、变量、分支和历史版本；迁移后勿用旧宿主读取该目录。
 - 桌面版切回原版 DSH：设置 → 原版DSH → 切到原版 DSH 并重启。之后在原版 DSH 的设置 → DSH酒馆，就能切回酒馆。不要删除 `.dsh/backups` 和 `profiles/desktop.fresh-*`。细节见[桥接插件说明](tavern-plugin/packages/dsh-profile-bridge/README.md)。
 - 旧酒馆在自定义目录、需要继承数据时，见[数据继承说明](https://github.com/flizzywine/dsh-tavern/wiki/%E4%BB%8E%E6%97%A7%E9%85%92%E9%A6%86%E7%BB%A7%E6%89%BF%E6%95%B0%E6%8D%AE%EF%BC%88%E6%B5%8B%E8%AF%95%E7%89%88%EF%BC%89)。
 
@@ -256,65 +104,12 @@ $env:DSH_TAVERN_BIND='192.168.1.10'; dsh-tavern restart
 
 反馈故障时，可从对话顶部的“日志”下载执行记录；分享前请检查其中的对话和附件隐私。
 
-## 用户怎么说
-
-[![用户反馈：同样预设下比酒馆更有活人感，速度也更快](docs/images/readme/testimonials/more-alive-and-faster.jpg)](docs/images/readme/testimonials/more-alive-and-faster.jpg)
-
-[![用户反馈：游玩五六百层后，仍能记起开局物品的来历](docs/images/readme/testimonials/long-chat-memory.jpg)](docs/images/readme/testimonials/long-chat-memory.jpg)
-
-[![用户反馈：长局 184 轮仍保持 99% 缓存命中与 272 tok/s](docs/images/readme/testimonials/long-session-cache-hit.png)](docs/images/readme/testimonials/long-session-cache-hit.png)
-
-[![用户反馈：会主动推进剧情，引入新角色和新事件](docs/images/readme/testimonials/proactive-story.webp)](docs/images/readme/testimonials/proactive-story.webp)
-
-<details>
-<summary>更多用户反馈</summary>
-
-[![用户反馈：使用本地 27B 模型，体验非常良好](docs/images/readme/testimonials/local-27b.webp)](docs/images/readme/testimonials/local-27b.webp)
-
-[![用户分享缓存命中率与几十轮游玩的实际花费](docs/images/readme/testimonials/cache-and-cost.webp)](docs/images/readme/testimonials/cache-and-cost.webp)
-
-[![关于默认预设、回复速度与 Guide 剧情引导的反馈](docs/images/readme/testimonials/default-preset-and-guide.jpg)](docs/images/readme/testimonials/default-preset-and-guide.jpg)
-
-[![关于使用体验的反馈](docs/images/readme/testimonials/ease-of-use.webp)](docs/images/readme/testimonials/ease-of-use.webp)
-
-[![关于记忆系统的反馈](docs/images/readme/testimonials/memory-feedback.webp)](docs/images/readme/testimonials/memory-feedback.webp)
-
-[![用户聊天反馈](docs/images/readme/testimonials/chat-feedback.webp)](docs/images/readme/testimonials/chat-feedback.webp)
-
-[![关于文笔的反馈](docs/images/readme/testimonials/writing-feedback.webp)](docs/images/readme/testimonials/writing-feedback.webp)
-
-[![社区用户对插件的反馈](docs/images/readme/testimonials/plugin-feedback.webp)](docs/images/readme/testimonials/plugin-feedback.webp)
-
-[![用户对整体使用体验的评价与稳定版适配的询问](docs/images/readme/testimonials/overall-experience.webp)](docs/images/readme/testimonials/overall-experience.webp)
-
-[![用户反馈：缓存命中率高](docs/images/readme/testimonials/cache-hit-feedback.webp)](docs/images/readme/testimonials/cache-hit-feedback.webp)
-
-[![用户反馈：MVU 体验不错，喜欢按要求重新生成文本的功能](docs/images/readme/testimonials/mvu-and-rewrite.webp)](docs/images/readme/testimonials/mvu-and-rewrite.webp)
-
-[![用户反馈：回复速度快，十几秒即可收到回复](docs/images/readme/testimonials/reply-speed.webp)](docs/images/readme/testimonials/reply-speed.webp)
-
-[![用户反馈：特别好用，游玩体验更好](docs/images/readme/testimonials/play-experience.png)](docs/images/readme/testimonials/play-experience.png)
-
-[![用户反馈：Agent 写作的输出质量更高](docs/images/readme/testimonials/agent-writing-quality.png)](docs/images/readme/testimonials/agent-writing-quality.png)
-
-[![用户反馈：修改角色卡像给游戏装 MOD，改卡本身也很有趣](docs/images/readme/testimonials/character-card-editing.jpg)](docs/images/readme/testimonials/character-card-editing.jpg)
-
-[![用户反馈：世界书和角色卡调整方便，与 DSH 语音阅读插件兼容良好](docs/images/readme/testimonials/setup-and-plugin-compatibility.jpg)](docs/images/readme/testimonials/setup-and-plugin-compatibility.jpg)
-
-[![用户反馈：AI 修改内容方便，变量更新稳定，轻前端游玩体验不错](docs/images/readme/testimonials/ai-editing-and-variable-stability.jpg)](docs/images/readme/testimonials/ai-editing-and-variable-stability.jpg)
-
-</details>
-
 ## 参与贡献
 
-本机开发后运行 `node bin/dev-sync-desktop.mjs`（或 `pnpm sync:desktop`），构建客户端并将当前工作区代码直接复制到已安装的桌面版酒馆，包含未提交修改；保留依赖和存档，完成后重启桌面版生效。
-
-开发测试可直接复用官方桌面版 DSH，无需另装测试运行时。非默认安装位置可在仓库的 `.dsh-tavern-local.json` 中增加 `"testDesktopExecutable": "D:/Program Files/DSH/DeepSeek Harness.exe"`（保留其他已有字段；本机配置不提交），或设置环境变量 `DSH_DESKTOP_APP_EXECUTABLE`。
-
-使用 `node bin/test-tavern.mjs tests/<相关>.test.mjs` 运行相关测试。入口会显示实际 DSH 版本与路径，直接读取桌面版内置包，子进程也使用同一份依赖；不会解包、下载或修改 DSH。桌面升级后先跑相关测试，不兼容时明确失败。显式设置 `DSH_BOOT_MODULE` 仍可选择独立运行时；准备只保留桌面版时，应取消这个旧路径覆盖。未指定桌面路径时会尝试常见安装位置，再使用已有 CLI；指定路径失效时不会悄悄切换版本。
+开发同步：`pnpm sync:desktop`；相关测试：`node bin/test-tavern.mjs tests/<相关>.test.mjs`。配置与注意事项见[本机开发与测试](https://github.com/flizzywine/dsh-tavern/wiki/本机开发与测试)。
 
 欢迎各种 PR：完善文档、写小白教程、给配置项改名、折叠复杂设置，或改进其他使用体验。当前功能繁多，特别欢迎简化、合并和删除功能的意见。
 
 Issue 只用于 Bug 反馈。大功能或行为调整请先到 [Discord 交流群](https://discord.gg/hYAEjKnpra) 讨论，确定方案后再提交 PR。
 
-文档统一在 [GitHub Wiki](https://github.com/flizzywine/dsh-tavern/wiki) 维护，登录 GitHub 后可直接点击 Edit 修改或新增页面，无需提交文档 PR。
+使用教程在 [Wiki](https://github.com/flizzywine/dsh-tavern/wiki) 维护；功能参数与规则引用 [Skill 参考文件](https://github.com/flizzywine/dsh-tavern/wiki/Skill-参考文档)，避免重复维护。

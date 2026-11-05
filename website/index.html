@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#131d19">
+  <meta name="description" content="DSH Tavern：兼容 SillyTavern 生态的 Agent 酒馆。走进剧本，让故事记住你，用对话创造人物卡，再把文字变成舞台。">
+  <title>DSH Tavern · 故事，由你入局</title>
+  <link rel="icon" href="assets/brand/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到正文</a>
+  <header class="header">
+    <a class="brand" href="#" aria-label="DSH Tavern 首页"><img src="assets/brand/dsh-tavern-lockup-on-dark.svg" alt="DSH 酒馆" width="164" height="44"></a>
+    <nav aria-label="主导航"><a href="#stories">游玩</a><a href="#workshop">创作</a><a href="#stage">演出</a><a href="https://github.com/flizzywine/dsh-tavern/wiki">文档 ↗</a></nav>
+    <a class="nav-install" href="https://github.com/flizzywine/dsh-tavern#快速开始">安装酒馆 <span>↗</span></a>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="live-dot"></span> DSH TAVERN / AGENT 驱动的故事游乐场</p>
+        <h1>故事，<br>由你<span class="ink">入局。</span></h1>
+        <p class="lead">带上喜欢的人物卡，走进另一种人生。<br>让角色鲜活，让故事记住你，让想象有声有色。</p>
+        <div class="actions"><a class="button primary" href="https://github.com/flizzywine/dsh-tavern#快速开始">开始你的故事 <span>↗</span></a><a class="text-link" href="https://www.bilibili.com/video/BV1MHaU6NE7S/">▷ 看 3 分钟实机</a></div>
+        <p class="hero-note">开源免费 · 兼容酒馆人物卡 · 桌面 / Android / 浏览器</p>
+      </div>
+      <div class="hero-art" aria-label="产品实机画面">
+        <span class="orbit orbit-one"></span><span class="orbit orbit-two"></span>
+        <div class="art-index">THE NEXT CHAPTER<br><b>IS YOURS.</b></div>
+        <figure class="hero-screen"><div class="window-bar"><i></i><i></i><i></i><span>DSH Tavern / 游玩实机</span></div><img src="assets/screens/script-mode.png" alt="酒馆实机：正文沿剧本展开，右侧显示剧本进度" width="1440" height="900" fetchpriority="high"></figure>
+        <div class="art-stamp">导入人物卡<br><strong>就能开玩 ↗</strong></div>
+      </div>
+      <a href="#stories" class="scroll-hint">向下，翻开下一页 <span>↓</span></a>
+    </section>
+
+    <div class="compat-strip"><div class="wrap"><span>熟悉的酒馆生态，全新的玩法</span><p>人物卡 <b>✦</b> 世界书 <b>✦</b> 预设 <b>✦</b> 正则美化 <b>✦</b> MVU <b>✦</b> 酒馆助手脚本</p></div></div>
+
+    <section id="stories" class="section wrap">
+      <div class="section-heading"><p class="eyebrow">01 / PLAY</p><h2>不只接话。<br>和你一起，把故事走下去。</h2><p>正文、变量、行动候选各司其职。前台专心写故事，后台照顾世界的运转。</p></div>
+      <div class="showcase">
+        <div class="feature-tabs" role="tablist" aria-label="游玩功能" aria-orientation="vertical">
+          <button type="button" role="tab" id="tab-script" aria-selected="true" aria-controls="play-panel" data-feature="script"><span>01</span><div><h3>走进你喜欢的剧本</h3><p>小说、剧本、大纲，变成可以亲历的主线。沿着原作，也能走出自己的支线。</p></div><b>↗</b></button>
+          <button type="button" role="tab" id="tab-memory" aria-selected="false" aria-controls="play-panel" data-feature="memory" tabindex="-1"><span>02</span><div><h3>让漫长的故事记住你</h3><p>历史原文完整保存，需要时主动回查。开局埋下的伏笔，留给后来的重逢。</p></div><b>↗</b></button>
+          <button type="button" role="tab" id="tab-guide" aria-selected="false" aria-controls="play-panel" data-feature="guide" tabindex="-1"><span>03</span><div><h3>这段故事，按你的口味</h3><p>用 Guide 定下写法和走向。不喜欢这一轮？带上意见，只重写这一段。</p></div><b>↗</b></button>
+          <button type="button" role="tab" id="tab-state" aria-selected="false" aria-controls="play-panel" data-feature="state" tabindex="-1"><span>04</span><div><h3>世界在幕后，照常运转</h3><p>后台按规则结算变量，MVU 状态栏按模板显示。哪步失败，就单独重试哪步。</p></div><b>↗</b></button>
+        </div>
+        <div class="feature-preview" id="play-panel" role="tabpanel" aria-labelledby="tab-script" tabindex="0">
+          <div class="preview-top"><span id="preview-kicker">剧本模式 / 实机画面</span><span class="tiny-dot"></span></div>
+          <img id="preview-image" src="assets/screens/script-mode.png" alt="剧本进度和当前片段与正文并排显示" width="1440" height="900" loading="lazy">
+          <div class="preview-caption"><p id="preview-caption">有主线，也有你的选择。</p><a id="preview-doc" href="https://github.com/flizzywine/dsh-tavern/wiki/绑定剧本后开始游戏">阅读使用文档 ↗</a></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="workshop" class="workshop section">
+      <div class="wrap workshop-grid"><div><p class="eyebrow">02 / CREATE</p><h2>你的想法，<br>就是改卡的起点。</h2><p class="section-text">不用先学会一整套字段。用对话告诉 Agent，你想创造怎样的人，或把哪里改得更合心意。</p><ul class="editorial-list"><li><span>从零写卡</span>从小说、设定或一句灵感，开始塑造人物。</li><li><span>边玩边改</span>人物卡、世界书、预设，一起调整。</li><li><span>自助调试</span>把本局记录交给 Agent，定位卡片问题。</li></ul><a class="text-link" href="https://github.com/flizzywine/dsh-tavern/wiki/修改人物卡中不喜欢的内容">看看工作台怎么用 ↗</a></div>
+      <div class="workshop-visual"><span class="margin-note">MAKE IT YOURS.</span><figure><img src="assets/screens/card-editor.png" alt="卡片工作台：左侧和 Agent 对话，右侧检查人物卡字段" width="1440" height="900" loading="lazy"><figcaption>卡片工作台 / 实机画面</figcaption></figure><div class="quote-note"><span>你可以这样说 · 示例</span><p>“保留她的傲气，<br>但让她更不擅长掩饰关心。”</p></div></div></div>
+    </section>
+
+    <section id="stage" class="section wrap stage-section">
+      <div class="section-heading"><p class="eyebrow">03 / ON STAGE</p><h2>把文字，<br>变成有声有色的世界。</h2><p>背景、人物、音乐与声音，让一张卡拥有自己的演出。</p></div>
+      <div class="stage-composition"><figure><img src="assets/screens/scene-image-product.png" alt="实机展示：当前剧情的场景插画和完整游玩界面" width="1440" height="900" loading="lazy"><figcaption>场景插画 / 实机画面</figcaption></figure><div class="stage-label">WORDS<br>COME<br><em>ALIVE.</em></div></div>
+      <div class="stage-features"><article><span>Ⅰ</span><h3>人物登台</h3><p>立绘、服装差分、Live2D / Spine，让人物拥有自己的形象。</p><a href="https://github.com/flizzywine/dsh-tavern/blob/main/presets/tavern/skills/figure-assets/references/figure-fields.md">人物与形象 ↗</a></article><article><span>Ⅱ</span><h3>导演就位</h3><p>编排背景、人物站位、BGM 与演出，让画面跟上故事。</p><a href="https://github.com/flizzywine/dsh-tavern/blob/main/presets/tavern/skills/stage-setup/references/quickstart.md">开启舞台 ↗</a></article><article><span>Ⅲ</span><h3>听见角色</h3><p>给人物配置声音，分角色配音，也可以选择全文朗读。</p><a href="https://github.com/flizzywine/dsh-tavern/blob/main/presets/tavern/skills/figure-voice/references/voice-data.md">配音参考 ↗</a></article><article><span>Ⅳ</span><h3>带走整个世界</h3><p>人物卡和选中的素材一起打包，分享为一个 .dshcard。</p><a href="https://github.com/flizzywine/dsh-tavern/wiki/导入与导出人物卡">分享人物卡 ↗</a></article></div>
+    </section>
+
+    <section class="more-section"><div class="wrap"><div class="more-heading"><p class="eyebrow">AND THERE’S MORE</p><h2>留给想象的空间，<br>还不止这些。</h2></div><div class="more-grid"><article><span>✳</span><h3>写作 Skill</h3><p>把教程与样文提炼成写作方法，打斗、悬疑、感情戏，按场景调用。</p></article><article><span>◎</span><h3>人物档案</h3><p>后台设计角色的动机、性格与关系，让反复登场的人物有迹可循。</p></article><article><span>⌘</span><h3>插件与模组</h3><p>扩展配图、语音与远程访问，或用自定义模组创造自己的玩法。</p></article><article><span>↗</span><h3>随时入局</h3><p>桌面游玩、Android 独立运行，也能从手机远程连接电脑上的酒馆。</p></article></div><a class="text-link" href="https://github.com/flizzywine/dsh-tavern/wiki/功能索引">按任务查阅完整文档 ↗</a></div></section>
+
+    <section class="section wrap voices"><p class="eyebrow">FROM THE TAVERN / 玩家来信</p><div class="voices-heading"><h2>故事之外，<br>听听他们怎么说。</h2><p>来自社区的真实反馈，体验因模型、配置和人物卡而异。</p></div><div class="voice-grid"><a href="assets/testimonials/more-alive-and-faster.jpg" aria-label="查看关于角色鲜活度与速度的用户反馈原图"><img src="assets/testimonials/more-alive-and-faster.jpg" alt="用户聊天反馈：同样预设下更有活人感，速度也更快" loading="lazy"></a><a href="assets/testimonials/long-chat-memory.jpg" aria-label="查看关于长期记忆的用户反馈原图"><img src="assets/testimonials/long-chat-memory.jpg" alt="用户聊天反馈：游玩五六百层后，仍记得开局物品的来历" loading="lazy"></a></div></section>
+
+    <section class="closing"><div class="wrap"><p class="eyebrow">YOUR STORY STARTS HERE</p><h2>下一页，<br>该你了。</h2><div class="actions"><a class="button primary" href="https://github.com/flizzywine/dsh-tavern#快速开始">选择平台，安装酒馆 ↗</a><a class="text-link" href="https://discord.gg/hYAEjKnpra">来 Discord 坐坐 ↗</a></div><p class="closing-note">填好模型服务，导入人物卡，就能开始。模型调用费用由所用服务决定。</p></div><span class="closing-decoration" aria-hidden="true">✦</span></section>
+  </main>
+  <footer class="wrap footer"><div><strong>DSH TAVERN</strong><p>基于 DeepSeek Harness 的开源 Agent 酒馆</p></div><nav aria-label="页脚导航"><a href="https://github.com/flizzywine/dsh-tavern">GitHub / 安装</a><a href="https://github.com/flizzywine/dsh-tavern/wiki">Wiki / 文档</a><a href="https://discord.gg/hYAEjKnpra">Discord / 社区</a></nav><p>由故事连接。由社区创造。</p></footer>
+</body>
+</html>

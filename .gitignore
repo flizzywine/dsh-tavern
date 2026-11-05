@@ -16,6 +16,7 @@ test-results/
 
 # 本地临时输出（截图、手动验证产物等）
 output/
+/website/dist/
 
 # 本地代码分析资料、快照和缓存
 .ua/
