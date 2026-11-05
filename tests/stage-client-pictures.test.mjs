@@ -23,6 +23,48 @@ test('insert pages: a page turn passes the ready pictures between the paragraphs
   assert.deepEqual(pictures.passed(items, 5, 2, false).map(item => item.id), ['b', 'a'])
 })
 
+test('AUTO on an insert page: a picture shown within 3 s of reaching it holds 3 s on screen; one that is not is passed', () => {
+  const pending = id => ({id, para:2, state:'pending', url:'', progress:null})
+  // AUTO meets a picture still being drawn after its paragraph; a manual page turn passes only the ready ones, as before
+  const drawing = [ready('a', 2), pending('b'), {id:'c', para:2, state:'failed', url:''}]
+  assert.deepEqual(pictures.passed(drawing, 2, 3, true, true).map(item => item.id), ['a', 'b'])
+  assert.deepEqual(pictures.passed(drawing, 2, 3, true, false).map(item => item.id), ['a'])
+  // a text page turn with no picture between its paragraphs meets none in AUTO either: it reads on as before
+  assert.deepEqual(pictures.passed(drawing, 3, 5, true, true), [])
+  // the page shows a picture only once it is ready (the live state), never an empty page
+  assert.equal(pictures.showable(drawing, pending('b')), null)
+  assert.equal(pictures.showable([ready('b', 2)], pending('b')).url, '/p/b')
+  // AUTO's next turn, ms from now: run(events) replays a page reached at 0; each event re-arms the one timer at `at`
+  const run = (wait, events) => {
+    let due = pictures.autoDelay(false, wait, 0)
+    for (const {at, shown} of events) if (at < due) due = at + pictures.autoDelay(shown, wait, at)
+    return due
+  }
+  // ready at once: shown as soon as it loads (0.4 s), then held 3 s, or the reader's longer wait
+  assert.equal(run(1600, [{at:400, shown:true}]), 3400)
+  assert.equal(run(4200, [{at:400, shown:true}]), 4600)
+  // ready within the grace: drawn at 1.8 s, loaded at 2.2 s, held 3 s from there
+  assert.equal(run(1600, [{at:1800, shown:false}, {at:2200, shown:true}]), 5200)
+  // never ready within the grace: passed 3 s after reaching it, and a picture that shows later does not call it back
+  assert.equal(run(1600, []), 3000)
+  assert.equal(run(1600, [{at:1800, shown:false}]), 3000)
+  assert.equal(run(1600, [{at:3500, shown:true}]), 3000)
+  // the page reports the art's load (onShown) and its failure (onFailed)
+  const onShown = () => {}, onFailed = () => {}
+  const page = pictures.Page({picture:ready('a', 1), onShown, onFailed})
+  const art = page.children.find(child => child && child.props.className === 'fork-gal-picture-art')
+  assert.equal(art.props.onLoad, onShown)
+  assert.equal(art.props.onError, onFailed)
+  // the controller: AUTO alone meets pictures being drawn; each insert page counts from reaching it; the one timer
+  // reads shown or not; text pages keep the playback clock's own wait (no picture timing there)
+  const controller = readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs', import.meta.url), 'utf8')
+  assert.match(controller, /pages\[page \+ 1\]\.para : null, true, auto\)/)
+  assert.match(controller, /onShown: \(\) => setPictureShown\(insertPageKey\)/)
+  assert.match(controller, /const shown = !!insertPageKey && pictureShown === insertPageKey;\n\s*const timer = setTimeout\(\(\) => go\(1, true\), stageViews\.pictures\.autoDelay\(shown, options\.configText\.autoDelay\(reading, false, ''\), Date\.now\(\) - insert\.since\)\);/)
+  assert.equal(controller.match(/since:Date\.now\(\)/g).length, 3)
+  assert.equal(controller.match(/stageViews\.pictures\.autoDelay\(/g).length, 1)
+})
+
 test('the 正在生成 CG notice shows a number only once the plugin reports one', () => {
   assert.equal(pictures.working({items:[ready('a', 1)], planning:false}), null)
   assert.deepEqual(pictures.working({items:[], planning:true}), {progress:null})

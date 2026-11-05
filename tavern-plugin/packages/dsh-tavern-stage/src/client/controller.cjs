@@ -441,13 +441,18 @@ function GalStage(props) {
     usePlayPageEvents(sessionId, leasing ? 0 : turn, page, runtime.source?.generation, hidden || backlog || configOpen || galleryOpen || pageOpen || streaming, skipping, auto);
     // 场景生图 (pictures.cjs, the core's useStagePictures): this round's pictures on its paragraphs. A ready one is a CG insert
     // page after its paragraph; one being drawn is the notice's 「正在生成 CG…」. A clip export records none, and while the
-    // round streams nothing is placed (as in the chat). The insert is this view's state only: { key, list, index, delta, view }.
+    // round streams nothing is placed (as in the chat). The insert is this view's state only: { key, list, index, delta, view, since }.
     const pictureState = stageViews.pictures && services.pictures ? services.pictures.use(sessionId, turn, runtime.text.units, !replaying && !streaming) : null;
     const pictureKey = sessionId + ':' + turn + ':' + (runtime.source?.generation ?? '');
     const [inserted, setInserted] = React.useState(null);
     // Only a page turn holds an insert page: another round, or a jump to another page (履历, a mode change), leaves it behind.
     React.useEffect(() => { setInserted(null); }, [pictureKey, page]);
-    const insert = inserted && inserted.key === pictureKey ? inserted : null, insertPicture = insert ? insert.list[insert.index] : null;
+    // insertPicture: the page's picture once it is ready; one AUTO met still being drawn shows nothing until it is.
+    const insert = inserted && inserted.key === pictureKey ? inserted : null, insertPicture = insert ? stageViews.pictures.showable(pictureState?.items, insert.list[insert.index]) : null;
+    // The insert page whose picture has loaded and shows (its page key); AUTO's wait starts there, not at the page turn.
+    const insertPageKey = insertPicture ? insert.key + ':' + insertPicture.id : '';
+    const [pictureShown, setPictureShown] = React.useState('');
+    React.useEffect(() => { if (!insertPageKey) setPictureShown(''); }, [insertPageKey]);
     const pictureWorking = pictureState ? stageViews.pictures.working(pictureState) : null;
     // A picture finished after its page was read: 「CG 已生成 · 查看」 for a while; 查看 opens it where the reader is.
     const [pictureLate, setPictureLate] = React.useState(null);
@@ -737,11 +742,11 @@ function GalStage(props) {
     function enterPictures(delta) {
         if (leasing || !pictureState || skipping || transitioning || !pages[page] || delta > 0 && atEnd) return false;
         const from = pages[page].para;
-        const list = delta > 0 ? (lastCard ? stageViews.pictures.passed(pictureState.items, from, page < pages.length - 1 ? pages[page + 1].para : null, true) : [])
+        const list = delta > 0 ? (lastCard ? stageViews.pictures.passed(pictureState.items, from, page < pages.length - 1 ? pages[page + 1].para : null, true, auto) : [])
             : card === 0 && page > 0 ? stageViews.pictures.passed(pictureState.items, from, pages[page - 1].para, false) : [];
         if (!list.length) return false;
         voicePlayer.stopPlayback();
-        setInserted({key:pictureKey, list, index:0, delta, view:false});
+        setInserted({key:pictureKey, list, index:0, delta, view:false, since:Date.now()});
         return true;
     }
     // On an insert page: the way it was entered walks its pictures, then turns the page it was entered for; the other way
@@ -749,7 +754,7 @@ function GalStage(props) {
     function turnPicture(delta) {
         if (insert.view) { setInserted(null); return true; }
         const index = insert.index + (delta === insert.delta ? 1 : -1);
-        if (index >= 0 && index < insert.list.length) { setInserted({...insert, index}); return true; }
+        if (index >= 0 && index < insert.list.length) { setInserted({...insert, index, since:Date.now()}); return true; }
         setInserted(null);
         return index < 0 ? true : go(delta, true, true);
     }
@@ -1122,15 +1127,17 @@ function GalStage(props) {
         line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
         performance:{replayable:performanceKinds.replayable,holds:modPerformances.holds,blocking:textcard.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{turnPastEnd();stopSkip();},finishTyping:()=>setTyped(true)});
-    // An insert page holds the playback clock (overlay above): AUTO turns it after a wordless page's wait (the CONFIG auto
-    // wait, galAutoDelay); skip passes it at once.
+    // An insert page holds the playback clock (overlay above): AUTO turns it a wordless page's wait (the CONFIG auto wait,
+    // galAutoDelay), at least the picture minimum, after its picture has shown, or passes it once the grace from reaching
+    // it ends with nothing shown (pictures.cjs autoDelay); skip passes it at once.
     React.useEffect(() => {
         if (!insert) return;
         if (skipping) { setInserted(null); return; }
         if (!auto || hidden || backlog || configOpen || galleryOpen || pageOpen || menuOpen) return;
-        const timer = setTimeout(() => go(1, true), options.configText.autoDelay(reading, false, ''));
+        const shown = !!insertPageKey && pictureShown === insertPageKey;
+        const timer = setTimeout(() => go(1, true), stageViews.pictures.autoDelay(shown, options.configText.autoDelay(reading, false, ''), Date.now() - insert.since));
         return () => clearTimeout(timer);
-    }, [insert, auto, skipping, hidden, backlog, configOpen, galleryOpen, pageOpen, menuOpen]);
+    }, [insert, auto, skipping, hidden, backlog, configOpen, galleryOpen, pageOpen, menuOpen, pictureShown, insertPageKey]);
     // Portraits retain historical stage actor keys; the card speaker identifies the same figure by ref.
     function avatarOf(entry) { return stageViews.speaker.avatarOf(config, pack.avatars, portraits, entry); }
     function nameOf(alias) { const character = bubbleCharacter(config,alias); return character && character.name || ""; }
@@ -1240,7 +1247,7 @@ function GalStage(props) {
         h(ModStageLayers,{sessionId,config,sourceKey:receivedDirection.token?.sourceKey,stage:{title:props.data?.cardName,turn,latestTurn,scene:place,bgm:track?.name}}),
         textcard.node,
         // the CG insert page over the scene and the box, under the top bar and its notices.
-        insertPicture ? h(stageViews.pictures.Page, { key: insert.key + ':' + insertPicture.id, picture: insertPicture, onFailed: () => turnPicture(insert.view ? 0 : insert.delta) }) : null,
+        insertPicture ? h(stageViews.pictures.Page, { key: insertPageKey, picture: insertPicture, onShown: () => setPictureShown(insertPageKey), onFailed: () => turnPicture(insert.view ? 0 : insert.delta) }) : null,
         h("div", {className:"fork-gal-scene-hold" + (entryGate.visible ? " is-resolved" : ""), "aria-hidden":true}),
         h(GalWidgets,{owner:sourceWidget,onBacklog:openBacklog,onAdvance:()=>input(1),onWheel:wheel}),
         sourceWidget.claim ? h('div', { className: 'fork-widget-source-controls', role: 'toolbar', 'aria-label': '模组演出控制', onClick: event => event.stopPropagation() },
@@ -1277,7 +1284,7 @@ function GalStage(props) {
             // (theme.css ".fork-gal-topbar > .fork-gal-notices"), so it sits under whatever the skin puts top-right.
             (interopNotice || awaitingDirection || roundPhase || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length || live2dMissing || pictureWorking || lateShown) ?
             h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf, pages: pageList, picture: pictureWorking,
-                pictureReady: lateShown ? { onView: () => { setPictureLate(null); setInserted({key:pictureKey, list:[lateShown.picture], index:0, delta:1, view:true}); } } : null,
+                pictureReady: lateShown ? { onView: () => { setPictureLate(null); setInserted({key:pictureKey, list:[lateShown.picture], index:0, delta:1, view:true, since:Date.now()}); } } : null,
                 live2dRequest: live2dMissing ? live2dRequest : null, scope: sessionId }) : null)),
         // the skin's own LOG / AUTO / SKIP on the stage;
         // with them the top bar's chips wait behind Esc and the folded menu control (theme.css「stage skin: art」).
