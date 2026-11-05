@@ -31,7 +31,7 @@ import { registerRequestHooks } from './hooks/request.js'
 import { createWholeReadGuard, scopeTurnHooks } from './domain/whole-read-guard.js'
 import { createChatReads } from './domain/chat-reads.js'
 import { diffJson } from './domain/json-mutation.js'
-import { syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/user-plugins.js'
+import { loaderReload, readPatchedUserPlugins, syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/user-plugins.js'
 import { createUserPluginInstaller } from './domain/user-plugin-install.js'
 import { createPluginDataStore } from './domain/plugin-data-store.js'
 import { createPluginAssets } from './domain/plugin-assets.js'
@@ -439,8 +439,12 @@ export async function apply(ctx) {
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
   // Folders in <data>/plugins become profile patch entries, so both plugin halves load without editing Tavern.
+  // The entries DSH started with: a later sync that moves one (managed mods republished below) restarts it from its new
+  // folder through the loader, or the old release's code would run against the new release's files until a restart.
+  const loadedUserPlugins = await readPatchedUserPlugins({ dataRoot })
   try { await syncUserPlugins({ dataRoot }) } catch (error) { console.warn('dsh-tavern: 同步用户插件失败', error?.message || error) }
-  ctx.effect(() => watchUserPlugins({ dataRoot }))
+  const reloadUserPlugin = loaderReload(ctx.get('loader'), ctx.fiber)
+  ctx.effect(() => watchUserPlugins({ dataRoot, loaded: loadedUserPlugins, reload: reloadUserPlugin }))
   const cardMemory = createCardMemory({ dataRoot })
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
