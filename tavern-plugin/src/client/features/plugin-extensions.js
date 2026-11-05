@@ -448,7 +448,7 @@
 				apiVersion: 9,
 				// Independent browser feature versions, not resource authorization or host API versions.
 				getCapabilities() {
-					return { openOverlay: 1, overlayLayout: 2, stageInteraction: 1, stageDock: 1, stagePerformanceStatus: 1, stageScene: 1, stageSceneProvider: 1, stageSceneBackground: 1, stageScenePresentation: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
+					return { openOverlay: 1, overlayLayout: 2, overlayFullscreen: 1, stageInteraction: 1, stageDock: 1, stagePerformanceStatus: 1, stageScene: 1, stageSceneProvider: 1, stageSceneBackground: 1, stageScenePresentation: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
 				},
 				registerStageSceneProvider(input) {
 					if (!input || typeof input.id !== 'string' || !input.id || typeof input.onStageReady !== 'function') throw new TypeError('provider needs id and onStageReady');
@@ -981,6 +981,8 @@
 					if (input.onClose !== undefined && typeof input.onClose !== "function") throw new TypeError("openOverlay 的 onClose 必须是函数");
 					if (typeof document === "undefined") throw new Error("当前环境没有页面，无法打开插件界面");
 					const owner = ownerOf(this);
+					const gameId = String(input.gameId || "");
+					if (gameId && !tavernPluginAllowed(owner, gameId)) throw new Error("当前人物卡未授权此插件界面");
 					let cleanup = function () {}, dispose = null;
 					const handle = { close: function () { if (typeof dispose === "function") dispose(); else cleanup(); } };
 					dispose = owned(this, function () {
@@ -988,7 +990,18 @@
 						container.className = "dsh-tavern-plugin-overlay";
 						container.setAttribute("role", "dialog");
 						container.setAttribute("aria-modal", "true");
-						document.body.append(container);
+						function moveOverlay() {
+							const fullscreen=document.fullscreenElement;
+							// A video inside this overlay may itself be fullscreen; never move its ancestor into it.
+							if(fullscreen && container.contains?.(fullscreen))return;
+							const parent=fullscreen || document.body;
+							if(container.parentNode!==parent){
+								const focus=container.contains?.(document.activeElement) ? document.activeElement : null;
+								parent.append(container);focus?.focus?.({preventScroll:true});
+							}
+							container.style.top=fullscreen ? '0px' : '';
+						}
+						moveOverlay();
 						const root = require("react-dom/client").createRoot(container);
 						let closed = false;
 						const layoutListeners = new Set();
@@ -1028,12 +1041,19 @@
 						};
 						if (layoutTarget) layoutTarget.addEventListener("resize", layoutChanged);
 						if (viewport) { viewport.addEventListener("resize", layoutChanged); viewport.addEventListener("scroll", layoutChanged); }
+						function fullscreenChanged(){if(closed)return;moveOverlay();layoutChanged();}
+						document.addEventListener('fullscreenchange',fullscreenChanged);
+						const checkScope=()=>{if(gameId && !tavernPluginAllowed(owner,gameId))handle.close();};
+						const stopScopes=gameId && typeof tavernCardPluginScopes!=='undefined' ? tavernCardPluginScopes.subscribe(checkScope) : ()=>{};
+						const stopView=gameId && typeof liveTavernView!=='undefined' ? liveTavernView.subscribe(gameId,checkScope,[['card']]) : ()=>{};
 						function onKey(event) { if (event.key === "Escape" && input.dismissible !== false) { event.stopPropagation(); handle.close(); } }
 						document.addEventListener("keydown", onKey, true);
 						cleanup = function () {
 							if (closed) return;
 							closed = true;
 							document.removeEventListener("keydown", onKey, true);
+							document.removeEventListener('fullscreenchange',fullscreenChanged);
+							stopScopes();stopView();
 							if (layoutTarget) layoutTarget.removeEventListener("resize", layoutChanged);
 							if (viewport) { viewport.removeEventListener("resize", layoutChanged); viewport.removeEventListener("scroll", layoutChanged); }
 							layoutListeners.clear();

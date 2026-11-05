@@ -306,6 +306,8 @@ Esc、调用 `close`、插件卸载、切局/舞台卸载、卡作用域不再�
 
 打开一层盖住整个页面的插件界面，适合战斗、地图这类需要大空间的玩法。返回 `{ close }`。
 
+`overlayFullscreen: 1` 表示界面会随宿主进入或退出全屏而迁移，插件无需访问舞台 DOM。提供 `gameId` 时，宿主检查卡片作用域，权限撤销后关闭界面；未授权时调用抛错。
+
 ```js
 const overlay = ctx.tavernUi.openOverlay({
   gameId,

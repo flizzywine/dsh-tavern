@@ -40,6 +40,7 @@ test('browser capability map is independent and returned as a fresh snapshot', (
   const caps = ui.service.getCapabilities()
   assert.equal(caps.openOverlay, 1)
   assert.equal(caps.overlayLayout, 2)
+  assert.equal(caps.overlayFullscreen, 1)
   assert.equal(caps.stageDock, 1)
   caps.openOverlay = 99
   assert.equal(ui.service.getCapabilities().openOverlay, 1)
@@ -173,6 +174,16 @@ test('overlay Escape, non-dismissible mode, and repeated close preserve lifecycl
   assert.equal(g.unmounted(), 0)
   fixed.close()
   assert.equal(g.unmounted(), 1)
+})
+
+test('game overlay closes if card authorization is revoked', () => {
+  const f=fixture()
+  assert.throws(()=>f.plugin.openOverlay({gameId:'denied',render(){}}),/未授权/)
+  let closes=0
+  f.plugin.openOverlay({gameId:'game',render(){},onClose(){closes++}})
+  f.deny()
+  assert.equal(closes,1)
+  assert.equal(f.document.count('fullscreenchange'),0)
 })
 
 
