@@ -4,9 +4,20 @@ function createStageControls() {
 // [label, key, action, cap]. One table: the first-run key list shows label / key; a skin's key hints (art.buttons.*.hint,
 // stage-skin-buttons.js) show the action's cap (the key's name on a key cap: 按住 Ctrl -> Ctrl).
 // V replays the line's voice.
-const GAL_SHORTCUTS = [['自动', 'A', 'auto'], ['跳过', '按住 Ctrl', 'skip', 'Ctrl'], ['隐藏', 'H', 'hide'], ['履历', 'L', 'backlog'], ['状态', 'S', 'status'], ['重播配音', 'V', 'replay'], ['菜单', 'Esc', 'menu'], ['重新生成', 'G', 'regenerate'], ['回聊天', 'F12', 'exit']];
-// The 状态 key exists only when the card declares a status panel (options.statusPanel); the key list follows the same rule.
-function galShortcuts(options) { return options?.statusPanel ? GAL_SHORTCUTS : GAL_SHORTCUTS.filter(([, , action]) => action !== 'status'); }
+const GAL_SHORTCUTS = [['自动', 'A', 'auto'], ['跳过', '按住 Ctrl', 'skip', 'Ctrl'], ['隐藏', 'H', 'hide'], ['履历', 'L', 'backlog'], ['重播配音', 'V', 'replay'], ['菜单', 'Esc', 'menu'], ['重新生成', 'G', 'regenerate'], ['回聊天', 'F12', 'exit']];
+// The card pages' keys (options.pages: a page with a shortcut) sit where 状态 was, after 履历; a card without such pages has none.
+function galShortcuts(options) {
+    const pages = (options?.pages || []).filter(page => page.shortcut).map(page => [page.label, page.shortcut.toUpperCase(), 'page:' + page.id]);
+    return [...GAL_SHORTCUTS.slice(0, 4), ...pages, ...GAL_SHORTCUTS.slice(4)];
+}
+// The page a stage entry from text mode opens (null: none). fresh: the chat has no player message yet, so its initial page
+// opens even with 跳过标题页 on. Otherwise the skip switch leaves the stage at its latest round; else the first non-initial showOn page.
+function stageEnterPage({ pages, fresh, skip }) {
+    const entering = (pages || []).filter(page => page.showOn?.event === 'stage-enter');
+    if (fresh) { const initial = entering.find(page => page.initial === true); if (initial) return initial.id; }
+    if (skip) return null;
+    return entering.find(page => page.initial !== true)?.id ?? null;
+}
 // G: presses the turn-end menu's 重新生成 badge (gal-choices.js) when it is on screen and can act -
 // the key follows the control's own rule (hidden while the choices generate, disabled while the stage is busy).
 function galPressRegenerate(root) {
@@ -71,6 +82,6 @@ function galWheelDecision(previous, event) {
     return { state, action: event.typed && !event.hidden ? 'advance' : 'finish' };
 }
 
-return {wheel:galWheelDecision, actionFor:id => GAL_CONTROL_ACTIONS[id] || id, shortcuts:galShortcuts, keyCaps:GAL_KEY_CAPS, skipSelector:GAL_SKIP_CONTROL, actionHomes:galActionHomes, ids:galControlIds, drawn:galControlDrawn, pressRegenerate:galPressRegenerate};
+return {wheel:galWheelDecision, actionFor:id => GAL_CONTROL_ACTIONS[id] || id, shortcuts:galShortcuts, keyCaps:GAL_KEY_CAPS, skipSelector:GAL_SKIP_CONTROL, actionHomes:galActionHomes, ids:galControlIds, drawn:galControlDrawn, pressRegenerate:galPressRegenerate, stageEnterPage};
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageControls};

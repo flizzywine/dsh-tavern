@@ -6,7 +6,7 @@ function attach(read,send){
     if(disposed)throw new Error('Stage input disposed');
     let active=true,pressedSpace=false,interrupted=false,timer=null,arm=0;
     const cleanups=[];
-    const blocked=()=>{const state=read();return state.modal||state.backlog||state.status||state.hidden;};
+    const blocked=()=>{const state=read();return state.modal||state.backlog||state.page||state.hidden;};
     function cancel(){const old=timer;timer=null;arm++;try{if(old!==null)clock.clearTimeout(old);}finally{send({type:'held',value:false});}}
     function listen(target,type,handler,capture=false){
         const guarded=event=>{if(active&&!disposed)handler(event);};
@@ -20,7 +20,7 @@ function attach(read,send){
         if(errors.length)throw new AggregateError(errors,'Stage input cleanup failed');
     }
     function onKey(event) {
-        const {modal,backlog,status,statusPanel,hidden,auto,root,widgetOpen}=read();
+        const {modal,backlog,page,pages,hidden,auto,root,widgetOpen}=read();
             // The Config screen and the system menu keep the keyboard (each closes itself on Esc).
             if (modal) return;
             // no stage key while an input method is composing.
@@ -35,6 +35,8 @@ function attach(read,send){
             // own editing keys; an invisible composer must not disable Back or Escape.
             if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) && root && root.contains(target)) return;
             const key = event.key, letter = key.length === 1 && /[a-z]/i.test(key) ? key.toLowerCase() : "";
+            // a card page's shortcut (CARD_PAGE_SHORTCUT_KEYS never takes a built-in letter) opens its page.
+            const shortcutPage = letter ? (pages || []).find(declared => declared.shortcut === letter) : undefined;
             const advance = key === " " || key === "Enter" || key === "ArrowRight" || key === "PageDown", back = key === "ArrowLeft" || key === "PageUp" || key === "Backspace";
             // letter shortcuts leave Ctrl / Alt / Meta combinations to the browser
             // (Ctrl+A, Ctrl+R, Ctrl+L); a held key turns one page and toggles once (auto-repeat is ignored).
@@ -48,9 +50,10 @@ function attach(read,send){
                 if (key === "Escape" || letter === "l") { event.preventDefault(); send({type:'backlog',open:false}); }
                 return;
             }
-            // The status panel keeps the keyboard the same way; S or Esc closes it.
-            if (status) {
-                if (key === "Escape" || letter === "s") { event.preventDefault(); send({type:'status',open:false}); }
+            // An open card page keeps the keyboard the same way; Esc or its own shortcut closes it.
+            if (page) {
+                const openedShortcut = (pages || []).find(declared => declared.id === page)?.shortcut;
+                if (key === "Escape" || (letter && letter === openedShortcut)) { event.preventDefault(); send({type:'page',open:false}); }
                 return;
             }
             if (letter === "l") { event.preventDefault(); send({type:'backlog',open:true}); return; }
@@ -67,13 +70,12 @@ function attach(read,send){
             }
             else if (letter === "h") send({type:'hidden',value:!hidden});
             else if (letter === "v") send({type:'replay'});
-            // S opens the card's status panel; a card without one has no such key.
-            else if (letter === "s") { if (statusPanel) send({type:'status',open:true}); }
             // G presses the turn-end menu's 重新生成 (the badge on the 自由输入 row,
             // gal-choices.js) - only while it is shown and can act, so the key follows the control's own rule.
             else if (letter === "g") { if (controls.pressRegenerate(root)) event.preventDefault(); }
             // Like the AUTO control: turning auto on also ends a SKIP.
             else if (letter === "a") { if (!auto) send({type:'skip',value:false}); send({type:'auto',value:!auto}); }
+            else if (shortcutPage) send({type:'page',open:true,id:shortcutPage.id});
         }
 
     function onKeyUp(event){if(event.key===' '&&pressedSpace){pressedSpace=false;event.preventDefault();}}

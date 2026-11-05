@@ -45,6 +45,13 @@ function galChoiceUntouched(editing) {
 }
 // the draft key of 「自由输入」; a suggestion's key is the text it sends.
 const GAL_FREE = "\u0000free";
+// A card page's fillInput(text) (status-panel.cjs): the text waits per session until the 自由输入 field of the end panel
+// takes it as its draft, open and focused. Only filled - the player still sends it.
+const galFills = new Map(), galFillListeners = new Set();
+function galFill(sessionId, text) {
+    galFills.set(String(sessionId), String(text));
+    for (const fn of [...galFillListeners]) fn();
+}
 function GalChoices(props) {
     const h = React.createElement;
     const sessionId = props.sessionId;
@@ -64,6 +71,18 @@ function GalChoices(props) {
     const [picked, setPicked] = React.useState(null);
     const editorRef = React.useRef(null);
     const requestRef = React.useRef(false);
+    React.useEffect(() => {
+        const take = () => {
+            if (!galFills.has(String(sessionId))) return;
+            const text = galFills.get(String(sessionId));
+            galFills.delete(String(sessionId));
+            setDrafts(current => ({...current, [GAL_FREE]: text}));
+            setEditingAt(GAL_FREE);
+        };
+        take();
+        galFillListeners.add(take);
+        return () => { galFillListeners.delete(take); };
+    }, [sessionId]);
     // a task the player stopped reads as never started - 生成选项 again, not an error.
     const status = panel ? panel.phase : taskForMessage ? taskForMessage.busy ? "loading" : taskForMessage.status === "succeeded" ? "ready" : taskForMessage.status === "cancelled" ? "idle" : "error" : "idle";
     const state = galEndPanelState({ status, atEnd: props.atEnd !== false && !running });
@@ -340,6 +359,6 @@ function GalChoices(props) {
                 h(Icon, { name: "pencil", size: 15 }), h("span", { className: "fork-gal-choice-text" }, freeDraft || "自由输入")), tool, layout.galChoiceArt()),
         error ? h("p", { className: "fork-gal-choice-error", role: "alert" }, error) : null);
 }
-return {Choices:GalChoices,dispose(){if(disposed)return;disposed=true;const errors=[];for(const fn of [...cleanups]){try{fn();}catch(error){errors.push(error);}}for(const [map,cancel] of [[timers,hostClearTimeout],[frames,hostCancelFrame]]){for(const id of map.keys()){try{cancel(id);}catch(error){errors.push(error);}}map.clear();}if(errors.length)throw new AggregateError(errors,'Choices cleanup failed');}};
+return {Choices:GalChoices,fill:galFill,pendingFill:sessionId=>galFills.get(String(sessionId)),dispose(){if(disposed)return;disposed=true;galFills.clear();galFillListeners.clear();const errors=[];for(const fn of [...cleanups]){try{fn();}catch(error){errors.push(error);}}for(const [map,cancel] of [[timers,hostClearTimeout],[frames,hostCancelFrame]]){for(const id of map.keys()){try{cancel(id);}catch(error){errors.push(error);}}map.clear();}if(errors.length)throw new AggregateError(errors,'Choices cleanup failed');}};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageChoices};
