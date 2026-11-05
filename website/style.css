@@ -224,3 +224,5 @@ h2{font-size:40px;letter-spacing:-2px}
 .stage-label{font-size:28px;padding:12px 16px;bottom:30px}
 .closing h2{font-size:36px}
 }
+
+.resource-links{display:flex;gap:24px;margin-top:24px;font-size:13px;color:#a9583e}.resource-links a:hover{text-decoration:underline}.voice-count{font-size:12px;color:var(--muted);margin-top:24px}.voice-grid{display:block;columns:3;column-gap:24px}.voice-grid a{break-inside:avoid;margin-bottom:24px}.voice-grid img{max-height:none;height:auto}.header nav{gap:24px}@media(max-width:1050px){.voice-grid{columns:2}}@media(max-width:720px){.voice-grid{columns:1}.header nav{gap:12px;font-size:11px}.brand img{width:110px}.nav-install{font-size:10px;padding:7px 8px}}

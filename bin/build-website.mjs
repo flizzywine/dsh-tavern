@@ -1,4 +1,4 @@
-import { cp, mkdir } from 'node:fs/promises';
+import { cp, mkdir, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -11,7 +11,7 @@ for (const file of ['index.html', 'style.css', 'app.js']) {
 for (const [directory, files, source] of [
   ['brand', ['favicon.svg', 'dsh-tavern-lockup.svg'], 'docs/assets/brand'],
   ['screens', ['promo-video.jpg', 'script-mode.png', 'card-editor.png', 'mvu-status-panel.png', 'rewrite-body.png', 'scene-image-product.png', 'overview.png'], 'docs/images/readme'],
-  ['testimonials', ['more-alive-and-faster.jpg', 'long-chat-memory.jpg'], 'docs/images/readme/testimonials'],
+  ['testimonials', (await readdir(path.join(root, 'docs/images/readme/testimonials'))).filter(file => /\.(jpg|png|webp)$/.test(file)), 'docs/images/readme/testimonials'],
 ]) {
   await mkdir(path.join(output, 'assets', directory), { recursive: true });
   for (const file of files) await cp(path.join(root, source, file), path.join(output, 'assets', directory, file));
