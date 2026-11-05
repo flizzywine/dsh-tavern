@@ -77,7 +77,7 @@ function GalBacklog(props) {
         const role = stageViews.backlogRows.backlogRole(entry), plate = looks.plates?.[role];
         if (!plate || look !== "row" && look !== "rule") return { style };
         const place = places[index], image = place % plate.images, q = "--art-bl-p-" + role, own = { ...style };
-        for (const edge of ["st", "sr", "sb", "sl", "ot", "or", "ob", "ol"]) own["--bp-" + edge] = "var(" + q + "-" + edge + ")";
+        for (const edge of ["st", "sr", "sb", "sl", "ot", "or", "ob", "ol", "sx", "sy"]) own["--bp-" + edge] = "var(" + q + "-" + edge + ")";
         Object.assign(own, { "--bp": "var(" + q + "-" + image + ")", "--bp-ink": "var(" + q + "-" + image + "-ink)" });
         const pose = plate.poses ? place % plate.poses : undefined;
         if (pose !== undefined) for (const axis of ["x", "y", "rot"]) own["--bp-" + axis] = "var(" + q + "-pose-" + pose + "-" + axis + ")";
@@ -312,10 +312,14 @@ function GalBacklog(props) {
         const mark = band[index];
         return mark ? " is-clip" + (mark.start ? " is-clip-start" : "") + (mark.end ? " is-clip-end" : "") : "";
     }
+    function plateArt(entry, look) {
+        return looks.plates?.[stageViews.backlogRows.backlogRole(entry)] && (look === "row" || look === "rule")
+            ? h("i", { key: "plate", className: "fork-gal-backlog-plate", "aria-hidden": true }) : null;
+    }
     function row(entry, index) {
         const ref = node => { if (node) nodes.current.set(index, node); else nodes.current.delete(index); };
         if (entry.type === "turn") return h("div", { key: entry.key, ref, className: "fork-gal-backlog-turn" + (entry.current ? " is-current" : "") + bandClass(index), role: "separator", ...plated(entry, index, lookOf(entry), index === 0 ? { marginTop: 4 } : undefined) },
-            h("span", null, lettered("第 " + entry.turn + " 轮" + (entry.current ? " · 本轮" : ""), looks.letter?.divider && looks.plates?.divider)));
+            plateArt(entry, lookOf(entry)), h("span", null, lettered("第 " + entry.turn + " 轮" + (entry.current ? " · 本轮" : ""), looks.letter?.divider && looks.plates?.divider)));
         // The player's own words; as a bubble they stand on the player's side, the right (no figure layout places the player).
         if (entry.type === "input" && lookOf(entry) === "bubble") return h("div", { key: entry.key, ref, className: "fork-gal-backlog-input is-look-bubble" + bandClass(index), "data-bl-role": "player", "data-bl-side": "right" },
             h("div", { className: "fork-gal-backlog-bubble", style: bubbleStyle("player", "right", "") },
@@ -324,7 +328,7 @@ function GalBacklog(props) {
             // avatar.player: the player's face only when the resolver gives one for the row's name (「你」); no placeholder.
             const playerFace = looks.avatar?.player ? props.avatarOf("你") || null : null;
             return h("div", { key: entry.key, ref, className: "fork-gal-backlog-input" + bandClass(index), "data-bl-role": "player", "data-bl-avatar": playerFace ? "" : undefined, ...plated(entry, index, "row") },
-                playerFace ? avatarColumn(playerFace, "你") : null, h("span", { className: "fork-gal-backlog-you" }, "你"), h("p", null, entry.text));
+                plateArt(entry, "row"), playerFace ? avatarColumn(playerFace, "你") : null, h("span", { className: "fork-gal-backlog-you" }, "你"), h("p", null, entry.text));
         }
         // one muted line per performance at its place in the
         // round (文字演出 card, item, 报幕; a check 「魔力检定 · 20 · 成功」 ahead of the round's text). The 履历 is text only: it plays
@@ -339,7 +343,7 @@ function GalBacklog(props) {
             const words = entry.roll ? diceLine(h, entry.roll) : entry.parts ? entry.parts.flatMap((part, i) => i ? [h("span", { key: i, className: "fork-gal-backlog-card-sep", "aria-hidden": true }, " / "), part] : [part]) : entry.text;
             return h("div", { key: entry.key, ref, className: "fork-gal-backlog-card fork-gal-backlog-perf is-look-" + look + (entry.roll ? " fork-gal-backlog-roll" : "") + bandClass(index),
                 "data-tier": entry.roll ? entry.roll.tier : undefined, "data-perf-kind": entry.kind, "data-bl-role": entry.role, ...plated(entry, index, look) },
-                ...(look === "row" ? [lead, h("p", { key: "p" }, words)] : [h("p", { key: "p", style: looks.roles[entry.role]?.plate }, lead, wrap ? [wrap[0], h(React.Fragment, { key: "w" }, words), wrap[1]] : words)]));
+                plateArt(entry, look), ...(look === "row" ? [lead, h("p", { key: "p" }, words)] : [h("p", { key: "p", style: looks.roles[entry.role]?.plate }, lead, wrap ? [wrap[0], h(React.Fragment, { key: "w" }, words), wrap[1]] : words)]));
         }
         const line = entry.kind === "line", role = line ? "speech" : "narration", look = lookOf(entry);
         // use the stage/voice resolver before indexing canonical figure media.
@@ -381,6 +385,7 @@ function GalBacklog(props) {
             onClick: jump ? go : undefined,
             onPointerDown: event => pressDown(pos, event), onPointerMove: pressMove, onPointerUp: pressEnd, onPointerCancel: pressEnd,
             onKeyDown: jump ? event => { if (event.target !== event.currentTarget) return; if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); press.current.type = "key"; go(event); } } : undefined },
+            plateArt(entry, look),
             mark && mark.start ? clip.handle(h, clip, "from", scroller) : null,
             mark && mark.end ? clip.handle(h, clip, "to", scroller) : null,
             // bubble: the plate with its tail, the name and its voice at the head on the tail's side; band: the words

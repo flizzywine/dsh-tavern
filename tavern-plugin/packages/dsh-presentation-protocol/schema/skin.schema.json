@@ -8855,6 +8855,7 @@
    "additionalProperties": false,
    "required": ["images", "slice"],
    "properties": {
+    "scale": { "$ref": "#/$defs/artScale", "description": "Design px per source image px, scalar or [x, y]; 0.5 renders 2x art at 1x. Slice stays source px; out and poses stay design px." },
     "images": { "$ref": "#/$defs/backlogPlate/properties/images" },
     "slice": { "$ref": "#/$defs/slice" },
     "out": { "$ref": "#/$defs/backlogPlate/properties/out" },
@@ -8953,6 +8954,7 @@
    "additionalProperties": false,
    "required": ["images", "slice"],
    "properties": {
+    "scale": { "$ref": "#/$defs/artScale", "description": "Design px per source image px, scalar or [x, y]; 0.5 renders 2x art at 1x. Slice stays source px; out and poses stay design px." },
     "images": {
      "type": "array",
      "minItems": 1,

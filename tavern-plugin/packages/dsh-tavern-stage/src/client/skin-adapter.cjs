@@ -671,9 +671,10 @@ function stageSkinArt(document, files, entry = '') {
         if (b.plates) {
             marks['data-fk-skin-art-backlog-plates']=Object.keys(b.plates).join(' ');
             for (const [role,plate] of Object.entries(b.plates)) {
+                const [sx,sy]=Array.isArray(plate.scale) ? plate.scale : [plate.scale ?? 1,plate.scale ?? 1];
                 const q=p + '-p-' + role, [st,sr,sb,sl]=stageSkinSlice(plate.slice), [ot,or,ob,ol]=plate.out || [0,0,0,0];
                 plate.images.forEach((item,index) => Object.assign(tokens,{[q + '-' + index]:url(item.image),[q + '-' + index + '-ink']:item.ink}));
-                Object.assign(tokens,{[q + '-st']:String(st),[q + '-sr']:String(sr),[q + '-sb']:String(sb),[q + '-sl']:String(sl),[q + '-ot']:String(ot),[q + '-or']:String(or),[q + '-ob']:String(ob),[q + '-ol']:String(ol)});
+                Object.assign(tokens,{[q + '-sx']:String(sx),[q + '-sy']:String(sy),[q + '-st']:String(st),[q + '-sr']:String(sr),[q + '-sb']:String(sb),[q + '-sl']:String(sl),[q + '-ot']:String(ot),[q + '-or']:String(or),[q + '-ob']:String(ob),[q + '-ol']:String(ol)});
                 (plate.poses || []).forEach((pose,index) => Object.assign(tokens,{[q + '-pose-' + index + '-x']:String(pose.x),[q + '-pose-' + index + '-y']:String(pose.y || 0),[q + '-pose-' + index + '-rot']:pose.rot + 'deg'}));
                 if (plate.slant !== undefined) tokens[q + '-slant']=plate.slant + 'deg';
             }
