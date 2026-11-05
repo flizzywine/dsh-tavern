@@ -125,6 +125,26 @@ export function createReadingPresetStore({file} = {}) {
         return {next, result:{id, revision:preset.revision + 1, op, index:op === 'add' ? entries.length - 1 : index, count:entries.length, ...(normalized ? {entry:normalized} : {})}}
       })
     },
+    // Entries with the same reading, language and override become one entry holding all their forms, at the first one's
+    // place. `dryRun` only counts ({groups, removed} under the current revision); a merge writes once.
+    merge({id, expectedRevision, dryRun = false} = {}) {
+      return mutate(current => {
+        const preset = find(current, id)
+        if (expectedRevision !== preset.revision) fail('REVISION_CONFLICT')
+        const groups = new Map()
+        for (const entry of preset.entries) {
+          const key = entry.language + '\0' + (entry.languageOverride || '') + '\0' + entry.reading
+          if (groups.has(key)) groups.get(key).push(entry); else groups.set(key, [entry])
+        }
+        const merged = [...groups.values()].filter(list => list.length > 1), removed = preset.entries.length - groups.size
+        const counted = {id, revision:preset.revision, groups:merged.length, removed, count:groups.size}
+        if (dryRun || !removed) return {next:current, result:counted}
+        const entries = [...groups.values()].map(list => list.length === 1 ? list[0] : normalizeReadingEntry({...readingInput(list[0]), forms:list.flatMap(entry => entry.forms)}))
+        validateReadingEntries(entries)
+        const next = replace(current, {...preset, revision:preset.revision + 1, entries})
+        return {next, result:{...counted, revision:preset.revision + 1}}
+      })
+    },
     create({name, from} = {}) {
       return mutate(current => add(current, name, from === undefined ? [] : find(current, from).entries))
     },

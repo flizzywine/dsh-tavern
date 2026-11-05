@@ -166,6 +166,7 @@ export function apply(ctx, config = {}) {
       case 'readingPresets': return readings.list()
       case 'readingPreset': return readings.get(args)
       case 'editReading': return readings.edit(args)
+      case 'mergeReadings': return readings.merge(args)
       case 'createReadingPreset': return readings.create(args)
       case 'renameReadingPreset': return readings.rename(args)
       case 'deleteReadingPreset': return readings.remove(args)

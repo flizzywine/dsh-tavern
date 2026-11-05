@@ -791,6 +791,9 @@ function StageStyleEdit({ctx,onError}) {
 // box, the 写法 → 读音 rows and a dashed ＋ (InlineAdd). The list is windowed (fixed 36px rows, only the visible ones
 // mount), a row edits in its own InlineField and saves alone (editReading: one row under the preset's revision), so a
 // keystroke never re-renders or re-sends the list. Each entry's language shows as a small tag that is also its menu.
+// One entry may hold several 写法 for one 读音, separated by , ， or 、 (dsh-tavern-tts splits them once, on entry). A new entry
+// is scrolled into view and highlighted; the add line has its own 添加 button for touch screens; 合并同读音 (⋯) folds
+// entries with the same reading into one after showing the count.
 const READING_WARNINGS={LATIN_ASSUMED_EN:'已按英语处理；拼音或日语罗马字可修改语言',AMBIGUOUS_READING:'自动识别可能不准确，可修改语言'};
 const READING_ERRORS={REVISION_CONFLICT:'内容已在别处修改，已重新载入',DUPLICATE_READING_FORM:'这个写法已经有读音了',INVALID_READINGS:'写法或读音无效',
   DUPLICATE_PRESET_NAME:'已有同名预设',INVALID_PRESET_NAME:'预设名称无效',LAST_PRESET:'至少保留一个预设',PRESET_LIMIT:'预设数量已达上限',PRESET_NOT_FOUND:'预设不存在，已重新载入',UNKNOWN_FIELD:'不是有效的读音预设文件',
@@ -816,29 +819,49 @@ function ReadingLanguage({entry,label,onPick}) {
         h('span',null,name),value===id&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))))});
 }
 // One line: 写法 → 读音 · language tag · ✕. Memoized on the entry object, so an edit elsewhere re-renders nothing here.
-function ReadingRowView({entry,position,onSave,onRemove}) {
+// A field commits on Enter or blur; while one is being edited the ✕ gives way to a ✓ that commits it (a phone has no
+// Enter key to rely on). The ✓ keeps the focus on press, then blurs the field, which commits through the same path.
+// `flash` marks the entry just added (a short highlight once it has been scrolled into view).
+const readingConfirm=e=>{const field=e.currentTarget.closest('.ap-readings-row')?.querySelector('input:focus');field?.blur?.();};
+const keepFocus=e=>e.preventDefault();
+function ReadingRowView({entry,position,flash,onSave,onRemove}) {
   const forms=readingForms(entry);
   const cell=(label,value,field,cls)=>h(InlineField,{kind:'text',label,hideLabel:true,value,title:value,className:'ap-reading-field'+cls,
     validate:v=>v?'':field==='forms'?'请填写写法':'请填写读音',onCommit:text=>onSave(entry,{...readingInput(entry),[field]:text})});
-  return h('div',{className:'ap-readings-row',role:'row','aria-rowindex':position+1,style:{transform:'translateY('+position*READING_ROW+'px)'}},
+  return h('div',{className:'ap-readings-row'+(flash?' is-flash':''),role:'row','aria-rowindex':position+1,style:{transform:'translateY('+position*READING_ROW+'px)'}},
     cell('写法 '+forms,forms,'forms',' is-form'),
     h('span',{className:'ap-reading-arrow','aria-hidden':true},'→'),
     cell('读音 '+forms,entry.reading,'reading',''),
     h(ReadingLanguage,{entry,label:forms,onPick:id=>{const next=readingInput(entry);if(id)next.languageOverride=id;else delete next.languageOverride;onSave(entry,next);}}),
+    h(Button,{className:'ap-icon-button ap-reading-confirm','aria-label':'确认修改 '+forms,title:'确认',onPointerDown:keepFocus,onMouseDown:keepFocus,onClick:readingConfirm},h(Glyph,{name:'check'})),
     h(Button,{className:'ap-icon-button ap-reading-remove','aria-label':'删除读音 '+forms,title:'删除',onClick:()=>onRemove(entry)},'✕'));
 }
 const ReadingRow=typeof React.memo==='function'?React.memo(ReadingRowView):ReadingRowView;
 // The window: a fixed-height scroller (12 rows) once the list is longer; only the rows in view (+ overscan) mount.
-function ReadingList({entries,rows,onSave,onRemove,resetKey}) {
-  const [top,setTop]=React.useState(0),box=React.useRef(null),frame=React.useRef(0);
+// `reveal` (an entry just added) scrolls the window to its row once it is among the rows (a search that hid it is
+// cleared first), then brings the row itself into the page's view.
+function ReadingList({entries,rows,onSave,onRemove,resetKey,reveal}) {
+  const [top,setTop]=React.useState(0),box=React.useRef(null),frame=React.useRef(0),revealed=React.useRef(null),inView=React.useRef(null);
   React.useEffect(()=>{setTop(0);if(box.current)box.current.scrollTop=0;},[resetKey]);
+  React.useEffect(()=>{
+    const node=box.current;if(!reveal||revealed.current===reveal||!node)return;
+    const n=rows.indexOf(entries.indexOf(reveal));if(n<0)return;
+    revealed.current=reveal;
+    if(rows.length>READING_VIEW){const at=n*READING_ROW,view=READING_VIEW*READING_ROW;
+      const next=at<node.scrollTop?at:at+READING_ROW>node.scrollTop+view?at+READING_ROW-view:node.scrollTop;node.scrollTop=next;setTop(next);}
+  },[reveal,rows,entries]);
+  React.useEffect(()=>{
+    if(!reveal||revealed.current!==reveal||inView.current===reveal)return;
+    const row=box.current?.querySelector?.('.ap-readings-row.is-flash');if(!row)return;
+    inView.current=reveal;row.scrollIntoView?.({block:'nearest'});
+  },[reveal,top]);
   const raf=typeof requestAnimationFrame==='function'?requestAnimationFrame:fn=>setTimeout(fn,16),caf=typeof cancelAnimationFrame==='function'?cancelAnimationFrame:clearTimeout;
   React.useEffect(()=>()=>caf(frame.current),[]);
   const windowed=rows.length>READING_VIEW;
   const first=windowed?Math.max(0,Math.floor(top/READING_ROW)-READING_OVERSCAN):0;
   const last=windowed?Math.min(rows.length,Math.ceil(top/READING_ROW)+READING_VIEW+READING_OVERSCAN):rows.length;
   const onScroll=e=>{const value=e.currentTarget.scrollTop;caf(frame.current);frame.current=raf(()=>setTop(value));};
-  const shown=[];for(let n=first;n<last;n++){const entry=entries[rows[n]];shown.push(h(ReadingRow,{key:readingKey(entry),entry,position:n,onSave,onRemove}));}
+  const shown=[];for(let n=first;n<last;n++){const entry=entries[rows[n]];shown.push(h(ReadingRow,{key:readingKey(entry),entry,position:n,flash:entry===reveal,onSave,onRemove}));}
   return h('div',{ref:box,className:'ap-readings'+(windowed?' is-windowed':''),role:'table','aria-label':'读音','aria-rowcount':rows.length,onScroll:windowed?onScroll:undefined,
     style:{height:(windowed?READING_VIEW:rows.length)*READING_ROW+'px'}},
     h('div',{className:'ap-readings-track',role:'rowgroup',style:{height:rows.length*READING_ROW+'px'}},shown));
@@ -856,6 +879,10 @@ function ReadingPresetsEditor({call}) {
   const [error,setError]=React.useState(''),[saving,setSaving]=React.useState(''),[query,setQuery]=React.useState('');
   const [naming,setNaming]=React.useState(null),[confirm,setConfirm]=React.useState(false),[busy,setBusy]=React.useState(false);
   const [adding,setAdding]=React.useState(false),[draft,setDraft]=React.useState({forms:'',reading:''});
+  // reveal: the entry just added (scrolled to, highlighted for a moment); note: a short line under the list (已删除 … 撤销,
+  // nothing to merge); merging: the 合并同读音 count waiting for its confirm.
+  const [reveal,setReveal]=React.useState(null),[note,setNote]=React.useState(null),[merging,setMerging]=React.useState(null);
+  React.useEffect(()=>{if(!reveal)return;const timer=setTimeout(()=>{if(live.current)setReveal(null);},2400);return()=>clearTimeout(timer);},[reveal]);
   const current=React.useRef(null),queue=React.useRef(Promise.resolve()),formsRef=React.useRef(null),readingRef=React.useRef(null),picker=React.useRef(null),live=React.useRef(true);
   React.useEffect(()=>()=>{live.current=false;},[]);
   const show=next=>{current.current=next;if(live.current)setPreset(next);};
@@ -881,18 +908,21 @@ function ReadingPresetsEditor({call}) {
       const entries=p.entries.slice();
       if(op==='add')entries.push(r.entry);else if(op==='set')entries[index]=r.entry;else entries.splice(index,1);
       show({...p,revision:r.revision,entries});
-      if(live.current){setList(l=>l&&{...l,presets:l.presets.map(x=>x.id===p.id?{...x,count:entries.length,revision:r.revision}:x)});setSaving('saved');setError('');}
-      return true;
+      if(live.current){setList(l=>l&&{...l,presets:l.presets.map(x=>x.id===p.id?{...x,count:entries.length,revision:r.revision}:x)});setSaving('saved');setError('');setNote(null);}
+      return op==='add'?r.entry:true;
     }catch(e){await fail(e);return false;}
   });
+  // A deleted entry can be put back from the line under the list (added again at the end).
+  const restore=async entry=>{const added=await edit('add',null,readingInput(entry));if(added&&live.current)setReveal(added);};
   // Stable row callbacks (the rows are memoized on their entry): created once, they only read refs.
   const rowActions=React.useRef(null);
-  if(!rowActions.current)rowActions.current={onSave:(entry,input)=>{edit('set',entry,input);},onRemove:entry=>{edit('remove',entry);}};
+  if(!rowActions.current)rowActions.current={onSave:(entry,input)=>{edit('set',entry,input);},
+    onRemove:async entry=>{if(await edit('remove',entry)&&live.current)setNote({text:'已删除「'+readingForms(entry)+'」',action:'撤销',onAction:()=>restore(entry)});}};
   const {onSave,onRemove}=rowActions.current;
   // Preset operations answer with the new summary; the editor then shows the (possibly new) active preset.
   const presetOp=(method,args)=>run(async()=>{
     setBusy(true);setError('');
-    try{const summary=await call(method,args),value=await call('readingPreset',{id:summary.active});if(live.current){setList(summary);show(value);setQuery('');}return true;}
+    try{const summary=await call(method,args),value=await call('readingPreset',{id:summary.active});if(live.current){setList(summary);show(value);setQuery('');setNote(null);}return true;}
     catch(e){await fail(e);return false;}finally{if(live.current)setBusy(false);}
   });
   async function exportPreset(){
@@ -909,9 +939,27 @@ function ReadingPresetsEditor({call}) {
     const forms=draft.forms.trim(),reading=draft.reading.trim();
     if(!forms){formsRef.current?.focus?.();return false;}
     if(!reading){readingRef.current?.focus?.();return false;}
-    if(await edit('add',null,{forms,reading})){setDraft({forms:'',reading:''});formsRef.current?.focus?.();}
+    const added=await edit('add',null,{forms,reading});
+    if(added&&live.current){
+      setDraft({forms:'',reading:''});formsRef.current?.focus?.();setReveal(added);
+      // a search that would hide the new entry is cleared, so the list can show it.
+      const term=query.trim().toLowerCase();if(term&&!(added.forms.join('\n')+'\n'+added.reading).toLowerCase().includes(term))setQuery('');
+    }
     return false;
   }
+  // 合并同读音: entries with the same reading and language become one entry with all their 写法. The count comes first
+  // (dryRun); the merge itself runs only after the confirm, under the revision that was counted.
+  async function countMerge(){
+    const p=current.current;
+    try{const r=await call('mergeReadings',{id:p.id,expectedRevision:p.revision,dryRun:true});if(!live.current)return;
+      if(r.removed)setMerging({...r,before:p.entries.length});else setNote({text:'没有读音相同的条目'});setError('');}
+    catch(e){await fail(e);}
+  }
+  const runMerge=()=>run(async()=>{
+    const p=current.current,r=await call('mergeReadings',{id:p.id,expectedRevision:merging.revision,dryRun:false}),value=await call('readingPreset',{id:p.id});
+    if(!live.current)return;show(value);setList(l=>l&&{...l,presets:l.presets.map(x=>x.id===p.id?{...x,count:r.count,revision:r.revision}:x)});
+    setNote({text:'已合并为 '+r.count+' 条'});setError('');
+  });
   const entries=preset?.entries;
   // Search: one lower-cased line per entry, rebuilt only when the entries array changes; the filtered row list only when
   // the entries or the (deferred) term change.
@@ -933,6 +981,7 @@ function ReadingPresetsEditor({call}) {
         h(MenuItem,{key:'copy',onClick:()=>{close();presetOp('createReadingPreset',{name:preset.name+' 副本',from:preset.id});}},'复制'),
         h(MenuItem,{key:'export',onClick:()=>{close();exportPreset();}},'导出'),
         h(MenuItem,{key:'import',onClick:()=>{close();picker.current?.click?.();}},'导入'),
+        h(MenuItem,{key:'merge',disabled:entries.length<2,onClick:()=>{close();countMerge();}},'合并同读音…'),
         h(MenuItem,{key:'delete',danger:true,disabled:only,title:only?'至少保留一个预设':undefined,onClick:()=>{close();setConfirm(true);}},'删除…')]});
     const head=naming?h(InlineAdd,{open:true,className:'fork-readings-name',label:naming.mode==='create'?'新预设名称':'预设名称',placeholder:'预设名称',maxLength:40,busy,
         value:naming.value,onChange:value=>setNaming(n=>n&&{...n,value}),onCancel:()=>setNaming(null),
@@ -943,20 +992,27 @@ function ReadingPresetsEditor({call}) {
       h('div',{className:'fork-readings-bar'},head,!naming&&menu,
         h('input',{ref:picker,type:'file',accept:'.json,application/json',hidden:true,tabIndex:-1,'aria-label':'导入读音预设',onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)importFile(file);}})),
       (entries.length>8||query)&&h(PackSearchBox,{label:'搜索读音',placeholder:'搜索写法或读音',value:query,onChange:setQuery,className:'fork-readings-search'}),
-      entries.length?rows.length?h(ReadingList,{entries,rows,onSave,onRemove,resetKey:preset.id+'\n'+term}):h(EmptyState,{noun:'读音',query,onClear:()=>setQuery('')})
+      entries.length?rows.length?h(ReadingList,{entries,rows,onSave,onRemove,reveal,resetKey:preset.id+'\n'+term}):h(EmptyState,{noun:'读音',query,onClear:()=>setQuery('')})
         :h(EmptyState,{noun:'读音'}),
       h(InlineAdd,{open:adding,onOpen:()=>setAdding(true),onCancel:()=>{setAdding(false);setDraft({forms:'',reading:''});},
           className:'ap-readings-row is-new',tileClassName:'fork-readings-add',inputClassName:'fork-inline-add-input fork-readings-input',inputRef:formsRef,
-          label:'新写法',addLabel:'添加读音',placeholder:'写法',value:draft.forms,onChange:forms=>setDraft(d=>({...d,forms})),
+          label:'新写法',addLabel:'添加读音',placeholder:'写法，多个用逗号分开',value:draft.forms,onChange:forms=>setDraft(d=>({...d,forms})),
           onConfirm:()=>{if(draft.reading.trim())return addDraft();readingRef.current?.focus?.();return false;}},
         h('span',{className:'ap-reading-arrow','aria-hidden':true},'→'),
         h(InlineAdd,{open:true,bare:true,inputRef:readingRef,inputClassName:'fork-inline-add-input fork-readings-input',label:'新读音',placeholder:'读音',value:draft.reading,
-          onChange:reading=>setDraft(d=>({...d,reading})),onConfirm:addDraft,onCancel:()=>{setAdding(false);setDraft({forms:'',reading:''});}})),
+          onChange:reading=>setDraft(d=>({...d,reading})),onConfirm:addDraft,onCancel:()=>{setAdding(false);setDraft({forms:'',reading:''});}}),
+        // Enter adds from either box; the buttons are the same for a touch screen.
+        h(Button,{primary:true,className:'ap-reading-add-confirm',disabled:saving==='saving'||undefined,onClick:addDraft},'添加'),
+        h(IconButton,{icon:'close',label:'取消添加',className:'ap-reading-add-cancel',onClick:()=>{setAdding(false);setDraft({forms:'',reading:''});}})),
+      note&&h('p',{className:'ap-reading-note',role:'status'},h('span',null,note.text),note.action&&h(Button,{className:'ap-hint-chip',onClick:()=>{setNote(null);note.onAction();}},note.action)),
       error&&h('p',{className:'ap-field-error',role:'alert'},error));
   }
   return h('div',{className:'ap-ui fork-readings'},
     h(StageSection,{title:'发音字典',meta:entries?entries.length:undefined,foldKey:'tts-readings',action:save,
       help:'配音前把写法换成读音，所有人物卡通用；同一时间一个预设生效。写法可写几种，用逗号或顿号分开。'},body),
+    merging&&preset&&h(ConfirmDialog,{title:'合并同读音',confirmLabel:'合并',
+      body:merging.groups+' 组读音相同的条目各合并为一条，写法用逗号分开（'+merging.before+' → '+(merging.before-merging.removed)+' 条）。',
+      onConfirm:async()=>{try{await runMerge();}catch(e){await fail(e);throw e;}},onClose:()=>setMerging(null)}),
     confirm&&preset&&h(ConfirmDialog,{title:'删除预设',body:'删除「'+preset.name+'」及其 '+preset.entries.length+' 条读音？',confirmLabel:'删除',danger:true,
       onConfirm:async()=>{if(!await presetOp('deleteReadingPreset',{id:preset.id}))throw new Error('删除失败');},onClose:()=>setConfirm(false)}));
 }
