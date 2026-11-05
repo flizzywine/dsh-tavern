@@ -5783,20 +5783,24 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
    art.backlog.plates (C1): each 履历 entry on its role's own plate. stageSkinArt writes data-fk-skin-art-backlog-plates and
    the --art-bl-p-<role>-* tokens (images and inks by index, slice and overhang edges, poses, slant); the backlog view marks
    every plated row with data-bl-role, data-bl-plate (its image index) and data-bl-pose (its pose index), and points its --bp-*
-   at its own tokens. The plate is the row's nine-sliced border image: the edge slices at their size (tape, pins, tails), the
+   at its own tokens. The plate is a decorative child's nine-sliced border image above the highlight: the edge slices at their size (tape, pins, tails), the
    middle stretched, overhanging the row by out. The pose moves and turns the whole row, so its hit area, the highlight (sized
    to the plate) and its focus go with it while the reading and tab order stay; slant skews only the words, never the
    highlight or the voice control. The body takes the image's ink (checked >= 4.5:1 on its ground when the skin is written).
+   scale maps source slices to design px (x for left/right, y for top/bottom); out and poses stay design px.
    --bp-u: one design px - the art layer's (--mu), else (a phone's shared sheet) half a CSS px.
 */
 .fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate] { --bp-u: var(--mu, .5px);
   --art-bl-hover-t: var(--bp-ot); --art-bl-hover-r: var(--bp-or); --art-bl-hover-b: var(--bp-ob); --art-bl-hover-l: var(--bp-ol);
-  position: relative; isolation: isolate; box-sizing: border-box; min-height: calc((var(--bp-st) + var(--bp-sb)) * var(--bp-u)); color: var(--bp-ink);
-  border-image: var(--bp) var(--bp-st) var(--bp-sr) var(--bp-sb) var(--bp-sl) fill / calc(var(--bp-st) * var(--bp-u)) calc(var(--bp-sr) * var(--bp-u)) calc(var(--bp-sb) * var(--bp-u)) calc(var(--bp-sl) * var(--bp-u))
+  position: relative; isolation: isolate; box-sizing: border-box; min-height: calc((var(--bp-st) + var(--bp-sb)) * var(--bp-sy) * var(--bp-u)); color: var(--bp-ink); }
+.fork-gal-backlog-plate { display: none; }
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate] > .fork-gal-backlog-plate { display: block; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  border-image: var(--bp) var(--bp-st) var(--bp-sr) var(--bp-sb) var(--bp-sl) fill / calc(var(--bp-st) * var(--bp-sy) * var(--bp-u)) calc(var(--bp-sr) * var(--bp-sx) * var(--bp-u)) calc(var(--bp-sb) * var(--bp-sy) * var(--bp-u)) calc(var(--bp-sl) * var(--bp-sx) * var(--bp-u))
     / calc(var(--bp-ot) * var(--bp-u)) calc(var(--bp-or) * var(--bp-u)) calc(var(--bp-ob) * var(--bp-u)) calc(var(--bp-ol) * var(--bp-u)) stretch; }
 .fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate][data-bl-pose] { transform: translate(calc(var(--bp-x) * var(--bp-u)), calc(var(--bp-y) * var(--bp-u))) rotate(var(--bp-rot)); }
 .fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate] :is(.fork-gal-backlog-text, .fork-gal-backlog-input > p, .fork-gal-backlog-card > p, .fork-gal-backlog-turn > span) { color: inherit; }
 .fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog [data-bl-plate][data-bl-slant] :is(.fork-gal-backlog-text, .fork-gal-backlog-input > p, .fork-gal-backlog-card > p, .fork-gal-backlog-turn > span) { transform: skewX(calc(-1 * var(--bp-slant))); }
+.fork-gal-stage[data-fk-skin-art-backlog-plates]:not(.is-film) .fork-gal-backlog .fork-gal-backlog-row[data-bl-plate]:is(.is-here, .is-jump:hover, .is-jump:focus-visible)::before { z-index: -2; }
 /* The plate covers the shared row highlight: without the skin's own (art.backlog.hover) keyboard focus shows the stage's ring. */
 .fork-gal-stage[data-fk-skin-art-backlog-plates]:not([data-fk-skin-art-backlog-parts~="hover"]):not(.is-film) .fork-gal-backlog [data-bl-plate]:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }
 /* A divider on its plate: the plate is the rule. */
@@ -5820,7 +5824,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage[data-fk-skin-art-backlog-letter]:not(.is-film) .fork-gal-backlog-name .fork-gal-ransom-text,
 .fork-gal-stage[data-fk-skin-art-backlog-divider-letter]:not(.is-film) .fork-gal-backlog-turn .fork-gal-ransom-text { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (min-width: 641px) {
-  .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name { left: auto; right: calc(100% - var(--bl-text)); }
+  .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name { left: auto; right: calc(100% - var(--bl-text)); width: max-content; }
   .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-parts~="name"]:not([data-fk-skin-art-backlog-voice="row"]):not([data-fk-skin-art-backlog-voice="text"]):not(.is-film) .fork-gal-backlog-name > .fork-voice-button { position: absolute; left: 100%; bottom: 0; }
 }
 /* ==== end art backlog glyph tiles ==== */

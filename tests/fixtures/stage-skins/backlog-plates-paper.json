@@ -1,0 +1,107 @@
+{
+  "schema": "dsh.skin/1",
+  "id": "backlog-plates-paper",
+  "label": "Paper backlog",
+  "textbox": {
+    "paint": {
+      "bg": "#14101c",
+      "fg": "#f4f0fa",
+      "fgMuted": "#b9b2c6",
+      "accent": "#e8c26a",
+      "onAccent": "#14101c"
+    }
+  },
+  "nameplate": {
+    "shape": "plain",
+    "paint": {
+      "bg": "#14101c",
+      "fg": "#f4f0fa"
+    }
+  },
+  "font": {},
+  "textFx": {
+    "reveal": "type"
+  },
+  "art": {
+    "screen": 1080,
+    "screenWidth": 1920,
+    "backlog": {
+      "sheet": "art/backlog-sheet.webp",
+      "dim": 0.6,
+      "list": [
+        160,
+        120,
+        1500,
+        820
+      ],
+      "font": 30,
+      "pitch": 46,
+      "text": [
+        320,
+        1220
+      ],
+      "top": 12,
+      "gap": 28,
+      "name": {
+        "x": 40,
+        "y": 8,
+        "h": 44,
+        "font": 30,
+        "head": 52,
+        "align": "end"
+      },
+      "hover": {
+        "image": "art/backlog-hover.webp",
+        "out": [
+          8,
+          12,
+          8,
+          12
+        ]
+      },
+      "plates": {
+        "speech": {
+          "images": [
+            {
+              "image": "art/paper.webp",
+              "ground": "#f1ead9",
+              "ink": "#2a2333"
+            }
+          ],
+          "slice": [
+            32,
+            48,
+            32,
+            48
+          ],
+          "scale": [
+            0.5,
+            0.75
+          ],
+          "out": [
+            4,
+            8,
+            4,
+            8
+          ]
+        },
+        "divider": {
+          "images": [
+            {
+              "image": "art/rule.webp",
+              "ground": "#14101c",
+              "ink": "#e8c26a"
+            }
+          ],
+          "slice": [
+            8,
+            24,
+            8,
+            24
+          ],
+          "scale": 0.5
+        }
+      }
+    }
+  }
+}

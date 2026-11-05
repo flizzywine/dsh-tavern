@@ -440,8 +440,9 @@ const skinBacklogVoice = value => skinRect(value) || skinObject({anchor:skinEnum
 // fixed edges carry tape, pins and tails) and overhangs the entry by out [top, right, bottom, left] design px. poses = each
 // entry's own offset (x, y design px) and turn (rot degrees), cycled by its place like art.menu.rows.poses - the hit area,
 // highlight and reading order go with the plate; slant = the words' oblique angle in degrees (a vector skew).
+// scale = design px per source image px, scalar or [x,y], default 1. Slice stays source px; out and poses stay design px.
 // divider.letter ransom (C2): the turn rule's words as glyph tiles (art.backlog.glyphTiles, else art.menu.glyphTiles) on its plate.
-const skinBacklogEntryPlateFields = {images:skinArray(skinObject({image:skinImage,ground:skinColor,ink:skinColor},['image','ground','ink']),1,8),slice:skinSlice,
+const skinBacklogEntryPlateFields = {scale:skinScale,images:skinArray(skinObject({image:skinImage,ground:skinColor,ink:skinColor},['image','ground','ink']),1,8),slice:skinSlice,
     out:skinArray(skinNumber(-1024,1024),4,4),poses:skinArray(skinObject({x:skinNumber(-256,256),y:skinNumber(-256,256),rot:skinNumber(-12,12)},['x','rot']),1,8),slant:skinNumber(-20,20)};
 const skinBacklogEntryPlate = skinObject(skinBacklogEntryPlateFields,['images','slice']);
 const skinBacklogDividerPlate = skinObject({...skinBacklogEntryPlateFields,letter:skinEnum(STAGE_SKIN_MENU_LETTERS)},['images','slice']);

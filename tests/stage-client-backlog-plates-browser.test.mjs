@@ -27,7 +27,7 @@ const svg=fill=>'data:image/svg+xml,'+encodeURIComponent(`<svg xmlns="http://www
 const grounds=Object.fromEntries(Object.values(fixture.art.backlog.plates).flatMap(plate=>plate.images.map(item=>[item.image,item.ground])))
 const files=Object.fromEntries(contract.stageSkinFiles(doc).map(name=>[name,{url:svg(grounds[name] || '#444444'),image:{naturalWidth:200,naturalHeight:100}}]))
 const adapter=createStageSkinAdapter({contract,motion:createStageSkinMotion(),backlog:createStageSkinBacklog()})
-const skinOf=document=>{const art=adapter.stageSkinArt(document,files);assert.ok(art,'the art layer draws');return {marks:art.marks,tokens:art.tokens,looks:adapter.stageSkinBacklog(document)}}
+const skinOf=document=>{const resources={...files,...Object.fromEntries(contract.stageSkinFiles(document).filter(name=>!files[name]).map(name=>[name,{url:svg("#f1ead9"),image:{naturalWidth:200,naturalHeight:100}}]))};const art=adapter.stageSkinArt(document,resources);assert.ok(art,'the art layer draws');return {marks:art.marks,tokens:art.tokens,looks:adapter.stageSkinBacklog(document)}}
 const rgb=hex=>'rgb('+[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)).join(', ')+')'
 
 const PAGES=[['小夜','第一句台词，说得很长很长一点，好让这一行有些分量。'],['月见里','第二句。'],[null,'夜风从窗外吹进来。'],['小夜','第三句，现在这一页。']]
@@ -62,9 +62,9 @@ async function open(browser,skin,viewport){
   return {page,errors}
 }
 const read=page=>page.evaluate(()=>[...document.querySelectorAll('.fork-gal-backlog-col > :is(.fork-gal-backlog-turn, .fork-gal-backlog-input, .fork-gal-backlog-card, .fork-gal-backlog-row)')].map(el=>{
-  const style=getComputedStyle(el),text=el.querySelector('.fork-gal-backlog-text, :scope > p, :scope > span'),voice=el.querySelector('.fork-voice-button')
+  const style=getComputedStyle(el),paint=getComputedStyle(el.querySelector('.fork-gal-backlog-plate') || el),text=el.querySelector('.fork-gal-backlog-text, :scope > p, :scope > span'),voice=el.querySelector('.fork-voice-button')
   return {role:el.dataset.blRole || null,plate:el.dataset.blPlate ?? null,pose:el.dataset.blPose ?? null,here:el.classList.contains('is-here'),
-    image:style.borderImageSource,outset:style.borderImageOutset,transform:style.transform,ink:text && getComputedStyle(text).color,textTransform:text && getComputedStyle(text).transform,
+    image:paint.borderImageSource,outset:paint.borderImageOutset,transform:style.transform,ink:text && getComputedStyle(text).color,textTransform:text && getComputedStyle(text).transform,
     voiceTransform:voice && getComputedStyle(voice).transform,before:(b=>({content:b.content,transform:b.transform,t:b.top,r:b.right,b:b.bottom,l:b.left}))(getComputedStyle(el,'::before'))}
 }))
 
@@ -120,4 +120,38 @@ test('on a 390 px phone plated rows keep their plate and ink; a skin without pla
   assert.deepEqual(errors,[])
   assert.ok(rows.every(row=>row.plate===null && row.image==='none' && row.transform==='none'),JSON.stringify(rows))
   assert.equal(await page.evaluate(()=>document.querySelector('.fork-gal-backlog-turn').hasAttribute('data-bl-role')),false)
+})
+
+for(const file of ['backlog-plates.json','backlog-plates-paper.json']) test(file + ': highlight under plate, source scale and right name voice anchor',{timeout:90000},async t=>{
+  const document=JSON.parse(await readFile(new URL('./fixtures/stage-skins/'+file,import.meta.url),'utf8'));delete document.devices
+  document.art.backlog.name.align='end'
+  document.art.backlog.narrow={unit:.5}
+  document.art.backlog.plates.speech.scale ??= .5
+  contract.validateStageSkin(document)
+  const browser=await chromium.launch({headless:true,args:['--mute-audio']});t.after(()=>browser.close())
+  for(const viewport of [{width:1920,height:1080},{width:390,height:844}]) {
+    const {page,errors}=await open(browser,skinOf(document),viewport)
+    assert.deepEqual(errors,[])
+    for(const selector of ['.fork-gal-backlog-row.is-here','.fork-gal-backlog-row.is-line']) {
+      const row=page.locator(selector).first()
+      if(viewport.width<768)await row.focus()
+      else await row.hover()
+      const state=await row.evaluate(el=>{
+        const plate=el.querySelector('.fork-gal-backlog-plate'),p=getComputedStyle(plate),before=getComputedStyle(el,'::before')
+        const name=el.querySelector('.fork-gal-backlog-name b').getBoundingClientRect(),voice=el.querySelector('.fork-voice-button').getBoundingClientRect()
+        return {plateZ:p.zIndex,highlightZ:before.zIndex,highlight:before.content,slice:p.borderImageSlice,width:p.borderImageWidth,gap:voice.left-name.right,nameWidth:name.width,voiceWidth:voice.width}
+      })
+      assert.equal(state.highlight,'""')
+      assert.ok(Number(state.highlightZ)<Number(state.plateZ),'highlight paints under the plate, not over its text')
+      const plate=document.art.backlog.plates.speech,scale=Array.isArray(plate.scale)?plate.scale:[plate.scale,plate.scale]
+      const slice=Array.isArray(plate.slice)?plate.slice:plate.slice.edges
+      const unit=viewport.width===1920?1:.5
+      const edges=value=>{const n=value.split(' ').filter(v=>v!=='fill').map(parseFloat);return [n[0],n[1]??n[0],n[2]??n[0],n[3]??n[1]??n[0]]}
+      assert.deepEqual(edges(state.slice),slice)
+      assert.deepEqual(edges(state.width),slice.map((n,i)=>n*scale[i%2===0?1:0]*unit))
+      assert.ok(Math.abs(state.gap)<16,'voice stays next to the name: '+JSON.stringify(state))
+      assert.ok(state.nameWidth>0 && state.voiceWidth>0)
+    }
+    await page.close()
+  }
 })
