@@ -15109,7 +15109,12 @@ function GalStage(props) {
         const input=packFigureRenderInputs(selected,{sessionId}).stage;
         if(!input)return null;
         const key='candidate:'+String(actor.instanceId);
-        return {...input,key,sourceRef:actor.ref,sourceOutfitKey:selected.outfitKey,sourceStateId:selected.state?.id,alias:key,x:actor.x,ground:actor.ground,sceneSize:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking:actor===candidateSpeaker,talking:actor===candidateSpeaker && !!sceneLineKey && sceneTalking===sceneLineKey && !sceneTyped,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : 1,
+        const storyFigure=!candidateLine && pack.characters.find(figure=>figure.alias===speaker);
+        const storySpeaker=storyFigure && actor.ref?.packId===storyFigure.ref?.packId && actor.ref?.figureId===storyFigure.ref?.figureId && candidateActors.find(row=>row.ref?.packId===actor.ref.packId && row.ref?.figureId===actor.ref.figureId)===actor;
+        const storyInput=storySpeaker ? renderInputs.get(speaker)?.stage : null;
+        const speaking=candidateLine ? actor===candidateSpeaker : Boolean(storySpeaker);
+        const talking=candidateLine ? speaking && !!sceneLineKey && sceneTalking===sceneLineKey && !sceneTyped : speaking && storyTalking===JSON.stringify([sessionId,turn,page,card]) && !typed && !skipping && !battlePresentation;
+        return {...input,...(storyInput?.audio ? {audio:storyInput.audio} : null),key,sourceRef:actor.ref,sourceOutfitKey:selected.outfitKey,sourceStateId:selected.state?.id,alias:key,x:actor.x,ground:actor.ground,sceneSize:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking,talking,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : 1,
             figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry?.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     }).filter(Boolean);
     function onSceneDebug(effect) {
