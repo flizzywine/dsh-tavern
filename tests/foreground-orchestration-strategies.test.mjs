@@ -399,3 +399,41 @@ test('插件工具声明了解锁 Skill 时，未加载前不进入工作台请�
   await strategy.assembleSystemPrompt(after, input)
   assert.deepEqual(after.tools.map(tool => tool.name), ['bash', 'stage_patch', 'stage_lookup'])
 })
+
+test('宿主 system-prompt/assemble waterfall 中 assembly.tools 为 undefined 时不崩溃', async () => {
+  const strategy = createNativePlayOrchestrationStrategy({
+    modeFor: async () => 'story',
+    visibleTools: async () => [],
+    resolvePreset: async () => null,
+    controlledToolNames: new Set()
+  })
+  const input = { sessionId: 'game', chat: { mode: 'story' }, fixedSystemSections: [] }
+  // DSH host waterfall passes assembly with sections, contexts, variables, but NO tools property
+  const assembly = { sections: [], contexts: [], variables: {} }
+  const result = await strategy.assembleSystemPrompt(assembly, input)
+  assert.ok(result)
+  assert.ok(Array.isArray(result.sections))
+  assert.ok(!result.sections.some(section => section.name === 'tavern:no-foreground-tools'), 'missing metadata is not an empty tool set')
+})
+
+test('宿主 tools 不在 assembly 中时，输出契约使用实际 toolSet 定义', async () => {
+  const strategy = createNativePlayOrchestrationStrategy({
+    modeFor: async () => 'story', visibleTools: async () => ['submit_story'],
+    storyOutputToolCall: async () => true, resolvePreset: async () => null,
+    controlledToolNames: new Set(['submit_story'])
+  })
+  const assembly = { sections: [], contexts: [], variables: {} }
+  const result = await strategy.assembleSystemPrompt(assembly, {
+    sessionId: 'game', chat: { mode: 'story' }, fixedSystemSections: [],
+    toolDefinitions: [{ name: 'submit_story' }]
+  })
+  assert.ok(result.sections.some(section => section.name === 'tavern:story-tool-submission'))
+  assert.ok(!result.sections.some(section => section.name === 'tavern:no-foreground-tools'))
+  assert.equal(Object.hasOwn(result, 'tools'), false, 'host owns tools outside the assembly')
+  const actual = await strategy.assembleSystemPrompt({ sections: [] }, {
+    sessionId: 'game', chat: { mode: 'story', disabledForegroundTools: ['plugin_tool'] },
+    toolDefinitions: [{ name: 'submit_story' }, { name: 'plugin_tool' }]
+  })
+  assert.match(actual.sections.find(section => section.name === 'tavern:story-tool-submission').text, /可以先使用已开放的其他工具/,
+    'a host-owned list must not be described as filtered by a waterfall mutation')
+})

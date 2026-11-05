@@ -136,6 +136,8 @@ export function registerTurnLifecycleHooks({
     }
     const assembled = await foregroundStrategies.assembleSystemPrompt(assembly, {
       sessionId: agent.session.id,
+      toolDefinitions: !Array.isArray(assembly.tools) && typeof ctx.tools?.schemas === 'function'
+        ? await ctx.tools.schemas(agent, context.toolSet) : undefined,
       chat,
       cwd: agent.session.header && agent.session.header.cwd,
       workspaceProjection,
