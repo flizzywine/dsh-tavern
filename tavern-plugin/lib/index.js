@@ -1186,7 +1186,7 @@ export async function apply(ctx) {
   void uploads.sweep().catch(() => {})
   // 台词朗读 goes through the voice service; plugin speech providers join it as its providers (pluginApi is created later; read lazily).
   const voiceService = () => ctx.get('tts')
-  const speech = createLineSpeech({ getTts: voiceService })
+  const speech = createLineSpeech({ getTts: voiceService, getLibrary: () => ctx.get('assetLibrary') })
   const speechBridge = createSpeechProviderBridge({ providers: () => pluginApi.speechProviders(), toWav: speechAudioToWav, warn: error => ctx.logger.warn('dsh-tavern: 插件配音渠道无法接入语音服务 %s', error?.message || error) })
   ctx.inject(['tts'], child => { const detach = speechBridge.attach(voiceService()); child.effect(() => detach) })
   ctx.effect(() => () => speech.dispose())

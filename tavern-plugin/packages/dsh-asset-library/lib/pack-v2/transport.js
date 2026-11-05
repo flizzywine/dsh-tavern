@@ -27,7 +27,7 @@ const fields = Object.freeze({
   savePackVoice:['figureId','packId','expectedRevision','voiceId','voiceSpec','confirmShared'], saveFigureVoiceBinding:['packId','figureId','expectedRevision','binding'], createAndAssignPackVoice:['packId','figureId','expectedRevision','voiceSpec'],
   savePackVoiceVariant:['figureId','packId','expectedRevision','voiceId','variantId','variant','confirmShared'],
   deletePackVoiceVariant:['figureId','packId','expectedRevision','voiceId','variantId','confirmShared'],
-  listVoiceTemplates:[], saveVoiceTemplate:['templateId','expectedRevision','packId','packRevision','voiceId','binding'],
+  listVoiceCatalogue:[], listVoiceTemplates:[], saveVoiceTemplate:['templateId','expectedRevision','packId','packRevision','voiceId','binding'],
   deleteVoiceTemplate:['templateId','expectedRevision'], assignVoiceTemplate:['templateId','templateRevision','packId','figureId','expectedRevision'],
   createPack:['name','description','expectedRevision'], patchPack:['packId','expectedRevision','patch','fileUpdates','force'], removePack:['packId','expectedRevision'],
   putModMedia:['modId','packId','kind','slot','mime','bytes'], leaseModMedia:['modId','packId','path'],

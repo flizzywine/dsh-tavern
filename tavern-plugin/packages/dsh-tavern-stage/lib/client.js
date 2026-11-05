@@ -28075,7 +28075,7 @@ async function mountClipReplay(snapshot, transport, stagePlugin) {
         // source form: they run here over that closure's names (core = packUi.stageScope.names, asset-pack-ui.js) and the core binds
         // the names it uses from them (stageScope.bind). Both lists are exact.
         function createStageAssetPackViews(core) {
-            const {React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText,
+            const {React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
                 EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar} = core;
             // dsh-presentation-protocol card-stage-mode.cjs, the card page's `// @include-protocol` (the core bundle no longer includes it).
             'use strict';
@@ -29376,9 +29376,11 @@ function narratorLayers(ext,reading) {
   return {global,card,effective:{enabled:modSwitchOn(global.enabled===true,narratorCardSwitch(card)),voice:card.voice!==undefined?card.voice:global.voice}};
 }
 const narratorVoiceKey=voice=>!voice?'':voice.browser?'browser:'+voice.browser:voice.serviceId?'service:'+JSON.stringify([voice.serviceId,voice.voice])
-  :'figure:'+JSON.stringify([voice.packId,voice.figureId]);
+  :voice.templateId?'template:'+voice.templateId:voice.voiceId?'pack:'+JSON.stringify([voice.packId,voice.voiceId]):'figure:'+JSON.stringify([voice.packId,voice.figureId]);
 function narratorVoiceFromKey(key) {
   if(!key)return null;
+  if(key.startsWith('template:'))return {templateId:key.slice(9)};
+  if(key.startsWith('pack:')){const [packId,voiceId]=JSON.parse(key.slice(5));return {packId,voiceId};}
   if(key.startsWith('browser:'))return {browser:key.slice(8)};
   if(key.startsWith('service:')){const [serviceId,voice]=JSON.parse(key.slice(8));return {serviceId,voice};}
   const [packId,figureId]=JSON.parse(key.slice(7));
@@ -29448,8 +29450,9 @@ async function generalVoiceOptions(binding) {
   const browser=typeof window!=='undefined'&&window.speechSynthesis?await browserSpeechVoiceList(window.speechSynthesis):[];
   const services=binding.tts?(await binding.tts.call('voiceServices')).services.filter(s=>s.kind!=='browser'&&s.state!=='needs-key'):[];
   const groups=await Promise.all(services.map(s=>generalServiceVoices(binding.tts,s).then(r=>({s,voices:r?.status==='error'?[]:r?.voices||[]}),()=>({s,voices:[]}))));
+  const catalogue=await binding.service.listVoiceCatalogue();
   const seen=new Set();
-  return [...browser.map(v=>({value:narratorVoiceKey({browser:v.id}),label:v.label||v.id,group:'浏览器朗读'})),
+  return [...catalogue.voices.map(v=>({value:narratorVoiceKey(v.ref),label:v.name,group:v.packName||'我的模板'})),...browser.map(v=>({value:narratorVoiceKey({browser:v.id}),label:v.label||v.id,group:'浏览器朗读'})),
     ...groups.flatMap(({s,voices})=>voices.map(v=>({value:narratorVoiceKey({serviceId:s.id,voice:v.voiceId||v.id}),label:v.name||v.label||v.voiceId||v.id,group:s.label})))]
     .filter(o=>!seen.has(o.value)&&seen.add(o.value));
 }
@@ -29459,8 +29462,8 @@ function GeneralVoiceField({ctx}) {
   const list=useVoiceLoad(()=>wanted?generalVoiceOptions(ctx.binding):null,[ctx.binding,wanted]);
   const voice=ctx.writer.reading?.dialogueVoice||null,value=narratorVoiceKey(voice),options=list.value||[];
   const found=options.find(o=>o.value===value);
-  const shown=!voice?GENERAL_DEFAULT:found?found.group+' · '+found.label:voice.browser?'浏览器 · '+voice.browser:voice.voice;
-  const needle=query.trim().toLowerCase(),filtered=options.filter(o=>!needle||[o.label,o.group].some(x=>String(x).toLowerCase().includes(needle)));
+  const shown=!voice?GENERAL_DEFAULT:found?found.group+' · '+found.label:voice.browser?'浏览器 · '+voice.browser:voice.voice||voice.voiceId||voice.templateId;
+  const needle=voiceNeedle(query.trim()),filtered=options.filter(o=>voiceMatches(needle,[o.label,o.group]));
   const pick=(close,key)=>{close();setQuery('');if(key!==value)ctx.writer.setReading({dialogueVoice:narratorVoiceFromKey(key)});};
   const item=(close,o)=>h('button',{key:o.value||'default',type:'button',role:'menuitemradio','aria-checked':o.value===value,className:'ap-menu-item',onClick:()=>pick(close,o.value)},
     h('span',null,o.label),o.value===value&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'})));
@@ -29477,11 +29480,12 @@ function GeneralVoiceField({ctx}) {
 // 旁白配音's 声音: the card layer (OverrideDot / ⟲) shows the effective voice; 全局 edits the global narrator voice in the same field.
 function NarratorVoiceField({ctx,disabled}) {
   const [scope,setScope]=React.useState(()=>ctx.ext?.stage?.narrator?.voice!==undefined||!ctx.writer.reading?'card':'global');
-  const browser=useVoiceLoad(()=>typeof window!=='undefined'&&window.speechSynthesis?browserSpeechVoiceList(window.speechSynthesis):[],[]);
+  const catalogue=useVoiceLoad(()=>generalVoiceOptions(ctx.binding),[ctx.binding]);
   const {global,card,effective}=narratorLayers(ctx.ext,ctx.writer.reading);
   const shown=scope==='card'?effective.voice:global.voice;
   const own=scope==='card'?card.voice!==undefined:global.voice!==null;
-  const options=narratorVoiceOptions(stageFigureRows(ctx),browser.value,{figures:scope==='card',shown});
+  const existing=narratorVoiceOptions(stageFigureRows(ctx),[],{figures:scope==='card',shown});
+  const options=[...existing,...(catalogue.value||[]).filter(o=>!existing.some(e=>e.value===o.value))];
   const value=narratorVoiceKey(shown),missing=value&&!options.some(option=>option.value===value);
   return h(InlineGrid,{columns:1,label:'旁白声音'},
     h(InlineField,{kind:'menu',label:'声音',controlLabel:'旁白声音',disabled,help:own?h(OverrideDot,{layer:scope}):null,value:missing?'':value,options,placeholder:'未选择',

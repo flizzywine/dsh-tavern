@@ -1,7 +1,7 @@
 // each figure registers its own immutable, pack-scoped portable preset.
 import { effectiveCardStage, effectiveNarrator } from './card-stage-settings.js'
 import { assetPackDigest } from '../../packages/dsh-tavern-stage/lib/domain/stage-asset-pack-catalogue.js'
-import { figureTtsVoice, assetVoiceBinding, browserSpeechSource } from './figure-voice.js'
+import { figureTtsVoice, assetVoiceBinding, browserSpeechSource, catalogueTtsVoice } from './figure-voice.js'
 const failure = code => Object.assign(new Error(code), {code})
 // The key the narrator's voice opens under (旁白配音); never a figure name, so it cannot resolve to a cast member.
 export const NARRATOR_VOICE = '\u0000narrator'
@@ -9,7 +9,7 @@ export const NARRATOR_VOICE = '\u0000narrator'
 // figure without a voice binding, and the reader of 全文朗读.
 export const GENERAL_VOICE = '\u0000general'
 
-export function createAssetPackSpeech({presentation, getEngine, getTts, getBinding, scope, principal = 'dsh-browser', readOnly: onlyCached = false}) {
+export function createAssetPackSpeech({presentation, getEngine, getTts, getBinding, getLibrary, scope, principal = 'dsh-browser', readOnly: onlyCached = false}) {
   if (!presentation) return null
   const entries = new Map(), pending = new Map(), listeners = new Set()
   let current, offTts, disposed = false, epoch = 0
@@ -47,7 +47,7 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     // pages read in it too.
     if (alias === GENERAL_VOICE && (stage.voice || stage.fullReading) || alias === NARRATOR_VOICE && stage.fullReading) {
       const tts = getTts(), voice = tts?.apiVersion === 1 ? tts.reading().dialogueVoice : null
-      return voice?.serviceId ? {service:voice} : {browser:voice?.browser ?? ''}
+      return voice?.voiceId || voice?.templateId ? {catalogue:voice} : voice?.serviceId ? {service:voice} : {browser:voice?.browser ?? ''}
     }
     if (!stage.voice || alias === GENERAL_VOICE) return null
     // The narrator speaks the Chinese narration with the chosen figure's voice (or a browser system voice, or a voice of a
@@ -58,6 +58,7 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
       if (!voice) return null
       if (voice.browser) return {browser:voice.browser}
       if (voice.serviceId) return {service:voice}
+      if (voice.voiceId || voice.templateId) return {catalogue:voice}
       const resolved = await presentation.resolveFigure(voice)
       return resolved.value?.voice ? {ref:voice, resolved, language:'zh'} : null
     }
@@ -89,6 +90,12 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
       const revision = assetPackDigest({voice, readings:[], binding, id:name, language:'zh'})
       return register(alias, service, generation, {voice, binding, revision, sourceId:`narrator:${revision}`, voiceId:name,
         readReference:async () => { throw failure('MISSING_REFERENCE') }})
+    }
+    if (found.catalogue) {
+      const selected = await catalogueTtsVoice(getLibrary(),service,found.catalogue,{readOnly})
+      if (selected.browser !== undefined) { drop(); return {available:true,browser:{voice:selected.browser},voiceId:'browser',language:'zh',scope,diagnostics:[]} }
+      const revision = assetPackDigest({voice:selected.voice,binding:selected.binding,revision:selected.revision})
+      return register(alias,service,generation,{...selected,revision,sourceId:'reading:' + revision})
     }
     const {ref, resolved} = found, figure = resolved.value, spokenBinding = found.language ? {...figure.voice, language:found.language} : figure.voice
     const voice = figureTtsVoice(spokenBinding, resolved.voiceSpec, `${ref.packId}:${ref.figureId}`, figure.emotions)

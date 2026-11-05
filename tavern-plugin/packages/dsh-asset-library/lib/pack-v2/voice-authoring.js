@@ -51,6 +51,18 @@ export function createVoiceAuthoring({assetRoot,storage,run,load,edit,cas,limits
     savePackVoiceVariant:input => variantEdit(input,false),
     deletePackVoiceVariant:input => variantEdit(input,true),
     listVoiceTemplates() { return run([],async () => ({templates:Object.values((await index()).templates).map(publicTemplate)})) },
+    // Host-only: a template can authorize only the reference clips copied with it.
+    readVoiceTemplateMedia({templateId, expectedRevision, hash}) {
+      return run([],async () => {
+        const item = (await index()).templates[templateId]
+        check(item,'$.templateId','Template missing','VOICE_NOT_FOUND'); templateCas(item,expectedRevision)
+        const descriptor = item.blobs[hash]
+        check(descriptor,'$.hash','Missing reference','MISSING_REFERENCE')
+        const bytes = await storage.read('voice-templates/media/' + hash + '.' + descriptor.ext)
+        check(bytes,'$.hash','Missing reference','MISSING_REFERENCE')
+        return {bytes,descriptor:structuredClone(descriptor)}
+      })
+    },
     saveVoiceTemplate(input) {
       const templateId = input.templateId ?? randomUUID(); validateUuid(templateId); validateUuid(input.packId); validateShortId(input.voiceId,'$.voiceId')
       return run([input.packId],async () => {

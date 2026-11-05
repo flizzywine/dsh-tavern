@@ -146,3 +146,27 @@ test('speechForLine 把页面的同源来源交给 speakLine', async () => {
   assert.deepEqual(calls, [['s1', { sessionId: 's1', speaker: '林曦', text: '你好' }, 'http://127.0.0.1:1']])
   for (const removed of ['getSpeechSettings', 'updateSpeechSettings', 'speechTest']) assert.equal(handlers[removed], undefined)
 })
+
+for (const template of [false, true]) test(`catalogue ${template ? 'template' : 'clone'} speaks NPC, unbound figure and narration through the local service`, async t => {
+  const ref = template ? {templateId:'33333333-3333-4333-8333-333333333333'} : {packId:'11111111-1111-4111-8111-111111111111',voiceId:'library-clone'}
+  const hash = 'a'.repeat(64), calls = [], reads = []
+  const spec = {name:'小圆',language:'zh',defaultSource:'clone',sources:{clone:{kind:'reference-list',provider:'fish-audio',serviceId:'local',references:[{media:hash,text:'你好。',language:'zh'}]}}}
+  const library = {listVoiceCatalogue:async () => ({voices:[{ref,name:spec.name,voiceSpec:spec,binding:{voice:'library-clone'},revision:'r1'}]}),
+    readMedia:async input => { reads.push(input); return {bytes:audio} },
+    readVoiceTemplateMedia:async input => { reads.push(input); return {bytes:audio} }}
+  const tts = voiceService({dialogueVoice:ref,narrator:{enabled:true,voice:ref}})
+  tts.registerProvider('test',{id:'local',kind:'fish-audio',revision:'one',capabilities:{voiceKinds:['reference'],referenceInput:['bytes-list-v1']},health:async () => ({state:'ready'}),
+    synthesize:async input => { calls.push(input); return audio }})
+  const speech = createLineSpeech({getTts:() => tts,getLibrary:() => library})
+  t.after(() => { speech.dispose(); tts.dispose() })
+  const figures = {voiced:async () => false}
+  for (const line of [{speaker:'路人',text:'欢迎。'}, {speaker:'未绑定人物',text:'你好。',figures}, {narration:true,text:'夜深了。'}]) {
+    const result = await speech.speak(line)
+    assert.match(result.url,/^audio:/)
+    assert.deepEqual(Buffer.from(await tts.redeemAudioTicket(result.url.slice(6))),audio)
+  }
+  assert.equal(calls.length,3)
+  assert.ok(calls.every(input => input.voice.kind === 'reference'))
+  assert.ok(reads.length > 0)
+  assert.ok(reads.every(input => input.hash === hash && input.expectedRevision === 'r1' && (template ? input.templateId === ref.templateId : input.packId === ref.packId)))
+})

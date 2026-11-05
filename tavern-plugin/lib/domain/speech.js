@@ -1,5 +1,5 @@
 import { effectiveNarrator } from './card-stage-settings.js'
-import { figureTtsVoice } from './figure-voice.js'
+import { figureTtsVoice, catalogueTtsVoice } from './figure-voice.js'
 import { createHash } from 'node:crypto'
 import { canonicalJson } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 
@@ -34,7 +34,7 @@ export const TTS_UNAVAILABLE = Object.freeze({ skip: true, reason: 'TTS_UNAVAILA
  * @param {object} input
  * @param {() => object|undefined} input.getTts the voice service (ctx 'tts')
  */
-export function createLineSpeech({ getTts }) {
+export function createLineSpeech({ getTts, getLibrary }) {
   const voices = new Map()
   let bound, offTts, active = 0
   function serviceOf() {
@@ -75,6 +75,20 @@ export function createLineSpeech({ getTts }) {
     return voices.get(key)
   }
   async function bindingLine(tts, binding, text, emotion) {
+    if (binding?.templateId || binding?.voiceId) {
+      const selected = await catalogueTtsVoice(getLibrary(),tts,binding)
+      if (selected.browser !== undefined) return {browser:true,voice:selected.browser,text}
+      const revision = voiceDigest({voice:selected.voice,binding:selected.binding,revision:selected.revision})
+      const sourceId = 'reading:' + revision
+      if (!voices.has(sourceId)) {
+        const source = tts.registerVoiceSource({owner:'dsh-tavern',sourceId,revision,voices:[selected.voice],bindings:{voice:selected.binding.serviceId},readReference:selected.readReference})
+        try { voices.set(sourceId,Promise.resolve({source,grant:tts.grantConsumer({principal:PRINCIPAL,source:sourceId,scope:SCOPE})})) }
+        catch (error) { source.dispose(); throw error }
+      }
+      const {grant} = await voices.get(sourceId)
+      const result = await tts.synthesize({voice:{source:sourceId,id:'voice'},text,mood:mood(emotion),language:'zh'},{grant:grant.grant,scope:SCOPE})
+      return url(tts,await tts.createAudioTicket({key:result.key,grant:grant.grant}),result.loudness)
+    }
     if (!binding || binding.browser !== undefined) return { browser: true, voice: binding?.browser || '', text }
     const opened = await openBinding(tts, binding)
     const input = opened.voiceId ? { voiceId: opened.voiceId, text, language: 'zh' } : { voice: opened.ref, mood: mood(emotion), text, language: 'zh' }
@@ -110,7 +124,7 @@ export function createLineSpeech({ getTts }) {
       if (figures) return await figureLine(tts, figures, NARRATOR_ALIAS, text, emotion) || { skip: true, reason: 'narration' }
       const narrator = effectiveNarrator(extension, tts.reading().narrator)
       // A figure narrator ({packId, figureId}) speaks only where the stage resolves her.
-      if (!narrator.enabled || !narrator.voice || narrator.voice.browser === undefined && !narrator.voice.serviceId) return { skip: true, reason: 'narration' }
+      if (!narrator.enabled || !narrator.voice || narrator.voice.browser === undefined && !narrator.voice.serviceId && !narrator.voice.voiceId && !narrator.voice.templateId) return { skip: true, reason: 'narration' }
       return bindingLine(tts, narrator.voice, text, emotion)
     }
     const name = String(speaker || '').trim()

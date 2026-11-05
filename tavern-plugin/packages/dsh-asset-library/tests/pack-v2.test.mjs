@@ -51,6 +51,30 @@ test('v2 is path-free, exports a complete byte-verified pack and preserves sprit
   assert.deepEqual((await readdir(path.join(root,'assets','staging'))),[])
 })
 
+test('voice catalogue projects installed pack voices and reference templates without figure filtering', async t => {
+  const {service,root} = await fixture(t), initial = snap(await install(service,root))
+  const voiceId = initial.figures[FIGURE_ID].voice.voice
+  const template = await service.saveVoiceTemplate({packId:PACK_ID,packRevision:initial.revision,voiceId,expectedRevision:null})
+  const other = await service.createPack({name:'Other voices',expectedRevision:null})
+  // Voices without a figure must still be offered.
+  await service.patchPack({packId:other.snapshot.manifest.id,expectedRevision:other.snapshot.revision,
+    patch:{voiceLibrary:{version:1,voices:{local:{name:'小圆',language:'ja',defaultSource:'fish',sources:{fish:{kind:'voice-id',provider:'fish-audio',voiceId:'local-clone'}}}}}}})
+  const result = await service.listVoiceCatalogue()
+  assert.deepEqual(result.errors,[])
+  const packVoice = result.voices.find(row => row.ref.packId === PACK_ID)
+  assert.deepEqual(packVoice.ref,{packId:PACK_ID,voiceId})
+  assert.deepEqual(packVoice.voiceSpec,initial.manifest.voiceLibrary.voices[voiceId])
+  assert.deepEqual(packVoice.binding,{voice:voiceId})
+  assert.equal(result.voices.find(row => row.ref.voiceId === 'local').name,'小圆')
+  const saved = result.voices.find(row => row.ref.templateId === template.templateId)
+  assert.deepEqual(saved,{ref:{templateId:template.templateId},name:template.name,revision:template.revision,voiceSpec:template.voiceSpec,binding:template.binding})
+  const hash = Object.values(template.voiceSpec.sources).flatMap(source => source.references || [])[0].media
+  const clip = await service.readVoiceTemplateMedia({templateId:template.templateId,expectedRevision:template.revision,hash})
+  assert.deepEqual(clip.bytes,(await service.readMedia({packId:PACK_ID,expectedRevision:initial.revision,hash})).bytes)
+  await assert.rejects(service.readVoiceTemplateMedia({templateId:template.templateId,expectedRevision:'stale',hash}),{code:'REVISION_CONFLICT'})
+
+})
+
 test('music loop seconds survive CAS, noop and a ZIP installation on another service', async t => {
   const {service,root} = await fixture(t), initial = snap(await install(service,root))
   const assets = structuredClone(initial.manifest.assets), music = assets.find(asset => asset.kind === 'music')

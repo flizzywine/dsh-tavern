@@ -110,3 +110,21 @@ test('a figure on browser speech opens to its system voice, or the system defaul
   assert.deepEqual(await speech.open('akane'), {available:true, browser:{voice:''}, voiceId:'akane', language:'ja', scope:'card', diagnostics:[]}, 'no voiceName is the system default voice')
   assert.equal(registered, 0)
 })
+
+for (const template of [false,true]) test(`stage catalogue ${template?'template':'clone'} routes general and narrator to local synthesis`, async t => {
+  const ref=template?{templateId:'33333333-3333-4333-8333-333333333333'}:{packId:'11111111-1111-4111-8111-111111111111',voiceId:'clone'}
+  assert.deepEqual(validateCardStage({narrator:{voice:ref}}).narrator.voice,ref)
+  const calls=[],audio=pcmWav(Buffer.alloc(64,1)),reading={dialogueVoice:ref,narrator:{enabled:true,voice:ref}}
+  const tts=createTts({reading:()=>reading})
+  tts.registerProvider('test',{id:'local',kind:'fish-audio',revision:'one',capabilities:{voiceKinds:['reference'],referenceInput:['bytes-list-v1']},health:async()=>({state:'ready'}),synthesize:async input=>{calls.push(input);return audio}})
+  const library={listVoiceCatalogue:async()=>({voices:[{ref,revision:'one',binding:{voice:'clone'},voiceSpec:{name:'小圆',language:'zh',defaultSource:'local',sources:{local:{kind:'reference-list',provider:'fish-audio',serviceId:'local',references:[{media:'a'.repeat(64),text:'你好',language:'zh'}]}}}}]}),readMedia:async()=>({bytes:audio}),readVoiceTemplateMedia:async()=>({bytes:audio})}
+  const speech=createAssetPackSpeech({presentation:{extension:withSwitches({}),subscribe:()=>()=>{}},getEngine:()=>engineWith({}),getTts:()=>tts,getLibrary:()=>library,scope:'dsh-browser'})
+  t.after(()=>{speech.dispose();tts.dispose()})
+  for (const [alias,text] of [[GENERAL_VOICE,'欢迎'],[NARRATOR_VOICE,'夜深了']]) {
+    const opened=await speech.open(alias)
+    assert.equal(opened.available,true,JSON.stringify(opened))
+    assert.ok((await speech.synthesize(alias,{text})).key)
+  }
+  assert.equal(calls.length,2)
+  assert.ok(calls.every(input=>input.voice.kind==='reference'))
+})

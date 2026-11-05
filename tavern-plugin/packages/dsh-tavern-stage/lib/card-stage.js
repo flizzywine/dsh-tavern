@@ -136,6 +136,7 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
 function cardNarrator(narrator, packSnapshots, extension, services) {
   const voice = narrator.enabled ? narrator.voice : null
   if (!voice) return null
+  if (voice.voiceId || voice.templateId) return {voiceKey:assetPackDigest({narrator:true,ref:voice})}
   if (voice.browser) return {voiceKey:'browser:' + voice.browser}
   if (voice.serviceId) return services.some(service => service.id === voice.serviceId) ? {voiceKey:assetPackDigest({narrator:true, service:voice})} : null
   const pack = packSnapshots.find(pack => pack.manifest.id === voice.packId), figure = pack?.figures?.[voice.figureId]

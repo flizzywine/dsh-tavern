@@ -28,7 +28,7 @@ export function createClipHost(options) {
     // Bind the library before the speech consumer captures its authority epoch.
     // Lazy first binding otherwise invalidates the very first cached-voice read.
     presentation?.available()
-    const speech=createAssetPackSpeech({presentation,getEngine:()=>snapshot.engine.values,getTts:tts,scope:'dsh-browser',readOnly:true,
+    const speech=createAssetPackSpeech({getLibrary:library,presentation,getEngine:()=>snapshot.engine.values,getTts:tts,scope:'dsh-browser',readOnly:true,
       getBinding:(_ref,voice,flags)=>assetVoiceBinding(tts(),voice,flags)})
     return {presentation,speech,allowedPackIds,close(){speech?.dispose();presentation?.dispose()}}
   }
