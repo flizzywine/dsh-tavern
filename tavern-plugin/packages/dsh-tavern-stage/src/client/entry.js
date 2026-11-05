@@ -325,6 +325,16 @@ const stageClientPlugin = (() => {
                         views.lease={subscribe:(sessionId,changed)=>leases.subscribe(sessionId,changed),get:sessionId=>leases.get(sessionId),
                             // emotions through the stage's one mood resolver (bubbleMood over the card's mood list); unknown: none
                             scene:(scene,{rows,config})=>leaseScene(scene,{rows,normalizeEmotion:raw=>characters.mood(raw,characters.moods(config))?.id}),
+                            async prepare(request, authority, signal) {
+                                const result=await options.sourceWidgets.rpc('getStageLeasePresentation',request);
+                                if(result.status!=='ready' || signal.aborted)return null;
+                                if(result.value.characters.some(figure=>figure.form==='live2d')) {
+                                    const runtime=await options.sourceWidgets.rpc('getLive2dRuntime',{sessionId:request.sessionId});
+                                    result.value.scene.core=runtime?.installed!==false && runtime?.core || '';
+                                }
+                                if(signal.aborted)return null;
+                                return getResourceOwner().prepare(result.value,authority,{signal});
+                            },
                             cursor:leaseCursor,Hud:hud.StageLeaseHud};
                     }
                     views.sessions=sessions=own(createStageSessions({views,navigation:options.navigation,clock:options.sceneServices?.foreground,window,document,startLifetime:startStageClientLifetime,textIndex}));

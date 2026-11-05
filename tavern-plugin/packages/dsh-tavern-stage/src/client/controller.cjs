@@ -110,11 +110,33 @@ function GalBacklog(props) {
 // Stage lease (舞台借用): while a gameMode view leases this session's stage (the host's in-memory stageLeases, entry.js),
 // its lines are the pages read through this controller - the skin's text box, AUTO, SKIP, LOG and the stage speech
 // handle. The story's position is never touched (no navigation, bookmark or read mark), so releasing the lease shows the
-// story page it left. The reading cursor is kept per lease (session · owner) in this mounted stage only; nothing is written
+// story page it left. The reading cursor is bookmarked per lease (session · owner) in browser storage; nothing is written
 // to the director, the persistent stage state or the Story Timeline.
 // story: {pages, page, setPage, markRead} - the story reading the lease stands in for while it is held.
 const STAGE_NO_LEASE = Object.freeze({subscribe:()=>()=>{},get:()=>null});
 const STAGE_LEASE_NO_INPUTS = Object.freeze({}), STAGE_LEASE_NO_ROUNDS = new Map();
+function useStageLeaseAssets(sessionId, view, source, assetRevision) {
+    const line = view.leasing ? view.pages[view.page] : null;
+    const actors = view.lease?.scene.actors || [];
+    // Reading an earlier line can bring its speaker back, including a deceased last-words speaker.
+    const present = line?.name ? [{name:line.name, emotion:line.mood}, ...actors.filter(actor => actor.name !== line.name)].slice(0, 4) : actors;
+    const request = {sessionId, actors:present, ...(view.lease?.scene.background === undefined ? {} : {scene:view.lease.scene.background})};
+    const key = view.leasing && source ? JSON.stringify([view.key, source.authorityEpoch, assetRevision, request]) : '';
+    const [loaded, setLoaded] = React.useState(null);
+    React.useEffect(() => {
+        if (!key) return;
+        const abort = new AbortController();
+        let prepared;
+        stageViews.lease.prepare(request, JSON.stringify([sessionId, source.authorityEpoch]), abort.signal).then(value => {
+            if (abort.signal.aborted) { value?.release(); return; }
+            prepared = value;
+            setLoaded(value ? {key, value:value.value} : null);
+        }).catch(error => { if (!abort.signal.aborted) console.warn('Stage lease projection', error); });
+        return () => { abort.abort(); prepared?.release(); };
+    }, [key]);
+    return loaded?.key === key ? loaded.value : null;
+}
+
 function useStageLease({sessionId, config, voiceAvailable, story}) {
     const source = stageViews.lease || STAGE_NO_LEASE;
     const subscribe = React.useCallback(changed => source.subscribe(sessionId, changed), [source, sessionId]);
@@ -134,7 +156,12 @@ function useStageLease({sessionId, config, voiceAvailable, story}) {
     const key = lease ? JSON.stringify([sessionId, lease.owner]) : '';
     // key -> {read: the last line read, index: the line shown, waiting: the line count the reader turned past the end at}
     const [marks, setMarks] = React.useState(() => new Map());
-    const kept = key ? marks.get(key) : null;
+    const bookmarkKey = 'fork-stage-lease-position:' + key;
+    const saved = React.useMemo(() => {
+        if (!key) return null;
+        try { return JSON.parse(window.localStorage.getItem(bookmarkKey) || 'null'); } catch (_) { return null; }
+    }, [bookmarkKey]);
+    const kept = key ? marks.get(key) || saved : null;
     // A cursor whose line has gone (the game replaced its lines) starts the reading again.
     const mark = kept && (kept.read === null || lines.some(line => line.id === kept.read)) ? kept : null;
     const firstUnread = lease ? source.cursor(mark ? mark.read : null, lines) : 0;
@@ -143,7 +170,12 @@ function useStageLease({sessionId, config, voiceAvailable, story}) {
     const index = !lease ? 0 : mark && mark.waiting !== null && lines.length > mark.waiting ? mark.waiting
         : Math.min(mark && mark.index !== null ? mark.index : firstUnread, last);
     const waiting = Boolean(mark && mark.waiting !== null && lines.length <= mark.waiting);
-    const update = patch => setMarks(old => new Map(old).set(key, {read:mark ? mark.read : null, index, waiting:waiting ? mark.waiting : null, ...patch}));
+    const update = patch => {
+        const next = {read:mark ? mark.read : null, index, waiting:waiting ? mark.waiting : null, ...patch};
+        // Commit at the reading action: leaving the stage can unmount this hook immediately.
+        try { window.localStorage.setItem(bookmarkKey, JSON.stringify(next)); } catch (_) {}
+        setMarks(old => new Map(old).set(key, next));
+    };
     if (!lease) return {leasing:false, lease:null, scene:null, key:'', pages:story.pages, page:story.page, setPage:story.setPage, markRead:story.markRead,
         pastEnd:null, waiting:false, read:null, isRead:() => false};
     const readAt = firstUnread - 1;
@@ -316,9 +348,10 @@ function GalStage(props) {
     const accepted = runtime.accepted;
     const interopNotice = useCapabilityNotice(sessionId, runtime.cursor.mode === 'live', accepted.scene?.interopNotices);
     // with 「导演布景」 off the scene shows the manual picture; director state is untouched.
-    const pack = {state:accepted.layout?.state || accepted.scene?.state, scene:useBgManualScene(sessionId, accepted.scene), characters:accepted.figures || [],
+    const borrowed = useStageLeaseAssets(sessionId, leaseView, runtime.source, runtime.director.assetRevision);
+    const pack = {state:accepted.layout?.state || accepted.scene?.state, scene:useBgManualScene(sessionId, leasing ? borrowed?.scene : accepted.scene), characters:leasing ? borrowed?.characters || [] : accepted.figures || [],
         avatars:accepted.avatars || [], widgets:accepted.widgets || [],
-        audio:{music:accepted.music,soundscape:accepted.ambience,sfx:[]}, core:accepted.layout?.core || accepted.scene?.core || ''};
+        audio:{music:accepted.music,soundscape:accepted.ambience,sfx:[]}, core:leasing ? borrowed?.scene?.core || '' : accepted.layout?.core || accepted.scene?.core || ''};
     const rootRef = React.useRef(null);
     // the load gate is the one readiness authority; a 入场演出 (stage-entrance.js) holds what the
     // player sees (entryGate) on loading until its cover, while the scene renderer starts as soon as the load is ready.
@@ -984,7 +1017,7 @@ function GalStage(props) {
     // reserve the full directed cast's slots while individual resources arrive.
     // A lease's actors stand through the same cast input, left to right (the card's order), each as the stage figure of its
     // card character (stageSpeaker); one with no figure loaded on this stage draws no sprite. focus / dim / emotion ride along.
-    const leaseActors = leasing ? leaseView.scene.actors.map(actor => ({...actor, id:stageSpeaker({kind:'line', alias:actor.alias})})).filter(actor => !!renderInputs.get(actor.id)?.stage) : null;
+    const leaseActors = leasing ? pack.characters.map(character => ({...leaseView.scene.actors.find(actor => actor.alias === character.alias), id:character.alias})).filter(actor => !!renderInputs.get(actor.id)?.stage) : null;
     const members = leaseActors ? leaseActors.map((actor, index) => ({id:actor.id, x:(index + 1) / (leaseActors.length + 1), gaze:null, lease:actor}))
         : state ? stageViews.speaker.members(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
     const xs = Object.fromEntries(members.map(member => [member.id,member.x]));
