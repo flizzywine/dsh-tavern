@@ -139,6 +139,10 @@ export function createBackgroundAgentTask(options) {
       if (setupAgent !== null) await setupAgent(childCtx)
       state.ctx = childCtx
       state.modelSelection = { current: { ...state.input.selection }, assembled: undefined }
+      // 0.2.1 routes each request through this mutable selection. 0.2.2 ignores
+      // the second argument and only adds the switch notice: the Agent's own
+      // model/selection event decides the route (set at creation and on reuse
+      // in background-agent-sessions.js). Passing it keeps both host lines.
       installModelSelection(childCtx, state.modelSelection)
       childCtx.on('agent/assistant-stream', ({frame}) => state.progress?.frame(frame))
       childCtx.on('agent/pre-step', async function ({ agent, turn, step }, next) {

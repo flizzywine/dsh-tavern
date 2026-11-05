@@ -2,6 +2,7 @@ import { randomUUID, createHash } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { selectCandidate } from './domain/candidate-selection.js'
+import { selectSessionModel } from './domain/session-model-selection.js'
 
 // A transport facade over the production conversation and native Session services.
 // No prompt construction, worldbook selection, settlement or model loop lives here.
@@ -32,9 +33,11 @@ export function createGameplayApi(deps) {
       }
       if (!cardPath && args.mode !== 'card') throw new Error('需要正式人物卡文件名')
       // rc.1 selectModel also saves the global default. Reuse its native selection
-      // controller below without that side effect; fail closed on incompatible hosts.
+      // controller below without that side effect; fail closed on hosts that
+      // cannot create a Session. 0.2.2 selects through agent.model instead, so
+      // the selection capability itself is checked once the Agent exists.
       const host = controller()
-      if (typeof host?.agents?.selectForNextRequest !== 'function') throw new Error('DSH 不支持独立会话模型选择')
+      if (!host || typeof host.create !== 'function') throw new Error('DSH 不支持独立会话模型选择')
       if (!args.model?.provider || !args.model?.model) throw new Error('需要 provider 和 model')
       const resolved = await llm.resolveCallConfig(args.model)
       const selected = { provider: resolved.provider, model: resolved.model, ...(resolved.reasoningEffort ? { reasoningEffort: resolved.reasoningEffort } : {}) }
@@ -45,7 +48,7 @@ export function createGameplayApi(deps) {
         await dispatch('preparePlayStart', {})
         await dispatch('startChat', { path: cardPath, sessionId, mode: args.mode || 'story', userName: args.userName || '你', requestMode: 'dsh', cardTask: args.mode === 'card' ? (cardPath ? 'edit' : 'create') : undefined })
         // startChat applies the player's defaults; the test override must follow it.
-        host.agents.selectForNextRequest(registry.get(sessionId), selected)
+        selectSessionModel({ agent: registry.get(sessionId), controller: host, selection: selected })
         const chat = await chatForSession(sessionId)
         return { sessionId, chat, model: selected, requiresBrowser: chat.mode !== 'card' && await deps.requiresBrowser(chat) }
       } catch (error) {
@@ -100,7 +103,7 @@ export function createGameplayApi(deps) {
         const selection = args.inputFrom ? selectCandidate(chat.candidates, args.inputFrom, args.previousRequestId) : null
         const input = selection?.input ?? args.input
         if (typeof input !== 'string' || !input.trim() || input.length > 1000000) throw new Error('输入为空或过长')
-        controller().agents.selectForNextRequest(registry.get(args.sessionId), owner.model)
+        selectSessionModel({ agent: registry.get(args.sessionId), controller: controller(), selection: owner.model })
         await controller().prompt({ sessionId: args.sessionId, requestId: randomUUID(), content: [{ type: 'text', text: input }], mode: 'followup' }, new AbortController().signal)
         return { accepted: true, input, selection }
       }
