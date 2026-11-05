@@ -25,7 +25,7 @@ const stageSkinSlice = value => stageSkinContract.stageSkinSliceEdges(value);
 // Fonts: the skin's `font` declaration through tavernFonts.resolve (user override first; `lead` = a director-applied
 // performance skin, whose stage fonts beat the override while it is active, performance effects §11.6).
 function stageSkinFont(document, fonts, theme, part, lead = false) {
-    return fonts.resolve('stage',{theme,skin:part === 'title' ? {...document.font,title:document.ui?.titleFont} : document.font || {},part,skinWins:lead || part === 'title'}).family;
+    return fonts.resolve('stage',{theme,skin:part === 'title' ? {...document.font,title:document.ui?.titleFont} : document.font || {},part,skinWins:lead || part === 'title' || part === 'menu'}).family;
 }
 function stageSkinTokens(document, fonts, theme = 'classic', lead = false) {
     const p=document.textbox.paint, shape=document.textbox.shape || {}, n=document.nameplate;
@@ -99,6 +99,8 @@ function stageSkinPanelTokens(document,fonts,theme,builtin=false,lead=false) {
             '--gal-ui-font':stageSkinFont(document,fonts,theme,'ui',lead),
             // A title face is decoration, like the built-ins' CSS title fonts: it keeps winning over the override.
             '--gal-ui-title-font':stageSkinFont(document,fonts,theme,'title'),
+            // font.menu (§18 N33): the drawn Esc menu's glyph tiles (art.menu.glyphTiles), a decoration face too
+            ...(document.font?.menu ? {'--gal-ui-menu-font':stageSkinFont(document,fonts,theme,'menu')} : {}),
             // opaque stage panels (the Esc menu's .fk-surface) paint the skin's own surface,
             // not the theme's stage-panel table, so a light skin never gets a dark menu.
             '--fk-s-stage-panel-bg':raised,'--fk-s-stage-panel-bgSolid':raised,'--fk-s-stage-panel-scrim':raised,'--fk-s-stage-panel-fg':ink,'--fk-s-stage-panel-fgMuted':muted,
@@ -500,6 +502,9 @@ function stageSkinArt(document, files, entry = '') {
         if (r.align) tokens['--art-mr-justify']=r.align === 'center' ? 'center' : r.align === 'end' ? 'flex-end' : 'flex-start';
         if (r.ink) tokens['--art-mr-ink']=r.ink;
         if (r.focusInk) tokens['--art-mr-focus-ink']=r.focusInk;
+        // letter / focusScale (§18 N31): the labels as glyph tiles (menu.cjs, art.menu.glyphTiles), the focused one drawn larger
+        if (r.letter) marks['data-fk-skin-art-menu-letter']=r.letter;
+        if (r.focusScale) Object.assign(tokens,{'--art-mr-focus-scale':String(r.focusScale),'--art-mr-origin':({center:'50%',end:'100%'}[r.align] || '0%') + ' 50%'});
         if (r.spacing !== undefined) tokens['--art-mr-spacing']=r.spacing + 'em';
         if (r.cursor) {
             const [cw,ch]=size(r.cursor.image);
@@ -583,6 +588,7 @@ function stageSkinArt(document, files, entry = '') {
             }
             if (s.ink) tokens[p + '-ink']=s.ink;
         }
+        if (m.title?.letter) marks['data-fk-skin-art-menu-title-letter']=m.title.letter;
     }
     // art.backlog / art.config / art.voice: the stage's own overlays drawn as the original's screens on
     // wide stages (theme.css 「stage skin: art screens」), in design px; a placed image as its top-left and natural size.

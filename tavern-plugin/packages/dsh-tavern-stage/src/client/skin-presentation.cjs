@@ -137,7 +137,7 @@ function useStageSkin(rootRef, candidate, pageKey, film, theme, {ready = true, s
             restore=()=>{undo();for (const [name,old] of attributes) {if (old === null) root.removeAttribute(name); else root.setAttribute(name,old);}};
             // Only the faces this view uses; film/reading register through fonts.js when they are shown.
             if (!builtin) for (const part of [undefined,'name','ui']) {const id=tavernFonts.resolve('stage',{theme,skin:appearance.font || {},part,skinWins:lead}).id;if (id) tavernFonts.ensure(id).catch(() => {});}
-            if (appearance.ui?.titleFont) tavernFonts.ensure(appearance.ui.titleFont).catch(() => {});
+            for (const id of [appearance.ui?.titleFont,appearance.font?.menu]) if (id) tavernFonts.ensure(id).catch(() => {});
         } catch (error) { console.warn('Stage skin rejected',error); }
         applied.current = restore || null;
         root.dispatchEvent(new Event('stage-layout'));
