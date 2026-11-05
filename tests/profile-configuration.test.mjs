@@ -83,7 +83,7 @@ for (const host of ['desktop', 'android', 'cli']) {
       assert.ok(linked.some(([name]) => name === 'dsh-asset-library'))
       for (const [name, spec] of linked) assert.equal(fresh.dependencies[name], 'link:' + path.resolve('/app', spec.slice('link:'.length)).replaceAll(path.sep, '/'), name)
       for (const manifest of [next, fresh]) {
-        assert.equal(manifest.dependencies['dsh-dream-skin'], 'link:/app/tavern-plugin/packages/dsh-dream-skin')
+        assert.equal(manifest.dependencies['dsh-dream-skin'], 'link:' + path.resolve('/app/tavern-plugin/packages/dsh-dream-skin').replaceAll(path.sep, '/'))
         assert.equal(manifest.dsh.profile.bundles.filter(name => name === 'dsh-dream-skin').length, 1)
         assert.ok(manifest.dshTavern.managedDependencies.includes('dsh-dream-skin'))
       }

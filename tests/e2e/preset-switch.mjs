@@ -21,8 +21,15 @@ export async function presetSwitch({ page, step, savedChat, inspectRound, output
         await page.getByText('本局设置', { exact: true }).filter({ visible: true }).first().click()
       }
       await page.locator('[data-dockkit-tab-title]').filter({ hasText: /^本局设置$/ }).filter({ visible: true }).first().click()
-      const selector = page.getByRole('combobox', { name: '本局预设', exact: true })
+      const selector = page.getByRole('button', { name: /^本局预设：/ })
+      const field = page.locator('.dsh-local-field').filter({ has: selector })
       const path = key ? `presets/E2E-${key}.json` : ''
+      const optionName = key ? `E2E-${key}` : '不使用酒馆预设'
+      async function choosePreset() {
+        await selector.click()
+        await page.getByRole('menu', { name: '本局预设', exact: true })
+          .getByRole('menuitemradio', { name: optionName, exact: true }).click()
+      }
       if (edit) {
         // The preset editor's own call: turn the entry off without re-applying the preset.
         await page.evaluate(async path => {
@@ -34,9 +41,7 @@ export async function presetSwitch({ page, step, savedChat, inspectRound, output
         }, path)
       } else {
         for (let attempt = 0; attempt < 3; attempt++) {
-          await selector.selectOption(path)
-          const field = page.getByRole('complementary', { name: '本局设置', exact: true })
-            .locator('.dsh-local-field').filter({ has: selector })
+          await choosePreset()
           const saved = field.getByRole('status').filter({ hasText: /^已保存$/ })
           const conflict = field.getByRole('alert').filter({ hasText: '当前游戏已变化，请刷新后重试' })
           await saved.or(conflict).waitFor()
@@ -61,7 +66,7 @@ export async function presetSwitch({ page, step, savedChat, inspectRound, output
       await composer.press('Enter')
       const body = `预设切换后继续游玩，金币 ${gold}。`
       await page.getByText(body, { exact: true }).filter({ visible: true }).first().waitFor()
-      await page.getByText('酒馆状态', { exact: true }).filter({ visible: true }).first().click()
+      await page.locator('[data-dockkit-tab-title]').filter({ hasText: /^酒馆状态$/ }).filter({ visible: true }).first().click()
       const status = page.frameLocator('.dsh-tavern-status-runtime iframe:not([aria-hidden="true"])').locator('#e2e-gold')
       await status.filter({ hasText: new RegExp(`^金币：${gold}$`) }).waitFor()
       await inspectRound(`preset-${key || 'builtin'}${edit ? '-edited' : ''}`, gold, body, ++rounds)
@@ -76,8 +81,8 @@ export async function presetSwitch({ page, step, savedChat, inspectRound, output
       await page.getByText(body, { exact: true }).filter({ visible: true }).first().waitFor()
       await status.filter({ hasText: new RegExp(`^金币：${gold}$`) }).waitFor()
       await page.locator('[data-dockkit-tab-title]').filter({ hasText: /^本局设置$/ }).filter({ visible: true }).first().click()
-      await selector.locator(`option[value="${path}"]`).waitFor({ state: 'attached' })
-      assert.equal(await selector.inputValue(), path, '刷新后保留本局预设')
+      await selector.waitFor()
+      assert.equal(await selector.getAttribute('aria-label'), `本局预设：${optionName}`, '刷新后保留本局预设')
       const restored = await savedChat()
       assert.equal(restored.id, identity.id)
       assert.equal(restored.sessionId, identity.sessionId)
