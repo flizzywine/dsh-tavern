@@ -24,15 +24,24 @@ for(const phase of ['append','textures','nodes','cleanup'])test(`scene startup r
 })
 
 const {createStageLayeredFigures}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene.cjs')
-test('silent contribution mouth opens during typing and closes after it',()=>{
+test('silent contribution mouth alternates open and closed while typing, then closes',()=>{
  const painted=[],scope=createStageLayeredFigures({document:{createElement:()=>({})},compositor:{urls:()=>['atlas'],voice:()=> 'initial',paint:(canvas,bundle,images,voice)=>painted.push(voice)}})
  const textures=new Map([['atlas',{ready:true,texture:{baseTexture:{resource:{source:{}}}}}]])
  const PIXI={Texture:{from:()=>({baseTexture:{update(){}},destroy(){}})}}
  const entry={figure:{identity:'i',talking:true,spriteBundle:{revision:'r',view:{}}},loadedIdentity:'i',sprite:{},baseTexture:{}}
- scope.tick(entry,textures,PIXI,true)
- assert.ok(['open','small'].includes(painted.at(-1)))
+ const originalNow=performance.now
+ try {
+ Object.defineProperty(performance,'now',{configurable:true,value:()=>0})
+ scope.tick(entry,textures,PIXI,true);assert.equal(painted.at(-1),'open')
+ Object.defineProperty(performance,'now',{configurable:true,value:()=>140})
+ scope.tick(entry,textures,PIXI,true);assert.equal(painted.at(-1),'closed')
+ Object.defineProperty(performance,'now',{configurable:true,value:()=>280})
+ scope.tick(entry,textures,PIXI,true);assert.equal(painted.at(-1),'open')
  entry.figure.talking=false;scope.tick(entry,textures,PIXI,true)
  assert.equal(painted.at(-1),'closed')
+ entry.figure.audio={};entry.figure.talking=true;scope.tick(entry,textures,PIXI,true)
+ assert.equal(painted.at(-1),'initial')
+ } finally {Object.defineProperty(performance,'now',{configurable:true,value:originalNow})}
  scope.dispose()
 })
 test('layered scene figures own generated textures while borrowing source images',()=>{
