@@ -59,6 +59,7 @@ async function readTavernCardUpdateMetadata(file) {
 }
 
 function TavernCardUpdateDialog(props) {
+    const h = React.createElement;
     const [current, setCurrent] = React.useState(null), [incoming, setIncoming] = React.useState(null), [previewing, setPreviewing] = React.useState(false);
     React.useEffect(() => {
         if (props.result) return;

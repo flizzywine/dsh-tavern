@@ -12,6 +12,12 @@ const api = vm.runInNewContext(source + ';({ readTavernCardUpdateMetadata,tavern
 })
 const file = (bytes, name) => Object.assign(new Blob([bytes]), { name })
 
+test('opening update dialog renders without relying on a parent component h alias', () => {
+  const React = { useState: value => [value, () => {}], useEffect() {}, createElement: (type, props, ...children) => ({ type, props, children }) }
+  const dialog = vm.runInNewContext(source + ';TavernCardUpdateDialog({})', { React })
+  assert.equal(dialog.type, 'div')
+})
+
 test('version preview reads v1 JSON and v3 DSH/CHARX metadata without modifying a card', async () => {
   const json = await api.readTavernCardUpdateMetadata(file(JSON.stringify({name:'Old',character_version:'0.6.0'}),'old.json'))
   assert.equal(json.version,'0.6.0')

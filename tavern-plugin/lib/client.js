@@ -184,6 +184,9 @@ window.__ModuleLoader__.load({
 			} catch (_error) {}
 		}
 		function installTavernStylesheet(doc, css, features) {
+		    // DSH 0.2.1 DesktopUpdateIndicator / DesktopUpdateBadge. Tavern owns its
+		    // update workflow; never offer the host's independent upgrade in its shell.
+		    css += '\nbody.dsh-tavern-shell-active .VUhOWa_indicator, body.dsh-tavern-shell-active .VUhOWa_badge { display: none !important; }';
 		    const id = 'dsh-tavern-plugin/tavern.css';
 		    const selector = '[data-plugin-css="' + id + '"]';
 		    const active = doc.__dshTavernStylesheet;
@@ -37012,6 +37015,7 @@ async function readTavernCardUpdateMetadata(file) {
 }
 
 function TavernCardUpdateDialog(props) {
+    const h = React.createElement;
     const [current, setCurrent] = React.useState(null), [incoming, setIncoming] = React.useState(null), [previewing, setPreviewing] = React.useState(false);
     React.useEffect(() => {
         if (props.result) return;
