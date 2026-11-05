@@ -208,6 +208,7 @@ test('candidate scene lease follows card scope and stage lifetime', () => {
   assert.equal(f.plugin.getCapabilities().stageScene, 1)
   assert.equal(f.plugin.getCapabilities().stageSceneBackground,1)
   assert.equal(f.plugin.getCapabilities().stageScenePresentation,1)
+  assert.equal(f.plugin.getCapabilities().stageSceneActorEmotion,1)
   assert.equal(f.plugin.openStageScene({gameId:'denied',renderHud(){}}).reason, 'denied')
   let active, updated
   const unbind=f.ui.bindStageScene('game',{

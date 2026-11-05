@@ -448,7 +448,7 @@
 				apiVersion: 9,
 				// Independent browser feature versions, not resource authorization or host API versions.
 				getCapabilities() {
-					return { openOverlay: 1, overlayLayout: 2, overlayFullscreen: 1, stageInteraction: 1, stageDock: 1, stagePerformanceStatus: 1, stageScene: 1, stageSceneProvider: 1, stageSceneBackground: 1, stageScenePresentation: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
+					return { openOverlay: 1, overlayLayout: 2, overlayFullscreen: 1, stageInteraction: 1, stageDock: 1, stagePerformanceStatus: 1, stageScene: 1, stageSceneProvider: 1, stageSceneBackground: 1, stageScenePresentation: 1, stageSceneActorEmotion: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
 				},
 				registerStageSceneProvider(input) {
 					if (!input || typeof input.id !== 'string' || !input.id || typeof input.onStageReady !== 'function') throw new TypeError('provider needs id and onStageReady');
@@ -478,7 +478,7 @@
                         cleanup=()=>close('closed');
                         const finite=(v,min,max)=>Number.isFinite(v)&&v>=min&&v<=max;
                         result={ok:true,update:value=>{
-                            if(!value || !Array.isArray(value.actors) || value.actors.length>4 || value.actors.some(actor=>!actor || typeof actor.instanceId!=='string' || !actor.instanceId || typeof actor.ref?.packId!=='string' || typeof actor.ref?.figureId!=='string' || !actor.ref.packId || !actor.ref.figureId || !finite(actor.x,0,1) || (actor.size!==undefined && !finite(actor.size,0.1,2)) || (actor.transform && Object.entries(actor.transform).some(([k,v])=>!['x','y','scaleX','scaleY','rotation','alpha'].includes(k) || !finite(v,k==='alpha'?0:k.startsWith('scale')?-8:k==='rotation'?-100:-8192,k==='alpha'?1:k.startsWith('scale')?8:k==='rotation'?100:8192)))) || new Set(value.actors.map(actor=>actor.instanceId)).size!==value.actors.length) throw new TypeError('Invalid stage scene actors');
+                            if(!value || !Array.isArray(value.actors) || value.actors.length>4 || value.actors.some(actor=>!actor || typeof actor.instanceId!=='string' || !actor.instanceId || typeof actor.ref?.packId!=='string' || typeof actor.ref?.figureId!=='string' || !actor.ref.packId || !actor.ref.figureId || !finite(actor.x,0,1) || (actor.emotion!==undefined && (typeof actor.emotion!=='string' || actor.emotion.length>128)) || (actor.size!==undefined && !finite(actor.size,0.1,2)) || (actor.transform && Object.entries(actor.transform).some(([k,v])=>!['x','y','scaleX','scaleY','rotation','alpha'].includes(k) || !finite(v,k==='alpha'?0:k.startsWith('scale')?-8:k==='rotation'?-100:-8192,k==='alpha'?1:k.startsWith('scale')?8:k==='rotation'?100:8192)))) || new Set(value.actors.map(actor=>actor.instanceId)).size!==value.actors.length) throw new TypeError('Invalid stage scene actors');
                             const sprites=value.sprites || [];
                             if(value.backgroundRef != null && (value.backgroundRef.kind!=='backgrounds' || typeof value.backgroundRef.packId!=='string' || !value.backgroundRef.packId || typeof value.backgroundRef.assetId!=='string' || !value.backgroundRef.assetId)) throw new TypeError('Invalid stage scene background');
                             if(!Array.isArray(sprites) || sprites.length>128 || new Set(sprites.map(s=>s?.id)).size!==sprites.length || sprites.some(s=>{

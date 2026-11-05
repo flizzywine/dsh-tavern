@@ -22,7 +22,7 @@ function layeredSpriteTickScene(entry, textures, PIXI, enabled) {
         images.set(url, source);
     }
     // A replace blink repaints the shared canvas when its phase changes.
-    const voice = layeredSpriteVoice(entry.figure.spriteVoiceKey, entry.figure.audio, enabled);
+    const voice = entry.figure.talking && !entry.figure.audio && enabled ? (Math.floor(performance.now()/140)%2 ? 'small' : 'open') : entry.figure.talking===false && !entry.figure.audio ? 'closed' : layeredSpriteVoice(entry.figure.spriteVoiceKey, entry.figure.audio, enabled);
     const event = bundle.view.blink?.blend === 'replace' ? voice + '|' + (entry.spriteBlink || 'open') : voice;
     if (entry.spriteEvent !== event) {
         try {

@@ -13,6 +13,9 @@ function candidateSceneMerge(scene, candidate, actors, contributed, line, speake
         shot:line ? null : scene.shot,sceneSprites:candidate.sprites || [],background:candidate.resolvedBackground || scene.background,
         effects:scene.effects.concat(candidate.effects || [])};
 }
+function stageSceneActorRequest(actor, speaker, line) {
+    return {instanceId:actor.instanceId,ref:actor.ref,outfitKey:actor===speaker ? line?.outfitKey || actor.outfitKey : actor.outfitKey,stateId:actor===speaker ? line?.emotion ?? actor.emotion : actor.emotion};
+}
 // Complete stage controller. Display/runtime collaborators come from this plugin activation.
 function createStageController({React:react,window,document,views:stageViews,navigation,services,legacy,options}) {
 const {useLiveView,storyTurn,useCoordination:useTavernCoordination,rpc,phoneCall:readPhoneCall,
@@ -246,6 +249,13 @@ function GalStage(props) {
     const card = subtitles.card;
     const lastCard = card >= subtitles.cards.length - 1;
     const [typed, setTyped] = React.useState(false);
+    const [sceneTalking,setSceneTalking]=React.useState('');
+    const [sceneTypedKey,setSceneTypedKey]=React.useState('');
+    const lineIdentity=candidateLine ? JSON.stringify([candidateDialogue.index,candidateLine.actorKey,candidateLine.text]) : '';
+    const sceneLineRevision=React.useRef({identity:'',revision:0});
+    if(sceneLineRevision.current.identity!==lineIdentity)sceneLineRevision.current={identity:lineIdentity,revision:sceneLineRevision.current.revision+1};
+    const sceneLineKey=lineIdentity ? lineIdentity+':'+sceneLineRevision.current.revision : '';
+    const sceneTyped=Boolean(sceneLineKey && sceneTypedKey===sceneLineKey);
     React.useEffect(()=>{if(candidateLine)setTyped(false);},[candidateLine?.text,candidateLine?.actorKey,candidateDialogue?.index]);
     React.useLayoutEffect(function () { setTyped(false); }, [sessionId, turn, runtime.source?.generation]);
     const readingPage = transitioning ? { kind: "transition", para: pages[page]?.para || 1, text: playerInputs[turns[turnIndex + 1]] || "（这一轮没有可显示的玩家输入）" } : pages[page] || null;
@@ -714,7 +724,7 @@ function GalStage(props) {
     }
     function go(delta, fromSkip, pastPictures) {
         if(candidateInteractive){
-            if(candidateLine && delta>0 && !typed){setTyped(true);return true;}
+            if(candidateLine && delta>0 && !sceneTyped){setSceneTalking('');setSceneTypedKey(sceneLineKey);setTyped(true);return true;}
             if(candidateLine && typeof candidate.onDialogueAdvance==='function'){candidate.onDialogueAdvance({gameId:sessionId,delta});return true;}
             return false;
         }
@@ -981,7 +991,7 @@ function GalStage(props) {
         thinking:!awaiting && !transitioning && current?.thought ? stageEffectResolve('thinking',effectTables.skin,effectTables.local) : null,
         animatedUi:Boolean(speaker || stageConfig.widgets || !typed || title || faceEmote), callView};
     const candidateActors=candidate?.value?.actors || [];
-    const actorSignature=JSON.stringify(candidateActors.map(actor=>({instanceId:actor.instanceId,ref:actor.ref,outfitKey:actor===candidateSpeaker ? candidateLine?.outfitKey || actor.outfitKey : actor.outfitKey,stateId:actor===candidateSpeaker ? candidateLine?.emotion : undefined})));
+    const actorSignature=JSON.stringify(candidateActors.map(actor=>stageSceneActorRequest(actor,candidateSpeaker,candidateLine)));
     const candidateAuthority=JSON.stringify([runtime.source?.sessionId,runtime.source?.authorityEpoch]);
     const [candidateFigures,setCandidateFigures]=React.useState({signature:null,figures:[],actors:[],authority:null});
     const candidatePins=React.useRef({current:[],retired:[]});
@@ -1025,7 +1035,7 @@ function GalStage(props) {
         const input=packFigureRenderInputs(selected,{sessionId}).stage;
         if(!input)return null;
         const key='candidate:'+String(actor.instanceId);
-        return {...input,key,sourceRef:actor.ref,sourceOutfitKey:selected.outfitKey,sourceStateId:selected.state?.id,alias:key,x:actor.x,ground:actor.ground,sceneSize:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking:actor===candidateSpeaker,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : 1,
+        return {...input,key,sourceRef:actor.ref,sourceOutfitKey:selected.outfitKey,sourceStateId:selected.state?.id,alias:key,x:actor.x,ground:actor.ground,sceneSize:actor.size,sceneTransform:actor.transform,visible:actor.visible!==false,enter:'none',exit:'none',speaking:actor===candidateSpeaker,talking:actor===candidateSpeaker && !!sceneLineKey && sceneTalking===sceneLineKey && !sceneTyped,shade:candidateLine && candidateSpeaker && actor!==candidateSpeaker ? .72 : 1,
             figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry?.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     }).filter(Boolean);
     function onSceneDebug(effect) {
@@ -1327,9 +1337,9 @@ function GalStage(props) {
             transitioning && !candidateLine ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
             h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite" },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
-                (candidateLine || current) ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: candidateLine ? "candidate:" + (candidateDialogue.index || 0) + ":" + candidateLine.text : sessionId + ":" + turn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld, pending: !candidateLine && current?.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
+                (candidateLine || current) ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: candidateLine ? "candidate:" + (candidateDialogue.index || 0) + ":" + candidateLine.text : sessionId + ":" + turn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: (candidateLine ? sceneTyped : typed) || skipping, hold: handoff.holding || beatHeld, pending: !candidateLine && current?.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
                     visibleKey:sourceWidget.readingKey,onVisible:value=>!candidateLine && sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
-                    onReveal:ordinal=>performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]}), onDone: () => setTyped(true) }))
+                    onReveal:ordinal=>{if(candidateLine)setSceneTalking(sceneLineKey);performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]});}, onDone: () => {if(candidateLine){setSceneTalking('');setSceneTypedKey(sceneLineKey);}setTyped(true);} }))
                     : h("span", { className: "stage-waiting" }, streaming ? "……" : "还没有正文"),
                 current && current.pending && !phoneLine ? h("span", { className: "fork-gal-typing", "aria-label": "正在生成" }, h("i"), h("i"), h("i")) : null,
                 // the next-page cue is laid out with the page from its first frame and only shown when
@@ -1505,4 +1515,4 @@ function galNameParts(...args) { return stageViews.nameParts(...args); }
 
 return {Stage:GalStage,dispose(){if(closed)return;closed=true;clean([...cleanups].reverse().concat([...timers.values()], [...foregroundTimers].map(id=>()=>forkForeground.clearTimeout(id)),()=>{timers.clear();foregroundTimers.clear();}));}};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageController,candidateSceneMerge};
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageController,candidateSceneMerge,stageSceneActorRequest};

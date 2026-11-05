@@ -2,7 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const require=createRequire(import.meta.url)
-const {candidateSceneMerge}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs')
+const {candidateSceneMerge,stageSceneActorRequest}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs')
+
+test('two actors retain authored reactions while line emotion takes precedence for the speaker',()=>{
+  const first={instanceId:'a',ref:{packId:'p',figureId:'a'},emotion:'calm'},second={instanceId:'b',ref:{packId:'p',figureId:'b'},emotion:'anxious'}
+  assert.equal(stageSceneActorRequest(first,first,{emotion:'joy'}).stateId,'joy')
+  assert.equal(stageSceneActorRequest(second,first,{emotion:'joy'}).stateId,'anxious')
+  assert.equal(stageSceneActorRequest(first,first,{}).stateId,'calm')
+})
 
 test('contributed actors preserve the native camera and never substitute a different outfit while loading',()=>{
   const ref={packId:'pack',figureId:'actor'},native={sourceRef:ref,sourceOutfitKey:'normal'},scene={figures:[native],effects:[],camera:{shot:'pan-left'}}
