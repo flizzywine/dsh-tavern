@@ -49,6 +49,9 @@ function readingVoice(v) {
   const keys = plainObject(v) ? Object.keys(v).sort().join() : ''
   if (keys === 'browser' && voiceName(v.browser)) return { browser: v.browser }
   if (keys === 'serviceId,voice' && PROVIDER_ID.test(v.serviceId) && voiceName(v.voice)) return { serviceId: v.serviceId, voice: v.voice }
+  const uuid = s => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s)
+  if (keys === 'packId,voiceId' && uuid(v.packId) && typeof v.voiceId === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(v.voiceId) && !['constructor','prototype','__proto__'].includes(v.voiceId)) return {packId:v.packId,voiceId:v.voiceId}
+  if (keys === 'templateId' && uuid(v.templateId)) return {templateId:v.templateId}
   fail('INVALID_READING_VOICE')
 }
 // Validated once here, on write; a bad patch is a repairable INVALID_READING_VOICE.

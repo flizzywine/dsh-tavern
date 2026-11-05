@@ -19,6 +19,8 @@ export interface WidgetDefaultExportWarning { code: 'external-widget-default'; r
 export interface StageSetupStatus {path: string; cardId: string; cardRevision: string; libraryRevision: string; boundPackIds: string[]; hasBoundPacks: boolean; hasAssets: boolean; wizardPack: {packId: string; name: string; revision: string} | null; shouldAutoOpen: boolean}
 export interface PackWrite { packId: string; expectedRevision: string; force?: boolean }
 export interface VoiceTemplate {templateId:string; revision:string; name:string; voiceSpec:VoiceSpec; binding:Voice}
+export type VoiceCatalogueRef = {packId:string; voiceId:string} | {templateId:string};
+export interface VoiceCatalogueEntry {ref:VoiceCatalogueRef; name:string; packName?:string; revision:string; voiceSpec:VoiceSpec; binding:Voice}
 export interface PackRemoval { status: 'removed'; packId: string }
 export interface PackMutation { status: 'installed' | 'updated' | 'noop'; snapshot: PackSnapshot; forcedOverrides?: Array<{entry:string;trigger:string;rule:string;message:string}> }
 export interface FigureDelivery {
@@ -135,6 +137,10 @@ export interface AssetPackService extends CatalogueService {
   createAndAssignPackVoice(input: PackWrite & {figureId:string; voiceSpec:VoiceSpec}): Promise<PackMutation & {voiceId:string}>;
   savePackVoiceVariant(input: PackWrite & {voiceId:string; variantId:string; variant:NonNullable<VoiceSpec['variants']>[string]; figureId?:string; confirmShared?:boolean}): Promise<PackMutation & {affectedFigures:Array<{id:string;name:string}>}>;
   deletePackVoiceVariant(input: PackWrite & {voiceId:string; variantId:string; figureId?:string; confirmShared?:boolean}): Promise<PackMutation & {affectedFigures:Array<{id:string;name:string}>}>;
+  /** Read-only installed pack voices and templates; no stage settings, service routing or new storage. */
+  listVoiceCatalogue(): Promise<{voices:VoiceCatalogueEntry[]; errors:PackListError[]}>;
+  /** Host-only template reference bytes; never exposed by the browser transport. */
+  readVoiceTemplateMedia(input: {templateId:string; expectedRevision:string; hash:string}): Promise<{bytes:Uint8Array; descriptor:BlobDescriptor}>;
   listVoiceTemplates(): Promise<{templates:VoiceTemplate[]}>;
   saveVoiceTemplate(input: {templateId?:string; expectedRevision:string|null; packId:string; packRevision:string; voiceId:string; binding?:Voice}): Promise<VoiceTemplate>;
   deleteVoiceTemplate(input: {templateId:string; expectedRevision:string}): Promise<{deleted:true}>;

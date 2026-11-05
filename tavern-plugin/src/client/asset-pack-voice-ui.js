@@ -672,12 +672,13 @@ function VoiceHero({binding,pack,figure,spec,voice,sourceId,status,preview,rows,
 }
 // ⋯ → 换成本包其他声音或模板…: the pack's other voices (a pick shares that voice) and 我的模板 (copied into the pack on use).
 function VoiceOthers({binding,pack,figure,voice,writer,setError,setNotice,onClose}) {
-  const library=pack.manifest.voiceLibrary?.voices||{},mine=voice?.voice||null,[removing,setRemoving]=React.useState(null);
-  const templates=useVoiceLoad(()=>binding.service?.listVoiceTemplates?binding.service.listVoiceTemplates({}).then(r=>r.templates||[]):[],[binding]);
+  const mine=voice?.voice||null,[removing,setRemoving]=React.useState(null);
+  const catalogue=useVoiceLoad(()=>binding.service.listVoiceCatalogue(),[binding]);
+  const templates={...catalogue,value:catalogue.value?.voices.filter(v=>v.ref.templateId).map(v=>({...v,templateId:v.ref.templateId}))};
   const describe=s=>{const src=s?.sources?.[s.defaultSource];return src?voiceSourceLabel(src):'';};
   const use=async(job,label)=>{const done=await job();if(done){setNotice('已换成「'+label+'」');onClose();}};
   const remove=async t=>{try{await binding.service.deleteVoiceTemplate({templateId:t.templateId,expectedRevision:t.revision});templates.reload();}catch(e){setError(voiceErrorText(e));}};
-  const voices=Object.entries(library).filter(([id])=>id!==mine);
+  const voices=(catalogue.value?.voices||[]).filter(v=>v.ref.packId===pack.manifest.id&&v.ref.voiceId!==mine).map(v=>[v.ref.voiceId,v.voiceSpec]);
   return h(Modal,{title:'换成其他声音',onClose,className:'ap-voice-dialog ap-voice-others'},
     h('h5',{className:'ap-voice-group'},'本包的声音'),
     voices.length?h('ul',{className:'ap-voice-rows'},voices.map(([id,s])=>{const users=voiceUsers(pack,id).map(f=>f.name);

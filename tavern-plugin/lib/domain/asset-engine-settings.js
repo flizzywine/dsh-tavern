@@ -1,7 +1,7 @@
 import {defaultJudgeConfig,validateJudgeConfig} from './engine-judge.js'
 import directorCommands from '../../packages/dsh-presentation-protocol/src/director-commands.cjs'
 import skinContract from '../../packages/dsh-presentation-protocol/src/stage-skin.cjs'
-import { validateAssetRef } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
+import { validateAssetRef, validateUuid, validateShortId } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
 import { normalizeBubbleEmotions } from './dialogue-bubbles.js'
 import { normalizeBubbleInjection } from './dialogue-bubble-presets.js'
 import { createHash } from 'node:crypto'
@@ -37,6 +37,9 @@ export function validateNarratorSettings(value, path) {
   const voice = value.voice
   if (voice === undefined || voice === null) return value
   if (Object.hasOwn(voice, 'browser')) { shape(voice, ['browser'], ['browser'], path + '.voice'); text(voice.browser, path + '.voice.browser', 256) }
+  else if (voice.templateId !== undefined) { shape(voice,['templateId'],['templateId'],path + '.voice'); validateUuid(voice.templateId) }
+  else if (voice.voiceId !== undefined) { shape(voice,['packId','voiceId'],['packId','voiceId'],path + '.voice'); validateUuid(voice.packId); validateShortId(voice.voiceId) }
+  else if (voice.serviceId !== undefined) { shape(voice,['serviceId','voice'],['serviceId','voice'],path + '.voice'); check(/^[a-z][a-z0-9-]{0,23}$/.test(voice.serviceId),path + '.voice.serviceId'); text(voice.voice,path + '.voice.voice',200) }
   else { shape(voice, ['packId', 'figureId'], ['packId', 'figureId'], path + '.voice'); text(voice.packId, path + '.voice.packId', 160); text(voice.figureId, path + '.voice.figureId', 160) }
   return value
 }

@@ -49,3 +49,14 @@ test('an invalid reading voice is rejected with a readable message and nothing i
   assert.equal(f.value('tts')?.reading, undefined)
   assert.deepEqual(f.ctx.get('tts').reading(), {dialogueVoice:null, narrator:{enabled:false, voice:null}})
 })
+
+test('pack voices and template references persist in both reading selections', async t => {
+  const f = await profile(t), control = f.ctx.get('ttsControl')
+  for (const voice of [{packId:'11111111-1111-4111-8111-111111111111',voiceId:'library-clone'}, {templateId:'33333333-3333-4333-8333-333333333333'}]) {
+    const expected = {dialogueVoice:voice,narrator:{enabled:true,voice}}
+    assert.deepEqual(await control.call('setReading',expected),expected)
+    assert.deepEqual(f.value('tts').reading,expected)
+  }
+  for (const voice of [{packId:'bad',voiceId:'v'}, {templateId:'bad'}, {templateId:'33333333-3333-4333-8333-333333333333',voice:'v'}])
+    await assert.rejects(control.call('setReading',{dialogueVoice:voice}),{code:'INVALID_READING_VOICE'})
+})

@@ -94,11 +94,11 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
         }
         onInvalidate(chat.cardPath,event)
       }})
-      const speech = createAssetPackSpeech({presentation, getEngine:() => engineSettings.read().values, getTts:() => ctx.get('tts'), getBinding, cardId:workspace.meta.id, scope:'dsh-browser'})
+      const speech = createAssetPackSpeech({getLibrary:service,presentation, getEngine:() => engineSettings.read().values, getTts:() => ctx.get('tts'), getBinding, cardId:workspace.meta.id, scope:'dsh-browser'})
       entry = {cardPath:chat.cardPath, revision, origin, presentation, speech}
       consumers.set(id, entry)
     }
-    if (!entry.speech) entry.speech = createAssetPackSpeech({presentation:entry.presentation,getEngine:() => engineSettings.read().values,getTts:() => ctx.get('tts'),getBinding,cardId:workspace.meta.id,scope:'dsh-browser'})
+    if (!entry.speech) entry.speech = createAssetPackSpeech({getLibrary:service,presentation:entry.presentation,getEngine:() => engineSettings.read().values,getTts:() => ctx.get('tts'),getBinding,cardId:workspace.meta.id,scope:'dsh-browser'})
     entry.allowedPackIds = [...new Set([...entry.presentation.extension.assetBindings.boundPackIds,
       ...(ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || [])])]
     return entry

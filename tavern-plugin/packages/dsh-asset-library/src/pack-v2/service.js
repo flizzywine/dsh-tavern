@@ -589,6 +589,21 @@ export function createAssetPackService(options) {
       }
       return entries
     }),
+    async listVoiceCatalogue() {
+      const [packs, {templates}] = await Promise.all([service.listPacks(), service.listVoiceTemplates()])
+      const voices = [], errors = []
+      for (const pack of packs) {
+        if (pack.error) { errors.push(pack); continue }
+        if (pack.privateConfig) continue
+        for (const [voiceId, voiceSpec] of Object.entries(pack.manifest.voiceLibrary?.voices || {})) {
+          voices.push({ref:{packId:pack.manifest.id,voiceId}, name:voiceSpec.name, packName:pack.manifest.name,
+            revision:pack.revision, voiceSpec:copy(voiceSpec), binding:{voice:voiceId}})
+        }
+      }
+      for (const item of templates) voices.push({ref:{templateId:item.templateId}, name:item.name,
+        revision:item.revision, voiceSpec:item.voiceSpec, binding:item.binding})
+      return {voices, errors}
+    },
     // the list views' read; one broken pack is a row of its own, as in listPacks.
     listPackSummaries:() => readRun([], async () => {
       const ids = await storage.listIds(), entries = new Array(ids.length)
