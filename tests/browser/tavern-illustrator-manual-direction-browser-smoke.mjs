@@ -33,7 +33,7 @@ function declaration(source, name) {
 
 const action = declaration(hostSource, 'TavernPluginIllustrateAction')
 const icon = declaration(hostSource, 'TavernIllustrateIcon')
-const run = declaration(extensionsSource, 'runTavernIllustrator')
+const run = declaration(extensionsSource, 'watchTavernIllustrationStart') + '\n' + declaration(extensionsSource, 'runTavernIllustrator')
 // the gestures and tooltip the chat button shares with the stage's 场景生图 entry
 const press = declaration(extensionsSource, 'useTavernIllustratePress')
 const title = extensionsSource.match(/const TAVERN_ILLUSTRATE_TITLE = [^\n]*/)[0]
@@ -73,6 +73,8 @@ try {
     'const DshUi={Tooltip:({children})=>children};',
     'const drafts=new Map(); const tavernIllustrationDrafts={set:(g,t,v)=>{const k=g+":"+t;if(v)drafts.set(k,v);else drafts.delete(k);},get:(g,t)=>drafts.get(g+":"+t)||null};',
     'const TAVERN_ILLUSTRATION_NOTICE_MS=8000;',
+    // the turn never gains a picture here, so a request form closes only when draw settles
+    'const rpc=async()=>({items:[]}); const tavernPluginMediaIndex={subscribe:()=>()=>{},has:()=>false};',
     drawRunner,
     'const calls=[]; let failNext=false, delayNext=false, finishDelayed=null;',
     'const illustrator={draw:async context=>{calls.push({...context});if(failNext){failNext=false;throw new Error("network unavailable")}if(delayNext){delayNext=false;return new Promise(resolve=>{finishDelayed=()=>resolve({})})}return {};}};',

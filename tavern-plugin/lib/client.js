@@ -33322,7 +33322,26 @@ function tavernFloorHeightRecall(key, width) {
 			};
 		})();
 		const TAVERN_ILLUSTRATION_NOTICE_MS = 8000;
-		async function runTavernIllustrator(illustrator, sessionId, turn, instruction) {
+		// Calls onStart once the turn gains a plugin item it did not have when watching began: the illustrator has accepted
+		// the request and its pictures are in progress (生成中… / 「正在生成 CG…」). Resolves to stop(), or null when the turn's
+		// items cannot be read (then only draw settling counts).
+		async function watchTavernIllustrationStart(sessionId, turn, onStart) {
+			const read = function () { return rpc("pluginMediaForTurn", { turn: turn }, sessionId).then(function (result) { return Array.isArray(result && result.items) ? result.items : []; }); };
+			let known;
+			try { known = new Set((await read()).map(function (item) { return item.id; })); } catch (_) { return null; }
+			let stopped = false, unsubscribed = false;
+			const stop = tavernPluginMediaIndex.subscribe(sessionId, function () {
+				if (stopped || !tavernPluginMediaIndex.has(sessionId, turn)) return;
+				read().then(function (items) {
+					if (!stopped && items.some(function (item) { return !known.has(item.id); })) { stopped = true; onStart(); }
+				}, function () {});
+			});
+			return function () { stopped = true; if (!unsubscribed) { unsubscribed = true; stop(); } };
+		}
+		// draw settles only when the pictures are done (or it planned none). onAccepted, given by a request form, is called once
+		// the illustrator has taken the request - its first picture for the turn appears, or draw succeeds first - so the form
+		// closes then and the progress stays with the turn. A failure before that rejects with the form still open.
+		async function runTavernIllustrator(illustrator, sessionId, turn, instruction, onAccepted) {
 			let normalizedInstruction;
 			if (instruction !== undefined) {
 				if (typeof instruction !== "string") throw new TypeError("配图要求必须是文本");
@@ -33333,13 +33352,18 @@ function tavernFloorHeightRecall(key, width) {
 			tavernIllustrationDrafts.set(sessionId, turn, planning);
 			let draft = null;
 			let failure = null;
+			let accepted = false, stopWatch = null;
+			const accept = function () { if (accepted) return; accepted = true; if (stopWatch) stopWatch(); onAccepted(); };
 			try {
+				if (onAccepted) stopWatch = await watchTavernIllustrationStart(sessionId, turn, accept);
 				const request = { gameId: sessionId, turn: turn };
 				if (normalizedInstruction) request.instruction = normalizedInstruction;
 				const result = await illustrator.draw(request);
 				const notice = result && typeof result.notice === "string" ? result.notice.trim() : "";
 				if (notice) draft = { text: notice.slice(0, 200) };
+				if (onAccepted) accept();
 			} catch (error) { failure = error; draft = { text: String(error && error.message || error).slice(0, 200), failed: true }; }
+			finally { if (stopWatch) stopWatch(); }
 			if (tavernIllustrationDrafts.get(sessionId, turn) === planning) {
 				tavernIllustrationDrafts.set(sessionId, turn, draft);
 				if (draft) setTimeout(function () { if (tavernIllustrationDrafts.get(sessionId, turn) === draft) tavernIllustrationDrafts.set(sessionId, turn, null); }, TAVERN_ILLUSTRATION_NOTICE_MS);
@@ -36207,15 +36231,20 @@ function tavernFloorHeightRecall(key, width) {
 					submitLockRef.current = true;
 					setManualBusy(true);
 					setManualError("");
-					try {
-						await runTavernIllustrator(props.illustrator, props.sessionId, props.turn, instruction);
-						closeManual();
-						setInstruction("");
-					} catch (error) {
-						setManualError(String(error && error.message || error));
-					} finally {
+					// Closes once the illustrator has taken the request; the pictures' progress shows in the turn's text.
+					let accepted = false;
+					function accept() {
+						accepted = true;
 						submitLockRef.current = false;
 						setManualBusy(false);
+						closeManual();
+					}
+					try {
+						await runTavernIllustrator(props.illustrator, props.sessionId, props.turn, instruction, accept);
+					} catch (error) {
+						if (!accepted) setManualError(String(error && error.message || error));
+					} finally {
+						if (!accepted) { submitLockRef.current = false; setManualBusy(false); }
 					}
 				}
 				React.useEffect(function () {
@@ -48920,7 +48949,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    const h = React.createElement;
 		    const [busy, setBusy] = React.useState(false), [open, setOpen] = React.useState(false);
 		    const [text, setText] = React.useState(""), [sending, setSending] = React.useState(false), [failed, setFailed] = React.useState(false);
-		    const chip = React.useRef(null), panel = React.useRef(null), field = React.useRef(null), opened = React.useRef(false);
+		    const chip = React.useRef(null), panel = React.useRef(null), field = React.useRef(null), opened = React.useRef(false), request = React.useRef(0);
 		    // The round's notice (「正在生成 CG…」) shows the drawing; the button only stays busy while the plugin plans.
 		    async function draw() {
 		        if (busy) return;
@@ -48941,11 +48970,19 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    async function submit(event) {
 		        event.preventDefault();
 		        if (sending) return;
+		        const id = ++request.current;
 		        setSending(true); setFailed(false);
-		        try { await runTavernIllustrator(props.illustrator, props.sessionId, props.turn, text); close(); if (chip.current) chip.current.focus({ preventScroll: true }); }
+		        // Closes once the illustrator has taken the request; the drawing goes on under the round's 「正在生成 CG…」.
+		        let accepted = false;
+		        const accept = () => {
+		            accepted = true;
+		            if (id !== request.current) return;
+		            setSending(false); close(); if (chip.current) chip.current.focus({ preventScroll: true });
+		        };
+		        try { await runTavernIllustrator(props.illustrator, props.sessionId, props.turn, text, accept); }
 		        // The plugin's own words stay in its chat card; the stage says only that it did not start.
-		        catch (_) { setFailed(true); }
-		        finally { setSending(false); }
+		        catch (_) { if (!accepted && id === request.current) setFailed(true); }
+		        finally { if (!accepted && id === request.current) setSending(false); }
 		    }
 		    const stop = event => event.stopPropagation();
 		    const label = busy ? "正在整理画面…" : "场景生图";
