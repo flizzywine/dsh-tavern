@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { createHash } from 'node:crypto'
 import { readCardArchive } from '../tavern-plugin/lib/domain/card-archive.js'
@@ -328,4 +328,71 @@ ${action}
   assert.equal((await fileResources.readCard(old.path)).raw.data.name,'Updated archive')
   assert.deepEqual(await fileResources.list('card'),[old.path]);assert.deepEqual(errors,[])
   await page.screenshot({path:join(process.cwd(),'output/card-update-browser.png'),fullPage:true})
+})
+
+test('replacement never reads or bundles a five GB imported bound pack', async t => {
+  const packId = '22222222-2222-4222-8222-222222222222'
+  let reads = 0
+  const {files, castAssets} = await library(t, {
+    assetPacks: {
+      readPack: async () => { reads++; return {files:{'large.bin':{size:5 * 1024 ** 3}}} },
+      file: async () => assert.fail('replacement must not open bound pack media')
+    }
+  })
+  const card = {name:'Large pack card',extensions:{dsh_tavern:{schemaVersion:1,assetBindings:{boundPackIds:[packId]}}}}
+  const original = await files.importCard({kind:'text',name:'large.json',text:JSON.stringify(card)})
+  await castAssets.bindPacks(original.path, [{id:packId,contentHash:'a'.repeat(64)}])
+  const updated = await files.replaceCard(original.path, {payload:{kind:'text',name:'update.json',text:JSON.stringify({...card,name:'Updated'})}})
+  assert.equal(reads, 0)
+  const zip = await openZipFile(updated.backupPath)
+  try {
+    const backup = await readCardArchive(zip)
+    assert.equal(backup.packs.length, 0)
+    assert.deepEqual(backup.card.data.extensions.dsh_tavern.assetBindings.boundPackIds, [packId])
+  } finally { await zip.close() }
+})
+
+test('private installed card replacement uses an internal backup while public export stays denied', async t => {
+  const {createAssetPackService} = await import('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js')
+  const {createCardBundleAdapter} = await import('../tavern-plugin/packages/dsh-tavern-stage/lib/card-bundle.js')
+  const {syntheticPack, PACK_ID} = await import('./fixtures/asset-packs/pack.mjs')
+  const {sealPack} = await import('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/validation.js')
+  let normal, options
+  const {root, files, fileResources} = await library(t, {
+    assetLibrary: () => normal,
+    withCardBackup: async (file, input, consume) => {
+      const service = createAssetPackService({...options, privateExportFile:file})
+      assert.deepEqual(input.packIds, [], 'replacement must not request bound pack bundles')
+      try { return await service.withCardExport(input, consume) } finally { await service.dispose() }
+    }
+  })
+  const assetRoot = join(root, 'library'), pack = await syntheticPack()
+  const performance = {schema:'dsh.performance/1', id:'show', label:'Fixture', license:{privateUse:true}, packs:{}, levels:{default:2,1:{},2:{},3:{}}, timeline:{entry:{events:[]},exit:{events:[]}}}
+  pack.manifest.assets.push({kind:'performances',id:'show',name:'Fixture',enabled:false,recall:{mode:'keyword',keywords:[]},directorNote:'',bundleKey:'show',entry:'performance.json'})
+  pack.manifest.bundles.show = {kind:'performance',entry:'performance.json',contentHash:'0'.repeat(64)}
+  pack.files.set('bundles/show/performance.json', Buffer.from(JSON.stringify(performance)))
+  await sealPack(pack.manifest, pack.files)
+  for (const [name, bytes] of new Map([['manifest.json',Buffer.from(JSON.stringify(pack.manifest))], ...pack.files])) {
+    const file = join(assetRoot, 'packs', PACK_ID, name)
+    await mkdir(dirname(file), {recursive:true}); await writeFile(file, bytes)
+  }
+  await mkdir(join(assetRoot, 'local'), {recursive:true})
+  await writeFile(join(assetRoot, 'local', PACK_ID + '.json'), JSON.stringify({revision:'fixture-revision',retired:[],installedAt:1,updatedAt:1}))
+  const card = {name:'Private original',extensions:{dsh_tavern:{schemaVersion:1,assetBindings:{boundPackIds:[PACK_ID]},modConfigPackId:PACK_ID}}}
+  const original = await files.importCard({kind:'text',name:'private.json',text:JSON.stringify(card)})
+  options = {assetRoot,cardTransactions:createCardBundleAdapter({cardPreparation:createCardPreparation(),authorizeTarget:async () => ({cardId:'fixture'}),readWorkspace:fileResources.readCard,withCardLock:async (_, task) => task()})}
+  normal = createAssetPackService(options)
+  t.after(() => normal.dispose())
+  await assert.rejects(files.exportCardFile(original.path), {code:'PRIVATE_ASSET_NOT_EXPORTABLE'})
+  const updated = await files.replaceCard(original.path, {payload:{kind:'text',name:'updated.json',text:JSON.stringify({...card,name:'Private updated'})}})
+  assert.equal(updated.path, original.path)
+  assert.equal((await fileResources.readCard(original.path)).raw.name, 'Private updated')
+  const zip = await openZipFile(updated.backupPath)
+  try {
+    const backup = await readCardArchive(zip)
+    assert.equal(backup.card.data.name, 'Private original')
+    assert.deepEqual(backup.card.data.extensions.dsh_tavern.assetBindings.boundPackIds, [PACK_ID])
+    assert.equal(backup.packs.length, 0)
+  } finally { await zip.close() }
+  await assert.rejects(files.exportCardFile(original.path), {code:'PRIVATE_ASSET_NOT_EXPORTABLE'})
 })
