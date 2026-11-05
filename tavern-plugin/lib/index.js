@@ -261,7 +261,7 @@ import { createStageReads, stageReadScope } from './domain/stage-read-projection
 import {createOptionalStage} from './optional-stage.js'
 import {createStageSwitch} from './stage-switch.js'
 import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-asset-bindings.js'
-import {effectiveAutoChoices} from './domain/card-stage-settings.js'
+import {effectiveAutoChoices, activeStageSkin} from './domain/card-stage-settings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
@@ -2466,7 +2466,7 @@ export async function apply(ctx) {
   // 舞台、导演与 mod（stage-module.js）。
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
-  await stageRuntime.start({dataRoot,
+  await stageRuntime.start({dataRoot, activeStageSkin,
     presentationObservers, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
     readReplyPrefix:(sessionId,turn) => assistantResultForTurn(sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,turn)?.text || '',
  worldBooks, containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
@@ -3624,7 +3624,7 @@ export async function apply(ctx) {
 
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
   // paragraphSpeech: a paragraph's spoken line, the core's voice selection (the stage's clip export reads it).
-  const rpcDeps = { frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
+  const rpcDeps = { readCardAssetExtension, frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
     applicationUpdater, autoChoices, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow,
     backgroundConfigForSession, bindScript, bodyEditor, branchOrigin, callModel, candidateGenerator, candidateTasks, polishPrereview, polishRecords, polishReviewer, chatHeaderWithLatestFloors, applyCardUpdate, cardAutoReload, messageDeletion,
     cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,

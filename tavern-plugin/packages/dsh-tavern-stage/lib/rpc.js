@@ -1,5 +1,4 @@
 import { stageEntranceChoices } from './domain/stage-entrance.js'
-import { readCardAssetExtension } from '../../../lib/domain/card-asset-bindings.js'
 import { widgetSourceRounds } from './domain/widget-window-projection.js'
 import { NARRATOR_VOICE, GENERAL_VOICE } from '../../../lib/domain/asset-pack-speech.js'
 import { phoneMark, phoneMarkRounds as phoneRounds } from '../../../mods/phone/call-context.js'
@@ -379,7 +378,7 @@ return cardAssetBindings.inspect(args || {})
 return cardAssetBindings.update(args || {})
     },
     async getCardOpeningScenes(args, method, serverTemplate, authority) {
-      const { assetRuntime, describeOpeningScenes, path, readCardWorkspace } = deps
+      const { assetRuntime, describeOpeningScenes, path, readCardWorkspace, readCardAssetExtension } = deps
 
         const workspace = await readCardWorkspace(args?.path)
         if (!workspace) throw Object.assign(new Error('Card not found'), {code:'NOT_FOUND'})
