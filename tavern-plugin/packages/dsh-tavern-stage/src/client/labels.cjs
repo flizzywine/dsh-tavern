@@ -111,18 +111,9 @@ function GalNamePlate(props) {
     // block look (paint, face, size, tilt) is one of a few closed variants picked from the name itself, so a name always
     // reads the same; neighbours never repeat one. Only Latin glyphs (data-latin) take the condensed title face: it has no CJK,\n    // and a CJK fallback would come out thin. The plain name stays for screen readers; the blocks are decoration.
     if (props.ransom) {
-        const glyphs = Array.from(String(props.name));
-        let seed = 0, previous = -1;
-        for (const glyph of glyphs) seed = (seed * 31 + glyph.codePointAt(0)) >>> 0;
-        const blocks = glyphs.map((glyph, index) => {
-            if (/\s/.test(glyph)) { previous = -1; return h("i", { key: index, className: "fork-gal-ransom-gap" }); }
-            let variant = (seed + index * 7 + glyph.codePointAt(0)) % 6;
-            if (variant === previous) variant = (variant + 1) % 6;
-            previous = variant;
-            return h("i", { key: index, "data-r": index === 0 ? "lead" : variant, "data-latin": /^[\x21-\x7e]$/.test(glyph) || undefined }, glyph);
-        });
+        const glyphs = galRansomGlyphs(props.name);
         return h("div", { className: "fork-gal-name is-ransom" }, h("b", null, h("bdi", { className: "fork-gal-ransom-text" }, props.name),
-            h("bdi", { className: "fork-gal-ransom", "aria-hidden": true, "data-long": glyphs.length > 7 || undefined }, blocks)), voice);
+            h("bdi", { className: "fork-gal-ransom", "aria-hidden": true, "data-long": glyphs.length > 7 || undefined }, galRansomBlocks(h, glyphs))), voice);
     }
     // the plate (and the emotion pill on it) is the image colour under the theme's own text:
     // figure-color-contrast.js moves the plate's lightness until that text reads (data-figure-plate).
@@ -132,6 +123,37 @@ function GalNamePlate(props) {
 }
 
 
-return {HudLabels:GalHudLabels, NamePlate:GalNamePlate, nameParts:galNameParts};
+// Ransom glyph blocks (the name plate, art.menu rows and title with letter ransom): each glyph of a word one of six closed
+// variants (0..5; the first glyph is the lead), picked from the word itself so a word always reads the same, neighbours never
+// the same one; whitespace is a gap. The single picker for every ransom word.
+// tiles (art.menu.glyphTiles.tiles, §18 N34): each glyph also takes one of the skin's tiles ({ground, ink, weight}, by relative
+// weight in list order), hashed from the glyph and its place in the word, so a word always reads the same.
+function galRansomGlyphs(text, tiles) {
+    const glyphs = Array.from(String(text));
+    const picks = (tiles || []).flatMap((tile, index) => Array(tile.weight || 1).fill(index));
+    let seed = 0, previous = -1;
+    for (const glyph of glyphs) seed = (seed * 31 + glyph.codePointAt(0)) >>> 0;
+    return glyphs.map((glyph, index) => {
+        if (/\s/.test(glyph)) { previous = -1; return { glyph, gap: true }; }
+        let variant = (seed + index * 7 + glyph.codePointAt(0)) % 6;
+        if (variant === previous) variant = (variant + 1) % 6;
+        previous = variant;
+        const block = { glyph, r: index === 0 ? "lead" : variant, latin: /^[\x21-\x7e]$/.test(glyph) };
+        if (picks.length) {
+            let k = Math.imul(seed ^ Math.imul(index + 1, 0x9e3779b1) ^ glyph.codePointAt(0), 0x85ebca6b);
+            k = Math.imul(k ^ k >>> 13, 0xc2b2ae35);
+            block.tile = picks[((k ^ k >>> 16) >>> 0) % picks.length];
+        }
+        return block;
+    });
+}
+// tiles: the list the glyphs were picked from; a picked glyph carries its tile's ground and ink (theme.css «glyph tiles»).
+function galRansomBlocks(h, glyphs, tiles) {
+    return glyphs.map((block, index) => block.gap ? h("i", { key: index, className: "fork-gal-ransom-gap" })
+        : h("i", { key: index, "data-r": block.r, "data-t": block.tile, "data-latin": block.latin || undefined,
+            style: block.tile === undefined ? undefined : { "--gt-ground": tiles[block.tile].ground, "--gt-ink": tiles[block.tile].ink } }, block.glyph));
+}
+
+return {HudLabels:GalHudLabels, NamePlate:GalNamePlate, nameParts:galNameParts, ransomGlyphs:galRansomGlyphs, ransomBlocks:galRansomBlocks};
 }
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageLabels};

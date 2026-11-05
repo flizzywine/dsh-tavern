@@ -40,3 +40,20 @@ test('all built-in skins project tokens and backlog geometry through plugin modu
  }
  skin.dispose()
 })
+test('art.menu letters and font.menu: marks, focus scale and the menu face only for a skin that sets them',()=>{
+ const skin=create()
+ const files=Object.fromEntries(['art/sheet.svg','art/row.svg','art/row-on.svg','art/title.svg'].map(name=>[name,{url:'blob:'+name,image:{naturalWidth:200,naturalHeight:80}}]))
+ const doc=extra=>({schema:'dsh.skin/1',id:'menu-probe',label:'menu',textbox:{paint:{bg:'#0b0b0b',fg:'#ffffff',accent:'#ff4d5e'}},nameplate:{shape:'plain',paint:{bg:'#0b0b0b',fg:'#ffffff'}},font:{},textFx:{reveal:'type'},
+  art:{screen:1080,screenWidth:1920,menu:{sheet:'art/sheet.svg',rows:{images:{plain:'art/row.svg',focus:'art/row-on.svg'},slice:[8,40,8,40],text:[100,950,42],font:46,x:-80,y:250,gap:10,align:'end',...extra?.rows},
+   title:{image:'art/title.svg',x:240,y:40,text:[150,350,95],font:96,...extra?.title},...extra?.menu}}})
+ const lettered=doc({rows:{letter:'ransom',focusScale:1.2},title:{letter:'ransom'},menu:{glyphTiles:{shape:'square',tiles:[{ground:'#ffffff',ink:'#000000'}]}}})
+ assert.equal(contract.validateStageSkin(lettered).art.menu.rows.letter,'ransom')
+ const {marks,tokens}=skin.stageSkinArt(lettered,files,'skin.json')
+ assert.deepEqual([marks['data-fk-skin-art-menu-letter'],marks['data-fk-skin-art-menu-title-letter'],tokens['--art-mr-focus-scale'],tokens['--art-mr-origin']],['ransom','ransom','1.2','100% 50%'])
+ const plain=skin.stageSkinArt(doc(),files,'skin.json')
+ assert.deepEqual([plain.marks['data-fk-skin-art-menu-letter'],plain.marks['data-fk-skin-art-menu-title-letter'],plain.tokens['--art-mr-focus-scale']],[undefined,undefined,undefined])
+ const asked=[],menuFonts={resolve:(_,options)=>{asked.push(options);return {family:options.part==='menu'?'menu-face':'serif'}}}
+ assert.equal(skin.stageSkinPanelTokens({...doc(),font:{menu:'some-face'}},menuFonts,'classic')['--gal-ui-menu-font'],'menu-face')
+ assert.equal(asked.find(options=>options.part==='menu').skinWins,true,'a decoration face, like the title face')
+ assert.equal('--gal-ui-menu-font' in skin.stageSkinPanelTokens(doc(),menuFonts,'classic'),false)
+})

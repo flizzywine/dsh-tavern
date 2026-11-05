@@ -1,5 +1,5 @@
 'use strict';
-function createStageMenu({React, window, document, sounds:forkUiSfx, getSession}) {
+function createStageMenu({React, window, document, sounds:forkUiSfx, getSession, ransom}) {
 let disposed = false;
 const cleanups = new Set();
 function own(cleanup) {
@@ -158,6 +158,15 @@ function GalMenu(props) {
         if (disposed || regenerateBusy) return;
         if (regenerateOpen) { forkUiSfx.play("cancel"); closeRegenerate(); } else { forkUiSfx.play("close"); props.onClose(); }
     }
+    // letter ransom (art.menu.rows.letter / title.letter, skin-interface.md §18 N31): the words as ransom glyph blocks (the name
+    // plate's picker, labels.cjs), drawn by a skin's menu screen (theme.css «art menu: ransom»); the word stays for screen readers.
+    // glyphTiles (§18 N34): the skin's tiles - their shape, grounds and inks, and the glyphs' turn and size amplitude; without
+    // it the word stays plain text.
+    const tiles = props.glyphTiles, jitter = tiles?.jitter;
+    const word = (text, on) => on && tiles && ransom ? [h("bdi", { key: "t", className: "fork-gal-ransom-text" }, text),
+        h("bdi", { key: "r", className: "fork-gal-ransom", "aria-hidden": true, "data-shape": tiles.shape,
+            style: { "--gt-rot": (jitter?.rotate || 0) + "deg", "--gt-scale": jitter?.scale || 0 } },
+            ransom.ransomBlocks(h, ransom.ransomGlyphs(text, tiles.tiles), tiles.tiles))] : text;
     const children = [];
     items.forEach(function (item, index) {
         if (item.separated) children.push(h("div", { key: item.id + ":sep", className: "fork-gal-menu-sep", role: "separator" }));
@@ -167,11 +176,12 @@ function GalMenu(props) {
             onClick: event => { event.stopPropagation(); activate(index); },
             onPointerMove: () => { if (live.current.active !== index) moveTo(index); } },
             h("i", { className: "fork-gal-menu-gem", "aria-hidden": true }),
-            h("b", null, item.label),
+            h("b", null, word(item.label, props.letter === "ransom")),
             item.note ? h("small", { className: "fork-gal-menu-note" }, item.note) : null));
     });
-    // leaving (skin-interface.md §18 E3): the drawn menu's exit motion plays; it no longer takes input.
-    return h("div", { className: "fork-gal-menu", role: "presentation", "data-leaving": props.leaving || undefined, inert: props.leaving || undefined,
+    // leaving (skin-interface.md §18 E3): the drawn menu's exit motion plays; it no longer takes input. data-dialog: the
+    // 重新生成 dialog stands in the menu's place, so a drawn menu screen's sheet leaves with its tiles (theme.css).
+    return h("div", { className: "fork-gal-menu", role: "presentation", "data-leaving": props.leaving || undefined, inert: props.leaving || undefined, "data-dialog": regenerateOpen ? "" : undefined,
         onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) dismiss(); },
         onWheel: event => event.stopPropagation(),
         onContextMenu: event => { event.preventDefault(); event.stopPropagation(); dismiss(); } },
@@ -185,7 +195,7 @@ function GalMenu(props) {
             h("div", { className: "fork-gal-menu-list", role: "presentation", style: { "--n": items.length } }, children),
             // a skin's drawn menu screen carries the title, the focused
             // item's description (its title, else its label) and the key guide on its own strips; hidden elsewhere (theme.css).
-            h("div", { className: "fork-gal-menu-strip", "data-show": "title", "aria-hidden": true }, "菜单"),
+            h("div", { className: "fork-gal-menu-strip", "data-show": "title", "aria-hidden": true }, word("菜单", props.titleLetter === "ransom")),
             h("div", { className: "fork-gal-menu-strip", "data-show": "info", "aria-hidden": true }, items[active] ? items[active].title || items[active].label : ""),
             h("div", { className: "fork-gal-menu-strip", "data-show": "keys", "aria-hidden": true }, "Esc：返回　Enter：决定")));
 }
