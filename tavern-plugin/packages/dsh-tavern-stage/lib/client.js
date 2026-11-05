@@ -10079,11 +10079,13 @@ function reduceStageRuntime(previous, event) {
         // A replay shows its round's starting state (the predecessor's end) before its first page.
         if (state.replay?.phase === 'baseline') return;
         cancelProjection();
-        if (!state.cursor.anchor) return;
+        // A carry is the predecessor's sealed end, not a page of this turn: a turn with no page to anchor (a gameMode
+        // step, a text-less opening) still shows it, else the entry never has a backdrop to accept and keeps its veil.
         if (!directed()) {
             if (state.carry?.envelope) projectCarry(state.carry, state.cursor.mode === 'history' || state.cursor.skipping ? 'snap' : 'normal');
             return;
         }
+        if (!state.cursor.anchor) return;
         const token = {id: nextId(), source: state.source, direction: directionToken(state), visitId: state.cursor.visitId, anchor: state.cursor.anchor};
         patch({projection: {token, outstanding: Object.keys(GROUPS).filter(key => key !== 'visual')}});
         pending({projection: true});
@@ -21115,10 +21117,13 @@ function useStageEntrance(store, entrance, loadGate) {
     const active = !disposed && !!run && !status.failed && !status.done;
     // Loaded: the gate's reveal has begun; the entrance plays on to its cover.
     const ready = loadGate.visible || loadGate.phase === 'revealing';
-    // Never a permanent black screen: no first frame, no cover after the load, or no end after the cover drops the entrance.
+    // Never a permanent black screen: no first frame, no cover after the load, no end after the cover, or a load still not
+    // ready ENTRANCE_LOAD_WAIT_MS past the entrance's own length drops the entrance; the plain veil then says 「仍在载入…」
+    // with the Esc menu reachable (a load that never settles must not hide behind the entrance's hold).
     useEffect(() => {
         if (!active) return undefined;
-        const left = !status.started ? 3000 + (run.video ? ENTRANCE_VIDEO_WAIT_MS : 0) : ready && !status.covered ? stageEntrance.stageEntranceDuration(run.doc) + 4000 : status.covered ? 8000 : 0;
+        const length = stageEntrance.stageEntranceDuration(run.doc);
+        const left = !status.started ? 3000 + (run.video ? ENTRANCE_VIDEO_WAIT_MS : 0) : status.covered ? 8000 : length + (ready ? 4000 : ENTRANCE_LOAD_WAIT_MS);
         if (!left) return undefined;
         const timer = setTimeout(() => patch(status.covered ? {done: true} : {failed: true}), left);
         return () => clearTimeout(timer);
@@ -21152,6 +21157,8 @@ function useStageEntrance(store, entrance, loadGate) {
 
 // How long a video layer may preload before the timeline starts without it (it joins when it can play).
 const ENTRANCE_VIDEO_WAIT_MS = 2500;
+// How long past its own length an entrance holds for a load that is not ready (the plain veil's 「仍在载入…」 threshold).
+const ENTRANCE_LOAD_WAIT_MS = 10000;
 // An entrance that ended before the stage was ready leaves the bare stage this long before the plain loading veil shows.
 const ENTRANCE_LOADING_GRACE_MS = 300;
 // The skip (every entrance): black fades in over the frozen entrance, holds until the stage is

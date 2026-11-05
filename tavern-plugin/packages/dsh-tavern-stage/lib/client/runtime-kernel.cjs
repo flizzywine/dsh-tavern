@@ -383,11 +383,13 @@ function reduceStageRuntime(previous, event) {
         // A replay shows its round's starting state (the predecessor's end) before its first page.
         if (state.replay?.phase === 'baseline') return;
         cancelProjection();
-        if (!state.cursor.anchor) return;
+        // A carry is the predecessor's sealed end, not a page of this turn: a turn with no page to anchor (a gameMode
+        // step, a text-less opening) still shows it, else the entry never has a backdrop to accept and keeps its veil.
         if (!directed()) {
             if (state.carry?.envelope) projectCarry(state.carry, state.cursor.mode === 'history' || state.cursor.skipping ? 'snap' : 'normal');
             return;
         }
+        if (!state.cursor.anchor) return;
         const token = {id: nextId(), source: state.source, direction: directionToken(state), visitId: state.cursor.visitId, anchor: state.cursor.anchor};
         patch({projection: {token, outstanding: Object.keys(GROUPS).filter(key => key !== 'visual')}});
         pending({projection: true});
