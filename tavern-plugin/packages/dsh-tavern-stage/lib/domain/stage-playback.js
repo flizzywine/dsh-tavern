@@ -136,7 +136,7 @@ export function validateStagePlayback(raw, direction) {
       return
     }
     for (const [key,item] of Object.entries(value)) {
-      if (['figureScale','ruler','locks','hMax'].includes(key) || typeof item === 'string' && /^(blob:|https?:|file:)/.test(item)) fail()
+      if (FRAME_DROPPED_KEYS.includes(key) || typeof item === 'string' && /^(blob:|https?:|file:)/.test(item)) fail()
       visit(item)
     }
   }
@@ -151,6 +151,9 @@ export function validateStagePlayback(raw, direction) {
   }
   return clone(raw)
 }
+// Figure ruler/locks are frozen in the record, never in a frame: the writer drops exactly the keys the validator refuses
+// (a skin document's own `figures.ruler` or a mod's `locks` included), so a frame it wrote always validates.
+const FRAME_DROPPED_KEYS = ['figureScale','ruler','locks','hMax']
 const FRAME_FIGURE_FIELDS = ['alias','ref','revision','form','appearance','outfitKey','state','avatar','avatarCrop','avatarStateId','avatarOutfitKey','geometry','modelUrl','spriteUrls','avatarUrl']
 // Only host-built descriptor DTOs enter frames. Ruler/height are already frozen in the record.
 export function stagePlaybackFrame(value, cache) {
@@ -158,7 +161,7 @@ export function stagePlaybackFrame(value, cache) {
     if (!value || typeof value !== 'object') return value
     if (cache?.clean.has(value)) return cache.clean.get(value)
     const result = Array.isArray(value) ? value.map(clean)
-      : Object.fromEntries(Object.entries(value).filter(([key]) => !['ruler','figureScale'].includes(key)).map(([key,item]) => [key,clean(item)]))
+      : Object.fromEntries(Object.entries(value).filter(([key]) => !FRAME_DROPPED_KEYS.includes(key)).map(([key,item]) => [key,clean(item)]))
     cache?.clean.set(value,result)
     return result
   }

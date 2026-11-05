@@ -31,3 +31,24 @@ test('entrance gate, skip and unload follow real React StrictMode lifecycle',asy
   assert.equal(result.stageAttr,'covered')
  }finally{await act(async()=>root.unmount());module.dispose();dom.window.close();[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]=before}
 })
+test('an entrance whose load never becomes ready drops after its bound, never a permanent black veil',async()=>{
+ const dom=new JSDOM('<div id="root"></div>'),before=[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]
+ globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
+ const timers=new Map(),ports=[];let next=0,result
+ dom.window.setTimeout=(fn,ms)=>{timers.set(++next,{fn,ms});return next};dom.window.clearTimeout=id=>timers.delete(id)
+ dom.window.requestAnimationFrame=()=>++next;dom.window.cancelAnimationFrame=()=>{}
+ dom.window.ResizeObserver=class{observe(){}disconnect(){}}
+ const module=createStageEntrancePresentation({React,window:dom.window,renderer:{supported:()=>true,start(_canvas,_run,_size,onEvent){const port={onEvent,input(){},size(){},stop(){}};ports.push(port);return port}},media:{},video:{},contract:{stageEntranceDuration:()=>300},safety:()=>({}),reading:{get:()=>({})}})
+ const store={},entrance={document:{layers:{},phases:[],palette:{base:'#000000'},background:'base'}}
+ function View(){result=module.useEntrance(store,entrance,{phase:'slow',visible:false});return result.element}
+ const root=createRoot(dom.window.document.getElementById('root'))
+ try{
+  await act(async()=>root.render(React.createElement(View)))
+  await act(async()=>ports.at(-1).onEvent({type:'started'}))
+  assert.equal(result.stageAttr,'playing');assert.equal(result.gate.phase,'loading','the entrance holds the veil while it plays')
+  const bound=[...timers.values()].find(timer=>timer.ms===300+10000)
+  assert.ok(bound,'a started entrance over an unready load has a timer')
+  await act(async()=>bound.fn())
+  assert.equal(result.stageAttr,undefined,'the entrance is dropped');assert.equal(result.gate.phase,'slow','the plain veil shows the load gate')
+ }finally{await act(async()=>root.unmount());module.dispose();dom.window.close();[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]=before}
+})
