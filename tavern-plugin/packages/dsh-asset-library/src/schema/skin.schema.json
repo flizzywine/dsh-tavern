@@ -3931,6 +3931,39 @@
        "enum": ["shown", "hidden"],
        "description": "§18 N32: hidden = the stage's top bar (mixer, 电影模式, ✕) stays put away while the drawn menu is open (its icons would sit on the art; the menu has 返回主页面)."
       },
+      "glyphTiles": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": ["shape", "tiles"],
+       "description": "§18 N34: how the menu words cut glyph by glyph (rows.letter / title.letter) are drawn; required with a letter and only with one (without it the words stay plain text). Every glyph sits on its own tile of `shape`; its ground and ink are one of `tiles`, picked by relative weight from the glyph and its place in the word (stable across renders); `jitter` turns (up to ± rotate degrees) and sizes (up to ± scale) the glyphs. Each tile's ink on its ground: contrast at least 4.5:1, checked on write.",
+       "properties": {
+        "shape": { "enum": ["torn", "square", "rounded", "circle"], "description": "torn = ragged cut-outs with an ink rim and cast shadow (mixed weights, a narrow cut); square / rounded / circle = clean tiles." },
+        "tiles": {
+         "type": "array",
+         "minItems": 1,
+         "maxItems": 8,
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ground", "ink"],
+          "properties": {
+           "ground": { "$ref": "#/$defs/color" },
+           "ink": { "$ref": "#/$defs/color" },
+           "weight": { "type": "integer", "minimum": 1, "maximum": 12, "description": "relative share of the glyphs; default 1" }
+          }
+         }
+        },
+        "jitter": {
+         "type": "object",
+         "additionalProperties": false,
+         "description": "amplitude of each glyph's turn and size; omitted = upright, one size",
+         "properties": {
+          "rotate": { "type": "number", "minimum": 0, "maximum": 15 },
+          "scale": { "type": "number", "minimum": 0, "maximum": 0.5 }
+         }
+        }
+       }
+      },
       "narrow": {
        "type": "object",
        "additionalProperties": false,
