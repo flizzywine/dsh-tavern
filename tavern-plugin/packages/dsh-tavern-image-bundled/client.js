@@ -2812,6 +2812,36 @@ function versionsOf(jobId) {
         ),
       )
     }
+    // 预设里的文本输入：非受控 + 防抖。
+    // 原来是受控写法直接绑 config，而保存会整体替换 config —— 每敲一个字都被回写覆盖，
+    // 光标弹到末尾。改成非受控后 DOM 值归输入框自己管，回写碰不到光标；
+    // 顺带把「每个字符一次 POST」压成停手 400ms 才提交，失焦立刻提交。
+    // 必须定义在 SettingsPanel 外面：定义在它内部的话，父组件每次重渲染都会产生新的函数引用，
+    // React 视作换了一种组件类型，整棵子树卸载重建，光标一样丢。
+    function PresetTextField({ value, multiline, placeholder, style, ariaLabel, onCommit }) {
+      const ref = React.useRef(null)
+      const timer = React.useRef(null)
+      React.useEffect(() => {
+        const el = ref.current
+        // 只在外部值真的变了才改 DOM（切预设这类）；自己保存回来时两者相等，不碰光标。
+        if (el && el.value !== (value ?? '')) el.value = value ?? ''
+      }, [value])
+      const change = event => {
+        const next = event.target.value
+        if (timer.current) clearTimeout(timer.current)
+        timer.current = setTimeout(() => { timer.current = null; onCommit(next) }, 400)
+      }
+      // 失焦立刻落地，不用等那 400ms，也别在切页时把刚敲的字带走。
+      const flush = event => {
+        if (!timer.current) return
+        clearTimeout(timer.current)
+        timer.current = null
+        onCommit(event.target.value)
+      }
+      const props = { ref, defaultValue: value ?? '', onChange: change, onBlur: flush, placeholder, style, 'aria-label': ariaLabel }
+      return multiline ? h('textarea', props) : h('input', Object.assign({ type: 'text' }, props))
+    }
+
     function SettingsPanel() {
       const [data, setDataState] = React.useState(null)
       // 让定时器/异步回调读到"最新的" data，而不用把它写进 effect 依赖
@@ -4362,7 +4392,9 @@ function versionsOf(jobId) {
           return h('div', { style: { margin: '6px 0' } },
             h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '2px' } }, label + (why ? '　' + why : '')),
             h('textarea', { value: value || '', onChange: e => onChange(e.target.value),
-              style: Object.assign({}, S.input, { width: '100%', minHeight: ((rows || 2) * 20) + 'px', fontFamily: 'inherit', lineHeight: '1.5' }) }),
+              // boxSizing 必须写：S.input 自带左右各 10px 内边距，width:100% 时会把框撑出容器。
+              // maxHeight 兜住高度，内容再多也是框内滚动，不会把整页顶长。
+              style: Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box', minHeight: ((rows || 2) * 17) + 'px', maxHeight: '140px', overflowY: 'auto', fontFamily: 'inherit', lineHeight: '1.5', resize: 'vertical' }) }),
           )
         }
 
@@ -4592,10 +4624,10 @@ function versionsOf(jobId) {
                   area('上衣', '', o.upper, v => patchOutfit(i, j, { upper: v }), 2),
                   area('下装', '', o.lower, v => patchOutfit(i, j, { lower: v }), 2),
                   h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' } },
-                    h('input', { type: 'text', placeholder: '鞋袜', value: o.shoes || '', style: S.input, onChange: e => patchOutfit(i, j, { shoes: e.target.value }) }),
-                    h('input', { type: 'text', placeholder: '配饰', value: o.accessory || '', style: S.input, onChange: e => patchOutfit(i, j, { accessory: e.target.value }) }),
-                    h('input', { type: 'text', placeholder: '整体印象（formal / casual…）', value: o.full || '', style: S.input, onChange: e => patchOutfit(i, j, { full: e.target.value }) }),
-                    h('input', { type: 'text', placeholder: '背面细节', value: o.back || '', style: S.input, onChange: e => patchOutfit(i, j, { back: e.target.value }) }),
+                    area('鞋袜', '', o.shoes, v => patchOutfit(i, j, { shoes: v }), 2),
+                    area('配饰', '', o.accessory, v => patchOutfit(i, j, { accessory: v }), 2),
+                    area('整体印象', '', o.full, v => patchOutfit(i, j, { full: v }), 2),
+                    area('背面细节', '', o.back, v => patchOutfit(i, j, { back: v }), 2),
                   ),
                   area('负面', '', o.negative, v => patchOutfit(i, j, { negative: v }), 2),
                 ),
@@ -4777,40 +4809,60 @@ function versionsOf(jobId) {
           h('div', { style: S.card },
             h('div', { style: { fontSize: '13px', marginBottom: '4px' } }, '人物设计（' + characters.length + ' 个角色）'),
             h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } }, '填了名字 + 五官 + 体态的角色，会作为「可用角色清单」交给规划模型；正文里出现这个名字时，这些内容会自动补齐，所以不会换脸。'),
-          h('div', { style: Object.assign({}, S.row, { alignItems: 'stretch' }) },
-            h('input', { type: 'search', 'aria-label': '搜索角色', value: peopleSearch, placeholder: '搜索中文名或英文触发名', style: Object.assign({}, S.input, { flex: '1 1 220px', minWidth: '180px' }), onChange: event => setPeopleSearch(event.target.value) }),
-            h('select', { 'aria-label': '当前角色', value: activeCharacter?.id || '', style: Object.assign({}, S.input, { flex: '1 1 220px', minWidth: '180px' }), onChange: event => { setPeopleActiveId(event.target.value); setPeopleEditorOpen(true) } },
+          // 第一行只放「找谁」：三个控件按 1:1:1 平分一行，不换行。
+          // minWidth 必须是 0，否则 select 的内容宽度会把某一格撑大、把另一格挤到下一行。
+          h('div', { style: Object.assign({}, S.row, { alignItems: 'stretch', flexWrap: 'nowrap' }) },
+            h('input', { type: 'search', 'aria-label': '搜索角色', value: peopleSearch, placeholder: '搜索名称', style: Object.assign({}, S.input, { flex: '1 1 0', minWidth: '0' }), onChange: event => setPeopleSearch(event.target.value) }),
+            h('select', { 'aria-label': '当前角色', value: activeCharacter?.id || '', style: Object.assign({}, S.input, { flex: '1 1 0', minWidth: '0' }), onChange: event => { setPeopleActiveId(event.target.value); setPeopleEditorOpen(true) } },
               activeCharacter ? sectionsOf(filteredCharacters).map(([section, list]) => h('optgroup', { key: section, label: section },
                 list.map(character => h('option', { key: character.id, value: character.id, style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, (character.group ? '[' + character.group + '] ' : '') + (character.name || '（未命名角色）') + (character.match ? ' · ' + character.match : ''))))) : h('option', { value: '', style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '没有匹配的角色'),
             ),
-            h('select', { 'aria-label': '按卡筛选人物', title: '只看某张卡能用到的人物（未绑定卡的人对所有卡都生效，总会列出来）', value: cardFilter, style: Object.assign({}, S.input, { flex: '0 1 200px', minWidth: '150px' }), onChange: event => setPeopleCardFilter(event.target.value) },
+            h('select', { 'aria-label': '按卡筛选人物', title: '只看某张卡能用到的人物（未绑定卡的人对所有卡都生效，总会列出来）', value: cardFilter, style: Object.assign({}, S.input, { flex: '1 1 0', minWidth: '0' }), onChange: event => setPeopleCardFilter(event.target.value) },
               h('option', { value: 'all', style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '全部卡'),
               currentCardPath ? h('option', { value: currentCardPath, style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '当前卡：' + cardTitle(currentCardPath)) : null,
               importCards.filter(item => item.path !== currentCardPath).map(item => h('option', { key: item.path, value: item.path, style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, item.label)),
               h('option', { value: '__unbound', style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '只看未绑定的'),
             ),
-            h('button', { style: buttonStyle, onClick: () => setPeopleEditorOpen(open => !open) }, peopleEditorOpen ? '收起编辑' : '展开编辑'),
           ),
-          h('div', { style: Object.assign({}, S.row, { marginTop: '8px' }) },
-            h('button', { style: buttonStyle, onClick: addCharacter }, '新增角色'),
-            importCards.length ? h('select', {
-              'aria-label': '选择要导入的卡',
-              title: '选哪张卡，就导入哪张卡的人物',
-              value: importCard,
-              style: Object.assign({}, S.input, { maxWidth: '200px' }),
-              onChange: event => setImportCard(event.target.value),
-            }, importCards.map(item => h('option', { key: item.path, value: item.path, style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, item.label))) : null,
-            h('button', { style: buttonStyle, onClick: importFromCard }, '从选定的卡导入'),
-            h('button', { style: buttonStyle, disabled: !activeCharacter, onClick: () => copyCharacter(activeCharacter) }, '复制当前角色'),
-            h('button', { style: buttonStyle, disabled: !activeCharacter, onClick: () => activeCharacter && pickPhoto(activeCharacter) }, '从照片识别'),
-            h('button', { style: buttonStyle, onClick: designPeople }, '让 agent 设计角色'),
-            h('button', { style: buttonStyle, onClick: () => setPeopleOverviewOpen(open => !open) }, peopleOverviewOpen ? '收起概览' : '概览'),
-            h('button', { style: buttonStyle, onClick: () => setPeopleTidyOpen(open => !open) }, peopleTidyOpen ? '收起整理' : '整理'),
-            h('button', { style: buttonStyle, disabled: saveState === 'saving', onClick: () => commit(false) }, saveState === 'saving' ? '正在保存…' : '保存人物库'),
-            libraryConflict ? h('button', { style: buttonStyle, disabled: saveState === 'saving', onClick: reloadLibrary }, '重新载入最新人物库') : null,
-            h('button', { style: buttonStyle, onClick: () => setPeopleBatchOpen(current => !current) }, peopleBatchOpen ? '收起批量编辑' : '批量编辑'),
-            h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '已选 ' + picked.length + ' / ' + characters.length + ' 位'),
-          ),
+          // 按钮按用途分三段：左边造角色，中间是只看不改的视图开关，右边是主操作和状态。
+          // 所有按钮文案保持原样，冒烟脚本按文本找按钮。
+          (() => {
+            const actBtn = Object.assign({}, buttonStyle, { fontSize: '12px', padding: '6px 12px' })
+            const viewBtn = Object.assign({}, buttonStyle, {
+              fontSize: '12px', padding: '6px 12px',
+              borderColor: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 26%, transparent)',
+              color: 'var(--dsw-alias-label-secondary)',
+            })
+            const group = { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }
+            return h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginTop: '10px' } },
+              h('div', { style: group },
+                h('button', { style: actBtn, onClick: addCharacter }, '新增角色'),
+                importCards.length ? h('select', {
+                  'aria-label': '选择要导入的卡',
+                  title: '选哪张卡，就导入哪张卡的人物',
+                  value: importCard,
+                  style: Object.assign({}, S.input, { maxWidth: '200px', fontSize: '12px', padding: '6px 8px' }),
+                  onChange: event => setImportCard(event.target.value),
+                }, importCards.map(item => h('option', { key: item.path, value: item.path, style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, item.label))) : null,
+                h('button', { style: actBtn, onClick: importFromCard }, '从选定的卡导入'),
+                h('button', { style: actBtn, disabled: !activeCharacter, onClick: () => copyCharacter(activeCharacter) }, '复制当前角色'),
+                h('button', { style: actBtn, disabled: !activeCharacter, onClick: () => activeCharacter && pickPhoto(activeCharacter) }, '从照片识别'),
+                h('button', { style: actBtn, onClick: designPeople }, '让 agent 设计角色'),
+              ),
+              h('div', { style: group },
+                h('button', { style: viewBtn, onClick: () => setPeopleOverviewOpen(open => !open) }, peopleOverviewOpen ? '收起概览' : '概览'),
+                h('button', { style: viewBtn, onClick: () => setPeopleTidyOpen(open => !open) }, peopleTidyOpen ? '收起整理' : '整理'),
+                h('button', { style: viewBtn, onClick: () => setPeopleBatchOpen(current => !current) }, peopleBatchOpen ? '收起批量编辑' : '批量编辑'),
+              ),
+              h('div', { style: Object.assign({}, group, { marginLeft: 'auto' }) },
+                h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '已选 ' + picked.length + ' / ' + characters.length + ' 位'),
+                libraryConflict ? h('button', { style: Object.assign({}, actBtn, { borderColor: 'color-mix(in srgb, var(--dsw-alias-state-warning-primary) 70%, transparent)', color: 'var(--dsw-alias-state-warning-primary)' }), disabled: saveState === 'saving', onClick: reloadLibrary }, '重新载入最新人物库') : null,
+                h('button', { style: actBtn, disabled: saveState === 'saving', onClick: () => commit(false) }, saveState === 'saving' ? '正在保存…' : '保存人物库'),
+                // 展开/收起编辑放最右，跟保存一起收边，不占视图组的位置。
+                h('button', { style: viewBtn, onClick: () => setPeopleEditorOpen(open => !open) }, peopleEditorOpen ? '收起编辑' : '展开编辑'),
+              ),
+            )
+          })(),
           importPreviewPanel(),
           peopleTidyOpen ? tidyPanel() : null,
           peopleOverviewOpen ? overviewPanel() : null,
@@ -4855,19 +4907,20 @@ function versionsOf(jobId) {
                 h('div', { style: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--dsw-alias-border-l2)' } },
                   h('input', { type: 'text', placeholder: '套装名（办公室职业装 / 居家睡衣…）', value: o.name || '', style: Object.assign({}, S.input, { width: '240px' }), onChange: e => patchLib({ name: e.target.value }) }),
                   h(ReferenceImageEditor, { key: 'shared-reference-' + o.id, value: o, label: '通用服装「' + (o.name || '未命名') + '」', onChange: patchLib }),
+                  // 通用服装库只有这五个字段（后端 OUTFIT_FIELDS 按这个白名单落库），
+                  // 以前这里读写 upper/lower/shoes/accessory/back，保存时全被过滤掉，填了等于没填。
                   h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' } },
-                    h('input', { type: 'text', placeholder: '上衣', value: o.upper || o.body || '', style: S.input, onChange: e => patchLib({ upper: e.target.value }) }),
-                    h('input', { type: 'text', placeholder: '下装', value: o.lower || '', style: S.input, onChange: e => patchLib({ lower: e.target.value }) }),
-                    h('input', { type: 'text', placeholder: '鞋袜', value: o.shoes || '', style: S.input, onChange: e => patchLib({ shoes: e.target.value }) }),
-                    h('input', { type: 'text', placeholder: '整体（formal / casual…）', value: o.full || '', style: S.input, onChange: e => patchLib({ full: e.target.value }) }),
-                    h('input', { type: 'text', placeholder: '配饰', value: o.accessory || '', style: S.input, onChange: e => patchLib({ accessory: e.target.value }) }),
-                    h('input', { type: 'text', placeholder: '背面细节', value: o.back || '', style: S.input, onChange: e => patchLib({ back: e.target.value }) }),
+                    area('正面 · 上身', '', o.body, v => patchLib({ body: v }), 3),
+                    area('正面 · 整套', '', o.full, v => patchLib({ full: v }), 3),
+                    area('背面 · 上身', '', o.bodyBack, v => patchLib({ bodyBack: v }), 3),
+                    area('背面 · 整套', '', o.fullBack, v => patchLib({ fullBack: v }), 3),
                   ),
+                  area('负面（可选，会并进负面提示词）', '', o.negative, v => patchLib({ negative: v }), 2),
                 ),
               )
             })(),
             h('div', { style: S.row },
-              h('button', { style: buttonStyle, onClick: () => setLibraryData(Object.assign({}, dataRef.current, { outfits: (data.outfits || []).concat([{ id: 'of' + Date.now(), name: '新套装', upper: '', lower: '', shoes: '', accessory: '', full: '', back: '', negative: '', enabled: true }]) })) }, '新增套装'),
+              h('button', { style: buttonStyle, onClick: () => setLibraryData(Object.assign({}, dataRef.current, { outfits: (data.outfits || []).concat([{ id: 'of' + Date.now(), name: '新套装', body: '', full: '', bodyBack: '', fullBack: '', negative: '', enabled: true }]) })) }, '新增套装'),
               h('button', { style: buttonStyle, onClick: () => commit() }, '保存服装库'),
               h('button', { style: buttonStyle, title: '把角色库、两本世界书、渠道配置、历史记录打包成一个 JSON', onClick: exportAllData }, '导出全部数据'),
               h('button', { style: buttonStyle, title: '从备份 JSON 恢复；会先自动备份当前数据', onClick: importAllData }, '导入全部数据'),
@@ -6106,10 +6159,11 @@ function versionsOf(jobId) {
               },
                 h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: expanded ? '8px' : '0' } },
                   h('input', { type: 'radio', name: 'rphub-preset', checked: String(p.id) === active, title: '用这一套', onChange: () => save({ activePreset: String(p.id) }) }),
-                  h('input', {
-                    type: 'text', value: p.name || '', placeholder: '这套叫什么（古风写实 / 二次元厚涂…）',
+                  h(PresetTextField, {
+                    value: p.name || '', placeholder: '这套叫什么（古风写实 / 二次元厚涂…）',
                     style: Object.assign({}, S.input, { flex: 1, minWidth: '140px' }),
-                    onChange: e => patch(i, { name: e.target.value }),
+                    ariaLabel: '这套画风的名字',
+                    onCommit: value => patch(i, { name: value }),
                   }),
                   h('select', {
                     value: p.position === 'suffix' ? 'suffix' : 'prefix',
@@ -6129,16 +6183,18 @@ function versionsOf(jobId) {
                 ),
                 expanded ? h('div', null,
                   h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '4px' } }, '正面：画师串 / 风格词'),
-                  h('textarea', {
-                    value: p.artist || '', placeholder: '(@artist_a:1.1), (@artist_b:1.0), masterpiece, best quality',
+                  h(PresetTextField, {
+                    multiline: true, value: p.artist || '', placeholder: '(@artist_a:1.1), (@artist_b:1.0), masterpiece, best quality',
                     style: ta('72px'),
-                    onChange: e => patch(i, { artist: e.target.value }),
+                    ariaLabel: '这套画风的正面词',
+                    onCommit: value => patch(i, { artist: value }),
                   }),
                   h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', margin: '6px 0 4px' } }, '这套的负面固定词（会并进负面）'),
-                  h('textarea', {
-                    value: p.negative || '', placeholder: 'worst quality, low quality, bad hands',
+                  h(PresetTextField, {
+                    multiline: true, value: p.negative || '', placeholder: 'worst quality, low quality, bad hands',
                     style: ta('46px'),
-                    onChange: e => patch(i, { negative: e.target.value }),
+                    ariaLabel: '这套画风的负面词',
+                    onCommit: value => patch(i, { negative: value }),
                   }),
                   h('details', { style: { marginTop: '10px' } },
                     h('summary', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', cursor: 'pointer', padding: '2px 0' } }, '这套自己的生成参数（采样 / 步数 / CFG / NovelAI 高级…；留空 = 跟随渠道）'),
@@ -6393,7 +6449,7 @@ function versionsOf(jobId) {
         )
       }
 
-      const tabs = [['plan', '设置'], ['people', '人物库'], ['worldbook', '世界书'], ['gallery', '画廊']]
+      const tabs = [['plan', '设置'], ['style', '画风'], ['people', '人物库'], ['worldbook', '世界书'], ['gallery', '画廊']]
       const section = text => h('div', { style: { fontSize: '14px', fontWeight: 600, margin: '18px 0 2px', color: 'var(--dsw-alias-label-primary)' } }, text)
       return h('div', { className: 'dti-settings', style: Object.assign({}, S.surface, { padding: '4px 2px 20px', fontSize: '13px' }) },
         h('style', null, SETTINGS_CSS),
@@ -6417,7 +6473,7 @@ function versionsOf(jobId) {
           h('input', { type: 'checkbox', role: 'switch', className: 'dti-switch', 'aria-label': '启用工作台生图', disabled: cardToggleBusy || cardEnabled === null, checked: cardEnabled === true, onChange: e => toggleCardStudio(e.target.checked) })),
         taskPanel(),
         h('div', { style: S.row }, tabs.map(([key, label]) => h('button', { key, style: S.tab(tab === key), onClick: () => setTab(key) }, label))),
-        // 设置页按第一次配置的顺序排：先接渠道，再定每轮怎么配图，最后是画风。
+        // 设置页只留渠道和配图规则；画风单独一页。
         tab === 'plan' ? h('div', null,
           section('渠道'),
           ComfyBackendCard(),
@@ -6425,7 +6481,10 @@ function versionsOf(jobId) {
           section('配图规则'),
           generationModeCard(),
           planTab(),
-          section('画风'),
+        ) : null,
+        // 画风预设和专业提示词预设各自是一整排，挂在设置页末尾要一路滚到底才能碰到，单开一页。
+        // 两张卡都自带标题，这里不再套一层「画风」小节。
+        tab === 'style' ? h('div', null,
           stylePresetCard(openStylePresets, setOpenStylePresets),
           h(PromptPresetCard),
         ) : null,
