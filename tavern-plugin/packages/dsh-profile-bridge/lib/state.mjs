@@ -215,8 +215,6 @@ export function statusPayload(paths) {
     profiles,
     backups: listBackups(paths),
     lastResult,
-    installAwaitingRestart: lastResult?.mode === 'install' && lastResult.status === 'pending'
-      && existsSync(gate + '.ready') && !existsSync(gate + '.approved'),
     installProgress: readLogTail(gate + '.progress', 400),
     logPath: join(paths.stateDir, 'last-run.log'),
     logTail: readLogTail(join(paths.stateDir, 'last-run.log')),

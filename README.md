@@ -32,7 +32,7 @@
    & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1'))) -LauncherOnly
    ```
 
-3. 打开官方版「设置 → 酒馆启动器」，点「安装酒馆」并确认。准备完成后，点「准备退出并应用」，从托盘退出 DSH。看到安装完成提示后，再打开 DSH 进入酒馆。遇到错误时，可点「复制诊断日志」。
+3. 打开官方版「设置 → 酒馆启动器」，点「安装酒馆」并确认。安装完成后，点「确认重启并应用」，DSH 会重新打开并进入酒馆。遇到错误时，可点「复制诊断日志」。
 4. 从酒馆的同一个设置页可以切回原版 DSH、查看数据目录、迁移或删除酒馆。
 
 ### Windows（PowerShell 安装）

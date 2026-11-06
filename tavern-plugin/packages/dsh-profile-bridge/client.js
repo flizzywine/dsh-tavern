@@ -46,9 +46,7 @@ window.__ModuleLoader__.load({
       replacesNext: '检测到旧版 NEXT 酒馆。安装会备份它的 Profile，并为官方版生成新的配置。酒馆专属数据将继续使用。',
       installHint: '酒馆会安装到独立的 tavern 配置。下载和准备期间可继续使用桌面，准备完成后会重启桌面以应用配置。',
       installing: '正在准备安装酒馆…',
-      restartReady: '酒馆已安装并通过验证。请保存工作，确认后从托盘退出。看到安装完成提示后，再打开 DSH。',
-      restartToApply: '准备退出并应用',
-      quitToApply: '请从托盘退出 DSH。看到安装结果提示后，再打开 DSH。',
+      restartToApply: '确认重启并应用',
       copyLogs: '复制诊断日志',
       logsCopied: '日志已复制',
       copyLogsFailed: '复制失败，可以在「说明与日志」中选中日志并手动复制。',
@@ -110,9 +108,7 @@ window.__ModuleLoader__.load({
       replacesNext: 'The installer will back up the existing NEXT Tavern profile, create a profile for official Desktop, and reuse Tavern data.',
       installHint: 'Tavern gets its own profile. You can use Desktop while files are downloaded and prepared. Desktop then restarts to apply the new profile.',
       installing: 'Preparing Tavern installation…',
-      restartReady: 'Tavern is installed and verified. Save your work, confirm, and quit Desktop. Open it again after the completion notice.',
-      restartToApply: 'Prepare to quit and apply',
-      quitToApply: 'Quit DSH and reopen it after the installation result appears.',
+      restartToApply: 'Restart and apply',
       copyLogs: 'Copy diagnostic log',
       logsCopied: 'Log copied',
       copyLogsFailed: 'Could not copy automatically. Select the log under Help and logs to copy it.',
@@ -212,22 +208,6 @@ window.__ModuleLoader__.load({
           setLogCopy('copyLogsFailed')
         }
       }
-      async function confirmRestart() {
-        if (actionInFlight.current || !status?.installAwaitingRestart) return
-        actionInFlight.current = true
-        setBusy(true)
-        setFailure(null)
-        try {
-          const result = await call('confirm-install-restart', { stamp: status.lastResult.stamp })
-          if (result?.ok !== true) setFailure(describeFailure(result?.error))
-          else setStatus(previous => ({ ...previous, installAwaitingRestart: false, installProgress: t('quitToApply') }))
-        } catch (error) {
-          setFailure(describeFailure(error))
-        } finally {
-          actionInFlight.current = false
-          setBusy(false)
-        }
-      }
 
       React.useEffect(() => {
         let alive = true
@@ -264,6 +244,7 @@ window.__ModuleLoader__.load({
         return () => { alive = false; clearTimeout(timer) }
       }, [call, pending])
       const lastFailure = status?.lastResult?.status === 'failed' ? status.lastResult : null
+      const installDone = status?.lastResult?.status === 'succeeded' && status.lastResult.mode === 'install'
 
       const current = status?.linkTargetName ?? (inTavern() ? 'tavern' : 'desktop')
       const standalone = status?.desktopApp === false
@@ -368,7 +349,7 @@ window.__ModuleLoader__.load({
             ...(applied?.warnings ?? []).map((warning) => h('span', { key: warning, style: { display: 'block', opacity: 0.75 } }, `• ${warning}`)),
           ),
           applied !== null ? null : h('div', { className: 'pb-actions' }, ...options.map(({ name, action }) =>
-            h('button', { key: name, type: 'button', className: 'pb-btn', disabled: busy || pending || lastFailure?.recoveryRequired, onClick: () => void apply(name) }, t(action)))),
+            h('button', { key: name, type: 'button', className: 'pb-btn', disabled: busy || pending || lastFailure?.recoveryRequired, onClick: () => void apply(name) }, t(installDone && name === 'tavern' ? 'restartToApply' : action)))),
         ),
         lastFailure ? h('div', { className: 'pb-error', role: 'alert' },
           h('strong', null, t(['install', 'relocate', 'uninstall'].includes(lastFailure.mode) ? 'lastOperationFailure' : 'lastFailure')),
@@ -379,16 +360,15 @@ window.__ModuleLoader__.load({
           logCopy ? h('div', { role: 'status' }, t(logCopy)) : null,
         ) : null,
         failure !== null ? h('p', { className: 'pb-error' }, `${t('failure')}: ${failure}`) : null,
-        status?.lastResult?.status === 'succeeded' && status.lastResult.mode === 'install'
+        installDone
           ? h('p', { className: 'pb-done', role: 'status' }, t('installDone')) : null,
         (status?.installAvailable || (pending && status?.lastResult?.mode === 'install')) ? h('section', { className: 'pb-management', 'aria-label': t('management') },
           h('h3', null, t('management')),
           h('p', null, t('installHint')),
           status.replacesNext ? h('p', null, t('replacesNext')) : null,
-          pending ? h('p', { role: 'status' }, status.installAwaitingRestart ? t('restartReady') : status.installProgress || t('installing')) : null,
+          pending ? h('p', { role: 'status' }, status.installProgress || t('installing')) : null,
           h('div', { className: 'pb-actions' },
-            status.installAwaitingRestart ? h('button', { type: 'button', className: 'pb-btn', disabled: busy,
-              onClick: confirmRestart }, t('restartToApply')) : h('button', { type: 'button', className: 'pb-btn', disabled: installBlocked,
+            h('button', { type: 'button', className: 'pb-btn', disabled: installBlocked,
               onClick: () => void (managementAction === 'install' ? confirmManagement() : reviewManagement('install')) },
             t(managementAction === 'install' ? 'confirmInstall' : 'install')),
             managementAction === 'install' ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy,

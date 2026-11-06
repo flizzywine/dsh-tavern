@@ -290,6 +290,7 @@ export async function installProfile(host = RUNTIME_HOST, { guiRoot } = {}) {
 
 async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoot }) {
   const publishGate = host === 'desktop' && process.env.DSH_TAVERN_LATE_PUBLISH === '1' ? process.env.DSH_TAVERN_PUBLISH_GATE : undefined
+  const installInactive = Boolean(publishGate && process.env.DSH_TAVERN_INSTALL_INACTIVE === '1')
   const preparingForPid = publishGate ? Number(process.env.DSH_TAVERN_PREPARING_DESKTOP_PID) : undefined
   if (publishGate && (!Number.isInteger(preparingForPid) || preparingForPid <= 1)) throw Error('缺少正在准备安装的桌面进程。')
   requireCommand('node', '请安装 Node.js 22.19 或更高版本（DSH 0.2.2 起需要 24.9 或更高版本）')
@@ -424,14 +425,14 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         // Validate the newly published independent bridge, not its stale predecessor.
         if (bridge.refreshOnly) bridge.finish()
         await runInstall('node', [path.join(SOURCE_ROOT, 'bin', 'validate-desktop-profile.mjs'), bridge.desktopStage], { label: '验证原版 Desktop 切换入口', timeoutMs: 60_000 })
-        if (publishGate) {
+        if (publishGate && !installInactive) {
           writeFileSync(publishGate + '.progress', '安装和验证完成，等待确认重启…')
           writeFileSync(publishGate + '.ready', '')
           const deadline = Date.now() + 15 * 60_000
           while (!existsSync(publishGate) && Date.now() < deadline) await delay(250)
           if (!existsSync(publishGate) || readFileSync(publishGate, 'utf8') !== 'publish') throw Error('未完成重启确认，已取消配置切换。')
         }
-        if (!bridge.refreshOnly) bridge.finish()
+        if (!bridge.refreshOnly && !installInactive) bridge.finish()
       }
       transaction.commit()
     } catch (error) {

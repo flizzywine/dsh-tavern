@@ -1390,6 +1390,9 @@ else
 fi
 [ -n "${SOURCE_DIR}" ] || fail "下载内容不完整。"
 [ -f "${SOURCE_DIR}/package.json" ] || fail "下载内容不完整。"
+if [ "${DSH_TAVERN_INSTALL_INACTIVE:-0}" = "1" ]; then
+  grep -Fq DSH_TAVERN_INSTALL_INACTIVE "${SOURCE_DIR}/bin/profile-installation.mjs" || fail "下载源尚未同步独立安装支持，请稍后重试。"
+fi
 if [ "${DSH_TAVERN_LATE_PUBLISH:-0}" = "1" ]; then
   grep -Fq DSH_TAVERN_LATE_PUBLISH "${SOURCE_DIR}/bin/profile-installation.mjs" || fail "下载源尚未同步重启前安装支持，请稍后重试。"
 fi

@@ -1260,7 +1260,7 @@ try {
         throw '当前使用的是切换后的配置。请打开官方 DeepSeek Harness，在「设置 → 酒馆启动器」点「重启并切换到原版 DSH」。等原版窗口打开，再从托盘退出并重试命令。'
       }
       $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js'
-      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.9.tgz'
+      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.10.tgz'
       $PreviousNodeMode = $env:ELECTRON_RUN_AS_NODE
       try {
         $env:ELECTRON_RUN_AS_NODE = '1'
@@ -1722,6 +1722,9 @@ try {
     throw '下载内容不完整。'
   }
   Assert-InstallFiles $SourceDir.FullName
+  if ($env:DSH_TAVERN_INSTALL_INACTIVE -eq '1' -and -not (Select-String -Quiet -SimpleMatch 'DSH_TAVERN_INSTALL_INACTIVE' -LiteralPath (Join-Path $SourceDir.FullName 'bin/profile-installation.mjs'))) {
+    throw '下载源尚未同步独立安装支持，请稍后重试。'
+  }
   if ($env:DSH_TAVERN_LATE_PUBLISH -eq '1' -and -not (Select-String -Quiet -SimpleMatch 'DSH_TAVERN_LATE_PUBLISH' -LiteralPath (Join-Path $SourceDir.FullName 'bin/profile-installation.mjs'))) {
     throw '下载源尚未同步重启前安装支持，请稍后重试。'
   }

@@ -1,7 +1,7 @@
 // Based on 2NF/dsh-profile-bridge (MIT); Tavern compatibility fork.
 // Queue a directory switch for when Desktop exits, then ask it to quit and reopen it.
-import { basename, join } from 'node:path'
-import { appendFileSync, writeFileSync } from 'node:fs'
+import { basename } from 'node:path'
+import { appendFileSync } from 'node:fs'
 import { validateInstallationRequest } from './lib/installation.mjs'
 import { captureOwnedProcesses } from './lib/processes.mjs'
 import { requestDesktopQuit } from './lib/quit.mjs'
@@ -77,15 +77,6 @@ function openOriginal() {
 async function handleCall(endpoint, payload) {
   try {
     if (endpoint === 'status') return { ok: true, value: statusPayload(resolvePaths()) }
-    if (endpoint === 'confirm-install-restart') {
-      const paths = resolvePaths()
-      const status = statusPayload(paths)
-      if (!status.desktopApp || status.appKind !== 'desktop' || status.activeIsLink || !status.installAwaitingRestart || payload?.stamp !== status.lastResult.stamp) {
-        fail('restart-unavailable', '当前没有等待确认重启的酒馆安装。')
-      }
-      writeFileSync(join(paths.stateDir, 'install-pending', 'runtime', 'publish.approved'), '', { flag: 'wx', mode: 0o600 })
-      return { ok: true, value: {} }
-    }
     if (endpoint === 'link') return { ok: true, value: await runSwitch('link', resolvePaths(), payload) }
     if (endpoint === 'unlink') return { ok: true, value: await runSwitch('unlink', resolvePaths(), payload) }
     if (['install', 'relocate', 'uninstall'].includes(endpoint)) return { ok: true, value: await runSwitch(endpoint, resolvePaths(), payload) }

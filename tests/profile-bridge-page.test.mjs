@@ -116,15 +116,15 @@ test('原版桌面首次安装需要确认，排队后禁用安装按钮', async
   }
 })
 
-test('准备完成后等待用户确认，只重启对应的安装任务', async () => {
+test('安装完成后，确认重启直接切换到酒馆 Profile', async () => {
   const page = await mount({
     appKind: 'desktop', desktopApp: true, installAvailable: false,
-    installAwaitingRestart: true, lastResult: { status: 'pending', mode: 'install', stamp: 'prepared' },
+    profiles: [tavernProfile], lastResult: { status: 'succeeded', mode: 'install', stamp: 'installed' },
   })
   try {
     assert.deepEqual(page.calls, [['status', {}]])
-    await page.act(async () => namedButton(page, '准备退出并应用').click())
-    assert.deepEqual(page.calls.at(-1), ['confirm-install-restart', { stamp: 'prepared' }])
+    await page.act(async () => namedButton(page, '确认重启并应用').click())
+    assert.deepEqual(page.calls.at(-1), ['link', { target: 'tavern' }])
   } finally {
     await page.dispose()
   }

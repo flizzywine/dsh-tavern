@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, appendFileSync, rmSync, rmdirSync, lstatSync, realpathSync, openSync, fsyncSync, closeSync, renameSync } from 'node:fs'
+import { readFileSync, writeFileSync, appendFileSync, rmSync, rmdirSync, lstatSync, realpathSync, openSync, fsyncSync, closeSync, renameSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { spawn } from 'node:child_process'
@@ -7,17 +7,7 @@ import { waitForExit, switchProfile, relaunchApp } from './helper.mjs'
 import { cleanupOwnedProcesses, waitForOwnedExit } from './processes.mjs'
 import { hasNextTavern } from './state.mjs'
 
-function notifyInstallFinished(failed, recoveryRequired) {
-  const message = recoveryRequired ? '酒馆安装需要恢复。请查看安装日志。' : failed
-    ? '酒馆安装未完成。请重新打开 DeepSeek Harness 查看诊断日志。'
-    : '酒馆安装完成。现在可以重新打开 DeepSeek Harness。'
-  const [command, args] = process.platform === 'win32'
-    ? ['powershell.exe', ['-NoProfile', '-Command', `Add-Type -AssemblyName System.Windows.Forms; [void][System.Windows.Forms.MessageBox]::Show('${message}', 'DSH Tavern')`]]
-    : ['/usr/bin/osascript', ['-e', `display dialog "${message}" with title "DSH Tavern" buttons {"OK"}`]]
-  return spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true })
-}
-
-async function installTavern(request, { log, beforePublish }) {
+async function installTavern(request, { log }) {
   const windows = process.platform === 'win32'
   const replacesNext = hasNextTavern(request.home)
   const name = windows ? 'install.ps1' : 'install.sh'
@@ -36,7 +26,7 @@ async function installTavern(request, { log, beforePublish }) {
       const response = await fetch(source, { signal: AbortSignal.timeout(20000) })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const content = await response.text()
-      if (!content.includes('DSH_TAVERN_LATE_PUBLISH')) throw new Error('安装脚本尚未同步')
+      if (!content.includes('DSH_TAVERN_INSTALL_INACTIVE')) throw new Error('安装脚本尚未同步')
       if (replacesNext && !content.includes('DSH_TAVERN_REQUIRE_NEXT_MIGRATION')) throw new Error('安装脚本尚未支持 NEXT 迁移')
       writeFileSync(script, windows ? '\uFEFF' + content : content, { flag: 'wx', mode: 0o600 })
       log('已下载酒馆安装脚本。')
@@ -49,6 +39,7 @@ async function installTavern(request, { log, beforePublish }) {
   const env = { ...process.env, DSH_HOME: request.home, DSH_TAVERN_HOST: 'desktop',
     DSH_DESKTOP_APP_EXECUTABLE: request.relaunch, DSH_TAVERN_LAUNCHER_INSTALL: '1', DSH_TAVERN_PUBLISH_GATE: gate }
   env.DSH_TAVERN_LATE_PUBLISH = '1'
+  env.DSH_TAVERN_INSTALL_INACTIVE = '1'
   env.DSH_TAVERN_PREPARING_DESKTOP_PID = String(request.pids[1])
   writeFileSync(gate + '.progress', '正在下载酒馆文件…')
   if (replacesNext) env.DSH_TAVERN_REQUIRE_NEXT_MIGRATION = '1'
@@ -56,30 +47,16 @@ async function installTavern(request, { log, beforePublish }) {
   const command = windows ? 'powershell.exe' : '/bin/bash'
   const args = windows ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script] : [script]
   const transcript = openSync(transcriptPath, 'w', 0o600)
-  let timer
-  let publishError
   try {
     await new Promise((resolve, reject) => {
       const child = spawn(command, args, { env, stdio: ['ignore', transcript, transcript], windowsHide: true })
-      timer = setInterval(() => {
-        if (!existsSync(gate + '.ready') || !existsSync(gate + '.approved')) return
-        clearInterval(timer)
-        writeFileSync(gate + '.progress', '请从托盘退出官方桌面，看到安装结果后再打开。')
-        void beforePublish().then(() => {
-          writeFileSync(gate, 'publish')
-        }).catch(error => {
-          publishError = error
-          try { writeFileSync(gate, 'cancel') } catch {}
-        })
-      }, 500)
       child.once('error', reject)
       child.once('exit', (code, signal) => {
         if (code === 0) resolve()
-        else reject(publishError || new Error(`酒馆安装失败（${signal ?? code}），请查看「说明与日志」。`))
+        else reject(new Error(`酒馆安装失败（${signal ?? code}），请查看「说明与日志」。`))
       })
     })
   } finally {
-    clearInterval(timer)
     closeSync(transcript)
   }
   return { installed: true }
@@ -136,7 +113,7 @@ async function performJob(request, options) {
 /** Run outside the profiles tree; never relaunch an app after failed recovery. */
 export async function runSwitchJob(job, {
   wait = waitForExit, waitOwned = waitForOwnedExit, perform = performJob, cleanup = cleanupOwnedProcesses,
-  relaunch = relaunchApp, notify = notifyInstallFinished,
+  relaunch = relaunchApp,
 } = {}) {
   const lock = dirname(job)
   try { writeFileSync(join(lock, 'worker.json'), JSON.stringify({ pid: process.pid, startedAt: Date.now() }), { flag: 'wx', mode: 0o600 }) } catch {}
@@ -164,7 +141,7 @@ export async function runSwitchJob(job, {
       }
       if (request.mode !== 'install') await waitForDesktop()
       let cleaned = false
-      const result = await perform(request, { log, beforePublish: waitForDesktop, retry: { onRetry: async ({ from, to, code, attempt }) => {
+      const result = await perform(request, { log, retry: { onRetry: async ({ from, to, code, attempt }) => {
         log(`目录占用重试 ${attempt}: ${code} ${from} → ${to}`)
         if (!cleaned) {
           cleaned = true
@@ -188,13 +165,7 @@ export async function runSwitchJob(job, {
     failed = true
     log('ERROR: ' + error.message)
   } finally {
-    if (exited && request?.mode === 'install') {
-      try {
-        const notification = notify(failed, recoveryRequired)
-        notification?.on('error', error => log('无法显示安装结果：' + error.message))
-        notification?.unref()
-      } catch (error) { log('无法显示安装结果：' + error.message) }
-    } else if (exited && !recoveryRequired && request?.relaunch) {
+    if (exited && !recoveryRequired && request?.relaunch) {
       try { relaunch(request.relaunch); log('已重新打开官方桌面。') } catch (error) { log('ERROR: 无法重新打开官方桌面：' + error.message) }
     }
     if (recoveryRequired) log('入口需要手动恢复，未重新打开桌面；请保留备份和日志。')
