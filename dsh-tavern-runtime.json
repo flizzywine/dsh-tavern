@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a95d1dcf7b75c0618fe7b6a2e4a8ec8094e962a6",
-  "releaseSequence": 1285,
+  "revision": "16189e43e426d94a5210a3824411c34ae340483c",
+  "releaseSequence": 1286,
   "version": "3.2.0",
   "files": [
     {
@@ -1001,8 +1001,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/asset-pack-speech.js",
-      "sha256": "b4d522d1b8f74e597bd6b81369fe3bd035f7a0a7d1d4c87925cab158103f46c9",
-      "size": 13558
+      "sha256": "7e6462c11e18629f33b1c7b86b2a789b457f9b8f738b8e444003d18dfb4809b7",
+      "size": 14992
     },
     {
       "path": "tavern-plugin/lib/domain/asset-packs.js",
@@ -9806,9 +9806,9 @@
     }
   ],
   "archive": {
-    "commit": "4d7ab0396fc86839f45109abb64b7ba735fd9d30",
+    "commit": "6e6af75adbee6c13916eee9b0f3d6899d7582f2c",
     "path": "runtime.zip",
-    "sha256": "c55b51cfa01848429681efd90aea3cb4bcc4df6d7179543e1c2abbd9ddb4210e",
-    "size": 16373711
+    "sha256": "c73e2a9af9cf356fba4d31dcdd836c332df6ece0bc3a858c77f72b2c06addc93",
+    "size": 16374188
   }
 }
