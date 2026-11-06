@@ -1,6 +1,6 @@
 <p align="center">
 
-> **当前版本适配 DSH 0.2.x**（0.2.0-rc.2 起的 0.2 系列均可；官方 DeepSeek Harness 或独立命令行；Android 使用独立 APK），安装见[快速开始](#快速开始)。
+> **当前版本适配 DSH 0.2.x**（官方 DeepSeek Harness、DSH NEXT、独立命令行及 Android），安装见[快速开始](#快速开始)。
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/docs/assets/brand/dsh-tavern-lockup-on-dark.svg">
     <img src="docs/assets/brand/dsh-tavern-lockup.svg" width="360" alt="DSH 酒馆">
@@ -19,7 +19,7 @@
 
 > **请不要从 npm 下载或安装本项目。** 由于对 DSH 的定制改动较多，DSH Tavern 无法作为常规 DSH 插件安装使用。npm 上的 `dsh-profile-tavern` 已标记弃用，不再维护；请按下方对应平台的方式安装。
 
-**桌面版仅支持官方 DeepSeek Harness，不再支持社区 DSH Desktop 或 DSH NEXT。** 从社区版迁移前请备份数据，再按[数据导入说明](https://github.com/flizzywine/dsh-tavern/wiki/%E4%BB%8E%E6%97%A7%E9%85%92%E9%A6%86%E7%BB%A7%E6%89%BF%E6%95%B0%E6%8D%AE%EF%BC%88%E6%B5%8B%E8%AF%95%E7%89%88%EF%BC%89)导入；Android 和独立命令行版继续支持。
+桌面版有两条安装路径。官方 DeepSeek Harness 使用原有安装器，社区版 DSH NEXT 使用下面的源码安装命令。
 
 当前版本适配 **DSH 0.2.x**（0.2.0-rc.2 起）。安装前建议备份 `.dsh` 目录。
 
@@ -33,6 +33,20 @@
    ```
 
 3. 重新打开 DeepSeek Harness，即进入酒馆。
+
+### DSH NEXT（Windows 源码安装）
+
+先完整退出桌面应用。在酒馆仓库根目录运行以下命令，将程序路径换成本机的 Next 安装位置。
+
+```powershell
+$env:DSH_TAVERN_NEXT_EXECUTABLE = 'D:\DSH NEXT\DSH NEXT.exe'
+pnpm install --frozen-lockfile
+node bin/dsh-tavern.mjs install --host next
+```
+
+打开 Next 后，在「设置 → 桌面设置 → Profile」选择 `tavern`。安装使用真实的 `profiles/tavern` 目录，切换由 Next 管理。若 Next 使用了自定义数据目录，安装前把 `DSH_HOME` 设成 Next 显示的目录。
+
+如果之前用官方版桥接进了酒馆，先在官方版切回原版 DSH，再退出并安装 Next 版。在同一数据目录恢复官方桥接时，重新运行官方版安装器。Next 版从源码更新后，重新执行上面的安装命令。
 
 ### Android
 
