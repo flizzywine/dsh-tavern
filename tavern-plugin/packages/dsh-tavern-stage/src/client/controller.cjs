@@ -156,7 +156,7 @@ function useStageLease({sessionId, config, voiceAvailable, story}) {
     const key = lease ? JSON.stringify([sessionId, lease.owner]) : '';
     // key -> {read: the last line read, index: the line shown, waiting: the line count the reader turned past the end at}
     const [marks, setMarks] = React.useState(() => new Map());
-    const bookmarkKey = 'fork-stage-lease-position:' + key;
+    const bookmarkKey = 'dsh-tavern:stage-lease-position:' + key;
     const saved = React.useMemo(() => {
         if (!key) return null;
         try { return JSON.parse(window.localStorage.getItem(bookmarkKey) || 'null'); } catch (_) { return null; }

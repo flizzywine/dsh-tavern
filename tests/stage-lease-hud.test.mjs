@@ -31,7 +31,7 @@ test('lease HUD renders the card hud inside the stage theme scope with read, dev
   let received
   const hud=props=>{received=props;return React.createElement('div',{className:'card-strip'},props.seats.map(name=>React.createElement(props.Avatar,{key:name,name,size:40})))}
   const lease={owner:'werewolf',hud,props:{seats:['辉夜','Emma','某人']}},read={lineId:'l3',unread:0}
-  const displayed={lineId:'l1',speaker:'辉夜'}
+  const displayed={lineId:'l1',speaker:'Emma'}
   await mount(stage(React.createElement(views.StageLeaseHud,{lease,rows:seats,device:'mobile-portrait',read,displayed})),async document=>{
     const region=document.querySelector('.fork-gal-lease-hud')
     assert.equal(region.closest('.fork-gal-stage').dataset.theme,'aero')

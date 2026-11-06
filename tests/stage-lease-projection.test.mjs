@@ -4,7 +4,7 @@ import {projectStageLease} from '../tavern-plugin/packages/dsh-tavern-stage/lib/
 import {resolution} from '../tavern-plugin/lib/domain/figure-catalogue.js'
 
 const rows = [
-  {actorKey:'actor-one', name:'辉夜', aliases:['Kaguya'], ref:{packId:'11111111-1111-4111-8111-111111111111',figureId:'figure-one'}},
+  {actorKey:'actor-one', name:'星野', aliases:['Hoshino'], ref:{packId:'11111111-1111-4111-8111-111111111111',figureId:'figure-one'}},
   {actorKey:'actor-two', name:'艾玛', aliases:['Emma'], ref:{packId:'11111111-1111-4111-8111-111111111111',figureId:'figure-two'}},
   {actorKey:'actor-three', name:'同名', aliases:[], ref:{packId:'11111111-1111-4111-8111-111111111111',figureId:'figure-three'}},
   {actorKey:'actor-four', name:'同名', aliases:[], ref:{packId:'11111111-1111-4111-8111-111111111111',figureId:'figure-four'}},
@@ -19,7 +19,7 @@ function consumer() {
     async scene(state, options) {assert.equal(options.descriptors,true);return {background:state.scene?.background || null}},
   }}
 }
-for (const [name,alias,emotion] of [['Kaguya','actor-one','生气'],['艾玛','actor-two','平静']]) {
+for (const [name,alias,emotion] of [['Hoshino','actor-one','生气'],['艾玛','actor-two','平静']]) {
   test('lease projects declared figure independently of story cast: '+name, async () => {
     const own = consumer()
     const result = await projectStageLease({consumer:own,actors:[{name,emotion}]})
