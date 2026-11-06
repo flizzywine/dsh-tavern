@@ -1,0 +1,75 @@
+{
+  "format": 1,
+  "title": "DSH Tavern",
+  "plugins": [
+    {
+      "name": "dsh-tavern-bundle",
+      "title": "DSH Tavern",
+      "description": "在独立的 tavern Profile 中使用酒馆。",
+      "author": "flizzywine",
+      "homepage": "https://github.com/flizzywine/dsh-tavern",
+      "versions": [
+        {
+          "version": "3.2.4",
+          "publishTimestamp": 1793957533,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/flizzywine/dsh-tavern.git",
+            "commit": "9b14b90cb4e5f71bd7bb0862719aa3172f27651f"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.1 <0.3.0"
+          }
+        },
+        {
+          "version": "3.2.3",
+          "publishTimestamp": 1793957054,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/flizzywine/dsh-tavern.git",
+            "commit": "f237b6a77ce4ca4957ca515cd9688f2cd129a925"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.1 <0.3.0"
+          }
+        },
+        {
+          "version": "3.2.2",
+          "publishTimestamp": 1793956067,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/flizzywine/dsh-tavern.git",
+            "commit": "910204673b4b6c7788dec29a841e8838e465dc82"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.1 <0.3.0"
+          }
+        },
+        {
+          "version": "3.2.1",
+          "publishTimestamp": 1793948593,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/flizzywine/dsh-tavern.git",
+            "commit": "40c2e2b8dd493ce90a9281eed3d63e6bb7eb3b32"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.1 <0.3.0"
+          }
+        },
+        {
+          "version": "3.2.0",
+          "publishTimestamp": 1793947392,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/flizzywine/dsh-tavern.git",
+            "commit": "43707b1aaa53123ed0d2b44676dd7264588a50a5"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.1 <0.3.0"
+          }
+        }
+      ]
+    }
+  ]
+}
