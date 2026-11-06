@@ -1577,7 +1577,7 @@ function versionsOf(jobId) {
       const vAt = vTotal ? Math.max(0, Math.min(vTotal - 1, Number(view.versionAt) || 0)) : 0
       // 真正显示的那张：有版本链就用版本链的当前版，否则用主列表的当前张
       const shownImage = view.images?.[at]
-      const shownId = vTotal ? versions[vAt] : view.jobIds[at]
+      const shownId = vTotal ? versions[vAt] : (shownImage?.jobId || view.jobIds[at])
       const src = shownImage?.url || (shownId ? BASE + '/jobs?id=' + encodeURIComponent(shownId) + '&image=1' : '')
       React.useEffect(() => {
         let alive = true
@@ -1608,47 +1608,50 @@ function versionsOf(jobId) {
       }
       React.useEffect(() => { setZoom(1); setPos({ x: 0, y: 0 }); onDragEnd() }, [view.open, src, onDragEnd])
       if (!view.open) return null
-      const goPrev = () => go(-1)
-      const goNext = () => go(1)
+      const controls = {
+        ...buttonStyle, padding: '6px 9px', minWidth: 32, minHeight: 34, color: '#e6ecf5',
+        borderColor: 'rgba(160,180,210,.45)', background: 'rgba(255,255,255,.08)',
+      }
       return React.createElement('dialog', {
         ref: dialogRef, 'aria-label': view.note || '图片预览', onKeyDown: onKey,
         onCancel: event => { event.preventDefault(); close() },
         style: {
           position: 'fixed', inset: 0, margin: 0, border: 0, width: '100%', height: '100%', maxWidth: 'none', maxHeight: 'none',
-          background: 'rgba(0,0,0,.88)', overflow: 'hidden', padding: '16px 20px 40px', boxSizing: 'border-box',
+          background: '#14171c', overflow: 'hidden', padding: '12px clamp(8px, 2vw, 20px)', boxSizing: 'border-box',
         },
         onClick: close,
       }, React.createElement('div', {
-        style: { maxWidth: '1240px', margin: '0 auto' },
+        style: { maxWidth: '1440px', height: '100%', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 8 },
         onClick: event => event.stopPropagation(),
       },
-        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: '8px', position: 'relative', zIndex: 2, flexWrap: 'wrap' } },
+        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
           React.createElement('div', { style: { color: '#e6ecf5', fontSize: '15px', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
             view.working ? '正在生成…' : (view.note || '插图')),
-          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 } },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' } },
             total > 1 ? React.createElement('button', {
-              type: 'button', onClick: goPrev, title: '上一张（←）',
-              style: { padding: '5px 14px', fontSize: '14px', borderRadius: '8px', border: '1px solid rgba(160,180,210,.5)', background: 'rgba(255,255,255,.06)', color: '#dbe3ee', cursor: 'pointer' },
+              type: 'button', onClick: () => go(-1), title: '上一张（←）',
+              style: controls,
             }, '◀') : null,
             total > 1 ? React.createElement('span', { style: { fontSize: '12px', color: '#9aa3b2', minWidth: '44px', textAlign: 'center' } }, (at + 1) + ' / ' + total) : null,
             total > 1 ? React.createElement('button', {
-              type: 'button', onClick: goNext, title: '下一张（→）',
-              style: { padding: '5px 14px', fontSize: '14px', borderRadius: '8px', border: '1px solid rgba(160,180,210,.5)', background: 'rgba(255,255,255,.06)', color: '#dbe3ee', cursor: 'pointer' },
+              type: 'button', onClick: () => go(1), title: '下一张（→）',
+              style: controls,
             }, '▶') : null,
-            src ? React.createElement('button', { type: 'button', title: '缩小', style: buttonStyle, onClick: () => setZoom(z => Math.max(0.2, z / 1.25)) }, '−') : null,
-            src ? React.createElement('button', { type: 'button', title: '放大', style: buttonStyle, onClick: () => setZoom(z => Math.min(8, z * 1.25)) }, '+') : null,
+            src ? React.createElement('button', { type: 'button', title: '缩小', style: controls, onClick: () => setZoom(z => Math.max(0.2, z / 1.25)) }, '−') : null,
+            src ? React.createElement('button', { type: 'button', title: '重置缩放', style: controls,
+              onClick: () => { setZoom(1); setPos({ x: 0, y: 0 }) } }, Math.round(zoom * 100) + '%') : null,
+            src ? React.createElement('button', { type: 'button', title: '放大', style: controls, onClick: () => setZoom(z => Math.min(8, z * 1.25)) }, '+') : null,
             React.createElement('button', {
               type: 'button', onClick: close,
-              style: { padding: '5px 16px', fontSize: '13px', borderRadius: '8px', border: '1px solid rgba(160,180,210,.5)', background: 'transparent', color: '#dbe3ee', cursor: 'pointer' },
+              style: controls,
             }, '关闭'),
           ),
         ),
         view.working ? React.createElement('div', { style: { color: '#9aa3b2', fontSize: '14px', padding: '30px 0', textAlign: 'center' } }, '规划中，通常十几秒…') : null,
         imageWarning ? React.createElement('div', { role: 'status', style: { color: '#e2b93b', fontSize: '12px', textAlign: 'center', padding: '8px 10px', marginBottom: '8px', background: 'rgba(226,185,59,.1)', borderRadius: '8px' } }, imageWarning) : null,
         React.createElement('div', {
-          style: view.jobIds.length > 1
-            ? { display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', alignItems: 'flex-start' }
-            : { display: 'flex', justifyContent: 'center' },
+          style: { flex: 1, minHeight: 0, display: 'grid', gridTemplateRows: 'minmax(0, 1fr)', placeItems: 'center', overflow: 'hidden' },
+          onClick: event => { if (event.target === event.currentTarget) close() },
         },
           src ? React.createElement('img', {
             key: src, src, alt: shownImage?.alt || view.note || '插图',
@@ -1656,16 +1659,17 @@ function versionsOf(jobId) {
             onWheel: onWheel, onMouseDown: onDragStart, onMouseMove: onDragMove, onMouseUp: onDragEnd,
             onMouseLeave: onDragEnd, onTouchStart: onTouchStart, onTouchMove: onTouchMove, onTouchEnd: onDragEnd,
             style: {
-              display: 'block', maxWidth: '100%', maxHeight: 'calc(100vh - 200px)', width: 'auto', height: 'auto',
+              display: 'block', maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto',
               objectFit: 'contain', borderRadius: '12px', background: '#1a1d24',
               cursor: zoom > 1 ? 'grab' : 'default', userSelect: 'none', touchAction: 'none',
               transform: 'translate(' + pos.x + 'px,' + pos.y + 'px) scale(' + zoom + ')',
               transition: dragging ? 'none' : 'transform .12s',
             },
           }) : null,
+        ),
           // 这张图自己的重画版本（跟上面"整场翻页"是两回事），只有多于 1 版才显示
           vTotal > 1 ? React.createElement('div', {
-            style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginTop: '12px', position: 'relative', zIndex: 2147483006 },
+            style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' },
             onClick: event => event.stopPropagation(),
           },
             React.createElement('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, '重画版本'),
@@ -1679,8 +1683,7 @@ function versionsOf(jobId) {
               style: { padding: '3px 12px', fontSize: '13px', borderRadius: '8px', border: '1px solid rgba(160,180,210,.5)', background: 'rgba(255,255,255,.06)', color: '#dbe3ee', cursor: 'pointer' },
             }, '▶'),
           ) : null,
-        ),
-        total ? React.createElement('div', { style: { color: '#8b95a5', fontSize: '12px', textAlign: 'center', paddingBottom: '20px' } }, '点空白处关闭' + (total > 1 ? '　也可以点上方箭头或按 ← → 切换' : '')) : null,
+        total ? React.createElement('div', { style: { color: '#8b95a5', fontSize: '12px', textAlign: 'center', paddingBottom: 2 } }, '点空白处关闭' + (total > 1 ? '　也可以点上方箭头或按 ← → 切换' : '')) : null,
       ))
     }
 
