@@ -194,6 +194,11 @@
   "tavern-plugin/packages/dsh-profile-bridge/index.js": [
     "@deepseek-ai/cordis"
   ],
+  "tavern-plugin/packages/dsh-tavern-launcher/index.js": [
+    "@deepseek-ai/dsh-app-boot",
+    "@deepseek-ai/dsh-official-bundles",
+    "@deepseek-ai/dsh-plugin-manager/operations"
+  ],
   "tavern-plugin/packages/dsh-tavern-remote/lib/client.js": [
     "@deepseek-ai/dsh-api-gateway/client"
   ],
