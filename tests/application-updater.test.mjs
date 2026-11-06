@@ -65,6 +65,47 @@ test('Next 插件分发将更新交给宿主，忽略同一数据目录的旧更
   await assert.rejects(updater.cancel(), /DSH NEXT 插件管理/)
 })
 
+test('Next 插件点击更新后安装市场索引指定的提交，成功后才请求重启', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'update-next-native-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const indexUrl = 'http://127.0.0.1/next-index.json'
+  const repository = 'https://github.com/flizzywine/dsh-tavern.git'
+  const commit = 'a'.repeat(40)
+  mock.method(globalThis, 'fetch', async input => {
+    assert.equal(input, indexUrl)
+    return Response.json({ format: 1, plugins: [{ name: 'dsh-tavern-bundle', versions: [
+      { version: '3.2.1', source: { type: 'git', url: repository, commit } },
+    ] }] })
+  })
+  const calls = []
+  let finish
+  const updater = createApplicationUpdater({
+    dataRoot: root, sourceRoot: root, nextPluginIndexUrl: indexUrl,
+    readLocalIdentity: async () => ({ currentVersion: '3.2.0', currentCommit: '', pluginManaged: true }),
+    getNextPluginUpdater: () => ({
+      install(spec) {
+        calls.push(spec)
+        return new Promise(resolve => { finish = resolve })
+      },
+      restart() { calls.push('restart') },
+    }),
+  })
+  assert.equal((await updater.status()).canUpdatePlugin, true)
+  assert.equal((await updater.start()).phase, 'running')
+  assert.equal((await updater.start()).phase, 'running')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(calls, [`git+${repository}#${commit}`])
+  finish({ exitCode: 1 })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.match((await updater.status()).pluginError, /安装失败/)
+  assert.equal((await updater.start()).phase, 'running')
+  await new Promise(resolve => setImmediate(resolve))
+  finish({ exitCode: 0 })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal((await updater.status()).phase, 'restart-required')
+  assert.equal(calls.at(-1), 'restart')
+})
+
 test('桌面安装完成只在旧运行时要求重启，重启后解除提示', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'update-desktop-restart-'))
   t.after(() => rm(root, { recursive: true, force: true }))

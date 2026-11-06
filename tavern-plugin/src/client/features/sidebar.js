@@ -31,6 +31,25 @@
 			return hook(function (statuses) { return statuses; });
 		}
 
+		function TavernUpdateCommand({ command }) {
+			const h = React.createElement;
+			const [notice, setNotice] = React.useState("");
+			async function copyCommand() {
+				try {
+					await navigator.clipboard.writeText(command);
+					setNotice("已复制");
+				} catch (_) {
+					setNotice("复制失败，请手动选择命令");
+				}
+			}
+			return h("details", { className: "dsh-tavern-update-command" },
+				h("summary", null, "终端更新"),
+				h("div", { className: "dsh-tavern-update-command-body" },
+					h("button", { type: "button", className: "dsh-tavern-update-button", onClick: copyCommand }, "复制命令"),
+					h("span", { role: "status" }, notice),
+					h("pre", { tabIndex: 0, "aria-label": "更新命令" }, h("code", null, command))));
+		}
+
 		function TavernSidebar(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
 			const collapsed = props.collapsed;
@@ -1126,8 +1145,10 @@
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { newCardConversation(null); } }, h("b", null, "空白开始"), h("span", null, "不追加任务提示词，自由使用完整卡片 Agent"))
 				)
 			);
-			const updateMessage = updateStatus.phase === "package-managed"
-				? "关闭酒馆后，在终端重新运行安装命令，再启动 tavern。"
+			const updateMessage = updateStatus.pluginManaged
+				? (updateStatus.pluginError || updateStatus.pluginMessage || (updateStatus.phase === "running"
+					? "正在获取并安装最新版…"
+					: updateStatus.canUpdatePlugin ? "" : "在 NEXT 的 DSH 终端运行更新命令。"))
 				: updateStatus.phase === "checking"
 				? "正在向 GitHub 核实最新构建…"
 				: updateStatus.phase === "up-to-date"
@@ -1157,16 +1178,16 @@
 						: "尚未检查更新";
 			const currentVersionLabel = updateStatus.currentVersion && updateStatus.currentVersion !== "unknown" ? "v" + updateStatus.currentVersion : "版本未知";
 			const currentCommitLabel = (updateStatus.currentCommit || "").slice(0, 7) || "构建未知";
-			const updateHostLabel = updateStatus.phase === "package-managed" ? "插件安装版" : ({ desktop: "Desktop 版", next: "Next 版", android: "Android 版" }[updateStatus.host] || "命令行版");
+			const updateHostLabel = updateStatus.pluginManaged ? "NEXT 插件版" : ({ desktop: "Desktop 版", next: "Next 版", android: "Android 版" }[updateStatus.host] || "命令行版");
 			// 已是最新且无警告时，结果直接写在按钮上，不再单占一行（手机侧栏高度紧张）。
 			const upToDateQuiet = updateStatus.phase === "up-to-date" && !updateStatus.checkWarning;
 			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? true;
 			const awaitingDesktopRestart = updateStatus.phase === "completed" && updateStatus.host === "desktop" && updateStatus.requiresRestart;
 			const cancelSupported = ["running", "cancelling"].includes(updateStatus.phase) && updateStatus.cancellable === true;
-			const updateActions = updateStatus.phase === "package-managed"
-				? h("details", { className: "dsh-tavern-update-actions" },
-					h("summary", { className: "dsh-tavern-update-button" }, "查看更新命令"),
-					h("code", { style: { display: "block", overflowWrap: "anywhere", userSelect: "text" } }, updateStatus.updateCommand))
+			const updateActions = updateStatus.pluginManaged
+				? (updateStatus.canUpdatePlugin ? h("div", { className: "dsh-tavern-update-actions" },
+					h("button", { type: "button", className: "dsh-tavern-update-button", disabled: checkingOrRunning || updateStatus.phase === "restart-required", onClick: performUpdate },
+						updateStatus.phase === "restart-required" ? "待重启" : checkingOrRunning ? "更新中…" : "更新并重启")) : null)
 				: updateStatus.phase === "update-available" || updateStatus.phase === "repair-required"
 				? h("div", { className: "dsh-tavern-update-actions" },
 					h("button", { className: "dsh-tavern-update-button", onClick: checkUpdate }, "检查更新"),
@@ -1196,10 +1217,12 @@
 				collapsed ? null : props.renderSlot("tavern.sidebar.chrome", {}),
 				h("div", { className: "dsh-tavern-update" },
 					h("div", { className: "dsh-tavern-update-row" },
-						h("div", { className: "dsh-tavern-update-identity", title: "DSH Tavern " + currentVersionLabel + " · " + currentCommitLabel + " · " + updateHostLabel }, "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel),
+						h("div", { className: "dsh-tavern-update-identity", title: "DSH Tavern " + currentVersionLabel + " · " + updateHostLabel }, "DSH Tavern " + currentVersionLabel + (updateStatus.pluginManaged ? " · " + updateHostLabel : " · DSH 0.2.1 · " + currentCommitLabel)),
 						updateActions),
                     h(TavernHostCompatibility),
-					updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : "") }, updateMessage)
+					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.pluginError || updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status" }, updateMessage),
+					updateStatus.pluginManaged && !updateStatus.canUpdatePlugin && updateStatus.updateCommand
+						? h(TavernUpdateCommand, { command: updateStatus.updateCommand }) : null
 				),
 				(openingPicker || (picking && uiMode === "play")) ? h("div", { key: "play-picker", className: "dsh-tavern-picker-overlay", style: { display: picking && uiMode === "play" && !updatingCard ? undefined : "none" }, onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, playPicker) : null,
                 picking && uiMode === "card" ? h("div", { key: "card-picker", className: "dsh-tavern-picker-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, cardPicker) : null,

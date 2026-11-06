@@ -2280,7 +2280,12 @@ html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind
 .dsh-tavern-update-row > .dsh-tavern-update-identity { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); }
 .dsh-tavern-update-row > .dsh-tavern-update-actions { flex: none; margin-top: 0; }
 .dsh-tavern-update-row .dsh-tavern-update-button { width: auto; height: 26px; padding: 0 9px; }
-.dsh-tavern-update-row > details.dsh-tavern-update-actions { flex: 1 1 100%; }
+.dsh-tavern-update-command { min-width: 0; margin-top: 6px; }
+.dsh-tavern-update-command > summary { width: fit-content; padding: 4px 0; color: var(--dsw-alias-label-secondary); cursor: pointer; white-space: nowrap; }
+.dsh-tavern-update-command-body { min-width: 0; padding-top: 4px; }
+.dsh-tavern-update-command-body .dsh-tavern-update-button { width: auto; padding: 0 9px; }
+.dsh-tavern-update-command-body [role="status"] { margin-inline-start: 6px; }
+.dsh-tavern-update-command-body pre { box-sizing: border-box; max-width: 100%; margin: 6px 0 0; padding: 8px; overflow-x: auto; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; user-select: text; }
 
 /* Status panel: no nested frame around the card's own status bar. */
 .dsh-tavern-status-dashboard .dsh-tavern-status-runtime { border: 0; border-radius: 0; background: transparent; }
