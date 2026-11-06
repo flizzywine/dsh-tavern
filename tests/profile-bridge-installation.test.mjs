@@ -249,11 +249,11 @@ for (const nextOperation of ['relocate', 'uninstall', 'relocate-rollback']) test
   assert.ok(removed.retained.every(p => fs.lstatSync(p)))
   assert.equal(location.resolveInstallationApp({ dshHome: f.home }), f.app)
   // Updates refresh the bridge without treating data-only ownership as a full relocation.
-  const update = beginDesktopProfileInstallation({ home: f.home, sourceRoot: path.resolve('.'), checkStopped() { assert.fail('active Tavern update should not switch profiles') } })
+  const update = beginDesktopProfileInstallation({ home: f.home, sourceRoot: path.resolve('.'), checkStopped() {} })
   assert.equal(update.refreshOnly, true)
   update.finish(); update.commit()
   assert.equal(inspectInstallation(f.paths).available, true)
-  await switchProfile({ mode: 'unlink', profilesRoot: path.join(f.home, 'profiles'), liveDir: f.paths.activeDir, stamp: 'after-reinstall' })
+  assert.equal(fs.lstatSync(f.paths.activeDir).isSymbolicLink(), false)
   const destination = path.join(f.root, 'next volume')
   if (nextOperation === 'relocate-rollback') {
     let injected = false

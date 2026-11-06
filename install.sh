@@ -1544,7 +1544,7 @@ fi
 
 if [ "${INSTALL_HOST}" = "desktop" ]; then
   echo "DSH Tavern Desktop 版安装完成。"
-  echo "请重启官方 DeepSeek Harness，酒馆已安装到独立 tavern 配置；原版 desktop 已备份，可在设置 → 酒馆启动器中切换。"
+  echo "酒馆已安装到独立 tavern 配置；首次安装保留原版默认入口，更新保留已有选择。需要默认打开酒馆时，请在设置 → 酒馆启动器中主动选择。"
 else
   if [ "${DSH_TAVERN_DEFER_SERVICE_START:-0}" != "1" ]; then
     DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" start

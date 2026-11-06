@@ -1,5 +1,5 @@
 // Offline profile publication. Every rename is journaled; old directories are retained.
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import installationLocation from './installation-location.cjs'
@@ -181,14 +181,13 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, pre
             Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
           }
         }
-        // Keep the original profile available for the settings page's restore action.
-        const originalDir = path.join(profiles, 'desktop.fresh-' + stamp)
-        move(desktopStage, originalDir)
-        const link = path.join(profiles, 'desktop.switch-stage-' + stamp)
-        journal.actions.push({ type: 'symlink', path: link, target: tavern }); save(journalFile, journal)
-        symlinkSync(tavern, link, process.platform === 'win32' ? 'junction' : 'dir')
-        if (!preparingForPid) move(live, path.join(backup, 'previous-desktop'))
-        move(link, live)
+        // Installing Tavern never selects it as the default. The in-app path
+        // already uses the live original profile; preserve edits made while
+        // downloading. Offline installs publish the prepared original instead.
+        if (!preparingForPid) {
+          move(live, path.join(backup, 'previous-desktop'))
+          move(desktopStage, live)
+        }
       },
       commit() {
         journal.phase = 'completed'; save(journalFile, journal); done = true

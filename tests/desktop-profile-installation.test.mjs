@@ -22,11 +22,14 @@ function prepare(r) {
   writeFileSync(path.join(r.tavern, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern', dsh: { profile: { bundles: ['dsh-tavern-plugin'] } }, dshTavern: { profileBridge: true } }))
   return tx
 }
-test('首次安装、还原原版、重复安装均保留原版配置和存档', async t => {
-  const r = fixture(t), tx = prepare(r)
+test('首次安装保留原版默认，主动选择酒馆后更新保留选择', async t => {
+  const r = fixture(t)
+  // A previous NEXT installation must not block the user's official Desktop choice.
+  writeFileSync(path.join(r.home, 'desktop-next.json'), JSON.stringify({ active: 'desktop' }))
+  const tx = prepare(r)
   tx.finish(); tx.commit()
-  assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
-  await switchProfile({ mode: 'unlink', profilesRoot: r.profiles, liveDir: r.desktop, stamp: 'restore' })
+  assert.notEqual(realpathSync(r.desktop), realpathSync(r.tavern))
+  assert.equal(lstatSync(r.desktop).isSymbolicLink(), false)
   assert.equal(readFileSync(path.join(r.desktop, 'cordis.patch.yml'), 'utf8'), '# original\n[]\n')
   assert.ok(existsSync(path.join(r.desktop, 'node_modules/dsh-tavern-launcher/index.js')))
   assert.ok(JSON.parse(readFileSync(path.join(r.desktop, 'package.json'))).dsh.profile.bundles.includes('dsh-tavern-launcher'))
@@ -56,10 +59,10 @@ test('从 NEXT 安装到官方桌面时保留旧 Profile 备份和酒馆数据',
   const retry = prepare(r)
   retry.finish()
   retry.commit()
-  assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
+  assert.notEqual(realpathSync(r.desktop), realpathSync(r.tavern))
   assert.equal(readFileSync(path.join(r.home, 'profile-data/tavern/data/story'), 'utf8'), '正文与历史')
 })
-test('重启前准备酒馆，切换时保留仍在使用的原版配置', async t => {
+test('应用内安装保留原版默认和下载期间保存的配置', async t => {
   const r = fixture(t)
   const manifest = path.join(r.desktop, 'package.json')
   writeFileSync(manifest, JSON.stringify({ dsh: { profile: { bundles: ['official', 'dsh-tavern-launcher'] } } }))
@@ -71,8 +74,8 @@ test('重启前准备酒馆，切换时保留仍在使用的原版配置', async
   tx.finish()
   tx.commit()
   assert.deepEqual(checks, [123, undefined])
-  assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
-  await switchProfile({ mode: 'unlink', profilesRoot: r.profiles, liveDir: r.desktop, stamp: 'restore' })
+  assert.notEqual(realpathSync(r.desktop), realpathSync(r.tavern))
+  assert.equal(lstatSync(r.desktop).isSymbolicLink(), false)
   assert.equal(readFileSync(path.join(r.desktop, 'cordis.patch.yml'), 'utf8'), '# saved before restart')
 })
 test('中断后下一次安装自动恢复未完成的目录事务', t => {
@@ -90,7 +93,7 @@ test('旧版占用 desktop：保留酒馆配置并恢复匹配的原版备份', 
   const tx = beginDesktopProfileInstallation(r)
   assert.equal(readFileSync(path.join(r.tavern, 'cordis.patch.yml'), 'utf8'), '# tavern\n[]')
   tx.finish(); tx.commit()
-  await switchProfile({ mode: 'unlink', profilesRoot: r.profiles, liveDir: r.desktop, stamp: 'restore' })
+  assert.equal(lstatSync(r.desktop).isSymbolicLink(), false)
   assert.equal(readFileSync(path.join(r.desktop, 'cordis.patch.yml'), 'utf8'), '# original\n[]\n')
 })
 
@@ -107,7 +110,7 @@ test('Windows 首次安装等待 desktop 短暂占用释放后完成切换，回
   })
   tx.finish()
   assert.equal(publishAttempts, 3)
-  assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
+  assert.notEqual(realpathSync(r.desktop), realpathSync(r.tavern))
   tx.rollback()
   assert.equal(rollbackAttempts, 3)
   assert.equal(JSON.parse(readFileSync(path.join(r.desktop, 'package.json'))).name, 'dsh-profile-desktop')
@@ -136,46 +139,42 @@ test('Windows desktop 持续拒绝移动：限时退出并提示，原版配置�
   assert.deepEqual(readdirSync(r.profiles).filter(name => name.startsWith('desktop.switch-stage-')), [])
 })
 
-for (const failAt of ['previous-desktop', 'publish-link']) test(`中断后重装恢复临时链接和原版配置：${failAt}`, t => {
+for (const failAt of ['previous-desktop', 'publish-desktop']) test(`中断后重装恢复临时链接和原版配置：${failAt}`, t => {
   const r = fixture(t)
   const tx = prepare({ ...r, rename(from, to) {
     if ((failAt === 'previous-desktop' && from === r.desktop)
-      || (failAt === 'publish-link' && path.basename(from).startsWith('desktop.switch-stage-'))) throw Error('模拟进程中断')
+      || (failAt === 'publish-desktop' && path.basename(from) === 'prepared-desktop')) throw Error('模拟进程中断')
     renameSync(from, to)
   } })
   assert.throws(() => tx.finish(), /模拟进程中断/)
-  assert.equal(readdirSync(r.profiles).filter(name => name.startsWith('desktop.switch-stage-')).length, 1)
+  assert.equal(readdirSync(r.profiles).filter(name => name.startsWith('desktop.switch-stage-')).length, 0)
   // A new installer recovers the on-disk journal without the old transaction.
   const next = prepare(r)
   assert.deepEqual(readdirSync(r.profiles).filter(name => name.startsWith('desktop.switch-stage-')), [])
   assert.equal(JSON.parse(readFileSync(path.join(r.desktop, 'package.json'))).name, 'dsh-profile-desktop')
   next.finish(); next.commit()
-  assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
+  assert.notEqual(realpathSync(r.desktop), realpathSync(r.tavern))
 })
 
-test('回滚清理悬空临时链接，保留后来替换的路径并报告冲突', t => {
+test('重装仍能恢复旧安装器遗留的悬空链接事务', t => {
   const r = fixture(t)
-  const tx = prepare({ ...r, rename(from, to) {
-    if (from === r.desktop) throw Error('模拟占用')
-    renameSync(from, to)
-  } })
-  assert.throws(() => tx.finish(), /模拟占用/)
-  const link = path.join(r.profiles, readdirSync(r.profiles).find(name => name.startsWith('desktop.switch-stage-')))
-  renameSync(r.tavern, path.join(tx.backup, 'external-tavern'))
-  assert.equal(existsSync(link), false)
-  assert.ok(lstatSync(link).isSymbolicLink())
+  const state = path.join(r.home, 'profile-bridge')
+  mkdirSync(state, { recursive: true })
+  const link = path.join(r.profiles, 'desktop.switch-stage-legacy')
+  symlinkSync(r.tavern, link, process.platform === 'win32' ? 'junction' : 'dir')
+  writeFileSync(path.join(state, 'install.json'), JSON.stringify({ phase: 'preparing', actions: [{ type: 'symlink', path: link, target: r.tavern }] }))
   unlinkSync(link); mkdirSync(link)
-  assert.throws(() => tx.rollback(), /恢复路径冲突/)
+  assert.throws(() => prepare(r), /恢复路径冲突/)
   assert.ok(lstatSync(link).isDirectory())
-  // Restore the journal-owned link and confirm dangling-link cleanup succeeds.
-  // Reuse the stored target rather than following the missing tavern directory.
   removeTreeSync(link)
   symlinkSync(r.tavern, link, process.platform === 'win32' ? 'junction' : 'dir')
-  tx.rollback()
+  const next = prepare(r)
   assert.deepEqual(readdirSync(r.profiles).filter(name => name.startsWith('desktop.switch-stage-')), [])
+  next.finish(); next.commit()
+  assert.equal(lstatSync(r.desktop).isSymbolicLink(), false)
 })
 
-test('卸载记录存在时重新安装：重新建立酒馆 profile 与链接，并清理 uninstalled 标记', async t => {
+test('卸载记录存在时重新安装：重新建立独立酒馆 profile，并清理 uninstalled 标记', async t => {
   const r = fixture(t)
   mkdirSync(path.join(r.home, 'profile-bridge'), { recursive: true })
   const recordFile = path.join(r.home, 'profile-bridge', 'installation.json')
@@ -189,7 +188,7 @@ test('卸载记录存在时重新安装：重新建立酒馆 profile 与链接�
   const tx = prepare(r)
   tx.finish()
   tx.commit()
-  assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
+  assert.notEqual(realpathSync(r.desktop), realpathSync(r.tavern))
   assert.equal(existsSync(recordFile), false)
 })
 
@@ -198,7 +197,7 @@ test('酒馆 profile 缺失时，原版 desktop 已带切换组件也按首次�
   writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-tavern-launcher'] } } }))
   const tx = prepare(r)
   tx.finish(); tx.commit()
-  assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
+  assert.notEqual(realpathSync(r.desktop), realpathSync(r.tavern))
 })
 
 test('异常或损坏的安装位置记录阻止重装，避免覆盖未恢复的安装状态', t => {

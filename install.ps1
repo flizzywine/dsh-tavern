@@ -1871,11 +1871,11 @@ try {
     $Elapsed = (Get-Date) - $InstallStarted
     Write-Host ''
     Write-Host ('DSH Tavern 安装完成，用时 ' + [int][math]::Floor($Elapsed.TotalMinutes) + ' 分 ' + $Elapsed.Seconds + ' 秒。') -ForegroundColor Green
-    Write-Host '酒馆装在独立的 tavern 配置里；原来的 desktop 配置已备份，可在设置 → 酒馆启动器中切回。'
+    Write-Host '酒馆装在独立的 tavern 配置里；首次安装保留原版默认入口，更新保留已有选择。需要默认打开酒馆时，请在设置 → 酒馆启动器中主动选择。'
     if ($env:DSH_TAVERN_LAUNCHER_INSTALL -ne '1' -and ($FirstDesktopInstall -or $ReopenDesktop) -and -not (Get-OtherDesktopProcesses).Count -and $OfficialDesktopExecutable) {
       Write-Host '正在打开 DeepSeek Harness…'
       Start-Process -FilePath $OfficialDesktopExecutable
-    } else { Write-Host '请重启官方 DeepSeek Harness 进入酒馆。' }
+    } else { Write-Host '请重新打开官方 DeepSeek Harness；默认配置由你在酒馆启动器中选择。' }
   }
   else {
     if ($env:DSH_TAVERN_DEFER_SERVICE_START -ne '1') {

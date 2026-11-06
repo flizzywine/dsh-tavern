@@ -38,6 +38,9 @@ function fixture(t, { legacy = false } = {}) {
   const tx = beginDesktopProfileInstallation(f)
   json(path.join(tavern, 'package.json'), { name: 'dsh-profile-tavern', dsh: { profile: { bundles: ['dsh-tavern-plugin', 'dsh-tavern-launcher'] } } })
   tx.finish(); tx.commit()
+  // Model an existing user's explicit legacy default selection.
+  fs.renameSync(desktop, path.join(profiles, 'desktop.fresh-selected'))
+  link(tavern, desktop)
   f.original = fs.readdirSync(profiles).filter(n => n.startsWith('desktop.fresh-')).map(n => path.join(profiles, n))[0]
   f.manifest = text(path.join(f.original, 'package.json'))
   f.newSource = () => put(path.join(f.sourceRoot, bridgePath, 'revision.mjs'), 'export default "new"\n')
