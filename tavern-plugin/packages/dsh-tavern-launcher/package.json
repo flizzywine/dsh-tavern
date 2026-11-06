@@ -1,6 +1,6 @@
 {
   "name": "dsh-tavern-launcher",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Install, open, update and uninstall DSH Tavern in a separate DSH NEXT Profile.",
   "license": "AGPL-3.0-only",
   "type": "module",

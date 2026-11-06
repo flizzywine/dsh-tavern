@@ -277,6 +277,7 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
+        if (typeof window.desktopNext?.command !== 'function') return
         const t = ctx.locale.bind(ns)
         const call = async endpoint => {
           const response = await fetch('/dsh-tavern-launcher/' + endpoint, { method: endpoint === 'status' || endpoint === 'check' ? 'GET' : 'POST' })
@@ -290,7 +291,6 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.locale.register(ns, { zh, en }), 'Tavern launcher locale')
         let handoffFailure = ''
         ctx.effect(() => {
-          if (typeof window.desktopNext?.command !== 'function') return
           void (async () => {
             const pending = JSON.parse(localStorage.getItem(pendingKey))
             if (!pending) return

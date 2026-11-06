@@ -53,7 +53,7 @@
 只需装一次 [DSH Tavern 启动器](tavern-plugin/packages/dsh-tavern-launcher/README.md)。打开 NEXT 的「DSH 终端」，运行：
 
 ```powershell
-dsh plugin --profile desktop add https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-next-downloads/dsh-tavern-launcher-1.4.2.tgz
+dsh plugin --profile desktop add https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-next-downloads/dsh-tavern-launcher-1.4.3.tgz
 ```
 
 回到 NEXT 的 `desktop` Profile，重启 NEXT，然后打开「设置 → 酒馆启动器」。
