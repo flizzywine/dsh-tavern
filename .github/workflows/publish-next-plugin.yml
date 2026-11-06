@@ -46,6 +46,7 @@ jobs:
             git -C "$downloads" fetch --no-tags "$GITHUB_WORKSPACE" "refs/remotes/origin/$download_branch"
             git -C "$downloads" reset --mixed FETCH_HEAD
           fi
+          test "$(wc -c < "$RUNNER_TEMP/dsh-tavern-bundle-$version.tgz")" -lt 20000000
           mv "$RUNNER_TEMP/dsh-tavern-bundle-$version.tgz" "$downloads/dsh-tavern-bundle.tgz"
           git -C "$downloads" add dsh-tavern-bundle.tgz
           launcher=tavern-plugin/packages/dsh-tavern-launcher
@@ -79,3 +80,4 @@ jobs:
           git fetch --no-tags "$downloads" HEAD
           git fetch --no-tags "$dist" HEAD
           git push --atomic origin "FETCH_HEAD:refs/heads/$branch" "$download_head:refs/heads/$download_branch"
+          curl -fsS --retry 2 "https://purge.jsdelivr.net/gh/flizzywine/dsh-tavern@$download_branch/next-download.json" >/dev/null

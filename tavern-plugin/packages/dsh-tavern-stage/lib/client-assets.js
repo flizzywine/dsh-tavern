@@ -1,4 +1,5 @@
 import {readFile} from 'node:fs/promises'
+import {createRequire} from 'node:module'
 
 // Executable stage chunks are first-party client assets of the stage's own lifetime (same origin,
 // registered only while the stage runtime is installed). The core imports `stage-client.mjs` on
@@ -27,12 +28,22 @@ export async function readStageClientChunk(name) {
   return file && Object.freeze({body: await readFile(file), mediaType: JAVASCRIPT})
 }
 
+export async function readStageClient() {
+  try {
+    return await readFile(new URL('./client.js', import.meta.url))
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+    const resolveFromBundle = createRequire(new URL('../../../../package.json', import.meta.url))
+    return readFile(resolveFromBundle.resolve('dsh-tavern-stage/client'))
+  }
+}
+
 export function registerStageClientAssets(registry) {
   const stops = [
     ...Object.keys(STAGE_CLIENT_CHUNKS).map(name => registry.register(name, {mediaType: JAVASCRIPT, read: async () => (await readStageClientChunk(name)).body})),
     registry.register(STAGE_CLIENT_ASSET, {
       mediaType: JAVASCRIPT,
-      read:() => readFile(new URL('./client.js', import.meta.url))
+      read: readStageClient
     })
   ]
   return () => { for (const stop of stops.reverse()) stop() }

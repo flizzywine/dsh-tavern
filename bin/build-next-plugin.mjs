@@ -35,6 +35,11 @@ async function build(destination, version) {
   const tracked = execFileSync('git', ['ls-files', '-z', '--', 'tavern-plugin', 'presets', 'bin', 'config', 'LICENSE'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean)
   for (const file of tracked) {
     if (/(^|\/)(dsh-profile-bridge|tests|__tests__|docs)(\/|$)/.test(file)) continue
+    // Ship the built clients. Keep the CommonJS contracts the Tavern and stage hosts still read.
+    if (file.startsWith('tavern-plugin/src/') && !file.endsWith('.cjs')) continue
+    if (/^tavern-plugin\/packages\/dsh-(?:asset-library|tavern-stage|tavern-tts|tavern-image-bundled)\/src\//.test(file)) continue
+    // The plugin manager already serves these client files from node_modules below.
+    if (file === 'tavern-plugin/lib/client.js' || file === 'tavern-plugin/packages/dsh-tavern-stage/lib/client.js') continue
     // Dream Skin retrieves these verified font binaries on demand.
     if (/^tavern-plugin\/packages\/dsh-dream-skin\/fonts\/.*\.(?:woff2?|ttf|otf)$/i.test(file)) continue
     if (/\/lib\/vendor\/st-prompt-template\/upstream\/(?!LICENSE$|settings\.html$)/.test(file)) continue
