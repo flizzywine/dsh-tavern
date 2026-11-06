@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "7e238fda1d3a089a58b9c0a3334d063e1f058b05",
-  "releaseSequence": 1316,
+  "revision": "e3b17b07cebde9ec92f99aea3a1fe6ec8616df1f",
+  "releaseSequence": 1317,
   "version": "3.2.0",
   "files": [
     {
@@ -506,7 +506,7 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "8e5061678b8e74feb3710e6aa754f281e4a18cc2849d3dd4a0fba84921ad74e8",
+      "sha256": "14a9bcc561309eee06de0a72d8d1999a49934bc8053704faff2545c05b92dbf7",
       "size": 114283
     },
     {
@@ -7061,8 +7061,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-profile-bridge/client.js",
-      "sha256": "5a324f7313cb102e08ccf6db8149e45408a902c775a65a5091f715fb1268c566",
-      "size": 29402
+      "sha256": "fe8d4092e2d57d2e181bd3481361d08f3ae34bf38714d269b58a4b27856cb907",
+      "size": 29401
     },
     {
       "path": "tavern-plugin/packages/dsh-profile-bridge/cordis.patch.yml",
@@ -7146,7 +7146,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-profile-bridge/package.json",
-      "sha256": "d672131a8752047b4c425fa711cc8cad318d40c9915738645dc984644dd9375a",
+      "sha256": "7671f9a142238bd7bf0ba9968c21575fd0a69ba395724a6f19a2525031cfa178",
       "size": 1361
     },
     {
@@ -9861,9 +9861,9 @@
     }
   ],
   "archive": {
-    "commit": "c6d7f89c78a42cc7802d28bee6a55488ca5a5f56",
+    "commit": "872720ed154344b35311c73e0d2031d2cbda9f4c",
     "path": "runtime.zip",
-    "sha256": "63ea8b00b9cac820a6c8af82297c2016874ea6146df8f2aca022b035bd231c94",
-    "size": 16401524
+    "sha256": "c776f2d693741aae8465657c8fc48a574ad85676d85992472fd30a89db77d712",
+    "size": 16401527
   }
 }
