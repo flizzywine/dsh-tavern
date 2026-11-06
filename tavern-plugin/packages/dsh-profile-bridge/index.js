@@ -1,19 +1,57 @@
 // Based on 2NF/dsh-profile-bridge (MIT); Tavern compatibility fork.
 // Queue a directory switch for when Desktop exits, then ask it to quit and reopen it.
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import { appendFileSync } from 'node:fs'
-import { validateInstallationRequest } from './lib/installation.mjs'
+import { pathToFileURL } from 'node:url'
+import { inspectInstallation, validateInstallationRequest } from './lib/installation.mjs'
 import { captureOwnedProcesses } from './lib/processes.mjs'
 import { requestDesktopQuit } from './lib/quit.mjs'
 import { relaunchApp, scheduleSwitch } from './lib/helper.mjs'
 import { createTavernShortcut } from './lib/shortcut.mjs'
-import { canInstallTavern, detectAppExe, fail, resolvePaths, statusPayload, validateTarget } from './lib/state.mjs'
+import { canInstallTavern, detectAppExe, fail, isActiveTavern, isDesktopApp, isDesktopTavernWindow, resolvePaths, statusPayload, validateTarget } from './lib/state.mjs'
 
 /** Shared RPC channel owned by this plugin; the browser half calls it by name. */
 const CHANNEL = '/profile-bridge'
 
 /** Control requests are tiny; anything larger is refused instead of buffered. */
 const BODY_LIMIT_BYTES = 64 * 1024
+
+const updateActions = new Map([
+  ['update-status', 'status'], ['check-update', 'check'],
+  ['start-update', 'start'], ['cancel-update', 'cancel'],
+])
+let installedUpdater
+
+async function runUpdate(method, paths) {
+  const installation = inspectInstallation(paths)
+  if (!(basename(paths.activeDir) === 'desktop' && isDesktopApp()) && !isDesktopTavernWindow(paths, installation)) {
+    fail('not-desktop', '请在官方桌面或 DSH 酒馆独立窗口中管理更新。')
+  }
+  if (!installation.available) fail('update-unavailable', installation.reason)
+  // The updater can refresh the inactive original profile while Tavern is running.
+  // It cannot replace the original launcher's files while that profile is active.
+  const canUpdate = isActiveTavern(paths, installation)
+  if (['start', 'cancel'].includes(method) && !canUpdate) {
+    fail('update-unavailable', '请先切换到 DSH 酒馆，再在启动器中更新。')
+  }
+  const sourceRoot = installation.appDir
+  const dataRoot = join(installation.sharedHome, 'profile-data', 'tavern', 'data')
+  const key = JSON.stringify([sourceRoot, dataRoot])
+  if (installedUpdater?.key !== key) {
+    // The launcher is distributed independently; use the updater in the verified
+    // official Tavern installation rather than bundling a second installer.
+    const runtime = join(sourceRoot, 'tavern-plugin', 'lib')
+    const entry = pathToFileURL(join(runtime, 'application-updater.js'))
+    const service = import(entry.href).then(({ createApplicationUpdater }) => createApplicationUpdater({
+      dataRoot, sourceRoot, dshHome: installation.sharedHome, runtimeHost: 'desktop',
+      hostDependencyAnchor: join(runtime, 'index.js'),
+    }))
+    installedUpdater = { key, service }
+    service.catch(() => { if (installedUpdater?.service === service) installedUpdater = undefined })
+  }
+  const updater = await installedUpdater.service
+  return { ...await updater[method](), canUpdate }
+}
 
 /** Host services this plugin needs. */
 export const inject = ['connection', 'webServer']
@@ -77,6 +115,7 @@ function openOriginal() {
 async function handleCall(endpoint, payload) {
   try {
     if (endpoint === 'status') return { ok: true, value: statusPayload(resolvePaths()) }
+    if (updateActions.has(endpoint)) return { ok: true, value: await runUpdate(updateActions.get(endpoint), resolvePaths()) }
     if (endpoint === 'link') return { ok: true, value: await runSwitch('link', resolvePaths(), payload) }
     if (endpoint === 'unlink') return { ok: true, value: await runSwitch('unlink', resolvePaths(), payload) }
     if (['install', 'relocate', 'uninstall'].includes(endpoint)) return { ok: true, value: await runSwitch(endpoint, resolvePaths(), payload) }

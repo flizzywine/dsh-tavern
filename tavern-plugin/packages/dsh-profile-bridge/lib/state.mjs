@@ -11,7 +11,7 @@
  * @module dsh-profile-bridge/state
  */
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { inspectInstallation } from './installation.mjs'
 import { readLastResult } from './helper.mjs'
@@ -22,6 +22,19 @@ export function fail(code, message) {
   const error = new Error(message)
   error.code = code
   throw error
+}
+
+export function isDesktopApp() {
+  return Boolean(process.versions.electron && typeof process.send === 'function' && process.ppid > 1)
+}
+
+export function isActiveTavern(paths, installation) {
+  if (!installation.available) return false
+  try { return relative(realpathSync(paths.activeDir), installation.profileDir) === '' } catch { return false }
+}
+
+export function isDesktopTavernWindow(paths, installation) {
+  return process.env.DSH_TAVERN_RUNTIME_HOST === 'desktop' && isActiveTavern(paths, installation)
 }
 
 /**
@@ -195,8 +208,9 @@ export function statusPayload(paths) {
   const appExe = detectAppExe()
   const lastResult = readLastResult(paths.stateDir)
   const gate = join(paths.stateDir, 'install-pending', 'runtime', 'publish')
+  const installation = inspectInstallation(paths)
   return {
-    installation: inspectInstallation(paths),
+    installation,
     installAvailable: canInstallTavern(paths),
     replacesNext: hasNextTavern(paths.home),
     platform: process.platform,
@@ -211,7 +225,8 @@ export function statusPayload(paths) {
     appExe,
     appKind: basename(paths.activeDir) === 'desktop' ? 'desktop' : 'cli',
     // Only the Desktop app's own host can switch; a standalone `dsh --profile …` (e.g. the DSH 酒馆 shortcut) cannot.
-    desktopApp: Boolean(process.versions.electron && typeof process.send === 'function' && process.ppid > 1),
+    desktopApp: isDesktopApp(),
+    desktopTavernWindow: isDesktopTavernWindow(paths, installation),
     profiles,
     backups: listBackups(paths),
     lastResult,

@@ -40,6 +40,26 @@ window.__ModuleLoader__.load({
       operationPending: "操作已排队，等待桌面退出；请勿重复提交。",
       lastOperationFailure: "上次操作失败",
       operationDone: "上次操作已完成。",
+      updates: '酒馆版本与更新',
+      installedBuild: '当前安装',
+      latestBuild: '最新发布',
+      unknownBuild: '构建未知',
+      unchecked: '尚未检查',
+      checkUpdate: '检查更新',
+      checkingUpdate: '正在检查更新…',
+      updateAvailable: '发现新版本',
+      upToDate: '已是最新版本',
+      updateTavern: '更新酒馆',
+      repairTavern: '修复安装',
+      switchToUpdate: '请先切换到 DSH 酒馆，再在启动器中更新。',
+      updating: '正在更新酒馆…',
+      cancelUpdate: '取消更新',
+      cancellingUpdate: '正在取消更新…',
+      updateBlocked: '正在等待安装进程安全停止。',
+      updateFailed: '更新失败，请重试。',
+      updateComplete: '酒馆已更新。',
+      updateRestart: '更新已安装。请退出并重新打开 DeepSeek Harness 以应用更新。',
+      updateRestartWindow: '更新已安装。请重启酒馆服务后重新打开酒馆。',
       section: '酒馆启动器',
       install: '安装酒馆',
       confirmInstall: '确认安装',
@@ -102,6 +122,26 @@ window.__ModuleLoader__.load({
       operationPending: "Operation queued; waiting for Desktop to exit. Do not submit again.",
       lastOperationFailure: "The last operation failed",
       operationDone: "The last operation completed.",
+      updates: 'Tavern version and updates',
+      installedBuild: 'Installed build',
+      latestBuild: 'Latest release',
+      unknownBuild: 'Unknown build',
+      unchecked: 'Not checked yet',
+      checkUpdate: 'Check for updates',
+      checkingUpdate: 'Checking for updates…',
+      updateAvailable: 'Update available',
+      upToDate: 'Already up to date',
+      updateTavern: 'Update Tavern',
+      repairTavern: 'Repair installation',
+      switchToUpdate: 'Switch to DSH Tavern, then update from the launcher.',
+      updating: 'Updating Tavern…',
+      cancelUpdate: 'Cancel update',
+      cancellingUpdate: 'Cancelling update…',
+      updateBlocked: 'Waiting for the installer to stop safely.',
+      updateFailed: 'Update failed. Please try again.',
+      updateComplete: 'Tavern was updated.',
+      updateRestart: 'The update is installed. Quit and reopen DeepSeek Harness to apply it.',
+      updateRestartWindow: 'The update is installed. Restart the Tavern service and reopen this window.',
       section: 'Tavern Launcher',
       install: 'Install Tavern',
       confirmInstall: 'Confirm installation',
@@ -162,6 +202,13 @@ window.__ModuleLoader__.load({
 .pb-error { margin: 0; padding: 10px 12px; border-radius: 10px; color: #e5484d; background: rgba(229,72,77,0.08); }
 .pb-management { display: grid; gap: 10px; border: 1px solid var(--pb-line); border-radius: 10px; padding: 14px; min-width: 0; }
 .pb-management h3, .pb-management p { margin: 0; }
+.pb-builds { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.pb-builds dt { opacity: .65; }
+.pb-builds dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.pb-builds a { color: inherit; text-decoration: underline; }
+.pb-update-badge { justify-self: start; border-radius: 999px; background: var(--pb-fill); padding: 2px 10px; }
+.pb-update-badge-available { background: var(--pb-accent-soft); }
+.pb-management progress { width: 100%; }
 .pb-paths { margin: 0; display: grid; gap: 4px; min-width: 0; }
 .pb-paths dt { opacity: .65; }
 .pb-paths dd { margin: 0 0 6px; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
@@ -187,6 +234,16 @@ window.__ModuleLoader__.load({
     /** The menu names this page by side at once: the Tavern client marks a page that loaded it. */
     const inTavern = () => window.__dshTavernLoaded === true
 
+    const updateInProgress = phase => ['running', 'cancelling', 'blocked'].includes(phase)
+
+    function renderBuild(t, version, commit) {
+      return h(React.Fragment, null,
+        version && version !== 'unknown' ? `v${version} · ` : null,
+        /^[0-9a-f]{40}$/i.test(commit || '')
+          ? h('a', { href: `https://github.com/flizzywine/dsh-tavern/commit/${commit}`, target: '_blank', rel: 'noreferrer', title: commit }, h('code', null, commit.slice(0, 8)))
+          : t('unknownBuild'))
+    }
+
     /** @param {{ t: Function, rpcCall: Function }} props */
     function ProfileBridgeSettings(props) {
       const t = props.t
@@ -199,6 +256,9 @@ window.__ModuleLoader__.load({
       const [managementAction, setManagementAction] = React.useState(null)
       const [destination, setDestination] = React.useState('')
       const [logCopy, setLogCopy] = React.useState('')
+      const [update, setUpdate] = React.useState(null)
+      const [updateAction, setUpdateAction] = React.useState('')
+      const [updateFailure, setUpdateFailure] = React.useState('')
       const diagnosticLog = [status?.logTail?.trim(), status?.transcriptTail?.trim()].filter(Boolean).join('\n\n')
       async function copyLogs() {
         try {
@@ -283,7 +343,7 @@ window.__ModuleLoader__.load({
       }
 
       async function apply(target) {
-        if (actionInFlight.current || busy || pending || lastFailure?.recoveryRequired) return
+        if (actionInFlight.current || busy || pending || updateInProgress(update?.phase) || lastFailure?.recoveryRequired) return
         actionInFlight.current = true
         setBusy(true)
         setFailure(null)
@@ -303,9 +363,56 @@ window.__ModuleLoader__.load({
       }
 
       const title = t('section')
-      const isDesktop = status?.appKind === 'desktop'
+      const isDesktop = status?.appKind === 'desktop' || status?.desktopTavernWindow === true
       const installation = status?.installation
-      const managementBlocked = !isDesktop || status?.desktopApp !== true || !installation?.available || busy || pending || Boolean(lastFailure?.recoveryRequired)
+      const showUpdates = isDesktop && (status?.desktopApp === true || status?.desktopTavernWindow === true) && installation?.available && !status?.installAvailable
+      const updating = updateInProgress(update?.phase)
+      const managementBlocked = !isDesktop || status?.desktopApp !== true || !installation?.available || busy || pending || !!updateAction || updating || Boolean(lastFailure?.recoveryRequired)
+      React.useEffect(() => {
+        if (!showUpdates || updateAction) return
+        let alive = true, timer
+        const refresh = async () => {
+          try {
+            const result = await call('update-status', {})
+            if (!alive) return
+            if (result?.ok !== true) throw new Error(describeFailure(result?.error))
+            setUpdate(result.value)
+            if (updating && !updateInProgress(result.value.phase)) setUpdateFailure('')
+          } catch (error) {
+            // An update may briefly make its installation files unavailable.
+            // Keep polling its durable result, and never repeat the write request.
+            if (alive && !updating) setUpdateFailure(describeFailure(error))
+          }
+          if (alive && updating) timer = setTimeout(refresh, 1500)
+        }
+        if (updating) timer = setTimeout(refresh, 1500)
+        else void refresh()
+        return () => { alive = false; clearTimeout(timer) }
+      }, [call, showUpdates, updating, updateAction])
+      async function applyUpdate(endpoint) {
+        if (actionInFlight.current || busy || pending || managementAction || lastFailure?.recoveryRequired) return
+        actionInFlight.current = true
+        setUpdateAction(endpoint)
+        setUpdateFailure('')
+        try {
+          const result = await call(endpoint, {})
+          if (result?.ok !== true) throw new Error(describeFailure(result?.error))
+          setUpdate(result.value)
+        } catch (error) {
+          setUpdateFailure(describeFailure(error))
+        } finally {
+          actionInFlight.current = false
+          setUpdateAction('')
+        }
+      }
+      const updateAvailable = update?.phase === 'update-available'
+      const repairRequired = update?.phase === 'repair-required'
+      const checking = updateAction === 'check-update'
+      const updateRestart = update?.phase === 'completed' && update.requiresRestart
+      const updateButtonsBlocked = busy || pending || !!managementAction || !!updateAction || Boolean(lastFailure?.recoveryRequired)
+      const updateError = !checking && (updateFailure || update?.error || (['failed', 'check-failed'].includes(update?.phase) ? t('updateFailed') : ''))
+      const progressLabel = updateAction === 'cancel-update' || update?.phase === 'cancelling' ? t('cancellingUpdate')
+        : update?.phase === 'blocked' ? t('updateBlocked') : update?.stage || t('updating')
       const installBlocked = !status?.installAvailable || busy || pending || Boolean(lastFailure?.recoveryRequired)
       const absoluteDestination = status?.platform === 'win32'
         ? /^[A-Za-z]:[\\/]/.test(destination.trim())
@@ -349,7 +456,7 @@ window.__ModuleLoader__.load({
             ...(applied?.warnings ?? []).map((warning) => h('span', { key: warning, style: { display: 'block', opacity: 0.75 } }, `• ${warning}`)),
           ),
           applied !== null ? null : h('div', { className: 'pb-actions' }, ...options.map(({ name, action }) =>
-            h('button', { key: name, type: 'button', className: 'pb-btn', disabled: busy || pending || lastFailure?.recoveryRequired, onClick: () => void apply(name) }, t(installDone && name === 'tavern' ? 'restartToApply' : action)))),
+            h('button', { key: name, type: 'button', className: 'pb-btn', disabled: busy || pending || !!updateAction || updating || lastFailure?.recoveryRequired, onClick: () => void apply(name) }, t(installDone && name === 'tavern' ? 'restartToApply' : action)))),
         ),
         lastFailure ? h('div', { className: 'pb-error', role: 'alert' },
           h('strong', null, t(['install', 'relocate', 'uninstall'].includes(lastFailure.mode) ? 'lastOperationFailure' : 'lastFailure')),
@@ -380,6 +487,26 @@ window.__ModuleLoader__.load({
             shortcut ? h('p', { className: 'pb-done' }, (shortcut.existed ? t('shortcutExists') : t('shortcutDone')) + shortcut.path) : null),
           h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy || pending || lastFailure?.recoveryRequired, onClick: () => void addShortcut() }, t('shortcut')),
         ),
+        showUpdates ? h('section', { className: 'pb-management', 'aria-label': t('updates') },
+          h('h3', null, t('updates')),
+          h('dl', { className: 'pb-builds' },
+            h('dt', null, t('installedBuild')), h('dd', null, update ? renderBuild(t, update.currentVersion, update.currentCommit) : '—'),
+            h('dt', null, t('latestBuild')), h('dd', null, update?.latestVersion || update?.latestCommit ? renderBuild(t, update.latestVersion, update.latestCommit) : t('unchecked'))),
+          !checking && !updateAction && (updateAvailable || update?.phase === 'up-to-date') ? h('p', {
+            className: 'pb-update-badge' + (updateAvailable ? ' pb-update-badge-available' : ''), role: 'status',
+          }, t(updateAvailable ? 'updateAvailable' : 'upToDate')) : null,
+          !checking && (updateAvailable || repairRequired) && update?.canUpdate === false ? h('p', { className: 'pb-sub' }, t('switchToUpdate')) : null,
+          !checking && update?.checkWarning ? h('p', { className: 'pb-sub' }, update.checkWarning) : null,
+          checking ? h('p', { role: 'status' }, t('checkingUpdate')) : null,
+          updating || updateAction === 'start-update' ? h(React.Fragment, null,
+            h('p', { role: 'status' }, progressLabel),
+            update?.phase !== 'blocked' ? h('progress', { 'aria-label': progressLabel }) : null) : null,
+          updateError ? h('p', { className: 'pb-error', role: 'alert' }, updateError) : null,
+          update?.phase === 'completed' ? h('p', { className: 'pb-done', role: 'status' }, t(updateRestart ? (standalone ? 'updateRestartWindow' : 'updateRestart') : 'updateComplete')) : null,
+          h('div', { className: 'pb-actions' },
+            !updating && !updateRestart ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('check-update') }, t('checkUpdate')) : null,
+            (updateAvailable || repairRequired) && update.canUpdate && !updateAction ? h('button', { type: 'button', className: 'pb-btn', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('start-update') }, t(repairRequired ? 'repairTavern' : 'updateTavern')) : null,
+            update?.phase === 'running' && update.canUpdate && update.cancellable ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('cancel-update') }, t('cancelUpdate')) : null)) : null,
         installation && !status?.installAvailable ? h('section', { className: 'pb-management', 'aria-label': t('management') },
           h('h3', null, t('management')),
           h('dl', { className: 'pb-paths' },

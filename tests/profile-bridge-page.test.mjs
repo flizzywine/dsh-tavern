@@ -103,6 +103,45 @@ const managedStatus = {
 }
 const namedButton = (page, text) => [...page.dom.window.document.querySelectorAll('button')].find(button => button.textContent === text)
 
+test('官方酒馆启动器按提交检查同版本更新，并跟踪安装到完成', async () => {
+  const tavern = { ...managedStatus, activeIsLink: true, linkTargetName: 'tavern', backups: ['desktop.fresh-test'] }
+  const build = { canUpdate: true, currentVersion: '3.2.8', currentCommit: '12345678'.padEnd(40, '0') }
+  const latest = { ...build, latestVersion: '3.2.8', latestCommit: 'abcdef12'.padEnd(40, '0') }
+  let update = { ...build, phase: 'idle' }
+  let checkResult = { ...latest, latestCommit: build.currentCommit, phase: 'up-to-date' }
+  const page = await mount(tavern, [], { rpc: async endpoint => {
+    if (endpoint === 'status') return { ok: true, value: tavern }
+    if (endpoint === 'check-update') update = checkResult
+    if (endpoint === 'start-update') update = { ...latest, phase: 'running', stage: '正在下载新版' }
+    return { ok: true, value: update }
+  } })
+  try {
+    assert.match(page.text(), /当前安装v3\.2\.8 · 12345678/)
+    await page.act(async () => namedButton(page, '检查更新').click())
+    assert.match(page.text(), /已是最新版本/)
+    assert.equal(namedButton(page, '更新酒馆'), undefined)
+
+    checkResult = { ...latest, phase: 'update-available' }
+    await page.act(async () => namedButton(page, '检查更新').click())
+    assert.match(page.text(), /最新发布v3\.2\.8 · abcdef12发现新版本/)
+    assert.equal([...page.dom.window.document.querySelectorAll('.pb-builds a')].at(-1).href, `https://github.com/flizzywine/dsh-tavern/commit/${latest.latestCommit}`)
+
+    await page.act(async () => {
+      namedButton(page, '更新酒馆').click()
+      namedButton(page, '更新酒馆').click()
+    })
+    assert.equal(page.calls.filter(([endpoint]) => endpoint === 'start-update').length, 1)
+    assert.match(page.text(), /正在下载新版/)
+    assert.equal(namedButton(page, '重启并切换到原版 DSH').disabled, true)
+    update = { ...latest, phase: 'completed', requiresRestart: true }
+    await page.act(async () => { await new Promise(resolve => setTimeout(resolve, 1550)) })
+    assert.match(page.text(), /更新已安装。请退出并重新打开/)
+    assert.equal(namedButton(page, '检查更新'), undefined)
+  } finally {
+    await page.dispose()
+  }
+})
+
 test('原版桌面首次安装需要确认，排队后隐藏安装按钮', async () => {
   const page = await mount({ appKind: 'desktop', desktopApp: true, installAvailable: true, profiles: [] })
   try {
@@ -164,10 +203,11 @@ test('卸载需要独立确认，保留数据和原版 DSH；重复点击只提�
   let finish
   const calls = []
   const page = await mount(managedStatus, calls, { rpc: async endpoint => endpoint === 'status'
-    ? { ok: true, value: managedStatus } : new Promise(resolve => { finish = resolve }) })
+    ? { ok: true, value: managedStatus } : endpoint === 'update-status'
+      ? { ok: true, value: { phase: 'idle' } } : new Promise(resolve => { finish = resolve }) })
   await page.act(async () => namedButton(page, '删除 DSH 酒馆').click())
   assert.match(page.text(), /保留全部用户数据和备份，不卸载原版 DSH/)
-  assert.deepEqual(calls.map(([endpoint]) => endpoint), ['status'])
+  assert.deepEqual(calls.map(([endpoint]) => endpoint), ['status', 'update-status'])
   await page.act(async () => {
     namedButton(page, '确认删除并重启').click()
     namedButton(page, '确认删除并重启').click()

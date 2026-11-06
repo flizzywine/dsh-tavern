@@ -147,7 +147,12 @@
             React.useEffect(function () {
                 const controller = createUpdateStatusController({ call, confirm: askConfirm, errors: tavernErrorHub, browser: window });
                 updater.current = controller;
-                const unsubscribe = controller.subscribe(() => setUpdateStatus(controller.getSnapshot()));
+                const unsubscribe = controller.subscribe(() => {
+                    const status = controller.getSnapshot();
+                    setUpdateStatus(status);
+                    // Desktop builds manage updates through their launcher settings.
+                    if (status.host === 'desktop' || status.pluginManaged) controller.stop();
+                });
                 controller.start();
                 return () => { unsubscribe(); controller.stop(); updater.current = null; };
             }, []);
@@ -1205,7 +1210,7 @@
 				deleteNotice ? h("div", { role: "status", style: { padding: "4px 12px" } }, deleteNotice) : null,
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				collapsed ? null : props.renderSlot("tavern.sidebar.chrome", {}),
-				updateStatus.pluginManaged || updateStatus.phase === "loading" ? null : h("div", { className: "dsh-tavern-update" },
+				updateStatus.host === "desktop" ? h(TavernHostCompatibility) : updateStatus.pluginManaged || updateStatus.phase === "loading" ? null : h("div", { className: "dsh-tavern-update" },
 					h("div", { className: "dsh-tavern-update-row" },
 						h("div", { className: "dsh-tavern-update-identity", title: "DSH Tavern " + currentVersionLabel + " · " + updateHostLabel }, "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel),
 						updateActions),
