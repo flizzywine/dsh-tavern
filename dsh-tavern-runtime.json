@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "da99f9a391c3be7b81fdb7f1a5ed6589b1c0b07c",
-  "releaseSequence": 1295,
+  "revision": "475aa4edcb91297e83cb007a798cbe0a2600e357",
+  "releaseSequence": 1296,
   "version": "3.2.0",
   "files": [
     {
@@ -7631,8 +7631,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/client.js",
-      "sha256": "b984af1da4bebc7b69cee84ea12f379f5419df95ff58e93209eda77ad12cad8e",
-      "size": 16119
+      "sha256": "77592de2f86f096f217d7709758668059af3935e1e89b4223ce64eeacf27d3e6",
+      "size": 18040
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/cordis.patch.yml",
@@ -7641,8 +7641,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/index.js",
-      "sha256": "06b4dbe1d60dde740e5490e638c465901fc9e2da5e947c8c9159f7ad0fbd1d22",
-      "size": 10352
+      "sha256": "40fc0e70f6c7b0d8e19d7532feacc1d0e156e3ce3b38eaa00bf4df13d6a417ad",
+      "size": 10815
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/locale/en.json",
@@ -7656,12 +7656,12 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/package.json",
-      "sha256": "1c81b2ca3e5dd1ccb3c24c60f4a619ef843a2f7aae66f25375a3492a1c6850b7",
+      "sha256": "553273f895f7c5114e81fb944f00fbcbe80706eb47d367eae2061ed318d98f63",
       "size": 977
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/README.md",
-      "sha256": "dc9a0d9cd8ad6cd3cfeb7a2e0fe90ef301ac37b4942935996de602ac71f4b3d6",
+      "sha256": "29eb84eb0b0949aca6e18f602d6016637fdb42bfae9bdcb4cfe88224b7f6567f",
       "size": 1355
     },
     {
@@ -9851,9 +9851,9 @@
     }
   ],
   "archive": {
-    "commit": "338dccb6cf1023110e92e88c8d5c0d4000f9288a",
+    "commit": "b5b7d410f844a90bcc52c3ff29ef965b0988083c",
     "path": "runtime.zip",
-    "sha256": "f486bd706ad39fb7ab4bde3b2c0b20e515d926ea2dcc196c11f757e3da81ac44",
-    "size": 16392292
+    "sha256": "e6225dce5c47e814f45f6c315a57749d5433c1e526e112c2f5a3b7c039b397d3",
+    "size": 16392971
   }
 }
