@@ -453,7 +453,7 @@ function narratorWrite(ctx,scope,changes) {
 const VOICE_HELP={
   page:'配音开关分全局与本卡；通用声音所有卡通用。',
   general:'没有单独指定声音的角色统一用这个声音',
-  narr:'读气泡外的叙述；没有单独指定声音时使用通用声音。',
+  narr:'读出气泡外的叙述；没有单独指定声音时用通用声音。',
   needBubble:'角色配音和旁白配音在对话气泡里播放，要先打开对话气泡。'};
 // 通用声音 (tts.reading.dialogueVoice, global).
 function GeneralVoiceField({ctx}) {
@@ -475,13 +475,13 @@ function StageVoicePage({ctx,onBack}) {
   const root=React.useRef(null);
   React.useEffect(()=>{root.current?.querySelector('button')?.focus();},[]);
   const narrator=narratorLayers(ctx.ext,ctx.writer.reading),bubble=ctx.active.dialogue;
-  const narratorTag=h(StageSwitchTag,{name:'旁白',global:narrator.global.enabled===true,card:narratorCardSwitch(narrator.card),disabled:!bubble,
+  const narratorTag=h(StageSwitchTag,{name:'旁白配音',global:narrator.global.enabled===true,card:narratorCardSwitch(narrator.card),disabled:!bubble,
     writeCard:value=>narratorWrite(ctx,'card',{enabled:value===undefined?undefined:value==='on'}),writeGlobal:value=>narratorWrite(ctx,'global',{enabled:value})});
   return h('article',{ref:root,className:'ap-mod-detail ap-voice-page',onKeyDown:subpageKeys(onBack)},
     h(SubpageHead,{parent:'舞台设置',title:'配音',help:h(Help,{text:VOICE_HELP.page,label:'配音 说明'}),onBack}),
     h(StageSection,{title:'通用声音',foldKey:'voice/general',help:VOICE_HELP.general},
       h(InlineGrid,{columns:1,label:'通用声音'},h(GeneralVoiceField,{ctx}))),
-    h(SwitchRow,{label:'旁白',icon:'note',disabled:!bubble,help:bubble?VOICE_HELP.narr:VOICE_HELP.needBubble,tag:narratorTag}),
+    h(SwitchRow,{label:'旁白配音',icon:'note',disabled:!bubble,help:bubble?VOICE_HELP.narr:VOICE_HELP.needBubble,tag:narratorTag}),
     narrator.effective.enabled&&h(NarratorVoiceField,{ctx,disabled:!bubble}));
 }
 // 「入场演出 ›」 - the four-state switch of the stage's opening
