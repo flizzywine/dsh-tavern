@@ -141,6 +141,42 @@ test('world source keeps its permanent message uid across swipe and body writes'
  assert.equal(head.state.worldSwipe,1)
 })
 
+test('body-only writes keep the authoritative swipe when a legacy row disagrees with the head',async t=>{
+ const {persistence,domain}=await fixture(t)
+ const chat=await persistence.write({id:'swipe-head',messages:[{...row(0),messageUid:'message-A',swipeId:1,variables:[{gold:0},{gold:100}]}]})
+ const divergent=await persistence.read(chat.id)
+ divergent.messages[0].swipeId=0
+ await persistence.write(divergent,{worldSelection:{preserveWorld:true,selected:{position:0,swipe:1,messageUid:'message-A',world:{variables:{gold:100}}}}})
+ let head=await domain.open(chat.id)
+ assert.equal(head.state.worldSwipe,1)
+ assert.equal(head.state.world.variables.gold,100)
+ await persistence.patch(chat.id,divergent._storageRevision,[{op:'set',path:['messages',0,'text'],value:'point-edited'}])
+ head=await domain.open(chat.id)
+ assert.equal(head.state.worldSwipe,1)
+ assert.equal(head.state.world.variables.gold,100)
+ const full=await persistence.read(chat.id)
+ full.messages[0].text='full-edited'
+ await persistence.write(full)
+ head=await domain.open(chat.id)
+ assert.equal(head.state.worldSwipe,1)
+ assert.equal(head.state.world.variables.gold,100)
+})
+
+test('save import restores an authoritative detached world instead of reviving an older row',async t=>{
+ const {persistence,domain}=await fixture(t)
+ const selected={position:null,swipe:2,messageUid:'deleted-source',world:{variables:{stat_data:{gold:44}},posture:'kept'}}
+ await persistence.write({id:'imported',sessionId:'s',mode:'story',_storageRevision:0,messages:[row(3)]},{worldSelection:{selected}})
+ const head=await persistence.readWorldSnapshot('imported')
+ assert.equal(head.position,null)
+ assert.equal(head.swipe,2)
+ assert.equal(head.messageUid,'deleted-source')
+ assert.equal(head.world.variables.stat_data.gold,44)
+ assert.equal(head.world.posture,'kept')
+ assert.ok(head.chatRevision>0)
+ assert.ok(Number.isSafeInteger(head.worldRevision))
+ assert.equal((await domain.readWorld('imported')).variables.stat_data.gold,44)
+})
+
 test('legacy heads and restored rows heal the world source uid on their next story write',async t=>{
  const {root,persistence,pages,domain}=await fixture(t)
  const chat=await persistence.write({id:'legacy-source',messages:[{...row(7),messageUid:'legacy-stable-uid'}]})
@@ -171,7 +207,7 @@ test('scalar variable writes do not read unrelated large values and corrupt head
  const chat=await persistence.write({id:'a',messages:[message]})
  io.length=0
  await persistence.patch('a',chat._storageRevision,[{op:'set',path:['messages',0,'variables',0,'stat_data','gold'],value:42}])
- assert.ok(io.every(event=>event.bytes<65536),'a scalar patch must not load or write the large sibling')
+ assert.ok(io.every(event=>event.bytes<65536),'a scalar patch must not load or write the large sibling: '+JSON.stringify(io.filter(event=>event.bytes>=65536)))
  assert.equal((await domain.readWorld('a',{path:'/variables/stat_data/gold'})),42)
  const {writeFile}=await import('node:fs/promises')
  await writeFile(join(root,'chats/a/head.json'),'{broken')

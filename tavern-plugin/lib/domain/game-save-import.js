@@ -69,7 +69,8 @@ export function createGameSaveImporter({ tavernVersion, dataRoot, readCard, prep
         current.title = (sessionTitleOf(save.session.events) || str(save.chat.title) || str(save.chat.cardName) || '游戏') + '（导入）'
         current.lastOpenedAt = Date.now()
         current.importedSave = { sourceChatId, exportedAt: save.manifest.exportedAt, tavernVersion: save.manifest.tavernVersion }
-        saved = await rawWriteChat(current, { source: 'game-save.import' })
+        saved = await rawWriteChat(current, { source: 'game-save.import',
+          ...(save.world ? { worldSelection: { selected: renameJson(save.world) } } : {}) })
         written = true
         markStage('current')
         // 5. Native session: same events and sequence numbers under the new id and this install's cwd.

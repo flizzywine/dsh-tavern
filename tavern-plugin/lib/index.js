@@ -1599,7 +1599,7 @@ export async function apply(ctx) {
     return { filename: exported.filename, text: exported.text }
   }
   const gameSaveSnapshot = createGameSaveSnapshot({
-    readChat,
+    readChat, readWorldSnapshot: chatPersistence.readWorldSnapshot,
     assertIdle: chat => assertConversationForkable(chat, { agentRunning: agentRegistry.get(chat.sessionId)?.phase?.kind === 'running' }),
     readSession: async sessionId => {
       const live = sessionStore.get(sessionId)

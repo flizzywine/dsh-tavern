@@ -10,6 +10,8 @@ import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persiste
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createBoundedHistory, readRowsAt } from '../tavern-plugin/lib/domain/bounded-history.js'
 import { isScopedMessages } from '../tavern-plugin/lib/domain/scoped-messages.js'
+import { createConversationPageStore } from '../tavern-plugin/lib/domain/conversation-page-store.js'
+import { createConversationState } from '../tavern-plugin/lib/domain/conversation-state.js'
 
 const model = { kind: 'model', provider: 'fixture', model: 'fixture' }
 
@@ -118,7 +120,7 @@ async function fixture(t, bounded) {
     queueSettlement: async () => { directed.push('settlement') }, cancelSettlement: async () => {},
     present: async value => { presented.push(isScopedMessages(value.messages) ? 'window' : 'full'); return { rolled: true } }
   })
-  return { p, rounds, calls, session, dispatched, presented, hooks, directed, agent }
+  return { p, rounds, calls, session, dispatched, presented, hooks, directed, agent, root }
 }
 
 function comparable(chat) {
@@ -180,11 +182,17 @@ test('rollback to a turn removes every later round and one undo restores them al
     assert.equal(after.messages.at(-1).turn, 81)
     assert.equal(after.messages.length, before.messages.length - 4)
     assert.equal(after.rollbackUndo.turn, 83)
+    const rolledHead = await h.p.readWindow('chat', { limit: 1 })
+    assert.equal(rolledHead.worldMessage, after.messages.length - 1)
+    assert.equal(rolledHead.worldMessageUid, after.messages.at(-1).messageUid)
     await assert.rejects(h.rounds.rollbackTo('session', 'chat', 81), /已经是最新一轮/)
     await h.rounds.undoRollback('session', 'chat')
     const restored = await h.p.read('chat')
     assert.deepEqual(restored.messages, before.messages)
     assert.deepEqual(restored.variables, before.variables)
+    const restoredHead = await h.p.readWindow('chat', { limit: 1 })
+    assert.equal(restoredHead.worldMessage, restored.messages.length - 1)
+    assert.equal(restoredHead.worldMessageUid, restored.messages.at(-1).messageUid)
     const texts = list => list.map(seq => h.session.events[seq].data).map(data => (data.message || data).content?.map(part => part.text).join(''))
     assert.deepEqual(texts(h.session.surface.nodes), texts(nodes))
   }
@@ -207,6 +215,10 @@ test('bounded regeneration stores the same Chat and surface as the complete rege
     const view = await h.rounds.regenerate('chat', '更紧张一些', 'session')
     assert.deepEqual(h.directed, ['director:session', 'settlement'], 'only the adopted regenerated body starts direction, before settlement')
     const after = await h.p.read('chat')
+    assert.equal(after.messages.at(-1).messageUid, before.messages.at(-1).messageUid, '重新生成沿用同一消息身份')
+    const head = await h.p.readWindow('chat', { limit: 1 })
+    assert.equal(head.worldMessage, after.messages.length - 1)
+    assert.equal(head.worldMessageUid, after.messages.at(-1).messageUid)
     results.push({ h, before, after, view })
   }
   const [b, f] = results
@@ -228,6 +240,26 @@ test('bounded regeneration stores the same Chat and surface as the complete rege
   const texts = h => h.session.surface.nodes.map(seq => h.session.events[seq]).filter(e => e.type === 'assistant/message').map(e => e.data.message.content.map(c => c.text).join(''))
   assert.deepEqual(texts(b.h), texts(f.h))
   assert.deepEqual(b.view.adopted, f.view.adopted)
+})
+
+test('regeneration after its world source is detached keeps the retained world', async t => {
+  for (const bounded of [true, false]) {
+    const h = await fixture(t, bounded), before = await h.p.read('chat'), source = before.messages.at(-1)
+    await h.p.update('chat', current => {
+      delete current.messages.at(-1).variables
+      return current
+    }, { source: 'test.detach-world', worldSelection: { preserveWorld: true,
+      selected: { position: null, swipe: 0, messageUid: source.messageUid } } })
+    let head = await h.p.readWindow('chat', { limit: 1 })
+    assert.equal(head.worldMessage, null)
+    assert.equal(head.worldMessageUid, source.messageUid)
+    await h.rounds.regenerate('chat', '', 'session')
+    head = await h.p.readWindow('chat', { limit: 1 })
+    assert.equal(head.worldMessage, null)
+    assert.equal(head.worldMessageUid, source.messageUid)
+    const domain = createConversationState({ store: createConversationPageStore({ root: join(h.root, 'chats') }) })
+    assert.equal((await domain.readWorld('chat')).variables.hp, 82)
+  }
 })
 
 test('a failed bounded regeneration restores the same Chat as the complete abort', async t => {

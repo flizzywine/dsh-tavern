@@ -23,6 +23,7 @@ test('导出带上回退链上的全部历史状态，大快照只存一份，�
   assert.ok(buffer.length < 200000 * 2, '五个状态共用一份 200KB 的卡片快照：' + buffer.length)
   const read = readGameSave(buffer, { tavernVersion: '2.5.0' })
   assert.deepEqual(read.chat, current)
+  assert.equal(read.world, null)
   assert.deepEqual(read.revisions.map(item => item.state), [1, 3, 5, 7].map(revision => states.get(revision)))
   assert.deepEqual(read.session, session)
   assert.equal(read.card.payload.name, 'a.json')
@@ -30,6 +31,15 @@ test('导出带上回退链上的全部历史状态，大快照只存一份，�
   assert.equal(read.manifest.source.turns, 1)
   assert.throws(() => readGameSave(buffer, { tavernVersion: '2.4.9' }), /更新版本的酒馆/)
   assert.throws(() => readGameSave(writeZipEntries([{ path: 'manifest.json', content: '{"format":"other"}' }])), /不是 DSH Tavern 存档包/)
+})
+
+test('可选世界快照原样往返，脱离来源的变量和身份不依赖 Chat 重扫', () => {
+  const chat = { id: 'chat-a', sessionId: 'session-a', mode: 'story', messages: [{ role: 'assistant', text: '保留正文' }] }
+  const world = { position: null, swipe: 2, messageUid: 'source-uid', world: { variables: { stat_data: { gold: 44 } }, posture: '保留姿态' } }
+  const session = { header: { id: 'session-a' }, events: [] }
+  const read = readGameSave(buildGameSave({ chat, world, revisions: [], session, tavernVersion: '3.0.1' }))
+  assert.deepEqual(read.world, world)
+  assert.deepEqual(read.chat, chat)
 })
 
 test('导出时跳过已清理的早期历史版本', async () => {

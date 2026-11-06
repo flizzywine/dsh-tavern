@@ -552,7 +552,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  }
  // Point mutations can be validated against just the header and touched rows.
  // Structural edits and removal of the latest world retain the full fallback.
- async function patch(id,revision,changes,assertCurrent,returnProjection){
+ async function patch(id,revision,changes,assertCurrent,returnProjection,worldSelection){
   const view=await head(id)
   if(!view)return null
   if(view.state.chatRevision!==revision)return undefined
@@ -619,8 +619,14 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const old={position:view.state.worldMessage,swipe:view.state.worldSwipe,messageUid:view.state.worldMessageUid??null,world:await t.get(view.state.worldRef)}
   let selected={...old,world:{variables:old.world.variables,...(nextHeader.posture!==undefined?{posture:nextHeader.posture}:{})}}
   // A changed newer floor may introduce a new active variable snapshot.
-  const candidates=[...rows].filter(([position])=>old.position===null||position>=old.position).sort(([a],[b])=>b-a)
+  const preserveDetachedWorld=worldSelection?.preserveDetachedWorld===true&&old.position===null&&validMessageUid(old.messageUid)
+  const candidates=preserveDetachedWorld?[]:[...rows].filter(([position])=>old.position===null||position>=old.position).sort(([a],[b])=>b-a)
   for(const [position,row] of candidates){
+   const snapshotChanged=normalized.some(change=>change.path[0]==='messages'&&change.path[1]===position&&
+    (change.path.length===2||['variables','swipeId'].includes(change.path[2])))
+   // Body-only edits never choose another swipe for the current source. A
+   // detached head likewise moves only for an explicit variable/swipe change.
+   if((old.position===null&&validMessageUid(old.messageUid)||position===old.position)&&!snapshotChanged)continue
    const swipe=Math.max(0,Number(row.swipeId)||0),variables=row.variables?.[swipe]
    if(variables&&typeof variables==='object'&&!Array.isArray(variables)){
     selected={position,swipe,messageUid:legacyMessageUid(row,position),world:{variables,...(nextHeader.posture!==undefined?{posture:nextHeader.posture}:{})}}
@@ -632,9 +638,15 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const saved=await write(id,result({...originalHeader,messages:[]},view),next,normalized,assertCurrent,{old,selected})
   return {...saved,chat:{...nextHeader,messages:[]}}
  }
- async function create(id,chat,assertCurrent,{migration,verifyBeforePublish}={}){
+ async function readWorldSnapshot(id){
+  const view=await head(id)
+  if(!view)return null
+  return {position:view.state.worldMessage??null,swipe:view.state.worldSwipe,messageUid:view.state.worldMessageUid??null,
+   world:await tree(id).get(view.state.worldRef),chatRevision:view.state.chatRevision,worldRevision:view.state.worldRevision}
+ }
+ async function create(id,chat,assertCurrent,{migration,verifyBeforePublish,worldSelection}={}){
   const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:(values,refs)=>pages.writeRecords(id,values,refs)})
-  const t=batch.tree,rows=[],selected=currentWorld(chat)
+  const t=batch.tree,rows=[],selected=worldSelection?.selected??currentWorld(chat)
   if(selected.position!==null&&!migration)ensureMessageUid(chat.messages[selected.position],selected.position,selected.messageUid)
   for(const row of chat.messages??[])rows.push(await encode(id,row,undefined,undefined,t))
   const encoded=new Map(rows.map((row,i)=>[i,row]))
@@ -661,8 +673,35 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   }
   from=Math.min(from,next.messages.length<view.messageCount?next.messages.length:Infinity)
   const retained=Math.min(from,view.messageCount),edits=[],append=[]
-  const selected={...(worldSelection?.selected??currentWorld(next))}
-  const old=worldSelection?.old??{...currentWorld(stored.chat),messageUid:view.state.worldMessageUid??null}
+  const preserveWorld=worldSelection?.preserveWorld===true,detachedHead=view.state.worldMessage===null&&validMessageUid(view.state.worldMessageUid)
+  const preserveDetachedWorld=detachedHead&&(worldSelection?.preserveDetachedWorld===true||
+   next.regenInProgress===true&&Boolean(next.regenRecovery?.id))
+  const snapshotMutation=change=>!change.path.length||['variables','swipeId'].includes(change.path[0])
+  const sourceChanged=view.state.worldMessage!==null&&(grouped.get(view.state.worldMessage)??[]).some(snapshotMutation)
+  const detachedSnapshotChanged=detachedHead&&[...grouped.values()].some(mutations=>mutations.some(snapshotMutation))
+  const preserveCurrentWorld=!worldSelection&&(detachedHead||view.state.worldMessage!==null)&&!Number.isFinite(from)&&!sourceChanged&&!detachedSnapshotChanged
+  // Structural deletion is not an MVU rollback. Its Chat-only scan cannot see a
+  // detached head, so preserve the authoritative world instead of resurrecting
+  // an earlier snapshot (or clearing it) on the next deletion.
+  const old=preserveWorld||preserveDetachedWorld||preserveCurrentWorld||(!worldSelection&&detachedHead)
+   ?{position:view.state.worldMessage,swipe:view.state.worldSwipe,messageUid:view.state.worldMessageUid??null,world:await t.get(view.state.worldRef)}
+   :worldSelection?.old??{...currentWorld(stored.chat),messageUid:view.state.worldMessageUid??null}
+  let selected={...(worldSelection?.selected??currentWorld(next))}
+  const withCurrentPosture=world=>({...world,...(next.posture!==undefined?{posture:next.posture}:{})})
+  if(preserveWorld){
+   selected.world=withCurrentPosture(old.world)
+   if(old.position===null){selected.position=null;selected.swipe=old.swipe;selected.messageUid=old.messageUid}
+   else if(selected.position===null)selected.messageUid=old.messageUid
+  }else if(preserveDetachedWorld){
+   // Regeneration replaces rows structurally, but that is not a historical
+   // rollback. Keep a detached world until its subsequent variable settlement.
+   selected={...old,world:withCurrentPosture(old.world)}
+  }else if(preserveCurrentWorld){
+   // Body/header writes keep the authoritative source and swipe. An explicit
+   // variable/swipe change still takes over, including deletion of that snapshot.
+   const producesSnapshot=selected.position!==null&&(selected.position>=retained||(grouped.get(selected.position)??[]).some(snapshotMutation))
+   if(!producesSnapshot)selected={...old,world:withCurrentPosture(old.world)}
+  }
   if(selected.position!==null){
    const sourceRow=next.messages[selected.position]
    if(sourceRow){
@@ -757,5 +796,5 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  }
  // Contiguous packs in read order for a fragmented current head; no lock while reading.
  async function relayout(id,options){return pages.relayout(id,options)}
- return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readWindow,openSnapshot,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
+ return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readWindow,readWorldSnapshot,openSnapshot,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
 }

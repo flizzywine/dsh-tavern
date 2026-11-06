@@ -58,6 +58,10 @@ export function replaceLastRound(input = {}) {
     swipes: [source]
   })
   delete replacement.bodyEdit
+  // The synthetic turn has its own transient storage row. The adopted reply keeps
+  // the original story message identity, including when its variables settle later.
+  if (originalAssistant.messageUid) replacement.messageUid = originalAssistant.messageUid
+  else delete replacement.messageUid
   // The regenerated body replaces the original reply in the native session, so
   // the round keeps the original reply's anchor, never the synthetic turn's.
   if (originalAssistant.nativeAnchor) replacement.nativeAnchor = clone(originalAssistant.nativeAnchor)

@@ -353,7 +353,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       next.regenRecovery.temporaryReplacingTurn = alreadyReplacing ? null : oldTurn
       if (!alreadyReplacing) next.replacingDshTurns = Array.from(new Set(replacingBefore.concat([oldTurn]))).sort(function (left, right) { return left - right })
       return next
-    }, { source: 'rollback.regen' })
+    }, { source: 'rollback.regen', worldSelection: { preserveDetachedWorld: true } })
     const rolledMessageCount = (chat.messages || []).length
     const guide = str(guidance).trim()
     const syntheticText = regenerationInputText(originalUserText, guide, replyTextOf(msgs0[oldAssistantIndex]))
@@ -450,7 +450,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
           ? structuredClone(next.regeneratedDshTurns) : {}
         next.regeneratedDshTurns[String(oldTurn)] = syntheticTurn
         return next
-      }, { source: 'foreground.regen-commit' })
+      }, { source: 'foreground.regen-commit', worldSelection: { preserveDetachedWorld: true } })
     } catch (error) {
       await restoreFailedRegen()
       throw error
@@ -567,7 +567,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (msgs0.length > rolledMessageCount) rollbackChanges.push({ op: 'splice', path: ['messages'], index: rolledMessageCount, deleteCount: msgs0.length - rolledMessageCount, items: [] })
     checkpointIndices.forEach((index, offset) => rollbackChanges.push({ op: 'set', path: ['messages', index], value: checkpointRows.chat.messages[offset] }))
     if (agent.phase?.kind === 'running') throw new Error('前台正在生成，请完成或停止后再重新生成')
-    const rolledSaved = await chats.patch(chat.id, revision, rollbackChanges, { source: 'rollback.regen' })
+    const rolledSaved = await chats.patch(chat.id, revision, rollbackChanges, { source: 'rollback.regen', worldSelection: { preserveDetachedWorld: true } })
     if (!rolledSaved) return undefined
     async function restoreFailedRegen() {
       // Rare error path: the complete abort restores the exact original revision.
@@ -674,7 +674,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         const commitChanges = headerChanges(latestHeader, next)
         restoreIndices.forEach((index, offset) => commitChanges.push({ op: 'set', path: ['messages', index], value: originalRows.chat.messages[offset] }))
         commitChanges.push({ op: 'splice', path: ['messages'], index: prefix, deleteCount: latestMsgs.length - prefix, items: merged.chat.messages })
-        const saved = await chats.patch(chat.id, latest._storageRevision, commitChanges, { source: 'foreground.regen-commit' })
+        const saved = await chats.patch(chat.id, latest._storageRevision, commitChanges, { source: 'foreground.regen-commit', worldSelection: { preserveDetachedWorld: true } })
         if (!saved) continue
         committed = { ...next, _storageRevision: saved._storageRevision, updatedAt: saved.updatedAt, messages: createScopedMessages(prefix + 2) }
       }

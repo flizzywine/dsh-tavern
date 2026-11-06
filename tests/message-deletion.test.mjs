@@ -294,6 +294,66 @@ test('真实 native 删除前置行后世界 UID 随来源行迁移', async t =>
   assert.equal(head.state.world.variables.stat_data.gold, 33)
 })
 
+test('连续删除不会清空已脱离来源行的世界与 UID', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'message-delete-twice-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const h = fixture()
+  h.chat.messages[5].variables = [{ stat_data: { gold: 44 }, schema: {} }]
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  const initial = await persistence.write({ ...h.chat, _storageRevision: 0 })
+  const sourceUid = initial.messages[5].messageUid
+  h.options.chats = { forSession: async () => persistence.read('chat'), update: persistence.update }
+  const deletion = h.create()
+  await deletion.remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 5, revision: initial._storageRevision }] })
+  const afterFirst = await persistence.read('chat')
+  await deletion.remove({ sessionId: h.session.id, items: [{ role: 'user', messageIndex: 0, revision: afterFirst._storageRevision }] })
+  const domain = createConversationState({ store: createConversationPageStore({ root: join(root, 'chats') }) })
+  let head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, null)
+  assert.equal(head.state.worldMessageUid, sourceUid)
+  assert.equal(head.state.world.variables.stat_data.gold, 44)
+  const rolledBack = await persistence.read('chat')
+  rolledBack.messages = []
+  await persistence.write(rolledBack)
+  head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, null)
+  assert.equal(head.state.worldMessageUid, null, '显式结构回退仍可清空脱离来源的世界')
+  assert.deepEqual(head.state.world.variables, {})
+})
+
+test('来源删除后的正文编辑保留世界，后续新快照才接管', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'message-delete-edit-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const h = fixture()
+  h.chat.messages[5].variables = [{ stat_data: { gold: 44 }, schema: {} }]
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  const initial = await persistence.write({ ...h.chat, _storageRevision: 0 })
+  const sourceUid = initial.messages[5].messageUid
+  h.options.chats = { forSession: async () => persistence.read('chat'), update: persistence.update }
+  await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 5, revision: initial._storageRevision }] })
+  const afterDelete = await persistence.read('chat')
+  await persistence.patch('chat', afterDelete._storageRevision, [{ op: 'set', path: ['messages', 0, 'text'], value: '点写编辑正文2' }])
+  const domain = createConversationState({ store: createConversationPageStore({ root: join(root, 'chats') }) })
+  let head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, null)
+  assert.equal(head.state.worldMessageUid, sourceUid)
+  assert.equal(head.state.world.variables.stat_data.gold, 44)
+  const edited = await persistence.read('chat')
+  edited.messages[0].text = '整档编辑正文2'
+  await persistence.write(edited)
+  head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, null)
+  assert.equal(head.state.worldMessageUid, sourceUid)
+  assert.equal(head.state.world.variables.stat_data.gold, 44)
+  edited.messages.push({ role: 'user', text: '新行动' }, { role: 'assistant', text: '新正文', variables: [{ stat_data: { gold: 55 }, schema: {} }] })
+  const appended = await persistence.write(edited)
+  head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, appended.messages.length - 1)
+  assert.equal(head.state.worldMessageUid, appended.messages.at(-1).messageUid)
+  assert.notEqual(head.state.worldMessageUid, sourceUid)
+  assert.equal(head.state.world.variables.stat_data.gold, 55)
+})
+
 test('删除前面输入后，后续重新生成和原生对账不会擦掉前面 AI 正文', async () => {
   const h = fixture()
   await h.create().remove({ sessionId: h.session.id, items: [h.selectors.u2] })
@@ -303,6 +363,7 @@ test('删除前面输入后，后续重新生成和原生对账不会擦掉前�
     ...originalChat,
     messages: [{ role: 'user', text: '输入4' }, { role: 'assistant', turn: 4, text: '重新生成的正文4', sourceText: '重新生成的正文4' }]
   }, assistantIndex })
+  assert.equal(merged.chat.messages[assistantIndex].messageUid, originalChat.messages[assistantIndex].messageUid)
   h.chat = merged.chat
   replaceSessionSurface(h.session, 'assistant/message', { turn: 4, step: 1,
     message: { id: 'regenerated-4', role: 'assistant', content: [{ type: 'text', text: '重新生成的正文4' }], source: { ...model, tavernStoryTurn: 4 } } },

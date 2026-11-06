@@ -5,7 +5,7 @@ import { createGameSaveSnapshot } from '../tavern-plugin/lib/domain/game-save-sn
 import { readGameSave } from '../tavern-plugin/lib/domain/game-save.js'
 import { computeSceneTarget } from '../tavern-plugin/lib/domain/scene-illustration.js'
 
-function fixture({ images = true, missing = false, pluginFailure = false, mutate = false, worldbook = false, boundWorldbook = worldbook, preset = false, presetPath = 'presets/play.json' } = {}) {
+function fixture({ images = true, missing = false, pluginFailure = false, mutate = false, worldbook = false, boundWorldbook = worldbook, preset = false, presetPath = 'presets/play.json', world = null } = {}) {
   const chat = { id: 'chat-a', sessionId: 'session-a', cardPath: 'cards/a.json', cardName: '卡', mode: 'script',
     _storageRevision: 2, messages: [{ role: 'assistant', turn: 1, text: '正文' }],
     cardDefinitionSnapshot: { raw: { name: '卡' } }, timeline: { checkpoints: [{ turn: 2, beforeRevision: 1 }] },
@@ -23,7 +23,8 @@ function fixture({ images = true, missing = false, pluginFailure = false, mutate
   const files = [{ path: 'scene.json', content: Buffer.from(JSON.stringify({ image: image('scene'), deletedVersions: [image('deleted')] })) }]
   const exporter = createGameSaveExporter({
     chatForSession: async id => id === chat.sessionId ? chat : undefined,
-    gameSaveSnapshot: createGameSaveSnapshot({ readChat: async () => structuredClone(chat), readSession: async () => structuredClone(session), assertIdle() {} }),
+    gameSaveSnapshot: createGameSaveSnapshot({ readChat: async () => structuredClone(chat), readSession: async () => structuredClone(session),
+      readWorldSnapshot: world ? async () => structuredClone(world) : undefined, assertIdle() {} }),
     readChatRevision: async (id, revision) => { assert.equal(id, chat.id); assert.equal(revision, 1); return old },
     fileResources: { originalCardPayload: async () => { throw Error('source removed') }, scriptForCard: async () => 'materials/story.txt', readText: async () => '剧本' },
     gameFootprint: { readSceneFiles: async () => { assert.equal(images, true); return files } },
@@ -75,4 +76,11 @@ test('同包带走预设时存档不再内嵌预设快照，但保留 runtimePre
   const noPath = fixture({ preset: true, presetPath: '' })
   const kept = readGameSave(Buffer.from((await noPath.exporter('session-a', { embedPreset: false })).base64, 'base64'))
   assert.ok(kept.chat.runtimePresetSnapshot)
+})
+
+test('导出携带当前权威世界快照但不写入内部 revision 字段', async () => {
+  const world = { position: null, swipe: 1, messageUid: 'deleted-source', world: { variables: { stat_data: { gold: 44 } } }, chatRevision: 2, worldRevision: 7 }
+  const { exporter } = fixture({ world })
+  const save = readGameSave(Buffer.from((await exporter('session-a')).base64, 'base64'))
+  assert.deepEqual(save.world, { position: null, swipe: 1, messageUid: 'deleted-source', world: { variables: { stat_data: { gold: 44 } } } })
 })

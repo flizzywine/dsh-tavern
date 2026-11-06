@@ -397,7 +397,7 @@ export function createMessageDeletion({ chats, sessions, activity, view, session
           turn: integer(item.selector.turn, 1) ?? integer(item.row.turn, 1)
         }))
         const activeWorld = activeWorldOf(current)
-        worldSelection = { old: activeWorld, selected: worldAfterRemoval(activeWorld, removed) }
+        worldSelection = { old: activeWorld, selected: worldAfterRemoval(activeWorld, removed), preserveWorld: true }
         deletionMetadata.worldSelection = worldSelection
         clearTurnReferences(current, latest.selected)
         preserveSplitRoundMarkers(current, latest.selected, removed)

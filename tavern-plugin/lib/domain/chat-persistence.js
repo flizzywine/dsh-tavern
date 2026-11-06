@@ -338,6 +338,7 @@ export function createChatPersistence(options = {}) {
   }
   // Do not normalize/remember a window as a full editable Chat baseline.
   async function readWindow(chatId,options) { return records.readWindow ? records.readWindow(chatId,options) : null }
+  async function readWorldSnapshot(chatId) { return records.readWorldSnapshot ? records.readWorldSnapshot(chatId) : null }
   async function readRecentSummaries(chatId,count) { return records.readRecentSummaries ? records.readRecentSummaries(chatId,count) : null }
   async function readHelperContext(chatId, range) {
     return records.readHelperContext?.(chatId, range)
@@ -376,5 +377,5 @@ export function createChatPersistence(options = {}) {
     await records.remove(chatId)
   }
 
-  return Object.freeze({ read, readWindow, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, write, writeHeader, update, version, remove })
+  return Object.freeze({ read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, write, writeHeader, update, version, remove })
 }
