@@ -35,7 +35,23 @@ https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@plugin-official-downloads/dsh-
 
 打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。安装完成后点 **重启并切换到 DSH 酒馆**。如需从桌面直接打开酒馆，可以在同一页点 **添加桌面快捷方式**。安装失败时可在启动器里复制诊断日志。
 
-**以后更新：** 在酒馆里打开 **设置 → 酒馆启动器 → 酒馆版本与更新**，点 **检查更新**；发现新版时点 **更新酒馆**，等安装完成后重启。旧版如果还没有这张卡片，从游玩侧栏更新一次即可。切回原版 DSH、查看数据目录、迁移和卸载也在启动器里。
+#### 终端一行安装或更新（也可交给 Agent 执行）
+
+也可以直接运行下面的命令：**首次安装会一起装好酒馆和 `dsh-tavern-launcher`，以后更新运行同一条命令。** 运行前请完整退出 DeepSeek Harness（Windows 从系统托盘退出，macOS 按 `⌘Q`）。
+
+Windows（PowerShell）：
+
+```powershell
+$env:DSH_TAVERN_HOST='desktop'; $tavernInstaller=[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData('https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.ps1')); Invoke-Expression $tavernInstaller
+```
+
+macOS（终端）：
+
+```sh
+curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.sh' -o /tmp/dsh-tavern-install.sh && DSH_TAVERN_HOST=desktop sh /tmp/dsh-tavern-install.sh
+```
+
+命令执行成功后，若 DeepSeek Harness 没有自动打开，请重新打开。若仍在原版 DSH，可以从 **设置 → 酒馆启动器** 切换到酒馆。
 
 ### Android
 
