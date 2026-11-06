@@ -19,27 +19,19 @@
 
 ### 桌面版（Windows / macOS）
 
-先安装官方 [DeepSeek Harness](https://deepseek.com/harness/) **0.2.1-rc.2 或更新的 0.2.x**，打开并完成初始设置。然后完全退出：Windows 从托盘退出，macOS 按 ⌘Q。
+安装官方 [DeepSeek Harness](https://deepseek.com/harness/)，打开并完成初始设置。推荐使用 **0.2.2-rc.1 或更新的 0.2.x**。
 
 **1. 安装酒馆启动器**
 
-在对应平台的终端粘贴一行。命令只安装启动器插件，使用 DSH 自带的运行环境。
+在左侧打开 **插件 → 添加插件**，粘贴下面的地址，点 **安装**。安装完成后按提示启用。
 
-Windows（PowerShell）：
-
-```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.ps1'))) -LauncherOnly
-```
-
-macOS（终端）：
-
-```sh
-installer=$(curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.sh) && sh -c "$installer" dsh-tavern-install --launcher-only
+```text
+https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.12.tgz
 ```
 
 **2. 从启动器安装酒馆**
 
-重新打开 DeepSeek Harness，进入 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。安装完成后点 **确认重启并应用**，DSH 会重新打开并进入酒馆。酒馆使用独立配置，原版 DSH 配置会保留。安装失败时可在启动器里复制诊断日志。
+打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。安装完成后点 **确认重启并应用**，DSH 会重新打开并进入酒馆。酒馆使用独立配置，原版 DSH 配置会保留。安装失败时可在启动器里复制诊断日志。
 
 **以后更新：** 在酒馆里打开 **设置 → 酒馆启动器 → 酒馆版本与更新**，点 **检查更新**；发现新版时点 **更新酒馆**，等安装完成后重启。旧版如果还没有这张卡片，从游玩侧栏更新一次即可。切回原版 DSH、查看数据目录、迁移和卸载也在启动器里。
 
