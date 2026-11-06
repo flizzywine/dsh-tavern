@@ -64,7 +64,7 @@ try {
       response = { ok: true, enabled: cardEnabled }
     }
     else if (url.pathname === '/dsh-tavern-gen/api/state' || url.pathname === '/dsh-tavern-gen/api/worldbook') response = { worldbook: clone(cardBook), config: { enabled: cardEnabled } }
-    else if (url.pathname === '/dsh-tavern-gen/api/gallery') response = { items: [{ id: 'card-only', file: 'card-only.png', url: '/dsh-tavern-gen/img/card-only.png', prompt: '卡片专用图片', session: 'card-session', at: 1 }] }
+    else if (url.pathname === '/dsh-tavern-gen/api/gallery') response = { items: [{ id: 'card-only', file: 'card-only.png', url: '/dsh-tavern-gen/img/card-only.png', prompt: '卡片专用图片', session: 'card-session', at: 1 }, { id: 'card-next', file: 'card-next.png', url: '/dsh-tavern-gen/img/card-next.png', prompt: '下一张卡片图', session: 'card-session', at: 2 }] }
     else if (url.pathname === '/dsh-tavern-gen/api/save') {
       if (body.content.revision !== cardBook.revision) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'REVISION_CONFLICT', error: '卡片世界书已在别处修改' }) })
       cardBook = { ...clone(body.content), revision: 'card-' + (++cardRevision) }
@@ -121,6 +121,7 @@ try {
       { id: 'play-only', source: 'play', label: '剧情配图', hasImage: true, state: 'done', gameId: 'play-session', createdAt: 2 },
       { id: 'card-only', source: 'card', label: '卡片工作台', hasImage: true, state: 'done', gameId: 'card-session', createdAt: 1 },
     ] }
+    else if (path === '/jobs') response = { ok: true, job: {} }
     else if (path === '/tasks') response = { tasks: [] }
     else if (path === '/cards') response = { ok: true, cards: [] }
     else if (path === '/providers' || path === '/llm-models') response = { ok: true, providers: [], models: [] }
@@ -133,11 +134,12 @@ try {
   await page.addScriptTag({ content: 'window.__ModuleLoader__={load(spec){window.__plugin=spec.factory(name=>modules[name])}};' })
   await page.addScriptTag({ content: clientSource })
   await page.evaluate(() => {
-    let Settings
-    window.__plugin.apply({ slots: { inject(_name, install) { return install() }, register(spec, component) { if (spec.name === 'settings.section') Settings = component; return () => {} } }, inject() {} })
+    let Settings, Overlay
+    window.__plugin.apply({ slots: { inject(_name, install) { return install() }, register(spec, component) { if (spec.name === 'settings.section') Settings = component; if (spec.id === 'dsh-tavern-image-overlay') Overlay = component; return () => {} } }, inject() {} })
     if (!Settings) throw new Error('SettingsPanel not registered')
     const root = modules['react-dom/client'].createRoot(document.querySelector('#root'))
-    root.render(modules.react.createElement(Settings))
+    const h = modules.react.createElement
+    root.render(h(modules.react.Fragment, null, h(Settings), h(Overlay)))
   })
   // 画风预设每套默认收起，正文不进页面；选择栏的按钮负责整体展开与收起
   const presetArtist = page.getByPlaceholder('(@artist_a:1.1), (@artist_b:1.0), masterpiece, best quality')
@@ -384,9 +386,24 @@ try {
   await page.getByRole('img', { name: '剧情配图', exact: true }).waitFor()
   assert.equal(await page.getByRole('img', { name: '卡片工作台', exact: true }).count(), 0)
   assert.ok(calls.some(call => call.path === '/history' && call.query.source === 'play'))
+  await page.getByRole('img', { name: '剧情配图', exact: true }).click()
+  const viewer = page.locator('dialog:modal')
+  await viewer.waitFor()
+  await page.keyboard.press('Escape')
+  await viewer.waitFor({ state: 'hidden' })
   await page.getByRole('button', { name: '卡片画廊', exact: true }).click()
   await page.getByRole('img', { name: '卡片专用图片', exact: true }).waitFor()
   assert.equal(await page.getByRole('img', { name: '剧情配图', exact: true }).count(), 0)
+  await page.getByRole('img', { name: '卡片专用图片', exact: true }).click()
+  await viewer.getByRole('img', { name: '卡片专用图片' }).waitFor()
+  await viewer.getByTitle('放大', { exact: true }).click()
+  assert.match(await viewer.getByRole('img').getAttribute('style'), /scale\(1\.25\)/)
+  await page.keyboard.press('ArrowRight')
+  await viewer.getByRole('img', { name: '下一张卡片图' }).waitFor()
+  await viewer.getByTitle('上一张（←）').click()
+  await viewer.getByRole('img', { name: '卡片专用图片' }).waitFor()
+  await viewer.getByRole('button', { name: '关闭', exact: true }).click()
+  await viewer.waitFor({ state: 'hidden' })
   assert.deepEqual(errors, [])
   console.log('PASS Chromium full settings: custom URL/model/key save and masking, protocol reference capability, character/nested/shared reference drafts and saving, ordered Comfy LoadImage mapping, recoverable simple-mode migration, local-only unlink, worldbook format isolation')
   console.log('SCREENSHOT ' + screenshotPath)

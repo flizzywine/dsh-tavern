@@ -133,7 +133,6 @@
       // 历史图库
       const [historyJobs, setHistoryJobs] = React.useState([])
       const [legacyImages, setLegacyImages] = React.useState([])
-      const [legacyViewer, setLegacyViewer] = React.useState(null)
       const [gameNames, setGameNames] = React.useState({})
       const [historyNote, setHistoryNote] = React.useState('')
       // 历史图的重载信号：切 tab 与点「刷新」都靠它真正重跑一次拉取。
@@ -3041,7 +3040,7 @@
           )
         })
         const legacyTiles = legacyImages.map(function (item, index) {
-          return h('button', { key: item.url, type: 'button', title: item.description || '', onClick: function () { setLegacyViewer(index) },
+          return h('button', { key: item.url, type: 'button', title: item.description || '', onClick: () => openImageOverlay?.({ open: true, note: '早期插图', images: legacyImages.map(image => ({ url: image.url, alt: image.description })), index }),
             style: { padding: 0, textAlign: 'left', cursor: 'zoom-in', borderRadius: '10px', overflow: 'hidden', background: 'transparent', color: 'inherit', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)' } },
             h('img', { src: item.url, loading: 'lazy', decoding: 'async', alt: item.description || '插图', style: { display: 'block', width: '100%', aspectRatio: '3 / 4', objectFit: 'cover', background: 'var(--dsw-specific-input-major)' } }),
             h('div', { style: { padding: '6px 8px', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
@@ -3061,8 +3060,6 @@
         const ordered = [...groups.values()].sort((a, b) => (b.items[0]?.at || 0) - (a.items[0]?.at || 0))
         const groupTitle = group => group.key === '' ? '未归属对局（在设置里试画的图）'
           : (gameNames[group.key]?.title || gameNames[group.key]?.cardName || group.legacyTitle || '已删除的对局') + (group.deleted ? '（已删除）' : '')
-        const viewing = legacyViewer === null ? null : legacyImages[legacyViewer]
-        const step = delta => setLegacyViewer(index => (index + delta + legacyImages.length) % legacyImages.length)
         return h('div', { style: S.card },
           h('div', { style: { fontSize: '13px', marginBottom: '4px' } }, '画廊（插件 ' + done.length + ' 张' + (legacyImages.length ? ' · 早期 ' + legacyImages.length + ' 张' : '') + '）'),
           h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } }, '左键看大图（可以左右翻整个历史库），右键出菜单，鼠标移到图上右上角能直接删。'),
@@ -3092,14 +3089,7 @@
             h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px', marginTop: '10px' } }, group.items.map(item => item.node))))
             : historyNote ? null : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', padding: '14px 0 0' } }, '还没有图片'),
           legacyTiles.length ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '14px' } }, '「早期插图」是换用插件之前 Tavern 自带生图画的，只读；要删除请到对应那局的「画廊」。') : null,
-          viewing ? h('div', { role: 'dialog', 'aria-label': '查看早期插图', tabIndex: -1,
-            ref: node => { if (node) node.focus() },
-            onKeyDown: e => { if (e.key === 'Escape') setLegacyViewer(null); else if (e.key === 'ArrowLeft') step(-1); else if (e.key === 'ArrowRight') step(1) },
-            onClick: e => { if (e.target === e.currentTarget) setLegacyViewer(null) },
-            style: { position: 'fixed', inset: 0, zIndex: 2147483000, background: 'rgba(0,0,0,.82)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', outline: 'none' } },
-            h('img', { src: viewing.url, alt: viewing.description || '插图', style: { maxWidth: '92vw', maxHeight: '84vh', objectFit: 'contain', borderRadius: '8px' } }),
-            h('div', { style: { color: '#eee', fontSize: '12px', maxWidth: '80vw', textAlign: 'center' } },
-              (legacyViewer + 1) + ' / ' + legacyImages.length + ' · ' + (viewing.gameTitle || '未命名的局') + ' · 第 ' + viewing.turn + ' 轮' + (viewing.description ? ' · ' + viewing.description : '') + '　（← → 翻页，Esc 关闭）')) : null,
+
         )
       }
 
