@@ -6,7 +6,7 @@ import {installClipTime} from './clip-export-time.js'
 import {clipCaptureSegments,createClipFrameSpool} from './clip-export-parallel.js'
 import autoTiming from '../../../../src/client/stage-auto-timing.cjs'
 import {createClipTimeline} from '../domain/clip-export-timeline.js'
-import {stageClientModuleAsScript} from '../client-assets.js'
+import {readStageClient,stageClientModuleAsScript} from '../client-assets.js'
 
 const {CLIP_READING}=autoTiming
 
@@ -261,7 +261,11 @@ export async function createClipBrowser({snapshot,plan,transport,readAsset,signa
     }
   }
   try {
-    scripts={react:await reactScript(),client:await readFile(new URL('../../../../lib/client.js',import.meta.url),'utf8'),stage:stageClientModuleAsScript(await readFile(new URL('../client.js',import.meta.url),'utf8'))}
+    const client = await readFile(new URL('../../../../lib/client.js',import.meta.url),'utf8').catch(error => {
+      if (error.code !== 'ENOENT') throw error
+      return readFile(require.resolve('dsh-tavern-plugin/client'), 'utf8')
+    })
+    scripts={react:await reactScript(),client,stage:stageClientModuleAsScript((await readStageClient()).toString('utf8'))}
     const primary=await bounded(createPass(),'舞台准备',120000)
     if(measureOnly)return {timeline:contentPlan,measured:primary.measured,close}
     capturePasses[0]=primary
