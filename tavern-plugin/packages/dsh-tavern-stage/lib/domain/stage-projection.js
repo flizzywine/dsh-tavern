@@ -11,6 +11,14 @@ import {isImmutableJson} from '../../../../lib/domain/freeze-json.js'
 import {stageNarrationLayout} from '../../../../lib/domain/stage-narration.cjs'
 
 const same = (a,b) => JSON.stringify(a) === JSON.stringify(b)
+// Recomputed per paragraph: recorded reactions never alter the carried bubble emotions.
+export function applyListenerReactions(emotions, ops, state, speaker) {
+  const result={...emotions}
+  if (!speaker) return result
+  for (const op of ops) if (op.op === 'event' && op.value?.op === 'reaction' && op.value.id !== speaker && state.cast.includes(op.value.id)) result[op.value.id]=op.value.value
+  return result
+}
+
 // Only completed sidecar checks are cached, never current media or authority.
 // The chat cache owns these immutable objects and their lifetime across revisions.
 const completedPlaybacks = new WeakMap()
@@ -211,10 +219,14 @@ async function readCurrentProjection({trace, expectedDirectionToken, readDirecti
       return views.get(key)
     }
     // derive speaker -> actor without rewriting units, historical ops or playback keys.
-    const emotions = {...direction.opening?.emotions, ...stagePlaybackEmotions(direction,at,segment => {
+    let emotions = {...direction.opening?.emotions, ...stagePlaybackEmotions(direction,at,segment => {
       const result = resolution.resolveFigureName(figureRows,segment,state.actors)
       return result.status === 'resolved' ? result.actorKey : undefined
     })}
+    // A reaction is paragraph-local; the source speaker's own bubble remains authoritative.
+    const sourceUnit=direction.displayUnits?.[at - 1];
+    const sourceSpeaker=sourceUnit?.kind === 'line' ? resolution.resolveFigureName(figureRows,sourceUnit,state.actors) : null;
+    emotions=applyListenerReactions(emotions,ops,state,sourceSpeaker?.status === 'resolved' ? sourceSpeaker.actorKey : null)
     const refs = new Map(figureRows.filter(row => row.enabled).map(row => [row.actorKey,row.ref]))
     for (const [alias,actor] of Object.entries(state.actors)) refs.set(alias,actor.figure)
     await measure('projection.characters', async () => { for (const [alias,ref] of refs) {

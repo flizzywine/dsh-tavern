@@ -349,7 +349,7 @@ export function buildAssetPackRequest(prepared, incremental = true, progress, gu
   // every declared variant travels with its owning outfit, in declared order.
   const choices = (rows,alias) => rows.map(({key, label, guidance}) => ({key:handles.outfit(alias,key), label, ...(guidance ? {guidance} : {})}))
   const actorChoices = constant => Object.fromEntries(Object.entries(context.actors).filter(([,actor]) => actor.constant === constant).map(([alias, actor]) => [handles.actor(alias), {
-    name: actor.name, ...(d.outfit ? {outfits: choices(context.outfits[alias].filter(row => row.constant),alias)} : {})
+    name: actor.name, ...(actor.emotions?.length ? {emotions:actor.emotions.map(({id,label})=>({id,label}))} : {}), ...(d.outfit ? {outfits: choices(context.outfits[alias].filter(row => row.constant),alias)} : {})
   }]))
   const actors = actorChoices(true), turnActors = actorChoices(false)
   const outfits = d.actors && d.outfit ? Object.fromEntries(Object.entries(context.outfits).map(([alias, rows]) => [handles.actor(alias), choices(rows.filter(row => !row.constant),alias)]).filter(([, rows]) => rows.length)) : {}

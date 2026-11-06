@@ -3823,7 +3823,7 @@ window.__ModuleLoader__.load({
 
 		// Trusted, static command composition. Wire grammar and the consumer adapter share this table.
 		const directorCommands = (() => {
-		    const version = 5;
+		    const version = 6;
 		    // saved pre-registry ops are already normalized, not tool commands.
 		    const recordedOps = new Set(['scene.set','scene.clear','scene.variant','music.set','music.stop','skin.set','skin.off','perform','perform.off','actor.enter','actor.move','actor.exit','actor.variant','actor.reset','actor.patch','cast.clear','stage.patch','light','event','clock.advance','time.set','soundscape.set','soundscape.clear','cg.show','cg.variant','cg.pan','cg.hide','item.play']);
 		    const retiredOperation = op => typeof op?.op === 'string' && (op.op.startsWith('phone.') || ['widget.show','widget.update','widget.hide','widget.set','widget.clear'].includes(op.op));
@@ -3875,6 +3875,7 @@ window.__ModuleLoader__.load({
 		        'dof.set':['\u666f\u6df1','\u628a\u666f\u6df1\u7126\u70b9\u653e\u5728\u4e00\u4f4d\u5728\u573a\u4eba\u7269\u8eab\u4e0a\u3002'],
 		        'dof.clear':['\u53d6\u6d88\u666f\u6df1','\u53bb\u6389\u666f\u6df1\u7126\u70b9\u3002'],
 		        'actor.act.play':['\u4eba\u7269\u52a8\u4f5c','\u8ba9\u5728\u573a\u4eba\u7269\u505a\u4e00\u6b21\u52a8\u4f5c\uff0c\u5982\u70b9\u5934\u3001\u97a0\u8eac\u3002'],
+		        'actor.reaction.set':['旁听表情','在当前对白段落显示在场旁听者已有的表情。'],
 		        'actor.emote.play':['\u6f2b\u7b26','\u5728\u573a\u4eba\u7269\u5934\u4e0a\u5f39\u51fa\u4e00\u6b21\u6f2b\u7b26\uff0c\u5982\u611f\u53f9\u53f7\u3001\u95ee\u53f7\u3001\u7231\u5fc3\u3002'],
 		        'screen.play':['\u753b\u9762\u6548\u679c','\u64ad\u653e\u4e00\u6b21\u9707\u5c4f\u3001\u95ea\u767d\u7b49\u753b\u9762\u6548\u679c\u3002'],
 		        'screen.set':['画面状态','保持一种画面状态（模糊、提亮、高反差、回忆、黑框），直到取消。'],
@@ -3999,6 +4000,10 @@ window.__ModuleLoader__.load({
 		    add('actor.act.play','acts',{actor,motion:en(['nod','shake','jump','tremble','turn','bow','lean','step-back'])},event('act','motion',true),{summary:"Play one motion on an on-stage actor; never persist or replay on history.",...transient,requires:['events','actors','cast'],capKey:'act',perActor:true,precondition:onstage});
 		    // manpu are comic marks drawn over the figure (tear: a
 		    // comic drop); body changes - blush, real tears - belong to the emotion's expression, never to an emote.
+		    add('actor.reaction.set','acts',{actor,emotion:variant},event('reaction','emotion',true),{summary:'Use a listed existing emotion for an on-stage listener for this paragraph only.',...transient,requires:['events','actors','cast'],available:c=>Object.values(c.actors).some(a=>a.emotions?.length),precondition(op,c,state,api) {
+		        onstage(op,c,state,api);
+		        api.check(c.actors[op.actor]?.emotions?.some(row=>row.id===op.emotion),'$.emotion','Choose an existing emotion ID listed for this actor.','REF_UNAVAILABLE');
+		    },promptLine:'- actor.reaction.set: for a named listener visibly reacting during this paragraph, use one listed emotion ID for that on-stage listener. It lasts only this paragraph; never use it for the current speaker or invent a variant.'});
 		    add('actor.emote.play','emotes',{actor,symbol:en(['!','?','...','sweat','anger','heart','note','gloom','sparkle','tear'])},event('emote','symbol',true),{summary:"Play one emote on an on-stage actor.",...transient,requires:['events','actors','cast'],precondition:onstage});
 		    add('screen.play','screenEffects',{effect:en(['shake-1','shake-2','shake-3','flash','flash-red','glitch','shock','heartbeat','blackout'])},event('beat','effect'),{summary:"Play one screen effect without changing persistent state.",...transient,capKey:'beat'});
 		    // A screen look holds across turns and locations until screen.clear ; at most 4 changes a turn.

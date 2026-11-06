@@ -1264,3 +1264,23 @@ test('remarks add zero director section, tool schema and smart-judge request byt
   assert.deepEqual(judgeRequests(f.input.engine.judge,{material:f.input.units.join('\n'),questions:after.judgeQuestions}),judge)
   t.diagnostic(JSON.stringify({sections:sectionBytes(next),toolSchemaBytes,delta:0,judgeBytes:judge.reduce((n,r)=>n+r.bytes,0),judgeDelta:0}))
 })
+
+
+test('listener reaction admits only an on-stage listener and an existing emotion',async()=>{
+ const f=await fixture()
+ for(const snap of f.input.snapshots) for(const figure of Object.values(snap.figures)) figure.emotions=[{id:'calm',label:'平静'},{id:'joy',label:'喜悦'}]
+ f.input.units=[{kind:'line',alias:ACTOR,name:'speaker',text:'hello'},{kind:'line',alias:FRIEND,name:'listener',text:'reply'},'end']
+ const p=f.prepare(), request=buildAssetPackRequest(p,true,undefined,'',true)
+ assert.ok(request.commands.some(row=>row.name==='actor.reaction.set'))
+ assert.ok(JSON.stringify(request).includes('喜悦'))
+ const tx=transact(p)
+ const result=tx.submit(batch([{op:'cast.add',actor:ACTOR},{op:'cast.add',actor:FRIEND},{op:'actor.reaction.set',actor:FRIEND,emotion:'joy'}]))
+ assert.equal(result.ok,true,JSON.stringify(result))
+ const saved=validateAssetPackRecord(tx.effect())
+ assert.ok(saved.entries[0].ops.some(op=>op.op==='actor.reaction.set'))
+ assert.equal(saved.end.actors[FRIEND].stateId,undefined,'reaction must not become carried actor state')
+ const bad=transact(p).submit(batch([{op:'cast.add',actor:ACTOR},{op:'cast.add',actor:FRIEND},{op:'actor.reaction.set',actor:ACTOR,emotion:'joy'}]))
+ assert.equal(bad.ok,false)
+ const invalid=transact(p).submit(batch([{op:'cast.add',actor:ACTOR},{op:'cast.add',actor:FRIEND},{op:'actor.reaction.set',actor:FRIEND,emotion:'invented'}]))
+ assert.equal(invalid.ok,false)
+})

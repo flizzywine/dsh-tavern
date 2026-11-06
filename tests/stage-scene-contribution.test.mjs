@@ -52,3 +52,11 @@ test('ordinary story speaker retains priority when its stage actor is replaced',
   assert.deepEqual(result.figures,[rendered])
   assert.equal(result.figureLayout.priority[0],'candidate:oak')
 })
+
+
+test('ordinary projected emotion reaches matching contributed actor while authored scene dialogue keeps its own',()=>{
+ const a={instanceId:'a',ref:{packId:'p',figureId:'f'},emotion:'calm'}, story={state:{id:'different-image'},spriteResolution:{requestedEmotion:'joy'}}
+ assert.equal(stageSceneActorRequest(a,null,null,story).stateId,'joy')
+ assert.equal(stageSceneActorRequest(a,null,{text:'own'},story).stateId,'calm')
+ assert.equal(stageSceneActorRequest(a,a,{emotion:'angry'},story).stateId,'angry')
+})

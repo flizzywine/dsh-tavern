@@ -13,8 +13,8 @@ function candidateSceneMerge(scene, candidate, actors, contributed, line, speake
         shot:line ? null : scene.shot,sceneSprites:candidate.sprites || [],background:candidate.resolvedBackground || scene.background,
         effects:scene.effects.concat(candidate.effects || [])};
 }
-function stageSceneActorRequest(actor, speaker, line) {
-    return {instanceId:actor.instanceId,ref:actor.ref,outfitKey:actor===speaker ? line?.outfitKey || actor.outfitKey : actor.outfitKey,stateId:actor===speaker ? line?.emotion ?? actor.emotion : actor.emotion};
+function stageSceneActorRequest(actor, speaker, line, storyFigure) {
+    return {instanceId:actor.instanceId,ref:actor.ref,outfitKey:actor===speaker ? line?.outfitKey || actor.outfitKey : actor.outfitKey,stateId:actor===speaker ? line?.emotion ?? actor.emotion : !line ? storyFigure?.spriteResolution?.requestedEmotion ?? storyFigure?.state?.id ?? actor.emotion : actor.emotion};
 }
 function stageSceneProgress(dialogue) {
     return dialogue?.lines?.length ? {index:dialogue.index || 0,count:dialogue.lines.length} : null;
@@ -1007,7 +1007,7 @@ function GalStage(props) {
         thinking:!awaiting && !transitioning && current?.thought ? stageEffectResolve('thinking',effectTables.skin,effectTables.local) : null,
         animatedUi:Boolean(speaker || stageConfig.widgets || !typed || title || faceEmote), callView};
     const candidateActors=candidate?.value?.actors || [];
-    const actorSignature=JSON.stringify(candidateActors.map(actor=>stageSceneActorRequest(actor,candidateSpeaker,candidateLine)));
+    const actorSignature=JSON.stringify(candidateActors.map(actor=>stageSceneActorRequest(actor,candidateSpeaker,candidateLine,!candidateLine ? pack.characters.find(figure=>figure.ref?.packId===actor.ref?.packId && figure.ref?.figureId===actor.ref?.figureId && (!actor.outfitKey || figure.outfitKey===actor.outfitKey)) : null)));
     const candidateAuthority=JSON.stringify([runtime.source?.sessionId,runtime.source?.authorityEpoch]);
     const [candidateFigures,setCandidateFigures]=React.useState({signature:null,figures:[],actors:[],authority:null});
     const candidatePins=React.useRef({current:[],retired:[]});

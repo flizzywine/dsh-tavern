@@ -293,6 +293,10 @@ export function reduceAssetPackOperation(state, op, context, metadata = {}) {
     content:(ref,variant)=>assetContent(recalledAsset(context.catalogue,ref,ref.kind).asset,variant),
     recalled:(ref,kind,path) => { try { return recalledAsset(context.catalogue,ref,kind) } catch { check(false,path,'Choose a full reference from the recalled '+kind+' catalogue','REF_UNAVAILABLE') } }
   })
+  if (op.op === 'actor.reaction.set') {
+    const unit=context.phone?.units?.[metadata.at - 1];
+    check(unit?.kind === 'line' && unit.alias && Object.hasOwn(context.actors,unit.alias) && unit.alias !== op.actor, '$.actor', 'Choose an on-stage listener to a resolved speaker on this paragraph.', 'PRECONDITION')
+  }
   const consumed = directorCommands.consume(op, context)
   if(consumed.op==='mod.command') {
     const contribution=modStageContribution(definition.command.modId)
