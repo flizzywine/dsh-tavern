@@ -225,6 +225,40 @@ test('槽注册复制原生 inject/store/locale，保留 children 声明并优�
 	assert.ok(registrations.some(entry => entry.options.id === 'dsh-tavern-story-transcript-mode'))
 })
 
+test('真实 story-flow 槽向尾部投影注入会话级 executeSlash', async t => {
+	const p = page(t), { context } = p
+	const executeSlash = () => Promise.resolve({ drafted: true })
+	const projections = []
+	let executorCreations = 0
+	context.createTavernFrameSlashExecutor = ctx => { executorCreations++; assert.ok(ctx); return executeSlash }
+	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({
+		storyTranscript: transcript([{ role: 'assistant', turn: 2, text: '尾部选项', displayMode: 'html' }]),
+		view: { mode: 'story' }, revision: 1
+	}) })
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, renderProjection: (projection, options) => {
+		projections.push({ projection, options })
+		return React.createElement('div', { 'data-tail-frame': '' }, projection.text)
+	} })
+	const NativeFlow = () => null
+	const registrations = []
+	const slots = {
+		inject: (_name, contribute) => contribute(),
+		register: (options, component) => { registrations.push({ options, component }); return () => {} },
+		entries: () => [{ component: NativeFlow }], subscribe: () => () => {}
+	}
+	feature.register({ ctx: { effect: run => run() }, slots })
+	assert.equal(executorCreations, 1)
+	const flow = registrations.find(entry => entry.options.name === 'conversation.chat.flow')
+	await mount(p, React.createElement(flow.component, {
+		sessionId: 's1', useChat: selector => selector({ legacy: { partial: null, runningCalls: [] } }),
+		useSession: selector => selector({ running: false })
+	}))
+	await act(async () => { await new Promise(resolve => setImmediate(resolve)) })
+	assert.ok(projections.length > 0)
+	assert.strictEqual(projections.at(-1).options.executeSlash, executeSlash)
+	assert.ok(p.dom.window.document.querySelector('[data-tail-frame]'))
+})
+
 test('注册生命周期安装 external-history，跟随模式与当前会话并完整卸载', async t => {
 	const { context } = page(t)
 	const cleanups = [], refreshes = [], installs = []

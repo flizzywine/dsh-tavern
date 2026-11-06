@@ -39,6 +39,7 @@ function createTavernStoryTranscriptFeature(deps) {
 	const mode = options.mode || data.createModeStore()
 	let storyTranscriptStore = null
 	let nativeFlow = null
+	let flowExecuteSlash = options.executeSlash || null
 	let storyExternalHistory = options.externalHistory || null
 	const storyEligibility = new Map()
 	const externalHistoryInstaller = options.externalHistoryInstaller ||
@@ -388,11 +389,13 @@ function createTavernStoryTranscriptFeature(deps) {
 	}
 
 	function StoryTranscriptFlowSlot(props) {
-		return h(TavernStoryTranscriptFlow, Object.assign({}, props, { nativeFlow: nativeFlow, store: options.store }))
+		return h(TavernStoryTranscriptFlow, Object.assign({}, props, { nativeFlow: nativeFlow, store: options.store,
+			executeSlash: props.executeSlash || flowExecuteSlash }))
 	}
 
 	function register(input) {
 		const ctx = input.ctx, slots = input.slots
+		if (!flowExecuteSlash && typeof createTavernFrameSlashExecutor === 'function') flowExecuteSlash = createTavernFrameSlashExecutor(ctx)
 		if (!storyExternalHistory && externalHistoryInstaller && typeof ctx.get === 'function') ctx.effect(function () {
 			const uiConversation = ctx.get('uiConversation') || ctx.get('conversation')
 			const external = externalHistoryInstaller({
