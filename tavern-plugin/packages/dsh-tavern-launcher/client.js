@@ -27,8 +27,8 @@ window.__ModuleLoader__.load({
       check: '检查更新',
       checking: '正在检查…',
       checkHint: '检查更新后显示最新发布的版本和提交号。',
-      updateAvailable: '有新版本可更新。',
-      noUpdate: '未发现更新。',
+      updateAvailable: '有新版本',
+      noUpdate: '已是最新版本',
       absent: '在独立的 tavern Profile 中安装最新版酒馆。',
       ready: 'tavern Profile 已准备好，可以安装酒馆。',
       installed: '酒馆已就绪。打开酒馆时，NEXT 会切换到 tavern Profile。',
@@ -77,8 +77,8 @@ window.__ModuleLoader__.load({
       check: 'Check for updates',
       checking: 'Checking…',
       checkHint: 'Check for updates to see the latest released version and commit.',
-      updateAvailable: 'An update is available.',
-      noUpdate: 'No update found.',
+      updateAvailable: 'Update available',
+      noUpdate: 'Up to date',
       absent: 'Install the latest DSH Tavern in a separate tavern Profile.',
       ready: 'The tavern Profile is ready for installation.',
       installed: 'Tavern is ready. Opening it switches NEXT to the tavern Profile.',
@@ -129,6 +129,8 @@ window.__ModuleLoader__.load({
 .tl-builds dt { opacity: .65; }
 .tl-builds dd { margin: 0; overflow-wrap: anywhere; }
 .tl-builds a { color: inherit; }
+.tl-release-badge { display: inline-block; margin-inline-start: 8px; padding: 1px 8px; border-radius: 999px; background: var(--tl-fill); font-weight: 600; }
+.tl-release-badge-available { background: var(--tl-accent-soft); color: var(--tl-accent); }
 .tl-paths { margin: 0; display: grid; gap: 4px; min-width: 0; }
 .tl-paths dt { opacity: .65; }
 .tl-paths dd { margin: 0 0 6px; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
@@ -215,6 +217,7 @@ window.__ModuleLoader__.load({
       const failure = error || status.error || handoffFailure()
       const canChange = hasNative && (canManage || (current && status.canHandoff))
       const canCheck = canInstall || canManage || current
+      const hasUpdate = latest?.available && (status.version !== latest.version || status.commit !== latest.commit)
       const buildLabel = ({ version, commit }) => h(React.Fragment, null,
         `v${version} · `,
         commit ? h('a', { href: `https://github.com/flizzywine/dsh-tavern/commit/${commit}`, target: '_blank', rel: 'noreferrer', title: commit },
@@ -235,9 +238,10 @@ window.__ModuleLoader__.load({
           h('h3', null, t('management')),
           status.version || latest ? h('dl', { className: 'tl-builds' },
             status.version ? h(React.Fragment, null, h('dt', null, t('installedBuild')), h('dd', null, buildLabel(status))) : null,
-            h('dt', null, t('latestBuild')), h('dd', null, latest ? buildLabel(latest) : t('checkHint'))) : null,
-          latest && status.version && canCheck ? h('p', { className: 'tl-sub', role: 'status' },
-            t(latest.available && (status.version !== latest.version || status.commit !== latest.commit) ? 'updateAvailable' : 'noUpdate')) : null,
+            h('dt', null, t('latestBuild')), h('dd', null, latest ? buildLabel(latest) : t('checkHint'),
+              latest && status.version && canCheck ? h('span', {
+                className: `tl-release-badge${hasUpdate ? ' tl-release-badge-available' : ''}`, role: 'status',
+              }, t(hasUpdate ? 'updateAvailable' : 'noUpdate')) : null)) : null,
           status.paths ? h('dl', { className: 'tl-paths' },
             ...Object.entries(status.paths).flatMap(([key, value]) => [
               h('dt', { key: `${key}-label` }, t(key)), h('dd', { key }, value),
