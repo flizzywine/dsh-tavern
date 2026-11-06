@@ -81,6 +81,36 @@ test('加载更早期间保留旧窗口，扩展成功后一次性替换', async
 	assert.equal(store.getSnapshot().transcript.messages.length, 4)
 })
 
+test('发送接受通知在首个 partial 前立即显示用户输入和助手占位', async t => {
+	const p = page(t), { context } = p
+	const prepared = [...messages.slice(0, 1), { role: 'user', text: '立即显示输入' }, { role: 'assistant', turn: 10, text: '', placeholder: true }]
+	let phase = 'initial'
+	const reads = []
+	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => {
+		reads.push(phase)
+		return { storyTranscript: transcript(phase === 'initial' ? messages : prepared, reads.length), view: { mode: 'story' }, revision: reads.length }
+	} })
+	const store = data.createStoryTranscriptStore(), mode = data.createModeStore()
+	await store.read('s1')
+	phase = 'prepared'
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode,
+		externalHistory: { refresh() {}, dispose() {} } })
+	const session = { running: true }, chat = { legacy: { partial: null, nodes: [], runningCalls: [] } }
+	await mount(p, React.createElement(feature.StoryTranscriptFlow, {
+		sessionId: 's1', store, nativeFlow: () => null,
+		useChat: selector => selector(chat), useSession: selector => selector(session)
+	}))
+	assert.deepEqual(reads, ['initial'])
+	assert.equal(p.dom.window.document.querySelectorAll('article').length, messages.length)
+	await act(async () => {
+		p.dom.window.dispatchEvent(new p.dom.window.CustomEvent('dsh-tavern-story-mutated', { detail: { sessionId: 's1' } }))
+	})
+	assert.deepEqual(reads, ['initial', 'prepared'], '接受通知本身即触发重读，不等待 nativeStreamTurn')
+	assert.equal(p.dom.window.document.querySelectorAll('article').length, prepared.length)
+	assert.equal(p.dom.window.document.querySelector('.dsh-tavern-user-bubble').textContent, '立即显示输入')
+	assert.ok(p.dom.window.document.querySelector('.dsh-tavern-story-streaming'))
+})
+
 test('新旧渲染开关保留故事数据并即时回退原生 ChatFlow', async t => {
 	const p = page(t), { context } = p
 	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({ storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1 }) })

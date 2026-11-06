@@ -10,12 +10,14 @@ function gate() { let resolve, reject; const promise = new Promise((yes, no) => 
 
 function fixture() {
   let now = 1000, descriptor, draft = '', running = false, submit = () => undefined
-  const calls = [], subscriptions = new Set(), timers = new Map(), windowListeners = new Set()
+  const calls = [], subscriptions = new Set(), timers = new Map(), windowListeners = new Set(), events = []
   const host = {
     document: null, sessionStorage: { getItem() { return null }, setItem() {} },
     setTimeout(fn) { const id = {}; timers.set(id, fn); return id }, clearTimeout(id) { timers.delete(id) },
     addEventListener(name, fn) { if (name === 'message') windowListeners.add(fn) },
     removeEventListener(name, fn) { if (name === 'message') windowListeners.delete(fn) },
+    CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options && options.detail } },
+    dispatchEvent(event) { events.push(event) },
   }
   const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console,
     Date: class extends Date { static now() { return now } } }
@@ -29,7 +31,7 @@ function fixture() {
     list: { getSnapshot: () => ({ byId: { game: { running } } }), subscribe(fn) { subscriptions.add(fn); return () => subscriptions.delete(fn) } },
   }, get: () => ({ input: { for: () => input } }) }
   const execute = client.createTavernFrameSlashExecutor(ctx, host)
-  return { client, ctx, execute, calls, host, windowListeners, timers, subscriptions,
+  return { client, ctx, execute, calls, host, windowListeners, timers, subscriptions, events,
     get draft() { return draft }, edit(value) { draft = value }, advance(ms) { now += ms },
     submitWith(fn) { submit = fn },
     running(value) { running = value; for (const fn of subscriptions) fn() },
@@ -66,6 +68,21 @@ test('split send submits once, honors await=false and keeps executor instances i
   await h.execute('/trigger await=false', 'game')
   assert.equal(h.calls.at(-1)[0], 'native')
   assert.equal(Object.hasOwn(h.ctx, '__dshTavernPendingSlashSend'), false)
+})
+
+test('accepted card submission refreshes story rows before the first partial', async () => {
+  const h = fixture()
+  let accept
+  h.submitWith(() => new Promise(resolve => { accept = resolve }))
+  const pending = h.execute('/send 新输入 | /trigger await=false', 'game', { waitForCompletion: false })
+  await tick()
+  assert.equal(h.calls.at(-1)[0], 'submit')
+  assert.deepEqual(h.events, [], '提交尚未被接受时不能读取到不存在的用户行')
+  accept({ ok: true })
+  assert.equal((await pending).submitted, true)
+  assert.deepEqual(h.events.map(event => ({ type: event.type, sessionId: event.detail && event.detail.sessionId })), [
+    { type: 'dsh-tavern-story-mutated', sessionId: 'game' }
+  ], '队列接受后立即通知故事流，无需等待首个模型 token')
 })
 
 test('expired, setinput-replaced and manually edited drafts never resend stale staged text', async () => {

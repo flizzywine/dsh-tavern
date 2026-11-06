@@ -184,6 +184,12 @@
                 function accept(result) {
                     if ((useNativeTrigger && !result?.ok) || result?.ok === false) throw new Error(result?.error?.message || "生成提交失败");
                     consumePending();
+                    // Queue acceptance has already committed the user row and assistant
+                    // placeholder. Refresh the story projection now instead of leaving
+                    // the input invisible until the model produces its first partial.
+                    if (typeof hostWindow.dispatchEvent === "function" && typeof hostWindow.CustomEvent === "function") {
+                        hostWindow.dispatchEvent(new hostWindow.CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: sessionId } }));
+                    }
                 }
                 function submitTurn() {
                     // Template execution owns the generation queue; waiting here would deadlock it.
