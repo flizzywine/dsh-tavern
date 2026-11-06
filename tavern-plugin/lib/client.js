@@ -4560,6 +4560,107 @@ window.__ModuleLoader__.load({
 		    return result;
 		}
 		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = { stageWidgetSettingsFeedback, stageWidgetSettingValue, validateStageWidgetSettings, stageWidgetSettingsMap, validateStageWidgetSettingValues, validateStageWidgetSettingBindings, stageWidgetResolveSettings, stageWidgetSettingLabel, stageWidgetVariablePointer, stageWidgetVariableContains, validateStageWidgetVariables, validateStageWidgetDocument, STAGE_WIDGET_LIMITS, stageWidgetPlain, stageWidgetBytes, stageWidgetSchemaValid, stageWidgetSchemaValue, normalizeStageWidgetTuning, stageWidgetEffectiveOptions };
+		// BS.1770 channel order: mono; L/R; L/R/C; L/R/Ls/Rs; L/R/C/Ls/Rs;
+		// L/R/C/LFE/Ls/Rs; L/R/C/LFE/BL/BR/SL/SR. LFE is excluded only from loudness.
+		function measurePcmLoudness(channels, rate) {
+		  const layouts = {1:[1],2:[1,1],3:[1,1,1],4:[1,1,1.41,1.41],5:[1,1,1,1.41,1.41],6:[1,1,1,0,1.41,1.41],8:[1,1,1,0,1.41,1.41,1.41,1.41]}
+		  const weights = layouts[channels.length]
+		  if (!weights) throw new Error('不支持此音频声道布局，请转换为单声道、立体声或标准环绕声')
+		// BS.1770 K weighting, with the bilinear transform evaluated at the input rate.
+		function weighting(rate) {
+		  const k = Math.tan(Math.PI * 1681.974450955533 / rate), q = 0.7071752369554196
+		  const vh = 10 ** (3.999843853973347 / 20), vb = vh ** 0.4996667741545416
+		  const a = 1 + k / q + k * k
+		  const shelf = [(vh + vb * k / q + k * k) / a, 2 * (k * k - vh) / a,
+		    (vh - vb * k / q + k * k) / a, 2 * (k * k - 1) / a, (1 - k / q + k * k) / a]
+		  const h = Math.tan(Math.PI * 38.13547087602444 / rate), d = 1 + h / 0.5003270373238773 + h * h
+		  return [shelf, [1, -2, 1, 2 * (h * h - 1) / d, (1 - h / 0.5003270373238773 + h * h) / d]]
+		}
+
+		// Four-times polyphase interpolation; the integer phase is the original signal.
+		const phases = [0.25, 0.5, 0.75].map(f => {
+		  const taps = new Float64Array(24)
+		  let sum = 0
+		  for (let j = 0; j < taps.length; j++) {
+		    const x = j - 11 - f
+		    taps[j] = Math.sin(Math.PI * x) / (Math.PI * x) * (0.42 + 0.5 * Math.cos(Math.PI * x / 12) + 0.08 * Math.cos(2 * Math.PI * x / 12))
+		    sum += taps[j]
+		  }
+		  return taps.map(v => v / sum)
+		})
+
+		  const frames = channels[0].length, block = Math.round(rate * 0.4), step = Math.round(rate * 0.1)
+		  const length = Math.max(frames, block), energy = new Float64Array(length)
+		  const [s, h] = weighting(rate)
+		  let peak = 0
+		  for (let channel = 0; channel < channels.length; channel++) {
+		    const samples = new Float64Array(length + 48)
+		    samples.set(channels[channel], 24)
+		    for (const x of channels[channel]) peak = Math.max(peak, Math.abs(x))
+		    let z1 = 0, z2 = 0, w1 = 0, w2 = 0
+		    for (let i = 0; i < length; i++) {
+		      const x = samples[i + 24], y = s[0] * x + z1
+		      z1 = s[1] * x - s[3] * y + z2; z2 = s[2] * x - s[4] * y
+		      const v = y + w1
+		      w1 = -2 * y - h[3] * v + w2; w2 = y - h[4] * v
+		      energy[i] += weights[channel] * v * v
+		    }
+		    for (let i = 12; i < frames + 36; i++) {
+		      let a = 0, b = 0, c = 0
+		      for (let j = 0; j < 24; j++) {
+		        const x = samples[i + j - 11]
+		        a += x * phases[0][j]; b += x * phases[1][j]; c += x * phases[2][j]
+		      }
+		      peak = Math.max(peak, Math.abs(a), Math.abs(b), Math.abs(c))
+		    }
+		  }
+		  let sum = 0
+		  const blocks = []
+		  const absolute = 10 ** ((-70 + 0.691) / 10)
+		  for (let i = 0; i < length; i++) {
+		    sum += energy[i]
+		    if (i >= block) sum -= energy[i - block]
+		    if (i + 1 >= block && (i + 1 - block) % step === 0 && sum / block >= absolute) blocks.push(sum / block)
+		  }
+		  const relative = blocks.reduce((a, b) => a + b, 0) / blocks.length / 10
+		  const gated = blocks.filter(v => v >= relative)
+		  const lufs = -0.691 + 10 * Math.log10(gated.reduce((a, b) => a + b, 0) / gated.length)
+		  return {lufs: Number.isFinite(lufs) ? lufs : null, truePeak: peak > 0 ? 20 * Math.log10(peak) : null}
+		}
+
+
+		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {measurePcmLoudness}
+
+		async function measureAudioBufferLoudness(audio) {
+		  const channels = Array.from({length:audio.numberOfChannels}, (_, i) => audio.getChannelData(i));
+		  let measured;
+		  if (audio.duration < 10) measured = measurePcmLoudness(channels, audio.sampleRate);
+		  else {
+		    const source = 'const measure = ' + measurePcmLoudness.toString() + ';onmessage = ({data}) => {try {postMessage({value:measure(data.channels,data.rate)})} catch(error) {postMessage({error:error.message})}}';
+		    const url = URL.createObjectURL(new Blob([source], {type:'text/javascript'}));
+		    let worker;
+		    try {
+		      worker = new Worker(url);
+		      measured = await new Promise((resolve, reject) => {
+		        worker.onmessage = ({data}) => data.error ? reject(new Error(data.error)) : resolve(data.value);
+		        worker.onerror = () => reject(new Error('音频响度测量失败，请重新添加音频'));
+		        const copies = channels.map(channel => channel.slice());
+		        worker.postMessage({channels:copies, rate:audio.sampleRate}, copies.map(channel => channel.buffer));
+		      });
+		    } finally { worker?.terminate(); URL.revokeObjectURL(url); }
+		  }
+		  return {v:1, lufs:measured.lufs ?? -100, peak:Math.max(-100, measured.truePeak ?? -100)};
+		}
+
+		async function measureBrowserAudio(bytes) {
+		  const context = new AudioContext();
+		  try {
+		    let audio;
+		    try { audio = await context.decodeAudioData(bytes.slice().buffer); }
+		    catch { throw new Error('浏览器无法解码此音频，请转换为 WAV 或浏览器支持的音频格式后重试'); }
+		    return await measureAudioBufferLoudness(audio);
+		  } finally { await context.close(); }
+		}
 		// one kind order — built-in kinds as listed, then mod-brought kinds grouped by mod id
 		// (stable: mods sorted by id, a mod's kinds in the order it lists them). modKinds rows are [kind, modId, label].
 		function kindOrder(builtin, modKinds) {
@@ -4578,7 +4679,7 @@ window.__ModuleLoader__.load({
 		  PACK_UNAVAILABLE:'这张卡用到的一个素材包找不到了，请在 舞台设置 › 素材包 里移除或重新安装它',
 		  AbortError:'保存超时，结果尚未确认；请重新载入后检查',TimeoutError:'保存超时，结果尚未确认；请重新载入后检查'};
 		// Names a player reads as words, not code: product names and short capitals (MP3、FLAC、CG、BGM — not HTTP or a CODE_NAME).
-		const PLAYER_TERMS=/Live2D|Spine|ComfyUI|Fish Audio|WebP|\b(?!HTTP\b)[A-Z][A-Z0-9]{1,4}\b(?!_)/g;
+		const PLAYER_TERMS=/ffmpeg|Live2D|Spine|ComfyUI|Fish Audio|WebP|\b(?!HTTP\b)[A-Z][A-Z0-9]{1,4}\b(?!_)/g;
 		const playerErrorSeen=new Set();
 		function playerPlain(text){
 		  const t=String(text||'').replace(/（HTTP\s*\d+）[\s\S]*$/,'').replace(/[：:]\s*[A-Za-z][\s\S]*$/,'').trim();
@@ -5428,7 +5529,7 @@ window.__ModuleLoader__.load({
 		    const bytes=new Uint8Array(await file.arrayBuffer()),ext=audioExt(bytes);
 		    if(!ext)throw new Error('请选择 MP3、OGG、WAV、M4A 或 FLAC 音频');
 		    if(bytes.length>60*1024*1024)throw new Error('音频过大（上限 60 MB）');
-		    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length}};
+		    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length},loudness:await measureBrowserAudio(bytes)};
 		  }
 		  const fileStem=name=>[...String(name||'').replace(/\.[^.]+$/,'').trim()].slice(0,120).join('')||'未命名';
 		  let entrySerial=0;
@@ -5582,7 +5683,7 @@ window.__ModuleLoader__.load({
 		      const closure=await imageClosure(media);
 		      return enqueue(snapshot=>binding.service.patchPack({packId,expectedRevision:snapshot.revision,fileUpdates:closure.files,patch:{blobs:{...snapshot.manifest.blobs,...closure.blobs},assets:snapshot.manifest.assets.map(asset=>{
 		        if(asset.kind!==kind||asset.id!==assetId)return asset;
-		        const change=content=>{const next={...content,media:closure.hash};delete next.pendingMedia;if(AUDIO_KINDS.includes(kind)){delete next.durationMs;delete next.loudness;}if(kind==='sfx')delete next.gainDb;return next;};
+		        const change=content=>{const next={...content,media:closure.hash};delete next.pendingMedia;if(AUDIO_KINDS.includes(kind)){delete next.durationMs;next.loudness=media.loudness;}if(kind==='sfx')delete next.gainDb;return next;};
 		        return asset.variants?{...asset,variants:{...asset.variants,entries:asset.variants.entries.map(row=>row.id===variantId?{...row,content:change(row.content)}:row)}}:change(asset);
 		      })}}));
 		    };
@@ -5683,7 +5784,7 @@ window.__ModuleLoader__.load({
 		        const stem=fileStem(file.name),media=AUDIO_KINDS.includes(k)?await prepareAudio(file):await prepareImage(file,k==='figures'?'sprite':'background');
 		        if(AUDIO_KINDS.includes(k)){
 		          const blob=await enqueue(c=>svc.putBlob({packId,expectedRevision:c.revision,bytes:media.bytes,descriptor:media.descriptor}));
-		          added.push(newFileEntry(k,newEntryId(latest.current,k)+added.length,stem,{media:blob.hash}));continue;
+		          added.push(newFileEntry(k,newEntryId(latest.current,k)+added.length,stem,{media:blob.hash,loudness:media.loudness}));continue;
 		        }
 		        const closure=await imageClosure(media);
 		        if(k==='figures'){

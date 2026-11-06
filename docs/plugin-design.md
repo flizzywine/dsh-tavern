@@ -178,4 +178,6 @@ const data = await ctx.tavern.readGameData({ gameId })
 - **没有服务时**：调用方保持安静，以 `TTS_UNAVAILABLE` 作为诊断；正文、存档和聊天照常，错误不进聊天。
 - **内置朗读**：普通聊天正文的「🔊 朗读」通过 `readAloudLine({text})` 使用独立的 `tts.reading.readAloud.voice`，自动开关为 `readAloud.auto`，默认关闭；两项都在 酒馆设置 › 酒馆插件。`readAloudState()` 返回 `{stepAside, auto}`，是客户端唯一使用的舞台相关信号；有效舞台配音开启时让位，舞台画面不整篇朗读。仅对本页观察到完成的流式回复自动读一次，不在刷新或重挂载时补读。合成复用语音服务，播放复用同一个播放器，不读取通用声音或旁白设置。
 - **台词朗读**：角色配音的正文 🔊 与插件的 `synthesizeSpeech` 都经 `speakLine` 交给语音服务（`domain/speech.js`）；本体没有自己的配音渠道、设置或音频缓存。朗读声音是插件设置 `tts.reading`：`dialogueVoice`（通用声音，所有卡通用：没绑定声音的人物和临时 NPC 使用；可选 `{silent:true}` 表示不配音）与 `narrator`（旁白的全局层，默认关闭；卡片的 `stage.narrator` 逐键覆盖它）。舞台的「配音」使用 `voice` 四态开关，详情页包含通用声音、旁白及旁白声音。「本卡单独指定」写入或移除 `stage.narrator.voice`；旁白没有单独指定声音时由 `effectiveNarrator` 回退至通用声音。声音的写法与人物声音选择器一致：`{browser}` 或 `{serviceId, voice}`。`tavern.speechProvider({synthesize})` 注册的渠道作为语音服务的 provider `tavern-plugin:<owner>:<id>` 接入。
+
+  配音提供者的 `synthesize({text,voice,emotion,signal})` 应返回 `{data,mediaType:"audio/wav"}`，其中 `data` 是带 RIFF/WAVE 头的 PCM16 WAV 字节（不是裸 PCM）。该格式直接进入语音缓存，无需 ffmpeg；建议单声道、24 kHz。已有返回 MP3、Ogg 等压缩音频的插件仍受支持，但需要安装 ffmpeg 才能转换。无需新增输出格式协商字段。
 - **边界守门**：`tests/tts-boundary.test.mjs`（只减不增）检查本体与舞台不以相对路径 import 插件、插件的 HTTP 根不出现在本体与舞台，以及 `ctx.get('tts*')` 调用点与本体 `provide('tts*')` 的上限。

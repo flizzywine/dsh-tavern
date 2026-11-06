@@ -29,4 +29,5 @@ for (const name of ['native-settings.js', 'settings-migration.js']) {
 }
 emit(join(root, 'src/shared/request-origin.js'), '// Generated from Tavern host HTTP routes by build.mjs; do not edit.\n' +
   readFileSync(join(root, '../../lib/http/request-origin.js'), 'utf8'))
+emit(join(root,'src/shared/pcm-loudness.cjs'), '// Generated from Tavern shared/pcm-loudness.cjs; do not edit.\n' + readFileSync(join(root,'../../shared/pcm-loudness.cjs'),'utf8'))
 visit(join(root,'src'))
