@@ -93,17 +93,17 @@ test('代理终止 TLS 时同 Host 的 HTTP / HTTPS 都可通过来源检查，n
 })
 
 function externalRoutes(connection) {
-  let external, internal, calls = 0
+  let external, internal, calls = 0, authority
   const webServer = { register(route) { external = route.handler; return () => {} } }
   registerTavernHttpRoutes({
     ctx: { get: name => ({ webServer, connection })[name], effect: fn => fn() },
     performanceDiagnostics: { http() {} }, runtimeReadiness: { ok: true }, runtimeGeneration: 1,
-    dispatch: async () => { calls++; return {} }, str: String,
+    dispatch: async (method, args, context) => { calls++; authority = context; return {} }, str: String,
     fontLibrary: { serve: async () => false }, // unrelated asset route adapter
     sessionResources: { read: async cap => { if (cap !== 'valid') throw Error('denied'); return '{}' } },
     exposeHandler: fn => { internal = fn },
   })
-  return { external, internal, calls: () => calls }
+  return { external, internal, calls: () => calls, authority: () => authority }
 }
 
 async function operation(handler, headers = {}, url = '/api/dsh-tavern/changeSetting') {
@@ -143,15 +143,38 @@ test('语音与素材生图接口：桌面端转发的已登录请求放行，�
     assert.equal((await operation(routes.external, signedIn, url)).status, 200, `${url} 桌面端转发`)
     assert.equal((await operation(routes.external, { ...signedIn, origin: `https://${PUBLIC}`, 'sec-fetch-site': 'same-origin' }, url)).status, 200)
     assert.equal((await operation(routes.external, { ...signedIn, 'sec-fetch-site': 'none' }, url)).status, 200)
-    assert.equal(routes.calls(), before + 3)
-    // the general Tavern route fence still compares Origin with the Host exactly.
-    for (const headers of [{ origin: 'https://evil.example.com' }, { origin: 'dsh-app://app' }, { 'sec-fetch-site': 'cross-site' }, { 'sec-fetch-site': 'same-site' },
+    assert.equal((await operation(routes.external, { ...signedIn, origin: 'dsh-app://app' }, url)).status, 200)
+    assert.equal(routes.calls(), before + 4)
+    for (const headers of [{ origin: 'https://evil.example.com' }, { 'sec-fetch-site': 'cross-site' }, { 'sec-fetch-site': 'same-site' },
       { origin: `https://${PUBLIC}`, 'sec-fetch-site': 'cross-site' }]) {
       assert.equal((await operation(routes.external, { ...signedIn, ...headers }, url)).status, 403, `${url} ${JSON.stringify(headers)}`)
     }
     assert.equal((await operation(routes.external, {}, url)).status, 401, `${url} 未登录`)
-    assert.equal(routes.calls(), before + 3)
+    assert.equal(routes.calls(), before + 4)
   }
+})
+
+test('模组与舞台操作：桌面端转发的已登录请求获得本 Host 的应用权限，跨站仍拒绝', async () => {
+  const routes = externalRoutes({ requestRejection: () => undefined })
+  const url = '/api/dsh-tavern/managedModsList'
+  // the desktop app strips Origin and Sec-Fetch-Site, or names itself; it acts for this Host over HTTP.
+  for (const headers of [{}, { origin: 'dsh-app://app' }]) {
+    assert.equal((await operation(routes.external, headers, url)).status, 200)
+    assert.deepEqual(routes.authority(), { origin: `http://${PUBLIC}` })
+  }
+  assert.equal((await operation(routes.external, { origin: `https://${PUBLIC}`, 'sec-fetch-site': 'same-origin' }, url)).status, 200)
+  assert.deepEqual(routes.authority(), { origin: `https://${PUBLIC}` })
+  const calls = routes.calls()
+  for (const headers of [{ origin: 'http://evil.example.com' }, { origin: 'http://127.0.0.1:3081' }]) {
+    assert.equal((await operation(routes.external, headers, url)).status, 403, JSON.stringify(headers))
+  }
+  assert.equal(routes.calls(), calls)
+  // a cross-site marker never carries app authority.
+  assert.equal((await operation(routes.external, { 'sec-fetch-site': 'cross-site' }, url)).status, 200)
+  assert.deepEqual(routes.authority(), { origin: undefined })
+  // in-process server-script calls carry no browser headers and stay without app authority.
+  assert.equal((await operation(routes.internal, {}, url)).status, 200)
+  assert.deepEqual(routes.authority(), { origin: undefined })
 })
 
 // in-process calls go through the same Connection check, so they fail closed too.

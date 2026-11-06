@@ -60,6 +60,9 @@ for (const name of ['native-settings.js', 'settings-migration.js']) {
   emit(join(root, 'src/shared', name), '// Generated from Tavern host settings by build.mjs; do not edit.\n' +
     readFileSync(join(root, '../../lib', name), 'utf8'))
 }
+// The control and lease routes share the host's one request-origin rule.
+emit(join(root, 'src/shared/request-origin.js'), '// Generated from Tavern host HTTP routes by build.mjs; do not edit.\n' +
+  readFileSync(join(root, '../../lib/http/request-origin.js'), 'utf8'))
 // Reuse the production matcher at figure-name ingress without a second matching policy.
 emit(join(root, 'src/shared/asset-pack-lexical.js'), '// Generated from domain/asset-pack-lexical.js by build.mjs; do not edit.\n' +
   readFileSync(join(root, '../../lib/domain/asset-pack-lexical.js'), 'utf8')
