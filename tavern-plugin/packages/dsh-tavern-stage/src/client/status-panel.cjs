@@ -120,12 +120,14 @@ function createAssetReader(sessionId, page) {
 }
 
 // One open page: its frame lifecycle, the DshCardPage answers and the data feed. host() → the element the frames go into.
-// onState({phase:'loading'|'ready'|'empty'|'error', label, size, figures, error}) drives the sheet's own chrome
-// (size 'full': the sheet fills the stage instead of the centred window). onAction(kind, arg): 'open' (page id),
+// onState({phase:'loading'|'ready'|'empty'|'error', label, size, figures, shown, error}) drives the sheet's own chrome
+// (size 'full': the sheet fills the stage instead of the centred window). label / size: the page's declaration (usePages),
+// what the sheet keeps until the read returns. shown: the lifecycle's visible document has loaded in its frame, so the page
+// is on screen. onAction(kind, arg): 'open' (page id),
 // 'settings', 'fill' (after fillInput(sessionId, text)), 'continue', 'gallery', 'exit' (newGame() leaves too, then asks the core).
 // saved: the chat has a player message (usePages' fresh is false), so newGame() asks first.
-function openCardPage({sessionId, page, shortcut, saved, trustedCardMode, helperContext, host, onClose, onState, onAction}) {
-    let closed = false, raw = null, avatars = new Map(), theme = {}, helper = helperContext || null;
+function openCardPage({sessionId, page, label, size, shortcut, saved, trustedCardMode, helperContext, host, onClose, onState, onAction}) {
+    let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = helperContext || null;
     let inFlight = false, again = false, faceJob = 0, token = '', content = '', readAsset = null, heldFaces = null;
     let lifecycle = null, stopLifecycle = null, stopSignals = null, stopMessages = null;
     const frames = new Map(); // document token → {node, descriptor}
@@ -142,7 +144,7 @@ function openCardPage({sessionId, page, shortcut, saved, trustedCardMode, helper
         for (const target of windows()) post(target, value);
     }
     function state(phase, extra) {
-        if (!closed) onState({phase, label: raw?.label || '', size: raw?.size || 'window', figures: raw?.figures || [], ...extra});
+        if (!closed) onState({phase, label: raw?.label || label || '', size: raw?.size || size || 'window', figures: raw?.figures || [], shown, ...extra});
     }
     async function answer(method, args) {
         if (method === 'asset') return await readAsset(args);
@@ -184,6 +186,11 @@ function openCardPage({sessionId, page, shortcut, saved, trustedCardMode, helper
     }
     // The lifecycle's visible and pending documents, as retained message frames place them; the pending one stays hidden
     // until it reports ready.
+    function reveal(item) {
+        if (shown || !item.loaded || lifecycle?.snapshot().visibleDocument?.token !== item.descriptor.token) return;
+        shown = true;
+        state('ready');
+    }
     function paint(snap) {
         const target = host();
         if (closed || !target) return;
@@ -201,18 +208,24 @@ function openCardPage({sessionId, page, shortcut, saved, trustedCardMode, helper
                 node.srcdoc = descriptor.html;
                 // A message posted while the document still loads is lost, and the html carries the data of its mount:
                 // the loaded page gets the data as it is now (faces prepared meanwhile, a later read).
-                node.addEventListener('load', () => { if (!closed && node.contentWindow) post(node.contentWindow, snapshot()); });
-                item = {node, descriptor};
+                node.addEventListener('load', () => {
+                    if (closed) return;
+                    if (node.contentWindow) post(node.contentWindow, snapshot());
+                    item.loaded = true;
+                    reveal(item);
+                });
+                item = {node, descriptor, loaded: false};
                 frames.set(descriptor.token, item);
                 target.appendChild(node);
                 descriptor.ref(node);
             }
             const hidden = descriptor === snap.pendingDocument;
-            item.node.title = raw?.label || '页面';
+            item.node.title = raw?.label || label || '页面';
             if (hidden) item.node.setAttribute('aria-hidden', 'true'); else item.node.removeAttribute('aria-hidden');
             Object.assign(item.node.style, hidden
                 ? {position: 'absolute', inset: '0', opacity: '0', pointerEvents: 'none'}
                 : {position: '', inset: '', opacity: '', pointerEvents: ''});
+            if (!hidden) reveal(item);
         }
     }
     const frameProps = () => ({content, sessionId, turn: latestTurn(helper), partIndex: 0, panelId: 'stage-page-' + page,
@@ -315,14 +328,16 @@ function usePages(sessionId) {
     return value;
 }
 
-// size: the declaration's size (usePages), so a full-stage sheet opens full instead of growing after its read.
+// size / label: the declaration's (usePages), so a full-stage sheet opens full and the sheet names its page while it reads.
 // A full sheet has no title bar: the card draws the whole scene, and only the close button floats over its corner
 // (the label stays the dialog's accessible name; Esc and the backdrop still close it). Its close button is the stage's
 // overlay icon button (the top bar's 返回主页面 ×, themes.css).
 // entry: the page stands in for this stage entry (a title or opening page): it is drawn opaque from its first frame, with
 // no fade and no 正在读取 note, so the stage never shows through while its document loads; onClose then leaves the stage.
+// Until its document is on screen (shown) it draws no chrome either (data-bare: no title bar, no ×, no sheet border), only
+// its opaque ground, and then the page appears at once (an empty or failed read gets the chrome back, to leave by).
 // config / source: what useFaces needs to find the declared figures' faces.
-function Overlay({sessionId, pageId, shortcut, size, saved, entry, config, source, onClose, onAction}) {
+function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, saved, entry, config, source, onClose, onAction}) {
     const h = React.createElement, root = React.useRef(null), body = React.useRef(null), panel = React.useRef(null);
     const close = React.useRef(onClose), act = React.useRef(onAction);
     close.current = onClose; act.current = onAction;
@@ -331,16 +346,16 @@ function Overlay({sessionId, pageId, shortcut, size, saved, entry, config, sourc
     const trusted = useLiveView ? Boolean(live?.view?.tavernRuntimePolicy?.trustedCardMode) : true;
     const helper = live?.view?.tavernHelper || null, helperNow = React.useRef(helper);
     helperNow.current = helper;
-    const [state, setState] = React.useState({phase: 'loading', label: '', size: size || 'window', figures: []});
+    const [state, setState] = React.useState({phase: 'loading', label: declaredLabel || '', size: size || 'window', figures: [], shown: false});
     const facesNow = React.useRef(null);
     React.useEffect(() => {
         if (disposed || !ready) return;
-        const current = openCardPage({sessionId, page: pageId, shortcut, saved: saved === true, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
+        const current = openCardPage({sessionId, page: pageId, label: declaredLabel, size, shortcut, saved: saved === true, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
             onClose: () => close.current?.(), onState: setState, onAction: (kind, arg) => act.current?.(kind, arg)});
         panel.current = current;
         if (facesNow.current) current.setFaces(facesNow.current);
         return () => { if (panel.current === current) panel.current = null; current.dispose(); };
-    }, [sessionId, pageId, shortcut, saved, ready, trusted]);
+    }, [sessionId, pageId, declaredLabel, size, shortcut, saved, ready, trusted]);
     React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
     const names = state.figures.map(figure => figure.name);
     const faces = useFaces ? useFaces({config, sessionId, source, names, px: FACE_PX}) : new Map();
@@ -364,7 +379,7 @@ function Overlay({sessionId, pageId, shortcut, size, saved, entry, config, sourc
     }, []);
     const label = state.label || '页面';
     const closeLabel = entry ? '返回主页面' : '关闭' + label;
-    return h('div', {className: 'fork-gal-status', 'data-size': state.size, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) close.current?.(); },
+    return h('div', {className: 'fork-gal-status', 'data-size': state.size, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) close.current?.(); },
         onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); close.current?.(); }},
         h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': label, 'data-phase': state.phase},
             h('header', {className: 'fork-gal-status-head'},

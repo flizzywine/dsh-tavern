@@ -54,7 +54,28 @@ function startFrameSampler() {
 }
 const entryFrames = async page => { await page.waitForFunction(() => window.entryFramesDone === true); return page.evaluate(() => window.entryFrames) }
 
-async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTitlePage = false, viewport = {width: 1280, height: 720}, line = '夜色里，旅馆的灯还亮着。', sample = false, characters = [], figures = []} = {}) {
+// Every animation frame from the page's mount until its document has been on screen for 10 frames: the sheet's chrome.
+function startShellSampler() {
+  window.shellFrames = []
+  let after = 0
+  const tick = () => {
+    const status = document.querySelector('.fork-gal-stage > .fork-gal-status')
+    if (status) {
+      const frame = status.querySelector('iframe.fork-gal-status-frame:not([aria-hidden])')
+      const close = status.querySelector('.fork-gal-status-close')
+      const seen = node => !!node && getComputedStyle(node).visibility === 'visible' && node.getBoundingClientRect().width > 0
+      const shown = !!frame?.contentDocument?.getElementById('title-name')
+      window.shellFrames.push({size: status.dataset.size, title: status.querySelector('.fork-gal-status-title')?.textContent ?? null,
+        close: seen(close), note: !!status.querySelector('.fork-gal-status-note'), shown})
+      if (shown) after++
+    }
+    if (after < 10) requestAnimationFrame(tick)
+    else window.shellFramesDone = true
+  }
+  requestAnimationFrame(tick)
+}
+
+async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTitlePage = false, viewport = {width: 1280, height: 720}, line = '夜色里，旅馆的灯还亮着。', sample = false, sampleShell = false, readDelay = 0, characters = [], figures = []} = {}) {
   const browser = await chromium.launch({headless: true, args: ['--mute-audio', '--autoplay-policy=no-user-gesture-required']})
   t.after(() => browser.close())
   const page = await browser.newPage({viewport, deviceScaleFactor: 1})
@@ -98,6 +119,7 @@ async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTi
     case 'getSession': return {view: {sessionId: SESSION, mode: 'story', cardPath: snapshot.cardPath, tavernRuntimePolicy: {trustedCardMode: true}, tavernHelper: {version: 1, lifecycleRevision: 1, stateRevision: 1, messages: [], scriptVariables: {}, chatVariables: {}}}}
     case 'readCardPages': return {pages: pages.map(declared), fresh}
     case 'readCardPage': {
+      if (args.withHtml && readDelay) await new Promise(resolve => setTimeout(resolve, readDelay))
       const row = byId.get(args.page)
       return row ? {page: {...row, ...(args.withHtml ? {} : {html: undefined}), figures, preload: [], data: {ledger: {hp: 7}}, card: {name: '夜色旅馆'}}} : {page: null}
     }
@@ -113,6 +135,7 @@ async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTi
   await page.addScriptTag({content: await browserReactScript() + `Object.assign(modules['react-dom'],modules['react-dom/client']);window.__ModuleLoader__={load(d){window.clipClient=d.factory(name=>modules[name]||{});}};`})
   await page.addScriptTag({content: await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')})
   if (sample) await page.evaluate(startFrameSampler)
+  if (sampleShell) await page.evaluate(startShellSampler)
   await page.addScriptTag({content: stageClientModuleAsScript(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url), 'utf8')) + '\nwindow.clipStage=stageClientPlugin;'})
   await page.evaluate(async ({snapshot, skipTitlePage}) => {
     // The DSH host the core's slash executor writes to: the conversation input of the session.
@@ -376,6 +399,20 @@ test('every stage entry, frame by frame: a title page covers the stage from its 
   const plainFrames = await entryFrames(plain.page)
   assert.deepEqual(plainFrames.filter(frame => frame.page !== null || frame.note), [], 'no page is ever mounted')
   await plain.page.waitForFunction(() => document.querySelector('.fork-gal-stage')?.dataset.entry === 'ready')
+})
+
+test('a full entry page whose read is slow keeps its size and draws no chrome until its document is on screen', {timeout: 60000}, async t => {
+  const {page} = await openStage(t, {pages: [TITLE, MAP], viewport: {width: 1920, height: 1080}, sampleShell: true, readDelay: 400})
+  await page.waitForFunction(() => window.shellFramesDone === true)
+  const frames = await page.evaluate(() => window.shellFrames)
+  const before = frames.filter(frame => !frame.shown), after = frames.filter(frame => frame.shown)
+  assert.ok(before.length >= 10, 'sampled the page while its read was out: ' + before.length + ' frames')
+  assert.deepEqual(before.filter(frame => frame.size !== 'full'), [], 'the declared full size, never the window sheet')
+  assert.deepEqual(before.filter(frame => frame.title !== null), [], 'no title bar (never 「页面」)')
+  assert.deepEqual(before.filter(frame => frame.close || frame.note), [], 'no × and no note before the page')
+  assert.deepEqual(after.filter(frame => frame.size !== 'full'), [], 'still full once the page is up')
+  assert.ok(after.slice(-3).every(frame => frame.close), 'the × comes with the page')
+  await shot(page, 'title-slow-read-1920.png')
 })
 
 test('the × of a full entry page is the stage top bar × and leaves instead of entering', {timeout: 60000}, async t => {
