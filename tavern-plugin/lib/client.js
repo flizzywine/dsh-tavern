@@ -31488,6 +31488,16 @@ function bindTavernFontZoom(node, win) {
 		    function move(node, target) {
 		        if (node.parentNode !== target) target.moveBefore(node, null);
 		    }
+		    // Native direct-send options may close themselves with frame.remove() after
+		    // generating. The conversation owns this element, not the inline card script:
+		    // ignore that public removal so the iframe document stays alive. Internal
+		    // replacement and teardown bypass the guard through the native prototype.
+		    function retainFrameElement(frame) {
+		        Object.defineProperty(frame, "remove", { configurable: true, value: function () {} });
+		    }
+		    function removeFrameElement(frame) {
+		        host.Element.prototype.remove.call(frame);
+		    }
 		    // A reloaded status panel keeps its old document alive, hidden and earlier in
 		    // document order, until the replacement has loaded. SillyTavern card shells elect
 		    // the newest floor and hand shared UI over to it; tearing the old one down first
@@ -31536,7 +31546,7 @@ function bindTavernFontZoom(node, win) {
 		        if (record.node.style.height !== state.height + "px") tavernKeepViewWhileResizing(host, record.node, function () { record.node.style.height = state.height + "px"; });
 		        const wanted = [state.visibleDocument, state.pendingDocument].filter(Boolean);
 		        for (const [token, item] of record.frames) if (!wanted.some(value => value.token === token)) {
-		            item.descriptor.ref(null); item.node.remove(); record.frames.delete(token);
+		            item.descriptor.ref(null); removeFrameElement(item.node); record.frames.delete(token);
 		        }
 		        for (const descriptor of wanted) {
 		            const hidden = descriptor === state.pendingDocument;
@@ -31544,6 +31554,7 @@ function bindTavernFontZoom(node, win) {
 		            if (!item) {
 		                const frame = document.createElement("iframe");
 		                frame.className = "dsh-tavern-message-frame";
+		                retainFrameElement(frame);
 		                frame.__dshTavernSessionId = record.sessionId;
 		                frame.referrerPolicy = "no-referrer";
 		                if (!descriptor.trustedCardMode) frame.setAttribute("sandbox", "allow-scripts");
