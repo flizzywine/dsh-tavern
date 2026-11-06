@@ -5,6 +5,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const ns = 'tavernLauncher'
     const pendingKey = 'dsh-tavern-launcher:profile-handoff'
+    const steps = ['findRelease', 'prepareProfile', 'installPackage', 'verifyInstall']
     const zh = {
       title: '酒馆启动器',
       currentProfile: '当前 Profile',
@@ -46,6 +47,11 @@ window.__ModuleLoader__.load({
       remove: '删除 DSH 酒馆',
       nativeHint: '请在 DSH NEXT 桌面窗口中打开或卸载酒馆。',
       installing: '正在安装酒馆…',
+      findRelease: '查询最新发布',
+      prepareProfile: '准备独立 Profile',
+      installPackage: '下载并安装酒馆',
+      verifyInstall: '验证安装',
+      elapsed: '已用时',
       updating: '正在更新酒馆…',
       loading: '正在检查安装状态…',
       retry: '重新检查',
@@ -91,6 +97,11 @@ window.__ModuleLoader__.load({
       remove: 'Remove DSH Tavern',
       nativeHint: 'Open or uninstall Tavern from the DSH NEXT desktop window.',
       installing: 'Installing Tavern…',
+      findRelease: 'Find the latest release',
+      prepareProfile: 'Prepare the separate Profile',
+      installPackage: 'Download and install Tavern',
+      verifyInstall: 'Verify the installation',
+      elapsed: 'Elapsed',
       updating: 'Updating Tavern…',
       loading: 'Checking installation…',
       retry: 'Check again',
@@ -122,6 +133,11 @@ window.__ModuleLoader__.load({
 .tl-paths dt { opacity: .65; }
 .tl-paths dd { margin: 0 0 6px; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
 .tl-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.tl-progress { display: grid; gap: 8px; padding: 12px; border-radius: 8px; background: var(--tl-accent-soft); }
+.tl-progress progress { width: 100%; height: 6px; accent-color: var(--tl-accent); }
+.tl-steps { display: grid; gap: 4px; margin: 0; padding-inline-start: 24px; }
+.tl-steps li:not([aria-current]) { opacity: .65; }
+.tl-steps li[aria-current] { font-weight: 600; }
 .tl-review { display: grid; gap: 10px; border-top: 1px solid var(--tl-line); padding-top: 12px; }
 .tl-danger { color: #d93f44; }
 `
@@ -191,6 +207,9 @@ window.__ModuleLoader__.load({
 
       const canInstall = status.state === 'absent' || status.state === 'ready'
       const canManage = status.state === 'installed'
+      const installedNow = canManage && status.outcome === 'installedNow'
+      const progress = status.progress
+      const currentStep = progress ? steps.indexOf(progress.step) : -1
       const hasNative = typeof window.desktopNext?.command === 'function'
       const current = status.state === 'current'
       const failure = error || status.error || handoffFailure()
@@ -210,7 +229,7 @@ window.__ModuleLoader__.load({
           h('p', { className: 'tl-sub' }, t('explain'))),
         current || status.profile ? h('div', { className: 'tl-bar' },
           h('span', { className: 'tl-bar-text' }, `${t('currentProfile')} · ${current ? t('tavernProfile') : status.profile === 'desktop' ? t('originalProfile') : status.profile}`),
-          canManage && hasNative ? button('open', () => void refresh('open')) : null,
+          canManage && !installedNow && hasNative ? button('open', () => void refresh('open')) : null,
           current && hasNative ? button('back', () => void refresh('back')) : null) : null,
         h('section', { className: 'tl-management', 'aria-label': t('management') },
           h('h3', null, t('management')),
@@ -225,10 +244,19 @@ window.__ModuleLoader__.load({
             ])) : null,
           h('p', { className: failure ? 'tl-error' : 'tl-sub', role: failure ? 'alert' : 'status' },
             failure || t(current && !status.canHandoff ? 'upgradeLauncher' : status.outcome || status.state)),
+          currentStep >= 0 ? h('div', { className: 'tl-progress' },
+            h('strong', { role: 'status' }, t(progress.step) + (progress.version ? ` · v${progress.version}` : '') +
+              (progress.step === 'installPackage' && progress.source ? ` · ${progress.source}` : '')),
+            h('progress', { 'aria-label': t(progress.step) }),
+            h('ol', { className: 'tl-steps' }, ...steps.map((step, index) =>
+              h('li', { key: step, 'aria-current': index === currentStep ? 'step' : undefined },
+                `${index < currentStep ? '✓ ' : ''}${t(step)}`))),
+            h('p', { className: 'tl-sub' }, `${t('elapsed')} · ${Math.max(0, Math.floor((Date.now() - progress.startedAt) / 1000))} s`)) : null,
           (canInstall || canManage) && !hasNative ? h('p', { className: 'tl-sub' }, t('nativeHint')) : null,
           current && !hasNative ? h('p', { className: 'tl-sub' }, t('returnHint')) : null,
           h('div', { className: 'tl-actions' },
             canInstall && hasNative ? button('install', () => void refresh('install')) : null,
+            installedNow && hasNative ? button('open', () => void refresh('open')) : null,
             canCheck && !reviewRemove ? button(checking ? 'checking' : 'check', () => void refresh('check'), 'tl-btn-quiet') : null,
             canChange && !reviewRemove ? button('update', () => void refresh(current ? 'switch-update' : 'update'), 'tl-btn-quiet') : null,
             canChange && !reviewRemove ? button('remove', () => setReviewRemove(true), 'tl-btn-quiet tl-danger') : null,

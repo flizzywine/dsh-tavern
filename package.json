@@ -1,6 +1,6 @@
 {
   "name": "dsh-tavern-bundle",
-  "version": "3.2.8",
+  "version": "3.2.9",
   "description": "DSH Tavern: standalone tavern Profile bundle",
   "repository": {
     "type": "git",
@@ -70,7 +70,7 @@
     "dsh-asset-library": "0.1.0",
     "dsh-tavern-stage": "0.1.0",
     "dsh-tavern-tts": "0.1.0",
-    "dsh-tavern-launcher": "1.4.0"
+    "dsh-tavern-launcher": "1.4.1"
   },
   "bundledDependencies": [
     "dsh-pocket",
@@ -100,6 +100,6 @@
   },
   "dshTavern": {
     "distribution": "plugin",
-    "sourceCommit": "da99f9a391c3be7b81fdb7f1a5ed6589b1c0b07c"
+    "sourceCommit": "475aa4edcb91297e83cb007a798cbe0a2600e357"
   }
 }

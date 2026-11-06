@@ -111,7 +111,8 @@ export function apply(ctx) {
   let active
   let lastError
   let outcome
-  async function install(dir, action, signal) {
+  async function install(dir, operation) {
+    const { action, controller: { signal } } = operation
     try {
       const before = await inspectProfile(dir)
       if (action === 'update' ? before.state !== 'installed' : !['absent', 'ready'].includes(before.state)) return
@@ -121,6 +122,8 @@ export function apply(ctx) {
         outcome = 'upToDate'
         return
       }
+      operation.version = release.version
+      operation.step = 'prepareProfile'
       if (before.state === 'absent') {
         // Exclusive creation prevents initProfile from touching a directory
         // that another caller created after the initial check.
@@ -131,6 +134,8 @@ export function apply(ctx) {
       let result
       for (const source of release.sources) {
         signal.throwIfAborted()
+        operation.step = 'installPackage'
+        operation.source = new URL(source).hostname === 'cdn.jsdelivr.net' ? 'jsDelivr' : 'GitHub'
         result = await runPluginCommand({
           profile: 'tavern', dir, home: profile.home, installAnchor: profile.installAnchor, cwd: profile.dir,
         }, ['add', source, '--allow-build=sharp'], {
@@ -140,6 +145,7 @@ export function apply(ctx) {
         if (result.exitCode === 0) break
       }
       if (result.exitCode !== 0) throw new Error(`GitHub 和 jsDelivr 安装都失败了（DSH 退出码 ${result.exitCode ?? '未知'}）。`)
+      operation.step = 'verifyInstall'
       const after = await inspectProfile(dir)
       if (after.state !== 'installed') throw new Error('DSH did not activate the Tavern bundle')
       outcome = action === 'install' ? 'installedNow' : 'updated'
@@ -148,6 +154,11 @@ export function apply(ctx) {
     } finally {
       active = undefined
     }
+  }
+
+  function operationStatus({ action, step, source, version, startedAt }) {
+    return { state: action === 'update' ? 'updating' : 'installing', profile: profile.name, paths,
+      progress: { step, source, version, startedAt } }
   }
 
   async function handle(endpoint) {
@@ -169,7 +180,7 @@ export function apply(ctx) {
     if (!profile.packageManager) return { state: 'unsupported' }
     const dir = join(await realpath(join(profile.home, 'profiles')), 'tavern')
     if (!relative(await realpath(profile.dir), dir)) return { state: 'current' }
-    if (active) return { state: active.action === 'update' ? 'updating' : 'installing', profile: profile.name, paths }
+    if (active) return operationStatus(active)
     if (endpoint === 'status') {
       const status = await inspectProfile(dir)
       return { ...status, profile: profile.name, paths, error: lastError, outcome: status.state === 'installed' ? outcome : undefined }
@@ -177,9 +188,10 @@ export function apply(ctx) {
 
     lastError = undefined
     outcome = undefined
-    active = { action: endpoint, controller: new AbortController() }
-    void install(dir, endpoint, active.controller.signal)
-    return { state: endpoint === 'update' ? 'updating' : 'installing', profile: profile.name, paths }
+    const operation = { action: endpoint, controller: new AbortController(), step: 'findRelease', startedAt: Date.now() }
+    active = operation
+    void install(dir, operation)
+    return operationStatus(operation)
   }
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
