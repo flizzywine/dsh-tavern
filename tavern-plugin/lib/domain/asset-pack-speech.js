@@ -12,7 +12,8 @@ export const GENERAL_VOICE = '\u0000general'
 export function createAssetPackSpeech({presentation, getEngine, getTts, getBinding, getLibrary, scope, principal = 'dsh-browser', readOnly: onlyCached = false}) {
   if (!presentation) return null
   const entries = new Map(), pending = new Map(), listeners = new Set()
-  let current, offTts, disposed = false, epoch = 0
+  // Prewarms go out one at a time (each reads a voice's reference audio); the local worker queues them behind lines.
+  let current, offTts, disposed = false, epoch = 0, warming = Promise.resolve(), casting = Promise.resolve()
   const emit = event => { for (const listener of listeners) listener(event) }
   function clear() {
     epoch++; pending.clear()
@@ -151,14 +152,30 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
           promise.finally(() => { if (pending.get(pendingKey) === promise) pending.delete(pendingKey) }).catch(() => {})
         }
         const descriptor = await pending.get(pendingKey), entry = entries.get(alias)
-        // the first live open of a stage character's voice (the stage
-        // prefetching the turn it opens on) warms it on a local worker in the background; never awaited by a line.
-        if (!readOnly && descriptor.available && entry && !entry.prewarmed) {
+        // The first live open of a voice (prewarmCast at session start, or the stage prefetching a line) warms it on a
+        // local worker in the background; never awaited by a line.
+        if (!readOnly && descriptor.available && entry && !entry.prewarmed && service.prewarm) {
           entry.prewarmed = true
-          void service.prewarm?.({voice:entry.voice,language:descriptor.language}, {scope,grant:entry.grant.grant}).catch(() => {})
+          warming = warming.then(() => service.prewarm({voice:entry.voice,language:descriptor.language}, {scope,grant:entry.grant.grant})).catch(() => {})
         }
         return structuredClone(descriptor)
       } catch (error) { return {available:false,diagnostics:[error.code || 'TTS_UNAVAILABLE']} }
+    },
+    // Opens (and so warms) every enabled reference-voice figure of the card's bound packs when the session's speech
+    // starts, so a changed or new voice is encoded before its first line rather than while that line waits. Only
+    // reference voices can be warmed, so no other service is probed. Resolves when every prewarm has been sent.
+    prewarmCast() {
+      casting = casting.then(async () => {
+        if (disposed || !presentation.figureRows) return
+        const bound = new Set(presentation.extension.assetBindings?.boundPackIds || [])
+        for (const row of await presentation.figureRows()) {
+          if (disposed) return
+          if (!bound.has(row.ref.packId) || row.enabled === false || !row.figure?.voice) continue
+          const spec = (await presentation.resolveFigure(row.ref)).voiceSpec
+          if (spec?.sources?.[row.figure.voice.source ?? spec.defaultSource]?.kind === 'reference-list') await api.open(row.actorKey)
+        }
+      }).catch(() => {})
+      return casting.then(() => warming)
     },
     async serviceState(alias) {
       const selected = await api.open(alias, {readOnly:true})
@@ -199,5 +216,7 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     refresh:clear,
     dispose() { if (disposed) return; disposed = true; offPresentation(); offTts?.(); clear(); listeners.clear() }
   }
+  // A session's speech is created when the session starts (and again after a TTS change): its cast is known then.
+  if (!onlyCached) queueMicrotask(() => void api.prewarmCast())
   return api
 }
