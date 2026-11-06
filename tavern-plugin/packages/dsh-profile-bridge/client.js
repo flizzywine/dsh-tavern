@@ -46,8 +46,9 @@ window.__ModuleLoader__.load({
       replacesNext: '检测到旧版 NEXT 酒馆。安装会备份它的 Profile，并为官方版生成新的配置。酒馆专属数据将继续使用。',
       installHint: '酒馆会安装到独立的 tavern 配置。下载和准备期间可继续使用桌面，准备完成后会重启桌面以应用配置。',
       installing: '正在准备安装酒馆…',
-      restartReady: '酒馆已安装并通过验证。请保存工作，再确认重启以切换到酒馆。',
-      restartToApply: '确认重启并应用',
+      restartReady: '酒馆已安装并通过验证。请保存工作，确认后从托盘退出。看到安装完成提示后，再打开 DSH。',
+      restartToApply: '准备退出并应用',
+      quitToApply: '请从托盘退出 DSH。看到安装结果提示后，再打开 DSH。',
       copyLogs: '复制诊断日志',
       logsCopied: '日志已复制',
       copyLogsFailed: '复制失败，可以在「说明与日志」中选中日志并手动复制。',
@@ -109,8 +110,9 @@ window.__ModuleLoader__.load({
       replacesNext: 'The installer will back up the existing NEXT Tavern profile, create a profile for official Desktop, and reuse Tavern data.',
       installHint: 'Tavern gets its own profile. You can use Desktop while files are downloaded and prepared. Desktop then restarts to apply the new profile.',
       installing: 'Preparing Tavern installation…',
-      restartReady: 'Tavern is installed and verified. Save your work before restarting into Tavern.',
-      restartToApply: 'Restart and apply',
+      restartReady: 'Tavern is installed and verified. Save your work, confirm, and quit Desktop. Open it again after the completion notice.',
+      restartToApply: 'Prepare to quit and apply',
+      quitToApply: 'Quit DSH and reopen it after the installation result appears.',
       copyLogs: 'Copy diagnostic log',
       logsCopied: 'Log copied',
       copyLogsFailed: 'Could not copy automatically. Select the log under Help and logs to copy it.',
@@ -218,7 +220,7 @@ window.__ModuleLoader__.load({
         try {
           const result = await call('confirm-install-restart', { stamp: status.lastResult.stamp })
           if (result?.ok !== true) setFailure(describeFailure(result?.error))
-          else setStatus(previous => ({ ...previous, installAwaitingRestart: false }))
+          else setStatus(previous => ({ ...previous, installAwaitingRestart: false, installProgress: t('quitToApply') }))
         } catch (error) {
           setFailure(describeFailure(error))
         } finally {

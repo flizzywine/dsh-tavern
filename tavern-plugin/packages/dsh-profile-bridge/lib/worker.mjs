@@ -6,7 +6,16 @@ import { fileURLToPath } from 'node:url'
 import { waitForExit, switchProfile, relaunchApp } from './helper.mjs'
 import { cleanupOwnedProcesses, waitForOwnedExit } from './processes.mjs'
 import { hasNextTavern } from './state.mjs'
-import { requestDesktopQuit } from './quit.mjs'
+
+function notifyInstallFinished(failed, recoveryRequired) {
+  const message = recoveryRequired ? '酒馆安装需要恢复。请查看安装日志。' : failed
+    ? '酒馆安装未完成。请重新打开 DeepSeek Harness 查看诊断日志。'
+    : '酒馆安装完成。现在可以重新打开 DeepSeek Harness。'
+  const [command, args] = process.platform === 'win32'
+    ? ['powershell.exe', ['-NoProfile', '-Command', `Add-Type -AssemblyName System.Windows.Forms; [void][System.Windows.Forms.MessageBox]::Show('${message}', 'DSH Tavern')`]]
+    : ['/usr/bin/osascript', ['-e', `display dialog "${message}" with title "DSH Tavern" buttons {"OK"}`]]
+  return spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true })
+}
 
 async function installTavern(request, { log, beforePublish }) {
   const windows = process.platform === 'win32'
@@ -55,7 +64,7 @@ async function installTavern(request, { log, beforePublish }) {
       timer = setInterval(() => {
         if (!existsSync(gate + '.ready') || !existsSync(gate + '.approved')) return
         clearInterval(timer)
-        writeFileSync(gate + '.progress', '已确认重启，正在退出官方桌面…')
+        writeFileSync(gate + '.progress', '请从托盘退出官方桌面，看到安装结果后再打开。')
         void beforePublish().then(() => {
           writeFileSync(gate, 'publish')
         }).catch(error => {
@@ -127,7 +136,7 @@ async function performJob(request, options) {
 /** Run outside the profiles tree; never relaunch an app after failed recovery. */
 export async function runSwitchJob(job, {
   wait = waitForExit, waitOwned = waitForOwnedExit, perform = performJob, cleanup = cleanupOwnedProcesses,
-  relaunch = relaunchApp, quit = requestDesktopQuit,
+  relaunch = relaunchApp, notify = notifyInstallFinished,
 } = {}) {
   const lock = dirname(job)
   try { writeFileSync(join(lock, 'worker.json'), JSON.stringify({ pid: process.pid, startedAt: Date.now() }), { flag: 'wx', mode: 0o600 }) } catch {}
@@ -155,11 +164,7 @@ export async function runSwitchJob(job, {
       }
       if (request.mode !== 'install') await waitForDesktop()
       let cleaned = false
-      const result = await perform(request, { log, beforePublish: async () => {
-        const closed = await quit({ pid: request.pids[1], executable: request.relaunch }, { onError: error => log(error.message) })
-        if (!closed) writeFileSync(join(lock, 'runtime', 'publish.progress'), '准备完成，请从托盘退出官方桌面以应用配置。')
-        await waitForDesktop()
-      }, retry: { onRetry: async ({ from, to, code, attempt }) => {
+      const result = await perform(request, { log, beforePublish: waitForDesktop, retry: { onRetry: async ({ from, to, code, attempt }) => {
         log(`目录占用重试 ${attempt}: ${code} ${from} → ${to}`)
         if (!cleaned) {
           cleaned = true
@@ -183,7 +188,13 @@ export async function runSwitchJob(job, {
     failed = true
     log('ERROR: ' + error.message)
   } finally {
-    if (exited && !recoveryRequired && request?.relaunch) {
+    if (exited && request?.mode === 'install') {
+      try {
+        const notification = notify(failed, recoveryRequired)
+        notification?.on('error', error => log('无法显示安装结果：' + error.message))
+        notification?.unref()
+      } catch (error) { log('无法显示安装结果：' + error.message) }
+    } else if (exited && !recoveryRequired && request?.relaunch) {
       try { relaunch(request.relaunch); log('已重新打开官方桌面。') } catch (error) { log('ERROR: 无法重新打开官方桌面：' + error.message) }
     }
     if (recoveryRequired) log('入口需要手动恢复，未重新打开桌面；请保留备份和日志。')

@@ -96,27 +96,27 @@ test('worker reports failed rollback with backup and never reopens missing entry
   assert.equal(readFileSync(join(request.targetDir, 'save'), 'utf8'), 'tavern bytes')
 })
 
-test('launcher prepares before quitting and waits for desktop and descendants before publishing', async t => {
+test('launcher waits for manual exit and reports completion without relaunching', async t => {
   const request = { ...fixture(t), mode: 'install', ownership: { roots: [], descendants: [{ pid: 10 }] } }
   const order = []
   const result = await runSwitchJob(job(request), {
     waitOwned: async ({ roots }) => { order.push(roots.length ? 'descendants-exited' : 'desktop-exited') },
-    quit: async () => { order.push('quit'); return true },
     perform: async (_request, { beforePublish }) => {
       order.push('prepare')
       await beforePublish()
       order.push('install')
       return { installed: true }
     },
-    relaunch: () => {
-      order.push('relaunch')
+    relaunch: () => assert.fail('installation must not relaunch Desktop'),
+    notify: () => {
+      order.push('notify')
       const status = JSON.parse(readFileSync(join(request.stateDir, 'last-result.json')))
       assert.equal(status.mode, 'install')
       assert.equal(status.status, 'succeeded')
     },
   })
   assert.equal(result, 0)
-  assert.deepEqual(order, ['prepare', 'quit', 'desktop-exited', 'descendants-exited', 'install', 'relaunch'])
+  assert.deepEqual(order, ['prepare', 'desktop-exited', 'descendants-exited', 'install', 'notify'])
 })
 
 test('normal quit timeout never cleans descendants, changes directories, or relaunches', async t => {

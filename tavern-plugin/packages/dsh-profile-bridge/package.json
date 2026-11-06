@@ -1,6 +1,6 @@
 {
   "name": "dsh-profile-bridge",
-  "version": "0.2.0-tavern.8",
+  "version": "0.2.0-tavern.9",
   "description": "官方 DeepSeek Harness 的酒馆启动器，安装、切换和管理独立的酒馆配置",
   "license": "MIT",
   "author": "2NF",

@@ -123,7 +123,7 @@ test('准备完成后等待用户确认，只重启对应的安装任务', async
   })
   try {
     assert.deepEqual(page.calls, [['status', {}]])
-    await page.act(async () => namedButton(page, '确认重启并应用').click())
+    await page.act(async () => namedButton(page, '准备退出并应用').click())
     assert.deepEqual(page.calls.at(-1), ['confirm-install-restart', { stamp: 'prepared' }])
   } finally {
     await page.dispose()
