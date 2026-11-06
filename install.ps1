@@ -1253,8 +1253,11 @@ try {
     if ($LauncherOnly) {
       if (Get-Process -Name 'DeepSeek Harness', 'DSH NEXT' -ErrorAction SilentlyContinue) { throw '请先从托盘退出 DeepSeek Harness 和 DSH NEXT，再安装酒馆启动器。' }
       $DesktopProfile = Get-Item -LiteralPath (Join-Path $DshRoot 'profiles\desktop') -Force -ErrorAction SilentlyContinue
-      if (-not $DesktopProfile -or -not $DesktopProfile.PSIsContainer -or ($DesktopProfile.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-        throw '请先打开官方 DeepSeek Harness 完成初始设置，或切回原版 desktop，再退出并安装酒馆启动器。'
+      if (-not $DesktopProfile -or -not $DesktopProfile.PSIsContainer) {
+        throw '找不到原版 desktop 配置。请打开官方 DeepSeek Harness 完成初始设置，再从托盘退出。'
+      }
+      if ($DesktopProfile.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw '当前使用的是切换后的配置。请打开官方 DeepSeek Harness，在「设置 → 酒馆启动器」点「重启并切换到原版 DSH」。等原版窗口打开，再从托盘退出并重试命令。'
       }
       $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js'
       $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.5.tgz'
