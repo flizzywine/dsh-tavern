@@ -50,7 +50,9 @@ export async function readStageProjection(options) {
       // Old playback is derived data: rebuild from the stored director, never decode/migrate old frames.
       const metadata = reuseStagePlayback(old,direction)
       const snapshotCache = {views:new WeakMap(),moods:new Map(),packs:new Set()}
-      let changed = false, assetRevision, appendFrame
+      // The baseline is taken before any reconstruction sync: a sync that observes a republished pack bumps the revision itself.
+      let changed = false, appendFrame
+      const assetRevision = options.revision()
       // Freeze every sealed semantic boundary, not the subset visited by this viewport.
       const boundaries = new Set([1,...(direction.displayUnits || []).flatMap((unit,index) => unit.kind === 'line' ? [index + 1] : []),checked.baseline.cameraUntil === undefined ? 0 : checked.baseline.cameraUntil - (checked.baseline.pacing?.paragraph || 0) + 1,...checked.entries.flatMap(entry => [entry.at,entry.at + 1,
         entry.state.cameraUntil === undefined ? 0 : entry.state.cameraUntil - (checked.baseline.pacing?.paragraph || 0) + 1])])
@@ -62,7 +64,6 @@ export async function readStageProjection(options) {
         // authority before publishing instead of re-reading/hashing the record per frame.
         const result = await readCurrentProjection({...options,readDirection:() => direction,at:boundary,page:boundaryPage,snap:false,snapshotOnly:true,snapshotCache})
         if (result.status !== 'ready' && (boundary === at || result.status === 'stale' || !same(result.directionToken,direction.token))) return result
-        assetRevision ??= options.revision()
         if (assetRevision !== options.revision() || result.status === 'ready' && result.revision !== assetRevision) return {status:'stale',directionToken:direction.token}
         // An unavailable off-page resource must not block the readable current page,
         // nor be silently reconstructed from a different hash on a later history visit.
@@ -79,7 +80,7 @@ export async function readStageProjection(options) {
         const consumer = await snapshotCache.consumer
         await consumer.presentation.sync([...snapshotCache.packs].map(packId => ({packId})))
       }
-      if (assetRevision !== undefined && assetRevision !== options.revision()) return {status:'stale',directionToken:direction.token}
+      if (assetRevision !== options.revision()) return {status:'stale',directionToken:direction.token}
       const written = changed || !same(old?.acceptedPrefix,direction.token)
       saved = written ? await options.writePlayback(direction,metadata,options.revision()) : metadata
       // After CAS, read back the authoritative immutable identity once. A racing
