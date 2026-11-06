@@ -222,10 +222,11 @@ test('bounded regeneration stores the same Chat and surface as the complete rege
     results.push({ h, before, after, view })
   }
   const [b, f] = results
-  assert.ok(!b.h.calls.includes('read') && !b.h.calls.includes('readRevision'), JSON.stringify(b.h.calls))
-  assert.ok(f.h.calls.includes('read'))
+  for (const h of [b.h, f.h]) assert.ok(!h.calls.includes('patch:rollback.regen') && !h.calls.includes('update:rollback.regen'), JSON.stringify(h.calls))
+  assert.ok(b.h.calls.includes('update:foreground.regen-commit') && f.h.calls.includes('update:foreground.regen-commit'))
   const strip = chat => {
     const value = comparable(chat)
+    if (value.messages?.length) value.messages.at(-1).ts = 0
     for (const op of Object.values(value.timeline.operations)) if (op.regenerationId) op.regenerationId = 'R'
     return JSON.parse(JSON.stringify(value).replace(/tavern-regen:[0-9a-f-]+/g, 'tavern-regen:R'))
   }
@@ -302,6 +303,7 @@ test('被截断的重新生成保留已生成的部分正文，两种路径结�
   }
   const strip = chat => {
     const value = comparable(chat)
+    if (value.messages?.length) value.messages.at(-1).ts = 0
     if (value.nativeSync) value.nativeSync.at = 0
     for (const op of Object.values(value.timeline.operations)) if (op.regenerationId) op.regenerationId = 'R'
     return JSON.parse(JSON.stringify(value).replace(/tavern-regen:[0-9a-f-]+/g, 'tavern-regen:R'))

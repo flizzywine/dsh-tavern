@@ -382,6 +382,19 @@ export function createTurnOrchestrator(options) {
         text: promptSection('tavern_state', PROMPT_PROSE.p002)
       }
     }
+    // Candidate-first regeneration reuses the original round's frozen frame.
+    // It must not append a synthetic user, reopen a body operation, render input
+    // macros or write world/template state into the authoritative story.
+    if (chat.regenInProgress === true && chat.regenRecovery?.candidateFrame?.kind === 'foreground') {
+      const frame = clone(chat.regenRecovery.candidateFrame)
+      return {
+        ready: true,
+        mode: chat.mode || 'story',
+        cardName: str(chat.cardName),
+        userText: str(frame.userInput?.projectedText),
+        frame
+      }
+    }
     let preparationBase = store.writeChatHeader ? captureChatHeader(chat) : null
     async function savePreparation(metadata) {
       if (store.writeChatHeader) preparationBase = await store.writeChatHeader(chat,preparationBase,metadata)
@@ -794,6 +807,12 @@ export function createTurnOrchestrator(options) {
 
   async function finalizeSnapshot(input, chat, writeChat, expectedTimeline, history) {
     const turn = Math.max(0, Number(input.turn) || 0)
+    // The native turn owns only a candidate in the Session log. round-history
+    // validates it and performs the sole story commit; ordinary finalization is
+    // deliberately a no-op while that candidate is being generated.
+    if (chat.regenInProgress === true && chat.regenRecovery?.candidateFrame?.kind === 'foreground') {
+      return { saved: false, detached: true, mode: chat.mode || 'story', changed: false }
+    }
     const requestId = str(input.requestId).trim()
     const requestCommit = commitForRequest(chat, requestId)
     if (requestCommit !== null) {
@@ -1013,6 +1032,10 @@ export function createTurnOrchestrator(options) {
   async function recordFailure(input) {
     const chat = await store.chatForSession(input.sessionId)
     if (chat === undefined) return false
+    // A failed candidate is not a failure of the visible story round. Its native
+    // attempt is cleaned by regenerationRecovery.abort(), without touching the
+    // old body, later inputs or their variables.
+    if (chat.regenInProgress === true && chat.regenRecovery?.candidateFrame?.kind === 'foreground') return false
     chat.foregroundError = {
       turn: Math.max(0, Number(input.turn) || 0),
       requestId: str(input.requestId).trim(),
@@ -1028,6 +1051,9 @@ export function createTurnOrchestrator(options) {
   async function discard(input) {
     const target = await store.chatForSession(input.sessionId)
     if (target === undefined) return false
+    // No story operation or placeholder was created for a detached candidate.
+    // In particular, never run the ordinary failed-turn cleanup against it.
+    if (target.regenInProgress === true && target.regenRecovery?.candidateFrame?.kind === 'foreground') return false
     const turn = Math.max(0, Number(input.turn) || 0)
     let changed = false
     // Re-evaluate the operation under the same lock as its persistence. A late

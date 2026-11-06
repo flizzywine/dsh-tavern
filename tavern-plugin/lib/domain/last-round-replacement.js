@@ -36,7 +36,7 @@ export function assertRegenerationSourceCurrent(input = {}) {
   return currentChat
 }
 
-/** Replace the last committed user/body pair with exactly one generated version. */
+/** Replace one committed user/body pair without discarding any later story rows. */
 export function replaceLastRound(input = {}) {
   const originalChat = clone(input.originalChat)
   const regeneratedChat = clone(input.regeneratedChat)
@@ -44,7 +44,9 @@ export function replaceLastRound(input = {}) {
   if (!originalChat || !regeneratedChat || !Array.isArray(originalChat.messages) || !Array.isArray(regeneratedChat.messages)) throw new Error('重新生成缺少聊天状态')
   const originalAssistant = originalChat.messages[assistantIndex]
   const originalUser = originalChat.messages[assistantIndex - 1]
-  const regeneratedAssistant = regeneratedChat.messages[regeneratedChat.messages.length - 1]
+  // Candidate-first regeneration supplies the validated native/plugin candidate
+  // directly. Legacy callers still pass it as the final synthetic story row.
+  const regeneratedAssistant = input.replacement || regeneratedChat.messages[regeneratedChat.messages.length - 1]
   if (!originalAssistant || originalAssistant.role !== 'assistant' || !originalUser || originalUser.role !== 'user') throw new Error('原正文不是玩家输入与助手回复组合')
   if (!regeneratedAssistant || regeneratedAssistant.role !== 'assistant') throw new Error('重新生成没有产生助手回复')
 
@@ -69,6 +71,10 @@ export function replaceLastRound(input = {}) {
   if (Array.isArray(originalAssistant.variables) || Array.isArray(regeneratedAssistant.variables)) {
     replacement.variables = [clone(Array.isArray(regeneratedAssistant.variables) ? regeneratedAssistant.variables[selected] || {} : {})]
   }
-  regeneratedChat.messages = originalChat.messages.slice(0, assistantIndex - 1).concat([clone(originalUser), replacement])
+  // Update the target pair in the full original array. Later user inputs and
+  // completed rounds were never part of this generation and must survive it.
+  regeneratedChat.messages = originalChat.messages.slice()
+  regeneratedChat.messages[assistantIndex - 1] = clone(originalUser)
+  regeneratedChat.messages[assistantIndex] = replacement
   return { chat: regeneratedChat, assistant: replacement }
 }

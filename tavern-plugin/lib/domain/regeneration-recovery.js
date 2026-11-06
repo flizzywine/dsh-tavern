@@ -1,6 +1,32 @@
 import { sessionEvents } from './session-events.js'
 import { inputKind, isNewTurnInput, storyPlayerInputs } from './session-turn-input.js'
 import { clearRegenerationAttemptSurface, regenerationAttemptTurns, locateRegenerationSurface, applyRegenerationProjection } from './rollback-surface.js'
+import { isDeepStrictEqual } from 'node:util'
+
+// Older hosts may still have finalized the detached native candidate as one
+// temporary round. Remove it only when every original row and timeline entry is
+// intact and the sole suffix is provably this request's candidate turn.
+function discardCandidateResidue(chat, original) {
+  if (!chat?.regenRecovery?.candidateFrame || !original) return false
+  const turn = Number(chat.regenRecovery.candidateTurn)
+  const before = Array.isArray(original.messages) ? original.messages : []
+  const messages = Array.isArray(chat.messages) ? chat.messages : []
+  if (messages.length !== before.length + 2 || !isDeepStrictEqual(messages.slice(0, before.length), before) ||
+      messages.at(-2)?.role !== 'user' || messages.at(-1)?.role !== 'assistant' || Number(messages.at(-1)?.turn) !== turn) return false
+  const beforeOperations = original.timeline?.operations || {}
+  const operations = chat.timeline?.operations || {}
+  const originalIntact = Object.entries(beforeOperations).every(([id, operation]) => isDeepStrictEqual(operations[id], operation))
+  const extras = Object.entries(operations).filter(([id]) => !Object.hasOwn(beforeOperations, id))
+  const checkpoints = original.timeline?.checkpoints || []
+  if ((original.timeline?.branchId && chat.timeline?.branchId !== original.timeline.branchId) || !originalIntact ||
+      !isDeepStrictEqual((chat.timeline?.checkpoints || []).slice(0, checkpoints.length), checkpoints) || extras.length !== 1 ||
+      extras[0][1]?.kind !== 'body' || extras[0][1]?.status !== 'completed' || Number(extras[0][1]?.turn) !== turn) return false
+  chat.messages.splice(before.length, 2)
+  chat.timeline = structuredClone(original.timeline)
+  if (chat.nativeCommits && typeof chat.nativeCommits === 'object') delete chat.nativeCommits[String(turn)]
+  if (Number(chat.foregroundError?.turn) === turn) chat.foregroundError = null
+  return true
+}
 
 /**
  * `replacingDshTurns` once the committed body is projected. The old reply stays
@@ -44,7 +70,10 @@ export function createRegenerationRecovery({ chats, sessions, timeline, isActive
   async function release({ chatId, operationId, before, session, reason }) {
     const saved = await chats.update(chatId, current => {
       if (!current || current.regenInProgress !== true || (operationId && current.regenRecovery?.id !== operationId)) return
-      const next = before && current.regenRecovery?.phase !== 'committed'
+      // Only a legacy pre-rollback marker owns a restoreChat snapshot. A
+      // candidate-first marker never changed the story, so releasing it must not
+      // write an older snapshot over the already-intact messages or variables.
+      const next = before && current.regenRecovery?.phase !== 'committed' && !current.regenRecovery?.candidateFrame
         ? timeline.apply({ chat: current, intent: { kind: 'replacement.abort', restoreChat: before } }).chat : current
       endMarker(next)
       next.tavernHelperLifecycleRevision = Number(current.tavernHelperLifecycleRevision || 0) + 1
@@ -105,7 +134,13 @@ export function createRegenerationRecovery({ chats, sessions, timeline, isActive
         clearRegenerationAttemptSurface({ session, eventStart })
         if (typeof sessions.flush === 'function') await sessions.flush(session)
       } catch (error) { nativeError = error }
-      const next = timeline.apply({ chat: current, intent: { kind: 'replacement.abort', restoreChat: originalChat } }).chat
+      // Candidate-first generation never rolled the story back. Cleaning its
+      // native attempt and marker is the whole abort transaction; restoring the
+      // originalChat here would be a second, unrelated story write. Only a legacy
+      // host's proven temporary candidate suffix is discarded as request state.
+      if (current.regenRecovery?.candidateFrame) discardCandidateResidue(current, originalChat)
+      const next = current.regenRecovery?.candidateFrame ? current
+        : timeline.apply({ chat: current, intent: { kind: 'replacement.abort', restoreChat: originalChat } }).chat
       delete next.regenInProgress
       delete next.regenRecovery
       next.tavernHelperLifecycleRevision = Number(current.tavernHelperLifecycleRevision || 0) + 1
@@ -160,7 +195,7 @@ export function createRegenerationRecovery({ chats, sessions, timeline, isActive
       // Independent providers have not changed story or model surface while
       // generating. A crash only abandons their lock, never rewinds the live
       // story or settings to an older revision.
-      if (chat.regenRecovery?.detached === true && chat.regenRecovery.phase === 'prepared') {
+      if (chat.regenRecovery?.detached === true && chat.regenRecovery.phase === 'prepared' && !chat.regenRecovery?.candidateFrame) {
         return await chats.update(chatId, current => {
           if (current?.regenRecovery?.id !== chat.regenRecovery.id || current.regenRecovery.phase !== 'prepared') return current
           if (current.regenRecovery.candidate) current.bodyGenerationCandidate = current.regenRecovery.candidate
@@ -184,15 +219,18 @@ export function createRegenerationRecovery({ chats, sessions, timeline, isActive
         if (!session) return await release({ chatId, operationId, session, reason: '无法加载重新生成的原生会话' })
         return await complete({ chatId, session, operationId })
       }
-      let before
-      try { before = await originalState(chat) }
-      catch (error) { return await release({ chatId, operationId, session, reason: error }) }
-      if (!session) return await release({ chatId, operationId, before, reason: '无法加载重新生成的原生会话' })
+      const candidateFirst = chat.regenRecovery?.candidateFrame?.kind === 'foreground'
+      let before = chat
+      if (!candidateFirst) {
+        try { before = await originalState(chat) }
+        catch (error) { return await release({ chatId, operationId, session, reason: error }) }
+      }
+      if (!session) return await release({ chatId, operationId, before: candidateFirst ? null : before, reason: '无法加载重新生成的原生会话' })
       let eventStart
       try { eventStart = chat.regenRecovery?.eventStart ?? legacyEventStart(before, session) }
-      catch (error) { return await release({ chatId, operationId, before, session, reason: error }) }
+      catch (error) { return await release({ chatId, operationId, before: candidateFirst ? null : before, session, reason: error }) }
       if (!Number.isSafeInteger(eventStart) || eventStart < 0 || eventStart > sessionEvents(session).length) {
-        return await release({ chatId, operationId, before, session, reason: '重新生成的原生历史边界不匹配' })
+        return await release({ chatId, operationId, before: candidateFirst ? null : before, session, reason: '重新生成的原生历史边界不匹配' })
       }
       const aborted = await abort({ chatId, originalChat: before, session, eventStart, operationId })
       if (aborted !== undefined || (await chats.read(chatId))?.regenInProgress !== true) return aborted

@@ -493,3 +493,27 @@ test('插件新正文按处理后的原文保存，不重复运行输出宏或�
   assert.equal((await h.orchestrator.finalize(input)).duplicate, true)
   assert.equal(h.chat().messages.filter(row => row.role === 'assistant').length, 1)
 })
+
+test('候选重生成复用冻结帧，普通准备提交失败清理均不写故事', async () => {
+  const candidateFrame = {
+    kind: 'foreground', frameId: 'frame-regen', chatId: 'chat-1', branchId: 'branch-1',
+    operationId: 'regen-op', turn: 3, basedOnRevision: 4,
+    userInput: { sourceText: '继续', projectedText: '继续', source: { stage: 'player-input' } },
+    context: {}, contributions: [], source: {}, diagnostics: [], ignored: []
+  }
+  const h = harness('story', { chatFields: {
+    messages: [{ role: 'user', text: '继续' }, { role: 'assistant', turn: 2, text: '旧正文' }, { role: 'user', text: '后续输入' }],
+    regenInProgress: true,
+    regenRecovery: { id: 'regen-op', phase: 'prepared', candidateTurn: 3, candidateFrame }
+  } })
+  const before = h.chat()
+  const prepared = await h.orchestrator.prepare({ sessionId: 'session', turn: 3, requestId: 'regen-request', userText: '继续' })
+  assert.deepEqual(prepared.frame, candidateFrame)
+  assert.equal(h.plannerCalls.length, 0)
+  const finalized = await h.orchestrator.finalize({ sessionId: 'session', turn: 3, requestId: 'regen-request', userText: '继续', assistantText: '候选正文' })
+  assert.equal(finalized.saved, false)
+  assert.equal(finalized.detached, true)
+  assert.equal(await h.orchestrator.recordFailure({ sessionId: 'session', turn: 3, requestId: 'regen-request', message: 'failed' }), false)
+  assert.equal(await h.orchestrator.discard({ sessionId: 'session', turn: 3 }), false)
+  assert.deepEqual(h.chat(), before)
+})
