@@ -1437,17 +1437,28 @@ if [ "${INSTALL_HOST}" != "cli" ]; then
 fi
 
 STAGER=${SOURCE_DIR}/bin/staged-app-install.mjs
-if [ "${INSTALL_HOST}" = "cli" ] && [ -f "${STAGER}" ]; then
+if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" = "cli" ] && [ -f "${STAGER}" ]; }; then
   # Prepare beside the running app; only the final switch stops the service, and a
   # failure after it restores the previous directory (see bin/staged-app-install.mjs).
   echo "正在准备新版本（当前版本继续运行）……"
+  if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ]; then printf '%s' '正在准备程序与安装依赖…' >"${DSH_TAVERN_PUBLISH_GATE}.progress"; fi
   STAGED_INSTALL=1
   node "${STAGER}" prepare --app "${APP_DIR}" --source "${SOURCE_DIR}" --commit "${TARGET_COMMIT}" >/dev/null
 
   echo "正在安装程序依赖……"
   run_install dependencies.install 600000 pnpm --dir "${APP_DIR}.staging" install --frozen-lockfile --config.minimum-release-age=0
 
-  if [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then
+  if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ]; then
+    printf '%s' '准备完成，正在关闭桌面以应用酒馆配置…' >"${DSH_TAVERN_PUBLISH_GATE}.progress"
+    : >"${DSH_TAVERN_PUBLISH_GATE}.ready"
+    deadline=$(( $(date +%s) + 240 ))
+    while [ ! -f "${DSH_TAVERN_PUBLISH_GATE}" ]; do
+      [ "$(date +%s)" -lt "$deadline" ] || fail "等待桌面退出超时，尚未切换 Profile。"
+      sleep 1
+    done
+    [ "$(cat "${DSH_TAVERN_PUBLISH_GATE}")" = publish ] || fail "桌面未能退出，尚未切换 Profile。"
+    if [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then PREVIOUS_APP=1; fi
+  elif [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then
     PREVIOUS_APP=1
     DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" stop >/dev/null 2>&1 || true
   fi

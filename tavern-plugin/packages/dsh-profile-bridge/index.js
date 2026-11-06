@@ -51,6 +51,7 @@ async function runSwitch(mode, paths, payload) {
     activeName: paths.activeName, targetDir: target?.dir, stateDir: paths.stateDir,
     stamp: new Date().toISOString().replace(/[:.]/g, '-') + '-' + process.pid,
     pids: [process.pid, process.ppid], ownership, relaunch })
+  if (mode === 'install') return { ...result, mode, warnings: [], reopensApp: true }
   const closesApp = await requestDesktopQuit({ pid: process.ppid, executable: relaunch }, {
     onError: error => {
       try { appendFileSync(result.logPath, new Date().toISOString() + ' 自动退出失败，可从托盘退出：' + error.message + '\n') } catch {}

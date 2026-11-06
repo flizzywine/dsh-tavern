@@ -108,7 +108,7 @@ test('原版桌面首次安装需要确认，排队后禁用安装按钮', async
   try {
     await page.act(async () => namedButton(page, '安装酒馆').click())
     assert.deepEqual(page.calls, [['status', {}]])
-    await page.act(async () => namedButton(page, '确认安装并重启').click())
+    await page.act(async () => namedButton(page, '确认安装').click())
     assert.deepEqual(page.calls.at(-1), ['install', { confirmed: true }])
     assert.equal(namedButton(page, '安装酒馆').disabled, true)
   } finally {

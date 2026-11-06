@@ -213,6 +213,7 @@ export function statusPayload(paths) {
     profiles,
     backups: listBackups(paths),
     lastResult: readLastResult(paths.stateDir),
+    installProgress: readLogTail(join(paths.stateDir, 'install-pending', 'runtime', 'publish.progress'), 400),
     logPath: join(paths.stateDir, 'last-run.log'),
     logTail: readLogTail(join(paths.stateDir, 'last-run.log')),
     transcriptPath: join(paths.stateDir, 'last-run.log.out'),

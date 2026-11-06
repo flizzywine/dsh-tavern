@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, appendFileSync, rmSync, rmdirSync, lstatSync, realpathSync, openSync, fsyncSync, closeSync, renameSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, appendFileSync, rmSync, rmdirSync, lstatSync, realpathSync, openSync, fsyncSync, closeSync, renameSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { spawn } from 'node:child_process'
@@ -6,49 +6,66 @@ import { fileURLToPath } from 'node:url'
 import { waitForExit, switchProfile, relaunchApp } from './helper.mjs'
 import { cleanupOwnedProcesses, waitForOwnedExit } from './processes.mjs'
 import { hasNextTavern } from './state.mjs'
+import { requestDesktopQuit } from './quit.mjs'
 
-async function installTavern(request, { log }) {
+async function installTavern(request, { log, beforePublish }) {
   const windows = process.platform === 'win32'
   const replacesNext = hasNextTavern(request.home)
   const name = windows ? 'install.ps1' : 'install.sh'
   const script = join(request.stateDir, 'install-pending', 'runtime', name)
+  const gate = join(dirname(script), 'publish')
+  writeFileSync(gate + '.progress', '正在下载安装脚本…')
   const repository = 'flizzywine/dsh-tavern'
   const sources = [
     `https://cdn.jsdelivr.net/gh/${repository}@runtime-archive-main/${name}`,
-    `https://raw.githubusercontent.com/${repository}/main/${name}`,
+    `https://raw.githubusercontent.com/${repository}/main/${name}?launcher=${Date.now()}`,
   ]
   for (const source of sources) {
     try {
       const response = await fetch(source, { signal: AbortSignal.timeout(20000) })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const content = await response.text()
-      if (windows && !content.includes('DSH_TAVERN_LAUNCHER_INSTALL')) throw new Error('CDN 安装脚本尚未同步')
+      if (!content.includes('DSH_TAVERN_PUBLISH_GATE')) throw new Error('安装脚本尚未同步')
       if (replacesNext && !content.includes('DSH_TAVERN_REQUIRE_NEXT_MIGRATION')) throw new Error('安装脚本尚未支持 NEXT 迁移')
       writeFileSync(script, windows ? '\uFEFF' + content : content, { flag: 'wx', mode: 0o600 })
       log('已下载酒馆安装脚本。')
       break
     } catch (error) {
       log(`安装脚本下载失败 ${source}: ${error.message}`)
-      if (source === sources.at(-1)) throw new Error('无法下载酒馆安装脚本，请检查网络后重试。')
+      if (source === sources.at(-1)) throw new Error(`无法获取可用的酒馆安装脚本：${error.message}。请稍后重试。`)
     }
   }
   const env = { ...process.env, DSH_HOME: request.home, DSH_TAVERN_HOST: 'desktop',
-    DSH_DESKTOP_APP_EXECUTABLE: request.relaunch, DSH_TAVERN_LAUNCHER_INSTALL: '1' }
+    DSH_DESKTOP_APP_EXECUTABLE: request.relaunch, DSH_TAVERN_LAUNCHER_INSTALL: '1', DSH_TAVERN_PUBLISH_GATE: gate }
+  writeFileSync(gate + '.progress', '正在下载酒馆文件…')
   if (replacesNext) env.DSH_TAVERN_REQUIRE_NEXT_MIGRATION = '1'
   for (const key of ['ELECTRON_RUN_AS_NODE', 'DSH_PROFILE', 'DSH_PROFILE_DIR']) delete env[key]
   const command = windows ? 'powershell.exe' : '/bin/bash'
   const args = windows ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script] : [script]
   const transcript = openSync(join(request.stateDir, 'last-run.log.out'), 'w', 0o600)
+  let timer
+  let publishError
   try {
     await new Promise((resolve, reject) => {
       const child = spawn(command, args, { env, stdio: ['ignore', transcript, transcript], windowsHide: true })
+      timer = setInterval(() => {
+        if (!existsSync(gate + '.ready')) return
+        clearInterval(timer)
+        void beforePublish().then(() => {
+          writeFileSync(gate, 'publish')
+        }).catch(error => {
+          publishError = error
+          try { writeFileSync(gate, 'cancel') } catch {}
+        })
+      }, 500)
       child.once('error', reject)
       child.once('exit', (code, signal) => {
         if (code === 0) resolve()
-        else reject(new Error(`酒馆安装失败（${signal ?? code}），请查看「说明与日志」。`))
+        else reject(publishError || new Error(`酒馆安装失败（${signal ?? code}），请查看「说明与日志」。`))
       })
     })
   } finally {
+    clearInterval(timer)
     closeSync(transcript)
   }
   return { installed: true }
@@ -105,7 +122,7 @@ async function performJob(request, options) {
 /** Run outside the profiles tree; never relaunch an app after failed recovery. */
 export async function runSwitchJob(job, {
   wait = waitForExit, waitOwned = waitForOwnedExit, perform = performJob, cleanup = cleanupOwnedProcesses,
-  relaunch = relaunchApp,
+  relaunch = relaunchApp, quit = requestDesktopQuit,
 } = {}) {
   const lock = dirname(job)
   try { writeFileSync(join(lock, 'worker.json'), JSON.stringify({ pid: process.pid, startedAt: Date.now() }), { flag: 'wx', mode: 0o600 }) } catch {}
@@ -121,18 +138,23 @@ export async function runSwitchJob(job, {
       mode: request.mode, stamp: request.stamp, finishedAt: new Date().toISOString(),
       logPath: join(request.stateDir, 'last-run.log'), ...result,
     }), { mode: 0o600 })
-    log(`已排队 ${request.stamp} (${request.mode})，等待官方桌面正常退出。`)
+    log(`已排队 ${request.stamp} (${request.mode})。`)
     try {
-      if (request.ownership) await waitOwned(request.ownership)
-      else await wait(request.pids)
-      exited = true
-      if (['install', 'relocate', 'uninstall'].includes(request.mode) && request.ownership?.descendants?.length) {
-        // Copying user data requires writers to be gone, not merely an unlocked
-        // directory. Do not force-close tasks for an installation operation.
-        await waitOwned({ roots: request.ownership.descendants }, { timeout: 15000 })
+      const waitForDesktop = async () => {
+        if (request.ownership) await waitOwned(request.ownership)
+        else await wait(request.pids)
+        exited = true
+        if (['install', 'relocate', 'uninstall'].includes(request.mode) && request.ownership?.descendants?.length) {
+          await waitOwned({ roots: request.ownership.descendants }, { timeout: 15000 })
+        }
       }
+      if (request.mode !== 'install') await waitForDesktop()
       let cleaned = false
-      const result = await perform(request, { log, retry: { onRetry: async ({ from, to, code, attempt }) => {
+      const result = await perform(request, { log, beforePublish: async () => {
+        const closed = await quit({ pid: request.pids[1], executable: request.relaunch }, { onError: error => log(error.message) })
+        if (!closed) writeFileSync(join(lock, 'runtime', 'publish.progress'), '准备完成，请从托盘退出官方桌面以应用配置。')
+        await waitForDesktop()
+      }, retry: { onRetry: async ({ from, to, code, attempt }) => {
         log(`目录占用重试 ${attempt}: ${code} ${from} → ${to}`)
         if (!cleaned) {
           cleaned = true
