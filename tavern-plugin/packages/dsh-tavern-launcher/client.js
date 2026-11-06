@@ -6,8 +6,7 @@ window.__ModuleLoader__.load({
     const ns = 'tavernLauncher'
     const pendingKey = 'dsh-tavern-launcher:profile-handoff'
     const zh = {
-      title: 'dsh-tavern 启动器',
-      menu: 'Profile 切换',
+      title: '酒馆启动器',
       currentProfile: '当前 Profile',
       originalProfile: '原版 DSH',
       tavernProfile: 'DSH 酒馆',
@@ -37,7 +36,6 @@ window.__ModuleLoader__.load({
     }
     const en = {
       title: 'DSH Tavern Launcher',
-      menu: 'Switch Profile',
       currentProfile: 'Current Profile',
       originalProfile: 'Original DSH',
       tavernProfile: 'DSH Tavern',
@@ -184,7 +182,7 @@ window.__ModuleLoader__.load({
         }, 'Continue Tavern management after Profile switch')
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section', id: 'dsh-tavern-launcher', order: 60,
-          label: () => t('menu'), inject: () => ({ call, t, handoffFailure: () => handoffFailure }),
+          label: () => t('title'), inject: () => ({ call, t, handoffFailure: () => handoffFailure }),
         }, Launcher))
       },
     }

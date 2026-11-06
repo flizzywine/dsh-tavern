@@ -41,14 +41,14 @@
 只需装一次 [DSH Tavern 启动器](tavern-plugin/packages/dsh-tavern-launcher/README.md)。打开 NEXT 的「DSH 终端」，运行：
 
 ```powershell
-dsh plugin --profile desktop add https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-next-downloads/dsh-tavern-launcher-1.3.0.tgz
+dsh plugin --profile desktop add https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-next-downloads/dsh-tavern-launcher-1.3.1.tgz
 ```
 
-回到 NEXT 的 `desktop` Profile，重启 NEXT，然后打开「设置 → Profile 切换」。
+回到 NEXT 的 `desktop` Profile，重启 NEXT，然后打开「设置 → 酒馆启动器」。
 
 - **首次使用**：点「安装酒馆」，完成后点「打开酒馆」。启动器会创建独立的 `tavern` Profile，NEXT 会切换过去。
-- **切回原版 DSH**：在酒馆的「设置 → Profile 切换」点「切回原版 DSH」，返回 `desktop`。
-- **更新或卸载**：两边的「Profile 切换」页都能操作。从酒馆发起时，NEXT 会先切回 `desktop`，再继续更新或弹出卸载确认。卸载会将 `tavern` Profile 移到恢复备份，角色卡和聊天数据会保留。
+- **切回原版 DSH**：在酒馆的「设置 → 酒馆启动器」点「切回原版 DSH」，返回 `desktop`。
+- **更新或卸载**：两边的「酒馆启动器」页都能操作。从酒馆发起时，NEXT 会先切回 `desktop`，再继续更新或弹出卸载确认。卸载会将 `tavern` Profile 移到恢复备份，角色卡和聊天数据会保留。
 - **从旧版迁移**：如果酒馆里没有这个页面，先用 NEXT 托盘的 Profile 菜单切回 `desktop`。升级启动器后，用新页面更新一次酒馆。
 
 这条命令由 NEXT 自带的插件管理器安装启动器，用户无需安装 Git 或 Node.js。市场收录只需要提交本仓库的 `dsh-tavern-launcher` 子包；酒馆仍在独立的 Profile 中。
