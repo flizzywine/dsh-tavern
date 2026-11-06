@@ -86,7 +86,9 @@ test('新旧渲染开关保留故事数据并即时回退原生 ChatFlow', async
 	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({ storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1 }) })
 	const store = data.createStoryTranscriptStore(), mode = data.createModeStore()
 	await store.read('s1')
-	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode: mode })
+	const refreshes = []
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode: mode,
+		externalHistory: { refresh: (sessionId, options) => refreshes.push({ sessionId, options }) } })
 	const NativeFlow = () => React.createElement('div', { 'data-native-flow': '' }, '原生')
 	const chat = { legacy: { partial: null, nodes: [], runningCalls: [] } }
 	const element = () => React.createElement(feature.StoryTranscriptFlow, {
@@ -102,6 +104,39 @@ test('新旧渲染开关保留故事数据并即时回退原生 ChatFlow', async
 	await act(async () => mode.set(true))
 	assert.equal(p.dom.window.document.querySelector('[data-native-flow]'), null)
 	assert.equal(p.dom.window.document.querySelectorAll('[data-story-row]').length, 3)
+	assert.deepEqual(refreshes.map(item => item.sessionId), ['s1', 's1', 's1'], '初次、切原生、回故事各同步一次投影')
+	assert.ok(refreshes.every(item => item.options === undefined), '模式切换由 external-history 的状态变化触发一次全量重建')
+})
+
+test('空故事回退原生 ChatFlow 时同步恢复完整 native 投影', async t => {
+	const p = page(t), { context } = p
+	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({ storyTranscript: null, view: null, revision: 0 }) })
+	const store = data.createStoryTranscriptStore()
+	await store.read('plain')
+	assert.equal(store.getSnapshot().status, 'empty')
+	let externalOptions
+	const cleanups = []
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, externalHistoryInstaller: options => {
+		externalOptions = options
+		return { refresh: () => {}, dispose: () => {} }
+	} })
+	const ctx = {
+		effect: run => { const cleanup = run(); if (typeof cleanup === 'function') cleanups.push(cleanup) },
+		get: () => ({}),
+		sessions: { list: { getSnapshot: () => ({ current: 'plain' }) } }
+	}
+	const slots = { inject: (_name, contribute) => contribute(), register: () => () => {}, entries: () => [], subscribe: () => () => {} }
+	feature.register({ ctx, slots })
+	assert.equal(externalOptions.isEnabled('plain'), true, '首次读取前乐观按故事首屏处理')
+	const NativeFlow = () => React.createElement('div', { 'data-native-flow': '' }, '完整原生')
+	await mount(p, React.createElement(feature.StoryTranscriptFlow, {
+		sessionId: 'plain', store: store, nativeFlow: NativeFlow,
+		useChat: selector => selector({ legacy: { partial: null, nodes: [], runningCalls: [] } }),
+		useSession: selector => selector({ running: false })
+	}))
+	assert.ok(p.dom.window.document.querySelector('[data-native-flow]'))
+	assert.equal(externalOptions.isEnabled('plain'), false, '空故事不再裁剪原生历史')
+	for (const cleanup of cleanups) cleanup()
 })
 
 test('流式结束并提交 native 节点后强制重读逻辑消息', async t => {
@@ -114,7 +149,9 @@ test('流式结束并提交 native 节点后强制重读逻辑消息', async t =
 	} })
 	const store = data.createStoryTranscriptStore(), mode = data.createModeStore()
 	await store.read('s1')
-	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode: mode })
+	const refreshes = []
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode: mode,
+		externalHistory: { refresh: (sessionId, options) => refreshes.push({ sessionId, options }) } })
 	const chat = { legacy: { partial: { turn: 10, blocks: [{ kind: 'text', text: '流式草稿' }] }, nodes: [], runningCalls: [] } }
 	const NativeFlow = () => React.createElement('div', { 'data-native-flow': '' })
 	const element = () => React.createElement(feature.StoryTranscriptFlow, {
@@ -130,6 +167,8 @@ test('流式结束并提交 native 节点后强制重读逻辑消息', async t =
 	assert.equal(calls, 2)
 	assert.equal(p.dom.window.document.querySelector('[data-story-draft]'), null)
 	assert.ok(p.dom.window.document.querySelector('main').textContent.includes('提交后的正文'))
+	assert.equal(refreshes.filter(item => item.options && item.options.force).length, 1, '生成收尾只主动裁剪一次旧原生回合')
+	assert.equal(refreshes.at(-1).sessionId, 's1')
 })
 
 test('槽注册复制原生 inject/store/locale，保留 children 声明并优先故事条目', async t => {
@@ -155,4 +194,36 @@ test('槽注册复制原生 inject/store/locale，保留 children 声明并优�
 	assert.equal(flow.options.locale, 'chat')
 	assert.equal(flow.options.children, undefined)
 	assert.ok(registrations.some(entry => entry.options.id === 'dsh-tavern-story-transcript-mode'))
+})
+
+test('注册生命周期安装 external-history，跟随模式与当前会话并完整卸载', async t => {
+	const { context } = page(t)
+	const cleanups = [], refreshes = [], installs = []
+	let disposed = 0
+	const uiConversation = { marker: 'ui' }
+	const slots = {
+		inject: (_name, contribute) => contribute(),
+		register: () => () => {},
+		entries: () => [],
+		subscribe: () => () => {}
+	}
+	const ctx = {
+		effect: run => { const cleanup = run(); if (typeof cleanup === 'function') cleanups.push(cleanup) },
+		get: name => name === 'uiConversation' ? uiConversation : undefined,
+		sessions: { list: { getSnapshot: () => ({ current: 's1' }) } }
+	}
+	const feature = context.createTavernStoryTranscriptFeature({ externalHistoryInstaller: options => {
+		installs.push(options)
+		return { refresh: sessionId => refreshes.push(sessionId), dispose: () => { disposed++ } }
+	} })
+	feature.register({ ctx, slots })
+	assert.equal(installs.length, 1)
+	assert.equal(installs[0].uiConversation, uiConversation)
+	assert.equal(installs[0].isEnabled('s1'), true)
+	assert.deepEqual(refreshes, ['s1'])
+	feature.mode.set(false)
+	assert.equal(installs[0].isEnabled('s1'), false)
+	assert.deepEqual(refreshes, ['s1', 's1'])
+	for (const cleanup of cleanups) cleanup()
+	assert.equal(disposed, 1)
 })

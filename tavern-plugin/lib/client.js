@@ -36452,6 +36452,135 @@ function createTavernStoryTranscriptDataModule(deps) {
 		storyTranscriptMessageText: tavernStoryTranscriptMessageText
 	})
 }
+// Story mode keeps the native event/location/timeline model, but does not
+// materialize expensive Chat nodes for already-closed older turns. The logical
+// story transcript owns those rows. The latest and open native turns stay live
+// for partial/runningCalls/composer, and legacy mode rebuilds the full projection.
+function tavernStoryNativeTurnOfLocation(location) {
+	if (!location || (location.kind !== 'turn' && location.kind !== 'step')) return null
+	const turn = Number(location.turn && location.turn.turn)
+	return Number.isSafeInteger(turn) && turn >= 0 ? turn : null
+}
+
+function installTavernStoryExternalHistory(options) {
+	let conversationModule
+	try { conversationModule = options.require('@deepseek-ai/dsh-client-ui-conversation/client') }
+	catch (_) { return { refresh: function () {}, dispose: function () {} } }
+	const proto = conversationModule && conversationModule.UiConversation && conversationModule.UiConversation.prototype
+	if (!proto) return { refresh: function () {}, dispose: function () {} }
+	if (proto.__dshTavernStoryExternalHistory) {
+		const existing = proto.__dshTavernStoryExternalHistory
+		existing.uiConversation = options.uiConversation
+		existing.isEnabled = options.isEnabled
+		return existing.attach()
+	}
+
+	const records = new WeakMap()
+	const active = new Set()
+	const controller = {
+		uiConversation: options.uiConversation,
+		isEnabled: options.isEnabled,
+		alive: true,
+		owners: 0,
+		attach: null,
+		refresh: null,
+		dispose: null
+	}
+
+	function installBinding(binding, sessionId) {
+		const assembler = binding && binding.assembler
+		if (!assembler || records.has(assembler)) return records.get(assembler)
+		const originalBuild = assembler.buildNode
+		const originalDispose = typeof binding.dispose === 'function' ? binding.dispose : null
+		const record = { binding: binding, assembler: assembler, sessionId: sessionId, originalBuild: originalBuild,
+			originalDispose: originalDispose, lastEnabled: assembler.activeTargets && assembler.activeTargets.has('chat') ? undefined : controller.isEnabled(sessionId) }
+		function filteredBuild(context, target) {
+			if (controller.alive && target === 'chat' && controller.isEnabled(record.sessionId)
+				&& (context.current == null || context.current.get(target) == null)) {
+				const turn = tavernStoryNativeTurnOfLocation(context.start && context.start.location)
+				const timeline = this.locationIndex && this.locationIndex.snapshot()
+				const order = timeline && Array.isArray(timeline.turnOrder) ? timeline.turnOrder : []
+				const latest = order.length ? Number(order[order.length - 1]) : null
+				const open = typeof this.openTurn === 'function' ? this.openTurn() : undefined
+				// Unknown locations stay native. Older turns that were never materialized
+				// are safe to skip: context.current remains null, so later upserts do not
+				// violate the host's no-withdrawal contract.
+				if (turn !== null && Number.isSafeInteger(latest) && turn < latest && turn !== open) return null
+			}
+			return originalBuild.call(this, context, target)
+		}
+		record.filteredBuild = filteredBuild
+		assembler.buildNode = filteredBuild
+		if (originalDispose) {
+			binding.dispose = function () {
+				active.delete(record)
+				if (assembler.buildNode === filteredBuild) assembler.buildNode = originalBuild
+				binding.dispose = originalDispose
+				return originalDispose.apply(binding, arguments)
+			}
+		}
+		records.set(assembler, record)
+		active.add(record)
+		return record
+	}
+
+	controller.refresh = function (sessionId, refreshOptions) {
+		if (!controller.alive || !sessionId || !controller.uiConversation) return
+		let binding
+		try { binding = controller.uiConversation.binding(sessionId) }
+		catch (_) { return }
+		const record = installBinding(binding, String(sessionId))
+		if (!record) return
+		const enabled = controller.isEnabled(record.sessionId)
+		const force = refreshOptions === true || refreshOptions && refreshOptions.force === true
+		if (!force && record.lastEnabled === enabled) return
+		record.lastEnabled = enabled
+		if (record.assembler.activeTargets && record.assembler.activeTargets.has('chat')) record.binding.rebuild()
+	}
+
+	const originalBinding = proto.binding
+	const patchedBinding = function (source) {
+		const binding = originalBinding.call(this, source)
+		const sessionId = String(typeof source === 'string' ? source : source && source.sessionId || '')
+		if (controller.alive && sessionId) installBinding(binding, sessionId)
+		return binding
+	}
+	proto.binding = patchedBinding
+	Object.defineProperty(proto, '__dshTavernStoryExternalHistory', { value: controller, configurable: true })
+
+	controller.attach = function () {
+		controller.owners++
+		let disposed = false
+		return {
+			refresh: controller.refresh,
+			dispose: function () {
+				if (disposed) return
+				disposed = true
+				controller.owners = Math.max(0, controller.owners - 1)
+				if (controller.owners === 0) controller.dispose()
+			}
+		}
+	}
+	controller.dispose = function () {
+		if (!controller.alive) return
+		controller.alive = false
+		if (proto.binding === patchedBinding && proto.__dshTavernStoryExternalHistory === controller) {
+			proto.binding = originalBinding
+			delete proto.__dshTavernStoryExternalHistory
+		}
+		for (const record of active) {
+			const assembler = record.assembler
+			if (assembler.activeTargets && assembler.activeTargets.has('chat')) {
+				try { record.binding.rebuild() }
+				catch (_) {}
+			}
+			if (assembler.buildNode === record.filteredBuild) assembler.buildNode = record.originalBuild
+			if (record.originalDispose) record.binding.dispose = record.originalDispose
+		}
+		active.clear()
+	}
+	return controller.attach()
+}
 // 故事历史的只读楼层列表。它直接消费 chat.messages 的故事投影，不按 native
 // turn 分组，不扫描 sessionEvents，也不复用旧 DOM 隐藏行的 data-chat-flow-kind。
 // 列表和原生 ChatFlow 一样直接返回行，槽锚点保持 display:contents，宿主继续负责滚动。
@@ -36498,6 +36627,10 @@ function createTavernStoryTranscriptFeature(deps) {
 	const mode = options.mode || data.createModeStore()
 	let storyTranscriptStore = null
 	let nativeFlow = null
+	let storyExternalHistory = options.externalHistory || null
+	const storyEligibility = new Map()
+	const externalHistoryInstaller = options.externalHistoryInstaller ||
+		(typeof installTavernStoryExternalHistory === 'function' ? installTavernStoryExternalHistory : null)
 
 	function rowAttributes(row, transcript) {
 		const turn = row.draft === true ? row.streamTurn : (Number.isInteger(row.legacyTurn) && row.legacyTurn > 0 ? row.legacyTurn : row.floorNo)
@@ -36637,28 +36770,40 @@ function createTavernStoryTranscriptFeature(deps) {
 		const state = controller.state
 		const transcript = props.transcript || state.transcript
 		const view = props.view || state.view
+		const storyUnavailable = !transcript && state.status === 'empty'
+		const storyActive = enabled && sessionMode !== 'card' && (!view || view.mode !== 'card') && !storyUnavailable
 		const partial = props.useChat(function (snapshot) { return snapshot && snapshot.legacy ? snapshot.legacy.partial : null })
 		const runningCalls = props.useChat(function (snapshot) { return snapshot && snapshot.legacy && Array.isArray(snapshot.legacy.runningCalls) ? snapshot.legacy.runningCalls : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true })
 		const commitKey = props.useChat(tavernStoryTranscriptCommitKey)
 		const previous = React.useRef({ sessionId: sessionId, enabled: enabled, commitKey: commitKey, streaming: partial !== null })
 		React.useEffect(function () {
+			// An ordinary chat with no Tavern story falls back to the native flow;
+			// restore every native row instead of leaving only the latest turn.
+			storyEligibility.set(sessionId, !storyUnavailable && sessionMode !== 'card' && (!view || view.mode !== 'card'))
+			if (storyExternalHistory) storyExternalHistory.refresh(sessionId)
+		}, [sessionId, enabled, sessionMode, view && view.mode, storyUnavailable])
+		React.useEffect(function () {
 			const last = previous.current
 			const sameSession = last.sessionId === sessionId
 			const streaming = partial !== null
 			const resumed = sameSession && enabled && !last.enabled
 			const finished = sameSession && last.streaming && !streaming
-			const committed = sameSession && last.commitKey !== commitKey && !streaming
+			const committed = sameSession && last.enabled === enabled && last.commitKey !== commitKey && !streaming
 			previous.current = { sessionId: sessionId, enabled: enabled, commitKey: commitKey, streaming: streaming }
-			if ((resumed || finished || committed) && enabled && sessionMode !== 'card') {
+			if ((resumed || finished || committed) && storyActive) {
+				// Once streaming closes, prune the just-finished native tail as well.
+				// The latest turn remains for composer/commit observers; older turns
+				// return to story-only rows instead of accumulating for this session.
+				if ((finished || committed) && storyExternalHistory) storyExternalHistory.refresh(sessionId, { force: true })
 				void store.read(sessionId, { historyFrom: controller.historyFrom, force: true })
 			}
-		}, [store, sessionId, controller.historyFrom, commitKey, partial, enabled, sessionMode])
+		}, [store, sessionId, controller.historyFrom, commitKey, partial, enabled, sessionMode, storyActive])
 		React.useEffect(function () {
 			if (view && typeof view.mode === 'string' && typeof publishSessionMode === 'function') publishSessionMode(sessionId, view.mode)
 		}, [sessionId, view && view.mode])
 
-		if (!enabled || sessionMode === 'card' || (view && view.mode === 'card') || (!transcript && state.status === 'empty')) {
+		if (!storyActive) {
 			return legacyFlow ? h(legacyFlow, props) : h('div', { role: 'alert' }, '原生聊天记录暂不可用')
 		}
 		return h(TavernStoryTranscriptContent, Object.assign({}, props, {
@@ -36687,6 +36832,31 @@ function createTavernStoryTranscriptFeature(deps) {
 
 	function register(input) {
 		const ctx = input.ctx, slots = input.slots
+		if (!storyExternalHistory && externalHistoryInstaller && typeof ctx.get === 'function') ctx.effect(function () {
+			const uiConversation = ctx.get('uiConversation') || ctx.get('conversation')
+			const external = externalHistoryInstaller({
+				require: typeof require === 'function' ? require : function () { throw new Error('宿主模块加载器不可用') },
+				uiConversation: uiConversation,
+				isEnabled: function (sessionId) {
+					if (!mode.getSnapshot() || storyEligibility.get(String(sessionId)) === false) return false
+					const values = typeof tavernSessionModes !== 'undefined' && tavernSessionModes && tavernSessionModes.values ? tavernSessionModes.values : {}
+					const sessionMode = values[String(sessionId)] || ''
+					return !sessionMode || (typeof isPlayMode === 'function' ? isPlayMode(sessionMode) : sessionMode !== 'card')
+				}
+			})
+			storyExternalHistory = external
+			function currentSession() {
+				const snapshot = ctx.sessions && ctx.sessions.list && ctx.sessions.list.getSnapshot()
+				return snapshot && snapshot.current ? String(snapshot.current) : ''
+			}
+			const unsubscribe = typeof mode.subscribe === 'function' ? mode.subscribe(function () { external.refresh(currentSession()) }) : function () {}
+			external.refresh(currentSession())
+			return function () {
+				unsubscribe()
+				if (storyExternalHistory === external) storyExternalHistory = null
+				external.dispose()
+			}
+		}, 'dsh-tavern: story external history')
 		ctx.effect(function () {
 			return slots.inject('conversation.session.header.actions', function () {
 				return slots.register({ name: 'conversation.session.header.actions', id: 'dsh-tavern-story-transcript-mode', order: -135,
@@ -56260,6 +56430,7 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.createTavernAssistantRendererFeatureModule = createTavernAssistantRendererFeatureModule;
 		exports.createTavernStoryTranscriptDataModule = createTavernStoryTranscriptDataModule;
 		exports.createTavernStoryTranscriptFeature = createTavernStoryTranscriptFeature;
+		exports.installTavernStoryExternalHistory = installTavernStoryExternalHistory;
 		exports.createTavernShellFeatureModule = createTavernShellFeatureModule;
 		exports.createTavernRuntimeGenerationMonitor = createTavernRuntimeGenerationMonitor;
 		// 正文走工具调用时，一整段正文在两个布局帧之间落地，而不是逐字流式出现。

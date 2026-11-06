@@ -939,6 +939,7 @@ window.__ModuleLoader__.load({
 // @include features/assistant-renderer.js
 
 // @include features/story-transcript-data.js
+// @include modules/story-external-history.js
 // @include features/story-transcript-list.js
 
 // @include features/card-list.js
@@ -1424,6 +1425,7 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.createTavernAssistantRendererFeatureModule = createTavernAssistantRendererFeatureModule;
 		exports.createTavernStoryTranscriptDataModule = createTavernStoryTranscriptDataModule;
 		exports.createTavernStoryTranscriptFeature = createTavernStoryTranscriptFeature;
+		exports.installTavernStoryExternalHistory = installTavernStoryExternalHistory;
 		exports.createTavernShellFeatureModule = createTavernShellFeatureModule;
 		exports.createTavernRuntimeGenerationMonitor = createTavernRuntimeGenerationMonitor;
 		// @include modules/reply-reveal.js
