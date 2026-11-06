@@ -43,7 +43,7 @@ GitHub Actions 会频繁向 `origin/main`（以及 `origin/stable`）推送 `cho
 
 main 的安装入口和备用更新清单从 jsDelivr 的 `@runtime-archive-main` 读取；该分发分支只放安装脚本、清单和 `runtime.zip`，源码仍在 main。清单固定引用不可变提交中的压缩包。分支地址最长缓存 12 小时，安装入口与清单必须来自同一次发布。
 
-每次推送后，Publish runtime manifest 工作流会刷新安装脚本、Android 入口和清单缓存，并核对 CDN 返回的清单提交号；未同步则工作流失败。遇到 `jsDelivr still serves a stale manifest` 时，手动刷新分发分支：
+Publish runtime manifest 工作流发布 GitHub 产物后会尝试刷新 jsDelivr 缓存。CDN 尚未同步时查看工作流摘要，按限流提示等到重试时间，再手动刷新分发分支并核对清单提交号。
 
 ```sh
 b=runtime-archive-main
