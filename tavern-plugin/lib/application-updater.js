@@ -13,7 +13,6 @@ import { readInstallationReceipt } from '../../bin/installation-receipt.mjs'
 import installationState from '../../bin/installation-state.cjs'
 import desktopRuntime from '../../bin/official-desktop-runtime.cjs'
 import { applySystemProxy, describeProxy, withoutAppliedSystemProxy } from '../../bin/system-proxy.mjs'
-import { compareVersions } from '../../bin/download.cjs'
 
 const STATUS_FILE = 'update-status.json'
 const RELEASE_FILE = '.dsh-tavern-release.json'
@@ -23,8 +22,6 @@ const ORPHAN_RECORD_MS = 60 * 60 * 1000
 const VERSION_URL = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/package.json'
 const COMMIT_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/commits/main'
 const COMPARE_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/compare'
-const NEXT_PLUGIN_REPOSITORY = 'https://github.com/flizzywine/dsh-tavern.git'
-const NEXT_PLUGIN_RELEASES = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-market-next'
 const execFileAsync = promisify(execFile)
 const UPDATE_CHECK_POLICY = 5
 const BUSY_PHASES = new Set(['running', 'cancelling', 'blocked'])
@@ -437,43 +434,9 @@ export function createApplicationUpdater(options) {
     }
   }
 
-  let pluginUpdate = {}
-  function pluginStatus(identity) {
-    const canUpdatePlugin = Boolean(options.getNextPluginUpdater?.())
-    return { ...identity, host: 'next', phase: 'package-managed', canUpdatePlugin,
-      updateCommand: "& ([ScriptBlock]::Create((Invoke-RestMethod '" + NEXT_PLUGIN_RELEASES + "/bin/install-next-plugin.ps1')))",
-      ...pluginUpdate }
-  }
-
-  async function installNextPlugin(identity, updater) {
-    try {
-      const response = await diagnosticFetch((options.nextPluginIndexUrl || NEXT_PLUGIN_RELEASES + '/index.json'), { cache: 'no-store' }, 15000)
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const index = await response.json()
-      const releases = index.plugins?.find(entry => entry.name === 'dsh-tavern-bundle')?.versions
-      const release = releases?.[0]
-      if (index.format !== 1 || !/^\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/i.test(release?.version) || release.source?.type !== 'git' ||
-          release.source.url !== NEXT_PLUGIN_REPOSITORY || !/^[0-9a-f]{40}$/.test(release.source.commit)) {
-        throw new Error('酒馆发布索引无效')
-      }
-      const versionOrder = compareVersions(release.version, identity.currentVersion)
-      if (release.version === identity.currentVersion || versionOrder < 0 ||
-          (versionOrder === 0 && release.version.includes('-') && !releases.some(entry => entry.version === identity.currentVersion))) {
-        pluginUpdate = { pluginMessage: '已是最新版本。' }
-        return
-      }
-      const result = await updater.install(`git+${NEXT_PLUGIN_REPOSITORY}#${release.source.commit}`)
-      if (result.exitCode !== 0) throw new Error(`NEXT 插件安装失败（退出代码 ${result.exitCode ?? '未知'}）`)
-      pluginUpdate = { phase: 'restart-required', pluginMessage: '已安装 v' + release.version + '，请重启 DSH NEXT。' }
-      await updater.restart?.()
-    } catch (error) {
-      if (pluginUpdate.phase !== 'restart-required') pluginUpdate = { pluginError: sanitizeUpdateError(error?.message || error) }
-    }
-  }
-
   async function statusWithIdentity(identity) {
     if (identity.pluginManaged) {
-      return pluginStatus(identity)
+      return { ...identity, host: 'next', phase: 'package-managed' }
     }
     const saved = await statusState.read()
     const current = saved === undefined ? undefined : { ...saved, host: await host() }
@@ -626,12 +589,7 @@ export function createApplicationUpdater(options) {
   async function start() {
     const currentIdentity = await localIdentity()
     if (currentIdentity.pluginManaged) {
-      const updater = options.getNextPluginUpdater?.()
-      if (!updater) throw new Error('请通过 DSH NEXT 插件管理更新酒馆。')
-      if (pluginUpdate.phase === 'running' || pluginUpdate.phase === 'restart-required') return pluginStatus(currentIdentity)
-      pluginUpdate = { phase: 'running' }
-      void installNextPlugin(currentIdentity, updater)
-      return pluginStatus(currentIdentity)
+      throw new Error('请返回日常 Profile，通过酒馆启动器更新。')
     }
     const installHost = await host()
     if (installHost === 'next') throw new Error('请退出 DSH NEXT，更新酒馆源码后重新运行 node bin/dsh-tavern.mjs install --host next。')

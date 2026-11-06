@@ -134,7 +134,7 @@ async function fetchJson(fetchImpl, url, init, limit, signal, channel) {
   }
   try { return JSON.parse(bytes.toString('utf8')) } catch { throw new Error('生图服务返回了无效 JSON') }
 }
-function combinedPrompt(request) {
+export function combinedPrompt(request) {
   const prompt = String(request.positive ?? '').trim()
   const negative = String(request.negative ?? '').trim()
   if (request.promptMode === 'structured') return combineStructuredPrompt(prompt, negative)
@@ -236,11 +236,12 @@ function imageDataUrl(reference) { return `data:${reference.mediaType};base64,${
 // 对话格式：有些中转站把 NovelAI 包成 chat/completions。它按固定的中文字段模板校验
 // 用户消息、优先读 nai 对象里的值；每个采样器单列一个模型（nai-diffusion-4-5-full:k_euler）；
 // 回复文字里带图片链接。移植自 Tavern 原生生图的 novelaiChatRequest。
+export const novelaiChatPrompt = text => String(text || '').replace(/\s*,?\s*\n+\s*/g, ', ').trim()
+
 async function generateNovelaiChat(ch, request, ctx) {
   const { base, fetchImpl, signal, max, jsonLimit } = ctx
   const { width, height } = requestedDims(ch, request)
-  const oneLine = text => String(text || '').replace(/\s*,?\s*\n+\s*/g, ', ').trim()
-  const tags = oneLine(request.positive), negative = oneLine(request.negative)
+  const tags = novelaiChatPrompt(request.positive), negative = novelaiChatPrompt(request.negative)
   const sampler = String(option(ch, 'sampler', 'k_euler_ancestral'))
   const size = width === height ? '方图' : width > height ? '横图' : '竖图'
   const scale = clampedNumber(request.cfg ?? option(ch, 'cfg', option(ch, 'scale', 5)), 0, 30, 5)

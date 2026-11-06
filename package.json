@@ -1,6 +1,6 @@
 {
   "name": "dsh-tavern-bundle",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "description": "DSH Tavern: standalone tavern Profile bundle",
   "repository": {
     "type": "git",
@@ -69,7 +69,8 @@
     "dsh-tavern-remote": "1.0.0",
     "dsh-asset-library": "0.1.0",
     "dsh-tavern-stage": "0.1.0",
-    "dsh-tavern-tts": "0.1.0"
+    "dsh-tavern-tts": "0.1.0",
+    "dsh-tavern-launcher": "1.1.0"
   },
   "bundledDependencies": [
     "dsh-pocket",
@@ -79,7 +80,8 @@
     "dsh-tavern-remote",
     "dsh-asset-library",
     "dsh-tavern-stage",
-    "dsh-tavern-tts"
+    "dsh-tavern-tts",
+    "dsh-tavern-launcher"
   ],
   "dsh": {
     "bundle": {
@@ -91,7 +93,8 @@
         "tavern-plugin/packages/dsh-tavern-remote/cordis.patch.yml",
         "tavern-plugin/packages/dsh-asset-library/cordis.patch.yml",
         "tavern-plugin/packages/dsh-tavern-stage/cordis.patch.yml",
-        "tavern-plugin/packages/dsh-tavern-tts/cordis.patch.yml"
+        "tavern-plugin/packages/dsh-tavern-tts/cordis.patch.yml",
+        "tavern-plugin/packages/dsh-tavern-launcher/cordis.patch.yml"
       ]
     }
   },

@@ -21,6 +21,7 @@ const components = [
   ['dsh-asset-library', 'tavern-plugin/packages/dsh-asset-library'],
   ['dsh-tavern-stage', 'tavern-plugin/packages/dsh-tavern-stage'],
   ['dsh-tavern-tts', 'tavern-plugin/packages/dsh-tavern-tts'],
+  ['dsh-tavern-launcher', 'tavern-plugin/packages/dsh-tavern-launcher'],
 ]
 
 async function build(destination, version) {
@@ -60,7 +61,7 @@ async function build(destination, version) {
         const file = typeof conditions === 'string' ? conditions : conditions.default
         if (!file || key === './package.json' || key === './build') continue
         const entry = path.join(output, file)
-        if (key === './client') {
+        if (key === './client' || file.endsWith('.json')) {
           await copy(path.join(input, file), entry)
         } else {
           // Host modules share state with the rest of Tavern and need its

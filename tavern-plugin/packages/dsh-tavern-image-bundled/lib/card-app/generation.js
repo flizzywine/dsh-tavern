@@ -35,6 +35,23 @@ export function cardSelection(config, workflows, args = {}) {
   }
   if (args.workflow && !local) throw fail('workflow 仅用于 ComfyUI，请指定 channel 为 comfyui')
   if (args.preset) next.activePreset = select((config.stylePresets || []).filter(item => item.enabled !== false), String(args.preset), '画风预设', ['id', 'name']).id
+  // 单次覆盖：只改这一张图用的那份预设副本，不写回设置。传空字符串即本张不用该段词。
+  if (typeof args.preset_positive === 'string' || typeof args.preset_negative === 'string') {
+    const list = Array.isArray(next.stylePresets) ? next.stylePresets.slice() : []
+    const at = list.findIndex(item => item.enabled !== false && String(item.id) === String(next.activePreset))
+    if (at >= 0) {
+      list[at] = { ...list[at], temporaryOverride: true }
+      if (typeof args.preset_positive === 'string') list[at].artist = args.preset_positive
+      if (typeof args.preset_negative === 'string') list[at].negative = args.preset_negative
+    } else {
+      let id = 'preset-override'
+      while (list.some(item => item.id === id)) id += '-'
+      list.push({ id, name: '本次临时覆盖', artist: args.preset_positive ?? next.styleArtists ?? '',
+        negative: args.preset_negative ?? next.styleNegative ?? '', position: 'prefix', enabled: true, temporaryOverride: true })
+      next.activePreset = id
+    }
+    next.stylePresets = list
+  }
   if (args.sampler) {
     const provider = channel ? effectiveImageProvider(channel) : 'comfyui'
     if (!['novelai', 'sdwebui'].includes(provider)) throw fail('当前渠道不支持临时采样器，请使用渠道或工作流设置')
@@ -52,8 +69,8 @@ export function cardSelection(config, workflows, args = {}) {
   const size = args.size || (local ? '__workflow__' : Number(configuredSize?.sizeWidth) > 0 && Number(configuredSize?.sizeHeight) > 0
     ? configuredSize.sizeWidth + 'x' + configuredSize.sizeHeight : config.imageSize || '竖图')
   return { config: next, workflow, size, promptMode, supportsSeed, seedLimit, maxReferences: channel ? imageReferenceLimit(channel) : (workflow.bindings?.referenceImages?.length || 0),
-    preset: (config.stylePresets || []).find(item => item.id === next.activePreset)?.name || '',
-    channel: local ? 'ComfyUI · ' + workflow.label : channel.name || channel.id, channelId: local ? 'comfyui' : channel.id }
+    channel: local ? 'ComfyUI · ' + workflow.label : channel.name || channel.id, channelId: local ? 'comfyui' : channel.id,
+    preset: (next.stylePresets || []).find(item => item.enabled !== false && String(item.id) === String(next.activePreset)) || null }
 }
 
 function wait(signal, ms) {
@@ -91,6 +108,7 @@ export async function runCardImage(engine, args, { sessionId, signal, key, onJob
     }
     if (job?.state !== 'done') throw Object.assign(new Error(job?.error || '生图未完成，请检查配图记录'), { jobId: job?.id, requestMayHaveSucceeded: Boolean(job?.requestMayHaveSucceeded || job?.cancelMayHaveContinued) })
     return { jobId: job.id, file: job.file, mediaType: job.mediaType, seed: picked.supportsSeed ? job.seed : undefined,
-      prompt: job.submittedPrompt || job.positive, negative: job.negative, preset: picked.preset, size: job.size ? `${job.size.width}x${job.size.height}` : '由工作流决定', channel: picked.channel, promptMode: picked.promptMode }
+      prompt: job.cardPositive ?? (job.submittedPrompt || job.positive), negative: job.cardNegative ?? job.negative,
+      negativeInPrompt: job.cardPositive === undefined && job.submittedPrompt !== job.positive, characters: job.cardCharacterPrompts, preset: (picked.preset && picked.preset.name) || '', size: job.size ? `${job.size.width}x${job.size.height}` : '由工作流决定', channel: picked.channel, promptMode: picked.promptMode }
   } finally { signal?.removeEventListener('abort', abort) }
 }

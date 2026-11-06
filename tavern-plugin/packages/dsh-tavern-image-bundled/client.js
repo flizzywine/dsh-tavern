@@ -1835,8 +1835,8 @@ function versionsOf(jobId) {
       const [dragging, setDragging] = React.useState(false)
       const [imageWarning, setImageWarning] = React.useState('')
       const dragRef = React.useRef(null)
+      const dialogRef = React.useRef(null)
       const onWheel = React.useCallback(event => {
-        event.preventDefault()
         setZoom(z => Math.max(0.2, Math.min(8, z * (event.deltaY > 0 ? 0.9 : 1.1))))
       }, [])
       const onDragStart = React.useCallback(event => {
@@ -1861,16 +1861,18 @@ function versionsOf(jobId) {
         event.preventDefault()
         setPos({ x: touch.clientX - dragRef.current.x, y: touch.clientY - dragRef.current.y })
       }, [])
-      openImageOverlay = (next) => setView(current => Object.assign({}, current, next && next.open ? Object.assign({ index: 0, versionAt: 0 }, next) : next))
+      openImageOverlay = (next) => setView(current => Object.assign({}, current, next && next.open ? Object.assign({ index: 0, versionAt: 0, versions: [], images: null, jobIds: [] }, next) : next))
       const close = () => openImageOverlay({ open: false, jobIds: [], versions: [], versionAt: 0, note: '', working: false, index: 0 })
-      const total = view.jobIds.length
+      const total = (view.images ?? view.jobIds).length
       const at = total ? Math.max(0, Math.min(total - 1, Number(view.index) || 0)) : 0
       // 当前这张图自己的重画版本链（与整场翻页互不影响）
       const versions = Array.isArray(view.versions) ? view.versions : []
       const vTotal = versions.length
       const vAt = vTotal ? Math.max(0, Math.min(vTotal - 1, Number(view.versionAt) || 0)) : 0
       // 真正显示的那张：有版本链就用版本链的当前版，否则用主列表的当前张
-      const shownId = vTotal ? versions[vAt] : view.jobIds[at]
+      const shownImage = view.images?.[at]
+      const shownId = vTotal ? versions[vAt] : (shownImage?.jobId || view.jobIds[at])
+      const src = shownImage?.url || (shownId ? BASE + '/jobs?id=' + encodeURIComponent(shownId) + '&image=1' : '')
       React.useEffect(() => {
         let alive = true
         setImageWarning('')
@@ -1888,99 +1890,80 @@ function versionsOf(jobId) {
         if (vTotal < 2) return
         openImageOverlay({ versionAt: (vAt + delta + vTotal) % vTotal })
       }
-      React.useEffect(() => {
-        if (!view.open || total < 2) return undefined
-        const onKey = (event) => {
-          if (event.key === 'ArrowLeft') { event.preventDefault(); go(-1) }
-          else if (event.key === 'ArrowRight') { event.preventDefault(); go(1) }
-          else if (event.key === 'Escape') close()
-        }
-        window.addEventListener('keydown', onKey)
-        return () => window.removeEventListener('keydown', onKey)
-      }, [view.open, at, total])
-      // 切图或重新打开时复位缩放与位移
-      React.useEffect(() => { setZoom(1); setPos({ x: 0, y: 0 }); dragRef.current = null }, [view.open, at])
+      React.useLayoutEffect(() => {
+        const dialog = dialogRef.current
+        if (!dialog) return
+        dialog.showModal()
+        return () => dialog.close()
+      }, [view.open])
+      const onKey = event => {
+        if (event.key === 'ArrowLeft') { event.preventDefault(); go(-1) }
+        else if (event.key === 'ArrowRight') { event.preventDefault(); go(1) }
+      }
+      React.useEffect(() => { setZoom(1); setPos({ x: 0, y: 0 }); onDragEnd() }, [view.open, src, onDragEnd])
       if (!view.open) return null
-      const goPrev = () => go(-1)
-      const goNext = () => go(1)
-      return React.createElement('div', {
+      const controls = {
+        ...buttonStyle, padding: '6px 9px', minWidth: 32, minHeight: 34, color: '#e6ecf5',
+        borderColor: 'rgba(160,180,210,.45)', background: 'rgba(255,255,255,.08)',
+      }
+      return React.createElement('dialog', {
+        ref: dialogRef, 'aria-label': view.note || '图片预览', onKeyDown: onKey,
+        onCancel: event => { event.preventDefault(); close() },
         style: {
-          position: 'fixed', inset: '0', zIndex: 2147483000, background: 'rgba(0,0,0,.82)',
-          overflowY: 'auto', padding: '16px 20px 40px', boxSizing: 'border-box', backdropFilter: 'blur(3px)',
+          position: 'fixed', inset: 0, margin: 0, border: 0, width: '100%', height: '100%', maxWidth: 'none', maxHeight: 'none',
+          background: '#14171c', overflow: 'hidden', padding: '12px clamp(8px, 2vw, 20px)', boxSizing: 'border-box',
         },
         onClick: close,
       }, React.createElement('div', {
-        style: { maxWidth: '1240px', margin: '0 auto' },
+        style: { maxWidth: '1440px', height: '100%', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 8 },
         onClick: event => event.stopPropagation(),
       },
-        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: '12px' } },
+        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
           React.createElement('div', { style: { color: '#e6ecf5', fontSize: '15px', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
             view.working ? '正在生成…' : (view.note || '插图')),
-          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 } },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' } },
             total > 1 ? React.createElement('button', {
-              type: 'button', onClick: goPrev, title: '上一张（←）',
-              style: { padding: '5px 14px', fontSize: '14px', borderRadius: '8px', border: '1px solid rgba(160,180,210,.5)', background: 'rgba(255,255,255,.06)', color: '#dbe3ee', cursor: 'pointer' },
+              type: 'button', onClick: () => go(-1), title: '上一张（←）',
+              style: controls,
             }, '◀') : null,
             total > 1 ? React.createElement('span', { style: { fontSize: '12px', color: '#9aa3b2', minWidth: '44px', textAlign: 'center' } }, (at + 1) + ' / ' + total) : null,
             total > 1 ? React.createElement('button', {
-              type: 'button', onClick: goNext, title: '下一张（→）',
-              style: { padding: '5px 14px', fontSize: '14px', borderRadius: '8px', border: '1px solid rgba(160,180,210,.5)', background: 'rgba(255,255,255,.06)', color: '#dbe3ee', cursor: 'pointer' },
+              type: 'button', onClick: () => go(1), title: '下一张（→）',
+              style: controls,
             }, '▶') : null,
+            src ? React.createElement('button', { type: 'button', title: '缩小', style: controls, onClick: () => setZoom(z => Math.max(0.2, z / 1.25)) }, '−') : null,
+            src ? React.createElement('button', { type: 'button', title: '重置缩放', style: controls,
+              onClick: () => { setZoom(1); setPos({ x: 0, y: 0 }) } }, Math.round(zoom * 100) + '%') : null,
+            src ? React.createElement('button', { type: 'button', title: '放大', style: controls, onClick: () => setZoom(z => Math.min(8, z * 1.25)) }, '+') : null,
             React.createElement('button', {
               type: 'button', onClick: close,
-              style: { padding: '5px 16px', fontSize: '13px', borderRadius: '8px', border: '1px solid rgba(160,180,210,.5)', background: 'transparent', color: '#dbe3ee', cursor: 'pointer' },
+              style: controls,
             }, '关闭'),
           ),
         ),
         view.working ? React.createElement('div', { style: { color: '#9aa3b2', fontSize: '14px', padding: '30px 0', textAlign: 'center' } }, '规划中，通常十几秒…') : null,
         imageWarning ? React.createElement('div', { role: 'status', style: { color: '#e2b93b', fontSize: '12px', textAlign: 'center', padding: '8px 10px', marginBottom: '8px', background: 'rgba(226,185,59,.1)', borderRadius: '8px' } }, imageWarning) : null,
         React.createElement('div', {
-          style: view.jobIds.length > 1
-            ? { display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', alignItems: 'flex-start' }
-            : { display: 'flex', justifyContent: 'center' },
+          style: { flex: 1, minHeight: 0, display: 'grid', gridTemplateRows: 'minmax(0, 1fr)', placeItems: 'center', overflow: 'hidden' },
+          onClick: event => { if (event.target === event.currentTarget) close() },
         },
-          // 左右两侧的大按钮（图很大时也好点）
-          total > 1 ? React.createElement('button', {
-            type: 'button', onClick: (e) => { e.stopPropagation(); goPrev() }, title: '上一张（←）',
-            style: {
-              position: 'fixed', left: '18px', top: '50%', transform: 'translateY(-50%)',
-              zIndex: 2147483006, width: '64px', height: '120px', borderRadius: '14px',
-              border: '1px solid rgba(255,255,255,.22)', background: 'rgba(20,24,30,.72)',
-              color: '#e9eef6', fontSize: '34px', lineHeight: 1, cursor: 'pointer',
-              backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            },
-          }, '‹') : null,
-          total > 1 ? React.createElement('button', {
-            type: 'button', onClick: (e) => { e.stopPropagation(); goNext() }, title: '下一张（→）',
-            style: {
-              position: 'fixed', right: '18px', top: '50%', transform: 'translateY(-50%)',
-              zIndex: 2147483006, width: '64px', height: '120px', borderRadius: '14px',
-              border: '1px solid rgba(255,255,255,.22)', background: 'rgba(20,24,30,.72)',
-              color: '#e9eef6', fontSize: '34px', lineHeight: 1, cursor: 'pointer',
-              backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            },
-          }, '›') : null,
-          // 一次只显示当前这张，左右按钮切换
-          // 一次只显示当前这张；可拖动平移、滚轮缩放
-          // 只显示当前这一张（shownId：有重画版本就用版本里的当前版）
-          [shownId].filter(Boolean).map(id => React.createElement('img', {
-            key: id,
-            src: BASE + '/jobs?id=' + encodeURIComponent(id) + '&image=1',
-            alt: view.note || '插图',
+          src ? React.createElement('img', {
+            key: src, src, alt: shownImage?.alt || view.note || '插图',
             draggable: false,
             onWheel: onWheel, onMouseDown: onDragStart, onMouseMove: onDragMove, onMouseUp: onDragEnd,
             onMouseLeave: onDragEnd, onTouchStart: onTouchStart, onTouchMove: onTouchMove, onTouchEnd: onDragEnd,
             style: {
-              display: 'block', maxWidth: '100%', maxHeight: 'calc(100vh - 200px)', width: 'auto', height: 'auto',
+              display: 'block', maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto',
               objectFit: 'contain', borderRadius: '12px', background: '#1a1d24',
               cursor: zoom > 1 ? 'grab' : 'default', userSelect: 'none', touchAction: 'none',
               transform: 'translate(' + pos.x + 'px,' + pos.y + 'px) scale(' + zoom + ')',
               transition: dragging ? 'none' : 'transform .12s',
             },
-          })),
+          }) : null,
+        ),
           // 这张图自己的重画版本（跟上面"整场翻页"是两回事），只有多于 1 版才显示
           vTotal > 1 ? React.createElement('div', {
-            style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginTop: '12px', position: 'relative', zIndex: 2147483006 },
+            style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' },
             onClick: event => event.stopPropagation(),
           },
             React.createElement('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, '重画版本'),
@@ -1994,8 +1977,7 @@ function versionsOf(jobId) {
               style: { padding: '3px 12px', fontSize: '13px', borderRadius: '8px', border: '1px solid rgba(160,180,210,.5)', background: 'rgba(255,255,255,.06)', color: '#dbe3ee', cursor: 'pointer' },
             }, '▶'),
           ) : null,
-        ),
-        view.jobIds.length ? React.createElement('div', { style: { color: '#8b95a5', fontSize: '12px', textAlign: 'center', paddingBottom: '20px' } }, '点空白处关闭' + (total > 1 ? '　也可以点两侧的 ‹ › 或按 ← → 切换' : '')) : null,
+        total ? React.createElement('div', { style: { color: '#8b95a5', fontSize: '12px', textAlign: 'center', paddingBottom: 2 } }, '点空白处关闭' + (total > 1 ? '　也可以点上方箭头或按 ← → 切换' : '')) : null,
       ))
     }
 
@@ -2947,7 +2929,6 @@ function versionsOf(jobId) {
       // 历史图库
       const [historyJobs, setHistoryJobs] = React.useState([])
       const [legacyImages, setLegacyImages] = React.useState([])
-      const [legacyViewer, setLegacyViewer] = React.useState(null)
       const [gameNames, setGameNames] = React.useState({})
       const [historyNote, setHistoryNote] = React.useState('')
       // 历史图的重载信号：切 tab 与点「刷新」都靠它真正重跑一次拉取。
@@ -5783,13 +5764,19 @@ function versionsOf(jobId) {
       // ---- 历史图 ----
       function galleryTab() {
         const done = historyJobs.filter(function (job) { return job.hasImage && (job.source === 'play' || job.source !== 'card' && job.label !== '卡片工作台') })
+        const preview = image => {
+          const orderedImages = ordered.flatMap(group => group.items)
+          if (!orderedImages.length) return
+          const images = orderedImages.map(item => item.preview)
+          const index = Math.max(0, orderedImages.findIndex(item => item.image === image))
+          openImageOverlay?.({ open: true, images, note: '游玩画廊', index })
+        }
         const tiles = done.map(function (job) {
           return h('div', {
             key: job.id,
             style: {
-              position: 'relative', borderRadius: '10px', overflow: 'hidden',
-              background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)',
-              border: gallerySelect && galleryPicked[job.id] ? '2px solid var(--dsw-alias-brand-primary)' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)',
+              ...GALLERY_TILE,
+              border: gallerySelect && galleryPicked[job.id] ? '2px solid var(--dsw-alias-brand-primary)' : GALLERY_TILE.border,
               boxShadow: gallerySelect && galleryPicked[job.id] ? '0 0 0 3px color-mix(in srgb, var(--dsw-alias-brand-primary) 25%, transparent)' : 'none',
             },
           },
@@ -5799,15 +5786,11 @@ function versionsOf(jobId) {
               decoding: 'async',
               alt: job.label || '图',
               title: '左键看大图　右键出菜单',
-              style: { display: 'block', width: '100%', aspectRatio: '3 / 4', objectFit: 'cover', cursor: 'zoom-in', background: 'var(--dsw-specific-input-major)' },
+              style: { ...GALLERY_THUMB, cursor: 'zoom-in' },
               // 左键：批量模式下 = 勾选；平时 = 看大图（带上整库，能左右翻）
               onClick: function () {
                 if (gallerySelect) { setGalleryPicked(cur => Object.assign({}, cur, { [job.id]: !cur[job.id] })); return }
-                if (typeof openImageOverlay !== 'function') return
-                // 用「所有历史图」作为翻页列表，并定位到点的这一张 —— 这样打开第一张就能一路翻到最后
-                const all = done.map(function (j) { return j.id })
-                const at = Math.max(0, all.indexOf(job.id))
-                openImageOverlay({ open: true, jobIds: all.length ? all : [job.id], note: '画廊（' + (at + 1) + '/' + all.length + '）', working: false, index: at })
+                preview(job)
               },
               // 右键：出菜单
               onContextMenu: function (event) {
@@ -5817,9 +5800,7 @@ function versionsOf(jobId) {
                   x: event.clientX, y: event.clientY,
                   items: [
                     { icon: '🖼', label: '查看大图', onClick: function () {
-                        const all = done.map(function (j) { return j.id })
-                        const at = Math.max(0, all.indexOf(job.id))
-                        openImageOverlay({ open: true, jobIds: all.length ? all : [job.id], note: '画廊（' + (at + 1) + '/' + all.length + '）', working: false, index: at })
+                        preview(job)
                       } },
                     { icon: '✏️', label: '改提示词重画', onClick: function () {
                         if (typeof openEditorFor === 'function') openEditorFor(job.id, job.label)
@@ -5850,41 +5831,37 @@ function versionsOf(jobId) {
                 fontSize: '13px', lineHeight: 1, padding: 0,
               },
             }, '🗑') : null,
-            h('div', { style: { padding: '6px 8px', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+            h('div', { style: GALLERY_CAPTION },
               (job.label || '未命名') + ' · ' + (job.size || '')),
           )
         })
-        const legacyTiles = legacyImages.map(function (item, index) {
-          return h('button', { key: item.url, type: 'button', title: item.description || '', onClick: function () { setLegacyViewer(index) },
-            style: { padding: 0, textAlign: 'left', cursor: 'zoom-in', borderRadius: '10px', overflow: 'hidden', background: 'transparent', color: 'inherit', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)' } },
-            h('img', { src: item.url, loading: 'lazy', decoding: 'async', alt: item.description || '插图', style: { display: 'block', width: '100%', aspectRatio: '3 / 4', objectFit: 'cover', background: 'var(--dsw-specific-input-major)' } }),
-            h('div', { style: { padding: '6px 8px', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+        const legacyTiles = legacyImages.map(function (item) {
+          return h('button', { key: item.url, type: 'button', title: item.description || '', onClick: () => preview(item),
+            style: { ...GALLERY_TILE, padding: 0, textAlign: 'left', cursor: 'zoom-in', color: 'inherit' } },
+            h('img', { src: item.url, loading: 'lazy', decoding: 'async', alt: item.description || '插图', style: GALLERY_THUMB }),
+            h('div', { style: GALLERY_CAPTION },
               '第 ' + item.turn + ' 轮 · 早期插图'))
         })
         // 按局分组：插件图按出图时的局，早期插图按 Tavern 记录的局；组内与组间都是新的在前。
         const groups = new Map()
         const groupOf = key => { if (!groups.has(key)) groups.set(key, { key, items: [], legacyTitle: '', deleted: false }); return groups.get(key) }
-        done.forEach((job, index) => groupOf(job.gameId || '').items.push({ at: Number(job.completedAt || job.createdAt) || 0, node: tiles[index] }))
+        done.forEach((job, index) => groupOf(job.gameId || '').items.push({ at: Number(job.completedAt || job.createdAt) || 0, image: job, preview: { jobId: job.id, alt: job.label }, node: tiles[index] }))
         legacyImages.forEach((item, index) => {
           const group = groupOf(item.gameId || 'legacy:' + item.gameTitle)
           group.legacyTitle = group.legacyTitle || item.gameTitle
           group.deleted = group.deleted || item.gameDeleted
-          group.items.push({ at: Number(item.createdAt) || 0, node: legacyTiles[index] })
+          group.items.push({ at: Number(item.createdAt) || 0, image: item, preview: { url: item.url, alt: item.description }, node: legacyTiles[index] })
         })
         for (const group of groups.values()) group.items.sort((a, b) => b.at - a.at)
         const ordered = [...groups.values()].sort((a, b) => (b.items[0]?.at || 0) - (a.items[0]?.at || 0))
         const groupTitle = group => group.key === '' ? '未归属对局（在设置里试画的图）'
           : (gameNames[group.key]?.title || gameNames[group.key]?.cardName || group.legacyTitle || '已删除的对局') + (group.deleted ? '（已删除）' : '')
-        const viewing = legacyViewer === null ? null : legacyImages[legacyViewer]
-        const step = delta => setLegacyViewer(index => (index + delta + legacyImages.length) % legacyImages.length)
         return h('div', { style: S.card },
           h('div', { style: { fontSize: '13px', marginBottom: '4px' } }, '画廊（插件 ' + done.length + ' 张' + (legacyImages.length ? ' · 早期 ' + legacyImages.length + ' 张' : '') + '）'),
-          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } }, '左键看大图（可以左右翻整个历史库），右键出菜单，鼠标移到图上右上角能直接删。'),
+          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } }, '点缩略图查看原图，按页面顺序切图。右键插件图可查看操作。'),
           h('div', { style: S.row },
             h('button', { style: buttonStyle, onClick: function () { setHistoryNote('读取中…'); setHistoryTick(n => n + 1) } }, '🔄 刷新'),
-            h('button', { style: buttonStyle, onClick: function () {
-              if (typeof openImageOverlay === 'function' && done.length) openImageOverlay({ open: true, jobIds: done.map(function (job) { return job.id }), note: '全部插件图（◀ ▶ 翻页）', working: false, index: 0 })
-            } }, '🖼 全部打开'),
+            h('button', { style: buttonStyle, onClick: () => preview(), disabled: !ordered.length }, '浏览全部'),
             h('button', { style: buttonStyle, onClick: function () {
               setGallerySelect(v => !v); setGalleryPicked({})
             } }, gallerySelect ? '✖ 退出批量' : '☑ 批量选择'),
@@ -5903,17 +5880,10 @@ function versionsOf(jobId) {
           ordered.length ? ordered.map(group => h('details', { key: group.key, open: true, style: { marginTop: '14px' } },
             h('summary', { style: { cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } },
               groupTitle(group), h('span', { style: { fontWeight: 400, fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginLeft: '8px' } }, group.items.length + ' 张')),
-            h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px', marginTop: '10px' } }, group.items.map(item => item.node))))
+            h('div', { style: GALLERY_GRID }, group.items.map(item => item.node))))
             : historyNote ? null : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', padding: '14px 0 0' } }, '还没有图片'),
           legacyTiles.length ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '14px' } }, '「早期插图」是换用插件之前 Tavern 自带生图画的，只读；要删除请到对应那局的「画廊」。') : null,
-          viewing ? h('div', { role: 'dialog', 'aria-label': '查看早期插图', tabIndex: -1,
-            ref: node => { if (node) node.focus() },
-            onKeyDown: e => { if (e.key === 'Escape') setLegacyViewer(null); else if (e.key === 'ArrowLeft') step(-1); else if (e.key === 'ArrowRight') step(1) },
-            onClick: e => { if (e.target === e.currentTarget) setLegacyViewer(null) },
-            style: { position: 'fixed', inset: 0, zIndex: 2147483000, background: 'rgba(0,0,0,.82)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', outline: 'none' } },
-            h('img', { src: viewing.url, alt: viewing.description || '插图', style: { maxWidth: '92vw', maxHeight: '84vh', objectFit: 'contain', borderRadius: '8px' } }),
-            h('div', { style: { color: '#eee', fontSize: '12px', maxWidth: '80vw', textAlign: 'center' } },
-              (legacyViewer + 1) + ' / ' + legacyImages.length + ' · ' + (viewing.gameTitle || '未命名的局') + ' · 第 ' + viewing.turn + ' 轮' + (viewing.description ? ' · ' + viewing.description : '') + '　（← → 翻页，Esc 关闭）')) : null,
+
         )
       }
 
@@ -6467,55 +6437,54 @@ function versionsOf(jobId) {
     // 画廊页本身；会话画廊由宿主的公开接口展示。
     const CARD_GALLERY_API = '/dsh-tavern-gen/api'
     let cardGalleryCtx = null
-    const CARD_GALLERY_S = {
-      hint: { fontSize: 12, lineHeight: 1.6, opacity: 0.72 },
-      group: { display: 'flex', flexDirection: 'column', gap: 10 },
-      card: {
-        border: '1px solid rgba(128,128,128,.28)', borderRadius: 10,
-        background: 'rgba(128,128,128,.05)', padding: 10,
-        display: 'flex', flexDirection: 'column', gap: 8,
-      },
-      row: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
-      status: { fontSize: 12, opacity: 0.78 },
-      ghost: {
-        padding: '5px 12px', fontSize: 12, cursor: 'pointer', borderRadius: 7, flexShrink: 0,
-        border: '1px solid rgba(128,128,128,.4)', background: 'transparent',
-        color: 'inherit', fontFamily: 'inherit', whiteSpace: 'nowrap',
-      },
-      danger: {
-        padding: '5px 11px', fontSize: 12, cursor: 'pointer', borderRadius: 7, flexShrink: 0,
-        border: '1px solid rgba(217,83,79,.55)', background: 'transparent',
-        color: '#d9534f', fontFamily: 'inherit', whiteSpace: 'nowrap',
-      },
-      off: { opacity: 0.5, cursor: 'default' },
+    const GALLERY_GRID = {
+      display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 132px), 1fr))',
+      gap: 10, marginTop: 10,
     }
-    const CardGhost = props => h('button', {
-      type: 'button', onClick: props.onClick, disabled: props.disabled,
-      style: { ...CARD_GALLERY_S.ghost, ...(props.disabled ? CARD_GALLERY_S.off : {}), ...(props.style || {}) },
-    }, props.children)
-    const CardDanger = props => h('button', {
-      type: 'button', onClick: props.onClick, disabled: props.disabled,
-      style: { ...CARD_GALLERY_S.danger, ...(props.disabled ? CARD_GALLERY_S.off : {}), ...(props.style || {}) },
-    }, props.children)
+    const GALLERY_TILE = {
+      position: 'relative', minWidth: 0, borderRadius: 10, overflow: 'hidden',
+      border: '1px solid var(--dsw-alias-border-l2)',
+      background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)',
+    }
+    const GALLERY_THUMB = {
+      display: 'block', width: '100%', aspectRatio: '3 / 4', objectFit: 'cover',
+      background: 'var(--dsw-specific-input-major)',
+    }
+    const GALLERY_CAPTION = {
+      padding: '6px 8px', fontSize: 11, color: 'var(--dsw-alias-label-tertiary)',
+      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+    }
+    const CARD_GALLERY_S = {
+      hint: { fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-label-tertiary)' },
+      group: { display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 },
+      row: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
+    }
+    function CardGalleryButton({ children, danger, disabled, onClick, style, title }) {
+      return h('button', {
+        type: 'button', onClick, disabled, title,
+        style: { ...buttonStyle, padding: '5px 10px', fontSize: 12,
+          ...(danger ? { color: 'var(--dsw-alias-state-error-primary)' } : {}),
+          ...(disabled ? { opacity: 0.55, cursor: 'default' } : {}), ...style },
+      }, children)
+    }
 
     function CardGalleryPage() {
       const S = CARD_GALLERY_S
       const API = CARD_GALLERY_API
       const [items, setItems] = useState(null)
-      const [zoom, setZoom] = useState(null)
       const [status, setStatus] = useState('')
       const [busy, setBusy] = useState(false)
       const [titles, setTitles] = useState({})
       const [closed, setClosed] = useState({})
 
-      async function pull() {
+      async function pull(message = '') {
         setBusy(true)
         try {
           const response = await fetch(API + '/gallery', { headers: { accept: 'application/json' } })
           const value = await response.json()
           if (!response.ok) throw new Error(value?.error || 'HTTP ' + response.status)
           setItems(value.items ?? [])
-          setStatus('')
+          setStatus(message)
         } catch (error) {
           setStatus('读取失败：' + (error?.message ?? error))
         } finally {
@@ -6548,8 +6517,7 @@ function versionsOf(jobId) {
           })
           const value = await response.json()
           if (!response.ok || !value.ok) throw new Error(value?.error || 'HTTP ' + response.status)
-          setStatus('已删除（记录和图片文件一起删了）')
-          await pull()
+          await pull('已删除图片和记录')
         } catch (error) {
           setStatus('删除失败：' + (error?.message ?? error))
         }
@@ -6563,8 +6531,7 @@ function versionsOf(jobId) {
           const response = await fetch(API + '/gallery-clear', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
           const value = await response.json()
           if (!response.ok || !value.ok) throw new Error(value?.error || 'HTTP ' + response.status)
-          setStatus(`已清空 ${value.removed ?? 0} 张`)
-          await pull()
+          await pull('已清空 ' + (value.removed ?? 0) + ' 张')
         } catch (error) {
           await pull()
           setStatus('清空失败：' + (error?.message ?? error))
@@ -6628,53 +6595,51 @@ function versionsOf(jobId) {
       }
       const toggle = key => setClosed(current => ({ ...current, [key]: !current[key] }))
 
-      const tile = item => h('div', { key: item.id, style: { ...S.card, padding: 6, gap: 5 } },
-        h('img', {
-          src: item.url, alt: item.prompt || item.file, loading: 'lazy', decoding: 'async',
-          onClick: () => setZoom(item),
-          style: { width: '100%', borderRadius: 6, cursor: 'zoom-in', display: 'block', background: 'rgba(0,0,0,.15)' },
-        }),
-        h('div', { style: { fontSize: 11, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-          item.preset || '默认画风'),
-        h('div', { style: { fontSize: 10, opacity: 0.55 } },
-          new Date(item.at || Date.now()).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })),
-        // 三个按钮一行：两个复制平分宽度，删除窄且红，避免误点。
-        h('div', { style: { display: 'flex', gap: 4, alignItems: 'stretch' } },
-          h(CardGhost, {
-            onClick: () => copyText(item.prompt, 'prompt'), title: '复制这一张的完整 prompt',
-            style: { flex: '1 1 0', minWidth: 0, padding: '3px 3px', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis' },
-          }, '提示词'),
-          h(CardGhost, {
-            onClick: () => copyText(item.negative, 'negative'), title: '复制这一张的 negative',
-            style: { flex: '1 1 0', minWidth: 0, padding: '3px 3px', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis' },
-          }, '负面'),
-          h(CardDanger, {
-            onClick: () => remove(item.id), title: '删除记录和图片文件',
-            style: { flex: '0 0 auto', padding: '3px 7px', fontSize: 10 },
-          }, '×'),
-        ),
-      )
+      function preview(item) {
+        const ordered = groupKeys.flatMap(key => bySession.get(key))
+        openImageOverlay?.({ open: true, note: '卡片画廊',
+          images: ordered.map(entry => ({ url: entry.url, alt: entry.prompt || entry.file })), index: ordered.indexOf(item) })
+      }
+
+      const tile = item => {
+        const caption = [item.preset || '默认画风', item.channel, item.size].filter(Boolean).join(' · ')
+        return h('div', { key: item.id, style: GALLERY_TILE },
+          h('button', { type: 'button', onClick: () => preview(item), title: '查看大图',
+            style: { display: 'block', width: '100%', padding: 0, border: 0, background: 'none', cursor: 'zoom-in' } },
+            h('img', { src: item.url, alt: item.prompt || item.file, loading: 'lazy', decoding: 'async', style: GALLERY_THUMB })),
+          h('div', { style: GALLERY_CAPTION, title: caption }, caption),
+          h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 4, padding: '0 6px 6px' } },
+            h(CardGalleryButton, { onClick: () => copyText(item.prompt, '提示词'), title: '复制完整提示词',
+              style: { padding: '3px 5px', flex: '1 0 auto' } }, '提示词'),
+            h(CardGalleryButton, { onClick: () => copyText(item.negative, '负面词'), title: '复制负面词',
+              style: { padding: '3px 5px', flex: '1 0 auto' } }, '负面'),
+            h(CardGalleryButton, { danger: true, onClick: () => remove(item.id), title: '删除图片和记录',
+              style: { padding: '3px 5px' } }, '删除'),
+          ),
+        )
+      }
 
       return h('div', { style: S.group },
         h('div', { style: S.row },
           h('span', { style: { fontSize: 13, fontWeight: 600, marginRight: 6 } }, `卡片画廊（${list.length} 张）`),
-          h(CardGhost, { onClick: pull, disabled: busy }, busy ? '读取中…' : '重新读取'),
-          list.length ? h(CardDanger, { onClick: clearAll, disabled: busy }, '清空全部') : null,
-          status ? h('span', { style: S.status }, status) : null,
+          h(CardGalleryButton, { onClick: () => pull(), disabled: busy }, busy ? '读取中…' : '刷新'),
+          list.length ? h(CardGalleryButton, { danger: true, onClick: clearAll, disabled: busy }, '清空全部') : null,
+          status ? h('span', { role: 'status', style: S.hint }, status) : null,
         ),
-        h('div', { style: S.hint }, '按出图会话分组，点组标题收起或展开。删除会同时删掉记录和图片文件，删了找不回来。'),
+        h('div', { style: S.hint }, '按会话分组。点缩略图查看原图，点组标题收起或展开。'),
         items === null
-          ? h('div', { style: S.hint }, '正在读取…')
+          ? (status ? null : h('div', { style: S.hint }, '正在读取…'))
           : list.length === 0
             ? h('div', { style: S.hint }, '还没有图。让 Agent 出一张就会出现在这里。')
             : h('div', { style: { display: 'flex', flexDirection: 'column', gap: 14 } },
               groupKeys.map(key => {
                 const group = bySession.get(key) || []
                 const open = !closed[key]
-                return h('div', { key: key || 'none', style: { ...S.card, padding: 8, gap: 8 } },
+                return h('div', { key: key || 'none', style: { minWidth: 0 } },
                   h('button', {
                     type: 'button',
                     onClick: () => toggle(key),
+                    'aria-expanded': open,
                     title: open ? '收起这一组' : '展开这一组',
                     style: {
                       display: 'flex', alignItems: 'center', gap: 8, width: '100%', cursor: 'pointer',
@@ -6685,22 +6650,11 @@ function versionsOf(jobId) {
                     h('span', { style: { fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, groupTitle(key, group)),
                     h('span', { style: { fontSize: 11, opacity: 0.55, flex: '0 0 auto' } }, `${group.length} 张`),
                   ),
-                  // 展开后自动铺列：宽屏 5 列，窄了自己降。
-                  open ? h('div', {
-                    style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 110px), 1fr))', gap: 8 },
-                  }, group.map(tile)) : null,
+                  open ? h('div', { style: GALLERY_GRID }, group.map(tile)) : null,
                 )
               }),
             ),
-        zoom ? h('div', {
-          onClick: () => setZoom(null),
-          style: {
-            position: 'fixed', inset: 0, zIndex: 2147483600, background: 'rgba(0,0,0,.86)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, cursor: 'zoom-out',
-          },
-        }, h('img', {
-          src: zoom.url, alt: zoom.prompt || '', style: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 },
-        })) : null,
+
       )
     }
 

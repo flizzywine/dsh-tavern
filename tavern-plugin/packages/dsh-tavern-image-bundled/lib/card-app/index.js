@@ -91,6 +91,8 @@ export function apply(ctx, { ready }) {
       channel: { type: 'string', description: '精确渠道 ID 或唯一名字；comfyui 选择本地工作流。不填用当前渠道，不改变全局设置。' },
       workflow: { type: 'string', description: 'ComfyUI 工作流 ID，不填使用配图设置的默认工作流。' },
       preset: { type: 'string', description: '本次画风预设 ID 或唯一名字。' },
+      preset_positive: { type: 'string', description: '临时覆盖这套预设的正面词（画师串 / 风格词），只对本次生成生效，不写回设置。要改权重或删掉其中某段时，把改好的整串传进来；传空字符串表示本张不用这层词。' },
+      preset_negative: { type: 'string', description: '临时覆盖这套预设的负面固定词，只对本次生成生效，不写回设置；传空字符串表示本张不带这层负面词。' },
       size: { type: 'string', description: '竖图、横图、方图或宽x高。不填沿用渠道或 ComfyUI 工作流尺寸。' },
       count: { type: 'integer', description: '生成 1–4 张，默认 1。' },
       sampler: { type: 'string', description: '仅支持此参数的 NovelAI、SD WebUI 渠道可临时指定。' },
@@ -100,7 +102,11 @@ export function apply(ctx, { ready }) {
       subjects: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { characterId: { type: 'string' }, outfitId: { type: 'string' }, name: { type: 'string' } } }, description: 'reference 模式的本张人物与服装 ID，read_character/read_outfit 返回精确 ID。' },
       characters: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { prompt: { type: 'string' }, centers: { type: 'string' }, uc: { type: 'string' } }, required: ['prompt'] }, description: '需要区分多个人物时逐人描述。NovelAI 使用原生角色参数，其他渠道由引擎合成。' },
     }, ['prompt']),
-    output: output((_args, value) => [{ type: 'text', text: [value.ok ? '图片已生成。' : '部分图片已生成，后续任务中断，请先检查配图记录。', value.channel ? '生图渠道：' + value.channel : '', ...(value.images || []).flatMap(image => [`![图片](${image.url})`, image.prompt ? '实际提交提示词：\n' + image.prompt : '', image.negative ? '负面提示词：\n' + image.negative : '']), value.error || ''].filter(Boolean).join('\n\n') }]),
+    output: output((_args, value) => [{ type: 'text', text: [value.ok ? '图片已生成。' : '部分图片已生成，后续任务中断，请先检查配图记录。', value.channel ? '生图渠道：' + value.channel : '', value.preset ? '画风预设：' + value.preset : '', ...(value.images || []).flatMap(image => [`![图片](${image.url})`, image.prompt ? '实际提交提示词：\n' + image.prompt : '', image.negative && !image.negativeInPrompt ? '负面提示词：\n' + image.negative : '',
+      ...(image.characters || []).map((character, index) => [
+        '角色 ' + (index + 1) + ' 提示词：\n' + character.prompt,
+        character.uc ? '角色负面提示词：\n' + character.uc : '',
+      ].filter(Boolean).join('\n'))]), value.error || ''].filter(Boolean).join('\n\n') }]),
     async execute(args, exec) {
       await assertOpen()
       const count = args.count ?? 1
@@ -118,13 +124,13 @@ export function apply(ctx, { ready }) {
           const result = await engine.generateCardImage({ ...args, seed: values[index] }, { ...options, key: 'card-' + randomUUID() })
           const item = await gallery.add(result, { sessionId: options.sessionId, preset: args.preset })
           const url = new URL(item.url, origin).href
-          images.push(omitUndefined({ url, markdown: `![图片](${url})`, jobId: result.jobId, mediaType: result.mediaType, seed: result.seed, size: result.size, prompt: result.prompt, negative: result.negative, preset: result.preset }))
+          images.push(omitUndefined({ url, markdown: `![图片](${url})`, jobId: result.jobId, mediaType: result.mediaType, seed: result.seed, size: result.size, prompt: result.prompt, negative: result.negative, negativeInPrompt: result.negativeInPrompt, characters: result.characters, preset: result.preset }))
         } catch (error) {
           if (!images.length) throw error
-          return omitUndefined({ ok: false, images, error: error.message, jobId: error.jobId, requestMayHaveSucceeded: error.requestMayHaveSucceeded === true, elapsedMs: Date.now() - started })
+          return omitUndefined({ ok: false, images, channel: picked.channel, preset: images[0].preset, error: error.message, jobId: error.jobId, requestMayHaveSucceeded: error.requestMayHaveSucceeded === true, elapsedMs: Date.now() - started })
         }
       }
-      return omitUndefined({ ok: true, images, channel: picked.channel, promptMode: picked.promptMode, elapsedMs: Date.now() - started })
+      return omitUndefined({ ok: true, images, channel: picked.channel, promptMode: picked.promptMode, preset: (picked.preset && picked.preset.name) || '', elapsedMs: Date.now() - started })
     },
   }
 
@@ -152,7 +158,7 @@ export function apply(ctx, { ready }) {
     },
   }
   const configuration = {
-    name: 'read_image_config', description: '读取全部已保存渠道、当前默认渠道、提示词格式、参考图及种子能力、画风和 ComfyUI 工作流。只读本地配置，不联网探测或生成。', parameters: schema({}), output: output(),
+    name: 'read_image_config', description: '读取全部已保存渠道、当前默认渠道、提示词格式、参考图及种子能力、画风和 ComfyUI 工作流。只读本地配置，不联网探测或生成。指定渠道和预设时优先使用唯一名称，重名时使用 ID。', parameters: schema({}), output: output(),
     async execute() {
       await assertOpen()
       const engine = await ready(), cfg = engine.currentConfig(), workflows = engine.cardWorkflows()
@@ -162,7 +168,7 @@ export function apply(ctx, { ready }) {
       })
       for (const item of workflows) channels.push({ id: 'comfyui', workflowId: item.id, name: item.label, provider: 'comfyui', promptMode: cardSelection(cfg, workflows, { channel: 'comfyui', workflow: item.id }).promptMode, maxReferences: item.bindings?.referenceImages?.length || 0, supportsSeed: Boolean(item.bindings?.seed?.length) })
       return { activeChannelId: cfg.imageBackend === 'comfyui' ? 'comfyui' : cfg.activeImageChannel, channels, defaultWorkflow: cfg.defaultWorkflow,
-        presets: (cfg.stylePresets || []).filter(item => item.enabled !== false).map(item => ({ id: item.id, name: item.name })), activePreset: cfg.activePreset, sizes: CARD_SIZES }
+        presets: (cfg.stylePresets || []).filter(item => item.enabled !== false).map(item => ({ id: item.id, name: item.name, artist: item.artist || '' })), activePreset: cfg.activePreset, sizes: CARD_SIZES }
     },
   }
   const lookup = {

@@ -133,7 +133,6 @@
       // 历史图库
       const [historyJobs, setHistoryJobs] = React.useState([])
       const [legacyImages, setLegacyImages] = React.useState([])
-      const [legacyViewer, setLegacyViewer] = React.useState(null)
       const [gameNames, setGameNames] = React.useState({})
       const [historyNote, setHistoryNote] = React.useState('')
       // 历史图的重载信号：切 tab 与点「刷新」都靠它真正重跑一次拉取。
@@ -2969,13 +2968,19 @@
       // ---- 历史图 ----
       function galleryTab() {
         const done = historyJobs.filter(function (job) { return job.hasImage && (job.source === 'play' || job.source !== 'card' && job.label !== '卡片工作台') })
+        const preview = image => {
+          const orderedImages = ordered.flatMap(group => group.items)
+          if (!orderedImages.length) return
+          const images = orderedImages.map(item => item.preview)
+          const index = Math.max(0, orderedImages.findIndex(item => item.image === image))
+          openImageOverlay?.({ open: true, images, note: '游玩画廊', index })
+        }
         const tiles = done.map(function (job) {
           return h('div', {
             key: job.id,
             style: {
-              position: 'relative', borderRadius: '10px', overflow: 'hidden',
-              background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)',
-              border: gallerySelect && galleryPicked[job.id] ? '2px solid var(--dsw-alias-brand-primary)' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)',
+              ...GALLERY_TILE,
+              border: gallerySelect && galleryPicked[job.id] ? '2px solid var(--dsw-alias-brand-primary)' : GALLERY_TILE.border,
               boxShadow: gallerySelect && galleryPicked[job.id] ? '0 0 0 3px color-mix(in srgb, var(--dsw-alias-brand-primary) 25%, transparent)' : 'none',
             },
           },
@@ -2985,15 +2990,11 @@
               decoding: 'async',
               alt: job.label || '图',
               title: '左键看大图　右键出菜单',
-              style: { display: 'block', width: '100%', aspectRatio: '3 / 4', objectFit: 'cover', cursor: 'zoom-in', background: 'var(--dsw-specific-input-major)' },
+              style: { ...GALLERY_THUMB, cursor: 'zoom-in' },
               // 左键：批量模式下 = 勾选；平时 = 看大图（带上整库，能左右翻）
               onClick: function () {
                 if (gallerySelect) { setGalleryPicked(cur => Object.assign({}, cur, { [job.id]: !cur[job.id] })); return }
-                if (typeof openImageOverlay !== 'function') return
-                // 用「所有历史图」作为翻页列表，并定位到点的这一张 —— 这样打开第一张就能一路翻到最后
-                const all = done.map(function (j) { return j.id })
-                const at = Math.max(0, all.indexOf(job.id))
-                openImageOverlay({ open: true, jobIds: all.length ? all : [job.id], note: '画廊（' + (at + 1) + '/' + all.length + '）', working: false, index: at })
+                preview(job)
               },
               // 右键：出菜单
               onContextMenu: function (event) {
@@ -3003,9 +3004,7 @@
                   x: event.clientX, y: event.clientY,
                   items: [
                     { icon: '🖼', label: '查看大图', onClick: function () {
-                        const all = done.map(function (j) { return j.id })
-                        const at = Math.max(0, all.indexOf(job.id))
-                        openImageOverlay({ open: true, jobIds: all.length ? all : [job.id], note: '画廊（' + (at + 1) + '/' + all.length + '）', working: false, index: at })
+                        preview(job)
                       } },
                     { icon: '✏️', label: '改提示词重画', onClick: function () {
                         if (typeof openEditorFor === 'function') openEditorFor(job.id, job.label)
@@ -3036,41 +3035,37 @@
                 fontSize: '13px', lineHeight: 1, padding: 0,
               },
             }, '🗑') : null,
-            h('div', { style: { padding: '6px 8px', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+            h('div', { style: GALLERY_CAPTION },
               (job.label || '未命名') + ' · ' + (job.size || '')),
           )
         })
-        const legacyTiles = legacyImages.map(function (item, index) {
-          return h('button', { key: item.url, type: 'button', title: item.description || '', onClick: function () { setLegacyViewer(index) },
-            style: { padding: 0, textAlign: 'left', cursor: 'zoom-in', borderRadius: '10px', overflow: 'hidden', background: 'transparent', color: 'inherit', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)' } },
-            h('img', { src: item.url, loading: 'lazy', decoding: 'async', alt: item.description || '插图', style: { display: 'block', width: '100%', aspectRatio: '3 / 4', objectFit: 'cover', background: 'var(--dsw-specific-input-major)' } }),
-            h('div', { style: { padding: '6px 8px', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+        const legacyTiles = legacyImages.map(function (item) {
+          return h('button', { key: item.url, type: 'button', title: item.description || '', onClick: () => preview(item),
+            style: { ...GALLERY_TILE, padding: 0, textAlign: 'left', cursor: 'zoom-in', color: 'inherit' } },
+            h('img', { src: item.url, loading: 'lazy', decoding: 'async', alt: item.description || '插图', style: GALLERY_THUMB }),
+            h('div', { style: GALLERY_CAPTION },
               '第 ' + item.turn + ' 轮 · 早期插图'))
         })
         // 按局分组：插件图按出图时的局，早期插图按 Tavern 记录的局；组内与组间都是新的在前。
         const groups = new Map()
         const groupOf = key => { if (!groups.has(key)) groups.set(key, { key, items: [], legacyTitle: '', deleted: false }); return groups.get(key) }
-        done.forEach((job, index) => groupOf(job.gameId || '').items.push({ at: Number(job.completedAt || job.createdAt) || 0, node: tiles[index] }))
+        done.forEach((job, index) => groupOf(job.gameId || '').items.push({ at: Number(job.completedAt || job.createdAt) || 0, image: job, preview: { jobId: job.id, alt: job.label }, node: tiles[index] }))
         legacyImages.forEach((item, index) => {
           const group = groupOf(item.gameId || 'legacy:' + item.gameTitle)
           group.legacyTitle = group.legacyTitle || item.gameTitle
           group.deleted = group.deleted || item.gameDeleted
-          group.items.push({ at: Number(item.createdAt) || 0, node: legacyTiles[index] })
+          group.items.push({ at: Number(item.createdAt) || 0, image: item, preview: { url: item.url, alt: item.description }, node: legacyTiles[index] })
         })
         for (const group of groups.values()) group.items.sort((a, b) => b.at - a.at)
         const ordered = [...groups.values()].sort((a, b) => (b.items[0]?.at || 0) - (a.items[0]?.at || 0))
         const groupTitle = group => group.key === '' ? '未归属对局（在设置里试画的图）'
           : (gameNames[group.key]?.title || gameNames[group.key]?.cardName || group.legacyTitle || '已删除的对局') + (group.deleted ? '（已删除）' : '')
-        const viewing = legacyViewer === null ? null : legacyImages[legacyViewer]
-        const step = delta => setLegacyViewer(index => (index + delta + legacyImages.length) % legacyImages.length)
         return h('div', { style: S.card },
           h('div', { style: { fontSize: '13px', marginBottom: '4px' } }, '画廊（插件 ' + done.length + ' 张' + (legacyImages.length ? ' · 早期 ' + legacyImages.length + ' 张' : '') + '）'),
-          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } }, '左键看大图（可以左右翻整个历史库），右键出菜单，鼠标移到图上右上角能直接删。'),
+          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } }, '点缩略图查看原图，按页面顺序切图。右键插件图可查看操作。'),
           h('div', { style: S.row },
             h('button', { style: buttonStyle, onClick: function () { setHistoryNote('读取中…'); setHistoryTick(n => n + 1) } }, '🔄 刷新'),
-            h('button', { style: buttonStyle, onClick: function () {
-              if (typeof openImageOverlay === 'function' && done.length) openImageOverlay({ open: true, jobIds: done.map(function (job) { return job.id }), note: '全部插件图（◀ ▶ 翻页）', working: false, index: 0 })
-            } }, '🖼 全部打开'),
+            h('button', { style: buttonStyle, onClick: () => preview(), disabled: !ordered.length }, '浏览全部'),
             h('button', { style: buttonStyle, onClick: function () {
               setGallerySelect(v => !v); setGalleryPicked({})
             } }, gallerySelect ? '✖ 退出批量' : '☑ 批量选择'),
@@ -3089,17 +3084,10 @@
           ordered.length ? ordered.map(group => h('details', { key: group.key, open: true, style: { marginTop: '14px' } },
             h('summary', { style: { cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } },
               groupTitle(group), h('span', { style: { fontWeight: 400, fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginLeft: '8px' } }, group.items.length + ' 张')),
-            h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px', marginTop: '10px' } }, group.items.map(item => item.node))))
+            h('div', { style: GALLERY_GRID }, group.items.map(item => item.node))))
             : historyNote ? null : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', padding: '14px 0 0' } }, '还没有图片'),
           legacyTiles.length ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '14px' } }, '「早期插图」是换用插件之前 Tavern 自带生图画的，只读；要删除请到对应那局的「画廊」。') : null,
-          viewing ? h('div', { role: 'dialog', 'aria-label': '查看早期插图', tabIndex: -1,
-            ref: node => { if (node) node.focus() },
-            onKeyDown: e => { if (e.key === 'Escape') setLegacyViewer(null); else if (e.key === 'ArrowLeft') step(-1); else if (e.key === 'ArrowRight') step(1) },
-            onClick: e => { if (e.target === e.currentTarget) setLegacyViewer(null) },
-            style: { position: 'fixed', inset: 0, zIndex: 2147483000, background: 'rgba(0,0,0,.82)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', outline: 'none' } },
-            h('img', { src: viewing.url, alt: viewing.description || '插图', style: { maxWidth: '92vw', maxHeight: '84vh', objectFit: 'contain', borderRadius: '8px' } }),
-            h('div', { style: { color: '#eee', fontSize: '12px', maxWidth: '80vw', textAlign: 'center' } },
-              (legacyViewer + 1) + ' / ' + legacyImages.length + ' · ' + (viewing.gameTitle || '未命名的局') + ' · 第 ' + viewing.turn + ' 轮' + (viewing.description ? ' · ' + viewing.description : '') + '　（← → 翻页，Esc 关闭）')) : null,
+
         )
       }
 
