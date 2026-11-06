@@ -44,15 +44,14 @@ test('末尾持久输入在会话视图中仍可重放，不回退到上一条�
     evidence: () => ({ session, events: [] }) })
   const chat = {
     id: 'c', sessionId: 's', mode: 'story', _storageRevision: 2,
-    foregroundError: { turn: 4, requestId: 'rpc-latest', message: 'failed' },
+    foregroundError: null,
     messages: [{ role: 'user', text: '上一轮输入' }, { role: 'assistant', turn: 2, text: '上一轮正文' },
-      { role: 'user', text: '最新输入', native: true, source: { kind: 'user', rpcId: 'rpc-latest' } }]
+      { role: 'user', text: '最新输入', native: true }]
   }
   const view = fields.volatile(projectChatSessionState(chat), { busy: false })
   assert.equal(view.canReplayFailedTurn, true)
   assert.equal(view.replayPersistedTurn, true)
-  assert.equal(view.replayFailedTurn, 4)
-  chat.foregroundError.turn = 0
+  assert.equal(view.replayFailedTurn, 0)
   const beforeNativeTurn = fields.volatile(projectChatSessionState(chat), { busy: false })
   assert.equal(beforeNativeTurn.canReplayFailedTurn, true)
   assert.equal(beforeNativeTurn.replayPersistedTurn, true)

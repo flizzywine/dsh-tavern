@@ -796,9 +796,8 @@ test('重放与重生成、回退互斥', async () => {
 
 for (const method of ['replayFailed', 'regenerate']) test('失败后重生成保留最新持久输入，不向上一轮回退：' + method, async () => {
   const h = harness()
-  h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true,
-    source: { kind: 'user', rpcId: 'rpc-latest' } })
-  h.chat.foregroundError = { turn: 4, requestId: 'rpc-latest', message: 'fixture failed' }
+  h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true })
+  h.chat.foregroundError = null
   h.session.append('turn/start', { turn: 3 })
   h.session.append('user/message', { role: 'user', content: [{ type: 'text', text: '倒数第二个输入' }],
     source: { kind: 'user', rpcId: 'rpc-previous' } }, { surfaceOp: 'append' })
@@ -808,7 +807,9 @@ for (const method of ['replayFailed', 'regenerate']) test('失败后重生成保
   await h.create()[method]('chat', ...(method === 'regenerate' ? ['', 'session'] : ['session']))
 
   assert.equal(h.agent.input.content[0].text, '最新输入')
-  assert.equal(h.agent.input.source.rpcId, 'rpc-latest')
+  assert.equal(typeof h.agent.input.source.rpcId, 'string')
+  assert.ok(h.agent.input.source.rpcId.length > 0)
+  assert.equal(h.chat.messages[3].source.rpcId, h.agent.input.source.rpcId, '请求号补写到原输入行，prepare 不追加重复 user')
   assert.deepEqual(h.chat.messages.map(message => [message.role, message.text]), [
     ['assistant', '开场'], ['user', '推门'], ['assistant', '旧正文'],
     ['user', '最新输入'], ['assistant', '新正文4']

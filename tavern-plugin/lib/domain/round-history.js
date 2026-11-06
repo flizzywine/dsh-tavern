@@ -771,6 +771,17 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
           suppressedDshTurns: Array.from(suppressed).sort(function (left, right) { return left - right }),
           updatedAt: Date.now()
         }
+        if (target.persisted) {
+          const messages = Array.isArray(current.messages) ? [...current.messages] : []
+          const row = messages[target.messageIndex]
+          if (row?.role !== 'user' || row.native !== true || row.placeholder === true) throw new Error('待生成输入已变化，请刷新后重试')
+          const currentText = typeof row.sourceText === 'string' ? row.sourceText : (typeof row.text === 'string' ? row.text : '')
+          if (target.userText && currentText !== target.userText) throw new Error('待生成输入已变化，请刷新后重试')
+          // Older/native-adopted rows may not have a request id yet. Stamp the
+          // existing row so prepare() adopts it instead of appending a duplicate.
+          messages[target.messageIndex] = { ...row, source: { ...row.source, kind: 'user', rpcId: target.source.rpcId } }
+          next.messages = messages
+        }
         if (current.userInputEdits && typeof current.userInputEdits === 'object' && Object.hasOwn(current.userInputEdits, String(target.turn))) {
           const edits = { ...current.userInputEdits }
           delete edits[String(target.turn)]

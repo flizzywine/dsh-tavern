@@ -193,9 +193,8 @@ test('持久失败输入回到普通本轮生成，不进入旧正文替换流�
   let replacements = 0
   const f = fixture(undefined, { regenerateWithProvider: async () => { replacements++; return { turn: 2 } } })
   f.mutate(chat => {
-    chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true,
-      source: { kind: 'user', rpcId: 'rpc-latest' } })
-    chat.foregroundError = { turn: 0, requestId: 'rpc-latest', message: 'failed' }
+    chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true })
+    chat.foregroundError = null
   })
   assert.equal(await f.controller.regenerate('session'), null)
   assert.equal(replacements, 0)

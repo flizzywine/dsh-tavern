@@ -481,31 +481,31 @@ export function replayableFailedTurn(input) {
   return null
 }
 
-// A directly persisted player row is already story data even when its generation
-// failed before a native turn was written. Correlate the durable failure with the
-// tail row's request id; never fall through to an earlier assistant/user pair.
+// A native tail user with no assistant after it is an unfinished story input,
+// regardless of whether the provider failure itself was persisted. Never fall
+// through to an earlier assistant/user pair: that pair is already complete.
 export function replayablePersistedTurn(chat) {
   if (!['story', 'script'].includes(chat?.mode || 'story')) return null
   const failure = object(chat?.foregroundError)
-  const requestId = typeof failure?.requestId === 'string' ? failure.requestId.trim() : ''
   const messages = Array.isArray(chat?.messages) ? chat.messages : []
   const message = object(messages[messages.length - 1])
-  if (!requestId || message?.role !== 'user' || message.native !== true || message.placeholder === true) return null
-  if ((typeof message.source?.rpcId === 'string' ? message.source.rpcId.trim() : '') !== requestId) return null
+  if (message?.role !== 'user' || message.native !== true || message.placeholder === true) return null
   const hasText = typeof message.sourceText === 'string' || typeof message.text === 'string'
   const userText = typeof message.sourceText === 'string' ? message.sourceText : (typeof message.text === 'string' ? message.text : '')
   const attachments = Array.isArray(message.inputAttachments) ? structuredClone(message.inputAttachments) : []
   // Session-state projections deliberately omit bodies; their target only drives
   // button visibility. The mutation reads the full row and still validates text.
   if (hasText && userText.trim() === '' && attachments.length === 0) return null
-  const failedTurn = Number(failure.turn)
+  const failedTurn = Number(failure?.turn)
+  const source = replayInputSource(message.source)
+  if (!source.rpcId) source.rpcId = randomUUID()
   return Object.freeze({
     persisted: true,
     messageIndex: messages.length - 1,
     turn: Number.isSafeInteger(failedTurn) && failedTurn > 0 ? failedTurn : 0,
     userText,
     ...(attachments.length ? { inputAttachments: attachments } : {}),
-    source: replayInputSource(message.source)
+    source
   })
 }
 

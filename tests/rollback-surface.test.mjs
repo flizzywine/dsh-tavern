@@ -112,14 +112,14 @@ test('失败尾部重放认领用户输入与历史重放输入，且只认领�
   assert.equal(replayableFailedTurn({ events: [...events, { seq: 6, type: 'turn/start', data: { turn: 4 } }, { seq: 7, type: 'user/message', data: { content: [{ type: 'text', text: '第三次' }], source: { kind: 'user' } } }] }), null)
 })
 
-test('末尾持久玩家输入优先于更早的原生失败回合，重放保留同一请求号', () => {
+test('无错误对象和请求号时，末尾持久玩家输入仍优先于更早的原生失败回合', () => {
   const chat = {
     mode: 'story',
-    foregroundError: { turn: 4, requestId: 'rpc-latest' },
+    foregroundError: null,
     messages: [
       { role: 'user', text: '倒数第二个输入' },
       { role: 'assistant', turn: 2, text: '上一轮正文' },
-      { role: 'user', text: '最新输入', sourceText: '最新输入', native: true, source: { kind: 'user', rpcId: 'rpc-latest' } }
+      { role: 'user', text: '最新输入', sourceText: '最新输入', native: true }
     ]
   }
   const events = [
@@ -129,7 +129,8 @@ test('末尾持久玩家输入优先于更早的原生失败回合，重放保�
   ]
   const result = failedTurnReplayAvailability({ chat, events, nodes: [] })
   assert.equal(result.target.userText, '最新输入')
-  assert.equal(result.target.source.rpcId, 'rpc-latest')
+  assert.equal(typeof result.target.source.rpcId, 'string')
+  assert.ok(result.target.source.rpcId.length > 0)
   assert.equal(result.target.persisted, true)
   assert.equal(result.target.messageIndex, 2)
 })
