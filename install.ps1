@@ -1,8 +1,10 @@
+param([switch]$LauncherOnly)
+
 $ErrorActionPreference = 'Stop'
 $PreviousConsoleOutputEncoding = [Console]::OutputEncoding
 $PreviousOutputEncoding = $OutputEncoding
 
-$InstallHost = if ($env:DSH_TAVERN_HOST) { $env:DSH_TAVERN_HOST } else { 'desktop' }
+$InstallHost = if ($LauncherOnly) { 'desktop' } elseif ($env:DSH_TAVERN_HOST) { $env:DSH_TAVERN_HOST } else { 'desktop' }
 if ($InstallHost -notin @('desktop', 'cli')) { throw "只支持官方桌面和独立命令行，不支持宿主：$InstallHost" }
 
 $Repository = if ($env:DSH_TAVERN_REPOSITORY) { $env:DSH_TAVERN_REPOSITORY } else { 'flizzywine/dsh-tavern' }
@@ -1244,6 +1246,25 @@ try {
       } | Select-Object -First 1
       if ($CommunityDesktop) { throw ('检测到社区版 ' + $CommunityDesktop + '，当前版本只支持官方 DeepSeek Harness（https://deepseek.com/harness/）。继续用社区版请改用稳定版的安装命令：https://github.com/flizzywine/dsh-tavern/blob/stable/README.md') }
       throw '请先安装官方 DeepSeek Harness（https://deepseek.com/harness/）（装在其他位置时，可用 DSH_DESKTOP_APP_EXECUTABLE 指定程序路径）'
+    }
+    if ($LauncherOnly) {
+      if (Get-Process -Name 'DeepSeek Harness', 'DSH NEXT' -ErrorAction SilentlyContinue) { throw '请先从托盘退出 DeepSeek Harness 和 DSH NEXT，再安装酒馆启动器。' }
+      $DesktopProfile = Get-Item -LiteralPath (Join-Path $DshRoot 'profiles\desktop') -Force -ErrorAction SilentlyContinue
+      if (-not $DesktopProfile -or -not $DesktopProfile.PSIsContainer -or ($DesktopProfile.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw '请先打开官方 DeepSeek Harness 完成初始设置，或切回原版 desktop，再退出并安装酒馆启动器。'
+      }
+      $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js'
+      $LauncherUrl = 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.2.tgz'
+      $PreviousNodeMode = $env:ELECTRON_RUN_AS_NODE
+      try {
+        $env:ELECTRON_RUN_AS_NODE = '1'
+        & $OfficialDesktopExecutable --expose-internals $DesktopCli plugin --profile desktop add $LauncherUrl | Out-Host
+        Assert-LastCommand '安装酒馆启动器失败。'
+      } finally {
+        $env:ELECTRON_RUN_AS_NODE = $PreviousNodeMode
+      }
+      Write-Host '酒馆启动器已安装。打开官方 DeepSeek Harness，进入「设置 → 酒馆启动器 → 安装酒馆」。'
+      return
     }
     $FirstDesktopInstall = -not (Test-DesktopLinked)
     $ReopenDesktop = Close-DesktopForFirstInstall
