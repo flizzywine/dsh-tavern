@@ -15,13 +15,20 @@ function page(t) {
 	const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
 	Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
 	const roots = []
+	const icon = name => () => React.createElement('svg', { 'data-icon': name })
 	t.after(async () => {
 		for (const root of roots) await act(async () => root.unmount())
 		Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act })
 		dom.window.close()
 	})
 	const context = vm.createContext({ React, console, window: dom.window, document: dom.window.document,
-		DshUi: { MarkdownText: props => React.createElement('span', { className: 'md-text' }, props.text) },
+		DshUi: {
+			MarkdownText: props => React.createElement('span', { className: 'md-text' }, props.text),
+			Tooltip: props => props.children,
+			IconEditOutlineRegular: icon('edit'), IconBranchOutlineRegular: icon('branch'),
+			IconCopyOutlineRegular: icon('copy'), IconCheckOutlineRegular: icon('check'),
+			writeClipboard: async () => true
+		},
 		useTavernSessionMode: () => 'story', publishSessionMode: () => {}, isPlayMode: mode => mode === 'story' || mode === 'script'
 	})
 	vm.runInContext(dataSource, context)

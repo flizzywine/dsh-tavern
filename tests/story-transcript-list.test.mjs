@@ -11,6 +11,7 @@ import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transc
 const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8')
 const listSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-list.js', import.meta.url), 'utf8')
 const deletionSource = await readFile(new URL('../tavern-plugin/src/client/features/message-deletion.js', import.meta.url), 'utf8')
+const tavernCss = await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 
 // 一个页面 DOM + 两个 @include 片段共用同一个 factory 作用域（data 先、list 后）。
 function createPage(t, extra) {
@@ -18,6 +19,7 @@ function createPage(t, extra) {
 	const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
 	Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
 	const roots = []
+	const icon = name => () => React.createElement('svg', { 'data-icon': name })
 	t.after(async () => {
 		for (const root of roots) await act(async () => root.unmount())
 		Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act })
@@ -27,7 +29,13 @@ function createPage(t, extra) {
 		React, console,
 		window: dom.window, document: dom.window.document, CustomEvent: dom.window.CustomEvent,
 		// 宿主 Markdown 原语的替身：记录文本，证明正文走 Markdown 而不是纯文本 <pre>。
-		DshUi: { MarkdownText: function (props) { return React.createElement('span', { className: 'md-text' }, 'MD[' + props.text + ']') } },
+		DshUi: {
+			MarkdownText: function (props) { return React.createElement('span', { className: 'md-text' }, 'MD[' + props.text + ']') },
+			Tooltip: props => props.children,
+			IconEditOutlineRegular: icon('edit'), IconBranchOutlineRegular: icon('branch'),
+			IconCopyOutlineRegular: icon('copy'), IconCheckOutlineRegular: icon('check'),
+			writeClipboard: async text => { dom.window.__copiedText = text; return true }
+		},
 		tavernProjectionForTurn: (view, turn) => (view && Array.isArray(view.replyProjections) ? view.replyProjections : []).findLast(item => Number(item.turn) === Number(turn)) || null,
 		tavernLatestProjectionTurn: view => (view && Array.isArray(view.replyProjections) ? view.replyProjections : []).reduce((latest, item) => Math.max(latest, Number(item.turn) || 0), 0)
 	}, extra || {}))
@@ -215,6 +223,52 @@ test('正式故事行复用最新视图 parts、Helper 上下文与变量结算 
 	assert.equal(dom.window.document.querySelector('.story-mvu-receipt').textContent, '变量已更新 · 2')
 })
 
+test('故事楼层恢复插件视频：正文锚点内嵌，未锚定项追加且互不重复', async t => {
+	const anchored = { id: 'video-anchor', kind: 'video', status: 'ready', anchor: '正文', attachment: { attachmentId: 'a1', name: 'anchor.mp4' } }
+	const trailing = { id: 'video-tail', kind: 'video', status: 'ready', attachment: { attachmentId: 'a2', name: 'tail.mp4' } }
+	const mediaCalls = []
+	const MediaItem = props => React.createElement('video', {
+		'data-plugin-video': props.item.id, src: '/media/' + props.item.id + '.mp4', controls: true
+	})
+	const page = createPage(t, {
+		isPlayMode: mode => mode === 'story',
+		useTavernPluginMedia: (sessionId, turn, enabled) => {
+			mediaCalls.push({ sessionId, turn, enabled })
+			return { key: 'v1', items: [anchored, trailing] }
+		},
+		createTavernPluginTextContext: input => {
+			const placed = new Set()
+			return {
+				placed,
+				render: (text, key, renderText) => {
+					placed.add(anchored.id)
+					return React.createElement(React.Fragment, { key },
+						renderText(text, key, 0),
+						React.createElement(MediaItem, { item: anchored, sessionId: input.sessionId, turn: input.turn }))
+				},
+				renderHtmlMarkers: html => ({ html, after: null })
+			}
+		},
+		TavernPluginMediaItem: MediaItem
+	})
+	const { dom, context } = page
+	const feature = context.createTavernStoryTranscriptFeature({ renderProjection: (projection, options) => {
+		const renderText = (text, key) => React.createElement('div', { key, className: 'md-text' }, text)
+		return options.plugin ? options.plugin.render(projection.text, 0, renderText) : renderText(projection.text, 0)
+	} })
+	await mount(page, React.createElement(feature.StoryTranscriptList, {
+		transcript: story([{ role: 'assistant', turn: 5, text: '正文' }]),
+		view: { mode: 'story' }, sessionId: 's-video'
+	}))
+
+	assert.deepEqual(mediaCalls[0], { sessionId: 's-video', turn: 5, enabled: true })
+	const row = dom.window.document.querySelector('[data-story-row]')
+	assert.equal(row.querySelectorAll('video[data-plugin-video]').length, 2, '两个插件视频都必须进入故事楼层')
+	assert.equal(row.querySelectorAll('.dsh-tavern-story-body video[data-plugin-video="video-anchor"]').length, 1, '锚定视频必须随正文投影内嵌')
+	const tail = row.querySelectorAll('.dsh-tavern-plugin-media-list video[data-plugin-video]')
+	assert.deepEqual([...tail].map(node => node.getAttribute('data-plugin-video')), ['video-tail'], '只有未锚定视频追加到楼底')
+})
+
 test('数据层只调用 getStoryTranscript，并带 historyFrom', async t => {
 	const { context } = createPage(t)
 	const calls = []
@@ -294,7 +348,7 @@ test('后台结算推进 live revision 后自动重读故事操作选择器', as
 test('故事行编辑按 Chat 索引调用 getBodyEdit 并派发已有编辑面板事件', async t => {
 	const calls = [], details = []
 	const page = createPage(t, {
-		rpc: (...args) => { calls.push(args); return Promise.resolve({ edit: { parts: [{ kind: 'text', text: '改后的正文' }, { kind: 'image' }] } }) }
+		rpc: (...args) => { calls.push(args); return Promise.resolve({ edit: { messageUid: args[1].messageUid, parts: [{ kind: 'text', text: '改后的正文' }, { kind: 'image' }] } }) }
 	})
 	const { dom, context } = page
 	dom.window.addEventListener('dsh-tavern-open-body-edit', event => details.push(event.detail))
@@ -305,14 +359,14 @@ test('故事行编辑按 Chat 索引调用 getBodyEdit 并派发已有编辑面�
 
 	await act(async () => { rows[1].querySelector('button[aria-label="编辑这条输入"]').click() })
 	await flush()
-	assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ['getBodyEdit', { role: 'user', messageIndex: 1, revision: 7 }, 's1'])
+	assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ['getBodyEdit', { role: 'user', messageIndex: 1, revision: 7, messageUid: transcript.messages[1].messageUid }, 's1'])
 	assert.equal(details[0].sessionId, 's1')
 	assert.deepEqual(details[0].texts, ['改后的正文'])
 	assert.equal(details[0].edit.parts.length, 2, '编辑面板事件原样携带 edit')
 
 	await act(async () => { rows[0].querySelector('button[aria-label="编辑正文"]').click() })
 	await flush()
-	assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), ['getBodyEdit', { role: 'assistant', messageIndex: 0, revision: 7 }, 's1'])
+	assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), ['getBodyEdit', { role: 'assistant', messageIndex: 0, revision: 7, messageUid: transcript.messages[0].messageUid }, 's1'])
 })
 
 test('点击编辑遇到后台 revision 前进时重读并自动打开当前行', async t => {
@@ -321,7 +375,7 @@ test('点击编辑遇到后台 revision 前进时重读并自动打开当前行'
 		calls.push([method, args, sessionId])
 		if (method === 'getBodyEdit' && args.revision === 7) throw new Error('正文或会话已变化，请重新打开编辑')
 		if (method === 'getStoryTranscript') return { storyTranscript: story(MESSAGES, 8), revision: 8 }
-		return { edit: { role: 'assistant', messageIndex: 2, revision: 8, parts: [{ kind: 'text', text: '当前正文' }] } }
+		return { edit: { role: 'assistant', messageIndex: 2, revision: 8, messageUid: args.messageUid, parts: [{ kind: 'text', text: '当前正文' }] } }
 	} })
 	const { dom, context } = page
 	dom.window.addEventListener('dsh-tavern-open-body-edit', event => details.push(event.detail))
@@ -330,17 +384,40 @@ test('点击编辑遇到后台 revision 前进时重读并自动打开当前行'
 	const row = dom.window.document.querySelectorAll('[data-story-row][data-role="assistant"]')[1]
 	await act(async () => { row.querySelector('button[aria-label="编辑正文"]').click() })
 	await flush()
+	const messageUid = story(MESSAGES, 7).messages[2].messageUid
 	assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
-		['getBodyEdit', { role: 'assistant', messageIndex: 2, revision: 7 }, 's-retry'],
+		['getBodyEdit', { role: 'assistant', messageIndex: 2, revision: 7, messageUid }, 's-retry'],
 		['getStoryTranscript', { sessionId: 's-retry' }, 's-retry'],
-		['getBodyEdit', { role: 'assistant', messageIndex: 2, revision: 8 }, 's-retry']
+		['getBodyEdit', { role: 'assistant', messageIndex: 2, revision: 8, messageUid }, 's-retry']
 	])
 	assert.equal(details.length, 1)
 	assert.equal(details[0].edit.revision, 8)
 	assert.deepEqual(details[0].texts, ['当前正文'])
 })
 
-test('assistant 分叉请求带 messageIndex+revision，user 行没有分叉', async t => {
+test('编辑重读遇到同索引同文本的另一 UID 时拒绝打开错行', async t => {
+	const details = [], errors = []
+	const page = createPage(t, {
+		tavernErrorHub: { report: (label, error) => errors.push([label, String(error.message || error)]) },
+		rpc: async (method, args) => {
+			if (method === 'getBodyEdit' && args.revision === 7) throw new Error('正文或会话已变化，请重新打开编辑')
+			if (method === 'getStoryTranscript') return { storyTranscript: story(MESSAGES, 8), revision: 8 }
+			return { edit: { role: 'assistant', messageIndex: 2, revision: 8, messageUid: 'different-logical-row', parts: [{ kind: 'text', text: '重复 turn 的正文' }] } }
+		}
+	})
+	const { dom, context } = page
+	dom.window.addEventListener('dsh-tavern-open-body-edit', event => details.push(event.detail))
+	const feature = context.createTavernStoryTranscriptFeature()
+	await mount(page, React.createElement(feature.StoryTranscriptList, { transcript: story(MESSAGES, 7), sessionId: 's-identity' }))
+	const row = dom.window.document.querySelectorAll('[data-story-row][data-role="assistant"]')[1]
+	await act(async () => { row.querySelector('button[aria-label="编辑正文"]').click() })
+	await flush()
+	assert.equal(details.length, 0)
+	assert.equal(errors.length, 1)
+	assert.match(errors[0][1], /这条消息已变化/)
+})
+
+test('assistant 分叉请求带 messageIndex+revision+messageUid，user 行没有分叉', async t => {
 	const forked = []
 	const page = createPage(t, { tavernConversationForkRequests: { request: async payload => { forked.push(payload) } } })
 	const { dom, context } = page
@@ -351,7 +428,29 @@ test('assistant 分叉请求带 messageIndex+revision，user 行没有分叉', a
 	assert.equal(rows[1].querySelector('button[aria-label="从这一轮分叉"]'), null)
 	await act(async () => { rows[2].querySelector('button[aria-label="从这一轮分叉"]').click() })
 	await flush()
-	assert.deepEqual(JSON.parse(JSON.stringify(forked)), [{ sessionId: 's2', messageIndex: 2, revision: 7 }])
+	assert.deepEqual(JSON.parse(JSON.stringify(forked)), [{ sessionId: 's2', messageIndex: 2, revision: 7, messageUid: transcript.messages[2].messageUid }])
+})
+
+test('故事行的编辑、分叉和复制都保留图标，复制使用当前行原文', async t => {
+	const page = createPage(t)
+	const { dom, context } = page
+	const feature = context.createTavernStoryTranscriptFeature()
+	await mount(page, React.createElement(feature.StoryTranscriptList, { transcript: story(MESSAGES), sessionId: 's-copy' }))
+	const rows = [...dom.window.document.querySelectorAll('[data-story-row]')]
+	const userEdit = rows[1].querySelector('button[aria-label="编辑这条输入"]')
+	const assistantEdit = rows[2].querySelector('button[aria-label="编辑正文"]')
+	const fork = rows[2].querySelector('button[aria-label="从这一轮分叉"]')
+	assert.ok(userEdit.querySelector('svg[data-icon="edit"]'))
+	assert.ok(assistantEdit.querySelector('svg[data-icon="edit"]'))
+	assert.ok(fork.querySelector('svg[data-icon="branch"]'))
+	assert.equal(userEdit.textContent, '')
+	assert.equal(assistantEdit.textContent, '')
+	assert.equal(fork.textContent, '')
+	await act(async () => { rows[1].querySelector('button[aria-label="复制"]').click() })
+	assert.equal(dom.window.__copiedText, '行动一')
+	assert.ok(rows[1].querySelector('button[aria-label="已复制"] svg[data-icon="check"]'))
+	await act(async () => { rows[2].querySelector('button[aria-label="复制"]').click() })
+	assert.equal(dom.window.__copiedText, '重复 turn 的正文')
 })
 
 test('流式占位行不渲染编辑、分叉或删除操作', async t => {
@@ -395,7 +494,7 @@ test('后台 activity.busy 时编辑与分叉按钮禁用，空闲后恢复', as
 	assert.equal(fork().disabled, false)
 })
 
-test('故事行 Checkbox 走 storySelector，toggle 后 deleteMessages 收到该行精确索引与 revision', async t => {
+test('故事行 Checkbox 走 storySelector，deleteMessages 收到精确索引、revision 与稳定身份', async t => {
 	const calls = []
 	const page = createPage(t, {
 		enableStoryDeletion: true,
@@ -417,13 +516,40 @@ test('故事行 Checkbox 走 storySelector，toggle 后 deleteMessages 收到该
 	assert.equal(boxes(rows[2]).length, 1, 'assistant 行有删除复选框')
 	await act(async () => { boxes(rows[1])[0].click() })
 	await act(async () => { boxes(rows[2])[0].click() })
-	assert.deepEqual(JSON.parse(JSON.stringify(deletion.store.getSnapshot('s4').items)), [
-		{ role: 'user', messageIndex: 1, revision: 7 },
-		{ role: 'assistant', messageIndex: 2, revision: 7 }
-	])
+	const expected = [
+		{ role: 'user', messageIndex: 1, revision: 7, messageUid: transcript.messages[1].messageUid },
+		{ role: 'assistant', messageIndex: 2, revision: 7, messageUid: transcript.messages[2].messageUid }
+	]
+	assert.ok(expected.every(item => typeof item.messageUid === 'string' && item.messageUid))
+	assert.deepEqual(JSON.parse(JSON.stringify(deletion.store.getSnapshot('s4').items)), expected)
 	await act(async () => { await deletion.store.remove('s4') })
-	assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ['deleteMessages', { items: [
-		{ role: 'user', messageIndex: 1, revision: 7 },
-		{ role: 'assistant', messageIndex: 2, revision: 7 }
-	] }, 's4'])
+	assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ['deleteMessages', { items: expected }, 's4'])
+})
+
+test('故事 user 与 AI 楼层点按正文都会切换选择，AI 选中行匹配高亮选择器', async t => {
+	const page = createPage(t, {
+		enableStoryDeletion: true,
+		rpc: async () => ({}),
+		askTavernConfirm: async () => true,
+		liveTavernView: { setView() {} },
+		notifyTavernDataChanged() {},
+		tavernCoordination: { invalidate() {} }
+	})
+	const { dom, context } = page
+	const deletion = context.__storyMessageDeletion
+	deletion.store.enter('s-floor-click')
+	const feature = context.createTavernStoryTranscriptFeature()
+	await mount(page, React.createElement(feature.StoryTranscriptList, { transcript: story(MESSAGES), sessionId: 's-floor-click' }))
+	const rows = [...dom.window.document.querySelectorAll('[data-story-row]')]
+	const checked = row => row.querySelector('input[type="checkbox"]').checked
+	await act(async () => { rows[1].querySelector('.dsh-tavern-story-body').click() })
+	assert.equal(checked(rows[1]), true, '点按用户楼层应选择')
+	await act(async () => { rows[2].querySelector('.dsh-tavern-story-body').click() })
+	assert.equal(checked(rows[2]), true, '点按 AI 楼层应选择')
+	assert.equal(deletion.store.getSnapshot('s-floor-click').items.length, 2)
+	assert.ok(rows[2].matches('.dsh-tavern-assistant:has(.dsh-tavern-message-select.assistant input:checked)'), '嵌套在操作栏里的 AI 复选框也要驱动楼层高亮')
+	assert.match(tavernCss, /\.dsh-tavern-assistant:has\(\.dsh-tavern-message-select\.assistant input:checked\)/, '实际 CSS 也必须使用可命中的后代选择器')
+	await act(async () => { rows[2].querySelector('.dsh-tavern-story-body').click() })
+	assert.equal(checked(rows[2]), false, '再次点按 AI 楼层应取消选择')
+	assert.equal(deletion.store.getSnapshot('s-floor-click').items.length, 1)
 })

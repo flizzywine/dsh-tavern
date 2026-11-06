@@ -152,6 +152,19 @@ export async function storyWriteOperationChecks(context) {
 			return false
 		}, 60000)
 	}
+	async function writeUnrelatedHeader(chatId, sessionId, userName) {
+		const before = await readChat(chatId)
+		await page.evaluate(async ({ sessionId, userName }) => {
+			const response = await fetch('/api/dsh-tavern/setPlayerName', { method: 'POST', headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ sessionId, userName }) })
+			const value = await response.json()
+			if (!response.ok || !value || !value.ok) throw new Error(value && value.error ? value.error : 'setPlayerName HTTP ' + response.status)
+		}, { sessionId, userName })
+		await until('编辑面板打开时无关表头写入', async () => {
+			const chat = await readChat(chatId)
+			return chat && chat._storageRevision > before._storageRevision ? chat : null
+		}, 30000)
+	}
 	async function waitText(id, marker, role) {
 		return until('编辑文本落盘（' + role + '）', async () => {
 			const chat = await readChat(id)
@@ -218,8 +231,15 @@ export async function storyWriteOperationChecks(context) {
 			const dock = await enterDeleteMode()
 			const assistantRow = assistantRows().last()
 			const userRow = userRows().last()
-			await assistantRow.locator('input[type="checkbox"][aria-label="选择这条 AI 输出"]').check()
-			await userRow.locator('input[type="checkbox"][aria-label="选择这条用户输入"]').check()
+			const assistantCheckbox = assistantRow.locator('input[type="checkbox"][aria-label="选择这条 AI 输出"]')
+			const userCheckbox = userRow.locator('input[type="checkbox"][aria-label="选择这条用户输入"]')
+			await assistantRow.locator('.dsh-tavern-story-body').click()
+			await until('点按 AI 楼层选中', async () => await assistantCheckbox.isChecked() ? true : null, 5000)
+			const selectedStyle = await assistantRow.evaluate(row => ({ cursor: getComputedStyle(row).cursor, shadow: getComputedStyle(row).boxShadow }))
+			assert.equal(selectedStyle.cursor, 'pointer', '删除模式必须显示楼层点按光标')
+			assert.notEqual(selectedStyle.shadow, 'none', 'AI 楼层选中后必须显示高亮描边')
+			await userRow.locator('.dsh-tavern-story-body').click()
+			await until('点按用户楼层选中', async () => await userCheckbox.isChecked() ? true : null, 5000)
 			await dock.getByText('已选 2 条', { exact: true }).waitFor({ timeout: 15000 })
 			await dock.getByRole('button', { name: '删除', exact: true }).click()
 			const confirmed = await clickConfirmIfAny()
@@ -255,6 +275,7 @@ export async function storyWriteOperationChecks(context) {
 		const before = await readChat(source.id)
 		const assistantRow = assistantRows().last()
 		const region = await openEditor(assistantRow, '编辑正文')
+		await writeUnrelatedHeader(source.id, source.sessionId, 'E2E 正文编辑期间后台改名')
 		await saveEditor(region, assistantMark + ' 这是编辑后的正文。')
 		await waitText(source.id, assistantMark, 'assistant')
 		await visibleStoryText(assistantMark)
@@ -263,6 +284,7 @@ export async function storyWriteOperationChecks(context) {
 		const userRow = userRows().last()
 		await openEditor(userRow, '编辑这条输入')
 		const userRegion = page.locator('[role="region"][aria-label="编辑这条输入"]').last()
+		await writeUnrelatedHeader(source.id, source.sessionId, 'E2E 输入编辑期间后台改名')
 		await saveEditor(userRegion, userMark + ' 编辑后的输入。')
 		const chat = await waitText(source.id, userMark, 'user')
 		await until('页面显示编辑后的输入', async () => {
@@ -274,7 +296,8 @@ export async function storyWriteOperationChecks(context) {
 		const result = { chatId: source.id, sessionId: source.sessionId, revisionBefore: source._storageRevision,
 			revisionAfter: chat._storageRevision, messages: (chat.messages || []).length,
 			assistantEdited: textOf(chat.messages[chat.messages.findLastIndex(row => row && row.role === 'assistant')]).includes(assistantMark),
-			assistantRevisionMoved: afterAssistant._storageRevision !== before._storageRevision }
+			assistantRevisionMoved: afterAssistant._storageRevision !== before._storageRevision,
+			survivedUnrelatedHeaderWrites: true }
 		edited = result
 		return result
 	})
@@ -321,6 +344,7 @@ export async function storyWriteOperationChecks(context) {
 		// 取倒数第二条正文：前缀之外还有玩家输入与编辑后的正文，能验证未来变量不会跟着分叉走。
 		const ordinal = domCount - 2
 		const messageIndex = windowPositions[windowPositions.length - 2]
+		// 分叉本体、精确正文前缀与变量快照会在下方逐项验证。
 		const row = assistantRows().nth(ordinal)
 		await row.scrollIntoViewIfNeeded().catch(() => {})
 		await row.hover()

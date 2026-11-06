@@ -96,7 +96,7 @@ export function createStoryTimeline(options = {}) {
     }).sort(function (left, right) {
       return (Number(left.foregroundCompletedAt) || Number(left.createdAt) || 0) - (Number(right.foregroundCompletedAt) || Number(right.createdAt) || 0)
     })
-    for (const operation of legacyForeground) commitBody(chat, operation)
+    for (const operation of legacyForeground) commitBody(chat, operation, storageRevision(chat))
     return chat
   }
 
@@ -200,12 +200,16 @@ export function createStoryTimeline(options = {}) {
       && Number(latest.committedRevision) === Number(chat.timeline.revision) ? latest : undefined
   }
 
-  function commitBody(chat, operation) {
+  function commitBody(chat, operation, completedStorageRevision = storageRevision(chat) + 1) {
     chat.timeline.checkpoints.push({
       id: makeId('checkpoint'),
+      operationId: operation.id,
       turn: operation.turn,
       userText: operation.userText,
       beforeRevision: Math.max(0, Number(operation.beforeRevision) || 0),
+      // Forks need the completed assistant prefix, not the pre-reply rollback
+      // baseline. The surrounding Chat write advances exactly one revision.
+      afterRevision: Math.max(0, Number(completedStorageRevision) || 0),
       participants: clone(operation.beforeParticipants),
       committedAt: now()
     })
@@ -227,12 +231,17 @@ export function createStoryTimeline(options = {}) {
   }
 
   function updateSettlementBackground(chat, operation, phase) {
-    const round = chat.timeline.operations[str(operation && operation.roundOperationId)]
-    if (round && round.kind === 'body' && round.status === 'completed') {
-      round.background = { phase, role: 'settlement', updatedAt: now() }
-      return round
-    }
-    return updateBackground(chat, phase, 'settlement')
+    const linked = chat.timeline.operations[str(operation && operation.roundOperationId)]
+    const round = linked && linked.kind === 'body' && linked.status === 'completed'
+      ? linked : backgroundBody(chat)
+    if (!round) return null
+    round.background = { phase, role: 'settlement', updatedAt: now() }
+    // This revision is written by the same settlement CAS that closes the
+    // pending/failed state. Unlike checkpoint.afterRevision (the foreground
+    // commit), it is a forkable post-settlement snapshot. Keep it on the round:
+    // bounded settlement projections intentionally omit timeline.checkpoints.
+    if (phase === 'completed' || phase === 'failed') round.settledRevision = storageRevision(chat) + 1
+    return round
   }
 
   function beginBody(chat, intent) {
@@ -667,6 +676,7 @@ export function createStoryTimeline(options = {}) {
       return { chat, value: { status: 'deferred', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
     }
     if (outcome.status !== 'success') {
+      if (typeof input.apply === 'function') input.apply(chat)
       commitParticipant(chat, operation, outcome.participant, true)
       operation.status = 'failed'
       operation.completedAt = now()

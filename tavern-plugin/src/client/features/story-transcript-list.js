@@ -80,13 +80,17 @@ function createTavernStoryTranscriptFeature(deps) {
 	function StoryTranscriptActions(props) {
 		const row = props.row, transcript = props.transcript
 		const [busy, setBusy] = React.useState('')
+		const [copied, setCopied] = React.useState(false)
+		const copyTimer = React.useRef(null)
+		React.useEffect(function () { return function () { if (copyTimer.current !== null) window.clearTimeout(copyTimer.current) } }, [])
 		const messageIndex = row.absoluteIndex
 		const revision = transcript && transcript.revision
 		const usable = Number.isSafeInteger(messageIndex) && messageIndex >= 0 && revision !== null && revision !== undefined
 			&& Number.isSafeInteger(Number(revision)) && Number(revision) >= 0 && !row.streaming
 			&& !(row.role === 'user' && row.message && row.message.placeholder === true)
 		if (!usable) return null
-		const target = { role: row.role, messageIndex: messageIndex, revision: Number(revision) }
+		const target = { role: row.role, messageIndex: messageIndex, revision: Number(revision),
+			...(row.messageUid ? { messageUid: row.messageUid } : {}) }
 		function report(label, error) {
 			if (typeof tavernErrorHub !== 'undefined' && tavernErrorHub && typeof tavernErrorHub.report === 'function') tavernErrorHub.report(label, error)
 		}
@@ -106,6 +110,7 @@ function createTavernStoryTranscriptFeature(deps) {
 					if (!Number.isSafeInteger(revision) || revision < 0) throw error
 					result = await rpc('getBodyEdit', Object.assign({}, target, { revision: revision }), id)
 				}
+				if (target.messageUid && result?.edit?.messageUid !== target.messageUid) throw new Error('这条消息已变化，请重新打开编辑')
 				if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('dsh-tavern-open-body-edit', { detail: {
 					sessionId: id, edit: result.edit,
 					texts: result.edit.parts.filter(function (part) { return part.kind === 'text' }).map(function (part) { return part.text })
@@ -116,17 +121,36 @@ function createTavernStoryTranscriptFeature(deps) {
 		async function fork() {
 			if (busy || typeof tavernConversationForkRequests === 'undefined') return
 			setBusy('fork')
-			try { await tavernConversationForkRequests.request({ sessionId: String(props.sessionId || ''), messageIndex: messageIndex, revision: Number(revision) }) }
+			try { await tavernConversationForkRequests.request({ sessionId: String(props.sessionId || ''), messageIndex: messageIndex, revision: Number(revision), messageUid: row.messageUid }) }
 			catch (error) { report('分叉对话', error) }
 			finally { setBusy('') }
 		}
+		async function copy() {
+			try {
+				const ok = await DshUi.writeClipboard(String(row.text === undefined || row.text === null ? '' : row.text))
+				if (!ok) return
+				setCopied(true)
+				if (copyTimer.current !== null) window.clearTimeout(copyTimer.current)
+				copyTimer.current = window.setTimeout(function () { copyTimer.current = null; setCopied(false) }, 1000)
+			} catch (error) { report('复制消息', error) }
+		}
 		const selector = typeof messageDeletionFeature !== 'undefined' && messageDeletionFeature && typeof messageDeletionFeature.storySelector === 'function'
-			? messageDeletionFeature.storySelector(row.role, messageIndex, Number(revision)) : null
+			? messageDeletionFeature.storySelector(row.role, messageIndex, Number(revision), row.messageUid) : null
+		const editLabel = row.role === 'user' ? '编辑这条输入' : '编辑正文'
+		const copyButton = h(DshUi.Tooltip, { label: copied ? '已复制' : '复制', side: 'bottom' },
+			h('button', { type: 'button', className: 'dsh-tavern-story-row-action dsh-tavern-story-row-copy',
+				'aria-label': copied ? '已复制' : '复制', onClick: copy },
+				h(copied ? DshUi.IconCheckOutlineRegular : DshUi.IconCopyOutlineRegular, null)))
+		const editButton = h(DshUi.Tooltip, { label: busy === 'edit' ? '正在读取…' : editLabel, side: 'bottom' },
+			h('button', { type: 'button', className: 'dsh-tavern-story-row-action dsh-tavern-story-row-edit', disabled: Boolean(busy) || props.running === true,
+				'aria-label': editLabel, onClick: edit }, h(DshUi.IconEditOutlineRegular, null)))
+		const forkButton = row.role === 'assistant' ? h(DshUi.Tooltip, { label: busy === 'fork' ? '正在分叉…' : '从这一轮分叉', side: 'bottom' },
+			h('button', { type: 'button', className: 'dsh-tavern-story-row-action dsh-tavern-story-row-fork', disabled: Boolean(busy) || props.running === true,
+				'aria-label': '从这一轮分叉', onClick: fork }, h(DshUi.IconBranchOutlineRegular, null))) : null
 		return h('div', { className: 'dsh-tavern-story-row-actions' },
-			h('button', { type: 'button', className: 'dsh-tavern-story-row-action', disabled: Boolean(busy) || props.running === true,
-				'aria-label': row.role === 'user' ? '编辑这条输入' : '编辑正文', onClick: edit }, busy === 'edit' ? '读取中…' : '编辑'),
-			row.role === 'assistant' ? h('button', { type: 'button', className: 'dsh-tavern-story-row-action', disabled: Boolean(busy) || props.running === true,
-				'aria-label': '从这一轮分叉', onClick: fork }, busy === 'fork' ? '分叉中…' : '分叉') : null,
+			row.role === 'user' ? editButton : copyButton,
+			row.role === 'user' ? copyButton : editButton,
+			forkButton,
 			selector ? h(messageDeletionFeature.Checkbox, { sessionId: String(props.sessionId || ''), selector: selector }) : null)
 	}
 
@@ -134,6 +158,19 @@ function createTavernStoryTranscriptFeature(deps) {
 		const row = props.row
 		const markdown = props.markdown || renderText
 		const attributes = rowAttributes(row, props.transcript)
+		const projectionTurn = row.role === 'assistant'
+			? (Number.isInteger(row.message && row.message.turn) ? Number(row.message.turn) : (row.greeting ? 1 : 0)) : 0
+		const playView = projectionTurn > 0 && (typeof isPlayMode !== 'function' || isPlayMode(props.view && props.view.mode))
+		// 原生 assistant-renderer 的插件媒体也必须出现在故事楼层里。媒体仍由
+		// pluginMediaForTurn 按当前正文版本读取，不把附件复制进 transcript 快照。
+		// Hook 在 user/assistant 分支前调用；用户行传空会话，不建立媒体订阅。
+		const mediaSessionId = row.role === 'assistant' ? String(props.sessionId || '') : ''
+		const pluginMedia = typeof useTavernPluginMedia === 'function'
+			? useTavernPluginMedia(mediaSessionId, projectionTurn, playView && !row.streaming)
+			: { key: null, items: [] }
+		const pluginText = playView && typeof createTavernPluginTextContext === 'function'
+			? createTavernPluginTextContext({ items: pluginMedia.items, extras: [], sessionId: mediaSessionId, turn: projectionTurn, streaming: row.streaming === true })
+			: null
 		if (row.role === 'user') {
 			return h('article', Object.assign({}, attributes, {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-user-row dsh-tavern-story-input'
@@ -142,7 +179,6 @@ function createTavernStoryTranscriptFeature(deps) {
 					h('div', { className: 'dsh-tavern-story-body', style: { whiteSpace: 'pre-wrap' } }, row.text)),
 				h(StoryTranscriptActions, { row: row, transcript: props.transcript, sessionId: props.sessionId, running: props.running }))
 		}
-		const projectionTurn = Number.isInteger(row.message && row.message.turn) ? Number(row.message.turn) : (row.greeting ? 1 : 0)
 		const sharedProjection = !row.streaming && row.key === 'turn:' + String(projectionTurn) && typeof tavernProjectionForTurn === 'function'
 			? tavernProjectionForTurn(props.view, projectionTurn) : null
 		const projection = sharedProjection || row.projection
@@ -151,6 +187,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			turn: projectionTurn,
 			streaming: row.streaming === true,
 			codeLabels: labels.code,
+			plugin: pluginText,
 			helperContext: props.helperView && props.helperView.tavernHelper,
 			helperContextReader: function () {
 				const current = typeof liveTavernView !== 'undefined' && liveTavernView && typeof liveTavernView.getSnapshot === 'function'
@@ -163,6 +200,12 @@ function createTavernStoryTranscriptFeature(deps) {
 			executeSlash: props.executeSlash,
 			eagerFrame: row.streaming === true || (typeof tavernLatestProjectionTurn === 'function' && projectionTurn === tavernLatestProjectionTurn(props.view))
 		}) : null
+		// 与原生渲染一致：正文渲染会登记已落位的 anchor；其余媒体只追加一次。
+		const trailingMedia = pluginMedia.items.filter(function (item) { return !(pluginText && pluginText.placed.has(item.id)) })
+		const pluginMediaNode = trailingMedia.length && typeof TavernPluginMediaItem === 'function'
+			? h('div', { className: 'dsh-tavern-plugin-media-list' }, trailingMedia.map(function (item) {
+				return h(TavernPluginMediaItem, { key: item.id, item: item, sessionId: mediaSessionId, turn: projectionTurn })
+			})) : null
 		return h('article', Object.assign({}, attributes, {
 			className: 'dsh-tavern-story-transcript-row dsh-tavern-assistant dsh-tavern-story-floor' + (row.streaming ? ' dsh-tavern-story-streaming' : ''),
 			'aria-live': row.streaming ? 'polite' : undefined
@@ -172,6 +215,7 @@ function createTavernStoryTranscriptFeature(deps) {
 				row.greeting ? h('span', { className: 'dsh-tavern-story-floor-tag' }, '开场') : null,
 				row.streaming ? h('span', { className: 'dsh-tavern-story-floor-tag' }, row.tool ? '正在调用 ' + row.tool : '正在生成') : null),
 			h('div', { className: 'dsh-tavern-story-body' }, rendered || markdown(row.text, { greeting: row.greeting, streaming: row.streaming })),
+			pluginMediaNode,
 			!row.streaming && projectionTurn > 0
 				? h(StoryTranscriptMvuReceipt, { sessionId: String(props.sessionId || ''), turn: projectionTurn }) : null,
 			h(StoryTranscriptActions, { row: row, transcript: props.transcript, sessionId: props.sessionId, running: props.running }))

@@ -1,3 +1,5 @@
+import { legacyMessageUid } from './message-uid.js'
+
 // Absolute-index projection of one story window. The page `chat.messages` holds
 // the closed range [from, to] (to = end - 1, matching the native window reader,
 // and an empty window is from 0 with to -1); the caller also passes
@@ -33,7 +35,7 @@ function fail(message) {
  *   absolute indices, length `messageCount`. Omitted only when from is 0 and
  *   the page itself covers the complete history.
  * @returns {source, revision, from, to, messageCount, floorCount, floorOffset, messages}
- *   where every message entry is `{absoluteIndex, key, legacyTurn, floorNo, message}`
+ *   where every message entry is `{absoluteIndex, key, legacyTurn, floorNo, messageUid, message}`
  *   and `message` is the original page object. `floorCount` is the assistant
  *   count of the full history, `floorOffset` the assistant count before `from`,
  *   and `floorNo` a 1-based assistant floor number (null for other roles);
@@ -114,6 +116,7 @@ export function projectStoryTranscript(window, summaries) {
       key,
       legacyTurn,
       floorNo: summary.role === 'assistant' ? assistantPrefix[absoluteIndex] + 1 : null,
+      messageUid: legacyMessageUid(message, absoluteIndex),
       message
     })
   }
