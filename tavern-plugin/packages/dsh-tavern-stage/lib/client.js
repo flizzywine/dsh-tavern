@@ -14237,7 +14237,12 @@ function useStageLeaseAssets(sessionId, view, source, assetRevision) {
             if (abort.signal.aborted) { value?.release(); return; }
             prepared = value;
             setLoaded(value ? {key, value:value.value} : null);
-        }).catch(error => { if (!abort.signal.aborted) console.warn('Stage lease projection', error); });
+        }).catch(error => {
+            if (abort.signal.aborted) return;
+            // a device-tier budget failure names what held the tier (bytes by pinning usage), not the whole inventory
+            const budget = error?.budget;
+            console.warn('Stage lease projection', error, ...(budget ? [{requestedBytes:budget.requestedBytes, tierBytes:budget.tiers.bytes, pinnedBytes:budget.tiers.pinnedBytes, byUsage:budget.tiers.byUsage}] : []));
+        });
         return () => { abort.abort(); prepared?.release(); };
     }, [key]);
     return loaded?.key === key ? loaded.value : null;
@@ -14826,9 +14831,18 @@ function GalStage(props) {
         reducedMotion:reading.reducedMotion, paused:hidden || backlog || configOpen || galleryOpen || pageOpen || menuOpen || transitioning || sceneHolding,
         onPause:()=>{setAuto(false);setSkipping(false);} });
     const wheelGesture = React.useRef(null);
+    // the loading veil and the 入场演出 always block - the stage is revealed to the
+    // runtime's sequencing point once the gate shows the stage, the entrance has ended (its fade included) and the performance
+    // kinds are read. Until then the first page's text and voice wait (voice prefetch does not).
+    // An entry page (a title or opening page) stands in front of the stage like the entrance: the line, its voice and AUTO
+    // wait for the stage to be entered, then start from the current line. A page opened while reading (a window, a map)
+    // does not hold: what sounds goes on.
+    const stageRevealed = entryGate.visible && !entrance.active && performanceKinds.settled && !entryOpen;
+    // A lease line types under the entrance's cover; it is read only once the stage is revealed, so its first showing still
+    // speaks (the lease voice effect below skips a read line).
     React.useEffect(function () {
-        if (typed && lastCard && !subtitles.provisional && current && !current.pending && !transitioning && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen && !sceneHolding) markRead();
-    }, [sessionId, turn, page, typed, lastCard, subtitles.provisional, current && current.text, current && current.pending, transitioning, hidden, backlog, configOpen, galleryOpen, pageOpen, menuOpen, sceneHolding]);
+        if (typed && lastCard && !subtitles.provisional && current && !current.pending && !transitioning && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen && !sceneHolding && (!leasing || stageRevealed)) markRead();
+    }, [sessionId, turn, page, typed, lastCard, subtitles.provisional, current && current.text, current && current.pending, transitioning, hidden, backlog, configOpen, galleryOpen, pageOpen, menuOpen, sceneHolding, leasing && stageRevealed]);
     // the end-of-round choices and an open mod take turns. A mod still open when the choices
     // arrive (a phone run ending the round) folds back to its launcher once; the player can reopen it from the top-right
     // icon, and while it is open the choices step aside (kept mounted, so a free-input draft survives).
@@ -15052,22 +15066,16 @@ function GalStage(props) {
             emotes:effect.kind === 'emote' ? [{...effect,nonce:token.id}] : old.emotes}));
     // A page turn while skipping also ends the title it showed (stageSkipShows: nothing outlives its page).
     },performanceLayer.accept,cg.accept,{play:modPerformances.play,cancel:intent=>{modPerformances.cancel(intent);textcard.cancel();if(skippingRef.current)endTitle();}});
-    // the loading veil and the 入场演出 always block - the stage is revealed to the
-    // runtime's sequencing point once the gate shows the stage, the entrance has ended (its fade included) and the performance
-    // kinds are read. Until then the first page's text and voice wait (voice prefetch does not).
-    // An entry page (a title or opening page) stands in front of the stage like the entrance: the line, its voice and AUTO
-    // wait for the stage to be entered, then start from the current line. A page opened while reading (a window, a map)
-    // does not hold: what sounds goes on.
-    const stageRevealed = entryGate.visible && !entrance.active && performanceKinds.settled && !entryOpen;
     React.useLayoutEffect(() => { runtime.store.dispatch({type:'STAGE_REVEAL', revealed:stageRevealed}); }, [stageRevealed, runtime.store]);
     // The runtime voices story lines as they are presented; a lease line speaks when it is first shown, unread, through the
-    // same stage speech handle and player (skip is silent). Taking or releasing the lease cuts what was sounding.
+    // same stage speech handle and player (skip is silent: a line shown under SKIP stays silent when the skip stops on it).
+    // Taking or releasing the lease cuts what was sounding.
     const leaseVoiced = React.useRef(leasing);
     React.useEffect(() => {
         if (leaseVoiced.current !== leasing) { leaseVoiced.current = leasing; voicePlayer.stopPlayback(); }
         if (!leasing || !voice || skipping || !stageRevealed || leaseView.isRead(page)) return;
         void voice.click({handoff:true, automatic:true});
-    }, [leasing, leaseView.key, current?.lineId, Boolean(voice), skipping, stageRevealed]);
+    }, [leasing, leaseView.key, current?.lineId, Boolean(voice), stageRevealed]);
     // A scene presented under an entrance's cover (the renderer starts with the load) plays its one-shots once it is shown.
     const heldPresented = React.useRef(null);
     React.useEffect(() => {
