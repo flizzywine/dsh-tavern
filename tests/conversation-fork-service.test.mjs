@@ -162,6 +162,16 @@ async function runServiceFixture() {
     assert.match(await failureOf(host.rpc('prepareConversationFork', { chatId: source.chatId, messageIndex: 2, revision: headRevision })), /剧情已变化/)
     assert.match(await failureOf(host.rpc('forkChat', { chatId: source.chatId, sessionId: source.sessionId, targetSessionId: blankSession('session-a-stale'),
       messageIndex: 2, sourceRevision: headPlan.sourceRevision, atSeq: null })), /剧情已变化/)
+
+    // 新故事请求带稳定 UID：准备前、执行前的无关 revision 写入都不能让同一分叉点过期。
+    const stablePlan = await host.rpc('prepareConversationFork', { chatId: source.chatId,
+      messageIndex: 2, revision: headRevision, messageUid: 'fork-world-source' })
+    assert.equal(stablePlan.messageUid, 'fork-world-source')
+    await host.rpc('setPlayerName', { sessionId: source.sessionId, userName: '另一位旅人' })
+    await host.rpc('forkChat', { chatId: source.chatId, sessionId: source.sessionId, targetSessionId: blankSession('session-a-stable-uid'),
+      messageIndex: stablePlan.messageIndex, sourceRevision: stablePlan.sourceRevision, atSeq: stablePlan.atSeq, messageUid: stablePlan.messageUid })
+    assert.deepEqual(await transcriptRows('session-a-stable-uid'), sourceRows.slice(0, 3))
+
     const movedRevision = (await host.rpc('getStoryTranscript', { sessionId: source.sessionId })).revision
     assert.ok(movedRevision > headRevision)
     const refreshed = await host.rpc('prepareConversationFork', { chatId: source.chatId, messageIndex: 2, revision: movedRevision })

@@ -38,17 +38,44 @@ function harvestSnapshots(state, queue, claimed) {
   const identity = str(state.id) + ':' + str(state._storageRevision)
   if (claimed.has(identity)) return
   claimed.add(identity)
-  const push = (chatId, revision) => {
+  const push = (chatId, revision, scanUntil = null) => {
     if (!chatId || !Number.isSafeInteger(revision) || revision < 0) return
     const key = chatId + '\u0000' + revision
     if (claimed.has(key)) return
     claimed.add(key)
-    queue.push({ chatId, revision })
+    queue.push({ chatId, revision, scanUntil })
   }
-  const checkpoints = Array.isArray(state.timeline?.checkpoints) ? state.timeline.checkpoints : []
-  for (const checkpoint of checkpoints) push(str(state.id), Number(checkpoint?.beforeRevision))
+  const checkpoints = (Array.isArray(state.timeline?.checkpoints) ? state.timeline.checkpoints : [])
+    .map((checkpoint, order) => ({ checkpoint, order, before: Number(checkpoint?.beforeRevision) }))
+    .sort((left, right) => left.before - right.before || left.order - right.order)
+  // Newest checkpoints are usually closest to the selected row. New checkpoints
+  // name their completed revision directly; legacy ones may scan only as far as
+  // the next checkpoint, never through an unbounded future history.
+  for (let at = checkpoints.length - 1; at >= 0; at--) {
+    const { checkpoint, before } = checkpoints[at]
+    const next = at + 1 < checkpoints.length ? checkpoints[at + 1].before : Number(state._storageRevision)
+    const scanUntil = Number.isSafeInteger(next) && next > before ? next - 1 : null
+    const round = state.timeline?.operations?.[str(checkpoint?.operationId)]
+    const settled = Number(round?.settledRevision)
+    const after = Number.isSafeInteger(settled) && settled > 0 ? settled : Number(checkpoint?.afterRevision)
+    // Prefer the post-settlement revision. Both it and the older foreground
+    // afterRevision may scan forward inside their own interval: early saves only
+    // retained the foreground pending snapshot before settlement finished.
+    push(str(state.id), after, scanUntil)
+    push(str(state.id), before, scanUntil)
+  }
   const parent = state.forkedFrom
   push(str(parent?.stateChatId || parent?.chatId), Number(parent?.stateRevision ?? parent?.storageRevision))
+}
+
+function holdsAvailablePrefix(state, sourceMessages) {
+  const rows = rowsOf(state)
+  for (let index = 0; index < rows.length; index++) {
+    const old = rows[index], now = sourceMessages[index]
+    if (!old || !now || old.role !== now.role) return false
+    if ((old.sourceText ?? old.text) !== (now.sourceText ?? now.text)) return false
+  }
+  return true
 }
 
 /**
@@ -69,11 +96,24 @@ export async function conversationStateAtMessage(source, messageIndex, readRevis
     assertConversationForkable(source)
     return { messageIndex: index, state: source, turn: turnOf(lastAssistant(source)) }
   }
-  const queue = []
-  harvestSnapshots(source, queue, new Set())
+  const queue = [], claimed = new Set()
+  harvestSnapshots(source, queue, claimed)
   const visited = new Set()
+  const MAX_FORWARD_PROBES = 64
+  let forwardProbes = 0
   let readable = false
   let stale = false
+  let pendingError = null
+  const queueForward = candidate => {
+    if (!Number.isSafeInteger(candidate.scanUntil) || candidate.revision >= candidate.scanUntil || forwardProbes >= MAX_FORWARD_PROBES) return false
+    const next = { chatId: candidate.chatId, revision: candidate.revision + 1, scanUntil: candidate.scanUntil, probe: true }
+    const key = next.chatId + '\u0000' + next.revision
+    if (claimed.has(key)) return false
+    claimed.add(key)
+    forwardProbes++
+    queue.push(next)
+    return true
+  }
   while (queue.length) {
     const candidate = queue.shift()
     const key = candidate.chatId + '\u0000' + candidate.revision
@@ -83,18 +123,37 @@ export async function conversationStateAtMessage(source, messageIndex, readRevis
     try {
       state = await readRevision(candidate.chatId, candidate.revision)
     } catch (error) {
-      if (error?.code === 'DSH_TAVERN_REVISION_NOT_FOUND') { stale = true; continue }
+      if (error?.code === 'DSH_TAVERN_REVISION_NOT_FOUND') {
+        // Sparse revisions and compaction holes do not end a bounded probe; the
+        // original anchor still reports that its requested history was reclaimed.
+        if (candidate.probe) queueForward(candidate)
+        else stale = true
+        continue
+      }
       throw error
     }
-    if (!state || state._storageRevision !== candidate.revision) continue
+    if (!state || state._storageRevision !== candidate.revision) {
+      if (candidate.probe) queueForward(candidate)
+      continue
+    }
     readable = true
     if (holdsStoryPrefix(state, messages, index)) {
-      assertConversationForkable(state, { historical: true })
-      return { messageIndex: index, state, turn: turnOf(lastAssistant(state)) }
+      try {
+        assertConversationForkable(state, { historical: true })
+        return { messageIndex: index, state, turn: turnOf(lastAssistant(state)) }
+      } catch (error) {
+        if (error?.forkTransient !== true) throw error
+        pendingError ||= error
+      }
     }
+    // Legacy checkpoints point at the pre-reply row; early afterRevision values
+    // point at the exact but still-settling row. Walk forward only inside this
+    // checkpoint interval and only while every available row matches the branch.
+    if (rowsOf(state).length <= index + 1 && holdsAvailablePrefix(state, messages)) queueForward(candidate)
     // A later snapshot can still hold this prefix through its own parent chain.
-    harvestSnapshots(state, queue, visited)
+    harvestSnapshots(state, queue, claimed)
   }
+  if (pendingError) throw pendingError
   if (stale) throw new Error('这条消息的回合太早，历史状态已清理（只保留最近 50 轮），无法从这条消息分叉')
   if (readable) throw new Error('历史快照与当前分支正文不一致，无法安全分叉')
   throw new Error('这条消息的历史状态快照不可用，无法安全分叉')

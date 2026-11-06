@@ -12,6 +12,14 @@ function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
 }
 
+function transientForkError(message) {
+  const error = new Error(message)
+  // Historical fork lookup may continue to a later snapshot in the same bounded
+  // checkpoint interval. Other validation failures remain terminal.
+  error.forkTransient = true
+  return error
+}
+
 /** Acknowledge the committed fork without rebuilding its presentation view. */
 export function conversationForkReceipt(chat, replayed = {}) {
   return {
@@ -109,10 +117,10 @@ export function assertConversationForkable(chat, options = {}) {
     }
     return operation.status === 'running'
   })
-  if (unfinished) throw new Error('当前轮次尚未完成生成或状态结算，请等待完成后再分叉')
-  if (['pending', 'running'].includes(str(chat.settleStatus))) throw new Error('当前轮次尚未完成状态结算，请等待完成后再分叉')
+  if (unfinished) throw transientForkError('当前轮次尚未完成生成或状态结算，请等待完成后再分叉')
+  if (['pending', 'running'].includes(str(chat.settleStatus))) throw transientForkError('当前轮次尚未完成状态结算，请等待完成后再分叉')
   if (chat.mvu?.enabled === true && chat.mvu?.openingInitialization?.status === 'pending') {
-    throw new Error('MVU 开局状态尚未初始化完成，请等待完成后再分叉')
+    throw transientForkError('MVU 开局状态尚未初始化完成，请等待完成后再分叉')
   }
   const messages = Array.isArray(chat.messages) ? chat.messages : []
   const last = messages[messages.length - 1]

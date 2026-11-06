@@ -66,6 +66,73 @@ test('按绝对消息序号选择状态：不读 turn，缺 turn 也能定位，
   await assert.rejects(conversationStateAtMessage(source, 1.5, read), /找不到指定分叉消息/)
 })
 
+test('原生 checkpoint 只指向回复前状态时，在同一 checkpoint 区间找到完成快照', async () => {
+  const messages = []
+  for (let i = 0; i < 3; i++) messages.push({ role: 'user', text: 'in' + i }, { role: 'assistant', text: 'out' + i })
+  const make = (rows, revision) => ({ id: 'chat', sessionId: 'source', mode: 'story', settleStatus: 'done', _storageRevision: revision,
+    messages: structuredClone(messages.slice(0, rows)), timeline: { checkpoints: [] } })
+  const states = new Map([[10, make(1, 10)], [11, make(2, 11)], [20, make(4, 20)]])
+  const source = { ...make(6, 30), timeline: { checkpoints: [{ beforeRevision: 10 }, { beforeRevision: 20 }] } }
+  const reads = []
+  const read = async (_id, revision) => { reads.push(revision); return structuredClone(states.get(revision)) }
+  const selected = await conversationStateAtMessage(source, 1, read)
+  assert.equal(selected.state._storageRevision, 11)
+  assert.equal(selected.state.messages.length, 2)
+  assert.deepEqual(reads, [20, 10, 11], '先查最近 checkpoint，再只向前扫描所属区间')
+})
+
+test('新 checkpoint 直接读 afterRevision，无需扫描或宽松匹配后续快照', async () => {
+  const messages = [{ role: 'user', text: 'in' }, { role: 'assistant', text: 'out' }, { role: 'user', text: 'later' }]
+  const make = (rows, revision) => ({ id: 'chat', sessionId: 'source', mode: 'story', settleStatus: 'done', _storageRevision: revision,
+    messages: structuredClone(messages.slice(0, rows)), timeline: { checkpoints: [] } })
+  const states = new Map([[10, make(1, 10)], [12, make(2, 12)]])
+  const source = { ...make(3, 20), timeline: { checkpoints: [{ beforeRevision: 10, afterRevision: 12 }] } }
+  const reads = []
+  const selected = await conversationStateAtMessage(source, 1, async (_id, revision) => { reads.push(revision); return structuredClone(states.get(revision)) })
+  assert.equal(selected.state._storageRevision, 12)
+  assert.deepEqual(reads, [12])
+})
+
+test('轮次已结算 revision 优先于正文 pending 快照，无需扫描', async () => {
+  const messages = [{ role: 'user', text: 'in' }, { role: 'assistant', text: 'out' }, { role: 'user', text: 'later' }]
+  const make = (rows, revision, settleStatus) => ({ id: 'chat', sessionId: 'source', mode: 'story', settleStatus, _storageRevision: revision,
+    messages: structuredClone(messages.slice(0, rows)), timeline: { checkpoints: [] } })
+  const states = new Map([[12, make(2, 12, 'pending')], [14, make(2, 14, 'done')]])
+  const source = { ...make(3, 20, 'done'), timeline: {
+    checkpoints: [{ operationId: 'round-1', beforeRevision: 10, afterRevision: 12 }],
+    operations: { 'round-1': { id: 'round-1', settledRevision: 14 } }
+  } }
+  const reads = []
+  const selected = await conversationStateAtMessage(source, 1, async (_id, revision) => { reads.push(revision); return structuredClone(states.get(revision)) })
+  assert.equal(selected.state._storageRevision, 14)
+  assert.deepEqual(reads, [14])
+})
+
+test('旧 afterRevision 遇到 pending 和稀疏空洞时，只在所属区间找到已结算快照', async () => {
+  const messages = [{ role: 'user', text: 'in' }, { role: 'assistant', text: 'out' }, { role: 'user', text: 'later' }]
+  const make = (rows, revision, settleStatus) => ({ id: 'chat', sessionId: 'source', mode: 'story', settleStatus, _storageRevision: revision,
+    messages: structuredClone(messages.slice(0, rows)), timeline: { checkpoints: [] } })
+  const states = new Map([[14, make(2, 14, 'pending')], [17, make(2, 17, 'done')]])
+  const source = { ...make(3, 30, 'done'), timeline: { checkpoints: [{ beforeRevision: 10, afterRevision: 14 }] } }
+  const reads = []
+  const selected = await conversationStateAtMessage(source, 1, async (_id, revision) => { reads.push(revision); return structuredClone(states.get(revision)) })
+  assert.equal(selected.state._storageRevision, 17)
+  assert.deepEqual(reads, [14, 10, 15, 16, 17])
+})
+
+test('pending 扫描不越下一 checkpoint，永久 pending 保留结算错误', async () => {
+  const messages = Array.from({ length: 6 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', text: 'row' + index }))
+  const make = (rows, revision, settleStatus) => ({ id: 'chat', sessionId: 'source', mode: 'story', settleStatus, _storageRevision: revision,
+    messages: structuredClone(messages.slice(0, rows)), timeline: { checkpoints: [] } })
+  const states = new Map([[14, make(2, 14, 'pending')], [18, make(6, 18, 'done')], [35, make(2, 35, 'done')]])
+  const source = { ...make(6, 30, 'done'), timeline: { checkpoints: [{ beforeRevision: 10, afterRevision: 14 }, { beforeRevision: 18 }] } }
+  const reads = []
+  await assert.rejects(conversationStateAtMessage(source, 1, async (_id, revision) => { reads.push(revision); return structuredClone(states.get(revision)) }), /尚未完成状态结算/)
+  assert.ok(!reads.includes(19), '旧 checkpoint 不得越过下一 checkpoint 的前状态')
+  assert.ok(!reads.includes(35), '不得从未引用的未来快照借用变量')
+  assert.ok(Math.max(...reads) <= 18)
+})
+
 test('重复、缺失、非单调 turn 不影响状态选择，只按消息序号对齐前缀', async () => {
   const { source, states, read } = chain(4, turn => [2, 2, 1, 3][turn - 1])
   // Checkpoint order is reversed and the snapshot's own turns differ from the source.
