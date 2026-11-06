@@ -84,7 +84,9 @@ export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot,
       || command.match(/^(\/[^"\n]+?\.app\/contents\/macos\/(?:deepseek harness|dsh next|dsh desktop))(?=\s|$)/)?.[1]
       || command.match(/^((?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?)(?=\s|$)/)?.[1]
       || command.split(/\s/)[0]
-    if (requireGuiClosed && (!scope || executable.startsWith(scope)) && /(?:^|\/)(?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?$/.test(executable)) throw Error('请完整退出 DeepSeek Harness 后再安装或迁移数据。')
+    if (requireGuiClosed && (!scope || executable.startsWith(scope)) && /(?:^|\/)(?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?$/.test(executable)) {
+      throw Object.assign(new Error(`请完整退出 DeepSeek Harness 后再安装或迁移数据。仍在运行：${executable.split('/').at(-1)}（PID ${row.id}）。`), { code: 'DSH_DESKTOP_RUNNING' })
+    }
     if (!command.includes('dsh-desktop-host')) continue
     if (homes.some(home => command.includes(normalize(path.join(home, 'profiles'))))) throw Error('请完整退出使用源目录或目标目录的官方桌面，再迁移用户数据。')
   }

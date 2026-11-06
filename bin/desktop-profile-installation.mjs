@@ -164,7 +164,16 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
       backup,
       desktopStage,
       finish() {
-        checkStopped()
+        // Windows can briefly retain Desktop processes after closing the window.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            checkStopped()
+            break
+          } catch (error) {
+            if (error.code !== 'DSH_DESKTOP_RUNNING' || attempt >= 4) throw error
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+          }
+        }
         // Keep the original profile available for the settings page's restore action.
         const originalDir = path.join(profiles, 'desktop.fresh-' + stamp)
         move(desktopStage, originalDir)
