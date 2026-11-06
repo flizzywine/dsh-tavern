@@ -1,4 +1,4 @@
-// 原版 DSH / DSH 酒馆切换页：两边各一个名字、一句说明、一个按钮。
+// Desktop profile switching and Tavern installation management.
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
@@ -48,7 +48,7 @@ test('快捷方式打开的独立酒馆窗口：不给切换按钮，只说明�
   // 桌面版此时是原版（没有链接），这一页却是酒馆：以页面为准，不能给出「切到 DSH 酒馆」。
   const status = { appKind: 'desktop', desktopApp: false, activeIsLink: false, backups: [], profiles: [tavernProfile] }
   const page = await mount(status, [], { inTavern: true })
-  assert.equal(page.label(), '原版DSH')
+  assert.equal(page.label(), 'Profile 切换')
   assert.doesNotMatch(page.text(), /切到 DSH 酒馆/)
   assert.match(page.text(), /独立窗口/)
   const open = [...page.dom.window.document.querySelectorAll('button')].find(item => item.textContent === '打开原版 DSH')
@@ -90,6 +90,30 @@ const managedStatus = {
   installation: { available: true, appDir: 'C:\\DSH\\apps\\dsh-tavern', profileDir: 'C:\\DSH\\profiles\\tavern', dataDir: 'C:\\DSH\\profile-data\\tavern', sharedHome: 'C:\\DSH' },
 }
 const namedButton = (page, text) => [...page.dom.window.document.querySelectorAll('button')].find(button => button.textContent === text)
+
+test('原版、酒馆和阅读器都能切到其余已安装配置', async () => {
+  const readerProfile = { name: 'reader', bundles: ['dsh-reader', 'dsh-profile-bridge'], hasNodeModules: true }
+  const original = '重启并切换到原版 DSH'
+  const tavern = '重启并切换到 DSH 酒馆'
+  const reader = '重启并切换到 DSH 阅读器'
+  for (const [current, label, available, action, request] of [
+    ['desktop', '原版 DSH', [tavern, reader], reader, ['link', { target: 'reader' }]],
+    ['reader', 'DSH 阅读器', [original, tavern], tavern, ['link', { target: 'tavern' }]],
+    ['tavern', 'DSH 酒馆', [original, reader], original, ['unlink', {}]],
+  ]) {
+    const linked = current !== 'desktop'
+    const page = await mount({
+      appKind: 'desktop', desktopApp: true, activeIsLink: linked, linkTargetName: linked ? current : undefined,
+      backups: linked ? ['desktop.fresh-test'] : [], profiles: [tavernProfile, readerProfile],
+    })
+    assert.match(page.text(), new RegExp(`当前配置 · ${label}`))
+    assert.deepEqual([...page.dom.window.document.querySelectorAll('.pb-bar button')].map(button => button.textContent), available)
+    await page.act(async () => namedButton(page, action).click())
+    assert.deepEqual(page.calls.at(-1), request)
+    await page.dispose()
+  }
+})
+
 async function enterDestination(page, value) {
   const input = page.dom.window.document.querySelector('#pb-destination')
   await page.act(async () => {
