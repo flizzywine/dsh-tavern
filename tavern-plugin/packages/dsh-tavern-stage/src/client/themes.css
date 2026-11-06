@@ -5219,12 +5219,14 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { align-self: flex-end;
     margin: 0 0 calc((var(--art-bl-name-font) * var(--mu) - var(--bl-voice-h)) / 2) calc(var(--art-bl-name-font) * var(--mu) * .25 - 8px + var(--bl-voice-dx)); }
   /* anchor row: the box's top-left at the entry's top-left + at (the name, when drawn, is the button's positioned parent at its
-     own x, y in the entry); anchor text: its left edge at the text column's right end + at x, centred on the first line + at y. */
+     own x, y in the entry); anchor text: its left edge at the text column's right end + at x, centred on the first line + at y.
+     --bl-voice-at: that left edge in the entry; the name's own start (--bl-name-x) is subtracted, or with name.align end the
+     button is placed back from the name's right edge (glyph tiles), so neither depends on the name's width. */
   .fork-gal-stage[data-fk-skin-art-backlog-voice="row"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button,
-  .fork-gal-stage[data-fk-skin-art-backlog-voice="text"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { --bl-name-x: 0px; --bl-name-y: 0px; position: absolute; margin: 0; translate: none;
-    left: calc(var(--bl-voice-dx) - var(--bl-name-x)); top: calc(var(--bl-voice-dy) - var(--bl-name-y)); }
+  .fork-gal-stage[data-fk-skin-art-backlog-voice="text"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { --bl-name-x: 0px; --bl-name-y: 0px; --bl-voice-at: var(--bl-voice-dx); position: absolute; margin: 0; translate: none;
+    left: calc(var(--bl-voice-at) - var(--bl-name-x)); top: calc(var(--bl-voice-dy) - var(--bl-name-y)); }
   .fork-gal-stage[data-fk-skin-art-backlog-voice="text"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button {
-    left: calc(var(--bl-text) + var(--bl-text-w) + var(--bl-voice-dx) - var(--bl-name-x));
+    --bl-voice-at: calc(var(--bl-text) + var(--bl-text-w) + var(--bl-voice-dx));
     top: calc(var(--art-bl-top) * var(--mu) + (var(--art-bl-pitch) * var(--mu) - var(--bl-voice-h)) / 2 + var(--bl-voice-dy) - var(--bl-name-y)); }
   .fork-gal-stage[data-fk-skin-art-backlog-voice="text"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button {
     top: calc((var(--art-bl-head) + var(--art-bl-top)) * var(--mu) + (var(--art-bl-pitch) * var(--mu) - var(--bl-voice-h)) / 2 + var(--bl-voice-dy) - var(--bl-name-y)); }
@@ -5839,6 +5841,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 @media (min-width: 641px) {
   .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name { left: auto; right: calc(100% - var(--bl-text)); width: max-content; }
   .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-parts~="name"]:not([data-fk-skin-art-backlog-voice="row"]):not([data-fk-skin-art-backlog-voice="text"]):not(.is-film) .fork-gal-backlog-name > .fork-voice-button { position: absolute; left: 100%; bottom: 0; }
+  /* anchor row / text: the same place as start-aligned names, measured back from the name's right edge (the text column's left). */
+  .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-voice="row"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button,
+  .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-voice="text"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { left: auto; right: calc(var(--bl-text) - var(--bl-voice-at) - var(--bl-voice-w)); }
 }
 /* ==== end art backlog glyph tiles ==== */
 
