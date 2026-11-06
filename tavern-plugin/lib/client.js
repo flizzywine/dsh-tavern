@@ -37375,19 +37375,6 @@ function TavernCardUpdateDialog(props) {
 				finally { setBusy(false); }
 			}
             const [updateStatus, setUpdateStatus] = React.useState({ phase: "loading", host: "cli" });
-            const [returningToDesktop, setReturningToDesktop] = React.useState(false);
-            const [profileSwitchError, setProfileSwitchError] = React.useState("");
-            async function returnToDesktop() {
-                setReturningToDesktop(true);
-                setProfileSwitchError("");
-                try {
-                    await window.desktopNext.command({ type: "switch", name: "desktop" });
-                } catch (err) {
-                    setProfileSwitchError(String(err?.message || err));
-                } finally {
-                    setReturningToDesktop(false);
-                }
-            }
             const updater = React.useRef(null);
             React.useEffect(function () {
                 const controller = createUpdateStatusController({ call, confirm: askConfirm, errors: tavernErrorHub, browser: window });
@@ -38389,7 +38376,7 @@ function TavernCardUpdateDialog(props) {
 				)
 			);
 			const updateMessage = updateStatus.pluginManaged
-				? (profileSwitchError || "")
+				? ""
 				: updateStatus.phase === "checking"
 				? "正在向 GitHub 核实最新构建…"
 				: updateStatus.phase === "up-to-date"
@@ -38426,8 +38413,7 @@ function TavernCardUpdateDialog(props) {
 			const awaitingDesktopRestart = updateStatus.phase === "completed" && updateStatus.host === "desktop" && updateStatus.requiresRestart;
 			const cancelSupported = ["running", "cancelling"].includes(updateStatus.phase) && updateStatus.cancellable === true;
 			const updateActions = updateStatus.pluginManaged
-				? (typeof window.desktopNext?.command === "function" ? h("div", { className: "dsh-tavern-update-actions" },
-					h("button", { type: "button", className: "dsh-tavern-update-button", disabled: returningToDesktop, onClick: returnToDesktop }, "返回日常 Profile")) : null)
+				? null
 				: updateStatus.phase === "update-available" || updateStatus.phase === "repair-required"
 				? h("div", { className: "dsh-tavern-update-actions" },
 					h("button", { className: "dsh-tavern-update-button", onClick: checkUpdate }, "检查更新"),

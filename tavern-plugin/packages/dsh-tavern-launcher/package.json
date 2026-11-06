@@ -16,7 +16,8 @@
     ".": "./index.js",
     "./client": "./client.js",
     "./package.json": "./package.json",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json"
   },
   "files": ["index.js", "client.js", "cordis.patch.yml", "locale"],
   "dsh": {

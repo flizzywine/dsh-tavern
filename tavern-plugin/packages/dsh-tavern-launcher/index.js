@@ -79,8 +79,9 @@ export function apply(ctx) {
   }
 
   async function handle(endpoint) {
-    if (!desktop || desktop.dir !== profile.dir || !profile.packageManager) return { state: 'unsupported' }
+    if (!desktop || desktop.dir !== profile.dir) return { state: 'unsupported' }
     if (profile.name === 'tavern') return { state: 'current' }
+    if (!profile.packageManager) return { state: 'unsupported' }
     const dir = join(await realpath(join(profile.home, 'profiles')), 'tavern')
     if (!relative(await realpath(profile.dir), dir)) return { state: 'current' }
     if (active) return { state: active.action === 'update' ? 'updating' : 'installing' }

@@ -16,7 +16,9 @@ window.__ModuleLoader__.load({
       upToDate: '当前已是发布版。',
       unsupported: '请在支持插件管理的 DSH NEXT 中使用启动器。',
       conflict: '已有同名 Profile 或旧版酒馆。请先检查并迁移现有安装。',
-      current: '你已在 tavern Profile 中。',
+      current: '你正在使用酒馆。切回原版 DSH 后，可以在此更新或卸载酒馆。',
+      back: '切回原版 DSH',
+      returnHint: '请在 DSH NEXT 桌面窗口中切回原版 DSH。',
       install: '安装酒馆',
       open: '打开酒馆',
       update: '更新酒馆',
@@ -39,7 +41,9 @@ window.__ModuleLoader__.load({
       upToDate: 'The current release is already installed.',
       unsupported: 'Open the launcher in DSH NEXT with plugin management available.',
       conflict: 'A conflicting Profile or a legacy installation exists. Review it before migrating.',
-      current: 'You are already in the tavern Profile.',
+      current: 'Tavern is running. Switch back to the original DSH to update or uninstall Tavern here.',
+      back: 'Return to original DSH',
+      returnHint: 'Switch back to the original DSH from the DSH NEXT desktop window.',
       install: 'Install Tavern',
       open: 'Open Tavern',
       update: 'Update Tavern',
@@ -61,11 +65,16 @@ window.__ModuleLoader__.load({
         pending.current = true
         setError('')
         try {
-          if (endpoint === 'switch' || endpoint === 'delete') {
+          if (['open', 'back', 'delete'].includes(endpoint)) {
             setNativeBusy(true)
+            const latest = await call('status')
+            if (latest.state !== (endpoint === 'back' ? 'current' : 'installed')) {
+              setStatus(latest)
+              return
+            }
             // The same bridge used by NEXT's own Desktop settings handles
             // confirmation, the orderly restart and the recovery backup.
-            await window.desktopNext.command({ type: endpoint, name: 'tavern' })
+            await window.desktopNext.command({ type: endpoint === 'delete' ? 'delete' : 'switch', name: endpoint === 'back' ? 'desktop' : 'tavern' })
             setStatus(await call('status'))
           } else {
             setStatus(await call(endpoint))
@@ -93,12 +102,14 @@ window.__ModuleLoader__.load({
         status.version ? h('strong', null, t('version') + status.version) : null,
         h('div', { role: error || status.error ? 'alert' : 'status' }, error || status.error || t(status.outcome || status.state)),
         h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
-          canInstall ? button('install', 'install') : null,
-          canManage && hasNative ? button('open', 'switch') : null,
-          canManage ? button('update', 'update') : null,
+          canInstall && hasNative ? button('install', 'install') : null,
+          canManage && hasNative ? button('open', 'open') : null,
+          canManage && hasNative ? button('update', 'update') : null,
           canManage && hasNative ? button('remove', 'delete') : null,
+          status.state === 'current' && hasNative ? button('back', 'back') : null,
           error ? button('retry', 'status') : null),
-        canManage && !hasNative ? h('small', null, t('nativeHint')) : null,
+        (canInstall || canManage) && !hasNative ? h('small', null, t('nativeHint')) : null,
+        status.state === 'current' && !hasNative ? h('small', null, t('returnHint')) : null,
       )
     }
 
