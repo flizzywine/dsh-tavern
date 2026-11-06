@@ -462,8 +462,53 @@ report() {
   fi
 }
 
+# 切换 DSH_HOME 也跟随发现的 home（用户显式设置时不动）。
+adopt_root() {
+  DSH_ROOT="$1"
+  [ -n "${DSH_TAVERN_SWITCH_STATE_DIR:-}" ] || STATE_ROOT="${DSH_ROOT}/backups/branch-switch"
+}
+
+profile_source_of() {
+  local manifest="$1"
+  [ -f "${manifest}" ] || return 0
+  node -e 'try { const p = require(process.argv[1]); process.stdout.write(String(p?.dshTavern?.source || "")) } catch (error) {}' \
+    "${manifest}" 2>/dev/null || true
+}
+
+# 找已安装源码目录：显式变量 > profile 记录的 dshTavern.source > 常见位置。
+# APK 侧的安装常落在 /root/.dsh，而 Termux 宿主 shell 的 $HOME 是另一个目录，
+# 所以不能只信默认值。
+discover_source() {
+  local explicit="${DSH_TAVERN_SOURCE_ROOT:-${DSH_TAVERN_ANDROID_APP_DIR:-}}"
+  if [ -n "${explicit}" ]; then
+    APP_DIR="${explicit}"
+    return 0
+  fi
+  if [ -f "${APP_DIR}/package.json" ]; then return 0; fi
+  local root candidate
+  for root in "${DSH_HOME:-}" "${HOME}/.dsh" /root/.dsh "${HOME}/.dsh-tavern"; do
+    [ -n "${root}" ] || continue
+    for candidate in "${root}/apps/dsh-tavern" "${root}/app/dsh-tavern"; do
+      if [ -f "${candidate}/package.json" ]; then
+        APP_DIR="${candidate}"
+        adopt_root "${root}"
+        info "自动找到安装目录：${APP_DIR}（DSH_HOME=${DSH_ROOT}）"
+        return 0
+      fi
+    done
+    candidate="$(profile_source_of "${root}/profiles/tavern/package.json")"
+    if [ -n "${candidate}" ] && [ -f "${candidate}/package.json" ]; then
+      APP_DIR="${candidate}"
+      adopt_root "${root}"
+      info "按 tavern Profile 记录找到安装目录：${APP_DIR}（DSH_HOME=${DSH_ROOT}）"
+      return 0
+    fi
+  done
+  return 1
+}
+
 switch_branch() {
-  [ -d "${APP_DIR}" ] || fail "没有找到已安装的源码目录：${APP_DIR}。请先完成主版本安装（bash android/setup.sh）。"
+  discover_source || fail "没有找到已安装的源码目录。试过：${APP_DIR}、\$HOME/.dsh、/root/.dsh。请用 DSH_TAVERN_SOURCE_ROOT=/path/to/dsh-tavern 指过去。"
   verify_source "${APP_DIR}"
   PREVIOUS_VERSION="$(source_version "${APP_DIR}")"
   PREVIOUS_BRANCH="$(git_branch_of "${APP_DIR}")"
@@ -513,8 +558,16 @@ switch_branch() {
 }
 
 revert_branch() {
-  local state_dir
+  local state_dir recorded
   state_dir="$(latest_state_dir)" || fail "没有可回退的切换记录（${STATE_ROOT}）。"
+  recorded="$(record_state_value "${state_dir}" APP_DIR)"
+  if [ -n "${recorded}" ] && [ ! -f "${APP_DIR}/package.json" ] && [ -f "${recorded}/package.json" ]; then
+    APP_DIR="${recorded}"
+    case "${recorded}" in
+      */apps/*) adopt_root "${recorded%/apps/*}" ;;
+    esac
+    info "按切换记录使用源码目录：${APP_DIR}"
+  fi
   info "使用记录：${state_dir}"
   restore_state "${state_dir}"
   printf '\n已回退到切换前的版本。\n'

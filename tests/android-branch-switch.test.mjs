@@ -68,6 +68,7 @@ function runSwitch(directory, install, args = [], extra = {}) {
     env: {
       ...process.env,
       PATH: `${install.mock}:${process.env.PATH || ''}`,
+      HOME: shellPath(directory),
       DSH_HOME: shellPath(install.home),
       DSH_TAVERN_SOURCE_ROOT: shellPath(install.app),
       DSH_TAVERN_TARGET_BRANCH: 'backup/main-20261106',
@@ -123,6 +124,46 @@ test('整目录替换：保留 data、复用 node_modules、写分支标记与�
   assert.match(stateEnv, /TARGET_VERSION=3\.2\.0/)
   assert.ok(await readFile(path.join(install.state, states[0], 'previous-source/package.json'), 'utf8'))
   assert.ok(existsSync(path.join(install.home, 'installer-ran')))
+})
+
+test('未给源码目录时按 tavern Profile 记录自动发现安装位置', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'tavern-switch-discover-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const home = path.join(directory, 'home')
+  // 安装目录故意放在 home/apps 之外，只能靠 profile 里的 dshTavern.source 找到。
+  const app = path.join(directory, 'custom', 'dsh-tavern')
+  for (const target of [app, path.join(directory, 'branch-source')]) {
+    await mkdir(path.join(target, 'android'), { recursive: true })
+    await mkdir(path.join(target, 'bin'), { recursive: true })
+    await writeFile(path.join(target, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern', version: '3.1.0' }))
+    await writeFile(path.join(target, 'bin/dsh-tavern.mjs'), '')
+    await writeFile(path.join(target, 'android/install.sh'), SCRIPT_SOURCE)
+    await writeFile(path.join(target, 'pnpm-lock.yaml'), 'lockfile-identical\n')
+    await writeFile(path.join(target, 'pnpm-workspace.yaml'), 'packages: []\n')
+  }
+  const profile = path.join(home, 'profiles', 'tavern')
+  await mkdir(profile, { recursive: true })
+  await writeFile(path.join(profile, 'package.json'), JSON.stringify({ dshTavern: { source: app } }))
+  const mock = path.join(directory, 'mock')
+  await mkdir(mock, { recursive: true })
+  await writeFile(path.join(mock, 'git'), '#!/usr/bin/env bash\nexit 1\n')
+  await chmod(path.join(mock, 'git'), 0o755)
+
+  const result = spawnSync(bash, [script, '--dry-run'], {
+    encoding: 'utf8',
+    timeout: 60000,
+    env: {
+      ...process.env,
+      HOME: shellPath(home),
+      PATH: `${mock}:${process.env.PATH || ''}`,
+      DSH_HOME: shellPath(home),
+      DSH_TAVERN_TARGET_BRANCH: 'backup/main-20261106',
+      TEST_ROOT: shellPath(directory),
+    },
+  })
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  assert.match(result.stdout, /Profile 记录找到安装目录/)
+  assert.match(result.stdout, /3\.1\.0/)
 })
 
 test('安装器失败时自动回滚到旧版本', async (t) => {
