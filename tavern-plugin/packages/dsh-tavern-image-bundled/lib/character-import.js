@@ -1,3 +1,13 @@
+import { createHash } from 'node:crypto'
+
+/**
+ * Stable id for an imported character. The first 12 hex digits of the raw name are only its first
+ * two CJK characters, so 苏小雨 and 苏小美 used to get the same id; hash the whole name instead.
+ */
+function nameId(prefix, name) {
+  return prefix + '-' + createHash('sha256').update(String(name)).digest('hex').slice(0, 16)
+}
+
 /**
  * 从「卡的设定」导入人物形象。
  *
@@ -84,7 +94,7 @@ export function roleToDefinition(name, role = {}) {
   } : null
 
   return {
-    id: `import-${Buffer.from(String(name)).toString('hex').slice(0, 12)}`,
+    id: nameId('import', name),
     enabled: true,
     name: String(name).trim(),
     match: splitNameAliases(name),
@@ -161,7 +171,7 @@ export function charactersFromCardBook(card) {
     if (/^(妖族|仙界|魔道|凡人|人物|角色|其他|杂项|总览|目录|关键人物)$/.test(name)) continue
     const look = clip(text.replace(/\s+/g, ' '), 200)
     out.push({
-      id: `card-${Buffer.from(name).toString('hex').slice(0, 12)}`,
+      id: nameId('card', name),
       enabled: true,
       name,
       match: keys.length ? keys.join(', ') : name,
@@ -238,7 +248,7 @@ export function charactersFromCardBookBody(card) {
     if (alias && alias !== name && alias.length <= 12 && !/[{}<>[\]]/.test(alias) && !BODY_PLACE_SUFFIX.test(alias)) aliases.push(alias)
     seen.add(name)
     out.push({
-      id: `cardbody-${Buffer.from(name).toString('hex').slice(0, 12)}`,
+      id: nameId('cardbody', name),
       enabled: true,
       name,
       match: aliases.join(', '),
@@ -275,7 +285,15 @@ export function mergeCharacters(existing, incoming) {
   for (const fresh of incoming) {
     const hit = list.find(item => String(item.name ?? '').trim() === fresh.name)
     if (!hit) {
-      list.push(fresh)
+      // Never add a second character under an id the library already uses (ids from older imports
+      // were only two characters of the name deep).
+      let id = fresh.id
+      if (id && list.some(item => String(item.id ?? '') === String(id))) {
+        let n = 2
+        while (list.some(item => String(item.id ?? '') === id + '-' + n)) n++
+        id = id + '-' + n
+      }
+      list.push(id === fresh.id ? fresh : { ...fresh, id })
       report.added.push(fresh.name)
       continue
     }
@@ -396,7 +414,7 @@ function describeFromWikiEntry(entry) {
   if (!feature && !intro) return null
 
   return {
-    id: `wb-${Buffer.from(name).toString('hex').slice(0, 12)}`,
+    id: nameId('wb', name),
     enabled: true,
     name,
     match: splitNameAliases(name),
@@ -451,7 +469,7 @@ export function charactersFromExtraction(raw) {
     const body = cleanBody(String(item.body ?? '').trim()).slice(0, 160)
     if (!feature && !body) continue
     out.push({
-      id: `ai-${Buffer.from(name).toString('hex').slice(0, 12)}`,
+      id: nameId('ai', name),
       enabled: true,
       name,
       match: splitNameAliases(name),
