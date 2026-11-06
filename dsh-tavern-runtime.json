@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e023557582dc85dbd2c3846960b43e479590e5a5",
-  "releaseSequence": 1315,
+  "revision": "7e238fda1d3a089a58b9c0a3334d063e1f058b05",
+  "releaseSequence": 1316,
   "version": "3.2.0",
   "files": [
     {
@@ -7226,13 +7226,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/generation.js",
-      "sha256": "5e0136f360df8e930de82db2027ab2153b08af5507679d46580eed691f739f9e",
-      "size": 8631
+      "sha256": "c9fc027e572a1fc7c443e3ca590a362c0ddbe44327f10cbf84946976ed440ae0",
+      "size": 9138
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/index.js",
-      "sha256": "8965502020a54965d3fd7821d551790e0ceec1eafcd5b8d93baaed0378fac71a",
-      "size": 29815
+      "sha256": "323f4ffbe4344484a419f56e6ffee0d7830adb7098e0a062307dbfa68412dc8a",
+      "size": 29465
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/storage.js",
@@ -7336,8 +7336,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/image-output.js",
-      "sha256": "0a6a14d6c877f587aac3347a5cc15a44e48f77d28eae2658d4ac4f8d35ac1a0d",
-      "size": 7878
+      "sha256": "fb8893116994b3cadfb5de8e25624afdab3c8ee80d8c0d9dedf5f736c479acd9",
+      "size": 9585
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/image-provider-capabilities.js",
@@ -7346,13 +7346,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/image-providers.js",
-      "sha256": "1edbb11925ebe9938ebbc6ec1914927883f58ef997913d4fe9a97d02fd86cff4",
-      "size": 51360
+      "sha256": "b19a2d4e2d945f8e080bc3dd2f364752789ae12fcdd33c81bf85f60b45c3d20a",
+      "size": 51600
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js",
-      "sha256": "d287d8fe923bcd86f5dabe9fc11dbc7a7923504a231d040ccb488ed2a0d7b6b6",
-      "size": 390363
+      "sha256": "7cdbc65d5f815fa524c17f4bdad9fbbe6cd31dc326827024c68bcdcaed0f8ea3",
+      "size": 390667
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/library-provider.js",
@@ -9861,9 +9861,9 @@
     }
   ],
   "archive": {
-    "commit": "fcb74f22d988c21850e065ceaddfd79bc4d3e5dc",
+    "commit": "c6d7f89c78a42cc7802d28bee6a55488ca5a5f56",
     "path": "runtime.zip",
-    "sha256": "c5e9a3432b5518cedd200b1ede5d16bbac8d7ee8046e702e3fd454e2b1cfb52b",
-    "size": 16400395
+    "sha256": "63ea8b00b9cac820a6c8af82297c2016874ea6146df8f2aca022b035bd231c94",
+    "size": 16401524
   }
 }
