@@ -5,6 +5,7 @@ import { createBodyEditor, synchronizeBodyEdits } from '../tavern-plugin/lib/dom
 import { appendSessionEvent, sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { replaceSessionSurface } from '../tavern-plugin/lib/domain/session-surface-mutations.js'
 import { latestUserInputFloor, locateUserInputFloor, userInputEditsOf } from '../tavern-plugin/lib/domain/input-floor.js'
+import { legacyMessageUid } from '../tavern-plugin/lib/domain/message-uid.js'
 
 function fixture(text = '原输入') {
   const session = Session.create('user-input-edit')
@@ -38,6 +39,17 @@ test('玩家输入按回合定位，编辑后模型上下文和存档文字一�
   assert.deepEqual(second.parts, [{ kind: 'text', text: '改过的输入' }])
   await h.editor.saveUser(h.session.id, { token: second.token, texts: ['再改一次'] })
   assert.deepEqual(h.session.deriveMessages().filter(message => message.role === 'user').map(message => message.content[0].text), ['再改一次'])
+})
+
+test('原生回合输入编辑不被无关 Chat revision 写入作废', async () => {
+  const h = fixture()
+  const edit = await h.editor.readUser(h.session.id)
+  h.chat.playerName = '后台改名'
+  h.chat.displayRuntime = { turn: 5, receipt: 'cache' }
+  h.chat._storageRevision++
+  const saved = await h.editor.saveUser(h.session.id, { ...edit, texts: ['无关写入后保存'] })
+  assert.equal(saved.messages[0].text, '无关写入后保存')
+  assert.equal(saved.playerName, '后台改名')
 })
 
 test('过期的令牌、空输入和运行中的回合都拒绝写入', async () => {
@@ -185,6 +197,20 @@ test('故事直选：按 messageIndex 编辑玩家输入，多余回合不影响
   assert.equal(saved.messages[1].text, '回复')
   assert.deepEqual(h.inputs(), ['改过的输入'])
   assert.deepEqual(h.repairs, [])
+})
+
+test('故事直选：UID 输入编辑不被无关 revision 与结算写入作废', async () => {
+  const h = storyUserFixture()
+  const messageUid = legacyMessageUid(h.chat.messages[0], 0)
+  const edit = await h.editor.readUser(h.session.id, { messageIndex: 0, revision: 1, messageUid })
+  assert.equal(edit.messageUid, messageUid)
+  h.chat.playerName = '后台改名'
+  h.chat.variables = { hp: 42 }
+  h.chat._storageRevision++
+  const saved = await h.editor.saveUser(h.session.id, { ...edit, texts: ['无关写入后仍可编辑输入'] })
+  assert.equal(saved.messages[0].text, '无关写入后仍可编辑输入')
+  assert.equal(saved.playerName, '后台改名')
+  assert.deepEqual(h.inputs(), ['无关写入后仍可编辑输入'])
 })
 
 test('故事直选：旧 sourceText 不覆盖玩家当前 text 或编辑后的再次读取', async () => {

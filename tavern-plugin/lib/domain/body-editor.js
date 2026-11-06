@@ -10,6 +10,7 @@ import { isScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
 import { locateUserEditFloor, locateUserInputFloor, userInputText } from './input-floor.js'
 import { inputEventForTurn, inputKind, isFailedTurnEnd } from './session-turn-input.js'
+import { legacyMessageUid, validMessageUid } from './message-uid.js'
 
 function latest(chat) {
   const message = chat.messages?.at(-1)
@@ -42,8 +43,20 @@ function storyRevision(input) {
   const revision = Number(input.revision)
   return Number.isSafeInteger(revision) && revision >= 0 ? revision : null
 }
-/** The row's own identity: chat, branch, storage revision and position. */
-function storyToken(chat, message, index, role) {
+function storyMessageUid(input) {
+  return validMessageUid(input?.messageUid) ? input.messageUid : null
+}
+/** UID edits bind the logical row, not unrelated Chat/timeline write counters. */
+function storyToken(chat, message, index, role, messageUid = null) {
+  if (messageUid) {
+    // Settlement variables, receipts and display caches do not change the text
+    // being edited. Swipes, anchors and other edit inputs remain CAS-protected.
+    const { displayRuntime: _capture, tavernPluginData: _templateCache, variables: _variables,
+      mvu: _receipt, sessionText: _sessionText, bodyEdit: _oldEdit, ...body } = message
+    return createHash('sha256').update(JSON.stringify(['story-message', chat.id, chat.timeline?.branchId,
+      role, messageUid, body])).digest('hex')
+  }
+  // Compatibility for an already-open panel from before messageUid shipped.
   const { displayRuntime: _capture, tavernPluginData: _templateCache, ...body } = message
   return createHash('sha256').update(JSON.stringify(['story-row', chat.id, chat.timeline?.branchId, chat.timeline?.revision,
     role, index, storageRevision(chat), body])).digest('hex')
@@ -141,19 +154,30 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     idle(chat, agent)
     return { chat, agent }
   }
-  // Story rows: `messageIndex` names the row in chat.messages; `revision` must be the
-  // save revision the caller read. `role` keeps an assistant read from landing on a
-  // player input (and the other way round). No turn and no native seq is consulted.
+  // A UID names the logical Chat row across unrelated writes and index movement.
+  // `messageIndex` remains a required hint, never the identity when a UID exists.
+  // Old clients without one retain the exact revision fence below.
   function storyRow(chat, input, role) {
     const messages = Array.isArray(chat.messages) ? chat.messages : []
-    const index = storyMessageIndex(input)
-    if (index === null || index >= messages.length) throw new Error('这条消息已不在当前列表中，请刷新后重新打开编辑')
+    const requestedIndex = storyMessageIndex(input)
+    if (requestedIndex === null) throw new Error('这条消息已不在当前列表中，请刷新后重新打开编辑')
     if (typeof input?.role === 'string' && input.role !== role) throw new Error('这条消息已变化，请重新打开编辑')
-    const message = messages[index]
+    const messageUid = storyMessageUid(input)
+    if (messageUid) {
+      const candidates = []
+      for (let index = 0; index < messages.length; index++) {
+        const message = messages[index]
+        if (legacyMessageUid(message, index) === messageUid) candidates.push({ message, index })
+      }
+      if (candidates.length !== 1 || candidates[0].message?.role !== role) throw new Error('这条消息已变化，请重新打开编辑')
+      return { chat, ...candidates[0], revision: storageRevision(chat), messageUid }
+    }
+    if (requestedIndex >= messages.length) throw new Error('这条消息已不在当前列表中，请刷新后重新打开编辑')
+    const message = messages[requestedIndex]
     if (!message || typeof message !== 'object' || message.role !== role) throw new Error('这条消息已变化，请重新打开编辑')
     const revision = storyRevision(input)
     if (revision === null || storageRevision(chat) !== revision) throw new Error('正文或会话已变化，请重新打开编辑')
-    return { chat, index, message, revision: storageRevision(chat) }
+    return { chat, index: requestedIndex, message, revision: storageRevision(chat), messageUid: null }
   }
   async function storyContext(sessionId, input, role) {
     refuseClosedPatch()
@@ -272,15 +296,16 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
   }
   // Story view: read the row the list points at (no turn, no native floor needed).
   async function readStoryMessage(sessionId, input) {
-    const { chat, message, index, revision } = await storyContext(sessionId, input, 'assistant')
+    const { chat, message, index, revision, messageUid } = await storyContext(sessionId, input, 'assistant')
     const parts = editableReplyParts(source(message))
     if (!parts.some(part => part.kind === 'text' && part.text.trim())) throw new Error('这轮只有 HTML，没有可编辑文本')
     return {
       role: 'assistant',
-      token: storyToken(chat, message, index, 'assistant'),
+      token: storyToken(chat, message, index, 'assistant', messageUid),
       index,
       messageIndex: index,
       revision,
+      ...(messageUid ? { messageUid } : {}),
       turn: Number(message.turn) || 0,
       parts: parts.map(part => part.kind === 'text' ? part : { kind: part.kind })
     }
@@ -333,8 +358,8 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     if (pending.has(sessionId)) throw new Error('正在保存正文，请稍候')
     pending.add(sessionId)
     try {
-      const { chat, agent, message, index, revision } = await storyContext(sessionId, input, 'assistant')
-      if (input?.token !== storyToken(chat, message, index, 'assistant')) throw new Error('正文或会话已变化，请重新打开编辑')
+      const { chat, agent, message, index, revision, messageUid } = await storyContext(sessionId, input, 'assistant')
+      if (input?.token !== storyToken(chat, message, index, 'assistant', messageUid)) throw new Error('正文或会话已变化，请重新打开编辑')
       const parts = editableReplyParts(source(message))
       if (!parts.some(part => part.kind === 'text' && part.text.trim())) throw new Error('这轮只有 HTML，没有可编辑文本')
       checkedTexts(parts, input.texts)
@@ -350,9 +375,9 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       }
       const saved = await chats.update(chat.id, current => {
         idle(current, agent)
-        const row = storyRow(current, { messageIndex: index, revision }, 'assistant')
-        if (storyToken(current, row.message, index, 'assistant') !== input.token) throw new Error('正文或会话已变化，请重新打开编辑')
-        return applyStoryPatch(current, index, row.message, patch, kind)
+        const row = storyRow(current, { messageIndex: index, revision, messageUid }, 'assistant')
+        if (storyToken(current, row.message, row.index, 'assistant', messageUid) !== input.token) throw new Error('正文或会话已变化，请重新打开编辑')
+        return applyStoryPatch(current, row.index, row.message, patch, kind)
       }, { source: kind === 'body.polish' ? 'foreground.body-polish' : 'foreground.body-edit' })
       if (target) await synchronizeBodyEdits(agent.session, saved, sessions.flush)
       else if (agent?.session && typeof repairNative === 'function') await repairNative(sessionId, agent.session)
@@ -447,7 +472,9 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     return { chat, agent, message: found?.message || null, index: found?.index ?? -1, turn, located, text, record, failed }
   }
   function userToken(chat, context) {
-    return createHash('sha256').update(JSON.stringify([chat.id, chat.timeline?.branchId, chat._storageRevision, context.turn, context.text,
+    // The native turn/seq, current text and edit marker identify this input;
+    // an unrelated Chat write must not invalidate an open editor.
+    return createHash('sha256').update(JSON.stringify([chat.id, chat.timeline?.branchId, context.turn, context.text,
       context.record?.id || '', context.message?.bodyEdit?.id || '', context.failed === true ? 'failed' : ''])).digest('hex')
   }
   async function readUser(sessionId, input) {
@@ -459,16 +486,17 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
   // Story view: the pointed-at player row, even when its turn is missing, repeated or
   // out of order; the row text is the save's own, never a turn's lookup result.
   async function readStoryUser(sessionId, input) {
-    const { chat, message, index, revision } = await storyContext(sessionId, input, 'user')
-    return { token: storyToken(chat, message, index, 'user'), role: 'user', index, messageIndex: index, revision,
-      turn: Number(message.turn) || 0, seq: 0, failed: false, parts: [{ kind: 'text', text: storyUserText(message) }] }
+    const { chat, message, index, revision, messageUid } = await storyContext(sessionId, input, 'user')
+    return { token: storyToken(chat, message, index, 'user', messageUid), role: 'user', index, messageIndex: index, revision,
+      ...(messageUid ? { messageUid } : {}), turn: Number(message.turn) || 0, seq: 0, failed: false,
+      parts: [{ kind: 'text', text: storyUserText(message) }] }
   }
   async function saveStoryUser(sessionId, input) {
     if (pending.has(sessionId)) throw new Error('正在保存正文，请稍候')
     pending.add(sessionId)
     try {
-      const { chat, agent, message, index, revision } = await storyContext(sessionId, input, 'user')
-      if (input?.token !== storyToken(chat, message, index, 'user')) throw new Error('输入或会话已变化，请重新打开编辑')
+      const { chat, agent, message, index, revision, messageUid } = await storyContext(sessionId, input, 'user')
+      if (input?.token !== storyToken(chat, message, index, 'user', messageUid)) throw new Error('输入或会话已变化，请重新打开编辑')
       const texts = input.texts
       if (!Array.isArray(texts) || texts.length !== 1 || typeof texts[0] !== 'string') throw new Error('编辑文本格式无效')
       const text = texts[0]
@@ -483,8 +511,8 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       const marker = located ? { id: editId, seq: Number(located.seq), turn, role: 'user' } : null
       const saved = await chats.update(chat.id, current => {
         idle(current, agent)
-        const row = storyRow(current, { messageIndex: index, revision }, 'user')
-        if (storyToken(current, row.message, index, 'user') !== input.token) throw new Error('输入或会话已变化，请重新打开编辑')
+        const row = storyRow(current, { messageIndex: index, revision, messageUid }, 'user')
+        if (storyToken(current, row.message, row.index, 'user', messageUid) !== input.token) throw new Error('输入或会话已变化，请重新打开编辑')
         row.message.text = text
         if (marker) row.message.bodyEdit = marker
         return current

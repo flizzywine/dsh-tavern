@@ -5,6 +5,7 @@ import { createBodyEditor, synchronizeBodyEdits } from '../tavern-plugin/lib/dom
 import { projectReplyLayers } from '../tavern-plugin/lib/domain/reply-presentation.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { sessionEvents, appendSessionEvent } from '../tavern-plugin/lib/domain/session-events.js'
+import { legacyMessageUid } from '../tavern-plugin/lib/domain/message-uid.js'
 
 function fixture(text = '原正文', seeded = false) {
   let session = Session.create('body-edit-test')
@@ -249,6 +250,33 @@ test('故事直选：重复回合的尾行不覆盖别的原生楼层，改走�
   assert.equal(h.chat.messages[5].text, '改写重复回合')
   assert.equal(h.surface(2), '第二轮正文')
   assert.deepEqual(h.repairs, [h.session.id])
+})
+
+test('故事直选：UID 编辑不被无关表头、结算变量和 revision 写入作废', async () => {
+  const h = storyFixture()
+  const messageUid = legacyMessageUid(h.chat.messages[2], 2)
+  const edit = await h.editor.read(h.session.id, { messageIndex: 2, revision: 1, messageUid })
+  assert.equal(edit.messageUid, messageUid)
+  h.chat.playerName = '后台改名'
+  h.chat.messages[2].variables = [{ hp: 42 }]
+  h.chat.messages[2].mvu = { settled: true }
+  h.chat._storageRevision++
+  const saved = await h.editor.save(h.session.id, { ...edit, texts: ['无关写入后仍可编辑'] })
+  assert.equal(saved.messages[2].text, '无关写入后仍可编辑')
+  assert.equal(saved.messages[2].variables[0].hp, 42)
+  assert.equal(saved.playerName, '后台改名')
+})
+
+test('故事直选：持久 UID 在索引移动后仍编辑原逻辑行', async () => {
+  const h = storyFixture()
+  h.chat.messages[2].messageUid = 'persisted-body-edit-row'
+  const edit = await h.editor.read(h.session.id, { messageIndex: 2, revision: 1, messageUid: 'persisted-body-edit-row' })
+  h.chat.messages.unshift({ role: 'user', text: '后来插入的输入' })
+  h.chat._storageRevision++
+  const saved = await h.editor.save(h.session.id, { ...edit, texts: ['只改原第二轮'] })
+  assert.equal(saved.messages[3].text, '只改原第二轮')
+  assert.equal(saved.messages[3].messageUid, 'persisted-body-edit-row')
+  assert.equal(saved.messages[0].text, '后来插入的输入')
 })
 
 test('故事直选：陈旧 revision、越界、role 不符与过期 token 都拒绝写入', async () => {
