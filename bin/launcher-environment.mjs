@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { resolveDshCliEntry, resolveNpmCliEntry } from './plugin-dependencies.mjs'
 
 // Shared installation paths and process invocation; no install/start/update effects on import.
-export const INSTALL_HOSTS = new Set(['cli', 'desktop', 'android'])
+export const INSTALL_HOSTS = new Set(['cli', 'desktop', 'next', 'android'])
 export const CLI_PORT = resolveServicePort(process.env.DSH_TAVERN_PORT)
 export const SCRIPT_PATH = fileURLToPath(new URL('./dsh-tavern.mjs', import.meta.url))
 export const SOURCE_ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..')
@@ -21,7 +21,7 @@ export const CLI_HOST = RUNTIME_HOST === 'cli' ? resolveBindHost(process.env.DSH
 export const LEGACY_DSH_ROOT = process.env.DSH_TAVERN_LEGACY_DSH_HOME || process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
 export const DSH_ROOT = path.resolve(RUNTIME_HOST === 'cli'
   ? (process.env.DSH_TAVERN_CLI_HOME || (installation.host === 'cli' && installation.dshHome) || path.join(os.homedir(), '.dsh-tavern'))
-  : (process.env.DSH_HOME || path.join(os.homedir(), '.dsh')))
+  : (process.env.DSH_HOME || (RUNTIME_HOST === 'next' && process.env.DSH_DESKTOP_NEXT_HOME) || path.join(os.homedir(), '.dsh')))
 export const BACKUP_ROOT = installationBackupRoot(installation, DSH_ROOT)
 
 // The installer owns `host` and `dshHome` in .dsh-tavern-local.json. Other keys
@@ -151,10 +151,10 @@ export function findDshCommand(host = RUNTIME_HOST) {
     if (!existsSync(command)) throw new Error('Tavern 独立 DSH 尚未安装，请重新运行 Tavern 安装器；不会回退到全局 DSH。')
     return command
   }
-  if (host === 'desktop') {
+  if (host === 'desktop' || host === 'next') {
     const pinned = pinnedDesktopDsh(host)
     if (pinned) return pinned.bootstrap
-    throw new Error('请通过官方 DeepSeek Harness 的酒馆安装入口运行；未找到官方桌面运行环境。')
+    throw new Error('未找到所选桌面宿主的 DSH 运行环境。')
   }
   if (commandExists('dsh')) {
     if (process.platform === 'win32') return 'dsh'
@@ -180,7 +180,7 @@ export function findDshCommand(host = RUNTIME_HOST) {
 // Official Desktop on both platforms names its own bundled DSH. Looking up `dsh` by name can reach an unrelated DSH the user
 // installed elsewhere, so installs run this exact bootstrap instead.
 export function pinnedDesktopDsh(host, env = process.env, platform = process.platform) {
-  if (host !== 'desktop') return null
+  if (host !== 'desktop' && host !== 'next') return null
   // The official runtime pins the DSH entry to its Electron executable.
   const executable = env.DSH_DESKTOP_DSH_RUNNER || env.DSH_DESKTOP_NODE_EXECUTABLE || env.DSH_DESKTOP_APP_EXECUTABLE
   const bootstrap = env.DSH_DESKTOP_DSH_BOOTSTRAP

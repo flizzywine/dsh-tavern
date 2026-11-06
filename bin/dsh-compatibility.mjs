@@ -59,7 +59,7 @@ export function minimumNodeVersion(dshVersion) {
 
 // Desktop wrappers and Electron own their Node; the shell's Node may be older.
 export function hostNodeVersion(host, { env = process.env, run = spawnSync } = {}) {
-  const desktopNode = host === 'desktop' && (env.DSH_DESKTOP_NODE_EXECUTABLE || env.DSH_DESKTOP_APP_EXECUTABLE)
+  const desktopNode = (host === 'desktop' || host === 'next') && (env.DSH_DESKTOP_NODE_EXECUTABLE || env.DSH_DESKTOP_APP_EXECUTABLE)
   const command = desktopNode || 'node'
   const result = run(command, ['--version'], {
     env: desktopNode ? { ...env, ELECTRON_RUN_AS_NODE: '1' } : env,

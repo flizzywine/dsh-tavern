@@ -40,11 +40,15 @@ window.__ModuleLoader__.load({
       operationPending: "操作已排队，等待桌面退出；请勿重复提交。",
       lastOperationFailure: "上次操作失败",
       operationDone: "上次操作已完成。",
-      sectionTavern: '原版DSH',
-      sectionOriginal: 'DSH酒馆',
-      explain: 'DSH 酒馆和原版 DSH 是同一个应用里的两套环境，切换时应用会重启一次，对话和设置都会保留。',
+      section: 'Profile 切换',
+      explain: '切换配置会重启桌面应用，各配置保留自己的设置和会话。',
+      current: '当前配置',
+      profileDesktop: '原版 DSH',
+      profileTavern: 'DSH 酒馆',
+      profileReader: 'DSH 阅读器',
       toOriginal: '重启并切换到原版 DSH',
       toTavern: '重启并切换到 DSH 酒馆',
+      toReader: '重启并切换到 DSH 阅读器',
       noTavern: '还没有装好 DSH 酒馆，装好后这里就能切过去。',
       noOriginal: '找不到原版 DSH 的备份，暂时切不回去。请看下面的「说明与日志」。',
       standalone: '这是 DSH 酒馆的独立窗口，原版 DSH 就是 DeepSeek Harness 本身，不用切换、不用重启。',
@@ -89,11 +93,15 @@ window.__ModuleLoader__.load({
       operationPending: "Operation queued; waiting for Desktop to exit. Do not submit again.",
       lastOperationFailure: "The last operation failed",
       operationDone: "The last operation completed.",
-      sectionTavern: 'Original DSH',
-      sectionOriginal: 'DSH Tavern',
-      explain: 'DSH Tavern and the original DSH are two setups of the same app. Switching restarts the app once; conversations and settings are kept.',
+      section: 'Switch profile',
+      explain: 'Switching restarts Desktop. Each profile keeps its settings and sessions.',
+      current: 'Current profile',
+      profileDesktop: 'Original DSH',
+      profileTavern: 'DSH Tavern',
+      profileReader: 'DSH Reader',
       toOriginal: 'Restart and switch to original DSH',
       toTavern: 'Restart and switch to DSH Tavern',
+      toReader: 'Restart and switch to DSH Reader',
       noTavern: 'DSH Tavern is not installed yet; once it is, you can switch from here.',
       noOriginal: 'The original DSH backup is missing, so switching back is not possible right now. See "Details and log" below.',
       standalone: 'This is the standalone DSH Tavern window. The original DSH is DeepSeek Harness itself; no switch or restart needed.',
@@ -161,11 +169,7 @@ window.__ModuleLoader__.load({
     /** The menu names this page by side at once: the Tavern client marks a page that loaded it. */
     const inTavern = () => window.__dshTavernLoaded === true
 
-    /**
-     * One settings page with one action: from the tavern setup, back to the original DSH;
-     * from the original, into DSH Tavern. Either way the app quits and reopens once.
-     * @param {{ t: Function, rpcCall: Function }} props - injected faces from the registration.
-     */
+    /** @param {{ t: Function, rpcCall: Function }} props */
     function ProfileBridgeSettings(props) {
       const t = props.t
       const call = props.rpcCall
@@ -213,14 +217,17 @@ window.__ModuleLoader__.load({
       }, [call, pending])
       const lastFailure = status?.lastResult?.status === 'failed' ? status.lastResult : null
 
-      // Which side this page is on comes from the page itself, the same as the menu name.
-      const side = inTavern() ? 'tavern' : 'original'
+      const current = status?.linkTargetName ?? (inTavern() ? 'tavern' : 'desktop')
       const standalone = status?.desktopApp === false
-      const tavernReady = (status?.profiles ?? []).some((profile) => profile.name === 'tavern' && (profile.bundles ?? []).includes('dsh-profile-bridge') && profile.hasNodeModules)
-      // Back to the original needs its backup; into the tavern needs a tavern setup that can come back.
-      const blocked = side === 'original' ? (tavernReady ? null : t('noTavern'))
-        : (status?.backups ?? []).length > 0 ? null : t('noOriginal')
-      const target = side === 'original' ? 'tavern' : null
+      const ready = (name) => (status?.profiles ?? []).some((profile) => profile.name === name && (profile.bundles ?? []).includes('dsh-profile-bridge') && profile.hasNodeModules)
+      const destinations = [
+        { name: 'desktop', label: 'profileDesktop', action: 'toOriginal', ready: (status?.backups ?? []).length > 0 },
+        { name: 'tavern', label: 'profileTavern', action: 'toTavern', ready: ready('tavern') },
+        { name: 'reader', label: 'profileReader', action: 'toReader', ready: ready('reader') },
+      ]
+      const currentLabel = destinations.find(({ name }) => name === current)?.label
+      const options = destinations.filter(({ name, ready }) => name !== current && ready)
+      const blocked = options.length === 0 ? t(current === 'desktop' ? 'noTavern' : 'noOriginal') : null
 
       const [shortcut, setShortcut] = React.useState(null)
       async function addShortcut() {
@@ -247,11 +254,13 @@ window.__ModuleLoader__.load({
         }
       }
 
-      async function apply() {
+      async function apply(target) {
+        if (actionInFlight.current || busy || pending || lastFailure?.recoveryRequired) return
+        actionInFlight.current = true
         setBusy(true)
         setFailure(null)
         try {
-          const result = target ? await call('link', { target }) : await call('unlink', {})
+          const result = target === 'desktop' ? await call('unlink', {}) : await call('link', { target })
           if (result?.ok === true) {
             setApplied(result.value ?? {})
             setStatus(previous => ({ ...previous, lastResult: { status: 'pending', stamp: result.value?.stamp } }))
@@ -260,11 +269,12 @@ window.__ModuleLoader__.load({
         } catch (error) {
           setFailure(describeFailure({ message: error?.message ?? String(error) }))
         } finally {
+          actionInFlight.current = false
           setBusy(false)
         }
       }
 
-      const title = t(inTavern() ? 'sectionTavern' : 'sectionOriginal')
+      const title = t('section')
       const isDesktop = status?.appKind === 'desktop'
       const installation = status?.installation
       const managementBlocked = !isDesktop || status?.desktopApp !== true || !installation?.available || busy || pending || Boolean(lastFailure?.recoveryRequired)
@@ -306,11 +316,11 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'pb-btn', disabled: busy, onClick: () => void openOriginal() }, t('openOriginal')),
         ) : blocked ? h('p', { className: 'pb-error' }, blocked) : h('div', { className: 'pb-bar' },
           h('span', { className: 'pb-bar-text' },
-            applied === null ? (pending ? t('restarting') : '') : applied.closesApp ? t('restarting') : t('quitHint'),
+            applied === null ? (pending ? t('restarting') : `${t('current')} · ${currentLabel ? t(currentLabel) : current}`) : applied.closesApp ? t('restarting') : t('quitHint'),
             ...(applied?.warnings ?? []).map((warning) => h('span', { key: warning, style: { display: 'block', opacity: 0.75 } }, `• ${warning}`)),
           ),
-          applied !== null ? null : h('button', { type: 'button', className: 'pb-btn', disabled: busy || pending || lastFailure?.recoveryRequired, onClick: () => void apply() },
-            busy ? t('restarting') : target ? t('toTavern') : t('toOriginal')),
+          applied !== null ? null : h('div', { className: 'pb-actions' }, ...options.map(({ name, action }) =>
+            h('button', { key: name, type: 'button', className: 'pb-btn', disabled: busy || pending || lastFailure?.recoveryRequired, onClick: () => void apply(name) }, t(action)))),
         ),
         lastFailure ? h('div', { className: 'pb-error', role: 'alert' },
           h('strong', null, t(['relocate', 'uninstall'].includes(lastFailure.mode) ? 'lastOperationFailure' : 'lastFailure')),
@@ -372,6 +382,17 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale', 'connection'],
       apply(ctx) {
+        if (typeof window.desktopNext?.state === 'function') {
+          // dshmarket draws its own mark, but only hides a direct-child SVG.
+          // NEXT wraps the fallback gear in an aria-hidden span.
+          ctx.effect(() => {
+            const style = window.document.createElement('style')
+            style.textContent = '[data-dsh-market-nav-icon] > span[aria-hidden="true"] { display: none; }'
+            window.document.head.appendChild(style)
+            return () => style.remove()
+          }, 'NEXT: hide the duplicate market settings icon')
+          return // NEXT has its own Profile selector in Desktop Settings.
+        }
         const t = ctx.locale.bind(NS)
         const rpcCall = (endpoint, payload) => ctx.connection.rpc.call(CHANNEL, endpoint, payload)
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'profile-bridge: locale dictionaries')
@@ -379,7 +400,7 @@ window.__ModuleLoader__.load({
           name: 'settings.section',
           id: 'profile-bridge',
           order: 60,
-          label: () => t(inTavern() ? 'sectionTavern' : 'sectionOriginal'),
+          label: () => t('section'),
           inject: () => ({ rpcCall, t }),
         }, ProfileBridgeSettings))
       },

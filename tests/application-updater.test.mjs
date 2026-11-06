@@ -50,6 +50,21 @@ const verifiedUpdate = {
   compareCommits: async () => 'ahead',
 }
 
+test('Next 插件分发将更新交给宿主，忽略同一数据目录的旧更新状态', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'update-next-plugin-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '3.2.0', dshTavern: { distribution: 'plugin' } }))
+  await writeFile(path.join(root, 'update-status.json'), JSON.stringify({ phase: 'running', host: 'desktop' }))
+  const updater = createApplicationUpdater({ dataRoot: root, sourceRoot: root })
+  const status = await updater.status()
+  assert.equal(status.phase, 'package-managed')
+  assert.equal(status.currentVersion, '3.2.0')
+  assert.equal(status.updateCommand, undefined)
+  assert.deepEqual(await updater.check(), status)
+  await assert.rejects(updater.start(), /酒馆启动器/)
+  await assert.rejects(updater.cancel(), /DSH NEXT 插件管理/)
+})
+
 test('桌面安装完成只在旧运行时要求重启，重启后解除提示', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'update-desktop-restart-'))
   t.after(() => rm(root, { recursive: true, force: true }))

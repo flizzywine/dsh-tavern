@@ -2280,7 +2280,6 @@ html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind
 .dsh-tavern-update-row > .dsh-tavern-update-identity { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); }
 .dsh-tavern-update-row > .dsh-tavern-update-actions { flex: none; margin-top: 0; }
 .dsh-tavern-update-row .dsh-tavern-update-button { width: auto; height: 26px; padding: 0 9px; }
-.dsh-tavern-update-row > details.dsh-tavern-update-actions { flex: 1 1 100%; }
 
 /* Status panel: no nested frame around the card's own status bar. */
 .dsh-tavern-status-dashboard .dsh-tavern-status-runtime { border: 0; border-radius: 0; background: transparent; }

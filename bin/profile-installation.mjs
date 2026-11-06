@@ -2,14 +2,14 @@ import { preserveInstallationFonts } from './preserve-font-assets.mjs'
 import officialDesktopRuntime from './official-desktop-runtime.cjs'
 import { beginDesktopProfileInstallation, clearUninstalledInstallationRecord } from './desktop-profile-installation.mjs'
 import { ensureInitialTavernShortcut } from '../tavern-plugin/packages/dsh-profile-bridge/lib/shortcut.mjs'
-import { importUserHome } from './import-user-home.mjs'
+import { assertDesktopStopped, importUserHome } from './import-user-home.mjs'
 import { randomUUID } from 'node:crypto'
 import installationState from './installation-state.cjs'
 import { recordInstallationReceipt } from './installation-receipt.mjs'
 import { assertRuntimeDependencies } from './runtime-dependencies.mjs'
 import { createUpdateState } from './update-state.mjs'
 import { recordUpdateDiagnostic } from './update-diagnostics.mjs'
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { stopService } from './service-lifecycle.mjs'
@@ -79,6 +79,7 @@ function prepareProfileConfiguration(host, dshVersion) {
     profileDir: PROFILE_DIR,
     templateText: readFileSync(path.join(SOURCE_ROOT, 'cordis.patch.yml'), 'utf8'),
     legacyManagedText: readFileSync(path.join(SOURCE_ROOT, 'config', 'legacy-profile-patch-v0.6.yml'), 'utf8'),
+    host,
     profileConfigurationVersion: current.dshTavern && current.dshTavern.profileConfigurationVersion,
   })
   if (host === 'desktop') {
@@ -244,6 +245,16 @@ export async function recordInstalledRelease(options = {}) {
 }
 
 export async function installProfile(host = RUNTIME_HOST, { guiRoot } = {}) {
+  if (host === 'next') {
+    for (const directory of [DSH_ROOT, path.dirname(PROFILE_DIR), PROFILE_DIR]) {
+      if (pathExistsNoFollow(directory) && !lstatSync(directory).isDirectory()) throw new Error(`Next 需要真实的 Profile 目录：${directory}`)
+    }
+    const desktop = path.join(DSH_ROOT, 'profiles', 'desktop')
+    if (pathExistsNoFollow(desktop) && lstatSync(desktop).isSymbolicLink() && existsSync(PROFILE_DIR) && realpathSync(desktop) === realpathSync(PROFILE_DIR)) {
+      throw new Error('旧版桌面正通过桥接使用 tavern。请先切回原版 DSH，再安装 Next 版酒馆。')
+    }
+    assertDesktopStopped([DSH_ROOT], { requireGuiClosed: true })
+  }
   const attemptId = process.env.DSH_TAVERN_INSTALL_ATTEMPT || randomUUID()
   const lease = installationState.acquireInstallation({ dshHome: DSH_ROOT, sourceRoot: SOURCE_ROOT, host, attemptId })
   let safeToRelease = true
@@ -268,7 +279,7 @@ export async function installProfile(host = RUNTIME_HOST, { guiRoot } = {}) {
     // A manual local install is authoritative only after the same complete
     // validation/finalization path succeeds. Nested installs leave final status
     // to their updater, which still has to verify the bootstrap outcome.
-    if (lease.created) await state.write({ phase: 'completed', host, attemptId, completedAt: receipt.verifiedAt, requiresRestart: host === 'desktop' }, { attemptId })
+    if (lease.created) await state.write({ phase: 'completed', host, attemptId, completedAt: receipt.verifiedAt, requiresRestart: host === 'desktop' || host === 'next' }, { attemptId })
   } catch (error) {
     if (error.unsafeToRetry) { safeToRelease = false; lease.retain(String(error.message || error)) }
     if (lease.created) await state.write({ phase: safeToRelease ? 'failed' : 'blocked', host, attemptId, failedAt: Date.now(), repairSince: Date.now(), repairRequired: true, error: String(error.message || error) }, { attemptId })
@@ -427,7 +438,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
     runtime?.commit()
     const receipt = await recordInstallationReceipt({ sourceRoot: SOURCE_ROOT, dshHome: DSH_ROOT, host, attemptId, bridgeUpdateId: bridge?.bridgeUpdateId })
     bridge?.commit()
-    if (!clearUninstalledInstallationRecord(DSH_ROOT)) console.warn('未能清除卸载标记：请检查 profile-bridge/installation.json；本次安装已完成。')
+    if (host !== 'next' && !clearUninstalledInstallationRecord(DSH_ROOT)) console.warn('未能清除卸载标记：请检查 profile-bridge/installation.json；本次安装已完成。')
     if (host === 'desktop') {
       try {
         const shortcut = ensureInitialTavernShortcut({ paths: { home: DSH_ROOT, profilesDir: path.join(DSH_ROOT, 'profiles') }, runner: pinnedDesktopDsh(host)?.executable || officialDesktopRuntime.discover() })
@@ -440,6 +451,8 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
     console.log(host === 'cli' ? `已安装独立 DSH ${dshVersion}：${CLI_RUNTIME_ROOT}；不使用全局 DSH。` : `已复用当前 DSH ${dshVersion} 的本地依赖；未升级或降级宿主。`)
     if (host === 'desktop') {
       console.log(`请重启官方桌面版 DeepSeek Harness，酒馆已安装到 ${path.basename(PROFILE_DIR)} 配置；原 Tavern 数据目录保持不变。`)
+    } else if (host === 'next') {
+      console.log('请在 DSH NEXT 的「设置 → 桌面设置 → Profile」选择 tavern。')
     } else if (host === 'android') {
       console.log('Android Tavern Profile 已配置。')
     } else {

@@ -11,6 +11,7 @@ import { createUpdateState } from '../../bin/update-state.mjs'
 import { verifyInstallationProcessesStopped } from '../../bin/installation-process.mjs'
 import { readInstallationReceipt } from '../../bin/installation-receipt.mjs'
 import installationState from '../../bin/installation-state.cjs'
+import desktopRuntime from '../../bin/official-desktop-runtime.cjs'
 import { applySystemProxy, describeProxy, withoutAppliedSystemProxy } from '../../bin/system-proxy.mjs'
 
 const STATUS_FILE = 'update-status.json'
@@ -204,6 +205,7 @@ export function createApplicationUpdater(options) {
   const hostDependencyAnchor = options.hostDependencyAnchor || ''
   const platform = options.platform || process.platform
   const runtimeHost = options.runtimeHost || process.env.DSH_TAVERN_RUNTIME_HOST
+    || (process.versions.electron && desktopRuntime.layout(process.execPath).name === 'dsh-desktop-next' ? 'next' : undefined)
   const profileManifest = path.join(dshHome, 'profiles', (runtimeHost || (process.versions.electron ? 'desktop' : 'cli')) === 'desktop' ? 'desktop' : 'tavern', 'package.json')
   const spawnProcess = options.spawnProcess || spawn
   const now = typeof options.now === 'function' ? options.now : Date.now
@@ -299,6 +301,9 @@ export function createApplicationUpdater(options) {
     } catch (error) {
       if (error?.code === 'ENOENT') return { currentVersion: 'unknown', currentCommit: '' }
       throw error
+    }
+    if (local.dshTavern?.distribution === 'plugin') {
+      return { currentVersion: local.version, currentCommit: '', pluginManaged: true }
     }
     const runtimeMetadata = await readRuntimeMetadata(sourceRoot)
     const verified = runtimeMetadata?.matches ? runtimeMetadata : null
@@ -420,7 +425,7 @@ export function createApplicationUpdater(options) {
   }
 
   async function host() {
-    if (runtimeHost === 'cli' || runtimeHost === 'desktop' || runtimeHost === 'android') return runtimeHost
+    if (runtimeHost === 'cli' || runtimeHost === 'desktop' || runtimeHost === 'next' || runtimeHost === 'android') return runtimeHost
     try {
       return installHostOf(JSON.parse(await readFile(profileManifest, 'utf8')))
     } catch (error) {
@@ -430,6 +435,9 @@ export function createApplicationUpdater(options) {
   }
 
   async function statusWithIdentity(identity) {
+    if (identity.pluginManaged) {
+      return { ...identity, host: 'next', phase: 'package-managed' }
+    }
     const saved = await statusState.read()
     const current = saved === undefined ? undefined : { ...saved, host: await host() }
     let owner = installationState.readInstallation(dshHome)
@@ -532,7 +540,7 @@ export function createApplicationUpdater(options) {
           return { ...readable, ...identity }
         }
       }
-      if (current.phase === 'completed' && current.host === 'desktop' && current.requiresRestart && Number(current.completedAt) < runtimeStartedAt) {
+      if (current.phase === 'completed' && ['desktop', 'next'].includes(current.host) && current.requiresRestart && Number(current.completedAt) < runtimeStartedAt) {
         return { ...current, ...identity, requiresRestart: false }
       }
       return { ...current, ...identity }
@@ -548,6 +556,7 @@ export function createApplicationUpdater(options) {
     const identity = await localIdentity(true)
     record('identity', identity)
     const current = await statusWithIdentity(identity)
+    if (identity.pluginManaged) return current
     if (BUSY_PHASES.has(current.phase)) {
       throw new Error('更新正在进行，暂时无法重新检查')
     }
@@ -578,10 +587,16 @@ export function createApplicationUpdater(options) {
   }
 
   async function start() {
+    const currentIdentity = await localIdentity()
+    if (currentIdentity.pluginManaged) {
+      throw new Error('请返回日常 Profile，通过酒馆启动器更新。')
+    }
+    const installHost = await host()
+    if (installHost === 'next') throw new Error('请退出 DSH NEXT，更新酒馆源码后重新运行 node bin/dsh-tavern.mjs install --host next。')
     // A Git checkout is the developer's: the updater would install a separate copy (or replace this one
     // and drop its .git), never update what is running. Checking for updates still works.
     // Android is the exception: android/setup.sh installs a Git checkout and android/update.sh fast-forwards it.
-    if (await host() !== 'android' && await stat(path.join(sourceRoot, '.git')).then(() => true, () => false)) {
+    if (installHost !== 'android' && await stat(path.join(sourceRoot, '.git')).then(() => true, () => false)) {
       throw new Error(`此酒馆从 Git 仓库运行（${sourceRoot}），应用内更新不会更新它。请在仓库里用 git pull 更新，然后重新启动酒馆。`)
     }
     const identity = await localIdentity(true)
@@ -590,7 +605,6 @@ export function createApplicationUpdater(options) {
     if (BUSY_PHASES.has(current.phase)) {
       throw new Error('更新正在进行，请勿重复启动')
     }
-    const installHost = await host()
     let version
     try {
       version = await versions(identity)
@@ -721,6 +735,7 @@ export function createApplicationUpdater(options) {
   }
 
   async function cancel() {
+    if ((await localIdentity()).pluginManaged) throw new Error('请通过 DSH NEXT 插件管理取消更新。')
     const current = await status()
     if (!current.cancellable || !['running', 'cancelling'].includes(current.phase)) throw new Error('当前安装无法安全自动中止，请查看更新状态')
     installationState.requestCancellation(dshHome, current.attemptId)

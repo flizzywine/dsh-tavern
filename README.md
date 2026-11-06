@@ -1,6 +1,6 @@
 <p align="center">
 
-> **当前版本适配 DSH 0.2.x**（0.2.0-rc.2 起的 0.2 系列均可；官方 DeepSeek Harness 或独立命令行；Android 使用独立 APK），安装见[快速开始](#快速开始)。
+> **当前版本适配 DSH 0.2.x**（官方 DeepSeek Harness、DSH NEXT、独立命令行及 Android），安装见[快速开始](#快速开始)。
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/docs/assets/brand/dsh-tavern-lockup-on-dark.svg">
     <img src="docs/assets/brand/dsh-tavern-lockup.svg" width="360" alt="DSH 酒馆">
@@ -17,9 +17,9 @@
 
 ## 快速开始
 
-> **请不要从 npm 下载或安装本项目。** 由于对 DSH 的定制改动较多，DSH Tavern 无法作为常规 DSH 插件安装使用。npm 上的 `dsh-profile-tavern` 已标记弃用，不再维护；请按下方对应平台的方式安装。
+> npm 上的 `dsh-profile-tavern` 已弃用。请按下方对应平台的方式安装。
 
-**桌面版仅支持官方 DeepSeek Harness，不再支持社区 DSH Desktop 或 DSH NEXT。** 从社区版迁移前请备份数据，再按[数据导入说明](https://github.com/flizzywine/dsh-tavern/wiki/%E4%BB%8E%E6%97%A7%E9%85%92%E9%A6%86%E7%BB%A7%E6%89%BF%E6%95%B0%E6%8D%AE%EF%BC%88%E6%B5%8B%E8%AF%95%E7%89%88%EF%BC%89)导入；Android 和独立命令行版继续支持。
+官方 DeepSeek Harness 使用原有桌面安装器。DSH NEXT 可以通过启动器安装到独立 Profile。从其他社区版迁移前请先备份，再按[数据导入说明](https://github.com/flizzywine/dsh-tavern/wiki/%E4%BB%8E%E6%97%A7%E9%85%92%E9%A6%86%E7%BB%A7%E6%89%BF%E6%95%B0%E6%8D%AE%EF%BC%88%E6%B5%8B%E8%AF%95%E7%89%88%EF%BC%89)导入。
 
 当前版本适配 **DSH 0.2.x**（0.2.0-rc.2 起）。安装前建议备份 `.dsh` 目录。
 
@@ -33,6 +33,55 @@
    ```
 
 3. 重新打开 DeepSeek Harness，即进入酒馆。
+
+### DSH NEXT（通过酒馆启动器安装）
+
+需要 DSH NEXT，其内置的 DSH 版本须为 0.2.2-rc.1 或更新的 0.2.x。
+
+只需装一次 [DSH Tavern 启动器](tavern-plugin/packages/dsh-tavern-launcher/README.md)。打开 NEXT 的「DSH 终端」，运行：
+
+```powershell
+dsh plugin --profile desktop add "github:flizzywine/dsh-tavern#path:/tavern-plugin/packages/dsh-tavern-launcher"
+```
+
+回到 NEXT 的 `desktop` Profile，重启 NEXT，然后打开「设置 → 酒馆启动器」。
+
+- **首次使用**：点「安装酒馆」，完成后点「打开酒馆」。启动器会创建独立的 `tavern` Profile，NEXT 会切换过去。
+- **更新**：从酒馆点「返回日常 Profile」，回到启动器点「更新酒馆」，完成后重新打开酒馆。
+- **卸载**：回到启动器点「卸载酒馆」。NEXT 会将 `tavern` Profile 移到恢复备份，角色卡和聊天数据会保留。
+
+<details>
+<summary>其他 NEXT 插件安装方式和发布说明</summary>
+
+从终端直接安装时，先用 NEXT 的 Profile 菜单创建基于 Web 模板的 `tavern`，再回到日常 Profile。更新现有酒馆也在日常 Profile 的「DSH 终端」执行同一条命令：
+
+```powershell
+dsh plugin --profile tavern add "github:flizzywine/dsh-tavern#plugin-market-next" --allow-build=sharp
+```
+
+命令成功后，用 NEXT 的 Profile 菜单切到 `tavern`。以后更新时，先切回日常 Profile，等酒馆停止运行后重跑同一条命令，再切回 `tavern`。
+
+也可以在 `tavern` Profile 的「插件 → 实验性插件」启用「自定义插件索引」，然后在「发现」添加 [DSH Tavern 市场源](https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-market-next/index.json) 并搜索 **DSH Tavern**。
+
+从下方的源码安装方式迁移时，先退出 `tavern`，移除旧 Profile 中的酒馆组件，再安装聚合插件。两套组件同时启用会重复挂载。人物卡和会话仍使用同一 DSH 数据目录下的 `profile-data/tavern`。
+
+维护者在 GitHub Actions 手动运行 **Publish DSH NEXT plugin**，为每次发布指定一个尚未使用的版本号。工作流将插件和市场索引发布到 `plugin-market-next` 分支，市场索引保留每个版本对应的 Git 提交。Next 的「社区市场」目前按 npm 包名安装，Git 版走「发现」的索引来源。若要进 `dshmarket` 的默认目录，发布后按 [目录投稿规则](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/contributing.md) 提交收录。
+
+</details>
+
+### DSH NEXT（Windows 源码安装）
+
+先完整退出桌面应用。在酒馆仓库根目录运行以下命令，将程序路径换成本机的 Next 安装位置。
+
+```powershell
+$env:DSH_TAVERN_NEXT_EXECUTABLE = 'D:\DSH NEXT\DSH NEXT.exe'
+pnpm install --frozen-lockfile
+node bin/dsh-tavern.mjs install --host next
+```
+
+打开 Next 后，在「设置 → 桌面设置 → Profile」选择 `tavern`。安装使用真实的 `profiles/tavern` 目录，切换由 Next 管理。若 Next 使用了自定义数据目录，安装前把 `DSH_HOME` 设成 Next 显示的目录。
+
+如果之前用官方版桥接进了酒馆，先在官方版切回原版 DSH，再退出并安装 Next 版。在同一数据目录恢复官方桥接时，重新运行官方版安装器。Next 版从源码更新后，重新执行上面的安装命令。
 
 ### Android
 
