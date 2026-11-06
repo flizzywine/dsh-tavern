@@ -1,19 +1,57 @@
 // Based on 2NF/dsh-profile-bridge (MIT); Tavern compatibility fork.
 // Queue a directory switch for when Desktop exits, then ask it to quit and reopen it.
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import { appendFileSync } from 'node:fs'
-import { validateInstallationRequest } from './lib/installation.mjs'
+import { pathToFileURL } from 'node:url'
+import { inspectInstallation, validateInstallationRequest } from './lib/installation.mjs'
 import { captureOwnedProcesses } from './lib/processes.mjs'
 import { requestDesktopQuit } from './lib/quit.mjs'
 import { relaunchApp, scheduleSwitch } from './lib/helper.mjs'
 import { createTavernShortcut } from './lib/shortcut.mjs'
-import { detectAppExe, fail, resolvePaths, statusPayload, validateTarget } from './lib/state.mjs'
+import { canInstallTavern, detectAppExe, fail, isActiveTavern, isDesktopApp, isDesktopTavernWindow, resolvePaths, statusPayload, validateTarget } from './lib/state.mjs'
 
 /** Shared RPC channel owned by this plugin; the browser half calls it by name. */
 const CHANNEL = '/profile-bridge'
 
 /** Control requests are tiny; anything larger is refused instead of buffered. */
 const BODY_LIMIT_BYTES = 64 * 1024
+
+const updateActions = new Map([
+  ['update-status', 'status'], ['check-update', 'check'],
+  ['start-update', 'start'], ['cancel-update', 'cancel'],
+])
+let installedUpdater
+
+async function runUpdate(method, paths) {
+  const installation = inspectInstallation(paths)
+  if (!(basename(paths.activeDir) === 'desktop' && isDesktopApp()) && !isDesktopTavernWindow(paths, installation)) {
+    fail('not-desktop', '请在官方桌面或 DSH 酒馆独立窗口中管理更新。')
+  }
+  if (!installation.available) fail('update-unavailable', installation.reason)
+  // The updater can refresh the inactive original profile while Tavern is running.
+  // It cannot replace the original launcher's files while that profile is active.
+  const canUpdate = isActiveTavern(paths, installation)
+  if (['start', 'cancel'].includes(method) && !canUpdate) {
+    fail('update-unavailable', '请先切换到 DSH 酒馆，再在启动器中更新。')
+  }
+  const sourceRoot = installation.appDir
+  const dataRoot = join(installation.sharedHome, 'profile-data', 'tavern', 'data')
+  const key = JSON.stringify([sourceRoot, dataRoot])
+  if (installedUpdater?.key !== key) {
+    // The launcher is distributed independently; use the updater in the verified
+    // official Tavern installation rather than bundling a second installer.
+    const runtime = join(sourceRoot, 'tavern-plugin', 'lib')
+    const entry = pathToFileURL(join(runtime, 'application-updater.js'))
+    const service = import(entry.href).then(({ createApplicationUpdater }) => createApplicationUpdater({
+      dataRoot, sourceRoot, dshHome: installation.sharedHome, runtimeHost: 'desktop',
+      hostDependencyAnchor: join(runtime, 'index.js'),
+    }))
+    installedUpdater = { key, service }
+    service.catch(() => { if (installedUpdater?.service === service) installedUpdater = undefined })
+  }
+  const updater = await installedUpdater.service
+  return { ...await updater[method](), canUpdate }
+}
 
 /** Host services this plugin needs. */
 export const inject = ['connection', 'webServer']
@@ -27,6 +65,9 @@ export const inject = ['connection', 'webServer']
  */
 async function runSwitch(mode, paths, payload) {
   const request = typeof payload === 'object' && payload !== null ? payload : {}
+  if (mode === 'install' && (request.confirmed !== true || !canInstallTavern(paths))) {
+    fail('install-unavailable', '请在官方桌面的原版配置中确认首次安装。')
+  }
   if (mode === 'link' && basename(paths.activeDir) !== 'desktop') {
     fail(
       'not-desktop',
@@ -38,16 +79,17 @@ async function runSwitch(mode, paths, payload) {
     ? validateInstallationRequest(paths, mode, request) : undefined
   if (management && basename(paths.activeDir) !== 'desktop') fail('not-desktop', '请在官方桌面中管理安装。')
   const target = mode === 'link' ? validateTarget(paths, request.target) : undefined
-  const relaunch = detectAppExe()
+  const relaunch = mode === 'install' ? process.execPath : detectAppExe()
   if (!process.versions.electron || !process.send || process.ppid <= 1) {
     fail('not-desktop', '请在官方桌面中执行切换')
   }
   // Snapshot before quitting: detached children lose a trustworthy parent once it exits.
   const ownership = await captureOwnedProcesses([process.pid, process.ppid])
-  const result = scheduleSwitch({ ...management, mode, profilesRoot: paths.profilesDir, liveDir: paths.activeDir,
+  const result = scheduleSwitch({ ...management, mode, home: paths.home, profilesRoot: paths.profilesDir, liveDir: paths.activeDir,
     activeName: paths.activeName, targetDir: target?.dir, stateDir: paths.stateDir,
     stamp: new Date().toISOString().replace(/[:.]/g, '-') + '-' + process.pid,
     pids: [process.pid, process.ppid], ownership, relaunch })
+  if (mode === 'install') return { ...result, mode, warnings: [], reopensApp: true }
   const closesApp = await requestDesktopQuit({ pid: process.ppid, executable: relaunch }, {
     onError: error => {
       try { appendFileSync(result.logPath, new Date().toISOString() + ' 自动退出失败，可从托盘退出：' + error.message + '\n') } catch {}
@@ -73,9 +115,10 @@ function openOriginal() {
 async function handleCall(endpoint, payload) {
   try {
     if (endpoint === 'status') return { ok: true, value: statusPayload(resolvePaths()) }
+    if (updateActions.has(endpoint)) return { ok: true, value: await runUpdate(updateActions.get(endpoint), resolvePaths()) }
     if (endpoint === 'link') return { ok: true, value: await runSwitch('link', resolvePaths(), payload) }
     if (endpoint === 'unlink') return { ok: true, value: await runSwitch('unlink', resolvePaths(), payload) }
-    if (endpoint === 'relocate' || endpoint === 'uninstall') return { ok: true, value: await runSwitch(endpoint, resolvePaths(), payload) }
+    if (['install', 'relocate', 'uninstall'].includes(endpoint)) return { ok: true, value: await runSwitch(endpoint, resolvePaths(), payload) }
     if (endpoint === 'shortcut') return { ok: true, value: createTavernShortcut({ paths: resolvePaths() }) }
     if (endpoint === 'openOriginal') return { ok: true, value: openOriginal() }
     fail('not-found', `Unknown endpoint ${JSON.stringify(endpoint)}.`)

@@ -1,0 +1,73 @@
+name: DSH compatibility checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bin/**'
+      - 'config/dsh-*.json'
+      - 'tavern-plugin/**'
+      - 'android/**'
+      - 'tests/dsh-contract-check.test.mjs'
+      - 'tests/host-sessions.test.mjs'
+      - '.github/workflows/dsh-compatibility-checks.yml'
+  pull_request:
+    paths:
+      - 'bin/**'
+      - 'config/dsh-*.json'
+      - 'tavern-plugin/**'
+      - 'android/**'
+      - 'tests/dsh-contract-check.test.mjs'
+      - 'tests/host-sessions.test.mjs'
+      - '.github/workflows/dsh-compatibility-checks.yml'
+  workflow_dispatch:
+    inputs:
+      run_host:
+        description: Run real contracts on a preconfigured isolated dsh-compatibility runner
+        type: boolean
+        default: false
+      candidate:
+        description: Absolute desktop executable or standalone boot module path on that runner
+        type: string
+      baseline:
+        description: Optional old runtime path on that runner
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-locations:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.12.0
+      - run: node bin/check-dsh-upgrade.mjs --check-dependencies
+      - run: node --test tests/dsh-contract-check.test.mjs tests/host-sessions.test.mjs
+
+  host-contracts:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_host
+    needs: dependency-locations
+    runs-on: [self-hosted, dsh-compatibility]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check preinstalled isolated runtimes
+        shell: pwsh
+        env:
+          DSH_CANDIDATE: ${{ inputs.candidate }}
+          DSH_BASELINE: ${{ inputs.baseline }}
+        run: |
+          if (-not $env:DSH_CANDIDATE) { throw 'candidate is required for real host checks' }
+          $checkArgs = @('bin/check-dsh-upgrade.mjs', '--candidate', $env:DSH_CANDIDATE, '--output', 'dsh-upgrade-report.json')
+          if ($env:DSH_BASELINE) { $checkArgs += @('--baseline', $env:DSH_BASELINE) }
+          node @checkArgs
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dsh-upgrade-report
+          path: dsh-upgrade-report.json
+          if-no-files-found: warn
+          retention-days: 7

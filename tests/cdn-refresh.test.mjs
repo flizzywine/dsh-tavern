@@ -3,13 +3,13 @@ import test from 'node:test'
 import { refreshCdn } from '../.github/scripts/refresh-cdn.mjs'
 
 function fixture({ throttled = true, revisions = ['old'], purgeError = false } = {}) {
-  const logs = [], calls = []
+  const logs = [], calls = [], delays = []
   let checks = 0
   return {
-    logs, calls,
+    logs, calls, delays,
     options: {
       repo: 'owner/repo', branch: 'main', manifest: { revision: 'new', archive: { commit: 'archive-sha' } },
-      sleep: async () => {}, log: text => logs.push(text),
+      sleep: async ms => delays.push(ms), log: text => logs.push(text),
       request: async url => {
         calls.push(url)
         if (url.includes('purge.')) {
@@ -24,14 +24,15 @@ function fixture({ throttled = true, revisions = ['old'], purgeError = false } =
 }
 
 test('HTTP 200 purge throttling remains a failure when CDN is stale, with a retry time', async () => {
-  const { options, logs, calls } = fixture()
+  const { options, logs, calls, delays } = fixture()
   await assert.rejects(refreshCdn(options), /stale manifest.*Purge throttled.*2822 seconds.*48 minutes/)
   assert.equal(logs.filter(line => line.includes('purge throttled')).length, 4)
-  assert.equal(calls.filter(url => url.includes('cdn.jsdelivr.net')).length, 4)
+  assert.equal(calls.filter(url => url.includes('cdn.jsdelivr.net')).length, 1)
+  assert.deepEqual(delays, [])
 })
 
 test('throttling does not fail a verified matching CDN, and immutable archive is warmed', async () => {
-  const { options, calls } = fixture({ revisions: ['old', 'new'] })
+  const { options, calls } = fixture({ revisions: ['new'] })
   await refreshCdn(options)
   assert.ok(calls.at(-1).endsWith('@archive-sha/runtime.zip'))
 })

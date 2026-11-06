@@ -12,7 +12,7 @@ import { redactMvuLoadError } from '../domain/mvu-diagnostics.js'
 import { pluginMediaRange, slicePluginMediaStream } from '../domain/plugin-media.js'
 import { PLUGIN_ASSET_PREFIX } from '../domain/plugin-assets.js'
 import { isTrustedHostRequest } from './host-fence.js'
-import { isSameOriginRequest } from './request-origin.js'
+import { isSameOriginRequest, requestAuthorityOrigin } from './request-origin.js'
 
 // A 50 MiB save/skill ZIP expands to 69,905,068 base64 bytes, plus its JSON envelope.
 export const DEFAULT_RPC_BODY_LIMIT = 80 * 1024 * 1024
@@ -108,8 +108,7 @@ export function registerTavernHttpRoutes({
           if (rejection) { res.writeHead(rejection); res.end('forbidden'); return }
         }
         const origin = req.headers.origin
-        const sameOrigin = origin === 'http://' + req.headers.host || origin === 'https://' + req.headers.host
-        if (origin && !sameOrigin && !(cookieFree && origin === 'null')) {
+        if (!isSameOriginRequest({ host: req.headers.host, origin }) && !(cookieFree && origin === 'null')) {
           res.writeHead(403); res.end('forbidden'); return
         }
         if (pathname === '/api/dsh-tavern/session-resource' && req.method === 'GET') {
@@ -456,9 +455,8 @@ export function registerTavernHttpRoutes({
             res.end('bad json')
             return
           }
-          const host = req.headers.host
-          const origin = req.headers.origin
-          const trustedOrigin = typeof origin === 'string' && [`http://${host}`, `https://${host}`].includes(origin) ? origin : undefined
+          // In-process server-script calls carry no browser headers either; only HTTP callers act for a page.
+          const trustedOrigin = external ? requestAuthorityOrigin({ host: req.headers.host, origin, fetchSite: req.headers['sec-fetch-site'] }) : undefined
           const result = await dispatch(method, args, {origin:trustedOrigin})
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
           const reply = Object.assign({ ok: true }, result, { runtimeGeneration })

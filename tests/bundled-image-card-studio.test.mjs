@@ -8,6 +8,7 @@ import { imagePluginFixture, IMAGE_PNG as PNG, imageJson as json } from './fixtu
 import { cardSelection } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/generation.js'
 import { createCardGallery } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/gallery.js'
 import { createCardWorldbook } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/worldbook.js'
+import { imageDimensions } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/image-output.js'
 
 const b64 = PNG.toString('base64'), dataUrl = 'data:image/png;base64,' + b64
 const png = () => new Response(PNG, { headers: { 'content-type': 'image/png' } })
@@ -70,6 +71,7 @@ test('card tool returns reachable absolute image Markdown on CLI HTTP, including
   const result = await tool.execute({ prompt: 'one traveler' }, own), image = result.images[0]
   assert.equal(new URL(image.url).origin, origin)
   assert.equal(image.markdown, `![图片](${image.url})`)
+  assert.equal(typeof result.preset, 'string', '预设字段必须是名字字符串：写进画廊的对象会让整页渲染崩掉')
   assert.ok(tool.output.render({}, result)[0].text.includes(image.markdown))
   const read = (url, headers = {}, method = 'GET') => new Promise((resolve, reject) => {
     const request = httpRequest(url, { method, headers }, response => {
@@ -328,6 +330,53 @@ test('selection detects ambiguous names and leaves global config unchanged', () 
   assert.deepEqual(config, before)
 })
 
+test('preset overrides only touch the copy used for this generation', () => {
+  const config = {
+    imageBackend: 'openai', activeImageChannel: 'a', imageChannels: [channel('openai', {}, { id: 'a', name: 'relay alpha' })],
+    stylePresets: [{ id: 'p1', name: 'flat', artist: '1.3::artist:foo::, dot nose', negative: 'lowres', position: 'prefix', enabled: true }],
+    activePreset: 'p1',
+  }
+  const before = structuredClone(config)
+  const picked = cardSelection(config, [], { preset_positive: '2::artist:foo::', preset_negative: '' })
+  const patched = picked.config.stylePresets.find(item => item.id === 'p1')
+  assert.equal(patched.artist, '2::artist:foo::')
+  assert.equal(patched.negative, '')
+  assert.equal(picked.preset.artist, '2::artist:foo::', '返回里带出本次实际用的那套')
+  assert.deepEqual(config, before, '调用方的配置不能被改')
+  // 没选预设时，覆盖值自己撑起一条临时预设
+  const bare = cardSelection(Object.assign({}, config, { activePreset: '' }), [], { preset_positive: 'artist:bar' })
+  assert.equal(bare.config.activePreset, 'preset-override')
+  assert.equal(bare.preset.artist, 'artist:bar')
+  assert.deepEqual(config, before)
+})
+
+test('workbench preset overrides match the submitted prompt and keep the saved preset intact', async t => {
+  const f = await studio(t, { config: {
+    imageBackend: 'openai', activeImageChannel: 'openai',
+    imageChannels: [channel('openai', {}, { name: '工作台渠道' })],
+    styleArtists: 'fallback artist', activePreset: 'p1',
+    stylePresets: [{ id: 'p1', name: '工作台画风', artist: 'saved artist', negative: 'saved exclusion', enabled: true }],
+  } })
+  let payload
+  globalThis.fetch = async (_url, init) => {
+    payload = JSON.parse(init.body)
+    return json({ data: [{ b64_json: b64 }] })
+  }
+  const tool = f.tools.get('gen_image')
+  const args = { prompt: 'quiet forest', channel: '工作台渠道', preset: 'p1', preset_positive: '', preset_negative: 'watermark' }
+  const result = await tool.execute(args, own)
+  assert.equal(result.channel, '工作台渠道')
+  assert.equal(result.images[0].prompt, payload.prompt)
+  assert.doesNotMatch(payload.prompt, /fallback artist|saved artist|saved exclusion/)
+  const rendered = tool.output.render(args, result)[0].text
+  // #688 之后回执不再回显实际提交的正负面提示词和角色提示词，只留渠道、画风预设和图片链接，
+  // 所以这里断言「不含」。preset_negative 的 watermark 仍应生效在提交给渠道的排除项里，
+  // 但那属于 payload 层，第 370 行已经验过正面提示词没被污染。
+  assert.doesNotMatch(rendered, /watermark|saved artist|fallback artist/)
+  assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items[0].preset, '工作台画风')
+  assert.equal((await f.tools.get('read_image_config').execute({}, own)).presets[0].artist, 'saved artist')
+})
+
 test('gallery writes do not lose concurrent additions and remove compares stable IDs', async t => {
   const root = await mkdtemp(join(tmpdir(), 'card-gallery-'))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -335,6 +384,11 @@ test('gallery writes do not lose concurrent additions and remove compares stable
   const gallery = createCardGallery(join(root, 'gallery'))
   await Promise.all(Array.from({ length: 20 }, (_, i) => gallery.add({ jobId: 'job-' + i, file, mediaType: 'image/png' }, { sessionId: 'a' })))
   assert.equal((await gallery.list('a')).length, 20)
+  // 预设必须是字符串：写进索引的对象会被画廊设置页当 children 渲染，整页白屏。
+  await gallery.add({ jobId: 'job-object', file, mediaType: 'image/png', preset: { id: 'p1', name: '伪3D' } }, { sessionId: 'object' })
+  const objectEntry = (await gallery.list('object'))[0]
+  assert.equal(typeof objectEntry.preset, 'string', '预设对象不能进画廊索引')
+  assert.equal(objectEntry.preset, '', '没有合法字符串时落空串，绝不落对象')
   assert.equal(await gallery.remove('job-3', 'a'), true)
   assert.equal((await gallery.list('a')).length, 19)
   assert.equal(await gallery.remove('job-4', 'b'), false)

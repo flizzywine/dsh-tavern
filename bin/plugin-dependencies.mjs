@@ -71,7 +71,7 @@ function desktopShimCommandFile(dsh, env, platform) {
 
 export function resolveHostAnchor({ dsh, host = 'cli', env = process.env, execPath = process.execPath, platform = process.platform }) {
   let anchor
-  if (host === 'desktop') {
+  if (host === 'desktop' || host === 'next') {
     // UI updates outlive the current Host process. Preserve the already-loaded
     // plugin's module-resolution root instead of mistaking a system node.exe
     // for the Desktop executable after the update detaches.
@@ -198,7 +198,7 @@ function resolveDesktopHostPackagesViaElectron({ env = process.env, execPath = p
 
 export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, execPath = process.execPath, platform = process.platform, requiredExports = REQUIRED_HOST_EXPORTS }) {
   let anchor = resolveHostAnchor({ dsh, host, env, execPath, platform })
-  if (host === 'desktop') {
+  if (host === 'desktop' || host === 'next') {
     const candidates = desktopHostAnchors(anchor)
     // Existing links point into the selected Desktop even when the detached
     // updater runs under system Node without Desktop environment variables.

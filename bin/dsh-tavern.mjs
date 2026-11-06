@@ -25,7 +25,7 @@ function fail(message) {
 }
 
 function usage() {
-  console.log('用法：dsh-tavern install [--host cli|desktop|android] | {update|start|open|window|stop|restart|status}')
+  console.log('用法：dsh-tavern install [--host cli|desktop|next|android] | {update|start|open|window|stop|restart|status}')
 }
 
 // A detached in-app update has no console; keep its trail next to its status file.
@@ -39,15 +39,18 @@ function updateDiagnostic(event, details = {}) {
 
 async function main() {
   const action = process.argv[2] || 'status'
+  if (RUNTIME_HOST === 'next' && action !== 'install' && !['help', '-h', '--help'].includes(action)) {
+    throw new Error('Next 由应用管理启动与切换。更新源码后重新运行 install --host next。')
+  }
   updateDiagnostic('updater.started', { execPath: process.execPath, electron: process.versions.electron || '', runtimeHost: RUNTIME_HOST, cwd: process.cwd() })
   // Desktop hosts run DSH through the app's own runtime; every command that touches the service needs it.
-  if (RUNTIME_HOST === 'desktop' && ['install', 'update', 'start', 'stop', 'restart', 'status', 'open', 'window'].includes(action)) {
-    const executable = officialDesktop.discover()
+  if ((RUNTIME_HOST === 'next' && action === 'install') || (RUNTIME_HOST === 'desktop' && ['install', 'update', 'start', 'stop', 'restart', 'status', 'open', 'window'].includes(action))) {
+    const executable = RUNTIME_HOST === 'next' ? officialDesktop.discoverNext() : officialDesktop.discover()
     // Run installation and updates under the official app's Electron in Node mode.
     const runner = officialDesktop.runner(executable)
     if (path.resolve(process.execPath) !== path.resolve(runner)) {
       updateDiagnostic('updater.relaunch', { executable, runner })
-      const setup = spawnSync(runner, ['--expose-internals', fileURLToPath(new URL('./official-desktop-runtime.cjs', import.meta.url)), DSH_ROOT],
+      const setup = spawnSync(runner, ['--expose-internals', fileURLToPath(new URL('./official-desktop-runtime.cjs', import.meta.url)), DSH_ROOT, ...(RUNTIME_HOST === 'next' ? ['--next'] : [])],
         { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', DSH_DESKTOP_APP_EXECUTABLE: executable }, encoding: 'utf8' })
       if (setup.error || setup.status !== 0) throw new Error(setup.error?.message || setup.stderr || '桌面环境准备失败')
       const result = spawnSync(runner, ['--expose-internals', SCRIPT_PATH, ...process.argv.slice(2)],
@@ -56,7 +59,7 @@ async function main() {
       process.exitCode = result.status ?? 1
       return
     }
-    Object.assign(process.env, officialDesktop.prepare({ executable, home: DSH_ROOT }))
+    Object.assign(process.env, officialDesktop.prepare({ executable, home: DSH_ROOT, host: RUNTIME_HOST }))
   }
   switch (action) {
     case 'install':

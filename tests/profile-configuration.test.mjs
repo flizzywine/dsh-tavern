@@ -6,7 +6,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { parseDocument } from 'yaml'
 
-import { beginProfileConfigurationUpdate, mergeProfileManifest, migrateLegacyProfilePatch } from '../bin/profile-configuration.mjs'
+import { beginProfileConfigurationUpdate, mergeProfileManifest, migrateLegacyProfilePatch, prepareProfilePatch } from '../bin/profile-configuration.mjs'
 
 const legacyPatch = await readFile(new URL('../config/legacy-profile-patch-v0.6.yml', import.meta.url), 'utf8')
 
@@ -46,7 +46,7 @@ for (const recorded of [false, true]) {
   })
 }
 
-for (const host of ['desktop', 'android', 'cli']) {
+for (const host of ['desktop', 'next', 'android', 'cli']) {
   for (const recorded of [false, true]) {
     test(`平台移动插件选择与重复升级：${host}，管理记录：${recorded}`, async () => {
       const source = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
@@ -59,7 +59,7 @@ for (const host of ['desktop', 'android', 'cli']) {
       const options = { source, pluginPath: '/app/tavern-plugin', dataRoot: '/data', host }
       const next = mergeProfileManifest({ ...options, current })
       assert.equal(next.dsh.bundle, undefined)
-      const selected = host === 'android' ? 'dsh-web-mobile' : host === 'desktop' ? 'dsh-pocket' : null
+      const selected = host === 'android' ? 'dsh-web-mobile' : ['desktop', 'next'].includes(host) ? 'dsh-pocket' : null
       // CLI ships no layout: only what Tavern managed before goes; user-installed layouts stay.
       const kept = selected ? [selected] : recorded ? ['@dsh-external/dsh-mobile-nav', 'dsh-pocket'] : ['dsh-pocket']
       if (selected) {
@@ -83,7 +83,7 @@ for (const host of ['desktop', 'android', 'cli']) {
       assert.ok(linked.some(([name]) => name === 'dsh-asset-library'))
       for (const [name, spec] of linked) assert.equal(fresh.dependencies[name], 'link:' + path.resolve('/app', spec.slice('link:'.length)).replaceAll(path.sep, '/'), name)
       for (const manifest of [next, fresh]) {
-        assert.equal(manifest.dependencies['dsh-dream-skin'], 'link:/app/tavern-plugin/packages/dsh-dream-skin')
+        assert.equal(manifest.dependencies['dsh-dream-skin'], 'link:' + path.resolve('/app/tavern-plugin/packages/dsh-dream-skin').replaceAll(path.sep, '/'))
         assert.equal(manifest.dsh.profile.bundles.filter(name => name === 'dsh-dream-skin').length, 1)
         assert.ok(manifest.dshTavern.managedDependencies.includes('dsh-dream-skin'))
       }
@@ -97,6 +97,34 @@ for (const host of ['desktop', 'android', 'cli']) {
     })
   }
 }
+
+test('Next 迁移独立酒馆配置时移除旧桥接和过时的素材库路径', async (t) => {
+  const profileDir = await mkdtemp(path.join(tmpdir(), 'tavern-next-profile-'))
+  t.after(() => rm(profileDir, { recursive: true, force: true }))
+  const original = '- id: dsh-asset-library\n  name: file:///some/profiles/desktop/node_modules/dsh-asset-library/lib/index.js\n  config:\n    assetRoot: ./custom\n'
+  await writeFile(path.join(profileDir, 'cordis.patch.yml'), original)
+  const current = {
+    dependencies: { 'dsh-profile-bridge': 'link:/bridge', 'user-plugin': '1.0.0' },
+    dsh: { profile: { bundles: ['dsh-profile-bridge', 'user-plugin'] } },
+    dshTavern: { officialDesktop: true, profileBridge: true },
+  }
+  const args = { source: sourceManifest(), current, pluginPath: '/app/tavern-plugin', dataRoot: '/data' }
+  const next = mergeProfileManifest({ ...args, host: 'next' })
+  const desktop = mergeProfileManifest({ ...args, host: 'desktop' })
+  assert.equal(next.dependencies['dsh-profile-bridge'], undefined)
+  assert.equal(next.dsh.profile.bundles.includes('dsh-profile-bridge'), false)
+  assert.equal(next.dshTavern.profileBridge, undefined)
+  assert.equal(next.dshTavern.officialDesktop, undefined)
+  assert.equal(next.dependencies['user-plugin'], '1.0.0')
+  assert.equal(desktop.dependencies['dsh-profile-bridge'], undefined)
+  assert.equal(desktop.dsh.profile.bundles.includes('dsh-profile-bridge'), false)
+  const patchOptions = { profileDir, profileConfigurationVersion: Number.MAX_SAFE_INTEGER }
+  assert.deepEqual(parseDocument(prepareProfilePatch({ ...patchOptions, host: 'next' })).toJS(), [
+    { id: 'dsh-asset-library', config: { assetRoot: './custom' } },
+  ])
+  assert.equal(prepareProfilePatch({ ...patchOptions, host: 'desktop' }), undefined)
+  assert.equal(await readFile(path.join(profileDir, 'cordis.patch.yml'), 'utf8'), original)
+})
 
 test('首次迁移按 YAML 结构移除旧项目配置并保留用户覆盖', () => {
   const current = `# 用户排版可以不同

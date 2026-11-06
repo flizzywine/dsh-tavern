@@ -1142,7 +1142,26 @@
 			};
 		})();
 		const TAVERN_ILLUSTRATION_NOTICE_MS = 8000;
-		async function runTavernIllustrator(illustrator, sessionId, turn, instruction) {
+		// Calls onStart once the turn gains a plugin item it did not have when watching began: the illustrator has accepted
+		// the request and its pictures are in progress (生成中… / 「正在生成 CG…」). Resolves to stop(), or null when the turn's
+		// items cannot be read (then only draw settling counts).
+		async function watchTavernIllustrationStart(sessionId, turn, onStart) {
+			const read = function () { return rpc("pluginMediaForTurn", { turn: turn }, sessionId).then(function (result) { return Array.isArray(result && result.items) ? result.items : []; }); };
+			let known;
+			try { known = new Set((await read()).map(function (item) { return item.id; })); } catch (_) { return null; }
+			let stopped = false, unsubscribed = false;
+			const stop = tavernPluginMediaIndex.subscribe(sessionId, function () {
+				if (stopped || !tavernPluginMediaIndex.has(sessionId, turn)) return;
+				read().then(function (items) {
+					if (!stopped && items.some(function (item) { return !known.has(item.id); })) { stopped = true; onStart(); }
+				}, function () {});
+			});
+			return function () { stopped = true; if (!unsubscribed) { unsubscribed = true; stop(); } };
+		}
+		// draw settles only when the pictures are done (or it planned none). onAccepted, given by a request form, is called once
+		// the illustrator has taken the request - its first picture for the turn appears, or draw succeeds first - so the form
+		// closes then and the progress stays with the turn. A failure before that rejects with the form still open.
+		async function runTavernIllustrator(illustrator, sessionId, turn, instruction, onAccepted) {
 			let normalizedInstruction;
 			if (instruction !== undefined) {
 				if (typeof instruction !== "string") throw new TypeError("配图要求必须是文本");
@@ -1153,13 +1172,18 @@
 			tavernIllustrationDrafts.set(sessionId, turn, planning);
 			let draft = null;
 			let failure = null;
+			let accepted = false, stopWatch = null;
+			const accept = function () { if (accepted) return; accepted = true; if (stopWatch) stopWatch(); onAccepted(); };
 			try {
+				if (onAccepted) stopWatch = await watchTavernIllustrationStart(sessionId, turn, accept);
 				const request = { gameId: sessionId, turn: turn };
 				if (normalizedInstruction) request.instruction = normalizedInstruction;
 				const result = await illustrator.draw(request);
 				const notice = result && typeof result.notice === "string" ? result.notice.trim() : "";
 				if (notice) draft = { text: notice.slice(0, 200) };
+				if (onAccepted) accept();
 			} catch (error) { failure = error; draft = { text: String(error && error.message || error).slice(0, 200), failed: true }; }
+			finally { if (stopWatch) stopWatch(); }
 			if (tavernIllustrationDrafts.get(sessionId, turn) === planning) {
 				tavernIllustrationDrafts.set(sessionId, turn, draft);
 				if (draft) setTimeout(function () { if (tavernIllustrationDrafts.get(sessionId, turn) === draft) tavernIllustrationDrafts.set(sessionId, turn, null); }, TAVERN_ILLUSTRATION_NOTICE_MS);

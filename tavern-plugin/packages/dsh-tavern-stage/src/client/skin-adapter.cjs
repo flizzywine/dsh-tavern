@@ -110,7 +110,10 @@ function stageSkinPanelTokens(document,fonts,theme,builtin=false,lead=false) {
         '--gal-ui-hud-plate':surface,'--gal-ui-hud-ink-idle':muted,'--gal-ui-hud-ink-on':ink,'--gal-ui-hud-active':accent,
         '--gal-ui-hud-hover':hover,'--gal-ui-hud-selected':selected,'--gal-ui-hud-line':border,
         // hud.plate (§18 N13): the top bar chips' own opaque ground and ink
-        ...(document.hud?.plate ? {'--fk-hud-plate-bg':document.hud.plate.bg,'--fk-hud-plate-fg':document.hud.plate.fg} : {})};
+        ...(document.hud?.plate ? {'--fk-hud-plate-bg':document.hud.plate.bg,'--fk-hud-plate-fg':document.hud.plate.fg} : {}),
+        // scrollbars: each opted-in surface's thumb, track and width (theme.css «stage scrollbars»)
+        ...Object.fromEntries(Object.entries(document.scrollbars || {}).flatMap(([surface,bar]) => [['--fk-sb-' + surface + '-thumb',bar.thumb],
+            ['--fk-sb-' + surface + '-track',bar.track || 'transparent'],['--fk-sb-' + surface + '-w',(bar.width ?? 6) + 'px']]))};
 }
 // the closed ADV words become root attributes for the stage CSS; a skin that
 // declares none of them gets none (its DOM and tokens are unchanged).
@@ -136,6 +139,8 @@ function stageSkinMarks(document) {
     if (document.textbox.motion) marks['data-fk-skin-box-motion']='';
     if (document.nameplate.motion) marks['data-fk-skin-name-motion']='';
     if (document.hud?.plate) marks['data-fk-skin-hud-plate']='';
+    // scrollbars: the surfaces that show a styled scrollbar; every other one shows none (theme.css «stage scrollbars»).
+    if (document.scrollbars) marks['data-fk-scrollbars']=Object.keys(document.scrollbars).join(' ');
     // textStyle.wrap: phrase = the reading text breaks between phrases (theme.css「stage typewriter」).
     if (document.textStyle?.wrap) marks['data-fk-skin-wrap']=document.textStyle.wrap;
     // transitions (skin-interface.md §9.1): the surfaces with a declared enter / leave (theme.css «stage skin: transitions»).
@@ -502,6 +507,8 @@ function stageSkinArt(document, files, entry = '') {
         if (r.align) tokens['--art-mr-justify']=r.align === 'center' ? 'center' : r.align === 'end' ? 'flex-end' : 'flex-start';
         if (r.ink) tokens['--art-mr-ink']=r.ink;
         if (r.focusInk) tokens['--art-mr-focus-ink']=r.focusInk;
+        // fit (the menu's capacity): past it the bars scroll inside it
+        if (r.fit) {marks['data-fk-skin-art-menu-rows-fit']=''; tokens['--art-mr-fit']=String(r.fit);}
         // letter / focusScale (§18 N31): the labels as glyph tiles (menu.cjs, art.menu.glyphTiles), the focused one drawn larger
         if (r.letter) marks['data-fk-skin-art-menu-letter']=r.letter;
         if (r.focusScale) Object.assign(tokens,{'--art-mr-focus-scale':String(r.focusScale),'--art-mr-origin':({center:'50%',end:'100%'}[r.align] || '0%') + ' 50%'});
@@ -537,6 +544,10 @@ function stageSkinArt(document, files, entry = '') {
         if (t.lift) {marks['data-fk-skin-art-menu-lift']=''; Object.assign(tokens,{[p + '-lift-scale']:String(t.lift.scale ?? 1),[p + '-lift-dy']:String(t.lift.dy || 0)});}
         if (l.stroke) Object.assign(tokens,{[p + '-stroke']:l.stroke.color,[p + '-stroke-w']:String(l.stroke.width)});
         if (t.plain) {const [w,h]=size(t.plain); Object.assign(tokens,{[p + '-plain']:url(t.plain),[p + '-plain-w']:String(w),[p + '-plain-h']:String(h)});}
+        // plainFocus: the plain tile under focus, so a row without its own art (a card page) highlights like the drawn ones
+        if (t.plainFocus) tokens[p + '-plain-focus']=url(t.plainFocus);
+        // minScale: the capacity floor (rows close their gaps, then scale down to it, then the grid scrolls inside fit)
+        if (t.minScale !== undefined) {marks['data-fk-skin-art-menu-scroll']=''; tokens[p + '-min-scale']=String(t.minScale);}
         for (const [id,tile] of Object.entries(t.art)) {
             const [w,h]=size(tile.image), q=p + '-' + id;
             Object.assign(tokens,{[q]:url(tile.image),[q + '-focus']:url(tile.focus || tile.image),[q + '-w']:String(w),[q + '-h']:String(h)});

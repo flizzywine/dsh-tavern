@@ -1,0 +1,293 @@
+{
+  "bin/chat-answer-step-patch.mjs": [
+    "@deepseek-ai/dsh-client-ui-chat"
+  ],
+  "bin/cli-runtime.mjs": [
+    "@deepseek-ai/dsh"
+  ],
+  "bin/deepseek-stream-option-patch.mjs": [
+    "@deepseek-ai/dsh-llm-deepseek"
+  ],
+  "bin/desktop-host-paths.mjs": [
+    "@deepseek-ai/dsh-agent"
+  ],
+  "bin/official-desktop-runtime.cjs": [
+    "@deepseek-ai/dsh-desktop"
+  ],
+  "bin/pi-ai-nonstream-patch.mjs": [
+    "@deepseek-ai/dsh-llm-pi-ai"
+  ],
+  "bin/plugin-dependencies.mjs": [
+    "@deepseek-ai/dsh",
+    "@deepseek-ai/dsh-agent",
+    "@deepseek-ai/dsh-app-boot",
+    "@deepseek-ai/dsh-skill-filesystem",
+    "@deepseek-ai/dsh-subagent",
+    "@deepseek-ai/dsh-tools",
+    "@deepseek-ai/dsh-typert-protocol"
+  ],
+  "bin/profile-configuration.mjs": [
+    "@deepseek-ai/dsh-base",
+    "@deepseek-ai/dsh-tools",
+    "@deepseek-ai/dsh-web-app"
+  ],
+  "bin/profile-installation.mjs": [
+    "@deepseek-ai/dsh-client-ui-chat",
+    "@deepseek-ai/dsh-client-ui-theme",
+    "@deepseek-ai/dsh-llm-deepseek",
+    "@deepseek-ai/dsh-llm-pi-ai"
+  ],
+  "bin/test-runtime.mjs": [
+    "@deepseek-ai/dsh-app-boot",
+    "@deepseek-ai/dsh-app-boot/package.json",
+    "@deepseek-ai/dsh-desktop"
+  ],
+  "bin/theme-font-limit.mjs": [
+    "@deepseek-ai/dsh-client-ui-theme"
+  ],
+  "bin/validate-desktop-profile.mjs": [
+    "@deepseek-ai/dsh-app-boot"
+  ],
+  "tavern-plugin/lib/agent-compaction.js": [
+    "@deepseek-ai/dsh-agent",
+    "@deepseek-ai/dsh-compaction"
+  ],
+  "tavern-plugin/lib/background-agent-sessions.js": [
+    "@deepseek-ai/dsh-subagent"
+  ],
+  "tavern-plugin/lib/background-agent-task.js": [
+    "@deepseek-ai/dsh-agent"
+  ],
+  "tavern-plugin/lib/director-probe.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/lib/domain/chat-answer-boot-patch.js": [
+    "@deepseek-ai/dsh-client-ui-chat"
+  ],
+  "tavern-plugin/lib/domain/host-compatibility.js": [
+    "@deepseek-ai/dsh-session",
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/domain/host-package-resolution.js": [
+    "@deepseek-ai/dsh-session-persistence"
+  ],
+  "tavern-plugin/lib/domain/host-session-patch.js": [
+    "@deepseek-ai/dsh-api-session-controller/client",
+    "@deepseek-ai/dsh-session",
+    "@deepseek-ai/dsh-session-format-catalog",
+    "@deepseek-ai/dsh-session-format-v2-to-v3",
+    "@deepseek-ai/dsh-session-format-v3-to-v4",
+    "@deepseek-ai/dsh-session-persistence",
+    "@deepseek-ai/dsh-session-persistence-jsonl",
+    "@deepseek-ai/dsh-session-query",
+    "@deepseek-ai/dsh-session/package.json",
+    "@deepseek-ai/dsh-session/surface",
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/domain/host-subprocess-patch.js": [
+    "@deepseek-ai/dsh-subprocess-local"
+  ],
+  "tavern-plugin/lib/domain/message-source.js": [
+    "@deepseek-ai/dsh-system-prompt"
+  ],
+  "tavern-plugin/lib/domain/session-events.js": [
+    "@deepseek-ai/dsh-system-prompt"
+  ],
+  "tavern-plugin/lib/domain/skill-catalog-session-scope.js": [
+    "@deepseek-ai/dsh-scope",
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/domain/workspace-instruction-presentation.js": [
+    "@deepseek-ai/dsh-agent-instructions",
+    "@deepseek-ai/dsh-user-approval"
+  ],
+  "tavern-plugin/lib/host/tools.js": [
+    "@deepseek-ai/dsh-tool-executor-native"
+  ],
+  "tavern-plugin/lib/index.js": [
+    "@deepseek-ai/dsh-skill-filesystem",
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/mod-owners.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/lib/mod-system-settings.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/lib/settings-config.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/lib/tools/card-cover.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/tools/card-editing.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/tools/card-reading.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/tools/gameplay.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/tools/play-chat.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/tools/preset.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/tools/regex-library.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/tools/runtime-health.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/tools/script.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/tools/skills.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/tools/user-profile.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/tools/worldbook-files.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/tools/worldbook.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/user-tools-bridge.js": [
+    "@deepseek-ai/dsh-agent-preset"
+  ],
+  "tavern-plugin/packages/dsh-asset-library/lib/client.cjs": [
+    "@deepseek-ai/dsh-client-ui-primitives"
+  ],
+  "tavern-plugin/packages/dsh-asset-library/lib/pack-catalogue/settings.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/native-settings.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/settings-config.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/packages/dsh-asset-library/src/client.cjs": [
+    "@deepseek-ai/dsh-client-ui-primitives"
+  ],
+  "tavern-plugin/packages/dsh-asset-library/src/pack-catalogue/settings.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/packages/dsh-asset-library/src/pack-v2/native-settings.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/packages/dsh-asset-library/src/pack-v2/settings-config.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/packages/dsh-asset-library/tests/native.test.mjs": [
+    "@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-client-connection"
+  ],
+  "tavern-plugin/packages/dsh-dream-skin/lib/client.js": [
+    "@deepseek-ai/dsh-client-runtime/client",
+    "@deepseek-ai/dsh-client-store"
+  ],
+  "tavern-plugin/packages/dsh-profile-bridge/index.js": [
+    "@deepseek-ai/cordis"
+  ],
+  "tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs": [
+    "@deepseek-ai/dsh-desktop"
+  ],
+  "tavern-plugin/packages/dsh-tavern-launcher/index.js": [
+    "@deepseek-ai/dsh-app-boot",
+    "@deepseek-ai/dsh-official-bundles",
+    "@deepseek-ai/dsh-plugin-manager/operations"
+  ],
+  "tavern-plugin/packages/dsh-tavern-remote/lib/client.js": [
+    "@deepseek-ai/dsh-api-gateway/client"
+  ],
+  "tavern-plugin/packages/dsh-tavern-remote/lib/index.js": [
+    "@deepseek-ai/dsh-typert-protocol"
+  ],
+  "tavern-plugin/packages/dsh-tavern-remote/lib/typert.remote-client.d.ts": [
+    "@deepseek-ai/dsh-typert-protocol"
+  ],
+  "tavern-plugin/packages/dsh-tavern-remote/lib/types/client.d.ts": [
+    "@deepseek-ai/cordis"
+  ],
+  "tavern-plugin/packages/dsh-tavern-remote/lib/types/client.js": [
+    "@deepseek-ai/dsh-api-gateway/client"
+  ],
+  "tavern-plugin/packages/dsh-tavern-remote/lib/types/index.d.ts": [
+    "@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-typert-protocol"
+  ],
+  "tavern-plugin/packages/dsh-tavern-remote/lib/types/index.js": [
+    "@deepseek-ai/dsh-typert-protocol"
+  ],
+  "tavern-plugin/packages/dsh-tavern-remote/scripts/generate-typert.mjs": [
+    "@deepseek-ai/dsh-typert-generator"
+  ],
+  "tavern-plugin/packages/dsh-tavern-remote/src/client.ts": [
+    "@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-api-gateway/client"
+  ],
+  "tavern-plugin/packages/dsh-tavern-remote/src/index.ts": [
+    "@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-typert-protocol"
+  ],
+  "tavern-plugin/packages/dsh-tavern-remote/src/typert-protocol.d.ts": [
+    "@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-typert-protocol"
+  ],
+  "tavern-plugin/packages/dsh-tavern-remote/tsdown.config.ts": [
+    "@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-api-gateway/client",
+    "@deepseek-ai/dsh-typert-generator/tsdown"
+  ],
+  "tavern-plugin/packages/dsh-tavern-stage/lib/asset-engine.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/tools.js": [
+    "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/packages/dsh-tavern-tts/lib/settings-config.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/packages/dsh-tavern-tts/lib/settings.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/packages/dsh-tavern-tts/lib/types/index.d.ts": [
+    "@deepseek-ai/cordis"
+  ],
+  "tavern-plugin/packages/dsh-tavern-tts/src/settings-config.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/packages/dsh-tavern-tts/src/settings.js": [
+    "@deepseek-ai/schemastery"
+  ],
+  "tavern-plugin/packages/dsh-tavern-tts/src/types/index.d.ts": [
+    "@deepseek-ai/cordis"
+  ],
+  "tavern-plugin/packages/dsh-tavern-tts/tests/native.test.mjs": [
+    "@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-client-connection"
+  ],
+  "tavern-plugin/packages/dsh-tavern-tts/tests/package.test.mjs": [
+    "@deepseek-ai/dsh-client-runtime"
+  ],
+  "tavern-plugin/src/client/features/story-external-client.js": [
+    "@deepseek-ai/dsh-client-ui-conversation/client"
+  ],
+  "tavern-plugin/src/client/main.js": [
+    "@deepseek-ai/dsh-client-ui-primitives"
+  ],
+  "tavern-plugin/src/client/modules/assistant-visibility.js": [
+    "@deepseek-ai/dsh-client-ui-conversation/client"
+  ],
+  "tavern-plugin/src/client/modules/host-session-patch.js": [
+    "@deepseek-ai/dsh-api-session-controller/client"
+  ],
+  "tavern-plugin/src/client/modules/story-external-history.js": [
+    "@deepseek-ai/dsh-client-ui-conversation/client"
+  ]
+}

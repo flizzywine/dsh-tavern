@@ -1,8 +1,10 @@
+param([switch]$LauncherOnly)
+
 $ErrorActionPreference = 'Stop'
 $PreviousConsoleOutputEncoding = [Console]::OutputEncoding
 $PreviousOutputEncoding = $OutputEncoding
 
-$InstallHost = if ($env:DSH_TAVERN_HOST) { $env:DSH_TAVERN_HOST } else { 'desktop' }
+$InstallHost = if ($LauncherOnly) { 'desktop' } elseif ($env:DSH_TAVERN_HOST) { $env:DSH_TAVERN_HOST } else { 'desktop' }
 if ($InstallHost -notin @('desktop', 'cli')) { throw "只支持官方桌面和独立命令行，不支持宿主：$InstallHost" }
 
 $Repository = if ($env:DSH_TAVERN_REPOSITORY) { $env:DSH_TAVERN_REPOSITORY } else { 'flizzywine/dsh-tavern' }
@@ -243,6 +245,9 @@ $InstallStarted = Get-Date
 $InstallSteps = @{ '下载代码' = 1; '安装依赖' = 2; '本地配置' = 3 }
 $script:CurrentInstallStep = 0
 function Write-InstallStatus([string]$Message) {
+  if ($env:DSH_TAVERN_PUBLISH_GATE) {
+    [IO.File]::WriteAllText(($env:DSH_TAVERN_PUBLISH_GATE + '.progress'), $Message, (New-Object Text.UTF8Encoding($false)))
+  }
   if (-not $FriendlyOutput) { Write-Host ("DSH_STATUS " + $Message); return }
   $Stage = ($Message -split '[：（(，]', 2)[0]
   if ($Stage -like '下载代码*' -or $Stage -like '下载源*' -or $Stage -like '代码*') { $Stage = '下载代码' }
@@ -291,6 +296,7 @@ function Close-DesktopForFirstInstall {
   if (@(Get-DesktopProcesses | Where-Object { $_.Own -and -not $_.NodeMode }).Count) { throw '首次安装需要先退出 DeepSeek Harness，但安装命令正运行在它的终端里：请完整退出 DeepSeek Harness，再在系统的 Windows PowerShell 里重新运行安装命令。' }
   $Others = Get-OtherDesktopProcesses
   if (-not $Others.Count) { return $false }
+  if ($env:DSH_TAVERN_LAUNCHER_INSTALL -eq '1') { throw '安装期间检测到 DeepSeek Harness 正在运行。请退出后重新安装。' }
   Write-InstallStatus '首次安装需要先退出 DeepSeek Harness，正在关闭（装完会自动重新打开）…'
   foreach ($Process in $Others) { try { [void](Get-Process -Id $Process.Id -ErrorAction Stop).CloseMainWindow() } catch {} }
   for ($Wait = 0; $Wait -lt 10 -and (Get-OtherDesktopProcesses).Count; $Wait++) { Start-Sleep -Seconds 1 }
@@ -1244,14 +1250,41 @@ try {
       if ($CommunityDesktop) { throw ('检测到社区版 ' + $CommunityDesktop + '，当前版本只支持官方 DeepSeek Harness（https://deepseek.com/harness/）。继续用社区版请改用稳定版的安装命令：https://github.com/flizzywine/dsh-tavern/blob/stable/README.md') }
       throw '请先安装官方 DeepSeek Harness（https://deepseek.com/harness/）（装在其他位置时，可用 DSH_DESKTOP_APP_EXECUTABLE 指定程序路径）'
     }
+    if ($LauncherOnly) {
+      if (Get-Process -Name 'DeepSeek Harness', 'DSH NEXT' -ErrorAction SilentlyContinue) { throw '请先从托盘退出 DeepSeek Harness 和 DSH NEXT，再安装酒馆启动器。' }
+      $DesktopProfile = Get-Item -LiteralPath (Join-Path $DshRoot 'profiles\desktop') -Force -ErrorAction SilentlyContinue
+      if (-not $DesktopProfile -or -not $DesktopProfile.PSIsContainer) {
+        throw '找不到原版 desktop 配置。请打开官方 DeepSeek Harness 完成初始设置，再从托盘退出。'
+      }
+      if ($DesktopProfile.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw '当前使用的是切换后的配置。请打开官方 DeepSeek Harness，在「设置 → 酒馆启动器」点「重启并切换到原版 DSH」。等原版窗口打开，再从托盘退出并重试命令。'
+      }
+      $LauncherProfile = Get-Content -Raw -LiteralPath (Join-Path $DesktopProfile.FullName 'package.json') | ConvertFrom-Json
+      if ($LauncherProfile.dependencies.'dsh-profile-bridge' -or $LauncherProfile.dsh.profile.bundles -contains 'dsh-profile-bridge') {
+        throw '请在原版 DeepSeek Harness 的插件页移除 dsh-profile-bridge，再安装 dsh-tavern-launcher。'
+      }
+      $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js'
+      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/refs/tags/launcher-cdn-v0.2.0-tavern.14/dsh-tavern-launcher-0.2.0-tavern.14.tgz'
+      $PreviousNodeMode = $env:ELECTRON_RUN_AS_NODE
+      try {
+        $env:ELECTRON_RUN_AS_NODE = '1'
+        & $OfficialDesktopExecutable --expose-internals $DesktopCli plugin --profile desktop add $LauncherUrl | Out-Host
+        Assert-LastCommand '安装酒馆启动器失败。'
+      } finally {
+        $env:ELECTRON_RUN_AS_NODE = $PreviousNodeMode
+      }
+      Write-Host '酒馆启动器已安装。打开官方 DeepSeek Harness，进入「设置 → 酒馆启动器 → 安装酒馆」。'
+      return
+    }
     $FirstDesktopInstall = -not (Test-DesktopLinked)
-    $ReopenDesktop = Close-DesktopForFirstInstall
+    if (-not $env:DSH_TAVERN_PUBLISH_GATE) { $ReopenDesktop = Close-DesktopForFirstInstall }
     New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
     $OfficialDesktopModuleSource = @'
 // Bootstrap for official DeepSeek Harness only. Electron reads packaged app.asar files.
 const fs = require('node:fs');
 const path = require('node:path');
 const OFFICIAL = '@deepseek-ai/dsh-desktop';
+const NEXT = 'dsh-desktop-next';
 const APP_NAMES = ['DeepSeek Harness'];
 // Read archive metadata under plain Node as well, so unsupported hosts fail before mutation.
 function withoutAsar(fn) { const prev = process.noAsar; process.noAsar = true; try { return fn(); } finally { process.noAsar = prev; } }
@@ -1299,13 +1332,18 @@ function layout(executable, platform = process.platform) {
   const unpacked = path.join(resources, 'app'), packed = path.join(resources, 'app.asar');
   const app = fs.existsSync(path.join(unpacked, 'package.json')) ? unpacked : packed;
   const name = packageName(app);
+  if (name === NEXT) {
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+    const runtime = path.join(resources, 'runtime', arch, 'primary-runtime');
+    return { resources, app, name, host: app, bootstrap: path.join(app, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'), pnpm: path.join(runtime, 'dependencies', 'pnpm', 'bin', 'pnpm.mjs') };
+  }
   const host = path.join(app, 'dsh');
   return { resources, app, name, host, bootstrap: path.join(host, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js'), pnpm: path.join(resources, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs') };
 }
-function prepare({ executable, home, env = process.env, platform = process.platform }) {
+function prepare({ executable, home, env = process.env, platform = process.platform, host = 'desktop' }) {
   if (!executable || !home) throw Error('请先安装官方 DeepSeek Harness，并指定安装目录');
   const paths = layout(executable, platform);
-  if (paths.name !== OFFICIAL) throw Error('桌面版仅支持官方 DeepSeek Harness：' + executable
+  if (paths.name !== (host === 'next' ? NEXT : OFFICIAL)) throw Error((host === 'next' ? 'Next 安装需要 DSH NEXT：' : '桌面版仅支持官方 DeepSeek Harness：') + executable
     + '（读到的应用包名：' + (paths.name || '无法读取') + '，应用目录：' + paths.app + '）');
   const bootstrap = paths.bootstrap;
   for (const file of [bootstrap, paths.pnpm]) if (!exists(file)) throw Error('桌面运行时不完整：' + file);
@@ -1313,7 +1351,7 @@ function prepare({ executable, home, env = process.env, platform = process.platf
   const dshRunner = runner, pnpmRunner = runner;
   const runnerOf = name => name === 'dsh' ? dshRunner : name === 'pnpm' ? pnpmRunner : runner;
   const variableOf = name => name === 'dsh' ? 'DSH_DESKTOP_DSH_RUNNER' : name === 'pnpm' ? 'DSH_DESKTOP_PNPM_RUNNER' : 'DSH_DESKTOP_NODE_EXECUTABLE';
-  const bin = path.join(home, 'tools', 'official-desktop', 'bin');
+  const bin = path.join(home, 'tools', host === 'next' ? 'desktop-next' : 'official-desktop', 'bin');
   fs.mkdirSync(bin, { recursive: true });
   const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
   for (const [name, entry] of [['node', null], ['pnpm', paths.pnpm], ['dsh', bootstrap]]) {
@@ -1330,6 +1368,13 @@ function prepare({ executable, home, env = process.env, platform = process.platf
     DSH_TAVERN_HOST_DEPENDENCY_ANCHOR: path.join(paths.host, 'package.json'),
     [key]: bin + (platform === 'win32' ? ';' : ':') + (env[key] || '') };
 }
+function discoverNext(env = process.env) {
+  const executable = env.DSH_TAVERN_NEXT_EXECUTABLE || (process.versions.electron ? process.execPath : undefined);
+  if (!executable || !path.isAbsolute(executable) || !fs.existsSync(executable) || layout(executable).name !== NEXT) {
+    throw Error('请用 DSH_TAVERN_NEXT_EXECUTABLE 指定已安装的 DSH NEXT 程序绝对路径');
+  }
+  return executable;
+}
 function discover(env = process.env, platform = process.platform) {
   // A standalone node executable is not a desktop host.
   const node = env.DSH_DESKTOP_NODE_EXECUTABLE && !/^node(\.exe)?$/i.test(path.basename(env.DSH_DESKTOP_NODE_EXECUTABLE)) ? env.DSH_DESKTOP_NODE_EXECUTABLE : undefined;
@@ -1344,10 +1389,11 @@ function discover(env = process.env, platform = process.platform) {
 }
 // Installer code always runs under the official app's Electron.
 function runner(executable) { return executable; }
-module.exports = { layout, prepare, discover, runner, APP_NAMES };
+module.exports = { layout, prepare, discover, discoverNext, runner, APP_NAMES };
 if (require.main === module) {
   try {
-    const result = prepare({ executable: process.versions.electron ? process.execPath : discover(), home: process.argv[2] });
+    const host = process.argv.includes('--next') ? 'next' : 'desktop';
+    const result = prepare({ executable: process.versions.electron ? process.execPath : host === 'next' ? discoverNext() : discover(), home: process.argv[2], host });
     if (process.argv.includes('--shell')) for (const [key, value] of Object.entries(result)) console.log('export ' + key + "='" + value.replaceAll("'", "'\\''") + "'");
     else console.log(JSON.stringify(result));
   } catch (error) { console.error(error.message); process.exitCode = 1; }
@@ -1694,6 +1740,15 @@ try {
     throw '下载内容不完整。'
   }
   Assert-InstallFiles $SourceDir.FullName
+  if ($env:DSH_TAVERN_INSTALL_INACTIVE -eq '1' -and -not (Select-String -Quiet -SimpleMatch 'DSH_TAVERN_INSTALL_INACTIVE' -LiteralPath (Join-Path $SourceDir.FullName 'bin/profile-installation.mjs'))) {
+    throw '下载源尚未同步独立安装支持，请稍后重试。'
+  }
+  if ($env:DSH_TAVERN_LATE_PUBLISH -eq '1' -and -not (Select-String -Quiet -SimpleMatch 'DSH_TAVERN_LATE_PUBLISH' -LiteralPath (Join-Path $SourceDir.FullName 'bin/profile-installation.mjs'))) {
+    throw '下载源尚未同步重启前安装支持，请稍后重试。'
+  }
+  if ($env:DSH_TAVERN_REQUIRE_NEXT_MIGRATION -eq '1' -and -not (Select-String -Quiet -SimpleMatch 'hasNextTavern' -LiteralPath (Join-Path $SourceDir.FullName 'bin/desktop-profile-installation.mjs'))) {
+    throw '下载源尚未同步 NEXT 迁移支持，请稍后重试。'
+  }
 
   # Read compatibility from the downloaded release before installing missing tools.
   $CompatibilityScript = Join-Path $SourceDir.FullName 'bin\dsh-compatibility.mjs'
@@ -1736,7 +1791,7 @@ try {
 
   $Stager = Join-Path $SourceDir.FullName 'bin\staged-app-install.mjs'
   $OldLauncher = Join-Path $AppDir 'bin\dsh-tavern.mjs'
-  if ($InstallHost -eq 'cli' -and (Test-Path -LiteralPath $Stager -PathType Leaf)) {
+  if ($env:DSH_TAVERN_PUBLISH_GATE -or ($InstallHost -eq 'cli' -and (Test-Path -LiteralPath $Stager -PathType Leaf))) {
     # Prepare beside the running app; only the final switch stops the service, and a
     # failure after it restores the previous directory (see bin/staged-app-install.mjs).
     $StagedInstall = $true
@@ -1746,7 +1801,19 @@ try {
     Write-InstallStatus '安装依赖：正在连接软件包仓库，已有缓存将直接复用…'
     Invoke-InstallCommand 'dependencies.install' $PnpmCommand @('--dir', "$AppDir.staging", 'install', '--frozen-lockfile', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000')
 
-    if (Test-Path $OldLauncher) {
+    if ($env:DSH_TAVERN_LATE_PUBLISH -eq '1') {
+      $PreviousApp = Test-Path $OldLauncher
+    } elseif ($env:DSH_TAVERN_PUBLISH_GATE) {
+      Write-InstallStatus '准备完成，等待确认重启…'
+      [IO.File]::WriteAllText(($env:DSH_TAVERN_PUBLISH_GATE + '.ready'), '')
+      $Deadline = [DateTime]::UtcNow.AddMinutes(15)
+      while (-not (Test-Path -LiteralPath $env:DSH_TAVERN_PUBLISH_GATE)) {
+        if ([DateTime]::UtcNow -ge $Deadline) { throw '等待重启确认或桌面退出超时，尚未切换 Profile。' }
+        Start-Sleep -Milliseconds 500
+      }
+      if ([IO.File]::ReadAllText($env:DSH_TAVERN_PUBLISH_GATE) -ne 'publish') { throw '桌面未能退出，尚未切换 Profile。' }
+      $PreviousApp = Test-Path $OldLauncher
+    } elseif (Test-Path $OldLauncher) {
       $PreviousApp = $true
       & node $OldLauncher stop *> $null
     }
@@ -1760,7 +1827,7 @@ try {
     Invoke-InstallCommand 'dependencies.relink' $PnpmCommand @('--dir', $AppDir, 'install', '--offline', '--frozen-lockfile', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000') -TimeoutMs 300000
 
     Write-InstallStatus '本地配置：正在注册 Tavern 并检查兼容性…'
-    if (Close-DesktopForFirstInstall) { $ReopenDesktop = $true }
+    if ($env:DSH_TAVERN_LATE_PUBLISH -ne '1' -and (Close-DesktopForFirstInstall)) { $ReopenDesktop = $true }
     Invoke-InstallCommand 'profile.install' 'node' @((Join-Path $AppDir 'bin\dsh-tavern.mjs'), 'install', '--host', $InstallHost) -TimeoutMs 1200000
     & node $Stager commit --app $AppDir
     $AppSwapped = $false
@@ -1804,8 +1871,8 @@ try {
     $Elapsed = (Get-Date) - $InstallStarted
     Write-Host ''
     Write-Host ('DSH Tavern 安装完成，用时 ' + [int][math]::Floor($Elapsed.TotalMinutes) + ' 分 ' + $Elapsed.Seconds + ' 秒。') -ForegroundColor Green
-    Write-Host '酒馆装在独立的 tavern 配置里；原来的 desktop 配置已备份，可在设置 → Profile 切换中切回。'
-    if (($FirstDesktopInstall -or $ReopenDesktop) -and -not (Get-OtherDesktopProcesses).Count -and $OfficialDesktopExecutable) {
+    Write-Host '酒馆装在独立的 tavern 配置里；原来的 desktop 配置已备份，可在设置 → 酒馆启动器中切回。'
+    if ($env:DSH_TAVERN_LAUNCHER_INSTALL -ne '1' -and ($FirstDesktopInstall -or $ReopenDesktop) -and -not (Get-OtherDesktopProcesses).Count -and $OfficialDesktopExecutable) {
       Write-Host '正在打开 DeepSeek Harness…'
       Start-Process -FilePath $OfficialDesktopExecutable
     } else { Write-Host '请重启官方 DeepSeek Harness 进入酒馆。' }

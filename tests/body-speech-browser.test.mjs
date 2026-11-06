@@ -6,7 +6,7 @@ import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
 
 // The 🔊 on a reply: the host resolves each part (speechForLine) and the one stage voice player (voice.js) plays it.
-const sources = await Promise.all(['bubble-line.cjs', 'text-colors.js', 'pack-playback.cjs', 'browser-speech.cjs', 'voice.js', 'features/speech.js', 'turn-actions.js'].map(name => readFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8').then(withVoiceCues)))
+const sources = await Promise.all(['bubble-line.cjs', 'text-colors.js', 'pack-playback.cjs', 'browser-speech.cjs', 'voice.js', 'features/speech.js', 'features/read-aloud.js', 'turn-actions.js'].map(name => readFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8').then(withVoiceCues)))
 async function mount(t, text, available = true) {
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
@@ -30,7 +30,8 @@ async function mount(t, text, available = true) {
       cancel(){const last=utterances.at(-1);if(last&&!last.done){last.done=true;last.onerror?.();}},pause(){},resume(){},speak(u){utterances.push(u);}}});
     window.SpeechSynthesisUtterance=function(text){this.text=text;};
     window.Audio=class{constructor(src){this.src=src;this.paused=true;audios.push(this);}load(){}play(){this.paused=false;this.onplay?.();return Promise.resolve();}pause(){if(this.paused)return;this.paused=true;this.onpause?.();}};
-    async function rpc(method,args,sessionId){calls.push({method,args,sessionId});
+    const galActive={subscribe:()=>()=>{},get:()=>""};
+    async function rpc(method,args,sessionId){if(method==="readAloudState")return {stepAside:true,auto:false};calls.push({method,args,sessionId});
       if(window.skipNarration&&args.narration)return {skip:true,reason:'narration'};
       const reply=window.audioReply?{url:'/tts-audio?ticket='+calls.length,mediaType:'audio/wav',loudness:{gain:1.5}}:{browser:true,voice:args.narration?'narrator-voice':'chosen-voice',text:args.text};
       if(window.deferSpeech)return new Promise(resolve=>pending.push(()=>resolve(reply)));return reply;}

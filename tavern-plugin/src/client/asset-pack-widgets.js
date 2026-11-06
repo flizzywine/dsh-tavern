@@ -100,8 +100,11 @@ function Popover({label,trigger,className,content,fit=false,limit=320,stopClicks
     const update=()=>{const anchor=root.current?.getBoundingClientRect?.(),node=menu.current;if(!anchor||!node)return;
       const next=popoverPlace(anchor,{width:node.offsetWidth,height:Math.min(limit,Math.max(node.offsetHeight,node.scrollHeight))},{width:window.innerWidth,height:window.innerHeight},fit);
       setPlace(p=>p&&p.top===next.top&&p.left===next.left&&p.maxHeight===next.maxHeight&&p.minWidth===next.minWidth?p:next);};
+    // content that arrives after opening (a voice list loading behind its spinner) re-places the menu at once, so it never
+    // sits half off the window until the first scroll moves it out from under the pointer.
+    const observer=typeof ResizeObserver==='function'&&menu.current?new ResizeObserver(update):null;observer?.observe(menu.current);
     update();window.addEventListener('resize',update);window.addEventListener('scroll',update,true);
-    return()=>{window.removeEventListener('resize',update);window.removeEventListener('scroll',update,true);};
+    return()=>{observer?.disconnect();window.removeEventListener('resize',update);window.removeEventListener('scroll',update,true);};
   },[open,floating]);
   // Keyboard users land on the menu (it is no longer next to the trigger in the document): its search box, else the
   // checked item, else the first one. only once the menu is placed — until then it is

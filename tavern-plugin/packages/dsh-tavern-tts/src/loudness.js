@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process'
+import meter from './shared/pcm-loudness.cjs'
+const {measurePcmLoudness} = meter
 
 export const VOICE_TARGET_LUFS = -18
 export const VOICE_TRUE_PEAK_DBTP = -1.5
@@ -10,25 +11,28 @@ export function voiceLoudnessGain(lufs, truePeak) {
     targetLufs: VOICE_TARGET_LUFS, peakCeiling: VOICE_TRUE_PEAK_DBTP, gainDb, gain: 10 ** (gainDb / 20) }
 }
 
-// Decode/measure only: stdout is discarded and the cached WAV is never rewritten.
-export function measureVoiceLoudness(bytes, { ffmpeg = process.env.FFMPEG_PATH || 'ffmpeg' } = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(ffmpeg, ['-hide_banner', '-nostdin', '-i', 'pipe:0', '-af',
-      'apad=whole_dur=0.4,loudnorm=I=-18:TP=-1.5:LRA=11:print_format=json', '-f', 'null', '-'],
-    { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] })
-    let stderr = ''
-    const timer = setTimeout(() => { child.kill(); reject(new Error('Voice loudness analysis timed out')) }, 60000)
-    child.on('error', error => { clearTimeout(timer); reject(error) })
-    child.stderr.on('data', chunk => { stderr += chunk })
-    child.stdin.on('error', () => {})
-    child.on('close', code => {
-      clearTimeout(timer)
-      if (code !== 0) { reject(new Error('Voice loudness analysis failed: ' + stderr.slice(-1000))); return }
-      try {
-        const measurement = JSON.parse(stderr.slice(stderr.lastIndexOf('{'), stderr.lastIndexOf('}') + 1))
-        resolve(voiceLoudnessGain(Number(measurement.input_i), Number(measurement.input_tp)))
-      } catch (error) { reject(error) }
-    })
-    child.stdin.end(bytes)
-  })
+// Input is PCM16 WAV already validated at the write boundary. No subprocess or decode.
+export function measureVoiceLoudness(bytes) {
+  let rate, channels, count = 0
+  const chunks = []
+  for (let at = 12; at + 8 <= bytes.length;) {
+    const size = bytes.readUInt32LE(at + 4), start = at + 8
+    const name = bytes.toString('ascii', at, at + 4)
+    if (name === 'fmt ') { channels = bytes.readUInt16LE(start + 2); rate = bytes.readUInt32LE(start + 4) }
+    if (name === 'data') { chunks.push([start, size]); count += size }
+    at = start + size + size % 2
+  }
+  const pcm = Array.from({length:channels}, () => new Float32Array(count / (channels * 2)))
+  let frame = 0
+  for (const [start, size] of chunks) for (let at = start; at < start + size; at += channels * 2) {
+    for (let c = 0; c < channels; c++) pcm[c][frame] = bytes.readInt16LE(at + c * 2) / 32768
+    frame++
+  }
+  const {lufs, truePeak} = measurePcmLoudness(pcm, rate)
+  return voiceLoudnessGain(lufs, truePeak)
+}
+
+// Loudness is optional metadata: an analyzer failure must not discard paid audio.
+export async function measureVoiceLoudnessSafely(bytes, measure = measureVoiceLoudness) {
+  try { return await measure(bytes) } catch { return voiceLoudnessGain(null, null) }
 }

@@ -265,7 +265,7 @@ export function createStageDirector(deps) {
     const info = hostOnly ? null : await deps.modelInfo?.(engine.directorModel)
     const judgeConfigured = !hostOnly && judgeEnabled(engine.judge)
     let mods=hostOnly ? undefined : await deps.mods?.prepare(chat,turn,{target,preview:true,isCurrent:assets.current})
-    const input = {...assets, modTurn:modStageTurn(chat,turn), playerName:chat.macroState?.userName, playerInput:playerInputBefore(chat,index,assets.raw), stateSource:await deps.stateSource?.(chat,assets.raw), ...(mods ? {mods,modPrompts:mods.fragments} : {}), items:prepareStageItems(assets.raw,chat,index), engine, target, units, imageUnits:displayUnits, pageIndex, generation:chat.messages[index].stageDirectionGeneration || 0, predecessor:recordsThrough(chat,index - 1).records, modelInfo:info, record:streamingBaseline ? undefined : record, ...(streamingBaseline ? {baseline:streamingBaseline,continuation:true} : {}), opening:greeting ? openingOf(assets, greeting).state : undefined}
+    const input = {...assets,activeStageSkin:deps.activeStageSkin, modTurn:modStageTurn(chat,turn), playerName:chat.macroState?.userName, playerInput:playerInputBefore(chat,index,assets.raw), stateSource:await deps.stateSource?.(chat,assets.raw), ...(mods ? {mods,modPrompts:mods.fragments} : {}), items:prepareStageItems(assets.raw,chat,index), engine, target, units, imageUnits:displayUnits, pageIndex, generation:chat.messages[index].stageDirectionGeneration || 0, predecessor:recordsThrough(chat,index - 1).records, modelInfo:info, record:streamingBaseline ? undefined : record, ...(streamingBaseline ? {baseline:streamingBaseline,continuation:true} : {}), opening:greeting ? openingOf(assets, greeting).state : undefined}
     let prepared = prepareAssetPackDirector(input), judge, judgeResult, judgeRecall
     // Retry keeps decisions, not authority: rebuild bindings/proofs against the current source and assets.
     const scope = JSON.stringify([chat.cardPath,target.branchId,target.sourceKey,prepared.binding.unitsDigest,engine.judge])
@@ -341,7 +341,7 @@ export function createStageDirector(deps) {
       const modMemo = new Map()
       try {
         const mods = await deps.mods?.prepare(chat,turn,{target,preview:true,isCurrent:current,streamSource:streamSource(''),memo:modMemo})
-        const input = {...assets,playerInput:playerInputBefore(chat,chat.messages.length,assets.raw),stateSource:await deps.stateSource?.(chat,assets.raw),...(mods ? {mods} : {}),items:prepareStageItems(assets.raw,chat,chat.messages.length),engine,target,record,predecessor:recordsThrough(chat,chat.messages.length - 1,history).records,
+        const input = {...assets,activeStageSkin:deps.activeStageSkin,playerInput:playerInputBefore(chat,chat.messages.length,assets.raw),stateSource:await deps.stateSource?.(chat,assets.raw),...(mods ? {mods} : {}),items:prepareStageItems(assets.raw,chat,chat.messages.length),engine,target,record,predecessor:recordsThrough(chat,chat.messages.length - 1,history).records,
           opening:greeting ? openingOf(assets,greeting).state : undefined,modelInfo:await deps.modelInfo?.(engine.directorModel)}
         job.pack = createStreamingPackDirector({input,twoChunks:true,identity:{sessionId:chat.sessionId,branchId:job.branchId,bodyOperationId:operation.id,nativeTurn:turn},
           current, openConversation:deps.openConversation,

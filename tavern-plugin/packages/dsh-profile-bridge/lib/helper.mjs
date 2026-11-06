@@ -174,7 +174,7 @@ export function readLastResult(stateDir, { alive = processAlive, now = Date.now 
     if (!result || !['pending', 'succeeded', 'failed'].includes(result.status)) return undefined
     if (result.status === 'pending') {
       let worker
-      try { worker = JSON.parse(readFileSync(join(stateDir, 'pending', 'worker.json'), 'utf8')) } catch {}
+      try { worker = JSON.parse(readFileSync(join(stateDir, result.mode === 'install' ? 'install-pending' : 'pending', 'worker.json'), 'utf8')) } catch {}
       const hasWorker = Number.isInteger(worker?.pid) && worker.pid > 1
       const abandoned = hasWorker ? !alive(worker.pid)
         : now() - statSync(join(stateDir, 'last-result.json')).mtimeMs > 3 * 60 * 1000
@@ -252,14 +252,22 @@ function busyError(lock, detail = '') {
  * @param {{ alive?: Function, now?: Function, keep?: number }} [options] - test seams.
  * @returns {{ lock: string, reclaimed: boolean }} claimed lock and whether an old one was archived.
  */
-export function acquirePendingLock(stateDir, { alive = processAlive, now = Date.now, keep = STALE_LIMIT } = {}) {
+export function acquirePendingLock(stateDir, { alive = processAlive, now = Date.now, keep = STALE_LIMIT, installing = false } = {}) {
   trustedHome(dirname(resolve(stateDir))).ordinary(stateDir)
   assertBridgeUpdateComplete(stateDir)
   mkdirSync(stateDir, { recursive: true })
-  const lock = join(stateDir, 'pending')
+  // The standalone installer rejects pending profile switches. Its own
+  // installation lease still protects the files while the launcher waits.
+  const lock = join(stateDir, installing ? 'install-pending' : 'pending')
+  const other = join(stateDir, installing ? 'pending' : 'install-pending')
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
+      if (present(other)) throw busyError(other)
       mkdirSync(lock)
+      if (present(other)) {
+        rmSync(lock, { recursive: true })
+        throw busyError(other)
+      }
       return { lock, reclaimed: attempt > 0 }
     } catch (error) {
       if (error.code !== 'EEXIST') throw error
@@ -307,11 +315,11 @@ export function scheduleSwitch(request, options = {}) {
   if (last?.recoveryRequired) {
     throw Object.assign(new Error(`上次切换需要检查入口与备份，未安排新切换：${last.message} 日志：${last.logPath}`), { code: 'recovery-required' })
   }
-  const { lock, reclaimed } = acquirePendingLock(request.stateDir, options)
+  const { lock, reclaimed } = acquirePendingLock(request.stateDir, { ...options, installing: request.mode === 'install' })
   const job = join(lock, 'request.json')
   let worker = fileURLToPath(new URL('./worker.mjs', import.meta.url))
   try {
-    if (['relocate', 'uninstall'].includes(request.mode)) {
+    if (['install', 'relocate', 'uninstall'].includes(request.mode)) {
       // Run from state storage: the transaction may quarantine the source that
       // originally loaded this plugin. All imports must survive that operation.
       const runtime = join(lock, 'runtime')
@@ -320,7 +328,7 @@ export function scheduleSwitch(request, options = {}) {
       for (const name of readdirSync(library).filter(name => /\.(mjs|ps1)$/.test(name))) {
         copyFileSync(join(library, name), join(runtime, name))
       }
-      copyFileSync(join(request.installation.appDir, 'bin', 'installation-state.cjs'), join(runtime, 'installation-state.cjs'))
+      if (request.mode !== 'install') copyFileSync(join(request.installation.appDir, 'bin', 'installation-state.cjs'), join(runtime, 'installation-state.cjs'))
       worker = join(runtime, 'worker.mjs')
     }
     writeFileSync(job, JSON.stringify(request), { flag: 'wx', mode: 0o600 })

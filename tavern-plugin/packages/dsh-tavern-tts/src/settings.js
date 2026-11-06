@@ -7,6 +7,7 @@ import recommendedFishVoices from './shared/fish-recommended.json' with {type:'j
 import { createAzureAdapter, azureVoices } from './providers/azure.js'
 import { createQwenAdapter, qwenModelInstructions, qwenVoices, QWEN_MODELS } from './providers/qwen.js'
 import { createFishAudioAdapter } from './providers/fish-audio.js'
+import { createVoicePilot } from './providers/fish-voice-design.js'
 import { createVolcengineAdapter } from './providers/volcengine.js'
 import { createMinimaxAdapter } from './providers/minimax.js'
 import { hash, canonical, fail, voicePreset, describeTtsError } from './core.js'
@@ -15,7 +16,7 @@ import { createModelValidation } from './model-validation.js'
 
 // 台词朗读: the voice for per-reply 🔊 (null = the browser's system default) and the narration voice (off by default).
 // A voice is the figure picker's binding: {browser:name} or {serviceId, voice}. Schemastery drops null defaults, so readingOf fills them.
-const Reading = z.object({ dialogueVoice: z.any(), narrator: z.object({ enabled: z.boolean().default(false), voice: z.any() }) })
+const Reading = z.object({ dialogueVoice: z.any(), narrator: z.object({ enabled: z.boolean().default(false), voice: z.any() }), readAloud: z.object({ voice: z.any(), auto: z.boolean().default(false) }) })
 export const Settings = z.object({ enabled: z.boolean().default(true), providers: z.array(z.any()).default([]), voices: z.array(z.any()).default([]),
   reading: Reading,
   cacheMaxGB: z.number().min(0.1).max(100).default(1).description('\u7f13\u5b58\u4e0a\u9650\uff08GB\uff09'),
@@ -40,13 +41,14 @@ export function validateSettings(value) {
 }
 export function readingOf(settings) {
   const r = settings.reading || {}
-  return { dialogueVoice: r.dialogueVoice ?? null, narrator: { enabled: r.narrator?.enabled === true, voice: r.narrator?.voice ?? null } }
+  return { dialogueVoice: r.dialogueVoice ?? null, narrator: { enabled: r.narrator?.enabled === true, voice: r.narrator?.voice ?? null }, readAloud: { voice: r.readAloud?.voice ?? null, auto: r.readAloud?.auto === true } }
 }
 const plainObject = v => v !== null && typeof v === 'object' && !Array.isArray(v)
 const voiceName = v => typeof v === 'string' && v.trim() !== '' && v.length <= 200 && !/[\u0000-\u001f]/.test(v)
-function readingVoice(v) {
+function readingVoice(v, allowSilent = false) {
   if (v === null) return null
   const keys = plainObject(v) ? Object.keys(v).sort().join() : ''
+  if (allowSilent && keys === 'silent' && v.silent === true) return {silent:true}
   if (keys === 'browser' && voiceName(v.browser)) return { browser: v.browser }
   if (keys === 'serviceId,voice' && PROVIDER_ID.test(v.serviceId) && voiceName(v.voice)) return { serviceId: v.serviceId, voice: v.voice }
   const uuid = s => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s)
@@ -57,13 +59,19 @@ function readingVoice(v) {
 // Validated once here, on write; a bad patch is a repairable INVALID_READING_VOICE.
 export function patchReading(current, patch) {
   const next = readingOf({ reading: current })
-  if (!plainObject(patch) || Object.keys(patch).some(k => !['dialogueVoice','narrator'].includes(k))) fail('INVALID_READING_VOICE')
-  if (Object.hasOwn(patch,'dialogueVoice')) next.dialogueVoice = readingVoice(patch.dialogueVoice)
+  if (!plainObject(patch) || Object.keys(patch).some(k => !['dialogueVoice','narrator','readAloud'].includes(k))) fail('INVALID_READING_VOICE')
+  if (Object.hasOwn(patch,'dialogueVoice')) next.dialogueVoice = readingVoice(patch.dialogueVoice, true)
   if (patch.narrator !== undefined) {
     const n = patch.narrator
     if (!plainObject(n) || Object.keys(n).some(k => !['enabled','voice'].includes(k))) fail('INVALID_READING_VOICE')
     if (n.enabled !== undefined) { if (typeof n.enabled !== 'boolean') fail('INVALID_READING_VOICE'); next.narrator.enabled = n.enabled }
     if (Object.hasOwn(n,'voice')) next.narrator.voice = readingVoice(n.voice)
+  }
+  if (patch.readAloud !== undefined) {
+    const r = patch.readAloud
+    if (!plainObject(r) || Object.keys(r).some(k => !['auto','voice'].includes(k))) fail('INVALID_READING_VOICE')
+    if (r.auto !== undefined) { if (typeof r.auto !== 'boolean') fail('INVALID_READING_VOICE'); next.readAloud.auto = r.auto }
+    if (Object.hasOwn(r,'voice')) next.readAloud.voice = readingVoice(r.voice)
   }
   return next
 }
@@ -80,13 +88,15 @@ const PLAIN_ERRORS = {FISH_AUTH_FAILED:'服务要求鉴权，请填写或检查 
   CREDENTIALS_REQUIRED:'还没有填写密钥',SERVICE_OFFLINE:'连不上服务',TIMEOUT:'请求超时',ABORTED:'已取消'}
 export function plainError(error) {
   const message = String(error?.message || '')
+  if (error?.code?.startsWith('MINIMAX_')) return message
   if (error?.code === 'PROVIDER_AUTH_FAILED') return describeTtsError(error.code)
   if (PLAIN_ERRORS[error?.code]) return PLAIN_ERRORS[error.code]
   if (/[\u3400-\u9fff]/.test(message)) return message.slice(0,300)
   return PLAIN_ERRORS[message] || '请求失败'
 }
 // \changed\: called when the voice services catalog changes (a service saved, removed or checked).
-export function createServiceSettings({ tts, get, replace, credentials, fetch, warn, samples, changed = () => {} }) {
+export function createServiceSettings({ tts, get, replace, credentials, fetch, warn, samples, pilotBudgetRoot, changed = () => {} }) {
+  const voicePilot = createVoicePilot({fetch, budgetRoot:pilotBudgetRoot})
   // Fish owns its free-only retry policy; do not wrap it in generic retries.
   const fish = createFishAudioAdapter({fetch}), discovery = createFishDiscovery({fetch})
   fetch = boundedFetch(fetch)
@@ -170,6 +180,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         return listed.source === 'manual' ? { ...await a.verify(p, secret), ...listed } : { status:'connected', ...listed }
       }
       if (p.kind === 'volcengine') return { ...await a.verify(p, secret), ...await baseVoices(p, secret) }
+      if (p.kind === 'minimax') return { status:'connected', ...await a.probe(p, secret) }
       if (a.probe) await a.probe(p, secret); else await a.catalog(p, secret)
       return { status:'connected', ...await baseVoices(p, secret) }
     } catch (error) {
@@ -219,6 +230,10 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     return {voices:structuredClone(voices),refreshing:entry.refreshing}
   }
   const api = {
+    voicePilot(args) {
+      const p = record(args.serviceId)
+      return voicePilot(args, p, async () => (await credentials()?.resolve(credentialRef(p.id,'key')))?.value)
+    },
     kinds() { return structuredClone(PROVIDER_KINDS) },
     listRecommendedFishVoices:fishCatalogue,
     async validateFishVoice(input) {

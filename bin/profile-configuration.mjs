@@ -54,17 +54,22 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
   const currentProfile = object(currentDsh.profile)
   const currentTavern = { ...object(currentDocument.dshTavern) }
   delete currentTavern.cliPocketEnabled
+  if (host === 'next') {
+    delete currentTavern.officialDesktop
+    delete currentTavern.profileBridge
+  }
   // Pocket and web-mobile each include mobile-nav, so they cannot load together.
   // Desktop and Android ship one of them and drop whatever collides with it;
   // CLI ships none, so a layout the user installed there is left alone.
-  const selectedLayout = host === 'android' ? 'dsh-web-mobile' : host === 'desktop' ? 'dsh-pocket' : null
+  const desktop = host === 'desktop' || host === 'next'
+  const selectedLayout = host === 'android' ? 'dsh-web-mobile' : desktop ? 'dsh-pocket' : null
   const excludedHostBundles = selectedLayout
     ? ['dsh-pocket', 'dsh-web-mobile', '@dsh-external/dsh-mobile-nav'].filter(name => name !== selectedLayout)
     : []
-  // Official Desktop loads Tavern in its own process; the old launcher would
-  // start a second server against the same save directory.
-  if (host === 'desktop') excludedHostBundles.push('dsh-tavern-launcher')
-  else excludedHostBundles.push('dsh-profile-bridge')
+  // Desktop installation re-adds its own launcher from the installed source.
+  // Drop previous official and NEXT launchers before the profiles are composed.
+  if (desktop) excludedHostBundles.push('dsh-tavern-launcher')
+  excludedHostBundles.push('dsh-profile-bridge')
   const sourceBundles = uniqueStrings(sourceProfile.bundles)
     .map(name => name === 'dsh-web-mobile' ? selectedLayout : name)
     .filter(name => name && !excludedHostBundles.includes(name))
@@ -260,13 +265,26 @@ export function loadProfileManifest({ profileDir, timestamp = defaultTimestamp()
   }
 }
 
-export function prepareProfilePatch({ profileDir, templateText, legacyManagedText, profileConfigurationVersion, timestamp = defaultTimestamp() }) {
+export function prepareProfilePatch({ profileDir, templateText, legacyManagedText, profileConfigurationVersion, host, timestamp = defaultTimestamp() }) {
   const patchPath = path.join(profileDir, 'cordis.patch.yml')
   if (!existsSync(patchPath)) return String(templateText)
   const currentText = readFileSync(patchPath, 'utf8')
-  if (Number(profileConfigurationVersion) >= PROFILE_CONFIGURATION_VERSION) return undefined
   try {
-    return migrateLegacyProfilePatch(currentText, legacyManagedText)
+    const migrated = Number(profileConfigurationVersion) >= PROFILE_CONFIGURATION_VERSION
+      ? undefined : migrateLegacyProfilePatch(currentText, legacyManagedText)
+    if (host !== 'next') return migrated
+    const document = parsedSequence(migrated ?? currentText, '现有 Tavern Profile 配置')
+    let changed = false
+    for (const row of document.contents.items) {
+      if (!isMap(row) || row.get('id') !== 'dsh-asset-library') continue
+      const name = row.get('name')
+      // The official bridge used to resolve this local package through desktop.
+      if (typeof name === 'string' && /^file:.*\/profiles\/desktop\/node_modules\/dsh-asset-library\/lib\/index\.js$/i.test(name)) {
+        row.delete('name')
+        changed = true
+      }
+    }
+    return changed ? String(document) : migrated
   } catch (error) {
     const backup = backupFile(patchPath, timestamp)
     if (backup !== null) error.backupPath = backup

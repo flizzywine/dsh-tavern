@@ -1,4 +1,4 @@
-// 原版 DSH / DSH 酒馆切换页：两边各一个名字、一句说明、一个按钮。
+// Desktop profile switching and Tavern installation management.
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
@@ -13,6 +13,7 @@ async function mount(status, calls = [], options = {}) {
   globalThis.document = dom.window.document
   // The Tavern client sets this flag on pages where it loaded.
   if (inTavern) dom.window.__dshTavernLoaded = true
+  if (options.next) dom.window.desktopNext = { state: async () => ({}) }
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator })
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   const React = (await import('react')).default
@@ -36,6 +37,7 @@ async function mount(status, calls = [], options = {}) {
     slots: { inject: (_name, run) => run(), register: (meta, component) => { registered = meta; page = component; return () => {} } }
   }
   await act(async () => { module.apply(ctx) })
+  if (!registered) return { registered: false, calls, dispose: () => dom.window.close() }
   const root = createRoot(dom.window.document.getElementById('root'))
   await act(async () => { root.render(React.createElement(page, registered.inject())) })
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
@@ -44,11 +46,21 @@ async function mount(status, calls = [], options = {}) {
 
 const tavernProfile = { name: 'tavern', bundles: ['dsh-tavern-plugin', 'dsh-profile-bridge'], hasNodeModules: true }
 
+test('NEXT 使用原生 Profile 设置，不注册旧切换页', async () => {
+  const page = await mount({}, [], { next: true })
+  try {
+    assert.equal(page.registered, false)
+    assert.deepEqual(page.calls, [])
+  } finally {
+    page.dispose()
+  }
+})
+
 test('快捷方式打开的独立酒馆窗口：不给切换按钮，只说明原版 DSH 直接打开', async () => {
   // 桌面版此时是原版（没有链接），这一页却是酒馆：以页面为准，不能给出「切到 DSH 酒馆」。
   const status = { appKind: 'desktop', desktopApp: false, activeIsLink: false, backups: [], profiles: [tavernProfile] }
   const page = await mount(status, [], { inTavern: true })
-  assert.equal(page.label(), '原版DSH')
+  assert.equal(page.label(), '酒馆启动器')
   assert.doesNotMatch(page.text(), /切到 DSH 酒馆/)
   assert.match(page.text(), /独立窗口/)
   const open = [...page.dom.window.document.querySelectorAll('button')].find(item => item.textContent === '打开原版 DSH')
@@ -90,6 +102,97 @@ const managedStatus = {
   installation: { available: true, appDir: 'C:\\DSH\\apps\\dsh-tavern', profileDir: 'C:\\DSH\\profiles\\tavern', dataDir: 'C:\\DSH\\profile-data\\tavern', sharedHome: 'C:\\DSH' },
 }
 const namedButton = (page, text) => [...page.dom.window.document.querySelectorAll('button')].find(button => button.textContent === text)
+
+test('官方酒馆启动器按提交检查同版本更新，并跟踪安装到完成', async () => {
+  const tavern = { ...managedStatus, activeIsLink: true, linkTargetName: 'tavern', backups: ['desktop.fresh-test'] }
+  const build = { canUpdate: true, currentVersion: '3.2.8', currentCommit: '12345678'.padEnd(40, '0') }
+  const latest = { ...build, latestVersion: '3.2.8', latestCommit: 'abcdef12'.padEnd(40, '0') }
+  let update = { ...build, phase: 'idle' }
+  let checkResult = { ...latest, latestCommit: build.currentCommit, phase: 'up-to-date' }
+  const page = await mount(tavern, [], { rpc: async endpoint => {
+    if (endpoint === 'status') return { ok: true, value: tavern }
+    if (endpoint === 'check-update') update = checkResult
+    if (endpoint === 'start-update') update = { ...latest, phase: 'running', stage: '正在下载新版' }
+    return { ok: true, value: update }
+  } })
+  try {
+    assert.match(page.text(), /当前安装v3\.2\.8 · 12345678/)
+    await page.act(async () => namedButton(page, '检查更新').click())
+    assert.match(page.text(), /已是最新版本/)
+    assert.equal(namedButton(page, '更新酒馆'), undefined)
+
+    checkResult = { ...latest, phase: 'update-available' }
+    await page.act(async () => namedButton(page, '检查更新').click())
+    assert.match(page.text(), /最新发布v3\.2\.8 · abcdef12发现新版本/)
+    assert.equal([...page.dom.window.document.querySelectorAll('.pb-builds a')].at(-1).href, `https://github.com/flizzywine/dsh-tavern/commit/${latest.latestCommit}`)
+
+    await page.act(async () => {
+      namedButton(page, '更新酒馆').click()
+      namedButton(page, '更新酒馆').click()
+    })
+    assert.equal(page.calls.filter(([endpoint]) => endpoint === 'start-update').length, 1)
+    assert.match(page.text(), /正在下载新版/)
+    assert.equal(namedButton(page, '重启并切换到原版 DSH').disabled, true)
+    update = { ...latest, phase: 'completed', requiresRestart: true }
+    await page.act(async () => { await new Promise(resolve => setTimeout(resolve, 1550)) })
+    assert.match(page.text(), /更新已安装。请退出并重新打开/)
+    assert.equal(namedButton(page, '检查更新'), undefined)
+  } finally {
+    await page.dispose()
+  }
+})
+
+test('原版桌面首次安装需要确认，排队后隐藏安装按钮', async () => {
+  const page = await mount({ appKind: 'desktop', desktopApp: true, installAvailable: true, profiles: [] })
+  try {
+    await page.act(async () => namedButton(page, '安装酒馆').click())
+    assert.deepEqual(page.calls, [['status', {}]])
+    await page.act(async () => namedButton(page, '确认安装').click())
+    assert.deepEqual(page.calls.at(-1), ['install', { confirmed: true }])
+    assert.equal(namedButton(page, '安装酒馆'), undefined)
+  } finally {
+    await page.dispose()
+  }
+})
+
+test('安装完成后可手动添加快捷方式，并重启切换到酒馆 Profile', async () => {
+  const page = await mount({
+    appKind: 'desktop', desktopApp: true, installAvailable: false,
+    profiles: [tavernProfile], lastResult: { status: 'succeeded', mode: 'install', stamp: 'installed' },
+  })
+  try {
+    assert.deepEqual(page.calls, [['status', {}]])
+    await page.act(async () => namedButton(page, '添加桌面快捷方式').click())
+    assert.deepEqual(page.calls.at(-1), ['shortcut', {}])
+    await page.act(async () => namedButton(page, '重启并切换到 DSH 酒馆').click())
+    assert.deepEqual(page.calls.at(-1), ['link', { target: 'tavern' }])
+  } finally {
+    await page.dispose()
+  }
+})
+
+test('酒馆启动器只提供切换到原版和酒馆的入口', async () => {
+  const readerProfile = { name: 'reader', bundles: ['dsh-reader', 'dsh-profile-bridge'], hasNodeModules: true }
+  const original = '重启并切换到原版 DSH'
+  const tavern = '重启并切换到 DSH 酒馆'
+  for (const [current, label, available, action, request] of [
+    ['desktop', '原版 DSH', [tavern], tavern, ['link', { target: 'tavern' }]],
+    ['reader', 'DSH 阅读器', [original, tavern], tavern, ['link', { target: 'tavern' }]],
+    ['tavern', 'DSH 酒馆', [original], original, ['unlink', {}]],
+  ]) {
+    const linked = current !== 'desktop'
+    const page = await mount({
+      appKind: 'desktop', desktopApp: true, activeIsLink: linked, linkTargetName: linked ? current : undefined,
+      backups: linked ? ['desktop.fresh-test'] : [], profiles: [tavernProfile, readerProfile],
+    })
+    assert.match(page.text(), new RegExp(`当前配置 · ${label}`))
+    assert.deepEqual([...page.dom.window.document.querySelectorAll('.pb-bar button')].map(button => button.textContent), available)
+    await page.act(async () => namedButton(page, action).click())
+    assert.deepEqual(page.calls.at(-1), request)
+    await page.dispose()
+  }
+})
+
 async function enterDestination(page, value) {
   const input = page.dom.window.document.querySelector('#pb-destination')
   await page.act(async () => {
@@ -102,10 +205,11 @@ test('卸载需要独立确认，保留数据和原版 DSH；重复点击只提�
   let finish
   const calls = []
   const page = await mount(managedStatus, calls, { rpc: async endpoint => endpoint === 'status'
-    ? { ok: true, value: managedStatus } : new Promise(resolve => { finish = resolve }) })
+    ? { ok: true, value: managedStatus } : endpoint === 'update-status'
+      ? { ok: true, value: { phase: 'idle' } } : new Promise(resolve => { finish = resolve }) })
   await page.act(async () => namedButton(page, '删除 DSH 酒馆').click())
   assert.match(page.text(), /保留全部用户数据和备份，不卸载原版 DSH/)
-  assert.deepEqual(calls.map(([endpoint]) => endpoint), ['status'])
+  assert.deepEqual(calls.map(([endpoint]) => endpoint), ['status', 'update-status'])
   await page.act(async () => {
     namedButton(page, '确认删除并重启').click()
     namedButton(page, '确认删除并重启').click()

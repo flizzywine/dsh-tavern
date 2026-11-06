@@ -49,7 +49,8 @@ async function harness(run){
   const root=createRoot(window.document.getElementById('app'))
   try{
     await act(async()=>root.render(React.createElement(Probe)))
-    await run({registry,story,played,view:()=>view,step:async fn=>{await act(async()=>fn(view))}})
+    await run({registry,story,played,view:()=>view,step:async fn=>{await act(async()=>fn(view))},
+      remount:async()=>{await act(async()=>root.render(null));await act(async()=>root.render(React.createElement(Probe)))}})
   }finally{act(()=>root.unmount());controller.dispose();speech.dispose();window.close()
     Object.assign(globalThis,{window:before.window,document:before.document,IS_REACT_ACT_ENVIRONMENT:before.act})}
 }
@@ -101,6 +102,34 @@ test('the cursor is kept per lease and appended lines are read on after the read
     // lines the game replaced (the cursor's line is gone) are read again from the first
     await step(()=>registry.publish('s1',lease('werewolf',[{id:'N1',text:'新的一局'}])))
     assert.equal(view().page,0);assert.deepEqual(view().read,{lineId:null,unread:1})
+  })
+})
+
+test('two cards resume their own lease reading position after leaving and re-entering the stage',async()=>{
+  await harness(async({registry,view,step,remount})=>{
+    for (const [owner,lines,page] of [
+      ['werewolf',LINES,2],
+      ['detective',[{id:'clue-1',text:'First clue'},{id:'clue-2',text:'Second clue'}],1]
+    ]) {
+      await step(()=>registry.publish('s1',lease(owner,lines)))
+      assert.equal(view().page,0,'a different card does not inherit the other bookmark')
+      await step(view=>view.setPage(page))
+      await step(view=>view.markRead())
+      await step(view=>view.pastEnd())
+      await step(()=>registry.release('s1',owner))
+      await remount()
+      await step(()=>registry.publish('s1',lease(owner,lines)))
+      assert.equal(view().page,page)
+      assert.equal(view().read.lineId,lines[page].id)
+      assert.equal(view().waiting,true)
+    }
+    await remount()
+    await step(()=>registry.publish('s1',lease('werewolf',[...LINES,{id:'L4',text:'The next day'}])))
+    assert.equal(view().page,3,'new lines resume after the saved end, not at the opening')
+    assert.equal(view().read.lineId,'L3')
+    await step(()=>registry.publish('s1',lease('werewolf',[{id:'new-game-1',text:'A new game'}])))
+    assert.equal(view().page,0,'a replaced game does not consume a stale reading position')
+    assert.equal(view().read.lineId,null)
   })
 })
 

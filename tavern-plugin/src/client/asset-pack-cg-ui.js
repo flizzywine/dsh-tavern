@@ -229,7 +229,7 @@ function CgFocusHints({draft,open,setOpen,set}) {
 // `back` ({parent, onBack}, a phone's detail): like EntryDetail, the name row carries the sub-page ‹.
 // as in EntryDetail the name row leads the pane on every size, above the preview.
 const cgDraft=asset=>clone(entryWithVariants(asset,entryVariantTable(asset)));
-function CgEntryEditor({binding,pack,asset,save,back=null}) {
+function CgEntryEditor({binding,pack,asset,save,back=null,fresh=false}) {
   const [draft,setDraft]=React.useState(()=>cgDraft(asset)),[revision,setRevision]=React.useState(pack.revision);
   const [files,setFiles]=React.useState(()=>new Map()),[blobs,setBlobs]=React.useState({}),[selected,setSelected]=React.useState(entryVariantTable(asset).default);
   const [busy,setBusy]=React.useState(false),[error,setError]=React.useState(''),[focusOpen,setFocusOpen]=React.useState(null);
@@ -269,7 +269,7 @@ function CgEntryEditor({binding,pack,asset,save,back=null}) {
     // 启用 is part of 触发策略 (蓝灯 / 绿灯 / 关闭); the separate 启用 switch is gone.
     h(InlineGrid,{label:draft.name+' 设置',columns:1,className:'ap-entry-fields'},
       h(InlineRow,{label:'触发策略',help:help('触发策略',LAMP_HELP+' 关闭：这张 CG 不再用于舞台。')},h(LampMenu,{mode:entryLamp(draft,false),named:true,label:'触发策略',onChange:mode=>setDraft(current=>setEntryLamp(current,mode))})),
-      h(InlineField,{kind:'chips',label:'触发词',hideEmpty:true,help:help('触发词','名称本身也算触发词。最多 16 个，每个 2–40 字。'),value:draft.recall.keywords,split:splitKeywords,validate:keywordProblem,suggest:keywordSuggest,onCommit:keywords=>setDraft(current=>applyEntryFields(current,{recall:{keywords},top:{}}))}),
+      triggerFields({value:draft.recall.keywords,suggest:keywordSuggest,fresh:fresh&&draft.enabled===false,onCommit:keywords=>setDraft(current=>applyEntryFields(current,{recall:{keywords},top:{}}))}),
       // 详情 is the inline multi-line field of the audio editors; it fills the draft on Enter / blur.
       // 导演说明 (was 详情), then the owner's 备注 (`remark`, never sent) in the same draft.
       h(InlineField,{kind:'text',multiline:true,label:'导演说明',className:'ap-note-field',hideEmpty:true,help:help('导演说明','会和名称一起发给导演，用来判断什么时候展示这张 CG。只写适用情景，最多 300 字。'),placeholder:'适用情景',value:draft.directorNote||'',

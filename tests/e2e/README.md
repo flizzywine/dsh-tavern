@@ -66,6 +66,10 @@ pnpm test:e2e
 
 每次创建临时 Profile、会话和角色卡，使用随机本地端口，不读取现有游玩数据或复制模型密钥。结束时关闭本次启动的浏览器和服务，删除临时数据。默认不加入常规 `pnpm test`，按需执行。
 
+### DSH 0.2.1 / 0.2.2 双版本回归
+
+同一套 Tavern 代码需要分别在 0.2.1-rc.2 与 0.2.2-rc.1 的隔离宿主中运行完整游玩，并追加 `--stage-session-switch` 覆盖双局切换。`TAVERN_E2E_RUNTIME` 选择实际启动的宿主；在 Windows 或测试预加载需要宿主包时，还要把 `DSH_BOOT_MODULE` 指向同一运行时的 `@deepseek-ai/dsh-app-boot/lib/index.js`，不能混用两个版本。独立 CLI 的固定版本由 `config/cli-runtime` 与锁文件决定；桌面版双版本支持不以升级 CLI 为前提。
+
 ## 验证范围
 
 实际运行 DSH、酒馆插件、浏览器、人物卡状态栏、官方 MVU 本地运行时与存储。只替换模型输出：固定回复领取奖励，通过真实 `mvu_submit_update` 和 `posture_submit` 工具完成结算。测试不会直接把金币写成预期值，也不会模拟酒馆 HTTP 接口。

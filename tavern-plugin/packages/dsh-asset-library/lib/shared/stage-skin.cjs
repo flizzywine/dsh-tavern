@@ -121,6 +121,10 @@ const skinTransition = value => skinObject({ms:skinNumber(60,1500),ease:skinTxEa
 // page: enter only, shapes only (the box's own page motion is textbox.motion.page); stagger only staggers the choice rows;
 // the choice rows are the choices' parts already (no parts there). sameSpeaker: the page's shapes play only on a page that keeps the speaker - a change of speaker
 // (to, from or between speakers) turns quietly.
+// scrollbars: the stage draws no native scrollbar (wheel, touch, keys and focus still scroll; clipped edges carry their own
+// cue). A surface named here shows a styled one instead: thumb / track colours and its width in CSS px (default 6).
+const STAGE_SKIN_SCROLLBAR_SURFACES = Object.freeze(['menu','backlog','config','choices','text','gallery','page']);
+const skinScrollbars = value => skinObject(Object.fromEntries(STAGE_SKIN_SCROLLBAR_SURFACES.map(surface => [surface,skinObject({thumb:skinColor,track:skinColor,width:skinNumber(2,24)},['thumb'])])))(value) && Object.keys(value).length > 0;
 const skinTransitions = value => skinObject(Object.fromEntries(STAGE_SKIN_TRANSITION_SURFACES.map(surface => [surface,skinObject({enter:skinTransition,leave:skinTransition})])))(value)
     && Object.keys(value).length > 0 && Object.entries(value).every(([surface,phases]) => Object.keys(phases).length > 0 && Object.values(phases).every(t => (surface === 'choices' || t.stagger === undefined) && (surface !== 'choices' || t.parts === undefined) && (surface === 'page' || t.sameSpeaker === undefined)
             && (!t.slide || STAGE_SKIN_SLIDE_SURFACES.includes(surface) && !t.parts))
@@ -362,7 +366,8 @@ const skinMenuTileArt = value => value !== null && typeof value === 'object' && 
 const skinMenuTiles = skinObject({x:skinPx,y:skinPx,w:skinNumber(16,2048),h:skinNumber(16,2048),pitch:skinArray(skinNumber(0,2048),2,2),cols:skinNumber(1,6,true),fit:skinNumber(16,4096),
     // number: the tiles numbered 01, 02, ... in the menu's order at x, y (cell px), font px, ink / focusInk, an
     // outline stroke; tilt: each tile's own small angle, cycled by its place in the menu; lift: the focused tile's scale and rise.
-    offset:skinArray(skinPx,2,2),art:skinMenuTileArt,plain:skinImage,hover:skinHighlight,
+    // plainFocus: the plain tile under focus; minScale: the capacity floor - past it the grid scrolls inside fit.
+    offset:skinArray(skinPx,2,2),art:skinMenuTileArt,plain:skinImage,plainFocus:skinImage,minScale:skinNumber(.3,1),hover:skinHighlight,
     number:skinObject({x:skinPx,y:skinPx,font:skinNumber(8,512),ink:skinColor,focusInk:skinColor,stroke:skinObject({color:skinColor,width:skinNumber(0,16)},['color','width'])},['x','y','font']),
     tilt:skinArray(skinNumber(-10,10),1,8),lift:skinObject({scale:skinNumber(.8,1.3),dy:skinNumber(-64,64)}),
     label:skinObject({y:skinPx,font:skinNumber(8,256),ink:skinColor,focusInk:skinColor,lead:skinNumber(1,3),weight:skinEnum([400,500,700]),halo:skinHalo,align:skinEnum(['start','center']),x:skinPx,
@@ -410,9 +415,11 @@ const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:
     // larger (its bar and hit area unchanged), on phones too.
     rows:skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),slant:skinNumber(-256,256),
         font:skinNumber(8,256),x:skinPx,y:skinPx,gap:skinNumber(0,512),ink:skinColor,focusInk:skinColor,weight:skinEnum([400,500,700]),spacing:skinNumber(0,0.5),align:skinEnum(['start','center','end']),cursor:skinObject({image:skinImage,x:skinPx,y:skinPx},['image','x','y']),
-        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),focusScale:skinNumber(1,1.6),poses:skinMenuPoses},
+        // fit: the bars' most height (the menu's capacity) - past it they scroll inside it.
+        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),focusScale:skinNumber(1,1.6),poses:skinMenuPoses,fit:skinNumber(16,4096)},
         ['images','slice','text','font','x','y','gap']),
     title:skinMenuTitle,info:skinMenuStrip,keys:skinMenuStrip})(value) && Object.hasOwn(value,'rows') !== Object.hasOwn(value,'tiles')
+    && (!value.tiles?.plainFocus || Boolean(value.tiles.plain)) && (value.tiles?.minScale === undefined || value.tiles.fit !== undefined)
     // the glyph cut and its tiles come together: a word is only cut where a skin says how its glyphs are drawn.
     && Boolean(value.glyphTiles) === Boolean(value.rows?.letter || value.title?.letter)
     && (!value.narrow || Boolean(value.rows) && (!value.narrow.title || Boolean(value.title)) && (!value.narrow.signal || Boolean(value.signal && value.title)));
@@ -441,8 +448,9 @@ const skinBacklogVoice = value => skinRect(value) || skinObject({anchor:skinEnum
 // fixed edges carry tape, pins and tails) and overhangs the entry by out [top, right, bottom, left] design px. poses = each
 // entry's own offset (x, y design px) and turn (rot degrees), cycled by its place like art.menu.rows.poses - the hit area,
 // highlight and reading order go with the plate; slant = the words' oblique angle in degrees (a vector skew).
+// scale = design px per source image px, scalar or [x,y], default 1. Slice stays source px; out and poses stay design px.
 // divider.letter ransom (C2): the turn rule's words as glyph tiles (art.backlog.glyphTiles, else art.menu.glyphTiles) on its plate.
-const skinBacklogEntryPlateFields = {images:skinArray(skinObject({image:skinImage,ground:skinColor,ink:skinColor},['image','ground','ink']),1,8),slice:skinSlice,
+const skinBacklogEntryPlateFields = {scale:skinScale,images:skinArray(skinObject({image:skinImage,ground:skinColor,ink:skinColor},['image','ground','ink']),1,8),slice:skinSlice,
     out:skinArray(skinNumber(-1024,1024),4,4),poses:skinArray(skinObject({x:skinNumber(-256,256),y:skinNumber(-256,256),rot:skinNumber(-12,12)},['x','rot']),1,8),slant:skinNumber(-20,20)};
 const skinBacklogEntryPlate = skinObject(skinBacklogEntryPlateFields,['images','slice']);
 const skinBacklogDividerPlate = skinObject({...skinBacklogEntryPlateFields,letter:skinEnum(STAGE_SKIN_MENU_LETTERS)},['images','slice']);
@@ -968,6 +976,8 @@ const stageSkinShape = skinObject({
     modes:skinModes,
     // how the stage's surfaces come and go (skinTransitions above).
     transitions:skinTransitions,waitLines:skinWaitLines,
+    // which surfaces show a styled scrollbar (skinScrollbars above); the rest show none.
+    scrollbars:skinScrollbars,
     // the stage CONFIG screen's own look (skinConfigSurface above).
     config:skinConfigSurface
 },['schema','id','label','textbox','nameplate','font','textFx']);
@@ -1112,7 +1122,7 @@ function stageSkinArtFiles(art) {return [...(art?.spinner ? art.spinner.parts ? 
 function stageSkinScreenFiles(art) {
     const placed=item => item ? [item.image,item.focus] : [], b=art?.backlog, c=art?.config, m=art?.menu, k=art?.confirm;
     return [...new Set([...(m ? [m.sheet,m.frame?.image,...Object.values(m.rows?.images || {}),m.rows?.cursor?.image,...['title','info','keys'].flatMap(key => [m[key]?.image,m[key]?.rule?.image]),
-            ...Object.values(m.tiles?.art || {}).flatMap(tile => [tile.image,tile.focus]),m.tiles?.plain,m.tiles?.hover?.image,m.signal?.image,m.signal?.alert,
+            ...Object.values(m.tiles?.art || {}).flatMap(tile => [tile.image,tile.focus]),m.tiles?.plain,m.tiles?.plainFocus,m.tiles?.hover?.image,m.signal?.image,m.signal?.alert,
             m.narrow?.sheet,...Object.values(m.narrow?.rows?.images || {})] : []),
         ...(k ? [k.band,k.top,k.bottom,k.button.plain,k.button.focus] : []),
         ...(b ? [b.sheet,b.hover?.image,...placed(b.title),...placed(b.close),...placed(b.name?.frame),...placed(b.name?.rule),b.scrollbar?.track,b.scrollbar?.thumb,...Object.values(b.badges || {}),
@@ -1143,4 +1153,4 @@ const BUILTIN_STAGE_SKINS = Object.freeze(Object.fromEntries([
     // Film subtitles stay 新晰黑 in every built-in (migrated from the old per-theme table).
     nameplate:{shape:'plain',paint:{bg,fg}},font:{...(stage ? {body:stage} : {}),film:'neo-xihei-screen'},textFx:{reveal:'type'},
     ui:{bg,fg,fgMuted,accent,onAccent:bg,border,radius,...(veil ? {veil} : {})}}])));
-if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = {STAGE_SKIN_SOURCE_KINDS,stageSkinForDevice,STAGE_PORTRAIT_SOURCES,stageSkinPortraitOrder,validateStageSkin,stageSkinFiles,stageSkinConfigFiles,STAGE_CONFIG_LOOKS,stageSkinScreenFiles,stageSkinImageOf,stageSkinSliceEdges,skinContrast,STAGE_SKIN_SFX_CUES,stageSkinAppearance,BUILTIN_STAGE_SKINS,STAGE_SKIN_PLATE_ALPHA,STAGE_BACKLOG_ROLES,STAGE_SKIN_TRANSITION_SURFACES,STAGE_SKIN_SLIDE_SURFACES,STAGE_SKIN_WIPES,STAGE_SKIN_TX_EASES};
+if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = {STAGE_SKIN_SOURCE_KINDS,stageSkinForDevice,STAGE_PORTRAIT_SOURCES,stageSkinPortraitOrder,validateStageSkin,stageSkinFiles,stageSkinConfigFiles,STAGE_CONFIG_LOOKS,stageSkinScreenFiles,stageSkinImageOf,stageSkinSliceEdges,skinContrast,STAGE_SKIN_SFX_CUES,stageSkinAppearance,BUILTIN_STAGE_SKINS,STAGE_SKIN_PLATE_ALPHA,STAGE_BACKLOG_ROLES,STAGE_SKIN_TRANSITION_SURFACES,STAGE_SKIN_SCROLLBAR_SURFACES,STAGE_SKIN_SLIDE_SURFACES,STAGE_SKIN_WIPES,STAGE_SKIN_TX_EASES};

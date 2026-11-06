@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { sessionEvents } from './session-events.js'
 import { createSessionSurfaceMutator } from './session-surface-mutations.js'
+import { withHostSession } from '../host/sessions.js'
 
 export const GAME_FOREGROUND_PREFIX = 'tavern-game-mode:'
 export function gameModeForegroundId(key, text) {
@@ -33,11 +34,8 @@ export function projectGameModeForeground(session, { key, text }) {
 }
 
 export async function restoreGameModeForeground({ sessions, agents }, gameId, projection) {
-  let handle
-  let session = sessions.get(gameId) || agents.get(gameId)?.session
-  if (!session) { handle = await agents.resume({ resumeSessionId: gameId }); session = handle.agent.session }
-  try {
+  return withHostSession({ sessions, agents }, gameId, async session => {
     projectGameModeForeground(session, projection)
     await sessions.flush(session)
-  } finally { if (handle) await handle.dispose() }
+  })
 }

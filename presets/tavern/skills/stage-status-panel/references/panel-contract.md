@@ -32,7 +32,7 @@
 
 - **快捷键**：在舞台上按 `shortcut` 字母打开这一页，再按一次或按 Esc 关闭。舞台自己的键先处理，所以只有上面列出的字母可用。
 - **菜单行**：每个 `menu:true` 的页面在 Esc 菜单里一行，文字是 `label`，有快捷键时提示里带上键名。
-- **进入舞台（showOn）**：玩家每次从文字模式进入舞台（包括「从这里进入舞台」）都会触发一次；舞台重新挂载、换轮、改设置不会触发。这一页代替本次的入场动画，关闭后照常续读。
+- **进入舞台（showOn）**：玩家每次从文字模式进入舞台（包括「从这里进入舞台」）都会触发一次；舞台重新挂载、换轮、改设置不会触发。这一页代替本次的入场动画，从舞台的第一帧就盖住舞台（先是页面底色，页面就绪后显示内容），`continueGame()` 进入舞台后照常续读。
 
 每次进入最多打开一页，按数组顺序取第一个匹配的：
 
@@ -42,7 +42,7 @@
 
 聊天有了玩家消息之后，`initial` 页不会再被自动打开。校验不限制 showOn 页的数量，排在后面的匹配页不会自动出现，但仍可以用快捷键、菜单或 `open(id)` 打开。
 
-页面开着时舞台暂停输入和自动/快进。关闭方式：关闭按钮、Esc、本页快捷键，或脚本调 `close()`；showOn 页也一样，关闭就是继续。
+页面开着时舞台暂停输入和自动/快进。关闭方式：关闭按钮、Esc、本页快捷键，或脚本调 `close()`。进入舞台时打开的 showOn 页不同：关闭就是不进入，回到文字模式（同「返回主页面」）；进入舞台用 `continueGame()` 或 `fillInput(text)`；它用 `open(id)` 换到的页也还在进入之前。
 
 ## 写入
 
@@ -79,14 +79,40 @@ tavern_update_card({ rawOperations: [
 | 接口 | 作用 |
 | --- | --- |
 | `page` | 本页 id。 |
-| `data()` | 当前快照（副本）：`{ledger, figures, theme, card: {name}}`。 |
+| `data()` | 当前快照（副本）：`{ledger, figures, theme, card: {name}, saved}`。 |
 | `onData(fn)` | 推送新快照时调用 `fn(snapshot)`，返回取消订阅的函数。 |
-| `close()` | 关闭本页。 |
+| `close()` | 关闭本页；进入舞台时打开的 showOn 页是返回主页面。 |
 | `open(id)` | 关闭本页，打开另一页。 |
 | `openSettings()` | 在本页上面打开舞台 CONFIG，本页保持打开。 |
 | `fillInput(text)` | 把文字填进舞台「自由输入」：关闭本页、跳到最新一轮末尾并显示草稿，不发送。 |
 | `asset(ref)` | 本卡绑定素材包里的媒体，返回 `Promise<blob: URL>`。`ref` 是 `{kind, id, variant?, file?, size?}`：图片按 `variant`（默认该条目的默认差分），视频包按 `file`（默认入口文件，`'poster'` 是封面）；`size` 取缩略图。不在本卡绑定包里时 Promise 拒绝，报「本卡的素材包里没有」。 |
 | `assets(kind)` | 本卡绑定包里某类条目的列表 `[{id, name, description?, variants?, files?}]`，同一 id 以绑定顺序靠前的包为准。 |
+| `newGame()` | 离开舞台，打开本卡的「游戏准备」（与人物卡列表的开始游戏相同）。本局已存档（`saved`）时先弹确认框；玩家取消时得到 `{started: false}`，页面保持打开。 |
+| `continueGame()` | 关闭本页，从当前读到的那一句继续（showOn 页由此进入舞台）。 |
+| `openGallery()` | 在本页上面打开「回想」，关掉回想回到本页。 |
+| `exit()` | 返回主页面（与舞台菜单的「返回主页面」相同）。 |
+| `sound(name)` | 播放当前舞台皮肤自带的界面音效，`name` 是 `move`（移动、悬停）、`confirm`（确定）、`open`、`close` 之一；跟随界面音量和静音。皮肤没有这个音效时不出声。 |
+
+每个动作都返回 Promise，并且一定会兑现或拒绝：点按钮时先禁用按钮的页面，等 Promise 结束后再启用即可，不会卡住。
+
+给元素加 `data-dsh-sound` 属性，舞台替页面放音效：鼠标移上或获得焦点时 `move`，点击时 `confirm`；禁用的元素不出声。
+
+```html
+<button data-dsh-sound id="new">新游戏</button>
+<button data-dsh-sound id="continue">继续</button>
+<script>
+  const page = window.DshCardPage
+  document.getElementById('continue').disabled = !page.data().saved
+  async function run(button, action) {
+    document.querySelectorAll('button').forEach(b => { b.disabled = true })
+    try { await action() } finally { document.querySelectorAll('button').forEach(b => { b.disabled = b.id === 'continue' && !page.data().saved }) }
+  }
+  document.getElementById('new').onclick = event => run(event.currentTarget, page.newGame)
+  document.getElementById('continue').onclick = event => run(event.currentTarget, page.continueGame)
+</script>
+```
+
+进入舞台时打开的 showOn 页（标题页、开场页）开着时，舞台的这一句（打字、配音、自动播放）停在原处，进入舞台后才从当前这一句开始。读到一半用快捷键或菜单打开的页面不停：正在播的配音照常播完。BGM 和环境音不受影响。
 
 快照：
 
@@ -96,6 +122,7 @@ tavern_update_card({ rawOperations: [
   figures: [{ name: '辉夜', emotion: '平静', avatar: 'data:image/webp;base64,…' }],
   theme: { accent: '#c79060', accentText: '#171717', surface: '#242321', surfaceText: '#faf7f2',
            muted: '#c6c0b8', border: '#70685f', radius: 12, fontFamily: '…', headingFont: '…' },
+  saved: true,
   card: { name: '辉夜大小姐' }
 }
 ```
@@ -103,6 +130,7 @@ tavern_update_card({ rawOperations: [
 - `ledger` 只含声明的分区，合计不超过 12 KiB，超出时从最长的列表末尾截掉条目。页面开着时每结算完一轮重新读一次并推送。
 - `figures` 的头像是 `data:` URL，到得比文字晚：打开时 `avatar` 可能还是 `null`，就绪后再推送一次。认不出的人物 `avatar` 一直是 `null`。
 - 台账和人物名来自剧情，插进 HTML 前转义。
+- `saved`：这局已经有玩家发过的消息（不是刚开局）。标题页用它决定「继续」是否可用。
 
 ## 皮肤配色
 

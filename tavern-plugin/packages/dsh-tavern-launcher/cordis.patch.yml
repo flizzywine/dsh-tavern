@@ -1,0 +1,7 @@
+- insert:
+    - id: dsh-tavern-launcher
+      name: dsh-tavern-launcher
+      inject:
+        - connection
+        - profileContext
+        - webServer

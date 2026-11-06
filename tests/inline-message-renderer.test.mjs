@@ -200,6 +200,82 @@ test('同一页面重复注入静态缓存脚本时只安装一次，避免两�
   assert.deepEqual(writes, [], '已代理的地址不应再次写回')
 })
 
+test('detached status portraits and inserted subtrees enter the static asset proxy', async t => {
+  const { JSDOM } = await import('jsdom')
+  const script = client.buildTavernFrameDocument({ content: '' }).match(/<script data-dsh-tavern-static-cache>([\s\S]*?)<\/script>/)[1]
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { runScripts: 'outside-only', url: 'https://tavern.example/' })
+  t.after(() => dom.window.close())
+  const { window } = dom, { document } = window
+  window.eval(script)
+  const wrapper = document.createElement('section')
+  const portrait = document.createElement('div')
+  const url = 'https://files.catbox.moe/portrait.png'
+  portrait.style.backgroundImage = `url("${url}")`
+  wrapper.append(portrait)
+  const fragment = document.createDocumentFragment()
+  fragment.append(wrapper)
+  document.body.append(fragment)
+  await new Promise(resolve => window.setTimeout(resolve, 0))
+  assert.ok(portrait.style.backgroundImage.includes('/api/dsh-tavern/static-assets?url=' + encodeURIComponent(url)))
+
+  wrapper.insertAdjacentHTML('beforeend', '<div style="background:url(https://img.example/second.png)"></div><img src="https://img.example/card.png"><video src="https://media.example/movie.mp4" poster="https://img.example/poster.png"></video><iframe src="https://page.example/"></iframe>')
+  await new Promise(resolve => window.setTimeout(resolve, 0))
+  assert.match(wrapper.children[1].style.background, /static-assets/)
+  assert.match(wrapper.querySelector('img').src, /static-assets/)
+  const video = wrapper.querySelector('video')
+  assert.match(video.poster, /static-assets/)
+  assert.equal(video.src, 'https://media.example/movie.mp4')
+  assert.equal(wrapper.querySelector('iframe').src, 'https://page.example/')
+
+  portrait.style.backgroundImage = 'url("https://img.example/updated.png")'
+  await new Promise(resolve => window.setTimeout(resolve, 0))
+  assert.ok(portrait.style.backgroundImage.includes(encodeURIComponent('https://img.example/updated.png')))
+})
+
+test('browser loads detached iframe background portraits through the proxy when direct images fail', { skip: !process.env.TAVERN_BROWSER_CHANNEL }, async t => {
+  const { chromium } = await import('playwright')
+  const browser = await chromium.launch({ channel: process.env.TAVERN_BROWSER_CHANNEL, headless: true })
+  t.after(() => browser.close())
+  const page = await browser.newPage()
+  const script = client.buildTavernFrameDocument({ content: '' }).match(/<script data-dsh-tavern-static-cache>([\s\S]*?)<\/script>/)[1]
+  const proxied = [], errors = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.route('**/*', route => {
+    const url = new URL(route.request().url())
+    if (url.pathname === '/api/dsh-tavern/static-assets') {
+      proxied.push(url.searchParams.get('url'))
+      return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="100"><rect width="80" height="100" fill="green"/></svg>' })
+    }
+    if (url.href === 'https://tavern.example/') return route.fulfill({ contentType: 'text/html', body: '<!doctype html><iframe></iframe>' })
+    return route.abort()
+  })
+  await page.goto('https://tavern.example/')
+  await page.locator('iframe').evaluate((frame, shim) => { frame.srcdoc = '<!doctype html><script>' + shim + '</script><body></body>' }, script)
+  const frame = await page.locator('iframe').elementHandle().then(handle => handle.contentFrame())
+  await frame.waitForFunction(() => typeof window.__dshTavernStaticAssetUrl === 'function')
+  await frame.evaluate(() => {
+    const wrapper = document.createElement('section')
+    for (let i = 0; i < 8; i++) {
+      const portrait = document.createElement('div')
+      portrait.style.cssText = 'width:80px;height:100px;display:inline-block'
+      portrait.style.backgroundImage = `url("https://files.catbox.moe/portrait-${i}.png")`
+      wrapper.append(portrait)
+    }
+    document.body.append(wrapper)
+  })
+  await frame.waitForFunction(() => [...document.querySelectorAll('section > div')].length === 8 && [...document.querySelectorAll('section > div')].every(node => node.style.backgroundImage.includes('/api/dsh-tavern/static-assets?url=')))
+  const sizes = await frame.evaluate(() => Promise.all([...document.querySelectorAll('section > div')].map(async node => {
+    const image = new Image()
+    const url = new URL(getComputedStyle(node).backgroundImage.match(/^url\("(.*)"\)$/)[1])
+    image.src = url.pathname + url.search
+    await image.decode()
+    return [image.naturalWidth, image.naturalHeight]
+  })))
+  assert.deepEqual(sizes, Array.from({ length: 8 }, () => [80, 100]))
+  assert.equal(new Set(proxied).size, 8)
+  assert.deepEqual(errors, [])
+})
+
 test('右侧持久页面记录被捕获的按钮异常和执行日志，但不采集 DOM', () => {
   const html = client.buildTavernFrameDocument({ content: '', token: 'diagnostics', persistent: true, helperContext: { messages: [] }, observeMvuView: false, runtimeReporting: true })
   const script = html.match(/<script data-dsh-tavern-frame>([\s\S]*?)<\/script>/)[1]

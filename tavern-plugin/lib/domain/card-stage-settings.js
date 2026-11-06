@@ -21,6 +21,7 @@ export function validateCardStage(value, path = '$.stage') {
   for (const key of switches) if (value[key] !== undefined) bool(value[key], path + '.' + key)
   // 基础设置's card layer (本卡开启 / 本卡关闭) of each four-state switch; a missing key follows the global switch.
   if (value.switches !== undefined) {
+    delete value.switches.fullReading // Drop the retired reading switch before strict validation.
     shape(value.switches, CARD_STAGE_SWITCHES, [], path + '.switches')
     for (const [key, choice] of Object.entries(value.switches)) check(choice === 'on' || choice === 'off', path + '.switches.' + key)
   }
@@ -98,9 +99,12 @@ export function effectiveCardStage(extension, engine) {
   // an ordinary card (no dsh_tavern extension) never has 对话气泡 or 舞台模式, whatever the global switches say.
   value.dialogue &&= !!extension
   value.stage &&= value.dialogue
-  // 全文朗读 reads the whole reply in the 通用声音, so 角色配音 (and with it 旁白配音, which needs voice) is off.
-  if (value.fullReading) value.voice = false
   return value
+}
+
+export function cardStageVoicing(extension, engine) {
+  const stage = effectiveCardStage(extension, engine)
+  return stage.dialogue && stage.voice
 }
 
 // 自动生成选项 for a card: the global candidateAutoGenerate with this card's switch.
@@ -110,10 +114,10 @@ export function effectiveAutoChoices(extension, globalOn) {
 
 // 旁白配音 in effect for a card: each key of the card layer (stage.narrator) wins over the global one, the tts plugin's
 // tts.reading().narrator (`globalNarrator`; absent = off). The voice is {packId, figureId}, {browser} or {serviceId, voice}.
-export function effectiveNarrator(extension, globalNarrator) {
+export function effectiveNarrator(extension, globalNarrator, generalVoice = null) {
   const global = globalNarrator || {enabled:false, voice:null}, card = extension?.stage?.narrator || {}
   // its switch is four-state too: the card layer's enabled (true 本卡开启, false 本卡关闭) with the global one.
-  return {enabled:resolveSwitch(global.enabled, card.enabled === undefined ? null : card.enabled ? 'on' : 'off'), voice:card.voice !== undefined ? card.voice : global.voice}
+  return {enabled:resolveSwitch(global.enabled, card.enabled === undefined ? null : card.enabled ? 'on' : 'off'), voice:card.voice ?? global.voice ?? generalVoice}
 }
 
 export function cardEngineSettings(engine, extension) {

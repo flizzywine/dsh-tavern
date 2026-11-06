@@ -32,7 +32,9 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
   isBackground = () => false, isWorldbookPath = () => false, regenerateWithProvider }) {
   const tasks = new Map(), regenerations = new Map()
   async function route(sessionId, turn) {
-    return bodyGenerationRoute(await routeChatForSession(sessionId), await settings(), turn)
+    const chat = await routeChatForSession(sessionId)
+    const control = chat && ['story', 'script'].includes(chat.mode || 'story') ? await providers.controlRoute?.(sessionId) : null
+    return bodyGenerationRoute(control ? { ...chat, storyGenerationMode: control.mode, storyGenerationProvider: control.provider } : chat, await settings(), turn)
   }
   async function materialsFor(chat, turn) {
     const frame = findBodyRegenerationFrame(chat, turn)
@@ -184,7 +186,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
       }
     },
     async regenerate(gameId, guidance = '') {
-      const selection = configuredBodyGeneration(await routeChatForSession(gameId), await settings())
+      const selection = await providers.controlRoute?.(gameId) || configuredBodyGeneration(await routeChatForSession(gameId), await settings())
       const selected = { storyGenerationMode: selection.mode, storyGenerationProvider: selection.provider }
       if (!selected.storyGenerationMode?.startsWith('plugin-')) return null
       // A persisted tail user has no old assistant body to replace. Resume the
