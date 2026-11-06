@@ -114,6 +114,7 @@ import { createForegroundStyleReferenceTool, foregroundStyleReferencePrompt, rem
 import { adoptConversationFeatures, adoptConversationBackground } from './domain/conversation-background.js'
 import { clearLegacyTavernDefault } from './domain/legacy-agent-default.js'
 import { conversationStateAtMessage, conversationStateAtTurn, conversationForkBoundary } from './domain/conversation-fork-point.js'
+import { legacyMessageUid } from './domain/message-uid.js'
 import { createCardResponseTest } from './domain/card-response-test.js'
 import { createGameplayApi } from './gameplay-api.js'
 import { cardOpeningChoices } from './domain/card-openings.js'
@@ -2263,17 +2264,27 @@ export async function apply(ctx) {
     await updateChat(chat.id, current => { current.messages = [...(current.messages || []), ...appended.messages]; return current }, { source: 'test.append-rounds' })
     return { appended: rounds.length, lastTurn: appended.lastTurn }
   }
-  async function prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn, requestedMessageIndex, requestedRevision) {
+  async function prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn, requestedMessageIndex, requestedRevision, requestedMessageUid) {
     const source = str(sourceChatId) === '' ? await chatForSession(str(sourceSessionId)) : await readChat(str(sourceChatId))
     if (!source) throw new Error('找不到要分叉的源对话')
     assertConversationForkable(source, { agentRunning: agentRegistry.get(source.sessionId)?.phase?.kind === 'running' })
     if (requestedMessageIndex !== undefined && requestedMessageIndex !== null) {
       if (!Number.isSafeInteger(requestedMessageIndex) || requestedMessageIndex < 0) throw new Error('分叉消息位置无效')
-      if (requestedRevision !== source._storageRevision) throw new Error('剧情已变化，请重新选择分叉消息')
-      const { state, turn, messageIndex } = await conversationStateAtMessage(source, requestedMessageIndex, readChatRevision)
+      const messageUid = requestedMessageUid === undefined || requestedMessageUid === null ? '' : str(requestedMessageUid)
+      if (requestedMessageUid !== undefined && requestedMessageUid !== null && messageUid === '') throw new Error('分叉消息身份无效')
+      let requestedIndex = requestedMessageIndex
+      if (messageUid) {
+        const matches = []
+        for (let index = 0; index < (source.messages || []).length; index++) {
+          if (legacyMessageUid(source.messages[index], index) === messageUid) matches.push(index)
+        }
+        if (matches.length !== 1) throw new Error('分叉消息已经变化，请重新选择')
+        requestedIndex = matches[0]
+      } else if (requestedRevision !== source._storageRevision) throw new Error('剧情已变化，请重新选择分叉消息')
+      const { state, turn, messageIndex } = await conversationStateAtMessage(source, requestedIndex, readChatRevision)
       // A story fork starts a blank native Session. The committed Chat prefix is
       // bound first; native repair then projects that prefix into model context.
-      return { source, state, turn, messageIndex, atSeq: null, storyDirect: true }
+      return { source, state, turn, messageIndex, atSeq: null, storyDirect: true, ...(messageUid ? { messageUid } : {}) }
     }
     const { state, turn } = await conversationStateAtTurn(source, requestedTurn, readChatRevision)
     let handle
@@ -2305,9 +2316,12 @@ export async function apply(ctx) {
     } catch (error) { console.warn('dsh-tavern: 分叉时处理插件数据失败:', str(error?.message || error)) }
   }
 
-  async function forkChat(sourceChatId, sourceSessionId, targetSessionId, requestedTurn, expectedRevision, expectedAtSeq, requestedMessageIndex) {
-    const { source, state, turn, atSeq, messageIndex, storyDirect } = await prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn, requestedMessageIndex, expectedRevision)
-    if (expectedRevision !== source._storageRevision || (!storyDirect && expectedAtSeq !== atSeq)) throw new Error('源对话已变化，请重新选择分叉位置')
+  async function forkChat(sourceChatId, sourceSessionId, targetSessionId, requestedTurn, expectedRevision, expectedAtSeq, requestedMessageIndex, requestedMessageUid) {
+    const { source, state, turn, atSeq, messageIndex, storyDirect, messageUid } = await prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn, requestedMessageIndex, expectedRevision, requestedMessageUid)
+    // Stable story identity covers unrelated writes between prepare and execute.
+    // Legacy story requests and native atSeq forks retain their original fences.
+    const sourceChanged = !(storyDirect && messageUid) && expectedRevision !== source._storageRevision
+    if (sourceChanged || (!storyDirect && expectedAtSeq !== atSeq)) throw new Error('源对话已变化，请重新选择分叉位置')
     const targetId = str(targetSessionId)
     if (targetId === '' || await chatForSession(targetId) !== undefined) throw new Error('分叉目标必须是尚未绑定对话的新 Session')
     let targetHandle
@@ -3554,7 +3568,9 @@ export async function apply(ctx) {
   }
 
   const bodyEditor = createBodyEditor({
-    chats: { forSession: hookChatForSession, update: updateChat, patch: patchChat },
+    // Story editing resolves an absolute row/UID and must not read a sparse
+    // request-hook window that can omit the selected floor.
+    chats: { forSession: chatForSession, update: updateChat, patch: patchChat },
     sessions: { get: id => ctx.get('agents')?.get(id), flush: session => sessionStore.flush(session) },
     timeline: storyTimeline,
     activity: chat => backgroundTasks.activity(chat),
@@ -3569,7 +3585,10 @@ export async function apply(ctx) {
   })
 
   const messageDeletion = createMessageDeletion({
-    chats: { forSession: hookChatForSession, update: updateChat },
+    // Deletion resolves absolute story indices and may follow a persisted UID
+    // across the whole history; request-hook bounded projections are not writable
+    // Chat reads and can omit the selected row.
+    chats: { forSession: chatForSession, update: updateChat },
     sessions: { get: id => ctx.get('agents')?.get(id), flush: session => sessionStore.flush(session) },
     activity: chat => backgroundTasks.activity(chat),
     view: sessionView,

@@ -42,12 +42,12 @@ export function createConversationHandlers(deps) {
       return await deleteChat(args && args.chatId)
     },
     async prepareConversationFork(args) {
-      const plan = await prepareConversationFork(args?.chatId, args?.sessionId, args?.turn, args?.messageIndex, args?.revision)
+      const plan = await prepareConversationFork(args?.chatId, args?.sessionId, args?.turn, args?.messageIndex, args?.revision, args?.messageUid)
       return { turn: plan.turn, atSeq: plan.atSeq, sourceRevision: plan.source._storageRevision,
-        messageIndex: plan.messageIndex, storyDirect: plan.storyDirect === true }
+        messageIndex: plan.messageIndex, messageUid: plan.messageUid, storyDirect: plan.storyDirect === true }
     },
     async forkChat(args) {
-      return { fork: await forkChat(args?.chatId, args?.sessionId, args?.targetSessionId, args?.turn, args?.sourceRevision, args?.atSeq, args?.messageIndex) }
+      return { fork: await forkChat(args?.chatId, args?.sessionId, args?.targetSessionId, args?.turn, args?.sourceRevision, args?.atSeq, args?.messageIndex, args?.messageUid) }
     },
     async getSessionInventory(args) {
       return await sessionInventory.read()

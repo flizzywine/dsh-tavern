@@ -30,6 +30,7 @@ test('插件面板与媒体回调抛错时由局部边界接住，正文保持�
   const ui = vm.runInContext(fragment('function createTavernUiExtensions()', 'const tavernUiExtensions = createTavernUiExtensions()') + '; createTavernUiExtensions()', context)
   context.tavernUiExtensions = ui
   const Media = vm.runInContext(fragment('function TavernPluginMediaItem(props)', 'function TavernPluginMarker(props)') + '; TavernPluginMediaItem', context)
+  context.tavernPluginMediaUrl = (_sessionId, item) => '/api/dsh-tavern/plugin-media?id=' + encodeURIComponent(item.id)
   let tab
   ui.attachHost({ betterSidebar: { registerTab(input) { tab = input; return () => {} } } })
   ui.service.registerPanel({ id: 'broken', title: 'Broken', render() { throw new Error('panel failed') } })
@@ -39,8 +40,15 @@ test('插件面板与媒体回调抛错时由局部边界接住，正文保持�
   await act(() => root.render(React.createElement(React.Fragment, null,
     React.createElement('p', { id: 'story' }, '正文仍在'),
     React.createElement(tab.component, { scope: { sessionId: 'g' } }),
-    React.createElement(Media, { sessionId: 'g', turn: 1, item: { id: 'm', kind: 'example/broken' } })
+    React.createElement(Media, { sessionId: 'g', turn: 1, item: { id: 'm', kind: 'example/broken' } }),
+    React.createElement(Media, { sessionId: 'g', turn: 1, item: {
+      id: 'video-1', kind: 'video', status: 'ready', attachment: { attachmentId: 'a1', name: 'clip.mp4' }
+    } })
   )))
+  const video = container.querySelector('figure[data-kind="video"] video')
+  assert.ok(video, '真实媒体组件必须把 ready 视频画成 <video>')
+  assert.equal(video.getAttribute('src'), '/api/dsh-tavern/plugin-media?id=video-1')
+  assert.equal(video.controls, true)
   assert.equal(container.querySelector('#story').textContent, '正文仍在')
   assert.match(container.querySelector('.dsh-tavern-plugin-panel-error').textContent, /面板出错/)
   assert.deepEqual(reports.sort(), ['media failed', 'panel failed'])

@@ -45,9 +45,9 @@ test('故事直选删除只在写后动存档，不调用 reconcileStory；旧�
 test('故事直选保存不先 reconcile，revision 不被写前推进', async () => {
   const events = [], record = {}
   const h = handlers(events, record)
-  await h.saveBodyEdit({ sessionId: 's1', role: 'assistant', messageIndex: 4, revision: 7, token: 't', texts: ['新'] })
+  await h.saveBodyEdit({ sessionId: 's1', role: 'assistant', messageIndex: 4, revision: 7, messageUid: 'assistant-row-4', token: 't', texts: ['新'] })
   assert.deepEqual(events, ['cancel', 'save'], 'assistant 直选：写前无 reconcile')
-  assert.deepEqual(record.save, { sessionId: 's1', role: 'assistant', messageIndex: 4, revision: 7, token: 't', texts: ['新'] })
+  assert.deepEqual(record.save, { sessionId: 's1', role: 'assistant', messageIndex: 4, revision: 7, messageUid: 'assistant-row-4', token: 't', texts: ['新'] })
   events.length = 0
   await h.saveBodyEdit({ sessionId: 's1', role: 'user', messageIndex: 1, revision: 7, token: 'u', texts: ['新'] })
   assert.deepEqual(events, ['cancel', 'saveUser'], 'user 直选：写前无 reconcile')
@@ -56,14 +56,15 @@ test('故事直选保存不先 reconcile，revision 不被写前推进', async (
   assert.deepEqual(events, ['cancel', 'reconcile', 'save'], '旧路径仍先 reconcile 再写')
 })
 
-test('getBodyEdit 的 assistant 分支把 messageIndex/revision 透传给 bodyEditor.read', async () => {
+test('getBodyEdit 的 assistant 分支把 messageIndex/revision/messageUid 透传给 bodyEditor.read', async () => {
   const events = [], record = {}
   const h = handlers(events, record)
-  const args = { sessionId: 's1', role: 'assistant', messageIndex: 6, revision: 11 }
+  const args = { sessionId: 's1', role: 'assistant', messageIndex: 6, revision: 11, messageUid: 'assistant-row-6' }
   await h.getBodyEdit(args)
   assert.deepEqual(events, ['cancel', 'read'])
   assert.equal(record.read.messageIndex, 6)
   assert.equal(record.read.revision, 11)
+  assert.equal(record.read.messageUid, 'assistant-row-6')
   assert.equal(record.read.sessionId, 's1')
   events.length = 0
   await h.getBodyEdit({ sessionId: 's1', role: 'user', messageIndex: 6, revision: 11 })
@@ -71,14 +72,26 @@ test('getBodyEdit 的 assistant 分支把 messageIndex/revision 透传给 bodyEd
 })
 
 // 组件级（BodyEditPanel）运行成本高：这里只做源码静态断言，标注「部分确认」。
-test('BodyEditPanel 保存 payload 不丢 messageIndex/revision（静态部分确认）', async () => {
+test('BodyEditPanel 保存与重试不丢 UID，原生输入按 turn+seq 恢复（静态部分确认）', async () => {
   const source = await readFile(new URL('../tavern-plugin/src/client/features/play-controls.js', import.meta.url), 'utf8')
   const call = /rpc\("saveBodyEdit",\s*\{([^}]*)\}/.exec(source)
   assert.ok(call, '找不到 saveBodyEdit 调用')
   assert.match(call[1], /messageIndex:\s*edit\.messageIndex/)
   assert.match(call[1], /revision:\s*edit\.revision/)
+  assert.match(call[1], /messageUid:\s*edit\.messageUid/)
+  assert.match(source, /getBodyEdit",\s*\{\s*role:\s*edit\.role,\s*messageIndex:\s*edit\.messageIndex,\s*revision:\s*revision,\s*messageUid:\s*edit\.messageUid/, '故事重试必须携带 UID')
+  assert.match(source, /getBodyEdit",\s*\{\s*role:\s*"user",\s*turn:\s*edit\.turn,\s*seq:\s*edit\.seq/, '原生输入重试不再被 messageIndex 条件排除')
+  assert.match(source, /refreshed\.edit\.messageUid\s*!==\s*edit\.messageUid/, '同文本的另一 UID 不得通过重试')
   assert.match(source, /JSON\.stringify\(refreshed\.edit\.parts\)\s*!==\s*JSON\.stringify\(panel\.edit\.parts\)/, '过期重试必须先确认可编辑内容逐字未变')
   assert.match(source, /new CustomEvent\("dsh-tavern-story-mutated"/, '保存后仍需广播 story-mutated 让故事列表重读')
+})
+
+test('bodyEditor 服务使用完整 Chat，不能用可能缺选中有旧楼层的 hook 窗口', async () => {
+  const source = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
+  const section = /const bodyEditor = createBodyEditor\(\{([\s\S]*?)\n\s*\}\)/.exec(source)
+  assert.ok(section, '找不到 bodyEditor 服务组装')
+  assert.match(section[1], /forSession:\s*chatForSession/)
+  assert.doesNotMatch(section[1], /forSession:\s*hookChatForSession/)
 })
 
 test('appendPlayerInput 只持久化玩家行，不触发 Session 或正文协调', async () => {

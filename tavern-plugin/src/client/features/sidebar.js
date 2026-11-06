@@ -864,7 +864,7 @@
 				try {
 					const direct = Number.isSafeInteger(target && target.messageIndex);
 					const plan = await call("prepareConversationFork", direct
-						? { chatId: item.chatId, sessionId: item.sessionId, messageIndex: target.messageIndex, revision: target.revision }
+						? { chatId: item.chatId, sessionId: item.sessionId, messageIndex: target.messageIndex, revision: target.revision, messageUid: target.messageUid }
 						: { chatId: item.chatId, sessionId: item.sessionId, turn: Number(turn) || 0 });
 					if (plan.storyDirect) {
 						const targetWorkspaceId = workspaceId || playWorkspaceIdRef.current || "";
@@ -877,7 +877,7 @@
 						sessionId: item.sessionId,
 						targetSessionId: targetSessionId,
 						turn: plan.turn, sourceRevision: plan.sourceRevision, atSeq: plan.atSeq,
-						messageIndex: plan.messageIndex
+						messageIndex: plan.messageIndex, messageUid: plan.messageUid
 					});
 					forkCreated = true;
 					const forkTitle = (currentTitle || item.cardName + "的新对话") + " · 分支";

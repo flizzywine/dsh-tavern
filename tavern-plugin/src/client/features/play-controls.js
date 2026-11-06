@@ -740,20 +740,28 @@
 				setBodyEditPanel(Object.assign({}, panel, { busy: true, error: "" }));
 				try {
 					let edit = panel.edit, result;
-					// Background settlement may advance only the Chat header while this
-					// panel is open. Re-read once and retry only when the editable row is
-					// byte-identical; the server still enforces every revision and token.
+					// Re-read once after a conflict. Story rows must retain their UID;
+					// legacy native inputs retain turn+seq. Text equality alone is not identity.
 					for (let attempt = 0; ; attempt++) {
 						try {
-							result = await rpc("saveBodyEdit", { token: edit.token, role: edit.role, index: edit.index, turn: edit.turn, seq: edit.seq, messageIndex: edit.messageIndex, revision: edit.revision, texts: panel.texts }, props.sessionId);
+							result = await rpc("saveBodyEdit", { token: edit.token, role: edit.role, index: edit.index, turn: edit.turn, seq: edit.seq, messageIndex: edit.messageIndex, revision: edit.revision, messageUid: edit.messageUid, texts: panel.texts }, props.sessionId);
 							break;
 						} catch (error) {
-							if (attempt > 0 || !Number.isSafeInteger(edit.messageIndex) || !/正文或会话已变化|输入或会话已变化|剧情已变化/.test(String(error && error.message || error))) throw error;
-							const latest = await rpc("getStoryTranscript", { sessionId: props.sessionId }, props.sessionId);
-							const revision = Number(latest && latest.revision !== undefined ? latest.revision : latest && latest.storyTranscript && latest.storyTranscript.revision);
-							if (!Number.isSafeInteger(revision) || revision < 0) throw error;
-							const refreshed = await rpc("getBodyEdit", { role: edit.role, messageIndex: edit.messageIndex, revision: revision }, props.sessionId);
+							const storyRetry = Number.isSafeInteger(edit.messageIndex);
+							const nativeUserRetry = edit.role === "user" && Number.isSafeInteger(Number(edit.turn)) && Number(edit.turn) > 0;
+							if (attempt > 0 || (!storyRetry && !nativeUserRetry) || !/正文或会话已变化|输入或会话已变化|剧情已变化/.test(String(error && error.message || error))) throw error;
+							let refreshed;
+							if (storyRetry) {
+								const latest = await rpc("getStoryTranscript", { sessionId: props.sessionId }, props.sessionId);
+								const revision = Number(latest && latest.revision !== undefined ? latest.revision : latest && latest.storyTranscript && latest.storyTranscript.revision);
+								if (!Number.isSafeInteger(revision) || revision < 0) throw error;
+								refreshed = await rpc("getBodyEdit", { role: edit.role, messageIndex: edit.messageIndex, revision: revision, messageUid: edit.messageUid }, props.sessionId);
+							} else {
+								refreshed = await rpc("getBodyEdit", { role: "user", turn: edit.turn, seq: edit.seq }, props.sessionId);
+							}
 							if (!refreshed || !refreshed.edit || JSON.stringify(refreshed.edit.parts) !== JSON.stringify(panel.edit.parts)) throw error;
+							if (edit.messageUid && refreshed.edit.messageUid !== edit.messageUid) throw error;
+							if (!storyRetry && (Number(refreshed.edit.turn) !== Number(edit.turn) || Number(refreshed.edit.seq) !== Number(edit.seq))) throw error;
 							edit = refreshed.edit;
 						}
 					}

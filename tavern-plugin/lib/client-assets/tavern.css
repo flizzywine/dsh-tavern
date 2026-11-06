@@ -105,9 +105,10 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-story-floor-tag { padding: 0 6px; border-radius: 999px; background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-story-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-height: 24px; color: var(--dsw-alias-label-tertiary); font-size: 12px; opacity: 0; transition: opacity .15s ease; }
 .dsh-tavern-story-transcript-row:hover .dsh-tavern-story-row-actions, .dsh-tavern-story-row-actions:focus-within, .dsh-tavern-story-row-actions:has(.dsh-tavern-message-select) { opacity: 1; }
-.dsh-tavern-story-row-action { padding: 2px 7px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.dsh-tavern-story-row-action { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
 .dsh-tavern-story-row-action:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .dsh-tavern-story-row-action:disabled { opacity: .5; cursor: wait; }
+.dsh-tavern-story-row-action svg { width: 15px; height: 15px; }
 .dsh-tavern-story-row-actions .dsh-tavern-message-select.assistant { position: static; }
 @media (hover: none) { .dsh-tavern-story-row-actions { opacity: 1; } }
 .dsh-tavern-story-older { display: flex; justify-content: center; }
@@ -232,13 +233,13 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-message-select:has(input:disabled) { cursor: wait; opacity: .55; }
 .dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant) { position: relative; box-sizing: border-box; padding-right: 30px; }
 .dsh-tavern-user-row:has(.dsh-tavern-message-select.user),
-.dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant) { cursor: pointer; }
+.dsh-tavern-assistant:has(.dsh-tavern-message-select.assistant) { cursor: pointer; }
 .dsh-tavern-user-row:has(.dsh-tavern-message-select.user input:disabled),
-.dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant input:disabled) { cursor: wait; }
+.dsh-tavern-assistant:has(.dsh-tavern-message-select.assistant input:disabled) { cursor: wait; }
 .dsh-tavern-message-select.assistant { position: absolute; z-index: 1; top: 0; right: 0; }
 /* 勾选不仅改变小框：整条楼层用主题色底和双层描边，跨轮检查时已选目标一眼可辨。 */
 .dsh-tavern-user-row:has(.dsh-tavern-message-select.user input:checked),
-.dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant input:checked) {
+.dsh-tavern-assistant:has(.dsh-tavern-message-select.assistant input:checked) {
   border-radius: 12px;
   background: var(--dsh-tavern-accent-soft);
   box-shadow: 0 0 0 2px var(--dsh-tavern-accent), 0 0 0 6px var(--dsh-tavern-accent-soft);
