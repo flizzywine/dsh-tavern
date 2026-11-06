@@ -34,13 +34,15 @@
 
 3. 重新打开 DeepSeek Harness，即进入酒馆。
 
-### DSH NEXT（一键安装或更新插件）
+### DSH NEXT（安装或更新插件）
 
-Windows 用户从 Next 托盘打开「DSH 终端」，在 PowerShell 中粘贴以下命令。首次执行会创建 `tavern` Profile 并安装插件，之后重跑同一条命令即可安装最新版。安装完成后，在 Next 托盘的 Profile 菜单选择 `tavern`。
+首次安装时，用 NEXT 的 Profile 菜单新建基于 Web 模板的 `tavern` Profile。留在日常 Profile，打开 NEXT 的「DSH 终端」，执行：
 
 ```powershell
-& ([ScriptBlock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-market-next/bin/install-next-plugin.ps1')))
+dsh plugin --profile tavern add "github:flizzywine/dsh-tavern#plugin-market-next" --allow-build=sharp
 ```
+
+命令成功后，用 NEXT 的 Profile 菜单切到 `tavern`。以后更新时，先切回日常 Profile，等酒馆停止运行后重跑同一条命令，再切回 `tavern`。
 
 也可以在 `tavern` Profile 的「插件 → 实验性插件」启用「自定义插件索引」，然后在「发现」添加 [DSH Tavern 市场源](https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-market-next/index.json) 并搜索 **DSH Tavern**。
 

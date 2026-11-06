@@ -569,20 +569,6 @@ export async function apply(ctx) {
     dataRoot,
     sourceRoot,
     hostDependencyAnchor: fileURLToPath(import.meta.url),
-    getNextPluginUpdater() {
-      const profile = ctx.get('desktopProfiles')?.current
-      const runner = ctx.get('desktopPnpm')
-      if (profile?.name !== 'tavern' || typeof runner?.runPlugin !== 'function') return undefined
-      return {
-        install(spec) {
-          const operation = runner.runPlugin(['add', spec, '--allow-build=sharp'], profile.dir)
-          operation.stdout?.resume()
-          operation.stderr?.resume()
-          return operation.done
-        },
-        restart: () => ctx.get('desktopActions')?.requestRestart?.(),
-      }
-    },
   })
   const modelRequestLog = createModelRequestLog({
     readJson: async function (path) { return await profileData.readJson(path) },
