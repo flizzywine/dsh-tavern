@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "8689f26efd68e754630c317b190dff42b9ce348e",
-  "releaseSequence": 1310,
+  "revision": "6fc45c514706c173a3984b1aae9e3380dcf95da4",
+  "releaseSequence": 1311,
   "version": "3.2.0",
   "files": [
     {
@@ -186,8 +186,8 @@
     },
     {
       "path": "bin/desktop-profile-installation.mjs",
-      "sha256": "8854f7078f51c6bfa57a461cf44ad33ccbd6cbc5323fea1ea74c4c242d54f4ac",
-      "size": 12342
+      "sha256": "2cce91763dd16bd64cab9e3f6245875766275e98a875dda6f8486fdb1add9741",
+      "size": 12717
     },
     {
       "path": "bin/dev-sync-cli.sh",
@@ -236,8 +236,8 @@
     },
     {
       "path": "bin/import-user-home.mjs",
-      "sha256": "fa12ba4423d1c9830693c75402614afa560b64eb077835281cce12baa7eec911",
-      "size": 12305
+      "sha256": "4b178047dd606aaf7a399609ed532bccfd8b9a977cc496bd45f928438fa5b46f",
+      "size": 12439
     },
     {
       "path": "bin/install-next-plugin.ps1",
@@ -9861,9 +9861,9 @@
     }
   ],
   "archive": {
-    "commit": "9094d7ce4f87be62bfc888bde2dd141e034a6356",
+    "commit": "2cd76c849f0fe2d915de3583260595fdfe505b31",
     "path": "runtime.zip",
-    "sha256": "2a78c14b5e8b7c5ca1f18aa539c1779ede3d04cc6480e45de1ff94db4ce12adf",
-    "size": 16399998
+    "sha256": "66c76459b14cff7e754c6836ed512f8e851838fb24eed19f8eea783c4055fd76",
+    "size": 16400257
   }
 }
