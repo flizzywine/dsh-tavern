@@ -9,7 +9,7 @@ import { createRegenerationRecovery, projectedReplacingTurns } from './regenerat
 import { isDeepStrictEqual } from 'node:util'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
-import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, planRegenerationSurface, regenerationProjection, applyRegenerationProjection, failedTurnReplayAvailability, replayableFailedTurn } from './rollback-surface.js'
+import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, planRegenerationSurface, regenerationProjection, applyRegenerationProjection, failedTurnReplayAvailability, replayableFailedTurn, replayablePersistedTurn } from './rollback-surface.js'
 import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
 import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration-diagnostics.js'
 import { assistantResultForTurn } from './session-turn-result.js'
@@ -226,6 +226,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     await regenerationRecovery.recover(chat.id)
     if (pendingReplays.has(chat.id)) throw new Error('正在重放失败回合，请等待完成')
     if (pendingRegenerations.has(chat.id) || pendingRollbacks.has(chat.id)) throw new Error('正文正在重新生成，请等待完成')
+    // A saved tail user is waiting for its first reply, not asking to replace the
+    // previous completed round. Both regeneration entry points resume that row.
+    if (replayablePersistedTurn(chat)) return await replayFailedTurn(chat.id, sessionId)
     pendingRegenerations.add(chat.id)
     try { return await regenRecent(chat.id, guidance, sessionId) ?? await regenBody(chat.id, guidance, sessionId) }
     finally { pendingRegenerations.delete(chat.id) }
@@ -745,7 +748,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (agent.phase !== undefined && agent.phase !== null && agent.phase.kind === 'running') throw new Error('正在生成，请先停止后再重新生成')
     const session = agent.session
     const events = sessionEvents(session)
-    const replay = failedTurnReplayAvailability({ events, nodes: session.surface?.nodes || [], cleared: chat.suppressedDshTurns || [] })
+    const replay = failedTurnReplayAvailability({ chat, events, nodes: session.surface?.nodes || [], cleared: chat.suppressedDshTurns || [] })
     const target = replay.target
     if (target === null) throw new Error(replay.reason)
     // Read the card before spending a generation: a broken card must fail here,
@@ -761,10 +764,11 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       // 2) 同步隐藏该回合残留的正文与错误提示，再原样重发本轮输入。
       await updateChat(chat.id, function (current) {
         if (current === null || typeof current !== 'object') return current
+        const suppressed = new Set(Array.isArray(current.suppressedDshTurns) ? current.suppressedDshTurns : [])
+        if (target.turn > 0) suppressed.add(target.turn)
         const next = {
           ...current,
-          suppressedDshTurns: Array.from(new Set([...(Array.isArray(current.suppressedDshTurns) ? current.suppressedDshTurns : []), target.turn]))
-            .sort(function (left, right) { return left - right }),
+          suppressedDshTurns: Array.from(suppressed).sort(function (left, right) { return left - right }),
           updatedAt: Date.now()
         }
         if (current.userInputEdits && typeof current.userInputEdits === 'object' && Object.hasOwn(current.userInputEdits, String(target.turn))) {
@@ -780,7 +784,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       // node, which would hide the player's text instead of resending it.
       // A failed input may have been edited as a Chat overlay. Retry with that
       // text; the failed turn itself is cleared and resent below.
-      const edited = chat.userInputEdits && typeof chat.userInputEdits === 'object' ? chat.userInputEdits[String(target.turn)] : null
+      const edited = !target.persisted && chat.userInputEdits && typeof chat.userInputEdits === 'object' ? chat.userInputEdits[String(target.turn)] : null
       const inputText = edited && typeof edited.text === 'string' ? edited.text : target.userText
       releaseOpeningTurn(agent.session, agent)
       agent.followup({

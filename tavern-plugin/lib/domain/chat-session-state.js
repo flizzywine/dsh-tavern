@@ -28,6 +28,10 @@ export function projectChatSessionState(chat, options = {}) {
   if (Object.values(chat.timeline?.operations || {}).some(operation =>
     operation?.kind === 'body' && operation.status === 'foreground-completed')) return { ...copyJsonTree(chat), pendingMvuSettlement }
   const selected = { pendingMvuSettlement }
+  if (chat.foregroundError) selected.foregroundError = {
+    turn: chat.foregroundError.turn, requestId: chat.foregroundError.requestId,
+    code: chat.foregroundError.code, message: chat.foregroundError.message
+  }
   for (const key of ['id', 'sessionId', '_storageRevision', 'mode', 'cardPath', 'cardContextRevision',
     'backgroundConfigVersion', 'conversationFeaturesVersion', 'disabledWritingSkills', 'contextCompaction', 'updatedAt', 'timeline', 'candidateAgent',
     'cardName', 'requestMode', 'statusBarPlacement', 'statusSections', 'webSearchEnabled', 'candidates', 'taskMailbox', 'regenInProgress',
@@ -57,6 +61,9 @@ export function projectSessionMessage(message) {
   if (!message || typeof message !== 'object') return message
   return {
     role: message.role, turn: message.turn, greeting: message.greeting,
+    ...(message.native === true ? { native: true } : {}),
+    ...(message.placeholder === true ? { placeholder: true } : {}),
+    ...(message.source?.rpcId ? { source: { rpcId: message.source.rpcId } } : {}),
     ...(message.importSource ? {importSource:{operationId:message.importSource.operationId}} : {}),
     ...(message.mvu ? {mvu:{receipt:message.mvu.receipt,diagnostics:message.mvu.diagnostics,
       pending:message.mvu.pending,modified:message.mvu.modified}} : {})
@@ -152,6 +159,7 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
     const native = session?.header?.version >= 3 && typeof session.snapshotEvents === 'function'
       && Array.isArray(events) && Object.isFrozen(events) && Array.isArray(nodes) && Number.isSafeInteger(generation)
     const key = native ? JSON.stringify([chat.sessionId,chat.messages?.length,chat.tavernHelperLifecycleRevision,
+      chat.foregroundError?.turn,chat.foregroundError?.requestId,chat.messages?.[chat.messages.length-1]?.source?.rpcId,chat.messages?.[chat.messages.length-1]?.placeholder,
       chat.importHistory?.rescue,chat.importHistory?.operationId,chat.hiddenDshErrorTurns,chat.suppressedDshTurns,
       chat.replacingDshTurns, chat.regenInProgress, chat.regenRecovery?.temporaryReplacingTurn,
       sharedMappings ? mappingIds.get(mappings) : chat.regeneratedDshTurns,
@@ -167,7 +175,7 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       canRollback: false, canClearIncompleteReply: false,
       reason: '当前会话的消息流尚未加载，请重新打开对话后重试；历史正文仍保留。'
     }
-    const replayTarget = Array.isArray(nodes) ? failedTurnReplayAvailability({ events: evidence.events || [], nodes, cleared: chat.suppressedDshTurns || [] }).target : null
+    const replayTarget = Array.isArray(nodes) ? failedTurnReplayAvailability({ chat, events: evidence.events || [], nodes, cleared: chat.suppressedDshTurns || [] }).target : null
     const hasRound = hasRollbackMessages(chat.messages)
     const failures = failedErrorTurnStates(evidence.events || [], chat.suppressedDshTurns)
     const replacingTurns = replacingDshTurnsOf(chat)
@@ -218,6 +226,7 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       canEditBody: hasRound,
       rollbackTargetTurn: settlementTurn(chat),
       canReplayFailedTurn: replayTarget !== null,
+      replayPersistedTurn: replayTarget?.persisted === true,
       replayFailedTurn: replayTarget === null ? null : replayTarget.turn,
       // The save decides: a round the native surface lost is repaired, not refused.
       canRollback: rollbackState.canRollback || hasRound,

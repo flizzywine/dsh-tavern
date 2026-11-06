@@ -53921,7 +53921,9 @@ function createTurnRailFilter(root, options) {
 			const hideProcess = play && !(preferences && preferences.showPlayProcess === true);
 			const turns = state.view && state.view.suppressedDshErrorTurns || [];
 			const hiddenTurns = state.view && state.view.hiddenDshErrorTurns;
-			const replayTurn = state.view && state.view.canReplayFailedTurn ? Number(state.view.replayFailedTurn) || null : null;
+			const replayTurn = state.view && state.view.canReplayFailedTurn
+				? (state.view.replayPersistedTurn === true && Number(state.view.replayFailedTurn) === 0 ? 0 : Number(state.view.replayFailedTurn) || null)
+				: null;
 			const staleTurns = state.view && state.view.staleDshErrorTurns || [];
 			const filteredStreak = Number(state.view && state.view.filteredFailureStreak) || 0;
 			// 右侧「轮次导航」只列正文行计划里真的画了正文的轮次；点击时自己滚、缺行时自己往前翻。
@@ -53932,7 +53934,7 @@ function createTurnRailFilter(root, options) {
 			const draft = props.useInput(snapshot => snapshot.draft);
 			const draftRef = React.useRef(draft);
 			draftRef.current = draft;
-			const revision = turns.join(",") + ":" + (Array.isArray(hiddenTurns) ? "saved:" + hiddenTurns.join(",") : "local") + ":" + String(replayTurn || "")
+			const revision = turns.join(",") + ":" + (Array.isArray(hiddenTurns) ? "saved:" + hiddenTurns.join(",") : "local") + ":" + String(replayTurn === null ? "" : replayTurn)
 				+ ":" + staleTurns.join(",") + ":" + filteredStreak + ":" + canRewind + ":rail:" + railKey;
 			// Clearing a failed tail is the first half of both recovery actions.
 			async function clearFailedTail() {

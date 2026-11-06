@@ -481,6 +481,34 @@ export function replayableFailedTurn(input) {
   return null
 }
 
+// A directly persisted player row is already story data even when its generation
+// failed before a native turn was written. Correlate the durable failure with the
+// tail row's request id; never fall through to an earlier assistant/user pair.
+export function replayablePersistedTurn(chat) {
+  if (!['story', 'script'].includes(chat?.mode || 'story')) return null
+  const failure = object(chat?.foregroundError)
+  const requestId = typeof failure?.requestId === 'string' ? failure.requestId.trim() : ''
+  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+  const message = object(messages[messages.length - 1])
+  if (!requestId || message?.role !== 'user' || message.native !== true || message.placeholder === true) return null
+  if ((typeof message.source?.rpcId === 'string' ? message.source.rpcId.trim() : '') !== requestId) return null
+  const hasText = typeof message.sourceText === 'string' || typeof message.text === 'string'
+  const userText = typeof message.sourceText === 'string' ? message.sourceText : (typeof message.text === 'string' ? message.text : '')
+  const attachments = Array.isArray(message.inputAttachments) ? structuredClone(message.inputAttachments) : []
+  // Session-state projections deliberately omit bodies; their target only drives
+  // button visibility. The mutation reads the full row and still validates text.
+  if (hasText && userText.trim() === '' && attachments.length === 0) return null
+  const failedTurn = Number(failure.turn)
+  return Object.freeze({
+    persisted: true,
+    messageIndex: messages.length - 1,
+    turn: Number.isSafeInteger(failedTurn) && failedTurn > 0 ? failedTurn : 0,
+    userText,
+    ...(attachments.length ? { inputAttachments: attachments } : {}),
+    source: replayInputSource(message.source)
+  })
+}
+
 export function locateRollbackSurface(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
@@ -899,11 +927,12 @@ export function rollbackAvailability(chat, input = {}) {
   }
 }
 
-export function failedTurnReplayAvailability({ events = [], nodes = [], cleared = [] } = {}) {
-  const target = replayableFailedTurn({ events })
+export function failedTurnReplayAvailability({ chat = null, events = [], nodes = [], cleared = [] } = {}) {
+  const target = replayablePersistedTurn(chat) || replayableFailedTurn({ events })
   if (!target) return { target: null, reason: '当前没有可重新生成的失败回合' }
-  // The player already cleared this failure (withdrew or dropped it); replaying would resurrect it.
-  if (cleared.map(Number).includes(target.turn)) return { target: null, reason: '这次失败已清除，请重新发送' }
+  // A persisted row disappears when the player withdraws it. Its own replay also
+  // suppresses native residue, so that marker must not block a second retry.
+  if (!target.persisted && cleared.map(Number).includes(target.turn)) return { target: null, reason: '这次失败已清除，请重新发送' }
   try {
     planFailedTurnSurface({ events, nodes, turn: target.turn })
     return { target, reason: '' }

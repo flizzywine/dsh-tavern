@@ -5,6 +5,7 @@ import { activeStoryTurn, STORY_GENERATE_TOOL_NAME } from './story-tool-submissi
 import { untilAborted } from './plugin-callback.js'
 import { inputEventForTurn } from './session-turn-input.js'
 import { inputAttachments } from './player-input-content.js'
+import { replayablePersistedTurn } from './rollback-surface.js'
 import { bodyGenerationWorldbookResults } from './body-generation-worldbook.js'
 
 export const BODY_GENERATION_PROMPT = '<output_method>本轮正文由插件生成。最终必须调用 tavern_generate_body，参数为 {}。不得自行撰写正文，不得调用 submit_story（历史中的调用仅是旧正文记录）。工具会取得完整材料、生成并提交正文；成功后结束本轮，不要转述或补充回复。调用失败则停止，不要换用其他生成方式或重试。</output_method>'
@@ -186,6 +187,9 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
       const selection = configuredBodyGeneration(await routeChatForSession(gameId), await settings())
       const selected = { storyGenerationMode: selection.mode, storyGenerationProvider: selection.provider }
       if (!selected.storyGenerationMode?.startsWith('plugin-')) return null
+      // A persisted tail user has no old assistant body to replace. Resume the
+      // ordinary turn pipeline; its frozen route still honors plugin generation.
+      if (replayablePersistedTurn(await chatForSession(gameId))) return null
       if (regenerations.has(gameId)) throw error('正文正在重新生成')
       const provider = await providers.require(selected.storyGenerationProvider, gameId)
       if (regenerations.has(gameId)) throw error('正文正在重新生成')

@@ -51,9 +51,17 @@ function harness({ checkpoint = false, mode = 'story', journal = false } = {}) {
     if (generation === 'missing') return
     const text = generation === 'empty' ? '' : '新正文' + turn
     const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn, userText: agent.input.content[0].text } })
+    const requestId = String(agent.input.source?.rpcId || '')
+    const savedUserIndex = requestId ? chat.messages.findLastIndex(message => message?.role === 'user' && message.source?.rpcId === requestId) : -1
     revisions.set(chat._storageRevision, structuredClone(chat))
     chat = timeline.complete({ chat: begun.chat, operationId: begun.value.operationId, basedOn: begun.value.basedOn, outcome: { status: 'success' }, apply(draft) {
-      draft.messages.push({ role: 'user', text: agent.input.content[0].text }, { role: 'assistant', turn, text, sourceText: text, variables: [{ hp: 7 }] })
+      const user = { role: 'user', text: agent.input.content[0].text, native: true, ...(requestId ? { source: { kind: 'user', rpcId: requestId } } : {}) }
+      const assistant = { role: 'assistant', turn, text, sourceText: text, variables: [{ hp: 7 }] }
+      if (savedUserIndex >= 0) {
+        draft.messages[savedUserIndex] = { ...draft.messages[savedUserIndex], ...user }
+        delete draft.messages[savedUserIndex].placeholder
+        draft.messages.push(assistant)
+      } else draft.messages.push(user, assistant)
     } }).chat
     session.append('user/message', { ...agent.input, turn }, { surfaceOp: 'append' })
     session.append('assistant/message', { turn, step: 1, message: { role: 'assistant', source: model, content: [{ type: 'text', text }] } }, { surfaceOp: 'append' })
@@ -784,6 +792,28 @@ test('重放与重生成、回退互斥', async () => {
 
   const { live: regenerating } = await interruptedRegeneration()
   await assert.rejects(regenerating.replayFailed('chat', 'session'), /正在重新生成/)
+})
+
+for (const method of ['replayFailed', 'regenerate']) test('失败后重生成保留最新持久输入，不向上一轮回退：' + method, async () => {
+  const h = harness()
+  h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true,
+    source: { kind: 'user', rpcId: 'rpc-latest' } })
+  h.chat.foregroundError = { turn: 4, requestId: 'rpc-latest', message: 'fixture failed' }
+  h.session.append('turn/start', { turn: 3 })
+  h.session.append('user/message', { role: 'user', content: [{ type: 'text', text: '倒数第二个输入' }],
+    source: { kind: 'user', rpcId: 'rpc-previous' } }, { surfaceOp: 'append' })
+  h.session.append('turn/end', { turn: 3, reason: { kind: 'error', message: 'HTTP 500' } })
+  h.agent.phase.lastTurn = 3
+
+  await h.create()[method]('chat', ...(method === 'regenerate' ? ['', 'session'] : ['session']))
+
+  assert.equal(h.agent.input.content[0].text, '最新输入')
+  assert.equal(h.agent.input.source.rpcId, 'rpc-latest')
+  assert.deepEqual(h.chat.messages.map(message => [message.role, message.text]), [
+    ['assistant', '开场'], ['user', '推门'], ['assistant', '旧正文'],
+    ['user', '最新输入'], ['assistant', '新正文4']
+  ])
+  assert.equal(h.chat.messages.filter(message => message.role === 'user').length, 2)
 })
 
 test('native replacement failure after Chat commit keeps the new body and repairs the native tail',async()=>{

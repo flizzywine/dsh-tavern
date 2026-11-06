@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { rollbackAvailability, pendingFailedSurfaceTurns, abortedRegenerationTurns, locateRollbackSurface, regenerationAttemptTurns, replayableFailedTurn } from '../tavern-plugin/lib/domain/rollback-surface.js'
+import { rollbackAvailability, pendingFailedSurfaceTurns, abortedRegenerationTurns, locateRollbackSurface, regenerationAttemptTurns, replayableFailedTurn, failedTurnReplayAvailability } from '../tavern-plugin/lib/domain/rollback-surface.js'
 
 function modelSource() {
   return { kind: 'model', provider: 'test', model: 'test-model' }
@@ -110,4 +110,26 @@ test('失败尾部重放认领用户输入与历史重放输入，且只认领�
   // 尾部已完成、或失败之后又有新回合开始，都不再有可重放的失败尾部。
   assert.equal(replayableFailedTurn({ events: events.map(event => event.seq === 5 ? { ...event, data: { turn: 3, reason: { kind: 'completed' } } } : event) }), null)
   assert.equal(replayableFailedTurn({ events: [...events, { seq: 6, type: 'turn/start', data: { turn: 4 } }, { seq: 7, type: 'user/message', data: { content: [{ type: 'text', text: '第三次' }], source: { kind: 'user' } } }] }), null)
+})
+
+test('末尾持久玩家输入优先于更早的原生失败回合，重放保留同一请求号', () => {
+  const chat = {
+    mode: 'story',
+    foregroundError: { turn: 4, requestId: 'rpc-latest' },
+    messages: [
+      { role: 'user', text: '倒数第二个输入' },
+      { role: 'assistant', turn: 2, text: '上一轮正文' },
+      { role: 'user', text: '最新输入', sourceText: '最新输入', native: true, source: { kind: 'user', rpcId: 'rpc-latest' } }
+    ]
+  }
+  const events = [
+    { seq: 0, type: 'turn/start', data: { turn: 3 } },
+    { seq: 1, type: 'user/message', data: { content: [{ type: 'text', text: '倒数第二个输入' }], source: { kind: 'user', rpcId: 'rpc-previous' } } },
+    { seq: 2, type: 'turn/end', data: { turn: 3, reason: { kind: 'error' } } }
+  ]
+  const result = failedTurnReplayAvailability({ chat, events, nodes: [] })
+  assert.equal(result.target.userText, '最新输入')
+  assert.equal(result.target.source.rpcId, 'rpc-latest')
+  assert.equal(result.target.persisted, true)
+  assert.equal(result.target.messageIndex, 2)
 })
