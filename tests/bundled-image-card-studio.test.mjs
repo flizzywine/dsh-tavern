@@ -369,7 +369,10 @@ test('workbench preset overrides match the submitted prompt and keep the saved p
   assert.equal(result.images[0].prompt, payload.prompt)
   assert.doesNotMatch(payload.prompt, /fallback artist|saved artist|saved exclusion/)
   const rendered = tool.output.render(args, result)[0].text
-  assert.equal(rendered.split('watermark').length, 2)
+  // #688 之后回执不再回显实际提交的正负面提示词和角色提示词，只留渠道、画风预设和图片链接，
+  // 所以这里断言「不含」。preset_negative 的 watermark 仍应生效在提交给渠道的排除项里，
+  // 但那属于 payload 层，第 370 行已经验过正面提示词没被污染。
+  assert.doesNotMatch(rendered, /watermark|saved artist|fallback artist/)
   assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items[0].preset, '工作台画风')
   assert.equal((await f.tools.get('read_image_config').execute({}, own)).presets[0].artist, 'saved artist')
 })
