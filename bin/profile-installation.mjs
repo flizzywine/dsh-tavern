@@ -1,7 +1,5 @@
 import { preserveInstallationFonts } from './preserve-font-assets.mjs'
-import officialDesktopRuntime from './official-desktop-runtime.cjs'
 import { beginDesktopProfileInstallation, clearUninstalledInstallationRecord } from './desktop-profile-installation.mjs'
-import { ensureInitialTavernShortcut } from '../tavern-plugin/packages/dsh-profile-bridge/lib/shortcut.mjs'
 import { LAUNCHER_BUNDLE } from '../tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs'
 import { assertDesktopStopped, importUserHome } from './import-user-home.mjs'
 import { randomUUID } from 'node:crypto'
@@ -452,14 +450,6 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
     const receipt = await recordInstallationReceipt({ sourceRoot: SOURCE_ROOT, dshHome: DSH_ROOT, host, attemptId, bridgeUpdateId: bridge?.bridgeUpdateId })
     bridge?.commit()
     if (host !== 'next' && !clearUninstalledInstallationRecord(DSH_ROOT)) console.warn('未能清除卸载标记：请检查 profile-bridge/installation.json；本次安装已完成。')
-    if (host === 'desktop') {
-      try {
-        const shortcut = ensureInitialTavernShortcut({ paths: { home: DSH_ROOT, profilesDir: path.join(DSH_ROOT, 'profiles') }, runner: pinnedDesktopDsh(host)?.executable || officialDesktopRuntime.discover() })
-        if (!shortcut.skipped) console.log(`桌面快捷方式已就绪：${shortcut.path}`)
-      } catch (error) {
-        console.warn(`未能添加桌面快捷方式，可稍后在设置中手动添加：${error?.message || error}`)
-      }
-    }
     console.log('DSH Tavern 已安装。')
     console.log(host === 'cli' ? `已安装独立 DSH ${dshVersion}：${CLI_RUNTIME_ROOT}；不使用全局 DSH。` : `已复用当前 DSH ${dshVersion} 的本地依赖；未升级或降级宿主。`)
     if (host === 'desktop') {

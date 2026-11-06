@@ -1264,7 +1264,7 @@ try {
         throw '请在原版 DeepSeek Harness 的插件页移除 dsh-profile-bridge，再安装 dsh-tavern-launcher。'
       }
       $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js'
-      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-tavern-launcher-0.2.0-tavern.13.tgz'
+      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-tavern-launcher-0.2.0-tavern.14.tgz'
       $PreviousNodeMode = $env:ELECTRON_RUN_AS_NODE
       try {
         $env:ELECTRON_RUN_AS_NODE = '1'

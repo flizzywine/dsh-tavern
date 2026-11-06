@@ -26,14 +26,14 @@
 在左侧打开 **插件 → 添加插件**，粘贴下面的地址，点 **安装**。按提示启用后，插件列表会显示 **`dsh-tavern-launcher`**。
 
 ```text
-https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@plugin-official-downloads/dsh-tavern-launcher-0.2.0-tavern.13.tgz
+https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@plugin-official-downloads/dsh-tavern-launcher-0.2.0-tavern.14.tgz
 ```
 
 从旧版升级时，请在原版 DSH 的插件页移除 `dsh-profile-bridge`，再按上面的地址安装新版。如果当前在酒馆里，先通过「设置 → 酒馆启动器」切回原版 DSH。酒馆配置里的启动器会随酒馆更新更名。
 
 **2. 从启动器安装酒馆**
 
-打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。安装完成后点 **确认重启并应用**，DSH 会重新打开并进入酒馆。酒馆使用独立配置，原版 DSH 配置会保留。安装失败时可在启动器里复制诊断日志。
+打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。安装完成后点 **重启并切换到 DSH 酒馆**。如需从桌面直接打开酒馆，可以在同一页点 **添加桌面快捷方式**。安装失败时可在启动器里复制诊断日志。
 
 **以后更新：** 在酒馆里打开 **设置 → 酒馆启动器 → 酒馆版本与更新**，点 **检查更新**；发现新版时点 **更新酒馆**，等安装完成后重启。旧版如果还没有这张卡片，从游玩侧栏更新一次即可。切回原版 DSH、查看数据目录、迁移和卸载也在启动器里。
 

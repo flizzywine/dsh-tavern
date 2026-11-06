@@ -1,5 +1,5 @@
 // 「DSH 酒馆」桌面快捷方式：点开即运行 `dsh-tavern window`，用桌面版自带的运行环境另起一个
-// 进程加载酒馆配置，在独立窗口打开。首装自动创建一次，也可手动恢复；已有快捷方式只刷新自带图标。
+// 进程加载酒馆配置，在独立窗口打开。用户可从酒馆启动器添加。
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -10,22 +10,6 @@ import { fail } from './state.mjs'
 
 export const SHORTCUT_NAME = 'DSH 酒馆'
 const ASSETS = join(dirname(fileURLToPath(import.meta.url)), '..', 'assets')
-
-// Keep this receipt outside the desktop so deleting the shortcut is respected on updates.
-export function ensureInitialTavernShortcut(options, create = createTavernShortcut) {
-  const marker = join(options.paths.home, 'profile-bridge', 'shortcut-initialized.json')
-  if (existsSync(marker)) {
-    if ((options.platform || process.platform) === 'win32') {
-      const { path } = JSON.parse(readFileSync(marker, 'utf8'))
-      if (typeof path === 'string' && existsSync(path)) refreshWindowsShortcutIcon(options.paths.home, path)
-    }
-    return { skipped: true }
-  }
-  mkdirSync(dirname(marker), { recursive: true })
-  const result = create(options)
-  writeFileSync(marker, JSON.stringify({ path: result.path, createdAt: new Date().toISOString() }) + '\n')
-  return result
-}
 
 /** The tavern launcher script, found through the tavern profile's own plugin link. */
 export function tavernScript(profilesDir) {

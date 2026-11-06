@@ -155,14 +155,16 @@ test('原版桌面首次安装需要确认，排队后隐藏安装按钮', async
   }
 })
 
-test('安装完成后，确认重启直接切换到酒馆 Profile', async () => {
+test('安装完成后可手动添加快捷方式，并重启切换到酒馆 Profile', async () => {
   const page = await mount({
     appKind: 'desktop', desktopApp: true, installAvailable: false,
     profiles: [tavernProfile], lastResult: { status: 'succeeded', mode: 'install', stamp: 'installed' },
   })
   try {
     assert.deepEqual(page.calls, [['status', {}]])
-    await page.act(async () => namedButton(page, '确认重启并应用').click())
+    await page.act(async () => namedButton(page, '添加桌面快捷方式').click())
+    assert.deepEqual(page.calls.at(-1), ['shortcut', {}])
+    await page.act(async () => namedButton(page, '重启并切换到 DSH 酒馆').click())
     assert.deepEqual(page.calls.at(-1), ['link', { target: 'tavern' }])
   } finally {
     await page.dispose()
