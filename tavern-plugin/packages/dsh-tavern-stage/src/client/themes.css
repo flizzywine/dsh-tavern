@@ -6461,6 +6461,13 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 @media (prefers-reduced-motion: reduce) { .fork-gal-status, .fork-gal-status-sheet { animation: none; } }
 .fork-gal-stage[data-reduced-motion] > .fork-gal-status, .fork-gal-stage[data-reduced-motion] > .fork-gal-status > .fork-gal-status-sheet { animation: none; }
 /* ==== end stage status panel ==== */
+/* ==== stage full-viewport dialogs ====
+   The stage's own full-viewport surfaces (履历, CONFIG, 回想, a card page, a filling widget sheet) are modal dialogs but not
+   centred boxes: they keep the whole stage width under a host's generic modal-dialog cap (a mobile shell may cap every
+   [aria-modal] dialog below 1024 px, e.g. `max-width: calc(100vw - 32px) !important` at specificity 0,3,1). Ordinary centred
+   dialogs (重新生成, confirmations) keep such a cap. */
+:is(.fork-gal-backlog, .fork-gal-config, .fork-cg-gallery, .fork-gal-status-sheet, .fork-widget-panel.is-sheet.is-fill)[role="dialog"][aria-modal="true"] { max-width: none !important; }
+/* ==== end stage full-viewport dialogs ==== */
 /* ==== stage lease HUD ==== */
 /* A leasing gameMode view's controls (lease-hud.cjs) sit between the top chrome (64px, as the choice list) and the text
    box as it is drawn (the choice list's anchors, never lower than the 25% line). The region is see-through to the

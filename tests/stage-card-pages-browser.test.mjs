@@ -419,3 +419,45 @@ test('a window page opened while a line types does not hold it', {timeout: 60000
   assert.equal(await openPage(page), 'map')
   assert.ok(before < line.length && after > before, `the line goes on typing behind the map: ${before} → ${after}`)
 })
+
+// A mobile shell (e.g. the dsh-pocket plugin) may cap every modal dialog at `calc(100vw - 32px)` below 1024 px. The stage's
+// full-viewport surfaces (a full card page, 履历, CONFIG) keep the whole width; an ordinary centred dialog keeps the cap.
+const SHELL_CAP_SELECTOR = '[aria-modal="true"]:not(:has(> :first-child > :last-child > button))'
+const SHELL_DIALOG_CAP = `@media (max-width: 1023px) { ${SHELL_CAP_SELECTOR} { max-width: calc(100vw - 32px) !important; } }`
+for (const width of [390, 900]) {
+  test(`a shell's modal-dialog width cap leaves the stage's full-viewport surfaces at the viewport width (${width} px)`, {timeout: 60000}, async t => {
+    const {page} = await openStage(t, {viewport: {width, height: 844}})
+    await page.addStyleTag({content: SHELL_DIALOG_CAP})
+    const surface = async (selector, name) => {
+      const box = await page.locator(selector).first().evaluate((el, cap) => ({width: el.getBoundingClientRect().width, capped: el.matches(cap)}), SHELL_CAP_SELECTOR)
+      assert.ok(box.capped, name + ' is a dialog the shell caps')
+      assert.equal(box.width, width, name + ' spans the viewport')
+    }
+    await waitPage(page, 'title')
+    await frameOf(page, 'title').locator('#title-name').waitFor()
+    await page.waitForTimeout(500)
+    await shot(page, `title-shell-cap-${width}.png`)
+    await surface('.fork-gal-status[data-page="title"] > .fork-gal-status-sheet', 'the title page')
+    assert.equal(await page.locator('.fork-gal-status[data-page="title"] iframe.fork-gal-status-frame').evaluate(el => el.getBoundingClientRect().width), width, 'the title page frame')
+    await frameOf(page, 'title').locator('body').evaluate(() => { setTimeout(() => DshCardPage.continueGame()) })
+    await waitPage(page, null)
+    for (const [row, selector] of [['履历', '.fork-gal-backlog'], ['设置', '.fork-gal-config']]) {
+      await page.waitForTimeout(500)
+      await openMenu(page)
+      await menu(page).getByRole('menuitem', {name: row, exact: true}).click()
+      await page.locator(selector).waitFor()
+      await surface(selector, row)
+      await page.keyboard.press('Escape')
+      await page.locator(selector).waitFor({state: 'detached'})
+    }
+    // an ordinary centred dialog on the stage keeps the shell's cap
+    const capped = await page.evaluate(() => {
+      const dialog = document.createElement('div')
+      dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true'); dialog.className = 'fork-gal-confirm'
+      dialog.style.cssText = 'position:absolute;left:0;top:0;box-sizing:border-box;width:100vw;height:80px;padding:0;border:0'
+      document.querySelector('.fork-gal-stage').append(dialog)
+      const box = dialog.getBoundingClientRect().width; dialog.remove(); return box
+    })
+    assert.equal(capped, width - 32, 'an ordinary dialog keeps the cap')
+  })
+}
