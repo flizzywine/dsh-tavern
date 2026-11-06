@@ -1,11 +1,57 @@
 import { readFileSync, writeFileSync, appendFileSync, rmSync, rmdirSync, lstatSync, realpathSync, openSync, fsyncSync, closeSync, renameSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { waitForExit, switchProfile, relaunchApp } from './helper.mjs'
 import { cleanupOwnedProcesses, waitForOwnedExit } from './processes.mjs'
 
+async function installTavern(request, { log }) {
+  const windows = process.platform === 'win32'
+  const name = windows ? 'install.ps1' : 'install.sh'
+  const script = join(request.stateDir, 'install-pending', 'runtime', name)
+  const repository = 'flizzywine/dsh-tavern'
+  const sources = [
+    `https://cdn.jsdelivr.net/gh/${repository}@runtime-archive-main/${name}`,
+    `https://raw.githubusercontent.com/${repository}/main/${name}`,
+  ]
+  for (const source of sources) {
+    try {
+      const response = await fetch(source, { signal: AbortSignal.timeout(20000) })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const content = await response.text()
+      if (windows && !content.includes('DSH_TAVERN_LAUNCHER_INSTALL')) throw new Error('CDN 安装脚本尚未同步')
+      writeFileSync(script, windows ? '\uFEFF' + content : content, { flag: 'wx', mode: 0o600 })
+      log('已下载酒馆安装脚本。')
+      break
+    } catch (error) {
+      log(`安装脚本下载失败 ${source}: ${error.message}`)
+      if (source === sources.at(-1)) throw new Error('无法下载酒馆安装脚本，请检查网络后重试。')
+    }
+  }
+  const env = { ...process.env, DSH_HOME: request.home, DSH_TAVERN_HOST: 'desktop',
+    DSH_DESKTOP_APP_EXECUTABLE: request.relaunch, DSH_TAVERN_LAUNCHER_INSTALL: '1' }
+  for (const key of ['ELECTRON_RUN_AS_NODE', 'DSH_PROFILE', 'DSH_PROFILE_DIR']) delete env[key]
+  const command = windows ? 'powershell.exe' : '/bin/bash'
+  const args = windows ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script] : [script]
+  const transcript = openSync(join(request.stateDir, 'last-run.log.out'), 'w', 0o600)
+  try {
+    await new Promise((resolve, reject) => {
+      const child = spawn(command, args, { env, stdio: ['ignore', transcript, transcript], windowsHide: true })
+      child.once('error', reject)
+      child.once('exit', (code, signal) => {
+        if (code === 0) resolve()
+        else reject(new Error(`酒馆安装失败（${signal ?? code}），请查看「说明与日志」。`))
+      })
+    })
+  } finally {
+    closeSync(transcript)
+  }
+  return { installed: true }
+}
+
 async function performJob(request, options) {
+  if (request.mode === 'install') return installTavern(request, options)
   if (!['relocate', 'uninstall'].includes(request.mode)) return switchProfile(request, options)
   const require = createRequire(import.meta.url)
   const { acquireInstallation } = require('./installation-state.cjs')
@@ -76,13 +122,13 @@ export async function runSwitchJob(job, {
       if (request.ownership) await waitOwned(request.ownership)
       else await wait(request.pids)
       exited = true
-      if (['relocate', 'uninstall'].includes(request.mode) && request.ownership?.descendants?.length) {
+      if (['install', 'relocate', 'uninstall'].includes(request.mode) && request.ownership?.descendants?.length) {
         // Copying user data requires writers to be gone, not merely an unlocked
         // directory. Do not force-close tasks for an installation operation.
         await waitOwned({ roots: request.ownership.descendants }, { timeout: 15000 })
       }
       let cleaned = false
-      const result = await perform(request, { retry: { onRetry: async ({ from, to, code, attempt }) => {
+      const result = await perform(request, { log, retry: { onRetry: async ({ from, to, code, attempt }) => {
         log(`目录占用重试 ${attempt}: ${code} ${from} → ${to}`)
         if (!cleaned) {
           cleaned = true
@@ -93,8 +139,9 @@ export async function runSwitchJob(job, {
         }
       } } })
       log(JSON.stringify(result))
-      persist({ status: 'succeeded', message: '切换完成。' })
-      log('切换完成。')
+      const message = request.mode === 'install' ? '酒馆安装完成。' : '切换完成。'
+      persist({ status: 'succeeded', message })
+      log(message)
     } catch (error) {
       failed = true
       recoveryRequired = error.recoveryRequired === true

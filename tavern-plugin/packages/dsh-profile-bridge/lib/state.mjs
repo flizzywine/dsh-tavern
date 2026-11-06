@@ -195,6 +195,7 @@ export function statusPayload(paths) {
   const appExe = detectAppExe()
   return {
     installation: inspectInstallation(paths),
+    installAvailable: canInstallTavern(paths),
     platform: process.platform,
     dshHome: paths.home,
     profilesDir: paths.profilesDir,
@@ -217,6 +218,20 @@ export function statusPayload(paths) {
     transcriptTail: readLogTail(join(paths.stateDir, 'last-run.log.out')),
     helperPath: join(paths.stateDir, process.platform === 'win32' ? 'switch.ps1' : 'switch.sh'),
   }
+}
+
+export function canInstallTavern(paths) {
+  if (!['win32', 'darwin'].includes(process.platform) || !process.versions.electron || !process.send || process.ppid <= 1) return false
+  if (paths.activeDir !== join(paths.profilesDir, 'desktop')) return false
+  try {
+    if (!lstatSync(paths.activeDir).isDirectory()) return false
+    lstatSync(join(paths.profilesDir, 'tavern'))
+    return false
+  } catch (error) {
+    if (error.code !== 'ENOENT' || !existsSync(paths.activeDir)) return false
+  }
+  const resources = process.platform === 'darwin' ? resolve(dirname(process.execPath), '../Resources') : join(dirname(process.execPath), 'resources')
+  return ['app', 'app.asar'].some(dir => readManifest(join(resources, dir))?.name === '@deepseek-ai/dsh-desktop')
 }
 
 /**

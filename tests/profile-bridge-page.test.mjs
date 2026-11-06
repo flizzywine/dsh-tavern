@@ -60,7 +60,7 @@ test('快捷方式打开的独立酒馆窗口：不给切换按钮，只说明�
   // 桌面版此时是原版（没有链接），这一页却是酒馆：以页面为准，不能给出「切到 DSH 酒馆」。
   const status = { appKind: 'desktop', desktopApp: false, activeIsLink: false, backups: [], profiles: [tavernProfile] }
   const page = await mount(status, [], { inTavern: true })
-  assert.equal(page.label(), 'Profile 切换')
+  assert.equal(page.label(), '酒馆启动器')
   assert.doesNotMatch(page.text(), /切到 DSH 酒馆/)
   assert.match(page.text(), /独立窗口/)
   const open = [...page.dom.window.document.querySelectorAll('button')].find(item => item.textContent === '打开原版 DSH')
@@ -102,6 +102,19 @@ const managedStatus = {
   installation: { available: true, appDir: 'C:\\DSH\\apps\\dsh-tavern', profileDir: 'C:\\DSH\\profiles\\tavern', dataDir: 'C:\\DSH\\profile-data\\tavern', sharedHome: 'C:\\DSH' },
 }
 const namedButton = (page, text) => [...page.dom.window.document.querySelectorAll('button')].find(button => button.textContent === text)
+
+test('原版桌面首次安装需要确认，排队后禁用安装按钮', async () => {
+  const page = await mount({ appKind: 'desktop', desktopApp: true, installAvailable: true, profiles: [] })
+  try {
+    await page.act(async () => namedButton(page, '安装酒馆').click())
+    assert.deepEqual(page.calls, [['status', {}]])
+    await page.act(async () => namedButton(page, '确认安装并重启').click())
+    assert.deepEqual(page.calls.at(-1), ['install', { confirmed: true }])
+    assert.equal(namedButton(page, '安装酒馆').disabled, true)
+  } finally {
+    await page.dispose()
+  }
+})
 
 test('原版、酒馆和阅读器都能切到其余已安装配置', async () => {
   const readerProfile = { name: 'reader', bundles: ['dsh-reader', 'dsh-profile-bridge'], hasNodeModules: true }

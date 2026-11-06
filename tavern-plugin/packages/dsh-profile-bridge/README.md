@@ -1,10 +1,12 @@
-# 官方桌面 Profile 桥接（Tavern 兼容版）
+# 酒馆启动器（官方 DeepSeek Harness）
 
 基于 [2NF/dsh-profile-bridge](https://github.com/2NF/dsh-profile-bridge) 的 MIT 版本 0.2.0，来源提交 `6917177806fcff7d9def83a881c47f8936a70278`；保留原作者 LICENSE。
 
+从仓库 README 的「快速开始」安装此标准插件，然后在原版桌面打开「设置 → 酒馆启动器 → 安装酒馆」。启动器等待桌面退出后调用 Tavern 的现有安装器。安装成功后，原版和独立酒馆配置均提供此页面。已有酒馆可通过原有更新入口获得新版启动器。
+
 官方桌面仍从 `profiles/desktop` 启动，通过目录链接使用 `profiles/tavern`。这不是官方原生 profile 选择器；配置是独立目录，会话、凭据等仍遵循 DSH 的共享数据规则。
 
-各配置安装此插件后，从「设置 → Profile 切换」选择目标。已安装阅读器和切换桥的独立 `profiles/reader` 也会出现在这里。macOS/Linux 向桌面主进程发 SIGTERM，等同菜单退出（有任务时先确认）；Windows 自动调用官方托盘的退出动作，保留官方任务确认；无法调用时提示手动从托盘退出。助手等待 GUI 和宿主全部退出再切换，然后自动重新打开应用。原版 desktop 保存为 `desktop.fresh-*`，可从此设置页还原。
+各配置安装此插件后，从「设置 → 酒馆启动器」选择目标。已安装阅读器和切换桥的独立 `profiles/reader` 也会出现在这里。macOS/Linux 向桌面主进程发 SIGTERM，等同菜单退出（有任务时先确认）；Windows 自动调用官方托盘的退出动作，保留官方任务确认；无法调用时提示手动从托盘退出。助手等待 GUI 和宿主全部退出再切换，然后自动重新打开应用。原版 desktop 保存为 `desktop.fresh-*`，可从此设置页还原。
 
 兼容修正：不再修改目标 YAML；不强杀进程；无备份不删除入口；失败恢复原入口；并发请求被 pending 锁拒绝。异常终止遗留的 `profile-bridge/pending` 会记录助手 pid；确认助手已退出后，下一次切换会自动把陈旧记录归档到 `profile-bridge/stale/` 再重试。
 
@@ -12,8 +14,8 @@
 
 2026-10-17 已在 macOS 官方桌面 0.2.1-rc.2 验证 `tavern → 原版 desktop → tavern` 往返：两边设置页都能打开“配置档案”（现名“Profile 切换”），正常退出后切换，重新启动后正确加载。2026-10-18 社区贡献者 141HR 在 Windows 11（build 26200）官方桌面 0.2.1-rc.2 验证同样的往返：`profiles/desktop` 在独立目录与指向 `profiles/tavern` 的 junction 之间切换，存档与配置不受影响。
 
-- 返回原版：设置 → Profile 切换 → 重启并切换到原版 DSH。
-- 进入酒馆或阅读器：在 Profile 切换页点对应的重启按钮。
+- 返回原版：设置 → 酒馆启动器 → 重启并切换到原版 DSH。
+- 进入酒馆或阅读器：在酒馆启动器页点对应的重启按钮。
 - 宿主名称可能仍显示 desktop。实际使用的配置见切换页的「当前配置」。
 - 切换前结束生成任务，不要同时从命令行启动相关 profile。切换只改变配置目录入口，不复制或迁移存档；各配置的数据位置由其自身设置决定。
 - 保留 `desktop.fresh-*`，它是还原原版配置所必需的目录；完整备份应同时包含 profiles、profile-data 及其他自定义数据目录。

@@ -7,7 +7,7 @@ import { captureOwnedProcesses } from './lib/processes.mjs'
 import { requestDesktopQuit } from './lib/quit.mjs'
 import { relaunchApp, scheduleSwitch } from './lib/helper.mjs'
 import { createTavernShortcut } from './lib/shortcut.mjs'
-import { detectAppExe, fail, resolvePaths, statusPayload, validateTarget } from './lib/state.mjs'
+import { canInstallTavern, detectAppExe, fail, resolvePaths, statusPayload, validateTarget } from './lib/state.mjs'
 
 /** Shared RPC channel owned by this plugin; the browser half calls it by name. */
 const CHANNEL = '/profile-bridge'
@@ -27,6 +27,9 @@ export const inject = ['connection', 'webServer']
  */
 async function runSwitch(mode, paths, payload) {
   const request = typeof payload === 'object' && payload !== null ? payload : {}
+  if (mode === 'install' && (request.confirmed !== true || !canInstallTavern(paths))) {
+    fail('install-unavailable', '请在官方桌面的原版配置中确认首次安装。')
+  }
   if (mode === 'link' && basename(paths.activeDir) !== 'desktop') {
     fail(
       'not-desktop',
@@ -38,13 +41,13 @@ async function runSwitch(mode, paths, payload) {
     ? validateInstallationRequest(paths, mode, request) : undefined
   if (management && basename(paths.activeDir) !== 'desktop') fail('not-desktop', '请在官方桌面中管理安装。')
   const target = mode === 'link' ? validateTarget(paths, request.target) : undefined
-  const relaunch = detectAppExe()
+  const relaunch = mode === 'install' ? process.execPath : detectAppExe()
   if (!process.versions.electron || !process.send || process.ppid <= 1) {
     fail('not-desktop', '请在官方桌面中执行切换')
   }
   // Snapshot before quitting: detached children lose a trustworthy parent once it exits.
   const ownership = await captureOwnedProcesses([process.pid, process.ppid])
-  const result = scheduleSwitch({ ...management, mode, profilesRoot: paths.profilesDir, liveDir: paths.activeDir,
+  const result = scheduleSwitch({ ...management, mode, home: paths.home, profilesRoot: paths.profilesDir, liveDir: paths.activeDir,
     activeName: paths.activeName, targetDir: target?.dir, stateDir: paths.stateDir,
     stamp: new Date().toISOString().replace(/[:.]/g, '-') + '-' + process.pid,
     pids: [process.pid, process.ppid], ownership, relaunch })
@@ -75,7 +78,7 @@ async function handleCall(endpoint, payload) {
     if (endpoint === 'status') return { ok: true, value: statusPayload(resolvePaths()) }
     if (endpoint === 'link') return { ok: true, value: await runSwitch('link', resolvePaths(), payload) }
     if (endpoint === 'unlink') return { ok: true, value: await runSwitch('unlink', resolvePaths(), payload) }
-    if (endpoint === 'relocate' || endpoint === 'uninstall') return { ok: true, value: await runSwitch(endpoint, resolvePaths(), payload) }
+    if (['install', 'relocate', 'uninstall'].includes(endpoint)) return { ok: true, value: await runSwitch(endpoint, resolvePaths(), payload) }
     if (endpoint === 'shortcut') return { ok: true, value: createTavernShortcut({ paths: resolvePaths() }) }
     if (endpoint === 'openOriginal') return { ok: true, value: openOriginal() }
     fail('not-found', `Unknown endpoint ${JSON.stringify(endpoint)}.`)

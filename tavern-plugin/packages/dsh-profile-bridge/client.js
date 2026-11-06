@@ -40,7 +40,11 @@ window.__ModuleLoader__.load({
       operationPending: "操作已排队，等待桌面退出；请勿重复提交。",
       lastOperationFailure: "上次操作失败",
       operationDone: "上次操作已完成。",
-      section: 'Profile 切换',
+      section: '酒馆启动器',
+      install: '安装酒馆',
+      confirmInstall: '确认安装并重启',
+      installHint: '酒馆会安装到独立的 tavern 配置，原版配置会保留。确认后桌面将退出，安装完成后自动打开酒馆。期间请勿手动重开桌面。',
+      installDone: '酒馆安装完成。',
       explain: '切换配置会重启桌面应用，各配置保留自己的设置和会话。',
       current: '当前配置',
       profileDesktop: '原版 DSH',
@@ -93,7 +97,11 @@ window.__ModuleLoader__.load({
       operationPending: "Operation queued; waiting for Desktop to exit. Do not submit again.",
       lastOperationFailure: "The last operation failed",
       operationDone: "The last operation completed.",
-      section: 'Switch profile',
+      section: 'Tavern Launcher',
+      install: 'Install Tavern',
+      confirmInstall: 'Confirm installation and restart',
+      installHint: 'Tavern gets its own profile and keeps the original profile available. Desktop closes after confirmation and reopens in Tavern after installation. Leave Desktop closed while setup runs.',
+      installDone: 'Tavern installation complete.',
       explain: 'Switching restarts Desktop. Each profile keeps its settings and sessions.',
       current: 'Current profile',
       profileDesktop: 'Original DSH',
@@ -227,7 +235,7 @@ window.__ModuleLoader__.load({
       ]
       const currentLabel = destinations.find(({ name }) => name === current)?.label
       const options = destinations.filter(({ name, ready }) => name !== current && ready)
-      const blocked = options.length === 0 ? t(current === 'desktop' ? 'noTavern' : 'noOriginal') : null
+      const blocked = options.length === 0 && !status?.installAvailable ? t(current === 'desktop' ? 'noTavern' : 'noOriginal') : null
 
       const [shortcut, setShortcut] = React.useState(null)
       async function addShortcut() {
@@ -278,16 +286,17 @@ window.__ModuleLoader__.load({
       const isDesktop = status?.appKind === 'desktop'
       const installation = status?.installation
       const managementBlocked = !isDesktop || status?.desktopApp !== true || !installation?.available || busy || pending || Boolean(lastFailure?.recoveryRequired)
+      const installBlocked = !status?.installAvailable || busy || pending || Boolean(lastFailure?.recoveryRequired)
       const absoluteDestination = status?.platform === 'win32'
         ? /^[A-Za-z]:[\\/]/.test(destination.trim())
         : destination.trim().startsWith('/')
       function reviewManagement(action) {
-        if (managementBlocked || actionInFlight.current) return
+        if ((action === 'install' ? installBlocked : managementBlocked) || actionInFlight.current) return
         setFailure(null)
         setManagementAction(action)
       }
       async function confirmManagement() {
-        if (managementBlocked || actionInFlight.current || !managementAction || (managementAction === 'relocate' && !absoluteDestination)) return
+        if ((managementAction === 'install' ? installBlocked : managementBlocked) || actionInFlight.current || !managementAction || (managementAction === 'relocate' && !absoluteDestination)) return
         actionInFlight.current = true
         setBusy(true)
         setFailure(null)
@@ -323,19 +332,32 @@ window.__ModuleLoader__.load({
             h('button', { key: name, type: 'button', className: 'pb-btn', disabled: busy || pending || lastFailure?.recoveryRequired, onClick: () => void apply(name) }, t(action)))),
         ),
         lastFailure ? h('div', { className: 'pb-error', role: 'alert' },
-          h('strong', null, t(['relocate', 'uninstall'].includes(lastFailure.mode) ? 'lastOperationFailure' : 'lastFailure')),
+          h('strong', null, t(['install', 'relocate', 'uninstall'].includes(lastFailure.mode) ? 'lastOperationFailure' : 'lastFailure')),
           h('div', null, lastFailure.message),
           lastFailure.recoveryRequired ? h('div', null, t('recoveryRequired')) : null,
           h('div', null, t('logLocation') + (lastFailure.logPath || status.logPath || '')),
         ) : null,
         failure !== null ? h('p', { className: 'pb-error' }, `${t('failure')}: ${failure}`) : null,
-        !isDesktop || standalone ? null : h('div', { className: 'pb-shortcut' },
+        status?.lastResult?.status === 'succeeded' && status.lastResult.mode === 'install'
+          ? h('p', { className: 'pb-done', role: 'status' }, t('installDone')) : null,
+        status?.installAvailable ? h('section', { className: 'pb-management', 'aria-label': t('management') },
+          h('h3', null, t('management')),
+          h('p', null, t('installHint')),
+          pending ? h('p', { role: 'status' }, t('operationPending')) : null,
+          h('div', { className: 'pb-actions' },
+            h('button', { type: 'button', className: 'pb-btn', disabled: installBlocked,
+              onClick: () => void (managementAction === 'install' ? confirmManagement() : reviewManagement('install')) },
+            t(managementAction === 'install' ? 'confirmInstall' : 'install')),
+            managementAction === 'install' ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy,
+              onClick: () => setManagementAction(null) }, t('cancel')) : null),
+        ) : null,
+        !isDesktop || standalone || status?.installAvailable ? null : h('div', { className: 'pb-shortcut' },
           h('div', { className: 'pb-bar-text' },
             h('p', { className: 'pb-sub' }, t('shortcutHint')),
             shortcut ? h('p', { className: 'pb-done' }, (shortcut.existed ? t('shortcutExists') : t('shortcutDone')) + shortcut.path) : null),
           h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy || pending || lastFailure?.recoveryRequired, onClick: () => void addShortcut() }, t('shortcut')),
         ),
-        installation ? h('section', { className: 'pb-management', 'aria-label': t('management') },
+        installation && !status?.installAvailable ? h('section', { className: 'pb-management', 'aria-label': t('management') },
           h('h3', null, t('management')),
           h('dl', { className: 'pb-paths' },
             ...['appDir', 'profileDir', 'dataDir', 'sharedHome'].flatMap(key => [

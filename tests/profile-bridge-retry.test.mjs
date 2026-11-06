@@ -96,6 +96,23 @@ test('worker reports failed rollback with backup and never reopens missing entry
   assert.equal(readFileSync(join(request.targetDir, 'save'), 'utf8'), 'tavern bytes')
 })
 
+test('launcher waits for desktop and its descendants before installing, then records success before reopening', async t => {
+  const request = { ...fixture(t), mode: 'install', ownership: { roots: [], descendants: [{ pid: 10 }] } }
+  const order = []
+  const result = await runSwitchJob(job(request), {
+    waitOwned: async ({ roots }) => { order.push(roots.length ? 'descendants-exited' : 'desktop-exited') },
+    perform: async () => { order.push('install'); return { installed: true } },
+    relaunch: () => {
+      order.push('relaunch')
+      const status = JSON.parse(readFileSync(join(request.stateDir, 'last-result.json')))
+      assert.equal(status.mode, 'install')
+      assert.equal(status.status, 'succeeded')
+    },
+  })
+  assert.equal(result, 0)
+  assert.deepEqual(order, ['desktop-exited', 'descendants-exited', 'install', 'relaunch'])
+})
+
 test('normal quit timeout never cleans descendants, changes directories, or relaunches', async t => {
   const request = fixture(t)
   assert.equal(await runSwitchJob(job(request), {

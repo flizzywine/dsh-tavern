@@ -291,6 +291,7 @@ function Close-DesktopForFirstInstall {
   if (@(Get-DesktopProcesses | Where-Object { $_.Own -and -not $_.NodeMode }).Count) { throw '首次安装需要先退出 DeepSeek Harness，但安装命令正运行在它的终端里：请完整退出 DeepSeek Harness，再在系统的 Windows PowerShell 里重新运行安装命令。' }
   $Others = Get-OtherDesktopProcesses
   if (-not $Others.Count) { return $false }
+  if ($env:DSH_TAVERN_LAUNCHER_INSTALL -eq '1') { throw '安装期间检测到 DeepSeek Harness 正在运行。请退出后重新安装。' }
   Write-InstallStatus '首次安装需要先退出 DeepSeek Harness，正在关闭（装完会自动重新打开）…'
   foreach ($Process in $Others) { try { [void](Get-Process -Id $Process.Id -ErrorAction Stop).CloseMainWindow() } catch {} }
   for ($Wait = 0; $Wait -lt 10 -and (Get-OtherDesktopProcesses).Count; $Wait++) { Start-Sleep -Seconds 1 }
@@ -1804,8 +1805,8 @@ try {
     $Elapsed = (Get-Date) - $InstallStarted
     Write-Host ''
     Write-Host ('DSH Tavern 安装完成，用时 ' + [int][math]::Floor($Elapsed.TotalMinutes) + ' 分 ' + $Elapsed.Seconds + ' 秒。') -ForegroundColor Green
-    Write-Host '酒馆装在独立的 tavern 配置里；原来的 desktop 配置已备份，可在设置 → Profile 切换中切回。'
-    if (($FirstDesktopInstall -or $ReopenDesktop) -and -not (Get-OtherDesktopProcesses).Count -and $OfficialDesktopExecutable) {
+    Write-Host '酒馆装在独立的 tavern 配置里；原来的 desktop 配置已备份，可在设置 → 酒馆启动器中切回。'
+    if ($env:DSH_TAVERN_LAUNCHER_INSTALL -ne '1' -and ($FirstDesktopInstall -or $ReopenDesktop) -and -not (Get-OtherDesktopProcesses).Count -and $OfficialDesktopExecutable) {
       Write-Host '正在打开 DeepSeek Harness…'
       Start-Process -FilePath $OfficialDesktopExecutable
     } else { Write-Host '请重启官方 DeepSeek Harness 进入酒馆。' }

@@ -1,0 +1,47 @@
+name: Publish official Tavern launcher
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tavern-plugin/packages/dsh-profile-bridge/**
+      - .github/workflows/publish-official-launcher.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-official-launcher
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pack and publish the standard DSH bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch=plugin-official-downloads
+          source=tavern-plugin/packages/dsh-profile-bridge
+          archive=$(npm pack "./$source" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP")
+          node .github/scripts/check-runtime-archive.mjs "$RUNNER_TEMP/$archive"
+          dist="$RUNNER_TEMP/official-launcher"
+          if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+            git worktree add --detach "$dist" "origin/$branch"
+            if [ -f "$dist/$archive" ]; then
+              cmp "$RUNNER_TEMP/$archive" "$dist/$archive"
+              exit
+            fi
+          else
+            git worktree add --detach "$dist"
+            git -C "$dist" checkout --orphan "$branch"
+            git -C "$dist" rm -rfq .
+          fi
+          cp "$RUNNER_TEMP/$archive" "$dist/$archive"
+          git -C "$dist" add "$archive"
+          git -C "$dist" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -qm "Publish $archive"
+          git -C "$dist" push origin "HEAD:refs/heads/$branch"

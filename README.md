@@ -19,11 +19,23 @@
 
 > npm 上的 `dsh-profile-tavern` 已弃用。请按下方对应平台的方式安装。
 
-官方 DeepSeek Harness 使用原有桌面安装器。DSH NEXT 可以通过启动器安装到独立 Profile。从其他社区版迁移前请先备份，再按[数据导入说明](https://github.com/flizzywine/dsh-tavern/wiki/%E4%BB%8E%E6%97%A7%E9%85%92%E9%A6%86%E7%BB%A7%E6%89%BF%E6%95%B0%E6%8D%AE%EF%BC%88%E6%B5%8B%E8%AF%95%E7%89%88%EF%BC%89)导入。
+官方 DeepSeek Harness 和 DSH NEXT 都可以通过各自的酒馆启动器安装到独立 Profile。从其他社区版迁移前请先备份，再按[数据导入说明](https://github.com/flizzywine/dsh-tavern/wiki/%E4%BB%8E%E6%97%A7%E9%85%92%E9%A6%86%E7%BB%A7%E6%89%BF%E6%95%B0%E6%8D%AE%EF%BC%88%E6%B5%8B%E8%AF%95%E7%89%88%EF%BC%89)导入。
 
 当前版本适配 **DSH 0.2.x**（0.2.0-rc.2 起）。安装前建议备份 `.dsh` 目录。
 
-### Windows
+### 官方 DeepSeek Harness（通过酒馆启动器安装）
+
+1. 安装 [DeepSeek Harness](https://deepseek.com/harness/) 0.2.1-rc.2 或更新的 0.2.x，打开并完成初始设置。
+2. 在原版桌面的「DSH 终端」里安装标准插件：
+
+   ```powershell
+   dsh plugin --profile desktop add https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.2.tgz
+   ```
+
+3. 重启 DeepSeek Harness，打开「设置 → 酒馆启动器」，点「安装酒馆」并确认。桌面会退出，安装到独立的 `tavern` 配置，完成后重新打开酒馆。
+4. 从酒馆的同一个设置页可以切回原版 DSH、查看数据目录、迁移或删除酒馆。
+
+### Windows（PowerShell 安装）
 
 1. 安装 [DeepSeek Harness](https://deepseek.com/harness/) 0.2.1-rc.2 或更新的 0.2.x，打开一次后从托盘退出。
 2. 打开 PowerShell，粘贴下面这行并按回车执行：
