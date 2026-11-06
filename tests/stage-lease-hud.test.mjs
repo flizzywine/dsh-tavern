@@ -30,13 +30,15 @@ const seats=[{name:'辉夜',face:{identity:'pack:kaguya',src:'kaguya.png'}},{nam
 test('lease HUD renders the card hud inside the stage theme scope with read, device and Avatar',async()=>{
   let received
   const hud=props=>{received=props;return React.createElement('div',{className:'card-strip'},props.seats.map(name=>React.createElement(props.Avatar,{key:name,name,size:40})))}
-  const lease={owner:'werewolf',hud,props:{seats:['辉夜','Emma','某人']}},read={lineId:'l1',unread:0}
-  await mount(stage(React.createElement(views.StageLeaseHud,{lease,rows:seats,device:'mobile-portrait',read})),async document=>{
+  const lease={owner:'werewolf',hud,props:{seats:['辉夜','Emma','某人']}},read={lineId:'l3',unread:0}
+  const displayed={lineId:'l1',speaker:'Emma'}
+  await mount(stage(React.createElement(views.StageLeaseHud,{lease,rows:seats,device:'mobile-portrait',read,displayed})),async document=>{
     const region=document.querySelector('.fork-gal-lease-hud')
     assert.equal(region.closest('.fork-gal-stage').dataset.theme,'aero')
     assert.equal(region.dataset.device,'mobile-portrait')
     assert.ok(region.querySelector('.card-strip'))
     assert.deepEqual([received.read,received.device,received.Avatar,received.seats.length],[read,'mobile-portrait',views.Avatar,3])
+    assert.deepEqual(received.displayed,displayed,'displayed line is independent of the read high-water mark')
     const avatars=[...region.querySelectorAll('.fork-gal-lease-avatar')]
     assert.equal(avatars[0].querySelector('img').dataset.pack,'pack:kaguya')
     assert.equal(avatars[0].style.width,'40px')

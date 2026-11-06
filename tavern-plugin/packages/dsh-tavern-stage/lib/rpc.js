@@ -1,5 +1,7 @@
 import { stageEntranceChoices } from './domain/stage-entrance.js'
 import { widgetSourceRounds } from './domain/widget-window-projection.js'
+import {projectStageLease} from './domain/stage-lease-projection.js'
+import {cardGreetings, messageOpeningId, resolveOpeningScene} from './domain/stage-opening-scene.js'
 import { NARRATOR_VOICE, GENERAL_VOICE } from '../../../lib/domain/asset-pack-speech.js'
 import { phoneMark, phoneMarkRounds as phoneRounds } from '../../../mods/phone/call-context.js'
 // The stage's requests: director, asset packs, figures and voices, widgets, mods, stage timers, phone, CG gallery.
@@ -11,6 +13,27 @@ export function createStageHandlers(deps) {
     async readWidgetVariables(args, method, serverTemplate, authority) {
       const { widgetVariables } = deps
 return widgetVariables.read({...args,origin:authority?.origin})
+    },
+    async getStageLeasePresentation(args, method, serverTemplate, authority) {
+      if (serverTemplate || !authority?.origin) throw new Error('Authenticated same-origin carrier required')
+      const {readRoundView, assetRuntime, figureRuntimes} = deps
+      const chat = await readRoundView(args.sessionId, 1)
+      if (!chat || !await assetRuntime.hasBindings(chat.cardPath)) return {status:'unavailable'}
+      const consumer = await assetRuntime.consumer(chat, authority.origin)
+      if (!consumer?.presentation.available()) return {status:'unavailable'}
+      let openingScene = null
+      if (args.scene === undefined) {
+        const assets = await assetRuntime.snapshot(chat.cardPath)
+        if (assets) {
+          const greeting = chat.messages.find(row => row.role === 'assistant' && row.greeting)
+          const opening = resolveOpeningScene(assets, messageOpeningId(greeting || {}, cardGreetings(assets.raw)))
+          openingScene = opening.state.scene
+        }
+      }
+      const revision = assetRuntime.revision
+      const value = await projectStageLease({consumer, actors:args.actors, scene:args.scene, openingScene,
+        live2d:await figureRuntimes.available('live2d'), spine:await figureRuntimes.available('spine')})
+      return revision === assetRuntime.revision ? {status:'ready', value} : {status:'stale'}
     },
     async readCardPages(args) {
       return deps.cardPages.list(args)
