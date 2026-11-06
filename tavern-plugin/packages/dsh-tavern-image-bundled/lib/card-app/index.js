@@ -91,6 +91,9 @@ export function apply(ctx, { ready }) {
       channel: { type: 'string', description: '精确渠道 ID 或唯一名字；comfyui 选择本地工作流。不填用当前渠道，不改变全局设置。' },
       workflow: { type: 'string', description: 'ComfyUI 工作流 ID，不填使用配图设置的默认工作流。' },
       preset: { type: 'string', description: '本次画风预设 ID 或唯一名字。' },
+      preset_style: { type: 'string', description: '本张画风预设的正面词（画师串 / 风格词），只用于在调用记录里标明选了哪套画风，不参与提示词拼接；实际注入以 preset 指定的那套为准。' },
+      preset_positive: { type: 'string', description: '临时覆盖这套预设的正面词（画师串 / 风格词），只对本次生成生效，不写回设置。要改权重或删掉其中某段时，把改好的整串传进来；传空字符串表示本张不用这层词。' },
+      preset_negative: { type: 'string', description: '临时覆盖这套预设的负面固定词，只对本次生成生效，不写回设置；传空字符串表示本张不带这层负面词。' },
       size: { type: 'string', description: '竖图、横图、方图或宽x高。不填沿用渠道或 ComfyUI 工作流尺寸。' },
       count: { type: 'integer', description: '生成 1–4 张，默认 1。' },
       sampler: { type: 'string', description: '仅支持此参数的 NovelAI、SD WebUI 渠道可临时指定。' },
@@ -162,7 +165,7 @@ export function apply(ctx, { ready }) {
       })
       for (const item of workflows) channels.push({ id: 'comfyui', workflowId: item.id, name: item.label, provider: 'comfyui', promptMode: cardSelection(cfg, workflows, { channel: 'comfyui', workflow: item.id }).promptMode, maxReferences: item.bindings?.referenceImages?.length || 0, supportsSeed: Boolean(item.bindings?.seed?.length) })
       return { activeChannelId: cfg.imageBackend === 'comfyui' ? 'comfyui' : cfg.activeImageChannel, channels, defaultWorkflow: cfg.defaultWorkflow,
-        presets: (cfg.stylePresets || []).filter(item => item.enabled !== false).map(item => ({ id: item.id, name: item.name })), activePreset: cfg.activePreset, sizes: CARD_SIZES }
+        presets: (cfg.stylePresets || []).filter(item => item.enabled !== false).map(item => ({ id: item.id, name: item.name, artist: item.artist || '' })), activePreset: cfg.activePreset, sizes: CARD_SIZES }
     },
   }
   const lookup = {

@@ -35,6 +35,20 @@ export function cardSelection(config, workflows, args = {}) {
   }
   if (args.workflow && !local) throw fail('workflow 仅用于 ComfyUI，请指定 channel 为 comfyui')
   if (args.preset) next.activePreset = select((config.stylePresets || []).filter(item => item.enabled !== false), String(args.preset), '画风预设', ['id', 'name']).id
+  // 单次覆盖：只改这一张图用的那份预设副本，不写回设置。传空字符串即本张不用该段词。
+  if (typeof args.preset_positive === 'string' || typeof args.preset_negative === 'string') {
+    const list = Array.isArray(next.stylePresets) ? next.stylePresets.slice() : []
+    const at = list.findIndex(item => String(item.id) === String(next.activePreset))
+    if (at >= 0) {
+      list[at] = { ...list[at] }
+      if (typeof args.preset_positive === 'string') list[at].artist = args.preset_positive
+      if (typeof args.preset_negative === 'string') list[at].negative = args.preset_negative
+    } else if (typeof args.preset_positive === 'string') {
+      list.push({ id: 'preset-override', name: '本次临时覆盖', artist: args.preset_positive, negative: typeof args.preset_negative === 'string' ? args.preset_negative : '', position: 'prefix', enabled: true })
+      next.activePreset = 'preset-override'
+    }
+    next.stylePresets = list
+  }
   if (args.sampler) {
     const provider = channel ? effectiveImageProvider(channel) : 'comfyui'
     if (!['novelai', 'sdwebui'].includes(provider)) throw fail('当前渠道不支持临时采样器，请使用渠道或工作流设置')
@@ -53,7 +67,8 @@ export function cardSelection(config, workflows, args = {}) {
     ? configuredSize.sizeWidth + 'x' + configuredSize.sizeHeight : config.imageSize || '竖图')
   return { config: next, workflow, size, promptMode, supportsSeed, seedLimit, maxReferences: channel ? imageReferenceLimit(channel) : (workflow.bindings?.referenceImages?.length || 0),
     preset: (config.stylePresets || []).find(item => item.id === next.activePreset)?.name || '',
-    channel: local ? 'ComfyUI · ' + workflow.label : channel.name || channel.id, channelId: local ? 'comfyui' : channel.id }
+    channel: local ? 'ComfyUI · ' + workflow.label : channel.name || channel.id, channelId: local ? 'comfyui' : channel.id,
+    preset: (next.stylePresets || []).find(item => String(item.id) === String(next.activePreset)) || null }
 }
 
 function wait(signal, ms) {

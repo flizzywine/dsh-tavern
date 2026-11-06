@@ -328,6 +328,26 @@ test('selection detects ambiguous names and leaves global config unchanged', () 
   assert.deepEqual(config, before)
 })
 
+test('preset overrides only touch the copy used for this generation', () => {
+  const config = {
+    imageBackend: 'openai', activeImageChannel: 'a', imageChannels: [channel('openai', {}, { id: 'a', name: 'relay alpha' })],
+    stylePresets: [{ id: 'p1', name: 'flat', artist: '1.3::artist:foo::, dot nose', negative: 'lowres', position: 'prefix', enabled: true }],
+    activePreset: 'p1',
+  }
+  const before = structuredClone(config)
+  const picked = cardSelection(config, [], { preset_positive: '2::artist:foo::', preset_negative: '' })
+  const patched = picked.config.stylePresets.find(item => item.id === 'p1')
+  assert.equal(patched.artist, '2::artist:foo::')
+  assert.equal(patched.negative, '')
+  assert.equal(picked.preset.artist, '2::artist:foo::', '返回里带出本次实际用的那套')
+  assert.deepEqual(config, before, '调用方的配置不能被改')
+  // 没选预设时，覆盖值自己撑起一条临时预设
+  const bare = cardSelection(Object.assign({}, config, { activePreset: '' }), [], { preset_positive: 'artist:bar' })
+  assert.equal(bare.config.activePreset, 'preset-override')
+  assert.equal(bare.preset.artist, 'artist:bar')
+  assert.deepEqual(config, before)
+})
+
 test('gallery writes do not lose concurrent additions and remove compares stable IDs', async t => {
   const root = await mkdtemp(join(tmpdir(), 'card-gallery-'))
   t.after(() => rm(root, { recursive: true, force: true }))
