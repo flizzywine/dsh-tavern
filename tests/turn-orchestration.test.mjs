@@ -380,6 +380,42 @@ test('漏写的一轮可以按它自己的请求号补记进存档（#196 自愈
   assert.equal(run.chat().messages.at(-1).stagePageVersion, 2)
 })
 
+test('玩家输入先落盘，失败保留并在同一索引重试提交', async () => {
+  const run = harness('story')
+  const input = { sessionId: 'session-1', requestId: 'rpc-saved', userText: '推开窗' }
+  const saved = await run.orchestrator.appendUser(input)
+  const duplicate = await run.orchestrator.appendUser(input)
+  assert.deepEqual([saved.messageIndex, duplicate.messageIndex, duplicate.duplicate], [0, 0, true])
+  assert.equal(run.chat().messages.length, 1)
+
+  await run.orchestrator.prepare({ ...input, turn: 2 })
+  assert.deepEqual(run.chat().messages.map(row => row.role), ['user', 'assistant'], '准备只追加正文，不重复玩家输入')
+  assert.equal(run.chat().messages[0].source.rpcId, 'rpc-saved')
+  await run.orchestrator.discard({ sessionId: 'session-1', turn: 2 })
+  assert.deepEqual(run.chat().messages.map(row => row.role), ['user'], '生成失败只清理正文')
+  assert.equal(run.chat().messages[0].text, '推开窗')
+  assert.equal(run.chat().messages[0].placeholder, undefined)
+
+  await run.orchestrator.prepare({ ...input, turn: 2 })
+  await run.orchestrator.finalize({ ...input, turn: 2, assistantText: '雨水扑进房间。' })
+  assert.equal(run.chat().messages.length, 2, '同一请求重试仍只有一对故事行')
+  assert.equal(run.chat().messages[0].source.rpcId, 'rpc-saved')
+  assert.equal(run.chat().messages[0].text, '推开窗')
+  assert.equal(run.chat().messages[1].text, '雨水扑进房间。')
+})
+
+test('原生输入在正文规划前持久化，规划器读取到的是同一请求行', async () => {
+  let observed = null
+  let run
+  run = harness('story', { planner: { plan: async input => {
+    if (input.purpose === 'body') observed = run.chat().messages.map(row => ({ role: row.role, text: row.text, rpcId: row.source?.rpcId }))
+    return { text: 'context' }
+  } } })
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, requestId: 'rpc-native', userText: '直接输入' })
+  assert.deepEqual(observed, [{ role: 'user', text: '直接输入', rpcId: 'rpc-native' }])
+  assert.equal(run.chat().messages.length, 2)
+})
+
 test('本局前台工具可逐项关闭，卡片模式不受影响', async () => {
   const all = harness('story', { storyToolCall: true, webSearchEnabled: true })
   const names = await all.orchestrator.visibleTools('session-1')

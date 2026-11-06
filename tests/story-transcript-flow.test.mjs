@@ -81,102 +81,57 @@ test('加载更早期间保留旧窗口，扩展成功后一次性替换', async
 	assert.equal(store.getSnapshot().transcript.messages.length, 4)
 })
 
-test('直接显示宿主待发送用户回声，接受后替换为正式行', async t => {
+test('玩家输入只来自持久故事行，准备、失败和提交始终保持同一 DOM', async t => {
 	const p = page(t), { context } = p
-	const prepared = [...messages.slice(0, 1), { role: 'user', text: '立即显示输入', source: { kind: 'user', rpcId: 'submit-1' } }, { role: 'assistant', turn: 10, text: '', placeholder: true }]
-	let phase = 'initial'
-	const reads = []
-	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => {
-		reads.push(phase)
-		return { storyTranscript: transcript(phase === 'initial' ? messages : prepared, reads.length), view: { mode: 'story' }, revision: reads.length }
-	} })
-	const store = data.createStoryTranscriptStore(), mode = data.createModeStore()
-	await store.read('s1')
-	phase = 'prepared'
-	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode,
-		externalHistory: { refresh() {}, dispose() {} } })
-	const session = { running: false, pendingSubmissions: [] }, chat = { legacy: { partial: null, nodes: [], runningCalls: [] } }
-	const flow = () => React.createElement(feature.StoryTranscriptFlow, {
-		sessionId: 's1', store, nativeFlow: () => null,
-		useChat: selector => selector(chat), useSession: selector => selector(session)
-	})
-	const root = await mount(p, flow())
-	assert.deepEqual(reads, ['initial'])
-	assert.equal(p.dom.window.document.querySelectorAll('article').length, messages.length)
-	await act(async () => {
-		session.pendingSubmissions = [{ requestId: 'submit-1', text: '立即显示输入' }]
-		root.render(flow())
-	})
-	assert.deepEqual(reads, ['initial'], '宿主回声直接上屏，不读取历史')
-	assert.equal(p.dom.window.document.querySelectorAll('article').length, messages.length + 1, '只增加用户输入，不伪造助手行')
-	assert.equal([...p.dom.window.document.querySelectorAll('.dsh-tavern-user-bubble')].at(-1).textContent, '立即显示输入')
-	await act(async () => {
-		p.dom.window.dispatchEvent(new p.dom.window.CustomEvent('dsh-tavern-story-mutated', { detail: { sessionId: 's1' } }))
-	})
-	assert.deepEqual(reads, ['initial', 'prepared'])
-	assert.equal(p.dom.window.document.querySelectorAll('article').length, prepared.length, 'requestId 相同则正式行与宿主回声只显示一份')
-	assert.equal(p.dom.window.document.querySelector('.dsh-tavern-user-bubble').textContent, '立即显示输入')
-	assert.ok(p.dom.window.document.querySelector('.dsh-tavern-story-streaming'))
-	await act(async () => { session.pendingSubmissions = []; root.render(flow()) })
-	assert.equal(p.dom.window.document.querySelectorAll('article').length, prepared.length)
-})
-
-test('原生用户行接棒待发送回声，故事读取完成前不出现空白', async t => {
-	const p = page(t), { context } = p
-	const prepared = [...messages.slice(0, 1), { role: 'user', text: '立即显示输入', source: { kind: 'user', rpcId: 'submit-1' } }, { role: 'assistant', turn: 10, text: '', placeholder: true }]
-	let phase = 'initial'
+	const settledUser = { role: 'user', text: '立即显示输入', source: { kind: 'user', rpcId: 'submit-1' } }
+	const user = { ...settledUser, placeholder: true }
+	const saved = [...messages, user], failed = [...messages, settledUser]
+	const prepared = [...saved, { role: 'assistant', turn: 10, text: '', placeholder: true }]
+	const committed = [...failed, { role: 'assistant', turn: 10, text: '正文' }]
+	let current = messages, revision = 0
 	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({
-		storyTranscript: transcript(phase === 'initial' ? messages : prepared, phase === 'initial' ? 1 : 2),
-		view: { mode: 'story' }, revision: phase === 'initial' ? 1 : 2
+		storyTranscript: transcript(current, ++revision), view: { mode: 'story' }, revision: revision
 	}) })
 	const store = data.createStoryTranscriptStore(), mode = data.createModeStore()
 	await store.read('s1')
-	phase = 'prepared'
 	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode,
 		externalHistory: { refresh() {}, dispose() {} } })
-	const session = { running: true, pendingSubmissions: [{ requestId: 'submit-1', text: '立即显示输入' }] }
-	const chat = { legacy: { partial: null, nodes: [], runningCalls: [] } }
+	const session = { running: false, pendingSubmissions: [{ requestId: 'host-only', text: '宿主临时回声' }] }
+	const chat = { legacy: { partial: null, nodes: [{ kind: 'user', content: '原生临时行', source: { kind: 'user', rpcId: 'native-only' } }], runningCalls: [] } }
 	const flow = () => React.createElement(feature.StoryTranscriptFlow, {
 		sessionId: 's1', store, nativeFlow: () => null,
 		useChat: selector => selector(chat), useSession: selector => selector(session)
 	})
 	const root = await mount(p, flow())
 	const visibleRow = () => [...p.dom.window.document.querySelectorAll('article[data-story-row]')].find(row => row.textContent.includes('立即显示输入'))
-	assert.equal(visibleRow()?.getAttribute('data-row-key'), 'submission:submit-1')
-	await act(async () => {
-		chat.legacy.nodes = [{ kind: 'user', content: [{ type: 'text', text: '立即显示输入' }], source: { kind: 'user', rpcId: 'submit-1' } }]
-		session.pendingSubmissions = []
-		root.render(flow())
-	})
-	assert.equal(visibleRow()?.getAttribute('data-row-key'), 'submission:submit-1', '宿主撤回回声后由同 key 的原生用户行接棒')
-	assert.equal(p.dom.window.document.querySelectorAll('article').length, messages.length + 1)
-	await act(async () => {
-		p.dom.window.dispatchEvent(new p.dom.window.CustomEvent('dsh-tavern-story-mutated', { detail: { sessionId: 's1' } }))
-	})
-	assert.equal(p.dom.window.document.querySelectorAll('article').length, prepared.length)
-	assert.notEqual(visibleRow()?.getAttribute('data-row-key'), 'submission:submit-1')
+	assert.equal(p.dom.window.document.querySelectorAll('article').length, messages.length)
+	assert.equal(p.dom.window.document.body.textContent.includes('宿主临时回声'), false)
+	assert.equal(p.dom.window.document.body.textContent.includes('原生临时行'), false)
+	async function refresh(next) {
+		current = next
+		await act(async () => {
+			p.dom.window.dispatchEvent(new p.dom.window.CustomEvent('dsh-tavern-story-mutated', { detail: { sessionId: 's1' } }))
+			root.render(flow())
+		})
+	}
+	await refresh(saved)
+	const original = visibleRow()
+	assert.equal(original?.getAttribute('data-row-key'), 'index:3')
+	assert.equal(original.querySelector('.dsh-tavern-story-row-actions'), null, '生成中的持久输入不开放写操作')
+	await refresh(prepared)
+	assert.equal(visibleRow(), original, '正文准备只追加 assistant，用户 DOM 不替换')
+	assert.ok(p.dom.window.document.querySelector('.dsh-tavern-story-streaming'))
+	session.pendingSubmissions = []
+	session.running = false
+	await refresh(failed)
+	assert.equal(visibleRow(), original, '生成失败和宿主状态变化都不移除玩家输入')
+	assert.ok(original.querySelector('.dsh-tavern-story-row-actions'), '失败结束后玩家输入恢复写操作')
+	await refresh(prepared)
+	await refresh(committed)
+	assert.equal(visibleRow(), original, '重试与提交仍使用同一个故事索引')
 	assert.equal([...p.dom.window.document.querySelectorAll('.dsh-tavern-user-bubble')].filter(node => node.textContent === '立即显示输入').length, 1)
 })
 
-test('宿主撤回待发送回声后用户输入同步消失', async t => {
-	const p = page(t), { context } = p
-	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({ storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1 }) })
-	const store = data.createStoryTranscriptStore(), mode = data.createModeStore()
-	await store.read('s1')
-	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode,
-		externalHistory: { refresh() {}, dispose() {} } })
-	const session = { running: false, pendingSubmissions: [{ requestId: 'submit-failed', text: '失败后撤回' }] }
-	const chat = { legacy: { partial: null, nodes: [], runningCalls: [] } }
-	const flow = () => React.createElement(feature.StoryTranscriptFlow, {
-		sessionId: 's1', store, nativeFlow: () => null,
-		useChat: selector => selector(chat), useSession: selector => selector(session)
-	})
-	const root = await mount(p, flow())
-	assert.equal([...p.dom.window.document.querySelectorAll('.dsh-tavern-user-bubble')].at(-1).textContent, '失败后撤回')
-	await act(async () => { session.pendingSubmissions = []; root.render(flow()) })
-	assert.equal(p.dom.window.document.querySelectorAll('article').length, messages.length)
-	assert.equal([...p.dom.window.document.querySelectorAll('.dsh-tavern-user-bubble')].some(node => node.textContent === '失败后撤回'), false)
-})
 
 test('新旧渲染开关保留故事数据并即时回退原生 ChatFlow', async t => {
 	const p = page(t), { context } = p

@@ -1377,6 +1377,7 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.tavernMvuReceiptForTurn = tavernMvuReceiptForTurn;
 		exports.tavernUserTextForTurn = tavernUserTextForTurn;
 		exports.createTavernFrameSlashExecutor = createTavernFrameSlashExecutor;
+		exports.installTavernPlayerInputPersistence = installTavernPlayerInputPersistence;
 		exports.createWorldBookLibraryRefreshModule = createWorldBookLibraryRefreshModule;
 		exports.groupWorldBookEditorEntries = groupWorldBookEditorEntries;
 		exports.orderWorldBookCatalogItems = orderWorldBookCatalogItems;

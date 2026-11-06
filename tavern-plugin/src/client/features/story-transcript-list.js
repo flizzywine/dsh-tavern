@@ -4,21 +4,6 @@
 
 const TAVERN_STORY_TRANSCRIPT_LABELS = Object.freeze({ code: Object.freeze({ copyLabel: '复制', copiedLabel: '已复制' }), footnotes: '脚注' })
 const TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS = Object.freeze([])
-const TAVERN_STORY_TRANSCRIPT_EMPTY_SUBMISSIONS = Object.freeze([])
-const TAVERN_STORY_TRANSCRIPT_EMPTY_NODES = Object.freeze([])
-
-function tavernStoryNativeUserInput(node) {
-	if (!node || node.kind !== 'user') return null
-	const message = node.data || node, source = message.source
-	if (!source || source.kind !== 'user' || !source.rpcId) return null
-	let text = ''
-	if (typeof message.text === 'string') text = message.text
-	else if (typeof message.content === 'string') text = message.content
-	else if (Array.isArray(message.content)) text = message.content.map(function (part) {
-		return part && part.type === 'text' ? String(part.text || '') : ''
-	}).join('')
-	return { requestId: String(source.rpcId), text: text }
-}
 
 function TavernStoryMarkdown(props) {
 	const text = String(props.text === undefined || props.text === null ? '' : props.text)
@@ -99,6 +84,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		const revision = transcript && transcript.revision
 		const usable = Number.isSafeInteger(messageIndex) && messageIndex >= 0 && revision !== null && revision !== undefined
 			&& Number.isSafeInteger(Number(revision)) && Number(revision) >= 0 && !row.streaming
+			&& !(row.role === 'user' && row.message && row.message.placeholder === true)
 		if (!usable) return null
 		const target = { role: row.role, messageIndex: messageIndex, revision: Number(revision) }
 		function report(label, error) {
@@ -328,36 +314,6 @@ function createTavernStoryTranscriptFeature(deps) {
 		const partial = props.useChat(function (snapshot) { return snapshot && snapshot.legacy ? snapshot.legacy.partial : null })
 		const runningCalls = props.useChat(function (snapshot) { return snapshot && snapshot.legacy && Array.isArray(snapshot.legacy.runningCalls) ? snapshot.legacy.runningCalls : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true })
-		const pendingSubmissions = props.useSession(function (snapshot) { return snapshot && Array.isArray(snapshot.pendingSubmissions) ? snapshot.pendingSubmissions : TAVERN_STORY_TRANSCRIPT_EMPTY_SUBMISSIONS })
-		const nativeNodes = props.useChat(function (snapshot) { return snapshot && snapshot.legacy && Array.isArray(snapshot.legacy.nodes) ? snapshot.legacy.nodes : TAVERN_STORY_TRANSCRIPT_EMPTY_NODES })
-		const displayedTranscript = React.useMemo(function () {
-			if (!transcript) return transcript
-			const admitted = new Set(transcript.messages.map(function (entry) { return entry && entry.message && entry.message.source && entry.message.source.rpcId }).filter(Boolean))
-			const submissions = new Map()
-			// Chat receives user/message before Session retires its pending echo. Keep
-			// that same native row on screen until the story read admits the rpcId.
-			if (running || pendingSubmissions.length) {
-				let tailFrom = 0
-				for (let index = nativeNodes.length - 1; index >= 0; index -= 1) {
-					const input = tavernStoryNativeUserInput(nativeNodes[index])
-					if (input && admitted.has(input.requestId)) { tailFrom = index + 1; break }
-				}
-				for (let index = tailFrom; index < nativeNodes.length; index += 1) {
-					const input = tavernStoryNativeUserInput(nativeNodes[index])
-					if (input && !admitted.has(input.requestId) && input.text.trim()) submissions.set(input.requestId, input)
-				}
-			}
-			for (const submission of pendingSubmissions) {
-				if (!submission || admitted.has(submission.requestId) || submissions.has(submission.requestId) || typeof submission.text !== 'string' || !submission.text.trim()) continue
-				submissions.set(String(submission.requestId), { requestId: String(submission.requestId), text: submission.text })
-			}
-			if (!submissions.size) return transcript
-			const echoes = Array.from(submissions.values(), function (submission) {
-				return { key: 'submission:' + submission.requestId, absoluteIndex: null, legacyTurn: null, floorNo: null,
-					message: { role: 'user', text: submission.text, source: { kind: 'user', rpcId: submission.requestId } } }
-			})
-			return Object.assign({}, transcript, { messages: transcript.messages.concat(echoes) })
-		}, [transcript, pendingSubmissions, nativeNodes, running])
 		const nativeStreamTurn = partial && Number.isInteger(partial.turn) ? partial.turn : null
 		const previous = React.useRef({ sessionId: sessionId, enabled: enabled, running: running })
 		React.useEffect(function () {
@@ -416,7 +372,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			state: state,
 			historyFrom: controller.historyFrom,
 			loadOlder: controller.loadOlder,
-			transcript: displayedTranscript,
+			transcript: transcript,
 			view: view,
 			partial: partial,
 			running: running,
@@ -440,6 +396,9 @@ function createTavernStoryTranscriptFeature(deps) {
 
 	function register(input) {
 		const ctx = input.ctx, slots = input.slots
+		if (typeof installTavernPlayerInputPersistence === 'function') ctx.effect(function () {
+			return installTavernPlayerInputPersistence(ctx)
+		}, 'dsh-tavern: persist player input')
 		if (!flowExecuteSlash && typeof createTavernFrameSlashExecutor === 'function') flowExecuteSlash = createTavernFrameSlashExecutor(ctx)
 		if (!storyExternalHistory && externalHistoryInstaller && typeof ctx.get === 'function') ctx.effect(function () {
 			const uiConversation = ctx.get('uiConversation') || ctx.get('conversation')

@@ -17,8 +17,12 @@ export function createPlayHandlers(deps) {
     reconcileStory, reconcileWhenIdle, regenBody, replayFailedTurn, requestPerformance, retrySettlement,
     retryStyleReference, rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setPlayerName, stopBackground, str,
-    templateHistoryFrom, undoRollbackTurn, updateChat, view, withCompactionSession } = deps
+    templateHistoryFrom, turnOrchestrator, undoRollbackTurn, updateChat, view, withCompactionSession } = deps
   return {
+    async appendPlayerInput(args) {
+      return await turnOrchestrator.appendUser({ sessionId: str(args?.sessionId), requestId: str(args?.requestId),
+        userText: str(args?.text ?? args?.userText), userContent: args?.userContent })
+    },
     // For tools: send a player input as the page does; the turn runs like any other.
     async sendPlayerInput(args) {
       const sessionId = str(args?.sessionId), text = str(args?.text).trim()

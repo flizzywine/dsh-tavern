@@ -80,3 +80,15 @@ test('BodyEditPanel 保存 payload 不丢 messageIndex/revision（静态部分�
   assert.match(source, /JSON\.stringify\(refreshed\.edit\.parts\)\s*!==\s*JSON\.stringify\(panel\.edit\.parts\)/, '过期重试必须先确认可编辑内容逐字未变')
   assert.match(source, /new CustomEvent\("dsh-tavern-story-mutated"/, '保存后仍需广播 story-mutated 让故事列表重读')
 })
+
+test('appendPlayerInput 只持久化玩家行，不触发 Session 或正文协调', async () => {
+  const calls = []
+  const h = createPlayHandlers({
+    turnOrchestrator: { appendUser: async input => { calls.push(input); return { saved: true, requestId: input.requestId, messageIndex: 7 } } },
+    reconcileStory: async () => { throw new Error('落盘玩家输入前不应协调正文') },
+    str: value => String(value === undefined || value === null ? '' : value)
+  })
+  const result = await h.appendPlayerInput({ sessionId: 's1', requestId: 'rpc-1', text: '玩家只输入一次' })
+  assert.equal(result.messageIndex, 7)
+  assert.deepEqual(calls, [{ sessionId: 's1', requestId: 'rpc-1', userText: '玩家只输入一次', userContent: undefined }])
+})

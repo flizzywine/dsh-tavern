@@ -340,6 +340,38 @@ export function createTurnOrchestrator(options) {
     commitMessageRow(draft, placeholder?.userIndex, message)
   }
 
+  // Player input is story data, not an optimistic Session echo. Persist it before
+  // generation and let prepare/finalize update this same absolute message index.
+  async function appendUser(input) {
+    const sessionId = str(input && input.sessionId).trim()
+    const requestId = str(input && input.requestId).trim()
+    const userText = str(input && (input.userText !== undefined ? input.userText : input.text)).trim()
+    const attachments = inputAttachments(input && input.userContent)
+    if (!sessionId || !requestId || (!userText && attachments.length === 0)) throw new Error('玩家输入缺少会话、请求号或内容')
+    const chat = await store.chatForSession(sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    const mode = chat.mode || 'story'
+    if (!['story', 'script'].includes(mode)) return { saved: false, mode }
+    let result = null
+    await store.updateChat(chat.id, current => {
+      const messages = Array.isArray(current.messages) ? current.messages : []
+      const existing = messages.findLastIndex(row => row?.role === 'user' && str(row.source?.rpcId).trim() === requestId)
+      if (existing >= 0) {
+        if (str(messages[existing].sourceText ?? messages[existing].text).trim() !== userText) throw new Error('同一请求号的玩家输入内容不一致')
+        result = { saved: true, mode, requestId, messageIndex: existing, duplicate: true }
+        return undefined
+      }
+      const messageIndex = messages.length
+      messages.push({ role: 'user', text: userText, sourceText: userText, ts: now(), native: true, placeholder: true,
+        source: { kind: 'user', rpcId: requestId }, ...(attachments.length ? { inputAttachments: attachments } : {}) })
+      current.messages = messages
+      result = { saved: true, mode, requestId, messageIndex, duplicate: false }
+      return current
+    }, { source: 'player.input', requestId })
+    if (!result) throw new Error('玩家输入保存未完成')
+    return result
+  }
+
   async function prepare(input) {
     let chat = await contextForSession(input.sessionId)
     if (chat === undefined) {
@@ -363,10 +395,14 @@ export function createTurnOrchestrator(options) {
       if (operation.placeholder) return savePreparation({ source: 'foreground.prepare' })
       const attachments = inputAttachments(input.userContent)
       const withUser = userText !== '' || attachments.length > 0
-      const user = {
-        role: 'user', text: runtimeUserText, sourceText: userText, ts: now(), native: true,
-        ...(attachments.length ? { inputAttachments: attachments } : {})
-      }
+      const savedUserIndex = withUser && requestId ? chat.messages.findLastIndex(row =>
+        row?.role === 'user' && str(row.source?.rpcId).trim() === requestId) : -1
+      const savedUser = savedUserIndex >= 0 ? chat.messages[savedUserIndex] : null
+      const user = Object.assign({}, savedUser, {
+        role: 'user', text: runtimeUserText, sourceText: userText, ts: savedUser?.ts ?? now(), native: true,
+        ...(attachments.length ? { inputAttachments: attachments } : {}),
+        ...(requestId ? { source: { kind: 'user', rpcId: requestId } } : {})
+      })
       if (chat.promptTemplateInput?.turn === turn) Object.assign(user, clone(chat.promptTemplateInput.message), { templateInputSource: userText })
       user.placeholder = true
       user.native = true
@@ -374,27 +410,30 @@ export function createTurnOrchestrator(options) {
         role: 'assistant', text: '', sourceText: '', displayText: '', displayMode: 'html',
         ts: now(), native: true, turn, placeholder: true
       }
-      const rows = withUser ? [user, assistant] : [assistant]
+      // An already saved player row is updated in place; only the assistant is appended.
+      const rows = savedUser ? [assistant] : withUser ? [user, assistant] : [assistant]
       const selected = store.readChatSlice ? await store.readChatSlice(input.sessionId, []) : null
       if (selected?.denseMessages && store.patchChat && Number.isSafeInteger(selected.messageCount)) {
         const baseline = preparationBase || selected.chat
         const revision = Number(baseline?._storageRevision)
         if (!Number.isSafeInteger(revision) || selected.chat?._storageRevision !== revision) throw new Error('剧情已变化，本次正文准备已过期')
-        const userIndex = withUser ? selected.messageCount : null
+        const userIndex = savedUserIndex >= 0 ? savedUserIndex : withUser ? selected.messageCount : null
         const assistantIndex = selected.messageCount + rows.length - 1
         operation.placeholder = { userIndex, assistantIndex }
         const header = captureChatHeader(chat)
         const changes = diffJson({ ...baseline, messages: [] }, { ...header, messages: [] })
           .filter(change => !['_storageRevision', 'updatedAt'].includes(change.path[0]))
+        if (savedUser) changes.push({ op: 'set', path: ['messages', savedUserIndex], value: user })
         changes.push({ op: 'splice', path: ['messages'], index: selected.messageCount, deleteCount: 0, items: rows })
         const saved = await store.patchChat(chat.id, revision, changes, { source: 'foreground.prepare' })
         if (!saved) throw new Error('剧情已变化，本次正文准备已过期')
         preparationBase = { ...header, _storageRevision: saved._storageRevision }
         return
       }
-      // Legacy/flat saves have a dense Chat here. No migration is required:
-      // their existing whole-Chat writer persists the same two placeholder rows.
-      operation.placeholder = { userIndex: withUser ? chat.messages.length : null, assistantIndex: chat.messages.length + rows.length - 1 }
+      // Legacy/flat saves use the same identity rule as the scoped patch path.
+      operation.placeholder = { userIndex: savedUserIndex >= 0 ? savedUserIndex : withUser ? chat.messages.length : null,
+        assistantIndex: chat.messages.length + rows.length - 1 }
+      if (savedUser) chat.messages[savedUserIndex] = user
       chat.messages.push(...rows)
       await store.writeChat(chat, { source: 'foreground.prepare' })
     }
@@ -415,6 +454,16 @@ export function createTurnOrchestrator(options) {
     let reusedRuntimeInput = false
     let foregroundOperation = null
     const mode = chat.mode || 'story'
+    // Native composer submissions arrive here without the page's pre-generate RPC.
+    // Persist their input before planning too; an existing RPC row is a no-op.
+    if (['story', 'script'].includes(mode) && requestId && (userText || inputAttachments(input.userContent).length)) {
+      const exists = chat.messages.some(row => row?.role === 'user' && str(row.source?.rpcId).trim() === requestId)
+      if (!exists) {
+        await appendUser({ sessionId: input.sessionId, requestId, userText, userContent: input.userContent })
+        chat = await contextForSession(input.sessionId)
+        preparationBase = store.writeChatHeader ? captureChatHeader(chat) : null
+      }
+    }
     let chatChanged = clearStaleStages(chat, turn)
     if (chat.foregroundError !== null && chat.foregroundError !== undefined) {
       chat.foregroundError = null
@@ -902,7 +951,8 @@ export function createTurnOrchestrator(options) {
           before.scriptRevision = committed.revision
         }
         if (userText !== '' || attachments.length) {
-          const userMessage = { role: 'user', text: userText, ts: now(), native: true, ...(attachments.length ? { inputAttachments: attachments } : {}) }
+          const userMessage = { role: 'user', text: userText, ts: now(), native: true,
+            ...(requestId ? { source: { kind: 'user', rpcId: requestId } } : {}), ...(attachments.length ? { inputAttachments: attachments } : {}) }
           if (previousMvuVariables !== undefined) Object.assign(userMessage, { swipeId: 0, swipes: [userText], variables: [clone(previousMvuVariables)] })
           if (draft.promptTemplateInput?.turn === turn) Object.assign(userMessage, clone(draft.promptTemplateInput.message), {templateInputSource:userText})
           // A wizard wrote its opening record into the floor it sent before the game
@@ -1021,7 +1071,12 @@ export function createTurnOrchestrator(options) {
               const message = chat.messages[row.index]
               if (message?.placeholder === true && message.role === row.role
                 && (row.role !== 'assistant' || Number(message.turn) === turn)) {
-                chat.messages.splice(row.index, 1)
+                if (row.role === 'user' && str(message.source?.rpcId).trim()) {
+                  // Generation failure retires only its assistant. The player's
+                  // durable input stays at the same index and can be prepared again.
+                  chat.messages[row.index] = { ...message }
+                  delete chat.messages[row.index].placeholder
+                } else chat.messages.splice(row.index, 1)
               }
             }
           }
@@ -1070,5 +1125,5 @@ export function createTurnOrchestrator(options) {
     return chat === undefined || chat === null ? null : (chat.mode || 'story')
   }
 
-  return Object.freeze({ prepare, saveChanges, stageChanges, finalize, recordFailure, discard, visibleTools, modeFor })
+  return Object.freeze({ appendUser, prepare, saveChanges, stageChanges, finalize, recordFailure, discard, visibleTools, modeFor })
 }
