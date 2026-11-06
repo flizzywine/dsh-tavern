@@ -1436,7 +1436,7 @@ function GalStage(props) {
             // 在素材库中编辑 leaves the stage for the 素材库 tab (the stage covers the chat and its sidebar).
             onExit:()=>{setGallery(false);props.onExit();}}) : null,
         // CONFIG or 回想 opened from a page (openSettings / openGallery) stands over it: Esc, which the page takes first, closes that then.
-        pageOpen ? h(stageViews.statusPanel.Overlay, { key: sessionId + ":" + openPage, sessionId, pageId: openPage, shortcut: openDeclared.shortcut, config, source: runtime.source, size: openDeclared.size,
+        pageOpen ? h(stageViews.statusPanel.Overlay, { key: sessionId + ":" + openPage, sessionId, pageId: openPage, label: openDeclared.label, shortcut: openDeclared.shortcut, config, source: runtime.source, size: openDeclared.size,
             saved: cardPages.fresh !== true, entry: entryOpen, onClose: configOpen ? closeConfig : galleryOpen ? closeGallery : entryOpen ? leaveEntryPage : closeCardPage, onAction: cardPageAction }) : null,
         configOpen || configLeaving ? h(GalConfigScreen, { sessionId, data: props.data, tests: mixTests, textSkin: shownSkin.current, skinHud: activeSkin?.hud?.reveal || "auto", skinPending: configSkin.pending === true, onClose: closeConfig, leaving: configLeaving }) : null,
         // §18 E3: after closing, a drawn menu with an exit motion stays mounted (inert) while its items leave.

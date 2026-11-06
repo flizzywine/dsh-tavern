@@ -245,6 +245,30 @@ test('a missing page opens to the empty state and a failed read to the error sta
   }
 })
 
+test('while the read is out the page keeps its declared label and size; shown once its visible document has loaded', async () => {
+  const h = harness({page: {...PAGE, label: '状态页', size: 'full'}})
+  const states = []
+  const page = openPage(h, {label: '状态', size: 'full', onState: value => states.push(value)})
+  assert.deepEqual(states.map(({phase, label, size, shown}) => ({phase, label, size, shown})), [{phase: 'loading', label: '状态', size: 'full', shown: false}])
+  await settle()
+  assert.deepEqual(states.map(({phase, label, size, shown}) => [phase, label, size, shown]).slice(1), [['ready', '状态页', 'full', false]], 'mounted, not yet on screen')
+  assert.equal(h.frames[0].title, '状态页')
+  h.frames[0].listeners.load()
+  assert.deepEqual(states.map(({phase, shown}) => [phase, shown]).slice(2), [['ready', true]], 'the visible document loaded')
+  page.dispose()
+})
+
+test('an entry page draws no chrome (data-bare) until its document is shown, or its read comes back empty or failed', () => {
+  for (const [entry, phase, shown, bare] of [[true, 'loading', false, true], [true, 'ready', false, true], [true, 'ready', true, false],
+    [true, 'empty', false, false], [true, 'error', false, false], [false, 'loading', false, false], [false, 'ready', false, false]]) {
+    const {React} = fakeReact({phase, label: '标题', size: 'full', figures: [], shown})
+    const panels = createStageStatusPanel({React, window: {console, addEventListener() {}, removeEventListener() {}}, document: {}, rpc: () => new Promise(() => {}), signals: {subscribe: () => () => {}}})
+    const tree = panels.Overlay({sessionId: 's1', pageId: 'title', label: '标题', size: 'full', entry, onClose() {}})
+    assert.equal(tree.props['data-bare'], bare ? '' : undefined, JSON.stringify({entry, phase, shown}))
+    panels.dispose()
+  }
+})
+
 test('the sheet renders loading, empty and error (重试) states', () => {
   for (const [phase, expected] of [['loading', '正在读取页面…'], ['empty', '本卡没有这个页面'], ['error', '页面读取失败重试']]) {
     const {React} = fakeReact({phase, label: '', size: 'window', figures: []})

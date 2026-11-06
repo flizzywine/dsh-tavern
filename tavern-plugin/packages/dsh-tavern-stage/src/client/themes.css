@@ -6481,6 +6481,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
    the loading veil still stands over it. */
 .fork-gal-stage > .fork-gal-status[data-entry-page], .fork-gal-stage > .fork-gal-status[data-entry-page] > .fork-gal-status-sheet { animation: none; }
 .fork-gal-stage[data-entry] > .fork-gal-status[data-entry-page] { opacity: 1; pointer-events: auto; transition: none; }
+/* …and draws no chrome until its document is on screen (data-bare): only that ground, no title bar, no ×, no sheet frame */
+.fork-gal-stage > .fork-gal-status[data-bare] > .fork-gal-status-sheet { border-color: transparent; box-shadow: none; }
+.fork-gal-stage > .fork-gal-status[data-bare] > .fork-gal-status-sheet > .fork-gal-status-head { visibility: hidden; }
 .fork-gal-status-note { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; flex: 1; margin: 0; padding: 32px 20px; color: var(--gal-ui-ink-2); font-size: var(--gal-ui-meta-size); text-align: center; }
 .fork-gal-stage .fork-gal-status-note > button { min-height: 36px; padding: 6px 14px; border: 0; border-radius: var(--gal-ui-radius); background: transparent; color: var(--gal-ui-accent); font: inherit; cursor: pointer; }
 .fork-gal-stage .fork-gal-status-note > button:hover { background: var(--gal-ui-hover); }
