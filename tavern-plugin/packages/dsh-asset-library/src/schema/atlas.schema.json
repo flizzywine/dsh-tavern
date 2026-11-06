@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dsh.barrier-atlas/1",
+  "title": "Barrier texture atlas page (PixiJS 'hash' spritesheet + dsh meta)",
+  "description": "One page = one WebP image (≤ 2048x2048, RGBA, straight alpha). Frame names: <frame> (base cut) and <frame>@1..@3 (boil re-cuts). Pieces scale frames by displayH / sourceSize.h.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["frames", "meta"],
+  "properties": {
+    "frames": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]{0,47}(@[1-3])?$" },
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false, "required": ["frame", "rotated", "trimmed", "spriteSourceSize", "sourceSize"],
+        "properties": {
+          "frame": { "$ref": "#/$defs/rect" },
+          "rotated": { "const": false },
+          "trimmed": { "const": false },
+          "spriteSourceSize": { "$ref": "#/$defs/rect" },
+          "sourceSize": { "type": "object", "additionalProperties": false, "required": ["w", "h"], "properties": { "w": { "type": "integer" }, "h": { "type": "integer" } } }
+        }
+      }
+    },
+    "meta": {
+      "type": "object", "additionalProperties": false, "required": ["app", "version", "image", "format", "size", "scale", "dsh"],
+      "properties": {
+        "app": { "const": "dsh-barrier-atlas" },
+        "version": { "const": "1" },
+        "image": { "type": "string", "pattern": "^[a-z0-9._-]+\\.webp$" },
+        "format": { "const": "RGBA8888" },
+        "size": { "type": "object", "additionalProperties": false, "required": ["w", "h"], "properties": { "w": { "type": "integer", "maximum": 2048 }, "h": { "type": "integer", "maximum": 2048 } } },
+        "scale": { "const": "1" },
+        "dsh": {
+          "type": "object", "additionalProperties": false, "required": ["variants", "refScale"],
+          "properties": {
+            "variants": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 3 }, "description": "boil re-cut count per base frame (0 = runtime micro-jitter only)" },
+            "refScale": { "type": "object", "additionalProperties": { "type": "number" }, "description": "source px per reference px for each base frame" },
+            "privateUse": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "rect": { "type": "object", "additionalProperties": false, "required": ["x", "y", "w", "h"], "properties": { "x": { "type": "integer", "minimum": 0 }, "y": { "type": "integer", "minimum": 0 }, "w": { "type": "integer", "minimum": 1 }, "h": { "type": "integer", "minimum": 1 } } }
+  }
+}

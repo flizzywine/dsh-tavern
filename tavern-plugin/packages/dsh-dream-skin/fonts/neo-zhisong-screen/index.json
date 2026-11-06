@@ -1,0 +1,28 @@
+{
+  "id": "neo-zhisong-screen",
+  "label": "????? ?????",
+  "family": "Tavern neo-zhisong-screen",
+  "category": "serif",
+  "weights": [
+    400
+  ],
+  "files": [
+    {
+      "weight": 400,
+      "style": "normal",
+      "file": "LXGWNeoZhiSongScreen.ttf",
+      "format": "truetype",
+      "bytes": 11922650,
+      "sha256": "4e071b63ee221e72309ec720259f264024336991d1ee0bce42e80d1fb3855a1c"
+    }
+  ],
+  "license": "IPA Font License 1.0",
+  "source": "https://github.com/lxgw/LxgwNeoXiZhi-Screen/releases/tag/26.08.21",
+  "coverage": {
+    "subset": false,
+    "unicodeCount": 27770,
+    "gb2312": 7445,
+    "gb2312Total": 7445,
+    "missingPunctuation": ""
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "dsh-tavern-card-memory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "dsh-mnemon": "0.5.29",
+    "dsh-mnemon-source-runtime": "0.5.14",
+    "dsh-mnemon-source-documents": "0.5.10"
+  }
+}

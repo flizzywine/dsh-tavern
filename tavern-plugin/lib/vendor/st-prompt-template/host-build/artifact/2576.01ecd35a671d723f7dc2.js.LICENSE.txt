@@ -1,0 +1,13 @@
+/*! Bundled license information:
+
+unenv-nightly/runtime/node/buffer/internal/ieee754.mjs:
+  (*! ieee754. BSD-3-Clause License. Feross Aboukhadijeh <https://feross.org/opensource> *)
+
+unenv-nightly/runtime/node/buffer/internal/buffer.mjs:
+  (*!
+   * The buffer module from node.js, for the browser.
+   *
+   * @author   Feross Aboukhadijeh <https://feross.org>
+   * @license  MIT
+   *)
+*/

@@ -1,0 +1,85 @@
+{
+  "name": "dsh-pocket",
+  "description": "把 DeepSeek Harness 装进你的口袋：一个包、一个设置页，手机扫码即同步访问电脑上的 DSH（局域网 + 公网，实时同屏）。",
+  "type": "module",
+  "main": "lib/index.js",
+  "bin": {
+    "dsh-pocket": "bin/dsh-pocket.mjs"
+  },
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": "./client/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "client",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build:client": "node client/build.mjs",
+    "release": "semantic-release",
+    "test": "node --test --test-timeout=30000 \"test/*.test.js\"",
+    "test:local": "node --test --test-timeout=300000 \"test/local/*.test.js\""
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "esbuild": "^0.25.9",
+    "semantic-release": "^24.2.9",
+    "ws": "^8.18.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "GPL-2.0",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "mobile",
+    "remote",
+    "qr",
+    "tunnel"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-session-log-export"
+      ],
+      "platform": "web"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shaobeichen/dsh-pocket.git"
+  },
+  "bugs": {
+    "url": "https://github.com/shaobeichen/dsh-pocket/issues"
+  },
+  "homepage": "https://github.com/shaobeichen/dsh-pocket",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "version": "2.12.0"
+}

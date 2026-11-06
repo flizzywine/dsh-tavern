@@ -1,0 +1,208 @@
+{
+  "revision": "e2df835b908ae870acaa554c57c5c791e5f90cb6",
+  "families": [
+    {
+      "id": "neo-xihei-screen",
+      "label": "????? ?????",
+      "family": "Tavern neo-xihei-screen",
+      "category": "sans",
+      "weights": [
+        400
+      ],
+      "files": [
+        {
+          "weight": 400,
+          "style": "normal",
+          "file": "LXGWNeoXiHeiScreen.ttf",
+          "format": "truetype",
+          "bytes": 7666968,
+          "sha256": "6f69412d8307c055b7f247e67669b0e4ab4b79bf199fe58ee93545429b586092"
+        }
+      ],
+      "license": "IPA Font License 1.0",
+      "source": "https://github.com/lxgw/LxgwNeoXiZhi-Screen/releases/tag/26.08.21",
+      "coverage": {
+        "subset": false,
+        "unicodeCount": 27770,
+        "gb2312": 7445,
+        "gb2312Total": 7445,
+        "missingPunctuation": ""
+      }
+    },
+    {
+      "id": "neo-zhisong-screen",
+      "label": "????? ?????",
+      "family": "Tavern neo-zhisong-screen",
+      "category": "serif",
+      "weights": [
+        400
+      ],
+      "files": [
+        {
+          "weight": 400,
+          "style": "normal",
+          "file": "LXGWNeoZhiSongScreen.ttf",
+          "format": "truetype",
+          "bytes": 11922650,
+          "sha256": "4e071b63ee221e72309ec720259f264024336991d1ee0bce42e80d1fb3855a1c"
+        }
+      ],
+      "license": "IPA Font License 1.0",
+      "source": "https://github.com/lxgw/LxgwNeoXiZhi-Screen/releases/tag/26.08.21",
+      "coverage": {
+        "subset": false,
+        "unicodeCount": 27770,
+        "gb2312": 7445,
+        "gb2312Total": 7445,
+        "missingPunctuation": ""
+      }
+    },
+    {
+      "id": "noto-sans-sc",
+      "label": "Noto Sans SC",
+      "family": "Tavern noto-sans-sc",
+      "category": "sans",
+      "weights": [
+        400,
+        500,
+        700
+      ],
+      "files": [
+        {
+          "weight": 400,
+          "style": "normal",
+          "file": "400-758dff09a5625dd6.woff2",
+          "format": "woff2",
+          "bytes": 4192712,
+          "sha256": "758dff09a5625dd659ea4c529ffdb7741bdbc182b54957a7007f1cfcfd450820",
+          "sourceSha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da"
+        },
+        {
+          "weight": 500,
+          "style": "normal",
+          "file": "500-3f6c9c85cf17979b.woff2",
+          "format": "woff2",
+          "bytes": 4268684,
+          "sha256": "3f6c9c85cf17979b18df8001903613792d272a094c1a79846fa8591e9ed0d64c",
+          "sourceSha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da"
+        },
+        {
+          "weight": 700,
+          "style": "normal",
+          "file": "700-f022a5c5aa906dd1.woff2",
+          "format": "woff2",
+          "bytes": 4314792,
+          "sha256": "f022a5c5aa906dd18ebd5da3e3a282603537f17ce9208b5cfca6dc20692e3cc0",
+          "sourceSha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da"
+        }
+      ],
+      "license": "SIL OFL 1.1",
+      "source": "https://github.com/google/fonts/tree/main/ofl/notosanssc",
+      "coverage": {
+        "subset": false,
+        "unicodeCount": 30890,
+        "gb2312": 7445,
+        "gb2312Total": 7445,
+        "missingPunctuation": ""
+      }
+    },
+    {
+      "id": "noto-serif-sc",
+      "label": "Noto Serif SC",
+      "family": "Tavern noto-serif-sc",
+      "category": "serif",
+      "weights": [
+        400,
+        500,
+        700
+      ],
+      "files": [
+        {
+          "weight": 400,
+          "style": "normal",
+          "file": "400-a15f54b1f3e51cb8.woff2",
+          "format": "woff2",
+          "bytes": 5732364,
+          "sha256": "a15f54b1f3e51cb863943599c3d784cbb9399d5d877caf8d9eac523fda1f8283",
+          "sourceSha256": "050080d9255a86808f2945bffac582b31ef32bc36411ce29563b4961670c66f9"
+        },
+        {
+          "weight": 500,
+          "style": "normal",
+          "file": "500-7437aa3d18b9f273.woff2",
+          "format": "woff2",
+          "bytes": 5809688,
+          "sha256": "7437aa3d18b9f273328c6fb52195e0f27d69e241e50af8b232326371065bba5f",
+          "sourceSha256": "050080d9255a86808f2945bffac582b31ef32bc36411ce29563b4961670c66f9"
+        },
+        {
+          "weight": 700,
+          "style": "normal",
+          "file": "700-5f9ea1f47fcc4654.woff2",
+          "format": "woff2",
+          "bytes": 5925560,
+          "sha256": "5f9ea1f47fcc46540e199586cc7c0a5799a9fa8473ca82d950ea6b779ed405cc",
+          "sourceSha256": "050080d9255a86808f2945bffac582b31ef32bc36411ce29563b4961670c66f9"
+        }
+      ],
+      "license": "SIL OFL 1.1",
+      "source": "https://github.com/google/fonts/tree/main/ofl/notoserifsc",
+      "coverage": {
+        "subset": false,
+        "unicodeCount": 30928,
+        "gb2312": 7445,
+        "gb2312Total": 7445,
+        "missingPunctuation": ""
+      }
+    },
+    {
+      "id": "resource-han-rounded",
+      "label": "Resource Han Rounded CN",
+      "family": "Tavern resource-han-rounded",
+      "category": "rounded",
+      "weights": [
+        400,
+        500,
+        700
+      ],
+      "files": [
+        {
+          "weight": 400,
+          "style": "normal",
+          "file": "400-bd8eb891801bbcf9.woff2",
+          "format": "woff2",
+          "bytes": 4936772,
+          "sha256": "bd8eb891801bbcf9c8d73f8023e63c30e423e2a87b948a5be491ad187b668d56",
+          "sourceSha256": "1c5c623f008eabef10c45135a48b01b46311f9369c28857355872cfe05f48dc0"
+        },
+        {
+          "weight": 500,
+          "style": "normal",
+          "file": "500-42d73bc48bf5d5d6.woff2",
+          "format": "woff2",
+          "bytes": 4974796,
+          "sha256": "42d73bc48bf5d5d62a6e2cb5d6f5aeb2d875236be43a9d54c7800504aa06c479",
+          "sourceSha256": "b2ec1727fbc04b70255db6cb71be0eca3b7a7167ef11655059c5576cc920143f"
+        },
+        {
+          "weight": 700,
+          "style": "normal",
+          "file": "700-4e42ee4c402cce9d.woff2",
+          "format": "woff2",
+          "bytes": 5040192,
+          "sha256": "4e42ee4c402cce9dd2eaa687be8a9b8585f335ef1a916d9632a85c6234b4dbea",
+          "sourceSha256": "f713907a21a10701cd68a7ce3e345ccdce46c789e1809d65ace54e095d7107c3"
+        }
+      ],
+      "license": "SIL OFL 1.1",
+      "source": "https://github.com/CyanoHao/Resource-Han-Rounded/releases/tag/v0.990",
+      "coverage": {
+        "subset": false,
+        "unicodeCount": 30887,
+        "gb2312": 7445,
+        "gb2312Total": 7445,
+        "missingPunctuation": ""
+      }
+    }
+  ]
+}

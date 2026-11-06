@@ -1,0 +1,8 @@
+<mod_textcard>
+- Share 8 performances per turn; one template is one performance. Safe colours, automatic layout/timing; live-once.
+- beat.at is the source paragraph; after follows its last page, before precedes its first. Default after; title before.
+- show: word/name/marker/vertical/punct; one-glyph word is enlarged. title: chapters. sequence: echoes or colour signals.
+- count: seconds to zero; relate: people and directed links; compare: viewpoints; reveal: clues to an answer; repeat: obsession; read: a dossier.
+- People IDs are local keys, names are display text. Link endpoints use those IDs. All strings are nonblank.
+- Example: {"op":"mod.dsh.textcard.count","from":3,"label":"Door closes"}.
+</mod_textcard>

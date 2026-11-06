@@ -1,0 +1,214 @@
+# dsh-tavern-plugin bundle：项目管理配置随版本升级；Profile patch 只保留用户覆盖。
+# Tavern 默认完全权限；保留原生权限预设，用户仍可主动切回受限模式。
+- id: sandbox-policy
+  config:
+    mode: danger-full-access
+    workspaceRoot: !!js process.cwd()
+- id: approval
+  config:
+    policy: never
+- id: permission
+  config:
+    defaultPreset: danger-full-access
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+- id: session-persistence-jsonl
+  config:
+    root: !!js dshHomePath('profile-data', 'tavern', 'sessions')
+- id: storage-json
+  config:
+    root: !!js dshHomePath('profile-data', 'tavern', 'storages')
+- id: bash-sandbox
+  config:
+    timeoutMs: 600000
+    maxTimeoutMs: 600000
+- id: pwsh-sandbox
+  config:
+    timeoutMs: 600000
+    maxTimeoutMs: 600000
+# 0.2.0-rc.2 适配：命令与文件系统工具不再挂 host plane。0.2.0 的 preset-plane
+# gate 按“已声明的行 id”判重（不看 disabled），tavern 在这里恢复
+# tool-bash/tool-pwsh/tool-fs/tool-web 会与每个 preset 自己声明的同名行冲突。
+# 这四个工具改由 tavern preset 的 config.plugins 提供（见文件末尾的 insert）。
+# 0.2.0-rc.2 适配：`agent-presets` 行 id 已被 `agent-preset-registry` 取代
+# （@deepseek-ai/dsh-agent-presets 包在 0.2.0 已不存在）。新 Config 为
+# { default required, selectedDefault volatile }，没有 includeUserRoot 键：
+# 0.2.0 的 registry 不扫目录，preset 定义就是声明行，不声明就不出现在列表里。
+- id: agent-preset-registry
+  config:
+    default: tavern
+# Tavern 固定使用酒馆预设，不给玩家切换 Agent 预设的设置页。插件设置页保留：
+# 没有自己界面的插件（如 dsh-ops）只能在那里改配置。
+- id: ui-agent-preset
+  disabled: true
+- insert:
+    - id: tavern-cordis-inspect
+      name: dsh-tavern-plugin/cordis-inspect
+    - id: dsh-tavern
+      name: dsh-tavern-plugin
+      inject:
+        - fs
+        - llm
+        - webServer
+        - tools
+        - skills
+        - agentDefaultModel
+        - sandboxPolicy
+        - shell
+        - agentPresets
+        - settings
+        - tokenMeter
+        - connection
+
+# 0.2.0-rc.2 适配：preset 容器模型从「扫描 presets/ 目录」改为「@deepseek-ai/dsh-agent-preset
+# 声明行」。0.2.0 的 agent-preset-registry 既不扫目录也不接受 preset 路径，定义就是普通插件行；
+# 原先由 presets/tavern/preset.yml（name/description）与 presets/tavern/agent.cordis.yml、
+# presets/tavern-background/agent.cordis.yml（行列表）承载的内容整体转写为下面的 config。
+# 0.2.0-rc.2 适配：config.plugins 里 `name` 的解析基准是**声明行所在配置文件的目录**（本文件
+# 位于 profile bundle 内，即 profile 目录），不再是以 preset 目录为基准；原来的相对路径
+# `./user-tools-bridge/index.js` 与 `../../tavern-plugin/lib/agent-compaction.js` 会解析失败，
+# 因此改用裸包说明符 `dsh-tavern-plugin/user-tools-bridge` 与 `dsh-tavern-plugin/compaction`
+# （profile 已依赖 dsh-tavern-plugin，两个子路径均在 tavern-plugin/package.json 的 exports 中）。
+- insert:
+    - id: preset-tavern
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: tavern
+        name: 酒馆模式
+        description: 基于 DSH 极简会话的人物卡文字游戏，复用原生输入、模型、重试、历史与上下文管理。
+        order: 10
+        plugins:
+          - id: tavern-native-tools
+            name: dsh-tavern-plugin/host-tools
+          # Tavern preset：最终系统提示词由插件按游玩／卡片会话装配。
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              # 0.2.0-rc.2 适配：`text` 键已移除（0.1.2 遗留，静默失效）；
+              # `prefix` 变为必填，空串仍是合法的「空 persona」。
+              prefix: ''
+              suffix: ''
+              includeRuntimeContext: false
+
+          # 卡片工作台需要可写的跨平台原语；0.2.0 把它们放在 preset plane，
+          # 而不是在 host plane 重新启用。
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              search: true
+              fetch: false
+
+          # Skill 来源由 Tavern 按 Agent 用途分配，调用仍使用原生工具。
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+
+          # 卡片工作台保留 Tavern 的私有 Skill 来源，同时复用 DSH 创造模式工具。
+          # 选择整套官方 cordis preset 会丢失本 preset 的 Skill 目录。
+          - id: tool-cordis
+            name: '@deepseek-ai/dsh-tool-cordis'
+
+          # 用户代码与清单都在持久数据目录；更新只保留这个加载入口。
+          - id: user-tools
+            name: dsh-tavern-plugin/user-tools-bridge
+
+          # 复用 DSH 原生上下文压缩能力，并恢复 /compact 命令。
+          # 压缩器与工具结果裁剪器共享同一隔离域，保持与 DSH 标准模式一致。
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.5
+
+              - id: tavern-compaction
+                name: dsh-tavern-plugin/compaction
+
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+
+    - id: preset-tavern-background
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: tavern-background
+        order: 11
+        plugins:
+          - id: tavern-native-tools
+            name: dsh-tavern-plugin/host-tools
+          # Tavern 后台 Agent 的最小 DSH 预设。
+          # 提供压缩与 Tavern Skill 按需加载，不继承前台正文提示词、其他工具或正则。
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+
+          # 后台主动检索需要原生 read；只声明读取，不注册写入或编辑工具。
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: false
+              write: false
+              edit: false
+
+          # 联网搜索：dsh-web-app 把 host plane 的 tool-web 关掉、改由每个 preset
+          # 自己声明（见 dsh-web-app/presets/standard.patch.yml）。后台结算/世界书过滤的
+          # childCtx.tools.restrict({allow:['…','web_search']}) 只认已注册的全局工具，
+          # 缺这一行时 0.2.0 的 restrict 直接抛
+          # `tools.restrict() names unknown global tool "web_search"`，整个后台任务失败，
+          # MVU 变量结算因此不执行。与前台保持一致的 search:true / fetch:false。
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              search: true
+              fetch: false
+
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.5
+
+              - id: tavern-compaction
+                name: dsh-tavern-plugin/compaction
+
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024

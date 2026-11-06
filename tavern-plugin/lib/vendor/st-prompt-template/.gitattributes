@@ -1,0 +1,3 @@
+# Preserve the pinned upstream bytes on all checkout platforms.
+upstream/** -text
+host-build/artifact/** -text

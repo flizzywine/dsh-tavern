@@ -1,0 +1,60 @@
+{
+  "version": 3,
+  "buckets": [
+    {
+      "id": "rules",
+      "label": "画面规则",
+      "intro": "按当前渠道的提示词格式描述一个清楚的画面。",
+      "entries": [
+        {
+          "id": "model",
+          "title": "按渠道编写",
+          "content": "先读 read_image_config。NovelAI、SD WebUI 及标签类 ComfyUI 工作流使用标签；自然语言模型用中文或英文完整描述；structured 模式保留分节。以返回的 promptMode 为准，不把所有模型都当作标签模型。用户明确指定的构图、画风、人数和衣着优先。",
+          "mode": "always",
+          "enabled": true
+        },
+        {
+          "id": "composition",
+          "title": "一致性与构图",
+          "content": "一张只描述一个能同时成立的瞬间，明确主体、动作、视线、景别、环境与光线。只写镜头可见的部位，保留用户提供的外貌和服装事实，不编造未指定的细节。人物库按本张朝向和衣着挑字段，不把正面背面、穿衣和裸露描述全拼在一起。参考图模式传精确人物和服装 ID，成套参考图的身份与服装绑定由插件处理。",
+          "mode": "always",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "authoring",
+      "label": "改库",
+      "intro": "人物库、服装库与剧情配图共用一份数据。",
+      "entries": [
+        {
+          "id": "save",
+          "title": "通过保存接口改库",
+          "content": "先 GET /dsh-tavern-gen/api/state 读取最新 characters 或 outfits，保留 revision，再 POST /dsh-tavern-gen/api/save，target 为 characters 或 outfits，content 带对应数组和 revision。只提交自己修改的部分，不直写 definitions.json。收到 REVISION_CONFLICT 时重新读取并由用户核对修改，不能自动覆盖。卡片世界书同样保留 worldbook.revision。",
+          "mode": "manual",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "examples",
+      "label": "提交前检查",
+      "intro": "核对本张画面与渠道能力。",
+      "entries": [
+        {
+          "id": "review",
+          "title": "检查本张画面",
+          "content": "确认用户的生图要求或已有直接出图授权。核对人数、衣着、动作与镜头是否一致，参考图是否对应本张对象。仅传渠道支持的参数，不支持的种子和采样器不要伪造。任务不确定或部分成功时先查看记录，不自动重发。将返回的 Markdown 图片写进回复，并简要说明画面。",
+          "mode": "prescan",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "library",
+      "label": "素材表",
+      "intro": "可自填 **素材名** 换行反引号包裹的提示词，条目标记 lookup。",
+      "entries": []
+    }
+  ]
+}

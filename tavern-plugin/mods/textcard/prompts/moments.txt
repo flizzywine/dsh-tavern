@@ -1,0 +1,5 @@
+<mod_text_moments>
+- chapter, scene or time change -> text-title; character debut -> name; flashback or aside -> marker
+- emotional turn or key word -> word (one glyph: kanji; 2-8 words: flash)
+- countdown -> count; inner monologue -> vertical
+</mod_text_moments>

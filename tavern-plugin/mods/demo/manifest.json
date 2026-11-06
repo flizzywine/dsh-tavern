@@ -1,0 +1,273 @@
+{
+  "format": "dsh-mod",
+  "schemaVersion": 2,
+  "id": "dsh.demo",
+  "name": "框架演示",
+  "version": "1.1.0",
+  "apiVersion": 1,
+  "dependencies": {
+    "hostApi": 1,
+    "capabilities": []
+  },
+  "permissions": {
+    "stage": [],
+    "judge": true,
+    "variables": {
+      "reads": [
+        {
+          "id": "sample-read",
+          "source": "mvu",
+          "path": "/sample"
+        }
+      ],
+      "writes": [
+        {
+          "id": "sample-write",
+          "source": "mvu",
+          "path": "/sample",
+          "scope": "subtree",
+          "ops": [
+            "replace"
+          ]
+        }
+      ]
+    }
+  },
+  "commands": [
+    {
+      "id": "mark",
+      "op": "mod.dsh.demo.mark",
+      "dsl": {
+        "verb": "demo",
+        "syntax": "demo mark label=<text>"
+      },
+      "params": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "additionalProperties": false
+      },
+      "persistence": "marker",
+      "handler": "command",
+      "promptId": "marker-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 20
+      },
+      "caps": {
+        "perTurn": 4,
+        "bytes": 1024
+      },
+      "mode": "adds"
+    }
+  ],
+  "prompts": [
+    {
+      "id": "marker-rule",
+      "target": "director",
+      "path": "prompts/demo.txt",
+      "placement": {
+        "section": "director.rules.presentation",
+        "order": 10
+      }
+    }
+  ],
+  "settingsSchema": {
+    "fields": [
+      {
+        "key": "caption",
+        "type": "text",
+        "label": "标题",
+        "help": "静态标题，不会进入提示词。",
+        "default": "演示",
+        "maxLength": 80,
+        "scope": "global"
+      },
+      {
+        "key": "visible",
+        "type": "toggle",
+        "label": "显示",
+        "default": true,
+        "scope": "global"
+      },
+      {
+        "key": "opacity",
+        "type": "slider",
+        "label": "不透明度",
+        "default": 1,
+        "min": 0,
+        "max": 1,
+        "step": 0.1,
+        "scope": "global",
+        "dependsOn": {
+          "key": "visible",
+          "equals": true
+        }
+      },
+      {
+        "key": "size",
+        "type": "segmented",
+        "label": "尺寸",
+        "default": "small",
+        "scope": "global",
+        "choices": [
+          {
+            "value": "small",
+            "label": "小"
+          },
+          {
+            "value": "large",
+            "label": "大"
+          }
+        ]
+      },
+      {
+        "key": "accent",
+        "type": "colour",
+        "label": "强调色",
+        "default": "#225566",
+        "scope": "global"
+      },
+      {
+        "key": "image",
+        "type": "asset-picker",
+        "label": "图片",
+        "default": null,
+        "scope": "global",
+        "kind": "icon",
+        "source": "own"
+      },
+      {
+        "key": "sound",
+        "type": "sound-picker",
+        "label": "声音",
+        "default": null,
+        "scope": "global",
+        "kind": "tone"
+      }
+    ],
+    "sections": [
+      {
+        "id": "appearance",
+        "title": "外观",
+        "help": "用于验证两级设置布局。",
+        "groups": [
+          {
+            "id": "general",
+            "title": "基本",
+            "fields": [
+              "caption",
+              "visible"
+            ]
+          },
+          {
+            "id": "visual",
+            "title": "视觉",
+            "help": "二级分组独立保存折叠状态。",
+            "fields": [
+              "opacity",
+              "size",
+              "accent",
+              "image",
+              "sound"
+            ],
+            "folded": true
+          }
+        ],
+        "folded": false
+      }
+    ]
+  },
+  "packSchema": {
+    "fields": []
+  },
+  "assetKinds": [
+    {
+      "id": "icon",
+      "label": "图标",
+      "fields": {
+        "fields": []
+      },
+      "directorSelectable": false,
+      "mediaSlots": [
+        {
+          "id": "image",
+          "type": "image"
+        }
+      ]
+    },
+    {
+      "id": "tone",
+      "label": "提示音",
+      "fields": {
+        "fields": []
+      },
+      "directorSelectable": false,
+      "mediaSlots": [
+        {
+          "id": "audio",
+          "type": "audio"
+        }
+      ]
+    }
+  ],
+  "uiPages": [
+    {
+      "id": "preview",
+      "title": "预览",
+      "entry": "ui/preview.html",
+      "placement": "settings"
+    }
+  ],
+  "runtime": {
+    "entry": "runtime.js"
+  },
+  "defaultPacks": [],
+  "files": [
+    {
+      "path": "runtime.js",
+      "size": 228
+    },
+    {
+      "path": "prompts/demo.txt",
+      "size": 50
+    },
+    {
+      "path": "ui/preview.html",
+      "size": 131
+    }
+  ],
+  "license": {
+    "privateUse": false
+  },
+  "summary": "用于验证模组框架的第一方演示。",
+  "relevance": "需要演示模组标记的测试场景",
+  "ui": {
+    "internal": true,
+    "preview": {
+      "entry": "ui/preview.html",
+      "modes": [
+        {
+          "id": "default",
+          "label": "预览"
+        }
+      ],
+      "aspect": 1.5
+    }
+  },
+  "compatibility": {
+    "compatible": [],
+    "incompatible": []
+  },
+  "admission": {
+    "entryKinds": []
+  },
+  "builtinAssets": []
+}

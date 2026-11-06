@@ -1,0 +1,7 @@
+# dsh-dream-skin profile patch layer — insert one loader entry for the plugin
+# package. The entry is a normal cordis loader entry (id + package name); the
+# browser half is picked up by dsh-client-modules through the package's
+# dsh.client declaration, exactly like the shipped ui-* packages.
+- insert:
+    - id: dream-skin
+      name: 'dsh-dream-skin'

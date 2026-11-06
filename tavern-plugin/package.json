@@ -1,0 +1,68 @@
+{
+  "name": "dsh-tavern-plugin",
+  "version": "3.2.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "dependencies": {
+    "jsdom": "26.1.0",
+    "@jsquash/jpeg": "1.6.0",
+    "@jsquash/png": "3.1.1",
+    "@jsquash/webp": "1.5.0",
+    "@deepseek-ai/dsh-subagent": ">=0.2.0-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-typert-protocol": ">=0.2.0-rc.1 <0.3.0",
+    "chevrotain": "^11.2.0",
+    "marked": "16.3.0",
+    "yaml": "2.9.0",
+    "acorn": "8.15.0",
+    "@deepseek-ai/dsh-agent": ">=0.2.0-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-skill-filesystem": ">=0.2.0-rc.1 <0.3.0",
+    "dsh-mnemon": "0.5.31",
+    "dsh-mnemon-source-runtime": "0.5.14",
+    "dsh-mnemon-source-documents": "0.5.10",
+    "undici": "6.29.1",
+    "pinyin-pro": "3.29.5"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-agent": ">=0.2.0-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-skill-filesystem": ">=0.2.0-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-subagent": ">=0.2.0-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-typert-protocol": ">=0.2.0-rc.1 <0.3.0"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis-inspect": "./lib/cordis-inspect.js",
+    "./package.json": "./package.json",
+    "./compaction": "./lib/agent-compaction.js",
+    "./host-tools": "./lib/host/tools.js",
+    "./user-tools-bridge": "./lib/user-tools-bridge.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-modules",
+        "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-theme",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "dsh-better-sidebar",
+        "dsh-tavern-remote"
+      ]
+    }
+  }
+}

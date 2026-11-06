@@ -1,0 +1,61 @@
+/* ==== font picker (font-picker.js: CONFIG 文字 → 舞台字体 / 字幕字体, 外观 → 正文字体) ==== */
+/* Options are drawn in their own face (inline font-family); everything else here is chrome. Both lists are opaque.
+   Stage variant: the trigger lives in the CONFIG sheet, the list is portaled to <body> as a .fork-gal-theme-scope
+   of the stage's theme, so it uses only --gal-ui-* tokens (no theme selectors). */
+.fork-font-pick { position: relative; min-width: 0; }
+.fork-font-trigger .fork-icon { flex: none; transition: transform .15s; }
+.fork-font-pick.is-open .fork-font-trigger .fork-icon { transform: rotate(180deg); }
+.fork-font-trigger-name { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.fork-font-list { display: grid; gap: 10px; }
+/* The popover itself is the opaque layer; the inner listbox must not get the generic floating-layer Canvas fill. */
+.fork-font-pop .fork-font-list[role="listbox"] { background-image: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.fork-font-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.fork-font-group-label { grid-column: 1 / -1; padding: 4px 4px 0; }
+.fork-font-pop .fork-font-option { position: relative; display: grid; gap: 3px; box-sizing: border-box; min-width: 0; margin: 0; padding: 10px 34px 10px 14px; border: 0; text-align: left; cursor: pointer; transition: background .15s, box-shadow .15s; }
+.fork-font-pop .fork-font-option.is-follow { grid-column: 1 / -1; }
+.fork-font-option-sample { overflow: hidden; font-size: 19px; line-height: 1.45; letter-spacing: .04em; white-space: nowrap; text-overflow: ellipsis; }
+.fork-font-option-name { overflow: hidden; font-size: var(--fork-fs-body); line-height: 1.3; letter-spacing: .06em; white-space: nowrap; text-overflow: ellipsis; }
+.fork-font-option-check { position: absolute; top: 10px; right: 10px; display: grid; place-items: center; }
+/* Stage: the CONFIG row trigger and the themed list. */
+.fork-gal-stage .fork-font-pick.is-stage .fork-font-trigger { display: inline-flex; align-items: center; gap: 12px; box-sizing: border-box; width: min(100%, 420px); height: 52px; margin: 0; padding: 0 16px 0 20px; border: 0;
+  border-radius: calc(var(--gal-ui-radius) * .8 + 4px); background: var(--gal-ui-surface); box-shadow: inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-ink); font: 400 19px/1.2 var(--gal-ui-font); letter-spacing: .06em; text-align: left; cursor: pointer; transition: background .15s, box-shadow .15s; }
+.fork-gal-stage .fork-font-pick.is-stage .fork-font-trigger:hover { background: var(--gal-ui-hover); }
+.fork-gal-stage .fork-font-pick.is-stage.is-open .fork-font-trigger { box-shadow: inset 0 0 0 2px var(--gal-ui-accent); }
+.fork-gal-stage .fork-font-pick.is-stage .fork-font-trigger:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }
+.fork-font-pick.is-stage .fork-font-trigger .fork-icon { color: var(--gal-ui-accent); }
+.fork-font-pick.is-stage .fork-font-trigger-tag { flex: none; padding: 4px 10px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-accent); font: 600 12px/1 var(--gal-ui-font); letter-spacing: .12em; }
+[data-fork-gal-stage] .fork-popover.fork-font-pop { z-index: 2147483002; }
+.fork-popover.fork-font-pop.is-stage { width: min(620px, calc(100vw - 16px)); max-width: none; padding: 12px; border-radius: min(var(--gal-ui-radius), 18px); background: var(--gal-ui-surface-2);
+  box-shadow: var(--gal-ui-shadow), inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-ink); font: 400 14px/1.4 var(--gal-ui-font); animation: fork-gal-mixer-in .16s ease-out; }
+.fork-font-pop.is-stage .fork-font-group-label { color: var(--gal-ui-accent); font: 600 12.5px/1.2 var(--gal-ui-title-font); letter-spacing: .3em; }
+.fork-font-pop.is-stage .fork-font-option { border-radius: var(--gal-ui-radius); background: var(--gal-ui-surface); box-shadow: inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-ink); }
+.fork-font-pop.is-stage .fork-font-option:hover { background: var(--gal-ui-hover); }
+.fork-font-pop.is-stage .fork-font-option.is-on { background: var(--gal-ui-active); box-shadow: inset 0 0 0 2px var(--gal-ui-accent); }
+.fork-font-pop.is-stage .fork-font-option:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }
+.fork-font-pop.is-stage .fork-font-option-check { color: var(--gal-ui-accent); }
+/* CONFIG preview: the typed line is in the stage font; the subtitle line in the film font on a letterbox strip. */
+.fork-gal-config-preview-text { font-family: var(--gal-ui-font); }
+.fork-gal-config-preview-film { display: grid; gap: 6px; justify-items: center; margin: 12px 0 0; padding: 10px 16px 12px; border-radius: max(4px, calc(var(--gal-ui-radius) * .6)); background: var(--film-bar-color); }
+.fork-gal-config-preview-film .fork-gal-config-preview-name { justify-self: start; }
+/* Text look: the film subtitle tokens (Stage direction v2), the same ones the in-stage subtitle reads. */
+.fork-gal-config-preview-film > p { margin: 0; text-align: center; color: var(--film-text-ink); font: var(--film-text); letter-spacing: var(--film-text-spacing); text-shadow: var(--film-text-shadow); }
+/* Settings (外观 → 正文字体): the regular settings row, an inline opaque list (Canvas under the skin's menu colour). */
+.fork-font-pick.is-settings .fork-font-trigger { display: inline-flex; align-items: center; gap: 10px; box-sizing: border-box; width: min(100%, 420px); min-height: 44px; margin: 0; padding: 6px 12px 6px 14px; border: 1px solid var(--fork-hairline); border-radius: 10px;
+  background: transparent; color: var(--fork-ink); font: 400 16px/1.3 var(--fork-font-ui); text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
+.fork-font-pick.is-settings .fork-font-trigger:hover { background: var(--fork-hover); }
+.fork-font-pick.is-settings.is-open .fork-font-trigger { border-color: var(--fork-accent); }
+.fork-font-pick.is-settings .fork-font-trigger:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 1px; }
+.fork-font-pick.is-settings .fork-font-trigger-tag { flex: none; padding: 3px 8px; border-radius: 999px; background: var(--fork-accent-soft); color: var(--fork-accent); font: 500 12px/1.2 var(--fork-font-ui); }
+.fork-font-pick.is-settings .fork-font-trigger .fork-icon { color: var(--fork-ink); }
+.fork-font-pop.is-inline { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; box-sizing: border-box; width: min(560px, calc(100vw - 48px)); max-height: min(62vh, 480px); overflow: auto; overscroll-behavior: contain; padding: 8px;
+  border: 1px solid var(--fork-hairline); border-radius: 12px; background: linear-gradient(var(--dsw-specific-menu, var(--fork-surface-2)), var(--dsw-specific-menu, var(--fork-surface-2))), Canvas;
+  box-shadow: 0 12px 32px rgb(0 0 0 / .18), 0 2px 6px rgb(0 0 0 / .06); color: var(--fork-ink); font: 400 13px/1.4 var(--fork-font-ui); animation: fork-voice-menu-in .14s ease-out; }
+.fork-font-pop.is-inline .fork-font-group-label { color: var(--fork-accent); font: 600 12px/1.2 var(--fork-font-ui); letter-spacing: .08em; }
+.fork-font-pop.is-inline .fork-font-option { border-radius: 10px; background: transparent; box-shadow: inset 0 0 0 1px var(--fork-hairline); color: var(--fork-ink); }
+.fork-font-pop.is-inline .fork-font-option:hover { background: var(--fork-hover); }
+.fork-font-pop.is-inline .fork-font-option.is-on { background: var(--fork-accent-soft); box-shadow: inset 0 0 0 2px var(--fork-accent); }
+.fork-font-pop.is-inline .fork-font-option:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 1px; }
+.fork-font-pop.is-inline .fork-font-option-check { color: var(--fork-accent); }
+@media (max-width: 560px) { .fork-font-group { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) and (update: none) { .fork-popover.fork-font-pop.is-stage, .fork-font-pop.is-inline { animation: none; } }
+/* ==== end font picker ==== */

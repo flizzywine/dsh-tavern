@@ -1,0 +1,49 @@
+{
+  "id": "noto-sans-sc",
+  "label": "Noto Sans SC",
+  "family": "Tavern noto-sans-sc",
+  "category": "sans",
+  "weights": [
+    400,
+    500,
+    700
+  ],
+  "files": [
+    {
+      "weight": 400,
+      "style": "normal",
+      "file": "400-758dff09a5625dd6.woff2",
+      "format": "woff2",
+      "bytes": 4192712,
+      "sha256": "758dff09a5625dd659ea4c529ffdb7741bdbc182b54957a7007f1cfcfd450820",
+      "sourceSha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da"
+    },
+    {
+      "weight": 500,
+      "style": "normal",
+      "file": "500-3f6c9c85cf17979b.woff2",
+      "format": "woff2",
+      "bytes": 4268684,
+      "sha256": "3f6c9c85cf17979b18df8001903613792d272a094c1a79846fa8591e9ed0d64c",
+      "sourceSha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da"
+    },
+    {
+      "weight": 700,
+      "style": "normal",
+      "file": "700-f022a5c5aa906dd1.woff2",
+      "format": "woff2",
+      "bytes": 4314792,
+      "sha256": "f022a5c5aa906dd18ebd5da3e3a282603537f17ce9208b5cfca6dc20692e3cc0",
+      "sourceSha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da"
+    }
+  ],
+  "license": "SIL OFL 1.1",
+  "source": "https://github.com/google/fonts/tree/main/ofl/notosanssc",
+  "coverage": {
+    "subset": false,
+    "unicodeCount": 30890,
+    "gb2312": 7445,
+    "gb2312Total": 7445,
+    "missingPunctuation": ""
+  }
+}

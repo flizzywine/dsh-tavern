@@ -1,0 +1,51 @@
+{
+  "format": "dsh-mod",
+  "schemaVersion": 2,
+  "id": "dsh.dice",
+  "name": "AI检定",
+  "summary": "让 AI 主持人按规则进行检定与裁决；当前规则：百分骰检定",
+  "relevance": "故事中真正存在不确定结果的行动判定",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "dependencies": {
+    "hostApi": 1,
+    "capabilities": []
+  },
+  "permissions": {
+    "stage": []
+  },
+  "commands": [],
+  "prompts": [],
+  "settingsSchema": {
+    "sections": [],
+    "fields": []
+  },
+  "packSchema": {
+    "fields": []
+  },
+  "assetKinds": [],
+  "uiPages": [],
+  "runtime": {
+    "entry": "runtime.js"
+  },
+  "defaultPacks": [],
+  "files": [
+    {
+      "path": "runtime.js",
+      "size": 188
+    },
+    {
+      "path": "package.json",
+      "size": 142
+    }
+  ],
+  "compatibility": {
+    "compatible": [],
+    "incompatible": []
+  },
+  "admission": {
+    "entryKinds": []
+  },
+  "builtinAssets": [],
+  "license": {"privateUse": false, "notes": ["AGPL-3.0"]}
+}

@@ -1,0 +1,88 @@
+{
+  "name": "dsh-tavern-image",
+  "version": "3.12.0",
+  "description": "DSH Tavern 剧情配图插件，支持 ComfyUI 工作流、NovelAI、OpenAI Images、Gemini、atlas cloud、自定义 API 等渠道。",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./channels": "./lib/api/channels.js",
+    "./generation": {
+      "types": "./lib/api/generation.d.ts",
+      "default": "./lib/model-provider.js"
+    },
+    "./library": {
+      "types": "./lib/api/library.d.ts",
+      "default": "./lib/library-provider.js"
+    },
+    "./prompts": "./lib/prompt-presets.js",
+    "./providers": "./lib/image-providers.js",
+    "./client/transport": {
+      "types": "./lib/api/transport.d.ts",
+      "default": "./lib/client/transport.js"
+    }
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "console.html",
+    "design-rules.md",
+    "世界书-通用生图规则.json",
+    "世界书-角色与服装库.json",
+    "skills/image-prompt/SKILL.md",
+    "skills/character-authoring/SKILL.md",
+    "skills/character-authoring/references/design-rules.md",
+    "card-worldbook.default.json",
+    "workflows/.gitkeep",
+    "scripts/Package-DshTavernImage.ps1",
+    "scripts/install-plugin.ps1",
+    "scripts/Install-DshTavernImage.cmd",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    },
+    "compatibility": {
+      "dsh": ">=0.1.0-rc.8 <0.3.0",
+      "tavernApiVersion": 1
+    },
+    "tavern": {
+      "sceneImages": "delegate"
+    }
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-tavern",
+    "comfyui",
+    "stable-diffusion",
+    "text-to-image",
+    "tavern",
+    "plugin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/weixinlll/dsh-tavern-image.git"
+  },
+  "homepage": "https://github.com/weixinlll/dsh-tavern-image#readme",
+  "bugs": {
+    "url": "https://github.com/weixinlll/dsh-tavern-image/issues"
+  },
+  "author": ""
+}

@@ -1,0 +1,1 @@
+export const ELSE_MARKER = '\u0000\u001FELSE\u001F\u0000'

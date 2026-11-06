@@ -1,0 +1,5 @@
+- insert:
+    - id: dsh-asset-library
+      name: ./lib/index.js
+      config:
+        assetRoot: !!js dshHomePath('profile-data', 'tavern', 'asset-packs')

@@ -1,0 +1,1 @@
+timer: stage-open time; start/sec, add/sec, pause/resume/stop. History freezes.

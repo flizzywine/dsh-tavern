@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>本地出图控制台</title>
+<style>
+  :root {
+    --bg: #15171c; --panel: #1d2027; --panel2: #252932; --line: #333a45;
+    --text: #e8ebf1; --dim: #98a2b3; --accent: #6aa8ff; --ok: #4ec98a;
+    --warn: #e2b93b; --err: #f2686b; --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.7 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  a { color: var(--accent); }
+
+  header { position: sticky; top: 0; z-index: 20; background: var(--panel);
+    border-bottom: 1px solid var(--line); padding: 12px 20px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .brand { font-size: 15px; font-weight: 600; }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dim); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 8px rgba(78,201,138,.6); }
+  .dot.err { background: var(--err); box-shadow: 0 0 8px rgba(242,104,107,.6); }
+  .spacer { flex: 1; }
+
+  nav { display: flex; gap: 6px; padding: 14px 20px 0; flex-wrap: wrap; }
+  nav button { background: none; border: 1px solid transparent; color: var(--dim);
+    padding: 8px 16px; border-radius: 9px 9px 0 0; cursor: pointer; font: inherit; font-size: 14px; }
+  nav button:hover { color: var(--text); }
+  nav button.on { background: var(--panel); color: var(--text); border-color: var(--line); border-bottom-color: var(--panel); }
+
+  main { padding: 0 20px 80px; max-width: 1180px; }
+  section { display: none; } section.on { display: block; }
+
+  .lead { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 18px; margin: 14px 0; }
+  .lead h2 { font-size: 15px; margin: 0 0 8px; }
+  .lead p { margin: 6px 0; color: var(--dim); font-size: 13px; }
+  .lead ol, .lead ul { margin: 8px 0; padding-left: 22px; color: var(--dim); font-size: 13px; }
+  .lead li { margin: 4px 0; }
+  .lead b { color: var(--text); }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 16px 18px; margin: 14px 0; }
+  .card.inuse { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(106,168,255,.25); }
+  .card.bad { border-color: var(--err); }
+  .card h3 { font-size: 15px; margin: 0 0 4px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .facts { display: flex; flex-wrap: wrap; gap: 6px 24px; margin: 10px 0; font-size: 13px; color: var(--dim); }
+  .facts span b { color: var(--text); font-weight: 500; }
+
+  .badge { font-size: 11px; padding: 2px 9px; border-radius: 20px; border: 1px solid var(--line); color: var(--dim); font-weight: 400; }
+  .badge.on { color: var(--accent); border-color: var(--accent); }
+  .badge.ok { color: var(--ok); border-color: var(--ok); }
+  .badge.err { color: var(--err); border-color: var(--err); }
+
+  .setting { display: flex; gap: 14px; align-items: flex-start; margin: 12px 0; }
+  .setting > .label { width: 210px; flex: none; }
+  .setting > .label .name { font-size: 13px; }
+  .setting > .label .why { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  .setting > .control { flex: 1; min-width: 0; }
+
+  input[type=text], input[type=password], input[type=number], textarea, select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 13px; width: 100%; }
+  textarea { resize: vertical; min-height: 60px; line-height: 1.6; }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 14px; cursor: pointer; font: inherit; font-size: 13px; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #08101d; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.danger:hover { border-color: var(--err); color: var(--err); }
+  button.sm { padding: 4px 10px; font-size: 12px; }
+  button:disabled { opacity: .5; cursor: default; }
+
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .muted { color: var(--dim); font-size: 12px; }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 6px; line-height: 1.6; }
+  code { background: var(--bg); padding: 2px 6px; border-radius: 5px; font-size: 12px; color: #cbd5e1; }
+
+  .sizes { display: flex; gap: 18px; flex-wrap: wrap; }
+  .size-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  .size-item input { width: 74px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+  .thumb { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .thumb img { width: 100%; display: block; background: #0d0f12; min-height: 100px; object-fit: cover; cursor: zoom-in; }
+  .thumb .meta { padding: 8px 10px; font-size: 12px; color: var(--dim); word-break: break-word; }
+  .thumb .meta b { color: var(--text); font-weight: 500; }
+
+  .defcard { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin: 12px 0; }
+  .defcard .head { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+  .defcard .head input { flex: 1; font-size: 14px; }
+  .defcard .field { margin: 10px 0; }
+  .defcard .field .name { font-size: 13px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .defcard .field .why { font-size: 12px; color: var(--dim); margin-bottom: 5px; }
+
+  .toast { position: fixed; right: 20px; bottom: 20px; background: var(--panel2);
+    border: 1px solid var(--line); border-left: 4px solid var(--accent);
+    padding: 12px 16px; border-radius: 10px; max-width: 440px; display: none; z-index: 50;
+    box-shadow: 0 10px 30px rgba(0,0,0,.4); font-size: 13px; }
+  .toast.err { border-left-color: var(--err); }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="brand">🎨 本地出图控制台</span>
+  <span class="status"><span id="comfyDot" class="dot"></span><span id="statusText">正在检查…</span></span>
+  <span class="spacer"></span>
+  <span class="muted">现在用哪个画风</span>
+  <select id="currentWorkflow" style="width:auto;min-width:190px"></select>
+  <button id="btnReload" class="sm" title="我往 workflows 文件夹里放了新工作流，点这里找出来">查找新工作流</button>
+</header>
+
+<nav>
+  <button data-tab="styles" class="on">画风（工作流）</button>
+  <button data-tab="people">人物形象</button>
+  <button data-tab="results">看结果</button>
+  <button data-tab="try">试一张</button>
+  <button data-tab="advanced">高级设置</button>
+</nav>
+
+<main>
+
+  <!-- ============ 画风 ============ -->
+  <section id="tab-styles" class="on">
+    <div class="card" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:14px">
+      <label class="row" style="gap:8px"><input type="checkbox" id="autoGen" style="width:auto"> <b>每轮自动给正文配图</b></label>
+      <span class="muted">一轮画几张</span>
+      <input type="number" id="genCount" min="1" max="6" style="width:76px">
+      <span class="muted">本地出图一张几十秒，建议 2</span>
+    </div>
+    <div class="lead">
+      <h2>这里的「画风」就是你自己的 ComfyUI 工作流</h2>
+      <p>每一张图都交给本地 ComfyUI 画，用哪一份工作流就在这里选。列表里带 <span class="badge on">正在使用</span> 的那份就是当前画风。</p>
+      <p><b>怎么换画风，三种办法：</b></p>
+      <ol>
+        <li>在这页点某一项的「换成这个画风」——立刻生效。</li>
+        <li>在游戏里改插件的「模型」下拉：选 <b>V4.5 完整版</b> 或 <b>V5 完整版</b>，各对应下面的哪一份由「插件里选这个时」那一栏决定。</li>
+        <li>把新工作流 JSON 丢进 <code>workflows</code> 文件夹，再点右上角「查找新工作流」。</li>
+      </ol>
+      <p><b>不用动 Tavern 的设置。</b>工作流是插件自己的东西：换画风就在这一页点，或把新的工作流 JSON 丢进 <code>workflows</code> 文件夹。</p>
+    </div>
+    <div id="workflowCards"></div>
+  </section>
+
+  <!-- ============ 人物形象 ============ -->
+  <section id="tab-people">
+    <div class="lead">
+      <h2>把角色的长相写在这里，出图就不会换脸</h2>
+      <p>每张图的提示词里只要出现这个名字（或触发词），下面写的「稳定外貌」就会自动补进去；已经写过的词不会重复加。</p>
+      <p>写一次就够，之后所有图都吃这套。不写也不会出错，只是模型每次可能画得不太一样。</p>
+    </div>
+    <div class="card">
+      <div class="row" style="margin-bottom:4px">
+        <select id="libKind" style="width:auto;min-width:150px">
+          <option value="characters">人物</option>
+          <option value="settings">场景</option>
+          <option value="props">物件</option>
+        </select>
+        <button id="btnAddDef">新增一条</button>
+        <span class="badge" id="defCount"></span>
+        <span class="spacer"></span>
+        <button id="btnSaveDefs" class="primary">保存</button>
+      </div>
+      <div class="hint">改完一定要点「保存」。</div>
+      <div id="defCards"></div>
+    </div>
+  </section>
+
+  <!-- ============ 看结果 ============ -->
+  <section id="tab-results">
+    <div class="lead">
+      <h2>最近画出来的图</h2>
+      <p>点图看大图。正在画的那张这里也会显示进度。</p>
+    </div>
+    <div class="card">
+      <div class="row"><span class="spacer"></span>
+        <label class="muted"><input type="checkbox" id="autoRefresh" checked> 自动刷新</label>
+        <button id="btnRefreshJobs" class="sm">刷新</button></div>
+      <div class="grid" id="jobGrid" style="margin-top:14px"></div>
+    </div>
+  </section>
+
+  <!-- ============ 试一张 ============ -->
+  <section id="tab-try">
+    <div class="lead">
+      <h2>不玩游戏，直接画一张试试</h2>
+      <p>用来确认工作流、人物形象、画幅是不是都对。这一张不会经过插件，也不影响游戏。</p>
+      <p><b>提示词怎么写：</b>用英文词、逗号分开，例如 <code>1girl, solo, sitting, looking at viewer, indoors, daylight</code>。写中文模型多半看不懂。</p>
+    </div>
+    <div class="card">
+      <div class="setting">
+        <div class="label"><div class="name">用哪个画风</div><div class="why">就是上面「画风」页里的那些</div></div>
+        <div class="control"><select id="testWorkflow"></select></div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">画幅</div><div class="why">竖图是手机壁纸那种，横图适合多人/风景</div></div>
+        <div class="control" style="max-width:200px"><select id="testSize"><option>竖图</option><option>横图</option><option>方图</option></select></div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">画面描述</div><div class="why">这一张画什么</div></div>
+        <div class="control"><textarea id="testTag">1girl, solo, standing, casual clothes, looking at viewer, indoors, bedroom, daylight</textarea></div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">画风词 / 画师串</div><div class="why">想让画面更像某个画师就往这里写；游戏里对应插件的「自定义画师串」</div></div>
+        <div class="control"><textarea id="testArtist">masterpiece, best quality</textarea></div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">不要出现的东西</div><div class="why">留空就用工作流原本的；一般不用填</div></div>
+        <div class="control"><textarea id="testNegative" placeholder="留空即可"></textarea></div>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="btnTest" class="primary">开始画</button>
+        <span class="muted" id="testStatus"></span>
+      </div>
+      <div id="testResult" style="margin-top:16px"></div>
+
+      <hr style="border:none;border-top:1px solid var(--line);margin:20px 0">
+      <h3 style="font-size:14px;margin:0 0 6px">试规划（走 agent 那条路）</h3>
+      <p class="hint" style="margin-top:0">
+        贴一段正文进去 → 规划模型按上面勾选的世界书规则产出 <code>&lt;images&gt;</code> → 按每条的挂载句插画。
+        这就是游戏里每轮自动跑的东西，区别只是这里由你手动贴文本。
+      </p>
+      <textarea id="planText" placeholder="把一段正文贴在这里…"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="btnPlan" class="primary">让 agent 规划</button>
+        <span class="muted" id="planStatus"></span>
+      </div>
+      <div id="planResult" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <!-- ============ 高级设置 ============ -->
+  <section id="tab-advanced">
+    <div class="lead">
+      <h2>一般不用动这些</h2>
+      <p>下面几项都能改，但默认值已经是「对你的工作流最安全」的。真想调再动。</p>
+    </div>
+
+    <div class="card">
+      <h3>连接</h3>
+      <div class="setting">
+        <div class="label"><div class="name">ComfyUI 地址</div><div class="why">本地 ComfyUI 跑在哪个端口</div></div>
+        <div class="control"><input type="text" id="cfgComfyUrl"></div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">ComfyUI 鉴权</div><div class="why">凭据保存在本机；状态只显示是否已保存</div></div>
+        <div class="control">
+          <select id="cfgComfyAuthMode"><option value="none">无需鉴权</option><option value="bearer">Bearer Token</option><option value="basic">Basic 用户名 / 密码</option></select>
+          <div id="cfgComfyBearerFields" style="margin-top:8px">
+            <input type="password" id="cfgComfyAuthToken" autocomplete="new-password" placeholder="Token">
+            <div class="muted" id="cfgComfyTokenSaved" style="margin-top:4px"></div>
+            <button type="button" id="btnClearComfyToken" style="margin-top:6px">清除已保存 Token</button>
+          </div>
+          <div id="cfgComfyBasicFields" style="margin-top:8px">
+            <input type="text" id="cfgComfyAuthUser" autocomplete="username" placeholder="用户名">
+            <input type="password" id="cfgComfyAuthPass" autocomplete="new-password" placeholder="密码" style="margin-top:6px">
+            <div class="muted" id="cfgComfyPassSaved" style="margin-top:4px"></div>
+            <button type="button" id="btnClearComfyPass" style="margin-top:6px">清除已保存密码</button>
+          </div>
+        </div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">画师串 / 风格</div><div class="why">每张图都会带上这串词。原来插件的「自定义画师串」就是它</div></div>
+        <div class="control"><textarea id="cfgStyleArtists" placeholder="masterpiece, best quality, (@hero neisan:1.1)"></textarea></div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">默认画幅</div><div class="why">正文里的图用哪个画幅；「试一张」页可以单独选</div></div>
+        <div class="control" style="max-width:200px"><select id="cfgImageSize"><option>竖图</option><option>横图</option><option>方图</option></select></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>生图规划（谁决定画什么）</h3>
+      <p class="hint" style="margin-top:0">
+        前台模型只管写正文。每轮正文写完，插件会另起一次模型调用，让它读正文、按规则产出 <code>&lt;images&gt;</code>，
+        再按每条里的挂载句把图插进正文。这一步用的模型在下边选 —— 想画 NSFW 就别用会拒绝的官方模型。
+      </p>
+      <div class="setting">
+        <div class="label"><div class="name">开启生图规划</div><div class="why">关掉的话就只剩 image### 标记那条老路</div></div>
+        <div class="control"><label class="muted"><input type="checkbox" id="cfgPlannerEnabled"> 每轮自动规划配图</label></div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">规划用的模型</div><div class="why">渠道名 + 模型 id，按你在 DSH 里配的填（例如 bo / gpt）</div></div>
+        <div class="control"><div class="row">
+          <input type="text" id="cfgPlannerProvider" placeholder="渠道，例如 bo" style="max-width:170px">
+          <input type="text" id="cfgPlannerModel" placeholder="模型 id，例如 [bo+]gemini-3.8-flash-1" style="flex:1">
+        </div></div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">一轮配几张</div><div class="why">规划会按这个数字产出；本地出图慢，建议 2-3</div></div>
+        <div class="control"><div class="row">
+          <input type="number" id="cfgPlannerCount" min="1" max="8" style="max-width:90px">
+          <span class="muted">温度</span>
+          <input type="number" id="cfgPlannerTemp" step="0.1" min="0" max="2" style="max-width:90px">
+        </div></div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">额外叮嘱</div><div class="why">追加到规划提示词末尾，可留空</div></div>
+        <div class="control"><textarea id="cfgPlannerExtra" placeholder="例如：这次只用第一人称视角；不要出现男性角色"></textarea></div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">规划可用的世界书规则</div><div class="why">控制本控制台规划时可用的条目；单条常驻/关键词触发和适用渠道请到主界面的「世界书」编辑。未选择时使用默认规则区。</div></div>
+        <div class="control">
+          <div class="row" style="margin-bottom:6px">
+            <button class="sm" id="wbDefault">默认规则区</button>
+            <button class="sm" id="wbAll">全选</button>
+            <button class="sm" id="wbNone">全不选</button>
+            <span class="muted" id="wbCount"></span>
+          </div>
+          <details>
+            <summary class="muted" style="cursor:pointer">展开世界书条目（<span id="wbTotal">0</span> 条；触发设置请在主界面编辑）</summary>
+            <div id="wbList" style="max-height:320px;overflow:auto;margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:8px"></div>
+          </details>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>提示词怎么拼</h3>
+      <div class="setting">
+        <div class="label"><div class="name">画师串放前面还是后面</div><div class="why">影响不大，放前面是 NovelAI 的习惯</div></div>
+        <div class="control" style="max-width:220px">
+          <select id="cfgArtistPosition"><option value="prefix">放最前面</option><option value="suffix">放最后面</option></select>
+        </div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">NovelAI 的加粗写法</div><div class="why">插件写的是 NovelAI 语法（<code>{{{词}}}</code>、<code>0.9::词::</code>），本地模型不认。转一下效果更接近原意</div></div>
+        <div class="control" style="max-width:280px">
+          <select id="cfgWeightMode">
+            <option value="auto">自动（NovelAI 原样，其它渠道转换）</option>
+            <option value="convert">自动转成本地能懂的写法</option>
+            <option value="strip">只去掉符号，保留词</option>
+            <option value="keep">原样发送（NovelAI 渠道用这个）</option>
+          </select>
+        </div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">「不要出现」用哪一份</div><div class="why">插件自带一串负面词，你的工作流里也有一串</div></div>
+        <div class="control" style="max-width:280px">
+          <select id="cfgNegativeMode">
+            <option value="plugin">用插件带的那串</option>
+            <option value="workflow">用工作流里原本的</option>
+            <option value="merge">两串合起来</option>
+          </select>
+        </div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">人物外貌词说多重</div><div class="why">数值越大越"掰不动"，1.1 是轻微强调，1 是不强调</div></div>
+        <div class="control" style="max-width:140px"><input type="number" id="cfgInjectWeight" step="0.05" min="0" max="2"></div>
+      </div>
+      <div class="setting">
+        <div class="label"><div class="name">插件里的「步数 / CFG」要不要生效</div><div class="why">建议保持关闭。插件默认 40 步、CFG 0 是给 NovelAI 的，套到本地工作流上会画坏</div></div>
+        <div class="control">
+          <label class="muted"><input type="checkbox" id="cfgOverrideSteps"> 让它们覆盖工作流（不推荐）</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>画幅大小</h3>
+      <p class="hint" style="margin-top:0">工作流自己没写尺寸时用这里的。宽高都是"出图前的底图尺寸"，最终图会再被放大 2–3 倍。</p>
+      <table style="width:auto"><tbody id="sizeRows"></tbody></table>
+    </div>
+
+    <div class="card">
+      <h3>固定画风</h3>
+      <div class="setting">
+        <div class="label"><div class="name">锁定</div><div class="why">勾上以后，不管游戏里插件的「模型」选什么，都用当前这个画风</div></div>
+        <div class="control"><label class="muted"><input type="checkbox" id="lockWorkflow"> 永远用「<span id="lockName"></span>」</label></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="btnSaveConfig" class="primary">保存这些设置</button>
+      <span class="muted">保存后立即生效，不用重启任何东西。</span>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (sel) => document.querySelector(sel)
+const comfySecretDrafts = { token: '', pass: '' }
+const text = (tag, className, value) => {
+  const el = document.createElement(tag)
+  if (className) el.className = className
+  if (value !== undefined) el.textContent = value
+  return el
+}
+const state = {
+  config: {}, workflows: [], definitions: { characters: [], settings: [], props: [] },
+  kinds: {}, jobs: [], sizes: {}, kind: 'characters',
+}
+
+const SIZE_NAMES = { 竖图: '竖图', 横图: '横图', 方图: '方图' }
+const FIELD_HELP = {
+  name: { label: '名字', why: '提示词里会出现这个称呼' },
+  match: { label: '还认哪些写法', why: '留空就只认名字。可以写英文名、译名，用逗号隔开' },
+  appearance: { label: '稳定外貌', why: '发色、发型、瞳色、体型这些每次都不该变的' },
+  outfit: { label: '基准衣着', why: '常穿的那套。剧情里换衣服时可能和画面冲突，需要就关掉注入' },
+  continuity: { label: '状态与变化', why: '随剧情变的东西（受伤、湿身…）。默认不注入，免得一直卡在旧状态' },
+  layout: { label: '固定布局', why: '房间里有什么、怎么摆的' },
+  materials: { label: '材质与主色', why: '木头、白色床单这类' },
+  lighting: { label: '时间与光照', why: '清晨、暖灯、窗光' },
+}
+
+function toast(message, isError) {
+  const el = $('#toast')
+  el.textContent = message
+  el.className = 'toast' + (isError ? ' err' : '')
+  el.style.display = 'block'
+  clearTimeout(toast.timer)
+  toast.timer = setTimeout(() => { el.style.display = 'none' }, isError ? 7000 : 3000)
+}
+
+async function api(path, body) {
+  const response = await fetch(path, body === undefined
+    ? { cache: 'no-store' }
+    : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store' })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || data.ok === false) throw new Error((data && data.error) || ('HTTP ' + response.status))
+  return data
+}
+
+// ================= 画风 =================
+function settingRow(name, why, control) {
+  const wrap = text('div', 'setting')
+  const label = text('div', 'label')
+  label.append(text('div', 'name', name), text('div', 'why', why))
+  const body = text('div', 'control')
+  body.appendChild(control)
+  wrap.append(label, body)
+  return wrap
+}
+
+function renderWorkflows() {
+  const host = $('#workflowCards')
+  host.innerHTML = ''
+  if (!state.workflows.length) {
+    host.appendChild(text('div', 'card muted', '还没有任何工作流。把 JSON 放进 workflows 文件夹，然后点右上角「查找新工作流」。'))
+  }
+  for (const wf of state.workflows) {
+    const card = text('div', 'card' + (wf.current ? ' inuse' : '') + (wf.error ? ' bad' : ''))
+    const title = text('h3')
+    title.appendChild(text('span', null, wf.label))
+    title.appendChild(text('span', 'badge' + (wf.current ? ' on' : ''), wf.current ? '正在使用' : '备用'))
+    if (wf.enabled === false) title.appendChild(text('span', 'badge', '已停用'))
+    if (wf.error) title.appendChild(text('span', 'badge err', '这个文件不能用'))
+    card.appendChild(title)
+
+    const facts = text('div', 'facts')
+    if (wf.summary && wf.summary.model) {
+      const s = text('span'); s.append('底模：', text('b', null, wf.summary.model)); facts.appendChild(s)
+    }
+    if (wf.summary && wf.summary.loras && wf.summary.loras.length) {
+      const s = text('span'); s.append('LoRA：', text('b', null, wf.summary.loras.join(' / '))); facts.appendChild(s)
+    }
+    if (wf.summary && wf.summary.base) {
+      const s = text('span'); s.append('工作流原始底图：', text('b', null, wf.summary.base)); facts.appendChild(s)
+    }
+    facts.appendChild(text('span', null, '文件：' + wf.file))
+    card.appendChild(facts)
+
+    if (wf.error) {
+      card.appendChild(text('div', 'hint', '读不了：' + wf.error + '　（需要是 ComfyUI 导出的 API 格式，或 Tavern 导入用的 dsh-tavern-image-v1 包装）'))
+    }
+
+    // 触发条件
+    const matchInput = document.createElement('input')
+    matchInput.type = 'text'
+    matchInput.value = (wf.match || []).join(', ')
+    matchInput.placeholder = '例如 nai-diffusion-5-full'
+    matchInput.addEventListener('change', () => saveWorkflow(wf.id, { match: matchInput.value.split(',').map(s => s.trim()).filter(Boolean) }))
+    card.appendChild(settingRow('插件里选这个时用它', '游戏里插件的「模型」下拉会传这个值过来。留空 = 只有被选成「正在使用」时才用它', matchInput))
+
+    // 尺寸
+    const sizesBox = text('div', 'sizes')
+    const usedSizes = wf.sizes || {}
+    for (const key of Object.keys(SIZE_NAMES)) {
+      const item = text('div', 'size-item')
+      item.appendChild(text('span', 'muted', key))
+      const pair = usedSizes[key] || {}
+      for (const dim of ['width', 'height']) {
+        const input = document.createElement('input')
+        input.type = 'number'
+        input.placeholder = dim === 'width' ? '宽' : '高'
+        input.value = pair[dim] || ''
+        input.addEventListener('change', () => {
+          const next = Object.assign({}, wf.sizes || {})
+          next[key] = Object.assign({}, next[key] || {}, { [dim]: Number(input.value) || 0 })
+          saveWorkflow(wf.id, { sizes: next })
+        })
+        item.appendChild(input)
+      }
+      sizesBox.appendChild(item)
+    }
+    card.appendChild(settingRow('这个画风的尺寸', '竖图/横图/方图分别用多大。留空就用「高级设置」里的全局尺寸', sizesBox))
+
+    // 操作
+    const actions = text('div', 'row')
+    if (!wf.current && !wf.error) {
+      const use = text('button', 'primary sm', '换成这个画风')
+      use.addEventListener('click', () => saveConfig({ defaultWorkflow: wf.id }))
+      actions.appendChild(use)
+    }
+    const toggle = text('button', 'sm', wf.enabled === false ? '启用' : '停用')
+    toggle.addEventListener('click', () => saveWorkflow(wf.id, { enabled: wf.enabled === false }))
+    actions.appendChild(toggle)
+    if (wf.file && wf.file.indexOf('workflows/') === 0) {
+      const remove = text('button', 'danger sm', '从列表移除')
+      remove.addEventListener('click', () => {
+        if (confirm('把「' + wf.label + '」从列表里去掉？（文件不会被删，点「查找新工作流」能找回来）')) saveWorkflow(wf.id, { remove: true })
+      })
+      actions.appendChild(remove)
+    }
+    card.appendChild(actions)
+    host.appendChild(card)
+  }
+
+  const select = $('#currentWorkflow')
+  select.innerHTML = ''
+  for (const wf of state.workflows) {
+    if (wf.error || wf.enabled === false) continue
+    const option = document.createElement('option')
+    option.value = wf.id
+    option.textContent = wf.label
+    select.appendChild(option)
+  }
+  select.value = state.config.defaultWorkflow
+
+  const testSelect = $('#testWorkflow')
+  testSelect.innerHTML = ''
+  for (const wf of state.workflows) {
+    if (wf.error || wf.enabled === false) continue
+    const option = document.createElement('option')
+    option.value = wf.id
+    option.textContent = wf.label
+    testSelect.appendChild(option)
+  }
+  testSelect.value = state.config.defaultWorkflow
+  $('#lockName').textContent = (state.workflows.find(w => w.id === state.config.defaultWorkflow) || {}).label || '当前画风'
+}
+
+async function saveWorkflow(id, patch) {
+  try { applyState((await api('/plugins/dsh-tavern-image/workflow', { id, ...patch })).state); toast('已保存') }
+  catch (error) { toast(error.message, true) }
+}
+
+async function saveConfig(patch) {
+  try {
+    applyState((await api('/plugins/dsh-tavern-image/config', { config: patch })).state)
+    if (Object.hasOwn(patch, 'comfyAuthToken') || patch.clearComfyAuthToken === true) comfySecretDrafts.token = ''
+    if (Object.hasOwn(patch, 'comfyAuthPass') || patch.clearComfyAuthPass === true) comfySecretDrafts.pass = ''
+    renderSettings()
+    toast('已保存')
+    return true
+  }
+  catch (error) { toast(error.message, true) }
+  return false
+}
+
+// ================= 人物形象 =================
+function renderLibrary() {
+  const kind = state.kind
+  const fields = state.kinds[kind].fields.filter(f => f !== 'id')
+  const list = state.definitions[kind] || []
+  $('#defCount').textContent = list.length + ' 条'
+  const host = $('#defCards')
+  host.innerHTML = ''
+  if (!list.length) {
+    host.appendChild(text('div', 'hint', '还没有记录。点「新增一条」开始，一条就是一个角色（或场景、物件）。'))
+    return
+  }
+  for (const def of list) {
+    const card = text('div', 'defcard')
+    const head = text('div', 'head')
+    const nameInput = document.createElement('input')
+    nameInput.type = 'text'
+    nameInput.value = def.name || ''
+    nameInput.placeholder = '名字，例如 小雨'
+    nameInput.addEventListener('input', () => { def.name = nameInput.value })
+    const remove = text('button', 'danger sm', '删除')
+    remove.addEventListener('click', () => {
+      state.definitions[kind] = list.filter(item => item !== def)
+      renderLibrary()
+    })
+    head.append(nameInput, remove)
+    card.appendChild(head)
+
+    for (const field of fields) {
+      if (field === 'name') continue
+      const help = FIELD_HELP[field] || { label: field, why: '' }
+      const block = text('div', 'field')
+      const nameLine = text('div', 'name', help.label)
+      if (field !== 'match') {
+        const box = document.createElement('input')
+        box.type = 'checkbox'
+        const explicit = def.inject ? def.inject[field] : undefined
+        box.checked = explicit === undefined ? field !== 'continuity' : explicit !== false
+        box.title = '取消勾选 = 这栏只留着备忘，出图时不带上'
+        box.addEventListener('change', () => {
+          def.inject = def.inject || {}
+          def.inject[field] = box.checked
+        })
+        const label = text('label', 'muted')
+        label.style.marginLeft = 'auto'
+        label.append(box, '出图时用')
+        nameLine.appendChild(label)
+        nameLine.style.display = 'flex'
+      }
+      block.append(nameLine, text('div', 'why', help.why))
+      const input = document.createElement(field === 'match' ? 'input' : 'textarea')
+      if (field === 'match') input.type = 'text'
+      input.value = def[field] || ''
+      input.placeholder = field === 'appearance' ? '1girl, mature, short_hair, brown_eyes' : ''
+      input.addEventListener('input', () => { def[field] = input.value })
+      block.appendChild(input)
+      card.appendChild(block)
+    }
+    host.appendChild(card)
+  }
+}
+
+async function saveDefinitions() {
+  try { applyState((await api('/plugins/dsh-tavern-image/definitions', { definitions: state.definitions })).state); toast('人物形象已保存') }
+  catch (error) { toast(error.message, true) }
+}
+
+// ================= 看结果 =================
+function renderJobs() {
+  const grid = $('#jobGrid')
+  grid.innerHTML = ''
+  if (!state.jobs.length) {
+    grid.appendChild(text('div', 'muted', '还没有画过。去「试一张」画一张看看。'))
+    return
+  }
+  for (const job of state.jobs) {
+    const card = text('div', 'thumb')
+    if (job.hasImage) {
+      const img = document.createElement('img')
+      img.src = '/plugins/dsh-tavern-image/jobs?id=' + encodeURIComponent(job.id) + '&image=1'
+      img.loading = 'lazy'
+      img.title = '点开看大图'
+      img.addEventListener('click', () => window.open(img.src, '_blank'))
+      card.appendChild(img)
+    } else {
+      const box = text('div', 'muted', job.state === 'failed' ? ('画失败了：' + (job.error || '')) : '正在画… ' + (job.percent || 0) + '%')
+      box.style.padding = '20px 10px'
+      card.appendChild(box)
+    }
+    const meta = text('div', 'meta')
+    const line1 = text('div')
+    line1.appendChild(text('b', null, job.workflow || ''))
+    if (job.size) line1.append(' · ' + job.size)
+    if (job.seed) line1.append(' · 种子 ' + job.seed)
+    meta.appendChild(line1)
+    if (job.hits && job.hits.length) meta.appendChild(text('div', null, '用到形象：' + job.hits.join('、')))
+    if (job.tag) meta.appendChild(text('div', null, job.tag.slice(0, 80)))
+    card.appendChild(meta)
+    grid.appendChild(card)
+  }
+}
+
+async function refreshJobs() {
+  try { state.jobs = (await api('/plugins/dsh-tavern-image/history')).jobs || []; renderJobs() } catch {}
+}
+
+// ================= 高级设置 =================
+function renderSettings() {
+  $('#cfgComfyUrl').value = state.config.comfyUrl || ''
+  $('#cfgComfyAuthMode').value = state.config.comfyAuthMode || 'none'
+  $('#cfgComfyBearerFields').hidden = $('#cfgComfyAuthMode').value !== 'bearer'
+  $('#cfgComfyBasicFields').hidden = $('#cfgComfyAuthMode').value !== 'basic'
+  $('#cfgComfyAuthToken').value = comfySecretDrafts.token
+  $('#cfgComfyAuthToken').placeholder = state.config.comfyHasAuthToken ? '已保存，留空保留原 Token' : '输入 Token'
+  $('#cfgComfyTokenSaved').textContent = state.config.comfyHasAuthToken ? 'Token 已保存；空输入会保留现有值。' : '尚未保存 Token。'
+  $('#btnClearComfyToken').hidden = !state.config.comfyHasAuthToken
+  $('#cfgComfyAuthUser').value = state.config.comfyAuthUser || ''
+  $('#cfgComfyAuthPass').value = comfySecretDrafts.pass
+  $('#cfgComfyAuthPass').placeholder = state.config.comfyHasAuthPass ? '已保存，留空保留原密码' : '输入密码'
+  $('#cfgComfyPassSaved').textContent = state.config.comfyHasAuthPass ? '密码已保存；空输入会保留现有值。' : '尚未保存密码。'
+  $('#btnClearComfyPass').hidden = !state.config.comfyHasAuthPass
+  $('#cfgStyleArtists').value = state.config.styleArtists || ''
+  $('#cfgPlannerEnabled').checked = state.config.plannerEnabled !== false
+  $('#cfgPlannerProvider').value = state.config.plannerProvider || ''
+  $('#cfgPlannerModel').value = state.config.plannerModel || ''
+  $('#cfgPlannerCount').value = state.config.plannerCount || 3
+  $('#cfgPlannerTemp').value = state.config.plannerTemperature ?? 1
+  $('#cfgPlannerExtra').value = state.config.plannerExtra || ''
+  renderWorldbook()
+  $('#cfgImageSize').value = state.config.imageSize || '竖图'
+  $('#autoGen').checked = state.config.autoImageGen === true
+  $('#genCount').value = state.config.imageGenCount || 2
+  $('#cfgArtistPosition').value = state.config.artistPosition || 'prefix'
+  $('#cfgWeightMode').value = state.config.weightMode || 'auto'
+  $('#cfgNegativeMode').value = state.config.negativeMode || 'plugin'
+  $('#cfgInjectWeight').value = state.config.injectWeight ?? 1.1
+  $('#cfgOverrideSteps').checked = Boolean(state.config.overrideSteps)
+  $('#lockWorkflow').checked = Boolean(state.config.lockWorkflow)
+  const rows = $('#sizeRows')
+  rows.innerHTML = ''
+  for (const size of Object.keys(SIZE_NAMES)) {
+    const tr = document.createElement('tr')
+    const td1 = document.createElement('td')
+    td1.textContent = size
+    td1.style.paddingRight = '14px'
+    tr.appendChild(td1)
+    for (const dim of ['width', 'height']) {
+      const td = document.createElement('td')
+      td.style.paddingRight = '10px'
+      const input = document.createElement('input')
+      input.type = 'number'
+      input.value = (state.sizes[size] && state.sizes[size][dim]) || ''
+      input.addEventListener('input', () => {
+        state.sizes[size] = state.sizes[size] || {}
+        state.sizes[size][dim] = Number(input.value) || 0
+      })
+      td.appendChild(input)
+      tr.appendChild(td)
+    }
+    rows.appendChild(tr)
+  }
+}
+
+// ================= 世界书条目 =================
+function plannerEntries() {
+  return Array.isArray(state.config.plannerEntries) ? state.config.plannerEntries : []
+}
+function defaultEntries() {
+  return (state.worldbook || []).filter(e => e.index <= 19 || e.index === 142).map(e => e.index)
+}
+function renderWorldbook() {
+  const host = $('#wbList')
+  if (!host) return
+  const list = state.worldbook || []
+  $('#wbTotal').textContent = list.length
+  const chosen = plannerEntries()
+  const active = chosen.length ? new Set(chosen) : new Set(defaultEntries())
+  host.innerHTML = ''
+  for (const entry of list) {
+    const label = document.createElement('label')
+    label.style.display = 'block'
+    label.style.fontSize = '12px'
+    label.style.padding = '2px 0'
+    const box = document.createElement('input')
+    box.type = 'checkbox'
+    box.style.width = 'auto'
+    box.checked = active.has(entry.index)
+    box.addEventListener('change', () => {
+      const next = new Set(active)
+      if (box.checked) next.add(entry.index); else next.delete(entry.index)
+      state.config.plannerEntries = [...next].sort((a, b) => a - b)
+      state.worldbookTouched = true
+      $('#wbCount').textContent = '已选 ' + state.config.plannerEntries.length + ' 条'
+    })
+    label.append(box, ' ' + entry.index + '. ' + entry.comment + '（' + entry.length + ' 字）')
+    host.appendChild(label)
+  }
+  $('#wbCount').textContent = chosen.length ? ('已选 ' + chosen.length + ' 条') : ('默认 ' + active.size + ' 条')
+}
+
+// ================= 状态 =================
+function applyState(next) {
+  Object.assign(state, {
+    config: next.config || {}, workflows: next.workflows || [],
+    definitions: next.definitions || state.definitions, kinds: next.kinds || state.kinds,
+    sizes: next.sizes || {}, jobs: next.jobs || state.jobs, worldbook: next.worldbook || state.worldbook || [],
+  })
+  renderWorkflows(); renderLibrary(); renderSettings(); renderJobs()
+  const comfy = next.comfy
+  if (comfy) {
+    const current = (state.workflows.find(w => w.id === state.config.defaultWorkflow) || {}).label || '未知'
+    $('#comfyDot').className = 'dot ' + (comfy.ok ? 'ok' : 'err')
+    $('#statusText').textContent = comfy.ok
+      ? ('一切正常 · 现在用「' + current + '」')
+      : ('ComfyUI 没开 · 出图会失败（' + (comfy.error || '') + '）')
+  }
+}
+
+async function load() {
+  try { applyState(await api('/plugins/dsh-tavern-image/state')) }
+  catch (error) { toast('读不到状态：' + error.message, true) }
+}
+
+document.querySelectorAll('nav button').forEach(button => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('nav button').forEach(item => item.classList.toggle('on', item === button))
+    for (const section of document.querySelectorAll('main section')) {
+      section.classList.toggle('on', section.id === 'tab-' + button.dataset.tab)
+    }
+    if (button.dataset.tab === 'results') refreshJobs()
+  })
+})
+
+$('#btnReload').addEventListener('click', async () => {
+  try { applyState((await api('/plugins/dsh-tavern-image/reload', {})).state); toast('已重新查找 workflows 文件夹里的工作流') }
+  catch (error) { toast(error.message, true) }
+})
+$('#currentWorkflow').addEventListener('change', event => saveConfig({ defaultWorkflow: event.target.value }))
+$('#btnRefreshJobs').addEventListener('click', refreshJobs)
+$('#libKind').addEventListener('change', event => { state.kind = event.target.value; renderLibrary() })
+$('#btnAddDef').addEventListener('click', () => {
+  const kind = state.kind
+  const def = { id: kind + '-' + Date.now(), enabled: true, inject: {} }
+  for (const field of state.kinds[kind].fields) def[field] = ''
+  state.definitions[kind] = state.definitions[kind] || []
+  state.definitions[kind].push(def)
+  renderLibrary()
+})
+$('#btnSaveDefs').addEventListener('click', saveDefinitions)
+$('#wbDefault').addEventListener('click', () => { state.config.plannerEntries = defaultEntries(); renderWorldbook() })
+$('#wbAll').addEventListener('click', () => { state.config.plannerEntries = (state.worldbook || []).map(e => e.index); renderWorldbook() })
+$('#wbNone').addEventListener('click', () => { state.config.plannerEntries = []; renderWorldbook() })
+$('#autoGen').addEventListener('change', event => saveConfig({ autoImageGen: event.target.checked }))
+$('#genCount').addEventListener('change', event => saveConfig({ imageGenCount: Number(event.target.value) || 2 }))
+$('#cfgPlannerEnabled').addEventListener('change', event => saveConfig({ plannerEnabled: event.target.checked }))
+$('#btnSaveConfig').addEventListener('click', () => {
+  const patch = {
+  plannerEnabled: $('#cfgPlannerEnabled').checked,
+  plannerProvider: $('#cfgPlannerProvider').value.trim(),
+  plannerModel: $('#cfgPlannerModel').value.trim(),
+  plannerCount: Number($('#cfgPlannerCount').value) || 3,
+  plannerTemperature: Number($('#cfgPlannerTemp').value) || 1,
+  plannerExtra: $('#cfgPlannerExtra').value,
+  plannerEntries: state.worldbookTouched || plannerEntries().length ? plannerEntries() : defaultEntries(),
+  comfyUrl: $('#cfgComfyUrl').value.trim(),
+  comfyAuthMode: $('#cfgComfyAuthMode').value,
+  comfyAuthUser: $('#cfgComfyAuthUser').value,
+  styleArtists: $('#cfgStyleArtists').value,
+  imageSize: $('#cfgImageSize').value,
+  artistPosition: $('#cfgArtistPosition').value,
+  weightMode: $('#cfgWeightMode').value,
+  negativeMode: $('#cfgNegativeMode').value,
+  injectWeight: Number($('#cfgInjectWeight').value) || 0,
+  overrideSteps: $('#cfgOverrideSteps').checked,
+  lockWorkflow: $('#lockWorkflow').checked,
+  sizes: state.sizes,
+  }
+  if (comfySecretDrafts.token) patch.comfyAuthToken = comfySecretDrafts.token
+  if (comfySecretDrafts.pass) patch.comfyAuthPass = comfySecretDrafts.pass
+  return saveConfig(patch)
+})
+
+$('#cfgComfyAuthMode').addEventListener('change', event => {
+  $('#cfgComfyBearerFields').hidden = event.target.value !== 'bearer'
+  $('#cfgComfyBasicFields').hidden = event.target.value !== 'basic'
+})
+$('#cfgComfyAuthToken').addEventListener('input', event => { comfySecretDrafts.token = event.target.value })
+$('#cfgComfyAuthPass').addEventListener('input', event => { comfySecretDrafts.pass = event.target.value })
+$('#btnClearComfyToken').addEventListener('click', () => saveConfig({ clearComfyAuthToken: true }))
+$('#btnClearComfyPass').addEventListener('click', () => saveConfig({ clearComfyAuthPass: true }))
+
+$('#btnTest').addEventListener('click', async () => {
+  const button = $('#btnTest')
+  button.disabled = true
+  $('#testStatus').textContent = '提交中…'
+  try {
+    const created = await api('/plugins/dsh-tavern-image/generate', {
+      workflow: $('#testWorkflow').value,
+      tag: $('#testTag').value,
+      artist: $('#testArtist').value,
+      negative: $('#testNegative').value,
+      size: $('#testSize').value,
+    })
+    const id = created.jobId
+    for (let i = 0; i < 900; i++) {
+      await new Promise(r => setTimeout(r, 1000))
+      const job = await api('/plugins/dsh-tavern-image/jobs?id=' + encodeURIComponent(id))
+      if (job.status === 'done' || job.status === 'failed') {
+        if (job.status === 'failed') throw new Error(job.error || '画失败了')
+        const img = document.createElement('img')
+        img.src = '/plugins/dsh-tavern-image/jobs?id=' + encodeURIComponent(id) + '&image=1'
+        img.style.maxWidth = '420px'
+        img.style.borderRadius = '10px'
+        img.style.cursor = 'zoom-in'
+        img.addEventListener('click', () => window.open(img.src, '_blank'))
+        $('#testResult').innerHTML = ''
+        $('#testResult').appendChild(img)
+        $('#testStatus').textContent = '画好了（种子 ' + job.seed + '）'
+        refreshJobs()
+        break
+      }
+      $('#testStatus').textContent = '正在画… ' + (job.percent || 0) + '%'
+    }
+  } catch (error) {
+    $('#testStatus').textContent = '失败：' + error.message
+    toast(error.message, true)
+  } finally { button.disabled = false }
+})
+
+$('#btnPlan').addEventListener('click', async () => {
+  const button = $('#btnPlan')
+  const source = $('#planText').value.trim()
+  if (!source) { $('#planStatus').textContent = '先贴一段正文'; return }
+  button.disabled = true
+  $('#planResult').innerHTML = ''
+  $('#planStatus').textContent = '规划中…（模型要读规则 + 写提示词，通常十几秒）'
+  try {
+    const result = await api('/plugins/dsh-tavern-image/plan', {
+      messageId: 'console-' + Date.now(),
+      turn: 0,
+      text: source,
+    })
+    const plans = result.plans || []
+    if (!plans.length) {
+      $('#planStatus').textContent = '规划没产出内容：' + (result.error || '（模型没按格式返回）')
+      if (result.raw) {
+        const pre = document.createElement('pre')
+        pre.className = 'muted'
+        pre.style.whiteSpace = 'pre-wrap'
+        pre.style.maxHeight = '260px'
+        pre.style.overflow = 'auto'
+        pre.textContent = result.raw
+        $('#planResult').appendChild(pre)
+      }
+      return
+    }
+    $('#planStatus').textContent = '规划出 ' + plans.length + ' 张，正在画…'
+    for (const [i, plan] of plans.entries()) {
+      const card = document.createElement('div')
+      card.className = 'card'
+      card.style.margin = '10px 0'
+      const title = document.createElement('h3')
+      title.style.fontSize = '13px'
+      title.textContent = (i + 1) + '. ' + (plan.title || '(无标题)') + '　' + (plan.sizeText || plan.size || '')
+      card.appendChild(title)
+      const mount = document.createElement('div')
+      mount.className = 'muted'
+      mount.style.fontSize = '12px'
+      mount.textContent = '插在这句之后：' + (plan.mount || '（没给挂载句 → 只能放文末）')
+      card.appendChild(mount)
+      const shot = document.createElement('div')
+      shot.className = 'muted'
+      shot.style.fontSize = '12px'
+      shot.style.marginTop = '4px'
+      shot.style.wordBreak = 'break-all'
+      shot.textContent = '提示词：' + String(plan.prompts || '').slice(0, 300)
+      card.appendChild(shot)
+      $('#planResult').appendChild(card)
+      if (plan.jobId) {
+        const img = document.createElement('img')
+        img.style.maxWidth = '360px'
+        img.style.borderRadius = '10px'
+        img.style.marginTop = '8px'
+        img.style.cursor = 'zoom-in'
+        img.alt = '正在画…'
+        card.appendChild(img)
+        void (async () => {
+          for (let i = 0; i < 240; i++) {
+            await new Promise(r => setTimeout(r, 2000))
+            try {
+              const j = await api('/plugins/dsh-tavern-image/jobs?id=' + encodeURIComponent(plan.jobId))
+              if (j.job.status === 'done') { img.src = '/plugins/dsh-tavern-image/jobs?id=' + encodeURIComponent(plan.jobId) + '&image=1'; img.addEventListener('click', () => window.open(img.src, '_blank')); $('#planStatus').textContent = '画好了'; break }
+              if (j.job.status === 'failed') { img.alt = '失败：' + (j.job.error || ''); img.removeAttribute('src'); $('#planStatus').textContent = '有一张失败：' + (j.job.error || ''); break }
+            } catch (error) { /* 继续等 */ }
+          }
+        })()
+      }
+    }
+  } catch (error) {
+    $('#planStatus').textContent = '失败：' + error.message
+  } finally { button.disabled = false }
+})
+
+setInterval(() => {
+  if (!$('#tab-results').classList.contains('on') || !$('#autoRefresh').checked) return
+  if (state.jobs.some(job => job.state === 'pending' || job.state === 'running')) refreshJobs()
+}, 2000)
+
+load()
+</script>
+</body>
+</html>

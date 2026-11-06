@@ -1,0 +1,171 @@
+{
+  "format": "dsh-mod",
+  "schemaVersion": 2,
+  "id": "dsh.performance",
+  "name": "演出组合",
+  "summary": "按召回素材播放声明式演出；沿原舞台时间线与播放策略",
+  "relevance": "场景专属的持续演出",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "dependencies": {
+    "hostApi": 1,
+    "capabilities": [
+      "stage.state"
+    ]
+  },
+  "permissions": {
+    "stage": [
+      "state",
+      "music",
+      "skin",
+      "sfx",
+      "overlays"
+    ]
+  },
+  "consumes": [{"id":"clock","capability":"dsh.timer.countdown","provider":"dsh.timer","range":">=1.0.0 <2.0.0","operations":["start","resume","release","read"],"optional":true}],
+  "commands": [
+    {
+      "id": "set",
+      "op": "mod.dsh.performance.set",
+      "mode": "adds",
+      "dsl": {
+        "verb": "performance-set",
+        "syntax": "mod.dsh.performance.set {ref,level?}"
+      },
+      "paramsStyle": "flat",
+      "params": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "object",
+            "properties": {
+              "packId": {
+                "type": "string",
+                "minLength": 36,
+                "maxLength": 36
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "performances"
+                ]
+              },
+              "assetId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "packId",
+              "kind",
+              "assetId"
+            ],
+            "additionalProperties": false
+          },
+          "topic": {"type":"string","minLength":1,"maxLength":160},
+          "sec": {"type":"number","minimum":0.001,"maximum":86400},
+          "level": {
+            "type": "integer",
+            "enum": [
+              1,
+              2,
+              3
+            ],
+            "minimum": 1,
+            "maximum": 3
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "additionalProperties": false
+      },
+      "persistence": "state",
+      "handler": "command",
+      "promptId": "performance-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 40
+      },
+      "caps": {
+        "perTurn": 8,
+        "bytes": 2048
+      }
+    },
+    {
+      "id": "off",
+      "op": "mod.dsh.performance.off",
+      "mode": "adds",
+      "dsl": {
+        "verb": "performance-off",
+        "syntax": "mod.dsh.performance.off {}"
+      },
+      "paramsStyle": "flat",
+      "params": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "persistence": "state",
+      "handler": "command",
+      "promptId": "performance-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 40
+      },
+      "caps": {
+        "perTurn": 8,
+        "bytes": 2048
+      }
+    }
+  ],
+  "prompts": [
+    {
+      "id": "performance-rule",
+      "target": "director",
+      "path": "prompts/performance.txt",
+      "placement": {
+        "section": "director.rules.presentation",
+        "order": 40
+      }
+    }
+  ],
+  "settingsSchema": {
+    "fields": [],
+    "sections": []
+  },
+  "packSchema": {
+    "fields": []
+  },
+  "assetKinds": [],
+  "uiPages": [],
+  "runtime": {
+    "entry": "runtime.js"
+  },
+  "defaultPacks": [],
+  "files": [
+    {
+      "path": "runtime.js",
+      "size": 657
+    },
+    {
+      "path": "prompts/performance.txt",
+      "size": 248
+    }
+  ],
+  "license": {
+    "privateUse": false
+  },
+  "compatibility": {
+    "compatible": [],
+    "incompatible": []
+  },
+  "builtinAssets": [],
+  "admission": {
+    "entryKinds": [
+      "performances"
+    ]
+  }
+}

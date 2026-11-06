@@ -1,0 +1,268 @@
+/**
+ * 将会话日志中的直接调用与 PTC 子调用整理为文件操作，供本轮文件视角使用。
+ */
+import type { SidebarSessionEvent } from '../../context-types.ts'
+import { resolveSidebarPath } from '../paths.ts'
+
+/** The file-touching operation kinds the tracer distinguishes. */
+export type FileOpKind = 'read' | 'write' | 'edit'
+
+/** One extracted file operation. */
+export interface FileOp {
+  /** 直接调用使用 callId，PTC 子调用使用 subCallId。 */
+  readonly callId: string
+  readonly kind: FileOpKind
+  /** Path resolved against the session cwd when available. */
+  readonly path: string
+  /** Unix epoch ms of the call; the result time when only that is known. */
+  readonly time: number
+  /** True while the call has no result yet. */
+  readonly running: boolean
+  /** True when the result reported an error. */
+  readonly isError: boolean
+  /** The result's error text when isError; presented instead of the payload. */
+  readonly errorText?: string
+  /** For 'edit': the model's exact replacement payload. */
+  readonly edit?: { oldString: string; newString: string }
+  /** For 'write': the full new content. */
+  readonly content?: string
+  /** For 'read': the file content returned by the tool result. */
+  readonly read?: string
+}
+
+/** Tool names mapped to each op kind; unknown names are ignored. */
+const READ_TOOLS = new Set(['read', 'view', 'see'])
+const WRITE_TOOLS = new Set(['write', 'create'])
+const EDIT_TOOLS = new Set(['edit', 'str_replace', 'str-replace-editor', 'multi-edit'])
+
+/** Classify one tool name; undefined when the tool touches no file. */
+function kindOf(name: string): FileOpKind | undefined {
+  if (READ_TOOLS.has(name)) return 'read'
+  if (WRITE_TOOLS.has(name)) return 'write'
+  if (EDIT_TOOLS.has(name)) return 'edit'
+  return undefined
+}
+
+/**
+ * Parse one tool-call arguments JSON body defensively: the payload is
+ * model-emitted wire data, so every field is checked before use.
+ */
+function parseArgs(argsRaw: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(argsRaw)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return parsed as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+
+/** PTC sub-call arguments arrive already parsed (an object, never a string). */
+function ptcArgs(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
+  return value as Record<string, unknown>
+}
+
+/** Extract the path field common to every file tool's arguments. */
+function pathOf(args: Record<string, unknown>): string | undefined {
+  for (const key of ['file_path', 'path', 'filePath']) {
+    const value = args[key]
+    if (typeof value === 'string' && value.length > 0) return value
+  }
+  return undefined
+}
+
+/** The 'tool/result' message envelope inside a session event's data. */
+interface ToolResultMessageLike {
+  source?: { kind?: unknown; callId?: unknown }
+  content?: unknown
+  /** The 0.1.7 first-class tool message lifts the error flag onto the message. */
+  isError?: unknown
+}
+
+/** One 'tool-result' content block (inner blocks carry the text). */
+interface ToolResultBlockLike {
+  type?: unknown
+  content?: unknown
+  isError?: unknown
+}
+
+/**
+ * The result blocks and error flag of one tool/result message, read under BOTH
+ * logged shapes: 0.1.6 wrapped the result in a single `type: 'tool-result'`
+ * content block on a user-role message (the text nested inside it, `isError`
+ * on the wrapper), 0.1.7's first-class tool-role message carries the blocks at
+ * the message's own top level with `isError` lifted onto the message.
+ * Historical logs keep the old shape forever, so both are read. Undefined when
+ * the message carries no block array.
+ */
+function resultOf(message: ToolResultMessageLike): { blocks: readonly unknown[]; isError: boolean } | undefined {
+  if (!Array.isArray(message.content)) return undefined
+  for (const block of message.content) {
+    if (block === null || typeof block !== 'object') continue
+    const wrapper = block as ToolResultBlockLike
+    if (wrapper.type !== 'tool-result') continue
+    return {
+      blocks: Array.isArray(wrapper.content) ? wrapper.content as readonly unknown[] : [],
+      isError: wrapper.isError === true,
+    }
+  }
+  return { blocks: message.content as readonly unknown[], isError: message.isError === true }
+}
+
+/** The finalized plain text of one tool result (its text blocks joined). */
+function resultText(message: ToolResultMessageLike): string | undefined {
+  const blocks = resultOf(message)?.blocks
+  if (blocks === undefined) return undefined
+  const parts: string[] = []
+  for (const item of blocks) {
+    if (item === null || typeof item !== 'object') continue
+    const textItem = item as { type?: unknown; text?: unknown }
+    if (textItem.type === 'text' && typeof textItem.text === 'string') parts.push(textItem.text)
+  }
+  return parts.length > 0 ? parts.join('\n') : undefined
+}
+
+/** Whether a tool result reported an error (0.1.7's message-level flag, else
+ *  the 0.1.6 wrapper block's flag). */
+function resultIsError(message: ToolResultMessageLike): boolean {
+  return resultOf(message)?.isError === true
+}
+
+/**
+ * Fold a session event log into the file operations it contains, newest
+ * first. A `tool/call` seeds a running op (payload from the model's
+ * arguments); its `tool/result` settles it (read content, error text).
+ *
+ * A `<code>` block's file tools never surface as `tool/call`: they arrive as
+ * a PTC pair — `tool/ptc-dispatch-start` (arguments as a parsed OBJECT, keyed
+ * by `subCallId`) and `tool/ptc-dispatch` (the same payload plus the result).
+ * The dispatch row is self-contained, so a missing start still yields a row,
+ * and the pair inherits the start's time to order as ONE operation.
+ * @param events - the session's append-only event log (oldest → newest).
+ * @param cwd - the session working directory used to resolve relative paths.
+ * @returns the ordered operation list.
+ */
+export function extractFileOps(events: readonly SidebarSessionEvent[], cwd?: string): FileOp[] {
+  const byCall = new Map<string, FileOp>()
+  for (const event of events) {
+    if (event.type === 'tool/call' || event.type === 'tool/ptc-dispatch-start' || event.type === 'tool/ptc-dispatch') {
+      const data = event.data as { name?: unknown; callId?: unknown; subCallId?: unknown; arguments?: unknown }
+      const isPtc = event.type !== 'tool/call'
+      const callId = isPtc ? data.subCallId : data.callId
+      if (typeof data.name !== 'string' || typeof callId !== 'string') continue
+      const kind = kindOf(data.name)
+      if (kind === undefined) continue
+      // A PTC dispatch ships its arguments already parsed, the plain tool call
+      // ships the model's JSON string.
+      const args = isPtc ? ptcArgs(data.arguments) : parseArgs(typeof data.arguments === 'string' ? data.arguments : '')
+      const rawPath = pathOf(args)
+      if (rawPath === undefined) continue
+      const path = resolveSidebarPath(cwd, rawPath)
+      const time = event.type === 'tool/ptc-dispatch' ? byCall.get(callId)?.time ?? event.time : event.time
+      const base: FileOp = { callId, kind, path, time, running: true, isError: false }
+      let op = base
+      if (kind === 'edit') {
+        const oldString = args.old_string
+        const newString = args.new_string
+        op = typeof oldString === 'string' && typeof newString === 'string'
+          ? { ...base, edit: { oldString, newString } }
+          : base
+      } else if (kind === 'write') {
+        const content = args.content
+        op = typeof content === 'string' && content.length > 0 ? { ...base, content } : base
+      }
+      byCall.set(callId, op)
+    }
+    if (event.type === 'tool/result' || event.type === 'tool/ptc-dispatch') {
+      const message = event.type === 'tool/result'
+        ? (event.data as { message?: unknown }).message as ToolResultMessageLike | undefined
+        : event.data as ToolResultMessageLike
+      if (message === undefined) continue
+      const callId = event.type === 'tool/result' ? message.source?.callId : event.data.subCallId
+      if (typeof callId !== 'string') continue
+      const op = byCall.get(callId)
+      if (op === undefined) continue
+      const text = resultText(message)
+      const isError = event.type === 'tool/ptc-dispatch' ? event.data.isError === true : resultIsError(message)
+      const patch: { running: boolean; isError: boolean; errorText?: string; read?: string; content?: string } = { running: false, isError }
+      if (text !== undefined && text.length > 0) {
+        if (isError) patch.errorText = text
+        else if (op.kind === 'read') patch.read = text
+        else if (op.kind === 'write' && op.content === undefined) patch.content = text
+      }
+      byCall.set(callId, { ...op, ...patch })
+    }
+  }
+  return [...byCall.values()].sort((a, b) => b.time - a.time)
+}
+
+/**
+ * The last content known for a path before the given operation, synthesized
+ * from earlier ops: a write's payload is authoritative, an edit implies its
+ * old side. Best effort — a write with no known prior content diffs against
+ * nothing (all-added).
+ */
+export function knownContentBefore(ops: readonly FileOp[], path: string, before: FileOp): string | undefined {
+  const ofFile = ops.filter(op => op.path === path && op.time <= before.time && op !== before)
+  for (let i = ofFile.length - 1; i >= 0; i -= 1) {
+    const op = ofFile[i]!
+    if (op.kind === 'write' && op.content !== undefined) return op.content
+    if (op.kind === 'edit' && op.edit !== undefined && i === ofFile.length - 1) {
+      return op.edit.oldString
+    }
+  }
+  return undefined
+}
+
+/**
+ * The read-tool response's `<content>` body split into lines with the
+ * "(Showing lines …)" note dropped — the shared envelope core both read
+ * parsers consume: {@link parseReadLines} recovers line numbers from the
+ * "<n>: " prefixes, {@link parseReadContent} keeps the raw text.
+ */
+function contentLines(raw: string): string[] {
+  const contentMatch = raw.match(/<content>([\s\S]*?)<\/content>/)
+  const body = contentMatch ? contentMatch[1]! : raw
+  return body.split('\n').filter((line) => !/^\s*\(Showing lines .*\)\s*$/.test(line))
+}
+
+/**
+ * Strip the DSH read-tool response envelope down to the file's raw content,
+ * PRESERVING blank lines (unlike {@link parseReadLines}, which drops them):
+ * drops the <content> wrapper, the "(Showing lines ...)" note, and the
+ * per-line "<n>: " prefixes. The markdown reading mode needs the blank lines
+ * because markdown block structure depends on them.
+ */
+export function parseReadContent(raw: string): string {
+  return contentLines(raw)
+    .map((line) => line.replace(/^\s*\d+:\s/, ''))
+    .join('\n')
+    .replace(/^[\n]+/, '')
+    .replace(/\n+$/, '')
+}
+
+/** One parsed read line: the file's own line number and its content text. */
+export interface ReadLine { readonly line: number; readonly text: string }
+
+/**
+ * Parse a DSH read result into file lines with their real line numbers:
+ * drops the <content> envelope and "(Showing lines ...)" note; recovers the
+ * "<n>: " prefix as the line number, falling back to sequential counting.
+ */
+export function parseReadLines(raw: string): ReadLine[] {
+  const result: ReadLine[] = []
+  let fallback = 1
+  for (const line of contentLines(raw)) {
+    if (line.length === 0) continue
+    const match = line.match(/^\s*(\d+):\s?(.*)$/)
+    if (match !== null) {
+      result.push({ line: Number(match[1]), text: match[2] ?? '' })
+      fallback = Number(match[1]) + 1
+    } else {
+      result.push({ line: fallback, text: line })
+      fallback += 1
+    }
+  }
+  return result
+}

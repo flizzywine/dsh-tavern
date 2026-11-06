@@ -1,0 +1,51 @@
+{
+  "name": "dsh-tavern-tts",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "src",
+    "build.mjs"
+  ],
+  "dsh": {
+    "client": {
+      "external": [
+        "react",
+        "@deepseek-ai/cordis"
+      ],
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "build": "node build.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/schemastery": "3.18.2",
+    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-connection": ">=0.1.5-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.5-rc.2 <0.3.0",
+    "react": "19.2.0"
+  },
+  "types": "lib/types/index.d.ts"
+}

@@ -1,0 +1,21 @@
+/*! Bundled license information:
+
+unenv-nightly/runtime/node/buffer/internal/ieee754.mjs:
+  (*! ieee754. BSD-3-Clause License. Feross Aboukhadijeh <https://feross.org/opensource> *)
+
+unenv-nightly/runtime/node/buffer/internal/buffer.mjs:
+  (*!
+   * The buffer module from node.js, for the browser.
+   *
+   * @author   Feross Aboukhadijeh <https://feross.org>
+   * @license  MIT
+   *)
+*/
+
+/**
+     * @file Embedded JavaScript templating engine. {@link http://ejs.co}
+     * @author Matthew Eernisse <mde@fleegix.org>
+     * @author Tiancheng "Timothy" Gu <timothygu99@gmail.com>
+     * @project EJS
+     * @license {@link http://www.apache.org/licenses/LICENSE-2.0 Apache License, Version 2.0}
+     */

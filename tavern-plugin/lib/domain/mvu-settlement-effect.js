@@ -1,0 +1,133 @@
+import { isDeepStrictEqual } from 'node:util'
+import { applyJsonChangesShared, diffJson } from './json-mutation.js'
+
+function str(value) {
+  return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
+}
+
+const ALLOWED_ROOTS = new Set(['messages', 'variables', 'mvu', 'tavernScriptPrompts', 'openingWorldbookSnapshot'])
+
+function identityChange(change) {
+  return change.path?.length === 2 && change.path[0] === 'macroState' && change.path[1] === 'userName'
+    && change.op === 'set' && typeof change.value === 'string' && change.value.trim() !== '' && change.value.length <= 80
+}
+
+function assertIdentity(chat, effect) {
+  if (!effect || effect.version !== 1 || str(effect.operationId) === '') throw new Error('MVU Settlement Effect 不合法')
+  if (str(chat && chat.id) !== str(effect.chatId) || str(chat && chat.sessionId) !== str(effect.sessionId)) throw new Error('MVU Settlement Effect 对话目标已变化')
+  const timeline = chat && chat.timeline
+  if (timeline && (str(timeline.branchId) !== str(effect.branchId) || Number(timeline.revision) !== Number(effect.basedOnRevision))) {
+    const error = new Error('MVU Settlement Effect 剧情版本已变化')
+    error.code = 'STALE_SETTLEMENT_EFFECT'
+    throw error
+  }
+  if (Math.max(0, Number(chat && chat.tavernHelperLifecycleRevision) || 0) !== Number(effect.expectedLifecycleRevision)) {
+    const error = new Error('MVU Settlement Effect 脚本生命周期已变化')
+    error.code = 'STALE_SETTLEMENT_EFFECT'
+    throw error
+  }
+  const message = Array.isArray(chat && chat.messages) ? chat.messages[Number(effect.messageId)] : null
+  if (message?.variableEdits?.[effect.swipeId]?.editedAfterSettlement === true
+    && chat.timeline?.operations?.[effect.operationId]?.kind !== 'variables.edit') {
+    throw Object.assign(new Error('edited-after-settlement'), {code:'STALE_SETTLEMENT_EFFECT'})
+  }
+  if (!message || Math.max(0, Number(message.swipeId) || 0) !== Number(effect.swipeId)) {
+    const error = new Error('MVU Settlement Effect Swipe 已变化')
+    error.code = 'STALE_SETTLEMENT_EFFECT'
+    throw error
+  }
+}
+
+function valueAt(chat,path) {
+  let value=chat
+  for(const key of path){
+    if(value===null||typeof value!=='object'||!(Array.isArray(value) ? key in value : Object.prototype.hasOwnProperty.call(value,key)))return {present:false}
+    value=value[key]
+  }
+  return {present:true,value}
+}
+
+/** Create a serializable, operation-scoped effect without persisting Chat state. */
+export function createMvuSettlementEffect(input = {}) {
+  // The caller owns the draft and declares every touched floor. Do not scan
+  // shared history to rediscover a write set that is already known.
+  const rawChanges = input.messageIndices ? diffMvuChanges(input.before, input.after, input.messageIndices)
+    : diffJson(input.before, input.after)
+  const changes = rawChanges.filter(function (change) {
+    return Array.isArray(change.path) && ALLOWED_ROOTS.has(String(change.path[0] || ''))
+  })
+  // Chat-variable playerName writes also update prompt identity. Carry only
+  // that leaf, never unrelated macro counters or a replacement macroState root.
+  const identity = { op: 'set', path: ['macroState', 'userName'], value: input.after?.macroState?.userName }
+  if (identity.value !== input.before?.macroState?.userName && identityChange(identity)) changes.push(identity)
+  return {
+    version: 1,
+    operationId: str(input.operationId),
+    chatId: str(input.chatId),
+    sessionId: str(input.sessionId),
+    branchId: str(input.branchId),
+    basedOnRevision: Number(input.basedOnRevision),
+    expectedLifecycleRevision: Math.max(0, Number(input.expectedLifecycleRevision) || 0),
+    messageId: Number(input.messageId),
+    swipeId: Number(input.swipeId),
+    ...(input.guardChanges ? {expected:changes.map(change=>structuredClone(valueAt(input.before,change.path)))} : {}),
+    changes: structuredClone(changes)
+  }
+}
+
+/** Apply one effect at the Story Timeline commit seam while preserving unrelated projections. */
+export function applyMvuSettlementEffect(chat, effect, scope) {
+  assertIdentity(chat, effect)
+  if(effect.expected){
+    if(!Array.isArray(effect.expected)||effect.expected.length!==effect.changes.length)throw new Error('Invalid MVU conflict guards')
+    for(let i=0;i<effect.changes.length;i++)if(!isDeepStrictEqual(valueAt(chat,effect.changes[i].path),effect.expected[i])){
+      const error=new Error('MVU 结算期间目标字段已变化，拒绝覆盖并发修改')
+      error.code='STALE_SETTLEMENT_EFFECT'
+      throw error
+    }
+  }
+  const changes = effect.changes.filter(change => ALLOWED_ROOTS.has(String(change.path?.[0])) || identityChange(change))
+  // Legacy chats may lack this parent. Prepare it on a detached base so a
+  // later failed mutation cannot leak a partial identity update.
+  const base = changes.some(identityChange) && (!chat.macroState || typeof chat.macroState !== 'object')
+    ? { ...chat, macroState: { local: {}, global: {} } } : chat
+  if (Array.isArray(scope?.messageIndices)) {
+    const allowed = new Set(scope.messageIndices)
+    const byFloor = new Map(), head = []
+    for (const change of changes) {
+      if (change.path[0] !== 'messages') { head.push(change); continue }
+      const id = change.path[1]
+      if (!allowed.has(id)) throw new Error('MVU effect wrote an undeclared floor')
+      if (!byFloor.has(id)) byFloor.set(id, [])
+      byFloor.get(id).push({...change,path:change.path.slice(2)})
+    }
+    // Prepare all changed rows before publishing any, preserving failure isolation.
+    const rows = [...byFloor].map(([id, edits]) => [id, applyJsonChangesShared(chat.messages[id], edits)])
+    const applied = applyJsonChangesShared({...base, messages: undefined}, head)
+    for (const root of new Set(head.map(change => change.path[0]))) {
+      if (Object.hasOwn(applied, root)) chat[root] = applied[root]
+      else delete chat[root]
+    }
+    for (const [id, row] of rows) chat.messages[id] = row
+    return chat
+  }
+  const applied = applyJsonChangesShared(base, changes)
+  for (const root of new Set(changes.map(change => change.path[0]))) {
+    if (Object.hasOwn(applied, root)) chat[root] = applied[root]
+    else delete chat[root]
+  }
+  return chat
+}
+
+/** Compare detached metadata and explicitly owned floors, never array length. */
+export function diffMvuChanges(before, after, indices) {
+  const {messages: beforeMessages, ...beforeHead} = before
+  const {messages: afterMessages, ...afterHead} = after
+  if (beforeMessages.length !== afterMessages.length) throw new Error('Scoped MVU cannot change history membership')
+  const changes = diffJson(beforeHead, afterHead)
+  for (const id of indices) {
+    if (!Number.isSafeInteger(id) || id < 0 || id >= beforeMessages.length) throw new Error('Invalid scoped MVU floor')
+    for (const change of diffJson(beforeMessages[id], afterMessages[id])) changes.push({...change,path:['messages',id,...change.path]})
+  }
+  return changes
+}

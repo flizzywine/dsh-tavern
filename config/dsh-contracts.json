@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "contracts": [
+    {
+      "id": "session-access",
+      "behavior": "已加载会话只借用，临时恢复的 Agent 在操作完成或失败后释放；冷会话正文投影可恢复",
+      "adapter": "tavern-plugin/lib/host/sessions.js",
+      "packages": ["@deepseek-ai/dsh-session", "@deepseek-ai/dsh-agent"],
+      "tests": ["tests/host-sessions.test.mjs", "tests/game-mode-foreground.test.mjs"]
+    },
+    {
+      "id": "tool-admission",
+      "behavior": "批准工具作用于最终模型请求和执行入口，执行器只影响当前 Agent",
+      "adapter": "tavern-plugin/lib/host/tools.js",
+      "packages": ["@deepseek-ai/dsh-tools", "@deepseek-ai/dsh-tool-executor-native"],
+      "optionalPackages": ["@deepseek-ai/dsh-tool-executor-native"],
+      "optionalTests": { "Tavern native executor overrides an inherited program executor only in its own scope": "DSH 0.2.1 不提供 scoped executor；工具准入的真实宿主用例仍为必需" },
+      "tests": ["tests/host-tools.test.mjs", "tests/foreground-tool-admission.test.mjs"]
+    },
+    {
+      "id": "prompt-assembly",
+      "behavior": "提示词装配和正文契约遵循本轮工具准入",
+      "adapter": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
+      "packages": ["@deepseek-ai/dsh-system-prompt"],
+      "tests": ["tests/foreground-orchestration-strategies.test.mjs"]
+    },
+    {
+      "id": "body-generation",
+      "behavior": "生成回执、结束回合、取消和失败不产生重复请求",
+      "adapter": "tavern-plugin/lib/domain/plugin-body-generation.js",
+      "packages": ["@deepseek-ai/dsh-session", "@deepseek-ai/dsh-agent"],
+      "tests": ["tests/body-generation.test.mjs"]
+    },
+    {
+      "id": "projection-replay",
+      "behavior": "真实宿主回放剧情投影并保留轮次导航语义",
+      "adapter": "tavern-plugin/lib/domain/host-projection-replay.js",
+      "packages": ["@deepseek-ai/dsh-session", "@deepseek-ai/dsh-session-projection", "@deepseek-ai/dsh-session-turn-outline"],
+      "tests": ["tests/host-projection-replay-native.test.mjs", "tests/host-turn-rail-native.test.mjs"]
+    },
+    {
+      "id": "runtime-resolution",
+      "behavior": "测试和子进程从选定宿主解析依赖，会话补丁可启动",
+      "adapter": "tavern-plugin/lib/domain/host-package-resolution.js",
+      "packages": ["@deepseek-ai/dsh-app-boot", "@deepseek-ai/dsh-session-persistence-jsonl"],
+      "tests": ["tests/test-runtime.test.mjs", "tests/host-live-persistence.test.mjs"]
+    }
+  ]
+}

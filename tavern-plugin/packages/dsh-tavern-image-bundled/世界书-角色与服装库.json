@@ -1,0 +1,41 @@
+{
+  "name": "角色与服装库（生成 · 批量 · 年龄分级）",
+  "description": "人物库与服装库的结构、按偏好生成、批量生成、年龄分级。与「通用生图规则」并列，互不覆盖。",
+  "entries": [
+    {
+      "comment": "01 角色库的字段",
+      "enabled": true,
+      "content": "# 角色库的字段\n\n每个角色是人物库里的一条，字段固定：\n\n- `name`：角色的中文名，用于正文与生图提示里称呼\n- `match`：命中用的别名（英文名、昵称），逗号分隔\n- `enabled`：是否参与生图\n- `traits`：外貌分块，见下\n- `outfits`：这个角色的服装库，见「02 服装库的字段」\n- `continuity`：跨轮一致性要求（例如发色不能变）\n- `note`：给规划模型的补充说明\n- `outfitRefs`：引用公共服装库里的套装（可选）\n\n## traits 分块\n\n全部用英文 Tag，不用中文：\n\n- `face`：脸（grey-blue eyes, thin brows）\n- `faceBack`：背影时才用的头部补充（long black hair, low ponytail）\n- `bodySFW`：有衣物时的身体特征（slim, tall）\n- `bodyNSFW`：裸露画面时的身体特征\n- `fullSFW` / `fullNSFW`：整套一句话兜底\n- `negative`：这个角色不该出现的元素\n\n角色已有的字段不要凭猜测改写；只补空缺，不动用户填过的值。"
+    },
+    {
+      "comment": "02 服装库的字段",
+      "enabled": true,
+      "content": "# 服装库的字段\n\n服装挂在角色的 `outfits` 数组下，一套一条，字段固定：\n\n- `name`：这套服装的名字（中文，简短，如「常服」「雨夜外衣」「夏日便装」）\n- `upper`：上身（英文 Tag：white shirt, denim jacket）\n- `lower`：下身（black slacks, pleated skirt）\n- `shoes`：鞋（leather loafers, sneakers）\n- `accessory`：配饰，可空（thin silver necklace）\n- `full`：整套一句话描述（office attire），单件不全时兜底\n- `back`：背影专用补充，可空\n- `negative`：这套服装不该出现的元素，可空\n- `default`：是否常穿，同一角色最多一套为 true\n\n**只写服装本身**：面料、版型、颜色、配饰。不写身体，不写年龄，不写情节。\n\n## 公共服装库\n\n角色也可以引用公共服装库里的套装（按名字）。公共库与角色自带的服装同名时，**角色自带的优先**。\n\n## 私密场景服装\n\n服装可以带 `nsfw: true`，表示只用于私密场景，见「07 服装的 NSFW 分级」。字段与普通服装完全相同，只是多了这个标记；`upper` / `lower` 允许写裸露与暴露程度。"
+    },
+    {
+      "comment": "03 按偏好生成服装",
+      "enabled": true,
+      "content": "# 按偏好生成服装\n\n用户会给偏好，例如「职场」「夏日」「古风」「运动」「雨夜通勤」「学院」。据此产出 **1–3 套**：\n\n- 每套内部风格一致，套与套之间要能看出区别\n- 不出现与偏好冲突的元素：夏日不要羊毛大衣，运动不要皮鞋，古风不要运动鞋\n- `name` 直接反映用途或风格，**不要用「服装1」「套装A」这种占位名**\n- `upper` / `lower` / `shoes` 必须都有值；`accessory` / `negative` 可以为空\n- 一套里上下身的季节与正式程度要匹配（衬衫配西裤可以，衬衫配沙滩裤不行）\n\n偏好里没提到的部分，按角色现有风格推断，**不要突然换掉他的整体调性**。"
+    },
+    {
+      "comment": "04 批量生成服装",
+      "enabled": true,
+      "content": "# 批量生成服装\n\n需求会给出数量 N（通常 3–8）。硬要求：\n\n- `name` **全部不重复**\n- **造型线索不重复**：不能 N 套都是 white shirt + black slacks；至少要换掉上下身之一\n- 覆盖不同场合：日常、正式、居家、户外、季节限定\n- 同一批里如果有共享的配色或材质倾向，把它当成同一个衣柜的系列，别混出互相不搭的组合\n\n## 批量时要报的错\n\n- N 超过 12：拒绝并说明上限，不要偷偷截断\n- 角色没有 traits：先提醒补外貌，服装照样能生成，但要在结果里标注「外貌未填」\n- 同一批里出现重复 name：把重复的那几套重命名后重新产出，不要直接返回"
+    },
+    {
+      "comment": "05 年龄分级与服装",
+      "enabled": true,
+      "content": "# 年龄分级与服装\n\n角色带年龄或年龄段时，服装要贴合年龄，但**不限制可选类型**。分三档：\n\n- **child（未满 18）**：童装、校服、家居服、运动服，也可以有私密场景的服装（见「07 服装的 NSFW 分级」）。版型、剪裁、配饰都按这个年龄段应有的样式写。\n- **teen**：青少年日常穿着，可以有流行元素与个人风格，也可以有私密场景的服装。\n- **adult**：不受此限。\n\n## 边界\n\n- 年龄信息缺失时，按角色设定推断；推断不出来就按 adult 处理，**不要擅自给角色加年龄**\n- 三档都允许 `sfw` 与 `nsfw` 两类服装，**不因年龄段取消任何一类**\n- 生成时只写**服装本身**（面料、版型、颜色、配饰、暴露程度），不写身体描写；身体交给角色的 `traits` 分块\n- 批量生成时一批里混有不同年龄段，各自按年龄段写对应的版型，**不要互相套用**\n\n## 输出时的自检\n\n这套衣服放到设定年龄的角色身上，版型与配饰是否是这个年龄该有的样式？是不是日常可穿的合身衣物？有偏差就修好再输出。"
+    },
+    {
+      "comment": "06 角色与服装的调用",
+      "enabled": true,
+      "content": "# 角色与服装的调用\n\n生图时用宏调用人物库与服装库，宏必须成对闭合（以美元符号加大括号开头，以下划线结尾不要漏）。\n\n## 人物\n\n`{\"name\":\"角色英文名\",\"angle\":\"视角\",\"upperBody\":\"状态\",\"lowerBody\":\"状态\"}`\n\n- `angle`：from front / from above / from below / from side / from behind\n- `upperBody` / `lowerBody`：sfw（有衣物）/ nsfw（裸露）/ hidden（不在画面里）\n\n## 服装\n\n`{\"name\":\"服装名\",\"upperBody\":\"visible\",\"lowerBody\":\"visible\"}`\n\n- visible / hidden；全裸时不调用服装宏\n- 可追加状态词：wet clothes / torn clothes / dirty\n\n## 优先级\n\n1. 人物库里对得上的角色（把握 ≥ 70%）\n2. 服装按正文写到的程度分档：写了具体样子就照写；只说了类别就从服装库挑名字最符合的一套；没写衣服就不调用服装宏，由插件的「当前穿着」或常穿服装补上\n3. 把握不足就原创英文 Tag 白描，不要硬套，也不要瞎编名字"
+    },
+    {
+      "comment": "07 服装的 NSFW 分级",
+      "enabled": true,
+      "content": "# 服装的 NSFW 分级\n\n每套服装可以带 `nsfw: true`，表示它只用于私密场景；不带这个字段就是 `sfw`。\n\n## 字段\n\nnsfw 服装沿用同一套字段（`upper` / `lower` / `shoes` / `accessory` / `full` / `back` / `negative`），另外：\n\n- `nsfw: true` 标记这套只用于私密场景\n- `upper` / `lower` 可以直接写暴露或裸露程度（bare chest, underwear only, see-through, partially undressed）\n- `negative` 用来挡掉不该出现的东西（例如这一套里不该有鞋，就写 shoes）\n\n## 年龄\n\n**任何年龄档的角色都可以有 nsfw 服装，包括 child。** 虚构角色不因为年龄段而失去某一类服装。生成时把年龄段带来的差异体现在**版型、剪裁与配饰**上，而不是拒绝生成。\n\n## 调用\n\n- 画面是 nsfw 时，优先从该角色的 nsfw 服装里挑一套；挑不到就按 `traits.bodyNSFW` / `traits.fullNSFW` 直接描述，不硬套服装名\n- 画面是 sfw 时，不要调用带 `nsfw: true` 的服装\n- 全裸画面不调用任何服装宏"
+    }
+  ]
+}

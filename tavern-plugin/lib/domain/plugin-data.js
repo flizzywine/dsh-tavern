@@ -1,0 +1,146 @@
+import { createHash } from 'node:crypto'
+
+// Data third-party plugins keep per game (docs/plugin-design.md §4). Turn data is
+// bound to one story text version, so rollback, regeneration and edits need no
+// synchronization: a version no longer shown is simply not read. Game data does
+// not follow the story. One file per game; each plugin sees only its own part.
+const hash = value => createHash('sha256').update(String(value)).digest('hex')
+const MAX_RECORD_BYTES = 64 * 1024
+const MAX_RECORDS = 2000
+const MAX_OWNER_BYTES = 8 * 1024 * 1024
+
+function invalid(message) { return Object.assign(new Error(message), { code: 'TAVERN_PLUGIN_INVALID' }) }
+
+function encoded(value, limit, label) {
+  let text
+  try { text = JSON.stringify(value) } catch { throw invalid(label + ' 必须能序列化为 JSON') }
+  if (text === undefined) throw invalid(label + ' 必须能序列化为 JSON')
+  const bytes = Buffer.byteLength(text)
+  if (bytes > limit) throw invalid(label + ' 不能超过 ' + Math.round(limit / 1024) + ' KB')
+  return { value: JSON.parse(text), bytes }
+}
+
+export function createPluginData({ store, now = Date.now }) {
+  const pathFor = chatId => 'plugin-data/' + hash(chatId) + '.json'
+  const empty = () => ({ version: 1, owners: {} })
+  const valid = value => value && value.version === 1 && value.owners && typeof value.owners === 'object'
+  async function read(chatId) {
+    const value = await store.readJson(pathFor(chatId))
+    return valid(value) ? value : empty()
+  }
+  async function update(chatId, change) {
+    let result
+    await store.updateJson(pathFor(chatId), current => {
+      const value = valid(current) ? current : empty()
+      result = change(value)
+      return value
+    })
+    return result
+  }
+  const ownerOf = (value, owner) => value.owners[owner] ||= { turns: [], game: null }
+
+  /** Save (or with null, clear) one plugin's data for one turn's text version. */
+  async function saveTurn({ chatId, owner, turn, key, data }) {
+    const record = data === null ? null : encoded(data, MAX_RECORD_BYTES, 'data')
+    return update(chatId, value => {
+      const own = ownerOf(value, owner)
+      own.turns = own.turns.filter(item => !(item.turn === turn && item.key === key))
+      if (record) {
+        if (own.turns.length >= MAX_RECORDS) throw invalid('这一局的插件按轮数据已达上限（' + MAX_RECORDS + ' 条）')
+        const total = own.turns.reduce((sum, item) => sum + (item.bytes || 0), 0) + record.bytes
+        if (total > MAX_OWNER_BYTES) throw invalid('这一局的插件数据总量不能超过 8 MB')
+        own.turns.push({ turn, key, data: record.value, bytes: record.bytes, updatedAt: now() })
+      }
+      return true
+    })
+  }
+
+  /** One plugin's records at or before a turn, newest turn first. */
+  async function turnsUpTo({ chatId, owner, turn }) {
+    const own = (await read(chatId)).owners[owner]
+    return (own ? own.turns : []).filter(item => item.turn <= turn)
+      .sort((a, b) => b.turn - a.turn || b.updatedAt - a.updatedAt)
+  }
+
+  async function saveGame({ chatId, owner, data }) {
+    // Per-game data also carries embedded apps' saves. Transport limits belong to the caller;
+    // disk-backed snapshots must not inherit the small turn-record quota.
+    const record = data === null ? null : encoded(data, Infinity, 'data')
+    await update(chatId, value => { ownerOf(value, owner).game = record ? record.value : null })
+  }
+
+  async function readGame({ chatId, owner }) {
+    const own = (await read(chatId)).owners[owner]
+    return own && own.game !== undefined ? structuredClone(own.game) : null
+  }
+
+  // Host-owned game-mode journal travels with the existing save/fork package.
+  const modeOwner = '@tavern/game-mode'
+  const readMode = chatId => readGame({ chatId, owner: modeOwner })
+  const actorOwner = '@tavern/game-agents'
+  async function readModeAgent(chatId, parentId, member) {
+    const record = await readGame({ chatId, owner: actorOwner })
+    return record?.parentId === parentId ? record.agents?.[member] || '' : ''
+  }
+  async function writeModeAgent(chatId, parentId, member, sessionId) {
+    return update(chatId, value => {
+      const own = ownerOf(value, actorOwner)
+      if (own.game?.parentId !== parentId) own.game = { parentId, agents: {} }
+      own.game.agents[member] = sessionId
+    })
+  }
+  async function writeMode(chatId, expectedRevision, document) {
+    return update(chatId, value => {
+      const own = ownerOf(value, modeOwner)
+      if ((own.game?.revision ?? null) !== expectedRevision) throw new Error('玩法状态已变化，请刷新后重试')
+      own.game = structuredClone(document)
+    })
+  }
+
+  /** Carry a fork's visible history: records whose version maps into the new game. */
+  async function copyForFork({ sourceChatId, targetChatId, keyMap }) {
+    return importInto({ source: await read(sourceChatId), targetChatId, keyMap })
+  }
+
+  /** The whole file of one game, for a save package; null when no plugin kept anything. */
+  async function snapshot(chatId) {
+    const value = await read(chatId)
+    return Object.keys(value.owners).length || value.settings ? structuredClone(value) : null
+  }
+
+  /** Write a fork's or a save package's records into a new game; keyMap maps 'turn\0key' to the new key. */
+  async function importInto({ source, targetChatId, keyMap }) {
+    if (!valid(source)) return 0
+    const owners = {}
+    for (const [owner, own] of Object.entries(source.owners)) {
+      const turns = (Array.isArray(own?.turns) ? own.turns : []).flatMap(item => keyMap.get(item.turn + '\u0000' + item.key) ? [{ ...item, key: keyMap.get(item.turn + '\u0000' + item.key) }] : [])
+      if (turns.length || (own?.game ?? null) !== null) owners[owner] = { turns, game: own?.game ?? null }
+    }
+    if (!Object.keys(owners).length && !source.settings) return 0
+    await update(targetChatId, value => { value.owners = owners; if (source.settings) value.settings = structuredClone(source.settings) })
+    return Object.values(owners).reduce((sum, own) => sum + own.turns.length, 0)
+  }
+
+  /** Turns of a game that hold any plugin data, for building a fork's key map. */
+  async function turns(chatId) {
+    return Object.values((await read(chatId)).owners).flatMap(own => own.turns.map(item => item.turn))
+  }
+
+  /** The player's per-game choices: plugins switched off, which plugin replaces a stage,
+   * settlement tasks switched off, the player's task order ('plugin:task' keys), and the
+   * values of each plugin's own game settings ({ plugin: { key: value } }). */
+  const strings = list => Array.isArray(list) ? list.filter(item => typeof item === 'string') : []
+  const objects = value => Object.fromEntries(Object.entries(value && typeof value === 'object' && !Array.isArray(value) ? value : {})
+    .filter(([, item]) => item && typeof item === 'object' && !Array.isArray(item)).map(([owner, item]) => [owner, { ...item }]))
+  const settingsOf = value => ({ disabled: strings(value.settings?.disabled),
+    replacements: value.settings?.replacements && typeof value.settings.replacements === 'object' ? { ...value.settings.replacements } : {},
+    disabledTasks: strings(value.settings?.disabledTasks), taskOrder: strings(value.settings?.taskOrder), values: objects(value.settings?.values) })
+  async function readSettings(chatId) { return settingsOf(await read(chatId)) }
+  async function updateSettings(chatId, change) {
+    return update(chatId, value => { const next = settingsOf(value); change(next); value.settings = next; return settingsOf(value) })
+  }
+
+  async function removeChat(chatId) { await store.remove(pathFor(chatId)) }
+
+  return Object.freeze({ readMode, writeMode, readModeAgent, writeModeAgent, saveTurn, turnsUpTo, saveGame, readGame, copyForFork, snapshot, importInto, turns, readSettings, updateSettings, removeChat, pathFor })
+}

@@ -1,0 +1,1 @@
+Use a recalled performance for its described scene. set starts it or changes its level; off runs its exit. Omission keeps the active performance. Its timeline owns the declared presentation channels; do not repeat its effects with atomic commands.

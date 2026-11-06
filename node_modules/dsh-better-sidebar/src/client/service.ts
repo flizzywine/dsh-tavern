@@ -1,0 +1,1464 @@
+/**
+ * The BetterSidebar client service: a registry that external plugins use
+ * to contribute sidebar tab types and file previewers. The service is
+ * published to the cordis context as `ctx.betterSidebar` (see
+ * {@link ../context-types.ts}); consumers declare it in `inject` and call
+ * `registerTab` / `registerFileViewer`, both returning a disposer that
+ * cordis auto-invokes on fiber disposal (HMR-safe).
+ *
+ * Design notes:
+ * - The registry is synchronous-snapshot (Map + listener set) so React
+ *   can read it through `useSyncExternalStore` without tearing.
+ * - `dedupeKey` unifies the three open-tab strategies the builtins used to
+ *   hardcode: single-instance (`() => type`), per-path (`tab => tab.path`),
+ *   and per-id (`tab => tab.id` for diff tabs whose id is change-derived).
+ *   `single: true` is sugar for `dedupeKey: () => id`.
+ * - `createTab` lets a descriptor own tab instantiation (the side chat
+ *   builtin uses it to mint one `sidechat:<threadId>` tab per thread).
+ * - `matchFileViewer` walks descriptors in priority order (desc, stable):
+ *   per descriptor it tries `detect` first (when `head` bytes are given),
+ *   then `exts`; `exts: []` is a catch-all that matches any path.
+ */
+import type { ReactNode } from 'react'
+import type { Context } from '../context-types.ts'
+import {
+  activateTab as activateTabReducer, allLeaves, closeTab as closeTabReducer,
+  leafWithTab, openTabInBottomPane, patchTab, tabOpenIn,
+  type SidebarSnapshot, type SidebarState, type SidebarStore, type SidebarTab, type TabType,
+} from './state.ts'
+import { baseName, extOf } from './paths.ts'
+import { hostRouteUrl as resolveHostRoute } from './host-route-url.ts'
+import { builtinFileIcon, builtinFolderIcon } from './file-icons.tsx'
+import type { SessionScope } from './api.ts'
+import type { SidebarPrefs } from '../prefs-shared.ts'
+
+/**
+ * Public state vocabulary re-exported for consumers (type-only; the values
+ * stay internal). External plugins name these types in their descriptors —
+ * e.g. `dedupeKey: (tab: SidebarTab) => tab.id`, `createTab: (state: SidebarState) => …`,
+ * or `badge: (…, state: SidebarState) => …`.
+ */
+export type {
+  SidebarTab,
+  SidebarState,
+  SidebarStore,
+  SidebarSnapshot,
+  SidebarDiffRef,
+  TabType,
+} from './state.ts'
+export type { SessionScope } from './api.ts'
+export type { SidebarPrefs } from '../prefs-shared.ts'
+
+/** The row control a declarative setting renders as in the settings popup. */
+export type SidebarSettingToggleType = 'switch' | 'text' | 'number' | 'select' | 'patterns'
+
+/** One option of a `type: 'select'` setting row. */
+export interface SidebarSettingSelectOption {
+  /** The value written to the setting key when this option is picked
+   *  (JSON-serializable: string / number / boolean). */
+  value: string | number | boolean
+  /** Option title (i18n friendly: string or () => string). */
+  title: string | (() => string)
+  /** Option description (i18n friendly); rendered under the title in the
+   *  icon dropdown. */
+  desc?: string | (() => string)
+  /** Option icon: when ANY option declares one, the dropdown renders
+   *  big-icon option cards and the closed control shows the selected
+   *  option's icon too; without icons both are a single line of text. */
+  icon?: ReactNode | ((size: number) => ReactNode)
+}
+
+/** One declarative setting of a tab/viewer, rendered as a nested row in the
+ *  Side card settings page (e.g. the Subagent page's "auto-open when a
+ *  subagent appears" switch, or the terminal's custom font rows). `type`
+ *  selects the control: 'switch' (default) renders the custom switch,
+ *  'text' a free-form input committed on blur/Enter, 'number' a numeric
+ *  input clamped to `min`/`max`, 'select' a dropdown over the declared
+ *  `options` (single-pick writes the option's value; `multi: true` writes
+ *  the array of picked values and defaults to false), 'patterns' an
+ *  editable string list (chips with a remove button + an add input) that
+ *  commits the whole `string[]` value — the setting key must hold a string
+ *  array (the editor's `explorerExclude` glob list uses it). */
+export interface SidebarSettingToggle {
+  /** The SidebarPrefs field this toggle reads and writes ('autoOpenSubagent'). */
+  key: string
+  /** Row title (i18n friendly: string or () => string). */
+  title: string | (() => string)
+  /** Row description (i18n friendly). */
+  desc?: string | (() => string)
+  /** Row control type; defaults to 'switch' (backward compatible). */
+  type?: SidebarSettingToggleType
+  /** Lower bound for `type: 'number'` rows (clamped on commit). */
+  min?: number
+  /** Upper bound for `type: 'number'` rows (clamped on commit). */
+  max?: number
+  /** Input placeholder for `type: 'text'` rows. */
+  placeholder?: string
+  /** Input placeholder for the add input of `type: 'patterns'` rows. */
+  patternsPlaceholder?: string
+  /** Unit suffix rendered after the input (e.g. 'px' for a size row). */
+  unit?: string
+  /** Options of a `type: 'select'` row. */
+  options?: readonly SidebarSettingSelectOption[]
+  /** Whether a `type: 'select'` row allows picking several options (the
+   *  stored value is then an array of option values); defaults to false. */
+  multi?: boolean
+}
+
+/** Props of a descriptor's custom settings panel (`settings.render`). */
+export interface SidebarSettingsRenderProps {
+  store: SidebarStore
+  service: BetterSidebarService
+  prefs: SidebarPrefs
+  /** This descriptor's own persisted settings blob (from `pluginSettings[id]`). */
+  pluginSettings: Record<string, unknown>
+  /** Persist one plugin-owned setting of this descriptor. */
+  updatePluginSetting(key: string, value: unknown): void
+  /** Close the settings popup. */
+  close(): void
+}
+
+/** Declarative settings of one registered tab or file viewer. */
+export interface SidebarSettingsDeclaration {
+  /**
+   * Extra settings rows rendered under the feature's own row in the
+   * settings page (only while the feature is enabled). Keys must be fields
+   * of the host's PrefsSchema (built-ins: 'autoOpenSubagent',
+   * 'agentTerminalTools', 'agentOpenTools', 'terminalFontFamily'); unknown
+   * keys are dropped by the settings seam.
+   */
+  toggles?: readonly SidebarSettingToggle[]
+  /**
+   * Plugin-owned settings rows (v0.12.0+): same row controls as `toggles`
+   * (switch/text/number), but the keys are plugin-local and persisted in
+   * the sidebar's own prefs document under `pluginSettings[<descriptor id>]`
+   * — no host PrefsSchema field needed. Values must be JSON-serializable
+   * (the row controls produce strings / numbers / booleans).
+   */
+  pluginToggles?: readonly SidebarSettingToggle[]
+  /**
+   * Custom settings panel (v0.12.0+): when given, the gear popup renders
+   * this instead of the row lists (`toggles` / `pluginToggles`). Receives
+   * the shared store/service, the live prefs, the descriptor's own
+   * `pluginSettings` blob, and a persistence helper.
+   */
+  render?: (props: SidebarSettingsRenderProps) => ReactNode
+}
+
+/** Props every tab component receives (builtins and external alike). */
+export interface TabComponentProps {
+  ctx: Context
+  store: SidebarStore
+  scope: SessionScope
+  tab: SidebarTab
+  /** Whether this tab is the active one AND the panel is open (live views pause otherwise). */
+  visible: boolean
+  /** The explorer's expanded directory set (ExplorerView). */
+  expanded?: string[]
+  /** The explorer's reveal-highlight set (ExplorerView; "Show in folder" targets). */
+  revealed?: string[]
+  onToggleDir?: (path: string) => void
+  onReferenceFile?: (path: string, isDir: boolean) => void
+  onOpenFile?: (path: string) => void
+  onOpenDiff?: (tab: SidebarTab) => void
+  onSubagentJump?: (childSessionId: string) => void
+}
+
+/** Describes one kind of sidebar tab (builtins register themselves too). */
+export interface TabDescriptor {
+  /** Unique id; also the `SidebarTab.type` value (`'explorer'`, `'my-plugin:db'`). */
+  id: string
+  title: string | (() => string)
+  /**
+   * One-line description of what this tab shows, rendered under the title in
+   * the host's new-tab list (DSH's native right Sidebar guide page). DSH
+   * 0.1.5-rc.1+ renders descriptions only while the guide lists at most 4
+   * entries — a longer list drops every description and shows titles alone —
+   * and a descriptor that declares none renders the title by itself (the
+   * host no longer substitutes a generic fallback, so declare the real
+   * purpose of the page). Evaluated at render time, so a function follows
+   * the active locale.
+   */
+  description?: string | (() => string)
+  icon?: ReactNode | ((size: number) => ReactNode)
+  /** + menu sort order (ascending); default 100. */
+  order?: number
+  /** Hide from the + menu (the editor tab is opened by file-open, not by the menu). */
+  hidden?: boolean
+  /**
+   * Bottom-workbench-only type (v0.26.0+): offered in the plugin's OWN bottom
+   * + menu and nowhere else. Without this flag every registered type also
+   * becomes a tab type of DSH's native right Sidebar — a guide capsule plus a
+   * `kind` the host can open — which is wrong for a page that only makes sense
+   * docked under the conversation. (`terminal-bottom` is the case: its host
+   * counterpart is DSH's own right-Sidebar `terminal` type, so a second
+   * capsule titled "Terminal" is exactly the shadowing
+   * `tests/e2e/mount.e2e.ts` pins as absent.)
+   *
+   * Effects: `openTab` forces this type's landing to the bottom workbench
+   * whatever `target` the caller asked for, and the native surface registers
+   * neither a type nor a guide entry for it. `hidden` is unrelated — that one
+   * hides a type from the + menu while keeping its native tab.
+   */
+  bottomOnly?: boolean
+  /**
+   * + menu disabled predicate (e.g. terminal at capacity). Receives the
+   * session scope and the live sidebar state (counts, expansions).
+   */
+  available?: (ctx: Context, scope: SessionScope, state: SidebarState) => boolean
+  /**
+   * Single-instance sugar: `true` is shorthand for `dedupeKey: () => id`
+   * (opening the tab focuses an existing one of the same type instead of
+   * creating a duplicate). An explicit `dedupeKey` always wins when both
+   * are given. Builtins: explorer/git/subagent use `single: true`.
+   */
+  single?: boolean
+  /**
+   * If provided, opening a tab whose `dedupeKey(tab)` matches an existing
+   * tab's key focuses the existing one instead of creating a new one.
+   * Returning `undefined` means "no dedup — always open a new tab".
+   * Builtins: editor uses `tab => tab.path`; diff uses `tab => tab.id`
+   * (openDiffTab mints change-derived ids).
+   */
+  dedupeKey?: (tab: SidebarTab) => string | undefined
+  /**
+   * Custom tab creation (minting the `SidebarTab` and any state patches).
+   * Return `null` to refuse creation. The side chat builtin uses this to mint
+   * one tab per thread and to park a pending thread id in `meta`.
+   * When omitted, a default `{ id, type, title }` tab is created.
+   */
+  createTab?: (state: SidebarState) => { tab: SidebarTab; patch?: Partial<SidebarState> } | null
+  /**
+   * External-link target claim (v0.13.0+): when a GUI external-link click
+   * is taken over, the first registered tab whose `urlTarget(url)` returns
+   * true is opened with `openTab({ type, url, title: hostname })` — the URL
+   * is the whole payload (the tab reads it from `tab.path`). Registration
+   * order wins (first claim first served); a disabled tab type is skipped;
+   * a throwing predicate is swallowed (console.error, the type is skipped).
+   * A click no type claims is NOT taken over at all: it stays with whoever
+   * rendered the link (DSH 0.1.7's own chat view routes http(s) by the
+   * user's link-opening preference and falls back to a real browser tab).
+   * To host more than one URL at a time, mint per-URL ids through `createTab` (the
+   * browser builtin's pattern); otherwise the id safety net focuses the
+   * existing tab of the same type and the new URL is not applied.
+   */
+  urlTarget?: (url: URL) => boolean
+  /**
+   * Declarative settings shown in the Side card settings page: every
+   * registered tab gets an enable/disable switch (icon + title + id), and
+   * `settings.toggles` adds nested switches tied to SidebarPrefs fields
+   * (e.g. the subagent tab's 'autoOpenSubagent').
+   */
+  settings?: SidebarSettingsDeclaration
+  /**
+   * Tab-strip badge (v0.12.0+): a small pill rendered on the tab next to
+   * the icon — a number renders as a count (99+ capped), a string renders
+   * as-is, null/undefined hides the badge. Called on every tab-bar render,
+   * so keep it cheap; a throw is swallowed (no badge shown).
+   */
+  badge?: (ctx: Context, scope: SessionScope, state: SidebarState) => string | number | null | undefined
+  /**
+   * Right-aligned action area for the tab strip (v0.25.0+). When the tab is
+   * active, the returned ReactNode renders at the right end of its pane's
+   * tab strip (between the + button and the panel's close control). Lets a
+   * descriptor put its toolbar directly in the strip instead of a separate
+   * header row below it. Returning null/undefined renders nothing at all
+   * (not even an empty wrapper); a throw is swallowed (no actions shown).
+   * Called on every tab-strip render, so keep it cheap.
+   *
+   * `tab` is the open instance this strip is rendering for: with
+   * `single: false` and split panes, several instances of one type can be
+   * open at once and every pane renders its own strip, so toolbar actions
+   * (restart / close / …) must target `tab`, never "the" tab of this type.
+   * `paneId` is that strip's pane (compare with `state.activePane` to tell
+   * whether the pane is the focused one).
+   */
+  rightActions?: (ctx: Context, scope: SessionScope, state: SidebarState, tab: SidebarTab, paneId: string) => ReactNode
+  /**
+   * Lifecycle callbacks (v0.12.0+). Fired by the SERVICE paths only:
+   * `onOpen` when an open actually creates a tab (a dedupe/id-safety-net
+   * focus is NOT an open — it fires `onActivate` instead), `onActivate`
+   * when a tab is focused (dedupe focus, id-safety-net focus, or the
+   * tab-bar activation), `onClose` when a tab is closed through
+   * `closeTab`. Builtin-only flows that mutate state directly (the diff
+   * split placement, agent-terminal reconcile) never touch external tabs
+   * and fire no callbacks. A throwing callback is logged and never breaks
+   * the open/close/activate flow.
+   */
+  onOpen?: (tab: SidebarTab, scope: SessionScope) => void
+  onActivate?: (tab: SidebarTab, scope: SessionScope) => void
+  onClose?: (tab: SidebarTab, scope: SessionScope) => void
+  component: (props: TabComponentProps) => ReactNode
+}
+
+/** How the host loads a file's bytes for one viewer. */
+export type FileFetchStrategy =
+  | 'none'               // no bytes needed (image/pdf/office fetch through mediaUrl themselves)
+  | 'fsRead'             // text read through /sidebar/api fs.read
+  | 'mediaUrl'           // the viewer gets a media URL string
+  | 'custom'             // the viewer's load() fetches its own bytes
+  | 'binary-download'    // show a download button (no client-side renderer)
+
+/** Props every file viewer component receives. */
+export interface FileViewerProps {
+  ctx: Context
+  store: SidebarStore
+  scope: SessionScope
+  path: string
+  title: string
+  /** The matching descriptor's id (`'code'`, `'my-plugin:csv'`). */
+  viewerId: string
+  /** The 1-based line the tab's file reference named, when it carried one
+   *  (`a/b.c#L131`, `a/b.c:131` — see #826). A viewer that renders text
+   *  positions the reader there once, on arrival; every other viewer ignores
+   *  it. Absent on an ordinary open. */
+  line?: number
+  /** The viewer reports that it has APPLIED the `line` it was handed (or that
+   *  the line does not apply to it), and the host stops handing it out: the
+   *  line is one navigation, not a mode of the file. The host has to own that
+   *  memory — a reload remounts the viewer, so a viewer that only remembers
+   *  the line inside itself would receive it again after every refresh (for
+   *  markdown/html that means re-forcing the editor open, and the reader could
+   *  never return to preview). Optional: absent means "keep handing it out". */
+  onLineConsumed?: () => void
+  /** fsRead text content (fetchStrategy='fsRead'). Absent when the file is
+   *  above the editable threshold — see {@link largeFile}. */
+  content?: string
+  /** The file's size in bytes, as the host measured it for this read. */
+  size?: number
+  /**
+   * Present when the host refused to hand the document over because the file
+   * exceeds the editable threshold. The viewer renders a read-only paged
+   * preview instead of an editor: CodeMirror has to hold the whole document in
+   * the browser, which is exactly what a file this size makes impossible.
+   */
+  largeFile?: { size: number }
+  /** Last-modified time (ms) of the loaded bytes — the built-in text editor's
+   *  save baseline (a file that changed on disk since refuses the write).
+   *  Absent for viewers/loads that carry no baseline. */
+  mtimeMs?: number
+  /** mediaUrl for the path (fetchStrategy='mediaUrl'). */
+  mediaUrl?: string
+  /** custom load() return value (fetchStrategy='custom'). */
+  customData?: unknown
+  /** Internal (built-in text editor): 'host' asks the viewer to skip its own
+   *  toolbar row — the editor host's merged-mode header renders it instead,
+   *  fed through the two callbacks below. Viewers that ignore these fields
+   *  render exactly as before. */
+  toolbar?: 'self' | 'host'
+  /** Internal: whether this tab is the ACTIVE one with its panel open. Native
+   *  tabs stay mounted while parked, so an over-limit preview must know to
+   *  stop reading pages for a tab nobody is looking at. Absent = visible. */
+  visible?: boolean
+  /** Internal: the viewer reports its toolbar state (mode/dirty/save). */
+  onToolbarState?: (state: EditorToolbarState) => void
+  /** Internal: the viewer registers its toolbar commands on mount (null on
+   *  unmount). */
+  onToolbarControls?: (controls: EditorToolbarControls | null) => void
+  /** Internal: reload the file from disk (the save-conflict banner's action). */
+  onReload?: () => void
+}
+
+/** The toolbar state a text editor reports to the host's merged-mode header. */
+export interface EditorToolbarState {
+  /** Whether the preview/edit mode toggle applies (markdown / html / jsonl). */
+  modes: boolean
+  mode: 'preview' | 'edit'
+  dirty: boolean
+  /** Whether saving applies (an editable document was loaded). */
+  editable: boolean
+  /** Whether the viewer is showing the read-only paged preview for an
+   *  over-limit file. Nothing can be edited or saved in that state, so the
+   *  header drops the save button and the viewer's own notice carries the
+   *  size and the download escape hatch. */
+  largeFile?: boolean
+  saveState: 'idle' | 'saving' | 'saved' | 'failed'
+}
+
+/** The commands the host's merged-mode header sends back to the viewer. */
+export interface EditorToolbarControls {
+  setMode(mode: 'preview' | 'edit'): void
+  save(): void
+}
+
+/** Describes one file previewer (builtins register themselves too). */
+export interface FileViewerDescriptor {
+  /** Unique id (`'image'`, `'pdf'`, `'my-plugin:csv'`). */
+  id: string
+  /** Display name for the settings inventory (falls back to `id` when absent). */
+  title?: string | (() => string)
+  /** Icon shown in the settings inventory. */
+  icon?: ReactNode | ((size: number) => ReactNode)
+  /** Lowercase extensions without leading dot (`['png','jpg']`). `[]` = match any (catch-all). */
+  exts: readonly string[]
+  /** Higher wins; default 0. Builtins use 0; the catch-all `code` viewer uses -100. */
+  priority?: number
+  fetchStrategy: FileFetchStrategy
+  /**
+   * Content sniff: when `head` bytes are available the descriptor's `detect`
+   * is consulted before its `exts` (per-descriptor, in priority order).
+   */
+  detect?: (path: string, head: Uint8Array) => boolean
+  /** fetchStrategy='custom' loader. `signal` (v0.12.0+) aborts on viewer
+   *  teardown / re-match; loaders that ignore it keep working. */
+  load?: (path: string, scope: SessionScope, signal?: AbortSignal) => Promise<unknown>
+  /**
+   * Declarative settings shown in the Side card settings page: every
+   * registered viewer gets an enable/disable switch (icon + title + exts).
+   */
+  settings?: SidebarSettingsDeclaration
+  component: (props: FileViewerProps) => ReactNode
+}
+
+/**
+ * Describes one external file-icon registration (feature `fileIcons`).
+ * Registrations override the built-in per-extension glyph map for their
+ * extensions; unlike the built-ins (monochrome `currentColor` per the skin
+ * contract), a registration's icon may be ANY ReactNode — colored included —
+ * and the registering plugin owns how its colors behave across skins.
+ */
+export interface FileIconDescriptor {
+  /** Unique id (`'my-plugin:icons'`). */
+  id: string
+  /**
+   * Lowercase extensions without leading dot (`['csv','tsv']`). `[]` = the
+   * global default (catch-all): it only claims files the built-in glyph map
+   * does not cover — registered specifics and built-in glyphs always outrank
+   * it. OMITTED = no extension rule at all (a `names`-only registration is
+   * NOT a catch-all). Two values are RESERVED for directory rows (never
+   * matched against real file extensions): `'folder'` (a closed directory)
+   * and `'folder-open'` (an expanded directory) — see `FOLDER_EXT`.
+   */
+  exts?: readonly string[]
+  /**
+   * Exact FILE names (basename, case-insensitive — `['package.json',
+   * 'Dockerfile']`), the `fileNames` half of an icon theme. Name matches
+   * outrank extension matches, so a theme can color `package.json` apart
+   * from every other `.json`. Omitted/`[]` = no name rule.
+   */
+  names?: readonly string[]
+  /**
+   * Exact DIRECTORY names (basename, case-insensitive — `['node_modules',
+   * 'src']`), the `folderNames` half of an icon theme. A name match outranks
+   * the reserved `'folder'`/`'folder-open'` exts, and a descriptor with
+   * `folderNames` only claims the directories it names (never every folder —
+   * that is what the reserved exts are for). Omitted/`[]` = no name rule.
+   */
+  folderNames?: readonly string[]
+  /** Higher wins; default 0. Registered icons always outrank the built-in map. */
+  priority?: number
+  /**
+   * Size-aware icon factory (the tree and file tabs render at 14 today).
+   * `open` is the directory's expanded state for a DIRECTORY row and
+   * `undefined` for a file row — a folder icon uses it to pick between the
+   * closed and opened glyph.
+   */
+  icon: (path: string, size: number, open?: boolean) => ReactNode
+}
+
+/**
+ * Reserved `exts` values that claim DIRECTORY rows instead of file
+ * extensions: `'folder'` matches a closed directory, `'folder-open'` an
+ * expanded one (`folderIcon(path, open)` resolves them). They are filtered out of
+ * real-extension matching, so a file literally named `x.folder` is NOT
+ * claimed by a folder registration.
+ */
+export const FOLDER_EXT = 'folder' as const
+export const FOLDER_OPEN_EXT = 'folder-open' as const
+
+/** One `openTab` request. */
+export interface OpenTabSeed {
+  type: string
+  /** Overrides the descriptor's title when given (the editor tab shows the file name). */
+  title?: string
+  /**
+   * A file path. Meaning follows the type: the `editor` kind (the only one
+   * claiming `dsh-resource://file/**`) opens its path seeds as file
+   * resources; every other kind treats the path as component state — it
+   * rides the navigation params onto the tab record's `path` (v0.19.2+; on
+   * v0.19.0/v0.19.1 every path seed was rerouted into a file open).
+   */
+  path?: string
+  /** A diff reference (the diff tab's content seed). */
+  diff?: SidebarTab['diff']
+  /**
+   * The 1-based line a file reference named, for the `editor` kind (`#826`).
+   * Transient like the record's own `line`: it rides the open as a navigation
+   * the editor applies once (leaving preview, which renders no source lines)
+   * and the record forgets it right after.
+   *
+   * It is applied on a CREATE and on a native re-navigation; a store-branch
+   * FOCUS of an already-open tab (a host with no native surface) keeps the tab
+   * as it is — the same limitation the `diff` seed has.
+   */
+  line?: SidebarTab['line']
+  /** Explicit tab id (defaults to the type). */
+  id?: string
+  /** A URL the tab navigates to on mount (the browser tab's seed). */
+  url?: string
+  /** JSON-serializable custom state carried on the minted tab (persisted across reloads; v0.12.0+). */
+  meta?: unknown
+  /**
+   * Where the open lands. `'right'` (the default) is DSH's right Sidebar —
+   * the plugin's content is registered there as native tab types; `'bottom'`
+   * is the plugin's own bottom workbench. Only the plugin's own flows pass
+   * `'bottom'` (the bottom panel's + menu, the auto-terminal). A descriptor
+   * declaring `bottomOnly` is forced there whatever this says: it has no
+   * native tab type to land in.
+   *
+   * `'side'` also means the right Sidebar, but it lands in a SECOND pane
+   * there (`preferNewPane`, the host's own split): that is the "open to the
+   * side" action, which must not fall back to the bottom workbench a native
+   * tab never lives in. A path-less editor seed is the file explorer page, so
+   * `'side'` only changes where a path seed lands.
+   */
+  target?: 'right' | 'bottom' | 'side'
+  /**
+   * Whether the open may FOCUS what it opens (`target: 'right'` only; the
+   * bottom workbench already lands everything in its own pane). Defaults to
+   * true — every consumer-facing open means "show me this". A background
+   * activation passes `false` so the reader's page survives: the host places
+   * the tab without the focus op, and the caller raises the unread dot in its
+   * place (see `src/client/sidebar/use-host-feeds.ts`).
+   */
+  reveal?: boolean
+}
+
+/**
+ * The plugin-side seed a native right-Sidebar tab carries in its navigation
+ * params (the native surface passes them back on every navigation).
+ */
+export interface NativeTabParams {
+  /** Overrides the descriptor's title for this instance. */
+  title?: string
+  /** A file path (the editor window's content seed; component kinds carry their own). */
+  path?: string
+  /** A URL the tab navigates to on mount (the browser tab's seed). */
+  url?: string
+  /** A diff reference (the diff tab's content seed). */
+  diff?: SidebarTab['diff']
+  /** JSON-serializable custom state carried on the synthetic record. */
+  meta?: unknown
+}
+
+/**
+ * One native tab that carries a file path, as {@link SidebarSurface.pathTabs}
+ * reports it. The right column's records live in the native adapter and are
+ * invisible to the store, so this is the only handle on its open files.
+ */
+export interface NativePathTab {
+  /** The SEAT session the tab is drawn in (native tab ids restart per session,
+   *  so this is what tells two same-numbered tabs apart). */
+  sessionId: string
+  /** The session the tab's CONTENT belongs to — the `scope.sessionId` its
+   *  editor runs with. */
+  scopeSessionId: string
+  /** That session's workspace root, for resolving `path` when the address
+   *  stored it workspace-relative (a chat link does). */
+  cwd: string | undefined
+  /** The native tab id. */
+  id: string
+  /** The path the tab is bound to — a file path, or a browser tab's address
+   *  (a url seed is stored on the same field). */
+  path: string
+}
+
+/**
+ * The plugin's write face over DSH's native right Sidebar.
+ *
+ * Installed by the client half ({@link ./native/surface.ts}) so the service —
+ * and therefore every consumer of `ctx.betterSidebar` — keeps speaking the
+ * plugin's own vocabulary while the content lands natively. Without it the
+ * service writes into the plugin's own layout (the pre-0.1.5 behavior, which
+ * the bottom workbench still uses).
+ * @internal Not part of the consumer contract.
+ */
+export interface SidebarSurface {
+  /** Open a page type in one session's native surface. */
+  openTab(input: { sessionId: string; kind: string; params: NativeTabParams; revealIfOpened: boolean; preferNewPane?: boolean }): void
+  /** Open a resource address in one session's native surface. */
+  openResource(input: { sessionId: string; address: string; line?: number; revealIfOpened: boolean; preferNewPane?: boolean }): void
+  /** The file address of one path (the native surface owns the grammar). */
+  fileAddress(sessionId: string, cwd: string | undefined, path: string): string
+  /**
+   * The plugin tab type one native tab id belongs to, or undefined when this
+   * session has no such tab. Used to clear the unread dot when an activation
+   * lands on the native surface — the service cannot see the native records
+   * itself, and a tab id is not a type.
+   */
+  tabTypeOf?(sessionId: string, tabId: string): string | undefined
+  /**
+   * Every native tab bound to a path. The file tree's rename/delete
+   * reconciliation walks BOTH tab spaces — the bottom workbench's splits come
+   * from the store, and the right column exists only here. A surface that
+   * cannot enumerate them omits this.
+   */
+  pathTabs?(): NativePathTab[]
+  /** Close one native tab; the closed record's type/title/meta, or undefined when the id is not native. */
+  close(sessionId: string, tabId: string): { type: string; title: string; meta?: unknown } | undefined
+  /**
+   * Patch a native tab's plugin-side record; false when it is not native.
+   * `sessionId` (optional) names the seat session the tab lives in: native tab
+   * ids restart per session and several sessions' tabs are alive at once
+   * (`keepMounted`), so a caller that knows its session should pass it.
+   * Omitted, the id resolves against the mounted seat.
+   */
+  update(tabId: string, patch: { title?: string; path?: string; meta?: unknown }, sessionId?: string): boolean
+  /** Focus a native tab through the host controller; false when it is not native (same `sessionId` rule as `update`). */
+  activate(tabId: string, sessionId?: string): boolean
+  /** Whether a tab id belongs to the native surface (same `sessionId` rule as `update`). */
+  has(tabId: string, sessionId?: string): boolean
+}
+
+/**
+ * The registry service published as `ctx.betterSidebar`.
+ */
+export interface BetterSidebarService {
+  registerTab(descriptor: TabDescriptor): () => void
+  registerFileViewer(descriptor: FileViewerDescriptor): () => void
+  registerFileIcon(descriptor: FileIconDescriptor): () => void
+  getTabs(): readonly TabDescriptor[]
+  getFileViewers(): readonly FileViewerDescriptor[]
+  getFileIcons(): readonly FileIconDescriptor[]
+  /**
+   * Find a SPECIFIC registered file icon for a path (priority desc, then
+   * registration order): a `names` match first, then an `exts` match.
+   * Catch-alls (`exts: []`) and folder registrations (`'folder'`/
+   * `'folder-open'`) are not consulted — this answers "did a registration
+   * claim this exact name or extension". Consumers should prefer
+   * `fileIcon`/`folderIcon`, which run the whole fallback chain.
+   */
+  matchFileIcon(path: string): FileIconDescriptor | undefined
+  /**
+   * Find the registered icon for DIRECTORY rows (priority desc, then
+   * registration order): a `folderNames` match on `name` first (pass the
+   * directory's basename), then the `'folder'`/`'folder-open'` reserved
+   * exts by `open`. Undefined = fall back to the built-in VSCodicons folder
+   * glyphs.
+   */
+  matchFolderIcon(open: boolean, name?: string): FileIconDescriptor | undefined
+  /**
+   * The authoritative FILE icon for a path (feature `fileIcons`), running
+   * the whole chain with per-factory crash isolation:
+   * 1. a specific registered name or extension (priority desc, registration
+   *    order),
+   * 2. the best registered global default (`exts: []`, priority desc) — an
+   *    external plugin that registers a catch-all owns every row the host's
+   *    classifier would otherwise draw,
+   * 3. the host's own `FileTypeIcon` artwork (feature `fileIcons`, DSH's
+   *    classifier and glyphs — the plugin ships no extension table).
+   * A throwing factory is logged (console.error) and skipped — the caller
+   * always gets a valid ReactNode.
+   */
+  fileIcon(path: string, size: number): ReactNode
+  /**
+   * The authoritative DIRECTORY icon for a tree row: the registered
+   * `folderNames`/`'folder'`/`'folder-open'` icon (priority desc), else the
+   * built-in `VscFolder`/`VscFolderOpened`. `path` is the directory's own
+   * path (a theme may vary icons per directory); `open` reaches the factory
+   * so one descriptor can render both states. Same crash isolation as
+   * `fileIcon`.
+   */
+  folderIcon(path: string, open: boolean, size: number): ReactNode
+  /** Find a tab descriptor by id (undefined if not registered). */
+  getTab(id: string): TabDescriptor | undefined
+  /**
+   * Whether a tab type is enabled in the side card prefs. An absent
+   * `tabsEnabled[id]` entry means enabled — only an explicit `false`
+   * disables the type (hidden from the + menu, `openTab` refuses, and
+   * derived flows gate on it).
+   */
+  isTabEnabled(id: string): boolean
+  /** Whether a file viewer is enabled (absent `viewersEnabled[id]` = enabled). */
+  isViewerEnabled(id: string): boolean
+  /**
+   * Find a file viewer for a path (priority desc; detect first, then exts).
+   * Disabled viewers are skipped, so files fall through to the next match.
+   */
+  matchFileViewer(path: string, head?: Uint8Array): FileViewerDescriptor | undefined
+  /**
+   * Open a tab (used by external tabs and the + menu). `title` overrides
+   * the descriptor's title when given (the editor tab shows the file name);
+   * when the descriptor provides `createTab` it mints the tab itself and
+   * `title`/`path`/`id` are ignored. `url` lands the tab with its `path`
+   * pre-set to the URL (the browser tab's navigation seed; the caller
+   * usually pairs it with a hostname `title`). A disabled tab type is a
+   * no-op.
+   *
+   * `scope` (v0.12.0+) targets a specific session: when given, the open
+   * lands in THAT session's sidebar state (loading it if it has none yet)
+   * without switching the UI's active session; when absent the open lands
+   * in the currently active session (the pre-0.12 behavior).
+   *
+   * Every open lands in the bottom workbench and expands it (the workbench
+   * is the plugin's only own surface; the right column is DSH's native
+   * Sidebar). An open carrying a `path` or `url` goes through the native
+   * surface instead, which never touches this state.
+   *
+   * Note: `available` gates the + menu's disabled state only — it does NOT
+   * refuse `openTab` (only the settings disable switch does).
+   */
+  openTab(seed: OpenTabSeed, scope?: SessionScope): void
+  /**
+   * Close a tab by id (fires descriptor.onClose). An unknown tab id is a
+   * strict no-op (no state churn, no callbacks). `scope` (v0.12.0+) rides
+   * to the callback (its optional cwd included); absent, the callback gets
+   * `{ sessionId }` of the active session.
+   */
+  closeTab(tabId: string, scope?: SessionScope): void
+  /** Subscribe to registry changes (register/dispose). */
+  subscribe(listener: () => void): () => void
+  /** The plugin version this service instance was built from ('0.12.0'). */
+  readonly version: string
+  /**
+   * Monotonic capability list (v0.12.0+): 'badge' | 'tabLifecycle' |
+   * 'updateTab' | 'openFile' | 'targetedOpen' | 'stateSubscription' |
+   * 'tabMeta' | 'pluginSettings'. Features are never removed — consumers
+   * gate new API usage on membership.
+   */
+  readonly features: readonly string[]
+  /**
+   * The current sidebar snapshot: the active session id, its state (panel
+   * geometry, open tabs, expansions), and the side card prefs (v0.12.0+).
+   * `state`/`sessionId` are undefined until a session becomes active.
+   */
+  getSnapshot(): SidebarSnapshot
+  /** Subscribe to snapshot changes (session switch, state changes, prefs changes). Returns the disposer. */
+  subscribeState(listener: () => void): () => void
+  /**
+   * Update the display fields of one open tab (title / path / meta) without
+   * re-opening it; a missing tab id is a no-op. `sessionId` names the seat
+   * session the tab lives in — native ids restart per session and several
+   * sessions' tabs stay mounted at once, so a component that knows its scope
+   * should pass it; omitted, a native id resolves against the mounted seat.
+   * A **path change is a new open**: the transient landing line a reference
+   * carried (#826) is dropped with it, because that line belongs to the
+   * navigation that delivered the file — an in-place switch or a rename that
+   * kept it would send the next file to the previous file's line.
+   */
+  updateTab(tabId: string, patch: { title?: string; path?: string; meta?: unknown }, sessionId?: string): void
+  /**
+   * Activate an open tab (the tab-bar activation path; fires
+   * descriptor.onActivate). An unknown tab id is a strict no-op. `scope`
+   * (v0.12.0+) rides to the callback like `closeTab`'s.
+   */
+  activateTab(tabId: string, scope?: SessionScope): void
+  /** Open a file in the sidebar editor of `scope`'s session (title defaults to the file name). */
+  openFile(scope: SessionScope, path: string, title?: string): void
+  /**
+   * Resolve one of the plugin's own host routes (`sidebar/api/fs.read`) into
+   * an absolute URL the page can fetch even when the GUI is served under a
+   * reverse-proxy directory (v0.25.0+; `features` contains 'hostRouteUrl').
+   *
+   * Never build these URLs with a leading slash yourself: that pins the
+   * request to the ORIGIN ROOT, so `/proxy/<port>/sidebar/api/…` leaves the
+   * prefix and 404s (and a desktop shell's `dsh-app://` origin is not
+   * reachable at all). `path` is taken with or without a leading slash.
+   */
+  hostRouteUrl(path: string): string
+  /**
+   * Retire one session's "new page" dot for a tab type — the reader just
+   * looked at that page. A type that is not marked is a strict no-op, so a
+   * carrier can call this on every visibility change without churning the
+   * store.
+   *
+   * The mark itself is raised by the plugin's own background activation; this
+   * is the retirement half a carrier that renders a marked tab needs. The
+   * bottom workbench retires its marks through {@link activateTab} instead
+   * (a click there IS an activation), so the native chip is the caller.
+   */
+  clearUnread(type: TabType, sessionId: string): void
+  /**
+   * Install (or clear) the native right-Sidebar write face.
+   * @internal Called once by the client half; not part of the consumer API.
+   */
+  setSurface(surface: SidebarSurface | undefined): void
+  /**
+   * Every native tab bound to a path (empty when no native surface is
+   * installed).
+   * @internal The file tree's rename/delete reconciliation; not part of the
+   * consumer API.
+   */
+  nativePathTabs(): NativePathTab[]
+}
+
+/** The file name of a path (both separators). */
+function baseNameOf(path: string): string {
+  const at = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return at === -1 ? path : path.slice(at + 1)
+}
+
+/**
+ * Find the tab type that claims an intercepted external-link URL (v0.13.0+).
+ * Walks the descriptors in REGISTRATION order and returns the first one
+ * that declares `urlTarget` and matches `url`; a throwing predicate is
+ * swallowed (console.error, type skipped) so one broken plugin can never
+ * break the whole link pipeline. The caller passes the ENABLED tab
+ * descriptors (enablement is the caller's prefs domain — filter
+ * `service.getTabs()` through `tabsEnabled` before matching) and falls
+ * back to the built-in browser tab when nothing claims the URL (the
+ * browser never declares `urlTarget` itself, so it can never shadow a
+ * plugin claim).
+ */
+export function matchUrlTarget(tabs: readonly TabDescriptor[], url: URL): TabDescriptor | undefined {
+  for (const tab of tabs) {
+    if (tab.urlTarget === undefined) continue
+    let claimed: boolean
+    try {
+      claimed = tab.urlTarget(url) === true
+    } catch (error) {
+      console.error('[dsh-better-sidebar] urlTarget error:', error)
+      continue
+    }
+    if (claimed) return tab
+  }
+  return undefined
+}
+
+/**
+ * The plugin version this service instance reports. Keep in lockstep with
+ * `package.json`'s version — `tests/service.spec.ts` asserts the pair.
+ */
+export const SIDEBAR_SERVICE_VERSION = '0.28.0'
+
+/**
+ * Monotonic capability list consumers use to gate new API usage (features
+ * are never removed). Each string names a v0.12.0+ capability:
+ * - 'badge': TabDescriptor.badge
+ * - 'tabLifecycle': TabDescriptor.onOpen/onActivate/onClose
+ * - 'updateTab': BetterSidebarService.updateTab
+ * - 'openFile': BetterSidebarService.openFile
+ * - 'targetedOpen': BetterSidebarService.openTab(seed, scope?)
+ * - 'stateSubscription': getSnapshot/subscribeState
+ * - 'tabMeta': SidebarTab.meta (seeds, createTab, updateTab, persistence)
+ * - 'pluginSettings': SidebarSettingsDeclaration.pluginToggles/render
+ * - 'urlTarget' (v0.13.0): TabDescriptor.urlTarget (external-link claims)
+ * - 'settingSelect': SidebarSettingToggle type 'select' (options/multi)
+ * - 'fileIcons' (v0.19.0): registerFileIcon/getFileIcons/matchFileIcon —
+ *   external file-tree icons overriding the built-in glyphs, matched by
+ *   extension (`exts`), exact file name (`names`), or directory name
+ *   (`folderNames`).
+ * - 'rightActions' (v0.25.0): TabDescriptor.rightActions — the active tab's
+ *   right-aligned action area rendered at the tab strip's right end.
+ * - 'settingPatterns': SidebarSettingToggle type 'patterns' (editable
+ *   string-list row, committed as one string[] value).
+ *
+ * v0.19.0 REMOVED 'floatWindows': the free-window feature is gone (DSH 0.1.5
+ * owns the right column, so the plugin keeps only its bottom workbench).
+ * Consumers must not gate on it any more.
+ */
+export const SIDEBAR_FEATURES = [
+  'badge',
+  'tabLifecycle',
+  'updateTab',
+  'openFile',
+  'targetedOpen',
+  'stateSubscription',
+  'tabMeta',
+  'pluginSettings',
+  'urlTarget',
+  'settingSelect',
+  'fileIcons',
+  'rightActions',
+  'settingPatterns',
+  'hostRouteUrl',
+] as const
+
+/** Run one plugin callback; a throw is logged and never breaks the caller. */
+function safeCall(fn: () => void): void {
+  try {
+    fn()
+  } catch (error) {
+    console.error('[dsh-better-sidebar] plugin callback error:', error)
+  }
+}
+
+/**
+ * Create one BetterSidebar service bound to a store. The service owns the
+ * tab/viewer registries (Map + listener set) and proxies openTab/closeTab
+ * to the store's reducer. One instance per client plugin activation.
+ */
+export function createBetterSidebarService(store: SidebarStore): BetterSidebarService {
+  const tabs = new Map<string, TabDescriptor>()
+  const viewers = new Map<string, FileViewerDescriptor>()
+  const fileIcons = new Map<string, FileIconDescriptor>()
+  const listeners = new Set<() => void>()
+  /** The native right-Sidebar write face, installed by the client half. */
+  let surface: SidebarSurface | undefined
+
+  const notify = (): void => {
+    for (const fn of [...listeners]) fn()
+  }
+
+  const subscribe = (listener: () => void): (() => void) => {
+    listeners.add(listener)
+    return () => { listeners.delete(listener) }
+  }
+
+  /**
+   * Retire one session's unread mark for a tab type. The argument ORDER is
+   * the service's own `(type, sessionId)` — this is the implementation of
+   * {@link BetterSidebarService.clearUnread} and takes its parameter list
+   * verbatim, so the facade cannot silently swap them.
+   *
+   * Named-session aware on purpose (see {@link SidebarStore.clearUnread}): the
+   * current session publishes the change so both carriers re-render, while a
+   * session that is not on screen is updated in place without waking the shell.
+   */
+  const clearUnreadFor = (type: TabType, sessionId: string): void => {
+    store.clearUnread(type, sessionId)
+  }
+
+  const registerTab = (descriptor: TabDescriptor): (() => void) => {
+    if (tabs.has(descriptor.id)) {
+      throw new Error(`[dsh-better-sidebar] tab type "${descriptor.id}" already registered`)
+    }
+    tabs.set(descriptor.id, descriptor)
+    notify()
+    return () => {
+      if (tabs.get(descriptor.id) === descriptor) {
+        tabs.delete(descriptor.id)
+        notify()
+      }
+    }
+  }
+
+  const registerFileViewer = (descriptor: FileViewerDescriptor): (() => void) => {
+    if (viewers.has(descriptor.id)) {
+      throw new Error(`[dsh-better-sidebar] file viewer "${descriptor.id}" already registered`)
+    }
+    viewers.set(descriptor.id, descriptor)
+    notify()
+    return () => {
+      if (viewers.get(descriptor.id) === descriptor) {
+        viewers.delete(descriptor.id)
+        notify()
+      }
+    }
+  }
+
+  const getTabs = (): readonly TabDescriptor[] => Array.from(tabs.values())
+  const getFileViewers = (): readonly FileViewerDescriptor[] => Array.from(viewers.values())
+  const getFileIcons = (): readonly FileIconDescriptor[] => Array.from(fileIcons.values())
+  const getTab = (id: string): TabDescriptor | undefined => tabs.get(id)
+
+  const registerFileIcon = (descriptor: FileIconDescriptor): (() => void) => {
+    if (fileIcons.has(descriptor.id)) {
+      throw new Error(`[dsh-better-sidebar] file icons "${descriptor.id}" already registered`)
+    }
+    fileIcons.set(descriptor.id, descriptor)
+    notify()
+    return () => {
+      if (fileIcons.get(descriptor.id) === descriptor) {
+        fileIcons.delete(descriptor.id)
+        notify()
+      }
+    }
+  }
+
+  // Registrations in ranking order: priority desc, stable for equal
+  // priorities (insertion order) — the same ranking `matchFileViewer` uses.
+  const rankedFileIcons = (): FileIconDescriptor[] =>
+    Array.from(fileIcons.values()).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
+
+  // Specific registrations only: catch-alls (`exts: []`) and folder
+  // registrations (`'folder'`/`'folder-open'`) are skipped, and the reserved
+  // folder values never match a real file's extension. Name rules (`names`)
+  // outrank extension rules. The built-in glyph map is not consulted here —
+  // an undefined result IS the "fall through" signal the `fileIcon` resolver
+  // acts on.
+  const matchFileIcon = (path: string): FileIconDescriptor | undefined => {
+    const ext = extOf(path)
+    // Reserved folder values never claim a real file: `x.folder` falls
+    // through to the built-in/catch-all chain like any unknown extension.
+    const reserved = ext === FOLDER_EXT || ext === FOLDER_OPEN_EXT
+    const name = baseName(path).toLowerCase()
+    const ranked = rankedFileIcons()
+    for (const d of ranked) {
+      if (d.names?.some(entry => entry.toLowerCase() === name) === true) return d
+    }
+    if (reserved) return undefined
+    for (const d of ranked) {
+      if (d.exts?.includes(ext) === true) return d
+    }
+    return undefined
+  }
+
+  // Directory rows: a `folderNames` match on the directory's own basename
+  // first, then the reserved `'folder'`/`'folder-open'` exts (a catch-all
+  // never claims a directory).
+  const matchFolderIcon = (open: boolean, name?: string): FileIconDescriptor | undefined => {
+    const ranked = rankedFileIcons()
+    if (name !== undefined) {
+      const wanted = name.toLowerCase()
+      for (const d of ranked) {
+        if (d.folderNames?.some(entry => entry.toLowerCase() === wanted) === true) return d
+      }
+    }
+    const want = open ? FOLDER_OPEN_EXT : FOLDER_EXT
+    for (const d of ranked) {
+      if (d.exts?.includes(want) === true) return d
+    }
+    return undefined
+  }
+
+  /** Run one registered factory; a throw is logged and returns undefined. */
+  const safeIcon = (d: FileIconDescriptor, path: string, size: number, open?: boolean): ReactNode => {
+    try {
+      return d.icon(path, size, open)
+    } catch (error) {
+      console.error(`[dsh-better-sidebar] file icon factory "${d.id}" error:`, error)
+      return undefined
+    }
+  }
+
+  // The authoritative file-icon chain (see the interface doc): specific name
+  // or extension registration → registered catch-all → the host's own
+  // file-type artwork. The catch-all ranks by priority desc then registration
+  // order (first wins), which is what lets an external plugin own "every
+  // extension I did not name" without also owning the ones DSH draws.
+  const fileIcon = (path: string, size: number): ReactNode => {
+    const specific = matchFileIcon(path)
+    if (specific !== undefined) {
+      const icon = safeIcon(specific, path, size)
+      if (icon !== undefined) return icon
+    }
+    for (const d of rankedFileIcons()) {
+      if (d.exts !== undefined && d.exts.length === 0) {
+        const icon = safeIcon(d, path, size)
+        if (icon !== undefined) return icon
+      }
+    }
+    return builtinFileIcon(path, size)
+  }
+
+  // Directory rows: registered folderNames/folder/folder-open icon, else the
+  // host's folder glyph. The row's path feeds the factory (a registration may
+  // vary icons per directory) and `open` lets one descriptor render both
+  // states.
+  const folderIcon = (path: string, open: boolean, size: number): ReactNode => {
+    const registered = matchFolderIcon(open, baseName(path))
+    if (registered !== undefined) {
+      const icon = safeIcon(registered, path, size, open)
+      if (icon !== undefined) return icon
+    }
+    return builtinFolderIcon(open, size)
+  }
+
+  // The enable switches come from the user's side card prefs (the shared
+  // store the service is bound to): an absent key means enabled.
+  const isTabEnabled = (id: string): boolean => store.getPrefs().tabsEnabled[id] !== false
+  const isViewerEnabled = (id: string): boolean => store.getPrefs().viewersEnabled[id] !== false
+
+  const matchFileViewer = (path: string, head?: Uint8Array): FileViewerDescriptor | undefined => {
+    const ext = extOf(path)
+    // Single pass in priority order (descending; stable for equal
+    // priorities — insertion order). Each descriptor gets first refusal in
+    // its own turn: `detect` (when head bytes are available) beats its own
+    // `exts`, and `exts: []` is a catch-all matching any path — so the
+    // catch-all `code` viewer (-100) only sees paths no higher-priority
+    // descriptor claimed. Disabled viewers are skipped entirely.
+    for (const v of Array.from(viewers.values()).sort(
+      (a, b) => (b.priority ?? 0) - (a.priority ?? 0),
+    )) {
+      if (!isViewerEnabled(v.id)) continue
+      // Content sniff first (only when head bytes are available).
+      if (head !== undefined && v.detect !== undefined) {
+        if (v.detect(path, head)) return v
+        // A catch-all with detect is SNIFF-ONLY: it must not blind-claim
+        // paths it never sniffed (a magic-number viewer must not swallow
+        // every file before the real viewers get their turn).
+        if (v.exts.length === 0) continue
+      } else if (v.exts.length === 0) {
+        // Blind catch-all (no detect) claims anything; a sniff-only
+        // catch-all (detect defined, no head yet) yields this round.
+        if (v.detect === undefined) return v
+        continue
+      }
+      if (v.exts.includes(ext)) return v
+    }
+    return undefined
+  }
+
+  const openTab = (seed: OpenTabSeed, scope?: SessionScope): void => {
+    // A type the user disabled in settings never opens — neither from the
+    // + menu nor from derived flows (file opens, subagent auto-open,
+    // external plugins). Already-open tabs keep rendering.
+    if (!isTabEnabled(seed.type)) {
+      console.warn(`[dsh-better-sidebar] tab type "${seed.type}" is disabled in the side card settings`)
+      return
+    }
+    const descriptor = tabs.get(seed.type)
+    if (descriptor === undefined) return
+    // A scope targets another session: the open lands in THAT session's
+    // state (loaded on demand) without switching the UI's active session.
+    const targetSessionId = scope?.sessionId ?? store.getSnapshot().sessionId
+    if (targetSessionId === undefined) return
+    const callbackScope: SessionScope = scope ?? { sessionId: targetSessionId }
+    // ── Native right Sidebar ──────────────────────────────────────────────
+    // With the native surface installed, every open except an explicit
+    // bottom-panel one — and except a `bottomOnly` type, which has no native
+    // tab at all — lands there. The path seed's meaning depends on the
+    // type: `editor` is the only kind registered with
+    // `dsh-resource://file/**` patterns (src/client/native/index.ts), so its
+    // path seeds become resource addresses (the native registry routes the
+    // address back to the editor); a path-less editor open becomes the
+    // `files` page kind. Every OTHER type keeps the page open — its path is
+    // component state, not a file to open — and rides the seed (path
+    // included) as navigation params, which the tab adapter merges onto the
+    // synthetic record's `tab.path` for the registered component.
+    if (surface !== undefined && seed.target !== 'bottom' && descriptor.bottomOnly !== true) {
+      // "Open to the side" asks the host for a NEW pane instead of reusing
+      // the pane the acting tab lives in. `revealIfOpened: false` permits a
+      // duplicate of an already-open resource, so the split really happens
+      // (the host's `preferNewPane` falls back to the target pane when no
+      // split is available — that fallback is the host's rule, not ours).
+      const side = seed.target === 'side'
+      const state = store.getSnapshot().state
+      // The descriptor's own factory mints what a view needs beyond the seed:
+      // the side chat's thread bootstrap / reattach meta, the terminal's
+      // per-instance title. A `null` return refuses the open (terminal cap).
+      const minted = descriptor.createTab === undefined || state === undefined
+        ? undefined
+        : descriptor.createTab(state)
+      if (minted === null) return
+      const title = seed.title ?? minted?.tab.title
+        ?? (typeof descriptor.title === 'function' ? descriptor.title() : descriptor.title)
+      // Multi-instance kinds (terminal / browser / side chat / diff) mint a
+      // fresh tab per open; single-instance kinds focus the existing one.
+      const revealIfOpened = descriptor.createTab === undefined
+      // Whether this open may FOCUS what it lands on. `target: 'side'` never
+      // does (it is a split beside the reader's page), and a background
+      // activation asks for the same without the split (`reveal: false`),
+      // which is what keeps a gated auto-open from taking the column over.
+      const reveal = seed.reveal !== false && !side
+      // A url seed lands on `path`: the browser tab reads its address from
+      // there and persists navigations back to the same field
+      // (BrowserView's `persist`), so dropping the seed left an opened tab
+      // with an empty address bar. `path` means the file to open only for
+      // `editor`, which never carries a url seed.
+      const componentPath = seed.path ?? seed.url
+      const synthetic: SidebarTab = {
+        id: seed.id ?? minted?.tab.id ?? seed.type,
+        type: seed.type,
+        title,
+        ...(componentPath === undefined ? {} : { path: componentPath }),
+        ...(seed.diff === undefined ? {} : { diff: seed.diff }),
+        ...(seed.line === undefined ? {} : { line: seed.line }),
+        ...(seed.meta === undefined && minted?.tab.meta === undefined ? {} : { meta: seed.meta ?? minted?.tab.meta }),
+      }
+      if (seed.type === 'editor') {
+        if (seed.path !== undefined) {
+          // No `kind` is named on the resource open: the HOST's tab registry
+          // decides the claiming type (#695), so a third-party type with a
+          // more specific pattern (a `.drawio` canvas at `extension` priority)
+          // receives the file and the plugin's editor only takes what nobody
+          // else claims. `claim()` throws when nothing recognizes the address;
+          // the editor's `dsh-resource://file/**` plus the built-in previews
+          // cover every file address in practice.
+          surface.openResource({
+            sessionId: targetSessionId,
+            address: surface.fileAddress(targetSessionId, scope?.cwd, seed.path),
+            revealIfOpened: reveal,
+            // The reference's landing line, when the open came from one
+            // (`a.c#L131` — #826). Transient: the record spends it on arrival.
+            ...(seed.line === undefined ? {} : { line: seed.line }),
+            ...(side ? { preferNewPane: true } : {}),
+          })
+        } else {
+          // The path-less editor window IS the file explorer.
+          surface.openTab({ sessionId: targetSessionId, kind: 'files', params: {}, revealIfOpened: reveal })
+        }
+      } else {
+        // A component type's path seed stays on the page open (regression
+        // #632: rerouting every path seed into openResource sent the open to
+        // the editor, so the registered component never mounted).
+        surface.openTab({
+          sessionId: targetSessionId,
+          kind: seed.type,
+          params: {
+            title,
+            ...(seed.path === undefined ? {} : { path: seed.path }),
+            ...(seed.url === undefined ? {} : { url: seed.url }),
+            ...(seed.diff === undefined ? {} : { diff: seed.diff }),
+            ...(synthetic.meta === undefined ? {} : { meta: synthetic.meta }),
+          },
+          revealIfOpened: reveal && revealIfOpened,
+          ...(side ? { preferNewPane: true } : {}),
+        })
+      }
+      // The native surface reports one open event, not create-vs-focus, so a
+      // lifecycle consumer hears onOpen (documented in the guide).
+      safeCall(() => descriptor.onOpen?.(synthetic, callbackScope))
+      return
+    }
+    // Whether this open targets a session that is NOT the one on screen: a
+    // targeted open must not auto-expand panels the user cannot see (the
+    // expansion is about landing "in sight" for the CURRENT viewer).
+    const activeSessionId = store.getSnapshot().sessionId
+    const targetsInactiveSession = scope !== undefined && scope.sessionId !== activeSessionId
+    // Lifecycle capture: `created` when the open minted a NEW tab (a
+    // dedupe/id-safety-net focus is an ACTIVATION, not an open).
+    let created: SidebarTab | undefined
+    let activated: SidebarTab | undefined
+    // A bottom-targeted open lands in the bottom workbench's own pane; the
+    // right tree it would otherwise follow is no longer rendered (DSH's
+    // native sidebar owns the right column).
+    const land = openTabInBottomPane
+    const reducer = (state: SidebarState): SidebarState => {
+      // Let the descriptor mint the tab (and any state patch it owns).
+      let tab: SidebarTab
+      let next: SidebarState
+      if (descriptor.createTab !== undefined) {
+        const result = descriptor.createTab(state)
+        if (result === null) return state
+        tab = result.tab
+        next = applyDedupe(state, result.tab, descriptor, land)
+        if (result.patch !== undefined) next = { ...next, ...result.patch }
+      } else {
+        tab = {
+          id: seed.id ?? seed.type,
+          type: seed.type,
+          // A caller-provided title wins (the editor shows the file name);
+          // otherwise the descriptor's (possibly i18n) title is the default.
+          title: seed.title ?? (typeof descriptor.title === 'function' ? descriptor.title() : descriptor.title),
+          ...(seed.path !== undefined ? { path: seed.path } : {}),
+          ...(seed.diff !== undefined ? { diff: seed.diff } : {}),
+          // The landing line, when this open came from a file reference
+          // (`a.c#L131` — #826); the editor spends it on arrival.
+          ...(seed.line !== undefined ? { line: seed.line } : {}),
+          ...(seed.meta !== undefined ? { meta: seed.meta } : {}),
+        }
+        next = applyDedupe(state, tab, descriptor, land)
+      }
+      // Classify the landing against the INPUT state FIRST: a FOCUS fires
+      // onActivate with the tab that is active NOW; a real creation fires
+      // onOpen with the minted tab. Both the dedupeKey match AND the id
+      // match count as a focus — a descriptor deduping by key (e.g. editor
+      // by path) can focus an existing tab for a NEW requested id, and
+      // classifying that as a creation would fire onOpen with a phantom
+      // tab that never closes.
+      const dedupeKey = descriptor.dedupeKey ?? (descriptor.single === true ? () => descriptor.id : undefined)
+      const key = dedupeKey?.(tab)
+      const inputTabs = allLeaves(state.bottomSplits).flatMap(leaf => leaf.tabs)
+      const existedByKey = key !== undefined
+        && inputTabs.some(candidate => candidate.type === tab.type && dedupeKey!(candidate) === key)
+      const existedById = tabOpenIn(state, tab.id)
+      const isCreation = !existedByKey && !existedById
+      // A URL seed pre-fills a NEWLY CREATED tab's path (the browser tab
+      // navigates to it on mount); a FOCUS must never have its path
+      // overwritten. An explicit seed.title still wins over a createTab-
+      // minted default title (e.g. the sidebar-browser's hostname title).
+      let landed: SidebarState = next
+      if (seed.url !== undefined && isCreation) {
+        landed = patchTab(next, tab.id, {
+          path: seed.url,
+          ...(seed.title !== undefined ? { title: seed.title } : {}),
+        })
+      }
+      // Lifecycle capture (before the auto-expand block, which early-returns).
+      if (isCreation) {
+        // Resolve the ACTUAL landed tab — the url patch mints a new object,
+        // so the callback must see the tab that was really inserted.
+        const landedTabs = allLeaves(landed.bottomSplits).flatMap(leaf => leaf.tabs)
+        created = landedTabs.find(candidate => candidate.id === tab.id) ?? tab
+      } else {
+        // A focus happened: resolve the tab that is actually active now and
+        // report THAT to onActivate (never the caller's un-inserted seed).
+        const candidates = allLeaves(landed.bottomSplits).flatMap(leaf => leaf.tabs)
+        activated = key !== undefined
+          ? candidates.find(candidate => candidate.type === tab.type && dedupeKey!(candidate) === key)
+          : candidates.find(candidate => candidate.id === tab.id)
+        activated ??= tab
+      }
+      // Every open that lands in the workbench is visible: a creation
+      // expands it (openTabInBottomPane) and so does a FOCUS (the dedupe/id
+      // reducers only activate the tab). An open targeted at an INACTIVE
+      // session expands THAT session's workbench — it is waiting for the
+      // user when they switch to it.
+      return landed.bottomOpen ? landed : { ...landed, bottomOpen: true }
+    }
+    // A scope targeting ANOTHER session lands the open there without
+    // switching the UI; a scope naming the active session (or no scope)
+    // takes the regular reduce path so the UI notifies and re-renders.
+    if (targetsInactiveSession) {
+      store.reduceFor(scope.sessionId, reducer)
+    } else {
+      store.reduce(reducer)
+    }
+    if (created !== undefined) safeCall(() => descriptor.onOpen?.(created!, callbackScope))
+    else if (activated !== undefined) safeCall(() => descriptor.onActivate?.(activated!, callbackScope))
+  }
+
+  const closeTab = (tabId: string, scope?: SessionScope): void => {
+    const sessionId = scope?.sessionId ?? store.getSnapshot().sessionId
+    if (surface !== undefined && sessionId !== undefined) {
+      const closedNative = surface.close(sessionId, tabId)
+      if (closedNative !== undefined) {
+        const descriptor = tabs.get(closedNative.type)
+        if (descriptor !== undefined) {
+          safeCall(() => descriptor.onClose?.(
+            {
+              id: tabId,
+              type: closedNative.type as TabType,
+              title: closedNative.title,
+              ...(closedNative.meta === undefined ? {} : { meta: closedNative.meta }),
+            },
+            scope ?? { sessionId },
+          ))
+        }
+        return
+      }
+    }
+    let closed: SidebarTab | undefined
+    store.reduce((state) => {
+      // Unknown tab ids are a strict no-op: no state churn, no notify, no
+      // pointless localStorage rewrite (mirrors updateTab's short-circuit).
+      if (!tabOpenIn(state, tabId)) return state
+      const paneId = findPaneIdOf(state, tabId)
+      const leaf = leafWithTab(state.bottomSplits, tabId)
+      closed = leaf?.tabs.find(tab => tab.id === tabId)
+      return closeTabReducer(state, paneId, tabId)
+    })
+    if (closed !== undefined) {
+      const sessionId = scope?.sessionId ?? store.getSnapshot().sessionId
+      if (sessionId !== undefined) {
+        const descriptor = tabs.get(closed.type)
+        // An explicit scope (with its optional cwd) rides to the callback.
+        safeCall(() => descriptor?.onClose?.(closed!, scope ?? { sessionId }))
+      }
+    }
+  }
+
+  /** The snapshot the store publishes (state/prefs carry the active session). */
+  const getSnapshot = (): SidebarSnapshot => store.getSnapshot()
+
+  /** Store changes: session switch, state mutations, prefs writes. */
+  const subscribeState = (listener: () => void): (() => void) => store.subscribe(listener)
+
+  /** Patch an open tab's display fields (a missing tab id is a no-op). */
+  const updateTab = (
+    tabId: string,
+    patch: { title?: string; path?: string; meta?: unknown },
+    sessionId?: string,
+  ): void => {
+    if (surface?.update(tabId, patch, sessionId) === true) return
+    store.reduce((state) => patchTab(state, tabId, {
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.path !== undefined ? { path: patch.path } : {}),
+      ...(patch.meta !== undefined ? { meta: patch.meta } : {}),
+    }))
+  }
+
+  /** Activate an open tab (the tab-bar activation path; fires onActivate). */
+  const activateTab = (tabId: string, scope?: SessionScope): void => {
+    // Activating a tab is the reader LOOKING at that page, so it retires the
+    // unread dot wherever the tab lives. Resolved before the activation
+    // because the native branch below returns early: the record (and therefore
+    // the type) is dropped when the tab unmounts. Nothing is marked unread in
+    // the target session by a cross-session activation (the service's own
+    // background triggers mark the session they are actually running for), so
+    // an unknown type clears nothing.
+    const activatedSessionId = scope?.sessionId ?? store.getSnapshot().sessionId
+    if (activatedSessionId !== undefined) {
+      const type = surface?.tabTypeOf?.(activatedSessionId, tabId)
+      if (type !== undefined) clearUnreadFor(type, activatedSessionId)
+    }
+    if (surface?.activate(tabId, scope?.sessionId) === true) return
+    let activated: SidebarTab | undefined
+    store.reduce((state) => {
+      // Unknown tab ids are a strict no-op (no state churn / notify).
+      if (!tabOpenIn(state, tabId)) return state
+      const paneId = findPaneIdOf(state, tabId)
+      const leaf = leafWithTab(state.bottomSplits, tabId)
+      activated = leaf?.tabs.find(tab => tab.id === tabId)
+      return activateTabReducer(state, paneId, tabId)
+    })
+    if (activated !== undefined) {
+      const sessionId = scope?.sessionId ?? store.getSnapshot().sessionId
+      if (sessionId !== undefined) {
+        clearUnreadFor(activated.type, sessionId)
+        const descriptor = tabs.get(activated.type)
+        // An explicit scope (with its optional cwd) rides to the callback.
+        safeCall(() => descriptor?.onActivate?.(activated!, scope ?? { sessionId }))
+      }
+    }
+  }
+
+  /** Open a file in the sidebar editor of `scope`'s session (title defaults
+   *  to the file name; the tab id is path-derived, like the internal
+   *  open-path interception, so distinct files open side by side).
+   *
+   *  The `editor` seed does NOT hard-code the winner (#695): with the native
+   *  surface installed, `openTab`'s native branch turns the path seed into a
+   *  resource address and the HOST's tab registry decides the claiming type —
+   *  a third-party type registered with a more specific pattern (a `.drawio`
+   *  canvas, say) renders its own tab, and the plugin's editor only takes
+   *  files nobody else claims. (This module holds no ctx, so the probe used
+   *  by the tree's own carriers lives in sidebar-file.ts instead.) */
+  const openFile = (scope: SessionScope, path: string, title?: string): void => {
+    openTab({ type: 'editor', title: title ?? baseNameOf(path), path, id: `editor:${path}` }, scope)
+  }
+
+  return {
+    registerTab,
+    registerFileViewer,
+    registerFileIcon,
+    getTabs,
+    getFileViewers,
+    getFileIcons,
+    matchFileIcon,
+    matchFolderIcon,
+    fileIcon,
+    folderIcon,
+    getTab,
+    isTabEnabled,
+    isViewerEnabled,
+    matchFileViewer,
+    openTab,
+    closeTab,
+    subscribe,
+    version: SIDEBAR_SERVICE_VERSION,
+    features: SIDEBAR_FEATURES,
+    getSnapshot,
+    subscribeState,
+    updateTab,
+    activateTab,
+    openFile,
+    hostRouteUrl: (path: string): string => resolveHostRoute(path).href,
+    setSurface: (next: SidebarSurface | undefined) => { surface = next },
+    nativePathTabs: () => surface?.pathTabs?.() ?? [],
+    clearUnread: clearUnreadFor,
+  }
+}
+
+/**
+ * Apply dedup: if a tab whose `dedupeKey` matches an existing tab of the
+ * same type exists, focus it; otherwise land the tab through `land` (the id
+ * safety net + landing are that reducer's job — not re-implemented here).
+ * `single: true` resolves to the id-key sugar when no explicit key is given.
+ */
+function applyDedupe(
+  state: SidebarState,
+  tab: SidebarTab,
+  descriptor: TabDescriptor,
+  land: (state: SidebarState, tab: SidebarTab) => SidebarState = openTabInBottomPane,
+): SidebarState {
+  const dedupeKey = descriptor.dedupeKey ?? (descriptor.single === true ? () => descriptor.id : undefined)
+  const key = dedupeKey?.(tab)
+  if (key !== undefined) {
+    for (const leaf of allLeaves(state.bottomSplits)) {
+      const existing = leaf.tabs.find(t => t.type === tab.type && dedupeKey!(t) === key)
+      if (existing !== undefined) return activateTabReducer(state, leaf.id, existing.id)
+    }
+  }
+  return land(state, tab)
+}
+
+/** Find which pane hosts a tab id ('' if none). */
+function findPaneIdOf(state: SidebarState, tabId: string): string {
+  for (const leaf of allLeaves(state.bottomSplits)) {
+    if (leaf.tabs.some(t => t.id === tabId)) return leaf.id
+  }
+  return state.activePane ?? ''
+}

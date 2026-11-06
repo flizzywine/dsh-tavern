@@ -1,0 +1,64 @@
+{
+  "name": "通用生图规则（轻量版）",
+  "entries": [
+    {
+      "comment": "01 核心任务",
+      "content": "# 核心任务\n把正文里的精彩瞬间转译成绘图提示词，并在正文对应位置插入图片。\n\n**每次回复都要配图**，数量和大致位置由插件在系统提示里给出（如果没给，就按剧情节奏自己定 2~4 张）。\n图片要**分散**插在正文段落之间，不要都堆在开头或结尾。",
+      "enabled": true
+    },
+    {
+      "comment": "02 输出格式（必须照抄这个结构）",
+      "content": "# 输出格式\n在正文里插入下面这个结构。<image> 块**写在它所描述的那段正文之后**。\n\n<image>\n<regex>从正文里原样复制的一句话</regex>\n<title_styled>5~15 字的中文标题</title_styled>\n<Tag_think>用两三句话概括这张画的画面：谁、在哪、在做什么、什么光线。只写看得见的东西。</Tag_think>\n<size>竖图</size>\n<prompts>这里写提示词</prompts>\n</image>\n\n**多个图片就写多个 <image> 块**，不需要外层再包 <images>。\n\n## <regex> 的硬性要求（最容易被写错）\n它是\"这张图插在哪\"的定位标记，插件拿它去正文里找位置。\n\n- **必须是正文里真实存在的一句话**，逐字复制，标点空格换行都不能改\n- **10~20 字为宜**，太长容易对不上；不确定就截更短\n- **禁止改写、概括、补字、拼接多段** —— 一字不差才算数\n- 优先选**最能代表这张画视觉内容**的那一句\n\n**对不上位置的后果**：这张图会掉到正文末尾。所以宁可截短、截准。",
+      "enabled": true
+    },
+    {
+      "comment": "03 提示词写法",
+      "content": "# prompts 的写法\n结构：**英文自然语言长句为主干 + 句尾核心 Tag 锚定**。\n\n1. **开头**（如果启用了人物库）：中文姓名 + 角色宏 + 服装宏，见下一条\n2. **主干**：一句主谓宾完整的英文长句，依次覆盖\n   镜头景别 → 场景与光影 → 角色站位与外貌 → 动作与物理交互\n   例：`A medium shot capturing the girl kneeling on the tatami by the window, warm afternoon light spilling across the floor as she reaches toward the paper crane on the desk`\n3. **句尾**：逗号分隔追加 3~8 个核心 Tag\n   例：`kneeling, upper body, kimono, warm light, indoors`\n\n**必须遵守**：\n- 全部英文，用英文逗号分隔，**禁止分号**\n- **只写画面里看得见的东西** —— 不写内心、回忆、比喻、计划、预告\n- 镜头和人物角度要写明（from front / from above / from behind / from side）\n- 画面看不到的部位不要写对应 Tag（背影就别写瞳色）\n- 不要写 quality 词（masterpiece / best quality）—— 插件会在负面词里排除它们",
+      "enabled": true
+    },
+    {
+      "comment": "04 人物库与服装库的调用",
+      "content": "# 调用人物库 / 服装库\n插件会把用户自己维护的**人物库**和**服装库**列在系统提示里。库里有对得上的角色/服装时，用宏调用；否则直接原创英文 Tag 描述。\n\n**宏必须成对闭合**：以 `${\"` 开头、以 `}$` 结尾，**结尾的 $ 千万不要漏**。\n\n## 人物\n`${\"name\":\"角色英文名\", \"angle\":\"视角\", \"upperBody\":\"状态\", \"lowerBody\":\"状态\"}$`\n\n- `angle`：`from front` / `from above` / `from below` / `from side` / `from behind`\n- `upperBody` / `lowerBody`：`sfw`（有衣物，含内衣）/ `nsfw`（裸露）/ `hidden`（不在画面里）\n\n## 服装\n`${\"name\":\"服装名\", \"upperBody\":\"visible\", \"lowerBody\":\"visible\"}$`\n\n- `visible` / `hidden`；全裸时不调用服装宏\n- 可以追加状态词：wet clothes / torn clothes / dirty\n\n## 优先级\n1. 人物库里对得上的角色（把握 ≥ 70%）\n2. 服装，按正文写到的程度分三档：\n   - **正文写了具体样子**（颜色、款式）：照着写，库里有对得上的就用库里的名字，对不上就在人物宏里写 `\"outfit\":\"英文描述\"`。\n   - **正文只说了类别**（\"换了睡衣\"\"披上外套出门\"）：从该人物的服装库里挑**名字最符合这个类别**的一套，写它的名字；库里没有合适的，就写一句简短的英文描述（如 `\"outfit\":\"simple light pajamas\"`）。\n   - **正文没写衣服**：不调用服装宏，也不在主干句里描述库中人物的衣服，插件会按「当前穿着」记录或常穿服装自动补上。\n3. **把握不足就直接原创英文 Tag 白描** —— 不要硬套，也不要瞎编名字\n\n**原创角色**（库里没有的）：每一张图都要完整描述一遍外貌，不要因为上一张写过就省略。",
+      "enabled": true
+    },
+    {
+      "comment": "05 画面边界",
+      "content": "# 画面边界\n单张图 = **同一时刻的一个静态瞬间**，像按快门那样。\n\n- 不要写\"从 A 到 B\"的过程（要写这个瞬间在哪）\n- 不要同时描述互相遮挡的部位\n- 构图变了就换一套 Tag：\n  - 全身 → 只拍下半身：**去掉** expression / eye color 这类上半身 Tag\n  - 正面 → 背对：**去掉** eye color，**换成** from behind\n  - 蒙眼 / 遮脸：**去掉** eye color，**加上** blindfold / face covered\n- 抽象概念要拆成画得出来的 Tag：`月下` → `moonlight, night`\n- \"不出现某物\"用 no + Tag：`no bra` / `no panties`\n\n**写不出具体画面的词一律不写。** 每条 Tag 都要对应画面上真实存在的东西。",
+      "enabled": true
+    },
+    {
+      "comment": "06 常用 Tag 参考",
+      "content": "# 常用 Tag 参考（够用就好，不必全用）\n\n**景别**：close-up / upper body / lower body / cowboy shot / full body / from afar / portrait\n**角度**：from front / from above / from below / from side / from behind / dutch angle / pov\n**构图**：centered / off-center / looking at viewer / looking away / looking down / looking up\n**光线**：sunlight / backlighting / warm light / neon light / candlelight / moonlight / rim light\n**时间**：morning / noon / afternoon / dusk / golden hour / night\n**地点**：bedroom / bathroom / kitchen / classroom / office / street / beach / forest / shrine / indoors / outdoors\n**姿势**：standing / sitting / kneeling / lying / on back / on stomach / crouching / leaning / walking\n**手臂**：arms behind back / arms crossed / hands on hips / hand on own chest / raised hand\n**衣物状态**：dress lift / clothes pull / off shoulder / unbuttoned / open shirt / wet clothes / torn clothes / undressing\n**表情**：smile / grin / blush / serious / surprised / closed eyes / open mouth / parted lips\n**头发**：long hair / short hair / ponytail / twin tails / bun / braid / messy hair / wet hair\n**体型**：slim / petite / curvy / tall / muscular / young woman\n**胸部**：flat chest / small breasts / medium breasts / large breasts\n**交互**：holding hands / hugging / hand on another's cheek / carrying / piggyback / kissing",
+      "enabled": true
+    },
+    {
+      "comment": "07 完整示例",
+      "content": "# 完整示例\n\n（假设这是正文）\n> 小雨把手里的灯笼放在石阶上，蹲下来仔细看那枚嵌在泥里的铜钱。雨水顺着斗笠边缘滴落，她的指尖刚碰到铜钱，身后的竹林里忽然传来一声轻响。\n\n**配图应该这样写**：\n\n<image>\n<regex>小雨把手里的灯笼放在石阶上</regex>\n<title_styled>雨夜拾钱</title_styled>\n<Tag_think>雨夜的破旧石阶前，少女蹲着把灯笼放在地上，伸手去够泥里的铜钱，斗笠边缘在滴水，竹林在背后。</Tag_think>\n<size>竖图</size>\n<prompts>小雨, ${\"name\":\"xiao yu\", \"angle\":\"from front\", \"upperBody\":\"sfw\", \"lowerBody\":\"sfw\"}$, ${\"name\":\"湿透的灰色短打\", \"upperBody\":\"visible\", \"lowerBody\":\"visible\"}$, A medium close-up of the girl crouching on wet stone steps, setting down a paper lantern with one hand while reaching toward a coin half-buried in the mud, rain dripping from the edge of her bamboo hat, bamboo grove looming behind her in the dark, upper body, crouching, reaching out, bamboo hat, wet clothes, night, rain, backlighting</prompts>\n</image>\n\n**注意几件事**：\n- `<regex>` 是**原样从正文复制**的一句话（一字不差）\n- 提示词里写了**镜头、地点、光线、动作、衣物状态**\n- 角色宏和服装宏都**成对闭合**\n- 句尾追加了景别（upper body）、姿势（crouching）、状态（wet clothes）、时间（night）、天气（rain）",
+      "enabled": true
+    },
+    {
+      "comment": "08 常见错误",
+      "content": "# 常见错误（检查清单）\n\n写完之后对照检查：\n\n- [ ] 每个 <image> 块里都有 **<regex>**，而且是正文里**逐字存在**的一句话\n- [ ] 每个 <image> 块里都有 **<prompts>**（没有的话这张图会被插件丢弃）\n- [ ] 角色宏、服装宏的**结尾 $ 都在**（`${\"...\"}$` 成对）\n- [ ] 提示词**全是英文 Tag**，没有中文（角色中文名只出现在开头那一次）\n- [ ] 没有写内心活动、回忆、比喻、将来会发生的事\n- [ ] 没有写 quality 词（masterpiece / best quality / absurdres）\n- [ ] 画面里看不到的部位，没有对应的 Tag\n- [ ] 图片**分散**在正文里，不是全堆在结尾\n\n**最常犯的两个错**：\n1. **宏漏了结尾 $** —— 写完立刻回头数一遍\n2. **<regex> 改写了原文** —— 必须 Ctrl+F 能搜到",
+      "enabled": true
+    },
+    {
+      "comment": "09 多人画面与人物称呼",
+      "enabled": true,
+      "content": "# 多人画面与人物称呼\n画面里有两个及以上的人时：\n\n- **每个入画人物都要单独写出能和别人区分的外貌**：发色发型、衣服、体型，至少写两项。\n  - 人物库里没有的人，每一张图都要完整写一遍，例如 `a tall man with short black hair in a dark grey T-shirt`。\n  - 不要让两个人只靠 \"the man\" / \"she\" 区分，模型会把一个人的特征套到另一个人身上。\n- **写清楚谁在做什么**：分别用 `the woman` / `the man`（或各自的外貌）做主语，不要只写 `they` / `the two of them`。\n- **句尾 Tag 写明人数**：`1girl, 1boy, couple` / `2girls` / `solo`。\n- **成年角色不用 girl 称呼**：主干句里写 `woman` / `young woman`，不写 `girl`（句尾的人数 Tag `1girl` 除外）。\n- **衣服**：宏里没写 outfit 时，插件会自动用该人物的「当前穿着」记录（见可用角色列表）。这张图里穿的和记录不同（例如换衣服之前的瞬间），就在宏里写 `\"outfit\":\"英文描述\"` 覆盖；正文写到新的穿着时，记得在角色更新里记录 current.outfit。人物库里没有的人，每张图都要写清楚他/她穿什么。\n- **库中人物每次出镜都要调用他/她的人物宏**，哪怕画面里只露出手、头发或背影；否则插件不知道画的是谁，外貌和衣服都不会补上。\n- 服装库里的衣服只属于它所在的人物，**不要把一个人的衣服描述写到另一个人身上**。"
+    },
+    {
+      "comment": "10 同一角色的多个形态",
+      "enabled": true,
+      "content": "# 同一角色的多个形态\n人物库里同一个角色可能有多个形态条目（名字带后缀，例如「阿梅」和「阿梅（狐形）」），各自的外貌不同。\n\n- **按画面这一刻的样子选条目**，宏里写这个形态自己的英文名：\n  - 露出狐耳、狐尾时：`${\"name\":\"A Mei fox form\", ...}$`\n  - 人类模样时：`${\"name\":\"A Mei human form\", ...}$`\n- 正在变化的瞬间，按变化**之后**更接近的那个形态选，并在主干句里写清楚正在发生的变化。\n- 服装照常写在同一个宏里：`${\"name\":\"A Mei fox form\", \"outfit\":\"外出便装\", ...}$`，形态变了衣服不变。\n- 不要只写不带形态的短名字（如 `A Mei`）。"
+    },
+    {
+      "comment": "11 分角色提示词（NovelAI）",
+      "enabled": true,
+      "content": "# 分角色提示词（NovelAI）\n当前渠道是 NovelAI，支持每个角色单独一段提示词（char captions）。本渠道下**覆盖第 02、03 条的主干句写法和固定输出协议里的 `<prompts>完整画面提示词</prompts>`**：`<image>`、`<regex>`、`<title_styled>`、`<size>` 照旧，`<prompts>` 里面改成下面的结构。\n\n<prompts>\n<scene_composition>1girl, 1boy, indoors, café, warm light, upper body, from front</scene_composition>\n<character_1>\n<prompt>${\"name\":\"xiao yu\",\"angle\":\"from front\",\"upperBody\":\"sfw\",\"lowerBody\":\"sfw\"}$, 当前动作, 当前表情</prompt>\n<centers>C3</centers>\n<uc>background characters, fused bodies</uc>\n</character_1>\n<character_2>\n<prompt>${\"name\":\"alan\",\"angle\":\"from front\",\"upperBody\":\"sfw\",\"lowerBody\":\"sfw\"}$, 当前动作, 当前表情</prompt>\n<centers>D4</centers>\n<uc>background characters, fused bodies</uc>\n</character_2>\n</prompts>\n\n## 场景（scene_composition）\n整块 15~20 个 Tag（最多 20）；按 通用/主体 5~10%、背景 10~20%、构图 10~20% 取词。\n只写：场景类型（sfw / nsfw）、背景地点与环境细节、时间天气、光源与光影方向、构图（景别 / 视角 / 焦点 / 景深）、人数与性别 Tag（`1girl` / `1boy` / `2girls` / `solo` / `no humans`）。\n**不写任何人物的外貌、服装、动作、表情** —— 那些属于各自的角色块。\n\n## 角色块（character_N）\n- 画面里每个清晰入镜的人写一个 `<character_N>`，`N` 从 1 连续，按“主角 → 配角”排序；一个角色只占一个块，严禁把两个人合并进同一个块。\n- `<prompt>` 里写这个角色自己的全部可见信息：人物宏、服装宏或 `\"outfit\"` 字段、当前动作、当前表情、与别人的互动。\n  - 库中角色必须调用人物宏：`${\"name\":\"英文名\",\"angle\":\"from front\",\"upperBody\":\"sfw\",\"lowerBody\":\"sfw\"}$`；库外角色直接英文白描。\n  - 服装照第 04 条：能对上服装库就写服装宏 `${\"name\":\"服装名\",\"upperBody\":\"visible\",\"lowerBody\":\"visible\"}$`，否则在人物宏里写 `\"outfit\":\"英文描述\"`。\n  - 每个角色块控制在 15~20 个 Tag（最多 20），所有角色块合计占全图 50~70%；不足时补背景细节、光影、微表情、生理反应、特效。\n- 多人互动必须写清发起方 / 承受方：发起方 `source#动作`，承受方 `target#动作`，互相动作用 `mutual#动作`（例如 `source#kissing` / `target#kissing`），避免动作画到错的人身上。\n\n## 坐标（centers）\n把画面分成 5×5 网格：列 `A`–`E` 左→右，行 `1`–`5` 上→下，`C3` 是正中。\n- 每个角色最多一个坐标；角色位置可以重叠（拥抱、亲吻时）。\n- 要么每个角色都写，要么都不写：只要有一个角色没写，插件整张不用坐标，交给 NovelAI 自动排布。\n- 构图没把握就省略，不要瞎写。\n\n## 角色负面（uc）\n`<uc>` 只作用于这个角色，不会压掉别人：\n- 每个角色都建议带 `background characters`；画面里有两个及以上角色时再加 `fused bodies`。\n- 按构图排除看不见的东西：只有下半身 → 排除上半身 Tag；背影 → 排除眼睛、表情；蒙眼 → 排除 `eye color`。\n- 按这一格的动作/表情互相排除：A 微笑、B 哭泣 → A 的 `<uc>` 写 `crying`。\n\n## 其他\n- 纯场景、没有人物的图只写 `<scene_composition>`，不要硬加角色块。\n- 所有标签必须成对闭合；Tag 里不要出现 `<` 或 `>`。\n- 本规则只用于 NovelAI 渠道；其它渠道仍按第 02、03 条写一条 prompts。",
+      "backends": [
+        "novelai"
+      ],
+      "activation": "always"
+    }
+  ]
+}

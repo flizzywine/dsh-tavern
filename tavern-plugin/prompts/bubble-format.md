@@ -1,0 +1,1 @@
+- Spoken line: `@bubble:handle|name|variant|[text]`, e.g. `@bubble:lin_yue|林月|喜悦|[你好。]`.

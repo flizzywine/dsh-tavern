@@ -1,0 +1,17 @@
+#!/bin/sh
+
+# Compatibility entry point for installations created before cross-platform support.
+set -eu
+
+SCRIPT_PATH=$0
+while [ -L "${SCRIPT_PATH}" ]; do
+  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${SCRIPT_PATH}")" && pwd)
+  SCRIPT_LINK=$(readlink "${SCRIPT_PATH}")
+  case "${SCRIPT_LINK}" in
+    /*) SCRIPT_PATH=${SCRIPT_LINK} ;;
+    *) SCRIPT_PATH=${SCRIPT_DIR}/${SCRIPT_LINK} ;;
+  esac
+done
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${SCRIPT_PATH}")" && pwd)
+
+exec node "${SCRIPT_DIR}/dsh-tavern.mjs" "$@"
