@@ -45,6 +45,26 @@ test('display round order follows assistant floors without rewriting sparse stab
   assert.deepEqual(messages.filter(message => message.role === 'assistant').map(message => message.turn), view.displayRoundOrder)
 })
 
+test('story projection never reads native evidence, surface, events or running agents', async () => {
+  const forbidden = () => { throw new Error('故事投影不应访问 native session') }
+  const f = projectionFixture({
+    sessionDebugEvidence: forbidden,
+    sessionStore: { get: forbidden },
+    agentRegistry: { get: forbidden }
+  })
+  const transcript = { source: 'story', revision: 4, from: 0, to: 1, messageCount: 2, floorCount: 1, floorOffset: 0, messages: [] }
+  const view = await f.projection.project.story({
+    chat: { ...f.chat, messages: [{ role: 'user', text: '输入' }, { role: 'assistant', text: '无原生编号正文' }] },
+    revision: 4, from: 0, to: 1, messageCount: 2, storyTranscript: transcript
+  })
+  assert.equal(view.storyTranscript, transcript)
+  assert.deepEqual(view.forkTurnsByMessageId, {})
+  assert.deepEqual(view.editableUserInputTurns, [])
+  assert.deepEqual(view.failedUserInputTurns, [])
+  assert.equal(view.transcriptTurns, undefined)
+  assert.equal(view.replacingDshTurns, undefined)
+})
+
 test('header-only player name changes refresh the view and helper across repeated writes and cached reads', async () => {
   const f = projectionFixture()
   let chat = { ...f.chat, macroState: { userName: '你' } }

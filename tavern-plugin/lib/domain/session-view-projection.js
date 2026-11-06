@@ -99,12 +99,13 @@ export function createSessionViewProjection({
       replyDisplay = await replyDisplayForChat(chat,card,persistedProjection,cardExtensions)
     }
     const activity = activityOf(chat)
-    const { debugTurns, latestAssistantTurn: latestStoryTurn, latestAssistantMessageId, displayRoundOrder } = latestTurnFields(chat)
-    const forkTurnsByMessageId = forkTurnsForChat(chat)
+    const storyTranscriptRead = options.storyTranscript === true
+    const { debugTurns, latestAssistantTurn: latestStoryTurn, latestAssistantMessageId, displayRoundOrder } = latestTurnFields(chat, !storyTranscriptRead)
+    const forkTurnsByMessageId = storyTranscriptRead ? {} : forkTurnsForChat(chat)
     const {inputSources,inputTemplateDisplays}=inputFieldsProjection.project(persistedProjection ? chat : {...chat,_storageRevision:undefined}, options.inputChanges)
     const cardUpdate = ['story', 'script'].includes(chat.mode || 'story') && chat.requestMode !== 'sillytavern'
       ? await cardUpdateStatus(chat, { card, fresh: options.freshSnapshot === true, busy: activity.busy || ['pending', 'running', 'waiting-runtime'].includes(chat.settleStatus)
-        || agentRegistry.get(chat.sessionId)?.phase?.kind === 'running', settings: runtimeSettings })
+        || (!storyTranscriptRead && agentRegistry.get(chat.sessionId)?.phase?.kind === 'running'), settings: runtimeSettings })
       : { available: false }
     // Card Stage reads the live card so stage edits show without a card update.
     const cardStage = ['story', 'script'].includes(chat.mode || 'story') && str(chat.cardPath) !== ''
@@ -145,9 +146,12 @@ export function createSessionViewProjection({
     const helperContext = helperEnabled
       ? await requestPerformance.stage('helperMessagesProjection', () => projectTavernHelperContext(chat, { skeletonUntil, indexed:true }))
       : null
-    const rollbackEvidence = sessionDebugEvidence(chat.sessionId, true)
-    const rollbackFields = rollbackViewFields(chat, rollbackEvidence, options.inputChanges)
-    const transcriptPlan = await requestPerformance.stage('transcriptRowPlan', async () => transcriptPlanFields(chat, rollbackEvidence, rollbackFields.replacingDshTurns, rollbackFields.keptInputTurns))
+    // Story history has its own read path. It must stay renderable while the native
+    // session is cold and must never fold the native event log just to choose rows.
+    const storyTranscript = options.storyTranscript === true
+    const rollbackEvidence = storyTranscript ? null : sessionDebugEvidence(chat.sessionId, true)
+    const rollbackFields = storyTranscript ? {} : rollbackViewFields(chat, rollbackEvidence, options.inputChanges)
+    const transcriptPlan = storyTranscript ? {} : await requestPerformance.stage('transcriptRowPlan', async () => transcriptPlanFields(chat, rollbackEvidence, rollbackFields.replacingDshTurns, rollbackFields.keptInputTurns))
     return {
       chatId: chat.id,
       
@@ -189,9 +193,9 @@ export function createSessionViewProjection({
       inputSources,
       inputTemplateDisplays,
       userInputEdits: userInputEditsOf(chat),
-      editableUserInputTurns: editableUserInputTurnsForChat(chat),
+      editableUserInputTurns: storyTranscriptRead ? [] : editableUserInputTurnsForChat(chat),
       latestCommittedUserTurn: latestCommittedUserTurnForChat(chat),
-      failedUserInputTurns: failedUserInputTurnsForChat(chat),
+      failedUserInputTurns: storyTranscriptRead ? [] : failedUserInputTurnsForChat(chat),
       ...rollbackFields,
       ...transcriptPlan,
       presentation: null,
@@ -233,7 +237,7 @@ export function createSessionViewProjection({
   }
   // Derived from the newest messages; every projection (full or incremental) recomputes them,
   // so plugin actions never target a turn from an earlier view.
-  function latestTurnFields(chat) {
+  function latestTurnFields(chat, includeNative = true) {
     const messages = Array.isArray(chat.messages) ? chat.messages : []
     const displayRoundOrder = []
     for (const message of messages) {
@@ -251,8 +255,8 @@ export function createSessionViewProjection({
       debugTurns.push({ turn, preview: source.slice(0, 90), chars: source.length })
     }
     const latestAssistantTurn = Number(debugTurns[0]?.turn) || 0
-    const liveSession = sessionStore.get(str(chat.sessionId)) || agentRegistry.get(str(chat.sessionId))?.session
-    const latestAssistant = latestAssistantTurn > 0 ? assistantResultForTurn(liveSession, latestAssistantTurn) : null
+    const liveSession = includeNative ? sessionStore.get(str(chat.sessionId)) || agentRegistry.get(str(chat.sessionId))?.session : null
+    const latestAssistant = includeNative && latestAssistantTurn > 0 ? assistantResultForTurn(liveSession, latestAssistantTurn) : null
     return { debugTurns, latestAssistantTurn, latestAssistantMessageId: str(latestAssistant?.event?.data?.message?.id), displayRoundOrder }
   }
   function replyProjectionsOf(chat) {
@@ -523,8 +527,9 @@ export function createSessionViewProjection({
     // The undo point still compares against the window's real revision.
     const chat={...window.chat,_storageRevision:undefined,windowRevision:window.revision}
     const card=await readChatCard(chat)
-    const result=await view(chat,card,false,{openingWindow:true,deferResources:options.deferResources,resourceRevision:window.revision})
+    const result=await view(chat,card,false,{openingWindow:true,storyTranscript:options.storyTranscript===true,deferResources:options.deferResources,resourceRevision:window.revision})
     result.historyWindow={onDemand:true,from:window.from,to:window.to,messageCount:window.messageCount,revision:window.revision}
+    if (window.storyTranscript) result.storyTranscript=window.storyTranscript
     if(result.tavernHelper){
       const helper=result.tavernHelper
       // Transport only loaded rows; the client adapts absolute ids at the
@@ -538,5 +543,6 @@ export function createSessionViewProjection({
   }
 
   return Object.freeze({ view, replyDisplay: replyDisplayForChat, status: chat => sessionStateView.status(chat), stats: () => incrementalReplyView.stats(),
-    project: Object.freeze({ full: projectFullSessionView, cached: projectCachedSessionView, dirty: projectDirtySessionView, opening: projectOpeningWindow }) })
+    project: Object.freeze({ full: projectFullSessionView, cached: projectCachedSessionView, dirty: projectDirtySessionView, opening: projectOpeningWindow,
+      story: (window, options = {}) => projectOpeningWindow(window, { ...options, storyTranscript: true }) }) })
 }

@@ -29,7 +29,7 @@ function canProjectDirty(previous, chat, indices, changedHeaderFields) {
 /** Own snapshot selection, projection cache and transport revision pairing.
  * Projections consume detached inputs; callers never receive a partial Chat.
  */
-export function createSessionViewReader({ readState, readChat, readChanges, readViewDelta, readOpeningWindow, project, activity,
+export function createSessionViewReader({ readState, readChat, readChanges, readViewDelta, readOpeningWindow, readStoryWindow, project, activity,
   trace, foregroundRunning, synchronize, resourceVersion = async () => '' }) {
   const cache = new Map()
   const helperWindows = new Map()
@@ -116,6 +116,16 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
       if (args.helperWorldbookSync !== 1 || !view?.tavernHelper || !Object.hasOwn(view.tavernHelper, 'worldbook')) return view
       const { tavernHelperWorldbook: _alias, ...result } = view
       return result
+    }
+    // Story history has no native-session or complete-view dependency. It is a
+    // read-only transport and never participates in native view cursors.
+    if (args.storyTranscript === 1 && readStoryWindow && project.story) {
+      const window = await trace.stage('readStoryWindow', () => readStoryWindow(sessionId, args.historyFrom))
+      if (!window) return { view: null, storyTranscript: null, revision: 0 }
+      const view = await trace.stage('projectStoryWindow', () => project.story(window, {deferResources:args.resourceSync === 1}))
+      trace.state({viewRebuild:'story',helperMessageCount:window.chat.messages.length})
+      const {storyTranscript:_embedded,...storyView}=view
+      return {view:transportView(storyView),storyTranscript:window.storyTranscript,revision:window.revision}
     }
     // Bounded views have their own contract and never enter the complete view
     // cache. Explicit full reads retain the existing compatibility path.

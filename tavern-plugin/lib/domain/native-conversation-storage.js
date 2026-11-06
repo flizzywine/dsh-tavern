@@ -210,8 +210,8 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  }
  // Floor summaries (role, turn, greeting, MVU flags) of the latest `count` floors, from
  // the page entries' inline summaries: never the bodies, never the whole history.
- async function readRecentSummaries(id,count){
-  const view=await head(id)
+ async function readRecentSummaries(id,count,options={}){
+  const view=await headAtRevision(id,options.revision??Infinity)
   if(!view)return null
   const start=Math.max(0,view.messageCount-Math.max(0,Number(count)||0)),messages=new Array(view.messageCount-start),t=tree(id)
   let cursor=view.snapshotCursor
@@ -223,7 +223,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    }
    cursor=page.previousCursor
   }
-  return {messageCount:view.messageCount,from:start,messages}
+  return {messageCount:view.messageCount,from:start,messages,revision:view.state.chatRevision}
  }
  async function readSlice(id,indices=[],fields,pinned){
   const view=pinned||await head(id)

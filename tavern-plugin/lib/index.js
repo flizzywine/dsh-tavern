@@ -71,6 +71,7 @@ import { createTaskStateReader, taskStateFields } from './domain/task-state-read
 import { installHostProjectionReplay } from './domain/host-projection-replay.js'
 import { installHostTurnRailFilter } from './domain/host-turn-rail.js'
 import { createBoundedHistory, readRecentWindow, readRowsAt, storyContextMessageFields } from './domain/bounded-history.js'
+import { createStoryTranscriptReader } from './domain/story-transcript-reader.js'
 import { createHelperHistoryAccess } from './domain/helper-history-access.js'
 import { isScopedMessages } from './domain/scoped-messages.js'
 import {registerVariableReadTool} from './domain/read-variables.js'
@@ -2024,6 +2025,14 @@ export async function apply(ctx) {
       || window.chat.messages.some(message=>message.role==='assistant' && !Number.isSafeInteger(message.turn))) return null
     return window
   }
+  const readStoryTranscriptWindow = createStoryTranscriptReader({
+    readSessionMap,
+    readWindow: chatPersistence.readWindow,
+    readRecentSummaries: chatPersistence.readRecentSummaries,
+    readChat,
+    messageFields: sessionViewMessageFields,
+    limit: HELPER_MESSAGE_COLD_WINDOW
+  })
   // Results of story operations: the same bounded window the browser keeps in
   // sync, never a complete-history view. Short and old saves keep view().
   async function presentStory(chat) {
@@ -2036,6 +2045,7 @@ export async function apply(ctx) {
   }
   const sessionViews = createSessionViewReader({
     readState: sessionStateForSession, readChat: chatForSession, readOpeningWindow,
+    readStoryWindow: readStoryTranscriptWindow,
     resourceVersion: async chat => {
       if (!chat.cardPath || chat.mode === 'card') return ''
       const binding = await fileResources.worldBookBindingForCard(chat.cardPath)

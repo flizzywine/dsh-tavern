@@ -324,7 +324,7 @@ export function createChatJournalStore(options = {}) {
   }
   // Native-only opt-in. Null keeps legacy readers on their complete contract.
   async function readWindow(chatId,options) { return native.readWindow(chatId,options) }
-  async function readRecentSummaries(chatId,count) { return native.readRecentSummaries(chatId,count) }
+  async function readRecentSummaries(chatId,count,options) { return native.readRecentSummaries(chatId,count,options) }
   async function readHelperContext(chatId, range) {
     const selected = await native.readHelperContext(chatId, range)
     if (selected !== null) return selected

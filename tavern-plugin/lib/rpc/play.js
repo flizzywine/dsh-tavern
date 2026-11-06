@@ -49,6 +49,9 @@ export function createPlayHandlers(deps) {
       else if(Number.isSafeInteger(args?.historyFrom) && args.historyFrom >= 0)templateHistoryFrom.set(args.sessionId,args.historyFrom)
       return sessionViews.response(args || {})
     },
+    async getStoryTranscript(args) {
+      return sessionViews.response({ ...(args || {}), storyTranscript: 1 })
+    },
     async designCharacter(args) {
       return await manualCharacterDesign.start(args || {})
     },
