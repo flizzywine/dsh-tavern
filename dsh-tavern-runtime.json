@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "18cdf3d8f89ee4e3191b320317814c23df961a65",
-  "releaseSequence": 1330,
+  "revision": "9048b95e1e8ae491683d374e17140bb5e6f85174",
+  "releaseSequence": 1331,
   "version": "3.2.0",
   "files": [
     {
@@ -7146,7 +7146,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-profile-bridge/package.json",
-      "sha256": "f2bda7efa03239f5710c3890045ab4a95b350b4d656eac8d857d4ab3fc4ee2ca",
+      "sha256": "add8003d02c055322e81325d005792ccf8f1b38b6712c2effdc6b7d1cc031212",
       "size": 1362
     },
     {
@@ -9871,9 +9871,9 @@
     }
   ],
   "archive": {
-    "commit": "66074d85450715286957c277c1562437421e61fb",
+    "commit": "27b1d3927065d0ba4b188f972803a0059fdd5fda",
     "path": "runtime.zip",
-    "sha256": "5ae44996a9f4025e114231a714883442d32b084a7f268dffcb3f9305132a72b8",
+    "sha256": "83dfb8478e07a2e9b0c7436e4a542c92c86f33741129d579f148fc3e1e04c4ec",
     "size": 16418667
   }
 }
