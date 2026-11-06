@@ -1,5 +1,6 @@
 import { createImmutableTurnFields } from './freeze-json.js'
 import { createMvuReceiptIndex } from './mvu-receipt-index.js'
+import { openingMvuStatus } from './opening-mvu-status.js'
 import { copyJsonTree } from './copy-json-tree.js'
 import { copyLazyHistoryHeader } from './lazy-history-read.js'
 import { rollbackAvailability, hasRollbackMessages, failedTurnReplayAvailability, foregroundSuppressedTurns, supersededRegenerationErrorTurns, supersededRegenerationTurns, projectedReplyTurns, regenerationInputTurns, keptPlayerInputTurns } from './rollback-surface.js'
@@ -31,7 +32,7 @@ export function projectChatSessionState(chat, options = {}) {
   for (const key of ['id', 'sessionId', '_storageRevision', 'mode', 'cardPath', 'cardContextRevision',
     'backgroundConfigVersion', 'conversationFeaturesVersion', 'disabledWritingSkills', 'contextCompaction', 'updatedAt', 'timeline', 'candidateAgent',
     'cardName', 'requestMode', 'statusBarPlacement', 'statusSections', 'webSearchEnabled', 'candidates', 'taskMailbox', 'regenInProgress',
-    'settleError', 'scriptState', 'hiddenDshErrorTurns', 'suppressedDshTurns', 'replacingDshTurns', 'regeneratedDshTurns', 'userInputEdits', 'tavernHelperLifecycleRevision']) {
+    'settleError', 'scriptState', 'hiddenDshErrorTurns', 'suppressedDshTurns', 'replacingDshTurns', 'regeneratedDshTurns', 'userInputEdits', 'tavernHelperLifecycleRevision', 'mvu']) {
     if (Object.hasOwn(chat, key)) selected[key] = chat[key]
   }
   if (chat.importHistory) selected.importHistory = {
@@ -250,6 +251,7 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       updatedAt: chat.updatedAt || 0,
       // Compaction writes only this header field; cached views must not keep a stale notice.
       contextCompaction: chat.contextCompaction || null,
+      openingInitialization: openingMvuStatus(chat),
       mvuReceipts: mvuReceiptsOf(chat, changes)
     }
   }

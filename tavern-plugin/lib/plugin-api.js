@@ -1,4 +1,5 @@
 import { createHostBehaviorPolicies } from './domain/plugin-host-behavior.js'
+import { openingMvuStatus } from './domain/opening-mvu-status.js'
 import { MAX_PLUGIN_DATA } from './domain/plugin-data-store.js'
 import { isMvuUpdateEntry } from './domain/worldbook-recall.js'
 import { createHash } from 'node:crypto'
@@ -339,12 +340,14 @@ export function createTavernPluginApi(deps) {
   /** Where a game stands now: its latest written turn, and whether a reply or settlement is under way. */
   async function turnState(gameId) {
     const game = await requireGame(gameId)
-    const [latest, settled, activity] = await Promise.all([deps.readPendingTurn(game.sessionId), deps.readLatestSettledTurn(game.sessionId),
-      deps.readActivity ? deps.readActivity(game.sessionId) : null])
+    const [latest, settled, activity, opening] = await Promise.all([deps.readPendingTurn(game.sessionId), deps.readLatestSettledTurn(game.sessionId),
+      deps.readActivity ? deps.readActivity(game.sessionId) : null,
+      deps.readOpeningMvu ? deps.readOpeningMvu(game.sessionId) : null])
     const generating = activity?.generating === true, settling = activity?.settling === true
     return {
       gameId: game.sessionId, turn: latest?.turn ?? 0, textVersion: latest?.key ?? null, greeting: latest?.greeting === true,
       generating, settling, busy: generating || settling,
+      openingInitialization: opening ? openingMvuStatus(opening) : 'unknown',
       settled: !!latest && !!settled && settled.turn === latest.turn && settled.key === latest.key
     }
   }

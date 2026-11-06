@@ -2827,6 +2827,7 @@ export async function apply(ctx) {
       return { player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
         characters: await castView(sessionId, card.path, await castAssets.read(card.path)) }
     },
+    readOpeningMvu: sessionId => chatHeaderForSession(sessionId, ['mvu']),
     readActivity: async sessionId => {
       const chat = await taskStateReader.forSession(sessionId)
       const activity = chat ? backgroundTasks.activity(chat) : null

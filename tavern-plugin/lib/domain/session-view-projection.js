@@ -19,6 +19,7 @@ import { projectTavernHelperContext, HELPER_MESSAGE_COLD_WINDOW } from './tavern
 import { projectTavernHelperWorldbook } from './tavern-helper-worldbook.js'
 import { projectTavernHelperScripts, hasTavernScriptRuntime } from './tavern-helper-scripts.js'
 import { OFFICIAL_MVU_VERSION } from './official-mvu-assets.js'
+import { openingMvuStatus } from './opening-mvu-status.js'
 import { projectRuntimeReply } from './runtime-content-projection.js'
 import { userInputEditsOf } from './input-floor.js'
 import { inputEventForTurn, inputKind, isFailedTurnEnd, isNewTurnInput } from './session-turn-input.js'
@@ -201,6 +202,7 @@ export function createSessionViewProjection({
       cardStage,
       stage: {dialogue: stageMode.dialogue === true, stage: stageMode.stage === true},
       mvuReceipts: mvuReceiptsOf(chat),
+      openingInitialization: openingMvuStatus(chat),
       // Replies whose text is a 精修 (manual or automatic), by turn, for the small mark under them;
       // automatic ones (body.polish, they keep polishedFrom) are told apart in its title.
       polishedTurns: (Array.isArray(chat.messages) ? chat.messages : []).filter(message => message?.role === 'assistant' && (message.polished || message.polishedFrom)).map(message => Number(message.turn) || 0),

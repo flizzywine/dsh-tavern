@@ -240,10 +240,13 @@ async function settle({ currentVariables, signal }) {
   settling,      // 后台正在结算（或即将开始）
   busy,          // generating 或 settling
   settled,       // 最新一轮已写完、后台结算已结束
+  openingInitialization, // 'pending'、'complete'、'not-required' 或 'unknown'
 }
 ```
 
 回退、撤销回退、重新生成后读到的是回退后的当前状态。浏览器侧用 `tavernUi.getTurnState` / `watchTurnState`。
+
+`openingInitialization` 表示官方 MVU 开场初始化的持久化状态；`complete` 表示开场各版本已保存，`pending` 时修改消息变量会返回 `TAVERN_MVU_OPENING_PENDING`，请提示「正在准备旅程」并稍后重试。未启用 MVU 或由其他插件负责时为 `not-required`；旧存档缺少可靠标记时为 `unknown`。`settled` 和 `busy` 仍只描述正文与后台结算。旧宿主可能没有这个字段，调用方应兼容缺失值，不要无限等待。
 
 ## `getDefaultPlayerName()`、`getPlayerName({ gameId })`
 

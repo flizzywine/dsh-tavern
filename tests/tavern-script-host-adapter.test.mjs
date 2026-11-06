@@ -57,6 +57,41 @@ function harness(chatValue = chat(), overrides = {}) {
   return { adapter, chat: chatValue, writes, events, worldbook }
 }
 
+test('opening initialization cannot overwrite an earlier editor save', async () => {
+  const value = chat()
+  value.mvu = { enabled: true, owner: 'official', openingInitialization: { status: 'pending' } }
+  const h = harness(value)
+  await assert.rejects(h.adapter.updateVariables('session-1', { type: 'message', message_id: 0 }, { stat_data: { place: '冠军' } }, 2), { code: 'TAVERN_MVU_OPENING_PENDING' })
+  assert.equal(h.writes.length, 0)
+  const initialized = { stat_data: { place: '真新镇' }, schema: {} }
+  await h.adapter.updateMessages('session-1', [{ message_id: 0, swipes_data: [initialized, initialized] }], 2)
+  assert.equal(value.mvu.openingInitialization.status, 'complete')
+  await h.adapter.updateVariables('session-1', { type: 'message', message_id: 0 }, { ...initialized, stat_data: { place: '冠军' } }, 2)
+  assert.equal(value.messages[0].variables[0].stat_data.place, '冠军')
+})
+
+test('opening completion becomes visible only after its swipes are persisted', async t => {
+  const host = await createHelperChatDataHost()
+  t.after(host.cleanup)
+  await host.persistence.update('audit', chat => ({ ...chat, mvu: { enabled: true, owner: 'official', openingInitialization: { status: 'pending' } } }))
+  let release, entered
+  const gate = new Promise(resolve => { release = resolve })
+  const writing = new Promise(resolve => { entered = resolve })
+  const adapter = createTavernScriptHostAdapter({ resolveChat: () => host.persistence.read('audit'),
+    writeChat: async value => { entered(); await gate; return host.persistence.write(value) },
+    readCard: async () => ({}), worldBooks: {}, scriptDispatch: {} })
+  const before = await host.persistence.read('audit')
+  const swipes = before.messages[0].swipes || [before.messages[0].text]
+  const initial = { stat_data: { place: '真新镇' }, schema: {} }
+  const pending = adapter.updateMessages('audit', [{ message_id: 0, swipes_data: swipes.map(() => initial) }], 2)
+  await writing
+  assert.equal((await host.persistence.read('audit')).mvu.openingInitialization.status, 'pending')
+  release(); await pending
+  const after = await host.persistence.read('audit')
+  assert.equal(after.mvu.openingInitialization.status, 'complete')
+  assert.equal(after.messages[0].variables[0].stat_data.place, '真新镇')
+})
+
 for (const sliced of [false, true]) test(`chat player identity is persisted atomically with variables: sliced=${sliced}`, async t => {
   const host = await createHelperChatDataHost()
   t.after(host.cleanup)
