@@ -69,6 +69,13 @@ async function inspectProfile(dir) {
 export function apply(ctx) {
   const profile = ctx.profileContext
   const desktop = ctx.get('desktopProfiles')?.current
+  const tavernDir = join(profile.home, 'profiles', 'tavern')
+  const paths = {
+    appDir: join(tavernDir, 'node_modules', bundle),
+    profileDir: tavernDir,
+    dataDir: join(profile.home, 'profile-data', 'tavern'),
+    sharedHome: profile.home,
+  }
   let active
   let lastError
   let outcome
@@ -115,23 +122,23 @@ export function apply(ctx) {
       const launcher = await missingAllowed(() => readJson(join(desktopDir, 'node_modules', 'dsh-tavern-launcher', 'package.json')))
       const tavern = await missingAllowed(() => readJson(join(profile.dir, 'node_modules', bundle, 'package.json')))
       const selection = await missingAllowed(() => readJson(join(profile.home, 'desktop-next.json')))
-      return { state: 'current', version: tavern?.version, selectedProfile: selection?.active, canHandoff: launcher?.dshTavern?.profileHandoff === true &&
+      return { state: 'current', paths, version: tavern?.version, selectedProfile: selection?.active, canHandoff: launcher?.dshTavern?.profileHandoff === true &&
         desktopManifest?.dsh?.profile?.bundles?.includes('dsh-tavern-launcher') === true }
     }
     if (!profile.packageManager) return { state: 'unsupported' }
     const dir = join(await realpath(join(profile.home, 'profiles')), 'tavern')
     if (!relative(await realpath(profile.dir), dir)) return { state: 'current' }
-    if (active) return { state: active.action === 'update' ? 'updating' : 'installing' }
+    if (active) return { state: active.action === 'update' ? 'updating' : 'installing', profile: profile.name, paths }
     if (endpoint === 'status') {
       const status = await inspectProfile(dir)
-      return { ...status, profile: profile.name, error: lastError, outcome: status.state === 'installed' ? outcome : undefined }
+      return { ...status, profile: profile.name, paths, error: lastError, outcome: status.state === 'installed' ? outcome : undefined }
     }
 
     lastError = undefined
     outcome = undefined
     active = { action: endpoint, controller: new AbortController() }
     void install(dir, endpoint, active.controller.signal)
-    return { state: endpoint === 'update' ? 'updating' : 'installing' }
+    return { state: endpoint === 'update' ? 'updating' : 'installing', profile: profile.name, paths }
   }
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
