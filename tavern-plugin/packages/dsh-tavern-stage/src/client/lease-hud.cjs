@@ -19,14 +19,16 @@ function Avatar({name, size}) {
         h(PackImage, {identity: face.identity, src: face.src, crop: face.crop, avatar: face.avatar, className: 'fork-gal-lease-avatar-img', alt: ''}));
     return h('span', {className: 'fork-gal-lease-avatar is-glyph', style, 'aria-hidden': true}, placeholderFace({}, name)?.glyph || '');
 }
-function StageLeaseHud({lease, rows, device, read}) {
+// displayed: null or {lineId, speaker: string|null}, the text box's visible line (including backward navigation).
+// read remains the monotonic read high-water mark for pacing; it is not the visible speaker.
+function StageLeaseHud({lease, rows, device, read, displayed}) {
     const h = React.createElement;
     const map = React.useMemo(() => new Map((rows || []).filter(row => row.face).map(row => [row.name, row.face])), [rows]);
     if (!lease?.hud) return null;
     return h('div', {className: 'fork-gal-lease-hud', 'data-device': device},
         h(faces().Provider, {value: map},
             h(Boundary, {key: lease.owner, owner: lease.owner, fallback: h('p', {className: 'fork-gal-lease-hud-error', role: 'status'}, '玩法面板出错了，舞台仍可继续')},
-                h(lease.hud, {...lease.props, read, device, Avatar}))));
+                h(lease.hud, {...lease.props, read, displayed, device, Avatar}))));
 }
 return {StageLeaseHud, Avatar};
 }

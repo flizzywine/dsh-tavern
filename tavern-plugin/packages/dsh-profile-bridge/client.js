@@ -1,12 +1,12 @@
 /**
- * dsh-profile-bridge — browser half.
+ * Tavern launcher — browser half.
  *
  * Adds one settings page that shows which profile this Harness is running, which
  * other profiles exist, and switches the app's profile directory to the one you
  * pick (or reverts that switch). All file work happens in the Host half.
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-profile-bridge',
+  id: 'dsh-tavern-launcher',
   factory(require) {
     const React = require('react')
     const h = React.createElement
@@ -40,9 +40,41 @@ window.__ModuleLoader__.load({
       operationPending: "操作已排队，等待桌面退出；请勿重复提交。",
       lastOperationFailure: "上次操作失败",
       operationDone: "上次操作已完成。",
-      sectionTavern: '原版DSH',
-      sectionOriginal: 'DSH酒馆',
-      explain: 'DSH 酒馆和原版 DSH 是同一个应用里的两套环境，切换时应用会重启一次，对话和设置都会保留。',
+      updates: '酒馆版本与更新',
+      installedBuild: '当前安装',
+      latestBuild: '最新发布',
+      unknownBuild: '构建未知',
+      unchecked: '尚未检查',
+      checkUpdate: '检查更新',
+      checkingUpdate: '正在检查更新…',
+      updateAvailable: '发现新版本',
+      upToDate: '已是最新版本',
+      updateTavern: '更新酒馆',
+      repairTavern: '修复安装',
+      switchToUpdate: '请先切换到 DSH 酒馆，再在启动器中更新。',
+      updating: '正在更新酒馆…',
+      cancelUpdate: '取消更新',
+      cancellingUpdate: '正在取消更新…',
+      updateBlocked: '正在等待安装进程安全停止。',
+      updateFailed: '更新失败，请重试。',
+      updateComplete: '酒馆已更新。',
+      updateRestart: '更新已安装。请退出并重新打开 DeepSeek Harness 以应用更新。',
+      updateRestartWindow: '更新已安装。请重启酒馆服务后重新打开酒馆。',
+      section: '酒馆启动器',
+      install: '安装酒馆',
+      confirmInstall: '确认安装',
+      replacesNext: '检测到旧版 NEXT 酒馆。安装会备份它的 Profile，并为官方版生成新的配置。酒馆专属数据将继续使用。',
+      installHint: '酒馆会安装到独立的 tavern 配置。安装期间可以继续使用桌面，装好后可重启并切换到 DSH 酒馆。',
+      installing: '正在准备安装酒馆…',
+      copyLogs: '复制诊断日志',
+      logsCopied: '日志已复制',
+      copyLogsFailed: '复制失败，可以在「说明与日志」中选中日志并手动复制。',
+      installDone: '酒馆安装完成。',
+      explain: '切换配置会重启桌面应用，各配置保留自己的设置和会话。',
+      current: '当前配置',
+      profileDesktop: '原版 DSH',
+      profileTavern: 'DSH 酒馆',
+      profileReader: 'DSH 阅读器',
       toOriginal: '重启并切换到原版 DSH',
       toTavern: '重启并切换到 DSH 酒馆',
       noTavern: '还没有装好 DSH 酒馆，装好后这里就能切过去。',
@@ -59,7 +91,7 @@ window.__ModuleLoader__.load({
       logLocation: '日志：',
       more: '说明与日志',
       shortcut: '添加桌面快捷方式',
-      shortcutHint: '首次安装会自动添加「DSH 酒馆」桌面快捷方式，点开即可打开酒馆。可随时删除，更新时不会重新添加；需要时可在这里恢复。',
+      shortcutHint: '可以手动添加「DSH 酒馆」桌面快捷方式，方便直接打开酒馆。',
       shortcutDone: '已添加到桌面：',
       shortcutExists: '桌面上已经有了：',
       logEmpty: '（还没有日志）',
@@ -89,9 +121,41 @@ window.__ModuleLoader__.load({
       operationPending: "Operation queued; waiting for Desktop to exit. Do not submit again.",
       lastOperationFailure: "The last operation failed",
       operationDone: "The last operation completed.",
-      sectionTavern: 'Original DSH',
-      sectionOriginal: 'DSH Tavern',
-      explain: 'DSH Tavern and the original DSH are two setups of the same app. Switching restarts the app once; conversations and settings are kept.',
+      updates: 'Tavern version and updates',
+      installedBuild: 'Installed build',
+      latestBuild: 'Latest release',
+      unknownBuild: 'Unknown build',
+      unchecked: 'Not checked yet',
+      checkUpdate: 'Check for updates',
+      checkingUpdate: 'Checking for updates…',
+      updateAvailable: 'Update available',
+      upToDate: 'Already up to date',
+      updateTavern: 'Update Tavern',
+      repairTavern: 'Repair installation',
+      switchToUpdate: 'Switch to DSH Tavern, then update from the launcher.',
+      updating: 'Updating Tavern…',
+      cancelUpdate: 'Cancel update',
+      cancellingUpdate: 'Cancelling update…',
+      updateBlocked: 'Waiting for the installer to stop safely.',
+      updateFailed: 'Update failed. Please try again.',
+      updateComplete: 'Tavern was updated.',
+      updateRestart: 'The update is installed. Quit and reopen DeepSeek Harness to apply it.',
+      updateRestartWindow: 'The update is installed. Restart the Tavern service and reopen this window.',
+      section: 'Tavern Launcher',
+      install: 'Install Tavern',
+      confirmInstall: 'Confirm installation',
+      replacesNext: 'The installer will back up the existing NEXT Tavern profile, create a profile for official Desktop, and reuse Tavern data.',
+      installHint: 'Tavern gets its own profile. You can keep using Desktop during installation. When it finishes, you can restart and switch to DSH Tavern.',
+      installing: 'Preparing Tavern installation…',
+      copyLogs: 'Copy diagnostic log',
+      logsCopied: 'Log copied',
+      copyLogsFailed: 'Could not copy automatically. Select the log under Help and logs to copy it.',
+      installDone: 'Tavern installation complete.',
+      explain: 'Switching restarts Desktop. Each profile keeps its settings and sessions.',
+      current: 'Current profile',
+      profileDesktop: 'Original DSH',
+      profileTavern: 'DSH Tavern',
+      profileReader: 'DSH Reader',
       toOriginal: 'Restart and switch to original DSH',
       toTavern: 'Restart and switch to DSH Tavern',
       noTavern: 'DSH Tavern is not installed yet; once it is, you can switch from here.',
@@ -108,7 +172,7 @@ window.__ModuleLoader__.load({
       logLocation: 'Log: ',
       more: 'Details and log',
       shortcut: 'Add desktop shortcut',
-      shortcutHint: 'The first installation adds a "DSH 酒馆" desktop shortcut to open the Tavern. You can delete it; updates will not recreate it. Restore it here whenever you need it.',
+      shortcutHint: 'Add a desktop shortcut if you want to open DSH Tavern directly from your desktop.',
       shortcutDone: 'Added to the desktop: ',
       shortcutExists: 'Already on the desktop: ',
       logEmpty: '(no log yet)',
@@ -136,6 +200,13 @@ window.__ModuleLoader__.load({
 .pb-error { margin: 0; padding: 10px 12px; border-radius: 10px; color: #e5484d; background: rgba(229,72,77,0.08); }
 .pb-management { display: grid; gap: 10px; border: 1px solid var(--pb-line); border-radius: 10px; padding: 14px; min-width: 0; }
 .pb-management h3, .pb-management p { margin: 0; }
+.pb-builds { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.pb-builds dt { opacity: .65; }
+.pb-builds dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.pb-builds a { color: inherit; text-decoration: underline; }
+.pb-update-badge { justify-self: start; border-radius: 999px; background: var(--pb-fill); padding: 2px 10px; }
+.pb-update-badge-available { background: var(--pb-accent-soft); }
+.pb-management progress { width: 100%; }
 .pb-paths { margin: 0; display: grid; gap: 4px; min-width: 0; }
 .pb-paths dt { opacity: .65; }
 .pb-paths dd { margin: 0 0 6px; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
@@ -161,11 +232,17 @@ window.__ModuleLoader__.load({
     /** The menu names this page by side at once: the Tavern client marks a page that loaded it. */
     const inTavern = () => window.__dshTavernLoaded === true
 
-    /**
-     * One settings page with one action: from the tavern setup, back to the original DSH;
-     * from the original, into DSH Tavern. Either way the app quits and reopens once.
-     * @param {{ t: Function, rpcCall: Function }} props - injected faces from the registration.
-     */
+    const updateInProgress = phase => ['running', 'cancelling', 'blocked'].includes(phase)
+
+    function renderBuild(t, version, commit) {
+      return h(React.Fragment, null,
+        version && version !== 'unknown' ? `v${version} · ` : null,
+        /^[0-9a-f]{40}$/i.test(commit || '')
+          ? h('a', { href: `https://github.com/flizzywine/dsh-tavern/commit/${commit}`, target: '_blank', rel: 'noreferrer', title: commit }, h('code', null, commit.slice(0, 8)))
+          : t('unknownBuild'))
+    }
+
+    /** @param {{ t: Function, rpcCall: Function }} props */
     function ProfileBridgeSettings(props) {
       const t = props.t
       const call = props.rpcCall
@@ -176,6 +253,19 @@ window.__ModuleLoader__.load({
       const actionInFlight = React.useRef(false)
       const [managementAction, setManagementAction] = React.useState(null)
       const [destination, setDestination] = React.useState('')
+      const [logCopy, setLogCopy] = React.useState('')
+      const [update, setUpdate] = React.useState(null)
+      const [updateAction, setUpdateAction] = React.useState('')
+      const [updateFailure, setUpdateFailure] = React.useState('')
+      const diagnosticLog = [status?.logTail?.trim(), status?.transcriptTail?.trim()].filter(Boolean).join('\n\n')
+      async function copyLogs() {
+        try {
+          await window.navigator.clipboard.writeText(diagnosticLog)
+          setLogCopy('logsCopied')
+        } catch {
+          setLogCopy('copyLogsFailed')
+        }
+      }
 
       React.useEffect(() => {
         let alive = true
@@ -212,15 +302,22 @@ window.__ModuleLoader__.load({
         return () => { alive = false; clearTimeout(timer) }
       }, [call, pending])
       const lastFailure = status?.lastResult?.status === 'failed' ? status.lastResult : null
+      const installDone = status?.lastResult?.status === 'succeeded' && status.lastResult.mode === 'install'
 
-      // Which side this page is on comes from the page itself, the same as the menu name.
-      const side = inTavern() ? 'tavern' : 'original'
+      const current = status?.linkTargetName ?? (inTavern() ? 'tavern' : 'desktop')
       const standalone = status?.desktopApp === false
-      const tavernReady = (status?.profiles ?? []).some((profile) => profile.name === 'tavern' && (profile.bundles ?? []).includes('dsh-profile-bridge') && profile.hasNodeModules)
-      // Back to the original needs its backup; into the tavern needs a tavern setup that can come back.
-      const blocked = side === 'original' ? (tavernReady ? null : t('noTavern'))
-        : (status?.backups ?? []).length > 0 ? null : t('noOriginal')
-      const target = side === 'original' ? 'tavern' : null
+      const ready = (name) => (status?.profiles ?? []).some((profile) => {
+        const bundles = profile.bundles ?? []
+        return profile.name === name && profile.hasNodeModules && !bundles.includes('dsh-tavern-bundle')
+          && (bundles.includes('dsh-tavern-launcher') || bundles.includes('dsh-profile-bridge'))
+      })
+      const destinations = [
+        { name: 'desktop', label: 'profileDesktop', action: 'toOriginal', ready: (status?.backups ?? []).length > 0 },
+        { name: 'tavern', label: 'profileTavern', action: 'toTavern', ready: ready('tavern') },
+      ]
+      const currentLabel = current === 'reader' ? 'profileReader' : destinations.find(({ name }) => name === current)?.label
+      const options = destinations.filter(({ name, ready }) => name !== current && ready)
+      const blocked = options.length === 0 && !status?.installAvailable ? t(current === 'desktop' ? 'noTavern' : 'noOriginal') : null
 
       const [shortcut, setShortcut] = React.useState(null)
       async function addShortcut() {
@@ -247,11 +344,13 @@ window.__ModuleLoader__.load({
         }
       }
 
-      async function apply() {
+      async function apply(target) {
+        if (actionInFlight.current || busy || pending || updateInProgress(update?.phase) || lastFailure?.recoveryRequired) return
+        actionInFlight.current = true
         setBusy(true)
         setFailure(null)
         try {
-          const result = target ? await call('link', { target }) : await call('unlink', {})
+          const result = target === 'desktop' ? await call('unlink', {}) : await call('link', { target })
           if (result?.ok === true) {
             setApplied(result.value ?? {})
             setStatus(previous => ({ ...previous, lastResult: { status: 'pending', stamp: result.value?.stamp } }))
@@ -260,24 +359,73 @@ window.__ModuleLoader__.load({
         } catch (error) {
           setFailure(describeFailure({ message: error?.message ?? String(error) }))
         } finally {
+          actionInFlight.current = false
           setBusy(false)
         }
       }
 
-      const title = t(inTavern() ? 'sectionTavern' : 'sectionOriginal')
-      const isDesktop = status?.appKind === 'desktop'
+      const title = t('section')
+      const isDesktop = status?.appKind === 'desktop' || status?.desktopTavernWindow === true
       const installation = status?.installation
-      const managementBlocked = !isDesktop || status?.desktopApp !== true || !installation?.available || busy || pending || Boolean(lastFailure?.recoveryRequired)
+      const showUpdates = isDesktop && (status?.desktopApp === true || status?.desktopTavernWindow === true) && installation?.available && !status?.installAvailable
+      const updating = updateInProgress(update?.phase)
+      const managementBlocked = !isDesktop || status?.desktopApp !== true || !installation?.available || busy || pending || !!updateAction || updating || Boolean(lastFailure?.recoveryRequired)
+      React.useEffect(() => {
+        if (!showUpdates || updateAction) return
+        let alive = true, timer
+        const refresh = async () => {
+          try {
+            const result = await call('update-status', {})
+            if (!alive) return
+            if (result?.ok !== true) throw new Error(describeFailure(result?.error))
+            setUpdate(result.value)
+            if (updating && !updateInProgress(result.value.phase)) setUpdateFailure('')
+          } catch (error) {
+            // An update may briefly make its installation files unavailable.
+            // Keep polling its durable result, and never repeat the write request.
+            if (alive && !updating) setUpdateFailure(describeFailure(error))
+          }
+          if (alive && updating) timer = setTimeout(refresh, 1500)
+        }
+        if (updating) timer = setTimeout(refresh, 1500)
+        else void refresh()
+        return () => { alive = false; clearTimeout(timer) }
+      }, [call, showUpdates, updating, updateAction])
+      async function applyUpdate(endpoint) {
+        if (actionInFlight.current || busy || pending || managementAction || lastFailure?.recoveryRequired) return
+        actionInFlight.current = true
+        setUpdateAction(endpoint)
+        setUpdateFailure('')
+        try {
+          const result = await call(endpoint, {})
+          if (result?.ok !== true) throw new Error(describeFailure(result?.error))
+          setUpdate(result.value)
+        } catch (error) {
+          setUpdateFailure(describeFailure(error))
+        } finally {
+          actionInFlight.current = false
+          setUpdateAction('')
+        }
+      }
+      const updateAvailable = update?.phase === 'update-available'
+      const repairRequired = update?.phase === 'repair-required'
+      const checking = updateAction === 'check-update'
+      const updateRestart = update?.phase === 'completed' && update.requiresRestart
+      const updateButtonsBlocked = busy || pending || !!managementAction || !!updateAction || Boolean(lastFailure?.recoveryRequired)
+      const updateError = !checking && (updateFailure || update?.error || (['failed', 'check-failed'].includes(update?.phase) ? t('updateFailed') : ''))
+      const progressLabel = updateAction === 'cancel-update' || update?.phase === 'cancelling' ? t('cancellingUpdate')
+        : update?.phase === 'blocked' ? t('updateBlocked') : update?.stage || t('updating')
+      const installBlocked = !status?.installAvailable || busy || pending || Boolean(lastFailure?.recoveryRequired)
       const absoluteDestination = status?.platform === 'win32'
         ? /^[A-Za-z]:[\\/]/.test(destination.trim())
         : destination.trim().startsWith('/')
       function reviewManagement(action) {
-        if (managementBlocked || actionInFlight.current) return
+        if ((action === 'install' ? installBlocked : managementBlocked) || actionInFlight.current) return
         setFailure(null)
         setManagementAction(action)
       }
       async function confirmManagement() {
-        if (managementBlocked || actionInFlight.current || !managementAction || (managementAction === 'relocate' && !absoluteDestination)) return
+        if ((managementAction === 'install' ? installBlocked : managementBlocked) || actionInFlight.current || !managementAction || (managementAction === 'relocate' && !absoluteDestination)) return
         actionInFlight.current = true
         setBusy(true)
         setFailure(null)
@@ -306,26 +454,62 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'pb-btn', disabled: busy, onClick: () => void openOriginal() }, t('openOriginal')),
         ) : blocked ? h('p', { className: 'pb-error' }, blocked) : h('div', { className: 'pb-bar' },
           h('span', { className: 'pb-bar-text' },
-            applied === null ? (pending ? t('restarting') : '') : applied.closesApp ? t('restarting') : t('quitHint'),
+            status?.lastResult?.mode === 'install' ? `${t('current')} · ${currentLabel ? t(currentLabel) : current}` : applied === null ? (pending ? t('restarting') : `${t('current')} · ${currentLabel ? t(currentLabel) : current}`) : applied.closesApp ? t('restarting') : t('quitHint'),
             ...(applied?.warnings ?? []).map((warning) => h('span', { key: warning, style: { display: 'block', opacity: 0.75 } }, `• ${warning}`)),
           ),
-          applied !== null ? null : h('button', { type: 'button', className: 'pb-btn', disabled: busy || pending || lastFailure?.recoveryRequired, onClick: () => void apply() },
-            busy ? t('restarting') : target ? t('toTavern') : t('toOriginal')),
+          applied !== null ? null : h('div', { className: 'pb-actions' }, ...options.map(({ name, action }) =>
+            h('button', { key: name, type: 'button', className: 'pb-btn', disabled: busy || pending || !!updateAction || updating || lastFailure?.recoveryRequired, onClick: () => void apply(name) }, t(action)))),
         ),
         lastFailure ? h('div', { className: 'pb-error', role: 'alert' },
-          h('strong', null, t(['relocate', 'uninstall'].includes(lastFailure.mode) ? 'lastOperationFailure' : 'lastFailure')),
+          h('strong', null, t(['install', 'relocate', 'uninstall'].includes(lastFailure.mode) ? 'lastOperationFailure' : 'lastFailure')),
           h('div', null, lastFailure.message),
           lastFailure.recoveryRequired ? h('div', null, t('recoveryRequired')) : null,
           h('div', null, t('logLocation') + (lastFailure.logPath || status.logPath || '')),
+          diagnosticLog ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', onClick: copyLogs }, t('copyLogs')) : null,
+          logCopy ? h('div', { role: 'status' }, t(logCopy)) : null,
         ) : null,
         failure !== null ? h('p', { className: 'pb-error' }, `${t('failure')}: ${failure}`) : null,
-        !isDesktop || standalone ? null : h('div', { className: 'pb-shortcut' },
+        installDone
+          ? h('p', { className: 'pb-done', role: 'status' }, t('installDone')) : null,
+        (status?.installAvailable || (pending && status?.lastResult?.mode === 'install')) ? h('section', { className: 'pb-management', 'aria-label': t('management') },
+          h('h3', null, t('management')),
+          h('p', null, t('installHint')),
+          status.replacesNext ? h('p', null, t('replacesNext')) : null,
+          pending ? h('p', { role: 'status' }, status.installProgress || t('installing')) : null,
+          !installBlocked ? h('div', { className: 'pb-actions' },
+            h('button', { type: 'button', className: 'pb-btn',
+              onClick: () => void (managementAction === 'install' ? confirmManagement() : reviewManagement('install')) },
+            t(managementAction === 'install' ? 'confirmInstall' : 'install')),
+            managementAction === 'install' ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy,
+              onClick: () => setManagementAction(null) }, t('cancel')) : null) : null,
+        ) : null,
+        !isDesktop || standalone || !ready('tavern') || status?.installAvailable ? null : h('div', { className: 'pb-shortcut' },
           h('div', { className: 'pb-bar-text' },
             h('p', { className: 'pb-sub' }, t('shortcutHint')),
             shortcut ? h('p', { className: 'pb-done' }, (shortcut.existed ? t('shortcutExists') : t('shortcutDone')) + shortcut.path) : null),
           h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy || pending || lastFailure?.recoveryRequired, onClick: () => void addShortcut() }, t('shortcut')),
         ),
-        installation ? h('section', { className: 'pb-management', 'aria-label': t('management') },
+        showUpdates ? h('section', { className: 'pb-management', 'aria-label': t('updates') },
+          h('h3', null, t('updates')),
+          h('dl', { className: 'pb-builds' },
+            h('dt', null, t('installedBuild')), h('dd', null, update ? renderBuild(t, update.currentVersion, update.currentCommit) : '—'),
+            h('dt', null, t('latestBuild')), h('dd', null, update?.latestVersion || update?.latestCommit ? renderBuild(t, update.latestVersion, update.latestCommit) : t('unchecked'))),
+          !checking && !updateAction && (updateAvailable || update?.phase === 'up-to-date') ? h('p', {
+            className: 'pb-update-badge' + (updateAvailable ? ' pb-update-badge-available' : ''), role: 'status',
+          }, t(updateAvailable ? 'updateAvailable' : 'upToDate')) : null,
+          !checking && (updateAvailable || repairRequired) && update?.canUpdate === false ? h('p', { className: 'pb-sub' }, t('switchToUpdate')) : null,
+          !checking && update?.checkWarning ? h('p', { className: 'pb-sub' }, update.checkWarning) : null,
+          checking ? h('p', { role: 'status' }, t('checkingUpdate')) : null,
+          updating || updateAction === 'start-update' ? h(React.Fragment, null,
+            h('p', { role: 'status' }, progressLabel),
+            update?.phase !== 'blocked' ? h('progress', { 'aria-label': progressLabel }) : null) : null,
+          updateError ? h('p', { className: 'pb-error', role: 'alert' }, updateError) : null,
+          update?.phase === 'completed' ? h('p', { className: 'pb-done', role: 'status' }, t(updateRestart ? (standalone ? 'updateRestartWindow' : 'updateRestart') : 'updateComplete')) : null,
+          h('div', { className: 'pb-actions' },
+            !updating && !updateRestart ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('check-update') }, t('checkUpdate')) : null,
+            (updateAvailable || repairRequired) && update.canUpdate && !updateAction ? h('button', { type: 'button', className: 'pb-btn', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('start-update') }, t(repairRequired ? 'repairTavern' : 'updateTavern')) : null,
+            update?.phase === 'running' && update.canUpdate && update.cancellable ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('cancel-update') }, t('cancelUpdate')) : null)) : null,
+        installation && !status?.installAvailable ? h('section', { className: 'pb-management', 'aria-label': t('management') },
           h('h3', null, t('management')),
           h('dl', { className: 'pb-paths' },
             ...['appDir', 'profileDir', 'dataDir', 'sharedHome'].flatMap(key => [
@@ -358,13 +542,10 @@ window.__ModuleLoader__.load({
         h('details', { className: 'pb-fold' },
           h('summary', null, t('more')),
           h('p', null, t('why')),
-          // The structured log is empty when the helper never reached its first
-          // line (for example a PowerShell startup failure); the launcher
-          // transcript is where that shows up.
-          h('pre', { className: 'pb-pre' },
-            status?.logTail?.trim()
-              ? status.logTail
-              : status?.transcriptTail?.trim() ? status.transcriptTail : t('logEmpty')),
+          status?.transcriptPath ? h('p', { className: 'pb-sub' }, t('logLocation') + status.transcriptPath) : null,
+          diagnosticLog ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', onClick: copyLogs }, t('copyLogs')) : null,
+          logCopy ? h('p', { role: 'status' }, t(logCopy)) : null,
+          h('pre', { className: 'pb-pre' }, diagnosticLog || t('logEmpty')),
         ),
       )
     }
@@ -372,6 +553,17 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale', 'connection'],
       apply(ctx) {
+        if (typeof window.desktopNext?.state === 'function') {
+          // dshmarket draws its own mark, but only hides a direct-child SVG.
+          // NEXT wraps the fallback gear in an aria-hidden span.
+          ctx.effect(() => {
+            const style = window.document.createElement('style')
+            style.textContent = '[data-dsh-market-nav-icon] > span[aria-hidden="true"] { display: none; }'
+            window.document.head.appendChild(style)
+            return () => style.remove()
+          }, 'NEXT: hide the duplicate market settings icon')
+          return // NEXT has its own Profile selector in Desktop Settings.
+        }
         const t = ctx.locale.bind(NS)
         const rpcCall = (endpoint, payload) => ctx.connection.rpc.call(CHANNEL, endpoint, payload)
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'profile-bridge: locale dictionaries')
@@ -379,7 +571,7 @@ window.__ModuleLoader__.load({
           name: 'settings.section',
           id: 'profile-bridge',
           order: 60,
-          label: () => t(inTavern() ? 'sectionTavern' : 'sectionOriginal'),
+          label: () => t('section'),
           inject: () => ({ rpcCall, t }),
         }, ProfileBridgeSettings))
       },

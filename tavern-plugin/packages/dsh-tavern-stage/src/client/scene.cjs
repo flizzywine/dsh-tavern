@@ -396,16 +396,15 @@ function galCreateScene(host, options, own) {
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
     // when the stage size, text box, ruler, cast or priority change. The fit eases like the face rest (700 ms).
     function figureLayout(desc,W,H,now) {
-        // Its height and where its head sits above its feet (display heights), for the short-figure rescue.
-        const crops={},bodies={};
+        // Missing lower-body artwork contributes to the shared viewport fit.
+        const crops={};
         for(const figure of desc.figures||[]){
             const entry=figure&&state.figures.get(figure.key);
             const input=(entry?.model?entry.figureSizing:entry?.sprite?.figureInput)||figure?.figureSizing,anatomy=input?.anatomy||figure?.figureSizing?.anatomy;
             if(anatomy&&anatomy.feet>anatomy.visibleBottom)crops[figure.alias]=(anatomy.feet-anatomy.visibleBottom)/(anatomy.feet-(anatomy.headTop??anatomy.figureTop));
-            if(anatomy&&input?.heightCm>0&&anatomy.headRatio>0&&anatomy.feet>anatomy.headTop&&anatomy.chin>anatomy.headTop)bodies[figure.alias]={cm:input.heightCm,headRatio:anatomy.headRatio,chinRatio:anatomy.headRatio*(anatomy.feet-anatomy.chin)/(anatomy.feet-anatomy.headTop)};
         }
         const result=sceneLayout.update({plan:desc.figureLayout,figures:desc.figures,W,H,now,
-            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,bodies,instant:desc.snap||desc.skipping});
+            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,instant:desc.snap||desc.skipping});
         if(result.report&&options.onLayout){state.layoutReport=result.report;reportLayout();}
         return result.layout;
     }
@@ -653,9 +652,6 @@ function galCreateScene(host, options, own) {
         const framing = { sceneHMax: ruled ? fit.ruler : sceneFrame.hMax, sceneGroundRatio: ruled ? 1 : sceneFrame.groundRatio,
             groundHMax: ruled ? fit.ruler : state.figureScale?.to, groundRatio: ruled ? 1 : state.figureScale?.groundTo,
             occluderTop: faceEnvironment(desc, W, H).occluderTop, fit: fit.fit, fitDrop: fit.drop, fitTop: fit.top, spread: fit.spread };
-        // The short-figure rescue (galFigureLayout small): drawn as the ruler frames it, the knee-up framing.
-        const small = new Set(sceneLayout.layout?.small || []), smallFraming = { ...framing, fit: 1, fitDrop: 0, fitTop: H * FIGURE_DISPLAY.HEAD_TOP };
-        const framingOf = entry => small.has(entry.figure.alias) ? smallFraming : framing;
         const reducedHop = galHopReduced(quality);
         const dofTarget = desc.dof ? entryOf(desc.dof) : null;
         // figures loaded off stage for the call view live the same life (load, blink, mouth, mood, place).
@@ -693,7 +689,7 @@ function galCreateScene(host, options, own) {
                 entry.appearance.setShade(galFigureMatrix(shade, alpha, look.glow, look.shadow, backgrounds.grade.current));
             }
             if(renderer){
-                renderer.tick(entry,figure,desc,{now,dt,W,H,framing:framingOf(entry),reducedHop});
+                renderer.tick(entry,figure,desc,{now,dt,W,H,framing,reducedHop});
                 if(!renderer.spriteBased)return;
             }else {
                 if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) entry.sprite.texture = entry.baseTexture;
@@ -701,7 +697,7 @@ function galCreateScene(host, options, own) {
                 tapTextureStatic(entry, now);
             }
             const pose=entry.pose.update({sprite:entry.sprite,fading:entry.fading,now,reduced:reducedHop,
-                command:figure.act,idle:staticIdle(entry,desc,dt,now),framing:framingOf(entry),W,H,x:entry.cx.v,flip:entry.flip.v,lift:entry.lift.v,size:figure.size,ground:figure.ground});
+                command:figure.act,idle:staticIdle(entry,desc,dt,now),framing,W,H,x:entry.cx.v,flip:entry.flip.v,lift:entry.lift.v,size:figure.size,ground:figure.ground});
             if(pose){
                 entry.restHead=pose.restHead;entry.restBody=pose.restBody;entry.localHead=pose.localHead;
                 if(pose.resolved)entry.figureResolved=pose.resolved;
@@ -746,15 +742,15 @@ function galCreateScene(host, options, own) {
     function tickFaceRest(desc, now, W, H) {
         const env = faceEnvironment(desc, W, H);
         const closeShot = desc.camera?.shot === "close";
-        const castFit = sceneLayout.target, small = new Set(sceneLayout.layout?.small || []);
+        const castFit = sceneLayout.target;
         const layoutKey = [state.figureScale?.scene, state.figureScale?.rescales, env.key, closeShot, castFit.fit, castFit.drop, castFit.top, castFit.ruler, castFit.spread].join(":");
         const ruled = castFit.ruler != null;
         state.figures.forEach(entry => {
             if (!entry.restHead) return;
-            const input = entry.figureSizing || entry.sprite?.figureInput, rescued = small.has(entry.figure.alias);
-            // A rescued short figure is framed by the ruler (tickFigures), so it keeps the full-body ledge.
-            const fitTo = rescued ? { ...castFit, fit: 1, drop: 0, top: H * FIGURE_DISPLAY.HEAD_TOP } : castFit;
-            const key = [layoutKey, rescued, input?.source || entry.figure.url || entry.figure.modelId, entry.figure.close || false].join(":");
+            const input = entry.figureSizing || entry.sprite?.figureInput;
+            // REST and animated figures use the same cast framing.
+            const fitTo = castFit;
+            const key = [layoutKey, input?.source || entry.figure.url || entry.figure.modelId, entry.figure.close || false].join(":");
             const supportY = entry.figureResolved?.support?.y ?? H * (1 - (entry.figure.ground || 0));
             const old = entry.faceRest;
             let lockHead = entry.restHead, lockSupportY = supportY;

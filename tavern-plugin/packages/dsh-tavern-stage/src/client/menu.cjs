@@ -79,6 +79,15 @@ function GalMenu(props) {
         auto: props.auto, skipping: props.skipping, atEnd: props.atEnd, touch: props.touch, pages: props.pages });
     const [active, setActive] = React.useState(0);
     const refs = React.useRef([]);
+    const listRef = React.useRef(null);
+    // A list that scrolls (a skin's menu capacity, art.menu.tiles.minScale): its clipped edges, for the indicators.
+    const [more, setMore] = React.useState("");
+    function measureMore() {
+        const list = listRef.current;
+        if (!list) return;
+        const up = list.scrollTop > 1, down = list.scrollTop + list.clientHeight < list.scrollHeight - 1;
+        setMore([up ? "up" : "", down ? "down" : ""].filter(Boolean).join(" "));
+    }
     const live = React.useRef(null);
     const leaving = React.useRef(false);
     live.current = { props, items, active, regenerateOpen };
@@ -88,6 +97,13 @@ function GalMenu(props) {
         setActive(index);
         const node = refs.current[index];
         if (node && node.focus) node.focus({ preventScroll: true });
+        // keep the focused row in view when the list scrolls (only the list moves, never the stage; a placed tile stays put)
+        const list = listRef.current;
+        if (node && list && node.parentNode === list && list.scrollHeight > list.clientHeight && window.getComputedStyle(node).position !== "absolute") {
+            const box = node.getBoundingClientRect(), view = list.getBoundingClientRect();
+            if (box.top < view.top) list.scrollTop -= view.top - box.top;
+            else if (box.bottom > view.bottom) list.scrollTop += box.bottom - view.bottom;
+        }
     }
     // A user move (hover, arrows) ticks; the programmatic focus on open / after the dialog does not.
     function moveTo(index) {
@@ -153,6 +169,14 @@ function GalMenu(props) {
     React.useLayoutEffect(function () { if (!regenerateOpen) focusItem(active); }, [regenerateOpen]);
     // The historical item can come or go while open (a new turn arrives); keep the highlight on a real item.
     React.useEffect(function () { if (active >= items.length) setActive(items.length - 1); }, [items.length]);
+    React.useLayoutEffect(function () {
+        measureMore();
+        const Observer = typeof window !== "undefined" ? window.ResizeObserver : undefined, list = listRef.current;
+        if (!Observer || !list) return undefined;
+        const observer = new Observer(measureMore);
+        observer.observe(list);
+        return own(() => observer.disconnect());
+    }, [items.length]);
     // A click on the dimmed stage or a right click: back out of the dialog first, else close the menu. (owner
     // 2026-10): not while a regeneration runs - only its 停止 (the wait, Esc, a right click on the dialog) ends it.
     function dismiss() {
@@ -193,7 +217,10 @@ function GalMenu(props) {
             h("div", { className: "fork-gal-menu-head", "aria-hidden": true },
                 h("i", { className: "fork-gal-menu-gem is-title" }), h("b", null, "菜单")),
             // --n: the item count, for a skin's tile grid (stage-skin-adv.md「art.menu.tiles」: its rows and its fit).
-            h("div", { className: "fork-gal-menu-list", role: "presentation", style: { "--n": items.length } }, children),
+            h("div", { ref: listRef, className: "fork-gal-menu-list", role: "presentation", style: { "--n": items.length }, "data-more": more || undefined, onScroll: measureMore }, children),
+            // the clipped edges of a scrolling list (themes.css: art.menu.tiles.minScale)
+            h("i", { className: "fork-gal-menu-more", "data-edge": "up", "aria-hidden": true }),
+            h("i", { className: "fork-gal-menu-more", "data-edge": "down", "aria-hidden": true }),
             // a skin's drawn menu screen carries the title, the focused
             // item's description (its title, else its label) and the key guide on its own strips; hidden elsewhere (theme.css).
             h("div", { className: "fork-gal-menu-strip", "data-show": "title", "aria-hidden": true }, word("菜单", props.titleLetter === "ransom")),

@@ -30,7 +30,7 @@ export function createCardGallery(directory, { removeFile = rm } = {}) {
         await mkdir(images, { recursive: true })
         await copyFile(result.file, join(images, file))
         const entry = { id, file, at: Date.now(), session: sessionId || '', prompt: result.prompt, negative: result.negative,
-          preset: preset || '', channel: result.channel, size: result.size, mediaType: result.mediaType, seed: result.seed, jobId: result.jobId }
+          preset: typeof result.preset === 'string' ? result.preset : (preset || ''), channel: result.channel, size: result.size, mediaType: result.mediaType, seed: result.seed, jobId: result.jobId }
         const next = [...list, entry].slice(-500)
         try { await publish(next) }
         catch (error) { await rm(join(images, file), { force: true }); throw error }

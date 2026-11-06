@@ -928,6 +928,7 @@ window.__ModuleLoader__.load({
 // @include features/reply-observer.js
 
 // @include features/speech.js
+// @include features/read-aloud.js
 
 // @include features/music.js
 
@@ -945,6 +946,7 @@ window.__ModuleLoader__.load({
 // @include features/card-list.js
 
 // @include-domain update-status-controller.js
+// @include modules/card-update-dialog.js
 // @include features/sidebar.js
 
 // @include features/scene-images.js

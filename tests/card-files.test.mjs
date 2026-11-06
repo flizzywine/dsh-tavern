@@ -44,7 +44,7 @@ async function library(t, extra = {}) {
     worldBooks: { characterBookForCard: async () => undefined },
     cardPlugins: createCardPlugins({ dataRoot: root, pluginsDir: join(root, 'plugins') }), presetLibrary: {}, importPreset: () => assert.fail('no start defaults'), ...extra, pluginApi: () => assert.fail('not a plugin format')
   })
-  return { root, files, fileResources, castAssets }
+  return { root, files, fileResources, castAssets, cardPreparation, readCardWorkspace }
 }
 
 test('encrypted DSH imports authenticate before saving cards/plugins, and duplicates still require the password', async t => {
@@ -278,9 +278,9 @@ test('browser updates a selected card through the sidebar and real import RPC', 
   const {dirname}=await import('node:path')
   const {chromium}=await import('playwright')
   const {createCardHandlers}=await import('../tavern-plugin/lib/rpc/cards.js')
-  const {root,files,fileResources}=await library(t)
-  const old=await files.importCard({kind:'text',name:'selected.json',text:JSON.stringify({name:'Old'})})
-  const handlers=createCardHandlers({...files,str:String,uploads:{take:async()=>({file:join(root,'upload'),remove:async()=>{}})}})
+  const {root,files,fileResources,cardPreparation,readCardWorkspace}=await library(t)
+  const old=await files.importCard({kind:'text',name:'selected.json',text:JSON.stringify({name:'红警 · DSH 指挥室',character_version:'0.6.0'})})
+  const handlers=createCardHandlers({...files,cardPreparation,readCardWorkspace,str:String,uploads:{take:async()=>({file:join(root,'upload'),remove:async()=>{}})}})
   const sidebar=await readFile(new URL('../tavern-plugin/src/client/features/sidebar.js',import.meta.url),'utf8')
   const main=await readFile(new URL('../tavern-plugin/src/client/main.js',import.meta.url),'utf8')
   const states=sidebar.slice(sidebar.indexOf('const [updatingCard,'),sidebar.indexOf('const updateInput ='))+'const updateInput = React.useRef(null);'
@@ -290,6 +290,7 @@ test('browser updates a selected card through the sidebar and real import RPC', 
   const updateButton=sidebar.slice(sidebar.indexOf("organization.toolbar(h('button'"),sidebar.indexOf("organization.visible.length ?")).trim().replace(/,$/,'')
   const importer=main.slice(main.indexOf('async function importTavernCardFile('),main.indexOf('/** What a card file'))
   const parser=main.slice(main.indexOf('function parseCardFile('),main.indexOf('const MOBILE_IMPORT_SORTS'))
+  const updateDialog=await readFile(new URL('../tavern-plugin/src/client/modules/card-update-dialog.js',import.meta.url),'utf8')
   const require=createRequire(import.meta.url);let bundle='const modules={};'
   for(const [name,file] of [['react','react.production.js'],['scheduler','scheduler.production.js'],['react-dom','react-dom.production.js'],['react-dom/client','react-dom-client.production.js']]) bundle+='modules['+JSON.stringify(name)+']=(()=>{const module={exports:{}};const exports=module.exports;const require=n=>modules[n];'+await readFile(join(dirname(require.resolve(name)),'cjs',file),'utf8')+';return module.exports;})();'
   const script=bundle+`const React=modules.react,h=React.createElement;
@@ -297,6 +298,7 @@ test('browser updates a selected card through the sidebar and real import RPC', 
   async function call(method,args){const r=await fetch('/rpc/'+method,{method:'POST',body:JSON.stringify(args)}).then(r=>r.json());if(!r.ok)throw Error(r.error);return r;}
   ${importer}
 ${parser}
+${updateDialog}
   function App(){const [busy,setBusy]=React.useState(false);const cards=[{path:'selected.json'.replace(/^/,'cards/'),name:'Old'}],openingPicker=null;const refresh=async()=>{},notifyDataChanged=()=>{};
   const cardBatch={paths:cards.map(card=>card.path)},organization={toolbar:button=>button};
   ${states}
@@ -305,7 +307,7 @@ ${action}
   modules['react-dom/client'].createRoot(document.getElementById('app')).render(h(App));`
   const css=await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css',import.meta.url),'utf8')
   const server=createServer(async(req,res)=>{try{
-    if(req.url==='/')return res.writeHead(200,{'content-type':'text/html; charset=utf-8'}).end('<meta charset="utf-8"><style>'+css+'</style><div id="app"></div><script src="/app.js"></script>')
+    if(req.url==='/')return res.writeHead(200,{'content-type':'text/html; charset=utf-8'}).end('<meta charset="utf-8"><style>:root{color-scheme:light;--dsw-alias-brand-primary:#c87960;--dsw-specific-sidebar-fill:#faf9f6;--dsw-alias-border-l2:#e6e1da;--dsw-alias-label-primary:#282521;--dsw-alias-label-secondary:#7a746d}body{margin:0;font:14px system-ui;background:#eeeae3}</style><style>'+css+'</style><div id="app"></div><script src="/app.js"></script>')
     if(req.url==='/app.js')return res.writeHead(200,{'content-type':'text/javascript; charset=utf-8'}).end(script)
     const chunks=[];for await(const c of req)chunks.push(c);const bytes=Buffer.concat(chunks)
     if(req.url==='/api/dsh-tavern/card-upload'){await writeFile(join(root,'upload'),bytes);return res.end(JSON.stringify({ok:true,uploadId:'fixture'}))}
@@ -317,17 +319,29 @@ ${action}
   const errors=[];page.on('pageerror',e=>errors.push(e.message))
   await page.goto('http://127.0.0.1:'+server.address().port)
   await page.getByRole('button',{name:'更新',exact:true}).click().catch(e=>{throw new Error(errors.join('; ') || e.message)})
-  await page.locator('input[type=file]').setInputFiles({name:'new.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({name:'Updated JSON'}))})
-  await page.getByRole('button',{name:'更新并替换'}).click()
+  await page.getByText('0.6.0',{exact:true}).waitFor()
+  await page.locator('input[type=file]').setInputFiles({name:'new.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({name:'Updated JSON',character_version:'0.7.0'}))})
+  await page.getByText('0.7.0',{exact:true}).waitFor()
+  await page.screenshot({path:join(process.cwd(),'output/card-update-preview.png')})
+  await page.getByRole('button',{name:'确认更新'}).click()
   await page.getByRole('status').filter({hasText:'更新完成'}).waitFor()
   assert.equal((await fileResources.readCard(old.path)).raw.name,'Updated JSON')
-  const bytes=writeZipEntries([{path:'card.json',content:JSON.stringify({spec:'chara_card_v3',data:{name:'Updated archive'}})}])
+  assert.equal(await page.locator('.dsh-tavern-card-update-version').first().locator('strong').innerText(),'0.6.0')
+  const bytes=writeZipEntries([{path:'card.json',content:JSON.stringify({spec:'chara_card_v3',data:{name:'Updated archive',character_version:'0.8.0'}})}])
   await page.locator('input[type=file]').setInputFiles({name:'different.charx',mimeType:'application/zip',buffer:bytes})
-  await page.getByRole('button',{name:'更新并替换'}).click()
+  await page.getByText('0.8.0',{exact:true}).waitFor()
+  await page.getByRole('button',{name:'确认更新'}).click()
   await page.getByRole('status').filter({hasText:'更新完成'}).waitFor()
   assert.equal((await fileResources.readCard(old.path)).raw.data.name,'Updated archive')
+  assert.equal(await page.locator('.dsh-tavern-card-update-version').first().locator('strong').innerText(),'0.7.0')
   assert.deepEqual(await fileResources.list('card'),[old.path]);assert.deepEqual(errors,[])
   await page.screenshot({path:join(process.cwd(),'output/card-update-browser.png'),fullPage:true})
+  assert.equal(await page.getByRole('button',{name:'确认更新'}).count(),0)
+  await page.setViewportSize({width:390,height:760})
+  await page.screenshot({path:join(process.cwd(),'output/card-update-mobile.png'),fullPage:true})
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false)
+  await page.getByText('查看旧卡备份位置',{exact:true}).click()
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false)
 })
 
 test('replacement never reads or bundles a five GB imported bound pack', async t => {

@@ -21,7 +21,7 @@ test('two levels reach equal integrated loudness with stored gain without rewrit
   }
   assert.ok(Math.abs(a.lufs + a.gainDb - b.lufs - b.gainDb) < 1)
 })
-test('new and legacy cache entries measure once, including concurrent requests and reload', async () => {
+test('new cache entries measure once; legacy metadata is not measured on read', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'voice-loudness-'))
   let calls = 0
   const measureLoudness = async () => { calls++; return voiceLoudnessGain(-25, -12) }
@@ -40,8 +40,9 @@ test('new and legacy cache entries measure once, including concurrent requests a
     await writeFile(manifest, JSON.stringify(entry))
     cache = createCache({dataDir, measureLoudness})
     await Promise.all([cache.loudness(key), cache.loudness(key)])
-    assert.equal(calls, 2)
-    assert.equal(JSON.parse(await readFile(manifest, 'utf8')).loudness.gainDb, 7)
+    assert.equal(calls, 1)
+    assert.equal((await cache.loudness(key)).gain, 1)
+    assert.equal(JSON.parse(await readFile(manifest, 'utf8')).loudness, undefined)
   } finally { await rm(dataDir, {recursive:true, force:true}) }
 })
 test('true peak ceiling takes priority over target; silence stays silent', () => {

@@ -3107,6 +3107,12 @@
          "minimum": 16,
          "maximum": 4096
         },
+        "minScale": {
+         "type": "number",
+         "minimum": 0.3,
+         "maximum": 1,
+         "description": "The menu's capacity (needs fit): more rows first close the gaps between rows, then scale the grid down to fit, but not below minScale; past it the grid scrolls inside its fit height (the focused tile kept in view, an indicator at the clipped edge), the placed (at) tiles staying where they are."
+        },
         "offset": {
          "type": "array",
          "minItems": 2,
@@ -3557,6 +3563,10 @@
         "plain": {
          "$ref": "#/$defs/image"
         },
+        "plainFocus": {
+         "$ref": "#/$defs/image",
+         "description": "The plain tile under the pointer and keyboard focus (needs plain): an action without its own art (a card page's row) then highlights as the drawn actions do."
+        },
         "hover": {
          "type": "object",
          "description": "A highlight behind an element (the current one, or the one under the pointer and keyboard focus): its image stretched over the element (irregular edges: the image's own; never a flat fill), out = its overhang [top, right, bottom, left] in design px (negative = inset).",
@@ -3872,7 +3882,13 @@
          "maximum": 1.6,
          "description": "§18 N31: the focused label drawn this much larger; its bar and hit area stay."
         },
-        "poses": { "$ref": "#/$defs/menuPoses" }
+        "poses": { "$ref": "#/$defs/menuPoses" },
+        "fit": {
+         "type": "number",
+         "minimum": 16,
+         "maximum": 4096,
+         "description": "The menu's capacity: the bars' most height in design px from y; more bars scroll inside it (the focused bar kept in view, an indicator at each clipped edge)."
+        }
        }
       },
       "title": {
@@ -8507,6 +8523,21 @@
     }
    }
   },
+  "scrollbars": {
+   "type": "object",
+   "additionalProperties": false,
+   "minProperties": 1,
+   "description": "The stage draws no native scrollbar anywhere: wheel, touch, keys and focus still scroll, and clipped edges carry their own cue (the Esc menu's chevrons, a fade). A surface named here shows a styled scrollbar instead: thumb and track colours (track omitted = transparent) and its width in CSS px (default 6). menu = the Esc menu; backlog = 履历; config = CONFIG; choices = the choice list; text = the text box; gallery = 回想; page = a card page's document (the card's own CSS may still style it).",
+   "properties": {
+    "menu": { "$ref": "#/$defs/scrollbar" },
+    "backlog": { "$ref": "#/$defs/scrollbar" },
+    "config": { "$ref": "#/$defs/scrollbar" },
+    "choices": { "$ref": "#/$defs/scrollbar" },
+    "text": { "$ref": "#/$defs/scrollbar" },
+    "gallery": { "$ref": "#/$defs/scrollbar" },
+    "page": { "$ref": "#/$defs/scrollbar" }
+   }
+  },
   "waitLines": {
    "type": "array",
    "minItems": 1,
@@ -8518,6 +8549,19 @@
   }
  },
  "$defs": {
+  "scrollbar": {
+   "type": "object",
+   "description": "A surface's styled scrollbar: thumb and track colours, width in CSS px (default 6).",
+   "additionalProperties": false,
+   "required": [
+    "thumb"
+   ],
+   "properties": {
+    "thumb": { "$ref": "#/$defs/color" },
+    "track": { "$ref": "#/$defs/color" },
+    "width": { "type": "number", "minimum": 2, "maximum": 24 }
+   }
+  },
   "shape": {
    "type": "object",
    "description": "The text box drawn as vector shapes in design px (geometry is skin data). view = the drawn rect [x, y, w, h]; boxes = one per text row count (the last for more rows); narration = the box of a narration page (default: the boxes).",

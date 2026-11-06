@@ -8,7 +8,7 @@ const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resol
 const HTML = '<div id="hp">体力</div><script>DshCardPage.onData(d=>document.getElementById("hp").textContent=d.ledger.hp)</script>'
 const PAGE = {id: 'status', label: '辉夜的状态', size: 'window', html: HTML, figures: [{name: '辉夜', emotion: '开心'}], card: {name: '辉夜大小姐'}, preload: [], data: {ledger: {hp: 3}}}
 
-function harness({page = PAGE, pages = {pages: [], fresh: false}, failRead = false} = {}) {
+function harness({page = PAGE, pages = {pages: [], fresh: false}, failRead = false, options = {}} = {}) {
   const calls = [], frames = [], lifecycles = [], fills = []
   const messageListeners = new Set()
   let notify = null
@@ -22,7 +22,7 @@ function harness({page = PAGE, pages = {pages: [], fresh: false}, failRead = fal
     return frame
   }}
   const host = {appendChild: frame => { frame.isConnected = true }}
-  const window = {console,
+  const window = {console, getComputedStyle: () => ({getPropertyValue: () => ''}),
     addEventListener: (type, fn) => { if (type === 'message') messageListeners.add(fn) },
     removeEventListener: (type, fn) => { if (type === 'message') messageListeners.delete(fn) }}
   const rpc = (method, args, sessionId) => {
@@ -43,7 +43,7 @@ function harness({page = PAGE, pages = {pages: [], fresh: false}, failRead = fal
   const panels = createStageStatusPanel({React: {}, window, document, rpc,
     signals: {subscribe: (_, fn) => { notify = fn; return () => { notify = null } }},
     themeTokens: () => ({accent: '#ff0000'}), createCardFrame, packService: () => null,
-    fillInput: (sessionId, text) => fills.push([sessionId, text])})
+    fillInput: (sessionId, text) => fills.push([sessionId, text]), ...options})
   const send = (source, method, args = {}) => {
     const token = /var token="([^"]+)"/.exec(lifecycles[0].props.content)[1]
     for (const fn of [...messageListeners]) fn({source, data: {type: 'dsh-card-page-call', token, requestId: 'r-' + method, method, args}})
@@ -84,7 +84,19 @@ test('page keys close through the facade in both trust modes without taking edit
   }
 })
 
-test('usePages is null for a card without pages, else {pages, fresh}', async () => {
+test('usePages is undefined while reading, then null for a card without pages or a failed read, else {pages, fresh}', async () => {
+  const pending = createStageStatusPanel({React: {useState: initial => [initial, () => {}], useEffect() {}}, window: {}, document: {}, rpc: () => new Promise(() => {}), signals: {}})
+  assert.equal(pending.usePages('s1'), undefined, 'not read yet: the entry reveal waits for it')
+  pending.dispose()
+  {
+    let value = 'unset'
+    const {React} = fakeReact()
+    const failed = createStageStatusPanel({React: {...React, useState: initial => [initial, next => { value = next }]}, window: {}, document: {}, rpc: () => Promise.reject(new Error('坏了')), signals: {}})
+    failed.usePages('s1')
+    await settle()
+    assert.equal(value, null, 'a failed read holds nothing')
+    failed.dispose()
+  }
   for (const [pages, expected] of [[{pages: [], fresh: true}, null],
     [{pages: [{id: 'status', label: '状态', shortcut: 's', menu: true}], fresh: true}, {pages: [{id: 'status', label: '状态', shortcut: 's', menu: true}], fresh: true}]]) {
     const h = harness({pages})
@@ -105,7 +117,7 @@ test('the Overlay frame is the core lifecycle with the live tavernHelper and tru
   const helper = {version: 1, turnMessageIds: {1: 1, 3: 5}, messages: []}
   const {React, cleanups} = fakeReact()
   const lifecycles = []
-  const panels = createStageStatusPanel({React, window: {console, addEventListener() {}, removeEventListener() {}}, document: {createElement: () => h.frames[h.frames.push({style: {}, contentWindow: {}, setAttribute() {}, removeAttribute() {}, addEventListener() {}, remove() {}}) - 1]},
+  const panels = createStageStatusPanel({React, window: {console, getComputedStyle: () => ({getPropertyValue: () => ''}), addEventListener() {}, removeEventListener() {}}, document: {createElement: () => h.frames[h.frames.push({style: {}, contentWindow: {}, setAttribute() {}, removeAttribute() {}, addEventListener() {}, remove() {}}) - 1]},
     rpc: (method, args) => Promise.resolve({ok: true, page: PAGE}), signals: {subscribe: () => () => {}},
     useLiveView: () => ({view: {tavernHelper: helper, tavernRuntimePolicy: {trustedCardMode: true}}}),
     createCardFrame: props => { const lifecycle = {props, update() {}, snapshot: () => ({visibleDocument: {token: 'd', html: '', trustedCardMode: true, ref() {}}}), start: () => () => {}}; lifecycles.push(lifecycle); return lifecycle }})
@@ -118,7 +130,8 @@ test('the Overlay frame is the core lifecycle with the live tavernHelper and tru
   assert.equal(props.trustedCardMode, true)
   assert.deepEqual({sessionId: props.sessionId, turn: props.turn, partIndex: props.partIndex, panelId: props.panelId, eager: props.eager, persistent: props.persistent, observeMvuView: props.observeMvuView, runtimeReporting: props.runtimeReporting},
     {sessionId: 's1', turn: 3, partIndex: 0, panelId: 'stage-page-status', eager: true, persistent: true, observeMvuView: false, runtimeReporting: true})
-  assert.match(props.content, /^<script data-dsh-card-page>[\s\S]*window\.DshCardPage=[\s\S]*<\/script>/)
+  // no skin scrollbars.page: the page's document shows no native scrollbar either, under the card's own CSS (:where)
+  assert.match(props.content, /^<style data-dsh-card-page>:where\(html,body,\*\)\{scrollbar-width:none\}[^<]*<\/style><script data-dsh-card-page>[\s\S]*window\.DshCardPage=[\s\S]*<\/script>/)
   assert.ok(props.content.endsWith(HTML))
   for (const cleanup of cleanups) cleanup()
   panels.dispose()
@@ -197,6 +210,8 @@ test('a session state signal re-reads the page and pushes its ledger to onData',
   assert.deepEqual(h.calls.map(call => call.args.withHtml), [true, false])
   const pushed = h.frames[0].contentWindow.posted.filter(message => message.type === 'dsh-card-page-data')
   assert.equal(pushed.length, 1)
+  assert.equal(pushed[0].data.saved, false, 'an unsaved chat')
+  delete pushed[0].data.saved
   assert.deepEqual(pushed[0].data, {ledger: {hp: 2}, figures: [{name: '辉夜', emotion: '开心', avatar: null}], theme: {accent: '#ff0000'}, card: {name: '辉夜大小姐'}})
   page.dispose()
 })
@@ -230,6 +245,30 @@ test('a missing page opens to the empty state and a failed read to the error sta
   }
 })
 
+test('while the read is out the page keeps its declared label and size; shown once its visible document has loaded', async () => {
+  const h = harness({page: {...PAGE, label: '状态页', size: 'full'}})
+  const states = []
+  const page = openPage(h, {label: '状态', size: 'full', onState: value => states.push(value)})
+  assert.deepEqual(states.map(({phase, label, size, shown}) => ({phase, label, size, shown})), [{phase: 'loading', label: '状态', size: 'full', shown: false}])
+  await settle()
+  assert.deepEqual(states.map(({phase, label, size, shown}) => [phase, label, size, shown]).slice(1), [['ready', '状态页', 'full', false]], 'mounted, not yet on screen')
+  assert.equal(h.frames[0].title, '状态页')
+  h.frames[0].listeners.load()
+  assert.deepEqual(states.map(({phase, shown}) => [phase, shown]).slice(2), [['ready', true]], 'the visible document loaded')
+  page.dispose()
+})
+
+test('an entry page draws no chrome (data-bare) until its document is shown, or its read comes back empty or failed', () => {
+  for (const [entry, phase, shown, bare] of [[true, 'loading', false, true], [true, 'ready', false, true], [true, 'ready', true, false],
+    [true, 'empty', false, false], [true, 'error', false, false], [false, 'loading', false, false], [false, 'ready', false, false]]) {
+    const {React} = fakeReact({phase, label: '标题', size: 'full', figures: [], shown})
+    const panels = createStageStatusPanel({React, window: {console, addEventListener() {}, removeEventListener() {}}, document: {}, rpc: () => new Promise(() => {}), signals: {subscribe: () => () => {}}})
+    const tree = panels.Overlay({sessionId: 's1', pageId: 'title', label: '标题', size: 'full', entry, onClose() {}})
+    assert.equal(tree.props['data-bare'], bare ? '' : undefined, JSON.stringify({entry, phase, shown}))
+    panels.dispose()
+  }
+})
+
 test('the sheet renders loading, empty and error (重试) states', () => {
   for (const [phase, expected] of [['loading', '正在读取页面…'], ['empty', '本卡没有这个页面'], ['error', '页面读取失败重试']]) {
     const {React} = fakeReact({phase, label: '', size: 'window', figures: []})
@@ -238,6 +277,18 @@ test('the sheet renders loading, empty and error (重试) states', () => {
     const note = find(tree, node => node.props.className === 'fork-gal-status-note')
     assert.equal(text(note), expected)
     if (phase === 'error') assert.equal(find(note, node => node.type === 'button')?.children[0], '重试')
+    panels.dispose()
+  }
+})
+
+test('an entry page is opaque from its first frame: no 正在读取 note, and its close button is 返回主页面', () => {
+  for (const entry of [true, false]) {
+    const {React} = fakeReact({phase: 'loading', label: '', size: 'full', figures: []})
+    const panels = createStageStatusPanel({React, window: {console, addEventListener() {}, removeEventListener() {}}, document: {}, rpc: () => new Promise(() => {}), signals: {subscribe: () => () => {}}})
+    const tree = panels.Overlay({sessionId: 's1', pageId: 'title', size: 'full', entry, onClose() {}})
+    assert.equal(tree.props['data-entry-page'], entry ? '' : undefined)
+    assert.equal(Boolean(find(tree, node => node.props.className === 'fork-gal-status-note')), !entry, 'a loading note only on a page opened while reading')
+    assert.equal(find(tree, node => node.props.className === 'fork-gal-status-close').props['aria-label'], entry ? '返回主页面' : '关闭页面')
     panels.dispose()
   }
 })
@@ -254,4 +305,96 @@ test('a full sheet has no title bar, only the close button; a window sheet keeps
     assert.ok(find(tree, node => node.props.className === 'fork-gal-status-close'))
     panels.dispose()
   }
+})
+
+// Two card pages a card may author: a full title page entered from text mode and a window menu page from a menu row.
+const TITLE_PAGE = {...PAGE, id: 'title', label: '标题', size: 'full', html: '<button data-dsh-sound id="new">新游戏</button>', figures: []}
+const MENU_PAGE = {...PAGE, id: 'menu', label: '菜单', size: 'window', html: '<button data-dsh-sound id="back">返回</button>', figures: []}
+function titleHarness(page, {answer = true} = {}) {
+  const asked = [], started = [], played = []
+  const h = harness({page, options: {
+    confirm: (message, options) => { asked.push([message, options]); return Promise.resolve(answer) },
+    newGame: sessionId => started.push(sessionId),
+    sounds: {playSkin: name => { played.push(name); return name !== 'close' }}}})
+  return {h, asked, started, played}
+}
+const answered = frame => Object.fromEntries(responses(frame).map(message => [message.requestId, message.ok ? message.result : 'error:' + message.error]))
+
+test('title actions route on both pages: continue / gallery / exit reach the stage, newGame leaves for the core', async () => {
+  for (const page of [TITLE_PAGE, MENU_PAGE]) {
+    const t = titleHarness(page)
+    let closes = 0
+    const actions = []
+    const panel = openPage(t.h, {page: page.id, saved: false, onClose: () => closes++, onAction: (...args) => actions.push(args)})
+    await settle()
+    const source = t.h.frames[0].contentWindow
+    for (const method of ['continue', 'gallery', 'exit', 'newGame']) t.h.send(source, method)
+    await settle()
+    assert.equal(closes, 0, page.id + ': continueGame is the stage action, not close() (which leaves on an entry page)')
+    assert.deepEqual(actions, [['continue'], ['gallery'], ['exit'], ['exit']])
+    assert.deepEqual(t.started, ['s1'])
+    assert.deepEqual(t.asked, [], 'an unsaved chat starts without asking')
+    assert.deepEqual(answered(t.h.frames[0]), {'r-continue': {ok: true}, 'r-gallery': {ok: true}, 'r-exit': {ok: true}, 'r-newGame': {started: true}})
+    panel.dispose()
+  }
+})
+
+test('newGame asks first when the chat is saved; a cancel answers {started:false} and leaves the page as it was', async () => {
+  for (const answer of [false, true]) {
+    const t = titleHarness(TITLE_PAGE, {answer})
+    const actions = []
+    const panel = openPage(t.h, {page: 'title', saved: true, onAction: (...args) => actions.push(args)})
+    await settle()
+    assert.match(t.h.lifecycles[0].props.content, /"saved":true/)
+    t.h.send(t.h.frames[0].contentWindow, 'newGame')
+    await settle()
+    assert.equal(t.asked.length, 1)
+    assert.match(t.asked[0][0], /^开始新游戏？/)
+    assert.deepEqual(t.asked[0][1], {confirmText: '开始新游戏', cancelText: '取消'})
+    assert.deepEqual(answered(t.h.frames[0]), {'r-newGame': {started: answer}}, 'the call settles either way, so no button stays disabled')
+    assert.deepEqual(actions, answer ? [['exit']] : [])
+    assert.deepEqual(t.started, answer ? ['s1'] : [])
+    panel.dispose()
+  }
+})
+
+test('sound(name) plays the shown skin palette cue only, and rejects other names', async () => {
+  const t = titleHarness(MENU_PAGE)
+  const panel = openPage(t.h, {page: 'menu'})
+  await settle()
+  const source = t.h.frames[0].contentWindow
+  t.h.send(source, 'sound', {name: 'move'})
+  await settle()
+  t.h.send(source, 'sound', {name: 'close'})
+  await settle()
+  t.h.send(source, 'sound', {name: 'type'})
+  await settle()
+  assert.deepEqual(t.played, ['move', 'close'])
+  assert.deepEqual(responses(t.h.frames[0]).map(message => message.ok ? message.result : message.error),
+    [{played: true}, {played: false}, 'sound 只接受 move、confirm、open、close'])
+  panel.dispose()
+})
+
+test('the prelude exposes the title actions and sounds data-dsh-sound controls on hover, focus and click', async () => {
+  const h = harness({page: TITLE_PAGE})
+  const panel = openPage(h, {page: 'title'})
+  await settle()
+  const prelude = /<script data-dsh-card-page>([\s\S]*?)<\/script>/.exec(h.lifecycles[0].props.content)[1]
+  const posted = [], listeners = new Map(), context = {window: {}, parent: {postMessage: data => posted.push(data)}, addEventListener: (type, fn) => listeners.set(type, fn)}
+  vm.runInNewContext(prelude, context)
+  const api = context.window.DshCardPage
+  for (const name of ['newGame', 'continueGame', 'openGallery', 'exit']) api[name]()
+  api.sound('open')
+  assert.deepEqual(JSON.parse(JSON.stringify(posted.splice(0).map(call => [call.method, call.args]))), [['newGame', {}], ['continue', {}], ['gallery', {}], ['exit', {}], ['sound', {name: 'open'}]])
+  const button = {disabled: false, getAttribute: () => null, contains: node => node === inner}, inner = {closest: () => button}
+  const target = {closest: selector => selector === '[data-dsh-sound]' ? button : null}
+  listeners.get('mouseover')({target, relatedTarget: null})
+  listeners.get('mouseover')({target, relatedTarget: inner}) // moving inside the same control
+  listeners.get('focusin')({target, relatedTarget: null})
+  listeners.get('click')({target})
+  listeners.get('mouseover')({target: {closest: () => null}})
+  button.disabled = true
+  listeners.get('click')({target})
+  assert.deepEqual(posted.map(call => call.args.name), ['move', 'move', 'confirm'])
+  panel.dispose()
 })

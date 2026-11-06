@@ -48,6 +48,14 @@ export function createBodyGenerationProviders({ allowed, timeoutMs = 600000 }) {
       return result
     },
     require: requireProvider,
+    async controlRoute(gameId) {
+      const matches = []
+      for (const provider of providers.values()) {
+        if (provider.controlInput === true && await Promise.resolve().then(() => allowed(provider.owner, gameId)).catch(() => false)) matches.push(provider)
+      }
+      if (matches.length > 1) throw new Error('多个插件同时接管对话输入，请只启用一个控制插件')
+      return matches.length ? { mode: 'plugin-direct', provider: matches[0].id } : null
+    },
     async prepare(id, { gameId, reason, signal }) {
       const provider = await requireProvider(id, gameId)
       let config

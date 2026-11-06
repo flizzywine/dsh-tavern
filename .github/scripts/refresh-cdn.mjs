@@ -23,8 +23,9 @@ export async function refreshCdn({ repo, branch, manifest, request = fetch, slee
     }
   }
   let served = ''
-  for (let attempt = 0; attempt < 4; attempt++) {
-    await sleep(15_000)
+  const throttledBeyondRetryWindow = reset > 60
+  for (let attempt = 0; attempt < (throttledBeyondRetryWindow ? 1 : 4); attempt++) {
+    if (!throttledBeyondRetryWindow) await sleep(15_000)
     try {
       served = (await (await get(`https://cdn.jsdelivr.net/gh/${repo}@${dist}/dsh-tavern-runtime.json`)).json()).revision
     } catch (error) {
@@ -34,7 +35,9 @@ export async function refreshCdn({ repo, branch, manifest, request = fetch, slee
   }
   log(`CDN manifest revision=${served || '<none>'} expected=${manifest.revision}`)
   if (served !== manifest.revision) {
-    throw new Error(`jsDelivr still serves a stale manifest on ${dist}. Runtime published, CDN synchronization unverified.${reset ? ` Purge throttled; retry after ${reset} seconds (about ${Math.ceil(reset / 60)} minutes) from the purge response.` : ''}`)
+    const error = new Error(`jsDelivr still serves a stale manifest on ${dist}. Runtime published, CDN synchronization unverified.${reset ? ` Purge throttled; retry after ${reset} seconds (about ${Math.ceil(reset / 60)} minutes) from the purge response.` : ''}`)
+    error.code = 'CDN_SYNC_UNVERIFIED'
+    throw error
   }
   if (manifest.archive?.commit) {
     try {
@@ -50,8 +53,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     await refreshCdn({ repo: process.env.GITHUB_REPOSITORY, branch: process.env.GITHUB_REF_NAME, manifest: JSON.parse(await readFile('dsh-tavern-runtime.json', 'utf8')) })
   } catch (error) {
-    console.error(`::error::${error.message}`)
-    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `### CDN synchronization failed\n\n${error.message}\n`)
-    process.exitCode = 1
+    const advisory = process.argv.includes('--best-effort') && error.code === 'CDN_SYNC_UNVERIFIED'
+    console.error(`::${advisory ? 'warning' : 'error'}::${error.message}`)
+    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `### CDN synchronization ${advisory ? 'pending' : 'failed'}\n\n${error.message}\n`)
+    if (!advisory) process.exitCode = 1
   }
 }

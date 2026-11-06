@@ -42,7 +42,7 @@ function StageSceneImageButton(props) {
     const h = React.createElement;
     const [busy, setBusy] = React.useState(false), [open, setOpen] = React.useState(false);
     const [text, setText] = React.useState(""), [sending, setSending] = React.useState(false), [failed, setFailed] = React.useState(false);
-    const chip = React.useRef(null), panel = React.useRef(null), field = React.useRef(null), opened = React.useRef(false);
+    const chip = React.useRef(null), panel = React.useRef(null), field = React.useRef(null), opened = React.useRef(false), request = React.useRef(0);
     // The round's notice (「正在生成 CG…」) shows the drawing; the button only stays busy while the plugin plans.
     async function draw() {
         if (busy) return;
@@ -63,11 +63,19 @@ function StageSceneImageButton(props) {
     async function submit(event) {
         event.preventDefault();
         if (sending) return;
+        const id = ++request.current;
         setSending(true); setFailed(false);
-        try { await runTavernIllustrator(props.illustrator, props.sessionId, props.turn, text); close(); if (chip.current) chip.current.focus({ preventScroll: true }); }
+        // Closes once the illustrator has taken the request; the drawing goes on under the round's 「正在生成 CG…」.
+        let accepted = false;
+        const accept = () => {
+            accepted = true;
+            if (id !== request.current) return;
+            setSending(false); close(); if (chip.current) chip.current.focus({ preventScroll: true });
+        };
+        try { await runTavernIllustrator(props.illustrator, props.sessionId, props.turn, text, accept); }
         // The plugin's own words stay in its chat card; the stage says only that it did not start.
-        catch (_) { setFailed(true); }
-        finally { setSending(false); }
+        catch (_) { if (!accepted && id === request.current) setFailed(true); }
+        finally { if (!accepted && id === request.current) setSending(false); }
     }
     const stop = event => event.stopPropagation();
     const label = busy ? "正在整理画面…" : "场景生图";

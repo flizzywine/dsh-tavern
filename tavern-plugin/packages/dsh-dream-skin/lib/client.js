@@ -6323,6 +6323,9 @@ return FontPicker;
   var MARKER = "data-dsh-dream-skin-nav"
   var mask = "%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'24'%20height%3D'24'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'2'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Ccircle%20cx%3D%2213.5%22%20cy%3D%226.5%22%20r%3D%221.05%22%2F%3E%3Ccircle%20cx%3D%2217.5%22%20cy%3D%2210.5%22%20r%3D%221.05%22%2F%3E%3Ccircle%20cx%3D%228.5%22%20cy%3D%227.5%22%20r%3D%221.05%22%2F%3E%3Ccircle%20cx%3D%226.5%22%20cy%3D%2212.5%22%20r%3D%221.05%22%2F%3E%3Cpath%20d%3D'M12%202C6.5%202%202%206.5%202%2012s4.5%2010%2010%2010c.926%200%201.648-.746%201.648-1.688%200-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64%201.64%200%200%201%201.668-1.668h1.996c3.051%200%205.555-2.503%205.555-5.554C21.965%206.012%2017.461%202%2012%202z'%2F%3E%3C%2Fsvg%3E"
   var css = "[" + MARKER + "] > svg:first-child{display:none}" +
+    // New settings shells wrap the fallback gear in a slot container. Both
+    // legacy icon decorators already draw a replacement on the button.
+    ":is([" + MARKER + "],[data-dsh-market-nav-icon]) > span[class$='_navIcon'][aria-hidden='true']{display:none}" +
     "[" + MARKER + "]::before{content:\"\";flex:none;width:16px;height:16px;background:currentColor;" +
     "-webkit-mask:url(\"data:image/svg+xml," + mask + "\") center/contain no-repeat;" +
     "mask:url(\"data:image/svg+xml," + mask + "\") center/contain no-repeat}"

@@ -8,6 +8,7 @@
 // @include-protocol asset-tags.cjs
 // @include-protocol audio-categories.cjs
 // @include widget-contracts.cjs
+// @include audio-loudness.js
 // one kind order — built-in kinds as listed, then mod-brought kinds grouped by mod id
 // (stable: mods sorted by id, a mod's kinds in the order it lists them). modKinds rows are [kind, modId, label].
 function kindOrder(builtin, modKinds) {
@@ -21,12 +22,12 @@ function kindOrder(builtin, modKinds) {
 // The raw text goes to the console (and the 调试视图's 最新错误) only.
 const PLAYER_ERRORS={REVISION_CONFLICT:'内容已被修改，请重新载入',
   LIMIT_EXCEEDED:'素材数据超过大小或数量限制，未能保存；请减少本次提交的内容后重试',
-  TRIGGER_LINT:'触发词不符合要求，请填写能在正文中出现的简短词语，去掉重复或过于笼统的词后再保存',
+  TRIGGER_LINT:'触发词不符合要求：蓝灯、绿灯至少 3 个、最多 6 个正文里会出现的简短词语，去掉重复或过于笼统的词后再保存',
   MISSING_DEPENDENCY:'素材引用不完整，请补齐所引用的图片、差分或资源后重试；无需安装额外程序',
   PACK_UNAVAILABLE:'这张卡用到的一个素材包找不到了，请在 舞台设置 › 素材包 里移除或重新安装它',
   AbortError:'保存超时，结果尚未确认；请重新载入后检查',TimeoutError:'保存超时，结果尚未确认；请重新载入后检查'};
 // Names a player reads as words, not code: product names and short capitals (MP3、FLAC、CG、BGM — not HTTP or a CODE_NAME).
-const PLAYER_TERMS=/Live2D|Spine|ComfyUI|Fish Audio|WebP|\b(?!HTTP\b)[A-Z][A-Z0-9]{1,4}\b(?!_)/g;
+const PLAYER_TERMS=/ffmpeg|Live2D|Spine|ComfyUI|Fish Audio|WebP|\b(?!HTTP\b)[A-Z][A-Z0-9]{1,4}\b(?!_)/g;
 const playerErrorSeen=new Set();
 function playerPlain(text){
   const t=String(text||'').replace(/（HTTP\s*\d+）[\s\S]*$/,'').replace(/[：:]\s*[A-Za-z][\s\S]*$/,'').trim();
@@ -876,10 +877,12 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const bytes=new Uint8Array(await file.arrayBuffer()),ext=audioExt(bytes);
     if(!ext)throw new Error('请选择 MP3、OGG、WAV、M4A 或 FLAC 音频');
     if(bytes.length>60*1024*1024)throw new Error('音频过大（上限 60 MB）');
-    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length}};
+    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length},loudness:await measureBrowserAudio(bytes)};
   }
   const fileStem=name=>[...String(name||'').replace(/\.[^.]+$/,'').trim()].slice(0,120).join('')||'未命名';
   let entrySerial=0;
+  // An added file starts 关闭 with no words: 蓝灯 / 绿灯 need 3–6 of them, which the player writes in the opened entry.
+  const newFileEntry=(kind,id,name,content)=>({kind,id,name,enabled:false,recall:{mode:'keyword',keywords:[]},directorNote:'',...content});
   const newEntryId=(pack,kind)=>{let id;do{id='u'+Date.now().toString(36)+(entrySerial++).toString(36)+Math.random().toString(36).slice(2,5);}while(pack.manifest.assets.some(a=>a.kind===kind&&a.id===id));return id;};
   // One figure picture (立绘 / 头像) into a pack through its serialized writer `enqueue(job(snapshot) → {snapshot})`: the pack
   // modal's uploads and every generation 采用 (useAssetGen), also the 新人物 page's (asset-pack-setup-ui.js).
@@ -909,6 +912,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const [figureTab,setFigureTab]=React.useState(initial?.tab==='gen'?'gen':'edit');
     // a new 演出风格 is a local draft until its text is written (a style needs text).
     const [styleDraft,setStyleDraft]=React.useState(false);
+    // the entry just added by addFiles — its detail opens on the 触发词 field with the hint (cleared by the next pick).
+    const [fresh,setFresh]=React.useState(null);
     React.useEffect(()=>{if(!notice)return;const t=setTimeout(()=>setNotice(null),8000);return()=>clearTimeout(t);},[notice]);
     const latest=React.useRef(null),queue=React.useRef(Promise.resolve());
     const seen=React.useRef(null);if(pack!==seen.current){seen.current=pack;latest.current=pack;}
@@ -1026,7 +1031,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       const closure=await imageClosure(media);
       return enqueue(snapshot=>binding.service.patchPack({packId,expectedRevision:snapshot.revision,fileUpdates:closure.files,patch:{blobs:{...snapshot.manifest.blobs,...closure.blobs},assets:snapshot.manifest.assets.map(asset=>{
         if(asset.kind!==kind||asset.id!==assetId)return asset;
-        const change=content=>{const next={...content,media:closure.hash};delete next.pendingMedia;if(AUDIO_KINDS.includes(kind)){delete next.durationMs;delete next.loudness;}if(kind==='sfx')delete next.gainDb;return next;};
+        const change=content=>{const next={...content,media:closure.hash};delete next.pendingMedia;if(AUDIO_KINDS.includes(kind)){delete next.durationMs;next.loudness=media.loudness;}if(kind==='sfx')delete next.gainDb;return next;};
         return asset.variants?{...asset,variants:{...asset.variants,entries:asset.variants.entries.map(row=>row.id===variantId?{...row,content:change(row.content)}:row)}}:change(asset);
       })}}));
     };
@@ -1089,7 +1094,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const rightRef=React.useRef(null);React.useEffect(()=>{if(rightRef.current)rightRef.current.scrollTop=0;},[current,selected?.id]);
     const toggle=id=>setPicked(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
     const stopSelect=()=>{setSelecting(false);setPicked(new Set());};
-    const switchKind=k=>{audio.stop();setKind(k);setSel(null);setQuery('');setCategory('');setDetail(false);setPicked(new Set());setStyleDraft(false);};
+    const switchKind=k=>{audio.stop();setFresh(null);setKind(k);setSel(null);setQuery('');setCategory('');setDetail(false);setPicked(new Set());setStyleDraft(false);};
     // 新建 (the dashed ＋, or 「演出风格」 in the add menu) opens a draft; the first write adds
     // the entry (启用, 蓝灯 recall as the contract requires). 删除 removes it in one CAS write.
     const addStyle=()=>{audio.stop();stopSelect();setKind('directions');setQuery('');setFilter('all');setCategory('');setStyleDraft(true);setDetail(true);};
@@ -1119,15 +1124,15 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       const svc=binding.service,added=[],figures=[];
       if(k==='cg') {
         const revision=latest.current.revision,prepared=await prepareCgFiles(files);
-        const asset={kind:'cg',id:newEntryId(latest.current,'cg'),name:fileStem(files[0].name),enabled:true,directorNote:'',recall:{mode:'keyword',keywords:[]},variants:{default:prepared.variants[0].id,entries:prepared.variants}};
+        const asset=newFileEntry('cg',newEntryId(latest.current,'cg'),fileStem(files[0].name),{variants:{default:prepared.variants[0].id,entries:prepared.variants}});
         await enqueue(c=>svc.patchPack({packId,expectedRevision:revision,fileUpdates:prepared.updates,patch:{assets:[...c.manifest.assets,asset],blobs:{...c.manifest.blobs,...prepared.blobs}}}));
-        stopSelect();setKind(k);setQuery('');setFilter('all');setSel(asset.id);onPacksChanged?.();return;
+        stopSelect();setKind(k);setQuery('');setFilter('all');setSel(asset.id);setFresh(asset.id);if(narrow)setDetail(true);onPacksChanged?.();return;
       }
       for(const file of files){
         const stem=fileStem(file.name),media=AUDIO_KINDS.includes(k)?await prepareAudio(file):await prepareImage(file,k==='figures'?'sprite':'background');
         if(AUDIO_KINDS.includes(k)){
           const blob=await enqueue(c=>svc.putBlob({packId,expectedRevision:c.revision,bytes:media.bytes,descriptor:media.descriptor}));
-          added.push({kind:k,id:newEntryId(latest.current,k)+added.length,name:stem,enabled:true,recall:{mode:'keyword',keywords:[]},directorNote:'',media:blob.hash});continue;
+          added.push(newFileEntry(k,newEntryId(latest.current,k)+added.length,stem,{media:blob.hash,loudness:media.loudness}));continue;
         }
         const closure=await imageClosure(media);
         if(k==='figures'){
@@ -1136,12 +1141,12 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
           closure.files.set(spriteFile,jsonBytes(made.manifest));closure.files.set('figures/'+figureId+'.json',jsonBytes(figure));
           await enqueue(c=>svc.patchPack({packId,expectedRevision:c.revision,patch:{figures:[...c.manifest.figures,figureId],sprites:{...c.manifest.sprites,[spriteKey]:spriteFile},blobs:{...c.manifest.blobs,...closure.blobs}},fileUpdates:closure.files}));figures.push(figureId);
         }else{
-          const asset={kind:k,id:newEntryId(latest.current,k)+added.length,name:stem,enabled:true,recall:{mode:'keyword',keywords:[]},directorNote:'',media:closure.hash};
+          const asset=newFileEntry(k,newEntryId(latest.current,k)+added.length,stem,{media:closure.hash});
           await enqueue(c=>svc.patchPack({packId,expectedRevision:c.revision,patch:{assets:[...c.manifest.assets,asset],blobs:{...c.manifest.blobs,...closure.blobs}},fileUpdates:closure.files}));added.push(asset);
         }
       }
       if(added.length&&AUDIO_KINDS.includes(k))await enqueue(c=>svc.patchPack({packId,expectedRevision:c.revision,patch:{assets:[...c.manifest.assets,...added]}}));
-      stopSelect();setKind(k);setQuery('');setFilter('all');setSel(added[0]?.id||figures[0]||null);
+      stopSelect();setKind(k);setQuery('');setFilter('all');setSel(added[0]?.id||figures[0]||null);if(added.length){setFresh(added[0].id);if(narrow)setDetail(true);}
       setNotice({text:'已添加 '+files.length+' 项'});onPacksChanged?.();
     });
     // 复制到…: copyItems (one publication with the same-pack closure); 新建素材包 creates the target in the same write.
@@ -1201,8 +1206,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
         if(e?.shiftKey&&from!==id&&a>=0&&b>=0){const range=ids.slice(Math.min(a,b),Math.max(a,b)+1),on=picked.has(from);
           setPicked(p=>{const n=new Set(p);for(const r of range)on?n.add(r):n.delete(r);return n;});}
         else toggle(id);
-        pickAnchor.current=id;setSel(id);return;}
-      setSel(id);if(narrow)setDetail(true);};
+        pickAnchor.current=id;setSel(id);setFresh(null);return;}
+      setSel(id);setFresh(null);if(narrow)setDetail(true);};
     // The lamp items read like LampMenu's own (dot + the same word: ENTRY_LAMPS).
     const filterMenu=filterModes.length>0&&h(Popover,{label:'筛选条目',className:'ap-filter-anchor',trigger:({toggle:t,open})=>h(Button,{className:'ap-icon-button','data-on':lampFilter!=='all'||undefined,'aria-label':'筛选条目','aria-expanded':open,title:'筛选',onClick:t},h(Glyph,{name:'filter'})),
       content:closeMenu=>['all',...filterModes].map(v=>h('button',{key:v,type:'button',role:'menuitemradio','aria-checked':lampFilter===v,className:'ap-menu-item ap-lamp-opt','data-mode':v,onClick:()=>{setFilter(v);closeMenu();}},
@@ -1252,8 +1257,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       current==='directions'&&(drafting||selected)?h(StyleDetail,{key:drafting?'@new':'directions/'+selected.id,pack,asset:drafting?null:selected,commit,create:createStyle,remove:removeStyle,busy:work.busy,back:narrowBack}):
       !selected?null:current==='figures'?h(FigureDetail,{key:selected.id,binding,pack,figure:selected,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions:figureActions(selected.id),nav:tabNav,narrow,onBack:()=>setDetail(false),onClose:close,backLabel:kinds[current],
           gen,importSettei,removeFigureImage,identityBoard:{upload:importIdentitySettei,remove:removeIdentitySettei},tab:figureTab,setTab:setFigureTab,voiceOpen:initial?.tab==='voice'&&selected.id===initial.figureId}):
-        current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,card:ctx||scope?.ctx||null,back:narrowBack}):
-        h(EntryDetail,{key:current+'/'+selected.id,binding,pack,packs,asset:selected,commit,audio,gen,uploadBackground,uploadVariant,card:ctx||scope?.ctx||null,remove:removeEntry,busy:work.busy,back:narrowBack,
+        current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,card:ctx||scope?.ctx||null,back:narrowBack,fresh:fresh===selected.id}):
+        h(EntryDetail,{key:current+'/'+selected.id,binding,pack,packs,asset:selected,commit,audio,gen,uploadBackground,uploadVariant,card:ctx||scope?.ctx||null,remove:removeEntry,busy:work.busy,back:narrowBack,fresh:fresh===selected.id,
           onCategory:path=>{setCategory(path);setSel(selected.id);if(narrow)setDetail(false);},
           onOpenPack:onOpenPack&&((id,k,item)=>{audio.stop();onPacksChanged?.();onOpenPack(id,k,item);})})));
     const empty=pack&&!present.length&&h(EmptyState,{text:'还没有内容',action:h(AddFilesMenu,{onFiles:addFiles,onGenerate:generateBackground,onStyle:addStyle,onModel:openModelImport,label:'添加文件',disabled:work.busy})});
@@ -1360,6 +1365,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     videos:'M2 3.5h12v9H2zM2 5.5h12M2 10.5h12M6.8 6.6v2.8L9.2 8z'};
   function KindIcon({kind}) { return h('svg',{className:'ap-kind-icon',width:16,height:16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},h('path',{d:kindGlyphs[['cg','props'].includes(kind)?'backgrounds':kind],stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round',strokeLinejoin:'round'})); }
   // @include asset-pack-widgets.js
+  // @include voice-catalogue-picker.js
   // @include widget-settings-ui.js
   // @include asset-pack-entry-ui.js
   // @include asset-pack-cg-ui.js
@@ -1385,7 +1391,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const notify=()=>{for(const fn of [...listeners])fn();};
     const take=next=>{({CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stageSwitchTag, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter}=next);};
     // The exact names the stage pages reference from this factory (its declarations and parameters) and from the core client.
-    const names={React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+    const names={VoiceCataloguePicker, voiceKey, voiceFromKey, generalVoiceOptions, React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
       EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
     return {names, get views(){return views;}, bound:()=>views!==null,
       bind(next){views=next;take(next);live2dKit=next.live2dKit||live2dOption;notify();return()=>{if(views!==next)return;views=null;take({});live2dKit=live2dOption;notify();};},
@@ -1408,7 +1414,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h('header',{className:'ap-head'},h('h2',null,'舞台素材')),
       h(Home,{binding,open,onOpen:setOpen,sessionId:props.sessionId,cardPath:props.cardPath,cardStamp:props.cardStamp,filter,nav:props.nav}));
   }
-  return stageExposed({App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
+  return stageExposed({VoiceCataloguePicker,voiceKey,voiceFromKey,App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
     // the stage pages' seam: names in (stageScope.names), bind / use (gal-stage.js, asset-launcher.js, settings.js).
     stageScope,
     // the manager and the card's mod section, for tests and the offline screenshot harness.

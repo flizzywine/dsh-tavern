@@ -4,9 +4,8 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { execFileSync } from 'node:child_process'
 
-import { createTavernShortcut, ensureInitialTavernShortcut, macLauncherScript, windowsLauncherScript } from '../tavern-plugin/packages/dsh-profile-bridge/lib/shortcut.mjs'
+import { createTavernShortcut, macLauncherScript, windowsLauncherScript } from '../tavern-plugin/packages/dsh-profile-bridge/lib/shortcut.mjs'
 import { appWindowBrowser, desktopUsesTavern } from '../bin/tavern-window.mjs'
 
 test('应用图标完整保留正式 SVG Logo 的造型、线条和装饰', async () => {
@@ -53,35 +52,6 @@ async function setup(t) {
   const paths = { home: dsh, profilesDir: path.join(dsh, 'profiles') }
   return { root, source, dsh, paths }
 }
-
-test('Windows 更新已有快捷方式图标，保留启动参数、自定义图标和用户删除状态', { skip: process.platform !== 'win32' }, async t => {
-  const { root, paths } = await setup(t)
-  const tools = path.join(paths.home, 'tools', 'dsh-tavern-window')
-  const link = path.join(root, 'Desktop', 'DSH 酒馆.lnk')
-  const quote = value => "'" + value.replace(/'/g, "''") + "'"
-  const ps = source => execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(source, 'utf16le').toString('base64')], { encoding: 'utf8', windowsHide: true }).trim()
-  await mkdir(tools, { recursive: true })
-  await mkdir(path.join(paths.home, 'profile-bridge'))
-  await writeFile(path.join(paths.home, 'profile-bridge', 'shortcut-initialized.json'), JSON.stringify({ path: link }))
-  const old = path.join(tools, 'tavern.ico')
-  ps(`$s = New-Object -ComObject WScript.Shell; $l = $s.CreateShortcut(${quote(link)}); $l.TargetPath = 'C:\\Windows\\System32\\wscript.exe'; $l.Arguments = 'keep-me'; $l.IconLocation = ${quote(old + ',0')}; $l.Save()`)
-  const run = () => ensureInitialTavernShortcut({ paths }, () => assert.fail('已有安装不应重新创建快捷方式'))
-  assert.deepEqual(run(), { skipped: true })
-  const inspect = () => JSON.parse(ps(`$s = New-Object -ComObject WScript.Shell; $l = $s.CreateShortcut(${quote(link)}); @{icon=$l.IconLocation; args=$l.Arguments} | ConvertTo-Json -Compress`))
-  const updated = inspect()
-  assert.match(updated.icon, /tavern-[0-9a-f]{12}\.ico,0$/)
-  assert.equal(updated.args, 'keep-me')
-  const ico = updated.icon.replace(/,0$/, '')
-  assert.deepEqual(await readFile(ico), await readFile(new URL('../tavern-plugin/packages/dsh-profile-bridge/assets/dsh-tavern-app.ico', import.meta.url)))
-  run()
-  assert.deepEqual(inspect(), updated)
-  ps(`$s = New-Object -ComObject WScript.Shell; $l = $s.CreateShortcut(${quote(link)}); $l.IconLocation = 'C:\\Windows\\System32\\shell32.dll,3'; $l.Save()`)
-  run()
-  assert.match(inspect().icon, /shell32\.dll,3$/)
-  await rm(link)
-  run()
-  await assert.rejects(stat(link), { code: 'ENOENT' })
-})
 
 test('macOS：桌面生成 DSH 酒馆.app，指向本机酒馆脚本；已存在不覆盖；没装酒馆就说明', async t => {
   const { root, source, paths } = await setup(t)

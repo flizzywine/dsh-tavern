@@ -54,13 +54,12 @@ test('cache hit persists last use and extends retention across reload',async t =
   assert.equal(await reloaded.get(key),null)
 })
 
-// a hit is checked by size and WAV structure, not by rehashing the clip.
-test('cache treats a torn or non-WAV clip as a miss and removes it',async t => {
+// WAV structure is validated at write; reads reject truncated files by size.
+test('cache rejects non-WAV writes and removes truncated cached clips',async t => {
   const dataDir = await directory(t), root = join(dataDir,'cache','audio-v2')
   await createCache({dataDir}).put(key,audio,[])
-  await createCache({dataDir}).put(other,audio,[])
+  await assert.rejects(createCache({dataDir}).put(other,Buffer.alloc(audio.length),[]),{code:'INVALID_AUDIO'})
   await writeFile(join(root,key + '.wav'),audio.subarray(0,audio.length - 2))
-  await writeFile(join(root,other + '.wav'),Buffer.alloc(audio.length))
   const cache = createCache({dataDir})
   assert.equal(await cache.get(key),null)
   assert.equal(await cache.get(other),null)
@@ -79,7 +78,7 @@ test('cache trims expired entries after writes without evicting fresh entries',a
 })
 
 test('size setting uses GiB and evicts least recently used clips after writes',async t => {
-  // Exercise real GiB eviction without analyzing four long silent clips; loudness.test.mjs covers FFmpeg.
+  // Exercise real GiB eviction without analyzing four long silent clips; loudness.test.mjs covers the JS meter.
   const measureLoudness = t.mock.fn(async () => voiceLoudnessGain(-Infinity, -Infinity))
   const settings = Settings({cacheMaxGB:0.1}), cache = createCache({...limits(settings),measureLoudness})
   const large = pcmWav(Buffer.alloc(28 * 1024 ** 2)), keys = ['a','b','c','d'].map(c => c.repeat(64))

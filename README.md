@@ -1,6 +1,6 @@
 <p align="center">
 
-> **当前版本适配 DSH 0.2.x**（0.2.0-rc.2 起的 0.2 系列均可；官方 DeepSeek Harness 或独立命令行；Android 使用独立 APK），安装见[快速开始](#快速开始)。
+> **桌面版支持官方 DeepSeek Harness 0.2.x**。Windows、macOS、命令行版和 Android 的安装见[快速开始](#快速开始)。
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/docs/assets/brand/dsh-tavern-lockup-on-dark.svg">
     <img src="docs/assets/brand/dsh-tavern-lockup.svg" width="360" alt="DSH 酒馆">
@@ -17,22 +17,40 @@
 
 ## 快速开始
 
-> **请不要从 npm 下载或安装本项目。** 由于对 DSH 的定制改动较多，DSH Tavern 无法作为常规 DSH 插件安装使用。npm 上的 `dsh-profile-tavern` 已标记弃用，不再维护；请按下方对应平台的方式安装。
+### 桌面版（Windows / macOS）
 
-**桌面版仅支持官方 DeepSeek Harness，不再支持社区 DSH Desktop 或 DSH NEXT。** 从社区版迁移前请备份数据，再按[数据导入说明](https://github.com/flizzywine/dsh-tavern/wiki/%E4%BB%8E%E6%97%A7%E9%85%92%E9%A6%86%E7%BB%A7%E6%89%BF%E6%95%B0%E6%8D%AE%EF%BC%88%E6%B5%8B%E8%AF%95%E7%89%88%EF%BC%89)导入；Android 和独立命令行版继续支持。
+先安装官方 [DeepSeek Harness](https://deepseek.com/harness/)，打开并完成初始设置。推荐使用 **0.2.2-rc.1 或更新的 0.2.x**。然后在下方 **任选一种** 安装方式。
 
-当前版本适配 **DSH 0.2.x**（0.2.0-rc.2 起）。安装前建议备份 `.dsh` 目录。
+#### 方式一：手动安装（在 DSH 界面操作）
 
-### Windows
+1. **安装酒馆启动器。** 打开左侧的 **插件 → 添加插件**，粘贴下面的地址，点 **安装**，再按提示启用 `dsh-tavern-launcher`。
 
-1. 安装 [DeepSeek Harness](https://deepseek.com/harness/) 0.2.1-rc.2 或更新的 0.2.x，打开一次后从托盘退出。
-2. 打开 PowerShell，粘贴下面这行并按回车执行：
-
-   ```powershell
-   $env:DSH_TAVERN_HOST='desktop'; $tavernInstaller=[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData('https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.ps1')); Invoke-Expression $tavernInstaller
+   ```text
+   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v0.2.0-tavern.14/dsh-tavern-launcher-0.2.0-tavern.14.tgz
    ```
 
-3. 重新打开 DeepSeek Harness，即进入酒馆。
+   如果 CDN 地址无法访问，可以粘贴 [GitHub Release 的下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-v0.2.0-tavern.14/dsh-tavern-launcher-0.2.0-tavern.14.tgz)。
+
+2. **安装酒馆。** 打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。
+3. **打开酒馆。** 等安装完成，点 **重启并切换到 DSH 酒馆**。
+
+#### 方式二：一行命令安装或更新（也可交给 Agent 执行）
+
+先完整退出 DeepSeek Harness（Windows 从系统托盘退出，macOS 按 `⌘Q`），再运行对应系统的命令。**首次运行会一起安装酒馆和启动器，之后更新重跑同一条命令。**
+
+Windows（PowerShell）：
+
+```powershell
+$env:DSH_TAVERN_HOST='desktop'; $tavernInstaller=[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData('https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.ps1')); Invoke-Expression $tavernInstaller
+```
+
+macOS（终端）：
+
+```sh
+curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.sh' -o /tmp/dsh-tavern-install.sh && DSH_TAVERN_HOST=desktop sh /tmp/dsh-tavern-install.sh
+```
+
+命令执行成功后，若 DeepSeek Harness 没有自动打开，请重新打开。若仍在原版 DSH，可以从 **设置 → 酒馆启动器** 切换到酒馆。
 
 ### Android
 
@@ -46,17 +64,6 @@ curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/scripts/
 ```
 
 始终取 `main` 的最新版；这条命令会完成安装并进入酒馆：脚本会装 Ubuntu 容器、Node、酒馆与移动版布局，启动后打开浏览器。两种方式在手机上的差异、以及 Termux 版的注意事项见 [Termux 一节](https://github.com/flizzywine/dsh-tavern/wiki/Android-%E5%AE%89%E8%A3%85%E4%B8%8E%E6%9B%B4%E6%96%B0#termux在手机里跑命令行版)。
-
-### macOS
-
-1. 安装 [DeepSeek Harness](https://deepseek.com/harness/) 0.2.1-rc.2 或更新的 0.2.x，打开一次后退出（⌘Q）。
-2. 打开「终端」，粘贴下面这行并按回车执行：
-
-   ```sh
-   curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.sh' -o /tmp/dsh-tavern-install.sh && DSH_TAVERN_HOST=desktop sh /tmp/dsh-tavern-install.sh
-   ```
-
-3. 重新打开 DeepSeek Harness，即进入酒馆。
 
 ### 命令行版（Windows / macOS / Linux，用浏览器玩）
 
@@ -98,13 +105,3 @@ curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-ma
 除 Discord 外，本项目没有官方的 QQ 群、微信群或其他群聊。
 
 反馈故障时，可从对话顶部的“日志”下载执行记录；分享前请检查其中的对话和附件隐私。
-
-## 参与贡献
-
-开发同步：`pnpm sync:desktop`；相关测试：`node bin/test-tavern.mjs tests/<相关>.test.mjs`。配置与注意事项见[本机开发与测试](https://github.com/flizzywine/dsh-tavern/wiki/本机开发与测试)。
-
-欢迎各种 PR：完善文档、写小白教程、给配置项改名、折叠复杂设置，或改进其他使用体验。当前功能繁多，特别欢迎简化、合并和删除功能的意见。
-
-Issue 只用于 Bug 反馈。大功能或行为调整请先到 [Discord 交流群](https://discord.gg/hYAEjKnpra) 讨论，确定方案后再提交 PR。
-
-使用教程在 [Wiki](https://github.com/flizzywine/dsh-tavern/wiki) 维护；功能参数与规则引用 [Skill 参考文件](https://github.com/flizzywine/dsh-tavern/wiki/Skill-参考文档)，避免重复维护。

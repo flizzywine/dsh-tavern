@@ -1,5 +1,3 @@
-// 通用声音 (tts.reading().dialogueVoice) and 全文朗读 (stage switch fullReading) on the host: the one precedence rule, the
-// shared GENERAL voice entry and the bubble config the clients read. Fixture ids differ from names on purpose.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {effectiveCardStage, validateCardStage} from '../tavern-plugin/lib/domain/card-stage-settings.js'
@@ -17,21 +15,6 @@ const engineWith = toggles => {
   return {...engine, stageToggles:{...engine.stageToggles, ...toggles}}
 }
 const withSwitches = switches => ({stage:{enabled:true, switches}})
-
-test('全文朗读 defaults off; in effect it turns 角色配音 off, and the card layer decides before the global switch', () => {
-  assert.equal(defaultAssetEngineSettings().stageToggles.fullReading, false)
-  const stored = defaultAssetEngineSettings(); delete stored.stageToggles.fullReading
-  assert.equal(validateAssetEngineSettings(stored).stageToggles.fullReading, false, 'settings saved before the switch read as off')
-  assert.equal(validateCardStage({switches:{fullReading:'on'}}).switches.fullReading, 'on')
-  // global 全文朗读 on + card 角色配音 on: 全文朗读 wins, voice is off.
-  let stage = effectiveCardStage(withSwitches({voice:'on'}), engineWith({fullReading:true}))
-  assert.equal(stage.fullReading, true); assert.equal(stage.voice, false)
-  // 本卡关闭 beats 全局开启.
-  stage = effectiveCardStage(withSwitches({fullReading:'off'}), engineWith({fullReading:true}))
-  assert.equal(stage.fullReading, false); assert.equal(stage.voice, true)
-  stage = effectiveCardStage(withSwitches({fullReading:'on', voice:'off'}), engineWith({}))
-  assert.equal(stage.fullReading, true); assert.equal(stage.voice, false)
-})
 
 async function voicedCard() {
   const pack = await syntheticPack(), figure = pack.figures[FIGURE_ID]
@@ -57,15 +40,6 @@ test('bubble config: an unbound enabled figure speaks the 通用声音, 「不�
   assert.equal(config.characters.find(row => row.ref.figureId === FIGURE_ID).general, undefined)
 })
 
-test('bubble config under 全文朗读: no character voice or 通用声音 line; the narrator pages read in the 通用声音', async () => {
-  const {pack, raw} = await voicedCard()
-  raw.extensions.dsh_tavern.stage.switches = {fullReading:'on'}
-  const config = cardBubbleConfig(raw, engineWith({}), [pack], [], [], () => undefined, null, null)
-  assert.equal(config.voice.enabled, false); assert.equal(config.voice.general, undefined); assert.equal(config.voice.fullReading, true)
-  assert.equal(config.narrator.voiceKey, 'browser:')
-  assert.ok(config.characters.every(row => !row.voice && !row.general))
-})
-
 function speechFor(reading, toggles = {}) {
   const tts = createTts({profileId:'general-voice-test', reading:() => reading})
   const presentation = {extension:withSwitches({}), subscribe:() => () => {}}
@@ -89,9 +63,7 @@ test('the GENERAL entry: null opens the browser default; a service voice registe
   const off = speechFor({dialogueVoice:null, narrator:{enabled:false, voice:null}}, {voice:false})
   t.after(() => { off.speech.dispose(); off.tts.dispose() })
   assert.equal((await off.speech.open(GENERAL_VOICE)).available, false)
-  const full = speechFor({dialogueVoice:null, narrator:{enabled:false, voice:null}}, {fullReading:true})
-  t.after(() => { full.speech.dispose(); full.tts.dispose() })
-  assert.deepEqual((await full.speech.open(NARRATOR_VOICE)).browser, {voice:''})
+
 })
 
 // A figure on browser speech: the browser speaks the named system voice, or the system default when none is named.
@@ -127,4 +99,17 @@ for (const template of [false,true]) test(`stage catalogue ${template?'template'
   }
   assert.equal(calls.length,2)
   assert.ok(calls.every(input=>input.voice.kind==='reference'))
+})
+for (const generalVoice of [{browser:'Kyoko'}, {serviceId:'svc-q',voice:'v-cherry'}]) test('narrator fallback and silent general voice: ' + JSON.stringify(generalVoice), async t => {
+  const {pack,raw} = await voicedCard()
+  raw.extensions.dsh_tavern.stage.narrator = {enabled:true}
+  const configFor = voice => cardBubbleConfig(raw,engineWith({}),[pack],[],[{id:'svc-q'}],() => undefined,{enabled:false,voice:null},voice)
+  const config = configFor(generalVoice)
+  assert.equal(config.narrator.voiceKey,config.voice.general)
+  const silent = configFor({silent:true})
+  assert.equal(silent.voice.general,undefined)
+  assert.equal(silent.narrator,undefined)
+  const entry = speechFor({dialogueVoice:{silent:true},narrator:{enabled:true,voice:null}})
+  t.after(() => { entry.speech.dispose(); entry.tts.dispose() })
+  for (const alias of [GENERAL_VOICE,NARRATOR_VOICE]) assert.equal((await entry.speech.open(alias)).available,false)
 })

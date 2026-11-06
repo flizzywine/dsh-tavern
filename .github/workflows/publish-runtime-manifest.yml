@@ -77,7 +77,7 @@ jobs:
       # manifest's pinned revision. A stale install.ps1/install.sh paired with new
       # files fails ("安装文件不完整"), so refresh the mutable entry points on every
       # publish. Verify the small distribution branch, not the oversized source branch.
-      - name: Purge jsDelivr installer caches
+      - name: Refresh and check jsDelivr caches
         shell: bash
         run: |
-          node .github/scripts/refresh-cdn.mjs
+          node .github/scripts/refresh-cdn.mjs --best-effort

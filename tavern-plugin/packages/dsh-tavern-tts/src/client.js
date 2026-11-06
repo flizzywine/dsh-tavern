@@ -2,7 +2,7 @@ const React = require('react')
 const h = React.createElement
 exports.name = 'dsh-tts-client'
 exports.inject = ['slots']
-const READING_METHODS = new Set(['editReading','createReadingPreset','deleteReadingPreset','setActiveReadingPreset','importReadingPreset'])
+const READING_METHODS = new Set(['editReading','mergeReadings','createReadingPreset','deleteReadingPreset','setActiveReadingPreset','importReadingPreset'])
 exports.apply = function(ctx) {
   let active = true, enabled = null, unprovide, removing = Promise.resolve()
   const stateListeners = new Set(), managementListeners = new Set()
@@ -10,7 +10,7 @@ exports.apply = function(ctx) {
     if (!active) throw new Error('PLUGIN_UNAVAILABLE')
     const result = await request('control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,args})},['probeService','testService'].includes(method) ? 125000 : 15000)
     // a change to the active reading preset changes every line's identity; players drop their decoded audio.
-    if (READING_METHODS.has(method)) for (const fn of listeners) fn({type:'readingsChanged'})
+    if (READING_METHODS.has(method) && !args.dryRun) for (const fn of listeners) fn({type:'readingsChanged'})
     if (['saveVoicePreset','deleteVoicePreset','importVoicePresets','saveService','deleteService'].includes(method)) {
       for (const fn of listeners) fn({type:'voicesChanged'})
       for (const fn of managementListeners) fn()

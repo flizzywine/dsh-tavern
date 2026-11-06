@@ -8,6 +8,7 @@ import { copyTreeSync } from './portable-fs.mjs'
 import installationLocation from './installation-location.cjs'
 import { assertDesktopStopped } from './import-user-home.mjs'
 import { acquirePendingLock } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
+import { launcherBundle, LAUNCHER_BUNDLE, LEGACY_LAUNCHER_BUNDLE } from '../tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs'
 
 const present = file => { try { lstatSync(file); return true } catch (error) { if (error.code === 'ENOENT') return false; throw error } }
 const read = dir => JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'))
@@ -128,19 +129,37 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped = () 
     } else checkStopped()
     ordinary(original)
     const manifest = read(original)
-    if (!manifest.dsh?.profile?.bundles?.includes('dsh-profile-bridge') || manifest.dsh.profile.bundles.includes('dsh-tavern-plugin') || manifest.name === 'dsh-profile-tavern') throw Error('原版 desktop 配置缺少切换组件，请先恢复备份。')
+    const bundle = launcherBundle(manifest)
+    if (!bundle || manifest.dsh.profile.bundles.includes('dsh-tavern-plugin') || manifest.name === 'dsh-profile-tavern') throw Error('原版 desktop 配置缺少切换组件，请先恢复备份。')
     const source = path.join(sourceRoot, 'tavern-plugin/packages/dsh-profile-bridge')
     plainTree(source)
-    if (read(source).name !== 'dsh-profile-bridge') throw Error('切换组件源不完整。')
+    if (read(source).name !== LAUNCHER_BUNDLE) throw Error('切换组件源不完整。')
     const backup = path.join(state, 'bridge-update-' + randomUUID())
     mkdirSync(backup)
     const targets = ['vendor', 'node_modules'].map(name => {
       const parent = path.join(original, name)
       ordinary(parent)
-      return path.join(parent, 'dsh-profile-bridge')
+      return path.join(parent, bundle)
     })
     journal = { schemaVersion: 1, phase: 'preparing', original, backup, actions: [], createdParents: [], previousManagement }; save()
-    for (let i = 0; i < targets.length; i++) copy(source, path.join(backup, 'prepared-' + i))
+    for (let i = 0; i < targets.length; i++) {
+      const prepared = path.join(backup, 'prepared-' + i)
+      copy(source, prepared)
+      // Keep the original manifest and pnpm lockfile valid on older installs.
+      // Refresh their launcher under the name the profile already resolves.
+      if (bundle === LEGACY_LAUNCHER_BUNDLE) {
+        for (const [file, entry] of [
+          ['package.json', `"name": "${LAUNCHER_BUNDLE}"`],
+          ['cordis.patch.yml', `name: '${LAUNCHER_BUNDLE}'`],
+          ['client.js', `id: '${LAUNCHER_BUNDLE}'`],
+        ]) {
+          const target = path.join(prepared, file)
+          const contents = readFileSync(target, 'utf8')
+          if (!contents.includes(entry)) throw Error(`切换组件源缺少入口：${file}`)
+          writeFileSync(target, contents.replace(entry, entry.replace(LAUNCHER_BUNDLE, bundle)))
+        }
+      }
+    }
     const move = (from, to) => {
       journal.actions.push({ from, to }); save()
       moveWithRetry(from, to, rename)

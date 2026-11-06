@@ -145,6 +145,7 @@ import { createChatHistoryImportService } from './domain/chat-history-import-ser
 import { appendSessionEvent, sessionEvents } from './domain/session-events.js'
 import { setAgentResolver } from './domain/agent-lookup.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { withHostSession } from './host/sessions.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
@@ -263,7 +264,9 @@ import { createStageReads, stageReadScope } from './domain/stage-read-projection
 import {createOptionalStage} from './optional-stage.js'
 import {createStageSwitch} from './stage-switch.js'
 import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-asset-bindings.js'
-import {effectiveAutoChoices} from './domain/card-stage-settings.js'
+import {effectiveAutoChoices, activeStageSkin, cardStageVoicing} from './domain/card-stage-settings.js'
+import {ENGINE_SECTION} from './domain/asset-engine-settings.js'
+import {settingsSectionProvider} from './native-settings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
@@ -2287,10 +2290,7 @@ export async function apply(ctx) {
       return { source, state, turn, messageIndex, atSeq: null, storyDirect: true, ...(messageUid ? { messageUid } : {}) }
     }
     const { state, turn } = await conversationStateAtTurn(source, requestedTurn, readChatRevision)
-    let handle
-    let session = sessionStore.get(source.sessionId) || agentRegistry.get(source.sessionId)?.session
-    if (!session) { handle = await agentRegistry.resume({ resumeSessionId: source.sessionId }); session = handle.agent.session }
-    try {
+    return withHostSession({ sessions: sessionStore, agents: agentRegistry }, source.sessionId, session => {
       const references = upgradeReferences(sessionEvents(session))
       const mapped = structuredClone(state)
       for (const message of mapped.messages || []) {
@@ -2298,7 +2298,7 @@ export async function apply(ctx) {
         if (message.bodyEdit) message.bodyEdit = { ...message.bodyEdit, seq: references.sequence(message.bodyEdit.seq, message.bodyEdit.formatVersion), formatVersion: 4 }
       }
       return { source, state: mapped, turn, atSeq: conversationForkBoundary(session, state, turn), storyDirect: false }
-    } finally { if (handle) await handle.dispose() }
+    })
   }
   // Plugin data and media are bound to text versions, whose keys hash the game id:
   // map the fork's visible turns to the new game's keys. A failure never undoes the fork.
@@ -2393,6 +2393,7 @@ export async function apply(ctx) {
   const taskPolicy = input => backgroundTaskPolicies.get(input?.task) || {}
   const frozenContext = input => taskPolicy(input).frozenContext?.(input) || null
   const backgroundAgentRunner = createBackgroundAgentRunner({
+    allowRun: async input => (await pluginApi.hostBehavior.forGame(input.sessionId)).backgroundAgents,
     retirement: backgroundRetirement,
     onRunFinished: run => { try { storyEvents.emit('task-finished', run) } catch (error) { console.warn('dsh-tavern: 任务完成通知失败', str(error?.message || error)) } },
     // The browser's session list keeps a disposed subagent as an idle row until the list is
@@ -2526,7 +2527,7 @@ export async function apply(ctx) {
   // 舞台、导演与 mod（stage-module.js）。
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
-  await stageRuntime.start({dataRoot,
+  await stageRuntime.start({dataRoot, activeStageSkin,
     presentationObservers, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
     readReplyPrefix:(sessionId,turn) => assistantResultForTurn(sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,turn)?.text || '',
  worldBooks, containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
@@ -3201,7 +3202,7 @@ export async function apply(ctx) {
   })
   // 自动生成候选项: fed by live turn ends only, submitting through candidateTasks like the button.
   const autoChoices = createAutoChoices({
-    enabled: async chat => !!chat && effectiveAutoChoices(await cardStageExtension(chat.cardPath), (await readTavernSettings()).candidateAutoGenerate),
+    enabled: async chat => !!chat && (await pluginApi.hostBehavior.forGame(chat.sessionId)).backgroundAgents && effectiveAutoChoices(await cardStageExtension(chat.cardPath), (await readTavernSettings()).candidateAutoGenerate),
     async read(sessionId) {
       const chat = await chatForSession(sessionId)
       const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
@@ -3277,6 +3278,7 @@ export async function apply(ctx) {
     pluginApi, readPendingTurn: gameId => pluginTurns.readPendingTurn(gameId) })
   const plainSettlementEngine = createPlainSettlementEngine({ pluginApi, pluginSettlementProgress, settlementItems, backgroundModelSelection, postureItem, backgroundAgentRunner, agentRegistry, sessionStore })
   const settlementRun = createSettlementRun({
+    backgroundAgentRunner,
     backgroundTasks, chatPersistence, readChat, writeChat, readChatCard, taskStateReader, worldBookScanDepth,
     mvuSettlementEngine, plainSettlementEngine, pluginApi, pluginSettlementProgress, agentRegistry, storyEvents
   })
@@ -3618,8 +3620,7 @@ export async function apply(ctx) {
     native: async id => {
       const live = sessionDebugEvidence(id)
       if (live.loaded) return live.events
-      const handle = await agentRegistry.resume({ resumeSessionId: id })
-      try { return sessionEvents(handle.agent.session) } finally { await handle.dispose() }
+      return withHostSession({ sessions: sessionStore, agents: agentRegistry }, id, session => sessionEvents(session))
     },
     requiresBrowser: async chat => hasTavernScriptRuntime(chat, (await readCardExtensions(chat.cardPath, chat))?.helperScripts)
   })
@@ -3689,7 +3690,7 @@ export async function apply(ctx) {
 
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
   // paragraphSpeech: a paragraph's spoken line, the core's voice selection (the stage's clip export reads it).
-  const rpcDeps = { frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
+  const rpcDeps = { readCardAssetExtension, frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
     applicationUpdater, autoChoices, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow,
     backgroundConfigForSession, bindScript, bodyEditor, branchOrigin, callModel, candidateGenerator, candidateTasks, polishPrereview, polishRecords, polishReviewer, chatHeaderWithLatestFloors, applyCardUpdate, cardAutoReload, messageDeletion,
     cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
@@ -3812,6 +3813,13 @@ export async function apply(ctx) {
     createTransferHandlers(rpcDeps),
     createImageCharacterHandlers(rpcDeps))
   const stageSwitch = await createStageSwitch({runtime:stageRuntime,store:profileData,builtin:true})
+  rpcHandlers.readAloudLine = async args => speech.read({text:args?.text})
+  rpcHandlers.readAloudState = async args => {
+    const card = await castCardOf(str(args?.sessionId)).catch(() => null)
+    const extension = card ? await cardStageExtension(card.path) : null
+    const engine = settingsSectionProvider(ctx, ENGINE_SECTION)?.describe().find(row => row.ns === ENGINE_SECTION)?.value
+    return {stepAside:stageRuntime.status() === 'ready' && cardStageVoicing(extension, engine), auto:ctx.get('tts')?.reading().readAloud.auto === true}
+  }
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
   rpcHandlers.setStageEnabled = async args => stageSwitch.setEnabled(args?.enabled)
   rpcHandlers.getCardScripts = rpcHandlers.setCardScriptMuted

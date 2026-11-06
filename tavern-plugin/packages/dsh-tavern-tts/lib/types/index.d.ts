@@ -10,7 +10,9 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 export const name: 'dsh-tavern-tts'
 export function apply(ctx: Context, config?: {profileId?: string; dataDir?: string; settings?: object}): void
 
-// global reading presets (control RPC readingPresets / readingPreset / editReading / …).
+// global reading presets (control RPC readingPresets / readingPreset / editReading / mergeReadings / …).
+// mergeReadings {id, expectedRevision, dryRun?} → {id, revision, groups, removed, count}: entries with the same reading and
+// language become one entry with all their forms; dryRun only counts.
 export interface ReadingPresetSummary { id: string; name: string; count: number; revision: number }
 export interface ReadingPresets { active: string; presets: ReadingPresetSummary[] }
 export interface ReadingPresetDocument { version: 1; kind: 'dsh-tts-readings'; name: string; entries: { forms: string[]; reading: string; languageOverride?: string }[] }

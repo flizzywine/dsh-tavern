@@ -32,7 +32,7 @@ import { buildAutoImageGenPrompt } from './prompts.js'
 import { installTavernBridge, removeMountedPicture } from './tavern-bridge.js'
 import { readImageFileMetadata } from './image-file-metadata.js'
 import { createPluginUpdater } from './updater.js'
-import { IMAGE_PROVIDERS, generateImage, testImageChannel, supportsImageTaskResume } from './image-providers.js'
+import { IMAGE_PROVIDERS, generateImage, testImageChannel, supportsImageTaskResume, combinedPrompt, novelaiChatPrompt } from './image-providers.js'
 import { stageImageProvider, imageLibraryProvider } from './image-catalog.js'
 import { createComfyProgress } from './comfy-progress.js'
 import { CHARACTER_LIBRARY_VERSION, createCharacterLibrary } from './character-library.js'
@@ -56,7 +56,7 @@ import { comfyLoadImageBindings, applyComfyReferenceImages } from './comfy-refer
 import { createDiagnostics } from './diagnostics.js'
 import { deleteWorkflow } from './workflow-delete.js'
 import { createFormatWorldbooks } from './format-worldbooks.js'
-import { composeStructuredPrompt, combineStructuredPrompt } from './prompt-presets.js'
+import { composeStructuredPrompt } from './prompt-presets.js'
 import { normalizeReferenceImage, normalizeConsistencyText, createReferenceImageStore, resolveImageReferences, buildReferenceText, buildStructuredReferenceText, referencePlannerGuidance, referenceScopedDefinitions } from './reference-images.js'
 
 export const name = 'dsh-tavern-image'
@@ -1632,7 +1632,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             const file = join(cacheRoot(config), `${job.id}.img`)
             await writeFile(file, output.bytes)
             if (stopped()) { await rm(file, { force: true }); return }
-            Object.assign(job, { file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', requestMayHaveSucceeded: false, completedAt: Date.now(), error: '' })
+            Object.assign(job, { size: output.size || job.size, file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', requestMayHaveSucceeded: false, completedAt: Date.now(), error: '' })
           } catch (error) {
             if (job.state !== 'cancelled') {
               job.state = error?.requestMayHaveSucceeded === false ? 'failed' : 'uncertain'
@@ -1820,7 +1820,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             const result = await generateImage(channel, {
               positive: compiled.positive, negative: compiled.negative, promptMode: compiled.promptMode, seed: compiled.seed, characters: compiled.characters, references,
-              width: compiled.size.width, height: compiled.size.height, steps: job.params.steps, cfg: job.params.cfg,
+              width: compiled.size.width, height: compiled.size.height, explicitSize: job.params.explicitSize === true, steps: job.params.steps, cfg: job.params.cfg,
             }, { signal: job.controller.signal, maxImageBytes, onGenerationSubmit: async () => {
               job.controller.signal.throwIfAborted()
               if (!jobs.has(job.id)) throw new Error('生图任务已删除')
@@ -1843,7 +1843,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             const file = join(cacheRoot(config), `${job.id}.img`)
             await writeFile(file, output.bytes)
             if (job.controller.signal.aborted || !jobs.has(job.id)) { await rm(file, { force: true }); return }
-            Object.assign(job, { file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', completedAt: Date.now() })
+            Object.assign(job, { size: output.size || job.size, file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', completedAt: Date.now() })
             if (output.warning) logger.warn?.(`dsh-tavern-image: 作业 ${job.id.slice(0, 8)} ${output.warning}`)
           } catch (error) {
             if (error.submissionNotStarted === true && !providerCompleted) job.requestStarted = false
@@ -1895,6 +1895,8 @@ function createRuntime(ctx, overrides, logger, deps) {
         artistPosition: rawParams?.artistPosition ?? (rawParams?.artist ? undefined : activeArtistText(jobConfig).position),
         negative: String(rawParams?.negative ?? ''),
         size: String(rawParams?.size || jobConfig.imageSize || '竖图'),
+        // 调用方明确指定了尺寸时，渠道那对默认宽高不许覆盖它。游玩模式不传这个标记，行为不变。
+        explicitSize: rawParams?.explicitSize === true,
         model: String(rawParams?.model ?? ''),
         textVersion: String(rawParams?.textVersion ?? ''),
         steps: rawParams?.steps,
@@ -1978,6 +1980,11 @@ function createRuntime(ctx, overrides, logger, deps) {
       const compiled = workflow ? compileJob({ workflow, params, config: compileConfig, definitions: scopedDefs, onStage })
         : compileChannelJob({ params, config: jobConfig, definitions: scopedDefs, channel, onStage })
       if (referenceState && compiled.promptMode !== 'structured') compiled.positive = [compiled.positive, buildReferenceText(referenceState.references)].filter(Boolean).join('\n\n')
+      const novelaiChat = effectiveProvider === 'novelai' && channel.options?.protocol === 'chat'
+      const boundPrompt = kind => {
+        const binding = workflow.bindings[kind]?.[0]
+        return binding ? String(compiled.prompt[binding.node]?.inputs?.[binding.input] ?? '') : ''
+      }
       if (compiled.promptAssembly) Object.assign(compiled.promptAssembly, { generationMode, requestedGenerationMode, generationModeReason })
       if (traceStages) {
         const T = diag.text
@@ -2005,8 +2012,14 @@ function createRuntime(ctx, overrides, logger, deps) {
         params: { ...params }, key, size: compiled.size, hits: compiled.hits,
         generationMode, requestedGenerationMode, generationModeReason, promptMode: compiled.promptMode, promptAssembly: compiled.promptAssembly ?? null,
         referenceSnapshot: referenceState,
+        ...(cardRequest && {
+          cardCharacterPrompts: compiled.characters,
+          ...(workflow && { cardPositive: boundPrompt('positive'), cardNegative: boundPrompt('negative') }),
+          ...(novelaiChat && { cardPositive: novelaiChatPrompt(compiled.positive), cardNegative: novelaiChatPrompt(compiled.negative) }),
+        }),
         submissionTracked: Boolean(channel),
-        submittedPrompt: channel && effectiveImageProvider(channel) === 'atlascloud' ? (compiled.promptMode === 'structured' ? combineStructuredPrompt(compiled.positive, compiled.negative) : [compiled.positive, compiled.negative ? 'Avoid: ' + compiled.negative : ''].filter(Boolean).join('\n\n')) : compiled.positive,
+        submittedPrompt: ['atlascloud', 'openai', 'seedream', 'grok', 'gemini', 'gemini-chat'].includes(effectiveProvider)
+          ? combinedPrompt(compiled) : compiled.positive,
         characterSnapshot: rawParams?.characterSnapshot ? boundCharacterSnapshot(rawParams.characterSnapshot) : null,
         gameId: String(rawParams?.sessionId ?? ''), turn: Number(rawParams?.turn) || null, textVersion: String(rawParams?.textVersion ?? ''),
         // 记住这张用了哪些 LoRA —— 事后在历史里能查
@@ -5212,7 +5225,7 @@ function activeArtistText(config) {
   // 新版：画风预设
   const presets = Array.isArray(config?.stylePresets) ? config.stylePresets : []
   const p = presets.find(s => s && String(s.id) === id && s.enabled !== false)
-  if (p && String(p.artist ?? '').trim()) {
+  if (p && (p.temporaryOverride === true || String(p.artist ?? '').trim())) {
     return { text: String(p.artist), position: p.position === 'suffix' ? 'suffix' : 'prefix', name: String(p.name ?? ''), negative: String(p.negative ?? '') }
   }
   // 兼容旧版：画师串多套
@@ -6364,7 +6377,7 @@ export function compileChannelJob({ params, config, definitions, channel = null,
   const prepared = prepareImagePrompt({ params, config, definitions, channel, onStage })
   const promptMode = resolvePromptMode(config, provider)
   const separator = promptMode === 'structured' ? '\n\n' : ', '
-  const nativeNovelai = provider === 'novelai' && !(channel?.provider === 'novelai' && channel?.options?.protocol === 'chat')
+  const nativeNovelai = provider === 'novelai' && channel?.options?.protocol !== 'chat'
   const characters = compileCharacterList(params.characters, definitions, config, promptMode, provider, { characterNegativePriority: nativeNovelai })
   if (!nativeNovelai && characters.length) {
     prepared.positive = [prepared.positive, ...characters.map(item => item.prompt)].filter(Boolean).join(separator)

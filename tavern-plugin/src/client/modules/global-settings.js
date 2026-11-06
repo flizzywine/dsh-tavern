@@ -1,5 +1,5 @@
 // Settings owns its initial snapshot; each editor saves only its own resource.
-function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, StageGenerationSettings, TavernSettingRow, InlineField, Switch, HelpTip }) {
+function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, StageGenerationSettings, TavernSettingRow, InlineField, Switch, HelpTip, VoiceCataloguePicker, voiceKey, voiceFromKey, useReadingBinding }) {
     // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
     const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
     function GlobalPlayDefaults({ settings }) {
@@ -149,6 +149,29 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             h("header", {className:"dsh-tavern-gs-head"}, h("h2", null, title)),
             h("div", {className:"dsh-tavern-gs-card"}, children));
     }
+    function ReadAloudSettings() {
+        const h = React.createElement, binding = useReadingBinding();
+        const [reading, setReading] = React.useState(null), [notice, setNotice] = React.useState(''), [busy, setBusy] = React.useState(false);
+        React.useEffect(() => {
+            let active = true;
+            const refresh = () => binding.tts.call('reading').then(value => { if (active) setReading(value.readAloud); }, () => { if (active) setNotice('无法读取朗读设置'); });
+            if (!binding.tts?.available()) { setReading(null); return; }
+            void refresh();
+            const off = binding.tts.subscribe(event => { if (event.type === 'readingChanged') void refresh(); });
+            return () => { active = false; off(); };
+        }, [binding]);
+        async function save(patch) {
+            setBusy(true); setNotice('');
+            try { const value = await binding.tts.call('setReading', {readAloud:patch}); setReading(value.readAloud); }
+            catch (_) { setNotice('保存失败，请重试'); }
+            finally { setBusy(false); }
+        }
+        return h(SettingsGroup, {title:'朗读'},
+            !binding.tts?.available() ? h('p', {role:'status'}, '配音服务未启用') : reading ? h(React.Fragment, null,
+                h(TavernSettingRow, {title:'朗读声音'}, h(VoiceCataloguePicker, {binding, value:voiceKey(reading.voice), label:'朗读声音', leading:[{value:'',label:'浏览器 · 系统默认'}], onPick:key => save({voice:voiceFromKey(key)})})),
+                h(TavernSettingRow, {title:'自动朗读',help:'每条新回复用朗读声音读一次；本卡舞台配音开启时让位于角色配音。'}, h(Switch, {label:'自动朗读',checked:reading.auto,disabled:busy,onChange:auto => save({auto})}))) : h('p', {role:'status'}, '正在读取…'),
+            notice ? h('p', {role:'status'}, notice) : null);
+    }
     function TavernPluginsSettingsSection() {
         const h = React.createElement;
         return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
@@ -157,7 +180,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     h("a", { href: "https://discord.gg/hYAEjKnpra", target: "_blank", rel: "noopener noreferrer" }, "Discord 交流群"),
                     "的插件分享，查找社区作者发布的插件及使用说明。"),
                 h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址，或上传 ZIP 安装包。不支持 SillyTavern 插件。"),
-                h(TavernUserPluginsSettings)));
+                h(TavernUserPluginsSettings)), h(ReadAloudSettings));
     }
     // 设置 › 舞台 is the stage package's page (global-settings.js in dsh-tavern-stage, stageViews.GlobalSettings): opening it holds the
     // stage client (stage-client-loader.cjs hold) so the page loads for any card; the core only draws the wait. The names the

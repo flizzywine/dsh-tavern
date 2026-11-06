@@ -58,6 +58,30 @@ test('custom OpenAI protocol sends selected reference bytes as multipart edits t
   assert.equal(calls.length, 1, 'a paid generation is submitted once')
 })
 
+test('image quality choice reaches OpenAI Images quality; the empty automatic choice keeps the previous request', async () => {
+  const bodies = []
+  const fetchImpl = async (_url, init) => { bodies.push(init.body); return output() }
+  const openai = options => ({ id: 'openai-test', provider: 'openai', name: 'OpenAI', baseUrl: 'https://images.example.test/v1', model: 'gpt-image-1', apiKey: 'user-secret-key', options })
+  await generateImage(openai({}), { positive: 'a cat' }, { fetchImpl })
+  await generateImage(openai({ quality: '' }), { positive: 'a cat' }, { fetchImpl })
+  await generateImage(openai({ quality: 'low' }), { positive: 'a cat' }, { fetchImpl })
+  await generateImage({ ...custom('openai', { quality: 'high' }), model: 'gpt-image-1' }, { positive: 'a cat' }, { fetchImpl })
+  assert.equal(bodies[1], bodies[0], 'automatic is byte-identical to a channel that never chose a quality')
+  assert.deepEqual(bodies.map(body => JSON.parse(body).quality), ['medium', 'medium', 'low', 'high'])
+  // A Tavern stage-asset request still wins over the channel choice.
+  await generateImage(openai({ quality: 'low' }), { positive: 'a cat', quality: 'high' }, { fetchImpl })
+  assert.equal(JSON.parse(bodies.at(-1)).quality, 'high')
+})
+
+test('protocols without a quality parameter never send one, even with a stored quality option', async () => {
+  for (const protocol of ['seedream', 'grok']) {
+    await generateImage(custom(protocol, { quality: 'high' }), { positive: 'a cat' }, { fetchImpl: async (_url, init) => {
+      assert.equal(Object.hasOwn(JSON.parse(init.body), 'quality'), false, protocol)
+      return output()
+    } })
+  }
+})
+
 test('custom Gemini inlineData, Gemini Chat image parts, Seedream and Grok use documented input shapes', async t => {
   await t.test('Gemini', async () => {
     await generateImage(custom('gemini'), { positive: 'edit this', references: [ref()] }, { fetchImpl: async (url, init) => {

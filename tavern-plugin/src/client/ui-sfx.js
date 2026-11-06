@@ -123,6 +123,10 @@ function createUiSfx(env) {
             if (!start(key, gain, pitch, own?.loudness)) void load([key]).then(() => { if (env.now() - now < 250) start(key, gain, pitch, own?.loudness); });
             return true;
         },
+        // A cue only the shown skin's palette voices (a card page's sound(name)): a skin without it stays silent.
+        playSkin(cue) {
+            return Boolean(palette && palette[cue]) && api.play(cue);
+        },
         bind(node) {
             if (!node || !node.addEventListener) return () => {};
             // After the control's own handler: a cue for un-muting 界面音效 is heard, one for muting 总音量 is not,

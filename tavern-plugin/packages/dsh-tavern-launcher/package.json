@@ -1,0 +1,31 @@
+{
+  "name": "dsh-tavern-launcher",
+  "version": "1.4.3",
+  "description": "Install, open, update and uninstall DSH Tavern in a separate DSH NEXT Profile.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flizzywine/dsh-tavern.git",
+    "directory": "tavern-plugin/packages/dsh-tavern-launcher"
+  },
+  "engines": {
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "locale"],
+  "dshTavern": { "profileHandoff": true },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-ui-settings", "@deepseek-ai/dsh-client-ui-slots", "@deepseek-ai/dsh-client-locale"]
+    }
+  }
+}

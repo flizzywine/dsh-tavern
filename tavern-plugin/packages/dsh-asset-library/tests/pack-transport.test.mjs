@@ -133,9 +133,24 @@ test('4K media mounts across an unrelated publication without entering the thumb
   assert.equal(encodes,0)
 })
 
+test('the desktop app\'s header-less authenticated requests act for the retained Host; foreign origins stay rejected',async t => {
+  const f = await fixture(t), {pack} = await f.install()
+  // the desktop app forwards without Origin and Sec-Fetch-Site, or names itself as dsh-app://app.
+  const desktop = (path,options = {}) => f.fetch(new Request('http://dsh.internal' + path,{...options,headers:{host:'localhost:123',...options.headers}}))
+  const control = (method,args,headers = {}) => desktop(PACK_CONTROL_PATH,{method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify({method,args})})
+  for (const headers of [{},{origin:'dsh-app://app'},{origin}]) {
+    const response = await control('capabilities',{},headers)
+    assert.equal(response.status,200,JSON.stringify(headers)); assert.equal((await response.json()).apiVersion,2)
+  }
+  for (const headers of [{origin:'http://evil.example.com'},{origin:'http://localhost:999'},{'sec-fetch-site':'cross-site'}]) assert.equal((await control('capabilities',{},headers)).status,403,JSON.stringify(headers))
+  const lease = await (await control('leaseMedia',{packId:PACK_ID,hash:Object.keys(pack.manifest.blobs)[0]})).json()
+  assert.equal((await desktop(lease.url)).status,200)
+  assert.equal((await desktop(lease.url,{headers:{origin:'http://evil.example.com'}})).status,403)
+})
+
 test('transport gates forged authority, client scope, duplicate JSON, oversize and stale handlers',async t => {
   const f = await fixture(t,{limits:{totalSize:64,spoolBytes:128}})
-  for (const headers of [{origin:'null'},{origin:'http://dsh.internal'},{'sec-fetch-site':'cross-site'},{host:''},{origin:''}]) assert.equal((await f.control('capabilities',{},headers)).status,403)
+  for (const headers of [{origin:'null'},{origin:'http://dsh.internal'},{'sec-fetch-site':'cross-site'},{host:''}]) assert.equal((await f.control('capabilities',{},headers)).status,403)
   assert.equal((await f.control('leaseMedia',{packId:PACK_ID,hash:'a'.repeat(64),scope:'other'})).status,400)
   const duplicate = await f.fetch(request(PACK_CONTROL_PATH,{method:'POST',headers:{'content-type':'application/json'},body:'{"method":"listPacks","method":"dispose"}'}))
   assert.equal(duplicate.status,400)

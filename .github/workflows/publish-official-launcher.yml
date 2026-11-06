@@ -1,0 +1,58 @@
+name: Publish official Tavern launcher
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tavern-plugin/packages/dsh-profile-bridge/**
+      - .github/workflows/publish-official-launcher.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-official-launcher
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pack and publish the standard DSH bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source=tavern-plugin/packages/dsh-profile-bridge
+          version=$(node -p "require('./$source/package.json').version")
+          tag="launcher-v$version"
+          cdn_tag="launcher-cdn-v$version"
+          archive=$(npm pack "./$source" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP")
+          node .github/scripts/check-runtime-archive.mjs "$RUNNER_TEMP/$archive"
+          # jsDelivr can serve the small artifact tree behind this tag.
+          if git show-ref --verify --quiet "refs/tags/$cdn_tag"; then
+            git show "refs/tags/$cdn_tag:$archive" > "$RUNNER_TEMP/cdn-$archive"
+            cmp "$RUNNER_TEMP/$archive" "$RUNNER_TEMP/cdn-$archive"
+          else
+            dist="$RUNNER_TEMP/official-launcher"
+            git worktree add --detach "$dist"
+            git -C "$dist" checkout --orphan "$cdn_tag"
+            git -C "$dist" rm -rfq .
+            cp "$RUNNER_TEMP/$archive" "$dist/$archive"
+            git -C "$dist" add "$archive"
+            git -C "$dist" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -qm "Publish $archive"
+            git -C "$dist" push origin "HEAD:refs/tags/$cdn_tag"
+          fi
+
+          if gh release view "$tag" > /dev/null 2>&1; then
+            mkdir "$RUNNER_TEMP/launcher-release"
+            gh release download "$tag" --pattern "$archive" --dir "$RUNNER_TEMP/launcher-release"
+            cmp "$RUNNER_TEMP/$archive" "$RUNNER_TEMP/launcher-release/$archive"
+          else
+            gh release create "$tag" "$RUNNER_TEMP/$archive" --target "$GITHUB_SHA" --latest=false \
+              --title "DSH Tavern Launcher $version" --notes 'Launcher for official DeepSeek Harness on Windows and macOS. Install it into the original desktop profile, then use Settings → Tavern Launcher to install Tavern.'
+          fi

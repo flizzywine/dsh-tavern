@@ -38,7 +38,10 @@ export function clipProcess(command, args, {signal, input = false, timeoutMs = 1
   if(input || onProgress || onTime)touch()
   signal?.addEventListener('abort', abort, {once:true})
   const done = new Promise((resolve, reject) => {
-    child.once('error', error => { failure ||= error })
+    child.once('error', error => {
+      if (error.code === 'ENOENT') error.clipUserMessage = '片段导出需要 ffmpeg 和 ffprobe，请安装后重新导出'
+      failure ||= error
+    })
     child.once('close', code => {
       endedAt=performance.now()
       clearTimeout(timer);clearTimeout(idleTimer); signal?.removeEventListener('abort', abort)

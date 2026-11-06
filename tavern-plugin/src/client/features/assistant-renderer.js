@@ -958,15 +958,20 @@
 					submitLockRef.current = true;
 					setManualBusy(true);
 					setManualError("");
-					try {
-						await runTavernIllustrator(props.illustrator, props.sessionId, props.turn, instruction);
-						closeManual();
-						setInstruction("");
-					} catch (error) {
-						setManualError(String(error && error.message || error));
-					} finally {
+					// Closes once the illustrator has taken the request; the pictures' progress shows in the turn's text.
+					let accepted = false;
+					function accept() {
+						accepted = true;
 						submitLockRef.current = false;
 						setManualBusy(false);
+						closeManual();
+					}
+					try {
+						await runTavernIllustrator(props.illustrator, props.sessionId, props.turn, instruction, accept);
+					} catch (error) {
+						if (!accepted) setManualError(String(error && error.message || error));
+					} finally {
+						if (!accepted) { submitLockRef.current = false; setManualBusy(false); }
 					}
 				}
 				React.useEffect(function () {

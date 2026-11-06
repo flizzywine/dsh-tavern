@@ -1,4 +1,7 @@
 function installTavernStylesheet(doc, css, features) {
+    // DSH 0.2.1 DesktopUpdateIndicator / DesktopUpdateBadge. Tavern owns its
+    // update workflow; never offer the host's independent upgrade in its shell.
+    css += '\nbody.dsh-tavern-shell-active .VUhOWa_indicator, body.dsh-tavern-shell-active .VUhOWa_badge { display: none !important; }';
     const id = 'dsh-tavern-plugin/tavern.css';
     const selector = '[data-plugin-css="' + id + '"]';
     const active = doc.__dshTavernStylesheet;

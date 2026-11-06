@@ -11,7 +11,7 @@
  * @module dsh-profile-bridge/state
  */
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { inspectInstallation } from './installation.mjs'
 import { readLastResult } from './helper.mjs'
@@ -22,6 +22,19 @@ export function fail(code, message) {
   const error = new Error(message)
   error.code = code
   throw error
+}
+
+export function isDesktopApp() {
+  return Boolean(process.versions.electron && typeof process.send === 'function' && process.ppid > 1)
+}
+
+export function isActiveTavern(paths, installation) {
+  if (!installation.available) return false
+  try { return relative(realpathSync(paths.activeDir), installation.profileDir) === '' } catch { return false }
+}
+
+export function isDesktopTavernWindow(paths, installation) {
+  return process.env.DSH_TAVERN_RUNTIME_HOST === 'desktop' && isActiveTavern(paths, installation)
 }
 
 /**
@@ -193,8 +206,13 @@ export function statusPayload(paths) {
   const linkTarget = readLinkTarget(paths.activeDir)
   const profiles = listProfiles(paths)
   const appExe = detectAppExe()
+  const lastResult = readLastResult(paths.stateDir)
+  const gate = join(paths.stateDir, 'install-pending', 'runtime', 'publish')
+  const installation = inspectInstallation(paths)
   return {
-    installation: inspectInstallation(paths),
+    installation,
+    installAvailable: canInstallTavern(paths),
+    replacesNext: hasNextTavern(paths.home),
     platform: process.platform,
     dshHome: paths.home,
     profilesDir: paths.profilesDir,
@@ -207,10 +225,12 @@ export function statusPayload(paths) {
     appExe,
     appKind: basename(paths.activeDir) === 'desktop' ? 'desktop' : 'cli',
     // Only the Desktop app's own host can switch; a standalone `dsh --profile …` (e.g. the DSH 酒馆 shortcut) cannot.
-    desktopApp: Boolean(process.versions.electron && typeof process.send === 'function' && process.ppid > 1),
+    desktopApp: isDesktopApp(),
+    desktopTavernWindow: isDesktopTavernWindow(paths, installation),
     profiles,
     backups: listBackups(paths),
-    lastResult: readLastResult(paths.stateDir),
+    lastResult,
+    installProgress: readLogTail(gate + '.progress', 400),
     logPath: join(paths.stateDir, 'last-run.log'),
     logTail: readLogTail(join(paths.stateDir, 'last-run.log')),
     transcriptPath: join(paths.stateDir, 'last-run.log.out'),
@@ -219,13 +239,42 @@ export function statusPayload(paths) {
   }
 }
 
-/**
- * Whether a profile manifest enables this plugin, i.e. the app can switch back from it.
- * @param {object | undefined} manifest - parsed profile package.json.
- * @returns {boolean} true when dsh-profile-bridge is one of its bundles.
- */
+export function hasNextTavern(home) {
+  const profile = join(home, 'profiles', 'tavern')
+  try {
+    if (!lstatSync(profile).isDirectory()) return false
+    const receipt = JSON.parse(readFileSync(join(home, 'logs', 'tavern-installation.json'), 'utf8'))
+    return receipt.host === 'next' && readManifest(profile)?.dsh?.profile?.bundles?.includes('dsh-tavern-bundle') === true
+  } catch {
+    return false
+  }
+}
+
+export function canInstallTavern(paths) {
+  if (!['win32', 'darwin'].includes(process.platform) || !process.versions.electron || !process.send || process.ppid <= 1) return false
+  if (paths.activeDir !== join(paths.profilesDir, 'desktop')) return false
+  try {
+    if (!lstatSync(paths.activeDir).isDirectory()) return false
+    lstatSync(join(paths.profilesDir, 'tavern'))
+    if (!hasNextTavern(paths.home)) return false
+  } catch (error) {
+    if (error.code !== 'ENOENT' || !existsSync(paths.activeDir)) return false
+  }
+  const resources = process.platform === 'darwin' ? resolve(dirname(process.execPath), '../Resources') : join(dirname(process.execPath), 'resources')
+  return ['app', 'app.asar'].some(dir => readManifest(join(resources, dir))?.name === '@deepseek-ai/dsh-desktop')
+}
+
+export const LAUNCHER_BUNDLE = 'dsh-tavern-launcher'
+export const LEGACY_LAUNCHER_BUNDLE = 'dsh-profile-bridge'
+
+export function launcherBundle(manifest) {
+  const bundles = manifest?.dsh?.profile?.bundles
+  if (!Array.isArray(bundles) || bundles.includes('dsh-tavern-bundle')) return undefined
+  return [LAUNCHER_BUNDLE, LEGACY_LAUNCHER_BUNDLE].find(name => bundles.includes(name))
+}
+
 export function hasBridge(manifest) {
-  return (manifest?.dsh?.profile?.bundles ?? []).includes('dsh-profile-bridge')
+  return launcherBundle(manifest) !== undefined
 }
 
 /**
@@ -247,7 +296,7 @@ export function validateTarget(paths, name) {
   }
   // A profile without this page has no way back from inside the app.
   if (!hasBridge(readManifest(dir))) {
-    fail('no-bridge', `"${trimmed}" does not enable dsh-profile-bridge, so the app could not switch back from it.`)
+    fail('no-bridge', `"${trimmed}" does not enable the Tavern launcher, so the app could not switch back from it.`)
   }
   const warnings = []
   if (!existsSync(join(dir, 'node_modules'))) {

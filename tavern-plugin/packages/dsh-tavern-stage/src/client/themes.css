@@ -576,17 +576,22 @@ button.stage-wait[data-busy] { cursor: default; }
   .fork-gal-stage:is(:not([data-fk-skin-buttons]), .is-film) .fork-gal-topbar > .fork-gal-topleft { grid-column: 2; grid-row: 1; justify-content: center; }
   .fork-gal-stage:is(:not([data-fk-skin-buttons]), .is-film) .fork-gal-topbar > .fork-gal-topright { grid-column: 3; grid-row: 1; justify-self: end; }
 }
-.fork-gal-topbar:hover, .fork-gal-stage:hover .fork-gal-topbar, .fork-gal-topbar:focus-within { --gal-ui-hud-ink: var(--gal-ui-hud-ink-on); }
+.fork-gal-topbar:hover, .fork-gal-stage:hover .fork-gal-topbar, .fork-gal-topbar:focus-within,
+.fork-gal-stage:hover > .fork-gal-status[data-size="full"] .fork-gal-status-head, .fork-gal-status[data-size="full"] .fork-gal-status-head:focus-within { --gal-ui-hud-ink: var(--gal-ui-hud-ink-on); }
 /* hud.plate (§18 N13): the chips stand on the skin's opaque ground in its ink (no halo needed), so a light label never sits on a
    bright sky. */
 .fork-gal-stage[data-fk-skin-hud-plate]:not(.is-film) .fork-gal-topbar { --gal-ui-hud-ink: var(--fk-hud-plate-fg); --gal-ui-hud-ink-on: var(--fk-hud-plate-fg); --gal-ui-hud-ink-idle: var(--fk-hud-plate-fg); --gal-ui-hud-halo: var(--fk-hud-plate-bg); --gal-ui-hud-plate: var(--fk-hud-plate-bg); }
-.fork-gal-stage[data-fk-skin-hud-plate]:not(.is-film) .fork-gal-topbar :is(.fork-gal-place, .fork-gal-track, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit, .fork-gal-generate-turn) { background: var(--fk-hud-plate-bg); color: var(--fk-hud-plate-fg); filter: none; }
+.fork-gal-stage[data-fk-skin-hud-plate]:not(.is-film) .fork-gal-topbar :is(.fork-gal-place, .fork-gal-track, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit, .fork-gal-generate-turn),
+.fork-gal-stage[data-fk-skin-hud-plate]:not(.is-film) > .fork-gal-status[data-size="full"] .fork-gal-status-close { background: var(--fk-hud-plate-bg); color: var(--fk-hud-plate-fg); filter: none; }
 .fork-gal-stage .fork-gal-topbar :is(.fork-gal-place, .fork-gal-track, .fork-gal-generate-turn, .fork-gal-history-direction-progress, .fork-gal-history-direction-error, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit),
+.fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close,
 .fork-gal-stage .fork-gal-runtime-status { filter: var(--gal-ui-hud-glow); }
-.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-generate-turn, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):is(:hover, :focus-visible, [aria-expanded="true"]) {
+.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-generate-turn, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):is(:hover, :focus-visible, [aria-expanded="true"]),
+.fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close:is(:hover, :focus-visible) {
   background: var(--gal-ui-hud-hover); color: var(--gal-ui-hud-ink-on); filter: var(--gal-ui-hud-glow-on); }
 .fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):is(:hover, :focus-visible, [aria-expanded="true"]) .fork-icon { stroke-width: 2.3; }
-.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-generate-turn, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):focus-visible { outline: 2px solid var(--gal-ui-hud-ink-on); outline-offset: 1px; }
+.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-generate-turn, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):focus-visible,
+.fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close:focus-visible { outline: 2px solid var(--gal-ui-hud-ink-on); outline-offset: 1px; }
 /* Toggled (电影 on, mixer muted): accent ink and a dot under the glyph. */
 .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film[aria-pressed="true"], .fork-gal-mixer-toggle[data-level="muted"]) { color: var(--gal-ui-hud-active); }
 .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film[aria-pressed="true"], .fork-gal-mixer-toggle[data-level="muted"])::before { content: ""; position: absolute; left: calc(50% - 2px); bottom: 1px; width: 4px; height: 4px; border-radius: 50%; background: currentColor; pointer-events: none; }
@@ -624,7 +629,8 @@ button.stage-wait[data-busy] { cursor: default; }
   .fork-gal-place.is-changing .fork-gal-place-name, .fork-gal-track.is-changing .fork-gal-track-name { animation: fork-gal-hud-fade .4s ease backwards; }
   .fork-gal-track.is-changing .fork-icon { animation: none; }
 }
-.fork-gal-stage :is(.fork-gal-quit, .fork-gal-film, .fork-gal-scene-image) { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: none; box-shadow: none; color: var(--gal-ui-hud-ink); cursor: pointer; transition: color .25s, background .15s; }
+/* (a full card page's close button is this × too, over the page's top-right corner) */
+.fork-gal-stage :is(.fork-gal-quit, .fork-gal-film, .fork-gal-scene-image), .fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: none; box-shadow: none; color: var(--gal-ui-hud-ink); cursor: pointer; transition: color .25s, background .15s; }
 .fork-gal-topright { display: flex; align-items: center; gap: 4px; padding: 0; background: none; box-shadow: none; }
 /* direction/resources can be pending while the reading controls stay usable. */
 /* runtime state as a small opaque stage panel. */
@@ -2022,7 +2028,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 /* Layer rows (shared by the popover and the Config 音量 tab). */
 .fork-gal-mix { display: grid; gap: 2px; }
 .fork-gal-mix-row { display: grid; grid-template-columns: 30px 5.8em minmax(0, 1fr) 2.2em; align-items: center; column-gap: 8px; min-height: 42px; }
-.fork-gal-mix-row.is-master { margin-bottom: 4px; padding-bottom: 4px; border-bottom: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--gal-ui-line); }
+.fork-gal-mix-row.is-master { border-bottom: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--gal-ui-line); }
 .fork-gal-stage :is(.fork-gal-mix-mute, .fork-gal-mix-test) { display: grid; place-items: center; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--gal-ui-ink-2); cursor: pointer; transition: background .15s, color .15s; }
 .fork-gal-stage :is(.fork-gal-mix-mute, .fork-gal-mix-test):hover:not(:disabled) { background: var(--gal-ui-hover); color: var(--gal-ui-accent); }
 .fork-gal-stage .fork-gal-mix-row.is-muted .fork-gal-mix-mute { background: var(--gal-ui-active); color: var(--gal-ui-accent); }
@@ -2045,11 +2051,15 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage .fork-gal-mix-row.is-muted .fork-gal-slider-fill { background: var(--gal-ui-ink-disabled); }
 .fork-gal-stage :is(.fork-gal-mix-mute, .fork-gal-mix-test):focus-visible { outline: var(--gal-ui-focus); outline-offset: 1px; }
 /* Large rows (Config 音量): comfortable targets, ▶ previews at the end. */
+/* The large mixer's grid (mute, name, slider, value, test) in tokens, so the rows after it on its page share it (below). */
+.fork-gal-config { --gal-cfg-mix-hit: 46px; --gal-cfg-mix-name: 9.5em; --gal-cfg-mix-gap: 18px; --gal-cfg-mix-pad: 16px; }
+.fork-gal-config[data-layout="compact"] { --gal-cfg-mix-hit: 40px; --gal-cfg-mix-gap: 10px; --gal-cfg-mix-pad: 6px; }
 .fork-gal-mix.is-large { gap: 6px; }
-.fork-gal-mix.is-large .fork-gal-mix-row { grid-template-columns: 46px 9.5em minmax(0, 1fr) 3em 46px; column-gap: 18px; min-height: 68px; padding: 4px 16px; border-radius: var(--gal-ui-radius); transition: background .15s; }
+.fork-gal-mix.is-large .fork-gal-mix-row { grid-template-columns: var(--gal-cfg-mix-hit) var(--gal-cfg-mix-name) minmax(0, 1fr) 3em var(--gal-cfg-mix-hit); column-gap: var(--gal-cfg-mix-gap); min-height: 68px; padding: 4px var(--gal-cfg-mix-pad); border-radius: var(--gal-ui-radius); transition: background .15s; }
 .fork-gal-mix.is-large .fork-gal-mix-row:hover { background: var(--gal-ui-hover); }
-.fork-gal-mix.is-large .fork-gal-mix-row.is-master { margin-bottom: 10px; padding-bottom: 10px; border-radius: var(--gal-ui-radius) var(--gal-ui-radius) 0 0; }
-.fork-gal-mix.is-large :is(.fork-gal-mix-mute, .fork-gal-mix-test) { width: 46px; height: 46px; }
+/* 总音量 keeps the rows' rhythm: its rule sits in the same gap as every other row's, no extra room under it. */
+.fork-gal-mix.is-large .fork-gal-mix-row.is-master { border-radius: var(--gal-ui-radius) var(--gal-ui-radius) 0 0; }
+.fork-gal-mix.is-large :is(.fork-gal-mix-mute, .fork-gal-mix-test) { width: var(--gal-cfg-mix-hit); height: var(--gal-cfg-mix-hit); }
 .fork-gal-stage .fork-gal-mix.is-large .fork-gal-mix-test:disabled { color: var(--gal-ui-ink-disabled); cursor: default; }
 .fork-gal-mix-test.is-none { visibility: hidden; }
 .fork-gal-mix.is-large .fork-gal-mix-label b { font-size: clamp(17px, 1.3vw, 20px); letter-spacing: .12em; }
@@ -2095,6 +2105,10 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-config-group + .fork-gal-config-group { margin-top: clamp(20px, 3vh, 34px); }
 .fork-gal-config-caption { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--gal-ui-line); color: var(--gal-ui-accent); font: 600 13.5px/1.2 var(--gal-ui-title-font); letter-spacing: .3em; }
 .fork-gal-config-row { display: grid; grid-template-columns: 10.5em minmax(0, 1fr); align-items: center; column-gap: 24px; min-height: 66px; padding: 6px 0; }
+/* On the mixer's page (CONFIG › 声音) every row shares the mixer's grid: the label starts at the mixer names' x (after the
+   mute column) and, on the wide sheet, the control at the sliders' x. Low specificity, so a skin's row layout still wins. */
+.fork-gal-config :where(.fork-gal-config-page:has(> .fork-gal-config-group > .fork-gal-mix.is-large)) .fork-gal-config-row { padding-inline: calc(var(--gal-cfg-mix-pad) + var(--gal-cfg-mix-hit) + var(--gal-cfg-mix-gap)) var(--gal-cfg-mix-pad); }
+.fork-gal-config:not([data-layout="compact"]) :where(.fork-gal-config-page:has(> .fork-gal-config-group > .fork-gal-mix.is-large)) .fork-gal-config-row { grid-template-columns: var(--gal-cfg-mix-name) minmax(0, 1fr); column-gap: var(--gal-cfg-mix-gap); }
 .fork-gal-config-label { display: flex; align-items: center; gap: 8px; font-size: clamp(16px, 1.25vw, 19px); letter-spacing: .1em; white-space: nowrap; }
 .fork-gal-config-label b { font-weight: 600; }
 .fork-gal-config-control { min-width: 0; }
@@ -2222,7 +2236,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-config[data-layout="compact"] .fork-gal-config-page { padding: 14px 16px calc(28px + env(safe-area-inset-bottom, 0px)); overscroll-behavior: contain; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-group + .fork-gal-config-group { margin-top: 22px; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-caption { flex-wrap: wrap; row-gap: 6px; letter-spacing: .2em; white-space: nowrap; }
-.fork-gal-config[data-layout="compact"] .fork-gal-config-row { grid-template-columns: minmax(0, 1fr); row-gap: 10px; min-height: 0; padding: 12px 0; }
+.fork-gal-config[data-layout="compact"] .fork-gal-config-row { grid-template-columns: minmax(0, 1fr); row-gap: 10px; min-height: 0; padding-block: 12px; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-label { font-size: 15px; letter-spacing: .08em; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-seg { display: flex; box-sizing: border-box; width: 100%; }
 .fork-gal-stage .fork-gal-config[data-layout="compact"] .fork-gal-config-seg button { flex: 1 1 0; min-width: 0; height: 40px; padding: 0 6px; font-size: 15px; letter-spacing: .06em; white-space: nowrap; }
@@ -2237,14 +2251,12 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-config[data-layout="compact"] .fork-gal-config-preview { max-width: none; margin: 8px 0 0; padding: 10px 14px 12px; }
 /* Mixer rows: [mute] name … value [▶] on the first line, the slider under the name on the second. */
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large { gap: 4px; }
-.fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-row { grid-template-columns: 40px minmax(0, 1fr) auto 40px; grid-template-areas: "mute label value test" "mute slider slider test"; column-gap: 10px; row-gap: 4px; min-height: 0; padding: 8px 6px 12px; }
-.fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-row.is-master { margin-bottom: 6px; padding-bottom: 12px; }
+.fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-row { grid-template-columns: var(--gal-cfg-mix-hit) minmax(0, 1fr) auto var(--gal-cfg-mix-hit); grid-template-areas: "mute label value test" "mute slider slider test"; column-gap: var(--gal-cfg-mix-gap); row-gap: 4px; min-height: 0; padding: 8px var(--gal-cfg-mix-pad) 12px; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-mute { grid-area: mute; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-label { grid-area: label; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-slider { grid-area: slider; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-value { grid-area: value; font-size: 14px; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-test { grid-area: test; }
-.fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large :is(.fork-gal-mix-mute, .fork-gal-mix-test) { width: 40px; height: 40px; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-label b { font-size: 16px; letter-spacing: .08em; }
 /* ==== end stage overlays: config + mixer ==== */
 /* ==== stage system menu ==== */
@@ -2287,6 +2299,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 /* Items: a label in the title face with its English caption; the highlight (pointer or keyboard) is the active surface,
    the gem and an accent bar; keyboard focus adds the theme's focus ring. */
 .fork-gal-menu-list { display: grid; gap: 3px; }
+/* a drawn menu's scroll indicators (art.menu capacity), shown only by those menus */
+.fork-gal-menu-more { display: none; }
 .fork-gal-stage .fork-gal-menu-item { position: relative; display: grid; grid-template-columns: 16px auto minmax(0, 1fr) auto; align-items: center; column-gap: 12px; box-sizing: border-box; width: 100%; min-height: clamp(46px, 5.6vh, 54px); margin: 0; padding: 8px 16px 8px 12px;
   border: 0; border-radius: calc(var(--gal-ui-radius) * .8); background: transparent; box-shadow: none; color: var(--gal-ui-ink-2); font-family: var(--gal-ui-title-font); text-align: left; cursor: pointer;
   transition: background .15s, color .15s; animation: fork-gal-menu-item .3s cubic-bezier(.2, .8, .3, 1) both; animation-delay: 60ms; }
@@ -2691,7 +2705,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage .fork-gal-topbar :is(.fork-gal-topleft, .fork-gal-topright) { display: contents; }
   .fork-gal-stage .fork-gal-topbar > :is(.fork-gal-topleft, .fork-gal-topright) > :not(.fork-stage-entry),
   .fork-gal-stage .fork-gal-topbar > :is(.fork-gal-topleft, .fork-gal-topright) > .fork-stage-entry > * { flex: none; }
-  .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film, .fork-gal-scene-image, .fork-gal-quit, .fork-gal-mixer-toggle, .fork-widget-menu button.fork-widget-menu-trigger) { width: 44px; height: 44px; }
+  .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film, .fork-gal-scene-image, .fork-gal-quit, .fork-gal-mixer-toggle, .fork-widget-menu button.fork-widget-menu-trigger),
+  .fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close { width: 44px; height: 44px; }
   .fork-gal-stage .fork-gal-topbar .fork-gal-generate-turn { height: 44px; }
   .fork-gal-stage .fork-gal-topbar .fork-gal-hud-line { display: flex; flex: none; align-items: center; height: 44px; }
   .fork-gal-stage .fork-gal-topbar :is(.fork-gal-place-name, .fork-gal-track-name, .fork-gal-hud-from, .fork-gal-place:not(.fork-bg-chip)) { display: none; }
@@ -3128,8 +3143,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-layout]:not(.is-film) .fork-gal-box .fork-gal-name { --adv-f: calc(var(--cl-fs) * var(--fk-text-scale, 1)); --p5-f: var(--adv-f); }
 .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-layout][data-fk-skin-art]:not(.is-film) .fork-gal-box .fork-gal-name { --adv-f: inherit; --p5-f: inherit; }
 .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-layout]:not(.is-film) .fork-gal-box .fork-gal-text {
-  position: static; padding: 0 var(--fk-text-bleed, 0px); text-indent: 0; scrollbar-width: none; }
-.fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-layout]:not(.is-film) .fork-gal-box .fork-gal-text::-webkit-scrollbar { display: none; }
+  position: static; padding: 0 var(--fk-text-bleed, 0px); text-indent: 0; }
 /* the ADV boxes are sized for exactly the pager's 3 lines (-adv-lines) and their name
    plates do not take a text line (ribbon sits over the edge; underline has its own reserved row), so narration does not
    inherit the classic theme's in-box name-line offset: its text starts at the box's own top padding. */
@@ -5019,6 +5033,10 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-panel > :is(.fork-gal-menu-ornament, .fork-gal-menu-frame, .fork-gal-menu-head) { display: none; }
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-list { position: absolute; left: calc(var(--gx) + var(--art-mr-x) * var(--mu));
     top: calc(var(--gy) + var(--art-mr-top) * var(--mu)); width: calc(var(--art-mr-w) * var(--mu)); gap: calc(var(--art-mr-gap) * var(--mu)); }
+  /* rows.fit (the menu's capacity): past fit design px the bars scroll inside it (menu.cjs keeps the focused bar in view; the
+     chevrons above mark the clipped edges); the list reaches 48 design px out to each side so poses and the cursor are not cut. */
+  .fork-gal-stage[data-fk-skin-art-menu-rows-fit]:not(.is-film) .fork-gal-menu-list { --mp: calc(48 * var(--mu)); max-height: calc(var(--art-mr-fit) * var(--mu)); padding: 0 var(--mp); margin: 0 calc(-1 * var(--mp));
+    overflow: hidden auto; overscroll-behavior: contain; }
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-item { display: flex; align-items: center; gap: .6em; box-sizing: border-box; width: 100%; height: calc(var(--art-mr-h) * var(--mu)); min-height: 0;
     margin: 0; padding: max(0px, calc((2 * var(--art-mr-y) - var(--art-mr-h)) * var(--mu))) calc((var(--art-mr-w) - var(--art-mr-r)) * var(--mu)) max(0px, calc((var(--art-mr-h) - 2 * var(--art-mr-y)) * var(--mu))) calc(var(--art-mr-l) * var(--mu));
     border: 0 none; border-radius: 0; background: none; box-shadow: none; color: var(--art-mr-ink, var(--gal-ui-ink)); font: var(--art-mr-weight) calc(var(--art-mr-font) * var(--mu)) / 1.2 var(--gal-ui-font); animation: none;
@@ -5206,12 +5224,14 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { align-self: flex-end;
     margin: 0 0 calc((var(--art-bl-name-font) * var(--mu) - var(--bl-voice-h)) / 2) calc(var(--art-bl-name-font) * var(--mu) * .25 - 8px + var(--bl-voice-dx)); }
   /* anchor row: the box's top-left at the entry's top-left + at (the name, when drawn, is the button's positioned parent at its
-     own x, y in the entry); anchor text: its left edge at the text column's right end + at x, centred on the first line + at y. */
+     own x, y in the entry); anchor text: its left edge at the text column's right end + at x, centred on the first line + at y.
+     --bl-voice-at: that left edge in the entry; the name's own start (--bl-name-x) is subtracted, or with name.align end the
+     button is placed back from the name's right edge (glyph tiles), so neither depends on the name's width. */
   .fork-gal-stage[data-fk-skin-art-backlog-voice="row"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button,
-  .fork-gal-stage[data-fk-skin-art-backlog-voice="text"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { --bl-name-x: 0px; --bl-name-y: 0px; position: absolute; margin: 0; translate: none;
-    left: calc(var(--bl-voice-dx) - var(--bl-name-x)); top: calc(var(--bl-voice-dy) - var(--bl-name-y)); }
+  .fork-gal-stage[data-fk-skin-art-backlog-voice="text"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { --bl-name-x: 0px; --bl-name-y: 0px; --bl-voice-at: var(--bl-voice-dx); position: absolute; margin: 0; translate: none;
+    left: calc(var(--bl-voice-at) - var(--bl-name-x)); top: calc(var(--bl-voice-dy) - var(--bl-name-y)); }
   .fork-gal-stage[data-fk-skin-art-backlog-voice="text"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button {
-    left: calc(var(--bl-text) + var(--bl-text-w) + var(--bl-voice-dx) - var(--bl-name-x));
+    --bl-voice-at: calc(var(--bl-text) + var(--bl-text-w) + var(--bl-voice-dx));
     top: calc(var(--art-bl-top) * var(--mu) + (var(--art-bl-pitch) * var(--mu) - var(--bl-voice-h)) / 2 + var(--bl-voice-dy) - var(--bl-name-y)); }
   .fork-gal-stage[data-fk-skin-art-backlog-voice="text"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button {
     top: calc((var(--art-bl-head) + var(--art-bl-top)) * var(--mu) + (var(--art-bl-pitch) * var(--mu) - var(--bl-voice-h)) / 2 + var(--bl-voice-dy) - var(--bl-name-y)); }
@@ -5661,8 +5681,37 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     width: calc(((var(--art-mt-cols) - 1) * var(--art-mt-px) + var(--art-mt-w)) * var(--mu)); justify-content: center; align-content: start;
     grid-template-columns: repeat(var(--art-mt-cols), calc(var(--art-mt-w) * var(--u))); grid-auto-rows: calc(var(--art-mt-h) * var(--u));
     column-gap: calc((var(--art-mt-px) - var(--art-mt-w)) * var(--u)); row-gap: calc((var(--art-mt-py) - var(--art-mt-h)) * var(--u)); gap: calc((var(--art-mt-py) - var(--art-mt-h)) * var(--u)) calc((var(--art-mt-px) - var(--art-mt-w)) * var(--u)); }
+  /* minScale (the menu's capacity): more rows first close their gaps (the pitch down to the cell), then scale the grid down to
+     fit but not below minScale; past it the grid scrolls inside its fit height. The list then joins the panel's flow (margins in
+     place of its offset) so the placed (at) tiles keep the panel as their box and stay put while the rows scroll; menu.cjs keeps
+     the focused row in view and marks the clipped edges (data-more), each shown by an indicator in the label ink. */
+  .fork-gal-stage[data-fk-skin-art-menu-scroll]:not(.is-film) .fork-gal-menu-list {
+    --py: max(var(--art-mt-h), min(var(--art-mt-py), calc((var(--art-mt-fit) - var(--art-mt-h)) / max(1, var(--rows) - 1))));
+    --k: max(var(--art-mt-min-scale), min(1, calc(var(--art-mt-fit) / ((var(--rows) - 1) * var(--py) + var(--art-mt-h)))));
+    position: static; margin: calc(var(--oy) + var(--art-mt-y) * var(--mu)) 0 0 calc(var(--ox) + var(--art-mt-x) * var(--mu)); max-height: calc(var(--art-mt-fit) * var(--mu));
+    overflow: hidden auto; overscroll-behavior: contain;
+    row-gap: calc((var(--py) - var(--art-mt-h)) * var(--u)); gap: calc((var(--py) - var(--art-mt-h)) * var(--u)) calc((var(--art-mt-px) - var(--art-mt-w)) * var(--u)); }
+  .fork-gal-stage[data-fk-skin-art-menu-scroll]:not(.is-film) .fork-gal-menu-panel:not(.fork-gal-confirm) { padding: 0; }
+  .fork-gal-stage[data-fk-skin-art-menu-scroll][data-fk-skin-art-menu-at~="resume"]:not(.is-film) .fork-gal-menu-item[data-item="resume"],
+  .fork-gal-stage[data-fk-skin-art-menu-scroll][data-fk-skin-art-menu-at~="backlog"]:not(.is-film) .fork-gal-menu-item[data-item="backlog"],
+  .fork-gal-stage[data-fk-skin-art-menu-scroll][data-fk-skin-art-menu-at~="gallery"]:not(.is-film) .fork-gal-menu-item[data-item="gallery"],
+  .fork-gal-stage[data-fk-skin-art-menu-scroll][data-fk-skin-art-menu-at~="config"]:not(.is-film) .fork-gal-menu-item[data-item="config"],
+  .fork-gal-stage[data-fk-skin-art-menu-scroll][data-fk-skin-art-menu-at~="keys"]:not(.is-film) .fork-gal-menu-item[data-item="keys"],
+  .fork-gal-stage[data-fk-skin-art-menu-scroll][data-fk-skin-art-menu-at~="leave"]:not(.is-film) .fork-gal-menu-item[data-item="leave"] {
+    left: calc(var(--ox) + var(--ax) * var(--mu)); top: calc(var(--oy) + var(--ay) * var(--mu)); }
+  /* the clipped edges of a scrolling list (menu.cjs data-more): a chevron in the label ink just outside the list area, per
+     mode its place (--more-x / -w the list's left and width, --more-top / -h its top and fit height, in CSS px) */
+  .fork-gal-stage[data-fk-skin-art-menu-scroll]:not(.is-film) .fork-gal-menu-more { --more-x: calc(var(--ox) + var(--art-mt-x) * var(--mu)); --more-w: calc(((var(--art-mt-cols) - 1) * var(--art-mt-px) + var(--art-mt-w)) * var(--mu));
+    --more-top: calc(var(--oy) + var(--art-mt-y) * var(--mu)); --more-h: calc(var(--art-mt-fit) * var(--mu)); --more-ink: var(--art-mt-ink, var(--gal-ui-ink)); }
+  .fork-gal-stage[data-fk-skin-art-menu-rows-fit]:not(.is-film) .fork-gal-menu-more { --more-x: calc(var(--gx) + var(--art-mr-x) * var(--mu)); --more-w: calc(var(--art-mr-w) * var(--mu));
+    --more-top: calc(var(--gy) + var(--art-mr-top) * var(--mu)); --more-h: calc(var(--art-mr-fit) * var(--mu)); --more-ink: var(--art-mr-ink, var(--gal-ui-ink)); }
+  .fork-gal-stage:is([data-fk-skin-art-menu-scroll], [data-fk-skin-art-menu-rows-fit]):not(.is-film) .fork-gal-menu-list[data-more~="up"] ~ .fork-gal-menu-more[data-edge="up"],
+  .fork-gal-stage:is([data-fk-skin-art-menu-scroll], [data-fk-skin-art-menu-rows-fit]):not(.is-film) .fork-gal-menu-list[data-more~="down"] ~ .fork-gal-menu-more[data-edge="down"] { display: block; position: absolute; z-index: 2;
+    left: var(--more-x); width: var(--more-w); height: calc(32 * var(--mu)); top: calc(var(--more-top) - 34 * var(--mu)); background: var(--more-ink); pointer-events: none;
+    clip-path: polygon(46.5% 85%, 50% 15%, 53.5% 85%, 52% 85%, 50% 45%, 48% 85%); }
+  .fork-gal-stage:is([data-fk-skin-art-menu-scroll], [data-fk-skin-art-menu-rows-fit]):not(.is-film) .fork-gal-menu-list[data-more~="down"] ~ .fork-gal-menu-more[data-edge="down"] { top: calc(var(--more-top) + var(--more-h) + 2 * var(--mu)); transform: scaleY(-1); }
   .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-sep { display: none; }
-  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item { --ti: var(--art-mt-plain, none); --tf: var(--ti); --tw: var(--art-mt-plain-w, 0); --th: var(--art-mt-plain-h, 0);
+  .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item { --ti: var(--art-mt-plain, none); --tf: var(--art-mt-plain-focus, var(--ti)); --tw: var(--art-mt-plain-w, 0); --th: var(--art-mt-plain-h, 0);
     position: relative; isolation: isolate; display: block; box-sizing: border-box; width: 100%; height: 100%; min-height: 0; margin: 0; padding: 0; border: 0 none; border-radius: 0; border-image: none;
     background: none; box-shadow: none; color: var(--art-mt-ink, var(--gal-ui-ink)); animation: none; overflow: visible; }
   .fork-gal-stage[data-fk-skin-art-menu-tiles]:not(.is-film) .fork-gal-menu-item::before { content: ""; position: absolute; z-index: -2; left: calc(50% + (var(--art-mt-dx) - var(--tw) / 2) * var(--u));
@@ -5826,6 +5875,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 @media (min-width: 641px) {
   .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name { left: auto; right: calc(100% - var(--bl-text)); width: max-content; }
   .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-parts~="name"]:not([data-fk-skin-art-backlog-voice="row"]):not([data-fk-skin-art-backlog-voice="text"]):not(.is-film) .fork-gal-backlog-name > .fork-voice-button { position: absolute; left: 100%; bottom: 0; }
+  /* anchor row / text: the same place as start-aligned names, measured back from the name's right edge (the text column's left). */
+  .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-voice="row"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button,
+  .fork-gal-stage[data-fk-skin-art-backlog-name-align="end"][data-fk-skin-art-backlog-voice="text"][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { left: auto; right: calc(var(--bl-text) - var(--bl-voice-at) - var(--bl-voice-w)); }
 }
 /* ==== end art backlog glyph tiles ==== */
 
@@ -6418,13 +6470,20 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-status[data-size="full"] { padding: 0; place-items: stretch; }
 .fork-gal-status[data-size="full"] > .fork-gal-status-sheet { width: 100%; height: 100%; border: 0; border-radius: 0; box-shadow: none;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-/* …with no title bar: the close button floats over the card's top-right corner */
+/* …with no title bar: the close button floats over the card's top-right corner where the top bar's × sits, drawn as it is
+   (the stage's overlay icon button, with the top bar's rules above) */
 .fork-gal-stage > .fork-gal-status[data-size="full"] > .fork-gal-status-sheet > .fork-gal-status-head { position: absolute; z-index: 1;
-  top: calc(env(safe-area-inset-top) + 10px); right: calc(env(safe-area-inset-right) + 10px); padding: 0; }
+  top: calc(env(safe-area-inset-top) + 10px); right: calc(env(safe-area-inset-right) + 12px); padding: 0; }
 .fork-gal-status[data-size="full"] .fork-gal-status-head::after { content: none; }
-.fork-gal-stage .fork-gal-status[data-size="full"] .fork-gal-status-close { position: static; width: 40px; height: 40px; margin: 0; border-radius: 50%;
-  background: color-mix(in srgb, var(--gal-ui-surface) 55%, transparent); color: var(--gal-ui-ink); }
-.fork-gal-stage .fork-gal-status[data-size="full"] .fork-gal-status-close:hover { background: color-mix(in srgb, var(--gal-ui-surface) 75%, transparent); color: var(--gal-ui-accent); }
+.fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close { top: auto; right: auto; }
+/* An entry page (a title or opening page) covers the stage from its first frame: no fade in, the sheet's own ground until
+   the card's document is ready. The stage behind it stays hidden while it loads (data-entry) and is never seen through it;
+   the loading veil still stands over it. */
+.fork-gal-stage > .fork-gal-status[data-entry-page], .fork-gal-stage > .fork-gal-status[data-entry-page] > .fork-gal-status-sheet { animation: none; }
+.fork-gal-stage[data-entry] > .fork-gal-status[data-entry-page] { opacity: 1; pointer-events: auto; transition: none; }
+/* …and draws no chrome until its document is on screen (data-bare): only that ground, no title bar, no ×, no sheet frame */
+.fork-gal-stage > .fork-gal-status[data-bare] > .fork-gal-status-sheet { border-color: transparent; box-shadow: none; }
+.fork-gal-stage > .fork-gal-status[data-bare] > .fork-gal-status-sheet > .fork-gal-status-head { visibility: hidden; }
 .fork-gal-status-note { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; flex: 1; margin: 0; padding: 32px 20px; color: var(--gal-ui-ink-2); font-size: var(--gal-ui-meta-size); text-align: center; }
 .fork-gal-stage .fork-gal-status-note > button { min-height: 36px; padding: 6px 14px; border: 0; border-radius: var(--gal-ui-radius); background: transparent; color: var(--gal-ui-accent); font: inherit; cursor: pointer; }
 .fork-gal-stage .fork-gal-status-note > button:hover { background: var(--gal-ui-hover); }
@@ -6439,6 +6498,13 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 @media (prefers-reduced-motion: reduce) { .fork-gal-status, .fork-gal-status-sheet { animation: none; } }
 .fork-gal-stage[data-reduced-motion] > .fork-gal-status, .fork-gal-stage[data-reduced-motion] > .fork-gal-status > .fork-gal-status-sheet { animation: none; }
 /* ==== end stage status panel ==== */
+/* ==== stage full-viewport dialogs ====
+   The stage's own full-viewport surfaces (履历, CONFIG, 回想, a card page, a filling widget sheet) are modal dialogs but not
+   centred boxes: they keep the whole stage width under a host's generic modal-dialog cap (a mobile shell may cap every
+   [aria-modal] dialog below 1024 px, e.g. `max-width: calc(100vw - 32px) !important` at specificity 0,3,1). Ordinary centred
+   dialogs (重新生成, confirmations) keep such a cap. */
+:is(.fork-gal-backlog, .fork-gal-config, .fork-cg-gallery, .fork-gal-status-sheet, .fork-widget-panel.is-sheet.is-fill)[role="dialog"][aria-modal="true"] { max-width: none !important; }
+/* ==== end stage full-viewport dialogs ==== */
 /* ==== stage lease HUD ==== */
 /* A leasing gameMode view's controls (lease-hud.cjs) sit between the top chrome (64px, as the choice list) and the text
    box as it is drawn (the choice list's anchors, never lower than the 25% line). The region is see-through to the
@@ -6452,3 +6518,27 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-lease-avatar { display: inline-grid; place-items: center; flex: none; box-sizing: border-box; overflow: hidden; border-radius: 50%; background: var(--gal-ui-surface-2); color: var(--gal-ui-ink); box-shadow: inset 0 0 0 1px var(--gal-ui-line); font-weight: 700; line-height: 1; }
 .fork-gal-lease-avatar-img { width: 100%; height: 100%; object-fit: cover; }
 /* ==== end stage lease HUD ==== */
+
+/* ==== stage scrollbars ==== */
+/* The stage draws no native scrollbar: wheel, touch, keys and focus-into-view still scroll every container, and clipped edges
+   carry their own cue (the Esc menu's chevrons, a fade). A skin's scrollbars.<surface> (skin-adapter: data-fk-scrollbars and
+   --fk-sb-<surface>-thumb / -track / -w on the stage root) shows a styled one on that surface instead. A card page's document
+   gets the same rule from its prelude (status-panel.cjs). */
+.fork-gal-stage, .fork-gal-stage * { scrollbar-width: none; }
+.fork-gal-stage::-webkit-scrollbar, .fork-gal-stage ::-webkit-scrollbar { display: none; }
+.fork-gal-stage[data-fk-scrollbars~="menu"] :is(.fork-gal-menu, .fork-gal-menu *) { --fk-sb-thumb: var(--fk-sb-menu-thumb); --fk-sb-track: var(--fk-sb-menu-track); --fk-sb-w: var(--fk-sb-menu-w); }
+.fork-gal-stage[data-fk-scrollbars~="backlog"] :is(.fork-gal-backlog, .fork-gal-backlog *) { --fk-sb-thumb: var(--fk-sb-backlog-thumb); --fk-sb-track: var(--fk-sb-backlog-track); --fk-sb-w: var(--fk-sb-backlog-w); }
+.fork-gal-stage[data-fk-scrollbars~="config"] :is(.fork-gal-config, .fork-gal-config *) { --fk-sb-thumb: var(--fk-sb-config-thumb); --fk-sb-track: var(--fk-sb-config-track); --fk-sb-w: var(--fk-sb-config-w); }
+.fork-gal-stage[data-fk-scrollbars~="choices"] :is(.fork-gal-choices, .fork-gal-choices *) { --fk-sb-thumb: var(--fk-sb-choices-thumb); --fk-sb-track: var(--fk-sb-choices-track); --fk-sb-w: var(--fk-sb-choices-w); }
+.fork-gal-stage[data-fk-scrollbars~="text"] :is(.fork-gal-box, .fork-gal-box *) { --fk-sb-thumb: var(--fk-sb-text-thumb); --fk-sb-track: var(--fk-sb-text-track); --fk-sb-w: var(--fk-sb-text-w); }
+.fork-gal-stage[data-fk-scrollbars~="gallery"] :is(.fork-cg-gallery, .fork-cg-gallery *, .fork-cg-viewer, .fork-cg-viewer *) { --fk-sb-thumb: var(--fk-sb-gallery-thumb); --fk-sb-track: var(--fk-sb-gallery-track); --fk-sb-w: var(--fk-sb-gallery-w); }
+/* a declared surface: scrollbar-width / -color back to auto so its ::-webkit-scrollbar parts draw */
+:is(.fork-gal-stage[data-fk-scrollbars~="menu"] :is(.fork-gal-menu, .fork-gal-menu *), .fork-gal-stage[data-fk-scrollbars~="backlog"] :is(.fork-gal-backlog, .fork-gal-backlog *),
+    .fork-gal-stage[data-fk-scrollbars~="config"] :is(.fork-gal-config, .fork-gal-config *), .fork-gal-stage[data-fk-scrollbars~="choices"] :is(.fork-gal-choices, .fork-gal-choices *),
+    .fork-gal-stage[data-fk-scrollbars~="text"] :is(.fork-gal-box, .fork-gal-box *), .fork-gal-stage[data-fk-scrollbars~="gallery"] :is(.fork-cg-gallery, .fork-cg-gallery *, .fork-cg-viewer, .fork-cg-viewer *)) {
+  scrollbar-width: auto; scrollbar-color: auto;
+  &::-webkit-scrollbar { display: block; width: var(--fk-sb-w); height: var(--fk-sb-w); background: var(--fk-sb-track); }
+  &::-webkit-scrollbar-thumb { border-radius: var(--fk-sb-w); background: var(--fk-sb-thumb); }
+  &::-webkit-scrollbar-track, &::-webkit-scrollbar-corner { background: var(--fk-sb-track); }
+}
+/* ==== end stage scrollbars ==== */

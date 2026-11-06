@@ -43,7 +43,7 @@ GitHub Actions 会频繁向 `origin/main`（以及 `origin/stable`）推送 `cho
 
 main 的安装入口和备用更新清单从 jsDelivr 的 `@runtime-archive-main` 读取；该分发分支只放安装脚本、清单和 `runtime.zip`，源码仍在 main。清单固定引用不可变提交中的压缩包。分支地址最长缓存 12 小时，安装入口与清单必须来自同一次发布。
 
-每次推送后，Publish runtime manifest 工作流会刷新安装脚本、Android 入口和清单缓存，并核对 CDN 返回的清单提交号；未同步则工作流失败。遇到 `jsDelivr still serves a stale manifest` 时，手动刷新分发分支：
+Publish runtime manifest 工作流发布 GitHub 产物后会尝试刷新 jsDelivr 缓存。CDN 尚未同步时查看工作流摘要，按限流提示等到重试时间，再手动刷新分发分支并核对清单提交号。
 
 ```sh
 b=runtime-archive-main
@@ -53,10 +53,10 @@ curl -s https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@$b/dsh-tavern-runtime.
 
 ### CDN 体积注意事项
 
-- 新增字体、vendor 资源或修改打包流程时，核对源码归档、运行清单和压缩包的体积。jsDelivr 曾返回 `Package size exceeded the configured limit of 50 MB`；遇到此错误先检查分发体积，不能只当作缓存滞后处理。
+- 每次构建 CDN 缓存包（包括 `runtime.zip` 和 NEXT 的 `.tgz`）都要检查成品字节数。**单个包必须小于 20,000,000 字节（20 MB）**，分发树必须小于 50,000,000 字节。jsDelivr 会拒绝超限文件；超限时先精简内容，再重新打包并验证 CDN 能下载。
 - `.gitattributes` 的 `export-ignore` 控制 Git 归档，运行清单的排除规则控制安装内容；两者都不能直接视为 jsDelivr 的缓存排除配置，须实际验证 CDN 能返回目标文件和最新清单。
-- 优先排除测试、文档、构建专用源码和已支持按需下载的字体二进制；保留许可证、共享运行模块和 vendor 运行构建，排除前核对运行时引用及旧安装器兼容性。
-- 分发分支只发布安装入口、清单和 `runtime.zip`，发布前验证安装脚本与压缩包的字节数、SHA-256 均匹配清单。保持运行压缩包小于 20,000,000 字节、分发树小于 50,000,000 字节。修改入口时同步检查安装脚本、应用内更新和缓存刷新流程；旧版仍读取 `@main` 时可通过新版安装脚本迁移，刷新旧地址不能解决源码分支超限。
+- 打包时始终检查重复的构建产物，优先排除冗余副本、测试、文档、构建专用源码和已支持按需下载的字体二进制；保留许可证、共享运行模块和 vendor 运行构建，排除前核对运行时引用及旧安装器兼容性。
+- `runtime-archive-*` 只发布安装入口、清单和 `runtime.zip`，发布前验证安装脚本与压缩包的字节数、SHA-256 均匹配清单。修改入口时同步检查安装脚本、应用内更新和缓存刷新流程；旧版仍读取 `@main` 时可通过新版安装脚本迁移，刷新旧地址不能解决源码分支超限。
 
 ## 测试
 

@@ -1,3 +1,4 @@
+import { createHostBehaviorPolicies } from './domain/plugin-host-behavior.js'
 import { MAX_PLUGIN_DATA } from './domain/plugin-data-store.js'
 import { isMvuUpdateEntry } from './domain/worldbook-recall.js'
 import { createHash } from 'node:crypto'
@@ -180,7 +181,7 @@ export function createTavernPluginApi(deps) {
   const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
-  const capabilities = Object.freeze({ gameMode: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1 })
+  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1 })
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -392,7 +393,15 @@ export function createTavernPluginApi(deps) {
     return result
   }
 
+  const hostBehavior = createHostBehaviorPolicies({ allowed: async (owner, gameId) => {
+    await guardScope(owner, { gameId })
+    return !(await choicesFor(gameId)).disabled.has(owner)
+  } })
   const service = {
+    hostBehavior(input) {
+      const owner = ownerOf(this)
+      return owned(this, () => hostBehavior.register(owner, input), 'tavern.hostBehavior()')
+    },
     gameMode(input) {
       const owner = ownerOf(this)
       return owned(this, () => gameModes.register(owner, input), 'tavern.gameMode()')
@@ -1098,12 +1107,12 @@ export function createTavernPluginApi(deps) {
     },
 
     // Host-invoked current-turn generation; plugins return processed prose, never write the save.
-    bodyGenerator({ name, title, prepare, generate } = {}) {
+    bodyGenerator({ name, title, prepare, generate, controlInput = false } = {}) {
       const owner = ownerOf(this)
       sectionName(name)
       if (typeof generate !== 'function') throw new TypeError('generate 需要一个函数')
       if (prepare !== undefined && typeof prepare !== 'function') throw new TypeError('prepare 需要一个函数')
-      return owned(this, () => bodyGenerators.register(owner, { name, title: taskTitle(title, name), prepare, generate }), 'tavern.bodyGenerator()')
+      return owned(this, () => bodyGenerators.register(owner, { name, title: taskTitle(title, name), prepare, generate, controlInput: controlInput === true }), 'tavern.bodyGenerator()')
     },
 
     // A resident background Agent of this plugin: one per game, its own Session and prompt cache.
@@ -1928,7 +1937,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady,
+  return Object.freeze({ hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),
