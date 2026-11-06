@@ -27,7 +27,7 @@ async function installTavern(request, { log, beforePublish }) {
       const response = await fetch(source, { signal: AbortSignal.timeout(20000) })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const content = await response.text()
-      if (!content.includes('DSH_TAVERN_PUBLISH_GATE')) throw new Error('安装脚本尚未同步')
+      if (!content.includes('DSH_TAVERN_LATE_PUBLISH')) throw new Error('安装脚本尚未同步')
       if (replacesNext && !content.includes('DSH_TAVERN_REQUIRE_NEXT_MIGRATION')) throw new Error('安装脚本尚未支持 NEXT 迁移')
       writeFileSync(script, windows ? '\uFEFF' + content : content, { flag: 'wx', mode: 0o600 })
       log('已下载酒馆安装脚本。')
@@ -39,6 +39,8 @@ async function installTavern(request, { log, beforePublish }) {
   }
   const env = { ...process.env, DSH_HOME: request.home, DSH_TAVERN_HOST: 'desktop',
     DSH_DESKTOP_APP_EXECUTABLE: request.relaunch, DSH_TAVERN_LAUNCHER_INSTALL: '1', DSH_TAVERN_PUBLISH_GATE: gate }
+  env.DSH_TAVERN_LATE_PUBLISH = '1'
+  env.DSH_TAVERN_PREPARING_DESKTOP_PID = String(request.pids[1])
   writeFileSync(gate + '.progress', '正在下载酒馆文件…')
   if (replacesNext) env.DSH_TAVERN_REQUIRE_NEXT_MIGRATION = '1'
   for (const key of ['ELECTRON_RUN_AS_NODE', 'DSH_PROFILE', 'DSH_PROFILE_DIR']) delete env[key]

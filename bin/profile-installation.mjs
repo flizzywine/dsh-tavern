@@ -12,6 +12,7 @@ import { recordUpdateDiagnostic } from './update-diagnostics.mjs'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { stopService } from './service-lifecycle.mjs'
 import { installCliRuntime, migrateCliHome } from './cli-runtime.mjs'
 import { extractDshVersion, assertCompatibleDshVersion, dshCompatibilityNotice } from './dsh-compatibility.mjs'
@@ -288,6 +289,9 @@ export async function installProfile(host = RUNTIME_HOST, { guiRoot } = {}) {
 }
 
 async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoot }) {
+  const publishGate = host === 'desktop' && process.env.DSH_TAVERN_LATE_PUBLISH === '1' ? process.env.DSH_TAVERN_PUBLISH_GATE : undefined
+  const preparingForPid = publishGate ? Number(process.env.DSH_TAVERN_PREPARING_DESKTOP_PID) : undefined
+  if (publishGate && (!Number.isInteger(preparingForPid) || preparingForPid <= 1)) throw Error('缺少正在准备安装的桌面进程。')
   requireCommand('node', '请安装 Node.js 22.19 或更高版本（DSH 0.2.2 起需要 24.9 或更高版本）')
   requireCommand('pnpm', '请运行 npm install -g pnpm')
   verifySource()
@@ -309,7 +313,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
       console.log(`${imported.alreadyImported ? '已继承过该目录，保留当前进度' : '旧目录数据继承完成'}；双方备份：${imported.backup}`)
     }
     if (host === 'desktop') {
-      bridge = beginDesktopProfileInstallation({ home: DSH_ROOT, sourceRoot: SOURCE_ROOT, guiRoot })
+      bridge = beginDesktopProfileInstallation({ home: DSH_ROOT, sourceRoot: SOURCE_ROOT, guiRoot, preparingForPid })
       if (bridge) console.log(`${bridge.refreshOnly ? '原版切换组件备份' : 'Profile 完整备份'}：${bridge.backup}`)
     }
     mkdirSync(PROFILE_DIR, { recursive: true })
@@ -357,7 +361,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
       syncProfileDependencyPatches({ sourceRoot: SOURCE_ROOT, profileDir: PROFILE_DIR, workspaceText })
       // pnpm keeps an existing link whose target text matches, so untraversable Windows links
       // (they stop the desktop host at startup) must be replaced before it runs.
-      for (const directory of [PROFILE_DIR, bridge?.refreshOnly ? null : bridge?.desktopStage].filter(Boolean)) {
+      for (const directory of [PROFILE_DIR, bridge?.refreshOnly || publishGate ? null : bridge?.desktopStage].filter(Boolean)) {
         for (const link of repairDirectoryLinksSync(path.join(directory, 'node_modules'))) console.log(`已修复无法访问的依赖链接：${link}`)
       }
       // This generated profile changes dependencies and patch settings on upgrade.
@@ -420,6 +424,13 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         // Validate the newly published independent bridge, not its stale predecessor.
         if (bridge.refreshOnly) bridge.finish()
         await runInstall('node', [path.join(SOURCE_ROOT, 'bin', 'validate-desktop-profile.mjs'), bridge.desktopStage], { label: '验证原版 Desktop 切换入口', timeoutMs: 60_000 })
+        if (publishGate) {
+          writeFileSync(publishGate + '.progress', '安装和验证完成，等待确认重启…')
+          writeFileSync(publishGate + '.ready', '')
+          const deadline = Date.now() + 15 * 60_000
+          while (!existsSync(publishGate) && Date.now() < deadline) await delay(250)
+          if (!existsSync(publishGate) || readFileSync(publishGate, 'utf8') !== 'publish') throw Error('未完成重启确认，已取消配置切换。')
+        }
         if (!bridge.refreshOnly) bridge.finish()
       }
       transaction.commit()

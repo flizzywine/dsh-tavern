@@ -1390,6 +1390,9 @@ else
 fi
 [ -n "${SOURCE_DIR}" ] || fail "下载内容不完整。"
 [ -f "${SOURCE_DIR}/package.json" ] || fail "下载内容不完整。"
+if [ "${DSH_TAVERN_LATE_PUBLISH:-0}" = "1" ]; then
+  grep -Fq DSH_TAVERN_LATE_PUBLISH "${SOURCE_DIR}/bin/profile-installation.mjs" || fail "下载源尚未同步重启前安装支持，请稍后重试。"
+fi
 if [ "${DSH_TAVERN_REQUIRE_NEXT_MIGRATION:-0}" = "1" ]; then
   grep -Fq hasNextTavern "${SOURCE_DIR}/bin/desktop-profile-installation.mjs" || fail "下载源尚未同步 NEXT 迁移支持，请稍后重试。"
 fi
@@ -1448,7 +1451,9 @@ if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" = "cli" ] && [
   echo "正在安装程序依赖……"
   run_install dependencies.install 600000 pnpm --dir "${APP_DIR}.staging" install --frozen-lockfile --config.minimum-release-age=0
 
-  if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ]; then
+  if [ "${DSH_TAVERN_LATE_PUBLISH:-0}" = "1" ]; then
+    if [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then PREVIOUS_APP=1; fi
+  elif [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ]; then
     printf '%s' '准备完成，等待确认重启…' >"${DSH_TAVERN_PUBLISH_GATE}.progress"
     : >"${DSH_TAVERN_PUBLISH_GATE}.ready"
     deadline=$(( $(date +%s) + 900 ))

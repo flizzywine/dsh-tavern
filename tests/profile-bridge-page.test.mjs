@@ -118,7 +118,7 @@ test('原版桌面首次安装需要确认，排队后禁用安装按钮', async
 
 test('准备完成后等待用户确认，只重启对应的安装任务', async () => {
   const page = await mount({
-    appKind: 'desktop', desktopApp: true, installAvailable: true,
+    appKind: 'desktop', desktopApp: true, installAvailable: false,
     installAwaitingRestart: true, lastResult: { status: 'pending', mode: 'install', stamp: 'prepared' },
   })
   try {

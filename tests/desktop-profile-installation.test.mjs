@@ -59,6 +59,22 @@ test('从 NEXT 安装到官方桌面时保留旧 Profile 备份和酒馆数据',
   assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
   assert.equal(readFileSync(path.join(r.home, 'profile-data/tavern/data/story'), 'utf8'), '正文与历史')
 })
+test('重启前准备酒馆，切换时保留仍在使用的原版配置', async t => {
+  const r = fixture(t)
+  const manifest = path.join(r.desktop, 'package.json')
+  writeFileSync(manifest, JSON.stringify({ dsh: { profile: { bundles: ['official', 'dsh-profile-bridge'] } } }))
+  const checks = []
+  const tx = prepare({ ...r, preparingForPid: 123, checkStopped: pid => checks.push(pid) })
+  assert.equal(tx.desktopStage, r.desktop)
+  assert.equal(lstatSync(r.desktop).isSymbolicLink(), false)
+  writeFileSync(path.join(r.desktop, 'cordis.patch.yml'), '# saved before restart')
+  tx.finish()
+  tx.commit()
+  assert.deepEqual(checks, [123, undefined])
+  assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
+  await switchProfile({ mode: 'unlink', profilesRoot: r.profiles, liveDir: r.desktop, stamp: 'restore' })
+  assert.equal(readFileSync(path.join(r.desktop, 'cordis.patch.yml'), 'utf8'), '# saved before restart')
+})
 test('中断后下一次安装自动恢复未完成的目录事务', t => {
   const r = fixture(t); const tx = prepare(r); tx.finish()
   const next = prepare(r); next.rollback()

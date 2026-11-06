@@ -1260,7 +1260,7 @@ try {
         throw '当前使用的是切换后的配置。请打开官方 DeepSeek Harness，在「设置 → 酒馆启动器」点「重启并切换到原版 DSH」。等原版窗口打开，再从托盘退出并重试命令。'
       }
       $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js'
-      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.7.tgz'
+      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.8.tgz'
       $PreviousNodeMode = $env:ELECTRON_RUN_AS_NODE
       try {
         $env:ELECTRON_RUN_AS_NODE = '1'
@@ -1722,6 +1722,9 @@ try {
     throw '下载内容不完整。'
   }
   Assert-InstallFiles $SourceDir.FullName
+  if ($env:DSH_TAVERN_LATE_PUBLISH -eq '1' -and -not (Select-String -Quiet -SimpleMatch 'DSH_TAVERN_LATE_PUBLISH' -LiteralPath (Join-Path $SourceDir.FullName 'bin/profile-installation.mjs'))) {
+    throw '下载源尚未同步重启前安装支持，请稍后重试。'
+  }
   if ($env:DSH_TAVERN_REQUIRE_NEXT_MIGRATION -eq '1' -and -not (Select-String -Quiet -SimpleMatch 'hasNextTavern' -LiteralPath (Join-Path $SourceDir.FullName 'bin/desktop-profile-installation.mjs'))) {
     throw '下载源尚未同步 NEXT 迁移支持，请稍后重试。'
   }
@@ -1777,7 +1780,9 @@ try {
     Write-InstallStatus '安装依赖：正在连接软件包仓库，已有缓存将直接复用…'
     Invoke-InstallCommand 'dependencies.install' $PnpmCommand @('--dir', "$AppDir.staging", 'install', '--frozen-lockfile', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000')
 
-    if ($env:DSH_TAVERN_PUBLISH_GATE) {
+    if ($env:DSH_TAVERN_LATE_PUBLISH -eq '1') {
+      $PreviousApp = Test-Path $OldLauncher
+    } elseif ($env:DSH_TAVERN_PUBLISH_GATE) {
       Write-InstallStatus '准备完成，等待确认重启…'
       [IO.File]::WriteAllText(($env:DSH_TAVERN_PUBLISH_GATE + '.ready'), '')
       $Deadline = [DateTime]::UtcNow.AddMinutes(15)
@@ -1801,7 +1806,7 @@ try {
     Invoke-InstallCommand 'dependencies.relink' $PnpmCommand @('--dir', $AppDir, 'install', '--offline', '--frozen-lockfile', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000') -TimeoutMs 300000
 
     Write-InstallStatus '本地配置：正在注册 Tavern 并检查兼容性…'
-    if (Close-DesktopForFirstInstall) { $ReopenDesktop = $true }
+    if ($env:DSH_TAVERN_LATE_PUBLISH -ne '1' -and (Close-DesktopForFirstInstall)) { $ReopenDesktop = $true }
     Invoke-InstallCommand 'profile.install' 'node' @((Join-Path $AppDir 'bin\dsh-tavern.mjs'), 'install', '--host', $InstallHost) -TimeoutMs 1200000
     & node $Stager commit --app $AppDir
     $AppSwapped = $false

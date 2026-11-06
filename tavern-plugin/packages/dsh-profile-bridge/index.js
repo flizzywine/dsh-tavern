@@ -80,7 +80,7 @@ async function handleCall(endpoint, payload) {
     if (endpoint === 'confirm-install-restart') {
       const paths = resolvePaths()
       const status = statusPayload(paths)
-      if (!status.installAvailable || !status.installAwaitingRestart || payload?.stamp !== status.lastResult.stamp) {
+      if (!status.desktopApp || status.appKind !== 'desktop' || status.activeIsLink || !status.installAwaitingRestart || payload?.stamp !== status.lastResult.stamp) {
         fail('restart-unavailable', '当前没有等待确认重启的酒馆安装。')
       }
       writeFileSync(join(paths.stateDir, 'install-pending', 'runtime', 'publish.approved'), '', { flag: 'wx', mode: 0o600 })

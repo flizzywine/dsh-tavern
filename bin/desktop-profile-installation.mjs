@@ -84,7 +84,7 @@ function recover(journalFile, journal, rename) {
 }
 // Existing installs retain their independent original profile and refresh only its
 // bridge. Tavern-active updates need no Desktop shutdown or profile replacement.
-export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, checkStopped = () => assertDesktopStopped([home], { requireGuiClosed: true, guiRoot }), rename = renameSync, retry = {} }) {
+export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, preparingForPid, checkStopped = (allowedPid) => assertDesktopStopped([home], { requireGuiClosed: true, guiRoot, preparingForPid: allowedPid }), rename = renameSync, retry = {} }) {
   const moveDirectory = (from, to) => renameWithRetrySync(from, to, { ...retry, rename })
   const profiles = path.join(home, 'profiles'), live = path.join(profiles, 'desktop'), tavern = path.join(profiles, 'tavern')
   let replacesNext = hasNextTavern(home)
@@ -104,6 +104,10 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
   const completed = installationRecord?.schemaVersion === 1 && installationRecord.phase === 'completed' && Array.isArray(installationRecord.entries)
   const retainedData = completed && installationRecord.layout === 'retained-data'
   const relocated = completed && installationRecord.layout === undefined
+  if (preparingForPid && (interrupted || relocated || !present(live) || !lstatSync(live).isDirectory()
+      || !read(live)?.dsh?.profile?.bundles?.includes('dsh-profile-bridge') || isTavern(read(live)) || (present(tavern) && !replacesNext))) {
+    throw Error('当前配置无法在桌面打开时准备安装，请先退出桌面再运行安装器。')
+  }
   // Only a completed relocation may own the profile. An uninstalled marker means
   // this is a fresh install; any other or damaged registry must not silently fall
   // through and overwrite an installation whose state has not been recovered.
@@ -120,7 +124,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
   if (!interrupted && !replacesNext && (linkedToTavern || (present(tavern) && present(live) && !lstatSync(live).isSymbolicLink() && !isTavern(read(live)) && read(live)?.dsh?.profile?.bundles?.includes('dsh-profile-bridge')))) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
   // Direct reinstalls must keep unfinished removal/relocation transactions fenced.
   installationLocation.resolveInstallationApp({ dshHome: home })
-  checkStopped()
+  checkStopped(preparingForPid)
   const state = path.join(home, 'profile-bridge')
   mkdirSync(state, { recursive: true })
   if (existsSync(path.join(state, 'pending'))) throw Error('有未完成的 profile 切换，请先检查 profile-bridge/pending。')
@@ -149,10 +153,12 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
   }
   let done = false
   try {
-    const desktopStage = path.join(backup, 'prepared-desktop')
-    copyTreeSync(original.directory, desktopStage)
-    if (original.suffix) for (const file of ['package.json', 'cordis.patch.yml']) writeFileSync(path.join(desktopStage, file), readFileSync(path.join(original.directory, file + original.suffix)))
-    installBridge(desktopStage, sourceRoot)
+    const desktopStage = preparingForPid ? live : path.join(backup, 'prepared-desktop')
+    if (!preparingForPid) {
+      copyTreeSync(original.directory, desktopStage)
+      if (original.suffix) for (const file of ['package.json', 'cordis.patch.yml']) writeFileSync(path.join(desktopStage, file), readFileSync(path.join(original.directory, file + original.suffix)))
+      installBridge(desktopStage, sourceRoot)
+    }
     const legacyDesktop = !linked && isTavern(read(live))
     if (present(tavern)) move(tavern, path.join(backup, 'previous-tavern'))
     const tavernStage = path.join(backup, 'prepared-tavern')
@@ -180,7 +186,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
         const link = path.join(profiles, 'desktop.switch-stage-' + stamp)
         journal.actions.push({ type: 'symlink', path: link, target: tavern }); save(journalFile, journal)
         symlinkSync(tavern, link, process.platform === 'win32' ? 'junction' : 'dir')
-        move(live, path.join(backup, 'previous-desktop'))
+        if (!preparingForPid) move(live, path.join(backup, 'previous-desktop'))
         move(link, live)
       },
       commit() {

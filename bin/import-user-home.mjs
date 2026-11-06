@@ -57,7 +57,7 @@ function merge(from, to) {
 }
 // guiRoot limits the GUI check to executables inside that install root: other Harness
 // copies (another installation, a stale upgrade stage in the temp directory) cannot write this home.
-export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot, exec = execFileSync, platform = process.platform, pid = process.pid } = {}) {
+export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot, preparingForPid, exec = execFileSync, platform = process.platform, pid = process.pid } = {}) {
   let output
   try {
     output = platform === 'win32'
@@ -71,10 +71,18 @@ export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot,
   const parents = new Map(processes.map(row => [row.id, row.parent]))
   const own = new Set()
   for (let id = pid; id && !own.has(id); id = parents.get(id)) own.add(id)
+  const preparingTree = new Set()
+  if (Number.isInteger(preparingForPid) && preparingForPid > 1) {
+    preparingTree.add(preparingForPid)
+    for (let size = 0; size !== preparingTree.size;) {
+      size = preparingTree.size
+      for (const row of processes) if (preparingTree.has(row.parent)) preparingTree.add(row.id)
+    }
+  }
   const normalize = value => value.replaceAll('\\', '/').toLowerCase()
   const scope = guiRoot && normalize(path.resolve(guiRoot)).replace(/\/*$/, '/')
   for (const row of processes) {
-    if (own.has(row.id)) continue
+    if (own.has(row.id) || preparingTree.has(row.id)) continue
     const command = normalize(row.command).trim()
     // Match the executable, including quoted Windows paths and Electron's trailing
     // arguments. A desktop name occurring only inside another program's args is
