@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5e1dfbcad6d380340bcd959c46e98c0bc6a14fe2",
-  "releaseSequence": 1289,
+  "revision": "e6aa98b1bb4b62eaa8cf0a118971d1301bc2092d",
+  "releaseSequence": 1290,
   "version": "3.2.0",
   "files": [
     {
@@ -241,8 +241,8 @@
     },
     {
       "path": "bin/install-next-plugin.ps1",
-      "sha256": "e5c16e49a9b1e1d43b8f55d1f7276a8c6749beb289285546534c139b1481879c",
-      "size": 2175
+      "sha256": "bf9118da3d3f3727a99ee52b69aec9de548f8e76ba7f52e3281b50e0cb56eb9e",
+      "size": 3543
     },
     {
       "path": "bin/installation-location.cjs",
@@ -7641,8 +7641,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/index.js",
-      "sha256": "fdf829504d70fe717a3048b23d08b3a01f563c2616510e19a2ec86fc87942e0d",
-      "size": 5888
+      "sha256": "77b91d1c58d1a64b1b0c52d3cde7c54aa02a18577b3bebead7d94871d4e4b50b",
+      "size": 7223
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/locale/en.json",
@@ -7656,13 +7656,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/package.json",
-      "sha256": "2f7133f589ff8229a447151d43b08d07db2b53e2838ac4cbff0a686506c28957",
+      "sha256": "8d6e23f938c10fc9fab5e0458ee530dc54b4c0f72381fe7b59e7a3122ddfcc5b",
       "size": 934
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/README.md",
-      "sha256": "32d0cb91e04e4d897432c20300d88a2ccd2885681ad75a5e85ce37d5485dcd5b",
-      "size": 931
+      "sha256": "b16e3524d4a8aa042631bfa6561daba6d7a3e2e6845846f2385d80edc37de9e3",
+      "size": 1205
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-remote/.gitignore",
@@ -9851,9 +9851,9 @@
     }
   ],
   "archive": {
-    "commit": "88a4218680c2eabcd14a9207bdc9c31a6164a34c",
+    "commit": "10482e1497d7b4525fc6c4957dc99569992e1791",
     "path": "runtime.zip",
-    "sha256": "c5133a8e3f8c44856fed26b781ea65eb97a78b42c35c7336959b18a71b0d6011",
-    "size": 16387198
+    "sha256": "41e1b14513deda80c215b9dc05509594fa46b415ceb2fe93ab935766b6a88c5f",
+    "size": 16388333
   }
 }
