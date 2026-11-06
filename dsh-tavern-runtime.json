@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b11a68f2b9873c6038c00cdb8be47eaf7614935b",
-  "releaseSequence": 1298,
+  "revision": "bb9ad79798376357d1e93f5015c5c281093e94e3",
+  "releaseSequence": 1299,
   "version": "3.2.0",
   "files": [
     {
@@ -3821,13 +3821,13 @@
     },
     {
       "path": "tavern-plugin/lib/http/request-origin.js",
-      "sha256": "0f4d53f15b69017698ef26fb7133f38f39d346031a4054baa19bd6cb70f8c326",
-      "size": 923
+      "sha256": "7917896f418b0423e08a62a81f266b62237d5059c85e09792694269f61d2a1bb",
+      "size": 1371
     },
     {
       "path": "tavern-plugin/lib/http/routes.js",
-      "sha256": "dac38fafee0819721f1e2a7f2ba4ed173de87c7c559e9ddec78d351e4e88df72",
-      "size": 30243
+      "sha256": "a9d5192d7d7fb1acf1213c43d0d504986484826bf0279ff87acbe6af8aedb46b",
+      "size": 30236
     },
     {
       "path": "tavern-plugin/lib/index.js",
@@ -5471,8 +5471,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/build.mjs",
-      "sha256": "6dbd83b627a666e374333a631edde8ff4b8156491b4950d1d1d23be66fbfa297",
-      "size": 7731
+      "sha256": "c2cc0e32566e9e0835903a5c124ab91a65b30bc56a497aa5fe7363220adb7df0",
+      "size": 8001
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/cordis.patch.yml",
@@ -5871,8 +5871,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/transport.js",
-      "sha256": "752aa725497f3a4ffd24f126ca2beec6643c1dc6e887c6a9e072633e04268f6f",
-      "size": 26243
+      "sha256": "5588cc484e6d91d9850ac8c9b821ee615a6893e6731b9e798289a4250ecea1c7",
+      "size": 26118
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/validation.js",
@@ -5983,6 +5983,11 @@
       "path": "tavern-plugin/packages/dsh-asset-library/lib/shared/native-settings.js",
       "sha256": "05cdf9c94a45f1d2c08c15fe574af79b18f3d5cf5f02a81ffbd08e80e1ebd0c3",
       "size": 1687
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-asset-library/lib/shared/request-origin.js",
+      "sha256": "06ae27957c2c187b2b0966a07b5f597189a44f4717e7c98ee3b18f5253d38bb1",
+      "size": 1440
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/shared/settings-migration.js",
@@ -6456,8 +6461,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/pack-v2/transport.js",
-      "sha256": "752aa725497f3a4ffd24f126ca2beec6643c1dc6e887c6a9e072633e04268f6f",
-      "size": 26243
+      "sha256": "5588cc484e6d91d9850ac8c9b821ee615a6893e6731b9e798289a4250ecea1c7",
+      "size": 26118
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/pack-v2/validation.js",
@@ -6568,6 +6573,11 @@
       "path": "tavern-plugin/packages/dsh-asset-library/src/shared/native-settings.js",
       "sha256": "05cdf9c94a45f1d2c08c15fe574af79b18f3d5cf5f02a81ffbd08e80e1ebd0c3",
       "size": 1687
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-asset-library/src/shared/request-origin.js",
+      "sha256": "06ae27957c2c187b2b0966a07b5f597189a44f4717e7c98ee3b18f5253d38bb1",
+      "size": 1440
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/shared/settings-migration.js",
@@ -9251,8 +9261,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/shared/request-origin.js",
-      "sha256": "51b03551d8ec8a1c4e769f855fb6b72cbbf21a40c2d480121b8e900f708bd881",
-      "size": 992
+      "sha256": "06ae27957c2c187b2b0966a07b5f597189a44f4717e7c98ee3b18f5253d38bb1",
+      "size": 1440
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/shared/settings-migration.js",
@@ -9496,8 +9506,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/shared/request-origin.js",
-      "sha256": "51b03551d8ec8a1c4e769f855fb6b72cbbf21a40c2d480121b8e900f708bd881",
-      "size": 992
+      "sha256": "06ae27957c2c187b2b0966a07b5f597189a44f4717e7c98ee3b18f5253d38bb1",
+      "size": 1440
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/shared/settings-migration.js",
@@ -9851,9 +9861,9 @@
     }
   ],
   "archive": {
-    "commit": "3017b7d138c52de3456240d3d4d43140c59f82e7",
+    "commit": "351b10f0ae09319f7f9ce8d1fe610de546e328ef",
     "path": "runtime.zip",
-    "sha256": "2e1118d82a9d4e0d9fee348c36d8951890a77f93278cfaf55731b0b114161766",
-    "size": 16393080
+    "sha256": "48a13c9a439b6b511824e4e5e9717dc9c766ce84fc2eb5fb334b96655f0905e3",
+    "size": 16395309
   }
 }
