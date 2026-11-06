@@ -1254,7 +1254,7 @@ try {
         throw '请先打开官方 DeepSeek Harness 完成初始设置，或切回原版 desktop，再退出并安装酒馆启动器。'
       }
       $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js'
-      $LauncherUrl = 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.2.tgz'
+      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.3.tgz'
       $PreviousNodeMode = $env:ELECTRON_RUN_AS_NODE
       try {
         $env:ELECTRON_RUN_AS_NODE = '1'
@@ -1716,6 +1716,9 @@ try {
     throw '下载内容不完整。'
   }
   Assert-InstallFiles $SourceDir.FullName
+  if ($env:DSH_TAVERN_REQUIRE_NEXT_MIGRATION -eq '1' -and -not (Select-String -Quiet -SimpleMatch 'hasNextTavern' -LiteralPath (Join-Path $SourceDir.FullName 'bin/desktop-profile-installation.mjs'))) {
+    throw '下载源尚未同步 NEXT 迁移支持，请稍后重试。'
+  }
 
   # Read compatibility from the downloaded release before installing missing tools.
   $CompatibilityScript = Join-Path $SourceDir.FullName 'bin\dsh-compatibility.mjs'

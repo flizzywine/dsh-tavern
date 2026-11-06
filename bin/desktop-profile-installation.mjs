@@ -1,11 +1,12 @@
 // Offline profile publication. Every rename is journaled; old directories are retained.
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import installationLocation from './installation-location.cjs'
 import { beginOriginalBridgeUpdate } from './original-bridge-update.mjs'
 import { copyTreeSync, renameWithRetrySync } from './portable-fs.mjs'
 import { assertDesktopStopped } from './import-user-home.mjs'
+import { hasNextTavern } from '../tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs'
 
 const present = file => { try { lstatSync(file); return true } catch (e) { if (e.code === 'ENOENT') return false; throw e } }
 const read = dir => JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'))
@@ -86,6 +87,7 @@ function recover(journalFile, journal, rename) {
 export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, checkStopped = () => assertDesktopStopped([home], { requireGuiClosed: true, guiRoot }), rename = renameSync, retry = {} }) {
   const moveDirectory = (from, to) => renameWithRetrySync(from, to, { ...retry, rename })
   const profiles = path.join(home, 'profiles'), live = path.join(profiles, 'desktop'), tavern = path.join(profiles, 'tavern')
+  let replacesNext = hasNextTavern(home)
   const interrupted = (() => { try { return JSON.parse(readFileSync(path.join(home, 'profile-bridge', 'install.json'), 'utf8')).phase === 'preparing' } catch { return false } })()
   const linkedToTavern = present(live) && lstatSync(live).isSymbolicLink() && present(tavern) && realpathSync(live) === realpathSync(tavern)
   const registryFile = path.join(home, 'profile-bridge', 'installation.json')
@@ -115,7 +117,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
     if (!linkedToTavern && (!present(live) || !read(live)?.dsh?.profile?.bundles?.includes('dsh-profile-bridge'))) throw Error('已迁移安装的原版 desktop 配置缺少切换组件，请先恢复备份。')
     return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
   }
-  if (!interrupted && (linkedToTavern || (present(tavern) && present(live) && !lstatSync(live).isSymbolicLink() && !isTavern(read(live)) && read(live)?.dsh?.profile?.bundles?.includes('dsh-profile-bridge')))) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
+  if (!interrupted && !replacesNext && (linkedToTavern || (present(tavern) && present(live) && !lstatSync(live).isSymbolicLink() && !isTavern(read(live)) && read(live)?.dsh?.profile?.bundles?.includes('dsh-profile-bridge')))) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
   // Direct reinstalls must keep unfinished removal/relocation transactions fenced.
   installationLocation.resolveInstallationApp({ dshHome: home })
   checkStopped()
@@ -125,7 +127,10 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
   const journalFile = path.join(state, 'install.json')
   if (existsSync(journalFile)) {
     const old = JSON.parse(readFileSync(journalFile, 'utf8'))
-    if (old.phase === 'preparing') recover(journalFile, old, moveDirectory)
+    if (old.phase === 'preparing') {
+      recover(journalFile, old, moveDirectory)
+      replacesNext = hasNextTavern(home)
+    }
   }
   if (!present(live)) throw Error('请先启动一次官方桌面，再完整退出后安装。')
   const linked = lstatSync(live).isSymbolicLink()
@@ -135,6 +140,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
   const stamp = new Date().toISOString().replaceAll(':', '-') + '-' + randomUUID()
   const backup = path.join(home, 'backups', 'profile-bridge-install-' + stamp)
   mkdirSync(backup, { recursive: true })
+  if (replacesNext) copyFileSync(path.join(home, 'logs/tavern-installation.json'), path.join(backup, 'previous-tavern-installation.json'))
   const journal = { phase: 'preparing', backup, actions: [] }
   save(journalFile, journal)
   const move = (from, to) => {
@@ -150,8 +156,8 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
     const legacyDesktop = !linked && isTavern(read(live))
     if (present(tavern)) move(tavern, path.join(backup, 'previous-tavern'))
     const tavernStage = path.join(backup, 'prepared-tavern')
-    const seed = legacyDesktop ? live : path.join(backup, 'previous-tavern')
-    if (present(seed)) copyTreeSync(seed, tavernStage)
+    const seed = legacyDesktop ? live : replacesNext ? null : path.join(backup, 'previous-tavern')
+    if (seed && present(seed)) copyTreeSync(seed, tavernStage)
     else mkdirSync(tavernStage)
     move(tavernStage, tavern)
     return {

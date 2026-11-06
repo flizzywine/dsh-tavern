@@ -5,9 +5,11 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { waitForExit, switchProfile, relaunchApp } from './helper.mjs'
 import { cleanupOwnedProcesses, waitForOwnedExit } from './processes.mjs'
+import { hasNextTavern } from './state.mjs'
 
 async function installTavern(request, { log }) {
   const windows = process.platform === 'win32'
+  const replacesNext = hasNextTavern(request.home)
   const name = windows ? 'install.ps1' : 'install.sh'
   const script = join(request.stateDir, 'install-pending', 'runtime', name)
   const repository = 'flizzywine/dsh-tavern'
@@ -21,6 +23,7 @@ async function installTavern(request, { log }) {
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const content = await response.text()
       if (windows && !content.includes('DSH_TAVERN_LAUNCHER_INSTALL')) throw new Error('CDN 安装脚本尚未同步')
+      if (replacesNext && !content.includes('DSH_TAVERN_REQUIRE_NEXT_MIGRATION')) throw new Error('安装脚本尚未支持 NEXT 迁移')
       writeFileSync(script, windows ? '\uFEFF' + content : content, { flag: 'wx', mode: 0o600 })
       log('已下载酒馆安装脚本。')
       break
@@ -31,6 +34,7 @@ async function installTavern(request, { log }) {
   }
   const env = { ...process.env, DSH_HOME: request.home, DSH_TAVERN_HOST: 'desktop',
     DSH_DESKTOP_APP_EXECUTABLE: request.relaunch, DSH_TAVERN_LAUNCHER_INSTALL: '1' }
+  if (replacesNext) env.DSH_TAVERN_REQUIRE_NEXT_MIGRATION = '1'
   for (const key of ['ELECTRON_RUN_AS_NODE', 'DSH_PROFILE', 'DSH_PROFILE_DIR']) delete env[key]
   const command = windows ? 'powershell.exe' : '/bin/bash'
   const args = windows ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script] : [script]

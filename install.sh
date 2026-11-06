@@ -1390,6 +1390,9 @@ else
 fi
 [ -n "${SOURCE_DIR}" ] || fail "下载内容不完整。"
 [ -f "${SOURCE_DIR}/package.json" ] || fail "下载内容不完整。"
+if [ "${DSH_TAVERN_REQUIRE_NEXT_MIGRATION:-0}" = "1" ]; then
+  grep -Fq hasNextTavern "${SOURCE_DIR}/bin/desktop-profile-installation.mjs" || fail "下载源尚未同步 NEXT 迁移支持，请稍后重试。"
+fi
 
 # The downloaded release supplies process-tree supervision. Older release
 # archives remain usable; current releases bound every mutating package stage.

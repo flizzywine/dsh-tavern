@@ -196,6 +196,7 @@ export function statusPayload(paths) {
   return {
     installation: inspectInstallation(paths),
     installAvailable: canInstallTavern(paths),
+    replacesNext: hasNextTavern(paths.home),
     platform: process.platform,
     dshHome: paths.home,
     profilesDir: paths.profilesDir,
@@ -220,13 +221,24 @@ export function statusPayload(paths) {
   }
 }
 
+export function hasNextTavern(home) {
+  const profile = join(home, 'profiles', 'tavern')
+  try {
+    if (!lstatSync(profile).isDirectory()) return false
+    const receipt = JSON.parse(readFileSync(join(home, 'logs', 'tavern-installation.json'), 'utf8'))
+    return receipt.host === 'next' && readManifest(profile)?.dsh?.profile?.bundles?.includes('dsh-tavern-bundle') === true
+  } catch {
+    return false
+  }
+}
+
 export function canInstallTavern(paths) {
   if (!['win32', 'darwin'].includes(process.platform) || !process.versions.electron || !process.send || process.ppid <= 1) return false
   if (paths.activeDir !== join(paths.profilesDir, 'desktop')) return false
   try {
     if (!lstatSync(paths.activeDir).isDirectory()) return false
     lstatSync(join(paths.profilesDir, 'tavern'))
-    return false
+    if (!hasNextTavern(paths.home)) return false
   } catch (error) {
     if (error.code !== 'ENOENT' || !existsSync(paths.activeDir)) return false
   }
