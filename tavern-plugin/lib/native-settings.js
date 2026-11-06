@@ -1,5 +1,7 @@
 function entryId(ctx) {
-  const entry = ctx.get('configEditor')?.entries().find(row => row.fiber === ctx.fiber || row.fiber?.ctx?.fiber === ctx.fiber?.ctx?.fiber)
+  // The owning loader entry is available before it appears in the editor's snapshot.
+  const entry = ctx.fiber?.entry
+    ?? ctx.get('configEditor')?.entries().find(row => row.fiber === ctx.fiber || row.fiber?.ctx?.fiber === ctx.fiber?.ctx?.fiber)
   if (!entry) throw new Error('Native settings owner is not a profile entry')
   return entry.options.id
 }
