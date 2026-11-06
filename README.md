@@ -96,19 +96,3 @@ curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-ma
 除 Discord 外，本项目没有官方的 QQ 群、微信群或其他群聊。
 
 反馈故障时，可从对话顶部的“日志”下载执行记录；分享前请检查其中的对话和附件隐私。
-
-## 参与贡献
-
-开发同步：`pnpm sync:desktop`；相关测试：`node bin/test-tavern.mjs tests/<相关>.test.mjs`。配置与注意事项见[本机开发与测试](https://github.com/flizzywine/dsh-tavern/wiki/本机开发与测试)。
-
-DSH 升级检查：`node bin/check-dsh-upgrade.mjs --candidate "<桌面程序或独立 dsh-app-boot 入口>" --output "<本地报告.json>"`；省略 candidate 时使用当前测试宿主。加 `--baseline "<旧宿主入口>"` 可对比两个运行时的包版本、导出声明、入口与类型声明 SHA-256，以及各项契约结果。工具只读取已有安装，在项目临时目录中运行受控测试，不安装或切换正式宿主；候选检查允许超出安装支持范围，通过不等于完整应用验收，也不会修改支持版本策略。报告可能含本机路径与失败日志，仅留本地。
-
-`config/dsh-contracts.json` 集中记录宿主行为、适配位置和相关测试。必需用例失败、跳过、缺少结果或必需包不可用，检查均失败；明确列出的可选能力跳过会单独显示，不代表已验证该能力。`node bin/check-dsh-upgrade.mjs --check-dependencies` 检查维护源码中的 DSH 包引用；新增引用位置需审阅并更新 `config/dsh-dependency-baseline.json`，该清单不覆盖动态拼接名称、私有字段访问或生成/vendor 代码。
-
-`DSH compatibility checks` 在 PR 和 main 源码变更时自动检查依赖位置及检查器测试。真实宿主契约通过手动触发运行：需要配有 Node.js、PowerShell 7 和隔离 DSH 安装的专用 self-hosted runner（标签 `dsh-compatibility`），启用 `run_host` 并填写该 runner 上的 candidate/baseline 路径；不自动安装新版，不在 PR 上执行 self-hosted 任务。运行报告作为 artifact 保留 7 天。
-
-欢迎各种 PR：完善文档、写小白教程、给配置项改名、折叠复杂设置，或改进其他使用体验。当前功能繁多，特别欢迎简化、合并和删除功能的意见。
-
-Issue 只用于 Bug 反馈。大功能或行为调整请先到 [Discord 交流群](https://discord.gg/hYAEjKnpra) 讨论，确定方案后再提交 PR。
-
-使用教程在 [Wiki](https://github.com/flizzywine/dsh-tavern/wiki) 维护；功能参数与规则引用 [Skill 参考文件](https://github.com/flizzywine/dsh-tavern/wiki/Skill-参考文档)，避免重复维护。
