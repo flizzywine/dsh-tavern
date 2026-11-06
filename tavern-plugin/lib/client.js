@@ -4573,7 +4573,7 @@ window.__ModuleLoader__.load({
 		// The raw text goes to the console (and the 调试视图's 最新错误) only.
 		const PLAYER_ERRORS={REVISION_CONFLICT:'内容已被修改，请重新载入',
 		  LIMIT_EXCEEDED:'素材数据超过大小或数量限制，未能保存；请减少本次提交的内容后重试',
-		  TRIGGER_LINT:'触发词不符合要求，请填写能在正文中出现的简短词语，去掉重复或过于笼统的词后再保存',
+		  TRIGGER_LINT:'触发词不符合要求：蓝灯、绿灯至少 3 个、最多 6 个正文里会出现的简短词语，去掉重复或过于笼统的词后再保存',
 		  MISSING_DEPENDENCY:'素材引用不完整，请补齐所引用的图片、差分或资源后重试；无需安装额外程序',
 		  PACK_UNAVAILABLE:'这张卡用到的一个素材包找不到了，请在 舞台设置 › 素材包 里移除或重新安装它',
 		  AbortError:'保存超时，结果尚未确认；请重新载入后检查',TimeoutError:'保存超时，结果尚未确认；请重新载入后检查'};
@@ -5432,6 +5432,8 @@ window.__ModuleLoader__.load({
 		  }
 		  const fileStem=name=>[...String(name||'').replace(/\.[^.]+$/,'').trim()].slice(0,120).join('')||'未命名';
 		  let entrySerial=0;
+		  // An added file starts 关闭 with no words: 蓝灯 / 绿灯 need 3–6 of them, which the player writes in the opened entry.
+		  const newFileEntry=(kind,id,name,content)=>({kind,id,name,enabled:false,recall:{mode:'keyword',keywords:[]},directorNote:'',...content});
 		  const newEntryId=(pack,kind)=>{let id;do{id='u'+Date.now().toString(36)+(entrySerial++).toString(36)+Math.random().toString(36).slice(2,5);}while(pack.manifest.assets.some(a=>a.kind===kind&&a.id===id));return id;};
 		  // One figure picture (立绘 / 头像) into a pack through its serialized writer `enqueue(job(snapshot) → {snapshot})`: the pack
 		  // modal's uploads and every generation 采用 (useAssetGen), also the 新人物 page's (asset-pack-setup-ui.js).
@@ -5461,6 +5463,8 @@ window.__ModuleLoader__.load({
 		    const [figureTab,setFigureTab]=React.useState(initial?.tab==='gen'?'gen':'edit');
 		    // a new 演出风格 is a local draft until its text is written (a style needs text).
 		    const [styleDraft,setStyleDraft]=React.useState(false);
+		    // the entry just added by addFiles — its detail opens on the 触发词 field with the hint (cleared by the next pick).
+		    const [fresh,setFresh]=React.useState(null);
 		    React.useEffect(()=>{if(!notice)return;const t=setTimeout(()=>setNotice(null),8000);return()=>clearTimeout(t);},[notice]);
 		    const latest=React.useRef(null),queue=React.useRef(Promise.resolve());
 		    const seen=React.useRef(null);if(pack!==seen.current){seen.current=pack;latest.current=pack;}
@@ -5641,7 +5645,7 @@ window.__ModuleLoader__.load({
 		    const rightRef=React.useRef(null);React.useEffect(()=>{if(rightRef.current)rightRef.current.scrollTop=0;},[current,selected?.id]);
 		    const toggle=id=>setPicked(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
 		    const stopSelect=()=>{setSelecting(false);setPicked(new Set());};
-		    const switchKind=k=>{audio.stop();setKind(k);setSel(null);setQuery('');setCategory('');setDetail(false);setPicked(new Set());setStyleDraft(false);};
+		    const switchKind=k=>{audio.stop();setFresh(null);setKind(k);setSel(null);setQuery('');setCategory('');setDetail(false);setPicked(new Set());setStyleDraft(false);};
 		    // 新建 (the dashed ＋, or 「演出风格」 in the add menu) opens a draft; the first write adds
 		    // the entry (启用, 蓝灯 recall as the contract requires). 删除 removes it in one CAS write.
 		    const addStyle=()=>{audio.stop();stopSelect();setKind('directions');setQuery('');setFilter('all');setCategory('');setStyleDraft(true);setDetail(true);};
@@ -5671,15 +5675,15 @@ window.__ModuleLoader__.load({
 		      const svc=binding.service,added=[],figures=[];
 		      if(k==='cg') {
 		        const revision=latest.current.revision,prepared=await prepareCgFiles(files);
-		        const asset={kind:'cg',id:newEntryId(latest.current,'cg'),name:fileStem(files[0].name),enabled:true,directorNote:'',recall:{mode:'keyword',keywords:[]},variants:{default:prepared.variants[0].id,entries:prepared.variants}};
+		        const asset=newFileEntry('cg',newEntryId(latest.current,'cg'),fileStem(files[0].name),{variants:{default:prepared.variants[0].id,entries:prepared.variants}});
 		        await enqueue(c=>svc.patchPack({packId,expectedRevision:revision,fileUpdates:prepared.updates,patch:{assets:[...c.manifest.assets,asset],blobs:{...c.manifest.blobs,...prepared.blobs}}}));
-		        stopSelect();setKind(k);setQuery('');setFilter('all');setSel(asset.id);onPacksChanged?.();return;
+		        stopSelect();setKind(k);setQuery('');setFilter('all');setSel(asset.id);setFresh(asset.id);if(narrow)setDetail(true);onPacksChanged?.();return;
 		      }
 		      for(const file of files){
 		        const stem=fileStem(file.name),media=AUDIO_KINDS.includes(k)?await prepareAudio(file):await prepareImage(file,k==='figures'?'sprite':'background');
 		        if(AUDIO_KINDS.includes(k)){
 		          const blob=await enqueue(c=>svc.putBlob({packId,expectedRevision:c.revision,bytes:media.bytes,descriptor:media.descriptor}));
-		          added.push({kind:k,id:newEntryId(latest.current,k)+added.length,name:stem,enabled:true,recall:{mode:'keyword',keywords:[]},directorNote:'',media:blob.hash});continue;
+		          added.push(newFileEntry(k,newEntryId(latest.current,k)+added.length,stem,{media:blob.hash}));continue;
 		        }
 		        const closure=await imageClosure(media);
 		        if(k==='figures'){
@@ -5688,12 +5692,12 @@ window.__ModuleLoader__.load({
 		          closure.files.set(spriteFile,jsonBytes(made.manifest));closure.files.set('figures/'+figureId+'.json',jsonBytes(figure));
 		          await enqueue(c=>svc.patchPack({packId,expectedRevision:c.revision,patch:{figures:[...c.manifest.figures,figureId],sprites:{...c.manifest.sprites,[spriteKey]:spriteFile},blobs:{...c.manifest.blobs,...closure.blobs}},fileUpdates:closure.files}));figures.push(figureId);
 		        }else{
-		          const asset={kind:k,id:newEntryId(latest.current,k)+added.length,name:stem,enabled:true,recall:{mode:'keyword',keywords:[]},directorNote:'',media:closure.hash};
+		          const asset=newFileEntry(k,newEntryId(latest.current,k)+added.length,stem,{media:closure.hash});
 		          await enqueue(c=>svc.patchPack({packId,expectedRevision:c.revision,patch:{assets:[...c.manifest.assets,asset],blobs:{...c.manifest.blobs,...closure.blobs}},fileUpdates:closure.files}));added.push(asset);
 		        }
 		      }
 		      if(added.length&&AUDIO_KINDS.includes(k))await enqueue(c=>svc.patchPack({packId,expectedRevision:c.revision,patch:{assets:[...c.manifest.assets,...added]}}));
-		      stopSelect();setKind(k);setQuery('');setFilter('all');setSel(added[0]?.id||figures[0]||null);
+		      stopSelect();setKind(k);setQuery('');setFilter('all');setSel(added[0]?.id||figures[0]||null);if(added.length){setFresh(added[0].id);if(narrow)setDetail(true);}
 		      setNotice({text:'已添加 '+files.length+' 项'});onPacksChanged?.();
 		    });
 		    // 复制到…: copyItems (one publication with the same-pack closure); 新建素材包 creates the target in the same write.
@@ -5753,8 +5757,8 @@ window.__ModuleLoader__.load({
 		        if(e?.shiftKey&&from!==id&&a>=0&&b>=0){const range=ids.slice(Math.min(a,b),Math.max(a,b)+1),on=picked.has(from);
 		          setPicked(p=>{const n=new Set(p);for(const r of range)on?n.add(r):n.delete(r);return n;});}
 		        else toggle(id);
-		        pickAnchor.current=id;setSel(id);return;}
-		      setSel(id);if(narrow)setDetail(true);};
+		        pickAnchor.current=id;setSel(id);setFresh(null);return;}
+		      setSel(id);setFresh(null);if(narrow)setDetail(true);};
 		    // The lamp items read like LampMenu's own (dot + the same word: ENTRY_LAMPS).
 		    const filterMenu=filterModes.length>0&&h(Popover,{label:'筛选条目',className:'ap-filter-anchor',trigger:({toggle:t,open})=>h(Button,{className:'ap-icon-button','data-on':lampFilter!=='all'||undefined,'aria-label':'筛选条目','aria-expanded':open,title:'筛选',onClick:t},h(Glyph,{name:'filter'})),
 		      content:closeMenu=>['all',...filterModes].map(v=>h('button',{key:v,type:'button',role:'menuitemradio','aria-checked':lampFilter===v,className:'ap-menu-item ap-lamp-opt','data-mode':v,onClick:()=>{setFilter(v);closeMenu();}},
@@ -5804,8 +5808,8 @@ window.__ModuleLoader__.load({
 		      current==='directions'&&(drafting||selected)?h(StyleDetail,{key:drafting?'@new':'directions/'+selected.id,pack,asset:drafting?null:selected,commit,create:createStyle,remove:removeStyle,busy:work.busy,back:narrowBack}):
 		      !selected?null:current==='figures'?h(FigureDetail,{key:selected.id,binding,pack,figure:selected,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions:figureActions(selected.id),nav:tabNav,narrow,onBack:()=>setDetail(false),onClose:close,backLabel:kinds[current],
 		          gen,importSettei,removeFigureImage,identityBoard:{upload:importIdentitySettei,remove:removeIdentitySettei},tab:figureTab,setTab:setFigureTab,voiceOpen:initial?.tab==='voice'&&selected.id===initial.figureId}):
-		        current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,card:ctx||scope?.ctx||null,back:narrowBack}):
-		        h(EntryDetail,{key:current+'/'+selected.id,binding,pack,packs,asset:selected,commit,audio,gen,uploadBackground,uploadVariant,card:ctx||scope?.ctx||null,remove:removeEntry,busy:work.busy,back:narrowBack,
+		        current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,card:ctx||scope?.ctx||null,back:narrowBack,fresh:fresh===selected.id}):
+		        h(EntryDetail,{key:current+'/'+selected.id,binding,pack,packs,asset:selected,commit,audio,gen,uploadBackground,uploadVariant,card:ctx||scope?.ctx||null,remove:removeEntry,busy:work.busy,back:narrowBack,fresh:fresh===selected.id,
 		          onCategory:path=>{setCategory(path);setSel(selected.id);if(narrow)setDetail(false);},
 		          onOpenPack:onOpenPack&&((id,k,item)=>{audio.stop();onPacksChanged?.();onOpenPack(id,k,item);})})));
 		    const empty=pack&&!present.length&&h(EmptyState,{text:'还没有内容',action:h(AddFilesMenu,{onFiles:addFiles,onGenerate:generateBackground,onStyle:addStyle,onModel:openModelImport,label:'添加文件',disabled:work.busy})});
@@ -6321,6 +6325,12 @@ window.__ModuleLoader__.load({
 		      const ranked=bands.flatMap(band=>[...band].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'zh')).map(([word])=>word));
 		      return [...new Set(ranked)];
 		    }
+		    // 蓝灯 / 绿灯 need 3–6 words (the pack service's trigger lint); 关闭 may stay empty, so a new entry starts there.
+		    const TRIGGER_HELP='名称本身也算触发词。蓝灯、绿灯要 3–6 个正文里会出现的词，每个 2–40 字；关闭时可以留空。';
+		    // `fresh`: an entry the player just added (关闭, no words) — the field stands open with the caret in it and a hint after it.
+		    const triggerFields=({value,suggest,onCommit,fresh})=>[
+		      h(InlineField,{key:'triggers',kind:'chips',label:'触发词',hideEmpty:!fresh,autoEdit:fresh||undefined,help:entryHelp('触发词',TRIGGER_HELP),value,split:splitKeywords,validate:keywordProblem,suggest,onCommit}),
+		      fresh&&h('p',{key:'triggers-hint',className:'ap-hint-line ap-trigger-hint',role:'status'},'填 3–6 个正文里会出现的词，再打开蓝灯/绿灯')];
 		    function keywordProblem(words){
 		      if(words.length>16)return '触发词最多 16 个';
 		      const bad=words.find(word=>chars(word)<2||chars(word)>40);
@@ -6739,7 +6749,7 @@ window.__ModuleLoader__.load({
 		    // `card` (the open card's context, or null) only adds the widget ⋯ copy action;
 		    // per-card widget settings are gone. `onOpenPack(packId, kind, itemId)` opens another pack at an item.
 		    const entryHelp=(label,text)=>text?h(Help,{text,label:label+' 说明'}):null;
-		    function EntryDetail({binding,pack,packs=[],asset,commit,audio,gen,uploadBackground,uploadVariant,card=null,onOpenPack,onCategory,remove,busy,back=null}) {
+		    function EntryDetail({binding,pack,packs=[],asset,commit,audio,gen,uploadBackground,uploadVariant,card=null,onOpenPack,onCategory,remove,busy,back=null,fresh=false}) {
 		      const packId=pack.manifest.id,kind=asset.kind,[error,setError]=React.useState(''),lampless=LAMPLESS_KINDS.includes(kind),stateless=STATELESS_KINDS.includes(kind);
 		      // ⋯ › 删除 for a standalone 舞台皮肤, after a confirmation (remove(kind, id) is one CAS write).
 		      const [confirm,setConfirm]=React.useState(null);
@@ -6794,7 +6804,7 @@ window.__ModuleLoader__.load({
 		          // 启用 / 关闭 and no 触发词 (nothing reads them there).
 		          !stateless&&h(InlineRow,{label:lampless?'状态':'触发策略',help:entryHelp(lampless?'状态':'触发策略',lampless?LAMPLESS_HELP[kind]:BLUE_ONLY_HELP[kind]||LAMP_HELP+' 关闭：这一条不再用于舞台。')},
 		            h(LampMenu,{mode:entryLamp(asset,lampless),onOff:lampless,choices:lampChoices(kind),named:true,label:lampless?'状态':'触发策略',onChange:mode=>write(c=>setEntryLamp(c,mode))})),
-		          !lampless&&!UNDIRECTED_KINDS.includes(kind)&&h(InlineField,{kind:'chips',label:'触发词',hideEmpty:true,help:entryHelp('触发词','名称本身也算触发词。最多 16 个，每个 2–40 字。'),value:asset.recall.keywords,split:splitKeywords,validate:keywordProblem,suggest:keywordSuggest,
+		          !lampless&&!UNDIRECTED_KINDS.includes(kind)&&triggerFields({value:asset.recall.keywords,suggest:keywordSuggest,fresh:fresh&&asset.enabled===false,
 		            onCommit:keywords=>write(c=>applyEntryFields(c,{recall:{keywords},top:{}}))}),
 		          // 详情 is an inline multi-line field (no underline, no grip, grows with
 		          // its text, one paragraph like the stored note); no counter — only the over-limit message.
@@ -7173,7 +7183,7 @@ window.__ModuleLoader__.load({
 		  // `back` ({parent, onBack}, a phone's detail): like EntryDetail, the name row carries the sub-page ‹.
 		  // as in EntryDetail the name row leads the pane on every size, above the preview.
 		  const cgDraft=asset=>clone(entryWithVariants(asset,entryVariantTable(asset)));
-		  function CgEntryEditor({binding,pack,asset,save,back=null}) {
+		  function CgEntryEditor({binding,pack,asset,save,back=null,fresh=false}) {
 		    const [draft,setDraft]=React.useState(()=>cgDraft(asset)),[revision,setRevision]=React.useState(pack.revision);
 		    const [files,setFiles]=React.useState(()=>new Map()),[blobs,setBlobs]=React.useState({}),[selected,setSelected]=React.useState(entryVariantTable(asset).default);
 		    const [busy,setBusy]=React.useState(false),[error,setError]=React.useState(''),[focusOpen,setFocusOpen]=React.useState(null);
@@ -7213,7 +7223,7 @@ window.__ModuleLoader__.load({
 		      // 启用 is part of 触发策略 (蓝灯 / 绿灯 / 关闭); the separate 启用 switch is gone.
 		      h(InlineGrid,{label:draft.name+' 设置',columns:1,className:'ap-entry-fields'},
 		        h(InlineRow,{label:'触发策略',help:help('触发策略',LAMP_HELP+' 关闭：这张 CG 不再用于舞台。')},h(LampMenu,{mode:entryLamp(draft,false),named:true,label:'触发策略',onChange:mode=>setDraft(current=>setEntryLamp(current,mode))})),
-		        h(InlineField,{kind:'chips',label:'触发词',hideEmpty:true,help:help('触发词','名称本身也算触发词。最多 16 个，每个 2–40 字。'),value:draft.recall.keywords,split:splitKeywords,validate:keywordProblem,suggest:keywordSuggest,onCommit:keywords=>setDraft(current=>applyEntryFields(current,{recall:{keywords},top:{}}))}),
+		        triggerFields({value:draft.recall.keywords,suggest:keywordSuggest,fresh:fresh&&draft.enabled===false,onCommit:keywords=>setDraft(current=>applyEntryFields(current,{recall:{keywords},top:{}}))}),
 		        // 详情 is the inline multi-line field of the audio editors; it fills the draft on Enter / blur.
 		        // 导演说明 (was 详情), then the owner's 备注 (`remark`, never sent) in the same draft.
 		        h(InlineField,{kind:'text',multiline:true,label:'导演说明',className:'ap-note-field',hideEmpty:true,help:help('导演说明','会和名称一起发给导演，用来判断什么时候展示这张 CG。只写适用情景，最多 300 字。'),placeholder:'适用情景',value:draft.directorNote||'',
