@@ -26617,6 +26617,14 @@ function tavernModelRefusalNotice(text) {
 			}).observe(root, { subtree: true, attributes: true, attributeFilter: ["style"], attributeOldValue: true });
 		}
 
+		// A srcdoc message has no form endpoint. Native option buttons often omit
+		// type="button"; their default submit would otherwise navigate to
+		// about:srcdoc? and replace the live card document after the click handlers ran.
+		// Keep submit bubbling so card-owned handlers still observe the interaction.
+		function installTavernFrameFormGuard(win) {
+			win.document.addEventListener("submit", function (event) { event.preventDefault(); }, true);
+		}
+
 		function buildTavernFrameDocument(input) {
 			const html = rewriteTavernStaticMarkup(String(input && (input.content !== undefined ? input.content : input.html) || ""));
 			const sizing = tavernFrameSizing(html, input && input.frameSizing, input && input.persistent ? input.panelId : undefined);
@@ -26661,6 +26669,7 @@ function tavernModelRefusalNotice(text) {
 			return '<!doctype html><html><head><meta charset="utf-8">'
                 + '<script data-dsh-tavern-crypto>(' + installTavernCryptoSubtlePolyfill.toString() + ')(window);<\/script>'
                 + '<script data-dsh-tavern-tilt-guard>(' + installTavernPointerTiltGuard.toString() + ')(window);<\/script>'
+                + '<script data-dsh-tavern-form-guard>(' + installTavernFrameFormGuard.toString() + ')(window);<\/script>'
 				+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
 				+ '<meta name="referrer" content="no-referrer">'
 				// No base-uri: srcdoc frames a card builds inherit this policy, and a page it
