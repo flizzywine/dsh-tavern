@@ -1,5 +1,5 @@
 import { registerImageRoutes } from './http/routes.js'
-import { resolveCharacterForms, hasPositiveChineseCue } from './character-forms.js'
+import { resolveCharacterForms, hasPositiveChineseCue, sameCharacterForm } from './character-forms.js'
 import { charactersFromWorldbookText, charactersFromCardBookBody, charactersFromCardBook, charactersFromExtraction, mergeCharacters } from './character-import.js'
 import { buildMinorBatchPrompt, scrubMinorNegatives } from './character-import.js'
 import { parseCharacters } from './character-generator.js'
@@ -614,10 +614,7 @@ function stripUsualSuffix(value) {
 
 /** 同一角色的不同形态：名字互为前缀（如「阿梅」与「阿梅（狐形）」）。 */
 function sameCharacterFamily(a, b) {
-  const x = String(a?.name ?? ''), y = String(b?.name ?? '')
-  // 「殷雪（人形）」和「殷雪（显形）」去掉括号后缀是同一个名字，也算同一角色的不同形态。
-  const base = v => v.replace(/\s*[（(][^）)]*[）)]\s*$/, '')
-  return Boolean(a && b && a !== b && x && y && (x.startsWith(y) || y.startsWith(x) || (base(x) && base(x) === base(y))))
+  return sameCharacterForm(a, b)
 }
 
 /**

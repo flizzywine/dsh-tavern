@@ -1,13 +1,11 @@
+import { sameCharacterForm } from './character-forms.js'
 const TRAIT_FIELDS = new Set(['feature', 'face', 'faceBack', 'bodySFW', 'bodySFWBack', 'lowerSFW', 'lowerSFWBack', 'bodyNSFW', 'bodyNSFWBack', 'lowerNSFW', 'lowerNSFWBack'])
 const BASE_TRAIT_FIELDS = new Set([...TRAIT_FIELDS, 'negative'])
 const MAX_CHANGES = 120
 const MAX_TEXT = 700
 const MAX_OUTFIT = 400
-// 同一角色的不同形态（名字互为前缀，如「阿梅」与「阿梅（狐形）」）共享"当前穿着"。
-function sameFamily(a, b) {
-  const x = String(a?.name ?? ''), y = String(b?.name ?? '')
-  return Boolean(x && y && (x.startsWith(y) || y.startsWith(x)))
-}
+// 同一角色的不同形态（如「阿梅」与「阿梅（狐形）」）共享"当前穿着"；「林月」与「林月如」是两个人。
+const sameFamily = sameCharacterForm
 
 function clip(value, max = MAX_TEXT) { return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max) }
 function size(value) { return Buffer.byteLength(JSON.stringify(value), 'utf8') }
