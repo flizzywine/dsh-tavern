@@ -27,30 +27,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          branch=plugin-official-downloads
           source=tavern-plugin/packages/dsh-profile-bridge
+          version=$(node -p "require('./$source/package.json').version")
+          tag="launcher-v$version"
+          cdn_tag="launcher-cdn-v$version"
           archive=$(npm pack "./$source" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP")
           node .github/scripts/check-runtime-archive.mjs "$RUNNER_TEMP/$archive"
-          dist="$RUNNER_TEMP/official-launcher"
-          if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-            git worktree add --detach "$dist" "origin/$branch"
-            if [ -f "$dist/$archive" ]; then
-              cmp "$RUNNER_TEMP/$archive" "$dist/$archive"
-            fi
+          # jsDelivr can serve the small artifact tree behind this tag.
+          if git show-ref --verify --quiet "refs/tags/$cdn_tag"; then
+            git show "refs/tags/$cdn_tag:$archive" > "$RUNNER_TEMP/cdn-$archive"
+            cmp "$RUNNER_TEMP/$archive" "$RUNNER_TEMP/cdn-$archive"
           else
+            dist="$RUNNER_TEMP/official-launcher"
             git worktree add --detach "$dist"
-            git -C "$dist" checkout --orphan "$branch"
+            git -C "$dist" checkout --orphan "$cdn_tag"
             git -C "$dist" rm -rfq .
-          fi
-          if [ ! -f "$dist/$archive" ]; then
             cp "$RUNNER_TEMP/$archive" "$dist/$archive"
             git -C "$dist" add "$archive"
             git -C "$dist" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -qm "Publish $archive"
-            git -C "$dist" push origin "HEAD:refs/heads/$branch"
+            git -C "$dist" push origin "HEAD:refs/tags/$cdn_tag"
           fi
 
-          version=$(node -p "require('./$source/package.json').version")
-          tag="launcher-v$version"
           if gh release view "$tag" > /dev/null 2>&1; then
             mkdir "$RUNNER_TEMP/launcher-release"
             gh release download "$tag" --pattern "$archive" --dir "$RUNNER_TEMP/launcher-release"
