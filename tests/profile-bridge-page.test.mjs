@@ -103,14 +103,14 @@ const managedStatus = {
 }
 const namedButton = (page, text) => [...page.dom.window.document.querySelectorAll('button')].find(button => button.textContent === text)
 
-test('原版桌面首次安装需要确认，排队后禁用安装按钮', async () => {
+test('原版桌面首次安装需要确认，排队后隐藏安装按钮', async () => {
   const page = await mount({ appKind: 'desktop', desktopApp: true, installAvailable: true, profiles: [] })
   try {
     await page.act(async () => namedButton(page, '安装酒馆').click())
     assert.deepEqual(page.calls, [['status', {}]])
     await page.act(async () => namedButton(page, '确认安装').click())
     assert.deepEqual(page.calls.at(-1), ['install', { confirmed: true }])
-    assert.equal(namedButton(page, '安装酒馆').disabled, true)
+    assert.equal(namedButton(page, '安装酒馆'), undefined)
   } finally {
     await page.dispose()
   }
