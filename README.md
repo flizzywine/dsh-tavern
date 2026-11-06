@@ -26,13 +26,13 @@
 1. **安装酒馆启动器。** 打开左侧的 **插件 → 添加插件**，粘贴下面的地址，点 **安装**，再按提示启用 `dsh-tavern-launcher`。
 
    ```text
-   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v0.2.0-tavern.15/dsh-tavern-launcher-0.2.0-tavern.15.tgz
+   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v0.2.0-tavern.16/dsh-tavern-launcher-0.2.0-tavern.16.tgz
    ```
 
-   如果 CDN 地址无法访问，可以粘贴 [GitHub Release 的下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-v0.2.0-tavern.15/dsh-tavern-launcher-0.2.0-tavern.15.tgz)。
+   如果 CDN 地址无法访问，可以粘贴 [GitHub Release 的下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-v0.2.0-tavern.16/dsh-tavern-launcher-0.2.0-tavern.16.tgz)。
 
 2. **安装酒馆。** 打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。
-3. **选择默认配置。** 首次安装仍保留原版入口。若希望以后默认打开酒馆，点 **将 DSH 酒馆设为默认并重启**；可随时在同一页面切回原版。
+3. **打开酒馆。** 点击 **重启并切换到 DSH 酒馆**，只切换当前配置。下方可单独设置 **默认打开酒馆** 或 **取消默认打开酒馆**，设置默认不会重启当前窗口。
 
 #### 方式二：一行命令安装或更新（也可交给 Agent 执行）
 
