@@ -70,6 +70,7 @@ test('card tool returns reachable absolute image Markdown on CLI HTTP, including
   const result = await tool.execute({ prompt: 'one traveler' }, own), image = result.images[0]
   assert.equal(new URL(image.url).origin, origin)
   assert.equal(image.markdown, `![图片](${image.url})`)
+  assert.equal(typeof result.preset, 'string', '预设字段必须是名字字符串：写进画廊的对象会让整页渲染崩掉')
   assert.ok(tool.output.render({}, result)[0].text.includes(image.markdown))
   const read = (url, headers = {}, method = 'GET') => new Promise((resolve, reject) => {
     const request = httpRequest(url, { method, headers }, response => {
@@ -355,6 +356,11 @@ test('gallery writes do not lose concurrent additions and remove compares stable
   const gallery = createCardGallery(join(root, 'gallery'))
   await Promise.all(Array.from({ length: 20 }, (_, i) => gallery.add({ jobId: 'job-' + i, file, mediaType: 'image/png' }, { sessionId: 'a' })))
   assert.equal((await gallery.list('a')).length, 20)
+  // 预设必须是字符串：写进索引的对象会被画廊设置页当 children 渲染，整页白屏。
+  await gallery.add({ jobId: 'job-object', file, mediaType: 'image/png', preset: { id: 'p1', name: '伪3D' } }, { sessionId: 'object' })
+  const objectEntry = (await gallery.list('object'))[0]
+  assert.equal(typeof objectEntry.preset, 'string', '预设对象不能进画廊索引')
+  assert.equal(objectEntry.preset, '', '没有合法字符串时落空串，绝不落对象')
   assert.equal(await gallery.remove('job-3', 'a'), true)
   assert.equal((await gallery.list('a')).length, 19)
   assert.equal(await gallery.remove('job-4', 'b'), false)

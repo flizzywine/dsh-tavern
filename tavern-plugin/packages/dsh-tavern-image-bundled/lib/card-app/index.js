@@ -127,7 +127,7 @@ export function apply(ctx, { ready }) {
           return omitUndefined({ ok: false, images, error: error.message, jobId: error.jobId, requestMayHaveSucceeded: error.requestMayHaveSucceeded === true, elapsedMs: Date.now() - started })
         }
       }
-      return omitUndefined({ ok: true, images, channel: picked.channel, promptMode: picked.promptMode, elapsedMs: Date.now() - started })
+      return omitUndefined({ ok: true, images, channel: picked.channel, promptMode: picked.promptMode, preset: (picked.preset && picked.preset.name) || '', elapsedMs: Date.now() - started })
     },
   }
 

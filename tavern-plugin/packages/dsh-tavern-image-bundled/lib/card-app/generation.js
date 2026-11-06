@@ -106,6 +106,6 @@ export async function runCardImage(engine, args, { sessionId, signal, key, onJob
     }
     if (job?.state !== 'done') throw Object.assign(new Error(job?.error || '生图未完成，请检查配图记录'), { jobId: job?.id, requestMayHaveSucceeded: Boolean(job?.requestMayHaveSucceeded || job?.cancelMayHaveContinued) })
     return { jobId: job.id, file: job.file, mediaType: job.mediaType, seed: picked.supportsSeed ? job.seed : undefined,
-      prompt: job.submittedPrompt || job.positive, negative: job.negative, preset: picked.preset, size: job.size ? `${job.size.width}x${job.size.height}` : '由工作流决定', channel: picked.channel, promptMode: picked.promptMode }
+      prompt: job.submittedPrompt || job.positive, negative: job.negative, preset: (picked.preset && picked.preset.name) || '', size: job.size ? `${job.size.width}x${job.size.height}` : '由工作流决定', channel: picked.channel, promptMode: picked.promptMode }
   } finally { signal?.removeEventListener('abort', abort) }
 }
