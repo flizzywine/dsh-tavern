@@ -3,36 +3,36 @@
     // 画廊页本身；会话画廊由宿主的公开接口展示。
     const CARD_GALLERY_API = '/dsh-tavern-gen/api'
     let cardGalleryCtx = null
-    const CARD_GALLERY_S = {
-      hint: { fontSize: 12, lineHeight: 1.6, opacity: 0.72 },
-      group: { display: 'flex', flexDirection: 'column', gap: 10 },
-      card: {
-        border: '1px solid rgba(128,128,128,.28)', borderRadius: 10,
-        background: 'rgba(128,128,128,.05)', padding: 10,
-        display: 'flex', flexDirection: 'column', gap: 8,
-      },
-      row: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
-      status: { fontSize: 12, opacity: 0.78 },
-      ghost: {
-        padding: '5px 12px', fontSize: 12, cursor: 'pointer', borderRadius: 7, flexShrink: 0,
-        border: '1px solid rgba(128,128,128,.4)', background: 'transparent',
-        color: 'inherit', fontFamily: 'inherit', whiteSpace: 'nowrap',
-      },
-      danger: {
-        padding: '5px 11px', fontSize: 12, cursor: 'pointer', borderRadius: 7, flexShrink: 0,
-        border: '1px solid rgba(217,83,79,.55)', background: 'transparent',
-        color: '#d9534f', fontFamily: 'inherit', whiteSpace: 'nowrap',
-      },
-      off: { opacity: 0.5, cursor: 'default' },
+    const GALLERY_GRID = {
+      display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 132px), 1fr))',
+      gap: 10, marginTop: 10,
     }
-    const CardGhost = props => h('button', {
-      type: 'button', onClick: props.onClick, disabled: props.disabled,
-      style: { ...CARD_GALLERY_S.ghost, ...(props.disabled ? CARD_GALLERY_S.off : {}), ...(props.style || {}) },
-    }, props.children)
-    const CardDanger = props => h('button', {
-      type: 'button', onClick: props.onClick, disabled: props.disabled,
-      style: { ...CARD_GALLERY_S.danger, ...(props.disabled ? CARD_GALLERY_S.off : {}), ...(props.style || {}) },
-    }, props.children)
+    const GALLERY_TILE = {
+      position: 'relative', minWidth: 0, borderRadius: 10, overflow: 'hidden',
+      border: '1px solid var(--dsw-alias-border-l2)',
+      background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)',
+    }
+    const GALLERY_THUMB = {
+      display: 'block', width: '100%', aspectRatio: '3 / 4', objectFit: 'cover',
+      background: 'var(--dsw-specific-input-major)',
+    }
+    const GALLERY_CAPTION = {
+      padding: '6px 8px', fontSize: 11, color: 'var(--dsw-alias-label-tertiary)',
+      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+    }
+    const CARD_GALLERY_S = {
+      hint: { fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-label-tertiary)' },
+      group: { display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 },
+      row: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
+    }
+    function CardGalleryButton({ children, danger, disabled, onClick, style, title }) {
+      return h('button', {
+        type: 'button', onClick, disabled, title,
+        style: { ...buttonStyle, padding: '5px 10px', fontSize: 12,
+          ...(danger ? { color: 'var(--dsw-alias-state-error-primary)' } : {}),
+          ...(disabled ? { opacity: 0.55, cursor: 'default' } : {}), ...style },
+      }, children)
+    }
 
     function CardGalleryPage() {
       const S = CARD_GALLERY_S
@@ -43,14 +43,14 @@
       const [titles, setTitles] = useState({})
       const [closed, setClosed] = useState({})
 
-      async function pull() {
+      async function pull(message = '') {
         setBusy(true)
         try {
           const response = await fetch(API + '/gallery', { headers: { accept: 'application/json' } })
           const value = await response.json()
           if (!response.ok) throw new Error(value?.error || 'HTTP ' + response.status)
           setItems(value.items ?? [])
-          setStatus('')
+          setStatus(message)
         } catch (error) {
           setStatus('读取失败：' + (error?.message ?? error))
         } finally {
@@ -83,8 +83,7 @@
           })
           const value = await response.json()
           if (!response.ok || !value.ok) throw new Error(value?.error || 'HTTP ' + response.status)
-          setStatus('已删除（记录和图片文件一起删了）')
-          await pull()
+          await pull('已删除图片和记录')
         } catch (error) {
           setStatus('删除失败：' + (error?.message ?? error))
         }
@@ -98,8 +97,7 @@
           const response = await fetch(API + '/gallery-clear', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
           const value = await response.json()
           if (!response.ok || !value.ok) throw new Error(value?.error || 'HTTP ' + response.status)
-          setStatus(`已清空 ${value.removed ?? 0} 张`)
-          await pull()
+          await pull('已清空 ' + (value.removed ?? 0) + ' 张')
         } catch (error) {
           await pull()
           setStatus('清空失败：' + (error?.message ?? error))
@@ -163,54 +161,51 @@
       }
       const toggle = key => setClosed(current => ({ ...current, [key]: !current[key] }))
 
-      const tile = item => h('div', { key: item.id, style: { ...S.card, padding: 6, gap: 5 } },
-        h('img', {
-          src: item.url, alt: item.prompt || item.file, loading: 'lazy', decoding: 'async',
-          onClick: () => openImageOverlay?.({ open: true, note: '卡片画廊',
-            images: list.map(entry => ({ url: entry.url, alt: entry.prompt || entry.file })), index: list.indexOf(item) }),
-          style: { width: '100%', borderRadius: 6, cursor: 'zoom-in', display: 'block', background: 'rgba(0,0,0,.15)' },
-        }),
-        h('div', { style: { fontSize: 11, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-          item.preset || '默认画风'),
-        h('div', { style: { fontSize: 10, opacity: 0.55 } },
-          new Date(item.at || Date.now()).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })),
-        // 三个按钮一行：两个复制平分宽度，删除窄且红，避免误点。
-        h('div', { style: { display: 'flex', gap: 4, alignItems: 'stretch' } },
-          h(CardGhost, {
-            onClick: () => copyText(item.prompt, 'prompt'), title: '复制这一张的完整 prompt',
-            style: { flex: '1 1 0', minWidth: 0, padding: '3px 3px', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis' },
-          }, '提示词'),
-          h(CardGhost, {
-            onClick: () => copyText(item.negative, 'negative'), title: '复制这一张的 negative',
-            style: { flex: '1 1 0', minWidth: 0, padding: '3px 3px', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis' },
-          }, '负面'),
-          h(CardDanger, {
-            onClick: () => remove(item.id), title: '删除记录和图片文件',
-            style: { flex: '0 0 auto', padding: '3px 7px', fontSize: 10 },
-          }, '×'),
-        ),
-      )
+      function preview(item) {
+        const ordered = groupKeys.flatMap(key => bySession.get(key))
+        openImageOverlay?.({ open: true, note: '卡片画廊',
+          images: ordered.map(entry => ({ url: entry.url, alt: entry.prompt || entry.file })), index: ordered.indexOf(item) })
+      }
+
+      const tile = item => {
+        const caption = [item.preset || '默认画风', item.channel, item.size].filter(Boolean).join(' · ')
+        return h('div', { key: item.id, style: GALLERY_TILE },
+          h('button', { type: 'button', onClick: () => preview(item), title: '查看大图',
+            style: { display: 'block', width: '100%', padding: 0, border: 0, background: 'none', cursor: 'zoom-in' } },
+            h('img', { src: item.url, alt: item.prompt || item.file, loading: 'lazy', decoding: 'async', style: GALLERY_THUMB })),
+          h('div', { style: GALLERY_CAPTION, title: caption }, caption),
+          h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 4, padding: '0 6px 6px' } },
+            h(CardGalleryButton, { onClick: () => copyText(item.prompt, '提示词'), title: '复制完整提示词',
+              style: { padding: '3px 5px', flex: '1 0 auto' } }, '提示词'),
+            h(CardGalleryButton, { onClick: () => copyText(item.negative, '负面词'), title: '复制负面词',
+              style: { padding: '3px 5px', flex: '1 0 auto' } }, '负面'),
+            h(CardGalleryButton, { danger: true, onClick: () => remove(item.id), title: '删除图片和记录',
+              style: { padding: '3px 5px' } }, '删除'),
+          ),
+        )
+      }
 
       return h('div', { style: S.group },
         h('div', { style: S.row },
           h('span', { style: { fontSize: 13, fontWeight: 600, marginRight: 6 } }, `卡片画廊（${list.length} 张）`),
-          h(CardGhost, { onClick: pull, disabled: busy }, busy ? '读取中…' : '重新读取'),
-          list.length ? h(CardDanger, { onClick: clearAll, disabled: busy }, '清空全部') : null,
-          status ? h('span', { style: S.status }, status) : null,
+          h(CardGalleryButton, { onClick: () => pull(), disabled: busy }, busy ? '读取中…' : '刷新'),
+          list.length ? h(CardGalleryButton, { danger: true, onClick: clearAll, disabled: busy }, '清空全部') : null,
+          status ? h('span', { role: 'status', style: S.hint }, status) : null,
         ),
-        h('div', { style: S.hint }, '按出图会话分组，点组标题收起或展开。删除会同时删掉记录和图片文件，删了找不回来。'),
+        h('div', { style: S.hint }, '按会话分组。点缩略图查看原图，点组标题收起或展开。'),
         items === null
-          ? h('div', { style: S.hint }, '正在读取…')
+          ? (status ? null : h('div', { style: S.hint }, '正在读取…'))
           : list.length === 0
             ? h('div', { style: S.hint }, '还没有图。让 Agent 出一张就会出现在这里。')
             : h('div', { style: { display: 'flex', flexDirection: 'column', gap: 14 } },
               groupKeys.map(key => {
                 const group = bySession.get(key) || []
                 const open = !closed[key]
-                return h('div', { key: key || 'none', style: { ...S.card, padding: 8, gap: 8 } },
+                return h('div', { key: key || 'none', style: { minWidth: 0 } },
                   h('button', {
                     type: 'button',
                     onClick: () => toggle(key),
+                    'aria-expanded': open,
                     title: open ? '收起这一组' : '展开这一组',
                     style: {
                       display: 'flex', alignItems: 'center', gap: 8, width: '100%', cursor: 'pointer',
@@ -221,10 +216,7 @@
                     h('span', { style: { fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, groupTitle(key, group)),
                     h('span', { style: { fontSize: 11, opacity: 0.55, flex: '0 0 auto' } }, `${group.length} 张`),
                   ),
-                  // 展开后自动铺列：宽屏 5 列，窄了自己降。
-                  open ? h('div', {
-                    style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 110px), 1fr))', gap: 8 },
-                  }, group.map(tile)) : null,
+                  open ? h('div', { style: GALLERY_GRID }, group.map(tile)) : null,
                 )
               }),
             ),
