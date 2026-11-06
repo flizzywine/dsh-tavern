@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e5f92290ae6cb96409222c6085a767bce85ebee9",
-  "releaseSequence": 1313,
+  "revision": "8b78c122657ff6bf52666646c8d2e41efe4a23ed",
+  "releaseSequence": 1314,
   "version": "3.2.0",
   "files": [
     {
@@ -506,7 +506,7 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "38969244f7b9ea3526af1e2dd8835be347806140c62228d507ae5d85e7df0a8f",
+      "sha256": "b2a889629e72ed7dcb102a9136b1fc4c961bc0ba710d872831dcb51fc5ee73a4",
       "size": 114003
     },
     {
@@ -7061,8 +7061,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-profile-bridge/client.js",
-      "sha256": "b1e19afaf5cd996859d1fb641109aeb8dba8fcd561d936ec07f8d4bcd88c88c8",
-      "size": 30395
+      "sha256": "93119cc711f83d9b87b83de65cff39e914685ccf960a9237022dcee47cc7a8d5",
+      "size": 30693
     },
     {
       "path": "tavern-plugin/packages/dsh-profile-bridge/cordis.patch.yml",
@@ -7126,8 +7126,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-profile-bridge/lib/worker.mjs",
-      "sha256": "5e3c7999cd344788d17162008dec99c2f4a159cf566839fb384e7efe73a86ceb",
-      "size": 11016
+      "sha256": "f63ac4e705da1e24efd1cd6934136c5bd425fd2c9a60569ca386381c6a8c6bdb",
+      "size": 11757
     },
     {
       "path": "tavern-plugin/packages/dsh-profile-bridge/LICENSE",
@@ -7146,7 +7146,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-profile-bridge/package.json",
-      "sha256": "5cabf413c0da3fb09d7483cd708c99786c6035620a21469d4f12949f608b270d",
+      "sha256": "94db4e9413c9bf866cc294897d4c8f5fca88462f36fb51f9145710de55ac1807",
       "size": 1360
     },
     {
@@ -9861,9 +9861,9 @@
     }
   ],
   "archive": {
-    "commit": "bb6ded4791432e421c43dcc338ce4dc6e9b7fa81",
+    "commit": "9b87e3026704ec2215b9e2356049eff8eadff38d",
     "path": "runtime.zip",
-    "sha256": "8d0319dfdbf99cec8427d5df7df8ba1d49812270fa744cfc99c738d43b411485",
-    "size": 16401018
+    "sha256": "33050176286a0dff8c0d8257724419b20d3ba833b0c0a09b972ee90574b38a5b",
+    "size": 16401373
   }
 }
