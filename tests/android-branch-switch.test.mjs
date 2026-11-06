@@ -166,6 +166,27 @@ test('未给源码目录时按 tavern Profile 记录自动发现安装位置', a
   assert.match(result.stdout, /3\.1\.0/)
 })
 
+test('--locate 扫描并打印候选安装目录', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'tavern-switch-locate-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const home = path.join(directory, 'home')
+  const app = path.join(home, 'deep', 'nest', 'dsh-tavern')
+  await mkdir(path.join(app, 'bin'), { recursive: true })
+  await mkdir(path.join(app, 'android'), { recursive: true })
+  await writeFile(path.join(app, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern', version: '3.2.0' }))
+  await writeFile(path.join(app, 'bin/dsh-tavern.mjs'), '')
+  await writeFile(path.join(app, 'android/install.sh'), SCRIPT_SOURCE)
+
+  const result = spawnSync(bash, [script, '--locate'], {
+    encoding: 'utf8',
+    timeout: 60000,
+    env: { ...process.env, HOME: shellPath(home), DSH_HOME: shellPath(path.join(home, '.dsh')), TEST_ROOT: shellPath(directory) },
+  })
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  assert.match(result.stdout, /版本 3\.2\.0/)
+  assert.match(result.stdout, /DSH_TAVERN_SOURCE_ROOT/)
+})
+
 test('安装器失败时自动回滚到旧版本', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'tavern-switch-rollback-'))
   t.after(() => rm(directory, { recursive: true, force: true }))

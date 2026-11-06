@@ -9,6 +9,7 @@
 #   bash switch-branch.sh            # 执行切换（默认切到 backup/main-20261106）
 #   bash switch-branch.sh --dry-run  # 只打印计划与版本号，不动任何文件
 #   bash switch-branch.sh --revert   # 回到切换前记录的那个版本
+#   bash switch-branch.sh --locate   # 扫描本机，打印候选安装目录
 #   bash switch-branch.sh --list     # 列出所有切换记录
 #   bash switch-branch.sh --restore <记录目录>  # 按指定记录回滚
 #
@@ -62,6 +63,7 @@ usage() {
   （无参数）  把已安装的 main 版本切到 backup/main-20261106
   --dry-run   只打印当前版本、目标版本与执行计划，不修改任何文件
   --revert    回退到上一次切换前的版本（安装回旧代码并重启服务）
+  --locate    扫描本机，打印找到的候选安装目录（不改任何文件）
   --list      列出所有切换记录（记录目录保留，可重复 --restore）
   --restore <记录目录>  按某条记录回滚
 
@@ -475,6 +477,39 @@ profile_source_of() {
     "${manifest}" 2>/dev/null || true
 }
 
+# 扫描本机找候选安装目录：Termux 宿主、/root、外置存储、以及额外指定根。
+locate_installs() {
+  local roots=() extra=() root dir found=0
+  roots+=("${HOME:-}")
+  [ -d /root ] && roots+=(/root)
+  [ -d /storage/emulated/0 ] && roots+=(/storage/emulated/0)
+  if [ -n "${DSH_TAVERN_SEARCH_ROOTS:-}" ]; then
+    IFS=: read -r -a extra <<<"${DSH_TAVERN_SEARCH_ROOTS}"
+    roots+=("${extra[@]}")
+  fi
+  step "扫描安装目录（深度 7，只读）"
+  for root in "${roots[@]}"; do
+    [ -d "${root}" ] || continue
+    info "扫描：${root}"
+    while IFS= read -r dir; do
+      [ -f "${dir}/package.json" ] || continue
+      found=$((found + 1))
+      printf '%s\t版本 %s\t分支 %s\t提交 %s\n' "${dir}" \
+        "$(source_version "${dir}")" "$(git_branch_of "${dir}")" "$(git_head_of "${dir}")"
+    done < <(find "${root}" -maxdepth 7 -type d -name 'dsh-tavern' 2>/dev/null)
+  done
+  while IFS= read -r dir; do
+    [ -n "${dir}" ] || continue
+    found=$((found + 1))
+    printf '%s\t（PID 记录，安装根在上一级）\n' "${dir}"
+  done < <(find "${HOME:-}" -maxdepth 8 -name 'tavern.pid.json' 2>/dev/null)
+  if [ "${found}" -eq 0 ]; then
+    info '没扫到。可加 DSH_TAVERN_SEARCH_ROOTS=/path1:/path2 再扫，或直接给 DSH_TAVERN_SOURCE_ROOT。'
+  else
+    info '用上面第一条的目录运行：DSH_TAVERN_SOURCE_ROOT=<目录> bash switch-branch.sh --dry-run'
+  fi
+}
+
 # 找已安装源码目录：显式变量 > profile 记录的 dshTavern.source > 常见位置。
 # APK 侧的安装常落在 /root/.dsh，而 Termux 宿主 shell 的 $HOME 是另一个目录，
 # 所以不能只信默认值。
@@ -578,6 +613,7 @@ while [ "$#" -gt 0 ]; do
     --dry-run) DRY_RUN=1 ;;
     --revert) MODE=revert ;;
     --list) MODE=list ;;
+    --locate) MODE=locate ;;
     --restore)
       MODE=restore
       shift
@@ -594,6 +630,7 @@ case "${MODE}" in
   switch) switch_branch ;;
   revert) revert_branch ;;
   list) list_states ;;
+  locate) locate_installs ;;
   restore)
     [ -f "${STATE_DIR}/state.env" ] || fail "不是有效的切换记录：${STATE_DIR}"
     restore_state "${STATE_DIR}"
