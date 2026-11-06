@@ -159,7 +159,8 @@
 				const stagedSend = triggerOnly && pendingEntry ? pendingEntry.text : undefined;
 				const submitDraftText = match ? match[1] : stagedSend;
 				const useNativeTrigger = triggerOnly && submitDraftText === undefined;
-				const binding = useNativeTrigger && ctx.sessions.binding(sessionId);
+				const binding = ctx.sessions.binding(sessionId);
+                let localSubmission = null, submissionAccepted = false;
                 // DSH requires nonempty prompt content. Helper messages are already
                 // persisted; admit a continuation without resending them or touching the draft.
                 const triggerContent = [{ type: "text", text: "继续。" }];
@@ -178,11 +179,14 @@
                         if (!binding?.session) throw new Error("当前对话已关闭");
                         return binding.session.prompt(triggerContent, "queue");
                     }
+                    if (localSubmission) return binding.session.prompt([{ type: "text", text: submitDraftText }], "queue", undefined, localSubmission.requestId);
                     input.setDraft(submitDraftText);
                     return input.submit("queue");
                 }
                 function accept(result) {
-                    if ((useNativeTrigger && !result?.ok) || result?.ok === false) throw new Error(result?.error?.message || "生成提交失败");
+                    if (((useNativeTrigger || localSubmission) && !result?.ok) || result?.ok === false) throw new Error(result?.error?.message || "生成提交失败");
+                    submissionAccepted = true;
+                    if (localSubmission && actualDraft() === submitDraftText) input.setDraft("");
                     consumePending();
                     // Queue acceptance has already committed the user row and assistant
                     // placeholder. Refresh the story projection now instead of leaving
@@ -232,8 +236,14 @@
                 // Reserve synchronously so concurrent triggers cannot consume one staged send twice.
                 submitting.add(sessionId);
                 return Promise.resolve().then(function () {
+                    // Use the host's synchronous echo and requestId handoff instead
+                    // of maintaining a second pending-message store.
+                    if (submitDraftText !== undefined && binding?.session && typeof binding.session.beginSubmission === "function") {
+                        localSubmission = binding.session.beginSubmission({ mode: "queue", text: submitDraftText, attachments: [] });
+                    }
                     if (typeof flushTavernSessionFramesBeforeGenerate === "function") return flushTavernSessionFramesBeforeGenerate(sessionId);
                 }).then(submitTurn).catch(function (error) {
+                    if (!submissionAccepted && localSubmission) localSubmission.abandon();
                     // A slow/failed refresh is not a successful send. Give the
                     // player the normal retry window after the failure is shown.
                     if (stagedSend !== undefined && pendingSend.get(sessionId) === pendingEntry) pendingEntry.at = Date.now();

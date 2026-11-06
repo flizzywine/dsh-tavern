@@ -8,9 +8,9 @@ const copy = value => JSON.parse(JSON.stringify(value))
 const tick = () => new Promise(resolve => setImmediate(resolve))
 function gate() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
 
-function fixture() {
-  let now = 1000, descriptor, draft = '', running = false, submit = () => undefined
-  const calls = [], subscriptions = new Set(), timers = new Map(), windowListeners = new Set(), events = []
+function fixture(options = {}) {
+  let now = 1000, descriptor, draft = '', running = false, submit = () => undefined, nextSubmission = 0
+  const calls = [], subscriptions = new Set(), timers = new Map(), windowListeners = new Set(), events = [], pendingSubmissions = [], prompts = []
   const host = {
     document: null, sessionStorage: { getItem() { return null }, setItem() {} },
     setTimeout(fn) { const id = {}; timers.set(id, fn); return id }, clearTimeout(id) { timers.delete(id) },
@@ -27,11 +27,26 @@ function fixture() {
     setDraft(value) { draft = value; calls.push(['draft', value]) },
     submit(mode) { calls.push(['submit', draft, mode]); return submit() } }
   const ctx = { sessions: {
-    scope: () => ({}), binding: () => ({ session: { prompt: async (content, mode) => { calls.push(['native', copy(content), mode]); return { ok: true } } } }),
+    scope: () => ({}), binding: () => {
+      const session = { prompt: async (content, mode, signal, requestId) => {
+        prompts.push({ content: copy(content), mode, requestId })
+        calls.push(['native', copy(content), mode]); return { ok: true }
+      } }
+      if (options.nativeEcho) session.beginSubmission = input => {
+        const requestId = 'request-' + (++nextSubmission), echo = { requestId, text: input.text }
+        pendingSubmissions.push(echo); calls.push(['echo', input.text])
+        return { requestId, abandon() {
+          const index = pendingSubmissions.indexOf(echo)
+          if (index >= 0) pendingSubmissions.splice(index, 1)
+          calls.push(['abandon', requestId])
+        } }
+      }
+      return { session }
+    },
     list: { getSnapshot: () => ({ byId: { game: { running } } }), subscribe(fn) { subscriptions.add(fn); return () => subscriptions.delete(fn) } },
   }, get: () => ({ input: { for: () => input } }) }
   const execute = client.createTavernFrameSlashExecutor(ctx, host)
-  return { client, ctx, execute, calls, host, windowListeners, timers, subscriptions, events,
+  return { client, ctx, execute, calls, host, windowListeners, timers, subscriptions, events, pendingSubmissions, prompts,
     get draft() { return draft }, edit(value) { draft = value }, advance(ms) { now += ms },
     submitWith(fn) { submit = fn },
     running(value) { running = value; for (const fn of subscriptions) fn() },
@@ -83,6 +98,32 @@ test('accepted card submission refreshes story rows before the first partial', a
   assert.deepEqual(h.events.map(event => ({ type: event.type, sessionId: event.detail && event.detail.sessionId })), [
     { type: 'dsh-tavern-story-mutated', sessionId: 'game' }
   ], '队列接受后立即通知故事流，无需等待首个模型 token')
+})
+
+test('host echo shows player input before a pending generation flush and prompts with the same request id', async () => {
+  const h = fixture({ nativeEcho: true }), floor = hookedFrame(h)
+  const sending = h.execute('/send 不等十五秒 | /trigger await=false', 'game', { waitForCompletion: false })
+  await tick()
+  assert.equal(h.prompts.length, 0, '生成前屏障仍未放行正式提交')
+  assert.deepEqual(h.pendingSubmissions.map(echo => echo.text), ['不等十五秒'])
+  floor.reply()
+  assert.equal((await sending).submitted, true)
+  assert.equal(h.prompts.length, 1)
+  assert.equal(h.prompts[0].requestId, 'request-1')
+  assert.equal(h.prompts[0].content[0].text, '不等十五秒')
+  floor.stop()
+})
+
+test('failed generation flush abandons the host echo', async () => {
+  const h = fixture({ nativeEcho: true }), floor = hookedFrame(h)
+  const sending = h.execute('/send 保留这条草稿 | /trigger await=false', 'game', { waitForCompletion: false })
+  await tick()
+  assert.equal(h.pendingSubmissions.length, 1)
+  floor.reply('卡片刷新失败')
+  await assert.rejects(sending, /卡片刷新失败/)
+  assert.equal(h.pendingSubmissions.length, 0)
+  assert.equal(h.prompts.length, 0)
+  floor.stop()
 })
 
 test('expired, setinput-replaced and manually edited drafts never resend stale staged text', async () => {

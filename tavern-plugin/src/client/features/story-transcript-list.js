@@ -4,6 +4,7 @@
 
 const TAVERN_STORY_TRANSCRIPT_LABELS = Object.freeze({ code: Object.freeze({ copyLabel: '复制', copiedLabel: '已复制' }), footnotes: '脚注' })
 const TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS = Object.freeze([])
+const TAVERN_STORY_TRANSCRIPT_EMPTY_SUBMISSIONS = Object.freeze([])
 
 function TavernStoryMarkdown(props) {
 	const text = String(props.text === undefined || props.text === null ? '' : props.text)
@@ -313,6 +314,18 @@ function createTavernStoryTranscriptFeature(deps) {
 		const partial = props.useChat(function (snapshot) { return snapshot && snapshot.legacy ? snapshot.legacy.partial : null })
 		const runningCalls = props.useChat(function (snapshot) { return snapshot && snapshot.legacy && Array.isArray(snapshot.legacy.runningCalls) ? snapshot.legacy.runningCalls : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true })
+		const pendingSubmissions = props.useSession(function (snapshot) { return snapshot && Array.isArray(snapshot.pendingSubmissions) ? snapshot.pendingSubmissions : TAVERN_STORY_TRANSCRIPT_EMPTY_SUBMISSIONS })
+		const displayedTranscript = React.useMemo(function () {
+			if (!transcript || !pendingSubmissions.length) return transcript
+			const admitted = new Set(transcript.messages.map(function (entry) { return entry && entry.message && entry.message.source && entry.message.source.rpcId }).filter(Boolean))
+			const echoes = []
+			for (const submission of pendingSubmissions) {
+				if (!submission || admitted.has(submission.requestId) || typeof submission.text !== 'string' || !submission.text.trim()) continue
+				echoes.push({ key: 'submission:' + String(submission.requestId), absoluteIndex: null, legacyTurn: null, floorNo: null,
+					message: { role: 'user', text: submission.text, source: { kind: 'user', rpcId: submission.requestId } } })
+			}
+			return echoes.length ? Object.assign({}, transcript, { messages: transcript.messages.concat(echoes) }) : transcript
+		}, [transcript, pendingSubmissions])
 		const nativeStreamTurn = partial && Number.isInteger(partial.turn) ? partial.turn : null
 		const previous = React.useRef({ sessionId: sessionId, enabled: enabled, running: running })
 		React.useEffect(function () {
@@ -371,7 +384,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			state: state,
 			historyFrom: controller.historyFrom,
 			loadOlder: controller.loadOlder,
-			transcript: transcript,
+			transcript: displayedTranscript,
 			view: view,
 			partial: partial,
 			running: running,

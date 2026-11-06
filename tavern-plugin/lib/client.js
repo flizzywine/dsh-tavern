@@ -35394,7 +35394,8 @@ function tavernFloorHeightRecall(key, width) {
 				const stagedSend = triggerOnly && pendingEntry ? pendingEntry.text : undefined;
 				const submitDraftText = match ? match[1] : stagedSend;
 				const useNativeTrigger = triggerOnly && submitDraftText === undefined;
-				const binding = useNativeTrigger && ctx.sessions.binding(sessionId);
+				const binding = ctx.sessions.binding(sessionId);
+                let localSubmission = null, submissionAccepted = false;
                 // DSH requires nonempty prompt content. Helper messages are already
                 // persisted; admit a continuation without resending them or touching the draft.
                 const triggerContent = [{ type: "text", text: "继续。" }];
@@ -35413,11 +35414,14 @@ function tavernFloorHeightRecall(key, width) {
                         if (!binding?.session) throw new Error("当前对话已关闭");
                         return binding.session.prompt(triggerContent, "queue");
                     }
+                    if (localSubmission) return binding.session.prompt([{ type: "text", text: submitDraftText }], "queue", undefined, localSubmission.requestId);
                     input.setDraft(submitDraftText);
                     return input.submit("queue");
                 }
                 function accept(result) {
-                    if ((useNativeTrigger && !result?.ok) || result?.ok === false) throw new Error(result?.error?.message || "生成提交失败");
+                    if (((useNativeTrigger || localSubmission) && !result?.ok) || result?.ok === false) throw new Error(result?.error?.message || "生成提交失败");
+                    submissionAccepted = true;
+                    if (localSubmission && actualDraft() === submitDraftText) input.setDraft("");
                     consumePending();
                     // Queue acceptance has already committed the user row and assistant
                     // placeholder. Refresh the story projection now instead of leaving
@@ -35467,8 +35471,14 @@ function tavernFloorHeightRecall(key, width) {
                 // Reserve synchronously so concurrent triggers cannot consume one staged send twice.
                 submitting.add(sessionId);
                 return Promise.resolve().then(function () {
+                    // Use the host's synchronous echo and requestId handoff instead
+                    // of maintaining a second pending-message store.
+                    if (submitDraftText !== undefined && binding?.session && typeof binding.session.beginSubmission === "function") {
+                        localSubmission = binding.session.beginSubmission({ mode: "queue", text: submitDraftText, attachments: [] });
+                    }
                     if (typeof flushTavernSessionFramesBeforeGenerate === "function") return flushTavernSessionFramesBeforeGenerate(sessionId);
                 }).then(submitTurn).catch(function (error) {
+                    if (!submissionAccepted && localSubmission) localSubmission.abandon();
                     // A slow/failed refresh is not a successful send. Give the
                     // player the normal retry window after the failure is shown.
                     if (stagedSend !== undefined && pendingSend.get(sessionId) === pendingEntry) pendingEntry.at = Date.now();
@@ -36659,6 +36669,7 @@ function installTavernStoryExternalHistory(options) {
 
 const TAVERN_STORY_TRANSCRIPT_LABELS = Object.freeze({ code: Object.freeze({ copyLabel: '复制', copiedLabel: '已复制' }), footnotes: '脚注' })
 const TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS = Object.freeze([])
+const TAVERN_STORY_TRANSCRIPT_EMPTY_SUBMISSIONS = Object.freeze([])
 
 function TavernStoryMarkdown(props) {
 	const text = String(props.text === undefined || props.text === null ? '' : props.text)
@@ -36968,6 +36979,18 @@ function createTavernStoryTranscriptFeature(deps) {
 		const partial = props.useChat(function (snapshot) { return snapshot && snapshot.legacy ? snapshot.legacy.partial : null })
 		const runningCalls = props.useChat(function (snapshot) { return snapshot && snapshot.legacy && Array.isArray(snapshot.legacy.runningCalls) ? snapshot.legacy.runningCalls : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true })
+		const pendingSubmissions = props.useSession(function (snapshot) { return snapshot && Array.isArray(snapshot.pendingSubmissions) ? snapshot.pendingSubmissions : TAVERN_STORY_TRANSCRIPT_EMPTY_SUBMISSIONS })
+		const displayedTranscript = React.useMemo(function () {
+			if (!transcript || !pendingSubmissions.length) return transcript
+			const admitted = new Set(transcript.messages.map(function (entry) { return entry && entry.message && entry.message.source && entry.message.source.rpcId }).filter(Boolean))
+			const echoes = []
+			for (const submission of pendingSubmissions) {
+				if (!submission || admitted.has(submission.requestId) || typeof submission.text !== 'string' || !submission.text.trim()) continue
+				echoes.push({ key: 'submission:' + String(submission.requestId), absoluteIndex: null, legacyTurn: null, floorNo: null,
+					message: { role: 'user', text: submission.text, source: { kind: 'user', rpcId: submission.requestId } } })
+			}
+			return echoes.length ? Object.assign({}, transcript, { messages: transcript.messages.concat(echoes) }) : transcript
+		}, [transcript, pendingSubmissions])
 		const nativeStreamTurn = partial && Number.isInteger(partial.turn) ? partial.turn : null
 		const previous = React.useRef({ sessionId: sessionId, enabled: enabled, running: running })
 		React.useEffect(function () {
@@ -37026,7 +37049,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			state: state,
 			historyFrom: controller.historyFrom,
 			loadOlder: controller.loadOlder,
-			transcript: transcript,
+			transcript: displayedTranscript,
 			view: view,
 			partial: partial,
 			running: running,
