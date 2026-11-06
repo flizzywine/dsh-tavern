@@ -1126,7 +1126,9 @@
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { newCardConversation(null); } }, h("b", null, "空白开始"), h("span", null, "不追加任务提示词，自由使用完整卡片 Agent"))
 				)
 			);
-			const updateMessage = updateStatus.pluginManaged ? "" : updateStatus.phase === "checking"
+			const updateMessage = updateStatus.pluginManaged
+				? (updateStatus.pluginUpdateQueued ? "请从「应用 → 退出」关闭 NEXT，更新窗口会继续。" : "")
+				: updateStatus.phase === "checking"
 				? "正在向 GitHub 核实最新构建…"
 				: updateStatus.phase === "up-to-date"
 					? "✓ 未发现更新构建" + (updateStatus.checkWarning ? " · " + updateStatus.checkWarning : "")
@@ -1161,7 +1163,10 @@
 			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? true;
 			const awaitingDesktopRestart = updateStatus.phase === "completed" && updateStatus.host === "desktop" && updateStatus.requiresRestart;
 			const cancelSupported = ["running", "cancelling"].includes(updateStatus.phase) && updateStatus.cancellable === true;
-			const updateActions = updateStatus.pluginManaged ? null
+			const updateActions = updateStatus.pluginManaged
+				? (updateStatus.canUpdatePlugin ? h("div", { className: "dsh-tavern-update-actions" },
+					h("button", { type: "button", className: "dsh-tavern-update-button", disabled: checkingOrRunning || updateStatus.pluginUpdateQueued, onClick: performUpdate },
+						updateStatus.pluginUpdateQueued ? "等待退出" : "退出后更新")) : null)
 				: updateStatus.phase === "update-available" || updateStatus.phase === "repair-required"
 				? h("div", { className: "dsh-tavern-update-actions" },
 					h("button", { className: "dsh-tavern-update-button", onClick: checkUpdate }, "检查更新"),

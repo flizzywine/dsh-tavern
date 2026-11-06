@@ -65,6 +65,25 @@ test('Next 插件分发将更新交给宿主，忽略同一数据目录的旧更
   await assert.rejects(updater.cancel(), /DSH NEXT 插件管理/)
 })
 
+test('Next 插件更新交给等待退出的启动器', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'update-next-queued-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  let queued = false
+  const updater = createApplicationUpdater({
+    dataRoot: root, sourceRoot: root,
+    readLocalIdentity: async () => ({ currentVersion: '3.2.1', pluginManaged: true }),
+    nextPluginUpdate: {
+      supported: () => true,
+      queued: () => queued,
+      queue: async () => { queued = true },
+    },
+  })
+  assert.equal((await updater.status()).canUpdatePlugin, true)
+  assert.equal((await updater.status()).pluginUpdateQueued, false)
+  assert.equal((await updater.start()).pluginUpdateQueued, true)
+  assert.equal((await updater.check()).phase, 'package-managed')
+})
+
 test('桌面安装完成只在旧运行时要求重启，重启后解除提示', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'update-desktop-restart-'))
   t.after(() => rm(root, { recursive: true, force: true }))

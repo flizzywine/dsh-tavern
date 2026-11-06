@@ -148,6 +148,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createBackgroundAgentRunner, executeBackgroundCompaction } from './background-agent-runner.js'
 import { createApplicationUpdater } from './application-updater.js'
+import { createNextPluginUpdate } from './next-plugin-update.js'
 import { CANDIDATE_SUBMIT_TOOL, SCRIPT_POINT_TOOL, SCRIPT_READ_TOOL, createCandidateGenerator } from './domain/candidate-generation.js'
 import { computeSceneTarget, projectedSceneText } from './domain/scene-illustration.js'
 import { createPluginMedia } from './domain/plugin-media.js'
@@ -569,6 +570,7 @@ export async function apply(ctx) {
     dataRoot,
     sourceRoot,
     hostDependencyAnchor: fileURLToPath(import.meta.url),
+    nextPluginUpdate: createNextPluginUpdate(ctx),
   })
   const modelRequestLog = createModelRequestLog({
     readJson: async function (path) { return await profileData.readJson(path) },

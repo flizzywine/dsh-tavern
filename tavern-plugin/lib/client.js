@@ -36889,7 +36889,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
   async function performUpdate() {
     const status = statusValue;
     if (!active) return;
-    const pluginUpdate = status.phase === "package-managed" && status.canUpdatePlugin;
+    const pluginUpdate = status.phase === "package-managed" && status.canUpdatePlugin && !status.pluginUpdateQueued;
     if (action.pending || (!pluginUpdate && !["update-available", "repair-required"].includes(status.phase))) return;
     // Lock before opening the confirmation so repeated clicks cannot launch two requests.
     action.pending = true;
@@ -36897,9 +36897,12 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
     try {
       const repairing = status.phase === "repair-required";
       const restartHint = status.host === 'desktop' ? '\n桌面版安装完成后需要手动重启 DeepSeek Harness。' : '';
-      if (!pluginUpdate && !await confirm((repairing
+      const question = pluginUpdate
+        ? '打开更新窗口后，请保存当前进度，再用「应用 → 退出」关闭 DSH NEXT。酒馆退出后才会安装，成功后会自动重新打开。'
+        : (repairing
         ? "将重新安装当前构建以修复上次未完成的更新，期间会短暂断开。人物卡、资料和对话数据会保留。\n确定修复安装吗？"
-        : "更新期间会短暂断开，人物卡、资料和对话数据不会受到影响。\n确定更新到 GitHub 最新版吗？") + restartHint)) return;
+        : "更新期间会短暂断开，人物卡、资料和对话数据不会受到影响。\n确定更新到 GitHub 最新版吗？") + restartHint;
+      if (!await confirm(question)) return;
       if (!active) return;
       startedAt = now();
       recovery = { sawOffline: false, reloading: false };
@@ -38240,7 +38243,9 @@ function TavernCardUpdateDialog(props) {
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { newCardConversation(null); } }, h("b", null, "空白开始"), h("span", null, "不追加任务提示词，自由使用完整卡片 Agent"))
 				)
 			);
-			const updateMessage = updateStatus.pluginManaged ? "" : updateStatus.phase === "checking"
+			const updateMessage = updateStatus.pluginManaged
+				? (updateStatus.pluginUpdateQueued ? "请从「应用 → 退出」关闭 NEXT，更新窗口会继续。" : "")
+				: updateStatus.phase === "checking"
 				? "正在向 GitHub 核实最新构建…"
 				: updateStatus.phase === "up-to-date"
 					? "✓ 未发现更新构建" + (updateStatus.checkWarning ? " · " + updateStatus.checkWarning : "")
@@ -38275,7 +38280,10 @@ function TavernCardUpdateDialog(props) {
 			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? true;
 			const awaitingDesktopRestart = updateStatus.phase === "completed" && updateStatus.host === "desktop" && updateStatus.requiresRestart;
 			const cancelSupported = ["running", "cancelling"].includes(updateStatus.phase) && updateStatus.cancellable === true;
-			const updateActions = updateStatus.pluginManaged ? null
+			const updateActions = updateStatus.pluginManaged
+				? (updateStatus.canUpdatePlugin ? h("div", { className: "dsh-tavern-update-actions" },
+					h("button", { type: "button", className: "dsh-tavern-update-button", disabled: checkingOrRunning || updateStatus.pluginUpdateQueued, onClick: performUpdate },
+						updateStatus.pluginUpdateQueued ? "等待退出" : "退出后更新")) : null)
 				: updateStatus.phase === "update-available" || updateStatus.phase === "repair-required"
 				? h("div", { className: "dsh-tavern-update-actions" },
 					h("button", { className: "dsh-tavern-update-button", onClick: checkUpdate }, "检查更新"),

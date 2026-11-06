@@ -436,7 +436,11 @@ export function createApplicationUpdater(options) {
 
   async function statusWithIdentity(identity) {
     if (identity.pluginManaged) {
-      return { ...identity, host: 'next', phase: 'package-managed' }
+      return {
+        ...identity, host: 'next', phase: 'package-managed',
+        canUpdatePlugin: options.nextPluginUpdate?.supported() === true,
+        pluginUpdateQueued: options.nextPluginUpdate?.queued() === true,
+      }
     }
     const saved = await statusState.read()
     const current = saved === undefined ? undefined : { ...saved, host: await host() }
@@ -588,7 +592,11 @@ export function createApplicationUpdater(options) {
 
   async function start() {
     const currentIdentity = await localIdentity()
-    if (currentIdentity.pluginManaged) throw new Error('请先切离 tavern，再通过 DSH NEXT 终端更新酒馆。')
+    if (currentIdentity.pluginManaged) {
+      if (!options.nextPluginUpdate?.supported()) throw new Error('请先切离 tavern，再通过 DSH NEXT 终端更新酒馆。')
+      await options.nextPluginUpdate.queue()
+      return statusWithIdentity(currentIdentity)
+    }
     const installHost = await host()
     if (installHost === 'next') throw new Error('请退出 DSH NEXT，更新酒馆源码后重新运行 node bin/dsh-tavern.mjs install --host next。')
     // A Git checkout is the developer's: the updater would install a separate copy (or replace this one
