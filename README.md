@@ -34,16 +34,15 @@
 
 3. 重新打开 DeepSeek Harness，即进入酒馆。
 
-### DSH NEXT（插件市场）
+### DSH NEXT（一键安装或更新插件）
 
-插件名为 `dsh-tavern-bundle`。发布后，在 Next 创建基于 Web 的独立 `tavern` Profile，并切到该 Profile。在「插件 → 发现 → 索引来源」添加 [DSH Tavern 市场源](https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-market-next/index.json)，搜索 **DSH Tavern** 安装。安装器若提示 `sharp` 构建授权，确认后重试。切换 Profile 和更新均由 Next 管理。
-
-也可在 Next 配套的 DSH 终端执行。首次安装时初始化 Web Profile，把第二条命令中的提交 SHA 换成市场索引里对应版本的值。升级时用新版本的 SHA 重跑第二条。
+Windows 用户从 Next 托盘打开「DSH 终端」，在 PowerShell 中粘贴以下命令。首次执行会创建 `tavern` Profile 并安装插件，之后重跑同一条命令即可安装最新版。安装完成后，在 Next 托盘的 Profile 菜单选择 `tavern`。
 
 ```powershell
-dsh --profile tavern --from-default-profile web --dump-config
-dsh plugin --profile tavern add "git+https://github.com/flizzywine/dsh-tavern.git#<提交 SHA>" --allow-build=sharp
+& ([ScriptBlock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-market-next/bin/install-next-plugin.ps1')))
 ```
+
+也可以在 `tavern` Profile 的「插件 → 实验性插件」启用「自定义插件索引」，然后在「发现」添加 [DSH Tavern 市场源](https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-market-next/index.json) 并搜索 **DSH Tavern**。
 
 从下方的源码安装方式迁移时，先退出 `tavern`，移除旧 Profile 中的酒馆组件，再安装聚合插件。两套组件同时启用会重复挂载。人物卡和会话仍使用同一 DSH 数据目录下的 `profile-data/tavern`。
 

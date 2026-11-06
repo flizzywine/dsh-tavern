@@ -59,7 +59,7 @@ test('Next 插件分发将更新交给宿主，忽略同一数据目录的旧更
   const status = await updater.status()
   assert.equal(status.phase, 'package-managed')
   assert.equal(status.currentVersion, '3.2.0')
-  assert.match(status.updateCommand, /dsh plugin --profile tavern add/)
+  assert.match(status.updateCommand, /plugin-market-next\/bin\/install-next-plugin\.ps1/)
   assert.deepEqual(await updater.check(), status)
   await assert.rejects(updater.start(), /DSH NEXT 插件管理/)
   await assert.rejects(updater.cancel(), /DSH NEXT 插件管理/)

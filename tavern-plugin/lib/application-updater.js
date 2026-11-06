@@ -437,7 +437,7 @@ export function createApplicationUpdater(options) {
   async function statusWithIdentity(identity) {
     if (identity.pluginManaged) {
       return { ...identity, phase: 'package-managed', host: 'next',
-        updateCommand: 'dsh plugin --profile tavern add "git+https://github.com/flizzywine/dsh-tavern.git#<新版提交 SHA>"' }
+        updateCommand: "& ([ScriptBlock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-market-next/bin/install-next-plugin.ps1')))" }
     }
     const saved = await statusState.read()
     const current = saved === undefined ? undefined : { ...saved, host: await host() }
