@@ -1632,7 +1632,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             const file = join(cacheRoot(config), `${job.id}.img`)
             await writeFile(file, output.bytes)
             if (stopped()) { await rm(file, { force: true }); return }
-            Object.assign(job, { file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', requestMayHaveSucceeded: false, completedAt: Date.now(), error: '' })
+            Object.assign(job, { size: output.size || job.size, file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', requestMayHaveSucceeded: false, completedAt: Date.now(), error: '' })
           } catch (error) {
             if (job.state !== 'cancelled') {
               job.state = error?.requestMayHaveSucceeded === false ? 'failed' : 'uncertain'
@@ -1820,7 +1820,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             const result = await generateImage(channel, {
               positive: compiled.positive, negative: compiled.negative, promptMode: compiled.promptMode, seed: compiled.seed, characters: compiled.characters, references,
-              width: compiled.size.width, height: compiled.size.height, steps: job.params.steps, cfg: job.params.cfg,
+              width: compiled.size.width, height: compiled.size.height, explicitSize: job.params.explicitSize === true, steps: job.params.steps, cfg: job.params.cfg,
             }, { signal: job.controller.signal, maxImageBytes, onGenerationSubmit: async () => {
               job.controller.signal.throwIfAborted()
               if (!jobs.has(job.id)) throw new Error('生图任务已删除')
@@ -1843,7 +1843,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             const file = join(cacheRoot(config), `${job.id}.img`)
             await writeFile(file, output.bytes)
             if (job.controller.signal.aborted || !jobs.has(job.id)) { await rm(file, { force: true }); return }
-            Object.assign(job, { file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', completedAt: Date.now() })
+            Object.assign(job, { size: output.size || job.size, file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', completedAt: Date.now() })
             if (output.warning) logger.warn?.(`dsh-tavern-image: 作业 ${job.id.slice(0, 8)} ${output.warning}`)
           } catch (error) {
             if (error.submissionNotStarted === true && !providerCompleted) job.requestStarted = false
@@ -1895,6 +1895,8 @@ function createRuntime(ctx, overrides, logger, deps) {
         artistPosition: rawParams?.artistPosition ?? (rawParams?.artist ? undefined : activeArtistText(jobConfig).position),
         negative: String(rawParams?.negative ?? ''),
         size: String(rawParams?.size || jobConfig.imageSize || '竖图'),
+        // 调用方明确指定了尺寸时，渠道那对默认宽高不许覆盖它。游玩模式不传这个标记，行为不变。
+        explicitSize: rawParams?.explicitSize === true,
         model: String(rawParams?.model ?? ''),
         textVersion: String(rawParams?.textVersion ?? ''),
         steps: rawParams?.steps,
