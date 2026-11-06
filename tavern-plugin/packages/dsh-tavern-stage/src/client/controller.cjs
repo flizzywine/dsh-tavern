@@ -16,6 +16,9 @@ function candidateSceneMerge(scene, candidate, actors, contributed, line, speake
 function stageSceneActorRequest(actor, speaker, line) {
     return {instanceId:actor.instanceId,ref:actor.ref,outfitKey:actor===speaker ? line?.outfitKey || actor.outfitKey : actor.outfitKey,stateId:actor===speaker ? line?.emotion ?? actor.emotion : actor.emotion};
 }
+function stageScenePlayback({turn,latestTurn,mode,atEnd,typed,current,blocked}) {
+    return {turn,atEnd:Boolean(turn > 0 && turn === latestTurn && mode === 'live' && atEnd && typed && current && !current.pending && !blocked)};
+}
 function stageSceneProgress(dialogue) {
     return dialogue?.lines?.length ? {index:dialogue.index || 0,count:dialogue.lines.length} : null;
 }
@@ -1290,7 +1293,7 @@ function GalStage(props) {
         // art.item (stage-skin-adv.md): the skin draws the card as the original's frame.
         modPerformances.node && React.cloneElement(modPerformances.node,{accent:color || undefined,skinItem:skinItem || undefined}),
         candidate && candidateActors.length>contributed.length ? h('div',{role:'status',style:{position:'absolute',zIndex:5,top:sceneHudSafe?.top || 0,left:'50%',transform:'translateX(-50%)',padding:'6px 12px',background:'#fff',color:'#333',pointerEvents:'none'}},candidateError ? '舞台角色素材暂不可用' : '正在准备舞台角色…') : null,
-        candidate ? h('div',{className:'stage-scene-hud',style:{position:'absolute',left:0,right:0,top:battlePresentation ? 0 : sceneHudSafe?.top || 0,bottom:battlePresentation ? 0 : sceneHudSafe?.bottom || 0,zIndex:5,pointerEvents:'none'},onClick:event=>event.stopPropagation()},h(candidate.renderHud,{gameId:sessionId})) : null,
+        candidate ? h('div',{className:'stage-scene-hud',style:{position:'absolute',left:0,right:0,top:battlePresentation ? 0 : sceneHudSafe?.top || 0,bottom:battlePresentation ? 0 : sceneHudSafe?.bottom || 0,zIndex:5,pointerEvents:'none'},onClick:event=>event.stopPropagation()},h(candidate.renderHud,{gameId:sessionId,playback:stageScenePlayback({turn,latestTurn,mode:runtime.cursor.mode,atEnd,typed,current,blocked:sceneHolding || beatHeld || dialogueHeld || transitioning || awaiting || running || streaming || hidden || backlog || configOpen || galleryOpen || statusOpen || menuOpen || presentationBusy || candidateInteractive})})) : null,
         h(ModStageLayers,{sessionId,config,sourceKey:receivedDirection.token?.sourceKey,stage:{title:props.data?.cardName,turn,latestTurn,scene:place,bgm:track?.name}}),
         textcard.node,
         // the CG insert page over the scene and the box, under the top bar and its notices.
@@ -1540,4 +1543,4 @@ function galNameParts(...args) { return stageViews.nameParts(...args); }
 
 return {Stage:GalStage,dispose(){if(closed)return;closed=true;clean([...cleanups].reverse().concat([...timers.values()], [...foregroundTimers].map(id=>()=>forkForeground.clearTimeout(id)),()=>{timers.clear();foregroundTimers.clear();}));}};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageController,candidateSceneMerge,stageSceneActorRequest,stageSceneProgress};
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageController,candidateSceneMerge,stageSceneActorRequest,stageSceneProgress,stageScenePlayback};

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const require=createRequire(import.meta.url)
-const {candidateSceneMerge,stageSceneActorRequest,stageSceneProgress}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs')
+const {candidateSceneMerge,stageSceneActorRequest,stageSceneProgress,stageScenePlayback}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs')
 
 test('scene dialogue progress follows its own lines and clears on release',()=>{
   assert.deepEqual(stageSceneProgress({lines:[{text:'battle'}],index:0}),{index:0,count:1})
@@ -51,4 +51,12 @@ test('ordinary story speaker retains priority when its stage actor is replaced',
   const result=candidateSceneMerge(scene,{},[actor],[rendered],null,null)
   assert.deepEqual(result.figures,[rendered])
   assert.equal(result.figureLayout.priority[0],'candidate:oak')
+})
+
+
+test('HUD playback signals only completed, presentable latest live story',()=>{
+ const ready={turn:2,latestTurn:2,mode:'live',atEnd:true,typed:true,current:{pending:false},blocked:false}
+ assert.deepEqual(stageScenePlayback(ready),{turn:2,atEnd:true})
+ for(const changes of [{mode:'history'},{mode:'replay'},{turn:1},{atEnd:false},{typed:false},{current:{pending:true}},{current:null},{blocked:true}])
+   assert.equal(stageScenePlayback({...ready,...changes}).atEnd,false)
 })

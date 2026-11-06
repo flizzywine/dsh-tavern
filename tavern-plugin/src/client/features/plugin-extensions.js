@@ -448,7 +448,7 @@
 				apiVersion: 9,
 				// Independent browser feature versions, not resource authorization or host API versions.
 				getCapabilities() {
-					return { openOverlay: 1, overlayLayout: 2, overlayFullscreen: 1, stageInteraction: 1, stageDock: 1, stagePerformanceStatus: 1, stageScene: 1, stageSceneProvider: 1, stageSceneBackground: 1, stageScenePresentation: 1, stageSceneActorEmotion: 1, stageSceneBattlePresentation: 1, stageSceneMusic: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
+					return { openOverlay: 1, overlayLayout: 2, overlayFullscreen: 1, stageInteraction: 1, stageDock: 1, stagePerformanceStatus: 1, stageScene: 1, stageSceneProvider: 1, stageSceneBackground: 1, stageScenePresentation: 1, stageSceneActorEmotion: 1, stageSceneBattlePresentation: 1, stageSceneMusic: 1, stageScenePlayback: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
 				},
 				registerStageSceneProvider(input) {
 					if (!input || typeof input.id !== 'string' || !input.id || typeof input.onStageReady !== 'function') throw new TypeError('provider needs id and onStageReady');

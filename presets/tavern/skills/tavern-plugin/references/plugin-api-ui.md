@@ -8,7 +8,7 @@
 
 先通过 `getCapabilities()` 检查两个独立能力；缺少时使用原有入口。`registerStageSceneProvider({id, onStageReady: ({gameId}) => cleanup})` 在当前舞台就绪或插件晚注册时调用，限已授权人物卡。可返回清理函数或其 Promise；舞台离开、权限撤销或插件卸载时执行清理，迟到的清理函数也会执行。回调不应持久化舞台投影。
 
-`openStageScene({gameId, renderHud, onDialogueAdvance?, onClose?, onError?})` 返回 `{ok:false, reason}`（`denied`、`busy` 或 `stage-unavailable`）或 lease。一个舞台同时只有一个 lease。调用 `lease.update({actors, replaceActors?, interactive?, dialogue?, camera?, sprites?, effects?, backgroundRef?, presentation?, musicRef?, musicLoop?, captureWheel?})` 替换当前贡献；调用 `lease.close()` 释放。关闭或切局后恢复最新正文场景。`interactive:false` 允许底层正文翻页和自动播放，并忽略贡献的 dialogue。`renderHud({gameId})` 放在文本框和顶栏之间，交互元素自行设置 `pointer-events:auto`。
+`openStageScene({gameId, renderHud, onDialogueAdvance?, onClose?, onError?})` 返回 `{ok:false, reason}`（`denied`、`busy` 或 `stage-unavailable`）或 lease。一个舞台同时只有一个 lease。调用 `lease.update({actors, replaceActors?, interactive?, dialogue?, camera?, sprites?, effects?, backgroundRef?, presentation?, musicRef?, musicLoop?, captureWheel?})` 替换当前贡献；调用 `lease.close()` 释放。关闭或切局后恢复最新正文场景。`interactive:false` 允许底层正文翻页和自动播放，并忽略贡献的 dialogue。`renderHud({gameId, playback})` 放在文本框和顶栏之间，交互元素自行设置 `pointer-events:auto`。`stageScenePlayback: 1` 表示 `playback:{turn,atEnd}` 可用；`turn` 是当前舞台正文轮次，`atEnd` 仅在最新轮普通正文真正读完、玩家已翻过最后一页且舞台可呈现时为 true。历史、回放、加载、流式生成、演出阻塞或交互场景均为 false。旧宿主不传 `playback`，调用方应回退并允许玩家手动操作。
 
 `stageSceneBattlePresentation: 1` 支持 `presentation:'battle'`：HUD 铺满舞台，宿主正文框与回合末选项隐藏，`getLayout().safe` 为全舞台；省略字段恢复。交互场景期间回合末选项隐藏，滚轮不触发舞台翻页或履历；被动场景可用 `captureWheel:true` 为打开的菜单隔离滚轮，明确的履历按钮仍可用。战报由 HUD 自行显示。`stageSceneMusic: 1` 支持 `musicRef:{packId,kind:'music',assetId}`，仅从当前卡绑定的音乐列表解析，默认循环并遵循舞台音乐开关和暂停；`musicLoop:false` 播放一次后保持静音，切曲先停旧曲。省略或设为 null、关闭 lease、切卡或退出舞台后恢复原音乐选择；未找到素材时保持静音，不接受任意 URL。
 
