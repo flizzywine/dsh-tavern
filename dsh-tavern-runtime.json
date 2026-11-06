@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b3ed0e4c83849640b105a1bbc2ff5f572627f651",
-  "releaseSequence": 1292,
+  "revision": "d50640b8eec82ebc8401c00f5105bbb7e8b7c099",
+  "releaseSequence": 1293,
   "version": "3.2.0",
   "files": [
     {
@@ -7631,8 +7631,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/client.js",
-      "sha256": "55ae961f579e4e0a8c406afc729df0c5e3124c08d4974b2f76849c94f4186459",
-      "size": 9944
+      "sha256": "124aacb792ea1846549521b3d78816b16537ece7e6e4fd357e8435f29f7d9dc7",
+      "size": 9880
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/cordis.patch.yml",
@@ -7651,18 +7651,18 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/locale/zh.json",
-      "sha256": "94ee5723a84e1a3078c927d8b3f1ef8203a3a5a9f19b068c7b9eba1ca955a357",
-      "size": 132
+      "sha256": "5d839999346ed1bda2163b643269b39281b66284bf881f822d098a52f36c52d6",
+      "size": 127
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/package.json",
-      "sha256": "e2147bbc7aa459dcc4f8bf01a6cb500e6910afef4244579b956366bc273e7ee7",
+      "sha256": "9d54d30825a62443648ce7f68ef63e6349035e6b34a6682dfc0a01978c081fff",
       "size": 977
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/README.md",
-      "sha256": "1f871549e1252a1b86179ecf52f7fd794bfec983d6bb174948fdafb0a6c579d0",
-      "size": 1208
+      "sha256": "a4679dde0069c41d86ca39a9cd572ea3805749b2c78d9030d3d68c19ca618d12",
+      "size": 1222
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-remote/.gitignore",
@@ -9851,9 +9851,9 @@
     }
   ],
   "archive": {
-    "commit": "15f42d61c1e92ffa86973b31a58268c5337fa2b7",
+    "commit": "c09fb13a1ac62f13b6b6a4f7f787b67ce91bf456",
     "path": "runtime.zip",
-    "sha256": "9210d04ea9c5dd5b23dc005cef333658bbe2bf423dee5d3189489ad5b3e3cb46",
-    "size": 16389648
+    "sha256": "3ee677bf1529edbac04dc305ceb6b0fa0a45a5314c2ce9523fbcddbff063ce6d",
+    "size": 16389628
   }
 }
