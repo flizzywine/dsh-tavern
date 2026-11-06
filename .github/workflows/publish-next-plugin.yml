@@ -41,6 +41,7 @@ jobs:
           node bin/build-next-plugin.mjs build "$dist" "$PLUGIN_VERSION"
           pnpm --dir "$dist" --config.node-linker=hoisted pack --pack-destination "$RUNNER_TEMP"
           version=$(node -p 'require(process.argv[1]).version' "$dist/package.json")
+          source_commit=$(node -p 'require(process.argv[1]).dshTavern.sourceCommit' "$dist/package.json")
           git init -q "$downloads"
           if git show-ref --verify --quiet "refs/remotes/origin/$download_branch"; then
             git -C "$downloads" fetch --no-tags "$GITHUB_WORKSPACE" "refs/remotes/origin/$download_branch"
@@ -58,7 +59,7 @@ jobs:
           fi
           git -C "$downloads" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -qm "Pack Tavern $version"
           download_commit=$(git -C "$downloads" rev-parse HEAD)
-          printf '{"version":"%s","revision":"%s"}\n' "$version" "$download_commit" > "$downloads/next-download.json"
+          printf '{"version":"%s","revision":"%s","sourceCommit":"%s"}\n' "$version" "$download_commit" "$source_commit" > "$downloads/next-download.json"
           git -C "$downloads" add next-download.json
           git -C "$downloads" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -qm "List Tavern $version download"
           download_head=$(git -C "$downloads" rev-parse HEAD)

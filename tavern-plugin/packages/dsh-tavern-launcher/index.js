@@ -14,23 +14,55 @@ const downloadRoots = [
 const tarballName = 'dsh-tavern-bundle.tgz'
 const gitSource = /^(?:github:flizzywine\/dsh-tavern|git\+https:\/\/github\.com\/flizzywine\/dsh-tavern\.git)#(?:plugin-market-next|[0-9a-f]{40})$/i
 const archiveSource = /^https:\/\/(?:raw\.githubusercontent\.com\/flizzywine\/dsh-tavern\/|cdn\.jsdelivr\.net\/gh\/flizzywine\/dsh-tavern@)[0-9a-f]{40}\/dsh-tavern-bundle\.tgz$/
+const commitPattern = /^[0-9a-f]{40}$/
+const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
-async function latestTavernSources(signal) {
+async function latestTavernRelease(signal) {
   for (const root of downloadRoots) {
     try {
       const response = await fetch(root + 'plugin-next-downloads/next-download.json', {
         cache: 'no-store', signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]),
       })
       if (!response.ok) continue
-      const { revision } = await response.json()
-      if (!/^[0-9a-f]{40}$/.test(revision)) continue
+      const { version, revision, sourceCommit } = await response.json()
+      if (!commitPattern.test(revision) || !versionPattern.test(version)) continue
       // Both downloads refer to the same build, even if the CDN index is stale.
-      return [root, ...downloadRoots.filter(other => other !== root)].map(base => base + revision + '/' + tarballName)
+      return {
+        version, commit: commitPattern.test(sourceCommit) ? sourceCommit : undefined,
+        sources: [root, ...downloadRoots.filter(other => other !== root)].map(base => base + revision + '/' + tarballName),
+      }
     } catch {
       signal.throwIfAborted()
     }
   }
   throw new Error('GitHub 和 jsDelivr 都无法读取酒馆发布信息，请检查网络后重试。')
+}
+
+function bundleIdentity(manifest) {
+  const commit = manifest?.dshTavern?.sourceCommit
+  return { version: manifest?.version, commit: commitPattern.test(commit) ? commit : undefined }
+}
+
+function isNewerBuild(current, release) {
+  if (!current.version) return false
+  const [installed, installedPrerelease] = current.version.split(/-(.*)/s)
+  const [published, publishedPrerelease] = release.version.split(/-(.*)/s)
+  const installedParts = installed.split('.').map(Number)
+  const comparison = published.split('.').map(Number).map((part, index) => part - installedParts[index]).find(Boolean)
+  if (comparison) return comparison > 0
+  if (publishedPrerelease !== installedPrerelease) {
+    if (!publishedPrerelease || !installedPrerelease) return !publishedPrerelease
+    // SemVer prerelease identifiers sort numerically when both are numeric.
+    const a = publishedPrerelease.split('.')
+    const b = installedPrerelease.split('.')
+    for (let i = 0; i < Math.min(a.length, b.length); i++) {
+      if (a[i] === b[i]) continue
+      const numericA = /^\d+$/.test(a[i]), numericB = /^\d+$/.test(b[i])
+      return numericA && numericB ? Number(a[i]) > Number(b[i]) : numericA !== numericB ? !numericA : a[i] > b[i]
+    }
+    return a.length > b.length
+  }
+  return Boolean(current.commit && release.commit && current.commit !== release.commit)
 }
 
 async function readJson(file) {
@@ -61,7 +93,7 @@ async function inspectProfile(dir) {
       (dependency !== undefined && !gitSource.test(dependency) && !archiveSource.test(dependency))) return { state: 'conflict' }
   if (dependency && bundles.includes(bundle)) {
     const installed = await missingAllowed(() => readJson(join(dir, 'node_modules', bundle, 'package.json')))
-    if (installed?.name === bundle && installed.version) return { state: 'installed', version: installed.version }
+    if (installed?.name === bundle && installed.version) return { state: 'installed', ...bundleIdentity(installed) }
   }
   return { state: 'ready' }
 }
@@ -83,8 +115,12 @@ export function apply(ctx) {
     try {
       const before = await inspectProfile(dir)
       if (action === 'update' ? before.state !== 'installed' : !['absent', 'ready'].includes(before.state)) return
-      const tavernSources = await latestTavernSources(signal)
+      const release = await latestTavernRelease(signal)
       signal.throwIfAborted()
+      if (action === 'update' && !isNewerBuild(before, release)) {
+        outcome = 'upToDate'
+        return
+      }
       if (before.state === 'absent') {
         // Exclusive creation prevents initProfile from touching a directory
         // that another caller created after the initial check.
@@ -93,7 +129,7 @@ export function apply(ctx) {
       }
 
       let result
-      for (const source of tavernSources) {
+      for (const source of release.sources) {
         signal.throwIfAborted()
         result = await runPluginCommand({
           profile: 'tavern', dir, home: profile.home, installAnchor: profile.installAnchor, cwd: profile.dir,
@@ -106,7 +142,7 @@ export function apply(ctx) {
       if (result.exitCode !== 0) throw new Error(`GitHub 和 jsDelivr 安装都失败了（DSH 退出码 ${result.exitCode ?? '未知'}）。`)
       const after = await inspectProfile(dir)
       if (after.state !== 'installed') throw new Error('DSH did not activate the Tavern bundle')
-      outcome = action === 'install' ? 'installedNow' : before.version === after.version ? 'upToDate' : 'updated'
+      outcome = action === 'install' ? 'installedNow' : 'updated'
     } catch (error) {
       lastError = error.message
     } finally {
@@ -116,13 +152,18 @@ export function apply(ctx) {
 
   async function handle(endpoint) {
     if (!desktop || desktop.dir !== profile.dir) return { state: 'unsupported' }
+    if (endpoint === 'check') {
+      const status = await handle('status')
+      const release = await latestTavernRelease(new AbortController().signal)
+      return { version: release.version, commit: release.commit, available: isNewerBuild(status, release) }
+    }
     if (profile.name === 'tavern') {
       const desktopDir = join(profile.home, 'profiles', 'desktop')
       const desktopManifest = await missingAllowed(() => readJson(join(desktopDir, 'package.json')))
       const launcher = await missingAllowed(() => readJson(join(desktopDir, 'node_modules', 'dsh-tavern-launcher', 'package.json')))
       const tavern = await missingAllowed(() => readJson(join(profile.dir, 'node_modules', bundle, 'package.json')))
       const selection = await missingAllowed(() => readJson(join(profile.home, 'desktop-next.json')))
-      return { state: 'current', paths, version: tavern?.version, selectedProfile: selection?.active, canHandoff: launcher?.dshTavern?.profileHandoff === true &&
+      return { state: 'current', paths, ...bundleIdentity(tavern), selectedProfile: selection?.active, canHandoff: launcher?.dshTavern?.profileHandoff === true &&
         desktopManifest?.dsh?.profile?.bundles?.includes('dsh-tavern-launcher') === true }
     }
     if (!profile.packageManager) return { state: 'unsupported' }
@@ -151,6 +192,7 @@ export function apply(ctx) {
       }
       const pathname = new URL(request.url, 'http://localhost').pathname
       const endpoint = pathname === channel + '/status' && request.method === 'GET' ? 'status'
+        : pathname === channel + '/check' && request.method === 'GET' ? 'check'
         : request.method === 'POST' && [channel + '/install', channel + '/update'].includes(pathname)
           ? pathname.slice(channel.length + 1) : undefined
       if (!endpoint) {

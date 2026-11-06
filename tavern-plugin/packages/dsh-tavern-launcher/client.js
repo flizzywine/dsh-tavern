@@ -20,7 +20,14 @@ window.__ModuleLoader__.load({
       removeScope: 'NEXT 会将酒馆 Profile 移到恢复备份，保留角色卡、对话和共享数据。',
       continueRemove: '继续删除',
       cancel: '取消',
-      version: '已安装 DSH Tavern v',
+      installedBuild: '当前安装',
+      latestBuild: '最新发布',
+      unknownCommit: '此版本未记录源码提交',
+      check: '检查更新',
+      checking: '正在检查…',
+      checkHint: '检查更新后显示最新发布的版本和提交号。',
+      updateAvailable: '有新版本可更新。',
+      noUpdate: '未发现更新。',
       absent: '在独立的 tavern Profile 中安装最新版酒馆。',
       ready: 'tavern Profile 已准备好，可以安装酒馆。',
       installed: '酒馆已就绪。打开酒馆时，NEXT 会切换到 tavern Profile。',
@@ -58,7 +65,14 @@ window.__ModuleLoader__.load({
       removeScope: 'NEXT moves the Tavern Profile to a recovery backup and keeps cards, chats and shared data.',
       continueRemove: 'Continue to removal',
       cancel: 'Cancel',
-      version: 'Installed DSH Tavern v',
+      installedBuild: 'Installed build',
+      latestBuild: 'Latest release',
+      unknownCommit: 'Source commit unavailable for this build',
+      check: 'Check for updates',
+      checking: 'Checking…',
+      checkHint: 'Check for updates to see the latest released version and commit.',
+      updateAvailable: 'An update is available.',
+      noUpdate: 'No update found.',
       absent: 'Install the latest DSH Tavern in a separate tavern Profile.',
       ready: 'The tavern Profile is ready for installation.',
       installed: 'Tavern is ready. Opening it switches NEXT to the tavern Profile.',
@@ -100,6 +114,10 @@ window.__ModuleLoader__.load({
 .tl-error { margin: 0; padding: 10px 12px; border-radius: 10px; color: #e5484d; background: rgba(229,72,77,0.08); }
 .tl-management { display: grid; gap: 10px; border: 1px solid var(--tl-line); border-radius: 10px; padding: 14px; min-width: 0; }
 .tl-management h3, .tl-management p { margin: 0; }
+.tl-builds { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.tl-builds dt { opacity: .65; }
+.tl-builds dd { margin: 0; overflow-wrap: anywhere; }
+.tl-builds a { color: inherit; }
 .tl-paths { margin: 0; display: grid; gap: 4px; min-width: 0; }
 .tl-paths dt { opacity: .65; }
 .tl-paths dd { margin: 0 0 6px; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
@@ -113,13 +131,19 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState('')
       const [nativeBusy, setNativeBusy] = React.useState(false)
       const [reviewRemove, setReviewRemove] = React.useState(false)
+      const [latest, setLatest] = React.useState(null)
+      const [checking, setChecking] = React.useState(false)
       const pending = React.useRef(false)
       const refresh = React.useCallback(async (endpoint = 'status') => {
         if (pending.current) return
         pending.current = true
         setError('')
         try {
-          if (['open', 'back', 'delete', 'switch-update', 'switch-delete'].includes(endpoint)) {
+          if (endpoint === 'check') {
+            setChecking(true)
+            setLatest(null)
+            setLatest(await call('check'))
+          } else if (['open', 'back', 'delete', 'switch-update', 'switch-delete'].includes(endpoint)) {
             setNativeBusy(true)
             const latest = await call('status')
             const fromTavern = endpoint === 'back' || endpoint.startsWith('switch-')
@@ -153,6 +177,7 @@ window.__ModuleLoader__.load({
         } catch (cause) {
           setError(String(cause?.message ?? cause))
         } finally {
+          setChecking(false)
           setNativeBusy(false)
           pending.current = false
         }
@@ -170,8 +195,13 @@ window.__ModuleLoader__.load({
       const current = status.state === 'current'
       const failure = error || status.error || handoffFailure()
       const canChange = hasNative && (canManage || (current && status.canHandoff))
+      const canCheck = canInstall || canManage || current
+      const buildLabel = ({ version, commit }) => h(React.Fragment, null,
+        `v${version} · `,
+        commit ? h('a', { href: `https://github.com/flizzywine/dsh-tavern/commit/${commit}`, target: '_blank', rel: 'noreferrer', title: commit },
+          h('code', null, commit.slice(0, 8))) : h('span', { className: 'tl-sub' }, t('unknownCommit')))
       const button = (label, onClick, style = '') => h('button', {
-        type: 'button', className: `tl-btn ${style}`, disabled: nativeBusy, onClick,
+        type: 'button', className: `tl-btn ${style}`, disabled: nativeBusy || checking, onClick,
       }, t(label))
       return h('section', { className: 'tl' },
         h('style', null, CSS),
@@ -184,7 +214,11 @@ window.__ModuleLoader__.load({
           current && hasNative ? button('back', () => void refresh('back')) : null) : null,
         h('section', { className: 'tl-management', 'aria-label': t('management') },
           h('h3', null, t('management')),
-          status.version ? h('strong', null, t('version') + status.version) : null,
+          status.version || latest ? h('dl', { className: 'tl-builds' },
+            status.version ? h(React.Fragment, null, h('dt', null, t('installedBuild')), h('dd', null, buildLabel(status))) : null,
+            h('dt', null, t('latestBuild')), h('dd', null, latest ? buildLabel(latest) : t('checkHint'))) : null,
+          latest && status.version && canCheck ? h('p', { className: 'tl-sub', role: 'status' },
+            t(latest.available && (status.version !== latest.version || status.commit !== latest.commit) ? 'updateAvailable' : 'noUpdate')) : null,
           status.paths ? h('dl', { className: 'tl-paths' },
             ...Object.entries(status.paths).flatMap(([key, value]) => [
               h('dt', { key: `${key}-label` }, t(key)), h('dd', { key }, value),
@@ -195,6 +229,7 @@ window.__ModuleLoader__.load({
           current && !hasNative ? h('p', { className: 'tl-sub' }, t('returnHint')) : null,
           h('div', { className: 'tl-actions' },
             canInstall && hasNative ? button('install', () => void refresh('install')) : null,
+            canCheck && !reviewRemove ? button(checking ? 'checking' : 'check', () => void refresh('check'), 'tl-btn-quiet') : null,
             canChange && !reviewRemove ? button('update', () => void refresh(current ? 'switch-update' : 'update'), 'tl-btn-quiet') : null,
             canChange && !reviewRemove ? button('remove', () => setReviewRemove(true), 'tl-btn-quiet tl-danger') : null,
             failure ? button('retry', () => void refresh(), 'tl-btn-quiet') : null),
@@ -212,7 +247,7 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         const t = ctx.locale.bind(ns)
         const call = async endpoint => {
-          const response = await fetch('/dsh-tavern-launcher/' + endpoint, { method: endpoint === 'status' ? 'GET' : 'POST' })
+          const response = await fetch('/dsh-tavern-launcher/' + endpoint, { method: endpoint === 'status' || endpoint === 'check' ? 'GET' : 'POST' })
           if (!response.ok && !response.headers.get('content-type')?.startsWith('application/json')) {
             throw new Error('HTTP ' + response.status)
           }
