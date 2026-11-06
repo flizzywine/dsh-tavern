@@ -7,8 +7,31 @@ import { runPluginCommand } from '@deepseek-ai/dsh-plugin-manager/operations'
 export const inject = ['connection', 'profileContext', 'webServer']
 const channel = '/dsh-tavern-launcher'
 const bundle = 'dsh-tavern-bundle'
-const tavernSource = 'github:flizzywine/dsh-tavern#plugin-market-next'
+const downloadRoots = [
+  'https://raw.githubusercontent.com/flizzywine/dsh-tavern/',
+  'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@',
+]
+const tarballName = 'dsh-tavern-bundle.tgz'
 const gitSource = /^(?:github:flizzywine\/dsh-tavern|git\+https:\/\/github\.com\/flizzywine\/dsh-tavern\.git)#(?:plugin-market-next|[0-9a-f]{40})$/i
+const archiveSource = /^https:\/\/(?:raw\.githubusercontent\.com\/flizzywine\/dsh-tavern\/|cdn\.jsdelivr\.net\/gh\/flizzywine\/dsh-tavern@)[0-9a-f]{40}\/dsh-tavern-bundle\.tgz$/
+
+async function latestTavernSources(signal) {
+  for (const root of downloadRoots) {
+    try {
+      const response = await fetch(root + 'plugin-next-downloads/next-download.json', {
+        cache: 'no-store', signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]),
+      })
+      if (!response.ok) continue
+      const { revision } = await response.json()
+      if (!/^[0-9a-f]{40}$/.test(revision)) continue
+      // Both downloads refer to the same build, even if the CDN index is stale.
+      return [root, ...downloadRoots.filter(other => other !== root)].map(base => base + revision + '/' + tarballName)
+    } catch {
+      signal.throwIfAborted()
+    }
+  }
+  throw new Error('GitHub 和 jsDelivr 都无法读取酒馆发布信息，请检查网络后重试。')
+}
 
 async function readJson(file) {
   return JSON.parse(await readFile(file, 'utf8'))
@@ -35,7 +58,7 @@ async function inspectProfile(dir) {
   const dependency = manifest?.dependencies?.[bundle]
   if (!Array.isArray(bundles) || !PROFILE_TEMPLATES.web.bundles.every(name => bundles.includes(name)) ||
       bundles.includes('dsh-tavern-plugin') || manifest?.dependencies?.['dsh-tavern-plugin'] ||
-      (dependency !== undefined && !gitSource.test(dependency))) return { state: 'conflict' }
+      (dependency !== undefined && !gitSource.test(dependency) && !archiveSource.test(dependency))) return { state: 'conflict' }
   if (dependency && bundles.includes(bundle)) {
     const installed = await missingAllowed(() => readJson(join(dir, 'node_modules', bundle, 'package.json')))
     if (installed?.name === bundle && installed.version) return { state: 'installed', version: installed.version }
@@ -53,6 +76,7 @@ export function apply(ctx) {
     try {
       const before = await inspectProfile(dir)
       if (action === 'update' ? before.state !== 'installed' : !['absent', 'ready'].includes(before.state)) return
+      const tavernSources = await latestTavernSources(signal)
       signal.throwIfAborted()
       if (before.state === 'absent') {
         // Exclusive creation prevents initProfile from touching a directory
@@ -61,13 +85,18 @@ export function apply(ctx) {
         initProfile(dir, PROFILE_TEMPLATES.web.bundles)
       }
 
-      const result = await runPluginCommand({
-        profile: 'tavern', dir, home: profile.home, installAnchor: profile.installAnchor, cwd: profile.dir,
-      }, ['add', tavernSource, '--allow-build=sharp'], {
-        ...profile.packageManager, execution: 'service', signal,
-        outputBytes: 8192, idleTimeoutMs: 120000, lockWaitMs: 120000,
-      })
-      if (result.exitCode !== 0) throw new Error(`DSH installation failed (exit code ${result.exitCode ?? 'unknown'})`)
+      let result
+      for (const source of tavernSources) {
+        signal.throwIfAborted()
+        result = await runPluginCommand({
+          profile: 'tavern', dir, home: profile.home, installAnchor: profile.installAnchor, cwd: profile.dir,
+        }, ['add', source, '--allow-build=sharp'], {
+          ...profile.packageManager, execution: 'service', signal,
+          outputBytes: 8192, idleTimeoutMs: 120000, lockWaitMs: 120000,
+        })
+        if (result.exitCode === 0) break
+      }
+      if (result.exitCode !== 0) throw new Error(`GitHub 和 jsDelivr 安装都失败了（DSH 退出码 ${result.exitCode ?? '未知'}）。`)
       const after = await inspectProfile(dir)
       if (after.state !== 'installed') throw new Error('DSH did not activate the Tavern bundle')
       outcome = action === 'install' ? 'installedNow' : before.version === after.version ? 'upToDate' : 'updated'

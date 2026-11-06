@@ -34,9 +34,33 @@ jobs:
         run: |
           set -euo pipefail
           branch=plugin-market-next
+          download_branch=plugin-next-downloads
           dist="$RUNNER_TEMP/next-plugin"
+          downloads="$RUNNER_TEMP/next-downloads"
           index="$RUNNER_TEMP/next-index.json"
           node bin/build-next-plugin.mjs build "$dist" "$PLUGIN_VERSION"
+          pnpm --dir "$dist" --config.node-linker=hoisted pack --pack-destination "$RUNNER_TEMP"
+          version=$(node -p 'require(process.argv[1]).version' "$dist/package.json")
+          git init -q "$downloads"
+          if git show-ref --verify --quiet "refs/remotes/origin/$download_branch"; then
+            git -C "$downloads" fetch --no-tags "$GITHUB_WORKSPACE" "refs/remotes/origin/$download_branch"
+            git -C "$downloads" reset --mixed FETCH_HEAD
+          fi
+          mv "$RUNNER_TEMP/dsh-tavern-bundle-$version.tgz" "$downloads/dsh-tavern-bundle.tgz"
+          git -C "$downloads" add dsh-tavern-bundle.tgz
+          launcher=tavern-plugin/packages/dsh-tavern-launcher
+          launcher_version=$(node -p 'require("./" + process.argv[1] + "/package.json").version' "$launcher")
+          launcher_archive="dsh-tavern-launcher-$launcher_version.tgz"
+          if ! git -C "$downloads" cat-file -e ":$launcher_archive"; then
+            pnpm --dir "$launcher" pack --pack-destination "$downloads"
+            git -C "$downloads" add "$launcher_archive"
+          fi
+          git -C "$downloads" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -qm "Pack Tavern $version"
+          download_commit=$(git -C "$downloads" rev-parse HEAD)
+          printf '{"version":"%s","revision":"%s"}\n' "$version" "$download_commit" > "$downloads/next-download.json"
+          git -C "$downloads" add next-download.json
+          git -C "$downloads" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -qm "List Tavern $version download"
+          download_head=$(git -C "$downloads" rev-parse HEAD)
           git -C "$dist" init -q
           git -C "$dist" config user.name 'github-actions[bot]'
           git -C "$dist" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -52,5 +76,6 @@ jobs:
           mv "$index" "$dist/index.json"
           git -C "$dist" add index.json
           git -C "$dist" commit -qm "List Tavern plugin $commit"
+          git fetch --no-tags "$downloads" HEAD
           git fetch --no-tags "$dist" HEAD
-          git push origin "FETCH_HEAD:refs/heads/$branch"
+          git push --atomic origin "FETCH_HEAD:refs/heads/$branch" "$download_head:refs/heads/$download_branch"

@@ -41,7 +41,7 @@
 只需装一次 [DSH Tavern 启动器](tavern-plugin/packages/dsh-tavern-launcher/README.md)。打开 NEXT 的「DSH 终端」，运行：
 
 ```powershell
-dsh plugin --profile desktop add "github:flizzywine/dsh-tavern#path:/tavern-plugin/packages/dsh-tavern-launcher"
+dsh plugin --profile desktop add https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-next-downloads/dsh-tavern-launcher-1.2.0.tgz
 ```
 
 回到 NEXT 的 `desktop` Profile，重启 NEXT，然后打开「设置 → 酒馆启动器」。
@@ -51,7 +51,7 @@ dsh plugin --profile desktop add "github:flizzywine/dsh-tavern#path:/tavern-plug
 - **更新**：切回原版 DSH，在启动器点「更新酒馆」，完成后重新打开酒馆。
 - **卸载**：回到启动器点「卸载酒馆」。NEXT 会将 `tavern` Profile 移到恢复备份，角色卡和聊天数据会保留。
 
-市场收录只需要提交本仓库的 `dsh-tavern-launcher` 子包；酒馆仍在独立的 Profile 中。收录后，可在 NEXT 日常 Profile 的「插件 → 发现」通过 dsh-market 安装启动器。市场支持从 GitHub 安装子包，无需发布 npm 包。
+这条命令由 NEXT 自带的插件管理器安装启动器，用户无需安装 Git 或 Node.js。市场收录只需要提交本仓库的 `dsh-tavern-launcher` 子包；酒馆仍在独立的 Profile 中。
 
 <details>
 <summary>其他 NEXT 插件安装方式和发布说明</summary>
@@ -68,7 +68,7 @@ dsh plugin --profile tavern add "github:flizzywine/dsh-tavern#plugin-market-next
 
 从下方的源码安装方式迁移时，先退出 `tavern`，移除旧 Profile 中的酒馆组件，再安装聚合插件。两套组件同时启用会重复挂载。人物卡和会话仍使用同一 DSH 数据目录下的 `profile-data/tavern`。
 
-维护者在 GitHub Actions 手动运行 **Publish DSH NEXT plugin**，为每次发布指定一个尚未使用的版本号。工作流将酒馆本体发布到 `plugin-market-next` 分支，市场索引保留每个版本对应的 Git 提交。启动器的收录按 [目录投稿规则](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/contributing.md) 单独提交。
+维护者在 GitHub Actions 手动运行 **Publish DSH NEXT plugin**，为每次发布指定一个尚未使用的版本号。工作流将 Git 安装源发布到 `plugin-market-next` 分支，将启动器和酒馆下载包发布到 `plugin-next-downloads` 分支。启动器和终端一键脚本共用下载清单，优先尝试 GitHub，失败时回退到 jsDelivr。启动器也可单独发布到 npm，市场收录按 [目录投稿规则](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/contributing.md) 提交。
 
 </details>
 
