@@ -1257,7 +1257,7 @@ try {
         throw '请先打开官方 DeepSeek Harness 完成初始设置，或切回原版 desktop，再退出并安装酒馆启动器。'
       }
       $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js'
-      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.4.tgz'
+      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.5.tgz'
       $PreviousNodeMode = $env:ELECTRON_RUN_AS_NODE
       try {
         $env:ELECTRON_RUN_AS_NODE = '1'
@@ -1775,11 +1775,11 @@ try {
     Invoke-InstallCommand 'dependencies.install' $PnpmCommand @('--dir', "$AppDir.staging", 'install', '--frozen-lockfile', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000')
 
     if ($env:DSH_TAVERN_PUBLISH_GATE) {
-      Write-InstallStatus '准备完成，正在关闭桌面以应用酒馆配置…'
+      Write-InstallStatus '准备完成，等待确认重启…'
       [IO.File]::WriteAllText(($env:DSH_TAVERN_PUBLISH_GATE + '.ready'), '')
-      $Deadline = [DateTime]::UtcNow.AddMinutes(4)
+      $Deadline = [DateTime]::UtcNow.AddMinutes(15)
       while (-not (Test-Path -LiteralPath $env:DSH_TAVERN_PUBLISH_GATE)) {
-        if ([DateTime]::UtcNow -ge $Deadline) { throw '等待桌面退出超时，尚未切换 Profile。' }
+        if ([DateTime]::UtcNow -ge $Deadline) { throw '等待重启确认或桌面退出超时，尚未切换 Profile。' }
         Start-Sleep -Milliseconds 500
       }
       if ([IO.File]::ReadAllText($env:DSH_TAVERN_PUBLISH_GATE) -ne 'publish') { throw '桌面未能退出，尚未切换 Profile。' }

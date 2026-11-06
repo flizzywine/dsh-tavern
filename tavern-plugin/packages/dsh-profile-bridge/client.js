@@ -46,6 +46,11 @@ window.__ModuleLoader__.load({
       replacesNext: '检测到旧版 NEXT 酒馆。安装会备份它的 Profile，并为官方版生成新的配置。酒馆专属数据将继续使用。',
       installHint: '酒馆会安装到独立的 tavern 配置。下载和准备期间可继续使用桌面，准备完成后会重启桌面以应用配置。',
       installing: '正在准备安装酒馆…',
+      restartReady: '酒馆文件已准备好。请保存工作，确认后将重启桌面并应用酒馆配置。',
+      restartToApply: '确认重启并应用',
+      copyLogs: '复制诊断日志',
+      logsCopied: '日志已复制',
+      copyLogsFailed: '复制失败，可以在「说明与日志」中选中日志并手动复制。',
       installDone: '酒馆安装完成。',
       explain: '切换配置会重启桌面应用，各配置保留自己的设置和会话。',
       current: '当前配置',
@@ -105,6 +110,11 @@ window.__ModuleLoader__.load({
       replacesNext: 'The installer will back up the existing NEXT Tavern profile, create a profile for official Desktop, and reuse Tavern data.',
       installHint: 'Tavern gets its own profile. You can use Desktop while files are downloaded and prepared. Desktop then restarts to apply the new profile.',
       installing: 'Preparing Tavern installation…',
+      restartReady: 'Tavern is ready to apply. Save your work before confirming the restart.',
+      restartToApply: 'Restart and apply',
+      copyLogs: 'Copy diagnostic log',
+      logsCopied: 'Log copied',
+      copyLogsFailed: 'Could not copy automatically. Select the log under Help and logs to copy it.',
       installDone: 'Tavern installation complete.',
       explain: 'Switching restarts Desktop. Each profile keeps its settings and sessions.',
       current: 'Current profile',
@@ -192,6 +202,32 @@ window.__ModuleLoader__.load({
       const actionInFlight = React.useRef(false)
       const [managementAction, setManagementAction] = React.useState(null)
       const [destination, setDestination] = React.useState('')
+      const [logCopy, setLogCopy] = React.useState('')
+      const diagnosticLog = [status?.logTail?.trim(), status?.transcriptTail?.trim()].filter(Boolean).join('\n\n')
+      async function copyLogs() {
+        try {
+          await window.navigator.clipboard.writeText(diagnosticLog)
+          setLogCopy('logsCopied')
+        } catch {
+          setLogCopy('copyLogsFailed')
+        }
+      }
+      async function confirmRestart() {
+        if (actionInFlight.current || !status?.installAwaitingRestart) return
+        actionInFlight.current = true
+        setBusy(true)
+        setFailure(null)
+        try {
+          const result = await call('confirm-install-restart', { stamp: status.lastResult.stamp })
+          if (result?.ok !== true) setFailure(describeFailure(result?.error))
+          else setStatus(previous => ({ ...previous, installAwaitingRestart: false }))
+        } catch (error) {
+          setFailure(describeFailure(error))
+        } finally {
+          actionInFlight.current = false
+          setBusy(false)
+        }
+      }
 
       React.useEffect(() => {
         let alive = true
@@ -340,6 +376,8 @@ window.__ModuleLoader__.load({
           h('div', null, lastFailure.message),
           lastFailure.recoveryRequired ? h('div', null, t('recoveryRequired')) : null,
           h('div', null, t('logLocation') + (lastFailure.logPath || status.logPath || '')),
+          diagnosticLog ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', onClick: copyLogs }, t('copyLogs')) : null,
+          logCopy ? h('div', { role: 'status' }, t(logCopy)) : null,
         ) : null,
         failure !== null ? h('p', { className: 'pb-error' }, `${t('failure')}: ${failure}`) : null,
         status?.lastResult?.status === 'succeeded' && status.lastResult.mode === 'install'
@@ -348,9 +386,10 @@ window.__ModuleLoader__.load({
           h('h3', null, t('management')),
           h('p', null, t('installHint')),
           status.replacesNext ? h('p', null, t('replacesNext')) : null,
-          pending ? h('p', { role: 'status' }, status.installProgress || t('installing')) : null,
+          pending ? h('p', { role: 'status' }, status.installAwaitingRestart ? t('restartReady') : status.installProgress || t('installing')) : null,
           h('div', { className: 'pb-actions' },
-            h('button', { type: 'button', className: 'pb-btn', disabled: installBlocked,
+            status.installAwaitingRestart ? h('button', { type: 'button', className: 'pb-btn', disabled: busy,
+              onClick: confirmRestart }, t('restartToApply')) : h('button', { type: 'button', className: 'pb-btn', disabled: installBlocked,
               onClick: () => void (managementAction === 'install' ? confirmManagement() : reviewManagement('install')) },
             t(managementAction === 'install' ? 'confirmInstall' : 'install')),
             managementAction === 'install' ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy,
@@ -395,13 +434,10 @@ window.__ModuleLoader__.load({
         h('details', { className: 'pb-fold' },
           h('summary', null, t('more')),
           h('p', null, t('why')),
-          // The structured log is empty when the helper never reached its first
-          // line (for example a PowerShell startup failure); the launcher
-          // transcript is where that shows up.
-          h('pre', { className: 'pb-pre' },
-            status?.logTail?.trim()
-              ? status.logTail
-              : status?.transcriptTail?.trim() ? status.transcriptTail : t('logEmpty')),
+          status?.transcriptPath ? h('p', { className: 'pb-sub' }, t('logLocation') + status.transcriptPath) : null,
+          diagnosticLog ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', onClick: copyLogs }, t('copyLogs')) : null,
+          logCopy ? h('p', { role: 'status' }, t(logCopy)) : null,
+          h('pre', { className: 'pb-pre' }, diagnosticLog || t('logEmpty')),
         ),
       )
     }

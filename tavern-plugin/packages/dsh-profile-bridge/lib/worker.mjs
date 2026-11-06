@@ -14,6 +14,8 @@ async function installTavern(request, { log, beforePublish }) {
   const name = windows ? 'install.ps1' : 'install.sh'
   const script = join(request.stateDir, 'install-pending', 'runtime', name)
   const gate = join(dirname(script), 'publish')
+  const transcriptPath = join(request.stateDir, 'last-run.log.out')
+  writeFileSync(transcriptPath, '')
   writeFileSync(gate + '.progress', '正在下载安装脚本…')
   const repository = 'flizzywine/dsh-tavern'
   const sources = [
@@ -42,15 +44,16 @@ async function installTavern(request, { log, beforePublish }) {
   for (const key of ['ELECTRON_RUN_AS_NODE', 'DSH_PROFILE', 'DSH_PROFILE_DIR']) delete env[key]
   const command = windows ? 'powershell.exe' : '/bin/bash'
   const args = windows ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script] : [script]
-  const transcript = openSync(join(request.stateDir, 'last-run.log.out'), 'w', 0o600)
+  const transcript = openSync(transcriptPath, 'w', 0o600)
   let timer
   let publishError
   try {
     await new Promise((resolve, reject) => {
       const child = spawn(command, args, { env, stdio: ['ignore', transcript, transcript], windowsHide: true })
       timer = setInterval(() => {
-        if (!existsSync(gate + '.ready')) return
+        if (!existsSync(gate + '.ready') || !existsSync(gate + '.approved')) return
         clearInterval(timer)
+        writeFileSync(gate + '.progress', '已确认重启，正在退出官方桌面…')
         void beforePublish().then(() => {
           writeFileSync(gate, 'publish')
         }).catch(error => {

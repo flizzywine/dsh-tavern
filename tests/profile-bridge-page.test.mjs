@@ -116,6 +116,20 @@ test('原版桌面首次安装需要确认，排队后禁用安装按钮', async
   }
 })
 
+test('准备完成后等待用户确认，只重启对应的安装任务', async () => {
+  const page = await mount({
+    appKind: 'desktop', desktopApp: true, installAvailable: true,
+    installAwaitingRestart: true, lastResult: { status: 'pending', mode: 'install', stamp: 'prepared' },
+  })
+  try {
+    assert.deepEqual(page.calls, [['status', {}]])
+    await page.act(async () => namedButton(page, '确认重启并应用').click())
+    assert.deepEqual(page.calls.at(-1), ['confirm-install-restart', { stamp: 'prepared' }])
+  } finally {
+    await page.dispose()
+  }
+})
+
 test('原版、酒馆和阅读器都能切到其余已安装配置', async () => {
   const readerProfile = { name: 'reader', bundles: ['dsh-reader', 'dsh-profile-bridge'], hasNodeModules: true }
   const original = '重启并切换到原版 DSH'

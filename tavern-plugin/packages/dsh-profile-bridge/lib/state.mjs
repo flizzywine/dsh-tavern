@@ -193,6 +193,8 @@ export function statusPayload(paths) {
   const linkTarget = readLinkTarget(paths.activeDir)
   const profiles = listProfiles(paths)
   const appExe = detectAppExe()
+  const lastResult = readLastResult(paths.stateDir)
+  const gate = join(paths.stateDir, 'install-pending', 'runtime', 'publish')
   return {
     installation: inspectInstallation(paths),
     installAvailable: canInstallTavern(paths),
@@ -212,8 +214,10 @@ export function statusPayload(paths) {
     desktopApp: Boolean(process.versions.electron && typeof process.send === 'function' && process.ppid > 1),
     profiles,
     backups: listBackups(paths),
-    lastResult: readLastResult(paths.stateDir),
-    installProgress: readLogTail(join(paths.stateDir, 'install-pending', 'runtime', 'publish.progress'), 400),
+    lastResult,
+    installAwaitingRestart: lastResult?.mode === 'install' && lastResult.status === 'pending'
+      && existsSync(gate + '.ready') && !existsSync(gate + '.approved'),
+    installProgress: readLogTail(gate + '.progress', 400),
     logPath: join(paths.stateDir, 'last-run.log'),
     logTail: readLogTail(join(paths.stateDir, 'last-run.log')),
     transcriptPath: join(paths.stateDir, 'last-run.log.out'),

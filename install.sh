@@ -1449,11 +1449,11 @@ if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" = "cli" ] && [
   run_install dependencies.install 600000 pnpm --dir "${APP_DIR}.staging" install --frozen-lockfile --config.minimum-release-age=0
 
   if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ]; then
-    printf '%s' '准备完成，正在关闭桌面以应用酒馆配置…' >"${DSH_TAVERN_PUBLISH_GATE}.progress"
+    printf '%s' '准备完成，等待确认重启…' >"${DSH_TAVERN_PUBLISH_GATE}.progress"
     : >"${DSH_TAVERN_PUBLISH_GATE}.ready"
-    deadline=$(( $(date +%s) + 240 ))
+    deadline=$(( $(date +%s) + 900 ))
     while [ ! -f "${DSH_TAVERN_PUBLISH_GATE}" ]; do
-      [ "$(date +%s)" -lt "$deadline" ] || fail "等待桌面退出超时，尚未切换 Profile。"
+      [ "$(date +%s)" -lt "$deadline" ] || fail "等待重启确认或桌面退出超时，尚未切换 Profile。"
       sleep 1
     done
     [ "$(cat "${DSH_TAVERN_PUBLISH_GATE}")" = publish ] || fail "桌面未能退出，尚未切换 Profile。"
