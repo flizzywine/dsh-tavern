@@ -612,6 +612,13 @@ function stripUsualSuffix(value) {
   return String(value ?? '').trim().replace(/\s*[（(]\s*(?:这套是)?常穿\s*[)）]\s*$/, '')
 }
 
+/** Planner temperature: 0 is a valid choice (`|| 1` used to turn it into 1); blank, non-numeric or out-of-range input falls back to 1. */
+export function plannerTemperatureOf(value) {
+  if (value === '' || value === null || value === undefined || typeof value === 'boolean') return 1
+  const n = Number(value)
+  return Number.isFinite(n) && n >= 0 && n <= 2 ? n : 1
+}
+
 /** 同一角色的不同形态：名字互为前缀（如「阿梅」与「阿梅（狐形）」）。 */
 function sameCharacterFamily(a, b) {
   const x = String(a?.name ?? ''), y = String(b?.name ?? '')
@@ -2622,7 +2629,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         const T = diag.text
         diag.record(traceId, 'planner-input', { body: T(body), card: card?.name ?? null, historySnapshotTurn: historySnapshot?.turn ?? null, config: { promptMode: config.promptMode, traitMode: config.traitMode, negativeMode: config.negativeMode, injectWeight: config.injectWeight, weightMode: config.weightMode, imageBackend: config.imageBackend, defaultWorkflow: config.defaultWorkflow, imageSize: config.imageSize, sizes: config.sizes, activePromptPreset: config.activePromptPreset, artistPosition: config.artistPosition } })
         diag.record(traceId, 'planner-context', { diagnostics: plannerContext.diagnostics, scopedCharacterIds: scoped.characters.map(c => String(c.id ?? '')), roster: T(roster), rosterIndex: T(plannerContext.rosterIndex) })
-        diag.record(traceId, 'planner-request', { layer: 'llm.stream arguments (not provider HTTP body)', provider, model, reasoningEffort: plannerEffort ?? null, temperature: Number(config.plannerTemperature) || 1, maxTokens: 12000, system: T(system), user: T(plannerInput) })
+        diag.record(traceId, 'planner-request', { layer: 'llm.stream arguments (not provider HTTP body)', provider, model, reasoningEffort: plannerEffort ?? null, temperature: plannerTemperatureOf(config.plannerTemperature), maxTokens: 12000, system: T(system), user: T(plannerInput) })
       }
 
       const task = beginTask('规划', imageGeneration ? '正文配图 · 最多 ' + want + ' 张' : '角色视觉历史更新')
@@ -2753,7 +2760,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           reasoningEffort: plannerEffort,
           system,
           text: plannerInput,
-          temperature: Number(config.plannerTemperature) || 1,
+          temperature: plannerTemperatureOf(config.plannerTemperature),
           signal: task.controller.signal,
           onDelta: delta => {
             streamed += delta
@@ -4093,7 +4100,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         if (typeof patch.activeArtistSet === 'string') config.activeArtistSet = patch.activeArtistSet.slice(0, 60)
         if (Array.isArray(patch.styleArtists)) config.styleArtists = String(patch.styleArtists[0] ?? '')
         if (patch.plannerCount !== undefined) config.plannerCount = Math.max(1, Math.min(8, Number(patch.plannerCount) || 3))
-        if (patch.plannerTemperature !== undefined) config.plannerTemperature = Number(patch.plannerTemperature) || 1
+        if (patch.plannerTemperature !== undefined) config.plannerTemperature = plannerTemperatureOf(patch.plannerTemperature)
         if (Array.isArray(patch.plannerEntries)) config.plannerEntries = patch.plannerEntries.map(Number)
         // 画风预设（数组，要单独处理 —— 上面的 string/boolean 白名单收不了）
         if (Array.isArray(patch.stylePresets)) {
