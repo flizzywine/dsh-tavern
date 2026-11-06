@@ -130,15 +130,14 @@ test('准备完成后等待用户确认，只重启对应的安装任务', async
   }
 })
 
-test('原版、酒馆和阅读器都能切到其余已安装配置', async () => {
+test('酒馆启动器只提供切换到原版和酒馆的入口', async () => {
   const readerProfile = { name: 'reader', bundles: ['dsh-reader', 'dsh-profile-bridge'], hasNodeModules: true }
   const original = '重启并切换到原版 DSH'
   const tavern = '重启并切换到 DSH 酒馆'
-  const reader = '重启并切换到 DSH 阅读器'
   for (const [current, label, available, action, request] of [
-    ['desktop', '原版 DSH', [tavern, reader], reader, ['link', { target: 'reader' }]],
+    ['desktop', '原版 DSH', [tavern], tavern, ['link', { target: 'tavern' }]],
     ['reader', 'DSH 阅读器', [original, tavern], tavern, ['link', { target: 'tavern' }]],
-    ['tavern', 'DSH 酒馆', [original, reader], original, ['unlink', {}]],
+    ['tavern', 'DSH 酒馆', [original], original, ['unlink', {}]],
   ]) {
     const linked = current !== 'desktop'
     const page = await mount({

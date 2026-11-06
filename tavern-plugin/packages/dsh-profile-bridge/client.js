@@ -59,7 +59,6 @@ window.__ModuleLoader__.load({
       profileReader: 'DSH 阅读器',
       toOriginal: '重启并切换到原版 DSH',
       toTavern: '重启并切换到 DSH 酒馆',
-      toReader: '重启并切换到 DSH 阅读器',
       noTavern: '还没有装好 DSH 酒馆，装好后这里就能切过去。',
       noOriginal: '找不到原版 DSH 的备份，暂时切不回去。请看下面的「说明与日志」。',
       standalone: '这是 DSH 酒馆的独立窗口，原版 DSH 就是 DeepSeek Harness 本身，不用切换、不用重启。',
@@ -123,7 +122,6 @@ window.__ModuleLoader__.load({
       profileReader: 'DSH Reader',
       toOriginal: 'Restart and switch to original DSH',
       toTavern: 'Restart and switch to DSH Tavern',
-      toReader: 'Restart and switch to DSH Reader',
       noTavern: 'DSH Tavern is not installed yet; once it is, you can switch from here.',
       noOriginal: 'The original DSH backup is missing, so switching back is not possible right now. See "Details and log" below.',
       standalone: 'This is the standalone DSH Tavern window. The original DSH is DeepSeek Harness itself; no switch or restart needed.',
@@ -271,9 +269,8 @@ window.__ModuleLoader__.load({
       const destinations = [
         { name: 'desktop', label: 'profileDesktop', action: 'toOriginal', ready: (status?.backups ?? []).length > 0 },
         { name: 'tavern', label: 'profileTavern', action: 'toTavern', ready: ready('tavern') },
-        { name: 'reader', label: 'profileReader', action: 'toReader', ready: ready('reader') },
       ]
-      const currentLabel = destinations.find(({ name }) => name === current)?.label
+      const currentLabel = current === 'reader' ? 'profileReader' : destinations.find(({ name }) => name === current)?.label
       const options = destinations.filter(({ name, ready }) => name !== current && ready)
       const blocked = options.length === 0 && !status?.installAvailable ? t(current === 'desktop' ? 'noTavern' : 'noOriginal') : null
 
