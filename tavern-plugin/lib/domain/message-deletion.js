@@ -3,7 +3,7 @@ import { createSessionSurfaceMutator } from './session-surface-mutations.js'
 import { sessionEvents } from './session-events.js'
 import { inputKind } from './session-turn-input.js'
 import { upgradeReferences, upgradedAnchor } from './session-upgrade-references.js'
-import { ensureMessageUid } from './message-uid.js'
+import { ensureMessageUid, legacyMessageUid } from './message-uid.js'
 
 function str(value) { return typeof value === 'string' ? value : value == null ? '' : String(value) }
 function integer(value, minimum = 0) {
@@ -56,7 +56,9 @@ export function normalizeMessageDeletionSelectors(items) {
       const messageIndex = integer(item.messageIndex)
       const revision = integer(item.revision)
       if (messageIndex === null || revision === null) throw new Error('消息删除选择器无效')
-      const direct = { role: item.role, messageIndex, revision }
+      const messageUid = item.messageUid === undefined || item.messageUid === null ? '' : str(item.messageUid)
+      if (item.messageUid !== undefined && item.messageUid !== null && messageUid === '') throw new Error('消息删除选择器无效')
+      const direct = { role: item.role, messageIndex, revision, ...(messageUid ? { messageUid } : {}) }
       unique.set(JSON.stringify(direct), direct)
       continue
     }
@@ -188,11 +190,23 @@ function userRows(chat, selector, events, original) {
   return candidates[0]
 }
 
-// A story row is identified by its absolute Chat index and the rendered
-// revision. Nothing native decides which row this is.
+// A story row keeps its rendered identity across unrelated header/settlement
+// writes. Persisted UIDs can follow a row whose absolute index moved; legacy
+// UIDs also cover the rendered row content, so a changed occupant cannot be
+// deleted accidentally. Old clients without a UID retain the strict revision
+// guard. Nothing native decides which story row this is.
 function storyRow(chat, selector) {
-  if (chatRevision(chat) !== selector.revision) throw new Error('剧情已变化，请刷新后重试')
   const messages = Array.isArray(chat.messages) ? chat.messages : []
+  if (selector.messageUid) {
+    const candidates = []
+    for (let index = 0; index < messages.length; index++) {
+      const row = messages[index]
+      if (legacyMessageUid(row, index) === selector.messageUid) candidates.push({ row, index })
+    }
+    if (candidates.length !== 1 || candidates[0].row?.role !== selector.role) throw new Error('要删除的消息已经变化，请重新选择')
+    return candidates[0]
+  }
+  if (chatRevision(chat) !== selector.revision) throw new Error('剧情已变化，请刷新后重试')
   const row = messages[selector.messageIndex]
   if (!row || typeof row !== 'object' || row.role !== selector.role) throw new Error('剧情已变化，请刷新后重试')
   return { row, index: selector.messageIndex }

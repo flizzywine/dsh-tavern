@@ -27,7 +27,7 @@ import { sessionEvents } from './session-events.js'
 // Read inputs for the status/body/Helper projection, not director or playback archives.
 // Keep authored Helper plugin data and variables intact; scripts consume those verbatim.
 export const sessionViewMessageFields = Object.freeze([
-  'id', 'role', 'turn', 'greeting', 'name', 'tavernRole', 'tavernHidden',
+  'id', 'messageUid', 'role', 'turn', 'greeting', 'name', 'tavernRole', 'tavernHidden',
   'sourceText', 'projectionText', 'text', 'displayText', 'displayMode', 'projectionVersion', 'projectionWarnings',
   // Sidebar origin uses frame receipts, not the external DOM/console capture.
   'displayRuntime.frames',

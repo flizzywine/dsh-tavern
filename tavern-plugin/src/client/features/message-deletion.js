@@ -6,12 +6,15 @@
 			// 保留第一个参数兼容旧调用；正文删除身份不与原生 turn 绑定。
 			return { role: "assistant", storyTurn: Number(storyTurn), seq: Number(finalNode.seq), messageId: String(finalNode.messageId) };
 		}
-		function tavernMessageDeletionStorySelector(role, messageIndex, revision) {
-			return { role: role, messageIndex: Number(messageIndex), revision: Number(revision) };
+		function tavernMessageDeletionStorySelector(role, messageIndex, revision, messageUid) {
+			return { role: role, messageIndex: Number(messageIndex), revision: Number(revision),
+				...(typeof messageUid === "string" && messageUid ? { messageUid: messageUid } : {}) };
 		}
 		function tavernMessageDeletionSelectorKey(selector) {
 			if (!selector) return "";
-			if (selector.messageIndex !== undefined) return JSON.stringify([selector.role, "index", selector.messageIndex, selector.revision]);
+			if (selector.messageIndex !== undefined) return JSON.stringify(selector.messageUid
+				? [selector.role, "uid", selector.messageUid]
+				: [selector.role, "index", selector.messageIndex, selector.revision]);
 			return JSON.stringify(selector.role === "assistant"
 				? [selector.role, selector.storyTurn, selector.seq, selector.messageId]
 				: [selector.role, selector.turn, selector.seq]);
@@ -20,7 +23,8 @@
 			if (!selector) return false;
 			if (selector.messageIndex !== undefined) return ["user", "assistant"].includes(selector.role)
 				&& Number.isSafeInteger(selector.messageIndex) && selector.messageIndex >= 0
-				&& Number.isSafeInteger(selector.revision) && selector.revision >= 0;
+				&& Number.isSafeInteger(selector.revision) && selector.revision >= 0
+				&& (selector.messageUid === undefined || (typeof selector.messageUid === "string" && selector.messageUid !== ""));
 			if (!Number.isFinite(selector.seq)) return false;
 			if (selector.role === "user") return Number.isFinite(selector.turn);
 			return selector.role === "assistant" && Number.isFinite(selector.storyTurn) && typeof selector.messageId === "string" && selector.messageId !== "" && selector.messageId !== "undefined";
@@ -78,7 +82,8 @@
 					} else {
 						keys.add(key);
 						items.push(selector.messageIndex !== undefined
-							? { role: selector.role, messageIndex: Number(selector.messageIndex), revision: Number(selector.revision) }
+							? { role: selector.role, messageIndex: Number(selector.messageIndex), revision: Number(selector.revision),
+								...(selector.messageUid ? { messageUid: selector.messageUid } : {}) }
 							: selector.role === "user"
 								? { role: "user", turn: Number(selector.turn), seq: Number(selector.seq) }
 								: { role: "assistant", storyTurn: Number(selector.storyTurn), seq: Number(selector.seq), messageId: String(selector.messageId) });
@@ -97,7 +102,13 @@
 						publish(sessionId, idle());
 						return result;
 					} catch (error) {
-						publish(sessionId, { active: true, deleting: false, error: String(error && error.message || error), items: items, keys: keys });
+						const message = String(error && error.message || error);
+						// A legacy position-derived UID can become stale when earlier rows
+						// move. Never leave a hidden dock selection that no checkbox represents.
+						const stale = /要删除的(?:消息|正文|输入)已经变化|剧情已变化|模型上下文已变化|正文标识已变化/.test(message);
+						publish(sessionId, { active: true, deleting: false,
+							error: stale ? message + " 已清空失效选择，请重新勾选。" : message,
+							items: stale ? [] : items, keys: stale ? new Set() : keys });
 						return null;
 					}
 				}

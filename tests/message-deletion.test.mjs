@@ -16,6 +16,7 @@ import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createConversationPageStore } from '../tavern-plugin/lib/domain/conversation-page-store.js'
 import { createConversationState } from '../tavern-plugin/lib/domain/conversation-state.js'
+import { legacyMessageUid } from '../tavern-plugin/lib/domain/message-uid.js'
 
 const model = { kind: 'model', provider: 'fixture', model: 'fixture' }
 function fixture() {
@@ -485,6 +486,27 @@ test('故事直选无 nativeAnchor 且会话不支持预演时仍只删 Chat 并
   } finally {
     Object.defineProperty(h.agent.session, 'constructor', { value: originalConstructor, configurable: true })
   }
+})
+
+test('故事直选带 messageUid 时，无关后台 revision 写入不让选中行过期', async () => {
+  const h = fixture(), revision = h.chat._storageRevision
+  const messageUid = legacyMessageUid(h.chat.messages[3], 3)
+  h.chat.candidates = { messageId: 'background-candidate', choices: [] }
+  h.chat._storageRevision += 1
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision, messageUid }] })
+  assert.equal(result.deletedCount, 1)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '输入3', '输入4', '正文4'])
+})
+
+test('持久 messageUid 在前置行变化后仍定位原正文，不误删原索引上的新消息', async () => {
+  const h = fixture(), revision = h.chat._storageRevision
+  h.chat.messages[3].messageUid = 'stable-reply-3'
+  h.chat.messages.unshift({ role: 'user', text: '后来插入的输入' })
+  h.chat._storageRevision += 1
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision, messageUid: 'stable-reply-3' }] })
+  assert.equal(result.deletedCount, 1)
+  assert.equal(h.chat.messages.some(row => row.text === '正文3'), false)
+  assert.equal(h.chat.messages.some(row => row.text === '输入4'), true)
 })
 
 test('故事直选 revision 陈旧时报剧情已变化且不提交', async () => {

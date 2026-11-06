@@ -172,6 +172,33 @@ test('assistant 的 deferred、distant 和隐藏行 early return 位于复选框
   assert.ok(assistantSource.includes('messageDeletionFeature.assistantSelector(turn, storyTurn, data)'))
 })
 
+test('故事 messageUid 选择键不随后台 revision 刷新改变', () => {
+  const context = contextWith()
+  const feature = context.createTavernMessageDeletionFeatureModule()
+  const before = feature.storySelector('assistant', 3, 12, 'reply-uid')
+  const after = feature.storySelector('assistant', 3, 13, 'reply-uid')
+  feature.store.enter('s')
+  feature.store.toggle('s', before)
+  assert.equal(feature.store.getSnapshot('s').items.length, 1)
+  feature.store.toggle('s', after)
+  assert.equal(feature.store.getSnapshot('s').items.length, 0, '同一行刷新后仍应共用一个选择键')
+})
+
+test('派生 UID 位移后删除冲突会清空失效 dock 选择，普通失败仍保留', async () => {
+  const context = contextWith()
+  const feature = context.createTavernMessageDeletionFeatureModule({
+    rpc: async () => { throw Error('要删除的消息已经变化，请重新选择') }
+  })
+  feature.store.enter('s')
+  feature.store.toggle('s', feature.storySelector('assistant', 3, 12, 'legacy-before-move'))
+  assert.equal(await feature.store.remove('s'), null)
+  const stale = feature.store.getSnapshot('s')
+  assert.equal(stale.active, true)
+  assert.equal(stale.items.length, 0)
+  assert.equal(stale.keys.size, 0)
+  assert.match(stale.error, /已清空失效选择，请重新勾选/)
+})
+
 test('故事 selector 经 Checkbox 精确提交，且与旧 selector 各用独立键', async t => {
   const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
   const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
