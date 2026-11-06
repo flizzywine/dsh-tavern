@@ -38375,9 +38375,7 @@ function TavernCardUpdateDialog(props) {
 					h("button", { className: "dsh-tavern-card-pick", disabled: busy, onClick: function () { newCardConversation(null); } }, h("b", null, "空白开始"), h("span", null, "不追加任务提示词，自由使用完整卡片 Agent"))
 				)
 			);
-			const updateMessage = updateStatus.pluginManaged
-				? ""
-				: updateStatus.phase === "checking"
+			const updateMessage = updateStatus.phase === "checking"
 				? "正在向 GitHub 核实最新构建…"
 				: updateStatus.phase === "up-to-date"
 					? "✓ 未发现更新构建" + (updateStatus.checkWarning ? " · " + updateStatus.checkWarning : "")
@@ -38406,15 +38404,13 @@ function TavernCardUpdateDialog(props) {
 						: "尚未检查更新";
 			const currentVersionLabel = updateStatus.currentVersion && updateStatus.currentVersion !== "unknown" ? "v" + updateStatus.currentVersion : "版本未知";
 			const currentCommitLabel = (updateStatus.currentCommit || "").slice(0, 7) || "构建未知";
-			const updateHostLabel = updateStatus.pluginManaged ? "NEXT 插件版" : ({ desktop: "Desktop 版", next: "Next 版", android: "Android 版" }[updateStatus.host] || "命令行版");
+			const updateHostLabel = { desktop: "Desktop 版", next: "Next 版", android: "Android 版" }[updateStatus.host] || "命令行版";
 			// 已是最新且无警告时，结果直接写在按钮上，不再单占一行（手机侧栏高度紧张）。
 			const upToDateQuiet = updateStatus.phase === "up-to-date" && !updateStatus.checkWarning;
 			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? true;
 			const awaitingDesktopRestart = updateStatus.phase === "completed" && updateStatus.host === "desktop" && updateStatus.requiresRestart;
 			const cancelSupported = ["running", "cancelling"].includes(updateStatus.phase) && updateStatus.cancellable === true;
-			const updateActions = updateStatus.pluginManaged
-				? null
-				: updateStatus.phase === "update-available" || updateStatus.phase === "repair-required"
+			const updateActions = updateStatus.phase === "update-available" || updateStatus.phase === "repair-required"
 				? h("div", { className: "dsh-tavern-update-actions" },
 					h("button", { className: "dsh-tavern-update-button", onClick: checkUpdate }, "检查更新"),
 					h("button", { className: "dsh-tavern-update-button primary", onClick: performUpdate }, updateStatus.phase === "repair-required" ? "修复安装" : "进行更新"))
@@ -38441,9 +38437,9 @@ function TavernCardUpdateDialog(props) {
 				deleteNotice ? h("div", { role: "status", style: { padding: "4px 12px" } }, deleteNotice) : null,
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				collapsed ? null : props.renderSlot("tavern.sidebar.chrome", {}),
-				h("div", { className: "dsh-tavern-update" },
+				updateStatus.pluginManaged || updateStatus.phase === "loading" ? null : h("div", { className: "dsh-tavern-update" },
 					h("div", { className: "dsh-tavern-update-row" },
-						h("div", { className: "dsh-tavern-update-identity", title: "DSH Tavern " + currentVersionLabel + " · " + updateHostLabel }, "DSH Tavern " + currentVersionLabel + (updateStatus.pluginManaged ? " · " + updateHostLabel : " · DSH 0.2.1 · " + currentCommitLabel)),
+						h("div", { className: "dsh-tavern-update-identity", title: "DSH Tavern " + currentVersionLabel + " · " + updateHostLabel }, "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel),
 						updateActions),
                     h(TavernHostCompatibility),
 					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status" }, updateMessage)

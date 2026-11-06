@@ -26,6 +26,7 @@ const components = [
 
 async function build(destination, version) {
   if (!versionPattern.test(version)) throw new Error('Expected a SemVer version')
+  const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
   // A new directory prevents stale files or local data from entering a release.
   await mkdir(destination)
   const copy = async (from, to) => {
@@ -94,7 +95,7 @@ async function build(destination, version) {
     engines: { ...project.engines, dsh: dshRange },
     dependencies, bundledDependencies: components.map(([component]) => component),
     dsh: { bundle: { patch: patches } },
-    dshTavern: { distribution: 'plugin' },
+    dshTavern: { distribution: 'plugin', sourceCommit },
   })
 }
 
