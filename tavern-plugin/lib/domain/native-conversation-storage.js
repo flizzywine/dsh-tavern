@@ -9,6 +9,7 @@ import {createConversationPageStore} from './conversation-page-store.js'
 import {createConversationState} from './conversation-state.js'
 import {createIncrementalJsonState,createDecodedJsonCache} from './incremental-json-state.js'
 import {diffJson,applyJsonChangesShared} from './json-mutation.js'
+import {validMessageUid,legacyMessageUid,ensureMessageUid} from './message-uid.js'
 
 const pointer=parts=>parts.length?'/'+parts.map(part=>String(part).replace(/~/g,'~0').replace(/\//g,'~1')).join('/'):''
 const failure=(code,message)=>Object.assign(new Error(message),{code})
@@ -177,6 +178,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   chat.messages=await mapRead(page.messages,row=>paths===undefined
    ? t.get(row.message.runtimeRef) : t.getFields(row.message.runtimeRef,paths),true)
   return {chat,messageCount:view.messageCount,from,to:end-1,revision:view.state.chatRevision,worldMessage:view.state.worldMessage??null,
+   worldMessageUid:view.state.worldMessageUid??null,worldSwipe:view.state.worldSwipe,
    ...(messageFields===undefined?{}:{messageFields:[...messageFields]})}
  }
  // A pinned read of one save for callers that read it in their own shape (the stage's turn views): the header's
@@ -504,9 +506,9 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   for(let position=(chat.messages?.length??0)-1;position>=0;position--){
    const row=chat.messages[position],swipe=Math.max(0,Number(row.swipeId)||0)
    const variables=row.variables?.[swipe]
-   if(variables&&typeof variables==='object'&&!Array.isArray(variables))return {position,swipe,world:{variables,...(chat.posture!==undefined?{posture:chat.posture}:{})}}
+   if(variables&&typeof variables==='object'&&!Array.isArray(variables))return {position,swipe,messageUid:legacyMessageUid(row,position),world:{variables,...(chat.posture!==undefined?{posture:chat.posture}:{})}}
   }
-  return {position:null,swipe:0,world:{variables:{},...(chat.posture!==undefined?{posture:chat.posture}:{})}}
+  return {position:null,swipe:0,messageUid:null,world:{variables:{},...(chat.posture!==undefined?{posture:chat.posture}:{})}}
  }
  async function encode(id,row,previous,changes,t=tree(id)){
   const runtimeRef=previous?await mutate(t,previous.runtimeRef,changes,row):await t.create(jsonValue(row))
@@ -554,6 +556,9 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const view=await head(id)
   if(!view)return null
   if(view.state.chatRevision!==revision)return undefined
+  // A pre-UID head needs the full source row once. Later point patches can keep
+  // their bounded read because the stable source id is already in the head.
+  if(view.state.worldMessage!==null&&!validMessageUid(view.state.worldMessageUid))return null
   // Task metadata changes do not touch story rows, world state or indexes.
   // Apply them directly to the header tree instead of materializing the card.
   if (Array.isArray(returnProjection) && changes.length && changes.every(change =>
@@ -611,14 +616,14 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   }
   if(nextHeader.id!==id||nextHeader._storageRevision!==revision+(changes.length?1:0))throw Error('Invalid journal patch revision')
   if(!changes.length){assertCurrent?.();return result({...nextHeader,messages:[]},view)}
-  const old={position:view.state.worldMessage,swipe:view.state.worldSwipe,world:await t.get(view.state.worldRef)}
+  const old={position:view.state.worldMessage,swipe:view.state.worldSwipe,messageUid:view.state.worldMessageUid??null,world:await t.get(view.state.worldRef)}
   let selected={...old,world:{variables:old.world.variables,...(nextHeader.posture!==undefined?{posture:nextHeader.posture}:{})}}
   // A changed newer floor may introduce a new active variable snapshot.
   const candidates=[...rows].filter(([position])=>old.position===null||position>=old.position).sort(([a],[b])=>b-a)
   for(const [position,row] of candidates){
    const swipe=Math.max(0,Number(row.swipeId)||0),variables=row.variables?.[swipe]
    if(variables&&typeof variables==='object'&&!Array.isArray(variables)){
-    selected={position,swipe,world:{variables,...(nextHeader.posture!==undefined?{posture:nextHeader.posture}:{})}}
+    selected={position,swipe,messageUid:legacyMessageUid(row,position),world:{variables,...(nextHeader.posture!==undefined?{posture:nextHeader.posture}:{})}}
     break
    }
    if(position===old.position)return null // needs an earlier world lookup
@@ -629,16 +634,17 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  }
  async function create(id,chat,assertCurrent,{migration,verifyBeforePublish}={}){
   const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:(values,refs)=>pages.writeRecords(id,values,refs)})
-  const t=batch.tree,rows=[]
+  const t=batch.tree,rows=[],selected=currentWorld(chat)
+  if(selected.position!==null&&!migration)ensureMessageUid(chat.messages[selected.position],selected.position,selected.messageUid)
   for(const row of chat.messages??[])rows.push(await encode(id,row,undefined,undefined,t))
   const encoded=new Map(rows.map((row,i)=>[i,row]))
   const sceneIndexRef=await updateSceneIndex(id,null,encoded,rows.length,0,t,new Map((chat.messages??[]).map((row,i)=>[i,row])))
   for(const [index,row] of encoded)rows[index]=row
-  const chatHeaderRef=await t.create(jsonValue(header(chat))),selected=currentWorld(chat)
+  const chatHeaderRef=await t.create(jsonValue(header(chat)))
   assertCurrent?.()
   await batch.flush([sceneIndexRef,chatHeaderRef,...rows.map(row=>row.runtimeRef)])
   // The initial head is published atomically, including runtime references.
-  await domain.create(id,{world:selected.world,messages:rows,metadata:{runtimeLayout:1,...(migration?{legacyInitialRevision:chat._storageRevision}: {})},runtimeState:{displayIndexRevision:chat._storageRevision,sceneIndexRevision:chat._storageRevision,sceneIndexRef,chatHeaderRef,chatRevision:chat._storageRevision,worldMessage: selected.position,worldSwipe:selected.swipe}},{assertCurrent,verifyBeforePublish:verifyBeforePublish?async snapshotId=>verifyBeforePublish((await read(id,Infinity,snapshotId)).chat):undefined})
+  await domain.create(id,{world:selected.world,messages:rows,metadata:{runtimeLayout:1,...(migration?{legacyInitialRevision:chat._storageRevision}: {})},runtimeState:{displayIndexRevision:chat._storageRevision,sceneIndexRevision:chat._storageRevision,sceneIndexRef,chatHeaderRef,chatRevision:chat._storageRevision,worldMessage:selected.position,worldMessageUid:selected.messageUid,worldSwipe:selected.swipe}},{assertCurrent,verifyBeforePublish:verifyBeforePublish?async snapshotId=>verifyBeforePublish((await read(id,Infinity,snapshotId)).chat):undefined})
   return result(chat,await head(id))
  }
  async function write(id,stored,next,changes,assertCurrent,worldSelection){
@@ -655,6 +661,19 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   }
   from=Math.min(from,next.messages.length<view.messageCount?next.messages.length:Infinity)
   const retained=Math.min(from,view.messageCount),edits=[],append=[]
+  const selected={...(worldSelection?.selected??currentWorld(next))}
+  const old=worldSelection?.old??{...currentWorld(stored.chat),messageUid:view.state.worldMessageUid??null}
+  if(selected.position!==null){
+   const sourceRow=next.messages[selected.position]
+   if(sourceRow){
+    const source=ensureMessageUid(sourceRow,selected.position,old.position===selected.position?old.messageUid:selected.messageUid)
+    selected.messageUid=source.messageUid
+    if(source.created&&selected.position<retained){
+     if(!grouped.has(selected.position))grouped.set(selected.position,[])
+     grouped.get(selected.position).push({op:'set',path:['messageUid'],value:source.messageUid})
+    }
+   }else if(!validMessageUid(selected.messageUid))throw Error('Missing world message uid')
+  }else selected.messageUid??=null
   for(const [position,mutations] of grouped){
    if(position>=retained)continue
    const previous=(await pages.readHistoryPage(id,{cursor:{snapshotId:view.snapshotCursor.snapshotId,before:position+1},limit:1})).messages[0].message
@@ -678,7 +697,6 @@ export function createNativeConversationStorage({dataRoot,onIO}){
     if(position<retained)edits.push({position,message});else append.push(message)
    }
   }
-  const selected=worldSelection?.selected??currentWorld(next),old=worldSelection?.old??currentWorld(stored.chat)
   // Reuse the exact received leaf changes on the common settlement hot path.
   // Switching swipes/rollback selects another world and explicitly diffs it.
   let worldChanges
@@ -696,7 +714,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const worldRef=await mutate(t,view.state.worldRef,worldChanges,selected.world)
   const chatHeaderRef=await mutate(t,view.state.chatHeaderRef,headChanges,header(next))
   const state={...view.state,displayIndexRevision:displayIndexCurrent?next._storageRevision:view.state.displayIndexRevision,sceneIndexRevision:next._storageRevision,sceneIndexRef,chatHeaderRef,chatRevision:next._storageRevision,worldRef,
-   worldMessage:selected.position,worldSwipe:selected.swipe,
+   worldMessage:selected.position,worldMessageUid:selected.messageUid,worldSwipe:selected.swipe,
    storyRevision:view.state.storyRevision+(append.length||changedMessageIndices.length||retained<view.messageCount?1:0),
    worldRevision:view.state.worldRevision+(worldRef!==view.state.worldRef?1:0)}
   assertCurrent?.()

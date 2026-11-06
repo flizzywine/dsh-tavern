@@ -101,12 +101,15 @@ async function runServiceFixture() {
   const turnsOf = values => values.map(value => value.turn).sort((left, right) => left - right)
   const transcriptRows = async sessionId => (await host.rpc('getStoryTranscript', { sessionId })).storyTranscript.messages
     .map(item => [item.message.role, item.message.text, item.message.turn])
-  const forkOf = async sessionId => readGameSave(Buffer.from((await host.rpc('exportGameSave', { sessionId })).base64, 'base64')).chat.forkedFrom
+  const chatOf = async sessionId => readGameSave(Buffer.from((await host.rpc('exportGameSave', { sessionId })).base64, 'base64')).chat
+  const forkOf = async sessionId => (await chatOf(sessionId)).forkedFrom
   const blankSession = id => { sessions.set(id, { header: { id }, events: [] }); return id }
 
   try {
     // ---- 故事消息分叉：空白目标 Session + 精确前缀 + revision 校验 ----
-    const rows = [row('assistant', '开场', 1), row('user', '走进客栈'), row('assistant', '她抬起头', 2), row('user', '坐下'), row('assistant', '茶来了', 3)]
+    const rows = [row('assistant', '开场', 1), row('user', '走进客栈'),
+      { ...row('assistant', '她抬起头', 2), messageUid: 'fork-world-source', variables: [{ stat_data: { gold: 10 }, schema: {} }] },
+      row('user', '坐下'), row('assistant', '茶来了', 3)]
     const source = await importGame({
       id: 'source-a', sessionId: 'session-a', messages: rows,
       rounds: [{ user: '走进客栈', assistant: '她抬起头' }, { user: '坐下', assistant: '茶来了' }],
@@ -129,6 +132,9 @@ async function runServiceFixture() {
     assert.equal(forked.fork.messageCount, 3)
     const sourceRows = await transcriptRows(source.sessionId)
     assert.deepEqual(await transcriptRows(target), sourceRows.slice(0, 3), '分叉 Chat 是源 Chat 的精确消息前缀')
+    const targetChat = await chatOf(target)
+    assert.equal(targetChat.messages[2].messageUid, 'fork-world-source', '分叉保留世界来源行的永久 UID')
+    assert.equal(targetChat.messages[2].variables[0].stat_data.gold, 10)
     const forkedFrom = await forkOf(target)
     assert.equal(forkedFrom.chatId, source.chatId)
     assert.equal(forkedFrom.sessionId, source.sessionId)

@@ -104,6 +104,11 @@ test('fresh native gameplay writes pages, recovers variables and preserves histo
  const head=await domain.open('a')
  assert.equal(head.metadata.format,'conversation-state-v2')
  assert.equal(head.state.world.variables.stat_data.gold,10)
+ assert.equal(head.state.worldMessage,2)
+ assert.equal(head.state.worldMessageUid,saved.messages[2].messageUid)
+ assert.equal(head.state.worldSwipe,0)
+ assert.ok(saved.messages[2].messageUid)
+ assert.equal((await store.readWindow('a',{limit:1})).worldMessageUid,saved.messages[2].messageUid)
  assert.equal(head.messageCount,3)
  assert.ok(head.messages.every(r=>r.message.runtimeRef&&!Object.hasOwn(r.message,'variables')))
  assert.deepEqual((await readdir(join(root,'chats/a'))).sort(),['blocks','head.json'])
@@ -120,6 +125,43 @@ test('fresh native gameplay writes pages, recovers variables and preserves histo
  await assert.rejects(persistence.patch('a',saved._storageRevision+1,[{op:'set',path:['posture'],value:'lost'}],{assertCurrent(){if(++checks===2)throw Error('cancelled')}}),/cancelled/)
  assert.equal(checks,2,'guard must be checked again immediately before head publication')
  assert.equal((await pages.openConversation('a')).revision,before.revision)
+})
+
+test('world source keeps its permanent message uid across swipe and body writes',async t=>{
+ const {persistence,domain}=await fixture(t)
+ const chat=await persistence.write({id:'source',messages:[{...row(1),messageUid:'message-A',swipes:['a','b'],swipeId:0,variables:[{gold:1},{gold:2}]}]})
+ await persistence.patch(chat.id,chat._storageRevision,[{op:'set',path:['messages',0,'swipeId'],value:1}])
+ let head=await domain.open(chat.id)
+ assert.equal(head.state.worldMessageUid,'message-A')
+ assert.equal(head.state.worldSwipe,1)
+ assert.equal(head.state.world.variables.gold,2)
+ await persistence.patch(chat.id,chat._storageRevision+1,[{op:'set',path:['messages',0,'text'],value:'edited'}])
+ head=await domain.open(chat.id)
+ assert.equal(head.state.worldMessageUid,'message-A')
+ assert.equal(head.state.worldSwipe,1)
+})
+
+test('legacy heads and restored rows heal the world source uid on their next story write',async t=>{
+ const {root,persistence,pages,domain}=await fixture(t)
+ const chat=await persistence.write({id:'legacy-source',messages:[{...row(7),messageUid:'legacy-stable-uid'}]})
+ const view=await pages.openConversation(chat.id),legacyState={...view.state}
+ delete legacyState.worldMessageUid
+ await pages.commit(chat.id,{expectedRevision:view.revision,state:legacyState,edits:[],append:[],truncateTo:view.messageCount})
+ const cold=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
+ await cold.patch(chat.id,chat._storageRevision,[{op:'set',path:['posture'],value:'after'}],{returnProjection:['id']})
+ assert.equal((await domain.open(chat.id)).state.worldMessageUid,'legacy-stable-uid')
+ const nullView=await pages.openConversation(chat.id)
+ await pages.commit(chat.id,{expectedRevision:nullView.revision,state:{...nullView.state,worldMessageUid:null},edits:[],append:[],truncateTo:nullView.messageCount})
+ const coldNull=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
+ await coldNull.patch(chat.id,chat._storageRevision+1,[{op:'set',path:['posture'],value:'null-healed'}])
+ assert.equal((await domain.open(chat.id)).state.worldMessageUid,'legacy-stable-uid')
+ const restored=await coldNull.read(chat.id)
+ delete restored.messages[0].messageUid
+ const healed=await coldNull.write(restored)
+ assert.ok(healed.messages[0].messageUid)
+ assert.equal(healed.messages[0].messageUid,'legacy-stable-uid','同一世界来源恢复缺 UID 行时沿用原身份')
+ assert.equal((await domain.open(chat.id)).state.worldMessageUid,healed.messages[0].messageUid)
+ assert.equal((await domain.readWorld(chat.id)).variables.stat_data.gold,7)
 })
 
 test('scalar variable writes do not read unrelated large values and corrupt heads never fall back',async t=>{
@@ -207,7 +249,7 @@ test('a cold native point patch reads only its target and keeps current world an
 
 test('cold native patches match warm JSON semantics and reject invalid or cancelled writes',async t=>{
  const {root,persistence}=await fixture(t)
- const initial={messages:[{...row(1),swipes:['a','b'],swipeId:0,variables:[{gold:1},{gold:2}],tavernPluginData:{old:true}},{role:'user',text:'next'}],variables:{chat:true},tavernHelperScriptVariables:{a:{value:1}}}
+ const initial={messages:[{...row(1),messageUid:'stable-world-source',swipes:['a','b'],swipeId:0,variables:[{gold:1},{gold:2}],tavernPluginData:{old:true}},{role:'user',text:'next',messageUid:'later-world-source'}],variables:{chat:true},tavernHelperScriptVariables:{a:{value:1}}}
  await persistence.write({id:'warm',...structuredClone(initial)})
  await persistence.write({id:'cold',...structuredClone(initial)})
  const cold=createChatPersistence({store:createChatJournalStore({dataRoot:root,cacheMaxBytes:1})})

@@ -239,14 +239,21 @@ test('重载与重复同步复用 tombstone，不重复追加事件', async () =
   assert.deepEqual(restored.surface.nodes, h.session.surface.nodes)
 })
 
-test('真实 native journal 重开后保留物理 splice、messageUid 与完成审计', async t => {
+test('迁移后立即删除并重开仍保留物理 splice、来源 messageUid 与完成审计', async t => {
   const root = await mkdtemp(join(tmpdir(), 'message-delete-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const h = fixture()
-  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
   h.chat.messages[5].variables = [{ stat_data: { gold: 44 }, schema: {} }]
   h.chat.posture = '保留姿态'
-  await persistence.write({ ...h.chat, _storageRevision: 0 })
+  const legacy = createChatJournalStore({ dataRoot: root })
+  await legacy.update('chat', () => structuredClone(h.chat))
+  await legacy.upgradeStorage('chat')
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root }) })
+  const initial = await persistence.read('chat')
+  assert.equal(initial.messages[5].messageUid, undefined, '迁移保持旧 Chat 行原样')
+  const domain = createConversationState({ store: createConversationPageStore({ root: join(root, 'chats') }) })
+  const sourceUid = (await domain.open('chat')).state.worldMessageUid
+  assert.ok(sourceUid)
   h.options.chats = { forSession: async () => persistence.read('chat'), update: persistence.update }
   const result = await h.create().remove({ sessionId: h.session.id, items: [h.selectors.u2, h.selectors.a4] })
   assert.equal(result.deletedCount, 2)
@@ -258,9 +265,33 @@ test('真实 native journal 重开后保留物理 splice、messageUid 与完成�
   assert.equal(saved.messageDeletion.deletedCount, 2)
   assert.equal(saved.tavernHelperLifecycleRevision, 8)
   assert.equal(saved.nativeSync, undefined)
-  const domain = createConversationState({ store: createConversationPageStore({ root: join(root, 'chats') }) })
   assert.deepEqual(await domain.readWorld('chat'), { variables: { stat_data: { gold: 44 }, schema: {} }, posture: '保留姿态' },
     '删除最新变量所在 AI 及其同步状态写都不能回滚当前 world')
+  const head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, null)
+  assert.equal(head.state.worldMessageUid, sourceUid, '来源行删除后仍保留永久 UID')
+  assert.equal(head.state.worldSwipe, 0)
+})
+
+test('真实 native 删除前置行后世界 UID 随来源行迁移', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'message-delete-source-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const h = fixture()
+  h.chat.messages[3].variables = [{ stat_data: { gold: 33 }, schema: {} }]
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  const initial = await persistence.write({ ...h.chat, _storageRevision: 0 })
+  const sourceUid = initial.messages[3].messageUid
+  h.options.chats = { forSession: async () => persistence.read('chat'), update: persistence.update }
+  await h.create().remove({ sessionId: h.session.id, items: [h.selectors.u2] })
+  const saved = await persistence.read('chat')
+  assert.equal(saved.messages[2].text, '正文3')
+  assert.equal(saved.messages[2].messageUid, sourceUid)
+  const domain = createConversationState({ store: createConversationPageStore({ root: join(root, 'chats') }) })
+  const head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, 2)
+  assert.equal(head.state.worldMessageUid, sourceUid)
+  assert.equal(head.state.worldSwipe, 0)
+  assert.equal(head.state.world.variables.stat_data.gold, 33)
 })
 
 test('删除前面输入后，后续重新生成和原生对账不会擦掉前面 AI 正文', async () => {

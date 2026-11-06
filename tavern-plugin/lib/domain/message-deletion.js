@@ -3,6 +3,7 @@ import { createSessionSurfaceMutator } from './session-surface-mutations.js'
 import { sessionEvents } from './session-events.js'
 import { inputKind } from './session-turn-input.js'
 import { upgradeReferences, upgradedAnchor } from './session-upgrade-references.js'
+import { ensureMessageUid } from './message-uid.js'
 
 function str(value) { return typeof value === 'string' ? value : value == null ? '' : String(value) }
 function integer(value, minimum = 0) {
@@ -27,16 +28,16 @@ function activeWorldOf(chat) {
     const row = chat.messages[position], swipe = Math.max(0, Number(row?.swipeId) || 0)
     const variables = row?.variables?.[swipe]
     if (variables && typeof variables === 'object' && !Array.isArray(variables)) {
-      return { position, swipe, world: structuredClone({ variables, ...(chat.posture !== undefined ? { posture: chat.posture } : {}) }) }
+      return { position, swipe, messageUid: str(row.messageUid) || null, world: structuredClone({ variables, ...(chat.posture !== undefined ? { posture: chat.posture } : {}) }) }
     }
   }
-  return { position: null, swipe: 0, world: { variables: {}, ...(chat.posture !== undefined ? { posture: chat.posture } : {}) } }
+  return { position: null, swipe: 0, messageUid: null, world: { variables: {}, ...(chat.posture !== undefined ? { posture: chat.posture } : {}) } }
 }
 function worldAfterRemoval(world, removed) {
   if (world.position === null) return structuredClone(world)
   const position = removed.has(world.position) ? null
     : world.position - [...removed].filter(index => index < world.position).length
-  return { position, swipe: world.swipe, world: structuredClone(world.world) }
+  return { position, swipe: world.swipe, messageUid: world.messageUid ?? null, world: structuredClone(world.world) }
 }
 
 // Story rows are already absolute Chat rows: a direct selector names one by
@@ -381,7 +382,7 @@ export function createMessageDeletion({ chats, sessions, activity, view, session
         if (current.sessionId !== sessionId) throw new Error('会话已切换，请刷新后重试')
         // Backfill stable ids for old and new rows in the same CAS transaction;
         // deleted ids remain in the audit, survivors keep theirs across splices.
-        for (const row of current.messages || []) if (row && typeof row === 'object' && !str(row.messageUid)) row.messageUid = randomUUID()
+        for (const [index, row] of (current.messages || []).entries()) ensureMessageUid(row, index)
         const latest = planMessageDeletion(current, nativeSession, selectors, operationId)
         if (latest.operationSignature !== prepared.operationSignature) throw new Error('模型上下文已变化，请重新读取消息')
         const removed = new Set(latest.selected.map(item => item.index))
