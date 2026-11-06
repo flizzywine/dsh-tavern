@@ -109,14 +109,22 @@ export function apply(ctx) {
 
   async function handle(endpoint) {
     if (!desktop || desktop.dir !== profile.dir) return { state: 'unsupported' }
-    if (profile.name === 'tavern') return { state: 'current' }
+    if (profile.name === 'tavern') {
+      const desktopDir = join(profile.home, 'profiles', 'desktop')
+      const desktopManifest = await missingAllowed(() => readJson(join(desktopDir, 'package.json')))
+      const launcher = await missingAllowed(() => readJson(join(desktopDir, 'node_modules', 'dsh-tavern-launcher', 'package.json')))
+      const tavern = await missingAllowed(() => readJson(join(profile.dir, 'node_modules', bundle, 'package.json')))
+      const selection = await missingAllowed(() => readJson(join(profile.home, 'desktop-next.json')))
+      return { state: 'current', version: tavern?.version, selectedProfile: selection?.active, canHandoff: launcher?.dshTavern?.profileHandoff === true &&
+        desktopManifest?.dsh?.profile?.bundles?.includes('dsh-tavern-launcher') === true }
+    }
     if (!profile.packageManager) return { state: 'unsupported' }
     const dir = join(await realpath(join(profile.home, 'profiles')), 'tavern')
     if (!relative(await realpath(profile.dir), dir)) return { state: 'current' }
     if (active) return { state: active.action === 'update' ? 'updating' : 'installing' }
     if (endpoint === 'status') {
       const status = await inspectProfile(dir)
-      return { ...status, error: lastError, outcome: status.state === 'installed' ? outcome : undefined }
+      return { ...status, profile: profile.name, error: lastError, outcome: status.state === 'installed' ? outcome : undefined }
     }
 
     lastError = undefined
