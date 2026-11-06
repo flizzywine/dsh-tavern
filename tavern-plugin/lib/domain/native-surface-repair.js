@@ -240,7 +240,10 @@ export function recordNativeSurfaceRepair(current, repaired, anchors) {
   if (current.nativeSync) { delete current.nativeSync; changed = true }
   for (const { messageIndex, anchor, replyTurn } of anchors) {
     const row = current.messages?.[messageIndex], read = repaired.messages?.[messageIndex]
-    if (row?.role !== 'assistant' || row.text !== read?.text || Number(row.turn) !== Number(read?.turn)) continue
+    // Missing legacy turns are equal to themselves; NaN !== NaN must not make an
+    // unchanged row keep an anchor into the source Session after a story fork.
+    const sameTurn = Object.is(row?.turn, read?.turn) || Number(row?.turn) === Number(read?.turn)
+    if (row?.role !== 'assistant' || row.text !== read?.text || !sameTurn) continue
     // A reply whose input was deleted has no valid pair anchor. Clear the stale
     // anchor instead of leaving it to resolve against an older reply (often the
     // opening) on every subsequent reconciliation.

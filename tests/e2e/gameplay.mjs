@@ -23,6 +23,7 @@ import {openingUpdateChecks} from './opening-update.mjs'
 import { backgroundLifecycleChecks } from './background-lifecycle.mjs'
 import { cardMemoryChecks } from './card-memory.mjs'
 import {displayRegressionRules, displayRegressionChecks} from './display-regression.mjs'
+import { storyWriteOperationChecks } from './story-write-ops.mjs'
 import { surfaceRecoveryChecks } from './surface-recovery.mjs'
 import { stringify as stringifyYaml } from 'yaml'
 import { applySidebarDefaults } from '../../bin/launcher-settings.mjs'
@@ -54,6 +55,7 @@ const recoveryScenario = process.argv.includes('--surface-recovery')
 const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
+const storyWriteScenario = process.argv.includes('--story-write-ops')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
 const stageDirectorFault=process.argv.includes('--stage-director-fault')
 const stageAudioFault = process.argv.includes('--stage-audio-fault')
@@ -94,9 +96,10 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 async function step(name, action) {
   const start = Date.now()
   report.currentStep = name
-  await action()
+  const result = await action()
   report.steps.push({ name, ms: Date.now() - start })
   console.log('✓ ' + name)
+  return result
 }
 async function savedChat() {
   const ids = await readdir(join(data, 'chats'))
@@ -623,6 +626,13 @@ try {
     report.beforeReload = inspectSaved(await savedChat())
     await page.screenshot({ path: join(output, 'before-reload.png'), fullPage: true })
   })
+  if (storyWriteScenario) {
+    await storyWriteOperationChecks({ page, assert, join, output, step, pause, report, waitForVisibleStoryText, data, createChatJournalStore })
+    assert.deepEqual(errors, [], '故事写操作验收不得出现未捕获浏览器异常')
+    report.status = 'passed'
+    delete report.currentStep
+    break scenario
+  }
   if (stagePluginScenario) {
     await step(stageIsolation ? '舞台不可用时普通聊天仍可生成、保存和刷新' : '真实舞台进入、退出，再回到普通聊天', async () => {
       async function retryDirector() {
@@ -1317,7 +1327,7 @@ try {
     if(captured?.profile)await writeFile(join(output,'browser.cpuprofile'),JSON.stringify(captured.profile))
   }
   // Read-only evidence, independent of the status iframe and its UI assertions.
-  const chat = process.argv.includes('--settlement-performance') ? null : await savedChat().catch(error => { report.savedStateError = String(error.message || error); return null })
+  const chat = process.argv.includes('--settlement-performance') || storyWriteScenario ? null : await savedChat().catch(error => { report.savedStateError = String(error.message || error); return null })
   if (chat) await writeFile(join(output, 'saved-state.json'), JSON.stringify({ id: chat.id, posture: chat.posture, contextCompaction: chat.contextCompaction, timeline: chat.timeline,
     messages: chat.messages.map(message => ({ role: message.role, text: message.sourceText ?? message.text, turn: message.turn, variables: message.variables, mvu: message.mvu, ...(displayScenario ? {tavernPluginData:message.tavernPluginData} : {}) })) }, null, 2))
   await context?.tracing.stop({ path: join(output, 'trace.zip') }).catch(() => {})

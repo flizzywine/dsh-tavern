@@ -6,14 +6,22 @@
 			// 保留第一个参数兼容旧调用；正文删除身份不与原生 turn 绑定。
 			return { role: "assistant", storyTurn: Number(storyTurn), seq: Number(finalNode.seq), messageId: String(finalNode.messageId) };
 		}
+		function tavernMessageDeletionStorySelector(role, messageIndex, revision) {
+			return { role: role, messageIndex: Number(messageIndex), revision: Number(revision) };
+		}
 		function tavernMessageDeletionSelectorKey(selector) {
 			if (!selector) return "";
+			if (selector.messageIndex !== undefined) return JSON.stringify([selector.role, "index", selector.messageIndex, selector.revision]);
 			return JSON.stringify(selector.role === "assistant"
 				? [selector.role, selector.storyTurn, selector.seq, selector.messageId]
 				: [selector.role, selector.turn, selector.seq]);
 		}
 		function tavernMessageDeletionSelectorValid(selector) {
-			if (!selector || !Number.isFinite(selector.seq)) return false;
+			if (!selector) return false;
+			if (selector.messageIndex !== undefined) return ["user", "assistant"].includes(selector.role)
+				&& Number.isSafeInteger(selector.messageIndex) && selector.messageIndex >= 0
+				&& Number.isSafeInteger(selector.revision) && selector.revision >= 0;
+			if (!Number.isFinite(selector.seq)) return false;
 			if (selector.role === "user") return Number.isFinite(selector.turn);
 			return selector.role === "assistant" && Number.isFinite(selector.storyTurn) && typeof selector.messageId === "string" && selector.messageId !== "" && selector.messageId !== "undefined";
 		}
@@ -69,9 +77,11 @@
 						if (at >= 0) items.splice(at, 1);
 					} else {
 						keys.add(key);
-						items.push(selector.role === "user"
-							? { role: "user", turn: Number(selector.turn), seq: Number(selector.seq) }
-							: { role: "assistant", storyTurn: Number(selector.storyTurn), seq: Number(selector.seq), messageId: String(selector.messageId) });
+						items.push(selector.messageIndex !== undefined
+							? { role: selector.role, messageIndex: Number(selector.messageIndex), revision: Number(selector.revision) }
+							: selector.role === "user"
+								? { role: "user", turn: Number(selector.turn), seq: Number(selector.seq) }
+								: { role: "assistant", storyTurn: Number(selector.storyTurn), seq: Number(selector.seq), messageId: String(selector.messageId) });
 					}
 					publish(sessionId, selectedState(state, { items: items, keys: keys, error: "" }));
 				},
@@ -101,6 +111,7 @@
 					liveTavernView.setView(sessionId, view);
 					notifyTavernDataChanged(["sessions"], "message-deletion");
 					tavernCoordination.invalidate(sessionId);
+				if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: sessionId } }));
 				}
 			});
 			const confirm = deps.confirm || askTavernConfirm;
@@ -183,6 +194,6 @@
 				}, "dsh-tavern: delete message dock");
 			}
 			return Object.freeze({ store: store, register: register, useSelection: useSelection, Checkbox: TavernMessageDeletionCheckbox, Dock: TavernMessageDeletionDock,
-				userSelector: tavernMessageDeletionUserSelector, assistantSelector: tavernMessageDeletionAssistantSelector });
+				userSelector: tavernMessageDeletionUserSelector, assistantSelector: tavernMessageDeletionAssistantSelector, storySelector: tavernMessageDeletionStorySelector });
 		}
 		const messageDeletionFeature = createTavernMessageDeletionFeatureModule();

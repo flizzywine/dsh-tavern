@@ -204,10 +204,14 @@ export function createSceneWorldbooks({ store, keepTurns = SCENE_WORLDBOOK_KEEP_
       if (refs.length) await release(new Set(refs.map(item => item.digest)))
     })
   }
-  // A fork keeps reading its parent's snapshots for the turns it copied.
+  // A fork keeps reading its parent's snapshots for the turns it copied. Story
+  // forks supply the exact prefix set, so missing/reordered turns cannot widen
+  // the copy into later messages. Numeric input retains the legacy upper bound.
   async function copyRefs(sourceChatId, targetChatId, upToTurn) {
     return serial(async () => {
-      const refs = ((await store.readJson(refsPath(sourceChatId)).catch(() => null))?.refs || []).filter(item => Number(item.turn) <= upToTurn)
+      const exact = upToTurn instanceof Set ? upToTurn : null
+      const refs = ((await store.readJson(refsPath(sourceChatId)).catch(() => null))?.refs || [])
+        .filter(item => exact ? exact.has(Number(item.turn)) : Number(item.turn) <= upToTurn)
       if (refs.length) await store.writeJson(refsPath(targetChatId), { version: 1, refs })
     })
   }

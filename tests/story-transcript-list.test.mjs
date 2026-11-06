@@ -10,9 +10,10 @@ import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transc
 
 const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8')
 const listSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-list.js', import.meta.url), 'utf8')
+const deletionSource = await readFile(new URL('../tavern-plugin/src/client/features/message-deletion.js', import.meta.url), 'utf8')
 
 // 一个页面 DOM + 两个 @include 片段共用同一个 factory 作用域（data 先、list 后）。
-function createPage(t) {
+function createPage(t, extra) {
 	const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
 	const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
 	Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
@@ -22,15 +23,19 @@ function createPage(t) {
 		Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act })
 		dom.window.close()
 	})
-	const context = vm.createContext({
+	const context = vm.createContext(Object.assign({
 		React, console,
-		window: dom.window, document: dom.window.document,
+		window: dom.window, document: dom.window.document, CustomEvent: dom.window.CustomEvent,
 		// 宿主 Markdown 原语的替身：记录文本，证明正文走 Markdown 而不是纯文本 <pre>。
 		DshUi: { MarkdownText: function (props) { return React.createElement('span', { className: 'md-text' }, 'MD[' + props.text + ']') } },
 		tavernProjectionForTurn: (view, turn) => (view && Array.isArray(view.replyProjections) ? view.replyProjections : []).findLast(item => Number(item.turn) === Number(turn)) || null,
 		tavernLatestProjectionTurn: view => (view && Array.isArray(view.replyProjections) ? view.replyProjections : []).reduce((latest, item) => Math.max(latest, Number(item.turn) || 0), 0)
-	})
+	}, extra || {}))
 	vm.runInContext(dataSource, context)
+	if (extra && extra.enableStoryDeletion) {
+		vm.runInContext(deletionSource, context)
+		vm.runInContext('globalThis.__storyMessageDeletion = messageDeletionFeature', context)
+	}
 	vm.runInContext(listSource, context)
 	return { dom, context, roots }
 }
@@ -254,4 +259,171 @@ test('store 挡掉晚到的旧响应，hook 驱动 view 渲染', async t => {
 	assert.equal(dom.window.document.querySelectorAll('[data-story-row]').length, MESSAGES.length)
 	assert.equal(dom.window.document.querySelector('[data-story-transcript]').getAttribute('data-revision'), '7')
 	assert.equal(deferred.length, 2, '同一会话 + historyFrom 不重复读取')
+})
+
+const flush = () => new Promise(resolve => setImmediate(resolve))
+
+test('后台结算推进 live revision 后自动重读故事操作选择器', async t => {
+	let liveRevision = 7
+	const page = createPage(t, { useTavernSessionMode: () => 'story',
+		useLiveTavernView: () => ({ view: { mode: 'story', tavernHelper: { stateRevision: liveRevision } } }) })
+	const { dom, context } = page
+	let revision = 7
+	const reads = []
+	const data = context.createTavernStoryTranscriptDataModule()
+	const store = data.createStoryTranscriptStore({ load: async () => {
+		reads.push(revision)
+		return { transcript: story(MESSAGES, revision), view: { mode: 'story' }, revision }
+	} })
+	const feature = context.createTavernStoryTranscriptFeature()
+	const props = current => ({
+		sessionId: 's-live', store, view: { mode: 'story', tavernHelper: { stateRevision: current } },
+		useChat: selector => selector({ legacy: {} }), useSession: selector => selector({ running: false })
+	})
+	const root = await mount(page, React.createElement(feature.StoryTranscriptFlow, props(7)))
+	const initialReads = reads.length
+	assert.deepEqual(reads, [7], '首次加载不为空的 live revision 不应多发一次请求')
+	revision = 8
+	liveRevision = 8
+	await act(async () => root.render(React.createElement(feature.StoryTranscriptFlow, props(7))))
+	assert.equal(reads.length, initialReads + 1, 'live revision 前进只触发一次新的故事读取')
+	assert.equal(reads.at(-1), 8)
+	assert.equal(dom.window.document.querySelector('[data-story-row]').getAttribute('data-revision'), '8')
+})
+
+test('故事行编辑按 Chat 索引调用 getBodyEdit 并派发已有编辑面板事件', async t => {
+	const calls = [], details = []
+	const page = createPage(t, {
+		rpc: (...args) => { calls.push(args); return Promise.resolve({ edit: { parts: [{ kind: 'text', text: '改后的正文' }, { kind: 'image' }] } }) }
+	})
+	const { dom, context } = page
+	dom.window.addEventListener('dsh-tavern-open-body-edit', event => details.push(event.detail))
+	const transcript = story(MESSAGES)
+	const feature = context.createTavernStoryTranscriptFeature()
+	await mount(page, React.createElement(feature.StoryTranscriptList, { transcript, sessionId: 's1' }))
+	const rows = [...dom.window.document.querySelectorAll('[data-story-row]')]
+
+	await act(async () => { rows[1].querySelector('button[aria-label="编辑这条输入"]').click() })
+	await flush()
+	assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ['getBodyEdit', { role: 'user', messageIndex: 1, revision: 7 }, 's1'])
+	assert.equal(details[0].sessionId, 's1')
+	assert.deepEqual(details[0].texts, ['改后的正文'])
+	assert.equal(details[0].edit.parts.length, 2, '编辑面板事件原样携带 edit')
+
+	await act(async () => { rows[0].querySelector('button[aria-label="编辑正文"]').click() })
+	await flush()
+	assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), ['getBodyEdit', { role: 'assistant', messageIndex: 0, revision: 7 }, 's1'])
+})
+
+test('点击编辑遇到后台 revision 前进时重读并自动打开当前行', async t => {
+	const calls = [], details = []
+	const page = createPage(t, { rpc: async (method, args, sessionId) => {
+		calls.push([method, args, sessionId])
+		if (method === 'getBodyEdit' && args.revision === 7) throw new Error('正文或会话已变化，请重新打开编辑')
+		if (method === 'getStoryTranscript') return { storyTranscript: story(MESSAGES, 8), revision: 8 }
+		return { edit: { role: 'assistant', messageIndex: 2, revision: 8, parts: [{ kind: 'text', text: '当前正文' }] } }
+	} })
+	const { dom, context } = page
+	dom.window.addEventListener('dsh-tavern-open-body-edit', event => details.push(event.detail))
+	const feature = context.createTavernStoryTranscriptFeature()
+	await mount(page, React.createElement(feature.StoryTranscriptList, { transcript: story(MESSAGES, 7), sessionId: 's-retry' }))
+	const row = dom.window.document.querySelectorAll('[data-story-row][data-role="assistant"]')[1]
+	await act(async () => { row.querySelector('button[aria-label="编辑正文"]').click() })
+	await flush()
+	assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+		['getBodyEdit', { role: 'assistant', messageIndex: 2, revision: 7 }, 's-retry'],
+		['getStoryTranscript', { sessionId: 's-retry' }, 's-retry'],
+		['getBodyEdit', { role: 'assistant', messageIndex: 2, revision: 8 }, 's-retry']
+	])
+	assert.equal(details.length, 1)
+	assert.equal(details[0].edit.revision, 8)
+	assert.deepEqual(details[0].texts, ['当前正文'])
+})
+
+test('assistant 分叉请求带 messageIndex+revision，user 行没有分叉', async t => {
+	const forked = []
+	const page = createPage(t, { tavernConversationForkRequests: { request: async payload => { forked.push(payload) } } })
+	const { dom, context } = page
+	const transcript = story(MESSAGES)
+	const feature = context.createTavernStoryTranscriptFeature()
+	await mount(page, React.createElement(feature.StoryTranscriptList, { transcript, sessionId: 's2' }))
+	const rows = [...dom.window.document.querySelectorAll('[data-story-row]')]
+	assert.equal(rows[1].querySelector('button[aria-label="从这一轮分叉"]'), null)
+	await act(async () => { rows[2].querySelector('button[aria-label="从这一轮分叉"]').click() })
+	await flush()
+	assert.deepEqual(JSON.parse(JSON.stringify(forked)), [{ sessionId: 's2', messageIndex: 2, revision: 7 }])
+})
+
+test('流式占位行不渲染编辑、分叉或删除操作', async t => {
+	const page = createPage(t, {
+		enableStoryDeletion: true,
+		rpc: async () => ({ edit: { parts: [] } }),
+		askTavernConfirm: async () => true,
+		liveTavernView: { setView() {} },
+		notifyTavernDataChanged() {},
+		tavernCoordination: { invalidate() {} },
+		tavernConversationForkRequests: { request: async () => {} }
+	})
+	const { dom, context } = page
+	context.__storyMessageDeletion.store.enter('s3')
+	const transcript = story([{ role: 'assistant', turn: 1, text: '已完成' }, { role: 'assistant', turn: 2, text: '', placeholder: true }], 3)
+	const feature = context.createTavernStoryTranscriptFeature()
+	await mount(page, React.createElement(feature.StoryTranscriptList, { transcript, sessionId: 's3' }))
+	const rows = [...dom.window.document.querySelectorAll('[data-story-row]')]
+	assert.ok(rows[0].querySelector('.dsh-tavern-story-row-actions'), '已提交行有操作区')
+	assert.equal(rows[0].querySelectorAll('input[type="checkbox"]').length, 1, '已提交行有删除复选框')
+	assert.equal(rows[1].querySelector('.dsh-tavern-story-row-actions'), null)
+	assert.equal(rows[1].querySelector('.dsh-tavern-story-row-action'), null)
+	assert.equal(rows[1].querySelector('.dsh-tavern-message-select'), null)
+	assert.equal(rows[1].querySelectorAll('input[type="checkbox"]').length, 0)
+})
+
+test('后台 activity.busy 时编辑与分叉按钮禁用，空闲后恢复', async t => {
+	let busy = true
+	const page = createPage(t, { useLiveTavernView: () => ({ view: { activity: { busy } } }) })
+	const { dom, context } = page
+	const feature = context.createTavernStoryTranscriptFeature()
+	const element = () => React.createElement(feature.StoryTranscriptList, { transcript: story(MESSAGES), sessionId: 's-busy' })
+	const root = await mount(page, element())
+	const edit = () => dom.window.document.querySelector('button[aria-label="编辑正文"]')
+	const fork = () => dom.window.document.querySelector('button[aria-label="从这一轮分叉"]')
+	assert.equal(edit().disabled, true)
+	assert.equal(fork().disabled, true)
+	busy = false
+	await act(async () => root.render(element()))
+	assert.equal(edit().disabled, false)
+	assert.equal(fork().disabled, false)
+})
+
+test('故事行 Checkbox 走 storySelector，toggle 后 deleteMessages 收到该行精确索引与 revision', async t => {
+	const calls = []
+	const page = createPage(t, {
+		enableStoryDeletion: true,
+		rpc: (...args) => { calls.push(args); return Promise.resolve({ view: { revision: 8 }, deletedCount: 1 }) },
+		askTavernConfirm: async () => true,
+		liveTavernView: { setView() {} },
+		notifyTavernDataChanged() {},
+		tavernCoordination: { invalidate() {} }
+	})
+	const { dom, context } = page
+	const deletion = context.__storyMessageDeletion
+	deletion.store.enter('s4')
+	const transcript = story(MESSAGES)
+	const feature = context.createTavernStoryTranscriptFeature()
+	await mount(page, React.createElement(feature.StoryTranscriptList, { transcript, sessionId: 's4' }))
+	const rows = [...dom.window.document.querySelectorAll('[data-story-row]')]
+	const boxes = row => [...row.querySelectorAll('input[type="checkbox"]')]
+	assert.equal(boxes(rows[1]).length, 1, 'user 行有删除复选框')
+	assert.equal(boxes(rows[2]).length, 1, 'assistant 行有删除复选框')
+	await act(async () => { boxes(rows[1])[0].click() })
+	await act(async () => { boxes(rows[2])[0].click() })
+	assert.deepEqual(JSON.parse(JSON.stringify(deletion.store.getSnapshot('s4').items)), [
+		{ role: 'user', messageIndex: 1, revision: 7 },
+		{ role: 'assistant', messageIndex: 2, revision: 7 }
+	])
+	await act(async () => { await deletion.store.remove('s4') })
+	assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ['deleteMessages', { items: [
+		{ role: 'user', messageIndex: 1, revision: 7 },
+		{ role: 'assistant', messageIndex: 2, revision: 7 }
+	] }, 's4'])
 })

@@ -856,19 +856,28 @@
 				} catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
-			async function forkConversation(item, currentTitle, turn) {
+			async function forkConversation(item, currentTitle, turn, target) {
 				setMenuSession(null);
 				setBusy(true); setError("");
 				let targetSessionId = "";
 				let forkCreated = false;
 				try {
-					const plan = await call("prepareConversationFork", { chatId: item.chatId, sessionId: item.sessionId, turn: Number(turn) || 0 });
-					targetSessionId = await props.conversationHost.forkSession(item.sessionId, plan.atSeq);
+					const direct = Number.isSafeInteger(target && target.messageIndex);
+					const plan = await call("prepareConversationFork", direct
+						? { chatId: item.chatId, sessionId: item.sessionId, messageIndex: target.messageIndex, revision: target.revision }
+						: { chatId: item.chatId, sessionId: item.sessionId, turn: Number(turn) || 0 });
+					if (plan.storyDirect) {
+						const targetWorkspaceId = workspaceId || playWorkspaceIdRef.current || "";
+						if (!targetWorkspaceId) throw new Error("找不到可用的工作区");
+						targetSessionId = await props.conversationHost.connectWorkspace(targetWorkspaceId);
+						await ensureTavernPreset(targetSessionId, {});
+					} else targetSessionId = await props.conversationHost.forkSession(item.sessionId, plan.atSeq);
 					await call("forkChat", {
 						chatId: item.chatId,
 						sessionId: item.sessionId,
 						targetSessionId: targetSessionId,
-						turn: plan.turn, sourceRevision: plan.sourceRevision, atSeq: plan.atSeq
+						turn: plan.turn, sourceRevision: plan.sourceRevision, atSeq: plan.atSeq,
+						messageIndex: plan.messageIndex
 					});
 					forkCreated = true;
 					const forkTitle = (currentTitle || item.cardName + "的新对话") + " · 分支";
@@ -890,7 +899,7 @@
 					if (busy) throw new Error("当前有其他操作正在进行，请稍后再分叉");
 					const item = history.find(function (entry) { return entry.sessionId === request.sessionId && isPlayMode(entry.mode); });
 					if (!item) throw new Error("找不到当前游玩存档");
-					return forkConversation(item, historyTitle(item, summaries[item.sessionId]), request.turn);
+					return forkConversation(item, historyTitle(item, summaries[item.sessionId]), request.turn, request);
 				});
 			}, [history, summaries, busy]);
 			// the host titles a session after its first message (Tavern's internal

@@ -337,3 +337,95 @@ test('deleteMessages RPC 固定返回 view/deletedCount 并走取消与通知流
   assert.equal(calls[2].items.length, 1)
   assert.deepEqual(calls[3], ['session', 'edit', { settled: true }])
 })
+
+test('故事直选 assistant：按 messageIndex+revision 定位 Chat 行并写原生 tombstone', async () => {
+  const h = fixture(), revision = h.chat._storageRevision
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision }] })
+  assert.equal(result.deletedCount, 1)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '输入3', '输入4', '正文4'])
+  assert.deepEqual(nodeTexts(h.session), ['输入2', '正文2', '输入3', '', '输入4', '正文4'])
+  assert.equal(h.chat.messageDeletion.surface.operations.length, 1)
+  assert.equal(h.chat.messageDeletion.items[0].messageIndex, 3)
+  assert.equal(h.chat.messageDeletion.items[0].revision, revision)
+  assert.equal(typeof h.chat.messageDeletion.items[0].messageUid, 'string')
+})
+
+test('故事直选 user：自身无 nativeAnchor 时借用下一条正文锚点同步 Surface', async () => {
+  const h = fixture()
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'user', messageIndex: 2, revision: h.chat._storageRevision }] })
+  assert.equal(result.deletedCount, 1)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '正文3', '输入4', '正文4'])
+  assert.deepEqual(nodeTexts(h.session), ['输入2', '正文2', '', '正文3', '输入4', '正文4'])
+  assert.equal(h.chat.userInputEdits[3], undefined, '直选 user 仍清理对应 turn 的编辑缓存')
+})
+
+test('故事直选不依赖 turn：缺失、重复、非单调都可删除', async () => {
+  const h = fixture()
+  delete h.chat.messages[1].turn // 正文 2 缺 turn
+  h.chat.messages[3].turn = 9 // 正文 3 非单调
+  h.chat.messages[5].turn = 3 // 正文 4 与 3 重复
+  const revision = h.chat._storageRevision
+  const result = await h.create().remove({ sessionId: h.session.id, items: [
+    { role: 'assistant', messageIndex: 1, revision },
+    { role: 'assistant', messageIndex: 5, revision }
+  ] })
+  assert.equal(result.deletedCount, 2)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '输入3', '正文3', '输入4'])
+  assert.equal(h.chat.messageDeletion.items.length, 2)
+})
+
+test('故事直选无 nativeAnchor 且会话不支持预演时仍只删 Chat 并记录上下文修复', async () => {
+  const h = fixture()
+  delete h.chat.messages[3].nativeAnchor
+  const originalConstructor = h.agent.session.constructor
+  Object.defineProperty(h.agent.session, 'constructor', { value: {}, configurable: true })
+  try {
+    const nodes = h.session.surface.nodes.slice(), events = sessionEvents(h.session).length
+    const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: h.chat._storageRevision }] })
+    assert.equal(result.deletedCount, 1)
+    assert.equal(h.chat.messageDeletion.surface.operations.length, 0)
+    assert.equal(h.chat.messageDeletion.contextRepair.required, true)
+    assert.equal(h.chat.nativeSync.status, 'stale')
+    assert.match(h.chat.nativeSync.reason, /仍需后续上下文修复/)
+    assert.equal(sessionEvents(h.session).length, events)
+    assert.deepEqual(h.session.surface.nodes, nodes)
+    assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '输入3', '输入4', '正文4'])
+  } finally {
+    Object.defineProperty(h.agent.session, 'constructor', { value: originalConstructor, configurable: true })
+  }
+})
+
+test('故事直选 revision 陈旧时报剧情已变化且不提交', async () => {
+  const h = fixture(), before = structuredClone(h.chat)
+  await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: h.chat._storageRevision - 1 }] }), /剧情已变化，请刷新后重试/)
+  await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [{ role: 'user', messageIndex: 3, revision: h.chat._storageRevision }] }), /剧情已变化，请刷新后重试/)
+  assert.deepEqual(h.chat, before)
+  assert.equal(h.calls.length, 0)
+})
+
+test('预演后 revision 变化同样整批拒绝，不落任何 Chat 或 Surface 写入', async () => {
+  const h = fixture(), update = h.options.chats.update
+  const events = sessionEvents(h.session).length
+  h.options.chats.update = async (id, mutate, metadata) => {
+    if (metadata.source === 'foreground.message-delete') h.chat._storageRevision += 1
+    return update(id, mutate, metadata)
+  }
+  await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: h.chat._storageRevision }] }), /剧情已变化/)
+  assert.equal(h.chat.messageDeletion, undefined)
+  assert.equal(h.chat.messages.length, 6)
+  assert.equal(h.chat.tavernHelperLifecycleRevision, 7)
+  assert.equal(sessionEvents(h.session).length, events)
+})
+
+test('故事直选没有原生 Session 也能删除 Chat，旧 selector 仍要求原生上下文', async () => {
+  const h = fixture(), events = sessionEvents(h.session), before = events.length
+  h.options.sessions.get = () => undefined
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: h.chat._storageRevision }] })
+  assert.equal(result.deletedCount, 1)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '输入3', '输入4', '正文4'])
+  assert.equal(h.chat.messageDeletion.contextRepair.required, true)
+  assert.equal(h.chat.nativeSync.status, 'stale')
+  assert.equal(sessionEvents(h.session).length, before)
+  assert.deepEqual(sessionEvents(h.session), events)
+  await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [h.selectors.a2] }), /无法访问原生会话/)
+})

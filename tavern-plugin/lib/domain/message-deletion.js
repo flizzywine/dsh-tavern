@@ -39,12 +39,26 @@ function worldAfterRemoval(world, removed) {
   return { position, swipe: world.swipe, world: structuredClone(world.world) }
 }
 
-/** Normalize the public wire shape once; Chat indices are never accepted. */
+// Story rows are already absolute Chat rows: a direct selector names one by
+// index plus the revision the UI rendered. Native seq/turn/messageId never
+// participate in choosing that row; they only help find a Surface counterpart.
+function chatRevision(chat) {
+  return integer(chat?._storageRevision) ?? integer(chat?.revision) ?? 0
+}
+
 export function normalizeMessageDeletionSelectors(items) {
   if (!Array.isArray(items) || items.length === 0) throw new Error('请选择要删除的消息')
   const unique = new Map()
   for (const item of items) {
     if (!item || typeof item !== 'object' || !['user', 'assistant'].includes(item.role)) throw new Error('消息删除选择器无效')
+    if (item.messageIndex !== undefined && item.messageIndex !== null) {
+      const messageIndex = integer(item.messageIndex)
+      const revision = integer(item.revision)
+      if (messageIndex === null || revision === null) throw new Error('消息删除选择器无效')
+      const direct = { role: item.role, messageIndex, revision }
+      unique.set(JSON.stringify(direct), direct)
+      continue
+    }
     const seq = integer(item.seq)
     if (seq === null) throw new Error('消息删除选择器的回合或序号无效')
     let selector
@@ -173,13 +187,54 @@ function userRows(chat, selector, events, original) {
   return candidates[0]
 }
 
+// A story row is identified by its absolute Chat index and the rendered
+// revision. Nothing native decides which row this is.
+function storyRow(chat, selector) {
+  if (chatRevision(chat) !== selector.revision) throw new Error('剧情已变化，请刷新后重试')
+  const messages = Array.isArray(chat.messages) ? chat.messages : []
+  const row = messages[selector.messageIndex]
+  if (!row || typeof row !== 'object' || row.role !== selector.role) throw new Error('剧情已变化，请刷新后重试')
+  return { row, index: selector.messageIndex }
+}
+
+// Surface synchronization is best effort: only a persisted nativeAnchor that
+// still names a live event of the same role is trusted. Anything else (old
+// saves without anchors, compacted rows, missing native events) keeps the
+// Chat deletion and lets the existing context-repair path record the gap.
+function storySurfaceSeq(chat, selector, match, events, nodes) {
+  if (!Array.isArray(nodes) || nodes.length === 0) return null
+  try {
+    const references = upgradeReferences(events)
+    const anchorOf = candidate => (candidate && candidate.nativeAnchor ? upgradedAnchor(candidate.nativeAnchor, references) : null)
+    const own = anchorOf(match.row)
+    const reply = selector.role === 'user' ? anchorOf((Array.isArray(chat.messages) ? chat.messages : [])[match.index + 1]) : null
+    const seq = selector.role === 'assistant' ? integer(own?.reply, 1) : integer(own?.input, 1) ?? integer(reply?.input, 1)
+    const type = selector.role === 'assistant' ? 'assistant/message' : 'user/message'
+    if (seq === null || !events.some(event => Number(event?.seq) === seq && event?.type === type)) return null
+    return descendant(events, nodes, seq, type)
+  } catch (_) {
+    return null
+  }
+}
+
 function resolveSelectors(chat, session, selectors) {
-  const events = sessionEvents(session), nodes = session.surface?.nodes || []
-  if (!Array.isArray(nodes)) throw new Error('模型上下文尚未就绪')
+  const events = sessionEvents(session), nodes = session?.surface?.nodes
+  if (selectors.some(selector => selector.messageIndex === undefined) && !Array.isArray(nodes)) throw new Error('模型上下文尚未就绪')
   const bySeq = new Map(events.map(event => [Number(event.seq), event]))
   const turns = turnBySeq(events)
   const resolved = new Map()
   for (const selector of selectors) {
+    if (selector.messageIndex !== undefined) {
+      const match = storyRow(chat, selector)
+      const surfaceSeq = storySurfaceSeq(chat, selector, match, events, nodes)
+      const key = `${match.index}:${match.row.role}`
+      const value = { ...match, selector, surfaceSeq, historicalSeq: null, nativeMessageId: '', messageUid: match.row.messageUid || null }
+      if (resolved.has(key)) {
+        const previous = resolved.get(key)
+        if (previous.surfaceSeq !== value.surfaceSeq) throw new Error('重复选择器指向了不同原生位置')
+      } else resolved.set(key, value)
+      continue
+    }
     const original = bySeq.get(selector.seq)
     let match, surfaceSeq = null, historical = null
     if (selector.role === 'assistant') {
@@ -222,7 +277,7 @@ function comparableOperations(operations) {
 /** Build the native write set from the current Chat and current surface. */
 export function planMessageDeletion(chat, session, selectors, operationId = 'preview') {
   const selected = resolveSelectors(chat, session, selectors)
-  const operations = surfacePlan(selected, session.surface?.nodes || []).map(operation => ({
+  const operations = surfacePlan(selected, session?.surface?.nodes || []).map(operation => ({
     ...operation,
     data: { ...operation.data, id: `tavern-message-delete:${operationId}:${operation.data.id.split(':').at(-1)}`,
       source: { ...operation.data.source, deletionId: operationId } }
@@ -243,7 +298,10 @@ export function synchronizeMessageDeletion(session, chat, flush) {
 }
 
 function clearTurnReferences(chat, selected) {
-  const deletedUsers = new Set(selected.filter(item => item.selector.role === 'user').map(item => item.selector.turn))
+  const storyTurnOfUser = item => item.selector.role !== 'user' ? null
+    : (integer(item.selector.storyTurn, 1) ?? integer(item.selector.turn, 1) ?? integer(item.row?.turn, 1)
+      ?? integer(chat.messages?.[item.index + 1]?.turn, 1))
+  const deletedUsers = new Set(selected.map(storyTurnOfUser).filter(turn => turn !== null))
   const deletedAssistants = selected.filter(item => item.selector.role === 'assistant')
   if (deletedUsers.size && chat.userInputEdits && typeof chat.userInputEdits === 'object' && !Array.isArray(chat.userInputEdits)) {
     const edits = { ...chat.userInputEdits }
@@ -253,7 +311,7 @@ function clearTurnReferences(chat, selected) {
   }
   if (deletedAssistants.length && chat.candidates && typeof chat.candidates === 'object') {
     const candidate = str(chat.candidates.messageId)
-    if (deletedAssistants.some(item => str(item.selector.messageId) === candidate || item.nativeMessageId === candidate || str(item.row.id) === candidate)) chat.candidates = null
+    if (candidate !== '' && deletedAssistants.some(item => str(item.selector.messageId) === candidate || item.nativeMessageId === candidate || str(item.row.id) === candidate)) chat.candidates = null
   }
   // Keep nativeCommits even when a floor is deleted. They are adoption barriers,
   // not display text: removing the latest one lets uncommittedRounds resurrect a
@@ -263,9 +321,11 @@ function clearTurnReferences(chat, selected) {
 function preserveSplitRoundMarkers(chat, selected, removed) {
   for (const item of selected) {
     if (item.selector.role === 'assistant') {
+      const keptTurn = integer(item.selector.storyTurn, 1) ?? integer(item.row?.turn, 1)
+      if (keptTurn === null) continue
       for (let index = item.index - 1; index >= 0 && chat.messages[index]?.role === 'user'; index -= 1) {
         const user = chat.messages[index]
-        if (!removed.has(index) && !integer(user.turn, 1)) user.turn = item.selector.storyTurn
+        if (!removed.has(index) && !integer(user.turn, 1)) user.turn = keptTurn
       }
     } else {
       const greeting = chat.messages[item.index + 1]
@@ -294,20 +354,26 @@ export function createMessageDeletion({ chats, sessions, activity, view, session
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
     if (pending.has(sessionId)) throw new Error('正在删除消息，请稍候')
     const selectors = normalizeMessageDeletionSelectors(args?.items)
+    const storyDirect = selectors.every(selector => Number.isSafeInteger(selector.messageIndex))
     pending.add(sessionId)
     try {
       const chat = await chats.forSession(sessionId)
       if (!chat) throw new Error('会话不存在')
       const agent = sessions.get(sessionId)
-      if (!agent?.session) throw new Error('无法访问原生会话')
+      const nativeSession = agent?.session || null
+      if (!storyDirect && !nativeSession) throw new Error('无法访问原生会话')
       idle(chat, agent)
       const operationId = randomUUID()
-      const prepared = planMessageDeletion(chat, agent.session, selectors, operationId)
+      const prepared = planMessageDeletion(chat, nativeSession, selectors, operationId)
       // Host validation happens before any durable deletion. No Chat write is
-      // attempted when even one selector or one surface segment is stale.
-      const preview = detached(agent.session)
-      const previewMutator = createSessionSurfaceMutator(preview)
-      for (const operation of prepared.operations) previewMutator.replace(operation.type, operation.data, operation)
+      // attempted when even one selector or one surface segment is stale. A
+      // Chat-only deletion (story direct selectors without a Surface match) has
+      // nothing to pre-validate, so the detached surface replay is skipped.
+      if (prepared.operations.length) {
+        const preview = detached(nativeSession)
+        const previewMutator = createSessionSurfaceMutator(preview)
+        for (const operation of prepared.operations) previewMutator.replace(operation.type, operation.data, operation)
+      }
       let worldSelection
       const deletionMetadata = { source: 'foreground.message-delete' }
       const saved = await chats.update(chat.id, current => {
@@ -316,16 +382,19 @@ export function createMessageDeletion({ chats, sessions, activity, view, session
         // Backfill stable ids for old and new rows in the same CAS transaction;
         // deleted ids remain in the audit, survivors keep theirs across splices.
         for (const row of current.messages || []) if (row && typeof row === 'object' && !str(row.messageUid)) row.messageUid = randomUUID()
-        const latest = planMessageDeletion(current, agent.session, selectors, operationId)
+        const latest = planMessageDeletion(current, nativeSession, selectors, operationId)
         if (latest.operationSignature !== prepared.operationSignature) throw new Error('模型上下文已变化，请重新读取消息')
         const removed = new Set(latest.selected.map(item => item.index))
         const auditItems = latest.selected.map(item => ({ ...item.selector, messageUid: item.row.messageUid, surfaceSeq: item.surfaceSeq }))
-        const operations = surfacePlan(latest.selected, agent.session.surface.nodes).map(operation => ({
+        const operations = surfacePlan(latest.selected, nativeSession?.surface?.nodes || []).map(operation => ({
           ...operation,
           data: { ...operation.data, id: `tavern-message-delete:${operationId}:${operation.data.id.split(':').at(-1)}`,
             source: { ...operation.data.source, deletionId: operationId } }
         }))
-        const missing = latest.selected.filter(item => item.surfaceSeq === null).map(item => ({ messageUid: item.row.messageUid, role: item.row.role, turn: item.selector.turn }))
+        const missing = latest.selected.filter(item => item.surfaceSeq === null).map(item => ({
+          messageUid: item.row.messageUid, role: item.row.role,
+          turn: integer(item.selector.turn, 1) ?? integer(item.row.turn, 1)
+        }))
         const activeWorld = activeWorldOf(current)
         worldSelection = { old: activeWorld, selected: worldAfterRemoval(activeWorld, removed) }
         deletionMetadata.worldSelection = worldSelection
@@ -343,7 +412,7 @@ export function createMessageDeletion({ chats, sessions, activity, view, session
       }, deletionMetadata)
       if (!saved?.messageDeletion || saved.messageDeletion.id !== operationId) throw new Error('消息删除未提交，请刷新后重试')
       try {
-        await synchronizeMessageDeletion(agent.session, saved, sessions.flush)
+        if (saved.messageDeletion.surface.operations.length) await synchronizeMessageDeletion(nativeSession, saved, sessions.flush)
       } catch (error) {
         await chats.update(saved.id, current => {
           if (current.messageDeletion?.id !== operationId) return undefined

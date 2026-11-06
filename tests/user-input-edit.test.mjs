@@ -148,3 +148,88 @@ test('失败轮输入即使已移出模型上下文，编辑也只写表头记�
   const again = await editor.readUser(session.id, { turn: 6, seq: failedInput })
   assert.deepEqual(again.parts, [{ kind: 'text', text: '改成生成图片' }])
 })
+
+// 故事列表按位置编辑玩家输入：messageIndex 选行，turn 缺失/重复都不影响定位；
+// 原生楼层只在正文一致时同步，否则保存存档后交给原生修复。
+function storyUserFixture() {
+  const session = Session.create('story-user-edit')
+  const add = (turn, text) => {
+    appendSessionEvent(session, 'turn/start', { turn })
+    appendSessionEvent(session, 'user/message', { id: 'u' + turn, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    appendSessionEvent(session, 'assistant/message', { turn, step: 1, message: { id: 'a' + turn, role: 'assistant', content: [{ type: 'text', text: '回复' }], source: { kind: 'model', provider: 'f', model: 'f' } } }, { surfaceOp: 'append', sourceEventSeqs: [] })
+    appendSessionEvent(session, 'turn/end', { turn, reason: { kind: 'completed' } })
+  }
+  add(5, '原输入')
+  let chat = { id: 'chat', sessionId: session.id, mode: 'story', _storageRevision: 1,
+    messages: [{ role: 'user', text: '原输入' }, { role: 'assistant', turn: 5, text: '回复' }] }
+  const agent = { get session() { return session }, phase: { kind: 'idle' } }
+  const repairs = []
+  const editor = createBodyEditor({
+    chats: { forSession: async () => structuredClone(chat), update: async (_id, fn) => { chat = fn(structuredClone(chat)); chat._storageRevision++; return structuredClone(chat) } },
+    sessions: { get: () => agent, flush: async () => {} },
+    activity: () => ({ busy: false }), project: async () => ({}), present: async value => value,
+    repairNative: async id => { repairs.push(id); return null }
+  })
+  return { session, editor, repairs, get chat() { return chat }, setMessages(rows) { chat = { ...chat, messages: rows } },
+    inputs() { return session.deriveMessages().filter(message => message.role === 'user').map(message => message.content[0].text) } }
+}
+
+test('故事直选：按 messageIndex 编辑玩家输入，多余回合不影响定位', async () => {
+  const h = storyUserFixture()
+  const edit = await h.editor.readUser(h.session.id, { messageIndex: 0, revision: 1 })
+  assert.equal(edit.messageIndex, 0)
+  assert.equal(edit.revision, 1)
+  assert.deepEqual(edit.parts, [{ kind: 'text', text: '原输入' }])
+  const saved = await h.editor.saveUser(h.session.id, { token: edit.token, messageIndex: 0, revision: 1, role: 'user', texts: ['改过的输入'] })
+  assert.equal(saved.messages[0].text, '改过的输入')
+  assert.equal(saved.messages[1].text, '回复')
+  assert.deepEqual(h.inputs(), ['改过的输入'])
+  assert.deepEqual(h.repairs, [])
+})
+
+test('故事直选：旧 sourceText 不覆盖玩家当前 text 或编辑后的再次读取', async () => {
+  const h = storyUserFixture()
+  h.setMessages([{ role: 'user', turn: 2, text: '当前输入', sourceText: '旧输入' }, { role: 'assistant', turn: 2, text: '回复' }])
+  const edit = await h.editor.readUser(h.session.id, { messageIndex: 0, revision: 1 })
+  assert.deepEqual(edit.parts, [{ kind: 'text', text: '当前输入' }])
+  const saved = await h.editor.saveUser(h.session.id, { token: edit.token, messageIndex: 0, revision: 1, role: 'user', texts: ['改后的当前输入'] })
+  assert.equal(saved.messages[0].text, '改后的当前输入')
+  assert.equal(saved.messages[0].sourceText, '旧输入', '兼容字段无需迁移或重写')
+  const reopened = await h.editor.readUser(h.session.id, { messageIndex: 0, revision: saved._storageRevision })
+  assert.deepEqual(reopened.parts, [{ kind: 'text', text: '改后的当前输入' }])
+})
+
+test('故事直选：缺 turn 的玩家行只写存档并交给原生修复', async () => {
+  const h = storyUserFixture()
+  h.setMessages([{ role: 'user', text: '无回合输入' }, { role: 'assistant', text: '回复' }])
+  const edit = await h.editor.readUser(h.session.id, { messageIndex: 0, revision: 1 })
+  assert.equal(edit.turn, 0)
+  await h.editor.saveUser(h.session.id, { token: edit.token, messageIndex: 0, revision: 1, role: 'user', texts: ['改成无回合'] })
+  assert.equal(h.chat.messages[0].text, '改成无回合')
+  assert.deepEqual(h.repairs, [h.session.id])
+})
+
+test('故事直选：重复 turn 的玩家行按位置改写，不按回合串行', async () => {
+  const h = storyUserFixture()
+  h.setMessages([{ role: 'user', turn: 5, text: '第一条' }, { role: 'assistant', turn: 5, text: '回复' },
+    { role: 'user', turn: 5, text: '第二条' }, { role: 'assistant', turn: 5, text: '回复' }])
+  const edit = await h.editor.readUser(h.session.id, { messageIndex: 2, revision: 1 })
+  assert.deepEqual(edit.parts, [{ kind: 'text', text: '第二条' }])
+  const saved = await h.editor.saveUser(h.session.id, { token: edit.token, messageIndex: 2, revision: 1, role: 'user', texts: ['改写第二条'] })
+  assert.equal(saved.messages[2].text, '改写第二条')
+  assert.equal(saved.messages[0].text, '第一条')
+  assert.deepEqual(h.repairs, [h.session.id])
+})
+
+test('故事直选：陈旧 revision、越界、role 不符与过期 token 都拒绝写入', async () => {
+  const h = storyUserFixture(), before = structuredClone(h.chat)
+  await assert.rejects(h.editor.readUser(h.session.id, { messageIndex: 0, revision: 7 }), /重新打开编辑/)
+  await assert.rejects(h.editor.readUser(h.session.id, { messageIndex: 9, revision: 1 }), /刷新/)
+  await assert.rejects(h.editor.readUser(h.session.id, { messageIndex: 1, revision: 1 }), /已变化/)
+  await assert.rejects(h.editor.readUser(h.session.id, { messageIndex: 0, revision: 1, role: 'assistant' }), /已变化/)
+  const edit = await h.editor.readUser(h.session.id, { messageIndex: 0, revision: 1 })
+  await assert.rejects(h.editor.saveUser(h.session.id, { token: 'stale', messageIndex: 0, revision: 1, role: 'user', texts: ['新'] }), /重新打开编辑/)
+  await assert.rejects(h.editor.saveUser(h.session.id, { token: edit.token, messageIndex: 0, revision: 3, role: 'user', texts: ['新'] }), /重新打开编辑/)
+  await assert.rejects(h.editor.saveUser(h.session.id, { token: edit.token, messageIndex: 0, revision: 1, role: 'user', texts: [''] }), /不能为空/)
+  assert.deepEqual(h.chat, before)
+})

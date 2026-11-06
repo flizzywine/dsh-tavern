@@ -739,14 +739,32 @@
 			async function save() {
 				setBodyEditPanel(Object.assign({}, panel, { busy: true, error: "" }));
 				try {
-					const result = await rpc("saveBodyEdit", { token: panel.edit.token, role: panel.edit.role, index: panel.edit.index, turn: panel.edit.turn, seq: panel.edit.seq, texts: panel.texts }, props.sessionId);
+					let edit = panel.edit, result;
+					// Background settlement may advance only the Chat header while this
+					// panel is open. Re-read once and retry only when the editable row is
+					// byte-identical; the server still enforces every revision and token.
+					for (let attempt = 0; ; attempt++) {
+						try {
+							result = await rpc("saveBodyEdit", { token: edit.token, role: edit.role, index: edit.index, turn: edit.turn, seq: edit.seq, messageIndex: edit.messageIndex, revision: edit.revision, texts: panel.texts }, props.sessionId);
+							break;
+						} catch (error) {
+							if (attempt > 0 || !Number.isSafeInteger(edit.messageIndex) || !/正文或会话已变化|输入或会话已变化|剧情已变化/.test(String(error && error.message || error))) throw error;
+							const latest = await rpc("getStoryTranscript", { sessionId: props.sessionId }, props.sessionId);
+							const revision = Number(latest && latest.revision !== undefined ? latest.revision : latest && latest.storyTranscript && latest.storyTranscript.revision);
+							if (!Number.isSafeInteger(revision) || revision < 0) throw error;
+							const refreshed = await rpc("getBodyEdit", { role: edit.role, messageIndex: edit.messageIndex, revision: revision }, props.sessionId);
+							if (!refreshed || !refreshed.edit || JSON.stringify(refreshed.edit.parts) !== JSON.stringify(panel.edit.parts)) throw error;
+							edit = refreshed.edit;
+						}
+					}
 					if (result && typeof result.composerText === "string") {
 						// A failed turn was withdrawn; hand the edited text back to the composer.
 						if (result.view) liveTavernView.setView(props.sessionId, result.view);
 						notifyTavernDataChanged(["sessions"], "play-controls");
 						tavernCoordination.invalidate(props.sessionId);
 						setBodyEditPanel(null);
-						if (result.composerText.trim() !== "" && props.inputActions && typeof props.inputActions.setDraft === "function") props.inputActions.setDraft(result.composerText);
+						window.dispatchEvent(new CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: props.sessionId } }));
+					if (result.composerText.trim() !== "" && props.inputActions && typeof props.inputActions.setDraft === "function") props.inputActions.setDraft(result.composerText);
 						return;
 					}
 					const before = panel.edit.parts.filter(function (part) { return part.kind === "text"; }).map(function (part) { return part.text; }).join("\n");
@@ -755,6 +773,7 @@
 					liveTavernView.setView(props.sessionId, result.view);
 					notifyTavernDataChanged(["sessions"], "play-controls");
 					tavernCoordination.invalidate(props.sessionId);
+					window.dispatchEvent(new CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: props.sessionId } }));
 					setBodyEditPanel(null);
 				} catch (error) { setBodyEditPanel(Object.assign({}, panel, { busy: false, error: String(error.message || error) })); }
 			}

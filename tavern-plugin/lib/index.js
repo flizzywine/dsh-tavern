@@ -113,7 +113,7 @@ import { createServerTemplateRuntime } from './domain/server-template-runtime.js
 import { createForegroundStyleReferenceTool, foregroundStyleReferencePrompt, rememberStyleReference } from './domain/style-reference.js'
 import { adoptConversationFeatures, adoptConversationBackground } from './domain/conversation-background.js'
 import { clearLegacyTavernDefault } from './domain/legacy-agent-default.js'
-import { conversationStateAtTurn, conversationForkBoundary } from './domain/conversation-fork-point.js'
+import { conversationStateAtMessage, conversationStateAtTurn, conversationForkBoundary } from './domain/conversation-fork-point.js'
 import { createCardResponseTest } from './domain/card-response-test.js'
 import { createGameplayApi } from './gameplay-api.js'
 import { cardOpeningChoices } from './domain/card-openings.js'
@@ -2263,10 +2263,18 @@ export async function apply(ctx) {
     await updateChat(chat.id, current => { current.messages = [...(current.messages || []), ...appended.messages]; return current }, { source: 'test.append-rounds' })
     return { appended: rounds.length, lastTurn: appended.lastTurn }
   }
-  async function prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn) {
+  async function prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn, requestedMessageIndex, requestedRevision) {
     const source = str(sourceChatId) === '' ? await chatForSession(str(sourceSessionId)) : await readChat(str(sourceChatId))
     if (!source) throw new Error('找不到要分叉的源对话')
     assertConversationForkable(source, { agentRunning: agentRegistry.get(source.sessionId)?.phase?.kind === 'running' })
+    if (requestedMessageIndex !== undefined && requestedMessageIndex !== null) {
+      if (!Number.isSafeInteger(requestedMessageIndex) || requestedMessageIndex < 0) throw new Error('分叉消息位置无效')
+      if (requestedRevision !== source._storageRevision) throw new Error('剧情已变化，请重新选择分叉消息')
+      const { state, turn, messageIndex } = await conversationStateAtMessage(source, requestedMessageIndex, readChatRevision)
+      // A story fork starts a blank native Session. The committed Chat prefix is
+      // bound first; native repair then projects that prefix into model context.
+      return { source, state, turn, messageIndex, atSeq: null, storyDirect: true }
+    }
     const { state, turn } = await conversationStateAtTurn(source, requestedTurn, readChatRevision)
     let handle
     let session = sessionStore.get(source.sessionId) || agentRegistry.get(source.sessionId)?.session
@@ -2278,16 +2286,18 @@ export async function apply(ctx) {
         if (message.nativeAnchor) message.nativeAnchor = upgradedAnchor(message.nativeAnchor, references)
         if (message.bodyEdit) message.bodyEdit = { ...message.bodyEdit, seq: references.sequence(message.bodyEdit.seq, message.bodyEdit.formatVersion), formatVersion: 4 }
       }
-      return { source, state: mapped, turn, atSeq: conversationForkBoundary(session, state, turn) }
+      return { source, state: mapped, turn, atSeq: conversationForkBoundary(session, state, turn), storyDirect: false }
     } finally { if (handle) await handle.dispose() }
   }
   // Plugin data and media are bound to text versions, whose keys hash the game id:
   // map the fork's visible turns to the new game's keys. A failure never undoes the fork.
-  async function forkPluginState(source, state, fork, lastTurn) {
+  async function forkPluginState(source, state, fork, lastTurn, includedTurns) {
     try {
       const keyMap = new Map()
       for (const turn of await pluginApi.forkTurns(source.id)) {
-        if (turn > lastTurn) continue
+        // The selected message prefix, not a numeric upper bound, defines the
+        // branch. Legacy saves may contain missing, duplicate or reordered turns.
+        if (!includedTurns.has(Number(turn))) continue
         try { keyMap.set(turn + '\u0000' + computeSceneTarget({ ...state, id: source.id }, turn).key, computeSceneTarget(fork, turn).key) } catch {}
       }
       await pluginApi.gameForked({ sourceChatId: source.id, targetChatId: fork.id, targetSessionId: fork.sessionId, keyMap })
@@ -2295,23 +2305,49 @@ export async function apply(ctx) {
     } catch (error) { console.warn('dsh-tavern: 分叉时处理插件数据失败:', str(error?.message || error)) }
   }
 
-  async function forkChat(sourceChatId, sourceSessionId, targetSessionId, requestedTurn, expectedRevision, expectedAtSeq) {
-    const { source, state, turn, atSeq } = await prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn)
-    if (expectedRevision !== source._storageRevision || expectedAtSeq !== atSeq) throw new Error('源对话已变化，请重新选择分叉回合')
+  async function forkChat(sourceChatId, sourceSessionId, targetSessionId, requestedTurn, expectedRevision, expectedAtSeq, requestedMessageIndex) {
+    const { source, state, turn, atSeq, messageIndex, storyDirect } = await prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn, requestedMessageIndex, expectedRevision)
+    if (expectedRevision !== source._storageRevision || (!storyDirect && expectedAtSeq !== atSeq)) throw new Error('源对话已变化，请重新选择分叉位置')
     const targetId = str(targetSessionId)
     if (targetId === '' || await chatForSession(targetId) !== undefined) throw new Error('分叉目标必须是尚未绑定对话的新 Session')
-    const target = sessionStore.get(targetId) || agentRegistry.get(targetId)?.session
-    const targetEnd = sessionEvents(target).findLast(event => event.type === 'turn/end')
-    if (!targetEnd || targetEnd.seq !== atSeq) throw new Error('原生分叉没有停在指定回合，已拒绝绑定游戏状态')
-    const lastNativeTurn = Number(sessionEvents(target).findLast(event => event.type === 'turn/start')?.data?.turn) || 0
-    const fork = forkConversationChat(state, { chatId: uid('chat'), sessionId: targetId, id: uid, now: Date.now, lastNativeTurn })
-    fork.forkedFrom = { ...fork.forkedFrom, chatId: source.id, sessionId: source.sessionId, storageRevision: source._storageRevision,
-      stateChatId: state.id, stateRevision: state._storageRevision, turn, atSeq }
-    await conversationRegistry.publish(fork)
-    await saveMaintenance.recordFork(fork).catch(error => console.warn('dsh-tavern: 记录分叉来源失败', str(error?.message || error)))
-    await sceneWorldbookArchive.copyRefs(state.id, fork.id, turn).catch(() => {})
-    await forkPluginState(source, state, fork, turn)
-    return conversationForkReceipt(fork, { lastTurn: turn, messageCount: fork.messages.length })
+    let targetHandle
+    let target = sessionStore.get(targetId) || agentRegistry.get(targetId)?.session
+    try {
+      if (!target) { targetHandle = await agentRegistry.resume({ resumeSessionId: targetId }); target = targetHandle.agent.session }
+      if (!target) throw new Error('分叉目标原生会话尚未就绪')
+      if (!storyDirect) {
+        const targetEnd = sessionEvents(target).findLast(event => event.type === 'turn/end')
+        if (!targetEnd || targetEnd.seq !== atSeq) throw new Error('原生分叉没有停在指定回合，已拒绝绑定游戏状态')
+      }
+      const lastNativeTurn = storyDirect ? 0 : Number(sessionEvents(target).findLast(event => event.type === 'turn/start')?.data?.turn) || 0
+      const includedTurns = new Set((state.messages || []).filter(message => message?.role === 'assistant')
+        .map(message => Number(message.turn)).filter(turn => Number.isSafeInteger(turn) && turn >= 0))
+      const fork = forkConversationChat(state, { chatId: uid('chat'), sessionId: targetId, id: uid, now: Date.now, lastNativeTurn })
+      fork.forkedFrom = { ...fork.forkedFrom, chatId: source.id, sessionId: source.sessionId, storageRevision: source._storageRevision,
+        stateChatId: state.id, stateRevision: state._storageRevision, turn, ...(storyDirect ? { messageIndex, atSeq: null } : { atSeq }) }
+      if (storyDirect) {
+        fork.nativeSync = { status: 'stale', reason: '故事分叉等待原生上下文同步', at: Date.now() }
+        // Do not suppress opening recovery until the native prefix really exists.
+        fork.nativeOpeningAppended = false
+      }
+      await conversationRegistry.publish(fork)
+      await saveMaintenance.recordFork(fork).catch(error => console.warn('dsh-tavern: 记录分叉来源失败', str(error?.message || error)))
+      await sceneWorldbookArchive.copyRefs(state.id, fork.id, includedTurns).catch(() => {})
+      await forkPluginState(source, state, fork, turn, includedTurns)
+      if (storyDirect) {
+        const repaired = await repairNativeStory(targetId, target, '故事分叉后按消息历史建立原生上下文')
+          .catch(error => { console.warn('dsh-tavern: 故事分叉原生上下文修复失败:', str(error?.message || error)); return null })
+        if (repaired?.applied) {
+          fork.nativeOpeningAppended = true
+          await updateChatHeader(fork.id, ['nativeOpeningAppended'], () => ({ nativeOpeningAppended: true }), { source: 'conversation.story-fork-native-ready' })
+            .catch(error => console.warn('dsh-tavern: 保存故事分叉开场白状态失败:', str(error?.message || error)))
+        }
+      }
+      const receiptTurn = turn > 0 ? turn : Math.max(0, ...includedTurns)
+      return conversationForkReceipt(fork, { lastTurn: receiptTurn, messageCount: fork.messages.length })
+    } finally {
+      if (targetHandle) await targetHandle.dispose().catch(error => console.warn('dsh-tavern: 释放分叉目标 Session 句柄失败:', str(error?.message || error)))
+    }
   }
 
   const backgroundRetirement = createBackgroundSessionRetirement(profileData, { readState: taskStateReader.forSession, isRunning: id => agentRegistry.get(id)?.status === 'running' })

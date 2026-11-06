@@ -127,7 +127,10 @@ export function createPlayHandlers(deps) {
     },
     async deleteMessages(args) {
       autoChoices.cancel(args && args.sessionId)
-      if (reconcileStory) await reconcileStory(args && args.sessionId)
+      const storyDirect = Array.isArray(args?.items) && args.items.length > 0 && args.items.every(item => Number.isSafeInteger(item?.messageIndex))
+      // Story-index operations already name the authoritative Chat row. Reconcile
+      // must not adopt or repair native history and move their revision first.
+      if (reconcileStory && !storyDirect) await reconcileStory(args && args.sessionId)
       const result = await messageDeletion.remove(args || {})
       notifyPluginTimeline(args && args.sessionId, 'edit', { settled: true })
       return { view: result.view, deletedCount: result.deletedCount }
@@ -135,11 +138,11 @@ export function createPlayHandlers(deps) {
     async getBodyEdit(args) {
       // Editing or regenerating the reply drops its waiting automatic candidates.
       autoChoices.cancel(args && args.sessionId)
-      return { edit: args?.role === 'user' ? await bodyEditor.readUser(args && args.sessionId, args) : await bodyEditor.read(args && args.sessionId) }
+      return { edit: args?.role === 'user' ? await bodyEditor.readUser(args && args.sessionId, args) : await bodyEditor.read(args && args.sessionId, args) }
     },
     async saveBodyEdit(args) {
       autoChoices.cancel(args && args.sessionId)
-      await reconcileStory(args && args.sessionId)
+      if (!Number.isSafeInteger(args?.messageIndex)) await reconcileStory(args && args.sessionId)
       if (args?.role === 'user') {
         const saved = await bodyEditor.saveUser(args && args.sessionId, args)
         if (saved && saved.detached === true) {

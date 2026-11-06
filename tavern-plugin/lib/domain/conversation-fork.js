@@ -70,6 +70,9 @@ export function forkConversationChat(source, options = {}) {
     revision: Math.max(0, Number(sourceTimeline.revision) || 0),
     storageRevision: Math.max(0, Number(source._storageRevision) || 0),
     checkpointId: str(latestCheckpoint && latestCheckpoint.id),
+    // Story forks are addressed by message, so the absolute index travels with the
+    // origin record; native-turn forks leave it out.
+    messageIndex: Number.isSafeInteger(options.messageIndex) && options.messageIndex >= 0 ? Number(options.messageIndex) : undefined,
     forkedAt: now
   }
   chat.timeline = {

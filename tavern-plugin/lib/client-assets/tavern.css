@@ -103,6 +103,13 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-story-floor-head { display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 18px; }
 .dsh-tavern-story-floor-no { color: var(--dsw-alias-label-secondary); font-weight: 600; }
 .dsh-tavern-story-floor-tag { padding: 0 6px; border-radius: 999px; background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-tavern-story-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-height: 24px; color: var(--dsw-alias-label-tertiary); font-size: 12px; opacity: 0; transition: opacity .15s ease; }
+.dsh-tavern-story-transcript-row:hover .dsh-tavern-story-row-actions, .dsh-tavern-story-row-actions:focus-within, .dsh-tavern-story-row-actions:has(.dsh-tavern-message-select) { opacity: 1; }
+.dsh-tavern-story-row-action { padding: 2px 7px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.dsh-tavern-story-row-action:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.dsh-tavern-story-row-action:disabled { opacity: .5; cursor: wait; }
+.dsh-tavern-story-row-actions .dsh-tavern-message-select.assistant { position: static; }
+@media (hover: none) { .dsh-tavern-story-row-actions { opacity: 1; } }
 .dsh-tavern-story-older { display: flex; justify-content: center; }
 .dsh-tavern-story-loading, .dsh-tavern-story-empty { padding: 20px 0; color: var(--dsw-alias-label-secondary); text-align: center; }
 .dsh-tavern-story-error { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--dsh-tavern-accent-error); }
