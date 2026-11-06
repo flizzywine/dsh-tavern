@@ -17,9 +17,9 @@
 
 ## 快速开始
 
-> **请不要从 npm 下载或安装本项目。** 由于对 DSH 的定制改动较多，DSH Tavern 无法作为常规 DSH 插件安装使用。npm 上的 `dsh-profile-tavern` 已标记弃用，不再维护；请按下方对应平台的方式安装。
+> npm 上的 `dsh-profile-tavern` 已弃用。请按下方对应平台的方式安装。
 
-桌面版有两条安装路径。官方 DeepSeek Harness 使用原有安装器，社区版 DSH NEXT 使用下面的源码安装命令。
+官方 DeepSeek Harness 使用桌面安装器，社区版 DSH NEXT 支持独立 Profile 和 Git 插件分发。
 
 当前版本适配 **DSH 0.2.x**（0.2.0-rc.2 起）。安装前建议备份 `.dsh` 目录。
 
@@ -33,6 +33,21 @@
    ```
 
 3. 重新打开 DeepSeek Harness，即进入酒馆。
+
+### DSH NEXT（插件市场）
+
+插件名为 `dsh-tavern-bundle`。发布后，在 Next 创建基于 Web 的独立 `tavern` Profile，并切到该 Profile。在「插件 → 发现 → 索引来源」添加 [DSH Tavern 市场源](https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-market-next/index.json)，搜索 **DSH Tavern** 安装。安装器若提示 `sharp` 构建授权，确认后重试。切换 Profile 和更新均由 Next 管理。
+
+也可在 Next 配套的 DSH 终端执行。首次安装时初始化 Web Profile，把第二条命令中的提交 SHA 换成市场索引里对应版本的值。升级时用新版本的 SHA 重跑第二条。
+
+```powershell
+dsh --profile tavern --from-default-profile web --dump-config
+dsh plugin --profile tavern add "git+https://github.com/flizzywine/dsh-tavern.git#<提交 SHA>" --allow-build=sharp
+```
+
+从下方的源码安装方式迁移时，先退出 `tavern`，移除旧 Profile 中的酒馆组件，再安装聚合插件。两套组件同时启用会重复挂载。人物卡和会话仍使用同一 DSH 数据目录下的 `profile-data/tavern`。
+
+维护者在 GitHub Actions 手动运行 **Publish DSH NEXT plugin**，为每次发布指定一个尚未使用的版本号。工作流将插件和市场索引发布到 `plugin-market-next` 分支，市场索引保留每个版本对应的 Git 提交。Next 的「社区市场」目前按 npm 包名安装，Git 版走「发现」的索引来源。若要进 `dshmarket` 的默认目录，发布后按 [目录投稿规则](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/contributing.md) 提交收录。
 
 ### DSH NEXT（Windows 源码安装）
 

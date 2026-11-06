@@ -302,6 +302,9 @@ export function createApplicationUpdater(options) {
       if (error?.code === 'ENOENT') return { currentVersion: 'unknown', currentCommit: '' }
       throw error
     }
+    if (local.dshTavern?.distribution === 'plugin') {
+      return { currentVersion: local.version, currentCommit: '', pluginManaged: true }
+    }
     const runtimeMetadata = await readRuntimeMetadata(sourceRoot)
     const verified = runtimeMetadata?.matches ? runtimeMetadata : null
     return {
@@ -432,6 +435,10 @@ export function createApplicationUpdater(options) {
   }
 
   async function statusWithIdentity(identity) {
+    if (identity.pluginManaged) {
+      return { ...identity, phase: 'package-managed', host: 'next',
+        updateCommand: 'dsh plugin --profile tavern add "git+https://github.com/flizzywine/dsh-tavern.git#<新版提交 SHA>"' }
+    }
     const saved = await statusState.read()
     const current = saved === undefined ? undefined : { ...saved, host: await host() }
     let owner = installationState.readInstallation(dshHome)
@@ -550,6 +557,7 @@ export function createApplicationUpdater(options) {
     const identity = await localIdentity(true)
     record('identity', identity)
     const current = await statusWithIdentity(identity)
+    if (identity.pluginManaged) return current
     if (BUSY_PHASES.has(current.phase)) {
       throw new Error('更新正在进行，暂时无法重新检查')
     }
@@ -580,6 +588,7 @@ export function createApplicationUpdater(options) {
   }
 
   async function start() {
+    if ((await localIdentity()).pluginManaged) throw new Error('请通过 DSH NEXT 插件管理更新酒馆。')
     const installHost = await host()
     if (installHost === 'next') throw new Error('请退出 DSH NEXT，更新酒馆源码后重新运行 node bin/dsh-tavern.mjs install --host next。')
     // A Git checkout is the developer's: the updater would install a separate copy (or replace this one
@@ -724,6 +733,7 @@ export function createApplicationUpdater(options) {
   }
 
   async function cancel() {
+    if ((await localIdentity()).pluginManaged) throw new Error('请通过 DSH NEXT 插件管理取消更新。')
     const current = await status()
     if (!current.cancellable || !['running', 'cancelling'].includes(current.phase)) throw new Error('当前安装无法安全自动中止，请查看更新状态')
     installationState.requestCancellation(dshHome, current.attemptId)
