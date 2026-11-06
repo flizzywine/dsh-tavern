@@ -313,6 +313,33 @@ export function createTurnOrchestrator(options) {
   // Story preparation reads only the floors its world book and templates use.
   const contextForSession = typeof store.storyContextForSession === 'function' ? store.storyContextForSession : store.chatForSession
 
+  function validMessageIndex(value) {
+    return Number.isSafeInteger(value) && value >= 0
+  }
+
+  // A prepared body owns its logical rows from the first token until the final
+  // render. Scoped append commits hold only this turn's rows, so an absolute
+  // placeholder index naturally falls through to push there; a complete Chat
+  // instead replaces the existing placeholder in place.
+  function commitMessageRow(draft, index, message) {
+    const matches = row => row?.placeholder === true && row.role === message.role
+      && (message.role !== 'assistant' || Number(row.turn) === Number(message.turn))
+    let target = validMessageIndex(index) && index < draft.messages.length && matches(draft.messages[index]) ? index : -1
+    if (target < 0) target = draft.messages.findLastIndex(matches)
+    if (target >= 0) draft.messages[target] = message
+    else draft.messages.push(message)
+  }
+
+  function commitUserMessageRow(draft, placeholder, message) {
+    const assistantIndex = placeholder?.assistantIndex
+    if (!validMessageIndex(placeholder?.userIndex) && validMessageIndex(assistantIndex)
+      && assistantIndex < draft.messages.length && draft.messages[assistantIndex]?.placeholder === true) {
+      draft.messages.splice(assistantIndex, 0, message)
+      return
+    }
+    commitMessageRow(draft, placeholder?.userIndex, message)
+  }
+
   async function prepare(input) {
     let chat = await contextForSession(input.sessionId)
     if (chat === undefined) {
@@ -327,6 +354,49 @@ export function createTurnOrchestrator(options) {
     async function savePreparation(metadata) {
       if (store.writeChatHeader) preparationBase = await store.writeChatHeader(chat,preparationBase,metadata)
       else await store.writeChat(chat,metadata)
+    }
+    async function saveStoryPreparation() {
+      const operation = foregroundOperation && chat.timeline?.operations?.[foregroundOperation.operationId]
+      if (!operation) return savePreparation({ source: 'foreground.prepare' })
+      // A repeated prepare reuses both its frame and the rows created by the
+      // first one. Header-only retries never append a second logical turn.
+      if (operation.placeholder) return savePreparation({ source: 'foreground.prepare' })
+      const attachments = inputAttachments(input.userContent)
+      const withUser = userText !== '' || attachments.length > 0
+      const user = {
+        role: 'user', text: runtimeUserText, sourceText: userText, ts: now(), native: true,
+        ...(attachments.length ? { inputAttachments: attachments } : {})
+      }
+      if (chat.promptTemplateInput?.turn === turn) Object.assign(user, clone(chat.promptTemplateInput.message), { templateInputSource: userText })
+      user.placeholder = true
+      user.native = true
+      const assistant = {
+        role: 'assistant', text: '', sourceText: '', displayText: '', displayMode: 'html',
+        ts: now(), native: true, turn, placeholder: true
+      }
+      const rows = withUser ? [user, assistant] : [assistant]
+      const selected = store.readChatSlice ? await store.readChatSlice(input.sessionId, []) : null
+      if (selected?.denseMessages && store.patchChat && Number.isSafeInteger(selected.messageCount)) {
+        const baseline = preparationBase || selected.chat
+        const revision = Number(baseline?._storageRevision)
+        if (!Number.isSafeInteger(revision) || selected.chat?._storageRevision !== revision) throw new Error('剧情已变化，本次正文准备已过期')
+        const userIndex = withUser ? selected.messageCount : null
+        const assistantIndex = selected.messageCount + rows.length - 1
+        operation.placeholder = { userIndex, assistantIndex }
+        const header = captureChatHeader(chat)
+        const changes = diffJson({ ...baseline, messages: [] }, { ...header, messages: [] })
+          .filter(change => !['_storageRevision', 'updatedAt'].includes(change.path[0]))
+        changes.push({ op: 'splice', path: ['messages'], index: selected.messageCount, deleteCount: 0, items: rows })
+        const saved = await store.patchChat(chat.id, revision, changes, { source: 'foreground.prepare' })
+        if (!saved) throw new Error('剧情已变化，本次正文准备已过期')
+        preparationBase = { ...header, _storageRevision: saved._storageRevision }
+        return
+      }
+      // Legacy/flat saves have a dense Chat here. No migration is required:
+      // their existing whole-Chat writer persists the same two placeholder rows.
+      operation.placeholder = { userIndex: withUser ? chat.messages.length : null, assistantIndex: chat.messages.length + rows.length - 1 }
+      chat.messages.push(...rows)
+      await store.writeChat(chat, { source: 'foreground.prepare' })
     }
     const turn = Math.max(0, Number(input.turn) || 0)
     const requestId = str(input.requestId).trim()
@@ -511,7 +581,11 @@ export function createTurnOrchestrator(options) {
     delete chat.ledgerInjection
     rememberFrame(chat, frame)
     chatChanged = true
-    if (chatChanged) await savePreparation({ source: 'foreground.prepare' })
+    // The frame is already built, so these logical rows cannot leak into the
+    // current model request. They become visible immediately and are replaced
+    // in place by foreground.commit.
+    if (chatChanged && (mode === 'story' || mode === 'script')) await saveStoryPreparation()
+    else if (chatChanged) await savePreparation({ source: 'foreground.prepare' })
     return { ready: true, mode, cardName: card.name, userText: runtimeUserText, frame }
   }
 
@@ -653,7 +727,17 @@ export function createTurnOrchestrator(options) {
       const changes = diffJson({ ...before, messages: [] }, { ...head, messages: [] })
         .filter(change => !['_storageRevision', 'updatedAt'].includes(change.path[0]))
       if (changes.some(change => change.path[0] === 'messages' || change.path[0] === 'id')) return null
-      if (messages.length) changes.push({ op: 'splice', path: ['messages'], index: count, deleteCount: 0, items: messages })
+      const placeholder = before.timeline?.operations?.[metadata?.operationId]?.placeholder
+      if (placeholder) {
+        const withUser = validMessageIndex(placeholder.userIndex)
+        if (!validMessageIndex(placeholder.assistantIndex) || messages.length !== (withUser ? 2 : 1)) return null
+        if (withUser) changes.push({ op: 'set', path: ['messages', placeholder.userIndex], value: messages[0] })
+        changes.push({ op: 'set', path: ['messages', placeholder.assistantIndex], value: messages[messages.length - 1] })
+      } else if (messages.length) {
+        // Saves prepared before placeholder support, and adopted native rounds,
+        // retain the original append-only commit contract.
+        changes.push({ op: 'splice', path: ['messages'], index: count, deleteCount: 0, items: messages })
+      }
       if (await store.patchChat(before.id, revision, changes, metadata)) return result
     }
     return null
@@ -790,6 +874,9 @@ export function createTurnOrchestrator(options) {
       operation = chat.timeline.operations[begun.value.operationId]
     }
     if (operation === undefined) throw new Error('找不到本轮正文 operation，请重新生成本轮正文')
+    const liveOperation = chat.timeline?.operations?.[operation.id]
+    const placeholder = liveOperation?.placeholder || null
+    if (liveOperation) delete liveOperation.placeholder
     const before = {
       posture: chat.posture || '',
       ledger: chat.ledger ? structuredClone(chat.ledger) : null,
@@ -830,7 +917,7 @@ export function createTurnOrchestrator(options) {
             userMessage.variables = [merged]
             delete draft.pendingOpeningMessageVariables
           }
-          draft.messages.push(userMessage)
+          commitUserMessageRow(draft, placeholder, userMessage)
         }
         delete draft.promptTemplateInput
         const assistantMessage = {
@@ -856,14 +943,15 @@ export function createTurnOrchestrator(options) {
           mvu: adopted ? { pending: false, modified: false, diagnostics: [{ message: '这一轮补记自模型上下文，当时的变量变化未结算' }], events: [] }
             : { pending: true, modified: false, diagnostics: [], events: [] }
         })
-        draft.messages.push(assistantMessage)
+        commitMessageRow(draft, placeholder?.assistantIndex, assistantMessage)
         if (!adopted) {
           draft.settleStatus = 'pending'
           draft.settleError = null
         }
         draft.foregroundError = null
         draft.presentationWarnings = Array.isArray(reply.warnings) ? clone(reply.warnings) : []
-        rememberCommit(draft, turn, { mode, userText, requestId, scriptReference }, before, now)
+        rememberCommit(draft, turn, { mode, userText, requestId, scriptReference,
+          ...(placeholder ? { messageIndex: placeholder.assistantIndex, userIndex: placeholder.userIndex } : {}) }, before, now)
       }
     })
     chat = completed.chat
@@ -920,9 +1008,23 @@ export function createTurnOrchestrator(options) {
           return item.kind === 'body' && item.status === 'running' && Number(item.turn) === turn
         })
         if (operation !== undefined) {
+          const placeholder = operation.placeholder
           const failed = timeline.complete({ chat, operationId: operation.id, basedOn: operation.basedOn, outcome: { status: 'failed' } })
           chat = failed.chat
           changed = true
+          if (placeholder) {
+            const rows = [
+              { index: placeholder.assistantIndex, role: 'assistant' },
+              { index: placeholder.userIndex, role: 'user' }
+            ].filter(row => validMessageIndex(row.index)).sort((a, b) => b.index - a.index)
+            for (const row of rows) {
+              const message = chat.messages[row.index]
+              if (message?.placeholder === true && message.role === row.role
+                && (row.role !== 'assistant' || Number(message.turn) === turn)) {
+                chat.messages.splice(row.index, 1)
+              }
+            }
+          }
         }
       }
       return changed ? chat : undefined

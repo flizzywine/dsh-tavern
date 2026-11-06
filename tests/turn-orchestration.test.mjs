@@ -268,12 +268,33 @@ test('玩家模板先于本轮召回，重试不重复执行；提交后只产�
   assert.deepEqual(first.frame.source.regenerationState.variables, { place: '少林' })
   assert.equal(first.frame.source.regenerationState.promptTemplateInput.source, '原始模板')
   assert.equal(first.frame.source.regenerationMaterials.card.name, run.card().name)
-  assert.equal(run.chat().messages.length,0)
+  assert.equal(run.chat().messages.length,2,'准备阶段已经创建一对占位消息，重试不重复追加')
+  assert.equal(run.chat().messages[0].placeholder,true)
+  assert.equal(run.chat().messages[1].placeholder,true)
   await run.orchestrator.finalize({...input,assistantText:'少林的僧人迎上前。'})
-  assert.equal(run.chat().messages.length,2)
+  assert.equal(run.chat().messages.length,2,'提交替换占位，不再追加另一对消息')
+  assert.ok(run.chat().messages.every(message=>message.placeholder===undefined))
   assert.equal(run.chat().messages[0].text,'进入少林')
   assert.equal(run.chat().messages[0].variables[0].place,'少林')
   assert.equal(run.chat().promptTemplateInput,undefined)
+})
+
+test('升级前已缓存 Frame 但没有占位的回合仍按原路径追加提交', async () => {
+  const run = harness('story')
+  const input = { sessionId: 'session-1', turn: 2, userText: '继续旧存档' }
+  const first = await run.orchestrator.prepare(input)
+  const legacy = run.chat()
+  legacy.messages = []
+  for (const operation of Object.values(legacy.timeline.operations)) delete operation.placeholder
+  run.replaceChat(legacy)
+  const repeated = await run.orchestrator.prepare(input)
+  assert.equal(repeated.frame.frameId, first.frame.frameId, '旧 Frame 直接复用，不要求迁移或重建占位')
+  assert.equal(repeated.frame.userInput.projectedText, '继续旧存档')
+  assert.equal(run.chat().messages.length, 0)
+  await run.orchestrator.finalize({ ...input, assistantText: '旧存档的正文。' })
+  assert.deepEqual(run.chat().messages.map(message => [message.role, message.text]), [
+    ['user', '继续旧存档'], ['assistant', '旧存档的正文。']
+  ])
 })
 
 test('a speaker recalled after the frozen roster reaches only this turn\'s tail', async () => {
@@ -302,6 +323,7 @@ test('失败回合的玩家模板变量被撤销，遗留的别轮模板输入�
   assert.equal(run.chat().promptTemplateInput, undefined)
   assert.equal(run.chat().variables, undefined, '失败回合写下的模板变量撤销')
   assert.equal(run.chat().promptTemplateInitialVariables, undefined)
+  assert.equal(run.chat().messages.length,0,'失败清理同时移除未提交的占位楼层')
 
   const again = harness('story', { projectUserTemplate })
   await again.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '阳台浇花' })
@@ -313,7 +335,7 @@ test('失败回合的玩家模板变量被撤销，遗留的别轮模板输入�
   assert.equal(chat.promptTemplateInput.before.variables, null, '下一轮的撤销点是失败回合之前的状态')
   await again.orchestrator.finalize({ sessionId: 'session-1', turn: 3, userText: '教室写字', assistantText: '小明在教室写字。' })
   assert.equal(again.chat().promptTemplateInput, undefined)
-  assert.equal(again.chat().messages.filter(message => message.role === 'user').length, 1)
+  assert.equal(again.chat().messages.filter(message => message.role === 'user').length, 2, '未 discard 的失败占位仍保留；正式 handoff 会在下一轮前清理')
 })
 
 test('插件的本轮上下文和世界书条目进入正文帧，插件层出错时本轮照常', async () => {
@@ -350,7 +372,7 @@ test('漏写的一轮可以按它自己的请求号补记进存档（#196 自愈
   // The old bug: the turn read an earlier input's request id and was dropped as a duplicate.
   const dropped = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 3, requestId: 'rpc-1', userText: '推开窗', assistantText: '窗关上了。' })
   assert.equal(dropped.duplicate, true)
-  assert.equal(run.chat().messages.length, 2)
+  assert.equal(run.chat().messages.length, 4, '重复请求不会提交，但本轮已创建的占位继续保留')
   const adopted = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 3, requestId: 'rpc-2', userText: '关上窗', assistantText: '窗关上了。' })
   assert.notEqual(adopted.duplicate, true)
   assert.deepEqual(run.chat().messages.map(message => message.text), ['推开窗', '雨水扑进房间。', '关上窗', '窗关上了。'])

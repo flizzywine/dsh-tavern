@@ -46,46 +46,69 @@ function tavernStoryTranscriptRows(transcript) {
 		const key = typeof entry.key === 'string' && entry.key !== ''
 			? entry.key
 			: 'index:' + (absoluteIndex === null ? position : absoluteIndex)
+		const floorNo = role === 'assistant' && Number.isInteger(entry.floorNo) && entry.floorNo > 0 ? entry.floorNo : null
+		const legacyTurn = Number.isInteger(entry.legacyTurn) && entry.legacyTurn > 0 ? entry.legacyTurn : null
+		const text = tavernStoryTranscriptMessageText(message)
+		const streaming = role === 'assistant' && message.placeholder === true
 		rows.push({
 			key: key,
 			position: position,
 			role: role,
 			// 开场（greeting）也是 1 号楼层：projection 的 floorNo 已经按 assistant 实际顺序编号。
-			floorNo: role === 'assistant' && Number.isInteger(entry.floorNo) && entry.floorNo > 0 ? entry.floorNo : null,
+			floorNo: floorNo,
 			greeting: message.greeting === true,
-			legacyTurn: Number.isInteger(entry.legacyTurn) && entry.legacyTurn > 0 ? entry.legacyTurn : null,
+			legacyTurn: legacyTurn,
 			absoluteIndex: absoluteIndex,
-			text: tavernStoryTranscriptMessageText(message),
+			text: text,
+			streaming: streaming,
+			tool: null,
+			projection: role === 'assistant' ? {
+				version: Math.max(1, Number(message.projectionVersion) || 1),
+				turn: Number.isInteger(message.turn) ? message.turn : (message.greeting === true ? 1 : 0),
+				text: text,
+				mode: streaming ? 'markdown' : (typeof message.displayMode === 'string' && message.displayMode ? message.displayMode : 'markdown'),
+				warnings: Array.isArray(message.projectionWarnings) ? message.projectionWarnings : []
+			} : null,
 			message: message
 		})
 	}
 	return rows
 }
 
-// 流式草稿：列表末尾的独立项，永远不写回 transcript/持久消息，也不参与楼层编号。
-function tavernStoryTranscriptDraftItem(partial, runningCalls) {
-	const source = partial && typeof partial === 'object' ? partial : null
-	const calls = Array.isArray(runningCalls) ? runningCalls : []
-	if (!source && !calls.length) return null
-	const blocks = Array.isArray(source && source.blocks) ? source.blocks : []
+function tavernStoryTranscriptStreamText(partial) {
+	const blocks = Array.isArray(partial && partial.blocks) ? partial.blocks : []
 	const texts = []
 	for (let index = 0; index < blocks.length; index++) {
 		const block = blocks[index]
 		if (block && block.kind === 'text' && typeof block.text === 'string' && block.text !== '') texts.push(block.text)
 	}
+	return texts.join('\n')
+}
+
+// Stream text is an overlay on the real assistant placeholder, never another
+// message. Missing rows stay missing: the prepare revision must create them.
+// A live partial may also overlay a regenerated committed row; a retained
+// post-step partial is restricted to rows still marked placeholder=true.
+function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn, allowCommitted) {
+	if (!partial || !Number.isInteger(storyTurn)) return rows
+	const source = Array.isArray(rows) ? rows : []
+	const index = source.findLastIndex(function (row) {
+		return row && row.role === 'assistant' && (row.legacyTurn === storyTurn || Number(row.message && row.message.turn) === storyTurn)
+	})
+	if (index < 0 || (!allowCommitted && source[index].streaming !== true)) return rows
+	const calls = Array.isArray(runningCalls) ? runningCalls : []
 	const latestCall = calls.length ? calls[calls.length - 1] : null
-	return {
-		key: 'draft:partial',
-		draft: true,
-		role: 'assistant',
-		floorNo: null,
-		greeting: false,
-		legacyTurn: null,
-		absoluteIndex: null,
-		streamTurn: Number.isInteger(source && source.turn) ? source.turn : null,
-		tool: latestCall && typeof latestCall.name === 'string' ? latestCall.name : null,
-		text: texts.join('\n')
-	}
+	const streamed = tavernStoryTranscriptStreamText(partial)
+	const row = source[index]
+	const text = streamed !== '' ? streamed : row.text
+	const next = source.slice()
+	next[index] = Object.assign({}, row, {
+		streaming: true,
+		text: text,
+		tool: latestCall && typeof latestCall.name === 'string' ? latestCall.name : row.tool || null,
+		projection: row.projection ? Object.assign({}, row.projection, { text: text, mode: 'markdown' }) : null
+	})
+	return next
 }
 
 const TAVERN_STORY_TRANSCRIPT_NOOP_SUBSCRIBE = function () { return function () {} }
@@ -255,7 +278,8 @@ function createTavernStoryTranscriptDataModule(deps) {
 		useMode: useTavernStoryTranscriptMode,
 		// 纯投影，列表组件与本模块的测试共用（顶层同名函数）。
 		storyTranscriptRows: tavernStoryTranscriptRows,
-		storyTranscriptDraftItem: tavernStoryTranscriptDraftItem,
+		storyTranscriptStreamRows: tavernStoryTranscriptStreamRows,
+		storyTranscriptStreamText: tavernStoryTranscriptStreamText,
 		storyTranscriptMessageText: tavernStoryTranscriptMessageText
 	})
 }

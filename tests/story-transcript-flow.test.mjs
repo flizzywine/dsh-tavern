@@ -139,34 +139,63 @@ test('空故事回退原生 ChatFlow 时同步恢复完整 native 投影', async
 	for (const cleanup of cleanups) cleanup()
 })
 
-test('流式结束并提交 native 节点后强制重读逻辑消息', async t => {
+test('首个 partial 读取占位，turn 结束后重读提交且两行始终可见', async t => {
 	const p = page(t), { context } = p
-	let calls = 0
+	const prepared = [...messages,
+		{ role: 'user', text: '新行动', placeholder: true },
+		{ role: 'assistant', turn: 10, text: '', placeholder: true, displayMode: 'html' }]
+	const committed = [...messages, { role: 'user', text: '新行动' },
+		{ role: 'assistant', turn: 10, text: '<p>提交后的正文</p>', displayMode: 'html' }]
+	let calls = 0, phase = 'initial'
 	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => {
 		calls++
-		const current = calls === 1 ? messages : [...messages, { role: 'assistant', turn: 10, text: '提交后的正文' }]
+		const current = phase === 'initial' ? messages : (phase === 'prepared' ? prepared : committed)
 		return { storyTranscript: transcript(current, calls), view: { mode: 'story' }, revision: calls }
 	} })
 	const store = data.createStoryTranscriptStore(), mode = data.createModeStore()
 	await store.read('s1')
+	phase = 'prepared'
 	const refreshes = []
 	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode: mode,
 		externalHistory: { refresh: (sessionId, options) => refreshes.push({ sessionId, options }) } })
 	const chat = { legacy: { partial: { turn: 10, blocks: [{ kind: 'text', text: '流式草稿' }] }, nodes: [], runningCalls: [] } }
+	const session = { running: true }
 	const NativeFlow = () => React.createElement('div', { 'data-native-flow': '' })
 	const element = () => React.createElement(feature.StoryTranscriptFlow, {
 		sessionId: 's1', store: store, nativeFlow: NativeFlow,
-		useChat: selector => selector(chat), useSession: selector => selector({ running: false })
+		useChat: selector => selector(chat), useSession: selector => selector(session)
 	})
 	const root = await mount(p, element())
-	assert.equal(calls, 1)
-	assert.equal(p.dom.window.document.querySelectorAll('[data-story-draft]').length, 1)
+	await act(async () => Promise.resolve())
+	assert.equal(calls, 2, '首个 partial 后读取已持久化的 prepare 占位')
+	let rows = [...p.dom.window.document.querySelectorAll('[data-story-row]')]
+	assert.equal(rows.length, prepared.length)
+	assert.ok(rows.at(-2).textContent.includes('新行动'))
+	assert.ok(rows.at(-1).textContent.includes('流式草稿'))
+	const assistant = rows.at(-1), key = assistant.getAttribute('data-row-key')
+	assert.equal(key, 'turn:10')
+
+	chat.legacy = { partial: null, nodes: [], runningCalls: [] }
+	await act(async () => root.render(element()))
+	await act(async () => Promise.resolve())
+	assert.equal(calls, 2, 'step 结束不等于 turn 提交，不提前用旧存档覆盖流式文本')
+	assert.ok(p.dom.window.document.querySelector('main').textContent.includes('流式草稿'))
+	assert.strictEqual([...p.dom.window.document.querySelectorAll('[data-story-row]')].at(-1), assistant)
+
+	phase = 'committed'
+	session.running = false
 	chat.legacy = { partial: null, nodes: [{ kind: 'assistant', messageId: 'm10' }], runningCalls: [] }
 	await act(async () => root.render(element()))
 	await act(async () => Promise.resolve())
-	assert.equal(calls, 2)
+	assert.equal(calls, 3, 'turn/end 后才读取 await turn-stopping 完成的最终提交')
+	rows = [...p.dom.window.document.querySelectorAll('[data-story-row]')]
+	assert.equal(rows.length, committed.length)
+	assert.ok(rows.at(-2).textContent.includes('新行动'))
+	assert.strictEqual(rows.at(-1), assistant, '提交前后保留同一 article')
+	assert.equal(rows.at(-1).getAttribute('data-row-key'), key)
+	assert.ok(rows.at(-1).textContent.includes('提交后的正文'))
+	assert.ok(!rows.at(-1).textContent.includes('正在生成'))
 	assert.equal(p.dom.window.document.querySelector('[data-story-draft]'), null)
-	assert.ok(p.dom.window.document.querySelector('main').textContent.includes('提交后的正文'))
 	assert.equal(refreshes.filter(item => item.options && item.options.force).length, 1, '生成收尾只主动裁剪一次旧原生回合')
 	assert.equal(refreshes.at(-1).sessionId, 's1')
 })

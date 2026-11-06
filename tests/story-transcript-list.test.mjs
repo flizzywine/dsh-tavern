@@ -26,7 +26,9 @@ function createPage(t) {
 		React, console,
 		window: dom.window, document: dom.window.document,
 		// 宿主 Markdown 原语的替身：记录文本，证明正文走 Markdown 而不是纯文本 <pre>。
-		DshUi: { MarkdownText: function (props) { return React.createElement('span', { className: 'md-text' }, 'MD[' + props.text + ']') } }
+		DshUi: { MarkdownText: function (props) { return React.createElement('span', { className: 'md-text' }, 'MD[' + props.text + ']') } },
+		tavernProjectionForTurn: (view, turn) => (view && Array.isArray(view.replyProjections) ? view.replyProjections : []).findLast(item => Number(item.turn) === Number(turn)) || null,
+		tavernLatestProjectionTurn: view => (view && Array.isArray(view.replyProjections) ? view.replyProjections : []).reduce((latest, item) => Math.max(latest, Number(item.turn) || 0), 0)
 	})
 	vm.runInContext(dataSource, context)
 	vm.runInContext(listSource, context)
@@ -108,25 +110,104 @@ test('助手正文走 Markdown，不退化成纯文本 <pre>', async t => {
 	assert.ok(firstAssistant.textContent.includes('MD[开场正文]'))
 })
 
-test('partial.blocks 只做末尾草稿项，不改持久消息', async t => {
+test('首轮占位、流式正文和最终 HTML 始终复用同一逻辑行', async t => {
 	const page = createPage(t)
 	const { dom, context } = page
-	const transcript = story(MESSAGES)
-	const snapshot = JSON.stringify(transcript)
-	const feature = context.createTavernStoryTranscriptFeature()
-	await mount(page, React.createElement(feature.StoryTranscriptList, { transcript,
-		partial: { turn: 9, blocks: [{ kind: 'reasoning', text: '思考' }, { kind: 'text', text: '草稿正文' }] } }))
+	const pendingMessages = [
+		{ role: 'user', text: '第一句行动', placeholder: true },
+		{ role: 'assistant', turn: 0, text: '', placeholder: true, displayMode: 'html' }
+	]
+	const pending = story(pendingMessages, 1)
+	const snapshot = JSON.stringify(pending)
+	const projections = []
+	const feature = context.createTavernStoryTranscriptFeature({ renderProjection: (projection, options) => {
+		projections.push({ projection, options })
+		return React.createElement('div', { 'data-projection-mode': projection.mode }, projection.text)
+	} })
+	const element = (value, partial = null, running = false) => React.createElement(feature.StoryTranscriptList, {
+		transcript: value, partial, running, sessionId: 's1'
+	})
+	const root = await mount(page, element(pending))
+	let rows = [...dom.window.document.querySelectorAll('[data-story-row]')]
+	assert.equal(rows.length, 2, '首个 token 前已有输入和输出占位')
+	assert.ok(rows[0].textContent.includes('第一句行动'))
+	assert.ok(rows[1].textContent.includes('第 1 楼'))
+	assert.ok(rows[1].textContent.includes('正在生成'))
+	const assistant = rows[1]
+	const key = assistant.getAttribute('data-row-key')
+	assert.equal(key, 'index:1', 'turn 0 也使用稳定的绝对位置 key')
 
-	const rows = [...dom.window.document.querySelectorAll('[data-story-row]')]
-	assert.equal(rows.length, MESSAGES.length + 1)
-	const draft = rows[rows.length - 1]
-	assert.ok(draft.hasAttribute('data-story-draft'))
-	assert.equal(draft.getAttribute('data-row-key'), 'draft:partial')
-	assert.equal(draft.getAttribute('data-floor'), null, '草稿不占楼层号')
-	assert.ok(draft.textContent.includes('MD[草稿正文]'))
-	assert.ok(!draft.textContent.includes('思考'))
-	assert.equal(JSON.stringify(transcript), snapshot, '持久消息不得被改写')
-	assert.equal(dom.window.document.querySelectorAll('[data-story-draft]').length, 1)
+	await act(async () => root.render(element(pending, { turn: 99, blocks: [{ kind: 'text', text: '其他回合' }] }, true)))
+	assert.equal(dom.window.document.querySelectorAll('[data-story-row]').length, 2, '没有匹配占位时不得追加草稿')
+	const partial = { turn: 0, blocks: [{ kind: 'reasoning', text: '思考' }, { kind: 'text', text: '流式正文' }] }
+	await act(async () => root.render(element(pending, partial, true)))
+	rows = [...dom.window.document.querySelectorAll('[data-story-row]')]
+	assert.equal(rows.length, 2)
+	assert.strictEqual(rows[1], assistant, '流式更新不得替换 article DOM')
+	assert.equal(rows[1].getAttribute('data-row-key'), key)
+	assert.ok(rows[1].textContent.includes('流式正文'))
+	assert.ok(!rows[1].textContent.includes('思考'))
+	assert.equal(rows[1].querySelector('[data-projection-mode]').getAttribute('data-projection-mode'), 'markdown')
+	assert.equal(JSON.stringify(pending), snapshot, '流式覆盖不得修改持久投影')
+
+	const finalMessages = [
+		{ role: 'user', text: '第一句行动' },
+		{ role: 'assistant', turn: 0, text: '<p>正式正文</p>', displayMode: 'html' }
+	]
+	const committed = story(finalMessages, 2)
+	await act(async () => root.render(element(committed, partial, true)))
+	rows = [...dom.window.document.querySelectorAll('[data-story-row]')]
+	assert.equal(rows[1].querySelector('[data-projection-mode]').getAttribute('data-projection-mode'), 'html', '正式 revision 可先于 turn/end 接管')
+	await act(async () => root.render(element(committed, partial, true)))
+	assert.equal(dom.window.document.querySelector('[data-projection-mode="html"]').textContent, '<p>正式正文</p>', '迟到 partial 不得覆盖已提交 HTML')
+	await act(async () => root.render(element(committed, null, false)))
+	rows = [...dom.window.document.querySelectorAll('[data-story-row]')]
+	assert.equal(rows.length, 2, '提交不得重复或短暂删除输入/输出')
+	assert.strictEqual(rows[1], assistant, '最终提交也必须保留同一 article DOM')
+	assert.equal(rows[1].getAttribute('data-row-key'), key)
+	assert.ok(rows[0].textContent.includes('第一句行动'))
+	assert.ok(rows[1].textContent.includes('<p>正式正文</p>'))
+	assert.equal(rows[1].querySelector('[data-projection-mode]').getAttribute('data-projection-mode'), 'html')
+	assert.equal(rows[1].querySelector('pre,code'), null, 'HTML 正文不得进入代码块')
+	assert.ok(!rows[1].textContent.includes('正在生成'))
+	assert.equal(projections.at(-1).projection.mode, 'html')
+	assert.equal(dom.window.document.querySelectorAll('[data-story-draft]').length, 0)
+})
+
+test('正式故事行复用最新视图 parts、Helper 上下文与变量结算 receipt', async t => {
+	const page = createPage(t)
+	const { dom, context } = page
+	const message = { role: 'assistant', turn: 2, text: '原始正文', displayText: '原始正文', displayMode: 'html' }
+	const shared = { version: 2, turn: 2, text: '拆分后的正文', mode: 'html', parts: [{ kind: 'html', content: '<div>富正文</div>' }] }
+	const latest = { ...shared, text: '结算后的正文', parts: [{ kind: 'html', content: '<div>最新富正文</div>' }] }
+	const helper = { stateRevision: 1, messages: [{ message_id: 2, message: '原始正文' }] }
+	const liveHelper = { ...helper, stateRevision: 2 }
+	const frameSizing = { minHeight: 120 }
+	const view = { mode: 'story', replyProjections: [shared], tavernHelper: helper, tavernRuntimePolicy: { frameSizing, trustedCardMode: false } }
+	const liveView = { ...view, replyProjections: [latest], tavernHelper: liveHelper,
+		mvuReceipts: [{ turn: 2, status: 'updated', changes: [{}] }], settlementTurn: 2, activity: { busy: false } }
+	context.useLiveTavernView = () => ({ view: liveView })
+	context.liveTavernView = { getSnapshot: () => ({ view: liveView }) }
+	context.tavernMvuReceiptForTurn = (value, turn) => (value.mvuReceipts || []).find(item => Number(item.turn) === Number(turn)) || null
+	context.TavernMvuReceipt = props => React.createElement('div', { className: 'story-mvu-receipt' }, '变量已更新 · ' + props.turn)
+	const calls = []
+	const feature = context.createTavernStoryTranscriptFeature({ renderProjection: (projection, options) => {
+		calls.push({ projection, options })
+		return React.createElement('div', { 'data-rich-part': '' }, projection.parts[0].content)
+	} })
+	const executeSlash = () => {}
+	await mount(page, React.createElement(feature.StoryTranscriptList, {
+		transcript: story([message], 1), view, sessionId: 's1', executeSlash, frameOwner: 'owner'
+	}))
+	assert.equal(calls.length, 1)
+	assert.strictEqual(calls[0].projection, latest, '更新的 live revision 必须提供结算后的 EJS parts')
+	assert.strictEqual(calls[0].options.helperContext, liveHelper)
+	assert.strictEqual(calls[0].options.frameSizing, frameSizing)
+	assert.strictEqual(calls[0].options.executeSlash, executeSlash)
+	assert.equal(calls[0].options.frameOwner, 'owner')
+	assert.equal(calls[0].options.eagerFrame, true)
+	assert.equal(dom.window.document.querySelector('[data-rich-part]').textContent, '<div>最新富正文</div>')
+	assert.equal(dom.window.document.querySelector('.story-mvu-receipt').textContent, '变量已更新 · 2')
 })
 
 test('数据层只调用 getStoryTranscript，并带 historyFrom', async t => {

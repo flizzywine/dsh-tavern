@@ -77,14 +77,14 @@ function comparable(chat) {
 }
 
 for (const [name, variablesAt] of [['最近楼层有变量', () => true], ['变量只在很早的楼层', turn => turn === 3], ['全无变量', () => false]]) {
-  test('正文提交只追加本轮楼层，结果与完整写入一致：' + name, async t => {
+  test('准备追加占位、提交原地替换，结果与完整写入一致：' + name, async t => {
     const chat = base(history(120, variablesAt))
     const scoped = await app(t, chat, true), full = await app(t, chat, false)
     for (const turn of [121, 122]) {
       const [left, right] = [await scoped.play(turn), await full.play(turn)]
       assert.deepEqual(left, right)
     }
-    assert.deepEqual(scoped.calls, { full: 0, update: 0, patch: 2 })
+    assert.deepEqual(scoped.calls, { full: 0, update: 0, patch: 4 }, '两轮各有一次准备 patch 和一次提交 patch')
     assert.equal(full.calls.update, 2)
     const [left, right] = [await scoped.stored(), await full.stored()]
     assert.equal(left.messages.length, 244)
@@ -95,10 +95,28 @@ for (const [name, variablesAt] of [['最近楼层有变量', () => true], ['变�
   })
 }
 
+test('纯附件输入从准备到提交复用同一对分页消息', async t => {
+  const scoped = await app(t, base(history(5, () => true)), true)
+  const userContent = [{ type: 'image', source: { type: 'base64', data: 'IMAGE_DATA' } }]
+  await scoped.turns.prepare({ sessionId: 's', turn: 6, userText: '', userContent })
+  const pending = await scoped.stored()
+  assert.equal(pending.messages.length, 12)
+  assert.equal(pending.messages[10].placeholder, true)
+  assert.deepEqual(pending.messages[10].inputAttachments, userContent)
+  assert.equal(pending.messages[11].placeholder, true)
+  await scoped.turns.finalize({ sessionId: 's', turn: 6, userText: '', userContent, assistantText: '已查看图片。' })
+  const committed = await scoped.stored()
+  assert.equal(committed.messages.length, 12, '提交只替换占位，不追加第三行')
+  assert.deepEqual(committed.messages[10].inputAttachments, userContent)
+  assert.equal(committed.messages[11].text, '已查看图片。')
+  assert.ok(committed.messages.slice(10).every(message => message.placeholder === undefined))
+  assert.equal(scoped.calls.patch, 2, '准备和提交各使用一次分页 patch')
+})
+
 test('剧情版本在生成期间变化：拒绝提交，楼层不变', async t => {
   const scoped = await app(t, base(history(5, () => true)), true)
   await scoped.turns.prepare({ sessionId: 's', turn: 6, userText: '继续' })
   scoped.beforePatch(() => scoped.persistence.update('chat-1', chat => { chat.timeline.revision++; return chat }, { source: 'rollback' }))
   await assert.rejects(scoped.turns.finalize({ sessionId: 's', turn: 6, userText: '继续', assistantText: '回复' }), /剧情状态已变化/)
-  assert.equal((await scoped.stored()).messages.length, 10)
+  assert.equal((await scoped.stored()).messages.length, 12, '拒绝提交后仍只有本轮两条占位，没有重复正式楼层')
 })

@@ -153,9 +153,23 @@ async function inspectRound(name, gold, text, rounds = 2) {
 async function openStatus() {
   await page.getByRole('tab', { name: /酒馆状态/ }).filter({ visible: true }).first().click()
 }
+async function waitForVisibleStoryText(text) {
+  const deadline = Date.now() + 30000
+  let lastError = null
+  while (Date.now() < deadline) {
+    // Story HTML is intentionally rich: ordinary Markdown lives in the main
+    // document, while an HTML part (including its prose) lives in its iframe.
+    for (const target of [page, ...page.frames()]) {
+      const locator = target.getByText(text, { exact: false }).filter({ visible: true }).first()
+      try { if (await locator.isVisible()) return } catch (error) { lastError = error }
+    }
+    await page.waitForTimeout(100)
+  }
+  throw lastError || new Error('正文未在主文档或故事 iframe 中显示：' + text)
+}
 async function inspectScreen() {
   await page.locator('.dsh-tavern-user-bubble').filter({ hasText: '领取任务奖励' }).first().waitFor({ state: 'visible' })
-  await page.getByText('你获得了十枚金币。', { exact: false }).filter({ visible: true }).first().waitFor()
+  await waitForVisibleStoryText('你获得了十枚金币。')
   await page.getByText(/变量已更新/).filter({ visible: true }).first().waitFor()
   await openStatus()
   await page.frameLocator('.dsh-tavern-status-runtime iframe.dsh-tavern-message-frame:not([aria-hidden="true"])')
