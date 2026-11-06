@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e5e804b16525253a4a69de444a1878d06093a15f",
-  "releaseSequence": 1329,
+  "revision": "18cdf3d8f89ee4e3191b320317814c23df961a65",
+  "releaseSequence": 1330,
   "version": "3.2.0",
   "files": [
     {
@@ -186,8 +186,8 @@
     },
     {
       "path": "bin/desktop-profile-installation.mjs",
-      "sha256": "3dfed2bcb1fe02f63d4561edd6ae11ef564c884c922dad900a45a62a2694e728",
-      "size": 13244
+      "sha256": "9f9866d493f2d967c1e3c23dfafb6d5966f6d213439dd31993f76a2dca66ed98",
+      "size": 13032
     },
     {
       "path": "bin/dev-sync-cli.sh",
@@ -506,13 +506,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "dfb62df39fc7dc4c91db5cf0d5f0f37277c514e8b971bf1f153e17e867a00503",
-      "size": 115751
+      "sha256": "c7aa5e555017cc216f98df6bc584f3b1ef9c3b2bd9e759cce294c9d5cba14c8e",
+      "size": 115858
     },
     {
       "path": "install.sh",
-      "sha256": "65f78e3a9dd14ef2214d02026959634c7ef664ae0b3737a3294d70e096b9f463",
-      "size": 86752
+      "sha256": "cb057ff87c15f62a0aeccb86e75772eb30ba6514b533f7cbff1bb8b319630a9e",
+      "size": 86792
     },
     {
       "path": "package.json",
@@ -7061,8 +7061,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-profile-bridge/client.js",
-      "sha256": "5a35e1e56f7213366daebb35d8fe1a638b5ba30b6f22c41bfc78ee06bc727e32",
-      "size": 37662
+      "sha256": "ef09f22d5376a785ba7cb67f6463d08a72f65772262394c7b9d7916d77bd2fc4",
+      "size": 37847
     },
     {
       "path": "tavern-plugin/packages/dsh-profile-bridge/cordis.patch.yml",
@@ -7151,8 +7151,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-profile-bridge/README.md",
-      "sha256": "98cd3e57090dac0b62acd6289abddd6636b3bfa5be2e59243dc35c9317faafe4",
-      "size": 5967
+      "sha256": "d07fe0b3d3c38f121caa7bd5d846c78a987678b79021901499c0457f18c60f13",
+      "size": 6044
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-card-memory/index.js",
@@ -9871,9 +9871,9 @@
     }
   ],
   "archive": {
-    "commit": "c6c8162af923a50500f7ce9c792de8d68afb10ac",
+    "commit": "66074d85450715286957c277c1562437421e61fb",
     "path": "runtime.zip",
-    "sha256": "81b199593983ca860f98a48232ee540c1270e65cf2b231f0a2f47cd8946fa79e",
-    "size": 16418534
+    "sha256": "5ae44996a9f4025e114231a714883442d32b084a7f268dffcb3f9305132a72b8",
+    "size": 16418667
   }
 }
