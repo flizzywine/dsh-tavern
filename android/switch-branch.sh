@@ -477,9 +477,15 @@ profile_source_of() {
     "${manifest}" 2>/dev/null || true
 }
 
-# 扫描本机找候选安装目录：Termux 宿主、/root、外置存储、以及额外指定根。
+# 扫描本机找候选安装目录。按标志文件找，不信任目录名：
+#   bin/dsh-tavern.mjs   → 源码目录（取两级父目录核对 package.json）
+#   profiles/tavern/package.json → 记录里的 dshTavern.source 就是源码目录
+#   tavern.pid.json      → 运行记录，上一级是安装根
+# find 带 -L：$HOME/.dsh 常被做成软链接，不跟随就整棵漏掉。
 locate_installs() {
-  local roots=() extra=() root dir found=0
+  local roots=() extra=() root hit dir app home_hit found=0
+  local seen_file
+  seen_file="$(mktemp)"
   roots+=("${HOME:-}")
   [ -d /root ] && roots+=(/root)
   [ -d /storage/emulated/0 ] && roots+=(/storage/emulated/0)
@@ -487,26 +493,53 @@ locate_installs() {
     IFS=: read -r -a extra <<<"${DSH_TAVERN_SEARCH_ROOTS}"
     roots+=("${extra[@]}")
   fi
-  step "扫描安装目录（深度 7，只读）"
+  step "扫描安装目录（按标志文件，深度 7，只读）"
   for root in "${roots[@]}"; do
     [ -d "${root}" ] || continue
     info "扫描：${root}"
-    while IFS= read -r dir; do
-      [ -f "${dir}/package.json" ] || continue
-      found=$((found + 1))
-      printf '%s\t版本 %s\t分支 %s\t提交 %s\n' "${dir}" \
-        "$(source_version "${dir}")" "$(git_branch_of "${dir}")" "$(git_head_of "${dir}")"
-    done < <(find "${root}" -maxdepth 7 -type d -name 'dsh-tavern' 2>/dev/null)
+    while IFS= read -r hit; do
+      [ -n "${hit}" ] || continue
+      grep -qxF "${hit}" "${seen_file}" && continue
+      case "${hit}" in
+        */bin/dsh-tavern.mjs)
+          app="$(dirname -- "$(dirname -- "${hit}")")"
+          [ -f "${app}/package.json" ] || continue
+          grep -qxF "${app}" "${seen_file}" && continue
+          printf '%s\n' "${app}" >>"${seen_file}"
+          found=$((found + 1))
+          printf '%s\t版本 %s\t分支 %s\t提交 %s\n' "${app}" \
+            "$(source_version "${app}")" "$(git_branch_of "${app}")" "$(git_head_of "${app}")"
+          ;;
+        */profiles/tavern/package.json)
+          printf '%s\n' "${hit}" >>"${seen_file}"
+          home_hit="${hit%/profiles/tavern/package.json}"
+          app="$(profile_source_of "${hit}")"
+          if [ -n "${app}" ] && [ -f "${app}/package.json" ]; then
+            grep -qxF "${app}" "${seen_file}" && continue
+            printf '%s\n' "${app}" >>"${seen_file}"
+            found=$((found + 1))
+            printf '%s\t版本 %s\t分支 %s\t（来自 %s 的 profile 记录）\n' "${app}" \
+              "$(source_version "${app}")" "$(git_branch_of "${app}")" "${home_hit}"
+          else
+            printf '（profile 存在但 dshTavern.source 指向的目录不在：%s）\n' "${root}"
+          fi
+          ;;
+        */tavern.pid.json)
+          printf '%s\n' "${hit}" >>"${seen_file}"
+          printf '%s\t（PID 记录，安装根在两级之上）\n' "${hit}"
+          ;;
+      esac
+    done < <(find -L "${root}" -maxdepth 7 \
+      \( -path '*/bin/dsh-tavern.mjs' -o -name 'tavern.pid.json' -o -path '*/profiles/tavern/package.json' \) \
+      2>/dev/null)
   done
-  while IFS= read -r dir; do
-    [ -n "${dir}" ] || continue
-    found=$((found + 1))
-    printf '%s\t（PID 记录，安装根在上一级）\n' "${dir}"
-  done < <(find "${HOME:-}" -maxdepth 8 -name 'tavern.pid.json' 2>/dev/null)
+  rm -f -- "${seen_file}" 2>/dev/null || true
   if [ "${found}" -eq 0 ]; then
-    info '没扫到。可加 DSH_TAVERN_SEARCH_ROOTS=/path1:/path2 再扫，或直接给 DSH_TAVERN_SOURCE_ROOT。'
+    info '没扫到源码目录。可直接看这几个位置：'
+    printf '    ls -la %s/.dsh ~/.dsh-tavern 2>/dev/null\n' "${HOME:-$HOME}"
+    info '或加根目录再扫：DSH_TAVERN_SEARCH_ROOTS=/path1:/path2 bash switch-branch.sh --locate'
   else
-    info '用上面第一条的目录运行：DSH_TAVERN_SOURCE_ROOT=<目录> bash switch-branch.sh --dry-run'
+    info '用上面第一条的目录：DSH_TAVERN_SOURCE_ROOT=<目录> bash switch-branch.sh --dry-run'
   fi
 }
 
