@@ -38,7 +38,6 @@
       const S = CARD_GALLERY_S
       const API = CARD_GALLERY_API
       const [items, setItems] = useState(null)
-      const [zoom, setZoom] = useState(null)
       const [status, setStatus] = useState('')
       const [busy, setBusy] = useState(false)
       const [titles, setTitles] = useState({})
@@ -167,7 +166,8 @@
       const tile = item => h('div', { key: item.id, style: { ...S.card, padding: 6, gap: 5 } },
         h('img', {
           src: item.url, alt: item.prompt || item.file, loading: 'lazy', decoding: 'async',
-          onClick: () => setZoom(item),
+          onClick: () => openImageOverlay?.({ open: true, note: '卡片画廊',
+            images: list.map(entry => ({ url: entry.url, alt: entry.prompt || entry.file })), index: list.indexOf(item) }),
           style: { width: '100%', borderRadius: 6, cursor: 'zoom-in', display: 'block', background: 'rgba(0,0,0,.15)' },
         }),
         h('div', { style: { fontSize: 11, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
@@ -228,14 +228,6 @@
                 )
               }),
             ),
-        zoom ? h('div', {
-          onClick: () => setZoom(null),
-          style: {
-            position: 'fixed', inset: 0, zIndex: 2147483600, background: 'rgba(0,0,0,.86)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, cursor: 'zoom-out',
-          },
-        }, h('img', {
-          src: zoom.url, alt: zoom.prompt || '', style: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 },
-        })) : null,
+
       )
     }
