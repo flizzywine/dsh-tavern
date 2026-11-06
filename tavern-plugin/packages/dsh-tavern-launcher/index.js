@@ -7,9 +7,8 @@ import { runPluginCommand } from '@deepseek-ai/dsh-plugin-manager/operations'
 export const inject = ['connection', 'profileContext', 'webServer']
 const channel = '/dsh-tavern-launcher'
 const bundle = 'dsh-tavern-bundle'
-const repository = 'https://github.com/flizzywine/dsh-tavern.git'
-const indexUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-market-next/index.json'
-const gitSource = /^(?:github:flizzywine\/dsh-tavern|git\+https:\/\/github\.com\/flizzywine\/dsh-tavern\.git)#[0-9a-f]{40}$/i
+const tavernSource = 'github:flizzywine/dsh-tavern#plugin-market-next'
+const gitSource = /^(?:github:flizzywine\/dsh-tavern|git\+https:\/\/github\.com\/flizzywine\/dsh-tavern\.git)#(?:plugin-market-next|[0-9a-f]{40})$/i
 
 async function readJson(file) {
   return JSON.parse(await readFile(file, 'utf8'))
@@ -44,18 +43,6 @@ async function inspectProfile(dir) {
   return { state: 'ready' }
 }
 
-async function latestSpec(signal) {
-  const response = await fetch(indexUrl, { cache: 'no-store', signal })
-  if (!response.ok) throw new Error(`Release index returned HTTP ${response.status}`)
-  const index = await response.json()
-  const release = index.plugins?.find(plugin => plugin.name === bundle)?.versions?.[0]
-  if (index.format !== 1 || release?.source?.type !== 'git' || release.source.url !== repository ||
-      release.source.path !== undefined || !/^[a-f0-9]{40}$/.test(release.source.commit)) {
-    throw new Error('Invalid Tavern release index')
-  }
-  return `git+${repository}#${release.source.commit}`
-}
-
 export function apply(ctx) {
   const profile = ctx.profileContext
   const desktop = ctx.get('desktopProfiles')?.current
@@ -65,11 +52,10 @@ export function apply(ctx) {
     try {
       const before = await inspectProfile(dir)
       if (before.state === 'conflict' || before.state === 'installed') return
-      const spec = await latestSpec(AbortSignal.any([signal, AbortSignal.timeout(15000)]))
       signal.throwIfAborted()
       if (before.state === 'absent') {
         // Exclusive creation prevents initProfile from touching a directory
-        // that another caller created while the index was being fetched.
+        // that another caller created after the initial check.
         await mkdir(dir)
         initProfile(dir, PROFILE_TEMPLATES.web.bundles)
       } else {
@@ -79,7 +65,7 @@ export function apply(ctx) {
 
       const result = await runPluginCommand({
         profile: 'tavern', dir, home: profile.home, installAnchor: profile.installAnchor, cwd: profile.dir,
-      }, ['add', spec, '--allow-build=sharp'], {
+      }, ['add', tavernSource, '--allow-build=sharp'], {
         ...profile.packageManager, execution: 'service', signal,
         outputBytes: 8192, idleTimeoutMs: 120000, lockWaitMs: 120000,
       })

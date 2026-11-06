@@ -36,7 +36,15 @@
 
 ### DSH NEXT（安装或更新插件）
 
-首次安装时，用 NEXT 的 Profile 菜单新建基于 Web 模板的 `tavern` Profile。留在日常 Profile，打开 NEXT 的「DSH 终端」，执行：
+首次安装时，把 [DSH Tavern 启动器](tavern-plugin/packages/dsh-tavern-launcher/README.md) 装进 NEXT 的日常 `desktop` Profile。打开「设置 → 酒馆启动器」，点击「安装酒馆」。启动器会创建独立的 `tavern` Profile 并安装酒馆。完成后，在「桌面设置 → Profile」选择 `tavern`。
+
+也可以在 NEXT 的「DSH 终端」直接安装启动器：
+
+```powershell
+dsh plugin --profile desktop add "github:flizzywine/dsh-tavern#path:/tavern-plugin/packages/dsh-tavern-launcher"
+```
+
+从终端直接安装时，先用 NEXT 的 Profile 菜单创建基于 Web 模板的 `tavern`，再回到日常 Profile。更新现有酒馆也在日常 Profile 的「DSH 终端」执行同一条命令：
 
 ```powershell
 dsh plugin --profile tavern add "github:flizzywine/dsh-tavern#plugin-market-next" --allow-build=sharp
