@@ -141,6 +141,14 @@ try {
     const h = modules.react.createElement
     root.render(h(modules.react.Fragment, null, h(Settings), h(Overlay)))
   })
+  // 设置页里的断言先做完：默认生图模式来回切
+  await page.getByLabel('默认生图模式').selectOption('auto')
+  await page.waitForFunction(() => document.querySelector('[aria-label="默认生图模式"]')?.value === 'auto')
+  assert.equal(state.config.generationMode, 'auto')
+  await page.getByLabel('默认生图模式').selectOption('reference')
+  await page.waitForFunction(() => document.querySelector('[aria-label="默认生图模式"]')?.value === 'reference')
+  // 画风预设单开了一页。后面这些断言都落在「画风」页，一路做到底，不再来回切
+  await page.getByRole('button', { name: '画风', exact: true }).click()
   // 画风预设每套默认收起，正文不进页面；选择栏的按钮负责整体展开与收起
   const presetArtist = page.getByPlaceholder('(@artist_a:1.1), (@artist_b:1.0), masterpiece, best quality')
   assert.equal(await presetArtist.count(), 0, '每套画风预设默认收起，正文不渲染')
@@ -150,11 +158,7 @@ try {
   await page.getByRole('button', { name: '▾ 收起全部', exact: true }).click()
   await presetArtist.first().waitFor({ state: 'detached' })
   assert.equal(await presetArtist.count(), 0, '收起后正文重新消失')
-  await page.getByLabel('默认生图模式').selectOption('auto')
-  await page.waitForFunction(() => document.querySelector('[aria-label="默认生图模式"]')?.value === 'auto')
-  assert.equal(state.config.generationMode, 'auto')
-  await page.getByLabel('默认生图模式').selectOption('reference')
-  await page.waitForFunction(() => document.querySelector('[aria-label="默认生图模式"]')?.value === 'reference')
+  // 提示词格式属于专业提示词预设卡，跟画风一起在「画风」页
   await page.getByLabel('提示词格式', { exact: true }).selectOption('structured')
   await page.waitForFunction(() => document.querySelector('[aria-label="提示词格式"]')?.value === 'structured')
   assert.equal(state.config.generationMode, 'reference')
@@ -191,7 +195,7 @@ try {
   await page.getByLabel('服装生成要求', { exact: true }).fill(chineseOutfitRequirements)
   await saveDesignRequirements(chineseCharacterRequirements, chineseOutfitRequirements)
   await page.getByRole('button', { name: '人物库', exact: true }).click()
-  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '画风', exact: true }).click()
   assert.equal(await page.getByLabel('角色与服装生成写法', { exact: true }).inputValue(), 'chinese', 'the saved language mode survives leaving and reopening settings')
   assert.equal(await page.getByLabel('角色生成要求', { exact: true }).inputValue(), chineseCharacterRequirements)
   assert.equal(await page.getByLabel('服装生成要求', { exact: true }).inputValue(), chineseOutfitRequirements)
@@ -203,7 +207,7 @@ try {
   await page.getByLabel('服装生成要求', { exact: true }).fill(englishOutfitRequirements)
   await saveDesignRequirements(englishCharacterRequirements, englishOutfitRequirements)
   await page.getByRole('button', { name: '人物库', exact: true }).click()
-  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '画风', exact: true }).click()
   assert.equal(await page.getByLabel('角色与服装生成写法', { exact: true }).inputValue(), 'tags', 'the English Tag mode survives leaving and reopening settings')
   assert.equal(await page.getByLabel('角色生成要求', { exact: true }).inputValue(), englishCharacterRequirements)
   assert.equal(await page.getByLabel('服装生成要求', { exact: true }).inputValue(), englishOutfitRequirements)
