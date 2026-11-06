@@ -13,6 +13,7 @@ async function mount(status, calls = [], options = {}) {
   globalThis.document = dom.window.document
   // The Tavern client sets this flag on pages where it loaded.
   if (inTavern) dom.window.__dshTavernLoaded = true
+  if (options.next) dom.window.desktopNext = { state: async () => ({}) }
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator })
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   const React = (await import('react')).default
@@ -36,6 +37,7 @@ async function mount(status, calls = [], options = {}) {
     slots: { inject: (_name, run) => run(), register: (meta, component) => { registered = meta; page = component; return () => {} } }
   }
   await act(async () => { module.apply(ctx) })
+  if (!registered) return { registered: false, calls, dispose: () => dom.window.close() }
   const root = createRoot(dom.window.document.getElementById('root'))
   await act(async () => { root.render(React.createElement(page, registered.inject())) })
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
@@ -43,6 +45,16 @@ async function mount(status, calls = [], options = {}) {
 }
 
 const tavernProfile = { name: 'tavern', bundles: ['dsh-tavern-plugin', 'dsh-profile-bridge'], hasNodeModules: true }
+
+test('NEXT 使用原生 Profile 设置，不注册旧切换页', async () => {
+  const page = await mount({}, [], { next: true })
+  try {
+    assert.equal(page.registered, false)
+    assert.deepEqual(page.calls, [])
+  } finally {
+    page.dispose()
+  }
+})
 
 test('快捷方式打开的独立酒馆窗口：不给切换按钮，只说明原版 DSH 直接打开', async () => {
   // 桌面版此时是原版（没有链接），这一页却是酒馆：以页面为准，不能给出「切到 DSH 酒馆」。

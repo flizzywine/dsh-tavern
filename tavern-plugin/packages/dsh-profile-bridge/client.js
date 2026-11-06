@@ -382,6 +382,17 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale', 'connection'],
       apply(ctx) {
+        if (typeof window.desktopNext?.state === 'function') {
+          // dshmarket draws its own mark, but only hides a direct-child SVG.
+          // NEXT wraps the fallback gear in an aria-hidden span.
+          ctx.effect(() => {
+            const style = window.document.createElement('style')
+            style.textContent = '[data-dsh-market-nav-icon] > span[aria-hidden="true"] { display: none; }'
+            window.document.head.appendChild(style)
+            return () => style.remove()
+          }, 'NEXT: hide the duplicate market settings icon')
+          return // NEXT has its own Profile selector in Desktop Settings.
+        }
         const t = ctx.locale.bind(NS)
         const rpcCall = (endpoint, payload) => ctx.connection.rpc.call(CHANNEL, endpoint, payload)
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'profile-bridge: locale dictionaries')
