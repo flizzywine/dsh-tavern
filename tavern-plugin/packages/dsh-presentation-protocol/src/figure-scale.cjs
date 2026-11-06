@@ -93,16 +93,11 @@ function figureDirection(start = {}, entries = [], catalog = {}, para = Infinity
         if (figureSceneCut(entry)) {
             state = { version: c.version, scene: state.scene + 1, ...reference(cast, outfits), rescales: 0 };
             event = { kind: "cut", at: entry.at };
-        } else {
-            const entrants = measurements(cast.filter(id => !previousCast.includes(id)), outfits);
-            const taller = entrants.filter(m => m.heightCm > state.hMax);
-            const clipped = taller.some(m => {
-                const px = figurePixelsPerCm(1, state.hMax), displayed = figureDisplayCm(m.heightCm, state.hMax) * px;
-                const available = figureGroundY(1, state.groundRatio) - (1 - c.headLimit);
-                return displayed * m.headRatio + m.elevationCm * px > available;
-            });
-            if (clipped) {
-                const ruler = reference(cast, outfits);
+        } else if (cast.length !== previousCast.length || cast.some(id => !previousCast.includes(id))) {
+            // Accepted cast changes own reframing in both directions; departed actors
+            // must not keep the remaining cast on a taller historical ruler.
+            const ruler = reference(cast, outfits);
+            if (ruler.hMax !== state.hMax || (ruler.groundRatio ?? 1) !== (state.groundRatio ?? 1)) {
                 event = { kind: "rescale", at: entry.at, from: state.hMax, warning: "mid-scene rescale" };
                 state = { ...state, ...ruler, groundRatio: ruler.groundRatio ?? 1, rescales: state.rescales + 1 };
             }
