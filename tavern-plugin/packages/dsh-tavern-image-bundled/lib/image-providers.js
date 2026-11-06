@@ -407,7 +407,9 @@ function requestedDims(channel, request) {
   if (request.exactSize === true) return { width, height }
   // 宽高分开填：两个都填了就以它们为准（优先于下面的 size 文本）
   const rawWidth = Number(option(channel, 'sizeWidth', 0)), rawHeight = Number(option(channel, 'sizeHeight', 0))
-  if (Number.isFinite(rawWidth) && Number.isFinite(rawHeight) && rawWidth > 0 && rawHeight > 0) {
+  // explicitSize：调用方已经算好了尺寸（卡片工作台的三档画幅或自定义宽高）。
+  // 这时渠道里那对「游玩默认宽高」只是兜底值，不能反过来盖掉请求。
+  if (request.explicitSize !== true && Number.isFinite(rawWidth) && Number.isFinite(rawHeight) && rawWidth > 0 && rawHeight > 0) {
     width = bounded(rawWidth, 64, 8192); height = bounded(rawHeight, 64, 8192)
   } else {
     const rawSize = String(option(channel, 'size', '')).trim()

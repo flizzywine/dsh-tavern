@@ -48,9 +48,16 @@ export function cardSelection(config, workflows, args = {}) {
   if (args.seed !== undefined && (!Number.isSafeInteger(args.seed) || args.seed < 0 || args.seed >= seedLimit)) throw fail('seed 超出当前渠道支持的范围（0–' + (seedLimit - 1) + '）')
   if (args.seed_control && !SEED_CONTROLS.includes(args.seed_control)) throw fail('seed_control 无效')
   if (args.size && !CARD_SIZES[args.size] && !/^\d{2,5}x\d{2,5}$/.test(args.size)) throw fail('size 请使用竖图、横图、方图或宽x高')
+  // 画幅名必须在提交前换成像素串。引擎 compileChannelJob 查的是它自己那份 config.sizes，
+  // 而卡片这边递给它的配置只有白名单字段、没有 sizes 表；名字查不到时引擎会静默落回
+  // 832x1216，方图和横图都会出成竖图。像素串走引擎的正则分支，不依赖那张表。
+  const toPixels = value => {
+    const named = CARD_SIZES[value]
+    return named ? named.width + 'x' + named.height : value
+  }
   const configuredSize = channel?.options
-  const size = args.size || (local ? '__workflow__' : Number(configuredSize?.sizeWidth) > 0 && Number(configuredSize?.sizeHeight) > 0
-    ? configuredSize.sizeWidth + 'x' + configuredSize.sizeHeight : config.imageSize || '竖图')
+  const size = toPixels(args.size || (local ? '__workflow__' : Number(configuredSize?.sizeWidth) > 0 && Number(configuredSize?.sizeHeight) > 0
+    ? configuredSize.sizeWidth + 'x' + configuredSize.sizeHeight : config.imageSize || '竖图'))
   return { config: next, workflow, size, promptMode, supportsSeed, seedLimit, maxReferences: channel ? imageReferenceLimit(channel) : (workflow.bindings?.referenceImages?.length || 0),
     preset: (config.stylePresets || []).find(item => item.id === next.activePreset)?.name || '',
     channel: local ? 'ComfyUI · ' + workflow.label : channel.name || channel.id, channelId: local ? 'comfyui' : channel.id }
@@ -77,7 +84,7 @@ export async function runCardImage(engine, args, { sessionId, signal, key, onJob
   const abort = () => { if (job) engine.cancelJob(job.id) }
   signal?.addEventListener('abort', abort, { once: true })
   try {
-    const created = await engine.startJob({ tag: prompt, rawTag: prompt, size: picked.size, seed: args.seed,
+    const created = await engine.startJob({ tag: prompt, rawTag: prompt, size: picked.size, explicitSize: true, seed: args.seed,
       sessionId, key, negative: args.negative || '', generationMode: mode, subjects: args.subjects, characters: args.characters },
     { cardRequest: true, jobConfig: picked.config, forceWorkflow: picked.workflow, label: '卡片工作台', onCreated(value) { job = value; if (signal?.aborted) abort() } })
     job ||= engine.getJob(created.id)

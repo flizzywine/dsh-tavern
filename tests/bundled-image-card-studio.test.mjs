@@ -8,6 +8,7 @@ import { imagePluginFixture, IMAGE_PNG as PNG, imageJson as json } from './fixtu
 import { cardSelection } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/generation.js'
 import { createCardGallery } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/gallery.js'
 import { createCardWorldbook } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/worldbook.js'
+import { imageDimensions } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/image-output.js'
 
 const b64 = PNG.toString('base64'), dataUrl = 'data:image/png;base64,' + b64
 const png = () => new Response(PNG, { headers: { 'content-type': 'image/png' } })
@@ -326,6 +327,29 @@ test('selection detects ambiguous names and leaves global config unchanged', () 
   const before = structuredClone(config)
   assert.equal(cardSelection(config, [], { channel: 'b' }).config.activeImageChannel, 'b')
   assert.deepEqual(config, before)
+})
+
+test('画幅名在提交前换成像素串，不依赖引擎那张尺寸表', () => {
+  // 卡片递给引擎的配置只有白名单字段、没有 sizes 表，引擎查不到画幅名会静默落回 832x1216，
+  // 方图和横图都出成竖图。所以出去的一律是像素串。
+  const config = {
+    imageBackend: 'openai', activeImageChannel: 'a',
+    imageChannels: [channel('openai', {}, { id: 'a', name: 'relay alpha' })],
+    stylePresets: [], activePreset: '', imageSize: '竖图',
+  }
+  assert.equal(cardSelection(config, [], { size: '方图' }).size, '1024x1024')
+  assert.equal(cardSelection(config, [], { size: '横图' }).size, '1216x832')
+  assert.equal(cardSelection(config, [], { size: '竖图' }).size, '832x1216')
+  assert.equal(cardSelection(config, [], { size: '896x1152' }).size, '896x1152', '自定义宽高原样透传')
+  assert.equal(cardSelection(config, [], {}).size, '832x1216', '不填时沿用配置的默认画幅')
+})
+
+test('imageDimensions 读出真实像素，坏输入不抛错', () => {
+  const dims = imageDimensions(PNG)
+  assert.ok(dims && dims.width > 0 && dims.height > 0, '真实 PNG 要能读出宽高')
+  assert.equal(imageDimensions(Buffer.alloc(0)), null)
+  assert.equal(imageDimensions(Buffer.from('not an image at all')), null)
+  assert.equal(imageDimensions(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), null, '只有 PNG 签名没有 IHDR 要返回 null')
 })
 
 test('gallery writes do not lose concurrent additions and remove compares stable IDs', async t => {
