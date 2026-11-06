@@ -11,6 +11,15 @@ window.__ModuleLoader__.load({
       originalProfile: '原版 DSH',
       tavernProfile: 'DSH 酒馆',
       management: '酒馆安装管理',
+      explain: '在独立的 Profile 之间切换，或管理酒馆安装。',
+      appDir: '酒馆程序目录',
+      profileDir: '酒馆配置与依赖目录',
+      dataDir: '酒馆专属数据目录',
+      sharedHome: '原版 DSH / 共享目录',
+      reviewRemove: '确认删除 DSH 酒馆',
+      removeScope: 'NEXT 会将酒馆 Profile 移到恢复备份，保留角色卡、对话和共享数据。',
+      continueRemove: '继续删除',
+      cancel: '取消',
       version: '已安装 DSH Tavern v',
       absent: '在独立的 tavern Profile 中安装最新版酒馆。',
       ready: 'tavern Profile 已准备好，可以安装酒馆。',
@@ -27,7 +36,7 @@ window.__ModuleLoader__.load({
       install: '安装酒馆',
       open: '打开酒馆',
       update: '更新酒馆',
-      remove: '卸载酒馆',
+      remove: '删除 DSH 酒馆',
       nativeHint: '请在 DSH NEXT 桌面窗口中打开或卸载酒馆。',
       installing: '正在安装酒馆…',
       updating: '正在更新酒馆…',
@@ -40,6 +49,15 @@ window.__ModuleLoader__.load({
       originalProfile: 'Original DSH',
       tavernProfile: 'DSH Tavern',
       management: 'Tavern installation',
+      explain: 'Switch between separate Profiles or manage the Tavern installation.',
+      appDir: 'Tavern application directory',
+      profileDir: 'Tavern profile and dependencies',
+      dataDir: 'Tavern data directory',
+      sharedHome: 'Original DSH / shared directory',
+      reviewRemove: 'Confirm removal of DSH Tavern',
+      removeScope: 'NEXT moves the Tavern Profile to a recovery backup and keeps cards, chats and shared data.',
+      continueRemove: 'Continue to removal',
+      cancel: 'Cancel',
       version: 'Installed DSH Tavern v',
       absent: 'Install the latest DSH Tavern in a separate tavern Profile.',
       ready: 'The tavern Profile is ready for installation.',
@@ -56,7 +74,7 @@ window.__ModuleLoader__.load({
       install: 'Install Tavern',
       open: 'Open Tavern',
       update: 'Update Tavern',
-      remove: 'Uninstall Tavern',
+      remove: 'Remove DSH Tavern',
       nativeHint: 'Open or uninstall Tavern from the DSH NEXT desktop window.',
       installing: 'Installing Tavern…',
       updating: 'Updating Tavern…',
@@ -64,10 +82,37 @@ window.__ModuleLoader__.load({
       retry: 'Check again',
     }
 
+    // Restore the Profile Bridge settings layout in the NEXT launcher.
+    const CSS = `
+.tl { display: grid; gap: 16px; font-size: 13px; line-height: 1.6; color: inherit; width: 100%; max-width: 640px; min-width: 0;
+  --tl-accent: #4d6bfe; --tl-accent-soft: rgba(77,107,254,0.07); --tl-line: rgba(127,127,127,0.25); --tl-fill: rgba(127,127,127,0.06); }
+.tl * { box-sizing: border-box; }
+.tl-head { display: grid; gap: 2px; }
+.tl-title { margin: 0; font-size: 16px; font-weight: 600; }
+.tl-sub { margin: 0; opacity: 0.6; }
+.tl-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 10px 12px 10px 16px; border-radius: 10px; background: var(--tl-accent-soft); }
+.tl-bar-text { flex: 1; min-width: 0; }
+.tl-btn { appearance: none; font: inherit; font-size: 13px; color: #fff; background: var(--tl-accent); border: 1px solid transparent; border-radius: 8px; padding: 6px 16px; cursor: pointer; }
+.tl-btn:hover:not(:disabled) { background: #3d5bf0; }
+.tl-btn:disabled { opacity: 0.5; cursor: default; }
+.tl-btn-quiet { color: inherit; background: var(--tl-fill); border-color: var(--tl-line); }
+.tl-btn-quiet:hover:not(:disabled) { background: var(--tl-accent-soft); }
+.tl-error { margin: 0; padding: 10px 12px; border-radius: 10px; color: #e5484d; background: rgba(229,72,77,0.08); }
+.tl-management { display: grid; gap: 10px; border: 1px solid var(--tl-line); border-radius: 10px; padding: 14px; min-width: 0; }
+.tl-management h3, .tl-management p { margin: 0; }
+.tl-paths { margin: 0; display: grid; gap: 4px; min-width: 0; }
+.tl-paths dt { opacity: .65; }
+.tl-paths dd { margin: 0 0 6px; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
+.tl-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.tl-review { display: grid; gap: 10px; border-top: 1px solid var(--tl-line); padding-top: 12px; }
+.tl-danger { color: #d93f44; }
+`
+
     function Launcher({ call, t, handoffFailure }) {
       const [status, setStatus] = React.useState({ state: 'loading' })
       const [error, setError] = React.useState('')
       const [nativeBusy, setNativeBusy] = React.useState(false)
+      const [reviewRemove, setReviewRemove] = React.useState(false)
       const pending = React.useRef(false)
       const refresh = React.useCallback(async (endpoint = 'status') => {
         if (pending.current) return
@@ -124,26 +169,41 @@ window.__ModuleLoader__.load({
       const hasNative = typeof window.desktopNext?.command === 'function'
       const current = status.state === 'current'
       const failure = error || status.error || handoffFailure()
-      const button = (label, action) => h('button', { key: label, type: 'button', disabled: nativeBusy, onClick: () => void refresh(action) }, t(label))
-      const actions = { display: 'flex', flexWrap: 'wrap', gap: 8 }
-      return h('section', { style: { display: 'grid', gap: 12, justifyItems: 'start' } },
-        h('h2', { style: { margin: 0 } }, t('title')),
-        current || status.profile ? h('div', null, `${t('currentProfile')} · ${current ? t('tavernProfile') : status.profile === 'desktop' ? t('originalProfile') : status.profile}`) : null,
-        h('div', { style: actions },
-          canManage && hasNative ? button('open', 'open') : null,
-          current && hasNative ? button('back', 'back') : null),
-        h('h3', { style: { margin: 0 } }, t('management')),
-        status.version ? h('strong', null, t('version') + status.version) : null,
-        h('div', { role: failure ? 'alert' : 'status' }, failure || t(current && !status.canHandoff ? 'upgradeLauncher' : status.outcome || status.state)),
-        h('div', { style: actions },
-          canInstall && hasNative ? button('install', 'install') : null,
-          canManage && hasNative ? button('update', 'update') : null,
-          canManage && hasNative ? button('remove', 'delete') : null,
-          current && hasNative && status.canHandoff ? button('update', 'switch-update') : null,
-          current && hasNative && status.canHandoff ? button('remove', 'switch-delete') : null,
-          error ? button('retry', 'status') : null),
-        (canInstall || canManage) && !hasNative ? h('small', null, t('nativeHint')) : null,
-        status.state === 'current' && !hasNative ? h('small', null, t('returnHint')) : null,
+      const canChange = hasNative && (canManage || (current && status.canHandoff))
+      const button = (label, onClick, style = '') => h('button', {
+        type: 'button', className: `tl-btn ${style}`, disabled: nativeBusy, onClick,
+      }, t(label))
+      return h('section', { className: 'tl' },
+        h('style', null, CSS),
+        h('header', { className: 'tl-head' },
+          h('h2', { className: 'tl-title' }, t('title')),
+          h('p', { className: 'tl-sub' }, t('explain'))),
+        current || status.profile ? h('div', { className: 'tl-bar' },
+          h('span', { className: 'tl-bar-text' }, `${t('currentProfile')} · ${current ? t('tavernProfile') : status.profile === 'desktop' ? t('originalProfile') : status.profile}`),
+          canManage && hasNative ? button('open', () => void refresh('open')) : null,
+          current && hasNative ? button('back', () => void refresh('back')) : null) : null,
+        h('section', { className: 'tl-management', 'aria-label': t('management') },
+          h('h3', null, t('management')),
+          status.version ? h('strong', null, t('version') + status.version) : null,
+          status.paths ? h('dl', { className: 'tl-paths' },
+            ...Object.entries(status.paths).flatMap(([key, value]) => [
+              h('dt', { key: `${key}-label` }, t(key)), h('dd', { key }, value),
+            ])) : null,
+          h('p', { className: failure ? 'tl-error' : 'tl-sub', role: failure ? 'alert' : 'status' },
+            failure || t(current && !status.canHandoff ? 'upgradeLauncher' : status.outcome || status.state)),
+          (canInstall || canManage) && !hasNative ? h('p', { className: 'tl-sub' }, t('nativeHint')) : null,
+          current && !hasNative ? h('p', { className: 'tl-sub' }, t('returnHint')) : null,
+          h('div', { className: 'tl-actions' },
+            canInstall && hasNative ? button('install', () => void refresh('install')) : null,
+            canChange && !reviewRemove ? button('update', () => void refresh(current ? 'switch-update' : 'update'), 'tl-btn-quiet') : null,
+            canChange && !reviewRemove ? button('remove', () => setReviewRemove(true), 'tl-btn-quiet tl-danger') : null,
+            failure ? button('retry', () => void refresh(), 'tl-btn-quiet') : null),
+          canChange && reviewRemove ? h('div', { className: 'tl-review', role: 'group', 'aria-label': t('reviewRemove') },
+            h('strong', null, t('reviewRemove')),
+            h('p', null, t('removeScope')),
+            h('div', { className: 'tl-actions' },
+              button('continueRemove', () => { setReviewRemove(false); void refresh(current ? 'switch-delete' : 'delete') }, 'tl-btn-quiet tl-danger'),
+              button('cancel', () => setReviewRemove(false), 'tl-btn-quiet'))) : null),
       )
     }
 
