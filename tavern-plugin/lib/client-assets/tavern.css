@@ -98,6 +98,16 @@ body.dsh-tavern-shell-active,
 /* the raw text under the sentence, 调试视图 only. */
 .dsh-tavern-error-raw { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; opacity: .8; }
 .dsh-tavern-assistant { display: flex; flex-direction: column; gap: 16px; color: var(--dsw-alias-label-primary); font-size: var(--dsh-content-font-size, 14px); line-height: calc(24px + var(--dsh-content-font-delta, 0px)); }
+.dsh-tavern-story-transcript-row { min-width: 0; }
+.dsh-tavern-story-body { min-width: 0; overflow-wrap: anywhere; }
+.dsh-tavern-story-floor-head { display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 18px; }
+.dsh-tavern-story-floor-no { color: var(--dsw-alias-label-secondary); font-weight: 600; }
+.dsh-tavern-story-floor-tag { padding: 0 6px; border-radius: 999px; background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-tavern-story-older { display: flex; justify-content: center; }
+.dsh-tavern-story-loading, .dsh-tavern-story-empty { padding: 20px 0; color: var(--dsw-alias-label-secondary); text-align: center; }
+.dsh-tavern-story-error { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--dsh-tavern-accent-error); }
+.dsh-tavern-story-mode { white-space: nowrap; }
+.dsh-tavern-story-input .dsh-tavern-user-bubble { box-sizing: border-box; max-width: min(525px, 82%); }
 .dsh-tavern-illustration { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .dsh-tavern-illustration > a { display: block; max-width: 100%; }
 /* Earlier turns without a picture: a quiet entry that appears when the turn is hovered. */

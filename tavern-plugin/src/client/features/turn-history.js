@@ -137,6 +137,7 @@
 				owned.clear();
 			}
 			function apply(turns) {
+				if (typeof root.querySelector === 'function' && root.querySelector('[data-story-transcript]')) { dispose(); return; }
 				const hidden = new Set(turns.map(String));
 				const rows = root.querySelectorAll('[data-chat-flow-kind]');
 				const keep = new Set();
@@ -304,6 +305,8 @@
 				const regenerating = Boolean(options && options.regenerating === true);
 				// Reconcile both directions: rows a previous plan hid may show now.
 				restoreHiddenRows();
+				const container = root();
+				if (typeof container.querySelector === 'function' && container.querySelector('[data-story-transcript]')) return;
 				const whole = new Set((Array.isArray(wholeTurns) ? wholeTurns : []).map(String));
 				const digest = tavernPlanBodyDigest(plan);
 				for (const [row, turn] of rowsWithTurns()) {
