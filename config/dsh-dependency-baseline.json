@@ -194,6 +194,9 @@
   "tavern-plugin/packages/dsh-profile-bridge/index.js": [
     "@deepseek-ai/cordis"
   ],
+  "tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs": [
+    "@deepseek-ai/dsh-desktop"
+  ],
   "tavern-plugin/packages/dsh-tavern-launcher/index.js": [
     "@deepseek-ai/dsh-app-boot",
     "@deepseek-ai/dsh-official-bundles",
