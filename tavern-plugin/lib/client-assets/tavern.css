@@ -1560,10 +1560,10 @@ ins.dsh-polish-mark.is-lit { background: rgba(76, 175, 125, .34); }
 @media (max-width: 760px) { .dsh-polish-cols { grid-template-columns: 1fr; } }
 .dsh-tavern-gallery-turn h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 14px; font-weight: 600; }
 .dsh-tavern-gallery-turn h4 span { font-size: 12px; font-weight: 400; color: var(--dsw-alias-label-tertiary); }
-.dsh-tavern-gallery-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
-.dsh-tavern-gallery-shot { position: relative; flex: none; margin: 0; }
+.dsh-tavern-gallery-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; padding-bottom: 4px; }
+.dsh-tavern-gallery-shot { position: relative; margin: 0; min-width: 0; }
 .dsh-tavern-gallery-shot a { display: block; border-radius: 10px; overflow: hidden; outline-offset: 2px; }
-.dsh-tavern-gallery-shot img { display: block; height: 160px; width: auto; max-width: 300px; object-fit: cover; background: var(--dsw-alias-interactive-bg-hover); cursor: zoom-in; }
+.dsh-tavern-gallery-shot img { display: block; width: 100%; height: auto; aspect-ratio: 2 / 3; object-fit: cover; background: var(--dsw-alias-interactive-bg-hover); cursor: zoom-in; }
 .dsh-tavern-gallery.is-picking .dsh-tavern-gallery-shot img { cursor: pointer; }
 .dsh-tavern-gallery-shot.is-picked a { box-shadow: inset 0 0 0 3px var(--dsw-alias-state-business-primary); }
 .dsh-tavern-gallery-shot.is-picked img { opacity: .85; }
@@ -1574,7 +1574,7 @@ ins.dsh-polish-mark.is-lit { background: rgba(76, 175, 125, .34); }
 @media (hover: hover) {
   .dsh-tavern-gallery-shot:not(:hover, :focus-within) .dsh-tavern-gallery-delete { opacity: 0; }
 }
-@media (max-width: 600px) { .dsh-tavern-gallery-shot img { height: 120px; max-width: 220px; } }
+@media (max-width: 600px) { .dsh-tavern-gallery-row { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); } }
 
 .dsh-tavern-full-context { box-sizing: border-box; width: 100%; min-width: 0; padding: 24px clamp(16px, 3vw, 40px) 32px; color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .dsh-context-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; }

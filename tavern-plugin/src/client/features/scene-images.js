@@ -89,7 +89,7 @@
 				currentItems && !shots.length ? h("p", { className: "dsh-context-empty" }, "这一局还没有插图。") : null,
 				rows.map(function (row) {
 					return h("section", { key: row.provider || "turn-" + row.turn, className: "dsh-tavern-gallery-turn" },
-						h("h4", null, row.provider ? "扩展图库 · " + row.provider : row.turn > 0 ? "第 " + row.turn + " 轮" : "开场", h("span", null, row.shots.length + " 张")),
+						h("h4", null, row.provider ? "本局生图 · " + row.provider : row.turn > 0 ? "第 " + row.turn + " 轮" : "开场", h("span", null, row.shots.length + " 张")),
 						h("div", { className: "dsh-tavern-gallery-row" }, row.shots.map(function (shot) {
 							return h("figure", { key: shot.id, className: "dsh-tavern-gallery-shot" + (picked[shot.id] ? " is-picked" : ""), title: shot.version.description },
 									h("a", { href: shot.url, "aria-label": shot.item.provider ? "放大「" + shot.item.provider + "」图库图片" : "放大第 " + shot.item.turn + " 轮插图", onClick: function (event) {
