@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d50640b8eec82ebc8401c00f5105bbb7e8b7c099",
-  "releaseSequence": 1293,
+  "revision": "10edb297516d427aba3f2edf951467f2527a197d",
+  "releaseSequence": 1294,
   "version": "3.2.0",
   "files": [
     {
@@ -7631,8 +7631,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/client.js",
-      "sha256": "124aacb792ea1846549521b3d78816b16537ece7e6e4fd357e8435f29f7d9dc7",
-      "size": 9880
+      "sha256": "73787510dd04f4e0c971cd0915588f05cf0e84dd09ad13282ec64f65677d5dc7",
+      "size": 13887
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/cordis.patch.yml",
@@ -7641,8 +7641,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/index.js",
-      "sha256": "2637c7712d5dc6792f39085bdd39ca78e06f0804746978f1bc48169d3d696b85",
-      "size": 7992
+      "sha256": "8d2642bd310b0e07ab8a4d2d0b5515f13453a0db3b3a177097cf728eb5dfa998",
+      "size": 8318
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/locale/en.json",
@@ -7656,12 +7656,12 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/package.json",
-      "sha256": "9d54d30825a62443648ce7f68ef63e6349035e6b34a6682dfc0a01978c081fff",
+      "sha256": "ab21c0fcb9cb67fd78da489602131f0e8ff66f8a4525af408dbce8723d999b1d",
       "size": 977
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-launcher/README.md",
-      "sha256": "a4679dde0069c41d86ca39a9cd572ea3805749b2c78d9030d3d68c19ca618d12",
+      "sha256": "b62eed6f62d1a8c9d33c6c9e0adab80e26a22b9644751c3ef09956151a79c3c1",
       "size": 1222
     },
     {
@@ -9851,9 +9851,9 @@
     }
   ],
   "archive": {
-    "commit": "c09fb13a1ac62f13b6b6a4f7f787b67ce91bf456",
+    "commit": "dd17f4dce59da652b6dc6853c0f9ddb13fbe7c8a",
     "path": "runtime.zip",
-    "sha256": "3ee677bf1529edbac04dc305ceb6b0fa0a45a5314c2ce9523fbcddbff063ce6d",
-    "size": 16389628
+    "sha256": "509fc367df8f080c1e52f7707e6eb2c15160cd3e60e9ec0ce669c7038ef63cbe",
+    "size": 16390987
   }
 }
