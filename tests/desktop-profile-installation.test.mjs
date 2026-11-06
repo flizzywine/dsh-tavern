@@ -28,8 +28,8 @@ test('首次安装、还原原版、重复安装均保留原版配置和存档',
   assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
   await switchProfile({ mode: 'unlink', profilesRoot: r.profiles, liveDir: r.desktop, stamp: 'restore' })
   assert.equal(readFileSync(path.join(r.desktop, 'cordis.patch.yml'), 'utf8'), '# original\n[]\n')
-  assert.ok(existsSync(path.join(r.desktop, 'node_modules/dsh-profile-bridge/index.js')))
-  assert.ok(JSON.parse(readFileSync(path.join(r.desktop, 'package.json'))).dsh.profile.bundles.includes('dsh-profile-bridge'))
+  assert.ok(existsSync(path.join(r.desktop, 'node_modules/dsh-tavern-launcher/index.js')))
+  assert.ok(JSON.parse(readFileSync(path.join(r.desktop, 'package.json'))).dsh.profile.bundles.includes('dsh-tavern-launcher'))
   const again = prepare(r); again.finish(); again.commit()
   assert.notEqual(realpathSync(r.desktop), realpathSync(r.tavern))
   await switchProfile({ mode: 'link', profilesRoot: r.profiles, liveDir: r.desktop, targetDir: r.tavern, stamp: 'return-tavern' })
@@ -42,7 +42,7 @@ test('首次安装、还原原版、重复安装均保留原版配置和存档',
 })
 test('从 NEXT 安装到官方桌面时保留旧 Profile 备份和酒馆数据', t => {
   const r = fixture(t)
-  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ dsh: { profile: { bundles: ['official', 'dsh-profile-bridge'] } } }))
+  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ dsh: { profile: { bundles: ['official', 'dsh-tavern-launcher'] } } }))
   mkdirSync(r.tavern)
   const oldManifest = JSON.stringify({ dsh: { profile: { bundles: ['dsh-tavern-bundle'] } } })
   writeFileSync(path.join(r.tavern, 'package.json'), oldManifest)
@@ -62,7 +62,7 @@ test('从 NEXT 安装到官方桌面时保留旧 Profile 备份和酒馆数据',
 test('重启前准备酒馆，切换时保留仍在使用的原版配置', async t => {
   const r = fixture(t)
   const manifest = path.join(r.desktop, 'package.json')
-  writeFileSync(manifest, JSON.stringify({ dsh: { profile: { bundles: ['official', 'dsh-profile-bridge'] } } }))
+  writeFileSync(manifest, JSON.stringify({ dsh: { profile: { bundles: ['official', 'dsh-tavern-launcher'] } } }))
   const checks = []
   const tx = prepare({ ...r, preparingForPid: 123, checkStopped: pid => checks.push(pid) })
   assert.equal(tx.desktopStage, r.desktop)
@@ -185,7 +185,7 @@ test('卸载记录存在时重新安装：重新建立酒馆 profile 与链接�
     retained: [path.join(r.home, 'apps/dsh-tavern.switch-removed-1')],
     dataDir: path.join(r.home, 'profile-data/tavern')
   }))
-  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-profile-bridge'] } } }))
+  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-tavern-launcher'] } } }))
   const tx = prepare(r)
   tx.finish()
   tx.commit()
@@ -195,7 +195,7 @@ test('卸载记录存在时重新安装：重新建立酒馆 profile 与链接�
 
 test('酒馆 profile 缺失时，原版 desktop 已带切换组件也按首次安装重建', t => {
   const r = fixture(t)
-  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-profile-bridge'] } } }))
+  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-tavern-launcher'] } } }))
   const tx = prepare(r)
   tx.finish(); tx.commit()
   assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))

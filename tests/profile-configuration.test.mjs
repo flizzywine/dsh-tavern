@@ -116,7 +116,8 @@ test('Next 迁移独立酒馆配置时移除旧桥接和过时的素材库路径
   assert.equal(next.dshTavern.profileBridge, undefined)
   assert.equal(next.dshTavern.officialDesktop, undefined)
   assert.equal(next.dependencies['user-plugin'], '1.0.0')
-  assert.equal(desktop.dependencies['dsh-profile-bridge'], 'link:/bridge')
+  assert.equal(desktop.dependencies['dsh-profile-bridge'], undefined)
+  assert.equal(desktop.dsh.profile.bundles.includes('dsh-profile-bridge'), false)
   const patchOptions = { profileDir, profileConfigurationVersion: Number.MAX_SAFE_INTEGER }
   assert.deepEqual(parseDocument(prepareProfilePatch({ ...patchOptions, host: 'next' })).toJS(), [
     { id: 'dsh-asset-library', config: { assetRoot: './custom' } },

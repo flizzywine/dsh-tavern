@@ -2,6 +2,7 @@ import { preserveInstallationFonts } from './preserve-font-assets.mjs'
 import officialDesktopRuntime from './official-desktop-runtime.cjs'
 import { beginDesktopProfileInstallation, clearUninstalledInstallationRecord } from './desktop-profile-installation.mjs'
 import { ensureInitialTavernShortcut } from '../tavern-plugin/packages/dsh-profile-bridge/lib/shortcut.mjs'
+import { LAUNCHER_BUNDLE } from '../tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs'
 import { assertDesktopStopped, importUserHome } from './import-user-home.mjs'
 import { randomUUID } from 'node:crypto'
 import installationState from './installation-state.cjs'
@@ -86,8 +87,8 @@ function prepareProfileConfiguration(host, dshVersion) {
   if (host === 'desktop') {
     manifest.dshTavern.officialDesktop = true
     manifest.dshTavern.profileBridge = true
-    manifest.dsh.profile.bundles = [...new Set([...manifest.dsh.profile.bundles, 'dsh-profile-bridge'])]
-    manifest.dependencies['dsh-profile-bridge'] = `link:${path.join(pluginPath, 'packages/dsh-profile-bridge').replaceAll(path.sep, '/')}`
+    manifest.dsh.profile.bundles.push(LAUNCHER_BUNDLE)
+    manifest.dependencies[LAUNCHER_BUNDLE] = `link:${path.join(pluginPath, 'packages/dsh-profile-bridge').replaceAll(path.sep, '/')}`
   }
   return { manifest, patchText }
 }

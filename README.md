@@ -26,8 +26,10 @@
 在左侧打开 **插件 → 添加插件**，粘贴下面的地址，点 **安装**。安装完成后按提示启用。
 
 ```text
-https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.12.tgz
+https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@plugin-official-downloads/dsh-tavern-launcher-0.2.0-tavern.13.tgz
 ```
+
+如果原版 DSH 的插件列表已有 `dsh-profile-bridge`，先从酒馆切回原版 DSH，再移除这个旧插件并安装 `dsh-tavern-launcher`。酒馆配置里会随酒馆更新更名。
 
 **2. 从启动器安装酒馆**
 

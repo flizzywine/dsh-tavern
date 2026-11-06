@@ -54,20 +54,20 @@ test('酒馆自带插件包的 DSH peer 覆盖整个支持的 DSH 版本范围',
 test('用宿主自己的加载器发现 peerDependencies 不满足而被跳过的插件包', { skip: !dsh && '需要已安装的 DSH' }, async t => {
   const dir = await mkdtemp(path.join(tmpdir(), 'tavern-bundle-check-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
-  await cp(bridge, path.join(dir, 'node_modules', 'dsh-profile-bridge'), { recursive: true })
+  await cp(bridge, path.join(dir, 'node_modules', 'dsh-tavern-launcher'), { recursive: true })
   for (const name of ['dsh-too-new', 'user-too-new']) {
     await mkdir(path.join(dir, 'node_modules', name), { recursive: true })
     await writeFile(path.join(dir, 'node_modules', name, 'package.json'), JSON.stringify({
       name, version: '1.0.0', peerDependencies: { '@deepseek-ai/dsh-app-boot': '^99.0.0' }, dsh: { bundle: {} },
     }))
   }
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern', private: true, dsh: { profile: { bundles: ['dsh-profile-bridge', 'dsh-too-new', 'user-too-new'] } } }))
+  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern', private: true, dsh: { profile: { bundles: ['dsh-tavern-launcher', 'dsh-too-new', 'user-too-new'] } } }))
 
   const warnings = []
   await assert.rejects(
-    assertProfileBundlesLoad({ dsh, host: 'cli', profileDir: dir, managedBundles: ['dsh-profile-bridge', 'dsh-too-new'], log: message => warnings.push(message) }),
+    assertProfileBundlesLoad({ dsh, host: 'cli', profileDir: dir, managedBundles: ['dsh-tavern-launcher', 'dsh-too-new'], log: message => warnings.push(message) }),
     error => /dsh-too-new：/.test(error.message) && /\^99\.0\.0/.test(error.message) && !/user-too-new/.test(error.message),
   )
   assert.match(warnings.join('\n'), /user-too-new/)
-  await assertProfileBundlesLoad({ dsh, host: 'cli', profileDir: dir, managedBundles: ['dsh-profile-bridge'], log: () => {} })
+  await assertProfileBundlesLoad({ dsh, host: 'cli', profileDir: dir, managedBundles: ['dsh-tavern-launcher'], log: () => {} })
 })

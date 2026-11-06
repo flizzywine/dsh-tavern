@@ -285,7 +285,9 @@ DSH_OFFICIAL_DESKTOP_MODULE
   DSH_DESKTOP_APP_EXECUTABLE="$desktop_executable" ELECTRON_RUN_AS_NODE=1 "$desktop_runner" --expose-internals "${TEMP_DIR}/official-desktop-runtime.cjs" "$DSH_ROOT" --shell >"${TEMP_DIR}/desktop-env.sh" || fail "桌面运行环境校验失败"
   . "${TEMP_DIR}/desktop-env.sh"
   if [ "$LAUNCHER_ONLY" -eq 1 ]; then
-    launcher_url='https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.12.tgz'
+    node -e 'const p = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); process.exit(p.dependencies?.["dsh-profile-bridge"] || p.dsh?.profile?.bundles?.includes("dsh-profile-bridge") ? 1 : 0)' "$desktop_profile/package.json" \
+      || fail '请检查原版 desktop 配置。如果已经安装 dsh-profile-bridge，请从插件页移除后再安装 dsh-tavern-launcher。'
+    launcher_url='https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-tavern-launcher-0.2.0-tavern.13.tgz'
     dsh plugin --profile desktop add "$launcher_url" || fail '安装酒馆启动器失败。'
     printf '%s\n' '酒馆启动器已安装。打开官方 DeepSeek Harness，进入「设置 → 酒馆启动器 → 安装酒馆」。'
     INSTALL_COMPLETED=1

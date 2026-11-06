@@ -264,13 +264,17 @@ export function canInstallTavern(paths) {
   return ['app', 'app.asar'].some(dir => readManifest(join(resources, dir))?.name === '@deepseek-ai/dsh-desktop')
 }
 
-/**
- * Whether a profile manifest enables this plugin, i.e. the app can switch back from it.
- * @param {object | undefined} manifest - parsed profile package.json.
- * @returns {boolean} true when dsh-profile-bridge is one of its bundles.
- */
+export const LAUNCHER_BUNDLE = 'dsh-tavern-launcher'
+export const LEGACY_LAUNCHER_BUNDLE = 'dsh-profile-bridge'
+
+export function launcherBundle(manifest) {
+  const bundles = manifest?.dsh?.profile?.bundles
+  if (!Array.isArray(bundles) || bundles.includes('dsh-tavern-bundle')) return undefined
+  return [LAUNCHER_BUNDLE, LEGACY_LAUNCHER_BUNDLE].find(name => bundles.includes(name))
+}
+
 export function hasBridge(manifest) {
-  return (manifest?.dsh?.profile?.bundles ?? []).includes('dsh-profile-bridge')
+  return launcherBundle(manifest) !== undefined
 }
 
 /**
@@ -292,7 +296,7 @@ export function validateTarget(paths, name) {
   }
   // A profile without this page has no way back from inside the app.
   if (!hasBridge(readManifest(dir))) {
-    fail('no-bridge', `"${trimmed}" does not enable dsh-profile-bridge, so the app could not switch back from it.`)
+    fail('no-bridge', `"${trimmed}" does not enable the Tavern launcher, so the app could not switch back from it.`)
   }
   const warnings = []
   if (!existsSync(join(dir, 'node_modules'))) {

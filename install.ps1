@@ -1259,8 +1259,12 @@ try {
       if ($DesktopProfile.Attributes -band [IO.FileAttributes]::ReparsePoint) {
         throw '当前使用的是切换后的配置。请打开官方 DeepSeek Harness，在「设置 → 酒馆启动器」点「重启并切换到原版 DSH」。等原版窗口打开，再从托盘退出并重试命令。'
       }
+      $LauncherProfile = Get-Content -Raw -LiteralPath (Join-Path $DesktopProfile.FullName 'package.json') | ConvertFrom-Json
+      if ($LauncherProfile.dependencies.'dsh-profile-bridge' -or $LauncherProfile.dsh.profile.bundles -contains 'dsh-profile-bridge') {
+        throw '请在原版 DeepSeek Harness 的插件页移除 dsh-profile-bridge，再安装 dsh-tavern-launcher。'
+      }
       $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js'
-      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-profile-bridge-0.2.0-tavern.12.tgz'
+      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-official-downloads/dsh-tavern-launcher-0.2.0-tavern.13.tgz'
       $PreviousNodeMode = $env:ELECTRON_RUN_AS_NODE
       try {
         $env:ELECTRON_RUN_AS_NODE = '1'

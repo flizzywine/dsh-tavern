@@ -66,10 +66,10 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
   const excludedHostBundles = selectedLayout
     ? ['dsh-pocket', 'dsh-web-mobile', '@dsh-external/dsh-mobile-nav'].filter(name => name !== selectedLayout)
     : []
-  // Official Desktop loads Tavern in its own process; the old launcher would
-  // start a second server against the same save directory.
+  // Desktop installation re-adds its own launcher from the installed source.
+  // Drop previous official and NEXT launchers before the profiles are composed.
   if (desktop) excludedHostBundles.push('dsh-tavern-launcher')
-  if (host !== 'desktop') excludedHostBundles.push('dsh-profile-bridge')
+  excludedHostBundles.push('dsh-profile-bridge')
   const sourceBundles = uniqueStrings(sourceProfile.bundles)
     .map(name => name === 'dsh-web-mobile' ? selectedLayout : name)
     .filter(name => name && !excludedHostBundles.includes(name))

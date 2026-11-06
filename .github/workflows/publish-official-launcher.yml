@@ -23,6 +23,8 @@ jobs:
           fetch-depth: 0
       - name: Pack and publish the standard DSH bundle
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           branch=plugin-official-downloads
@@ -34,14 +36,26 @@ jobs:
             git worktree add --detach "$dist" "origin/$branch"
             if [ -f "$dist/$archive" ]; then
               cmp "$RUNNER_TEMP/$archive" "$dist/$archive"
-              exit
             fi
           else
             git worktree add --detach "$dist"
             git -C "$dist" checkout --orphan "$branch"
             git -C "$dist" rm -rfq .
           fi
-          cp "$RUNNER_TEMP/$archive" "$dist/$archive"
-          git -C "$dist" add "$archive"
-          git -C "$dist" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -qm "Publish $archive"
-          git -C "$dist" push origin "HEAD:refs/heads/$branch"
+          if [ ! -f "$dist/$archive" ]; then
+            cp "$RUNNER_TEMP/$archive" "$dist/$archive"
+            git -C "$dist" add "$archive"
+            git -C "$dist" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -qm "Publish $archive"
+            git -C "$dist" push origin "HEAD:refs/heads/$branch"
+          fi
+
+          version=$(node -p "require('./$source/package.json').version")
+          tag="launcher-v$version"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            mkdir "$RUNNER_TEMP/launcher-release"
+            gh release download "$tag" --pattern "$archive" --dir "$RUNNER_TEMP/launcher-release"
+            cmp "$RUNNER_TEMP/$archive" "$RUNNER_TEMP/launcher-release/$archive"
+          else
+            gh release create "$tag" "$RUNNER_TEMP/$archive" --target "$GITHUB_SHA" --latest=false \
+              --title "DSH Tavern Launcher $version" --notes 'Launcher for official DeepSeek Harness on Windows and macOS. Install it into the original desktop profile, then use Settings → Tavern Launcher to install Tavern.'
+          fi

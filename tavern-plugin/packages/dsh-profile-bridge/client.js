@@ -1,12 +1,12 @@
 /**
- * dsh-profile-bridge — browser half.
+ * Tavern launcher — browser half.
  *
  * Adds one settings page that shows which profile this Harness is running, which
  * other profiles exist, and switches the app's profile directory to the one you
  * pick (or reverts that switch). All file work happens in the Host half.
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-profile-bridge',
+  id: 'dsh-tavern-launcher',
   factory(require) {
     const React = require('react')
     const h = React.createElement
@@ -308,7 +308,11 @@ window.__ModuleLoader__.load({
 
       const current = status?.linkTargetName ?? (inTavern() ? 'tavern' : 'desktop')
       const standalone = status?.desktopApp === false
-      const ready = (name) => (status?.profiles ?? []).some((profile) => profile.name === name && (profile.bundles ?? []).includes('dsh-profile-bridge') && profile.hasNodeModules)
+      const ready = (name) => (status?.profiles ?? []).some((profile) => {
+        const bundles = profile.bundles ?? []
+        return profile.name === name && profile.hasNodeModules && !bundles.includes('dsh-tavern-bundle')
+          && (bundles.includes('dsh-tavern-launcher') || bundles.includes('dsh-profile-bridge'))
+      })
       const destinations = [
         { name: 'desktop', label: 'profileDesktop', action: 'toOriginal', ready: (status?.backups ?? []).length > 0 },
         { name: 'tavern', label: 'profileTavern', action: 'toTavern', ready: ready('tavern') },
