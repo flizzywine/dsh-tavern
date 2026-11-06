@@ -11,6 +11,8 @@ on:
       - bin/build-website.mjs
       - bin/sync-wiki-references.mjs
       - .github/workflows/publish-website.yml
+  # 手动重发：分支被回退或清单指向的提交已下线时，按当前 HEAD 重建并重新发布。
+  workflow_dispatch:
 
 permissions:
   contents: write
