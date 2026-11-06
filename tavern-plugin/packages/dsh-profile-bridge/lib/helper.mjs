@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync, lstatSync, renameSync, symlinkSync, unlinkSyn
 import { join, dirname, resolve, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { trustedHome, withinPath } from './trusted-home.mjs'
+import { relaunchEnvironment } from './startup-profile.mjs'
 
 /** A lock older than this without a live helper is safe to reclaim. */
 const PENDING_STALE_MS = 3 * 60 * 1000
@@ -155,11 +156,13 @@ export function relaunchCommand(exe, platform = process.platform) {
  * Reopen Desktop detached from the helper.
  * @param {string} exe - the running application binary.
  */
-export function relaunchApp(exe) {
-  const [command, args] = relaunchCommand(exe)
+export function relaunchApp(exe, { continueProfile = false } = {}) {
+  // Explicit restarts need to pass the session environment to the app itself,
+  // rather than handing the launch to macOS Launch Services.
+  const [command, args] = continueProfile && process.platform === 'darwin' && !exe.endsWith('.app')
+    ? [exe, []] : relaunchCommand(exe)
   // The helper itself runs the app binary as node; the reopened app must not.
-  const env = { ...process.env }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = relaunchEnvironment(process.env, continueProfile)
   spawn(command, args, { detached: true, stdio: 'ignore', env }).unref()
 }
 

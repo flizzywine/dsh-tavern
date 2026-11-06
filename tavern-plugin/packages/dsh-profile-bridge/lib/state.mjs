@@ -14,6 +14,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpat
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { inspectInstallation } from './installation.mjs'
+import { readDefaultProfile } from './startup-profile.mjs'
 import { readLastResult } from './helper.mjs'
 export { readLastResult } from './helper.mjs'
 
@@ -26,6 +27,12 @@ export function fail(code, message) {
 
 export function isDesktopApp() {
   return Boolean(process.versions.electron && typeof process.send === 'function' && process.ppid > 1)
+}
+
+export function isOfficialDesktopApp() {
+  if (!isDesktopApp()) return false
+  const resources = process.platform === 'darwin' ? resolve(dirname(process.execPath), '../Resources') : join(dirname(process.execPath), 'resources')
+  return ['app', 'app.asar'].some(dir => readManifest(join(resources, dir))?.name === '@deepseek-ai/dsh-desktop')
 }
 
 export function isActiveTavern(paths, installation) {
@@ -211,6 +218,7 @@ export function statusPayload(paths) {
   const installation = inspectInstallation(paths)
   return {
     installation,
+    defaultProfile: readDefaultProfile(paths.home),
     installAvailable: canInstallTavern(paths),
     replacesNext: hasNextTavern(paths.home),
     platform: process.platform,

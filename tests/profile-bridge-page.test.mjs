@@ -132,7 +132,7 @@ test('官方酒馆启动器按提交检查同版本更新，并跟踪安装到�
     })
     assert.equal(page.calls.filter(([endpoint]) => endpoint === 'start-update').length, 1)
     assert.match(page.text(), /正在下载新版/)
-    assert.equal(namedButton(page, '将原版 DSH 设为默认并重启').disabled, true)
+    assert.equal(namedButton(page, '重启并切换到原版 DSH').disabled, true)
     update = { ...latest, phase: 'completed', requiresRestart: true }
     await page.act(async () => { await new Promise(resolve => setTimeout(resolve, 1550)) })
     assert.match(page.text(), /更新已安装。请退出并重新打开/)
@@ -164,7 +164,7 @@ test('安装完成后可手动添加快捷方式，并重启切换到酒馆 Prof
     assert.deepEqual(page.calls, [['status', {}]])
     await page.act(async () => namedButton(page, '添加桌面快捷方式').click())
     assert.deepEqual(page.calls.at(-1), ['shortcut', {}])
-    await page.act(async () => namedButton(page, '将 DSH 酒馆设为默认并重启').click())
+    await page.act(async () => namedButton(page, '重启并切换到 DSH 酒馆').click())
     assert.deepEqual(page.calls.at(-1), ['link', { target: 'tavern' }])
   } finally {
     await page.dispose()
@@ -173,8 +173,8 @@ test('安装完成后可手动添加快捷方式，并重启切换到酒馆 Prof
 
 test('酒馆启动器只提供切换到原版和酒馆的入口', async () => {
   const readerProfile = { name: 'reader', bundles: ['dsh-reader', 'dsh-profile-bridge'], hasNodeModules: true }
-  const original = '将原版 DSH 设为默认并重启'
-  const tavern = '将 DSH 酒馆设为默认并重启'
+  const original = '重启并切换到原版 DSH'
+  const tavern = '重启并切换到 DSH 酒馆'
   for (const [current, label, available, action, request] of [
     ['desktop', '原版 DSH', [tavern], tavern, ['link', { target: 'tavern' }]],
     ['reader', 'DSH 阅读器', [original, tavern], tavern, ['link', { target: 'tavern' }]],

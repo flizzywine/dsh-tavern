@@ -8,7 +8,8 @@ import { captureOwnedProcesses } from './lib/processes.mjs'
 import { requestDesktopQuit } from './lib/quit.mjs'
 import { relaunchApp, scheduleSwitch } from './lib/helper.mjs'
 import { createTavernShortcut } from './lib/shortcut.mjs'
-import { canInstallTavern, detectAppExe, fail, isActiveTavern, isDesktopApp, isDesktopTavernWindow, resolvePaths, statusPayload, validateTarget } from './lib/state.mjs'
+import { canInstallTavern, detectAppExe, fail, isActiveTavern, isDesktopApp, isOfficialDesktopApp, isDesktopTavernWindow, readLinkTarget, resolvePaths, statusPayload, validateTarget } from './lib/state.mjs'
+import { initializeDefaultProfile, setDefaultProfile, startupSwitchMode } from './lib/startup-profile.mjs'
 
 /** Shared RPC channel owned by this plugin; the browser half calls it by name. */
 const CHANNEL = '/profile-bridge'
@@ -115,6 +116,12 @@ function openOriginal() {
 async function handleCall(endpoint, payload) {
   try {
     if (endpoint === 'status') return { ok: true, value: statusPayload(resolvePaths()) }
+    if (endpoint === 'set-default') {
+      const paths = resolvePaths()
+      if (!isOfficialDesktopApp() || basename(paths.activeDir) !== 'desktop') fail('not-desktop', '请在官方桌面中设置默认配置。')
+      if (payload?.profile === 'tavern') validateTarget(paths, 'tavern')
+      return { ok: true, value: setDefaultProfile(paths.home, payload?.profile) }
+    }
     if (updateActions.has(endpoint)) return { ok: true, value: await runUpdate(updateActions.get(endpoint), resolvePaths()) }
     if (endpoint === 'link') return { ok: true, value: await runSwitch('link', resolvePaths(), payload) }
     if (endpoint === 'unlink') return { ok: true, value: await runSwitch('unlink', resolvePaths(), payload) }
@@ -195,6 +202,22 @@ function sendJson(res, status, body) {
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context carrying `connection` and `webServer`.
  */
 export function apply(ctx) {
+  // The official GUI hardcodes profiles/desktop. On a fresh process launch the
+  // Host applies the saved preference using the existing guarded transaction.
+  // Explicit switches carry a process-only continuation marker, so they do not
+  // immediately bounce back to the default. Never repeat this on plugin reload.
+  const startupKey = Symbol.for('dsh-tavern-launcher.startup-profile')
+  const paths = resolvePaths()
+  if (isOfficialDesktopApp() && basename(paths.activeDir) === 'desktop' && !globalThis[startupKey]) {
+    globalThis[startupKey] = true
+    Promise.resolve().then(async () => {
+      const link = readLinkTarget(paths.activeDir)
+      const current = link ? basename(link) : 'desktop'
+      const preferred = initializeDefaultProfile(paths.home, current)
+      const mode = startupSwitchMode(current, preferred)
+      if (mode) await runSwitch(mode, paths, { target: 'tavern' })
+    }).catch(error => ctx.logger?.warn?.(`默认配置未能应用：${error.message}`))
+  }
   // Preferred: the Connection service's own channel registry (it also applies the
   // browser-trust fence and session authentication).
   try {

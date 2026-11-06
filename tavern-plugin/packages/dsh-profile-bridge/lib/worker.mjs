@@ -166,7 +166,7 @@ export async function runSwitchJob(job, {
     log('ERROR: ' + error.message)
   } finally {
     if (exited && !recoveryRequired && request?.relaunch) {
-      try { relaunch(request.relaunch); log('已重新打开官方桌面。') } catch (error) { log('ERROR: 无法重新打开官方桌面：' + error.message) }
+      try { relaunch(request.relaunch, { continueProfile: true }); log('已重新打开官方桌面。') } catch (error) { log('ERROR: 无法重新打开官方桌面：' + error.message) }
     }
     if (recoveryRequired) log('入口需要手动恢复，未重新打开桌面；请保留备份和日志。')
     try {

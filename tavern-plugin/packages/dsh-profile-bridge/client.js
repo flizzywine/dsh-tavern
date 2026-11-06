@@ -64,19 +64,25 @@ window.__ModuleLoader__.load({
       install: '安装酒馆',
       confirmInstall: '确认安装',
       replacesNext: '检测到旧版 NEXT 酒馆。安装会备份它的 Profile，并为官方版生成新的配置。酒馆专属数据将继续使用。',
-      installHint: '酒馆会安装到独立的 tavern 配置。安装期间可以继续使用桌面，装好后可将 DSH 酒馆设为默认并重启。',
+      installHint: '酒馆会安装到独立的 tavern 配置。安装期间可以继续使用桌面，装好后可重启并切换到 DSH 酒馆。',
       installing: '正在准备安装酒馆…',
       copyLogs: '复制诊断日志',
       logsCopied: '日志已复制',
       copyLogsFailed: '复制失败，可以在「说明与日志」中选中日志并手动复制。',
       installDone: '酒馆安装完成。',
-      explain: '安装酒馆不会改变默认入口。主动选择后，以后打开官方 DSH 都会使用所选配置，可随时切回原版。',
+      explain: '切换当前使用的配置并重启，不改变下次启动的默认设置。',
+      startupTitle: '默认启动配置',
+      startupOriginal: '下次从官方入口启动时打开原版 DSH。',
+      startupTavern: '下次从官方入口启动时打开 DSH 酒馆。',
+      startupHint: '设置或取消默认只影响下次启动，不切换或重启当前窗口。',
+      setDefault: '默认打开酒馆',
+      clearDefault: '取消默认打开酒馆',
       current: '当前配置',
       profileDesktop: '原版 DSH',
       profileTavern: 'DSH 酒馆',
       profileReader: 'DSH 阅读器',
-      toOriginal: '将原版 DSH 设为默认并重启',
-      toTavern: '将 DSH 酒馆设为默认并重启',
+      toOriginal: '重启并切换到原版 DSH',
+      toTavern: '重启并切换到 DSH 酒馆',
       noTavern: '还没有装好 DSH 酒馆，装好后这里就能切过去。',
       noOriginal: '找不到原版 DSH 的备份，暂时切不回去。请看下面的「说明与日志」。',
       standalone: '这是 DSH 酒馆的独立窗口，原版 DSH 就是 DeepSeek Harness 本身，不用切换、不用重启。',
@@ -95,7 +101,7 @@ window.__ModuleLoader__.load({
       shortcutDone: '已添加到桌面：',
       shortcutExists: '桌面上已经有了：',
       logEmpty: '（还没有日志）',
-      why: '桌面版固定读取 profiles/desktop。主动将 DSH 酒馆设为默认时，会把它链接到 profiles/tavern（Windows 用 junction，macOS/Linux 用符号链接）；原版配置先备份为 desktop.fresh-*，切回原版时恢复。切换需要桌面版先退出：重启走正常退出流程，有任务时会先请你确认。Windows 目录仍被占用时，只会在桌面退出后清理已核实属于本次桌面的残留子进程，不会按路径批量结束其他会话。',
+      why: '桌面版固定读取 profiles/desktop。切换到 DSH 酒馆时，会把当前入口链接到 profiles/tavern（Windows 用 junction，macOS/Linux 用符号链接）；原版配置先备份为 desktop.fresh-*，切回原版时恢复。切换需要桌面版先退出：重启走正常退出流程，有任务时会先请你确认。Windows 目录仍被占用时，只会在桌面退出后清理已核实属于本次桌面的残留子进程，不会按路径批量结束其他会话。',
     }
     const en = {
       management: "DSH Tavern installation",
@@ -151,13 +157,19 @@ window.__ModuleLoader__.load({
       logsCopied: 'Log copied',
       copyLogsFailed: 'Could not copy automatically. Select the log under Help and logs to copy it.',
       installDone: 'Tavern installation complete.',
-      explain: 'Installing Tavern keeps the default unchanged. After you choose a profile, future official Desktop launches use it until you switch back.',
+      explain: 'Switch the current profile and restart without changing the next-launch default.',
+      startupTitle: 'Default startup profile',
+      startupOriginal: 'The next fresh launch opens original DSH.',
+      startupTavern: 'The next fresh launch opens DSH Tavern.',
+      startupHint: 'Changing this setting affects the next launch, without switching or restarting this window.',
+      setDefault: 'Open Tavern by default',
+      clearDefault: 'Cancel Tavern default',
       current: 'Current profile',
       profileDesktop: 'Original DSH',
       profileTavern: 'DSH Tavern',
       profileReader: 'DSH Reader',
-      toOriginal: 'Set original DSH as default and restart',
-      toTavern: 'Set DSH Tavern as default and restart',
+      toOriginal: 'Restart and switch to original DSH',
+      toTavern: 'Restart and switch to DSH Tavern',
       noTavern: 'DSH Tavern is not installed yet; once it is, you can switch from here.',
       noOriginal: 'The original DSH backup is missing, so switching back is not possible right now. See "Details and log" below.',
       standalone: 'This is the standalone DSH Tavern window. The original DSH is DeepSeek Harness itself; no switch or restart needed.',
@@ -176,7 +188,7 @@ window.__ModuleLoader__.load({
       shortcutDone: 'Added to the desktop: ',
       shortcutExists: 'Already on the desktop: ',
       logEmpty: '(no log yet)',
-      why: 'Desktop always reads profiles/desktop. Explicitly selecting DSH Tavern as default links it to profiles/tavern (a junction on Windows, a symlink elsewhere); the original is first backed up as desktop.fresh-* and restored when you switch back. Desktop has to exit first: restarting is a normal quit that asks for confirmation when tasks are running. If a Windows directory remains busy after Desktop exits, only verified leftover descendants of this Desktop session may be stopped; other sessions are not killed by path matching.',
+      why: 'Desktop always reads profiles/desktop. Switching the current profile to DSH Tavern links it to profiles/tavern (a junction on Windows, a symlink elsewhere); the original is first backed up as desktop.fresh-* and restored when you switch back. Desktop has to exit first: restarting is a normal quit that asks for confirmation when tasks are running. If a Windows directory remains busy after Desktop exits, only verified leftover descendants of this Desktop session may be stopped; other sessions are not killed by path matching.',
     }
 
     /** Scoped stylesheet; class names are prefixed so they never leak into the host. */
@@ -344,6 +356,23 @@ window.__ModuleLoader__.load({
         }
       }
 
+      async function changeDefault(profile) {
+        if (actionInFlight.current || busy || pending || updateInProgress(update?.phase)) return
+        actionInFlight.current = true
+        setBusy(true)
+        setFailure(null)
+        try {
+          const result = await call('set-default', { profile })
+          if (result?.ok === true) setStatus(previous => ({ ...previous, defaultProfile: result.value.defaultProfile }))
+          else setFailure(describeFailure(result?.error))
+        } catch (error) {
+          setFailure(describeFailure(error))
+        } finally {
+          actionInFlight.current = false
+          setBusy(false)
+        }
+      }
+
       async function apply(target) {
         if (actionInFlight.current || busy || pending || updateInProgress(update?.phase) || lastFailure?.recoveryRequired) return
         actionInFlight.current = true
@@ -483,6 +512,16 @@ window.__ModuleLoader__.load({
             managementAction === 'install' ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy,
               onClick: () => setManagementAction(null) }, t('cancel')) : null) : null,
         ) : null,
+        !isDesktop || standalone || status === null ? null : h('section', { className: 'pb-shortcut pb-default', 'aria-label': t('startupTitle') },
+          h('div', { className: 'pb-bar-text' },
+            h('strong', null, t('startupTitle')),
+            h('p', { className: 'pb-sub' }, t(status.defaultProfile === 'tavern' ? 'startupTavern' : 'startupOriginal')),
+            h('p', { className: 'pb-sub' }, t('startupHint'))),
+          h('button', { type: 'button', className: 'pb-btn pb-btn-quiet',
+            disabled: busy || pending || updating || !!updateAction || lastFailure?.recoveryRequired || (status.defaultProfile !== 'tavern' && !ready('tavern')),
+            onClick: () => void changeDefault(status.defaultProfile === 'tavern' ? null : 'tavern') },
+            t(status.defaultProfile === 'tavern' ? 'clearDefault' : 'setDefault')),
+        ),
         !isDesktop || standalone || !ready('tavern') || status?.installAvailable ? null : h('div', { className: 'pb-shortcut' },
           h('div', { className: 'pb-bar-text' },
             h('p', { className: 'pb-sub' }, t('shortcutHint')),
