@@ -351,26 +351,28 @@
 			const graceMs = Math.max(0, Number(options && options.graceMs) || 5000);
 			let timer = null;
 			let disposed = false;
-			let state = Object.freeze({ visible: false, attached: false, recovering: false });
+			let state = Object.freeze({ visible: false, attached: false, recovering: false, expanded: false });
 			function publish(next) {
 				state = Object.freeze(next);
 				notify(state);
 				listeners.forEach(function (listener) { listener(); });
 			}
 			function cancelPending() { if (timer !== null) { cancel(timer); timer = null; } }
-			function change(attached) {
+			function change(attached, details) {
 				if (disposed) return;
 				if (attached) {
 					cancelPending();
-					publish({ visible: true, attached: true, recovering: false });
+					const expanded = details && typeof details.expanded === "boolean" ? details.expanded : true;
+					if (state.visible && state.attached && !state.recovering && state.expanded === expanded) return;
+					publish({ visible: true, attached: true, recovering: false, expanded: expanded });
 					return;
 				}
 				if (!state.visible || state.recovering) return;
-				publish({ visible: true, attached: false, recovering: true });
+				publish({ visible: true, attached: false, recovering: true, expanded: false });
 				timer = schedule(function () {
 					timer = null;
 					if (disposed || state.attached) return;
-					publish({ visible: false, attached: false, recovering: false });
+					publish({ visible: false, attached: false, recovering: false, expanded: false });
 				}, graceMs);
 			}
 			return Object.freeze({
@@ -387,22 +389,56 @@
 			const sessionId = String(options && options.sessionId || "");
 			const loadIconCss = options && options.loadIconCss || loadTavernCardIconCss;
 			const notify = options && typeof options.onChange === "function" ? options.onChange : function () {};
+			const triggerScriptButton = options && typeof options.triggerButton === "function"
+				? options.triggerButton
+				: function (targetSessionId, scriptId, buttonName) {
+					const win = hostDocument && hostDocument.defaultView;
+					return win && typeof win.__dshTavernTriggerScriptButton === "function"
+						? win.__dshTavernTriggerScriptButton(targetSessionId, scriptId, buttonName)
+						: Promise.reject(new Error("人物卡脚本按钮入口不可用"));
+				};
 			const Mutation = options && Object.prototype.hasOwnProperty.call(options, "MutationObserver") ? options.MutationObserver : (hostDocument.defaultView && hostDocument.defaultView.MutationObserver);
 			const Resize = options && Object.prototype.hasOwnProperty.call(options, "ResizeObserver") ? options.ResizeObserver : (hostDocument.defaultView && hostDocument.defaultView.ResizeObserver);
 			let attached = null;
+			let attachedScriptId = "";
+			let expanded = false;
 			let originalParent = null;
 			let originalNext = null;
 			let originalStyle = null;
 			let floatingButton = null;
 			let floatingDisplay = null;
 			let mutationObserver = null;
+			let shadowObserver = null;
 			let resizeObserver = null;
 			const candidateObservers = new Map();
 			let disposed = false;
 
-			function hasPhoneLayout(host) {
+			function phoneWrapperOf(host) {
 				const root = host && host.shadowRoot;
-				return Boolean(root && typeof root.querySelector === "function" && root.querySelector(".phone-wrapper"));
+				return root && typeof root.querySelector === "function" ? root.querySelector(".phone-wrapper") : null;
+			}
+
+			function hasPhoneLayout(host) {
+				return Boolean(phoneWrapperOf(host));
+			}
+
+			function isPhoneWrapperVisible(host) {
+				const wrapper = phoneWrapperOf(host);
+				if (!wrapper || wrapper.hidden === true) return false;
+				if (wrapper.style && wrapper.style.display === "none") return false;
+				const win = hostDocument && hostDocument.defaultView;
+				if (win && typeof win.getComputedStyle === "function") {
+					try { if (win.getComputedStyle(wrapper).display === "none") return false; } catch (_) {}
+				}
+				return true;
+			}
+
+			function resolvePhoneScriptId(host) {
+				const hostId = String(host && host.id || "");
+				if (hostId.indexOf("improved-phone-shadow-host-") === 0) return hostId.slice("improved-phone-shadow-host-".length);
+				const root = host && host.shadowRoot;
+				const tagged = root && typeof root.querySelector === "function" ? root.querySelector("[script_id]") : null;
+				return String(tagged && tagged.getAttribute && tagged.getAttribute("script_id") || "");
 			}
 
 			function clearCandidateObserver(host) {
@@ -447,12 +483,38 @@
 				return true;
 			}
 
+			function clearShadowObserver() {
+				if (shadowObserver) shadowObserver.disconnect();
+				shadowObserver = null;
+			}
+
+			function setSlotCollapsed(collapsed) {
+				if (!slot) return;
+				if (collapsed) { if (slot.setAttribute) slot.setAttribute("data-collapsed", "true"); }
+				else if (slot.removeAttribute) slot.removeAttribute("data-collapsed");
+			}
+
 			function resize() {
 				if (!attached) return;
+				if (!expanded) {
+					attached.style.height = "0px";
+					setSlotCollapsed(true);
+					return;
+				}
+				setSlotCollapsed(false);
 				const available = Math.max(240, Number(slot && slot.clientWidth) || 384) - 24;
 				const scale = Math.min(1, available / 360);
 				attached.style.setProperty("--dsh-tavern-card-app-scale", String(scale));
 				attached.style.height = String(Math.ceil(620 * scale)) + "px";
+			}
+
+			function syncExpanded(forceNotify) {
+				if (!attached) return;
+				const nextExpanded = isPhoneWrapperVisible(attached);
+				const changed = nextExpanded !== expanded;
+				expanded = nextExpanded;
+				resize();
+				if (changed || forceNotify) notify(true, { expanded: expanded });
 			}
 
 			function attach(host) {
@@ -463,6 +525,7 @@
 				clearCandidateObserver(host);
 				if (attached) restore();
 				attached = host;
+				attachedScriptId = resolvePhoneScriptId(host);
 				if (sessionId && host.setAttribute) host.setAttribute(TAVERN_CARD_PHONE_SESSION, sessionId);
 				originalParent = host.parentNode;
 				originalNext = host.nextSibling;
@@ -475,21 +538,27 @@
 				host.style.zIndex = "auto";
 				host.style.width = "100%";
 				host.style.overflow = "hidden";
-				const phoneKey = String(host.id || "").slice("improved-phone-shadow-host-".length);
-				floatingButton = hostDocument.getElementById && hostDocument.getElementById("improved-phone-floating-button-" + phoneKey) || hostDocument.querySelector(TAVERN_CARD_PHONE_BUTTON);
+				floatingButton = (attachedScriptId && hostDocument.getElementById && hostDocument.getElementById("improved-phone-floating-button-" + attachedScriptId)) || hostDocument.querySelector(TAVERN_CARD_PHONE_BUTTON);
 				if (floatingButton) {
 					floatingDisplay = floatingButton.style.display;
 					floatingButton.style.display = "none";
 				}
-				resize();
-				notify(true);
+				if (typeof Mutation === "function" && host.shadowRoot) {
+					shadowObserver = new Mutation(function () { syncExpanded(false); });
+					shadowObserver.observe(host.shadowRoot, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "hidden", "class"] });
+				}
+				syncExpanded(true);
 				return true;
 			}
 
 			function restore() {
 				if (!attached) return;
 				const host = attached;
+				clearShadowObserver();
 				attached = null;
+				attachedScriptId = "";
+				expanded = false;
+				setSlotCollapsed(false);
 				if (originalStyle === null && host.removeAttribute) host.removeAttribute("style");
 				else if (host.setAttribute) host.setAttribute("style", originalStyle || "");
 				if (originalParent) {
@@ -504,7 +573,11 @@
 			function park() {
 				if (!attached) return;
 				const host = attached;
+				clearShadowObserver();
 				attached = null;
+				attachedScriptId = "";
+				expanded = false;
+				setSlotCollapsed(false);
 				const parking = ensureTavernCardAppParking(hostDocument);
 				if (parking && typeof parking.appendChild === "function") parking.appendChild(host);
 				else host.style.display = "none";
@@ -539,7 +612,9 @@
 				mutationObserver = new Mutation(function (mutations) {
 					let lost = false;
 					if (attached && attached.isConnected === false) {
-						attached = null; originalParent = null; originalNext = null; originalStyle = null;
+						clearShadowObserver();
+						attached = null; attachedScriptId = ""; expanded = false; setSlotCollapsed(false);
+						originalParent = null; originalNext = null; originalStyle = null;
 						if (floatingButton) floatingButton.style.display = floatingDisplay;
 						floatingButton = null; floatingDisplay = null;
 						notify(false);
@@ -553,9 +628,61 @@
 				resizeObserver = new Resize(resize);
 				resizeObserver.observe(slot);
 			}
+			function trigger(buttonName) {
+				const scriptId = attachedScriptId || resolvePhoneScriptId(attached);
+				if (!scriptId) return Promise.reject(new Error("未找到外置手机脚本标识"));
+				const ownerSessionId = (attached && attached.getAttribute && attached.getAttribute(TAVERN_CARD_PHONE_SESSION)) || sessionId;
+				return Promise.resolve(triggerScriptButton(ownerSessionId, scriptId, buttonName));
+			}
+			function open() {
+				if (!attached) scan();
+				if (!attached) {
+					const button = hostDocument.querySelector(TAVERN_CARD_PHONE_BUTTON);
+					if (button && typeof button.click === "function") button.click();
+					return;
+				}
+				if (isPhoneWrapperVisible(attached)) { syncExpanded(false); return; }
+				const button = floatingButton || (attachedScriptId && hostDocument.getElementById && hostDocument.getElementById("improved-phone-floating-button-" + attachedScriptId)) || hostDocument.querySelector(TAVERN_CARD_PHONE_BUTTON);
+				if (button && typeof button.click === "function") {
+					button.click();
+					syncExpanded(false);
+					if (isPhoneWrapperVisible(attached)) return;
+				}
+				trigger("手机").then(function () { syncExpanded(false); }, function () {
+					const wrapper = phoneWrapperOf(attached);
+					if (wrapper && wrapper.style && wrapper.style.display === "none") {
+						wrapper.style.display = "";
+						syncExpanded(false);
+					}
+				});
+			}
+			function close() {
+				if (!attached || !isPhoneWrapperVisible(attached)) return;
+				const closeBtn = attached.shadowRoot && typeof attached.shadowRoot.querySelector === "function" ? attached.shadowRoot.querySelector(".phone-close-btn") : null;
+				if (closeBtn && typeof closeBtn.click === "function") {
+					closeBtn.click();
+					syncExpanded(false);
+					if (!isPhoneWrapperVisible(attached)) return;
+				}
+				trigger("手机").then(function () { syncExpanded(false); }, function () {
+					const wrapper = phoneWrapperOf(attached);
+					if (wrapper && wrapper.style) {
+						wrapper.style.display = "none";
+						syncExpanded(false);
+					}
+				});
+			}
+			function toggle() {
+				if (!attached) { open(); return; }
+				if (isPhoneWrapperVisible(attached)) close();
+				else open();
+			}
 			return Object.freeze({
-				open: function () { const button = hostDocument.querySelector(TAVERN_CARD_PHONE_BUTTON); if (button && typeof button.click === "function") button.click(); },
-				inspect: function () { return { attached: Boolean(attached) }; },
-				dispose: function () { disposed = true; if (mutationObserver) mutationObserver.disconnect(); if (resizeObserver) resizeObserver.disconnect(); candidateObservers.forEach(function (observer) { observer.disconnect(); }); candidateObservers.clear(); park(); }
+				open: open,
+				close: close,
+				toggle: toggle,
+				trigger: function (name) { return trigger(name).catch(function () {}); },
+				inspect: function () { return { attached: Boolean(attached), expanded: Boolean(attached && expanded), scriptId: attachedScriptId }; },
+				dispose: function () { disposed = true; clearShadowObserver(); if (mutationObserver) mutationObserver.disconnect(); if (resizeObserver) resizeObserver.disconnect(); candidateObservers.forEach(function (observer) { observer.disconnect(); }); candidateObservers.clear(); park(); }
 			});
 		}

@@ -170,7 +170,9 @@ function installFrameStorage(capability) {
                 return;
             }
             if (data.type !== "dsh-tavern-frame-storage-seed" || cleared) return;
-            Object.keys(data.values || {}).forEach(function (key) { if (!dirty.has(key)) values[key] = data.values[key]; });
+            var incoming = data.values || {};
+            Object.keys(values).forEach(function (key) { if (!dirty.has(key) && !Object.prototype.hasOwnProperty.call(incoming, key)) delete values[key]; });
+            Object.keys(incoming).forEach(function (key) { if (!dirty.has(key)) values[key] = incoming[key]; });
         });
         window.addEventListener("pagehide", function () { sync("revoke"); }, { once: true });
     }

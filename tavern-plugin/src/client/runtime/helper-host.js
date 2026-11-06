@@ -269,6 +269,7 @@
                     const data = event && event.data;
                     if (event.source !== parent || !data || data.token !== metadata.token || data.type !== "dsh-tavern-helper-context") return;
                     window.removeEventListener("message", receive);
+                    window.addEventListener("pagehide", function () { parent.postMessage({ type: "dsh-tavern-helper-reloading", token: metadata.token }, "*"); }, { once: true });
                     try { bootstrap(data.context); resolve(window.__dshTavernHelperReady); }
                     catch (error) {
                         parent.postMessage({type:"dsh-tavern-helper-bootstrap-failed",token:metadata.token,message:String(error && error.message || error)},"*");

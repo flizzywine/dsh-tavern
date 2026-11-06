@@ -348,13 +348,16 @@
 				controllerRef.current = controller;
 				return function () { controllerRef.current = null; controller.dispose(); };
 			}, []);
-			return React.createElement("section", { className: "dsh-tavern-status-section dsh-tavern-card-app-section", hidden: !presence.attached },
+			return React.createElement("section", { className: "dsh-tavern-status-section dsh-tavern-card-app-section", hidden: !presence.visible },
 				React.createElement("div", { className: "dsh-tavern-card-app-head" },
 					React.createElement("div", { className: "dsh-tavern-status-label" }, "人物卡应用"),
-					React.createElement("button", { className: "dsh-tavern-btn", disabled: !presence.attached, onClick: function () { if (controllerRef.current) controllerRef.current.open(); } }, presence.attached ? "打开手机" : "恢复中…")
+					React.createElement("div", { className: "dsh-tavern-card-app-actions" },
+						presence.attached ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", title: "刷新手机界面", onClick: function () { if (controllerRef.current) controllerRef.current.trigger("刷新"); } }, "刷新") : null,
+						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: !presence.attached, onClick: function () { if (controllerRef.current) controllerRef.current.toggle(); } }, presence.attached ? (presence.expanded ? "收起手机" : "打开手机") : "恢复中…")
+					)
 				),
 				presence.recovering ? React.createElement("div", { className: "dsh-tavern-card-app-recovering", role: "status" }, "正在恢复人物卡应用…") : null,
-				React.createElement("div", { ref: slotRef, className: "dsh-tavern-card-app-slot" })
+				React.createElement("div", { ref: slotRef, className: "dsh-tavern-card-app-slot", "data-collapsed": presence.attached && !presence.expanded ? "true" : undefined })
 			);
 		}
 

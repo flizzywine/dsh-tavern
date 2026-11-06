@@ -468,23 +468,36 @@
 				records.forEach(release);
 				publish();
 			}
+			function triggerButton(sessionId, scriptId, name) {
+				const requested = String(sessionId || "");
+				let target = requested ? records.get(requested) : current;
+				if (!target && requested) {
+					const ownerId = selectedOwner();
+					if (ownerId) target = records.get(ownerId);
+				}
+				if (!target) return Promise.reject(new Error("人物卡脚本尚未运行"));
+				return target.execution.triggerButton(scriptId, name);
+			}
 			return Object.freeze({
 				start: function () {
 					if (started) return;
 					started = true;
+					hostWindow.__dshTavernTriggerScriptButton = triggerButton;
 					hostWindow.addEventListener("pagehide", suspend);
 					hostWindow.addEventListener("pageshow", resume);
 					resume();
 				},
 				dispose: function () {
 					started = false;
+					if (hostWindow.__dshTavernTriggerScriptButton === triggerButton) delete hostWindow.__dshTavernTriggerScriptButton;
 					hostWindow.removeEventListener("pagehide", suspend);
 					hostWindow.removeEventListener("pageshow", resume);
 					suspend();
 				},
 				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; },
 				getSnapshot: function () { return snapshot; },
-				retryMvuLoad: function () { return Boolean(current && current.execution.retryMvuLoad()); }
+				retryMvuLoad: function () { return Boolean(current && current.execution.retryMvuLoad()); },
+				triggerButton: triggerButton
 			});
 		}
 
