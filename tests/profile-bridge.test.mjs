@@ -48,6 +48,41 @@ test('统一启动器从 NEXT 宿主读取活动 Profile，拒绝目录链接切
  assert.equal((await handle('unlink')).error.code, 'unsupported')
 })
 
+test('NEXT 酒馆及原版 Profile 均能发起已验证的安装更新', async t => {
+ const { apply } = await import('../tavern-plugin/packages/dsh-tavern/index.js')
+ const home = mkdtempSync(join(tmpdir(), 'tavern-next-update-'))
+ t.after(() => rmSync(home, { recursive: true, force: true }))
+ const app = join(home, 'apps', 'dsh-tavern')
+ const lib = join(app, 'tavern-plugin', 'lib')
+ const profiles = join(home, 'profiles')
+ for (const dir of [lib, join(home, 'logs'), join(home, 'profile-data', 'tavern'), ...['desktop', 'tavern', 'other'].map(name => join(profiles, name))]) {
+   mkdirSync(dir, { recursive: true })
+ }
+ const manifest = JSON.stringify({ name: 'dsh-profile-tavern', type: 'module' })
+ writeFileSync(join(app, 'package.json'), manifest)
+ writeFileSync(join(profiles, 'tavern', 'package.json'), manifest)
+ writeFileSync(join(app, '.dsh-tavern-local.json'), JSON.stringify({ host: 'next', dshHome: home }))
+ writeFileSync(join(home, 'logs', 'tavern-installation.json'), JSON.stringify({ host: 'next', dshHome: home, sourceRoot: app }))
+ writeFileSync(join(lib, 'application-updater.js'), `export function createApplicationUpdater() {
+   return { check: async () => ({ phase: 'up-to-date' }) }
+ }`)
+ for (const name of ['tavern', 'desktop', 'other']) {
+   const profile = { home, name, dir: join(profiles, name) }
+   let handle
+   apply({
+     get: key => ({ profileContext: profile, desktopProfiles: { current: profile } })[key],
+     connection: { rpc: { handle: (_channel, handler) => { handle = handler } } },
+     effect() {},
+   })
+   const canUpdate = name !== 'other'
+   assert.equal((await handle('check-update')).value.canUpdate, canUpdate, name)
+   const start = await handle('start-update')
+   assert.equal(start.ok, canUpdate, name)
+   if (canUpdate) assert.equal(start.value.phase, 'up-to-date')
+   else assert.equal(start.error.code, 'update-unavailable')
+ }
+})
+
 test('只能切到同样启用桥接的 profile，否则切过去后无法在应用内切回', async t => {
  const { validateTarget, listProfiles } = await import('../tavern-plugin/packages/dsh-tavern/lib/state.mjs')
  const root=mkdtempSync(join(tmpdir(),'pb-target-'));t.after(()=>rmSync(root,{recursive:true,force:true}))

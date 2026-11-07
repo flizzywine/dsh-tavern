@@ -1286,7 +1286,7 @@ try {
       }
       $DesktopCli = if ($InstallHost -eq 'next') { 'resources\app.asar\node_modules\@deepseek-ai\dsh\lib\bin.js' } else { 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js' }
       $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) $DesktopCli
-      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/refs/tags/launcher-cdn-v1.5.0/dsh-tavern-1.5.0.tgz'
+      $LauncherUrl = 'https://github.com/flizzywine/dsh-tavern/releases/download/launcher-current/dsh-tavern.tgz'
       $PreviousNodeMode = $env:ELECTRON_RUN_AS_NODE
       try {
         $env:ELECTRON_RUN_AS_NODE = '1'

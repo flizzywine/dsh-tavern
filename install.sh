@@ -322,7 +322,7 @@ if (hasBundle('dsh-tavern')) {
   }
 }
 DSH_CHECK_LAUNCHER
-    launcher_url='https://raw.githubusercontent.com/flizzywine/dsh-tavern/refs/tags/launcher-cdn-v1.5.0/dsh-tavern-1.5.0.tgz'
+    launcher_url='https://github.com/flizzywine/dsh-tavern/releases/download/launcher-current/dsh-tavern.tgz'
     dsh plugin --profile desktop add "$launcher_url" || fail '安装酒馆启动器失败。'
     printf '%s\n' '酒馆启动器已安装。打开桌面，进入「设置 → 酒馆启动器 → 安装酒馆」。'
     INSTALL_COMPLETED=1

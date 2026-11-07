@@ -31,10 +31,10 @@ async function runUpdate(method, paths) {
   }
   if (!installation.available) fail('update-unavailable', installation.reason)
   // Official updates run from Tavern and refresh the inactive original launcher.
-  // NEXT updates use the same installer after the original desktop has quit.
-  const canUpdate = next ? original : isActiveTavern(paths, installation)
+  // NEXT can queue the offline installer from either managed Profile.
+  const canUpdate = isActiveTavern(paths, installation) || (next && original)
   if (['start', 'cancel'].includes(method) && !canUpdate) {
-    fail('update-unavailable', next ? '请先切回原版 DSH，再在启动器中更新。' : '请先切换到 DSH 酒馆，再在启动器中更新。')
+    fail('update-unavailable', next ? '请在 NEXT 的原版 DSH 或酒馆配置中更新。' : '请先切换到 DSH 酒馆，再在启动器中更新。')
   }
   const sourceRoot = installation.appDir
   const dataRoot = join(installation.sharedHome, 'profile-data', 'tavern', 'data')

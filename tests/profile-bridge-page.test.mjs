@@ -62,6 +62,36 @@ test('NEXT 共用酒馆启动器和更新状态，通过原生 Profile 切换', 
   }
 })
 
+test('NEXT 在酒馆排队更新后请求原生退出，退出失败时保留手动入口', async () => {
+  const order = []
+  const status = { host: 'next', activeName: 'tavern', appKind: 'desktop', desktopApp: true,
+    profiles: [{ ...tavernProfile, name: 'desktop' }, tavernProfile], installation: { available: true } }
+  const available = { phase: 'update-available', canUpdate: true }
+  const page = await mount(status, [], {
+    next: async command => {
+      order.push(command)
+      throw Error('native quit unavailable')
+    },
+    rpc: async endpoint => {
+      if (endpoint === 'status') return { ok: true, value: status }
+      if (endpoint === 'start-update') {
+        order.push(endpoint)
+        return { ok: true, value: { ...available, canUpdate: false, scheduled: { stamp: 'next-update' } } }
+      }
+      return { ok: true, value: available }
+    },
+  })
+  try {
+    assert.match(page.text(), /更新完成后自动打开当前配置/)
+    await page.act(async () => namedButton(page, '更新酒馆并重启').click())
+    assert.deepEqual(order, ['start-update', { type: 'quit' }])
+    assert.match(page.text(), /从应用菜单或托盘退出/)
+    assert.equal(page.dom.window.document.querySelector('[role="alert"]'), null)
+  } finally {
+    await page.dispose()
+  }
+})
+
 test('快捷方式打开的独立酒馆窗口：不给切换按钮，只说明原版 DSH 直接打开', async () => {
   // 桌面版此时是原版（没有链接），这一页却是酒馆：以页面为准，不能给出「切到 DSH 酒馆」。
   const status = { appKind: 'desktop', desktopApp: false, activeIsLink: false, backups: [], profiles: [tavernProfile] }

@@ -114,8 +114,8 @@ test('launcher finishes installation without waiting for or restarting Desktop',
   assert.equal(status.status, 'succeeded')
 })
 
-test('NEXT 安装等待 GUI 和宿主退出，成功后重开桌面', async t => {
-  const request = { ...fixture(t), host: 'next', mode: 'install', ownership: { roots: [{ pid: 10 }], descendants: [{ pid: 20 }] } }
+test('NEXT 在酒馆更新时等待 GUI 和宿主退出，成功后重开当前 Profile', async t => {
+  const request = { ...fixture(t), host: 'next', activeName: 'tavern', mode: 'install', ownership: { roots: [{ pid: 10 }], descendants: [{ pid: 20 }] } }
   const order = []
   const result = await runSwitchJob(job(request), {
     waitOwned: async owner => order.push(owner.roots[0].pid),
