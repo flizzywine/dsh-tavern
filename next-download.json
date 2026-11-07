@@ -1,1 +1,7 @@
-{"version":"3.2.10","revision":"058e91f3e21e263eda8f04bc8952b8b45db5646d","sourceCommit":"07e4f6f569356cbafd70a4969a9bef1f33579ff3"}
+{
+  "version": "3.2.11",
+  "revision": "47f23ef7a0dabedeec8e0cb2836bffb4d193a594",
+  "sourceCommit": "534663d1d5c07dbcc02adaff9586891a1655365c",
+  "size": 19119925,
+  "sha256": "75fed3d264f6b999067b210bd81280ebd6412d21e1b5aa05d47a7b4ac11d71e4"
+}
