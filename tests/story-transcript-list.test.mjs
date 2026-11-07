@@ -241,40 +241,7 @@ test('重新生成时流式正文按视图的 messageUid 落到目标行，不�
 	assert.ok(rows[2].textContent.includes('后续旧正文'))
 })
 
-test('重生成失败后旧正文与未提交候选都不回显，其它楼层不消失', async t => {
-	const page = createPage(t)
-	const { dom, context } = page
-	const messages = [
-		{ role: 'user', turn: 1, text: '输入一' },
-		{ role: 'assistant', turn: 1, text: '', messageUid: 'uid-target', placeholder: true, regenerationDiscarded: true },
-		{ role: 'assistant', turn: 1, text: '同轮中间内容', messageUid: 'uid-sibling' },
-		{ role: 'user', turn: 2, text: '输入二' },
-		{ role: 'assistant', turn: 2, text: '后续正文', messageUid: 'uid-next' }
-	]
-	const feature = context.createTavernStoryTranscriptFeature()
-	const element = (value, partial, running, view) => React.createElement(feature.StoryTranscriptList, {
-		transcript: value, partial, running, view, sessionId: 's-discard-regen'
-	})
-	const root = await mount(page, element(story(messages, 4), { turn: 0, blocks: [{ kind: 'text', text: '未提交候选' }] }, true,
-		{ mode: 'story', regenInProgress: true, streamingMessageUid: 'uid-target', latestAssistantTurn: 2 }))
-	const assistants = () => [...dom.window.document.querySelectorAll('[data-story-row][data-role="assistant"]')]
-	assert.ok(assistants()[0].textContent.includes('未提交候选'))
-	const failedView = { mode: 'story', regenInProgress: false, failedRegenerationMessageUid: 'uid-target', latestAssistantTurn: 2 }
-	const withoutTarget = messages.filter(message => message.messageUid !== 'uid-target')
-	await act(async () => root.render(element(story(withoutTarget, 5), null, false, failedView)))
-	assert.equal(assistants().length, 2)
-	assert.ok(assistants()[0].textContent.includes('同轮中间内容'))
-	assert.ok(assistants()[1].textContent.includes('后续正文'))
-	assert.ok(!dom.window.document.body.textContent.includes('未提交候选'))
-	// 迟到的旧读取也只能看到空占位：失败视图仍把它过滤，不能闪回候选或旧文。
-	await act(async () => root.render(element(story(messages, 4), null, false, failedView)))
-	assert.equal(assistants().length, 2)
-	assert.ok(assistants()[0].textContent.includes('同轮中间内容'))
-	assert.ok(assistants()[1].textContent.includes('后续正文'))
-	assert.ok(!dom.window.document.body.textContent.includes('未提交候选'))
-})
-
-test('同 revision 的上次失败实时视图不会盖住新一轮流式重生成', async t => {
+test('实时视图不参与流式与正式故事行的显隐', async t => {
 	const page = createPage(t)
 	const { dom, context } = page
 	const targetUid = 'legacy-target'
@@ -285,33 +252,33 @@ test('同 revision 的上次失败实时视图不会盖住新一轮流式重生�
 	], 71)
 	const storedView = { mode: 'story', regenInProgress: true, streamingMessageUid: targetUid,
 		latestAssistantTurn: 2, tavernHelper: { stateRevision: 71 } }
-	let staleLiveView = { mode: 'story', regenInProgress: false, failedRegenerationMessageUid: targetUid,
+	let staleLiveView = { mode: 'story', regenInProgress: false, streamingMessageUid: null,
 		latestAssistantTurn: 2, tavernHelper: { stateRevision: 71 } }
 	context.useLiveTavernView = () => ({ view: staleLiveView })
 	context.liveTavernView = { getSnapshot: () => ({ view: staleLiveView }) }
 	const feature = context.createTavernStoryTranscriptFeature()
 	const element = (value, partial, running, view) => React.createElement(feature.StoryTranscriptList, {
-		transcript: value, sessionId: 's-retry-after-failure', running, partial, view
+		transcript: value, sessionId: 's-single-story-view', running, partial, view
 	})
 	const root = await mount(page, element(transcript,
 		{ turn: 18, blocks: [{ kind: 'text', text: '新一轮流式正文' }] }, true, storedView))
 	const assistants = [...dom.window.document.querySelectorAll('[data-story-row][data-role="assistant"]')]
-	assert.equal(assistants.length, 2, '当前重生成目标行不得再按上次失败状态过滤')
+	assert.equal(assistants.length, 2, '流式目标行只由故事视图决定')
 	assert.ok(assistants[0].textContent.includes('开场'))
 	assert.ok(assistants[1].textContent.includes('新一轮流式正文'))
 	assert.ok(assistants[1].textContent.includes('正在生成'))
 	assert.equal(assistants[1].getAttribute('data-row-key'), 'turn:2')
 
-	// 提交后故事读取已清掉失败标记，同一 UID 的正式正文也已落盘；迟到的实时
-	// 失败视图仍带旧标记时，不得再把这行正式正文过滤掉。
+	// 提交后实时视图即使仍停留在生成状态，也不能再过滤故事存档里的正式正文。
 	const committed = story([
 		{ role: 'assistant', turn: 1, text: '开场', messageUid: 'uid-opening' },
 		{ role: 'user', text: 'ok' },
 		{ role: 'assistant', turn: 2, text: '已经提交的正式正文', messageUid: targetUid }
 	], 79)
-	staleLiveView = { ...staleLiveView, tavernHelper: { stateRevision: 79 } }
+	staleLiveView = { mode: 'story', regenInProgress: true, streamingMessageUid: targetUid,
+		latestAssistantTurn: 2, tavernHelper: { stateRevision: 79 } }
 	await act(async () => root.render(element(committed, null, false,
-		{ mode: 'story', regenInProgress: false, streamingMessageUid: null, failedRegenerationMessageUid: null,
+		{ mode: 'story', regenInProgress: false, streamingMessageUid: null,
 			latestAssistantTurn: 2, tavernHelper: { stateRevision: 79 } })))
 	assert.equal(assistants.length, 2)
 	assert.ok(assistants[1].textContent.includes('已经提交的正式正文'))

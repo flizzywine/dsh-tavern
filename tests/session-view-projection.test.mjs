@@ -172,9 +172,6 @@ test('a body regeneration publishes the target story row UID, never on a settled
   assert.equal(settled.streamingMessageUid, null, '生成结束后不得残留流标记')
   const idle = await f.projection.project.full(f.chat)
   assert.equal(idle.streamingMessageUid, null)
-  const failed = await f.projection.project.full({ ...f.chat, failedRegenerationTarget: { assistant: { messageUid: 'uid-2' } } })
-  assert.equal(failed.streamingMessageUid, null)
-  assert.equal(failed.failedRegenerationMessageUid, 'uid-2', '失败视图用于作废未提交的前端缓存')
   const blank = await f.projection.project.full({ ...f.chat, regenInProgress: true,
     regenRecovery: { targetMessageUid: '' } })
   assert.equal(blank.streamingMessageUid, null, '空 UID 不是流目标')

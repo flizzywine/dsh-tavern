@@ -23,36 +23,7 @@ function TavernStoryMarkdown(props) {
 	return React.createElement('div', { className: 'dsh-tavern-story-markdown', style: { whiteSpace: 'pre-wrap' } }, text)
 }
 
-// 故事视图有两种来源：故事读取（存档投影，带生成/结算状态）与实时视图。取状态
-// 修订号更新的一份：重新生成开始时存档视图先看到标记，实时视图可能还停在旧修订。
-function tavernFreshestStoryView(live, stored, running, transcript) {
-	if (!live) return stored || null
-	if (!stored) return live
-	const liveRevision = Number(live.tavernHelper && live.tavernHelper.stateRevision)
-	const storedRevision = Number(stored.tavernHelper && stored.tavernHelper.stateRevision)
-	if (Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storedRevision) && liveRevision !== storedRevision) {
-		return liveRevision > storedRevision ? live : stored
-	}
-	// Helper revision 不随 regen-begin 前进；同 revision 时宿主仍在运行、且故事读取
-	// 已看到新一轮标记，就不能让实时缓存里的上一次失败状态盖住当前流式正文。
-	if (running === true) {
-		if (stored.regenInProgress === true && live.regenInProgress !== true) return stored
-		if (live.regenInProgress === true && stored.regenInProgress !== true) return live
-	}
-	// 同一 UID 的正式正文已经落盘，是提交成功的直接证据。迟到的失败视图即使
-	// revision 与故事读取相同，也不能继续过滤这行；失败时占位/缺失行仍按原规则撤下。
-	function hasCommittedTarget(view) {
-		const uid = view && view.failedRegenerationMessageUid
-		return typeof uid === 'string' && uid !== '' && Boolean(transcript && Array.isArray(transcript.messages) && transcript.messages.some(function (entry) {
-			return entry && entry.messageUid === uid && entry.message && entry.message.role === 'assistant' && entry.message.placeholder !== true
-		}))
-	}
-	if (live.regenInProgress !== true && hasCommittedTarget(live) && stored.regenInProgress !== true
-		&& stored.failedRegenerationMessageUid !== live.failedRegenerationMessageUid) return stored
-	if (stored.regenInProgress !== true && hasCommittedTarget(stored) && live.regenInProgress !== true
-		&& live.failedRegenerationMessageUid !== stored.failedRegenerationMessageUid) return live
-	return live
-}
+// liveTavernView 只提供 Helper、变量和后台状态，不参与正文行的显隐。
 
 function createTavernStoryTranscriptFeature(deps) {
 	if (typeof tavernStoryTranscriptRows !== 'function' || typeof tavernStoryTranscriptStreamRows !== 'function') {
@@ -268,26 +239,14 @@ function createTavernStoryTranscriptFeature(deps) {
 		// A native snapshot older than the story read must not repaint a newly
 		// committed row. Same/newer revisions carry post-settlement EJS parts.
 		const projectionView = liveView && Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision >= storyRevision ? liveView : props.view
-		// 两路视图都可能更新，先取最新的一份。失败视图会使未提交的流式缓存立即失效，
-		// 不能让旧 liveView 再把候选正文投到别的楼层。
-		const regenView = tavernFreshestStoryView(liveView, props.view, props.running, transcript)
-		const failedRegenerationTarget = regenView && regenView.regenInProgress !== true
-			&& typeof regenView.failedRegenerationMessageUid === 'string' && regenView.failedRegenerationMessageUid !== ''
-			? regenView.failedRegenerationMessageUid : null
-		// 正文重新生成按故事行 UID 定位，不按轮次：故事视图没有 regeneratedDshTurns，
-		// partial 的宿主 turn 换算出来的序号并不指向被替换的那一行。服务端把目标行的
-		// UID 放在 view.streamingMessageUid 上，客户端只认这个 UID。
-		const streamingView = failedRegenerationTarget === null && liveView && typeof liveView.streamingMessageUid === 'string' && liveView.streamingMessageUid !== ''
-			? liveView
-			: failedRegenerationTarget === null && props.view && typeof props.view.streamingMessageUid === 'string' && props.view.streamingMessageUid !== '' ? props.view : null
-		const storyStreamUid = streamingView ? streamingView.streamingMessageUid : null
-		const regeneratingTarget = regenView && regenView.regenInProgress === true
-			&& typeof regenView.streamingMessageUid === 'string' && regenView.streamingMessageUid !== ''
-			? regenView.streamingMessageUid : null
-		// 失败尾没有旧正文 UID；服务端为这次回答预留的故事轮次就是流式行的位置。
-		const regeneratingStoryTurn = regenView && regenView.regenInProgress === true
-			&& Number.isInteger(regenView.streamingStoryTurn) && regenView.streamingStoryTurn > 0
-			? regenView.streamingStoryTurn : null
+		// 正文重生成只读故事视图；UID 用来定位同一故事行，不用于任何失败过滤。
+		const storyStreamUid = props.view && props.view.regenInProgress === true
+			&& typeof props.view.streamingMessageUid === 'string' && props.view.streamingMessageUid !== ''
+			? props.view.streamingMessageUid : null
+		const regeneratingTarget = storyStreamUid
+		const regeneratingStoryTurn = props.view && props.view.regenInProgress === true
+			&& Number.isInteger(props.view.streamingStoryTurn) && props.view.streamingStoryTurn > 0
+			? props.view.streamingStoryTurn : null
 		const streamRef = React.useRef({ sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: props.running === true })
 		function storyTurn(nativeTurn) {
 			return typeof tavernStoryTurnForDshTurn === 'function' ? tavernStoryTurnForDshTurn(props.view, nativeTurn) : Number(nativeTurn)
@@ -298,14 +257,11 @@ function createTavernStoryTranscriptFeature(deps) {
 		} else if (props.running !== true) streamRef.current.running = false
 		// 重生成已有故事行 UID 时完全不看原生 turn；失败尾则使用预留的故事轮次。
 		// 两条路径都不能把宿主临时 turn（可能远大于剧情轮号）拿来找故事行。
-		const nativeLiveTurn = failedRegenerationTarget === null && storyStreamUid === null && regeneratingStoryTurn === null
+		const nativeLiveTurn = storyStreamUid === null && regeneratingStoryTurn === null
 			&& props.partial && Number.isInteger(storyTurn(props.partial.turn)) ? storyTurn(props.partial.turn) : null
-		const latestTurnHint = storyStreamUid !== null && streamingView && Number.isInteger(streamingView.latestAssistantTurn)
-			? streamingView.latestAssistantTurn : null
+		const latestTurnHint = storyStreamUid !== null && Number.isInteger(props.view.latestAssistantTurn)
+			? props.view.latestAssistantTurn : null
 		const liveTurn = latestTurnHint !== null ? latestTurnHint : (regeneratingStoryTurn !== null ? regeneratingStoryTurn : nativeLiveTurn)
-		if (failedRegenerationTarget !== null) {
-			streamRef.current = { sessionId: sessionId, turn: null, partial: null, revision: transcript && transcript.revision, settledTurn: null, running: false }
-		}
 		if (liveTurn !== null) {
 			const previous = streamRef.current
 			const text = tavernStoryTranscriptStreamText(props.partial)
@@ -330,15 +286,11 @@ function createTavernStoryTranscriptFeature(deps) {
 		const rows = React.useMemo(function () {
 			const base = tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn)
 			const overlaid = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial, storyStreamUid)
-			// 生成中旧正文已由服务端换成空占位；失败后占位和候选缓存都消失。
-			// 两种状态都只影响目标 UID，其它输入、同轮内容和后续楼层保持原样。
-			if (regeneratingTarget === null) {
-				if (failedRegenerationTarget !== null) return overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === failedRegenerationTarget) })
-				return overlaid
-			}
+			// 生成期间只处理当前流式目标；除此之外故事存档怎么返回就怎么渲染。
+			if (regeneratingTarget === null) return overlaid
 			const streaming = overlaid.some(function (row) { return row.streaming === true && row.messageUid === regeneratingTarget })
 			return streaming ? overlaid : overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === regeneratingTarget) })
-		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget, failedRegenerationTarget, regeneratingStoryTurn])
+		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget, regeneratingStoryTurn])
 		if (!rows.length) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',
