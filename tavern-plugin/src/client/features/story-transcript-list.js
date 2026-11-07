@@ -250,7 +250,9 @@ function createTavernStoryTranscriptFeature(deps) {
 		if (props.running === true && !streamRef.current.running) {
 			streamRef.current = { sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: true }
 		} else if (props.running !== true) streamRef.current.running = false
-		const nativeLiveTurn = props.partial && Number.isInteger(storyTurn(props.partial.turn)) ? storyTurn(props.partial.turn) : null
+		// 重生成已有故事行 UID 时完全不看原生 turn；只有普通生成才走旧换算。
+		const nativeLiveTurn = storyStreamUid === null && props.partial && Number.isInteger(storyTurn(props.partial.turn))
+			? storyTurn(props.partial.turn) : null
 		const latestTurnHint = storyStreamUid !== null && streamingView && Number.isInteger(streamingView.latestAssistantTurn)
 			? streamingView.latestAssistantTurn : null
 		const liveTurn = latestTurnHint !== null ? latestTurnHint : nativeLiveTurn

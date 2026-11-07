@@ -157,4 +157,10 @@ test('a body regeneration publishes the target story row UID, never on a settled
   const blank = await f.projection.project.full({ ...f.chat, regenInProgress: true,
     regenRecovery: { targetMessageUid: '' } })
   assert.equal(blank.streamingMessageUid, null, '空 UID 不是流目标')
+  const story = await f.projection.project.story({
+    chat: { ...f.chat, regenInProgress: true, regenRecovery: { targetMessageUid: 'uid-2' } },
+    revision: 4, from: 0, to: 0, messageCount: 0,
+    storyTranscript: { source: 'story', revision: 4, from: 0, to: 0, messageCount: 0, floorCount: 0, floorOffset: 0, messages: [] }
+  })
+  assert.equal(story.streamingMessageUid, 'uid-2', '故事转录视图也必须带目标 UID')
 })
