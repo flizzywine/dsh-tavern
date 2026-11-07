@@ -41,20 +41,31 @@ export function createLegacyChatJournal({ layout, chatsRoot, legacyData, logger,
     if (legacyData && typeof legacyData.readJson === 'function') return await legacyData.readJson(paths.legacyRelative)
     return await readJson(paths.legacy)
   }
+  async function cachedLegacyRead(paths, cache) {
+    if (!cache) return legacyRead(paths)
+    if (cache.flat.has(paths.legacy)) return cache.flat.get(paths.legacy)
+    const value = await legacyRead(paths)
+    cache.flat.set(paths.legacy, value)
+    return value
+  }
 
-  async function snapshotRows(paths) {
+  async function snapshotRows(paths, cache) {
+    if (cache?.rows.has(paths.snapshots)) return cache.rows.get(paths.snapshots)
     let names
     try { names = await readdir(paths.snapshots) } catch (error) { if (error?.code === 'ENOENT') return []; throw error }
-    return names.map(function (name) {
+    const result = names.map(function (name) {
       const match = SNAPSHOT_PATTERN.exec(name)
       return match === null ? null : { name, revision: Number(match[1]), path: path.join(paths.snapshots, name) }
     }).filter(Boolean).sort(function (left, right) { return left.revision - right.revision })
+    cache?.rows.set(paths.snapshots, result)
+    return result
   }
 
-  async function journalRows(paths) {
+  async function journalRows(paths, cache) {
+    if (cache?.rows.has(paths.journals)) return cache.rows.get(paths.journals)
     let names
     try { names = await readdir(paths.journals) } catch (error) { if (error?.code === 'ENOENT') return []; throw error }
-    return names.map(function (name) {
+    const result = names.map(function (name) {
       const match = JOURNAL_PATTERN.exec(name)
       if (match === null) return null
       return {
@@ -65,10 +76,18 @@ export function createLegacyChatJournal({ layout, chatsRoot, legacyData, logger,
         path: path.join(paths.journals, name)
       }
     }).filter(Boolean).sort(function (left, right) { return left.start - right.start || Number(left.open) - Number(right.open) })
+    cache?.rows.set(paths.journals, result)
+    return result
   }
 
-  async function parseJournal(row, afterRevision, targetRevision) {
+  async function parseJournal(row, afterRevision, targetRevision, cache) {
+    const cached = cache?.parsed.get(row.path)
+    if (cached) {
+      const frames = cached.frames.filter(frame => Number(frame.revision) > afterRevision && Number(frame.revision) <= targetRevision)
+      return { ...cached, frames, lineCount: frames.length }
+    }
     const text = await readFile(row.path, 'utf8')
+    const parseAfter = cache ? 0 : afterRevision, parseTarget = cache ? Number.POSITIVE_INFINITY : targetRevision
     const lines = text.split('\n')
     const frames = []
     let validBytes = 0
@@ -92,25 +111,33 @@ export function createLegacyChatJournal({ layout, chatsRoot, legacyData, logger,
         if (logger && typeof logger.warn === 'function') logger.warn('dsh-tavern: Chat journal frame 不合法，忽略该行及后续内容:', row.path + ':' + invalidLine)
         break
       }
-      if (revision > afterRevision && revision <= targetRevision) frames.push(frame)
+      if (revision > parseAfter && revision <= parseTarget) frames.push(frame)
     }
-    return { frames, lineCount: frames.length, bytes: Buffer.byteLength(text), validBytes, invalidLine }
+    const result = { frames, bytes: Buffer.byteLength(text), validBytes, invalidLine }
+    cache?.parsed.set(row.path, result)
+    const selected = cache ? frames.filter(frame => Number(frame.revision) > afterRevision && Number(frame.revision) <= targetRevision) : frames
+    return { ...result, frames: selected, lineCount: selected.length }
   }
 
-  async function materializeDirectory(paths, targetRevision = Number.POSITIVE_INFINITY) {
-    const snapshots = await snapshotRows(paths)
+  async function materializeDirectory(paths, targetRevision = Number.POSITIVE_INFINITY, cache) {
+    const snapshots = await snapshotRows(paths, cache)
     const eligible = snapshots.filter(function (row) { return row.revision <= targetRevision })
     let selected = null, chat
     for (const row of eligible.slice().reverse()) {
-      chat = await readSnapshot(paths, row)
+      chat = await readSnapshot(paths, row, cache)
       if (chat !== undefined) { selected = row; break }
     }
-    if (!selected) chat = await legacyRead(paths)
-    const journals = await journalRows(paths)
+    if (!selected) chat = await cachedLegacyRead(paths, cache)
+    const journals = await journalRows(paths, cache)
     if (chat === undefined) {
       // An interrupted first write may have left only staging files/directories.
       if (snapshots.length === 0 && journals.length === 0) return null
-      throw new Error('Chat Journal 缺少可用 snapshot: ' + paths.id)
+      const error = new Error('Chat Journal 缺少可用 snapshot: ' + paths.id)
+      // Requesting a revision before the first retained baseline is a normal
+      // cache miss, not corruption. Full-history migration uses this to skip
+      // revision numbers that the old store never contained.
+      if (targetRevision !== Number.POSITIVE_INFINITY && targetRevision < (snapshots[0]?.revision ?? Number.POSITIVE_INFINITY)) error.code = 'DSH_TAVERN_REVISION_NOT_FOUND'
+      throw error
     }
     let revision = selected ? selected.revision : revisionOf(chat)
     if (!selected && (chat === null || typeof chat !== 'object' || Array.isArray(chat) || chat.id !== paths.id)) {
@@ -123,7 +150,7 @@ export function createLegacyChatJournal({ layout, chatsRoot, legacyData, logger,
     const changes = []
     for (const row of journals) {
       if (row.end <= revision || row.start > targetRevision) continue
-      const parsed = await parseJournal(row, revision, targetRevision)
+      const parsed = await parseJournal(row, revision, targetRevision, cache)
       for (const frame of parsed.frames) {
         if (Number(frame.baseRevision) !== revision || Number(frame.revision) !== revision + 1) {
           const error = new Error('Chat journal revision 不连续: ' + row.path + '，期望 ' + (revision + 1) + '，实际 ' + frame.revision)
@@ -157,10 +184,12 @@ export function createLegacyChatJournal({ layout, chatsRoot, legacyData, logger,
     return { chat, revision, snapshot: selected, open, openFrameCount, openValidBytes, openInvalidLine, legacy: selected === null }
   }
 
-  async function materializeLegacy(chatId, targetRevision = Number.POSITIVE_INFINITY) {
+  async function materializeLegacy(chatId, targetRevision = Number.POSITIVE_INFINITY, cache) {
     const paths = layout(chatId)
-    if (await exists(paths.root)) return await materializeDirectory(paths, targetRevision)
-    const chat = await legacyRead(paths)
+    const directory = cache?.roots.has(paths.root) ? cache.roots.get(paths.root) : await exists(paths.root)
+    cache?.roots.set(paths.root, directory)
+    if (directory) return await materializeDirectory(paths, targetRevision, cache)
+    const chat = await cachedLegacyRead(paths, cache)
     if (chat === undefined) return null
     const revision = revisionOf(chat)
     if (targetRevision !== Number.POSITIVE_INFINITY && targetRevision !== revision) {
@@ -172,16 +201,21 @@ export function createLegacyChatJournal({ layout, chatsRoot, legacyData, logger,
     return { chat: jsonClone(chat), revision, snapshot: null, open: null, openFrameCount: 0, legacy: true }
   }
 
-  async function readSnapshot(paths, row) {
+  async function readSnapshot(paths, row, cache) {
+    if (cache?.snapshots.has(row.path)) return cache.snapshots.get(row.path)
     try {
       const bytes = await readFile(row.path)
       const chat = JSON.parse((row.path.endsWith('.gz') ? await decompress(bytes, { maxOutputLength: maxSnapshotBytes }) : bytes).toString('utf8'))
       if (chat && typeof chat === 'object' && !Array.isArray(chat) && chat.id === paths.id &&
-        Number.isSafeInteger(chat[STORAGE_REVISION]) && chat[STORAGE_REVISION] === row.revision) return chat
+        Number.isSafeInteger(chat[STORAGE_REVISION]) && chat[STORAGE_REVISION] === row.revision) {
+        cache?.snapshots.set(row.path, chat)
+        return chat
+      }
     } catch (error) {
       if (!(error instanceof SyntaxError) && !['Z_DATA_ERROR', 'Z_BUF_ERROR', 'ENOENT'].includes(error?.code)) throw error
     }
     logger?.warn?.('dsh-tavern: Chat snapshot 损坏，尝试历史快照与 journal:', row.path)
+    cache?.snapshots.set(row.path, undefined)
     return undefined
   }
 

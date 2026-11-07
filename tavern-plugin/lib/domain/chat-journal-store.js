@@ -3,6 +3,7 @@ import { createChatStorageMigration } from './chat-storage-migration.js'
 import {projectTavernHelperContext,hydrateTavernHelperMessages} from './tavern-helper-context.js'
 import { createNativeConversationStorage } from './native-conversation-storage.js'
 import { createLegacyCompatibleStorage } from './legacy-compatible-storage.js'
+import { createConversationWriteLock } from './conversation-write-lock.js'
 import { createSessionMessageIndex } from './session-message-index.js'
 import { copyLazyHistoryHeader } from './lazy-history-read.js'
 import { Worker } from 'node:worker_threads'
@@ -69,11 +70,14 @@ export function createChatJournalStore(options = {}) {
     }
   }})
   const compatible = options.compatibleStorage === false ? null : createLegacyCompatibleStorage({dataRoot,onIO:options.onCompatibilityIO})
+  const conversationLock = createConversationWriteLock({ dataRoot })
   const legacyData = options.legacyData
   const logger = options.logger || console
   const now = typeof options.now === 'function' ? options.now : Date.now
   const maxSnapshotBytes = Number.isSafeInteger(options.maxSnapshotBytes) && options.maxSnapshotBytes > 0 ? options.maxSnapshotBytes : 256 * 1024 * 1024
   const mutationTails = new Map()
+  const migrationTails = new Map()
+  const autoMigrate = options.autoMigrate === true
   const maintenancePending = new Map()
   let maintenanceRunning = null
   function requestSnapshot(chatId, revision) {
@@ -139,8 +143,22 @@ export function createChatJournalStore(options = {}) {
     frameLimit: Math.max(1, Number(options.frameLimit) || 200), byteLimit: Math.max(1, Number(options.byteLimit) || 1024 * 1024),
     backgroundSnapshots: options.backgroundSnapshots, requestSnapshot })
   const { read: materializeLegacy, version: legacyVersion, writeSnapshot, migrateLegacy, appendFrame, maybeRotate } = journal
-  const { upgradeStorage, migrateCompatibility, restoreLegacy } = createChatStorageMigration({
-    native, compatible, journal, serialize, flushMaintenance, materialize, version, forgetState, layout, safeChatId, now, logger })
+  const { upgradeStorage } = createChatStorageMigration({
+    native, compatible, journal, serialize, flushMaintenance, materialize, forgetState, layout, safeChatId })
+
+  async function ensureCurrent(chatId) {
+    const id = safeChatId(chatId)
+    if (!autoMigrate) return null
+    const current = await native.migrationStatus(id)
+    if (current.status === 'native') return { status: 'native', alreadyActive: true, historyImported: 0 }
+    const existing = migrationTails.get(id)
+    if (existing) return existing
+    const task = upgradeStorage(id).finally(() => {
+      if (migrationTails.get(id) === task) migrationTails.delete(id)
+    })
+    migrationTails.set(id, task)
+    return task
+  }
 
   // Approximate retained JS size, bounded independently of the number of games.
   const limit = (value, fallback) => Number.isSafeInteger(value) && value >= 0 ? value : fallback
@@ -267,7 +285,7 @@ export function createChatJournalStore(options = {}) {
     const current = previous.catch(function () {}).then(async () => {
       if (readMetrics.hasSubscribers) readMetrics.publish({name:'chat.write.wait',chatId:id,durationMs:performance.now()-started})
       const entered = performance.now()
-      try { return await (compatible ? compatible.lock(id,operation) : operation()) }
+      try { return await conversationLock.lock(id, operation) }
       finally { if (readMetrics.hasSubscribers) readMetrics.publish({name:'chat.write.hold',chatId:id,durationMs:performance.now()-entered}) }
     })
     mutationTails.set(id, current)
@@ -276,6 +294,12 @@ export function createChatJournalStore(options = {}) {
 
   async function materialize(chatId, targetRevision = Number.POSITIVE_INFINITY) {
     return await native.read(chatId,targetRevision) || await compatible?.read(chatId,targetRevision) || materializeLegacy(chatId,targetRevision)
+  }
+  // Once automatic migration is enabled, legacy readers belong exclusively to
+  // upgradeStorage(). A missing/corrupt native state never falls back to a stale
+  // legacy backup, and historical reads never silently switch storage formats.
+  async function materializeRuntime(chatId, targetRevision = Number.POSITIVE_INFINITY) {
+    return autoMigrate ? native.read(chatId, targetRevision) : materialize(chatId, targetRevision)
   }
   // Each cached game remains verified against disk on every read.
   async function cachedState(chatId) {
@@ -301,7 +325,7 @@ export function createChatJournalStore(options = {}) {
     loadMetrics.set(chatId,metrics)
     load.promise = (async () => {
       try {
-        const state = await materialize(chatId)
+        const state = await materializeRuntime(chatId)
         if (stamp && stamp === await version(chatId) && pendingReads.get(chatId) === load) {
           rememberState(chatId, stamp, state)
         }
@@ -317,16 +341,17 @@ export function createChatJournalStore(options = {}) {
   }
   function reportWhole(chatId, state, site) { options.wholeReadGuard?.report(chatId, state.chat?.messages?.length, site) }
   async function read(chatId) {
-    if(options.migrateLegacy === true && compatible && !mutationTails.has(safeChatId(chatId)))await migrateCompatibility(chatId)
+    if (autoMigrate) await ensureCurrent(chatId)
     const state = await cachedState(chatId)
     if (state?.native) reportWhole(chatId, state)
     return state ? copyJsonTree(state.chat) : undefined
   }
-  // Native-only opt-in. Null keeps legacy readers on their complete contract.
-  async function readWindow(chatId,options) { return native.readWindow(chatId,options) }
-  async function readWorldSnapshot(chatId) { return native.readWorldSnapshot(chatId) }
-  async function readRecentSummaries(chatId,count,options) { return native.readRecentSummaries(chatId,count,options) }
+  // Native-only opt-in. Automatic cutover completes before any bounded read.
+  async function readWindow(chatId,options) { await ensureCurrent(chatId); return native.readWindow(chatId,options) }
+  async function readWorldSnapshot(chatId) { await ensureCurrent(chatId); return native.readWorldSnapshot(chatId) }
+  async function readRecentSummaries(chatId,count,options) { await ensureCurrent(chatId); return native.readRecentSummaries(chatId,count,options) }
   async function readHelperContext(chatId, range) {
+    await ensureCurrent(chatId)
     const selected = await native.readHelperContext(chatId, range)
     if (selected !== null) return selected
     const chat = range?.revision === undefined ? await read(chatId) : await readRevision(chatId,range.revision)
@@ -337,6 +362,7 @@ export function createChatJournalStore(options = {}) {
     return {chat,context:{...context,messages:hydrated.messages},from:hydrated.from,to:hydrated.to}
   }
   async function readSessionState(chatId, options = {}) {
+    await ensureCurrent(chatId)
     const cached=readCache.get(chatId)
     if(!cached||cached.stamp!==await version(chatId)){
       const selected=await native.readSessionState(chatId,options)
@@ -349,6 +375,7 @@ export function createChatJournalStore(options = {}) {
     return state ? projectChatSessionState(state.chat, options.scoped === true ? sessionMessages.project(state.chat) : {}) : undefined
   }
   async function readSettlementCheckpoint(chatId, messageId, operationId) {
+    await ensureCurrent(chatId)
     const selected = await native.readSlice(chatId, [messageId], [
       'id', 'sessionId', '_storageRevision', 'tavernHelperLifecycleRevision', 'timeline.schemaVersion',
       'timeline.branchId', 'timeline.revision', 'timeline.operations'
@@ -362,6 +389,7 @@ export function createChatJournalStore(options = {}) {
     return state ? projectSettlementCheckpoint(state.chat, messageId, operationId) : undefined
   }
   async function readSceneImageState(chatId, options) {
+    await ensureCurrent(chatId)
     if(Array.isArray(options?.turns)){
       const selected=await native.readSceneImageState(chatId,options)
       if(selected!==null)return selected
@@ -375,6 +403,7 @@ export function createChatJournalStore(options = {}) {
     return state ? projectSceneImageState(state.chat) : undefined
   }
   async function readBackgroundConfig(chatId) {
+    await ensureCurrent(chatId)
     const cached=readCache.get(chatId)
     if(!cached||cached.stamp!==await version(chatId)){
       const selected=await native.readSlice(chatId,[],['id','sessionId','mode','backgroundConfigVersion','conversationFeaturesVersion',
@@ -385,6 +414,7 @@ export function createChatJournalStore(options = {}) {
     return state ? projectChatBackgroundConfig(state.chat) : undefined
   }
   async function readDisplayRuntimeState(chatId, turn) {
+    await ensureCurrent(chatId)
     const selected = await native.readDisplayRuntimeState(chatId, turn)
     if (selected !== null) return selected
     const state = await cachedState(chatId)
@@ -417,9 +447,10 @@ export function createChatJournalStore(options = {}) {
     return {chat:structuredClone({...head,messages:indices.map(i=>messages[i])}),messageCount:messages.length,denseMessages:Array.isArray(rawMessages) && (indexedMessages.info(rawMessages)?.complete ?? messages.every(m=>m && typeof m==='object' && !Array.isArray(m)))}
   }
   // A pinned native snapshot for readers with their own shape (the stage's turn views); null without one.
-  const openSnapshot = (chatId, options) => native.openSnapshot(chatId, options)
+  const openSnapshot = async (chatId, options) => { await ensureCurrent(chatId); return native.openSnapshot(chatId, options) }
   /** Detached metadata and selected native rows, never an editable full-chat snapshot. */
   async function readSlice(chatId, indices=[], fields) {
+    await ensureCurrent(chatId)
     // A cached state at the current stamp answers directly. Otherwise read the selected rows:
     // re-checking the stamp in cachedState would load the whole Chat whenever a write lands
     // between the two checks.
@@ -435,6 +466,7 @@ export function createChatJournalStore(options = {}) {
   // Trusted settlement input: immutable revision-bound index, detached header,
   // and lazily detached rows. No writable storage-cache object escapes.
   async function readSettlementBase(chatId) {
+    await ensureCurrent(chatId)
     const selected = await native.readSettlementBase(chatId)
     if (selected !== null) return selected
     const state = await cachedState(chatId)
@@ -505,6 +537,7 @@ export function createChatJournalStore(options = {}) {
     return readCache.get(chatId)?.stamp === metadata.stamp ? null : metadata
   }
   async function readChangedIndices(chatId, revision, options = {}) {
+    await ensureCurrent(chatId)
     const selected = await native.readChangedSlice(chatId, revision, undefined, true, options.limit)
     if (selected !== null) return selected
     const metadata = await missingNativeCoverage(chatId)
@@ -512,6 +545,7 @@ export function createChatJournalStore(options = {}) {
     return changedIndices(chatId, await cachedState(chatId), revision)
   }
   async function readChangedSlice(chatId, revision, fields) {
+    await ensureCurrent(chatId)
     const selected = await native.readChangedSlice(chatId, revision, fields)
     if (selected !== null) return selected
     if (await missingNativeCoverage(chatId)) return undefined
@@ -524,6 +558,7 @@ export function createChatJournalStore(options = {}) {
   /** Detached display input: unchanged Helper variables come from the cached view.
    * Never use this projection as a writable Chat or for a full Helper rebuild. */
   async function readViewDelta(chatId, revision) {
+    await ensureCurrent(chatId)
     if (await missingNativeCoverage(chatId)) return undefined
     const state = await cachedState(chatId)
     const changed = changedIndices(chatId, state, revision)
@@ -570,6 +605,7 @@ export function createChatJournalStore(options = {}) {
 
   /** Exact-version internal commit; stale callers must use their existing merge path. */
   async function patch(chatId, expectedRevision, changes, metadata={}) {
+    await ensureCurrent(chatId)
     return serialize(chatId,async()=>{
       if (!readCache.has(chatId) || Array.isArray(metadata.returnProjection)) {
         const cached=readCache.get(chatId)?.state
@@ -606,6 +642,7 @@ export function createChatJournalStore(options = {}) {
         committed(chatId,saved.revision)
         return slice(next,[],metadata.returnProjection).chat
       }
+      if (autoMigrate) throw new Error('Native storage is not active after automatic migration')
       if(state.compatible){
         const recent=knownChanges(chatId,state)
         const saved=await compatible.write(chatId,state,next,changes,metadata.assertCurrent)
@@ -632,14 +669,16 @@ export function createChatJournalStore(options = {}) {
   }
 
   async function readRevision(chatId, revision) {
+    await ensureCurrent(chatId)
     const target = Number(revision)
     if (!Number.isSafeInteger(target) || target < 0) throw new Error('Chat storage revision 不合法: ' + String(revision))
-    const state = await materialize(chatId, target)
+    const state = await materializeRuntime(chatId, target)
     return state === null ? undefined : copyJsonTree(state.chat)
   }
 
   async function update(chatId, updater, metadata = {}) {
     if (typeof updater !== 'function') throw new Error('Chat Journal Store 缺少 updater')
+    await ensureCurrent(chatId)
     const site = options.wholeReadGuard?.site()
     return await serialize(chatId, async function () {
       const paths = layout(chatId)
@@ -654,7 +693,7 @@ export function createChatJournalStore(options = {}) {
       if (isScopedMessages(produced?.messages)) throw new Error('局部读取的对话不能整档保存')
       const next = jsonClone(produced)
       if (next === undefined || next === null || typeof next !== 'object' || Array.isArray(next)) throw new Error('Chat Journal 只能保存 JSON object')
-      if (currentState == null && options.newConversations === true && next.mode !== 'card') {
+      if (currentState == null && (options.newConversations === true && next.mode !== 'card' || autoMigrate)) {
         const saved=await native.create(chatId,next,metadata.assertCurrent,{worldSelection:metadata.worldSelection})
         rememberState(chatId,await version(chatId),saved)
         return copyJsonTree(next)
@@ -682,6 +721,7 @@ export function createChatJournalStore(options = {}) {
         committed(chatId,saved.revision)
         return copyJsonTree(next)
       }
+      if (autoMigrate) throw new Error('Native storage is not active after automatic migration')
       if(currentState.compatible){
         const recent=knownChanges(chatId,currentState)
         const saved=await compatible.write(chatId,currentState,next,changes,metadata.assertCurrent)
@@ -744,14 +784,17 @@ export function createChatJournalStore(options = {}) {
   // Only native saves have unreachable revisions to drop. The pass reads and lists
   // without the write queue; only its short publishing and deleting steps join it.
   async function compact(chatId, options) {
+    await ensureCurrent(chatId)
     return await native.compact(chatId, { ...options, exclusive: operation => serialize(chatId, operation) })
   }
   // Not serialized: it reads one pinned immutable head and takes the write lock
   // only in short relink steps, so play is never queued behind it.
   async function relayout(chatId, options) {
+    await ensureCurrent(chatId)
     return await native.relayout(chatId, options)
   }
   async function readRetentionHeader(chatId, revision) {
+    await ensureCurrent(chatId)
     try { return await native.readRetentionHeader(chatId, revision) }
     catch (error) { if (error?.code === 'DSH_TAVERN_REVISION_NOT_FOUND') return null; throw error }
   }
@@ -770,5 +813,5 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
-  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot })
+  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, ensureCurrent, upgradeStorage, read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot })
 }

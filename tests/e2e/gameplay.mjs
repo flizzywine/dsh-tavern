@@ -988,25 +988,26 @@ try {
     assert.deepEqual(await readFile(legacySession.oldFile), legacySession.bytes)
     assert.equal(parseSessionLog(await readFile(legacySession.newFile)).header.version, 4)
     const migration=page.getByRole('region',{name:'存档迁移',exact:true})
-    const button=migration.getByRole('button',{name:'迁移存档',exact:true})
-    await button.waitFor()
-    await page.screenshot({path:join(output,'migration-before.png'),fullPage:true})
-    await page.setViewportSize({width:390,height:844})
-    await button.scrollIntoViewIfNeeded()
-    const box=await button.boundingBox()
-    assert.ok(box.x>=0&&box.x+box.width<=390,'迁移按钮在窄屏内可见')
-    await page.screenshot({path:join(output,'migration-mobile.png'),fullPage:true})
     const started=Date.now()
-    await button.click()
+    // Opening the game now performs the storage cutover automatically. The old
+    // manual button must not be required (or remain after completion). The panel
+    // starts hidden while its status request is in flight, so also wait for the
+    // durable native head instead of treating that initial hidden state as done.
+    let migrated
+    for(let attempt=0;attempt<600;attempt++){
+      const candidate=createChatJournalStore({dataRoot:data}),header=await candidate.readRetentionHeader(original.id)
+      if(header&&(await candidate.version(original.id)).startsWith('native:')&&header.legacyInitialRevision===undefined){migrated=candidate;break}
+      await new Promise(resolve=>setTimeout(resolve,100))
+    }
+    assert.ok(migrated,'打开存档后应自动完成全历史 native 转换')
     await migration.waitFor({state:'hidden'})
-    const migrated=createChatJournalStore({dataRoot:data})
+    assert.equal(await page.getByRole('button',{name:'迁移存档',exact:true}).count(),0)
     for(let i=0;i<history.length;i++)assert.deepEqual(await migrated.readRevision(original.id,i+1),history[i])
     // Live iframe diagnostics can change when the viewport changes; migration
     // history above remains byte-for-byte equivalent at each original revision.
     const story=messages=>messages.map(({displayRuntime,...message})=>message)
     assert.deepEqual(story((await migrated.read(original.id)).messages),story(original.messages))
-    report.migration={status:'native',sessionVersion:4,oldSessionPreserved:true,via:'status-button',elapsedMs:Date.now()-started,retainedRevisions:history.length}
-    await page.setViewportSize({width:1440,height:1000})
+    report.migration={status:'native',sessionVersion:4,oldSessionPreserved:true,via:'automatic-open',elapsedMs:Date.now()-started,retainedRevisions:history.length}
     await page.screenshot({path:join(output,'migration-complete.png'),fullPage:true})
     await page.reload({waitUntil:'domcontentloaded'})
     await inspectScreen()
