@@ -1,4 +1,5 @@
 import { bodyGenerationFailure } from './body-generation-failure.js'
+import { isScopedMessages } from './scoped-messages.js'
 import { promptSection } from './prompt-section.js'
 import { captureChatHeader } from './chat-persistence.js'
 import { validAnchor } from './round-anchor.js'
@@ -390,7 +391,10 @@ export function createTurnOrchestrator(options) {
     }
     const preview = input.preview === true
     if (preview) {
-      chat = structuredClone(chat)
+      // A bounded window hands out `messages` as a Proxy facade and structuredClone
+      // refuses any Proxy ("[object Array] could not be cloned."): materialize the
+      // visible rows before the planning copy.
+      chat = structuredClone(isScopedMessages(chat.messages) ? { ...chat, messages: Array.from(chat.messages) } : chat)
       if (!Object.hasOwn(input, 'runtimePresetSnapshot')) {
         input = { ...input, runtimePresetSnapshot: await resolvePreset(chat, { preview: true }) }
       }
