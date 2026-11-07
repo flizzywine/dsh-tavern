@@ -795,7 +795,8 @@ function galCreateScene(host, options, own) {
             const style = env.box && getComputedStyle(env.box);
             // The box covers at most its normal-mode reservation (layoutTop): a page whose box stands elsewhere or is not
             // drawn (an art skin's narration, centred over the scene) never moves a figure; only film / theme changes do.
-            env.boxTop = style ? Math.max(env.layoutTop, H - parseFloat(style.bottom) - parseFloat(style.height) - env.rise) : env.occluderTop;
+            const boxTop = H - parseFloat(style?.bottom) - parseFloat(style?.height) - env.rise;
+            env.boxTop = Number.isFinite(boxTop) ? Math.max(env.layoutTop, boxTop) : env.occluderTop;
             env.boxDirty = false;
         }
         const boxTop = env.boxTop;
