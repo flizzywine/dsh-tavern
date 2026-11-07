@@ -273,30 +273,52 @@ export function canInstallTavern(paths) {
 }
 
 export const LAUNCHER_BUNDLE = 'dsh-tavern'
-export const LEGACY_LAUNCHER_BUNDLES = ['dsh-tavern-launcher', 'dsh-profile-bridge']
-export const LAUNCHER_BUNDLES = [LAUNCHER_BUNDLE, ...LEGACY_LAUNCHER_BUNDLES]
 
-function isOfficialLauncher(dir) {
-  const repository = readManifest(join(dir, 'node_modules', LAUNCHER_BUNDLE))?.repository
-  return repository?.url === 'git+https://github.com/flizzywine/dsh-tavern.git'
-    && repository.directory === 'tavern-plugin/packages/dsh-tavern'
+const tavernRepository = 'git+https://github.com/flizzywine/dsh-tavern.git'
+const packageName = /^(?:@[\w.-]+\/)?[\w.-]+$/
+
+function launcherHost(manifest) {
+  const repository = manifest?.repository?.url
+  if (repository === tavernRepository && manifest.dshTavern?.profileHandoff === true) return 'next'
+  if (manifest?.dsh?.bundle?.patch !== './cordis.patch.yml' || manifest.license !== 'MIT') return undefined
+  if (repository === tavernRepository) return 'desktop'
 }
 
-export function assertLauncherSlotAvailable(manifest, dir) {
+function managedLauncherLink(manifest, dir, name) {
+  const source = manifest?.dshTavern?.source
+  const spec = manifest?.dependencies?.[name]
+  if (manifest?.dshTavern?.profileBridge !== true || typeof source !== 'string' || typeof spec !== 'string' || !spec.startsWith('link:')) return false
+  const target = resolve(dir, spec.slice('link:'.length))
+  return relative(join(resolve(source), 'tavern-plugin', 'packages'), dirname(target)) === ''
+    && (basename(target) === LAUNCHER_BUNDLE || /-(?:bridge|launcher)$/.test(basename(target)))
+}
+
+export function launcherBundles(manifest, dir, host) {
+  const bundles = manifest?.dsh?.profile?.bundles
+  if (!Array.isArray(bundles)) return []
+  return bundles.filter(name => {
+    if (typeof name !== 'string' || name === '.' || name === '..' || !packageName.test(name)) return false
+    const installed = readManifest(join(dir, 'node_modules', name))
+    return installed ? launcherHost(installed) === host : host === 'desktop' && managedLauncherLink(manifest, dir, name)
+  })
+}
+
+export function assertLauncherSlotAvailable(manifest, dir, { replaceNext = false } = {}) {
   const occupied = Object.hasOwn(manifest?.dependencies ?? {}, LAUNCHER_BUNDLE)
     || manifest?.dsh?.profile?.bundles?.includes(LAUNCHER_BUNDLE)
     || existsSync(join(dir, 'node_modules', LAUNCHER_BUNDLE))
-  if (occupied && !isOfficialLauncher(dir)) {
+  const installed = readManifest(join(dir, 'node_modules', LAUNCHER_BUNDLE))
+  const host = launcherHost(installed)
+  if (occupied && !(host === 'desktop' || (replaceNext && host === 'next')
+    || (!installed && managedLauncherLink(manifest, dir, LAUNCHER_BUNDLE)))) {
     throw Error('当前 Profile 已有同名的 dsh-tavern 插件，请检查其来源后再安装酒馆。')
   }
 }
 
 export function launcherBundle(manifest, dir) {
-  const bundles = manifest?.dsh?.profile?.bundles
-  if (!Array.isArray(bundles) || bundles.includes('dsh-tavern-bundle')) return undefined
-  if (bundles.includes(LAUNCHER_BUNDLE) && dir && isOfficialLauncher(dir)) return LAUNCHER_BUNDLE
-  return LEGACY_LAUNCHER_BUNDLES.find(name => bundles.includes(name)
-    && (!dir || readManifest(join(dir, 'node_modules', name))?.dshTavern?.profileHandoff !== true))
+  if (manifest?.dsh?.profile?.bundles?.includes('dsh-tavern-bundle')) return undefined
+  const enabled = launcherBundles(manifest, dir, 'desktop')
+  return enabled.includes(LAUNCHER_BUNDLE) ? LAUNCHER_BUNDLE : enabled[0]
 }
 
 export function hasBridge(manifest, dir) {

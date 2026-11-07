@@ -291,9 +291,18 @@ const { join } = require('node:path')
 const directory = process.argv[2]
 const profile = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
 const hasBundle = name => Object.hasOwn(profile.dependencies ?? {}, name) || profile.dsh?.profile?.bundles?.includes(name)
-for (const name of ['dsh-profile-bridge', 'dsh-tavern-launcher']) {
-  if (hasBundle(name)) {
-    console.error('请从原版 DeepSeek Harness 的插件页移除旧启动器 ' + name + '，再安装 dsh-tavern。')
+for (const name of profile.dsh?.profile?.bundles ?? []) {
+  if (name === 'dsh-tavern' || name === '.' || name === '..' || !/^(?:@[\w.-]+\/)?[\w.-]+$/.test(name)) continue
+  let installed
+  try { installed = JSON.parse(readFileSync(join(directory, 'node_modules', name, 'package.json'), 'utf8')) } catch { continue }
+  const repo = installed.repository?.url
+  const ownNext = repo === 'git+https://github.com/flizzywine/dsh-tavern.git' && installed.dshTavern?.profileHandoff === true
+  let patch = ''
+  if (installed.dsh?.bundle?.patch === './cordis.patch.yml') {
+    try { patch = readFileSync(join(directory, 'node_modules', name, 'cordis.patch.yml'), 'utf8') } catch {}
+  }
+  if (ownNext || /^\s*-\s+id:\s+profile-bridge\s*$/m.test(patch)) {
+    console.error('请从插件页移除旧启动器 ' + name + '，再安装 dsh-tavern。')
     process.exit(1)
   }
 }

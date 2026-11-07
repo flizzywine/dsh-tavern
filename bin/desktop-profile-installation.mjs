@@ -6,7 +6,7 @@ import installationLocation from './installation-location.cjs'
 import { beginOriginalBridgeUpdate } from './original-bridge-update.mjs'
 import { copyTreeSync, renameWithRetrySync } from './portable-fs.mjs'
 import { assertDesktopStopped } from './import-user-home.mjs'
-import { assertLauncherSlotAvailable, hasBridge, hasNextTavern, LAUNCHER_BUNDLE, LEGACY_LAUNCHER_BUNDLES } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
+import { assertLauncherSlotAvailable, hasBridge, hasNextTavern, LAUNCHER_BUNDLE, launcherBundles } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
 
 const present = file => { try { lstatSync(file); return true } catch (e) { if (e.code === 'ENOENT') return false; throw e } }
 const read = dir => JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'))
@@ -50,9 +50,10 @@ function originalProfile(home, live, linked) {
   }
   throw Error('找不到可恢复的原版 desktop 配置，未修改 profile。请先恢复原版 desktop 备份后重试；现有酒馆和存档保持不变。')
 }
-function installBridge(dir, sourceRoot) {
+function installBridge(dir, sourceRoot, replaceNext) {
   const doc = read(dir)
-  assertLauncherSlotAvailable(doc, dir)
+  assertLauncherSlotAvailable(doc, dir, { replaceNext })
+  const previousLaunchers = new Set([...launcherBundles(doc, dir, 'desktop'), ...launcherBundles(doc, dir, 'next')])
   const source = path.join(sourceRoot, 'tavern-plugin/packages/dsh-tavern')
   for (const target of [`vendor/${LAUNCHER_BUNDLE}`, `node_modules/${LAUNCHER_BUNDLE}`]) {
     const destination = path.join(dir, target)
@@ -61,8 +62,8 @@ function installBridge(dir, sourceRoot) {
     copyTreeSync(source, destination)
   }
   doc.dependencies = { ...doc.dependencies, [LAUNCHER_BUNDLE]: `file:./vendor/${LAUNCHER_BUNDLE}` }
-  for (const name of LEGACY_LAUNCHER_BUNDLES) delete doc.dependencies[name]
-  doc.dsh.profile.bundles = [...new Set([...doc.dsh.profile.bundles.filter(name => !LEGACY_LAUNCHER_BUNDLES.includes(name)), LAUNCHER_BUNDLE])]
+  for (const name of previousLaunchers) delete doc.dependencies[name]
+  doc.dsh.profile.bundles = [...new Set([...doc.dsh.profile.bundles.filter(name => !previousLaunchers.has(name)), LAUNCHER_BUNDLE])]
   save(path.join(dir, 'package.json'), doc)
 }
 function recover(journalFile, journal, rename) {
@@ -159,7 +160,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, pre
     if (!preparingForPid) {
       copyTreeSync(original.directory, desktopStage)
       if (original.suffix) for (const file of ['package.json', 'cordis.patch.yml']) writeFileSync(path.join(desktopStage, file), readFileSync(path.join(original.directory, file + original.suffix)))
-      installBridge(desktopStage, sourceRoot)
+      installBridge(desktopStage, sourceRoot, replacesNext)
     }
     const legacyDesktop = !linked && isTavern(read(live))
     if (present(tavern)) move(tavern, path.join(backup, 'previous-tavern'))

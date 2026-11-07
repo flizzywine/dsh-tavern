@@ -1,4 +1,3 @@
-// Based on 2NF/dsh-profile-bridge (MIT); Tavern compatibility fork.
 // Queue a directory switch for when Desktop exits, then ask it to quit and reopen it.
 import { basename, join } from 'node:path'
 import { appendFileSync } from 'node:fs'
@@ -206,7 +205,7 @@ export function apply(ctx) {
   // Host applies the saved preference using the existing guarded transaction.
   // Explicit switches carry a process-only continuation marker, so they do not
   // immediately bounce back to the default. Never repeat this on plugin reload.
-  const startupKey = Symbol.for('dsh-tavern-launcher.startup-profile')
+  const startupKey = Symbol.for('dsh-tavern.startup-profile')
   const paths = resolvePaths()
   if (isOfficialDesktopApp() && basename(paths.activeDir) === 'desktop' && !globalThis[startupKey]) {
     globalThis[startupKey] = true

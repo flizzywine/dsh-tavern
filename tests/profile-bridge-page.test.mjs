@@ -44,7 +44,7 @@ async function mount(status, calls = [], options = {}) {
   return { dom, act, label: () => registered.label(), text: () => dom.window.document.body.textContent, button: () => dom.window.document.querySelector('.pb-bar .pb-btn'), calls, dispose: () => act(() => root.unmount()) }
 }
 
-const tavernProfile = { name: 'tavern', bundles: ['dsh-tavern-plugin', 'dsh-profile-bridge'], hasNodeModules: true }
+const tavernProfile = { name: 'tavern', bundles: ['dsh-tavern-plugin', 'dsh-tavern'], hasBridge: true, hasNodeModules: true }
 
 test('NEXT 使用原生 Profile 设置，不注册旧切换页', async () => {
   const page = await mount({}, [], { next: true })
@@ -172,7 +172,7 @@ test('安装完成后可手动添加快捷方式，并重启切换到酒馆 Prof
 })
 
 test('酒馆启动器只提供切换到原版和酒馆的入口', async () => {
-  const readerProfile = { name: 'reader', bundles: ['dsh-reader', 'dsh-profile-bridge'], hasNodeModules: true }
+  const readerProfile = { name: 'reader', bundles: ['dsh-reader', 'dsh-tavern'], hasBridge: true, hasNodeModules: true }
   const original = '重启并切换到原版 DSH'
   const tavern = '重启并切换到 DSH 酒馆'
   for (const [current, label, available, action, request] of [

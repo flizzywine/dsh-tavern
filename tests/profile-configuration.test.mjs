@@ -104,20 +104,20 @@ test('Next 迁移独立酒馆配置时移除旧桥接和过时的素材库路径
   const original = '- id: dsh-asset-library\n  name: file:///some/profiles/desktop/node_modules/dsh-asset-library/lib/index.js\n  config:\n    assetRoot: ./custom\n'
   await writeFile(path.join(profileDir, 'cordis.patch.yml'), original)
   const current = {
-    dependencies: { 'dsh-profile-bridge': 'link:/bridge', 'user-plugin': '1.0.0' },
-    dsh: { profile: { bundles: ['dsh-profile-bridge', 'user-plugin'] } },
+    dependencies: { 'legacy-profile-switcher': 'link:/bridge', 'user-plugin': '1.0.0' },
+    dsh: { profile: { bundles: ['legacy-profile-switcher', 'user-plugin'] } },
     dshTavern: { officialDesktop: true, profileBridge: true },
   }
-  const args = { source: sourceManifest(), current, pluginPath: '/app/tavern-plugin', dataRoot: '/data' }
+  const args = { source: sourceManifest(), current, previousLaunchers: ['legacy-profile-switcher'], pluginPath: '/app/tavern-plugin', dataRoot: '/data' }
   const next = mergeProfileManifest({ ...args, host: 'next' })
   const desktop = mergeProfileManifest({ ...args, host: 'desktop' })
-  assert.equal(next.dependencies['dsh-profile-bridge'], undefined)
-  assert.equal(next.dsh.profile.bundles.includes('dsh-profile-bridge'), false)
+  assert.equal(next.dependencies['legacy-profile-switcher'], undefined)
+  assert.equal(next.dsh.profile.bundles.includes('legacy-profile-switcher'), false)
   assert.equal(next.dshTavern.profileBridge, undefined)
   assert.equal(next.dshTavern.officialDesktop, undefined)
   assert.equal(next.dependencies['user-plugin'], '1.0.0')
-  assert.equal(desktop.dependencies['dsh-profile-bridge'], undefined)
-  assert.equal(desktop.dsh.profile.bundles.includes('dsh-profile-bridge'), false)
+  assert.equal(desktop.dependencies['legacy-profile-switcher'], undefined)
+  assert.equal(desktop.dsh.profile.bundles.includes('legacy-profile-switcher'), false)
   const patchOptions = { profileDir, profileConfigurationVersion: Number.MAX_SAFE_INTEGER }
   assert.deepEqual(parseDocument(prepareProfilePatch({ ...patchOptions, host: 'next' })).toJS(), [
     { id: 'dsh-asset-library', config: { assetRoot: './custom' } },

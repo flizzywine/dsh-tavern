@@ -226,7 +226,8 @@ test('lease lost after mutation does not roll back under a successor owner', asy
 
 for (const nextOperation of ['relocate', 'uninstall', 'relocate-rollback']) test(`relocated uninstall/reinstall keeps external data registered for another ${nextOperation}`, async t => {
   const f = fixture(t)
-  put(path.join(f.paths.activeDir, 'package.json'), { name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-profile-bridge'] } } })
+  put(path.join(f.paths.activeDir, 'package.json'), { name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-tavern'] } } })
+  put(path.join(f.paths.activeDir, 'node_modules/dsh-tavern/package.json'), { name: 'dsh-tavern', license: 'MIT', repository: { url: 'git+https://github.com/flizzywine/dsh-tavern.git' }, dsh: { bundle: { patch: './cordis.patch.yml' } } })
   put(path.join(f.paths.activeDir, 'cordis.patch.yml'), '[]')
   await performInstallation(plan(f))
   const removed = await performInstallation(validateInstallationRequest(f.paths, 'uninstall', { confirmed: true }))

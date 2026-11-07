@@ -1,6 +1,6 @@
 import { preserveInstallationFonts } from './preserve-font-assets.mjs'
 import { beginDesktopProfileInstallation, clearUninstalledInstallationRecord } from './desktop-profile-installation.mjs'
-import { assertLauncherSlotAvailable, LAUNCHER_BUNDLE } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
+import { assertLauncherSlotAvailable, LAUNCHER_BUNDLE, launcherBundles } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
 import { assertDesktopStopped, importUserHome } from './import-user-home.mjs'
 import { randomUUID } from 'node:crypto'
 import installationState from './installation-state.cjs'
@@ -70,6 +70,10 @@ function prepareProfileConfiguration(host, dshVersion) {
   const manifest = mergeProfileManifest({
     source,
     current,
+    previousLaunchers: [
+      ...launcherBundles(current, PROFILE_DIR, 'desktop'),
+      ...launcherBundles(current, PROFILE_DIR, 'next'),
+    ],
     pluginPath,
     dataRoot: resolveTavernDataRoot({ dshHome: DSH_ROOT }),
     host,

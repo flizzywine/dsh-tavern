@@ -4,7 +4,7 @@ window.__ModuleLoader__.load({
     const React = require('react')
     const h = React.createElement
     const ns = 'tavernLauncher'
-    const pendingKey = 'dsh-tavern-launcher:profile-handoff'
+    const pendingKey = 'dsh-tavern:profile-handoff'
     const steps = ['findRelease', 'prepareProfile', 'installPackage', 'verifyInstall']
     const zh = {
       title: '酒馆启动器',
@@ -169,25 +169,26 @@ window.__ModuleLoader__.load({
               setStatus(latest)
               return
             }
+            const targetKey = latest.handoffBundle ? latest.handoffBundle + ':profile-handoff' : pendingKey
             if (fromTavern && endpoint !== 'back') {
               if (!latest.canHandoff) {
                 setStatus(latest)
                 return
               }
-              localStorage.setItem(pendingKey, JSON.stringify({ action: endpoint.slice(7), expiresAt: Date.now() + 120000 }))
+              localStorage.setItem(targetKey, JSON.stringify({ action: endpoint.slice(7), expiresAt: Date.now() + 120000 }))
             } else if (endpoint === 'back') {
-              localStorage.removeItem(pendingKey)
+              localStorage.removeItem(targetKey)
             }
             // The same bridge used by NEXT's own Desktop settings handles
             // confirmation, the orderly restart and the recovery backup.
             try {
               await window.desktopNext.command({ type: endpoint === 'delete' ? 'delete' : 'switch', name: fromTavern ? 'desktop' : 'tavern' })
             } catch (error) {
-              if (fromTavern) localStorage.removeItem(pendingKey)
+              if (fromTavern) localStorage.removeItem(targetKey)
               throw error
             }
             const after = await call('status')
-            if (fromTavern && after.selectedProfile === 'tavern') localStorage.removeItem(pendingKey)
+            if (fromTavern && after.selectedProfile === 'tavern') localStorage.removeItem(targetKey)
             setStatus(after)
           } else {
             setStatus(await call(endpoint))
@@ -280,7 +281,7 @@ window.__ModuleLoader__.load({
         if (typeof window.desktopNext?.command !== 'function') return
         const t = ctx.locale.bind(ns)
         const call = async endpoint => {
-          const response = await fetch('/dsh-tavern-launcher/' + endpoint, { method: endpoint === 'status' || endpoint === 'check' ? 'GET' : 'POST' })
+          const response = await fetch('/dsh-tavern/' + endpoint, { method: endpoint === 'status' || endpoint === 'check' ? 'GET' : 'POST' })
           if (!response.ok && !response.headers.get('content-type')?.startsWith('application/json')) {
             throw new Error('HTTP ' + response.status)
           }

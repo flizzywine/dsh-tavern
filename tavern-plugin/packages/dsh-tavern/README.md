@@ -1,6 +1,6 @@
 # dsh-tavern（官方 DeepSeek Harness）
 
-基于 [2NF/dsh-profile-bridge](https://github.com/2NF/dsh-profile-bridge) 的 MIT 版本 0.2.0，来源提交 `6917177806fcff7d9def83a881c47f8936a70278`；保留原作者 LICENSE。
+许可和版权声明见 [LICENSE](./LICENSE)。
 
 从仓库 README 的「快速开始」安装此标准插件，然后在原版桌面打开「设置 → 酒馆启动器 → 安装酒馆」。安装完成后点「重启并切换到 DSH 酒馆」。如果需要桌面快捷方式，可在同一页点「添加桌面快捷方式」。原版和独立酒馆配置均提供此页面。已有酒馆可通过旧版侧栏更新一次，获得新版启动器。
 

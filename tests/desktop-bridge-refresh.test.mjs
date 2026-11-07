@@ -88,11 +88,12 @@ test('original-mode update refreshes only owned packages without switching profi
   assertNew(f.desktop); assertPreserved(f, f.desktop)
 })
 
-for (const legacy of ['dsh-profile-bridge', 'dsh-tavern-launcher']) test(`refresh keeps the legacy ${legacy} package name while updating its code`, t => {
+for (const legacy of ['legacy-profile-switcher', 'legacy-tavern-entry']) test(`refresh keeps the legacy ${legacy} package name while updating its code`, t => {
   const f = fixture(t)
   const launcher = 'dsh-tavern'
   const manifestFile = path.join(f.original, 'package.json')
   put(manifestFile, f.manifest.replaceAll(launcher, legacy))
+  copyTreeSync(path.join(f.original, 'node_modules', launcher), path.join(f.original, 'node_modules', legacy))
   const before = text(manifestFile)
   f.newSource()
   const tx = beginDesktopProfileInstallation(f)
@@ -102,7 +103,7 @@ for (const legacy of ['dsh-profile-bridge', 'dsh-tavern-launcher']) test(`refres
   assert.equal(JSON.parse(text(path.join(pkg, 'package.json'))).name, legacy)
   assert.ok(text(path.join(pkg, 'cordis.patch.yml')).includes(`name: '${legacy}'`))
   assert.ok(text(path.join(pkg, 'client.js')).includes(`id: '${legacy}'`))
-  assert.match(text(path.join(pkg, 'client.js')), /bundles.includes\('dsh-tavern-launcher'\)/)
+  assert.match(text(path.join(pkg, 'client.js')), /profile.hasBridge === true/)
   assert.equal(text(path.join(pkg, 'revision.mjs')), 'export default "new"\n')
 })
 

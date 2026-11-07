@@ -55,7 +55,10 @@ test('首次安装保留原版默认，主动选择酒馆后更新保留选择',
 })
 test('从 NEXT 安装到官方桌面时保留旧 Profile 备份和酒馆数据', t => {
   const r = fixture(t)
-  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ dsh: { profile: { bundles: ['official', 'dsh-tavern-launcher'] } } }))
+  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ dsh: { profile: { bundles: ['official', 'dsh-tavern'] } } }))
+  const installed = path.join(r.desktop, 'node_modules/dsh-tavern')
+  mkdirSync(installed, { recursive: true })
+  writeFileSync(path.join(installed, 'package.json'), readFileSync(path.join(r.sourceRoot, 'tavern-plugin/packages/dsh-tavern/next/package.json')))
   mkdirSync(r.tavern)
   const oldManifest = JSON.stringify({ dsh: { profile: { bundles: ['dsh-tavern-bundle'] } } })
   writeFileSync(path.join(r.tavern, 'package.json'), oldManifest)
@@ -75,7 +78,10 @@ test('从 NEXT 安装到官方桌面时保留旧 Profile 备份和酒馆数据',
 test('应用内安装保留原版默认和下载期间保存的配置', async t => {
   const r = fixture(t)
   const manifest = path.join(r.desktop, 'package.json')
-  writeFileSync(manifest, JSON.stringify({ dsh: { profile: { bundles: ['official', 'dsh-tavern-launcher'] } } }))
+  writeFileSync(manifest, JSON.stringify({ dsh: { profile: { bundles: ['official', 'dsh-tavern'] } } }))
+  const installed = path.join(r.desktop, 'node_modules/dsh-tavern')
+  mkdirSync(installed, { recursive: true })
+  writeFileSync(path.join(installed, 'package.json'), readFileSync(path.join(r.sourceRoot, 'tavern-plugin/packages/dsh-tavern/package.json')))
   const checks = []
   const tx = prepare({ ...r, preparingForPid: 123, checkStopped: pid => checks.push(pid) })
   assert.equal(tx.desktopStage, r.desktop)
@@ -194,7 +200,7 @@ test('卸载记录存在时重新安装：重新建立独立酒馆 profile，并
     retained: [path.join(r.home, 'apps/dsh-tavern.switch-removed-1')],
     dataDir: path.join(r.home, 'profile-data/tavern')
   }))
-  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-tavern-launcher'] } } }))
+  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official'] } } }))
   const tx = prepare(r)
   tx.finish()
   tx.commit()
@@ -204,7 +210,10 @@ test('卸载记录存在时重新安装：重新建立独立酒馆 profile，并
 
 test('酒馆 profile 缺失时，原版 desktop 已带切换组件也按首次安装重建', t => {
   const r = fixture(t)
-  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-tavern-launcher'] } } }))
+  const installed = path.join(r.desktop, 'node_modules/dsh-tavern')
+  mkdirSync(installed, { recursive: true })
+  writeFileSync(path.join(installed, 'package.json'), readFileSync(path.join(r.sourceRoot, 'tavern-plugin/packages/dsh-tavern/package.json')))
+  writeFileSync(path.join(r.desktop, 'package.json'), JSON.stringify({ name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-tavern'] } } }))
   const tx = prepare(r)
   tx.finish(); tx.commit()
   assert.notEqual(realpathSync(r.desktop), realpathSync(r.tavern))

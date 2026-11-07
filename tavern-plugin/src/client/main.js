@@ -1014,7 +1014,7 @@ function clipReplayCore() {
 		// @include tavern-presentation.js
 
 		function apply(ctx) {
-			// The profile switch page (dsh-profile-bridge) names itself by side from this flag.
+			// The Tavern profile switch page names itself by side from this flag.
 			window.__dshTavernLoaded = true;
             installTavernPresentation(ctx);
             // Stage registration is deferred until its optional client plugin mounts.

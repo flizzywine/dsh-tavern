@@ -16,7 +16,7 @@ function fixture(t) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const home = path.join(root, 'home'), app = path.join(home, 'apps/dsh-tavern')
   const paths = { home, stateDir: path.join(home, 'profile-bridge'), activeDir: path.join(home, 'profiles/desktop') }
-  const manifest = name => ({ name, dsh: { profile: { bundles: ['dsh-tavern-launcher'] } } })
+  const manifest = name => ({ name, dsh: { profile: { bundles: ['dsh-tavern'] } } })
   put(path.join(app, 'package.json'), manifest('dsh-profile-tavern'))
   put(path.join(app, '.dsh-tavern-local.json'), { host: 'desktop', dshHome: home })
   fs.mkdirSync(path.join(app, 'bin')); fs.copyFileSync(path.join(repo, 'bin/installation-state.cjs'), path.join(app, 'bin/installation-state.cjs'))
@@ -32,7 +32,7 @@ test('relocation → managed switch → reinstall target → second relocation k
   const f = fixture(t)
   const bridgeSource = path.join(repo, 'tavern-plugin/packages/dsh-tavern')
   copyTreeSync(bridgeSource, path.join(f.app, 'tavern-plugin/packages/dsh-tavern'))
-  for (const target of ['vendor', 'node_modules']) copyTreeSync(bridgeSource, path.join(f.paths.activeDir, target, 'dsh-tavern-launcher'))
+  for (const target of ['vendor', 'node_modules']) copyTreeSync(bridgeSource, path.join(f.paths.activeDir, target, 'dsh-tavern'))
   await performInstallation(plan(f))
   assert.equal(location.resolveInstallationApp({ dshHome: f.home }), path.join(f.destination, 'app'))
   assert.equal(registeredTavernTarget(f.profilesRoot, path.join(f.profilesRoot, 'tavern')), path.join(f.destination, 'profile'))
@@ -138,7 +138,7 @@ test('redirected user home does not authorize replaced managed state or unregist
   // Physical receipt paths remain valid when the configured home uses an alias.
   assert.equal(inspectInstallation(f.paths).available, true)
   const external = path.join(f.root, 'external')
-  put(path.join(external, 'package.json'), { dsh: { profile: { bundles: ['dsh-tavern-launcher'] } } })
+  put(path.join(external, 'package.json'), { dsh: { profile: { bundles: ['dsh-tavern'] } } })
   await assert.rejects(switchProfile({ mode: 'link', profilesRoot: path.join(f.paths.home, 'profiles'), liveDir: path.join(f.paths.home, 'profiles/desktop'), targetDir: external, stamp: 'reject' }), /独立 profile/)
   fs.mkdirSync(f.paths.stateDir)
   const moved = path.join(f.root, 'untrusted-state')

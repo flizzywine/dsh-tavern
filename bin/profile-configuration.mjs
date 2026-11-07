@@ -42,7 +42,7 @@ function uniqueStrings(values) {
   return result
 }
 
-export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoot, host, dshVersion }) {
+export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoot, host, dshVersion, previousLaunchers = [] }) {
   const sourceDocument = object(source)
   const currentDocument = object(current)
   const sourceDsh = { ...object(sourceDocument.dsh) }
@@ -68,8 +68,7 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
     : []
   // Desktop installation re-adds its own launcher from the installed source.
   // Drop previous official and NEXT launchers before the profiles are composed.
-  if (desktop) excludedHostBundles.push('dsh-tavern-launcher')
-  excludedHostBundles.push('dsh-profile-bridge')
+  excludedHostBundles.push(...previousLaunchers)
   const sourceBundles = uniqueStrings(sourceProfile.bundles)
     .map(name => name === 'dsh-web-mobile' ? selectedLayout : name)
     .filter(name => name && !excludedHostBundles.includes(name))

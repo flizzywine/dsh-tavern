@@ -3,7 +3,6 @@
   "version": "0.2.0-tavern.18",
   "description": "官方 DeepSeek Harness 的酒馆启动器，安装、切换和管理独立的酒馆配置",
   "license": "MIT",
-  "author": "2NF",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/flizzywine/dsh-tavern.git",

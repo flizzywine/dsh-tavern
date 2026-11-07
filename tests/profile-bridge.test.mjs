@@ -35,7 +35,12 @@ test('只能切到同样启用桥接的 profile，否则切过去后无法在应
  const { validateTarget, listProfiles } = await import('../tavern-plugin/packages/dsh-tavern/lib/state.mjs')
  const root=mkdtempSync(join(tmpdir(),'pb-target-'));t.after(()=>rmSync(root,{recursive:true,force:true}))
  const profile=(name,bundles)=>{mkdirSync(join(root,name));writeFileSync(join(root,name,'package.json'),JSON.stringify({dependencies:{a:'1'},dsh:{profile:{bundles}}}))}
- profile('desktop',['dsh-profile-bridge']);profile('tavern',['@deepseek-ai/dsh-base','dsh-tavern-launcher']);profile('web',['@deepseek-ai/dsh-base'])
+ profile('desktop',['dsh-tavern']);profile('tavern',['@deepseek-ai/dsh-base','dsh-tavern']);profile('web',['@deepseek-ai/dsh-base'])
+ for (const name of ['desktop','tavern']) {
+   const dir = join(root,name,'node_modules','dsh-tavern')
+   mkdirSync(dir,{recursive:true})
+   writeFileSync(join(dir,'package.json'),readFileSync(new URL('../tavern-plugin/packages/dsh-tavern/package.json',import.meta.url)))
+ }
  const paths={profilesDir:root,activeDir:join(root,'desktop'),activeName:'desktop'}
  assert.equal(validateTarget(paths,'tavern').name,'tavern')
  assert.throws(()=>validateTarget(paths,'web'),/does not enable the Tavern launcher/)

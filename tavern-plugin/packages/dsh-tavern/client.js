@@ -321,7 +321,7 @@ window.__ModuleLoader__.load({
       const ready = (name) => (status?.profiles ?? []).some((profile) => {
         const bundles = profile.bundles ?? []
         return profile.name === name && profile.hasNodeModules && !bundles.includes('dsh-tavern-bundle')
-          && (profile.hasBridge ?? (bundles.includes('dsh-tavern-launcher') || bundles.includes('dsh-profile-bridge')))
+          && profile.hasBridge === true
       })
       const destinations = [
         { name: 'desktop', label: 'profileDesktop', action: 'toOriginal', ready: (status?.backups ?? []).length > 0 },

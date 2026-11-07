@@ -1260,9 +1260,17 @@ try {
         throw '当前使用的是切换后的配置。请打开官方 DeepSeek Harness，在「设置 → 酒馆启动器」点「重启并切换到原版 DSH」。等原版窗口打开，再从托盘退出并重试命令。'
       }
       $LauncherProfile = Get-Content -Raw -LiteralPath (Join-Path $DesktopProfile.FullName 'package.json') | ConvertFrom-Json
-      foreach ($LegacyLauncher in @('dsh-profile-bridge', 'dsh-tavern-launcher')) {
-        if ($LauncherProfile.dependencies.$LegacyLauncher -or $LauncherProfile.dsh.profile.bundles -contains $LegacyLauncher) {
-          throw "请在原版 DeepSeek Harness 的插件页移除旧启动器 $LegacyLauncher，再安装 dsh-tavern。"
+      foreach ($BundleName in @($LauncherProfile.dsh.profile.bundles)) {
+        if ($BundleName -eq 'dsh-tavern' -or $BundleName -in @('.', '..') -or $BundleName -notmatch '^(?:@[\w.-]+/)?[\w.-]+$') { continue }
+        $BundlePackage = Join-Path $DesktopProfile.FullName "node_modules/$BundleName/package.json"
+        if (-not (Test-Path -LiteralPath $BundlePackage -PathType Leaf)) { continue }
+        $Bundle = Get-Content -Raw -LiteralPath $BundlePackage | ConvertFrom-Json
+        $PatchFile = Join-Path $DesktopProfile.FullName "node_modules/$BundleName/cordis.patch.yml"
+        $OwnNext = $Bundle.repository.url -eq 'git+https://github.com/flizzywine/dsh-tavern.git' -and $Bundle.dshTavern.profileHandoff -eq $true
+        $UsesBridge = $Bundle.dsh.bundle.patch -eq './cordis.patch.yml' -and (Test-Path -LiteralPath $PatchFile -PathType Leaf) -and
+          (Select-String -LiteralPath $PatchFile -Pattern '^\s*-\s+id:\s+profile-bridge\s*$' -Quiet)
+        if ($OwnNext -or $UsesBridge) {
+          throw "请在插件页移除旧启动器 $BundleName，再安装 dsh-tavern。"
         }
       }
       if ($LauncherProfile.dependencies.'dsh-tavern' -or $LauncherProfile.dsh.profile.bundles -contains 'dsh-tavern') {
