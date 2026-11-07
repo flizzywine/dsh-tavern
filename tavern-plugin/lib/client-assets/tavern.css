@@ -3268,6 +3268,14 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_rowText"] { flex: 1 1 160px; padding-right: 0; }
 }
 
+/* dsh-web-mobile 接管（frame 带 data-mobile-nav）后，宿主在 ≤1023px 把模板设为 minmax(0, 1fr) 0 0，
+   但宿主基线仍把 _centerCol 放在 grid-area 1/2；竖屏窄视口下宿主 JS 不会把它动态改回 1/1，
+   中心列落进 0 宽的第 2 轨，正文整页空白（横屏由宿主 JS 改回 1/1，所以只有竖屏踩坑）。
+   竖屏方向把中心列强制回第 1 轨；横屏不干预宿主的动态摆放。 */
+@media (max-width: 1023px) and (orientation: portrait) {
+  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-mobile-nav] > [class*="_centerCol"] { grid-area: 1 / 1 !important; min-width: 0 !important; }
+}
+
 /* 极短窗口下列表覆盖内容区，关闭入口始终可见；不让 0px 的候选层遮住顶栏。 */
 @media (max-width: 1023px), (pointer: coarse) {
   html.dsh-tavern-short-viewport body.dsh-tavern-shell-active [data-composer-seat] {
