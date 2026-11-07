@@ -18,7 +18,7 @@ const model = { kind: 'model', provider: 'fixture', model: 'fixture' }
 // A long native save whose latest round was committed and settled through the real
 // timeline: settlement also edited an older floor and the chat variables, which a
 // rollback must restore exactly as the checkpoint revision held them.
-async function fixture(t, bounded) {
+async function fixture(t, bounded, { earlyInput = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rollback-bounded-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const p = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
@@ -29,10 +29,19 @@ async function fixture(t, bounded) {
   let chat = timeline.apply({ chat: { id: 'chat', sessionId: 'session', mode: 'story', backgroundConfigVersion: 1, conversationFeaturesVersion: 1,
     posture: '门外', settleStatus: 'done', variables: { day: 1 }, nativeCommits: {}, messages }, intent: { kind: 'ensure' } }).chat
   chat = await p.write(chat, { source: 'create' })
+  const source = { kind: 'user', rpcId: 'input-81' }
+  if (earlyInput) {
+    chat = await p.update('chat', current => {
+      current.messages.push({ role: 'user', text: '推门 ZZ3', placeholder: true, source })
+      return current
+    }, { source: 'player.input' })
+  }
   const begun = timeline.apply({ chat, intent: { kind: 'body.begin', turn: 81, userText: '推门' } })
   chat = await p.write(begun.chat, { source: 'foreground.prepare' })
   chat = await p.write(timeline.complete({ chat, operationId: begun.value.operationId, basedOn: begun.value.basedOn, outcome: { status: 'success' }, apply(draft) {
-    draft.messages.push({ role: 'user', text: '推门' }, { role: 'assistant', turn: 81, text: '新正文', sourceText: '新正文', swipes: ['新正文'], swipeId: 0, variables: [{ hp: 81 }] })
+    if (earlyInput) draft.messages[draft.messages.length - 1] = { role: 'user', text: '推门 〔3〕', source }
+    else draft.messages.push({ role: 'user', text: '推门' })
+    draft.messages.push({ role: 'assistant', turn: 81, text: '新正文', sourceText: '新正文', swipes: ['新正文'], swipeId: 0, variables: [{ hp: 81 }] })
     draft.posture = '门内'
     draft.nativeCommits['81'] = { turn: 81, userText: '推门' }
   } }).chat, { source: 'foreground.commit' })
@@ -177,6 +186,22 @@ test('bounded rollback stores the same Chat as the complete rollback without rea
   }
   assert.deepEqual(undone[0].calls.filter(call => call !== 'read'), ['patch:rollback.undo'])
   assert.deepEqual(comparable(undone[0].restored), comparable(undone[1].restored))
+})
+
+test('rolling back a completed round drops its pre-saved input from the checkpoint', async t => {
+  for (const bounded of [true, false]) {
+    const h = await fixture(t, bounded, { earlyInput: true })
+    const before = await h.p.read('chat')
+    await h.rounds.rollback('session', 'chat', 81)
+    const after = await h.p.read('chat')
+    assert.equal(after.messages.length, before.messages.length - 2)
+    assert.equal(after.messages.at(-1).turn, 80)
+    assert.equal(after.variables.day, 1)
+    assert.equal(h.dispatched[0].args[0], after.messages.length)
+    if (bounded) assert.deepEqual(h.calls, ['patch:rollback', 'patch:rollback.undo-point'])
+    await h.rounds.undoRollback('session', 'chat')
+    assert.deepEqual((await h.p.read('chat')).messages, before.messages)
+  }
 })
 
 test('rollback to a turn removes every later round and one undo restores them all', async t => {

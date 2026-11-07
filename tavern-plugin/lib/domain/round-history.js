@@ -26,6 +26,11 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+function isRollbackInputPlaceholder(row, committedInput) {
+  const requestId = str(committedInput?.source?.rpcId).trim()
+  return requestId !== '' && row?.role === 'user' && row.placeholder === true && str(row.source?.rpcId).trim() === requestId
+}
+
 // A provider that keeps moderating or cutting a regeneration short can often be
 // worked around by dropping the foreground tool calls the player enabled for this
 // game: 本局设置 → 高级 → 前台工具.
@@ -1010,6 +1015,11 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (undo.before) delete undo.before.rollbackUndo
     const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
     chat = rolled.chat
+    // Player input can be saved before body.begin takes its checkpoint.
+    // Remove that request's pending row along with the completed round.
+    if (chat.messages.length === assistantIndex && isRollbackInputPlaceholder(chat.messages.at(-1), msgs[assistantIndex - 1])) {
+      chat.messages.pop()
+    }
     chat.rollbackUndo = undo
     chat.regenInProgress = false
     delete chat.regenRecovery
@@ -1093,10 +1103,15 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (!changed || changed.revision !== revision) return undefined
     const checkpointHead = await chats.rowsAt(chat.id, target.beforeRevision, [])
     if (!checkpointHead || checkpointHead.chat._storageRevision !== target.beforeRevision || checkpointHead.messageCount > count) return undefined
-    const restoredCount = checkpointHead.messageCount
-    const restoredIndices = changed.indices.filter(index => index < restoredCount)
-    const restoredRows = restoredIndices.length ? await chats.rowsAt(chat.id, target.beforeRevision, restoredIndices) : { chat: checkpointHead.chat, denseMessages: true }
+    const checkpointCount = checkpointHead.messageCount
+    const inputIndex = assistantIndex - 1
+    const checkInput = checkpointCount === assistantIndex && str(user.source?.rpcId).trim() !== ''
+    const restoredIndices = changed.indices.filter(index => index < checkpointCount)
+    // The input, if present, is the checkpoint's last row and sorts after the other reads.
+    const readIndices = checkInput && !restoredIndices.includes(inputIndex) ? [...restoredIndices, inputIndex] : restoredIndices
+    const restoredRows = readIndices.length ? await chats.rowsAt(chat.id, target.beforeRevision, readIndices) : { chat: checkpointHead.chat, denseMessages: true }
     if (!restoredRows?.denseMessages) return undefined
+    const restoredCount = checkInput && isRollbackInputPlaceholder(restoredRows.chat.messages.at(-1), user) ? checkpointCount - 1 : checkpointCount
     const { messages: _checkpointRows, ...checkpointHeader } = checkpointHead.chat
     const card = await readChatCard(chat)
     let rollbackWarning = ''
@@ -1127,7 +1142,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const changes = diffJson({ ...header, messages: [] }, rolled).filter(change => !['_storageRevision', 'updatedAt'].includes(change.path[0]))
     if (changes.some(change => change.path[0] === 'messages' || change.path[0] === 'id')) return undefined
     if (count > restoredCount) changes.push({ op: 'splice', path: ['messages'], index: restoredCount, deleteCount: count - restoredCount, items: [] })
-    restoredIndices.forEach((index, offset) => changes.push({ op: 'set', path: ['messages', index], value: restoredRows.chat.messages[offset] }))
+    restoredIndices.forEach((index, offset) => {
+      if (index < restoredCount) changes.push({ op: 'set', path: ['messages', index], value: restoredRows.chat.messages[offset] })
+    })
     const saved = await chats.patch(chat.id, revision, changes, { source: 'rollback' })
     if (!saved) return undefined
     // Header only: rows stay unread holes so presentation reads its own window.
