@@ -3673,13 +3673,11 @@ body .dsh-tavern-picker-error { background: linear-gradient(color-mix(in srgb, v
 .dsh-tavern-rx-bulk .dsh-tavern-btn { min-height: 26px; padding: 2px 8px; font-size: 10px; }
 .dsh-tavern-rx-bulk .dsh-tavern-rx-spacer { flex: 1 1 auto; }
 
-/* ---------- 轮次导航：按页面上真正的正文块画刻度 ---------- */
-/* modules/turn-rail.js：收起宿主那列（它按整档目录画，重试的尝试轮也在里面），
-   给每一轮正文单独画一根刻度，点了滚到那一块的开头。 */
+/* ---------- 楼层跳转：照页面上的楼层画刻度 ---------- */
+/* modules/turn-rail.js：收起宿主那列（它按 turn 画，重试、被取代的尝试轮也在里面），
+   一层正文一根刻度，点了滚到那一层的开头。 */
 /* 只做视觉隐藏：display:none 会让宿主的虚拟列表量到 0 高度，连它自己的刻度都不再渲染。 */
 [data-dsh-tavern-rail-hidden] { visibility: hidden !important; pointer-events: none !important; }
-/* 宿主那列藏了，但它的悬浮预览（role=tooltip）要留着：我们的刻度替它收指针事件。 */
-nav[data-dsh-tavern-rail-hidden] [role="tooltip"] { visibility: visible !important; }
 .dsh-tavern-turn-rail { position: fixed; z-index: 6; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; margin: 0; padding: 0; max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; transform: translateY(-50%); }
 .dsh-tavern-turn-rail::-webkit-scrollbar { display: none; }
 .dsh-tavern-turn-rail-tick { position: relative; flex: none; box-sizing: border-box; width: 20px; height: 10px; margin: 0; padding: 0; border: 0; border-radius: 8px; background: none; cursor: pointer; }
