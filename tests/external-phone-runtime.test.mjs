@@ -556,6 +556,55 @@ test('createTavernCardAppDock 跟踪 v-show 折叠状态，并在无悬浮球时
   dock.dispose()
   presence.dispose()
 })
+test('手机按钮异步渲染时，打开和收起均只切换一次', async () => {
+  const { document, FakeMutationObserver } = makeDom()
+  const h = host({ MutationObserver: FakeMutationObserver, document })
+  document.defaultView = h.window
+  const slot = document.createElement('div')
+  document.body.appendChild(slot)
+  const phone = document.createElement('div')
+  phone.id = 'improved-phone-shadow-host-async'
+  const shadow = phone.attachShadow({ mode: 'open' })
+  const wrapper = document.createElement('div')
+  wrapper.className = 'phone-wrapper'
+  const closeButton = document.createElement('button')
+  closeButton.className = 'phone-close-btn'
+  wrapper.appendChild(closeButton)
+  shadow.appendChild(wrapper)
+  document.body.appendChild(phone)
+  const floating = document.createElement('button')
+  floating.id = 'improved-phone-floating-button-async'
+  document.body.appendChild(floating)
+  let shown = true
+  let fallbackCalls = 0
+  function toggle() {
+    shown = !shown
+    queueMicrotask(() => { wrapper.style.display = shown ? '' : 'none' })
+  }
+  closeButton.addEventListener('click', toggle)
+  floating.addEventListener('click', toggle)
+  const dock = h.client.createTavernCardAppDock({
+    document, slot, sessionId: 'S-async', MutationObserver: FakeMutationObserver,
+    loadIconCss: () => Promise.resolve(''),
+    triggerButton: async () => { fallbackCalls++; toggle() }
+  })
+  try {
+    dock.close()
+    await tick()
+    assert.equal(shown, false)
+    assert.equal(dock.inspect().expanded, false)
+    assert.equal(slot.getAttribute('data-collapsed'), 'true')
+    dock.open()
+    await tick()
+    assert.equal(shown, true)
+    assert.equal(dock.inspect().expanded, true)
+    assert.equal(slot.getAttribute('data-collapsed'), null)
+    assert.equal(fallbackCalls, 0)
+  } finally {
+    dock.dispose()
+  }
+})
+
 test('多会话 keepMounted 并发停靠栏：后台选人会话不抢占 ReadStory 新会话手机且按钮精准路由', async () => {
   const { document, FakeMutationObserver } = makeDom()
   const h = host({ MutationObserver: FakeMutationObserver, document })

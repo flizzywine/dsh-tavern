@@ -750,7 +750,8 @@
 				if (button && typeof button.click === "function") {
 					button.click();
 					syncExpanded(false);
-					if (isPhoneWrapperVisible(attached)) return;
+					// Reactive UIs render later; a second toggle would undo this click.
+					return;
 				}
 				trigger("手机").then(function () { syncExpanded(false); }, function () {
 					const wrapper = phoneWrapperOf(attached);
@@ -766,7 +767,8 @@
 				if (closeBtn && typeof closeBtn.click === "function") {
 					closeBtn.click();
 					syncExpanded(false);
-					if (!isPhoneWrapperVisible(attached)) return;
+					// The shadow observer will pick up asynchronous v-show updates.
+					return;
 				}
 				trigger("手机").then(function () { syncExpanded(false); }, function () {
 					const wrapper = phoneWrapperOf(attached);
