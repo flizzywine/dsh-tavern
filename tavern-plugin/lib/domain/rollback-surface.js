@@ -677,6 +677,11 @@ export function regenerationProjection(replacement, data, operationId) {
  * that copy — the same shape the fold writes for a live submission.
  */
 export function applyRegenerationProjection(session, projection) {
+  // An answered tail streams its own reply into the log; there is no projection
+  // to write, only the anchors that name the rows it already produced.
+  if (projection.kind === 'append-round' && projection.native !== undefined) {
+    return projection.native === null ? null : { nativeAnchor: projection.native }
+  }
   if (projection.kind === 'append-round') return applyIndependentRoundProjection(session, projection)
   const events = sessionEvents(session)
   const blocks = Array.isArray(projection.data?.message?.content) ? projection.data.message.content : []

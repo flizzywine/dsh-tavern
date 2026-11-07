@@ -804,7 +804,7 @@ test('另一进程留下的重新生成标志不会挡住回退', async () => {
   assert.equal(h.chat.messages.length, original.length - 2)
 })
 
-test('尾部待回复输入不会被重新生成吞掉，也不改选上一轮正文以外的目标', async () => {
+test('尾部待回复输入由重新生成补出它的正文，不重放上一轮', async () => {
   const h = harness()
   h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true })
   h.chat.foregroundError = null
@@ -816,14 +816,33 @@ test('尾部待回复输入不会被重新生成吞掉，也不改选上一轮�
 
   await h.create().regenerate('chat', '', 'session')
 
-  // The regeneration replays the round it replaces, never the tail that is still waiting.
-  assert.equal(h.agent.input.content[0].text, '推门')
+  // The request is the unanswered input itself: the round before it is finished
+  // story and stays byte-identical, never replayed in its place.
+  assert.equal(h.agent.input.content[0].text, '最新输入')
   assert.equal(h.agent.input.source.kind, 'plugin:dsh-tavern-regen')
   assert.deepEqual(h.chat.messages.map(message => [message.role, message.text]), [
-    ['assistant', '开场'], ['user', '推门'], ['assistant', '新正文4'],
-    ['user', '最新输入']
+    ['assistant', '开场'], ['user', '推门'], ['assistant', '旧正文'],
+    ['user', '最新输入'], ['assistant', '新正文4']
   ])
-  assert.equal(h.chat.messages.filter(message => message.role === 'user').length, 2)
+  assert.equal(h.chat.messages[2].text, '旧正文')
+  assert.equal(h.chat.messages.at(-1).turn, 3)
+  // The reply already lives in the native log: the round only records its anchors.
+  assert.ok(h.chat.messages.at(-1).nativeAnchor)
+  assert.equal(h.chat.messages.at(-1).nativeAnchor.turn, 4)
+  assert.deepEqual(h.chat.regeneratedDshTurns, { '3': 4 })
+  assert.ok(!h.calls.includes('rollback.regen'))
+})
+
+test('尾部待回复输入生成失败时保持原样，不吞掉输入也不改指上一轮', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true })
+  h.agent.phase.lastTurn = 3
+  h.setGeneration('throw')
+  const before = structuredClone(h.chat)
+  await assert.rejects(h.create().regenerate('chat', '', 'session'), /fixture generation failed/)
+  assert.deepEqual(h.chat.messages, before.messages)
+  assert.equal(h.chat.messages.at(-1).text, '最新输入')
+  assert.ok(!h.chat.regenInProgress && !h.chat.regenRecovery)
 })
 
 test('重新生成使用当前状态和当前预设材料，不复用旧正文的冻结帧', async () => {
@@ -860,8 +879,9 @@ test('session 重生成入口读取完整故事，不需要页面传正文 ID', 
   assert.equal(headerReads, 0)
   assert.ok(fullReads > 0)
   assert.equal(h.calls.filter(call => call === 'followup').length, 1)
-  assert.equal(h.agent.input.content[0].text, '推门')
-  assert.equal(h.chat.messages.at(-1).text, '最新输入')
+  assert.equal(h.agent.input.content[0].text, '最新输入')
+  assert.equal(h.chat.messages.at(-1).role, 'assistant')
+  assert.equal(h.chat.messages.at(-1).text, '新正文3')
 })
 
 test('重新生成始终选最新已提交正文，调用方附带的旧正文 ID 不改变目标', async () => {
