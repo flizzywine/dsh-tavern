@@ -151,9 +151,14 @@ test('gallery providers are available to valid card and story sessions, scoped b
   const ctx = { get fiber() { return { name: owner } }, effect(register) { return register() } }
   const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0])
   const calls = { globalList: 0, cardList: 0, reads: [], removes: [] }
+  const runningUserPlugins = new Map([
+    ...['global-image', 'broken-image', 'unsupported-image', 'late-provider', 'late-read-provider', 'late-remove-provider'].map(name => [name, { runtimeName: name, origin: 'global' }]),
+    ['card-only-image', { runtimeName: 'card-only-image', origin: 'card' }],
+  ])
   const api = createTavernPluginApi({ ctx,
     resolveGalleryContext: async sessionId => contexts.get(sessionId) || null,
     cardScope: async () => scopes,
+    runningUserPlugins,
     logger: { warn() {} }
   })
   assert.equal(api.service.capabilities.galleryProvider, 1)

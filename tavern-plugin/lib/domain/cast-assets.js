@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { CAST_EMOTIONS } from './cast-annotation.js'
 import { readZipEntries } from './zip-entries.js'
@@ -6,6 +7,7 @@ import { emotionRank, emotionSlot as emotionSlotOf } from './card-assets.js'
 // Per-card character material (Wiki「设计：cast-presentation」): avatar and expression sprites
 // per character, laid out like a SillyTavern sprite pack so such packs import as they are.
 const hash = value => createHash('sha256').update(value).digest('hex')
+export const castManifestPath = (dataRoot, cardPath) => path.join(path.resolve(dataRoot), 'cast-assets', hash(String(cardPath)), 'cast.json')
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 const MAX_EXTRA_BYTES = 20 * 1024 * 1024
 const MAX_CHARACTERS = 64
