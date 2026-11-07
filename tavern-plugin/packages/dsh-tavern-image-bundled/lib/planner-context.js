@@ -1,5 +1,6 @@
 import { RULE_ENTRY_HINT, stripEngineSyntax } from './planner.js'
 import { PROMPT_FORMATS } from './prompt-presets.js'
+import { sameCharacterForm } from './character-forms.js'
 
 const list = value => Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,，\n]/) : []
 const clean = values => [...new Set(values.map(v => String(v ?? '').trim()).filter(Boolean))]
@@ -95,7 +96,7 @@ export function selectPlannerContext({ entries = [], selected = [], text = '', d
   const named = characters.filter(c => characterTerms(c).some(term => matches(text, term)))
   // 同一角色的其他形态（名字互为前缀，如「阿梅」与「阿梅（狐形）」）一起提供，让规划自己判断这一刻是哪个形态。
   // 否则正文只写了本名时，规划只看得到一个形态，会用错误形态的宏去描述另一个形态。
-  const family = (a, b) => a !== b && String(a.name ?? '') && String(b.name ?? '') && (String(a.name).startsWith(String(b.name)) || String(b.name).startsWith(String(a.name)))
+  const family = (a, b) => sameCharacterForm(a, b)
   const hit = characters.filter(c => named.includes(c) || named.some(n => family(c, n)))
   const fallback = characters.length > 0 && hit.length === 0
   const included = fallback ? characters : hit
