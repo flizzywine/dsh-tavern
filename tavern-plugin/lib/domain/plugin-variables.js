@@ -1,9 +1,12 @@
+import { assertOpeningMvuWritable } from './opening-mvu-status.js'
+
 // Writes to a plugin turn stay bound to its text version and the owning task.
 // The activity and row must come from the same storage revision; the final CAS
 // rejects a task stop or a new foreground turn that changes it before commit.
 export function createPluginVariableWriter({ readState, readSlice, activity, generating, currentKey, patch }) {
   const stale = () => Object.assign(new Error('这一轮或插件任务已经变化，请重新读取后再试'), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
   function writable(state, taskOperation) {
+    assertOpeningMvuWritable(state)
     const operationId = taskOperation?.()
     const background = state ? activity(state) : null
     const ownsTask = operationId && background?.busy === true && background.role === 'plugin-task' && background.operationId === operationId

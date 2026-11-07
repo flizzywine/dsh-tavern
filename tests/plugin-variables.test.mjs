@@ -4,8 +4,25 @@ import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { createPluginVariableWriter } from '../tavern-plugin/lib/domain/plugin-variables.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
+import { openingMvuStatus } from '../tavern-plugin/lib/domain/opening-mvu-status.js'
 
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
+
+test('opening state and plugin writes follow the persisted initialization marker', async () => {
+  let status = 'pending', revision = 1, saved
+  const state = () => ({ sessionId: 'game', _storageRevision: revision, mvu: { enabled: true, owner: 'official', openingInitialization: { status } }, messages: [{ role: 'assistant', turn: 1, greeting: true }] })
+  const writer = createPluginVariableWriter({ readState: async () => state(), readSlice: async () => ({ chat: { id: 'chat', _storageRevision: revision, messages: [{ role: 'assistant', turn: 1, variables: [{}] }] } }), activity: () => null, generating: () => false, currentKey: async () => 'key', patch: async (_id, _rev, changes) => { saved = changes[0].value; return {} } })
+  const material = { sessionId: 'game', index: 0, turn: 1, key: 'key' }
+  assert.equal(openingMvuStatus(state()), 'pending')
+  await assert.rejects(writer(material, { place: '冠军' }), { code: 'TAVERN_MVU_OPENING_PENDING' })
+  status = 'complete'; revision++
+  assert.equal(openingMvuStatus(state()), 'complete')
+  await writer(material, { place: '冠军' })
+  assert.deepEqual(saved, [{ place: '冠军' }])
+  assert.equal(openingMvuStatus({ mvu: { enabled: false } }), 'not-required')
+  assert.equal(openingMvuStatus({ mvu: { enabled: true, owner: 'plugin' } }), 'not-required')
+  assert.equal(openingMvuStatus({ mvu: { enabled: true, owner: 'official' } }), 'unknown')
+})
 function harness() {
   let chat = { id: 'chat', sessionId: 'game', mode: 'story', _storageRevision: 1, settleStatus: 'done',
     messages: [{ role: 'user', text: '输入' }, { role: 'assistant', turn: 3, text: 'version-1', variables: [{ hp: 10 }] }] }

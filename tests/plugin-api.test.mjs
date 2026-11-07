@@ -800,7 +800,7 @@ test('tavern 服务：getTurnState 给出最新一轮、正文版本、是否在
   await h.root.plugin({ name: 'battle', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
   await tick()
   assert.deepEqual(await tavern.getTurnState({ gameId: 'game-1' }),
-    { gameId: 'game-1', turn: 4, textVersion: 'key-4', greeting: false, generating: false, settling: true, busy: true, settled: false })
+    { gameId: 'game-1', turn: 4, textVersion: 'key-4', greeting: false, generating: false, settling: true, busy: true, openingInitialization: 'unknown', settled: false })
   settled = pending; activity = { generating: false, settling: false }
   const state = await h.api.turnState('game-1')
   assert.equal(state.settled, true); assert.equal(state.busy, false)
@@ -809,6 +809,17 @@ test('tavern 服务：getTurnState 给出最新一轮、正文版本、是否在
   await assert.rejects(tavern.getTurnState({ gameId: 'missing' }), /不存在/)
   h.setLatest(turnMaterial({ turn: 1, key: 'key-1', greeting: true }))
   assert.equal((await tavern.getTurn({ gameId: 'game-1', turn: 1 })).greeting, true)
+})
+
+test('getTurnState reports official opening persistence independently of settled', { skip: !cordis }, async t => {
+  let opening = { mvu: { enabled: true, owner: 'official', openingInitialization: { status: 'pending' } } }
+  const h = await harness(t, { readOpeningMvu: async () => structuredClone(opening),
+    readPendingTurn: async () => turnMaterial(), readLatestSettledTurn: async () => turnMaterial() })
+  assert.equal((await h.api.turnState('game-1')).openingInitialization, 'pending')
+  opening.mvu.openingInitialization.status = 'complete'
+  assert.equal((await h.api.turnState('game-1')).openingInitialization, 'complete')
+  opening = { mvu: { enabled: false } }
+  assert.equal((await h.api.turnState('game-1')).openingInitialization, 'not-required')
 })
 
 test('导入存档：插件数据与媒体按新游戏的正文版本写入，文件引用换成新存的，存不下的媒体项不带', async () => {

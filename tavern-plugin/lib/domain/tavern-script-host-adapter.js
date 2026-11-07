@@ -1,4 +1,5 @@
 import { createMvuSettlementTransactions, mutationIsCurrent } from './mvu-settlement-transactions.js'
+import { assertOpeningMvuWritable } from './opening-mvu-status.js'
 import { applyRegexOverrides } from './regex-manager.js'
 import { templateStateFields } from './template-window-reader.js'
 import { createScopedMessages } from './scoped-messages.js'
@@ -151,6 +152,10 @@ export function createTavernScriptHostAdapter(options = {}) {
     await assertScriptEnabled(chat)
     if (scoped && settlement.has(str(sessionId))) return updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, false)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(resourceHeader ? await resolveChat(sessionId) : chat)
+    // Initvar itself writes chat variables and then all greeting swipes via
+    // updateMessages. An independent message-variable edit must wait until
+    // that write has committed, otherwise initvar can replace its snapshot.
+    if (!option?.type || option.type === 'message') assertOpeningMvuWritable(chat)
     if (option && option.type === 'global') {
       if (!options.globalVariables || typeof options.globalVariables.save !== 'function') throw new Error('全局变量存储未连接')
       const transactional = await settlement.updateGlobals(sessionId, variables)
