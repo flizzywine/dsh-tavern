@@ -27,7 +27,6 @@ export function mergeCharacterUpdates(previous, definitions, updates, meta = {})
   }
   const changes = []
   const updatedIds = new Set()
-  const currentIds = new Set()
   for (const raw of Array.isArray(updates) ? updates : []) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('角色更新条目格式无效')
     const name = clip(raw.name, 100)
@@ -45,8 +44,9 @@ export function mergeCharacterUpdates(previous, definitions, updates, meta = {})
       const family = characters.filter(c => c && c.enabled !== false && c.id && (c === character || sameFamily(c, character)))
       for (const member of family) {
         const memberId = String(member.id)
-        if (currentIds.has(memberId)) continue
-        currentIds.add(memberId)
+        // One batch can change the same character's clothes more than once (home into pajamas, then
+        // dressed again to go out). Apply them in order so the last one wins; `previous` below keeps
+        // what they wore when the turn began.
         const overlay = snapshot.characters[memberId] ||= {}
         const before = clip(overlay.current?.outfit, MAX_OUTFIT)
         if (before === outfit) continue
