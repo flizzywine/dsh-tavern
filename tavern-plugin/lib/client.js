@@ -27398,27 +27398,37 @@ function bindTavernFontZoom(node, win) {
 
 		function createTavernHelperPopup(options) {
 			const { document, parent, token } = options;
+			const formattingTags = new Set("b blockquote br code dd div dl dt em h1 h2 h3 h4 h5 h6 hr i li ol p pre small span strong sub sup table tbody td th thead tr u ul".split(" "));
+			function popupMarkup(raw) {
+				// Parse inertly, then allow only formatting markup and passive attributes.
+				const template = document.createElement("template");
+				template.innerHTML = raw;
+				for (const element of template.content.querySelectorAll("*")) {
+					if (element.namespaceURI !== "http://www.w3.org/1999/xhtml" || !formattingTags.has(element.localName)) {
+						element.remove();
+						continue;
+					}
+					for (const name of element.getAttributeNames()) {
+						if (name !== "class" && name !== "title") element.removeAttribute(name);
+					}
+				}
+				return template.content;
+			}
 			function HelperPopup(content, type, title, options) {
 				const popup = this;
 				popup.content = content;
-				popup.type = type;
 				popup.options = options && typeof options === "object" ? options : {};
 				popup.root = null;
 				popup.resolve = null;
-				popup.completeAffirmative = async function () {
+				async function complete(result) {
 					if (popup.root) popup.root.remove();
 					popup.root = null;
 					parent.postMessage({ type: "dsh-tavern-helper-ui-close", token: token }, "*");
-					if (popup.resolve) { const resolve = popup.resolve; popup.resolve = null; resolve(true); }
-					return true;
-				};
-				popup.completeNegative = async function () {
-					if (popup.root) popup.root.remove();
-					popup.root = null;
-					parent.postMessage({ type: "dsh-tavern-helper-ui-close", token: token }, "*");
-					if (popup.resolve) { const resolve = popup.resolve; popup.resolve = null; resolve(false); }
-					return false;
-				};
+					if (popup.resolve) { const resolve = popup.resolve; popup.resolve = null; resolve(result); }
+					return result;
+				}
+				popup.completeAffirmative = function () { return complete(true); };
+				popup.completeNegative = function () { return complete(false); };
 				popup.show = function () {
 					if (popup.root) return Promise.resolve(false);
 					const overlay = document.createElement("div");
@@ -27432,7 +27442,7 @@ function bindTavernFontZoom(node, win) {
 					else if (node !== undefined && node !== null) {
 						const text = document.createElement("div");
 						const raw = String(node);
-						if (/<[a-z][\s\S]*>/i.test(raw)) text.innerHTML = raw;
+						if (/<[a-z][\s\S]*>/i.test(raw)) text.appendChild(popupMarkup(raw));
 						else { text.style.whiteSpace = "pre-wrap"; text.textContent = raw; }
 						panel.appendChild(text);
 					}
@@ -27443,10 +27453,11 @@ function bindTavernFontZoom(node, win) {
 					close.style.cssText = "border:1px solid rgba(255,255,255,.24);border-radius:9px;padding:7px 14px;background:#273241;color:#fff;cursor:pointer";
 					close.addEventListener("click", popup.completeAffirmative);
 					actions.appendChild(close);
-					const hasCancel = (typeof popup.options.cancelButton === "string" && popup.options.cancelButton) || (type === "confirm" && popup.options.cancelButton !== false);
+					const cancelButton = popup.options.cancelButton;
+					const hasCancel = cancelButton === true || (typeof cancelButton === "string" && cancelButton !== "") || (type === "confirm" && cancelButton !== false);
 					if (hasCancel) {
 						const cancel = document.createElement("button");
-						cancel.type = "button"; cancel.textContent = String(popup.options.cancelButton || "取消");
+						cancel.type = "button"; cancel.textContent = typeof cancelButton === "string" && cancelButton ? cancelButton : "取消";
 						cancel.style.cssText = "border:1px solid rgba(255,255,255,.24);border-radius:9px;padding:7px 14px;background:rgba(255,255,255,.08);color:#eef4fb;cursor:pointer";
 						cancel.addEventListener("click", popup.completeNegative);
 						actions.appendChild(cancel);

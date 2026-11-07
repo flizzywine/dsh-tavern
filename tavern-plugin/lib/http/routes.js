@@ -7,7 +7,7 @@ import { TAVERN_CLIENT_ASSET_PREFIX, readTavernClientAsset } from '../domain/tav
 import { serveAssetFile } from '../http-file.js'
 import { TAVERN_RUNTIME_ASSET_PREFIX, resolveTavernRuntimeAsset } from '../domain/tavern-runtime-assets.js'
 import { observeHttpRequests } from '../domain/http-performance-diagnostics.js'
-import { projectCachedResourceBody } from '../domain/tavern-static-resource-cache.js'
+import { projectCachedResourceBody, StaticAssetError } from '../domain/tavern-static-resource-cache.js'
 import { redactMvuLoadError } from '../domain/mvu-diagnostics.js'
 import { pluginMediaRange, slicePluginMediaStream } from '../domain/plugin-media.js'
 import { PLUGIN_ASSET_PREFIX } from '../domain/plugin-assets.js'
@@ -470,7 +470,7 @@ export function registerTavernHttpRoutes({
           }
           if (readsStaticAsset) {
             const msg = str(err && err.message || err)
-            const status = /URL 无效|HTTPS|凭据/.test(msg) ? 400 : /private or reserved/i.test(msg) ? 403 : 502
+            const status = err instanceof StaticAssetError ? err.status : 502
             res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
               'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff' })
             res.end(JSON.stringify({ ok: false, error: msg }))

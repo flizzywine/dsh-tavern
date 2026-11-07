@@ -2,6 +2,7 @@ import { projectTavernHostScript } from './tavern-host-script-projection.js'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, stat, unlink, utimes, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { Agent } from 'undici'
 
 const DEFAULT_MAX_ENTRY_BYTES = 64 * 1024 * 1024
 const DEFAULT_MAX_TOTAL_BYTES = 512 * 1024 * 1024
@@ -15,11 +16,18 @@ function cacheKey(url) {
   return createHash('sha256').update(url, 'utf8').digest('hex')
 }
 
-export function normalizeCacheableResourceUrl(value) {
+export class StaticAssetError extends Error {
+  constructor(message, status) {
+    super(message)
+    this.status = status
+  }
+}
+
+export function normalizeCacheableResourceUrl(value, status = 400) {
   let parsed
-  try { parsed = new URL(str(value)) } catch { throw new Error('静态资源 URL 无效') }
-  if (parsed.protocol !== 'https:') throw new Error('只缓存 HTTPS 静态资源')
-  if (parsed.username !== '' || parsed.password !== '') throw new Error('静态资源 URL 不能包含凭据')
+  try { parsed = new URL(str(value)) } catch { throw new StaticAssetError('静态资源 URL 无效', status) }
+  if (parsed.protocol !== 'https:') throw new StaticAssetError('只缓存 HTTPS 静态资源', status)
+  if (parsed.username !== '' || parsed.password !== '') throw new StaticAssetError('静态资源 URL 不能包含凭据', status)
   parsed.hash = ''
   return parsed.href
 }
@@ -190,31 +198,47 @@ export function createTavernStaticResourceCache(options = {}) {
     }
   }
 
-  async function download(url) {
-    if (typeof request !== 'function') throw new Error('当前运行环境不能下载静态资源')
-    let currentUrl = url
-    let response
-    for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
-      await verifyHostname(currentUrl)
-      response = await request(currentUrl, {
+  async function fetchHop(url) {
+    const pinned = await verifyHostname(url)
+    const dispatcher = pinned && new Agent({ connect: { lookup(_host, options, callback) {
+      if (options.all) callback(null, pinned)
+      else callback(null, pinned[0].address, pinned[0].family)
+    } } })
+    try {
+      const response = await request(url, {
         headers: { Accept: '*/*', 'User-Agent': 'dsh-tavern-static-cache' },
         redirect: 'manual',
-        signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(30000) : undefined
+        signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(30000) : undefined,
+        ...(dispatcher ? { dispatcher } : {})
       })
-      if (!response || ![301, 302, 303, 307, 308].includes(Number(response.status))) break
-      const location = str(response.headers && response.headers.get && response.headers.get('location'))
-      if (location === '') throw new Error('静态资源重定向缺少目标地址')
-      currentUrl = normalizeCacheableResourceUrl(new URL(location, currentUrl).href)
-      if (redirectCount === 5) throw new Error('静态资源重定向次数过多')
+      if (response && [301, 302, 303, 307, 308].includes(Number(response.status))) {
+        const location = response.headers?.get('location')
+        await response.body?.cancel()
+        if (!location) throw new Error('静态资源重定向缺少目标地址')
+        return { redirect: normalizeCacheableResourceUrl(new URL(location, url).href, 502) }
+      }
+      if (!response?.ok) throw new Error('静态资源下载失败（HTTP ' + str(response?.status) + '）')
+      const finalUrl = normalizeCacheableResourceUrl(response.url || url, 502)
+      const declaredBytes = Number(response.headers?.get('content-length')) || 0
+      if (declaredBytes > maxEntryBytes) throw new Error('静态资源超过单文件缓存上限')
+      const body = Buffer.from(await response.arrayBuffer())
+      if (body.length > maxEntryBytes) throw new Error('静态资源超过单文件缓存上限')
+      const mediaType = str(response.headers?.get('content-type')).split(';')[0].trim().toLowerCase() || fallbackMediaType(finalUrl)
+      if (!supportedMediaType(mediaType)) throw new Error('不支持缓存的静态资源类型: ' + mediaType)
+      return { finalUrl, body, mediaType }
+    } finally {
+      await dispatcher?.destroy()
     }
-    if (!response || response.ok !== true) throw new Error('静态资源下载失败（HTTP ' + str(response && response.status) + '）')
-    const finalUrl = normalizeCacheableResourceUrl(response.url || currentUrl)
-    const declaredBytes = Number(response.headers && response.headers.get && response.headers.get('content-length')) || 0
-    if (declaredBytes > maxEntryBytes) throw new Error('静态资源超过单文件缓存上限')
-    const body = Buffer.from(await response.arrayBuffer())
-    if (body.length > maxEntryBytes) throw new Error('静态资源超过单文件缓存上限')
-    const mediaType = str(response.headers && response.headers.get && response.headers.get('content-type')).split(';')[0].trim().toLowerCase() || fallbackMediaType(finalUrl)
-    if (!supportedMediaType(mediaType)) throw new Error('不支持缓存的静态资源类型: ' + mediaType)
+  }
+
+  async function download(url) {
+    if (typeof request !== 'function') throw new Error('当前运行环境不能下载静态资源')
+    let hop = await fetchHop(url)
+    for (let count = 0; hop.redirect; count += 1) {
+      if (count === 5) throw new Error('静态资源重定向次数过多')
+      hop = await fetchHop(hop.redirect)
+    }
+    const { finalUrl, body, mediaType } = hop
     await mkdir(rootDir, { recursive: true })
     const files = paths(url)
     const suffix = '.' + process.pid + '.' + Date.now()
