@@ -374,6 +374,21 @@ test('完整重生成先独立替换唯一正文，再执行后台结算', async
   assert.deepEqual(replacement.data.message.content, [{ type: 'text', text: '新正文3' }])
 })
 
+test('重生成占位楼层的模板缓存和展示采集不会使候选失效', async () => {
+  const h = harness({ checkpoint: true })
+  h.beforeGenerate(() => {
+    h.chat.messages[2].tavernPluginData = {
+      is_ejs_processed: [true],
+      template_rendered: { hash: 'placeholder-render', swipe: 0 }
+    }
+    h.chat.messages[2].displayRuntime = { version: 2, frames: [{ panelId: 'message-2-1' }] }
+  })
+  const result = await h.create().regenerate('chat', '', 'session')
+  assert.equal(result.messages[2].text, '新正文3')
+  assert.equal(h.chat.regenInProgress, undefined)
+  assert.ok(!h.calls.includes('foreground.regen-abort'))
+})
+
 test('已有正文候选提交只替换目标正文并保留全部后续消息', async () => {
   const h = harness({ checkpoint: true, journal: true })
   const later = { role: 'user', text: '后续输入', native: false, source: { kind: 'import' } }

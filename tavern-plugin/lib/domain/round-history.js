@@ -20,7 +20,7 @@ import { plainReplyProse, replyProse } from './reply-prose.js'
 import { createPluginBodyRegeneration } from './plugin-body-regeneration.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { consumeScriptPrompts } from './tavern-script-prompts.js'
-import { createRegenerationDiscard, regenerationAttemptMessages, restoreDiscardedRegeneration, installRegenerationDiscard, clearRegenerationFailure } from './regeneration-discard.js'
+import { createRegenerationDiscard, restoreDiscardedRegeneration, installRegenerationDiscard, clearRegenerationFailure } from './regeneration-discard.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -106,39 +106,6 @@ async function candidateRegenerationFrame(chat, operationId, nativeTurn, inputTe
   frame.turn = nativeTurn
   frame.userInput = { ...(frame.userInput || {}), sourceText: inputText, projectedText: str(prepared.userText) || inputText, source: { stage: 'player-input' } }
   return frame
-}
-
-function assertCandidateStoryCurrent(original, current, assistantIndex, inputIndex, operationId, syntheticTurn) {
-  if (current?.regenRecovery?.id !== operationId || current.regenRecovery?.phase !== 'prepared') {
-    throw new Error('重新生成操作已失效')
-  }
-  const originalMessages = Array.isArray(original.messages) ? original.messages : []
-  const expectedMessages = regenerationAttemptMessages(originalMessages, current.regenRecovery.discarded)
-  const currentMessages = Array.isArray(current?.messages) ? current.messages : []
-  const unchanged = isDeepStrictEqual(currentMessages, expectedMessages)
-  const appended = !unchanged && currentMessages.length === expectedMessages.length + 2 &&
-    isDeepStrictEqual(currentMessages.slice(0, expectedMessages.length), expectedMessages) &&
-    currentMessages.at(-2)?.role === 'user' && currentMessages.at(-1)?.role === 'assistant' &&
-    Number(currentMessages.at(-1)?.turn) === Number(syntheticTurn)
-  if (!unchanged && !appended) throw new Error('重新生成期间剧情或后续输入已经变化')
-  if (!isDeepStrictEqual(current.timeline, original.timeline)) {
-    // Compatibility with a host that still finalized the native candidate into
-    // one temporary round. Original timeline entries must remain byte-equivalent;
-    // only that candidate's completed body operation/checkpoint may be added.
-    const originalOperations = original.timeline?.operations || {}
-    const currentOperations = current.timeline?.operations || {}
-    const originalIntact = Object.entries(originalOperations).every(([id, operation]) => isDeepStrictEqual(currentOperations[id], operation))
-    const extras = Object.entries(currentOperations).filter(([id]) => !Object.hasOwn(originalOperations, id))
-    const originalCheckpoints = original.timeline?.checkpoints || []
-    const checkpointsIntact = isDeepStrictEqual((current.timeline?.checkpoints || []).slice(0, originalCheckpoints.length), originalCheckpoints)
-    if (!appended || (original.timeline?.branchId && current.timeline?.branchId !== original.timeline.branchId) || !originalIntact || !checkpointsIntact ||
-        extras.length !== 1 || extras[0][1]?.kind !== 'body' || extras[0][1]?.status !== 'completed' || Number(extras[0][1]?.turn) !== Number(syntheticTurn)) {
-      throw new Error('重新生成期间剧情状态已经变化')
-    }
-  }
-  for (const key of ['macroState', 'variables', 'posture', 'scriptState']) {
-    if (!isDeepStrictEqual(current[key], original[key])) throw new Error('重新生成期间本轮状态已经变化')
-  }
 }
 
 // What the model saw of a stored reply (same precedence as the body editor).
@@ -674,7 +641,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
 
       committedChat = await updateChat(chat.id, function (current) {
         if (failedTail) assertUnansweredTailCurrent(originalChat, current, operationId, syntheticTurn)
-        else assertCandidateStoryCurrent(originalChat, current, oldAssistantIndex, inputIndex, operationId, syntheticTurn)
+        else if (current?.regenRecovery?.id !== operationId || current.regenRecovery?.phase !== 'prepared') {
+          throw new Error('重新生成操作已失效')
+        }
         if (agent.phase?.kind === 'running') throw new Error('前台已开始新一轮，本次候选已作废')
         for (const key of ['messages', 'timeline', 'foregroundFrames', ...INPUT_STATE_FIELDS, 'tavernPluginMetadata', 'posture', 'ledger', 'candidates',
           'settleStatus', 'settleError', 'lastSettle', 'foregroundError', 'presentationWarnings', 'candidateAgent',
