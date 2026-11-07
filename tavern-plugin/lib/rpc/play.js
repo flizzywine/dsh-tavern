@@ -268,6 +268,29 @@ export function createPlayHandlers(deps) {
     async storyAlignment(args) {
       return { alignment: await reconcileStory(args && args.sessionId, { repair: false }) }
     },
+    // 清除未完成的回复：只删存档里最后一条 AI 正文，玩家输入与之前的轮次原样保留。
+    // 走消息删除的既有事务（Chat 行 + 原生表面一起清），不做失败轮推断、不回退轮次。
+    async clearLatestReply(args) {
+      const sessionId = str(args?.sessionId)
+      if (!sessionId) throw new Error('缺少会话')
+      await reconcileStory(sessionId)
+      const chat = await chatForSession(sessionId)
+      if (!chat) throw new Error('请先打开游玩会话')
+      const messages = Array.isArray(chat.messages) ? chat.messages : []
+      const index = messages.findLastIndex(message => message !== null && typeof message === 'object' && message.role === 'assistant' && message.greeting !== true)
+      if (index < 0) {
+        // 首轮就失败：没有正文可删，只清掉这一轮残留的失败标记与未回复输入。
+        const view = await rollbackTurn(sessionId, args?.chatId, null)
+        notifyPluginTimeline(sessionId, 'rollback', { turn: null })
+        return { view, deletedCount: 0, cleared: true }
+      }
+      if (messages.slice(index + 1).some(message => message !== null && typeof message === 'object' && message.role === 'assistant')) {
+        throw new Error('要清除的正文已经变化，请刷新后重试')
+      }
+      const result = await messageDeletion.remove({ sessionId, items: [{ role: 'assistant', messageIndex: index, revision: Number(chat._storageRevision) || 0 }] })
+      notifyPluginTimeline(sessionId, 'edit', { settled: true })
+      return { view: result.view, deletedCount: result.deletedCount }
+    },
     async rollbackTurn(args) {
       if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板的回退一步')
       await reconcileStory(args && args.sessionId)
