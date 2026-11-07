@@ -9,6 +9,7 @@ import { createThumbnailCache } from './thumbnails.js'
 import { PACK_LEASE_PATH } from './leases.js'
 import { PACK_LIMITS } from './validation.js'
 import { check, parseJson } from '../asset-packs/common.js'
+import { requestAuthorityOrigin } from '../shared/request-origin.js'
 
 export const PACK_CONTROL_PATH = '/api/dsh-asset-library/v2/control'
 export const PACK_UPLOAD_PATH = '/api/dsh-asset-library/v2/upload'
@@ -59,15 +60,14 @@ export function packRequestOrigin(request, expected, widget = false) {
   const host = request.headers.get('host'), origin = request.headers.get('origin'), site = request.headers.get('sec-fetch-site')
   // Only exact authorized widget resource routes accept opaque-frame subresources.
   if (widget && expected && host === new URL(expected).host && (!origin || origin === 'null') && ['script','style','image','font'].includes(request.headers.get('sec-fetch-dest'))) return expected
-  check(host && (!site || site === 'same-origin'), '$.origin', 'Same-origin request required', 'FORBIDDEN')
-  check(origin ? origin === 'http://' + host || origin === 'https://' + host : site === 'same-origin', '$.origin', 'Same-origin request required', 'FORBIDDEN')
+  // Never derive authority from dsh.internal: it is the page's Origin, or the retained Host for the desktop app.
+  const authority = requestAuthorityOrigin({host, origin, fetchSite:site})
+  check(authority, '$.origin', 'Same-origin request required', 'FORBIDDEN')
   if (expected) {
     check(new URL(expected).host === host && (!origin || origin === expected), '$.origin', 'Lease origin changed', 'FORBIDDEN')
     return expected
   }
-  // Issuance/control POSTs require Origin; never infer a public scheme from dsh.internal.
-  check(origin || ['GET','HEAD'].includes(request.method), '$.origin', 'Origin required', 'FORBIDDEN')
-  return origin
+  return authority
 }
 async function readBytes(request, maximum, reserve = () => {}, unreserve = () => {}) {
   const declared = request.headers.get('content-length')

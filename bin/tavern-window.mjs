@@ -8,7 +8,7 @@ import { DSH_ROOT, RUNTIME_HOST } from './launcher-environment.mjs'
 import { browserOpenCommand, startService } from './service-lifecycle.mjs'
 import officialDesktopRuntime from './official-desktop-runtime.cjs'
 import { startWindowsWindowIcon } from './windows-window-icon.mjs'
-import { relaunchCommand } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
+import { relaunchCommand } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 
 // 桌面版固定读 profiles/desktop；它链接到 tavern 时，桌面版本身就是酒馆，再起一份会同写一份存档。
 export function desktopUsesTavern(root = DSH_ROOT) {

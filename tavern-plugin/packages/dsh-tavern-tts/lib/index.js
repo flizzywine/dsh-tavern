@@ -28,7 +28,8 @@ export function apply(ctx, config = {}) {
     if (next !== lastReading) { lastReading = next; tts.readingChanged() }
   }
   const samples = config.dataDir ? createSampleCache({dataDir:config.dataDir}) : undefined
-  const services = createServiceSettings({ tts, samples, get:() => source(), changed:() => tts.servicesChanged(), credentials:() => ctx.get('credentials'), warn:message => ctx.logger.warn(message),
+  // Pilot files and its cumulative budget follow the host's stable plugin data directory.
+  const services = createServiceSettings({ tts, samples, pilotBudgetRoot:config.dataDir, get:() => source(), changed:() => tts.servicesChanged(), credentials:() => ctx.get('credentials'), warn:message => ctx.logger.warn(message),
     replace: async value => { const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE'); await settings.replace('tts',validateSettings(value),settings.describe().find(row => row.ns === 'tts')?.revision) },
   })
   Object.assign(tts, { listVoiceServices:services.voiceServices, listRecommendedFishVoices:services.listRecommendedFishVoices, saveService:services.save, deleteService:services.delete, testService:services.test, importVoicePresets:services.importVoicePresets })
@@ -134,6 +135,7 @@ export function apply(ctx, config = {}) {
       case 'validateFishVoice': return services.validateFishVoice(args)
       case 'searchFishVoices': return services.searchFishVoices(args)
       case 'fishSample': return services.fishSample(args)
+      case 'voicePilot': return services.voicePilot(args)
       case 'voiceModelStatus': return services.voiceModelStatus(args)
       case 'validateVoiceModel': return services.validateVoiceModel(args)
       case 'listOnlinePresetVoices': return services.listOnlinePresetVoices(args)

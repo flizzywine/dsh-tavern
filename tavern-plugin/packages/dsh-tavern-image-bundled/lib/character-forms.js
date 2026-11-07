@@ -20,10 +20,22 @@ const split = value => String(value ?? '').split(/[,，、]/).map(s => s.trim())
 const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 // 「殷雪（人形）」和「殷雪（显形）」去掉括号后缀是同一个名字，也算同一角色的不同形态。
 const baseName = v => String(v ?? '').replace(/\s*[（(][^）)]*[）)]\s*$/, '')
-const sameFamily = (a, b) => {
-  const x = String(a?.name ?? ''), y = String(b?.name ?? '')
-  return Boolean(a && b && a !== b && x && y && (x.startsWith(y) || y.startsWith(x) || (baseName(x) && baseName(x) === baseName(y))))
+/**
+ * Two library entries are forms of one character when the longer name continues the shorter one
+ * after a separator (「阿梅」/「阿梅（狐形）」, "A Mei"/"A Mei fox form", 「阿梅·狐形」), or when they
+ * share a name once a bracketed suffix is removed (「殷雪（人形）」/「殷雪（显形）」).
+ * A bare prefix is not enough: 「林月」 and 「林月如」 are two people.
+ */
+export function sameCharacterForm(a, b) {
+  const x = String(a?.name ?? '').trim(), y = String(b?.name ?? '').trim()
+  if (!a || !b || a === b || !x || !y) return false
+  if (x === y) return true
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x]
+  if (long.startsWith(short) && /[\s（(·]/u.test(long[short.length])) return true
+  const bx = baseName(x).trim(), by = baseName(y).trim()
+  return Boolean(bx && bx === by)
 }
+const sameFamily = sameCharacterForm
 const CHINESE_CUE_NEGATION = /(?:并不是|不是|并没有|没有|并无|并非|非|无|未曾|并未|不再|不带|不具有|不长|未见|看不到|看不见|不见)(?:[\u3400-\u9fff]{0,4})$/
 export const hasPositiveChineseCue = (scene, cue) => {
   let at = scene.indexOf(cue)

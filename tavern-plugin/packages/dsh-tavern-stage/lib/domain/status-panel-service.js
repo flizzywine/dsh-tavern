@@ -33,8 +33,8 @@ export function createCardPagesService({ readWorkspace, chatForSession, index, p
       if (!value?.pages.length) return { pages: [], fresh: false }
       const indexed = await index(sessionId)
       return {
-        pages: value.pages.map(({ id, label, shortcut, menu, showOn, initial, size = 'window' }) => ({
-          id, label, size,
+        pages: value.pages.map(({ id, label, shortcut, menu, showOn, initial, size = 'window', closeControl }) => ({
+          id, label, size, ...(closeControl !== undefined ? { closeControl } : {}),
           ...(shortcut !== undefined ? { shortcut } : {}), ...(menu !== undefined ? { menu } : {}),
           ...(showOn !== undefined ? { showOn } : {}), ...(initial !== undefined ? { initial } : {})
         })),

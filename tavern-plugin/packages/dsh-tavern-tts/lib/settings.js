@@ -7,6 +7,7 @@ import recommendedFishVoices from './shared/fish-recommended.json' with {type:'j
 import { createAzureAdapter, azureVoices } from './providers/azure.js'
 import { createQwenAdapter, qwenModelInstructions, qwenVoices, QWEN_MODELS } from './providers/qwen.js'
 import { createFishAudioAdapter } from './providers/fish-audio.js'
+import { createVoicePilot } from './providers/fish-voice-design.js'
 import { createVolcengineAdapter } from './providers/volcengine.js'
 import { createMinimaxAdapter } from './providers/minimax.js'
 import { hash, canonical, fail, voicePreset, describeTtsError } from './core.js'
@@ -94,7 +95,8 @@ export function plainError(error) {
   return PLAIN_ERRORS[message] || '请求失败'
 }
 // \changed\: called when the voice services catalog changes (a service saved, removed or checked).
-export function createServiceSettings({ tts, get, replace, credentials, fetch, warn, samples, changed = () => {} }) {
+export function createServiceSettings({ tts, get, replace, credentials, fetch, warn, samples, pilotBudgetRoot, changed = () => {} }) {
+  const voicePilot = createVoicePilot({fetch, budgetRoot:pilotBudgetRoot})
   // Fish owns its free-only retry policy; do not wrap it in generic retries.
   const fish = createFishAudioAdapter({fetch}), discovery = createFishDiscovery({fetch})
   fetch = boundedFetch(fetch)
@@ -228,6 +230,10 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     return {voices:structuredClone(voices),refreshing:entry.refreshing}
   }
   const api = {
+    voicePilot(args) {
+      const p = record(args.serviceId)
+      return voicePilot(args, p, async () => (await credentials()?.resolve(credentialRef(p.id,'key')))?.value)
+    },
     kinds() { return structuredClone(PROVIDER_KINDS) },
     listRecommendedFishVoices:fishCatalogue,
     async validateFishVoice(input) {

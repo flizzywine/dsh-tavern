@@ -22,6 +22,7 @@
 | `showOn` | 否 | 只能是 `{"event": "stage-enter"}`：进入舞台时打开，见「入口」。 |
 | `initial` | 否 | 只能是 `true`，且必须同时有 `showOn`：只在新聊天里出现的开场页。 |
 | `size` | 否 | `window`（默认，舞台中央最大 1080×860 的窗口，带标题栏）或 `full`（铺满整个舞台，没有标题栏，只在右上角浮一个关闭按钮；内容自己适配视口）。手机宽度下两者都铺满。 |
+| `closeControl` | 否 | 只能是 `"page"`，且需要 `size:"full"`：页面自己负责关闭和返回。页面显示出来后舞台不画关闭按钮；Esc、本页快捷键、右键交给页面的 `onCloseRequest`，页面决定是先返回自己的上一层（比如从详情回到地图）还是 `close()`。没有登记 `onCloseRequest` 时照常关闭；页面读取中、读取失败时舞台仍画关闭按钮。页面要自己画一个关闭按钮。 |
 | `ledger` | 否 | 要读的台账分区名，最多 8 个、不重复：`location`、`locationPath`、`items`、`npcs`、`scenes`、`itemLog`、`updatedTurn`。 |
 | `figures` | 否 | 要显示头像的人物，最多 8 个、名字不重复：`name` 是本卡人物名（最多 40 字），`emotion` 是可选的表情名（最多 24 字）。 |
 | `preload` | 否 | 打开页面时先取好的素材，最多 8 项，每项 `{kind, id, variant?, file?, size?}`，格式同 `asset(ref)`；`size` 只能是 `256`、`512`、`1024`。 |
@@ -42,7 +43,7 @@
 
 聊天有了玩家消息之后，`initial` 页不会再被自动打开。校验不限制 showOn 页的数量，排在后面的匹配页不会自动出现，但仍可以用快捷键、菜单或 `open(id)` 打开。
 
-页面开着时舞台暂停输入和自动/快进。关闭方式：关闭按钮、Esc、本页快捷键，或脚本调 `close()`。进入舞台时打开的 showOn 页不同：关闭就是不进入，回到文字模式（同「返回主页面」）；进入舞台用 `continueGame()` 或 `fillInput(text)`；它用 `open(id)` 换到的页也还在进入之前。
+页面开着时舞台暂停输入和自动/快进。关闭方式：关闭按钮、Esc、本页快捷键，或脚本调 `close()`（`closeControl:"page"` 的页面由页面自己处理，见上表）。进入舞台时打开的 showOn 页不同：关闭就是不进入，回到文字模式（同「返回主页面」）；进入舞台用 `continueGame()` 或 `fillInput(text)`；它用 `open(id)` 换到的页也还在进入之前。
 
 ## 写入
 
@@ -81,6 +82,7 @@ tavern_update_card({ rawOperations: [
 | `page` | 本页 id。 |
 | `data()` | 当前快照（副本）：`{ledger, figures, theme, card: {name}, saved}`。 |
 | `onData(fn)` | 推送新快照时调用 `fn(snapshot)`，返回取消订阅的函数。 |
+| `onCloseRequest(fn)` | 只用于 `closeControl:"page"` 的页面：玩家按 Esc、本页快捷键或右键时调用 `fn()`，页面先关自己的详情等，已在最上层时调 `close()`；返回取消订阅的函数。本页上面开着 CONFIG 或回想时 Esc 先关它们，不调用 `fn`。 |
 | `close()` | 关闭本页；进入舞台时打开的 showOn 页是返回主页面。 |
 | `open(id)` | 关闭本页，打开另一页。 |
 | `openSettings()` | 在本页上面打开舞台 CONFIG，本页保持打开。 |

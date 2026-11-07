@@ -352,6 +352,7 @@ export function characterRoster(definitions, { fullTraits = false, text = '' } =
         lines.push('  服装（共 ' + outfits.length + ' 套，只列名字；调用时原样写名字，插件会补全描述）：' + outfits.map(o => o.name || '未命名').join('、'))
         const mentioned = outfitsMentioned(outfits, text).slice(0, 6)
         if (mentioned.length) lines.push('  正文提到的衣服可能是下面这几套（完整内容）：' + mentioned.map(describe).join('；')
+          + '\n  注意：这只是正文里的衣服词碰上了这个人衣服库里的衣服，不说明画面里的人是她；先认出是谁，再看是不是这套。'
           + '\n  挑选规则：正文只写了类别（如「换上包臀裙」）时，选颜色、款式最接近的一套，在宏里写它的服装名，整套带上；'
           + '正文明确写到的上衣、下装、鞋袜等单品和这套冲突时（如正文写针织衫、帆布鞋，这套是衬衫、高跟鞋），不要用这套，照正文自己描述，正文没写到的部分沿用当前穿着。')
         const usual = outfits.find(o => o.default)
@@ -366,7 +367,7 @@ export function characterRoster(definitions, { fullTraits = false, text = '' } =
       if (String(outfit.consistencyText ?? '').trim()) lines.push('    服装一致性补充：' + clip(outfit.consistencyText, 700))
     }
     if (String(character.formCues ?? '').trim()) lines.push('  形态线索（画面里有这些就是这个形态，宏里写这个形态的名字）：' + clip(character.formCues, 200))
-    if (character.current?.outfit) lines.push('  当前穿着（之前的正文记录，宏里没写 outfit 时插件会自动用它）：' + clip(character.current.outfit, 400))
+    if (character.current?.outfit) lines.push('  当前穿着（插件之前的记录，可能记错；宏里没写 outfit 时插件会自动用它）：' + clip(character.current.outfit, 400))
     if (!lines.length) lines.push('  （还没填外貌，请按通用描述处理）')
     // 人物库备注里写了「玩家」的角色：标成玩家角色。规划用第三人称画亲吻、拥抱、抱起时就调用他，不用自己从正文猜「我」是谁。
     const player = isPlayerCharacter(character) ? '（玩家角色：正文里的「我」「你」就是他）' : ''

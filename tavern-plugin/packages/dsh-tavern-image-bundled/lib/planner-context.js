@@ -1,5 +1,6 @@
 import { RULE_ENTRY_HINT, stripEngineSyntax } from './planner.js'
 import { PROMPT_FORMATS } from './prompt-presets.js'
+import { sameCharacterForm } from './character-forms.js'
 
 const list = value => Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,，\n]/) : []
 const clean = values => [...new Set(values.map(v => String(v ?? '').trim()).filter(Boolean))]
@@ -59,7 +60,7 @@ function characterTerms(character) {
 /** Split resident/dynamic rules and scope character detail to names found in the story. */
 const PROMPT_MODES = new Set(PROMPT_FORMATS)
 
-export function selectPlannerContext({ entries = [], selected = [], text = '', definitions = {}, backend = '', backendAliases = [], promptMode = '', characterUpdates = false } = {}) {
+export function selectPlannerContext({ entries = [], selected = [], text = '', definitions = {}, backend = '', backendAliases = [], promptMode = '', characterUpdates = false, recentText = '' } = {}) {
   const staticBlocks = [], dynamicBlocks = []
   const diagnostics = { includedEntries: [], omittedEntries: [], includedCharacters: [], omittedCharacters: [], characterFallback: false }
   const hasEnabled = entries.some(e => e && 'enabled' in e)
@@ -93,14 +94,19 @@ export function selectPlannerContext({ entries = [], selected = [], text = '', d
 
   const characters = (definitions?.characters ?? []).filter(c => c && c.enabled !== false)
   const named = characters.filter(c => characterTerms(c).some(term => matches(text, term)))
+  // A reply often calls its subject 「她」 throughout and mentions someone else in passing (「小雨在屋里」).
+  // Picking only the people it names would hand the planner the passer-by and drop the woman on screen,
+  // so people named at the end of the previous reply stay in the list too.
+  const recent = named.length && recentText ? characters.filter(c => !named.includes(c) && characterTerms(c).some(term => matches(recentText, term))) : []
   // 同一角色的其他形态（名字互为前缀，如「阿梅」与「阿梅（狐形）」）一起提供，让规划自己判断这一刻是哪个形态。
   // 否则正文只写了本名时，规划只看得到一个形态，会用错误形态的宏去描述另一个形态。
-  const family = (a, b) => a !== b && String(a.name ?? '') && String(b.name ?? '') && (String(a.name).startsWith(String(b.name)) || String(b.name).startsWith(String(a.name)))
-  const hit = characters.filter(c => named.includes(c) || named.some(n => family(c, n)))
-  const fallback = characters.length > 0 && hit.length === 0
+  const family = (a, b) => sameCharacterForm(a, b)
+  const hit = characters.filter(c => named.includes(c) || recent.includes(c) || named.some(n => family(c, n)) || recent.some(n => family(c, n)))
+  // Nobody named in this reply: still hand over everyone (the previous reply is a hint, not a filter).
+  const fallback = characters.length > 0 && named.length === 0
   const included = fallback ? characters : hit
   diagnostics.characterFallback = fallback
-  diagnostics.includedCharacters = included.map(c => ({ name: String(c.name ?? ''), stable_id: String(c.id ?? ''), reason: fallback ? 'fallback-no-name-match' : (named.includes(c) ? 'name-match' : 'form-of-mentioned-character') }))
+  diagnostics.includedCharacters = included.map(c => ({ name: String(c.name ?? ''), stable_id: String(c.id ?? ''), reason: fallback ? 'fallback-no-name-match' : (named.includes(c) ? 'name-match' : recent.includes(c) ? 'previous-reply' : 'form-of-mentioned-character') }))
   diagnostics.omittedCharacters = characters.filter(c => !included.includes(c)).map(c => ({ name: String(c.name ?? ''), stable_id: String(c.id ?? ''), reason: 'not-mentioned' }))
   const fullSet = new Set(included)
   const scoped = { ...definitions, characters: included }

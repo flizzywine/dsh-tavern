@@ -3,7 +3,7 @@ import path from 'node:path'
 
 // Tavern's own bundles; everything else Tavern installs is listed in
 // dshTavern.managedBundles.
-const TAVERN_OWN = new Set(['dsh-tavern-plugin', 'dsh-tavern-remote', 'dsh-profile-bridge'])
+const TAVERN_OWN = new Set(['dsh-tavern-plugin', 'dsh-tavern-remote'])
 
 function readJson(file) {
   try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return null }
@@ -35,6 +35,8 @@ export function listLegacyPlugins(profileDir) {
   for (const name of new Set([...bundles, ...Object.keys(dependencies)])) {
     if (name.startsWith('@deepseek-ai/') || TAVERN_OWN.has(name) || managed.has(name)) continue
     const pkg = installedPackage(profileDir, name)
+    const repo = pkg?.repository?.url
+    if (repo === 'git+https://github.com/flizzywine/dsh-tavern.git' && (pkg.license === 'MIT' || pkg.dshTavern?.profileHandoff === true) && pkg.dsh?.bundle?.patch === './cordis.patch.yml') continue
     const bundle = bundles.has(name)
     if (!bundle && !(pkg && pkg.dsh)) continue
     const spec = name in dependencies ? String(dependencies[name]) : null

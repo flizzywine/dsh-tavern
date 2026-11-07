@@ -4,7 +4,7 @@ import { emptyLedger } from './story-ledger.js'
 export const STATUS_PANEL_LEDGER_SECTIONS = Object.freeze(Object.keys(emptyLedger()).filter(name => name !== 'version'))
 export const STATUS_PANEL_SIZES = Object.freeze(['window', 'full'])
 export const CARD_PAGE_SHORTCUT_KEYS = Object.freeze([... 'bcdefijkmnopqrstuwxyz'])
-const KEYS = ['id', 'label', 'html', 'shortcut', 'menu', 'showOn', 'initial', 'size', 'ledger', 'preload', 'figures']
+const KEYS = ['id', 'label', 'html', 'shortcut', 'menu', 'showOn', 'initial', 'size', 'closeControl', 'ledger', 'preload', 'figures']
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 function invalid(path, message) {
   throw Object.assign(new Error('卡页面 ' + path + '：' + message), { code: 'CARD_PAGES_INVALID', path })
@@ -41,6 +41,7 @@ function validatePage(value, path) {
   if (value.showOn !== undefined && (!plain(value.showOn) || value.showOn.event !== 'stage-enter' || Object.keys(value.showOn).some(key => key !== 'event'))) invalid(path + '.showOn', '必须是 {event:"stage-enter"}')
   if (value.initial !== undefined && (value.initial !== true || value.showOn === undefined)) invalid(path + '.initial', '只能是 true，且需要 showOn')
   if (value.size !== undefined && !STATUS_PANEL_SIZES.includes(value.size)) invalid(path + '.size', '只能是 window 或 full')
+  if (value.closeControl !== undefined && (value.closeControl !== 'page' || value.size !== 'full')) invalid(path + '.closeControl', '只能是 "page"，且需要 size:"full"')
   if (value.preload !== undefined) {
     if (!Array.isArray(value.preload) || value.preload.length > 8) invalid(path + '.preload', '必须是最多 8 项的数组')
     value.preload.forEach((ref, i) => {

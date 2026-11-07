@@ -21,6 +21,30 @@ function pngDimensions(bytes) {
   return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) }
 }
 
+/** 读图片真实像素。平台可能不按请求的尺寸返回，记录要以这里为准。 */
+export function imageDimensions(bytes) {
+  let source
+  try { source = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes ?? []) } catch { return null }
+  if (!source.length) return null
+  const kind = detectImageType(source)
+  if (kind === 'image/png') return pngDimensions(source)
+  if (kind !== 'image/jpeg') return null
+  // JPEG 要跳过标记段去找 SOF：C0–CF，排除 C4 量化表、C8 保留、CC 算术编码表。
+  let offset = 2
+  while (offset + 9 < source.length) {
+    if (source[offset] !== 0xff) { offset += 1; continue }
+    const marker = source[offset + 1]
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { offset += 2; continue }
+    const length = source.readUInt16BE(offset + 2)
+    if (length < 2) return null
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { width: source.readUInt16BE(offset + 7), height: source.readUInt16BE(offset + 5) }
+    }
+    offset += 2 + length
+  }
+  return null
+}
+
 function detectImageType(bytes) {
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png'
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
@@ -91,6 +115,13 @@ export function transcodeImageOutput(bytes, mediaType, config = {}, { maxOutputB
 
 /** Runs CPU-heavy PNG decode/JPEG encoding away from the host event loop. */
 export function transcodeImageOutputAsync(bytes, mediaType, config = {}, options = {}) {
+  // 三条返回路径（原样保留、转码失败保留原图、真正转码）在这里统一带上真实像素。
+  // 放在这个函数里而不是调用方：宿主有一段作业流程会被测试按源码切片执行，那里只有注入的替身。
+  const source = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes ?? [])
+  return transcodeImageOutputAsyncInner(source, mediaType, config, options).then(result => ({ ...result, size: imageDimensions(result.bytes || source) }))
+}
+
+function transcodeImageOutputAsyncInner(bytes, mediaType, config = {}, options = {}) {
   const source = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes ?? [])
   const declared = String(mediaType ?? '').toLowerCase().split(';')[0].trim()
   const kind = detectImageType(source) || declared

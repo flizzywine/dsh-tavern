@@ -5,7 +5,7 @@ import { PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 import { runPluginCommand } from '@deepseek-ai/dsh-plugin-manager/operations'
 
 export const inject = ['connection', 'profileContext', 'webServer']
-const channel = '/dsh-tavern-launcher'
+const channel = '/dsh-tavern'
 const bundle = 'dsh-tavern-bundle'
 const downloadRoots = [
   'https://raw.githubusercontent.com/flizzywine/dsh-tavern/',
@@ -171,11 +171,13 @@ export function apply(ctx) {
     if (profile.name === 'tavern') {
       const desktopDir = join(profile.home, 'profiles', 'desktop')
       const desktopManifest = await missingAllowed(() => readJson(join(desktopDir, 'package.json')))
-      const launcher = await missingAllowed(() => readJson(join(desktopDir, 'node_modules', 'dsh-tavern-launcher', 'package.json')))
+      const enabled = (desktopManifest?.dsh?.profile?.bundles ?? []).filter(name =>
+        typeof name === 'string' && name !== '.' && name !== '..' && /^(?:@[\w.-]+\/)?[\w.-]+$/.test(name))
+      const launchers = await Promise.all(enabled.map(name => missingAllowed(() => readJson(join(desktopDir, 'node_modules', name, 'package.json')))))
+      const handoffBundle = enabled.find((_, i) => launchers[i]?.repository?.url === 'git+https://github.com/flizzywine/dsh-tavern.git' && launchers[i].dshTavern?.profileHandoff === true)
       const tavern = await missingAllowed(() => readJson(join(profile.dir, 'node_modules', bundle, 'package.json')))
       const selection = await missingAllowed(() => readJson(join(profile.home, 'desktop-next.json')))
-      return { state: 'current', paths, ...bundleIdentity(tavern), selectedProfile: selection?.active, canHandoff: launcher?.dshTavern?.profileHandoff === true &&
-        desktopManifest?.dsh?.profile?.bundles?.includes('dsh-tavern-launcher') === true }
+      return { state: 'current', paths, ...bundleIdentity(tavern), selectedProfile: selection?.active, handoffBundle, canHandoff: handoffBundle !== undefined }
     }
     if (!profile.packageManager) return { state: 'unsupported' }
     const dir = join(await realpath(join(profile.home, 'profiles')), 'tavern')

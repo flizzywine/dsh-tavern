@@ -3,7 +3,7 @@
 在 DSH NEXT 的「DSH 终端」运行一次：
 
 ```powershell
-dsh plugin --profile desktop add https://raw.githubusercontent.com/flizzywine/dsh-tavern/plugin-next-downloads/dsh-tavern-launcher-1.4.2.tgz
+dsh plugin --profile desktop add https://github.com/flizzywine/dsh-tavern/releases/download/next-launcher-v1.4.4/dsh-tavern-1.4.4.tgz
 ```
 
 重启 NEXT，切到 `desktop`，打开「设置 → 酒馆启动器」。点「安装酒馆」会创建独立的 `tavern` Profile 并安装正式插件版。两边的 Profile 切换都通过「酒馆启动器」完成。酒馆运行时可以点「切回原版 DSH」，也可以直接发起更新或卸载。NEXT 会在切回 `desktop` 后继续操作，并在卸载前弹出确认。
@@ -12,4 +12,4 @@ dsh plugin --profile desktop add https://raw.githubusercontent.com/flizzywine/ds
 
 点「检查更新」可比较当前安装与最新发布的版本和源码提交。提交号链接到 GitHub 上对应的源码。
 
-启动器是独立的 `dsh-tavern-launcher` 包。维护者可在本目录运行 `pnpm publish --access public --registry=https://registry.npmjs.org/`。发布后用户可通过 DSH 用包名安装，也可使用已同步的国内 npm 镜像。酒馆本体继续通过 GitHub 发布。
+启动器包名是 `dsh-tavern`，通过本仓库的 GitHub Release 安装。已有 NEXT 安装请先用旧启动器更新酒馆本体，再从 `desktop` Profile 移除旧启动器并安装新版。

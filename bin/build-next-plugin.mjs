@@ -21,7 +21,7 @@ const components = [
   ['dsh-asset-library', 'tavern-plugin/packages/dsh-asset-library'],
   ['dsh-tavern-stage', 'tavern-plugin/packages/dsh-tavern-stage'],
   ['dsh-tavern-tts', 'tavern-plugin/packages/dsh-tavern-tts'],
-  ['dsh-tavern-launcher', 'tavern-plugin/packages/dsh-tavern-launcher'],
+  ['dsh-tavern', 'tavern-plugin/packages/dsh-tavern/next'],
 ]
 
 async function build(destination, version) {
@@ -35,7 +35,8 @@ async function build(destination, version) {
   }
   const tracked = execFileSync('git', ['ls-files', '-z', '--', 'tavern-plugin', 'presets', 'bin', 'config', 'LICENSE'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean)
   for (const file of tracked) {
-    if (/(^|\/)(dsh-profile-bridge|tests|__tests__|docs)(\/|$)/.test(file)) continue
+    const officialLauncher = file.startsWith('tavern-plugin/packages/dsh-tavern/') && !file.startsWith('tavern-plugin/packages/dsh-tavern/next/')
+    if (officialLauncher || /(^|\/)(tests|__tests__|docs)(\/|$)/.test(file)) continue
     // Ship the built clients. Keep the CommonJS contracts the Tavern and stage hosts still read.
     if (file.startsWith('tavern-plugin/src/') && !file.endsWith('.cjs')) continue
     if (/^tavern-plugin\/packages\/dsh-(?:asset-library|tavern-stage|tavern-tts|tavern-image-bundled)\/src\//.test(file)) continue

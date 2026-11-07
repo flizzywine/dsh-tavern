@@ -1,11 +1,12 @@
 // Offline profile publication. Every rename is journaled; old directories are retained.
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import installationLocation from './installation-location.cjs'
 import { beginOriginalBridgeUpdate } from './original-bridge-update.mjs'
 import { copyTreeSync, renameWithRetrySync } from './portable-fs.mjs'
 import { assertDesktopStopped } from './import-user-home.mjs'
+import { assertLauncherSlotAvailable, hasBridge, hasNextTavern, LAUNCHER_BUNDLE, launcherBundles } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
 
 const present = file => { try { lstatSync(file); return true } catch (e) { if (e.code === 'ENOENT') return false; throw e } }
 const read = dir => JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'))
@@ -49,17 +50,20 @@ function originalProfile(home, live, linked) {
   }
   throw Error('找不到可恢复的原版 desktop 配置，未修改 profile。请先恢复原版 desktop 备份后重试；现有酒馆和存档保持不变。')
 }
-function installBridge(dir, sourceRoot) {
-  const source = path.join(sourceRoot, 'tavern-plugin/packages/dsh-profile-bridge')
-  for (const target of ['vendor/dsh-profile-bridge', 'node_modules/dsh-profile-bridge']) {
+function installBridge(dir, sourceRoot, replaceNext) {
+  const doc = read(dir)
+  assertLauncherSlotAvailable(doc, dir, { replaceNext })
+  const previousLaunchers = new Set([...launcherBundles(doc, dir, 'desktop'), ...launcherBundles(doc, dir, 'next')])
+  const source = path.join(sourceRoot, 'tavern-plugin/packages/dsh-tavern')
+  for (const target of [`vendor/${LAUNCHER_BUNDLE}`, `node_modules/${LAUNCHER_BUNDLE}`]) {
     const destination = path.join(dir, target)
     if (present(destination)) renameSync(destination, destination + '.previous-' + randomUUID())
     mkdirSync(path.dirname(destination), { recursive: true })
     copyTreeSync(source, destination)
   }
-  const doc = read(dir)
-  doc.dependencies = { ...doc.dependencies, 'dsh-profile-bridge': 'file:./vendor/dsh-profile-bridge' }
-  doc.dsh.profile.bundles = [...new Set([...doc.dsh.profile.bundles, 'dsh-profile-bridge'])]
+  doc.dependencies = { ...doc.dependencies, [LAUNCHER_BUNDLE]: `file:./vendor/${LAUNCHER_BUNDLE}` }
+  for (const name of previousLaunchers) delete doc.dependencies[name]
+  doc.dsh.profile.bundles = [...new Set([...doc.dsh.profile.bundles.filter(name => !previousLaunchers.has(name)), LAUNCHER_BUNDLE])]
   save(path.join(dir, 'package.json'), doc)
 }
 function recover(journalFile, journal, rename) {
@@ -83,9 +87,10 @@ function recover(journalFile, journal, rename) {
 }
 // Existing installs retain their independent original profile and refresh only its
 // bridge. Tavern-active updates need no Desktop shutdown or profile replacement.
-export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, checkStopped = () => assertDesktopStopped([home], { requireGuiClosed: true, guiRoot }), rename = renameSync, retry = {} }) {
+export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, preparingForPid, checkStopped = (allowedPid) => assertDesktopStopped([home], { requireGuiClosed: true, guiRoot, preparingForPid: allowedPid }), rename = renameSync, retry = {} }) {
   const moveDirectory = (from, to) => renameWithRetrySync(from, to, { ...retry, rename })
   const profiles = path.join(home, 'profiles'), live = path.join(profiles, 'desktop'), tavern = path.join(profiles, 'tavern')
+  let replacesNext = hasNextTavern(home)
   const interrupted = (() => { try { return JSON.parse(readFileSync(path.join(home, 'profile-bridge', 'install.json'), 'utf8')).phase === 'preparing' } catch { return false } })()
   const linkedToTavern = present(live) && lstatSync(live).isSymbolicLink() && present(tavern) && realpathSync(live) === realpathSync(tavern)
   const registryFile = path.join(home, 'profile-bridge', 'installation.json')
@@ -102,6 +107,10 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
   const completed = installationRecord?.schemaVersion === 1 && installationRecord.phase === 'completed' && Array.isArray(installationRecord.entries)
   const retainedData = completed && installationRecord.layout === 'retained-data'
   const relocated = completed && installationRecord.layout === undefined
+  if (preparingForPid && (interrupted || relocated || !present(live) || !lstatSync(live).isDirectory()
+      || !hasBridge(read(live), live) || isTavern(read(live)) || (present(tavern) && !replacesNext))) {
+    throw Error('当前配置无法在桌面打开时准备安装，请先退出桌面再运行安装器。')
+  }
   // Only a completed relocation may own the profile. An uninstalled marker means
   // this is a fresh install; any other or damaged registry must not silently fall
   // through and overwrite an installation whose state has not been recovered.
@@ -112,20 +121,23 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
     installationLocation.resolveInstallationApp({ dshHome: home })
     // A registered relocation already owns its profile. Rebuilding it through
     // the first-install staging flow would replace its compatibility junction.
-    if (!linkedToTavern && (!present(live) || !read(live)?.dsh?.profile?.bundles?.includes('dsh-profile-bridge'))) throw Error('已迁移安装的原版 desktop 配置缺少切换组件，请先恢复备份。')
+    if (!linkedToTavern && (!present(live) || !hasBridge(read(live), live))) throw Error('已迁移安装的原版 desktop 配置缺少切换组件，请先恢复备份。')
     return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
   }
-  if (!interrupted && (linkedToTavern || (present(tavern) && present(live) && !lstatSync(live).isSymbolicLink() && !isTavern(read(live)) && read(live)?.dsh?.profile?.bundles?.includes('dsh-profile-bridge')))) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
+  if (!interrupted && !replacesNext && (linkedToTavern || (present(tavern) && present(live) && !lstatSync(live).isSymbolicLink() && !isTavern(read(live)) && hasBridge(read(live), live)))) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
   // Direct reinstalls must keep unfinished removal/relocation transactions fenced.
   installationLocation.resolveInstallationApp({ dshHome: home })
-  checkStopped()
+  checkStopped(preparingForPid)
   const state = path.join(home, 'profile-bridge')
   mkdirSync(state, { recursive: true })
   if (existsSync(path.join(state, 'pending'))) throw Error('有未完成的 profile 切换，请先检查 profile-bridge/pending。')
   const journalFile = path.join(state, 'install.json')
   if (existsSync(journalFile)) {
     const old = JSON.parse(readFileSync(journalFile, 'utf8'))
-    if (old.phase === 'preparing') recover(journalFile, old, moveDirectory)
+    if (old.phase === 'preparing') {
+      recover(journalFile, old, moveDirectory)
+      replacesNext = hasNextTavern(home)
+    }
   }
   if (!present(live)) throw Error('请先启动一次官方桌面，再完整退出后安装。')
   const linked = lstatSync(live).isSymbolicLink()
@@ -135,6 +147,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
   const stamp = new Date().toISOString().replaceAll(':', '-') + '-' + randomUUID()
   const backup = path.join(home, 'backups', 'profile-bridge-install-' + stamp)
   mkdirSync(backup, { recursive: true })
+  if (replacesNext) copyFileSync(path.join(home, 'logs/tavern-installation.json'), path.join(backup, 'previous-tavern-installation.json'))
   const journal = { phase: 'preparing', backup, actions: [] }
   save(journalFile, journal)
   const move = (from, to) => {
@@ -143,30 +156,40 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, che
   }
   let done = false
   try {
-    const desktopStage = path.join(backup, 'prepared-desktop')
-    copyTreeSync(original.directory, desktopStage)
-    if (original.suffix) for (const file of ['package.json', 'cordis.patch.yml']) writeFileSync(path.join(desktopStage, file), readFileSync(path.join(original.directory, file + original.suffix)))
-    installBridge(desktopStage, sourceRoot)
+    const desktopStage = preparingForPid ? live : path.join(backup, 'prepared-desktop')
+    if (!preparingForPid) {
+      copyTreeSync(original.directory, desktopStage)
+      if (original.suffix) for (const file of ['package.json', 'cordis.patch.yml']) writeFileSync(path.join(desktopStage, file), readFileSync(path.join(original.directory, file + original.suffix)))
+      installBridge(desktopStage, sourceRoot, replacesNext)
+    }
     const legacyDesktop = !linked && isTavern(read(live))
     if (present(tavern)) move(tavern, path.join(backup, 'previous-tavern'))
     const tavernStage = path.join(backup, 'prepared-tavern')
-    const seed = legacyDesktop ? live : path.join(backup, 'previous-tavern')
-    if (present(seed)) copyTreeSync(seed, tavernStage)
+    const seed = legacyDesktop ? live : replacesNext ? null : path.join(backup, 'previous-tavern')
+    if (seed && present(seed)) copyTreeSync(seed, tavernStage)
     else mkdirSync(tavernStage)
     move(tavernStage, tavern)
     return {
       backup,
       desktopStage,
       finish() {
-        checkStopped()
-        // Keep the original profile available for the settings page's restore action.
-        const originalDir = path.join(profiles, 'desktop.fresh-' + stamp)
-        move(desktopStage, originalDir)
-        const link = path.join(profiles, 'desktop.switch-stage-' + stamp)
-        journal.actions.push({ type: 'symlink', path: link, target: tavern }); save(journalFile, journal)
-        symlinkSync(tavern, link, process.platform === 'win32' ? 'junction' : 'dir')
-        move(live, path.join(backup, 'previous-desktop'))
-        move(link, live)
+        // Windows can briefly retain Desktop processes after closing the window.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            checkStopped()
+            break
+          } catch (error) {
+            if (error.code !== 'DSH_DESKTOP_RUNNING' || attempt >= 4) throw error
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+          }
+        }
+        // Installing Tavern never selects it as the default. The in-app path
+        // already uses the live original profile; preserve edits made while
+        // downloading. Offline installs publish the prepared original instead.
+        if (!preparingForPid) {
+          move(live, path.join(backup, 'previous-desktop'))
+          move(desktopStage, live)
+        }
       },
       commit() {
         journal.phase = 'completed'; save(journalFile, journal); done = true

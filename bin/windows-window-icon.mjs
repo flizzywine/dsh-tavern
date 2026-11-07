@@ -8,7 +8,7 @@ import { DSH_ROOT } from './launcher-environment.mjs'
 export function startWindowsWindowIcon(browser, { platform = process.platform, launch = launchWindowsUpdater, logFile = path.join(DSH_ROOT, 'logs', 'tavern-window-icon.log') } = {}) {
   if (platform !== 'win32') return
   const helper = fileURLToPath(new URL('./windows-window-icon.ps1', import.meta.url))
-  const icon = fileURLToPath(new URL('../tavern-plugin/packages/dsh-profile-bridge/assets/dsh-tavern-app.ico', import.meta.url))
+  const icon = fileURLToPath(new URL('../tavern-plugin/packages/dsh-tavern/assets/dsh-tavern-app.ico', import.meta.url))
   // Spawn through the existing WMI broker: detached children still inherit the
   // launcher's kill-on-close Job and can die before they have scanned a window.
   try {

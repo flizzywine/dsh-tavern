@@ -57,7 +57,7 @@ function merge(from, to) {
 }
 // guiRoot limits the GUI check to executables inside that install root: other Harness
 // copies (another installation, a stale upgrade stage in the temp directory) cannot write this home.
-export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot, exec = execFileSync, platform = process.platform, pid = process.pid } = {}) {
+export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot, preparingForPid, exec = execFileSync, platform = process.platform, pid = process.pid } = {}) {
   let output
   try {
     output = platform === 'win32'
@@ -71,10 +71,18 @@ export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot,
   const parents = new Map(processes.map(row => [row.id, row.parent]))
   const own = new Set()
   for (let id = pid; id && !own.has(id); id = parents.get(id)) own.add(id)
+  const preparingTree = new Set()
+  if (Number.isInteger(preparingForPid) && preparingForPid > 1) {
+    preparingTree.add(preparingForPid)
+    for (let size = 0; size !== preparingTree.size;) {
+      size = preparingTree.size
+      for (const row of processes) if (preparingTree.has(row.parent)) preparingTree.add(row.id)
+    }
+  }
   const normalize = value => value.replaceAll('\\', '/').toLowerCase()
   const scope = guiRoot && normalize(path.resolve(guiRoot)).replace(/\/*$/, '/')
   for (const row of processes) {
-    if (own.has(row.id)) continue
+    if (own.has(row.id) || preparingTree.has(row.id)) continue
     const command = normalize(row.command).trim()
     // Match the executable, including quoted Windows paths and Electron's trailing
     // arguments. A desktop name occurring only inside another program's args is
@@ -84,7 +92,9 @@ export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot,
       || command.match(/^(\/[^"\n]+?\.app\/contents\/macos\/(?:deepseek harness|dsh next|dsh desktop))(?=\s|$)/)?.[1]
       || command.match(/^((?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?)(?=\s|$)/)?.[1]
       || command.split(/\s/)[0]
-    if (requireGuiClosed && (!scope || executable.startsWith(scope)) && /(?:^|\/)(?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?$/.test(executable)) throw Error('请完整退出 DeepSeek Harness 后再安装或迁移数据。')
+    if (requireGuiClosed && (!scope || executable.startsWith(scope)) && /(?:^|\/)(?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?$/.test(executable)) {
+      throw Object.assign(new Error(`请完整退出 DeepSeek Harness 后再安装或迁移数据。仍在运行：${executable.split('/').at(-1)}（PID ${row.id}）。`), { code: 'DSH_DESKTOP_RUNNING' })
+    }
     if (!command.includes('dsh-desktop-host')) continue
     if (homes.some(home => command.includes(normalize(path.join(home, 'profiles'))))) throw Error('请完整退出使用源目录或目标目录的官方桌面，再迁移用户数据。')
   }
