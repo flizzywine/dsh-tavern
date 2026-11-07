@@ -271,7 +271,8 @@ record() {
   printf '%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" >"$dir/created"
 }
 
-do_switch() {
+# 整包切换：新建备份目录、整棵替换源码。首次切分支、换分支、源码不是 git 检出时用。
+do_switch_full() {
   local stamp dir prev_ver new_ver
   stamp=$(date +%Y%m%d-%H%M%S)
   dir="$BACKUPS/branch-$stamp"
@@ -304,10 +305,62 @@ do_switch() {
   say '[切换] 重写 tavern Profile'
   install_profile || fail 'profile 安装失败（新版本可能不兼容当前 DSH）'
   mobile_layout
-  printf '%s\n' "$BRANCH" >"$APP/.termux-tavern-branch"
+  if [ -d "$APP/.git" ]; then
+    printf '%s\n%s\n' "$BRANCH" "$(git -C "$APP" rev-parse --short HEAD)" >"$APP/.termux-tavern-branch"
+  else
+    printf '%s\n' "$BRANCH" >"$APP/.termux-tavern-branch"
+  fi
   record "$dir"
   say "[切换] 完成：${prev_ver:-未知} → ${new_ver:-未知}"
   say "   旧源码保留在 $dir/previous-source"
+}
+
+# 已在目标分支且源码是 git 检出时：只 fetch + 快进，不建备份、不重装依赖。
+# 切分支后的日常「更新到分支最新」走这条路。
+do_update_in_place() {
+  local before after target
+  say "[更新] 已在 $BRANCH，走增量更新（不新建备份）"
+  stop_tavern
+  if ! git -C "$APP" fetch -q origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"; then
+    say '   拉取失败，退回整包切换'
+    do_switch_full
+    return
+  fi
+  target=$(git -C "$APP" rev-parse "origin/$BRANCH")
+  before=$(git -C "$APP" rev-parse HEAD)
+  if [ "$target" = "$before" ]; then
+    say "   已是最新（$(git -C "$APP" rev-parse --short HEAD)），跳过重装"
+    return 0
+  fi
+  say "   更新 $(git -C "$APP" rev-parse --short HEAD) → $(git -C "$APP" rev-parse --short "origin/$BRANCH")"
+  if ! git -C "$APP" reset --hard -q "$target"; then
+    say '   无法快进到分支头部，退回整包切换'
+    do_switch_full
+    return
+  fi
+  # data/ 与 node_modules 都是未跟踪/忽略项，reset 不会动它们。
+  if ! cmp -s "$APP/node_modules/.pnpm/lock.yaml" "$APP/pnpm-lock.yaml" 2>/dev/null; then
+    say '   依赖清单有变化，重装依赖'
+    ( cd "$APP" && "$(pnpm_bin)" install --frozen-lockfile \
+        --config.minimum-release-age=0 --reporter=append-only ) || fail 'pnpm install 失败'
+  else
+    say '   依赖未变，跳过 pnpm install'
+  fi
+  install_profile || fail 'profile 安装失败'
+  mobile_layout
+  after=$(git -C "$APP" rev-parse --short HEAD)
+  printf '%s\n%s\n' "$BRANCH" "$after" >"$APP/.termux-tavern-branch"
+  say "[更新] 完成，当前 $after"
+}
+
+do_switch() {
+  local current_branch=""
+  [ -f "$APP/.termux-tavern-branch" ] && current_branch=$(sed -n '1p' "$APP/.termux-tavern-branch")
+  if [ "$current_branch" = "$BRANCH" ] && [ -d "$APP/.git" ] && [ "${TERMUX_TAVERN_FORCE_FULL:-0}" != 1 ]; then
+    do_update_in_place
+    return
+  fi
+  do_switch_full
 }
 
 do_revert() {

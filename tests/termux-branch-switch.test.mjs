@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -120,4 +120,68 @@ test('容器内回退：恢复旧版本并清掉记录', async (t) => {
   assert.equal(JSON.parse(await readFile(path.join(layout.app, 'package.json'), 'utf8')).version, '3.1.0')
   assert.equal(await readFile(path.join(layout.app, 'data/session.json'), 'utf8'), '{"keep":true}')
   assert.equal(existsSync(path.join(layout.tavernRoot, 'backups/branch-latest')), false)
+})
+
+test('已在目标分支时增量更新：不新建备份，只快进到分支最新', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'tavern-termux-update-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const layout = await createLayout(directory)
+  await rm(path.join(layout.mock, 'git'), { force: true })   // 这一条用真实 git
+  await writeInner(directory)
+
+  // 真实的本地「远端」仓库：只有 backup/main-20261106 一个分支
+  const bare = path.join(directory, 'origin.git')
+  const work = path.join(directory, 'origin-work')
+  const git = args => spawnSync('git', args, { cwd: directory, encoding: 'utf8' })
+  assert.equal(git(['init', '-q', '--bare', bare]).status, 0)
+  assert.equal(git(['-C', bare, 'config', 'uploadpack.allowFilter', 'true']).status, 0)
+  assert.equal(git(['init', '-q', '-b', 'backup/main-20261106', work]).status, 0)
+  for (const name of ['bin', 'patches']) await mkdir(path.join(work, name), { recursive: true })
+  await writeFile(path.join(work, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern', version: '3.2.0' }))
+  await writeFile(path.join(work, 'bin/dsh-tavern.mjs'), SCRIPT_SOURCE)
+  await writeFile(path.join(work, 'pnpm-lock.yaml'), 'lockfile-identical\n')
+  await writeFile(path.join(work, 'patches/dsh-web-mobile@3.1.0.patch'), '')
+  const commit = message => {
+    assert.equal(git(['-C', work, 'add', '-A']).status, 0)
+    const result = spawnSync('git', ['-C', work, '-c', 'user.name=t', '-c', 'user.email=t@e', 'commit', '-qm', message], { encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+  }
+  commit('fixture')
+  assert.equal(git(['-C', work, 'remote', 'add', 'origin', bare]).status, 0)
+  assert.equal(git(['-C', work, 'push', '-q', 'origin', 'backup/main-20261106']).status, 0)
+  // 让「依赖未变」成立：node_modules 里的 lock 摘要与源码 lockfile 一致
+  await writeFile(path.join(layout.app, 'node_modules/.pnpm/lock.yaml'), 'lockfile-identical\n')
+
+  const env = { DSH_TAVERN_REPOSITORY: shellPath(bare), DSH_TAVERN_TARBALL_BASE: 'file:///nonexistent' }
+  const first = spawnSync(bash, [path.join(directory, 'branch-inner.sh'), 'backup/main-20261106', 'switch'], {
+    encoding: 'utf8', timeout: 60000,
+    env: { ...process.env, HOME: shellPath(layout.home), PATH: `${shellPath(layout.mock)}:${process.env.PATH || ''}`, TEST_ROOT: shellPath(directory), TERMUX_TAVERN_STOP_WAIT: '0', ...env },
+  })
+  assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`)
+  assert.ok(existsSync(path.join(layout.app, '.git')))
+  const backupDirs = async () => (await readdir(path.join(layout.tavernRoot, 'backups'))).filter(name => name.startsWith('branch-2'))
+  assert.equal((await backupDirs()).length, 1)
+
+  // 分支上再推一个提交，第二次运行应该只快进，不产生新备份
+  await writeFile(path.join(work, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern', version: '3.2.1' }))
+  commit('bump')
+  assert.equal(git(['-C', work, 'push', '-q', 'origin', 'backup/main-20261106']).status, 0)
+
+  const second = spawnSync(bash, [path.join(directory, 'branch-inner.sh'), 'backup/main-20261106', 'switch'], {
+    encoding: 'utf8', timeout: 60000,
+    env: { ...process.env, HOME: shellPath(layout.home), PATH: `${shellPath(layout.mock)}:${process.env.PATH || ''}`, TEST_ROOT: shellPath(directory), TERMUX_TAVERN_STOP_WAIT: '0', ...env },
+  })
+  assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`)
+  assert.match(second.stdout, /增量更新/)
+  assert.equal(JSON.parse(await readFile(path.join(layout.app, 'package.json'), 'utf8')).version, '3.2.1')
+  assert.equal((await backupDirs()).length, 1, '增量更新不应新建备份')
+
+  // 第三次：已经最新，跳过重装
+  const third = spawnSync(bash, [path.join(directory, 'branch-inner.sh'), 'backup/main-20261106', 'switch'], {
+    encoding: 'utf8', timeout: 60000,
+    env: { ...process.env, HOME: shellPath(layout.home), PATH: `${shellPath(layout.mock)}:${process.env.PATH || ''}`, TEST_ROOT: shellPath(directory), TERMUX_TAVERN_STOP_WAIT: '0', ...env },
+  })
+  assert.equal(third.status, 0, `${third.stdout}\n${third.stderr}`)
+  assert.match(third.stdout, /已是最新/)
+  assert.equal((await backupDirs()).length, 1)
 })
