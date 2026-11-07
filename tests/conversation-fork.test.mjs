@@ -73,3 +73,12 @@ test('分叉只保留分叉点及之前的隐藏轮次记录：分叉后续用�
   const unpruned = forkConversationChat(source, { chatId: 'chat-old', sessionId: 'session-old', id: prefix => prefix + '-x' })
   assert.equal(foregroundSuppressedTurns(unpruned, events).includes(5), true, 'without the fork point the stale entry would hide it')
 })
+
+test('分叉来源带着故事消息序号，原生轮号分叉不带', async () => {
+  const { forkConversationChat } = await import('../tavern-plugin/lib/domain/conversation-fork.js')
+  const fork = forkConversationChat(sourceChat(), { chatId: 'chat-message', sessionId: 'session-message', id: prefix => prefix + '-x', messageIndex: 2 })
+  assert.equal(fork.forkedFrom.messageIndex, 2)
+  assert.equal(fork.forkedFrom.chatId, 'chat-source')
+  const native = forkConversationChat(sourceChat(), { chatId: 'chat-native', sessionId: 'session-native', id: prefix => prefix + '-x', lastNativeTurn: 2 })
+  assert.equal(native.forkedFrom.messageIndex, undefined)
+})

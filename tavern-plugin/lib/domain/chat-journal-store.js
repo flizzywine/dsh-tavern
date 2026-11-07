@@ -324,7 +324,8 @@ export function createChatJournalStore(options = {}) {
   }
   // Native-only opt-in. Null keeps legacy readers on their complete contract.
   async function readWindow(chatId,options) { return native.readWindow(chatId,options) }
-  async function readRecentSummaries(chatId,count) { return native.readRecentSummaries(chatId,count) }
+  async function readWorldSnapshot(chatId) { return native.readWorldSnapshot(chatId) }
+  async function readRecentSummaries(chatId,count,options) { return native.readRecentSummaries(chatId,count,options) }
   async function readHelperContext(chatId, range) {
     const selected = await native.readHelperContext(chatId, range)
     if (selected !== null) return selected
@@ -574,7 +575,7 @@ export function createChatJournalStore(options = {}) {
         const cached=readCache.get(chatId)?.state
         const reusable=cached?.native && cached.revision===expectedRevision
         const normalized=reusable ? normalizePatch(cached.chat,changes) : changes
-        const saved = await native.patch(chatId,expectedRevision,normalized,metadata.assertCurrent,metadata.returnProjection)
+        const saved = await native.patch(chatId,expectedRevision,normalized,metadata.assertCurrent,metadata.returnProjection,metadata.worldSelection)
         if (saved !== null) {
           // A scoped native commit must not fall back to materializing the full
           // cached archive, nor replace that cache with a partial projection.
@@ -600,7 +601,7 @@ export function createChatJournalStore(options = {}) {
       if(next.id!==chatId || revisionOf(next)!==expectedRevision+1)throw new Error('Invalid journal patch revision')
       if(state.native){
         const recent=knownChanges(chatId,state)
-        const saved=await native.write(chatId,state,next,changes,metadata.assertCurrent)
+        const saved=await native.write(chatId,state,next,changes,metadata.assertCurrent,metadata.worldSelection)
         rememberState(chatId,await version(chatId),saved,rememberChanges(recent,saved.revision,changes))
         committed(chatId,saved.revision)
         return slice(next,[],metadata.returnProjection).chat
@@ -654,7 +655,7 @@ export function createChatJournalStore(options = {}) {
       const next = jsonClone(produced)
       if (next === undefined || next === null || typeof next !== 'object' || Array.isArray(next)) throw new Error('Chat Journal 只能保存 JSON object')
       if (currentState == null && options.newConversations === true && next.mode !== 'card') {
-        const saved=await native.create(chatId,next,metadata.assertCurrent)
+        const saved=await native.create(chatId,next,metadata.assertCurrent,{worldSelection:metadata.worldSelection})
         rememberState(chatId,await version(chatId),saved)
         return copyJsonTree(next)
       }
@@ -769,5 +770,5 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
-  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot })
+  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot })
 }

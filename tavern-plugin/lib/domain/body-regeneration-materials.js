@@ -57,11 +57,18 @@ export function captureBodyRegenerationSource({ chat, card, worldbookPrefix, sys
 
 /** Native regenerations keep the story turn but generate their frame in a later native turn. */
 export function findBodyRegenerationFrame(chat, turn) {
-  const nativeTurn = Number(chat?.regeneratedDshTurns?.[String(turn)]) || Number(turn)
-  return Object.values(object(chat?.foregroundFrames) ? chat.foregroundFrames : {}).reverse().find(frame =>
-    frame?.kind === 'foreground' && Number(frame.turn) === nativeTurn &&
-    (!frame.chatId || frame.chatId === chat.id) &&
-    (!frame.branchId || !chat.timeline?.branchId || frame.branchId === chat.timeline.branchId)) || null
+  const wanted = String(turn)
+  const mapped = Number(chat?.regeneratedDshTurns?.[wanted])
+  const nativeTurn = mapped || Number(turn)
+  const sameBranch = frame => !frame.chatId || frame.chatId === chat.id
+    ? (!frame.branchId || !chat.timeline?.branchId || frame.branchId === chat.timeline.branchId) : false
+  const frames = Object.values(object(chat?.foregroundFrames) ? chat.foregroundFrames : {}).reverse()
+  const matched = frames.find(frame => frame?.kind === 'foreground' && Number(frame.turn) === nativeTurn && sameBranch(frame))
+  if (matched) return matched
+  // 映射缺失（分叉/修复清掉过）时不能把剧情轮号当原生轮号用：按帧上记着的剧情轮号再认一次。
+  return frames.find(frame => frame?.kind === 'foreground' &&
+    (Number(frame.storyTurn ?? frame.turn) === Number(turn) || String(frame.regenerationMaterials?.storyTurn) === wanted) &&
+    sameBranch(frame)) || null
 }
 
 function hidden(row) {
@@ -164,20 +171,21 @@ function originalInput(chat, row, frame, turn) {
   // previous body. It is never the player's input and must not escape to plugins.
   const inputFrame = frame.userInput?.sourceText === raw ? frame
     : Object.values(object(chat.foregroundFrames) ? chat.foregroundFrames : {}).reverse().find(item =>
-      item?.kind === 'foreground' && item.userInput?.sourceText === raw && Number(item.turn) === Number(turn))
+      item?.kind === 'foreground' && item.userInput?.sourceText === raw
+      && (Number(item.turn) === Number(turn) || Number(item.storyTurn) === Number(turn)))
   if (!inputFrame || typeof inputFrame.userInput?.projectedText !== 'string') fail('本轮输入已变化或缺少原始输入快照，不能用重生成指令代替玩家输入')
   return { raw, projected: inputFrame.userInput.projectedText }
 }
 
 /** Safe DTO for a plugin. Host checkpoints, hidden rows and source diagnostics never cross this boundary. */
-export function buildBodyRegenerationMaterials({ chat, beforeChat, card: _liveCard, turn, assistantIndex, operationId, kind = 'replace', targetInput }) {
+export function buildBodyRegenerationMaterials({ chat, beforeChat, card: _liveCard, turn, assistantIndex, inputIndex = assistantIndex - 1, operationId, kind = 'replace', targetInput }) {
   if (!chat || !beforeChat || chat.id !== beforeChat.id || !Array.isArray(beforeChat.messages)) fail('缺少本轮开始前的权威存档')
   if (!['replace', 'failed', 'generate'].includes(kind)) fail('未知的重生成目标类型')
   const row = chat.messages?.[assistantIndex]
-  const inputRow = chat.messages?.[assistantIndex - 1]
+  const inputRow = inputIndex >= 0 ? chat.messages?.[inputIndex] : null
   if (kind === 'replace') {
-    if (row?.role !== 'assistant' || row.greeting || storyTurn(row) !== Number(turn) || inputRow?.role !== 'user') fail('重生成目标不是完整的玩家输入与正文组合')
-    if (hidden(row) || hidden(inputRow) || (chat.suppressedDshTurns || []).map(Number).includes(Number(turn)) && !chat.regeneratedDshTurns?.[String(turn)]
+    if (row?.role !== 'assistant' || row.greeting || storyTurn(row) !== Number(turn) || (inputIndex >= 0 && inputRow?.role !== 'user')) fail('重生成目标不是有效的正文与输入组合')
+    if (hidden(row) || (inputRow && hidden(inputRow)) || (chat.suppressedDshTurns || []).map(Number).includes(Number(turn)) && !chat.regeneratedDshTurns?.[String(turn)]
       || (chat.replacingDshTurns || []).map(Number).includes(Number(turn))) fail('不能向插件提供用户不可见的目标消息')
   } else if (typeof targetInput?.raw !== 'string' || hidden(targetInput)) fail('缺少用户可见的失败输入')
   const frame = findBodyRegenerationFrame(chat, turn)
@@ -185,8 +193,11 @@ export function buildBodyRegenerationMaterials({ chat, beforeChat, card: _liveCa
   const captured = frame.source?.regenerationMaterials
   const originalCard = captured?.version === 1 ? captured.card : beforeChat.cardDefinitionSnapshot
   if (!object(originalCard)) fail('找不到本轮原始人物设定快照')
-  const history = visibleBodyRegenerationHistory(chat, kind !== 'replace' ? chat.messages.length : assistantIndex - 1)
-  const input = originalInput(chat, kind !== 'replace' ? { text: targetInput.raw } : inputRow, frame, turn)
+  const historyMessages = kind !== 'replace' ? chat.messages
+    : chat.messages.slice(0, assistantIndex).filter((_, index) => index !== inputIndex)
+  const history = visibleBodyRegenerationHistory({ ...chat, messages: historyMessages }, historyMessages.length)
+  const input = kind === 'replace' && inputIndex < 0 ? { raw: '', projected: '' }
+    : originalInput(chat, kind !== 'replace' ? { text: targetInput.raw } : inputRow, frame, turn)
   const entries = restoredWorldbookEntries(frame, beforeChat)
   const toolResults = (Array.isArray(frame.source?.bodyGenerationToolResults) ? frame.source.bodyGenerationToolResults : [])
     .map(item => ({ tool: text(item?.tool), text: text(item?.text) })).filter(item => item.tool && item.text.trim())

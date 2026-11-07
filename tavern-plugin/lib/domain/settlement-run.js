@@ -21,7 +21,7 @@ const SETTLEMENT_HEADER_FIELDS = Object.freeze(['posture', 'settleStatus', 'sett
 // `deps` is read on each call, so a test may swap a service after creation.
 export function createSettlementRun(deps) {
   async function runSettlement(chatId, signal) {
-    const { backgroundTasks, chatPersistence, mvuSettlementEngine, readChat, readChatCard, worldBookScanDepth, writeChat } = deps
+    const { backgroundTasks, chatPersistence, mvuSettlementEngine, readChat, readChatCard, worldBookScanDepth } = deps
     const retryStale = createSettlementProgressGuard({ backgroundTasks, onStopped: ({ operationId, error }) => {
       console.error('dsh-tavern: 结算连续三次未能提交且剧情状态未前进，已停止，可重新结算', chatId, operationId, str(error?.message || error || '提交已过期'))
     } })
@@ -82,10 +82,19 @@ export function createSettlementRun(deps) {
           trace.boundary = null
         }
         if (trace.boundary === null && Number.isSafeInteger(err && err.traceBoundary)) trace.boundary = err.traceBoundary
+        const message = str(err && err.message || err) || '后台结算失败'
         const failed = await taskRun.commit({
           status: 'failed',
           stateChanged: false,
-          participant: taskRun.participant({ sessionId: trace.sessionId, boundary: trace.boundary })
+          participant: taskRun.participant({ sessionId: trace.sessionId, boundary: trace.boundary }),
+          apply(draft) {
+            // Close the delivery and the public settlement status in the same CAS
+            // that records the round's settledRevision. A second whole-Chat write
+            // would leave that revision pointing at a still-pending snapshot.
+            mvuSettlementEngine.recordFailure(draft, err, message)
+            draft.settleStatus = 'failed'
+            draft.settleError = message
+          }
         })
         if (failed.status === 'missing') return
         if (failed.status === 'stale') {
@@ -94,13 +103,6 @@ export function createSettlementRun(deps) {
           if (await retryStale(failed.chat, err)) continue
           return
         }
-        const latest = await readChat(chatId)
-        if (latest === undefined) return
-        const message = str(err && err.message || err) || '后台结算失败'
-        const mvuFailed = mvuSettlementEngine.recordFailure(latest, err, message)
-        latest.settleStatus = 'failed'
-        latest.settleError = message
-        await writeChat(latest, { source: mvuFailed ? 'settlement.mvu-failed' : 'settlement.posture-failed' })
         console.error('dsh-tavern: 结算失败', chatId, str(err && err.message || err))
         return
       }

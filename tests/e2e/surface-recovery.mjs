@@ -50,7 +50,7 @@ export async function surfaceRecoveryChecks({ page, step, savedChat, output, rep
   async function failed(label) {
     await control({ mode: 'reasoning-only', label })
     await send(label)
-    await page.getByRole('button', { name: '重新生成本轮', exact: true }).first().waitFor()
+    await page.getByRole('button', { name: '撤回这条输入', exact: true }).first().waitFor()
     const evidence = await poll(async () => {
       const state = await native()
       const error = state.events.findLast(event => event.type === 'turn/end')
@@ -91,9 +91,14 @@ export async function surfaceRecoveryChecks({ page, step, savedChat, output, rep
     await failed('E2E 原样重试输入')
     assert.deepEqual(prose(await savedChat()), before)
     await control({ mode: 'success', reply: '重试后第二轮正文。' })
-    await page.getByRole('button', { name: '重新生成本轮', exact: true }).first().tap()
+    // 失败轮的输入只能撤回到输入框再发送，没有单独的「重新生成本轮」。
+    await page.locator('.dsh-tavern-choice-trigger').filter({ hasText: '撤回这条输入' }).first().tap()
+    await page.waitForFunction(() => /E2E 原样重试输入/.test(document.querySelector('[data-composer-card] :is(textarea, [contenteditable="true"])')?.value ?? document.querySelector('[data-composer-card] [contenteditable="true"]')?.innerText ?? ''), null, { timeout: 15000 })
+    await composer.press('Enter')
     await completed('重试后第二轮正文。', 2)
     const chat = await savedChat()
+    assert.equal(chat.messages.filter(message => message.role === 'user' && message.text === 'E2E 原样重试输入').length, 1,
+      '撤回再发送只保留一条持久用户输入')
     assert.equal(chat.messages.filter(message => message.role === 'user').at(-1).text, 'E2E 原样重试输入')
     // Restart gets a new origin and must reselect the saved game from the
     // desktop history navigator; recovery interactions remain touch/narrow.

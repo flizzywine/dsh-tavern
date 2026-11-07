@@ -90,13 +90,23 @@ test('用户主动停止仍能结束不响应的模型流，不必等待接口�
   finally { resume() }
 })
 
-test('缺失结束标记的正文流报错，不伪装成用户主动停止', async () => {
+test('传输截断已有正文时按输出上限收尾，不把已显示的文字丢掉', async () => {
   const cancellations = []
   const send = install(memoryLog(), {}, null, null, async function * () {
     yield { type: 'text-delta', text: '未完成正文' }
   }, { get: () => ({ cancel: reason => cancellations.push(reason) }) })
-  await assert.rejects(send('session-game'), /未收到完整结束标记/)
+  const chunks = await send('session-game')
+  assert.equal(chunks.at(-1).type, 'finish')
+  assert.equal(chunks.at(-1).reason.kind, 'max-tokens')
+  assert.equal(chunks.at(-1).reason.recoveredFrom, 'interrupted')
   assert.deepEqual(cancellations, [])
+})
+
+test('一个字都没写就缺少结束标记时仍按流中断报错', async () => {
+  const send = install(memoryLog(), {}, null, null, async function * () {
+    yield { type: 'reasoning-delta', text: '只有思考，没有正文' }
+  })
+  await assert.rejects(send('session-game'), /未收到完整结束标记/)
 })
 
 test('a plugin agent created under a game is logged as that game\'s background request', async () => {
@@ -115,21 +125,35 @@ test('a plugin agent created under a game is logged as that game\'s background r
   assert.equal(await log.latestForSession('stray'), null, 'agents outside a game are not logged')
 })
 
-test('the real model-stream hook feeds only foreground story text to the stage stream and cancels a failed stream', async () => {
+test('the real model-stream hook keeps foreground story text when a provider ends with an error', async () => {
   const beginnings = []; let shown = '', cancelled = 0
   const begin = (...args) => { beginnings.push(args.slice(0,2)); return { update: text => { shown = text }, cancel: () => cancelled++, discard() {} } }
   const send = install(memoryLog(), {}, null, begin, async function * () {
     yield { type: 'reasoning-delta', text: 'Reasoning is not story.' }
     yield { type: 'text-delta', text: 'Story.\n' }
-    yield { type: 'finish', reason: { kind: 'error' } }
+    yield { type: 'finish', reason: { kind: 'error', failure: { message: 'Provider finish_reason: error', code: 'PI_AI_ERROR' } } }
   })
   const chunks = await send('session-game')
-  assert.equal(chunks.length, 3, 'the original foreground stream is not consumed or rewritten')
+  assert.equal(chunks.length, 3, 'text and reasoning deltas still stream through unchanged')
+  assert.equal(chunks.at(-1).reason.kind, 'max-tokens')
+  assert.equal(chunks.at(-1).reason.recoveredFrom, 'error')
   assert.deepEqual(beginnings, [['session-game', 2]])
   assert.equal(shown, 'Story.\n')
-  assert.equal(cancelled, 1)
+  assert.equal(cancelled, 0)
   await send('unrelated')
   assert.equal(beginnings.length, 1)
+})
+
+test('内容审核掐断仍走失败清理，不把被拦截的半截正文当成完整回复', async () => {
+  let cancelled = 0
+  const begin = () => ({ update() {}, cancel: () => cancelled++, discard() {} })
+  const send = install(memoryLog(), {}, null, begin, async function * () {
+    yield { type: 'text-delta', text: '被审核掐断的半截正文' }
+    yield { type: 'finish', reason: { kind: 'error', failure: { message: 'Provider finish_reason: content_filter', code: 'PI_AI_ERROR' } } }
+  })
+  const chunks = await send('session-game')
+  assert.equal(chunks.at(-1).reason.kind, 'error')
+  assert.equal(cancelled, 1)
 })
 
 test('a plugin settlement reports which plugin is settling and whether its agent is producing output', async () => {

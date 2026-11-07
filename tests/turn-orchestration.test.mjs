@@ -144,6 +144,7 @@ function harness(mode, options = {}) {
     projectReply: projectReplyLayers,
     projectWorldBookTemplates: options.projectWorldBookTemplates,
     projectForegroundWorldbook: options.projectForegroundWorldbook,
+    resolvePreset: options.resolvePreset,
     foregroundRosterAddendum: options.foregroundRosterAddendum,
     recordWorldbookRecall: options.recordWorldbookRecall,
     projectScriptPromptWorldbook: options.projectScriptPromptWorldbook,
@@ -204,6 +205,27 @@ test('连续正文回合的实际 Frame 消息不重复基本信息和常驻世�
     assert.doesNotMatch(historyText, /逐轮系统指令/)
     assert.equal(historyText.split('逐轮历史后指令').length - 1, 2)
   }
+})
+
+test('重生成预演使用发送时的当前世界书且不写故事', async () => {
+  const planner = createContextPlanner({ prompt: () => '正文规则' })
+  let recalled = '旧的世界书'
+  const run = harness('story', {
+    planner,
+    preparedWorldBookContext: '缓存里的旧世界书',
+    projectWorldBookTemplates: async () => ({ context: recalled, refs: [], diagnostics: [] }),
+    resolvePreset: async () => ({ middle: { entries: [{ role: 'system', content: '当前预设的新规则' }] } })
+  })
+  const before = run.chat()
+  recalled = '新修改的世界书'
+  const prepared = await run.orchestrator.preview({ sessionId: 'session-1', turn: 5, userText: '新的行动' })
+
+  assert.match(foregroundFrameText(prepared.frame), /新修改的世界书/)
+  assert.match(foregroundFrameText(prepared.frame), /当前预设的新规则/)
+  assert.doesNotMatch(foregroundFrameText(prepared.frame), /缓存里的旧世界书/)
+  assert.deepEqual(run.chat(), before)
+  assert.equal(run.chat().messages.length, 0)
+  assert.equal(run.chat().foregroundFrames, undefined)
 })
 
 test('卡片 raw 扩展修改先暂存，最终回复后才写入工作 raw', async () => {
@@ -268,12 +290,33 @@ test('玩家模板先于本轮召回，重试不重复执行；提交后只产�
   assert.deepEqual(first.frame.source.regenerationState.variables, { place: '少林' })
   assert.equal(first.frame.source.regenerationState.promptTemplateInput.source, '原始模板')
   assert.equal(first.frame.source.regenerationMaterials.card.name, run.card().name)
-  assert.equal(run.chat().messages.length,0)
+  assert.equal(run.chat().messages.length,2,'准备阶段已经创建一对占位消息，重试不重复追加')
+  assert.equal(run.chat().messages[0].placeholder,true)
+  assert.equal(run.chat().messages[1].placeholder,true)
   await run.orchestrator.finalize({...input,assistantText:'少林的僧人迎上前。'})
-  assert.equal(run.chat().messages.length,2)
+  assert.equal(run.chat().messages.length,2,'提交替换占位，不再追加另一对消息')
+  assert.ok(run.chat().messages.every(message=>message.placeholder===undefined))
   assert.equal(run.chat().messages[0].text,'进入少林')
   assert.equal(run.chat().messages[0].variables[0].place,'少林')
   assert.equal(run.chat().promptTemplateInput,undefined)
+})
+
+test('升级前已缓存 Frame 但没有占位的回合仍按原路径追加提交', async () => {
+  const run = harness('story')
+  const input = { sessionId: 'session-1', turn: 2, userText: '继续旧存档' }
+  const first = await run.orchestrator.prepare(input)
+  const legacy = run.chat()
+  legacy.messages = []
+  for (const operation of Object.values(legacy.timeline.operations)) delete operation.placeholder
+  run.replaceChat(legacy)
+  const repeated = await run.orchestrator.prepare(input)
+  assert.equal(repeated.frame.frameId, first.frame.frameId, '旧 Frame 直接复用，不要求迁移或重建占位')
+  assert.equal(repeated.frame.userInput.projectedText, '继续旧存档')
+  assert.equal(run.chat().messages.length, 0)
+  await run.orchestrator.finalize({ ...input, assistantText: '旧存档的正文。' })
+  assert.deepEqual(run.chat().messages.map(message => [message.role, message.text]), [
+    ['user', '继续旧存档'], ['assistant', '旧存档的正文。']
+  ])
 })
 
 test('a speaker recalled after the frozen roster reaches only this turn\'s tail', async () => {
@@ -302,6 +345,7 @@ test('失败回合的玩家模板变量被撤销，遗留的别轮模板输入�
   assert.equal(run.chat().promptTemplateInput, undefined)
   assert.equal(run.chat().variables, undefined, '失败回合写下的模板变量撤销')
   assert.equal(run.chat().promptTemplateInitialVariables, undefined)
+  assert.equal(run.chat().messages.length,0,'失败清理同时移除未提交的占位楼层')
 
   const again = harness('story', { projectUserTemplate })
   await again.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '阳台浇花' })
@@ -313,7 +357,7 @@ test('失败回合的玩家模板变量被撤销，遗留的别轮模板输入�
   assert.equal(chat.promptTemplateInput.before.variables, null, '下一轮的撤销点是失败回合之前的状态')
   await again.orchestrator.finalize({ sessionId: 'session-1', turn: 3, userText: '教室写字', assistantText: '小明在教室写字。' })
   assert.equal(again.chat().promptTemplateInput, undefined)
-  assert.equal(again.chat().messages.filter(message => message.role === 'user').length, 1)
+  assert.equal(again.chat().messages.filter(message => message.role === 'user').length, 2, '未 discard 的失败占位仍保留；正式 handoff 会在下一轮前清理')
 })
 
 test('插件的本轮上下文和世界书条目进入正文帧，插件层出错时本轮照常', async () => {
@@ -350,12 +394,66 @@ test('漏写的一轮可以按它自己的请求号补记进存档（#196 自愈
   // The old bug: the turn read an earlier input's request id and was dropped as a duplicate.
   const dropped = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 3, requestId: 'rpc-1', userText: '推开窗', assistantText: '窗关上了。' })
   assert.equal(dropped.duplicate, true)
-  assert.equal(run.chat().messages.length, 2)
+  assert.equal(run.chat().messages.length, 4, '重复请求不会提交，但本轮已创建的占位继续保留')
   const adopted = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 3, requestId: 'rpc-2', userText: '关上窗', assistantText: '窗关上了。' })
   assert.notEqual(adopted.duplicate, true)
   assert.deepEqual(run.chat().messages.map(message => message.text), ['推开窗', '雨水扑进房间。', '关上窗', '窗关上了。'])
   assert.equal(Number(run.chat().messages.at(-1).turn), 3)
   assert.equal(run.chat().messages.at(-1).stagePageVersion, 2)
+})
+
+test('玩家输入先落盘，失败保留并在同一索引重试提交', async () => {
+  const run = harness('story')
+  const input = { sessionId: 'session-1', requestId: 'rpc-saved', userText: '推开窗' }
+  const saved = await run.orchestrator.appendUser(input)
+  const duplicate = await run.orchestrator.appendUser(input)
+  assert.deepEqual([saved.messageIndex, duplicate.messageIndex, duplicate.duplicate], [0, 0, true])
+  assert.equal(run.chat().messages.length, 1)
+
+  await run.orchestrator.prepare({ ...input, turn: 2 })
+  assert.deepEqual(run.chat().messages.map(row => row.role), ['user', 'assistant'], '准备只追加正文，不重复玩家输入')
+  assert.equal(run.chat().messages[0].source.rpcId, 'rpc-saved')
+  await run.orchestrator.discard({ sessionId: 'session-1', turn: 2 })
+  assert.deepEqual(run.chat().messages.map(row => row.role), ['user'], '生成失败只清理正文')
+  assert.equal(run.chat().messages[0].text, '推开窗')
+  assert.equal(run.chat().messages[0].placeholder, undefined)
+
+  await run.orchestrator.prepare({ ...input, turn: 2 })
+  await run.orchestrator.finalize({ ...input, turn: 2, assistantText: '雨水扑进房间。' })
+  assert.equal(run.chat().messages.length, 2, '同一请求重试仍只有一对故事行')
+  assert.equal(run.chat().messages[0].source.rpcId, 'rpc-saved')
+  assert.equal(run.chat().messages[0].text, '推开窗')
+  assert.equal(run.chat().messages[1].text, '雨水扑进房间。')
+})
+
+test('失败输入由原生回合补记时复用同一请求行，不再复制一份玩家输入', async () => {
+  const run = harness('story')
+  const input = { sessionId: 'session-1', requestId: 'rpc-adopt-saved', userText: '推开窗' }
+  await run.orchestrator.appendUser(input)
+  await run.orchestrator.prepare({ ...input, turn: 2 })
+  await run.orchestrator.discard({ sessionId: 'session-1', turn: 2 })
+  assert.deepEqual(run.chat().messages.map(row => row.role), ['user'])
+
+  // #196 adoption has no live placeholder: the failed turn already retired it.
+  // The durable request id still identifies exactly the row this reply answers.
+  await run.orchestrator.finalize({ ...input, turn: 2, assistantText: '补回的半截正文。', adopt: true, incomplete: true })
+  assert.deepEqual(run.chat().messages.map(row => row.role), ['user', 'assistant'])
+  assert.equal(run.chat().messages[0].source.rpcId, 'rpc-adopt-saved')
+  assert.equal(run.chat().messages[0].text, '推开窗')
+  assert.equal(run.chat().messages[1].text, '补回的半截正文。')
+  assert.equal(run.chat().messages[1].incomplete, true)
+})
+
+test('原生输入在正文规划前持久化，规划器读取到的是同一请求行', async () => {
+  let observed = null
+  let run
+  run = harness('story', { planner: { plan: async input => {
+    if (input.purpose === 'body') observed = run.chat().messages.map(row => ({ role: row.role, text: row.text, rpcId: row.source?.rpcId }))
+    return { text: 'context' }
+  } } })
+  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, requestId: 'rpc-native', userText: '直接输入' })
+  assert.deepEqual(observed, [{ role: 'user', text: '直接输入', rpcId: 'rpc-native' }])
+  assert.equal(run.chat().messages.length, 2)
 })
 
 test('本局前台工具可逐项关闭，卡片模式不受影响', async () => {
@@ -434,4 +532,28 @@ test('插件新正文按处理后的原文保存，不重复运行输出宏或�
   assert.equal(h.chat().settleStatus, 'pending')
   assert.equal((await h.orchestrator.finalize(input)).duplicate, true)
   assert.equal(h.chat().messages.filter(row => row.role === 'assistant').length, 1)
+})
+
+test('已准备的候选帧直接用于本次原生回合，普通准备提交失败清理均不写故事', async () => {
+  const candidateFrame = {
+    kind: 'foreground', frameId: 'frame-regen', chatId: 'chat-1', branchId: 'branch-1',
+    operationId: 'regen-op', turn: 3, basedOnRevision: 4,
+    userInput: { sourceText: '继续', projectedText: '继续', source: { stage: 'player-input' } },
+    context: {}, contributions: [], source: {}, diagnostics: [], ignored: []
+  }
+  const h = harness('story', { chatFields: {
+    messages: [{ role: 'user', text: '继续' }, { role: 'assistant', turn: 2, text: '旧正文' }, { role: 'user', text: '后续输入' }],
+    regenInProgress: true,
+    regenRecovery: { id: 'regen-op', phase: 'prepared', candidateTurn: 3, candidateFrame }
+  } })
+  const before = h.chat()
+  const prepared = await h.orchestrator.prepare({ sessionId: 'session', turn: 3, requestId: 'regen-request', userText: '继续' })
+  assert.deepEqual(prepared.frame, candidateFrame)
+  assert.equal(h.plannerCalls.length, 0)
+  const finalized = await h.orchestrator.finalize({ sessionId: 'session', turn: 3, requestId: 'regen-request', userText: '继续', assistantText: '候选正文' })
+  assert.equal(finalized.saved, false)
+  assert.equal(finalized.detached, true)
+  assert.equal(await h.orchestrator.recordFailure({ sessionId: 'session', turn: 3, requestId: 'regen-request', message: 'failed' }), false)
+  assert.equal(await h.orchestrator.discard({ sessionId: 'session', turn: 3 }), false)
+  assert.deepEqual(h.chat(), before)
 })

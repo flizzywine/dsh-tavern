@@ -45,7 +45,7 @@ export function createGameSaveExporter({ chatForSession, gameSaveSnapshot, readC
   async function exportGameSave(sessionId, options = {}) {
     const header = await chatForSession(str(sessionId))
     if (!header) throw new Error('当前 Session 没有绑定 Tavern 对话')
-    return await gameSaveSnapshot(header.id, header.sessionId, async ({ chat, session }) => {
+    return await gameSaveSnapshot(header.id, header.sessionId, async ({ chat, session, world: worldSnapshot }) => {
       // Only a game whose card really has a worldbook can fall back to it: with no bound book the
       // snapshot is the only world this game has, so it stays even when the bundle carries books.
       const embedWorldbook = options.embedWorldbook !== false ||
@@ -84,7 +84,9 @@ export function createGameSaveExporter({ chatForSession, gameSaveSnapshot, readC
       if (scene) scene.attachments = attachments
       else if (attachments.length) scene = { files: [], worldbooks: [], attachments }
       const plugins = await pluginSaveContents(chat)
-      const buffer = buildGameSave({ chat: thin(chat), revisions, session,
+      const world = worldSnapshot ? { position: worldSnapshot.position, swipe: worldSnapshot.swipe,
+        messageUid: worldSnapshot.messageUid, world: worldSnapshot.world } : null
+      const buffer = buildGameSave({ chat: thin(chat), world, revisions, session,
         card: { path: chat.cardPath, payload: cardPayload }, script, scene, plugins,
         tavernVersion: tavernVersion, exportedAt: Date.now() })
       const name = (sessionTitleOf(session.events) || str(chat.title) || str(chat.cardName) || 'game').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 60)

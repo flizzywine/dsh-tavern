@@ -23,7 +23,7 @@ function event(value) {
 }
 
 /** Structural evidence only: no text, prompts, names, arbitrary keys or raw events. */
-export function regenerationTargetDiagnostic(chat, session, { reason, assistantIndex, target }) {
+export function regenerationTargetDiagnostic(chat, session, { reason, assistantIndex, inputIndex, target }) {
   const messages = Array.isArray(chat?.messages) ? chat.messages : []
   const events = sessionEvents(session)
   const nodes = Array.isArray(session?.surface?.nodes) ? session.surface.nodes : []
@@ -37,7 +37,7 @@ export function regenerationTargetDiagnostic(chat, session, { reason, assistantI
     regenInProgress: chat?.regenInProgress === true, settleStatus: label(chat?.settleStatus, ['idle', 'running', 'pending', 'done', 'failed']),
     messagesType: type(chat?.messages), messageCount: messages.length,
     messages: [...indices].sort((a,b) => a-b).map(i => message(messages[i], i)) },
-    selection: { assistantIndex, previousIndex: assistantIndex - 1, requestedTurn: number(turn),
+    selection: { assistantIndex, previousIndex: assistantIndex - 1, inputIndex: Number.isSafeInteger(Number(inputIndex)) ? Number(inputIndex) : assistantIndex - 1, requestedTurn: number(turn),
       nativeSeq: number(target?.assistantSeq), nativeTurn: number(target?.turn) },
     native: { eventCount: events.length, surfaceType: type(session?.surface?.nodes), surfaceCount: nodes.length,
       matchingAssistantCount: matching.length,

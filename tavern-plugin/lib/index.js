@@ -71,6 +71,7 @@ import { createTaskStateReader, taskStateFields } from './domain/task-state-read
 import { installHostProjectionReplay } from './domain/host-projection-replay.js'
 import { installHostTurnRailFilter } from './domain/host-turn-rail.js'
 import { createBoundedHistory, readRecentWindow, readRowsAt, storyContextMessageFields } from './domain/bounded-history.js'
+import { createStoryTranscriptReader } from './domain/story-transcript-reader.js'
 import { createHelperHistoryAccess } from './domain/helper-history-access.js'
 import { isScopedMessages } from './domain/scoped-messages.js'
 import {registerVariableReadTool} from './domain/read-variables.js'
@@ -112,7 +113,8 @@ import { createServerTemplateRuntime } from './domain/server-template-runtime.js
 import { createForegroundStyleReferenceTool, foregroundStyleReferencePrompt, rememberStyleReference } from './domain/style-reference.js'
 import { adoptConversationFeatures, adoptConversationBackground } from './domain/conversation-background.js'
 import { clearLegacyTavernDefault } from './domain/legacy-agent-default.js'
-import { conversationStateAtTurn, conversationForkBoundary } from './domain/conversation-fork-point.js'
+import { conversationStateAtMessage, conversationStateAtTurn, conversationForkBoundary } from './domain/conversation-fork-point.js'
+import { legacyMessageUid } from './domain/message-uid.js'
 import { createCardResponseTest } from './domain/card-response-test.js'
 import { createGameplayApi } from './gameplay-api.js'
 import { cardOpeningChoices } from './domain/card-openings.js'
@@ -1604,7 +1606,7 @@ export async function apply(ctx) {
     return { filename: exported.filename, text: exported.text }
   }
   const gameSaveSnapshot = createGameSaveSnapshot({
-    readChat,
+    readChat, readWorldSnapshot: chatPersistence.readWorldSnapshot,
     assertIdle: chat => assertConversationForkable(chat, { agentRunning: agentRegistry.get(chat.sessionId)?.phase?.kind === 'running' }),
     readSession: async sessionId => {
       const live = sessionStore.get(sessionId)
@@ -2030,6 +2032,14 @@ export async function apply(ctx) {
       || window.chat.messages.some(message=>message.role==='assistant' && !Number.isSafeInteger(message.turn))) return null
     return window
   }
+  const readStoryTranscriptWindow = createStoryTranscriptReader({
+    readSessionMap,
+    readWindow: chatPersistence.readWindow,
+    readRecentSummaries: chatPersistence.readRecentSummaries,
+    readChat,
+    messageFields: sessionViewMessageFields,
+    limit: HELPER_MESSAGE_COLD_WINDOW
+  })
   // Results of story operations: the same bounded window the browser keeps in
   // sync, never a complete-history view. Short and old saves keep view().
   async function presentStory(chat) {
@@ -2042,6 +2052,7 @@ export async function apply(ctx) {
   }
   const sessionViews = createSessionViewReader({
     readState: sessionStateForSession, readChat: chatForSession, readOpeningWindow,
+    readStoryWindow: readStoryTranscriptWindow,
     resourceVersion: async chat => {
       if (!chat.cardPath || chat.mode === 'card') return ''
       const binding = await fileResources.worldBookBindingForCard(chat.cardPath)
@@ -2259,10 +2270,28 @@ export async function apply(ctx) {
     await updateChat(chat.id, current => { current.messages = [...(current.messages || []), ...appended.messages]; return current }, { source: 'test.append-rounds' })
     return { appended: rounds.length, lastTurn: appended.lastTurn }
   }
-  async function prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn) {
+  async function prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn, requestedMessageIndex, requestedRevision, requestedMessageUid) {
     const source = str(sourceChatId) === '' ? await chatForSession(str(sourceSessionId)) : await readChat(str(sourceChatId))
     if (!source) throw new Error('找不到要分叉的源对话')
     assertConversationForkable(source, { agentRunning: agentRegistry.get(source.sessionId)?.phase?.kind === 'running' })
+    if (requestedMessageIndex !== undefined && requestedMessageIndex !== null) {
+      if (!Number.isSafeInteger(requestedMessageIndex) || requestedMessageIndex < 0) throw new Error('分叉消息位置无效')
+      const messageUid = requestedMessageUid === undefined || requestedMessageUid === null ? '' : str(requestedMessageUid)
+      if (requestedMessageUid !== undefined && requestedMessageUid !== null && messageUid === '') throw new Error('分叉消息身份无效')
+      let requestedIndex = requestedMessageIndex
+      if (messageUid) {
+        const matches = []
+        for (let index = 0; index < (source.messages || []).length; index++) {
+          if (legacyMessageUid(source.messages[index], index) === messageUid) matches.push(index)
+        }
+        if (matches.length !== 1) throw new Error('分叉消息已经变化，请重新选择')
+        requestedIndex = matches[0]
+      } else if (requestedRevision !== source._storageRevision) throw new Error('剧情已变化，请重新选择分叉消息')
+      const { state, turn, messageIndex } = await conversationStateAtMessage(source, requestedIndex, readChatRevision)
+      // A story fork starts a blank native Session. The committed Chat prefix is
+      // bound first; native repair then projects that prefix into model context.
+      return { source, state, turn, messageIndex, atSeq: null, storyDirect: true, ...(messageUid ? { messageUid } : {}) }
+    }
     const { state, turn } = await conversationStateAtTurn(source, requestedTurn, readChatRevision)
     return withHostSession({ sessions: sessionStore, agents: agentRegistry }, source.sessionId, session => {
       const references = upgradeReferences(sessionEvents(session))
@@ -2271,16 +2300,18 @@ export async function apply(ctx) {
         if (message.nativeAnchor) message.nativeAnchor = upgradedAnchor(message.nativeAnchor, references)
         if (message.bodyEdit) message.bodyEdit = { ...message.bodyEdit, seq: references.sequence(message.bodyEdit.seq, message.bodyEdit.formatVersion), formatVersion: 4 }
       }
-      return { source, state: mapped, turn, atSeq: conversationForkBoundary(session, state, turn) }
+      return { source, state: mapped, turn, atSeq: conversationForkBoundary(session, state, turn), storyDirect: false }
     })
   }
   // Plugin data and media are bound to text versions, whose keys hash the game id:
   // map the fork's visible turns to the new game's keys. A failure never undoes the fork.
-  async function forkPluginState(source, state, fork, lastTurn) {
+  async function forkPluginState(source, state, fork, lastTurn, includedTurns) {
     try {
       const keyMap = new Map()
       for (const turn of await pluginApi.forkTurns(source.id)) {
-        if (turn > lastTurn) continue
+        // The selected message prefix, not a numeric upper bound, defines the
+        // branch. Legacy saves may contain missing, duplicate or reordered turns.
+        if (!includedTurns.has(Number(turn))) continue
         try { keyMap.set(turn + '\u0000' + computeSceneTarget({ ...state, id: source.id }, turn).key, computeSceneTarget(fork, turn).key) } catch {}
       }
       await pluginApi.gameForked({ sourceChatId: source.id, targetChatId: fork.id, targetSessionId: fork.sessionId, keyMap })
@@ -2288,23 +2319,55 @@ export async function apply(ctx) {
     } catch (error) { console.warn('dsh-tavern: 分叉时处理插件数据失败:', str(error?.message || error)) }
   }
 
-  async function forkChat(sourceChatId, sourceSessionId, targetSessionId, requestedTurn, expectedRevision, expectedAtSeq) {
-    const { source, state, turn, atSeq } = await prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn)
-    if (expectedRevision !== source._storageRevision || expectedAtSeq !== atSeq) throw new Error('源对话已变化，请重新选择分叉回合')
+  async function forkChat(sourceChatId, sourceSessionId, targetSessionId, requestedTurn, expectedRevision, expectedAtSeq, requestedMessageIndex, requestedMessageUid) {
+    const { source, state, turn, atSeq, messageIndex, storyDirect, messageUid } = await prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn, requestedMessageIndex, expectedRevision, requestedMessageUid)
+    // Stable story identity covers unrelated writes between prepare and execute.
+    // Legacy story requests and native atSeq forks retain their original fences.
+    const sourceChanged = !(storyDirect && messageUid) && expectedRevision !== source._storageRevision
+    if (sourceChanged || (!storyDirect && expectedAtSeq !== atSeq)) throw new Error('源对话已变化，请重新选择分叉位置')
     const targetId = str(targetSessionId)
     if (targetId === '' || await chatForSession(targetId) !== undefined) throw new Error('分叉目标必须是尚未绑定对话的新 Session')
-    const target = sessionStore.get(targetId) || agentRegistry.get(targetId)?.session
-    const targetEnd = sessionEvents(target).findLast(event => event.type === 'turn/end')
-    if (!targetEnd || targetEnd.seq !== atSeq) throw new Error('原生分叉没有停在指定回合，已拒绝绑定游戏状态')
-    const lastNativeTurn = Number(sessionEvents(target).findLast(event => event.type === 'turn/start')?.data?.turn) || 0
-    const fork = forkConversationChat(state, { chatId: uid('chat'), sessionId: targetId, id: uid, now: Date.now, lastNativeTurn })
-    fork.forkedFrom = { ...fork.forkedFrom, chatId: source.id, sessionId: source.sessionId, storageRevision: source._storageRevision,
-      stateChatId: state.id, stateRevision: state._storageRevision, turn, atSeq }
-    await conversationRegistry.publish(fork)
-    await saveMaintenance.recordFork(fork).catch(error => console.warn('dsh-tavern: 记录分叉来源失败', str(error?.message || error)))
-    await sceneWorldbookArchive.copyRefs(state.id, fork.id, turn).catch(() => {})
-    await forkPluginState(source, state, fork, turn)
-    return conversationForkReceipt(fork, { lastTurn: turn, messageCount: fork.messages.length })
+    let targetHandle
+    let target = sessionStore.get(targetId) || agentRegistry.get(targetId)?.session
+    try {
+      if (!target) { targetHandle = await agentRegistry.resume({ resumeSessionId: targetId }); target = targetHandle.agent.session }
+      if (!target) throw new Error('分叉目标原生会话尚未就绪')
+      if (storyDirect) assertBlankStoryForkTarget(targetId, target)
+      else {
+        const targetEnd = sessionEvents(target).findLast(event => event.type === 'turn/end')
+        if (!targetEnd || targetEnd.seq !== atSeq) throw new Error('原生分叉没有停在指定回合，已拒绝绑定游戏状态')
+      }
+      const lastNativeTurn = storyDirect ? 0 : Number(sessionEvents(target).findLast(event => event.type === 'turn/start')?.data?.turn) || 0
+      const includedTurns = new Set((state.messages || []).filter(message => message?.role === 'assistant')
+        .map(message => Number(message.turn)).filter(turn => Number.isSafeInteger(turn) && turn >= 0))
+      const fork = forkConversationChat(state, { chatId: uid('chat'), sessionId: targetId, id: uid, now: Date.now, lastNativeTurn })
+      fork.forkedFrom = { ...fork.forkedFrom, chatId: source.id, sessionId: source.sessionId, storageRevision: source._storageRevision,
+        stateChatId: state.id, stateRevision: state._storageRevision, turn, ...(storyDirect ? { messageIndex, atSeq: null } : { atSeq }) }
+      if (storyDirect) {
+        fork.nativeSync = { status: 'stale', reason: '故事分叉等待原生上下文同步', at: Date.now() }
+        // Do not suppress opening recovery until the native prefix really exists.
+        fork.nativeOpeningAppended = false
+      }
+      await conversationRegistry.publish(fork, storyDirect ? {
+        assertUnboundSession: () => assertBlankStoryForkTarget(targetId, target)
+      } : undefined)
+      await saveMaintenance.recordFork(fork).catch(error => console.warn('dsh-tavern: 记录分叉来源失败', str(error?.message || error)))
+      await sceneWorldbookArchive.copyRefs(state.id, fork.id, includedTurns).catch(() => {})
+      await forkPluginState(source, state, fork, turn, includedTurns)
+      if (storyDirect) {
+        const repaired = await seedNativeStory(targetId, target, '故事分叉后按消息历史建立原生上下文')
+          .catch(error => { console.warn('dsh-tavern: 故事分叉原生上下文修复失败:', str(error?.message || error)); return null })
+        if (repaired?.applied) {
+          fork.nativeOpeningAppended = true
+          await updateChatHeader(fork.id, ['nativeOpeningAppended'], () => ({ nativeOpeningAppended: true }), { source: 'conversation.story-fork-native-ready' })
+            .catch(error => console.warn('dsh-tavern: 保存故事分叉开场白状态失败:', str(error?.message || error)))
+        }
+      }
+      const receiptTurn = turn > 0 ? turn : Math.max(0, ...includedTurns)
+      return conversationForkReceipt(fork, { lastTurn: receiptTurn, messageCount: fork.messages.length })
+    } finally {
+      if (targetHandle) await targetHandle.dispose().catch(error => console.warn('dsh-tavern: 释放分叉目标 Session 句柄失败:', str(error?.message || error)))
+    }
   }
 
   const backgroundRetirement = createBackgroundSessionRetirement(profileData, { readState: taskStateReader.forSession, isRunning: id => agentRegistry.get(id)?.status === 'running' })
@@ -3325,6 +3388,7 @@ export async function apply(ctx) {
     scripts: scriptContinuity,
     timeline: storyTimeline,
     frameBuilder: foregroundFrameBuilder,
+    resolvePreset: resolveChatRuntimePreset,
     cards: cardPreparation,
     workspace: {
       prepare: prepareWorkspace,
@@ -3343,11 +3407,13 @@ export async function apply(ctx) {
       return [...(sections || []), { owner: 'dsh-tavern', name: 'style-reference', position: 'after',
         text: '【本轮先做文风联想】写正文之前，先按「前台文风联想」的要求调用 style_reference_submit，记下一段贴合本轮场景的范文；调用成功后再写本轮正文。' }]
     },
-    projectUserTemplate: async ({chat,text}) => {
+    projectUserTemplate: async ({chat,text,preview}) => {
       const global = await readPromptTemplateGlobalVariables()
       const result = await fullTemplateRuntime.forSession(chat.sessionId).renderInput(text, {userName:chat.macroState?.userName || '你',scopes:{global,local:chat.variables || {},initial:chat.promptTemplateInitialVariables || {},message:lastTavernHelperVariables(chat.messages) || {}}})
       const row = result.message
-      await tavernScriptHostAdapter.saveFullPromptTemplateGlobals(chat.sessionId, result.scopes.global, global)
+      // A regeneration preview builds the same request but owns no story write:
+      // template globals advance only when the real turn is prepared.
+      if (!preview) await tavernScriptHostAdapter.saveFullPromptTemplateGlobals(chat.sessionId, result.scopes.global, global)
       return {scopes:result.scopes,message:{role:'user',text:row.mes,sourceText:row.mes,swipeId:row.swipe_id,swipes:row.swipes,variables:row.variables,tavernPluginData:Object.fromEntries(['is_ejs_processed','variables_initialized','template_display'].filter(key=>row[key]!==undefined).map(key=>[key,row[key]]))}}
     },
     projectReply: projectRuntimeReply,
@@ -3362,7 +3428,7 @@ export async function apply(ctx) {
   const storyReconciliation = createStoryReconciliation({
     agentRegistry, sessionStore, chatForSession, chatSliceForSession, updateChat, turns: turnOrchestrator
   })
-  const { reconcileStory, reconcileWhenIdle, repairNativeStory } = storyReconciliation
+  const { reconcileStory, reconcileWhenIdle, assertBlankStoryForkTarget, seedNativeStory } = storyReconciliation
   // 任务表 (domain/background-tasks.js): every background task is declared there once; this
   // hands it the services its tasks run on.
   registerBackgroundTasks(workflow, { readTavernSettings, polishPrereview, announceCast,
@@ -3467,7 +3533,7 @@ export async function apply(ctx) {
     void mvuSettlementReconciler.scan()
   }
   // ---------- 重新生成正文（生成即替换，无确认） ----------
-  const { regenerate: nativeRegenBody, regenerateWithProvider, replayFailed: nativeReplayFailedTurn, recover: recoverRegeneration, rollback: rollbackTurn, rollbackTo: rollbackToTurn, interrupt: interruptTurn, undoRollback: undoRollbackTurn } = createRoundHistory({
+  const { regenerate: nativeRegenBody, regenerateWithProvider, recover: recoverRegeneration, rollback: rollbackTurn, rollbackTo: rollbackToTurn, interrupt: interruptTurn, undoRollback: undoRollbackTurn } = createRoundHistory({
     diagnostics: mvuDiagnostics,
     chats: { read: readChat, readState: taskStateReader.read, stateForSession: taskStateReader.forSession, forSession: chatForSession, readCard: readChatCard,
       readRevision: readChatRevision, write: writeChat, update: updateChat, patch: patchChat,
@@ -3492,13 +3558,15 @@ export async function apply(ctx) {
     replyCommitted: sessionId => storyEvents.emit('reply-committed', { sessionId }),
     cancelSettlement,
     readRegenerationMaterials: buildBodyRegenerationMaterials,
+    // Build the replacement request from the save as it is now. This is the same
+    // preparation a normal send runs, without writing a candidate story row.
+    prepareRegenerationFrame: input => turnOrchestrator.preview(input),
     // Providers return already-processed prose. Their imported regexes must not
     // run again in the host, including when the view is refreshed later.
     prepareRegenerationReply: ({ text }) => projectProcessedReply(text),
     notifyRegeneration: (sessionId, { turn }) => notifyPluginTimeline(sessionId, 'regenerate', { turn }),
     present: presentStory,
     sessionPatch,
-    repairNative: (sessionId, session) => repairNativeStory(sessionId, session, '回退或重新生成时找不到原生位置'),
   })
 
   async function regenBody(chatId, guidance, sessionId) {
@@ -3506,14 +3574,10 @@ export async function apply(ctx) {
     const generated = await pluginBodyGeneration.regenerate(id, str(guidance))
     return generated === null ? nativeRegenBody(chatId, guidance, sessionId) : presentStory(await chatForSession(id))
   }
-  async function replayFailedTurn(chatId, sessionId) {
-    const id = sessionId || (await readChat(chatId))?.sessionId
-    const generated = await pluginBodyGeneration.regenerate(id)
-    return generated === null ? nativeReplayFailedTurn(chatId, sessionId) : presentStory(await chatForSession(id))
-  }
-
   const bodyEditor = createBodyEditor({
-    chats: { forSession: hookChatForSession, update: updateChat, patch: patchChat },
+    // Story editing resolves an absolute row/UID and must not read a sparse
+    // request-hook window that can omit the selected floor.
+    chats: { forSession: chatForSession, update: updateChat, patch: patchChat },
     sessions: { get: id => ctx.get('agents')?.get(id), flush: session => sessionStore.flush(session) },
     timeline: storyTimeline,
     activity: chat => backgroundTasks.activity(chat),
@@ -3524,11 +3588,13 @@ export async function apply(ctx) {
     },
     present: presentStory,
     sessionPatch,
-    repairNative: (sessionId, session) => repairNativeStory(sessionId, session, '编辑正文时找不到原生位置'),
   })
 
   const messageDeletion = createMessageDeletion({
-    chats: { forSession: hookChatForSession, update: updateChat },
+    // Deletion resolves absolute story indices and may follow a persisted UID
+    // across the whole history; request-hook bounded projections are not writable
+    // Chat reads and can omit the selected row.
+    chats: { forSession: chatForSession, update: updateChat },
     sessions: { get: id => ctx.get('agents')?.get(id), flush: session => sessionStore.flush(session) },
     activity: chat => backgroundTasks.activity(chat),
     view: sessionView,
@@ -3649,12 +3715,12 @@ export async function apply(ctx) {
     readBackgroundSuppression, readCard, readCardExtensions, readCardExtensionSources, readCardWorkspace, readChat, readChatCard,
     readOpeningWindow, readRawTavernSettings, readScript, readSessionMap, readTavernSettings, reconcileStory, reconcileWhenIdle,
     regenBody, regexLibrary, regexManager, removePluginGalleryItems, removePluginMediaVersion, removePluginPicture, renameResource,
-    replayFailedTurn, requestPerformance, retrySettlement, retryStyleReference, rollbackTurn, rollbackToTurn,
+    requestPerformance, retrySettlement, retryStyleReference, rollbackTurn, rollbackToTurn,
     runtimeGeneration, runtimePresets, runtimePrompt, saveUpgrade, scriptContinuity,
     scriptNavigation, sessionActivity, sessionInventory, sessionOperation, sessionPatch,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setCardPlugins, setPlayerName,
     skillImportFiles, sleep, speakLine, speech, startChat, startPluginTask, stopBackground, str,
-    tavernModelCatalog, tavernScriptHostAdapter, tavernSkills, templateHistoryFrom, undoRollbackTurn,
+    tavernModelCatalog, tavernScriptHostAdapter, tavernSkills, templateHistoryFrom, turnOrchestrator, undoRollbackTurn,
     updateCard, updateChat, updateTavernSettings, uploads, userPluginInstaller, userPreferenceProfile, view,
     withCompactionSession, worldBooks, worldbookRecallLog,
     get autoCompaction() { return autoCompaction },
@@ -3915,7 +3981,7 @@ export async function apply(ctx) {
   // A game keeps a snapshot of its preset, but edits to that preset apply from the
   // next request: a changed preset file rebuilds and stores the snapshot. A missing
   // or unreadable file keeps the saved snapshot, so the game never loses its preset.
-  async function resolveChatRuntimePreset(chat) {
+  async function resolveChatRuntimePreset(chat, options = {}) {
     if (!chat || groupOfMode(chat.mode) !== 'play') return null
     const saved = chat.runtimePresetSnapshot && typeof chat.runtimePresetSnapshot === 'object' ? chat.runtimePresetSnapshot : null
     if (!saved?.presetPath || !chat.id) return saved
@@ -3925,6 +3991,11 @@ export async function apply(ctx) {
     let fresh
     try { fresh = await runtimePresets.fullSnapshot(saved.presetPath) } catch { return saved }
     if (!fresh) return saved
+    // Regeneration preview needs the live preset but owns no stored request yet.
+    if (options.preview === true) {
+      chat.runtimePresetSnapshot = fresh
+      return fresh
+    }
     for (let attempt = 0; attempt < 3; attempt++) {
       const head = (await chatPersistence.readSlice(chat.id, [], ['_storageRevision', 'runtimePresetSnapshot.presetPath']))?.chat
       // Applying another preset meanwhile wins over refreshing this one.

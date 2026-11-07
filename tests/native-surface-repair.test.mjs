@@ -276,3 +276,19 @@ test('失败、中断或仍在进行的回合留在末尾：交给失败回合�
     assert.equal(plan(h).status, 'intact', String(reason))
   }
 })
+
+test('缺 turn 的旧档行修复后写回新锚点，编辑竞争仍保留旧锚点', () => {
+  const stale = { turn: 8, input: 80, reply: 81 }
+  const current = { nativeSync: { status: 'stale' }, messages: [
+    { role: 'assistant', text: '未变正文', nativeAnchor: stale },
+    { role: 'assistant', text: '并发新正文', nativeAnchor: stale }
+  ] }
+  const repaired = { messages: [{ role: 'assistant', text: '未变正文' }, { role: 'assistant', text: '修复时正文' }] }
+  const anchor = { turn: 2, input: 10, reply: 11 }
+  assert.equal(recordNativeSurfaceRepair(current, repaired, [
+    { messageIndex: 0, anchor, replyTurn: 2 }, { messageIndex: 1, anchor, replyTurn: 2 }
+  ]), true)
+  assert.equal(current.messages[0].nativeAnchor, anchor)
+  assert.equal(current.messages[1].nativeAnchor, stale)
+  assert.equal(current.nativeSync, undefined)
+})

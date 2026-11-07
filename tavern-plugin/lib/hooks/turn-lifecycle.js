@@ -13,6 +13,16 @@ import { isSurfaceEditTurn, sessionEvents } from '../domain/session-events.js'
 import { withVirtualWorldbook } from '../domain/worldbook-virtual-surface.js'
 import { appendStorySubmissionReminder } from '../domain/story-tool-submission.js'
 
+function reachedOutputLimit(assistant) {
+  const stream = Array.isArray(assistant?.event?.data?.stream) ? assistant.event.data.stream : []
+  return stream.some(entry => {
+    const chunk = entry?.type === 'chunk' ? entry.chunk : entry
+    if (chunk?.type !== 'finish') return false
+    const reason = chunk.reason === undefined ? chunk : chunk.reason
+    return reason?.kind === 'max-tokens'
+  })
+}
+
 export function registerTurnLifecycleHooks({
   autoChoices,
   pluginBodyGeneration,
@@ -83,6 +93,8 @@ export function registerTurnLifecycleHooks({
       userContent,
       pluginBodyGeneration: assistant?.pluginBodyGeneration === true,
       assistantText: assistant === null ? '' : assistant.text,
+      incomplete: reachedOutputLimit(assistant),
+      incompleteReason: '这次生成达到输出上限或被中断，保留了已生成的部分正文',
       nativeAnchor: roundAnchor(payload.turn, inputEventForTurn(session, payload.turn), assistant.event)
     })
     // A submit_story call and its receipt both carry the body; fold them into one

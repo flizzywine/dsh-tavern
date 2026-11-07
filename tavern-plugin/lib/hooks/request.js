@@ -9,6 +9,9 @@ import { synchronizeTemplateHistory } from '../domain/template-history.js'
 // Appended once at the start of a reply, so it joins the history after the cached prefix.
 export function appendVariableChanges({ chat, payload, decision }) {
   if (!chat || decision.kind !== 'enter' || Number(payload.step) !== 1) return decision
+  // The frozen regeneration frame already contains the target round's input
+  // state. Live post-round variable changes belong to the old body, not this try.
+  if (chat.regenRecovery?.candidateFrame?.kind === 'foreground') return decision
   if (decision.messages.some(message => message.source?.form === 'variable-changes')) return decision
   const text = lastRoundVariableChanges(chat)
   if (!text) return decision

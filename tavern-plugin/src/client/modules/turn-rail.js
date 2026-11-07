@@ -1,117 +1,75 @@
-// 对话右侧的轮次导航。
+// 故事楼层的右侧快速跳转。
 //
-// 宿主的刻度按整档目录画：重试、撤回、被取代的尝试轮也各占一根，点了要么落空、要么只滚一段。
-// 这里把宿主那列收起来，只给「正文行计划说这一轮画了正文」的轮次画刻度：
-//  - 点刻度：这一轮的行已经在页面里就滚到它的开头；
-//  - 不在页面里：自动按「加载更早」往前翻（每次等它真的加载完），翻到了再滚过去；
-//  - 当前所在的那一轮始终保留；悬浮预览仍用宿主那份（输入 + 正文）。
-function createTurnRailFilter(root, options) {
-	const host = (options && options.window) || window;
-	const doc = host.document || (root && root.ownerDocument) || document;
-	const scope = (root && root.closest && root.closest("[data-conversation-scroll]")) || doc.body || doc.documentElement;
+// 故事视图是唯一展示模式：每一层正文就是页面上的一个 [data-story-row]，楼层号写在
+// data-floor 上（第 N 楼）。刻度直接照页面画，一层一根，点哪根就滚到哪一层：
+//  - 不再经过宿主那列按 turn 画的目录：重试、撤回、被取代的尝试轮也各占一根，点了
+//    要么落空、要么只滚一段；
+//  - 已经滚过滚动区顶部的那一层就是当前层，随滚动跟着走；
+//  - 宿主那列仍然收起来，免得两列刻度并排；窄屏（900px 以下）不占地方。
+function createStoryFloorRail(root, options) {
+	const host = (options && options.window) || (typeof window !== "undefined" ? window : null);
+	const doc = host && host.document || (root && root.ownerDocument) || (typeof document !== "undefined" ? document : null);
+	const scope = (root && root.closest && root.closest("[data-conversation-scroll]")) || root || (doc && doc.body);
 	const hiddenAttribute = "data-dsh-tavern-rail-hidden";
-	const markSelector = '[class*="_mark"][aria-label]';
-	const label = (options && options.label) || "轮次导航";
-	const jumpLabel = (options && options.jumpLabel) || "跳转到第 {turn} 轮";
+	const label = (options && options.label) || "楼层跳转";
+	const jumpLabel = (options && options.jumpLabel) || "跳到第 {floor} 楼";
 	const narrow = (options && options.narrow) || 900;
-	const STEP_MS = 1200;
-	const MAX_LOADS = 20;
-	let rail = null, frame = 0, accept = null, turnsKey = "", jumping = null;
-	const ticks = new Map(); // turn -> { button, mark }
-	function turnOf(mark) {
-		const match = /第\s*(\d+)\s*轮/.exec(mark.getAttribute("aria-label") || "");
-		return match ? Number(match[1]) : null;
+	let rail = null, frame = 0, floorsKey = "";
+	const ticks = new Map(); // floor -> { button, row }
+	function floorOf(row) {
+		const value = Number(row.getAttribute("data-floor"));
+		return Number.isInteger(value) && value > 0 ? value : null;
 	}
-	function marks() {
-		return Array.from(scope.querySelectorAll(markSelector)).filter(mark => turnOf(mark) !== null);
+	function rows() {
+		return Array.from(scope.querySelectorAll("[data-story-row][data-floor]")).filter(row => floorOf(row) !== null);
 	}
-	function rowsOf(turn) {
-		return scope.querySelectorAll('[data-chat-turn="' + turn + '"], [data-turn="' + turn + '"]');
+	function rowOf(floor) {
+		const tick = ticks.get(floor);
+		if (tick && tick.row && tick.row.isConnected) return tick.row;
+		return rows().find(row => floorOf(row) === floor) || null;
 	}
-	function rowStart(turn) {
-		for (const row of rowsOf(turn)) {
-			if (row.getBoundingClientRect().height <= 0) continue;
-			return row;
-		}
-		return null;
-	}
-	function scrollToTurn(turn) {
-		const row = rowStart(turn);
-		if (!row) return false;
+	function jump(floor) {
+		const row = rowOf(floor);
+		if (!row) return;
 		try { row.scrollIntoView({ block: "start", behavior: "smooth" }); }
 		catch (error) { row.scrollIntoView(true); }
-		return true;
 	}
-	function loadEarlier() {
-		const box = scope.querySelector('[class*="_older"]');
-		const button = box ? box.querySelector("button") : null;
-		if (!button || button.disabled) return false;
-		button.click();
-		return true;
-	}
-	function wait(ms) { return new Promise(resolve => host.setTimeout(resolve, ms)); }
-	function setBusy(turn, busy) {
-		const tick = ticks.get(turn);
-		if (!tick) return;
-		if (busy) tick.button.setAttribute("data-busy", "");
-		else tick.button.removeAttribute("data-busy");
-	}
-	// 翻历史很慢（一次一两秒），要等它加载完再判断，不能按固定次数数拍子就放弃。
-	async function jump(turn, mark) {
-		if (jumping === turn) return;
-		jumping = turn;
-		setBusy(turn, true);
-		try {
-			if (scrollToTurn(turn)) return;
-			mark.click();
-			for (let load = 0; load < MAX_LOADS; load++) {
-				await wait(STEP_MS);
-				if (scrollToTurn(turn)) return;
-				if (!loadEarlier()) await wait(STEP_MS);
-			}
-		} finally {
-			setBusy(turn, false);
-			jumping = null;
+	// 当前层：最后一个已经滚过顶部（或正好在顶部）的楼层。行按楼层顺序排，第一根落在
+	// 顶部以下的就停，不必整页扫完。
+	function current(list) {
+		if (!list.length) return null;
+		const top = scope.getBoundingClientRect().top;
+		let found = null;
+		for (const row of list) {
+			if (row.getBoundingClientRect().top - top <= 8) found = floorOf(row);
+			else break;
 		}
+		return found === null ? floorOf(list[0]) : found;
 	}
-	function preview(mark, on) {
-		try {
-			if (on) {
-				if (typeof host.PointerEvent === "function") mark.dispatchEvent(new host.PointerEvent("pointermove", { bubbles: true }));
-				if (typeof host.FocusEvent === "function") mark.dispatchEvent(new host.FocusEvent("focusin", { bubbles: true }));
-			} else if (typeof host.PointerEvent === "function") {
-				mark.dispatchEvent(new host.PointerEvent("pointerout", { bubbles: true, relatedTarget: doc.body }));
-			}
-		} catch (error) { /* 预览只是锦上添花，不能挡住跳转 */ }
-	}
-	function build(turns, marks) {
+	function build(list) {
 		const box = doc.createElement("nav");
 		box.className = "dsh-tavern-turn-rail";
 		box.setAttribute("aria-label", label);
 		ticks.clear();
-		for (const turn of turns) {
-			const mark = marks.find(item => turnOf(item) === turn);
-			if (!mark) continue;
+		for (const row of list) {
+			const floor = floorOf(row);
+			if (ticks.has(floor)) continue;
 			const button = doc.createElement("button");
 			button.type = "button";
 			button.className = "dsh-tavern-turn-rail-tick";
-			button.setAttribute("data-turn", String(turn));
-			button.setAttribute("aria-label", jumpLabel.replace("{turn}", String(turn)));
-			button.addEventListener("click", function () { void jump(turn, mark); });
-			button.addEventListener("pointerenter", function () { preview(mark, true); });
-			button.addEventListener("pointerleave", function () { preview(mark, false); });
-			button.addEventListener("focus", function () { preview(mark, true); });
-			button.addEventListener("blur", function () { preview(mark, false); });
-			ticks.set(turn, { button, mark });
+			button.setAttribute("data-floor", String(floor));
+			button.setAttribute("aria-label", jumpLabel.replace("{floor}", String(floor)));
+			button.setAttribute("title", jumpLabel.replace("{floor}", String(floor)));
+			button.addEventListener("click", function () { jump(floor); });
+			ticks.set(floor, { button, row });
 			box.appendChild(button);
 		}
 		return box;
 	}
-	function mirror(marks) {
-		let active = null;
-		for (const mark of marks) if (mark.getAttribute("aria-current") === "true") { active = turnOf(mark); break; }
-		for (const [turn, tick] of ticks) {
-			if (turn === active) tick.button.setAttribute("data-active", "");
+	function mirror(list) {
+		const active = current(list);
+		for (const [floor, tick] of ticks) {
+			if (floor === active) tick.button.setAttribute("data-active", "");
 			else tick.button.removeAttribute("data-active");
 		}
 	}
@@ -130,47 +88,43 @@ function createTurnRailFilter(root, options) {
 	}
 	function sync() {
 		if (frame) { host.clearTimeout(frame); frame = 0; }
-		const list = marks();
-		const hostNav = list.length ? list[0].closest("nav") : null;
+		const list = rows();
+		// 宿主那列刻度还在 DOM 里（它按 turn 画，跟故事楼层对不上），继续收起来。
+		const mark = scope.querySelector('[class*="_mark"][aria-label]');
+		const hostNav = mark ? mark.closest("nav") : null;
 		if (hostNav && !hostNav.hasAttribute(hiddenAttribute)) hostNav.setAttribute(hiddenAttribute, "");
-		const decided = list.map(mark => ({ mark, turn: turnOf(mark) })).filter(pair => {
-			if (pair.mark.getAttribute("aria-current") === "true") return true;
-			return accept === null ? true : Boolean(accept(pair.turn));
-		});
-		const key = decided.map(pair => pair.turn).join(",");
-		if (key !== turnsKey) {
-			turnsKey = key;
+		const key = list.map(floorOf).join(",");
+		if (key !== floorsKey) {
+			floorsKey = key;
 			if (rail) rail.remove();
-			rail = decided.length ? build(decided.map(pair => pair.turn), decided.map(pair => pair.mark)) : null;
+			rail = list.length ? build(list) : null;
 			if (rail) doc.body.appendChild(rail);
 		}
 		if (rail) { mirror(list); place(); }
 	}
-	// 正文行计划决定哪几轮该有刻度（重试/撤回的尝试轮不在其中）。
-	function apply(options) {
-		accept = options && typeof options.accept === "function" ? options.accept : null;
-		turnsKey = "";
-		sync();
-	}
-	const observer = typeof host.MutationObserver === "function" ? new host.MutationObserver(schedule) : null;
-	if (observer) observer.observe(scope, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-label", "aria-current"] });
-	const resize = typeof host.ResizeObserver === "function" ? new host.ResizeObserver(schedule) : null;
+	const observer = host && typeof host.MutationObserver === "function" ? new host.MutationObserver(schedule) : null;
+	if (observer) observer.observe(scope, { subtree: true, childList: true });
+	const resize = host && typeof host.ResizeObserver === "function" ? new host.ResizeObserver(schedule) : null;
 	if (resize) resize.observe(scope);
 	const onScroll = function () { schedule(); };
-	host.addEventListener("scroll", onScroll, true);
-	host.addEventListener("resize", onScroll);
+	if (host) {
+		host.addEventListener("scroll", onScroll, true);
+		host.addEventListener("resize", onScroll);
+	}
 	return {
-		apply: apply,
+		apply: function () { floorsKey = ""; sync(); },
 		sync: sync,
 		dispose: function () {
 			if (observer) observer.disconnect();
 			if (resize) resize.disconnect();
-			host.removeEventListener("scroll", onScroll, true);
-			host.removeEventListener("resize", onScroll);
+			if (host) {
+				host.removeEventListener("scroll", onScroll, true);
+				host.removeEventListener("resize", onScroll);
+			}
 			if (frame) { host.clearTimeout(frame); frame = 0; }
 			for (const nav of Array.from(scope.querySelectorAll("[" + hiddenAttribute + "]"))) nav.removeAttribute(hiddenAttribute);
 			if (rail) rail.remove();
-			rail = null; ticks.clear(); accept = null; turnsKey = "";
+			rail = null; ticks.clear(); floorsKey = "";
 		}
 	};
 }

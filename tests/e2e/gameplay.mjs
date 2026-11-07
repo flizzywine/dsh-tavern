@@ -23,6 +23,7 @@ import {openingUpdateChecks} from './opening-update.mjs'
 import { backgroundLifecycleChecks } from './background-lifecycle.mjs'
 import { cardMemoryChecks } from './card-memory.mjs'
 import {displayRegressionRules, displayRegressionChecks} from './display-regression.mjs'
+import { storyWriteOperationChecks } from './story-write-ops.mjs'
 import { surfaceRecoveryChecks } from './surface-recovery.mjs'
 import { stringify as stringifyYaml } from 'yaml'
 import { applySidebarDefaults } from '../../bin/launcher-settings.mjs'
@@ -54,6 +55,7 @@ const recoveryScenario = process.argv.includes('--surface-recovery')
 const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
+const storyWriteScenario = process.argv.includes('--story-write-ops')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
 const stageDirectorFault=process.argv.includes('--stage-director-fault')
 const stageAudioFault = process.argv.includes('--stage-audio-fault')
@@ -94,9 +96,10 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 async function step(name, action) {
   const start = Date.now()
   report.currentStep = name
-  await action()
+  const result = await action()
   report.steps.push({ name, ms: Date.now() - start })
   console.log('✓ ' + name)
+  return result
 }
 async function savedChat() {
   const ids = await readdir(join(data, 'chats'))
@@ -153,9 +156,23 @@ async function inspectRound(name, gold, text, rounds = 2) {
 async function openStatus() {
   await page.getByRole('tab', { name: /酒馆状态/ }).filter({ visible: true }).first().click()
 }
+async function waitForVisibleStoryText(text) {
+  const deadline = Date.now() + 30000
+  let lastError = null
+  while (Date.now() < deadline) {
+    // Story HTML is intentionally rich: ordinary Markdown lives in the main
+    // document, while an HTML part (including its prose) lives in its iframe.
+    for (const target of [page, ...page.frames()]) {
+      const locator = target.getByText(text, { exact: false }).filter({ visible: true }).first()
+      try { if (await locator.isVisible()) return } catch (error) { lastError = error }
+    }
+    await page.waitForTimeout(100)
+  }
+  throw lastError || new Error('正文未在主文档或故事 iframe 中显示：' + text)
+}
 async function inspectScreen() {
   await page.locator('.dsh-tavern-user-bubble').filter({ hasText: '领取任务奖励' }).first().waitFor({ state: 'visible' })
-  await page.getByText('你获得了十枚金币。', { exact: false }).filter({ visible: true }).first().waitFor()
+  await waitForVisibleStoryText('你获得了十枚金币。')
   await page.getByText(/变量已更新/).filter({ visible: true }).first().waitFor()
   await openStatus()
   await page.frameLocator('.dsh-tavern-status-runtime iframe.dsh-tavern-message-frame:not([aria-hidden="true"])')
@@ -456,9 +473,9 @@ try {
       await tail().locator('.dsh-tavern-error-withdraw').click()
       await page.waitForFunction(() => /E2E_FILTER_MIDSTREAM 继续/.test(document.querySelector('[data-composer-card] :is(textarea, [contenteditable="true"])')?.value ?? document.querySelector('[data-composer-card] [contenteditable="true"]')?.innerText ?? ''), null, { timeout: 15000 })
       await page.getByText('这一轮的失败已清除，错误已收起').first().waitFor({ timeout: 15000 })
-      await page.getByRole('button', { name: '重新生成本轮', exact: true }).filter({ visible: true }).waitFor({ state: 'detached', timeout: 15000 }).catch(() => {})
-      report.withdrawDockReplay = await page.locator('.dsh-tavern-choice-trigger').filter({ hasText: '重新生成本轮' }).count()
-      assert.equal(report.withdrawDockReplay, 0, '撤回后不应再提供重放被撤回的输入')
+      await page.getByRole('button', { name: '撤回这条输入', exact: true }).filter({ visible: true }).waitFor({ state: 'detached', timeout: 15000 }).catch(() => {})
+      report.withdrawDockReplay = await page.locator('.dsh-tavern-choice-trigger').filter({ hasText: '撤回这条输入' }).count()
+      assert.equal(report.withdrawDockReplay, 0, '撤回后不应再提供撤回已被放回输入框的输入')
     })
     await step('撤回后改写输入再发送，正常回复', async () => {
       await composer().fill('再次领取奖励'); await composer().press('Enter')
@@ -471,8 +488,10 @@ try {
       await nextReply(before)
       await settled(); await pause(1000)
       await composer().fill('第三次领取'); await composer().press('Enter')
-      await tail().locator('.dsh-tavern-error-replay').waitFor({ timeout: 60000 })
-      await tail().locator('.dsh-tavern-error-replay').click()
+      // 原样再试一次：撤回输入，再原样发出去。
+      await tail().locator('.dsh-tavern-error-withdraw').waitFor({ timeout: 60000 })
+      await tail().locator('.dsh-tavern-error-withdraw').click()
+      await composer().fill('第三次领取'); await composer().press('Enter')
       await tail().locator('.dsh-tavern-error-rewind.is-primary').waitFor({ timeout: 60000 })
       assert.match(await tail().innerText(), /已连续 2 次.*建议回退上一轮/s)
       await page.screenshot({ path: join(output, 'filter-repeated.png'), fullPage: true })
@@ -609,6 +628,13 @@ try {
     report.beforeReload = inspectSaved(await savedChat())
     await page.screenshot({ path: join(output, 'before-reload.png'), fullPage: true })
   })
+  if (storyWriteScenario) {
+    await storyWriteOperationChecks({ page, assert, join, output, step, pause, report, waitForVisibleStoryText, data, createChatJournalStore })
+    assert.deepEqual(errors, [], '故事写操作验收不得出现未捕获浏览器异常')
+    report.status = 'passed'
+    delete report.currentStep
+    break scenario
+  }
   if (stagePluginScenario) {
     await step(stageIsolation ? '舞台不可用时普通聊天仍可生成、保存和刷新' : '真实舞台进入、退出，再回到普通聊天', async () => {
       async function retryDirector() {
@@ -1303,7 +1329,7 @@ try {
     if(captured?.profile)await writeFile(join(output,'browser.cpuprofile'),JSON.stringify(captured.profile))
   }
   // Read-only evidence, independent of the status iframe and its UI assertions.
-  const chat = process.argv.includes('--settlement-performance') ? null : await savedChat().catch(error => { report.savedStateError = String(error.message || error); return null })
+  const chat = process.argv.includes('--settlement-performance') || storyWriteScenario ? null : await savedChat().catch(error => { report.savedStateError = String(error.message || error); return null })
   if (chat) await writeFile(join(output, 'saved-state.json'), JSON.stringify({ id: chat.id, posture: chat.posture, contextCompaction: chat.contextCompaction, timeline: chat.timeline,
     messages: chat.messages.map(message => ({ role: message.role, text: message.sourceText ?? message.text, turn: message.turn, variables: message.variables, mvu: message.mvu, ...(displayScenario ? {tavernPluginData:message.tavernPluginData} : {}) })) }, null, 2))
   await context?.tracing.stop({ path: join(output, 'trace.zip') }).catch(() => {})

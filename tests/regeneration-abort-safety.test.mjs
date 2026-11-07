@@ -11,6 +11,7 @@ import { createRegenerationRecovery } from '../tavern-plugin/lib/domain/regenera
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
+import { createRegenerationDiscard } from '../tavern-plugin/lib/domain/regeneration-discard.js'
 
 function fixture({ ended = true } = {}) {
  const session=Session.create('regen-safety')
@@ -24,12 +25,13 @@ function fixture({ ended = true } = {}) {
  const attempt=user('attempt',{kind:'plugin',plugin:'dsh-tavern-regen'})
  if (ended) appendSessionEvent(session,'turn/end',{turn:2,reason:{kind:'error',error:{message:'Provider stopped with: SAFETY'}}})
  const cleaned=replaceSessionSurface(session,'user/message',{id:'failed',role:'user',content:[],source:{kind:'plugin',plugin:'dsh-tavern-failed-turn-cleanup'}},{start:attempt.seq,end:attempt.seq,sourceEventSeqs:[attempt.seq]})
- return {session,eventStart,body,retired,cleaned,user}
+ return {session,eventStart,body,frame,retired,cleaned,user}
 }
-test('failed regeneration excludes retired historical frame and preserves original body',()=>{
+test('failed candidate keeps retired historical frame retired and preserves original body',()=>{
  const f=fixture()
  assert.equal(clearRegenerationAttemptSurface(f),1)
- assert.ok(f.session.surface.nodes.includes(f.retired.seq))
+ assert.ok(f.session.surface.nodes.includes(f.retired.seq), 'retired tombstone 保留')
+ assert.ok(!f.session.surface.nodes.includes(f.frame.seq), '原历史 frame 不得回流')
  assert.ok(f.session.surface.nodes.includes(f.body.seq))
  assert.ok(!f.session.surface.nodes.includes(f.cleaned.seq))
 })
@@ -44,7 +46,7 @@ test('abort serializes native cleanup with chat restoration and competing writer
  const root=await mkdtemp(join(tmpdir(),'regen-safety-'));t.after(()=>rm(root,{recursive:true,force:true}))
  const chats=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
  const before=await chats.write({id:'chat',messages:[{role:'user',text:'input'},{role:'assistant',text:'original-body'}]})
- await chats.update('chat',c=>({...c,regenInProgress:true,regenRecovery:{id:'op'},messages:[]}))
+ await chats.update('chat',c=>({...c,regenInProgress:true,regenRecovery:{id:'op',candidateTurn:2,candidateFrame:{kind:'foreground'}}}))
  const f=fixture(); let concurrent
  const recovery=createRegenerationRecovery({chats,timeline:createStoryTimeline(),isActive:()=>false,sessions:{flush:async()=>{
   concurrent=chats.update('chat',c=>({...c,observation:'new'}))
@@ -54,30 +56,29 @@ test('abort serializes native cleanup with chat restoration and competing writer
  await concurrent
  const after=await chats.read('chat')
  assert.equal(after.regenInProgress,undefined)
- assert.equal(after.messages.at(-1).text,'original-body')
+ assert.deepEqual(after.messages,before.messages)
  assert.equal(after.observation,'new')
 })
 
-test('failed native flush still restores the original story and marks the native tail stale',async t=>{
+test('failed native flush leaves the intact story untouched and marks the native tail stale',async t=>{
  const root=await mkdtemp(join(tmpdir(),'regen-flush-'));t.after(()=>rm(root,{recursive:true,force:true}))
  const chats=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
  const before=await chats.write({id:'chat',messages:[{role:'user',text:'input'},{role:'assistant',text:'original-body'}]})
- await chats.update('chat',c=>({...c,regenInProgress:true,regenRecovery:{id:'op'},messages:[]}))
- const f=fixture();const repairs=[]
- const recovery=createRegenerationRecovery({chats,timeline:createStoryTimeline(),isActive:()=>false,sessions:{flush:async()=>{throw Error('flush failed')}},repair:async id=>repairs.push(id)})
+ await chats.update('chat',c=>({...c,regenInProgress:true,regenRecovery:{id:'op',candidateTurn:2,candidateFrame:{kind:'foreground'}}}))
+ const f=fixture()
+ const recovery=createRegenerationRecovery({chats,timeline:createStoryTimeline(),isActive:()=>false,sessions:{flush:async()=>{throw Error('flush failed')}}})
  await recovery.abort({chatId:'chat',originalChat:before,session:f.session,eventStart:f.eventStart,operationId:'op'})
  const after=await chats.read('chat')
  assert.equal(after.regenInProgress,undefined)
- assert.equal(after.messages.at(-1).text,'original-body')
+ assert.deepEqual(after.messages,before.messages)
  assert.equal(after.nativeSync.status,'stale')
- assert.deepEqual(repairs,[f.session.id])
 })
 
 test('a later normal input keeps the save as it is and only ends the marker',async t=>{
  const root=await mkdtemp(join(tmpdir(),'regen-later-'));t.after(()=>rm(root,{recursive:true,force:true}))
  const chats=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
  const before=await chats.write({id:'chat',messages:[{role:'user',text:'input'},{role:'assistant',text:'original-body'}]})
- await chats.update('chat',c=>({...c,regenInProgress:true,regenRecovery:{id:'op'},messages:[{role:'user',text:'later'}]}))
+ await chats.update('chat',c=>({...c,regenInProgress:true,regenRecovery:{id:'op',candidateTurn:2,candidateFrame:{kind:'foreground'}},messages:[{role:'user',text:'later'}]}))
  const f=fixture();f.user('later');const nodes=[...f.session.surface.nodes]
  const recovery=createRegenerationRecovery({chats,timeline:createStoryTimeline(),isActive:()=>false,sessions:{}})
  await recovery.abort({chatId:'chat',originalChat:before,session:f.session,eventStart:f.eventStart,operationId:'op'})
@@ -94,7 +95,7 @@ test('重新生成卡住时被拒绝的发送（失败回合）不会让恢复�
   const root = await mkdtemp(join(tmpdir(), 'regen-rejected-')); t.after(() => rm(root, { recursive: true, force: true }))
   const chats = createChatPersistence({ store: createChatJournalStore({ dataRoot: root }) })
   const before = await chats.write({ id: 'chat', messages: [{ role: 'user', text: 'input' }, { role: 'assistant', text: 'original-body' }] })
-  await chats.update('chat', c => ({ ...c, regenInProgress: true, regenRecovery: { id: 'op' } }))
+  await chats.update('chat', c => ({ ...c, regenInProgress: true, regenRecovery: { id: 'op', candidateTurn: 2, candidateFrame: { kind: 'foreground' } } }))
   const f = fixture()
   // The player sent while the marker was set: prepareStep rejected it and its turn failed.
   appendSessionEvent(f.session, 'turn/start', { turn: 3 })
@@ -105,4 +106,19 @@ test('重新生成卡住时被拒绝的发送（失败回合）不会让恢复�
   const restored = await chats.read('chat')
   assert.equal(restored.regenInProgress, undefined)
   assert.deepEqual(restored.messages.map(message => message.text), ['input', 'original-body'])
+})
+
+test('已提交新正文时缺少原生会话也不会被记成失败旧文', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'regen-committed-release-')); t.after(() => rm(root, { recursive: true, force: true }))
+  const chats = createChatPersistence({ store: createChatJournalStore({ dataRoot: root }) })
+  await chats.write({ id: 'chat', sessionId: 'missing', messages: [{ role: 'user', text: 'input' }, { role: 'assistant', turn: 2, text: 'new-body' }] })
+  const discarded = createRegenerationDiscard({ role: 'assistant', turn: 2, text: 'old-body' }, 1, 0)
+  await chats.update('chat', current => ({ ...current, regenInProgress: true,
+    regenRecovery: { id: 'op', phase: 'committed', sessionId: 'missing', discarded, temporaryReplacingTurn: 2 } }))
+  const recovery = createRegenerationRecovery({ chats, timeline: createStoryTimeline(), isActive: () => false, sessions: { get: () => undefined } })
+  await recovery.recover('chat')
+  const after = await chats.read('chat')
+  assert.deepEqual(after.messages.map(message => message.text), ['input', 'new-body'])
+  assert.equal(after.failedRegenerationTarget, undefined)
+  assert.equal(after.regenInProgress, undefined)
 })

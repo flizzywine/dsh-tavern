@@ -202,10 +202,32 @@ export function createTavernScriptHostAdapter(options = {}) {
         if (updated.type === 'chat' && chat.macroState !== before.macroState) {
           changes.push(...diffJson(before.macroState, chat.macroState).map(change => ({ ...change, path: ['macroState', ...change.path] })))
         }
-        saved = await options.patchChat(chat.id, chat._storageRevision, changes, {
+        const metadata = {
           source: 'tavern-helper.variables',
           assertCurrent: () => settlement.assertEvent(sessionId, eventId)
-        })
+        }
+        saved = await options.patchChat(chat.id, chat._storageRevision, changes, metadata)
+        if (!saved && compact && !eventId && updated.type === 'message') {
+          const input = chat.messages[updated.messageId]
+          const requestId = str(input?.source?.rpcId).trim()
+          if (input?.role === 'user' && input.placeholder === true && requestId) {
+            // Foreground preparation can update the same durable input while a
+            // Helper write is in flight. Retry only the unchanged variables.
+            const latest = await options.resolveChat(str(sessionId))
+            const row = latest?.messages?.[updated.messageId]
+            if (latest?.id === chat.id && mutationIsCurrent(latest, contextBaseline.lifecycleRevision) && !settlement.has(str(sessionId))
+              && row?.role === 'user' && str(row.source?.rpcId).trim() === requestId && row.sourceText === input.sourceText
+              && (row.swipeId ?? 0) === (input.swipeId ?? 0) && isDeepStrictEqual(row.variables, previous)) {
+              const rebased = await options.patchChat(latest.id, latest._storageRevision, changes, metadata)
+              if (rebased) {
+                const { messages: _messages, ...header } = rebased
+                Object.assign(latest, header)
+                row.variables = normalized
+                return { updated: true, target: updated, context: await fullContext(latest) }
+              }
+            }
+          }
+        }
         if (saved) {
           patched = true
           const { messages: _messages, ...header } = saved

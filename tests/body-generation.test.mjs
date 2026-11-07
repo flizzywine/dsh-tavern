@@ -189,6 +189,17 @@ test('timeout and disabled provider fail without fallback', async () => {
   assert.equal(disabled.calls, 0)
 })
 
+test('持久失败输入回到普通本轮生成，不进入旧正文替换流程', async () => {
+  let replacements = 0
+  const f = fixture(undefined, { regenerateWithProvider: async () => { replacements++; return { turn: 2 } } })
+  f.mutate(chat => {
+    chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true })
+    chat.foregroundError = null
+  })
+  assert.equal(await f.controller.regenerate('session'), null)
+  assert.equal(replacements, 0)
+})
+
 test('selected regeneration passes guidance, cancels before commit and never cancels committed settlement', async () => {
   const started = gate(), release = gate()
   const f = fixture(async () => '重生成正文', { regenerateWithProvider: async input => {

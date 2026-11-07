@@ -54,6 +54,11 @@ function userTextOf(messages) {
   return (Array.isArray(messages) ? messages : []).filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
 }
 
+function userContentOf(messages) {
+  const input = (Array.isArray(messages) ? messages : []).findLast(isTurnInput)
+  return Array.isArray(input?.content) ? input.content : []
+}
+
 function replaceTurnInput(messages, text) {
   const result = Array.isArray(messages) ? messages.slice() : []
   for (let index = result.length - 1; index >= 0; index--) {
@@ -331,7 +336,8 @@ export function createNativePlayOrchestrationStrategy(options) {
       })
     }
     if (Number(payload.step) === 1) {
-      const prepared = await options.prepareTurn({ sessionId, turn: payload.turn, requestId: input.requestId, userText: userTextOf(payload.messages), runtimePresetSnapshot: snapshot })
+      const prepared = await options.prepareTurn({ sessionId, turn: payload.turn, requestId: input.requestId,
+        userText: userTextOf(payload.messages), userContent: userContentOf(payload.messages), runtimePresetSnapshot: snapshot })
       if (prepared && prepared.duplicate) throw new Error('该消息已由酒馆处理，请勿重复发送')
       if (mode === 'story' || mode === 'script') {
         agentMessages = replaceTurnInput(agentMessages, prepared.frame.userInput.projectedText)
