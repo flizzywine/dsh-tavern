@@ -56,7 +56,7 @@ test('panels use the flow interface and candidate selection preserves user edits
   await render(panels.RegenPanel)
   assert.equal(dom.window.document.querySelectorAll(".dsh-tavern-regen-submit").length, 1)
   await act(async () => dom.window.document.querySelector('.dsh-tavern-regen-submit').click())
-  assert.deepEqual(calls[1], ['regenBody', { guidance: '', messageId: 'm' }, 'a'])
+  assert.deepEqual(calls[1], ['regenBody', { guidance: '' }, 'a'])
   await act(async () => interactions.regeneration.set({ sessionId: 'a', phase: 'input' }))
   await act(async () => [...dom.window.document.querySelectorAll('button')].find(button => button.textContent === '精修').click())
   assert.match(dom.window.document.querySelector('.dsh-tavern-regen-loading').textContent, /已修 1 处/)

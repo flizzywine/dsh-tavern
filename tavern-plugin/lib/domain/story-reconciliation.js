@@ -49,17 +49,20 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
     } finally { reconciling.delete(sessionId) }
   }
 
-  async function repairNativeStory(sessionId, session, reason) {
+  // One explicit use only: a story fork starts a fresh native session that
+  // carries no context, so its tail is built from the save once, at fork time.
+  // Nothing reconciles or repairs a live session behind the player's back.
+  async function seedNativeStory(sessionId, session, reason) {
     const chat = await chatForSession(sessionId)
     if (!chat || chat.regenInProgress || !['story', 'script'].includes(chat.mode || 'story')) return null
     try {
       const result = repairNativeSurface(session, chat, { repairId: randomUUID() })
       if (result.applied) await sessionStore.flush(session)
-      await updateChat(chat.id, current => recordNativeSurfaceRepair(current, chat, result.anchors) ? current : undefined, { source: 'native-repair' })
-      if (result.applied) console.warn('dsh-tavern: 模型上下文与存档不一致（' + reason + '），已按存档重写最近 ' + result.plan.rounds.length + ' 轮')
+      await updateChat(chat.id, current => recordNativeSurfaceRepair(current, chat, result.anchors) ? current : undefined, { source: 'native-seed' })
+      if (result.applied) console.warn('dsh-tavern: 故事分叉建原生上下文（' + reason + '），写入最近 ' + result.plan.rounds.length + ' 轮')
       return result
     } catch (error) {
-      console.warn('dsh-tavern: 模型上下文修复失败，下次打开或操作时重试：' + str(error?.message || error))
+      console.warn('dsh-tavern: 故事分叉建原生上下文失败：' + str(error?.message || error))
       await markNativeStale(chat.id, reason).catch(() => {})
       return null
     }
@@ -102,7 +105,7 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
     return { ...report, textDrift, nativeSync, aligned: report.aligned && !textDrift && nativeSync !== 'stale' }
   }
 
-  async function reconcileStory(sessionId, { repair = true, stillIdle = () => true } = {}) {
+  async function reconcileStory(sessionId, { stillIdle = () => true } = {}) {
     try {
       sessionId = str(sessionId)
       const session = sessionId && liveSession(sessionId)
@@ -110,7 +113,7 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
       const input = await storyAlignmentInput(sessionId, nativeStoryTurns(session).length)
       if (!input || !['story', 'script'].includes(input.header.mode || 'story')) return null
       const report = alignStory(session, input)
-      if (!repair || report.aligned || report.state === 'regenerating') return report
+      if (report.aligned || report.state === 'regenerating') return report
       for (const round of report.adopt) {
         if (!stillIdle()) return report
         const adopted = await turns.finalize({ sessionId, turn: round.turn, requestId: round.requestId, userText: round.userText, userContent: round.userContent, assistantText: round.assistantText, nativeAnchor: round.nativeAnchor, adopt: true })
@@ -121,13 +124,11 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
         await sessionStore.flush(session)
         console.warn('dsh-tavern: 第 ' + shadowed.join('、') + ' 轮已回退但模型仍能看到，已重新隐藏')
       }
-      let after = alignStory(session, await storyAlignmentInput(sessionId, nativeStoryTurns(session).length))
-      // The save is the truth: rewrite the native tail after the last round both still agree on.
-      if (!after.aligned && stillIdle()) {
-        await repairNativeStory(sessionId, session, after.state === 'mismatch' ? '轮次不一致' : after.nativeSync === 'stale' ? '上次同步失败' : after.textDrift ? '正文不一致' : '找不到原生位置')
-        after = alignStory(session, await storyAlignmentInput(sessionId, nativeStoryTurns(session).length))
-      }
-      if (after.state === 'mismatch') console.warn('dsh-tavern: 存档与模型上下文的轮次修复后仍不一致：' + JSON.stringify(after.mismatch))
+      // No automatic rewrite of the native tail: a drift is reported, never fixed
+      // behind the player's back. Only an explicit action (撤回 / 回退 / 重发) changes it.
+      const after = alignStory(session, await storyAlignmentInput(sessionId, nativeStoryTurns(session).length))
+      if (after.state === 'mismatch') console.warn('dsh-tavern: 存档与模型上下文的轮次不一致（不自动修复）：' + JSON.stringify(after.mismatch))
+      else if (!after.aligned) console.warn('dsh-tavern: 存档与模型上下文未对齐（不自动修复）：' + (after.nativeSync === 'stale' ? '上次同步失败' : after.textDrift ? '正文不一致' : '找不到原生位置'))
       return after
     } catch (error) {
       console.warn('dsh-tavern: 存档与模型上下文核对失败：' + str(error?.message || error))
@@ -138,7 +139,7 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
   return {
     reconcileStory,
     reconcileWhenIdle,
-    repairNativeStory,
+    seedNativeStory,
     // Let a turn start after an in-flight reconcile of its session.
     async waitReconcile(sessionId) { await reconciling.get(str(sessionId))?.catch(() => {}) },
   }

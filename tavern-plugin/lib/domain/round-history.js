@@ -15,8 +15,8 @@ import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration
 import { assistantResultForTurn } from './session-turn-result.js'
 import { plainReplyProse, replyProse } from './reply-prose.js'
 import { createPluginBodyRegeneration } from './plugin-body-regeneration.js'
-import { findBodyRegenerationFrame } from './body-regeneration-materials.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
+import { legacyMessageUid } from './message-uid.js'
 import { consumeScriptPrompts } from './tavern-script-prompts.js'
 
 function str(value) {
@@ -51,24 +51,33 @@ export function regenerationInputText(userText, guidance, rewriteBody) {
   return input + (guide !== '' ? '\n\n【本轮补充要求】\n' + guide : '')
 }
 
-/** Reuse the target round's frozen request materials without preparing the live story again. */
-function candidateRegenerationFrame(chat, oldTurn, operationId, nativeTurn, inputText) {
-  const original = findBodyRegenerationFrame(chat, oldTurn)
-  const branchId = str(chat.timeline?.branchId || original?.branchId) || 'main'
-  const frame = original ? structuredClone(original) : {
-    kind: 'foreground', chatId: chat.id, branchId,
-    basedOnRevision: Math.max(0, Number(chat.timeline?.revision) || 0),
-    operationId, turn: nativeTurn,
-    userInput: { sourceText: inputText, projectedText: inputText, source: { stage: 'player-input' } },
-    context: {}, contributions: [], source: {}, diagnostics: [], ignored: []
+/**
+ * Build the regeneration request from the live save at send time. The previous
+ * body's frozen frame is not a request recipe: preset, worldbook, card and state
+ * may all have changed since it was written.
+ */
+async function candidateRegenerationFrame(chat, operationId, nativeTurn, inputText, prepareFrame) {
+  if (typeof prepareFrame !== 'function') throw new Error('当前宿主未提供正文重新生成准备接口')
+  const prepared = await prepareFrame({
+    sessionId: chat.sessionId,
+    turn: nativeTurn,
+    requestId: 'regeneration:' + operationId,
+    userText: inputText,
+    userContent: { role: 'user', content: [{ type: 'text', text: inputText }] }
+  })
+  const built = prepared?.frame
+  if (!built || built.kind !== 'foreground' || !Array.isArray(built.contributions)) {
+    throw new Error('重新生成没有取得当前请求材料')
   }
+  const frame = structuredClone(built)
+  const branchId = str(chat.timeline?.branchId || frame.branchId) || 'main'
   frame.frameId = 'foreground:' + chat.id + ':' + branchId + ':' + operationId
   frame.chatId = chat.id
   frame.branchId = branchId
   frame.basedOnRevision = Math.max(0, Number(chat.timeline?.revision) || 0)
   frame.operationId = operationId
   frame.turn = nativeTurn
-  frame.userInput = { ...frame.userInput, sourceText: inputText, projectedText: inputText, source: { stage: 'player-input' } }
+  frame.userInput = { ...(frame.userInput || {}), sourceText: inputText, projectedText: str(prepared.userText) || inputText, source: { stage: 'player-input' } }
   return frame
 }
 
@@ -170,44 +179,34 @@ function streamedAttemptText(session, turn, eventStart) {
   } catch { return '' }
 }
 
-export function selectRegenerationTarget(chat, session, observe, messageId) {
+export function selectRegenerationTarget(chat, session, observe) {
   const nodes = (session.surface !== undefined && Array.isArray(session.surface.nodes)) ? session.surface.nodes : []
   const events = sessionEvents(session)
   const eventStart = events.length
   const msgs0 = chat.messages || []
-  const requestedMessageId = str(messageId).trim()
-  const identified = requestedMessageId === '' ? null : locateRegenerationSurface({ events, nodes, messageId: requestedMessageId })
   let oldAssistantIndex = -1
-  let target = null
   function report(reason, selected) {
     if (typeof observe !== 'function') return
     try { observe(regenerationTargetDiagnostic(chat, session, { reason, assistantIndex: oldAssistantIndex, target: selected })) } catch { /* Diagnostics never change selection. */ }
   }
-  if (requestedMessageId !== '' && identified === null) {
-    report('message-id-not-found')
-    throw Object.assign(new Error('要重新生成的正文已变化，请刷新后重试'), { code: 'REGENERATION_TARGET_STALE' })
-  }
+  // The save owns the target: regeneration always means its latest committed
+  // assistant body. A page id cannot name another row, and native turns cannot
+  // move the target when the two numberings differ.
   for (let i = msgs0.length - 1; i >= 0; i--) {
     const message = msgs0[i]
     if (message === null || typeof message !== 'object' || message.role !== 'assistant' || message.greeting === true) continue
-    if (identified === null) { oldAssistantIndex = i; break }
-    const candidate = locateRegenerationSurface({ events, nodes, turn: message.turn,
-      texts: [message.text, message.sourceText, message.projectionText] })
-    if (candidate?.assistantSeq !== identified.assistantSeq) continue
+    // A placeholder row is a round that never committed a body (a failed turn):
+    // there is nothing to replace, so regeneration falls through to the last real reply.
+    if (message.placeholder === true) continue
     oldAssistantIndex = i
-    target = candidate
     break
-  }
-  if (requestedMessageId !== '' && oldAssistantIndex < 0) {
-    report('message-id-story-mismatch', identified)
-    throw Object.assign(new Error('要重新生成的正文已变化，请刷新后重试'), { code: 'REGENERATION_TARGET_STALE' })
   }
   if (oldAssistantIndex < 1 || msgs0[oldAssistantIndex - 1] === null || typeof msgs0[oldAssistantIndex - 1] !== 'object' || msgs0[oldAssistantIndex - 1].role !== 'user') {
     report(oldAssistantIndex < 0 ? 'no-non-greeting-assistant' : oldAssistantIndex === 0 ? 'assistant-at-start'
       : msgs0[oldAssistantIndex - 1] === null || typeof msgs0[oldAssistantIndex - 1] !== 'object' ? 'previous-message-invalid' : 'previous-message-not-user')
     throw new Error('没有可重新生成的玩家输入与正文组合')
   }
-  target ??= locateRegenerationSurface({ events, nodes, turn: msgs0[oldAssistantIndex].turn,
+  const target = locateRegenerationSurface({ events, nodes, turn: msgs0[oldAssistantIndex].turn,
     // A projected reply may store the edit turn; its body still identifies it.
     texts: [msgs0[oldAssistantIndex].text, msgs0[oldAssistantIndex].sourceText, msgs0[oldAssistantIndex].projectionText] })
   if (target === null) { report('native-target-missing'); throw Object.assign(new Error('原生消息流中找不到与当前剧情轮次对应的正文消息'), { code: 'NATIVE_TARGET_MISSING' }) }
@@ -238,8 +237,8 @@ function commitOfRound(commits, assistant, userText) {
   return key ? commits[key] : null
 }
 
-export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement, present, diagnostics, sessionPatch, repairNative,
-  readRegenerationMaterials, prepareRegenerationReply, notifyRegeneration }) {
+export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement, present, diagnostics, sessionPatch,
+  readRegenerationMaterials, prepareRegenerationFrame, prepareRegenerationReply, notifyRegeneration }) {
   const { read: readChat, forSession: chatForSession, readCard: readChatCard,
     readRevision: readChatRevision, write: writeChat, update: updateChat } = chats
   const { read: readScript, continuity: scriptContinuity } = scripts
@@ -248,24 +247,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   const view = present
   const pendingRollbacks = new Set()
   const pendingRegenerations = new Set()
-  const regenerationRecovery = createRegenerationRecovery({ chats, sessions, timeline, isActive: id => pendingRegenerations.has(id), repair: (sessionId, session) => repairSurface(sessionId, session) })
+  const regenerationRecovery = createRegenerationRecovery({ chats, sessions, timeline, isActive: id => pendingRegenerations.has(id) })
   const regenerateWithProvider = createPluginBodyRegeneration({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement,
     sessionPatch, readRegenerationMaterials, prepareRegenerationReply, notifyRegeneration,
-    recovery: regenerationRecovery, pendingRegenerations, pendingRollbacks, selectTarget: selectRepairedTarget })
-  // The save is the truth (Wiki「设计：native-session-repair」): when the native
-  // surface no longer shows the round the save has, rewrite its tail from the save
-  // instead of refusing. Repair reports its own failure and leaves a retry marker.
-  async function repairSurface(sessionId, session) {
-    if (typeof repairNative === 'function') await repairNative(sessionId, session)
-  }
-  async function selectRepairedTarget(chat, session, observe, messageId) {
-    try { return selectRegenerationTarget(chat, session, observe, messageId) }
-    catch (error) {
-      if (error?.code !== 'NATIVE_TARGET_MISSING' || typeof repairNative !== 'function') throw error
-      await repairSurface(chat.sessionId, session)
-      return selectRegenerationTarget(chat, session, observe, messageId)
-    }
-  }
+    recovery: regenerationRecovery, pendingRegenerations, pendingRollbacks, selectTarget: selectRegenerationTarget })
 
   // The save adopts the new body even when the native surface cannot place it
   // (ownership mismatch, old body gone): completion then repairs the native tail
@@ -277,7 +262,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     } catch (error) { return { unplaced: str(error?.message || error) || '原生位置对不上' } }
   }
 
-  async function regenerate(chatId, guidance, sessionId, messageId) {
+  async function regenerate(chatId, guidance, sessionId) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
     // Regeneration replaces one stored body: it needs the story rows, including the
     // turn the caller picked, not the header-only activity view.
@@ -287,7 +272,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     await regenerationRecovery.recover(chat.id)
     if (pendingRegenerations.has(chat.id) || pendingRollbacks.has(chat.id)) throw new Error('正文正在重新生成，请等待完成')
     pendingRegenerations.add(chat.id)
-    try { return await regenRecent(chat.id, guidance, sessionId, messageId) ?? await regenBody(chat.id, guidance, sessionId, messageId) }
+    try { return await regenRecent(chat.id, guidance, sessionId) ?? await regenBody(chat.id, guidance, sessionId) }
     finally { pendingRegenerations.delete(chat.id) }
   }
 
@@ -314,7 +299,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (beforeChat === undefined) throw new Error('找不到剧情 checkpoint 对应的历史 Chat revision: ' + target.beforeRevision)
     return Object.assign({}, intent, { beforeChat })
   }
-  async function regenBody(chatId, guidance, sessionId, messageId) {
+  async function regenBody(chatId, guidance, sessionId) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
     let chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
@@ -334,7 +319,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (agent.phase?.kind === 'running') throw new Error('前台正在生成，请完成或停止后再重新生成')
     const session = agent.session
     let selection, evidence
-    try { selection = await selectRepairedTarget(chat, session, diagnostics ? value => { evidence = value } : undefined, messageId) }
+    try { selection = await selectRegenerationTarget(chat, session, diagnostics ? value => { evidence = value } : undefined) }
     finally {
       if (evidence) {
         try { await diagnostics.record(effectiveSessionId, { stage: 'regeneration-target', diagnosticId: randomUUID(),
@@ -378,7 +363,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const syntheticText = regenerationInputText(originalUserText, guide, replyTextOf(msgs0[oldAssistantIndex]))
     const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
     const candidateTurn = beforeLastTurn + 1
-    const candidateFrame = candidateRegenerationFrame(originalChat, oldTurn, operationId, candidateTurn, syntheticText)
+    const candidateFrame = await candidateRegenerationFrame(originalChat, operationId, candidateTurn, syntheticText, prepareRegenerationFrame)
+    const targetMessageUid = legacyMessageUid(msgs0[oldAssistantIndex], oldAssistantIndex)
     let legacyBefore = null
     if (storyTimeline.inspect({ chat: originalChat }).checkpointCount === 0) {
       let rollbackCommit = null
@@ -412,7 +398,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       }
       current.regenRecovery = { id: operationId, phase: 'prepared', detached: true,
         beforeRevision: Number(current._storageRevision || 0), sessionId: effectiveSessionId,
-        eventStart, candidateTurn, candidateFrame }
+        eventStart, candidateTurn, candidateFrame, targetMessageUid }
       current.regenInProgress = true
       current.tavernHelperLifecycleRevision = lifecycleRevision
       return current
@@ -490,13 +476,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         operation?.kind === 'body' && Number(operation.turn) === Number(oldTurn))
       bodyOperation.beforeRevision = checkpoint?.beforeRevision ?? oldOperation?.beforeRevision ?? 0
       bodyOperation.beforeParticipants = structuredClone(checkpoint?.participants || oldOperation?.beforeParticipants || rollbackIntent.beforeChat?.timeline?.participants || {})
-      const originalFrame = findBodyRegenerationFrame(originalChat, oldTurn)
-      if (originalFrame) {
-        draft.foregroundFrames = { ...draft.foregroundFrames, [bodyOperation.id]: { ...structuredClone(originalFrame),
-          frameId: 'foreground:' + chat.id + ':' + draft.timeline.branchId + ':' + bodyOperation.id,
-          operationId: bodyOperation.id, branchId: draft.timeline.branchId,
-          basedOnRevision: bodyOperation.basedOn.revision, turn: oldTurn } }
-      }
+      draft.foregroundFrames = { ...draft.foregroundFrames, [bodyOperation.id]: { ...structuredClone(candidateFrame),
+        frameId: 'foreground:' + chat.id + ':' + draft.timeline.branchId + ':' + bodyOperation.id,
+        operationId: bodyOperation.id, branchId: draft.timeline.branchId,
+        basedOnRevision: bodyOperation.basedOn.revision, turn: oldTurn } }
       const merged = replaceLastRound({ originalChat, regeneratedChat: draft, replacement: row, assistantIndex: oldAssistantIndex })
       const completed = storyTimeline.complete({ chat: merged.chat, operationId: bodyOperation.id, basedOn: bodyOperation.basedOn,
         outcome: { status: 'success' }, apply(current) {
@@ -563,8 +546,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   // The former bounded path rolled back a checkpoint before generation and
   // restored later floors on failure. Both full and scoped saves now share the
   // candidate-first transaction: story rows stay authoritative until one commit.
-  async function regenRecent(chatId, guidance, sessionId, messageId) {
-    return await regenBody(chatId, guidance, sessionId, messageId)
+  async function regenRecent(chatId, guidance, sessionId) {
+    return await regenBody(chatId, guidance, sessionId)
   }
 
   // ---------- 回退本轮（删除最近一次用户输入 + LLM 输出） ----------
@@ -723,10 +706,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const session = agent?.session || sessions.getSession?.(chat.sessionId)
     if (!session) throw new Error('无法访问 DSH 会话: ' + chat.sessionId)
     let availability = rollbackAvailability(chat, { events: sessionEvents(session), nodes: session.surface?.nodes || [] })
-    if (!availability.failedTurns.length && !surfaceShowsLatest(chat, availability)) {
-      await repairSurface(chat.sessionId, session)
-      availability = rollbackAvailability(chat, { events: sessionEvents(session), nodes: session.surface?.nodes || [] })
-    }
     const events = sessionEvents(session)
     const nodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
     const failedTurns = availability.failedTurns
@@ -756,9 +735,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       return result
     }
     if (!hasRollbackRound(chat)) throw new Error(availability.reason || '当前没有可回退的已提交轮次')
-    // Still not on the surface after repair: roll the save back; repair follows it afterwards.
+    // The native surface must still show the round: nothing is rewritten to make it.
     const rollbackSurface = surfaceShowsLatest(chat, availability) ? availability.target : null
-    if (rollbackSurface === null && typeof repairNative !== 'function') throw new Error(availability.target ? '该轮已不在当前模型上下文中，不能直接回退；历史正文仍可通过 history_recall 检索' : availability.reason)
+    if (rollbackSurface === null) throw new Error(availability.target ? '该轮已不在当前模型上下文中，不能直接回退；历史正文仍可通过 history_recall 检索' : availability.reason)
     const hiddenTurn = rollbackSurface ? rollbackSurface.turn : latestStoryTurn(chat)
     const shadowedSeqs = rollbackSurface ? rollbackSurface.shadowedSeqs : []
     const regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
@@ -1016,17 +995,14 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         }
       }, { start: rollbackSurface.userSeq, end: rollbackSurface.endSeq, sourceEventSeqs: shadowedSeqs }))
     } catch (error) {
-      // The save has rolled back; bring the model context after it instead of undoing the story.
-      if (typeof repairNative !== 'function') {
-        // Keep append-only history intact. A rejected surface replacement must not consume the story checkpoint.
-        try {
-          await abort()
-        } catch (restoreError) {
-          throw new Error('回退失败且剧情恢复未完成：' + str(error?.message || error) + '；' + str(restoreError?.message || restoreError), { cause: error })
-        }
-        throw error
+      // Keep append-only history intact. A rejected surface replacement must not
+      // consume the story checkpoint, and nothing is rewritten behind the save.
+      try {
+        await abort()
+      } catch (restoreError) {
+        throw new Error('回退失败且剧情恢复未完成：' + str(error?.message || error) + '；' + str(restoreError?.message || restoreError), { cause: error })
       }
-      await repairSurface(chat.sessionId, session)
+      throw error
     }
     // The Chat commit above already hides this round. Persist its model-side
     // shadow now, not on the host's delayed live buffer behind slower background
@@ -1126,9 +1102,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         targets.push({ session: background, saved: checkpoint })
       }
       // The foreground context comes back from the save if its saved nodes cannot be restored.
-      let repairForeground = false
       try { preflightSurfaceRestore(session, saved.foreground.nodes, saved.foreground.formatVersion || 3) }
-      catch (error) { if (typeof repairNative !== 'function') throw error; repairForeground = true; targets.shift() }
+      catch (error) { throw error }
       for (const target of targets) if (target.session !== session) preflightSurfaceRestore(target.session, target.saved.nodes, target.saved.formatVersion || 3)
       for (const target of targets) {
         changed.push({ session: target.session, nodes: [...target.session.surface.nodes] })
@@ -1166,7 +1141,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         }, { source: 'rollback.undo' })
       }
       committed = true
-      if (repairForeground) await repairSurface(chat.sessionId, session)
       const result = await view(restored, await readChatCard(restored))
       result.undoneRollback = { turn: saved.turn }
       return result

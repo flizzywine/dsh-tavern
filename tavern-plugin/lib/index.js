@@ -2349,7 +2349,7 @@ export async function apply(ctx) {
       await sceneWorldbookArchive.copyRefs(state.id, fork.id, includedTurns).catch(() => {})
       await forkPluginState(source, state, fork, turn, includedTurns)
       if (storyDirect) {
-        const repaired = await repairNativeStory(targetId, target, '故事分叉后按消息历史建立原生上下文')
+        const repaired = await seedNativeStory(targetId, target, '故事分叉后按消息历史建立原生上下文')
           .catch(error => { console.warn('dsh-tavern: 故事分叉原生上下文修复失败:', str(error?.message || error)); return null })
         if (repaired?.applied) {
           fork.nativeOpeningAppended = true
@@ -3382,6 +3382,7 @@ export async function apply(ctx) {
     scripts: scriptContinuity,
     timeline: storyTimeline,
     frameBuilder: foregroundFrameBuilder,
+    resolvePreset: resolveChatRuntimePreset,
     cards: cardPreparation,
     workspace: {
       prepare: prepareWorkspace,
@@ -3400,11 +3401,13 @@ export async function apply(ctx) {
       return [...(sections || []), { owner: 'dsh-tavern', name: 'style-reference', position: 'after',
         text: '【本轮先做文风联想】写正文之前，先按「前台文风联想」的要求调用 style_reference_submit，记下一段贴合本轮场景的范文；调用成功后再写本轮正文。' }]
     },
-    projectUserTemplate: async ({chat,text}) => {
+    projectUserTemplate: async ({chat,text,preview}) => {
       const global = await readPromptTemplateGlobalVariables()
       const result = await fullTemplateRuntime.forSession(chat.sessionId).renderInput(text, {userName:chat.macroState?.userName || '你',scopes:{global,local:chat.variables || {},initial:chat.promptTemplateInitialVariables || {},message:lastTavernHelperVariables(chat.messages) || {}}})
       const row = result.message
-      await tavernScriptHostAdapter.saveFullPromptTemplateGlobals(chat.sessionId, result.scopes.global, global)
+      // A regeneration preview builds the same request but owns no story write:
+      // template globals advance only when the real turn is prepared.
+      if (!preview) await tavernScriptHostAdapter.saveFullPromptTemplateGlobals(chat.sessionId, result.scopes.global, global)
       return {scopes:result.scopes,message:{role:'user',text:row.mes,sourceText:row.mes,swipeId:row.swipe_id,swipes:row.swipes,variables:row.variables,tavernPluginData:Object.fromEntries(['is_ejs_processed','variables_initialized','template_display'].filter(key=>row[key]!==undefined).map(key=>[key,row[key]]))}}
     },
     projectReply: projectRuntimeReply,
@@ -3419,7 +3422,7 @@ export async function apply(ctx) {
   const storyReconciliation = createStoryReconciliation({
     agentRegistry, sessionStore, chatForSession, chatSliceForSession, updateChat, turns: turnOrchestrator
   })
-  const { reconcileStory, reconcileWhenIdle, repairNativeStory } = storyReconciliation
+  const { reconcileStory, reconcileWhenIdle, seedNativeStory } = storyReconciliation
   // 任务表 (domain/background-tasks.js): every background task is declared there once; this
   // hands it the services its tasks run on.
   registerBackgroundTasks(workflow, { readTavernSettings, polishPrereview, announceCast,
@@ -3549,19 +3552,21 @@ export async function apply(ctx) {
     replyCommitted: sessionId => storyEvents.emit('reply-committed', { sessionId }),
     cancelSettlement,
     readRegenerationMaterials: buildBodyRegenerationMaterials,
+    // Build the replacement request from the save as it is now. This is the same
+    // preparation a normal send runs, without writing a candidate story row.
+    prepareRegenerationFrame: input => turnOrchestrator.preview(input),
     // Providers return already-processed prose. Their imported regexes must not
     // run again in the host, including when the view is refreshed later.
     prepareRegenerationReply: ({ text }) => projectProcessedReply(text),
     notifyRegeneration: (sessionId, { turn }) => notifyPluginTimeline(sessionId, 'regenerate', { turn }),
     present: presentStory,
     sessionPatch,
-    repairNative: (sessionId, session) => repairNativeStory(sessionId, session, '回退或重新生成时找不到原生位置'),
   })
 
-  async function regenBody(chatId, guidance, sessionId, messageId) {
+  async function regenBody(chatId, guidance, sessionId) {
     const id = sessionId || (await readChat(chatId))?.sessionId
     const generated = await pluginBodyGeneration.regenerate(id, str(guidance))
-    return generated === null ? nativeRegenBody(chatId, guidance, sessionId, messageId) : presentStory(await chatForSession(id))
+    return generated === null ? nativeRegenBody(chatId, guidance, sessionId) : presentStory(await chatForSession(id))
   }
   const bodyEditor = createBodyEditor({
     // Story editing resolves an absolute row/UID and must not read a sparse
@@ -3577,7 +3582,6 @@ export async function apply(ctx) {
     },
     present: presentStory,
     sessionPatch,
-    repairNative: (sessionId, session) => repairNativeStory(sessionId, session, '编辑正文时找不到原生位置'),
   })
 
   const messageDeletion = createMessageDeletion({
@@ -3971,7 +3975,7 @@ export async function apply(ctx) {
   // A game keeps a snapshot of its preset, but edits to that preset apply from the
   // next request: a changed preset file rebuilds and stores the snapshot. A missing
   // or unreadable file keeps the saved snapshot, so the game never loses its preset.
-  async function resolveChatRuntimePreset(chat) {
+  async function resolveChatRuntimePreset(chat, options = {}) {
     if (!chat || groupOfMode(chat.mode) !== 'play') return null
     const saved = chat.runtimePresetSnapshot && typeof chat.runtimePresetSnapshot === 'object' ? chat.runtimePresetSnapshot : null
     if (!saved?.presetPath || !chat.id) return saved
@@ -3981,6 +3985,11 @@ export async function apply(ctx) {
     let fresh
     try { fresh = await runtimePresets.fullSnapshot(saved.presetPath) } catch { return saved }
     if (!fresh) return saved
+    // Regeneration preview needs the live preset but owns no stored request yet.
+    if (options.preview === true) {
+      chat.runtimePresetSnapshot = fresh
+      return fresh
+    }
     for (let attempt = 0; attempt < 3; attempt++) {
       const head = (await chatPersistence.readSlice(chat.id, [], ['_storageRevision', 'runtimePresetSnapshot.presetPath']))?.chat
       // Applying another preset meanwhile wins over refreshing this one.

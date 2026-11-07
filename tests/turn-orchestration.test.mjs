@@ -144,6 +144,7 @@ function harness(mode, options = {}) {
     projectReply: projectReplyLayers,
     projectWorldBookTemplates: options.projectWorldBookTemplates,
     projectForegroundWorldbook: options.projectForegroundWorldbook,
+    resolvePreset: options.resolvePreset,
     foregroundRosterAddendum: options.foregroundRosterAddendum,
     recordWorldbookRecall: options.recordWorldbookRecall,
     projectScriptPromptWorldbook: options.projectScriptPromptWorldbook,
@@ -204,6 +205,27 @@ test('连续正文回合的实际 Frame 消息不重复基本信息和常驻世�
     assert.doesNotMatch(historyText, /逐轮系统指令/)
     assert.equal(historyText.split('逐轮历史后指令').length - 1, 2)
   }
+})
+
+test('重生成预演使用发送时的当前世界书且不写故事', async () => {
+  const planner = createContextPlanner({ prompt: () => '正文规则' })
+  let recalled = '旧的世界书'
+  const run = harness('story', {
+    planner,
+    preparedWorldBookContext: '缓存里的旧世界书',
+    projectWorldBookTemplates: async () => ({ context: recalled, refs: [], diagnostics: [] }),
+    resolvePreset: async () => ({ middle: { entries: [{ role: 'system', content: '当前预设的新规则' }] } })
+  })
+  const before = run.chat()
+  recalled = '新修改的世界书'
+  const prepared = await run.orchestrator.preview({ sessionId: 'session-1', turn: 5, userText: '新的行动' })
+
+  assert.match(foregroundFrameText(prepared.frame), /新修改的世界书/)
+  assert.match(foregroundFrameText(prepared.frame), /当前预设的新规则/)
+  assert.doesNotMatch(foregroundFrameText(prepared.frame), /缓存里的旧世界书/)
+  assert.deepEqual(run.chat(), before)
+  assert.equal(run.chat().messages.length, 0)
+  assert.equal(run.chat().foregroundFrames, undefined)
 })
 
 test('卡片 raw 扩展修改先暂存，最终回复后才写入工作 raw', async () => {
@@ -494,7 +516,7 @@ test('插件新正文按处理后的原文保存，不重复运行输出宏或�
   assert.equal(h.chat().messages.filter(row => row.role === 'assistant').length, 1)
 })
 
-test('候选重生成复用冻结帧，普通准备提交失败清理均不写故事', async () => {
+test('已准备的候选帧直接用于本次原生回合，普通准备提交失败清理均不写故事', async () => {
   const candidateFrame = {
     kind: 'foreground', frameId: 'frame-regen', chatId: 'chat-1', branchId: 'branch-1',
     operationId: 'regen-op', turn: 3, basedOnRevision: 4,

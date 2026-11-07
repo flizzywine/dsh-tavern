@@ -53,7 +53,8 @@ test('开启后长按发送键 2 秒直接重新生成正文，松手的那次�
   assert.equal(backend.calls.filter(call => call.method === 'regenBody').length, 1)
   // 空意见 = 跳过意见面板的那次重新生成；sessionId 由 rpc 传输层带上。
   assert.equal(backend.calls.filter(call => call.method === 'regenBody')[0].args.guidance, '')
-  assert.equal(backend.calls.filter(call => call.method === 'regenBody')[0].args.messageId, 'body-current')
+  // 新契约：长按只发 guidance（sessionId 由 rpc 传输层带上），正文 ID 由服务端按完整消息历史定位。
+  assert.deepEqual(backend.calls.filter(call => call.method === 'regenBody')[0].args, { guidance: '', sessionId: 'game' })
   assert.equal(await page.evaluate(() => window.__sends), 0)
 })
 

@@ -3,7 +3,7 @@
 async function galSubmitRegeneration(sessionId, turn, target, guidance, messageId) {
     const text = String(guidance || "").trim();
     let started = null;
-    if (target === "body") await submitBodyRegeneration(sessionId, { tail: null, messageId }, text);
+    if (target === "body") await submitBodyRegeneration(sessionId, { tail: null }, text);
     else if (target === "mvu") await rpc("retryMvuSettlement", { turn, guidance: text }, sessionId);
     else if (target === "director") await rpc("retryStageDirection", { turn, guidance: text }, sessionId);
     else if (target === "choices") started = await submitCandidateTask(sessionId, messageId, text);

@@ -190,6 +190,10 @@ export function createSessionViewProjection({
       latestAssistantMessageId,
       forkTurnsByMessageId,
       latestAssistantTurn: latestStoryTurn,
+      // While a body is being replaced, stream text belongs to the story row
+      // named by the save, never to the temporary native turn.
+      streamingMessageUid: chat.regenInProgress === true && typeof chat.regenRecovery?.targetMessageUid === 'string'
+        && chat.regenRecovery.targetMessageUid !== '' ? chat.regenRecovery.targetMessageUid : null,
       inputSources,
       inputTemplateDisplays,
       userInputEdits: userInputEditsOf(chat),

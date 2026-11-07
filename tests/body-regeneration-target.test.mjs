@@ -87,3 +87,16 @@ test('投影出来的正文借了编辑回合的编号时，用存档正文找�
   const spaced = [assistant(0, 1), assistant(9, 6, model, [{ type: 'text', text: '第一段\n第二段' }])]
   assert.equal(surface.locateRegenerationSurface({ events: spaced, nodes: [0, 9], turn: 4, texts: ['第一段 第二段'] })?.assistantSeq, 9)
 })
+
+test('失败轮的占位行不是重新生成目标：回落到上一条已提交正文', () => {
+  const messages = [
+    { role: 'user', text: '开场' },
+    { role: 'assistant', turn: 6, text: '正文' },
+    { role: 'user', text: '这一轮失败了' },
+    { role: 'assistant', turn: 7, placeholder: true }
+  ]
+  const { oldAssistantIndex, oldTurn } = selectRegenerationTarget({ messages }, { events: [assistant(3, 6)], surface: { nodes: [3] } })
+  // The target is the last round that actually has text, not the failed placeholder.
+  assert.equal(oldAssistantIndex, 1)
+  assert.equal(oldTurn, 6)
+})

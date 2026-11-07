@@ -187,6 +187,54 @@ test('首轮占位、流式正文和最终 HTML 始终复用同一逻辑行', as
 	assert.equal(dom.window.document.querySelectorAll('[data-story-draft]').length, 0)
 })
 
+test('重新生成时流式正文按视图的 messageUid 落到目标行，不碰同 turn 与后续行', async t => {
+	const page = createPage(t)
+	const { dom, context } = page
+	const messages = [
+		{ role: 'user', turn: 1, text: '输入一' },
+		{ role: 'assistant', turn: 1, text: '目标旧正文', messageUid: 'uid-target' },
+		{ role: 'assistant', turn: 1, text: '同轮旧正文', messageUid: 'uid-sibling' },
+		{ role: 'user', turn: 2, text: '输入二' },
+		{ role: 'assistant', turn: 2, text: '后续旧正文', messageUid: 'uid-next' }
+	]
+	const transcript = story(messages, 1)
+	const regenerating = { mode: 'story', streamingMessageUid: 'uid-target', latestAssistantTurn: 2 }
+	const feature = context.createTavernStoryTranscriptFeature()
+	const element = (value, partial, running, view) => React.createElement(feature.StoryTranscriptList, {
+		transcript: value, partial, running, view, sessionId: 's-regen'
+	})
+	const root = await mount(page, element(transcript, null, true, regenerating))
+	const rowsOf = () => [...dom.window.document.querySelectorAll('[data-story-row][data-role="assistant"]')]
+	const keyOfTarget = rowsOf()[0].getAttribute('data-row-key')
+	const partial = { turn: 0, blocks: [{ kind: 'text', text: '流式新正文' }] }
+	await act(async () => root.render(element(transcript, partial, true, regenerating)))
+	let rows = rowsOf()
+	assert.equal(rows.length, 3, '不得追加草稿行')
+	assert.ok(rows[0].textContent.includes('流式新正文'), '目标 UID 行承载流式正文')
+	assert.ok(rows[0].textContent.includes('正在生成'))
+	assert.equal(rows[0].getAttribute('data-row-key'), keyOfTarget, '流式更新复用同一 article')
+	assert.ok(rows[1].textContent.includes('同轮旧正文'), '同 turn 的兄弟行不得被覆盖')
+	assert.ok(!rows[1].textContent.includes('正在生成'))
+	assert.ok(rows[2].textContent.includes('后续旧正文'), 'latestAssistantTurn 指向的后续行不得被覆盖')
+	assert.ok(!rows[2].textContent.includes('正在生成'))
+
+	const nextPartial = { turn: 0, blocks: [{ kind: 'text', text: '第二段流式' }] }
+	await act(async () => root.render(element(transcript, nextPartial, true, regenerating)))
+	rows = rowsOf()
+	assert.ok(rows[0].textContent.includes('第二段流式'))
+	assert.ok(rows[1].textContent.includes('同轮旧正文'))
+	assert.ok(rows[2].textContent.includes('后续旧正文'))
+
+	const committed = story(messages.map(message => message.messageUid === 'uid-target'
+		? { ...message, text: '正式新正文' } : message), 2)
+	await act(async () => root.render(element(committed, null, false, { mode: 'story' })))
+	rows = rowsOf()
+	assert.ok(rows[0].textContent.includes('正式新正文'))
+	assert.ok(!rows[0].textContent.includes('正在生成'))
+	assert.ok(rows[1].textContent.includes('同轮旧正文'))
+	assert.ok(rows[2].textContent.includes('后续旧正文'))
+})
+
 test('正式故事行复用最新视图 parts、Helper 上下文与变量结算 receipt', async t => {
 	const page = createPage(t)
 	const { dom, context } = page

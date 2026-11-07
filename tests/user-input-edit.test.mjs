@@ -175,14 +175,12 @@ function storyUserFixture() {
   let chat = { id: 'chat', sessionId: session.id, mode: 'story', _storageRevision: 1,
     messages: [{ role: 'user', text: '原输入' }, { role: 'assistant', turn: 5, text: '回复' }] }
   const agent = { get session() { return session }, phase: { kind: 'idle' } }
-  const repairs = []
   const editor = createBodyEditor({
     chats: { forSession: async () => structuredClone(chat), update: async (_id, fn) => { chat = fn(structuredClone(chat)); chat._storageRevision++; return structuredClone(chat) } },
     sessions: { get: () => agent, flush: async () => {} },
     activity: () => ({ busy: false }), project: async () => ({}), present: async value => value,
-    repairNative: async id => { repairs.push(id); return null }
   })
-  return { session, editor, repairs, get chat() { return chat }, setMessages(rows) { chat = { ...chat, messages: rows } },
+  return { session, editor, get chat() { return chat }, setMessages(rows) { chat = { ...chat, messages: rows } },
     inputs() { return session.deriveMessages().filter(message => message.role === 'user').map(message => message.content[0].text) } }
 }
 
@@ -196,7 +194,6 @@ test('故事直选：按 messageIndex 编辑玩家输入，多余回合不影响
   assert.equal(saved.messages[0].text, '改过的输入')
   assert.equal(saved.messages[1].text, '回复')
   assert.deepEqual(h.inputs(), ['改过的输入'])
-  assert.deepEqual(h.repairs, [])
 })
 
 test('故事直选：UID 输入编辑不被无关 revision 与结算写入作废', async () => {
@@ -225,14 +222,13 @@ test('故事直选：旧 sourceText 不覆盖玩家当前 text 或编辑后的�
   assert.deepEqual(reopened.parts, [{ kind: 'text', text: '改后的当前输入' }])
 })
 
-test('故事直选：缺 turn 的玩家行只写存档并交给原生修复', async () => {
+test('故事直选：缺 turn 的玩家行只写存档', async () => {
   const h = storyUserFixture()
   h.setMessages([{ role: 'user', text: '无回合输入' }, { role: 'assistant', text: '回复' }])
   const edit = await h.editor.readUser(h.session.id, { messageIndex: 0, revision: 1 })
   assert.equal(edit.turn, 0)
   await h.editor.saveUser(h.session.id, { token: edit.token, messageIndex: 0, revision: 1, role: 'user', texts: ['改成无回合'] })
   assert.equal(h.chat.messages[0].text, '改成无回合')
-  assert.deepEqual(h.repairs, [h.session.id])
 })
 
 test('故事直选：重复 turn 的玩家行按位置改写，不按回合串行', async () => {
@@ -244,7 +240,6 @@ test('故事直选：重复 turn 的玩家行按位置改写，不按回合串�
   const saved = await h.editor.saveUser(h.session.id, { token: edit.token, messageIndex: 2, revision: 1, role: 'user', texts: ['改写第二条'] })
   assert.equal(saved.messages[2].text, '改写第二条')
   assert.equal(saved.messages[0].text, '第一条')
-  assert.deepEqual(h.repairs, [h.session.id])
 })
 
 test('故事直选：陈旧 revision、越界、role 不符与过期 token 都拒绝写入', async () => {

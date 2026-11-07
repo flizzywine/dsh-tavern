@@ -235,6 +235,13 @@ function createTavernStoryTranscriptFeature(deps) {
 		// A native snapshot older than the story read must not repaint a newly
 		// committed row. Same/newer revisions carry post-settlement EJS parts.
 		const projectionView = liveView && Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision >= storyRevision ? liveView : props.view
+		// 正文重新生成按故事行 UID 定位，不按轮次：故事视图没有 regeneratedDshTurns，
+		// partial 的宿主 turn 换算出来的序号并不指向被替换的那一行。服务端把目标行的
+		// UID 放在 view.streamingMessageUid 上，客户端只认这个 UID。
+		const streamingView = liveView && typeof liveView.streamingMessageUid === 'string' && liveView.streamingMessageUid !== ''
+			? liveView
+			: props.view && typeof props.view.streamingMessageUid === 'string' && props.view.streamingMessageUid !== '' ? props.view : null
+		const storyStreamUid = streamingView ? streamingView.streamingMessageUid : null
 		const streamRef = React.useRef({ sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: props.running === true })
 		function storyTurn(nativeTurn) {
 			return typeof tavernStoryTurnForDshTurn === 'function' ? tavernStoryTurnForDshTurn(props.view, nativeTurn) : Number(nativeTurn)
@@ -243,7 +250,10 @@ function createTavernStoryTranscriptFeature(deps) {
 		if (props.running === true && !streamRef.current.running) {
 			streamRef.current = { sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: true }
 		} else if (props.running !== true) streamRef.current.running = false
-		const liveTurn = props.partial && Number.isInteger(storyTurn(props.partial.turn)) ? storyTurn(props.partial.turn) : null
+		const nativeLiveTurn = props.partial && Number.isInteger(storyTurn(props.partial.turn)) ? storyTurn(props.partial.turn) : null
+		const latestTurnHint = storyStreamUid !== null && streamingView && Number.isInteger(streamingView.latestAssistantTurn)
+			? streamingView.latestAssistantTurn : null
+		const liveTurn = latestTurnHint !== null ? latestTurnHint : nativeLiveTurn
 		if (liveTurn !== null) {
 			const previous = streamRef.current
 			const text = tavernStoryTranscriptStreamText(props.partial)
@@ -255,7 +265,10 @@ function createTavernStoryTranscriptFeature(deps) {
 		let partial = cached.turn === null ? null : cached.partial
 		const allowCommitted = liveTurn !== null && liveTurn === cached.turn
 		const finalRow = cached.turn === null || !transcript || !Array.isArray(transcript.messages) ? null : transcript.messages.find(function (entry) {
-			return entry && entry.message && entry.message.role === 'assistant' && Number(entry.message.turn) === Number(cached.turn) && entry.message.placeholder !== true
+			if (!entry || !entry.message || entry.message.role !== 'assistant' || entry.message.placeholder === true) return false
+			// 重生成提交的是同一行：只有目标 UID 落成正文才算这份流已经结束。
+			if (storyStreamUid !== null) return entry.messageUid === storyStreamUid
+			return Number(entry.message.turn) === Number(cached.turn)
 		})
 		if (partial && finalRow && (cached.revision !== (transcript && transcript.revision) || (!props.running && !props.partial))) {
 			streamRef.current = { sessionId: sessionId, turn: cached.turn, partial: null,
@@ -264,8 +277,8 @@ function createTavernStoryTranscriptFeature(deps) {
 		}
 		const rows = React.useMemo(function () {
 			const base = tavernStoryTranscriptRows(transcript)
-			return tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial)
-		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted])
+			return tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial, storyStreamUid)
+		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid])
 		if (!rows.length) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',

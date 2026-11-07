@@ -120,7 +120,7 @@ export async function synchronizeBodyEdits(session, chat, flush, persistChat) {
 }
 
 /** Edit prose only; do not replay macros, scripts or settlement. */
-export function createBodyEditor({ chats, sessions, timeline, activity, project, present, sessionPatch, repairNative, beforeReplyEdit }) {
+export function createBodyEditor({ chats, sessions, timeline, activity, project, present, sessionPatch, beforeReplyEdit }) {
   const pending = new Set()
   function refuseClosedPatch() {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
@@ -221,7 +221,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
   }
   // Only the native tail is rewritten in place, and only when that native node still
   // holds this row's text: a repeated turn must not overwrite another round. Any other
-  // row reaches the model context through repairNative, never through a guessed turn.
+  // row is saved in the Chat only; the native context is never rewritten to catch up.
   function storyNativeTarget(chat, index, agent, message) {
     if (!agent?.session || index !== chat.messages.length - 1 || chat.messages[index]?.greeting === true) return null
     const turn = Number(message && message.turn)
@@ -256,16 +256,9 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     let message = latest(chat)
     const locate = () => locateRegenerationSurface({ events: sessionEvents(agent.session), nodes: agent.session.surface?.nodes, turn: message.turn })
     let target = locate()
-    // The save is the truth: bring the native tail back to it, then edit; if the
-    // round is still not there, edit the save and let repair carry the text over.
-    if (!target && typeof repairNative === 'function') {
-      await repairNative(sessionId, agent.session)
-      chat = await chats.forSession(sessionId)
-      idle(chat, agent)
-      message = latest(chat)
-      target = locate()
-    }
-    if (!target && typeof repairNative !== 'function') throw new Error('最后一轮正文已不在当前上下文中，无法编辑')
+    // Editing needs the round to still be in the model context. A missing round is
+    // refused here; nothing rewrites the native tail behind the player's back.
+    if (!target) throw new Error('最后一轮正文已不在当前上下文中，无法编辑')
     const parts = editableReplyParts(source(message))
     if (!parts.some(part => part.kind === 'text' && part.text.trim())) throw new Error('这轮只有 HTML，没有可编辑文本')
     return { chat, agent, message, target, parts }
@@ -285,8 +278,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       if (target && !agent.session.surface?.nodes.includes(target.assistantSeq)) throw new Error('模型上下文已变化，请重新打开编辑')
     } })
     if (!saved) return undefined
-    if (target) await synchronizeBodyEdits(agent.session, { messages: [row] }, sessions.flush)
-    else await repairNative(sessionId, agent.session)
+    await synchronizeBodyEdits(agent.session, { messages: [row] }, sessions.flush)
     return present(saved)
   }
   async function read(sessionId, input) {
@@ -347,13 +339,11 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
         return timeline.apply({ chat: current, intent: { kind, turn: message.turn, patch } }).chat
       }, { source: kind === 'body.polish' ? 'foreground.body-polish' : 'foreground.body-edit' })
       if (target) await synchronizeBodyEdits(agent.session, saved, sessions.flush)
-      else await repairNative(sessionId, agent.session)
       return present(saved)
     } finally { pending.delete(sessionId) }
   }
   // Story save: the row is chosen by its position, the token binds it to the save
-  // revision. A row that is no longer the native tail is written to the Chat and
-  // handed to repairNative instead of being refused.
+  // revision. A row that is no longer the native tail is written to the Chat only.
   async function saveStoryText(sessionId, input, kind = 'body.edit', { polished = kind === 'body.polish' } = {}) {
     if (pending.has(sessionId)) throw new Error('正在保存正文，请稍候')
     pending.add(sessionId)
@@ -380,7 +370,6 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
         return applyStoryPatch(current, row.index, row.message, patch, kind)
       }, { source: kind === 'body.polish' ? 'foreground.body-polish' : 'foreground.body-edit' })
       if (target) await synchronizeBodyEdits(agent.session, saved, sessions.flush)
-      else if (agent?.session && typeof repairNative === 'function') await repairNative(sessionId, agent.session)
       return present(saved)
     } finally { pending.delete(sessionId) }
   }
@@ -518,7 +507,6 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
         return current
       }, { source: 'foreground.user-edit' })
       if (marker) await synchronizeBodyEdits(agent.session, saved, sessions.flush)
-      else if (agent?.session && typeof repairNative === 'function') await repairNative(sessionId, agent.session)
       return present(saved)
     } finally { pending.delete(sessionId) }
   }

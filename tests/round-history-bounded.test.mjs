@@ -114,7 +114,17 @@ async function fixture(t, bounded) {
         changedSince: (id, revision) => p.readChangedIndices(id, revision),
         rowsAt: (id, revision, indices) => readRowsAt(p.readWindow, id, revision, indices)
       } : {}) },
-    sessions: { get: () => agent, flush: async () => {} }, timeline,
+    sessions: { get: () => agent, flush: async () => {} },
+    prepareRegenerationFrame: async input => {
+      const current = await p.read('chat')
+      return { userText: input.userText, frame: {
+        kind: 'foreground', frameId: 'preview', operationId: 'preview', chatId: 'chat',
+        branchId: current.timeline?.branchId || null, basedOnRevision: current.timeline?.revision || 0, turn: input.turn,
+        userInput: { sourceText: input.userText, projectedText: input.userText, source: { stage: 'player-input' } },
+        contributions: [{ slot: 'writingRules', text: 'fixture 当前材料', source: { stage: 'fixture' } }],
+        source: {}, diagnostics: [], ignored: []
+      } }
+    }, timeline,
     scripts: { read: async () => ({ chunks: [] }), continuity: { transition: () => ({ state: {} }) }, dispatchEvent: async event => { dispatched.push({ name: event.name, args: event.args, chat: Boolean(event.chat), recent: event.recent === true }) } },
     replyCommitted: sessionId => directed.push('director:' + sessionId),
     queueSettlement: async () => { directed.push('settlement') }, cancelSettlement: async () => {},

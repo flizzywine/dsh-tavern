@@ -36687,12 +36687,24 @@ function tavernStoryTranscriptStreamText(partial) {
 // message. Missing rows stay missing: the prepare revision must create them.
 // A live partial may also overlay a regenerated committed row; a retained
 // post-step partial is restricted to rows still marked placeholder=true.
-function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn, allowCommitted) {
-	if (!partial || !Number.isInteger(storyTurn)) return rows
+// A body regeneration names its target by messageUid: the story view carries no
+// regeneratedDshTurns, so the native partial turn cannot identify the row. When
+// messageUid is given only that exact row may be overlaid — rows sharing the
+// story turn, and the turn hint itself, stay untouched.
+function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn, allowCommitted, messageUid) {
+	if (!partial) return rows
 	const source = Array.isArray(rows) ? rows : []
-	const index = source.findLastIndex(function (row) {
-		return row && row.role === 'assistant' && (row.legacyTurn === storyTurn || Number(row.message && row.message.turn) === storyTurn)
-	})
+	const streamUid = typeof messageUid === 'string' && messageUid !== '' ? messageUid : null
+	let index = -1
+	if (streamUid !== null) {
+		index = source.findLastIndex(function (row) {
+			return row && row.role === 'assistant' && row.messageUid === streamUid
+		})
+	} else if (Number.isInteger(storyTurn)) {
+		index = source.findLastIndex(function (row) {
+			return row && row.role === 'assistant' && (row.legacyTurn === storyTurn || Number(row.message && row.message.turn) === storyTurn)
+		})
+	}
 	if (index < 0 || (!allowCommitted && source[index].streaming !== true)) return rows
 	const calls = Array.isArray(runningCalls) ? runningCalls : []
 	const latestCall = calls.length ? calls[calls.length - 1] : null
@@ -37247,6 +37259,13 @@ function createTavernStoryTranscriptFeature(deps) {
 		// A native snapshot older than the story read must not repaint a newly
 		// committed row. Same/newer revisions carry post-settlement EJS parts.
 		const projectionView = liveView && Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision >= storyRevision ? liveView : props.view
+		// 正文重新生成按故事行 UID 定位，不按轮次：故事视图没有 regeneratedDshTurns，
+		// partial 的宿主 turn 换算出来的序号并不指向被替换的那一行。服务端把目标行的
+		// UID 放在 view.streamingMessageUid 上，客户端只认这个 UID。
+		const streamingView = liveView && typeof liveView.streamingMessageUid === 'string' && liveView.streamingMessageUid !== ''
+			? liveView
+			: props.view && typeof props.view.streamingMessageUid === 'string' && props.view.streamingMessageUid !== '' ? props.view : null
+		const storyStreamUid = streamingView ? streamingView.streamingMessageUid : null
 		const streamRef = React.useRef({ sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: props.running === true })
 		function storyTurn(nativeTurn) {
 			return typeof tavernStoryTurnForDshTurn === 'function' ? tavernStoryTurnForDshTurn(props.view, nativeTurn) : Number(nativeTurn)
@@ -37255,7 +37274,10 @@ function createTavernStoryTranscriptFeature(deps) {
 		if (props.running === true && !streamRef.current.running) {
 			streamRef.current = { sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: true }
 		} else if (props.running !== true) streamRef.current.running = false
-		const liveTurn = props.partial && Number.isInteger(storyTurn(props.partial.turn)) ? storyTurn(props.partial.turn) : null
+		const nativeLiveTurn = props.partial && Number.isInteger(storyTurn(props.partial.turn)) ? storyTurn(props.partial.turn) : null
+		const latestTurnHint = storyStreamUid !== null && streamingView && Number.isInteger(streamingView.latestAssistantTurn)
+			? streamingView.latestAssistantTurn : null
+		const liveTurn = latestTurnHint !== null ? latestTurnHint : nativeLiveTurn
 		if (liveTurn !== null) {
 			const previous = streamRef.current
 			const text = tavernStoryTranscriptStreamText(props.partial)
@@ -37267,7 +37289,10 @@ function createTavernStoryTranscriptFeature(deps) {
 		let partial = cached.turn === null ? null : cached.partial
 		const allowCommitted = liveTurn !== null && liveTurn === cached.turn
 		const finalRow = cached.turn === null || !transcript || !Array.isArray(transcript.messages) ? null : transcript.messages.find(function (entry) {
-			return entry && entry.message && entry.message.role === 'assistant' && Number(entry.message.turn) === Number(cached.turn) && entry.message.placeholder !== true
+			if (!entry || !entry.message || entry.message.role !== 'assistant' || entry.message.placeholder === true) return false
+			// 重生成提交的是同一行：只有目标 UID 落成正文才算这份流已经结束。
+			if (storyStreamUid !== null) return entry.messageUid === storyStreamUid
+			return Number(entry.message.turn) === Number(cached.turn)
 		})
 		if (partial && finalRow && (cached.revision !== (transcript && transcript.revision) || (!props.running && !props.partial))) {
 			streamRef.current = { sessionId: sessionId, turn: cached.turn, partial: null,
@@ -37276,8 +37301,8 @@ function createTavernStoryTranscriptFeature(deps) {
 		}
 		const rows = React.useMemo(function () {
 			const base = tavernStoryTranscriptRows(transcript)
-			return tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial)
-		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted])
+			return tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial, storyStreamUid)
+		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid])
 		if (!rows.length) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',
@@ -51159,7 +51184,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         const candidate = candidates.getSnapshot();
         return once(pendingBodies, panel.sessionId, async () => {
             try {
-                const result = await rpc("regenBody", Object.assign({ guidance: text, messageId: panel.messageId }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
+                const result = await rpc("regenBody", Object.assign({ guidance: text }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
                 applyBodyResult(panel.sessionId, result.view, panel.tail);
                 // A truncated attempt keeps the text it did write; say so instead of
                 // letting the shortened body pass for a finished reply.
@@ -51177,13 +51202,12 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     // panel state, so nothing opens and the composer keeps its own feedback.
     function submitBodyRegeneration(sessionId, options, guidance) {
         const tail = options && options.tail ? options.tail : null;
-        const messageId = options && typeof options.messageId === "string" ? options.messageId : "";
         const text = String(guidance || "").trim();
         if (text) guidanceBySession.set(sessionId, text); else guidanceBySession.delete(sessionId);
         return once(pendingBodies, sessionId, async () => {
             const candidate = candidates.getSnapshot();
             try {
-                const result = await rpc("regenBody", { guidance: text, messageId }, sessionId);
+                const result = await rpc("regenBody", { guidance: text }, sessionId);
                 applyBodyResult(sessionId, result.view, tail);
                 if (result && result.view && result.view.regenerationWarning) reportError("重新生成提示", new Error(result.view.regenerationWarning));
                 if (candidates.getSnapshot() === candidate) candidates.set(null);
@@ -52724,7 +52748,7 @@ function createTurnRailFilter(root, options) {
         async function galSubmitRegeneration(sessionId, turn, target, guidance, messageId) {
             const text = String(guidance || "").trim();
             let started = null;
-            if (target === "body") await submitBodyRegeneration(sessionId, { tail: null, messageId }, text);
+            if (target === "body") await submitBodyRegeneration(sessionId, { tail: null }, text);
             else if (target === "mvu") await rpc("retryMvuSettlement", { turn, guidance: text }, sessionId);
             else if (target === "director") await rpc("retryStageDirection", { turn, guidance: text }, sessionId);
             else if (target === "choices") started = await submitCandidateTask(sessionId, messageId, text);
@@ -52790,10 +52814,9 @@ function createTurnRailFilter(root, options) {
 		    const enabled = useSendHoldRegenerate();
 		    const mode = useTavernSessionMode(props.sessionId);
 		    const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true; });
-		    const messageId = props.useChat(latestTavernAssistantMessageId);
 		    // the listener lives across renders; it reads the current round through this ref.
-		    const current = React.useRef({ sessionId: props.sessionId, running: running, messageId: messageId });
-		    current.current = { sessionId: props.sessionId, running: running, messageId: messageId };
+		    const current = React.useRef({ sessionId: props.sessionId, running: running });
+		    current.current = { sessionId: props.sessionId, running: running };
 		    React.useEffect(function () {
 		        if (!enabled || !isPlayMode(mode) || typeof document === "undefined") return undefined;
 		        let held = null, timer = null, mutedUntil = 0;
@@ -52830,7 +52853,7 @@ function createTurnRailFilter(root, options) {
 		                if (button) window.setTimeout(function () { button.classList.remove(TAVERN_SEND_HOLD_FIRED_CLASS); }, 400);
 		                return;
 		            }
-		            try { await interactions.submitBodyRegeneration(sessionId, { tail: null, messageId: current.current.messageId }, ""); }
+		            try { await interactions.submitBodyRegeneration(sessionId, { tail: null }, ""); }
 		            catch (error) { /* interactions 已经上报这次失败（错误中心里有完整原因） */ }
 		            finally {
 		                if (button) window.setTimeout(function () { button.classList.remove(TAVERN_SEND_HOLD_FIRED_CLASS); }, 900);

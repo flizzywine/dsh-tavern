@@ -135,33 +135,17 @@ test('插件整段替换正文：HTML 块必须原样保留，只改文字', asy
   assert.equal(h.chat.messages[1].sourceText, '雨停了，灯亮了。\n\n' + block)
 })
 
- test('分页正文缺失原生楼层时，保存成功后继续修复正确的会话', async () => {
+ test('分页正文缺失原生楼层时，编辑被拒绝且不改存档', async () => {
   const { createScopedMessages } = await import('../tavern-plugin/lib/domain/scoped-messages.js')
   const { applyJsonChanges } = await import('../tavern-plugin/lib/domain/json-mutation.js')
 let chat={id:'c',sessionId:'session-1',mode:'story',_storageRevision:1,settleStatus:'done',messages:[{role:'user',text:'continue'},{role:'assistant',turn:1,text:'original',sourceText:'original'}]}
 const session={id:'session-1',events:[],surface:{nodes:[]}},agent={session,phase:{kind:'idle'}}
-let patched=false,repairs=0
-const editor=createBodyEditor({chats:{forSession:async()=>({...structuredClone(chat),messages:createScopedMessages(2,[[1,structuredClone(chat.messages[1])]])}),async patch(id,rev,changes){patched=true;chat=applyJsonChanges(chat,changes);return structuredClone(chat)}},sessions:{get:()=>agent,flush:async()=>{}},timeline:createStoryTimeline(),activity:()=>({busy:false}),project:async text=>({sessionText:text,displayText:text}),present:async c=>c,repairNative:async id=>{assert.equal(id, session.id);repairs++;return null}})
-const edit=await editor.read(session.id)
-const saved = await editor.save(session.id,{token:edit.token,texts:['edited']})
-assert.equal(saved.messages[1].text, 'edited')
-assert.equal(patched, true)
-assert.equal(repairs, 3)
+let patched=false
+const editor=createBodyEditor({chats:{forSession:async()=>({...structuredClone(chat),messages:createScopedMessages(2,[[1,structuredClone(chat.messages[1])]])}),async patch(id,rev,changes){patched=true;chat=applyJsonChanges(chat,changes);return structuredClone(chat)}},sessions:{get:()=>agent,flush:async()=>{}},timeline:createStoryTimeline(),activity:()=>({busy:false}),project:async text=>({sessionText:text,displayText:text}),present:async c=>c})
+await assert.rejects(editor.read(session.id), /最后一轮正文已不在当前上下文中/)
+assert.equal(patched, false)
 })
 
- test('分页正文缺失原生楼层时，保存成功后继续修复正确的会话', async () => {
-  const { createScopedMessages } = await import('../tavern-plugin/lib/domain/scoped-messages.js')
-  const { applyJsonChanges } = await import('../tavern-plugin/lib/domain/json-mutation.js')
-let chat={id:'c',sessionId:'session-1',mode:'story',_storageRevision:1,settleStatus:'done',messages:[{role:'user',text:'continue'},{role:'assistant',turn:1,text:'original',sourceText:'original'}]}
-const session={id:'session-1',events:[],surface:{nodes:[]}},agent={session,phase:{kind:'idle'}}
-let patched=false,repairs=0
-const editor=createBodyEditor({chats:{forSession:async()=>({...structuredClone(chat),messages:createScopedMessages(2,[[1,structuredClone(chat.messages[1])]])}),async patch(id,rev,changes){patched=true;chat=applyJsonChanges(chat,changes);return structuredClone(chat)}},sessions:{get:()=>agent,flush:async()=>{}},timeline:createStoryTimeline(),activity:()=>({busy:false}),project:async text=>({sessionText:text,displayText:text}),present:async c=>c,repairNative:async id=>{assert.equal(id, session.id);repairs++;return null}})
-const edit=await editor.read(session.id)
-const saved = await editor.save(session.id,{token:edit.token,texts:['edited']})
-assert.equal(saved.messages[1].text, 'edited')
-assert.equal(patched, true)
-assert.equal(repairs, 3)
-})
 
 test('编辑不再取消旧预备任务，仍遵守后台忙碌保护', async () => {
   const h = fixture()
@@ -204,20 +188,18 @@ function storyFixture(withNative = true) {
     { role: 'assistant', turn: 2, text: '重复回合正文', sourceText: '重复回合正文' }
   ] }
   const agent = { get session() { return session }, phase: { kind: 'idle' } }
-  const repairs = []
   const editor = createBodyEditor({
     chats: { forSession: async () => structuredClone(chat),
       update: async (_id, fn) => { chat = fn(structuredClone(chat)); chat._storageRevision++; return structuredClone(chat) } },
     sessions: { get: () => withNative ? agent : undefined, flush: async () => {} },
     timeline: createStoryTimeline(), activity: () => ({ busy: false }),
-    project: async text => projectReplyLayers(text), present: async value => value,
-    repairNative: async id => { repairs.push(id); return null }
+    project: async text => projectReplyLayers(text), present: async value => value
   })
-  return { editor, session, get chat() { return chat }, repairs, setMessages(rows) { chat = { ...chat, messages: rows } },
+  return { editor, session, get chat() { return chat }, setMessages(rows) { chat = { ...chat, messages: rows } },
     surface(turn) { return sessionEvents(session).findLast(event => event.type === 'assistant/message' && Number(event.data?.turn) === Number(turn))?.data.message.content[0].text } }
 }
 
-test('故事直选：messageIndex 定位助手行，中间行只改存档并交给原生修复', async () => {
+test('故事直选：messageIndex 定位助手行，中间行只改存档', async () => {
   const h = storyFixture()
   const edit = await h.editor.read(h.session.id, { messageIndex: 2, revision: 1 })
   assert.equal(edit.messageIndex, 2)
@@ -228,7 +210,6 @@ test('故事直选：messageIndex 定位助手行，中间行只改存档并交�
   assert.equal(saved.messages[2].text, '改写第二轮')
   assert.equal(saved.messages[4].text, '第五轮正文')
   assert.equal(saved.messages[5].text, '重复回合正文')
-  assert.deepEqual(h.repairs, [h.session.id])
   assert.equal(h.surface(2), '第二轮正文')
 })
 
@@ -239,17 +220,15 @@ test('故事直选：原生尾部正文一致时就地替换模型上下文', as
   await h.editor.save(h.session.id, { token: edit.token, messageIndex: 1, revision: 1, role: 'assistant', texts: ['改写第五轮'] })
   assert.equal(h.chat.messages[1].text, '改写第五轮')
   assert.equal(sessionEvents(h.session).findLast(event => event.type === 'assistant/message').data.message.content[0].text, '改写第五轮')
-  assert.deepEqual(h.repairs, [])
 })
 
-test('故事直选：重复回合的尾行不覆盖别的原生楼层，改走修复', async () => {
+test('故事直选：重复回合的尾行不覆盖别的原生楼层，只改存档', async () => {
   const h = storyFixture()
   const edit = await h.editor.read(h.session.id, { messageIndex: 5, revision: 1 })
   assert.deepEqual(edit.parts, [{ kind: 'text', text: '重复回合正文' }])
   await h.editor.save(h.session.id, { token: edit.token, messageIndex: 5, revision: 1, role: 'assistant', texts: ['改写重复回合'] })
   assert.equal(h.chat.messages[5].text, '改写重复回合')
   assert.equal(h.surface(2), '第二轮正文')
-  assert.deepEqual(h.repairs, [h.session.id])
 })
 
 test('故事直选：UID 编辑不被无关表头、结算变量和 revision 写入作废', async () => {
@@ -290,7 +269,6 @@ test('故事直选：陈旧 revision、越界、role 不符与过期 token 都�
   await assert.rejects(h.editor.save(h.session.id, { token: edit.token, messageIndex: 2, revision: 2, role: 'assistant', texts: ['新'] }), /重新打开编辑/)
   await assert.rejects(h.editor.save(h.session.id, { token: edit.token, messageIndex: 1, revision: 1, role: 'assistant', texts: ['新'] }), /已变化/)
   assert.deepEqual(h.chat, before)
-  assert.deepEqual(h.repairs, [])
 })
 
 test('故事直选：没有原生 Session 也能编辑 Chat，缺失 revision 会拒绝', async () => {
@@ -300,5 +278,4 @@ test('故事直选：没有原生 Session 也能编辑 Chat，缺失 revision �
   await h.editor.save(h.session.id, { token: edit.token, messageIndex: 2, revision: 1, role: 'assistant', texts: ['离线改写'] })
   assert.equal(h.chat.messages[2].text, '离线改写')
   assert.equal(h.chat.messages[4].text, '第五轮正文')
-  assert.deepEqual(h.repairs, [])
 })

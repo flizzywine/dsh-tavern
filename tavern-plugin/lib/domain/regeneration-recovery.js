@@ -42,11 +42,11 @@ export function projectedReplacingTurns(chat) {
 
 /**
  * Recover an uncommitted replacement from its durable pre-rollback revision.
- * The save is the truth (Wiki「设计：native-session-repair」): whatever the
- * native session does, recovery always ends the marker. A native step that
- * fails leaves the save restored and the native tail stale for `repair`.
+ * The save is the truth: whatever the native session does, recovery always ends
+ * the marker. A native step that fails leaves the save restored and marks the
+ * native tail stale; nothing rewrites that tail automatically.
  */
-export function createRegenerationRecovery({ chats, sessions, timeline, isActive, repair }) {
+export function createRegenerationRecovery({ chats, sessions, timeline, isActive }) {
   const recovering = new Set()
 
   function staleNative(chat, reason) {
@@ -60,10 +60,7 @@ export function createRegenerationRecovery({ chats, sessions, timeline, isActive
     delete chat.regenRecovery
   }
   async function repairAfter(chatId, session, reason) {
-    console.warn('dsh-tavern: 重新生成恢复时模型上下文对不上，已按存档恢复，模型上下文稍后按存档修复：' + String(reason?.message || reason || ''))
-    if (session && typeof repair === 'function') {
-      try { await repair(session.id, session) } catch { /* nativeSync stays stale; the next reconcile retries. */ }
-    }
+    console.warn('dsh-tavern: 重新生成恢复时模型上下文对不上，已按存档恢复，模型上下文保持不修：' + String(reason?.message || reason || ''))
   }
   // Last resort: the recovery point or the native boundary is gone. Restore what
   // the save still has (the original story when readable) and end the marker.

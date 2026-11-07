@@ -46,5 +46,15 @@ await createRoundHistory({
     await saveSession(current)
     if (legacy === 'committed-after' && (await persistence.read('chat')).regenRecovery?.phase === 'committed') await crashPoint()
   } }, scripts: {}, timeline: createStoryTimeline(),
+  // The regeneration request is prepared from the live fixture, never replayed
+  // from the old body's frame. Preview owns no story rows.
+  prepareRegenerationFrame: async input => ({
+    ready: true, mode: 'story', cardName: 'fixture', userText: input.userText,
+    frame: { kind: 'foreground', frameId: 'fixture-preview', chatId: 'chat', branchId: 'branch',
+      basedOnRevision: 0, operationId: 'preview', turn: input.turn,
+      userInput: { sourceText: input.userText, projectedText: input.userText, source: { stage: 'player-input' } },
+      contributions: [{ slot: 'writingRules', text: 'fixture 当前规则', source: { stage: 'fixture' } }],
+      source: {}, diagnostics: [], ignored: [] }
+  }),
   queueSettlement: async () => { throw new Error('must not settle') }, present: async chat => chat
 }).regenerate('chat', '', session.id)

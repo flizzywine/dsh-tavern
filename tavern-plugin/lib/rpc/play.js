@@ -222,7 +222,7 @@ export function createPlayHandlers(deps) {
       if (args?.restyle === true) await retryStyleReference(args.sessionId, { target: 'regenerate', guidance: args.styleGuidance })
       await reconcileStory(args && args.sessionId)
       polishPrereview.cancel(args?.sessionId)
-      const view = await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId, args && args.messageId)
+      const view = await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId)
       notifyPluginTimeline(args && args.sessionId, 'regenerate')
       void polishPrereview.start(args?.sessionId).catch(() => {})
       return { view }
@@ -260,7 +260,7 @@ export function createPlayHandlers(deps) {
     },
     // Diagnostics and tests: does the save agree with what the model sees? Read-only.
     async storyAlignment(args) {
-      return { alignment: await reconcileStory(args && args.sessionId, { repair: false }) }
+      return { alignment: await reconcileStory(args && args.sessionId) }
     },
     // 清除未完成的回复：只删存档里最后一条 AI 正文，玩家输入与之前的轮次原样保留。
     // 走消息删除的既有事务（Chat 行 + 原生表面一起清），不做失败轮推断、不回退轮次。

@@ -73,10 +73,22 @@ function harness({ checkpoint = false, mode = 'story', journal = false } = {}) {
     write: async (value, metadata) => { calls.push(metadata.source); chat = structuredClone(value); return structuredClone(chat) },
     update: async (_id, mutate, metadata) => { calls.push(metadata.source); const revision = chat._storageRevision; if (journal) revisions.set(revision, structuredClone(chat)); chat = await mutate(structuredClone(chat)) ?? chat; if (journal) chat._storageRevision = revision + 1; return structuredClone(chat) }
   }
-  const options = { chats, sessions: { get: () => agent }, timeline, scripts: {
+  const options = { chats, sessions: { get: () => agent }, scripts: {
     read: async () => ({ chunks: ['一', '二'] }), continuity: { transition: () => { calls.push('script.restore'); return { state: { cursor: 0 } } } },
     dispatchEvent: async event => { calls.push(event.name) }
-  }, queueSettlement: async () => {
+  }, prepareRegenerationFrame: async (input) => {
+    calls.push('prepare-regeneration')
+    const current = structuredClone(chat)
+    return {
+      userText: input.userText,
+      frame: {
+        kind: 'foreground', frameId: 'preview', operationId: 'preview', turn: input.turn, branchId: current.timeline?.branchId || null,
+        chatId: chat.id, source: { postureAtPrepare: current.posture },
+        userInput: { sourceText: input.userText, projectedText: input.userText },
+        contributions: [{ slot: 'writingRules', text: '当前状态:' + current.posture, source: { stage: 'context-plan' } }]
+      }
+    }
+  }, timeline, queueSettlement: async () => {
     calls.push('settlement')
     const settlement = timeline.apply({ chat, intent: { kind: 'agent.begin', role: 'settlement' } })
     chat = timeline.complete({
@@ -164,29 +176,24 @@ test('rollback refuses a checkpoint whose round has left the native Surface inst
   assert.equal(h.calls.length,0)
 })
 
-test('有修复能力时，原生上下文丢了这一轮也照样回退：存档回退，随后按存档修复原生', async () => {
+test('原生上下文丢了这一轮时回退被拒绝：不重写模型上下文，存档保持原样', async () => {
   const h=harness({checkpoint:true})
   h.session.events[1].data.turn=1 // The native surface shows another round.
-  const repairs=[]
-  h.options.repairNative=async (sessionId, session)=>{ repairs.push({ sessionId, messages: h.chat.messages.length, session }) }
-  const result=await h.create().rollback('session','chat')
-  assert.equal(h.chat.messages.length,1,'the save rolled back')
-  assert.equal(result.rolledBack.removedAssistantText,'旧正文')
-  // Once before the rollback (it may restore the round), once after the save moved.
-  assert.ok(repairs.length>=2)
-  assert.equal(repairs.at(-1).messages,1)
-  assert.equal(repairs.at(-1).session,h.session)
+  const before=structuredClone(h.chat)
+  await assert.rejects(h.create().rollback('session','chat'), /不在可回退的消息流中|不在当前模型上下文中/)
+  assert.equal(h.chat.messages.length,before.messages.length)
+  assert.deepEqual(h.chat.messages,before.messages)
 })
 
-test('有修复能力时，重新生成找不到原生正文：先按存档修复再定位', async () => {
+test('重新生成找不到原生正文时报错：不按存档重写模型上下文', async () => {
   const h=harness()
-  const original=h.session.events[1]
   h.session.surface.nodes=[0]
-  let repaired=0
-  h.options.repairNative=async ()=>{ repaired++; h.session.surface.nodes=[0,original.seq] }
-  await h.create().regenerate('chat','','session')
-  assert.equal(repaired,1)
-  assert.match(h.chat.messages.at(-1).text,/^新正文/)
+  const before=structuredClone(h.chat)
+  await assert.rejects(h.create().regenerate('chat','','session'), error => {
+    assert.equal(error.code,'NATIVE_TARGET_MISSING')
+    return true
+  })
+  assert.deepEqual(h.chat.messages,before.messages)
 })
 
 test('配对失败的证据写入现有诊断包，原错误与聊天、原生历史保持不变', async () => {
@@ -829,7 +836,23 @@ test('尾部待回复输入不会被重新生成吞掉，也不改选上一轮�
   assert.equal(h.chat.messages.filter(message => message.role === 'user').length, 2)
 })
 
-test('session 重生成入口读取完整故事，失效的正文 ID 不改选其他正文', async () => {
+test('重新生成使用当前状态和当前预设材料，不复用旧正文的冻结帧', async () => {
+  const h = harness()
+  h.chat.posture = '当前修改后的状态'
+  h.chat.foregroundFrames = {
+    'old-body': { kind: 'foreground', operationId: 'old-body', turn: 2,
+      contributions: [{ slot: 'writingRules', text: '冻结材料', source: { stage: 'old-frame' } }], source: {} }
+  }
+
+  await h.create().regenerate('chat', '', 'session')
+
+  const body = Object.values(h.chat.timeline.operations).filter(operation => operation.kind === 'body').at(-1)
+  const frame = h.chat.foregroundFrames[body.id]
+  assert.match(JSON.stringify(frame), /当前状态:当前修改后的状态/)
+  assert.doesNotMatch(JSON.stringify(frame), /冻结材料/)
+})
+
+test('session 重生成入口读取完整故事，不需要页面传正文 ID', async () => {
   const h = harness()
   h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true,
     source: { kind: 'user', rpcId: 'rpc-latest' } })
@@ -842,15 +865,16 @@ test('session 重生成入口读取完整故事，失效的正文 ID 不改选�
   const full = h.options.chats.forSession
   h.options.chats.forSession = async (...args) => { fullReads++; return full(...args) }
 
-  await assert.rejects(h.create().regenerate(undefined, '', 'session', 'stale-body-id'), /正文已变化/)
+  await h.create().regenerate(undefined, '', 'session')
 
   assert.equal(headerReads, 0)
   assert.ok(fullReads > 0)
-  assert.equal(h.calls.filter(call => call === 'followup').length, 0)
+  assert.equal(h.calls.filter(call => call === 'followup').length, 1)
+  assert.equal(h.agent.input.content[0].text, '推门')
   assert.equal(h.chat.messages.at(-1).text, '最新输入')
 })
 
-test('正文 messageId 精确选择目标，失效 ID 不改选其他正文', async () => {
+test('重新生成始终选最新已提交正文，调用方附带的旧正文 ID 不改变目标', async () => {
   const h = harness()
   h.session.events[1].data.message.id = 'body-first'
   h.chat.messages.push({ role: 'user', text: '第二次输入' },
@@ -862,24 +886,15 @@ test('正文 messageId 精确选择目标，失效 ID 不改选其他正文', as
 
   await h.create().regenerate('chat', '', 'session', 'body-first')
 
-  assert.equal(h.agent.input.content[0].text, '推门')
-  assert.deepEqual(h.chat.messages.map(message => [message.role, message.text]), [
-    ['assistant', '开场'], ['user', '推门'], ['assistant', '新正文4'],
-    ['user', '第二次输入'], ['assistant', '第二旧正文']
-  ])
-  const before = structuredClone(h.chat)
-  const calls = h.calls.length
-  await assert.rejects(h.create().regenerate('chat', '', 'session', 'missing-body'), error => {
-    assert.equal(error.code, 'REGENERATION_TARGET_STALE')
-    return true
-  })
-  assert.deepEqual(h.chat, before)
-  assert.equal(h.calls.length, calls)
+  assert.equal(h.agent.input.content[0].text, '第二次输入')
+  assert.equal(h.chat.messages[2].text, '旧正文')
+  assert.equal(h.chat.messages.at(-2).text, '第二次输入')
+  assert.equal(h.chat.messages.at(-1).role, 'assistant')
+  assert.notEqual(h.chat.messages.at(-1).text, '第二旧正文')
 })
 
-test('native replacement failure after Chat commit keeps the new body and repairs the native tail',async()=>{
- const h=harness({checkpoint:true,journal:true});const append=h.session.append;let repaired=0
- h.options.repairNative=async()=>{repaired++}
+test('native replacement failure after Chat commit keeps the new body and never rewrites the tail',async()=>{
+ const h=harness({checkpoint:true,journal:true});const append=h.session.append
  h.session.append=function(type,data,intent){if(type==='assistant/message' && intent?.surfaceOp?.op==='replace')throw Error('disk/projection failure');return append.call(this,type,data,intent)}
  const view=await h.create().regenerate('chat','','session')
  h.session.append=append
@@ -887,7 +902,6 @@ test('native replacement failure after Chat commit keeps the new body and repair
  assert.equal(h.chat.messages.at(-1).text,view.adopted.text)
  assert.ok(!h.chat.regenInProgress && !h.chat.regenRecovery)
  assert.equal(h.chat.nativeSync.status,'stale')
- assert.equal(repaired,1)
 })
 
 test('failed regeneration must preserve a Guide saved while model is running',async()=>{

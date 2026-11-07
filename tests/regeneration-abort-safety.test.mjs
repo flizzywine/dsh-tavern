@@ -64,14 +64,13 @@ test('failed native flush leaves the intact story untouched and marks the native
  const chats=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
  const before=await chats.write({id:'chat',messages:[{role:'user',text:'input'},{role:'assistant',text:'original-body'}]})
  await chats.update('chat',c=>({...c,regenInProgress:true,regenRecovery:{id:'op',candidateTurn:2,candidateFrame:{kind:'foreground'}}}))
- const f=fixture();const repairs=[]
- const recovery=createRegenerationRecovery({chats,timeline:createStoryTimeline(),isActive:()=>false,sessions:{flush:async()=>{throw Error('flush failed')}},repair:async id=>repairs.push(id)})
+ const f=fixture()
+ const recovery=createRegenerationRecovery({chats,timeline:createStoryTimeline(),isActive:()=>false,sessions:{flush:async()=>{throw Error('flush failed')}}})
  await recovery.abort({chatId:'chat',originalChat:before,session:f.session,eventStart:f.eventStart,operationId:'op'})
  const after=await chats.read('chat')
  assert.equal(after.regenInProgress,undefined)
  assert.deepEqual(after.messages,before.messages)
  assert.equal(after.nativeSync.status,'stale')
- assert.deepEqual(repairs,[f.session.id])
 })
 
 test('a later normal input keeps the save as it is and only ends the marker',async t=>{

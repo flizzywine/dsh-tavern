@@ -308,6 +308,9 @@ export function createTurnOrchestrator(options) {
   const projectWorldBookTemplates = typeof options.projectWorldBookTemplates === 'function'
     ? options.projectWorldBookTemplates
     : async function () { return { context: '', refs: [], diagnostics: [] } }
+  const resolvePreset = typeof options.resolvePreset === 'function'
+    ? options.resolvePreset
+    : async function (chat) { return chat?.runtimePresetSnapshot ?? null }
   const shellToolName = options.shellToolName === 'pwsh' ? 'pwsh' : 'bash'
 
   // Story preparation reads only the floors its world book and templates use.
@@ -374,6 +377,9 @@ export function createTurnOrchestrator(options) {
 
   async function prepare(input) {
     let chat = await contextForSession(input.sessionId)
+    // Regeneration asks for the same preparation a normal send would do, but
+    // owns no story rows yet. Build that request from the live save and current
+    // preset/worldbook without writing placeholders, checkpoints or frame state.
     if (chat === undefined) {
       return {
         ready: false,
@@ -382,10 +388,16 @@ export function createTurnOrchestrator(options) {
         text: promptSection('tavern_state', PROMPT_PROSE.p002)
       }
     }
-    // Candidate-first regeneration reuses the original round's frozen frame.
-    // It must not append a synthetic user, reopen a body operation, render input
-    // macros or write world/template state into the authoritative story.
-    if (chat.regenInProgress === true && chat.regenRecovery?.candidateFrame?.kind === 'foreground') {
+    const preview = input.preview === true
+    if (preview) {
+      chat = structuredClone(chat)
+      if (!Object.hasOwn(input, 'runtimePresetSnapshot')) {
+        input = { ...input, runtimePresetSnapshot: await resolvePreset(chat, { preview: true }) }
+      }
+    }
+    // Candidate-first regeneration reuses the frozen frame captured for it.
+    // A preview must always plan from current state, never from a remembered one.
+    if (!preview && chat.regenInProgress === true && chat.regenRecovery?.candidateFrame?.kind === 'foreground') {
       const frame = clone(chat.regenRecovery.candidateFrame)
       return {
         ready: true,
@@ -397,10 +409,12 @@ export function createTurnOrchestrator(options) {
     }
     let preparationBase = store.writeChatHeader ? captureChatHeader(chat) : null
     async function savePreparation(metadata) {
+      if (preview) return
       if (store.writeChatHeader) preparationBase = await store.writeChatHeader(chat,preparationBase,metadata)
       else await store.writeChat(chat,metadata)
     }
     async function saveStoryPreparation() {
+      if (preview) return
       const operation = foregroundOperation && chat.timeline?.operations?.[foregroundOperation.operationId]
       if (!operation) return savePreparation({ source: 'foreground.prepare' })
       // A repeated prepare reuses both its frame and the rows created by the
@@ -469,7 +483,7 @@ export function createTurnOrchestrator(options) {
     const mode = chat.mode || 'story'
     // Native composer submissions arrive here without the page's pre-generate RPC.
     // Persist their input before planning too; an existing RPC row is a no-op.
-    if (['story', 'script'].includes(mode) && requestId && (userText || inputAttachments(input.userContent).length)) {
+    if (!preview && ['story', 'script'].includes(mode) && requestId && (userText || inputAttachments(input.userContent).length)) {
       const exists = chat.messages.some(row => row?.role === 'user' && str(row.source?.rpcId).trim() === requestId)
       if (!exists) {
         await appendUser({ sessionId: input.sessionId, requestId, userText, userContent: input.userContent })
@@ -490,7 +504,7 @@ export function createTurnOrchestrator(options) {
       const begun = timeline.apply({ chat: { ...chat, messages: [] }, intent: { kind: 'body.begin', turn, userText } })
       chat = { ...begun.chat, messages: chat.messages }
       foregroundOperation = begun.value
-      const cachedFrame = rememberedFrame(chat, foregroundOperation.operationId)
+      const cachedFrame = preview ? null : rememberedFrame(chat, foregroundOperation.operationId)
       if (cachedFrame !== null) {
         if (chatChanged) await savePreparation({ source: 'foreground.prepare' })
         return {
@@ -528,7 +542,7 @@ export function createTurnOrchestrator(options) {
       const promptOnly = regexScripts.filter(script => script?.promptOnly === true)
       runtimeUserText = projectBackgroundInput(runtimeUserText, regexScripts.filter(script => script?.promptOnly !== true), 1).text
       if (typeof options.projectUserTemplate === 'function' && runtimeUserText !== '') {
-        const projected = await options.projectUserTemplate({chat,card,turn,text:runtimeUserText})
+        const projected = await options.projectUserTemplate({ chat, card, turn, text: runtimeUserText, preview })
         runtimeUserText = projected.message.text
         stageTemplateInput(chat, turn, userText, projected)
       }
@@ -581,8 +595,10 @@ export function createTurnOrchestrator(options) {
     const foregroundWorldBook = typeof options.projectForegroundWorldbook === 'function'
       ? await options.projectForegroundWorldbook({ chat, card, turn, userText: runtimeUserText, requestKey: foregroundOperation.operationId }) : null
     if (typeof options.projectForegroundWorldbook === 'function') {
-      chat = await contextForSession(input.sessionId)
-      if (chat && store.writeChatHeader) preparationBase = captureChatHeader(chat)
+      if (!preview) {
+        chat = await contextForSession(input.sessionId)
+        if (chat && store.writeChatHeader) preparationBase = captureChatHeader(chat)
+      }
       const current = chat && timeline.inspect({ chat })
       if (!current || current.branchId !== foregroundOperation.basedOn.branchId || current.revision !== foregroundOperation.basedOn.revision ||
           current.operations[foregroundOperation.operationId]?.status !== 'running') throw new Error('剧情已变化，本次正文准备已过期')
@@ -632,7 +648,7 @@ export function createTurnOrchestrator(options) {
       source
     }
     let frame = frameBuilder.build(frameInput)
-    if (foregroundWorldBook?.log && typeof options.recordWorldbookRecall === 'function') {
+    if (!preview && foregroundWorldBook?.log && typeof options.recordWorldbookRecall === 'function') {
       let receipt
       try { receipt = { recallLog: await options.recordWorldbookRecall({ chat, frame, log: foregroundWorldBook.log }) } }
       catch (error) { receipt = { recallLogError: String(error?.message || error) } }
@@ -1151,5 +1167,9 @@ export function createTurnOrchestrator(options) {
     return chat === undefined || chat === null ? null : (chat.mode || 'story')
   }
 
-  return Object.freeze({ appendUser, prepare, saveChanges, stageChanges, finalize, recordFailure, discard, visibleTools, modeFor })
+  async function preview(input) {
+    return await prepare({ ...(input || {}), preview: true })
+  }
+
+  return Object.freeze({ appendUser, prepare, preview, saveChanges, stageChanges, finalize, recordFailure, discard, visibleTools, modeFor })
 }

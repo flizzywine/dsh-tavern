@@ -40,11 +40,11 @@ test('concurrent reconciles share one run, and once-only reconciles stop after a
   assert.deepEqual(h.writes, [])
 })
 
-test('a failed native repair marks the save stale once, for the next open to retry', async () => {
+test('a failed native seed marks the save stale once, for the next fork to retry', async () => {
   const h = harness({ chat: { id: 'game', mode: 'story', messages: [] } })
   const warn = test.mock.method(console, 'warn', () => {})
-  assert.equal(await h.service.repairNativeStory('story', null, '正文不一致'), null)
-  assert.equal(await h.service.repairNativeStory('story', null, '正文不一致'), null)
+  assert.equal(await h.service.seedNativeStory('story', null, '正文不一致'), null)
+  assert.equal(await h.service.seedNativeStory('story', null, '正文不一致'), null)
   warn.mock.restore()
   assert.equal(h.saved().nativeSync.status, 'stale')
   assert.equal(h.saved().nativeSync.reason, '正文不一致')

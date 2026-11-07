@@ -91,12 +91,24 @@ function tavernStoryTranscriptStreamText(partial) {
 // message. Missing rows stay missing: the prepare revision must create them.
 // A live partial may also overlay a regenerated committed row; a retained
 // post-step partial is restricted to rows still marked placeholder=true.
-function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn, allowCommitted) {
-	if (!partial || !Number.isInteger(storyTurn)) return rows
+// A body regeneration names its target by messageUid: the story view carries no
+// regeneratedDshTurns, so the native partial turn cannot identify the row. When
+// messageUid is given only that exact row may be overlaid — rows sharing the
+// story turn, and the turn hint itself, stay untouched.
+function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn, allowCommitted, messageUid) {
+	if (!partial) return rows
 	const source = Array.isArray(rows) ? rows : []
-	const index = source.findLastIndex(function (row) {
-		return row && row.role === 'assistant' && (row.legacyTurn === storyTurn || Number(row.message && row.message.turn) === storyTurn)
-	})
+	const streamUid = typeof messageUid === 'string' && messageUid !== '' ? messageUid : null
+	let index = -1
+	if (streamUid !== null) {
+		index = source.findLastIndex(function (row) {
+			return row && row.role === 'assistant' && row.messageUid === streamUid
+		})
+	} else if (Number.isInteger(storyTurn)) {
+		index = source.findLastIndex(function (row) {
+			return row && row.role === 'assistant' && (row.legacyTurn === storyTurn || Number(row.message && row.message.turn) === storyTurn)
+		})
+	}
 	if (index < 0 || (!allowCommitted && source[index].streaming !== true)) return rows
 	const calls = Array.isArray(runningCalls) ? runningCalls : []
 	const latestCall = calls.length ? calls[calls.length - 1] : null

@@ -143,3 +143,18 @@ test('the session view publishes the host-decided stage switches of the card, no
   const plain = await projectionFixture().projection.project.full(f.chat)
   assert.deepEqual(plain.stage, { dialogue: false, stage: false }, 'without a stage runtime no card has the stage')
 })
+
+test('a body regeneration publishes the target story row UID, never on a settled chat', async () => {
+  const f = projectionFixture()
+  const regenerating = await f.projection.project.full({ ...f.chat, regenInProgress: true,
+    regenRecovery: { targetMessageUid: 'uid-2' } })
+  assert.equal(regenerating.streamingMessageUid, 'uid-2', '生成中的视图必须带目标故事行 UID')
+  const settled = await f.projection.project.full({ ...f.chat, regenInProgress: false,
+    regenRecovery: { targetMessageUid: 'uid-2' } })
+  assert.equal(settled.streamingMessageUid, null, '生成结束后不得残留流标记')
+  const idle = await f.projection.project.full(f.chat)
+  assert.equal(idle.streamingMessageUid, null)
+  const blank = await f.projection.project.full({ ...f.chat, regenInProgress: true,
+    regenRecovery: { targetMessageUid: '' } })
+  assert.equal(blank.streamingMessageUid, null, '空 UID 不是流目标')
+})

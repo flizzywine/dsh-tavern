@@ -86,7 +86,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         const candidate = candidates.getSnapshot();
         return once(pendingBodies, panel.sessionId, async () => {
             try {
-                const result = await rpc("regenBody", Object.assign({ guidance: text, messageId: panel.messageId }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
+                const result = await rpc("regenBody", Object.assign({ guidance: text }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
                 applyBodyResult(panel.sessionId, result.view, panel.tail);
                 // A truncated attempt keeps the text it did write; say so instead of
                 // letting the shortened body pass for a finished reply.
@@ -104,13 +104,12 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     // panel state, so nothing opens and the composer keeps its own feedback.
     function submitBodyRegeneration(sessionId, options, guidance) {
         const tail = options && options.tail ? options.tail : null;
-        const messageId = options && typeof options.messageId === "string" ? options.messageId : "";
         const text = String(guidance || "").trim();
         if (text) guidanceBySession.set(sessionId, text); else guidanceBySession.delete(sessionId);
         return once(pendingBodies, sessionId, async () => {
             const candidate = candidates.getSnapshot();
             try {
-                const result = await rpc("regenBody", { guidance: text, messageId }, sessionId);
+                const result = await rpc("regenBody", { guidance: text }, sessionId);
                 applyBodyResult(sessionId, result.view, tail);
                 if (result && result.view && result.view.regenerationWarning) reportError("重新生成提示", new Error(result.view.regenerationWarning));
                 if (candidates.getSnapshot() === candidate) candidates.set(null);
