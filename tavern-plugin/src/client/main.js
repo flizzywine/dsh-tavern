@@ -1352,6 +1352,7 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.createTavernPanelRegistry = createTavernPanelRegistry;
 		exports.createTavernCardAppPresence = createTavernCardAppPresence;
 		exports.createTavernCardAppDock = createTavernCardAppDock;
+		exports.installFrameStorageBridge = installFrameStorageBridge;
 		exports.createTavernHelperScriptRuntime = createTavernHelperScriptRuntime;
 		exports.ensureTavernHostJQuery = ensureTavernHostJQuery;
 		exports.ensureTavernHostJQueryUi = ensureTavernHostJQueryUi;

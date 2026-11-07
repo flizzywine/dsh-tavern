@@ -68,7 +68,7 @@ function StatusPanelView(p) {
             view.foregroundError ? h("div", { className: "fork-status-alert", "data-kind": "error" }, h("span", null, view.foregroundError.message || "正文生成失败，请重新生成本轮。"), debugButton) : null,
             (view.presentationWarnings || []).map(function (warning, index) { return h("div", { key: "w" + index, className: "fork-status-alert", "data-kind": "warn" }, h("span", null, warning)); }),
 
-            h(TavernCardAppDock, { sessionId: p.props.sessionId }),
+            h(TavernCardAppDock, { key: p.props.sessionId, sessionId: p.props.sessionId, active: p.props.active !== false }),
             h("div", { className: "fork-status-card" },
                 h(TavernPersistentStatusRuntime, { sessionId: p.props.sessionId, view: view, executeSlash: p.props.executeSlash,
                     panels: view.statusBarPlacement === "body" ? "pinned" : "all", section: true })),

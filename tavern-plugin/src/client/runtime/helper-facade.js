@@ -7,11 +7,11 @@
 			function deliverEvent(data) {
 				if (!contextReady) { onEvent(data); return; }
 				const eventId = String(data.eventId || "");
-				waitingEvents.add(eventId);
-				contextReady.then(function () { waitingEvents.delete(eventId); onEvent(data); }, function (error) {
-					waitingEvents.delete(eventId);
+				if (eventId) waitingEvents.add(eventId);
+				contextReady.then(function () { if (eventId) waitingEvents.delete(eventId); onEvent(data); }, function (error) {
+					if (eventId) waitingEvents.delete(eventId);
 					// Without a usable context the handlers must not run; say so instead of going silent.
-					post({ type: "dsh-tavern-helper-event-complete", eventId: eventId, error: "上下文同步失败：" + String(error && error.message || error), errorCode: "TAVERN_HELPER_CONTEXT_FAILED", args: copy(data.args || []) });
+					if (eventId) post({ type: "dsh-tavern-helper-event-complete", eventId: eventId, error: "上下文同步失败：" + String(error && error.message || error), errorCode: "TAVERN_HELPER_CONTEXT_FAILED", args: copy(data.args || []) });
 				});
 			}
 			function post(message) { parent.postMessage(Object.assign({}, message, { token: token }), "*"); }
@@ -65,7 +65,7 @@
 			const { currentScript, withScript, reportSubscriptions, post } = options;
 			const listeners = Object.create(null);
 			function eventName(name) {
-				const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED", generation_after_commands: "GENERATION_AFTER_COMMANDS", generate_before_combine_prompts: "GENERATE_BEFORE_COMBINE_PROMPTS" };
+				const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED", generation_started: "GENERATION_STARTED", generation_stopped: "GENERATION_STOPPED", generation_ended: "GENERATION_ENDED", generation_after_commands: "GENERATION_AFTER_COMMANDS", generate_before_combine_prompts: "GENERATE_BEFORE_COMBINE_PROMPTS" };
 				return aliases[String(name)] || String(name);
 			}
 			function removeEventEntry(name, entry) {
@@ -111,16 +111,22 @@
 			}
 			async function emitHostEvent(eventId, name, args) {
 				name = eventName(name);
-				const items = listeners[name] ? Array.from(listeners[name]) : [];
+				// A synthetic empty CHAT_CHANGED resets Official MVU's last-chat guard while
+				// keeping the real chatId; companion UIs must not treat it as leaving the chat.
+				const mvuResetOnly = name === "CHAT_CHANGED" && Array.isArray(args) && args[0] === ""
+					&& Boolean(options.context && String(options.context()?.chatId || ""));
+				const items = (listeners[name] ? Array.from(listeners[name]) : []).filter(function (entry) {
+					return !mvuResetOnly || entry.scriptId === "__dsh_official_mvu__";
+				});
 				for (const entry of items) {
-					post({ type: "dsh-tavern-helper-event-progress", eventId: eventId, scriptId: entry.scriptId, phase: "started" });
+					if (eventId) post({ type: "dsh-tavern-helper-event-progress", eventId: eventId, scriptId: entry.scriptId, phase: "started" });
 					try { await invokeEventEntry(name, entry, args); }
 					catch (error) {
 						if (error && typeof error === "object" && !error.dshTavernScriptId) error.dshTavernScriptId = entry.scriptId;
-						post({ type: "dsh-tavern-helper-event-progress", eventId: eventId, scriptId: entry.scriptId, phase: "failed" });
+						if (eventId) post({ type: "dsh-tavern-helper-event-progress", eventId: eventId, scriptId: entry.scriptId, phase: "failed" });
 						throw error;
 					}
-					post({ type: "dsh-tavern-helper-event-progress", eventId: eventId, scriptId: entry.scriptId, phase: "completed" });
+					if (eventId) post({ type: "dsh-tavern-helper-event-progress", eventId: eventId, scriptId: entry.scriptId, phase: "completed" });
 				}
 			}
 			function off(name, handler) {
