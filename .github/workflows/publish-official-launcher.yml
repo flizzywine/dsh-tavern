@@ -31,7 +31,9 @@ jobs:
           version=$(node -p "require('./$source/package.json').version")
           tag="launcher-v$version"
           cdn_tag="launcher-cdn-v$version"
-          archive=$(npm pack "./$source" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP")
+          packed=$(npm pack "./$source" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP")
+          archive="dsh-tavern-$version.tgz"
+          mv "$RUNNER_TEMP/$packed" "$RUNNER_TEMP/$archive"
           node .github/scripts/check-runtime-archive.mjs "$RUNNER_TEMP/$archive"
           # jsDelivr can serve the small artifact tree behind this tag.
           if git show-ref --verify --quiet "refs/tags/$cdn_tag"; then
@@ -54,5 +56,5 @@ jobs:
             cmp "$RUNNER_TEMP/$archive" "$RUNNER_TEMP/launcher-release/$archive"
           else
             gh release create "$tag" "$RUNNER_TEMP/$archive" --target "$GITHUB_SHA" --latest=false \
-              --title "DSH Tavern Launcher $version" --notes 'Launcher for official DeepSeek Harness on Windows and macOS. Install it into the original desktop profile, then use Settings → Tavern Launcher to install Tavern.'
+              --title "dsh-tavern $version" --notes 'Launcher for official DeepSeek Harness on Windows and macOS. Install it into the original desktop profile, then use Settings → dsh-tavern to install Tavern.'
           fi
