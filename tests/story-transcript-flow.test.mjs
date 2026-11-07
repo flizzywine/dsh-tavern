@@ -139,6 +139,41 @@ test('玩家输入只来自持久故事行，准备、失败和提交始终保�
 	assert.equal([...p.dom.window.document.querySelectorAll('.dsh-tavern-user-bubble')].filter(node => node.textContent === '立即显示输入').length, 1)
 })
 
+test('撤回后故事气泡立即消失，重发与重新读取不会重复', async t => {
+	const p = page(t), { context } = p
+	const tail = { role: 'user', text: '6', sourceText: '6', native: true, placeholder: true,
+		source: { kind: 'user', rpcId: 'rpc-6' } }
+	let current = [...messages, tail], revision = 0
+	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({
+		storyTranscript: transcript(current, ++revision), view: { mode: 'story' }, revision: revision
+	}) })
+	const store = data.createStoryTranscriptStore(), mode = data.createModeStore()
+	await store.read('s1')
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode,
+		externalHistory: { refresh() {}, dispose() {} } })
+	const session = { running: false, pendingSubmissions: [{ requestId: 'rpc-6', text: '6' }] }
+	const chat = { legacy: { partial: null, nodes: [{ kind: 'user', content: '6', source: { kind: 'user', rpcId: 'rpc-6' } }], runningCalls: [] } }
+	const flow = () => React.createElement(feature.StoryTranscriptFlow, {
+		sessionId: 's1', store, nativeFlow: () => null,
+		useChat: selector => selector(chat), useSession: selector => selector(session)
+	})
+	await mount(p, flow())
+	const bubbles = () => [...p.dom.window.document.querySelectorAll('.dsh-tavern-user-bubble')].filter(node => node.textContent === '6')
+	assert.equal(bubbles().length, 1, 'placeholder 玩家行在生成期间正常显示，原生回声不再画一次')
+	async function refresh(next) {
+		current = next
+		await act(async () => {
+			p.dom.window.dispatchEvent(new p.dom.window.CustomEvent('dsh-tavern-story-mutated', { detail: { sessionId: 's1' } }))
+		})
+	}
+	await refresh(messages)
+	assert.equal(bubbles().length, 0, '撤回事件重读后，持久用户行和气泡一起消失')
+	await refresh([...messages, { ...tail, placeholder: undefined }, { role: 'assistant', turn: 10, text: '新正文' }])
+	assert.equal(bubbles().length, 1, '重发只保留新提交的一条用户行')
+	await act(async () => { await store.read('s1', { force: true }) })
+	assert.equal(bubbles().length, 1, '重新读取存档仍只有一个气泡')
+})
+
 
 test('旧原生偏好在初始化时恢复故事楼层', async t => {
 	const p = page(t), { context } = p

@@ -97,6 +97,8 @@ export async function surfaceRecoveryChecks({ page, step, savedChat, output, rep
     await composer.press('Enter')
     await completed('重试后第二轮正文。', 2)
     const chat = await savedChat()
+    assert.equal(chat.messages.filter(message => message.role === 'user' && message.text === 'E2E 原样重试输入').length, 1,
+      '撤回再发送只保留一条持久用户输入')
     assert.equal(chat.messages.filter(message => message.role === 'user').at(-1).text, 'E2E 原样重试输入')
     // Restart gets a new origin and must reselect the saved game from the
     // desktop history navigator; recovery interactions remain touch/narrow.

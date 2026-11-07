@@ -9,7 +9,7 @@ import { createRegenerationRecovery } from './regeneration-recovery.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
-import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, hasConflictingRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn, anchoredToSaveRow, unansweredTailIndex, surfaceTurnOfSeq } from './rollback-surface.js'
+import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, hasConflictingRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn, replayablePersistedTurn, anchoredToSaveRow, unansweredTailIndex, surfaceTurnOfSeq } from './rollback-surface.js'
 
 // Both regeneration paths (native and plugin) read the same tail rule.
 export { unansweredTailIndex }
@@ -894,17 +894,37 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const agent = sessions.get(chat.sessionId) || (restoredAgent?.session?.id === chat.sessionId ? restoredAgent : undefined)
     const session = agent?.session || sessions.getSession?.(chat.sessionId)
     if (!session) throw new Error('无法访问 DSH 会话: ' + chat.sessionId)
-    let availability = rollbackAvailability(chat, { events: sessionEvents(session), nodes: session.surface?.nodes || [] })
     const events = sessionEvents(session)
     const nodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
-    const failedTurns = availability.failedTurns
-    if (failedTurns.length) {
-      for (const turn of availability.unclearedTurns) clearFailedTurnSurface({ session, turn })
+    let availability = rollbackAvailability(chat, { events, nodes })
+    // Player input is persisted before Session acceptance. Withdrawing that tail must
+    // remove its story row as well as any native failure, never roll back the previous
+    // completed round merely because it is the latest assistant/user pair.
+    const persistedTail = replayablePersistedTurn(chat, { events, nodes })
+    const failedTurns = persistedTail?.turn > 0
+      ? [...new Set([...availability.failedTurns, persistedTail.turn])].sort((a, b) => a - b)
+      : availability.failedTurns
+    const unclearedTurns = persistedTail?.turn > 0
+      ? [...new Set([...(availability.unclearedTurns || []), persistedTail.turn])].sort((a, b) => a - b)
+      : (availability.unclearedTurns || [])
+    if (failedTurns.length || persistedTail) {
+      for (const turn of unclearedTurns) clearFailedTurnSurface({ session, turn })
       chat = await updateChat(chat.id, current => {
         // Clearing only hides uncommitted residue. The failed turn's own deferred
         // bookkeeping may still be landing in the timeline; only story text must hold.
         assertRollbackSnapshot(rollbackBodyMessages(current), rollbackBodyMessages(originalChat))
-        const next = { ...current, suppressedDshTurns: [...new Set([...(current.suppressedDshTurns || []), ...failedTurns])].sort((a, b) => a - b), updatedAt: Date.now() }
+        const next = { ...current, suppressedDshTurns: [...new Set([...(current.suppressedDshTurns || []), ...failedTurns])].sort((a, b) => a - b), foregroundError: null, updatedAt: Date.now() }
+        if (persistedTail) {
+          const currentTail = replayablePersistedTurn(current)
+          const originalRequestId = str(originalChat.messages[persistedTail.messageIndex]?.source?.rpcId)
+          if (!currentTail || currentTail.messageIndex !== persistedTail.messageIndex || currentTail.userText !== persistedTail.userText
+            || (originalRequestId && str(current.messages[persistedTail.messageIndex]?.source?.rpcId) !== originalRequestId)) {
+            throw new Error('待撤回输入已变化，请刷新后重试')
+          }
+          const messages = [...current.messages]
+          messages.splice(persistedTail.messageIndex, 1)
+          next.messages = messages
+        }
         if (current.userInputEdits && typeof current.userInputEdits === 'object' && !Array.isArray(current.userInputEdits)) {
           const edits = { ...current.userInputEdits }
           let changed = false
@@ -915,12 +935,17 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       }, { source: 'rollback.interrupted' })
       const result = await view(chat, card)
       result.clearedIncompleteTurns = failedTurns
-      // The failed input never reached the story; hand it back so the player can edit and resend it.
-      // A failed-turn edit is stored as a Chat overlay; return that text when present.
-      const tail = replayableFailedTurn({ events })
-      if (tail && failedTurns.includes(tail.turn)) result.clearedInput = chat.userInputEdits && typeof chat.userInputEdits === 'object'
-        && chat.userInputEdits[String(tail.turn)] && typeof chat.userInputEdits[String(tail.turn)].text === 'string'
-        ? chat.userInputEdits[String(tail.turn)].text : tail.userText
+      // A persisted row is authoritative when both representations exist: an older
+      // native failure must not put the wrong text back into the composer.
+      if (persistedTail) result.clearedInput = persistedTail.userText
+      else {
+        // The failed input never reached the story; hand it back so the player can edit and resend it.
+        // A failed-turn edit is stored as a Chat overlay; return that text when present.
+        const tail = replayableFailedTurn({ events })
+        if (tail && failedTurns.includes(tail.turn)) result.clearedInput = chat.userInputEdits && typeof chat.userInputEdits === 'object'
+          && chat.userInputEdits[String(tail.turn)] && typeof chat.userInputEdits[String(tail.turn)].text === 'string'
+          ? chat.userInputEdits[String(tail.turn)].text : tail.userText
+      }
       return result
     }
     if (!hasRollbackRound(chat)) throw new Error(availability.reason || '当前没有可回退的已提交轮次')
@@ -1049,6 +1074,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (![chats.readRecent, chats.patch, chats.changedSince, chats.rowsAt].every(fn => typeof fn === 'function')) return undefined
     const chat = await chats.readRecent(reference.id)
     if (!chat || !isScopedMessages(chat.messages) || !['story', 'script'].includes(chat.mode || 'story')) return undefined
+    // A persisted unanswered tail owns the withdrawal. Let the complete path remove
+    // that row; the bounded round rollback would otherwise target the previous pair.
+    if (replayablePersistedTurn(chat)) return undefined
     const agent = sessions.get(chat.sessionId) || (restoredAgent?.session?.id === chat.sessionId ? restoredAgent : undefined)
     const session = agent?.session || sessions.getSession?.(chat.sessionId)
     if (!session) return undefined

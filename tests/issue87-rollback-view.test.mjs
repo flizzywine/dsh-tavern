@@ -55,3 +55,18 @@ test('末尾持久输入在会话视图中标记为待回复的失败尾，可�
   assert.equal(beforeNativeTurn.failedTailPersisted, true)
   assert.equal(beforeNativeTurn.failedTailTurn, 0)
 })
+
+test('尚未进入原生轮的 placeholder 持久输入也提供撤回入口', () => {
+  const session = { surface: { nodes: [] } }
+  const fields = createSessionStateView({ activity: () => ({ busy: false }),
+    evidence: () => ({ session, events: [] }) })
+  const chat = {
+    id: 'c', sessionId: 's', mode: 'story', _storageRevision: 2,
+    foregroundError: null,
+    messages: [{ role: 'assistant', turn: 2, text: '上一轮正文' },
+      { role: 'user', text: '6', native: true, placeholder: true }]
+  }
+  const view = fields.volatile(projectChatSessionState(chat), { busy: false })
+  assert.equal(view.failedTailPersisted, true)
+  assert.equal(view.failedTailTurn, 0)
+})

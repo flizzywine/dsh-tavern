@@ -439,6 +439,9 @@
 		async function withdrawFailedTavernTurn(sessionId, inputActions, currentDraft) {
 			const result = await rpc("rollbackTurn", { expectedTurn: null }, sessionId) || {};
 			historyProjection.rolledBack(sessionId, result.view);
+			// The story transcript reads Chat.messages, not the native rows hidden above.
+			// Re-read it now so the withdrawn persisted bubble leaves before a page reload.
+			window.dispatchEvent(new CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: sessionId } }));
 			setCandidatePanel(null); setRegenPanel(null); setCandidateGuidePanel(null);
 			const text = String(result.view && result.view.clearedInput || "");
 			if (text.trim() !== "") {

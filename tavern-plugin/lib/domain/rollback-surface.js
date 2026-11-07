@@ -570,12 +570,16 @@ export function unansweredTailIndex(chat) {
 // A native tail user with no assistant after it is an unfinished story input,
 // regardless of whether the provider failure itself was persisted. Never fall
 // through to an earlier assistant/user pair: that pair is already complete.
-export function replayablePersistedTurn(chat) {
+export function replayablePersistedTurn(chat, { events = [], nodes = [] } = {}) {
   if (!['story', 'script'].includes(chat?.mode || 'story')) return null
   const failure = object(chat?.foregroundError)
   const messages = Array.isArray(chat?.messages) ? chat.messages : []
   const message = object(messages[messages.length - 1])
-  if (message?.role !== 'user' || message.native !== true || message.placeholder === true) return null
+  // appendUser persists a placeholder before Session acceptance. If submission
+  // fails before prepare/discard, that flag is still present; it must not strand
+  // the only story row the player is trying to withdraw. A prepared assistant
+  // placeholder already follows the user row, so this tail check stays specific.
+  if (message?.role !== 'user' || message.native !== true) return null
   const hasText = typeof message.sourceText === 'string' || typeof message.text === 'string'
   const userText = typeof message.sourceText === 'string' ? message.sourceText : (typeof message.text === 'string' ? message.text : '')
   const attachments = Array.isArray(message.inputAttachments) ? structuredClone(message.inputAttachments) : []
@@ -585,14 +589,33 @@ export function replayablePersistedTurn(chat) {
   const failedTurn = Number(failure?.turn)
   const source = replayInputSource(message.source)
   if (!source.rpcId) source.rpcId = randomUUID()
-  return Object.freeze({
+  const target = {
     persisted: true,
     messageIndex: messages.length - 1,
     turn: Number.isSafeInteger(failedTurn) && failedTurn > 0 ? failedTurn : 0,
     userText,
     ...(attachments.length ? { inputAttachments: attachments } : {}),
     source
-  })
+  }
+  if (target.turn > 0) return Object.freeze(target)
+  // Deleting a completed reply leaves the same unanswered tail as a failed turn,
+  // but there is no foregroundError to supply its native turn. Identify only the
+  // visible tail input; an older answered input must never be cleaned in its place.
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const seq = Number(nodes[index])
+    const event = eventAt(events, seq)
+    if (event?.type === 'assistant/message' && modelSourceOf(event) !== null) break
+    if (!isNewPlayerInput(event)) continue
+    const eventRequest = typeof event.data?.source?.rpcId === 'string' ? event.data.source.rpcId.trim() : ''
+    const matches = eventRequest && source.rpcId ? eventRequest === source.rpcId
+      : userText.trim() !== '' && contentText(event.data) === userText.trim()
+    if (!matches) break
+    const start = events.findLast(item => item?.type === 'turn/start' && Number(item.seq) < seq)
+    const turn = surfaceTurnOfSeq(events, seq) || Number(start?.data?.turn) || 0
+    if (Number.isSafeInteger(turn) && turn > 0) target.turn = turn
+    break
+  }
+  return Object.freeze(target)
 }
 
 /** 存档行记着的原生位置就是这一条：投影/修复换了轮号也仍然是这一轮。 */
@@ -1076,7 +1099,7 @@ export function rollbackAvailability(chat, input = {}) {
 }
 
 export function failedTurnReplayAvailability({ chat = null, events = [], nodes = [], cleared = [] } = {}) {
-  const target = replayablePersistedTurn(chat) || replayableFailedTurn({ events })
+  const target = replayablePersistedTurn(chat, { events, nodes }) || replayableFailedTurn({ events })
   if (!target) return { target: null, reason: '当前没有待处理的失败回合' }
   // A persisted row disappears when the player withdraws it. The clearing marker
   // left behind must not hide a row that is still waiting for its first reply.

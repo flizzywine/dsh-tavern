@@ -558,6 +558,63 @@ for (const first of [true, false]) test(`请求 HTTP 500 且没有正文时仅�
   assert.deepEqual(h.chat.timeline, before.timeline)
 })
 
+for (const placeholder of [false, true]) for (const nativeFailure of [false, true]) test(`撤回已持久化的末尾输入只删除该输入，不误回退上一轮（placeholder=${placeholder}，原生失败轮=${nativeFailure}）`, async () => {
+  const h = harness({ checkpoint: true })
+  const previousMessages = structuredClone(h.chat.messages)
+  const previousTimeline = structuredClone(h.chat.timeline)
+  h.chat.messages.push({ role: 'user', text: '6', sourceText: '6', native: true, placeholder,
+    source: { kind: 'user', rpcId: 'rpc-withdraw' } })
+  h.chat.foregroundError = nativeFailure
+    ? { turn: 3, requestId: 'rpc-withdraw', code: 'content-filter', message: '生成失败' }
+    : null
+  if (nativeFailure) {
+    h.session.append('turn/start', { turn: 3 })
+    h.session.append('user/message', { role: 'user', content: [{ type: 'text', text: '6' }],
+      source: { kind: 'user', rpcId: 'rpc-withdraw' } }, { surfaceOp: 'append' })
+    h.session.append('turn/end', { turn: 3, reason: { kind: 'error', message: '生成失败' } })
+  }
+
+  const result = await h.create().rollback('session', 'chat')
+
+  assert.equal(result.clearedInput, '6')
+  assert.deepEqual(result.clearedIncompleteTurns, nativeFailure ? [3] : [])
+  assert.deepEqual(h.chat.messages, previousMessages, '故事列表和刷新读取的存档都不再包含撤回输入')
+  assert.deepEqual(h.chat.timeline, previousTimeline, '上一轮剧情与 checkpoint 不变')
+  assert.equal(h.chat.foregroundError, null)
+  assert.deepEqual(h.chat.suppressedDshTurns, nativeFailure ? [3] : [])
+  assert.equal(h.calls.includes('rollback'), false, '没有执行已提交轮次回退')
+  assert.equal(h.calls.includes('MESSAGE_DELETED'), false, '没有删除上一轮正文')
+})
+
+test('删除已完成 AI 正文后撤回，按尾部输入清理原生轮次', async () => {
+  const h = harness()
+  h.chat.messages.splice(1, 2, { role: 'user', turn: 2, text: '删正文后撤回', sourceText: '删正文后撤回', native: true,
+    source: { kind: 'user', rpcId: 'rpc-deleted-body' } })
+  h.session.events.splice(0)
+  h.session.surface.nodes.splice(0)
+  h.session.append('turn/start', { turn: 2 })
+  h.session.append('user/message', { turn: 2, role: 'user', content: [{ type: 'text', text: '删正文后撤回' }],
+    source: { kind: 'user', rpcId: 'rpc-deleted-body' } }, { surfaceOp: 'append' })
+  const replySeq = h.session.append('assistant/message', { turn: 2, step: 1, message: { role: 'assistant',
+    source: { kind: 'model', provider: 'fixture', model: 'fixture' }, content: [{ type: 'text', text: '已删除的正文' }] } }, { surfaceOp: 'append' })
+  h.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+  // deleteMessages 用空 tombstone 替换正文，但保留玩家输入和已完成 turn/end。
+  h.session.append('user/message', { id: 'delete-body', role: 'user', content: [], source: { kind: 'plugin:dsh-tavern', form: 'message-deletion' } },
+    { surfaceOp: { op: 'replace', start: replySeq, end: replySeq }, sourceEventSeqs: [replySeq] })
+
+  const result = await h.create().rollback('session', 'chat', null)
+
+  assert.equal(result.clearedInput, '删正文后撤回')
+  assert.deepEqual(result.clearedIncompleteTurns, [2])
+  assert.deepEqual(h.chat.messages.map(message => [message.role, message.text]), [['assistant', '开场']])
+  assert.deepEqual(h.chat.suppressedDshTurns, [2])
+  const visibleText = h.session.surface.nodes.flatMap(seq => {
+    const data = h.session.events[seq].data
+    return (data?.message?.content || data?.content || []).map(block => block.text || '')
+  })
+  assert.deepEqual(visibleText.filter(Boolean), [], '撤回后原生消息面不再保留该输入')
+})
+
 for (const absent of [false, true]) {
   for (const action of ['rollback', 'regenerate', 'failed-regenerate']) test(`剧情恢复聊天变量与元数据：${action}，历史缺省=${absent}`, async () => {
     const h = harness({ checkpoint: true, journal: true })
