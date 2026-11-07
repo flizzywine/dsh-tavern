@@ -101,7 +101,9 @@ export function createRegenerationRecovery({ chats, sessions, timeline, isActive
   function legacyEventStart(before, session) {
     const events = sessionEvents(session)
     const assistant = before.messages?.findLast(message => message.role === 'assistant' && !message.greeting)
-    const target = locateRegenerationSurface({ events, nodes: session.surface?.nodes || [], turn: assistant?.turn })
+    // 投影/修复写回的正文可能带着别的剧情轮号，按正文再认一次。
+    const target = locateRegenerationSurface({ events, nodes: session.surface?.nodes || [], turn: assistant?.turn,
+      texts: [assistant?.text, assistant?.sourceText, assistant?.projectionText] })
     if (!target) throw new Error('找不到原正文的原生消息，未修改当前对话')
     const attempt = events.find(event => event.seq > target.assistantSeq && isNewTurnInput(event) && inputKind(event.data) === 'regenerate')
     return attempt ? attempt.seq : events.length

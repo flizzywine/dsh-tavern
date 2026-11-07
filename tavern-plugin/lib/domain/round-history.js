@@ -9,7 +9,7 @@ import { createRegenerationRecovery } from './regeneration-recovery.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
-import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn } from './rollback-surface.js'
+import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn, anchoredToSaveRow } from './rollback-surface.js'
 import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
 import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration-diagnostics.js'
 import { assistantResultForTurn } from './session-turn-result.js'
@@ -703,11 +703,13 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     return index > 0 && msgs[index - 1]?.role === 'user'
   }
   // The native target is the save's latest round (directly or as its regenerated turn).
-  function surfaceShowsLatest(chat, availability) {
+  // 投影/修复写回的正文会带着别的剧情轮号，轮号对不上就改按正文认。
+  function surfaceShowsLatest(chat, availability, events) {
     const target = availability.target
     if (!target) return false
     const turn = latestStoryTurn(chat)
-    return !(turn > 0) || target.turn === turn || target.turn === Number(chat.regeneratedDshTurns?.[String(turn)])
+    if (!(turn > 0) || target.turn === turn || target.turn === Number(chat.regeneratedDshTurns?.[String(turn)])) return true
+    return anchoredToSaveRow(target, latestStoryRow(chat))
   }
 
   async function rollbackTurn(sessionId, chatId, expectedTurn) {
@@ -878,7 +880,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     if (!hasRollbackRound(chat)) throw new Error(availability.reason || '当前没有可回退的已提交轮次')
     // The native surface must still show the round: nothing is rewritten to make it.
-    const rollbackSurface = surfaceShowsLatest(chat, availability) ? availability.target : null
+    const rollbackSurface = surfaceShowsLatest(chat, availability, events) ? availability.target : null
     if (rollbackSurface === null) throw new Error(availability.target ? '该轮已不在当前模型上下文中，不能直接回退；历史正文仍可通过 history_recall 检索' : availability.reason)
     const hiddenTurn = rollbackSurface ? rollbackSurface.turn : latestStoryTurn(chat)
     const shadowedSeqs = rollbackSurface ? rollbackSurface.shadowedSeqs : []
@@ -968,6 +970,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     chat.regeneratedDshTurns = chat.regeneratedDshTurns && typeof chat.regeneratedDshTurns === 'object' && !Array.isArray(chat.regeneratedDshTurns)
       ? structuredClone(chat.regeneratedDshTurns) : {}
     delete chat.regeneratedDshTurns[String(hiddenTurn)]
+    // 写入方有两种口径（剧情轮号 / 原生轮号）；删的时候两种都清，免得留下过期映射把别的轮认成本轮。
+    for (const [key, value] of Object.entries(chat.regeneratedDshTurns)) {
+      if (Number(value) === Number(hiddenTurn)) delete chat.regeneratedDshTurns[key]
+    }
     chat.updatedAt = Date.now()
     chat = await updateChat(chat.id, current => {
       if (!isDeepStrictEqual(rollbackBodyMessages(current), rollbackBodyMessages(originalChat)) || current.timeline?.branchId !== originalChat.timeline?.branchId) throw new Error('回退期间正文已被其他操作修改，请刷新后重试')
@@ -1018,8 +1024,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (user === null || typeof user !== 'object' || user.role !== 'user') throw new Error('最后一组消息不是用户输入 + 正文')
     const expectedTurn = Number(msgs[assistantIndex].turn)
     if (Number(requestedTurn) > 0 && Number(requestedTurn) !== expectedTurn) throw new Error('回退目标已经变化，请刷新后确认实际轮次')
-    // The complete path repairs a surface that shows another round.
-    if (expectedTurn > 0 && hiddenTurn !== expectedTurn && hiddenTurn !== Number(regeneratedDshTurns[String(expectedTurn)])) return undefined
+    // The complete path repairs a surface that shows another round. 正文相同就还是这一轮：
+    // 投影/修复写回的条目可能带着别的剧情轮号。
+    if (expectedTurn > 0 && hiddenTurn !== expectedTurn && hiddenTurn !== Number(regeneratedDshTurns[String(expectedTurn)])
+      && !anchoredToSaveRow(rollbackSurface, msgs[assistantIndex])) return undefined
     const removedUserText = str(user.text).trim()
     const removedAssistantText = str(msgs[assistantIndex].text).trim()
     let rollbackCommitKey = ''

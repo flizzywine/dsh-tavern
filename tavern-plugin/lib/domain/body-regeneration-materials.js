@@ -57,11 +57,18 @@ export function captureBodyRegenerationSource({ chat, card, worldbookPrefix, sys
 
 /** Native regenerations keep the story turn but generate their frame in a later native turn. */
 export function findBodyRegenerationFrame(chat, turn) {
-  const nativeTurn = Number(chat?.regeneratedDshTurns?.[String(turn)]) || Number(turn)
-  return Object.values(object(chat?.foregroundFrames) ? chat.foregroundFrames : {}).reverse().find(frame =>
-    frame?.kind === 'foreground' && Number(frame.turn) === nativeTurn &&
-    (!frame.chatId || frame.chatId === chat.id) &&
-    (!frame.branchId || !chat.timeline?.branchId || frame.branchId === chat.timeline.branchId)) || null
+  const wanted = String(turn)
+  const mapped = Number(chat?.regeneratedDshTurns?.[wanted])
+  const nativeTurn = mapped || Number(turn)
+  const sameBranch = frame => !frame.chatId || frame.chatId === chat.id
+    ? (!frame.branchId || !chat.timeline?.branchId || frame.branchId === chat.timeline.branchId) : false
+  const frames = Object.values(object(chat?.foregroundFrames) ? chat.foregroundFrames : {}).reverse()
+  const matched = frames.find(frame => frame?.kind === 'foreground' && Number(frame.turn) === nativeTurn && sameBranch(frame))
+  if (matched) return matched
+  // 映射缺失（分叉/修复清掉过）时不能把剧情轮号当原生轮号用：按帧上记着的剧情轮号再认一次。
+  return frames.find(frame => frame?.kind === 'foreground' &&
+    (Number(frame.storyTurn ?? frame.turn) === Number(turn) || String(frame.regenerationMaterials?.storyTurn) === wanted) &&
+    sameBranch(frame)) || null
 }
 
 function hidden(row) {
@@ -164,7 +171,8 @@ function originalInput(chat, row, frame, turn) {
   // previous body. It is never the player's input and must not escape to plugins.
   const inputFrame = frame.userInput?.sourceText === raw ? frame
     : Object.values(object(chat.foregroundFrames) ? chat.foregroundFrames : {}).reverse().find(item =>
-      item?.kind === 'foreground' && item.userInput?.sourceText === raw && Number(item.turn) === Number(turn))
+      item?.kind === 'foreground' && item.userInput?.sourceText === raw
+      && (Number(item.turn) === Number(turn) || Number(item.storyTurn) === Number(turn)))
   if (!inputFrame || typeof inputFrame.userInput?.projectedText !== 'string') fail('本轮输入已变化或缺少原始输入快照，不能用重生成指令代替玩家输入')
   return { raw, projected: inputFrame.userInput.projectedText }
 }

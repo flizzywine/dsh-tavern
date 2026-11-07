@@ -2,6 +2,7 @@ import { randomUUID, createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { computeSceneTarget } from './scene-illustration.js'
 import { sessionEvents } from './session-events.js'
+import { isNewPlayerInput } from './session-turn-input.js'
 import { regenerationProjection, applyRegenerationProjection, failedTurnReplayAvailability } from './rollback-surface.js'
 import { assertRegenerationSourceCurrent } from './last-round-replacement.js'
 import { plainReplyProse, replyProse } from './reply-prose.js'
@@ -251,7 +252,8 @@ export function createPluginBodyRegeneration(deps) {
         signal?.throwIfAborted()
         if (agent.phase?.kind === 'running') throw error('TAVERN_PLUGIN_STALE_VERSION', '前台已开始新一轮')
         assertCurrent(current, original, index, operationId)
-        if (sessionEvents(session).length !== eventStart || (!failedMode && !session.surface.nodes.includes(oldSeq))) throw error('TAVERN_PLUGIN_STALE_VERSION', '模型会话已经变化')
+        // 别的插件/后台写几条上下文不算本轮失效：只要玩家没有新输入、旧正文还在面上。
+        if (playerInputSince(session, eventStart) || (!failedMode && !bodyStillOnSurface(session, oldSeq, oldTurn))) throw error('TAVERN_PLUGIN_STALE_VERSION', '模型会话已经变化')
         // Keep concurrent non-story settings; only story-owned fields come from
         // the detached rollback/commit. No hidden provider transcript is stored.
         for (const key of ['messages', 'timeline', 'foregroundFrames', ...INPUT_STATE_FIELDS, 'posture', 'ledger', 'candidates',
@@ -319,4 +321,28 @@ export function createPluginBodyRegeneration(deps) {
       throw cause
     } finally { pendingRegenerations.delete(chatId) }
   }
+}
+
+// The session grows while a provider streams (context frames, tool results). Only a
+// new player input means the round this generation belongs to is gone.
+function playerInputSince(session, eventStart) {
+  return sessionEvents(session).slice(eventStart).some(event => isNewPlayerInput(event))
+}
+
+// 被替换的那一行可能已经被投影/修复换了 seq：认轮，不认 seq。
+function bodyStillOnSurface(session, oldSeq, oldTurn) {
+  const nodes = session.surface?.nodes || []
+  if (nodes.includes(oldSeq)) return true
+  const events = sessionEvents(session)
+  return nodes.some(seq => {
+    const event = events.find(item => Number(item.seq) === Number(seq))
+    if (!event || event.type !== 'assistant/message') return false
+    const declared = Number(event.data?.message?.source?.tavernStoryTurn)
+    return Number(event.data?.turn) === Number(oldTurn) || (Number.isSafeInteger(oldTurn) && oldTurn > 0 && declared === Number(oldTurn))
+  })
+}
+
+function storyTurnOfEvent(event) {
+  const original = event?.type === 'assistant/message' ? event.data?.message?.source?.tavernStoryTurn : undefined
+  return Number.isSafeInteger(Number(original)) ? Number(original) : Number(event?.data?.turn)
 }

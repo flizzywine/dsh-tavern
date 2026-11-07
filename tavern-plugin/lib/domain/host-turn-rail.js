@@ -120,7 +120,11 @@ function stampOf(session) {
     const nodes = surface ? surface.nodes : undefined
     if (!Array.isArray(nodes)) return ''
     const generation = Number(surface.replaceGeneration)
-    return nodes.length + ':' + (nodes.length ? String(nodes[nodes.length - 1]) : '') + ':' + (Number.isSafeInteger(generation) ? generation : -1)
+    // 原位替换不改变节点数或尾节点号：把节点序列本身折进 stamp，否则裁掉/留下的是上一次的结果。
+    let digest = 5381
+    for (const node of nodes) digest = ((digest * 33) ^ Number(node)) >>> 0
+    return nodes.length + ':' + (nodes.length ? String(nodes[nodes.length - 1]) : '') + ':' +
+      (Number.isSafeInteger(generation) ? generation : -1) + ':' + digest
   } catch { return '' }
 }
 

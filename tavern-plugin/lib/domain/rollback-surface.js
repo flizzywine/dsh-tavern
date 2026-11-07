@@ -394,7 +394,10 @@ export function locateRegenerationSurface(input) {
   if (!Number.isSafeInteger(turn) || turn < 1) return null
   for (let index = nodes.length - 1; index >= 0; index -= 1) {
     const event = eventAt(events, nodes[index])
-    if (!event || event.type !== 'assistant/message' || storyEventTurn(event) !== turn) continue
+    if (!event || event.type !== 'assistant/message') continue
+    // 投影/修复写回的条目把剧情轮号记在 message.source 上，宿主给的位置轮号是另一个；
+    // 两个号任一命中就算这一轮，否则修复过的正文永远定位不到。
+    if (Number(event.data?.turn) !== turn && storyEventTurn(event) !== turn) continue
     const source = modelSourceOf(event)
     if (source === null) continue
     // Current swipes leave a non-empty replacement; legacy swipes can be empty.
@@ -521,6 +524,18 @@ export function replayablePersistedTurn(chat) {
   })
 }
 
+/** 存档行记着的原生位置就是这一条：投影/修复换了轮号也仍然是这一轮。 */
+export function anchoredToSaveRow(target, row) {
+  const reply = Number(row && row.nativeAnchor ? row.nativeAnchor.reply : NaN)
+  return Number.isSafeInteger(reply) && reply > 0 && reply === Number(target && target.assistantSeq)
+}
+
+/** 消息面上的正文文本：投影、修复写回的条目会带着别的轮号，正文本身才是它。 */
+export function surfaceReplyText({ events = [], seq } = {}) {
+  const event = eventAt(events, seq)
+  return event && event.type === 'assistant/message' ? contentText(event.data && event.data.message) : ''
+}
+
 export function locateRollbackSurface(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
@@ -616,11 +631,14 @@ export function planRegenerationSurface(input) {
   const ownership = createSurfaceOwnership(events)
   const end = regenerationAttemptEnd(events, eventStart)
   const attempt = ownership.classify(event => event.seq >= eventStart && event.seq < end)
+  // 尝试段按位置认（eventStart 之后、end 之前），不再要求来源可证：
+  // 投影/修复写回的节点归属常是 UNKNOWN，按归属判会把已产生的正文判成不存在。
+  const inAttempt = seq => Number(seq) >= eventStart && Number(seq) < end
   let finalAssistantSeq = null
   for (let index = nodes.length - 1; index > oldAssistantIndex; index--) {
     const seq = Number(nodes[index])
     const event = ownership.eventAt(seq)
-    if (attempt(seq) === OWNED && event?.type === 'assistant/message' && modelSourceOf(event) !== null) {
+    if (inAttempt(seq) && event?.type === 'assistant/message' && modelSourceOf(event) !== null) {
       finalAssistantSeq = seq
       break
     }
@@ -629,7 +647,7 @@ export function planRegenerationSurface(input) {
 
   const failed = turnIntervals(events).filter(interval => interval.failed && interval.end < eventStart)
   const residue = ownership.classify(event => failed.some(interval => event.seq > interval.start && event.seq < interval.end))
-  const accepts = seq => seq === oldAssistantSeq || attempt(seq) === OWNED || residue(seq) === OWNED ||
+  const accepts = seq => seq === oldAssistantSeq || inAttempt(seq) || residue(seq) === OWNED ||
     isRollbackUserTombstone(ownership.eventAt(seq)) || isRollbackAssistantTombstone(ownership.eventAt(seq), events)
   const between = nodes.slice(oldAssistantIndex, nodes.indexOf(finalAssistantSeq) + 1).map(Number)
   // Messages written between the old reply and this attempt by something else
@@ -868,15 +886,22 @@ export function clearRegenerationAttemptSurface(input) {
   const eventStart = Math.max(0, Number(input && input.eventStart) || 0)
   const events = sessionEvents(session)
   const end = regenerationAttemptEnd(events, eventStart)
-  const cleanup = planSurfaceRecovery({
-    nodes, ownership: createSurfaceOwnership(events),
-    selectOrigin: event => event.seq >= eventStart && event.seq < end,
-    inScope: event => event.seq >= eventStart,
-    // Failed cleanup may precede regeneration abort; convert it once to the
-    // abort marker, then retries are true no-ops (including after a flush error).
-    ignore: event => sourceProducerName(event?.data?.source) === 'dsh-tavern-regeneration-abort',
-    message: '重新生成临时消息不是连续区间，无法安全清理'
-  })
+  let cleanup
+  try {
+    cleanup = planSurfaceRecovery({
+      nodes, ownership: createSurfaceOwnership(events),
+      selectOrigin: event => event.seq >= eventStart && event.seq < end,
+      inScope: event => event.seq >= eventStart,
+      // Failed cleanup may precede regeneration abort; convert it once to the
+      // abort marker, then retries are true no-ops (including after a flush error).
+      ignore: event => sourceProducerName(event?.data?.source) === 'dsh-tavern-regeneration-abort',
+      message: '重新生成临时消息不是连续区间，无法安全清理'
+    })
+  } catch (error) {
+    // 归属证明不了就按尾部整段收：这次尝试写在消息面末尾，后面没有已提交正文。
+    if (!(error instanceof SurfaceRecoveryError)) throw error
+    cleanup = planTurnTailCut({ nodes, startSeq: eventStart - 1, endSeq: end === Infinity ? Number.MAX_SAFE_INTEGER : end })
+  }
   if (!cleanup) return 0
   const makeId = typeof input.id === 'function' ? input.id : function () { return randomUUID() }
   replaceSessionSurface(session, 'user/message', {
@@ -943,7 +968,10 @@ function planRollbackAvailability(chat, { events = [], nodes = [] } = {}) {
   const target = locateRollbackSurface({ events, nodes, anchor: latest?.nativeAnchor })
   if (isRescuedHistoryMessage(chat, latest)) return { canRollback: false, canClearIncompleteReply: false, failedTurns, target: null, reason: '存档救援导入的历史不可回退，请发送新消息继续' }
   const turn = Number(latest?.turn)
-  const matches = target && (!(turn > 0) || target.turn === turn || target.turn === Number(chat.regeneratedDshTurns?.[String(turn)]))
+  const matchesTurn = Boolean(target && (!(turn > 0) || target.turn === turn || target.turn === Number(chat.regeneratedDshTurns?.[String(turn)])))
+  // 投影/修复写回的正文会带着别的剧情轮号：存档行记着它指的就是这一条，就还是这一轮。
+  const matchesAnchor = Boolean(target && !matchesTurn && anchoredToSaveRow(target, latest))
+  const matches = matchesTurn || matchesAnchor
   const hasMessages = hasRollbackMessages(messages)
   const canRollback = hasMessages && Boolean(matches)
   return { canRollback, canClearIncompleteReply: false, failedTurns, target: canRollback ? target : null,
