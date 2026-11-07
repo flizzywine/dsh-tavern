@@ -87,12 +87,15 @@ export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot,
     // Match the executable, including quoted Windows paths and Electron's trailing
     // arguments. A desktop name occurring only inside another program's args is
     // not evidence that the GUI is running.
-    const executable = command.match(/^"([^"]+)"/)?.[1]
-      || command.match(/^([a-z]:\/[^"\n]+?\.exe)(?=\s|$)/)?.[1]
+    const windowsCommand = command.match(/^(?:"([^"]+)"|([a-z]:\/[^"\n]+?\.exe))(?=\s|$)/)
+    const executable = windowsCommand?.[1] || windowsCommand?.[2]
       || command.match(/^(\/[^"\n]+?\.app\/contents\/macos\/(?:deepseek harness|dsh next|dsh desktop))(?=\s|$)/)?.[1]
       || command.match(/^((?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?)(?=\s|$)/)?.[1]
       || command.split(/\s/)[0]
     if (requireGuiClosed && (!scope || executable.startsWith(scope)) && /(?:^|\/)(?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?$/.test(executable)) {
+      // Electron's crash reporter uses the same .exe and can outlive the GUI.
+      const args = windowsCommand && command.slice(windowsCommand[0].length).trimStart()
+      if (platform === 'win32' && args && /^--type=crashpad-handler(?:\s|$)/.test(args)) continue
       throw Object.assign(new Error(`请完整退出 DeepSeek Harness 后再安装或迁移数据。仍在运行：${executable.split('/').at(-1)}（PID ${row.id}）。`), { code: 'DSH_DESKTOP_RUNNING' })
     }
     if (!command.includes('dsh-desktop-host')) continue
