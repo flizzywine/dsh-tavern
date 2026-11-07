@@ -23,6 +23,19 @@ function TavernStoryMarkdown(props) {
 	return React.createElement('div', { className: 'dsh-tavern-story-markdown', style: { whiteSpace: 'pre-wrap' } }, text)
 }
 
+// 故事视图有两种来源：故事读取（存档投影，带生成/结算状态）与实时视图。取状态
+// 修订号更新的一份：重新生成开始时存档视图先看到标记，实时视图可能还停在旧修订。
+function tavernFreshestStoryView(live, stored) {
+	if (!live) return stored || null
+	if (!stored) return live
+	const liveRevision = Number(live.tavernHelper && live.tavernHelper.stateRevision)
+	const storedRevision = Number(stored.tavernHelper && stored.tavernHelper.stateRevision)
+	if (Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storedRevision) && liveRevision !== storedRevision) {
+		return liveRevision > storedRevision ? live : stored
+	}
+	return live
+}
+
 function createTavernStoryTranscriptFeature(deps) {
 	if (typeof tavernStoryTranscriptRows !== 'function' || typeof tavernStoryTranscriptStreamRows !== 'function') {
 		throw new Error('故事历史列表缺少数据模块：先包含 features/story-transcript-data.js')
@@ -242,6 +255,14 @@ function createTavernStoryTranscriptFeature(deps) {
 			? liveView
 			: props.view && typeof props.view.streamingMessageUid === 'string' && props.view.streamingMessageUid !== '' ? props.view : null
 		const storyStreamUid = streamingView ? streamingView.streamingMessageUid : null
+		// 重新生成进行中、且服务端点明了被替换的那一行：旧正文不该留在页面上。
+		// 两路视图都可能更新：故事读取拿到的是存档视图（带上生成标记），实时视图随
+		// 其它失效更新；取存档更靠前的那一份，免得旧视图的 regenInProgress=false 把
+		// 刚开出的生成状态盖掉。
+		const regenView = tavernFreshestStoryView(liveView, props.view)
+		const regeneratingTarget = regenView && regenView.regenInProgress === true
+			&& typeof regenView.streamingMessageUid === 'string' && regenView.streamingMessageUid !== ''
+			? regenView.streamingMessageUid : null
 		const streamRef = React.useRef({ sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: props.running === true })
 		function storyTurn(nativeTurn) {
 			return typeof tavernStoryTurnForDshTurn === 'function' ? tavernStoryTurnForDshTurn(props.view, nativeTurn) : Number(nativeTurn)
@@ -279,8 +300,14 @@ function createTavernStoryTranscriptFeature(deps) {
 		}
 		const rows = React.useMemo(function () {
 			const base = tavernStoryTranscriptRows(transcript)
-			return tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial, storyStreamUid)
-		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid])
+			const overlaid = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial, storyStreamUid)
+			// 重新生成进行中：被替换的旧正文先离开页面。目标行只有在本轮已经拿到新正文的流式
+			// 片段时才画；插件整段生成则一直空着，成功后同一行换成新正文。失败时标记结束，
+			// 旧正文原样回来——这条筛选只看进行中的那一行，不碰输入和别的楼层。
+			if (regeneratingTarget === null) return overlaid
+			const streaming = overlaid.some(function (row) { return row.streaming === true && row.messageUid === regeneratingTarget })
+			return streaming ? overlaid : overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === regeneratingTarget) })
+		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget])
 		if (!rows.length) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',

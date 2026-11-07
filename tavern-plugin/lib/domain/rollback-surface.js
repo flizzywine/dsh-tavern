@@ -21,6 +21,14 @@ function eventAt(events, seq) {
   return events.find(event => event && Number(event.seq) === Number(seq)) || null
 }
 
+// The native turn whose row a surface node draws. A regeneration hides the old
+// reply by this number, never by the story turn: the two are decoupled, and the
+// page groups its rows by the host's turn.
+export function surfaceTurnOfSeq(events, seq) {
+  const turn = Number(eventAt(events, seq)?.data?.turn)
+  return Number.isSafeInteger(turn) && turn > 0 ? turn : null
+}
+
 function contentText(value) {
   const message = object(value)
   const content = message && message.content

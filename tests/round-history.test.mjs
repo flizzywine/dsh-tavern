@@ -324,6 +324,8 @@ test('完整重生成先独立替换唯一正文，再执行后台结算', async
     assert.deepEqual(h.chat.timeline, before.timeline, '生成期间不预先回滚 checkpoint')
     assert.equal(h.chat.regenInProgress, true)
     assert.equal(h.chat.regenRecovery.phase, 'prepared')
+    // 页面靠这个标记在生成期间先撤掉被替换的旧正文，不需要回滚存档。
+    assert.equal(h.chat.regenRecovery.temporaryReplacingTurn, 2)
   })
   const result = await h.create().regenerate('', '写得短一些', 'session')
   assert.deepEqual(saves['foreground.regen-begin'].messages, before.messages)

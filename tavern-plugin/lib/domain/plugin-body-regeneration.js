@@ -3,7 +3,8 @@ import { isDeepStrictEqual } from 'node:util'
 import { computeSceneTarget } from './scene-illustration.js'
 import { sessionEvents } from './session-events.js'
 import { isNewPlayerInput } from './session-turn-input.js'
-import { regenerationProjection, applyRegenerationProjection, failedTurnReplayAvailability } from './rollback-surface.js'
+import { regenerationProjection, applyRegenerationProjection, failedTurnReplayAvailability, surfaceTurnOfSeq } from './rollback-surface.js'
+import { legacyMessageUid } from './message-uid.js'
 import { assertRegenerationSourceCurrent } from './last-round-replacement.js'
 import { plainReplyProse, replyProse } from './reply-prose.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
@@ -138,6 +139,11 @@ export function createPluginBodyRegeneration(deps) {
         applyRegenerationProjection(preview, projection)
       }
       const eventStart = sessionEvents(session).length
+      // The row this regeneration rewrites. The page takes the old body out while
+      // the provider runs and draws the new body when the commit lands; a failed
+      // candidate only ends the marker, so the old row comes back untouched.
+      const replacingTurn = failedMode ? null : surfaceTurnOfSeq(sessionEvents(session), oldSeq)
+      const replacedUid = index === null ? '' : legacyMessageUid(original.messages[index], index)
       await chats.update(chatId, current => {
         if (agent.phase?.kind === 'running' || current.regenInProgress) throw error('TAVERN_PLUGIN_BUSY', '当前对话正忙')
         if (index !== null) assertRegenerationSourceCurrent({ originalChat: original, currentChat: current, assistantIndex: index })
@@ -145,7 +151,8 @@ export function createPluginBodyRegeneration(deps) {
         if (!isDeepStrictEqual(current.timeline, original.timeline)) throw error('TAVERN_PLUGIN_STALE_VERSION', '本轮状态已经变化')
         current.regenInProgress = true
         current.regenRecovery = { id: operationId, phase: 'prepared', detached: true,
-          beforeRevision: Number(current._storageRevision || 0), sessionId, eventStart }
+          beforeRevision: Number(current._storageRevision || 0), sessionId, eventStart,
+          temporaryReplacingTurn: replacingTurn, targetMessageUid: replacedUid }
         current.tavernHelperLifecycleRevision = Number(current.tavernHelperLifecycleRevision || 0) + 1
         return current
       }, { source: 'foreground.plugin-regen-begin' })

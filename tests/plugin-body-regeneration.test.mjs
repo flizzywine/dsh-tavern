@@ -93,6 +93,9 @@ test('prepared configuration is durable before generation and guidance is part o
     assert.equal(snapshot.config.preset, 'frozen')
     assert.equal(materials.guidance, '更简洁')
     assert.equal(saved.regenRecovery.generation.materialsDigest, materials.digest)
+    // 生成期间页面撤掉旧正文：原生行与故事行 UID 都记在这次操作的恢复点里。
+    assert.equal(saved.regenRecovery.temporaryReplacingTurn, 2)
+    assert.match(saved.regenRecovery.targetMessageUid, /^legacy-/)
     return { text: '新正文' }
   }, { guidance: '更简洁', providerId: 'test:body', prepare: ({ reason }) => {
     prepared++; assert.equal(reason, 'regenerate'); return { config: { preset: 'frozen' } }

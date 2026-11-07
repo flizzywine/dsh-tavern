@@ -68,3 +68,19 @@ test('panels use the flow interface and candidate selection preserves user edits
   assert.deepEqual(errors, [])
   await act(async () => root.unmount())
 })
+
+test('正文重新生成在开始时通知页面、结束时再通知一次（失败也一样）', async () => {
+  for (const mode of ['ok', 'fail']) {
+    const seen = []
+    const flow = createPlayInteractionFlow({
+      rpc: async () => { if (mode === 'fail') throw new Error('provider down'); return { view: {} } },
+      coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {},
+      notifyRegenerating: (sessionId, active) => seen.push([sessionId, active])
+    })
+    flow.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'input' })
+    if (mode === 'ok') await flow.regenerateBody(flow.regeneration.getSnapshot(), '')
+    else await flow.regenerateBody(flow.regeneration.getSnapshot(), '').catch(() => {})
+    assert.deepEqual(seen, [['a', true], ['a', false]], mode)
+  }
+})
+

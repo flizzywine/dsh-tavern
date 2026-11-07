@@ -37047,6 +37047,19 @@ function TavernStoryMarkdown(props) {
 	return React.createElement('div', { className: 'dsh-tavern-story-markdown', style: { whiteSpace: 'pre-wrap' } }, text)
 }
 
+// 故事视图有两种来源：故事读取（存档投影，带生成/结算状态）与实时视图。取状态
+// 修订号更新的一份：重新生成开始时存档视图先看到标记，实时视图可能还停在旧修订。
+function tavernFreshestStoryView(live, stored) {
+	if (!live) return stored || null
+	if (!stored) return live
+	const liveRevision = Number(live.tavernHelper && live.tavernHelper.stateRevision)
+	const storedRevision = Number(stored.tavernHelper && stored.tavernHelper.stateRevision)
+	if (Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storedRevision) && liveRevision !== storedRevision) {
+		return liveRevision > storedRevision ? live : stored
+	}
+	return live
+}
+
 function createTavernStoryTranscriptFeature(deps) {
 	if (typeof tavernStoryTranscriptRows !== 'function' || typeof tavernStoryTranscriptStreamRows !== 'function') {
 		throw new Error('故事历史列表缺少数据模块：先包含 features/story-transcript-data.js')
@@ -37266,6 +37279,14 @@ function createTavernStoryTranscriptFeature(deps) {
 			? liveView
 			: props.view && typeof props.view.streamingMessageUid === 'string' && props.view.streamingMessageUid !== '' ? props.view : null
 		const storyStreamUid = streamingView ? streamingView.streamingMessageUid : null
+		// 重新生成进行中、且服务端点明了被替换的那一行：旧正文不该留在页面上。
+		// 两路视图都可能更新：故事读取拿到的是存档视图（带上生成标记），实时视图随
+		// 其它失效更新；取存档更靠前的那一份，免得旧视图的 regenInProgress=false 把
+		// 刚开出的生成状态盖掉。
+		const regenView = tavernFreshestStoryView(liveView, props.view)
+		const regeneratingTarget = regenView && regenView.regenInProgress === true
+			&& typeof regenView.streamingMessageUid === 'string' && regenView.streamingMessageUid !== ''
+			? regenView.streamingMessageUid : null
 		const streamRef = React.useRef({ sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: props.running === true })
 		function storyTurn(nativeTurn) {
 			return typeof tavernStoryTurnForDshTurn === 'function' ? tavernStoryTurnForDshTurn(props.view, nativeTurn) : Number(nativeTurn)
@@ -37303,8 +37324,14 @@ function createTavernStoryTranscriptFeature(deps) {
 		}
 		const rows = React.useMemo(function () {
 			const base = tavernStoryTranscriptRows(transcript)
-			return tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial, storyStreamUid)
-		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid])
+			const overlaid = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial, storyStreamUid)
+			// 重新生成进行中：被替换的旧正文先离开页面。目标行只有在本轮已经拿到新正文的流式
+			// 片段时才画；插件整段生成则一直空着，成功后同一行换成新正文。失败时标记结束，
+			// 旧正文原样回来——这条筛选只看进行中的那一行，不碰输入和别的楼层。
+			if (regeneratingTarget === null) return overlaid
+			const streaming = overlaid.some(function (row) { return row.streaming === true && row.messageUid === regeneratingTarget })
+			return streaming ? overlaid : overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === regeneratingTarget) })
+		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget])
 		if (!rows.length) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',
@@ -51099,7 +51126,7 @@ function createTavernHeaderFeature({ StatusAction, ExportAction, openPage, openW
     return Object.freeze({ HeaderItems: TavernHeaderItems });
 }
 /** Candidate and regeneration interaction state, independent of React and the host composer. */
-function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyBodyResult, reportError, timers = globalThis }) {
+function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyBodyResult, reportError, notifyRegenerating = function () {}, timers = globalThis }) {
     function store(normalize = value => value) {
         let value = null;
         const listeners = new Set();
@@ -51185,6 +51212,10 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         const loading = regeneration.set({ ...panel, phase: "loading", error: "", rewrite: text !== "", restyle });
         const candidate = candidates.getSnapshot();
         return once(pendingBodies, panel.sessionId, async () => {
+            // The page cannot see the save's busy marker until something refreshes it, and
+            // the request itself runs for as long as the model takes. Tell the page the
+            // replacement started, so it can take the old reply down right away.
+            notifyRegenerating(panel.sessionId, true);
             try {
                 const result = await rpc("regenBody", Object.assign({ guidance: text }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
                 applyBodyResult(panel.sessionId, result.view, panel.tail);
@@ -51196,7 +51227,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             } catch (error) {
                 reportError("正文重新生成", error);
                 if (regeneration.getSnapshot() === loading) regeneration.set({ ...panel, phase: "error", error: String(error?.message || error) });
-            }
+            } finally { notifyRegenerating(panel.sessionId, false); }
         });
     }
     // A body regeneration asked for without the guidance panel (the send key's long press,
@@ -51208,6 +51239,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         if (text) guidanceBySession.set(sessionId, text); else guidanceBySession.delete(sessionId);
         return once(pendingBodies, sessionId, async () => {
             const candidate = candidates.getSnapshot();
+            notifyRegenerating(sessionId, true);
             try {
                 const result = await rpc("regenBody", { guidance: text }, sessionId);
                 applyBodyResult(sessionId, result.view, tail);
@@ -51217,7 +51249,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             } catch (error) {
                 reportError("正文重新生成", error);
                 throw error;
-            }
+            } finally { notifyRegenerating(sessionId, false); }
         });
     }
     return Object.freeze({ candidates, guide, regeneration, readyCandidatePanel, submitCandidateTask,
@@ -52757,6 +52789,25 @@ function createTurnRailFilter(root, options) {
         const interactions = createPlayInteractionFlow({ rpc, coordinationView, coordination: tavernCoordination,
             applyBodyResult: (sessionId, view, tail) => applyBodyRegenerationResult({ liveTavernView, historyProjection, sessionId, view, tail }),
             reportError: (source, error) => tavernErrorHub.report(source, error),
+            // The save's busy marker is written inside the request and the request runs for as
+            // long as the model takes, so nothing would refresh the page in between: the reply
+            // being replaced stayed on screen. Refresh when the replacement starts (and twice
+            // more while it runs, in case the first read raced the write), then once when it ends.
+            notifyRegenerating: (sessionId, active) => {
+                const id = String(sessionId || "");
+                if (id === "") return;
+                function refresh() {
+                    liveTavernView.invalidate(id);
+                    try {
+                        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: id } }));
+                    } catch (_) { /* a page without events still refreshes through the live view */ }
+                }
+                refresh();
+                if (active === true && typeof setTimeout === "function") {
+                    setTimeout(refresh, 700);
+                    setTimeout(refresh, 2200);
+                }
+            },
             bodyErrorText: error => playerErrorText(error, { fallback: "重新生成没有完成" }), timers: window
         });
         const setCandidatePanel = interactions.candidates.set;

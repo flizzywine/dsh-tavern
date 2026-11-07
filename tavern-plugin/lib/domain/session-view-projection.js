@@ -231,6 +231,9 @@ export function createSessionViewProjection({
       worldBookError: chat.worldBookError || null,
       foregroundError: chat.foregroundError || null,
       lastWorldBookRecall: chat.lastWorldBookRecall || null,
+      // A body replacement under way. The story read carries no row plan, and the page
+      // still has to take the old reply away until the new body lands.
+      regenInProgress: chat.regenInProgress === true,
       activity,
       settleStatus: activity.busy ? 'running' : (activity.phase === 'failed' && activity.role === 'settlement' ? 'error' : 'done'),
       settleError: activity.reason === 'interrupted' ? '后台结算已中断，请重试结算。' : (chat.settleError || null),

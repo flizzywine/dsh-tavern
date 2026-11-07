@@ -390,6 +390,25 @@
         const interactions = createPlayInteractionFlow({ rpc, coordinationView, coordination: tavernCoordination,
             applyBodyResult: (sessionId, view, tail) => applyBodyRegenerationResult({ liveTavernView, historyProjection, sessionId, view, tail }),
             reportError: (source, error) => tavernErrorHub.report(source, error),
+            // The save's busy marker is written inside the request and the request runs for as
+            // long as the model takes, so nothing would refresh the page in between: the reply
+            // being replaced stayed on screen. Refresh when the replacement starts (and twice
+            // more while it runs, in case the first read raced the write), then once when it ends.
+            notifyRegenerating: (sessionId, active) => {
+                const id = String(sessionId || "");
+                if (id === "") return;
+                function refresh() {
+                    liveTavernView.invalidate(id);
+                    try {
+                        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: id } }));
+                    } catch (_) { /* a page without events still refreshes through the live view */ }
+                }
+                refresh();
+                if (active === true && typeof setTimeout === "function") {
+                    setTimeout(refresh, 700);
+                    setTimeout(refresh, 2200);
+                }
+            },
             bodyErrorText: error => playerErrorText(error, { fallback: "重新生成没有完成" }), timers: window
         });
         const setCandidatePanel = interactions.candidates.set;

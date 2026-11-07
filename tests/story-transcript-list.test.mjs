@@ -198,17 +198,23 @@ test('重新生成时流式正文按视图的 messageUid 落到目标行，不�
 		{ role: 'assistant', turn: 2, text: '后续旧正文', messageUid: 'uid-next' }
 	]
 	const transcript = story(messages, 1)
-	const regenerating = { mode: 'story', streamingMessageUid: 'uid-target', latestAssistantTurn: 2 }
+	const regenerating = { mode: 'story', regenInProgress: true, streamingMessageUid: 'uid-target', latestAssistantTurn: 2 }
 	const feature = context.createTavernStoryTranscriptFeature()
 	const element = (value, partial, running, view) => React.createElement(feature.StoryTranscriptList, {
 		transcript: value, partial, running, view, sessionId: 's-regen'
 	})
 	const root = await mount(page, element(transcript, null, true, regenerating))
 	const rowsOf = () => [...dom.window.document.querySelectorAll('[data-story-row][data-role="assistant"]')]
-	const keyOfTarget = rowsOf()[0].getAttribute('data-row-key')
+	// 重新生成一开始就把被替换的旧正文撤下页面，只留下一轮输入和别的楼层。
+	let rows = rowsOf()
+	assert.equal(rows.length, 2, '被替换的旧正文不在页面上')
+	assert.ok(!rows.some(row => row.textContent.includes('目标旧正文')))
+	assert.ok(rows[0].textContent.includes('同轮旧正文'), '同 turn 的兄弟行不受影响')
+	assert.ok(rows[1].textContent.includes('后续旧正文'))
+	const keyOfTarget = transcript.messages[1].key
 	const partial = { turn: 0, blocks: [{ kind: 'text', text: '流式新正文' }] }
 	await act(async () => root.render(element(transcript, partial, true, regenerating)))
-	let rows = rowsOf()
+	rows = rowsOf()
 	assert.equal(rows.length, 3, '不得追加草稿行')
 	assert.ok(rows[0].textContent.includes('流式新正文'), '目标 UID 行承载流式正文')
 	assert.ok(rows[0].textContent.includes('正在生成'))
