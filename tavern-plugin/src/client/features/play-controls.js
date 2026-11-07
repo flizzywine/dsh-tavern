@@ -338,23 +338,47 @@
 		// @include status-panel.js
 		// @include gal-choices.js
 
+		const TAVERN_CARD_APP_IDLE = Object.freeze({ visible: false, attached: false, recovering: false, expanded: false });
+
 		function TavernCardAppDock(props) {
 			const slotRef = React.useRef(null);
 			const controllerRef = React.useRef(null);
-			const presence = React.useSyncExternalStore(tavernCardAppPresence.subscribe, tavernCardAppPresence.inspect);
+			const activeRef = React.useRef(props.active !== false);
+			activeRef.current = props.active !== false;
+			const [presence, setPresence] = React.useState(TAVERN_CARD_APP_IDLE);
 			React.useEffect(function () {
+				setPresence(TAVERN_CARD_APP_IDLE);
 				if (!slotRef.current) return;
-				const controller = createTavernCardAppDock({ document: document, slot: slotRef.current, sessionId: props.sessionId, onChange: tavernCardAppPresence.change });
+				const presenceStore = createTavernCardAppPresence({ onChange: setPresence });
+				const controller = createTavernCardAppDock({
+					document: document,
+					slot: slotRef.current,
+					sessionId: props.sessionId,
+					active: activeRef.current,
+					onChange: presenceStore.change
+				});
 				controllerRef.current = controller;
-				return function () { controllerRef.current = null; controller.dispose(); };
-			}, []);
-			return React.createElement("section", { className: "dsh-tavern-status-section dsh-tavern-card-app-section", hidden: !presence.attached },
+				return function () {
+					controllerRef.current = null;
+					controller.dispose();
+					presenceStore.dispose();
+				};
+			}, [props.sessionId]);
+			React.useEffect(function () {
+				if (controllerRef.current && typeof controllerRef.current.setActive === "function") {
+					controllerRef.current.setActive(props.active !== false);
+				}
+			}, [props.active]);
+			return React.createElement("section", { className: "dsh-tavern-status-section dsh-tavern-card-app-section", hidden: !presence.visible },
 				React.createElement("div", { className: "dsh-tavern-card-app-head" },
 					React.createElement("div", { className: "dsh-tavern-status-label" }, "人物卡应用"),
-					React.createElement("button", { className: "dsh-tavern-btn", disabled: !presence.attached, onClick: function () { if (controllerRef.current) controllerRef.current.open(); } }, presence.attached ? "打开手机" : "恢复中…")
+					React.createElement("div", { className: "dsh-tavern-card-app-actions" },
+						presence.attached ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", title: "刷新手机界面", onClick: function () { if (controllerRef.current) controllerRef.current.trigger("刷新"); } }, "刷新") : null,
+						React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: !presence.attached, onClick: function () { if (controllerRef.current) controllerRef.current.toggle(); } }, presence.attached ? (presence.expanded ? "收起手机" : "打开手机") : "恢复中…")
+					)
 				),
 				presence.recovering ? React.createElement("div", { className: "dsh-tavern-card-app-recovering", role: "status" }, "正在恢复人物卡应用…") : null,
-				React.createElement("div", { ref: slotRef, className: "dsh-tavern-card-app-slot" })
+				React.createElement("div", { ref: slotRef, className: "dsh-tavern-card-app-slot", "data-collapsed": presence.attached && !presence.expanded ? "true" : undefined })
 			);
 		}
 
@@ -364,6 +388,12 @@
 				function () { return props.sessions.binding(props.sessionId); },
 				function () { return props.sessions.binding(props.sessionId); }
 			);
+			const activeSessionId = React.useSyncExternalStore(
+				function (listener) { return props.sessions.list.subscribe(listener); },
+				function () { return String(tavernMainSessionId(props.sessions) || ""); },
+				function () { return String(tavernMainSessionId(props.sessions) || ""); }
+			);
+			const active = !activeSessionId || activeSessionId === String(props.sessionId || "");
 			const h = React.createElement;
 			if (!binding) return h("aside", { className: "dsh-tavern-status" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "酒馆状态")),
@@ -384,7 +414,7 @@
 					function () { return selector(chat.getSnapshot()); }
 				);
 			}
-			return h(TavernStatusPanel, { sessionId: props.sessionId, useSession: useSession, useChat: useChat, executeSlash: props.executeSlash, openStyleTab: props.openStyleTab });
+			return h(TavernStatusPanel, { sessionId: props.sessionId, active: active, useSession: useSession, useChat: useChat, executeSlash: props.executeSlash, openStyleTab: props.openStyleTab });
 		}
 
         const interactions = createPlayInteractionFlow({ rpc, coordinationView, coordination: tavernCoordination,

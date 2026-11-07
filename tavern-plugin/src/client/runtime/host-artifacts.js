@@ -133,6 +133,7 @@
 
 		function createTavernHostArtifactScope(options) {
             const hostDocument = options && options.document;
+            const sessionId = String(options && options.sessionId || "");
             const roots = [hostDocument && hostDocument.head, hostDocument && hostDocument.body].filter(Boolean);
             const owned = new Map();
             const owners = hostDocument.__dshTavernArtifactOwners || (hostDocument.__dshTavernArtifactOwners = new WeakMap());
@@ -175,6 +176,9 @@
                     || node.hasAttribute?.("data-dsh-tavern-text-colors")) return;
                 owners.set(node, identity);
                 node.setAttribute?.("data-dsh-tavern-host-artifact", "");
+                if (sessionId && !node.getAttribute?.("data-dsh-tavern-card-app-session")) {
+                    node.setAttribute?.("data-dsh-tavern-card-app-session", sessionId);
+                }
                 owned.set(node, { hidden: node.hidden, disabled: node.disabled, body: root === hostDocument.body,
                     root: root, nextSibling: node.nextSibling, parked: false });
             }
@@ -193,10 +197,24 @@
                 for (const root of roots) observer.observe(root, { childList: true });
             }
             return Object.freeze({
-                trackNode: function (node) { created.add(node); return node; },
+                trackNode: function (node) {
+                    created.add(node);
+                    if (sessionId && node && typeof node.setAttribute === "function") {
+                        node.setAttribute("data-dsh-tavern-card-app-session", sessionId);
+                    }
+                    return node;
+                },
                 findElementById: function (id) {
                     const node = hostDocument.getElementById(id);
                     if (node && (!ownerOf(node) || ownerOf(node) === identity)) return node;
+                    if (node && hostDocument.querySelectorAll) {
+                        const selector = "#" + String(id).replace(/([^\w-])/g, "\\$1");
+                        try {
+                            for (const candidate of hostDocument.querySelectorAll(selector)) {
+                                if (!ownerOf(candidate) || ownerOf(candidate) === identity) return candidate;
+                            }
+                        } catch (_) {}
+                    }
                     if (!disposed && parking) for (const parked of parking.querySelectorAll('[id]')) {
                         if (parked.id === id && ownerOf(parked) === identity) return parked;
                     }
@@ -351,26 +369,28 @@
 			const graceMs = Math.max(0, Number(options && options.graceMs) || 5000);
 			let timer = null;
 			let disposed = false;
-			let state = Object.freeze({ visible: false, attached: false, recovering: false });
+			let state = Object.freeze({ visible: false, attached: false, recovering: false, expanded: false });
 			function publish(next) {
 				state = Object.freeze(next);
 				notify(state);
 				listeners.forEach(function (listener) { listener(); });
 			}
 			function cancelPending() { if (timer !== null) { cancel(timer); timer = null; } }
-			function change(attached) {
+			function change(attached, details) {
 				if (disposed) return;
 				if (attached) {
 					cancelPending();
-					publish({ visible: true, attached: true, recovering: false });
+					const expanded = details && typeof details.expanded === "boolean" ? details.expanded : true;
+					if (state.visible && state.attached && !state.recovering && state.expanded === expanded) return;
+					publish({ visible: true, attached: true, recovering: false, expanded: expanded });
 					return;
 				}
 				if (!state.visible || state.recovering) return;
-				publish({ visible: true, attached: false, recovering: true });
+				publish({ visible: true, attached: false, recovering: true, expanded: false });
 				timer = schedule(function () {
 					timer = null;
 					if (disposed || state.attached) return;
-					publish({ visible: false, attached: false, recovering: false });
+					publish({ visible: false, attached: false, recovering: false, expanded: false });
 				}, graceMs);
 			}
 			return Object.freeze({
@@ -380,44 +400,144 @@
 				dispose: function () { disposed = true; cancelPending(); listeners.clear(); }
 			});
 		}
-		const tavernCardAppPresence = createTavernCardAppPresence();
 		function createTavernCardAppDock(options) {
 			const hostDocument = options && options.document || document;
 			const slot = options && options.slot;
 			const sessionId = String(options && options.sessionId || "");
+			let active = !options || options.active !== false;
 			const loadIconCss = options && options.loadIconCss || loadTavernCardIconCss;
 			const notify = options && typeof options.onChange === "function" ? options.onChange : function () {};
+			const triggerScriptButton = options && typeof options.triggerButton === "function"
+				? options.triggerButton
+				: function (targetSessionId, scriptId, buttonName) {
+					const win = hostDocument && hostDocument.defaultView;
+					return win && typeof win.__dshTavernTriggerScriptButton === "function"
+						? win.__dshTavernTriggerScriptButton(targetSessionId, scriptId, buttonName)
+						: Promise.reject(new Error("人物卡脚本按钮入口不可用"));
+				};
 			const Mutation = options && Object.prototype.hasOwnProperty.call(options, "MutationObserver") ? options.MutationObserver : (hostDocument.defaultView && hostDocument.defaultView.MutationObserver);
 			const Resize = options && Object.prototype.hasOwnProperty.call(options, "ResizeObserver") ? options.ResizeObserver : (hostDocument.defaultView && hostDocument.defaultView.ResizeObserver);
 			let attached = null;
+			let attachedScriptId = "";
+			let expanded = false;
 			let originalParent = null;
 			let originalNext = null;
 			let originalStyle = null;
 			let floatingButton = null;
 			let floatingDisplay = null;
 			let mutationObserver = null;
+			let shadowObserver = null;
 			let resizeObserver = null;
 			const candidateObservers = new Map();
+			let mutating = false;
 			let disposed = false;
+			if (slot && slot.setAttribute) slot.setAttribute("data-dsh-tavern-card-app-dock-slot", "");
+
+			function isForegroundSession() {
+				if (!active) return false;
+				const win = hostDocument && hostDocument.defaultView;
+				const selected = String(win && win.__dshTavernSelectedSessionId || "");
+				return !selected || !sessionId || selected === sessionId;
+			}
+
+			function inOtherDockSlot(node) {
+				for (let cursor = node && node.parentNode; cursor; cursor = cursor.parentNode) {
+					if (cursor === slot) return false;
+					if (cursor.hasAttribute && cursor.hasAttribute("data-dsh-tavern-card-app-dock-slot")) return true;
+				}
+				return false;
+			}
+
+			function canOwnNode(node) {
+				if (!node || inOtherDockSlot(node)) return false;
+				const ownerSessionId = String(node.getAttribute && node.getAttribute(TAVERN_CARD_PHONE_SESSION) || "");
+				if (ownerSessionId && sessionId) return ownerSessionId === sessionId;
+				if (ownerSessionId && !sessionId) return false;
+				return isForegroundSession();
+			}
+
+			function findPhoneButton(scriptId) {
+				if (!hostDocument || typeof hostDocument.querySelectorAll !== "function") {
+					const single = scriptId && hostDocument && typeof hostDocument.getElementById === "function"
+						? hostDocument.getElementById("improved-phone-floating-button-" + scriptId)
+						: (hostDocument && typeof hostDocument.querySelector === "function" ? hostDocument.querySelector(TAVERN_CARD_PHONE_BUTTON) : null);
+					return canOwnNode(single) ? single : null;
+				}
+				const buttons = hostDocument.querySelectorAll(TAVERN_CARD_PHONE_BUTTON);
+				let fallback = null;
+				for (let index = 0; index < buttons.length; index += 1) {
+					const button = buttons[index];
+					if (!canOwnNode(button)) continue;
+					if (scriptId && button.id === "improved-phone-floating-button-" + scriptId) return button;
+					if (!scriptId && !fallback) fallback = button;
+				}
+				return fallback;
+			}
+
+			function phoneWrapperOf(host) {
+				const root = host && host.shadowRoot;
+				return root && typeof root.querySelector === "function" ? root.querySelector(".phone-wrapper") : null;
+			}
 
 			function hasPhoneLayout(host) {
+				return Boolean(phoneWrapperOf(host));
+			}
+
+			function isPhoneWrapperVisible(host) {
+				const wrapper = phoneWrapperOf(host);
+				if (!wrapper || wrapper.hidden === true) return false;
+				if (wrapper.style && wrapper.style.display === "none") return false;
+				const win = hostDocument && hostDocument.defaultView;
+				if (win && typeof win.getComputedStyle === "function") {
+					try { if (win.getComputedStyle(wrapper).display === "none") return false; } catch (_) {}
+				}
+				return true;
+			}
+
+			function resolvePhoneScriptId(host) {
+				const hostId = String(host && host.id || "");
+				if (hostId.indexOf("improved-phone-shadow-host-") === 0) return hostId.slice("improved-phone-shadow-host-".length);
 				const root = host && host.shadowRoot;
-				return Boolean(root && typeof root.querySelector === "function" && root.querySelector(".phone-wrapper"));
+				const tagged = root && typeof root.querySelector === "function" ? root.querySelector("[script_id]") : null;
+				return String(tagged && tagged.getAttribute && tagged.getAttribute("script_id") || "");
 			}
 
 			function clearCandidateObserver(host) {
-				const observer = candidateObservers.get(host);
-				if (observer) observer.disconnect();
+				const entry = candidateObservers.get(host);
+				if (entry) {
+					if (entry.observer) entry.observer.disconnect();
+					if (entry.timer && hostDocument.defaultView && typeof hostDocument.defaultView.clearTimeout === "function") {
+						hostDocument.defaultView.clearTimeout(entry.timer);
+					}
+				}
 				candidateObservers.delete(host);
 			}
 
 			function watchCandidate(host) {
-				if (typeof Mutation !== "function" || !host || !host.shadowRoot || candidateObservers.has(host)) return;
-				const observer = new Mutation(function () {
-					if (hasPhoneLayout(host)) { clearCandidateObserver(host); scan(); }
-				});
-				observer.observe(host.shadowRoot, { childList: true, subtree: true });
-				candidateObservers.set(host, observer);
+				if (!host || candidateObservers.has(host)) return;
+				if (host.shadowRoot && typeof Mutation === "function") {
+					const observer = new Mutation(function () {
+						if (hasPhoneLayout(host)) { clearCandidateObserver(host); scan(); }
+					});
+					observer.observe(host.shadowRoot, { childList: true, subtree: true });
+					candidateObservers.set(host, { observer: observer, timer: null });
+					return;
+				}
+				const win = hostDocument && hostDocument.defaultView;
+				if (win && typeof win.setTimeout === "function") {
+					const entry = { observer: null, timer: null };
+					let attempts = 0;
+					const poll = function () {
+						entry.timer = null;
+						if (disposed || attached || !host.isConnected) { clearCandidateObserver(host); return; }
+						if (hasPhoneLayout(host)) { clearCandidateObserver(host); scan(); return; }
+						if (host.shadowRoot && typeof Mutation === "function") { clearCandidateObserver(host); watchCandidate(host); return; }
+						if (++attempts < 20) entry.timer = win.setTimeout(poll, 50);
+						else clearCandidateObserver(host);
+					};
+					entry.timer = win.setTimeout(poll, 25);
+					candidateObservers.set(host, entry);
+				}
 			}
 
 			function installShadowDependencies(host) {
@@ -447,74 +567,130 @@
 				return true;
 			}
 
+			function clearShadowObserver() {
+				if (shadowObserver) shadowObserver.disconnect();
+				shadowObserver = null;
+			}
+
+			function setSlotCollapsed(collapsed) {
+				if (!slot) return;
+				if (collapsed) { if (slot.setAttribute) slot.setAttribute("data-collapsed", "true"); }
+				else if (slot.removeAttribute) slot.removeAttribute("data-collapsed");
+			}
+
 			function resize() {
 				if (!attached) return;
+				if (!expanded) {
+					attached.style.height = "0px";
+					setSlotCollapsed(true);
+					return;
+				}
+				setSlotCollapsed(false);
 				const available = Math.max(240, Number(slot && slot.clientWidth) || 384) - 24;
 				const scale = Math.min(1, available / 360);
 				attached.style.setProperty("--dsh-tavern-card-app-scale", String(scale));
 				attached.style.height = String(Math.ceil(620 * scale)) + "px";
 			}
 
+			function syncExpanded(forceNotify) {
+				if (!attached) return;
+				const nextExpanded = isPhoneWrapperVisible(attached);
+				const changed = nextExpanded !== expanded;
+				expanded = nextExpanded;
+				resize();
+				if (changed || forceNotify) notify(true, { expanded: expanded });
+			}
+
 			function attach(host) {
-				if (!host || host === attached) return false;
-				const ownerSessionId = host.getAttribute && host.getAttribute(TAVERN_CARD_PHONE_SESSION);
-				if (ownerSessionId && sessionId && ownerSessionId !== sessionId) return false;
+				if (!host || host === attached || mutating) return false;
+				if (!isForegroundSession() || !canOwnNode(host)) return false;
 				if (!hasPhoneLayout(host)) { watchCandidate(host); return false; }
 				clearCandidateObserver(host);
-				if (attached) restore();
-				attached = host;
-				if (sessionId && host.setAttribute) host.setAttribute(TAVERN_CARD_PHONE_SESSION, sessionId);
-				originalParent = host.parentNode;
-				originalNext = host.nextSibling;
-				originalStyle = host.getAttribute && host.getAttribute("style");
-				slot.appendChild(host);
-				ensureTavernCardIconFonts(hostDocument);
-				if (!installShadowDependencies(host)) { restore(); return false; }
-				host.style.position = "relative";
-				host.style.inset = "auto";
-				host.style.zIndex = "auto";
-				host.style.width = "100%";
-				host.style.overflow = "hidden";
-				const phoneKey = String(host.id || "").slice("improved-phone-shadow-host-".length);
-				floatingButton = hostDocument.getElementById && hostDocument.getElementById("improved-phone-floating-button-" + phoneKey) || hostDocument.querySelector(TAVERN_CARD_PHONE_BUTTON);
-				if (floatingButton) {
-					floatingDisplay = floatingButton.style.display;
-					floatingButton.style.display = "none";
+				const prevMutating = mutating;
+				mutating = true;
+				try {
+					if (attached) restore();
+					attached = host;
+					attachedScriptId = resolvePhoneScriptId(host);
+					if (sessionId && host.setAttribute) host.setAttribute(TAVERN_CARD_PHONE_SESSION, sessionId);
+					originalParent = host.parentNode;
+					originalNext = host.nextSibling;
+					originalStyle = host.getAttribute && host.getAttribute("style");
+					slot.appendChild(host);
+					ensureTavernCardIconFonts(hostDocument);
+					if (!installShadowDependencies(host)) { restore(); return false; }
+					if (host.hidden === true) host.hidden = false;
+					if (host.style && host.style.display === "none") host.style.display = "";
+					host.style.position = "relative";
+					host.style.inset = "auto";
+					host.style.zIndex = "auto";
+					host.style.width = "100%";
+					host.style.overflow = "hidden";
+					floatingButton = findPhoneButton(attachedScriptId);
+					if (floatingButton) {
+						floatingDisplay = floatingButton.style.display;
+						floatingButton.style.display = "none";
+					}
+					if (typeof Mutation === "function" && host.shadowRoot) {
+						shadowObserver = new Mutation(function () { syncExpanded(false); });
+						shadowObserver.observe(host.shadowRoot, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "hidden", "class"] });
+					}
+					syncExpanded(true);
+					return true;
+				} finally {
+					mutating = prevMutating;
 				}
-				resize();
-				notify(true);
-				return true;
 			}
 
 			function restore() {
 				if (!attached) return;
-				const host = attached;
-				attached = null;
-				if (originalStyle === null && host.removeAttribute) host.removeAttribute("style");
-				else if (host.setAttribute) host.setAttribute("style", originalStyle || "");
-				if (originalParent) {
-					if (originalNext && originalNext.parentNode === originalParent && typeof originalParent.insertBefore === "function") originalParent.insertBefore(host, originalNext);
-					else if (typeof originalParent.appendChild === "function") originalParent.appendChild(host);
+				const prevMutating = mutating;
+				mutating = true;
+				try {
+					const host = attached;
+					clearShadowObserver();
+					attached = null;
+					attachedScriptId = "";
+					expanded = false;
+					setSlotCollapsed(false);
+					if (originalStyle === null && host.removeAttribute) host.removeAttribute("style");
+					else if (host.setAttribute) host.setAttribute("style", originalStyle || "");
+					if (originalParent) {
+						if (originalNext && originalNext.parentNode === originalParent && typeof originalParent.insertBefore === "function") originalParent.insertBefore(host, originalNext);
+						else if (typeof originalParent.appendChild === "function") originalParent.appendChild(host);
+					}
+					if (floatingButton) floatingButton.style.display = floatingDisplay;
+					originalParent = null; originalNext = null; originalStyle = null; floatingButton = null; floatingDisplay = null;
+					notify(false);
+				} finally {
+					mutating = prevMutating;
 				}
-				if (floatingButton) floatingButton.style.display = floatingDisplay;
-				originalParent = null; originalNext = null; originalStyle = null; floatingButton = null; floatingDisplay = null;
-				notify(false);
 			}
 
 			function park() {
 				if (!attached) return;
-				const host = attached;
-				attached = null;
-				const parking = ensureTavernCardAppParking(hostDocument);
-				if (parking && typeof parking.appendChild === "function") parking.appendChild(host);
-				else host.style.display = "none";
-				if (floatingButton) floatingButton.style.display = "none";
-				originalParent = null; originalNext = null; originalStyle = null; floatingButton = null; floatingDisplay = null;
-				notify(false);
+				const prevMutating = mutating;
+				mutating = true;
+				try {
+					const host = attached;
+					clearShadowObserver();
+					attached = null;
+					attachedScriptId = "";
+					expanded = false;
+					setSlotCollapsed(false);
+					const parking = ensureTavernCardAppParking(hostDocument);
+					if (parking && typeof parking.appendChild === "function") parking.appendChild(host);
+					else host.style.display = "none";
+					if (floatingButton) floatingButton.style.display = "none";
+					originalParent = null; originalNext = null; originalStyle = null; floatingButton = null; floatingDisplay = null;
+					notify(false);
+				} finally {
+					mutating = prevMutating;
+				}
 			}
 
 			function scan() {
-				if (disposed || attached) return;
+				if (disposed || attached || !isForegroundSession()) return;
 				const hosts = hostDocument.querySelectorAll(TAVERN_CARD_PHONE_HOST);
 				for (let index = 0; index < hosts.length; index += 1) if (attach(hosts[index])) break;
 			}
@@ -537,9 +713,12 @@
 			scan();
 			if (typeof Mutation === "function" && hostDocument.body) {
 				mutationObserver = new Mutation(function (mutations) {
+					if (mutating || disposed) return;
 					let lost = false;
 					if (attached && attached.isConnected === false) {
-						attached = null; originalParent = null; originalNext = null; originalStyle = null;
+						clearShadowObserver();
+						attached = null; attachedScriptId = ""; expanded = false; setSlotCollapsed(false);
+						originalParent = null; originalNext = null; originalStyle = null;
 						if (floatingButton) floatingButton.style.display = floatingDisplay;
 						floatingButton = null; floatingDisplay = null;
 						notify(false);
@@ -553,9 +732,95 @@
 				resizeObserver = new Resize(resize);
 				resizeObserver.observe(slot);
 			}
+			function trigger(buttonName) {
+				const scriptId = attachedScriptId || resolvePhoneScriptId(attached);
+				if (!scriptId) return Promise.reject(new Error("未找到外置手机脚本标识"));
+				const ownerSessionId = (attached && attached.getAttribute && attached.getAttribute(TAVERN_CARD_PHONE_SESSION)) || sessionId;
+				return Promise.resolve(triggerScriptButton(ownerSessionId, scriptId, buttonName));
+			}
+			function open() {
+				if (!attached) scan();
+				if (!attached) {
+					const button = findPhoneButton("");
+					if (button && typeof button.click === "function") button.click();
+					return;
+				}
+				if (isPhoneWrapperVisible(attached)) { syncExpanded(false); return; }
+				const button = floatingButton || findPhoneButton(attachedScriptId);
+				if (button && typeof button.click === "function") {
+					button.click();
+					syncExpanded(false);
+					if (isPhoneWrapperVisible(attached)) return;
+				}
+				trigger("手机").then(function () { syncExpanded(false); }, function () {
+					const wrapper = phoneWrapperOf(attached);
+					if (wrapper && wrapper.style && wrapper.style.display === "none") {
+						wrapper.style.display = "";
+						syncExpanded(false);
+					}
+				});
+			}
+			function close() {
+				if (!attached || !isPhoneWrapperVisible(attached)) return;
+				const closeBtn = attached.shadowRoot && typeof attached.shadowRoot.querySelector === "function" ? attached.shadowRoot.querySelector(".phone-close-btn") : null;
+				if (closeBtn && typeof closeBtn.click === "function") {
+					closeBtn.click();
+					syncExpanded(false);
+					if (!isPhoneWrapperVisible(attached)) return;
+				}
+				trigger("手机").then(function () { syncExpanded(false); }, function () {
+					const wrapper = phoneWrapperOf(attached);
+					if (wrapper && wrapper.style) {
+						wrapper.style.display = "none";
+						syncExpanded(false);
+					}
+				});
+			}
+			function toggle() {
+				if (!attached) { open(); return; }
+				if (isPhoneWrapperVisible(attached)) close();
+				else open();
+			}
+			function setActive(nextActive) {
+				const next = nextActive !== false;
+				if (active === next) {
+					if (next && !attached) scan();
+					return;
+				}
+				active = next;
+				if (!active || disposed) return;
+				if (attached) {
+					if (attached.isConnected === false) {
+						clearShadowObserver();
+						attached = null; attachedScriptId = ""; expanded = false; setSlotCollapsed(false);
+						originalParent = null; originalNext = null; originalStyle = null;
+						if (floatingButton) floatingButton.style.display = floatingDisplay;
+						floatingButton = null; floatingDisplay = null;
+						notify(false);
+						scan();
+						return;
+					}
+					if (attached.hidden === true && isForegroundSession()) attached.hidden = false;
+					syncExpanded(true);
+					return;
+				}
+				scan();
+			}
 			return Object.freeze({
-				open: function () { const button = hostDocument.querySelector(TAVERN_CARD_PHONE_BUTTON); if (button && typeof button.click === "function") button.click(); },
-				inspect: function () { return { attached: Boolean(attached) }; },
-				dispose: function () { disposed = true; if (mutationObserver) mutationObserver.disconnect(); if (resizeObserver) resizeObserver.disconnect(); candidateObservers.forEach(function (observer) { observer.disconnect(); }); candidateObservers.clear(); park(); }
+				setActive: setActive,
+				open: open,
+				close: close,
+				toggle: toggle,
+				trigger: function (name) { return trigger(name).catch(function () {}); },
+				inspect: function () { return { attached: Boolean(attached), expanded: Boolean(attached && expanded), scriptId: attachedScriptId }; },
+				dispose: function () {
+					disposed = true;
+					clearShadowObserver();
+					if (mutationObserver) mutationObserver.disconnect();
+					if (resizeObserver) resizeObserver.disconnect();
+					Array.from(candidateObservers.keys()).forEach(clearCandidateObserver);
+					park();
+					if (slot && slot.removeAttribute) slot.removeAttribute("data-dsh-tavern-card-app-dock-slot");
+				}
 			});
 		}

@@ -141,24 +141,27 @@
 				},
 				onEvent: function (data) {
                     const eventId = String(data.eventId || "");
-                    const known = hostEvents.get(eventId);
+                    const tracked = eventId !== "";
+                    const known = tracked ? hostEvents.get(eventId) : null;
                     if (data.type === "dsh-tavern-helper-event-ack") {
                         if (known && known.receipt) { known.receipt = null; known.phase = "acknowledged"; }
                         return;
                     }
-                    function status() { postToHost({ type: "dsh-tavern-helper-event-state", token: token, eventId: eventId, phase: hostEvents.get(eventId).phase }, "*"); }
+                    function status() { if (tracked) postToHost({ type: "dsh-tavern-helper-event-state", token: token, eventId: eventId, phase: hostEvents.get(eventId).phase }, "*"); }
                     if (known) {
                         status();
                         if (known.receipt) postToHost(known.receipt, "*");
                         return;
                     }
                     if (data.type === "dsh-tavern-helper-event-query") {
-                        postToHost({ type: "dsh-tavern-helper-event-state", token: token, eventId: eventId, phase: "unknown" }, "*");
+                        if (tracked) postToHost({ type: "dsh-tavern-helper-event-state", token: token, eventId: eventId, phase: "unknown" }, "*");
                         return;
                     }
                     const entry = { phase: "queued", receipt: null };
-                    hostEvents.set(eventId, entry);
-                    status();
+                    if (tracked) {
+                        hostEvents.set(eventId, entry);
+                        status();
+                    }
                     function complete(receipt) {
                         entry.phase = "completed";
                         entry.receipt = Object.assign({ type: "dsh-tavern-helper-event-complete", token: token, eventId: eventId }, receipt);
@@ -282,7 +285,7 @@
 			};
 			window.uninjectPrompts = function (ids) { writePrompts({ kind: "remove", ids: copy(ids) }); };
 
-			const events = modules.createEvents({ currentScript: currentScript, withScript: withScript,
+			const events = modules.createEvents({ currentScript: currentScript, withScript: withScript, context: function () { return state; },
 				reportSubscriptions: reportSubscriptions, post: transport.post, document: window.document, initializationTiming: initializationTiming });
 			function copy(value) {
 				try { return structuredClone(value); }
@@ -739,6 +742,7 @@
 				MESSAGE_SENT: "MESSAGE_SENT", MESSAGE_RECEIVED: "MESSAGE_RECEIVED", MESSAGE_UPDATED: "MESSAGE_UPDATED",
 				MESSAGE_SWIPED: "MESSAGE_SWIPED", MESSAGE_DELETED: "MESSAGE_DELETED", MESSAGE_EDITED: "MESSAGE_EDITED",
 				CHAT_CHANGED: "CHAT_CHANGED", CHAT_CREATED: "CHAT_CREATED", CHARACTER_PAGE_LOADED: "CHARACTER_PAGE_LOADED",
+				GENERATION_STARTED: "GENERATION_STARTED", GENERATION_STOPPED: "GENERATION_STOPPED", GENERATION_ENDED: "GENERATION_ENDED",
 				GENERATION_AFTER_COMMANDS: "GENERATION_AFTER_COMMANDS",
 				GENERATE_BEFORE_COMBINE_PROMPTS: "GENERATE_BEFORE_COMBINE_PROMPTS"
 			};

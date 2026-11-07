@@ -441,7 +441,8 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
 /* 选卡/开局准备页展开时收起卡片自带的悬浮应用（如外置小手机），避免盖住开场白预览和 letter 列表；
    进入对局后宿主会把手机停靠进右侧「人物卡应用」面板。 */
 body.dsh-tavern-picker-open [id^="improved-phone-shadow-host-"],
-body.dsh-tavern-picker-open [id^="improved-phone-floating-button-"] { visibility: hidden !important; }
+body.dsh-tavern-picker-open [id^="improved-phone-floating-button-"],
+body.dsh-tavern-picker-open #auto-message-notification-container { visibility: hidden !important; }
 .dsh-tavern-greeting-nav { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; }
 .dsh-tavern-greeting-count { color: var(--dsw-alias-label-secondary); text-align: center; font-size: 12px; }
 .dsh-tavern-player-name { display: grid; grid-template-columns: auto minmax(180px, 320px); gap: 10px; align-items: center; margin: 10px 0 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
@@ -850,9 +851,11 @@ body.dsh-tavern-picker-open [id^="improved-phone-floating-button-"] { visibility
 .dsh-tavern-card-reload-notice { min-width: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .dsh-tavern-card-app-section[hidden] { display: none; }
 .dsh-tavern-card-app-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px; }
+.dsh-tavern-card-app-actions { display: flex; align-items: center; gap: 6px; }
 .dsh-tavern-card-app-head .dsh-tavern-status-label { margin-bottom: 0; }
 .dsh-tavern-card-app-recovering { margin-bottom: 7px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .dsh-tavern-card-app-slot { width: 100%; min-height: 120px; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: rgba(0,0,0,.14); }
+.dsh-tavern-card-app-slot[data-collapsed="true"] { min-height: 0; height: 0; border: 0; background: transparent; }
 .dsh-tavern-script-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
 .dsh-tavern-status-label { margin-bottom: 7px; color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 700; letter-spacing: .06em; }
 .dsh-tavern-status-now { padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--dsh-tavern-accent) 30%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--dsh-tavern-accent) 8%, transparent); font-size: 12px; line-height: 1.55; }

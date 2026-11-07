@@ -337,8 +337,8 @@
 				snapshot = { sessionId: current ? current.sessionId : "", loadState: current ? current.loadState : null };
 				listeners.forEach(function (listener) { listener(); });
 			}
-			function selectedOwner() {
-				let id = String(tavernMainSessionId(sessions) || "");
+			function ownerOfSession(sessionId) {
+				let id = String(sessionId || "");
 				const seen = new Set();
 				while (id) {
 					if (seen.has(id) || seen.size >= 32) return "";
@@ -349,6 +349,9 @@
 					id = String(address.parentSessionId || "");
 				}
 				return "";
+			}
+			function selectedOwner() {
+				return ownerOfSession(tavernMainSessionId(sessions));
 			}
 			function release(record) {
 				if (records.get(record.sessionId) !== record) return;
@@ -468,23 +471,33 @@
 				records.forEach(release);
 				publish();
 			}
+			function triggerButton(sessionId, scriptId, name) {
+				const requested = String(sessionId || "");
+				const ownerId = requested ? ownerOfSession(requested) : "";
+				const target = requested ? (records.get(requested) || (ownerId ? records.get(ownerId) : null)) : current;
+				if (!target) return Promise.reject(new Error("人物卡脚本尚未运行"));
+				return target.execution.triggerButton(scriptId, name);
+			}
 			return Object.freeze({
 				start: function () {
 					if (started) return;
 					started = true;
+					hostWindow.__dshTavernTriggerScriptButton = triggerButton;
 					hostWindow.addEventListener("pagehide", suspend);
 					hostWindow.addEventListener("pageshow", resume);
 					resume();
 				},
 				dispose: function () {
 					started = false;
+					if (hostWindow.__dshTavernTriggerScriptButton === triggerButton) delete hostWindow.__dshTavernTriggerScriptButton;
 					hostWindow.removeEventListener("pagehide", suspend);
 					hostWindow.removeEventListener("pageshow", resume);
 					suspend();
 				},
 				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; },
 				getSnapshot: function () { return snapshot; },
-				retryMvuLoad: function () { return Boolean(current && current.execution.retryMvuLoad()); }
+				retryMvuLoad: function () { return Boolean(current && current.execution.retryMvuLoad()); },
+				triggerButton: triggerButton
 			});
 		}
 
