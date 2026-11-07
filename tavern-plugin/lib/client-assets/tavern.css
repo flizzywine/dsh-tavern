@@ -114,7 +114,6 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-story-older { display: flex; justify-content: center; }
 .dsh-tavern-story-loading, .dsh-tavern-story-empty { padding: 20px 0; color: var(--dsw-alias-label-secondary); text-align: center; }
 .dsh-tavern-story-error { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--dsh-tavern-accent-error); }
-.dsh-tavern-story-mode { white-space: nowrap; }
 .dsh-tavern-story-input .dsh-tavern-user-bubble { box-sizing: border-box; max-width: min(525px, 82%); }
 .dsh-tavern-illustration { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .dsh-tavern-illustration > a { display: block; max-width: 100%; }

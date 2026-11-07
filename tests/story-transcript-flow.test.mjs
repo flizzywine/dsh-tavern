@@ -140,31 +140,29 @@ test('玩家输入只来自持久故事行，准备、失败和提交始终保�
 })
 
 
-test('新旧渲染开关保留故事数据并即时回退原生 ChatFlow', async t => {
+test('旧原生偏好在初始化时恢复故事楼层', async t => {
 	const p = page(t), { context } = p
+	const writes = []
+	const storage = { getItem: () => 'legacy', setItem: (key, value) => writes.push([key, value]) }
 	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({ storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1 }) })
-	const store = data.createStoryTranscriptStore(), mode = data.createModeStore()
+	const store = data.createStoryTranscriptStore(), mode = data.createModeStore({ storage })
+	assert.equal(mode.getSnapshot(), false)
 	await store.read('s1')
 	const refreshes = []
 	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode: mode,
 		externalHistory: { refresh: (sessionId, options) => refreshes.push({ sessionId, options }) } })
+	assert.equal(mode.getSnapshot(), true)
+	assert.deepEqual(writes, [['dsh-tavern-story-transcript-renderer', 'story']])
 	const NativeFlow = () => React.createElement('div', { 'data-native-flow': '' }, '原生')
 	const chat = { legacy: { partial: null, nodes: [], runningCalls: [] } }
-	const element = () => React.createElement(feature.StoryTranscriptFlow, {
+	await mount(p, React.createElement(feature.StoryTranscriptFlow, {
 		sessionId: 's1', store: store, nativeFlow: NativeFlow,
 		useChat: selector => selector(chat), useSession: selector => selector({ running: false })
-	})
-	const root = await mount(p, element())
+	}))
 	assert.equal(p.dom.window.document.querySelectorAll('[data-story-row]').length, 3)
 	assert.equal(p.dom.window.document.querySelector('[data-native-flow]'), null)
-	await act(async () => mode.set(false))
-	assert.ok(p.dom.window.document.querySelector('[data-native-flow]'))
-	assert.equal(p.dom.window.document.querySelector('[data-story-row]'), null)
-	await act(async () => mode.set(true))
-	assert.equal(p.dom.window.document.querySelector('[data-native-flow]'), null)
-	assert.equal(p.dom.window.document.querySelectorAll('[data-story-row]').length, 3)
-	assert.deepEqual(refreshes.map(item => item.sessionId), ['s1', 's1', 's1'], '初次、切原生、回故事各同步一次投影')
-	assert.ok(refreshes.every(item => item.options === undefined), '模式切换由 external-history 的状态变化触发一次全量重建')
+	assert.deepEqual(refreshes.map(item => item.sessionId), ['s1'])
+	assert.ok(refreshes.every(item => item.options === undefined))
 })
 
 test('空故事回退原生 ChatFlow 时同步恢复完整 native 投影', async t => {
@@ -281,7 +279,7 @@ test('槽注册复制原生 inject/store/locale，保留 children 声明并优�
 	assert.equal(flow.options.store, store)
 	assert.equal(flow.options.locale, 'chat')
 	assert.equal(flow.options.children, undefined)
-	assert.ok(registrations.some(entry => entry.options.id === 'dsh-tavern-story-transcript-mode'))
+	assert.equal(registrations.some(entry => entry.options.id === 'dsh-tavern-story-transcript-mode'), false, '不再注册楼层／原生切换按钮')
 })
 
 test('真实 story-flow 槽向尾部投影注入会话级 executeSlash', async t => {

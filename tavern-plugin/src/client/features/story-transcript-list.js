@@ -50,6 +50,8 @@ function createTavernStoryTranscriptFeature(deps) {
 	const renderProjection = typeof options.renderProjection === 'function' ? options.renderProjection
 		: (typeof renderTavernProjection === 'function' ? renderTavernProjection : null)
 	const mode = options.mode || data.createModeStore()
+	// 故事楼层是唯一展示模式；旧版本保存的“原生”偏好在升级后直接纠正。
+	mode.set(true)
 	let storyTranscriptStore = null
 	let nativeFlow = null
 	let flowExecuteSlash = options.executeSlash || null
@@ -471,15 +473,6 @@ function createTavernStoryTranscriptFeature(deps) {
 		}))
 	}
 
-	function TavernStoryTranscriptModeAction(props) {
-		const enabled = data.useMode(mode)
-		const sessionMode = typeof useTavernSessionMode === 'function' ? useTavernSessionMode(String(props.sessionId || '')) : ''
-		if (sessionMode && !isPlayMode(sessionMode)) return null
-		const label = enabled ? '切换到原生记录' : '切换到故事楼层'
-		return h('button', { type: 'button', className: 'dsh-tavern-btn dsh-tavern-story-mode', 'aria-label': label, title: label,
-			onClick: mode.toggle }, enabled ? '楼层' : '原生')
-	}
-
 	function StoryTranscriptFlowSlot(props) {
 		return h(TavernStoryTranscriptFlow, Object.assign({}, props, { nativeFlow: nativeFlow, store: options.store,
 			executeSlash: props.executeSlash || flowExecuteSlash }))
@@ -517,12 +510,6 @@ function createTavernStoryTranscriptFeature(deps) {
 			}
 		}, 'dsh-tavern: story external history')
 		ctx.effect(function () {
-			return slots.inject('conversation.session.header.actions', function () {
-				return slots.register({ name: 'conversation.session.header.actions', id: 'dsh-tavern-story-transcript-mode', order: -135,
-					inject: function (sessionId) { return { sessionId: sessionId } } }, TavernStoryTranscriptModeAction)
-			})
-		}, 'dsh-tavern: story transcript mode switch')
-		ctx.effect(function () {
 			return slots.inject('conversation.chat.flow', function () {
 				let dispose = null, installing = false
 				function install() {
@@ -556,7 +543,6 @@ function createTavernStoryTranscriptFeature(deps) {
 		StoryTranscriptRow: StoryTranscriptRow,
 		StoryTranscriptMarkdown: TavernStoryMarkdown,
 		StoryTranscriptFlow: TavernStoryTranscriptFlow,
-		StoryTranscriptModeAction: TavernStoryTranscriptModeAction,
 		register: register,
 		mode: mode
 	})

@@ -95,8 +95,6 @@ export async function storyWriteOperationChecks(context) {
 	const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
 	async function ensureStoryRows() {
 		if (await storyRows().count()) return
-		const toggle = page.getByRole('button', { name: /切换到故事楼层/ })
-		if (await toggle.count()) await toggle.first().click().catch(() => {})
 		await storyRows().first().waitFor({ timeout: 30000 })
 	}
 	async function sidebarFailure() {
