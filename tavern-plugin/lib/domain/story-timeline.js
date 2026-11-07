@@ -1,5 +1,6 @@
 import { createScopedMessages } from './scoped-messages.js'
 import { participantOf } from './background-members.js'
+import { clearRegenerationFailure } from './regeneration-discard.js'
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 }
@@ -96,7 +97,7 @@ export function createStoryTimeline(options = {}) {
     }).sort(function (left, right) {
       return (Number(left.foregroundCompletedAt) || Number(left.createdAt) || 0) - (Number(right.foregroundCompletedAt) || Number(right.createdAt) || 0)
     })
-    for (const operation of legacyForeground) commitBody(chat, operation)
+    for (const operation of legacyForeground) commitBody(chat, operation, storageRevision(chat))
     return chat
   }
 
@@ -200,12 +201,16 @@ export function createStoryTimeline(options = {}) {
       && Number(latest.committedRevision) === Number(chat.timeline.revision) ? latest : undefined
   }
 
-  function commitBody(chat, operation) {
+  function commitBody(chat, operation, completedStorageRevision = storageRevision(chat) + 1) {
     chat.timeline.checkpoints.push({
       id: makeId('checkpoint'),
+      operationId: operation.id,
       turn: operation.turn,
       userText: operation.userText,
       beforeRevision: Math.max(0, Number(operation.beforeRevision) || 0),
+      // Forks need the completed assistant prefix, not the pre-reply rollback
+      // baseline. The surrounding Chat write advances exactly one revision.
+      afterRevision: Math.max(0, Number(completedStorageRevision) || 0),
       participants: clone(operation.beforeParticipants),
       committedAt: now()
     })
@@ -227,12 +232,17 @@ export function createStoryTimeline(options = {}) {
   }
 
   function updateSettlementBackground(chat, operation, phase) {
-    const round = chat.timeline.operations[str(operation && operation.roundOperationId)]
-    if (round && round.kind === 'body' && round.status === 'completed') {
-      round.background = { phase, role: 'settlement', updatedAt: now() }
-      return round
-    }
-    return updateBackground(chat, phase, 'settlement')
+    const linked = chat.timeline.operations[str(operation && operation.roundOperationId)]
+    const round = linked && linked.kind === 'body' && linked.status === 'completed'
+      ? linked : backgroundBody(chat)
+    if (!round) return null
+    round.background = { phase, role: 'settlement', updatedAt: now() }
+    // This revision is written by the same settlement CAS that closes the
+    // pending/failed state. Unlike checkpoint.afterRevision (the foreground
+    // commit), it is a forkable post-settlement snapshot. Keep it on the round:
+    // bounded settlement projections intentionally omit timeline.checkpoints.
+    if (phase === 'completed' || phase === 'failed') round.settledRevision = storageRevision(chat) + 1
+    return round
   }
 
   function beginBody(chat, intent) {
@@ -291,6 +301,11 @@ export function createStoryTimeline(options = {}) {
     const lifetime = participantLifetime(participant.lifetime)
     const participantKey = participantRole(operation.role)
     const previousParticipant = object(chat.timeline.participants[participantKey])
+    // Only a task that actually reached an agent session (its bind ran the worker) saw this
+    // revision. A settlement that ran no model (nothing to settle, provider-only, replaced,
+    // or failed before its first turn) only carries the session id it found, so marking it
+    // synced would make the next candidate generation skip sending the new story.
+    const ranSession = str(operation.startedSessionId) !== ''
     // Failure is not evidence that the requested rewind reached durable storage.
     // Keep the original boundary so every retry still has to perform it.
     if (preserveRewind && previousParticipant.status === 'needs-rewind'
@@ -300,7 +315,7 @@ export function createStoryTimeline(options = {}) {
       lifetime,
       sessionId: str(participant.sessionId),
       branchId: chat.timeline.branchId,
-      syncedRevision: participant.identityOnly ? null : chat.timeline.revision,
+      syncedRevision: participant.identityOnly || !ranSession ? null : chat.timeline.revision,
       boundary: Number.isSafeInteger(participant.boundary) ? participant.boundary : null,
       ...(participant.formatVersion ? { formatVersion: participant.formatVersion } : {}),
       status: 'current',
@@ -317,7 +332,7 @@ export function createStoryTimeline(options = {}) {
     if (operation.role === 'candidate') {
       chat.candidateAgent = {
         sessionId: str(participant.sessionId), mode: lifetime === 'chat' ? 'continuable' : 'one-shot',
-        branchId: chat.timeline.branchId, syncedRevision: chat.timeline.revision,
+        branchId: chat.timeline.branchId, syncedRevision: ranSession ? chat.timeline.revision : null,
         boundary: Number.isSafeInteger(participant.boundary) ? participant.boundary : null,
         ...(participant.formatVersion ? { formatVersion: participant.formatVersion } : {}),
         updatedAt: now()
@@ -467,6 +482,7 @@ export function createStoryTimeline(options = {}) {
       }
     }
     restore(chat, restoredState)
+    clearRegenerationFailure(chat)
     const branchId = makeId('branch')
     const restoredParticipants = object(checkpoint.participants || restoredState && restoredState.participants)
     const nextParticipants = {}
@@ -667,6 +683,7 @@ export function createStoryTimeline(options = {}) {
       return { chat, value: { status: 'deferred', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
     }
     if (outcome.status !== 'success') {
+      if (typeof input.apply === 'function') input.apply(chat)
       commitParticipant(chat, operation, outcome.participant, true)
       operation.status = 'failed'
       operation.completedAt = now()
@@ -685,6 +702,7 @@ export function createStoryTimeline(options = {}) {
     }
     if (typeof input.apply === 'function') input.apply(chat)
     if (operation.kind === 'body') {
+      clearRegenerationFailure(chat)
       operation.foregroundCompletedAt = now()
       commitBody(chat, operation)
     } else if (settlementRound !== null) {

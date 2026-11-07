@@ -28,6 +28,13 @@ export function createForegroundHandoff(options = {}) {
     // Task metadata and the opening check need the header and floor count only.
     const opening = store.openingStateForSession ? await store.openingStateForSession(input.sessionId) : null
     const chat = opening ? opening.chat : await store.chatForSession(input.sessionId)
+    // A detached regeneration already owns a frozen request frame. Running the
+    // ordinary next-turn hooks would cancel settlement, sync world state or clean
+    // native tails against the live story before the candidate has been validated.
+    if (chat?.regenInProgress === true) {
+      const marked = await store.chatForSession(input.sessionId)
+      if (marked?.regenRecovery?.candidateFrame?.kind === 'foreground') return await turns.prepare(input)
+    }
     // MVU's greeting/initvar path runs while floor 0 is still the latest floor.
     // An immediate first send must wait before templates, context or body.begin
     // capture an empty baseline and advance beyond that initialization boundary.

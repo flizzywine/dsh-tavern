@@ -51,3 +51,11 @@ docs/implementation/
 # Bundled image plugin runtime data (never publish local reference assets/rules)
 /tavern-plugin/packages/dsh-tavern-image-bundled/reference-images/
 /tavern-plugin/packages/dsh-tavern-image-bundled/format-worldbooks/
+
+# Python 字节码缓存（android/apk 打包脚本等）
+__pycache__/
+*.py[cod]
+
+# 根目录临时输出与一次性脚本
+/out_*.txt
+/raw.mjs

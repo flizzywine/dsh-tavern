@@ -318,7 +318,12 @@ export function createCandidateGenerator(options) {
     const guidance = str(input.guidance).trim().slice(0, 600)
     let request = '请按上述规则生成候选项。'
     if (guidance !== '') request += '\n\n【用户额外要求】\n' + guidance + '\n\n额外要求不改变 ' + (scriptMode ? '剧本走向、' : '') + (scriptMode ? 1 : 5) + ' 个候选及类型约束。'
-    const backgroundAlreadySynced = persistentSessionId !== '' && Number(participantRequest.syncedRevision) === Number(taskRun.basedOn.revision)
+    // Only a session that actually read this revision may skip the newest body: a null mark
+    // means the resident agent never saw it, and Number(null) must not read as revision 0.
+    const syncedRevision = participantRequest.syncedRevision
+    const hasSyncedRevision = syncedRevision !== null && syncedRevision !== undefined && Number.isFinite(Number(syncedRevision))
+    const backgroundAlreadySynced = persistentSessionId !== '' && hasSyncedRevision
+      && Number(syncedRevision) === Number(taskRun.basedOn.revision)
     const recentMessages = backgroundAlreadySynced ? [] : buildMessages(chat, card, selection, now, persistentSessionId !== '' ? 1 : 6)
     const messages = recentMessages.concat([{
       id: 'choices-' + now().toString(36),

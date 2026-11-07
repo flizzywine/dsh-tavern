@@ -47,7 +47,9 @@ test('compaction drops unretained revisions and keeps current and retained ones 
 
 test('retention follows checkpoints, undo, regeneration recovery and forks transitively',async()=>{
  const states={
-  9:{id:'a',_storageRevision:9,timeline:{checkpoints:[{beforeRevision:4}]}},
+  9:{id:'a',_storageRevision:9,timeline:{checkpoints:[{operationId:'round-9',beforeRevision:4,afterRevision:5}],operations:{'round-9':{settledRevision:8}}}},
+  8:{id:'a',_storageRevision:8},
+  5:{id:'a',_storageRevision:5},
   4:{id:'a',_storageRevision:4,timeline:{checkpoints:[{beforeRevision:2}]}},
   2:{id:'a',_storageRevision:2},
   7:{id:'a',_storageRevision:7},
@@ -60,5 +62,5 @@ test('retention follows checkpoints, undo, regeneration recovery and forks trans
  }
  const chat={id:'a',_storageRevision:20,timeline:{checkpoints:[{beforeRevision:9}]},rollbackUndo:{beforeRevision:7},regenRecovery:{beforeRevision:6}}
  const retained=await retainedRevisions(chat,read,[11])
- assert.deepEqual([...retained].sort((x,y)=>x-y),[2,4,6,7,9,10,11])
+ assert.deepEqual([...retained].sort((x,y)=>x-y),[2,4,5,6,7,8,9,10,11])
 })

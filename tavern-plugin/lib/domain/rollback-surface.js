@@ -21,6 +21,14 @@ function eventAt(events, seq) {
   return events.find(event => event && Number(event.seq) === Number(seq)) || null
 }
 
+// The native turn whose row a surface node draws. A regeneration hides the old
+// reply by this number, never by the story turn: the two are decoupled, and the
+// page groups its rows by the host's turn.
+export function surfaceTurnOfSeq(events, seq) {
+  const turn = Number(eventAt(events, seq)?.data?.turn)
+  return Number.isSafeInteger(turn) && turn > 0 ? turn : null
+}
+
 function contentText(value) {
   const message = object(value)
   const content = message && message.content
@@ -379,11 +387,40 @@ export function supersededRegenerationErrorTurns(input) {
 export function locateRegenerationSurface(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
+  // 存档行自己记着这一轮正文的事件号（nativeAnchor.reply）：直接查，不按轮号猜，
+  // 也不看轮号对不对。轮号是两套各走各的编号，本来就不该参与定位。
+  const storedSeq = Number(input?.seq)
+  if (Number.isSafeInteger(storedSeq) && storedSeq >= 0) {
+    const index = nodes.findIndex(node => Number(node) === storedSeq)
+    const event = index >= 0 ? eventAt(events, storedSeq) : null
+    if (event && event.type === 'assistant/message' && !isRollbackAssistantTombstone(event, events)) {
+      const source = modelSourceOf(event)
+      if (source !== null) {
+        const turn = Number(input?.turn)
+        return Object.freeze({ assistantSeq: Number(nodes[index]), source,
+          turn: Number.isSafeInteger(turn) && turn > 0 ? turn : storyEventTurn(event) })
+      }
+    }
+  }
+  const messageId = typeof input?.messageId === 'string' ? input.messageId : ''
+  if (messageId !== '') {
+    for (let index = nodes.length - 1; index >= 0; index -= 1) {
+      const event = eventAt(events, nodes[index])
+      if (!event || event.type !== 'assistant/message' || event.data?.message?.id !== messageId) continue
+      const source = modelSourceOf(event)
+      if (source === null) continue
+      return Object.freeze({ assistantSeq: Number(nodes[index]), turn: storyEventTurn(event), source })
+    }
+    return null
+  }
   const turn = Number(input && input.turn)
   if (!Number.isSafeInteger(turn) || turn < 1) return null
   for (let index = nodes.length - 1; index >= 0; index -= 1) {
     const event = eventAt(events, nodes[index])
-    if (!event || event.type !== 'assistant/message' || storyEventTurn(event) !== turn) continue
+    if (!event || event.type !== 'assistant/message') continue
+    // 投影/修复写回的条目把剧情轮号记在 message.source 上，宿主给的位置轮号是另一个；
+    // 两个号任一命中就算这一轮，否则修复过的正文永远定位不到。
+    if (Number(event.data?.turn) !== turn && storyEventTurn(event) !== turn) continue
     const source = modelSourceOf(event)
     if (source === null) continue
     // Current swipes leave a non-empty replacement; legacy swipes can be empty.
@@ -405,6 +442,33 @@ export function locateRegenerationSurface(input) {
     return Object.freeze({ assistantSeq: Number(nodes[index]), turn, source })
   }
   return null
+}
+
+/**
+ * A missing target is safe to append only when every remaining native body is
+ * accounted for by another saved row. An unclaimed body is a conflict, not proof
+ * that the selected round disappeared; appending there would duplicate a reply.
+ */
+export function hasConflictingRegenerationSurface(input) {
+  const events = Array.isArray(input?.events) ? input.events : []
+  const nodes = Array.isArray(input?.nodes) ? input.nodes : []
+  const messages = Array.isArray(input?.messages) ? input.messages : []
+  const targetIndex = Number(input?.assistantIndex)
+  const claimed = new Set()
+  for (let index = 0; index < messages.length; index += 1) {
+    const row = messages[index]
+    if (index === targetIndex || row?.role !== 'assistant') continue
+    const storedSeq = Number(row.nativeAnchor?.reply)
+    const match = locateRegenerationSurface({ events, nodes,
+      seq: Number.isSafeInteger(storedSeq) && storedSeq >= 0 ? storedSeq : undefined,
+      turn: row.turn, texts: [row.text, row.sourceText, row.projectionText] })
+    if (match) claimed.add(Number(match.assistantSeq))
+  }
+  return nodes.some(seq => {
+    if (claimed.has(Number(seq))) return false
+    const event = eventAt(events, seq)
+    return event?.type === 'assistant/message' && modelSourceOf(event) !== null && !isRollbackAssistantTombstone(event, events)
+  })
 }
 
 // Failed turns have already left the model surface, but remain visible until
@@ -439,8 +503,9 @@ export function pendingFailedSurfaceTurns({ events = [], nodes = [], suppressed 
 }
 
 // A failed tail never reached the stored story, so recovering it is not a
-// rollback: drop the interrupted native residue and replay its original input.
-// The input survives in the append-only log even after the cleanup tombstone.
+// rollback: drop the interrupted native residue and hand its original input
+// back to the player. The input survives in the append-only log even after the
+// cleanup tombstone.
 export function replayableFailedTurn(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   let lastEnd = null
@@ -481,6 +546,91 @@ export function replayableFailedTurn(input) {
   return null
 }
 
+/**
+ * The index of a player row the story never answered, or -1. Such a tail is a
+ * failed turn: it has an input and no body, so "regenerate" has nothing to
+ * replace. Replacing the round before it would replay an older input and leave
+ * the newest one unanswered, which is exactly what a player asking to redo the
+ * last reply must not get.
+ */
+export function unansweredTailIndex(chat) {
+  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+  const index = messages.length - 1
+  const message = messages[index]
+  if (index < 0 || message === null || typeof message !== 'object') return -1
+  // The shape, not a flag, decides: the save ends on a player row and no reply
+  // follows it. An imported row is history the save keeps loose on purpose, so
+  // it must not turn into a round; a native flag is not required, because a turn
+  // that failed before landing its body may never have been stamped.
+  if (message.role !== 'user' || message.placeholder === true || message.greeting === true) return -1
+  if (typeof message.source?.kind === 'string' && message.source.kind === 'import') return -1
+  return index
+}
+
+// A native tail user with no assistant after it is an unfinished story input,
+// regardless of whether the provider failure itself was persisted. Never fall
+// through to an earlier assistant/user pair: that pair is already complete.
+export function replayablePersistedTurn(chat, { events = [], nodes = [] } = {}) {
+  if (!['story', 'script'].includes(chat?.mode || 'story')) return null
+  const failure = object(chat?.foregroundError)
+  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+  const message = object(messages[messages.length - 1])
+  // appendUser persists a placeholder before Session acceptance. If submission
+  // fails before prepare/discard, that flag is still present; it must not strand
+  // the only story row the player is trying to withdraw. A prepared assistant
+  // placeholder already follows the user row, so this tail check stays specific.
+  if (message?.role !== 'user' || message.native !== true) return null
+  const hasText = typeof message.sourceText === 'string' || typeof message.text === 'string'
+  const userText = typeof message.sourceText === 'string' ? message.sourceText : (typeof message.text === 'string' ? message.text : '')
+  const attachments = Array.isArray(message.inputAttachments) ? structuredClone(message.inputAttachments) : []
+  // Session-state projections deliberately omit bodies; their target only drives
+  // button visibility. The mutation reads the full row and still validates text.
+  if (hasText && userText.trim() === '' && attachments.length === 0) return null
+  const failedTurn = Number(failure?.turn)
+  const source = replayInputSource(message.source)
+  if (!source.rpcId) source.rpcId = randomUUID()
+  const target = {
+    persisted: true,
+    messageIndex: messages.length - 1,
+    turn: Number.isSafeInteger(failedTurn) && failedTurn > 0 ? failedTurn : 0,
+    userText,
+    ...(message.placeholder === true ? { placeholder: true } : {}),
+    ...(attachments.length ? { inputAttachments: attachments } : {}),
+    source
+  }
+  if (target.turn > 0) return Object.freeze(target)
+  // Deleting a completed reply leaves the same unanswered tail as a failed turn,
+  // but there is no foregroundError to supply its native turn. Identify only the
+  // visible tail input; an older answered input must never be cleaned in its place.
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const seq = Number(nodes[index])
+    const event = eventAt(events, seq)
+    if (event?.type === 'assistant/message' && modelSourceOf(event) !== null) break
+    if (!isNewPlayerInput(event)) continue
+    const eventRequest = typeof event.data?.source?.rpcId === 'string' ? event.data.source.rpcId.trim() : ''
+    const matches = eventRequest && source.rpcId ? eventRequest === source.rpcId
+      : userText.trim() !== '' && contentText(event.data) === userText.trim()
+    if (!matches) break
+    const start = events.findLast(item => item?.type === 'turn/start' && Number(item.seq) < seq)
+    const turn = surfaceTurnOfSeq(events, seq) || Number(start?.data?.turn) || 0
+    if (Number.isSafeInteger(turn) && turn > 0) target.turn = turn
+    break
+  }
+  return Object.freeze(target)
+}
+
+/** 存档行记着的原生位置就是这一条：投影/修复换了轮号也仍然是这一轮。 */
+export function anchoredToSaveRow(target, row) {
+  const reply = Number(row && row.nativeAnchor ? row.nativeAnchor.reply : NaN)
+  return Number.isSafeInteger(reply) && reply >= 0 && reply === Number(target && target.assistantSeq)
+}
+
+/** 消息面上的正文文本：投影、修复写回的条目会带着别的轮号，正文本身才是它。 */
+export function surfaceReplyText({ events = [], seq } = {}) {
+  const event = eventAt(events, seq)
+  return event && event.type === 'assistant/message' ? contentText(event.data && event.data.message) : ''
+}
+
 export function locateRollbackSurface(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
@@ -519,18 +669,18 @@ export function locateRollbackSurface(input) {
   }
   if (assistantIndex < 0 || assistantEvent === null || source === null) return null
 
-  const ownership = createSurfaceOwnership(events)
-  const start = ownership.firstOrigin(nodes[userIndex])
-  const belongs = ownership.classify(event => event.seq >= start)
-  const turn = storyEventTurn(assistantEvent)
+  // 撤回的就是最后这条输入：它以后不可能再有已提交的正文，所以这一段整段收走。
+  // 投影、修复、重新生成会把来源和剧情轮次指向更早的消息（native-repair 写回的
+  // 条目甚至带着别的轮号），按来源逐条证明归属只会让这一轮永远撤不掉。
+  // 唯一不能跨过的是另一轮真正的输入。
+  const eventsBySeq = new Map()
+  for (const event of events) if (event && Number.isFinite(Number(event.seq))) eventsBySeq.set(Number(event.seq), event)
   const range = planSurfaceRange({ nodes, start: nodes[userIndex], end: nodes.at(-1),
     accepts: seq => {
-      const event = ownership.eventAt(seq)
+      const event = eventsBySeq.get(Number(seq))
       if (isRollbackUserTombstone(event) || isRollbackAssistantTombstone(event, events)) return true
-      if (belongs(seq) !== OWNED) return false
-      if (event?.type === 'assistant/message' && storyEventTurn(event) !== turn) return false
-      const frameTurn = Number(event?.data?.source?.trace?.turn)
-      return !(frameTurn > 0) || frameTurn === turn
+      if (event?.type === 'user/message' && isNewTurnInput(event)) return Number(seq) === Number(nodes[userIndex])
+      return true
     }, message: '回退消息归属不一致，无法安全清理' })
   const shadowedSeqs = range.shadowedSeqs
   return Object.freeze({
@@ -576,11 +726,14 @@ export function planRegenerationSurface(input) {
   const ownership = createSurfaceOwnership(events)
   const end = regenerationAttemptEnd(events, eventStart)
   const attempt = ownership.classify(event => event.seq >= eventStart && event.seq < end)
+  // 尝试段按位置认（eventStart 之后、end 之前），不再要求来源可证：
+  // 投影/修复写回的节点归属常是 UNKNOWN，按归属判会把已产生的正文判成不存在。
+  const inAttempt = seq => Number(seq) >= eventStart && Number(seq) < end
   let finalAssistantSeq = null
   for (let index = nodes.length - 1; index > oldAssistantIndex; index--) {
     const seq = Number(nodes[index])
     const event = ownership.eventAt(seq)
-    if (attempt(seq) === OWNED && event?.type === 'assistant/message' && modelSourceOf(event) !== null) {
+    if (inAttempt(seq) && event?.type === 'assistant/message' && modelSourceOf(event) !== null) {
       finalAssistantSeq = seq
       break
     }
@@ -589,7 +742,7 @@ export function planRegenerationSurface(input) {
 
   const failed = turnIntervals(events).filter(interval => interval.failed && interval.end < eventStart)
   const residue = ownership.classify(event => failed.some(interval => event.seq > interval.start && event.seq < interval.end))
-  const accepts = seq => seq === oldAssistantSeq || attempt(seq) === OWNED || residue(seq) === OWNED ||
+  const accepts = seq => seq === oldAssistantSeq || inAttempt(seq) || residue(seq) === OWNED ||
     isRollbackUserTombstone(ownership.eventAt(seq)) || isRollbackAssistantTombstone(ownership.eventAt(seq), events)
   const between = nodes.slice(oldAssistantIndex, nodes.indexOf(finalAssistantSeq) + 1).map(Number)
   // Messages written between the old reply and this attempt by something else
@@ -637,6 +790,11 @@ export function regenerationProjection(replacement, data, operationId) {
  * that copy — the same shape the fold writes for a live submission.
  */
 export function applyRegenerationProjection(session, projection) {
+  // An answered tail streams its own reply into the log; there is no projection
+  // to write, only the anchors that name the rows it already produced.
+  if (projection.kind === 'append-round' && projection.native !== undefined) {
+    return projection.native === null ? null : { nativeAnchor: projection.native }
+  }
   if (projection.kind === 'append-round') return applyIndependentRoundProjection(session, projection)
   const events = sessionEvents(session)
   const blocks = Array.isArray(projection.data?.message?.content) ? projection.data.message.content : []
@@ -689,12 +847,23 @@ export function applyRegenerationProjection(session, projection) {
   replaceCleanups()
 }
 
-/** A failed input has no body to replace. Replay its visible pair once after commit. */
+/**
+ * A round that has no body to replace on the model surface gets one appended:
+ * a failed input replays its visible pair, while a saved round the surface had
+ * lost already has its input there and only needs the body.
+ */
 function applyIndependentRoundProjection(session, projection) {
+  const needsInput = Boolean(projection.input && projection.input.id)
+  const storedInputSeq = Number(projection.inputSeq)
+  const hasStoredInput = Number.isSafeInteger(storedInputSeq) && storedInputSeq >= 0
   const locate = () => {
     const events = sessionEvents(session)
     return {
-      input: events.find(event => event.type === 'user/message' && event.data?.id === projection.input?.id),
+      input: needsInput
+        ? events.find(event => event.type === 'user/message' && event.data?.id === projection.input.id)
+        : hasStoredInput
+          ? events.find(event => Number(event.seq) === storedInputSeq && event.type === 'user/message') || null
+          : null,
       reply: events.find(event => event.type === 'assistant/message' && event.data?.message?.id === projection.data?.message?.id)
     }
   }
@@ -704,14 +873,18 @@ function applyIndependentRoundProjection(session, projection) {
     surface.editStep((turn, step) => {
       // Opening the new edit turn first keeps cleanup and both appends in one
       // native turn. A crash can safely retry each append by its stable id.
-      clearFailedTurnSurface({ session, turn: projection.failedTurn, id: () => projection.input.id + ':cleanup' })
-      if (!found.input) surface.append('user/message', { ...projection.input, turn }, { surfaceOp: 'append' })
+      if (needsInput) clearFailedTurnSurface({ session, turn: projection.failedTurn, id: () => projection.input.id + ':cleanup' })
+      if (needsInput && !found.input) surface.append('user/message', { ...projection.input, turn }, { surfaceOp: 'append' })
       surface.append('assistant/message', { ...projection.data, turn, step }, { surfaceOp: 'append', sourceEventSeqs: [] })
     })
     found = locate()
   }
-  if (!found.input || !found.reply) throw new Error('失败输入重生成缺少已提交的原生消息')
-  return { nativeAnchor: { formatVersion: 4, turn: Number(found.reply.data.turn), input: Number(found.input.seq), reply: Number(found.reply.seq) } }
+  if (((needsInput || hasStoredInput) && !found.input) || !found.reply) throw new Error('补写正文缺少已提交的原生消息')
+  // A reply-only anchor is honest partial evidence for the next regeneration.
+  // Never manufacture a complete round anchor by pointing input at the reply.
+  const anchor = { formatVersion: 4, turn: Number(found.reply.data.turn), reply: Number(found.reply.seq) }
+  if (found.input) anchor.input = Number(found.input.seq)
+  return { nativeAnchor: anchor }
 }
 
 /** Turns cut off without ending (the server stopped mid-reply) whose nodes the model still sees. */
@@ -759,6 +932,18 @@ function regenerationAttemptEnd(events, eventStart) {
   return Infinity
 }
 
+// The residue of a turn that never finished is the tail of the surface: no
+// committed story can follow it. Projections and repairs cite older messages as
+// their sources, so provenance there can never be proven — take the contiguous
+// tail of the turn instead of refusing to clear it.
+function planTurnTailCut({ nodes, startSeq, endSeq }) {
+  const seqs = nodes.map(Number)
+  let index = seqs.length
+  while (index > 0 && seqs[index - 1] > startSeq && seqs[index - 1] < endSeq) index -= 1
+  if (index === seqs.length) return null
+  return Object.freeze({ start: seqs[index], end: seqs.at(-1), shadowedSeqs: Object.freeze(seqs.slice(index)) })
+}
+
 export function planFailedTurnSurface(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
@@ -767,14 +952,19 @@ export function planFailedTurnSurface(input) {
   if (!interval) return null
   const { start: startSeq, end: endSeq } = interval
 
-  return planSurfaceRecovery({
-    nodes,
-    ownership: input.ownership || createSurfaceOwnership(events),
-    selectOrigin: event => event.seq > startSeq && event.seq < endSeq,
-    inScope: event => event.seq > startSeq,
-    ignore: isRollbackUserTombstone,
-    message: '失败回合的模型消息面不是连续区间，无法安全清理'
-  })
+  try {
+    return planSurfaceRecovery({
+      nodes,
+      ownership: input.ownership || createSurfaceOwnership(events),
+      selectOrigin: event => event.seq > startSeq && event.seq < endSeq,
+      inScope: event => event.seq > startSeq,
+      ignore: isRollbackUserTombstone,
+      message: '失败回合的模型消息面不是连续区间，无法安全清理'
+    })
+  } catch (error) {
+    if (!(error instanceof SurfaceRecoveryError)) throw error
+    return planTurnTailCut({ nodes, startSeq, endSeq })
+  }
 }
 
 export function clearFailedTurnSurface(input) {
@@ -806,15 +996,22 @@ export function clearRegenerationAttemptSurface(input) {
   const eventStart = Math.max(0, Number(input && input.eventStart) || 0)
   const events = sessionEvents(session)
   const end = regenerationAttemptEnd(events, eventStart)
-  const cleanup = planSurfaceRecovery({
-    nodes, ownership: createSurfaceOwnership(events),
-    selectOrigin: event => event.seq >= eventStart && event.seq < end,
-    inScope: event => event.seq >= eventStart,
-    // Failed cleanup may precede regeneration abort; convert it once to the
-    // abort marker, then retries are true no-ops (including after a flush error).
-    ignore: event => sourceProducerName(event?.data?.source) === 'dsh-tavern-regeneration-abort',
-    message: '重新生成临时消息不是连续区间，无法安全清理'
-  })
+  let cleanup
+  try {
+    cleanup = planSurfaceRecovery({
+      nodes, ownership: createSurfaceOwnership(events),
+      selectOrigin: event => event.seq >= eventStart && event.seq < end,
+      inScope: event => event.seq >= eventStart,
+      // Failed cleanup may precede regeneration abort; convert it once to the
+      // abort marker, then retries are true no-ops (including after a flush error).
+      ignore: event => sourceProducerName(event?.data?.source) === 'dsh-tavern-regeneration-abort',
+      message: '重新生成临时消息不是连续区间，无法安全清理'
+    })
+  } catch (error) {
+    // 归属证明不了就按尾部整段收：这次尝试写在消息面末尾，后面没有已提交正文。
+    if (!(error instanceof SurfaceRecoveryError)) throw error
+    cleanup = planTurnTailCut({ nodes, startSeq: eventStart - 1, endSeq: end === Infinity ? Number.MAX_SAFE_INTEGER : end })
+  }
   if (!cleanup) return 0
   const makeId = typeof input.id === 'function' ? input.id : function () { return randomUUID() }
   replaceSessionSurface(session, 'user/message', {
@@ -881,7 +1078,10 @@ function planRollbackAvailability(chat, { events = [], nodes = [] } = {}) {
   const target = locateRollbackSurface({ events, nodes, anchor: latest?.nativeAnchor })
   if (isRescuedHistoryMessage(chat, latest)) return { canRollback: false, canClearIncompleteReply: false, failedTurns, target: null, reason: '存档救援导入的历史不可回退，请发送新消息继续' }
   const turn = Number(latest?.turn)
-  const matches = target && (!(turn > 0) || target.turn === turn || target.turn === Number(chat.regeneratedDshTurns?.[String(turn)]))
+  const matchesTurn = Boolean(target && (!(turn > 0) || target.turn === turn || target.turn === Number(chat.regeneratedDshTurns?.[String(turn)])))
+  // 投影/修复写回的正文会带着别的剧情轮号：存档行记着它指的就是这一条，就还是这一轮。
+  const matchesAnchor = Boolean(target && !matchesTurn && anchoredToSaveRow(target, latest))
+  const matches = matchesTurn || matchesAnchor
   const hasMessages = hasRollbackMessages(messages)
   const canRollback = hasMessages && Boolean(matches)
   return { canRollback, canClearIncompleteReply: false, failedTurns, target: canRollback ? target : null,
@@ -899,11 +1099,15 @@ export function rollbackAvailability(chat, input = {}) {
   }
 }
 
-export function failedTurnReplayAvailability({ events = [], nodes = [], cleared = [] } = {}) {
-  const target = replayableFailedTurn({ events })
-  if (!target) return { target: null, reason: '当前没有可重新生成的失败回合' }
-  // The player already cleared this failure (withdrew or dropped it); replaying would resurrect it.
-  if (cleared.map(Number).includes(target.turn)) return { target: null, reason: '这次失败已清除，请重新发送' }
+export function failedTurnReplayAvailability({ chat = null, events = [], nodes = [], cleared = [], running = false } = {}) {
+  const target = replayablePersistedTurn(chat, { events, nodes }) || replayableFailedTurn({ events })
+  if (!target) return { target: null, reason: '当前没有待处理的失败回合' }
+  // appendUser becomes visible before prepare writes the assistant placeholder.
+  // During that gap the player input is still being generated, not a failed tail.
+  if (target.persisted && target.placeholder === true && running === true) return { target: null, reason: '正在生成，请等待完成或停止后再撤回' }
+  // A persisted row disappears when the player withdraws it. The clearing marker
+  // left behind must not hide a row that is still waiting for its first reply.
+  if (!target.persisted && cleared.map(Number).includes(target.turn)) return { target: null, reason: '这次失败已清除，请重新发送' }
   try {
     planFailedTurnSurface({ events, nodes, turn: target.turn })
     return { target, reason: '' }

@@ -270,6 +270,9 @@
   "tavern-plugin/packages/dsh-tavern-tts/tests/package.test.mjs": [
     "@deepseek-ai/dsh-client-runtime"
   ],
+  "tavern-plugin/src/client/features/story-external-client.js": [
+    "@deepseek-ai/dsh-client-ui-conversation/client"
+  ],
   "tavern-plugin/src/client/main.js": [
     "@deepseek-ai/dsh-client-ui-primitives"
   ],
@@ -278,5 +281,8 @@
   ],
   "tavern-plugin/src/client/modules/host-session-patch.js": [
     "@deepseek-ai/dsh-api-session-controller/client"
+  ],
+  "tavern-plugin/src/client/modules/story-external-history.js": [
+    "@deepseek-ai/dsh-client-ui-conversation/client"
   ]
 }

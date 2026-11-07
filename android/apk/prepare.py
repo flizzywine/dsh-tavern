@@ -18,6 +18,10 @@ APPLICATION_ID = 'io.github.flizzywine.dshtavern.standalone'
 # 同一酒馆版本的重新打包（例如只更新 APK 内置快照）也递增，避免和已发布的包同号。
 VERSION_CODE = 30200
 VERSION_NAME = '3.2.0'
+# 桌面名称；测试版用独立名称，避免与正式版混淆。
+APP_NAME = 'DSH Tavern'
+# 内置快照跟随的源码分支：写进安装器的 tarball 地址，决定后续更新取哪个分支。
+SOURCE_REF = 'main'
 HERE = Path(__file__).resolve().parent
 
 
@@ -28,7 +32,11 @@ def replace(file, before, after):
     file.write_text(text.replace(before, after))
 
 
-def prepare(source, apk, destination, offline=None):
+def prepare(source, apk, destination, offline=None, application_id=APPLICATION_ID,
+            app_name=APP_NAME, version_code=VERSION_CODE, version_name=VERSION_NAME,
+            source_ref=SOURCE_REF, repo_root=None):
+    """repo_root 为酒馆源码树（内置快照来源）；默认本仓库，测试版可指向别的分支检出。"""
+    repo_root = Path(repo_root) if repo_root else HERE.parent.parent
     actual = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
     if actual != COMMIT:
         raise ValueError(f'DSHA 源码版本不匹配：{actual}')
@@ -66,7 +74,21 @@ def prepare(source, apk, destination, offline=None):
             target = assets / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(archive.read(name))
-    setup = (HERE.parent / 'setup.sh').read_text()
+    setup = (repo_root / 'android/setup.sh').read_text()
+    if source_ref != 'main':
+        # 测试版跟随自己的分支：内置快照与之后的压缩包更新都不能悄悄回到 main。
+        for anchor, replacement in (
+            ('DEFAULT_TARBALL_URL="https://codeload.github.com/flizzywine/dsh-tavern/tar.gz/refs/heads/main"',
+             'DEFAULT_TARBALL_URL="https://codeload.github.com/flizzywine/dsh-tavern/tar.gz/refs/heads/'
+             + source_ref + '"'),
+            ('BRANCH="${DSH_TAVERN_BRANCH:-main}"', 'BRANCH="${DSH_TAVERN_BRANCH:-' + source_ref + '}"'),
+            # CDN 兜底读的是 @runtime-archive-main 清单（main 分支内容），测试版一旦
+            # 回落到这里就会把源码换成 main，所以直接关掉：分支不可用就明确失败。
+            ('SOURCE_CDN="${DSH_TAVERN_SOURCE_CDN:-1}"', 'SOURCE_CDN=0'),
+        ):
+            if setup.count(anchor) != 1:
+                raise ValueError(f'安装器分支锚点不唯一：{anchor[:70]}')
+            setup = setup.replace(anchor, replacement)
     setup += '\n# 独立 APK 由原生生命周期持有 tavern 主进程，结束安装器的临时服务。\n'
     setup += 'DSH_TAVERN_PORT=3088 DSH_TAVERN_RUNTIME_HOST=android node /root/.dsh/apps/dsh-tavern/bin/dsh-tavern.mjs stop\n'
     (assets / 'tavern-apk-setup.sh').write_text(setup)
@@ -83,8 +105,8 @@ def prepare(source, apk, destination, offline=None):
         revision = sidecar.read_text().strip()
     if not revision:
         revision = subprocess.check_output(
-            ['git', '-C', str(HERE.parent.parent), 'rev-parse', 'HEAD'], text=True).strip()
-    repo_version = json.loads((HERE.parent.parent / 'package.json').read_text())['version']
+            ['git', '-C', str(repo_root), 'rev-parse', 'HEAD'], text=True).strip()
+    repo_version = json.loads((repo_root / 'package.json').read_text())['version']
     built_at = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
     (assets / 'tavern-offline-meta.json').write_text(
         json.dumps({'revision': revision, 'version': repo_version, 'builtAt': built_at}, ensure_ascii=False) + '\n',
@@ -97,13 +119,13 @@ def prepare(source, apk, destination, offline=None):
     tests.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(HERE / 'TavernWebProcessTest.java', tests / 'TavernWebProcessTest.java')
     gradle = app / 'build.gradle'
-    replace(gradle, 'applicationId "com.dsh.client"', f'applicationId "{APPLICATION_ID}"')
+    replace(gradle, 'applicationId "com.dsh.client"', f'applicationId "{application_id}"')
     # 版本号独立于 DSHA：major*10000 + minor*100 + patch，后续发布只增不减。
     replace(gradle, '''        versionCode 170
         // DSHA 修订号 + 固定的北京时间戳 + 内置 DSH 版本；同一交付重建不变。
         versionName "0.2.21-20261009.0750-dsh0.2.0-rc.2"''',
-            f'''        versionCode {VERSION_CODE}
-        versionName "{VERSION_NAME}"''')
+            f'''        versionCode {version_code}
+        versionName "{version_name}"''')
     replace(gradle,
             '''        main.assets.setSrcDirs([layout.buildDirectory.dir("generated/standardAssets").get().asFile,
                 layout.buildDirectory.dir("generated/recoveryAssets").get().asFile])''',
@@ -118,7 +140,12 @@ tasks.configureEach {
         enabled = false
 }''')
     for resource in (app / 'src/main/res').glob('values*/strings.xml'):
-        resource.write_text(re.sub(r'(<string name="app_name"[^>]*>).*?(</string>)', r'\1DSH Tavern\2', resource.read_text()))
+        text = resource.read_text()
+        updated, count = re.subn(r'(<string name="app_name"[^>]*>).*?(</string>)',
+                                 lambda match: match.group(1) + app_name + match.group(2), text)
+        if count != 1:
+            raise ValueError(f'app_name 锚点不唯一：{resource}')
+        resource.write_text(updated)
     # 启动页固定运行 tavern profile；普通 web profile 在本 APK 中不存在。
     pipeline = java / 'core/StartupPipeline.java'
     replace(pipeline, '    String safeProfile() throws IOException;',
@@ -246,7 +273,7 @@ tasks.configureEach {
     # 独立包不可接受上游 DSHA 的 APK 更新；Tavern 内的源码更新保持原样。
     replace(java / 'core/UpdateEngine.java', '  private void check(boolean startup) {',
             f'''  private void check(boolean startup) {{
-    if (com.deepseekharness.app.BuildConfig.APPLICATION_ID.equals("{APPLICATION_ID}")) {{
+    if (com.deepseekharness.app.BuildConfig.APPLICATION_ID.equals("{application_id}")) {{
       if (!startup)
         finishState("idle", "酒馆代码请在酒馆内更新；安卓安装包请从 DSH Tavern 发布页下载。");
       return;
@@ -280,6 +307,17 @@ if __name__ == '__main__':
     parser.add_argument('--apk', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--offline', type=Path, help='首装离线包（由 build-offline-bundle.sh 生成）')
+    # 以下是“与正式版共存”的可选覆盖项；缺省值与正式版完全一致。
+    parser.add_argument('--application-id', default=APPLICATION_ID, help='APK 包名（Android 应用 ID）')
+    parser.add_argument('--app-name', default=APP_NAME, help='桌面显示名称')
+    parser.add_argument('--version-code', type=int, default=VERSION_CODE)
+    parser.add_argument('--version-name', default=VERSION_NAME)
+    parser.add_argument('--source-ref', default=SOURCE_REF, help='内置快照与后续更新跟随的分支')
+    parser.add_argument('--repo-root', type=Path, help='酒馆源码树（默认本仓库根）')
     args = parser.parse_args()
     prepare(args.source.resolve(), args.apk.resolve(), args.output.resolve(),
-            args.offline.resolve() if args.offline else None)
+            args.offline.resolve() if args.offline else None,
+            application_id=args.application_id, app_name=args.app_name,
+            version_code=args.version_code, version_name=args.version_name,
+            source_ref=args.source_ref,
+            repo_root=args.repo_root.resolve() if args.repo_root else None)

@@ -4,6 +4,7 @@ import test from 'node:test'
 import vm from 'node:vm'
 
 import { projectHistoryAsToolCalls } from '../tavern-plugin/lib/domain/history-tool-call.js'
+import { appendVariableChanges } from '../tavern-plugin/lib/hooks/request.js'
 
 // The panel is a client fragment concatenated into the built bundle, so exercise
 // the source file the way the other feature tests do.
@@ -80,4 +81,14 @@ test('输入走工具调用后，完整上下文仍能看到全部正文，只�
   const last = sections(request).at(-1)
   assert.equal(last.title, 'messages[5] · user')
   assert.equal(last.text, '本轮输入')
+})
+
+test('候选重生成不附加旧正文产生的上轮变量变化', () => {
+  const assistant = hp => ({ role: 'assistant', swipeId: 0, variables: [{ stat_data: { hp } }] })
+  const chat = { mode: 'story', mvu: { enabled: true }, messages: [assistant(1), assistant(2)] }
+  const decision = { kind: 'enter', messages: [] }
+  const ordinary = appendVariableChanges({ chat, payload: { step: 1 }, decision })
+  assert.equal(ordinary.messages.length, 1)
+  const candidate = appendVariableChanges({ chat: { ...chat, regenRecovery: { candidateFrame: { kind: 'foreground' } } }, payload: { step: 1 }, decision })
+  assert.equal(candidate, decision)
 })

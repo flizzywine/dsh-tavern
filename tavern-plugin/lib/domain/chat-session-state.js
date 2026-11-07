@@ -2,8 +2,7 @@ import { createImmutableTurnFields } from './freeze-json.js'
 import { createMvuReceiptIndex } from './mvu-receipt-index.js'
 import { copyJsonTree } from './copy-json-tree.js'
 import { copyLazyHistoryHeader } from './lazy-history-read.js'
-import { rollbackAvailability, hasRollbackMessages, failedTurnReplayAvailability, foregroundSuppressedTurns, supersededRegenerationErrorTurns, supersededRegenerationTurns, projectedReplyTurns, regenerationInputTurns, keptPlayerInputTurns } from './rollback-surface.js'
-import { isRescuedHistoryMessage } from './chat-history-rescue.js'
+import { rollbackAvailability, failedTurnReplayAvailability, foregroundSuppressedTurns, supersededRegenerationErrorTurns, supersededRegenerationTurns, projectedReplyTurns, regenerationInputTurns, keptPlayerInputTurns } from './rollback-surface.js'
 import { canUndoRollback } from './surface-restoration.js'
 import { failedErrorTurnStates } from './failed-error-visibility.js'
 import { surfaceTurns } from './host-turn-rail.js'
@@ -28,10 +27,14 @@ export function projectChatSessionState(chat, options = {}) {
   if (Object.values(chat.timeline?.operations || {}).some(operation =>
     operation?.kind === 'body' && operation.status === 'foreground-completed')) return { ...copyJsonTree(chat), pendingMvuSettlement }
   const selected = { pendingMvuSettlement }
+  if (chat.foregroundError) selected.foregroundError = {
+    turn: chat.foregroundError.turn, requestId: chat.foregroundError.requestId,
+    code: chat.foregroundError.code, message: chat.foregroundError.message
+  }
   for (const key of ['id', 'sessionId', '_storageRevision', 'mode', 'cardPath', 'cardContextRevision',
     'backgroundConfigVersion', 'conversationFeaturesVersion', 'disabledWritingSkills', 'contextCompaction', 'updatedAt', 'timeline', 'candidateAgent',
     'cardName', 'requestMode', 'statusBarPlacement', 'statusSections', 'webSearchEnabled', 'candidates', 'taskMailbox', 'regenInProgress',
-    'settleError', 'scriptState', 'hiddenDshErrorTurns', 'suppressedDshTurns', 'replacingDshTurns', 'regeneratedDshTurns', 'userInputEdits', 'tavernHelperLifecycleRevision']) {
+    'settleError', 'scriptState', 'hiddenDshErrorTurns', 'suppressedDshTurns', 'replacingDshTurns', 'failedRegenerationTarget', 'regeneratedDshTurns', 'userInputEdits', 'tavernHelperLifecycleRevision']) {
     if (Object.hasOwn(chat, key)) selected[key] = chat[key]
   }
   if (chat.importHistory) selected.importHistory = {
@@ -57,6 +60,9 @@ export function projectSessionMessage(message) {
   if (!message || typeof message !== 'object') return message
   return {
     role: message.role, turn: message.turn, greeting: message.greeting,
+    ...(message.native === true ? { native: true } : {}),
+    ...(message.placeholder === true ? { placeholder: true } : {}),
+    ...(message.source?.rpcId ? { source: { rpcId: message.source.rpcId } } : {}),
     ...(message.importSource ? {importSource:{operationId:message.importSource.operationId}} : {}),
     ...(message.mvu ? {mvu:{receipt:message.mvu.receipt,diagnostics:message.mvu.diagnostics,
       pending:message.mvu.pending,modified:message.mvu.modified}} : {})
@@ -115,6 +121,8 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       const temporary = Number(chat.regenRecovery?.temporaryReplacingTurn)
       if (Number.isSafeInteger(temporary) && temporary > 0) turns.add(temporary)
     }
+    const failed = Number(chat.failedRegenerationTarget?.dshTurn)
+    if (Number.isSafeInteger(failed) && failed > 0) turns.add(failed)
     return [...turns].sort((left, right) => left - right)
   }
   // The mapping feeds the cache key below, so it runs on every read: remember it per
@@ -152,8 +160,9 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
     const native = session?.header?.version >= 3 && typeof session.snapshotEvents === 'function'
       && Array.isArray(events) && Object.isFrozen(events) && Array.isArray(nodes) && Number.isSafeInteger(generation)
     const key = native ? JSON.stringify([chat.sessionId,chat.messages?.length,chat.tavernHelperLifecycleRevision,
+      chat.foregroundError?.turn,chat.foregroundError?.requestId,chat.messages?.[chat.messages.length-1]?.source?.rpcId,chat.messages?.[chat.messages.length-1]?.placeholder,
       chat.importHistory?.rescue,chat.importHistory?.operationId,chat.hiddenDshErrorTurns,chat.suppressedDshTurns,
-      chat.replacingDshTurns, chat.regenInProgress, chat.regenRecovery?.temporaryReplacingTurn,
+      chat.replacingDshTurns, chat.failedRegenerationTarget, chat.regenInProgress, chat.regenRecovery?.temporaryReplacingTurn,
       sharedMappings ? mappingIds.get(mappings) : chat.regeneratedDshTurns,
       nodes.length,nodes[0],nodes.at(-1),generation]) : null
     const previous = rollbackCache.get(chat.id)
@@ -167,8 +176,11 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       canRollback: false, canClearIncompleteReply: false,
       reason: '当前会话的消息流尚未加载，请重新打开对话后重试；历史正文仍保留。'
     }
-    const replayTarget = Array.isArray(nodes) ? failedTurnReplayAvailability({ events: evidence.events || [], nodes, cleared: chat.suppressedDshTurns || [] }).target : null
-    const hasRound = hasRollbackMessages(chat.messages)
+    // The failed tail a player can still withdraw or refresh; nothing here re-sends its input.
+    const failedTail = Array.isArray(nodes) ? failedTurnReplayAvailability({ chat, events: evidence.events || [], nodes, cleared: chat.suppressedDshTurns || [], running: activityOf(chat)?.busy === true }).target : null
+    // Does the save hold a reply at all? Whether it sits next to a player input is a
+    // round-shape guess, not a fact about the message: a tail may end [assistant, assistant].
+    const hasRound = Boolean((chat.messages || []).findLast(message => message?.role === 'assistant' && message.greeting !== true))
     const failures = failedErrorTurnStates(evidence.events || [], chat.suppressedDshTurns)
     const replacingTurns = replacingDshTurnsOf(chat)
     // Native turns whose body was replaced by a projection. The host keeps painting
@@ -214,11 +226,13 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       // 对话右侧的轮次导航按轮次画刻度：正文表面里还有内容的那几轮才该出现（重试留下的空轮不算）。
       // 会话还没挂上（读不到表面）时不写这一栏：不知道就别筛，免得把能跳的轮次一起藏掉。
       ...(Array.isArray(nodes) && Array.isArray(events) ? { railTurns: surfaceTurns({ events, nodes }) } : {}),
-      canRegenerate: hasRound && !isRescuedHistoryMessage(chat, chat.messages?.findLast(message => message.role === 'assistant')),
+      // Keep the entry available regardless of the current story shape. Target
+      // selection belongs to regeneration; busy/compaction locks stay separate.
+      canRegenerate: true,
       canEditBody: hasRound,
       rollbackTargetTurn: settlementTurn(chat),
-      canReplayFailedTurn: replayTarget !== null,
-      replayFailedTurn: replayTarget === null ? null : replayTarget.turn,
+      failedTailTurn: failedTail === null ? null : failedTail.turn,
+      failedTailPersisted: failedTail?.persisted === true,
       // The save decides: a round the native surface lost is repaired, not refused.
       canRollback: rollbackState.canRollback || hasRound,
       canClearIncompleteReply: rollbackState.canClearIncompleteReply,

@@ -7,6 +7,7 @@ import { installCompactionRequestProjection } from '../domain/compaction-request
 import { installWorkspaceInstructionPresentation } from '../domain/workspace-instruction-presentation.js'
 import { presentModelError } from '../domain/model-error-presentation.js'
 import { markRequestHandled, requestHandledBy } from '../domain/request-lineage.js'
+import { bodyGenerationFailure } from '../domain/body-generation-failure.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -179,6 +180,21 @@ export function registerModelStreamHooks({
       // The story reply of a turn started streaming (正文开始; once per turn, see index.js).
       if (!backgroundContext && !child && options.purpose === undefined && ['story', 'script'].includes(chat?.mode)) replyStarted?.(sessionId, requestCoordinates.get(sessionId)?.turn)
       let responseText = ''
+      // A provider can end after emitting visible prose with finish_reason=error,
+      // or drop the terminal chunk altogether. The host normally records only an
+      // assistant/attempt for those turns, and the failed-turn cleanup then removes
+      // the story placeholder: the player watches a reply vanish after it streamed.
+      // Let the ordinary max-tokens path commit that visible prefix instead. Content
+      // moderation is deliberately excluded; its interrupted text stays discarded.
+      const preservePartial = !backgroundContext && !child && options.purpose === undefined && ['story', 'script'].includes(chat?.mode)
+      function recoveredFinish(reason) {
+        if (!preservePartial || responseText.trim() === '' || options.signal?.aborted) return null
+        const kind = typeof reason?.kind === 'string' ? reason.kind : ''
+        if (kind === 'aborted' || kind === 'content-filter') return null
+        const failure = reason?.failure || reason?.error || reason
+        if (bodyGenerationFailure(failure).category === 'content-filter') return null
+        return { kind: 'max-tokens', recoveredFrom: kind === 'error' ? 'error' : 'interrupted' }
+      }
       // Optional observers initialize independently; they never hold up model tokens.
       const replyObserver = openReplyObservers?.({signal:options.signal, sessionId:ownerSessionId,
         turn:requestCoordinates.get(sessionId)?.turn,
@@ -193,14 +209,19 @@ export function registerModelStreamHooks({
         while (true) {
           const item = await liveness.wait(iterator.next())
           if (item.done) {exhausted = true; break}
-          const chunk = item.value
+          let chunk = item.value
           liveness.chunk(chunk)
           if (chunk && chunk.type === 'text-delta') {
             responseText += str(chunk.text)
             replyObserver?.append(str(chunk.text))
           }
           if (chunk && chunk.type === 'finish') {
-            finish = chunk.reason === undefined ? chunk : chunk.reason
+            const reason = chunk.reason === undefined ? chunk : chunk.reason
+            const recovered = reason?.kind === 'error' ? recoveredFinish(reason) : null
+            if (recovered) {
+              chunk = chunk.reason === undefined ? { ...chunk, ...recovered } : { ...chunk, reason: recovered }
+              finish = recovered
+            } else finish = reason
           }
           // Dev diagnostics: provider-reported tokens, including prompt-cache reads/writes.
           if (chunk && chunk.type === 'usage') usage = chunk.usage
@@ -208,7 +229,11 @@ export function registerModelStreamHooks({
           yield chunk
         }
         if (!finish || finish.kind === 'aborted') {
-          throw Object.assign(new Error('模型流已中断，未收到完整结束标记。'), {code:'MODEL_STREAM_INTERRUPTED'})
+          const recovered = !finish ? recoveredFinish(null) : null
+          if (recovered) {
+            finish = recovered
+            yield { type: 'finish', reason: recovered }
+          } else throw Object.assign(new Error('模型流已中断，未收到完整结束标记。'), {code:'MODEL_STREAM_INTERRUPTED'})
         }
       } catch (error) {
         interrupted = /^MODEL_STREAM_/.test(error?.code || '')

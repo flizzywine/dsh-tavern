@@ -84,7 +84,7 @@ function nodeFiles(nodes) {
 }
 
 /**
- * input: { chat, revisions: [{revision, state}], session: {header, inheritedEventCount, events},
+ * input: { chat, world?: {position, swipe, messageUid, world}, revisions: [{revision, state}], session: {header, inheritedEventCount, events},
  *   card: {path, payload} (an importCard payload), script?: {path, text}, scene?: {files: [{path, content}], worldbooks: [{digest, content}],
  *   attachments: [{attachmentId, mediaType, data}]}, plugins?: {data, media, attachments: [{attachmentId, mediaType?, name?, data}]},
  *   tavernVersion, exportedAt }
@@ -95,6 +95,9 @@ export function buildGameSave(input, limits = GAME_SAVE_LIMITS) {
   const entries = []
   const json = (path, value) => entries.push({ path, content: JSON.stringify(value) })
   entries.push({ path: 'chat/current.json', content: packValue(chat, nodes, true) })
+  // Optional and additive: older readers ignore this entry, while new readers can
+  // restore a detached authoritative world instead of rescanning older Chat rows.
+  if (input.world) entries.push({ path: 'chat/world.json', content: packValue(input.world, nodes, true) })
   for (const { revision, state } of input.revisions) entries.push({ path: 'chat/revisions/' + revision + '.json', content: packValue(state, nodes, true) })
   json('session/foreground.json', input.session)
   if (input.card?.payload) json('card/payload.json', input.card.payload)
@@ -168,6 +171,7 @@ export function readGameSave(buffer, { tavernVersion, limits = GAME_SAVE_LIMITS 
   return {
     manifest, plugins,
     chat: state('chat/current.json'),
+    world: files.has('chat/world.json') ? state('chat/world.json') : null,
     revisions,
     session: parse(text('session/foreground.json'), 'session/foreground.json'),
     card: files.has('card/payload.json') ? { path: manifest.source.cardPath, payload: JSON.parse(text('card/payload.json')) } : null,

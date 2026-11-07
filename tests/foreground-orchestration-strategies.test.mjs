@@ -26,7 +26,7 @@ function strategies(overrides = {}) {
       async resolvePreset() { return { front: { text: 'preset' } } },
       async synchronizeTail(input) { calls.push(['native.sync', input.sessionId]) },
       async prepareTurn(input) {
-        calls.push(['native.prepare', input.userText, input.requestId])
+        calls.push(['native.prepare', input.userText, input.requestId, input.userContent])
         return { frame: { frameId: 'frame-1', branchId: 'b', basedOnRevision: 1, source: {}, userInput: { projectedText: 'projected' } } }
       },
       appendFrame(input) { return { messages: input.messages.concat([{ role: 'user', content: [{ type: 'text', text: 'frame' }] }]), receipt: { appended: true } } },
@@ -48,6 +48,21 @@ test('retired conversation mode is rejected before native preparation or system 
   await assert.rejects(run.value.prepareStep(input), /silly 模式已停用/)
   await assert.rejects(run.value.assembleSystemPrompt({ sections: [], tools: [] }, input), /silly 模式已停用/)
   assert.deepEqual(run.calls, [])
+})
+
+test('正文准备保留当前玩家消息的原始附件 content', async () => {
+  const run = strategies()
+  const incoming = [userMessage('查看附件')]
+  incoming[0].content.push({ type: 'image', source: { type: 'base64', data: 'IMAGE_DATA' } })
+  await run.value.prepareStep({
+    sessionId: 'native', requestId: 'request-attachment',
+    payload: { turn: 2, step: 1, messages: incoming },
+    decision: { kind: 'enter', messages: incoming }, chat: run.chats.get('native')
+  })
+  const prepared = run.calls.find(call => call[0] === 'native.prepare')
+  assert.equal(prepared[1], '查看附件')
+  assert.equal(prepared[2], 'request-attachment')
+  assert.deepEqual(prepared[3], incoming[0].content)
 })
 
 test('游玩固定背景来自原生系统装配，预设前后段保持顺序，快照不重复发送', async () => {

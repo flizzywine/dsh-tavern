@@ -116,31 +116,20 @@ function createTurnErrorControls(root, options) {
                 const panel = root.ownerDocument.createElement('div');
                 panel.className = 'dsh-tavern-error-controls';
                 const label = root.ownerDocument.createElement('span');
-                const replay = root.ownerDocument.createElement('button');
                 const details = root.ownerDocument.createElement('button');
                 const toggle = root.ownerDocument.createElement('button');
                 const withdraw = root.ownerDocument.createElement('button');
                 const rewind = root.ownerDocument.createElement('button');
-                replay.className = 'dsh-tavern-error-replay';
                 withdraw.className = 'dsh-tavern-error-withdraw';
                 rewind.className = 'dsh-tavern-error-rewind';
                 details.className = toggle.className = 'dsh-tavern-error-quiet';
-                replay.type = details.type = toggle.type = withdraw.type = rewind.type = 'button';
+                details.type = toggle.type = withdraw.type = rewind.type = 'button';
                 // Appended last: hosts and smoke checks address the first two
                 // controls positionally, and the tail actions are tail-only.
-                panel.append(label, details, toggle, replay, withdraw, rewind);
-                entry = { panel, label, replay, withdraw, rewind, details, toggle, display: row.style.display, expanded: false };
+                panel.append(label, details, toggle, withdraw, rewind);
+                entry = { panel, label, withdraw, rewind, details, toggle, display: row.style.display, expanded: false };
                 owned.set(row, entry);
                 details.onclick = function () { entry.expanded = !entry.expanded; apply(); };
-                // One click removes the interrupted reply and replays the same
-                // request, so the provider reuses the cached prompt prefix.
-                replay.onclick = function () {
-                    if (disposed || replay.disabled || typeof options.onReplay !== 'function') return;
-                    replay.disabled = true;
-                    return Promise.resolve().then(function () { return options.onReplay(turnErrorRowTurn(row)); })
-                        .catch(function (error) { if (options.onError) options.onError(error); })
-                        .finally(function () { replay.disabled = false; });
-                };
                 // A moderation stop repeats for the same request, so the tail also
                 // offers to take the input back or to drop the round before it.
                 for (const [button, action] of [[withdraw, 'onWithdraw'], [rewind, 'onRewind']]) button.onclick = function () {
@@ -183,13 +172,13 @@ function createTurnErrorControls(root, options) {
             // A cleared failure that was removed or stacked away takes no row of its
             // own: the summary line (or the restore action) stands in for it.
             entry.panel.hidden = row.hidden || (cleared && hidden.has(id)) || (cleared && stacked);
-            // Replaying is only meaningful for the failure still owning the tail.
-            const replayable = typeof options.onReplay === 'function' &&
-                Number.isSafeInteger(Number(options.replayTurn)) &&
-                turnErrorRowTurn(row) === Number(options.replayTurn);
+            // The tail failure is the only row that can still take its input back.
+            const tailFailure = typeof options.onWithdraw === 'function' &&
+                Number.isSafeInteger(Number(options.failedTailTurn)) &&
+                turnErrorRowTurn(row) === Number(options.failedTailTurn);
             const refusal = tavernProviderRefusalNotice(text);
             const streak = Number(options.filteredStreak) || 0;
-            const moderated = replayable && refusal !== '' && !dismissed;
+            const moderated = tailFailure && refusal !== '' && !dismissed;
             const repeated = moderated && streak >= 2 && options.canRewind === true;
             const notice = !moderated ? refusal : repeated
                 ? '已连续 ' + streak + ' 次被模型服务商的内容审核拦截，多半是前面的剧情触发了审核，换输入或重发都会继续被拦。建议回退上一轮，或编辑上一轮正文后再继续。' + TAVERN_FOREGROUND_TOOL_HINT
@@ -202,8 +191,6 @@ function createTurnErrorControls(root, options) {
             if (entry.details.textContent !== detailText) entry.details.textContent = detailText;
             const toggleText = foldedNow ? '查看错误' : dismissed ? '恢复错误提示' : '隐藏此错误';
             if (entry.toggle.textContent !== toggleText) entry.toggle.textContent = toggleText;
-            if (entry.replay.hidden !== !replayable) entry.replay.hidden = !replayable;
-            setTurnErrorClass(entry.replay, 'is-secondary', moderated);
             const canWithdraw = moderated && typeof options.onWithdraw === 'function';
             const canRewind = moderated && typeof options.onRewind === 'function' && options.canRewind === true;
             if (entry.withdraw.hidden !== !canWithdraw) entry.withdraw.hidden = !canWithdraw;
@@ -214,10 +201,6 @@ function createTurnErrorControls(root, options) {
             if (entry.withdraw.title !== '清除这次失败，把原输入放回输入框') entry.withdraw.title = '清除这次失败，把原输入放回输入框';
             if (entry.rewind.textContent !== '回退上一轮') entry.rewind.textContent = '回退上一轮';
             if (entry.rewind.title !== '清除这次失败，并回退上一轮已保存的剧情') entry.rewind.title = '清除这次失败，并回退上一轮已保存的剧情';
-            const replayText = '重新生成本轮';
-            if (entry.replay.textContent !== replayText) entry.replay.textContent = replayText;
-            const replayTitle = '移除被中断的回复，并原样重发本轮请求（复用模型缓存）';
-            if (entry.replay.title !== replayTitle) entry.replay.title = replayTitle;
         }
         updateSummary(staleRows);
     }

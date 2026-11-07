@@ -1,3 +1,49 @@
+        function tavernStoryInputChanged(hostWindow, sessionId) {
+            if (typeof hostWindow.dispatchEvent === "function" && typeof hostWindow.CustomEvent === "function") {
+                hostWindow.dispatchEvent(new hostWindow.CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: sessionId } }));
+            }
+        }
+        async function persistTavernPlayerInput(hostWindow, sessionId, text, requestId) {
+            const saved = await rpc("appendPlayerInput", { sessionId: sessionId, requestId: requestId, text: text }, sessionId);
+            if (saved?.saved === true) tavernStoryInputChanged(hostWindow, sessionId);
+            return saved;
+        }
+        // The host's visible composer owns its own submit pipeline. Observe its
+        // existing request id and persist that player row independently of prompt/LLM.
+        function installTavernPlayerInputPersistence(ctx, hostWindow) {
+            hostWindow = hostWindow || window;
+            if (typeof ctx?.sessions?.binding !== "function" || typeof ctx?.sessions?.list?.subscribe !== "function") return function () {};
+            const originals = new Map();
+            function install(sessionId) {
+                const session = ctx.sessions.binding(sessionId)?.session;
+                if (!session || originals.has(session) || typeof session.beginSubmission !== "function") return;
+                const begin = session.beginSubmission;
+                function wrapped(input) {
+                    const handle = begin.call(session, input);
+                    const text = typeof input?.text === "string" ? input.text.trim() : "";
+                    if (handle?.requestId && text) Promise.resolve()
+                        .then(function () { return persistTavernPlayerInput(hostWindow, sessionId, text, handle.requestId); })
+                        .catch(function (error) {
+                            if (typeof tavernErrorHub !== "undefined") tavernErrorHub.report("保存玩家输入", error);
+                            else console.warn("dsh-tavern: 保存玩家输入失败", error);
+                        });
+                    return handle;
+                }
+                originals.set(session, { begin: begin, wrapped: wrapped });
+                session.beginSubmission = wrapped;
+            }
+            function sync() {
+                const snapshot = ctx.sessions.list.getSnapshot();
+                for (const sessionId of Object.keys(snapshot?.byId || {})) install(sessionId);
+            }
+            const stop = ctx.sessions.list.subscribe(sync);
+            sync();
+            return function () {
+                stop();
+                for (const [session, record] of originals) if (session.beginSubmission === record.wrapped) session.beginSubmission = record.begin;
+                originals.clear();
+            };
+        }
 		function createTavernFrameSlashExecutor(ctx, hostWindow) {
 			hostWindow = hostWindow || window;
             // A deliberately bounded, read-only subset of ST slash commands. Parse
@@ -98,6 +144,13 @@
 				} catch (_) {}
 				return "";
 			}
+            function createSubmissionRequestId() {
+                return hostWindow.crypto?.randomUUID?.() || "tavern-input-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+            }
+            function storyChanged(sessionId) { tavernStoryInputChanged(hostWindow, sessionId); }
+            function persistPlayerInput(sessionId, text, requestId) {
+                return persistTavernPlayerInput(hostWindow, sessionId, text, requestId);
+            }
 			const pendingSend = new Map();
             const submitting = new Set();
 			const execute = function (line, sessionId, options) {
@@ -105,10 +158,13 @@
                     const text = options.inputText.trim();
                     const binding = ctx.sessions.binding(sessionId);
                     if (!text || !binding) return Promise.reject(new Error("开局消息为空或原对话已关闭"));
-                    return Promise.resolve(binding.session.prompt([{ type:"text", text:text }], "queue")).then(function (result) {
-                        if (!result?.ok) throw new Error(result?.error?.message || "消息发送失败");
-                        return { submitted:true };
-                    });
+                    const requestId = createSubmissionRequestId();
+                    return persistPlayerInput(sessionId, text, requestId)
+                        .then(function () { return binding.session.prompt([{ type:"text", text:text }], "queue", undefined, requestId); })
+                        .then(function (result) {
+                            if (!result?.ok) throw new Error(result?.error?.message || "消息发送失败");
+                            return { submitted:true };
+                        });
                 }
                 if (/^\s*\/(?:pass|return|findentry|findlore|findwi)(?:\s|$)/i.test(String(line))) return executeReadPipeline(String(line), sessionId);
                 if (/^\/ejs(?:-refresh)?(?:\s|$)/.test(String(line))) return rpc("executeFullTemplateCommand", {text:line}, sessionId).then(function(result){return result.pipe;});
@@ -159,7 +215,10 @@
 				const stagedSend = triggerOnly && pendingEntry ? pendingEntry.text : undefined;
 				const submitDraftText = match ? match[1] : stagedSend;
 				const useNativeTrigger = triggerOnly && submitDraftText === undefined;
-				const binding = useNativeTrigger && ctx.sessions.binding(sessionId);
+				const binding = ctx.sessions.binding(sessionId);
+                let submissionAccepted = false;
+                if (submitDraftText !== undefined && pendingEntry && !pendingEntry.requestId) pendingEntry.requestId = createSubmissionRequestId();
+                const submissionRequestId = submitDraftText === undefined ? null : pendingEntry ? pendingEntry.requestId : createSubmissionRequestId();
                 // DSH requires nonempty prompt content. Helper messages are already
                 // persisted; admit a continuation without resending them or touching the draft.
                 const triggerContent = [{ type: "text", text: "继续。" }];
@@ -174,16 +233,18 @@
                             throw new Error("输入草稿已变化，请重新发送");
                         }
                     }
-                    if (useNativeTrigger) {
-                        if (!binding?.session) throw new Error("当前对话已关闭");
-                        return binding.session.prompt(triggerContent, "queue");
-                    }
-                    input.setDraft(submitDraftText);
-                    return input.submit("queue");
+                    if (!binding?.session) throw new Error("当前对话已关闭");
+                    if (useNativeTrigger) return binding.session.prompt(triggerContent, "queue");
+                    return binding.session.prompt([{ type: "text", text: submitDraftText }], "queue", undefined, submissionRequestId);
                 }
                 function accept(result) {
-                    if ((useNativeTrigger && !result?.ok) || result?.ok === false) throw new Error(result?.error?.message || "生成提交失败");
+                    if (!result?.ok) throw new Error(result?.error?.message || "生成提交失败");
+                    submissionAccepted = true;
+                    if (submitDraftText !== undefined && actualDraft() === submitDraftText) input.setDraft("");
                     consumePending();
+                    // The player row was saved before generation. Acceptance only adds
+                    // the assistant placeholder to that same story projection.
+                    storyChanged(sessionId);
                 }
                 function submitTurn() {
                     // Template execution owns the generation queue; waiting here would deadlock it.
@@ -226,11 +287,21 @@
                 // Reserve synchronously so concurrent triggers cannot consume one staged send twice.
                 submitting.add(sessionId);
                 return Promise.resolve().then(function () {
+                    // Saving the player row is independent of Session/LLM acceptance.
+                    if (submitDraftText !== undefined) return persistPlayerInput(sessionId, submitDraftText, submissionRequestId);
+                }).then(function () {
                     if (typeof flushTavernSessionFramesBeforeGenerate === "function") return flushTavernSessionFramesBeforeGenerate(sessionId);
                 }).then(submitTurn).catch(function (error) {
-                    // A slow/failed refresh is not a successful send. Give the
-                    // player the normal retry window after the failure is shown.
-                    if (stagedSend !== undefined && pendingSend.get(sessionId) === pendingEntry) pendingEntry.at = Date.now();
+                    // Keep the same request id for a retry. appendPlayerInput is
+                    // idempotent, and a saved player row is never abandoned here.
+                    if (!submissionAccepted && submitDraftText !== undefined) {
+                        if (pendingEntry && pendingSend.get(sessionId) === pendingEntry) pendingEntry.at = Date.now();
+                        else if (!pendingEntry) {
+                            pendingEntry = { text: submitDraftText, at: Date.now(), requestId: submissionRequestId };
+                            pendingSend.set(sessionId, pendingEntry);
+                            if (actualDraft() === "") input.setDraft(submitDraftText);
+                        }
+                    }
                     throw error;
                 }).finally(function () { submitting.delete(sessionId); });
 			};
@@ -277,7 +348,7 @@
 				const location = props.node.location;
 				const turnRef = location && (location.kind === "turn" || location.kind === "step") ? location.turn : null;
 				const turn = turnRef ? Number(turnRef.turn) : 0;
-				const liveState = useScopedLiveTavernView(props.sessionId, String(data.time || ""), [["mode"], ["canEditBody"], ["replayFailedTurn"], ["editableUserInputTurns"], ["failedUserInputTurns"], ["transcriptTurns"], ["transcriptFrom"], ["inputSources", String(turn)], ["inputTemplateDisplays", String(turn)], ["userInputEdits", String(turn)]]);
+				const liveState = useScopedLiveTavernView(props.sessionId, String(data.time || ""), [["mode"], ["canEditBody"], ["failedTailTurn"], ["editableUserInputTurns"], ["failedUserInputTurns"], ["transcriptTurns"], ["transcriptFrom"], ["inputSources", String(turn)], ["inputTemplateDisplays", String(turn)], ["userInputEdits", String(turn)]]);
 				const parts = userContentParts(data.content);
 				// The host keeps rendering the original append node; an edited player
 				// input is carried back by the view instead (see bodyEditor.saveUser).
