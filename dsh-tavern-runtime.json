@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "9fefb6c624a432cfc484b3fa557a765aa6ee1104",
-  "releaseSequence": 1335,
+  "revision": "14376a541e2d137312ef31ee99cb2ad6bad014bc",
+  "releaseSequence": 1336,
   "version": "3.2.0",
   "files": [
     {
@@ -371,8 +371,8 @@
     },
     {
       "path": "bin/service-lifecycle.mjs",
-      "sha256": "007b9709b4b12335434c7588d28fa30999d5d47cd866e94b2c048b9a87bad829",
-      "size": 21049
+      "sha256": "b07c656f4035c95f1f9bded71acd4de9541eb236692ca3531b88135a6cb8573b",
+      "size": 21319
     },
     {
       "path": "bin/service-process-identity.mjs",
@@ -9891,9 +9891,9 @@
     }
   ],
   "archive": {
-    "commit": "a697efaa293e93e857889d3107f6eb45bf56b242",
+    "commit": "b6342ef52b0c8f5ab66490f666d6c196927d6b96",
     "path": "runtime.zip",
-    "sha256": "df7f768d2109588abf9515da0589dfb5b5451cb1d5f7c33be2ad5ea06461a92c",
-    "size": 16428434
+    "sha256": "8341f4e6509609cce8f7110dbac5bdfe0ec49980e74bf2b08c10611a593bd131",
+    "size": 16428516
   }
 }
