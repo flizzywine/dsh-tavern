@@ -125,7 +125,8 @@ test('provider replaces one round and native context, then settles from the orig
   const result = await h.run(async ({ materials }) => {
     assert.equal(materials.stateBefore.posture, '起点 HP 10')
     const during = await h.chats.read()
-    assert.equal(during.messages.at(-1).text, '旧正文')
+    assert.equal(during.messages.at(-1).text, '')
+    assert.equal(during.messages.at(-1).regenerationDiscarded, true)
     assert.equal(during.regenRecovery.phase, 'prepared')
     assert.equal(during.posture, '旧正文后 HP 9')
     return { text: '<p>预设正则处理后的正文</p>' }
@@ -153,7 +154,7 @@ test('provider replaces one round and native context, then settles from the orig
   assert.ok(findBodyRegenerationFrame(current, 2), 'the replacement retains its input snapshot for another retry')
 })
 
-test('generation failure and cancellation retain the original story and never start settlement', async () => {
+test('generation failure and cancellation keep the old body deleted and never start settlement', async () => {
   for (const mode of ['failure', 'cancel', 'empty']) {
     const h = await fixture(), controller = new AbortController()
     await assert.rejects(h.run(async () => {
@@ -162,7 +163,8 @@ test('generation failure and cancellation retain the original story and never st
       return { text: ' ' }
     }, { signal: controller.signal }))
     const current = await h.chats.read()
-    assert.deepEqual(current.messages, h.original.messages)
+    assert.deepEqual(current.messages, h.original.messages.slice(0, -1))
+    assert.equal(current.failedRegenerationTarget.assistant.text, '旧正文')
     assert.equal(current.posture, h.original.posture)
     assert.deepEqual(current.timeline, h.original.timeline)
     assert.equal(current.regenInProgress, undefined)
@@ -180,7 +182,7 @@ async function unfinishedSettlement(h, running) {
   return chat
 }
 
-test('a failed or cancelled replacement resumes the old body settlement and releases its interrupted slot', async () => {
+test('a failed or cancelled replacement does not resume the discarded body settlement', async () => {
   for (const running of [false, true]) for (const cancelled of [false, true]) {
     const h = await fixture(), controller = new AbortController()
     const interrupted = await unfinishedSettlement(h, running)
@@ -188,15 +190,13 @@ test('a failed or cancelled replacement resumes the old body settlement and rele
       if (cancelled) { controller.abort(new Error('停止')); return new Promise(() => {}) }
       throw new Error('模型拒绝')
     }, { signal: controller.signal }), cancelled ? /停止/ : /模型拒绝/)
-    assert.equal(h.settlementInputs.length, 1)
-    const resumed = h.settlementInputs[0]
-    assert.deepEqual(resumed.messages, interrupted.messages)
-    assert.equal(resumed.posture, interrupted.posture)
-    assert.equal(resumed.regenInProgress, undefined)
-    assert.equal(resumed.timeline.branchId, interrupted.timeline.branchId)
-    assert.equal(resumed.timeline.revision, interrupted.timeline.revision)
-    assert.ok(!Object.values(resumed.timeline.operations).some(operation => operation.kind === 'agent'
-      && operation.role === 'settlement' && operation.status === 'running'), 'the cancelled job cannot retain the background slot')
+    assert.equal(h.settlementInputs.length, 0)
+    const current = await h.chats.read()
+    assert.deepEqual(current.messages, interrupted.messages.slice(0, -1))
+    assert.equal(current.posture, interrupted.posture)
+    assert.equal(current.regenInProgress, undefined)
+    assert.equal(current.timeline.branchId, interrupted.timeline.branchId)
+    assert.equal(current.timeline.revision, interrupted.timeline.revision)
   }
 })
 
@@ -236,7 +236,7 @@ test('a concurrent version change rejects the candidate without restoring stale 
     return { text: '过期候选' }
   }), /变化|修改/)
   const current = await h.chats.read()
-  assert.equal(current.messages.at(-1).text, '另一项操作改过的正文')
+  assert.deepEqual(current.messages.map(row => row.text), ['继续'])
   assert.equal(current.regenInProgress, undefined)
   assert.equal(h.settlementInputs.length, 0)
 })

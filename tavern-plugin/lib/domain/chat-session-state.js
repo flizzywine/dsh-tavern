@@ -34,7 +34,7 @@ export function projectChatSessionState(chat, options = {}) {
   for (const key of ['id', 'sessionId', '_storageRevision', 'mode', 'cardPath', 'cardContextRevision',
     'backgroundConfigVersion', 'conversationFeaturesVersion', 'disabledWritingSkills', 'contextCompaction', 'updatedAt', 'timeline', 'candidateAgent',
     'cardName', 'requestMode', 'statusBarPlacement', 'statusSections', 'webSearchEnabled', 'candidates', 'taskMailbox', 'regenInProgress',
-    'settleError', 'scriptState', 'hiddenDshErrorTurns', 'suppressedDshTurns', 'replacingDshTurns', 'regeneratedDshTurns', 'userInputEdits', 'tavernHelperLifecycleRevision']) {
+    'settleError', 'scriptState', 'hiddenDshErrorTurns', 'suppressedDshTurns', 'replacingDshTurns', 'failedRegenerationTarget', 'regeneratedDshTurns', 'userInputEdits', 'tavernHelperLifecycleRevision']) {
     if (Object.hasOwn(chat, key)) selected[key] = chat[key]
   }
   if (chat.importHistory) selected.importHistory = {
@@ -121,6 +121,8 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       const temporary = Number(chat.regenRecovery?.temporaryReplacingTurn)
       if (Number.isSafeInteger(temporary) && temporary > 0) turns.add(temporary)
     }
+    const failed = Number(chat.failedRegenerationTarget?.dshTurn)
+    if (Number.isSafeInteger(failed) && failed > 0) turns.add(failed)
     return [...turns].sort((left, right) => left - right)
   }
   // The mapping feeds the cache key below, so it runs on every read: remember it per
@@ -160,7 +162,7 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
     const key = native ? JSON.stringify([chat.sessionId,chat.messages?.length,chat.tavernHelperLifecycleRevision,
       chat.foregroundError?.turn,chat.foregroundError?.requestId,chat.messages?.[chat.messages.length-1]?.source?.rpcId,chat.messages?.[chat.messages.length-1]?.placeholder,
       chat.importHistory?.rescue,chat.importHistory?.operationId,chat.hiddenDshErrorTurns,chat.suppressedDshTurns,
-      chat.replacingDshTurns, chat.regenInProgress, chat.regenRecovery?.temporaryReplacingTurn,
+      chat.replacingDshTurns, chat.failedRegenerationTarget, chat.regenInProgress, chat.regenRecovery?.temporaryReplacingTurn,
       sharedMappings ? mappingIds.get(mappings) : chat.regeneratedDshTurns,
       nodes.length,nodes[0],nodes.at(-1),generation]) : null
     const previous = rollbackCache.get(chat.id)

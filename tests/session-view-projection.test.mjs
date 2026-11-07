@@ -155,6 +155,9 @@ test('a body regeneration publishes the target story row UID, never on a settled
   assert.equal(settled.streamingMessageUid, null, '生成结束后不得残留流标记')
   const idle = await f.projection.project.full(f.chat)
   assert.equal(idle.streamingMessageUid, null)
+  const failed = await f.projection.project.full({ ...f.chat, failedRegenerationTarget: { assistant: { messageUid: 'uid-2' } } })
+  assert.equal(failed.streamingMessageUid, null)
+  assert.equal(failed.failedRegenerationMessageUid, 'uid-2', '失败视图用于作废未提交的前端缓存')
   const blank = await f.projection.project.full({ ...f.chat, regenInProgress: true,
     regenRecovery: { targetMessageUid: '' } })
   assert.equal(blank.streamingMessageUid, null, '空 UID 不是流目标')
@@ -196,6 +199,11 @@ test('重新生成期间视图点名被替换的原生行，行计划只撤掉�
   assert.equal(planShowsRow(view.transcriptTurns, { turn: 1, kind: 'user' }, view.transcriptFrom), true, '玩家输入保留')
   // 生成结束后恢复默认显示：旧正文（此时已是新正文的那一行）照常画。
   const settled = await f.projection.project.full({ ...chat, regenInProgress: false })
-  assert.deepEqual(settled.replacingDshTurns ?? [], [], '生成结束后不再藏任何正文')
+  assert.deepEqual(settled.replacingDshTurns ?? [], [], '成功提交后不再藏任何正文')
+  const failed = await f.projection.project.full({ ...chat, regenInProgress: false,
+    failedRegenerationTarget: { dshTurn: 1, assistant: { messageUid: 'uid-old' } } })
+  assert.deepEqual(failed.replacingDshTurns, [1], '失败后原生旧正文仍保持撤下')
+  assert.equal(planShowsRow(failed.transcriptTurns, { turn: 1, kind: 'assistant-step' }, failed.transcriptFrom), false)
+  assert.equal(planShowsRow(failed.transcriptTurns, { turn: 1, kind: 'user' }, failed.transcriptFrom), true, '失败也不误藏玩家输入')
 })
 

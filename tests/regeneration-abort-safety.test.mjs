@@ -11,6 +11,7 @@ import { createRegenerationRecovery } from '../tavern-plugin/lib/domain/regenera
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
+import { createRegenerationDiscard } from '../tavern-plugin/lib/domain/regeneration-discard.js'
 
 function fixture({ ended = true } = {}) {
  const session=Session.create('regen-safety')
@@ -105,4 +106,19 @@ test('重新生成卡住时被拒绝的发送（失败回合）不会让恢复�
   const restored = await chats.read('chat')
   assert.equal(restored.regenInProgress, undefined)
   assert.deepEqual(restored.messages.map(message => message.text), ['input', 'original-body'])
+})
+
+test('已提交新正文时缺少原生会话也不会被记成失败旧文', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'regen-committed-release-')); t.after(() => rm(root, { recursive: true, force: true }))
+  const chats = createChatPersistence({ store: createChatJournalStore({ dataRoot: root }) })
+  await chats.write({ id: 'chat', sessionId: 'missing', messages: [{ role: 'user', text: 'input' }, { role: 'assistant', turn: 2, text: 'new-body' }] })
+  const discarded = createRegenerationDiscard({ role: 'assistant', turn: 2, text: 'old-body' }, 1, 0)
+  await chats.update('chat', current => ({ ...current, regenInProgress: true,
+    regenRecovery: { id: 'op', phase: 'committed', sessionId: 'missing', discarded, temporaryReplacingTurn: 2 } }))
+  const recovery = createRegenerationRecovery({ chats, timeline: createStoryTimeline(), isActive: () => false, sessions: { get: () => undefined } })
+  await recovery.recover('chat')
+  const after = await chats.read('chat')
+  assert.deepEqual(after.messages.map(message => message.text), ['input', 'new-body'])
+  assert.equal(after.failedRegenerationTarget, undefined)
+  assert.equal(after.regenInProgress, undefined)
 })

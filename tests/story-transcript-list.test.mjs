@@ -241,6 +241,39 @@ test('重新生成时流式正文按视图的 messageUid 落到目标行，不�
 	assert.ok(rows[2].textContent.includes('后续旧正文'))
 })
 
+test('重生成失败后旧正文与未提交候选都不回显，其它楼层不消失', async t => {
+	const page = createPage(t)
+	const { dom, context } = page
+	const messages = [
+		{ role: 'user', turn: 1, text: '输入一' },
+		{ role: 'assistant', turn: 1, text: '', messageUid: 'uid-target', placeholder: true, regenerationDiscarded: true },
+		{ role: 'assistant', turn: 1, text: '同轮中间内容', messageUid: 'uid-sibling' },
+		{ role: 'user', turn: 2, text: '输入二' },
+		{ role: 'assistant', turn: 2, text: '后续正文', messageUid: 'uid-next' }
+	]
+	const feature = context.createTavernStoryTranscriptFeature()
+	const element = (value, partial, running, view) => React.createElement(feature.StoryTranscriptList, {
+		transcript: value, partial, running, view, sessionId: 's-discard-regen'
+	})
+	const root = await mount(page, element(story(messages, 4), { turn: 0, blocks: [{ kind: 'text', text: '未提交候选' }] }, true,
+		{ mode: 'story', regenInProgress: true, streamingMessageUid: 'uid-target', latestAssistantTurn: 2 }))
+	const assistants = () => [...dom.window.document.querySelectorAll('[data-story-row][data-role="assistant"]')]
+	assert.ok(assistants()[0].textContent.includes('未提交候选'))
+	const failedView = { mode: 'story', regenInProgress: false, failedRegenerationMessageUid: 'uid-target', latestAssistantTurn: 2 }
+	const withoutTarget = messages.filter(message => message.messageUid !== 'uid-target')
+	await act(async () => root.render(element(story(withoutTarget, 5), null, false, failedView)))
+	assert.equal(assistants().length, 2)
+	assert.ok(assistants()[0].textContent.includes('同轮中间内容'))
+	assert.ok(assistants()[1].textContent.includes('后续正文'))
+	assert.ok(!dom.window.document.body.textContent.includes('未提交候选'))
+	// 迟到的旧读取也只能看到空占位：失败视图仍把它过滤，不能闪回候选或旧文。
+	await act(async () => root.render(element(story(messages, 4), null, false, failedView)))
+	assert.equal(assistants().length, 2)
+	assert.ok(assistants()[0].textContent.includes('同轮中间内容'))
+	assert.ok(assistants()[1].textContent.includes('后续正文'))
+	assert.ok(!dom.window.document.body.textContent.includes('未提交候选'))
+})
+
 test('失败输入后的重新生成：没有旧正文行也能立即挂载流式新正文', async t => {
 	const page = createPage(t)
 	const { dom, context } = page

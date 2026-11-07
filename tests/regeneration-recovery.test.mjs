@@ -13,7 +13,7 @@ import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persiste
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 
-for (const legacy of [false, true]) test('SIGKILL 后保留真实 journal 原正文并仅清理候选：legacy=' + legacy, { timeout: 15000 }, async t => {
+for (const legacy of [false, true]) test('SIGKILL 后保持原正文已删除并仅清理候选：legacy=' + legacy, { timeout: 15000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), 'tavern-regen-crash-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const child = spawn(process.execPath, [fileURLToPath(new URL('./fixtures/regeneration-crash.mjs', import.meta.url)), root, String(legacy)], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
@@ -28,7 +28,7 @@ for (const legacy of [false, true]) test('SIGKILL 后保留真实 journal 原正
   const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root }) })
   const interrupted = await persistence.read('chat')
   assert.equal(interrupted.regenInProgress, true)
-  assert.deepEqual(interrupted.messages.map(message => message.text), ['继续', '原正文'], '崩溃时旧正文从未离开存档')
+  assert.deepEqual(interrupted.messages.map(message => message.text), ['继续', ''], '崩溃时旧正文已撤成空占位')
   assert.equal(interrupted.posture, '原状态')
   const stored = JSON.parse(await readFile(join(root, 'session.json'), 'utf8'))
   const session = Session.create(stored.id, stored.events, stored.header)
@@ -42,12 +42,13 @@ for (const legacy of [false, true]) test('SIGKILL 后保留真实 journal 原正
   assert.equal(disposed, 1)
   const reopened = createChatPersistence({ store: createChatJournalStore({ dataRoot: root }) })
   const restored = await reopened.read('chat')
-  assert.deepEqual(restored.messages.map(message => message.text), ['继续', '原正文'])
-  assert.deepEqual(restored.messages.at(-1).variables, [{ hp: 9 }])
+  assert.deepEqual(restored.messages.map(message => message.text), ['继续'])
+  assert.deepEqual(restored.failedRegenerationTarget.assistant.variables, [{ hp: 9 }])
   assert.equal(restored.posture, '原状态')
   assert.ok(!restored.regenInProgress)
   assert.equal(restored.regenRecovery, undefined)
   assert.deepEqual(restored.suppressedDshTurns, [3])
+  assert.deepEqual(restored.replacingDshTurns, [2])
   const saved = JSON.parse(await readFile(join(root, 'session.json'), 'utf8'))
   const native = Session.create(saved.id, saved.events, saved.header)
   const visible = JSON.stringify(native.deriveMessages())

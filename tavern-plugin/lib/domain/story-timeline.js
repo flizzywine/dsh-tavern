@@ -1,5 +1,6 @@
 import { createScopedMessages } from './scoped-messages.js'
 import { participantOf } from './background-members.js'
+import { clearRegenerationFailure } from './regeneration-discard.js'
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 }
@@ -481,6 +482,7 @@ export function createStoryTimeline(options = {}) {
       }
     }
     restore(chat, restoredState)
+    clearRegenerationFailure(chat)
     const branchId = makeId('branch')
     const restoredParticipants = object(checkpoint.participants || restoredState && restoredState.participants)
     const nextParticipants = {}
@@ -700,6 +702,7 @@ export function createStoryTimeline(options = {}) {
     }
     if (typeof input.apply === 'function') input.apply(chat)
     if (operation.kind === 'body') {
+      clearRegenerationFailure(chat)
       operation.foregroundCompletedAt = now()
       commitBody(chat, operation)
     } else if (settlementRound !== null) {

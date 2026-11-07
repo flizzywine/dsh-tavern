@@ -4,7 +4,6 @@ import { computeSceneTarget } from './scene-illustration.js'
 import { sessionEvents } from './session-events.js'
 import { isNewPlayerInput } from './session-turn-input.js'
 import { regenerationProjection, applyRegenerationProjection, failedTurnReplayAvailability, surfaceTurnOfSeq } from './rollback-surface.js'
-import { legacyMessageUid } from './message-uid.js'
 import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
 import { plainReplyProse, replyProse } from './reply-prose.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
@@ -12,6 +11,7 @@ import { consumeScriptPrompts } from './tavern-script-prompts.js'
 import { findBodyRegenerationFrame } from './body-regeneration-materials.js'
 import { untilAborted } from './plugin-callback.js'
 import { projectPlayerContent } from './player-input-content.js'
+import { createRegenerationDiscard, regenerationAttemptMessages, restoreDiscardedRegeneration, installRegenerationDiscard, clearRegenerationFailure, retainRegenerationFailure } from './regeneration-discard.js'
 
 const text = value => typeof value === 'string' ? value : ''
 const clone = value => value === undefined ? undefined : structuredClone(value)
@@ -32,22 +32,22 @@ function assertCurrent(current, original, index, inputIndex, operationId) {
   if (current?.regenRecovery?.id !== operationId || current.regenRecovery?.phase !== 'prepared') {
     throw error('TAVERN_PLUGIN_STALE_VERSION', '正文重新生成操作已经失效')
   }
-  if (index !== null) assertRegenerationSourceCurrent({ originalChat: original, currentChat: current, assistantIndex: index, inputIndex })
   if (current.timeline?.branchId !== original.timeline?.branchId || current.timeline?.revision !== original.timeline?.revision) {
     throw error('TAVERN_PLUGIN_STALE_VERSION', '重新生成期间剧情状态已经变化')
   }
   for (const key of ['macroState', 'variables', 'posture', 'scriptState']) {
     if (!isDeepStrictEqual(current[key], original[key])) throw error('TAVERN_PLUGIN_STALE_VERSION', '重新生成期间本轮状态已经变化')
   }
-  const history = chat => chat.messages.map(row => [row?.role, row?.turn, row?.sourceText, row?.projectionText,
-    row?.text, row?.swipeId, row?.tavernHidden, row?.is_hidden, row?.hidden])
-  if (!isDeepStrictEqual(history(current), history(original))) throw error('TAVERN_PLUGIN_STALE_VERSION', '重新生成期间历史消息已经变化')
+  const history = messages => messages.map(row => [row?.role, row?.turn, row?.sourceText, row?.projectionText,
+    row?.text, row?.swipeId, row?.tavernHidden, row?.is_hidden, row?.hidden, row?.messageUid, row?.regenerationDiscarded])
+  const expected = regenerationAttemptMessages(original.messages, index === null ? null : current.regenRecovery.discarded)
+  if (!isDeepStrictEqual(history(current.messages), history(expected))) throw error('TAVERN_PLUGIN_STALE_VERSION', '重新生成期间历史消息已经变化')
 }
 
 /**
- * A provider only supplies a candidate. While it runs the original story remains
- * authoritative; only a durable busy marker is written. The checkpoint rollback,
- * replacement and new body checkpoint are committed together after validation.
+ * A provider only supplies a candidate. The old prose is discarded with the
+ * durable busy marker; retry material stays outside visible story rows. The
+ * checkpoint rollback, replacement and new body checkpoint commit after validation.
  */
 export function createPluginBodyRegeneration(deps) {
   const { chats, sessions, timeline, queueSettlement, replyCommitted, cancelSettlement,
@@ -57,12 +57,14 @@ export function createPluginBodyRegeneration(deps) {
   async function releasePrepared(chatId, operationId) {
     return chats.update(chatId, current => {
       if (current?.regenRecovery?.id !== operationId || current.regenRecovery?.phase !== 'prepared') return current
+      const recovery = current.regenRecovery
       delete current.regenInProgress
       delete current.regenRecovery
       delete current.bodyGenerationCandidate
+      retainRegenerationFailure(current, recovery)
       current.tavernHelperLifecycleRevision = Number(current.tavernHelperLifecycleRevision || 0) + 1
       return current
-    }, { source: 'foreground.plugin-regen-release' })
+    }, { source: 'foreground.plugin-regen-release', worldSelection: { preserveWorld: true } })
   }
 
   return async function regenerateWithProvider({ gameId, sessionId = gameId, turn, textVersion, generate, prepare, providerId, validateProvider, guidance = '', signal, onPhase } = {}) {
@@ -88,7 +90,7 @@ export function createPluginBodyRegeneration(deps) {
       if (!original || original.regenInProgress) throw error('TAVERN_PLUGIN_BUSY', '当前对话正忙')
       const shouldResumeSettlement = typeof cancelSettlement === 'function' && pendingSettlement(original)
       if (typeof cancelSettlement === 'function') await cancelSettlement(chatId)
-      original = await chats.read(chatId)
+      original = restoreDiscardedRegeneration(await chats.read(chatId))
       if (shouldResumeSettlement && pendingSettlement(original)) interruptedSettlement = {
         chat: clone(original), session: agent.session, eventCount: sessionEvents(agent.session).length
       }
@@ -153,23 +155,27 @@ export function createPluginBodyRegeneration(deps) {
         applyRegenerationProjection(preview, projection)
       }
       const eventStart = sessionEvents(session).length
-      // The row this regeneration rewrites. The page takes the old body out while
-      // the provider runs and draws the new body when the commit lands; a failed
-      // candidate only ends the marker, so the old row comes back untouched.
+      // The old prose is removed with the busy marker. Only an empty streaming
+      // placeholder remains until the validated replacement commits.
       const replacingTurn = appendRound ? null : surfaceTurnOfSeq(sessionEvents(session), oldSeq)
-      const replacedUid = index === null ? '' : legacyMessageUid(original.messages[index], index)
+      const discarded = failedMode ? null : createRegenerationDiscard(original.messages[index], index, inputIndex)
+      const replacedUid = discarded?.assistant.messageUid || ''
       await chats.update(chatId, current => {
         if (agent.phase?.kind === 'running' || current.regenInProgress) throw error('TAVERN_PLUGIN_BUSY', '当前对话正忙')
-        if (index !== null) assertRegenerationSourceCurrent({ originalChat: original, currentChat: current, assistantIndex: index, inputIndex })
-        else if (!isDeepStrictEqual(current.messages, original.messages)) throw error('TAVERN_PLUGIN_STALE_VERSION', '失败输入之前的历史已经变化')
+        const logical = restoreDiscardedRegeneration(current)
+        if (index !== null) assertRegenerationSourceCurrent({ originalChat: original, currentChat: logical, assistantIndex: index, inputIndex })
+        else if (!isDeepStrictEqual(logical.messages, original.messages)) throw error('TAVERN_PLUGIN_STALE_VERSION', '失败输入之前的历史已经变化')
         if (!isDeepStrictEqual(current.timeline, original.timeline)) throw error('TAVERN_PLUGIN_STALE_VERSION', '本轮状态已经变化')
         current.regenInProgress = true
         current.regenRecovery = { id: operationId, phase: 'prepared', detached: true,
           beforeRevision: Number(current._storageRevision || 0), sessionId, eventStart,
-          temporaryReplacingTurn: replacingTurn, targetMessageUid: replacedUid }
+          temporaryReplacingTurn: replacingTurn, targetMessageUid: replacedUid,
+          ...(discarded ? { discarded } : {}) }
+        if (discarded) installRegenerationDiscard(current, discarded)
+        else clearRegenerationFailure(current)
         current.tavernHelperLifecycleRevision = Number(current.tavernHelperLifecycleRevision || 0) + 1
         return current
-      }, { source: 'foreground.plugin-regen-begin' })
+      }, { source: 'foreground.plugin-regen-begin', worldSelection: { preserveWorld: true } })
       marked = true
       await phase('generating')
       signal?.throwIfAborted()
@@ -253,6 +259,7 @@ export function createPluginBodyRegeneration(deps) {
           if (failedMode) current.messages = clone(original.messages).concat([originalUser, row])
           else {
             const replaced = replaceLastRound({ originalChat: original, regeneratedChat: current, replacement: row, assistantIndex: index, inputIndex })
+            if (replacedUid) replaced.chat.messages[index].messageUid = replacedUid
             // A save-only row receives its new full or reply-only anchor during
             // recovery; the stale anchor of the missing body must not survive.
             if (saveOnly) delete replaced.chat.messages[index].nativeAnchor

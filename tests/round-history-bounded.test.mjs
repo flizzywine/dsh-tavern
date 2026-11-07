@@ -273,7 +273,7 @@ test('regeneration after its world source is detached keeps the retained world',
   }
 })
 
-test('a failed bounded regeneration restores the same Chat as the complete abort', async t => {
+test('a failed bounded regeneration keeps the old body discarded like the complete abort', async t => {
   const results = []
   for (const bounded of [true, false]) {
     const h = await fixture(t, bounded)
@@ -283,7 +283,8 @@ test('a failed bounded regeneration restores the same Chat as the complete abort
     results.push({ before, after: await h.p.read('chat') })
   }
   for (const { before, after } of results) {
-    assert.deepEqual(after.messages, before.messages)
+    assert.deepEqual(after.messages, before.messages.slice(0, -1))
+    assert.equal(after.failedRegenerationTarget.assistant.text, before.messages.at(-1).text)
     assert.equal(after.regenInProgress, undefined)
     assert.deepEqual(after.variables, before.variables)
   }

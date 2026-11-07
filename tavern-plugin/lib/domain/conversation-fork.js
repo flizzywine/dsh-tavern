@@ -46,6 +46,7 @@ export function forkConversationChat(source, options = {}) {
   delete chat._storageRevision
   delete chat.regenRecovery
   delete chat.regenInProgress
+  delete chat.failedRegenerationTarget
   // A fork never inherits a half-replaced round; its copy of the reply is final.
   delete chat.replacingDshTurns
   chat.id = targetChatId

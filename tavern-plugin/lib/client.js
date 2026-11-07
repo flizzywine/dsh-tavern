@@ -37304,18 +37304,19 @@ function createTavernStoryTranscriptFeature(deps) {
 		// A native snapshot older than the story read must not repaint a newly
 		// committed row. Same/newer revisions carry post-settlement EJS parts.
 		const projectionView = liveView && Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision >= storyRevision ? liveView : props.view
+		// 两路视图都可能更新，先取最新的一份。失败视图会使未提交的流式缓存立即失效，
+		// 不能让旧 liveView 再把候选正文投到别的楼层。
+		const regenView = tavernFreshestStoryView(liveView, props.view)
+		const failedRegenerationTarget = regenView && regenView.regenInProgress !== true
+			&& typeof regenView.failedRegenerationMessageUid === 'string' && regenView.failedRegenerationMessageUid !== ''
+			? regenView.failedRegenerationMessageUid : null
 		// 正文重新生成按故事行 UID 定位，不按轮次：故事视图没有 regeneratedDshTurns，
 		// partial 的宿主 turn 换算出来的序号并不指向被替换的那一行。服务端把目标行的
 		// UID 放在 view.streamingMessageUid 上，客户端只认这个 UID。
-		const streamingView = liveView && typeof liveView.streamingMessageUid === 'string' && liveView.streamingMessageUid !== ''
+		const streamingView = failedRegenerationTarget === null && liveView && typeof liveView.streamingMessageUid === 'string' && liveView.streamingMessageUid !== ''
 			? liveView
-			: props.view && typeof props.view.streamingMessageUid === 'string' && props.view.streamingMessageUid !== '' ? props.view : null
+			: failedRegenerationTarget === null && props.view && typeof props.view.streamingMessageUid === 'string' && props.view.streamingMessageUid !== '' ? props.view : null
 		const storyStreamUid = streamingView ? streamingView.streamingMessageUid : null
-		// 重新生成进行中、且服务端点明了被替换的那一行：旧正文不该留在页面上。
-		// 两路视图都可能更新：故事读取拿到的是存档视图（带上生成标记），实时视图随
-		// 其它失效更新；取存档更靠前的那一份，免得旧视图的 regenInProgress=false 把
-		// 刚开出的生成状态盖掉。
-		const regenView = tavernFreshestStoryView(liveView, props.view)
 		const regeneratingTarget = regenView && regenView.regenInProgress === true
 			&& typeof regenView.streamingMessageUid === 'string' && regenView.streamingMessageUid !== ''
 			? regenView.streamingMessageUid : null
@@ -37333,11 +37334,14 @@ function createTavernStoryTranscriptFeature(deps) {
 		} else if (props.running !== true) streamRef.current.running = false
 		// 重生成已有故事行 UID 时完全不看原生 turn；失败尾则使用预留的故事轮次。
 		// 两条路径都不能把宿主临时 turn（可能远大于剧情轮号）拿来找故事行。
-		const nativeLiveTurn = storyStreamUid === null && regeneratingStoryTurn === null
+		const nativeLiveTurn = failedRegenerationTarget === null && storyStreamUid === null && regeneratingStoryTurn === null
 			&& props.partial && Number.isInteger(storyTurn(props.partial.turn)) ? storyTurn(props.partial.turn) : null
 		const latestTurnHint = storyStreamUid !== null && streamingView && Number.isInteger(streamingView.latestAssistantTurn)
 			? streamingView.latestAssistantTurn : null
 		const liveTurn = latestTurnHint !== null ? latestTurnHint : (regeneratingStoryTurn !== null ? regeneratingStoryTurn : nativeLiveTurn)
+		if (failedRegenerationTarget !== null) {
+			streamRef.current = { sessionId: sessionId, turn: null, partial: null, revision: transcript && transcript.revision, settledTurn: null, running: false }
+		}
 		if (liveTurn !== null) {
 			const previous = streamRef.current
 			const text = tavernStoryTranscriptStreamText(props.partial)
@@ -37362,13 +37366,15 @@ function createTavernStoryTranscriptFeature(deps) {
 		const rows = React.useMemo(function () {
 			const base = tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn)
 			const overlaid = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial, storyStreamUid)
-			// 重新生成进行中：被替换的旧正文先离开页面。目标行只有在本轮已经拿到新正文的流式
-			// 片段时才画；插件整段生成则一直空着，成功后同一行换成新正文。失败时标记结束，
-			// 旧正文原样回来——这条筛选只看进行中的那一行，不碰输入和别的楼层。
-			if (regeneratingTarget === null) return overlaid
+			// 生成中旧正文已由服务端换成空占位；失败后占位和候选缓存都消失。
+			// 两种状态都只影响目标 UID，其它输入、同轮内容和后续楼层保持原样。
+			if (regeneratingTarget === null) {
+				if (failedRegenerationTarget !== null) return overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === failedRegenerationTarget) })
+				return overlaid
+			}
 			const streaming = overlaid.some(function (row) { return row.streaming === true && row.messageUid === regeneratingTarget })
 			return streaming ? overlaid : overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === regeneratingTarget) })
-		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget, regeneratingStoryTurn])
+		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget, failedRegenerationTarget, regeneratingStoryTurn])
 		if (!rows.length) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',
