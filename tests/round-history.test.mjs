@@ -203,6 +203,11 @@ test('消息面上没有这一轮正文时改为补写，不再拒绝重新生�
   assert.ok(h.session.surface.nodes.includes(appended.seq))
   function lastAssistant(){ return h.chat.messages.filter(message=>message?.role==='assistant' && message.greeting!==true).at(-1) }
   assert.ok(tail)
+  const anchor = tail.nativeAnchor
+  assert.ok(anchor)
+  assert.notEqual(anchor.input, anchor.reply)
+  assert.equal(h.session.events.find(event => event.seq === anchor.input)?.type, 'user/message')
+  assert.equal(h.session.events.find(event => event.seq === anchor.reply)?.type, 'assistant/message')
 })
 
 test('缺少玩家输入时按空输入重新生成，诊断记录 input-missing', async () => {

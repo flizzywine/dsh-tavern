@@ -9,7 +9,7 @@ import { createRegenerationRecovery } from './regeneration-recovery.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
-import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn, anchoredToSaveRow, unansweredTailIndex, surfaceTurnOfSeq } from './rollback-surface.js'
+import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, hasConflictingRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn, anchoredToSaveRow, unansweredTailIndex, surfaceTurnOfSeq } from './rollback-surface.js'
 
 // Both regeneration paths (native and plugin) read the same tail rule.
 export { unansweredTailIndex }
@@ -225,8 +225,10 @@ export function attemptNativeAnchor(session, eventStart, turn) {
     if (event.type === 'user/message' && input === null) input = event
     else if (event.type === 'assistant/message' && event.data?.message?.source?.kind === 'model') reply = event
   }
-  if (input === null || reply === null) return null
-  return { formatVersion: 4, turn: Number(turn) || Number(reply.data?.turn) || 0, input: Number(input.seq), reply: Number(reply.seq) }
+  if (reply === null) return null
+  const anchor = { formatVersion: 4, turn: Number(turn) || Number(reply.data?.turn) || 0, reply: Number(reply.seq) }
+  if (input !== null) anchor.input = Number(input.seq)
+  return anchor
 }
 
 /**
@@ -298,16 +300,19 @@ export function selectRegenerationTarget(chat, session, observe) {
   const row = msgs0[oldAssistantIndex]
   const storedSeq = Number(row?.nativeAnchor?.reply)
   const target = locateRegenerationSurface({ events, nodes,
-    seq: Number.isSafeInteger(storedSeq) && storedSeq > 0 ? storedSeq : undefined, turn: row.turn,
+    seq: Number.isSafeInteger(storedSeq) && storedSeq >= 0 ? storedSeq : undefined, turn: row.turn,
     // A projected reply may store the edit turn; its body still identifies it.
     texts: [row.text, row.sourceText, row.projectionText] })
+  if (target === null && hasConflictingRegenerationSurface({ events, nodes, messages: msgs0, assistantIndex: oldAssistantIndex })) {
+    report('native-target-conflict', null, inputIndex)
+    throw Object.assign(new Error('原生消息流中还有无法与存档对应的正文，请先检查这一轮，而不是追加另一份正文'), { code: 'NATIVE_TARGET_CONFLICT' })
+  }
   const oldTurn = target !== null && Number.isSafeInteger(Number(target.turn)) && Number(target.turn) > 0
     ? Number(target.turn) : Number(row.turn) || 0
   const oldSource = target !== null ? target.source
     : { kind: 'model', provider: 'dsh-tavern', model: 'plugin-regeneration' }
-  // 消息面上没有这一轮的正文不是拒绝理由：没有旧正文可替换，就把正文补写上去。
-  // 以前这里直接抛「原生消息流中找不到…」，于是一次被截断的重新生成之后，
-  // 这一轮就再也无法重新生成。
+  // A genuinely missing body may be appended. Other bodies already claimed by
+  // earlier rounds do not block it; an unclaimed body is a conflict above.
   const saveOnly = target === null
   report(saveOnly ? 'save-only' : 'selected', target, inputIndex)
   return { nodes, eventStart, msgs0, oldAssistantIndex, inputIndex, oldSeq: saveOnly ? null : target.assistantSeq,
@@ -627,14 +632,19 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         } })
       if (completed.value.status !== 'committed') throw new Error('正文提交条件已失效')
       const next = completed.chat
+      const appendAnchor = appending ? attemptNativeAnchor(session, eventStart, syntheticTurn) : null
+      // A save-only replacement must not retain the stale anchor of the body that
+      // disappeared. Recovery writes the new full or reply-only anchor below.
+      if (saveOnly && next.messages?.[oldAssistantIndex]) delete next.messages[oldAssistantIndex].nativeAnchor
       next.nativeCommits = originalChat.nativeCommits && typeof originalChat.nativeCommits === 'object' ? structuredClone(originalChat.nativeCommits) : {}
       if (saveOnly) {
-        // 这一轮在模型视野里本来就缺正文，新正文由这次尝试自己补上：它不是被替换掉的
-        // 旧回复，不能隐藏，也不能往前映射。只记剧情轮号到新宿主轮号的对应即可。
+        // Only a real native reply creates a new story-to-host mapping. A missing
+        // reply must not leave a mapping to an unrelated or empty host round.
         next.suppressedDshTurns = Array.isArray(originalChat.suppressedDshTurns) ? [...originalChat.suppressedDshTurns] : []
         next.regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
           ? structuredClone(originalChat.regeneratedDshTurns) : {}
-        next.regeneratedDshTurns[String(oldTurn)] = syntheticTurn
+        if (appendAnchor) next.regeneratedDshTurns[String(oldTurn)] = syntheticTurn
+        else delete next.regeneratedDshTurns[String(oldTurn)]
       } else if (failedTail) {
         // Nothing native was replaced: the attempt's own reply is the body, so no
         // turn is hidden and no earlier body is remapped.
@@ -651,7 +661,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       // A replacement rewrites the old reply in place; the answered tail only has
       // to record where its reply already landed.
       const projection = appending
-        ? { kind: 'append-round', storyTurn, native: attemptNativeAnchor(session, eventStart, syntheticTurn) }
+        ? { kind: 'append-round', storyTurn, native: appendAnchor }
         : placeRegeneration(session, oldSeq, eventStart, { turn: storyTurn, step: 1,
           message: { id: 'tavern-regen:' + operationId, role: 'assistant', content: [{ type: 'text', text: prose.text }],
             source: { ...oldSource, tavernStoryTurn: storyTurn } } }, operationId)

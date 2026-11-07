@@ -378,4 +378,51 @@ test('面上没有这一轮正文时补写一条，旧正文不在了也能重�
   assert.equal(appended.length, 1)
   assert.equal(appended[0].data.message.content[0].text, '补写的正文')
   assert.equal(saved.messages.at(-1).nativeAnchor.turn, Number(appended[0].data.turn))
+  assert.equal(saved.messages.at(-1).nativeAnchor.input, undefined)
+  assert.equal(saved.messages.at(-1).nativeAnchor.reply, Number(appended[0].seq))
+})
+
+test('补写缺少玩家行时使用空输入，不在生成后抛内部异常', async () => {
+  const h = await fixture({ withoutBody: true })
+  const chat = await h.chats.read()
+  chat.messages = [{ role: 'assistant', turn: 2, text: '旧正文', sourceText: '旧正文' }]
+  await h.chats.write(chat)
+  let calls = 0
+  await h.history.regenerateWithProvider({ gameId: 'session', turn: 2, providerId: 'missing-input',
+    generate: async () => { calls += 1; return { text: '空输入生成的新正文' } } })
+  const saved = await h.chats.read()
+  assert.equal(calls, 1)
+  assert.equal(saved.messages.length, 1)
+  assert.equal(saved.messages[0].role, 'assistant')
+  assert.equal(saved.messages[0].text, '空输入生成的新正文')
+  const operation = Object.values(saved.timeline.operations).filter(item => item.kind === 'body' && Number(item.turn) === 2).at(-1)
+  assert.equal(operation.userText, '')
+})
+
+test('连续 assistant 时仍使用选择器找到的玩家输入', async () => {
+  const h = await fixture({ withoutBody: true })
+  const chat = await h.chats.read()
+  chat.messages = [chat.messages[0],
+    { role: 'assistant', turn: 90, text: '上一条独立正文', sourceText: '上一条独立正文' },
+    chat.messages[1]]
+  await h.chats.write(chat)
+  await h.history.regenerateWithProvider({ gameId: 'session', turn: 2, providerId: 'recovered-input',
+    generate: async () => ({ text: '这一轮的新正文' }) })
+  const saved = await h.chats.read()
+  assert.deepEqual(saved.messages.map(row => [row.role, row.text]), [
+    ['user', '继续'], ['assistant', '上一条独立正文'], ['assistant', '这一轮的新正文']
+  ])
+  const operation = Object.values(saved.timeline.operations).filter(item => item.kind === 'body' && Number(item.turn) === 2).at(-1)
+  assert.equal(operation.userText, '继续')
+})
+
+test('插件补写保留原正文的持久 messageUid', async () => {
+  const h = await fixture({ withoutBody: true })
+  const chat = await h.chats.read()
+  chat.messages[1].messageUid = 'persistent-body-uid'
+  await h.chats.write(chat)
+  await h.history.regenerateWithProvider({ gameId: 'session', turn: 2, providerId: 'persistent-uid',
+    generate: async () => ({ text: '保留身份的新正文' }) })
+  const saved = await h.chats.read()
+  assert.equal(saved.messages.at(-1).messageUid, 'persistent-body-uid')
 })

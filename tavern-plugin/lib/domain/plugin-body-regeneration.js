@@ -5,7 +5,7 @@ import { sessionEvents } from './session-events.js'
 import { isNewPlayerInput } from './session-turn-input.js'
 import { regenerationProjection, applyRegenerationProjection, failedTurnReplayAvailability, surfaceTurnOfSeq } from './rollback-surface.js'
 import { legacyMessageUid } from './message-uid.js'
-import { assertRegenerationSourceCurrent } from './last-round-replacement.js'
+import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
 import { plainReplyProse, replyProse } from './reply-prose.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { consumeScriptPrompts } from './tavern-script-prompts.js'
@@ -28,11 +28,11 @@ function pendingSettlement(chat) {
   return Boolean(body && body.background?.role === 'settlement' && ['pending', 'running'].includes(body.background.phase))
 }
 
-function assertCurrent(current, original, index, operationId) {
+function assertCurrent(current, original, index, inputIndex, operationId) {
   if (current?.regenRecovery?.id !== operationId || current.regenRecovery?.phase !== 'prepared') {
     throw error('TAVERN_PLUGIN_STALE_VERSION', '正文重新生成操作已经失效')
   }
-  if (index !== null) assertRegenerationSourceCurrent({ originalChat: original, currentChat: current, assistantIndex: index })
+  if (index !== null) assertRegenerationSourceCurrent({ originalChat: original, currentChat: current, assistantIndex: index, inputIndex })
   if (current.timeline?.branchId !== original.timeline?.branchId || current.timeline?.revision !== original.timeline?.revision) {
     throw error('TAVERN_PLUGIN_STALE_VERSION', '重新生成期间剧情状态已经变化')
   }
@@ -100,10 +100,18 @@ export function createPluginBodyRegeneration(deps) {
       const target = failedMode ? { oldAssistantIndex: null, oldTurn: failed.turn,
         oldSource: { kind: 'model', provider: 'dsh-tavern', model: 'plugin-regeneration' } } : await selectTarget(original, session)
       const { oldAssistantIndex: index, oldTurn, oldSeq, oldSource, saveOnly = false } = target
+      const inputIndex = failedMode ? -1 : Number.isSafeInteger(target.inputIndex) ? target.inputIndex : index - 1
+      const inputRow = !failedMode && inputIndex >= 0 ? original.messages[inputIndex] : null
+      const targetRow = index === null ? null : original.messages[index]
       // 消息面上没有这一轮的正文（旧正文节点已经不在，或者这轮从未落地）：没有可替换
       // 的对象，这一轮改成“补写”，和失败轮一样走 append。
       const appendRound = failedMode || saveOnly || oldSeq == null
       const targetSource = oldSource || { kind: 'model', provider: 'dsh-tavern', model: 'plugin-regeneration' }
+      const candidateInputSeq = Number(targetRow?.nativeAnchor?.input ?? inputRow?.nativeAnchor?.input)
+      const inputSeq = saveOnly && Number.isSafeInteger(candidateInputSeq) && candidateInputSeq >= 0 &&
+        (session.surface?.nodes || []).some(seq => Number(seq) === candidateInputSeq) &&
+        sessionEvents(session).some(event => Number(event.seq) === candidateInputSeq && event.type === 'user/message')
+        ? candidateInputSeq : undefined
       if (turn !== undefined && Number(turn) !== Number(oldTurn)) throw error('TAVERN_PLUGIN_STALE_VERSION', '只能重新生成当前最新一轮正文')
       const version = failedMode ? null : computeSceneTarget(original, oldTurn).key
       if (!failedMode && textVersion !== undefined && textVersion !== version) throw error('TAVERN_PLUGIN_STALE_VERSION', '正文版本已经变化')
@@ -119,12 +127,12 @@ export function createPluginBodyRegeneration(deps) {
       const frame = findBodyRegenerationFrame(original, oldTurn)
       if (!frame?.source?.regenerationState && ((original.mode || 'story') === 'script'
         || /{{|<%/.test(frame?.userInput?.sourceText || '') || frame?.userInput?.sourceText !== frame?.userInput?.projectedText
-        || (index !== null && original.messages[index - 1]?.templateInputSource))) {
+        || inputRow?.templateInputSource)) {
         throw error('TAVERN_PLUGIN_MATERIALS_UNAVAILABLE', '这条旧存档缺少本轮输入处理后的快照，无法安全重生成')
       }
-      if (failedMode && failed.inputAttachments?.length || index !== null && original.messages[index - 1]?.inputAttachments?.length) throw error('TAVERN_PLUGIN_INPUT_UNSUPPORTED', '插件正文生成目前只支持文本输入')
+      if (failedMode && failed.inputAttachments?.length || inputRow?.inputAttachments?.length) throw error('TAVERN_PLUGIN_INPUT_UNSUPPORTED', '插件正文生成目前只支持文本输入')
       const failedInput = failedMode ? text(original.userInputEdits?.[String(oldTurn)]?.text) || failed.userText : ''
-      let materials = await readRegenerationMaterials({ chat: original, beforeChat, card, turn: oldTurn, assistantIndex: index, operationId,
+      let materials = await readRegenerationMaterials({ chat: original, beforeChat, card, turn: oldTurn, assistantIndex: index, inputIndex, operationId,
         ...(failedMode ? { kind: 'failed', targetInput: { raw: failedInput } } : {}) })
       materials = { ...materials, guidance: String(guidance).trim() }
       delete materials.digest
@@ -138,7 +146,7 @@ export function createPluginBodyRegeneration(deps) {
         source: { ...targetSource, tavernStoryTurn: bodyTurn } } }
       const projection = failedMode ? { kind: 'append-round', failedTurn: oldTurn, storyTurn: bodyTurn, data: projectionData,
         input: { id: 'tavern-plugin-regen-input:' + operationId, role: 'user', content: projectPlayerContent(failed.inputAttachments, failedInput), source: { kind: 'user' } } }
-        : saveOnly ? { kind: 'append-round', storyTurn: bodyTurn, data: projectionData }
+        : saveOnly ? { kind: 'append-round', storyTurn: bodyTurn, data: projectionData, ...(inputSeq !== undefined ? { inputSeq } : {}) }
         : regenerationProjection({ start: oldSeq, end: oldSeq, shadowedSeqs: [oldSeq] }, projectionData, operationId)
       if (session.constructor?.fromRestore) {
         const preview = session.constructor.fromRestore(session.id, clone(sessionEvents(session)), clone(session.header), session.inheritedEventCount, 'detached')
@@ -152,7 +160,7 @@ export function createPluginBodyRegeneration(deps) {
       const replacedUid = index === null ? '' : legacyMessageUid(original.messages[index], index)
       await chats.update(chatId, current => {
         if (agent.phase?.kind === 'running' || current.regenInProgress) throw error('TAVERN_PLUGIN_BUSY', '当前对话正忙')
-        if (index !== null) assertRegenerationSourceCurrent({ originalChat: original, currentChat: current, assistantIndex: index })
+        if (index !== null) assertRegenerationSourceCurrent({ originalChat: original, currentChat: current, assistantIndex: index, inputIndex })
         else if (!isDeepStrictEqual(current.messages, original.messages)) throw error('TAVERN_PLUGIN_STALE_VERSION', '失败输入之前的历史已经变化')
         if (!isDeepStrictEqual(current.timeline, original.timeline)) throw error('TAVERN_PLUGIN_STALE_VERSION', '本轮状态已经变化')
         current.regenInProgress = true
@@ -171,7 +179,7 @@ export function createPluginBodyRegeneration(deps) {
         ? original.bodyGenerationCandidate : null
       const snapshot = reusable?.snapshot || await prepare?.({ gameId: sessionId, reason: failedMode ? 'retry' : 'regenerate', signal })
       await chats.update(chatId, current => {
-        assertCurrent(current, original, index, operationId)
+        assertCurrent(current, original, index, inputIndex, operationId)
         current.regenRecovery.generation = { provider: providerId, snapshot: clone(snapshot), materialsDigest: materials.digest, status: 'running' }
         return current
       }, { source: 'foreground.plugin-regen-config' })
@@ -183,7 +191,7 @@ export function createPluginBodyRegeneration(deps) {
       await validateProvider?.()
       await chats.update(chatId, current => {
         signal?.throwIfAborted()
-        assertCurrent(current, original, index, operationId)
+        assertCurrent(current, original, index, inputIndex, operationId)
         current.regenRecovery.candidate = { fingerprint, providerId, snapshot: clone(snapshot), text: body }
         return current
       }, { source: 'foreground.plugin-regen-candidate' })
@@ -208,8 +216,8 @@ export function createPluginBodyRegeneration(deps) {
       if (!text(prose.text).trim()) throw error('TAVERN_PLUGIN_INVALID_BODY', '插件正文处理后为空')
       const originalUser = failedMode ? { role: 'user', text: failedInput, native: true,
         ...(failed.inputAttachments?.length ? { inputAttachments: clone(failed.inputAttachments) } : {}) }
-        : clone(original.messages[index - 1])
-      const previousVariables = lastTavernHelperVariables([originalUser]) ?? lastTavernHelperVariables(beforeChat.messages)
+        : inputRow ? clone(inputRow) : null
+      const previousVariables = lastTavernHelperVariables(originalUser ? [originalUser] : []) ?? lastTavernHelperVariables(beforeChat.messages)
       const oldRow = failedMode ? {} : original.messages[index]
       const row = { role: 'assistant', ...prose, native: true, turn: bodyTurn, ts: Date.now(), swipeId: 0, bodyRegenerationProcessed: true,
         swipes: [prose.projectionText], ...(oldRow.nativeAnchor ? { nativeAnchor: clone(oldRow.nativeAnchor) } : {}),
@@ -224,10 +232,10 @@ export function createPluginBodyRegeneration(deps) {
         const script = await deps.scripts.read(draft.cardPath)
         if (!script) throw new Error('剧本文件不可读取')
         const progressed = deps.scripts.continuity.transition({ script, state: draft.scriptState,
-          event: { kind: 'commit', userText: text(originalUser.text), nativeTurn: failedMode ? oldTurn : bodyTurn } })
+          event: { kind: 'commit', userText: text(originalUser?.text), nativeTurn: failedMode ? oldTurn : bodyTurn } })
         draft.scriptState = progressed.state
       }
-      const begun = timeline.apply({ chat: draft, intent: { kind: 'body.begin', turn: bodyTurn, userText: text(originalUser.text) } })
+      const begun = timeline.apply({ chat: draft, intent: { kind: 'body.begin', turn: bodyTurn, userText: text(originalUser?.text) } })
       draft = begun.chat
       const bodyOperation = draft.timeline.operations[begun.value.operationId]
       // The new checkpoint must still return to the ORIGINAL pre-turn revision,
@@ -242,7 +250,14 @@ export function createPluginBodyRegeneration(deps) {
       }
       const completed = timeline.complete({ chat: draft, operationId: bodyOperation.id, basedOn: bodyOperation.basedOn,
         outcome: { status: 'success' }, apply(current) {
-          current.messages = clone(failedMode ? original.messages : original.messages.slice(0, index - 1)).concat([originalUser, row])
+          if (failedMode) current.messages = clone(original.messages).concat([originalUser, row])
+          else {
+            const replaced = replaceLastRound({ originalChat: original, regeneratedChat: current, replacement: row, assistantIndex: index, inputIndex })
+            // A save-only row receives its new full or reply-only anchor during
+            // recovery; the stale anchor of the missing body must not survive.
+            if (saveOnly) delete replaced.chat.messages[index].nativeAnchor
+            current.messages = replaced.chat.messages
+          }
           delete current.promptTemplateInput
           current.settleStatus = 'pending'
           current.settleError = null
@@ -264,7 +279,7 @@ export function createPluginBodyRegeneration(deps) {
         await validateProvider?.()
         signal?.throwIfAborted()
         if (agent.phase?.kind === 'running') throw error('TAVERN_PLUGIN_STALE_VERSION', '前台已开始新一轮')
-        assertCurrent(current, original, index, operationId)
+        assertCurrent(current, original, index, inputIndex, operationId)
         // 别的插件/后台写几条上下文不算本轮失效：只要玩家没有新输入、旧正文还在面上。
         if (playerInputSince(session, eventStart) || (!appendRound && !bodyStillOnSurface(session, oldSeq, oldTurn))) throw error('TAVERN_PLUGIN_STALE_VERSION', '模型会话已经变化')
         // Keep concurrent non-story settings; only story-owned fields come from

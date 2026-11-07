@@ -390,7 +390,7 @@ export function locateRegenerationSurface(input) {
   // 存档行自己记着这一轮正文的事件号（nativeAnchor.reply）：直接查，不按轮号猜，
   // 也不看轮号对不对。轮号是两套各走各的编号，本来就不该参与定位。
   const storedSeq = Number(input?.seq)
-  if (Number.isSafeInteger(storedSeq) && storedSeq > 0) {
+  if (Number.isSafeInteger(storedSeq) && storedSeq >= 0) {
     const index = nodes.findIndex(node => Number(node) === storedSeq)
     const event = index >= 0 ? eventAt(events, storedSeq) : null
     if (event && event.type === 'assistant/message' && !isRollbackAssistantTombstone(event, events)) {
@@ -442,6 +442,33 @@ export function locateRegenerationSurface(input) {
     return Object.freeze({ assistantSeq: Number(nodes[index]), turn, source })
   }
   return null
+}
+
+/**
+ * A missing target is safe to append only when every remaining native body is
+ * accounted for by another saved row. An unclaimed body is a conflict, not proof
+ * that the selected round disappeared; appending there would duplicate a reply.
+ */
+export function hasConflictingRegenerationSurface(input) {
+  const events = Array.isArray(input?.events) ? input.events : []
+  const nodes = Array.isArray(input?.nodes) ? input.nodes : []
+  const messages = Array.isArray(input?.messages) ? input.messages : []
+  const targetIndex = Number(input?.assistantIndex)
+  const claimed = new Set()
+  for (let index = 0; index < messages.length; index += 1) {
+    const row = messages[index]
+    if (index === targetIndex || row?.role !== 'assistant') continue
+    const storedSeq = Number(row.nativeAnchor?.reply)
+    const match = locateRegenerationSurface({ events, nodes,
+      seq: Number.isSafeInteger(storedSeq) && storedSeq >= 0 ? storedSeq : undefined,
+      turn: row.turn, texts: [row.text, row.sourceText, row.projectionText] })
+    if (match) claimed.add(Number(match.assistantSeq))
+  }
+  return nodes.some(seq => {
+    if (claimed.has(Number(seq))) return false
+    const event = eventAt(events, seq)
+    return event?.type === 'assistant/message' && modelSourceOf(event) !== null && !isRollbackAssistantTombstone(event, events)
+  })
 }
 
 // Failed turns have already left the model surface, but remain visible until
@@ -571,7 +598,7 @@ export function replayablePersistedTurn(chat) {
 /** 存档行记着的原生位置就是这一条：投影/修复换了轮号也仍然是这一轮。 */
 export function anchoredToSaveRow(target, row) {
   const reply = Number(row && row.nativeAnchor ? row.nativeAnchor.reply : NaN)
-  return Number.isSafeInteger(reply) && reply > 0 && reply === Number(target && target.assistantSeq)
+  return Number.isSafeInteger(reply) && reply >= 0 && reply === Number(target && target.assistantSeq)
 }
 
 /** 消息面上的正文文本：投影、修复写回的条目会带着别的轮号，正文本身才是它。 */
@@ -803,10 +830,16 @@ export function applyRegenerationProjection(session, projection) {
  */
 function applyIndependentRoundProjection(session, projection) {
   const needsInput = Boolean(projection.input && projection.input.id)
+  const storedInputSeq = Number(projection.inputSeq)
+  const hasStoredInput = Number.isSafeInteger(storedInputSeq) && storedInputSeq >= 0
   const locate = () => {
     const events = sessionEvents(session)
     return {
-      input: needsInput ? events.find(event => event.type === 'user/message' && event.data?.id === projection.input.id) : null,
+      input: needsInput
+        ? events.find(event => event.type === 'user/message' && event.data?.id === projection.input.id)
+        : hasStoredInput
+          ? events.find(event => Number(event.seq) === storedInputSeq && event.type === 'user/message') || null
+          : null,
       reply: events.find(event => event.type === 'assistant/message' && event.data?.message?.id === projection.data?.message?.id)
     }
   }
@@ -822,8 +855,10 @@ function applyIndependentRoundProjection(session, projection) {
     })
     found = locate()
   }
-  if ((needsInput && !found.input) || !found.reply) throw new Error('补写正文缺少已提交的原生消息')
-  const anchor = { formatVersion: 4, turn: Number(found.reply.data.turn), input: Number(found.reply.seq), reply: Number(found.reply.seq) }
+  if (((needsInput || hasStoredInput) && !found.input) || !found.reply) throw new Error('补写正文缺少已提交的原生消息')
+  // A reply-only anchor is honest partial evidence for the next regeneration.
+  // Never manufacture a complete round anchor by pointing input at the reply.
+  const anchor = { formatVersion: 4, turn: Number(found.reply.data.turn), reply: Number(found.reply.seq) }
   if (found.input) anchor.input = Number(found.input.seq)
   return { nativeAnchor: anchor }
 }

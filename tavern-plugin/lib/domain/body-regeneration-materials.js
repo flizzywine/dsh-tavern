@@ -178,14 +178,14 @@ function originalInput(chat, row, frame, turn) {
 }
 
 /** Safe DTO for a plugin. Host checkpoints, hidden rows and source diagnostics never cross this boundary. */
-export function buildBodyRegenerationMaterials({ chat, beforeChat, card: _liveCard, turn, assistantIndex, operationId, kind = 'replace', targetInput }) {
+export function buildBodyRegenerationMaterials({ chat, beforeChat, card: _liveCard, turn, assistantIndex, inputIndex = assistantIndex - 1, operationId, kind = 'replace', targetInput }) {
   if (!chat || !beforeChat || chat.id !== beforeChat.id || !Array.isArray(beforeChat.messages)) fail('缺少本轮开始前的权威存档')
   if (!['replace', 'failed', 'generate'].includes(kind)) fail('未知的重生成目标类型')
   const row = chat.messages?.[assistantIndex]
-  const inputRow = chat.messages?.[assistantIndex - 1]
+  const inputRow = inputIndex >= 0 ? chat.messages?.[inputIndex] : null
   if (kind === 'replace') {
-    if (row?.role !== 'assistant' || row.greeting || storyTurn(row) !== Number(turn) || inputRow?.role !== 'user') fail('重生成目标不是完整的玩家输入与正文组合')
-    if (hidden(row) || hidden(inputRow) || (chat.suppressedDshTurns || []).map(Number).includes(Number(turn)) && !chat.regeneratedDshTurns?.[String(turn)]
+    if (row?.role !== 'assistant' || row.greeting || storyTurn(row) !== Number(turn) || (inputIndex >= 0 && inputRow?.role !== 'user')) fail('重生成目标不是有效的正文与输入组合')
+    if (hidden(row) || (inputRow && hidden(inputRow)) || (chat.suppressedDshTurns || []).map(Number).includes(Number(turn)) && !chat.regeneratedDshTurns?.[String(turn)]
       || (chat.replacingDshTurns || []).map(Number).includes(Number(turn))) fail('不能向插件提供用户不可见的目标消息')
   } else if (typeof targetInput?.raw !== 'string' || hidden(targetInput)) fail('缺少用户可见的失败输入')
   const frame = findBodyRegenerationFrame(chat, turn)
@@ -193,8 +193,11 @@ export function buildBodyRegenerationMaterials({ chat, beforeChat, card: _liveCa
   const captured = frame.source?.regenerationMaterials
   const originalCard = captured?.version === 1 ? captured.card : beforeChat.cardDefinitionSnapshot
   if (!object(originalCard)) fail('找不到本轮原始人物设定快照')
-  const history = visibleBodyRegenerationHistory(chat, kind !== 'replace' ? chat.messages.length : assistantIndex - 1)
-  const input = originalInput(chat, kind !== 'replace' ? { text: targetInput.raw } : inputRow, frame, turn)
+  const historyMessages = kind !== 'replace' ? chat.messages
+    : chat.messages.slice(0, assistantIndex).filter((_, index) => index !== inputIndex)
+  const history = visibleBodyRegenerationHistory({ ...chat, messages: historyMessages }, historyMessages.length)
+  const input = kind === 'replace' && inputIndex < 0 ? { raw: '', projected: '' }
+    : originalInput(chat, kind !== 'replace' ? { text: targetInput.raw } : inputRow, frame, turn)
   const entries = restoredWorldbookEntries(frame, beforeChat)
   const toolResults = (Array.isArray(frame.source?.bodyGenerationToolResults) ? frame.source.bodyGenerationToolResults : [])
     .map(item => ({ tool: text(item?.tool), text: text(item?.text) })).filter(item => item.tool && item.text.trim())
