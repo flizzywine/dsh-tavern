@@ -614,7 +614,7 @@ function stripUsualSuffix(value) {
 
 /** Planner temperature: 0 is a valid choice (`|| 1` used to turn it into 1); blank, non-numeric or out-of-range input falls back to 1. */
 export function plannerTemperatureOf(value) {
-  if (value === '' || value === null || value === undefined || typeof value === 'boolean') return 1
+  if (typeof value === 'string' && !value.trim() || value === null || value === undefined || typeof value === 'boolean') return 1
   const n = Number(value)
   return Number.isFinite(n) && n >= 0 && n <= 2 ? n : 1
 }

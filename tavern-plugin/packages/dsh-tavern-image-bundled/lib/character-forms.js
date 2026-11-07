@@ -31,7 +31,7 @@ export function sameCharacterForm(a, b) {
   if (!a || !b || a === b || !x || !y) return false
   if (x === y) return true
   const [short, long] = x.length <= y.length ? [x, y] : [y, x]
-  if (long.startsWith(short) && !/[\p{L}\p{N}]/u.test(long[short.length])) return true
+  if (long.startsWith(short) && /[\s（(·]/u.test(long[short.length])) return true
   const bx = baseName(x).trim(), by = baseName(y).trim()
   return Boolean(bx && bx === by)
 }

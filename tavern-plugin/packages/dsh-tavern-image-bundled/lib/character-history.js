@@ -54,7 +54,7 @@ export function mergeCharacterUpdates(previous, definitions, updates, meta = {})
         // 同一轮里换了衣服：记下换之前的那套。这一轮里换衣之前的画面要用它，不能套换之后的。
         // 同一轮多次更新时保留最早的那套（这一轮开始时身上穿的）。
         const previous = overlay.current?.turn === turnNo && overlay.current?.previous !== undefined ? overlay.current.previous : before
-        overlay.current = { outfit, turn: turnNo, textVersion: clip(meta.textVersion, 120), ...(previous ? { previous } : {}) }
+        overlay.current = { outfit, turn: turnNo, textVersion: clip(meta.textVersion, 120), previous }
         changes.push({
           id: memberId, name: clip(member.name, 100), field: 'current.outfit', before, after: outfit,
           reason: clip(raw.reason, 240) || '正文写到当前穿着', turn: Number(meta.turn) || 0, textVersion: clip(meta.textVersion, 120), at: Number(meta.at) || Date.now(),
@@ -130,7 +130,7 @@ export function boundCharacterSnapshot(input, maxBytes = 60 * 1024) {
     snapshot.characters[id] = {
       ...(source.identity && typeof source.identity === 'object' ? { identity: { name: clip(source.identity.name, 100), match: clip(source.identity.match, 200) } } : {}),
       ...(source.baseTraits || source.traits ? { baseTraits: filterTraits(source.baseTraits, BASE_TRAIT_FIELDS), traits: filterTraits(source.traits, TRAIT_FIELDS) } : {}),
-      ...(source.current?.outfit ? { current: { outfit: clip(source.current.outfit, MAX_OUTFIT), turn: Number(source.current.turn) || 0, textVersion: clip(source.current.textVersion, 120), ...(clip(source.current.previous, MAX_OUTFIT) ? { previous: clip(source.current.previous, MAX_OUTFIT) } : {}) } } : {}),
+      ...(source.current?.outfit ? { current: { outfit: clip(source.current.outfit, MAX_OUTFIT), turn: Number(source.current.turn) || 0, textVersion: clip(source.current.textVersion, 120), ...(source.current.previous !== undefined ? { previous: clip(source.current.previous, MAX_OUTFIT) } : {}) } } : {}),
     }
   }
   while (snapshot.changes.length && size(snapshot) > maxBytes) snapshot.changes.shift()

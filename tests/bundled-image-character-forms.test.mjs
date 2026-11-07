@@ -16,6 +16,7 @@ test('forms continue a name after a separator or share a bracket-stripped name',
 test('a bare name prefix is a different person', () => {
   assert.ok(!sameCharacterForm(p('林月'), p('林月如')))
   assert.ok(!sameCharacterForm(p('Lin Yue'), p('Lin Yueru')))
+  assert.ok(!sameCharacterForm(p('Anne'), p('Anne-Marie')))
 })
 
 test('current outfit is not shared between 林月 and 林月如', () => {

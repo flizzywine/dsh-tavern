@@ -23,3 +23,12 @@ test('the last change still reaches every form of the character', () => {
   assert.equal(snapshot.characters.mei.current.outfit, '只围着一条围巾')
   assert.equal(snapshot.characters.fox.current.outfit, '只围着一条围巾')
 })
+
+test('a turn with no prior outfit keeps that empty starting state across later changes', () => {
+  const { snapshot } = mergeCharacterUpdates(emptyCharacterSnapshot(), definitions, [
+    { id: 'xu', current: { outfit: '睡衣' } },
+    { id: 'xu', current: { outfit: '外套' } },
+  ], { turn: 1 })
+  assert.equal(snapshot.characters.xu.current.outfit, '外套')
+  assert.equal(snapshot.characters.xu.current.previous, '')
+})

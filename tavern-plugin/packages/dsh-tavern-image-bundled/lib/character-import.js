@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
  * two CJK characters, so 苏小雨 and 苏小美 used to get the same id; hash the whole name instead.
  */
 function nameId(prefix, name) {
-  return prefix + '-' + createHash('sha256').update(String(name)).digest('hex').slice(0, 16)
+  return prefix + '-' + createHash('sha256').update(String(name).trim()).digest('hex').slice(0, 16)
 }
 
 /**

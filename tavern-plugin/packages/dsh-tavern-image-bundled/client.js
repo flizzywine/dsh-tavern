@@ -6069,16 +6069,14 @@ function versionsOf(jobId) {
           savePresets(next)
           if (gone && String(gone.id) === active) save({ activePreset: '' })
         }
-        // 拖拽排序 = 交换两张卡的位置。按 id 定位：重排后索引会漂移，id 不会。
-        // 选交换而不是「抽出再插入」，是因为往下拖时插入点会整体前移一格，容易拖过头。
-        const swapPreset = (fromKey, toKey) => {
+        // Moving one preset keeps the relative order of all the others.
+        const movePreset = (fromKey, toKey) => {
           const from = presets.findIndex((item, index) => presetKey(item, index) === fromKey)
           const to = presets.findIndex((item, index) => presetKey(item, index) === toKey)
           if (from < 0 || to < 0 || from === to) return
           const next = presets.slice()
-          const moved = next[from]
-          next[from] = next[to]
-          next[to] = moved
+          const [moved] = next.splice(from, 1)
+          next.splice(to, 0, moved)
           savePresets(next)
         }
         const ta = (hgt) => Object.assign({}, S.input, {
@@ -6139,6 +6137,7 @@ function versionsOf(jobId) {
                 key: p.id || i,
                 'data-preset-card': presetId,
                 onDragOver: event => {
+                  if (!dragState) return
                   event.preventDefault()
                   event.dataTransfer.dropEffect = 'move'
                   // 只在目标变了才更新，否则每一帧都重渲染
@@ -6146,9 +6145,9 @@ function versionsOf(jobId) {
                 },
                 onDrop: event => {
                   event.preventDefault()
-                  const from = event.dataTransfer.getData('text/plain')
+                  const from = event.dataTransfer.getData('application/x-dsh-image-preset')
                   setDragState(null)
-                  if (from) swapPreset(from, presetId)
+                  if (from && from === dragState?.from) movePreset(from, presetId)
                 },
                 style: {
                   borderRadius: '10px', padding: '10px 12px',
@@ -6185,13 +6184,23 @@ function versionsOf(jobId) {
                     onClick: () => expandPreset(presetId),
                   }, expanded ? '▾' : '▸'),
                   h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px', borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }), onClick: () => remove(i) }, '删'),
+                  h('button', {
+                    type: 'button', title: '上移预设', 'aria-label': '上移 ' + (p.name || (i + 1)),
+                    disabled: i === 0, style: Object.assign({}, buttonStyle, { padding: '3px 8px' }),
+                    onClick: () => movePreset(presetId, presetKey(presets[i - 1], i - 1)),
+                  }, '上移'),
+                  h('button', {
+                    type: 'button', title: '下移预设', 'aria-label': '下移 ' + (p.name || (i + 1)),
+                    disabled: i === presets.length - 1, style: Object.assign({}, buttonStyle, { padding: '3px 8px' }),
+                    onClick: () => movePreset(presetId, presetKey(presets[i + 1], i + 1)),
+                  }, '下移'),
                   h('div', {
                     draggable: true,
                     title: '按住拖动，调整这套预设的位置',
                     'aria-label': '拖动排序 ' + (p.name || (i + 1)),
                     style: { cursor: 'grab', userSelect: 'none', padding: '2px 6px', fontSize: '15px', lineHeight: '1', letterSpacing: '-1px', color: 'var(--dsw-alias-label-tertiary)', borderRadius: '6px' },
                     onDragStart: event => {
-                      event.dataTransfer.setData('text/plain', presetId)
+                      event.dataTransfer.setData('application/x-dsh-image-preset', presetId)
                       event.dataTransfer.effectAllowed = 'move'
                       setDragState({ from: presetId })
                       // 默认拖影就是这一个小方块，换成整张卡片
