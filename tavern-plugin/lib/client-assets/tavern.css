@@ -3268,6 +3268,12 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_rowText"] { flex: 1 1 160px; padding-right: 0; }
 }
 
+/* dsh-web-mobile 也会标记桌面 frame，但只有窄触屏才使用 minmax(0, 1fr) 0 0。
+   宿主在竖屏时仍将中心列放在零宽的第二轨，需要移回第一轨。 */
+@media (max-width: 1023px) and (orientation: portrait) and (pointer: coarse) {
+  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-mobile-nav="frame"] > [class*="_centerCol"] { grid-area: 1 / 1 !important; min-width: 0 !important; }
+}
+
 /* 极短窗口下列表覆盖内容区，关闭入口始终可见；不让 0px 的候选层遮住顶栏。 */
 @media (max-width: 1023px), (pointer: coarse) {
   html.dsh-tavern-short-viewport body.dsh-tavern-shell-active [data-composer-seat] {
