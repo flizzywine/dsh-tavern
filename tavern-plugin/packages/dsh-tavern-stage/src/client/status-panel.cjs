@@ -8,6 +8,8 @@
 // The stage adds only window.DshCardPage (a short prelude talking to this host by postMessage; a message counts only
 // when its source is one of this page's iframe windows):
 //   page; data() → {ledger, figures:[{name, emotion?, avatar}], theme, card:{name}, saved}; onData(fn) → its unsubscribe;
+//   onCloseRequest(fn) → its unsubscribe (closeControl 'page': Esc, the page's shortcut and the backdrop ask the page,
+//   which goes back inside itself or calls close(); with no listener the request closes, as without the declaration);
 //   close(); open(id) another page; openSettings() the stage's 设置; fillInput(text) fills the stage's 自由输入 (never sends);
 //   asset({kind, id, variant?, file?, size?}) → Promise<blob: URL> of a file of the card's own bound packs; assets(kind);
 //   the title-screen actions, each the stage's or core's existing way: newGame() the card's 游戏准备 (after the core confirm
@@ -53,19 +55,23 @@ function cardPageScrollbars(style) {
     return all + '::-webkit-scrollbar{width:' + w + ';height:' + w + ';background:' + track + '}' + all + '::-webkit-scrollbar-thumb{border-radius:' + w + ';background:' + thumb + '}'
         + all + '::-webkit-scrollbar-track,' + all + '::-webkit-scrollbar-corner{background:' + track + '}';
 }
-function cardPagePrelude(token, page, snapshot, shortcut, scrollbars) {
+// owned (closeControl 'page'): Esc and the shortcut inside the page go to the host as 'escape' (a page over it closes
+// first), and the host's close request reaches the page's onCloseRequest listeners.
+function cardPagePrelude(token, page, snapshot, shortcut, scrollbars, owned) {
     const json = value => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-    return '<style data-dsh-card-page>' + scrollbars + '</style><script data-dsh-card-page>(function(){var token=' + json(token) + ',page=' + json(page) + ',data=' + json(snapshot) + ',next=1,pending=Object.create(null),listeners=new Set(),assets=new Map();'
+    return '<style data-dsh-card-page>' + scrollbars + '</style><script data-dsh-card-page>(function(){var token=' + json(token) + ',page=' + json(page) + ',data=' + json(snapshot) + ',next=1,pending=Object.create(null),listeners=new Set(),closers=new Set(),assets=new Map();'
         + 'function copy(v){return JSON.parse(JSON.stringify(v));}'
         + 'function call(method,args){return new Promise(function(resolve,reject){var id="p"+(next++);pending[id]={resolve:resolve,reject:reject};parent.postMessage({type:"dsh-card-page-call",token:token,requestId:id,method:method,args:args||{}},"*");});}'
         + 'addEventListener("message",function(event){var d=event.data;if(event.source!==parent||!d||d.token!==token)return;'
         + 'if(d.type==="dsh-card-page-data"){data=d.data;listeners.forEach(function(fn){try{fn(copy(data));}catch(error){console.error(error);}});return;}'
+        + 'if(d.type==="dsh-card-page-close-request"){if(!closers.size){call("close");return;}closers.forEach(function(fn){try{fn();}catch(error){console.error(error);}});return;}'
         + 'if(d.type!=="dsh-card-page-response")return;var task=pending[d.requestId];if(!task)return;delete pending[d.requestId];if(d.ok)task.resolve(d.result);else task.reject(new Error(String(d.error||"页面请求失败")));});'
-        + 'addEventListener("keydown",function(event){if(event.isComposing||event.repeat)return;var own=' + json(shortcut || '') + ';var target=event.target,editing=target&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));if(event.key!=="Escape"&&(!own||event.key.toLowerCase()!==own||editing||event.ctrlKey||event.altKey||event.metaKey))return;event.preventDefault();call("close");});'
+        + 'addEventListener("keydown",function(event){if(event.isComposing||event.repeat)return;var own=' + json(shortcut || '') + ';var target=event.target,editing=target&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));if(event.key!=="Escape"&&(!own||event.key.toLowerCase()!==own||editing||event.ctrlKey||event.altKey||event.metaKey))return;event.preventDefault();call(' + json(owned ? 'escape' : 'close') + ');});'
         + 'function cue(event){var node=event.target&&event.target.closest?event.target.closest("[data-dsh-sound]"):null;if(!node||node.disabled||node.getAttribute("aria-disabled")==="true")return null;return node;}'
         + 'function hover(event){var node=cue(event);if(node&&!(event.relatedTarget&&node.contains(event.relatedTarget)))call("sound",{name:"move"}).catch(function(){});}'
         + 'addEventListener("mouseover",hover);addEventListener("focusin",hover);addEventListener("click",function(event){if(cue(event))call("sound",{name:"confirm"}).catch(function(){});},true);'
         + 'window.DshCardPage=Object.freeze({page:page,data:function(){return copy(data);},onData:function(fn){if(typeof fn!=="function")throw new TypeError("onData 需要一个函数");listeners.add(fn);return function(){listeners.delete(fn);};},'
+        + 'onCloseRequest:function(fn){if(typeof fn!=="function")throw new TypeError("onCloseRequest 需要一个函数");closers.add(fn);return function(){closers.delete(fn);};},'
         + 'close:function(){return call("close");},open:function(id){return call("open",{id:String(id==null?"":id)});},openSettings:function(){return call("settings");},'
         + 'fillInput:function(text){return call("fillInput",{text:String(text==null?"":text)});},assets:function(kind){return call("assets",{kind:String(kind||"")});},'
         + 'newGame:function(){return call("newGame");},continueGame:function(){return call("continue");},openGallery:function(){return call("gallery");},exit:function(){return call("exit");},'
@@ -126,7 +132,9 @@ function createAssetReader(sessionId, page) {
 // is on screen. onAction(kind, arg): 'open' (page id),
 // 'settings', 'fill' (after fillInput(sessionId, text)), 'continue', 'gallery', 'exit' (newGame() leaves too, then asks the core).
 // saved: the chat has a player message (usePages' fresh is false), so newGame() asks first.
-function openCardPage({sessionId, page, label, size, shortcut, saved, trustedCardMode, helperContext, host, onClose, onState, onAction}) {
+// closeControl 'page': the page answers close requests itself; onEscape() is its Esc / shortcut (the Overlay decides
+// whether it closes a page over this one or asks this page by requestClose()).
+function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction}) {
     let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = helperContext || null;
     let inFlight = false, again = false, faceJob = 0, token = '', content = '', readAsset = null, heldFaces = null;
     let lifecycle = null, stopLifecycle = null, stopSignals = null, stopMessages = null;
@@ -156,6 +164,7 @@ function openCardPage({sessionId, page, label, size, shortcut, saved, trustedCar
             return {filled: true};
         }
         if (method === 'close') { onClose(); return {closed: true}; }
+        if (method === 'escape') { (onEscape || onClose)(); return {ok: true}; }
         if (method === 'open') { onAction('open', String(args?.id || '')); return {ok: true}; }
         if (method === 'settings') { onAction('settings'); return {ok: true}; }
         if (method === 'continue' || method === 'gallery' || method === 'exit') { onAction(method); return {ok: true}; }
@@ -236,7 +245,7 @@ function openCardPage({sessionId, page, label, size, shortcut, saved, trustedCar
         if (!target) return;
         token = pageToken();
         theme = themeTokens ? themeTokens(target) || {} : {};
-        content = cardPagePrelude(token, page, snapshot(), shortcut, cardPageScrollbars(window.getComputedStyle(target))) + html;
+        content = cardPagePrelude(token, page, snapshot(), shortcut, cardPageScrollbars(window.getComputedStyle(target)), closeControl === 'page') + html;
         window.addEventListener('message', receive);
         stopMessages = () => window.removeEventListener('message', receive);
         lifecycle = createCardFrame(frameProps());
@@ -295,6 +304,13 @@ function openCardPage({sessionId, page, label, size, shortcut, saved, trustedCar
             });
         },
         retry() { if (!closed && !raw) void load(); },
+        // closeControl 'page': asks the shown document; false when none has loaded (the caller closes instead).
+        requestClose() {
+            const item = frames.get(lifecycle?.snapshot().visibleDocument?.token);
+            if (closed || !item?.loaded || !item.node.contentWindow) return false;
+            item.node.contentWindow.postMessage({type: 'dsh-card-page-close-request', token}, '*');
+            return true;
+        },
         dispose() {
             if (closed) return;
             closed = true;
@@ -337,10 +353,15 @@ function usePages(sessionId) {
 // Until its document is on screen (shown) it draws no chrome either (data-bare: no title bar, no ×, no sheet border), only
 // its opaque ground, and then the page appears at once (an empty or failed read gets the chrome back, to leave by).
 // config / source: what useFaces needs to find the declared figures' faces.
-function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, saved, entry, config, source, onClose, onAction}) {
+// closeControl 'page' (a full page that closes itself): once its document shows, the sheet draws no ×, and Esc, the page's
+// shortcut, the backdrop and right-click ask the page (requestClose → its onCloseRequest) instead of closing; covered
+// (CONFIG or 回想 opened over the page) keeps them closing that one first. Loading, empty and failed pages keep the ×.
+function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, closeControl, covered, saved, entry, config, source, onClose, onAction}) {
     const h = React.createElement, root = React.useRef(null), body = React.useRef(null), panel = React.useRef(null);
-    const close = React.useRef(onClose), act = React.useRef(onAction);
-    close.current = onClose; act.current = onAction;
+    const close = React.useRef(onClose), act = React.useRef(onAction), coveredNow = React.useRef(covered);
+    close.current = onClose; act.current = onAction; coveredNow.current = covered === true;
+    const owned = closeControl === 'page';
+    const request = () => { if (!owned || coveredNow.current || !panel.current?.requestClose()) close.current?.(); };
     const live = useLiveView ? useLiveView(sessionId, 'card-page', [['tavernRuntimePolicy'], ['tavernHelper']]) : null;
     const ready = !useLiveView || Boolean(live?.view);
     const trusted = useLiveView ? Boolean(live?.view?.tavernRuntimePolicy?.trustedCardMode) : true;
@@ -350,12 +371,12 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, saved
     const facesNow = React.useRef(null);
     React.useEffect(() => {
         if (disposed || !ready) return;
-        const current = openCardPage({sessionId, page: pageId, label: declaredLabel, size, shortcut, saved: saved === true, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
-            onClose: () => close.current?.(), onState: setState, onAction: (kind, arg) => act.current?.(kind, arg)});
+        const current = openCardPage({sessionId, page: pageId, label: declaredLabel, size, shortcut, closeControl, saved: saved === true, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
+            onClose: () => close.current?.(), onEscape: request, onState: setState, onAction: (kind, arg) => act.current?.(kind, arg)});
         panel.current = current;
         if (facesNow.current) current.setFaces(facesNow.current);
         return () => { if (panel.current === current) panel.current = null; current.dispose(); };
-    }, [sessionId, pageId, declaredLabel, size, shortcut, saved, ready, trusted]);
+    }, [sessionId, pageId, declaredLabel, size, shortcut, closeControl, saved, ready, trusted]);
     React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
     const names = state.figures.map(figure => figure.name);
     const faces = useFaces ? useFaces({config, sessionId, source, names, px: FACE_PX}) : new Map();
@@ -368,21 +389,24 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, saved
         return () => { if (opener?.isConnected) opener.focus(); };
     }, []);
     React.useEffect(() => {
+        // a page that closes itself takes its own shortcut here too, before the stage's keys close it
         const key = event => {
-            if (event.key !== 'Escape') return;
+            const letter = owned && shortcut && !event.repeat && !event.isComposing && !event.ctrlKey && !event.altKey && !event.metaKey && String(event.key).toLowerCase() === shortcut;
+            if (event.key !== 'Escape' && !letter) return;
             event.preventDefault();
             event.stopImmediatePropagation();
-            close.current?.();
+            request();
         };
         window.addEventListener('keydown', key, true);
         return () => window.removeEventListener('keydown', key, true);
     }, []);
     const label = state.label || '页面';
     const closeLabel = entry ? '返回主页面' : '关闭' + label;
-    return h('div', {className: 'fork-gal-status', 'data-size': state.size, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) close.current?.(); },
-        onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); close.current?.(); }},
+    const pageCloses = owned && state.shown && state.phase === 'ready';
+    return h('div', {className: 'fork-gal-status', 'data-size': state.size, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, 'data-close-control': pageCloses ? 'page' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) request(); },
+        onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); request(); }},
         h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': label, 'data-phase': state.phase},
-            h('header', {className: 'fork-gal-status-head'},
+            pageCloses ? null : h('header', {className: 'fork-gal-status-head'},
                 state.size === 'full' ? null : h('b', {className: 'fork-gal-status-title'}, label),
                 h('button', {type: 'button', className: 'fork-gal-status-close', title: closeLabel, 'aria-label': closeLabel, onClick: () => close.current?.()},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),

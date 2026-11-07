@@ -370,6 +370,60 @@ test('title actions: the line waits behind the page, 回想 stands over it, 新�
   await page.waitForFunction(() => document.querySelectorAll('.fork-gal-stage .fork-gal-type-shown, .fork-gal-stage .fork-gal-glyph').length > 0)
 })
 
+// closeControl 'page': a full page that closes itself; Esc / its shortcut go back inside it first (onCloseRequest).
+const OWNED = {id: 'atlas', label: '地图册', shortcut: 'm', menu: true, size: 'full', closeControl: 'page',
+  html: sheet('<div><h1>地图册</h1><p id="detail" hidden>港口详情</p><button id="open-detail" type="button">港口</button><button id="gallery" type="button">回想</button><button id="own-close" type="button">关闭</button></div>', '#16302b')
+    + '<script>var page=DshCardPage,detail=document.getElementById("detail");window.requests=0;'
+    + 'document.getElementById("open-detail").onclick=function(){detail.hidden=false;};document.getElementById("gallery").onclick=function(){page.openGallery();};'
+    + 'document.getElementById("own-close").onclick=function(){page.close();};'
+    + 'page.onCloseRequest(function(){window.requests++;if(!detail.hidden)detail.hidden=true;else page.close();});</script>'}
+
+test('closeControl page: no stage ×; Esc and the shortcut ask the page, which goes back to its map before it closes', {timeout: 60000}, async t => {
+  const {page} = await openStage(t, {pages: [OWNED, STATUS], viewport: {width: 1280, height: 720}})
+  const atlas = () => frameOf(page, 'atlas')
+  const detailShown = () => atlas().locator('#detail').evaluate(node => !node.hidden)
+  await page.keyboard.press('m')
+  await waitPage(page, 'atlas')
+  await atlas().locator('#own-close').waitFor()
+  await page.waitForSelector('.fork-gal-status[data-close-control="page"]')
+  assert.equal(await page.locator('.fork-gal-status[data-page="atlas"] .fork-gal-status-close').count(), 0, 'the page draws its own ×')
+  // Esc inside the page's frame: the detail closes, the page stays
+  await atlas().locator('#open-detail').click()
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(300)
+  assert.equal(await detailShown(), false)
+  assert.equal(await openPage(page), 'atlas')
+  // Esc with the focus on the sheet (outside the frame) asks the page the same way
+  await atlas().locator('#open-detail').click()
+  await page.locator('.fork-gal-status-sheet').focus()
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(300)
+  assert.equal(await detailShown(), false)
+  assert.equal(await openPage(page), 'atlas')
+  // 回想 over the page: Esc closes 回想 first, the page is not asked
+  const asked = await atlas().locator('body').evaluate(() => window.requests)
+  await atlas().locator('#gallery').click()
+  await page.locator('.fork-cg-gallery').waitFor()
+  await page.keyboard.press('Escape')
+  await page.locator('.fork-cg-gallery').waitFor({state: 'detached'})
+  assert.equal(await openPage(page), 'atlas')
+  assert.equal(await atlas().locator('body').evaluate(() => window.requests), asked)
+  // on the map the shortcut closes the page (the page calls close())
+  await atlas().locator('h1').click()
+  await page.keyboard.press('m')
+  await waitPage(page, null)
+  // the page's own × closes it; an undeclared page keeps the stage ×
+  await page.waitForTimeout(400)
+  await page.keyboard.press('m')
+  await waitPage(page, 'atlas')
+  await atlas().locator('#own-close').click()
+  await waitPage(page, null)
+  await page.waitForTimeout(400)
+  await page.keyboard.press('s')
+  await waitPage(page, 'status')
+  assert.equal(await page.locator('.fork-gal-status[data-page="status"] .fork-gal-status-close').count(), 1)
+})
+
 test('a fresh chat: the opening page holds the first line too and 继续 is off', {timeout: 60000}, async t => {
   const {page} = await openStage(t, {pages: [ACTION_OPENING, MAP], fresh: true, viewport: {width: 375, height: 812}})
   await waitPage(page, 'opening')

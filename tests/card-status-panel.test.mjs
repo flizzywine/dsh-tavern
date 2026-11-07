@@ -12,6 +12,7 @@ test('pages accept two cards and preserve declarations', () => {
   const pages = [page]
   assert.equal(validateCardPages(pages), pages)
   assert.doesNotThrow(() => validateCardPages([{id:'map', label:'航海图', html:'<b>港口</b>', shortcut:'m', size:'full', showOn:{event:'stage-enter'}, initial:true, preload:[{kind:'backgrounds',id:'port',size:512}]}]))
+  assert.doesNotThrow(() => validateCardPages([{...page, size:'full', closeControl:'page'}]))
   assert.ok(Object.isFrozen(CARD_PAGE_SHORTCUT_KEYS))
   assert.ok(CARD_PAGE_SHORTCUT_KEYS.includes('s') && CARD_PAGE_SHORTCUT_KEYS.includes('m'))
 })
@@ -29,6 +30,8 @@ test('invalid declarations identify the exact page and field', () => {
   invalid([{...page,html:' '}], 'pages.0.html')
   invalid([{...page,label:'题'.repeat(17)}], 'pages.0.label')
   invalid([{...page,size:'huge'}], 'pages.0.size')
+  invalid([{...page,closeControl:'page'}], 'pages.0.closeControl')
+  invalid([{...page,size:'full',closeControl:'stage'}], 'pages.0.closeControl')
   invalid([{...page,showOn:{event:'other'}}], 'pages.0.showOn')
   invalid([{...page,preload:[{kind:'backgrounds',id:'port',size:42}]}], 'pages.0.preload.0.size')
 })
