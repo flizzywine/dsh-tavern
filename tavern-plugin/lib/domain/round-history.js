@@ -9,7 +9,10 @@ import { createRegenerationRecovery } from './regeneration-recovery.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
-import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn, anchoredToSaveRow } from './rollback-surface.js'
+import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn, anchoredToSaveRow, unansweredTailIndex } from './rollback-surface.js'
+
+// Both regeneration paths (native and plugin) read the same tail rule.
+export { unansweredTailIndex }
 import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
 import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration-diagnostics.js'
 import { assistantResultForTurn } from './session-turn-result.js'
@@ -197,24 +200,6 @@ function streamedAttemptText(session, turn, eventStart) {
     // the stream that started with this attempt is still the one to keep.
     return attemptStreamText(events, eventStart, turn) || attemptStreamText(events, eventStart, 0)
   } catch { return '' }
-}
-
-/**
- * The index of a player row the story never answered, or -1. Such a tail is a
- * failed turn: it has an input and no body, so "regenerate" has nothing to
- * replace. Replacing the round before it would replay an older input and leave
- * the newest one unanswered, which is exactly what a player asking to redo the
- * last reply must not get.
- */
-export function unansweredTailIndex(chat) {
-  const messages = Array.isArray(chat?.messages) ? chat.messages : []
-  const index = messages.length - 1
-  const message = messages[index]
-  if (index < 0 || message === null || typeof message !== 'object') return -1
-  // Only a row the native story produced can be the round that failed: an
-  // imported or repaired player row is history the save keeps loose on purpose.
-  if (message.role !== 'user' || message.native !== true || message.placeholder === true || message.greeting === true) return -1
-  return index
 }
 
 function failedTailSelection(chat, session, inputIndex) {
@@ -431,7 +416,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     finally {
       if (evidence) {
         try { await diagnostics.record(effectiveSessionId, { stage: 'regeneration-target', diagnosticId: randomUUID(),
-          outcome: evidence.reason === 'selected' ? 'selected' : 'rejected', ...evidence,
+          outcome: ['selected', 'unanswered-tail'].includes(evidence.reason) ? 'selected' : 'rejected', ...evidence,
           guidanceProvided: typeof guidance === 'string' && guidance.trim().length > 0,
           binding: { requested: diagnosticIdentity(sessionId), stored: diagnosticIdentity(storedSessionId), effective: diagnosticIdentity(effectiveSessionId),
             overridden: Boolean(sessionId && sessionId !== storedSessionId) },

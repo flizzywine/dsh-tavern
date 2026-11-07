@@ -496,6 +496,27 @@ export function replayableFailedTurn(input) {
   return null
 }
 
+/**
+ * The index of a player row the story never answered, or -1. Such a tail is a
+ * failed turn: it has an input and no body, so "regenerate" has nothing to
+ * replace. Replacing the round before it would replay an older input and leave
+ * the newest one unanswered, which is exactly what a player asking to redo the
+ * last reply must not get.
+ */
+export function unansweredTailIndex(chat) {
+  const messages = Array.isArray(chat?.messages) ? chat.messages : []
+  const index = messages.length - 1
+  const message = messages[index]
+  if (index < 0 || message === null || typeof message !== 'object') return -1
+  // The shape, not a flag, decides: the save ends on a player row and no reply
+  // follows it. An imported row is history the save keeps loose on purpose, so
+  // it must not turn into a round; a native flag is not required, because a turn
+  // that failed before landing its body may never have been stamped.
+  if (message.role !== 'user' || message.placeholder === true || message.greeting === true) return -1
+  if (typeof message.source?.kind === 'string' && message.source.kind === 'import') return -1
+  return index
+}
+
 // A native tail user with no assistant after it is an unfinished story input,
 // regardless of whether the provider failure itself was persisted. Never fall
 // through to an earlier assistant/user pair: that pair is already complete.

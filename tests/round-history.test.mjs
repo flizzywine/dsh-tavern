@@ -833,6 +833,20 @@ test('尾部待回复输入由重新生成补出它的正文，不重放上一�
   assert.ok(!h.calls.includes('rollback.regen'))
 })
 
+test('末尾玩家行没有 native 标记时同样是待回复的尾，按它生成正文', async () => {
+  const h = harness({ checkpoint: true })
+  // A turn that failed before landing its body may never be stamped native.
+  h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入' })
+  h.agent.phase.lastTurn = 3
+
+  await h.create().regenerate('chat', '', 'session')
+
+  assert.equal(h.agent.input.content[0].text, '最新输入')
+  assert.equal(h.chat.messages.at(-1).role, 'assistant')
+  assert.equal(h.chat.messages.at(-2).text, '最新输入')
+  assert.equal(h.chat.messages[2].text, '旧正文')
+})
+
 test('尾部待回复输入生成失败时保持原样，不吞掉输入也不改指上一轮', async () => {
   const h = harness({ checkpoint: true, journal: true })
   h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true })
