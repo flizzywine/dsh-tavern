@@ -49,6 +49,14 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
     } finally { reconciling.delete(sessionId) }
   }
 
+  function assertBlankStoryForkTarget(sessionId, session) {
+    const phase = agentRegistry.get(sessionId)?.phase?.kind
+    if (!session || (phase && phase !== 'idle') || session.surface?.nodes?.length || sessionEvents(session).some(event =>
+      event.type === 'turn/start' || event.type === 'user/message' || event.type === 'assistant/message')) {
+      throw new Error('分叉目标必须是空白 Session')
+    }
+  }
+
   // One explicit use only: a story fork starts a fresh native session that
   // carries no context, so its tail is built from the save once, at fork time.
   // Nothing reconciles or repairs a live session behind the player's back.
@@ -56,6 +64,8 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
     const chat = await chatForSession(sessionId)
     if (!chat || chat.regenInProgress || !['story', 'script'].includes(chat.mode || 'story')) return null
     try {
+      // The session may have received a turn while the fork save was being written.
+      assertBlankStoryForkTarget(sessionId, session)
       const result = repairNativeSurface(session, chat, { repairId: randomUUID() })
       if (result.applied) await sessionStore.flush(session)
       await updateChat(chat.id, current => recordNativeSurfaceRepair(current, chat, result.anchors) ? current : undefined, { source: 'native-seed' })
@@ -139,6 +149,7 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
   return {
     reconcileStory,
     reconcileWhenIdle,
+    assertBlankStoryForkTarget,
     seedNativeStory,
     // Let a turn start after an in-flight reconcile of its session.
     async waitReconcile(sessionId) { await reconciling.get(str(sessionId))?.catch(() => {}) },

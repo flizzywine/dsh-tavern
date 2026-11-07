@@ -2332,7 +2332,8 @@ export async function apply(ctx) {
     try {
       if (!target) { targetHandle = await agentRegistry.resume({ resumeSessionId: targetId }); target = targetHandle.agent.session }
       if (!target) throw new Error('分叉目标原生会话尚未就绪')
-      if (!storyDirect) {
+      if (storyDirect) assertBlankStoryForkTarget(targetId, target)
+      else {
         const targetEnd = sessionEvents(target).findLast(event => event.type === 'turn/end')
         if (!targetEnd || targetEnd.seq !== atSeq) throw new Error('原生分叉没有停在指定回合，已拒绝绑定游戏状态')
       }
@@ -2347,7 +2348,9 @@ export async function apply(ctx) {
         // Do not suppress opening recovery until the native prefix really exists.
         fork.nativeOpeningAppended = false
       }
-      await conversationRegistry.publish(fork)
+      await conversationRegistry.publish(fork, storyDirect ? {
+        assertUnboundSession: () => assertBlankStoryForkTarget(targetId, target)
+      } : undefined)
       await saveMaintenance.recordFork(fork).catch(error => console.warn('dsh-tavern: 记录分叉来源失败', str(error?.message || error)))
       await sceneWorldbookArchive.copyRefs(state.id, fork.id, includedTurns).catch(() => {})
       await forkPluginState(source, state, fork, turn, includedTurns)
@@ -3425,7 +3428,7 @@ export async function apply(ctx) {
   const storyReconciliation = createStoryReconciliation({
     agentRegistry, sessionStore, chatForSession, chatSliceForSession, updateChat, turns: turnOrchestrator
   })
-  const { reconcileStory, reconcileWhenIdle, seedNativeStory } = storyReconciliation
+  const { reconcileStory, reconcileWhenIdle, assertBlankStoryForkTarget, seedNativeStory } = storyReconciliation
   // 任务表 (domain/background-tasks.js): every background task is declared there once; this
   // hands it the services its tasks run on.
   registerBackgroundTasks(workflow, { readTavernSettings, polishPrereview, announceCast,

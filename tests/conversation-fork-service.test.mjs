@@ -124,11 +124,36 @@ async function runServiceFixture() {
     assert.equal(plan.turn, 2)
     assert.equal(plan.sourceRevision, sourceRevision)
 
+    const { Session } = await load('./fixtures/dsh-session-host.mjs')
+    const { appendSessionEvent, sessionEvents } = await load('../tavern-plugin/lib/domain/session-events.js')
+    const existing = Session.create('unbound-chat-with-history')
+    appendSessionEvent(existing, 'turn/start', { turn: 1 })
+    appendSessionEvent(existing, 'user/message', {
+      id: 'existing-input', role: 'user', content: text('原会话的输入'), source: { kind: 'user' }
+    }, { surfaceOp: 'append' })
+    appendSessionEvent(existing, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+    sessions.set(existing.id, existing)
+    const originalEvents = structuredClone(sessionEvents(existing))
+    const originalNodes = existing.surface.nodes.slice()
+    const forkTo = targetSessionId => host.rpc('forkChat', {
+      chatId: source.chatId, sessionId: source.sessionId, targetSessionId,
+      messageIndex: 2, sourceRevision: plan.sourceRevision, atSeq: plan.atSeq
+    })
+    await assert.rejects(forkTo(existing.id), /分叉目标必须是空白 Session/)
+    assert.deepEqual(sessionEvents(existing), originalEvents)
+    assert.deepEqual(existing.surface.nodes, originalNodes)
+    assert.equal((await host.rpc('listSessions')).sessions.some(chat => chat.sessionId === existing.id), false)
+
     const target = blankSession('session-a-fork')
     assert.deepEqual(sessions.get(target).events, [])
     assert.equal((await host.rpc('listSessions')).sessions.some(chat => chat.sessionId === target), false, '目标 Session 还没有绑定对话')
-    const forked = await host.rpc('forkChat', { chatId: source.chatId, sessionId: source.sessionId, targetSessionId: target,
-      messageIndex: 2, sourceRevision: plan.sourceRevision, atSeq: plan.atSeq })
+    const attempts = await Promise.allSettled([forkTo(target), forkTo(target)])
+    const succeeded = attempts.filter(attempt => attempt.status === 'fulfilled')
+    const rejected = attempts.filter(attempt => attempt.status === 'rejected')
+    assert.equal(succeeded.length, 1)
+    assert.equal(rejected.length, 1)
+    assert.match(rejected[0].reason.message, /分叉目标必须是尚未绑定对话的新 Session/)
+    const forked = succeeded[0].value
     assert.equal(forked.fork.messageCount, 3)
     const sourceRows = await transcriptRows(source.sessionId)
     assert.deepEqual(await transcriptRows(target), sourceRows.slice(0, 3), '分叉 Chat 是源 Chat 的精确消息前缀')

@@ -146,7 +146,7 @@ export function createTavernConversationRegistry(options = {}) {
     return found
   }
 
-  async function publish(chat) {
+  async function publish(chat, { assertUnboundSession } = {}) {
     if (!chat || str(chat.id) === '') throw new Error('不能发布没有 id 的 Tavern Chat')
     const sessionId = str(chat.sessionId)
     let chatWritten = false
@@ -158,6 +158,11 @@ export function createTavernConversationRegistry(options = {}) {
         await store.updateLinks(function (value) {
           const current = Object.assign({}, normalizeLinks(value))
           if (current[sessionId] === chat.id) return undefined
+          if (assertUnboundSession) {
+            // Concurrent forks can both pass the initial check before either writes the link.
+            if (Object.hasOwn(current, sessionId)) throw new Error('分叉目标必须是尚未绑定对话的新 Session')
+            assertUnboundSession()
+          }
           current[sessionId] = chat.id
           return current
         })
