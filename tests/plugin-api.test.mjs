@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { createPluginMedia, pluginMediaRange, pluginMediaSession, slicePluginMediaStream, pluginFileMediaType } from '../tavern-plugin/lib/domain/plugin-media.js'
 import { createTavernPluginApi, TAVERN_PLUGIN_API_VERSION } from '../tavern-plugin/lib/plugin-api.js'
+import { loaderOrigin } from '../tavern-plugin/lib/domain/user-plugins.js'
 import { createPluginData } from '../tavern-plugin/lib/domain/plugin-data.js'
 import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
 
@@ -83,6 +84,14 @@ function turnMaterial(overrides = {}) {
 
 async function harness(t, overrides = {}) {
   const root = new cordis.Context()
+  // Test installation is the trusted source, independent of production API inference.
+  const identities = new Map()
+  const cardOwners = await overrides.cardScope?.() || new Map()
+  const install = root.plugin.bind(root)
+  root.plugin = (plugin, ...args) => {
+    identities.set(plugin.name, { runtimeName: plugin.name, origin: cardOwners.has(plugin.name) ? 'card' : 'global' })
+    return install(plugin, ...args)
+  }
   const store = memoryStore()
   const media = createPluginMedia({ store })
   const published = []
@@ -91,7 +100,7 @@ async function harness(t, overrides = {}) {
   const warnings = []
   await root.plugin({ name: 'dsh-tavern-test-host', apply(ctx) {
     api = createTavernPluginApi({
-      ctx, media, logger: { warn(message) { warnings.push(message) } },
+      ctx, media, runningUserPlugins: identities, logger: { warn(message) { warnings.push(message) } },
       resolveGame: async sessionId => sessionId === 'game-1' ? { chatId: 'chat-1', sessionId } : null,
       currentKey: async () => latest.key,
       readTurn: async (sessionId, turn) => sessionId === 'game-1' && turn === latest.turn ? latest : null,
@@ -1672,4 +1681,55 @@ test('正文生成器通过 Cordis 注册、按卡隔离，卸载后停止可用
   await fiber.dispose(); await tick()
   assert.deepEqual(await h.api.bodyGenerators.list('game-1'), [])
   await assert.rejects(h.api.bodyGenerators.generate(list[0].id, { materials }), /不可用/)
+})
+
+
+test('可信运行来源：global 可用，card 缺 scope 与未知 runtime 拒绝且记录诊断', async () => {
+  const identities = new Map([
+    ['package-global', {runtimeName:'global-runtime', origin:'global'}],
+    ['package-card', {runtimeName:'card-runtime', origin:'card', cardIds:['cards/a.json'], sha256:'bound-version'}]
+  ])
+  const warnings = []
+  const api = createTavernPluginApi({runningUserPlugins:identities,
+    cardScope:async () => new Map(), logger:{warn:message => warnings.push(message)},
+    listCards:async () => [{path:'cards/a.json', name:'A'}, {path:'cards/b.json', name:'B'}],
+    readCardRaw:async card => ({path:card})})
+  const caller = name => Object.assign(Object.create(api.service), {ctx:{fiber:{name}}})
+  assert.equal((await caller('global-runtime').listCards()).length, 2)
+  assert.deepEqual(await caller('global-runtime').readCardRaw({card:'cards/b.json'}), {path:'cards/b.json'})
+  for (const name of ['card-runtime', 'unknown-runtime']) {
+    assert.deepEqual(await caller(name).listCards(), [])
+    await assert.rejects(caller(name).readCardRaw({card:'cards/a.json'}), {code:'TAVERN_PLUGIN_SCOPE'})
+    assert.ok(warnings.some(line => line.includes(name) && line.includes('拒绝访问')))
+  }
+})
+
+test('加载器来源：宿主/profile 条目加载的插件是全局；Tavern guard 未登记、卡插件跨卡、同名冒充都拒绝', async () => {
+  // Fibers as the Cordis loader sees them: the entry that owns each caller (loader.locate).
+  const fiber = (name, entry) => ({ name, entry: { id: entry } })
+  const hostLocal = fiber('dsh-tavern-local', 'dsh-tavern-local'), hostTts = fiber('dsh-tavern-tts', 'group:dsh-tavern-tts')
+  const card = fiber('card-runtime', 'tavern-user-plugin-dsh-card-werewolf')
+  const legacy = fiber('legacy-card', 'tavern-user-plugin-legacy-card'), noEntry = { name: 'no-entry' }
+  const loader = { locate: value => value.entry?.id }
+  const api = createTavernPluginApi({ logger: { warn() {} },
+    runningUserPlugins: new Map([['dsh-card-werewolf', { runtimeName: 'card-runtime', origin: 'card', cardIds: ['cards/a.json'] }]]),
+    loaderOrigin: value => loaderOrigin(loader, value),
+    cardScope: async () => new Map([['card-runtime', { cards: ['cards/a.json'] }]]),
+    listCards: async () => [{ path: 'cards/a.json', name: 'A' }, { path: 'cards/b.json', name: 'B' }],
+    readCardRaw: async path => ({ path }) })
+  const caller = value => Object.assign(Object.create(api.service), { ctx: { fiber: value } })
+  for (const host of [hostLocal, hostTts]) {
+    assert.equal((await caller(host).listCards()).length, 2, host.name + ' 由宿主条目加载，是全局插件')
+    assert.deepEqual(await caller(host).readCardRaw({ card: 'cards/b.json' }), { path: 'cards/b.json' })
+  }
+  assert.deepEqual((await caller(card).listCards()).map(row => row.id), ['cards/a.json'])
+  assert.deepEqual(await caller(card).readCardRaw({ card: 'cards/a.json' }), { path: 'cards/a.json' })
+  await assert.rejects(caller(card).readCardRaw({ card: 'cards/b.json' }), { code: 'TAVERN_PLUGIN_SCOPE' })
+  for (const refused of [legacy, noEntry]) {
+    assert.deepEqual(await caller(refused).listCards(), [])
+    await assert.rejects(caller(refused).readCardRaw({ card: 'cards/a.json' }), { code: 'TAVERN_PLUGIN_SCOPE' })
+  }
+  // A Tavern guard plugin exporting a host plugin's name makes that name ambiguous: neither is global.
+  await assert.rejects(caller(fiber('dsh-tavern-local', 'tavern-user-plugin-spoof')).readCardRaw({ card: 'cards/b.json' }), { code: 'TAVERN_PLUGIN_SCOPE' })
+  await assert.rejects(caller(hostLocal).readCardRaw({ card: 'cards/b.json' }), { code: 'TAVERN_PLUGIN_SCOPE' })
 })

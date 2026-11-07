@@ -38,7 +38,9 @@ function imageLibrary() {
 }
 
 function host() {
-  const api = createTavernPluginApi({ logger: { warn() {} }, cardScope: async () => new Map() })
+  // The bundled image plugin is a trusted global runtime identity.
+  const runningUserPlugins = new Map([['dsh-tavern-image', { runtimeName: 'dsh-tavern-image', origin: 'global' }]])
+  const api = createTavernPluginApi({ logger: { warn() {} }, cardScope: async () => new Map(), runningUserPlugins })
   const service = Object.create(api.service)
   service.ctx = { fiber: { name: 'dsh-tavern-image' }, effect(setup) { return setup() } }
   return { api, service }

@@ -1,3 +1,4 @@
+import { readEnabledBindings, bindingVerdict, runningUserPlugins } from './user-plugins.js'
 import { createHash } from 'node:crypto'
 import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -31,7 +32,7 @@ async function readPluginManifest(dir, folder) {
   return pkg
 }
 
-export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null }) {
+export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null, cardPaths = async () => [] }) {
   const stagingRoot = path.join(path.resolve(dataRoot), 'card-plugins')
   const installedFolder = plugin => 'card-' + String(plugin.name).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 64) + '-' + plugin.sha256.slice(0, 12)
   let scopes = null, tail = Promise.resolve()
@@ -71,8 +72,9 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null }) {
   }
 
   /** Every installed plugin by package name: { folder, cards, sha256 } (cards null for the user's own). */
-  async function installed() {
+  async function installed(bindings = null) {
     const map = new Map()
+    bindings ??= await readEnabledBindings({ dataRoot, cardPaths })
     for (const folder of await readdir(pluginsDir).catch(() => [])) {
       let name = ''
       try { name = String(JSON.parse(await readFile(path.join(pluginsDir, folder, 'package.json'), 'utf8')).name || '') } catch { continue }
@@ -80,16 +82,31 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null }) {
       let marker = null
       try { marker = JSON.parse(await readFile(path.join(pluginsDir, folder, MARKER), 'utf8')) } catch {}
       // Older installs named one card (`cardPath`); now a list.
-      const cards = marker ? [...new Set((Array.isArray(marker.cards) ? marker.cards : [marker.cardPath]).filter(Boolean).map(String))] : null
-      map.set(name, { folder, cards, sha256: marker ? String(marker.sha256 || '') : '', managed: marker?.managed === true })
+      const sha256 = String(marker?.sha256 || '')
+      const verdict = bindingVerdict({ name, sha256 }, bindings)
+      if (verdict?.reason) continue
+      const cards = verdict?.cards ?? (marker ? [...new Set((Array.isArray(marker.cards) ? marker.cards : [marker.cardPath]).filter(Boolean).map(String))] : null)
+      map.set(name, { folder, cards, sha256, managed: marker?.managed === true })
     }
     return map
   }
 
   /** Card plugins in use: plugin name → { cards, folder }. */
   async function scope() {
-    if (!scopes) scopes = installed().then(map => new Map([...map].filter(([, item]) => !item.managed && item.cards?.length).map(([name, item]) => [name, { cards: item.cards, folder: item.folder }])))
-    return await scopes
+    const bindings = await readEnabledBindings({ dataRoot, cardPaths })
+    const holders = await installed(bindings)
+    const result = new Map([...holders].filter(([, item]) => !item.managed && item.cards?.length).map(([name, item]) => [name, { cards: item.cards, folder: item.folder }]))
+    // Running identities keep their card origin even after a binding is removed.
+    const names = new Set([...bindings.keys(), ...[...runningUserPlugins].filter(([, identity]) => identity.origin === 'card').map(([name]) => name)])
+    for (const name of names) {
+      const holder = holders.get(name), running = runningUserPlugins.get(name)
+      const verdict = bindingVerdict({ name, sha256: running?.sha256 }, bindings)
+      const available = holder && running?.origin === 'card' && holder.folder === running.folder && verdict && !verdict.reason
+      const scope = { cards: available ? verdict.cards.filter(card => running.cardIds.includes(card)) : [], folder: holder?.folder ?? null }
+      result.set(name, scope)
+      if (running?.runtimeName && running.runtimeName !== name) result.set(running.runtimeName, scope)
+    }
+    return result
   }
 
   const writeMarker = (folder, cards, sha256) => writeFile(path.join(pluginsDir, folder, MARKER), JSON.stringify({ cards, sha256 }, null, 2))
