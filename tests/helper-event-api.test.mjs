@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from 'node:vm'
 import { parse } from 'acorn'
+import { JSDOM } from 'jsdom'
 
 const source = await readFile(new URL('../tavern-plugin/src/client/runtime/helper-event-api.js', import.meta.url), 'utf8')
 const install = vm.runInNewContext(source + '\ninstallTavernHelperEventApi')
@@ -100,4 +101,42 @@ test('pagehide rejects pending waits and releases their subscriptions without la
   await assert.rejects(run.window.eventEmitAndWait('late'), error => error.name === 'AbortError')
   await assert.rejects(run.window.eventWaitOnce('late'), error => error.name === 'AbortError')
   await assert.rejects(run.window.waitGlobalInitialized('late'), error => error.name === 'AbortError')
+})
+
+test('HelperPopup renders passive markup and the actual facade returns numeric popup results', async t => {
+  const { window } = new JSDOM('', { runScripts: 'dangerously' })
+  t.after(() => window.close())
+  const declarations = parse(sharedSource, { ecmaVersion: 'latest' }).body
+  function load(name) {
+    const decl = declarations.find(node => node.type === 'FunctionDeclaration' && node.id.name === name)
+    return window.eval('(' + sharedSource.slice(decl.start, decl.end) + ')')
+  }
+  const { document } = window
+  const Popup = load('createTavernHelperPopup')({ document, parent: { postMessage() {} }, token: 'tok' })
+  load('installTavernHelperFacade')({
+    window, Popup, context: () => ({}), copy: structuredClone, createChatData: () => ({}),
+    createLocalVariables: () => ({}), installCompatibility() {},
+  })
+  const api = window.SillyTavern
+  const markup = '<div class="node" onclick="window.executed=true">Select a node'
+    + '<img src="broken" onerror="window.executed=true"><svg onload="window.executed=true"></svg></div>'
+  const pendingAffirm = api.callGenericPopup(markup, api.POPUP_TYPE.TEXT, '', { okButton: 'Domestic', cancelButton: 'International' })
+  const rendered = document.querySelector('.node')
+  assert.equal(rendered.outerHTML, '<div class="node">Select a node</div>')
+  rendered.click()
+  assert.equal(window.executed, undefined)
+  const buttons = () => [...document.querySelectorAll('[data-dsh-helper-popup] button')]
+  assert.deepEqual(buttons().map(button => button.textContent), ['Domestic', 'International'])
+  buttons()[0].click()
+  assert.equal(await pendingAffirm, api.POPUP_RESULT.AFFIRMATIVE)
+
+  const pendingCancel = api.callGenericPopup('Plain text', api.POPUP_TYPE.TEXT, '', { cancelButton: true })
+  assert.equal(buttons().length, 2)
+  assert.equal(buttons()[1].textContent, '\u53d6\u6d88')
+  buttons()[1].click()
+  assert.equal(await pendingCancel, api.POPUP_RESULT.NEGATIVE)
+
+  const direct = new api.Popup('Plain text', api.POPUP_TYPE.CONFIRM).show()
+  buttons()[1].click()
+  assert.equal(await direct, false)
 })
