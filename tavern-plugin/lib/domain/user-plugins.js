@@ -3,6 +3,7 @@ import { lstat, mkdir, readdir, readFile, realpath, writeFile, rename } from 'no
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseDocument, YAMLSeq } from 'yaml'
+import { castManifestPath } from './cast-assets.js'
 import { pluginManifestProblem } from './plugin-manifest.js'
 
 // Entries Tavern writes for folders in <data>/plugins. Every other patch entry belongs to the user.
@@ -18,14 +19,20 @@ export const DISABLED_FILE = '.tavern-disabled'
 // Written when a plugin folder is replaced: DSH keeps running the old module until it restarts.
 export const RESTART_FILE = '.tavern-restart.json'
 
-/**
- * A plugin that fails to import or to apply must not stop DSH from starting:
- * the guard imports it, reports the failure in the log and loads nothing instead.
- */
-export function guardSource({ folder, name, main }) {
+// Process-local identities recorded by guards, never inferred from the current patch.
+export const runningUserPlugins = new Map()
+
+export function registerRunningUserPlugin(name, identity) {
+  runningUserPlugins.set(name, identity)
+  return () => { if (runningUserPlugins.get(name) === identity) runningUserPlugins.delete(name) }
+}
+
+/** A failed import or apply stays isolated in the guard's child Cordis scope. */
+export function guardSource({ folder, name, main, sha256 = '', bound = false, origin = 'global', cardIds = [] }) {
   const label = JSON.stringify('[Tavern 插件] plugins/' + folder)
   return `// Tavern 自动生成，请勿修改：插件加载或启动出错时只记日志，不影响 DSH 启动。
 import { rmSync, writeFileSync } from 'node:fs'
+import { registerRunningUserPlugin } from ${JSON.stringify(import.meta.url)}
 const record = status => { try { writeFileSync(new URL(${JSON.stringify('./' + STATUS_FILE)}, import.meta.url), JSON.stringify({ ...status, at: new Date().toISOString() })) } catch {} }
 const clearRestart = () => { try { rmSync(new URL(${JSON.stringify('./' + RESTART_FILE)}, import.meta.url), { force: true }) } catch {} }
 const report = (stage, error) => {
@@ -48,6 +55,8 @@ export async function apply(ctx, config) {
   try {
     // Cordis owns registrations/effects in this child scope and unwinds them
     // on failure. The guard remains alive so one broken plugin cannot stop DSH.
+    const release = registerRunningUserPlugin(${JSON.stringify(name)}, { folder: ${JSON.stringify(folder)}, sha256: ${JSON.stringify(sha256)}, bound: ${JSON.stringify(bound)}, origin: ${JSON.stringify(origin)}, cardIds: ${JSON.stringify(cardIds)}, runtimeName: name })
+    ctx.effect?.(() => release)
     child = ctx.plugin({ name, apply: childContext => plugin.apply(childContext, config) })
     await child.await()
     record({ ok: true })
@@ -99,26 +108,58 @@ function hostEntry(pkg) {
   return main
 }
 
+// Card storage, not installed-folder markers, defines the binding set.
+export async function readEnabledBindings({ dataRoot, cardPaths }) {
+  const bindings = new Map()
+  for (const cardPath of await cardPaths()) {
+    let manifest
+    try { manifest = JSON.parse(await readFile(castManifestPath(dataRoot, cardPath), 'utf8')) }
+    catch (error) { if (error.code === 'ENOENT') continue; throw error }
+    for (const plugin of manifest.plugins || []) {
+      if (plugin.enabled !== true) continue
+      if (!bindings.has(plugin.name)) bindings.set(plugin.name, new Map())
+      const versions = bindings.get(plugin.name)
+      if (!versions.has(plugin.sha256)) versions.set(plugin.sha256, new Set())
+      versions.get(plugin.sha256).add(cardPath)
+    }
+  }
+  return bindings
+}
+
+export function bindingVerdict({ name, sha256 }, bindings) {
+  const versions = bindings.get(name)
+  if (!versions) return null
+  if (!sha256 || versions.size !== 1 || !versions.has(sha256)) {
+    return { reason: '人物卡绑定了其他版本或绑定冲突，此目录不加载' }
+  }
+  return { cards: [...versions.get(sha256)] }
+}
+
 /**
  * One folder per plugin: package.json names the host half (exports "." or main)
  * and, optionally, a browser half (dsh.client + exports "./client").
  * Folders that cannot be loaded are reported, never registered.
  */
-export async function scanUserPlugins(pluginsDir, { installed = () => false } = {}) {
+export async function scanUserPlugins(pluginsDir, { installed = () => false, bindings = new Map() } = {}) {
   let names
   try { names = (await readdir(pluginsDir, { withFileTypes: true })).filter(item => item.isDirectory() && !item.name.startsWith('.')).map(item => item.name).sort() }
-  catch (error) { if (error.code === 'ENOENT') return { plugins: [], problems: [], disabled: [] }; throw error }
+  catch (error) { if (error.code === 'ENOENT') names = []; else throw error }
   // A package migration can leave both names in profile dependencies and both copies
   // in data/plugins. Resolve this one known pair before the normal folder-name order.
   const candidates = await Promise.all(names.map(async folder => {
     try {
       const pkg = JSON.parse(await readFile(path.join(pluginsDir, folder, 'package.json'), 'utf8'))
-      return { folder, canonicalImage: pkg.name === IMAGE_PLUGIN_NAME }
+      let marker = null
+      try { marker = JSON.parse(await readFile(path.join(pluginsDir, folder, '.dsh-card.json'), 'utf8')) }
+      catch (error) { if (error.code !== 'ENOENT') throw error }
+      return { folder, name: pkg.name, canonicalImage: pkg.name === IMAGE_PLUGIN_NAME,
+        sha256: String(marker?.sha256 || ''), origin: marker && !marker.managed ? 'card' : 'global',
+        cardIds: marker ? (marker.cards || [marker.cardPath]).filter(Boolean) : [] }
     } catch { return { folder, canonicalImage: false } }
   }))
   candidates.sort((a, b) => Number(b.canonicalImage) - Number(a.canonicalImage))
   const plugins = [], problems = [], disabled = []
-  for (const { folder } of candidates) {
+  for (const { folder, sha256, origin, cardIds } of candidates) {
     const dir = path.join(pluginsDir, folder)
     // A disabled plugin keeps its files and settings but is not registered, so DSH does not load it.
     if (existsSync(path.join(dir, DISABLED_FILE))) { disabled.push(folder); continue }
@@ -132,6 +173,8 @@ export async function scanUserPlugins(pluginsDir, { installed = () => false } = 
     const entry = path.resolve(dir, main)
     if (!existsSync(entry)) { problems.push({ folder, reason: '找不到宿主入口 ' + main }); continue }
     const packageName = String(pkg.name || folder)
+    const verdict = bindingVerdict({ name: packageName, sha256 }, bindings)
+    if (verdict?.reason) { problems.push({ folder, reason: verdict.reason }); continue }
     const isImagePlugin = packageName === IMAGE_PLUGIN_NAME || packageName === LEGACY_IMAGE_PLUGIN_NAME
     // A second source for an installed package breaks DSH's browser module composition.
     const installedNames = isImagePlugin ? [IMAGE_PLUGIN_NAME, LEGACY_IMAGE_PLUGIN_NAME] : pkg.name ? [packageName] : []
@@ -151,7 +194,10 @@ export async function scanUserPlugins(pluginsDir, { installed = () => false } = 
       problems.push({ folder, reason }); continue
     }
     const relative = './' + path.relative(dir, entry).split(path.sep).join('/')
-    plugins.push({ id, folder, name: String(pkg.name || folder), entry: path.join(dir, GUARD_FILE), main: relative })
+    plugins.push({ id, folder, name: String(pkg.name || folder), sha256, bound: Boolean(verdict), origin: verdict ? 'card' : origin, cardIds: verdict?.cards || cardIds, entry: path.join(dir, GUARD_FILE), main: relative })
+  }
+  for (const [name, versions] of bindings) {
+    if (!plugins.some(plugin => plugin.name === name)) problems.push({ folder: name, reason: '人物卡绑定的版本 ' + [...versions.keys()].map(sha => sha.slice(0, 12)).join('、') + ' 没有可用对应目录，插件不加载' })
   }
   return { plugins, problems, disabled }
 }
@@ -228,15 +274,18 @@ async function clearOriginalDesktop(profile) {
   if (next !== null) await replaceFile(file, next)
 }
 
-export async function syncUserPlugins({ dataRoot, dshHome, logger = console } = {}) {
+export async function syncUserPlugins({ dataRoot, dshHome, logger = console, pending = () => false, cardPaths = async () => [] } = {}) {
   const paths = userPluginPaths(dataRoot, dshHome)
+  const transactionPending = () => existsSync(path.join(path.resolve(dataRoot), 'card-plugins', '.managed', 'journal.json'))
+  if (pending() || transactionPending()) return { pending: true, plugins: [], problems: [] }
   await mkdir(paths.plugins, { recursive: true })
   if (!existsSync(path.join(paths.profile, 'package.json'))) {
     logger.warn?.('[Tavern 插件] 找不到 Tavern 的 DSH 配置目录 ' + paths.profile + '，plugins/ 里的插件不会加载')
     return { skipped: true, plugins: [], problems: [], disabled: [] }
   }
   const installed = name => existsSync(path.join(paths.profile, 'node_modules', ...name.split('/'), 'package.json'))
-  const { plugins, problems, disabled } = await scanUserPlugins(paths.plugins, { installed })
+  const bindings = await readEnabledBindings({ dataRoot, cardPaths })
+  const { plugins, problems, disabled } = await scanUserPlugins(paths.plugins, { installed, bindings })
   for (const problem of problems) {
     const key = paths.plugins + '\u0000' + problem.folder
     if (reported.get(key) === problem.reason) continue
@@ -254,9 +303,20 @@ export async function syncUserPlugins({ dataRoot, dshHome, logger = console } = 
   let text = ''
   try { text = await readFile(file, 'utf8') } catch (error) { if (error.code !== 'ENOENT') throw error }
   const next = syncPatchText(text, plugins)
+  if (pending() || transactionPending()) return { pending: true, plugins: [], problems: [] }
   if (next !== null) await replaceFile(file, next)
   await clearOriginalDesktop(paths.profile)
   return { changed: next !== null, plugins, problems, disabled }
+}
+
+/**
+ * Which loader entry loaded `fiber`: 'tavern' when a Tavern guard entry (data/plugins, the only way a card plugin
+ * loads) owns it, 'host' for an entry of the host or profile configuration, undefined when no entry owns it.
+ */
+export function loaderOrigin(loader, fiber) {
+  const id = fiber && loader?.locate?.(fiber)
+  if (id === undefined || id === null) return undefined
+  return String(id).includes(ID_PREFIX) ? 'tavern' : 'host'
 }
 
 /**
@@ -279,11 +339,30 @@ export function loaderReload(loader, fiber) {
  * replaced user plugin - would keep running its old module beside the new folder's files. `loaded` (id -> guard path
  * DSH started, readPatchedUserPlugins) tells which entries moved; `reload(id, entry)` (loaderReload) restarts each from its new guard.
  */
-export function watchUserPlugins({ dataRoot, dshHome, logger = console, delay = 500, loaded = new Map(), reload = null }) {
+export async function reconcileUserPluginsAtStartup({ result, loaded, reload }) {
+  if (!reload) return
+  for (const plugin of result.plugins) {
+    if (!loaded.has(plugin.id)) continue
+    let entry = plugin.entry
+    if (loaded.get(plugin.id) === entry) {
+      if (runningUserPlugins.has(plugin.name)) continue
+      // The legacy guard may already be in Node's module cache. Import the
+      // identity-aware guard from a fresh URL during startup only.
+      entry = path.join(path.dirname(entry), '.tavern-entry.identity.mjs')
+      await replaceFile(entry, guardSource(plugin))
+    }
+    await reload(plugin.id, entry)
+    loaded.set(plugin.id, plugin.entry)
+  }
+}
+
+export function watchUserPlugins({ dataRoot, dshHome, logger = console, delay = 500, loaded = new Map(), reload = null, pending = () => false, cardPaths = async () => [] }) {
   const { plugins } = userPluginPaths(dataRoot, dshHome)
   let timer = null, watcher = null, running = Promise.resolve()
   const restartMoved = async result => {
     for (const plugin of reload ? result.plugins : []) {
+      // Card binding changes require a process restart, never a watcher-driven hot swap.
+      if (plugin.bound || runningUserPlugins.get(plugin.name)?.bound) continue
       if (!loaded.has(plugin.id) || loaded.get(plugin.id) === plugin.entry) continue
       await reload(plugin.id, plugin.entry)
       loaded.set(plugin.id, plugin.entry)
@@ -292,7 +371,7 @@ export function watchUserPlugins({ dataRoot, dshHome, logger = console, delay = 
   const schedule = () => {
     clearTimeout(timer)
     timer = setTimeout(() => {
-      running = running.then(() => syncUserPlugins({ dataRoot, dshHome, logger })).then(restartMoved)
+      running = running.then(() => syncUserPlugins({ dataRoot, dshHome, logger, pending, cardPaths })).then(restartMoved)
         .catch(error => logger.warn?.('[Tavern 插件] 同步插件目录失败：' + (error?.message || error)))
     }, delay)
   }

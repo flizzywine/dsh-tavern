@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { createWorldbookStrategies } from '../tavern-plugin/lib/domain/worldbook-strategies.js'
 
-function setup(select, options = {}) {
+function setup(select, { origin = 'global', ...options } = {}) {
   const registry = createWorldbookStrategies({ nativeSkills: async () => 'native' })
   const worldBook = { view: { entries: [
     { ref: 'entry:1', title: 'Allowed', content: 'body', enabled: true },
@@ -11,7 +11,8 @@ function setup(select, options = {}) {
   ] } }
   const effects = []
   const ctx = { fiber: { name: 'test/plugin@one' }, effect: register => { const dispose = register(); effects.push(dispose); return dispose } }
-  const api = createTavernPluginApi({ ctx, worldbookStrategies: registry,
+  const runningUserPlugins = new Map([['test/plugin@one', { runtimeName: 'test/plugin@one', origin }]])
+  const api = createTavernPluginApi({ ctx, worldbookStrategies: registry, runningUserPlugins,
     resolveGame: async sessionId => ({ sessionId }), worldbookStrategyEntries: async () => worldBook,
     projectWorldbookSelection: async (input, refs) => refs === null ? 'native' : refs,
     logger: { warn() {} }, ...options })
@@ -29,7 +30,7 @@ test('invalid references and plugin failures fall back without erasing selection
 test('card-scoped plugin cannot inspect another game and unload revokes pending callback', async () => {
   let called = false
   const scoped = setup(() => { called = true; return [] }, {
-    cardScope: async () => new Map([['test/plugin@one', { cards: ['/cards/own.json'] }]]), cardPathOf: async () => '/cards/other.json'
+    origin: 'card', cardScope: async () => new Map([['test/plugin@one', { cards: ['/cards/own.json'] }]]), cardPathOf: async () => '/cards/other.json'
   })
   assert.equal(await scoped.registry.project(scoped.input), 'native')
   assert.equal(called, false)

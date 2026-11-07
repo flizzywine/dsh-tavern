@@ -34,6 +34,7 @@ function harness() {
   })
   const api = createTavernPluginApi({
     ctx: { fiber: { name: 'state-plugin' } }, logger: { warn() {} },
+    runningUserPlugins: new Map([['state-plugin', { runtimeName: 'state-plugin', origin: 'global' }], ['other-plugin', { runtimeName: 'other-plugin', origin: 'global' }]]),
     resolveGame: async gameId => gameId === 'game' ? { chatId: 'chat', sessionId: 'game' } : null,
     readTurn: async () => material(), readLatestSettledTurn: async () => material(), readPendingTurn: async () => material(),
     readVariables: async () => structuredClone(chat.messages[1].variables[0]), writeVariables: writer, publish() {}
