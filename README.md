@@ -1,6 +1,6 @@
 <p align="center">
 
-> **桌面版支持官方 DeepSeek Harness 0.2.x**。Windows、macOS、命令行版和 Android 的安装见[快速开始](#快速开始)。
+> **桌面版支持官方 DeepSeek Harness 0.2.x 和 DSH NEXT**。各平台的安装步骤见[快速开始](#快速开始)。
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/docs/assets/brand/dsh-tavern-lockup-on-dark.svg">
     <img src="docs/assets/brand/dsh-tavern-lockup.svg" width="360" alt="DSH 酒馆">
@@ -136,7 +136,7 @@
 
 ### 桌面版（Windows / macOS）
 
-先安装官方 [DeepSeek Harness](https://deepseek.com/harness/) 或 DSH NEXT，打开并完成初始设置。推荐使用 **0.2.2-rc.1 或更新的 0.2.x** DSH 内核。两边使用同一个 `dsh-tavern` 启动器和酒馆运行包。然后在下方 **任选一种** 安装方式。
+先安装官方 [DeepSeek Harness](https://deepseek.com/harness/)，打开并完成初始设置。推荐使用 **0.2.2-rc.1 或更新的 0.2.x** DSH 内核。然后在下方 **任选一种** 安装方式。
 
 #### 方式一：手动安装（在 DSH 界面操作）
 
@@ -150,12 +150,12 @@
 
    如果 CDN 地址无法访问，可以粘贴 [GitHub Release 的下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-v1.5.0/dsh-tavern-1.5.0.tgz)。
 
-2. **安装酒馆。** 打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。DSH NEXT 按页面提示从托盘退出，安装后会重新打开。已有兼容的酒馆安装可直接切换。
-3. **打开酒馆。** 点击 **重启并切换到 DSH 酒馆**。官方桌面的默认配置也可以在此设置。NEXT 使用自身的 Profile 选择功能。
+2. **安装酒馆。** 打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。已有兼容的酒馆安装可直接切换。
+3. **打开酒馆。** 点击 **重启并切换到 DSH 酒馆**。下次启动时打开哪个配置，可以在同一页单独设置。
 
 #### 方式二：一行命令安装或更新（也可交给 Agent 执行）
 
-先完整退出桌面（Windows 从系统托盘退出，macOS 按 `⌘Q`），再运行对应系统的命令。官方桌面用 `desktop`，DSH NEXT 把命令中的 `desktop` 改成 `next`。**首次运行会一起安装酒馆和启动器，之后更新重跑同一条命令。** 使用自定义 DSH 目录时，先将 `DSH_HOME` 设为该目录。
+先完整退出 DeepSeek Harness（Windows 从系统托盘退出，macOS 按 `⌘Q`），再运行对应系统的命令。**首次运行会一起安装酒馆和启动器，之后更新重跑同一条命令。** 使用自定义 DSH 目录时，先将 `DSH_HOME` 设为该目录。
 
 Windows（PowerShell）：
 
@@ -169,7 +169,44 @@ macOS（终端）：
 curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.sh' -o /tmp/dsh-tavern-install.sh && DSH_TAVERN_HOST=desktop sh /tmp/dsh-tavern-install.sh
 ```
 
-命令执行成功后，重新打开所用桌面，从 **设置 → 酒馆启动器** 切换到酒馆。两款桌面使用同一个 `DSH_HOME` 时，官方版切到酒馆会建立 `profiles/desktop` 链接。打开 NEXT 前，先在官方版切回原版 DSH，以恢复真实的 `desktop` 目录。
+命令执行成功后，重新打开 DeepSeek Harness，从 **设置 → 酒馆启动器** 切换到酒馆。
+
+### DSH NEXT（Windows / macOS）
+
+先打开 DSH NEXT 完成初始设置。推荐使用内核为 **0.2.2-rc.1 或更新的 0.2.x** 的版本。酒馆安装在独立的 `tavern` Profile 中，NEXT 使用自己的 Profile 切换功能。
+
+如果 NEXT 和官方桌面共用同一个 `DSH_HOME`，且官方桌面当前在酒馆中，请先在官方桌面的 **设置 → 酒馆启动器** 切回原版 DSH，再退出官方桌面。这样会恢复真实的 `profiles/desktop` 目录，NEXT 才能切回原版 Profile。
+
+#### 通过插件界面安装
+
+1. 在 NEXT 的 **桌面设置 → Profile** 选择 `desktop`。打开 **插件 → 添加插件**，粘贴下方地址并启用 `dsh-tavern`。如果该 Profile 里装了旧版酒馆启动器，先从插件页移除旧启动器。
+
+   ```text
+   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v1.5.0/dsh-tavern-1.5.0.tgz
+   ```
+
+   CDN 无法访问时，可以使用 [GitHub Release 下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-v1.5.0/dsh-tavern-1.5.0.tgz)。
+
+2. 打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。按提示从应用菜单或托盘退出 NEXT，安装完成后 NEXT 会重新打开。已有兼容安装时可以直接切换。
+3. 点 **重启并切换到 DSH 酒馆**。想回到日常配置时，在同一页点 **重启并切换到原版 DSH**。
+
+#### 用命令安装或更新
+
+完整退出 NEXT、正在使用同一配置目录的 DSH 桌面，以及打开在 Profile 目录中的终端，再用系统 PowerShell 或终端执行。首次执行同时安装酒馆和启动器，更新时可以重跑同一条命令。使用自定义 DSH 目录时，先将 `DSH_HOME` 设为该目录。安装器找不到 NEXT 时，可用 `DSH_TAVERN_NEXT_EXECUTABLE` 指定 NEXT 可执行文件的完整路径。
+
+**Windows（PowerShell）**
+
+```powershell
+$env:DSH_TAVERN_HOST='next'; $tavernInstaller=[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData('https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.ps1')); Invoke-Expression $tavernInstaller
+```
+
+**macOS（终端）**
+
+```sh
+curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.sh' -o /tmp/dsh-tavern-install.sh && DSH_TAVERN_HOST=next sh /tmp/dsh-tavern-install.sh
+```
+
+执行成功后，打开 DSH NEXT，从 **设置 → 酒馆启动器** 切换到酒馆。
 
 ### Android
 
