@@ -101,6 +101,10 @@ test('尚未进入原生轮的 placeholder 持久输入也提供撤回入口', (
     messages: [{ role: 'assistant', turn: 2, text: '上一轮正文' },
       { role: 'user', text: '6', native: true, placeholder: true }]
   }
+  const runningFields = createSessionStateView({ activity: () => ({ busy: true }),
+    evidence: () => ({ session, events: [] }) })
+  const running = runningFields.volatile(projectChatSessionState(chat), { busy: true })
+  assert.equal(running.failedTailTurn, null, '助手占位尚未准备时仍属生成中，不提前显示撤回')
   const view = fields.volatile(projectChatSessionState(chat), { busy: false })
   assert.equal(view.failedTailPersisted, true)
   assert.equal(view.failedTailTurn, 0)

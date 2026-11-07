@@ -594,6 +594,7 @@ export function replayablePersistedTurn(chat, { events = [], nodes = [] } = {}) 
     messageIndex: messages.length - 1,
     turn: Number.isSafeInteger(failedTurn) && failedTurn > 0 ? failedTurn : 0,
     userText,
+    ...(message.placeholder === true ? { placeholder: true } : {}),
     ...(attachments.length ? { inputAttachments: attachments } : {}),
     source
   }
@@ -1098,9 +1099,12 @@ export function rollbackAvailability(chat, input = {}) {
   }
 }
 
-export function failedTurnReplayAvailability({ chat = null, events = [], nodes = [], cleared = [] } = {}) {
+export function failedTurnReplayAvailability({ chat = null, events = [], nodes = [], cleared = [], running = false } = {}) {
   const target = replayablePersistedTurn(chat, { events, nodes }) || replayableFailedTurn({ events })
   if (!target) return { target: null, reason: '当前没有待处理的失败回合' }
+  // appendUser becomes visible before prepare writes the assistant placeholder.
+  // During that gap the player input is still being generated, not a failed tail.
+  if (target.persisted && target.placeholder === true && running === true) return { target: null, reason: '正在生成，请等待完成或停止后再撤回' }
   // A persisted row disappears when the player withdraws it. The clearing marker
   // left behind must not hide a row that is still waiting for its first reply.
   if (!target.persisted && cleared.map(Number).includes(target.turn)) return { target: null, reason: '这次失败已清除，请重新发送' }

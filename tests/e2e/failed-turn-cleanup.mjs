@@ -36,6 +36,22 @@ export async function failedTurnCleanupChecks({ page, step, savedChat, output, r
   await step('普通接口失败的一轮可以清除并撤回输入', async () => {
     await clearAndCheck('provider-error', 'E2E_PROVIDER_ERROR 推门', async () => {})
   })
+  await step('撤回后重发并刷新，旧输入与新输入都不重复', async () => {
+    const before = await story(), input = 'E2E 撤回后重发'
+    await composer().fill(input); await composer().press('Enter')
+    for (let i = 0; i < 120 && (await story()).replies === before.replies; i++) await pause(500)
+    assert.equal((await story()).replies, before.replies + 1, '撤回后可以正常重发')
+    const sent = await savedChat()
+    assert.equal(sent.messages.filter(message => message.role === 'user' && message.text === 'E2E_PROVIDER_ERROR 推门').length, 0, '失败旧输入没有混入新轮次')
+    assert.equal(sent.messages.filter(message => message.role === 'user' && message.text === input).length, 1, '新输入只有一条持久故事行')
+    for (let i = 0; i < 120 && (await story()).gold !== 10; i++) await pause(500)
+    assert.equal((await story()).gold, 10, '重发后的后台结算完成，后续回退有稳定基线')
+    await page.reload()
+    const bubbles = page.locator('.dsh-tavern-user-bubble').filter({ hasText: input })
+    await bubbles.first().waitFor({ timeout: 15000 })
+    assert.equal(await bubbles.count(), 1, '刷新后仍然只有一条新输入气泡')
+    report.failedTurnRetryRefresh = true
+  })
   await step('手动停止的一轮可以清除并撤回输入', async () => {
     await clearAndCheck('stopped', 'E2E_SLOW 继续', async () => {
       await page.getByText('雨一直下', { exact: false }).first().waitFor({ timeout: 15000 })

@@ -175,7 +175,7 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       reason: '当前会话的消息流尚未加载，请重新打开对话后重试；历史正文仍保留。'
     }
     // The failed tail a player can still withdraw or refresh; nothing here re-sends its input.
-    const failedTail = Array.isArray(nodes) ? failedTurnReplayAvailability({ chat, events: evidence.events || [], nodes, cleared: chat.suppressedDshTurns || [] }).target : null
+    const failedTail = Array.isArray(nodes) ? failedTurnReplayAvailability({ chat, events: evidence.events || [], nodes, cleared: chat.suppressedDshTurns || [], running: activityOf(chat)?.busy === true }).target : null
     // Does the save hold a reply at all? Whether it sits next to a player input is a
     // round-shape guess, not a fact about the message: a tail may end [assistant, assistant].
     const hasRound = Boolean((chat.messages || []).findLast(message => message?.role === 'assistant' && message.greeting !== true))
