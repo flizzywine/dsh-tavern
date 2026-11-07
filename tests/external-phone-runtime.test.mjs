@@ -556,3 +556,76 @@ test('createTavernCardAppDock 跟踪 v-show 折叠状态，并在无悬浮球时
   dock.dispose()
   presence.dispose()
 })
+test('createTavernCardAppDock 支持开局预览到正式会话的停靠交接与孤儿宿主收养', async () => {
+  const { document, FakeMutationObserver } = makeDom()
+  const h = host({ MutationObserver: FakeMutationObserver, document })
+  document.defaultView = h.window
+
+  const presence = h.client.createTavernCardAppPresence({ window: h.window })
+  const slot = document.createElement('div')
+  slot.clientWidth = 384
+  document.body.appendChild(slot)
+
+  const phoneHost = document.createElement('div')
+  phoneHost.setAttribute('id', 'improved-phone-shadow-host-script456')
+  const shadow = phoneHost.attachShadow({ mode: 'open' })
+  const wrapper = document.createElement('div')
+  wrapper.className = 'phone-wrapper'
+  shadow.appendChild(wrapper)
+  document.body.appendChild(phoneHost)
+
+  const triggered = []
+  h.window.__dshTavernTriggerScriptButton = async (sessionId, scriptId, buttonName) => {
+    triggered.push([sessionId, scriptId, buttonName])
+    return { ok: true }
+  }
+
+  // 1. 开场白阶段（S-preview）停靠手机
+  const dockPreview = h.client.createTavernCardAppDock({
+    document,
+    slot,
+    sessionId: 'S-preview',
+    loadIconCss: () => Promise.resolve('/* icons */'),
+    MutationObserver: FakeMutationObserver,
+    onChange: presence.change
+  })
+
+  assert.equal(dockPreview.inspect().attached, true)
+  assert.equal(phoneHost.getAttribute('data-dsh-tavern-card-app-session'), 'S-preview')
+  assert.equal(slot.childNodes.includes(phoneHost), true)
+
+  // 2. 点击 ReadStory / 开场白交接：旧 dock 销毁并停放（park）
+  dockPreview.dispose()
+  assert.equal(dockPreview.inspect().attached, false)
+  const parking = document.querySelector('[data-dsh-tavern-card-app-parking]')
+  assert.ok(parking)
+  assert.equal(parking.childNodes.includes(phoneHost), true)
+
+  // 3. 进入正式对局（S-story）：新 dock 收养停放区宿主并更新会话属性与高度
+  const dockStory = h.client.createTavernCardAppDock({
+    document,
+    slot,
+    sessionId: 'S-story',
+    loadIconCss: () => Promise.resolve('/* icons */'),
+    MutationObserver: FakeMutationObserver,
+    onChange: presence.change
+  })
+
+  assert.equal(dockStory.inspect().attached, true)
+  assert.equal(slot.childNodes.includes(phoneHost), true)
+  assert.equal(phoneHost.getAttribute('data-dsh-tavern-card-app-session'), 'S-story')
+  assert.equal(phoneHost.style.height, '620px')
+
+  // 4. 正式对局点击刷新，携带新会话标识派发
+  await dockStory.trigger('刷新')
+  assert.deepEqual(triggered.at(-1), ['S-story', 'script456', '刷新'])
+
+  // 5. 动态 setSessionId 同步
+  dockStory.setSessionId('S-story-next')
+  await dockStory.trigger('刷新')
+  assert.deepEqual(triggered.at(-1), ['S-story-next', 'script456', '刷新'])
+
+  dockStory.dispose()
+  presence.dispose()
+})
+

@@ -475,6 +475,7 @@
 					const ownerId = selectedOwner();
 					if (ownerId) target = records.get(ownerId);
 				}
+				if (!target && current) target = current;
 				if (!target) return Promise.reject(new Error("人物卡脚本尚未运行"));
 				return target.execution.triggerButton(scriptId, name);
 			}

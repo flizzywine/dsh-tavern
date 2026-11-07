@@ -347,7 +347,12 @@
 				const controller = createTavernCardAppDock({ document: document, slot: slotRef.current, sessionId: props.sessionId, onChange: tavernCardAppPresence.change });
 				controllerRef.current = controller;
 				return function () { controllerRef.current = null; controller.dispose(); };
-			}, []);
+			}, [props.sessionId]);
+			React.useEffect(function () {
+				if (controllerRef.current && typeof controllerRef.current.setSessionId === "function") {
+					controllerRef.current.setSessionId(props.sessionId);
+				}
+			}, [props.sessionId]);
 			return React.createElement("section", { className: "dsh-tavern-status-section dsh-tavern-card-app-section", hidden: !presence.visible },
 				React.createElement("div", { className: "dsh-tavern-card-app-head" },
 					React.createElement("div", { className: "dsh-tavern-status-label" }, "人物卡应用"),

@@ -16651,7 +16651,7 @@ window.__ModuleLoader__.load({
                 // Prose highlights belong to the host renderer, even if React mounts
                 // them while a card frame is being initialized.
                 if (owned.has(node) || owners.has(node) || node.hasAttribute?.("data-tavern-retained-frames")
-                    || node.hasAttribute?.("data-dsh-tavern-text-colors")) return;
+                    || node.hasAttribute?.("data-dsh-tavern-text-colors") || (node.id && String(node.id).indexOf("improved-phone-") === 0)) return;
                 owners.set(node, identity);
                 node.setAttribute?.("data-dsh-tavern-host-artifact", "");
                 owned.set(node, { hidden: node.hidden, disabled: node.disabled, body: root === hostDocument.body,
@@ -16865,7 +16865,7 @@ window.__ModuleLoader__.load({
 		function createTavernCardAppDock(options) {
 			const hostDocument = options && options.document || document;
 			const slot = options && options.slot;
-			const sessionId = String(options && options.sessionId || "");
+			let sessionId = String(options && options.sessionId || "");
 			const loadIconCss = options && options.loadIconCss || loadTavernCardIconCss;
 			const notify = options && typeof options.onChange === "function" ? options.onChange : function () {};
 			const triggerScriptButton = options && typeof options.triggerButton === "function"
@@ -16999,7 +16999,8 @@ window.__ModuleLoader__.load({
 			function attach(host) {
 				if (!host || host === attached) return false;
 				const ownerSessionId = host.getAttribute && host.getAttribute(TAVERN_CARD_PHONE_SESSION);
-				if (ownerSessionId && sessionId && ownerSessionId !== sessionId) return false;
+				const isOrphaned = !host.parentElement || Boolean(host.closest && host.closest(TAVERN_CARD_PHONE_PARKING)) || host.parentNode === hostDocument.body;
+				if (ownerSessionId && sessionId && ownerSessionId !== sessionId && !isOrphaned) return false;
 				if (!hasPhoneLayout(host)) { watchCandidate(host); return false; }
 				clearCandidateObserver(host);
 				if (attached) restore();
@@ -17012,6 +17013,7 @@ window.__ModuleLoader__.load({
 				slot.appendChild(host);
 				ensureTavernCardIconFonts(hostDocument);
 				if (!installShadowDependencies(host)) { restore(); return false; }
+				if (host.style && host.style.display === "none") host.style.display = "";
 				host.style.position = "relative";
 				host.style.inset = "auto";
 				host.style.zIndex = "auto";
@@ -17110,7 +17112,7 @@ window.__ModuleLoader__.load({
 			function trigger(buttonName) {
 				const scriptId = attachedScriptId || resolvePhoneScriptId(attached);
 				if (!scriptId) return Promise.reject(new Error("未找到外置手机脚本标识"));
-				const ownerSessionId = (attached && attached.getAttribute && attached.getAttribute(TAVERN_CARD_PHONE_SESSION)) || sessionId;
+				const ownerSessionId = sessionId || (attached && attached.getAttribute && attached.getAttribute(TAVERN_CARD_PHONE_SESSION)) || "";
 				return Promise.resolve(triggerScriptButton(ownerSessionId, scriptId, buttonName));
 			}
 			function open() {
@@ -17156,7 +17158,14 @@ window.__ModuleLoader__.load({
 				if (isPhoneWrapperVisible(attached)) close();
 				else open();
 			}
+			function setSessionId(nextSessionId) {
+				const next = String(nextSessionId || "");
+				if (sessionId === next) return;
+				sessionId = next;
+				if (attached && sessionId && attached.setAttribute) attached.setAttribute(TAVERN_CARD_PHONE_SESSION, sessionId);
+			}
 			return Object.freeze({
+				setSessionId: setSessionId,
 				open: open,
 				close: close,
 				toggle: toggle,
@@ -31014,6 +31023,7 @@ function bindTavernFontZoom(node, win) {
 					const ownerId = selectedOwner();
 					if (ownerId) target = records.get(ownerId);
 				}
+				if (!target && current) target = current;
 				if (!target) return Promise.reject(new Error("人物卡脚本尚未运行"));
 				return target.execution.triggerButton(scriptId, name);
 			}
@@ -51839,7 +51849,12 @@ function createTurnRailFilter(root, options) {
 				const controller = createTavernCardAppDock({ document: document, slot: slotRef.current, sessionId: props.sessionId, onChange: tavernCardAppPresence.change });
 				controllerRef.current = controller;
 				return function () { controllerRef.current = null; controller.dispose(); };
-			}, []);
+			}, [props.sessionId]);
+			React.useEffect(function () {
+				if (controllerRef.current && typeof controllerRef.current.setSessionId === "function") {
+					controllerRef.current.setSessionId(props.sessionId);
+				}
+			}, [props.sessionId]);
 			return React.createElement("section", { className: "dsh-tavern-status-section dsh-tavern-card-app-section", hidden: !presence.visible },
 				React.createElement("div", { className: "dsh-tavern-card-app-head" },
 					React.createElement("div", { className: "dsh-tavern-status-label" }, "人物卡应用"),
