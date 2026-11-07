@@ -14,12 +14,8 @@ const pointer=parts=>parts.length?'/'+parts.map(part=>String(part).replace(/~/g,
  * their exact shape. An active target is never replaced by a stale backup.
  */
 export function createLegacyCompatibleStorage({dataRoot,onIO}){
- const promotion=createDurableFilePromotion({writeLockStaleMs:Number.MAX_SAFE_INTEGER}),pageStores=new Map()
- function pages(id){
-  marker(id)
-  if(!pageStores.has(id))pageStores.set(id,createConversationPageStore({root:path.join(dataRoot,'compatible-conversations',id),onIO}))
-  return pageStores.get(id)
- }
+ const promotion=createDurableFilePromotion({writeLockStaleMs:Number.MAX_SAFE_INTEGER})
+ function pages(id){marker(id);return createConversationPageStore({root:path.join(dataRoot,'compatible-conversations',id),onIO})}
  function marker(id){
   if(typeof id!=='string'||!id||id==='.'||id==='..'||/[\\/\0]/.test(id))throw Error('Invalid chat id')
   return path.join(dataRoot,'chats',id,'storage-format.json')

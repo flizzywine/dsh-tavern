@@ -51,13 +51,7 @@ export function createDurableFilePromotion(options = {}) {
     if (!Number.isFinite(createdAt) || createdAt <= 0) {
       try { createdAt = Number((await stat(lockPath)).mtimeMs) } catch { return false }
     }
-    // A live, well-identified writer may hold a conversation lock through a
-    // slow migration. A lock observed before its owner JSON was written still
-    // needs the ordinary bounded grace period, or a crash in that gap would
-    // leave a permanently conflicting empty file when the configured limit is
-    // Number.MAX_SAFE_INTEGER.
-    const effectiveStaleMs = owner === null ? Math.min(writeLockStaleMs, WRITE_LOCK_STALE_MS) : writeLockStaleMs
-    return Date.now() - createdAt > effectiveStaleMs
+    return Date.now() - createdAt > writeLockStaleMs
   }
 
   async function withWriteLock(target, operation) {

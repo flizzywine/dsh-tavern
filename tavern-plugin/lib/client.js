@@ -52391,7 +52391,7 @@ function createTurnRailFilter(root, options) {
             const stage = {sessions:"正在检查会话日志迁移…",reading:"正在读取剧情与变量…",converting:"正在迁移存储并读回存档…",verifying:"正在校验剧情、变量和历史版本…"}[state?.stage] || "正在迁移…";
             return h("section", {className:"dsh-tavern-status-section", "aria-label":"存档迁移"},
                 h("div", {className:"dsh-tavern-status-label"}, "存档迁移"),
-                h("div", {className:"dsh-tavern-status-empty"}, "打开本局时自动统一会话日志与剧情存储，保留正文、变量、分支和全部历史版本。旧文件保留原样；后续进度只写入新版存档。"),
+                h("div", {className:"dsh-tavern-status-empty"}, "统一迁移本局的会话日志与剧情存储，保留正文、变量、分支和历史版本。旧文件保留原样；迁移后的新进度写入新版存档。"),
                 busy ? h("div", {role:"status"}, stage + " 大存档可能需要较长时间，暂时不要关闭或重启酒馆。") : null,
                 error || state?.phase === "failed" ? h("div", {className:"dsh-card-error",role:"alert"}, error || state.error) : null,
                 state?.sessions?.warning && state.phase !== "failed" ? h("div", {className:"dsh-tavern-status-empty",role:"note"}, state.sessions.warning) : null,

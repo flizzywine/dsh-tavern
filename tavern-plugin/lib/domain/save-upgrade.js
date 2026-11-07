@@ -7,16 +7,12 @@ export const prepareSaveUpgrade = migrateInstalledSessions
 export function createSaveUpgrade({ store, inspectSessions, detachSessions, assertIdle = () => {}, notify = () => {} }) {
   const jobs = new Map(), pending = new Set()
   async function inspect(id) {
-    if (!await store.version(id)) throw new Error('找不到当前存档')
-    const chat = await store.readSessionState(id)
-    if (!chat) throw new Error('找不到当前存档')
-    // readSessionState is also the automatic storage-cutover admission. Read the
-    // stamp afterwards so this same status call observes the completed migration.
     const version = await store.version(id)
     if (!version) throw new Error('找不到当前存档')
-    const retention = await store.readRetentionHeader?.(id)
+    const chat = await store.readSessionState(id)
+    if (!chat) throw new Error('找不到当前存档')
     const sessions = await inspectSessions(chat)
-    return { chat, sessions, storage: version.startsWith('native:') && retention?.legacyInitialRevision === undefined ? 'current' : 'legacy' }
+    return { chat, sessions, storage: version.startsWith('native:') ? 'current' : 'legacy' }
   }
   async function status(id) {
     const { sessions, storage } = await inspect(id)

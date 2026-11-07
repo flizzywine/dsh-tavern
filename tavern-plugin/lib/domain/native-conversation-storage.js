@@ -1,5 +1,4 @@
 import {createHash} from 'node:crypto'
-import {isDeepStrictEqual} from 'node:util'
 import {ScenePrefixHash} from './scene-prefix-hash.js'
 import {projectTavernHelperContext,projectTavernHelperMessage} from './tavern-helper-context.js'
 import {projectSessionMessage,projectChatSessionState,projectSceneImageState,projectDisplayRuntimeState} from './chat-session-state.js'
@@ -94,23 +93,13 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   return view
  }
  async function version(id){const view=await head(id);return view?'native:'+view.snapshotCursor.snapshotId:null}
- async function migrationStatus(id){
-  const view=await head(id)
-  if(!view)return {status:'missing'}
-  const settings=view.metadata.settings??{}
-  return Object.hasOwn(settings,'legacyInitialRevision')?{status:'legacy-history',legacyInitialRevision:settings.legacyInitialRevision}:{status:'native'}
- }
  async function readRevisionMetadata(id){
   const view=await head(id)
   return view?{revision:view.state.chatRevision,messageCount:view.messageCount,stamp:'native:'+view.snapshotCursor.snapshotId}:null
  }
- // A migration initial Chat may predate the `_storageRevision` field; the
- // missing revision normalizes to the head's own revision 0.
- function result(chat,view){return {chat,revision:revisionOf(chat._storageRevision),native:{view},legacy:false,snapshot:null,open:null,openFrameCount:0,openInvalidLine:0}}
+ function result(chat,view){return {chat,revision:chat._storageRevision,native:{view},legacy:false,snapshot:null,open:null,openFrameCount:0,openInvalidLine:0}}
  async function headAtRevision(id,revision=Infinity){
-  // Revision 0 is a legitimate native migration initial revision; every other
-  // archive simply has no pointer for it and fails to resolve one.
-  if(revision!==Infinity&&(!Number.isSafeInteger(revision)||revision<0))throw failure('DSH_TAVERN_REVISION_NOT_FOUND','Invalid native Chat revision')
+  if(revision!==Infinity&&(!Number.isSafeInteger(revision)||revision<1))throw failure('DSH_TAVERN_REVISION_NOT_FOUND','Invalid native Chat revision')
   let view=await head(id)
   if(!view)return null
   if(revision!==Infinity&&revision<view.metadata.settings?.legacyInitialRevision)return null
@@ -140,7 +129,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   }
   chat.messages=messages
   onIO?.({kind:'phase',name:'chat.native.messages',chatId:id,durationMs:performance.now()-historyStarted})
-  if(chat.id!==id||revisionOf(chat._storageRevision)!==view.state.chatRevision)throw failure('CHAT_STORAGE_DAMAGED','Native Chat revision mismatch')
+  if(chat.id!==id||chat._storageRevision!==view.state.chatRevision)throw failure('CHAT_STORAGE_DAMAGED','Native Chat revision mismatch')
   return result(chat,view)
  }
  async function selectedHeader(id,view,fields){
@@ -655,76 +644,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   return {position:view.state.worldMessage??null,swipe:view.state.worldSwipe,messageUid:view.state.worldMessageUid??null,
    world:await tree(id).get(view.state.worldRef),chatRevision:view.state.chatRevision,worldRevision:view.state.worldRevision}
  }
- // Old Chat revisions gained a native head each when a migration imports its
- // full history. Blocks are durable and read back (id, revision, messages,
- // header) before the caller's single head commit, so a rejected import never
- // rewrites head.json and only leaves unreachable blocks behind.
- const revisionOf=value=>value===undefined?0:value
- const NATIVE_METADATA={format:'conversation-state-v2',settings:{runtimeLayout:1}}
- async function verifyRevision(id,revision,snapshotId,chat){
-  const view=await head(id,snapshotId)
-  if(!view)throw failure('DSH_TAVERN_HISTORY_INVALID','Historical revision is unreadable: '+revision)
-  const restored=(await read(id,revision,snapshotId)).chat
-  if(restored.id!==id||revisionOf(restored._storageRevision)!==revision)throw failure('DSH_TAVERN_HISTORY_INVALID','Historical revision mismatch: '+revision)
-  if(!isDeepStrictEqual(restored.messages,jsonValue(chat.messages??[])))throw failure('DSH_TAVERN_HISTORY_INVALID','Historical messages mismatch: '+revision)
-  const expected=chat._storageRevision===undefined?chat:{...chat,_storageRevision:revision}
-  if(!isDeepStrictEqual(jsonValue(header(restored)),jsonValue(header(expected))))throw failure('DSH_TAVERN_HISTORY_INVALID','Historical header mismatch: '+revision)
-  return restored
- }
- async function stageRevision(id,revision,chat,view){
-  const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:(values,refs)=>pages.writeRecords(id,values,refs)})
-  const t=batch.tree,rows=[]
-  for(const row of chat.messages??[])rows.push(await encode(id,row,undefined,undefined,t))
-  const encoded=new Map(rows.map((row,index)=>[index,row]))
-  const sceneIndexRef=await updateSceneIndex(id,null,encoded,rows.length,0,t,new Map((chat.messages??[]).map((row,index)=>[index,row])))
-  for(const [index,row] of encoded)rows[index]=row
-  const chatHeaderRef=await t.create(jsonValue(header(chat)))
-  const selected=currentWorld(chat),worldRef=await t.create(jsonValue(selected.world))
-  await batch.flush([sceneIndexRef,chatHeaderRef,worldRef,...rows.map(row=>row.runtimeRef)])
-  const staged=await pages.stageHead(id,{revision:Math.max(1,revision),messages:rows,metadata:{...NATIVE_METADATA},state:{
-   ...(view?.state.branchId?{branchId:view.state.branchId}:{}),storyRevision:0,worldRevision:0,lifecycleRevision:0,activeSettlementId:null,
-   displayIndexRevision:revision,sceneIndexRevision:revision,sceneIndexRef,chatHeaderRef,chatRevision:revision,
-   worldMessage:selected.position,worldMessageUid:selected.messageUid,worldSwipe:selected.swipe,worldRef}})
-  return staged.snapshotId
- }
- async function stageHistory(id,history,limit,view){
-  if(history===undefined)return null
-  if(!Array.isArray(history))throw failure('DSH_TAVERN_HISTORY_INVALID','History must be an array of Chats')
-  const entries=history.map(chat=>{
-   if(!chat||typeof chat!=='object'||Array.isArray(chat))throw failure('DSH_TAVERN_HISTORY_INVALID','Invalid historical Chat')
-   if(chat.id!==id)throw failure('DSH_TAVERN_HISTORY_INVALID','Historical Chat belongs to another conversation')
-   const revision=revisionOf(chat._storageRevision)
-   if(!Number.isSafeInteger(revision)||revision<0)throw failure('DSH_TAVERN_HISTORY_INVALID','Invalid historical revision: '+String(chat._storageRevision))
-   if(revision>=limit)throw failure('DSH_TAVERN_HISTORY_INVALID','Historical revision must precede '+limit+': '+revision)
-   return {revision,chat}
-  })
-  const seen=new Set
-  for(const {revision} of entries){if(seen.has(revision))throw failure('DSH_TAVERN_HISTORY_INVALID','Duplicate historical revision: '+revision);seen.add(revision)}
-  entries.sort((left,right)=>left.revision-right.revision)
-  const records=[],chats=[],revisions=[]
-  let reused=0
-  for(const {revision,chat} of entries){
-   const key='chat-revision:'+revision
-   let snapshotId=view?(await pages.readEntries(id,[key],{snapshotId:view.snapshotCursor.snapshotId}))?.[key]:undefined
-   let restored
-   // An earlier import of this revision is kept when it still restores the same
-   // Chat; otherwise the index is repointed at a freshly staged head.
-   if(snapshotId)try{restored=await verifyRevision(id,revision,snapshotId,chat)}catch{restored=undefined}
-   if(restored)reused++
-   else{
-    snapshotId=await stageRevision(id,revision,chat,view)
-    restored=await verifyRevision(id,revision,snapshotId,chat)
-    records.push([key,snapshotId])
-   }
-   chats.push(restored);revisions.push(revision)
-  }
-  return {records,chats,revisions,reused}
- }
- async function create(id,chat,assertCurrent,{migration,verifyBeforePublish,worldSelection,history}={}){
-  const currentRevision=revisionOf(chat._storageRevision)
-  if(history!==undefined&&(!Number.isSafeInteger(currentRevision)||currentRevision<0))throw failure('DSH_TAVERN_HISTORY_INVALID','Current Chat has no valid storage revision')
-  // Stage (and verify) every historical Chat before the current head exists.
-  const staged=history===undefined?null:await stageHistory(id,history,currentRevision,null)
+ async function create(id,chat,assertCurrent,{migration,verifyBeforePublish,worldSelection}={}){
   const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:(values,refs)=>pages.writeRecords(id,values,refs)})
   const t=batch.tree,rows=[],selected=worldSelection?.selected??currentWorld(chat)
   if(selected.position!==null&&!migration)ensureMessageUid(chat.messages[selected.position],selected.position,selected.messageUid)
@@ -735,44 +655,9 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const chatHeaderRef=await t.create(jsonValue(header(chat)))
   assertCurrent?.()
   await batch.flush([sceneIndexRef,chatHeaderRef,...rows.map(row=>row.runtimeRef)])
-  // The initial head is published atomically, including runtime references and
-  // the per-revision pointers of every imported historical head. A full import
-  // keeps no legacy initial marker: earlier revisions are native now.
-  await domain.create(id,{world:selected.world,messages:rows,metadata:{runtimeLayout:1,...(history!==undefined?{historyMigration:1}:migration?{legacyInitialRevision:currentRevision}:{})},runtimeState:{displayIndexRevision:currentRevision,sceneIndexRevision:currentRevision,sceneIndexRef,chatHeaderRef,chatRevision:currentRevision,worldMessage:selected.position,worldMessageUid:selected.messageUid,worldSwipe:selected.swipe}},{
-   assertCurrent,
-   verifyBeforePublish:verifyBeforePublish?async snapshotId=>verifyBeforePublish((await read(id,Infinity,snapshotId)).chat,staged?.chats):undefined,
-   ...(staged?.records.length?{records:staged.records}:{})})
+  // The initial head is published atomically, including runtime references.
+  await domain.create(id,{world:selected.world,messages:rows,metadata:{runtimeLayout:1,...(migration?{legacyInitialRevision:chat._storageRevision}: {})},runtimeState:{displayIndexRevision:chat._storageRevision,sceneIndexRevision:chat._storageRevision,sceneIndexRef,chatHeaderRef,chatRevision:chat._storageRevision,worldMessage:selected.position,worldMessageUid:selected.messageUid,worldSwipe:selected.swipe}},{assertCurrent,verifyBeforePublish:verifyBeforePublish?async snapshotId=>verifyBeforePublish((await read(id,Infinity,snapshotId)).chat):undefined})
   return result(chat,await head(id))
- }
- // A partially migrated archive kept earlier revisions in the old store. Import
- // them once: one native head per revision, then the pointers and the cleared
- // legacyInitialRevision are published in the SAME head commit. Messages,
- // header, world and selection are untouched, and a repeated import verifies
- // and reuses every head it already published.
- async function importHistory(id,history,{assertCurrent,verifyBeforePublish}={}){
-  const view=await head(id)
-  if(!view)return null
-  if(!Array.isArray(history))throw failure('DSH_TAVERN_HISTORY_INVALID','History must be an array of Chats')
-  const settings={...(view.metadata.settings??{})},legacy=settings.legacyInitialRevision
-  const marked=Object.hasOwn(settings,'legacyInitialRevision')
-  const limit=Number.isSafeInteger(legacy)&&legacy>=0?legacy:view.state.chatRevision
-  const staged=await stageHistory(id,history,limit,view)
-  assertCurrent?.()
-  let metadata
-  if(marked){
-   delete settings.legacyInitialRevision
-   metadata={...view.metadata,settings}
-  }
-  if(!staged.records.length&&metadata===undefined){
-   if(verifyBeforePublish)await verifyBeforePublish((await read(id)).chat,staged.chats)
-   return {revision:view.state.chatRevision,revisions:staged.revisions,staged:0,reused:staged.reused}
-  }
-  // The caller's pre-publish check reads the published snapshot: its message
-  // tree is unchanged and only the keyed records and metadata moved.
-  await pages.commit(id,{expectedRevision:view.revision,...(metadata?{metadata}:{}),records:staged.records},{
-   assertCurrent,
-   verifyBeforePublish:verifyBeforePublish?async snapshotId=>verifyBeforePublish((await read(id,Infinity,snapshotId)).chat,staged.chats):undefined})
-  return {revision:view.state.chatRevision,revisions:staged.revisions,staged:staged.records.length,reused:staged.reused}
  }
  async function write(id,stored,next,changes,assertCurrent,worldSelection){
   const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:(values,refs)=>pages.writeRecords(id,values,refs)})
@@ -911,5 +796,5 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  }
  // Contiguous packs in read order for a fragmented current head; no lock while reading.
  async function relayout(id,options){return pages.relayout(id,options)}
- return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readWindow,readWorldSnapshot,openSnapshot,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,migrationStatus,create,importHistory,write})
+ return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readWindow,readWorldSnapshot,openSnapshot,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
 }

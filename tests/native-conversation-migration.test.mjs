@@ -1,12 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtemp,rm,readFile,readdir,writeFile,appendFile} from 'node:fs/promises'
+import {mkdtemp,rm,readFile,readdir,writeFile} from 'node:fs/promises'
 import {writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createChatJournalStore} from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import {createNativeConversationStorage} from '../tavern-plugin/lib/domain/native-conversation-storage.js'
-import {createLegacyCompatibleStorage} from '../tavern-plugin/lib/domain/legacy-compatible-storage.js'
 import {migrateConversationStorage} from '../bin/migrate-conversation-storage.mjs'
 
 for(const source of ['journal','compatible','flat'])test(`${source}: verified native cutover preserves old revisions, opaque fields and later writes`,async t=>{
@@ -16,8 +15,7 @@ for(const source of ['journal','compatible','flat'])test(`${source}: verified na
  await store.update('old',()=>first)
  await store.patch('old',1,[{op:'set',path:['_storageRevision'],value:2},{op:'set',path:['messages',0,'variables',0,'stat_data','gold'],value:2}])
  if(source==='compatible'){
-  const current=await store.read('old')
-  await createLegacyCompatibleStorage({dataRoot}).migrate('old',current,'compatible-fixture',async()=>{})
+  await store.migrateCompatibility('old',{force:true})
   await store.patch('old',2,[{op:'set',path:['_storageRevision'],value:3},{op:'set',path:['unknown','new'],value:true}])
  }
  const before=await store.read('old'),revision=before._storageRevision
@@ -34,9 +32,6 @@ for(const source of ['journal','compatible','flat'])test(`${source}: verified na
  for(const [file,bytes] of Object.entries(preserved))assert.deepEqual(await readFile(join(dataRoot,'chats',file)),bytes)
  assert.deepEqual(await reopened.read('old'),before)
  if(source!=='flat')assert.deepEqual(await reopened.readRevision('old',1),first)
- const native = createNativeConversationStorage({dataRoot})
- if(source!=='flat')assert.deepEqual((await native.read('old',1)).chat,first,'old revisions must be native, not legacy fallbacks')
- assert.equal((await native.readRetentionHeader('old')).legacyInitialRevision,undefined)
  assert.equal((await reopened.readWindow('old',{limit:1})).chat.messages.length,1)
  assert.equal((await reopened.readRecentSummaries('old',1,{revision})).revision,revision)
  await reopened.patch('old',revision,[{op:'set',path:['_storageRevision'],value:revision+1},{op:'set',path:['messages',0,'variables',0,'stat_data','gold'],value:9}])
@@ -46,6 +41,7 @@ for(const source of ['journal','compatible','flat'])test(`${source}: verified na
  assert.deepEqual(await reopened.readRevision('old',revision),before)
  if(source!=='flat')assert.deepEqual(await reopened.readRevision('old',1),first)
  assert.equal((await reopened.upgradeStorage('old')).alreadyActive,true)
+ await assert.rejects(reopened.restoreLegacy('old'),/Native conversations/)
  assert.ok((await readdir(join(dataRoot,'chats','old'))).includes('head.json'))
 })
 
@@ -93,43 +89,4 @@ for(const separate of [false,true])test(`online migration rejects busy games and
  assert.equal((await reopened.read('old')).variables.gold,2)
  assert.deepEqual(await reopened.readRevision('old',1),chat)
  assert.ok((await reopened.version('old')).startsWith('native:'))
-})
-
-test('partial native cutover resumes old revisions after newer native writes',async t=>{
- const dataRoot=await mkdtemp(join(tmpdir(),'native-migration-resume-'));t.after(()=>rm(dataRoot,{recursive:true,force:true}))
- const legacy=createChatJournalStore({dataRoot})
- const first={id:'old',sessionId:'session',_storageRevision:1,messages:[{role:'assistant',turn:9,text:'first',nativeAnchor:{formatVersion:4,turn:20,input:1,reply:2}}]}
- await legacy.update('old',()=>first)
- await legacy.patch('old',1,[{op:'set',path:['_storageRevision'],value:2},{op:'set',path:['messages',0,'text'],value:'second'}])
- const second=await legacy.read('old')
- // Reproduce the previous release: only the current Chat became native.
- await createNativeConversationStorage({dataRoot}).create('old',second,undefined,{migration:true})
- const store=createChatJournalStore({dataRoot})
- await store.patch('old',2,[{op:'set',path:['_storageRevision'],value:3},{op:'set',path:['messages',0,'text'],value:'new native progress'}])
- const current=await store.read('old')
- const result=await store.upgradeStorage('old')
- assert.equal(result.alreadyActive,true)
- assert.equal(result.historyImported,1)
- const native=createNativeConversationStorage({dataRoot})
- assert.deepEqual((await native.read('old',1)).chat,first)
- assert.deepEqual((await native.read('old',2)).chat,second)
- assert.deepEqual((await native.read('old',3)).chat,current)
- assert.deepEqual(current.messages[0].nativeAnchor,second.messages[0].nativeAnchor,'storage migration keeps story/host turn coordinates opaque')
- assert.equal((await native.readRetentionHeader('old')).legacyInitialRevision,undefined)
- assert.equal((await store.upgradeStorage('old')).historyImported,0)
-})
-
-test('legacy writes newer than a partial native cutover are reported as divergent',async t=>{
- const dataRoot=await mkdtemp(join(tmpdir(),'native-migration-diverged-'));t.after(()=>rm(dataRoot,{recursive:true,force:true}))
- const legacy=createChatJournalStore({dataRoot}),first={id:'old',_storageRevision:1,messages:[{role:'assistant',text:'first'}]}
- await legacy.update('old',()=>first)
- await legacy.patch('old',1,[{op:'set',path:['_storageRevision'],value:2},{op:'set',path:['messages',0,'text'],value:'second'}])
- const current=await legacy.read('old'),native=createNativeConversationStorage({dataRoot})
- await native.create('old',current,undefined,{migration:true})
- const frame={schemaVersion:1,chatId:'old',baseRevision:2,revision:3,timestamp:Date.now(),source:'older-release',changes:[{op:'set',path:['_storageRevision'],value:3},{op:'set',path:['messages',0,'text'],value:'old branch progress'}]}
- await appendFile(join(dataRoot,'chats','old','journals','000000000002-open.jsonl'),JSON.stringify(frame)+'\n')
- await assert.rejects(legacy.upgradeStorage('old'),{code:'DSH_TAVERN_LEGACY_DIVERGED'})
- assert.equal((await native.migrationStatus('old')).status,'legacy-history')
- assert.deepEqual((await native.read('old',2)).chat,current)
- assert.equal(await native.read('old',1),null,'failed resume does not publish a partial history index')
 })

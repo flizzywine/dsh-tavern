@@ -34,11 +34,8 @@ export function createConversationState({store}){
   let runtime={}
   if(value.runtimeState!==undefined){
    const r=value.runtimeState
-   // A migration initial Chat can legitimately be legacy revision 0; every
-   // other runtime conversation keeps the positive revision contract.
-   const initialOnly=value.metadata?.legacyInitialRevision===0||value.metadata?.historyMigration===1
    if(value.metadata?.runtimeLayout!==1||!object(r)||!/^[a-f0-9]{64}$/.test(r.chatHeaderRef)
-     ||!Number.isSafeInteger(r.chatRevision)||r.chatRevision<0||(r.chatRevision===0?!initialOnly:r.chatRevision<1)
+     ||!Number.isSafeInteger(r.chatRevision)||r.chatRevision<1
      ||!(r.worldMessage===null||Number.isSafeInteger(r.worldMessage)&&r.worldMessage>=0)
      ||!(r.worldMessageUid===undefined||r.worldMessageUid===null||typeof r.worldMessageUid==='string'&&r.worldMessageUid.length>0)
      ||!Number.isSafeInteger(r.worldSwipe)||r.worldSwipe<0)throw error('CONVERSATION_INPUT','Invalid runtime state')

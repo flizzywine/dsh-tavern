@@ -211,10 +211,7 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
   for(const [slot,entries] of groups)children[slot]=await putEntries(dir,read,children[slot],entries,depth+1,write)
   return write({kind:'entries',children})
  }
- // `records` pins already-durable immutable heads (e.g. imported historical
- // revisions) in the same keyed-record index the first head publishes, so no
- // pointer is ever readable without the blocks it names.
- async function create(id,input,{assertCurrent,verifyBeforePublish,records}={}){
+ async function create(id,input,{assertCurrent,verifyBeforePublish}={}){
   const dir=directory(id),value=copy(input)
   if(!record(value.state)||!Array.isArray(value.messages??[])||!(value.messages??[]).every(record))throw Error('Invalid initial conversation')
   let result
@@ -223,16 +220,6 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
    const messages=value.messages??[],tree=await build(dir,messages)
    const head={kind:'head',format:FORMAT,id,revision:1,count:messages.length,...tree,
     stateId:await writeBlock(dir,{kind:'state',value:value.state}),metadataId:await writeBlock(dir,{kind:'metadata',value:value.metadata??{}})}
-   if(records!==undefined){
-    if(!Array.isArray(records))throw Error('Invalid keyed records')
-    const updates=new Map()
-    for(const entry of records){
-     if(!Array.isArray(entry)||entry.length!==2)throw Error('Invalid keyed record')
-     const [key,payload]=entry,route=recordKey(key)
-     updates.set(key,{key,valueRef:await writeBlock(dir,{kind:'record',value:payload}),route})
-    }
-    if(updates.size)head.recordRoot=await putEntries(dir,async()=>{throw Error('Invalid record index')},null,[...updates.values()],0,target=>writeBlock(dir,target))
-   }
    const headId=await writeBlock(dir,head)
    result={revision:1,snapshotId:headId}
    await verifyBeforePublish?.(headId)
@@ -241,20 +228,7 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
   })
   return result
  }
- // Build one immutable head for a historical revision without publishing it.
- // Its blocks are durable when this returns; the caller names the head in its
- // own keyed-record commit, so a rejected import never rewrites head.json.
- async function stageHead(id,input){
-  const dir=directory(id),value=copy(input)
-  if(!record(value.state)||!Array.isArray(value.messages)||!value.messages.every(record)
-    ||!integer(value.revision,1))throw Error('Invalid staged conversation')
-  const tree=await build(dir,value.messages)
-  const head={kind:'head',format:FORMAT,id,revision:value.revision,count:value.messages.length,...tree,
-   stateId:await writeBlock(dir,{kind:'state',value:value.state}),metadataId:await writeBlock(dir,{kind:'metadata',value:value.metadata??{}})}
-  const headId=await writeBlock(dir,head)
-  return {revision:value.revision,snapshotId:headId}
- }
- async function commit(id,input,{assertCurrent,verifyBeforePublish}={}){
+ async function commit(id,input,{assertCurrent}={}){
   const dir=directory(id),change=copy(input),diskRead=reader(dir),pending=new Map()
   // References depend on content, not write order. Build the new immutable graph
   // in memory, then durably flush independent blocks before publishing its head.
@@ -315,9 +289,6 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
    const headId=await write(next)
    result={revision:next.revision,snapshotId:headId}
    await flush()
-   // Blocks of the next head are durable here, so the caller may read the
-   // pinned snapshot before this pointer becomes the active head.
-   await verifyBeforePublish?.(headId)
    assertCurrent?.()
    return JSON.stringify({format:POINTER_FORMAT,headId})
   })
@@ -811,5 +782,5 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
   result.relinkMs=Math.round(performance.now()-phase)
   return result
  }
- return Object.freeze({create,commit,readHead,openConversation,readHistoryPage,readState,writeRecord,writeRecords,readRecord,readEntries,sweep,pruneEntries,relayout,stageHead})
+ return Object.freeze({create,commit,readHead,openConversation,readHistoryPage,readState,writeRecord,writeRecords,readRecord,readEntries,sweep,pruneEntries,relayout})
 }
