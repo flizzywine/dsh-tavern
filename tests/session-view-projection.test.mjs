@@ -35,6 +35,23 @@ test('cold bounded view preserves plugin output without replaying output regexes
   assert.equal(ordinary.replyProjections[0].text, '已处理再次处理正文')
 })
 
+test('cold bounded story reads keep streaming placeholders distinct from committed rows', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'story-stream-placeholder-view-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const f = projectionFixture()
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  await persistence.write({ ...f.chat, _storageRevision: undefined, messages: [f.chat.messages[0],
+    { role: 'user', text: '继续', placeholder: true },
+    { role: 'assistant', turn: 2, text: '', sourceText: '', displayText: '', displayMode: 'html', native: true, placeholder: true }
+  ] })
+  // A cold native page contains only sessionViewMessageFields. Dropping placeholder
+  // makes the story list mistake the live row for a commit and latch its stream closed.
+  const cold = createChatJournalStore({ dataRoot: root })
+  const window = await cold.readWindow(f.chat.id, { limit: 2, requirePartial: true, messageFields: sessionViewMessageFields })
+  assert.equal(window.chat.messages[0].placeholder, true, '正在生成的玩家输入标记必须保留')
+  assert.equal(window.chat.messages[1].placeholder, true, '流式正文占位标记必须保留')
+})
+
 test('display round order follows assistant floors without rewriting sparse stable turns', async () => {
   const f = projectionFixture()
   const messages = [
