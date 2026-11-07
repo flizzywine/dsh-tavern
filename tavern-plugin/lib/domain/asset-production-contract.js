@@ -18,7 +18,7 @@ const variables = new Set(['figureName','outfitName','identityAppearance','outfi
 // the finish of a whole-image template is a style preset, the one source of that
 // text. A template keeps `Finish: {{style}}` and, after its own sentence on which reference's line style comes first, the
 // preset's `{{styleScope}}`; 'none' (不指定) sends no style text at all — the whole `{{style}}` line is left out. Local edits
-// (mouth, blink, edit) always match their source and keep their fixed text. 'clean' renders the former template bytes.
+// (mouth, blink, edit) take the preset like the others; their edit-protection line (match the source, preserve every other pixel) is a separate line, so 不指定 keeps it. 'clean' renders the former template bytes.
 export const ASSET_STYLE_DEFAULT = 'clean'
 const STYLE_SUBJECTS = {background:'anime background art', cg:'anime illustration', prop:'anime illustration', 'skin-art':'game UI art'}
 // The subject's own rendered detail (a character's eyes and hair; a UI part's ornament and materials).
