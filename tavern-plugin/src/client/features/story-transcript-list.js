@@ -25,7 +25,7 @@ function TavernStoryMarkdown(props) {
 
 // 故事视图有两种来源：故事读取（存档投影，带生成/结算状态）与实时视图。取状态
 // 修订号更新的一份：重新生成开始时存档视图先看到标记，实时视图可能还停在旧修订。
-function tavernFreshestStoryView(live, stored) {
+function tavernFreshestStoryView(live, stored, running, transcript) {
 	if (!live) return stored || null
 	if (!stored) return live
 	const liveRevision = Number(live.tavernHelper && live.tavernHelper.stateRevision)
@@ -33,6 +33,24 @@ function tavernFreshestStoryView(live, stored) {
 	if (Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storedRevision) && liveRevision !== storedRevision) {
 		return liveRevision > storedRevision ? live : stored
 	}
+	// Helper revision 不随 regen-begin 前进；同 revision 时宿主仍在运行、且故事读取
+	// 已看到新一轮标记，就不能让实时缓存里的上一次失败状态盖住当前流式正文。
+	if (running === true) {
+		if (stored.regenInProgress === true && live.regenInProgress !== true) return stored
+		if (live.regenInProgress === true && stored.regenInProgress !== true) return live
+	}
+	// 同一 UID 的正式正文已经落盘，是提交成功的直接证据。迟到的失败视图即使
+	// revision 与故事读取相同，也不能继续过滤这行；失败时占位/缺失行仍按原规则撤下。
+	function hasCommittedTarget(view) {
+		const uid = view && view.failedRegenerationMessageUid
+		return typeof uid === 'string' && uid !== '' && Boolean(transcript && Array.isArray(transcript.messages) && transcript.messages.some(function (entry) {
+			return entry && entry.messageUid === uid && entry.message && entry.message.role === 'assistant' && entry.message.placeholder !== true
+		}))
+	}
+	if (live.regenInProgress !== true && hasCommittedTarget(live) && stored.regenInProgress !== true
+		&& stored.failedRegenerationMessageUid !== live.failedRegenerationMessageUid) return stored
+	if (stored.regenInProgress !== true && hasCommittedTarget(stored) && live.regenInProgress !== true
+		&& live.failedRegenerationMessageUid !== stored.failedRegenerationMessageUid) return live
 	return live
 }
 
@@ -252,7 +270,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		const projectionView = liveView && Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision) && liveRevision >= storyRevision ? liveView : props.view
 		// 两路视图都可能更新，先取最新的一份。失败视图会使未提交的流式缓存立即失效，
 		// 不能让旧 liveView 再把候选正文投到别的楼层。
-		const regenView = tavernFreshestStoryView(liveView, props.view)
+		const regenView = tavernFreshestStoryView(liveView, props.view, props.running, transcript)
 		const failedRegenerationTarget = regenView && regenView.regenInProgress !== true
 			&& typeof regenView.failedRegenerationMessageUid === 'string' && regenView.failedRegenerationMessageUid !== ''
 			? regenView.failedRegenerationMessageUid : null

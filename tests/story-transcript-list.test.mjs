@@ -274,6 +274,50 @@ test('重生成失败后旧正文与未提交候选都不回显，其它楼层�
 	assert.ok(!dom.window.document.body.textContent.includes('未提交候选'))
 })
 
+test('同 revision 的上次失败实时视图不会盖住新一轮流式重生成', async t => {
+	const page = createPage(t)
+	const { dom, context } = page
+	const targetUid = 'legacy-target'
+	const transcript = story([
+		{ role: 'assistant', turn: 1, text: '开场', messageUid: 'uid-opening' },
+		{ role: 'user', text: 'ok' },
+		{ role: 'assistant', turn: 2, text: '', messageUid: targetUid, placeholder: true, regenerationDiscarded: true }
+	], 71)
+	const storedView = { mode: 'story', regenInProgress: true, streamingMessageUid: targetUid,
+		latestAssistantTurn: 2, tavernHelper: { stateRevision: 71 } }
+	let staleLiveView = { mode: 'story', regenInProgress: false, failedRegenerationMessageUid: targetUid,
+		latestAssistantTurn: 2, tavernHelper: { stateRevision: 71 } }
+	context.useLiveTavernView = () => ({ view: staleLiveView })
+	context.liveTavernView = { getSnapshot: () => ({ view: staleLiveView }) }
+	const feature = context.createTavernStoryTranscriptFeature()
+	const element = (value, partial, running, view) => React.createElement(feature.StoryTranscriptList, {
+		transcript: value, sessionId: 's-retry-after-failure', running, partial, view
+	})
+	const root = await mount(page, element(transcript,
+		{ turn: 18, blocks: [{ kind: 'text', text: '新一轮流式正文' }] }, true, storedView))
+	const assistants = [...dom.window.document.querySelectorAll('[data-story-row][data-role="assistant"]')]
+	assert.equal(assistants.length, 2, '当前重生成目标行不得再按上次失败状态过滤')
+	assert.ok(assistants[0].textContent.includes('开场'))
+	assert.ok(assistants[1].textContent.includes('新一轮流式正文'))
+	assert.ok(assistants[1].textContent.includes('正在生成'))
+	assert.equal(assistants[1].getAttribute('data-row-key'), 'turn:2')
+
+	// 提交后故事读取已清掉失败标记，同一 UID 的正式正文也已落盘；迟到的实时
+	// 失败视图仍带旧标记时，不得再把这行正式正文过滤掉。
+	const committed = story([
+		{ role: 'assistant', turn: 1, text: '开场', messageUid: 'uid-opening' },
+		{ role: 'user', text: 'ok' },
+		{ role: 'assistant', turn: 2, text: '已经提交的正式正文', messageUid: targetUid }
+	], 79)
+	staleLiveView = { ...staleLiveView, tavernHelper: { stateRevision: 79 } }
+	await act(async () => root.render(element(committed, null, false,
+		{ mode: 'story', regenInProgress: false, streamingMessageUid: null, failedRegenerationMessageUid: null,
+			latestAssistantTurn: 2, tavernHelper: { stateRevision: 79 } })))
+	assert.equal(assistants.length, 2)
+	assert.ok(assistants[1].textContent.includes('已经提交的正式正文'))
+	assert.ok(!assistants[1].textContent.includes('正在生成'))
+})
+
 test('失败输入后的重新生成：没有旧正文行也能立即挂载流式新正文', async t => {
 	const page = createPage(t)
 	const { dom, context } = page
