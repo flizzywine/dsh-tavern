@@ -829,7 +829,7 @@ $('#btnSaveConfig').addEventListener('click', () => {
   plannerProvider: $('#cfgPlannerProvider').value.trim(),
   plannerModel: $('#cfgPlannerModel').value.trim(),
   plannerCount: Number($('#cfgPlannerCount').value) || 3,
-  plannerTemperature: Number($('#cfgPlannerTemp').value) || 1,
+  plannerTemperature: $('#cfgPlannerTemp').value,
   plannerExtra: $('#cfgPlannerExtra').value,
   plannerEntries: state.worldbookTouched || plannerEntries().length ? plannerEntries() : defaultEntries(),
   comfyUrl: $('#cfgComfyUrl').value.trim(),

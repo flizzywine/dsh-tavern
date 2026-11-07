@@ -64,6 +64,9 @@ async function realRouteFixture(t) {
       { id: 'fallback', label: 'Fallback', file: 'workflows/fallback.json', enabled: true },
     ],
   }))
+  // This fixture edits config.json directly while exercising path migration.
+  // Seed the separate tools flag so its startup read never races that deliberate rewrite.
+  await writeFile(path.join(pluginRoot, 'card-enabled.json'), JSON.stringify({ enabled: true }))
   const originalFetch = globalThis.fetch
   globalThis.fetch = async () => new Response('{}', { status: 200 })
   const run = await pluginRuntime(root, 'first')

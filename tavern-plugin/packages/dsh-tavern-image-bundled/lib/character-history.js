@@ -1,13 +1,11 @@
+import { sameCharacterForm } from './character-forms.js'
 const TRAIT_FIELDS = new Set(['feature', 'face', 'faceBack', 'bodySFW', 'bodySFWBack', 'lowerSFW', 'lowerSFWBack', 'bodyNSFW', 'bodyNSFWBack', 'lowerNSFW', 'lowerNSFWBack'])
 const BASE_TRAIT_FIELDS = new Set([...TRAIT_FIELDS, 'negative'])
 const MAX_CHANGES = 120
 const MAX_TEXT = 700
 const MAX_OUTFIT = 400
-// 同一角色的不同形态（名字互为前缀，如「阿梅」与「阿梅（狐形）」）共享"当前穿着"。
-function sameFamily(a, b) {
-  const x = String(a?.name ?? ''), y = String(b?.name ?? '')
-  return Boolean(x && y && (x.startsWith(y) || y.startsWith(x)))
-}
+// 同一角色的不同形态（如「阿梅」与「阿梅（狐形）」）共享"当前穿着"；「林月」与「林月如」是两个人。
+const sameFamily = sameCharacterForm
 
 function clip(value, max = MAX_TEXT) { return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max) }
 function size(value) { return Buffer.byteLength(JSON.stringify(value), 'utf8') }
@@ -29,7 +27,6 @@ export function mergeCharacterUpdates(previous, definitions, updates, meta = {})
   }
   const changes = []
   const updatedIds = new Set()
-  const currentIds = new Set()
   for (const raw of Array.isArray(updates) ? updates : []) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('角色更新条目格式无效')
     const name = clip(raw.name, 100)
@@ -47,8 +44,9 @@ export function mergeCharacterUpdates(previous, definitions, updates, meta = {})
       const family = characters.filter(c => c && c.enabled !== false && c.id && (c === character || sameFamily(c, character)))
       for (const member of family) {
         const memberId = String(member.id)
-        if (currentIds.has(memberId)) continue
-        currentIds.add(memberId)
+        // One batch can change the same character's clothes more than once (home into pajamas, then
+        // dressed again to go out). Apply them in order so the last one wins; `previous` below keeps
+        // what they wore when the turn began.
         const overlay = snapshot.characters[memberId] ||= {}
         const before = clip(overlay.current?.outfit, MAX_OUTFIT)
         if (before === outfit) continue
@@ -56,7 +54,7 @@ export function mergeCharacterUpdates(previous, definitions, updates, meta = {})
         // 同一轮里换了衣服：记下换之前的那套。这一轮里换衣之前的画面要用它，不能套换之后的。
         // 同一轮多次更新时保留最早的那套（这一轮开始时身上穿的）。
         const previous = overlay.current?.turn === turnNo && overlay.current?.previous !== undefined ? overlay.current.previous : before
-        overlay.current = { outfit, turn: turnNo, textVersion: clip(meta.textVersion, 120), ...(previous ? { previous } : {}) }
+        overlay.current = { outfit, turn: turnNo, textVersion: clip(meta.textVersion, 120), previous }
         changes.push({
           id: memberId, name: clip(member.name, 100), field: 'current.outfit', before, after: outfit,
           reason: clip(raw.reason, 240) || '正文写到当前穿着', turn: Number(meta.turn) || 0, textVersion: clip(meta.textVersion, 120), at: Number(meta.at) || Date.now(),
@@ -132,7 +130,7 @@ export function boundCharacterSnapshot(input, maxBytes = 60 * 1024) {
     snapshot.characters[id] = {
       ...(source.identity && typeof source.identity === 'object' ? { identity: { name: clip(source.identity.name, 100), match: clip(source.identity.match, 200) } } : {}),
       ...(source.baseTraits || source.traits ? { baseTraits: filterTraits(source.baseTraits, BASE_TRAIT_FIELDS), traits: filterTraits(source.traits, TRAIT_FIELDS) } : {}),
-      ...(source.current?.outfit ? { current: { outfit: clip(source.current.outfit, MAX_OUTFIT), turn: Number(source.current.turn) || 0, textVersion: clip(source.current.textVersion, 120), ...(clip(source.current.previous, MAX_OUTFIT) ? { previous: clip(source.current.previous, MAX_OUTFIT) } : {}) } } : {}),
+      ...(source.current?.outfit ? { current: { outfit: clip(source.current.outfit, MAX_OUTFIT), turn: Number(source.current.turn) || 0, textVersion: clip(source.current.textVersion, 120), ...(source.current.previous !== undefined ? { previous: clip(source.current.previous, MAX_OUTFIT) } : {}) } } : {}),
     }
   }
   while (snapshot.changes.length && size(snapshot) > maxBytes) snapshot.changes.shift()
