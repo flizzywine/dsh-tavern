@@ -172,6 +172,11 @@ function streamedAttemptText(session, turn, eventStart) {
   } catch { return '' }
 }
 
+function attemptReachedOutputLimit(session, turn, eventStart) {
+  return sessionEvents(session).some(event => event?.type === 'turn/end' && Number(event.seq) >= Number(eventStart) &&
+    Number(event.data?.turn) === Number(turn) && event.data?.reason?.kind === 'max-tokens')
+}
+
 function failedTailSelection(chat, session, inputIndex) {
   return { failedTail: true, eventStart: sessionEvents(session).length, msgs0: Array.isArray(chat.messages) ? chat.messages : [],
     oldAssistantIndex: -1, inputIndex, oldSeq: null, oldTurn: 0, oldSource: null }
@@ -533,7 +538,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         if (generationError !== null) throw generationError
         throw new Error('这次重新生成没有完成（可能被内容审核拦截或已停止），旧正文已撤下，可以再试一次。' + FOREGROUND_TOOL_HINT)
       }
-      keptStreamed = generationError !== null
+      keptStreamed = generationError !== null || attemptReachedOutputLimit(session, syntheticTurn, eventStart)
       if (typeof sessions.flush === 'function') await sessions.flush(session)
       const storedCandidate = await readChat(chat.id)
       const nativeCandidateRow = storedCandidate?.messages?.at(-1)?.role === 'assistant' &&

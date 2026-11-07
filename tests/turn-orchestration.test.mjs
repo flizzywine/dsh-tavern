@@ -426,6 +426,24 @@ test('玩家输入先落盘，失败保留并在同一索引重试提交', async
   assert.equal(run.chat().messages[1].text, '雨水扑进房间。')
 })
 
+test('失败输入由原生回合补记时复用同一请求行，不再复制一份玩家输入', async () => {
+  const run = harness('story')
+  const input = { sessionId: 'session-1', requestId: 'rpc-adopt-saved', userText: '推开窗' }
+  await run.orchestrator.appendUser(input)
+  await run.orchestrator.prepare({ ...input, turn: 2 })
+  await run.orchestrator.discard({ sessionId: 'session-1', turn: 2 })
+  assert.deepEqual(run.chat().messages.map(row => row.role), ['user'])
+
+  // #196 adoption has no live placeholder: the failed turn already retired it.
+  // The durable request id still identifies exactly the row this reply answers.
+  await run.orchestrator.finalize({ ...input, turn: 2, assistantText: '补回的半截正文。', adopt: true, incomplete: true })
+  assert.deepEqual(run.chat().messages.map(row => row.role), ['user', 'assistant'])
+  assert.equal(run.chat().messages[0].source.rpcId, 'rpc-adopt-saved')
+  assert.equal(run.chat().messages[0].text, '推开窗')
+  assert.equal(run.chat().messages[1].text, '补回的半截正文。')
+  assert.equal(run.chat().messages[1].incomplete, true)
+})
+
 test('原生输入在正文规划前持久化，规划器读取到的是同一请求行', async () => {
   let observed = null
   let run

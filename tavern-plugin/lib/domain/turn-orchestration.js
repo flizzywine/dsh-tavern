@@ -335,6 +335,18 @@ export function createTurnOrchestrator(options) {
   }
 
   function commitUserMessageRow(draft, placeholder, message) {
+    // A failed turn retires its assistant placeholder but keeps the player's
+    // durable request row. If that native round is adopted later (#196), no live
+    // placeholder remains to find it by index. Reuse the request id before falling
+    // back to insertion, or the recovery writes the same player input twice.
+    const requestId = str(message.source?.rpcId).trim()
+    if (requestId) {
+      const existing = draft.messages.findLastIndex(row => row?.role === 'user' && str(row.source?.rpcId).trim() === requestId)
+      if (existing >= 0) {
+        draft.messages[existing] = message
+        return
+      }
+    }
     const assistantIndex = placeholder?.assistantIndex
     if (!validMessageIndex(placeholder?.userIndex) && validMessageIndex(assistantIndex)
       && assistantIndex < draft.messages.length && draft.messages[assistantIndex]?.placeholder === true) {
@@ -1017,6 +1029,8 @@ export function createTurnOrchestrator(options) {
           ts: now(),
           native: true,
           ...(pluginBody ? { bodyRegenerationProcessed: true } : {}),
+          ...(input.incomplete === true ? { incomplete: true,
+            incompleteReason: str(input.incompleteReason) || '这次生成被中断，保留了已生成的部分正文' } : {}),
           turn: turn,
           // Where this round entered the native session; see round-anchor.js.
           ...(validAnchor(input.nativeAnchor) && input.nativeAnchor.turn === turn ? { nativeAnchor: { ...input.nativeAnchor } } : {})

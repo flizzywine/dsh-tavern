@@ -322,6 +322,22 @@ test('被截断的重新生成保留已生成的部分正文，两种路径结�
   assert.deepEqual(strip(results[0]), strip(results[1]))
 })
 
+test('max-tokens 已落原生正文的重生成也保留截断标记', async t => {
+  const h = await fixture(t, true)
+  h.agent.whenIdle = async function () {
+    const turn = ++h.agent.phase.lastTurn, userText = h.agent.input.content[0].text
+    h.agent.input = null
+    h.session.append('user/message', { turn, role: 'user', content: [{ type: 'text', text: userText }], source: { kind: 'plugin', plugin: 'dsh-tavern-regen' } }, { surfaceOp: 'append' })
+    h.session.append('assistant/message', { turn, step: 1, message: { role: 'assistant', source: model, content: [{ type: 'text', text: '达到上限的正文' }] } }, { surfaceOp: 'append' })
+    h.session.append('turn/end', { turn, reason: { kind: 'max-tokens' } })
+  }
+  const view = await h.rounds.regenerate('chat', '', 'session')
+  const row = (await h.p.read('chat')).messages.at(-1)
+  assert.equal(view.adopted.text, '达到上限的正文')
+  assert.match(view.regenerationWarning, /已保留生成到的部分正文/)
+  assert.equal(row.incomplete, true)
+})
+
 // A failed turn's own cleanup (foreground.discard restoring the staged template
 // input) writes the save right after the attempt; the regeneration commit then
 // read a revision that had already moved. It used to abort the whole round.
