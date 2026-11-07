@@ -351,7 +351,7 @@ test('MVU 强制重试的空字符串 CHAT_CHANGED 仅重置官方 MVU，不触�
   ])
 })
 
-test('helper-script-runtime 在普通卡与官方 MVU 卡下均向伴随脚本派发 GENERATION_ENDED，且沙箱 reload 不重放旧事件死循环', async () => {
+test('helper-script-runtime 在官方 MVU 卡下派发开始和结束事件，且沙箱 reload 不重放旧事件死循环', async () => {
   const { document, FakeMutationObserver } = makeDom()
   const readyCalls = []
   const h = host({ MutationObserver: FakeMutationObserver, document })
@@ -400,7 +400,7 @@ test('helper-script-runtime 在普通卡与官方 MVU 卡下均向伴随脚本�
     token,
     type: 'dsh-tavern-helper-subscriptions',
     ready: true,
-    names: ['MESSAGE_RECEIVED', 'GENERATION_ENDED'],
+    names: ['MESSAGE_SENT', 'MESSAGE_RECEIVED', 'GENERATION_STARTED', 'GENERATION_ENDED'],
     scripts: [
       { id: '__dsh_official_mvu__', ready: true },
       { id: 'phone', ready: true }
@@ -410,7 +410,7 @@ test('helper-script-runtime 在普通卡与官方 MVU 卡下均向伴随脚本�
   assert.deepEqual(readyCalls, ['S1'])
 
   // User floor + Assistant floor when officialOwner === true:
-  // MESSAGE_SENT / MESSAGE_RECEIVED belong to MVU transaction, while GENERATION_ENDED reaches companion scripts!
+  // Message events belong to MVU transactions; generation events reach companion scripts.
   frame.contentWindow.messages.length = 0
   runtime.sync('S1', makeView([
     { role: 'assistant', message: 'opening', variables: { stat_data: {}, schema: {} } },
@@ -423,7 +423,10 @@ test('helper-script-runtime 在普通卡与官方 MVU 卡下均向伴随脚本�
   ], true))
 
   const mvuCompanionEvents = frame.contentWindow.messages.filter(m => m.type === 'dsh-tavern-helper-event')
-  assert.deepEqual(mvuCompanionEvents.map(e => [e.name, e.args]), [['GENERATION_ENDED', [2]]])
+  assert.deepEqual(mvuCompanionEvents.map(e => [e.name, e.args]), [
+    ['GENERATION_STARTED', ['normal', {}, false]],
+    ['GENERATION_ENDED', [2]]
+  ])
 
   // Simulate external phone mounting raw host DOM nodes + another session's parked phone node
   const ownPhone = document.createElement('div')

@@ -30086,10 +30086,10 @@ function bindTavernFontZoom(node, win) {
 				const officialOwner = Boolean(view && view.tavernMvuRuntime && view.tavernMvuRuntime.owner === "official");
 				// Viewers mirror committed data without replaying settlement callbacks.
 				// Official MVU owns MESSAGE_SENT / MESSAGE_RECEIVED via settlement transactions,
-				// while companion UIs (such as external phone scripts) still listen for GENERATION_ENDED.
+				// Companion UIs still need both generation lifecycle notifications.
 				const detectedEvents = viewer ? [] : eventsBetween(previous, nextSnapshot);
 				const queuedEvents = officialOwner
-					? detectedEvents.filter(function (event) { return event.name === "GENERATION_ENDED"; })
+					? detectedEvents.filter(function (event) { return event.name === "GENERATION_STARTED" || event.name === "GENERATION_ENDED"; })
 					: detectedEvents;
 				const fingerprint = scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode) + "\nviewer=" + String(viewer) + "\ncard=" + String(context.frameStorageScope && context.frameStorageScope.cardPath || "");
 				if (record && record.fingerprint !== fingerprint) { removeRecord("shared"); record = null; }
