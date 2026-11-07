@@ -194,6 +194,11 @@ export function createSessionViewProjection({
       // named by the save, never to the temporary native turn.
       streamingMessageUid: chat.regenInProgress === true && typeof chat.regenRecovery?.targetMessageUid === 'string'
         && chat.regenRecovery.targetMessageUid !== '' ? chat.regenRecovery.targetMessageUid : null,
+      // An unanswered failed tail has no old story row (and therefore no UID).
+      // Its reserved story turn lets the transcript mount a view-only streaming row.
+      streamingStoryTurn: chat.regenInProgress === true && chat.regenRecovery?.unansweredTail === true
+        && Number.isSafeInteger(Number(chat.regenRecovery?.storyTurn)) && Number(chat.regenRecovery.storyTurn) > 0
+        ? Number(chat.regenRecovery.storyTurn) : null,
       inputSources,
       inputTemplateDisplays,
       userInputEdits: userInputEditsOf(chat),

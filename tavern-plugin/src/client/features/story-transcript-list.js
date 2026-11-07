@@ -263,6 +263,10 @@ function createTavernStoryTranscriptFeature(deps) {
 		const regeneratingTarget = regenView && regenView.regenInProgress === true
 			&& typeof regenView.streamingMessageUid === 'string' && regenView.streamingMessageUid !== ''
 			? regenView.streamingMessageUid : null
+		// 失败尾没有旧正文 UID；服务端为这次回答预留的故事轮次就是流式行的位置。
+		const regeneratingStoryTurn = regenView && regenView.regenInProgress === true
+			&& Number.isInteger(regenView.streamingStoryTurn) && regenView.streamingStoryTurn > 0
+			? regenView.streamingStoryTurn : null
 		const streamRef = React.useRef({ sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: props.running === true })
 		function storyTurn(nativeTurn) {
 			return typeof tavernStoryTurnForDshTurn === 'function' ? tavernStoryTurnForDshTurn(props.view, nativeTurn) : Number(nativeTurn)
@@ -271,12 +275,13 @@ function createTavernStoryTranscriptFeature(deps) {
 		if (props.running === true && !streamRef.current.running) {
 			streamRef.current = { sessionId: sessionId, turn: null, partial: null, revision: null, settledTurn: null, running: true }
 		} else if (props.running !== true) streamRef.current.running = false
-		// 重生成已有故事行 UID 时完全不看原生 turn；只有普通生成才走旧换算。
-		const nativeLiveTurn = storyStreamUid === null && props.partial && Number.isInteger(storyTurn(props.partial.turn))
-			? storyTurn(props.partial.turn) : null
+		// 重生成已有故事行 UID 时完全不看原生 turn；失败尾则使用预留的故事轮次。
+		// 两条路径都不能把宿主临时 turn（可能远大于剧情轮号）拿来找故事行。
+		const nativeLiveTurn = storyStreamUid === null && regeneratingStoryTurn === null
+			&& props.partial && Number.isInteger(storyTurn(props.partial.turn)) ? storyTurn(props.partial.turn) : null
 		const latestTurnHint = storyStreamUid !== null && streamingView && Number.isInteger(streamingView.latestAssistantTurn)
 			? streamingView.latestAssistantTurn : null
-		const liveTurn = latestTurnHint !== null ? latestTurnHint : nativeLiveTurn
+		const liveTurn = latestTurnHint !== null ? latestTurnHint : (regeneratingStoryTurn !== null ? regeneratingStoryTurn : nativeLiveTurn)
 		if (liveTurn !== null) {
 			const previous = streamRef.current
 			const text = tavernStoryTranscriptStreamText(props.partial)
@@ -299,7 +304,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			partial = null
 		}
 		const rows = React.useMemo(function () {
-			const base = tavernStoryTranscriptRows(transcript)
+			const base = tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn)
 			const overlaid = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial, storyStreamUid)
 			// 重新生成进行中：被替换的旧正文先离开页面。目标行只有在本轮已经拿到新正文的流式
 			// 片段时才画；插件整段生成则一直空着，成功后同一行换成新正文。失败时标记结束，
@@ -307,7 +312,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			if (regeneratingTarget === null) return overlaid
 			const streaming = overlaid.some(function (row) { return row.streaming === true && row.messageUid === regeneratingTarget })
 			return streaming ? overlaid : overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === regeneratingTarget) })
-		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget])
+		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget, regeneratingStoryTurn])
 		if (!rows.length) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',

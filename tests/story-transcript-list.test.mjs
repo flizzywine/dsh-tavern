@@ -241,6 +241,47 @@ test('重新生成时流式正文按视图的 messageUid 落到目标行，不�
 	assert.ok(rows[2].textContent.includes('后续旧正文'))
 })
 
+test('失败输入后的重新生成：没有旧正文行也能立即挂载流式新正文', async t => {
+	const page = createPage(t)
+	const { dom, context } = page
+	const messages = [
+		{ role: 'assistant', turn: 7, text: '上一轮正文', messageUid: 'uid-previous' },
+		{ role: 'user', text: '这次输入生成失败' }
+	]
+	const transcript = story(messages, 10)
+	const regenerating = { mode: 'story', regenInProgress: true, streamingMessageUid: null, streamingStoryTurn: 8, latestAssistantTurn: 7 }
+	const feature = context.createTavernStoryTranscriptFeature()
+	const element = (value, partial, running, view) => React.createElement(feature.StoryTranscriptList, {
+		transcript: value, partial, running, view, sessionId: 's-failed-tail-regen'
+	})
+	const root = await mount(page, element(transcript, null, true, regenerating))
+	const assistants = () => [...dom.window.document.querySelectorAll('[data-story-row][data-role="assistant"]')]
+	// 失败尾在存档里只有 user，没有可被流式覆盖的 assistant。页面要补一个仅存在于
+	// 这次生成期的故事行，不能等模型提交后才第一次画出正文。
+	assert.equal(assistants().length, 2)
+	assert.ok(assistants()[1].textContent.includes('正在生成'))
+	assert.equal(assistants()[1].getAttribute('data-row-key'), 'turn:8')
+	const draft = assistants()[1]
+	const partial = { turn: 17, blocks: [{ kind: 'text', text: '失败后的流式新正文' }] }
+	await act(async () => root.render(element(transcript, partial, true, regenerating)))
+	assert.equal(assistants().length, 2)
+	assert.strictEqual(assistants()[1], draft)
+	assert.ok(assistants()[1].textContent.includes('失败后的流式新正文'))
+	assert.ok(!assistants()[1].textContent.includes('17'), '宿主临时轮号不得漏到故事楼层')
+
+	const committed = story(messages.concat({ role: 'assistant', turn: 8, text: '失败后的正式正文' }), 11)
+	await act(async () => root.render(element(committed, null, false, { mode: 'story', latestAssistantTurn: 8 })))
+	assert.equal(assistants().length, 2)
+	assert.strictEqual(assistants()[1], draft, '提交后复用同一个故事行，不追加第二份正文')
+	assert.ok(assistants()[1].textContent.includes('失败后的正式正文'))
+	assert.ok(!assistants()[1].textContent.includes('正在生成'))
+
+	// 若这次生成失败而没有提交，虚拟行随 regenInProgress 结束消失，失败输入保留。
+	await act(async () => root.render(element(transcript, null, false, { mode: 'story', latestAssistantTurn: 7 })))
+	assert.equal(assistants().length, 1)
+	assert.ok(dom.window.document.querySelector('[data-story-row][data-role="user"]').textContent.includes('这次输入生成失败'))
+})
+
 test('正式故事行复用最新视图 parts、Helper 上下文与变量结算 receipt', async t => {
 	const page = createPage(t)
 	const { dom, context } = page

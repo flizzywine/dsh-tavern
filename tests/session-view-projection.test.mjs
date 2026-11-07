@@ -164,6 +164,16 @@ test('a body regeneration publishes the target story row UID, never on a settled
     storyTranscript: { source: 'story', revision: 4, from: 0, to: 0, messageCount: 0, floorCount: 0, floorOffset: 0, messages: [] }
   })
   assert.equal(story.streamingMessageUid, 'uid-2', '故事转录视图也必须带目标 UID')
+  assert.equal(story.streamingStoryTurn, null, '替换已有正文按 UID 落位，不追加故事行')
+  const failedTail = await f.projection.project.story({
+    chat: { ...f.chat, regenInProgress: true, regenRecovery: { unansweredTail: true, storyTurn: 8, targetMessageUid: '' } },
+    revision: 5, from: 0, to: 0, messageCount: 0,
+    storyTranscript: { source: 'story', revision: 5, from: 0, to: 0, messageCount: 0, floorCount: 0, floorOffset: 0, messages: [] }
+  })
+  assert.equal(failedTail.streamingStoryTurn, 8, '失败尾没有旧行 UID，视图必须给出本轮预留的故事轮次')
+  const failedTailSettled = await f.projection.project.full({ ...f.chat, regenInProgress: false,
+    regenRecovery: { unansweredTail: true, storyTurn: 8 } })
+  assert.equal(failedTailSettled.streamingStoryTurn, null, '生成结束后不得残留虚拟故事行')
 })
 
 test('重新生成期间视图点名被替换的原生行，行计划只撤掉旧正文、留下玩家输入', async () => {

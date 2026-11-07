@@ -77,6 +77,36 @@ function tavernStoryTranscriptRows(transcript) {
 	return rows
 }
 
+// 失败尾重新生成时，存档末尾只有玩家输入，没有旧 assistant 行可供流式覆盖。
+// 在这次生成期间补一个纯视图占位行；它使用即将提交的故事轮次与绝对位置，
+// 所以正式正文落盘后会复用同一 DOM。生成失败则随视图标记结束自然消失。
+function tavernStoryTranscriptRegenerationDraftRows(rows, transcript, storyTurn) {
+	if (!Number.isInteger(storyTurn) || storyTurn <= 0 || !transcript || !Array.isArray(transcript.messages)) return rows
+	const messageCount = Number(transcript.messageCount)
+	// 只有包含存档尾部的窗口才能追加这一轮，往前翻历史时不把新行插进旧页。
+	if (!Number.isSafeInteger(messageCount) || Number(transcript.to) !== messageCount - 1) return rows
+	if (rows.some(function (row) {
+		return row && row.role === 'assistant' && (row.legacyTurn === storyTurn || Number(row.message && row.message.turn) === storyTurn)
+	})) return rows
+	const key = 'turn:' + String(storyTurn)
+	const message = { role: 'assistant', turn: storyTurn, text: '', placeholder: true }
+	return rows.concat({
+		key: key,
+		position: rows.length,
+		role: 'assistant',
+		floorNo: Math.max(0, Number(transcript.floorCount) || 0) + 1,
+		greeting: false,
+		legacyTurn: storyTurn,
+		absoluteIndex: messageCount,
+		messageUid: null,
+		text: '',
+		streaming: true,
+		tool: null,
+		projection: { version: 1, turn: storyTurn, text: '', mode: 'markdown', warnings: [] },
+		message: message
+	})
+}
+
 function tavernStoryTranscriptStreamText(partial) {
 	const blocks = Array.isArray(partial && partial.blocks) ? partial.blocks : []
 	const texts = []
