@@ -620,6 +620,18 @@ export function plannerTemperatureOf(value) {
 }
 
 /** 同一角色的不同形态：名字互为前缀（如「阿梅」与「阿梅（狐形）」）。 */
+/** How the planner tells who 「她」/「他」 is, plus the end of the previous reply when there is one. */
+export function identityGuidance(priorTail = '') {
+  return [
+    priorTail ? '<前情>\n上一段正文的结尾（只用来认出这一段的「她」「他」是谁、接上场景，不要画它）：\n……' + priorTail + '\n</前情>' : '',
+    '<认人>',
+    '认人按这个顺序：这一段正文点名 > 前情里点名、正在做同一件事的人 > 她怎么称呼「我」、说话的口气 > 她在哪、在做什么。',
+    '正文里顺口提到的名字不等于画面里的人：「某某在屋里」「别吵醒某某」说的是不在场的人，画面里的「她」是正在说话、被描写动作的那一个。',
+    '衣服最后看：角色列表里的「当前穿着」是插件之前的记录，可能记错，和正文、前情对不上时以正文和前情为准，不要因为衣服像就认成某个人；认对了人，在 character_updates 里把她的当前穿着改成正文写的。',
+    '</认人>',
+  ].filter(Boolean).join('\n')
+}
+
 function sameCharacterFamily(a, b) {
   return sameCharacterForm(a, b)
 }
@@ -2525,6 +2537,27 @@ function createRuntime(ctx, overrides, logger, deps) {
       }))
     }
 
+    /** The last ~500 characters of the latest earlier reply with real text (turns can be empty or one line). */
+    async function previousReplyTail({ gameId, turn, body }) {
+      const at = Number(turn)
+      if (!String(gameId ?? '').trim() || !Number.isSafeInteger(at) || at <= 1 || typeof deps.tavern?.getTurn !== 'function') return ''
+      const flat = value => String(value ?? '').replace(/<[^>]{1,40}>[\s\S]*?<\/[^>]{1,40}>/g, ' ').replace(/\s+/g, ' ').trim()
+      const own = flat(body)
+      for (let back = 1; back <= 3 && at - back >= 1; back++) {
+        let timer
+        try {
+          const prior = await Promise.race([
+            deps.tavern.getTurn({ gameId: String(gameId), turn: at - back }),
+            new Promise(resolve => { timer = setTimeout(resolve, 400) }),
+          ])
+          const raw = flat(prior?.text)
+          if (raw.length >= 80 && raw !== own) return [...raw].slice(-500).join('')
+        } catch {}
+        finally { clearTimeout(timer) }
+      }
+      return ''
+    }
+
     async function planMessage({ text, messageId, turn, textVersion, count, sessionId, manual, force, smartSelection, imageGeneration = true, characterUpdates = false, historySnapshot, signal, onPlan, reusePlan, instruction = '' }) {
       signal?.throwIfAborted()
       if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
@@ -2545,6 +2578,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       const plannerEffort = plannerEffortFor(fallback)
       if (!provider || !model) throw new Error('规划用的模型没定：Tavern 设置里的「默认后台模型」是空的，或者在本插件设置里单独指定一个')
       const body = String(text ?? '').trim()
+      // The planner only sees this reply. When a reply calls its subject 「她」 the whole way through, who she is
+      // was settled in the reply before, so hand the planner the end of the previous reply (never drawn).
+      const priorTail = imageGeneration ? await previousReplyTail({ gameId: sessionId, turn, body }) : ''
       if (!body) throw new Error('正文是空的')
       // 自动模式在渠道能接参考图时按参考图规划；每张图是否真的用参考图由 startJob 按本张选图决定。
       const planningGenerationMode = config.generationMode === 'reference' || (config.generationMode === 'auto' && referenceCapability()) ? 'reference' : 'text'
@@ -2592,6 +2628,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       const plannerWorkflow = styleWorkflow()
       const plannerMode = resolvePromptMode(config, promptBackendContext(config, plannerWorkflow))
       const plannerContext = selectPlannerContext({
+        recentText: priorTail,
         entries, selected: config.plannerEntries, text: body, definitions: scoped,
         backend: effectiveConfiguredProvider(config), backendAliases: config.imageBackend === 'custom' ? ['custom'] : [], promptMode: plannerMode, characterUpdates,
       })
@@ -2608,7 +2645,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       const system = buildPlannerSystem({
         rules: plannerContext.staticRules, dynamicRules: plannerContext.dynamicRules,
         roster, rosterIndex: plannerContext.rosterIndex, count: want,
-        extra: [config.plannerExtra, guidance, imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(scoped, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
+        extra: [config.plannerExtra, guidance, imageGeneration ? identityGuidance(priorTail) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(scoped, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
         smartSelection: smart, characterUpdates, force: Boolean(force || manual), promptMode: plannerMode,
       })
       const plannerInput = instruction ? `${body}\n\n<本次生图要求>\n${instruction}\n</本次生图要求>` : body
