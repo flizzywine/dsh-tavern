@@ -37,6 +37,7 @@ function harness() {
     notifyTavernDataChanged: () => calls.push('notify'),
     tavernErrorHub: { report: (name, error) => calls.push(name + ': ' + error.message) },
     submitFailedTurnReplay: async sessionId => { calls.push('replay'); return { view: {} } },
+    TavernDebugButton: function TavernDebugButton() {},
     TavernCompactionAction: function TavernCompactionAction() {}
   }
   const actions = vm.runInNewContext(roundOrdinal + component + '; ({ CandidateAction, TavernRollbackAction, TavernUndoRollbackAction, TavernMoreActions, tavernRoundOrdinal })', context)
@@ -73,7 +74,7 @@ function harness() {
   }
 }
 
-test('正文重生成入口常驻，开场白时禁用，正式玩家轮次完成后可用', () => {
+test('旧版视图缺少 canRegenerate 时仍兼容 canRollback 回退判断', () => {
   const h = harness()
   h.running(false); h.playerRound(false)
   assert.deepEqual(h.buttons().map(button => button.children[0]), ['生成候选项', '重新生成正文'])
@@ -83,6 +84,15 @@ test('正文重生成入口常驻，开场白时禁用，正式玩家轮次完�
   assert.equal(h.buttons()[1].props.disabled, false)
   h.playerRound(false)
   assert.equal(h.buttons()[1].props.disabled, true)
+})
+
+test('首轮正文删除后，待回复输入提供的 canRegenerate 直接启用按钮', () => {
+  const h = harness()
+  h.running(false); h.playerRound(false)
+  h.view({ canRegenerate: true, failedTailTurn: 2, failedTailPersisted: true })
+  const regenerate = h.buttons()[1]
+  assert.equal(regenerate.children[0], '重新生成正文')
+  assert.equal(regenerate.props.disabled, false)
 })
 
 test('回退标签和轮距按正文楼层顺序计算，稳定 turn 仍用于操作', () => {

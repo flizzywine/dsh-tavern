@@ -3,7 +3,6 @@ import { createMvuReceiptIndex } from './mvu-receipt-index.js'
 import { copyJsonTree } from './copy-json-tree.js'
 import { copyLazyHistoryHeader } from './lazy-history-read.js'
 import { rollbackAvailability, failedTurnReplayAvailability, foregroundSuppressedTurns, supersededRegenerationErrorTurns, supersededRegenerationTurns, projectedReplyTurns, regenerationInputTurns, keptPlayerInputTurns } from './rollback-surface.js'
-import { isRescuedHistoryMessage } from './chat-history-rescue.js'
 import { canUndoRollback } from './surface-restoration.js'
 import { failedErrorTurnStates } from './failed-error-visibility.js'
 import { surfaceTurns } from './host-turn-rail.js'
@@ -225,7 +224,9 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       // 对话右侧的轮次导航按轮次画刻度：正文表面里还有内容的那几轮才该出现（重试留下的空轮不算）。
       // 会话还没挂上（读不到表面）时不写这一栏：不知道就别筛，免得把能跳的轮次一起藏掉。
       ...(Array.isArray(nodes) && Array.isArray(events) ? { railTurns: surfaceTurns({ events, nodes }) } : {}),
-      canRegenerate: hasRound && !isRescuedHistoryMessage(chat, chat.messages?.findLast(message => message.role === 'assistant')),
+      // Keep the entry available regardless of the current story shape. Target
+      // selection belongs to regeneration; busy/compaction locks stay separate.
+      canRegenerate: true,
       canEditBody: hasRound,
       rollbackTargetTurn: settlementTurn(chat),
       failedTailTurn: failedTail === null ? null : failedTail.turn,
