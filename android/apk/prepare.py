@@ -82,6 +82,9 @@ def prepare(source, apk, destination, offline=None, application_id=APPLICATION_I
              'DEFAULT_TARBALL_URL="https://codeload.github.com/flizzywine/dsh-tavern/tar.gz/refs/heads/'
              + source_ref + '"'),
             ('BRANCH="${DSH_TAVERN_BRANCH:-main}"', 'BRANCH="${DSH_TAVERN_BRANCH:-' + source_ref + '}"'),
+            # CDN 兜底读的是 @runtime-archive-main 清单（main 分支内容），测试版一旦
+            # 回落到这里就会把源码换成 main，所以直接关掉：分支不可用就明确失败。
+            ('SOURCE_CDN="${DSH_TAVERN_SOURCE_CDN:-1}"', 'SOURCE_CDN=0'),
         ):
             if setup.count(anchor) != 1:
                 raise ValueError(f'安装器分支锚点不唯一：{anchor[:70]}')
