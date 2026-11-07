@@ -1164,10 +1164,6 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 /* Showing, hiding and restoring the notice are quiet text actions, not buttons. */
 .dsh-tavern-error-controls button.dsh-tavern-error-quiet { border-color: transparent; padding: 3px 4px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
 .dsh-tavern-error-controls button.dsh-tavern-error-quiet:hover { background: transparent; color: var(--dsw-alias-label-primary, #16181b); text-decoration: underline; text-underline-offset: 3px; }
-.dsh-tavern-error-controls button.dsh-tavern-error-replay { border-color: rgba(166,107,53,.55); color: #a66b35; font-weight: 650; }
-.dsh-tavern-error-controls button.dsh-tavern-error-replay:hover { background: rgba(166,107,53,.18); }
-.dsh-tavern-error-controls button.dsh-tavern-error-replay:disabled { opacity: .55; cursor: default; }
-.dsh-tavern-error-controls button.dsh-tavern-error-replay.is-secondary { border-color: currentColor; color: inherit; font-weight: normal; opacity: .75; }
 .dsh-tavern-error-controls button.is-primary { border-color: rgba(166,107,53,.55); color: #a66b35; font-weight: 650; }
 .dsh-tavern-error-controls button.is-primary:hover { background: rgba(166,107,53,.18); }
 .dsh-tavern-error-controls button:disabled { opacity: .55; cursor: default; }

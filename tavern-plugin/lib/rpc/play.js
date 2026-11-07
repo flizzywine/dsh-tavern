@@ -14,7 +14,7 @@ export function createPlayHandlers(deps) {
     candidateGenerator, candidateTasks, chatForSession, compactionAbort, conversationGuides, ctx,
     ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline, phoneChat,
     pluginSettlementProgress, readBackgroundSuppression, readTavernSettings,
-    reconcileStory, reconcileWhenIdle, regenBody, replayFailedTurn, requestPerformance, retrySettlement,
+    reconcileStory, reconcileWhenIdle, regenBody, requestPerformance, retrySettlement,
     retryStyleReference, rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setPlayerName, stopBackground, str,
     templateHistoryFrom, turnOrchestrator, undoRollbackTurn, updateChat, view, withCompactionSession } = deps
@@ -225,12 +225,6 @@ export function createPlayHandlers(deps) {
       const view = await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId, args && args.messageId)
       notifyPluginTimeline(args && args.sessionId, 'regenerate')
       void polishPrereview.start(args?.sessionId).catch(() => {})
-      return { view }
-    },
-    async replayTurn(args) {
-      if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请在玩法面板重试当前行动')
-      const view = await replayFailedTurn(args && args.chatId, args && args.sessionId)
-      notifyPluginTimeline(args && args.sessionId, 'regenerate')
       return { view }
     },
     async setAllFailedErrorVisibility(args) {

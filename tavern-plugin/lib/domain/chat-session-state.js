@@ -175,7 +175,8 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       canRollback: false, canClearIncompleteReply: false,
       reason: '当前会话的消息流尚未加载，请重新打开对话后重试；历史正文仍保留。'
     }
-    const replayTarget = Array.isArray(nodes) ? failedTurnReplayAvailability({ chat, events: evidence.events || [], nodes, cleared: chat.suppressedDshTurns || [] }).target : null
+    // The failed tail a player can still withdraw or refresh; nothing here re-sends its input.
+    const failedTail = Array.isArray(nodes) ? failedTurnReplayAvailability({ chat, events: evidence.events || [], nodes, cleared: chat.suppressedDshTurns || [] }).target : null
     const hasRound = hasRollbackMessages(chat.messages)
     const failures = failedErrorTurnStates(evidence.events || [], chat.suppressedDshTurns)
     const replacingTurns = replacingDshTurnsOf(chat)
@@ -225,9 +226,8 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       canRegenerate: hasRound && !isRescuedHistoryMessage(chat, chat.messages?.findLast(message => message.role === 'assistant')),
       canEditBody: hasRound,
       rollbackTargetTurn: settlementTurn(chat),
-      canReplayFailedTurn: replayTarget !== null,
-      replayPersistedTurn: replayTarget?.persisted === true,
-      replayFailedTurn: replayTarget === null ? null : replayTarget.turn,
+      failedTailTurn: failedTail === null ? null : failedTail.turn,
+      failedTailPersisted: failedTail?.persisted === true,
       // The save decides: a round the native surface lost is repaired, not refused.
       canRollback: rollbackState.canRollback || hasRound,
       canClearIncompleteReply: rollbackState.canClearIncompleteReply,

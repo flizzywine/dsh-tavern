@@ -50,7 +50,7 @@ function assertCurrent(current, original, index, operationId) {
 export function createPluginBodyRegeneration(deps) {
   const { chats, sessions, timeline, queueSettlement, replyCommitted, cancelSettlement,
     sessionPatch, readRegenerationMaterials, prepareRegenerationReply, notifyRegeneration,
-    recovery, pendingRegenerations, pendingRollbacks, pendingReplays, selectTarget } = deps
+    recovery, pendingRegenerations, pendingRollbacks, selectTarget } = deps
 
   async function releasePrepared(chatId, operationId) {
     return chats.update(chatId, current => {
@@ -71,9 +71,9 @@ export function createPluginBodyRegeneration(deps) {
     let original = await chats.forSession(sessionId)
     if (!original || !['story', 'script'].includes(original.mode || 'story')) throw new Error('请先打开游玩对话')
     const chatId = original.id
-    if (pendingRegenerations.has(chatId) || pendingRollbacks.has(chatId) || pendingReplays.has(chatId)) throw error('TAVERN_PLUGIN_BUSY', '当前对话正在重新生成或回退')
+    if (pendingRegenerations.has(chatId) || pendingRollbacks.has(chatId)) throw error('TAVERN_PLUGIN_BUSY', '当前对话正在重新生成或回退')
     await recovery.recover(chatId)
-    if (pendingRegenerations.has(chatId) || pendingRollbacks.has(chatId) || pendingReplays.has(chatId)) throw error('TAVERN_PLUGIN_BUSY', '当前对话正在重新生成或回退')
+    if (pendingRegenerations.has(chatId) || pendingRollbacks.has(chatId)) throw error('TAVERN_PLUGIN_BUSY', '当前对话正在重新生成或回退')
     pendingRegenerations.add(chatId)
     const operationId = randomUUID()
     let committed = false, marked = false, interruptedSettlement = null

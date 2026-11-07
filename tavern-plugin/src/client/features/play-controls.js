@@ -415,26 +415,6 @@
 
 		// @include features/send-long-press.js
 
-		// A failed turn never committed a story round, so recovering it is not a
-		// rollback: remove the interrupted reply and resend the same input, which
-		// lets the provider reuse the cached prompt prefix.
-		async function submitFailedTurnReplay(sessionId) {
-			const res = await rpc("replayTurn", {}, sessionId);
-			applyBodyRegenerationResult({ liveTavernView: liveTavernView, historyProjection: historyProjection, sessionId: sessionId, view: res.view, tail: null });
-			setRegenPanel(null);
-			setCandidatePanel(null);
-			setCandidateGuidePanel(null);
-			notifyTavernDataChanged(["sessions"], "play-controls");
-			tavernCoordination.invalidate(sessionId);
-			return res;
-		}
-		// the stage's 「⚠ 正文生成失败 · 重新生成」 is this same replay.
-		function replayFailedStageTurn(sessionId) {
-			return submitFailedTurnReplay(sessionId)
-				.catch(function (err) { tavernErrorHub.report("重新生成本轮", err); })
-				.finally(function () { liveTavernView.invalidate(sessionId); });
-		}
-
 		// Clear the failed or stopped latest round back to before it began (story, variables
 		// and progress stay as they were) and hand its input back to the box.
 		async function withdrawFailedTavernTurn(sessionId, inputActions, currentDraft) {
@@ -481,7 +461,9 @@
 			const settlementActive = activity.role === "settlement" && (activity.phase === "pending" || activity.phase === "running");
 			const canRollback = rollbackViewState.view && (rollbackViewState.view.canRegenerate ?? rollbackViewState.view.canRollback) === true;
             const clearIncomplete = rollbackViewState.view && rollbackViewState.view.canClearIncompleteReply === true;
-			const canReplayFailed = rollbackViewState.view && rollbackViewState.view.canReplayFailedTurn === true;
+			// A failure still owning the tail can be withdrawn or handed to the debugger.
+			const failedTailTurn = rollbackViewState.view && rollbackViewState.view.failedTailTurn !== null && rollbackViewState.view.failedTailTurn !== undefined
+				? Number(rollbackViewState.view.failedTailTurn) : null;
 			// foreground and background compaction run in sequence; block generation until both finish.
 			const compacting = Boolean(rollbackViewState.view && rollbackViewState.view.contextCompaction && rollbackViewState.view.contextCompaction.operation && rollbackViewState.view.contextCompaction.operation.status === "running");
 			React.useEffect(function () {
@@ -497,7 +479,6 @@
 			const taskForMessage = candidateTask && candidateTask.kind === "candidate" && candidateTask.input && String(candidateTask.input.messageId || "") === String(props.messageId || "") ? candidateTask : null;
 			const taskBusy = !!(taskForMessage && taskForMessage.busy);
 			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";
-			const [replayBusy, setReplayBusy] = React.useState(false);
 			const [withdrawBusy, setWithdrawBusy] = React.useState(false);
 			const draft = props.useInput(snapshot => snapshot.draft);
 			const projectedTaskRef = React.useRef("");
@@ -547,19 +528,10 @@
 				setCandidatePanel(null);
 				setRegenPanel(regenerationPanelFor(event, "input"));
 			}
-			// A failed tail has nothing to replace: one click clears the
-			// interrupted reply and replays the same request, so no guidance box.
-			async function replayFailed() {
-				if (!canReplayFailed || frontRunning || replayBusy) return;
-				setReplayBusy(true);
-				try { await submitFailedTurnReplay(props.sessionId); }
-				catch (err) { tavernErrorHub.report("重新生成本轮", err); }
-				finally { setReplayBusy(false); liveTavernView.invalidate(props.sessionId); }
-			}
 			// Learned from huajiao1998/dsh-tavern-sqlite-v2: a failed or stopped round can also be
 			// dropped entirely, not only replayed.
 			async function withdrawFailed() {
-				if (!canReplayFailed || frontRunning || replayBusy || withdrawBusy) return;
+				if (failedTailTurn === null || frontRunning || withdrawBusy) return;
 				setWithdrawBusy(true);
 				try { await withdrawFailedTavernTurn(props.sessionId, props.inputActions, draft); }
 				catch (err) { tavernErrorHub.report("撤回这条输入", err); }
@@ -586,9 +558,9 @@
 						generate(false);
 					}
 				} }, settlementActive ? "后台结算中…" : (activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项")))),
-				props.only !== "choices" && (canReplayFailed || canRollback) ? h("button", { className: "dsh-tavern-choice-trigger", "data-fork-action": canReplayFailed ? "replay" : "regen", "data-busy": (replayBusy || regenBusy) || undefined, "aria-busy": (replayBusy || regenBusy) || undefined, disabled: frontRunning || compacting || (!canReplayFailed && activity.busy && !settlementActive) || regenBusy || replayBusy, title: replayBusy ? "正在重放本轮请求…" : regenBusy ? "正在重新生成正文…" : compacting ? "正在压缩上下文，请稍候" : canReplayFailed ? "移除被中断的回复并原样重放本轮请求（复用模型缓存）" : (settlementActive ? "重新生成将取消当前正文的后台结算" : (activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文")), onClick: canReplayFailed ? replayFailed : openRegeneration }, replayBusy ? "重放中…" : regenBusy ? "重生成中…" : canReplayFailed ? "重新生成本轮" : "重新生成正文") : null,
-				props.only !== "choices" && canReplayFailed ? h("button", { className: "dsh-tavern-choice-trigger dsh-tavern-withdraw-failed", disabled: frontRunning || replayBusy || withdrawBusy, title: "清除这一轮：恢复到这一轮开始前，此前的剧情和变量不变，原输入放回输入框", onClick: withdrawFailed }, withdrawBusy ? "撤回中…" : "撤回这条输入") : null,
-				props.only !== "choices" && canReplayFailed ? h(TavernDebugButton, { sessionId: props.sessionId, className: "dsh-tavern-choice-trigger", label: "交给调试 Agent" }) : null
+				props.only !== "choices" && canRollback ? h("button", { className: "dsh-tavern-choice-trigger", "data-fork-action": "regen", "data-busy": regenBusy || undefined, "aria-busy": regenBusy || undefined, disabled: frontRunning || compacting || (activity.busy && !settlementActive) || regenBusy, title: regenBusy ? "正在重新生成正文…" : compacting ? "正在压缩上下文，请稍候" : (settlementActive ? "重新生成将取消当前正文的后台结算" : (activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文")), onClick: openRegeneration }, regenBusy ? "重生成中…" : "重新生成正文") : null,
+				props.only !== "choices" && failedTailTurn !== null ? h("button", { className: "dsh-tavern-choice-trigger dsh-tavern-withdraw-failed", disabled: frontRunning || withdrawBusy, title: "清除这一轮：恢复到这一轮开始前，此前的剧情和变量不变，原输入放回输入框", onClick: withdrawFailed }, withdrawBusy ? "撤回中…" : "撤回这条输入") : null,
+				props.only !== "choices" && failedTailTurn !== null ? h(TavernDebugButton, { sessionId: props.sessionId, className: "dsh-tavern-choice-trigger", label: "交给调试 Agent" }) : null
 			);
 		}
 
@@ -792,7 +764,7 @@
 			return h("div", { className: "dsh-tavern-question fork-body-edit", role: "region", "aria-label": label },
 				h("div", { className: "dsh-tavern-question-head" }, h("span", null, label)),
 				panel.edit.role === "user" ? h("div", { className: "dsh-tavern-question-sub" }, failed
-					? "这是失败轮的输入。保存只改文字，不会自动重试或撤回；之后点「重新生成本轮」会按新文字重发，点「撤回这条输入」会把它放回输入框。"
+					? "这是失败轮的输入。保存只改文字，不会自动重试；要按新文字重发，先点「撤回这条输入」把它放回输入框，再发送。"
 					: "只改这一条输入，不会自动重写已生成的回复；需要新回复时保存后再点「重新生成正文」。") : null,
 				panel.error ? h("div", { className: "dsh-tavern-choice-error", role: "alert" }, panel.error) : null,
 				h("div", { style: { maxHeight: "50vh", overflowY: "auto" } }, panel.edit.parts.map(function (part, index) {
@@ -1071,8 +1043,9 @@
 			const hideProcess = play && !(preferences && preferences.showPlayProcess === true);
 			const turns = state.view && state.view.suppressedDshErrorTurns || [];
 			const hiddenTurns = state.view && state.view.hiddenDshErrorTurns;
-			const replayTurn = state.view && state.view.canReplayFailedTurn
-				? (state.view.replayPersistedTurn === true && Number(state.view.replayFailedTurn) === 0 ? 0 : Number(state.view.replayFailedTurn) || null)
+			// The failure still owning the tail: its row offers withdraw and rewind.
+			const failedTailTurn = state.view && state.view.failedTailTurn !== null && state.view.failedTailTurn !== undefined
+				? (state.view.failedTailPersisted === true && Number(state.view.failedTailTurn) === 0 ? 0 : Number(state.view.failedTailTurn))
 				: null;
 			const staleTurns = state.view && state.view.staleDshErrorTurns || [];
 			const filteredStreak = Number(state.view && state.view.filteredFailureStreak) || 0;
@@ -1084,7 +1057,7 @@
 			const draft = props.useInput(snapshot => snapshot.draft);
 			const draftRef = React.useRef(draft);
 			draftRef.current = draft;
-			const revision = turns.join(",") + ":" + (Array.isArray(hiddenTurns) ? "saved:" + hiddenTurns.join(",") : "local") + ":" + String(replayTurn === null ? "" : replayTurn)
+			const revision = turns.join(",") + ":" + (Array.isArray(hiddenTurns) ? "saved:" + hiddenTurns.join(",") : "local") + ":" + String(failedTailTurn === null ? "" : failedTailTurn)
 				+ ":" + staleTurns.join(",") + ":" + filteredStreak + ":" + canRewind + ":rail:" + railKey;
 			// Clearing a failed tail is the first half of both recovery actions.
 			async function clearFailedTail() {
@@ -1104,30 +1077,25 @@
 				const projection = createSupersededErrorProjection(root);
 				const rail = createTurnRailFilter(root);
 				const controls = createTurnErrorControls(root, {
-                    sessionId: props.sessionId, storage: window.localStorage, hiddenTurns: hiddenTurns, replayTurn: replayTurn,
+                    sessionId: props.sessionId, storage: window.localStorage, hiddenTurns: hiddenTurns, failedTailTurn: failedTailTurn,
                     onVisible: function (turn) { tavernPlayEvents.emitOnce(props.sessionId + ":" + turn, "native_error", props.sessionId, { nativeTurn: turn }); },
                     onToggle: !Array.isArray(hiddenTurns) ? undefined : async function (turn, hidden) {
                         const result = await rpc("setFailedErrorVisibility", { sessionId: props.sessionId, turn: turn, hidden: hidden });
                         liveTavernView.setView(props.sessionId, result.view);
                     },
                     // Clearing the stacked line only touches the cleared failures;
-                    // the tail failure keeps its replay and withdraw buttons.
+                    // the tail failure keeps its withdraw and rewind buttons.
                     onRemoveStale: !Array.isArray(hiddenTurns) ? undefined : async function (turns) {
                         const result = await rpc("setAllFailedErrorVisibility", { sessionId: props.sessionId, hidden: true, turns: turns });
                         liveTavernView.setView(props.sessionId, result.view);
                     },
-                    onReplay: replayTurn === null ? undefined : async function () {
-                        try { await submitFailedTurnReplay(props.sessionId); }
-                        catch (error) { tavernErrorHub.report("重新生成本轮", error); }
-                        finally { liveTavernView.invalidate(props.sessionId); }
-                    },
                     staleTurns: staleTurns, filteredStreak: filteredStreak, canRewind: canRewind,
-                    onWithdraw: replayTurn === null ? undefined : async function () {
+                    onWithdraw: failedTailTurn === null ? undefined : async function () {
                         try { await withdrawFailedTavernTurn(props.sessionId, props.inputActions, draftRef.current); }
                         catch (error) { tavernErrorHub.report("撤回这条输入", error); }
                         finally { refreshAfterRecovery(); }
                     },
-                    onRewind: replayTurn === null || !canRewind ? undefined : async function () {
+                    onRewind: failedTailTurn === null || !canRewind ? undefined : async function () {
                         try {
                             const cleared = await clearFailedTail();
                             const target = Number(cleared.view && cleared.view.rollbackTargetTurn) || null;
@@ -1339,7 +1307,7 @@
 				function (props) { return React.createElement(React.Fragment, null,
 					tavernStageBoundary("舞台", React.createElement(CardStageHost, { key: "stage:" + props.sessionId, sessionId: props.sessionId, executeSlash: executeSlash })),
 					// galgame stage view
-					tavernStageBoundary("舞台", React.createElement(GalStageHost, { key: "gal:" + props.sessionId, sessionId: props.sessionId, Regenerate: GalRegenerate, replayFailed: replayFailedStageTurn, Choices: GalChoices, choiceProps: { useChat: props.useChat, useSession: props.useSession, executeSlash: executeSlash, interruptTurn: interruptStageTurn } }))); }
+					tavernStageBoundary("舞台", React.createElement(GalStageHost, { key: "gal:" + props.sessionId, sessionId: props.sessionId, Regenerate: GalRegenerate, Choices: GalChoices, choiceProps: { useChat: props.useChat, useSession: props.useSession, executeSlash: executeSlash, interruptTurn: interruptStageTurn } }))); }
 			)), "dsh-tavern: fork session shell");
             ctx.effect(() => slots.inject("conversation.chat.node", () => slots.register({
                 name: "conversation.chat.node", key: "manual-compaction", priority: -1

@@ -38,7 +38,7 @@ test('cached rollback controls follow the stored Session surface without resumin
   assert.equal((await run('s')).canRollback,true)
 })
 
-test('末尾持久输入在会话视图中仍可重放，不回退到上一条正文', () => {
+test('末尾持久输入在会话视图中标记为待回复的失败尾，可供撤回', () => {
   const session = { surface: { nodes: [] } }
   const fields = createSessionStateView({ activity: () => ({ busy: false }),
     evidence: () => ({ session, events: [] }) })
@@ -49,11 +49,9 @@ test('末尾持久输入在会话视图中仍可重放，不回退到上一条�
       { role: 'user', text: '最新输入', native: true }]
   }
   const view = fields.volatile(projectChatSessionState(chat), { busy: false })
-  assert.equal(view.canReplayFailedTurn, true)
-  assert.equal(view.replayPersistedTurn, true)
-  assert.equal(view.replayFailedTurn, 0)
+  assert.equal(view.failedTailPersisted, true)
+  assert.equal(view.failedTailTurn, 0)
   const beforeNativeTurn = fields.volatile(projectChatSessionState(chat), { busy: false })
-  assert.equal(beforeNativeTurn.canReplayFailedTurn, true)
-  assert.equal(beforeNativeTurn.replayPersistedTurn, true)
-  assert.equal(beforeNativeTurn.replayFailedTurn, 0)
+  assert.equal(beforeNativeTurn.failedTailPersisted, true)
+  assert.equal(beforeNativeTurn.failedTailTurn, 0)
 })

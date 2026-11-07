@@ -450,8 +450,9 @@ export function pendingFailedSurfaceTurns({ events = [], nodes = [], suppressed 
 }
 
 // A failed tail never reached the stored story, so recovering it is not a
-// rollback: drop the interrupted native residue and replay its original input.
-// The input survives in the append-only log even after the cleanup tombstone.
+// rollback: drop the interrupted native residue and hand its original input
+// back to the player. The input survives in the append-only log even after the
+// cleanup tombstone.
 export function replayableFailedTurn(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   let lastEnd = null
@@ -940,9 +941,9 @@ export function rollbackAvailability(chat, input = {}) {
 
 export function failedTurnReplayAvailability({ chat = null, events = [], nodes = [], cleared = [] } = {}) {
   const target = replayablePersistedTurn(chat) || replayableFailedTurn({ events })
-  if (!target) return { target: null, reason: '当前没有可重新生成的失败回合' }
-  // A persisted row disappears when the player withdraws it. Its own replay also
-  // suppresses native residue, so that marker must not block a second retry.
+  if (!target) return { target: null, reason: '当前没有待处理的失败回合' }
+  // A persisted row disappears when the player withdraws it. The clearing marker
+  // left behind must not hide a row that is still waiting for its first reply.
   if (!target.persisted && cleared.map(Number).includes(target.turn)) return { target: null, reason: '这次失败已清除，请重新发送' }
   try {
     planFailedTurnSurface({ events, nodes, turn: target.turn })

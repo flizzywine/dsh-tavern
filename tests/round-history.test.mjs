@@ -807,31 +807,7 @@ test('另一进程留下的重新生成标志不会挡住回退', async () => {
   assert.equal(h.chat.messages.length, original.length - 2)
 })
 
-test('重放与重生成、回退互斥', async () => {
-  async function hangingReplay() {
-    const h = harness()
-    h.session.append('turn/start', { turn: 3 })
-    h.session.append('user/message', { role: 'user', content: [{ type: 'text', text: '重放这句' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    h.session.append('turn/end', { turn: 3, reason: { kind: 'error', message: 'HTTP 500' } })
-    let entered
-    const started = new Promise(resolve => { entered = resolve })
-    h.beforeGenerate(async () => { entered(); await new Promise(() => {}) })
-    const live = h.create()
-    void live.replayFailed('chat', 'session')
-    await started
-    return { h, live }
-  }
-
-  const { h, live } = await hangingReplay()
-  await assert.rejects(live.regenerate('chat', '', 'session'), /正在重放失败回合/)
-  await assert.rejects(live.rollback('session', 'chat'), /正在重放失败回合/)
-  assert.equal(h.agent.input.content[0].text, '重放这句')
-
-  const { live: regenerating } = await interruptedRegeneration()
-  await assert.rejects(regenerating.replayFailed('chat', 'session'), /正在重新生成/)
-})
-
-for (const method of ['replayFailed', 'regenerate']) test('失败后重生成保留最新持久输入，不向上一轮回退：' + method, async () => {
+test('尾部待回复输入不会被重新生成吞掉，也不改选上一轮正文以外的目标', async () => {
   const h = harness()
   h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true })
   h.chat.foregroundError = null
@@ -841,20 +817,19 @@ for (const method of ['replayFailed', 'regenerate']) test('失败后重生成保
   h.session.append('turn/end', { turn: 3, reason: { kind: 'error', message: 'HTTP 500' } })
   h.agent.phase.lastTurn = 3
 
-  await h.create()[method]('chat', ...(method === 'regenerate' ? ['', 'session'] : ['session']))
+  await h.create().regenerate('chat', '', 'session')
 
-  assert.equal(h.agent.input.content[0].text, '最新输入')
-  assert.equal(typeof h.agent.input.source.rpcId, 'string')
-  assert.ok(h.agent.input.source.rpcId.length > 0)
-  assert.equal(h.chat.messages[3].source.rpcId, h.agent.input.source.rpcId, '请求号补写到原输入行，prepare 不追加重复 user')
+  // The regeneration replays the round it replaces, never the tail that is still waiting.
+  assert.equal(h.agent.input.content[0].text, '推门')
+  assert.equal(h.agent.input.source.kind, 'plugin:dsh-tavern-regen')
   assert.deepEqual(h.chat.messages.map(message => [message.role, message.text]), [
-    ['assistant', '开场'], ['user', '推门'], ['assistant', '旧正文'],
-    ['user', '最新输入'], ['assistant', '新正文4']
+    ['assistant', '开场'], ['user', '推门'], ['assistant', '新正文4'],
+    ['user', '最新输入']
   ])
   assert.equal(h.chat.messages.filter(message => message.role === 'user').length, 2)
 })
 
-test('session 重生成入口读取完整故事，尾部持久输入优先于正文 ID', async () => {
+test('session 重生成入口读取完整故事，失效的正文 ID 不改选其他正文', async () => {
   const h = harness()
   h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true,
     source: { kind: 'user', rpcId: 'rpc-latest' } })
@@ -867,16 +842,12 @@ test('session 重生成入口读取完整故事，尾部持久输入优先于正
   const full = h.options.chats.forSession
   h.options.chats.forSession = async (...args) => { fullReads++; return full(...args) }
 
-  await h.create().regenerate(undefined, '', 'session', 'stale-body-id')
+  await assert.rejects(h.create().regenerate(undefined, '', 'session', 'stale-body-id'), /正文已变化/)
 
   assert.equal(headerReads, 0)
   assert.ok(fullReads > 0)
-  assert.equal(h.agent.input.content[0].text, '最新输入')
-  assert.equal(h.agent.input.source.rpcId, 'rpc-latest')
-  assert.deepEqual(h.chat.messages.map(message => [message.role, message.text]), [
-    ['assistant', '开场'], ['user', '推门'], ['assistant', '旧正文'],
-    ['user', '最新输入'], ['assistant', '新正文3']
-  ])
+  assert.equal(h.calls.filter(call => call === 'followup').length, 0)
+  assert.equal(h.chat.messages.at(-1).text, '最新输入')
 })
 
 test('正文 messageId 精确选择目标，失效 ID 不改选其他正文', async () => {
@@ -1008,72 +979,4 @@ test('重新生成中打断：只停前台运行，正文保持原样、不撤�
   assert.ok(!h.chat.regenInProgress)
   assert.equal(h.chat.regenRecovery, undefined)
   assert.equal(h.chat.rollbackUndo, undefined)
-})
-
-test('读卡期间重放已独占失败回合，读卡失败释放锁后可重试', async () => {
-  const h = harness()
-  h.session.append('turn/start', { turn: 3 })
-  h.session.append('user/message', { role: 'user', content: [{ type: 'text', text: '重放这句' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-  h.session.append('turn/end', { turn: 3, reason: { kind: 'error', message: 'HTTP 500' } })
-  let entered, rejectRead
-  const started = new Promise(resolve => { entered = resolve })
-  let cardReads = 0, failRead = true
-  h.options.chats.readCard = async () => {
-    cardReads++
-    if (!failRead) return { name: '角色' }
-    entered()
-    return await new Promise((_resolve, reject) => { rejectRead = reject })
-  }
-  const live = h.create()
-  const first = live.replayFailed('chat', 'session')
-  const failed = assert.rejects(first, /card unavailable/)
-  await started
-  await assert.rejects(live.replayFailed('chat', 'session'), /正在重放失败回合/)
-  await assert.rejects(live.regenerate('chat', '', 'session'), /正在重放失败回合/)
-  await assert.rejects(live.rollback('session', 'chat'), /正在重放失败回合/)
-  assert.equal(cardReads, 1)
-  assert.equal(h.calls.filter(call => call === 'followup').length, 0)
-  rejectRead(new Error('card unavailable'))
-  await failed
-  // The module captured the callback, so change its outcome without rebuilding it.
-  failRead = false
-  await live.replayFailed('chat', 'session')
-  assert.equal(cardReads, 2)
-  assert.equal(h.calls.filter(call => call === 'followup').length, 1)
-  assert.equal(h.agent.input.content[0].text, '重放这句')
-})
-
-for (const createsCard of [false, true]) test('空白工作台失败重试允许无卡，并返回重试后的工作台视图，创建卡=' + createsCard, async () => {
-  const h = harness({ mode: 'card' })
-  h.chat.cardPath = ''
-  h.session.events.length = 0
-  h.session.surface.nodes.length = 0
-  h.chat.messages = []
-  h.session.append('turn/start', { turn: 1 })
-  h.session.append('user/message', { role: 'user', content: [{ type: 'text', text: '创建人物卡' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-  h.session.append('turn/end', { turn: 1, reason: { kind: 'error', message: 'HTTP 500' } })
-  h.options.chats.readCard = async chat => {
-    if (!chat.cardPath) throw new Error('人物卡不存在: ')
-    return { name: '新卡' }
-  }
-  h.agent.whenIdle = async () => {
-    if (createsCard) await h.options.chats.update('chat', chat => ({ ...chat, cardPath: 'cards/new.json' }), { source: 'fixture.create-card' })
-  }
-  // Exercise the production result adapter too: it used to unconditionally read
-  // the card again after replay, even if generation had not created one.
-  const { readFile } = await import('node:fs/promises')
-  const source = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
-  const start = source.indexOf('  async function presentStory(chat) {')
-  const end = source.indexOf('  const sessionViews', start)
-  h.options.present = new Function('sessionProjection', 'readOpeningWindow', 'templateHistoryFrom', 'isScopedMessages', 'readChat', 'view', 'readChatCard',
-    source.slice(start, end) + '; return presentStory')(
-    { project: { full: async chat => ({ mode: chat.mode, cardPath: chat.cardPath, workspace: {} }) } },
-    async () => null, new Map(), () => false, h.options.chats.read,
-    () => assert.fail('工作台应使用工作台视图投影'), h.options.chats.readCard)
-  const result = await h.create().replayFailed('', 'session')
-  assert.equal(h.calls.filter(call => call === 'followup').length, 1)
-  assert.equal(h.agent.input.content[0].text, '创建人物卡')
-  assert.equal(result.cardPath, createsCard ? 'cards/new.json' : '')
-  assert.deepEqual(result.workspace, {})
-  assert.deepEqual(h.chat.suppressedDshTurns, [1])
 })

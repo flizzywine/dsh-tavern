@@ -26,7 +26,7 @@ function conversation(count = 5, options = {}) {
   const removed = []
   const controls = client.createTurnErrorControls(root, {
     sessionId: 'pile', storage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) },
-    staleTurns: Array.from({ length: count }, (_, index) => index + 1), replayTurn: null,
+    staleTurns: Array.from({ length: count }, (_, index) => index + 1), failedTailTurn: null,
     onRemoveStale: async function (turns) { removed.push(turns) },
     ...options
   })

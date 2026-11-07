@@ -9,7 +9,7 @@ import { createRegenerationRecovery } from './regeneration-recovery.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
-import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, planRegenerationSurface, regenerationProjection, failedTurnReplayAvailability, replayableFailedTurn, replayablePersistedTurn } from './rollback-surface.js'
+import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn } from './rollback-surface.js'
 import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
 import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration-diagnostics.js'
 import { assistantResultForTurn } from './session-turn-result.js'
@@ -248,11 +248,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   const view = present
   const pendingRollbacks = new Set()
   const pendingRegenerations = new Set()
-  const pendingReplays = new Set()
   const regenerationRecovery = createRegenerationRecovery({ chats, sessions, timeline, isActive: id => pendingRegenerations.has(id), repair: (sessionId, session) => repairSurface(sessionId, session) })
   const regenerateWithProvider = createPluginBodyRegeneration({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement,
     sessionPatch, readRegenerationMaterials, prepareRegenerationReply, notifyRegeneration,
-    recovery: regenerationRecovery, pendingRegenerations, pendingRollbacks, pendingReplays, selectTarget: selectRepairedTarget })
+    recovery: regenerationRecovery, pendingRegenerations, pendingRollbacks, selectTarget: selectRepairedTarget })
   // The save is the truth (Wiki「设计：native-session-repair」): when the native
   // surface no longer shows the round the save has, rewrite its tail from the save
   // instead of refusing. Repair reports its own failure and leaves a retry marker.
@@ -280,17 +279,13 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
 
   async function regenerate(chatId, guidance, sessionId, messageId) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
-    // Tail replay needs the persisted player row, not the header-only activity view.
-    const chat = str(chatId) === '' ? await chatForSession(sessionId) : await (chats.readState || readChat)(chatId)
+    // Regeneration replaces one stored body: it needs the story rows, including the
+    // turn the caller picked, not the header-only activity view.
+    const chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
     if (!chat) throw new Error('聊天不存在: ' + chatId)
-    if (pendingReplays.has(chat.id)) throw new Error('正在重放失败回合，请等待完成')
     if (pendingRegenerations.has(chat.id) || pendingRollbacks.has(chat.id)) throw new Error('正文正在重新生成，请等待完成')
     await regenerationRecovery.recover(chat.id)
-    if (pendingReplays.has(chat.id)) throw new Error('正在重放失败回合，请等待完成')
     if (pendingRegenerations.has(chat.id) || pendingRollbacks.has(chat.id)) throw new Error('正文正在重新生成，请等待完成')
-    // A saved tail user is waiting for its first reply, not asking to replace the
-    // previous completed round. Both regeneration entry points resume that row.
-    if (replayablePersistedTurn(chat)) return await replayFailedTurn(chat.id, sessionId)
     pendingRegenerations.add(chat.id)
     try { return await regenRecent(chat.id, guidance, sessionId, messageId) ?? await regenBody(chat.id, guidance, sessionId, messageId) }
     finally { pendingRegenerations.delete(chat.id) }
@@ -572,84 +567,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     return await regenBody(chatId, guidance, sessionId, messageId)
   }
 
-  async function replayFailedTurn(chatId, sessionId) {
-    if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
-    const chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
-    if (chat === undefined || chat === null) throw new Error('聊天不存在: ' + chatId)
-    if (pendingReplays.has(chat.id)) throw new Error('正在重放失败回合，请等待完成')
-    await settleStaleRegeneration(chat)
-    if (pendingRollbacks.has(chat.id)) throw new Error('正在回退本轮，请等待完成')
-    const agent = sessions.get(chat.sessionId)
-    if (agent === undefined || agent.session === undefined) throw new Error('无法访问 DSH 会话: ' + chat.sessionId)
-    if (agent.phase !== undefined && agent.phase !== null && agent.phase.kind === 'running') throw new Error('正在生成，请先停止后再重新生成')
-    const session = agent.session
-    const events = sessionEvents(session)
-    const replay = failedTurnReplayAvailability({ chat, events, nodes: session.surface?.nodes || [], cleared: chat.suppressedDshTurns || [] })
-    const target = replay.target
-    if (target === null) throw new Error(replay.reason)
-    // Read the card before spending a generation: a broken card must fail here,
-    // not after the new turn has already committed.
-    pendingReplays.add(chat.id)
-    try {
-      // A blank workbench can retry the very request that creates its first card.
-      const card = chat.mode === 'card' && str(chat.cardPath) === '' ? null : await readChatCard(chat)
-      // 1) 移除被中断的内容：清掉失败回合留在原生消息面上的节点。清理钩子
-      // 正常已在失败时执行过，此处重复调用对已清理的回合是无操作。
-      const cleared = clearFailedTurnSurface({ session, turn: target.turn })
-      if (cleared > 0 && typeof sessions.flush === 'function') await sessions.flush(session)
-      // 2) 同步隐藏该回合残留的正文与错误提示，再原样重发本轮输入。
-      await updateChat(chat.id, function (current) {
-        if (current === null || typeof current !== 'object') return current
-        const suppressed = new Set(Array.isArray(current.suppressedDshTurns) ? current.suppressedDshTurns : [])
-        if (target.turn > 0) suppressed.add(target.turn)
-        const next = {
-          ...current,
-          suppressedDshTurns: Array.from(suppressed).sort(function (left, right) { return left - right }),
-          updatedAt: Date.now()
-        }
-        if (target.persisted) {
-          const messages = Array.isArray(current.messages) ? [...current.messages] : []
-          const row = messages[target.messageIndex]
-          if (row?.role !== 'user' || row.native !== true || row.placeholder === true) throw new Error('待生成输入已变化，请刷新后重试')
-          const currentText = typeof row.sourceText === 'string' ? row.sourceText : (typeof row.text === 'string' ? row.text : '')
-          if (target.userText && currentText !== target.userText) throw new Error('待生成输入已变化，请刷新后重试')
-          // Older/native-adopted rows may not have a request id yet. Stamp the
-          // existing row so prepare() adopts it instead of appending a duplicate.
-          messages[target.messageIndex] = { ...row, source: { ...row.source, kind: 'user', rpcId: target.source.rpcId } }
-          next.messages = messages
-        }
-        if (current.userInputEdits && typeof current.userInputEdits === 'object' && Object.hasOwn(current.userInputEdits, String(target.turn))) {
-          const edits = { ...current.userInputEdits }
-          delete edits[String(target.turn)]
-          next.userInputEdits = edits
-        }
-        return next
-      }, { source: 'replay.failed-turn' })
-      // The replay input is a first-class turn input so the normal foreground
-      // prepare/finalize pipeline commits it exactly like a typed message. Its
-      // source must stay kind 'user': hosts render anything else as a context
-      // node, which would hide the player's text instead of resending it.
-      // A failed input may have been edited as a Chat overlay. Retry with that
-      // text; the failed turn itself is cleared and resent below.
-      const edited = !target.persisted && chat.userInputEdits && typeof chat.userInputEdits === 'object' ? chat.userInputEdits[String(target.turn)] : null
-      const inputText = edited && typeof edited.text === 'string' ? edited.text : target.userText
-      releaseOpeningTurn(agent.session, agent)
-      agent.followup({
-        id: randomUUID(),
-        role: 'user',
-        content: projectPlayerContent(target.inputAttachments, inputText),
-        source: target.source
-      })
-      await agent.whenIdle()
-      const latest = await readChat(chat.id) || chat
-      const result = await view(latest, card)
-      result.replayed = { turn: target.turn, userText: inputText, cleared }
-      return result
-    } finally {
-      pendingReplays.delete(chat.id)
-    }
-  }
-
   // ---------- 回退本轮（删除最近一次用户输入 + LLM 输出） ----------
   function latestStoryRow(chat) {
     return (chat.messages || []).findLast(m => m !== null && typeof m === 'object' && m.role === 'assistant' && m.greeting !== true)
@@ -673,7 +590,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // Identity and task flags only; rollbackChat reads the story it changes.
     const chat = str(chatId) === '' ? await (chats.stateForSession || chatForSession)(sessionId) : await (chats.readState || readChat)(chatId)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    if (pendingReplays.has(chat.id)) throw new Error('正在重放失败回合，请等待完成')
     await settleStaleRegeneration(chat)
     if (pendingRollbacks.has(chat.id)) throw new Error('正在回退本轮，请等待完成')
     pendingRollbacks.add(chat.id)
@@ -699,7 +615,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   async function interruptTurn(sessionId, chatId) {
     const chat = str(chatId) === '' ? await (chats.stateForSession || chatForSession)(sessionId) : await (chats.readState || readChat)(chatId)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    if (pendingReplays.has(chat.id)) throw new Error('正在重放失败回合，请等待完成')
     // A regeneration in flight only has its run stopped; it restores the original round itself.
     if (pendingRegenerations.has(chat.id) || chat.regenInProgress) {
       await stopRollbackGeneration(chat)
@@ -736,7 +651,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
     const state = str(chatId) === '' ? await (chats.stateForSession || chatForSession)(sessionId) : await (chats.readState || readChat)(chatId)
     if (state === undefined) throw new Error('聊天不存在: ' + chatId)
-    if (pendingReplays.has(state.id)) throw new Error('正在重放失败回合，请等待完成')
     await settleStaleRegeneration(state)
     if (pendingRollbacks.has(state.id)) throw new Error('正在回退本轮，请等待完成')
     pendingRollbacks.add(state.id)
@@ -1270,5 +1184,5 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
   }
 
-  return Object.freeze({ regenerate, regenerateWithProvider, replayFailed: replayFailedTurn, recover: regenerationRecovery.recover, rollback: rollbackTurn, rollbackTo: rollbackToTurn, interrupt: interruptTurn, undoRollback })
+  return Object.freeze({ regenerate, regenerateWithProvider, recover: regenerationRecovery.recover, rollback: rollbackTurn, rollbackTo: rollbackToTurn, interrupt: interruptTurn, undoRollback })
 }

@@ -189,8 +189,8 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
       const selection = await providers.controlRoute?.(gameId) || configuredBodyGeneration(await routeChatForSession(gameId), await settings())
       const selected = { storyGenerationMode: selection.mode, storyGenerationProvider: selection.provider }
       if (!selected.storyGenerationMode?.startsWith('plugin-')) return null
-      // A persisted tail user has no old assistant body to replace. Resume the
-      // ordinary turn pipeline; its frozen route still honors plugin generation.
+      // A persisted tail user has no assistant body of its own to replace: the
+      // native path regenerates the round the caller picked instead.
       if (replayablePersistedTurn(await chatForSession(gameId))) return null
       if (regenerations.has(gameId)) throw error('正文正在重新生成')
       const provider = await providers.require(selected.storyGenerationProvider, gameId)
