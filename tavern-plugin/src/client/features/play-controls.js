@@ -1,3 +1,46 @@
+		// The regeneration RPC returns only after the model finishes, while its durable
+		// regenInProgress marker is written after request preparation. Keep re-reading
+		// until that marker is actually visible; a fixed burst can all run before the
+		// marker exists and leaves the replaced reply on screen for the whole request.
+		function createTavernRegenerationViewRefresher(options) {
+			const liveView = options.liveTavernView;
+			const storyChanged = options.storyChanged || function () {};
+			const schedule = options.schedule || function (run, delay) { return window.setTimeout(run, delay); };
+			const cancel = options.cancel || function (timer) { window.clearTimeout(timer); };
+			const pending = new Map();
+			function stop(id) {
+				const ticket = pending.get(id);
+				if (!ticket) return;
+				pending.delete(id);
+				if (ticket.timer !== null) cancel(ticket.timer);
+			}
+			function refresh(id) {
+				liveView.invalidate(id);
+				try { storyChanged(id); } catch (_) { /* the live view still refreshes without DOM events */ }
+			}
+			return function notifyRegenerating(sessionId, active) {
+				const id = String(sessionId || "");
+				if (id === "") return;
+				stop(id);
+				refresh(id);
+				if (active !== true) return;
+				const ticket = { timer: null };
+				pending.set(id, ticket);
+				function confirmMarker() {
+					if (pending.get(id) !== ticket) return;
+					refresh(id);
+					if (pending.get(id) !== ticket) return;
+					const snapshot = liveView.getSnapshot(id);
+					if (snapshot && snapshot.view && snapshot.view.regenInProgress === true) {
+						pending.delete(id);
+						return;
+					}
+					ticket.timer = schedule(confirmMarker, 500);
+				}
+				ticket.timer = schedule(confirmMarker, 500);
+			};
+		}
+
 		function createPlayControlsFeatureModule() {
 			const historyProjection = createTurnHistoryProjection();
             const { TavernConversationSettingsTab, TavernConversationSettingsAction } = createConversationSettingsModule({
@@ -387,28 +430,16 @@
 			return h(TavernStatusPanel, { sessionId: props.sessionId, useSession: useSession, useChat: useChat, executeSlash: props.executeSlash, openStyleTab: props.openStyleTab });
 		}
 
+        const notifyRegenerating = createTavernRegenerationViewRefresher({
+            liveTavernView,
+            storyChanged: id => {
+                if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: id } }));
+            }
+        });
         const interactions = createPlayInteractionFlow({ rpc, coordinationView, coordination: tavernCoordination,
             applyBodyResult: (sessionId, view, tail) => applyBodyRegenerationResult({ liveTavernView, historyProjection, sessionId, view, tail }),
             reportError: (source, error) => tavernErrorHub.report(source, error),
-            // The save's busy marker is written inside the request and the request runs for as
-            // long as the model takes, so nothing would refresh the page in between: the reply
-            // being replaced stayed on screen. Refresh when the replacement starts (and twice
-            // more while it runs, in case the first read raced the write), then once when it ends.
-            notifyRegenerating: (sessionId, active) => {
-                const id = String(sessionId || "");
-                if (id === "") return;
-                function refresh() {
-                    liveTavernView.invalidate(id);
-                    try {
-                        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("dsh-tavern-story-mutated", { detail: { sessionId: id } }));
-                    } catch (_) { /* a page without events still refreshes through the live view */ }
-                }
-                refresh();
-                if (active === true && typeof setTimeout === "function") {
-                    setTimeout(refresh, 700);
-                    setTimeout(refresh, 2200);
-                }
-            },
+            notifyRegenerating,
             bodyErrorText: error => playerErrorText(error, { fallback: "重新生成没有完成" }), timers: window
         });
         const setCandidatePanel = interactions.candidates.set;
