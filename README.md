@@ -197,13 +197,13 @@ curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-ma
 **Windows（PowerShell）**
 
 ```powershell
-$env:DSH_TAVERN_HOST='next'; $tavernInstaller=[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData('https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.ps1')); Invoke-Expression $tavernInstaller
+$env:DSH_TAVERN_HOST='next'; $tavernInstaller=[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData('https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-archive-main/install.ps1')); Invoke-Expression $tavernInstaller
 ```
 
 **macOS（终端）**
 
 ```sh
-curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.sh' -o /tmp/dsh-tavern-install.sh && DSH_TAVERN_HOST=next sh /tmp/dsh-tavern-install.sh
+curl -fsSL 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-archive-main/install.sh' -o /tmp/dsh-tavern-install.sh && DSH_TAVERN_HOST=next sh /tmp/dsh-tavern-install.sh
 ```
 
 执行成功后，打开 DSH NEXT，从 **设置 → 酒馆启动器** 切换到酒馆。
