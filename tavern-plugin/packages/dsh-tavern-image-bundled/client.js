@@ -2871,6 +2871,8 @@ function versionsOf(jobId) {
       // 画风预设每套默认收起，展开状态只活在界面上。必须放在组件顶层：stylePresetCard 是普通渲染
       // 函数并从 tab 分支里调用，在它内部用 Hook 会让钩子数量随切页变化。
       const [openStylePresets, setOpenStylePresets] = React.useState({})
+      // 拖拽状态：{ from: 正在拖的 id, over: 当前悬停到的 id }。放这里是因为 stylePresetCard 是普通渲染函数，不能自己用 Hook。
+      const [presetDrag, setPresetDrag] = React.useState(null)
       const [displayWidthDraft, setDisplayWidthDraft] = React.useState(null)
       const [displayWidthNote, setDisplayWidthNote] = React.useState('')
       // 宽度预览用的样例图：最近一张出好的插图。抓不到就退回示意图。
@@ -6033,7 +6035,7 @@ function versionsOf(jobId) {
         )
       }
 
-      function stylePresetCard(openPresets, setOpenPresets) {
+      function stylePresetCard(openPresets, setOpenPresets, dragState, setDragState) {
         const presets = Array.isArray(config.stylePresets) ? config.stylePresets : []
         const active = String(config.activePreset ?? '')
         const activeName = (presets.find(p => String(p.id) === active) || {}).name
@@ -6066,6 +6068,18 @@ function versionsOf(jobId) {
           const gone = next.splice(i, 1)[0]
           savePresets(next)
           if (gone && String(gone.id) === active) save({ activePreset: '' })
+        }
+        // 拖拽排序 = 交换两张卡的位置。按 id 定位：重排后索引会漂移，id 不会。
+        // 选交换而不是「抽出再插入」，是因为往下拖时插入点会整体前移一格，容易拖过头。
+        const swapPreset = (fromKey, toKey) => {
+          const from = presets.findIndex((item, index) => presetKey(item, index) === fromKey)
+          const to = presets.findIndex((item, index) => presetKey(item, index) === toKey)
+          if (from < 0 || to < 0 || from === to) return
+          const next = presets.slice()
+          const moved = next[from]
+          next[from] = next[to]
+          next[to] = moved
+          savePresets(next)
         }
         const ta = (hgt) => Object.assign({}, S.input, {
           width: '100%', minHeight: hgt, fontFamily: 'ui-monospace, Consolas, monospace',
@@ -6119,12 +6133,33 @@ function versionsOf(jobId) {
             presets.map((p, i) => {
               const presetId = presetKey(p, i)
               const expanded = openPresets[presetId] === true
+              const isDragging = Boolean(dragState && dragState.from === presetId)
+              const isDropTarget = Boolean(dragState && dragState.over === presetId && dragState.from !== presetId)
               return h('div', {
                 key: p.id || i,
+                'data-preset-card': presetId,
+                onDragOver: event => {
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = 'move'
+                  // 只在目标变了才更新，否则每一帧都重渲染
+                  setDragState(state => (!state || state.over === presetId) ? state : Object.assign({}, state, { over: presetId }))
+                },
+                onDrop: event => {
+                  event.preventDefault()
+                  const from = event.dataTransfer.getData('text/plain')
+                  setDragState(null)
+                  if (from) swapPreset(from, presetId)
+                },
                 style: {
                   borderRadius: '10px', padding: '10px 12px',
-                  border: String(p.id) === active ? '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 75%, transparent)' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)',
+                  border: isDropTarget
+                    ? '1px solid var(--dsw-alias-brand-primary)'
+                    : String(p.id) === active ? '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 75%, transparent)' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)',
                   background: String(p.id) === active ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent)' : 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)',
+                  // 拖起来的那张淡掉，目标那张亮起来 —— 松手就是这两张换位
+                  opacity: isDragging ? 0.4 : 1,
+                  boxShadow: isDropTarget ? '0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, transparent)' : 'none',
+                  transition: 'opacity .12s, box-shadow .12s',
                 },
               },
                 h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: expanded ? '8px' : '0' } },
@@ -6150,6 +6185,21 @@ function versionsOf(jobId) {
                     onClick: () => expandPreset(presetId),
                   }, expanded ? '▾' : '▸'),
                   h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px', borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }), onClick: () => remove(i) }, '删'),
+                  h('div', {
+                    draggable: true,
+                    title: '按住拖动，调整这套预设的位置',
+                    'aria-label': '拖动排序 ' + (p.name || (i + 1)),
+                    style: { cursor: 'grab', userSelect: 'none', padding: '2px 6px', fontSize: '15px', lineHeight: '1', letterSpacing: '-1px', color: 'var(--dsw-alias-label-tertiary)', borderRadius: '6px' },
+                    onDragStart: event => {
+                      event.dataTransfer.setData('text/plain', presetId)
+                      event.dataTransfer.effectAllowed = 'move'
+                      setDragState({ from: presetId })
+                      // 默认拖影就是这一个小方块，换成整张卡片
+                      const card = event.currentTarget.closest('[data-preset-card]')
+                      if (card) event.dataTransfer.setDragImage(card, 24, 18)
+                    },
+                    onDragEnd: () => setDragState(null),
+                  }, '⠿'),
                 ),
                 expanded ? h('div', null,
                   h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '4px' } }, '正面：画师串 / 风格词'),
@@ -6455,7 +6505,7 @@ function versionsOf(jobId) {
         // 画风预设和专业提示词预设各自是一整排，挂在设置页末尾要一路滚到底才能碰到，单开一页。
         // 两张卡都自带标题，这里不再套一层「画风」小节。
         tab === 'style' ? h('div', null,
-          stylePresetCard(openStylePresets, setOpenStylePresets),
+          stylePresetCard(openStylePresets, setOpenStylePresets, presetDrag, setPresetDrag),
           h(PromptPresetCard),
         ) : null,
         tab === 'people' ? peopleTab() : null,
