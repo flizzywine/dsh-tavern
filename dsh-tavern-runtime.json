@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2ecaf8eeaed2f4a8e278a2e3db6373d628e41d11",
-  "releaseSequence": 1338,
+  "revision": "20e5c544d06be6c92f68b02ae94877bb0477cc84",
+  "releaseSequence": 1339,
   "version": "3.2.0",
   "files": [
     {
@@ -7176,7 +7176,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/BUNDLED-VERSION.json",
-      "sha256": "d6ad685e654801d924a6e8a86c6a1dd09add798e114e2a5edfa436bbe98f9b38",
+      "sha256": "fcdf80284d72f87b2fce6fc69c2da363aa7f1c9948a0f695f829ecd4dcf0ee19",
       "size": 260
     },
     {
@@ -7356,8 +7356,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js",
-      "sha256": "9b7be0546f3cae16172428cb4c06bbb2263e977991c4bfce36b1e98edbde785b",
-      "size": 390766
+      "sha256": "e6671c9697d78fab1c182359dc51182828655ff7abe66d25bd38e693ef7293f5",
+      "size": 393518
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/library-provider.js",
@@ -7381,13 +7381,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/planner-context.js",
-      "sha256": "5d2ac8345f1eef5fae1beb92c8c40820312a456483f4066b8e5226986dffe4a1",
-      "size": 7767
+      "sha256": "4b0e86ff4086e5902f9a14cac3f25fb7a0b028b4be0aefbbea9610d8f04859cd",
+      "size": 8442
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/planner.js",
-      "sha256": "996f944de471a69b0772c7aa1f2358f0d2120ca2ef9041170779c5a56a01ef25",
-      "size": 46485
+      "sha256": "6a75e0be51c6311a73d16df45a31a6c3e38032b880a0d957048ea4212ceeeda9",
+      "size": 46675
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/plugin-compatibility.js",
@@ -7601,7 +7601,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/package.json",
-      "sha256": "41a28f9327bf88dabd3091871b1ef26f4027407d80f119c568992d84e03b7f80",
+      "sha256": "67fdfa6fd380d99bba62b945cbf4f32807ddd41e9dfbb4b84abadd97326d8f2a",
       "size": 2310
     },
     {
@@ -9891,9 +9891,9 @@
     }
   ],
   "archive": {
-    "commit": "8174fcaf879be9ba21793b73c3b8832f850e42b6",
+    "commit": "849e1279ef1089dd90524affd4535673bd7835eb",
     "path": "runtime.zip",
-    "sha256": "125cedae93b9e46c18f55bfc890ac766be4a58772f2a90112295bc264de90c17",
-    "size": 16431653
+    "sha256": "b3e5ed9771cb714255c7e70a3caa8c7477c27f1f2c115359507e50149b8e6793",
+    "size": 16433012
   }
 }
