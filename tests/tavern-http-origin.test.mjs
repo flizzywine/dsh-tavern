@@ -2,6 +2,7 @@ import test from 'node:test'
 import {Readable, Writable} from 'node:stream'
 import {once} from 'node:events'
 import assert from 'node:assert/strict'
+import { serviceDshArgs } from '../bin/service-lifecycle.mjs'
 import { registerTavernHttpRoutes } from '../tavern-plugin/lib/http/routes.js'
 import {createTavernClientAssets} from '../tavern-plugin/lib/domain/tavern-client-assets.js'
 import {registerStageClientAssets} from '../tavern-plugin/packages/dsh-tavern-stage/lib/client-assets.js'
@@ -29,9 +30,13 @@ function handle(clientAssets, overrides = {}) {
 }
 
 function capture() {
-  const res = { status: 0, headers: {}, body: '' }
+  const res = new Writable({
+    write(chunk, _encoding, done) { res.body += chunk.toString(); done() },
+  })
+  res.status = 0
+  res.headers = {}
+  res.body = ''
   res.writeHead = (status, headers) => { res.status = status; if (headers) res.headers = headers }
-  res.end = (body) => { res.body = body === undefined ? '' : String(body) }
   return res
 }
 
@@ -183,6 +188,26 @@ test('鉴权服务缺失时 HTTP 与进程内调用都失败关闭', async () =>
   assert.equal((await operation(routes.external)).status, 503)
   assert.equal((await operation(routes.internal)).status, 503)
   assert.equal(routes.calls(), 0)
+})
+
+test('CLI 的非回环监听地址可免 Cookie 读取 zod，可信范围限于实际地址和端口', async () => {
+  const url = '/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs'
+  for (const [bindHost, port, hostname] of [['192.168.1.10', 3082, '192.168.1.10'], ['fd00::1234', 3081, '[fd00::1234]'], ['fd00::1234', 80, '[fd00::1234]']]) {
+    const args = serviceDshArgs(bindHost, port)
+    const trustedHosts = args.slice(args.indexOf('--trusted-host') + 1)
+    assert.deepEqual(trustedHosts, [`${hostname}:${port}`])
+    const { external } = externalRoutes({ trustedHosts, requestRejection: () => { throw Error('must not check session') } })
+    const host = port === 80 ? hostname : `${hostname}:${port}`
+    for (const origin of [undefined, 'null', `http://${host}`]) {
+      const res = await call(external, { host, origin, url })
+      assert.equal(res.status, 200)
+      assert.match(res.headers['Content-Type'], /^text\/javascript/)
+      assert.equal(res.headers['Access-Control-Allow-Origin'], '*')
+    }
+    assert.equal((await call(external, { host, origin: 'http://evil.example', url })).status, 403)
+    assert.equal((await call(external, { host: `${hostname}:8080`, url })).status, 403)
+    assert.equal((await call(external, { host: `evil.example:${port}`, url })).status, 403)
+  }
 })
 
 test('沙箱资源仍凭能力票据访问，不要求主页面登录 Cookie', async () => {

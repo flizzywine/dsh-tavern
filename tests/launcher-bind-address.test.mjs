@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import test from 'node:test'
 import { DEFAULT_BIND_HOST, resolveBindHost, serviceOrigin, isLoopbackHost } from '../bin/service-address.mjs'
-import { legacyBindHostMatches, isServiceReady, resolveServiceWebUrl, restartBrowserTarget } from '../bin/service-lifecycle.mjs'
+import { legacyBindHostMatches, isServiceReady, resolveServiceWebUrl, restartBrowserTarget, serviceDshArgs } from '../bin/service-lifecycle.mjs'
 
 const execute = promisify(execFile)
 const launcher = fileURLToPath(new URL('../bin/dsh-tavern.mjs', import.meta.url))
@@ -38,6 +38,12 @@ test('DSH_TAVERN_BIND 只影响 CLI，不改变 desktop / android 默认地址',
   })
   assert.equal((await probe('cli')).stdout.trim(), '100.64.1.2')
   for (const host of ['desktop', 'android']) assert.equal((await probe(host)).stdout.trim(), DEFAULT_BIND_HOST)
+})
+
+test('回环绑定保留原有 DSH 启动参数', () => {
+  for (const host of ['127.0.0.1', '127.0.0.2', '::1']) {
+    assert.deepEqual(serviceDshArgs(host, 3081), ['--profile', 'tavern', '--host', host, '--port', '3081', '--no-open'])
+  }
 })
 
 test('自检和重启链接使用具体 IPv4/IPv6 地址；探测不会跟随重定向', async () => {

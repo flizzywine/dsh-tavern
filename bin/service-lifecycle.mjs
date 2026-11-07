@@ -300,6 +300,15 @@ export async function stopService() {
   throw new Error(`服务未能在 10 秒内停止；没有强制结束进程，请手动检查 PID ${state.record.pid}。`)
 }
 
+export function serviceDshArgs(bindHost, port) {
+  const args = ['--profile', PROFILE, '--host', bindHost, '--port', String(port), '--no-open']
+  if (!isLoopbackHost(bindHost)) {
+    const { hostname } = new URL(serviceOrigin(bindHost, port))
+    args.push('--trusted-host', `${hostname}:${port}`)
+  }
+  return args
+}
+
 export async function startService() {
   verifyProfile()
   ensureSidebarDefaults()
@@ -350,7 +359,7 @@ export async function startService() {
   const dsh = findDshCommand(runtimeHost)
   const invocation = resolveDshInvocation(
     dsh,
-    ['--profile', PROFILE, '--host', state.bindHost, '--port', String(state.port), '--no-open'],
+    serviceDshArgs(state.bindHost, state.port),
     runtimeHost,
   )
   // A pinned desktop DSH (DSH_DESKTOP_DSH_BOOTSTRAP) is already the Electron executable plus
