@@ -7,23 +7,15 @@ const model = { kind: 'model', provider: 'test', model: 'test-model' }
 const assistant = (seq, turn, source = model, content = [{ type: 'text', text: '正文' }]) => ({ seq, type: 'assistant/message', data: { turn, step: 1, message: { role: 'assistant', source, content } } })
 const cleanup = (seq, turn) => assistant(seq, turn, { kind: 'plugin', plugin: 'dsh-tavern-failed-turn-cleanup' }, [])
 const chat = { messages: [{ role: 'assistant', greeting: true, turn: 1 }, { role: 'user', text: '继续' }, { role: 'assistant', turn: 6, text: '已保存正文' }] }
-test('同一句配对错误记录不同结构原因，不修改消息或暴露文本', () => {
-  const cases = [
-    [[{ role: 'assistant', greeting: true }], 'no-non-greeting-assistant'],
-    [[{ role: 'assistant', turn: 2 }], 'assistant-at-start'],
-    [[null, { role: 'assistant', turn: 2 }], 'previous-message-invalid'],
-    [[{ role: 'user' }, { role: 'system' }, { role: 'assistant', turn: 2 }], 'previous-message-not-user']
-  ]
-  for (const [messages, reason] of cases) {
-    for (const msg of messages) if (msg) msg.text = 'private-user-story-and-key'
-    const before = structuredClone(messages)
-    let evidence
-    assert.throws(() => selectRegenerationTarget({messages}, {events:[],surface:{nodes:[]}}, value => { evidence = value }), /没有可重新生成/)
-    assert.equal(evidence.reason, reason)
-    assert.equal(evidence.chat.messageCount, messages.length)
-    assert.doesNotMatch(JSON.stringify(evidence), /private-user-story-and-key/)
-    assert.deepEqual(messages, before)
-  }
+test('没有非问候助手时才拒绝；前一条不是玩家输入不再是拒绝理由', () => {
+  let evidence
+  assert.throws(() => selectRegenerationTarget({ messages: [{ role: 'assistant', greeting: true }] }, { events: [], surface: { nodes: [] } }, value => { evidence = value }), /没有可重新生成的正文/)
+  assert.equal(evidence.reason, 'no-non-greeting-assistant')
+  // 尾巴是 [助手, 助手]（被撤回的输入、修复轮）时不再因"缺配对"拒绝，继续找原生目标。
+  let second
+  const messages = [{ role: 'assistant', turn: 5, text: '上一轮' }, { role: 'assistant', turn: 7, text: '这一轮' }]
+  assert.throws(() => selectRegenerationTarget({ messages }, { events: [], surface: { nodes: [] } }, value => { second = value }), /原生消息流中找不到/)
+  assert.equal(second.reason, 'native-target-missing')
 })
 
 function select(events, nodes) {

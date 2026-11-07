@@ -2,7 +2,7 @@ import { createImmutableTurnFields } from './freeze-json.js'
 import { createMvuReceiptIndex } from './mvu-receipt-index.js'
 import { copyJsonTree } from './copy-json-tree.js'
 import { copyLazyHistoryHeader } from './lazy-history-read.js'
-import { rollbackAvailability, hasRollbackMessages, failedTurnReplayAvailability, foregroundSuppressedTurns, supersededRegenerationErrorTurns, supersededRegenerationTurns, projectedReplyTurns, regenerationInputTurns, keptPlayerInputTurns } from './rollback-surface.js'
+import { rollbackAvailability, failedTurnReplayAvailability, foregroundSuppressedTurns, supersededRegenerationErrorTurns, supersededRegenerationTurns, projectedReplyTurns, regenerationInputTurns, keptPlayerInputTurns } from './rollback-surface.js'
 import { isRescuedHistoryMessage } from './chat-history-rescue.js'
 import { canUndoRollback } from './surface-restoration.js'
 import { failedErrorTurnStates } from './failed-error-visibility.js'
@@ -177,7 +177,9 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
     }
     // The failed tail a player can still withdraw or refresh; nothing here re-sends its input.
     const failedTail = Array.isArray(nodes) ? failedTurnReplayAvailability({ chat, events: evidence.events || [], nodes, cleared: chat.suppressedDshTurns || [] }).target : null
-    const hasRound = hasRollbackMessages(chat.messages)
+    // Does the save hold a reply at all? Whether it sits next to a player input is a
+    // round-shape guess, not a fact about the message: a tail may end [assistant, assistant].
+    const hasRound = Boolean((chat.messages || []).findLast(message => message?.role === 'assistant' && message.greeting !== true))
     const failures = failedErrorTurnStates(evidence.events || [], chat.suppressedDshTurns)
     const replacingTurns = replacingDshTurnsOf(chat)
     // Native turns whose body was replaced by a projection. The host keeps painting

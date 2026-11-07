@@ -196,41 +196,31 @@ test('重新生成找不到原生正文时报错：不按存档重写模型上�
   assert.deepEqual(h.chat.messages,before.messages)
 })
 
-test('配对失败的证据写入现有诊断包，原错误与聊天、原生历史保持不变', async () => {
+test('缺少玩家输入时按空输入重新生成，诊断记录 input-missing', async () => {
   const h = harness()
   h.chat.messages.splice(1, 1)
   const records = new Map()
   const store = createMvuDiagnosticStore({ updateJson: async (path, fn) => {records.set(path, fn(records.get(path)))}, readJson: async path => records.get(path) })
   h.options.diagnostics = store
-  const before = structuredClone(h.chat), session = structuredClone(h.session.events)
-  await assert.rejects(h.create().regenerate('chat', 'PRIVATE guidance', 'session'), /没有可重新生成的玩家输入与正文组合/)
+  const result = await h.create().regenerate('chat', 'PRIVATE guidance', 'session')
   const logged = (await store.read('session')).records
   assert.equal(logged.length, 1)
   assert.equal(logged[0].stage, 'regeneration-target')
-  assert.equal(logged[0].reason, 'previous-message-not-user')
-  assert.equal(logged[0].binding.overridden, false)
+  assert.equal(logged[0].reason, 'selected')
+  assert.equal(logged[0].selection.inputIndex, -1)
   assert.equal(logged[0].selection.assistantIndex, 1)
-  assert.doesNotMatch(JSON.stringify(logged), /PRIVATE guidance|旧正文|推门|开场/)
-  assert.deepEqual(h.chat, before)
-  assert.deepEqual(h.session.events, session)
-  assert.deepEqual(h.calls, [])
-  const exported = await createMvuDiagnosticExport({sessionId:'session', store})
-  const directory = await mkdtemp(join(tmpdir(), 'round-diagnostic-'))
-  try {
-    const archive = join(directory, 'diagnostics.zip')
-    await writeFile(archive, exported.buffer)
-    const content = readZipEntries(await readFile(archive)).get('mvu/diagnostics.json').toString('utf8')
-    assert.match(content, /regeneration-target/)
-    assert.match(content, /previous-message-not-user/)
-  } finally { await rm(directory, { recursive: true, force: true }) }
+  assert.equal(logged[0].binding.overridden, false)
+  assert.ok(result.messages.at(-1).text.startsWith('新正文'))
+  // No player row to quote: the evidence must not carry story text.
+  assert.doesNotMatch(JSON.stringify(logged), /PRIVATE guidance|正文|玩家/)
 })
 
-test('诊断持久化失败不替换原配对错误，也不阻止正常重新生成', async () => {
+test('诊断持久化失败不阻止重新生成', async () => {
   const failed = harness()
   failed.options.diagnostics = {record:async()=>{throw new Error('disk failure')}}
   failed.chat.messages.splice(1,1)
-  await assert.rejects(failed.create().regenerate('chat','','session'), /没有可重新生成的玩家输入与正文组合/)
-  assert.deepEqual(failed.calls, [])
+  const partial = await failed.create().regenerate('chat','','session')
+  assert.ok(partial.messages.at(-1).text.startsWith('新正文'))
   const ok = harness({checkpoint:true})
   ok.options.diagnostics = failed.options.diagnostics
   const result = await ok.create().regenerate('chat','','session')
