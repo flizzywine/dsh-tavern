@@ -88,7 +88,7 @@ function recover(journalFile, journal, rename) {
 }
 // Existing installs retain their independent original profile and refresh only its
 // bridge. Tavern-active updates need no Desktop shutdown or profile replacement.
-export function beginDesktopProfileInstallation({ home, sourceRoot, host = 'desktop', guiRoot, preparingForPid, checkStopped = (allowedPid) => assertDesktopStopped([home], { requireGuiClosed: true, guiRoot, preparingForPid: allowedPid }), rename = renameSync, retry = {} }) {
+export function beginDesktopProfileInstallation({ home, sourceRoot, host = 'desktop', guiRoot, preparingForPid, launcherGate, checkStopped = (allowedPid) => assertDesktopStopped([home], { requireGuiClosed: true, guiRoot, preparingForPid: allowedPid }), rename = renameSync, retry = {} }) {
   const moveDirectory = (from, to) => renameWithRetrySync(from, to, { ...retry, rename })
   const profiles = path.join(home, 'profiles'), live = path.join(profiles, 'desktop'), tavern = path.join(profiles, 'tavern')
   let replacesNext = hasNextTavern(home)
@@ -123,7 +123,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, host = 'desk
     // A registered relocation already owns its profile. Rebuilding it through
     // the first-install staging flow would replace its compatibility junction.
     if (!linkedToTavern && (!present(live) || !hasBridge(read(live), live))) throw Error('已迁移安装的原版 desktop 配置缺少切换组件，请先恢复备份。')
-    return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
+    return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped, launcherGate })
   }
   const originalReady = !interrupted && !replacesNext && !linkedToTavern && present(tavern) && present(live)
     && lstatSync(live).isDirectory() && !isTavern(read(live)) && hasBridge(read(live), live)
@@ -131,7 +131,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, host = 'desk
     !launcherBundles(read(live), live, 'desktop').includes(LAUNCHER_BUNDLE)
     || launcherBundles(read(live), live, 'next').length > 0
   )
-  if (!interrupted && !replacesNext && !replaceOldLauncher && (linkedToTavern || originalReady)) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
+  if (!interrupted && !replacesNext && !replaceOldLauncher && (linkedToTavern || originalReady)) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped, launcherGate })
   // Direct reinstalls must keep unfinished removal/relocation transactions fenced.
   installationLocation.resolveInstallationApp({ dshHome: home })
   checkStopped(preparingForPid)

@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installation.mjs'
 import { beginOriginalBridgeUpdate } from '../bin/original-bridge-update.mjs'
 import { recordInstallationReceipt, readInstallationReceipt } from '../bin/installation-receipt.mjs'
-import { switchProfile, acquirePendingLock, scheduleSwitch } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
+import { switchProfile, acquirePendingLock, installPublishGate, scheduleSwitch } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 import { copyTreeSync, removeTreeSync } from '../bin/portable-fs.mjs'
 
 const repo = fileURLToPath(new URL('../', import.meta.url))
@@ -55,6 +55,28 @@ function assertPreserved(f, dir) {
   assert.equal(text(path.join(dir, 'node_modules/user-plugin/index.js')), 'user plugin stays')
   assert.equal(text(path.join(f.home, 'profile-data/tavern/data/story')), 'saved story')
 }
+
+test('NEXT launcher update refreshes the original bridge under its existing install lock', async t => {
+  const f = fixture(t)
+  await switchProfile({ mode: 'unlink', profilesRoot: f.profiles, liveDir: f.desktop, stamp: 'next-bridge' })
+  f.newSource()
+  const state = path.join(f.home, 'profile-bridge')
+  const { lock } = acquirePendingLock(state, { installing: true })
+  const launcherGate = installPublishGate(state)
+  json(path.join(lock, 'request.json'), { mode: 'install', host: 'next', stamp: 'update' })
+  json(path.join(lock, 'worker.json'), { pid: process.pid })
+  json(path.join(state, 'last-result.json'), { status: 'pending', mode: 'install', stamp: 'update' })
+  const settings = { ...f, host: 'next' }
+  put(launcherGate, 'cancel')
+  assert.throws(() => beginDesktopProfileInstallation({ ...settings, launcherGate }), /发布许可/)
+  put(launcherGate, 'publish')
+  assert.throws(() => beginDesktopProfileInstallation(settings), { code: 'busy' })
+  const tx = beginDesktopProfileInstallation({ ...settings, launcherGate })
+  tx.finish(); tx.commit()
+  assertNew(f.desktop)
+  assertPreserved(f, f.desktop)
+  assert.throws(() => acquirePendingLock(state), { code: 'busy' })
+})
 
 test('Tavern update stages new independent bridge, restores new executable code, leaves historical backups and user files alone', async t => {
   const f = fixture(t)

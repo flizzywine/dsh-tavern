@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { copyTreeSync } from './portable-fs.mjs'
 import installationLocation from './installation-location.cjs'
 import { assertDesktopStopped } from './import-user-home.mjs'
-import { acquirePendingLock } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
+import { acquirePendingLock, installPublishGate, processAlive, readLastResult } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 import { launcherBundle, LAUNCHER_BUNDLE } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
 
 const present = file => { try { lstatSync(file); return true } catch (error) { if (error.code === 'ENOENT') return false; throw error } }
@@ -34,7 +34,33 @@ function moveWithRetry(from, to, rename) {
     }
   }
 }
-export function beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped = () => assertDesktopStopped([home], { requireGuiClosed: true }), copy = copyTreeSync, rename = renameSync }) {
+function holdProfileSwitches(state, launcherGate, trusted) {
+  const gate = installPublishGate(state)
+  if (launcherGate && same(trusted.map(launcherGate), gate)) {
+    // The launcher keeps this lock until the installer exits, including rollback.
+    // Borrow its fence once it has explicitly allowed publication.
+    const lock = path.dirname(path.dirname(gate))
+    const jobFile = path.join(lock, 'request.json')
+    const workerFile = path.join(lock, 'worker.json')
+    for (const file of [gate, jobFile, workerFile, path.join(state, 'last-result.json')]) {
+      ordinary(path.dirname(file))
+      if (!lstatSync(file).isFile()) throw Error(`NEXT 更新记录不是普通文件：${file}`)
+    }
+    const request = JSON.parse(readFileSync(jobFile, 'utf8'))
+    const worker = JSON.parse(readFileSync(workerFile, 'utf8'))
+    const result = readLastResult(state)
+    if (request.mode !== 'install' || request.host !== 'next' || request.stamp !== result?.stamp
+        || result?.status !== 'pending' || result.mode !== 'install' || !processAlive(worker.pid) || readFileSync(gate, 'utf8') !== 'publish'
+        || present(path.join(state, 'pending'))) throw Error('NEXT 更新尚未获得发布许可，请刷新后重试。')
+    return () => {}
+  }
+  const { lock } = acquirePendingLock(state)
+  // A live PID prevents the switch helper from reclaiming a long-running install.
+  try { writeFileSync(path.join(lock, 'worker.json'), JSON.stringify({ pid: process.pid, startedAt: Date.now() }), { flag: 'wx' }) }
+  catch (error) { rmdirSync(lock); throw error }
+  return () => { unlinkSync(path.join(lock, 'worker.json')); rmdirSync(lock) }
+}
+export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, checkStopped = () => assertDesktopStopped([home], { requireGuiClosed: true }), copy = copyTreeSync, rename = renameSync }) {
   // Trust only configured-home ancestors, never a redirect inside managed DSH.
   // Pin filesystem work to that physical identity for the whole transaction.
   const trusted = installationLocation.trustedHome(home)
@@ -61,11 +87,7 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped = () 
   if (!relocated) ordinary(path.join(profiles, 'tavern'))
   const managementFile = path.join(state, 'installation-operation.json')
   const previousManagement = present(managementFile) ? readFileSync(managementFile, 'utf8') : null
-  const { lock } = acquirePendingLock(state)
-  // A live PID prevents the switch helper from reclaiming a long-running install.
-  try { writeFileSync(path.join(lock, 'worker.json'), JSON.stringify({ pid: process.pid, startedAt: Date.now() }), { flag: 'wx' }) }
-  catch (error) { rmdirSync(lock); throw error }
-  const release = () => { unlinkSync(path.join(lock, 'worker.json')); rmdirSync(lock) }
+  const release = holdProfileSwitches(state, launcherGate, trusted)
   let journal, done = false, managementFenced = false
   const writeManagement = value => {
     const temporary = managementFile + '.' + randomUUID() + '.tmp'

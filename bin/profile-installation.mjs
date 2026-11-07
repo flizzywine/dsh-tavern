@@ -326,7 +326,8 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
     }
     // DSH_TAVERN_UNIFIED_DESKTOP: both desktop hosts publish the same profile and launcher.
     if (host === 'desktop' || host === 'next') {
-      bridge = beginDesktopProfileInstallation({ home: DSH_ROOT, sourceRoot: SOURCE_ROOT, host, guiRoot, preparingForPid })
+      const launcherGate = host === 'next' && process.env.DSH_TAVERN_LAUNCHER_INSTALL === '1' ? process.env.DSH_TAVERN_PUBLISH_GATE : undefined
+      bridge = beginDesktopProfileInstallation({ home: DSH_ROOT, sourceRoot: SOURCE_ROOT, host, guiRoot, preparingForPid, launcherGate })
       if (bridge) console.log(`${bridge.refreshOnly ? '原版切换组件备份' : 'Profile 完整备份'}：${bridge.backup}`)
     }
     mkdirSync(PROFILE_DIR, { recursive: true })
