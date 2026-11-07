@@ -854,6 +854,58 @@ for (const method of ['replayFailed', 'regenerate']) test('失败后重生成保
   assert.equal(h.chat.messages.filter(message => message.role === 'user').length, 2)
 })
 
+test('session 重生成入口读取完整故事，尾部持久输入优先于正文 ID', async () => {
+  const h = harness()
+  h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true,
+    source: { kind: 'user', rpcId: 'rpc-latest' } })
+  h.chat.foregroundError = null
+  let headerReads = 0, fullReads = 0
+  h.options.chats.stateForSession = async () => {
+    headerReads++
+    return { id: 'chat', sessionId: 'session', messages: [] }
+  }
+  const full = h.options.chats.forSession
+  h.options.chats.forSession = async (...args) => { fullReads++; return full(...args) }
+
+  await h.create().regenerate(undefined, '', 'session', 'stale-body-id')
+
+  assert.equal(headerReads, 0)
+  assert.ok(fullReads > 0)
+  assert.equal(h.agent.input.content[0].text, '最新输入')
+  assert.equal(h.agent.input.source.rpcId, 'rpc-latest')
+  assert.deepEqual(h.chat.messages.map(message => [message.role, message.text]), [
+    ['assistant', '开场'], ['user', '推门'], ['assistant', '旧正文'],
+    ['user', '最新输入'], ['assistant', '新正文3']
+  ])
+})
+
+test('正文 messageId 精确选择目标，失效 ID 不改选其他正文', async () => {
+  const h = harness()
+  h.session.events[1].data.message.id = 'body-first'
+  h.chat.messages.push({ role: 'user', text: '第二次输入' },
+    { role: 'assistant', turn: 3, text: '第二旧正文', sourceText: '第二旧正文' })
+  h.session.append('user/message', { turn: 3, role: 'user', content: [{ type: 'text', text: '第二次输入' }] }, { surfaceOp: 'append' })
+  h.session.append('assistant/message', { turn: 3, step: 1, message: { id: 'body-second', role: 'assistant', source: h.session.events[1].data.message.source,
+    content: [{ type: 'text', text: '第二旧正文' }] } }, { surfaceOp: 'append' })
+  h.agent.phase.lastTurn = 3
+
+  await h.create().regenerate('chat', '', 'session', 'body-first')
+
+  assert.equal(h.agent.input.content[0].text, '推门')
+  assert.deepEqual(h.chat.messages.map(message => [message.role, message.text]), [
+    ['assistant', '开场'], ['user', '推门'], ['assistant', '新正文4'],
+    ['user', '第二次输入'], ['assistant', '第二旧正文']
+  ])
+  const before = structuredClone(h.chat)
+  const calls = h.calls.length
+  await assert.rejects(h.create().regenerate('chat', '', 'session', 'missing-body'), error => {
+    assert.equal(error.code, 'REGENERATION_TARGET_STALE')
+    return true
+  })
+  assert.deepEqual(h.chat, before)
+  assert.equal(h.calls.length, calls)
+})
+
 test('native replacement failure after Chat commit keeps the new body and repairs the native tail',async()=>{
  const h=harness({checkpoint:true,journal:true});const append=h.session.append;let repaired=0
  h.options.repairNative=async()=>{repaired++}

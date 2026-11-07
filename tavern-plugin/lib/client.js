@@ -51176,7 +51176,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         const candidate = candidates.getSnapshot();
         return once(pendingBodies, panel.sessionId, async () => {
             try {
-                const result = await rpc("regenBody", Object.assign({ guidance: text }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
+                const result = await rpc("regenBody", Object.assign({ guidance: text, messageId: panel.messageId }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
                 applyBodyResult(panel.sessionId, result.view, panel.tail);
                 // A truncated attempt keeps the text it did write; say so instead of
                 // letting the shortened body pass for a finished reply.
@@ -51194,12 +51194,13 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     // panel state, so nothing opens and the composer keeps its own feedback.
     function submitBodyRegeneration(sessionId, options, guidance) {
         const tail = options && options.tail ? options.tail : null;
+        const messageId = options && typeof options.messageId === "string" ? options.messageId : "";
         const text = String(guidance || "").trim();
         if (text) guidanceBySession.set(sessionId, text); else guidanceBySession.delete(sessionId);
         return once(pendingBodies, sessionId, async () => {
             const candidate = candidates.getSnapshot();
             try {
-                const result = await rpc("regenBody", { guidance: text }, sessionId);
+                const result = await rpc("regenBody", { guidance: text, messageId }, sessionId);
                 applyBodyResult(sessionId, result.view, tail);
                 if (result && result.view && result.view.regenerationWarning) reportError("重新生成提示", new Error(result.view.regenerationWarning));
                 if (candidates.getSnapshot() === candidate) candidates.set(null);
@@ -52740,7 +52741,7 @@ function createTurnRailFilter(root, options) {
         async function galSubmitRegeneration(sessionId, turn, target, guidance, messageId) {
             const text = String(guidance || "").trim();
             let started = null;
-            if (target === "body") await submitBodyRegeneration(sessionId, { tail: null }, text);
+            if (target === "body") await submitBodyRegeneration(sessionId, { tail: null, messageId }, text);
             else if (target === "mvu") await rpc("retryMvuSettlement", { turn, guidance: text }, sessionId);
             else if (target === "director") await rpc("retryStageDirection", { turn, guidance: text }, sessionId);
             else if (target === "choices") started = await submitCandidateTask(sessionId, messageId, text);
@@ -52806,9 +52807,10 @@ function createTurnRailFilter(root, options) {
 		    const enabled = useSendHoldRegenerate();
 		    const mode = useTavernSessionMode(props.sessionId);
 		    const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true; });
+		    const messageId = props.useChat(latestTavernAssistantMessageId);
 		    // the listener lives across renders; it reads the current round through this ref.
-		    const current = React.useRef({ sessionId: props.sessionId, running: running });
-		    current.current = { sessionId: props.sessionId, running: running };
+		    const current = React.useRef({ sessionId: props.sessionId, running: running, messageId: messageId });
+		    current.current = { sessionId: props.sessionId, running: running, messageId: messageId };
 		    React.useEffect(function () {
 		        if (!enabled || !isPlayMode(mode) || typeof document === "undefined") return undefined;
 		        let held = null, timer = null, mutedUntil = 0;
@@ -52845,7 +52847,7 @@ function createTurnRailFilter(root, options) {
 		                if (button) window.setTimeout(function () { button.classList.remove(TAVERN_SEND_HOLD_FIRED_CLASS); }, 400);
 		                return;
 		            }
-		            try { await interactions.submitBodyRegeneration(sessionId, { tail: null }, ""); }
+		            try { await interactions.submitBodyRegeneration(sessionId, { tail: null, messageId: current.current.messageId }, ""); }
 		            catch (error) { /* interactions 已经上报这次失败（错误中心里有完整原因） */ }
 		            finally {
 		                if (button) window.setTimeout(function () { button.classList.remove(TAVERN_SEND_HOLD_FIRED_CLASS); }, 900);
@@ -53022,7 +53024,7 @@ function createTurnRailFilter(root, options) {
 			}
 			function regenerationPanelFor(event, phase) {
 				const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null;
-				return { sessionId: props.sessionId, phase: phase, guidance: "", text: "", error: "", tail: tail };
+				return { sessionId: props.sessionId, messageId: props.messageId, phase: phase, guidance: "", text: "", error: "", tail: tail };
 			}
 			function openRegeneration(event) {
 				if (!canRollback || frontRunning || (activity.busy && !settlementActive) || regenBusy) return;

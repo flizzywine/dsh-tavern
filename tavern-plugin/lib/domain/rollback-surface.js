@@ -379,6 +379,17 @@ export function supersededRegenerationErrorTurns(input) {
 export function locateRegenerationSurface(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
+  const messageId = typeof input?.messageId === 'string' ? input.messageId : ''
+  if (messageId !== '') {
+    for (let index = nodes.length - 1; index >= 0; index -= 1) {
+      const event = eventAt(events, nodes[index])
+      if (!event || event.type !== 'assistant/message' || event.data?.message?.id !== messageId) continue
+      const source = modelSourceOf(event)
+      if (source === null) continue
+      return Object.freeze({ assistantSeq: Number(nodes[index]), turn: storyEventTurn(event), source })
+    }
+    return null
+  }
   const turn = Number(input && input.turn)
   if (!Number.isSafeInteger(turn) || turn < 1) return null
   for (let index = nodes.length - 1; index >= 0; index -= 1) {

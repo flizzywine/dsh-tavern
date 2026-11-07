@@ -222,7 +222,7 @@ export function createPlayHandlers(deps) {
       if (args?.restyle === true) await retryStyleReference(args.sessionId, { target: 'regenerate', guidance: args.styleGuidance })
       await reconcileStory(args && args.sessionId)
       polishPrereview.cancel(args?.sessionId)
-      const view = await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId)
+      const view = await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId, args && args.messageId)
       notifyPluginTimeline(args && args.sessionId, 'regenerate')
       void polishPrereview.start(args?.sessionId).catch(() => {})
       return { view }

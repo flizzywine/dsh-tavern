@@ -29,9 +29,10 @@ function TavernSendLongPress(props) {
     const enabled = useSendHoldRegenerate();
     const mode = useTavernSessionMode(props.sessionId);
     const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true; });
+    const messageId = props.useChat(latestTavernAssistantMessageId);
     // the listener lives across renders; it reads the current round through this ref.
-    const current = React.useRef({ sessionId: props.sessionId, running: running });
-    current.current = { sessionId: props.sessionId, running: running };
+    const current = React.useRef({ sessionId: props.sessionId, running: running, messageId: messageId });
+    current.current = { sessionId: props.sessionId, running: running, messageId: messageId };
     React.useEffect(function () {
         if (!enabled || !isPlayMode(mode) || typeof document === "undefined") return undefined;
         let held = null, timer = null, mutedUntil = 0;
@@ -68,7 +69,7 @@ function TavernSendLongPress(props) {
                 if (button) window.setTimeout(function () { button.classList.remove(TAVERN_SEND_HOLD_FIRED_CLASS); }, 400);
                 return;
             }
-            try { await interactions.submitBodyRegeneration(sessionId, { tail: null }, ""); }
+            try { await interactions.submitBodyRegeneration(sessionId, { tail: null, messageId: current.current.messageId }, ""); }
             catch (error) { /* interactions 已经上报这次失败（错误中心里有完整原因） */ }
             finally {
                 if (button) window.setTimeout(function () { button.classList.remove(TAVERN_SEND_HOLD_FIRED_CLASS); }, 900);

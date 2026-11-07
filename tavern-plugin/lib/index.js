@@ -3558,10 +3558,10 @@ export async function apply(ctx) {
     repairNative: (sessionId, session) => repairNativeStory(sessionId, session, '回退或重新生成时找不到原生位置'),
   })
 
-  async function regenBody(chatId, guidance, sessionId) {
+  async function regenBody(chatId, guidance, sessionId, messageId) {
     const id = sessionId || (await readChat(chatId))?.sessionId
     const generated = await pluginBodyGeneration.regenerate(id, str(guidance))
-    return generated === null ? nativeRegenBody(chatId, guidance, sessionId) : presentStory(await chatForSession(id))
+    return generated === null ? nativeRegenBody(chatId, guidance, sessionId, messageId) : presentStory(await chatForSession(id))
   }
   async function replayFailedTurn(chatId, sessionId) {
     const id = sessionId || (await readChat(chatId))?.sessionId

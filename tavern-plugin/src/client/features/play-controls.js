@@ -540,7 +540,7 @@
 			}
 			function regenerationPanelFor(event, phase) {
 				const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null;
-				return { sessionId: props.sessionId, phase: phase, guidance: "", text: "", error: "", tail: tail };
+				return { sessionId: props.sessionId, messageId: props.messageId, phase: phase, guidance: "", text: "", error: "", tail: tail };
 			}
 			function openRegeneration(event) {
 				if (!canRollback || frontRunning || (activity.busy && !settlementActive) || regenBusy) return;
