@@ -55,7 +55,8 @@ async function fixture(options = {}) {
   const original = await chats.read()
   const session = Session.create('session')
   appendSessionEvent(session, 'user/message', { id: 'input', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] }, { surfaceOp: 'append' })
-  appendSessionEvent(session, 'assistant/message', { turn: 2, step: 1, message: { id: 'reply', role: 'assistant',
+  // withoutBody：这一轮的正文从来没落到消息面上（截断后没投影就丢了）。
+  if (!options.withoutBody) appendSessionEvent(session, 'assistant/message', { turn: 2, step: 1, message: { id: 'reply', role: 'assistant',
     source: { kind: 'model', provider: 'fixture', model: 'fixture' }, content: [{ type: 'text', text: '旧正文' }] } }, { surfaceOp: 'append', sourceEventSeqs: [] })
   const agent = { session, phase: { kind: 'idle', lastTurn: 2 }, followup() { throw new Error('must never use foreground agent') } }
   const phases = [], notifications = [], settlementInputs = []
@@ -361,4 +362,20 @@ for (const alreadyAppended of [false, true]) test('failed-input committed recove
   const visible = JSON.stringify(reopened.deriveMessages())
   assert.equal((visible.match(/恢复的新正文/g) || []).length, 1)
   assert.equal((visible.match(/失败输入/g) || []).length, 1)
+})
+
+test('面上没有这一轮正文时补写一条，旧正文不在了也能重新生成', async () => {
+  // 上一次重新生成截断后没有落位：这一轮的正文在存档里，消息流上却没有。
+  const h = await fixture({ withoutBody: true })
+  const result = await h.run(async () => ({ text: '补写的正文' }), { providerId: 'test:body' })
+  assert.equal(result.text, '补写的正文')
+  const saved = await h.chats.read()
+  assert.equal(saved.messages.at(-1).text, '补写的正文')
+  // 新正文作为第 2 轮落在消息面上，并记下了锚点，下一次重新生成不用再猜。
+  const current = (await import('../tavern-plugin/lib/domain/session-events.js')).sessionEvents(h.session)
+  const appended = h.session.surface.nodes.map(seq => current.find(event => event.seq === seq))
+    .filter(event => event?.type === 'assistant/message' && event.data?.message?.source?.tavernStoryTurn === 2)
+  assert.equal(appended.length, 1)
+  assert.equal(appended[0].data.message.content[0].text, '补写的正文')
+  assert.equal(saved.messages.at(-1).nativeAnchor.turn, Number(appended[0].data.turn))
 })

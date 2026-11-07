@@ -185,15 +185,24 @@ test('原生上下文丢了这一轮时回退被拒绝：不重写模型上下�
   assert.deepEqual(h.chat.messages,before.messages)
 })
 
-test('重新生成找不到原生正文时报错：不按存档重写模型上下文', async () => {
+test('消息面上没有这一轮正文时改为补写，不再拒绝重新生成', async () => {
   const h=harness()
+  // 这一轮正文的原生节点已经没了（截断后没落位、被清理）：没有旧正文可替换。
   h.session.surface.nodes=[0]
-  const before=structuredClone(h.chat)
-  await assert.rejects(h.create().regenerate('chat','','session'), error => {
-    assert.equal(error.code,'NATIVE_TARGET_MISSING')
-    return true
-  })
-  assert.deepEqual(h.chat.messages,before.messages)
+  const result=await h.create().regenerate('chat','','session')
+  assert.equal(result.adopted.text,'新正文3')
+  // 存档换了正文，玩家输入原样保留。
+  const tail=h.chat.messages.at(-1)
+  assert.equal(h.chat.messages.at(-2).role,'user')
+  assert.equal(h.chat.messages.at(-2).text,'推门')
+  assert.equal(lastAssistant().text,'新正文3')
+  // 模型视野里补出一条正文，模型上下文不再缺这一轮。
+  const appended=h.session.events.filter(event=>event.surfaceOp==='append' && event.type==='assistant/message').at(-1)
+  assert.ok(appended)
+  assert.equal(appended.data.message.content[0].text,'新正文3')
+  assert.ok(h.session.surface.nodes.includes(appended.seq))
+  function lastAssistant(){ return h.chat.messages.filter(message=>message?.role==='assistant' && message.greeting!==true).at(-1) }
+  assert.ok(tail)
 })
 
 test('缺少玩家输入时按空输入重新生成，诊断记录 input-missing', async () => {

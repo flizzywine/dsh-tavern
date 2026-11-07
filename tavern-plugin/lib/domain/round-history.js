@@ -293,15 +293,25 @@ export function selectRegenerationTarget(chat, session, observe) {
   while (inputIndex >= 0 && !(msgs0[inputIndex] !== null && typeof msgs0[inputIndex] === 'object' && msgs0[inputIndex].role === 'user')) inputIndex -= 1
   if (inputIndex < 0) report('input-missing')
   else if (inputIndex !== oldAssistantIndex - 1) report('input-recovered')
-  const target = locateRegenerationSurface({ events, nodes, turn: msgs0[oldAssistantIndex].turn,
+  // 存档行自己记着这一轮正文在消息面上的事件号；只有它过期了才退回去扫。
+  // 轮号只是保存下来的编号，命中与否都不该决定能不能重新生成。
+  const row = msgs0[oldAssistantIndex]
+  const storedSeq = Number(row?.nativeAnchor?.reply)
+  const target = locateRegenerationSurface({ events, nodes,
+    seq: Number.isSafeInteger(storedSeq) && storedSeq > 0 ? storedSeq : undefined, turn: row.turn,
     // A projected reply may store the edit turn; its body still identifies it.
-    texts: [msgs0[oldAssistantIndex].text, msgs0[oldAssistantIndex].sourceText, msgs0[oldAssistantIndex].projectionText] })
-  if (target === null) { report('native-target-missing'); throw Object.assign(new Error('原生消息流中找不到与当前剧情轮次对应的正文消息'), { code: 'NATIVE_TARGET_MISSING' }) }
-  report('selected', target, inputIndex)
-  const oldSeq = target.assistantSeq
-  const oldTurn = target.turn
-  const oldSource = target.source
-  return { nodes, eventStart, msgs0, oldAssistantIndex, inputIndex, oldSeq, oldTurn, oldSource }
+    texts: [row.text, row.sourceText, row.projectionText] })
+  const oldTurn = target !== null && Number.isSafeInteger(Number(target.turn)) && Number(target.turn) > 0
+    ? Number(target.turn) : Number(row.turn) || 0
+  const oldSource = target !== null ? target.source
+    : { kind: 'model', provider: 'dsh-tavern', model: 'plugin-regeneration' }
+  // 消息面上没有这一轮的正文不是拒绝理由：没有旧正文可替换，就把正文补写上去。
+  // 以前这里直接抛「原生消息流中找不到…」，于是一次被截断的重新生成之后，
+  // 这一轮就再也无法重新生成。
+  const saveOnly = target === null
+  report(saveOnly ? 'save-only' : 'selected', target, inputIndex)
+  return { nodes, eventStart, msgs0, oldAssistantIndex, inputIndex, oldSeq: saveOnly ? null : target.assistantSeq,
+    oldTurn, oldSource, saveOnly }
 }
 
 /**
@@ -428,10 +438,12 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         catch { /* Recording failure must not affect regeneration or replace its error. */ }
       }
     }
-    const { eventStart, msgs0, oldAssistantIndex, inputIndex, oldSeq, oldTurn, oldSource, failedTail = false } = selection
+    const { eventStart, msgs0, oldAssistantIndex, inputIndex, oldSeq, oldTurn, oldSource, failedTail = false, saveOnly = false } = selection
+    // 面上没有这一轮的正文：没有可替换的位置，这一轮按「补写」处理，和失败尾一样是普通 append。
+    const appending = failedTail || saveOnly
     // Only a replacement needs the host's replace primitive; producing the body
     // of an unanswered tail is an ordinary append and works on every host.
-    if (!failedTail && session.header?.version >= 3 && !replacementVerified.has(session)) {
+    if (!appending && session.header?.version >= 3 && !replacementVerified.has(session)) {
       const preview = session.constructor.fromRestore(session.id, structuredClone(sessionEvents(session)), structuredClone(session.header), session.inheritedEventCount, 'detached')
       try {
         replaceSessionSurface(preview, 'assistant/message', {
@@ -504,7 +516,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // reply away while the request runs and brings it back (with the new text) when
     // the commit lands. Hiding by the story turn would miss it whenever the two
     // numberings differ.
-    const replacingTurn = failedTail ? null : surfaceTurnOfSeq(sessionEvents(session), oldSeq)
+    const replacingTurn = appending ? null : surfaceTurnOfSeq(sessionEvents(session), oldSeq)
     const lifecycleRevision = Math.max(0, Number(originalChat.tavernHelperLifecycleRevision) || 0) + 1
     let marked = false, committed = false
     await updateChat(chat.id, function (current) {
@@ -616,7 +628,14 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       if (completed.value.status !== 'committed') throw new Error('正文提交条件已失效')
       const next = completed.chat
       next.nativeCommits = originalChat.nativeCommits && typeof originalChat.nativeCommits === 'object' ? structuredClone(originalChat.nativeCommits) : {}
-      if (failedTail) {
+      if (saveOnly) {
+        // 这一轮在模型视野里本来就缺正文，新正文由这次尝试自己补上：它不是被替换掉的
+        // 旧回复，不能隐藏，也不能往前映射。只记剧情轮号到新宿主轮号的对应即可。
+        next.suppressedDshTurns = Array.isArray(originalChat.suppressedDshTurns) ? [...originalChat.suppressedDshTurns] : []
+        next.regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
+          ? structuredClone(originalChat.regeneratedDshTurns) : {}
+        next.regeneratedDshTurns[String(oldTurn)] = syntheticTurn
+      } else if (failedTail) {
         // Nothing native was replaced: the attempt's own reply is the body, so no
         // turn is hidden and no earlier body is remapped.
         next.suppressedDshTurns = Array.isArray(originalChat.suppressedDshTurns) ? [...originalChat.suppressedDshTurns] : []
@@ -631,7 +650,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       }
       // A replacement rewrites the old reply in place; the answered tail only has
       // to record where its reply already landed.
-      const projection = failedTail
+      const projection = appending
         ? { kind: 'append-round', storyTurn, native: attemptNativeAnchor(session, eventStart, syntheticTurn) }
         : placeRegeneration(session, oldSeq, eventStart, { turn: storyTurn, step: 1,
           message: { id: 'tavern-regen:' + operationId, role: 'assistant', content: [{ type: 'text', text: prose.text }],

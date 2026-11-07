@@ -11,11 +11,25 @@ test('没有非问候助手时才拒绝；前一条不是玩家输入不再是�
   let evidence
   assert.throws(() => selectRegenerationTarget({ messages: [{ role: 'assistant', greeting: true }] }, { events: [], surface: { nodes: [] } }, value => { evidence = value }), /没有可重新生成的正文/)
   assert.equal(evidence.reason, 'no-non-greeting-assistant')
-  // 尾巴是 [助手, 助手]（被撤回的输入、修复轮）时不再因"缺配对"拒绝，继续找原生目标。
+  // 尾巴是 [助手, 助手]（被撤回的输入、修复轮）时不再因"缺配对"拒绝；
+  // 消息面上没有这一轮的正文也不再拒绝：没有旧正文可替换，就按补写处理。
   let second
   const messages = [{ role: 'assistant', turn: 5, text: '上一轮' }, { role: 'assistant', turn: 7, text: '这一轮' }]
-  assert.throws(() => selectRegenerationTarget({ messages }, { events: [], surface: { nodes: [] } }, value => { second = value }), /原生消息流中找不到/)
-  assert.equal(second.reason, 'native-target-missing')
+  const selection = selectRegenerationTarget({ messages }, { events: [], surface: { nodes: [] } }, value => { second = value })
+  assert.equal(second.reason, 'save-only')
+  assert.equal(selection.saveOnly, true)
+  assert.equal(selection.oldSeq, null)
+  assert.equal(selection.oldTurn, 7)
+})
+
+test('存档行的 nativeAnchor 直接定位正文，不比对轮号', () => {
+  // 剧情第 8 轮存在宿主第 15 轮里，轮号根本对不上；但存档行记着事件号。
+  const events = [assistant(3, 15)]
+  const messages = [{ role: 'user', text: '继续' }, { role: 'assistant', turn: 8, text: '改过的正文', nativeAnchor: { formatVersion: 4, turn: 8, input: 2, reply: 3 } }]
+  const selection = selectRegenerationTarget({ messages }, { events, surface: { nodes: [3] } })
+  assert.equal(selection.saveOnly, false)
+  assert.equal(selection.oldSeq, 3)
+  assert.equal(selection.oldTurn, 8)
 })
 
 function select(events, nodes) {

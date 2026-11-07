@@ -99,7 +99,11 @@ export function createPluginBodyRegeneration(deps) {
       const failedMode = Boolean(failed && !original.messages?.some(row => row?.role === 'assistant' && Number(row.turn) === failed.turn))
       const target = failedMode ? { oldAssistantIndex: null, oldTurn: failed.turn,
         oldSource: { kind: 'model', provider: 'dsh-tavern', model: 'plugin-regeneration' } } : await selectTarget(original, session)
-      const { oldAssistantIndex: index, oldTurn, oldSeq, oldSource } = target
+      const { oldAssistantIndex: index, oldTurn, oldSeq, oldSource, saveOnly = false } = target
+      // 消息面上没有这一轮的正文（旧正文节点已经不在，或者这轮从未落地）：没有可替换
+      // 的对象，这一轮改成“补写”，和失败轮一样走 append。
+      const appendRound = failedMode || saveOnly || oldSeq == null
+      const targetSource = oldSource || { kind: 'model', provider: 'dsh-tavern', model: 'plugin-regeneration' }
       if (turn !== undefined && Number(turn) !== Number(oldTurn)) throw error('TAVERN_PLUGIN_STALE_VERSION', '只能重新生成当前最新一轮正文')
       const version = failedMode ? null : computeSceneTarget(original, oldTurn).key
       if (!failedMode && textVersion !== undefined && textVersion !== version) throw error('TAVERN_PLUGIN_STALE_VERSION', '正文版本已经变化')
@@ -130,9 +134,11 @@ export function createPluginBodyRegeneration(deps) {
       signal?.throwIfAborted()
       // Validate native replacement support before a paid request, on an isolated session.
       const projectionData = { turn: bodyTurn, step: 1, message: { id: 'tavern-plugin-regen:' + operationId, role: 'assistant',
-        content: [{ type: 'text', text: failedMode ? '待生成正文' : text(original.messages[index].text) }], source: { ...oldSource, tavernStoryTurn: bodyTurn } } }
+        content: [{ type: 'text', text: failedMode || saveOnly ? '待生成正文' : text(original.messages[index].text) }],
+        source: { ...targetSource, tavernStoryTurn: bodyTurn } } }
       const projection = failedMode ? { kind: 'append-round', failedTurn: oldTurn, storyTurn: bodyTurn, data: projectionData,
         input: { id: 'tavern-plugin-regen-input:' + operationId, role: 'user', content: projectPlayerContent(failed.inputAttachments, failedInput), source: { kind: 'user' } } }
+        : saveOnly ? { kind: 'append-round', storyTurn: bodyTurn, data: projectionData }
         : regenerationProjection({ start: oldSeq, end: oldSeq, shadowedSeqs: [oldSeq] }, projectionData, operationId)
       if (session.constructor?.fromRestore) {
         const preview = session.constructor.fromRestore(session.id, clone(sessionEvents(session)), clone(session.header), session.inheritedEventCount, 'detached')
@@ -142,7 +148,7 @@ export function createPluginBodyRegeneration(deps) {
       // The row this regeneration rewrites. The page takes the old body out while
       // the provider runs and draws the new body when the commit lands; a failed
       // candidate only ends the marker, so the old row comes back untouched.
-      const replacingTurn = failedMode ? null : surfaceTurnOfSeq(sessionEvents(session), oldSeq)
+      const replacingTurn = appendRound ? null : surfaceTurnOfSeq(sessionEvents(session), oldSeq)
       const replacedUid = index === null ? '' : legacyMessageUid(original.messages[index], index)
       await chats.update(chatId, current => {
         if (agent.phase?.kind === 'running' || current.regenInProgress) throw error('TAVERN_PLUGIN_BUSY', '当前对话正忙')
@@ -260,7 +266,7 @@ export function createPluginBodyRegeneration(deps) {
         if (agent.phase?.kind === 'running') throw error('TAVERN_PLUGIN_STALE_VERSION', '前台已开始新一轮')
         assertCurrent(current, original, index, operationId)
         // 别的插件/后台写几条上下文不算本轮失效：只要玩家没有新输入、旧正文还在面上。
-        if (playerInputSince(session, eventStart) || (!failedMode && !bodyStillOnSurface(session, oldSeq, oldTurn))) throw error('TAVERN_PLUGIN_STALE_VERSION', '模型会话已经变化')
+        if (playerInputSince(session, eventStart) || (!appendRound && !bodyStillOnSurface(session, oldSeq, oldTurn))) throw error('TAVERN_PLUGIN_STALE_VERSION', '模型会话已经变化')
         // Keep concurrent non-story settings; only story-owned fields come from
         // the detached rollback/commit. No hidden provider transcript is stored.
         for (const key of ['messages', 'timeline', 'foregroundFrames', ...INPUT_STATE_FIELDS, 'posture', 'ledger', 'candidates',

@@ -387,6 +387,21 @@ export function supersededRegenerationErrorTurns(input) {
 export function locateRegenerationSurface(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
+  // 存档行自己记着这一轮正文的事件号（nativeAnchor.reply）：直接查，不按轮号猜，
+  // 也不看轮号对不对。轮号是两套各走各的编号，本来就不该参与定位。
+  const storedSeq = Number(input?.seq)
+  if (Number.isSafeInteger(storedSeq) && storedSeq > 0) {
+    const index = nodes.findIndex(node => Number(node) === storedSeq)
+    const event = index >= 0 ? eventAt(events, storedSeq) : null
+    if (event && event.type === 'assistant/message' && !isRollbackAssistantTombstone(event, events)) {
+      const source = modelSourceOf(event)
+      if (source !== null) {
+        const turn = Number(input?.turn)
+        return Object.freeze({ assistantSeq: Number(nodes[index]), source,
+          turn: Number.isSafeInteger(turn) && turn > 0 ? turn : storyEventTurn(event) })
+      }
+    }
+  }
   const messageId = typeof input?.messageId === 'string' ? input.messageId : ''
   if (messageId !== '') {
     for (let index = nodes.length - 1; index >= 0; index -= 1) {
@@ -781,12 +796,17 @@ export function applyRegenerationProjection(session, projection) {
   replaceCleanups()
 }
 
-/** A failed input has no body to replace. Replay its visible pair once after commit. */
+/**
+ * A round that has no body to replace on the model surface gets one appended:
+ * a failed input replays its visible pair, while a saved round the surface had
+ * lost already has its input there and only needs the body.
+ */
 function applyIndependentRoundProjection(session, projection) {
+  const needsInput = Boolean(projection.input && projection.input.id)
   const locate = () => {
     const events = sessionEvents(session)
     return {
-      input: events.find(event => event.type === 'user/message' && event.data?.id === projection.input?.id),
+      input: needsInput ? events.find(event => event.type === 'user/message' && event.data?.id === projection.input.id) : null,
       reply: events.find(event => event.type === 'assistant/message' && event.data?.message?.id === projection.data?.message?.id)
     }
   }
@@ -796,14 +816,16 @@ function applyIndependentRoundProjection(session, projection) {
     surface.editStep((turn, step) => {
       // Opening the new edit turn first keeps cleanup and both appends in one
       // native turn. A crash can safely retry each append by its stable id.
-      clearFailedTurnSurface({ session, turn: projection.failedTurn, id: () => projection.input.id + ':cleanup' })
-      if (!found.input) surface.append('user/message', { ...projection.input, turn }, { surfaceOp: 'append' })
+      if (needsInput) clearFailedTurnSurface({ session, turn: projection.failedTurn, id: () => projection.input.id + ':cleanup' })
+      if (needsInput && !found.input) surface.append('user/message', { ...projection.input, turn }, { surfaceOp: 'append' })
       surface.append('assistant/message', { ...projection.data, turn, step }, { surfaceOp: 'append', sourceEventSeqs: [] })
     })
     found = locate()
   }
-  if (!found.input || !found.reply) throw new Error('失败输入重生成缺少已提交的原生消息')
-  return { nativeAnchor: { formatVersion: 4, turn: Number(found.reply.data.turn), input: Number(found.input.seq), reply: Number(found.reply.seq) } }
+  if ((needsInput && !found.input) || !found.reply) throw new Error('补写正文缺少已提交的原生消息')
+  const anchor = { formatVersion: 4, turn: Number(found.reply.data.turn), input: Number(found.reply.seq), reply: Number(found.reply.seq) }
+  if (found.input) anchor.input = Number(found.input.seq)
+  return { nativeAnchor: anchor }
 }
 
 /** Turns cut off without ending (the server stopped mid-reply) whose nodes the model still sees. */
