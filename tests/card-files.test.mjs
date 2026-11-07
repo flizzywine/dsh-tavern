@@ -32,6 +32,7 @@ async function library(t, extra = {}) {
   let serial = 0
   const cardPreparation = createCardPreparation({ id: () => 'card-' + ++serial, now: Date.now })
   const castAssets = createCastAssets({ store: profileData })
+  const assetPacks = createAssetPacks({ root, store: profileData, mediaStore: createMediaStore({ root: join(root, 'asset-packs') }) })
   const readCardWorkspace = async cardPath => {
     const existing = await fileResources.readCard(cardPath)
     if (existing === undefined || cardPreparation.isWorkspace(existing)) return existing
@@ -40,11 +41,11 @@ async function library(t, extra = {}) {
   const cardSummaries = createCardSummaryCache({ absolute: cardPath => fileResources.absolute(cardPath), read: async cardPath => projectCardSummary(await readCardWorkspace(cardPath)) })
   const files = createCardFiles({
     exportRoot: join(root, "exports"),
-    cardPreparation, fileResources, castAssets, assetPacks: createAssetPacks({ root, store: profileData, mediaStore: createMediaStore({ root: join(root, 'asset-packs') }) }), cardSummaries, readCardWorkspace,
+    cardPreparation, fileResources, castAssets, assetPacks, cardSummaries, readCardWorkspace,
     worldBooks: { characterBookForCard: async () => undefined },
     cardPlugins: createCardPlugins({ dataRoot: root, pluginsDir: join(root, 'plugins') }), presetLibrary: {}, importPreset: () => assert.fail('no start defaults'), ...extra, pluginApi: () => assert.fail('not a plugin format')
   })
-  return { root, files, fileResources, castAssets, cardPreparation, readCardWorkspace }
+  return { root, files, fileResources, castAssets, assetPacks, cardPreparation, readCardWorkspace }
 }
 
 test('encrypted DSH imports authenticate before saving cards/plugins, and duplicates still require the password', async t => {
@@ -207,7 +208,7 @@ test('DSH 人物卡的素材包装进素材库：新包安装、相同的不动�
   })
   const { root, files } = await library(t, { assetLibrary })
   const card = join(root, '鱼.dshcard')
-  const pack = (id, name) => [[`assets/${name}/manifest.json`, JSON.stringify({ id, contentHash: 'v1' })], [`assets/${name}/media/a.png`, 'png']]
+  const pack = (id, name) => [[`assets/${name}/manifest.json`, JSON.stringify({ format: 'dsh-asset-pack', id, contentHash: 'v1' })], [`assets/${name}/media/a.png`, 'png']]
   await writeFile(card, writeZipEntries([
     { path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1, packs: [{ id: fresh, path: 'assets/new/', title: '新包' }, { id: changed, path: 'assets/old/', title: '旧包' }] }) },
     { path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name: '鱼' } }) },
@@ -220,6 +221,49 @@ test('DSH 人物卡的素材包装进素材库：新包安装、相同的不动�
   const again = await files.importCardArchiveFile(card, '鱼.dshcard')
   assert.equal(again.duplicate, true)
   assert.deepEqual(applied, [[fresh, 'noop'], [changed, 'cancel']], 'the same file again checks its packs')
+})
+
+test('card import installs native packs and keeps plugin packs without library warnings', async t => {
+  const { createAssetPackService } = await import('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js')
+  const { PACK_ID } = await import('./fixtures/asset-packs/pack.mjs')
+  const { sealPack } = await import('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/validation.js')
+  let service
+  const { root, files, castAssets, assetPacks } = await library(t, { assetLibrary: () => service })
+  service = createAssetPackService({ assetRoot: join(root, 'library') })
+  t.after(() => service.dispose())
+  const native = { manifest: { format: 'dsh-asset-pack', schemaVersion: 1, id: PACK_ID, name: 'Native', contentHash: '0'.repeat(64), assets: [], figures: [], sprites: {}, bundles: {}, blobs: {}, files: [] }, files: new Map() }
+  await sealPack(native.manifest, native.files)
+  const archive = join(root, 'mixed.dshcard')
+  const packs = [
+    { id: PACK_ID, path: 'assets/native/', format: 'dsh-asset-pack' },
+    { id: 'plugin-media', path: 'assets/media/', format: 'dsh-kanto-media-v1' },
+    { id: 'plugin-fx', path: 'assets/fx/', format: 'dsh-kanto-fx-v1' },
+    { id: 'broken-native', path: 'assets/broken/', format: 'dsh-asset-pack' },
+  ]
+  await writeFile(archive, writeZipEntries([
+    { path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1, packs }) },
+    { path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name: 'Mixed' } }) },
+    { path: 'assets/native/manifest.json', content: JSON.stringify(native.manifest) },
+    ...[...native.files].map(([path, content]) => ({ path: 'assets/native/' + path, content })),
+    { path: 'assets/media/data.json', content: '{"media":true}' },
+    { path: 'assets/fx/data.json', content: '{"fx":true}' },
+    { path: 'assets/broken/data.json', content: '{}' },
+  ]))
+  const imported = await files.importCardArchiveFile(archive, 'mixed.dshcard')
+  assert.equal(imported.libraryNotices.length, 1, JSON.stringify(imported.libraryNotices))
+  assert.match(imported.libraryNotices[0], /broken-native.*Missing pack manifest/)
+  assert.ok(await readFile(join(root, 'library', 'packs', PACK_ID, 'manifest.json')))
+  const bound = (await castAssets.read(imported.path)).packs
+  for (const [id, expected] of [['plugin-media', '{"media":true}'], ['plugin-fx', '{"fx":true}']]) {
+    const ref = bound.find(pack => pack.id === id)
+    assert.ok(ref)
+    const file = await assetPacks.file(id, ref.contentHash, 'data.json')
+    assert.equal((await readFile(file.path)).toString(), expected)
+  }
+  const duplicate = await files.importCardArchiveFile(archive, 'mixed.dshcard')
+  assert.equal(duplicate.duplicate, true)
+  assert.equal(duplicate.libraryNotices.length, 1)
+  assert.match(duplicate.libraryNotices[0], /broken-native.*Missing pack manifest/)
 })
 
 

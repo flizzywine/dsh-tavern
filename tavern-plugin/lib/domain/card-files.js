@@ -31,11 +31,25 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   // whose identity clashes or one that carries scripts is not touched; it is reported, and the player decides
   // in the asset library.
   async function installPacksInLibrary(zip, packs) {
-    if (!packs.length) return []
+    // Explicit formats belong to their consumers. Older cards may omit the format,
+    // so recognize a native pack by its own manifest in that case.
+    const nativePacks = []
+    for (const pack of packs) {
+      if (pack.format === 'dsh-asset-pack') nativePacks.push(pack)
+      else if (!pack.format) {
+        const manifest = zip.entries.get(pack.prefix + 'manifest.json')
+        if (manifest) {
+          try {
+            if (JSON.parse((await zip.readBuffer(manifest, 8 * 1024 * 1024)).toString('utf8')).format === 'dsh-asset-pack') nativePacks.push(pack)
+          } catch {} // An unidentifiable opaque pack remains available to its plugin.
+        }
+      }
+    }
+    if (!nativePacks.length) return []
     const library = assetLibrary()
     if (!library || typeof library.inspectImportFile !== 'function') return ['素材库不可用：这张卡的素材包没有装进素材库，舞台用不到它们']
     const notices = []
-    for (const pack of packs) {
+    for (const pack of nativePacks) {
       const label = pack.title || pack.id
       const dir = await mkdtemp(path.join(os.tmpdir(), 'tavern-card-pack-'))
       try {
