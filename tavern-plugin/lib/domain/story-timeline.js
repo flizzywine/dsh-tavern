@@ -300,6 +300,11 @@ export function createStoryTimeline(options = {}) {
     const lifetime = participantLifetime(participant.lifetime)
     const participantKey = participantRole(operation.role)
     const previousParticipant = object(chat.timeline.participants[participantKey])
+    // Only a task that actually reached an agent session (its bind ran the worker) saw this
+    // revision. A settlement that ran no model (nothing to settle, provider-only, replaced,
+    // or failed before its first turn) only carries the session id it found, so marking it
+    // synced would make the next candidate generation skip sending the new story.
+    const ranSession = str(operation.startedSessionId) !== ''
     // Failure is not evidence that the requested rewind reached durable storage.
     // Keep the original boundary so every retry still has to perform it.
     if (preserveRewind && previousParticipant.status === 'needs-rewind'
@@ -309,7 +314,7 @@ export function createStoryTimeline(options = {}) {
       lifetime,
       sessionId: str(participant.sessionId),
       branchId: chat.timeline.branchId,
-      syncedRevision: participant.identityOnly ? null : chat.timeline.revision,
+      syncedRevision: participant.identityOnly || !ranSession ? null : chat.timeline.revision,
       boundary: Number.isSafeInteger(participant.boundary) ? participant.boundary : null,
       ...(participant.formatVersion ? { formatVersion: participant.formatVersion } : {}),
       status: 'current',
@@ -326,7 +331,7 @@ export function createStoryTimeline(options = {}) {
     if (operation.role === 'candidate') {
       chat.candidateAgent = {
         sessionId: str(participant.sessionId), mode: lifetime === 'chat' ? 'continuable' : 'one-shot',
-        branchId: chat.timeline.branchId, syncedRevision: chat.timeline.revision,
+        branchId: chat.timeline.branchId, syncedRevision: ranSession ? chat.timeline.revision : null,
         boundary: Number.isSafeInteger(participant.boundary) ? participant.boundary : null,
         ...(participant.formatVersion ? { formatVersion: participant.formatVersion } : {}),
         updatedAt: now()

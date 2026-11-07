@@ -200,3 +200,73 @@ assert.equal(sawContext, undefined)
 assert.equal(saved.candidates, undefined)
 assert.equal(Object.keys(saved.timeline.operations).length, 0)
 })
+
+test('结算没有真正跑过后台 Agent 时，候选仍把最新正文发给书记', async () => {
+  // 本回合的结算没有任何待处理项：引擎直接返回，书记会话本轮没有被调用。
+  // 结算提交只带着上一条参与记录里的旧会话，不能把这一版正文算作已读。
+  const timeline = createStoryTimeline({ id: prefix => prefix + '-1', now: () => 1000 })
+  const body = '最新正文：雨停了，钟楼的灯还亮着。'
+  let state = timeline.apply({
+    chat: { id: 'chat-1', sessionId: 'session-1', cardId: 'card-1', mode: 'story',
+      messages: [{ role: 'user', text: '推开门' }, { role: 'assistant', text: body }],
+      macroState: { userName: 'User', local: {}, global: {} } },
+    intent: { kind: 'ensure' }
+  }).chat
+  state.timeline.revision = 2
+  state.timeline.participants = {
+    background: { role: 'background', lifetime: 'chat', sessionId: 'bg-1', branchId: state.timeline.branchId,
+      syncedRevision: 1, boundary: null, formatVersion: 4, status: 'current', rewindTo: null, updatedAt: 1 }
+  }
+  const begun = timeline.apply({ chat: state, intent: { kind: 'agent.begin', role: 'settlement', requestId: 'settle-1' } })
+  const done = timeline.complete({
+    chat: begun.chat, operationId: begun.value.operationId, basedOn: begun.value.basedOn,
+    outcome: { status: 'success', stateChanged: false, participant: { sessionId: 'bg-1', lifetime: 'chat', boundary: null } }
+  })
+  assert.equal(done.value.status, 'committed')
+  assert.equal(done.chat.timeline.participants.background.sessionId, 'bg-1')
+  assert.equal(done.chat.timeline.participants.background.syncedRevision, null,
+    '没有启动 Agent 的结算不能声称这一版正文已同步')
+
+  const run = harness({ outputs: [JSON.stringify({ choices: storyChoices })] })
+  run.mutateChat(current => {
+    current.timeline = structuredClone(done.chat.timeline)
+    current.messages = structuredClone(done.chat.messages)
+  })
+  await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-1' })
+  const sent = run.modelRequests[0].messages
+  assert.equal(run.modelRequests[0].persistentSessionId, 'bg-1')
+  assert.equal(sent.length, 2, '候选请求前必须带上最新正文')
+  assert.match(sent[0].content[0].text, /雨停了/)
+})
+
+test('结算真的跑过书记时，候选不再重复发送同一版正文', async () => {
+  const timeline = createStoryTimeline({ id: prefix => prefix + '-1', now: () => 1000 })
+  let state = timeline.apply({
+    chat: { id: 'chat-1', sessionId: 'session-1', cardId: 'card-1', mode: 'story',
+      messages: [{ role: 'user', text: '推开门' }, { role: 'assistant', text: '最新正文：雨停了。' }],
+      macroState: { userName: 'User', local: {}, global: {} } },
+    intent: { kind: 'ensure' }
+  }).chat
+  state.timeline.revision = 2
+  state.timeline.participants = {
+    background: { role: 'background', lifetime: 'chat', sessionId: 'bg-1', branchId: state.timeline.branchId,
+      syncedRevision: 1, boundary: null, formatVersion: 4, status: 'current', rewindTo: null, updatedAt: 1 }
+  }
+  const begun = timeline.apply({ chat: state, intent: { kind: 'agent.begin', role: 'settlement', requestId: 'settle-1' } })
+  const bound = timeline.apply({ chat: begun.chat, intent: { kind: 'agent.bind', operationId: begun.value.operationId, sessionId: 'bg-1' } })
+  const done = timeline.complete({
+    chat: bound.chat, operationId: begun.value.operationId, basedOn: begun.value.basedOn,
+    outcome: { status: 'success', stateChanged: false, participant: { sessionId: 'bg-1', lifetime: 'chat', boundary: null } }
+  })
+  assert.equal(done.value.status, 'committed')
+  assert.equal(done.chat.timeline.participants.background.syncedRevision, 2, '跑过 Agent 的结算记下已读的剧情版本')
+
+  const run = harness({ outputs: [JSON.stringify({ choices: storyChoices })] })
+  run.mutateChat(current => {
+    current.timeline = structuredClone(done.chat.timeline)
+    current.messages = structuredClone(done.chat.messages)
+  })
+  await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-1' })
+  assert.equal(run.modelRequests[0].persistentSessionId, 'bg-1')
+  assert.equal(run.modelRequests[0].messages.length, 1, '书记已读过这版正文，候选只发本轮要求')
+})
