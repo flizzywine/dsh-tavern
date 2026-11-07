@@ -559,18 +559,18 @@ export function locateRollbackSurface(input) {
   }
   if (assistantIndex < 0 || assistantEvent === null || source === null) return null
 
-  const ownership = createSurfaceOwnership(events)
-  const start = ownership.firstOrigin(nodes[userIndex])
-  const belongs = ownership.classify(event => event.seq >= start)
-  const turn = storyEventTurn(assistantEvent)
+  // 撤回的就是最后这条输入：它以后不可能再有已提交的正文，所以这一段整段收走。
+  // 投影、修复、重新生成会把来源和剧情轮次指向更早的消息（native-repair 写回的
+  // 条目甚至带着别的轮号），按来源逐条证明归属只会让这一轮永远撤不掉。
+  // 唯一不能跨过的是另一轮真正的输入。
+  const eventsBySeq = new Map()
+  for (const event of events) if (event && Number.isFinite(Number(event.seq))) eventsBySeq.set(Number(event.seq), event)
   const range = planSurfaceRange({ nodes, start: nodes[userIndex], end: nodes.at(-1),
     accepts: seq => {
-      const event = ownership.eventAt(seq)
+      const event = eventsBySeq.get(Number(seq))
       if (isRollbackUserTombstone(event) || isRollbackAssistantTombstone(event, events)) return true
-      if (belongs(seq) !== OWNED) return false
-      if (event?.type === 'assistant/message' && storyEventTurn(event) !== turn) return false
-      const frameTurn = Number(event?.data?.source?.trace?.turn)
-      return !(frameTurn > 0) || frameTurn === turn
+      if (event?.type === 'user/message' && isNewTurnInput(event)) return Number(seq) === Number(nodes[userIndex])
+      return true
     }, message: '回退消息归属不一致，无法安全清理' })
   const shadowedSeqs = range.shadowedSeqs
   return Object.freeze({
@@ -799,6 +799,18 @@ function regenerationAttemptEnd(events, eventStart) {
   return Infinity
 }
 
+// The residue of a turn that never finished is the tail of the surface: no
+// committed story can follow it. Projections and repairs cite older messages as
+// their sources, so provenance there can never be proven — take the contiguous
+// tail of the turn instead of refusing to clear it.
+function planTurnTailCut({ nodes, startSeq, endSeq }) {
+  const seqs = nodes.map(Number)
+  let index = seqs.length
+  while (index > 0 && seqs[index - 1] > startSeq && seqs[index - 1] < endSeq) index -= 1
+  if (index === seqs.length) return null
+  return Object.freeze({ start: seqs[index], end: seqs.at(-1), shadowedSeqs: Object.freeze(seqs.slice(index)) })
+}
+
 export function planFailedTurnSurface(input) {
   const events = Array.isArray(input && input.events) ? input.events : []
   const nodes = Array.isArray(input && input.nodes) ? input.nodes : []
@@ -807,14 +819,19 @@ export function planFailedTurnSurface(input) {
   if (!interval) return null
   const { start: startSeq, end: endSeq } = interval
 
-  return planSurfaceRecovery({
-    nodes,
-    ownership: input.ownership || createSurfaceOwnership(events),
-    selectOrigin: event => event.seq > startSeq && event.seq < endSeq,
-    inScope: event => event.seq > startSeq,
-    ignore: isRollbackUserTombstone,
-    message: '失败回合的模型消息面不是连续区间，无法安全清理'
-  })
+  try {
+    return planSurfaceRecovery({
+      nodes,
+      ownership: input.ownership || createSurfaceOwnership(events),
+      selectOrigin: event => event.seq > startSeq && event.seq < endSeq,
+      inScope: event => event.seq > startSeq,
+      ignore: isRollbackUserTombstone,
+      message: '失败回合的模型消息面不是连续区间，无法安全清理'
+    })
+  } catch (error) {
+    if (!(error instanceof SurfaceRecoveryError)) throw error
+    return planTurnTailCut({ nodes, startSeq, endSeq })
+  }
 }
 
 export function clearFailedTurnSurface(input) {

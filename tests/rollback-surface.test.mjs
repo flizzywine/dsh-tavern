@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { rollbackAvailability, pendingFailedSurfaceTurns, abortedRegenerationTurns, locateRollbackSurface, regenerationAttemptTurns, replayableFailedTurn, failedTurnReplayAvailability } from '../tavern-plugin/lib/domain/rollback-surface.js'
+import { rollbackAvailability, pendingFailedSurfaceTurns, abortedRegenerationTurns, locateRollbackSurface, planFailedTurnSurface, regenerationAttemptTurns, replayableFailedTurn, failedTurnReplayAvailability } from '../tavern-plugin/lib/domain/rollback-surface.js'
 
 function modelSource() {
   return { kind: 'model', provider: 'test', model: 'test-model' }
@@ -133,4 +133,65 @@ test('无错误对象和请求号时，末尾持久玩家输入仍优先于更�
   assert.ok(result.target.source.rpcId.length > 0)
   assert.equal(result.target.persisted, true)
   assert.equal(result.target.messageIndex, 2)
+})
+
+test('投影/修复写下的正文来源牵到更早消息时，回退仍按本轮收走而不是报归属不一致', () => {
+  const model = modelSource()
+  const events = [
+    { seq: 10, type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: '第一轮输入' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { seq: 11, type: 'assistant/message', data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '第一轮正文' }], source: model } }, surfaceOp: 'append' },
+    { seq: 20, type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: '第二轮输入' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { seq: 21, type: 'user/message', data: { role: 'user', content: [], source: { kind: 'plugin:dsh-tavern-surface-restore' } }, surfaceOp: 'append' },
+    // 投影写回的正文：位置在本轮，来源却引用上一轮的消息。
+    { seq: 22, type: 'assistant/message', data: { turn: 2, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '第二轮正文' }], source: model } },
+      surfaceOp: { op: 'replace', start: 21, end: 21 }, sourceEventSeqs: [21, 11] },
+    { seq: 23, type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: '本轮提示词' }], source: { kind: 'plugin', plugin: 'dsh-tavern', form: 'foreground-frame' } }, surfaceOp: 'append' }
+  ]
+
+  const located = locateRollbackSurface({ events, nodes: [10, 11, 20, 21, 22, 23] })
+
+  assert.equal(located.userSeq, 20)
+  assert.equal(located.assistantSeq, 22)
+  assert.equal(located.turn, 2)
+  assert.deepEqual(located.shadowedSeqs, [20, 21, 22, 23])
+})
+
+test('失败回合的节点归属算不清时按尾部整段清除，不再拒绝清理', () => {
+  const model = modelSource()
+  const events = [
+    { seq: 1, type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: '上一轮输入' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { seq: 2, type: 'assistant/message', data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '上一轮正文' }], source: model } }, surfaceOp: 'append' },
+    { seq: 3, type: 'turn/start', data: { turn: 2 } },
+    { seq: 4, type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: '失败的输入' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    // 修复写下的半截正文，来源引用上一轮：归属既非本轮也证明不了属于别处。
+    { seq: 5, type: 'assistant/message', data: { turn: 2, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '半截' }], source: model } },
+      surfaceOp: { op: 'replace', start: 6, end: 6 }, sourceEventSeqs: [6, 2] },
+    { seq: 6, type: 'user/message', data: { role: 'user', content: [], source: { kind: 'plugin:dsh-tavern-surface-restore' } }, surfaceOp: 'append' },
+    { seq: 7, type: 'turn/end', data: { turn: 2, reason: { kind: 'error' } } }
+  ]
+
+  const plan = planFailedTurnSurface({ events, nodes: [1, 2, 4, 5, 6], turn: 2 })
+
+  assert.deepEqual(plan.shadowedSeqs, [4, 5, 6])
+  assert.equal(plan.start, 4)
+  assert.equal(plan.end, 6)
+})
+
+test('native-repair 写回的正文带着别的剧情轮号时，撤回最后一条输入不再被归属检查挡住', () => {
+  const model = modelSource()
+  const events = [
+    { seq: 10, type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: '上一轮输入' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { seq: 11, type: 'assistant/message', data: { turn: 6, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '上一轮正文' }], source: model } }, surfaceOp: 'append' },
+    { seq: 20, type: 'user/message', data: { role: 'user', content: [{ type: 'text', text: '要撤回的输入' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    // 修复写回的正文：位置在本轮，剧情轮号却是第 9 轮。
+    { seq: 21, type: 'assistant/message', data: { turn: 7, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '修复写回的正文' }], source: { kind: 'model', provider: 'dsh-tavern', model: 'native-repair', tavernStoryTurn: 9 } } },
+      surfaceOp: { op: 'replace', start: 22, end: 22 }, sourceEventSeqs: [22, 11] },
+    { seq: 22, type: 'user/message', data: { role: 'user', content: [], source: { kind: 'plugin:dsh-tavern-surface-restore' } }, surfaceOp: 'append' },
+    { seq: 23, type: 'assistant/message', data: { turn: 7, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '本轮正文' }], source: model } }, surfaceOp: 'append' }
+  ]
+
+  const located = locateRollbackSurface({ events, nodes: [10, 11, 20, 21, 22, 23] })
+
+  assert.equal(located.userSeq, 20)
+  assert.deepEqual(located.shadowedSeqs, [20, 21, 22, 23])
 })
