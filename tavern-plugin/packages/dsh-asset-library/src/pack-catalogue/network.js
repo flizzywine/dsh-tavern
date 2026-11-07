@@ -7,10 +7,11 @@ import { httpsUrl } from './catalogue.js'
 export function publicAddress(address) {
   if (isIP(address) === 4) {
     const [a,b,c] = address.split('.').map(Number)
-    return !(a===0 || a===10 || a===127 || a>=224 || a===169 && b===254 || a===172 && b>=16 && b<=31 || a===192 && (b===168 || b===0 || b===2 || b===88 && c===99) || a===100 && b>=64 && b<=127 || a===198 && (b===18 || b===19 || b===51 && c===100) || a===203 && b===0 && c===113)
+    // Allow 198.18.0.0/15 (RFC 2544 / TUN Fake-IP used by Clash/Mihomo/Sing-box local DNS)
+    return !(a===0 || a===10 || a===127 || a>=224 || a===169 && b===254 || a===172 && b>=16 && b<=31 || a===192 && (b===168 || b===0 || b===2 || b===88 && c===99) || a===100 && b>=64 && b<=127 || a===198 && b===51 && c===100 || a===203 && b===0 && c===113)
   }
-  // Only native global unicast; exclude transition/tunnelling and documentation ranges.
-  if (isIP(address) === 6) return /^[23][0-9a-f]{3}:/i.test(address) && !/^(2001:(?:0*:|0*2:|0*10:|0*20:|db8:)|2002:|3fff:)/i.test(address)
+  // Only native global unicast (plus fdfe:dcba:9876::/48 TUN Fake-IPv6); exclude transition/tunnelling and documentation ranges.
+  if (isIP(address) === 6) return /^fdfe:dcba:9876:/i.test(address) || (/^[23][0-9a-f]{3}:/i.test(address) && !/^(2001:(?:0*:|0*2:|0*10:|0*20:|db8:)|2002:|3fff:)/i.test(address))
   return false
 }
 export function createPublicNetwork({resolve = lookup, request = https.request} = {}) {

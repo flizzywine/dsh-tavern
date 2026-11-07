@@ -468,6 +468,14 @@ export function registerTavernHttpRoutes({
             res.end(JSON.stringify({ ok: false, error: redactMvuLoadError(err && err.message || err) }))
             return
           }
+          if (readsStaticAsset) {
+            const msg = str(err && err.message || err)
+            const status = /URL 无效|HTTPS|凭据/.test(msg) ? 400 : /private or reserved/i.test(msg) ? 403 : 502
+            res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
+              'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff' })
+            res.end(JSON.stringify({ ok: false, error: msg }))
+            return
+          }
           const voiceCode = figureVoiceRoute ? (/^[A-Z_]+$/.test(err?.code || '') ? err.code : 'REQUEST_FAILED') : undefined
           if (voiceCode) ctx.logger?.warn(`[voice-rpc] ${pathname.split('/').at(-1)} ${voiceCode}`)
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })

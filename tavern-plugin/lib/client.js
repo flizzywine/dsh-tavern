@@ -27398,9 +27398,10 @@ function bindTavernFontZoom(node, win) {
 
 		function createTavernHelperPopup(options) {
 			const { document, parent, token } = options;
-			function HelperPopup(content, _type, title, options) {
+			function HelperPopup(content, type, title, options) {
 				const popup = this;
 				popup.content = content;
+				popup.type = type;
 				popup.options = options && typeof options === "object" ? options : {};
 				popup.root = null;
 				popup.resolve = null;
@@ -27410,6 +27411,13 @@ function bindTavernFontZoom(node, win) {
 					parent.postMessage({ type: "dsh-tavern-helper-ui-close", token: token }, "*");
 					if (popup.resolve) { const resolve = popup.resolve; popup.resolve = null; resolve(true); }
 					return true;
+				};
+				popup.completeNegative = async function () {
+					if (popup.root) popup.root.remove();
+					popup.root = null;
+					parent.postMessage({ type: "dsh-tavern-helper-ui-close", token: token }, "*");
+					if (popup.resolve) { const resolve = popup.resolve; popup.resolve = null; resolve(false); }
+					return false;
 				};
 				popup.show = function () {
 					if (popup.root) return Promise.resolve(false);
@@ -27421,14 +27429,29 @@ function bindTavernFontZoom(node, win) {
 					if (title) { const heading = document.createElement("h2"); heading.textContent = String(title); panel.appendChild(heading); }
 					const node = content && content.jquery ? content[0] : content;
 					if (node && typeof node.nodeType === "number") panel.appendChild(node);
-					else if (node !== undefined && node !== null) { const text = document.createElement("div"); text.textContent = String(node); panel.appendChild(text); }
+					else if (node !== undefined && node !== null) {
+						const text = document.createElement("div");
+						const raw = String(node);
+						if (/<[a-z][\s\S]*>/i.test(raw)) text.innerHTML = raw;
+						else { text.style.whiteSpace = "pre-wrap"; text.textContent = raw; }
+						panel.appendChild(text);
+					}
 					const actions = document.createElement("div");
-					actions.style.cssText = "display:flex;justify-content:flex-end;margin-top:14px";
+					actions.style.cssText = "display:flex;justify-content:flex-end;gap:10px;margin-top:14px";
 					const close = document.createElement("button");
 					close.type = "button"; close.textContent = String(popup.options.okButton || "关闭");
 					close.style.cssText = "border:1px solid rgba(255,255,255,.24);border-radius:9px;padding:7px 14px;background:#273241;color:#fff;cursor:pointer";
 					close.addEventListener("click", popup.completeAffirmative);
-					actions.appendChild(close); panel.appendChild(actions); overlay.appendChild(panel); document.body.appendChild(overlay);
+					actions.appendChild(close);
+					const hasCancel = (typeof popup.options.cancelButton === "string" && popup.options.cancelButton) || (type === "confirm" && popup.options.cancelButton !== false);
+					if (hasCancel) {
+						const cancel = document.createElement("button");
+						cancel.type = "button"; cancel.textContent = String(popup.options.cancelButton || "取消");
+						cancel.style.cssText = "border:1px solid rgba(255,255,255,.24);border-radius:9px;padding:7px 14px;background:rgba(255,255,255,.08);color:#eef4fb;cursor:pointer";
+						cancel.addEventListener("click", popup.completeNegative);
+						actions.appendChild(cancel);
+					}
+					panel.appendChild(actions); overlay.appendChild(panel); document.body.appendChild(overlay);
 					popup.root = overlay;
 					parent.postMessage({ type: "dsh-tavern-helper-ui-open", token: token }, "*");
 					return new Promise(function (resolve) { popup.resolve = resolve; });
@@ -27961,7 +27984,7 @@ function bindTavernFontZoom(node, win) {
 						content.startsWith("Old variables can be removed from this chat to reduce its file size. Clean them now?")
 					);
 					if (type === "confirm" && legacyCleanup) return Promise.resolve(0);
-					return new HelperPopup(content, type, title, options).show();
+					return new HelperPopup(content, type, title, options).show().then(function (result) { return result ? 1 : 0; });
 				},
 				saveChat: saveChatData,
 				saveMetadata: saveChatData,

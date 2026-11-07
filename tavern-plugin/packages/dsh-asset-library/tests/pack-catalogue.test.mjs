@@ -192,8 +192,8 @@ test('URL widget script warning is surfaced and official update cannot bypass co
 })
 
 test('production network pins public DNS and rejects private redirects and equivalent addresses',async()=>{
-  for(const ip of ['127.0.0.1','10.0.0.1','169.254.169.254','172.16.0.1','192.168.1.1','100.64.0.1','::1','::ffff:127.0.0.1','fc00::1','fe80::1','2002:7f00:1::1','2001:db8::1']) assert.equal(publicAddress(ip),false,ip)
-  assert.equal(publicAddress('8.8.8.8'),true);assert.equal(publicAddress('2606:4700:4700::1111'),true)
+  for(const ip of ['127.0.0.1','10.0.0.1','169.254.169.254','172.16.0.1','192.168.1.1','100.64.0.1','198.51.100.1','::1','::ffff:127.0.0.1','fc00::1','fe80::1','2002:7f00:1::1','2001:db8::1']) assert.equal(publicAddress(ip),false,ip)
+  for(const ip of ['8.8.8.8','198.18.0.75','198.19.0.1','2606:4700:4700::1111','fdfe:dcba:9876::52']) assert.equal(publicAddress(ip),true,ip)
   let called=0
   const refused=createPublicNetwork({resolve:async()=>[{address:'127.0.0.1',family:4}],request:()=>{called++}})
   await assert.rejects(refused('https://public.test/'));assert.equal(called,0)

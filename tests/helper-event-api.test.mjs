@@ -101,3 +101,47 @@ test('pagehide rejects pending waits and releases their subscriptions without la
   await assert.rejects(run.window.eventWaitOnce('late'), error => error.name === 'AbortError')
   await assert.rejects(run.window.waitGlobalInitialized('late'), error => error.name === 'AbortError')
 })
+
+test('HelperPopup renders HTML strings, supports cancelButton, and callGenericPopup maps to POPUP_RESULT 1/0', async () => {
+  const popupDecl = parse(sharedSource, { ecmaVersion: 'latest' }).body.find(node => node.type === 'FunctionDeclaration' && node.id.name === 'createTavernHelperPopup')
+  const createPopup = vm.runInNewContext('(' + sharedSource.slice(popupDecl.start, popupDecl.end) + ')')
+  function makeElement(tag) {
+    const listeners = {}
+    return {
+      tag,
+      style: {},
+      attributes: {},
+      children: [],
+      textContent: '',
+      innerHTML: '',
+      setAttribute(k, v) { this.attributes[k] = v },
+      appendChild(child) { this.children.push(child) },
+      addEventListener(name, fn) { listeners[name] = fn },
+      click() { return listeners.click && listeners.click() },
+      remove() { this.removed = true }
+    }
+  }
+  const body = makeElement('body')
+  const Popup = createPopup({
+    document: { createElement: makeElement, body },
+    parent: { postMessage() {} },
+    token: 'tok'
+  })
+  const htmlPopup = new Popup('<div class="node">请选择节点</div>', 'text', '', { okButton: '🇨🇳 国内-使用', cancelButton: '🌍 国外-使用' })
+  const pendingAffirm = htmlPopup.show()
+  const panel = body.children[0].children[0]
+  assert.equal(panel.children[0].innerHTML, '<div class="node">请选择节点</div>')
+  const actions = panel.children[1]
+  assert.equal(actions.children.length, 2)
+  assert.equal(actions.children[0].textContent, '🇨🇳 国内-使用')
+  assert.equal(actions.children[1].textContent, '🌍 国外-使用')
+  await actions.children[0].click()
+  assert.equal(await pendingAffirm, true)
+
+  const cancelPopup = new Popup('纯文本提示', 'confirm', '确认', { okButton: '确定', cancelButton: '取消' })
+  const pendingCancel = cancelPopup.show()
+  const panel2 = body.children[1].children[0]
+  assert.equal(panel2.children[1].textContent, '纯文本提示')
+  await panel2.children[2].children[1].click()
+  assert.equal(await pendingCancel, false)
+})
