@@ -1,6 +1,6 @@
 - insert:
-    - id: dsh-tavern-launcher
-      name: dsh-tavern-launcher
+    - id: dsh-tavern
+      name: dsh-tavern
       inject:
         - connection
         - profileContext

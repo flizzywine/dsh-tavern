@@ -8,7 +8,7 @@
  * reports what a switch would do. The actual file surgery happens in the generated
  * helper script, which runs after the app has exited.
  *
- * @module dsh-profile-bridge/state
+ * @module dsh-tavern/state
  */
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
@@ -121,7 +121,7 @@ export function inspectProfile(dir, paths) {
     dependencies: Object.keys(dependencies),
     bundleCount: bundles.length,
     bundles,
-    hasBridge: hasBridge(manifest),
+    hasBridge: hasBridge(manifest, dir),
     hasNodeModules: existsSync(join(dir, 'node_modules')),
     hasPatch: existsSync(join(dir, 'cordis.patch.yml')),
   }
@@ -272,17 +272,35 @@ export function canInstallTavern(paths) {
   return ['app', 'app.asar'].some(dir => readManifest(join(resources, dir))?.name === '@deepseek-ai/dsh-desktop')
 }
 
-export const LAUNCHER_BUNDLE = 'dsh-tavern-launcher'
-export const LEGACY_LAUNCHER_BUNDLE = 'dsh-profile-bridge'
+export const LAUNCHER_BUNDLE = 'dsh-tavern'
+export const LEGACY_LAUNCHER_BUNDLES = ['dsh-tavern-launcher', 'dsh-profile-bridge']
+export const LAUNCHER_BUNDLES = [LAUNCHER_BUNDLE, ...LEGACY_LAUNCHER_BUNDLES]
 
-export function launcherBundle(manifest) {
-  const bundles = manifest?.dsh?.profile?.bundles
-  if (!Array.isArray(bundles) || bundles.includes('dsh-tavern-bundle')) return undefined
-  return [LAUNCHER_BUNDLE, LEGACY_LAUNCHER_BUNDLE].find(name => bundles.includes(name))
+function isOfficialLauncher(dir) {
+  const repository = readManifest(join(dir, 'node_modules', LAUNCHER_BUNDLE))?.repository
+  return repository?.url === 'git+https://github.com/flizzywine/dsh-tavern.git'
+    && repository.directory === 'tavern-plugin/packages/dsh-tavern'
 }
 
-export function hasBridge(manifest) {
-  return launcherBundle(manifest) !== undefined
+export function assertLauncherSlotAvailable(manifest, dir) {
+  const occupied = Object.hasOwn(manifest?.dependencies ?? {}, LAUNCHER_BUNDLE)
+    || manifest?.dsh?.profile?.bundles?.includes(LAUNCHER_BUNDLE)
+    || existsSync(join(dir, 'node_modules', LAUNCHER_BUNDLE))
+  if (occupied && !isOfficialLauncher(dir)) {
+    throw Error('当前 Profile 已有同名的 dsh-tavern 插件，请检查其来源后再安装酒馆。')
+  }
+}
+
+export function launcherBundle(manifest, dir) {
+  const bundles = manifest?.dsh?.profile?.bundles
+  if (!Array.isArray(bundles) || bundles.includes('dsh-tavern-bundle')) return undefined
+  if (bundles.includes(LAUNCHER_BUNDLE) && dir && isOfficialLauncher(dir)) return LAUNCHER_BUNDLE
+  return LEGACY_LAUNCHER_BUNDLES.find(name => bundles.includes(name)
+    && (!dir || readManifest(join(dir, 'node_modules', name))?.dshTavern?.profileHandoff !== true))
+}
+
+export function hasBridge(manifest, dir) {
+  return launcherBundle(manifest, dir) !== undefined
 }
 
 /**
@@ -303,7 +321,7 @@ export function validateTarget(paths, name) {
     fail('missing-profile', `No profile manifest at ${join(dir, 'package.json')}.`)
   }
   // A profile without this page has no way back from inside the app.
-  if (!hasBridge(readManifest(dir))) {
+  if (!hasBridge(readManifest(dir), dir)) {
     fail('no-bridge', `"${trimmed}" does not enable the Tavern launcher, so the app could not switch back from it.`)
   }
   const warnings = []

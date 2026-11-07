@@ -5,7 +5,7 @@ import { once } from 'node:events'
 import { mkdtempSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { captureOwnedProcesses, cleanupOwnedProcesses, selectOwnedProcesses, waitForOwnedExit } from '../tavern-plugin/packages/dsh-profile-bridge/lib/processes.mjs'
+import { captureOwnedProcesses, cleanupOwnedProcesses, selectOwnedProcesses, waitForOwnedExit } from '../tavern-plugin/packages/dsh-tavern/lib/processes.mjs'
 
 const row = (pid, parentPid, created) => ({ pid, parentPid, created: String(created) })
 test('ownership follows pre-quit ancestry, not executable names or shared profile paths', () => {

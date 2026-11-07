@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync, symlinkSync, existsSync, renameSync, rmSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { switchProfile, waitForExit } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
+import { switchProfile, waitForExit } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 function fixture(t) {
  const root = mkdtempSync(join(tmpdir(), 'tavern-profile-bridge-'));t.after(()=>rmSync(root,{recursive:true,force:true}))
  for(const name of ['desktop','tavern','other']) {mkdirSync(join(root,name));writeFileSync(join(root,name,'package.json'),JSON.stringify({dsh:{profile:{bundles:['@deepseek-ai/dsh-base']}}}));writeFileSync(join(root,name,'cordis.patch.yml'),'[]\n')}
@@ -32,7 +32,7 @@ test('桥接安装更新始终写 tavern，不取决于 desktop 当前是否是�
 })
 
 test('只能切到同样启用桥接的 profile，否则切过去后无法在应用内切回', async t => {
- const { validateTarget, listProfiles } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs')
+ const { validateTarget, listProfiles } = await import('../tavern-plugin/packages/dsh-tavern/lib/state.mjs')
  const root=mkdtempSync(join(tmpdir(),'pb-target-'));t.after(()=>rmSync(root,{recursive:true,force:true}))
  const profile=(name,bundles)=>{mkdirSync(join(root,name));writeFileSync(join(root,name,'package.json'),JSON.stringify({dependencies:{a:'1'},dsh:{profile:{bundles}}}))}
  profile('desktop',['dsh-profile-bridge']);profile('tavern',['@deepseek-ai/dsh-base','dsh-tavern-launcher']);profile('web',['@deepseek-ai/dsh-base'])
@@ -43,21 +43,21 @@ test('只能切到同样启用桥接的 profile，否则切过去后无法在应
 })
 
 test('切换后重新打开桌面：macOS 打开 .app，其他平台直接启动可执行文件', async () => {
- const { relaunchCommand } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs')
+ const { relaunchCommand } = await import('../tavern-plugin/packages/dsh-tavern/lib/helper.mjs')
  assert.deepEqual(relaunchCommand('/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness','darwin'),['open',['/Applications/DeepSeek Harness.app']])
  assert.deepEqual(relaunchCommand('C:\\Apps\\DeepSeek Harness.exe','win32'),['C:\\Apps\\DeepSeek Harness.exe',[]])
  assert.deepEqual(relaunchCommand('/opt/dsh/deepseek-harness','linux'),['/opt/dsh/deepseek-harness',[]])
 })
 
 test('已有切换在排队时给出可读的 busy 错误', async t => {
- const { scheduleSwitch } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs')
+ const { scheduleSwitch } = await import('../tavern-plugin/packages/dsh-tavern/lib/helper.mjs')
  const stateDir=mkdtempSync(join(tmpdir(),'pb-lock-'));t.after(()=>rmSync(stateDir,{recursive:true,force:true}))
  mkdirSync(join(stateDir,'pending'))
  assert.throws(()=>scheduleSwitch({stateDir}),e=>e.code==='busy'&&/等待桌面退出/.test(e.message))
 })
 
 test('陈旧 pending 自动归档并重试，仍在等待应用的锁保持 busy', async t => {
- const { acquirePendingLock } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs')
+ const { acquirePendingLock } = await import('../tavern-plugin/packages/dsh-tavern/lib/helper.mjs')
  const stateDir=mkdtempSync(join(tmpdir(),'pb-stale-'));t.after(()=>rmSync(stateDir,{recursive:true,force:true}))
  const lock=join(stateDir,'pending');mkdirSync(lock)
  writeFileSync(join(lock,'request.json'),JSON.stringify({pids:[4242]}))
@@ -71,7 +71,7 @@ test('陈旧 pending 自动归档并重试，仍在等待应用的锁保持 busy
 })
 
 test('worker 仍在运行时保留 pending，worker 退出后立即回收', async t => {
- const { acquirePendingLock } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs')
+ const { acquirePendingLock } = await import('../tavern-plugin/packages/dsh-tavern/lib/helper.mjs')
  const stateDir=mkdtempSync(join(tmpdir(),'pb-worker-'));t.after(()=>rmSync(stateDir,{recursive:true,force:true}))
  const lock=join(stateDir,'pending');mkdirSync(lock)
  writeFileSync(join(lock,'request.json'),'{}')
@@ -83,7 +83,7 @@ test('worker 仍在运行时保留 pending，worker 退出后立即回收', asyn
 })
 
 test('陈旧锁归档只保留最近几份', async t => {
- const { acquirePendingLock } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs')
+ const { acquirePendingLock } = await import('../tavern-plugin/packages/dsh-tavern/lib/helper.mjs')
  const stateDir=mkdtempSync(join(tmpdir(),'pb-prune-'));t.after(()=>rmSync(stateDir,{recursive:true,force:true}))
  const staleRoot=join(stateDir,'stale');mkdirSync(staleRoot,{recursive:true})
  for(let index=0;index<3;index+=1) mkdirSync(join(staleRoot,'pending-old-'+index))
@@ -100,7 +100,7 @@ test('worker 结束后释放 pending：登记的 worker.json 不会让锁目录�
  const lock=join(stateDir,'pending');mkdirSync(lock)
  writeFileSync(join(lock,'request.json'),JSON.stringify({stateDir,pids:[]}))
  writeFileSync(join(lock,'worker.json'),JSON.stringify({pid:1234,startedAt:0}))
- const worker=fileURLToPath(new URL('../tavern-plugin/packages/dsh-profile-bridge/lib/worker.mjs',import.meta.url))
+ const worker=fileURLToPath(new URL('../tavern-plugin/packages/dsh-tavern/lib/worker.mjs',import.meta.url))
  try { execFileSync(process.execPath,[worker,join(lock,'request.json')],{stdio:'ignore'}) } catch {}
  assert.equal(existsSync(lock),false)
 })

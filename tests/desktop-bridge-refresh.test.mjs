@@ -7,12 +7,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installation.mjs'
 import { beginOriginalBridgeUpdate } from '../bin/original-bridge-update.mjs'
 import { recordInstallationReceipt, readInstallationReceipt } from '../bin/installation-receipt.mjs'
-import { switchProfile, acquirePendingLock, scheduleSwitch } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
+import { switchProfile, acquirePendingLock, scheduleSwitch } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 import { copyTreeSync, removeTreeSync } from '../bin/portable-fs.mjs'
 
 const repo = fileURLToPath(new URL('../', import.meta.url))
-const bridgePath = 'tavern-plugin/packages/dsh-profile-bridge'
-const targets = ['vendor/dsh-tavern-launcher', 'node_modules/dsh-tavern-launcher']
+const bridgePath = 'tavern-plugin/packages/dsh-tavern'
+const targets = ['vendor/dsh-tavern', 'node_modules/dsh-tavern']
 const put = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text) }
 const json = (file, value) => put(file, JSON.stringify(value))
 const text = file => fs.readFileSync(file, 'utf8')
@@ -36,7 +36,7 @@ function fixture(t, { legacy = false } = {}) {
     put(path.join(desktop, 'cordis.patch.yml'), '# legacy Tavern configuration\n[]\n')
   }
   const tx = beginDesktopProfileInstallation(f)
-  json(path.join(tavern, 'package.json'), { name: 'dsh-profile-tavern', dsh: { profile: { bundles: ['dsh-tavern-plugin', 'dsh-tavern-launcher'] } } })
+  json(path.join(tavern, 'package.json'), { name: 'dsh-profile-tavern', dsh: { profile: { bundles: ['dsh-tavern-plugin', 'dsh-tavern'] } } })
   tx.finish(); tx.commit()
   // Model an existing user's explicit legacy default selection.
   fs.renameSync(desktop, path.join(profiles, 'desktop.fresh-selected'))
@@ -69,7 +69,7 @@ test('Tavern update stages new independent bridge, restores new executable code,
   assert.equal(fs.realpathSync(f.desktop), fs.realpathSync(f.tavern))
   await switchProfile({ mode: 'unlink', profilesRoot: f.profiles, liveDir: f.desktop, stamp: 'verify-new-original' })
   assertPreserved(f, f.desktop)
-  const loaded = await import(pathToFileURL(path.join(f.desktop, 'node_modules/dsh-tavern-launcher/revision.mjs')).href)
+  const loaded = await import(pathToFileURL(path.join(f.desktop, 'node_modules/dsh-tavern/revision.mjs')).href)
   assert.equal(loaded.default, 'new')
   for (const target of targets) assert.equal(fs.lstatSync(path.join(f.desktop, target)).isSymbolicLink(), false)
   // Updating/removing the app must never invalidate the independent original copy.
@@ -88,10 +88,9 @@ test('original-mode update refreshes only owned packages without switching profi
   assertNew(f.desktop); assertPreserved(f, f.desktop)
 })
 
-test('refresh keeps the legacy original-profile package name while updating its code', t => {
+for (const legacy of ['dsh-profile-bridge', 'dsh-tavern-launcher']) test(`refresh keeps the legacy ${legacy} package name while updating its code`, t => {
   const f = fixture(t)
-  const legacy = 'dsh-profile-bridge'
-  const launcher = 'dsh-tavern-launcher'
+  const launcher = 'dsh-tavern'
   const manifestFile = path.join(f.original, 'package.json')
   put(manifestFile, f.manifest.replaceAll(launcher, legacy))
   const before = text(manifestFile)
@@ -101,8 +100,8 @@ test('refresh keeps the legacy original-profile package name while updating its 
   assert.equal(text(manifestFile), before)
   const pkg = path.join(f.original, 'node_modules', legacy)
   assert.equal(JSON.parse(text(path.join(pkg, 'package.json'))).name, legacy)
-  assert.match(text(path.join(pkg, 'cordis.patch.yml')), /name: 'dsh-profile-bridge'/)
-  assert.match(text(path.join(pkg, 'client.js')), /id: 'dsh-profile-bridge'/)
+  assert.ok(text(path.join(pkg, 'cordis.patch.yml')).includes(`name: '${legacy}'`))
+  assert.ok(text(path.join(pkg, 'client.js')).includes(`id: '${legacy}'`))
   assert.match(text(path.join(pkg, 'client.js')), /bundles.includes\('dsh-tavern-launcher'\)/)
   assert.equal(text(path.join(pkg, 'revision.mjs')), 'export default "new"\n')
 })
@@ -128,7 +127,7 @@ test('a partial staging copy cannot damage either installed bridge copy', t => {
 test('failure publishing the second bridge copy rolls both locations back, retry succeeds', t => {
   const f = fixture(t); f.newSource(); let injected = false
   const tx = beginOriginalBridgeUpdate({ ...f, rename(from, to) {
-    if (!injected && to === path.join(f.original, 'node_modules/dsh-tavern-launcher')) {
+    if (!injected && to === path.join(f.original, 'node_modules/dsh-tavern')) {
       injected = true; throw Object.assign(Error('injected publish failure'), { code: 'EIO' })
     }
     fs.renameSync(from, to)
@@ -162,7 +161,7 @@ test('a symlinked owned-package parent is rejected without touching its external
   fs.renameSync(path.join(f.original, 'vendor'), outside)
   link(outside, path.join(f.original, 'vendor'))
   assert.throws(() => beginDesktopProfileInstallation(f))
-  assert.equal(text(path.join(outside, 'dsh-tavern-launcher/revision.mjs')), 'export default "old"\n')
+  assert.equal(text(path.join(outside, 'dsh-tavern/revision.mjs')), 'export default "old"\n')
 })
 
 for (const originalMode of [false, true]) test(`relocated app/profile update in ${originalMode ? 'original' : 'Tavern'} mode uses new app source, preserves aliases`, async t => {
@@ -247,7 +246,7 @@ for (const phase of ['preparing', 'unknown']) test(`unfinished bridge-update ${p
 
 test('rollback failure retains recovery fence instead of claiming success or permitting another switch', t => {
   const f = fixture(t); f.newSource()
-  const target = path.join(f.original, 'node_modules/dsh-tavern-launcher')
+  const target = path.join(f.original, 'node_modules/dsh-tavern')
   const tx = beginOriginalBridgeUpdate({ ...f, rename(from, to) {
     if (to === target) throw Object.assign(Error('persistent destination failure'), { code: 'EIO' })
     fs.renameSync(from, to)
@@ -275,7 +274,7 @@ for (const rollback of [false, true]) test(`node_modules-only legacy bridge ${ro
   if (rollback) {
     tx.rollback()
     assert.equal(fs.existsSync(path.join(f.original, 'vendor')), false)
-    assert.equal(text(path.join(f.original, 'node_modules/dsh-tavern-launcher/revision.mjs')), 'export default "old"\n')
+    assert.equal(text(path.join(f.original, 'node_modules/dsh-tavern/revision.mjs')), 'export default "old"\n')
     assertPreserved(f, f.original)
     const retry = beginDesktopProfileInstallation(f); retry.finish(); retry.commit(); assertNew(f.original)
   } else { tx.commit(); assertNew(f.original) }
@@ -400,7 +399,7 @@ test('commit cleanup failure followed by failed rollback restores both recovery 
   const f = receiptFixture(t)
   let failRollback = false
   const tx = beginOriginalBridgeUpdate({ ...f, rename(from, to) {
-    if (failRollback && to === path.join(f.original, 'node_modules/dsh-tavern-launcher')) {
+    if (failRollback && to === path.join(f.original, 'node_modules/dsh-tavern')) {
       throw Object.assign(Error('injected rollback after commit failure'), { code: 'EIO' })
     }
     fs.renameSync(from, to)

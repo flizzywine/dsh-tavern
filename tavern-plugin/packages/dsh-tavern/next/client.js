@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-tavern-launcher',
+  id: 'dsh-tavern',
   factory(require) {
     const React = require('react')
     const h = React.createElement
@@ -308,7 +308,7 @@ window.__ModuleLoader__.load({
           })().catch(error => { handoffFailure = String(error?.message ?? error) })
         }, 'Continue Tavern management after Profile switch')
         ctx.slots.inject('settings.section', () => ctx.slots.register({
-          name: 'settings.section', id: 'dsh-tavern-launcher', order: 60,
+          name: 'settings.section', id: 'dsh-tavern', order: 60,
           label: () => t('title'), inject: () => ({ call, t, handoffFailure: () => handoffFailure }),
         }, Launcher))
       },

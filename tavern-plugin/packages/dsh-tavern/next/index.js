@@ -171,11 +171,12 @@ export function apply(ctx) {
     if (profile.name === 'tavern') {
       const desktopDir = join(profile.home, 'profiles', 'desktop')
       const desktopManifest = await missingAllowed(() => readJson(join(desktopDir, 'package.json')))
-      const launcher = await missingAllowed(() => readJson(join(desktopDir, 'node_modules', 'dsh-tavern-launcher', 'package.json')))
+      const launcherNames = ['dsh-tavern', 'dsh-tavern-launcher']
+      const enabled = launcherNames.filter(name => desktopManifest?.dsh?.profile?.bundles?.includes(name))
+      const launchers = await Promise.all(enabled.map(name => missingAllowed(() => readJson(join(desktopDir, 'node_modules', name, 'package.json')))))
       const tavern = await missingAllowed(() => readJson(join(profile.dir, 'node_modules', bundle, 'package.json')))
       const selection = await missingAllowed(() => readJson(join(profile.home, 'desktop-next.json')))
-      return { state: 'current', paths, ...bundleIdentity(tavern), selectedProfile: selection?.active, canHandoff: launcher?.dshTavern?.profileHandoff === true &&
-        desktopManifest?.dsh?.profile?.bundles?.includes('dsh-tavern-launcher') === true }
+      return { state: 'current', paths, ...bundleIdentity(tavern), selectedProfile: selection?.active, canHandoff: launchers.some(launcher => launcher?.dshTavern?.profileHandoff === true) }
     }
     if (!profile.packageManager) return { state: 'unsupported' }
     const dir = join(await realpath(join(profile.home, 'profiles')), 'tavern')

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readLastResult, resolvePaths, statusPayload } from '../tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs'
+import { readLastResult, resolvePaths, statusPayload } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
 
 test('status reads the latest durable result, not previous log errors', t => {
   const root = mkdtempSync(join(tmpdir(), 'pb-result-'))

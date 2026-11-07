@@ -1260,11 +1260,20 @@ try {
         throw '当前使用的是切换后的配置。请打开官方 DeepSeek Harness，在「设置 → 酒馆启动器」点「重启并切换到原版 DSH」。等原版窗口打开，再从托盘退出并重试命令。'
       }
       $LauncherProfile = Get-Content -Raw -LiteralPath (Join-Path $DesktopProfile.FullName 'package.json') | ConvertFrom-Json
-      if ($LauncherProfile.dependencies.'dsh-profile-bridge' -or $LauncherProfile.dsh.profile.bundles -contains 'dsh-profile-bridge') {
-        throw '请在原版 DeepSeek Harness 的插件页移除 dsh-profile-bridge，再安装 dsh-tavern。'
+      foreach ($LegacyLauncher in @('dsh-profile-bridge', 'dsh-tavern-launcher')) {
+        if ($LauncherProfile.dependencies.$LegacyLauncher -or $LauncherProfile.dsh.profile.bundles -contains $LegacyLauncher) {
+          throw "请在原版 DeepSeek Harness 的插件页移除旧启动器 $LegacyLauncher，再安装 dsh-tavern。"
+        }
+      }
+      if ($LauncherProfile.dependencies.'dsh-tavern' -or $LauncherProfile.dsh.profile.bundles -contains 'dsh-tavern') {
+        $InstalledLauncher = Get-Content -Raw -LiteralPath (Join-Path $DesktopProfile.FullName 'node_modules/dsh-tavern/package.json') -ErrorAction SilentlyContinue | ConvertFrom-Json
+        if ($InstalledLauncher.repository.url -ne 'git+https://github.com/flizzywine/dsh-tavern.git' -or
+            $InstalledLauncher.repository.directory -ne 'tavern-plugin/packages/dsh-tavern') {
+          throw '当前 Profile 已有同名的 dsh-tavern 插件，请检查其来源后再安装酒馆。'
+        }
       }
       $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js'
-      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/refs/tags/launcher-cdn-v0.2.0-tavern.17/dsh-tavern-0.2.0-tavern.17.tgz'
+      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/refs/tags/launcher-cdn-v0.2.0-tavern.18/dsh-tavern-0.2.0-tavern.18.tgz'
       $PreviousNodeMode = $env:ELECTRON_RUN_AS_NODE
       try {
         $env:ELECTRON_RUN_AS_NODE = '1'

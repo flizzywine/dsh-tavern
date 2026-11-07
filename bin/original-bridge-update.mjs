@@ -7,8 +7,8 @@ import { randomUUID } from 'node:crypto'
 import { copyTreeSync } from './portable-fs.mjs'
 import installationLocation from './installation-location.cjs'
 import { assertDesktopStopped } from './import-user-home.mjs'
-import { acquirePendingLock } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
-import { launcherBundle, LAUNCHER_BUNDLE, LEGACY_LAUNCHER_BUNDLE } from '../tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs'
+import { acquirePendingLock } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
+import { launcherBundle, LAUNCHER_BUNDLE } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
 
 const present = file => { try { lstatSync(file); return true } catch (error) { if (error.code === 'ENOENT') return false; throw error } }
 const read = dir => JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'))
@@ -129,9 +129,9 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped = () 
     } else checkStopped()
     ordinary(original)
     const manifest = read(original)
-    const bundle = launcherBundle(manifest)
+    const bundle = launcherBundle(manifest, original)
     if (!bundle || manifest.dsh.profile.bundles.includes('dsh-tavern-plugin') || manifest.name === 'dsh-profile-tavern') throw Error('原版 desktop 配置缺少切换组件，请先恢复备份。')
-    const source = path.join(sourceRoot, 'tavern-plugin/packages/dsh-profile-bridge')
+    const source = path.join(sourceRoot, 'tavern-plugin/packages/dsh-tavern')
     plainTree(source)
     if (read(source).name !== LAUNCHER_BUNDLE) throw Error('切换组件源不完整。')
     const backup = path.join(state, 'bridge-update-' + randomUUID())
@@ -147,7 +147,7 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped = () 
       copy(source, prepared)
       // Keep the original manifest and pnpm lockfile valid on older installs.
       // Refresh their launcher under the name the profile already resolves.
-      if (bundle === LEGACY_LAUNCHER_BUNDLE) {
+      if (bundle !== LAUNCHER_BUNDLE) {
         for (const [file, entry] of [
           ['package.json', `"name": "${LAUNCHER_BUNDLE}"`],
           ['cordis.patch.yml', `name: '${LAUNCHER_BUNDLE}'`],

@@ -285,9 +285,28 @@ DSH_OFFICIAL_DESKTOP_MODULE
   DSH_DESKTOP_APP_EXECUTABLE="$desktop_executable" ELECTRON_RUN_AS_NODE=1 "$desktop_runner" --expose-internals "${TEMP_DIR}/official-desktop-runtime.cjs" "$DSH_ROOT" --shell >"${TEMP_DIR}/desktop-env.sh" || fail "桌面运行环境校验失败"
   . "${TEMP_DIR}/desktop-env.sh"
   if [ "$LAUNCHER_ONLY" -eq 1 ]; then
-    node -e 'const p = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); process.exit(p.dependencies?.["dsh-profile-bridge"] || p.dsh?.profile?.bundles?.includes("dsh-profile-bridge") ? 1 : 0)' "$desktop_profile/package.json" \
-      || fail '请检查原版 desktop 配置。如果已经安装 dsh-profile-bridge，请从插件页移除后再安装 dsh-tavern。'
-    launcher_url='https://raw.githubusercontent.com/flizzywine/dsh-tavern/refs/tags/launcher-cdn-v0.2.0-tavern.17/dsh-tavern-0.2.0-tavern.17.tgz'
+    node - "$desktop_profile" <<'DSH_CHECK_LAUNCHER' || fail '请检查原版 desktop 配置。'
+const { readFileSync } = require('node:fs')
+const { join } = require('node:path')
+const directory = process.argv[2]
+const profile = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+const hasBundle = name => Object.hasOwn(profile.dependencies ?? {}, name) || profile.dsh?.profile?.bundles?.includes(name)
+for (const name of ['dsh-profile-bridge', 'dsh-tavern-launcher']) {
+  if (hasBundle(name)) {
+    console.error('请从原版 DeepSeek Harness 的插件页移除旧启动器 ' + name + '，再安装 dsh-tavern。')
+    process.exit(1)
+  }
+}
+if (hasBundle('dsh-tavern')) {
+  let repository
+  try { repository = JSON.parse(readFileSync(join(directory, 'node_modules/dsh-tavern/package.json'), 'utf8')).repository } catch {}
+  if (repository?.url !== 'git+https://github.com/flizzywine/dsh-tavern.git' || repository.directory !== 'tavern-plugin/packages/dsh-tavern') {
+    console.error('当前 Profile 已有同名的 dsh-tavern 插件，请检查其来源后再安装酒馆。')
+    process.exit(1)
+  }
+}
+DSH_CHECK_LAUNCHER
+    launcher_url='https://raw.githubusercontent.com/flizzywine/dsh-tavern/refs/tags/launcher-cdn-v0.2.0-tavern.18/dsh-tavern-0.2.0-tavern.18.tgz'
     dsh plugin --profile desktop add "$launcher_url" || fail '安装酒馆启动器失败。'
     printf '%s\n' '酒馆启动器已安装。打开官方 DeepSeek Harness，进入「设置 → 酒馆启动器 → 安装酒馆」。'
     INSTALL_COMPLETED=1

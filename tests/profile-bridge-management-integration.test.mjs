@@ -4,8 +4,8 @@ import * as fs from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { validateInstallationRequest, inspectInstallation, performInstallation } from '../tavern-plugin/packages/dsh-profile-bridge/lib/installation.mjs'
-import { registeredTavernTarget, switchProfile, scheduleSwitch } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
+import { validateInstallationRequest, inspectInstallation, performInstallation } from '../tavern-plugin/packages/dsh-tavern/lib/installation.mjs'
+import { registeredTavernTarget, switchProfile, scheduleSwitch } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installation.mjs'
 import location from '../bin/installation-location.cjs'
 import { copyTreeSync } from '../bin/portable-fs.mjs'
@@ -30,8 +30,8 @@ function fixture(t) {
 const plan = f => validateInstallationRequest(f.paths, 'relocate', { confirmed: true, destination: f.destination })
 test('relocation → managed switch → reinstall target → second relocation keeps stable desktop alias', async t => {
   const f = fixture(t)
-  const bridgeSource = path.join(repo, 'tavern-plugin/packages/dsh-profile-bridge')
-  copyTreeSync(bridgeSource, path.join(f.app, 'tavern-plugin/packages/dsh-profile-bridge'))
+  const bridgeSource = path.join(repo, 'tavern-plugin/packages/dsh-tavern')
+  copyTreeSync(bridgeSource, path.join(f.app, 'tavern-plugin/packages/dsh-tavern'))
   for (const target of ['vendor', 'node_modules']) copyTreeSync(bridgeSource, path.join(f.paths.activeDir, target, 'dsh-tavern-launcher'))
   await performInstallation(plan(f))
   assert.equal(location.resolveInstallationApp({ dshHome: f.home }), path.join(f.destination, 'app'))

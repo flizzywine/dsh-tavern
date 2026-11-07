@@ -6,7 +6,7 @@
  * pick (or reverts that switch). All file work happens in the Host half.
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-tavern-launcher',
+  id: 'dsh-tavern',
   factory(require) {
     const React = require('react')
     const h = React.createElement
@@ -60,7 +60,7 @@ window.__ModuleLoader__.load({
       updateComplete: '酒馆已更新。',
       updateRestart: '更新已安装。请退出并重新打开 DeepSeek Harness 以应用更新。',
       updateRestartWindow: '更新已安装。请重启酒馆服务后重新打开酒馆。',
-      section: 'dsh-tavern',
+      section: '酒馆启动器',
       install: '安装酒馆',
       confirmInstall: '确认安装',
       replacesNext: '检测到旧版 NEXT 酒馆。安装会备份它的 Profile，并为官方版生成新的配置。酒馆专属数据将继续使用。',
@@ -147,7 +147,7 @@ window.__ModuleLoader__.load({
       updateComplete: 'Tavern was updated.',
       updateRestart: 'The update is installed. Quit and reopen DeepSeek Harness to apply it.',
       updateRestartWindow: 'The update is installed. Restart the Tavern service and reopen this window.',
-      section: 'dsh-tavern',
+      section: 'Tavern Launcher',
       install: 'Install Tavern',
       confirmInstall: 'Confirm installation',
       replacesNext: 'The installer will back up the existing NEXT Tavern profile, create a profile for official Desktop, and reuse Tavern data.',
@@ -321,7 +321,7 @@ window.__ModuleLoader__.load({
       const ready = (name) => (status?.profiles ?? []).some((profile) => {
         const bundles = profile.bundles ?? []
         return profile.name === name && profile.hasNodeModules && !bundles.includes('dsh-tavern-bundle')
-          && (bundles.includes('dsh-tavern-launcher') || bundles.includes('dsh-profile-bridge'))
+          && (profile.hasBridge ?? (bundles.includes('dsh-tavern-launcher') || bundles.includes('dsh-profile-bridge')))
       })
       const destinations = [
         { name: 'desktop', label: 'profileDesktop', action: 'toOriginal', ready: (status?.backups ?? []).length > 0 },

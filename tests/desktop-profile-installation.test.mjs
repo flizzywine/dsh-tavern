@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, exist
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { beginDesktopProfileInstallation, clearUninstalledInstallationRecord } from '../bin/desktop-profile-installation.mjs'
-import { switchProfile } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
+import { switchProfile } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 import { removeTreeSync } from '../bin/portable-fs.mjs'
 function fixture(t) {
   const home = mkdtempSync(path.join(tmpdir(), 'bridge-install-中文 '))
@@ -22,6 +22,16 @@ function prepare(r) {
   writeFileSync(path.join(r.tavern, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern', dsh: { profile: { bundles: ['dsh-tavern-plugin'] } }, dshTavern: { profileBridge: true } }))
   return tx
 }
+test('首装遇到其他来源的同名 dsh-tavern 时保留该插件和 Profile', t => {
+  const r = fixture(t)
+  const manifest = path.join(r.desktop, 'package.json')
+  const existing = JSON.stringify({ dependencies: { 'dsh-tavern': '2.8.1' }, dsh: { profile: { bundles: ['dsh-tavern'] } } })
+  writeFileSync(manifest, existing)
+  assert.throws(() => beginDesktopProfileInstallation(r), /已有同名的 dsh-tavern/)
+  assert.equal(readFileSync(manifest, 'utf8'), existing)
+  assert.equal(existsSync(r.tavern), false)
+})
+
 test('首次安装保留原版默认，主动选择酒馆后更新保留选择', async t => {
   const r = fixture(t)
   // A previous NEXT installation must not block the user's official Desktop choice.
@@ -31,8 +41,8 @@ test('首次安装保留原版默认，主动选择酒馆后更新保留选择',
   assert.notEqual(realpathSync(r.desktop), realpathSync(r.tavern))
   assert.equal(lstatSync(r.desktop).isSymbolicLink(), false)
   assert.equal(readFileSync(path.join(r.desktop, 'cordis.patch.yml'), 'utf8'), '# original\n[]\n')
-  assert.ok(existsSync(path.join(r.desktop, 'node_modules/dsh-tavern-launcher/index.js')))
-  assert.ok(JSON.parse(readFileSync(path.join(r.desktop, 'package.json'))).dsh.profile.bundles.includes('dsh-tavern-launcher'))
+  assert.ok(existsSync(path.join(r.desktop, 'node_modules/dsh-tavern/index.js')))
+  assert.ok(JSON.parse(readFileSync(path.join(r.desktop, 'package.json'))).dsh.profile.bundles.includes('dsh-tavern'))
   const again = prepare(r); again.finish(); again.commit()
   assert.notEqual(realpathSync(r.desktop), realpathSync(r.tavern))
   await switchProfile({ mode: 'link', profilesRoot: r.profiles, liveDir: r.desktop, targetDir: r.tavern, stamp: 'return-tavern' })

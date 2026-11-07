@@ -6,7 +6,7 @@ import installationLocation from './installation-location.cjs'
 import { beginOriginalBridgeUpdate } from './original-bridge-update.mjs'
 import { copyTreeSync, renameWithRetrySync } from './portable-fs.mjs'
 import { assertDesktopStopped } from './import-user-home.mjs'
-import { hasBridge, hasNextTavern, LAUNCHER_BUNDLE, LEGACY_LAUNCHER_BUNDLE } from '../tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs'
+import { assertLauncherSlotAvailable, hasBridge, hasNextTavern, LAUNCHER_BUNDLE, LEGACY_LAUNCHER_BUNDLES } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
 
 const present = file => { try { lstatSync(file); return true } catch (e) { if (e.code === 'ENOENT') return false; throw e } }
 const read = dir => JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'))
@@ -51,17 +51,18 @@ function originalProfile(home, live, linked) {
   throw Error('找不到可恢复的原版 desktop 配置，未修改 profile。请先恢复原版 desktop 备份后重试；现有酒馆和存档保持不变。')
 }
 function installBridge(dir, sourceRoot) {
-  const source = path.join(sourceRoot, 'tavern-plugin/packages/dsh-profile-bridge')
+  const doc = read(dir)
+  assertLauncherSlotAvailable(doc, dir)
+  const source = path.join(sourceRoot, 'tavern-plugin/packages/dsh-tavern')
   for (const target of [`vendor/${LAUNCHER_BUNDLE}`, `node_modules/${LAUNCHER_BUNDLE}`]) {
     const destination = path.join(dir, target)
     if (present(destination)) renameSync(destination, destination + '.previous-' + randomUUID())
     mkdirSync(path.dirname(destination), { recursive: true })
     copyTreeSync(source, destination)
   }
-  const doc = read(dir)
   doc.dependencies = { ...doc.dependencies, [LAUNCHER_BUNDLE]: `file:./vendor/${LAUNCHER_BUNDLE}` }
-  delete doc.dependencies[LEGACY_LAUNCHER_BUNDLE]
-  doc.dsh.profile.bundles = [...new Set([...doc.dsh.profile.bundles.filter(name => name !== LEGACY_LAUNCHER_BUNDLE), LAUNCHER_BUNDLE])]
+  for (const name of LEGACY_LAUNCHER_BUNDLES) delete doc.dependencies[name]
+  doc.dsh.profile.bundles = [...new Set([...doc.dsh.profile.bundles.filter(name => !LEGACY_LAUNCHER_BUNDLES.includes(name)), LAUNCHER_BUNDLE])]
   save(path.join(dir, 'package.json'), doc)
 }
 function recover(journalFile, journal, rename) {
@@ -106,7 +107,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, pre
   const retainedData = completed && installationRecord.layout === 'retained-data'
   const relocated = completed && installationRecord.layout === undefined
   if (preparingForPid && (interrupted || relocated || !present(live) || !lstatSync(live).isDirectory()
-      || !hasBridge(read(live)) || isTavern(read(live)) || (present(tavern) && !replacesNext))) {
+      || !hasBridge(read(live), live) || isTavern(read(live)) || (present(tavern) && !replacesNext))) {
     throw Error('当前配置无法在桌面打开时准备安装，请先退出桌面再运行安装器。')
   }
   // Only a completed relocation may own the profile. An uninstalled marker means
@@ -119,10 +120,10 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, pre
     installationLocation.resolveInstallationApp({ dshHome: home })
     // A registered relocation already owns its profile. Rebuilding it through
     // the first-install staging flow would replace its compatibility junction.
-    if (!linkedToTavern && (!present(live) || !hasBridge(read(live)))) throw Error('已迁移安装的原版 desktop 配置缺少切换组件，请先恢复备份。')
+    if (!linkedToTavern && (!present(live) || !hasBridge(read(live), live))) throw Error('已迁移安装的原版 desktop 配置缺少切换组件，请先恢复备份。')
     return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
   }
-  if (!interrupted && !replacesNext && (linkedToTavern || (present(tavern) && present(live) && !lstatSync(live).isSymbolicLink() && !isTavern(read(live)) && hasBridge(read(live))))) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
+  if (!interrupted && !replacesNext && (linkedToTavern || (present(tavern) && present(live) && !lstatSync(live).isSymbolicLink() && !isTavern(read(live)) && hasBridge(read(live), live)))) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
   // Direct reinstalls must keep unfinished removal/relocation transactions fenced.
   installationLocation.resolveInstallationApp({ dshHome: home })
   checkStopped(preparingForPid)

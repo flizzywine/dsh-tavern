@@ -191,13 +191,13 @@
     "@deepseek-ai/dsh-client-runtime/client",
     "@deepseek-ai/dsh-client-store"
   ],
-  "tavern-plugin/packages/dsh-profile-bridge/index.js": [
+  "tavern-plugin/packages/dsh-tavern/index.js": [
     "@deepseek-ai/cordis"
   ],
-  "tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs": [
+  "tavern-plugin/packages/dsh-tavern/lib/state.mjs": [
     "@deepseek-ai/dsh-desktop"
   ],
-  "tavern-plugin/packages/dsh-tavern-launcher/index.js": [
+  "tavern-plugin/packages/dsh-tavern/next/index.js": [
     "@deepseek-ai/dsh-app-boot",
     "@deepseek-ai/dsh-official-bundles",
     "@deepseek-ai/dsh-plugin-manager/operations"

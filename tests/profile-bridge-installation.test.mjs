@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { inspectInstallation, validateInstallationRequest, performInstallation } from '../tavern-plugin/packages/dsh-profile-bridge/lib/installation.mjs'
+import { inspectInstallation, validateInstallationRequest, performInstallation } from '../tavern-plugin/packages/dsh-tavern/lib/installation.mjs'
 import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installation.mjs'
-import { switchProfile } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
+import { switchProfile } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 import location from '../bin/installation-location.cjs'
 const put = (p, value) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, typeof value === 'string' ? value : JSON.stringify(value)) }
 function fixture(t) {

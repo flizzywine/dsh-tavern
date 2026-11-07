@@ -143,12 +143,14 @@
 1. **安装酒馆启动器。** 打开左侧的 **插件 → 添加插件**，粘贴下面的地址，点 **安装**，再按提示启用 **dsh-tavern**。
 
    ```text
-   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v0.2.0-tavern.17/dsh-tavern-0.2.0-tavern.17.tgz
+   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v0.2.0-tavern.18/dsh-tavern-0.2.0-tavern.18.tgz
    ```
 
-   如果 CDN 地址无法访问，可以粘贴 [GitHub Release 的下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-v0.2.0-tavern.17/dsh-tavern-0.2.0-tavern.17.tgz)。
+   已安装旧版启动器时，先在插件页移除旧启动器，再添加新版。
 
-2. **安装酒馆。** 打开 **设置 → dsh-tavern**，点 **安装酒馆** 并确认。
+   如果 CDN 地址无法访问，可以粘贴 [GitHub Release 的下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-v0.2.0-tavern.18/dsh-tavern-0.2.0-tavern.18.tgz)。
+
+2. **安装酒馆。** 打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。
 3. **打开酒馆。** 点击 **重启并切换到 DSH 酒馆**，只切换当前配置。下方可单独设置 **默认打开酒馆** 或 **取消默认打开酒馆**，设置默认不会重启当前窗口。
 
 #### 方式二：一行命令安装或更新（也可交给 Agent 执行）
@@ -167,7 +169,7 @@ macOS（终端）：
 curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.sh' -o /tmp/dsh-tavern-install.sh && DSH_TAVERN_HOST=desktop sh /tmp/dsh-tavern-install.sh
 ```
 
-命令执行成功后，若 DeepSeek Harness 没有自动打开，请重新打开。若仍在原版 DSH，可以从 **设置 → dsh-tavern** 切换到酒馆。
+命令执行成功后，若 DeepSeek Harness 没有自动打开，请重新打开。若仍在原版 DSH，可以从 **设置 → 酒馆启动器** 切换到酒馆。
 
 ### Android
 

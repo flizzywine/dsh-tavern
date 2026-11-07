@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { assertInstallationIdle, installationProcessInventory } from '../tavern-plugin/packages/dsh-profile-bridge/lib/installation-processes.mjs'
+import { assertInstallationIdle, installationProcessInventory } from '../tavern-plugin/packages/dsh-tavern/lib/installation-processes.mjs'
 const request = { home: '/home/me/.dsh', installation: { appDir: '/home/me/.dsh/apps/dsh-tavern', entries: [{ from: '/home/me/.dsh/profile-data/tavern', to: '/mnt/tavern/data' }] } }
 const missing = () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }) }
 const row = (pid, commandLine, name = 'node') => ({ pid, commandLine, name })

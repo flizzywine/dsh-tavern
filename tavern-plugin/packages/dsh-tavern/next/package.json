@@ -1,13 +1,13 @@
 {
-  "name": "dsh-tavern-launcher",
-  "version": "1.4.3",
+  "name": "dsh-tavern",
+  "version": "1.4.4",
   "description": "Install, open, update and uninstall DSH Tavern in a separate DSH NEXT Profile.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/flizzywine/dsh-tavern.git",
-    "directory": "tavern-plugin/packages/dsh-tavern-launcher"
+    "directory": "tavern-plugin/packages/dsh-tavern/next"
   },
   "engines": {
     "dsh": ">=0.2.2-rc.1 <0.3.0"

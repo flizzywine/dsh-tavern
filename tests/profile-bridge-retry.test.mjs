@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, renameSync, realpathSync, existsSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { switchProfile, renameWithRetry } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
-import { runSwitchJob } from '../tavern-plugin/packages/dsh-profile-bridge/lib/worker.mjs'
+import { switchProfile, renameWithRetry } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
+import { runSwitchJob } from '../tavern-plugin/packages/dsh-tavern/lib/worker.mjs'
 
 function fixture(t) {
   const home = mkdtempSync(join(tmpdir(), 'pb-retry-'))
@@ -144,7 +144,7 @@ test('staging cleanup failure never masks failed rollback or permits relaunch', 
 })
 
 test('scheduling rejects unresolved recovery instead of overwriting evidence', async t => {
-  const { scheduleSwitch } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs')
+  const { scheduleSwitch } = await import('../tavern-plugin/packages/dsh-tavern/lib/helper.mjs')
   const request = fixture(t)
   const evidence = JSON.stringify({ status: 'failed', recoveryRequired: true, message: 'backup must be checked' })
   writeFileSync(join(request.stateDir, 'last-result.json'), evidence)
@@ -157,7 +157,7 @@ test('real standalone worker process switches and restores without losing profil
   const { execFileSync } = await import('node:child_process')
   const { fileURLToPath } = await import('node:url')
   const request = { ...fixture(t), relaunch: undefined }
-  const worker = fileURLToPath(new URL('../tavern-plugin/packages/dsh-profile-bridge/lib/worker.mjs', import.meta.url))
+  const worker = fileURLToPath(new URL('../tavern-plugin/packages/dsh-tavern/lib/worker.mjs', import.meta.url))
   for (const mode of ['link', 'unlink']) {
     execFileSync(process.execPath, [worker, job({ ...request, mode, stamp: mode })], { cwd: request.stateDir, timeout: 10000 })
     const status = JSON.parse(readFileSync(join(request.stateDir, 'last-result.json')))

@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import path from 'node:path'
 import { installedProfile } from './launcher-environment.mjs'
-import { LAUNCHER_BUNDLE, LEGACY_LAUNCHER_BUNDLE } from '../tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs'
+import { LAUNCHER_BUNDLES } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
 const anchor = process.env.DSH_TAVERN_HOST_DEPENDENCY_ANCHOR
 if (!anchor || !process.env.DSH_HOME) throw new Error('缺少官方 Desktop 运行环境')
 const require = createRequire(anchor)
@@ -15,7 +15,7 @@ const profile = boot.loadProfileDirectory('dsh-tavern', process.argv[2] || path.
 // desktop app sharing ~/.dsh (official DeepSeek Harness vs community DSH NEXT), and a user plugin kept
 // in the tavern profile can point into an app since uninstalled (e.g. dshmarket from the old DSH
 // Desktop). DSH skips them at runtime too. Only Tavern's own bundles and the host's must load.
-const launchers = [LAUNCHER_BUNDLE, LEGACY_LAUNCHER_BUNDLE]
+const launchers = LAUNCHER_BUNDLES
 const ours = new Set([...launchers, 'dsh-tavern-plugin', 'dsh-tavern-remote', 'dsh-dream-skin'])
 const fatal = profile.skippedBundles.filter(item => ours.has(item.packageName) || item.packageName.startsWith('@deepseek-ai/'))
 for (const item of profile.skippedBundles.filter(item => !fatal.includes(item))) {

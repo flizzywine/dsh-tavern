@@ -1,6 +1,6 @@
 import { preserveInstallationFonts } from './preserve-font-assets.mjs'
 import { beginDesktopProfileInstallation, clearUninstalledInstallationRecord } from './desktop-profile-installation.mjs'
-import { LAUNCHER_BUNDLE } from '../tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs'
+import { assertLauncherSlotAvailable, LAUNCHER_BUNDLE } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
 import { assertDesktopStopped, importUserHome } from './import-user-home.mjs'
 import { randomUUID } from 'node:crypto'
 import installationState from './installation-state.cjs'
@@ -83,10 +83,11 @@ function prepareProfileConfiguration(host, dshVersion) {
     profileConfigurationVersion: current.dshTavern && current.dshTavern.profileConfigurationVersion,
   })
   if (host === 'desktop') {
+    assertLauncherSlotAvailable(current, PROFILE_DIR)
     manifest.dshTavern.officialDesktop = true
     manifest.dshTavern.profileBridge = true
-    manifest.dsh.profile.bundles.push(LAUNCHER_BUNDLE)
-    manifest.dependencies[LAUNCHER_BUNDLE] = `link:${path.join(pluginPath, 'packages/dsh-profile-bridge').replaceAll(path.sep, '/')}`
+    if (!manifest.dsh.profile.bundles.includes(LAUNCHER_BUNDLE)) manifest.dsh.profile.bundles.push(LAUNCHER_BUNDLE)
+    manifest.dependencies[LAUNCHER_BUNDLE] = `link:${path.join(pluginPath, 'packages/dsh-tavern').replaceAll(path.sep, '/')}`
   }
   return { manifest, patchText }
 }
