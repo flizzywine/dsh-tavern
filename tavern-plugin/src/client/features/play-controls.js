@@ -458,7 +458,9 @@
 			const rollbackViewState = useLiveTavernView(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activityState = useTavernCoordination(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activity = describeTavernActivity(activityState.view && activityState.view.activity);
-			const settlementActive = activity.role === "settlement" && (activity.phase === "pending" || activity.phase === "running");
+			// 只有真正在跑的结算才挡住生成：pending 只是排队信号，结算被关掉或永远等不到
+			// 下一次时，它会把按钮永久写成「后台结算中…」（玩家明明没开后台结算）。
+			const settlementActive = activity.role === "settlement" && activity.busy === true;
 			const canRollback = rollbackViewState.view && (rollbackViewState.view.canRegenerate ?? rollbackViewState.view.canRollback) === true;
             const clearIncomplete = rollbackViewState.view && rollbackViewState.view.canClearIncompleteReply === true;
 			// A failure still owning the tail can be withdrawn or handed to the debugger.
@@ -572,7 +574,9 @@
 			const rollbackViewState = useLiveTavernView(props.sessionId, "rollback:" + String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activityState = useTavernCoordination(props.sessionId, "rollback:" + String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activity = describeTavernActivity(activityState.view && activityState.view.activity);
-			const settlementActive = activity.role === "settlement" && (activity.phase === "pending" || activity.phase === "running");
+			// 只有真正在跑的结算才挡住生成：pending 只是排队信号，结算被关掉或永远等不到
+			// 下一次时，它会把按钮永久写成「后台结算中…」（玩家明明没开后台结算）。
+			const settlementActive = activity.role === "settlement" && activity.busy === true;
 			const canRollback = rollbackViewState.view && rollbackViewState.view.canRollback === true;
             const clearIncomplete = rollbackViewState.view && rollbackViewState.view.canClearIncompleteReply === true;
 			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";

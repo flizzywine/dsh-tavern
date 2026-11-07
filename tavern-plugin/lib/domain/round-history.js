@@ -9,7 +9,7 @@ import { createRegenerationRecovery } from './regeneration-recovery.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
-import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn, anchoredToSaveRow, unansweredTailIndex } from './rollback-surface.js'
+import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn, anchoredToSaveRow, unansweredTailIndex, surfaceTurnOfSeq } from './rollback-surface.js'
 
 // Both regeneration paths (native and plugin) read the same tail rule.
 export { unansweredTailIndex }
@@ -30,6 +30,10 @@ function str(value) {
 // worked around by dropping the foreground tool calls the player enabled for this
 // game: 本局设置 → 高级 → 前台工具.
 const FOREGROUND_TOOL_HINT = '也可以试试在「本局设置 → 高级 → 前台工具」关掉前台工具后再发一次。'
+
+// 重新生成等结算的时长上限：超过就先交回已提交的正文。等待结算不该决定这轮
+// 正文什么时候出现在页面上；结算完成/失败仍经存档与活动视图回来。
+const REGEN_SETTLEMENT_WAIT_MS = 8000
 
 const INPUT_STATE_FIELDS = ['macroState', 'variables', 'tavernHelperScriptVariables', 'tavernScriptPrompts',
   'promptTemplateInput', 'runtimeInputs', 'scriptState', 'preparedWorldBookContext', 'preparedWorldBook',
@@ -496,17 +500,23 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // Greeting rows carry turn 1 without being a round: number the new round
     // above every stored turn so the row never shares a turn with history.
     const storyTurn = failedTail ? Math.max(0, ...msgs0.map(message => Number(message?.turn) || 0)) + 1 : oldTurn
+    // The native row whose body this attempt will rewrite: the page takes the old
+    // reply away while the request runs and brings it back (with the new text) when
+    // the commit lands. Hiding by the story turn would miss it whenever the two
+    // numberings differ.
+    const replacingTurn = failedTail ? null : surfaceTurnOfSeq(sessionEvents(session), oldSeq)
     const lifecycleRevision = Math.max(0, Number(originalChat.tavernHelperLifecycleRevision) || 0) + 1
     let marked = false, committed = false
     await updateChat(chat.id, function (current) {
       if (agent.phase?.kind === 'running' || current.regenInProgress) throw new Error('前台正在生成，请完成或停止后再重新生成')
-      if (!failedTail) assertRegenerationSourceCurrent({ originalChat, currentChat: current, assistantIndex: oldAssistantIndex, inputIndex: inputIndex })
+      if (!failedTail) assertRegenerationSourceCurrent({ originalChat, currentChat: current, assistantIndex: oldAssistantIndex, inputIndex })
       if (!isDeepStrictEqual(current.messages, originalChat.messages) || !isDeepStrictEqual(current.timeline, originalChat.timeline)) {
         throw new Error('重新生成前剧情已经变化，请刷新后重试')
       }
       current.regenRecovery = { id: operationId, phase: 'prepared', detached: true,
         beforeRevision: Number(current._storageRevision || 0), sessionId: effectiveSessionId,
-        eventStart, candidateTurn, candidateFrame, targetMessageUid, ...(failedTail ? { unansweredTail: true, storyTurn } : {}) }
+        eventStart, candidateTurn, candidateFrame, targetMessageUid, temporaryReplacingTurn: replacingTurn,
+        ...(failedTail ? { unansweredTail: true, storyTurn } : {}) }
       current.regenInProgress = true
       current.tavernHelperLifecycleRevision = lifecycleRevision
       return current
@@ -651,10 +661,31 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     committedChat = await regenerationRecovery.complete({ chatId: chat.id, session, operationId }) || committedChat
     replyCommitted?.(committedChat.sessionId)
+    // The body is already the save's truth; settlement is a background task. Waiting
+    // for it unbounded held the whole response open, so the page sat on
+    // 「正在重新生成正文…」 long after the reply was written and the replacement's
+    // view never reached the transcript. A failed or slow settlement must not keep
+    // the new body off the page: report what has been committed, and let the
+    // settlement's own state (settleStatus / activity) arrive through the save.
     let settledChat = committedChat
+    const settlement = Promise.resolve(queueSettlement(committedChat.id))
     try {
-      await queueSettlement(committedChat.id)
-      settledChat = await readChat(committedChat.id) || committedChat
+      const finished = await Promise.race([
+        settlement.then(() => true),
+        new Promise(function (resolve) { setTimeout(finished => resolve(finished), REGEN_SETTLEMENT_WAIT_MS, false) })
+      ])
+      if (finished) settledChat = await readChat(committedChat.id) || committedChat
+      else void settlement.catch(async error => {
+        const message = str(error?.message || error) || '后台结算失败'
+        try {
+          await updateChat(committedChat.id, function (current) {
+            if (!current || typeof current !== 'object') return current
+            current.settleStatus = 'failed'
+            current.settleError = message
+            return current
+          }, { source: 'settlement.regen-failed' })
+        } catch (failure) { console.warn('dsh-tavern: 重新生成结算失败状态未保存', str(failure?.message || failure)) }
+      })
     } catch (error) {
       const message = str(error?.message || error) || '后台结算失败'
       settledChat = await updateChat(committedChat.id, function (current) {

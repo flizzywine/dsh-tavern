@@ -51421,6 +51421,39 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             return () => clearInterval(timer);
         }, [reviewing]);
         const styleState = useLiveTavernView(props.sessionId, "regen-style");
+        const statusView = useLiveTavernView(props.sessionId, "regen-status");
+        const wasRegenerating = React.useRef(false);
+        // rpc 的响应可能迟迟不回（结算拖住、连接断了），正文却已经写进存档。视图看得到
+        // 服务端进出这次重新生成时，面板按它自己收尾，别把玩家锁在「正在重新生成正文…」。
+        React.useEffect(function () {
+            const view = statusView.view;
+            if (!panel || panel.sessionId !== props.sessionId || panel.phase !== "loading") { wasRegenerating.current = false; return; }
+            if (!view) return;
+            if (view.regenInProgress === true) { wasRegenerating.current = true; return; }
+            if (!wasRegenerating.current) return;
+            wasRegenerating.current = false;
+            setRegenPanel(null);
+            liveTavernView.invalidate(props.sessionId);
+            tavernCoordination.invalidate(props.sessionId);
+        }, [panel, statusView.view]);
+        // 看门狗：表单已经转了很久，而服务端视图明确不在重新生成（rpc 可能彻底丢了响应），
+        // 说明这轮已经落盘；按存档收尾，玩家不至于只能刷新页面。
+        const loadingSince = React.useRef(0);
+        React.useEffect(function () {
+            const loading = Boolean(panel && panel.sessionId === props.sessionId && panel.phase === "loading");
+            if (!loading) { loadingSince.current = 0; return undefined; }
+            if (typeof setTimeout !== "function") return undefined;
+            loadingSince.current = Date.now();
+            const timer = setTimeout(function () {
+                if (Date.now() - loadingSince.current < 30000) return;
+                const view = statusView.view;
+                if (view && view.regenInProgress === true) return;
+                setRegenPanel(null);
+                liveTavernView.invalidate(props.sessionId);
+                tavernCoordination.invalidate(props.sessionId);
+            }, 30000);
+            return function () { clearTimeout(timer); };
+        }, [panel, props.sessionId, statusView.view]);
         const styleEnabled = styleState.view?.styleReferenceEnabled === true;
         const opened = panel && panel.sessionId === props.sessionId && panel.phase === "input";
         React.useEffect(function () { if (opened) setGuidance(interactions.guidance(props.sessionId)); }, [opened, props.sessionId]);
@@ -52950,7 +52983,9 @@ function createTurnRailFilter(root, options) {
 			const rollbackViewState = useLiveTavernView(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activityState = useTavernCoordination(props.sessionId, String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activity = describeTavernActivity(activityState.view && activityState.view.activity);
-			const settlementActive = activity.role === "settlement" && (activity.phase === "pending" || activity.phase === "running");
+			// 只有真正在跑的结算才挡住生成：pending 只是排队信号，结算被关掉或永远等不到
+			// 下一次时，它会把按钮永久写成「后台结算中…」（玩家明明没开后台结算）。
+			const settlementActive = activity.role === "settlement" && activity.busy === true;
 			const canRollback = rollbackViewState.view && (rollbackViewState.view.canRegenerate ?? rollbackViewState.view.canRollback) === true;
             const clearIncomplete = rollbackViewState.view && rollbackViewState.view.canClearIncompleteReply === true;
 			// A failure still owning the tail can be withdrawn or handed to the debugger.
@@ -53064,7 +53099,9 @@ function createTurnRailFilter(root, options) {
 			const rollbackViewState = useLiveTavernView(props.sessionId, "rollback:" + String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activityState = useTavernCoordination(props.sessionId, "rollback:" + String(frontRunning) + ":" + String(latestMessageId || ""));
 			const activity = describeTavernActivity(activityState.view && activityState.view.activity);
-			const settlementActive = activity.role === "settlement" && (activity.phase === "pending" || activity.phase === "running");
+			// 只有真正在跑的结算才挡住生成：pending 只是排队信号，结算被关掉或永远等不到
+			// 下一次时，它会把按钮永久写成「后台结算中…」（玩家明明没开后台结算）。
+			const settlementActive = activity.role === "settlement" && activity.busy === true;
 			const canRollback = rollbackViewState.view && rollbackViewState.view.canRollback === true;
             const clearIncomplete = rollbackViewState.view && rollbackViewState.view.canClearIncompleteReply === true;
 			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";
