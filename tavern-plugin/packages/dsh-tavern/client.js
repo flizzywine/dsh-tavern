@@ -74,9 +74,11 @@ window.__ModuleLoader__.load({
       nextExplain: '通过 DSH NEXT 的 Profile 功能在原版 DSH 和 DSH 酒馆之间切换。',
       nextInstallHint: '请保存工作。确认后请从托盘退出 DSH NEXT，安装完成后会重新打开。',
       nextSwitchToUpdate: '请在原版 DSH 或酒馆配置中更新。',
-      nextUpdateHint: '请先保存工作。NEXT 会退出，更新完成后自动打开当前配置。',
-      nextUpdate: '更新酒馆并重启',
-      nextRepair: '修复安装并重启',
+      nextUpdateHint: '准备更新期间可以继续使用酒馆。新版准备好后，你可以选择何时重启。',
+      nextUpdate: '准备更新',
+      nextRepair: '准备修复',
+      nextUpdateReady: '新版已准备好。保存工作后，重启 NEXT 即可应用。',
+      nextRestartUpdate: '重启并应用更新',
       nextManage: '请切回原版 DSH，再管理酒馆安装。',
       nextQuit: '请在两分钟内从应用菜单或托盘退出 NEXT。操作完成后会重新打开。',
       startupTitle: '默认启动配置',
@@ -169,9 +171,11 @@ window.__ModuleLoader__.load({
       nextExplain: 'Use DSH NEXT Profiles to switch between original DSH and DSH Tavern.',
       nextInstallHint: 'Save your work. After confirming, quit DSH NEXT from the tray. It reopens after installation.',
       nextSwitchToUpdate: 'Update from the original DSH or Tavern Profile.',
-      nextUpdateHint: 'Save your work first. NEXT closes and reopens in the current Profile after the update.',
-      nextUpdate: 'Update Tavern and restart',
-      nextRepair: 'Repair installation and restart',
+      nextUpdateHint: 'Keep using Tavern while the update is prepared. Choose when to restart once it is ready.',
+      nextUpdate: 'Prepare update',
+      nextRepair: 'Prepare repair',
+      nextUpdateReady: 'The update is ready. Save your work and restart NEXT to apply it.',
+      nextRestartUpdate: 'Restart and apply update',
       nextManage: 'Switch back to original DSH to manage this installation.',
       nextQuit: 'Quit NEXT from the app menu or tray within two minutes. It reopens after the operation.',
       startupTitle: 'Default startup profile',
@@ -333,6 +337,7 @@ window.__ModuleLoader__.load({
       const installDone = status?.lastResult?.status === 'succeeded' && status.lastResult.mode === 'install'
 
       const next = status?.host === 'next'
+      const nextUpdatePreparation = pending ? status.nextUpdatePreparation : undefined
       const current = next ? status.activeName : status?.linkTargetName ?? (inTavern() ? 'tavern' : 'desktop')
       const standalone = status?.desktopApp === false
       const ready = (name) => (status?.profiles ?? []).some((profile) => {
@@ -453,13 +458,26 @@ window.__ModuleLoader__.load({
           setUpdate(result.value)
           if (result.value.scheduled) {
             setApplied(result.value.scheduled)
-            setStatus(previous => ({ ...previous, lastResult: { status: 'pending', mode: 'install', stamp: result.value.scheduled.stamp } }))
-            // The helper is already detached and waiting for the native quit.
-            // Keep the manual exit hint if this host cannot handle the command.
-            if (next) {
-              try { await window.desktopNext?.command?.({ type: 'quit' }) } catch { /* Keep the queued update. */ }
-            }
+            setStatus(previous => ({ ...previous, nextUpdatePreparation: 'preparing', installProgress: '',
+              lastResult: { status: 'pending', mode: 'install', stamp: result.value.scheduled.stamp } }))
           }
+        } catch (error) {
+          setUpdateFailure(describeFailure(error))
+        } finally {
+          actionInFlight.current = false
+          setUpdateAction('')
+        }
+      }
+      async function restartNextUpdate() {
+        if (actionInFlight.current || !['ready', 'restarting'].includes(nextUpdatePreparation)) return
+        actionInFlight.current = true
+        setUpdateAction('restart-update')
+        setUpdateFailure('')
+        try {
+          const result = await call('restart-update', { stamp: status.lastResult.stamp })
+          if (result?.ok !== true) throw new Error(describeFailure(result?.error))
+          setStatus(previous => ({ ...previous, nextUpdatePreparation: 'restarting' }))
+          try { await window.desktopNext?.command?.({ type: 'quit' }) } catch { /* Keep the manual exit hint. */ }
         } catch (error) {
           setUpdateFailure(describeFailure(error))
         } finally {
@@ -469,7 +487,7 @@ window.__ModuleLoader__.load({
       }
       const updateAvailable = update?.phase === 'update-available'
       const repairRequired = update?.phase === 'repair-required'
-      const showUpdateAction = (updateAvailable || repairRequired) && update.canUpdate && !updateAction
+      const showUpdateAction = (updateAvailable || repairRequired) && update.canUpdate && !pending && !updateAction
       const updateButtonLabel = repairRequired ? (next ? 'nextRepair' : 'repairTavern') : (next ? 'nextUpdate' : 'updateTavern')
       const checking = updateAction === 'check-update'
       const updateRestart = update?.phase === 'completed' && update.requiresRestart
@@ -516,7 +534,7 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'pb-btn', disabled: busy, onClick: () => void openOriginal() }, t('openOriginal')),
         ) : blocked ? h('p', { className: 'pb-error' }, blocked) : h('div', { className: 'pb-bar' },
           h('span', { className: 'pb-bar-text' },
-            next && pending ? t('nextQuit') : status?.lastResult?.mode === 'install' ? `${t('current')} · ${currentLabel ? t(currentLabel) : current}` : applied === null ? (pending ? t('restarting') : `${t('current')} · ${currentLabel ? t(currentLabel) : current}`) : applied.closesApp ? t('restarting') : t('quitHint'),
+            next && pending && !nextUpdatePreparation ? t('nextQuit') : status?.lastResult?.mode === 'install' ? `${t('current')} · ${currentLabel ? t(currentLabel) : current}` : applied === null ? (pending ? t('restarting') : `${t('current')} · ${currentLabel ? t(currentLabel) : current}`) : applied.closesApp ? t('restarting') : t('quitHint'),
             ...(applied?.warnings ?? []).map((warning) => h('span', { key: warning, style: { display: 'block', opacity: 0.75 } }, `• ${warning}`)),
           ),
           applied !== null ? null : h('div', { className: 'pb-actions' }, ...options.map(({ name, action }) =>
@@ -532,8 +550,8 @@ window.__ModuleLoader__.load({
         ) : null,
         failure !== null ? h('p', { className: 'pb-error' }, `${t('failure')}: ${failure}`) : null,
         installDone
-          ? h('p', { className: 'pb-done', role: 'status' }, t('installDone')) : null,
-        (status?.installAvailable || (pending && status?.lastResult?.mode === 'install')) ? h('section', { className: 'pb-management', 'aria-label': t('management') },
+          ? h('p', { className: 'pb-done', role: 'status' }, t(status.lastResult.updated ? 'updateComplete' : 'installDone')) : null,
+        (status?.installAvailable || (pending && status?.lastResult?.mode === 'install' && !nextUpdatePreparation)) ? h('section', { className: 'pb-management', 'aria-label': t('management') },
           h('h3', null, t('management')),
           h('p', null, t(next ? 'nextInstallHint' : 'installHint')),
           status.replacesNext ? h('p', null, t('replacesNext')) : null,
@@ -563,7 +581,11 @@ window.__ModuleLoader__.load({
         ),
         showUpdates ? h('section', { className: 'pb-management', 'aria-label': t('updates') },
           h('h3', null, t('updates')),
-          next && pending && status.lastResult?.mode === 'install' ? h('p', { role: 'status' }, t('nextQuit')) : null,
+          nextUpdatePreparation === 'ready' ? h('p', { role: 'status' }, t('nextUpdateReady')) : null,
+          nextUpdatePreparation === 'restarting' ? h('p', { role: 'status' }, t('nextQuit')) : null,
+          nextUpdatePreparation === 'preparing' ? h(React.Fragment, null,
+            h('p', { role: 'status' }, status.installProgress || t('updating')),
+            h('progress', { 'aria-label': status.installProgress || t('updating') })) : null,
           h('dl', { className: 'pb-builds' },
             h('dt', null, t('installedBuild')), h('dd', null, update ? renderBuild(t, update.currentVersion, update.currentCommit) : '—'),
             h('dt', null, t('latestBuild')), h('dd', null, update?.latestVersion || update?.latestCommit ? renderBuild(t, update.latestVersion, update.latestCommit) : t('unchecked'))),
@@ -580,7 +602,9 @@ window.__ModuleLoader__.load({
           updateError ? h('p', { className: 'pb-error', role: 'alert' }, updateError) : null,
           update?.phase === 'completed' ? h('p', { className: 'pb-done', role: 'status' }, t(updateRestart ? (standalone ? 'updateRestartWindow' : 'updateRestart') : 'updateComplete')) : null,
           h('div', { className: 'pb-actions' },
-            !updating && !updateRestart ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('check-update') }, t('checkUpdate')) : null,
+            ['ready', 'restarting'].includes(nextUpdatePreparation) ? h('button', { type: 'button', className: 'pb-btn',
+              disabled: Boolean(updateAction), onClick: () => void restartNextUpdate() }, t('nextRestartUpdate')) : null,
+            !pending && !updating && !updateRestart ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('check-update') }, t('checkUpdate')) : null,
             showUpdateAction ? h('button', { type: 'button', className: 'pb-btn', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('start-update') }, t(updateButtonLabel)) : null,
             update?.phase === 'running' && update.canUpdate && update.cancellable ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('cancel-update') }, t('cancelUpdate')) : null)) : null,
         installation && !status?.installAvailable ? h('section', { className: 'pb-management', 'aria-label': t('management') },

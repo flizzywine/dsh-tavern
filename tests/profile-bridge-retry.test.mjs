@@ -114,19 +114,24 @@ test('launcher finishes installation without waiting for or restarting Desktop',
   assert.equal(status.status, 'succeeded')
 })
 
-test('NEXT 在酒馆更新时等待 GUI 和宿主退出，成功后重开当前 Profile', async t => {
-  const request = { ...fixture(t), host: 'next', activeName: 'tavern', mode: 'install', ownership: { roots: [{ pid: 10 }], descendants: [{ pid: 20 }] } }
+test('NEXT 在酒馆准备更新，只在应用时等待 GUI 和宿主退出', async t => {
+  const request = { ...fixture(t), host: 'next', activeName: 'tavern', mode: 'install', appDir: '/managed/tavern', ownership: { roots: [{ pid: 10 }], descendants: [{ pid: 20 }] } }
   const order = []
   const result = await runSwitchJob(job(request), {
     waitOwned: async owner => order.push(owner.roots[0].pid),
-    perform: async () => order.push('install'),
+    perform: async (_request, { waitForDesktop }) => {
+      order.push('prepare')
+      await waitForDesktop()
+      order.push('install')
+    },
     relaunch: (_exe, options) => {
       assert.equal(options.continueProfile, false)
       order.push('relaunch')
     },
   })
   assert.equal(result, 0)
-  assert.deepEqual(order, [10, 20, 'install', 'relaunch'])
+  assert.deepEqual(order, ['prepare', 10, 'install', 'relaunch'])
+  assert.equal(JSON.parse(readFileSync(join(request.stateDir, 'last-result.json'))).updated, true)
 })
 
 test('normal quit timeout never cleans descendants, changes directories, or relaunches', async t => {

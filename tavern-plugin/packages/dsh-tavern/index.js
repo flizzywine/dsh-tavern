@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { inspectInstallation, validateInstallationRequest } from './lib/installation.mjs'
 import { captureOwnedProcesses } from './lib/processes.mjs'
 import { requestDesktopQuit } from './lib/quit.mjs'
-import { relaunchApp, scheduleSwitch } from './lib/helper.mjs'
+import { confirmNextUpdate, relaunchApp, scheduleSwitch } from './lib/helper.mjs'
 import { createTavernShortcut } from './lib/shortcut.mjs'
 import { canInstallTavern, detectAppExe, fail, isActiveTavern, isDesktopApp, isOfficialDesktopApp, isDesktopTavernWindow, launcherPaths, readLinkTarget, statusPayload, validateTarget } from './lib/state.mjs'
 import { initializeDefaultProfile, setDefaultProfile, startupSwitchMode } from './lib/startup-profile.mjs'
@@ -31,7 +31,7 @@ async function runUpdate(method, paths) {
   }
   if (!installation.available) fail('update-unavailable', installation.reason)
   // Official updates run from Tavern and refresh the inactive original launcher.
-  // NEXT can queue the offline installer from either managed Profile.
+  // NEXT prepares the update from either managed Profile before asking to restart.
   const canUpdate = isActiveTavern(paths, installation) || (next && original)
   if (['start', 'cancel'].includes(method) && !canUpdate) {
     fail('update-unavailable', next ? '请在 NEXT 的原版 DSH 或酒馆配置中更新。' : '请先切换到 DSH 酒馆，再在启动器中更新。')
@@ -131,6 +131,7 @@ async function handleCall(ctx, endpoint, payload) {
       if (payload?.profile === 'tavern') validateTarget(paths, 'tavern')
       return { ok: true, value: setDefaultProfile(paths.home, payload?.profile) }
     }
+    if (endpoint === 'restart-update') return { ok: true, value: confirmNextUpdate(paths, payload?.stamp) }
     if (updateActions.has(endpoint)) return { ok: true, value: await runUpdate(updateActions.get(endpoint), paths) }
     if (['link', 'unlink', 'install', 'relocate', 'uninstall'].includes(endpoint)) return { ok: true, value: await runSwitch(endpoint, paths, payload) }
     if (endpoint === 'shortcut' && paths.host !== 'next') return { ok: true, value: createTavernShortcut({ paths }) }

@@ -1,19 +1,20 @@
-import { readFileSync, writeFileSync, appendFileSync, rmSync, rmdirSync, lstatSync, realpathSync, openSync, fsyncSync, closeSync, renameSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, appendFileSync, rmSync, rmdirSync, lstatSync, realpathSync, openSync, fsyncSync, closeSync, renameSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { waitForExit, switchProfile, relaunchApp } from './helper.mjs'
+import { setTimeout as delay } from 'node:timers/promises'
+import { installPublishGate, nextUpdateRestartMarker, processAlive, stagesNextUpdate, waitForExit, switchProfile, relaunchApp } from './helper.mjs'
 import { cleanupOwnedProcesses, waitForOwnedExit } from './processes.mjs'
 import { hasNextTavern } from './state.mjs'
 
-async function installTavern(request, { log }) {
+async function installTavern(request, { log, waitForDesktop }) {
   const windows = process.platform === 'win32'
   const next = request.host === 'next'
   const replacesNext = hasNextTavern(request.home)
   const name = windows ? 'install.ps1' : 'install.sh'
   const script = join(request.stateDir, 'install-pending', 'runtime', name)
-  const gate = join(dirname(script), 'publish')
+  const gate = installPublishGate(request.stateDir)
   const transcriptPath = join(request.stateDir, 'last-run.log.out')
   writeFileSync(transcriptPath, '')
   writeFileSync(gate + '.progress', '正在下载安装脚本…')
@@ -27,6 +28,7 @@ async function installTavern(request, { log }) {
       const response = await fetch(source, { signal: AbortSignal.timeout(20000) })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const content = await response.text()
+      if (waitForDesktop && !content.includes('.ready')) throw new Error('安装脚本尚未支持准备更新')
       if (!content.includes('DSH_TAVERN_INSTALL_INACTIVE')) throw new Error('安装脚本尚未同步')
       if (next && !content.includes('DSH_TAVERN_UNIFIED_DESKTOP')) throw new Error('安装脚本尚未同步统一桌面安装支持')
       if (replacesNext && !content.includes('DSH_TAVERN_REQUIRE_NEXT_MIGRATION')) throw new Error('安装脚本尚未支持 NEXT 迁移')
@@ -42,9 +44,8 @@ async function installTavern(request, { log }) {
     DSH_DESKTOP_APP_EXECUTABLE: request.relaunch, DSH_TAVERN_LAUNCHER_INSTALL: '1', DSH_TAVERN_PUBLISH_GATE: gate }
   if (next) {
     env.DSH_TAVERN_NEXT_EXECUTABLE = request.relaunch
-    writeFileSync(gate, 'publish', { flag: 'wx' })
-  }
-  else {
+    if (!waitForDesktop) writeFileSync(gate, 'publish', { flag: 'wx' })
+  } else {
     env.DSH_TAVERN_LATE_PUBLISH = '1'
     env.DSH_TAVERN_INSTALL_INACTIVE = '1'
     env.DSH_TAVERN_PREPARING_DESKTOP_PID = String(request.pids[1])
@@ -57,14 +58,34 @@ async function installTavern(request, { log }) {
   const args = windows ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script] : [script]
   const transcript = openSync(transcriptPath, 'w', 0o600)
   try {
-    await new Promise((resolve, reject) => {
-      const child = spawn(command, args, { env, stdio: ['ignore', transcript, transcript], windowsHide: true })
-      child.once('error', reject)
-      child.once('exit', (code, signal) => {
-        if (code === 0) resolve()
-        else reject(new Error(`酒馆安装失败（${signal ?? code}），请查看「说明与日志」。`))
-      })
-    })
+    const child = spawn(command, args, { env, stdio: ['ignore', transcript, transcript], windowsHide: true })
+    let finished = false
+    // Keep the outcome handled even if the installer exits while waiting for NEXT.
+    const completion = new Promise(resolve => {
+      child.once('error', resolve)
+      child.once('exit', (code, signal) => resolve(code === 0 ? undefined
+        : new Error(`酒馆安装失败（${signal ?? code}），请查看「说明与日志」。`)))
+    }).then(error => { finished = true; return error })
+    if (waitForDesktop) {
+      try {
+        const restart = nextUpdateRestartMarker(request.stateDir, request.stamp)
+        while (!finished && !existsSync(restart)) {
+          if (!request.pids.every(processAlive)) throw new Error('NEXT 在确认更新前退出，已取消本次准备。')
+          await delay(250)
+        }
+        if (!finished) {
+          writeFileSync(gate + '.progress', '正在等待 NEXT 退出并应用更新…')
+          await waitForDesktop()
+          if (!finished) writeFileSync(gate, 'publish', { flag: 'wx' })
+        }
+      } catch (error) {
+        if (!finished) writeFileSync(gate, 'cancel', { flag: 'wx' })
+        await completion
+        throw error
+      }
+    }
+    const error = await completion
+    if (error) throw error
   } finally {
     closeSync(transcript)
   }
@@ -140,17 +161,20 @@ export async function runSwitchJob(job, {
     }), { mode: 0o600 })
     log(`已排队 ${request.stamp} (${request.mode})。`)
     try {
+      const stagedUpdate = stagesNextUpdate(request)
       const waitForDesktop = async () => {
         if (request.ownership) await waitOwned(request.ownership)
         else await wait(request.pids)
         exited = true
-        if (['install', 'relocate', 'uninstall'].includes(request.mode) && request.ownership?.descendants?.length) {
+        // NEXT terminals can outlive the GUI. The installer independently checks
+        // for other desktops and rolls back if an open handle blocks publication.
+        if (!stagedUpdate && ['install', 'relocate', 'uninstall'].includes(request.mode) && request.ownership?.descendants?.length) {
           await waitOwned({ roots: request.ownership.descendants }, { timeout: 15000 })
         }
       }
-      if (request.mode !== 'install' || request.host === 'next') await waitForDesktop()
+      if (!stagedUpdate && (request.mode !== 'install' || request.host === 'next')) await waitForDesktop()
       let cleaned = false
-      const result = await perform(request, { log, retry: { onRetry: async ({ from, to, code, attempt }) => {
+      const result = await perform(request, { log, waitForDesktop: stagedUpdate ? waitForDesktop : undefined, retry: { onRetry: async ({ from, to, code, attempt }) => {
         log(`目录占用重试 ${attempt}: ${code} ${from} → ${to}`)
         if (!cleaned) {
           cleaned = true
@@ -161,8 +185,8 @@ export async function runSwitchJob(job, {
         }
       } } })
       log(JSON.stringify(result))
-      const message = request.mode === 'install' ? '酒馆安装完成。' : '切换完成。'
-      persist({ status: 'succeeded', message })
+      const message = stagedUpdate ? '酒馆更新完成。' : request.mode === 'install' ? '酒馆安装完成。' : '切换完成。'
+      persist({ status: 'succeeded', message, updated: stagedUpdate })
       log(message)
     } catch (error) {
       failed = true

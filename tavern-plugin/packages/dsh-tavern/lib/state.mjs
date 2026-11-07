@@ -15,7 +15,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { inspectInstallation } from './installation.mjs'
 import { readDefaultProfile } from './startup-profile.mjs'
-import { readLastResult } from './helper.mjs'
+import { installPublishGate, nextUpdatePreparation, readLastResult } from './helper.mjs'
 export { readLastResult } from './helper.mjs'
 
 /** Throw a coded bridge error the RPC layer turns into a structured failure. */
@@ -221,7 +221,7 @@ export function statusPayload(paths) {
   const profiles = listProfiles(paths)
   const appExe = detectAppExe()
   const lastResult = readLastResult(paths.stateDir)
-  const gate = join(paths.stateDir, 'install-pending', 'runtime', 'publish')
+  const gate = installPublishGate(paths.stateDir)
   const installation = inspectInstallation(paths)
   const next = paths.host === 'next'
   return {
@@ -247,6 +247,7 @@ export function statusPayload(paths) {
     profiles,
     backups: listBackups(paths),
     lastResult,
+    nextUpdatePreparation: nextUpdatePreparation(paths, lastResult),
     installProgress: readLogTail(gate + '.progress', 400),
     logPath: join(paths.stateDir, 'last-run.log'),
     logTail: readLogTail(join(paths.stateDir, 'last-run.log')),

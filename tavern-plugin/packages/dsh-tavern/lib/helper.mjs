@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdirSync, writeFileSync, lstatSync, renameSync, symlinkSync, unlinkSync, readFileSync, readdirSync, realpathSync, statSync, rmSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, lstatSync, renameSync, symlinkSync, unlinkSync, readFileSync, readdirSync, realpathSync, statSync, rmSync, copyFileSync } from 'node:fs'
 import { join, dirname, resolve, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { trustedHome, withinPath } from './trusted-home.mjs'
@@ -194,6 +194,7 @@ export function readLastResult(stateDir, { alive = processAlive, now = Date.now 
       mode: result.mode,
       stamp: result.stamp,
       finishedAt: result.finishedAt,
+      updated: result.updated === true,
       message: typeof result.message === 'string' ? result.message : '',
       code: typeof result.code === 'string' ? result.code : undefined,
       recoveryRequired: result.recoveryRequired === true,
@@ -202,6 +203,40 @@ export function readLastResult(stateDir, { alive = processAlive, now = Date.now 
   } catch {
     return undefined
   }
+}
+
+export function stagesNextUpdate(request) {
+  return request?.host === 'next' && request.mode === 'install' && Boolean(request.appDir)
+}
+
+export function installPublishGate(stateDir) {
+  return join(stateDir, 'install-pending', 'runtime', 'publish')
+}
+
+export function nextUpdateRestartMarker(stateDir, stamp) {
+  return installPublishGate(stateDir) + '.restart-' + stamp
+}
+
+export function nextUpdatePreparation(paths, lastResult = readLastResult(paths.stateDir)) {
+  if (paths.host !== 'next' || lastResult?.status !== 'pending' || lastResult.mode !== 'install') return undefined
+  const request = readJson(join(paths.stateDir, 'install-pending', 'request.json'))
+  if (!stagesNextUpdate(request) || request.stamp !== lastResult.stamp || request.liveDir !== paths.activeDir
+      || request.pids?.[0] !== process.pid || request.pids?.[1] !== process.ppid) return undefined
+  const gate = installPublishGate(paths.stateDir)
+  if (existsSync(nextUpdateRestartMarker(paths.stateDir, request.stamp))) return 'restarting'
+  return existsSync(gate + '.ready') ? 'ready' : 'preparing'
+}
+
+export function confirmNextUpdate(paths, stamp) {
+  const lastResult = readLastResult(paths.stateDir)
+  const phase = nextUpdatePreparation(paths, lastResult)
+  if (lastResult?.stamp !== stamp || !['ready', 'restarting'].includes(phase)) {
+    throw Object.assign(new Error('新版尚未准备好，或当前更新已结束。请刷新后重试。'), { code: 'update-not-ready' })
+  }
+  try { writeFileSync(nextUpdateRestartMarker(paths.stateDir, lastResult.stamp), '', { flag: 'wx', mode: 0o600 }) } catch (error) {
+    if (error.code !== 'EEXIST') throw error
+  }
+  return { confirmed: true }
 }
 
 function pendingIsStale(lock, alive, now) {
