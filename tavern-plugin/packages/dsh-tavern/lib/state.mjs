@@ -35,6 +35,13 @@ export function isOfficialDesktopApp() {
   return ['app', 'app.asar'].some(dir => readManifest(join(resources, dir))?.name === '@deepseek-ai/dsh-desktop')
 }
 
+export function launcherPaths(ctx, env = process.env) {
+  const profile = ctx.get?.('profileContext') ?? ctx.profileContext
+  const desktop = ctx.get?.('desktopProfiles')?.current
+  if (!desktop || !profile || desktop.dir !== profile.dir) return resolvePaths(env)
+  return { ...resolvePaths({ DSH_HOME: profile.home, DSH_PROFILE: profile.name, DSH_PROFILE_DIR: profile.dir }), host: 'next' }
+}
+
 export function isActiveTavern(paths, installation) {
   if (!installation.available) return false
   try { return relative(realpathSync(paths.activeDir), installation.profileDir) === '' } catch { return false }
@@ -216,8 +223,10 @@ export function statusPayload(paths) {
   const lastResult = readLastResult(paths.stateDir)
   const gate = join(paths.stateDir, 'install-pending', 'runtime', 'publish')
   const installation = inspectInstallation(paths)
+  const next = paths.host === 'next'
   return {
     installation,
+    host: paths.host ?? 'desktop',
     defaultProfile: readDefaultProfile(paths.home),
     installAvailable: canInstallTavern(paths),
     replacesNext: hasNextTavern(paths.home),
@@ -231,9 +240,9 @@ export function statusPayload(paths) {
     linkTarget,
     linkTargetName: linkTarget === undefined ? undefined : basename(linkTarget),
     appExe,
-    appKind: basename(paths.activeDir) === 'desktop' ? 'desktop' : 'cli',
+    appKind: next || basename(paths.activeDir) === 'desktop' ? 'desktop' : 'cli',
     // Only the Desktop app's own host can switch; a standalone `dsh --profile …` (e.g. the DSH 酒馆 shortcut) cannot.
-    desktopApp: isDesktopApp(),
+    desktopApp: next || isDesktopApp(),
     desktopTavernWindow: isDesktopTavernWindow(paths, installation),
     profiles,
     backups: listBackups(paths),
@@ -251,8 +260,15 @@ export function hasNextTavern(home) {
   const profile = join(home, 'profiles', 'tavern')
   try {
     if (!lstatSync(profile).isDirectory()) return false
+    const bundle = 'dsh-tavern-bundle'
+    const manifest = readManifest(profile)
+    if (!manifest?.dsh?.profile?.bundles?.includes(bundle)) return false
+    const spec = manifest.dependencies?.[bundle]
+    const installed = readManifest(join(profile, 'node_modules', bundle))
+    if (installed?.name === bundle && installed.repository?.url === tavernRepository && typeof spec === 'string'
+      && /^(?:(?:github:flizzywine\/dsh-tavern|git\+https:\/\/github\.com\/flizzywine\/dsh-tavern\.git)#(?:plugin-market-next|[a-f0-9]{40})|https:\/\/(?:raw\.githubusercontent\.com\/|cdn\.jsdelivr\.net\/gh\/)flizzywine\/dsh-tavern(?:\/|@)[a-f0-9]{40}\/dsh-tavern-bundle\.tgz)$/iu.test(spec)) return true
     const receipt = JSON.parse(readFileSync(join(home, 'logs', 'tavern-installation.json'), 'utf8'))
-    return receipt.host === 'next' && readManifest(profile)?.dsh?.profile?.bundles?.includes('dsh-tavern-bundle') === true
+    return receipt.host === 'next'
   } catch {
     return false
   }
@@ -268,8 +284,7 @@ export function canInstallTavern(paths) {
   } catch (error) {
     if (error.code !== 'ENOENT' || !existsSync(paths.activeDir)) return false
   }
-  const resources = process.platform === 'darwin' ? resolve(dirname(process.execPath), '../Resources') : join(dirname(process.execPath), 'resources')
-  return ['app', 'app.asar'].some(dir => readManifest(join(resources, dir))?.name === '@deepseek-ai/dsh-desktop')
+  return paths.host === 'next' || isOfficialDesktopApp()
 }
 
 export const LAUNCHER_BUNDLE = 'dsh-tavern'

@@ -565,9 +565,12 @@ export async function apply(ctx) {
   ctx.inject(['settings'], async sctx => { await clearRetiredSearchProvider(sctx.settings) })
   const promptDocuments = createSystemPromptDocuments()
   const presentSystemPrompts = promptDocuments.present
+  const nativeProfile = ctx.get('desktopProfiles')?.current
+  const desktopHost = process.versions.electron && typeof process.send === 'function'
   const applicationUpdater = createApplicationUpdater({
     dataRoot,
     sourceRoot,
+    runtimeHost: nativeProfile?.dir && nativeProfile.dir === ctx.get('profileContext')?.dir ? 'next' : desktopHost ? 'desktop' : undefined,
     hostDependencyAnchor: fileURLToPath(import.meta.url),
   })
   const modelRequestLog = createModelRequestLog({

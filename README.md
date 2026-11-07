@@ -136,26 +136,26 @@
 
 ### 桌面版（Windows / macOS）
 
-先安装官方 [DeepSeek Harness](https://deepseek.com/harness/)，打开并完成初始设置。推荐使用 **0.2.2-rc.1 或更新的 0.2.x**。然后在下方 **任选一种** 安装方式。
+先安装官方 [DeepSeek Harness](https://deepseek.com/harness/) 或 DSH NEXT，打开并完成初始设置。推荐使用 **0.2.2-rc.1 或更新的 0.2.x** DSH 内核。两边使用同一个 `dsh-tavern` 启动器和酒馆运行包。然后在下方 **任选一种** 安装方式。
 
 #### 方式一：手动安装（在 DSH 界面操作）
 
 1. **安装酒馆启动器。** 打开左侧的 **插件 → 添加插件**，粘贴下面的地址，点 **安装**，再按提示启用 **dsh-tavern**。
 
    ```text
-   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v0.2.0-tavern.18/dsh-tavern-0.2.0-tavern.18.tgz
+   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v1.5.0/dsh-tavern-1.5.0.tgz
    ```
 
    已安装旧版启动器时，先在插件页移除旧启动器，再添加新版。
 
-   如果 CDN 地址无法访问，可以粘贴 [GitHub Release 的下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-v0.2.0-tavern.18/dsh-tavern-0.2.0-tavern.18.tgz)。
+   如果 CDN 地址无法访问，可以粘贴 [GitHub Release 的下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-v1.5.0/dsh-tavern-1.5.0.tgz)。
 
-2. **安装酒馆。** 打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。
-3. **打开酒馆。** 点击 **重启并切换到 DSH 酒馆**，只切换当前配置。下方可单独设置 **默认打开酒馆** 或 **取消默认打开酒馆**，设置默认不会重启当前窗口。
+2. **安装酒馆。** 打开 **设置 → 酒馆启动器**，点 **安装酒馆** 并确认。DSH NEXT 按页面提示从托盘退出，安装后会重新打开。已有兼容的酒馆安装可直接切换。
+3. **打开酒馆。** 点击 **重启并切换到 DSH 酒馆**。官方桌面的默认配置也可以在此设置。NEXT 使用自身的 Profile 选择功能。
 
 #### 方式二：一行命令安装或更新（也可交给 Agent 执行）
 
-先完整退出 DeepSeek Harness（Windows 从系统托盘退出，macOS 按 `⌘Q`），再运行对应系统的命令。**首次运行会一起安装酒馆和启动器，之后更新重跑同一条命令。**
+先完整退出桌面（Windows 从系统托盘退出，macOS 按 `⌘Q`），再运行对应系统的命令。官方桌面用 `desktop`，DSH NEXT 把命令中的 `desktop` 改成 `next`。**首次运行会一起安装酒馆和启动器，之后更新重跑同一条命令。** 使用自定义 DSH 目录时，先将 `DSH_HOME` 设为该目录。
 
 Windows（PowerShell）：
 
@@ -169,7 +169,7 @@ macOS（终端）：
 curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.sh' -o /tmp/dsh-tavern-install.sh && DSH_TAVERN_HOST=desktop sh /tmp/dsh-tavern-install.sh
 ```
 
-命令执行成功后，若 DeepSeek Harness 没有自动打开，请重新打开。若仍在原版 DSH，可以从 **设置 → 酒馆启动器** 切换到酒馆。
+命令执行成功后，重新打开所用桌面，从 **设置 → 酒馆启动器** 切换到酒馆。两款桌面使用同一个 `DSH_HOME` 时，官方版切到酒馆会建立 `profiles/desktop` 链接。打开 NEXT 前，先在官方版切回原版 DSH，以恢复真实的 `desktop` 目录。
 
 ### Android
 

@@ -71,6 +71,11 @@ window.__ModuleLoader__.load({
       copyLogsFailed: '复制失败，可以在「说明与日志」中选中日志并手动复制。',
       installDone: '酒馆安装完成。',
       explain: '切换当前使用的配置并重启，不改变下次启动的默认设置。',
+      nextExplain: '通过 DSH NEXT 的 Profile 功能在原版 DSH 和 DSH 酒馆之间切换。',
+      nextInstallHint: '请保存工作。确认后请从托盘退出 DSH NEXT，安装完成后会重新打开。',
+      nextSwitchToUpdate: '请切回原版 DSH，再在启动器中更新酒馆。',
+      nextManage: '请切回原版 DSH，再管理酒馆安装。',
+      nextQuit: '请从托盘退出 DSH NEXT，操作完成后会重新打开（两分钟内有效）。',
       startupTitle: '默认启动配置',
       startupOriginal: '下次从官方入口启动时打开原版 DSH。',
       startupTavern: '下次从官方入口启动时打开 DSH 酒馆。',
@@ -158,6 +163,11 @@ window.__ModuleLoader__.load({
       copyLogsFailed: 'Could not copy automatically. Select the log under Help and logs to copy it.',
       installDone: 'Tavern installation complete.',
       explain: 'Switch the current profile and restart without changing the next-launch default.',
+      nextExplain: 'Use DSH NEXT Profiles to switch between original DSH and DSH Tavern.',
+      nextInstallHint: 'Save your work. After confirming, quit DSH NEXT from the tray. It reopens after installation.',
+      nextSwitchToUpdate: 'Switch back to original DSH, then update Tavern from the launcher.',
+      nextManage: 'Switch back to original DSH to manage this installation.',
+      nextQuit: 'Quit DSH NEXT from the tray within two minutes. It reopens after the operation.',
       startupTitle: 'Default startup profile',
       startupOriginal: 'The next fresh launch opens original DSH.',
       startupTavern: 'The next fresh launch opens DSH Tavern.',
@@ -316,15 +326,16 @@ window.__ModuleLoader__.load({
       const lastFailure = status?.lastResult?.status === 'failed' ? status.lastResult : null
       const installDone = status?.lastResult?.status === 'succeeded' && status.lastResult.mode === 'install'
 
-      const current = status?.linkTargetName ?? (inTavern() ? 'tavern' : 'desktop')
+      const next = status?.host === 'next'
+      const current = next ? status.activeName : status?.linkTargetName ?? (inTavern() ? 'tavern' : 'desktop')
       const standalone = status?.desktopApp === false
       const ready = (name) => (status?.profiles ?? []).some((profile) => {
         const bundles = profile.bundles ?? []
-        return profile.name === name && profile.hasNodeModules && !bundles.includes('dsh-tavern-bundle')
+        return profile.name === name && profile.hasNodeModules && (!next || !profile.isLink) && !bundles.includes('dsh-tavern-bundle')
           && profile.hasBridge === true
       })
       const destinations = [
-        { name: 'desktop', label: 'profileDesktop', action: 'toOriginal', ready: (status?.backups ?? []).length > 0 },
+        { name: 'desktop', label: 'profileDesktop', action: 'toOriginal', ready: next ? ready('desktop') : (status?.backups ?? []).length > 0 },
         { name: 'tavern', label: 'profileTavern', action: 'toTavern', ready: ready('tavern') },
       ]
       const currentLabel = current === 'reader' ? 'profileReader' : destinations.find(({ name }) => name === current)?.label
@@ -379,6 +390,11 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setFailure(null)
         try {
+          if (next) {
+            if (typeof window.desktopNext?.command !== 'function') throw new Error(t('nextExplain'))
+            await window.desktopNext.command({ type: 'switch', name: target })
+            return
+          }
           const result = target === 'desktop' ? await call('unlink', {}) : await call('link', { target })
           if (result?.ok === true) {
             setApplied(result.value ?? {})
@@ -398,7 +414,7 @@ window.__ModuleLoader__.load({
       const installation = status?.installation
       const showUpdates = isDesktop && (status?.desktopApp === true || status?.desktopTavernWindow === true) && installation?.available && !status?.installAvailable
       const updating = updateInProgress(update?.phase)
-      const managementBlocked = !isDesktop || status?.desktopApp !== true || !installation?.available || busy || pending || !!updateAction || updating || Boolean(lastFailure?.recoveryRequired)
+      const managementBlocked = !isDesktop || status?.desktopApp !== true || (next && current !== 'desktop') || !installation?.available || busy || pending || !!updateAction || updating || Boolean(lastFailure?.recoveryRequired)
       React.useEffect(() => {
         if (!showUpdates || updateAction) return
         let alive = true, timer
@@ -429,6 +445,10 @@ window.__ModuleLoader__.load({
           const result = await call(endpoint, {})
           if (result?.ok !== true) throw new Error(describeFailure(result?.error))
           setUpdate(result.value)
+          if (result.value.scheduled) {
+            setApplied(result.value.scheduled)
+            setStatus(previous => ({ ...previous, lastResult: { status: 'pending', mode: 'install', stamp: result.value.scheduled.stamp } }))
+          }
         } catch (error) {
           setUpdateFailure(describeFailure(error))
         } finally {
@@ -476,14 +496,14 @@ window.__ModuleLoader__.load({
         h('style', null, CSS),
         h('header', { className: 'pb-head' },
           h('h2', { className: 'pb-title' }, title),
-          h('p', { className: 'pb-sub' }, status === null ? t('loading') : !isDesktop ? t('cliHint') : standalone ? t('standalone') : t('explain')),
+          h('p', { className: 'pb-sub' }, status === null ? t('loading') : !isDesktop ? t('cliHint') : standalone ? t('standalone') : t(next ? 'nextExplain' : 'explain')),
         ),
         !isDesktop ? null : standalone ? h('div', { className: 'pb-bar' },
           h('span', { className: 'pb-bar-text' }),
           h('button', { type: 'button', className: 'pb-btn', disabled: busy, onClick: () => void openOriginal() }, t('openOriginal')),
         ) : blocked ? h('p', { className: 'pb-error' }, blocked) : h('div', { className: 'pb-bar' },
           h('span', { className: 'pb-bar-text' },
-            status?.lastResult?.mode === 'install' ? `${t('current')} · ${currentLabel ? t(currentLabel) : current}` : applied === null ? (pending ? t('restarting') : `${t('current')} · ${currentLabel ? t(currentLabel) : current}`) : applied.closesApp ? t('restarting') : t('quitHint'),
+            next && pending ? t('nextQuit') : status?.lastResult?.mode === 'install' ? `${t('current')} · ${currentLabel ? t(currentLabel) : current}` : applied === null ? (pending ? t('restarting') : `${t('current')} · ${currentLabel ? t(currentLabel) : current}`) : applied.closesApp ? t('restarting') : t('quitHint'),
             ...(applied?.warnings ?? []).map((warning) => h('span', { key: warning, style: { display: 'block', opacity: 0.75 } }, `• ${warning}`)),
           ),
           applied !== null ? null : h('div', { className: 'pb-actions' }, ...options.map(({ name, action }) =>
@@ -502,7 +522,7 @@ window.__ModuleLoader__.load({
           ? h('p', { className: 'pb-done', role: 'status' }, t('installDone')) : null,
         (status?.installAvailable || (pending && status?.lastResult?.mode === 'install')) ? h('section', { className: 'pb-management', 'aria-label': t('management') },
           h('h3', null, t('management')),
-          h('p', null, t('installHint')),
+          h('p', null, t(next ? 'nextInstallHint' : 'installHint')),
           status.replacesNext ? h('p', null, t('replacesNext')) : null,
           pending ? h('p', { role: 'status' }, status.installProgress || t('installing')) : null,
           !installBlocked ? h('div', { className: 'pb-actions' },
@@ -512,7 +532,7 @@ window.__ModuleLoader__.load({
             managementAction === 'install' ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy,
               onClick: () => setManagementAction(null) }, t('cancel')) : null) : null,
         ) : null,
-        !isDesktop || standalone || status === null ? null : h('section', { className: 'pb-shortcut pb-default', 'aria-label': t('startupTitle') },
+        !isDesktop || next || standalone || status === null ? null : h('section', { className: 'pb-shortcut pb-default', 'aria-label': t('startupTitle') },
           h('div', { className: 'pb-bar-text' },
             h('strong', null, t('startupTitle')),
             h('p', { className: 'pb-sub' }, t(status.defaultProfile === 'tavern' ? 'startupTavern' : 'startupOriginal')),
@@ -522,7 +542,7 @@ window.__ModuleLoader__.load({
             onClick: () => void changeDefault(status.defaultProfile === 'tavern' ? null : 'tavern') },
             t(status.defaultProfile === 'tavern' ? 'clearDefault' : 'setDefault')),
         ),
-        !isDesktop || standalone || !ready('tavern') || status?.installAvailable ? null : h('div', { className: 'pb-shortcut' },
+        !isDesktop || next || standalone || !ready('tavern') || status?.installAvailable ? null : h('div', { className: 'pb-shortcut' },
           h('div', { className: 'pb-bar-text' },
             h('p', { className: 'pb-sub' }, t('shortcutHint')),
             shortcut ? h('p', { className: 'pb-done' }, (shortcut.existed ? t('shortcutExists') : t('shortcutDone')) + shortcut.path) : null),
@@ -530,13 +550,14 @@ window.__ModuleLoader__.load({
         ),
         showUpdates ? h('section', { className: 'pb-management', 'aria-label': t('updates') },
           h('h3', null, t('updates')),
+          next && pending && status.lastResult?.mode === 'install' ? h('p', { role: 'status' }, t('nextQuit')) : null,
           h('dl', { className: 'pb-builds' },
             h('dt', null, t('installedBuild')), h('dd', null, update ? renderBuild(t, update.currentVersion, update.currentCommit) : '—'),
             h('dt', null, t('latestBuild')), h('dd', null, update?.latestVersion || update?.latestCommit ? renderBuild(t, update.latestVersion, update.latestCommit) : t('unchecked'))),
           !checking && !updateAction && (updateAvailable || update?.phase === 'up-to-date') ? h('p', {
             className: 'pb-update-badge' + (updateAvailable ? ' pb-update-badge-available' : ''), role: 'status',
           }, t(updateAvailable ? 'updateAvailable' : 'upToDate')) : null,
-          !checking && (updateAvailable || repairRequired) && update?.canUpdate === false ? h('p', { className: 'pb-sub' }, t('switchToUpdate')) : null,
+          !checking && (updateAvailable || repairRequired) && update?.canUpdate === false && !pending ? h('p', { className: 'pb-sub' }, t(next ? 'nextSwitchToUpdate' : 'switchToUpdate')) : null,
           !checking && update?.checkWarning ? h('p', { className: 'pb-sub' }, update.checkWarning) : null,
           checking ? h('p', { role: 'status' }, t('checkingUpdate')) : null,
           updating || updateAction === 'start-update' ? h(React.Fragment, null,
@@ -555,15 +576,16 @@ window.__ModuleLoader__.load({
               h('dt', { key: key + '-label' }, t(key)),
               h('dd', { key }, installation[key] || '—'),
             ])),
-          h('p', { className: 'pb-sub' }, t('relocationScope')),
+          next ? null : h('p', { className: 'pb-sub' }, t('relocationScope')),
           h('p', null, t('backupSpace')),
           !installation.available ? h('p', { className: 'pb-error' }, installation.reason || t('unavailable')) : null,
           !isDesktop || status?.desktopApp !== true ? h('p', null, t('desktopOnly')) : null,
+          next && current !== 'desktop' ? h('p', null, t('nextManage')) : null,
           pending ? h('p', { role: 'status' }, t('operationPending')) : null,
           status?.lastResult?.status === 'succeeded' && ['relocate', 'uninstall'].includes(status.lastResult.mode)
             ? h('p', { role: 'status' }, t('operationDone')) : null,
           h('div', { className: 'pb-actions' },
-            h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: managementBlocked || managementAction !== null, onClick: () => reviewManagement('relocate') }, t('relocate')),
+            next ? null : h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: managementBlocked || managementAction !== null, onClick: () => reviewManagement('relocate') }, t('relocate')),
             h('button', { type: 'button', className: 'pb-btn pb-btn-quiet pb-danger', disabled: managementBlocked || managementAction !== null, onClick: () => reviewManagement('uninstall') }, t('uninstall'))),
           managementAction ? h('div', { className: 'pb-review', role: 'group', 'aria-label': t(managementAction === 'relocate' ? 'reviewRelocate' : 'reviewUninstall') },
             h('strong', null, t(managementAction === 'relocate' ? 'reviewRelocate' : 'reviewUninstall')),
@@ -572,7 +594,7 @@ window.__ModuleLoader__.load({
               h('input', { id: 'pb-destination', className: 'pb-input', type: 'text', value: destination, disabled: busy || pending, autoComplete: 'off', spellCheck: false, 'aria-describedby': 'pb-destination-hint', onChange: event => setDestination(event.target.value) }),
               h('p', { id: 'pb-destination-hint', className: 'pb-sub' }, t('destinationHint')),
             ) : h('p', null, t('uninstallScope')),
-            h('p', null, t('restartWarning')),
+            h('p', null, t(next ? 'nextQuit' : 'restartWarning')),
             h('div', { className: 'pb-actions' },
               h('button', { type: 'button', className: 'pb-btn', disabled: managementBlocked || (managementAction === 'relocate' && !absoluteDestination), onClick: () => void confirmManagement() }, t(managementAction === 'relocate' ? 'confirmRelocate' : 'confirmUninstall')),
               h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy || pending, onClick: () => { setManagementAction(null); setDestination(''); setFailure(null) } }, t('cancel'))),
@@ -580,7 +602,7 @@ window.__ModuleLoader__.load({
         ) : null,
         h('details', { className: 'pb-fold' },
           h('summary', null, t('more')),
-          h('p', null, t('why')),
+          h('p', null, t(next ? 'nextExplain' : 'why')),
           status?.transcriptPath ? h('p', { className: 'pb-sub' }, t('logLocation') + status.transcriptPath) : null,
           diagnosticLog ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', onClick: copyLogs }, t('copyLogs')) : null,
           logCopy ? h('p', { role: 'status' }, t(logCopy)) : null,
@@ -601,7 +623,6 @@ window.__ModuleLoader__.load({
             window.document.head.appendChild(style)
             return () => style.remove()
           }, 'NEXT: hide the duplicate market settings icon')
-          return // NEXT has its own Profile selector in Desktop Settings.
         }
         const t = ctx.locale.bind(NS)
         const rpcCall = (endpoint, payload) => ctx.connection.rpc.call(CHANNEL, endpoint, payload)

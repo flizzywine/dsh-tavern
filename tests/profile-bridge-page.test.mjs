@@ -13,7 +13,7 @@ async function mount(status, calls = [], options = {}) {
   globalThis.document = dom.window.document
   // The Tavern client sets this flag on pages where it loaded.
   if (inTavern) dom.window.__dshTavernLoaded = true
-  if (options.next) dom.window.desktopNext = { state: async () => ({}) }
+  if (options.next) dom.window.desktopNext = { state: async () => ({}), command: options.next }
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator })
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   const React = (await import('react')).default
@@ -46,13 +46,19 @@ async function mount(status, calls = [], options = {}) {
 
 const tavernProfile = { name: 'tavern', bundles: ['dsh-tavern-plugin', 'dsh-tavern'], hasBridge: true, hasNodeModules: true }
 
-test('NEXT 使用原生 Profile 设置，不注册旧切换页', async () => {
-  const page = await mount({}, [], { next: true })
+test('NEXT 共用酒馆启动器和更新状态，通过原生 Profile 切换', async () => {
+  const nativeCalls = []
+  const page = await mount({ host: 'next', activeName: 'desktop', appKind: 'desktop', desktopApp: true,
+    profiles: [tavernProfile], installation: { available: true } }, [], { next: command => nativeCalls.push(command) })
   try {
-    assert.equal(page.registered, false)
-    assert.deepEqual(page.calls, [])
+    assert.equal(page.label(), '酒馆启动器')
+    assert.match(page.text(), /检查更新/)
+    assert.match(page.text(), /删除 DSH 酒馆/)
+    await page.act(async () => page.button().click())
+    assert.deepEqual(nativeCalls, [{ type: 'switch', name: 'tavern' }])
+    assert.deepEqual(page.calls.map(([endpoint]) => endpoint), ['status', 'update-status'])
   } finally {
-    page.dispose()
+    await page.dispose()
   }
 })
 

@@ -13,11 +13,11 @@ INSTALL_HOST=${DSH_TAVERN_HOST:-desktop}
 LAUNCHER_ONLY=0
 if [ "${1:-}" = "--launcher-only" ]; then
   LAUNCHER_ONLY=1
-  [ "$INSTALL_HOST" = desktop ] || { echo '安装失败：--launcher-only 仅用于官方 DeepSeek Harness。' >&2; exit 1; }
+  [ "$INSTALL_HOST" != cli ] || { echo '安装失败：--launcher-only 需要桌面宿主。' >&2; exit 1; }
 fi
 case ${INSTALL_HOST} in
-  desktop|cli) ;;
-  *) echo "安装失败：只支持官方桌面和独立命令行，不支持宿主 ${INSTALL_HOST}" >&2; exit 1 ;;
+  desktop|next|cli) ;;
+  *) echo "安装失败：不支持宿主 ${INSTALL_HOST}" >&2; exit 1 ;;
 esac
 
 REPOSITORY=${DSH_TAVERN_REPOSITORY:-flizzywine/dsh-tavern}
@@ -30,6 +30,7 @@ CDN_ROOT_URL=${DSH_TAVERN_CDN_ROOT_URL:-https://cdn.jsdelivr.net/gh/${REPOSITORY
 INSTALLER_VERSION='3.2.0'
 LEGACY_DSH_ROOT=${DSH_TAVERN_LEGACY_DSH_HOME:-${DSH_HOME:-${HOME}/.dsh}}
 DSH_ROOT=${DSH_HOME:-${HOME}/.dsh}
+if [ "${INSTALL_HOST}" = "next" ]; then DSH_ROOT=${DSH_HOME:-${DSH_DESKTOP_NEXT_HOME:-${HOME}/.dsh}}; fi
 if [ "${INSTALL_HOST}" = "cli" ]; then
   # CLI directory selection: explicit paths and existing installations never prompt.
   DSH_ROOT=${DSH_TAVERN_CLI_HOME:-}
@@ -133,17 +134,22 @@ fail() {
   exit 1
 }
 
-if [ "${INSTALL_HOST}" = "desktop" ]; then
+if [ "${INSTALL_HOST}" != "cli" ]; then
   desktop_executable=${DSH_DESKTOP_APP_EXECUTABLE:-}
+  desktop_name='DeepSeek Harness'
+  desktop_host_arg=
+  if [ "${INSTALL_HOST}" = "next" ]; then
+    desktop_executable=${DSH_TAVERN_NEXT_EXECUTABLE:-}
+    desktop_name='DSH NEXT'
+    desktop_host_arg=--next
+  fi
   if [ -z "$desktop_executable" ] && [ "$(uname -s)" = "Darwin" ]; then
-    # Only official DeepSeek Harness is supported.
-    for desktop_name in "DeepSeek Harness"; do
-      for desktop_app in "/Applications/${desktop_name}.app" "$HOME/Applications/${desktop_name}.app"; do
-        if [ -x "$desktop_app/Contents/MacOS/${desktop_name}" ]; then desktop_executable="$desktop_app/Contents/MacOS/${desktop_name}"; break 2; fi
-      done
+    for desktop_app in "/Applications/${desktop_name}.app" "$HOME/Applications/${desktop_name}.app"; do
+      if [ -x "$desktop_app/Contents/MacOS/${desktop_name}" ]; then desktop_executable="$desktop_app/Contents/MacOS/${desktop_name}"; break; fi
     done
   fi
   if ! { [ -n "$desktop_executable" ] && [ -x "$desktop_executable" ]; }; then
+    [ "${INSTALL_HOST}" != "next" ] || fail '请用 DSH_TAVERN_NEXT_EXECUTABLE 指定 DSH NEXT 的程序路径。'
     # A community app installed instead of the official one gets told where its installer is.
     for community_name in "DSH NEXT" "DSH Desktop"; do
       for community_app in "/Applications/${community_name}.app" "$HOME/Applications/${community_name}.app"; do
@@ -282,7 +288,7 @@ if (require.main === module) {
 DSH_OFFICIAL_DESKTOP_MODULE
   # Use the official desktop Electron runtime.
   desktop_runner=$desktop_executable
-  DSH_DESKTOP_APP_EXECUTABLE="$desktop_executable" ELECTRON_RUN_AS_NODE=1 "$desktop_runner" --expose-internals "${TEMP_DIR}/official-desktop-runtime.cjs" "$DSH_ROOT" --shell >"${TEMP_DIR}/desktop-env.sh" || fail "桌面运行环境校验失败"
+  DSH_DESKTOP_APP_EXECUTABLE="$desktop_executable" ELECTRON_RUN_AS_NODE=1 "$desktop_runner" --expose-internals "${TEMP_DIR}/official-desktop-runtime.cjs" "$DSH_ROOT" --shell ${desktop_host_arg:+"$desktop_host_arg"} >"${TEMP_DIR}/desktop-env.sh" || fail "桌面运行环境校验失败"
   . "${TEMP_DIR}/desktop-env.sh"
   if [ "$LAUNCHER_ONLY" -eq 1 ]; then
     node - "$desktop_profile" <<'DSH_CHECK_LAUNCHER' || fail '请检查原版 desktop 配置。'
@@ -307,17 +313,18 @@ for (const name of profile.dsh?.profile?.bundles ?? []) {
   }
 }
 if (hasBundle('dsh-tavern')) {
-  let repository
-  try { repository = JSON.parse(readFileSync(join(directory, 'node_modules/dsh-tavern/package.json'), 'utf8')).repository } catch {}
-  if (repository?.url !== 'git+https://github.com/flizzywine/dsh-tavern.git' || repository.directory !== 'tavern-plugin/packages/dsh-tavern') {
+  let installed
+  try { installed = JSON.parse(readFileSync(join(directory, 'node_modules/dsh-tavern/package.json'), 'utf8')) } catch {}
+  const repository = installed?.repository
+  if (repository?.url !== 'git+https://github.com/flizzywine/dsh-tavern.git' || (repository.directory !== 'tavern-plugin/packages/dsh-tavern' && installed.dshTavern?.profileHandoff !== true)) {
     console.error('当前 Profile 已有同名的 dsh-tavern 插件，请检查其来源后再安装酒馆。')
     process.exit(1)
   }
 }
 DSH_CHECK_LAUNCHER
-    launcher_url='https://raw.githubusercontent.com/flizzywine/dsh-tavern/refs/tags/launcher-cdn-v0.2.0-tavern.18/dsh-tavern-0.2.0-tavern.18.tgz'
+    launcher_url='https://raw.githubusercontent.com/flizzywine/dsh-tavern/refs/tags/launcher-cdn-v1.5.0/dsh-tavern-1.5.0.tgz'
     dsh plugin --profile desktop add "$launcher_url" || fail '安装酒馆启动器失败。'
-    printf '%s\n' '酒馆启动器已安装。打开官方 DeepSeek Harness，进入「设置 → 酒馆启动器 → 安装酒馆」。'
+    printf '%s\n' '酒馆启动器已安装。打开桌面，进入「设置 → 酒馆启动器 → 安装酒馆」。'
     INSTALL_COMPLETED=1
     exit 0
   fi
@@ -1454,6 +1461,9 @@ else
 fi
 [ -n "${SOURCE_DIR}" ] || fail "下载内容不完整。"
 [ -f "${SOURCE_DIR}/package.json" ] || fail "下载内容不完整。"
+if [ "${INSTALL_HOST}" = "next" ]; then
+  grep -Fq DSH_TAVERN_UNIFIED_DESKTOP "${SOURCE_DIR}/bin/profile-installation.mjs" || fail "下载源尚未同步统一桌面安装支持，请稍后重试。"
+fi
 if [ "${DSH_TAVERN_INSTALL_INACTIVE:-0}" = "1" ]; then
   grep -Fq DSH_TAVERN_INSTALL_INACTIVE "${SOURCE_DIR}/bin/profile-installation.mjs" || fail "下载源尚未同步独立安装支持，请稍后重试。"
 fi
@@ -1507,7 +1517,7 @@ if [ "${INSTALL_HOST}" != "cli" ]; then
 fi
 
 STAGER=${SOURCE_DIR}/bin/staged-app-install.mjs
-if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" = "cli" ] && [ -f "${STAGER}" ]; }; then
+if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" != "desktop" ] && [ -f "${STAGER}" ]; }; then
   # Prepare beside the running app; only the final switch stops the service, and a
   # failure after it restores the previous directory (see bin/staged-app-install.mjs).
   echo "正在准备新版本（当前版本继续运行）……"
@@ -1532,7 +1542,7 @@ if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" = "cli" ] && [
     if [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then PREVIOUS_APP=1; fi
   elif [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then
     PREVIOUS_APP=1
-    DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" stop >/dev/null 2>&1 || true
+    if [ "${INSTALL_HOST}" = "cli" ]; then DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" stop >/dev/null 2>&1 || true; fi
   fi
   APP_SWAPPED=1
   node "${STAGER}" swap --app "${APP_DIR}"
@@ -1573,6 +1583,8 @@ fi
 if [ "${INSTALL_HOST}" = "desktop" ]; then
   echo "DSH Tavern Desktop 版安装完成。"
   echo "酒馆已安装到独立 tavern 配置；首次安装保留原版默认入口，更新保留已有选择。需要默认打开酒馆时，请在设置 → 酒馆启动器中主动选择。"
+elif [ "${INSTALL_HOST}" = "next" ]; then
+  echo 'DSH Tavern 安装完成。请打开 DSH NEXT，进入「设置 → 酒馆启动器」切换到酒馆。'
 else
   if [ "${DSH_TAVERN_DEFER_SERVICE_START:-0}" != "1" ]; then
     DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" start

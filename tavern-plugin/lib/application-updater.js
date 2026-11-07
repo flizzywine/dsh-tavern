@@ -121,7 +121,7 @@ function runtimeCommitIdentityOf(value) {
 
 function installHostOf(manifest) {
   const host = manifest?.dshTavern?.host
-  return host === 'desktop' || host === 'android' ? host : 'cli'
+  return ['desktop', 'next', 'android'].includes(host) ? host : 'cli'
 }
 
 function processIsAlive(pid) {
@@ -592,7 +592,7 @@ export function createApplicationUpdater(options) {
       throw new Error('请返回日常 Profile，通过酒馆启动器更新。')
     }
     const installHost = await host()
-    if (installHost === 'next') throw new Error('请退出 DSH NEXT，更新酒馆源码后重新运行 node bin/dsh-tavern.mjs install --host next。')
+    if (installHost === 'next') throw new Error('请切回原版 DSH，再在酒馆启动器中更新。')
     // A Git checkout is the developer's: the updater would install a separate copy (or replace this one
     // and drop its .git), never update what is running. Checking for updates still works.
     // Android is the exception: android/setup.sh installs a Git checkout and android/update.sh fast-forwards it.

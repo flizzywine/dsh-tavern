@@ -114,6 +114,21 @@ test('launcher finishes installation without waiting for or restarting Desktop',
   assert.equal(status.status, 'succeeded')
 })
 
+test('NEXT 安装等待 GUI 和宿主退出，成功后重开桌面', async t => {
+  const request = { ...fixture(t), host: 'next', mode: 'install', ownership: { roots: [{ pid: 10 }], descendants: [{ pid: 20 }] } }
+  const order = []
+  const result = await runSwitchJob(job(request), {
+    waitOwned: async owner => order.push(owner.roots[0].pid),
+    perform: async () => order.push('install'),
+    relaunch: (_exe, options) => {
+      assert.equal(options.continueProfile, false)
+      order.push('relaunch')
+    },
+  })
+  assert.equal(result, 0)
+  assert.deepEqual(order, [10, 20, 'install', 'relaunch'])
+})
+
 test('normal quit timeout never cleans descendants, changes directories, or relaunches', async t => {
   const request = fixture(t)
   assert.equal(await runSwitchJob(job(request), {

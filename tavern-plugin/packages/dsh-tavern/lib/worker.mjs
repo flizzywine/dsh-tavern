@@ -9,6 +9,7 @@ import { hasNextTavern } from './state.mjs'
 
 async function installTavern(request, { log }) {
   const windows = process.platform === 'win32'
+  const next = request.host === 'next'
   const replacesNext = hasNextTavern(request.home)
   const name = windows ? 'install.ps1' : 'install.sh'
   const script = join(request.stateDir, 'install-pending', 'runtime', name)
@@ -27,6 +28,7 @@ async function installTavern(request, { log }) {
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const content = await response.text()
       if (!content.includes('DSH_TAVERN_INSTALL_INACTIVE')) throw new Error('安装脚本尚未同步')
+      if (next && !content.includes('DSH_TAVERN_UNIFIED_DESKTOP')) throw new Error('安装脚本尚未同步统一桌面安装支持')
       if (replacesNext && !content.includes('DSH_TAVERN_REQUIRE_NEXT_MIGRATION')) throw new Error('安装脚本尚未支持 NEXT 迁移')
       writeFileSync(script, windows ? '\uFEFF' + content : content, { flag: 'wx', mode: 0o600 })
       log('已下载酒馆安装脚本。')
@@ -36,11 +38,18 @@ async function installTavern(request, { log }) {
       if (source === sources.at(-1)) throw new Error(`无法获取可用的酒馆安装脚本：${error.message}。请稍后重试。`)
     }
   }
-  const env = { ...process.env, DSH_HOME: request.home, DSH_TAVERN_HOST: 'desktop',
+  const env = { ...process.env, DSH_HOME: request.home, DSH_TAVERN_HOST: next ? 'next' : 'desktop',
     DSH_DESKTOP_APP_EXECUTABLE: request.relaunch, DSH_TAVERN_LAUNCHER_INSTALL: '1', DSH_TAVERN_PUBLISH_GATE: gate }
-  env.DSH_TAVERN_LATE_PUBLISH = '1'
-  env.DSH_TAVERN_INSTALL_INACTIVE = '1'
-  env.DSH_TAVERN_PREPARING_DESKTOP_PID = String(request.pids[1])
+  if (next) {
+    env.DSH_TAVERN_NEXT_EXECUTABLE = request.relaunch
+    writeFileSync(gate, 'publish', { flag: 'wx' })
+  }
+  else {
+    env.DSH_TAVERN_LATE_PUBLISH = '1'
+    env.DSH_TAVERN_INSTALL_INACTIVE = '1'
+    env.DSH_TAVERN_PREPARING_DESKTOP_PID = String(request.pids[1])
+  }
+  if (request.appDir) env.DSH_TAVERN_APP_DIR = request.appDir
   writeFileSync(gate + '.progress', '正在下载酒馆文件…')
   if (replacesNext) env.DSH_TAVERN_REQUIRE_NEXT_MIGRATION = '1'
   for (const key of ['ELECTRON_RUN_AS_NODE', 'DSH_PROFILE', 'DSH_PROFILE_DIR']) delete env[key]
@@ -139,7 +148,7 @@ export async function runSwitchJob(job, {
           await waitOwned({ roots: request.ownership.descendants }, { timeout: 15000 })
         }
       }
-      if (request.mode !== 'install') await waitForDesktop()
+      if (request.mode !== 'install' || request.host === 'next') await waitForDesktop()
       let cleaned = false
       const result = await perform(request, { log, retry: { onRetry: async ({ from, to, code, attempt }) => {
         log(`目录占用重试 ${attempt}: ${code} ${from} → ${to}`)
@@ -166,7 +175,7 @@ export async function runSwitchJob(job, {
     log('ERROR: ' + error.message)
   } finally {
     if (exited && !recoveryRequired && request?.relaunch) {
-      try { relaunch(request.relaunch, { continueProfile: true }); log('已重新打开官方桌面。') } catch (error) { log('ERROR: 无法重新打开官方桌面：' + error.message) }
+      try { relaunch(request.relaunch, { continueProfile: request.host !== 'next' }); log('已重新打开桌面。') } catch (error) { log('ERROR: 无法重新打开桌面：' + error.message) }
     }
     if (recoveryRequired) log('入口需要手动恢复，未重新打开桌面；请保留备份和日志。')
     try {

@@ -113,16 +113,15 @@ test('Next 迁移独立酒馆配置时移除旧桥接和过时的素材库路径
   const desktop = mergeProfileManifest({ ...args, host: 'desktop' })
   assert.equal(next.dependencies['legacy-profile-switcher'], undefined)
   assert.equal(next.dsh.profile.bundles.includes('legacy-profile-switcher'), false)
-  assert.equal(next.dshTavern.profileBridge, undefined)
-  assert.equal(next.dshTavern.officialDesktop, undefined)
+  assert.equal(next.dshTavern.profileBridge, true)
+  assert.equal(next.dshTavern.officialDesktop, true)
   assert.equal(next.dependencies['user-plugin'], '1.0.0')
   assert.equal(desktop.dependencies['legacy-profile-switcher'], undefined)
   assert.equal(desktop.dsh.profile.bundles.includes('legacy-profile-switcher'), false)
   const patchOptions = { profileDir, profileConfigurationVersion: Number.MAX_SAFE_INTEGER }
-  assert.deepEqual(parseDocument(prepareProfilePatch({ ...patchOptions, host: 'next' })).toJS(), [
+  for (const host of ['desktop', 'next']) assert.deepEqual(parseDocument(prepareProfilePatch({ ...patchOptions, host })).toJS(), [
     { id: 'dsh-asset-library', config: { assetRoot: './custom' } },
   ])
-  assert.equal(prepareProfilePatch({ ...patchOptions, host: 'desktop' }), undefined)
   assert.equal(await readFile(path.join(profileDir, 'cordis.patch.yml'), 'utf8'), original)
 })
 

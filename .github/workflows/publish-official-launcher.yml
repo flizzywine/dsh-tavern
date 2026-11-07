@@ -1,4 +1,4 @@
-name: Publish official Tavern launcher
+name: Publish Tavern desktop launcher
 
 on:
   push:
@@ -54,5 +54,5 @@ jobs:
             cmp "$RUNNER_TEMP/$archive" "$RUNNER_TEMP/launcher-release/$archive"
           else
             gh release create "$tag" "$RUNNER_TEMP/$archive" --target "$GITHUB_SHA" --latest=false \
-              --title "dsh-tavern $version" --notes 'Launcher for official DeepSeek Harness on Windows and macOS. Install it into the original desktop profile, then use Settings → Tavern Launcher to install Tavern.'
+              --title "dsh-tavern $version" --notes 'Shared launcher for DeepSeek Harness and DSH NEXT on Windows and macOS. Install it into the original desktop profile, then use Settings → Tavern Launcher to install Tavern.'
           fi

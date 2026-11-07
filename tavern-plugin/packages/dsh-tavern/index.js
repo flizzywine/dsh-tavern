@@ -7,7 +7,7 @@ import { captureOwnedProcesses } from './lib/processes.mjs'
 import { requestDesktopQuit } from './lib/quit.mjs'
 import { relaunchApp, scheduleSwitch } from './lib/helper.mjs'
 import { createTavernShortcut } from './lib/shortcut.mjs'
-import { canInstallTavern, detectAppExe, fail, isActiveTavern, isDesktopApp, isOfficialDesktopApp, isDesktopTavernWindow, readLinkTarget, resolvePaths, statusPayload, validateTarget } from './lib/state.mjs'
+import { canInstallTavern, detectAppExe, fail, isActiveTavern, isDesktopApp, isOfficialDesktopApp, isDesktopTavernWindow, launcherPaths, readLinkTarget, statusPayload, validateTarget } from './lib/state.mjs'
 import { initializeDefaultProfile, setDefaultProfile, startupSwitchMode } from './lib/startup-profile.mjs'
 
 /** Shared RPC channel owned by this plugin; the browser half calls it by name. */
@@ -24,49 +24,59 @@ let installedUpdater
 
 async function runUpdate(method, paths) {
   const installation = inspectInstallation(paths)
-  if (!(basename(paths.activeDir) === 'desktop' && isDesktopApp()) && !isDesktopTavernWindow(paths, installation)) {
-    fail('not-desktop', '请在官方桌面或 DSH 酒馆独立窗口中管理更新。')
+  const next = paths.host === 'next'
+  const original = paths.activeDir === join(paths.profilesDir, 'desktop')
+  if (!next && !(original && isDesktopApp()) && !isDesktopTavernWindow(paths, installation)) {
+    fail('not-desktop', '请在 DSH 桌面或 DSH 酒馆独立窗口中管理更新。')
   }
   if (!installation.available) fail('update-unavailable', installation.reason)
-  // The updater can refresh the inactive original profile while Tavern is running.
-  // It cannot replace the original launcher's files while that profile is active.
-  const canUpdate = isActiveTavern(paths, installation)
+  // Official updates run from Tavern and refresh the inactive original launcher.
+  // NEXT updates use the same installer after the original desktop has quit.
+  const canUpdate = next ? original : isActiveTavern(paths, installation)
   if (['start', 'cancel'].includes(method) && !canUpdate) {
-    fail('update-unavailable', '请先切换到 DSH 酒馆，再在启动器中更新。')
+    fail('update-unavailable', next ? '请先切回原版 DSH，再在启动器中更新。' : '请先切换到 DSH 酒馆，再在启动器中更新。')
   }
   const sourceRoot = installation.appDir
   const dataRoot = join(installation.sharedHome, 'profile-data', 'tavern', 'data')
-  const key = JSON.stringify([sourceRoot, dataRoot])
+  const runtimeHost = next ? 'next' : 'desktop'
+  const key = JSON.stringify([sourceRoot, dataRoot, runtimeHost])
   if (installedUpdater?.key !== key) {
-    // The launcher is distributed independently; use the updater in the verified
-    // official Tavern installation rather than bundling a second installer.
+    // Use the updater in the verified Tavern installation.
     const runtime = join(sourceRoot, 'tavern-plugin', 'lib')
     const entry = pathToFileURL(join(runtime, 'application-updater.js'))
     const service = import(entry.href).then(({ createApplicationUpdater }) => createApplicationUpdater({
-      dataRoot, sourceRoot, dshHome: installation.sharedHome, runtimeHost: 'desktop',
+      dataRoot, sourceRoot, dshHome: installation.sharedHome, runtimeHost,
       hostDependencyAnchor: join(runtime, 'index.js'),
     }))
     installedUpdater = { key, service }
     service.catch(() => { if (installedUpdater?.service === service) installedUpdater = undefined })
   }
   const updater = await installedUpdater.service
+  if (next && method === 'start') {
+    const current = await updater.check()
+    if (!['update-available', 'repair-required'].includes(current.phase)) return { ...current, canUpdate }
+    const scheduled = await runSwitch('install', paths, { confirmed: true }, installation)
+    return { ...current, canUpdate: false, scheduled }
+  }
   return { ...await updater[method](), canUpdate }
 }
 
 /** Host services this plugin needs. */
-export const inject = ['connection', 'webServer']
+export const inject = ['connection', 'profileContext', 'webServer']
 
 /**
  * Prepare and launch one switch operation.
  * @param {'link' | 'unlink'} mode - operation to perform.
- * @param {ReturnType<typeof resolvePaths>} paths - resolved plugin paths.
+ * @param {ReturnType<typeof launcherPaths>} paths - resolved plugin paths.
  * @param {unknown} payload - browser request payload.
  * @returns {object} JSON-safe receipt for the UI.
  */
-async function runSwitch(mode, paths, payload) {
+async function runSwitch(mode, paths, payload, updateInstallation) {
   const request = typeof payload === 'object' && payload !== null ? payload : {}
-  if (mode === 'install' && (request.confirmed !== true || !canInstallTavern(paths))) {
-    fail('install-unavailable', '请在官方桌面的原版配置中确认首次安装。')
+  const next = paths.host === 'next'
+  if (next && ['link', 'unlink', 'relocate'].includes(mode)) fail('unsupported', 'NEXT 使用原生 Profile 切换，酒馆 Profile 必须保留为独立目录。')
+  if (mode === 'install' && (request.confirmed !== true || (!updateInstallation && !canInstallTavern(paths)))) {
+    fail('install-unavailable', '请在桌面的原版配置中确认首次安装。')
   }
   if (mode === 'link' && basename(paths.activeDir) !== 'desktop') {
     fail(
@@ -77,20 +87,20 @@ async function runSwitch(mode, paths, payload) {
   }
   const management = ['relocate', 'uninstall'].includes(mode)
     ? validateInstallationRequest(paths, mode, request) : undefined
-  if (management && basename(paths.activeDir) !== 'desktop') fail('not-desktop', '请在官方桌面中管理安装。')
   const target = mode === 'link' ? validateTarget(paths, request.target) : undefined
   const relaunch = mode === 'install' ? process.execPath : detectAppExe()
   if (!process.versions.electron || !process.send || process.ppid <= 1) {
-    fail('not-desktop', '请在官方桌面中执行切换')
+    fail('not-desktop', '请在 DSH 桌面中执行此操作。')
   }
   // Snapshot before quitting: detached children lose a trustworthy parent once it exits.
   const ownership = await captureOwnedProcesses([process.pid, process.ppid])
-  const result = scheduleSwitch({ ...management, mode, home: paths.home, profilesRoot: paths.profilesDir, liveDir: paths.activeDir,
+  const result = scheduleSwitch({ ...management, mode, host: paths.host, appDir: updateInstallation?.logicalAppDir,
+    home: paths.home, profilesRoot: paths.profilesDir, liveDir: paths.activeDir,
     activeName: paths.activeName, targetDir: target?.dir, stateDir: paths.stateDir,
     stamp: new Date().toISOString().replace(/[:.]/g, '-') + '-' + process.pid,
     pids: [process.pid, process.ppid], ownership, relaunch })
-  if (mode === 'install') return { ...result, mode, warnings: [], reopensApp: true }
-  const closesApp = await requestDesktopQuit({ pid: process.ppid, executable: relaunch }, {
+  if (mode === 'install' && !next) return { ...result, mode, warnings: [], reopensApp: true }
+  const closesApp = !next && await requestDesktopQuit({ pid: process.ppid, executable: relaunch }, {
     onError: error => {
       try { appendFileSync(result.logPath, new Date().toISOString() + ' 自动退出失败，可从托盘退出：' + error.message + '\n') } catch {}
     },
@@ -112,20 +122,18 @@ function openOriginal() {
  * @param {unknown} payload - decoded request payload.
  * @returns {Promise<{ ok: true, value: unknown } | { ok: false, error: object }>} RPC result.
  */
-async function handleCall(endpoint, payload) {
+async function handleCall(ctx, endpoint, payload) {
   try {
-    if (endpoint === 'status') return { ok: true, value: statusPayload(resolvePaths()) }
+    const paths = launcherPaths(ctx)
+    if (endpoint === 'status') return { ok: true, value: statusPayload(paths) }
     if (endpoint === 'set-default') {
-      const paths = resolvePaths()
-      if (!isOfficialDesktopApp() || basename(paths.activeDir) !== 'desktop') fail('not-desktop', '请在官方桌面中设置默认配置。')
+      if (paths.host === 'next' || !isOfficialDesktopApp() || basename(paths.activeDir) !== 'desktop') fail('not-desktop', '请在官方桌面中设置默认配置。')
       if (payload?.profile === 'tavern') validateTarget(paths, 'tavern')
       return { ok: true, value: setDefaultProfile(paths.home, payload?.profile) }
     }
-    if (updateActions.has(endpoint)) return { ok: true, value: await runUpdate(updateActions.get(endpoint), resolvePaths()) }
-    if (endpoint === 'link') return { ok: true, value: await runSwitch('link', resolvePaths(), payload) }
-    if (endpoint === 'unlink') return { ok: true, value: await runSwitch('unlink', resolvePaths(), payload) }
-    if (['install', 'relocate', 'uninstall'].includes(endpoint)) return { ok: true, value: await runSwitch(endpoint, resolvePaths(), payload) }
-    if (endpoint === 'shortcut') return { ok: true, value: createTavernShortcut({ paths: resolvePaths() }) }
+    if (updateActions.has(endpoint)) return { ok: true, value: await runUpdate(updateActions.get(endpoint), paths) }
+    if (['link', 'unlink', 'install', 'relocate', 'uninstall'].includes(endpoint)) return { ok: true, value: await runSwitch(endpoint, paths, payload) }
+    if (endpoint === 'shortcut' && paths.host !== 'next') return { ok: true, value: createTavernShortcut({ paths }) }
     if (endpoint === 'openOriginal') return { ok: true, value: openOriginal() }
     fail('not-found', `Unknown endpoint ${JSON.stringify(endpoint)}.`)
   } catch (error) {
@@ -206,7 +214,7 @@ export function apply(ctx) {
   // Explicit switches carry a process-only continuation marker, so they do not
   // immediately bounce back to the default. Never repeat this on plugin reload.
   const startupKey = Symbol.for('dsh-tavern.startup-profile')
-  const paths = resolvePaths()
+  const paths = launcherPaths(ctx)
   if (isOfficialDesktopApp() && basename(paths.activeDir) === 'desktop' && !globalThis[startupKey]) {
     globalThis[startupKey] = true
     Promise.resolve().then(async () => {
@@ -220,7 +228,7 @@ export function apply(ctx) {
   // Preferred: the Connection service's own channel registry (it also applies the
   // browser-trust fence and session authentication).
   try {
-    const disposer = ctx.connection.rpc.handle(CHANNEL, async (endpoint, payload) => handleCall(endpoint, payload))
+    const disposer = ctx.connection.rpc.handle(CHANNEL, async (endpoint, payload) => handleCall(ctx, endpoint, payload))
     ctx.effect(() => disposer, 'profile-bridge: shared rpc channel')
     return
   } catch (error) {
@@ -256,7 +264,7 @@ export function apply(ctx) {
           })
           return
         }
-        sendJson(res, 200, { type: 'server-response', rpcId, result: await handleCall(endpoint, message.payload) })
+        sendJson(res, 200, { type: 'server-response', rpcId, result: await handleCall(ctx, endpoint, message.payload) })
       } catch (error) {
         ctx.logger?.warn?.(`profile-bridge: ${String(error?.message ?? error)}`)
         if (!res.headersSent) {

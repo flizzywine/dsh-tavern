@@ -1,7 +1,0 @@
-- insert:
-    - id: dsh-tavern
-      name: dsh-tavern
-      inject:
-        - connection
-        - profileContext
-        - webServer

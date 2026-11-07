@@ -1,7 +1,7 @@
 {
   "name": "dsh-tavern",
-  "version": "0.2.0-tavern.18",
-  "description": "官方 DeepSeek Harness 的酒馆启动器，安装、切换和管理独立的酒馆配置",
+  "version": "1.5.0",
+  "description": "DeepSeek Harness 和 DSH NEXT 的酒馆启动器，安装、切换和管理同一个酒馆 Profile",
   "license": "MIT",
   "repository": {
     "type": "git",

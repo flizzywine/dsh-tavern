@@ -31,6 +31,23 @@ test('桥接安装更新始终写 tavern，不取决于 desktop 当前是否是�
  assert.equal(installedProfile('cli',home),'tavern')
 })
 
+test('统一启动器从 NEXT 宿主读取活动 Profile，拒绝目录链接切换', async t => {
+ const { apply } = await import('../tavern-plugin/packages/dsh-tavern/index.js')
+ const r = fixture(t)
+ const profile = { home: r.profilesRoot, dir: r.targetDir, name: 'tavern' }
+ let handle
+ apply({
+   get: name => ({ profileContext: profile, desktopProfiles: { current: profile } })[name],
+   connection: { rpc: { handle: (channel, handler) => { assert.equal(channel, '/profile-bridge'); handle = handler } } },
+   effect() {},
+ })
+ const status = await handle('status')
+ assert.equal(status.value.host, 'next')
+ assert.equal(status.value.activeName, 'tavern')
+ assert.equal(status.value.dshHome, profile.home)
+ assert.equal((await handle('unlink')).error.code, 'unsupported')
+})
+
 test('只能切到同样启用桥接的 profile，否则切过去后无法在应用内切回', async t => {
  const { validateTarget, listProfiles } = await import('../tavern-plugin/packages/dsh-tavern/lib/state.mjs')
  const root=mkdtempSync(join(tmpdir(),'pb-target-'));t.after(()=>rmSync(root,{recursive:true,force:true}))

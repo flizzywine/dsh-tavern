@@ -61,8 +61,9 @@ function installBridge(dir, sourceRoot, replaceNext) {
     mkdirSync(path.dirname(destination), { recursive: true })
     copyTreeSync(source, destination)
   }
-  doc.dependencies = { ...doc.dependencies, [LAUNCHER_BUNDLE]: `file:./vendor/${LAUNCHER_BUNDLE}` }
+  doc.dependencies = { ...doc.dependencies }
   for (const name of previousLaunchers) delete doc.dependencies[name]
+  doc.dependencies[LAUNCHER_BUNDLE] = `file:./vendor/${LAUNCHER_BUNDLE}`
   doc.dsh.profile.bundles = [...new Set([...doc.dsh.profile.bundles.filter(name => !previousLaunchers.has(name)), LAUNCHER_BUNDLE])]
   save(path.join(dir, 'package.json'), doc)
 }
@@ -87,7 +88,7 @@ function recover(journalFile, journal, rename) {
 }
 // Existing installs retain their independent original profile and refresh only its
 // bridge. Tavern-active updates need no Desktop shutdown or profile replacement.
-export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, preparingForPid, checkStopped = (allowedPid) => assertDesktopStopped([home], { requireGuiClosed: true, guiRoot, preparingForPid: allowedPid }), rename = renameSync, retry = {} }) {
+export function beginDesktopProfileInstallation({ home, sourceRoot, host = 'desktop', guiRoot, preparingForPid, checkStopped = (allowedPid) => assertDesktopStopped([home], { requireGuiClosed: true, guiRoot, preparingForPid: allowedPid }), rename = renameSync, retry = {} }) {
   const moveDirectory = (from, to) => renameWithRetrySync(from, to, { ...retry, rename })
   const profiles = path.join(home, 'profiles'), live = path.join(profiles, 'desktop'), tavern = path.join(profiles, 'tavern')
   let replacesNext = hasNextTavern(home)
@@ -124,7 +125,13 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, pre
     if (!linkedToTavern && (!present(live) || !hasBridge(read(live), live))) throw Error('已迁移安装的原版 desktop 配置缺少切换组件，请先恢复备份。')
     return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
   }
-  if (!interrupted && !replacesNext && (linkedToTavern || (present(tavern) && present(live) && !lstatSync(live).isSymbolicLink() && !isTavern(read(live)) && hasBridge(read(live), live)))) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
+  const originalReady = !interrupted && !replacesNext && !linkedToTavern && present(tavern) && present(live)
+    && lstatSync(live).isDirectory() && !isTavern(read(live)) && hasBridge(read(live), live)
+  const replaceOldLauncher = host === 'next' && originalReady && (
+    !launcherBundles(read(live), live, 'desktop').includes(LAUNCHER_BUNDLE)
+    || launcherBundles(read(live), live, 'next').length > 0
+  )
+  if (!interrupted && !replacesNext && !replaceOldLauncher && (linkedToTavern || originalReady)) return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped })
   // Direct reinstalls must keep unfinished removal/relocation transactions fenced.
   installationLocation.resolveInstallationApp({ dshHome: home })
   checkStopped(preparingForPid)
@@ -147,7 +154,8 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, pre
   const stamp = new Date().toISOString().replaceAll(':', '-') + '-' + randomUUID()
   const backup = path.join(home, 'backups', 'profile-bridge-install-' + stamp)
   mkdirSync(backup, { recursive: true })
-  if (replacesNext) copyFileSync(path.join(home, 'logs/tavern-installation.json'), path.join(backup, 'previous-tavern-installation.json'))
+  const receipt = path.join(home, 'logs/tavern-installation.json')
+  if (replacesNext && present(receipt)) copyFileSync(receipt, path.join(backup, 'previous-tavern-installation.json'))
   const journal = { phase: 'preparing', backup, actions: [] }
   save(journalFile, journal)
   const move = (from, to) => {
@@ -160,12 +168,12 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, pre
     if (!preparingForPid) {
       copyTreeSync(original.directory, desktopStage)
       if (original.suffix) for (const file of ['package.json', 'cordis.patch.yml']) writeFileSync(path.join(desktopStage, file), readFileSync(path.join(original.directory, file + original.suffix)))
-      installBridge(desktopStage, sourceRoot, replacesNext)
+      installBridge(desktopStage, sourceRoot, replacesNext || host === 'next')
     }
     const legacyDesktop = !linked && isTavern(read(live))
     if (present(tavern)) move(tavern, path.join(backup, 'previous-tavern'))
     const tavernStage = path.join(backup, 'prepared-tavern')
-    const seed = legacyDesktop ? live : replacesNext ? null : path.join(backup, 'previous-tavern')
+    const seed = legacyDesktop ? live : path.join(backup, 'previous-tavern')
     if (seed && present(seed)) copyTreeSync(seed, tavernStage)
     else mkdirSync(tavernStage)
     move(tavernStage, tavern)

@@ -4,8 +4,9 @@ $ErrorActionPreference = 'Stop'
 $PreviousConsoleOutputEncoding = [Console]::OutputEncoding
 $PreviousOutputEncoding = $OutputEncoding
 
-$InstallHost = if ($LauncherOnly) { 'desktop' } elseif ($env:DSH_TAVERN_HOST) { $env:DSH_TAVERN_HOST } else { 'desktop' }
-if ($InstallHost -notin @('desktop', 'cli')) { throw "只支持官方桌面和独立命令行，不支持宿主：$InstallHost" }
+$InstallHost = if ($env:DSH_TAVERN_HOST) { $env:DSH_TAVERN_HOST } else { 'desktop' }
+if ($InstallHost -notin @('desktop', 'next', 'cli')) { throw "不支持宿主：$InstallHost" }
+if ($LauncherOnly -and $InstallHost -eq 'cli') { throw '--launcher-only 需要桌面宿主。' }
 
 $Repository = if ($env:DSH_TAVERN_REPOSITORY) { $env:DSH_TAVERN_REPOSITORY } else { 'flizzywine/dsh-tavern' }
 $RepositoryUrl = if ($env:DSH_TAVERN_GIT_URL) { $env:DSH_TAVERN_GIT_URL } else { "https://github.com/$Repository.git" }
@@ -15,7 +16,9 @@ $CommitUrl = if ($env:DSH_TAVERN_COMMIT_URL) { $env:DSH_TAVERN_COMMIT_URL } else
 $InstallerVersion = '3.2.0'
 $CdnMetadataUrl = if ($env:DSH_TAVERN_CDN_METADATA_URL) { $env:DSH_TAVERN_CDN_METADATA_URL } else { "https://cdn.jsdelivr.net/gh/$Repository@runtime-archive-main/dsh-tavern-runtime.json" }
 $CdnRootUrl = if ($env:DSH_TAVERN_CDN_ROOT_URL) { $env:DSH_TAVERN_CDN_ROOT_URL.TrimEnd('/') } else { "https://cdn.jsdelivr.net/gh/$Repository" }
-$DshRoot = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.dsh' }
+$DshRoot = if ($env:DSH_HOME) { $env:DSH_HOME }
+  elseif ($InstallHost -eq 'next' -and $env:DSH_DESKTOP_NEXT_HOME) { $env:DSH_DESKTOP_NEXT_HOME }
+  else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.dsh' }
 $LegacyDshRoot = if ($env:DSH_TAVERN_LEGACY_DSH_HOME) { $env:DSH_TAVERN_LEGACY_DSH_HOME } else { $DshRoot }
 if ($InstallHost -eq 'cli') {
   # CLI directory selection: explicit paths and existing installations never prompt.
@@ -1214,13 +1217,13 @@ try {
   $env:pnpm_config_registry = $env:npm_config_registry
   # A pending optional version check can keep pnpm alive after it prints Done.
   $env:pnpm_config_update_notifier = 'false'
-  if ($InstallHost -eq 'desktop') {
+  if ($InstallHost -in @('desktop', 'next')) {
     # Custom install folders are found through the running app or its uninstall entry.
-    # Only official DeepSeek Harness is supported.
-    $DesktopNames = @('DeepSeek Harness')
+    $DesktopNames = if ($InstallHost -eq 'next') { @('DSH NEXT') } else { @('DeepSeek Harness') }
     # Ignore standalone Node executables when discovering the desktop host.
     $DesktopCandidates = @($env:DSH_DESKTOP_APP_EXECUTABLE)
-    if ($env:DSH_DESKTOP_NODE_EXECUTABLE -and (Split-Path -Leaf $env:DSH_DESKTOP_NODE_EXECUTABLE) -notmatch '^node(\.exe)?$') { $DesktopCandidates += $env:DSH_DESKTOP_NODE_EXECUTABLE }
+    if ($InstallHost -eq 'next') { $DesktopCandidates = @($env:DSH_TAVERN_NEXT_EXECUTABLE) }
+    elseif ($env:DSH_DESKTOP_NODE_EXECUTABLE -and (Split-Path -Leaf $env:DSH_DESKTOP_NODE_EXECUTABLE) -notmatch '^node(\.exe)?$') { $DesktopCandidates += $env:DSH_DESKTOP_NODE_EXECUTABLE }
     foreach ($DesktopName in $DesktopNames) {
       $DesktopCandidates += (Join-Path $env:LOCALAPPDATA ('Programs\' + $DesktopName + '\' + $DesktopName + '.exe'))
       if ($env:ProgramFiles) { $DesktopCandidates += (Join-Path $env:ProgramFiles ($DesktopName + '\' + $DesktopName + '.exe')) }
@@ -1238,6 +1241,7 @@ try {
     }
     $OfficialDesktopExecutable = $DesktopCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
     if (-not $OfficialDesktopExecutable) {
+      if ($InstallHost -eq 'next') { throw '请用 DSH_TAVERN_NEXT_EXECUTABLE 指定 DSH NEXT 的程序路径。' }
       # A community app installed instead of the official one gets told where its installer is.
       $CommunityDesktop = @('DSH NEXT', 'DSH Desktop') | Where-Object {
         $Name = $_
@@ -1276,12 +1280,13 @@ try {
       if ($LauncherProfile.dependencies.'dsh-tavern' -or $LauncherProfile.dsh.profile.bundles -contains 'dsh-tavern') {
         $InstalledLauncher = Get-Content -Raw -LiteralPath (Join-Path $DesktopProfile.FullName 'node_modules/dsh-tavern/package.json') -ErrorAction SilentlyContinue | ConvertFrom-Json
         if ($InstalledLauncher.repository.url -ne 'git+https://github.com/flizzywine/dsh-tavern.git' -or
-            $InstalledLauncher.repository.directory -ne 'tavern-plugin/packages/dsh-tavern') {
+            ($InstalledLauncher.repository.directory -ne 'tavern-plugin/packages/dsh-tavern' -and $InstalledLauncher.dshTavern.profileHandoff -ne $true)) {
           throw '当前 Profile 已有同名的 dsh-tavern 插件，请检查其来源后再安装酒馆。'
         }
       }
-      $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js'
-      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/refs/tags/launcher-cdn-v0.2.0-tavern.18/dsh-tavern-0.2.0-tavern.18.tgz'
+      $DesktopCli = if ($InstallHost -eq 'next') { 'resources\app.asar\node_modules\@deepseek-ai\dsh\lib\bin.js' } else { 'resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js' }
+      $DesktopCli = Join-Path (Split-Path -Parent $OfficialDesktopExecutable) $DesktopCli
+      $LauncherUrl = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/refs/tags/launcher-cdn-v1.5.0/dsh-tavern-1.5.0.tgz'
       $PreviousNodeMode = $env:ELECTRON_RUN_AS_NODE
       try {
         $env:ELECTRON_RUN_AS_NODE = '1'
@@ -1290,7 +1295,7 @@ try {
       } finally {
         $env:ELECTRON_RUN_AS_NODE = $PreviousNodeMode
       }
-      Write-Host '酒馆启动器已安装。打开官方 DeepSeek Harness，进入「设置 → 酒馆启动器 → 安装酒馆」。'
+      Write-Host '酒馆启动器已安装。打开桌面，进入「设置 → 酒馆启动器 → 安装酒馆」。'
       return
     }
     $FirstDesktopInstall = -not (Test-DesktopLinked)
@@ -1428,7 +1433,9 @@ if (require.main === module) {
       $DesktopRunner = $OfficialDesktopExecutable
       $env:DSH_DESKTOP_APP_EXECUTABLE = $OfficialDesktopExecutable
       $DesktopStart.FileName = $DesktopRunner
-      $DesktopStart.Arguments = (@('--expose-internals', $OfficialDesktopModule, $DshRoot) | ForEach-Object { '"' + ($_ -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"' }) -join ' '
+      $DesktopArguments = @('--expose-internals', $OfficialDesktopModule, $DshRoot)
+      if ($InstallHost -eq 'next') { $DesktopArguments += '--next' }
+      $DesktopStart.Arguments = ($DesktopArguments | ForEach-Object { '"' + ($_ -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"' }) -join ' '
       $DesktopStart.UseShellExecute = $false
       $DesktopStart.CreateNoWindow = $true
       $DesktopStart.RedirectStandardOutput = $true
@@ -1757,6 +1764,9 @@ try {
     throw '下载内容不完整。'
   }
   Assert-InstallFiles $SourceDir.FullName
+  if ($InstallHost -eq 'next' -and -not (Select-String -Quiet -SimpleMatch 'DSH_TAVERN_UNIFIED_DESKTOP' -LiteralPath (Join-Path $SourceDir.FullName 'bin/profile-installation.mjs'))) {
+    throw '下载源尚未同步统一桌面安装支持，请稍后重试。'
+  }
   if ($env:DSH_TAVERN_INSTALL_INACTIVE -eq '1' -and -not (Select-String -Quiet -SimpleMatch 'DSH_TAVERN_INSTALL_INACTIVE' -LiteralPath (Join-Path $SourceDir.FullName 'bin/profile-installation.mjs'))) {
     throw '下载源尚未同步独立安装支持，请稍后重试。'
   }
@@ -1808,7 +1818,7 @@ try {
 
   $Stager = Join-Path $SourceDir.FullName 'bin\staged-app-install.mjs'
   $OldLauncher = Join-Path $AppDir 'bin\dsh-tavern.mjs'
-  if ($env:DSH_TAVERN_PUBLISH_GATE -or ($InstallHost -eq 'cli' -and (Test-Path -LiteralPath $Stager -PathType Leaf))) {
+  if ($env:DSH_TAVERN_PUBLISH_GATE -or ($InstallHost -in @('cli', 'next') -and (Test-Path -LiteralPath $Stager -PathType Leaf))) {
     # Prepare beside the running app; only the final switch stops the service, and a
     # failure after it restores the previous directory (see bin/staged-app-install.mjs).
     $StagedInstall = $true
@@ -1832,7 +1842,7 @@ try {
       $PreviousApp = Test-Path $OldLauncher
     } elseif (Test-Path $OldLauncher) {
       $PreviousApp = $true
-      & node $OldLauncher stop *> $null
+      if ($InstallHost -eq 'cli') { & node $OldLauncher stop *> $null }
     }
     Write-InstallStatus '本地处理：正在切换到新版本，保留用户数据…'
     # Windows refuses to rename a directory that is any process's working directory.
@@ -1893,8 +1903,9 @@ try {
       Write-Host '正在打开 DeepSeek Harness…'
       Start-Process -FilePath $OfficialDesktopExecutable
     } else { Write-Host '请重新打开官方 DeepSeek Harness；默认配置由你在酒馆启动器中选择。' }
-  }
-  else {
+  } elseif ($InstallHost -eq 'next') {
+    Write-Host 'DSH Tavern 安装完成。请打开 DSH NEXT，进入「设置 → 酒馆启动器」切换到酒馆。'
+  } else {
     if ($env:DSH_TAVERN_DEFER_SERVICE_START -ne '1') {
       Invoke-InstallCommand 'service.start' 'node' @((Join-Path $AppDir 'bin\dsh-tavern.mjs'), 'start')
     }

@@ -73,7 +73,7 @@ function discover(paths) {
   }
   const record = registered({ ...paths, home, stateDir }, trust)
   const receipt = json(path.join(home, 'logs/tavern-installation.json'))
-  if (receipt.host !== 'desktop' || !same(trust.map(receipt.dshHome || ''), home) || !path.isAbsolute(receipt.sourceRoot || '')) fail('仅支持具有桌面安装记录的酒馆。')
+  if (!['desktop', 'next'].includes(receipt.host) || !same(trust.map(receipt.dshHome || ''), home) || !path.isAbsolute(receipt.sourceRoot || '')) fail('仅支持具有桌面安装记录的酒馆。')
   const appDir = record?.appDir || trust.map(receipt.sourceRoot)
   if (appDir === path.join(home, 'apps') || (within(appDir, home) && !within(appDir, path.join(home, 'apps')))) fail('DSH 目录内仅支持 apps 下的酒馆程序。')
   for (const reserved of ['profiles', 'profile-data', 'profile-bridge', 'logs', 'backups', 'credentials']) {
@@ -95,7 +95,7 @@ function discover(paths) {
   const app = entries.find(e => e.kind === 'app').to
   if (app === home || within(home, app) || present(path.join(app, '.git')) || !tavern(app) || !tavern(entries.find(e => e.kind === 'profile').to)) fail('仅支持已安装的酒馆，不支持源码目录或其他 profile。')
   const local = json(path.join(app, '.dsh-tavern-local.json'))
-  if (local.host !== 'desktop' || !same(trust.map(local.dshHome || ''), home)) fail('酒馆安装归属与 DSH 目录不匹配。')
+  if (local.host !== receipt.host || !same(trust.map(local.dshHome || ''), home)) fail('酒馆安装归属与 DSH 目录不匹配。')
   return { appDir: app, logicalAppDir: appDir, profileDir: entries.find(e => e.kind === 'profile').to, dataDir: entries.find(e => e.kind === 'data').to, sharedHome: home, available: true, relocated: !!record && !retainedData, destination: record?.destination, entries, home, stateDir }
 }
 export function inspectInstallation(paths) {
@@ -115,7 +115,7 @@ function destinationCheck(destination, installation, identity) {
 export function validateInstallationRequest(paths, mode, payload) {
   if (!['relocate', 'uninstall'].includes(mode) || payload?.confirmed !== true) fail('请先确认安装管理操作。')
   const installation = discover(paths)
-  if (paths.activeDir && !same(trustedHome(paths.home).map(paths.activeDir), path.join(installation.home, 'profiles/desktop'))) fail('只能在官方桌面的 desktop 配置管理酒馆安装。')
+  if (paths.activeDir && !same(trustedHome(paths.home).map(paths.activeDir), path.join(installation.home, 'profiles/desktop'))) fail('只能在桌面的 desktop 配置管理酒馆安装。')
   const destination = mode === 'relocate' ? destinationCheck(payload.destination, installation, trustedHome(paths.home)) : undefined
   return { mode, home: paths.home, stateDir: installation.stateDir, profilesRoot: path.join(installation.home, 'profiles'), liveDir: paths.activeDir ? trustedHome(paths.home).map(paths.activeDir) : path.join(installation.home, 'profiles/desktop'), installation, destination }
 }
