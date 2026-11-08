@@ -60,6 +60,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const cached=summaryCache.get(key)
   if(cached){summaryCache.delete(key);summaryCache.set(key,cached);return cached}
   if(summaryLoads.has(key))return summaryLoads.get(key)
+  const started=performance.now()
   const loading=(async()=>{
    const messages=new Array(view.messageCount),t=tree(id)
    let cursor=view.snapshotCursor,pending=null,bytes=messages.length*8
@@ -73,6 +74,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
     }
     cursor=page.previousCursor
    }
+   onIO?.({kind:'phase',name:'chat.native.summary-scan',chatId:id,durationMs:performance.now()-started})
    const value={messages,pending,bytes}
    if(bytes<=8*1024*1024){
     while(summaryCache.size && (summaryCache.size>=4 || summaryBytes+bytes>16*1024*1024)){
@@ -229,7 +231,15 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  async function readRecentSummaries(id,count,options={}){
   const view=await headAtRevision(id,options.revision??Infinity)
   if(!view)return null
-  const start=Math.max(0,view.messageCount-Math.max(0,Number(count)||0)),messages=new Array(view.messageCount-start),t=tree(id)
+  const start=Math.max(0,view.messageCount-Math.max(0,Number(count)||0))
+  if(start===0){
+   // Session projections already build and cache this exact full-summary snapshot.
+   // Reuse it instead of walking every page again for each story-window read;
+   // project fresh rows so caller mutation cannot poison the shared cache.
+   const {messages}=await sessionSummaries(id,view)
+   return {messageCount:view.messageCount,from:0,messages:messages.map(projectSessionMessage),revision:view.state.chatRevision}
+  }
+  const messages=new Array(view.messageCount-start),t=tree(id),started=performance.now()
   let cursor=view.snapshotCursor
   while(cursor&&cursor.before>start){
    const page=await pages.readHistoryPage(id,{cursor,limit:Math.min(500,cursor.before-start)})
@@ -239,6 +249,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    }
    cursor=page.previousCursor
   }
+  onIO?.({kind:'phase',name:'chat.native.summary-scan',chatId:id,durationMs:performance.now()-started})
   return {messageCount:view.messageCount,from:start,messages,revision:view.state.chatRevision}
  }
  async function readSlice(id,indices=[],fields,pinned){

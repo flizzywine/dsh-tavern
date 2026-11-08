@@ -352,7 +352,7 @@ export function createChatPersistence(options = {}) {
   // Do not normalize/remember a window as a full editable Chat baseline.
   async function readWindow(chatId,options) { return records.readWindow ? records.readWindow(chatId,options) : null }
   async function readWorldSnapshot(chatId) { return records.readWorldSnapshot ? records.readWorldSnapshot(chatId) : null }
-  async function readRecentSummaries(chatId,count) { return records.readRecentSummaries ? records.readRecentSummaries(chatId,count) : null }
+  async function readRecentSummaries(chatId,count,options) { return records.readRecentSummaries ? records.readRecentSummaries(chatId,count,options) : null }
   async function readHelperContext(chatId, range) {
     return records.readHelperContext?.(chatId, range)
   }

@@ -116,6 +116,24 @@ test('cold selected reads skip historical variables and return the same session 
  assert.deepEqual((await fresh.read('a')).messages,chat.messages,'full read still returns complete historical values')
 })
 
+test('全量故事摘要复用会话缓存并透传固定版本',async t=>{
+ const {store,persistence,io}=await fixture(t)
+ const messages=Array.from({length:130},(_,index)=>({role:index%2?'assistant':'user',turn:index%2?(index+1)/2:undefined,text:'text-'+index}))
+ const saved=await persistence.write({id:'story',sessionId:'s',mode:'story',messages})
+ const snapshot=await store.openSnapshot('story',{revision:saved._storageRevision})
+ const expected=await snapshot.summaries()
+ io.length=0
+ const recent=await persistence.readRecentSummaries('story',messages.length,{revision:saved._storageRevision})
+ assert.deepEqual(recent.messages,expected)
+ assert.equal(io.filter(event=>event.name==='chat.native.summary-scan').length,0,'同一快照的全量摘要不得再次扫描页面')
+ recent.messages[0].role='changed'
+ assert.equal((await snapshot.summaries())[0].role,'user','调用方修改不得污染共享摘要')
+
+ await persistence.update('story',draft=>{draft.messages[0].text='newer'})
+ const pinned=await persistence.readRecentSummaries('story',1,{revision:saved._storageRevision})
+ assert.equal(pinned.revision,saved._storageRevision,'persistence 必须透传固定 revision')
+})
+
 test('旧前台正文的原生状态保留完整历史提示但不序列化内部标记',async t=>{
  const {persistence}=await fixture(t)
  await persistence.write({id:'a',sessionId:'s',mode:'story',messages:[row(0)],timeline:{schemaVersion:1,branchId:'b',revision:0,checkpoints:[],participants:{},operations:{old:{kind:'body',status:'foreground-completed'}}}})
