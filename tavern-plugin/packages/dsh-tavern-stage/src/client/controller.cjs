@@ -1014,6 +1014,16 @@ function GalStage(props) {
     const phoneCall = typeof phoneModCall === 'object' && phoneModCall ? phoneModCall : null;
     const phoneCallKey = React.useSyncExternalStore((phoneCall || GAL_NO_PHONE_CALL).subscribe, (phoneCall || GAL_NO_PHONE_CALL).stage);
     const phoneVoice = phoneCallKey ? phoneCall.speaking() : null, callAudio = phoneVoice?.audio || null;
+    const voiceError = (playingHere ? player.error : null) || voicePlayer.getError(voice);
+    const voiceState = voiceError ? "error" : playingHere ? (player.audio ? (player.audio.paused ? "paused" : "playing") : "loading") : voice ? "ready" : "";
+    // The top-right voice line (notices.cjs useVoiceStatus): her reply on a call, else the line on screen (silent under SKIP).
+    const callVoice = React.useSyncExternalStore((phoneCall || GAL_NO_PHONE_CALL).subscribe, () => galCallVoice(phoneCall));
+    const voiceStatus = useGalVoiceStatus(callVoice ? JSON.parse(callVoice)
+        : voice && !skipping && (voiceState === "error" || voiceState === "loading") ? {key:[voice.owner, voice.id], state:voiceState} : null);
+    // A phone held as a reading sheet (handheld: the call fills the screen, widgets.cjs is-reading) covers the top bar: the
+    // call's voice line then stands over the sheet's top-right instead, the same notice in one place only.
+    const voiceOverSheet = Boolean(voiceStatus && callVoice && !sourceWidget.paused && sourceWidget.items.some(item => item.presentation.state === "open" && item.presentation.surface === "sheet"));
+    const topVoice = voiceOverSheet ? null : voiceStatus;
     // the call view the phone page leaves clear - her stage
     // figure (the stage's own entry when she stands on stage, else a figure loaded off stage), the player's own while the camera
     // is on, the stage's background behind her. The scene draws it over everything, in the page's boxes.
@@ -1232,8 +1242,6 @@ function GalStage(props) {
     // the box speaker's own art from the skin (art.cast,
     // keyed by the figure id): its box / plate images and name inks ride on the box as tokens.
     const boxCast = boxSpeaker && boxLine?.kind === "line" && activeSkin?.resolvedArt?.cast ? activeSkin.resolvedArt.cast[characterOf(boxSpeaker)?.ref?.figureId] || null : null;
-    const voiceError = (playingHere ? player.error : null) || voicePlayer.getError(voice);
-    const voiceState = voiceError ? "error" : playingHere ? (player.audio ? (player.audio.paused ? "paused" : "playing") : "loading") : voice ? "ready" : "";
     // Classic theme (the default): the name is the box's first line (【名字】), spoken lines read 「…」, the side
     // image rises out of the box's left end. Every theme puts the replay button right after the name.
     const theme = stageConfig.theme || "classic";
@@ -1310,6 +1318,7 @@ function GalStage(props) {
         insertPicture ? h(stageViews.pictures.Page, { key: insertPageKey, picture: insertPicture, onShown: () => setPictureShown(insertPageKey), onFailed: () => turnPicture(insert.view ? 0 : insert.delta) }) : null,
         h("div", {className:"fork-gal-scene-hold" + (entryGate.visible ? " is-resolved" : ""), "aria-hidden":true}),
         h(GalWidgets,{owner:sourceWidget,onBacklog:openBacklog,onAdvance:()=>input(1),onWheel:wheel}),
+        voiceOverSheet ? h(GalRuntimeStatus, { voice: voiceStatus, overSheet: true, scope: sessionId }) : null,
         sourceWidget.claim ? h('div', { className: 'fork-widget-source-controls', role: 'toolbar', 'aria-label': '模组演出控制', onClick: event => event.stopPropagation() },
             control('auto', auto ? '停止自动（A）' : '自动翻页（A）', () => { setSkipping(false); setAuto(!auto); }, auto),
             control('skip', skipLatch ? '停止跳过' : '跳过（按住 Ctrl 快进）', toggleSkip, skipping, atEnd),
@@ -1344,8 +1353,8 @@ function GalStage(props) {
                 h("button", { type: "button", className: "fork-gal-quit", title: "返回主页面", "aria-label": "返回主页面", onClick: props.onExit }, h(Icon, { name: "close", size: 16 }))),
             // the runtime notice is laid out from the top bar's own box
             // (theme.css ".fork-gal-topbar > .fork-gal-notices"), so it sits under whatever the skin puts top-right.
-            (interopNotice || awaitingDirection || roundPhase || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length || live2dMissing || pictureWorking || lateShown) ?
-            h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf, pages: pageList, picture: pictureWorking,
+            (interopNotice || awaitingDirection || roundPhase || topVoice || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length || live2dMissing || pictureWorking || lateShown) ?
+            h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, voice: topVoice, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf, pages: pageList, picture: pictureWorking,
                 pictureReady: lateShown ? { onView: () => { setPictureLate(null); setInserted({key:pictureKey, list:[lateShown.picture], index:0, delta:1, view:true, since:Date.now()}); } } : null,
                 live2dRequest: live2dMissing ? live2dRequest : null, scope: sessionId }) : null)),
         // the skin's own LOG / AUTO / SKIP on the stage;
@@ -1526,6 +1535,12 @@ function GalStandIns(props) { return stageViews ? React.createElement(stageViews
 // (it does not also turn the page); keys pass through (A still starts auto). the first page turn
 // (auto, skip or a click) also retires the key list, and the system menu's 「快捷键」 shows it again (showKeys).
 const GAL_NO_PHONE_CALL = Object.freeze({ subscribe: () => () => {}, stage: () => '' });
+// The call's voice for the notice as a string snapshot ('' = none): a 'loading' reply only while she is still answering.
+function galCallVoice(call) {
+    const state = call?.get?.(), voice = state?.voice;
+    if (!voice || voice.state === 'loading' && state.status !== 'thinking') return '';
+    return JSON.stringify({key:['phone-call', voice.turn], state:voice.state, failed:voice.failed === true});
+}
 function useGalFirstRunHints(...args) { return stageViews.hints.useHints(...args); }
 // The text box's wait names it (its aria-label); the default one shows the rotating wait lines (wait-lines.js).
 const GAL_AWAITING_WRITING = '正在书写下一幕';
@@ -1536,6 +1551,7 @@ function galAwaitingText(activity) {
     return GAL_AWAITING_WRITING;
 }
 function useCapabilityNotice(...args) { return stageViews.notices.useCapabilityNotice(...args); }
+function useGalVoiceStatus(...args) { return stageViews.notices.useVoiceStatus(...args); }
 function GalRuntimeStatus(props) { return stageViews ? React.createElement(stageViews.notices.Status, props) : null; }
 // a stage moment's skin cue, or (cue "") the shown skin's palette (returns its
 // cleanup). Pages without the UI sound module (tests, previews) stay silent.

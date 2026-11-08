@@ -26,6 +26,8 @@ async function slowReply(t, voice) {
   assert.deepEqual(result.metrics.requests, ['你在干什么呀'])
   assert.deepEqual(result.metrics.outcomes, ['completed', 'completed'])
   assert.equal(result.state.status, 'listening')
+  // The stage's top-right voice line (notices.cjs useVoiceStatus) reads this: 配音太慢，已转文字.
+  assert.deepEqual(result.state.voice, {turn:'t2', state:'text', failed:false})
   return result
 }
 
