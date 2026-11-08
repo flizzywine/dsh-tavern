@@ -23,3 +23,14 @@ export function worldBookChannelValue(value) {
 export function worldBookChannel(entry) {
   return worldBookChannelValue(entry?.channel ?? entry?.tavernChannel)
 }
+
+/**
+ * The channel a whole book asks its entries to use. Stored on the document root
+ * (`extensions.tavern_channel`, with a bare `channel` accepted from hand-written
+ * books) so one switch covers every entry that has no channel of its own.
+ */
+export function worldBookDefaultChannel(book) {
+  const extensions = book?.extensions
+  const extension = extensions && typeof extensions === 'object' ? extensions.tavern_channel : undefined
+  return worldBookChannelValue(book?.channel ?? extension)
+}

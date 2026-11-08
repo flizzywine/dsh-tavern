@@ -4,6 +4,7 @@ import { worldbookPlacement } from '../tavern-plugin/lib/domain/worldbook-placem
 import { constantWorldBookContext } from '../tavern-plugin/lib/domain/worldbook-recall.js'
 import { activateWorldBook } from '../tavern-plugin/lib/domain/worldbook-activation.js'
 import { inspectWorldBookDocument, updateWorldBookDocument } from '../tavern-plugin/lib/domain/worldbook-resource.js'
+import { worldBookDefaultChannel } from '../tavern-plugin/lib/domain/worldbook-channel.js'
 
 function entry(ref, patch = {}) {
   return { ref, enabled: true, constant: false, group: '', content: ref + '设定', ...patch }
@@ -80,4 +81,56 @@ test('通道字段随世界书持久化，auto 会清掉扩展键', () => {
   const back = updateWorldBookDocument(tail, { operations: [{ op: 'update', ref: 'entry:0', patch: { channel: 'auto' } }] }).document
   assert.equal(back.entries['0'].extensions.tavern_channel, undefined)
   assert.equal(inspectWorldBookDocument(back).entries[0].channel, 'auto')
+})
+
+function bookDocument(rootExtensions, entries) {
+  return {
+    name: '测试书',
+    extensions: rootExtensions,
+    entries: Object.fromEntries(entries.map(function (value, index) {
+      return [String(index), { uid: index, key: [], keysecondary: [], comment: '条目' + index, content: value.content,
+        disable: false, constant: value.constant === true, selective: true, order: 100, position: 0,
+        extensions: value.extensions || {} }]
+    }))
+  }
+}
+
+test('整本默认通道：没有单独设过的条目跟随，单独设过的条目覆盖', () => {
+  const document = bookDocument({ tavern_channel: 'prefix' }, [
+    { content: '甲设定' },
+    { content: '乙设定', extensions: { tavern_channel: 'tail' } }
+  ])
+  const view = inspectWorldBookDocument(document)
+  assert.equal(view.channel, 'prefix')
+  assert.equal(view.entries[0].channel, 'prefix')
+  assert.equal(view.entries[0].channelInherited, true)
+  assert.equal(view.entries[1].channel, 'tail')
+  assert.equal(view.entries[1].channelInherited, false)
+  // 整本默认直接决定放置与稳定前缀内容，不需要逐条写入。
+  assert.deepEqual(channels(view.entries), { foreground: ['entry:1'], prefix: ['entry:0'] })
+  assert.deepEqual(stableRefs(view.entries), ['entry:0'])
+  const result = select(view.entries)
+  assert.deepEqual(result.entries.map(item => item.ref).sort(), ['entry:0', 'entry:1'])
+  assert.equal(result.diagnostics.find(item => item.ref === 'entry:0').tokenCost, 0)
+  assert.ok(result.diagnostics.find(item => item.ref === 'entry:1').tokenCost > 0)
+})
+
+test('整本默认通道写进文档根，auto 不留下扩展键', () => {
+  const document = bookDocument({}, [{ content: '甲设定' }])
+  assert.equal(worldBookDefaultChannel(document), 'auto')
+  const prefix = updateWorldBookDocument(document, { channel: 'prefix' }).document
+  assert.equal(prefix.extensions.tavern_channel, 'prefix')
+  assert.equal(inspectWorldBookDocument(prefix).channel, 'prefix')
+  assert.equal(inspectWorldBookDocument(prefix).entries[0].channel, 'prefix')
+  const back = updateWorldBookDocument(prefix, { channel: 'auto' }).document
+  assert.equal(back.extensions.tavern_channel, undefined)
+  assert.equal(worldBookDefaultChannel(back), 'auto')
+  assert.equal(inspectWorldBookDocument(back).entries[0].channel, 'auto')
+})
+
+test('手写世界书的根级 channel 也能被识别', () => {
+  assert.equal(worldBookDefaultChannel({ channel: 'tail' }), 'tail')
+  assert.equal(worldBookDefaultChannel({ channel: '无效值' }), 'auto')
+  assert.equal(worldBookDefaultChannel({ extensions: { tavern_channel: 'prefix' } }), 'prefix')
+  assert.equal(worldBookDefaultChannel(null), 'auto')
 })
