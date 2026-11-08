@@ -50,7 +50,8 @@ for (const stale of [false, true]) test('正文提交消费最新模板输入且
           renderDuringCommit = false
           await app.persistence.update('chat-1', current => {
             current.promptTemplateInput.message.tavernPluginData.template_rendered = {hash:'rendered-input',swipe:0}
-            if (stale) current.timeline.revision++
+            // 同一分支上推进 revision 只是后台写入；换成另一条分支才是剧情换了。
+            if (stale) { current.timeline.revision++; current.timeline.branchId = 'other-branch' }
             return current
           }, {source:'prompt-template.state'})
         }

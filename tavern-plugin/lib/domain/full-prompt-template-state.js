@@ -57,13 +57,19 @@ export function validateFullPromptTemplateSave(request) {
 /** Merge only changed template state against an authoritative persisted baseline. */
 export function applyFullPromptTemplateState(current, baseline, request, projection = {}) {
   validateFullPromptTemplateSave(request)
-  if (!baseline || baseline.id !== request.chatId || baseline._storageRevision !== request.stateRevision
+  // The storage revision is not the editing baseline: background work (settlement,
+  // candidates, captures) advances it without changing any template field, and the
+  // three-way merge below already keeps concurrent rows intact. Lifecycle stays:
+  // it marks the structural operations (rollback, regeneration) that move floors.
+  if (!baseline || baseline.id !== request.chatId
     || current.id !== request.chatId || current.sessionId !== baseline.sessionId
     || request.sessionId !== current.sessionId
     || (current.tavernHelperLifecycleRevision || 0) !== request.lifecycleRevision
     || (baseline.tavernHelperLifecycleRevision || 0) !== request.lifecycleRevision) conflict('模板读取版本已过期或聊天已切换')
   const base = projectFullPromptTemplateState(baseline), latest = projectFullPromptTemplateState(current)
-  if (request.chat.length !== base.chat.length || latest.chat.length !== base.chat.length) conflict('聊天楼层已变化，模板存档未保存')
+  // Floors appended behind the panel are not part of this save: merge the shared
+  // ones and keep the rest. A shorter story means the floors moved under us.
+  if (request.chat.length !== base.chat.length || latest.chat.length < base.chat.length) conflict('聊天楼层已变化，模板存档未保存')
   const next = structuredClone(current)
   if (next.promptTemplateInput?.message) next.messages.push(next.promptTemplateInput.message)
   for (let index=0; index<base.chat.length; index++) {
