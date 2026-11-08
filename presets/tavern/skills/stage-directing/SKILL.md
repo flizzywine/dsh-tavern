@@ -1,11 +1,11 @@
 ---
 name: stage-directing
-description: "调整舞台导演：导演模型、可用演出与动作上限、演出风格条目、素材的导演说明与服装使用情景、智能判断，读取导演提示词预览。改素材灯态和触发词用 asset-library；前台写作风格用 create-writing-skill。"
+description: "调整舞台导演：导演模型、可用演出与动作上限、演出风格条目、素材的导演说明与服装使用情景、智能判断，读取导演提示词预览。改素材灯态和触发词用 stage-assets；前台写作风格用 create-writing-skill。"
 ---
 
 # 舞台导演
 
-导演在每轮正文完成后决定舞台演出：换背景、人物上下场、换装、音乐、音效等。它只能从本轮候选目录里选素材（候选怎么来见 asset-library 的灯态说明）。本 Skill 调整导演的规则和说明。工具：`tavern_stage_read`、`tavern_stage_patch`（引擎、智能判断）、`tavern_assets_read`、`tavern_assets_patch`（演出风格和素材说明）。
+导演在每轮正文完成后决定舞台演出：换背景、人物上下场、换装、音乐、音效等。它只能从本轮候选目录里选素材（候选怎么来见 stage-assets 的灯态说明）。本 Skill 调整导演的规则和说明。工具：`tavern_stage_read`、`tavern_stage_patch`（引擎、智能判断）、`tavern_assets_read`、`tavern_assets_patch`（演出风格和素材说明）。
 
 ## 调用格式
 
@@ -36,7 +36,7 @@ description: "调整舞台导演：导演模型、可用演出与动作上限、
 
 完整例子：用户要"没写换装就保持上一轮那套"。
 
-1. `tavern_assets_read({request:{action:'bindings'}})` 找到绑定给这张卡、且 `dependencies` 显示没有别的卡在用的包；没有就按 asset-library 新建并绑定一个。用 `item {kind:'directions', packId}` 读现有风格和包的 `revision`。
+1. `tavern_assets_read({request:{action:'bindings'}})` 找到绑定给这张卡、且 `dependencies` 显示没有别的卡在用的包；没有就按 stage-assets 新建并绑定一个。用 `item {kind:'directions', packId}` 读现有风格和包的 `revision`。
 2. 调用：
 
    ```js
