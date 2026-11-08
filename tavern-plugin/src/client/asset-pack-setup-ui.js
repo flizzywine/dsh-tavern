@@ -418,8 +418,8 @@ function PersonChoice({binding,row,on,applying,onUse}) {
 // pictures and the text, its 头像 as the request's follow-up. Those RPCs write into a figure, so the first press makes a
 // hidden draft in the card pack (enabled:false — never on stage, not linted) and each picture is adopted into it as it
 // arrives; the page shows the 立绘 and 头像, 「重新生成」 asks again. 「创建人物」 (only once both are there) checks the form
-// once — plain Chinese on the field, focus moves there — and turns the draft into the figure in one patchFigure (触发词 may
-// stay empty: the name is matched). Leaving without creating removes the draft. Nothing is checked or red
+// once — plain Chinese on the field, focus moves there — and turns the draft into the figure in one patchFigure (the host's
+// trigger lint runs there; its issues land on 触发词). Leaving without creating removes the draft. Nothing is checked or red
 // before a press; there is no error code or 重新载入 here.
 const NEW_FIGURE_OUTFIT='default',NEW_FIGURE_FACE='calm',NEW_FIGURE_NAME='新人物';
 const NEW_FIGURE_FIELDS=['refs','name','triggers'];
@@ -440,6 +440,12 @@ const newFigureNameForms=name=>{const n=String(name||'').trim();return n?[...new
 async function stageSetupCardPack(ctx){
   const status=await ctx.binding.service.getStageSetupStatus({path:ctx.path});
   return status.wizardPack?.packId||{path:ctx.path,expectedCardRevision:status.cardRevision,expectedLibraryRevision:status.libraryRevision,selections:[]};
+}
+// The host's trigger lint (an issue per word and rule) said on the 触发词 field, in the player's words.
+function newFigureLintText(issues){
+  const issue=issues?.[0];if(!issue)return '';const word=issue.trigger?'「'+issue.trigger+'」':'';
+  return {count:'触发词最多 6 个，留下正文里最常见的称呼',duplicate:word+'重复了',suffix:word+'不像称呼，去掉「声」「氛围」「场景」这样的后缀',
+    'short-word':word+'太短或太长，用正文里会出现的 2–4 字称呼','group-generic':word+'很多素材都在用，换一个只属于这个人物的称呼'}[issue.rule]||word+'用不了，换一个正文里会出现的称呼';
 }
 // A failed save in a sentence through the shared playerErrorText (the contract's words for a code, else the host's
 // plain Chinese reason); a failed generation is the shared genFailText.
@@ -501,21 +507,21 @@ function NewFigurePage({ctx,parent,initialName='',ensurePack,onBack,onCreated,ex
     setErrors({});
     run(async()=>{const d=await ensureDraft();sent.current={references:refs.map(u=>({base64:u.base64,mediaType:u.mediaType,role:GEN_ART_ROLE})),userPrompt:about.trim()};setRequest(n=>n+1);return d;});
   };
-  // 创建人物: the form is checked once, then the draft becomes the figure (one patchFigure).
+  // 创建人物: the form is checked once, then the draft becomes the figure (one patchFigure; the lint runs in it).
   const create=()=>{
     if(busy)return;
     const next={},words=triggers.filter(Boolean);
     if(!name.trim())next.name='先给人物起个名字';else if([...name.trim()].length>60)next.name='名字太长了，60 个字以内';
-    if(aliasProblem(words))next.triggers=aliasProblem(words);
+    if(!words.length)next.triggers='至少填一个触发词，用正文里会出现的称呼';else if(aliasProblem(words))next.triggers=aliasProblem(words);
     setErrors(next);const first=NEW_FIGURE_FIELDS.find(key=>next[key]);if(first)return focusField(first);
     const finalName=name.trim(),norm=figureResolution.normalizeCatalogueText,shortest=[...words].sort((a,b)=>[...a].length-[...b].length)[0];
     setBusy(true);setProblem('');
     write(c=>{const f=c.figures[draftRef.current.figureId];
       return binding.service.patchFigure({packId:draftRef.current.packId,expectedRevision:c.revision,figureId:draftRef.current.figureId,patch:{
         name:finalName,enabled:true,aliases:namesPatch(f,words).aliases.filter(w=>norm(w)!==norm(finalName)),heightCm:heightCm(),description:about.trim()||null,
-        outfits:f.outfits.map(o=>o.key===NEW_FIGURE_OUTFIT?{...o,recall:{mode:'keyword',keywords:shortest?[shortest]:[]}}:o)}});})
+        outfits:f.outfits.map(o=>o.key===NEW_FIGURE_OUTFIT?{...o,recall:{mode:'keyword',keywords:[shortest]}}:o)}});})
       .then(async()=>{draftRef.current=null;await ctx.writer.reload();onCreated?.();},
-        e=>setProblem(newFigureSaveText(e)))
+        e=>{if(e?.code==='TRIGGER_LINT'){setErrors({triggers:newFigureLintText(e.issues)});focusField('triggers');}else setProblem(newFigureSaveText(e));})
       .finally(()=>setBusy(false));
   };
   // ‹ / Esc: a draft (and what was generated into it) goes, after asking when there are pictures to lose.
