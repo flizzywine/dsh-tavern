@@ -1,8 +1,16 @@
-import {readDocument} from './validation.js'
+import {readDocument, jsonBytes} from './validation.js'
+import {retireMediaMeasurements} from '../asset-packs/figure.js'
 
 // Atomic authoring writes retire replaced images. External imports instead reject unused images.
 export function trimAuthoringImages(manifest, files, previousFigures) {
-  const figures = manifest.figures.map(id => files.has('figures/' + id + '.json') ? readDocument(files.get('figures/' + id + '.json')) : previousFigures[id])
+  const figures = manifest.figures.map(id => {
+    const name = 'figures/' + id + '.json'
+    if (!files.has(name)) return previousFigures[id]
+    // a written figure's measurements of the pictures it no longer has go before the images are counted
+    const figure = readDocument(files.get(name)), kept = retireMediaMeasurements(figure)
+    if (kept !== figure) files.set(name, jsonBytes(kept))
+    return kept
+  })
   const sprites = new Set(figures.flatMap(figure => figure.outfits.map(outfit => outfit.sprite?.manifestKey).filter(Boolean)))
   for (const [key, file] of Object.entries(manifest.sprites)) if (!sprites.has(key)) {
     delete manifest.sprites[key]

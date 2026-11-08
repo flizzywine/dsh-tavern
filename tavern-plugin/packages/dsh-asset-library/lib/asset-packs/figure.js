@@ -56,6 +56,39 @@ export function validateAvatarFaceAnchors(value, path = '$') {
     check(rect[2] > 0 && rect[3] > 0 && rect[0] + rect[2] <= 1 && rect[1] + rect[3] <= 1, p, 'Face anchor must fit its exact source media')
   })
 }
+// The media a face anchor may be bound to: the figure's own 头像 and 立绘 resources.
+const faceAnchorSources = figure => new Set(figure.outfits.flatMap(o => [...Object.values(o.avatars || {}), ...Object.values(o.sprite?.assets || {})]))
+// Measurements bound to an exact media identity — the figure's face anchors (keyed by media) and an outfit's measured
+// heads (dsh.avatar-heads, per state with its media) — retire with that media: a write that takes the picture out of the
+// figure (删除差分, 删除这张立绘, a replacement) drops them in the same write. Returns the figure itself when nothing goes.
+export function retireMediaMeasurements(figure) {
+  if (!Array.isArray(figure.outfits)) return figure
+  let changed = false
+  const own = outfit => new Set([...Object.values(outfit.avatars || {}), ...Object.values(outfit.sprite?.assets || {})])
+  const outfits = figure.outfits.map(outfit => {
+    const heads = outfit.extensions?.['dsh.avatar-heads']
+    if (!heads) return outfit
+    const media = own(outfit), kept = Object.fromEntries(Object.entries(heads).filter(([, head]) => media.has(head?.media)))
+    if (Object.keys(kept).length === Object.keys(heads).length) return outfit
+    changed = true
+    const extensions = {...outfit.extensions, 'dsh.avatar-heads': kept}
+    if (!Object.keys(kept).length) delete extensions['dsh.avatar-heads']
+    const next = {...outfit, extensions}
+    if (!Object.keys(extensions).length) delete next.extensions
+    return next
+  })
+  const next = {...figure, outfits}, anchors = figure.extensions?.['dsh.avatar-face-anchors']
+  if (anchors) {
+    const sources = faceAnchorSources(next), kept = Object.fromEntries(Object.entries(anchors).filter(([hash]) => sources.has(hash)))
+    if (Object.keys(kept).length !== Object.keys(anchors).length) {
+      changed = true
+      next.extensions = {...figure.extensions, 'dsh.avatar-face-anchors': kept}
+      if (!Object.keys(kept).length) delete next.extensions['dsh.avatar-face-anchors']
+      if (!Object.keys(next.extensions).length) delete next.extensions
+    }
+  }
+  return changed ? next : figure
+}
 export function validateFigure(value, path = '$', voiceLibrary) {
   assertJson(value)
   shape(value, ['schemaVersion', 'id', 'name', 'aliases', 'description', 'remark', 'enabled', 'recall', 'appearance', 'identityAppearance', 'identitySettei', 'heightCm', 'heightBasis', 'elevationCm', 'imageColor', 'autoColor', 'emotions', 'voice', 'outfits', 'extensions'], ['schemaVersion', 'id', 'name', 'enabled', 'recall', 'appearance', 'outfits'], path)
@@ -86,7 +119,7 @@ export function validateFigure(value, path = '$', voiceLibrary) {
   if (value.extensions?.['dsh.avatar-face-anchors'] !== undefined) {
     const anchors = value.extensions['dsh.avatar-face-anchors'], p = path + '.extensions.dsh.avatar-face-anchors'
     validateAvatarFaceAnchors(anchors, p)
-    const sources = new Set(value.outfits.flatMap(o => [...Object.values(o.avatars || {}), ...Object.values(o.sprite?.assets || {})]))
+    const sources = faceAnchorSources(value)
     for (const hash of Object.keys(anchors)) check(sources.has(hash), p + '.' + hash, 'Face anchor must reference this figure media')
   }
   array(value.outfits, path + '.outfits', 128)

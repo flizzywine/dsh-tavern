@@ -1085,7 +1085,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const setStand=(id,v)=>{setError('');return figureActions.setFallback(outfit.key,id,!!v,v&&v!==outfit.defaultEmotion?v:undefined).catch(e=>setError(errorText(e)));};
   const runTile=fn=>Promise.resolve().then(fn).catch(e=>{if(['ALIGNMENT_REQUIRED','TARGET_CHANGED'].includes(e?.code))return;setError(errorText(e));});
   const askRemoveImage=(r,k,dynamic=false)=>{const noun=k==='avatar'?'头像':'立绘',kept=k==='avatar'?'立绘、模型':'头像、模型';
-    setConfirm({title:'删除「'+r.label+'」的'+noun+'？',body:'只删除「'+outfit.label+'」的这张'+(dynamic?'动态立绘，连同它的口型和眨眼':noun)+'；差分「'+r.label+'」和它的'+kept+'都保留，格子变回空位。',confirmLabel:'删除',danger:true,
+    setConfirm({title:'只删「'+outfit.label+'」的这张'+noun+'？',body:'只删除「'+outfit.label+'」里「'+r.label+'」的这张'+(dynamic?'动态立绘，连同它的口型和眨眼':noun)+'；'+(list.length>1?'其他服装的「'+r.label+'」不受影响，':'')+'差分「'+r.label+'」和它的'+kept+'都保留，格子变回空位。',confirmLabel:'删除',danger:true,
     onConfirm:()=>removeFigureImage(figure.id,outfit.key,r.id,k)});};
   // A 动态立绘 replaced by one picture: 重画 deletes it first, then opens the dialog on the empty slot; 替换 deletes it only
   // once the new picture is framed (finishFraming), so cancelling the picker keeps it.
@@ -1097,7 +1097,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
     const goes=[['张立绘',o=>emotionMapped('sprite',o,o.sprite&&pack.sprites?.[o.sprite.manifestKey],r.id)],['张头像',o=>!!o.avatars?.[outfitImageId(o,r.id)]],['个模型表情',o=>!!(o.live2d?.emotionMap?.[r.id]||o.spine?.emotionMap?.[r.id])]]
       .map(([noun,has])=>[noun,list.filter(has).length]).filter(([,n])=>n).map(([noun,n])=>n+' '+noun);
     if(figure.voice?.emotionVariants?.[r.id])goes.push('声音设置');
-    setConfirm({title:'删除差分「'+r.label+'」？',body:'从'+(list.length>1?'全部 '+list.length+' 套服装':'服装「'+outfit.label+'」')+'删除「'+r.label+'」'+(goes.length?'，连同 '+goes.join('、'):'')+'；其他差分不变。',confirmLabel:'删除',danger:true,
+    setConfirm({title:(list.length>1?'从所有服装删除「'+r.label+'」？':'删除差分「'+r.label+'」？'),body:'从'+(list.length>1?'全部 '+list.length+' 套服装':'服装「'+outfit.label+'」')+'删除「'+r.label+'」'+(goes.length?'，连同 '+goes.join('、'):'')+'；其他差分不变。',confirmLabel:'删除',danger:true,
       onConfirm:async()=>{await figureActions.removeEmotion(r.id);if(r.id===face)setFace(rows.find(x=>x.id!==r.id)?.id||'');}});};
   const menuFor=outfit?(r,close,page,setPage)=>{
     const cell=faces[r.id]?.cell,state=cell?.state||'idle',k=kind,has=!!faces[r.id]?.mapped,target={packId,figureId:figure.id,outfitKey:outfit.key,kind:k,emotionId:r.id};
@@ -1122,8 +1122,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
     // 裁切: 头像 from this 差分's own 立绘 (empty or not); 立绘 re-frames its own still picture.
     const cropItem=!!importFigureImage&&!!ownStill(r.id)&&(k==='avatar'?item('crop','从立绘裁切…',go(()=>frameStill(r,'avatar'))):has&&takes(r.id)&&item('crop','重新裁切…',go(()=>frameStill(r,'sprite'))));
     const tail=state==='running'||state==='queued'?[]:[
-      (k==='sprite'||k==='avatar')&&has&&!!removeFigureImage&&item('remove','删除这张'+viewNoun+'…',go(()=>askRemoveImage(r,k,dynamic)),{danger:true}),
-      !!figureActions?.removeEmotion&&item('remove','删除差分…',go(()=>askRemoveEmotion(r)),{key:'remove-emotion',danger:true,off:rows.length<2?'至少保留一个差分':''})].filter(Boolean);
+      (k==='sprite'||k==='avatar')&&has&&!!removeFigureImage&&item('remove','只删'+outfit.label+'的这张'+viewNoun+'…',go(()=>askRemoveImage(r,k,dynamic)),{danger:true}),
+      !!figureActions?.removeEmotion&&item('remove',list.length>1?'从所有服装删除「'+r.label+'」…':'删除差分「'+r.label+'」…',go(()=>askRemoveEmotion(r)),{key:'remove-emotion',danger:true,off:rows.length<2?'至少保留一个差分':''})].filter(Boolean);
     const standItem=stand&&item('fallback','设置回退',()=>setPage('stand'),{more:true,hint:standNow?standName:'无回退'});
     const items=!genView?[]:state==='candidate'?(cell.sheet?[item('eye','查看八个头像',go(()=>gen.openSheet(cell.sheet)))]:[
         cell.error&&h('p',{key:'why',className:'ap-cell-menu-warn'},h(Glyph,{name:'warning'}),h('span',null,'采用失败：'+cell.error)),

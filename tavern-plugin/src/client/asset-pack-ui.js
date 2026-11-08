@@ -23,6 +23,7 @@ function kindOrder(builtin, modKinds) {
 const PLAYER_ERRORS={REVISION_CONFLICT:'内容已被修改，请重新载入',
   LIMIT_EXCEEDED:'素材数据超过大小或数量限制，未能保存；请减少本次提交的内容后重试',
   MISSING_DEPENDENCY:'素材引用不完整，请补齐所引用的图片、差分或资源后重试；无需安装额外程序',
+  INVALID_ASSET_PACK:'改完的素材没通过保存前的检查，这次修改没有生效，素材包保持原样',
   PACK_UNAVAILABLE:'这张卡用到的一个素材包找不到了，请在 舞台设置 › 素材包 里移除或重新安装它',
   AbortError:'保存超时，结果尚未确认；请重新载入后检查',TimeoutError:'保存超时，结果尚未确认；请重新载入后检查'};
 // Names a player reads as words, not code: product names and short capitals (MP3、FLAC、CG、BGM — not HTTP or a CODE_NAME).
