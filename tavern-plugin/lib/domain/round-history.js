@@ -358,8 +358,14 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     return (chat.messages || []).map(({ role, turn, text, sourceText, content, inputAttachments, greeting, swipes, swipeId }) => ({ role, turn, text, sourceText, content, inputAttachments, greeting, swipes, swipeId }))
   }
 
+  // 后台结算、候选扫描、世界书同步会写它们自己的字段；只有故事行或分支变了
+  // （或时间线被回退/重置）才说明这次回退/撤销不再适用。
   function assertRollbackSnapshot(current, expected) {
-    if (!isDeepStrictEqual(current, expected)) throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
+    if (current.timeline?.branchId !== expected.timeline?.branchId
+      || Number(current.timeline?.revision || 0) < Number(expected.timeline?.revision || 0)
+      || !isDeepStrictEqual(rollbackBodyMessages(current), rollbackBodyMessages(expected))) {
+      throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
+    }
   }
 
   async function prepareRollbackIntent(chat, intent) {
@@ -1350,7 +1356,16 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         const changes = diffJson({ ...header, messages: [] }, result).filter(change => !['_storageRevision', 'updatedAt'].includes(change.path[0]))
         if (changes.some(change => change.path[0] === 'messages' || change.path[0] === 'id')) throw new Error('找不到回退前的恢复点')
         changes.push(...bounded.changes)
-        const head = await chats.patch(chat.id, chat._storageRevision, changes, { source: 'rollback.undo' })
+        let head = await chats.patch(chat.id, chat._storageRevision, changes, { source: 'rollback.undo' })
+        if (!head) {
+          // 后台写入推进了存档计数不算并发修改：同分支且故事行未变时，重读当前
+          // 版本再打一次同样的补丁（补丁只涉及表头与回退点，重放安全）。
+          const latest = await readChat(chat.id)
+          if (latest && latest.timeline?.branchId === chat.timeline?.branchId
+            && isDeepStrictEqual(rollbackBodyMessages(latest), rollbackBodyMessages(chat))) {
+            head = await chats.patch(chat.id, latest._storageRevision, changes, { source: 'rollback.undo' })
+          }
+        }
         if (!head) throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
         restored = { ...result, ...head, messages: createScopedMessages(bounded.count) }
       } else {

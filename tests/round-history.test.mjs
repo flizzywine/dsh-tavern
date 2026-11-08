@@ -287,12 +287,13 @@ test('补偿期间出现并发修改时拒绝覆盖，并明确报告恢复失�
   const h = harness({ checkpoint: true })
   const update = h.options.chats.update
   h.options.chats.update = async (id, mutate, metadata) => {
-    if (metadata.source === 'rollback.abort') await update(id, current => ({ ...current, posture: '并发变更' }), { source: 'fixture' })
+    // 只有故事行被并发改动才该拒绝；后台写 posture 之类的字段不算。
+    if (metadata.source === 'rollback.abort') await update(id, current => ({ ...current, messages: [...current.messages, { role: 'assistant', text: '并发插入' }] }), { source: 'fixture' })
     return update(id, mutate, metadata)
   }
   h.session.append = () => { throw new Error('消息面拒绝') }
   await assert.rejects(h.create().rollback('session', 'chat'), /回退失败且剧情恢复未完成.*消息面拒绝.*其他操作修改/)
-  assert.equal(h.chat.posture, '并发变更')
+  assert.equal(h.chat.messages.some(row => row.text === '并发插入'), true)
   assert.ok(!h.calls.includes('MESSAGE_DELETED'))
 })
 
