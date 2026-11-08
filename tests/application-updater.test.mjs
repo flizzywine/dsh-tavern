@@ -35,8 +35,8 @@ function createApplicationUpdater(options) {
     platform: 'linux', dshHome: options.sourceRoot,
     // CDN fallback is explicit in each fixture; never fetch live metadata.
     fetchCdnMetadata: async () => { throw new Error('CDN unavailable in GitHub fixture') },
-    // 检查更新的回退是 GitHub commits API → GitHub raw 清单 → jsDelivr；
-    // 测试默认把 raw 清单也置为不可用，需要它的用例自己传 fetchGithubManifest。
+    // 清单主源是 GitHub raw 运行清单，commits API 补判；jsDelivr 只在前两者都判不了时兜底。
+    // 测试默认把 raw 清单置为不可用，需要它的用例自己传 fetchGithubManifest。
     fetchGithubManifest: async () => { throw new Error('GitHub manifest unavailable in fixtures') },
     ...options,
   })
@@ -158,6 +158,81 @@ for (const source of ['github']) {
     })
   }
 }
+
+test('GitHub raw 运行清单是清单主源：commits API 不可用时仍能判出更新', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-raw-first-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const installed = 'a'.repeat(40)
+  const latest = 'b'.repeat(40)
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '3.2.0' }))
+  const updater = createApplicationUpdater({
+    dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
+    readLocalIdentity: async () => ({ currentVersion: '3.2.0', currentCommit: installed, currentReleaseSequence: 100 }),
+    fetchManifest: async () => ({ version: '3.2.0' }),
+    fetchLatestCommit: async () => { throw new Error('commits API unavailable') },
+    fetchGithubManifest: async () => ({
+      schemaVersion: 2, revision: latest, releaseSequence: 101, version: '3.2.0',
+      files: [{ path: 'package.json', sha256: 'f'.repeat(64) }],
+    }),
+    compareCommits: async () => { throw new Error('提交比较不该被调用') },
+  })
+  const checked = await updater.check()
+  assert.equal(checked.phase, 'update-available')
+  assert.equal(checked.checkSource, 'github-manifest')
+  assert.equal(checked.latestCommit, latest)
+  assert.equal(checked.checkWarning, undefined)
+})
+
+test('raw 清单落后一版（刚推送、CI 还没发布清单）时用 commits API 补判', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-raw-lag-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const installed = 'a'.repeat(40)
+  const newer = 'b'.repeat(40)
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '3.2.0' }))
+  const updater = createApplicationUpdater({
+    dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
+    readLocalIdentity: async () => ({ currentVersion: '3.2.0', currentCommit: installed, currentReleaseSequence: 100 }),
+    fetchManifest: async () => ({ version: '3.2.0' }),
+    // raw 清单仍停在已安装的提交上。
+    fetchGithubManifest: async () => ({
+      schemaVersion: 2, revision: installed, releaseSequence: 100, version: '3.2.0',
+      files: [{ path: 'package.json', sha256: 'f'.repeat(64) }],
+    }),
+    fetchLatestCommit: async () => newer,
+    compareCommits: async (current, target) => {
+      assert.deepEqual([current, target], [installed, newer])
+      return 'ahead'
+    },
+  })
+  const checked = await updater.check()
+  assert.equal(checked.phase, 'update-available')
+  assert.equal(checked.checkSource, 'github')
+  assert.equal(checked.latestCommit, newer)
+})
+
+test('raw 清单与 commits API 一致显示无更新时，不再问 jsDelivr', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-raw-current-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const installed = 'a'.repeat(40)
+  const packageText = JSON.stringify({ version: '3.2.0' })
+  await writeFile(path.join(root, 'package.json'), packageText)
+  let cdnRequests = 0
+  const updater = createApplicationUpdater({
+    dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli',
+    fetchManifest: async () => ({ version: '3.2.0' }),
+    fetchLatestCommit: async () => installed,
+    fetchGithubManifest: async () => ({
+      schemaVersion: 2, revision: installed, releaseSequence: 100, version: '3.2.0',
+      files: [{ path: 'package.json', sha256: createHash('sha256').update(packageText).digest('hex') }],
+    }),
+    fetchCdnMetadata: async () => { cdnRequests += 1; throw new Error('jsDelivr 不该被问到') },
+  })
+  const checked = await updater.check()
+  assert.equal(checked.phase, 'up-to-date')
+  assert.equal(checked.checkSource, 'github-manifest')
+  assert.equal(cdnRequests, 0, '主源判得动时不发 CDN 请求')
+})
+
 
 test('jsDelivr 发布序号阻止缓存倒退，并允许无 GitHub 更新', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-cdn-'))

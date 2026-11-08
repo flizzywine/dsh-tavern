@@ -27,7 +27,9 @@ async function fixture(t, { beforeCleanup } = {}) {
   const statusFile = path.join(dataRoot, 'update-status.json')
   const updater = extra => createApplicationUpdater({ dataRoot, sourceRoot, dshHome: root, runtimeHost: 'desktop', platform: 'linux',
     readLocalIdentity: async () => identity, fetchManifest: async () => ({ version: identity.currentVersion }),
-    fetchLatestCommit: async () => identity.currentCommit, fetchCdnMetadata: async () => { throw new Error('offline') }, ...extra })
+    fetchLatestCommit: async () => identity.currentCommit,
+    fetchGithubManifest: async () => { throw new Error('offline') },
+    fetchCdnMetadata: async () => { throw new Error('offline') }, ...extra })
   return { root, sourceRoot, dataRoot, statusFile, updater, options: { host: 'desktop', sourceRoot, dshHome: root, statusFile, delay: 0, log() {} } }
 }
 async function until(operation) {

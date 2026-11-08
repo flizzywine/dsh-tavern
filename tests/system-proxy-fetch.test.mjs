@@ -23,7 +23,14 @@ for (const mode of ['system', 'environment', 'lowercase', 'all-proxy', 'native']
     const origin = http.createServer((request, response) => {
       requests.push(request.url)
       response.setHeader('Content-Type', 'application/json')
-      response.end(JSON.stringify(request.url === '/commit' ? { sha: 'a'.repeat(40) } : { version: '3.2.0' }))
+      if (request.url === '/commit') return response.end(JSON.stringify({ sha: 'a'.repeat(40) }))
+      if (request.url === '/manifest') {
+        return response.end(JSON.stringify({
+          schemaVersion: 2, revision: 'a'.repeat(40), releaseSequence: 7, version: '3.2.0',
+          files: [{ path: 'package.json', sha256: 'f'.repeat(64) }],
+        }))
+      }
+      response.end(JSON.stringify({ version: '3.2.0' }))
     })
     await new Promise(resolve => origin.listen(0, '127.0.0.1', resolve))
     t.after(() => { origin.closeAllConnections(); origin.close() })
@@ -73,17 +80,20 @@ for (const mode of ['system', 'environment', 'lowercase', 'all-proxy', 'native']
         sourceRoot: ${JSON.stringify(root)}, dataRoot: ${JSON.stringify(path.join(root, 'data'))}, runtimeHost: 'cli',
         readLocalIdentity: async () => ({ currentVersion: '3.2.0', currentCommit: 'a'.repeat(40) }),
         versionUrl: 'http://update-fixture.invalid/version', commitUrl: 'http://update-fixture.invalid/commit',
+        githubMetadataUrl: 'http://update-fixture.invalid/manifest',
         cdnMetadataUrl: 'http://update-fixture.invalid/cdn',
       });
       const status = await updater.check();
       assert.equal(status.phase, 'up-to-date', status.error);
-      assert.equal(status.checkSource, 'github');
+      assert.equal(status.checkSource, 'github-manifest');
       const local = await fetch('http://127.0.0.1:${origin.address().port}/bypass', { signal: AbortSignal.timeout(3000) });
       assert.equal(local.status, 200);
       await local.text();
     `], { env, timeout: 15000 })
     assert.ok(tunnels.length > 0)
     assert.ok(tunnels.every(authority => authority === 'update-fixture.invalid:80'), 'localhost must bypass the proxy')
-    for (const file of ['/version', '/commit', '/cdn', '/bypass']) assert.ok(requests.includes(file), file)
+    // 主源判得动就不再问 jsDelivr。
+    for (const file of ['/version', '/commit', '/manifest', '/bypass']) assert.ok(requests.includes(file), file)
+    assert.ok(!requests.includes('/cdn'), 'jsDelivr 只在主源判不了时才请求')
   })
 }
