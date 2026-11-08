@@ -171,3 +171,13 @@ test('桌面更新断线后提供手动恢复提示，不能将断线当作安�
   assert.equal(h.status().error, '依赖安装失败')
   h.stop()
 })
+
+test('Android standalone 重启后的完成记录不再占用侧栏，可直接检查更新', async () => {
+  // 服务重启后读侧把 requiresRestart 视为已过期；这一页不是发起更新的那一页，
+  // 于是完成态折算为 idle，侧栏不再挂着「请重启 DSHA」。
+  const h = updaterHarness({ polling: true, call: async () => ({ status: { phase: 'completed', host: 'android', requiresRestart: false, completedAt: 100 } }) })
+  await tick()
+  assert.equal(h.status().phase, 'idle')
+  assert.equal(h.status().host, 'android')
+  h.stop()
+})
