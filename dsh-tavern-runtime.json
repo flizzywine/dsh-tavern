@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c0f5cdf5552f619fb3f5f017552e4faa02be7ba8",
-  "releaseSequence": 1350,
+  "revision": "6054a88668eca3d858f964e74f81733ec46dc65b",
+  "releaseSequence": 1351,
   "version": "3.2.0",
   "files": [
     {
@@ -9541,8 +9541,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/README.md",
-      "sha256": "be0178b87747555e6828de72d1f01404fd210e921e2c443049254f9ccecbcc8d",
-      "size": 6143
+      "sha256": "fe3cd3aa872739cf1137ee98a1e6acf6a9034aa88691a5ff80f7705865db7dcd",
+      "size": 6289
     },
     {
       "path": "tavern-plugin/pnpm-lock.yaml",
@@ -9871,9 +9871,9 @@
     }
   ],
   "archive": {
-    "commit": "38430fd76b79c0290748615dd2a73f3e7008019e",
+    "commit": "9fece7d6eb721230d34d94c4f434296214d606d8",
     "path": "runtime.zip",
-    "sha256": "c56b35fcc6f58c45e35df45b2191c982f5f21eb79c8f20f76aec4e210be6e85f",
-    "size": 16475442
+    "sha256": "699004ed0d939f17915114176827d1bb86ef0c5ce135e4df4c6f1be7a6b6e6d5",
+    "size": 16475524
   }
 }
