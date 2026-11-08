@@ -25250,7 +25250,7 @@ function tavernModelRefusalNotice(text) {
 		        void synthesize(c, turn, piece).catch(error => {
 		            piece.buffers.length = 0;
 		            if (turn.over || call !== c) return;
-		            if (error?.name !== 'AbortError' && error?.code !== 'ABORTED') { piece.failed = true; sync(c, {notice:'她的声音没能播放'}); }
+		            if (error?.name !== 'AbortError' && error?.code !== 'ABORTED') { piece.failed = true; voiceStatus(c, turn, {state:'error'}); }
 		        }).finally(() => { piece.ended = true; if (piece.failed && voiceLate(turn, performance.now())) textOnly(c, turn); else schedule(c, turn); });
 		    }
 		    // ---- her voice too slow or failed: the turn goes on as text (FIRST_PCM_LATE_MS) -------------------------------------
@@ -25260,6 +25260,13 @@ function tavernModelRefusalNotice(text) {
 		        return turn.pieces.some(piece => piece.failed || piece.rtf > SLOW_RTF)
 		            || t.ttsRequestedAt !== undefined && t.firstChunk === undefined && now - t.ttsRequestedAt >= FIRST_PCM_LATE_MS
 		            || now - Math.max(t.firstSegment ?? now, t.releasedAt ?? -Infinity) >= VOICE_LATE_MS;
+		    }
+		    // Her voice for the stage's top-right notice (stage notices.cjs useVoiceStatus): {turn, state:'loading'} from the first
+		    // synthesis request until her first audio is scheduled (null then: a voice that keeps up shows nothing), 'text' when the
+		    // turn went on as text (failed: a synthesis failed rather than ran late), 'error' for a clause that failed.
+		    function voiceStatus(c, turn, value) {
+		        if (call !== c || turn.held) return;
+		        set({voice:value ? {turn:turn.id, ...value} : null});
 		    }
 		    function watchVoice(c, turn) {
 		        clearInterval(turn.watch);
@@ -25273,6 +25280,7 @@ function tavernModelRefusalNotice(text) {
 		        if (turn.over || turn.held || turn.textOnly || call !== c) return;
 		        turn.textOnly = true;
 		        note('text-only', {turnId:turn.id});
+		        voiceStatus(c, turn, {state:'text', failed:turn.pieces.some(piece => piece.failed)});
 		        silence(c, turn);
 		        turn.pieces.length = 0;
 		        for (const line of turn.segments) if (line) reveal(c, turn, line);
@@ -25293,6 +25301,7 @@ function tavernModelRefusalNotice(text) {
 		        const streaming = new Promise(resolve => { streamed = resolve; });
 		        if (turn.timing.ttsRequestedAt === undefined) {
 		            turn.timing.ttsRequestedAt = performance.now();
+		            voiceStatus(c, turn, {state:'loading'});
 		            // Sample service state alongside the request, never on its audio critical path.
 		            void rpc('phoneCallTtsRequested', {callId:c.id, turnId:turn.id}, c.sessionId).catch(() => {});
 		        }
@@ -25388,6 +25397,7 @@ function tavernModelRefusalNotice(text) {
 		                    piece.input.connect(out.input);
 		                }
 		                source.buffer = buffer; source.connect(piece.input); source.start(at);
+		                if (turn.timing.firstScheduledAt === undefined) voiceStatus(c, turn, null);
 		                turn.timing.firstScheduledAt ??= performance.now() + (at - context.currentTime) * 1000;
 		                turn.sources.add(source); source.onended = () => { source.disconnect(); turn.sources.delete(source); tick(c); };
 		                piece.spans.push([at, buffer.duration]); piece.scheduled += buffer.duration;
@@ -25553,7 +25563,7 @@ function tavernModelRefusalNotice(text) {
 		        // A live call keeps its line in the background; every other sound still pauses (foreground.js).
 		        const keep = forkForeground.keepAudio();
 		        c.keepAudio = () => { keep(); c.keepAudio = () => {}; };
-		        set({status:'connecting', contactId, name:name || '', sessionId, startedAt:null, connected:false, elapsed:0, muted:false, video:false, camera:false, lines:[], partial:'', error:null, notice:null});
+		        set({status:'connecting', contactId, name:name || '', sessionId, startedAt:null, connected:false, elapsed:0, muted:false, video:false, camera:false, lines:[], partial:'', error:null, notice:null, voice:null});
 		        try {
 		            const opened = await rpc('phoneCallStart', {contactId, ...(at ? {at} : {})}, sessionId);
 		            if (call !== c) return;
