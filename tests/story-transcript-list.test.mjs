@@ -454,6 +454,51 @@ test('store 挡掉晚到的旧响应，hook 驱动 view 渲染', async t => {
 	assert.equal(deferred.length, 2, '同一会话 + historyFrom 不重复读取')
 })
 
+test('切回最近会话与历史窗口直接复用故事，force 与 reset 仍重新读取', async t => {
+	const page = createPage(t)
+	const { context } = page
+	const reads = []
+	const data = context.createTavernStoryTranscriptDataModule()
+	const store = data.createStoryTranscriptStore({ load: async (sessionId, options) => {
+		reads.push([sessionId, options.historyFrom ?? null])
+		return { transcript: story([{ role: 'assistant', turn: 1, text: sessionId, messageUid: sessionId }]), view: { mode: 'story' }, revision: 7 }
+	} })
+	await store.read('s1')
+	await store.read('s2')
+	await store.read('s1', { historyFrom: 20 })
+	reads.length = 0
+
+	await store.read('s1')
+	await store.read('s2')
+	assert.deepEqual(reads, [], '已读会话和各自的历史窗口切回时不得重新下载')
+	assert.equal(store.getSnapshot().sessionId, 's2')
+	assert.equal(store.getSnapshot().status, 'ready')
+
+	await store.read('s2', { force: true })
+	assert.deepEqual(reads, [['s2', null]], '版本变化使用的 force 必须绕过缓存')
+	store.reset()
+	await store.read('s2')
+	assert.deepEqual(reads, [['s2', null], ['s2', null]], 'reset 必须清空全部会话缓存')
+})
+
+test('故事缓存按最近使用顺序执行有界淘汰', async t => {
+	const page = createPage(t)
+	const { context } = page
+	const reads = []
+	const data = context.createTavernStoryTranscriptDataModule()
+	const store = data.createStoryTranscriptStore({ cacheSize: 2, load: async sessionId => {
+		reads.push(sessionId)
+		return { transcript: story([{ role: 'assistant', turn: 1, text: sessionId }]), view: null, revision: 7 }
+	} })
+	await store.read('s1')
+	await store.read('s2')
+	await store.read('s1')
+	await store.read('s3')
+	assert.deepEqual(reads, ['s1', 's2', 's3'], '缓存命中不读，新增窗口只读一次')
+	await store.read('s2')
+	assert.deepEqual(reads, ['s1', 's2', 's3', 's2'], '最久未使用的 s2 已被淘汰')
+})
+
 const flush = () => new Promise(resolve => setImmediate(resolve))
 
 test('后台结算推进 live revision 后自动重读故事操作选择器', async t => {

@@ -37322,8 +37322,28 @@ function createTavernStoryTranscriptDataModule(deps) {
 		const settings = storeOptions || {}
 		const load = typeof settings.load === 'function' ? settings.load : fetchStoryTranscript
 		const listeners = new Set()
+		// The visible store is single-slot, but switching sessions must not throw away
+		// every transcript it already downloaded. Keep a small LRU by session+window;
+		// force/read-after-mutation still bypasses it and replaces the cached revision.
+		const cacheSize = Number.isSafeInteger(settings.cacheSize) ? Math.max(0, settings.cacheSize) : 4
+		const cache = new Map()
 		let ticket = 0
 		let state = IDLE
+
+		function cacheKey(sessionId, historyFrom) { return JSON.stringify([sessionId, historyFrom]) }
+		function touch(key) {
+			const cached = cache.get(key)
+			if (!cached) return null
+			cache.delete(key)
+			cache.set(key, cached)
+			return cached
+		}
+		function remember(key, value) {
+			if (cacheSize === 0) return
+			cache.delete(key)
+			cache.set(key, value)
+			while (cache.size > cacheSize) cache.delete(cache.keys().next().value)
+		}
 
 		function publish(next) {
 			state = next
@@ -37342,6 +37362,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 			const id = String(sessionId || '')
 			const historyFrom = tavernStoryTranscriptHistoryFrom(readOptions && readOptions.historyFrom)
 			const force = readOptions && readOptions.force === true
+			const key = cacheKey(id, historyFrom)
 			const sameSession = state.sessionId === id
 			const sameTarget = sameSession && state.historyFrom === historyFrom
 			if (id === '') {
@@ -37349,7 +37370,16 @@ function createTavernStoryTranscriptDataModule(deps) {
 				return state
 			}
 			if (!force && sameTarget && (state.status === 'loading' || state.status === 'refreshing')) return state
-			if (!force && sameTarget && (state.status === 'ready' || state.status === 'empty')) return state
+			if (!force && sameTarget && (state.status === 'ready' || state.status === 'empty')) {
+				touch(key)
+				return state
+			}
+			const cached = force ? null : touch(key)
+			if (cached) {
+				const current = ++ticket
+				publish(Object.assign({}, cached, { ticket: current }))
+				return state
+			}
 			const current = ++ticket
 			publish({
 				sessionId: id,
@@ -37365,14 +37395,16 @@ function createTavernStoryTranscriptDataModule(deps) {
 				const result = await load(id, { historyFrom: historyFrom === null ? undefined : historyFrom })
 				if (current !== ticket) return state
 				const transcript = result && result.transcript ? result.transcript : null
-				publish({
+				const next = {
 					sessionId: id, historyFrom: historyFrom,
 					status: transcript ? 'ready' : 'empty',
 					transcript: transcript,
 					view: result && result.view ? result.view : null,
 					revision: result && result.revision !== undefined ? result.revision : null,
 					error: null, ticket: current
-				})
+				}
+				remember(key, next)
+				publish(next)
 			} catch (error) {
 				if (current !== ticket) return state
 				const preserve = state.sessionId === id && state.transcript
@@ -37384,6 +37416,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 
 		function reset() {
 			ticket += 1
+			cache.clear()
 			publish(IDLE)
 		}
 
