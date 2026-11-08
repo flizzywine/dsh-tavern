@@ -37,3 +37,27 @@ test('voice engine-services is retired: the action is unknown and stage writes r
   assert.equal((await f.invoke('stage_patch',{action:'engine',expectedRevision:f.engine.read().revision,patch:{voiceServices:{}}})).error.code,'UNKNOWN_FIELD')
   assert.equal(f.calls.filter(c=>c.method==='saveAssetEngineSettings').length,calls)
 })
+
+test('reading returns normalized TTS settings without writes or approval and retains card authority',async t=>{
+  const {readingOf}=await import('../tavern-plugin/packages/dsh-tavern-tts/src/settings.js')
+  const calls=[],settings={}
+  const f=await workbenchFixture({tts:{call(method,args){calls.push({method,args});assert.equal(method,'reading');return readingOf(settings)}}})
+  t.after(()=>f.close())
+  const fresh={dialogueVoice:null,narrator:{enabled:false,voice:null},readAloud:{voice:null,auto:false}}
+  assert.deepEqual((await f.invoke('voice_read',{action:'reading'})).data,fresh)
+  settings.reading={dialogueVoice:{browser:'Dialogue'},narrator:{enabled:true,voice:{browser:'Narrator'}},readAloud:{voice:{browser:'Reader'},auto:true}}
+  const before=structuredClone(settings)
+  assert.deepEqual((await f.invoke('voice_read',{action:'reading'})).data,before.reading)
+  assert.deepEqual(settings,before)
+  assert.deepEqual(calls,[{method:'reading',args:{}},{method:'reading',args:{}}])
+  assert.equal(f.approvals.length,0)
+  assert.equal(f.paidCalls,0)
+  f.chat.mode='story'
+  assert.equal((await f.invoke('voice_read',{action:'reading'})).error.code,'CARD_MODE_REQUIRED')
+  assert.equal(calls.length,2)
+})
+
+test('reading without the TTS service retains the unavailable error',async t=>{
+  const f=await workbenchFixture();t.after(()=>f.close())
+  assert.equal((await f.invoke('voice_read',{action:'reading'})).error.code,'ASSET_UNAVAILABLE')
+})
