@@ -858,7 +858,10 @@ export function createTurnOrchestrator(options) {
     }
     const prior = commitFor(chat, turn)
     if (prior !== null) return { saved: true, duplicate: true, mode: chat.mode || 'story', changed: prior.changed === true }
-    if (expectedTimeline && (chat.timeline?.branchId !== expectedTimeline.branchId || chat.timeline?.revision !== expectedTimeline.revision)) {
+    // 同一分支上后台写入可以推进 revision（结算、候选、世界书），那不是本轮失效；
+    // 换分支或 revision 倒退（回退/重置）才作废这次结果。
+    if (expectedTimeline && (chat.timeline?.branchId !== expectedTimeline.branchId
+      || Number(chat.timeline?.revision || 0) < Number(expectedTimeline.revision || 0))) {
       throw new Error('正文生成期间剧情状态已变化，本轮结果已作废')
     }
     const userText = str(input.userText).trim()

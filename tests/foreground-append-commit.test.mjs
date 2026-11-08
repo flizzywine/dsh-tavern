@@ -136,10 +136,30 @@ test('已保存玩家输入在分页准备和提交中保持同一索引', async
   assert.equal(committed.messages[11].text, '回复 6')
 })
 
-test('剧情版本在生成期间变化：拒绝提交，楼层不变', async t => {
+test('剧情版本在生成期间被后台写入推进：仍然提交，不丢本轮正文', async t => {
   const scoped = await app(t, base(history(5, () => true)), true)
   await scoped.turns.prepare({ sessionId: 's', turn: 6, userText: '继续' })
-  scoped.beforePatch(() => scoped.persistence.update('chat-1', chat => { chat.timeline.revision++; return chat }, { source: 'rollback' }))
+  // 结算/候选/世界书会在同一分支上推进 revision，那不代表玩家看到的剧情换了。
+  scoped.beforePatch(() => scoped.persistence.update('chat-1', chat => {
+    chat.timeline.revision++
+    chat.posture = '后台结算后的状态'
+    return chat
+  }, { source: 'settlement' }))
+  await scoped.turns.finalize({ sessionId: 's', turn: 6, userText: '继续', assistantText: '回复' })
+  const stored = await scoped.stored()
+  assert.equal(stored.messages.length, 12)
+  assert.equal(stored.messages[11].text, '回复')
+  assert.equal(stored.posture, '后台结算后的状态', '后台写入的状态不被本轮提交覆盖')
+})
+
+test('生成期间换了分支：拒绝提交，楼层不变', async t => {
+  const scoped = await app(t, base(history(5, () => true)), true)
+  await scoped.turns.prepare({ sessionId: 's', turn: 6, userText: '继续' })
+  scoped.beforePatch(() => scoped.persistence.update('chat-1', chat => {
+    chat.timeline.revision++
+    chat.timeline.branchId = 'other-branch'
+    return chat
+  }, { source: 'rollback' }))
   await assert.rejects(scoped.turns.finalize({ sessionId: 's', turn: 6, userText: '继续', assistantText: '回复' }), /剧情状态已变化/)
   assert.equal((await scoped.stored()).messages.length, 12, '拒绝提交后仍只有本轮两条占位，没有重复正式楼层')
 })

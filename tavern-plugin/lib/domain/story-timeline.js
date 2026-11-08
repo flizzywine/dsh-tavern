@@ -20,6 +20,13 @@ function object(value) {
 function sameBasedOn(left, right) {
   return str(left && left.branchId) === str(right && right.branchId) && Number(left && left.revision) === Number(right && right.revision)
 }
+// 同一个分支上，操作开始之后别的后台写入可以把 revision 往前推（结算写变量、
+// 候选扫描、世界书同步），那不代表这一轮换了剧情。只有换分支或 revision
+// 倒退（回退/重置）才让操作失效。
+function basedOnStillCurrent(basedOn, chat) {
+  return str(basedOn && basedOn.branchId) === str(chat.timeline.branchId)
+    && Number(chat.timeline.revision) >= Number(basedOn && basedOn.revision)
+}
 
 // The participant (resident Session) a role binds: its background member (background-members.js).
 function participantRole(role) {
@@ -667,7 +674,7 @@ export function createStoryTimeline(options = {}) {
         input.messageIndices.map(id => [id, clone(input.chat.messages[id])]))
     }
     const operation = chat.timeline.operations[str(input && input.operationId)]
-    if (operation === undefined || operation.status !== 'running' || !sameBasedOn(operation.basedOn, input && input.basedOn) || !sameBasedOn(operation.basedOn, basedOn(chat))) {
+    if (operation === undefined || operation.status !== 'running' || !sameBasedOn(operation.basedOn, input && input.basedOn) || !basedOnStillCurrent(operation.basedOn, chat)) {
       if (operation !== undefined && operation.status === 'running') operation.status = 'stale'
       return { chat, value: { status: 'stale', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
     }
@@ -693,9 +700,11 @@ export function createStoryTimeline(options = {}) {
     let settlementRound = null
     if (operation.kind === 'agent' && operation.role === 'settlement' && str(operation.roundOperationId) !== '') {
       settlementRound = chat.timeline.operations[operation.roundOperationId]
+      // 结算只要求「那一轮正文仍是本分支上已提交的那一轮」；此后别的后台写入
+      // 推进 revision，不该让已经跑完的结算作废。
       if (!settlementRound || settlementRound.kind !== 'body' || settlementRound.status !== 'completed'
         || str(settlementRound.committedBranchId) !== str(operation.basedOn.branchId)
-        || Number(settlementRound.committedRevision) !== Number(operation.basedOn.revision)) {
+        || Number(settlementRound.committedRevision) > Number(operation.basedOn.revision)) {
         operation.status = 'stale'
         return { chat, value: { status: 'stale', branchId: chat.timeline.branchId, revision: chat.timeline.revision } }
       }
