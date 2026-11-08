@@ -1,6 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # DSH Tavern × Termux 单文件：装 + 移动版布局 + 启动 + 自动打开酒馆页面。
 #   bash termux-tavern.sh [install|start|stop|restart|status|open|update|logs]
+#   bash termux-tavern.sh reinstall          # 已在装的情况下强制重跑安装器（会清掉 .git 标记）
 #   bash termux-tavern.sh branch [分支名]    # 把已装的 main 源码切到测试分支（默认 backup/main-20261106）
 #   bash termux-tavern.sh branch-revert      # 回到上一次切换前的版本
 # 三条硬约束（脚本已按它们处理）：服务必须活在常驻 proot 里（proot 退出=进程失去
@@ -17,9 +18,12 @@ INNER_SCRIPT=$PREFIX/tmp/tavern-inner.sh
 WAIT_SCRIPT=$PREFIX/tmp/tavern-wait.sh
 WAIT_OUT=$PREFIX/tmp/tavern-wait.out
 BRANCH_SCRIPT=$PREFIX/tmp/tavern-branch.sh
+FORCE_INSTALL_FLAG=$PREFIX/tmp/tavern-force-install
 BRANCH_DEFAULT=${TERMUX_TAVERN_BRANCH:-backup/main-20261106}
 
 mkdir -p "$(dirname -- "$PIDFILE")" "$(dirname -- "$INNER_SCRIPT")"
+# 强制重装标记是临时文件：中途失败也别留到下一次 start/restart 触发重装。
+trap 'rm -f "$FORCE_INSTALL_FLAG" 2>/dev/null || true' EXIT
 log() { printf '%s\n' "$*"; }
 die() { printf '错误：%s\n' "$*" >&2; exit 1; }
 
@@ -108,7 +112,12 @@ if [ ! -x /usr/local/node/bin/node ]; then
 fi
 export PATH=/usr/local/node/bin:$HOME/.local/bin:$PATH
 echo "[容器] Node $(node -v)"
-if [ ! -f "$HOME/.dsh-tavern/apps/dsh-tavern/bin/dsh-tavern.mjs" ]; then
+if [ -f /tmp/tavern-force-install ] && [ -d "$HOME/.dsh-tavern/apps/dsh-tavern" ]; then
+  echo '[容器] 强制重装：先清掉切换分支留下的 git 标记'
+  rm -rf "$HOME/.dsh-tavern/apps/dsh-tavern/.git"
+  rm -f "$HOME/.dsh-tavern/apps/dsh-tavern/.termux-tavern-branch"
+fi
+if [ ! -f "$HOME/.dsh-tavern/apps/dsh-tavern/bin/dsh-tavern.mjs" ] || [ -f /tmp/tavern-force-install ]; then
   echo '[容器] 安装酒馆（首次 10–30 分钟）'
   grab /tmp/ti.sh \
     "https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install.sh" \
@@ -556,6 +565,12 @@ self_update "$@"
 
 case "${1:-install}" in
   install) ensure_ready; do_start ;;
+  reinstall|force-install)
+    : >"$FORCE_INSTALL_FLAG"
+    ensure_ready
+    do_start
+    rm -f "$FORCE_INSTALL_FLAG"
+    ;;
   start)   ensure_ready; do_start ;;
   stop)    do_stop ;;
   restart) do_stop; do_start ;;
@@ -576,5 +591,5 @@ case "${1:-install}" in
   branch|switch) do_branch "${2:-}" ;;
   branch-revert|revert) do_branch_revert ;;
   logs)    proot-distro login "$DISTRO" -- bash -lc "$INNER; tail -n 80 \"\$HOME/.dsh-tavern/logs/tavern.log\"" ;;
-  *)       log "用法：bash $0 [install|start|stop|restart|status|open|update|logs|branch [分支]|branch-revert]" >&2; exit 2 ;;
+  *)       log "用法：bash $0 [install|reinstall|start|stop|restart|status|open|update|logs|branch [分支]|branch-revert]" >&2; exit 2 ;;
 esac

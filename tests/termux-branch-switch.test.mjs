@@ -83,6 +83,13 @@ async function writeInner(directory) {
   return script
 }
 
+test('一键脚本提供 reinstall 强制重装，并会清掉 git 标记', async () => {
+  assert.match(shell, /reinstall\|force-install\)/)
+  assert.match(shell, /tavern-force-install/)
+  assert.match(shell, /rm -rf "\$HOME\/\.dsh-tavern\/apps\/dsh-tavern\/\.git"/)
+  assert.match(shell, /\[ -f \/tmp\/tavern-force-install \]/)
+})
+
 test('容器内切换：保留 data 与 node_modules、写标记与备份记录', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'tavern-termux-branch-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
