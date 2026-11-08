@@ -1381,7 +1381,7 @@
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-guide", order: -115, label: "重新生成候选项" },
 				function (props) { return React.createElement(CandidateGuidePanel, props); }
 			)), "dsh-tavern: candidate guide panel");
-			// 长按发送键 2 秒直接重新生成正文：只装监听，不画界面（开关在 设置 › 高级）。
+			// 长按发送键直接重新生成正文：只装监听，不画界面（开关在 设置 › 高级）。
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-send-hold", order: -105, label: "长按发送键重新生成" },
 				function (props) { return React.createElement(TavernSendLongPress, { key: "send-hold:" + props.sessionId, sessionId: props.sessionId, useSession: props.useSession }); }

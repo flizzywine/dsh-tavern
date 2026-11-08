@@ -5,11 +5,11 @@ import { chromium } from 'playwright'
 // Exercise the public plugin registration and real React effects/events. Only
 // the DSH host and HTTP boundary are fixtures; no component source extraction.
 // stageClient: the page loads the built stage client through the core's hold and loader, as in production.
-export async function openTavernSettings(t, { settings, respond, exposeConversationModels = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false, browserExecutable, renderPropsCode } = {}) {
+export async function openTavernSettings(t, { settings, respond, exposeConversationModels = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false, browserExecutable, renderPropsCode, contextOptions } = {}) {
   const executablePath = browserExecutable || process.env.PLAYWRIGHT_EXECUTABLE_PATH
   const browser = await chromium.launch({ headless: true, args: ['--mute-audio'], ...(executablePath ? { executablePath } : {}) })
   t.after(() => browser.close())
-  const page = await browser.newPage()
+  const page = await browser.newPage(contextOptions)
   page.setDefaultTimeout(5000)
   const calls = [], errors = []
   page.on('pageerror', error => errors.push(error.message))
