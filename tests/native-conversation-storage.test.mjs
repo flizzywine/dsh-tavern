@@ -120,6 +120,23 @@ test('旧前台正文的原生状态保留完整历史提示但不序列化内�
  assert.equal(JSON.stringify(state).includes('_sessionStateHistoryComplete'),false)
 })
 
+test('内部共享解码不泄漏到完整读取、窗口、历史版本或放弃的回写',async t=>{
+ const {persistence}=await fixture(t)
+ await persistence.write({id:'a',sessionId:'s',mode:'story',messages:[row(0)]})
+ const full=await persistence.read('a')
+ full.messages[0].text='changed';full.messages[0].variables[0].stat_data.gold=99
+ assert.equal((await persistence.read('a')).messages[0].text,'reward')
+ assert.equal((await persistence.read('a')).messages[0].variables[0].stat_data.gold,0)
+ const window=await persistence.readWindow('a',{limit:1})
+ window.chat.messages[0].text='window changed'
+ assert.equal((await persistence.readWindow('a',{limit:1})).chat.messages[0].text,'reward')
+ const revision=await persistence.readRevision('a',1)
+ revision.messages[0].text='revision changed'
+ assert.equal((await persistence.read('a')).messages[0].text,'reward')
+ await persistence.update('a',draft=>{draft.messages[0].text='aborted change';return undefined})
+ assert.equal((await persistence.read('a')).messages[0].text,'reward')
+})
+
 test('fresh native gameplay writes pages, recovers variables and preserves historical revisions',async t=>{
  const {root,store,persistence,domain,pages}=await fixture(t)
  const chat=await persistence.write({id:'a',messages:[row(0)],posture:'standing'})

@@ -59,8 +59,9 @@ export function createDecodedJsonCache(maxBytes = 0) {
 // shareSubtrees is for short-lived instances (one storage operation). Floors of a
 // chat repeat most of their tree (variables, card state); with it each referenced
 // subtree is built once per instance and shared inside the decoder-owned trees.
-// Callers still receive detached copies.
-export function createIncrementalJsonState({read,write,decodedCacheBytes=0,decodedCache=createDecodedJsonCache(decodedCacheBytes),shareSubtrees=false}){
+// Callers still receive detached copies by default. `detach:false` is reserved for
+// an outer store that owns the only public copy boundary and keeps this tree private.
+export function createIncrementalJsonState({read,write,decodedCacheBytes=0,decodedCache=createDecodedJsonCache(decodedCacheBytes),shareSubtrees=false,detach=true}){
  const rememberDecoded = (ref,value,owned) => decodedCache.remember(ref,value,owned)
  const subtrees=shareSubtrees?new Map():null
  function session(){
@@ -117,10 +118,10 @@ export function createIncrementalJsonState({read,write,decodedCacheBytes=0,decod
  }
  async function decode(s,link,cacheResult=true){
   if(own(link,'value'))return link.value
-  if(own(link,'inline'))return copyJsonTree(link.inline)
+  if(own(link,'inline'))return detach?copyJsonTree(link.inline):link.inline
   const previous=decodedCache.get(link.ref)
   // With shared subtrees a nested result stays inside a decoder-owned tree.
-  if(previous)return subtrees&&!cacheResult?previous.value:copyJsonTree(previous.value)
+  if(previous)return (subtrees&&!cacheResult)||!detach?previous.value:copyJsonTree(previous.value)
   if(subtrees&&!cacheResult){
    let work=subtrees.get(link.ref)
    if(!work){work=build(s,link);subtrees.set(link.ref,work);work.catch(()=>subtrees.delete(link.ref))}
@@ -132,7 +133,7 @@ export function createIncrementalJsonState({read,write,decodedCacheBytes=0,decod
   if(!cacheResult)return value
   if(!subtrees){rememberDecoded(link.ref,value);return value}
   rememberDecoded(link.ref,value,true)
-  return copyJsonTree(value)
+  return detach?copyJsonTree(value):value
  }
  async function build(s,link){
   const node=await s.get(link.ref)

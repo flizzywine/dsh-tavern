@@ -275,7 +275,7 @@ export function createChatJournalStore(options = {}) {
   }
 
   async function materialize(chatId, targetRevision = Number.POSITIVE_INFINITY) {
-    return await native.read(chatId,targetRevision) || await compatible?.read(chatId,targetRevision) || materializeLegacy(chatId,targetRevision)
+    return await native.readShared(chatId,targetRevision) || await compatible?.read(chatId,targetRevision) || materializeLegacy(chatId,targetRevision)
   }
   // Each cached game remains verified against disk on every read.
   async function cachedState(chatId) {

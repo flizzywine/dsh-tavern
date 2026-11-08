@@ -90,11 +90,12 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  // reads must not evict the active game's entire decoder. Public reads remain
  // detached and every request resolves the authoritative head from disk.
  const decodedCache=createDecodedJsonCache(128*1024*1024)
- function tree(id){
+ function tree(id,{shared=false}={}){
   // Tree operations never mutate stored nodes. Reuse the page store's bounded
-  // immutable cache; only the resulting public JSON projection is detached.
+  // immutable cache; public projections detach, while the journal's private
+   // materialization can share it because journal owns the outer copy boundary.
   // Each tree() serves one operation, so its shared-subtree memo ends with it.
-  return createIncrementalJsonState({decodedCache,shareSubtrees:true,
+  return createIncrementalJsonState({decodedCache,shareSubtrees:true,detach:!shared,
    read:ref=>pages.readRecord(id,ref,{shared:true}),write:value=>pages.writeRecord(id,value)})
  }
  async function head(id,snapshotId){
@@ -124,10 +125,10 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   }
   return view
  }
- async function read(id,revision=Infinity,snapshotId){
+ async function read(id,revision=Infinity,snapshotId,shared=false){
   const view=snapshotId?await head(id,snapshotId):await headAtRevision(id,revision)
   if(!view)return null
-  const started=performance.now(),t=tree(id),chat=await selectedHeader(id,view)
+  const started=performance.now(),t=tree(id,{shared}),chat=await selectedHeader(id,view,undefined,shared)
   onIO?.({kind:'phase',name:'chat.native.header',chatId:id,durationMs:performance.now()-started})
   const historyStarted=performance.now(),messages=new Array(view.messageCount)
   let cursor=view.snapshotCursor
@@ -142,8 +143,11 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   if(chat.id!==id||chat._storageRevision!==view.state.chatRevision)throw failure('CHAT_STORAGE_DAMAGED','Native Chat revision mismatch')
   return result(chat,view)
  }
- async function selectedHeader(id,view,fields){
-  const t=tree(id),root=view.state.chatHeaderRef
+ // Private journal materialization: the store never exposes this tree without
+ // applying its existing public-copy or copy-on-write boundary first.
+ async function readShared(id,revision=Infinity){return read(id,revision,undefined,true)}
+ async function selectedHeader(id,view,fields,shared=false){
+  const t=tree(id,{shared}),root=view.state.chatHeaderRef
   // Cache resource fields independently: a new task revision must not retain
   // another whole header containing the same large card and evict the card.
   const complete=!Array.isArray(fields)&&fields!=='settlement'
@@ -806,5 +810,5 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  }
  // Contiguous packs in read order for a fragmented current head; no lock while reading.
  async function relayout(id,options){return pages.relayout(id,options)}
- return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readWindow,readWorldSnapshot,openSnapshot,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
+ return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readShared,readWindow,readWorldSnapshot,openSnapshot,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
 }
