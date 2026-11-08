@@ -18,7 +18,7 @@ function memoryLog() {
   })
 }
 
-function install(log, headers, pluginSettlementProgress, beginReplyObserver, emitted, agentRegistry = { get: () => undefined }) {
+function install(log, headers, pluginSettlementProgress, beginReplyObserver, emitted, agentRegistry = { get: () => undefined }, worldbookRecallLog = { requested: async () => {} }) {
   let stream
   const game = { id: 'chat-game', mode: 'story', requestMode: 'sillytavern' }
   const ctx = { on(name, fn) { if (name === 'llm/stream') stream = fn }, llm: {}, get() {}, logger: () => ({ warn() {} }) }
@@ -32,7 +32,7 @@ function install(log, headers, pluginSettlementProgress, beginReplyObserver, emi
     chatHeaderForSession: async id => id === 'session-game' ? game : undefined,
     foregroundStrategies: { projectRequest: () => null, completeRequest() {} },
     fullTemplateRuntime: {}, modelRequestLog: log, pluginSettlementProgress, openReplyObservers:observers.openReply, requestCoordinates: new Map([['session-game', { turn: 2, step: 1 }]]), str: value => typeof value === 'string' ? value : '',
-    sessionStateForSession: async () => null, updateChat: async () => {}, worldbookRecallLog: { requested: async () => {} }, runtimePrompt: () => '', storyRetention: async () => ({})
+    sessionStateForSession: async () => null, updateChat: async () => {}, worldbookRecallLog, runtimePrompt: () => '', storyRetention: async () => ({})
   })
   return async (sessionId, signal) => {
     const chunks = []
@@ -40,6 +40,17 @@ function install(log, headers, pluginSettlementProgress, beginReplyObserver, emi
     return chunks
   }
 }
+
+test('世界书请求日志关联不抢在模型流启动前拼接提示词', async () => {
+  const events = []
+  const send = install(memoryLog(), {}, null, null, async function * () {
+    events.push('provider-started')
+    yield { type: 'text-delta', text: '正文' }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }, undefined, { requested: async () => { events.push('recall-log') } })
+  await send('session-game')
+  assert.deepEqual(events, ['provider-started', 'recall-log'])
+})
 
 test('正文等待首字及流中停顿超过 90 秒仍可继续，不被当作用户停止', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
