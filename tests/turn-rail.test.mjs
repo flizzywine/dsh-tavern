@@ -6,12 +6,15 @@ import vm from 'node:vm'
 import { JSDOM } from 'jsdom'
 
 const source = readFileSync(new URL('../tavern-plugin/src/client/modules/turn-rail.js', import.meta.url), 'utf8')
+// 刻度那条 rail 的样式：窄屏收起靠 hidden，落脚点在右边居中（不定位时也不会掉到页面末尾）。
+const railCss = readFileSync(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
+  .split('/* ---------- 楼层跳转')[1].split('/* ── 导出与导入')[0]
 
 // 页面结构：会话滚动区 → 宿主那列 turn 刻度 + 故事楼层行（每层带 data-floor）。
 function page(floors, options = {}) {
   const marks = (options.marks || [1, 2, 3]).map(turn => `<button class="_9dNBWq_mark" aria-label="跳转到第 ${turn} 轮"></button>`).join('')
   const rows = floors.map(([floor, top]) => `<article data-story-row data-floor="${floor}" data-role="assistant" data-row="${floor}">第 ${floor} 楼正文</article>`).join('')
-  const dom = new JSDOM(`<body><div data-conversation-scroll><nav aria-label="轮次导航">${marks}</nav><div class="dsh-tavern-story-older"><button type="button">加载更早</button></div>${rows}</div></body>`, { pretendToBeVisual: true })
+  const dom = new JSDOM(`<body><style>${railCss}</style><div data-conversation-scroll><nav aria-label="轮次导航">${marks}</nav><div class="dsh-tavern-story-older"><button type="button">加载更早</button></div>${rows}</div></body>`, { pretendToBeVisual: true })
   const scope = dom.window.document.querySelector('[data-conversation-scroll]')
   const box = { left: 20, right: options.narrow ? 700 : 1200, top: 40, bottom: 640, width: options.narrow ? 680 : 1180, height: 600 }
   scope.getBoundingClientRect = () => box
@@ -55,6 +58,14 @@ test('当前楼层跟着滚动走：滚过顶部的那一层亮起来', t => {
   rail.dispose()
 })
 
+test('脚本还没定位时也落在右边居中，不会掉到页面末尾', t => {
+  const dom = new JSDOM(`<body><style>${railCss}</style><nav class="dsh-tavern-turn-rail"></nav></body>`, { pretendToBeVisual: true })
+  t.after(() => dom.window.close())
+  const style = dom.window.getComputedStyle(dom.window.document.querySelector('.dsh-tavern-turn-rail'))
+  assert.equal(style.right, '12px', '默认贴着右边')
+  assert.equal(style.top, '50%', '默认竖向居中')
+})
+
 test('楼层重画时刻度跟着重建，不是故事行的元素不算楼层', t => {
   const { dom, document, scope, create } = page([[1, 40], [2, 140]])
   t.after(() => dom.window.close())
@@ -90,7 +101,10 @@ test('窄屏与没有楼层时不画刻度', t => {
   t.after(() => narrow.dom.window.close())
   const rail = narrow.create(narrow.scope)
   rail.apply()
-  assert.equal(narrow.document.querySelector('.dsh-tavern-turn-rail').hidden, true, '窄屏收起')
+  const box = narrow.document.querySelector('.dsh-tavern-turn-rail')
+  assert.equal(box.hidden, true, '窄屏收起')
+  // hidden 只是 UA 的 display:none；class 上的 display:flex 会把它压回去，刻度就停在页面末尾（手机左下角）。
+  assert.equal(narrow.dom.window.getComputedStyle(box).display, 'none', '窄屏真的不显示')
   rail.dispose()
 
   const empty = page([], {})

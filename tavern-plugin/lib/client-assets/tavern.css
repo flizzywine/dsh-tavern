@@ -3687,7 +3687,10 @@ body .dsh-tavern-picker-error { background: linear-gradient(color-mix(in srgb, v
    一层正文一根刻度，点了滚到那一层的开头。 */
 /* 只做视觉隐藏：display:none 会让宿主的虚拟列表量到 0 高度，连它自己的刻度都不再渲染。 */
 [data-dsh-tavern-rail-hidden] { visibility: hidden !important; pointer-events: none !important; }
-.dsh-tavern-turn-rail { position: fixed; z-index: 6; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; margin: 0; padding: 0; max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; transform: translateY(-50%); }
+/* right / top 是脚本还没定位时的落脚点：贴右边居中，绝不停在页面末尾（手机上就是左下角）。 */
+.dsh-tavern-turn-rail { position: fixed; z-index: 6; right: 12px; top: 50%; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; margin: 0; padding: 0; max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; transform: translateY(-50%); }
+/* 窄屏收起（turn-rail.js 的 place() 只设 hidden）：上面那条 display:flex 压掉了 UA 的 [hidden] 规则，这里补回来。 */
+.dsh-tavern-turn-rail[hidden] { display: none; }
 .dsh-tavern-turn-rail::-webkit-scrollbar { display: none; }
 .dsh-tavern-turn-rail-tick { position: relative; flex: none; box-sizing: border-box; width: 20px; height: 10px; margin: 0; padding: 0; border: 0; border-radius: 8px; background: none; cursor: pointer; }
 .dsh-tavern-turn-rail-tick::before { content: ""; position: absolute; top: 50%; right: 0; width: 20px; height: 2px; border-radius: 2px; background: var(--dsw-alias-border-l4); transform: translateY(-50%) scaleX(.6); transform-origin: 100%; transition: transform .14s, background-color .14s; }

@@ -76,8 +76,11 @@ function createStoryFloorRail(root, options) {
 	function place() {
 		if (!rail) return;
 		const rect = scope.getBoundingClientRect();
+		// `hidden` 只是 UA 的 display:none，class 上那条 display:flex 会把它压回去：窄屏要真的收起，
+		// 否则元素既不定位也不隐藏，就停在 body 末尾 —— 手机上的左下角。
 		const visible = rect.width > narrow && rect.height > 96;
 		rail.hidden = !visible;
+		rail.style.display = visible ? "" : "none";
 		if (!visible) return;
 		rail.style.right = Math.max(0, Math.round(host.innerWidth - rect.right)) + 12 + "px";
 		rail.style.top = Math.round(rect.top + rect.height / 2) + "px";
