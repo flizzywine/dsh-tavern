@@ -23,7 +23,7 @@ async function helpers() {
   Object.assign(sandbox,{React:{useRef:()=>({current:null}),useEffect:()=>{}},h:(type,props,...children)=>({type,props:props||{},children}),subpageKeys:()=>()=>{},
     core:{VoiceCataloguePicker:'picker',voiceKey:v=>v?JSON.stringify(v):'',voiceFromKey:k=>k?JSON.parse(k):null}});
   for(const name of componentNames)sandbox[name]=name;
-  vm.runInContext(source.slice(source.indexOf('function GeneralVoiceField('),source.indexOf('// 「入场演出 ›」'))+
+  vm.runInContext(source.slice(source.indexOf('function GeneralVoiceField('),source.indexOf('function StagePerformanceRow('))+
     ';Object.assign(this.api,{GeneralVoiceField,NarratorVoiceField,StageVoicePage});',sandbox);
   return sandbox.api
 }
