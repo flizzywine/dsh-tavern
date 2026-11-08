@@ -75,3 +75,23 @@ test('exported card ZIP inspects losslessly; missing target and malformed member
   assert.match(bad.error.message,/Missing field schemaVersion/)
   assert.deepEqual(validateJsonSchemaValue({},bad),[])
 })
+test('bundle upload forwards every library bundle kind without a second kind list',async()=>{
+  const {BUNDLE_KINDS,validatePackManifest}=await import('../tavern-plugin/packages/dsh-asset-library/src/asset-packs/manifest.js')
+  const {requestFor}=await import('./fixtures/workbench-features.mjs')
+  const {runWorkbenchAction}=await import('../tavern-plugin/packages/dsh-tavern-stage/lib/workbench/actions.js')
+  const f=await workbenchFixture()
+  try {
+    for(const kind of BUNDLE_KINDS) {
+      const input={action:'bundle',packId:f.pack.manifest.id,expectedRevision:f.pack.revision,directory:'bundle',bundleKey:'sample',kind,entry:'entry.json'}
+      requestFor('media_upload',input)
+      const manifest=structuredClone(f.pack.manifest)
+      manifest.bundles.sample={kind,entry:'entry.json',contentHash:'a'.repeat(64)}
+      manifest.files.push({path:'bundles/sample/entry.json',sha256:'a'.repeat(64),size:2})
+      validatePackManifest(manifest)
+      let received
+      const files=new Map([['entry.json',Buffer.from('{}')]])
+      await runWorkbenchAction('media_upload',{input,snapshot:async()=>f.pack,files:{directory:async path=>{assert.equal(path,'bundle');return files}},library:{putBundle:async args=>{received=args;return {snapshot:f.pack}}}})
+      assert.deepEqual(received,{packId:input.packId,expectedRevision:input.expectedRevision,bundleKey:'sample',descriptor:{kind,entry:'entry.json'},files})
+    }
+  } finally {await f.close()}
+})

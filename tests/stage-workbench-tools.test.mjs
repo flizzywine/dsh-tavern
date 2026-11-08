@@ -180,3 +180,22 @@ test('real approval policy never auto-rejects without answerer; ask waits, rejec
   assert.equal(f.engine.read().values.stageToggles.music,false)
   assert.equal(f.calls.filter(c=>c.method==='saveAssetEngineSettings').length,1)
 })
+test('asset item, schema and removal accept canonical kinds, including props, not items',async t=>{
+  const {ASSET_KINDS}=await import('../tavern-plugin/packages/dsh-asset-library/src/asset-packs/manifest.js')
+  const f=await workbenchFixture();t.after(()=>f.close())
+  const packId=f.pack.manifest.id
+  for(const kind of ASSET_KINDS) {
+    assert.equal((await f.invoke('assets_read',{action:'schema',kind})).data.kind,kind)
+    assert.equal((await f.invoke('assets_read',{action:'item',packId,kind})).ok,true)
+    requestFor('assets_patch',{action:'remove-item',packId,expectedRevision:f.pack.revision,kind,id:'sample'})
+  }
+  assert.throws(()=>requestFor('assets_read',{action:'item',packId,kind:'items'}),/Cannot encode/)
+  const item={kind:'props',id:'key',name:'Key',enabled:true,recall:{mode:'keyword',keywords:['brass key','lock teeth','key ring']},directorNote:'',media:null,pendingMedia:true}
+  const added=await f.invoke('assets_patch',{action:'item',packId,expectedRevision:f.pack.revision,item})
+  assert.equal(added.ok,true,JSON.stringify(added))
+  const read=await f.invoke('assets_read',{action:'item',packId,kind:'props',id:'key'})
+  assert.equal(read.data.items[0].name,'Key')
+  f.setApproval('allowed-once')
+  assert.equal((await f.invoke('assets_patch',{action:'remove-item',packId,expectedRevision:read.data.revision,kind:'props',id:'key'})).ok,true)
+  assert.deepEqual((await f.invoke('assets_read',{action:'item',packId,kind:'props'})).data.items,[])
+})

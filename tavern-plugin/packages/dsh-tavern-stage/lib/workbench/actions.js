@@ -191,7 +191,7 @@ async function voice(c) {
     if(r.action==='figure')return c.rpc('getFigureVoiceEditor',args)
     if(r.action==='choices')return c.rpc('listFigureVoiceChoices',{})
     if(r.action==='templates')return requireService(c.library).listVoiceTemplates()
-    const method={services:'services','provider-kinds':'providerKinds',voices:'listVoices',models:'listModels',presets:'voicePresets',readings:r.id?'readingPreset':'readingPresets'}[r.action]
+    const method={services:'services','provider-kinds':'providerKinds',voices:'listVoices',models:'listModels',presets:'voicePresets',reading:'reading',readings:r.id?'readingPreset':'readingPresets'}[r.action]
     const result=await requireService(c.tts).call(method,args)
     if(Array.isArray(result))return featurePage(result,r)
     if(result && ['voices','models','readings'].includes(r.action)) {
