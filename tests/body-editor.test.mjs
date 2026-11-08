@@ -168,7 +168,7 @@ test('编辑正文写入模型上下文的替换带剧情轮次：重新生成�
 })
 
 // 故事列表按 chat.messages 的位置编辑：目标行由 messageIndex 给出，turn 缺失、
-// 重复或非单调都不参与定位；只有原生尾部且正文一致时才就地改写模型上下文。
+// 重复或非单调都不参与定位；原生锚点/轮次与正文同时吻合时才改写模型上下文。
 function storyFixture(withNative = true) {
   let session = Session.create('body-edit-story')
   const append = (turn, text) => {
@@ -199,7 +199,7 @@ function storyFixture(withNative = true) {
     surface(turn) { return sessionEvents(session).findLast(event => event.type === 'assistant/message' && Number(event.data?.turn) === Number(turn))?.data.message.content[0].text } }
 }
 
-test('故事直选：messageIndex 定位助手行，中间行只改存档', async () => {
+test('故事直选：编辑上一楼层后，下一次生成消费的原生上下文使用新正文', async () => {
   const h = storyFixture()
   const edit = await h.editor.read(h.session.id, { messageIndex: 2, revision: 1 })
   assert.equal(edit.messageIndex, 2)
@@ -210,7 +210,10 @@ test('故事直选：messageIndex 定位助手行，中间行只改存档', asyn
   assert.equal(saved.messages[2].text, '改写第二轮')
   assert.equal(saved.messages[4].text, '第五轮正文')
   assert.equal(saved.messages[5].text, '重复回合正文')
-  assert.equal(h.surface(2), '第二轮正文')
+  const context = JSON.stringify(h.session.deriveMessages())
+  assert.match(context, /改写第二轮/, '后续请求必须携带编辑后的上一楼层')
+  assert.doesNotMatch(context, /第二轮正文/, '后续请求不能再携带编辑前的上一楼层')
+  assert.match(context, /第五轮正文/, '其他楼层保持原样')
 })
 
 test('故事直选：原生尾部正文一致时就地替换模型上下文', async () => {

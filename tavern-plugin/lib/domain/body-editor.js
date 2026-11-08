@@ -219,15 +219,17 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     }
     return patch
   }
-  // Only the native tail is rewritten in place, and only when that native node still
-  // holds this row's text: a repeated turn must not overwrite another round. Any other
-  // row is saved in the Chat only; the native context is never rewritten to catch up.
+  // Rewrite a native row only when its anchor/turn still locates this exact text.
+  // Earlier floors must be updated too: the next request reads this surface, not
+  // the Chat's edited copy. Ambiguous repeated or missing rows stay Chat-only.
   function storyNativeTarget(chat, index, agent, message) {
-    if (!agent?.session || index !== chat.messages.length - 1 || chat.messages[index]?.greeting === true) return null
+    if (!agent?.session || chat.messages[index]?.greeting === true) return null
     const turn = Number(message && message.turn)
     if (!Number.isSafeInteger(turn) || turn < 1) return null
     const events = sessionEvents(agent.session)
-    const located = locateRegenerationSurface({ events, nodes: agent.session.surface?.nodes, turn })
+    const storedSeq = Number(message?.nativeAnchor?.reply)
+    const located = locateRegenerationSurface({ events, nodes: agent.session.surface?.nodes,
+      seq: Number.isSafeInteger(storedSeq) && storedSeq >= 0 ? storedSeq : undefined, turn })
     if (!located) return null
     const event = events.find(entry => Number(entry.seq) === Number(located.assistantSeq))
     const content = event && event.data && event.data.message ? event.data.message.content : null
@@ -343,7 +345,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     } finally { pending.delete(sessionId) }
   }
   // Story save: the row is chosen by its position, the token binds it to the save
-  // revision. A row that is no longer the native tail is written to the Chat only.
+  // revision. A row without an exact native match is written to the Chat only.
   async function saveStoryText(sessionId, input, kind = 'body.edit', { polished = kind === 'body.polish' } = {}) {
     if (pending.has(sessionId)) throw new Error('正在保存正文，请稍候')
     pending.add(sessionId)
