@@ -3689,7 +3689,7 @@ body .dsh-tavern-picker-error { background: linear-gradient(color-mix(in srgb, v
 [data-dsh-tavern-rail-hidden] { visibility: hidden !important; pointer-events: none !important; }
 /* right / top 是脚本还没定位时的落脚点：贴右边居中，绝不停在页面末尾（手机上就是左下角）。 */
 .dsh-tavern-turn-rail { position: fixed; z-index: 6; right: 12px; top: 50%; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; margin: 0; padding: 0; max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; transform: translateY(-50%); }
-/* 窄屏收起（turn-rail.js 的 place() 只设 hidden）：上面那条 display:flex 压掉了 UA 的 [hidden] 规则，这里补回来。 */
+/* 收起时只设了 hidden：上面那条 display:flex 压掉了 UA 的 [hidden] 规则，这里补回来。 */
 .dsh-tavern-turn-rail[hidden] { display: none; }
 .dsh-tavern-turn-rail::-webkit-scrollbar { display: none; }
 .dsh-tavern-turn-rail-tick { position: relative; flex: none; box-sizing: border-box; width: 20px; height: 10px; margin: 0; padding: 0; border: 0; border-radius: 8px; background: none; cursor: pointer; }
@@ -3699,6 +3699,12 @@ body .dsh-tavern-picker-error { background: linear-gradient(color-mix(in srgb, v
 .dsh-tavern-turn-rail-tick:focus-visible { outline: none; }
 .dsh-tavern-turn-rail-tick:focus-visible::before { background: var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); transform: translateY(-50%) scaleX(1); }
 @media (prefers-reduced-motion: reduce) { .dsh-tavern-turn-rail-tick::before { transition: none; } }
+/* 窄屏紧凑版（place() 在 900px 以下加 data-compact）：同一列刻度贴右边，线更短、热区
+   按手指放大 —— 一层 20px，点得中，也几乎不压正文；层数多时整列自己滚。 */
+.dsh-tavern-turn-rail[data-compact] { gap: 0; max-height: min(52vh, 340px); }
+.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick { width: 28px; height: 20px; }
+.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick::before { width: 15px; background: color-mix(in srgb, var(--dsw-alias-border-l4) 82%, transparent); }
+.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick[data-active]::before { width: 19px; }
 
 /* ── 导出与导入（.dshtransfer） ───────────────────────────────────────── */
 .dsh-tavern-transfer {

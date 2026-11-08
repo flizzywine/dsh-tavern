@@ -96,21 +96,37 @@ test('宿主那列 turn 刻度收起来，免得两列并排', t => {
   assert.equal(document.querySelector('nav[aria-label="轮次导航"]').hasAttribute('data-dsh-tavern-rail-hidden'), false, '卸下后还原')
 })
 
-test('窄屏与没有楼层时不画刻度', t => {
-  const narrow = page([[1, 40]], { narrow: true })
+test('窄屏画紧凑刻度：贴右边，不落在页面末尾', t => {
+  const narrow = page([[1, 40], [2, 140], [3, 240]], { narrow: true })
   t.after(() => narrow.dom.window.close())
   const rail = narrow.create(narrow.scope)
   rail.apply()
   const box = narrow.document.querySelector('.dsh-tavern-turn-rail')
-  assert.equal(box.hidden, true, '窄屏收起')
-  // hidden 只是 UA 的 display:none；class 上的 display:flex 会把它压回去，刻度就停在页面末尾（手机左下角）。
-  assert.equal(narrow.dom.window.getComputedStyle(box).display, 'none', '窄屏真的不显示')
+  const style = narrow.dom.window.getComputedStyle(box)
+  assert.equal(box.hidden, false, '窄屏也看得见')
+  assert.notEqual(style.display, 'none', 'display:flex 不该把刻度藏起来')
+  assert.equal(box.hasAttribute('data-compact'), true, '窄屏用紧凑版')
+  assert.deepEqual(tickFloors(narrow.document), [1, 2, 3], '每层一根照旧')
+  // 位置由 place() 写成行内样式：贴右边（不是 body 末尾的静态位置），竖向居中。
+  assert.equal(box.style.right, (narrow.dom.window.innerWidth - 700) + 4 + 'px', '窄屏离右边 4px')
+  assert.equal(box.style.top, 340 + 'px', '在滚动区里居中')
   rail.dispose()
 
+  const wide = page([[1, 40]])
+  t.after(() => wide.dom.window.close())
+  const roomy = wide.create(wide.scope)
+  roomy.apply()
+  const wideBox = wide.document.querySelector('.dsh-tavern-turn-rail')
+  assert.equal(wideBox.hasAttribute('data-compact'), false, '宽屏还是原来那列')
+  assert.equal(wideBox.style.right, Math.max(0, wide.dom.window.innerWidth - 1200) + 12 + 'px', '宽屏离右边 12px')
+  roomy.dispose()
+})
+
+test('没有楼层时不画刻度', t => {
   const empty = page([], {})
   t.after(() => empty.dom.window.close())
-  const second = empty.create(empty.scope)
-  second.apply()
+  const rail = empty.create(empty.scope)
+  rail.apply()
   assert.equal(empty.document.querySelector('.dsh-tavern-turn-rail'), null, '没有楼层就没有刻度')
-  second.dispose()
+  rail.dispose()
 })

@@ -5,12 +5,15 @@
 //  - 不再经过宿主那列按 turn 画的目录：重试、撤回、被取代的尝试轮也各占一根，点了
 //    要么落空、要么只滚一段；
 //  - 已经滚过滚动区顶部的那一层就是当前层，随滚动跟着走；
-//  - 宿主那列仍然收起来，免得两列刻度并排；窄屏（900px 以下）不占地方。
+//  - 宿主那列仍然收起来，免得两列刻度并排；
+//  - 宽屏是右边居中的一列；窄屏（900px 以下）换成紧凑版：贴着右边，一根线更短、
+//    热区更高，手机上看得见也点得中，又几乎不压正文。
 function createStoryFloorRail(root, options) {
 	const host = (options && options.window) || (typeof window !== "undefined" ? window : null);
 	const doc = host && host.document || (root && root.ownerDocument) || (typeof document !== "undefined" ? document : null);
 	const scope = (root && root.closest && root.closest("[data-conversation-scroll]")) || root || (doc && doc.body);
 	const hiddenAttribute = "data-dsh-tavern-rail-hidden";
+	const compactAttribute = "data-compact";
 	const label = (options && options.label) || "楼层跳转";
 	const jumpLabel = (options && options.jumpLabel) || "跳到第 {floor} 楼";
 	const narrow = (options && options.narrow) || 900;
@@ -76,13 +79,17 @@ function createStoryFloorRail(root, options) {
 	function place() {
 		if (!rail) return;
 		const rect = scope.getBoundingClientRect();
-		// `hidden` 只是 UA 的 display:none，class 上那条 display:flex 会把它压回去：窄屏要真的收起，
-		// 否则元素既不定位也不隐藏，就停在 body 末尾 —— 手机上的左下角。
-		const visible = rect.width > narrow && rect.height > 96;
+		// 窄屏不收起，换紧凑版（data-compact）：贴右边一行细线，热区按手指放大。
+		const roomy = rect.width > narrow;
+		const visible = rect.width > 0 && rect.height > 96;
 		rail.hidden = !visible;
+		// `hidden` 只是 UA 的 display:none，class 上那条 display:flex 会把它压回去；
+		// 二者一起写，没被定位的刻度才不会停在 body 末尾 —— 手机上的左下角。
 		rail.style.display = visible ? "" : "none";
 		if (!visible) return;
-		rail.style.right = Math.max(0, Math.round(host.innerWidth - rect.right)) + 12 + "px";
+		if (roomy) rail.removeAttribute(compactAttribute);
+		else rail.setAttribute(compactAttribute, "");
+		rail.style.right = Math.max(0, Math.round(host.innerWidth - rect.right)) + (roomy ? 12 : 4) + "px";
 		rail.style.top = Math.round(rect.top + rect.height / 2) + "px";
 	}
 	function schedule() {
