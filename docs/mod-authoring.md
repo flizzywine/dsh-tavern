@@ -79,6 +79,17 @@ tavern-plugin/mods/<name>/
 
 第一方模组随本仓库发布，改动走普通 PR。发行包（`.dshmod`）由整个模组文件夹打成，入口替换为预构建的 bundle（`tavern-plugin/lib/host/mod-<name>.mjs`）。
 
+最小入口（只贡献提示词的模组，`registerMod(manifest, {})` 合法；name 等于 `mod.json` 的 packageName 与 package.json 的 name）：
+
+```js
+import manifest from './mod.json' with {type: 'json'}
+export const name = 'dsh-tavern-mod-example'
+export const inject = ['tavern']
+export function apply(ctx) {
+  ctx.tavern.registerMod(manifest, {})
+}
+```
+
 **新模组检查表**：建文件夹与 `package.json` → 写 `mod.json` 并通过校验 → `plugin.mjs` 登记接口 → Skill 说明 + 索引行 → README → 测试 → `tests/mod-structure.test.mjs` 通过。
 
 ## 7. 迁移（现状偏差）
@@ -94,5 +105,4 @@ tavern-plugin/mods/<name>/
 | M5 | 本体点名模组（骰子前台工具 `tools/dice.js`、`turn-orchestration.js`、`asset-pack-ui.js` 等） | 通用接口或清单声明 |
 | M6 | 手机模组 import 本体内部（`lib/domain/*`、`prompt-catalog`、`bubble-line.cjs`） | 移进协议包或经 `ctx` 取得 |
 | M7 | 两份清单与旧注册表 | 并为一份 `mod.json` |
-| M8 | 已退役的 `mods/performance`、示例 `mods/demo` | 删除；最小示例写进本文档 |
 | M9 | 所有模组的 Skill 挤在 `references/first-party.md` | 每模组一份 |

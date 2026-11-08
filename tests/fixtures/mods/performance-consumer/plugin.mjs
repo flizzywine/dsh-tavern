@@ -1,7 +1,7 @@
 import * as runtime from './runtime.js'
 import manifest from './mod.json' with {type:'json'}
 import grammar from './manifest.json' with {type:'json'}
-import {performanceBoundary} from '../../packages/dsh-presentation-protocol/src/performance-state.cjs'
+import {performanceBoundary} from '../../../../tavern-plugin/packages/dsh-presentation-protocol/src/performance-state.cjs'
 
 export const name='dsh-tavern-mod-performance'
 export const inject=['tavern']

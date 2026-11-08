@@ -1,1 +1,0 @@
-The demo marker records presentation intent only.
