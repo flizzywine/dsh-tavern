@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "cd4407afaef7b8ce35ed9fa797cbfbcbf08edcc5",
-  "releaseSequence": 1369,
+  "revision": "1651329bd4b2b71fab301b2b68a45f143e616490",
+  "releaseSequence": 1370,
   "version": "3.2.0",
   "files": [
     {
@@ -1006,8 +1006,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "999db69f79e9527e394800964aeb131e49c8d719645eedc4123f476fd791dcf2",
-      "size": 5690590
+      "sha256": "aea9b2f537e6b839f84aed66ae760b8a4986f4e29c056a89c6416a55e72b5eb0",
+      "size": 5693916
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -3076,8 +3076,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-view-projection.js",
-      "sha256": "eebf0a3be1aeca05113f900c8e43290ae5785701b6f199e01539450f9af02a98",
-      "size": 38855
+      "sha256": "26ac995bd432edc4cdff0a3d1fd6300553bd28da9ec4bfd0a86d34934b243864",
+      "size": 40062
     },
     {
       "path": "tavern-plugin/lib/domain/session-view-reader.js",
@@ -3291,8 +3291,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/story-transcript-reader.js",
-      "sha256": "9d9790e7d54b473b781aa393c434c53dee5d630aea9e97b13f478e206cdde2fb",
-      "size": 2489
+      "sha256": "0391c4a6f4de3cded01136ac6404062a0143eb1f64f584d35464f04e58ab88c8",
+      "size": 3755
     },
     {
       "path": "tavern-plugin/lib/domain/story-transcript.js",
@@ -9891,9 +9891,9 @@
     }
   ],
   "archive": {
-    "commit": "ff78352c9e8a8115db66d503f31e28603a0dfad4",
+    "commit": "6a919dcd1e9aaa0baa8463056d308881efe8ce58",
     "path": "runtime.zip",
-    "sha256": "37b0019826c937826bc08a419b87ec2d7734332fdebe91db78f4302df9c3e1b8",
-    "size": 16518242
+    "sha256": "f64385db430f5c2a87481e4c5985e865baac253452ee31d4e764e74c5e527474",
+    "size": 16519643
   }
 }
