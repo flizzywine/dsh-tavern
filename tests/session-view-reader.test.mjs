@@ -63,6 +63,49 @@ test('Helper hydration cannot promote incomplete ranges, another session or an o
  assert.equal(f.reader.acceptHelperMessages('s','c',1,{from:0,to:0,messages:[{message_id:0}]}),false)
 })
 
+test('有界窗口按存储与资源版本复用投影，变化后立即重建', async () => {
+  let window = {revision:1,from:4,to:4,messageCount:5,chat:{id:'c',sessionId:'s',mode:'story',cardPath:'card',messages:[{role:'assistant',text:'窗口'}]}}
+  let resource = 'r1', projections = 0
+  const states = []
+  const reader = createSessionViewReader({
+    readState:async () => { throw Error('窗口路径不应整读状态') },
+    readOpeningWindow:async () => window,
+    resourceVersion:async () => resource,
+    project:{opening:async value => { projections++; return {chatId:value.chat.id,revision:value.revision,historyWindow:{from:value.from}} }},
+    trace:{stage:(_name,fn) => fn(),state:value => states.push(value)},
+    synchronize:(_id,view) => ({view})
+  })
+  const request = {sessionId:'s',openingWindow:1,viewSync:1,resourceSync:1}
+  assert.equal((await reader.response(request)).view.revision, 1)
+  assert.equal((await reader.response(request)).view.revision, 1)
+  assert.equal(projections, 1)
+  assert.equal(states.at(-1).viewRebuild, 'window-cache')
+  window = {...window,revision:2}
+  await reader.response(request)
+  assert.equal(projections, 2)
+  resource = 'r2'
+  await reader.response(request)
+  assert.equal(projections, 3, '外部资源变化不能沿用旧窗口视图')
+})
+
+test('同版本窗口的并发刷新共享一次投影', async () => {
+  const release = gate()
+  let projections = 0
+  const window = {revision:1,from:4,to:4,messageCount:5,chat:{id:'c',sessionId:'s',messages:[{role:'assistant'}]}}
+  const reader = createSessionViewReader({
+    readOpeningWindow:async () => window,
+    project:{opening:async () => { projections++; await release.promise; return {chatId:'c'} }},
+    trace:{stage:(_name,fn) => fn(),state() {}},synchronize:(_id,view) => ({view})
+  })
+  const request = {sessionId:'s',openingWindow:1,viewSync:1}
+  const first = reader.response(request), second = reader.response(request)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(projections, 1)
+  release.resolve()
+  await Promise.all([first,second])
+  assert.equal(projections, 1)
+})
+
 for(const request of [{viewSync:1},{viewSync:1,openingWindow:1,fullView:true}])test('legacy clients and explicit complete reads never receive a window: '+JSON.stringify(request),async()=>{
  const reader=createSessionViewReader({readOpeningWindow:()=>{throw Error('must keep complete contract')},readState:async()=>undefined,
   project:{opening:()=>{throw Error('unexpected')}},trace:{stage:(_name,fn)=>fn()},synchronize:(_id,view)=>({view})})

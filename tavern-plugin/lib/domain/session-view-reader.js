@@ -36,6 +36,8 @@ function canProjectDirty(previous, chat, indices, changedHeaderFields) {
 export function createSessionViewReader({ readState, readChat, readChanges, readViewDelta, readOpeningWindow, readStoryWindow, project, activity,
   trace, foregroundRunning, synchronize, resourceVersion = async () => '' }) {
   const cache = new Map()
+  const openingCache = new Map()
+  const openingPending = new Map()
   const helperWindows = new Map()
   const pending = new Map()
   async function changes(chat, revision) {
@@ -134,14 +136,29 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
       const {storyTranscript:_embedded,...storyView}=view
       return {view:transportView(storyView),storyTranscript:window.storyTranscript,revision:window.revision}
     }
-    // Bounded views have their own contract and never enter the complete view
-    // cache. Explicit full reads retain the existing compatibility path.
+    // Bounded and complete views have separate cache contracts. A window key pins
+    // both its storage snapshot and external resources; it never becomes a Chat baseline.
     if (args.openingWindow === 1 && args.viewSync === 1 && args.fullView !== true && readOpeningWindow && project.opening) {
       const window = await trace.stage('readOpeningWindow', () => readOpeningWindow(sessionId, args.historyFrom))
       if (window) {
-        const view = await trace.stage('projectOpeningWindow', () => project.opening(window, {deferResources:args.resourceSync === 1}))
-        trace.state({viewRebuild:'window',helperMessageCount:window.chat.messages.length})
-        return synchronize(String(sessionId),transportView(view),args.viewCursor,{revision:window.revision,receiptSync:args.receiptSync})
+        const resources = await resourceVersion(window.chat)
+        const key = JSON.stringify([String(sessionId),window.chat.id,window.revision,window.from,window.to,window.messageCount,resources,args.resourceSync === 1])
+        let cached = openingCache.get(key), rebuild = 'window-cache'
+        if (!cached) {
+          let work = openingPending.get(key), owner = work === undefined
+          if (!work) {
+            work = trace.stage('projectOpeningWindow', () => project.opening(window, {deferResources:args.resourceSync === 1}))
+            openingPending.set(key, work)
+          }
+          try {
+            cached = { view: await work }
+            openingCache.set(key, cached)
+            while (openingCache.size > 8) openingCache.delete(openingCache.keys().next().value)
+            rebuild = owner ? 'window' : 'window-cache'
+          } finally { if (openingPending.get(key) === work) openingPending.delete(key) }
+        }
+        trace.state({viewRebuild:rebuild,helperMessageCount:window.chat.messages.length})
+        return synchronize(String(sessionId),transportView(cached.view),args.viewCursor,{revision:window.revision,receiptSync:args.receiptSync})
       }
     }
     const previous = args.viewSync === 1 ? synchronize.peek?.(args.viewCursor) : null
