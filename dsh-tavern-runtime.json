@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "da79d753b13bcddd8e44051fcce35e093862b02f",
-  "releaseSequence": 1371,
+  "revision": "04d9135205cfbc04c2262db6534cdc8930976ffa",
+  "releaseSequence": 1372,
   "version": "3.2.0",
   "files": [
     {
@@ -196,8 +196,8 @@
     },
     {
       "path": "bin/download.cjs",
-      "sha256": "27116bcab003d8b348266240e2e9d41a35891107336367ca9d881539fa71adba",
-      "size": 24949
+      "sha256": "38449a2f0914c419f502a2389cf8dc31956cb996edb4fab4bddee40ef47a889a",
+      "size": 26633
     },
     {
       "path": "bin/dsh-compatibility.mjs",
@@ -501,13 +501,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "ff252a7831cbc54b10c0ee2572f2e34f5721e4b6b950a87c07501fd3d5a0dc85",
-      "size": 118405
+      "sha256": "d25d7d3c80573d9f4f9e1b07bb36aa143a8008f86b8cbcce3f6cbaefcaef6981",
+      "size": 120089
     },
     {
       "path": "install.sh",
-      "sha256": "fc516f9badd6c0f39b748ff1f60ba53293cdf141d3c918004221c38bfeae7fe3",
-      "size": 88887
+      "sha256": "9a8d063be81c58bf519d6b7a4fb75550642a4f71953cd83fe9ed5cc00ce9aed7",
+      "size": 90571
     },
     {
       "path": "package.json",
@@ -9891,9 +9891,9 @@
     }
   ],
   "archive": {
-    "commit": "9f33eded9b3edce91498ac77caa7cc0688a004af",
+    "commit": "155fad5dd4c4f5a1cdcf8c5ed69082c4f092fef7",
     "path": "runtime.zip",
-    "sha256": "873ad76c0ce150cdf32642895ad48e7922d9b64fde6104852d281d7950287fef",
-    "size": 16521016
+    "sha256": "e308c9aa170b688b54dc32311a635fa5a2196150b3ee584bd6c6ecc23695dde4",
+    "size": 16523198
   }
 }
