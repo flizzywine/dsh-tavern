@@ -66,6 +66,7 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
     // with the core's tavernStageFrontend.
     const services = {}, stageEffects = ['dsh-tavern: stage client hold', 'dsh-tavern: stage client loader']
     const stageCtx = { provide() {}, get: name => services[name], effect(run) { return run() } }
+    window.__tavernTestSlots = []
     window.client.apply({
       inject() { return { dispose() {} } },
       // A provided panel (e.g. ttsLineSpeechSettings, placed by another plugin's page) renders as the page itself.
@@ -76,7 +77,7 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
       betterSidebar: { registerTab(spec) { Settings = () => modules.react.createElement(spec.component, { scope: { sessionId } }); } },
       tavernSessionSignals: { subscribe() { return () => {} } },
       effect(run, label) { if (label === section || (stageClient && stageEffects.includes(label))) return run() },
-      slots: { inject(_name, run) { return run() }, register(_spec, Component) { Settings = Component } }
+      slots: { inject(name, run) { window.__tavernTestSlots.push(name); return run() }, register(_spec, Component) { Settings = Component } }
     })
     // A renamed or removed section would otherwise leave the test waiting forever.
     for (const deadline = Date.now() + 3000; !Settings; await new Promise(resolve => setTimeout(resolve, 10)))

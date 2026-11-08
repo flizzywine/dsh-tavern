@@ -1,9 +1,8 @@
-// 长按输入框的发送键：直接重新生成本轮正文，跳过「重新生成正文」的意见面板。
-// 开关在 设置 › 高级 › 长按发送键重新生成（默认关闭）；中途松开、取消、移开、切换窗口都算放弃。
-// 桌面保留 2 秒防误触；触屏缩短到 0.7 秒，并扩大命中与移动容差，避免被浏览器滚动手势抢占。
+// 长按输入框的发送键 2 秒：直接重新生成本轮正文，跳过「重新生成正文」的意见面板。
+// 开关在 设置 › 高级 › 长按 2 秒发送键重新生成（默认关闭）；中途松开、取消、移开、切换窗口都算放弃。
+// 触屏使用原生 TouchEvent 主通道，PointerEvent 的取消不会误删仍在进行的触摸；命中与移动容差避免手抖中断。
 // 发送键是宿主的图标按钮，图标随状态（↑ / ■）变化，唯一稳定的标识是它的 aria-label。
 const TAVERN_SEND_HOLD_MS = 2000;
-const TAVERN_SEND_TOUCH_HOLD_MS = 700;
 const TAVERN_SEND_TOUCH_HIT_SLOP = 10;
 const TAVERN_SEND_TOUCH_MOVE_SLOP = 24;
 const TAVERN_SEND_HOLD_LABELS = /^(发送消息|排队发送|插话发送|停止|Send message|Queue message|Steer message|Stop)$/;
@@ -11,21 +10,29 @@ const TAVERN_SEND_HOLD_READY_CLASS = "dsh-tavern-send-hold-ready";
 const TAVERN_SEND_HOLD_CLASS = "dsh-tavern-send-hold";
 const TAVERN_SEND_HOLD_FIRED_CLASS = "dsh-tavern-send-hold-fired";
 
-// 全局开关（tavern-settings.json 的 longPressSendRegenerate），设置页保存后通过
-// dsh-tavern-settings-changed 广播；读不到时保持关闭——这个手势只是补充入口。
+// 全局开关（tavern-settings.json 的 longPressSendRegenerate）。缓存与广播监听属于客户端生命周期，
+// 不随某个会话插槽卸载：重挂后先复用已读到的值，再在后台校验，消除 RPC 返回前手势不生效的空窗。
+let tavernSendHoldEnabled = false, tavernSendHoldWatching = false;
+const tavernSendHoldListeners = new Set();
+function refreshSendHoldRegenerate() {
+    rpc("getTavernSettings").then(function (result) {
+        tavernSendHoldEnabled = Boolean(result && result.settings && result.settings.longPressSendRegenerate === true);
+        tavernSendHoldListeners.forEach(function (listener) { listener(); });
+    }, function () { /* 读取失败沿用上一次值；首次读取仍保持关闭。 */ });
+}
 function useSendHoldRegenerate() {
-    const [enabled, setEnabled] = React.useState(false);
+    const [enabled, setEnabled] = React.useState(tavernSendHoldEnabled);
     React.useEffect(function () {
         if (typeof window === "undefined") return undefined;
-        let active = true;
-        function refresh() {
-            rpc("getTavernSettings").then(function (result) {
-                if (active) setEnabled(result && result.settings && result.settings.longPressSendRegenerate === true);
-            }, function () { /* 读取失败不做任何事：保持关闭，也不打扰玩家 */ });
+        function update() { setEnabled(tavernSendHoldEnabled); }
+        tavernSendHoldListeners.add(update);
+        if (!tavernSendHoldWatching) {
+            tavernSendHoldWatching = true;
+            window.addEventListener("dsh-tavern-settings-changed", refreshSendHoldRegenerate);
         }
-        refresh();
-        window.addEventListener("dsh-tavern-settings-changed", refresh);
-        return function () { active = false; window.removeEventListener("dsh-tavern-settings-changed", refresh); };
+        update();
+        refreshSendHoldRegenerate();
+        return function () { tavernSendHoldListeners.delete(update); };
     }, []);
     return enabled;
 }
@@ -41,6 +48,9 @@ function TavernSendLongPress(props) {
         if (!enabled || !isPlayMode(mode) || typeof document === "undefined") return undefined;
         let held = null, timer = null, mutedUntil = 0, mutedButton = null;
         const prepared = new Set();
+        // Android / iOS 都提供 TouchEvent。支持时让触屏只走这一条通道，避免 PointerEvent
+        // 被浏览器滚动、系统长按或宿主手势取消后，实际仍按着的手指被误判为已经松开。
+        const nativeTouch = "ontouchstart" in window;
 
         function isSendButton(button) {
             return Boolean(button && button.closest("[data-composer-card]")
@@ -107,9 +117,9 @@ function TavernSendLongPress(props) {
             held = null;
             if (!press) return;
             repaint(press.button, false);
+            if (press.source !== "pointer") return;
             try {
-                if (press.pointerId !== undefined && press.button.hasPointerCapture
-                    && press.button.hasPointerCapture(press.pointerId)) press.button.releasePointerCapture(press.pointerId);
+                if (press.button.hasPointerCapture && press.button.hasPointerCapture(press.id)) press.button.releasePointerCapture(press.id);
             } catch (error) { /* 宿主在按住期间换掉按钮时，指针捕获可能已由浏览器释放。 */ }
         }
         async function fire() {
@@ -140,38 +150,73 @@ function TavernSendLongPress(props) {
                 notifyTavernDataChanged(["sessions"], "play-controls");
             }
         }
+        function start(button, source, id, pointerType, x, y) {
+            if (held || !button) return;
+            held = { button: button, source: source, id: id, pointerType: pointerType, x: x, y: y, fired: false };
+            button.classList.remove(TAVERN_SEND_HOLD_FIRED_CLASS);
+            button.classList.add(TAVERN_SEND_HOLD_CLASS);
+            if (source === "pointer") {
+                try { if (button.setPointerCapture) button.setPointerCapture(id); }
+                catch (error) { /* disabled 按钮可能拒绝捕获；window 上的监听仍然完整。 */ }
+            }
+            timer = window.setTimeout(fire, TAVERN_SEND_HOLD_MS);
+        }
+        function moved(press, x, y) {
+            const slop = press.pointerType === "touch" ? TAVERN_SEND_TOUCH_MOVE_SLOP : 10;
+            const dx = x - press.x, dy = y - press.y;
+            if (dx * dx + dy * dy > slop * slop) release();
+        }
         function onPointerDown(event) {
+            // 支持 TouchEvent 的设备上，触摸只走 onTouchStart；这里保留桌面及无 TouchEvent 环境的回退。
+            if (nativeTouch && event.pointerType === "touch") return;
             if (held !== null || timer !== null || event.isPrimary === false) return;
             if (event.pointerType === "mouse" && event.button !== 0) return;
             const touch = event.pointerType === "touch";
             const button = sendButtonAt(event.clientX, event.clientY, touch ? TAVERN_SEND_TOUCH_HIT_SLOP : 0);
-            if (!button) return;
-            const holdMs = touch ? TAVERN_SEND_TOUCH_HOLD_MS : TAVERN_SEND_HOLD_MS;
-            held = { button: button, pointerId: event.pointerId, pointerType: event.pointerType,
-                x: event.clientX, y: event.clientY, fired: false };
-            button.style.setProperty("--dsh-tavern-send-hold-duration", holdMs + "ms");
-            button.classList.remove(TAVERN_SEND_HOLD_FIRED_CLASS);
-            button.classList.add(TAVERN_SEND_HOLD_CLASS);
-            try { if (event.pointerId !== undefined && button.setPointerCapture) button.setPointerCapture(event.pointerId); }
-            catch (error) { /* disabled 按钮可能拒绝捕获；document 上的监听仍然完整。 */ }
-            timer = window.setTimeout(fire, holdMs);
+            start(button, "pointer", event.pointerId, event.pointerType, event.clientX, event.clientY);
         }
         function onPointerMove(event) {
-            if (!held || held.fired || event.pointerId !== held.pointerId) return;
-            const slop = held.pointerType === "touch" ? TAVERN_SEND_TOUCH_MOVE_SLOP : 10;
-            const dx = event.clientX - held.x, dy = event.clientY - held.y;
-            if (dx * dx + dy * dy > slop * slop) release();
+            if (!held || held.source !== "pointer" || held.fired || event.pointerId !== held.id) return;
+            moved(held, event.clientX, event.clientY);
         }
         function onPointerEnd(event) {
-            // 第二根手指的抬起不能取消主手指的长按。
-            if (held && event.pointerId !== held.pointerId) return;
+            if (!held || held.source !== "pointer" || event.pointerId !== held.id) return;
             release();
+        }
+        function touchIn(list, id) {
+            if (!list) return null;
+            for (let index = 0; index < list.length; index += 1) if (list[index].identifier === id) return list[index];
+            return null;
+        }
+        function onTouchStart(event) {
+            if (held !== null || timer !== null || !event.changedTouches || event.changedTouches.length !== 1) return;
+            const touch = event.changedTouches[0];
+            const button = sendButtonAt(touch.clientX, touch.clientY, TAVERN_SEND_TOUCH_HIT_SLOP);
+            start(button, "touch", touch.identifier, "touch", touch.clientX, touch.clientY);
+        }
+        function onTouchMove(event) {
+            if (!held || held.source !== "touch") return;
+            const touch = touchIn(event.touches, held.id) || touchIn(event.changedTouches, held.id);
+            if (!touch) return;
+            // 已确认从发送键开始的手势不交回页面滚动；其他位置的滚动不受影响。
+            if (event.cancelable) event.preventDefault();
+            if (!held.fired) moved(held, touch.clientX, touch.clientY);
+        }
+        function onTouchEnd(event) {
+            if (!held || held.source !== "touch" || !touchIn(event.changedTouches, held.id)) return;
+            // 原生 touchend 也直接吞掉长按后的兼容 click，不只依赖之后的 click 定时窗。
+            if (held.fired && event.cancelable) event.preventDefault();
+            release();
+        }
+        function onTouchCancel(event) {
+            if (!held || held.source !== "touch") return;
+            if (touchIn(event.changedTouches, held.id) || !touchIn(event.touches, held.id)) release();
         }
         function onClick(event) {
             if (Date.now() >= mutedUntil) { mutedButton = null; return; }
             const node = event.target;
             const button = node && typeof node.closest === "function" ? node.closest("button") : null;
-            if (!mutedButton || button !== mutedButton) return;
+            if (!mutedButton || !isSendButton(button)) return;
             mutedUntil = 0;
             mutedButton = null;
             event.preventDefault();
@@ -184,10 +229,17 @@ function TavernSendLongPress(props) {
         }
         function onSelectStart(event) { if (held) event.preventDefault(); }
         function onVisibilityChange() { if (document.hidden) release(); }
-        document.addEventListener("pointerdown", onPointerDown, true);
-        document.addEventListener("pointermove", onPointerMove, true);
-        document.addEventListener("pointerup", onPointerEnd, true);
-        document.addEventListener("pointercancel", onPointerEnd, true);
+        // window capture 先于宿主 document / React 监听，宿主停止传播也不会丢掉开始与结束事件。
+        window.addEventListener("pointerdown", onPointerDown, true);
+        window.addEventListener("pointermove", onPointerMove, true);
+        window.addEventListener("pointerup", onPointerEnd, true);
+        window.addEventListener("pointercancel", onPointerEnd, true);
+        if (nativeTouch) {
+            window.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
+            window.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+            window.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
+            window.addEventListener("touchcancel", onTouchCancel, { capture: true, passive: true });
+        }
         document.addEventListener("click", onClick, true);
         document.addEventListener("contextmenu", onContextMenu, true);
         document.addEventListener("selectstart", onSelectStart, true);
@@ -197,10 +249,16 @@ function TavernSendLongPress(props) {
             release();
             if (observer) observer.disconnect();
             prepared.forEach(function (button) { button.classList.remove(TAVERN_SEND_HOLD_READY_CLASS); });
-            document.removeEventListener("pointerdown", onPointerDown, true);
-            document.removeEventListener("pointermove", onPointerMove, true);
-            document.removeEventListener("pointerup", onPointerEnd, true);
-            document.removeEventListener("pointercancel", onPointerEnd, true);
+            window.removeEventListener("pointerdown", onPointerDown, true);
+            window.removeEventListener("pointermove", onPointerMove, true);
+            window.removeEventListener("pointerup", onPointerEnd, true);
+            window.removeEventListener("pointercancel", onPointerEnd, true);
+            if (nativeTouch) {
+                window.removeEventListener("touchstart", onTouchStart, true);
+                window.removeEventListener("touchmove", onTouchMove, true);
+                window.removeEventListener("touchend", onTouchEnd, true);
+                window.removeEventListener("touchcancel", onTouchCancel, true);
+            }
             document.removeEventListener("click", onClick, true);
             document.removeEventListener("contextmenu", onContextMenu, true);
             document.removeEventListener("selectstart", onSelectStart, true);
