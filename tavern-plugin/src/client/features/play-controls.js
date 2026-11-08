@@ -1384,7 +1384,7 @@
 			// 长按监听放在常驻会话层：input.dock 在 session/inputState 未就绪时会整棵卸载，不能承载全局手势。
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
 				{ name: "conversation.session.header.utilities", id: "dsh-tavern-send-hold", order: -105, label: "长按发送键重新生成" },
-				function (props) { return React.createElement(TavernSendLongPress, { sessionId: props.sessionId, useSession: props.useSession }); }
+				function (props) { return React.createElement(TavernSendLongPress, { sessionId: props.sessionId }); }
 			)), "dsh-tavern: long press send key");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-fork-session-shell", order: -200, label: "会话外壳" },

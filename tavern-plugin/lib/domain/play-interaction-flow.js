@@ -110,6 +110,9 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         const tail = options && options.tail ? options.tail : null;
         const text = String(guidance || "").trim();
         if (text) guidanceBySession.set(sessionId, text); else guidanceBySession.delete(sessionId);
+        // A replay shares the in-flight model request, but must still produce immediate feedback;
+        // otherwise every long press during a slow generation looks as if it did nothing.
+        if (pendingBodies.has(sessionId)) reportError("正文重新生成", Object.assign(new Error("正文正在重新生成，请等待完成"), { code: "regen-busy" }));
         return once(pendingBodies, sessionId, async () => {
             const candidate = candidates.getSnapshot();
             notifyRegenerating(sessionId, true);

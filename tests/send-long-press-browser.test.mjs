@@ -11,8 +11,9 @@ const SECTION = 'dsh-tavern: long press send key'
 const PROPS = `({ sessionId: 'game', useSession: selector => selector({ running: false }),
   useChat: selector => selector({ legacy: { nodes: [{ kind: 'assistant', messageId: 'body-current' }] } }) })`
 
-function fixture({ enabled = true } = {}) {
+function fixture({ enabled = true, view = null } = {}) {
   const calls = []
+  const sessionView = view || { sessionId: 'game', mode: 'story', canRollback: true }
   return {
     calls,
     enabled,
@@ -21,16 +22,16 @@ function fixture({ enabled = true } = {}) {
       if (method === 'getTavernSettings') return { settings: { longPressSendRegenerate: enabled, defaultPlaySettings: { playerName: '你', backgroundTasks: {} } } }
       if (method === 'listSessions') return { sessions: [{ sessionId: 'game', mode: 'story' }] }
       if (method === 'getCandidatePreferences') return { candidateDismissMode: 'after-fill' }
-      if (method === 'getSession') return { view: { sessionId: 'game', mode: 'story', canRollback: true } }
+      if (method === 'getSession') return { view: sessionView }
       if (method === 'regenBody') return { view: { chatId: 'game', canRollback: true } }
       return undefined
     }
   }
 }
 
-async function open(t, backend, { mobile = false } = {}) {
+async function open(t, backend, { mobile = false, running = false } = {}) {
   const opened = await openTavernSettings(t, {
-    respond: backend.respond, section: SECTION, renderPropsCode: PROPS,
+    respond: backend.respond, section: SECTION, renderPropsCode: PROPS.replace('running: false', 'running: ' + running),
     browserExecutable: process.env.PLAYWRIGHT_EXECUTABLE_PATH,
     contextOptions: mobile ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } : undefined
   })
@@ -104,6 +105,17 @@ test('桌面端按住不到 2 秒就松开时什么都不做，这一次点击�
   assert.equal(await page.evaluate(() => window.__sends), 1)
 })
 
+test('宿主忙碌与视图可用性快照过期时，完成长按仍进入服务端提交流程', async t => {
+  const backend = fixture({ view: { sessionId: 'game', mode: 'story', canRegenerate: false, canRollback: false } })
+  const { page, center } = await open(t, backend, { running: true })
+  await page.mouse.move(center.x, center.y)
+  await page.mouse.down()
+  await page.waitForTimeout(2400)
+  await page.mouse.up()
+  await page.waitForTimeout(200)
+  assert.equal(regenerations(backend).length, 1)
+})
+
 test('触屏按住 2 秒稳定重新生成，轻微移动不会取消', async t => {
   const backend = fixture()
   const { page, center } = await open(t, backend, { mobile: true })
@@ -128,6 +140,27 @@ test('触屏按住期间即使 pointercancel 被触发，2 秒后仍只重新生
   })
   await touchHold(page, center, { cancelPointer: true })
   assert.equal(await page.evaluate(() => window.__touchStarts), 1)
+  assert.equal(regenerations(backend).length, 1)
+  assert.equal(await page.evaluate(() => window.__sends), 0)
+})
+
+test('动画照常但 2 秒 JS 计时器被节流时，松手按实际时长补触发', async t => {
+  const backend = fixture()
+  const { page, center } = await open(t, backend, { mobile: true })
+  await page.evaluate(() => {
+    window.__nativeSetTimeout = window.setTimeout.bind(window)
+    window.__nativeClearTimeout = window.clearTimeout.bind(window)
+    window.setTimeout = (callback, delay, ...args) => delay === 2000 ? -777 : window.__nativeSetTimeout(callback, delay, ...args)
+    window.clearTimeout = id => { if (id !== -777) window.__nativeClearTimeout(id) }
+  })
+  try {
+    await touchHold(page, center, { duration: 2200 })
+  } finally {
+    await page.evaluate(() => {
+      window.setTimeout = window.__nativeSetTimeout
+      window.clearTimeout = window.__nativeClearTimeout
+    })
+  }
   assert.equal(regenerations(backend).length, 1)
   assert.equal(await page.evaluate(() => window.__sends), 0)
 })

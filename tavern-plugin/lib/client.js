@@ -51726,6 +51726,9 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         const tail = options && options.tail ? options.tail : null;
         const text = String(guidance || "").trim();
         if (text) guidanceBySession.set(sessionId, text); else guidanceBySession.delete(sessionId);
+        // A replay shares the in-flight model request, but must still produce immediate feedback;
+        // otherwise every long press during a slow generation looks as if it did nothing.
+        if (pendingBodies.has(sessionId)) reportError("正文重新生成", Object.assign(new Error("正文正在重新生成，请等待完成"), { code: "regen-busy" }));
         return once(pendingBodies, sessionId, async () => {
             const candidate = candidates.getSnapshot();
             notifyRegenerating(sessionId, true);
@@ -53425,10 +53428,10 @@ function createStoryFloorRail(root, options) {
 		function TavernSendLongPress(props) {
 		    const enabled = useSendHoldRegenerate();
 		    const mode = useTavernSessionMode(props.sessionId);
-		    const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true; });
-		    // the listener lives across renders; it reads the current round through this ref.
-		    const current = React.useRef({ sessionId: props.sessionId, running: running });
-		    current.current = { sessionId: props.sessionId, running: running };
+		    // the listener lives across renders; it reads the current session through this ref.
+		    // Busy/availability checks belong to regenBody: a stale host snapshot must not silently swallow a completed hold.
+		    const current = React.useRef(props.sessionId);
+		    current.current = props.sessionId;
 		    React.useEffect(function () {
 		        if (!enabled || !isPlayMode(mode) || typeof document === "undefined") return undefined;
 		        let held = null, timer = null, mutedUntil = 0, mutedButton = null;
@@ -53496,16 +53499,21 @@ function createStoryFloorRail(root, options) {
 		            button.classList.remove(TAVERN_SEND_HOLD_CLASS);
 		            if (busy) button.classList.add(TAVERN_SEND_HOLD_FIRED_CLASS);
 		        }
-		        function release() {
-		            if (timer !== null) { window.clearTimeout(timer); timer = null; }
+		        function release(cancelled) {
 		            const press = held;
+		            if (timer !== null) { window.clearTimeout(timer); timer = null; }
+		            // CSS 动画不受 JS 定时器节流影响；若画面已转完但回调还没跑，正常松手时按实际时长补足。
+		            // 取消、移开、切窗不走这条补触发，避免把已经放弃的手势又提交。
+		            if (press && !cancelled && !press.fired && Date.now() - press.startedAt >= TAVERN_SEND_HOLD_MS) void fire();
 		            held = null;
-		            if (!press) return;
+		            if (!press) return false;
 		            repaint(press.button, false);
-		            if (press.source !== "pointer") return;
-		            try {
-		                if (press.button.hasPointerCapture && press.button.hasPointerCapture(press.id)) press.button.releasePointerCapture(press.id);
-		            } catch (error) { /* 宿主在按住期间换掉按钮时，指针捕获可能已由浏览器释放。 */ }
+		            if (press.source === "pointer") {
+		                try {
+		                    if (press.button.hasPointerCapture && press.button.hasPointerCapture(press.id)) press.button.releasePointerCapture(press.id);
+		                } catch (error) { /* 宿主在按住期间换掉按钮时，指针捕获可能已由浏览器释放。 */ }
+		            }
+		            return press.fired === true;
 		        }
 		        async function fire() {
 		            timer = null;
@@ -53513,19 +53521,12 @@ function createStoryFloorRail(root, options) {
 		            if (!press) return;
 		            press.fired = true;
 		            const button = press.button;
-		            const sessionId = current.current.sessionId;
+		            const sessionId = current.current;
 		            // 松手紧跟一次 click，这次点击属于长按，不能把输入框的内容发出去。
 		            mutedUntil = Date.now() + 900;
 		            mutedButton = button;
 		            repaint(button, true);
-		            const snapshot = liveTavernView.getSnapshot(sessionId);
-		            const view = snapshot && snapshot.view;
-		            // 视图还没读到时照样发：接口自己会拒绝（原因进错误中心）；只有明确不可重生成才静默放弃。
-		            const allowed = !view || (view.canRegenerate ?? view.canRollback) === true;
-		            if (current.current.running || !allowed) {
-		                window.setTimeout(function () { button.classList.remove(TAVERN_SEND_HOLD_FIRED_CLASS); }, 400);
-		                return;
-		            }
+		            // 每次完成长按都进入同一个提交流程；忙碌、目标与历史校验由 regenBody 决定并上报原因。
 		            try { await interactions.submitBodyRegeneration(sessionId, { tail: null }, ""); }
 		            catch (error) { /* interactions 已经上报这次失败（错误中心里有完整原因） */ }
 		            finally {
@@ -53537,7 +53538,7 @@ function createStoryFloorRail(root, options) {
 		        }
 		        function start(button, source, id, pointerType, x, y) {
 		            if (held || !button) return;
-		            held = { button: button, source: source, id: id, pointerType: pointerType, x: x, y: y, fired: false };
+		            held = { button: button, source: source, id: id, pointerType: pointerType, x: x, y: y, startedAt: Date.now(), fired: false };
 		            button.classList.remove(TAVERN_SEND_HOLD_FIRED_CLASS);
 		            button.classList.add(TAVERN_SEND_HOLD_CLASS);
 		            if (source === "pointer") {
@@ -53549,7 +53550,7 @@ function createStoryFloorRail(root, options) {
 		        function moved(press, x, y) {
 		            const slop = press.pointerType === "touch" ? TAVERN_SEND_TOUCH_MOVE_SLOP : 10;
 		            const dx = x - press.x, dy = y - press.y;
-		            if (dx * dx + dy * dy > slop * slop) release();
+		            if (dx * dx + dy * dy > slop * slop) release(true);
 		        }
 		        function onPointerDown(event) {
 		            // 支持 TouchEvent 的设备上，触摸只走 onTouchStart；这里保留桌面及无 TouchEvent 环境的回退。
@@ -53566,7 +53567,7 @@ function createStoryFloorRail(root, options) {
 		        }
 		        function onPointerEnd(event) {
 		            if (!held || held.source !== "pointer" || event.pointerId !== held.id) return;
-		            release();
+		            release(event.type === "pointercancel");
 		        }
 		        function touchIn(list, id) {
 		            if (!list) return null;
@@ -53589,13 +53590,13 @@ function createStoryFloorRail(root, options) {
 		        }
 		        function onTouchEnd(event) {
 		            if (!held || held.source !== "touch" || !touchIn(event.changedTouches, held.id)) return;
-		            // 原生 touchend 也直接吞掉长按后的兼容 click，不只依赖之后的 click 定时窗。
-		            if (held.fired && event.cancelable) event.preventDefault();
-		            release();
+		            // 原生 touchend 也直接吞掉长按后的兼容 click，包括定时器被节流后由松手补触发的情况。
+		            const fired = release(false);
+		            if (fired && event.cancelable) event.preventDefault();
 		        }
 		        function onTouchCancel(event) {
 		            if (!held || held.source !== "touch") return;
-		            if (touchIn(event.changedTouches, held.id) || !touchIn(event.touches, held.id)) release();
+		            if (touchIn(event.changedTouches, held.id) || !touchIn(event.touches, held.id)) release(true);
 		        }
 		        function onClick(event) {
 		            if (Date.now() >= mutedUntil) { mutedButton = null; return; }
@@ -53613,7 +53614,8 @@ function createStoryFloorRail(root, options) {
 		            event.preventDefault();
 		        }
 		        function onSelectStart(event) { if (held) event.preventDefault(); }
-		        function onVisibilityChange() { if (document.hidden) release(); }
+		        function onVisibilityChange() { if (document.hidden) release(true); }
+		        function onBlur() { release(true); }
 		        // window capture 先于宿主 document / React 监听，宿主停止传播也不会丢掉开始与结束事件。
 		        window.addEventListener("pointerdown", onPointerDown, true);
 		        window.addEventListener("pointermove", onPointerMove, true);
@@ -53629,9 +53631,9 @@ function createStoryFloorRail(root, options) {
 		        document.addEventListener("contextmenu", onContextMenu, true);
 		        document.addEventListener("selectstart", onSelectStart, true);
 		        document.addEventListener("visibilitychange", onVisibilityChange);
-		        window.addEventListener("blur", release);
+		        window.addEventListener("blur", onBlur);
 		        return function () {
-		            release();
+		            release(true);
 		            if (observer) observer.disconnect();
 		            prepared.forEach(function (button) { button.classList.remove(TAVERN_SEND_HOLD_READY_CLASS); });
 		            window.removeEventListener("pointerdown", onPointerDown, true);
@@ -53648,7 +53650,7 @@ function createStoryFloorRail(root, options) {
 		            document.removeEventListener("contextmenu", onContextMenu, true);
 		            document.removeEventListener("selectstart", onSelectStart, true);
 		            document.removeEventListener("visibilitychange", onVisibilityChange);
-		            window.removeEventListener("blur", release);
+		            window.removeEventListener("blur", onBlur);
 		        };
 		    }, [enabled, mode, props.sessionId]);
 		    return null;
@@ -55417,7 +55419,7 @@ function createStoryFloorRail(root, options) {
 			// 长按监听放在常驻会话层：input.dock 在 session/inputState 未就绪时会整棵卸载，不能承载全局手势。
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
 				{ name: "conversation.session.header.utilities", id: "dsh-tavern-send-hold", order: -105, label: "长按发送键重新生成" },
-				function (props) { return React.createElement(TavernSendLongPress, { sessionId: props.sessionId, useSession: props.useSession }); }
+				function (props) { return React.createElement(TavernSendLongPress, { sessionId: props.sessionId }); }
 			)), "dsh-tavern: long press send key");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-fork-session-shell", order: -200, label: "会话外壳" },
