@@ -30,6 +30,18 @@ function page(floors, options = {}) {
   return { dom, document: dom.window.document, scope, create: context.createStoryFloorRail }
 }
 
+// 一次「点」：pointerdown → pointerup（刻度以 pointerup 为准，不看浏览器合成的 click）。
+// pointerType 决定要不要双击：touch / pen 要点两下，mouse 一下就到。
+function pointer(win, node, type, { clientY = 100, pointerType = 'touch' } = {}) {
+  const event = new win.MouseEvent(type, { bubbles: true, clientY })
+  Object.defineProperty(event, 'pointerType', { value: pointerType })
+  node.dispatchEvent(event)
+}
+function tap(win, node, options = {}) {
+  pointer(win, node, 'pointerdown', options)
+  pointer(win, node, 'pointerup', options)
+}
+
 const tickFloors = document => [...document.querySelectorAll('.dsh-tavern-turn-rail [data-floor]')].map(node => Number(node.getAttribute('data-floor')))
 const activeFloors = document => [...document.querySelectorAll('.dsh-tavern-turn-rail [data-active]')].map(node => Number(node.getAttribute('data-floor')))
 
@@ -41,7 +53,7 @@ test('一层一根刻度，点哪根就滚到哪一层的开头', t => {
   assert.deepEqual(tickFloors(document), [1, 2, 3], '每层一根')
   const tick = document.querySelector('.dsh-tavern-turn-rail [data-floor="2"]')
   assert.equal(tick.getAttribute('aria-label'), '跳到第 2 楼')
-  tick.click()
+  tap(dom.window, tick, { pointerType: 'mouse' })
   assert.equal(scope.dataset.scrolledTo, '2', '直接滚到第 2 层')
   rail.dispose()
 })
@@ -141,14 +153,14 @@ test('手指滑过不算点：按下后移动超过 8px 的那次点击不跳转
   const rail = create(scope)
   rail.apply()
   const tick = document.querySelector('.dsh-tavern-turn-rail [data-floor="2"]')
-  const pointer = (type, clientY) => tick.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, clientY }))
-  pointer('pointerdown', 300)
-  pointer('pointermove', 340)
-  tick.click()
+  const fire = (type, clientY) => pointer(dom.window, tick, type, { clientY, pointerType: 'mouse' })
+  fire('pointerdown', 300)
+  fire('pointermove', 340)
+  fire('pointerup', 340)
   assert.equal(scope.dataset.scrolledTo, undefined, '滑过时不跳')
 
-  pointer('pointerdown', 300)
-  tick.click()
+  fire('pointerdown', 300)
+  fire('pointerup', 300)
   assert.equal(scope.dataset.scrolledTo, '2', '按稳了才跳')
   rail.dispose()
 })
@@ -160,7 +172,7 @@ test('跳完能撤回：目标层闪一下，点「回到刚才」回到原处',
   const rail = create(scope)
   rail.apply()
   scope.scrollTop = 480
-  document.querySelector('.dsh-tavern-turn-rail [data-floor="3"]').click()
+  tap(dom.window, document.querySelector('.dsh-tavern-turn-rail [data-floor="3"]'), { pointerType: 'mouse' })
   assert.ok(document.querySelector('[data-floor="3"]').hasAttribute('data-floor-flash'), '目标层闪一下')
   const undo = document.querySelector('.dsh-tavern-turn-rail-undo')
   assert.ok(undo, '给了「回到刚才」')
@@ -177,16 +189,15 @@ test('窄屏要双击：第一下只选定，第二下才跳', async t => {
   const rail = narrow.create(narrow.scope, { armMs: 40 })
   rail.apply()
   const tick = narrow.document.querySelector('.dsh-tavern-turn-rail [data-floor="2"]')
-  // 真手指点出来的是 detail 1（element.click() 是 0，等同键盘激活）。
-  const tap = () => tick.dispatchEvent(new narrow.dom.window.MouseEvent('click', { bubbles: true, detail: 1 }))
-  tap()
+  const doTap = () => tap(narrow.dom.window, tick)
+  doTap()
   assert.equal(narrow.scope.dataset.scrolledTo, undefined, '第一下不跳')
   assert.ok(tick.hasAttribute('data-armed'), '刻度进入选定态')
   const hint = narrow.document.querySelector('.dsh-tavern-turn-rail-hint')
   assert.equal(hint.textContent, '再点一下 · 第 2 楼', '边上提示再点一下')
   assert.equal(hint.style.pointerEvents, '', '提示样式由 CSS 管，不吃点击')
 
-  tap()
+  doTap()
   assert.equal(narrow.scope.dataset.scrolledTo, '2', '第二下真的跳')
   assert.equal(tick.hasAttribute('data-armed'), false, '跳完清掉选定')
   assert.equal(narrow.document.querySelector('.dsh-tavern-turn-rail-hint'), null, '提示收起')
@@ -199,7 +210,7 @@ test('窄屏第一下选定后超时自己取消', async t => {
   const rail = narrow.create(narrow.scope, { armMs: 30 })
   rail.apply()
   const tick = narrow.document.querySelector('.dsh-tavern-turn-rail [data-floor="2"]')
-  tick.dispatchEvent(new narrow.dom.window.MouseEvent('click', { bubbles: true, detail: 1 }))
+  tap(narrow.dom.window, tick)
   await new Promise(resolve => setTimeout(resolve, 80))
   assert.equal(tick.hasAttribute('data-armed'), false, '过时不亮')
   assert.equal(narrow.document.querySelector('.dsh-tavern-turn-rail-hint'), null, '提示也跟着收')
@@ -207,25 +218,25 @@ test('窄屏第一下选定后超时自己取消', async t => {
   rail.dispose()
 })
 
-test('窄屏里键盘 / 读屏激活（detail 0）不等第二下', t => {
+test('窄屏里键盘按 Enter 不等第二下', t => {
   const narrow = page([[1, 40], [2, 140]], { narrow: true })
   t.after(() => narrow.dom.window.close())
   const rail = narrow.create(narrow.scope)
   rail.apply()
   const tick = narrow.document.querySelector('.dsh-tavern-turn-rail [data-floor="2"]')
-  tick.dispatchEvent(new narrow.dom.window.MouseEvent('click', { bubbles: true, detail: 0 }))
+  tick.dispatchEvent(new narrow.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }))
   assert.equal(narrow.scope.dataset.scrolledTo, '2', '键盘一下就跳')
   assert.equal(narrow.document.querySelector('.dsh-tavern-turn-rail-hint'), null, '不弹提示')
   rail.dispose()
 })
 
-test('宽屏仍然一下就到，不用双击', t => {
+test('鼠标一下就到，不用双击', t => {
   const { dom, document, scope, create } = page([[1, 40], [2, 140]])
   t.after(() => dom.window.close())
   const rail = create(scope)
   rail.apply()
-  document.querySelector('.dsh-tavern-turn-rail [data-floor="2"]').click()
-  assert.equal(scope.dataset.scrolledTo, '2', '宽屏第一下就跳')
+  tap(dom.window, document.querySelector('.dsh-tavern-turn-rail [data-floor="2"]'), { pointerType: 'mouse' })
+  assert.equal(scope.dataset.scrolledTo, '2', '鼠标一下就到')
   assert.equal(document.querySelector('.dsh-tavern-turn-rail-hint'), null, '不弹双击提示')
   rail.dispose()
 })

@@ -149,17 +149,44 @@ function createStoryFloorRail(root, options) {
 			// 固定层里的按钮收不到宿主的滚动手势（固定定位不在滚动容器里，浏览器不会把这次
 			// 滑动交给正文，等于一块吃手的死区），所以触屏滑动由我们自己按位移滚正文：
 			// 手感还是跟着手指走，抬手也不跳。
-			let startY = null, lastY = 0, dragged = false, panning = false;
+			let startY = null, lastY = 0, dragged = false, panning = false, pressed = false, pressTouch = false;
+			// 手指（触屏、笔）要点两下；鼠标一下就到 —— 判断看输入方式，不看窗口宽度：
+			// 手机上就算量到了宽布局，也不会退回单击跳。
+			function activate(touch) {
+				if (!touch) { jump(floor); return; }
+				if (armedFloor === floor) { jump(floor); return; }
+				arm(floor, button);
+			}
 			button.addEventListener("pointerdown", function (event) {
+				pressed = true;
+				pressTouch = event.pointerType === "touch" || event.pointerType === "pen";
 				startY = typeof event.clientY === "number" ? event.clientY : null;
 				lastY = startY || 0;
 				dragged = false;
+			});
+			// 「点」以 pointerup 为准，不看 click：click 是浏览器合成的，个别手机内核一次抬手会
+			// 发两下（detail 也不一定是 1），双击逻辑会在同一次点击里被自己喂饱 —— 表现就是
+			// 单击也跳。一次抬手只算一次点。
+			button.addEventListener("pointerup", function () {
+				if (!pressed) return;
+				pressed = false;
+				const moved = dragged;
+				dragged = false;
+				startY = null;
+				if (moved) return;
+				activate(pressTouch);
 			});
 			button.addEventListener("pointermove", function (event) {
 				if (startY === null || typeof event.clientY !== "number") return;
 				if (Math.abs(event.clientY - startY) > tapSlop) dragged = true;
 			});
-			button.addEventListener("pointercancel", function () { startY = null; dragged = false; });
+			button.addEventListener("pointercancel", function () { pressed = false; startY = null; dragged = false; });
+			// 键盘 / 读屏走 keydown：原生按钮的 Enter、空格会合成一个 click，这里直接跳，不等第二下。
+			button.addEventListener("keydown", function (event) {
+				if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") { event.preventDefault(); jump(floor); }
+			});
+			// 兜底：没有 Pointer Events 的老内核只能靠 click，那就按 click 次数数双击。
+			if (!host || !host.PointerEvent) button.addEventListener("click", function () { if (!dragged) activate(true); dragged = false; });
 			button.addEventListener("touchstart", function (event) {
 				const touch = event.touches && event.touches[0];
 				startY = touch ? touch.clientY : null;
@@ -179,15 +206,6 @@ function createStoryFloorRail(root, options) {
 				scope.scrollTop = (scope.scrollTop || 0) - (touch.clientY - lastY);
 				lastY = touch.clientY;
 			}, { passive: false });
-			button.addEventListener("click", function (event) {
-				if (dragged) { dragged = false; startY = null; return; }
-				// 键盘 / 读屏直接激活（detail 0）不是「点」，别让它等第二下。
-				if (event && event.detail === 0) { jump(floor); return; }
-				// 宽屏一下就到；窄屏要双击：第一下选定，第二下（同一下）才跳。
-				if (!compact) { jump(floor); return; }
-				if (armedFloor === floor) { jump(floor); return; }
-				arm(floor, button);
-			});
 			ticks.set(floor, { button, row });
 			box.appendChild(button);
 		}
