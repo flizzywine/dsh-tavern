@@ -430,8 +430,11 @@
 			}
 			async function openSessionWhenReady(sessionId) {
 				await sessionListRecoveryRef.current.open(sessionId);
-				await call("markConversationOpened", { sessionId: sessionId });
-				await refresh(["sessions"]);
+				// Last-opened ordering is bookkeeping, not a first-paint dependency. Keep its
+				// write → list refresh order off the critical path to mounting the transcript.
+				void Promise.resolve().then(function () { return call("markConversationOpened", { sessionId: sessionId }); })
+					.then(function () { return refresh(["sessions"]); })
+					.catch(function (error) { setError("更新最近打开顺序失败：" + String(error && error.message || error)); });
 				setError("");
 			}
 			// clearMain() leaves no Session for the host's blank-session entries

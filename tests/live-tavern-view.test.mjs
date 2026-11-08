@@ -104,6 +104,32 @@ test('新建对话复用 startChat 首份视图，后续失效刷新才请求服
   stop()
 })
 
+test('插件被动订阅不读取不可见会话，首个真实读者接管加载', async function () {
+  const timers = fakeTimers()
+  let loads = 0
+  const module = createLiveTavernViewModule({
+    load: async function () { loads += 1; return { view: { activity: { busy: false } } } },
+    shouldPoll() { return false }, pollWhileBusy: false,
+    now: timers.now, schedule: timers.schedule, cancel: timers.cancel
+  })
+  const states = []
+  const stopPassive = module.subscribe('background-session', function (state) { states.push(state); }, [['activity']], { deferLoad: true })
+  module.invalidate('background-session')
+  assert.equal(loads, 0)
+  assert.deepEqual(timers.activeDelays(), [])
+
+  const stopVisible = module.subscribe('background-session', function () {}, [['activity']])
+  await timers.runNext()
+  assert.equal(loads, 1)
+  assert.equal(states.at(-1).view.activity.busy, false)
+
+  stopVisible()
+  module.invalidate('background-session')
+  assert.equal(loads, 1)
+  assert.deepEqual(timers.activeDelays(), [])
+  stopPassive()
+})
+
 test('人物卡删除后的状态错误进入不可用终态，不再自动重试并重复弹错', async function () {
   const timers = fakeTimers()
   let loads = 0

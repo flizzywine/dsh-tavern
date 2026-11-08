@@ -274,7 +274,7 @@
 				try {
 					if (typeof liveTavernView !== "undefined" && liveTavernView && typeof liveTavernView.subscribe === "function") {
 						const stop = liveTavernView.subscribe(id, function () { refreshWorkStatus(record, { settle: true, notify: true }); },
-							[["activity"], ["settleStatus"], ["settleError"], ["latestAssistantTurn"], ["settlementTurn"]]);
+							[["activity"], ["settleStatus"], ["settleError"], ["latestAssistantTurn"], ["settlementTurn"]], { deferLoad: true });
 						record.stopView = typeof stop === "function" ? stop : null;
 					}
 				} catch (_) {}
@@ -560,7 +560,7 @@
 							const next = list.getSnapshot().byId[gameId]?.running === true;
 							if (next !== running) { running = next; refresh(); }
 						}) : function () {};
-						const stopView = liveTavernView.subscribe(gameId, refresh, [["latestAssistantTurn"], ["activity"], ["settlementTurn"], ["settleStatus"]]);
+						const stopView = liveTavernView.subscribe(gameId, refresh, [["latestAssistantTurn"], ["activity"], ["settlementTurn"], ["settleStatus"]], { deferLoad: true });
 						return function () { disposed = true; stopView(); if (typeof stopSessions === "function") stopSessions(); };
 					}, "tavernUi.watchTurnState()");
 				},

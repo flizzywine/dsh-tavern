@@ -35,6 +35,24 @@ for (const targetMode of ['card', 'story']) test(`完成 ${targetMode} 创建时
   assert.deepEqual(calls, targetMode === 'card' ? [] : [['releaseOpeningPreparation', 'draft']])
 })
 
+test('会话打开后立即挂载，最近打开排序在后台写入并刷新', async () => {
+  const calls = []
+  let releaseMark
+  const ctx = vm.createContext({
+    sessionListRecoveryRef: { current: { open: async id => { calls.push(['open', id]) } } },
+    call: async method => { calls.push([method]); await new Promise(resolve => { releaseMark = resolve }) },
+    refresh: async groups => { calls.push(['refresh', groups]) },
+    setError() {},
+  })
+  vm.runInContext(source.slice(source.indexOf('async function openSessionWhenReady(sessionId)'), source.indexOf('async function openBlankConversation')), ctx)
+  await ctx.openSessionWhenReady('session-fast')
+  assert.deepEqual(calls, [['open', 'session-fast'], ['markConversationOpened']])
+  releaseMark()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(calls.at(-1)[0], 'refresh')
+  assert.equal(calls.at(-1)[1][0], 'sessions')
+})
+
 test('切换游玩 / 卡片时回到该模式下最近用过的对话，而不是最新创建的（#220）', async () => {
   const { ctx } = fixture()
   const opened = []

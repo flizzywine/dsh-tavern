@@ -14965,7 +14965,7 @@ window.__ModuleLoader__.load({
 			function recordFor(sessionId) {
 				const id = String(sessionId || "");
 				if (!records.has(id)) {
-					const record = { id: id, state: initialState(), listeners: new Set(), paths: dependencyNode(), watchdog: null, optimisticBusy: false, eviction: null, refresh: null, seededView: undefined };
+					const record = { id: id, state: initialState(), listeners: new Set(), passiveListeners: 0, paths: dependencyNode(), watchdog: null, optimisticBusy: false, eviction: null, refresh: null, seededView: undefined };
 					record.refresh = createRefresh(record);
 					records.set(id, record);
 				}
@@ -15118,7 +15118,12 @@ window.__ModuleLoader__.load({
 			}
 			function invalidate(sessionId) {
 				const targets = sessionId === undefined || sessionId === null || sessionId === "" ? Array.from(records.values()) : [recordFor(sessionId)];
-				targets.forEach(function (record) { record.refresh.request(); });
+				targets.forEach(function (record) {
+					// Passive plugin observers share the visible panel's record but never own a
+					// network read. The first real reader loads and later invalidations resume.
+					if (record.listeners.size === record.passiveListeners) return;
+					record.refresh.request();
+				});
 			}
 			function evict(sessionId) {
 				const record = records.get(String(sessionId || ""));
@@ -15196,22 +15201,27 @@ window.__ModuleLoader__.load({
 						if (records.get(record.id) === record) invalidate(sessionId);
 					};
 				},
-				subscribe: function (sessionId, listener, paths) {
+				subscribe: function (sessionId, listener, paths, options) {
 					const record = recordFor(sessionId);
 					if (record.eviction !== null) { cancelTimer(record.eviction); record.eviction = null; }
+					const deferred = options && options.deferLoad === true;
 					const firstSubscriber = record.listeners.size === 0;
+					const firstEagerSubscriber = !deferred && record.listeners.size === record.passiveListeners;
 					const unregister = register(record.paths, paths || [[]], listener);
 					record.listeners.add(listener);
+					if (deferred) record.passiveListeners++;
 					listener(record.state);
-					if (firstSubscriber) { record.refresh.start(); record.refresh.request(); }
+					if (firstSubscriber) record.refresh.start();
+					if (firstEagerSubscriber) record.refresh.request();
 					if (record.watchdog === null && (pollWhileBusy || idlePollIntervalMs > 0)) {
 						record.watchdog = startWatchdog(function () {
-							if (record.listeners.size > 0 && ((pollWhileBusy && shouldPoll(record.state.view)) || idlePollIntervalMs > 0)) void record.refresh.refresh();
+							if (record.listeners.size > record.passiveListeners && ((pollWhileBusy && shouldPoll(record.state.view)) || idlePollIntervalMs > 0)) void record.refresh.refresh();
 						}, watchdogIntervalMs);
 					}
 					return function () {
 						unregister();
 						record.listeners.delete(listener);
+						if (deferred) record.passiveListeners = Math.max(0, record.passiveListeners - 1);
 						if (record.listeners.size === 0) {
 							record.optimisticBusy = false;
 							record.optimisticOwner = null;
@@ -33054,7 +33064,7 @@ function tavernFloorHeightRecall(key, width) {
 				try {
 					if (typeof liveTavernView !== "undefined" && liveTavernView && typeof liveTavernView.subscribe === "function") {
 						const stop = liveTavernView.subscribe(id, function () { refreshWorkStatus(record, { settle: true, notify: true }); },
-							[["activity"], ["settleStatus"], ["settleError"], ["latestAssistantTurn"], ["settlementTurn"]]);
+							[["activity"], ["settleStatus"], ["settleError"], ["latestAssistantTurn"], ["settlementTurn"]], { deferLoad: true });
 						record.stopView = typeof stop === "function" ? stop : null;
 					}
 				} catch (_) {}
@@ -33340,7 +33350,7 @@ function tavernFloorHeightRecall(key, width) {
 							const next = list.getSnapshot().byId[gameId]?.running === true;
 							if (next !== running) { running = next; refresh(); }
 						}) : function () {};
-						const stopView = liveTavernView.subscribe(gameId, refresh, [["latestAssistantTurn"], ["activity"], ["settlementTurn"], ["settleStatus"]]);
+						const stopView = liveTavernView.subscribe(gameId, refresh, [["latestAssistantTurn"], ["activity"], ["settlementTurn"], ["settleStatus"]], { deferLoad: true });
 						return function () { disposed = true; stopView(); if (typeof stopSessions === "function") stopSessions(); };
 					}, "tavernUi.watchTurnState()");
 				},
@@ -39225,8 +39235,11 @@ function TavernCardUpdateDialog(props) {
 			}
 			async function openSessionWhenReady(sessionId) {
 				await sessionListRecoveryRef.current.open(sessionId);
-				await call("markConversationOpened", { sessionId: sessionId });
-				await refresh(["sessions"]);
+				// Last-opened ordering is bookkeeping, not a first-paint dependency. Keep its
+				// write → list refresh order off the critical path to mounting the transcript.
+				void Promise.resolve().then(function () { return call("markConversationOpened", { sessionId: sessionId }); })
+					.then(function () { return refresh(["sessions"]); })
+					.catch(function (error) { setError("更新最近打开顺序失败：" + String(error && error.message || error)); });
 				setError("");
 			}
 			// clearMain() leaves no Session for the host's blank-session entries
