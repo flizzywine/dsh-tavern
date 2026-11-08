@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "154131eb1c9e114a106871ac805c8dbe3a1aaa8b",
-  "releaseSequence": 1368,
+  "revision": "cd4407afaef7b8ce35ed9fa797cbfbcbf08edcc5",
+  "releaseSequence": 1369,
   "version": "3.2.0",
   "files": [
     {
@@ -560,36 +560,6 @@
       "size": 1891
     },
     {
-      "path": "presets/tavern/skills/asset-generation/references/targets.md",
-      "sha256": "e2a34ae9ad3c82e0471a272fa5cf94e649c86e9611de2e91754aa6327e82b01f",
-      "size": 3115
-    },
-    {
-      "path": "presets/tavern/skills/asset-generation/SKILL.md",
-      "sha256": "47b09a310486404274bcb3f359041e01d9fcdcbc381a8f50dcd7406cbb9f1df2",
-      "size": 6042
-    },
-    {
-      "path": "presets/tavern/skills/asset-library/references/lamps-recall.md",
-      "sha256": "9140656c01f88b05b334d1ce966b3bef4657bdc10d0b3fb71e5131778b54939f",
-      "size": 3337
-    },
-    {
-      "path": "presets/tavern/skills/asset-library/references/transfer.md",
-      "sha256": "2bb4dc5e37c936483880f5051d616374fc937ac4145706996200c42b6e2e2e68",
-      "size": 2497
-    },
-    {
-      "path": "presets/tavern/skills/asset-library/SKILL.md",
-      "sha256": "ec1848a8949a4ee7109bf741ba0f1584a7b767c280705cd91d0413f33d0135f0",
-      "size": 9278
-    },
-    {
-      "path": "presets/tavern/skills/card-sharing/SKILL.md",
-      "sha256": "a0f468ed4fc0ec856f1c01d1e2c05362bfda6121d364035528899fe98482446b",
-      "size": 6006
-    },
-    {
       "path": "presets/tavern/skills/card-to-mvu/references/mvu-format.md",
       "sha256": "3f3eafa41706aaad23ebb810dc61d40ac0026f254e7544ce5ac533822b468152",
       "size": 6151
@@ -650,26 +620,6 @@
       "size": 3178
     },
     {
-      "path": "presets/tavern/skills/figure-assets/references/figure-fields.md",
-      "sha256": "ee68848041c074ab4679b7bfd8d21d4b91ae1dcf7e02736e4a9126966d854b9d",
-      "size": 4571
-    },
-    {
-      "path": "presets/tavern/skills/figure-assets/SKILL.md",
-      "sha256": "789d9a15cedcbfab5f65ee19caced4fd396089c283f7e61959fb027ccb7735a5",
-      "size": 8812
-    },
-    {
-      "path": "presets/tavern/skills/figure-voice/references/voice-data.md",
-      "sha256": "54de9644b502f5faf32cd46868359f43cd97c10849a36fce0975488244aec195",
-      "size": 4241
-    },
-    {
-      "path": "presets/tavern/skills/figure-voice/SKILL.md",
-      "sha256": "962c4520080115743b09365e7127667488f566ccaa8701557d86dce098a93f2e",
-      "size": 9960
-    },
-    {
       "path": "presets/tavern/skills/gentle-rewrite/SKILL.md",
       "sha256": "71a6964667dfe024c29adef22de01711737ce8a6ede97f59841afb71e2032074",
       "size": 3587
@@ -683,6 +633,106 @@
       "path": "presets/tavern/skills/polish-card/SKILL.md",
       "sha256": "f2cbad140c9da677556d53a98cea9d7646abb642c0871c99a19007ca0c9ec648",
       "size": 6643
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/backgrounds-cg.md",
+      "sha256": "3baf639af8b1e8e5d0cd3cccc24694a5cb4d1d0eb1083e398ba7786b3bcb93e3",
+      "size": 2455
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/figure-fields.md",
+      "sha256": "44ed1d5dae87edbdb54c877069e34705be0c079dc542c49fdfadf73e2b1ad2fd",
+      "size": 4709
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/figure-voice.md",
+      "sha256": "e6354cac400f07851f50079415d2fbb51065cba2fe39431482681f31f46d5a81",
+      "size": 4543
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/figures.md",
+      "sha256": "d48e4f5b51b7bc7032eef13b695f46c1ac8989539248698e371e248a6a74e6f6",
+      "size": 6296
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/generation-targets.md",
+      "sha256": "1e4ea6c47b058a0ffd2b3824bc58e1865bd2f24a42086723211757b37a26c615",
+      "size": 3205
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/generation.md",
+      "sha256": "6d5ec19884f76bcea0f94fbe7fd6ce165c0fe9275b7ca6b4320c71635f3ce414",
+      "size": 5374
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/lamps-recall.md",
+      "sha256": "f314c87667b9de4fcffab51169ca122ff444e82caed37b172c9f27eab99d4ed6",
+      "size": 3972
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/live2d-spine.md",
+      "sha256": "88ec24c418aa43b0aa4a0f37752f063d269b3f5f9fb1d0bfb38d9599c7672a6a",
+      "size": 2331
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/music-sound.md",
+      "sha256": "28b2d9a178a84cc4986f64a6c42755bd1afcb57e16ab02cb9b55c90a39846603",
+      "size": 2313
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/packs.md",
+      "sha256": "c2e0047d7c020462ab901cc4f1e9fc90bda9037cf50c6c2a71837d23899baa93",
+      "size": 3507
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/skins.md",
+      "sha256": "9c44eac4a186717903e5214c9f1e58edce6e1c748fec02e41346961f085d751d",
+      "size": 1703
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/transfer.md",
+      "sha256": "351953ea6caab8a89922b65149509d125ecd1a7e859d5b8360a8793751714873",
+      "size": 2672
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/voice-backend.md",
+      "sha256": "19cbfc7a1225f3294d066363d3f138c19bf45cef63be12fc90aa4721f04b5428",
+      "size": 3536
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/voice-clone.md",
+      "sha256": "075b9d410c237f6cafe7d6ae9801fc3d6940ab91588e7f34d6dc7e2b0dd5a517",
+      "size": 2172
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/voice-data.md",
+      "sha256": "bf89eac13cda42f1a38dbd448850660e1ee20be67e926c0d7fa542e60ceb9815",
+      "size": 3208
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/voice-readings.md",
+      "sha256": "0dc0e1ef45eff36113744ddf8b26d94293e47d7c7935e03d4771f6ac5c383ede",
+      "size": 1451
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/voice-start.md",
+      "sha256": "a851bf5856be0024f248337cc9920983e90202df0c493a8224ef4dcc3ab922c0",
+      "size": 3599
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/voice-troubleshooting.md",
+      "sha256": "8c244e370eaa4a71fa929b753205be3edc531ea0f4b0f15bbbaca9c607c49c24",
+      "size": 4970
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/references/voice-variants.md",
+      "sha256": "8b77d6520bdb73e6f96d99abd8c22cd709d75615ef24d8956e0c2d67aedc2989",
+      "size": 2343
+    },
+    {
+      "path": "presets/tavern/skills/stage-assets/SKILL.md",
+      "sha256": "f1d7866b6c24eb83c5aaf2344abebe06a733cd9161bcb34fe528201adcb94e2e",
+      "size": 7089
     },
     {
       "path": "presets/tavern/skills/stage-directing/references/judge.md",
@@ -740,6 +790,11 @@
       "size": 1203
     },
     {
+      "path": "presets/tavern/skills/stage-sharing/SKILL.md",
+      "sha256": "36c736e4e870002ffa2768636a5a613634e20728dc2b1d81783554cae7b6d0eb",
+      "size": 6372
+    },
+    {
       "path": "presets/tavern/skills/stage-status-panel/references/example.md",
       "sha256": "47249d492e9233781e6c9450dd24b22c3fd95845ca8e12abf573f35be3d434c6",
       "size": 14094
@@ -755,9 +810,9 @@
       "size": 5080
     },
     {
-      "path": "presets/tavern/skills/tavern-features/SKILL.md",
-      "sha256": "392e1f46255e3787456d838c558f4d81fc57eec0af617fb92262d7dce9f6c82e",
-      "size": 4646
+      "path": "presets/tavern/skills/stage/SKILL.md",
+      "sha256": "b188a22284ce46305fe3902cd54719893e3695e3659a47b42e7009b32271c6aa",
+      "size": 2802
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/example-plugin.md",
@@ -8136,8 +8191,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/schema.js",
-      "sha256": "d33f2946487cbd938ae4e5e2f0a796a9f32deddf3c85eaaac233c5e00d8924e1",
-      "size": 7677
+      "sha256": "f99bb2ff14b6072478c848f639eb682ef1bf6c9b41b267639058c6fc0f55018a",
+      "size": 7477
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/tools.js",
@@ -9836,9 +9891,9 @@
     }
   ],
   "archive": {
-    "commit": "d04442cc8eb450f2c69ffca0526441a3bde92551",
+    "commit": "ff78352c9e8a8115db66d503f31e28603a0dfad4",
     "path": "runtime.zip",
-    "sha256": "2f27903b63d0a869f45710ce347343cf898853543262eb1fcd0d39b8823b6540",
-    "size": 16504654
+    "sha256": "37b0019826c937826bc08a419b87ec2d7734332fdebe91db78f4302df9c3e1b8",
+    "size": 16518242
   }
 }
