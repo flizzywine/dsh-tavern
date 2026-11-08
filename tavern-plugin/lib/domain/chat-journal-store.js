@@ -16,7 +16,7 @@ import { channel } from 'node:diagnostics_channel'
 import { performance } from 'node:perf_hooks'
 const readMetrics = channel('dsh.chat.read')
 
-import { applyJsonChangesShared, diffJson } from './json-mutation.js'
+import { applyJsonChangesShared, diffNormalizedJson } from './json-mutation.js'
 
 const STORAGE_REVISION = '_storageRevision'
 // What every save stamps on itself (chat-persistence): alone, they are no change.
@@ -671,7 +671,7 @@ export function createChatJournalStore(options = {}) {
       const baseRevision = currentState.revision
       const revision = revisionOf(next)
       if (revision !== baseRevision + 1) throw new Error('Chat Journal 写入 revision 非连续，期望 ' + (baseRevision + 1) + '，实际 ' + revision)
-      const changes = diffJson(current, next)
+      const changes = diffNormalizedJson(current, next)
       // A save that changes nothing but its own revision stamp and timestamp is no save:
       // nothing is written, the stored state and revision stay (as patch() does for no changes).
       if (changes.every(change => change.path.length === 1 && STAMPS.has(change.path[0]))) return copyJsonTree(current)

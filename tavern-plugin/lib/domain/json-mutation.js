@@ -58,11 +58,16 @@ function diffValue(before, after, path, changes) {
   changes.push({ op: 'set', path: clone(path), value: clone(after) })
 }
 
+/** Diff storage-owned trees that have already crossed the JSON normalization boundary. */
+export function diffNormalizedJson(before, after) {
+  const changes = []
+  diffValue(before, after, [], changes)
+  return changes
+}
+
 /** Create readable path mutations without carrying unchanged JSON subtrees. */
 export function diffJson(before, after) {
-  const changes = []
-  diffValue(jsonValue(before), jsonValue(after), [], changes)
-  return changes
+  return diffNormalizedJson(jsonValue(before), jsonValue(after))
 }
 
 function parentAt(root, path) {
