@@ -112,13 +112,10 @@ export const WORKBENCH_ACTIONS = {
 }
 // The Skills that unlock each tool: a tool joins the card-workbench request once one of them is loaded.
 export const WORKBENCH_SKILLS = {
-  'asset-library': ['tavern_assets_read', 'tavern_assets_patch', 'tavern_media_upload', 'tavern_assets_transfer'],
-  'figure-assets': ['tavern_assets_read', 'tavern_assets_patch', 'tavern_media_upload'],
+  'stage-assets': ['tavern_assets_read', 'tavern_assets_patch', 'tavern_media_upload', 'tavern_assets_transfer', 'tavern_asset_generation', 'tavern_voice_read', 'tavern_voice_patch'],
   'stage-setup': ['tavern_assets_read', 'tavern_stage_read', 'tavern_stage_patch'],
   'stage-directing': ['tavern_assets_read', 'tavern_assets_patch', 'tavern_stage_read', 'tavern_stage_patch'],
   'stage-mods': ['tavern_mods_read', 'tavern_mods_patch', 'tavern_media_upload'],
-  'card-sharing': ['tavern_assets_read', 'tavern_assets_transfer'],
-  'asset-generation': ['tavern_assets_read', 'tavern_asset_generation'],
-  'figure-voice': ['tavern_assets_read', 'tavern_voice_read', 'tavern_voice_patch', 'tavern_media_upload']
+  'stage-sharing': ['tavern_assets_read', 'tavern_assets_transfer']
 }
 export const WORKBENCH_TOOL_NAMES=Object.keys(WORKBENCH_ACTIONS).map(name=>'tavern_'+name)

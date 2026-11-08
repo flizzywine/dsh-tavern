@@ -1,9 +1,6 @@
----
-name: asset-generation
-description: "用应用内生图为素材人物或背景生成候选图：设定图、立绘、头像、八头像表和背景，按次付费，候选由用户在素材库采用。上传已有图片用 figure-assets；剧情 CG 不用本 Skill。"
----
+# 应用内生图
 
-# 素材生图
+用户要用应用内生图为素材人物或背景生成设定图、立绘、头像、八头像表或背景时读这篇。上传已有图片见[人物](figures.md)和[背景与 CG](backgrounds-cg.md)；剧情 CG 和 Live2D 模型不由这里生成。
 
 生图会花用户的钱，候选图要由用户亲自挑选。工具：`tavern_asset_generation`，查找人物和包用 `tavern_assets_read`。工具不能采用候选，采用只在应用界面里由用户完成。
 
@@ -11,8 +8,8 @@ description: "用应用内生图为素材人物或背景生成候选图：设定
 
 ## 流程
 
-1. **定目标**：用 `tavern_assets_read` 的 `bindings` 找到当前卡能用的包，对这些包读 `item {kind:'figures', packId}` 按名字找到人物 `id`，再带 `id` 读详情确认服装和差分（`resolve` 不接受名字）。目标类型及先后依赖读 [生成目标](references/targets.md)。
-2. **准备**：`prepare {target, expectedRevision, userPrompt?, references?, count?}` 冻结目标、提示词、参考图和渠道，不收费。`expectedRevision` 是目标包的 revision（来自 `item` 读取或上一次写入回执）。目标人物或包还不存在时，只能给用户文字草案，并说明要先用 figure-assets 或 asset-library 建好。
+1. **定目标**：用 `tavern_assets_read` 的 `bindings` 找到当前卡能用的包，对这些包读 `item {kind:'figures', packId}` 按名字找到人物 `id`，再带 `id` 读详情确认服装和差分（`resolve` 不接受名字）。目标类型及先后依赖读[生图目标](generation-targets.md)。
+2. **准备**：`prepare {target, expectedRevision, userPrompt?, references?, count?}` 冻结目标、提示词、参考图和渠道，不收费。`expectedRevision` 是目标包的 revision（来自 `item` 读取或上一次写入回执）。目标人物或包还不存在时，只能给用户文字草案，并说明要先按[人物](figures.md)或[包与绑定](packs.md)建好。
 3. **说明**：调用生成前，把准备结果告诉用户，至少包括：目标、张数、带了哪些参考图，以及费用提示——"N 张就是 N 次单图请求；外层模型可能另收文字费用，金额由服务商决定；失败、超时、取消或没出图都不保证免费"。准备结果里有"上次结果未确认"的请求时，逐个说明"上次的结果未确认，可能已经收费，这次可能再次收费"。
 4. **确认并生成**：调用 `generate {planId, consentToken}`，宿主会弹出付费确认，用户在弹窗里同意才会发出请求。用户拒绝就停止，不换参数再试；用户只是在问价格或讨论方案时，停在准备这一步。
 5. **查看**：用 `status {jobId}` 查询，不要循环等待到超时；候选出来后用 `read` 给用户看。
@@ -44,15 +41,6 @@ description: "用应用内生图为素材人物或背景生成候选图：设定
 - `cancel` 取消进行中的任务，不保证服务商停止计费；`reject` 拒收候选不收费；`retry-save` 只重新保存已经收到的图片，不会重新生成。
 - `UNSUPPORTED_CHANNEL`：当前生图渠道不支持素材生成，请用户在「设置」›「场景生图」把接口格式改为 Responses image tool。
 - `TARGET_CHANGED`：目标槽位在生成后被改过，请用户在界面里看过现有内容后再决定是否替换。
-
-## 不在这里
-
-剧情中的场景 CG、Live2D 模型都不由本流程生成。
-
-## 用工具完成，按事实报告
-
-- 生图只通过本 Skill 的工具读写。报错里的 `example` 是最小合法骨架：占位符换成读到的值，空数组只表示类型、不代表清空。工具做不到的事，说明缺什么或界面位置。
-- 报告只描述工具结果里出现的事，分清：计划（还没调用写工具）、已问你（等你回复）、等待宿主批准、未获批准没有改动（照审批错误的 `message` 转述，会话策略自动拒绝不说成用户拒绝）、已保存（回执成功且回读到目标值）。
 
 ## 完成标准
 

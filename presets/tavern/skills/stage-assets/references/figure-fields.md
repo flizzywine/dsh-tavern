@@ -1,5 +1,7 @@
 # 人物字段
 
+要知道人物某个字段的含义、限制，或写头像裁切、分层立绘、模型引用时读这篇。
+
 具体字段名、可选值和上限以 `tavern_assets_read schema {kind:'figures'}` 的返回为准；下面说明它们的用途和容易弄错的地方。
 
 ## 人物本身
@@ -11,7 +13,7 @@
 | `appearance` | 显示形式：`live2d`、`spine`、`sprite`（静态或分层立绘）、`avatar`（只有头像，不上舞台，例如只在对话或手机里出现的联系人）。缺模型或运行库时按 live2d → spine → sprite → avatar 往下找第一个可用的。 |
 | `heightCm`、`heightBasis`、`elevationCm` | 身高（站姿或坐姿基准）和离地高度，舞台按它们计算人物大小与站位，不需要手动校准。 |
 | `imageColor` | 形象色，用于名牌等界面点缀；部分模组会自动跟随主角形象色。 |
-| `identityAppearance`、`identitySettei` | 生图用的外貌描述和人物设定图，由 asset-generation 使用。 |
+| `identityAppearance`、`identitySettei` | 生图用的外貌描述和人物设定图，由[应用内生图](generation.md)使用。 |
 
 ## 服装
 
@@ -44,4 +46,4 @@
 ## 例子
 
 用户："把大肥鱼女仆装的'害羞'头像框往上移一点。"
-→ 在当前卡能用的包里找到大肥鱼（见 SKILL.md「先找到人物」）→ `item` 读取女仆装服装和"害羞"差分的现有裁切 → 小幅调整 `y` 后用 `avatar-crop`（`outfitKey` 为女仆装的 `default`，`scope:'state'`，`stateId` 为“害羞”的差分 ID）写入 → 回读。请用户在素材库看预览；如果要反复微调，建议直接用界面的「裁切头像」拖动。
+→ 在当前卡能用的包里找到大肥鱼（见[人物](figures.md)「先找到人物」）→ `item` 读取女仆装服装和"害羞"差分的现有裁切 → 小幅调整 `y` 后用 `avatar-crop`（`outfitKey` 为女仆装的 `default`，`scope:'state'`，`stateId` 为“害羞”的差分 ID）写入 → 回读。请用户在素材库看预览；如果要反复微调，建议直接用界面的「裁切头像」拖动。
