@@ -4674,7 +4674,6 @@ window.__ModuleLoader__.load({
 		// The raw text goes to the console (and the 调试视图's 最新错误) only.
 		const PLAYER_ERRORS={REVISION_CONFLICT:'内容已被修改，请重新载入',
 		  LIMIT_EXCEEDED:'素材数据超过大小或数量限制，未能保存；请减少本次提交的内容后重试',
-		  TRIGGER_LINT:'触发词不符合要求：蓝灯、绿灯至少 3 个、最多 6 个正文里会出现的简短词语，去掉重复或过于笼统的词后再保存',
 		  MISSING_DEPENDENCY:'素材引用不完整，请补齐所引用的图片、差分或资源后重试；无需安装额外程序',
 		  PACK_UNAVAILABLE:'这张卡用到的一个素材包找不到了，请在 舞台设置 › 素材包 里移除或重新安装它',
 		  AbortError:'保存超时，结果尚未确认；请重新载入后检查',TimeoutError:'保存超时，结果尚未确认；请重新载入后检查'};
@@ -5533,7 +5532,7 @@ window.__ModuleLoader__.load({
 		  }
 		  const fileStem=name=>[...String(name||'').replace(/\.[^.]+$/,'').trim()].slice(0,120).join('')||'未命名';
 		  let entrySerial=0;
-		  // An added file starts 关闭 with no words: 蓝灯 / 绿灯 need 3–6 of them, which the player writes in the opened entry.
+		  // An added file starts 关闭 with no words; the player adds words (optional — the name alone is matched) in the opened entry.
 		  const newFileEntry=(kind,id,name,content)=>({kind,id,name,enabled:false,recall:{mode:'keyword',keywords:[]},directorNote:'',...content});
 		  const newEntryId=(pack,kind)=>{let id;do{id='u'+Date.now().toString(36)+(entrySerial++).toString(36)+Math.random().toString(36).slice(2,5);}while(pack.manifest.assets.some(a=>a.kind===kind&&a.id===id));return id;};
 		  // One figure picture (立绘 / 头像) into a pack through its serialized writer `enqueue(job(snapshot) → {snapshot})`: the pack
@@ -6429,12 +6428,12 @@ window.__ModuleLoader__.load({
 		      const ranked=bands.flatMap(band=>[...band].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'zh')).map(([word])=>word));
 		      return [...new Set(ranked)];
 		    }
-		    // 蓝灯 / 绿灯 need 3–6 words (the pack service's trigger lint); 关闭 may stay empty, so a new entry starts there.
-		    const TRIGGER_HELP='名称本身也算触发词。蓝灯、绿灯要 3–6 个正文里会出现的词，每个 2–40 字；关闭时可以留空。';
+		    // Words are optional in every lamp: the name is always matched; a new entry still starts 关闭.
+		    const TRIGGER_HELP='名称本身也算触发词。可以再加几个正文里会出现的其他叫法或场景词，每个 2–40 字；不填也行。';
 		    // `fresh`: an entry the player just added (关闭, no words) — the field stands open with the caret in it and a hint after it.
 		    const triggerFields=({value,suggest,onCommit,fresh})=>[
 		      h(InlineField,{key:'triggers',kind:'chips',label:'触发词',hideEmpty:!fresh,autoEdit:fresh||undefined,help:entryHelp('触发词',TRIGGER_HELP),value,split:splitKeywords,validate:keywordProblem,suggest,onCommit}),
-		      fresh&&h('p',{key:'triggers-hint',className:'ap-hint-line ap-trigger-hint',role:'status'},'填 3–6 个正文里会出现的词，再打开蓝灯/绿灯')];
+		      fresh&&h('p',{key:'triggers-hint',className:'ap-hint-line ap-trigger-hint',role:'status'},'可以填几个正文里会出现的词，再打开蓝灯/绿灯')];
 		    function keywordProblem(words){
 		      if(words.length>16)return '触发词最多 16 个';
 		      const bad=words.find(word=>chars(word)<2||chars(word)>40);
@@ -11618,8 +11617,8 @@ window.__ModuleLoader__.load({
 		  // pictures and the text, its 头像 as the request's follow-up. Those RPCs write into a figure, so the first press makes a
 		  // hidden draft in the card pack (enabled:false — never on stage, not linted) and each picture is adopted into it as it
 		  // arrives; the page shows the 立绘 and 头像, 「重新生成」 asks again. 「创建人物」 (only once both are there) checks the form
-		  // once — plain Chinese on the field, focus moves there — and turns the draft into the figure in one patchFigure (the host's
-		  // trigger lint runs there; its issues land on 触发词). Leaving without creating removes the draft. Nothing is checked or red
+		  // once — plain Chinese on the field, focus moves there — and turns the draft into the figure in one patchFigure (触发词 may
+		  // stay empty: the name is matched). Leaving without creating removes the draft. Nothing is checked or red
 		  // before a press; there is no error code or 重新载入 here.
 		  const NEW_FIGURE_OUTFIT='default',NEW_FIGURE_FACE='calm',NEW_FIGURE_NAME='新人物';
 		  const NEW_FIGURE_FIELDS=['refs','name','triggers'];
@@ -11640,12 +11639,6 @@ window.__ModuleLoader__.load({
 		  async function stageSetupCardPack(ctx){
 		    const status=await ctx.binding.service.getStageSetupStatus({path:ctx.path});
 		    return status.wizardPack?.packId||{path:ctx.path,expectedCardRevision:status.cardRevision,expectedLibraryRevision:status.libraryRevision,selections:[]};
-		  }
-		  // The host's trigger lint (an issue per word and rule) said on the 触发词 field, in the player's words.
-		  function newFigureLintText(issues){
-		    const issue=issues?.[0];if(!issue)return '';const word=issue.trigger?'「'+issue.trigger+'」':'';
-		    return {count:'触发词最多 6 个，留下正文里最常见的称呼',duplicate:word+'重复了',suffix:word+'不像称呼，去掉「声」「氛围」「场景」这样的后缀',
-		      'short-word':word+'太短或太长，用正文里会出现的 2–4 字称呼','group-generic':word+'很多素材都在用，换一个只属于这个人物的称呼'}[issue.rule]||word+'用不了，换一个正文里会出现的称呼';
 		  }
 		  // A failed save in a sentence through the shared playerErrorText (the contract's words for a code, else the host's
 		  // plain Chinese reason); a failed generation is the shared genFailText.
@@ -11707,21 +11700,21 @@ window.__ModuleLoader__.load({
 		      setErrors({});
 		      run(async()=>{const d=await ensureDraft();sent.current={references:refs.map(u=>({base64:u.base64,mediaType:u.mediaType,role:GEN_ART_ROLE})),userPrompt:about.trim()};setRequest(n=>n+1);return d;});
 		    };
-		    // 创建人物: the form is checked once, then the draft becomes the figure (one patchFigure; the lint runs in it).
+		    // 创建人物: the form is checked once, then the draft becomes the figure (one patchFigure).
 		    const create=()=>{
 		      if(busy)return;
 		      const next={},words=triggers.filter(Boolean);
 		      if(!name.trim())next.name='先给人物起个名字';else if([...name.trim()].length>60)next.name='名字太长了，60 个字以内';
-		      if(!words.length)next.triggers='至少填一个触发词，用正文里会出现的称呼';else if(aliasProblem(words))next.triggers=aliasProblem(words);
+		      if(aliasProblem(words))next.triggers=aliasProblem(words);
 		      setErrors(next);const first=NEW_FIGURE_FIELDS.find(key=>next[key]);if(first)return focusField(first);
 		      const finalName=name.trim(),norm=figureResolution.normalizeCatalogueText,shortest=[...words].sort((a,b)=>[...a].length-[...b].length)[0];
 		      setBusy(true);setProblem('');
 		      write(c=>{const f=c.figures[draftRef.current.figureId];
 		        return binding.service.patchFigure({packId:draftRef.current.packId,expectedRevision:c.revision,figureId:draftRef.current.figureId,patch:{
 		          name:finalName,enabled:true,aliases:namesPatch(f,words).aliases.filter(w=>norm(w)!==norm(finalName)),heightCm:heightCm(),description:about.trim()||null,
-		          outfits:f.outfits.map(o=>o.key===NEW_FIGURE_OUTFIT?{...o,recall:{mode:'keyword',keywords:[shortest]}}:o)}});})
+		          outfits:f.outfits.map(o=>o.key===NEW_FIGURE_OUTFIT?{...o,recall:{mode:'keyword',keywords:shortest?[shortest]:[]}}:o)}});})
 		        .then(async()=>{draftRef.current=null;await ctx.writer.reload();onCreated?.();},
-		          e=>{if(e?.code==='TRIGGER_LINT'){setErrors({triggers:newFigureLintText(e.issues)});focusField('triggers');}else setProblem(newFigureSaveText(e));})
+		          e=>setProblem(newFigureSaveText(e)))
 		        .finally(()=>setBusy(false));
 		    };
 		    // ‹ / Esc: a draft (and what was generated into it) goes, after asking when there are pictures to lose.

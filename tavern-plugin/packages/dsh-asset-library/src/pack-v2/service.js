@@ -1,6 +1,5 @@
 import path from 'node:path'
 import {authorAudioLoudness} from './audio-loudness.js'
-import {enforceTriggers} from '../asset-packs/trigger-lint.js'
 import {migrateCharacterEmotions, matchBubbleMood, figureDefaultEmotion} from '../asset-packs/figure-emotions.js'
 import {assetContent,assetContents,assetDocument} from '../shared/asset-variant-content.js'
 import {assetEntryEnabled,resolveAssetSnapshot,resolveFigureSnapshot} from '../shared/asset-pack-refs.js'
@@ -356,13 +355,6 @@ export function createAssetPackService(options) {
     manifest.figures.push(id); files.set(`figures/${id}.json`, jsonBytes(figure))
     return {figureId:id}
   }
-  function triggerOverrides(input, before, manifest, files) {
-    const figures = Object.fromEntries(manifest.figures.map(id => {
-      const bytes = files.get(`figures/${id}.json`)
-      return [id, Buffer.isBuffer(bytes) ? readDocument(bytes) : before.figures[id]]
-    }).filter(([, figure]) => figure))
-    return enforceTriggers(before, {manifest, figures}, input.force)
-  }
   async function edit(input, mutate, tryMetadata = false, migrateLocal, dryRun = false, resolutionTargets, resolutionRestore, imageResolutions, avatarReplacements, imageRemovals) {
     validateUuid(input.packId)
     return run([input.packId], async () => {
@@ -372,7 +364,6 @@ export function createAssetPackService(options) {
         if (!before.diagnostics?.length) {
           const manifest = copy(before.manifest), files = new Map(before.files), figures = {...before.figures}
           const extra = await mutate(manifest, files, before)
-          const forcedOverrides = triggerOverrides(input, before, manifest, files)
           Object.assign(manifest,normalizePackTags(manifest))
           for(const id of manifest.figures) {
             const name='figures/'+id+'.json',bytes=files.get(name)
@@ -393,13 +384,13 @@ export function createAssetPackService(options) {
             check([...updates.values()].every(bytes => bytes.length <= limits.entrySize) && jsonBytes(manifest).length + manifest.files.reduce((sum, file) => sum + file.size, 0) <= limits.totalSize, '$.files', 'Pack budget exceeded', 'LIMIT_EXCEEDED')
             const migratedLocal = migrateLocal ? migrateLocal(before.local,before.figures) : before.local
             if (manifest.contentHash === before.manifest.contentHash && canonicalJson(migratedLocal) === canonicalJson(before.local)) return {status:'noop', snapshot:snapshot(before), ...extra}
-            if (dryRun) return {status:'dry-run', snapshot:snapshot({...before, manifest, figures, files, local:migratedLocal}), ...extra, forcedOverrides}
+            if (dryRun) return {status:'dry-run', snapshot:snapshot({...before, manifest, figures, files, local:migratedLocal}), ...extra}
             const local = nextLocal(retireLocalMouthDebt(migratedLocal, {figures,sprites:before.sprites}))
             await storage.publishMetadata(input.packId, manifest, updates, local)
             const saved = {...before, manifest, figures, files, local};
             for (const asset of manifest.assets) if (asset.variants && before.variantDocuments?.[asset.kind+'/'+asset.id]) saved[asset.kind]={...saved[asset.kind],[asset.id]:before.variantDocuments[asset.kind+'/'+asset.id][asset.variants.default]};
             evictMetadata(input.packId); emit(saved, before)
-            return {status:'updated', snapshot:snapshot(saved), ...extra, forcedOverrides}
+            return {status:'updated', snapshot:snapshot(saved), ...extra}
           }
         }
       }
@@ -411,7 +402,6 @@ export function createAssetPackService(options) {
       // `hashed` carries CAS names this edit just computed, so sealing does not hash those bytes again.
       const manifest = copy(before.manifest), files = new Map(before.files), hashed = new Map()
       const extra = await mutate(manifest, files, before, hashed)
-      const forcedOverrides = triggerOverrides(input, before, manifest, files)
       Object.assign(manifest,normalizePackTags(manifest))
           for(const id of manifest.figures) {
             const name='figures/'+id+'.json',bytes=files.get(name)
@@ -433,7 +423,7 @@ export function createAssetPackService(options) {
         for(const next of [document,...Object.values(verified.variantDocuments?.['widgets/'+id] || {})]) check(known.includes(canonicalJson(next.variables || {})), '$.widgets.' + id + '.variables', 'Variable capability changes require archive inspection and applyImport', 'SCRIPT_CONFIRMATION_REQUIRED')
       }
       const result = await install(verified, migrateLocal ? {...before,local:migrateLocal(before.local,before.figures)} : before, undefined, dryRun, resolution)
-      return {...result, ...extra, forcedOverrides, resolution}
+      return {...result, ...extra, resolution}
     }, dryRun)
   }
   function sweep() { for (const [id, entry] of previews) if (entry.expiresAt <= now()) { previews.delete(id); previewBytes -= entry.size } }
@@ -549,7 +539,7 @@ export function createAssetPackService(options) {
   })
   const service = {
     ...createVoiceAuthoring({assetRoot:options.assetRoot,storage,run,load,edit,cas,limits}),
-    ...createStageSetupMethods({assetRoot:options.assetRoot,run,all,load,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure,triggerOverrides}),
+    ...createStageSetupMethods({assetRoot:options.assetRoot,run,all,load,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure}),
     ...createModPrivateMethods({validators:modValidators,run,metadata,storage,cas,edit,readDocument,jsonBytes,load,verify,sealPack,nextLocal,emit,cards:options.cardTransactions,randomUUID,blankManifest,remapPack}),
     apiVersion:2,
     ...bundleMethods,

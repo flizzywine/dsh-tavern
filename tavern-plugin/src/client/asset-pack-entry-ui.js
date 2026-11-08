@@ -91,12 +91,12 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     const ranked=bands.flatMap(band=>[...band].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'zh')).map(([word])=>word));
     return [...new Set(ranked)];
   }
-  // 蓝灯 / 绿灯 need 3–6 words (the pack service's trigger lint); 关闭 may stay empty, so a new entry starts there.
-  const TRIGGER_HELP='名称本身也算触发词。蓝灯、绿灯要 3–6 个正文里会出现的词，每个 2–40 字；关闭时可以留空。';
+  // Words are optional in every lamp: the name is always matched; a new entry still starts 关闭.
+  const TRIGGER_HELP='名称本身也算触发词。可以再加几个正文里会出现的其他叫法或场景词，每个 2–40 字；不填也行。';
   // `fresh`: an entry the player just added (关闭, no words) — the field stands open with the caret in it and a hint after it.
   const triggerFields=({value,suggest,onCommit,fresh})=>[
     h(InlineField,{key:'triggers',kind:'chips',label:'触发词',hideEmpty:!fresh,autoEdit:fresh||undefined,help:entryHelp('触发词',TRIGGER_HELP),value,split:splitKeywords,validate:keywordProblem,suggest,onCommit}),
-    fresh&&h('p',{key:'triggers-hint',className:'ap-hint-line ap-trigger-hint',role:'status'},'填 3–6 个正文里会出现的词，再打开蓝灯/绿灯')];
+    fresh&&h('p',{key:'triggers-hint',className:'ap-hint-line ap-trigger-hint',role:'status'},'可以填几个正文里会出现的词，再打开蓝灯/绿灯')];
   function keywordProblem(words){
     if(words.length>16)return '触发词最多 16 个';
     const bad=words.find(word=>chars(word)<2||chars(word)>40);

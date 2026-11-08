@@ -17,12 +17,12 @@ export interface ScriptRisk { packId: string; packName: string; path: string; wi
 export interface PackChange { packId: string; revision: string | null; kinds: string[]; figures: string[] }
 export interface WidgetDefaultExportWarning { code: 'external-widget-default'; ref: AssetRef; widgetName: string; settingLabel: string; packName: string | null; assetName: string | null }
 export interface StageSetupStatus {path: string; cardId: string; cardRevision: string; libraryRevision: string; boundPackIds: string[]; hasBoundPacks: boolean; hasAssets: boolean; wizardPack: {packId: string; name: string; revision: string} | null; shouldAutoOpen: boolean}
-export interface PackWrite { packId: string; expectedRevision: string; force?: boolean }
+export interface PackWrite { packId: string; expectedRevision: string }
 export interface VoiceTemplate {templateId:string; revision:string; name:string; voiceSpec:VoiceSpec; binding:Voice}
 export type VoiceCatalogueRef = {packId:string; voiceId:string} | {templateId:string};
 export interface VoiceCatalogueEntry {ref:VoiceCatalogueRef; name:string; packName?:string; revision:string; voiceSpec:VoiceSpec; binding:Voice}
 export interface PackRemoval { status: 'removed'; packId: string }
-export interface PackMutation { status: 'installed' | 'updated' | 'noop'; snapshot: PackSnapshot; forcedOverrides?: Array<{entry:string;trigger:string;rule:string;message:string}> }
+export interface PackMutation { status: 'installed' | 'updated' | 'noop'; snapshot: PackSnapshot }
 export interface FigureDelivery {
   version: 1;
   figures: Array<{id: string; copyFrom?: string | FigureRef; figure?: Figure; patch?: Partial<Pick<Figure, 'name' | 'aliases' | 'description' | 'enabled' | 'recall' | 'voice'>>}>;

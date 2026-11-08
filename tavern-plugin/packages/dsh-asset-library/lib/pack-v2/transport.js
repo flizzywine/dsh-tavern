@@ -30,7 +30,7 @@ const fields = Object.freeze({
   deletePackVoiceVariant:['figureId','packId','expectedRevision','voiceId','variantId','confirmShared'],
   listVoiceCatalogue:[], listVoiceTemplates:[], saveVoiceTemplate:['templateId','expectedRevision','packId','packRevision','voiceId','binding'],
   deleteVoiceTemplate:['templateId','expectedRevision'], assignVoiceTemplate:['templateId','templateRevision','packId','figureId','expectedRevision'],
-  createPack:['name','description','expectedRevision'], patchPack:['packId','expectedRevision','patch','fileUpdates','force'], removePack:['packId','expectedRevision'],
+  createPack:['name','description','expectedRevision'], patchPack:['packId','expectedRevision','patch','fileUpdates'], removePack:['packId','expectedRevision'],
   putModMedia:['modId','packId','kind','slot','mime','bytes'], leaseModMedia:['modId','packId','path'],
   putBlob:['packId','expectedRevision','bytes','descriptor'], removeBlob:['packId','expectedRevision','hash'],
   putBundle:['packId','expectedRevision','bundleKey','descriptor','files'], removeBundle:['packId','expectedRevision','bundleKey'],

@@ -22,7 +22,6 @@ function kindOrder(builtin, modKinds) {
 // The raw text goes to the console (and the 调试视图's 最新错误) only.
 const PLAYER_ERRORS={REVISION_CONFLICT:'内容已被修改，请重新载入',
   LIMIT_EXCEEDED:'素材数据超过大小或数量限制，未能保存；请减少本次提交的内容后重试',
-  TRIGGER_LINT:'触发词不符合要求：蓝灯、绿灯至少 3 个、最多 6 个正文里会出现的简短词语，去掉重复或过于笼统的词后再保存',
   MISSING_DEPENDENCY:'素材引用不完整，请补齐所引用的图片、差分或资源后重试；无需安装额外程序',
   PACK_UNAVAILABLE:'这张卡用到的一个素材包找不到了，请在 舞台设置 › 素材包 里移除或重新安装它',
   AbortError:'保存超时，结果尚未确认；请重新载入后检查',TimeoutError:'保存超时，结果尚未确认；请重新载入后检查'};
@@ -881,7 +880,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   }
   const fileStem=name=>[...String(name||'').replace(/\.[^.]+$/,'').trim()].slice(0,120).join('')||'未命名';
   let entrySerial=0;
-  // An added file starts 关闭 with no words: 蓝灯 / 绿灯 need 3–6 of them, which the player writes in the opened entry.
+  // An added file starts 关闭 with no words; the player adds words (optional — the name alone is matched) in the opened entry.
   const newFileEntry=(kind,id,name,content)=>({kind,id,name,enabled:false,recall:{mode:'keyword',keywords:[]},directorNote:'',...content});
   const newEntryId=(pack,kind)=>{let id;do{id='u'+Date.now().toString(36)+(entrySerial++).toString(36)+Math.random().toString(36).slice(2,5);}while(pack.manifest.assets.some(a=>a.kind===kind&&a.id===id));return id;};
   // One figure picture (立绘 / 头像) into a pack through its serialized writer `enqueue(job(snapshot) → {snapshot})`: the pack

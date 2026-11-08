@@ -8,7 +8,7 @@ import {sealPack, storedCopyHashes} from './validation.js'
 import {isModConfigPack} from './mod-private.js'
 
 // A creation receipt, not card ownership: these remain ordinary editable packs.
-export function createStageSetupMethods({run, all, load, verify, storage, cards, nextLocal, emit, blankManifest, assetRoot, createFigure, triggerOverrides}) {
+export function createStageSetupMethods({run, all, load, verify, storage, cards, nextLocal, emit, blankManifest, assetRoot, createFigure}) {
   const revision = packs => createHash('sha256').update(canonicalJson(packs.map(p => [p.manifest.id,p.local.revision]).sort((a,b) => a[0].localeCompare(b[0])))).digest('hex')
   async function state(path) {
     check(cards?.withBoundPack, '$.card', '素材库暂时不可用', 'ASSET_UNAVAILABLE')
@@ -69,7 +69,6 @@ export function createStageSetupMethods({run, all, load, verify, storage, cards,
           copied.push(...copyPackItems(source,itemRefs,manifest,files,new Set(before?.local.retired || [])).map(row => ({sourcePackId,...row})))
         }
         const created = input.figure === undefined ? {} : createFigure(manifest,files,{figure:input.figure})
-        if (input.figure !== undefined) triggerOverrides(input,before || {manifest:blankManifest(packId,name),figures:{}},manifest,files)
         await sealPack(manifest,files,before,storedCopyHashes(files,sources))
         const pack = await verify(manifest,files,before,true), local = nextLocal(before?.local)
         local.stageSetupCardId = current.card.cardId

@@ -1,40 +1,51 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
-import { enforceTriggers } from '../tavern-plugin/packages/dsh-asset-library/src/asset-packs/trigger-lint.js'
+import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
+import { recallFigures } from '../tavern-plugin/lib/domain/figure-recall.js'
+import { triggerEvidence } from '../tavern-plugin/lib/domain/asset-pack-lexical.js'
 
 const read = path => readFile(new URL('../tavern-plugin/src/client/' + path, import.meta.url), 'utf8')
 const ui = await read('asset-pack-ui.js')
 const line = name => ui.match(new RegExp('^\\s*const ' + name + '=.*$', 'm'))[0]
 const newFileEntry = new Function(line('newFileEntry') + ';return newFileEntry')()
-const manifest = assets => ({ manifest: { assets }, figures: {} })
 
-// 素材库 › 添加文件: a first upload of a BGM, SE or background has no trigger words yet. It is created 关闭, which the
-// trigger lint exempts, so the write is accepted; turning it on still needs 3–6 words.
-test('a newly added file entry starts 关闭 and passes the trigger lint; turning it on needs 3–6 words', () => {
-  const music = newFileEntry('music', 'u-bgm', '离别曲', { media: 'a'.repeat(64) })
-  const background = newFileEntry('backgrounds', 'u-bg', '教室', { media: 'b'.repeat(64) })
-  for (const entry of [music, background]) {
-    assert.equal(entry.enabled, false)
-    assert.deepEqual(entry.recall, { mode: 'keyword', keywords: [] })
-  }
-  const before = manifest([])
-  assert.deepEqual(enforceTriggers(before, manifest([music, background])), [])
-  const added = manifest([music, background])
-  assert.throws(() => enforceTriggers(added, manifest([{ ...music, enabled: true }, background])), e => e.code === 'TRIGGER_LINT' && e.issues[0].rule === 'count')
-  const worded = { ...background, enabled: true, recall: { mode: 'keyword', keywords: ['教室', '黑板', '课桌'] } }
-  assert.deepEqual(enforceTriggers(added, manifest([music, worded])), [])
+// 素材库 › 添加文件: a first upload has no trigger words. How many words an entry has (none, one, any length the schema
+// allows) is the author's choice, not a library rule: the write is accepted in every lamp, and the name alone recalls it.
+test('the library saves entries and an added 人物 whatever their trigger words', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'asset-add-off-first-'))
+  const library = createAssetPackService({ assetRoot: join(root, 'packs') })
+  t.after(async () => { await library.dispose?.(); await rm(root, { recursive: true, force: true }) })
+  let pack = (await library.createPack({ name: '测试包', expectedRevision: null })).snapshot
+  // pending pictures keep the fixture free of media; the trigger words are what this checks
+  const pending = { media: null, pendingMedia: true }
+  const hall = newFileEntry('backgrounds', 'u-hall', '走廊', pending), room = newFileEntry('backgrounds', 'u-room', '教室', pending)
+  assert.equal(hall.enabled, false)
+  assert.deepEqual(hall.recall, { mode: 'keyword', keywords: [] })
+  const assets = [{ ...hall, enabled: true }, { ...room, enabled: true, recall: { mode: 'keyword', keywords: ['黑板'] } }]
+  pack = (await library.patchPack({ packId: pack.manifest.id, expectedRevision: pack.revision, patch: { assets } })).snapshot
+  assert.deepEqual(pack.manifest.assets.map(a => [a.id, a.enabled, a.recall.keywords]), [['u-hall', true, []], ['u-room', true, ['黑板']]])
+  // 添加文件 › 人物 writes a figure whose 默认 outfit has no recall at all (asset-pack-ui.js addFiles).
+  const figure = { schemaVersion: 1, name: '自画像', enabled: true, appearance: 'sprite', recall: { mode: 'keyword' }, emotions: [{ id: 'calm' }], outfits: [{ key: 'default', label: '默认', enabled: true }] }
+  pack = (await library.createFigure({ packId: pack.manifest.id, expectedRevision: pack.revision, figure })).snapshot
+  assert.equal(Object.values(pack.figures)[0].name, '自画像')
 })
 
-test('the rejection text names the minimum of 3 words', () => {
-  assert.match(ui.match(/TRIGGER_LINT:'([^']*)'/)[1], /至少 3 个/)
+// Without words, the story naming an entry or a figure is what recalls it (the existing name resolution, no extra table).
+test('a figure or an entry without trigger words is recalled by its name', () => {
+  const rows = [{ ref: { packId: 'p', figureId: 'f' }, name: '自画像', enabled: true, recall: { mode: 'keyword' } }]
+  assert.deepEqual(recallFigures({ rows, units: ['自画像走进教室。'] }).rows.map(row => row.reasons), [['hard-trigger']])
+  assert.equal(recallFigures({ rows, units: ['没有人来。'] }).rows.length, 0)
+  assert.equal(triggerEvidence({ name: '离别曲', mode: 'keyword', keywords: [] }, ['钢琴弹起了离别曲']).matched, true)
 })
 
 // The opened entry in real React and the real InlineField: a fresh 关闭 entry shows its 触发词 field with the caret in it
 // and the hint; typing words and Enter writes them. A stored entry keeps the folded 「＋ 触发词」 chip and no hint.
-const HINT = '填 3–6 个正文里会出现的词，再打开蓝灯/绿灯'
+const HINT = '可以填几个正文里会出现的词，再打开蓝灯/绿灯'
 test('a fresh entry opens on its 触发词 field with the hint (BGM and background)', async () => {
   const [entry, inline] = await Promise.all([read('asset-pack-entry-ui.js'), read('inline-field.js')])
   const browser = await chromium.launch({ headless: true, args: ['--mute-audio'] })
