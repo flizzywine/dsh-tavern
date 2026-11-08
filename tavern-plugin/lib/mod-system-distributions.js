@@ -20,7 +20,8 @@ async function filesIn(directory,prefix='') {
 
 // The CLI and native owner publish the same prebuilt code; runtime never loads a compiler.
 // Only the user-plugin loader imports the installed entry after code consent.
-export const firstPartyModIds = ['timer','dice','phone','textcard']
+// Every folder under tavern-plugin/mods is one first-party mod (docs/mod-authoring.md); the folder list is the only list.
+export const firstPartyModIds = (await fs.readdir(path.join(root,'tavern-plugin/mods'),{withFileTypes:true})).filter(entry=>entry.isDirectory()).map(entry=>entry.name).sort()
 export async function firstPartyDistributions() {
   const results=[]
   for(const id of firstPartyModIds) {

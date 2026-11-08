@@ -4,7 +4,7 @@ import {createManagedModHost} from '../tavern-plugin/lib/domain/mod-system-host.
 import {createTavernPluginApi} from '../tavern-plugin/lib/plugin-api.js'
 import {emptyCardMods,emptyGlobalMods} from '../tavern-plugin/lib/domain/mod-system-contract.js'
 import * as timer from '../tavern-plugin/mods/timer/plugin.mjs'
-import * as performance from '../tavern-plugin/mods/performance/plugin.mjs'
+import * as performance from './fixtures/mods/performance-consumer/plugin.mjs'
 
 function harness() {
   const host=createManagedModHost({authorized:['dsh.timer','dsh.performance']}),api=createTavernPluginApi({modHost:host}),disposers={}

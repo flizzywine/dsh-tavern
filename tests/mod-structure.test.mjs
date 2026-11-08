@@ -19,11 +19,8 @@ const exists = file => stat(file).then(() => true, () => false)
 // references/<name>.md or no index line), import-out (a mod file imports outside its folder), import-in (code outside
 // mods/ imports a mod file), names-mod (code outside mods/ names a first-party mod id).
 const PENDING = new Set([
-  'manifest:demo',
-  'legacy-manifest:demo', 'legacy-manifest:dice', 'legacy-manifest:performance', 'legacy-manifest:phone',
-  'legacy-manifest:textcard', 'legacy-manifest:timer',
-  'skill:demo', 'skill:dice', 'skill:performance', 'skill:phone', 'skill:textcard', 'skill:timer',
-  'tests:demo',
+  'legacy-manifest:dice', 'legacy-manifest:phone', 'legacy-manifest:textcard', 'legacy-manifest:timer',
+  'skill:dice', 'skill:phone', 'skill:textcard', 'skill:timer',
   'import-out:tavern-plugin/mods/phone/call-context.js', 'import-out:tavern-plugin/mods/phone/call.js',
   'import-out:tavern-plugin/mods/phone/stage.js',
   'import-in:tavern-plugin/lib/mod-builtins.js',
@@ -33,11 +30,10 @@ const PENDING = new Set([
   'import-in:tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/stage-service.js',
   'import-in:tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/stage.js',
   'import-in:tavern-plugin/packages/dsh-tavern-stage/lib/rpc.js',
-  'names-mod:tavern-plugin/lib/domain/mod-system.js', 'names-mod:tavern-plugin/lib/domain/turn-orchestration.js',
+  'names-mod:tavern-plugin/lib/domain/turn-orchestration.js',
   'names-mod:tavern-plugin/lib/domain/user-plugin-install.js', 'names-mod:tavern-plugin/lib/mod-builtins.js',
   'names-mod:tavern-plugin/lib/tools/dice.js',
   'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/mod-service.js',
-  'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/mod-system-production.js',
   'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/mods/phone/host.js',
   'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/extension.js',
   'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/stage-clock.js',
