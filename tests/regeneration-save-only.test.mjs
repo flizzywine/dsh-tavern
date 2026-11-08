@@ -80,12 +80,16 @@ test('没有输入证据时只记 reply 锚，不把正文伪装成玩家输入'
     seq: anchor.reply, turn: 8 })?.assistantSeq, anchor.reply)
 })
 
-test('原生面上有未认领正文时报告冲突，不进入补写', () => {
+test('原生面上还留着这一轮的旧正文时，直接换掉它，不再拒绝', () => {
   const session = Session.create('save-only-conflict')
   appendSessionEvent(session, 'assistant/message', { turn: 9, step: 1,
     message: message('other-body', 'assistant', '原生面的另一段正文') }, { surfaceOp: 'append' })
   const chat = { messages: [{ role: 'user', text: '输入' }, { role: 'assistant', turn: 4, text: '存档正文' }] }
-  assert.throws(() => selectRegenerationTarget(chat, session), error => error?.code === 'NATIVE_TARGET_CONFLICT')
+  // 旧正文本来就要被删，它没被存档认领只说明定位不到，不说明这一轮不能重做。
+  const selection = selectRegenerationTarget(chat, session)
+  assert.equal(selection.saveOnly, false)
+  assert.equal(selection.oldSeq, session.surface.nodes.at(-1))
+  assert.equal(selection.oldTurn, 4)
 })
 
 test('先前正文已被其他存档行认领时，目标正文缺失仍可补写', () => {

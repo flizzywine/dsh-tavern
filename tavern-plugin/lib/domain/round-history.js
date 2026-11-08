@@ -9,7 +9,7 @@ import { createRegenerationRecovery } from './regeneration-recovery.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
-import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, hasConflictingRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn, replayablePersistedTurn, anchoredToSaveRow, unansweredTailIndex, surfaceTurnOfSeq } from './rollback-surface.js'
+import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, unclaimedRegenerationSurfaces, planRegenerationSurface, regenerationProjection, replayableFailedTurn, replayablePersistedTurn, anchoredToSaveRow, unansweredTailIndex, surfaceTurnOfSeq } from './rollback-surface.js'
 
 // Both regeneration paths (native and plugin) read the same tail rule.
 export { unansweredTailIndex }
@@ -271,19 +271,21 @@ export function selectRegenerationTarget(chat, session, observe) {
     seq: Number.isSafeInteger(storedSeq) && storedSeq >= 0 ? storedSeq : undefined, turn: row.turn,
     // A projected reply may store the edit turn; its body still identifies it.
     texts: [row.text, row.sourceText, row.projectionText] })
-  if (target === null && hasConflictingRegenerationSurface({ events, nodes, messages: msgs0, assistantIndex: oldAssistantIndex })) {
-    report('native-target-conflict', null, inputIndex)
-    throw Object.assign(new Error('原生消息流中还有无法与存档对应的正文，请先检查这一轮，而不是追加另一份正文'), { code: 'NATIVE_TARGET_CONFLICT' })
-  }
+  // 这一轮的正文在消息面上找不到了。面上还留着、又没有别的存档行认领的正文，就是
+  // 这一轮（或它上一次没落盘就被摘掉的尝试）留下的旧输出——重新生成要删掉的正是它。
+  // 所以最后一条未被认领的正文直接当替换目标：原地换掉，既不拒绝，也不会在旁边
+  // 再挂一份新正文。真正一条都不剩时才退回补写。
+  const adopted = target !== null ? target
+    : (unclaimedRegenerationSurfaces({ events, nodes, messages: msgs0, assistantIndex: oldAssistantIndex }).at(-1) ?? null)
   const oldTurn = target !== null && Number.isSafeInteger(Number(target.turn)) && Number(target.turn) > 0
     ? Number(target.turn) : Number(row.turn) || 0
-  const oldSource = target !== null ? target.source
+  const oldSource = adopted !== null ? adopted.source
     : { kind: 'model', provider: 'dsh-tavern', model: 'plugin-regeneration' }
-  // A genuinely missing body may be appended. Other bodies already claimed by
-  // earlier rounds do not block it; an unclaimed body is a conflict above.
-  const saveOnly = target === null
-  report(saveOnly ? 'save-only' : 'selected', target, inputIndex)
-  return { nodes, eventStart, msgs0, oldAssistantIndex, inputIndex, oldSeq: saveOnly ? null : target.assistantSeq,
+  // A genuinely missing body may be appended; a body still on the surface is
+  // replaced in place, whoever wrote it and whether or not the save names it.
+  const saveOnly = adopted === null
+  report(target !== null ? 'selected' : saveOnly ? 'save-only' : 'native-orphan-replaced', saveOnly ? null : adopted, inputIndex)
+  return { nodes, eventStart, msgs0, oldAssistantIndex, inputIndex, oldSeq: saveOnly ? null : adopted.assistantSeq,
     oldTurn, oldSource, saveOnly }
 }
 
@@ -413,7 +415,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     finally {
       if (evidence) {
         try { await diagnostics.record(effectiveSessionId, { stage: 'regeneration-target', diagnosticId: randomUUID(),
-          outcome: ['selected', 'unanswered-tail'].includes(evidence.reason) ? 'selected' : 'rejected', ...evidence,
+          outcome: ['selected', 'native-orphan-replaced', 'unanswered-tail'].includes(evidence.reason) ? 'selected' : 'rejected', ...evidence,
           guidanceProvided: typeof guidance === 'string' && guidance.trim().length > 0,
           binding: { requested: diagnosticIdentity(sessionId), stored: diagnosticIdentity(storedSessionId), effective: diagnosticIdentity(effectiveSessionId),
             overridden: Boolean(sessionId && sessionId !== storedSessionId) },

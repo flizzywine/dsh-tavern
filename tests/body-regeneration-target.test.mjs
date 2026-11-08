@@ -106,3 +106,37 @@ test('失败轮的占位行不是重新生成目标：回落到上一条已提�
   assert.equal(oldAssistantIndex, 1)
   assert.equal(oldTurn, 6)
 })
+
+test('面上留着未认领的旧正文时，原地替换它，不在后面再挂一条', () => {
+  const events = []
+  const nodes = []
+  const session = {
+    events,
+    surface: { nodes },
+    append(type, data, options = {}) {
+      const seq = events.length
+      events.push({ seq, type, data, ...options })
+      if (options.surfaceOp === 'append') nodes.push(seq)
+      return seq
+    }
+  }
+  session.append('turn/start', { turn: 3 })
+  session.append('user/message', { content: '继续' }, { surfaceOp: 'append' })
+  const orphan = session.append('assistant/message', assistant(0, 3).data, { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
+  // 存档这一轮写着改过的正文，面上只剩上一次尝试留下的那一条 —— 它就是要被删的旧输出。
+  const messages = [{ role: 'user', text: '继续' }, { role: 'assistant', turn: 6, text: '存档里改过的这一轮' }]
+  const selection = selectRegenerationTarget({ messages }, session)
+  assert.equal(selection.saveOnly, false)
+  assert.equal(selection.oldSeq, orphan)
+  assert.equal(selection.oldTurn, 6)
+
+  const eventStart = events.length
+  session.append('turn/start', { turn: 4 })
+  session.append('user/message', { content: '重新生成' }, { surfaceOp: 'append' })
+  session.append('assistant/message', assistant(0, 4, model, [{ type: 'text', text: '新正文' }]).data, { surfaceOp: 'append' })
+  const plan = surface.planRegenerationSurface({ events, nodes, oldAssistantSeq: selection.oldSeq, eventStart })
+  assert.equal(plan.start, orphan)
+  assert.ok(plan.shadowedSeqs.includes(orphan))
+  assert.deepEqual(plan.cleanups, [])
+})

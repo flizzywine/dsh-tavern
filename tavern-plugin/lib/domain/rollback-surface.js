@@ -445,11 +445,16 @@ export function locateRegenerationSurface(input) {
 }
 
 /**
- * A missing target is safe to append only when every remaining native body is
- * accounted for by another saved row. An unclaimed body is a conflict, not proof
- * that the selected round disappeared; appending there would duplicate a reply.
+ * Native bodies no saved row accounts for, in message order.
+ *
+ * The save's own row is the round being regenerated, so when its body cannot be
+ * located these are what remains of that round on the model surface: the reply an
+ * interrupted or failed attempt already streamed there. That reply is exactly the
+ * output the player is asking to throw away, so regeneration adopts the last one
+ * as its replacement target — replacing a body that is about to be deleted never
+ * needs the player's confirmation, and appending after it would leave two.
  */
-export function hasConflictingRegenerationSurface(input) {
+export function unclaimedRegenerationSurfaces(input) {
   const events = Array.isArray(input?.events) ? input.events : []
   const nodes = Array.isArray(input?.nodes) ? input.nodes : []
   const messages = Array.isArray(input?.messages) ? input.messages : []
@@ -464,11 +469,16 @@ export function hasConflictingRegenerationSurface(input) {
       turn: row.turn, texts: [row.text, row.sourceText, row.projectionText] })
     if (match) claimed.add(Number(match.assistantSeq))
   }
-  return nodes.some(seq => {
-    if (claimed.has(Number(seq))) return false
+  const orphans = []
+  for (const seq of nodes) {
+    if (claimed.has(Number(seq))) continue
     const event = eventAt(events, seq)
-    return event?.type === 'assistant/message' && modelSourceOf(event) !== null && !isRollbackAssistantTombstone(event, events)
-  })
+    if (!event || event.type !== 'assistant/message') continue
+    const source = modelSourceOf(event)
+    if (source === null || isRollbackAssistantTombstone(event, events)) continue
+    orphans.push(Object.freeze({ assistantSeq: Number(seq), source, turn: storyEventTurn(event) }))
+  }
+  return orphans
 }
 
 // Failed turns have already left the model surface, but remain visible until
