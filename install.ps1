@@ -516,11 +516,36 @@ function runtimeFiles(metadata) {
 
 // jsDelivr's nodes keep separate caches of the mutable @branch manifest, and a purge is often
 // throttled after a release: ask all of them and keep the newest (CI's release sequence).
+// raw.githubusercontent.com reads the branch/commit directly and has no such alias cache, so a
+// jsDelivr `gh` URL is also asked at its raw equivalent, first, and raw wins when it is reachable.
 const JSDELIVR_NODES = ['cdn.jsdelivr.net', 'fastly.jsdelivr.net', 'gcore.jsdelivr.net']
+const RAW_HOST = 'raw.githubusercontent.com'
+const RAW_ORIGIN = `https://${RAW_HOST}`
+
+// <cdn.jsdelivr.net/gh/OWNER/REPO@ref/PATH> -> <raw.githubusercontent.com/OWNER/REPO/ref/PATH>.
+// The CDN distribution branch carries the source branch name with a `runtime-archive-` prefix.
+function rawMirror(url) {
+  let parsed
+  try { parsed = new URL(url) } catch { return null }
+  if (parsed.hostname !== JSDELIVR_NODES[0] || !parsed.pathname.startsWith('/gh/')) return null
+  const parts = parsed.pathname.slice('/gh/'.length).split('/')
+  const owner = parts[0]
+  const repoRef = parts[1] || ''
+  const at = repoRef.lastIndexOf('@')
+  if (!owner || at <= 0) return null
+  const repo = repoRef.slice(0, at)
+  const ref = repoRef.slice(at + 1).replace(/^runtime-archive-/, '')
+  const rest = parts.slice(2).join('/')
+  if (!repo || !ref || !rest) return null
+  return `${RAW_ORIGIN}/${owner}/${repo}/${ref}/${rest}`
+}
+
 function manifestCandidates(metadataUrl, exact) {
   const url = new URL(metadataUrl)
   if (exact || url.hostname !== JSDELIVR_NODES[0] || !/@[^/]+\/dsh-tavern-runtime\.json$/.test(url.pathname)) return [metadataUrl]
-  return JSDELIVR_NODES.map(host => { const each = new URL(url); each.hostname = host; return each.href })
+  const raw = rawMirror(metadataUrl)
+  const nodes = JSDELIVR_NODES.map(host => { const each = new URL(url); each.hostname = host; return each.href })
+  return raw ? [raw, ...nodes] : nodes
 }
 function compareVersions(left, right) {
   const parts = value => String(value || '').split(/[-+]/)[0].split('.').map(part => Number(part) || 0)
@@ -531,7 +556,10 @@ function compareVersions(left, right) {
 async function readManifest({ metadataUrl, exact, minVersion, stallMs, attempts, fetch: request, status = () => {} }) {
   const urls = manifestCandidates(metadataUrl, exact)
   const results = await Promise.allSettled(urls.map(async url => {
-    const { bytes } = await download([url], { label: '运行清单', stallMs: Math.min(stallMs, 15000), attempts, fetch: request })
+    // raw 在受限网络里可能完全不通：给它更短的等待，别让主源拖慢整次安装。
+    const rawHost = hostOf(url) === RAW_HOST
+    const { bytes } = await download([url], { label: '运行清单', stallMs: Math.min(stallMs, rawHost ? 4000 : 15000),
+      attempts: rawHost ? 1 : attempts, fetch: request })
     const metadata = JSON.parse(bytes.toString('utf8'))
     runtimeFiles(metadata)
     return { url, metadata }
@@ -585,8 +613,12 @@ function runtimeArchive(metadata) {
 // Every jsDelivr node, starting with the one the installer named, for the immutable archive URL.
 function archiveUrls(rootUrl, archive) {
   const first = new URL(`${rootUrl}@${archive.commit}/${archive.path}`)
-  if (!JSDELIVR_NODES.includes(first.hostname)) return [first.href]
-  return [first.hostname, ...JSDELIVR_NODES.filter(host => host !== first.hostname)].map(host => { const each = new URL(first); each.hostname = host; return each.href })
+  const raw = rawMirror(first.href)
+  if (!JSDELIVR_NODES.includes(first.hostname)) return raw ? [first.href, raw] : [first.href]
+  const urls = [first.hostname, ...JSDELIVR_NODES.filter(host => host !== first.hostname)].map(host => { const each = new URL(first); each.hostname = host; return each.href })
+  // 孤儿归档提交可能还没被 CDN 抓到；raw 按提交直读，放在最后兜底。
+  if (raw) urls.push(raw)
+  return urls
 }
 
 // Download the runtime files listed by a jsDelivr manifest into `destination`.
@@ -641,7 +673,8 @@ async function downloadRuntime({ metadataUrl, rootUrl, destination, installed, c
       }
       if (!content) {
         const url = `${rootUrl}@${metadata.revision}/${parts.map(encodeURIComponent).join('/')}`
-        content = (await download([url], { label: file.path, sha256: file.sha256, stallMs, attempts, signal, fetch: request,
+        const mirrors = [url, rawMirror(url)].filter(Boolean)
+        content = (await download(mirrors, { label: file.path, sha256: file.sha256, stallMs, attempts, signal, fetch: request,
           onRetry: ({ attempt, attempts: total, reason, willRetry }) => status(`下载失败（${source}）：${file.path}，${reason}；尝试 ${attempt}/${total}${willRetry ? '，正在重试' : '，将切换备用方案'}。`),
         })).bytes
         received += content.length
@@ -810,7 +843,7 @@ async function main(argv) {
   throw new Error(`未知命令：${command || '(空)'}`)
 }
 
-module.exports = { download, downloadFile, downloadRuntime, unzipEntries, readManifest, manifestCandidates, compareVersions, describeFailure, runtimeFiles, proxyEnvironment, applyProxyEnvironment, DownloadError, RUNTIME_PATH }
+module.exports = { download, downloadFile, downloadRuntime, unzipEntries, readManifest, manifestCandidates, archiveUrls, rawMirror, compareVersions, describeFailure, runtimeFiles, proxyEnvironment, applyProxyEnvironment, DownloadError, RUNTIME_PATH }
 
 if (require.main === module) {
   main(process.argv.slice(2)).catch(error => { console.error(error.message); process.exitCode = 1 })

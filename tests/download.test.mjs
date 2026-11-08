@@ -179,7 +179,13 @@ test('jsDelivr 运行清单：各节点取最新的发布序号；都比安装�
     const body = nodes[new URL(String(request.url || request)).hostname]
     return body ? new Response(JSON.stringify(body)) : new Response('missing', { status: 404 })
   }
-  assert.deepEqual(manifestCandidates(url).map(each => new URL(each).hostname), ['cdn.jsdelivr.net', 'fastly.jsdelivr.net', 'gcore.jsdelivr.net'])
+  // 主源是 raw：jsDelivr 的 @branch 别名最长缓存 12 小时，raw 按分支直读。
+  assert.deepEqual(manifestCandidates(url).map(each => new URL(each).hostname),
+    ['raw.githubusercontent.com', 'cdn.jsdelivr.net', 'fastly.jsdelivr.net', 'gcore.jsdelivr.net'])
+  assert.equal(manifestCandidates(url)[0], 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/dsh-tavern-runtime.json')
+  // 分发分支名回溯到源码分支。
+  assert.equal(manifestCandidates('https://cdn.jsdelivr.net/gh/o/r@runtime-archive-main/dsh-tavern-runtime.json')[0],
+    'https://raw.githubusercontent.com/o/r/main/dsh-tavern-runtime.json')
   assert.deepEqual(manifestCandidates(url, true), [url])
   assert.deepEqual(manifestCandidates('http://127.0.0.1:1/repo@main/dsh-tavern-runtime.json'), ['http://127.0.0.1:1/repo@main/dsh-tavern-runtime.json'])
 
@@ -188,6 +194,14 @@ test('jsDelivr 运行清单：各节点取最新的发布序号；都比安装�
     fetch: serveNodes({ 'cdn.jsdelivr.net': manifest('2.7.0', 90), 'fastly.jsdelivr.net': manifest('3.0.0', 120), 'gcore.jsdelivr.net': manifest('3.0.0', 110) }) })
   assert.equal(newest.releaseSequence, 120, '同一版本里也取发布序号最大的')
   assert.match(status.join('\n'), /fastly\.jsdelivr\.net/)
+
+  // raw 比所有 CDN 节点新时，直接用 raw（这正是 CDN 缓存滞后时的情况）。
+  const fresh = await readManifest({ metadataUrl: url, minVersion: '3.0.0', stallMs: 1000, attempts: 1, status: m => status.push(m),
+    fetch: serveNodes({ 'raw.githubusercontent.com': manifest('3.1.0', 130), 'cdn.jsdelivr.net': manifest('2.7.0', 90),
+      'fastly.jsdelivr.net': manifest('2.7.0', 91), 'gcore.jsdelivr.net': manifest('2.7.0', 92) }) })
+  assert.equal(fresh.releaseSequence, 130)
+  assert.equal(fresh.version, '3.1.0')
+  assert.match(status.join('\n'), /raw\.githubusercontent\.com/)
 
   await assert.rejects(readManifest({ metadataUrl: url, minVersion: '3.0.0', stallMs: 1000, attempts: 1,
     fetch: serveNodes({ 'cdn.jsdelivr.net': manifest('2.7.0', 90), 'fastly.jsdelivr.net': manifest('2.7.0', 91) }) }),
