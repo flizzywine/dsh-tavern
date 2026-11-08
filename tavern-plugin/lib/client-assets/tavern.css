@@ -3700,12 +3700,19 @@ body .dsh-tavern-picker-error { background: linear-gradient(color-mix(in srgb, v
 .dsh-tavern-turn-rail-tick:focus-visible { outline: none; }
 .dsh-tavern-turn-rail-tick:focus-visible::before { background: var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); transform: translateY(-50%) scaleX(1); }
 @media (prefers-reduced-motion: reduce) { .dsh-tavern-turn-rail-tick::before { transition: none; } }
-/* 窄屏紧凑版（place() 在 900px 以下加 data-compact）：同一列刻度贴右边，线更短、热区
-   按手指放大 —— 一层 20px，点得中，也几乎不压正文；层数多时整列自己滚。 */
-.dsh-tavern-turn-rail[data-compact] { gap: 0; max-height: min(52vh, 340px); }
-.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick { width: 28px; height: 20px; }
+/* 窄屏紧凑版（place() 在 900px 以下加 data-compact）：贴右边，线更短，层与层之间留 6px 缝，
+   热区 24×12 —— 缝隙和列外的 pointer-events 都是 none，手指落在上面直接滑正文，不会被刻度
+   接走。最多 14 根（turn-rail.js 隔层取样），整列永远不滚，右边缘的上下滑也就不会被吃掉。 */
+.dsh-tavern-turn-rail[data-compact] { gap: 6px; max-height: none; overflow: visible; pointer-events: none; }
+.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick { width: 24px; height: 12px; pointer-events: auto; }
 .dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick::before { width: 15px; background: color-mix(in srgb, var(--dsw-alias-border-l4) 82%, transparent); }
 .dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick[data-active]::before { width: 19px; }
+/* 跳到的楼层闪一下浅底（turn-rail.js 的 flash）：点歪了也一眼看出跳到了哪。 */
+[data-story-row][data-floor-flash] { border-radius: 10px; background-color: color-mix(in srgb, var(--dsh-tavern-accent) 9%, transparent); }
+/* 「回到刚才」：挂在刻度列下面 1.8 秒，误触一键回原处。 */
+.dsh-tavern-turn-rail-undo { position: fixed; z-index: 7; display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border: 0; border-radius: 16px; background: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-1)); color: var(--dsw-alias-label-primary); box-shadow: 0 2px 10px color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; animation: dsh-tavern-menu-in 150ms cubic-bezier(0.23, 1, 0.32, 1); }
+.dsh-tavern-turn-rail-undo:hover { background: var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-1)); }
+.dsh-tavern-turn-rail-undo:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 2px; }
 
 /* ── 导出与导入（.dshtransfer） ───────────────────────────────────────── */
 .dsh-tavern-transfer {

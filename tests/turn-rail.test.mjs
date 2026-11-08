@@ -108,7 +108,7 @@ test('窄屏画紧凑刻度：贴右边，不落在页面末尾', t => {
   assert.equal(box.hasAttribute('data-compact'), true, '窄屏用紧凑版')
   assert.deepEqual(tickFloors(narrow.document), [1, 2, 3], '每层一根照旧')
   // 位置由 place() 写成行内样式：贴右边（不是 body 末尾的静态位置），竖向居中。
-  assert.equal(box.style.right, (narrow.dom.window.innerWidth - 700) + 4 + 'px', '窄屏离右边 4px')
+  assert.equal(box.style.right, (narrow.dom.window.innerWidth - 700) + 10 + 'px', '窄屏离右边 10px，避开系统边缘手势')
   assert.equal(box.style.top, 340 + 'px', '在滚动区里居中')
   rail.dispose()
 
@@ -120,6 +120,55 @@ test('窄屏画紧凑刻度：贴右边，不落在页面末尾', t => {
   assert.equal(wideBox.hasAttribute('data-compact'), false, '宽屏还是原来那列')
   assert.equal(wideBox.style.right, Math.max(0, wide.dom.window.innerWidth - 1200) + 12 + 'px', '宽屏离右边 12px')
   roomy.dispose()
+})
+
+test('紧凑版最多 14 根：层数多了隔层取样，首末层总在', t => {
+  const tall = page(Array.from({ length: 30 }, (_, index) => [index + 1, index * 120]), { narrow: true })
+  t.after(() => tall.dom.window.close())
+  const rail = tall.create(tall.scope)
+  rail.apply()
+  const floors = tickFloors(tall.document)
+  assert.ok(floors.length <= 14, '整列不长到需要自己滚：' + floors.length)
+  assert.equal(floors[0], 1, '第一层在')
+  assert.equal(floors[floors.length - 1], 30, '最后一层在')
+  assert.deepEqual([...floors].sort((a, b) => a - b), floors, '仍按楼层递增')
+  rail.dispose()
+})
+
+test('手指滑过不算点：按下后移动超过 8px 的那次点击不跳转', t => {
+  const { dom, document, scope, create } = page([[1, 40], [2, 140], [3, 240]])
+  t.after(() => dom.window.close())
+  const rail = create(scope)
+  rail.apply()
+  const tick = document.querySelector('.dsh-tavern-turn-rail [data-floor="2"]')
+  const pointer = (type, clientY) => tick.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, clientY }))
+  pointer('pointerdown', 300)
+  pointer('pointermove', 340)
+  tick.click()
+  assert.equal(scope.dataset.scrolledTo, undefined, '滑过时不跳')
+
+  pointer('pointerdown', 300)
+  tick.click()
+  assert.equal(scope.dataset.scrolledTo, '2', '按稳了才跳')
+  rail.dispose()
+})
+
+test('跳完能撤回：目标层闪一下，点「回到刚才」回到原处', t => {
+  const { dom, document, scope, create } = page([[1, 40], [2, 140], [3, 240]])
+  t.after(() => dom.window.close())
+  scope.scrollTo = null // jsdom 没有元素滚动实现，走 scrollTop 分支
+  const rail = create(scope)
+  rail.apply()
+  scope.scrollTop = 480
+  document.querySelector('.dsh-tavern-turn-rail [data-floor="3"]').click()
+  assert.ok(document.querySelector('[data-floor="3"]').hasAttribute('data-floor-flash'), '目标层闪一下')
+  const undo = document.querySelector('.dsh-tavern-turn-rail-undo')
+  assert.ok(undo, '给了「回到刚才」')
+  scope.scrollTop = 900
+  undo.click()
+  assert.equal(scope.scrollTop, 480, '回到跳之前的 scrollTop')
+  assert.equal(document.querySelector('.dsh-tavern-turn-rail-undo'), null, '撤回后自己收起')
+  rail.dispose()
 })
 
 test('没有楼层时不画刻度', t => {
