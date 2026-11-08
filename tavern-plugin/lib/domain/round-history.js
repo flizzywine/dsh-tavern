@@ -585,7 +585,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       // The checkpoint rollback exists only on this detached draft. It becomes
       // visible together with the validated replacement in one commit below.
       let draft = failedTail ? structuredClone(originalChat)
-        : storyTimeline.apply({ chat: structuredClone(originalChat), intent: rollbackIntent }).chat
+        : storyTimeline.apply({ chat: structuredClone(originalChat), detach: false, intent: rollbackIntent }).chat
       const inputState = candidateFrame.source?.regenerationState
       if (inputState?.version === 1) {
         for (const key of INPUT_STATE_FIELDS) {
@@ -619,7 +619,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         draft.scriptState = scriptContinuity.transition({ script, state: draft.scriptState,
           event: { kind: 'commit', userText: str(originalUser?.text), nativeTurn: storyTurn } }).state
       }
-      const begun = storyTimeline.apply({ chat: draft, intent: { kind: 'body.begin', turn: storyTurn, userText: str(originalUser?.text) } })
+      const begun = storyTimeline.apply({ chat: draft, detach: false, intent: { kind: 'body.begin', turn: storyTurn, userText: str(originalUser?.text) } })
       draft = begun.chat
       const bodyOperation = draft.timeline.operations[begun.value.operationId]
       const checkpoint = !failedTail && storyTimeline.inspect({ chat: originalChat }).checkpointCount ? originalChat.timeline?.checkpoints?.at(-1) : null
@@ -637,7 +637,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       const merged = failedTail ? { chat: { ...draft, messages: [...structuredClone(originalChat.messages), row] } }
         : replaceLastRound({ originalChat, regeneratedChat: draft, replacement: row, assistantIndex: oldAssistantIndex, inputIndex })
       if (!failedTail && targetMessageUid) merged.chat.messages[oldAssistantIndex].messageUid = targetMessageUid
-      const completed = storyTimeline.complete({ chat: merged.chat, operationId: bodyOperation.id, basedOn: bodyOperation.basedOn,
+      const completed = storyTimeline.complete({ chat: merged.chat, detach: false, operationId: bodyOperation.id, basedOn: bodyOperation.basedOn,
         outcome: { status: 'success' }, apply(current) {
           delete current.promptTemplateInput
           current.settleStatus = 'pending'

@@ -45,8 +45,8 @@ export function createStoryTimeline(options = {}) {
   const makeId = typeof options.id === 'function' ? options.id : function (prefix) { return prefix + '-' + Math.random().toString(36).slice(2) }
   const now = typeof options.now === 'function' ? options.now : Date.now
 
-  function ensure(source) {
-    const chat = clone(source || {})
+  function ensure(source, detach = true) {
+    const chat = detach ? clone(source || {}) : (source || {})
     const incoming = object(chat.timeline)
     if (Number(incoming.schemaVersion) !== 1) {
       const branchId = makeId('branch')
@@ -534,7 +534,7 @@ export function createStoryTimeline(options = {}) {
   }
 
   function apply(input) {
-    let chat = ensure(input && input.chat)
+    let chat = ensure(input && input.chat, input?.detach !== false)
     const intent = object(input && input.intent)
     let value
     if (intent.kind === 'ensure') value = { status: 'applied', branchId: chat.timeline.branchId, revision: chat.timeline.revision }
@@ -668,7 +668,7 @@ export function createStoryTimeline(options = {}) {
     // Scoped callers supply detached selected rows, indexed by original floor.
     // Normalize metadata without serializing an N-element sparse array.
     const scoped = Array.isArray(input?.messageIndices)
-    const chat = ensure(scoped ? {...input.chat, messages: []} : input && input.chat)
+    const chat = ensure(scoped ? {...input.chat, messages: []} : input && input.chat, input?.detach !== false)
     if (scoped) {
       chat.messages = createScopedMessages(input.chat.messages.length,
         input.messageIndices.map(id => [id, clone(input.chat.messages[id])]))
