@@ -6,15 +6,19 @@
 			// 保留第一个参数兼容旧调用；正文删除身份不与原生 turn 绑定。
 			return { role: "assistant", storyTurn: Number(storyTurn), seq: Number(finalNode.seq), messageId: String(finalNode.messageId) };
 		}
-		function tavernMessageDeletionStorySelector(role, messageIndex, revision, messageUid) {
+		function tavernMessageDeletionStorySelector(role, messageIndex, revision, messageUid, text, swipe) {
+			// 正文与 swipe 只是让服务端在下标上认出「玩家点的是哪一行」；后台写入推进
+			// revision 时，行没换人就不该要求玩家重选。
 			return { role: role, messageIndex: Number(messageIndex), revision: Number(revision),
-				...(typeof messageUid === "string" && messageUid ? { messageUid: messageUid } : {}) };
+				...(typeof messageUid === "string" && messageUid ? { messageUid: messageUid } : {}),
+				...(typeof text === "string" ? { text: text } : {}),
+				...(Number.isSafeInteger(swipe) && swipe >= 0 ? { swipe: swipe } : {}) };
 		}
 		function tavernMessageDeletionSelectorKey(selector) {
 			if (!selector) return "";
 			if (selector.messageIndex !== undefined) return JSON.stringify(selector.messageUid
 				? [selector.role, "uid", selector.messageUid]
-				: [selector.role, "index", selector.messageIndex, selector.revision]);
+				: [selector.role, "index", selector.messageIndex]);
 			return JSON.stringify(selector.role === "assistant"
 				? [selector.role, selector.storyTurn, selector.seq, selector.messageId]
 				: [selector.role, selector.turn, selector.seq]);
@@ -83,7 +87,9 @@
 						keys.add(key);
 						items.push(selector.messageIndex !== undefined
 							? { role: selector.role, messageIndex: Number(selector.messageIndex), revision: Number(selector.revision),
-								...(selector.messageUid ? { messageUid: selector.messageUid } : {}) }
+								...(selector.messageUid ? { messageUid: selector.messageUid } : {}),
+								...(typeof selector.text === "string" ? { text: selector.text } : {}),
+								...(Number.isSafeInteger(selector.swipe) && selector.swipe >= 0 ? { swipe: selector.swipe } : {}) }
 							: selector.role === "user"
 								? { role: "user", turn: Number(selector.turn), seq: Number(selector.seq) }
 								: { role: "assistant", storyTurn: Number(selector.storyTurn), seq: Number(selector.seq), messageId: String(selector.messageId) });

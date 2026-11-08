@@ -58,7 +58,13 @@ export function normalizeMessageDeletionSelectors(items) {
       if (messageIndex === null || revision === null) throw new Error('消息删除选择器无效')
       const messageUid = item.messageUid === undefined || item.messageUid === null ? '' : str(item.messageUid)
       if (item.messageUid !== undefined && item.messageUid !== null && messageUid === '') throw new Error('消息删除选择器无效')
-      const direct = { role: item.role, messageIndex, revision, ...(messageUid ? { messageUid } : {}) }
+      // 已渲染的正文才是 index 寻址行的身份：Chat 版本号涵盖每一次后台写入，
+      // 说不出「这个下标上是哪一行」，行正文可以。
+      const text = typeof item.text === 'string' ? item.text : undefined
+      const swipe = item.swipe === undefined || item.swipe === null ? undefined : integer(item.swipe)
+      if (swipe === null) throw new Error('消息删除选择器无效')
+      const direct = { role: item.role, messageIndex, revision, ...(messageUid ? { messageUid } : {}),
+        ...(text !== undefined ? { text } : {}), ...(swipe !== undefined ? { swipe } : {}) }
       unique.set(JSON.stringify(direct), direct)
       continue
     }
@@ -206,9 +212,14 @@ function storyRow(chat, selector) {
     if (candidates.length !== 1 || candidates[0].row?.role !== selector.role) throw new Error('要删除的消息已经变化，请重新选择')
     return candidates[0]
   }
-  if (chatRevision(chat) !== selector.revision) throw new Error('剧情已变化，请刷新后重试')
   const row = messages[selector.messageIndex]
   if (!row || typeof row !== 'object' || row.role !== selector.role) throw new Error('剧情已变化，请刷新后重试')
+  // 选择器带来的正文就是列表当时渲染的那一段：结算、候选、世界书同步都会推进
+  // Chat 版本号却不碰这一行，所以由行本身判断该下标是否仍是玩家点中的消息。
+  if (typeof selector.text === 'string') {
+    if (selector.text !== str(row.text)
+      || (selector.swipe !== undefined && selector.swipe !== (Number(row.swipeId) || 0))) throw new Error('剧情已变化，请刷新后重试')
+  } else if (chatRevision(chat) !== selector.revision) throw new Error('剧情已变化，请刷新后重试')
   return { row, index: selector.messageIndex }
 }
 

@@ -35737,15 +35737,19 @@ function tavernFloorHeightRecall(key, width) {
 			// 保留第一个参数兼容旧调用；正文删除身份不与原生 turn 绑定。
 			return { role: "assistant", storyTurn: Number(storyTurn), seq: Number(finalNode.seq), messageId: String(finalNode.messageId) };
 		}
-		function tavernMessageDeletionStorySelector(role, messageIndex, revision, messageUid) {
+		function tavernMessageDeletionStorySelector(role, messageIndex, revision, messageUid, text, swipe) {
+			// 正文与 swipe 只是让服务端在下标上认出「玩家点的是哪一行」；后台写入推进
+			// revision 时，行没换人就不该要求玩家重选。
 			return { role: role, messageIndex: Number(messageIndex), revision: Number(revision),
-				...(typeof messageUid === "string" && messageUid ? { messageUid: messageUid } : {}) };
+				...(typeof messageUid === "string" && messageUid ? { messageUid: messageUid } : {}),
+				...(typeof text === "string" ? { text: text } : {}),
+				...(Number.isSafeInteger(swipe) && swipe >= 0 ? { swipe: swipe } : {}) };
 		}
 		function tavernMessageDeletionSelectorKey(selector) {
 			if (!selector) return "";
 			if (selector.messageIndex !== undefined) return JSON.stringify(selector.messageUid
 				? [selector.role, "uid", selector.messageUid]
-				: [selector.role, "index", selector.messageIndex, selector.revision]);
+				: [selector.role, "index", selector.messageIndex]);
 			return JSON.stringify(selector.role === "assistant"
 				? [selector.role, selector.storyTurn, selector.seq, selector.messageId]
 				: [selector.role, selector.turn, selector.seq]);
@@ -35814,7 +35818,9 @@ function tavernFloorHeightRecall(key, width) {
 						keys.add(key);
 						items.push(selector.messageIndex !== undefined
 							? { role: selector.role, messageIndex: Number(selector.messageIndex), revision: Number(selector.revision),
-								...(selector.messageUid ? { messageUid: selector.messageUid } : {}) }
+								...(selector.messageUid ? { messageUid: selector.messageUid } : {}),
+								...(typeof selector.text === "string" ? { text: selector.text } : {}),
+								...(Number.isSafeInteger(selector.swipe) && selector.swipe >= 0 ? { swipe: selector.swipe } : {}) }
 							: selector.role === "user"
 								? { role: "user", turn: Number(selector.turn), seq: Number(selector.seq) }
 								: { role: "assistant", storyTurn: Number(selector.storyTurn), seq: Number(selector.seq), messageId: String(selector.messageId) });
@@ -37569,7 +37575,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			&& !(row.role === 'user' && row.message && row.message.placeholder === true)
 		if (!usable) return null
 		const target = { role: row.role, messageIndex: messageIndex, revision: Number(revision),
-			...(row.messageUid ? { messageUid: row.messageUid } : {}) }
+			...(row.messageUid ? { messageUid: row.messageUid } : {}),
+			...(row.message && typeof row.message.text === 'string' ? { text: row.message.text } : {}) }
 		function report(label, error) {
 			if (typeof tavernErrorHub !== 'undefined' && tavernErrorHub && typeof tavernErrorHub.report === 'function') tavernErrorHub.report(label, error)
 		}
@@ -37614,7 +37621,9 @@ function createTavernStoryTranscriptFeature(deps) {
 			} catch (error) { report('复制消息', error) }
 		}
 		const selector = typeof messageDeletionFeature !== 'undefined' && messageDeletionFeature && typeof messageDeletionFeature.storySelector === 'function'
-			? messageDeletionFeature.storySelector(row.role, messageIndex, Number(revision), row.messageUid) : null
+			? messageDeletionFeature.storySelector(row.role, messageIndex, Number(revision), row.messageUid,
+				row.message && typeof row.message.text === 'string' ? row.message.text : undefined,
+				row.message && Number.isSafeInteger(row.message.swipeId) ? row.message.swipeId : undefined) : null
 		const editLabel = row.role === 'user' ? '编辑这条输入' : '编辑正文'
 		const copyButton = h(DshUi.Tooltip, { label: copied ? '已复制' : '复制', side: 'bottom' },
 			h('button', { type: 'button', className: 'dsh-tavern-story-row-action dsh-tavern-story-row-copy',

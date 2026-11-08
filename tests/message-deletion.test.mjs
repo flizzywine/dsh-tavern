@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { Session } from './fixtures/dsh-session-host.mjs'
 import { appendSessionEvent, sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { replaceSessionSurface } from '../tavern-plugin/lib/domain/session-surface-mutations.js'
-import { createMessageDeletion, synchronizeMessageDeletion } from '../tavern-plugin/lib/domain/message-deletion.js'
+import { createMessageDeletion, normalizeMessageDeletionSelectors, synchronizeMessageDeletion } from '../tavern-plugin/lib/domain/message-deletion.js'
 import { createPlayHandlers } from '../tavern-plugin/lib/rpc/play.js'
 import { uncommittedRounds } from '../tavern-plugin/lib/domain/uncommitted-rounds.js'
 import { planTranscriptRows } from '../tavern-plugin/lib/domain/transcript-row-plan.js'
@@ -515,6 +515,38 @@ test('故事直选 revision 陈旧时报剧情已变化且不提交', async () =
   await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [{ role: 'user', messageIndex: 3, revision: h.chat._storageRevision }] }), /剧情已变化，请刷新后重试/)
   assert.deepEqual(h.chat, before)
   assert.equal(h.calls.length, 0)
+})
+
+test('故事直选选择器保留渲染正文与 swipe，不带时结构逐字不变', () => {
+  const [withText] = normalizeMessageDeletionSelectors([{ role: 'assistant', messageIndex: 3, revision: 1, text: '正文3', swipe: 0 }])
+  assert.deepEqual(withText, { role: 'assistant', messageIndex: 3, revision: 1, text: '正文3', swipe: 0 })
+  const [plain] = normalizeMessageDeletionSelectors([{ role: 'assistant', messageIndex: 3, revision: 1 }])
+  assert.deepEqual(plain, { role: 'assistant', messageIndex: 3, revision: 1 })
+  assert.equal('text' in plain, false, '旧客户端选择器不多出字段')
+})
+
+test('故事直选无 UID：无关后台写入不让选中行过期', async () => {
+  const h = fixture()
+  h.chat.candidates = { messageId: 'out-4', choices: [{ type: 'action', text: '新候选' }] }
+  h.chat._storageRevision += 1
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: 1, text: '正文3' }] })
+  assert.equal(result.deletedCount, 1)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '输入3', '输入4', '正文4'])
+})
+
+test('故事直选无 UID 且同位置正文不同时整批拒绝', async () => {
+  const h = fixture(), before = structuredClone(h.chat)
+  await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: 1, text: '别人改过的正文' }] }), /剧情已变化，请刷新后重试/)
+  assert.deepEqual(h.chat, before)
+  assert.equal(h.calls.length, 0)
+})
+
+test('故事直选无 UID 且 swipe 不同时拒绝', async () => {
+  const h = fixture()
+  h.chat.messages[3].swipeId = 0
+  const before = structuredClone(h.chat)
+  await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: 1, text: '正文3', swipe: 1 }] }), /剧情已变化，请刷新后重试/)
+  assert.deepEqual(h.chat, before)
 })
 
 test('预演后 revision 变化同样整批拒绝，不落任何 Chat 或 Surface 写入', async () => {

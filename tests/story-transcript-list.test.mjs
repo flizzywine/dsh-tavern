@@ -498,14 +498,16 @@ test('故事行编辑按 Chat 索引调用 getBodyEdit 并派发已有编辑面�
 
 	await act(async () => { rows[1].querySelector('button[aria-label="编辑这条输入"]').click() })
 	await flush()
-	assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ['getBodyEdit', { role: 'user', messageIndex: 1, revision: 7, messageUid: transcript.messages[1].messageUid }, 's1'])
+	assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ['getBodyEdit', { role: 'user', messageIndex: 1, revision: 7, messageUid: transcript.messages[1].messageUid,
+		text: transcript.messages[1].message.text }, 's1'])
 	assert.equal(details[0].sessionId, 's1')
 	assert.deepEqual(details[0].texts, ['改后的正文'])
 	assert.equal(details[0].edit.parts.length, 2, '编辑面板事件原样携带 edit')
 
 	await act(async () => { rows[0].querySelector('button[aria-label="编辑正文"]').click() })
 	await flush()
-	assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), ['getBodyEdit', { role: 'assistant', messageIndex: 0, revision: 7, messageUid: transcript.messages[0].messageUid }, 's1'])
+	assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), ['getBodyEdit', { role: 'assistant', messageIndex: 0, revision: 7, messageUid: transcript.messages[0].messageUid,
+		text: transcript.messages[0].message.text }, 's1'])
 })
 
 test('点击编辑遇到后台 revision 前进时重读并自动打开当前行', async t => {
@@ -524,10 +526,12 @@ test('点击编辑遇到后台 revision 前进时重读并自动打开当前行'
 	await act(async () => { row.querySelector('button[aria-label="编辑正文"]').click() })
 	await flush()
 	const messageUid = story(MESSAGES, 7).messages[2].messageUid
+	const messageText = story(MESSAGES, 7).messages[2].message.text
+	// 重读后仍带上正文：重试只换渲染戳，行身份由正文担保。
 	assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
-		['getBodyEdit', { role: 'assistant', messageIndex: 2, revision: 7, messageUid }, 's-retry'],
+		['getBodyEdit', { role: 'assistant', messageIndex: 2, revision: 7, messageUid, text: messageText }, 's-retry'],
 		['getStoryTranscript', { sessionId: 's-retry' }, 's-retry'],
-		['getBodyEdit', { role: 'assistant', messageIndex: 2, revision: 8, messageUid }, 's-retry']
+		['getBodyEdit', { role: 'assistant', messageIndex: 2, revision: 8, messageUid, text: messageText }, 's-retry']
 	])
 	assert.equal(details.length, 1)
 	assert.equal(details[0].edit.revision, 8)
@@ -655,9 +659,10 @@ test('故事行 Checkbox 走 storySelector，deleteMessages 收到精确索引�
 	assert.equal(boxes(rows[2]).length, 1, 'assistant 行有删除复选框')
 	await act(async () => { boxes(rows[1])[0].click() })
 	await act(async () => { boxes(rows[2])[0].click() })
+	// 选择器带上渲染正文与 swipe：后台写入推进 revision 时服务端仍能认出这一行。
 	const expected = [
-		{ role: 'user', messageIndex: 1, revision: 7, messageUid: transcript.messages[1].messageUid },
-		{ role: 'assistant', messageIndex: 2, revision: 7, messageUid: transcript.messages[2].messageUid }
+		{ role: 'user', messageIndex: 1, revision: 7, messageUid: transcript.messages[1].messageUid, text: transcript.messages[1].message.text },
+		{ role: 'assistant', messageIndex: 2, revision: 7, messageUid: transcript.messages[2].messageUid, text: transcript.messages[2].message.text }
 	]
 	assert.ok(expected.every(item => typeof item.messageUid === 'string' && item.messageUid))
 	assert.deepEqual(JSON.parse(JSON.stringify(deletion.store.getSnapshot('s4').items)), expected)

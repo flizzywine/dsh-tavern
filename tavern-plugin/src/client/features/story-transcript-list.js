@@ -94,7 +94,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			&& !(row.role === 'user' && row.message && row.message.placeholder === true)
 		if (!usable) return null
 		const target = { role: row.role, messageIndex: messageIndex, revision: Number(revision),
-			...(row.messageUid ? { messageUid: row.messageUid } : {}) }
+			...(row.messageUid ? { messageUid: row.messageUid } : {}),
+			...(row.message && typeof row.message.text === 'string' ? { text: row.message.text } : {}) }
 		function report(label, error) {
 			if (typeof tavernErrorHub !== 'undefined' && tavernErrorHub && typeof tavernErrorHub.report === 'function') tavernErrorHub.report(label, error)
 		}
@@ -139,7 +140,9 @@ function createTavernStoryTranscriptFeature(deps) {
 			} catch (error) { report('复制消息', error) }
 		}
 		const selector = typeof messageDeletionFeature !== 'undefined' && messageDeletionFeature && typeof messageDeletionFeature.storySelector === 'function'
-			? messageDeletionFeature.storySelector(row.role, messageIndex, Number(revision), row.messageUid) : null
+			? messageDeletionFeature.storySelector(row.role, messageIndex, Number(revision), row.messageUid,
+				row.message && typeof row.message.text === 'string' ? row.message.text : undefined,
+				row.message && Number.isSafeInteger(row.message.swipeId) ? row.message.swipeId : undefined) : null
 		const editLabel = row.role === 'user' ? '编辑这条输入' : '编辑正文'
 		const copyButton = h(DshUi.Tooltip, { label: copied ? '已复制' : '复制', side: 'bottom' },
 			h('button', { type: 'button', className: 'dsh-tavern-story-row-action dsh-tavern-story-row-copy',
