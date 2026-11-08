@@ -268,7 +268,7 @@ export function createPluginBodyRegeneration(deps) {
           event: { kind: 'commit', userText: text(originalUser?.text), nativeTurn: failedMode ? oldTurn : bodyTurn } })
         draft.scriptState = progressed.state
       }
-      const begun = timeline.apply({ chat: draft, intent: { kind: 'body.begin', turn: bodyTurn, userText: text(originalUser?.text) } })
+      const begun = timeline.apply({ chat: draft, detach: false, intent: { kind: 'body.begin', turn: bodyTurn, userText: text(originalUser?.text) } })
       draft = begun.chat
       const bodyOperation = draft.timeline.operations[begun.value.operationId]
       // The new checkpoint must still return to the ORIGINAL pre-turn revision,
@@ -281,7 +281,7 @@ export function createPluginBodyRegeneration(deps) {
           operationId: bodyOperation.id, branchId: draft.timeline.branchId, basedOnRevision: bodyOperation.basedOn.revision,
           ...(failedMode ? { turn: bodyTurn } : {}) } }
       }
-      const completed = timeline.complete({ chat: draft, operationId: bodyOperation.id, basedOn: bodyOperation.basedOn,
+      const completed = timeline.complete({ chat: draft, detach: false, operationId: bodyOperation.id, basedOn: bodyOperation.basedOn,
         outcome: { status: 'success' }, apply(current) {
           if (failedMode) current.messages = clone(original.messages).concat([originalUser, row])
           else {
