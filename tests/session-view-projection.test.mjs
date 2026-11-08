@@ -83,6 +83,31 @@ test('story projection never reads native evidence, surface, events or running a
   assert.equal(view.replacingDshTurns, undefined)
 })
 
+test('故事投影去除正文副本但保留混合 HTML 帧', async () => {
+  const f = projectionFixture()
+  const transcript = { source: 'story', revision: 4, from: 0, to: 1, messageCount: 2, floorCount: 2, floorOffset: 0, messages: [] }
+  const window = {
+    chat: { ...f.chat, messages: [
+      { role: 'assistant', turn: 1, text: '正文', displayText: '正文', displayMode: 'markdown' },
+      { role: 'assistant', turn: 2, text: '<div>人物卡界面</div>', displayText: '<div>人物卡界面</div>', displayMode: 'html' }
+    ] },
+    revision: 4, from: 0, to: 1, messageCount: 2, storyTranscript: transcript
+  }
+  const story = await f.projection.project.story(window)
+  const plain = story.replyProjections.find(row => row.turn === 1)
+  const rich = story.replyProjections.find(row => row.turn === 2)
+  assert.equal(plain.text, '正文')
+  assert.equal(plain.body, undefined)
+  assert.equal(plain.parts, undefined, '纯 Markdown parts 可由 text 无损重建')
+  assert.equal(rich.body, undefined)
+  assert.equal(rich.text, undefined, '混合 parts 已完整携带正文时不再重复 text')
+  assert.ok(rich.parts.some(part => part.kind === 'html'), '人物卡 HTML 帧不得随去重删除')
+  assert.equal(rich.parts.map(part => part.kind === 'html' ? part.content : part.text).join(''), '<div>人物卡界面</div>')
+
+  const opening = await f.projection.project.opening(window)
+  assert.ok(opening.replyProjections[0].body, '普通会话编辑器仍需要结构化 body')
+})
+
 test('无 Helper 的普通卡也能增量更新正文而不伪造消息上下文', async () => {
   const f = projectionFixture()
   const chat = { ...f.chat, mvu: { enabled: false } }

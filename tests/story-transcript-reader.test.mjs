@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createStoryTranscriptReader } from '../tavern-plugin/lib/domain/story-transcript-reader.js'
+import { legacyMessageUid } from '../tavern-plugin/lib/domain/message-uid.js'
 
 const header = { id: 'chat', sessionId: 'session', mode: 'story', backgroundConfigVersion: 1 }
 const summary = message => ({ role: message.role, turn: message.turn, greeting: message.greeting })
@@ -61,6 +62,24 @@ test('分页故事首屏只取窗口正文，楼层与全历史顺序一致', as
   ])
   assert.equal(state.fullReads, 0)
   assert.equal(state.summariesCalled, 1)
+})
+
+test('故事传输裁掉插件副本但保留稳定身份与删除选择器', async () => {
+  const original = {
+    role: 'assistant', turn: 2, text: '正文', sourceText: '原始正文', nativeAnchor: 'native-2',
+    displayText: '显示正文', displayMode: 'markdown', projectionVersion: 2, swipeId: 3,
+    tavernPluginData: { large: 'x'.repeat(1000) }, variables: { stat: 1 },
+    projectionText: '投影原文', swipes: ['候选'], displayRuntime: { frames: [{ html: 'large' }] }
+  }
+  const { reader } = fixture([original])
+  const result = await reader('session')
+  const row = result.storyTranscript.messages[0]
+  assert.equal(row.messageUid, legacyMessageUid(original, 0), '裁剪必须发生在旧行 UID 计算之后')
+  assert.equal(row.message.displayText, '显示正文')
+  assert.equal(row.message.swipeId, 3)
+  for (const field of ['sourceText', 'nativeAnchor', 'tavernPluginData', 'variables', 'projectionText', 'swipes', 'displayRuntime']) {
+    assert.equal(Object.hasOwn(row.message, field), false, field + ' 不应进入故事传输')
+  }
 })
 
 test('旧存储读取一次完整 Chat，缺 turn 与重复 turn 无需迁移', async () => {

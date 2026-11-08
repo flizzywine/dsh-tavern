@@ -795,9 +795,10 @@ window.__ModuleLoader__.load({
 		}
 
 
-		function useLiveTavernView(sessionId, revision, paths) {
+		function useLiveTavernView(sessionId, revision, paths, subscribeOptions) {
             const dependencyKey = JSON.stringify(paths);
-			const subscribe = React.useCallback(function (notify) { return liveTavernView.subscribe(sessionId, notify, paths); }, [sessionId, dependencyKey]);
+            const deferLoad = subscribeOptions && subscribeOptions.deferLoad === true;
+			const subscribe = React.useCallback(function (notify) { return liveTavernView.subscribe(sessionId, notify, paths, { deferLoad: deferLoad }); }, [sessionId, dependencyKey, deferLoad]);
 			const snapshot = React.useCallback(function () { return liveTavernView.getSnapshot(sessionId); }, [sessionId]);
 			const state = React.useSyncExternalStore(subscribe, snapshot, snapshot);
 			const previous = React.useRef({ sessionId: sessionId, revision: revision });

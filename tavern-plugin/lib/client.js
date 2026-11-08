@@ -1886,15 +1886,6 @@ window.__ModuleLoader__.load({
 		    const close = () => live.current.onClose && live.current.onClose();
 		    useOverlay(true, () => [root.current], close);
 		    const apply = (next, smooth) => { const value = { s: next.s, x: next.x, y: next.y, src: live.current.src }; latest.current = value; setGlide(!!smooth); setPlaced(value); };
-		    // 顶层显示：挂到 body 并不够。正文楼层带 content-visibility（= contain: layout），卡片 iframe 和手机的舞台外壳
-		    // 也自带包含块，这些祖先都会把 fixed 收进自己那一列，屏幕右侧于是露出没被大图盖住的酒馆本体。popover 把查看器
-		    // 放进 top layer，任何祖先的包含块和裁切都不再影响它；浏览器不支持时属性被忽略，退回原来的 fixed 铺满。
-		    React.useEffect(function () {
-		        const node = root.current;
-		        if (!node || typeof node.showPopover !== "function") return undefined;
-		        try { if (!node.matches(":popover-open")) node.showPopover(); } catch (_) {}
-		        return () => { try { if (node.matches(":popover-open")) node.hidePopover(); } catch (_) {} };
-		    }, []);
 		    React.useEffect(function () {
 		        const previous = typeof document === "undefined" ? null : document.activeElement;
 		        if (root.current && root.current.focus) root.current.focus({ preventScroll: true });
@@ -2026,7 +2017,7 @@ window.__ModuleLoader__.load({
 		    const button = (a, i) => h("button", { key: a.key || a.label || i, type: "button", className: "fork-viewer-button", "aria-label": a.label, title: a.label,
 		        "aria-pressed": a.pressed === undefined ? undefined : !!a.pressed, disabled: !!(a.disabled || a.busy), "aria-busy": a.busy || undefined, onClick: a.onClick },
 		        a.busy ? h(Spinner, { delay: 0 }) : a.icon);
-		    const body = h("div", { ref: root, className: "fork-viewer", role: "dialog", "aria-modal": true, "aria-label": p.alt || "查看大图", tabIndex: -1, popover: "manual",
+		    const body = h("div", { ref: root, className: "fork-viewer", role: "dialog", "aria-modal": true, "aria-label": p.alt || "查看大图", tabIndex: -1,
 		        onKeyDown: event => { onKeyDown(event); event.stopPropagation(); }, onPointerDown: keep, onPointerUp: keep, onMouseDown: keep, onMouseUp: keep, onClick: keep,
 		        onDoubleClick: keep, onContextMenu: keep, onTouchStart: keep, onTouchEnd: keep, onDragStart: event => { event.preventDefault(); event.stopPropagation(); } },
 		        h("div", { ref: stage, className: "fork-viewer-stage" + (dragging ? " is-dragging" : "") },
@@ -15091,6 +15082,7 @@ window.__ModuleLoader__.load({
 							record.seededView = undefined;
 							return result;
 						}
+						if (record.pendingSeed) return record.pendingSeed.promise;
 						return options.load(record.id, { signal: scope.signal });
 					},
 					onResult: async function (result, scope) {
@@ -15187,13 +15179,45 @@ window.__ModuleLoader__.load({
 				},
 				evict: evict,
 				getSnapshot: function (sessionId) { return recordFor(sessionId).state; },
+				expectSeed: function (sessionId) {
+					const record = recordFor(sessionId);
+					if (record.pendingSeed) return;
+					let resolve;
+					const promise = new Promise(function (done) { resolve = done; });
+					record.pendingSeed = { promise: promise, resolve: resolve };
+					record.seededView = undefined;
+					record.refresh.replace();
+					if (record.listeners.size) record.refresh.request();
+				},
+				cancelSeed: function (sessionId) {
+					const record = recordFor(sessionId), pending = record.pendingSeed;
+					if (!pending) return;
+					record.pendingSeed = null;
+					record.refresh.replace();
+					pending.resolve(null);
+					if (record.listeners.size > record.passiveListeners) record.refresh.request();
+				},
 				seed: function (sessionId, view) {
 					const record = recordFor(sessionId);
-					record.seededView = { view: view };
+					const revisionOf = function (value) { return Number((value && value.historyWindow && value.historyWindow.revision) ?? (value && value.tavernHelper && value.tavernHelper.stateRevision)); };
+					const nextRevision = revisionOf(view), currentRevision = revisionOf(record.state.view);
+					if (record.state.view && Number.isSafeInteger(nextRevision) && Number.isSafeInteger(currentRevision) && nextRevision < currentRevision) {
+						if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve({ view: record.state.view }); }
+						return;
+					}
+					const result = { view: view };
+					if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve(result); }
+					// A story/startChat response is already a complete first-paint view for
+					// its consumer. Publish it now; the subscriber's scheduled first refresh
+					// consumes seededView and therefore performs no duplicate getSession.
+					record.refresh.replace();
+					record.seededView = result;
+					publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() }, result);
 					if (record.listeners.size) record.refresh.request();
 				},
 				setView: function (sessionId, view) {
 					const record = recordFor(sessionId);
+					if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve({ view: view }); }
 					record.seededView = undefined;
 					record.refresh.replace();
 					const owner = {};
@@ -15698,9 +15722,10 @@ window.__ModuleLoader__.load({
 		}
 
 
-		function useLiveTavernView(sessionId, revision, paths) {
+		function useLiveTavernView(sessionId, revision, paths, subscribeOptions) {
             const dependencyKey = JSON.stringify(paths);
-			const subscribe = React.useCallback(function (notify) { return liveTavernView.subscribe(sessionId, notify, paths); }, [sessionId, dependencyKey]);
+            const deferLoad = subscribeOptions && subscribeOptions.deferLoad === true;
+			const subscribe = React.useCallback(function (notify) { return liveTavernView.subscribe(sessionId, notify, paths, { deferLoad: deferLoad }); }, [sessionId, dependencyKey, deferLoad]);
 			const snapshot = React.useCallback(function () { return liveTavernView.getSnapshot(sessionId); }, [sessionId]);
 			const state = React.useSyncExternalStore(subscribe, snapshot, snapshot);
 			const previous = React.useRef({ sessionId: sessionId, revision: revision });
@@ -37336,6 +37361,9 @@ function createTavernStoryTranscriptDataModule(deps) {
 		// force/read-after-mutation still bypasses it and replaces the cached revision.
 		const cacheSize = Number.isSafeInteger(settings.cacheSize) ? Math.max(0, settings.cacheSize) : 4
 		const cache = new Map()
+		const expectedLiveViews = new Set()
+		const liveViews = settings.liveTavernView || options.liveTavernView
+			|| (typeof liveTavernView !== 'undefined' && liveTavernView ? liveTavernView : null)
 		let ticket = 0
 		let state = IDLE
 
@@ -37354,8 +37382,27 @@ function createTavernStoryTranscriptDataModule(deps) {
 			while (cache.size > cacheSize) cache.delete(cache.keys().next().value)
 		}
 
+		function expectLiveView(sessionId) {
+			if (!liveViews || typeof liveViews.expectSeed !== 'function') return
+			expectedLiveViews.add(sessionId)
+			liveViews.expectSeed(sessionId)
+		}
+		function cancelLiveView(sessionId) {
+			if (!expectedLiveViews.delete(sessionId)) return
+			if (liveViews && typeof liveViews.cancelSeed === 'function') liveViews.cancelSeed(sessionId)
+		}
+
 		function publish(next) {
 			state = next
+			// The story response already carries the bounded Helper/projection view.
+			// Seed liveView so its first subscriber does not download the same window
+			// again through getSession; later invalidations still refresh normally.
+			if (next && (next.status === 'ready' || next.status === 'empty')) {
+				if (next.view && liveViews && typeof liveViews.seed === 'function') {
+					expectedLiveViews.delete(next.sessionId)
+					liveViews.seed(next.sessionId, next.view)
+				} else cancelLiveView(next.sessionId)
+			}
 			listeners.forEach(function (listener) {
 				try { listener(state) } catch (_) { /* 订阅方自己处理 */ }
 			})
@@ -37390,6 +37437,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 				return state
 			}
 			const current = ++ticket
+			expectLiveView(id)
 			publish({
 				sessionId: id,
 				historyFrom: historyFrom,
@@ -37416,6 +37464,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 				publish(next)
 			} catch (error) {
 				if (current !== ticket) return state
+				cancelLiveView(id)
 				const preserve = state.sessionId === id && state.transcript
 				publish({ sessionId: id, historyFrom: historyFrom, status: 'error', transcript: preserve ? state.transcript : null,
 					view: preserve ? state.view : null, revision: preserve ? state.revision : null, error: error, ticket: current })
@@ -37425,6 +37474,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 
 		function reset() {
 			ticket += 1
+			for (const sessionId of Array.from(expectedLiveViews)) cancelLiveView(sessionId)
 			cache.clear()
 			publish(IDLE)
 		}
@@ -37739,6 +37789,13 @@ function createTavernStoryTranscriptFeature(deps) {
 
 	function StoryTranscriptRow(props) {
 		const row = props.row
+		const [renderRound, setRenderRound] = React.useState(false)
+		const floorNo = Number(row.floorNo) || 0
+		const floorCount = Number(props.transcript && props.transcript.floorCount) || 0
+		// Match the native assistant renderer: only the latest three floors mount
+		// heavy card HTML automatically. Older prose stays visible immediately.
+		const deferHtml = !renderRound && row.role === 'assistant' && floorNo > 0 && floorCount - floorNo >= 3
+			? function () { setRenderRound(true) } : null
 		const markdown = props.markdown || renderText
 		const attributes = rowAttributes(row, props.transcript)
 		const projectionTurn = row.role === 'assistant'
@@ -37781,7 +37838,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			trustedCardMode: Boolean(props.helperView && props.helperView.tavernRuntimePolicy && props.helperView.tavernRuntimePolicy.trustedCardMode),
 			frameOwner: props.frameOwner,
 			executeSlash: props.executeSlash,
-			eagerFrame: row.streaming === true || (typeof tavernLatestProjectionTurn === 'function' && projectionTurn === tavernLatestProjectionTurn(props.view))
+			eagerFrame: row.streaming === true || (typeof tavernLatestProjectionTurn === 'function' && projectionTurn === tavernLatestProjectionTurn(props.view)),
+			deferHtml: deferHtml
 		}) : null
 		// 与原生渲染一致：正文渲染会登记已落位的 anchor；其余媒体只追加一次。
 		const trailingMedia = pluginMedia.items.filter(function (item) { return !(pluginText && pluginText.placed.has(item.id)) })
@@ -37967,7 +38025,10 @@ function createTavernStoryTranscriptFeature(deps) {
 		React.useEffect(function () {
 			if (nativeStreamTurn !== null && storyActive) void store.read(sessionId, { historyFrom: controller.historyFrom, force: true })
 		}, [store, sessionId, controller.historyFrom, nativeStreamTurn, storyActive])
-		const liveState = typeof useLiveTavernView === 'function' ? useLiveTavernView(sessionId, 'story-transcript-revision') : null
+		// The story response seeds this exact bounded view. Until it arrives this
+		// outer revision reader is passive; otherwise its first subscription starts
+		// a duplicate full getSession before the story response can be published.
+		const liveState = typeof useLiveTavernView === 'function' ? useLiveTavernView(sessionId, 'story-transcript-revision', undefined, { deferLoad: !view }) : null
 		const liveStoryRevision = Number(liveState && liveState.view && liveState.view.tavernHelper ? liveState.view.tavernHelper.stateRevision
 			: view && view.tavernHelper && view.tavernHelper.stateRevision)
 		const renderedStoryRevision = Number(transcript && transcript.revision)

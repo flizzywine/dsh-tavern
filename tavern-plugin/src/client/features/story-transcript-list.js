@@ -163,6 +163,13 @@ function createTavernStoryTranscriptFeature(deps) {
 
 	function StoryTranscriptRow(props) {
 		const row = props.row
+		const [renderRound, setRenderRound] = React.useState(false)
+		const floorNo = Number(row.floorNo) || 0
+		const floorCount = Number(props.transcript && props.transcript.floorCount) || 0
+		// Match the native assistant renderer: only the latest three floors mount
+		// heavy card HTML automatically. Older prose stays visible immediately.
+		const deferHtml = !renderRound && row.role === 'assistant' && floorNo > 0 && floorCount - floorNo >= 3
+			? function () { setRenderRound(true) } : null
 		const markdown = props.markdown || renderText
 		const attributes = rowAttributes(row, props.transcript)
 		const projectionTurn = row.role === 'assistant'
@@ -205,7 +212,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			trustedCardMode: Boolean(props.helperView && props.helperView.tavernRuntimePolicy && props.helperView.tavernRuntimePolicy.trustedCardMode),
 			frameOwner: props.frameOwner,
 			executeSlash: props.executeSlash,
-			eagerFrame: row.streaming === true || (typeof tavernLatestProjectionTurn === 'function' && projectionTurn === tavernLatestProjectionTurn(props.view))
+			eagerFrame: row.streaming === true || (typeof tavernLatestProjectionTurn === 'function' && projectionTurn === tavernLatestProjectionTurn(props.view)),
+			deferHtml: deferHtml
 		}) : null
 		// 与原生渲染一致：正文渲染会登记已落位的 anchor；其余媒体只追加一次。
 		const trailingMedia = pluginMedia.items.filter(function (item) { return !(pluginText && pluginText.placed.has(item.id)) })
@@ -391,7 +399,10 @@ function createTavernStoryTranscriptFeature(deps) {
 		React.useEffect(function () {
 			if (nativeStreamTurn !== null && storyActive) void store.read(sessionId, { historyFrom: controller.historyFrom, force: true })
 		}, [store, sessionId, controller.historyFrom, nativeStreamTurn, storyActive])
-		const liveState = typeof useLiveTavernView === 'function' ? useLiveTavernView(sessionId, 'story-transcript-revision') : null
+		// The story response seeds this exact bounded view. Until it arrives this
+		// outer revision reader is passive; otherwise its first subscription starts
+		// a duplicate full getSession before the story response can be published.
+		const liveState = typeof useLiveTavernView === 'function' ? useLiveTavernView(sessionId, 'story-transcript-revision', undefined, { deferLoad: !view }) : null
 		const liveStoryRevision = Number(liveState && liveState.view && liveState.view.tavernHelper ? liveState.view.tavernHelper.stateRevision
 			: view && view.tavernHelper && view.tavernHelper.stateRevision)
 		const renderedStoryRevision = Number(transcript && transcript.revision)

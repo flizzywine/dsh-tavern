@@ -362,6 +362,22 @@ test('正式故事行复用最新视图 parts、Helper 上下文与变量结算 
 	assert.equal(dom.window.document.querySelector('.story-mvu-receipt').textContent, '变量已更新 · 2')
 })
 
+test('故事仅自动渲染最近三轮 HTML，旧轮次可按需展开', async t => {
+	const page = createPage(t)
+	const { dom, context } = page
+	const messages = [1, 2, 3, 4].map(turn => ({ role: 'assistant', turn, text: '正文' + turn, displayText: '正文' + turn, displayMode: 'html' }))
+	const view = { mode: 'story', replyProjections: messages.map(message => ({ version: 2, turn: message.turn, text: message.text, mode: 'html', parts: [{ kind: 'html', content: '<div>' + message.text + '</div>' }] })) }
+	const feature = context.createTavernStoryTranscriptFeature({ renderProjection: (projection, options) => options.deferHtml
+		? React.createElement('button', { className: 'render-old', onClick: options.deferHtml }, '渲染此轮')
+		: React.createElement('div', { className: 'auto-rich', 'data-turn': projection.turn }) })
+	await mount(page, React.createElement(feature.StoryTranscriptList, { transcript: story(messages, 1), view, sessionId: 's1' }))
+	const turns = () => [...dom.window.document.querySelectorAll('.auto-rich')].map(row => row.getAttribute('data-turn'))
+	assert.deepEqual(turns(), ['2', '3', '4'])
+	assert.equal(dom.window.document.querySelectorAll('.render-old').length, 1)
+	await act(async () => { dom.window.document.querySelector('.render-old').click() })
+	assert.deepEqual(turns(), ['1', '2', '3', '4'], '点击后使用已下载 parts 渲染旧轮次，无需新增读取')
+})
+
 test('故事楼层恢复插件视频：正文锚点内嵌，未锚定项追加且互不重复', async t => {
 	const anchored = { id: 'video-anchor', kind: 'video', status: 'ready', anchor: '正文', attachment: { attachmentId: 'a1', name: 'anchor.mp4' } }
 	const trailing = { id: 'video-tail', kind: 'video', status: 'ready', attachment: { attachmentId: 'a2', name: 'tail.mp4' } }
@@ -479,6 +495,29 @@ test('切回最近会话与历史窗口直接复用故事，force 与 reset 仍�
 	store.reset()
 	await store.read('s2')
 	assert.deepEqual(reads, [['s2', null], ['s2', null]], 'reset 必须清空全部会话缓存')
+})
+
+test('故事首读与缓存切回都播种 liveView 避免重复完整读取', async t => {
+	const page = createPage(t)
+	const { context } = page
+	const seeds = [], reads = [], waits = []
+	const data = context.createTavernStoryTranscriptDataModule()
+	const store = data.createStoryTranscriptStore({
+		liveTavernView: {
+			expectSeed: sessionId => waits.push(sessionId),
+			seed: (sessionId, view) => seeds.push([sessionId, view.historyWindow.revision])
+		},
+		load: async sessionId => {
+			reads.push(sessionId)
+			return { transcript: story([{ role: 'assistant', turn: 1, text: sessionId }]), view: { mode: 'story', historyWindow: { revision: 7 } }, revision: 7 }
+		}
+	})
+	await store.read('s1')
+	await store.read('s2')
+	await store.read('s1')
+	assert.deepEqual(reads, ['s1', 's2'], '切回复用故事缓存')
+	assert.deepEqual(seeds, [['s1', 7], ['s2', 7], ['s1', 7]], '每次成为当前故事时都恢复对应 liveView 快照')
+	assert.deepEqual(waits, ['s1', 's2'], '只有真实网络读取需要等待种子，缓存切回不增加等待')
 })
 
 test('故事缓存按最近使用顺序执行有界淘汰', async t => {

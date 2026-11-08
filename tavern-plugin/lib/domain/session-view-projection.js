@@ -55,7 +55,26 @@ export function createSessionViewProjection({
     return {...extensions, helperScripts:pinned.helperScripts, regexScripts:pinned.regexScripts,
       remoteAssetDiagnostics:pinned.diagnostics, remoteAssetPins:pinned.pins}
   }
-  async function replyDisplayForChat(chat, card, persisted, extensions) {
+  function compactStoryReplyProjection(projection) {
+    const result = {...projection}
+    // Story rows render text/parts; the structured editable body belongs to the
+    // assistant editor and duplicates the complete reply a third time.
+    delete result.body
+    const parts = result.parts
+    if (Array.isArray(parts) && parts.every(part => part?.kind === 'markdown')
+      && parts.map(part => String(part?.text || '')).join('') === String(result.text || '')) {
+      // projectionPartsOf already reconstructs this exact shape from text.
+      delete result.parts
+    } else if (Array.isArray(parts) && parts.length > 0
+      && parts.map(part => part?.kind === 'markdown' ? String(part?.text || '')
+        : part?.kind === 'html' ? String(part?.content ?? part?.html ?? '') : '').join('') === String(result.text || '')) {
+      // Mixed parts are already the complete ordered representation, including
+      // card HTML. The renderer consumes them directly and needs no second text.
+      delete result.text
+    }
+    return result
+  }
+  async function replyDisplayForChat(chat, card, persisted, extensions, { storyTranscript = false } = {}) {
     if (!['story','script'].includes(chat.mode || 'story')) return {projections:replyProjectionsOf(chat),presentation:null,latestSourceBacked:false}
     extensions ||= await replyExtensions(chat)
     // Authored live EJS may inspect arbitrary history; only that consumer requests the full view.
@@ -67,8 +86,10 @@ export function createSessionViewProjection({
       regexScripts:composeTavernRegexScripts(extensions,presetRegexScripts,chat.regexOverrides&&chat.regexOverrides.preset), placement:2, isMarkdown:true, isEdit:false, depth:0
     }, {charName:chat.cardName,macroState:chat.macroState,regexScripts:extensions.regexScripts}, {shared:true}))
     display = await liveCardUpdate.project(chat,card,display,{charName:chat.cardName,macroState:chat.macroState,regexScripts:extensions.regexScripts})
-    display.projections = withLegacyPresentationProjection(chat,display.projections).map(projection =>
-      projection.body ? projection : {...projection, body:replyBody(projection,chat)})
+    display.projections = withLegacyPresentationProjection(chat,display.projections).map(projection => {
+      if (storyTranscript) return compactStoryReplyProjection(projection)
+      return projection.body ? projection : {...projection, body:replyBody(projection,chat)}
+    })
     return display
   }
   async function view(chat, card, persistedProjection = false, options = {}) {
@@ -90,16 +111,16 @@ export function createSessionViewProjection({
     const activePresetSnapshot = groupOfMode(chat.mode) === 'play' && chat.runtimePresetSnapshot && typeof chat.runtimePresetSnapshot === 'object'
       ? chat.runtimePresetSnapshot
       : null
+    const storyTranscriptRead = options.storyTranscript === true
     let replyDisplay = { projections: replyProjectionsOf(chat), presentation: null, latestSourceBacked: false }
     let extensionSettings = {}
     let cardExtensions = { regexScripts: [], helperScripts: [] }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
       extensionSettings = await tavernExtensionSettings.read()
       cardExtensions = await replyExtensions(chat, extensionSettings)
-      replyDisplay = await replyDisplayForChat(chat,card,persistedProjection,cardExtensions)
+      replyDisplay = await replyDisplayForChat(chat,card,persistedProjection,cardExtensions,{storyTranscript:storyTranscriptRead})
     }
     const activity = activityOf(chat)
-    const storyTranscriptRead = options.storyTranscript === true
     const { debugTurns, latestAssistantTurn: latestStoryTurn, latestAssistantMessageId, displayRoundOrder } = latestTurnFields(chat, !storyTranscriptRead)
     const forkTurnsByMessageId = storyTranscriptRead ? {} : forkTurnsForChat(chat)
     const {inputSources,inputTemplateDisplays}=inputFieldsProjection.project(persistedProjection ? chat : {...chat,_storageRevision:undefined}, options.inputChanges)

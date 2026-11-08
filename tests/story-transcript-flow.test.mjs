@@ -66,6 +66,26 @@ test('故事行直接位于槽锚点下，提供滚动锚点且不带旧隐藏�
 	assert.ok(children.every(row => !row.hasAttribute('data-chat-flow-kind')))
 })
 
+test('故事视图就绪前外壳订阅不抢发完整会话读取', async t => {
+	const p = page(t), { context } = p, subscriptions = []
+	context.useLiveTavernView = (...args) => { subscriptions.push(args); return { view: null } }
+	let release
+	const data = context.createTavernStoryTranscriptDataModule({ rpc: () => new Promise(resolve => { release = resolve }) })
+	const store = data.createStoryTranscriptStore(), mode = data.createModeStore()
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode })
+	await mount(p, React.createElement(feature.StoryTranscriptFlow, {
+		sessionId: 's1', store, nativeFlow: () => null,
+		useChat: selector => selector({ legacy: {} }), useSession: selector => selector({ running: false })
+	}))
+	const revisionCalls = () => subscriptions.filter(args => args[1] === 'story-transcript-revision')
+	assert.equal(revisionCalls().at(-1)[3].deferLoad, true)
+	await act(async () => {
+		release({ storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1 })
+		await Promise.resolve()
+	})
+	assert.equal(revisionCalls().at(-1)[3].deferLoad, false, '故事快照播种后恢复正常失效刷新')
+})
+
 test('加载更早期间保留旧窗口，扩展成功后一次性替换', async t => {
 	const { context } = page(t)
 	const all = [{ role: 'user', text: '更早' }, ...messages]
