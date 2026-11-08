@@ -38026,6 +38026,27 @@ function createTavernStoryTranscriptFeature(deps) {
 		React.useEffect(function () {
 			if (nativeStreamTurn !== null && storyActive) void store.read(sessionId, { historyFrom: controller.historyFrom, force: true })
 		}, [store, sessionId, controller.historyFrom, nativeStreamTurn, storyActive])
+		// 流式正文消失且宿主已经报空闲，说明这一轮写完了：正式楼层若还没读回来，屏幕上
+		// 只剩玩家那一行，要刷新才出现。重新生成、后台收尾都不一定把 running 从 true 翻
+		// 回 false，turn/end 的那次重读也就不会来，这里按流本身补一次。
+		const streamedStoryTurn = nativeStreamTurn !== null && typeof tavernStoryTurnForDshTurn === 'function'
+			? tavernStoryTurnForDshTurn(view, nativeStreamTurn) : nativeStreamTurn
+		const streamedTurnBefore = React.useRef(null)
+		React.useEffect(function () {
+			if (nativeStreamTurn !== null) { streamedTurnBefore.current = streamedStoryTurn; return }
+			const settling = streamedTurnBefore.current
+			streamedTurnBefore.current = null
+			if (settling === null || settling === undefined || !storyActive || running) return
+			if (state.status === 'loading' || state.status === 'refreshing') return
+			// 这一楼已经落在存档里就不用再读，收尾由 turn/end 与 revision 负责。
+			const settled = transcript && Array.isArray(transcript.messages) && transcript.messages.some(function (entry) {
+				const message = entry && entry.message
+				if (!message || message.role !== 'assistant' || message.placeholder === true) return false
+				return Number(message.turn) === Number(settling) || entry.messageUid === (view && view.streamingMessageUid)
+			})
+			if (settled) return
+			void store.read(sessionId, { historyFrom: controller.historyFrom, force: true })
+		}, [store, sessionId, controller.historyFrom, storyActive, state.status, transcript, streamedStoryTurn, running, view])
 		// The story response seeds this exact bounded view. Until it arrives this
 		// outer revision reader is passive; otherwise its first subscription starts
 		// a duplicate full getSession before the story response can be published.
@@ -52529,7 +52550,7 @@ function createStoryFloorRail(root, options) {
 				stop(id);
 				refresh(id);
 				if (active !== true) return;
-				const ticket = { timer: null };
+				const ticket = { timer: null, tries: 0 };
 				pending.set(id, ticket);
 				function confirmMarker() {
 					if (pending.get(id) !== ticket) return;
@@ -52537,6 +52558,11 @@ function createStoryFloorRail(root, options) {
 					if (pending.get(id) !== ticket) return;
 					const snapshot = liveView.getSnapshot(id);
 					if (snapshot && snapshot.view && snapshot.view.regenInProgress === true) {
+						pending.delete(id);
+						return;
+					}
+					// 停止或失败时标记可能永远不出现：确认不到就收手，别把读取一直钉在这里。
+					if (++ticket.tries >= 60) {
 						pending.delete(id);
 						return;
 					}
@@ -53687,12 +53713,18 @@ function createStoryFloorRail(root, options) {
         async function galSubmitRegeneration(sessionId, turn, target, guidance, messageId) {
             const text = String(guidance || "").trim();
             let started = null;
-            if (target === "body") await submitBodyRegeneration(sessionId, { tail: null }, text);
-            else if (target === "mvu") await rpc("retryMvuSettlement", { turn, guidance: text }, sessionId);
-            else if (target === "director") await rpc("retryStageDirection", { turn, guidance: text }, sessionId);
-            else if (target === "choices") started = await submitCandidateTask(sessionId, messageId, text);
-            liveTavernView.invalidate(sessionId);
-            tavernCoordination.invalidate(sessionId);
+            // 提交后服务端才写 regenInProgress；视图没读到之前正文被标记遮住，靠它自己重读。
+            notifyRegenerating(sessionId, true);
+            try {
+                if (target === "body") await submitBodyRegeneration(sessionId, { tail: null }, text);
+                else if (target === "mvu") await rpc("retryMvuSettlement", { turn, guidance: text }, sessionId);
+                else if (target === "director") await rpc("retryStageDirection", { turn, guidance: text }, sessionId);
+                else if (target === "choices") started = await submitCandidateTask(sessionId, messageId, text);
+            } finally {
+                // 正文落盘、被停止、报错都是这一轮的收尾：视图、协调状态和故事列表一起重读。
+                // 少读故事这一份时，新正文只写进存档，页面上仍是原来那几行，要刷新才回来。
+                notifyRegenerating(sessionId, false);
+            }
             return started;
         }
         // the dialog's 停止 goes through the stop each kind of work already
@@ -53714,7 +53746,7 @@ function createStoryFloorRail(root, options) {
                     if (activity && activity.operationId) await rpc("stopBackground", { operationId: activity.operationId }, sessionId);
                 }
             } catch (error) { tavernErrorHub.report("停止重新生成", error); }
-            finally { liveTavernView.invalidate(sessionId); tavernCoordination.invalidate(sessionId); }
+            finally { notifyRegenerating(sessionId, false); }
         }
 
         function GalRegenerate(props) {
@@ -53863,12 +53895,15 @@ function createStoryFloorRail(root, options) {
 		            mutedButton = button;
 		            repaint(button, true);
 		            // 每次完成长按都进入同一个提交流程；忙碌、目标与历史校验由 regenBody 决定并上报原因。
-		            try { await interactions.submitBodyRegeneration(sessionId, { tail: null }, ""); }
+		            try {
+		                notifyRegenerating(sessionId, true);
+		                await interactions.submitBodyRegeneration(sessionId, { tail: null }, "");
+		            }
 		            catch (error) { /* interactions 已经上报这次失败（错误中心里有完整原因） */ }
 		            finally {
 		                window.setTimeout(function () { button.classList.remove(TAVERN_SEND_HOLD_FIRED_CLASS); }, 900);
-		                liveTavernView.invalidate(sessionId);
-		                tavernCoordination.invalidate(sessionId);
+		                // 正文换了、视图与故事列表一起收尾，玩家不必刷新页面看新的一楼。
+		                notifyRegenerating(sessionId, false);
 		                notifyTavernDataChanged(["sessions"], "play-controls");
 		            }
 		        }

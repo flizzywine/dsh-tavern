@@ -24,7 +24,7 @@
 				stop(id);
 				refresh(id);
 				if (active !== true) return;
-				const ticket = { timer: null };
+				const ticket = { timer: null, tries: 0 };
 				pending.set(id, ticket);
 				function confirmMarker() {
 					if (pending.get(id) !== ticket) return;
@@ -32,6 +32,11 @@
 					if (pending.get(id) !== ticket) return;
 					const snapshot = liveView.getSnapshot(id);
 					if (snapshot && snapshot.view && snapshot.view.regenInProgress === true) {
+						pending.delete(id);
+						return;
+					}
+					// 停止或失败时标记可能永远不出现：确认不到就收手，别把读取一直钉在这里。
+					if (++ticket.tries >= 60) {
 						pending.delete(id);
 						return;
 					}

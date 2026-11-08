@@ -139,12 +139,15 @@ function TavernSendLongPress(props) {
             mutedButton = button;
             repaint(button, true);
             // 每次完成长按都进入同一个提交流程；忙碌、目标与历史校验由 regenBody 决定并上报原因。
-            try { await interactions.submitBodyRegeneration(sessionId, { tail: null }, ""); }
+            try {
+                notifyRegenerating(sessionId, true);
+                await interactions.submitBodyRegeneration(sessionId, { tail: null }, "");
+            }
             catch (error) { /* interactions 已经上报这次失败（错误中心里有完整原因） */ }
             finally {
                 window.setTimeout(function () { button.classList.remove(TAVERN_SEND_HOLD_FIRED_CLASS); }, 900);
-                liveTavernView.invalidate(sessionId);
-                tavernCoordination.invalidate(sessionId);
+                // 正文换了、视图与故事列表一起收尾，玩家不必刷新页面看新的一楼。
+                notifyRegenerating(sessionId, false);
                 notifyTavernDataChanged(["sessions"], "play-controls");
             }
         }

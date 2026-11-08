@@ -399,6 +399,27 @@ function createTavernStoryTranscriptFeature(deps) {
 		React.useEffect(function () {
 			if (nativeStreamTurn !== null && storyActive) void store.read(sessionId, { historyFrom: controller.historyFrom, force: true })
 		}, [store, sessionId, controller.historyFrom, nativeStreamTurn, storyActive])
+		// 流式正文消失且宿主已经报空闲，说明这一轮写完了：正式楼层若还没读回来，屏幕上
+		// 只剩玩家那一行，要刷新才出现。重新生成、后台收尾都不一定把 running 从 true 翻
+		// 回 false，turn/end 的那次重读也就不会来，这里按流本身补一次。
+		const streamedStoryTurn = nativeStreamTurn !== null && typeof tavernStoryTurnForDshTurn === 'function'
+			? tavernStoryTurnForDshTurn(view, nativeStreamTurn) : nativeStreamTurn
+		const streamedTurnBefore = React.useRef(null)
+		React.useEffect(function () {
+			if (nativeStreamTurn !== null) { streamedTurnBefore.current = streamedStoryTurn; return }
+			const settling = streamedTurnBefore.current
+			streamedTurnBefore.current = null
+			if (settling === null || settling === undefined || !storyActive || running) return
+			if (state.status === 'loading' || state.status === 'refreshing') return
+			// 这一楼已经落在存档里就不用再读，收尾由 turn/end 与 revision 负责。
+			const settled = transcript && Array.isArray(transcript.messages) && transcript.messages.some(function (entry) {
+				const message = entry && entry.message
+				if (!message || message.role !== 'assistant' || message.placeholder === true) return false
+				return Number(message.turn) === Number(settling) || entry.messageUid === (view && view.streamingMessageUid)
+			})
+			if (settled) return
+			void store.read(sessionId, { historyFrom: controller.historyFrom, force: true })
+		}, [store, sessionId, controller.historyFrom, storyActive, state.status, transcript, streamedStoryTurn, running, view])
 		// The story response seeds this exact bounded view. Until it arrives this
 		// outer revision reader is passive; otherwise its first subscription starts
 		// a duplicate full getSession before the story response can be published.

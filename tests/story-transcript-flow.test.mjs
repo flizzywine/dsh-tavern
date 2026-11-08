@@ -312,6 +312,32 @@ test('首个 partial 读取占位，turn 结束后重读提交且两行始终可
 	assert.equal(refreshes.at(-1).sessionId, 's1')
 })
 
+test('宿主一直报空闲时，流式正文结束会补读这一局，不用刷新页面', async t => {
+	const p = page(t), { context } = p
+	let calls = 0
+	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => {
+		calls++
+		return { storyTranscript: transcript(messages, calls), view: { mode: 'story' }, revision: calls }
+	} })
+	const store = data.createStoryTranscriptStore()
+	await store.read('s1')
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data })
+	// 重新生成与后台收尾都不一定会把 running 翻成 true：宿主全程报空闲。
+	const chat = { legacy: { partial: { turn: 10, blocks: [{ kind: 'text', text: '流式草稿' }] }, nodes: [], runningCalls: [] } }
+	const session = { running: false }
+	const element = () => React.createElement(feature.StoryTranscriptFlow, {
+		sessionId: 's1', store: store, nativeFlow: () => React.createElement('div', { 'data-native-flow': '' }),
+		useChat: selector => selector(chat), useSession: selector => selector(session)
+	})
+	const root = await mount(p, element())
+	await act(async () => Promise.resolve())
+	const streamingCalls = calls
+	chat.legacy = { partial: null, nodes: [], runningCalls: [] }
+	await act(async () => root.render(element()))
+	await act(async () => Promise.resolve())
+	assert.ok(calls > streamingCalls, '流式结束后应补读一次故事，不能等玩家刷新')
+})
+
 test('槽注册复制原生 inject/store/locale，保留 children 声明并优先故事条目', async t => {
 	const { context } = page(t)
 	const NativeFlow = () => null, inject = () => ({}), store = () => {}
