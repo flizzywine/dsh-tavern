@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - tavern-plugin/packages/dsh-tavern/**
+      - '!tavern-plugin/packages/dsh-tavern/README.md'
       - .github/workflows/publish-official-launcher.yml
   workflow_dispatch:
 
@@ -32,7 +33,12 @@ jobs:
           version=$(node -p "require('./$source/package.json').version")
           tag="launcher-v$version"
           cdn_tag="launcher-cdn-v$version"
+          # A published launcher keeps the README that shipped with its version.
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            git show "refs/tags/$tag:$source/README.md" > "$source/README.md"
+          fi
           archive=$(npm pack "./$source" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP")
+          git restore -- "$source/README.md"
           node .github/scripts/check-runtime-archive.mjs "$RUNNER_TEMP/$archive"
           # jsDelivr can serve the small artifact tree behind this tag.
           if git show-ref --verify --quiet "refs/tags/$cdn_tag"; then
