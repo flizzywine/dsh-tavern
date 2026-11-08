@@ -360,11 +360,19 @@ test('删除前面输入后，后续重新生成和原生对账不会擦掉前�
   await h.create().remove({ sessionId: h.session.id, items: [h.selectors.u2] })
   const originalChat = structuredClone(h.chat)
   const assistantIndex = originalChat.messages.length - 1
-  const merged = replaceLastRound({ originalChat, regeneratedChat: {
+  const regeneratedChat = {
     ...originalChat,
     messages: [{ role: 'user', text: '输入4' }, { role: 'assistant', turn: 4, text: '重新生成的正文4', sourceText: '重新生成的正文4' }]
-  }, assistantIndex })
+  }
+  const candidateMessages = regeneratedChat.messages
+  const merged = replaceLastRound({ originalChat, regeneratedChat, assistantIndex })
+  assert.equal(regeneratedChat.messages, candidateMessages, '不改写调用方 draft 的 messages 属性')
+  assert.equal(regeneratedChat.messages[1].text, '重新生成的正文4')
   assert.equal(merged.chat.messages[assistantIndex].messageUid, originalChat.messages[assistantIndex].messageUid)
+  const outputText = merged.chat.messages[0].text
+  merged.chat.messages[0].text = '输出侧修改'
+  assert.notEqual(originalChat.messages[0].text, '输出侧修改', '返回历史仍与原始快照隔离')
+  merged.chat.messages[0].text = outputText
   h.chat = merged.chat
   replaceSessionSurface(h.session, 'assistant/message', { turn: 4, step: 1,
     message: { id: 'regenerated-4', role: 'assistant', content: [{ type: 'text', text: '重新生成的正文4' }], source: { ...model, tavernStoryTurn: 4 } } },

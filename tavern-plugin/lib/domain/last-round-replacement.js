@@ -42,7 +42,9 @@ export function assertRegenerationSourceCurrent(input = {}) {
 /** Replace one committed user/body pair without discarding any later story rows. */
 export function replaceLastRound(input = {}) {
   const originalChat = clone(input.originalChat)
-  const regeneratedChat = clone(input.regeneratedChat)
+  // The caller already owns this draft. Only replace its top-level messages;
+  // cloning the whole draft first would copy an array discarded just below.
+  const regeneratedChat = { ...input.regeneratedChat }
   const assistantIndex = Number(input.assistantIndex)
   const userIndex = Number.isSafeInteger(Number(input.inputIndex)) ? Number(input.inputIndex) : assistantIndex - 1
   if (!originalChat || !regeneratedChat || !Array.isArray(originalChat.messages) || !Array.isArray(regeneratedChat.messages)) throw new Error('重新生成缺少聊天状态')
