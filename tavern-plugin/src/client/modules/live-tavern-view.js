@@ -17,7 +17,7 @@ function createLiveTavernViewModule(options) {
 	function recordFor(sessionId) {
 		const id = String(sessionId || "");
 		if (!records.has(id)) {
-			const record = { id: id, state: initialState(), listeners: new Set(), paths: dependencyNode(), watchdog: null, optimisticBusy: false, eviction: null, refresh: null };
+			const record = { id: id, state: initialState(), listeners: new Set(), paths: dependencyNode(), watchdog: null, optimisticBusy: false, eviction: null, refresh: null, seededView: undefined };
 			record.refresh = createRefresh(record);
 			records.set(id, record);
 		}
@@ -126,7 +126,16 @@ function createLiveTavernViewModule(options) {
 			onStart: function () {
 				if (record.state.view === null) publish(record, Object.assign({}, record.state, { phase: "loading", error: "" }));
 			},
-			load: function (scope) { return options.load(record.id, { signal: scope.signal }); },
+			load: function (scope) {
+				// startChat already projected this exact new chat. Consume that view through
+				// the normal publish path instead of immediately repeating getSession.
+				if (record.seededView !== undefined) {
+					const result = record.seededView;
+					record.seededView = undefined;
+					return result;
+				}
+				return options.load(record.id, { signal: scope.signal });
+			},
 			onResult: async function (result, scope) {
 				let view = result && result.view ? result.view : null;
 				if (pollWhileBusy && record.optimisticBusy && !shouldPoll(view)) return { delay: 200 };
@@ -216,8 +225,14 @@ function createLiveTavernViewModule(options) {
 		},
 		evict: evict,
 		getSnapshot: function (sessionId) { return recordFor(sessionId).state; },
+		seed: function (sessionId, view) {
+			const record = recordFor(sessionId);
+			record.seededView = { view: view };
+			if (record.listeners.size) record.refresh.request();
+		},
 		setView: function (sessionId, view) {
 			const record = recordFor(sessionId);
+			record.seededView = undefined;
 			record.refresh.replace();
 			const owner = {};
 			record.optimisticOwner = owner;

@@ -81,6 +81,29 @@ test('后台已空闲但主轮询定时器丢失时，watchdog 会恢复权威�
   stop()
 })
 
+test('新建对话复用 startChat 首份视图，后续失效刷新才请求服务端', async function () {
+  const timers = fakeTimers()
+  let loads = 0
+  const module = createLiveTavernViewModule({
+    load: async function () { loads += 1; return { view: { source: 'getSession' } } },
+    shouldPoll() { return false },
+    now: timers.now, schedule: timers.schedule,
+    cancel: timers.cancel
+  })
+  module.seed('new-session', { source: 'startChat' })
+  const stop = module.subscribe('new-session', function () {})
+  await timers.runNext()
+  assert.equal(loads, 0)
+  assert.equal(module.getSnapshot('new-session').phase, 'ready')
+  assert.equal(module.getSnapshot('new-session').view.source, 'startChat')
+
+  module.invalidate('new-session')
+  await timers.runNext()
+  assert.equal(loads, 1)
+  assert.equal(module.getSnapshot('new-session').view.source, 'getSession')
+  stop()
+})
+
 test('人物卡删除后的状态错误进入不可用终态，不再自动重试并重复弹错', async function () {
   const timers = fakeTimers()
   let loads = 0

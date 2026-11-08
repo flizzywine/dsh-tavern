@@ -162,6 +162,27 @@ test('the session view publishes the host-decided stage switches of the card, no
   assert.deepEqual(plain.stage, { dialogue: false, stage: false }, 'without a stage runtime no card has the stage')
 })
 
+test('disabled stage never rereads the card for stage HTML', async () => {
+  let stageReads = 0
+  const f = projectionFixture({
+    readCardStageMode: async () => ({ dialogue: false, stage: false }),
+    readLiveCardStage: async () => { stageReads++; return { html: '<section>不应读取</section>' } }
+  })
+  const view = await f.projection.project.full(f.chat)
+  assert.equal(stageReads, 0)
+  assert.deepEqual(view.stage, { dialogue: false, stage: false })
+})
+
+test('enabled dialogue stage still reads its live card HTML', async () => {
+  let stageReads = 0
+  const f = projectionFixture({
+    readCardStageMode: async () => ({ dialogue: true, stage: false }),
+    readLiveCardStage: async () => { stageReads++; return { html: '' } }
+  })
+  await f.projection.project.full(f.chat)
+  assert.equal(stageReads, 1)
+})
+
 test('a body regeneration publishes the target story row UID, never on a settled chat', async () => {
   const f = projectionFixture()
   const regenerating = await f.projection.project.full({ ...f.chat, regenInProgress: true,

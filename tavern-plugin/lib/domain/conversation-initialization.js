@@ -85,16 +85,28 @@ export function createConversationInitialization(options) {
 
   async function initialize({ cardPath, sessionId, mode, openingId, userName, requestMode, preparation, cardTask, importDraft = false }) {
     if (requestMode === 'sillytavern') throw new Error('silly 模式已停用')
-    const currentSettings = await trace.stage('settings', () => settings())
-    let defaults = normalizePlayDefaults(currentSettings.defaultPlaySettings)
     const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
-    const card = str(cardPath) === '' && requestedMode === 'card' ? null : await trace.stage('card', () => cards.read(cardPath))
+    const withoutCard = str(cardPath) === '' && requestedMode === 'card'
+    // These inputs only depend on the requested path, not on one another. Starting
+    // them together matters on mobile storage, where serial reads dominate creation.
+    const cardRead = withoutCard ? Promise.resolve(null) : trace.stage('card', () => cards.read(cardPath))
+    // Extension discovery reads the same workspace. Let the card read finish any
+    // legacy migration first instead of racing a second migration of the same file.
+    const extensionsRead = requestedMode === 'card' ? Promise.resolve(null)
+      : cardRead.then(() => trace.stage('extensions', () => cards.extensions(cardPath)))
+    const [currentSettings, card, cardDefaults, script, openingExtensions] = await Promise.all([
+      trace.stage('settings', () => settings()),
+      cardRead,
+      !withoutCard && typeof cards.startDefaults === 'function'
+        ? trace.stage('cardDefaults', () => cards.startDefaults(cardPath).catch(() => null)) : Promise.resolve(null),
+      withoutCard ? Promise.resolve(undefined) : trace.stage('script', () => cards.script(cardPath)),
+      extensionsRead
+    ])
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
+    let defaults = normalizePlayDefaults(currentSettings.defaultPlaySettings)
     // A DSH card may suggest a preset and a few settings for its new games; the player's global defaults fill the rest.
-    const cardDefaults = card !== null && typeof cards.startDefaults === 'function' ? await trace.stage('cardDefaults', () => cards.startDefaults(cardPath).catch(() => null)) : null
     if (cardDefaults?.settings) defaults = normalizePlayDefaults({ ...defaults, ...cardDefaults.settings, backgroundTasks: { ...defaults.backgroundTasks, ...(cardDefaults.settings.backgroundTasks || {}) } })
     // 游玩模式内部仍是 story/script 两类：人物卡已绑定剧本时必须走剧本（script）。
-    const script = card === null ? undefined : await trace.stage('script', () => cards.script(cardPath))
     const hasScript = script !== undefined && Array.isArray(script.chunks) && script.chunks.length > 0
     let chatMode = requestedMode
     if (chatMode === null || mode === 'play') chatMode = hasScript ? 'script' : 'story'
@@ -124,7 +136,7 @@ export function createConversationInitialization(options) {
       : cardDefaults?.presetPath ? await trace.stage('preset', () => presets.fullSnapshot(cardDefaults.presetPath).catch(() => playPresetSnapshot())) : await trace.stage('preset', () => playPresetSnapshot())
     // The card workbench opens empty: no greeting is shown or sent to the model.
     let openingSourceText = chatMode === 'card' ? '' : resolveCardOpening(card, openingId)
-    const openingExtensions = chatMode === 'card' ? null : await trace.stage('extensions', () => cards.extensions(cardPath))
+    // Card workbenches skip opening extensions in the initial read above.
     const openingChoices = chatMode === 'card' ? [] : cardOpeningChoices(card)
     const selectedOpeningIndex = str(openingId) === '' ? 0 : Math.max(0, openingChoices.findIndex(function (choice) { return choice.id === str(openingId) }))
     const usesMvu = chatMode !== 'card' && (
@@ -283,7 +295,10 @@ export function createConversationInitialization(options) {
     if (openingTarget && defaultModel) await trace.stage('selectModel', () => native.selectModel(openingTarget, defaultModel))
     await trace.stage('publish', () => chats.publish(chat))
     if (hasSession) await trace.stage('nativeAppend', () => appendNativeOpening(sessionId, chat, card, openingTarget))
-    return await trace.stage('present', () => present(chat, card, preparedBook === undefined ? undefined : { worldBook: preparedBook, freshSnapshot: true }))
+    // Match the client's first getSession resource contract. The startChat view
+    // can then seed Helper iframes without a second RPC just for resource handles.
+    return await trace.stage('present', () => present(chat, card, preparedBook === undefined
+      ? { deferResources: true } : { worldBook: preparedBook, freshSnapshot: true, deferResources: true }))
   }
 
 
