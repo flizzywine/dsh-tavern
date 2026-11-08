@@ -52079,7 +52079,9 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const opened = panel && panel.sessionId === props.sessionId && panel.phase === "input";
         React.useEffect(function () { if (opened) setGuidance(interactions.guidance(props.sessionId)); }, [opened, props.sessionId]);
         const h = React.createElement;
-        if (!isPlayMode(sessionMode) || running || !panel || panel.sessionId !== props.sessionId) return null;
+        // 重新生成一提交，宿主就把会话报成运行中（页面上的发送键要立刻换成停止）；
+        // 这次还在等正文落盘的面板不能跟着消失，否则「正在重新生成正文…」只剩一瞬。
+        if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || (running && panel.phase !== "loading")) return null;
         function generate() {
             return interactions.regenerateBody(panel, guidance, { restyle: styleEnabled && Boolean(guidance.trim()) });
         }

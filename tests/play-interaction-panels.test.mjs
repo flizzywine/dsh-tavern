@@ -34,7 +34,8 @@ test('panels use the flow interface and candidate selection preserves user edits
     useCandidateGuidePanel: usePanel(interactions.guide), useRegenPanel: usePanel(interactions.regeneration),
     usePhonePlay: () => false })
   let draft = '玩家原文'
-  const props = { sessionId: 'a', useSession: select => select({ running: false }), useChat: select => select({}),
+  let running = false
+  const props = { sessionId: 'a', useSession: select => select({ running }), useChat: select => select({}),
     useInput: select => select({ draft }), inputActions: { setDraft: value => { draft = value } } }
   const root = createRoot(dom.window.document.querySelector('main'))
   const render = component => act(async () => root.render(React.createElement(component, props)))
@@ -57,6 +58,16 @@ test('panels use the flow interface and candidate selection preserves user edits
   assert.equal(dom.window.document.querySelectorAll(".dsh-tavern-regen-submit").length, 1)
   await act(async () => dom.window.document.querySelector('.dsh-tavern-regen-submit').click())
   assert.deepEqual(calls[1], ['regenBody', { guidance: '' }, 'a'])
+  // 在途的重新生成面板在宿主报运行中（发送键已换成停止）时还要留着显示进度，
+  // 已经能填意见的表单照旧在运行中让位给正文区。
+  await act(async () => interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'loading' }))
+  running = true
+  await render(panels.RegenPanel)
+  assert.match(dom.window.document.querySelector('.dsh-tavern-regen-loading').textContent, /正在重新生成正文/)
+  await act(async () => interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'input' }))
+  await render(panels.RegenPanel)
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-regen'), null)
+  running = false
   await act(async () => interactions.regeneration.set({ sessionId: 'a', phase: 'input' }))
   await act(async () => [...dom.window.document.querySelectorAll('button')].find(button => button.textContent === '精修').click())
   assert.match(dom.window.document.querySelector('.dsh-tavern-regen-loading').textContent, /已修 1 处/)

@@ -18,6 +18,23 @@ export function createPlayHandlers(deps) {
     retryStyleReference, rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setPlayerName, stopBackground, str,
     templateHistoryFrom, turnOrchestrator, undoRollbackTurn, updateChat, view, withCompactionSession } = deps
+  // 发送键只认宿主的运行状态。重新生成要先把存档读出来、挑出要替换的正文、拼好这一轮的
+  // 提示词，模型请求才开始；那段准备时间里按键还是「发送」，看着像没点上，而面板上的
+  // 「正在重新生成正文…」早就出现了。请求一进门就把会话报成运行中（页面照宿主自己的
+  // 事件渲染停止键），结束——成功或失败——再交还给宿主，宿主随后的状态事件照常覆盖它。
+  // 同时到达的请求只由最先开始、最后结束的那一次发事件。
+  const regeneratingRuns = new Map()
+  function announceRegenerating(sessionId, active) {
+    if (sessionId === '' || typeof ctx?.emit !== 'function') return
+    const before = regeneratingRuns.get(sessionId) || 0
+    const after = Math.max(0, before + (active === true ? 1 : -1))
+    if (after === before) return
+    if (after === 0) regeneratingRuns.delete(sessionId)
+    else regeneratingRuns.set(sessionId, after)
+    if (before !== 0 && after !== 0) return
+    try { ctx.emit('api-session/status', sessionId, after > 0) }
+    catch (error) { console.warn('dsh-tavern: 重新生成的运行状态没有送到页面', str(error?.message || error)) }
+  }
   return {
     async appendPlayerInput(args) {
       return await turnOrchestrator.appendUser({ sessionId: str(args?.sessionId), requestId: str(args?.requestId),
@@ -217,15 +234,21 @@ export function createPlayHandlers(deps) {
       return { view }
     },
     async regenBody(args) {
+      const sessionId = str(args?.sessionId)
       if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板回退后重新行动')
-      autoChoices.cancel(args && args.sessionId)
-      if (args?.restyle === true) await retryStyleReference(args.sessionId, { target: 'regenerate', guidance: args.styleGuidance })
-      await requestPerformance.stage('regen.reconcile', () => reconcileStory(args && args.sessionId))
-      polishPrereview.cancel(args?.sessionId)
-      const view = await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId)
-      notifyPluginTimeline(args && args.sessionId, 'regenerate')
-      void polishPrereview.start(args?.sessionId).catch(() => {})
-      return { view }
+      announceRegenerating(sessionId, true)
+      try {
+        autoChoices.cancel(sessionId)
+        if (args?.restyle === true) await retryStyleReference(sessionId, { target: 'regenerate', guidance: args.styleGuidance })
+        await requestPerformance.stage('regen.reconcile', () => reconcileStory(sessionId))
+        polishPrereview.cancel(sessionId)
+        const view = await regenBody(args && args.chatId, args && args.guidance, sessionId)
+        notifyPluginTimeline(sessionId, 'regenerate')
+        void polishPrereview.start(sessionId).catch(() => {})
+        return { view }
+      } finally {
+        announceRegenerating(sessionId, false)
+      }
     },
     async setAllFailedErrorVisibility(args) {
       const sessionId = str(args && args.sessionId)
