@@ -22,9 +22,11 @@ function source(message) { return message.projectionText ?? message.sourceText ?
 // assistant-style sourceText; that field must not resurrect the pre-edit input.
 function storyUserText(message) { return typeof message?.text === 'string' ? message.text : source(message) }
 function token(chat, message) {
-  // Template display bookkeeping is not an edit to the authoritative prose.
-  const { displayRuntime: _capture, tavernPluginData: _templateCache, ...body } = message
-  return createHash('sha256').update(JSON.stringify([chat.id, chat.timeline?.branchId, chat.timeline?.revision, chat.messages.length, body])).digest('hex')
+  // The last reply is addressed by position, so the row's own prose is the fence:
+  // a settlement pass, a header write or a template-cache refresh must not
+  // invalidate an editor the player already has open. An append moves the tail,
+  // and latest() never returns anything but an assistant tail.
+  return storyToken(chat, message, (chat.messages?.length || 1) - 1, 'assistant')
 }
 function storageRevision(chat) { return Math.max(0, Number(chat && chat._storageRevision) || 0) }
 // Story rows are addressed by array position (story-transcript.js absoluteIndex); the
@@ -48,18 +50,16 @@ function storyMessageUid(input) {
 }
 /** UID edits bind the logical row, not unrelated Chat/timeline write counters. */
 function storyToken(chat, message, index, role, messageUid = null) {
-  if (messageUid) {
-    // Settlement variables, receipts and display caches do not change the text
-    // being edited. Swipes, anchors and other edit inputs remain CAS-protected.
-    const { displayRuntime: _capture, tavernPluginData: _templateCache, variables: _variables,
-      mvu: _receipt, sessionText: _sessionText, bodyEdit: _oldEdit, ...body } = message
-    return createHash('sha256').update(JSON.stringify(['story-message', chat.id, chat.timeline?.branchId,
-      role, messageUid, body])).digest('hex')
-  }
-  // Compatibility for an already-open panel from before messageUid shipped.
-  const { displayRuntime: _capture, tavernPluginData: _templateCache, ...body } = message
-  return createHash('sha256').update(JSON.stringify(['story-row', chat.id, chat.timeline?.branchId, chat.timeline?.revision,
-    role, index, storageRevision(chat), body])).digest('hex')
+  // Settlement variables, receipts, display caches and edit markers never change
+  // the text being edited; the Chat write counter and timeline revision are not
+  // part of the row's identity either. Swipes, anchors and other edit inputs stay
+  // CAS-protected.
+  const { displayRuntime: _capture, tavernPluginData: _templateCache, variables: _variables,
+    mvu: _receipt, sessionText: _sessionText, bodyEdit: _oldEdit, ...body } = message
+  // A UID names the logical row; without one the index does, and the body covers
+  // the occupant so a shifted list still refuses the write.
+  const identity = messageUid ? ['story-message', messageUid] : ['story-row', Number.isSafeInteger(index) ? index : null]
+  return createHash('sha256').update(JSON.stringify([chat.id, chat.timeline?.branchId, role, ...identity, body])).digest('hex')
 }
 
 /** Reconcile a durable Chat edit to native Surface; retries never duplicate history. */
@@ -176,7 +176,15 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     const message = messages[requestedIndex]
     if (!message || typeof message !== 'object' || message.role !== role) throw new Error('这条消息已变化，请重新打开编辑')
     const revision = storyRevision(input)
-    if (revision === null || storageRevision(chat) !== revision) throw new Error('正文或会话已变化，请重新打开编辑')
+    // The revision is the panel's render stamp, not a fence on the Chat write
+    // counter: settlement, candidates and worldbook syncs bump it without touching
+    // this row. The row still has to hold the prose the caller rendered — a save
+    // carries a storyToken, which fences the same row by identity and body.
+    if (revision === null) throw new Error('正文或会话已变化，请重新打开编辑')
+    const prose = typeof message.text === 'string' ? message.text : String(message.text ?? '')
+    const namesRow = typeof input?.text === 'string' ? input.text === prose : null
+    if (namesRow === false) throw new Error('正文或会话已变化，请重新打开编辑')
+    if (namesRow === null && typeof input?.token !== 'string' && storageRevision(chat) !== revision) throw new Error('正文或会话已变化，请重新打开编辑')
     return { chat, index: requestedIndex, message, revision: storageRevision(chat), messageUid: null }
   }
   async function storyContext(sessionId, input, role) {

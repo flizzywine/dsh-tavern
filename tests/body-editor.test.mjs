@@ -269,9 +269,26 @@ test('故事直选：陈旧 revision、越界、role 不符与过期 token 都�
   await assert.rejects(h.editor.read(h.session.id, { messageIndex: 2, revision: 1, role: 'user' }), /已变化/)
   const edit = await h.editor.read(h.session.id, { messageIndex: 2, revision: 1 })
   await assert.rejects(h.editor.save(h.session.id, { token: 'stale', messageIndex: 2, revision: 1, role: 'assistant', texts: ['新'] }), /重新打开编辑/)
-  await assert.rejects(h.editor.save(h.session.id, { token: edit.token, messageIndex: 2, revision: 2, role: 'assistant', texts: ['新'] }), /重新打开编辑/)
   await assert.rejects(h.editor.save(h.session.id, { token: edit.token, messageIndex: 1, revision: 1, role: 'assistant', texts: ['新'] }), /已变化/)
   assert.deepEqual(h.chat, before)
+  // 存档计数被后台推进不再作废面板 token：行正文没变就照常写入。
+  const bumped = await h.editor.save(h.session.id, { token: edit.token, messageIndex: 2, revision: 2, role: 'assistant', texts: ['新'] })
+  assert.equal(bumped.messages[2].text, '新')
+})
+
+test('故事直选：结算变量与版本推进后 token 不作废，行正文被改才拒绝', async () => {
+  const h = storyFixture()
+  const edit = await h.editor.read(h.session.id, { messageIndex: 2, revision: 1 })
+  h.chat._storageRevision++
+  h.chat.timeline = { ...(h.chat.timeline || {}), revision: Number(h.chat.timeline?.revision || 0) + 1 }
+  h.chat.messages[2].variables = [{ hp: 3 }]
+  const saved = await h.editor.save(h.session.id, { token: edit.token, messageIndex: 2, revision: 2, role: 'assistant', texts: ['后台写入后仍能改'] })
+  assert.equal(saved.messages[2].text, '后台写入后仍能改')
+  assert.deepEqual(saved.messages[2].variables, [{ hp: 3 }], '结算写入的变量保留')
+
+  const again = await h.editor.read(h.session.id, { messageIndex: 2, revision: Number(h.chat._storageRevision) })
+  h.chat.messages[2].text = '别人改过了'
+  await assert.rejects(h.editor.save(h.session.id, { token: again.token, messageIndex: 2, revision: Number(h.chat._storageRevision), role: 'assistant', texts: ['覆盖'] }), /已变化|重新打开编辑/)
 })
 
 test('故事直选：没有原生 Session 也能编辑 Chat，缺失 revision 会拒绝', async () => {

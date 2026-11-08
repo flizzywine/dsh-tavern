@@ -250,7 +250,9 @@ test('故事直选：陈旧 revision、越界、role 不符与过期 token 都�
   await assert.rejects(h.editor.readUser(h.session.id, { messageIndex: 0, revision: 1, role: 'assistant' }), /已变化/)
   const edit = await h.editor.readUser(h.session.id, { messageIndex: 0, revision: 1 })
   await assert.rejects(h.editor.saveUser(h.session.id, { token: 'stale', messageIndex: 0, revision: 1, role: 'user', texts: ['新'] }), /重新打开编辑/)
-  await assert.rejects(h.editor.saveUser(h.session.id, { token: edit.token, messageIndex: 0, revision: 3, role: 'user', texts: ['新'] }), /重新打开编辑/)
   await assert.rejects(h.editor.saveUser(h.session.id, { token: edit.token, messageIndex: 0, revision: 1, role: 'user', texts: [''] }), /不能为空/)
   assert.deepEqual(h.chat, before)
+  // 存档计数/版本推进不再作废面板 token：行正文没变就照常写入。
+  const bumped = await h.editor.saveUser(h.session.id, { token: edit.token, messageIndex: 0, revision: 3, role: 'user', texts: ['新'] })
+  assert.equal(bumped.messages[0].text, '新')
 })
