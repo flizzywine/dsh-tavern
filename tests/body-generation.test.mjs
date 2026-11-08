@@ -219,9 +219,10 @@ test('selected regeneration passes guidance, cancels before commit and never can
 })
 
 test('lifecycle rejects direct model text before saving and passes processed flag for plugin receipt', async () => {
-  const f = fixture(), handlers = new Map(), saved = [], failures = []
+  const f = fixture(), handlers = new Map(), saved = [], failures = [], traced = []
   registerTurnLifecycleHooks({ ctx: { on: (name, fn) => handlers.set(name, fn) }, pluginBodyGeneration: f.controller,
     clearRuntimePresetRequestState() {}, backgroundAgentRunner: { owns: () => false },
+    requestPerformance: { run: async (method, _id, operation) => { traced.push(method); return operation() } },
     userMessageForTurn: () => ({ role: 'user', content: [{ type: 'text', text: '继续' }] }),
     contentText: () => '继续', requestIdForTurn: () => 'req', turnOrchestrator: { recordFailure: async value => failures.push(value) },
     foregroundHandoff: { finalize: async value => { saved.push(value); return { reply: { sessionText: value.assistantText } } } }, replaceAssistantReply() {} })
@@ -230,6 +231,7 @@ test('lifecycle rejects direct model text before saving and passes processed fla
   await assert.rejects(stop(), /未通过/); assert.equal(saved.length, 0); assert.equal(failures.length, 1)
   receipt(f.session, await f.run())
   await stop(); assert.equal(saved.length, 1); assert.equal(saved[0].pluginBodyGeneration, true)
+  assert.deepEqual(traced, ['generateCommit'])
 })
 
 

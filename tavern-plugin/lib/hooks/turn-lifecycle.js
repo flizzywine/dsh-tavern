@@ -42,6 +42,7 @@ export function registerTurnLifecycleHooks({
   readChatCard,
   replaceAssistantReply,
   requestIdForTurn,
+  requestPerformance,
   runtimePrompt,
   sessionStore,
   storyOutputToolCall,
@@ -85,7 +86,7 @@ export function registerTurnLifecycleHooks({
       })
       throw new Error(message)
     }
-    const saved = await foregroundHandoff.finalize({
+    const finalize = () => foregroundHandoff.finalize({
       sessionId,
       turn: payload.turn,
       requestId,
@@ -97,6 +98,7 @@ export function registerTurnLifecycleHooks({
       incompleteReason: '这次生成达到输出上限或被中断，保留了已生成的部分正文',
       nativeAnchor: roundAnchor(payload.turn, inputEventForTurn(session, payload.turn), assistant.event)
     })
+    const saved = requestPerformance ? await requestPerformance.run('generateCommit', sessionId, finalize) : await finalize()
     // A submit_story call and its receipt both carry the body; fold them into one
     // plain reply so context, regeneration and rollback see an ordinary round.
     if (assistant.storyToolSubmission) replaceAssistantReply(session, assistant, saved.reply ? saved.reply.sessionText : assistant.content)

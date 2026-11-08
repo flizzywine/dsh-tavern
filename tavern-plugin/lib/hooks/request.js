@@ -47,13 +47,15 @@ export function registerRequestHooks({
   persistClearedBodyEdits,
   requestCoordinates,
   requestIdForMessages,
+  requestPerformance,
   sessionStore,
   tavernRetryLimiter,
 }) {
   ctx.on('agent/request', async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     if (sessionId !== '') requestCoordinates.set(sessionId, { turn: payload.turn, step: payload.step })
-    return await next()
+    if (!requestPerformance || sessionId === '' || backgroundAgentRunner.owns(sessionId)) return await next()
+    return await requestPerformance.run('generateRequest', sessionId, () => next())
   })
 
   ctx.on('agent/request-error', tavernRetryLimiter.handle, { prepend: true })
@@ -61,7 +63,7 @@ export function registerRequestHooks({
   // overflow compaction both see the normalized code.
   ctx.on('agent/request-error', normalizeProviderOverflow, { prepend: true })
 
-  ctx.on('agent/pre-step', async function (payload, next) {
+  const prepareStep = async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     // Tavern drives only game sessions; child agents (its own background
     // agents, plugin agents, DSH subagents) never get a turn frame or status.
@@ -88,5 +90,10 @@ export function registerRequestHooks({
     const withChanges = appendVariableChanges({ chat, payload, decision: recovered })
     try { return await cardMemory.appendRecall({ chat, payload, decision: withChanges }) }
     catch (error) { console.warn('[Tavern card memory] recall unavailable:', error.message); return withChanges }
+  }
+  ctx.on('agent/pre-step', async function (payload, next) {
+    const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
+    if (!requestPerformance || sessionId === '' || backgroundAgentRunner.owns(sessionId)) return await prepareStep(payload, next)
+    return await requestPerformance.run('generatePrepare', sessionId, () => prepareStep(payload, next))
   })
 }

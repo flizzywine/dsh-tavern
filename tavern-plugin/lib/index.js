@@ -4101,6 +4101,7 @@ export async function apply(ctx) {
     persistClearedBodyEdits,
     requestCoordinates,
     requestIdForMessages,
+    requestPerformance,
     sessionStore,
     tavernRetryLimiter,
   })
@@ -4162,6 +4163,7 @@ export async function apply(ctx) {
     replaceAssistantReply,
     reconcileWhenIdle,
     requestIdForTurn,
+    requestPerformance,
     runtimePrompt,
     sessionStore,
     storyOutputToolCall: async () => (await readTavernSettings()).storyOutputToolCall,
