@@ -82,3 +82,30 @@ for(const field of ['branchId','worldRevision','lifecycleRevision'])test(field+'
  await assert.rejects(domain.commitSettlement('a',{operationId:first.settlementId}),{code:'CONVERSATION_STALE'})
  assert.equal((await domain.open('a')).state.world.variables.gold,10)
 })
+
+test('new world records use one packed flush instead of one durable write per node',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'conversation-create-pack-'));t.after(()=>rm(root,{recursive:true,force:true}))
+ const store=createConversationPageStore({root})
+ let directWrites=0,packedFlushes=0
+ const counting={...store,
+  writeRecord:async(...args)=>{directWrites++;return store.writeRecord(...args)},
+  writeRecords:async(...args)=>{packedFlushes++;return store.writeRecords(...args)}}
+ const domain=createConversationState({store:counting})
+ const variables=Object.fromEntries(Array.from({length:80},(_,i)=>['value'+i,{score:i,label:'x'.repeat(40)}]))
+ await domain.create('packed',{world:{variables,posture:'standing'},messages:[]})
+ assert.equal(directWrites,0)
+ assert.equal(packedFlushes,1)
+ assert.deepEqual((await createConversationState({store}).open('packed')).state.world.variables,variables)
+})
+
+test('initial pages and head metadata are durable before one packed head publication',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'conversation-head-pack-'));t.after(()=>rm(root,{recursive:true,force:true}))
+ const io=[],store=createConversationPageStore({root,onIO:event=>io.push(event)}),domain=createConversationState({store})
+ await domain.create('packed-head',{world:{variables:{gold:10}},messages:[{id:'m1',text:'history'}]})
+ const direct=io.filter(event=>event.kind==='write'&&['page','index','state','metadata','head'].includes(event.type))
+ assert.deepEqual(direct,[])
+ assert.ok(io.some(event=>event.kind==='write'&&event.type==='block-pack'))
+ const opened=await domain.open('packed-head')
+ assert.equal(opened.messageCount,1)
+ assert.equal(opened.state.world.variables.gold,10)
+})

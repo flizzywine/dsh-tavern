@@ -72,6 +72,23 @@ test('missing cards, invalid openings, missing scripts and readiness failures do
   }
 })
 
+test('原生开局标记使用字段写入并保留完整草稿', async () => {
+  let h, headerCalls = 0
+  h = initializationFixture({ writeHeader: async chat => {
+    headerCalls++
+    const current = h.saved.get(chat.id)
+    h.saved.set(chat.id, { ...current, nativeOpeningAppended: true, _storageRevision: 7, updatedAt: 456 })
+    return { _storageRevision: 7, updatedAt: 456 }
+  } })
+  const view = await h.make().start(h.input)
+  assert.equal(headerCalls, 1)
+  assert.equal(view.nativeOpeningAppended, true)
+  assert.equal(view._storageRevision, 7)
+  assert.equal(view.updatedAt, 456)
+  assert.equal(h.writes.some(write => write.metadata.source === 'opening.native-append'), false)
+  assert.equal(h.saved.get(view.id).messages.length, 1)
+})
+
 test('missing binding recovers through registry; old standalone UUID greeting is adopted without rewriting its events', async () => {
   const h = initializationFixture()
   const first = await h.make().start(h.input)

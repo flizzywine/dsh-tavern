@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequestPerformance} from '../tavern-plugin/lib/domain/request-performance.js'
+import {channel} from 'node:diagnostics_channel'
 
 test('并发请求独立计时，错误保留计时，容量有界且不保留输入', async () => {
   let time = 0
@@ -17,4 +18,24 @@ test('并发请求独立计时，错误保留计时，容量有界且不保留�
   assert.doesNotMatch(JSON.stringify(trace.read()), /SECRET|PRIVATE/)
   const copy = trace.read(); copy.recent[0].method='changed'
   assert.equal(trace.read().recent[0].method, 'getSession')
+})
+
+test('正文读取进入逐条诊断，原生表头与历史阶段不泄漏内容', async t => {
+  let time = 100
+  const trace = createRequestPerformance({now: () => time, wall: () => 1000})
+  t.after(() => trace.dispose())
+  const id = '00000000-0000-0000-0000-000000000002'
+  await trace.run('getStoryTranscript', id, async () => {
+    time += 30
+    channel('dsh.chat.read').publish({kind:'phase', name:'chat.native.header', chatId:'PRIVATE', durationMs:20})
+    await trace.stage('projectStoryWindow', async () => {})
+  })
+  const row = trace.read().recent[0]
+  assert.equal(row.method, 'getStoryTranscript')
+  assert.deepEqual(row.stages.map(stage => stage.name), ['chat.native.header', 'projectStoryWindow'])
+  assert.equal(row.stages[0].atMs, 10)
+  assert.equal(row.stages[0].durationMs, 20)
+  assert.equal(trace.read().openings.length, 0)
+  assert.equal(row.eventLoopUtilization, undefined)
+  assert.doesNotMatch(JSON.stringify(row), /PRIVATE/)
 })

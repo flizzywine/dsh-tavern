@@ -363,33 +363,44 @@ export function createConversationInitialization(options) {
     const text = openingText(chat, card)
     const target = readyTarget || await native.wait(sessionId)
     if (groupOfMode(chat.mode) === 'play' && chat.requestMode !== 'sillytavern') {
-      await native.ensurePrefix(target.session, await snapshots.ensure(chat, card))
-      await ensureSessionSeedTrajectory(target.session)
-      await native.flush(target.session)
+      const prefix = await trace.stage('nativeSnapshot', () => snapshots.ensure(chat, card))
+      await trace.stage('nativePrefix', () => native.ensurePrefix(target.session, prefix))
+      await trace.stage('nativeSeed', () => ensureSessionSeedTrajectory(target.session))
+      await trace.stage('nativeFlush', () => native.flush(target.session))
     }
     if (groupOfMode(chat.mode) === 'card') {
-      await native.ensurePrefix(target.session, await snapshots.ensure(chat, card))
+      const prefix = await trace.stage('nativeSnapshot', () => snapshots.ensure(chat, card))
+      await trace.stage('nativePrefix', () => native.ensurePrefix(target.session, prefix))
       // A card-edit session mirrors the play session's prefix (prompt cache); the plain
       // workbench needs no scripted exchange: its role comes from the system prompt.
-      if (chat.cardEditContext?.version === 1) await ensureSessionSeedTrajectory(target.session)
-      if (chat.cardEditContext?.version === 1) await native.ensureCardWorkspace(target.session, chat)
-      await native.flush(target.session)
+      if (chat.cardEditContext?.version === 1) await trace.stage('nativeSeed', () => ensureSessionSeedTrajectory(target.session))
+      if (chat.cardEditContext?.version === 1) await trace.stage('nativeCardWorkspace', () => native.ensureCardWorkspace(target.session, chat))
+      await trace.stage('nativeFlush', () => native.flush(target.session))
     }
     if (text !== '') {
       if (target.agent === undefined) logger.warn('dsh-tavern: Agent 尚未注册，直接使用已绑定 Session 写入开场白', { sessionId })
       appendOpeningEvents(target.session, chat, text, recovering)
       if (target.agent?.phase?.kind === 'idle') target.agent.phase.lastTurn = Math.max(Number(target.agent.phase.lastTurn) || 0, 1)
-      await native.flush(target.session)
+      await trace.stage('nativeFlush', () => native.flush(target.session))
     } else {
       // No greeting fills the reserved opening turn, so close it here and publish it as
       // used: the Agent numbers its next turn from the turn it can read, so it continues
       // after the reserved one instead of colliding with a turn left open.
       releaseOpeningTurn(target.session, target.agent)
-      await native.flush(target.session)
+      await trace.stage('nativeFlush', () => native.flush(target.session))
     }
-    // Publish the marker in memory only after durable save succeeds.
+    // Publish the marker in memory only after durable save succeeds. This is one
+    // header field, not another whole-Chat clone/diff on a phone. Legacy adapters
+    // retain their original full-write recovery contract.
+    if (typeof chats.writeHeader === 'function') {
+      const saved = await trace.stage('nativeMarker', () => chats.writeHeader(chat))
+      chat.nativeOpeningAppended = true
+      if (Number.isSafeInteger(saved?._storageRevision)) chat._storageRevision = saved._storageRevision
+      if (Number.isFinite(saved?.updatedAt)) chat.updatedAt = saved.updatedAt
+      return
+    }
     const draft = Object.assign({}, chat, { nativeOpeningAppended: true })
-    const saved = await chats.write(draft, { source: 'opening.native-append' })
+    const saved = await trace.stage('nativeMarker', () => chats.write(draft, { source: 'opening.native-append' }))
     const committed = saved && typeof saved === 'object' ? saved : draft
     for (const field of Object.keys(chat)) if (!Object.hasOwn(committed, field)) delete chat[field]
     Object.assign(chat, committed)

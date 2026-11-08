@@ -61,6 +61,7 @@ function sameSummary(left, right) {
  */
 export function createTavernConversationRegistry(options = {}) {
   const store = options.store || {}
+  const stage = (name, operation) => typeof options.trace?.stage === 'function' ? options.trace.stage(name, operation) : operation()
   for (const method of ['readLinks', 'updateLinks', 'readIndex', 'updateIndex', 'readChat', 'writeChat', 'removeChat']) {
     if (typeof store[method] !== 'function') throw new Error('Tavern Conversation Registry 缺少 store.' + method)
   }
@@ -152,10 +153,10 @@ export function createTavernConversationRegistry(options = {}) {
     let chatWritten = false
     let linked = false
     try {
-      await store.writeChat(chat, { source: 'chat.create' })
+      await stage('publish.writeChat', () => store.writeChat(chat, { source: 'chat.create' }))
       chatWritten = true
       if (sessionId !== '') {
-        await store.updateLinks(function (value) {
+        await stage('publish.updateLinks', () => store.updateLinks(function (value) {
           const current = Object.assign({}, normalizeLinks(value))
           if (current[sessionId] === chat.id) return undefined
           if (assertUnboundSession) {
@@ -165,14 +166,14 @@ export function createTavernConversationRegistry(options = {}) {
           }
           current[sessionId] = chat.id
           return current
-        })
+        }))
         linked = true
       }
-      await store.updateIndex(index => {
+      await stage('publish.updateIndex', () => store.updateIndex(index => {
         const rows = chatRows(index).filter(item => item.id !== chat.id)
         rows.push(chatSummary(chat))
         return { ...index, chats: rows }
-      })
+      }))
       return chat
     } catch (error) {
       if (linked) {

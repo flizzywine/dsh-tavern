@@ -1079,6 +1079,7 @@ export async function apply(ctx) {
     }, { source: 'body-edit.stale-clear' })
   }
   conversationRegistry = createTavernConversationRegistry({
+    trace: requestPerformance,
     store: {
       readAutomationOwner: async sessionId => readJson('automation/' + sessionId + '.json'),
       readLinks: async function () { return await readJson('sessions.json') },
@@ -2113,7 +2114,9 @@ export async function apply(ctx) {
   const conversationInitialization = createConversationInitialization({
     cards: { read: readCard, readChat: readChatCard, script: readScript, extensions: readCardExtensions,
       startDefaults: async cardPath => (await castAssets.read(normalizeResourcePath(cardPath, 'card'))).startDefaults || null },
-    chats: { resolve: chatForSession, publish: conversationRegistry.publish, write: writeChat },
+    chats: { resolve: chatForSession, publish: conversationRegistry.publish, write: writeChat,
+      writeHeader: chat => updateChatHeader(chat.id, ['nativeOpeningAppended', 'updatedAt', '_storageRevision'],
+        () => ({ nativeOpeningAppended: true }), { source: 'opening.native-append' }) },
     trace: requestPerformance,
     timeline: storyTimeline,
     snapshots: playCardSnapshots,

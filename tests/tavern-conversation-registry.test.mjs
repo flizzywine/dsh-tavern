@@ -36,6 +36,14 @@ function memoryStore(seed = {}) {
   }
 }
 
+test('新建发布分别记录存档、会话链接和索引耗时', async () => {
+  const store = memoryStore(), stages = []
+  const registry = createTavernConversationRegistry({ store: store.adapter,
+    trace: { stage: async (name, operation) => { stages.push(name); return await operation() } } })
+  await registry.publish({ id: 'game', sessionId: 'session-game', messages: [] })
+  assert.deepEqual(stages, ['publish.writeChat', 'publish.updateLinks', 'publish.updateIndex'])
+})
+
 test('后台轮换写入轻量索引，恢复旧后台后重新成为当前，列表不加载历史', async () => {
   const store = memoryStore({ links: { front: 'game' } })
   const registry = createTavernConversationRegistry({ store: store.adapter })
