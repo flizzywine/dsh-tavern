@@ -74,6 +74,19 @@ test('桌面安装完成只在旧运行时要求重启，重启后解除提示',
   assert.equal((await updater(300).status()).requiresRestart, false)
 })
 
+test('Android standalone 安装完成后，重启的 3088 服务不再要求重启 DSHA', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'update-android-restart-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await writeFile(path.join(root, 'update-status.json'), JSON.stringify({ phase: 'completed', host: 'android', requiresRestart: true, completedAt: 200 }))
+  const updater = runtimeStartedAt => createApplicationUpdater({ dataRoot: root, sourceRoot: root, runtimeHost: 'android', runtimeStartedAt, ...verifiedUpdate })
+  // The page that ran the update still needs the hint: same runtime, completion already reported.
+  assert.equal((await updater(100).status()).requiresRestart, true)
+  // Installing restarts the service; the new runtime is newer than the completion, so the hint expires.
+  const restarted = await updater(300).status()
+  assert.equal(restarted.requiresRestart, false)
+  assert.equal(restarted.phase, 'completed')
+})
+
 test('真实 Git 历史可离线识别新旧，包括 archive 安装的 bare source-cache', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-order-git-'))
   try {

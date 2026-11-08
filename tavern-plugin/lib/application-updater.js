@@ -540,7 +540,10 @@ export function createApplicationUpdater(options) {
           return { ...readable, ...identity }
         }
       }
-      if (current.phase === 'completed' && ['desktop', 'next'].includes(current.host) && current.requiresRestart && Number(current.completedAt) < runtimeStartedAt) {
+      // Android standalone restarts the 3088 service in place after installing, so its
+      // restart request must expire the same way Desktop's does; unlike CLI, where the
+      // runtime never restarts and the request would describe the build it just loaded.
+      if (current.phase === 'completed' && ['desktop', 'next', 'android'].includes(current.host) && current.requiresRestart && Number(current.completedAt) < runtimeStartedAt) {
         return { ...current, ...identity, requiresRestart: false }
       }
       return { ...current, ...identity }

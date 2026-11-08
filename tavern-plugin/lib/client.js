@@ -39991,7 +39991,7 @@ function TavernCardUpdateDialog(props) {
 					? (updateStatus.host === "desktop"
 						? "更新完成，请重启 DeepSeek Harness。"
 						: updateStatus.host === "android"
-							? "Android 更新完成，3088 服务已重启；如移动端界面未更新，请重启 DSHA。"
+							? "Android 更新完成，3088 服务已加载新版；界面仍是旧版时请关闭并重开酒馆工作台。"
 							: "更新完成，请刷新页面。")
 					: updateStatus.phase === "failed" || updateStatus.phase === "check-failed"
 						? (updateStatus.error || "更新失败，请稍后重试。")
