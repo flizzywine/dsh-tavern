@@ -752,8 +752,17 @@ export function createStoryTimeline(options = {}) {
   }
 
   function rollbackTarget(input) {
-    const chat = ensure(input && input.chat)
-    const checkpoint = chat.timeline.checkpoints[chat.timeline.checkpoints.length - 1]
+    const source = input && input.chat
+    const timeline = object(source && source.timeline)
+    // Older schemas are reset by ensure(), so they cannot have a rollback target.
+    if (Number(timeline.schemaVersion) !== 1) return null
+    const legacyBody = Object.values(object(timeline.operations)).some(operation =>
+      operation && operation.kind === 'body' && operation.status === 'foreground-completed')
+    // A normalized timeline needs no story rows to inspect its final checkpoint.
+    // Preserve the legacy foreground migration, which can create that checkpoint.
+    const resolved = legacyBody ? ensure(source).timeline : timeline
+    const checkpoints = Array.isArray(resolved.checkpoints) ? resolved.checkpoints : []
+    const checkpoint = checkpoints[checkpoints.length - 1]
     if (checkpoint === undefined || checkpoint.before !== undefined) return null
     return {
       checkpointId: str(checkpoint.id),

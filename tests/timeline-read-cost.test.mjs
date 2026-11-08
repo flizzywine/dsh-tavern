@@ -33,6 +33,17 @@ test('display header checkpoint count is lazy and explicit reads stay complete',
  assert.equal(copyLazyHistoryHeader(source).timeline.checkpoints[0].before.text,'body')
 })
 
+test('rollback target reads normalized checkpoint metadata without cloning story rows',()=>{
+ let reads=0
+ const messages=Array.from({length:400},()=>({get text(){reads++;return 'body'}}))
+ const timeline={schemaVersion:1,branchId:'b',revision:4,participants:{},operations:{},checkpoints:[{id:'cp',beforeRevision:3}]}
+ const engine=createStoryTimeline()
+ assert.deepEqual(engine.rollbackTarget({chat:{messages,timeline}}),{checkpointId:'cp',beforeRevision:3})
+ assert.equal(reads,0,'rollback metadata must not serialize message history')
+ assert.equal(engine.rollbackTarget({chat:{messages,timeline:{...timeline,schemaVersion:0}}}),null)
+ assert.equal(reads,0,'legacy schema reset must not serialize message history either')
+})
+
 for(const checkpoints of [null,{},[],[{}]])test(`timeline inspection preserves normalized checkpoint count: ${JSON.stringify(checkpoints)}`,()=>{
  const engine=createStoryTimeline({id:()=> 'b',now:()=>1})
  for(const schemaVersion of [0,1]){
