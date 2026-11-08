@@ -1,6 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createChatWrites } from '../tavern-plugin/lib/domain/chat-writes.js'
+import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
+import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
+import { mkdtemp, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 
 function fixture(persist = async () => saved) {
   const events = []
@@ -92,4 +97,30 @@ test('默认 patch 返回存档头，不能把空投影当成正文已删除', a
   const {writes, events} = fixture(async () => head)
   await writes.patch('chat', 1, [{op:'set',path:['messages',1,'stageDirectionRunning'],value:{boot:'test'}}])
   assert.deepEqual(events.find(([name]) => name === 'summary')[2], {metadataOnly:true})
+})
+
+test('开场白字段片段与真实 native patch 合并时不删除保留字段', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-header-write-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  const initial = await persistence.write({ id: 'chat', sessionId: 'session', mode: 'story', messages: [{ role: 'assistant', text: '开场白' }], nativeOpeningAppended: false })
+  let patchCalls = 0, updateCalls = 0
+  const records = {
+    ...persistence,
+    patch: async (...args) => { patchCalls++; return persistence.patch(...args) },
+    update: async (...args) => { updateCalls++; return persistence.update(...args) }
+  }
+  const writes = createChatWrites({ persistence: records, isDeleted: () => false,
+    candidatesChanged() {}, syncSummary: async () => {}, publish() {}, syncTemplates() {}, queueCompaction() {} })
+  const saved = await writes.updateHeader('chat', ['nativeOpeningAppended', 'updatedAt', '_storageRevision'],
+    () => ({ nativeOpeningAppended: true }), { source: 'opening.native-append' })
+  assert.equal(saved.nativeOpeningAppended, true)
+  assert.equal(saved._storageRevision, initial._storageRevision + 1)
+  assert.equal(patchCalls, 1)
+  assert.equal(updateCalls, 0)
+  const stored = await persistence.read('chat')
+  assert.equal(stored.id, 'chat')
+  assert.equal(stored.nativeOpeningAppended, true)
+  assert.equal(stored._storageRevision, initial._storageRevision + 1)
+  assert.deepEqual(stored.messages, initial.messages)
 })

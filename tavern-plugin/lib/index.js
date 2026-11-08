@@ -1017,7 +1017,7 @@ export async function apply(ctx) {
     catch (error) { console.warn('dsh-tavern: 会话摘要索引同步失败，将在下次启动修复:', str(error && error.message || error)) }
   }
   const deletedChatIds = new Set()
-  const { write: writeChat, writeHeader: writeChatHeader, update: updateChat, patch: patchChat, writeRaw: rawWriteChat } = createChatWrites({
+  const { write: writeChat, writeHeader: writeChatHeader, update: updateChat, patch: patchChat, writeRaw: rawWriteChat, updateHeader: updateChatHeader } = createChatWrites({
     persistence: chatPersistence,
     isDeleted: id => deletedChatIds.has(id),
     candidatesChanged: (saved, metadata) => candidateWorldbookPreparation?.changed(saved, metadata),
@@ -1027,22 +1027,6 @@ export async function apply(ctx) {
     queueCompaction: queueAutoCompaction,
     observePatch: presentationObservers.patched
   })
-  // Header fields only: `mutate` gets and returns those fields; the difference is patched,
-  // never the history. A concurrent write retries; storage without slices, a write outside
-  // `fields` or a lasting race falls back to the whole-Chat update.
-  async function updateChatHeader(chatId, fields, mutate, metadata) {
-    const pick = chat => Object.fromEntries(fields.filter(field => Object.hasOwn(chat, field)).map(field => [field, chat[field]]))
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const head = (await chatPersistence.readSlice(chatId, [], ['_storageRevision', ...fields]))?.chat
-      if (!head || !Number.isSafeInteger(head._storageRevision)) break
-      const before = pick(head), changes = diffJson(before, await mutate(structuredClone(before)))
-      if (!changes.length) return head
-      if (changes.some(change => !fields.includes(String(change.path[0])))) break
-      const saved = await patchChat(chatId, head._storageRevision, changes, { ...metadata, returnProjection: fields })
-      if (saved) return saved
-    }
-    return updateChat(chatId, async current => Object.assign(current, await mutate(structuredClone(pick(current)))), metadata)
-  }
   // One message's own fields, patched against a one-row read: the history is not read whole.
   async function updateChatMessage(chatId, index, mutate, metadata) {
     for (let attempt = 0; attempt < 10; attempt++) {

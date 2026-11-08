@@ -1,4 +1,5 @@
 import { taskStateFields } from './task-state-reader.js'
+import { diffJson } from './json-mutation.js'
 
 // What the effects below read from a Chat besides its history: the conversation index row, the
 // director and mods (ids, card, timeline), template display (mode, settlement) and candidates.
@@ -76,5 +77,22 @@ export function createChatWrites({ persistence, isDeleted, candidatesChanged, sy
     return saved
   }
 
-  return Object.freeze({ write, writeHeader, update, patch, writeRaw })
+  // Header mutations return partial fields. Revision/stamps may be requested for
+  // the result projection, but persistence alone advances them in the stored diff.
+  async function updateHeader(chatId, fields, mutate, metadata) {
+    const pick = chat => Object.fromEntries(fields.filter(field => Object.hasOwn(chat, field)).map(field => [field, chat[field]]))
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const head = (await persistence.readSlice?.(chatId, [], ['_storageRevision', ...fields]))?.chat
+      if (!head || !Number.isSafeInteger(head._storageRevision)) break
+      const before = pick(head), produced = await mutate(structuredClone(before))
+      const changes = diffJson(before, { ...before, ...produced })
+      if (!changes.length) return head
+      if (changes.some(change => !fields.includes(String(change.path[0])))) break
+      const saved = await patch(chatId, head._storageRevision, changes, { ...metadata, returnProjection: fields })
+      if (saved) return saved
+    }
+    return update(chatId, async current => Object.assign(current, await mutate(structuredClone(pick(current)))), metadata)
+  }
+
+  return Object.freeze({ write, writeHeader, update, patch, writeRaw, updateHeader })
 }
