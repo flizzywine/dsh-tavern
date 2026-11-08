@@ -544,7 +544,10 @@
 			// 只有真正在跑的结算才挡住生成：pending 只是排队信号，结算被关掉或永远等不到
 			// 下一次时，它会把按钮永久写成「后台结算中…」（玩家明明没开后台结算）。
 			const settlementActive = activity.role === "settlement" && activity.busy === true;
-			const canRollback = rollbackViewState.view && (rollbackViewState.view.canRegenerate ?? rollbackViewState.view.canRollback) === true;
+			// 这一局的视图没读到时，按钮只能灰着：它既不知道该重生成哪一段，也拿不到
+			// canRegenerate。分开记下来，别让「还没读到」被说成「还没有正文」。
+			const viewReady = Boolean(rollbackViewState.view);
+			const canRollback = viewReady && (rollbackViewState.view.canRegenerate ?? rollbackViewState.view.canRollback) === true;
             const clearIncomplete = rollbackViewState.view && rollbackViewState.view.canClearIncompleteReply === true;
 			// A failure still owning the tail can be withdrawn or handed to the debugger.
 			const failedTailTurn = rollbackViewState.view && rollbackViewState.view.failedTailTurn !== null && rollbackViewState.view.failedTailTurn !== undefined
@@ -564,6 +567,25 @@
 			const taskForMessage = candidateTask && candidateTask.kind === "candidate" && candidateTask.input && String(candidateTask.input.messageId || "") === String(props.messageId || "") ? candidateTask : null;
 			const taskBusy = !!(taskForMessage && taskForMessage.busy);
 			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";
+			// 视图会整块丢掉：读取被替换、几轮中止之后记录被清空、错误里带着空视图回来。
+			// 丢掉之后没人再读一次，按钮就一直灰着，直到玩家顺手点开「更多」（那里的菜单项
+			// 一挂载就会补读）。别的都在闲着时自己补读，最多三次，别把恢复寄托在下一次点击上。
+			const healTries = React.useRef({ key: "", count: 0 });
+			React.useEffect(function () {
+				if (viewReady || frontRunning || compacting || regenBusy || activity.busy || !latestMessageId) {
+					healTries.current = { key: "", count: 0 };
+					return;
+				}
+				const key = String(props.sessionId) + ":" + String(latestMessageId);
+				if (healTries.current.key !== key) healTries.current = { key: key, count: 0 };
+				if (healTries.current.count >= 3) return;
+				const timer = window.setTimeout(function () {
+					healTries.current.count += 1;
+					liveTavernView.invalidate(props.sessionId);
+					tavernCoordination.invalidate(props.sessionId);
+				}, 700 + healTries.current.count * 900);
+				return function () { window.clearTimeout(timer); };
+			}, [viewReady, frontRunning, compacting, regenBusy, activity.busy, props.sessionId, latestMessageId]);
 			const [withdrawBusy, setWithdrawBusy] = React.useState(false);
 			const draft = props.useInput(snapshot => snapshot.draft);
 			const projectedTaskRef = React.useRef("");
@@ -643,7 +665,7 @@
 						generate(false);
 					}
 				} }, settlementActive ? "后台结算中…" : (activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项")))),
-				props.only !== "choices" ? h("button", { className: "dsh-tavern-choice-trigger", "data-fork-action": "regen", "data-busy": regenBusy || undefined, "aria-busy": regenBusy || undefined, disabled: !canRollback || frontRunning || compacting || (activity.busy && !settlementActive) || regenBusy, title: regenBusy ? "正在重新生成正文…" : compacting ? "正在压缩上下文，请稍候" : !canRollback ? "还没有可重新生成的正文：先发送一条消息，或等这一轮写完" : (settlementActive ? "重新生成将取消当前正文的后台结算" : (activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文")), onClick: openRegeneration }, regenBusy ? "重生成中…" : "重新生成正文") : null,
+				props.only !== "choices" ? h("button", { className: "dsh-tavern-choice-trigger", "data-fork-action": "regen", "data-busy": regenBusy || undefined, "aria-busy": regenBusy || undefined, disabled: !canRollback || frontRunning || compacting || (activity.busy && !settlementActive) || regenBusy, title: regenBusy ? "正在重新生成正文…" : compacting ? "正在压缩上下文，请稍候" : frontRunning ? "这一轮还在收尾，结束后才能重新生成" : !viewReady ? "正在读取这一局，稍候…" : !canRollback ? "还没有可重新生成的正文：先发送一条消息，或等这一轮写完" : (settlementActive ? "重新生成将取消当前正文的后台结算" : (activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文")), onClick: openRegeneration }, regenBusy ? "重生成中…" : "重新生成正文") : null,
 				props.only !== "choices" && failedTailTurn !== null ? h("button", { className: "dsh-tavern-choice-trigger dsh-tavern-withdraw-failed", disabled: frontRunning || withdrawBusy, title: "清除这一轮：恢复到这一轮开始前，此前的剧情和变量不变，原输入放回输入框", onClick: withdrawFailed }, withdrawBusy ? "撤回中…" : "撤回这条输入") : null,
 				props.only !== "choices" && failedTailTurn !== null ? h(TavernDebugButton, { sessionId: props.sessionId, className: "dsh-tavern-choice-trigger", label: "交给调试 Agent" }) : null
 			);
