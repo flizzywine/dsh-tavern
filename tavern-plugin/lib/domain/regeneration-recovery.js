@@ -197,13 +197,15 @@ export function createRegenerationRecovery({ chats, sessions, isActive }) {
     return saved
   }
 
-  async function recover(chatId) {
+  async function recover(chatId, initialChat = null) {
     if (isActive(chatId) || recovering.has(chatId)) return
     recovering.add(chatId)
     let handle
     try {
-      if (chats.readState && !(await chats.readState(chatId))?.regenInProgress) return
-      const chat = await chats.read(chatId)
+      // Regeneration already loaded the complete story to select its target. Other
+      // callers keep the cheap state-only guard instead of reconstructing Chat.
+      if (!initialChat && chats.readState && !(await chats.readState(chatId))?.regenInProgress) return
+      const chat = initialChat || await chats.read(chatId)
       if (!chat || chat.regenInProgress !== true) return
       // Independent providers have not changed the native model surface. Their
       // story placeholder stays discarded; a crash only abandons the lock and

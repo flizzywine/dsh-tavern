@@ -3569,13 +3569,15 @@ export async function apply(ctx) {
     prepareRegenerationReply: ({ text }) => projectProcessedReply(text),
     notifyRegeneration: (sessionId, { turn }) => notifyPluginTimeline(sessionId, 'regenerate', { turn }),
     present: presentStory,
+    trace: requestPerformance,
     sessionPatch,
   })
 
   async function regenBody(chatId, guidance, sessionId) {
-    const id = sessionId || (await readChat(chatId))?.sessionId
-    const generated = await pluginBodyGeneration.regenerate(id, str(guidance))
-    return generated === null ? nativeRegenBody(chatId, guidance, sessionId) : presentStory(await chatForSession(id))
+    const id = sessionId || (await requestPerformance.stage('regen.resolve', () => readChat(chatId)))?.sessionId
+    const generated = await requestPerformance.stage('regen.plugin-generate', () => pluginBodyGeneration.regenerate(id, str(guidance)))
+    return generated === null ? nativeRegenBody(chatId, guidance, sessionId)
+      : requestPerformance.stage('regen.plugin-present', async () => presentStory(await chatForSession(id)))
   }
   const bodyEditor = createBodyEditor({
     // Story editing resolves an absolute row/UID and must not read a sparse

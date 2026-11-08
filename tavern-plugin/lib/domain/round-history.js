@@ -310,9 +310,10 @@ function commitOfRound(commits, assistant, userText) {
 }
 
 export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement, present, diagnostics, sessionPatch,
-  readRegenerationMaterials, prepareRegenerationFrame, prepareRegenerationReply, notifyRegeneration }) {
-  const { read: readChat, forSession: chatForSession, readCard: readChatCard,
+  readRegenerationMaterials, prepareRegenerationFrame, prepareRegenerationReply, notifyRegeneration, trace }) {
+  const { read: readChat, forSession: chatForSession, readCard: readChatCard, readState: readChatState,
     readRevision: readChatRevision, write: writeChat, update: updateChat } = chats
+  const stage = (name, task) => trace?.stage ? trace.stage(name, task) : task()
   const { read: readScript, continuity: scriptContinuity } = scripts
   const tavernScriptHostAdapter = scripts
   const storyTimeline = timeline
@@ -337,14 +338,16 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   async function regenerate(chatId, guidance, sessionId) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
     // Regeneration replaces one stored body: it needs the story rows, including the
-    // turn the caller picked, not the header-only activity view.
-    const chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
+    // turn the caller picked, not the header-only activity view. Reuse this complete
+    // snapshot for recovery and the pre-generation plan when recovery has no marker.
+    const chat = await stage('regen.load', () => str(chatId) === '' ? chatForSession(sessionId) : readChat(chatId))
     if (!chat) throw new Error('聊天不存在: ' + chatId)
     if (pendingRegenerations.has(chat.id) || pendingRollbacks.has(chat.id)) throw new Error('正文正在重新生成，请等待完成')
-    await regenerationRecovery.recover(chat.id)
+    const reusable = chat.regenInProgress ? null : chat
+    await stage('regen.recover', () => regenerationRecovery.recover(chat.id, chat))
     if (pendingRegenerations.has(chat.id) || pendingRollbacks.has(chat.id)) throw new Error('正文正在重新生成，请等待完成')
     pendingRegenerations.add(chat.id)
-    try { return await regenRecent(chat.id, guidance, sessionId) ?? await regenBody(chat.id, guidance, sessionId) }
+    try { return await regenRecent(chat.id, guidance, sessionId, reusable) ?? await regenBody(chat.id, guidance, sessionId, reusable) }
     finally { pendingRegenerations.delete(chat.id) }
   }
 
@@ -380,9 +383,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (beforeChat === undefined) throw new Error('找不到剧情 checkpoint 对应的历史 Chat revision: ' + target.beforeRevision)
     return Object.assign({}, intent, { beforeChat })
   }
-  async function regenBody(chatId, guidance, sessionId) {
+  async function regenBody(chatId, guidance, sessionId, initialChat = null) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
-    let chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
+    let chat = initialChat || await stage('regen.load-body', () => str(chatId) === '' ? chatForSession(sessionId) : readChat(chatId))
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
     chat = restoreDiscardedRegeneration(chat)
     assertRescueHistoryEditable(chat)
@@ -445,8 +448,18 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
 
     // Stop settlement before the immutable source snapshot. The begin update
     // replaces the old prose with an empty placeholder; failure never restores it.
+    // With no settlement to cancel, reuse the complete snapshot only when the
+    // cheap persisted revision proves that a concurrent story edit did not land.
     if (activeRound !== undefined && typeof cancelSettlement === 'function') await cancelSettlement(chat.id)
-    chat = restoreDiscardedRegeneration(await readChat(chat.id))
+    let sourceState = null
+    if (activeRound === undefined && typeof readChatState === 'function') {
+      sourceState = await stage('regen.source-state', () => readChatState(chat.id))
+    }
+    const sourceUnchanged = activeRound === undefined && sourceState &&
+      Number.isSafeInteger(sourceState._storageRevision) && Number.isSafeInteger(chat._storageRevision) &&
+      sourceState._storageRevision === chat._storageRevision
+    if (!sourceUnchanged) chat = await stage('regen.source', () => readChat(chat.id))
+    chat = restoreDiscardedRegeneration(chat)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
     chat.sessionId = effectiveSessionId
     if (agent.phase?.kind === 'running' || chat.regenInProgress) throw new Error('前台正在生成，请完成或停止后再重新生成')
@@ -509,7 +522,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const replacingTurn = appending ? null : surfaceTurnOfSeq(sessionEvents(session), oldSeq)
     const lifecycleRevision = Math.max(0, Number(originalChat.tavernHelperLifecycleRevision) || 0) + 1
     let marked = false, committed = false
-    await updateChat(chat.id, function (current) {
+    await stage('regen.begin', () => updateChat(chat.id, function (current) {
       if (agent.phase?.kind === 'running' || current.regenInProgress) throw new Error('前台正在生成，请完成或停止后再重新生成')
       const logical = restoreDiscardedRegeneration(current)
       if (!failedTail) assertRegenerationSourceCurrent({ originalChat, currentChat: logical, assistantIndex: oldAssistantIndex, inputIndex })
@@ -523,22 +536,24 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       current.regenInProgress = true
       current.tavernHelperLifecycleRevision = lifecycleRevision
       return current
-    }, { source: 'foreground.regen-begin', worldSelection: { preserveWorld: true } })
+    }, { source: 'foreground.regen-begin', worldSelection: { preserveWorld: true } }))
     marked = true
 
     let committedChat, body = '', syntheticTurn = candidateTurn, keptStreamed = false
     try {
       releaseOpeningTurn(agent.session, agent)
-      const ready = await readChat(chat.id)
+      const ready = await stage('regen.ready', () => readChat(chat.id))
       if (ready?.regenRecovery?.id !== operationId || agent.phase?.kind === 'running') throw new Error('重新生成操作已失效或前台正在生成')
-      agent.followup({
-        id: randomUUID(),
-        role: 'user',
-        content: projectPlayerContent(inputRow?.inputAttachments, syntheticText),
-        source: { kind: 'plugin:dsh-tavern-regen', regenerationId: operationId }
-      })
       let generationError = null
-      try { await agent.whenIdle() } catch (error) { generationError = error }
+      await stage('regen.generate', async function () {
+        agent.followup({
+          id: randomUUID(),
+          role: 'user',
+          content: projectPlayerContent(inputRow?.inputAttachments, syntheticText),
+          source: { kind: 'plugin:dsh-tavern-regen', regenerationId: operationId }
+        })
+        try { await agent.whenIdle() } catch (error) { generationError = error }
+      })
       const ownStart = sessionEvents(session).slice(eventStart).find(event => event?.type === 'turn/start')
       if (ownStart) syntheticTurn = Number(ownStart.data?.turn) || syntheticTurn
       else if (Number.isFinite(Number(agent.phase?.lastTurn))) syntheticTurn = Number(agent.phase.lastTurn)
@@ -548,8 +563,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         throw new Error('这次重新生成没有完成（可能被内容审核拦截或已停止），旧正文已撤下，可以再试一次。' + FOREGROUND_TOOL_HINT)
       }
       keptStreamed = generationError !== null || attemptReachedOutputLimit(session, syntheticTurn, eventStart)
-      if (typeof sessions.flush === 'function') await sessions.flush(session)
-      const storedCandidate = await readChat(chat.id)
+      if (typeof sessions.flush === 'function') await stage('regen.flush-native', () => sessions.flush(session))
+      const storedCandidate = await stage('regen.read-candidate', () => readChat(chat.id))
       const nativeCandidateRow = storedCandidate?.messages?.at(-1)?.role === 'assistant' &&
         Number(storedCandidate.messages.at(-1).turn) === Number(syntheticTurn) ? storedCandidate.messages.at(-1) : null
 
@@ -653,7 +668,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
           message: { id: 'tavern-regen:' + operationId, role: 'assistant', content: [{ type: 'text', text: prose.text }],
             source: { ...oldSource, tavernStoryTurn: storyTurn } } }, operationId)
 
-      committedChat = await updateChat(chat.id, function (current) {
+      committedChat = await stage('regen.commit', () => updateChat(chat.id, function (current) {
         if (failedTail) assertUnansweredTailOwned(current, operationId)
         else if (current?.regenRecovery?.id !== operationId || current.regenRecovery?.phase !== 'prepared') {
           throw new Error('重新生成操作已失效')
@@ -669,7 +684,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         current.regenRecovery = { ...current.regenRecovery, phase: 'committed', projection }
         current.tavernHelperLifecycleRevision = Number(current.tavernHelperLifecycleRevision || 0) + 1
         return current
-      }, { source: 'foreground.regen-commit', worldSelection: { preserveDetachedWorld: true } })
+      }, { source: 'foreground.regen-commit', worldSelection: { preserveDetachedWorld: true } }))
       committed = true
       const bodyIndex = failedTail ? (committedChat.messages?.length || 1) - 1 : oldAssistantIndex
       body = str(committedChat.messages?.[bodyIndex]?.text || prose.text).trim()
@@ -688,11 +703,11 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     let settledChat = committedChat
     const settlement = Promise.resolve(queueSettlement(committedChat.id))
     try {
-      const finished = await Promise.race([
+      const finished = await stage('regen.settlement', () => Promise.race([
         settlement.then(() => true),
         new Promise(function (resolve) { setTimeout(finished => resolve(finished), REGEN_SETTLEMENT_WAIT_MS, false) })
-      ])
-      if (finished) settledChat = await readChat(committedChat.id) || committedChat
+      ]))
+      if (finished) settledChat = await stage('regen.settled-read', () => readChat(committedChat.id)) || committedChat
       else void settlement.catch(async error => {
         const message = str(error?.message || error) || '后台结算失败'
         try {
@@ -713,7 +728,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         return current
       }, { source: 'settlement.regen-failed' })
     }
-    const result = await view(settledChat, card)
+    const result = await stage('regen.present', () => view(settledChat, card))
     result.adopted = { text: body, guidance: guide, hiddenTurn: failedTail ? storyTurn : oldTurn, syntheticTurn }
     if (keptStreamed) result.regenerationWarning = '这次重新生成没有完成（可能被内容审核拦截或已停止），已保留生成到的部分正文。' + FOREGROUND_TOOL_HINT
     return result
@@ -722,8 +737,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   // The former bounded path rolled back a checkpoint before generation and
   // restored later floors on failure. Both full and scoped saves now share the
   // candidate-first transaction: story rows stay authoritative until one commit.
-  async function regenRecent(chatId, guidance, sessionId) {
-    return await regenBody(chatId, guidance, sessionId)
+  async function regenRecent(chatId, guidance, sessionId, initialChat = null) {
+    return await regenBody(chatId, guidance, sessionId, initialChat)
   }
 
   // ---------- 回退本轮（删除最近一次用户输入 + LLM 输出） ----------

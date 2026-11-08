@@ -220,7 +220,7 @@ export function createPlayHandlers(deps) {
       if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板回退后重新行动')
       autoChoices.cancel(args && args.sessionId)
       if (args?.restyle === true) await retryStyleReference(args.sessionId, { target: 'regenerate', guidance: args.styleGuidance })
-      await reconcileStory(args && args.sessionId)
+      await requestPerformance.stage('regen.reconcile', () => reconcileStory(args && args.sessionId))
       polishPrereview.cancel(args?.sessionId)
       const view = await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId)
       notifyPluginTimeline(args && args.sessionId, 'regenerate')

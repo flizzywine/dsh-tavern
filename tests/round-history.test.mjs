@@ -139,6 +139,24 @@ test('failed foreground resume leaves rollback data intact and permits retry', a
   assert.equal(h.chat.messages.length,1)
 })
 
+for (const checkpoint of [false, true]) test('重新生成复用完整快照并拆分模型与本地阶段，checkpoint=' + checkpoint, async () => {
+  const h = harness({ checkpoint })
+  const read = h.options.chats.read
+  const stages = []
+  let reads = 0
+  h.options.chats.read = async (...args) => { reads++; return read(...args) }
+  h.options.chats.readState = async () => ({ _storageRevision: h.chat._storageRevision, regenInProgress: h.chat.regenInProgress })
+  h.options.trace = { stage: async (name, task) => { try { return await task() } finally { stages.push(name) } } }
+  await h.create().regenerate('chat', '', 'session')
+  // load + ready + stored candidate + settled read; recovery, target planning and
+  // the immutable source snapshot reuse the first complete Chat.
+  assert.equal(reads, 4)
+  for (const name of ['regen.load', 'regen.recover', 'regen.begin', 'regen.ready', 'regen.generate', 'regen.read-candidate', 'regen.commit', 'regen.settlement', 'regen.present']) {
+    assert.ok(stages.includes(name), name)
+  }
+  assert.ok(stages.indexOf('regen.generate') < stages.indexOf('regen.read-candidate'))
+})
+
 test('前面回合只剩 AI 正文时，重新生成后面的回合仍保留前面正文', async () => {
   for (const checkpoint of [false, true]) {
     const h = harness({ checkpoint })

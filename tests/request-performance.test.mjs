@@ -20,6 +20,20 @@ test('并发请求独立计时，错误保留计时，容量有界且不保留�
   assert.equal(trace.read().recent[0].method, 'getSession')
 })
 
+test('重新生成保留模型阶段逐条计时但不混入开局诊断', async t => {
+  let time = 0
+  const trace = createRequestPerformance({now: () => time, wall: () => 1000})
+  t.after(() => trace.dispose())
+  const id = '00000000-0000-0000-0000-000000000003'
+  await trace.run('regenBody', id, () => trace.stage('regen.generate', async () => { time += 1200 }))
+  const row = trace.read().recent[0]
+  assert.equal(row.method, 'regenBody')
+  assert.equal(row.stages[0].name, 'regen.generate')
+  assert.equal(row.durationMs, 1200)
+  assert.equal(trace.read().openings.length, 0)
+  assert.equal(trace.read().slow.length, 1)
+})
+
 test('正文读取进入逐条诊断，原生表头与历史阶段不泄漏内容', async t => {
   let time = 100
   const trace = createRequestPerformance({now: () => time, wall: () => 1000})
