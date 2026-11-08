@@ -24,11 +24,21 @@ const CHANGE_WINDOW=64
 // logical workers bounded too, and install results in the original order.
 // Message lists go newest first: maintenance lays a head's blocks out in that order
 // and older floors mostly reuse subtrees the newer ones already decoded.
-async function mapRead(values,read,newestFirst=false){
+export async function mapRead(values,read,newestFirst=false){
  const result=new Array(values.length)
- let next=0
+ let next=0,completed=0,lastYield=performance.now()
  await Promise.all(Array.from({length:Math.min(8,values.length)},async()=>{
-  while(next<values.length){const index=newestFirst?values.length-1-next++:next++;result[index]=await read(values[index])}
+  while(next<values.length){
+   const index=newestFirst?values.length-1-next++:next++
+   result[index]=await read(values[index])
+   completed++
+   // Cached decodes resolve as microtasks too. Without a macrotask boundary a large
+   // full Chat can starve every unrelated RPC even though each individual read awaits.
+   if(completed%16===0&&completed<values.length&&performance.now()-lastYield>=8){
+    await new Promise(resolve=>setImmediate(resolve))
+    lastYield=performance.now()
+   }
+  }
  }))
  return result
 }

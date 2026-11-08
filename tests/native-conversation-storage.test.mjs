@@ -11,6 +11,7 @@ import {createChatPersistence} from '../tavern-plugin/lib/domain/chat-persistenc
 import {createConversationPageStore} from '../tavern-plugin/lib/domain/conversation-page-store.js'
 import {createConversationState} from '../tavern-plugin/lib/domain/conversation-state.js'
 import { projectChatSessionState, projectChatBackgroundConfig } from '../tavern-plugin/lib/domain/chat-session-state.js'
+import { mapRead } from '../tavern-plugin/lib/domain/native-conversation-storage.js'
 
 async function fixture(t){
  const root=await mkdtemp(join(tmpdir(),'native-chat-'))
@@ -21,6 +22,21 @@ async function fixture(t){
  return {root,store,persistence,pages,domain:createConversationState({store:pages}),io}
 }
 const row=gold=>({role:'assistant',text:'reward',variables:[{stat_data:{gold},schema:{}}]})
+
+test('大量原生记录解码时主动让出事件循环并保持原索引顺序',async()=>{
+ let ticked=false
+ const tick=new Promise(resolve=>setImmediate(()=>{ticked=true;resolve()}))
+ const values=Array.from({length:32},(_,index)=>index)
+ const result=await mapRead(values,async value=>{
+  const until=performance.now()+4
+  while(performance.now()<until){}
+  return value
+ },true)
+ const yieldedDuringRead=ticked
+ await tick
+ assert.equal(yieldedDuringRead,true)
+ assert.deepEqual(result,values)
+})
 
 test('process death during a buffered flush cannot publish half a variable transaction',async t=>{
  const {root,persistence}=await fixture(t)
