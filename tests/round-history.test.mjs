@@ -711,16 +711,31 @@ test('误回退后撤销恢复正文、变量和 checkpoint，并保留原生日
   await assert.rejects(history.undoRollback('session', 'chat'), /没有|失效/)
 })
 
-for (const mutation of ['empty-generation', 'edit']) test(`新操作使撤销恢复点失效：${mutation}`, async () => {
+for (const mutation of ['empty-generation', 'timeline-revision']) test(`新操作使撤销恢复点失效：${mutation}`, async () => {
   const h = harness({ checkpoint: true, journal: true })
   const history = h.create()
   await history.rollback('session', 'chat')
   if (mutation === 'empty-generation') h.session.append('turn/start', { turn: 3 })
-  else h.chat._storageRevision++
+  else h.chat.timeline.revision += 1
   const before = structuredClone(h.chat), nodes = [...h.session.surface.nodes]
   await assert.rejects(history.undoRollback('session', 'chat'), /失效/)
   assert.deepEqual(h.chat, before)
   assert.deepEqual(h.session.surface.nodes, nodes)
+})
+
+// 结算、显示捕获、世界书同步只推进存档计数，不动剧情。撤销回退不该因此永久失效。
+test('只有存档计数被后台推进时，撤销回退仍然可用', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  const history = h.create()
+  await history.rollback('session', 'chat')
+  assert.equal(h.chat.messages.length, 1)
+  h.chat._storageRevision += 1
+  h.chat.settleStatus = 'done'
+
+  await history.undoRollback('session', 'chat')
+
+  assert.equal(h.chat.messages.length, 3, '撤销后正文回到回退前')
+  assert.deepEqual(h.chat.messages.map(message => message.text), ['开场', '推门', '旧正文'])
 })
 
 test('撤销保存失败时恢复回退后的模型上下文，不覆盖正文', async () => {

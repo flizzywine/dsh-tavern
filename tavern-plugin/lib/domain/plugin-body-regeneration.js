@@ -163,9 +163,11 @@ export function createPluginBodyRegeneration(deps) {
       await chats.update(chatId, current => {
         if (agent.phase?.kind === 'running' || current.regenInProgress) throw error('TAVERN_PLUGIN_BUSY', '当前对话正忙')
         const logical = restoreDiscardedRegeneration(current)
+        // Only the target row is checked. This marker write touches neither the
+        // messages nor the timeline, so a bulk comparison here only refused retries
+        // that background settlement had touched in passing; the commit below still
+        // holds the full CAS.
         if (index !== null) assertRegenerationSourceCurrent({ originalChat: original, currentChat: logical, assistantIndex: index, inputIndex })
-        else if (!isDeepStrictEqual(logical.messages, original.messages)) throw error('TAVERN_PLUGIN_STALE_VERSION', '失败输入之前的历史已经变化')
-        if (!isDeepStrictEqual(current.timeline, original.timeline)) throw error('TAVERN_PLUGIN_STALE_VERSION', '本轮状态已经变化')
         current.regenInProgress = true
         current.regenRecovery = { id: operationId, phase: 'prepared', detached: true,
           beforeRevision: Number(current._storageRevision || 0), sessionId, eventStart,

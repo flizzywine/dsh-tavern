@@ -68,9 +68,12 @@ export function unchangedSinceRollback(session, afterCount, formatVersion = 4) {
 
 export function canUndoRollback(chat, session) {
   const saved = chat?.rollbackUndo
+  // The storage counter is not part of the undo contract: settlements, display
+  // captures and worldbook syncs bump it on their own schedule without touching
+  // the story, and requiring it to match froze the undo button for good. Branch,
+  // timeline revision, lifecycle and the native surface carry the real state.
   return Boolean(saved?.version === 1 && saved.ready === true && session
     && saved.branchId === chat.timeline?.branchId && saved.revision === chat.timeline?.revision
     && saved.lifecycleRevision === Number(chat.tavernHelperLifecycleRevision || 0)
-    && saved.storageRevision === Number(chat._storageRevision ?? chat.windowRevision ?? 0)
     && unchangedSinceRollback(session, saved.foreground.afterCount, saved.foreground.formatVersion || 3))
 }

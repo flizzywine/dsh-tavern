@@ -1148,7 +1148,13 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         // Rare error path: restore the exact pre-rollback Chat as the complete path does.
         const original = await readChatRevision(chat.id, revision)
         await updateChat(chat.id, current => {
-          if (current._storageRevision !== saved._storageRevision) throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
+          // The story is what must not have moved. A settlement, a display capture
+          // or a worldbook sync bumps the storage counter without touching the
+          // rollback, and refusing the repair on those left the rollback half applied.
+          if (current.timeline?.branchId !== committed.timeline?.branchId
+            || Number(current.timeline?.revision) !== Number(committed.timeline?.revision)) {
+            throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
+          }
           return storyTimeline.apply({ chat: current, intent: { kind: 'replacement.abort', restoreChat: original } }).chat
         }, { source: 'rollback.abort' })
       },
