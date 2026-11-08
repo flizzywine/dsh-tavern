@@ -354,18 +354,21 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     await agent.whenIdle()
   }
 
+  // 回退守卫只认「正文身份 + 分支 + 剧情版本」。正文身份是行位置与文本：content/
+  // inputAttachments/swipes/swipeId 是同一行的展示投影与备选稿，投影写回、换剑、
+  // 重新生成追加 swipe 都会动它们却没换这一轮正文，算进来只会误判并发。
   function rollbackBodyMessages(chat) {
-    return (chat.messages || []).map(({ role, turn, text, sourceText, content, inputAttachments, greeting, swipes, swipeId }) => ({ role, turn, text, sourceText, content, inputAttachments, greeting, swipes, swipeId }))
+    return (chat.messages || []).map(({ role, turn, text, sourceText }) => ({ role, turn, text, sourceText }))
   }
 
-  // 后台结算、候选扫描、世界书同步会写它们自己的字段；只有故事行或分支变了
-  // （或时间线被回退/重置）才说明这次回退/撤销不再适用。
-  function assertRollbackSnapshot(current, expected) {
-    if (current.timeline?.branchId !== expected.timeline?.branchId
-      || Number(current.timeline?.revision || 0) < Number(expected.timeline?.revision || 0)
-      || !isDeepStrictEqual(rollbackBodyMessages(current), rollbackBodyMessages(expected))) {
-      throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
-    }
+  // 三个调用点都会把读到的整份快照写回（正文 / 整个头 / 历史 Chat），剧情版本只能
+  // 严格相等：向前推进意味着别人刚提交了新剧情，写回就会把它吞掉。存储计数
+  // （storageRevision/updatedAt）与后台自有字段不在比较范围内。
+  // revision:false 给失败轮清理用：那一轮自己的延迟记账仍会推进剧情版本。
+  function assertRollbackSnapshot(current, expected, { revision = true } = {}) {
+    const state = chat => ({ branch: chat?.timeline?.branchId, body: rollbackBodyMessages(chat),
+      ...(revision ? { revision: Math.max(0, Number(chat?.timeline?.revision) || 0) } : {}) })
+    if (!isDeepStrictEqual(state(current), state(expected))) throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
   }
 
   async function prepareRollbackIntent(chat, intent) {
@@ -896,7 +899,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       chat = await updateChat(chat.id, current => {
         // Clearing only hides uncommitted residue. The failed turn's own deferred
         // bookkeeping may still be landing in the timeline; only story text must hold.
-        assertRollbackSnapshot(rollbackBodyMessages(current), rollbackBodyMessages(originalChat))
+        // 失败轮自己的延迟记账还会推进剧情版本；这里只要求正文与分支没变。
+        assertRollbackSnapshot(current, originalChat, { revision: false })
         const next = { ...current, suppressedDshTurns: [...new Set([...(current.suppressedDshTurns || []), ...failedTurns])].sort((a, b) => a - b), foregroundError: null, updatedAt: Date.now() }
         if (persistedTail) {
           const currentTail = replayablePersistedTurn(current)
@@ -1035,12 +1039,15 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     chat.updatedAt = Date.now()
     chat = await updateChat(chat.id, current => {
-      if (!isDeepStrictEqual(rollbackBodyMessages(current), rollbackBodyMessages(originalChat)) || current.timeline?.branchId !== originalChat.timeline?.branchId) throw new Error('回退期间正文已被其他操作修改，请刷新后重试')
+      // 下面写回的是这一刻读到的整份头：正文没变也可能有结算刚写下变量/模板数据，
+      // 只比正文和分支会把那份提交覆盖掉，所以剧情版本也必须相等。
+      assertRollbackSnapshot(current, originalChat)
       return chat
     }, { source: 'rollback' })
     return await finishRollback({ chat, card, agent, session, rollbackSurface, shadowedSeqs, undo, rollbackWarning, hiddenTurn, removedUserText, removedAssistantText,
       messageCount: (chat.messages || []).length, dispatchChat: chat,
       abort: () => updateChat(chat.id, current => {
+        // 判据：正文 + 分支 + 剧情版本严格相等（存储计数与后台自有字段不参与）。
         assertRollbackSnapshot(current, chat)
         return storyTimeline.apply({ chat: current, intent: { kind: 'replacement.abort', restoreChat: originalChat } }).chat
       }, { source: 'rollback.abort' }),
@@ -1358,13 +1365,18 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         changes.push(...bounded.changes)
         let head = await chats.patch(chat.id, chat._storageRevision, changes, { source: 'rollback.undo' })
         if (!head) {
-          // 后台写入推进了存档计数不算并发修改：同分支且故事行未变时，重读当前
-          // 版本再打一次同样的补丁（补丁只涉及表头与回退点，重放安全）。
-          const latest = await readChat(chat.id)
-          if (latest && latest.timeline?.branchId === chat.timeline?.branchId
-            && isDeepStrictEqual(rollbackBodyMessages(latest), rollbackBodyMessages(chat))) {
-            head = await chats.patch(chat.id, latest._storageRevision, changes, { source: 'rollback.undo' })
-          }
+          // CAS 落空只说明存储计数动了：结算、显示捕获、世界书同步都会推进它。
+          // 重读一次，确认没有行被改、这次撤销点也没被花掉，才按新 revision 重放
+          // 同一份补丁（补丁是 journal 操作，只碰表头与被回退的行，重放安全）；
+          // 撤销点已花（rollbackUndo 没了或换了 id）就绝不把正文再写一遍。
+          const latest = await chats.readRecent(chat.id)
+          const moved = await chats.changedSince(chat.id, chat._storageRevision)
+          if (!latest || !moved || moved.indices.length !== 0
+            || latest.rollbackUndo?.id !== chat.rollbackUndo?.id
+            || latest.timeline?.branchId !== chat.timeline?.branchId
+            || Number(latest.timeline?.revision) !== Number(chat.timeline?.revision)
+            || latest.messages.length !== chat.messages.length) throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
+          head = await chats.patch(chat.id, moved.revision, changes, { source: 'rollback.undo' })
         }
         if (!head) throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
         restored = { ...result, ...head, messages: createScopedMessages(bounded.count) }

@@ -297,6 +297,66 @@ test('补偿期间出现并发修改时拒绝覆盖，并明确报告恢复失�
   assert.ok(!h.calls.includes('MESSAGE_DELETED'))
 })
 
+for (const injected of ['storage', 'body']) test(`清理失败轮时并发写入的判定：${injected}`, async () => {
+  const h = harness()
+  h.chat.messages.splice(1)
+  h.session.events.length = 0
+  h.session.surface.nodes.length = 0
+  h.session.append('turn/start', { turn: 2 })
+  h.session.append('user/message', { role: 'user', content: [{ type: 'text', text: '输入' }] }, { surfaceOp: 'append' })
+  h.session.append('turn/end', { turn: 2, reason: { kind: 'error', message: 'HTTP 500' } })
+  clearFailedTurnSurface({ session: h.session, turn: 2 })
+  const update = h.options.chats.update
+  h.options.chats.update = async (id, mutate, metadata) => {
+    if (metadata.source === 'rollback.interrupted') {
+      await update(id, current => {
+        current._storageRevision = Number(current._storageRevision || 0) + 1
+        if (current.timeline) current.timeline.revision = Number(current.timeline.revision || 0) + 1
+        if (injected === 'body') current.messages.push({ role: 'assistant', text: '并发正文' })
+        return current
+      }, { source: 'fixture' })
+    }
+    return update(id, mutate, metadata)
+  }
+  if (injected === 'body') {
+    await assert.rejects(h.create().rollback('session', 'chat'), /其他操作修改/, '正文被并发改动时必须拒绝清理')
+    return
+  }
+  const result = await h.create().rollback('session', 'chat')
+  assert.deepEqual(result.clearedIncompleteTurns, [2], '后台推进存储计数与剧情版本不影响清理')
+})
+
+test('回退提交时剧情版本前进视为并发修改：拒绝并保留别人的提交', async () => {
+  const h = harness({ checkpoint: true })
+  const update = h.options.chats.update
+  h.options.chats.update = async (id, mutate, metadata) => {
+    if (metadata.source === 'rollback') {
+      await update(id, current => { current.timeline.revision = Number(current.timeline.revision || 0) + 1; return current }, { source: 'fixture' })
+    }
+    return update(id, mutate, metadata)
+  }
+  await assert.rejects(h.create().rollback('session', 'chat'), /其他操作修改/)
+  assert.equal(h.chat.rollbackUndo, undefined, '被拒绝的回退不留下撤销点')
+})
+
+test('补偿时剧情版本前进必须拒绝：不许吞掉别人刚提交的正文', async () => {
+  const h = harness({ checkpoint: true })
+  const update = h.options.chats.update
+  h.options.chats.update = async (id, mutate, metadata) => {
+    if (metadata.source === 'rollback.abort') {
+      await update(id, current => {
+        current.timeline.revision = Number(current.timeline.revision || 0) + 1
+        current.posture = '别人推进的剧情'
+        return current
+      }, { source: 'fixture' })
+    }
+    return update(id, mutate, metadata)
+  }
+  h.session.append = () => { throw new Error('消息面拒绝') }
+  await assert.rejects(h.create().rollback('session', 'chat'), /回退失败且剧情恢复未完成.*其他操作修改/)
+  assert.equal(h.chat.posture, '别人推进的剧情', '补偿不得覆盖别人推进的剧情状态')
+})
+
 test('真实 journal 持久化：消息面失败后 checkpoint 可恢复、重建服务后可重试', async t => {
   const root = await mkdtemp(join(tmpdir(), 'tavern-rollback-regression-'))
   t.after(() => rm(root, { recursive: true, force: true }))

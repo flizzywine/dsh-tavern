@@ -188,6 +188,40 @@ test('bounded rollback stores the same Chat as the complete rollback without rea
   assert.deepEqual(comparable(undone[0].restored), comparable(undone[1].restored))
 })
 
+test('撤销回退的补丁落空一次时按新版本重试，正文只写一次', async t => {
+  const h = await fixture(t, true)
+  const before = await h.p.read('chat')
+  await h.rounds.rollback('session', 'chat', 81)
+  h.calls.length = 0
+  // 结算/显示捕获这类后台写入只推进存储计数，不影响这次撤销。
+  h.hooks.beforePatchOf = { 'rollback.undo': async () => { await h.p.update('chat', chat => { chat.settleStatus = 'running'; return chat }, { source: 'fixture.concurrent' }) } }
+  await h.rounds.undoRollback('session', 'chat')
+  const restored = await h.p.read('chat')
+  assert.deepEqual(restored.messages, before.messages)
+  assert.equal(restored.rollbackUndo, undefined)
+  assert.equal(h.calls.filter(call => call === 'patch:rollback.undo').length, 2, '按新 revision 重放同一份补丁')
+})
+
+test('撤销补丁落空且正文已被别人写时不再重写，直接报冲突', async t => {
+  const h = await fixture(t, true)
+  await h.rounds.rollback('session', 'chat', 81)
+  const afterRollback = await h.p.read('chat')
+  h.hooks.beforePatchOf = { 'rollback.undo': async () => { await h.p.update('chat', chat => { chat.messages.push({ role: 'assistant', turn: 999, text: '别人写的一行' }); return chat }, { source: 'fixture.concurrent' }) } }
+  await assert.rejects(h.rounds.undoRollback('session', 'chat'), /其他操作修改/)
+  const stored = await h.p.read('chat')
+  assert.equal(stored.messages.length, afterRollback.messages.length + 1, '不再把正文写一遍')
+  assert.equal(stored.rollbackUndo.ready, true, '撤销点保留，刷新后可重试')
+})
+
+test('撤销补丁落空且撤销点已被花掉时不再写正文', async t => {
+  const h = await fixture(t, true)
+  await h.rounds.rollback('session', 'chat', 81)
+  const afterRollback = await h.p.read('chat')
+  h.hooks.beforePatchOf = { 'rollback.undo': async () => { await h.p.update('chat', chat => { delete chat.rollbackUndo; return chat }, { source: 'fixture.concurrent' }) } }
+  await assert.rejects(h.rounds.undoRollback('session', 'chat'), /其他操作修改/)
+  assert.equal((await h.p.read('chat')).messages.length, afterRollback.messages.length)
+})
+
 test('rolling back a completed round drops its pre-saved input from the checkpoint', async t => {
   for (const bounded of [true, false]) {
     const h = await fixture(t, bounded, { earlyInput: true })
