@@ -12,12 +12,16 @@ function canProjectDirty(previous, chat, indices, changedHeaderFields) {
   // A deferred resource must never retain a capability for an outdated snapshot.
   if (previous?.cardResourceAccess && (!Array.isArray(changedHeaderFields)
     || changedHeaderFields.some(key => ['cardDefinitionSnapshot', 'openingWorldbookSnapshot'].includes(key)))) return false
-  const before = previous?.tavernHelper?.messages, after = chat.messages
-  if (!indices || !Array.isArray(before) || !Array.isArray(after) || before.length > after.length
-    || !helperMessagesComplete(before)) return false
+  const helper = previous?.tavernHelper, before = helper?.messages, after = chat.messages
+  if (!indices || !Array.isArray(after)) return false
+  // Ordinary cards have no Helper at all. They can still reuse their story and
+  // status projections; only a newly enabled MVU runtime needs a complete view.
+  if (helper == null) {
+    if (chat.mvu?.enabled === true) return false
+  } else if (!Array.isArray(before) || before.length > after.length || !helperMessagesComplete(before)) return false
   for (const index of indices) {
     if (!Number.isSafeInteger(index) || index < 0 || index >= after.length) return false
-    if (index >= before.length) continue
+    if (helper == null || index >= before.length) continue
     const role = before[index]?.role, source = after[index]
     const nextRole = source?.role === 'user' ? 'user' : 'assistant'
     if (role && !['assistant', 'user', 'system'].includes(role)) continue
@@ -85,7 +89,7 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
     } else {
       const dirty = selected.dirty ?? (matches(cached, next) && cached.revision < next.revision ? await changes(chat, cached.revision) : null)
       if (matches(cached, next) && canProjectDirty(cached?.view, chat, dirty, selected.changedHeaderFields)) {
-        view = await trace.stage('projectViewDirty', () => project.dirty(chat, cached.view, dirty, currentActivity, {layoutChanged:selected.layoutChanged,layoutFrom:selected.layoutFrom,changedHeaderFields:selected.changedHeaderFields,runtimeInputChanges:selected.runtimeInputChanges}))
+        view = await trace.stage('projectViewDirty', () => project.dirty(chat, cached.view, dirty, currentActivity, {baseRevision:cached.revision,layoutChanged:selected.layoutChanged,layoutFrom:selected.layoutFrom,changedHeaderFields:selected.changedHeaderFields,runtimeInputChanges:selected.runtimeInputChanges}))
         rebuild = 'dirty'
       } else {
         view = await project.full(chat, {...options,inputChanges:matches(cached,next) && dirty ? {baseRevision:cached.revision,indices:dirty,changedHeaderFields:selected.changedHeaderFields,runtimeInputChanges:selected.runtimeInputChanges} : undefined})

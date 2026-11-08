@@ -51,6 +51,28 @@ for(const request of [{viewSync:1},{viewSync:1,openingWindow:1,fullView:true}])t
  assert.equal((await reader.response({sessionId:'s',...request})).view,null)
 })
 
+for (const enabled of [false, true]) test(`无 Helper 历史可增量复用，新启用 MVU 仍完整重建: ${enabled}`, async () => {
+  const f = fixture()
+  f.deps.project.full = async value => {
+    f.calls.full++
+    return { chatId:value.id, tavernHelper:value.mvu?.enabled === true
+      ? { stateRevision:value._storageRevision, messages:structuredClone(value.messages) } : null }
+  }
+  f.deps.project.dirty = async (value, previous, _indices, _activity, options) => {
+    f.calls.dirty++
+    assert.equal(options.baseRevision, 1)
+    return { ...previous, dirty:true }
+  }
+  await f.reader.read('s')
+  f.chat = {...f.chat, _storageRevision:2, mvu:{enabled}}
+  f.deps.readViewDelta = async () => ({baseRevision:1, revision:2, indices:[0], chat:f.chat})
+  const view = await f.reader.read('s')
+  assert.equal(f.calls.fullRead, enabled ? 2 : 1)
+  assert.equal(f.calls.full, enabled ? 2 : 1)
+  assert.equal(f.calls.dirty, enabled ? 0 : 1)
+  assert.equal(view.dirty === true, !enabled)
+})
+
 for (const fields of [undefined, ['openingWorldbookSnapshot'], ['cardDefinitionSnapshot']]) test(`resource snapshot changes rebuild deferred capabilities: ${fields}`, async () => {
   const f = fixture(), project = f.deps.project.full
   f.deps.project.full = async chat => ({...await project(chat), cardResourceAccess:{revision:chat._storageRevision}})

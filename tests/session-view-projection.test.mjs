@@ -83,6 +83,19 @@ test('story projection never reads native evidence, surface, events or running a
   assert.equal(view.replacingDshTurns, undefined)
 })
 
+test('无 Helper 的普通卡也能增量更新正文而不伪造消息上下文', async () => {
+  const f = projectionFixture()
+  const chat = { ...f.chat, mvu: { enabled: false } }
+  const previous = await f.projection.project.full(chat)
+  assert.equal(previous.tavernHelper, null)
+  const next = { ...chat, _storageRevision: 2,
+    messages: [{ ...chat.messages[0], text: '增量正文', sourceText: '增量正文' }] }
+  const dirty = await f.projection.project.dirty(next, previous, new Set([0]), { busy: false },
+    { baseRevision: 1, layoutChanged: false })
+  assert.equal(dirty.tavernHelper, null)
+  assert.match(dirty.replyProjections[0].text, /增量正文/)
+})
+
 test('header-only player name changes refresh the view and helper across repeated writes and cached reads', async () => {
   const f = projectionFixture()
   let chat = { ...f.chat, macroState: { userName: '你' } }
