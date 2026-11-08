@@ -414,7 +414,7 @@ export function createChatJournalStore(options = {}) {
         target[parts.at(-1)] = source
       }
     }
-    return {chat:structuredClone({...head,messages:indices.map(i=>messages[i])}),messageCount:messages.length,denseMessages:Array.isArray(rawMessages) && (indexedMessages.info(rawMessages)?.complete ?? messages.every(m=>m && typeof m==='object' && !Array.isArray(m)))}
+    return {chat:copyJsonTree({...head,messages:indices.map(i=>messages[i])}),messageCount:messages.length,denseMessages:Array.isArray(rawMessages) && (indexedMessages.info(rawMessages)?.complete ?? messages.every(m=>m && typeof m==='object' && !Array.isArray(m)))}
   }
   // A pinned native snapshot for readers with their own shape (the stage's turn views); null without one.
   const openSnapshot = (chatId, options) => native.openSnapshot(chatId, options)
