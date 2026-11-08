@@ -1125,3 +1125,54 @@ test('重新生成中打断：只停前台运行，旧正文保持撤下、不�
   assert.equal(h.chat.regenRecovery, undefined)
   assert.equal(h.chat.rollbackUndo, undefined)
 })
+
+// 手机上后台结算几乎总在写存档：它写的是变量、候选这类记账字段，故事行本身没动。
+// 重新生成只该看故事，不能因为记账字段变了就拒绝这次重试（否则玩家看到的是
+// 「重新生成前剧情已经变化，请刷新后重试」，而它永远重试不了）。
+test('后台结算在重新生成开始前写入变量时，待回复的尾仍然补出正文', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true })
+  h.agent.phase.lastTurn = 3
+  const readCard = h.options.chats.readCard
+  h.options.chats.readCard = async value => {
+    // A settlement lands between target selection and the begin snapshot.
+    h.chat.messages[2].variables = [{ hp: 3 }]
+    h.chat.messages[2].settledAt = 1770000000000
+    return readCard(value)
+  }
+
+  await h.create().regenerate('chat', '', 'session')
+
+  assert.equal(h.agent.input.content[0].text, '最新输入')
+  assert.deepEqual(h.chat.messages.map(message => [message.role, message.text]), [
+    ['assistant', '开场'], ['user', '推门'], ['assistant', '旧正文'],
+    ['user', '最新输入'], ['assistant', '新正文4']
+  ])
+})
+
+test('生成期间结算写入变量时，待回复的尾仍然接收正文', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true })
+  h.agent.phase.lastTurn = 3
+  h.beforeGenerate(() => { h.chat.messages[2].variables = [{ hp: 5 }] })
+
+  await h.create().regenerate('chat', '', 'session')
+
+  assert.equal(h.agent.input.content[0].text, '最新输入')
+  assert.equal(h.chat.messages.at(-1).role, 'assistant')
+  assert.ok(h.chat.messages.some(message => message.role === 'assistant' && message.text === '新正文4'))
+})
+
+test('故事行真的变了时，待回复的尾仍然拒绝重新生成', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true })
+  h.agent.phase.lastTurn = 3
+  const readCard = h.options.chats.readCard
+  h.options.chats.readCard = async value => {
+    // A real story edit: the player rewrote an earlier body while the panel opened.
+    h.chat.messages[2].text = '改过的旧正文'
+    return readCard(value)
+  }
+
+  await assert.rejects(h.create().regenerate('chat', '', 'session'), /重新生成前剧情已经变化/)
+})

@@ -26,6 +26,25 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+// Story rows carry bookkeeping a background sweep rewrites on its own schedule
+// (variables, mvu, candidates, settle fields, timestamps). Regeneration only
+// depends on the story each row tells and on where the round sits, so the
+// "did the story change" guard compares these fields and never the whole row.
+const STORY_ROW_FIELDS = ['role', 'turn', 'text', 'sourceText', 'placeholder', 'greeting', 'native']
+
+function storyRowShape(messages) {
+  return (Array.isArray(messages) ? messages : []).map(function (message) {
+    if (message === null || typeof message !== 'object') return message
+    const shape = {}
+    for (const key of STORY_ROW_FIELDS) if (Object.hasOwn(message, key)) shape[key] = message[key]
+    return shape
+  })
+}
+
+function sameStoryRows(left, right) {
+  return isDeepStrictEqual(storyRowShape(left), storyRowShape(right))
+}
+
 function isRollbackInputPlaceholder(row, committedInput) {
   const requestId = str(committedInput?.source?.rpcId).trim()
   return requestId !== '' && row?.role === 'user' && row.placeholder === true && str(row.source?.rpcId).trim() === requestId
@@ -217,9 +236,11 @@ function assertUnansweredTailCurrent(original, current, operationId, syntheticTu
   if (saved?.id !== operationId || saved?.phase !== 'prepared') throw new Error('重新生成操作已失效')
   const before = Array.isArray(original?.messages) ? original.messages : []
   const messages = Array.isArray(current?.messages) ? current.messages : []
-  const unchanged = isDeepStrictEqual(messages, before)
+  // Variables and other per-row bookkeeping may have been settled while this
+  // turn generated; the story rows and the appended reply are what must match.
+  const unchanged = sameStoryRows(messages, before)
   const appended = !unchanged && messages.length === before.length + 2 &&
-    isDeepStrictEqual(messages.slice(0, before.length), before) &&
+    sameStoryRows(messages.slice(0, before.length), before) &&
     messages.at(-2)?.role === 'user' && messages.at(-1)?.role === 'assistant' &&
     Number(messages.at(-1)?.turn) === Number(syntheticTurn)
   if (!unchanged && !appended) throw new Error('重新生成期间剧情或后续输入已经变化')
@@ -449,8 +470,12 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (agent.phase?.kind === 'running' || chat.regenInProgress) throw new Error('前台正在生成，请完成或停止后再重新生成')
     if (failedTail) {
       // The unanswered input is the round's start point: it must still be the
-      // tail of the save, and no story row may have changed around it.
-      if (!isDeepStrictEqual(chat.messages, msgs0)) throw new Error('重新生成前剧情已经变化，请刷新后重试')
+      // tail of the save, and no story row may have changed around it. Only the
+      // story is compared: a background settlement or a candidate sweep may have
+      // rewritten variables or bookkeeping in the meantime, which leaves the
+      // round exactly where it was and must not refuse the retry (mobile clients
+      // hit that window constantly because their settlements keep writing).
+      if (!sameStoryRows(chat.messages, msgs0)) throw new Error('重新生成前剧情已经变化，请刷新后重试')
     } else assertRegenerationSourceCurrent({ originalChat: { ...chat, messages: msgs0 }, currentChat: chat, assistantIndex: oldAssistantIndex, inputIndex })
 
     const inputRow = inputIndex >= 0 ? msgs0[inputIndex] : null
@@ -506,7 +531,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       if (agent.phase?.kind === 'running' || current.regenInProgress) throw new Error('前台正在生成，请完成或停止后再重新生成')
       const logical = restoreDiscardedRegeneration(current)
       if (!failedTail) assertRegenerationSourceCurrent({ originalChat, currentChat: logical, assistantIndex: oldAssistantIndex, inputIndex })
-      if (!isDeepStrictEqual(logical.messages, originalChat.messages) || !isDeepStrictEqual(current.timeline, originalChat.timeline)) {
+      // Same rule as above: rows are compared by the story they tell, so a
+      // settlement that lands during the candidate frame does not turn into a
+      // "剧情已经变化" refusal. Timeline stays exact: it owns the rollback state.
+      if (!sameStoryRows(logical.messages, originalChat.messages) || !isDeepStrictEqual(current.timeline, originalChat.timeline)) {
         throw new Error('重新生成前剧情已经变化，请刷新后重试')
       }
       current.regenRecovery = { id: operationId, phase: 'prepared', detached: true,
