@@ -38,6 +38,7 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
   const cache = new Map()
   const openingCache = new Map()
   const openingPending = new Map()
+  const openingNegative = new Map()
   const helperWindows = new Map()
   const pending = new Map()
   async function changes(chat, revision) {
@@ -46,8 +47,8 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
     const changed = await readChanges(chat.id, revision)
     return changed?.revision === target ? new Set(changed.indices) : null
   }
-  async function load(sessionId, options = {}) {
-    const state=await readState(sessionId)
+  async function load(sessionId, options = {}, selectedState) {
+    const state=selectedState ? selectedState.state : await readState(sessionId)
     const resources=(state ? await resourceVersion(state) : '') + (options.deferResources ? '\ndeferred-resources' : '')
     const key=JSON.stringify([String(sessionId),state?.id,state && identity(state),resources,options])
     if (pending.has(key)) return pending.get(key)
@@ -138,34 +139,50 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
     }
     // Bounded and complete views have separate cache contracts. A window key pins
     // both its storage snapshot and external resources; it never becomes a Chat baseline.
+    const openingKey = JSON.stringify([String(sessionId),args.historyFrom ?? null])
+    let selectedState, openingAttempted = false
     if (args.openingWindow === 1 && args.viewSync === 1 && args.fullView !== true && readOpeningWindow && project.opening) {
-      const window = await trace.stage('readOpeningWindow', () => readOpeningWindow(sessionId, args.historyFrom))
-      if (window) {
-        const resources = await resourceVersion(window.chat)
-        const key = JSON.stringify([String(sessionId),window.chat.id,window.revision,window.from,window.to,window.messageCount,resources,args.resourceSync === 1])
-        let cached = openingCache.get(key), rebuild = 'window-cache'
-        if (!cached) {
-          let work = openingPending.get(key), owner = work === undefined
-          if (!work) {
-            work = trace.stage('projectOpeningWindow', () => project.opening(window, {deferResources:args.resourceSync === 1}))
-            openingPending.set(key, work)
+      const negative = openingNegative.get(openingKey)
+      if (negative) {
+        const state = await readState(sessionId)
+        if (state?.id === negative.chatId && identity(state).revision === negative.revision) selectedState = { state }
+        else openingNegative.delete(openingKey)
+      }
+      if (!selectedState) {
+        openingAttempted = true
+        const window = await trace.stage('readOpeningWindow', () => readOpeningWindow(sessionId, args.historyFrom))
+        if (window) {
+          openingNegative.delete(openingKey)
+          const resources = await resourceVersion(window.chat)
+          const key = JSON.stringify([String(sessionId),window.chat.id,window.revision,window.from,window.to,window.messageCount,resources,args.resourceSync === 1])
+          let cached = openingCache.get(key), rebuild = 'window-cache'
+          if (!cached) {
+            let work = openingPending.get(key), owner = work === undefined
+            if (!work) {
+              work = trace.stage('projectOpeningWindow', () => project.opening(window, {deferResources:args.resourceSync === 1}))
+              openingPending.set(key, work)
+            }
+            try {
+              cached = { view: await work }
+              openingCache.set(key, cached)
+              while (openingCache.size > 8) openingCache.delete(openingCache.keys().next().value)
+              rebuild = owner ? 'window' : 'window-cache'
+            } finally { if (openingPending.get(key) === work) openingPending.delete(key) }
           }
-          try {
-            cached = { view: await work }
-            openingCache.set(key, cached)
-            while (openingCache.size > 8) openingCache.delete(openingCache.keys().next().value)
-            rebuild = owner ? 'window' : 'window-cache'
-          } finally { if (openingPending.get(key) === work) openingPending.delete(key) }
+          trace.state({viewRebuild:rebuild,helperMessageCount:window.chat.messages.length})
+          return synchronize(String(sessionId),transportView(cached.view),args.viewCursor,{revision:window.revision,receiptSync:args.receiptSync})
         }
-        trace.state({viewRebuild:rebuild,helperMessageCount:window.chat.messages.length})
-        return synchronize(String(sessionId),transportView(cached.view),args.viewCursor,{revision:window.revision,receiptSync:args.receiptSync})
       }
     }
     const previous = args.viewSync === 1 ? synchronize.peek?.(args.viewCursor) : null
     const result = await load(sessionId, {
       deferResources: args.resourceSync === 1,
       windowHelperMessages: args.fullView !== true && args.viewSync === 1 && (args.viewCursor === undefined || args.viewCursor === null || args.viewCursor === '')
-    })
+    }, selectedState)
+    if (openingAttempted && result.chat) {
+      openingNegative.set(openingKey, { chatId: result.chat.id, revision: result.revision })
+      while (openingNegative.size > 16) openingNegative.delete(openingNegative.keys().next().value)
+    }
     if (args.viewSync !== 1) return { view: transportView(result.view) }
     const dirtyMessageIndices = result.chat && previous?.sessionId === String(sessionId)
       && Number.isSafeInteger(previous.revision) ? await changes(result.chat, previous.revision) : null

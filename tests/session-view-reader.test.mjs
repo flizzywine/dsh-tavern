@@ -106,6 +106,42 @@ test('同版本窗口的并发刷新共享一次投影', async () => {
   assert.equal(projections, 1)
 })
 
+test('不可用窗口按 revision 负缓存，版本前进后重新判定并可切换窗口', async () => {
+  let chat = {id:'c',sessionId:'s',mode:'story',_storageRevision:1,messages:[{role:'assistant',text:'正文'}]}
+  let openingReads = 0, fullReads = 0, available = false
+  const reader = createSessionViewReader({
+    readState:async () => ({...chat,messages:[]}),
+    readChat:async () => { fullReads++; return structuredClone(chat) },
+    readChanges:async () => ({revision:chat._storageRevision,indices:[0]}),
+    readOpeningWindow:async () => {
+      openingReads++
+      return available ? {revision:chat._storageRevision,from:0,to:0,messageCount:1,chat} : null
+    },
+    project:{
+      full:async value => ({revision:value._storageRevision}),
+      cached:async (_value,previous) => previous,
+      dirty:async value => ({revision:value._storageRevision}),
+      opening:async value => ({revision:value.revision,window:true})
+    },
+    activity:() => ({}),foregroundRunning:() => false,
+    trace:{stage:(_name,fn) => fn(),state() {}},synchronize:(_id,view) => ({view})
+  })
+  const request = {sessionId:'s',openingWindow:1,viewSync:1}
+  await reader.response(request)
+  await reader.response(request)
+  assert.equal(openingReads,1,'同版本不再重复读取已知不可用的窗口')
+  assert.equal(fullReads,1,'第二次仍复用完整视图缓存')
+  chat = {...chat,_storageRevision:2}
+  await reader.response(request)
+  assert.equal(openingReads,2,'revision 变化必须重新判定')
+  chat = {...chat,_storageRevision:3}
+  available = true
+  const response = await reader.response(request)
+  assert.equal(openingReads,3)
+  assert.equal(response.view.window,true)
+  assert.equal(fullReads,2,'可用窗口直接返回，不再补完整整读')
+})
+
 for(const request of [{viewSync:1},{viewSync:1,openingWindow:1,fullView:true}])test('legacy clients and explicit complete reads never receive a window: '+JSON.stringify(request),async()=>{
  const reader=createSessionViewReader({readOpeningWindow:()=>{throw Error('must keep complete contract')},readState:async()=>undefined,
   project:{opening:()=>{throw Error('unexpected')}},trace:{stage:(_name,fn)=>fn()},synchronize:(_id,view)=>({view})})
