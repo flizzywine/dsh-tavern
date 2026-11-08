@@ -12,7 +12,7 @@ const mode = (extension, engine) => { const value = effectiveCardStage(extension
 test('对话气泡 and 舞台模式 default off globally: an ordinary card has no stage, a declaring card does; stage cores stay on', () => {
   const ext = cardExtension()
   const engine = defaultAssetEngineSettings()
-  assert.deepEqual(engine.stageToggles, {dialogue:false,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true})
+  assert.deepEqual(engine.stageToggles, {dialogue:false,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true})
   assert.deepEqual(mode(ext, engine), [false, false])
   assert.equal(effectiveCardStage({...ext, stage:{dialogue:true}}, engine).stage, false, 'bubbles alone never enable stage')
   const declared = {...ext, stage:{dialogue:true, stage:true}}
@@ -65,7 +65,7 @@ test('使用舞台 is four-state: the card declaration is its card layer, 本卡
 })
 
 test('the other switches take a card layer in stage.switches, resolved like a mod switch', () => {
-  assert.deepEqual(CARD_STAGE_SWITCHES, ['voice','music','sfx','ambience','items','performance','entrance','autoChoices'])
+  assert.deepEqual(CARD_STAGE_SWITCHES, ['voice','music','sfx','ambience','items','performance','autoChoices'])
   const ext = cardExtension(), engine = defaultAssetEngineSettings(), with_ = switches => ({...ext, stage:{switches}})
   for (const globalOn of [false, true]) for (const choice of [undefined, 'on', 'off']) {
     const value = {...engine, stageToggles:{...engine.stageToggles, music:globalOn}}
@@ -75,7 +75,7 @@ test('the other switches take a card layer in stage.switches, resolved like a mo
   const effective = cardEngineSettings(engine, with_({performance:'off', sfx:'off'}))
   assert.equal(effective.stageToggles.performance, false)
   assert.equal(effective.dimensions.sfx, false)
-  assert.equal(effective.stageToggles.entrance, true)
+  assert.equal(effective.stageToggles.entrance, undefined, '入场演出 is no switch')
   // 自动生成选项: the global candidateAutoGenerate with stage.switches.autoChoices.
   assert.equal(effectiveAutoChoices(with_({autoChoices:'on'}), false), true)
   assert.equal(effectiveAutoChoices(with_({autoChoices:'off'}), true), false)
@@ -88,7 +88,7 @@ test('the other switches take a card layer in stage.switches, resolved like a mo
   assert.equal(effectiveNarrator(ext, narrator).enabled, true)
   // written once: only known keys, only 'on' / 'off'; the declared pair stays on stage.enabled.
   for (const switches of [{dialogue:'on'}, {stage:'on'}, {music:true}, {music:'yes'}, {unknown:'on'}]) assert.throws(() => validateCardStage({switches}), JSON.stringify(switches))
-  assert.doesNotThrow(() => validateCardStage({enabled:true, switches:{voice:'on', autoChoices:'off', entrance:'off'}}))
+  assert.doesNotThrow(() => validateCardStage({enabled:true, switches:{voice:'on', autoChoices:'off'}}))
 })
 
 test('the card layer is the player\'s: it never leaves or arrives with a card', () => {
