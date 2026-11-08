@@ -28,20 +28,45 @@ function pendingSettlement(chat) {
   return Boolean(body && body.background?.role === 'settlement' && ['pending', 'running'].includes(body.background.phase))
 }
 
-function assertCurrent(current, original, index, inputIndex, operationId) {
+// Background settlement, candidates and world bookkeeping rewrite these four on
+// their own schedule. While a regeneration is generating they must not cancel it;
+// they only have to be kept out of the commit's write-back.
+const BACKGROUND_WRITE_KEYS = ['macroState', 'variables', 'posture', 'scriptState']
+
+function historyRows(messages) {
+  return messages.map(row => [row?.role, row?.turn, row?.sourceText, row?.projectionText,
+    row?.text, row?.swipeId, row?.tavernHidden, row?.is_hidden, row?.hidden, row?.messageUid, row?.regenerationDiscarded])
+}
+
+function assertRegenerationMarker(current, operationId) {
   if (current?.regenRecovery?.id !== operationId || current.regenRecovery?.phase !== 'prepared') {
     throw error('TAVERN_PLUGIN_STALE_VERSION', '正文重新生成操作已经失效')
   }
-  if (current.timeline?.branchId !== original.timeline?.branchId || current.timeline?.revision !== original.timeline?.revision) {
+}
+
+// Before the body is committed only the target row and the branch matter: a
+// settlement that advanced the timeline revision is not a different story.
+function assertTargetCurrent(current, original, index, operationId) {
+  assertRegenerationMarker(current, operationId)
+  if (current.timeline?.branchId !== original.timeline?.branchId) {
     throw error('TAVERN_PLUGIN_STALE_VERSION', '重新生成期间剧情状态已经变化')
   }
-  for (const key of ['macroState', 'variables', 'posture', 'scriptState']) {
-    if (!isDeepStrictEqual(current[key], original[key])) throw error('TAVERN_PLUGIN_STALE_VERSION', '重新生成期间本轮状态已经变化')
-  }
-  const history = messages => messages.map(row => [row?.role, row?.turn, row?.sourceText, row?.projectionText,
-    row?.text, row?.swipeId, row?.tavernHidden, row?.is_hidden, row?.hidden, row?.messageUid, row?.regenerationDiscarded])
   const expected = regenerationAttemptMessages(original.messages, index === null ? null : current.regenRecovery.discarded)
-  if (!isDeepStrictEqual(history(current.messages), history(expected))) throw error('TAVERN_PLUGIN_STALE_VERSION', '重新生成期间历史消息已经变化')
+  if (!isDeepStrictEqual(historyRows(current.messages), historyRows(expected))) throw error('TAVERN_PLUGIN_STALE_VERSION', '重新生成期间历史消息已经变化')
+}
+
+// The commit replaces the whole story and timeline, so the branch and the story
+// rows must still be the ones this operation started from. The timeline revision
+// and the background settlement keys legitimately advance while the body is
+// generating (settlement, candidates, worldbook); they are not a different story,
+// and the write-back below keeps whatever they wrote instead of overwriting it.
+function assertCommitCurrent(current, original, index, operationId) {
+  assertRegenerationMarker(current, operationId)
+  if (current.timeline?.branchId !== original.timeline?.branchId) {
+    throw error('TAVERN_PLUGIN_STALE_VERSION', '重新生成期间剧情状态已经变化')
+  }
+  const expected = regenerationAttemptMessages(original.messages, index === null ? null : current.regenRecovery.discarded)
+  if (!isDeepStrictEqual(historyRows(current.messages), historyRows(expected))) throw error('TAVERN_PLUGIN_STALE_VERSION', '重新生成期间历史消息已经变化')
 }
 
 /**
@@ -187,7 +212,7 @@ export function createPluginBodyRegeneration(deps) {
         ? original.bodyGenerationCandidate : null
       const snapshot = reusable?.snapshot || await prepare?.({ gameId: sessionId, reason: failedMode ? 'retry' : 'regenerate', signal })
       await chats.update(chatId, current => {
-        assertCurrent(current, original, index, inputIndex, operationId)
+        assertTargetCurrent(current, original, index, operationId)
         current.regenRecovery.generation = { provider: providerId, snapshot: clone(snapshot), materialsDigest: materials.digest, status: 'running' }
         return current
       }, { source: 'foreground.plugin-regen-config' })
@@ -199,7 +224,7 @@ export function createPluginBodyRegeneration(deps) {
       await validateProvider?.()
       await chats.update(chatId, current => {
         signal?.throwIfAborted()
-        assertCurrent(current, original, index, inputIndex, operationId)
+        assertTargetCurrent(current, original, index, operationId)
         current.regenRecovery.candidate = { fingerprint, providerId, snapshot: clone(snapshot), text: body }
         return current
       }, { source: 'foreground.plugin-regen-candidate' })
@@ -288,7 +313,7 @@ export function createPluginBodyRegeneration(deps) {
         await validateProvider?.()
         signal?.throwIfAborted()
         if (agent.phase?.kind === 'running') throw error('TAVERN_PLUGIN_STALE_VERSION', '前台已开始新一轮')
-        assertCurrent(current, original, index, inputIndex, operationId)
+        assertCommitCurrent(current, original, index, operationId)
         // 别的插件/后台写几条上下文不算本轮失效：只要玩家没有新输入、旧正文还在面上。
         if (playerInputSince(session, eventStart) || (!appendRound && !bodyStillOnSurface(session, oldSeq, oldTurn))) throw error('TAVERN_PLUGIN_STALE_VERSION', '模型会话已经变化')
         // Keep concurrent non-story settings; only story-owned fields come from
@@ -296,6 +321,9 @@ export function createPluginBodyRegeneration(deps) {
         for (const key of ['messages', 'timeline', 'foregroundFrames', ...INPUT_STATE_FIELDS, 'posture', 'ledger', 'candidates',
           'settleStatus', 'settleError', 'lastSettle', 'foregroundError', 'presentationWarnings', 'candidateAgent',
           ...(failedMode ? ['suppressedDshTurns', 'nativeCommits', 'userInputEdits'] : [])]) {
+          // A background writer that advanced one of its own keys while the body
+          // was generating keeps that value; the detached draft is stale for it.
+          if (BACKGROUND_WRITE_KEYS.includes(key) && !isDeepStrictEqual(current[key], original[key])) continue
           if (Object.hasOwn(draft, key)) current[key] = clone(draft[key])
           else delete current[key]
         }

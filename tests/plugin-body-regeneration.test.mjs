@@ -120,6 +120,28 @@ test('restart retains a durable candidate and explicit retry adopts it without a
   assert.equal((await fresh.chats.read()).bodyGenerationCandidate, undefined)
 })
 
+test('生成期间后台结算推进版本与状态后，候选正文仍能提交并保留后台写入', async () => {
+  let commitState
+  const h = await fixture({ afterWrite(meta, saved) {
+    if (meta?.source === 'foreground.plugin-regen-commit') commitState = copy(saved)
+  } })
+  const result = await h.run(async () => {
+    // 后台结算/候选/世界书在自己的节奏上写这些字段，推进 revision 也不代表剧情变了。
+    await h.chats.update('chat', chat => {
+      chat.posture = '后台结算后的状态'
+      chat.variables = { hp: 5 }
+      chat.timeline = { ...chat.timeline, revision: Number(chat.timeline.revision || 0) + 1 }
+      return chat
+    })
+    return { text: '后台写入后仍提交的正文' }
+  })
+  const current = await h.chats.read()
+  assert.deepEqual(current.messages.map(row => row.text), ['继续', '后台写入后仍提交的正文'])
+  assert.equal(commitState.posture, '后台结算后的状态', '后台写入的 posture 不被提交覆盖')
+  assert.deepEqual(commitState.variables, { hp: 5 }, '后台写入的变量不被提交覆盖')
+  assert.equal(result.settlement, 'done')
+})
+
 test('provider replaces one round and native context, then settles from the original start exactly once', async () => {
   const h = await fixture()
   const result = await h.run(async ({ materials }) => {
