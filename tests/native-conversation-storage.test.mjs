@@ -99,7 +99,12 @@ test('cold selected reads skip historical variables and return the same session 
  assert.deepEqual(await fresh.readBackgroundConfig('a'),projectChatBackgroundConfig(chat))
  assert.ok(io.every(e=>e.bytes<65536))
  io=[]
- assert.deepEqual(await fresh.readSessionState('a'),projectChatSessionState(chat))
+ const sessionState=await fresh.readSessionState('a')
+  assert.deepEqual(sessionState,projectChatSessionState(chat))
+  sessionState.timeline.participants.background.status='outside'
+  sessionState.timeline.checkpoints[0]='outside'
+  assert.equal((await fresh.readSessionState('a')).timeline.participants.background.status,'idle')
+  assert.equal((await fresh.readSessionState('a')).timeline.checkpoints[0],chat.timeline.checkpoints[0])
  // Session's public contract includes checkpoints, but never historical variables.
  const historyBytes=Buffer.byteLength(JSON.stringify({kind:'record',value:{type:'scalar',value:historical.variables[0].stat_data.archive}}))
  assert.ok(!io.some(e=>e.bytes===historyBytes),'session metadata must not hydrate history-only payload')
@@ -118,6 +123,10 @@ test('旧前台正文的原生状态保留完整历史提示但不序列化内�
  assert.equal(state._sessionStateHistoryComplete,true)
  assert.equal(state.messages[0].text,'reward')
  assert.equal(JSON.stringify(state).includes('_sessionStateHistoryComplete'),false)
+  state.messages[0].text='outside';state.timeline.operations.old.status='outside'
+  const reread=await persistence.readSessionState('a')
+  assert.equal(reread.messages[0].text,'reward')
+  assert.equal(reread.timeline.operations.old.status,'foreground-completed')
 })
 
 test('内部共享解码不泄漏到完整读取、窗口、历史版本或放弃的回写',async t=>{

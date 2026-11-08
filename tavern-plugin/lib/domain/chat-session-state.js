@@ -20,13 +20,16 @@ export function pendingMvuSettlementState(chat) {
 }
 
 // Detached inputs for session activity, retry eligibility and cache-hit view fields.
+// detach:false is an internal ownership transfer for native's already-detached read;
+// journal/cache callers keep the default copy boundary.
 // This is not a writable Chat or a source for rebuilding history projections.
 export function projectChatSessionState(chat, options = {}) {
+  const detach = options.detach !== false
   const pendingMvuSettlement = Object.hasOwn(options,"pendingMvuSettlement") ? options.pendingMvuSettlement : pendingMvuSettlementState(chat)
   // Legacy timeline inspection migrates a foreground body using its full text.
   if (Object.values(chat.timeline?.operations || {}).some(operation =>
     operation?.kind === 'body' && operation.status === 'foreground-completed')) {
-    const complete = { ...copyJsonTree(chat), pendingMvuSettlement }
+    const complete = { ...(detach ? copyJsonTree(chat) : chat), pendingMvuSettlement }
     // An internal, non-serialized hint: this legacy projection already owns the
     // complete history. Cloning strips the hint and safely restores a full read.
     Object.defineProperty(complete, '_sessionStateHistoryComplete', { value: true })
@@ -57,9 +60,9 @@ export function projectChatSessionState(chat, options = {}) {
       ...(saved.background ? { background: saved.background.map(checkpoint => ({ sessionId: checkpoint.sessionId, formatVersion: checkpoint.formatVersion })) } : {})
     }
   }
-  if (options.messages) return {...copyLazyHistoryHeader(selected),messages:options.messages}
+  if (options.messages) return {...copyLazyHistoryHeader(selected,{detach}),messages:options.messages}
   selected.messages = (Array.isArray(chat.messages) ? chat.messages : []).map(projectSessionMessage)
-  return copyJsonTree(selected)
+  return detach ? copyJsonTree(selected) : selected
 }
 
 export function projectSessionMessage(message) {

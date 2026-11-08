@@ -507,12 +507,12 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    'backgroundConfigVersion','conversationFeaturesVersion','disabledWritingSkills','contextCompaction','updatedAt','timeline','candidateAgent',
    'cardName','requestMode','statusBarPlacement','statusSections','webSearchEnabled','candidates','taskMailbox','regenInProgress','settleError','scriptState',
    'hiddenDshErrorTurns','suppressedDshTurns','replacingDshTurns','failedRegenerationTarget','regeneratedDshTurns','tavernHelperLifecycleRevision','importHistory','rollbackUndo','pendingMvuSettlement'])
-  if(Object.values(chat.timeline?.operations??{}).some(op=>op?.kind==='body'&&op.status==='foreground-completed'))return projectChatSessionState((await read(id)).chat)
+  if(Object.values(chat.timeline?.operations??{}).some(op=>op?.kind==='body'&&op.status==='foreground-completed'))return projectChatSessionState((await read(id)).chat,{detach:false})
   // Cached rows never leave this module: full projections detach them below,
   // scoped projections clone each row on access. Snapshot identity pins validity.
   const {messages,pending}=await sessionSummaries(id,view)
   chat.messages=messages
-  return projectChatSessionState(chat,{pendingMvuSettlement:options.scoped!==true&&Object.hasOwn(chat,'pendingMvuSettlement')?chat.pendingMvuSettlement:pending,...(options.scoped===true?{messages:createScopedMessages(messages.length,[],position=>structuredClone(messages[position]))}:{})})
+  return projectChatSessionState(chat,{detach:false,pendingMvuSettlement:options.scoped!==true&&Object.hasOwn(chat,'pendingMvuSettlement')?chat.pendingMvuSettlement:pending,...(options.scoped===true?{messages:createScopedMessages(messages.length,[],position=>structuredClone(messages[position]))}:{})})
  }
  function sessionSummary(row){const variables=row.variables?.[Math.max(0,Number(row.swipeId)||0)];return JSON.parse(JSON.stringify({mvuSnapshot:Boolean(variables&&variables.stat_data!==undefined&&variables.schema!==undefined),message:projectSessionMessage(row),pending:row.role==='assistant'&&row.mvu?.pending===true?{
   hasSubmission:Boolean(row.mvu.pendingSubmission),prepared:Boolean(row.mvu.delivery?.prepared)}:null}))}
