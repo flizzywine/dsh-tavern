@@ -294,6 +294,9 @@ do_switch_full() {
       say '   依赖未变，复用 node_modules'
     fi
   fi
+  # 记下旧源码是不是 git 检出：回滚时要按原样还原，否则残留的 .git 会让
+  # 应用内更新认为「这是 git 仓库，请自己 git pull」，直接拒绝更新。
+  if [ -d "$APP/.git" ]; then printf '1\n' >"$dir/previous-git"; else printf '0\n' >"$dir/previous-git"; fi
   mv "$APP" "$dir/previous-source" || fail "无法移走旧源码：$APP"
   if ! mv "$dir/new-source" "$APP"; then
     mv "$dir/previous-source" "$APP"
@@ -379,6 +382,11 @@ do_revert() {
   if ! mv "$dir/previous-source" "$APP"; then
     mv "$APP.failed" "$APP"
     fail '恢复旧源码失败'
+  fi
+  if [ "$(cat "$dir/previous-git" 2>/dev/null || printf '0')" != 1 ]; then
+    rm -rf "$APP/.git" 2>/dev/null || true
+    rm -f "$APP/.termux-tavern-branch" 2>/dev/null || true
+    say '   已清掉切换留下的 .git 标记，应用内更新恢复可用'
   fi
   say '[回退] 重装依赖与 Profile'
   ( cd "$APP" && "$(pnpm_bin)" install --frozen-lockfile --reporter=append-only ) \

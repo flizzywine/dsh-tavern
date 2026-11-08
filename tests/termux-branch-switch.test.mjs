@@ -184,4 +184,14 @@ test('已在目标分支时增量更新：不新建备份，只快进到分支�
   assert.equal(third.status, 0, `${third.stdout}\n${third.stderr}`)
   assert.match(third.stdout, /已是最新/)
   assert.equal((await backupDirs()).length, 1)
+
+  // 回滚到切换前（本来不是 git 检出）：必须清掉 .git，否则应用内更新会拒绝更新
+  const revert = spawnSync(bash, [path.join(directory, 'branch-inner.sh'), 'backup/main-20261106', 'revert'], {
+    encoding: 'utf8', timeout: 60000,
+    env: { ...process.env, HOME: shellPath(layout.home), PATH: `${shellPath(layout.mock)}:${process.env.PATH || ''}`, TEST_ROOT: shellPath(directory), TERMUX_TAVERN_STOP_WAIT: '0', ...env },
+  })
+  assert.equal(revert.status, 0, `${revert.stdout}\n${revert.stderr}`)
+  assert.equal(JSON.parse(await readFile(path.join(layout.app, 'package.json'), 'utf8')).version, '3.1.0')
+  assert.equal(existsSync(path.join(layout.app, '.git')), false, '回滚后不应残留 .git')
+  assert.equal(existsSync(path.join(layout.app, '.termux-tavern-branch')), false)
 })
