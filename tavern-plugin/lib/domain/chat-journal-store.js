@@ -8,7 +8,7 @@ import { copyLazyHistoryHeader } from './lazy-history-read.js'
 import { Worker } from 'node:worker_threads'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { createIndexedArrayApi } from './indexed-array.js'
-import { copyJsonTree } from './copy-json-tree.js'
+import { copyJsonTree, normalizeJsonCopy } from './copy-json-tree.js'
 import { projectSceneImageState, projectChatSessionState, projectDisplayRuntimeState, projectChatBackgroundConfig, projectSettlementCheckpoint } from './chat-session-state.js'
 import { mkdir, open, readdir, rename, rm, stat, truncate } from 'node:fs/promises'
 import path from 'node:path'
@@ -28,8 +28,7 @@ function revisionOf(value) {
 }
 
 function jsonClone(value) {
-  if (value === undefined) return undefined
-  return JSON.parse(JSON.stringify(value))
+  return normalizeJsonCopy(value)
 }
 
 function safeChatId(value) {
