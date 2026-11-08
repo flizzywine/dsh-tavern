@@ -15954,6 +15954,7 @@ window.__ModuleLoader__.load({
             async function run(request, key) {
                 let phase = "清理当前空白对话";
                 let attempt = attempts.get(key);
+                const resumedAttempt = Boolean(attempt);
                 const timing = options.trace ? options.trace("startGame") : null;
                 const step = (name, work) => timing ? timing.measure(name, work) : work();
                 let successful = false;
@@ -15975,8 +15976,25 @@ window.__ModuleLoader__.load({
                     phase = "等待 DSH Session 就绪";
                     await step("waitForSession", () => options.waitForSession(sessionId));
                     if (!attempt.initialized) {
-                        phase = "切换到酒馆模式";
-                        await step("ensurePreset", () => options.ensurePreset(sessionId, request));
+                        if (!attempt.presetReady) {
+                            phase = "切换到酒馆模式";
+                            try {
+                                await step("ensurePreset", () => options.ensurePreset(sessionId, request));
+                            } catch (error) {
+                                const locked = error && error.code === "agent-preset/locked" || /agent-preset\/locked|This session has already started/i.test(String(error && error.message || error || ""));
+                                // Records written before presetReady existed have already passed
+                                // this step when their native opening locked the Session. Only a
+                                // persisted attempt may recover here; a fresh prepared Session must
+                                // still expose a preset mismatch instead of masking it.
+                                if (!resumedAttempt || !locked) throw error;
+                            }
+                            // Native opening events start the Session. If their later Chat
+                            // marker fails, selecting the preset again is rejected as locked;
+                            // persist this boundary so both in-place and reloaded retries resume
+                            // at the idempotent Chat recovery instead.
+                            attempt = Object.assign({}, attempt, { presetReady: true });
+                            attempts.set(key, attempt);
+                        }
                         phase = request.kind === "card" ? "创建卡片工作台对话" : "写入人物卡开场白";
                         await step("createChat", () => options.createChat(request, sessionId));
                         attempt = { sessionId, initialized: true };
