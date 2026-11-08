@@ -1,3 +1,5 @@
+import { worldBookChannelValue } from './worldbook-channel.js'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -64,6 +66,7 @@ function entryProjection(entry, sourceRef, format, index) {
     primaryKeys,
     secondaryKeys,
     constant: entry.constant === true,
+    channel: worldBookChannelValue(extensionValue(entry, ['tavern_channel'], 'auto')),
     selective: entry.selective === true,
     selectiveLogic: numberOr(embedded ? extensionValue(entry, ['selective_logic', 'selectiveLogic'], 0) : entry.selectiveLogic, 0),
     vectorized: embedded ? extensionValue(entry, ['vectorized'], false) === true : entry.vectorized === true,
@@ -304,7 +307,7 @@ function nextId(entries, field) {
 }
 
 // Field vocabulary accepted by entry patches; anything else would be dropped silently.
-export const WORLD_BOOK_PATCH_FIELDS = Object.freeze(['comment', 'content', 'enabled', 'primaryKeys', 'secondaryKeys', 'constant', 'selective', 'order', 'caseSensitive', 'displayIndex', 'selectiveLogic', 'vectorized', 'position', 'depth', 'role', 'probabilityEnabled', 'probability', 'groupOverride', 'groupWeight', 'useGroupScoring', 'scanDepth', 'matchWholeWords', 'excludeRecursion', 'preventRecursion', 'group', 'delayUntilRecursion', 'sticky', 'cooldown', 'delay', 'helperExtra'])
+export const WORLD_BOOK_PATCH_FIELDS = Object.freeze(['comment', 'content', 'enabled', 'primaryKeys', 'secondaryKeys', 'constant', 'channel', 'selective', 'order', 'caseSensitive', 'displayIndex', 'selectiveLogic', 'vectorized', 'position', 'depth', 'role', 'probabilityEnabled', 'probability', 'groupOverride', 'groupWeight', 'useGroupScoring', 'scanDepth', 'matchWholeWords', 'excludeRecursion', 'preventRecursion', 'group', 'delayUntilRecursion', 'sticky', 'cooldown', 'delay', 'helperExtra'])
 
 function assignKnownPatch(entry, patch, format) {
   const embedded = format !== 'sillytavern-worldbook'
@@ -339,8 +342,14 @@ function assignKnownPatch(entry, patch, format) {
     if (has(field)) { if (embedded) extensions[embeddedField] = patch[field]; else entry[field] = patch[field] }
   }
   if (has('helperExtra')) extensions.dsh_tavern_helper_extra = clone(object(patch.helperExtra) || {})
+  // 'auto' is the default decision, so it never keeps a stale extension key.
+  if (has('channel')) {
+    const channel = worldBookChannelValue(patch.channel)
+    if (channel === 'auto') delete extensions.tavern_channel
+    else extensions.tavern_channel = channel
+  }
 
-  if (embedded || has('helperExtra')) entry.extensions = extensions
+  if (embedded || has('helperExtra') || has('channel')) entry.extensions = extensions
   return entry
 }
 
