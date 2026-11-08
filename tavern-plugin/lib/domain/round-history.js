@@ -383,6 +383,20 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (beforeChat === undefined) throw new Error('找不到剧情 checkpoint 对应的历史 Chat revision: ' + target.beforeRevision)
     return Object.assign({}, intent, { beforeChat })
   }
+  // The two reads between the begin marker and the commit only ask the save two
+  // questions: which regeneration marker it holds, and what its last floor is.
+  // Native saves answer both from their bounded tail window; a legacy save, a
+  // non-native store, a host without that reader or a failed window read keeps
+  // the complete read, which is what every host had before.
+  async function readRegenerationTail(chatId) {
+    if (typeof chats.readRecent === 'function') {
+      try {
+        const recent = await chats.readRecent(chatId)
+        if (recent && recent.id === chatId) return recent
+      } catch { /* The complete read below reports the same storage failure. */ }
+    }
+    return await readChat(chatId)
+  }
   async function regenBody(chatId, guidance, sessionId, initialChat = null) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
     let chat = initialChat || await stage('regen.load-body', () => str(chatId) === '' ? chatForSession(sessionId) : readChat(chatId))
@@ -542,7 +556,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     let committedChat, body = '', syntheticTurn = candidateTurn, keptStreamed = false
     try {
       releaseOpeningTurn(agent.session, agent)
-      const ready = await stage('regen.ready', () => readChat(chat.id))
+      const ready = await stage('regen.ready', () => readRegenerationTail(chat.id))
       if (ready?.regenRecovery?.id !== operationId || agent.phase?.kind === 'running') throw new Error('重新生成操作已失效或前台正在生成')
       let generationError = null
       await stage('regen.generate', async function () {
@@ -564,7 +578,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       }
       keptStreamed = generationError !== null || attemptReachedOutputLimit(session, syntheticTurn, eventStart)
       if (typeof sessions.flush === 'function') await stage('regen.flush-native', () => sessions.flush(session))
-      const storedCandidate = await stage('regen.read-candidate', () => readChat(chat.id))
+      const storedCandidate = await stage('regen.read-candidate', () => readRegenerationTail(chat.id))
       const nativeCandidateRow = storedCandidate?.messages?.at(-1)?.role === 'assistant' &&
         Number(storedCandidate.messages.at(-1).turn) === Number(syntheticTurn) ? storedCandidate.messages.at(-1) : null
 

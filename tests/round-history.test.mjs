@@ -6,6 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRoundHistory } from '../tavern-plugin/lib/domain/round-history.js'
+import { createScopedMessages } from '../tavern-plugin/lib/domain/scoped-messages.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
@@ -155,6 +156,63 @@ for (const checkpoint of [false, true]) test('重新生成复用完整快照并�
     assert.ok(stages.includes(name), name)
   }
   assert.ok(stages.indexOf('regen.generate') < stages.indexOf('regen.read-candidate'))
+})
+
+// Between the begin marker and the commit the save is asked two questions only:
+// which marker it holds (regen.ready) and what its last floor is
+// (regen.read-candidate). A native save answers both from its bounded tail
+// window; the legacy complete reader stays as the fallback.
+function boundedTail(chats, counters) {
+  chats.readRecent = async chatId => {
+    counters.recent++
+    if (counters.mode === 'empty') return undefined
+    const full = chats.current()
+    const count = full.messages.length, from = Math.max(0, count - 2)
+    const entries = full.messages.map((row, index) => [index, structuredClone(row)]).filter(([index]) => index >= from)
+    return { ...structuredClone({ ...full, messages: [] }), messages: createScopedMessages(count, entries),
+      messageCount: count, from, revision: full._storageRevision }
+  }
+}
+for (const checkpoint of [false, true]) test('重新生成的 ready 与候选行只读有界尾部窗口，不再整读，checkpoint=' + checkpoint, async () => {
+  const h = harness({ checkpoint })
+  const counters = { recent: 0, mode: '' }, stages = [], fullReads = []
+  let reads = 0, stage = ''
+  const read = h.options.chats.read
+  h.options.chats.read = async (...args) => { reads++; if (stage !== '') fullReads.push(stage); return read(...args) }
+  h.options.chats.current = () => h.chat
+  boundedTail(h.options.chats, counters)
+  h.options.chats.readState = async () => ({ _storageRevision: h.chat._storageRevision, regenInProgress: h.chat.regenInProgress })
+  h.options.trace = { stage: async (name, task) => { const previous = stage; stage = name
+    try { return await task() } finally { stage = previous; stages.push(name) } } }
+  const result = await h.create().regenerate('chat', '', 'session')
+  assert.equal(result.adopted.text, '新正文3')
+  // The bounded window carried the candidate row: its variables still reach the new floor.
+  assert.deepEqual(h.chat.messages.at(-1).variables, [{ hp: 7 }])
+  assert.ok(counters.recent >= 2)
+  // load + settled read remain the only complete reads of one regeneration.
+  assert.equal(reads, 2)
+  assert.deepEqual(fullReads, ['regen.load', 'regen.settled-read'])
+  assert.ok(!stages.includes('regen.load-body'), '带完整快照进入时不再重复整读')
+})
+
+for (const [label, mode] of [['旧格式窗口为空', 'empty'], ['有界读抛错', 'throw']])
+test('没有有界尾部窗口时两处回退到整读，重新生成照旧完成：' + label, async () => {
+  const h = harness({ checkpoint: true })
+  const counters = { recent: 0, mode }, stages = []
+  let reads = 0
+  const read = h.options.chats.read
+  h.options.chats.read = async (...args) => { reads++; return read(...args) }
+  h.options.chats.current = () => h.chat
+  boundedTail(h.options.chats, counters)
+  if (mode === 'throw') h.options.chats.readRecent = async () => { counters.recent++; throw new Error('window unavailable') }
+  h.options.chats.readState = async () => ({ _storageRevision: h.chat._storageRevision, regenInProgress: h.chat.regenInProgress })
+  h.options.trace = { stage: async (name, task) => { try { return await task() } finally { stages.push(name) } } }
+  const result = await h.create().regenerate('chat', '', 'session')
+  assert.equal(result.adopted.text, '新正文3')
+  assert.equal(reads, 4, 'load + ready + stored candidate + settled read')
+  assert.ok(counters.recent >= 2)
+  for (const name of ['regen.ready', 'regen.read-candidate']) assert.ok(stages.includes(name), name)
+  assert.deepEqual(h.chat.messages.at(-1).variables, [{ hp: 7 }])
 })
 
 test('前面回合只剩 AI 正文时，重新生成后面的回合仍保留前面正文', async () => {
