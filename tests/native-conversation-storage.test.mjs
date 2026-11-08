@@ -111,6 +111,15 @@ test('cold selected reads skip historical variables and return the same session 
  assert.deepEqual((await fresh.read('a')).messages,chat.messages,'full read still returns complete historical values')
 })
 
+test('旧前台正文的原生状态保留完整历史提示但不序列化内部标记',async t=>{
+ const {persistence}=await fixture(t)
+ await persistence.write({id:'a',sessionId:'s',mode:'story',messages:[row(0)],timeline:{schemaVersion:1,branchId:'b',revision:0,checkpoints:[],participants:{},operations:{old:{kind:'body',status:'foreground-completed'}}}})
+ const state=await persistence.readSessionState('a')
+ assert.equal(state._sessionStateHistoryComplete,true)
+ assert.equal(state.messages[0].text,'reward')
+ assert.equal(JSON.stringify(state).includes('_sessionStateHistoryComplete'),false)
+})
+
 test('fresh native gameplay writes pages, recovers variables and preserves historical revisions',async t=>{
  const {root,store,persistence,domain,pages}=await fixture(t)
  const chat=await persistence.write({id:'a',messages:[row(0)],posture:'standing'})

@@ -25,7 +25,13 @@ export function projectChatSessionState(chat, options = {}) {
   const pendingMvuSettlement = Object.hasOwn(options,"pendingMvuSettlement") ? options.pendingMvuSettlement : pendingMvuSettlementState(chat)
   // Legacy timeline inspection migrates a foreground body using its full text.
   if (Object.values(chat.timeline?.operations || {}).some(operation =>
-    operation?.kind === 'body' && operation.status === 'foreground-completed')) return { ...copyJsonTree(chat), pendingMvuSettlement }
+    operation?.kind === 'body' && operation.status === 'foreground-completed')) {
+    const complete = { ...copyJsonTree(chat), pendingMvuSettlement }
+    // An internal, non-serialized hint: this legacy projection already owns the
+    // complete history. Cloning strips the hint and safely restores a full read.
+    Object.defineProperty(complete, '_sessionStateHistoryComplete', { value: true })
+    return complete
+  }
   const selected = { pendingMvuSettlement }
   if (chat.foregroundError) selected.foregroundError = {
     turn: chat.foregroundError.turn, requestId: chat.foregroundError.requestId,

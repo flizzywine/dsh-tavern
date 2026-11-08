@@ -73,6 +73,9 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
           if (canProjectDirty(cached.view, delta.chat, dirty, delta.changedHeaderFields)) return { chat: delta.chat, cached, dirty, layoutChanged:delta.layoutChanged,layoutFrom:delta.layoutFrom, changedHeaderFields:delta.changedHeaderFields,runtimeInputChanges:delta.runtimeInputChanges, resourceVersion: resources }
         }
       }
+      if (state._sessionStateHistoryComplete === true) {
+        return { chat: state, cached: cache.get(state.id), resourceVersion: resources }
+      }
       const chat = await trace.stage('readFullChat', () => readChat(sessionId))
       const evidence=chat && verifiedDelta && chat.id===verifiedDelta.chat.id && identity(chat).revision===verifiedDelta.revision
         ? {dirty:new Set(verifiedDelta.indices),layoutChanged:verifiedDelta.layoutChanged,layoutFrom:verifiedDelta.layoutFrom,changedHeaderFields:verifiedDelta.changedHeaderFields,runtimeInputChanges:verifiedDelta.runtimeInputChanges} : {}

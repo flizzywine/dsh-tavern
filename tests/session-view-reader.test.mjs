@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createSessionViewReader } from '../tavern-plugin/lib/domain/session-view-reader.js'
+import { projectChatSessionState } from '../tavern-plugin/lib/domain/chat-session-state.js'
 const gate=()=>{let resolve;const promise=new Promise(done=>{resolve=done});return {promise,resolve}}
 function fixture() {
   let chat={id:'c',sessionId:'s',mode:'story',cardPath:'card',_storageRevision:1,messages:[{role:'assistant',text:'one'}]}
@@ -13,7 +14,7 @@ function fixture() {
     activity:()=>({busy:false}),foregroundRunning:()=>false,trace:{stage:(_name,fn)=>fn(),state:state=>states.push(state)},
     synchronize:(_id,view,_cursor,options)=>({view,...options})}
   // Closures let the tests replace adapters at the actual asynchronous seam.
-  const reader=createSessionViewReader({...deps,readChat:(...args)=>deps.readChat(...args),readChanges:(...args)=>deps.readChanges(...args),readViewDelta:(...args)=>deps.readViewDelta?.(...args)})
+  const reader=createSessionViewReader({...deps,readState:(...args)=>deps.readState(...args),readChat:(...args)=>deps.readChat(...args),readChanges:(...args)=>deps.readChanges(...args),readViewDelta:(...args)=>deps.readViewDelta?.(...args)})
   return {reader,deps,calls,states,get chat(){return chat},set chat(value){chat=value}}
 }
 for (const changes of [undefined,{revision:99,indices:[0]}]) test(`missing or mismatched change coverage rebuilds the full view: ${JSON.stringify(changes)}`,async()=>{
@@ -24,6 +25,23 @@ for (const changes of [undefined,{revision:99,indices:[0]}]) test(`missing or mi
 for(const row of [{role:'user',text:'role changed'},null])test(`structural history changes retain full fallback: ${JSON.stringify(row)}`,async()=>{
   const f=fixture();await f.reader.read('s');f.chat={...f.chat,_storageRevision:2,messages:row?[row]:[]}
   await f.reader.read('s');assert.equal(f.calls.full,2);assert.equal(f.calls.dirty,0)
+})
+
+test('旧前台正文状态复用已读完整历史，不为首个视图再整读一次', async () => {
+  const f = fixture()
+  f.chat = {...f.chat, timeline:{schemaVersion:1,branchId:'b',revision:0,checkpoints:[],participants:{},operations:{old:{kind:'body',status:'foreground-completed'}}}}
+  f.deps.readState = async () => projectChatSessionState(f.chat)
+  const first = await f.reader.read('s')
+  assert.equal(f.calls.fullRead, 0)
+  assert.equal(first.tavernHelper.messages[0].text, 'one')
+  await f.reader.read('s')
+  assert.equal(f.calls.fullRead, 0)
+  assert.equal(f.calls.cached, 1)
+  assert.equal(Object.keys(projectChatSessionState(f.chat)).includes('_sessionStateHistoryComplete'), false)
+  f.deps.readState = async () => structuredClone(projectChatSessionState(f.chat))
+  f.chat = {...f.chat, _storageRevision:2}
+  await f.reader.read('s')
+  assert.equal(f.calls.fullRead, 1, '克隆丢掉完整性提示后仍安全回退到整读')
 })
 
 for (const kind of ['revision', 'resource', 'missing']) test(`invalid delta ${kind} falls back before rendering`,async()=>{
