@@ -305,12 +305,17 @@ async function generateNovelai(channel, request, ctx) {
     v4Prompt.caption.char_captions.push({ char_caption: String(item.prompt), centers: [center || {}] })
     v4Negative.caption.char_captions.push({ char_caption: String(item.uc ?? ''), centers: [center || {}] })
   })
+  // 有些第三方站点把 variety_boost 当未知字段直接 422，选 'omit' 时整条字段都不发
+  const varietyRaw = option(ch, 'varietyBoost', false)
+  const omitVarietyBoost = varietyRaw === 'omit'
   const payload = { input: String(request.positive || ''), model: novelaiModel, action: 'generate', parameters: {
     width, height, seed: Number.isFinite(Number(request.seed)) ? Number(request.seed) : Math.floor(Math.random() * 2 ** 32),
     steps: bounded(request.steps ?? option(ch, 'steps', 28), 1, 100), scale: clampedNumber(request.cfg ?? option(ch, 'cfg', option(ch, 'scale', 5)), 0, 30, 5), n_samples: 1,
     cfg_rescale: clampedNumber(option(ch, 'cfgRescale', 0), 0, 1, 0),
     negative_prompt: negative, sampler: novelaiSampler, noise_schedule: option(ch, 'noiseSchedule', 'karras'),
-    qualityToggle: option(ch, 'qualityToggle', true) !== false, ucPreset: clampedNumber(option(ch, 'ucPreset', 3), 0, 4, 3), variety_boost: isNovelaiV5 ? false : option(ch, 'varietyBoost', false) === true, sm: false, dynamic_thresholding: false, params_version: isNovelaiV5 ? 4 : 3,
+    qualityToggle: option(ch, 'qualityToggle', true) !== false, ucPreset: clampedNumber(option(ch, 'ucPreset', 3), 0, 4, 3),
+    ...(omitVarietyBoost ? {} : { variety_boost: isNovelaiV5 ? false : varietyRaw === true }),
+    sm: false, dynamic_thresholding: false, params_version: isNovelaiV5 ? 4 : 3,
     v4_prompt: v4Prompt,
     v4_negative_prompt: v4Negative,
     add_original_image: true, legacy: false, legacy_uc: false, controlnet_strength: 1,

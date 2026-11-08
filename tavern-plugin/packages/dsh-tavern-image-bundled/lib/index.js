@@ -5236,6 +5236,8 @@ function normalizePresetParams(raw) {
   if (typeof raw.noiseSchedule === 'string' && PRESET_NOISE_SCHEDULES.has(raw.noiseSchedule)) out.noiseSchedule = raw.noiseSchedule
   if (typeof raw.qualityToggle === 'boolean') out.qualityToggle = raw.qualityToggle
   if (typeof raw.varietyBoost === 'boolean') out.varietyBoost = raw.varietyBoost
+  // 'omit' = 请求里不带 variety_boost；官方与第三方站点都能跑
+  else if (raw.varietyBoost === 'omit') out.varietyBoost = 'omit'
   return out
 }
 

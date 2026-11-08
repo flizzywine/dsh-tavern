@@ -794,9 +794,11 @@
                   h('option', { value: 'true', style: optStyle }, '开（默认）'),
                   h('option', { value: 'false', style: optStyle }, '关'))),
               h('div', { style: { marginBottom: '10px' } }, label('多样性（variety_boost）'),
-                h('select', { 'aria-label': '多样性', value: String((localFields.options || {}).varietyBoost ?? false), style: full(), onChange: e => updateOption('varietyBoost', e.target.value === 'true') },
+                h('select', { 'aria-label': '多样性', value: String((localFields.options || {}).varietyBoost ?? false), style: full(), onChange: e => updateOption('varietyBoost', e.target.value === 'omit' ? 'omit' : e.target.value === 'true') },
                   h('option', { value: 'false', style: optStyle }, '关（默认）'),
-                  h('option', { value: 'true', style: optStyle }, '开（Variety Boost）')))) : null,
+                  h('option', { value: 'true', style: optStyle }, '开（Variety Boost）'),
+                  // 有些第三方站点把 variety_boost 当未知字段直接 422，选这个就整条不发
+                  h('option', { value: 'omit', style: optStyle }, '不传（站点不认这条参数）')))) : null,
             // 画质 only where the wire API has a quality tier (OpenAI Images, gpt-image models). 自动 saves an empty value, so requests stay exactly as before.
             protocolBackend === 'openai' ? selectOptionField('quality', '画质', [['', '自动（默认）'], ['low', '低（最快）'], ['medium', '中'], ['high', '高（最慢）']], '', '仅 gpt-image 模型生效；越高越慢') : null,
             protocolBackend === 'novelai' ? h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '10px 12px' } },
