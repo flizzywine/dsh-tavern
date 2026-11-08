@@ -60,17 +60,28 @@ function mount() {
   return { render, nodes, text, find, props, calls, saved: () => saved, get tree() { return tree } }
 }
 
-test('整本通道开关只改书的默认通道，条目单独设过的通道不受影响', () => {
+test('整本开关一次改掉全部条目，并记成整本默认', async () => {
   const page = mount()
-  const bar = page.find(node => node.tag === 'div' && node.props.className === 'dsh-tavern-worldbook-checks'
+  const bar = () => page.find(node => node.tag === 'div' && node.props.className === 'dsh-tavern-worldbook-checks'
     && page.nodes(node).some(child => child.tag === 'button' && page.text(child) === '稳定前缀'))
-  assert.ok(bar, '缺少整本注入通道开关')
-  const button = page.nodes(bar).find(child => child.tag === 'button' && page.text(child) === '稳定前缀')
-  button.props.onClick()
-  // The book default moves; the entry that pinned 'tail' keeps it.
+  assert.ok(bar(), '缺少整本注入通道开关')
+  page.nodes(bar()).find(child => child.tag === 'button' && page.text(child) === '稳定前缀').props.onClick()
+
+  // Every entry switches at once, including the one pinned to 'tail'.
+  const selects = () => page.nodes(page.tree).filter(node => node.tag === 'select' && node.props['aria-label'] === '注入通道')
+  assert.deepEqual(Array.from(selects().map(node => node.props.value)), ['prefix', 'prefix'])
   const view = page.find(node => node.props.className === 'dsh-tavern-card-field' && page.text(node).includes('整本注入通道'))
   assert.match(page.text(view), /当前默认：稳定前缀/)
   assert.equal(page.find(node => node.props.className === 'dsh-tavern-worldbook-kind is-active').children[0], '稳定前缀')
+
+  // Saving writes the book default and the per-entry channels together.
+  await page.find(node => node.tag === 'button' && page.text(node) === '保存世界书').props.onClick()
+  const [method, args] = page.calls.at(-1)
+  assert.equal(method, 'updateWorldBook')
+  assert.equal(args.update.channel, 'prefix')
+  const patched = args.update.operations.filter(operation => operation.op === 'update')
+  assert.deepEqual(Array.from(patched.map(operation => operation.ref)), ['a', 'b'])
+  assert.ok(patched.every(operation => operation.patch.channel === 'prefix'))
 })
 
 test('条目下拉提供“跟随整本”，清除覆盖时写入 auto 让扩展键真正删除', async () => {

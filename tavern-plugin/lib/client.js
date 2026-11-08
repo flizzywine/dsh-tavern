@@ -43950,6 +43950,7 @@ function TavernWorldbookInspector(props) {
 				const inherited = entry.channelInherited !== false;
 				const options = [{ value: CHANNEL_INHERIT, label: "跟随整本（" + CHANNEL_LABELS[bookChannel()] + "）" }].concat(CHANNEL_OPTIONS);
 				return h("select", {
+					"aria-label": "注入通道",
 					value: inherited ? CHANNEL_INHERIT : channelOf(entry),
 					onChange: function (event) {
 						const next = event.target.value;
@@ -43958,10 +43959,16 @@ function TavernWorldbookInspector(props) {
 					}
 				}, options.map(function (option) { return h("option", { key: option.value || "inherit", value: option.value }, option.label); }));
 			}
-			// One switch for the whole book: it only moves the default, so entries that
-			// were pinned by hand keep their own channel.
+			// One switch for the whole book: it moves the default and stamps every entry in
+			// the draft, so one save changes the book outright. Any entry can still be
+			// switched to 跟随整本 or to a different channel afterwards.
 			function applyBookChannel(value) {
-				editDraft(Object.assign({}, draft, { channel: value }));
+				editDraft(Object.assign({}, draft, {
+					channel: value,
+					entries: (draft.entries || []).map(function (entry) {
+						return Object.assign({}, entry, { channel: value, channelInherited: false, channelCleared: false });
+					})
+				}));
 			}
 			async function save() {
 				setBusy(true); setError("");
@@ -44072,7 +44079,7 @@ function TavernWorldbookInspector(props) {
 							const active = bookChannel() === option.value;
 							return h("button", { key: option.value, type: "button", className: "dsh-tavern-worldbook-kind" + (active ? " is-active" : ""), "aria-pressed": active, onClick: function () { applyBookChannel(option.value); } }, option.label);
 						})),
-						h("span", { className: "dsh-tavern-card-field-hint" }, "改整本默认通道，所有没单独设过通道的条目一起跟随；单独设过的条目保持不变。当前默认：" + CHANNEL_LABELS[bookChannel()] + "。固定设定用稳定前缀，随时会切换、需要更高注意力的用每轮尾部。")),
+						h("span", { className: "dsh-tavern-card-field-hint" }, "一键把全部 " + draft.entries.length + " 个条目设为该通道，同时作为整本默认（之后新增的条目自动跟随）；设完还能在条目里单独改成别的通道。当前默认：" + CHANNEL_LABELS[bookChannel()] + "。固定设定用稳定前缀，随时会切换、需要更高注意力的用每轮尾部。")),
 					(initial.diagnostics || []).map(function (item, index) { return h("div", { key: index, className: "dsh-tavern-dock-error" }, item.message); }),
 					h("div", { className: "dsh-tavern-worldbook-head" }, h("span", { className: "dsh-tavern-worldbook-title" }, "条目"), h("button", { className: "dsh-tavern-worldbook-add", onClick: addEntry }, "＋ 新增条目")),
 					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "搜索条目"), h("input", { type: "search", value: query, placeholder: "搜索标题、正文或触发词", onChange: function (event) { setQuery(event.target.value); } }), h("span", null, "匹配 " + (entryGroups.constant.length + entryGroups.dynamic.length + entryGroups.background.length) + " / " + draft.entries.length + " 条")),
