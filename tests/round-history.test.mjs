@@ -1163,16 +1163,21 @@ test('生成期间结算写入变量时，待回复的尾仍然接收正文', as
   assert.ok(h.chat.messages.some(message => message.role === 'assistant' && message.text === '新正文4'))
 })
 
-test('故事行真的变了时，待回复的尾仍然拒绝重新生成', async () => {
+test('前面正文被改过时，待回复的尾仍按当前存档补出正文，不拒绝也不覆盖改动', async () => {
   const h = harness({ checkpoint: true, journal: true })
   h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true })
   h.agent.phase.lastTurn = 3
   const readCard = h.options.chats.readCard
   h.options.chats.readCard = async value => {
-    // A real story edit: the player rewrote an earlier body while the panel opened.
+    // A real story edit lands while the panel opens.
     h.chat.messages[2].text = '改过的旧正文'
     return readCard(value)
   }
 
-  await assert.rejects(h.create().regenerate('chat', '', 'session'), /重新生成前剧情已经变化/)
+  await h.create().regenerate('chat', '', 'session')
+
+  assert.equal(h.agent.input.content[0].text, '最新输入')
+  assert.equal(h.chat.messages[2].text, '改过的旧正文', '页面上已经改过的正文保持原样')
+  assert.equal(h.chat.messages.at(-1).role, 'assistant')
+  assert.ok(h.chat.messages.some(message => message.text === '新正文4'))
 })

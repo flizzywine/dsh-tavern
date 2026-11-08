@@ -26,25 +26,6 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-// Story rows carry bookkeeping a background sweep rewrites on its own schedule
-// (variables, mvu, candidates, settle fields, timestamps). Regeneration only
-// depends on the story each row tells and on where the round sits, so the
-// "did the story change" guard compares these fields and never the whole row.
-const STORY_ROW_FIELDS = ['role', 'turn', 'text', 'sourceText', 'placeholder', 'greeting', 'native']
-
-function storyRowShape(messages) {
-  return (Array.isArray(messages) ? messages : []).map(function (message) {
-    if (message === null || typeof message !== 'object') return message
-    const shape = {}
-    for (const key of STORY_ROW_FIELDS) if (Object.hasOwn(message, key)) shape[key] = message[key]
-    return shape
-  })
-}
-
-function sameStoryRows(left, right) {
-  return isDeepStrictEqual(storyRowShape(left), storyRowShape(right))
-}
-
 function isRollbackInputPlaceholder(row, committedInput) {
   const requestId = str(committedInput?.source?.rpcId).trim()
   return requestId !== '' && row?.role === 'user' && row.placeholder === true && str(row.source?.rpcId).trim() === requestId
@@ -227,36 +208,15 @@ export function attemptNativeAnchor(session, eventStart, turn) {
 }
 
 /**
- * The save kept its unanswered tail while the attempt ran. The host may have
- * finalized the attempt as its own temporary round; anything else is a change
- * this commit must not overwrite.
+ * The save kept its unanswered tail while the attempt ran. The commit only has
+ * to own the marker it wrote: no snapshot comparison here. Every field in the
+ * save (variables, mvu, candidates, settle state, timestamps) is rewritten by
+ * background work on its own schedule, and comparing the snapshot turned those
+ * writes into refusals the player could never get past.
  */
-function assertUnansweredTailCurrent(original, current, operationId, syntheticTurn) {
+function assertUnansweredTailOwned(current, operationId) {
   const saved = current?.regenRecovery
   if (saved?.id !== operationId || saved?.phase !== 'prepared') throw new Error('重新生成操作已失效')
-  const before = Array.isArray(original?.messages) ? original.messages : []
-  const messages = Array.isArray(current?.messages) ? current.messages : []
-  // Variables and other per-row bookkeeping may have been settled while this
-  // turn generated; the story rows and the appended reply are what must match.
-  const unchanged = sameStoryRows(messages, before)
-  const appended = !unchanged && messages.length === before.length + 2 &&
-    sameStoryRows(messages.slice(0, before.length), before) &&
-    messages.at(-2)?.role === 'user' && messages.at(-1)?.role === 'assistant' &&
-    Number(messages.at(-1)?.turn) === Number(syntheticTurn)
-  if (!unchanged && !appended) throw new Error('重新生成期间剧情或后续输入已经变化')
-  const originalOperations = original?.timeline?.operations || {}
-  const currentOperations = current?.timeline?.operations || {}
-  const originalIntact = Object.entries(originalOperations).every(([id, operation]) => isDeepStrictEqual(currentOperations[id], operation))
-  const extras = Object.entries(currentOperations).filter(([id]) => !Object.hasOwn(originalOperations, id))
-  const originalCheckpoints = original?.timeline?.checkpoints || []
-  const checkpointsIntact = isDeepStrictEqual((current?.timeline?.checkpoints || []).slice(0, originalCheckpoints.length), originalCheckpoints)
-  const timelineKept = isDeepStrictEqual(current?.timeline, original?.timeline) ||
-    (originalIntact && checkpointsIntact && extras.length === 1 && extras[0][1]?.kind === 'body' &&
-      extras[0][1]?.status === 'completed' && Number(extras[0][1]?.turn) === Number(syntheticTurn))
-  if (!timelineKept) throw new Error('重新生成期间剧情状态已经变化')
-  for (const key of ['macroState', 'variables', 'posture', 'scriptState']) {
-    if (!isDeepStrictEqual(current[key], original[key])) throw new Error('重新生成期间本轮状态已经变化')
-  }
 }
 
 export function selectRegenerationTarget(chat, session, observe) {
@@ -468,17 +428,13 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
     chat.sessionId = effectiveSessionId
     if (agent.phase?.kind === 'running' || chat.regenInProgress) throw new Error('前台正在生成，请完成或停止后再重新生成')
-    if (failedTail) {
-      // The unanswered input is the round's start point: it must still be the
-      // tail of the save, and no story row may have changed around it. Only the
-      // story is compared: a background settlement or a candidate sweep may have
-      // rewritten variables or bookkeeping in the meantime, which leaves the
-      // round exactly where it was and must not refuse the retry (mobile clients
-      // hit that window constantly because their settlements keep writing).
-      if (!sameStoryRows(chat.messages, msgs0)) throw new Error('重新生成前剧情已经变化，请刷新后重试')
-    } else assertRegenerationSourceCurrent({ originalChat: { ...chat, messages: msgs0 }, currentChat: chat, assistantIndex: oldAssistantIndex, inputIndex })
+    // An unanswered tail is a round whose reply is missing, not a save that must
+    // be frozen: background settlement, candidates and world bookkeeping keep
+    // writing while the panel opens, and none of it moves this round. Compare
+    // nothing and use the row the save shows now.
+    if (!failedTail) assertRegenerationSourceCurrent({ originalChat: { ...chat, messages: msgs0 }, currentChat: chat, assistantIndex: oldAssistantIndex, inputIndex })
 
-    const inputRow = inputIndex >= 0 ? msgs0[inputIndex] : null
+    const inputRow = inputIndex >= 0 ? (chat.messages[inputIndex] ?? msgs0[inputIndex]) : null
     const originalUserText = str(inputRow?.text).trim()
     const originalChat = cloneChat(chat)
     const operationId = randomUUID()
@@ -531,12 +487,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       if (agent.phase?.kind === 'running' || current.regenInProgress) throw new Error('前台正在生成，请完成或停止后再重新生成')
       const logical = restoreDiscardedRegeneration(current)
       if (!failedTail) assertRegenerationSourceCurrent({ originalChat, currentChat: logical, assistantIndex: oldAssistantIndex, inputIndex })
-      // Same rule as above: rows are compared by the story they tell, so a
-      // settlement that lands during the candidate frame does not turn into a
-      // "剧情已经变化" refusal. Timeline stays exact: it owns the rollback state.
-      if (!sameStoryRows(logical.messages, originalChat.messages) || !isDeepStrictEqual(current.timeline, originalChat.timeline)) {
-        throw new Error('重新生成前剧情已经变化，请刷新后重试')
-      }
       current.regenRecovery = { id: operationId, phase: 'prepared', detached: true,
         beforeRevision: Number(current._storageRevision || 0), sessionId: effectiveSessionId,
         eventStart, candidateTurn, candidateFrame, targetMessageUid, temporaryReplacingTurn: replacingTurn,
@@ -678,7 +628,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
             source: { ...oldSource, tavernStoryTurn: storyTurn } } }, operationId)
 
       committedChat = await updateChat(chat.id, function (current) {
-        if (failedTail) assertUnansweredTailCurrent(originalChat, current, operationId, syntheticTurn)
+        if (failedTail) assertUnansweredTailOwned(current, operationId)
         else if (current?.regenRecovery?.id !== operationId || current.regenRecovery?.phase !== 'prepared') {
           throw new Error('重新生成操作已失效')
         }
