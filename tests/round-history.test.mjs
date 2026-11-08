@@ -1181,3 +1181,27 @@ test('前面正文被改过时，待回复的尾仍按当前存档补出正文�
   assert.equal(h.chat.messages.at(-1).role, 'assistant')
   assert.ok(h.chat.messages.some(message => message.text === '新正文4'))
 })
+
+// 重新生成会先把旧正文从原生面撤下，请求本身就是它唯一的副本。玩家改过正文却
+// 没填意见时，旧实现只发一条输入，模型从零重写，改动就白改了。
+test('改过正文且不填意见时，请求带上玩家改后的正文', async () => {
+  const h = harness({ checkpoint: true })
+  h.chat.messages[2].projectionText = '玩家改过的正文'
+  await h.create().regenerate('chat', '', 'session')
+  const text = h.agent.input.content[0].text
+  assert.match(text, /^推门\n\n【当前正文】\n玩家改过的正文/)
+  assert.doesNotMatch(text, /旧正文/, '不能把改之前的版本发出去')
+})
+
+test('正文编辑标记（未改投影文本）同样把当前正文带给模型', async () => {
+  const h = harness({ checkpoint: true })
+  h.chat.messages[2].bodyEdit = { formatVersion: 4, id: 'edit-1', seq: 1, turn: 2 }
+  await h.create().regenerate('chat', '', 'session')
+  assert.match(h.agent.input.content[0].text, /【当前正文】/)
+})
+
+test('没有改过正文、也不填意见时，仍然只发输入（保持重掷语义）', async () => {
+  const h = harness({ checkpoint: true })
+  await h.create().regenerate('chat', '', 'session')
+  assert.equal(h.agent.input.content[0].text, '推门')
+})

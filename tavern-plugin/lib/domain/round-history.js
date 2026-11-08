@@ -67,9 +67,20 @@ function cloneChat(value) {
   return structuredClone(isScopedMessages(value.messages) ? { ...value, messages: Array.from(value.messages) } : value)
 }
 
-export function regenerationInputText(userText, guidance, rewriteBody) {
+// Regeneration takes the round's old body off the native surface before the model
+// runs, so the request itself is the only place the body can come back. A body the
+// player edited (正文编辑/精修) must therefore travel with the request even when no
+// guidance is given: otherwise the model rewrites from nothing and the edit is gone.
+function editedReplyBody(message) {
+  if (message === null || typeof message !== 'object') return false
+  if (message.bodyEdit) return true
+  return typeof message.projectionText === 'string' && typeof message.sourceText === 'string' && message.projectionText !== message.sourceText
+}
+
+export function regenerationInputText(userText, guidance, rewriteBody, options = {}) {
   const input = str(userText).trim(), guide = str(guidance).trim(), draft = str(rewriteBody).trim()
   if (draft !== '' && guide !== '') return input + '\n\n【当前正文】\n' + draft + '\n\n【改写要求】\n在当前正文基础上改写本轮正文：' + guide
+  if (draft !== '' && options.keepBody === true) return input + '\n\n【当前正文】\n' + draft + '\n\n【改写要求】\n这是玩家手上的正文版本（可能改过）：以它为准重写这一轮，保留其中的改动与设定，不要回到更早的版本。'
   return input + (guide !== '' ? '\n\n【本轮补充要求】\n' + guide : '')
 }
 
@@ -441,7 +452,11 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const guide = str(guidance).trim()
     // There is no body to revise on an unanswered tail, so guidance is only an
     // extra instruction on the same input.
-    const syntheticText = regenerationInputText(originalUserText, guide, failedTail ? '' : replyTextOf(msgs0[oldAssistantIndex]))
+    // An edited body must reach the model even without guidance: the old body was
+    // already taken off the native surface, so this request is its only copy.
+    const currentBody = failedTail ? '' : replyTextOf(msgs0[oldAssistantIndex])
+    const syntheticText = regenerationInputText(originalUserText, guide, currentBody,
+      { keepBody: !failedTail && editedReplyBody(msgs0[oldAssistantIndex]) })
     const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
     const candidateTurn = beforeLastTurn + 1
     const candidateFrame = await candidateRegenerationFrame(originalChat, operationId, candidateTurn, syntheticText, prepareRegenerationFrame)
