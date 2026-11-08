@@ -1194,6 +1194,11 @@
 			const currentVersionLabel = updateStatus.currentVersion && updateStatus.currentVersion !== "unknown" ? "v" + updateStatus.currentVersion : "版本未知";
 			const currentCommitLabel = (updateStatus.currentCommit || "").slice(0, 7) || "构建未知";
 			const updateHostLabel = { desktop: "Desktop 版", next: "Next 版", android: "Android 版" }[updateStatus.host] || "命令行版";
+			// 状态还没回来就整块不画，会让版本行和「检查更新」在每次页面重载、切对话后先
+			// 消失再出现；读到慢（后端忙、请求超时前重试）时会缺好几秒。行留在原地，只把
+			// 状态行交给下面的加载态。
+			const updateStatusLoading = updateStatus.phase === "loading";
+			const updateIdentityText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel;
 			// 已是最新且无警告时，结果直接写在按钮上，不再单占一行（手机侧栏高度紧张）。
 			const upToDateQuiet = updateStatus.phase === "up-to-date" && !updateStatus.checkWarning;
 			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? true;
@@ -1226,9 +1231,9 @@
 				deleteNotice ? h("div", { role: "status", style: { padding: "4px 12px" } }, deleteNotice) : null,
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				collapsed ? null : props.renderSlot("tavern.sidebar.chrome", {}),
-				updateStatus.host === "desktop" ? h(TavernHostCompatibility) : updateStatus.pluginManaged || updateStatus.phase === "loading" ? null : h("div", { className: "dsh-tavern-update" },
+				updateStatus.host === "desktop" ? h(TavernHostCompatibility) : updateStatus.pluginManaged ? null : h("div", { className: "dsh-tavern-update" },
 					h("div", { className: "dsh-tavern-update-row" },
-						h("div", { className: "dsh-tavern-update-identity", title: "DSH Tavern " + currentVersionLabel + " · " + updateHostLabel }, "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel),
+						h("div", { className: "dsh-tavern-update-identity", title: updateStatusLoading ? "DSH Tavern · " + updateHostLabel : "DSH Tavern " + currentVersionLabel + " · " + updateHostLabel }, updateIdentityText),
 						updateActions),
                     h(TavernHostCompatibility),
 					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status" }, updateMessage)
