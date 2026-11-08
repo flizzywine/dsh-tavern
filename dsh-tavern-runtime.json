@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "10f50f2e682aa65f949d573fb17efb47125511ac",
-  "releaseSequence": 1358,
+  "revision": "ce474be4f086a1a058314cf6d44e7a1f73b3686d",
+  "releaseSequence": 1359,
   "version": "3.2.0",
   "files": [
     {
@@ -3856,8 +3856,8 @@
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
-      "sha256": "3b08ca9ecebcb1d39798418640cf7437254d4e721757c31cb830781615f924e2",
-      "size": 2670
+      "sha256": "5427c0b52303193f3abb13254e7ee299455916ec3d726c530061267ba8a66a80",
+      "size": 2594
     },
     {
       "path": "tavern-plugin/lib/mod-config-card-packs.js",
@@ -3896,8 +3896,8 @@
     },
     {
       "path": "tavern-plugin/lib/mod-system-distributions.js",
-      "sha256": "70940a76ec0b36618f9e41663565dc62b8452409342d63a51557b02683f4637c",
-      "size": 1930
+      "sha256": "33a9d269b1e9c0c0c15d4094ccccffc0f1b6fdfea9eb1a7d69f9f781a80cd4bd",
+      "size": 2160
     },
     {
       "path": "tavern-plugin/lib/mod-system-settings.js",
@@ -5160,26 +5160,6 @@
       "size": 211090
     },
     {
-      "path": "tavern-plugin/mods/demo/manifest.json",
-      "sha256": "eb26480382942d41245664e33222b8a827a300a908766f9b6d0ecf8fc0378255",
-      "size": 5366
-    },
-    {
-      "path": "tavern-plugin/mods/demo/prompts/demo.txt",
-      "sha256": "a50a5a89c4c48bd65cba402c37f91e7a2d32073e628d955b375a529cfa274d80",
-      "size": 50
-    },
-    {
-      "path": "tavern-plugin/mods/demo/runtime.js",
-      "sha256": "1cf0a3e825c8fdf34175b99e763056636be019793a9996775db2ba8d27e228dc",
-      "size": 228
-    },
-    {
-      "path": "tavern-plugin/mods/demo/ui/preview.html",
-      "sha256": "a2060df687df1ddfbe1960d235fcf457c9b617bf00f667c775f33a576d3c30b0",
-      "size": 131
-    },
-    {
       "path": "tavern-plugin/mods/dice/manifest.json",
       "sha256": "c0de0731f3aa3a1df40f26158a81de993128fd4374ee030a9cc95cd1f06e8936",
       "size": 980
@@ -5203,36 +5183,6 @@
       "path": "tavern-plugin/mods/dice/runtime.js",
       "sha256": "6b620834a7ea7c03f53184f9af0e6452d9d8a6ab007b752d2ec4c6ac317058de",
       "size": 188
-    },
-    {
-      "path": "tavern-plugin/mods/performance/manifest.json",
-      "sha256": "58706b099ecbf188b448cfa77b59eaa50e9dd1dd5cc7b280d21247e0f4b5ef5b",
-      "size": 3834
-    },
-    {
-      "path": "tavern-plugin/mods/performance/mod.json",
-      "sha256": "584b98963dd87760f8644ed736386598bf5d8c7b698e8f1b7c46936dd2909d0a",
-      "size": 1516
-    },
-    {
-      "path": "tavern-plugin/mods/performance/package.json",
-      "sha256": "a76c14e23e1b23fed5f3c086c7bf3836e98c84e27092631942b383a00e72a7ba",
-      "size": 178
-    },
-    {
-      "path": "tavern-plugin/mods/performance/plugin.mjs",
-      "sha256": "023540ba176769ee15c7bf70346171fdd564b31fd176bfa8ab1776b738e6bcd5",
-      "size": 2814
-    },
-    {
-      "path": "tavern-plugin/mods/performance/prompts/performance.txt",
-      "sha256": "0fe0282b288ef33f81b60e1c0505f8d41a4999de70e6ede9b1d3598889419e00",
-      "size": 248
-    },
-    {
-      "path": "tavern-plugin/mods/performance/runtime.js",
-      "sha256": "0a84bb2263f94c84e9e4635df8fea803ee937952709ff6432e71e189cb6f6ea8",
-      "size": 657
     },
     {
       "path": "tavern-plugin/mods/phone/audio-loudness.json",
@@ -9876,9 +9826,9 @@
     }
   ],
   "archive": {
-    "commit": "1a61fae9ebb0d05d6c242f8459a9ae1f5beab989",
+    "commit": "2cee6e0d236494e691b0917abbaae660a18f0f08",
     "path": "runtime.zip",
-    "sha256": "73669c9229d5d68ec7ea2df0397a44f79b44b16a2a20f506d513665da2d6d273",
-    "size": 16502453
+    "sha256": "0890ce2ed3b9827e01b96d438d88852837b6d060cc4a7b066b6a6bea957dcf22",
+    "size": 16495773
   }
 }
