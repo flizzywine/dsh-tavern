@@ -3540,7 +3540,7 @@ html[data-dsh-tavern-prose-indent] .dsh-tavern-assistant :is(.dsh-tavern-colored
    Canvas 上：保留皮肤的色调，又不透视。变量要声明在 body 上，皮肤的 token 挂在 body。 */
 body { --dsh-tavern-solid: linear-gradient(var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base, transparent)) 0 0) Canvas; }
 body :is(
-  .dsh-tavern-card-picker, .dsh-tavern-mobile-import-panel, .dsh-tavern-header-dialog, .dsh-tavern-prompt,
+  .dsh-tavern-card-picker, .dsh-tavern-mobile-import-panel, .dsh-tavern-header-dialog, .dsh-tavern-prompt, .dsh-ejs-editor,
   .dsh-tavern-plugin-overlay, .dsh-tavern-error-center, .dsh-tavern-wbsw-shell, .dsh-polish-tip,
   .dsh-tavern-side-row-menu, .dsh-tavern-more-menu, .dsh-tavern-more-actions > .dsh-tavern-more-menu,
   .dsh-tavern-resource-menu-popup, .dsh-tavern-group-menu, .dsh-tavern-card-row-popup,
