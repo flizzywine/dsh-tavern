@@ -62,6 +62,24 @@ test('NEXT 共用酒馆启动器和更新状态，通过原生 Profile 切换', 
   }
 })
 
+test('NEXT 区分链接的原版 Profile 和无法切换的原版 Profile', async () => {
+  const cases = [
+    [[{ ...tavernProfile, name: 'desktop', isLink: true, linkTargetName: 'tavern' }], /官方 DeepSeek Harness.*酒馆启动器.*切回原版 DSH/],
+    [[], /桌面设置 → Profile/],
+  ]
+  for (const [profiles, hint] of cases) {
+    const page = await mount({ host: 'next', activeName: 'tavern', appKind: 'desktop', desktopApp: true,
+      profiles: [...profiles, tavernProfile] }, [], { next() {} })
+    try {
+      assert.match(page.text(), hint)
+      assert.doesNotMatch(page.text(), /找不到原版 DSH 的备份/)
+      assert.equal(page.button(), null)
+    } finally {
+      await page.dispose()
+    }
+  }
+})
+
 test('NEXT 先准备更新，等用户确认后才请求原生退出', async () => {
   const order = []
   const status = { host: 'next', activeName: 'tavern', appKind: 'desktop', desktopApp: true,
