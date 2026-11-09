@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   dsh-better-sidebar@0.28.0: 850e16168b85d56a330c133fe8f26468d70046002ca6b3e7f06a1b6cfb75450e
-  dsh-pocket@2.12.0: 1b0fac9bc15853908a97cd3cd9cea13aa17484e649ce423b5f9bcbecd61ef42e
+  dsh-pocket@2.12.0: ceddd2c96260d6c8a3aff2ce1f55502d73c29f7111ec4ec1cec6a0fd9ab07df2
   dsh-web-mobile@3.1.0: f4e306c03ef6fb2ffca172bcac2f1f72debff28a56bdc2b966a304ccd7fb5fa5
 
 importers:
@@ -79,7 +79,7 @@ importers:
         version: link:tavern-plugin/packages/dsh-dream-skin
       dsh-pocket:
         specifier: 2.12.0
-        version: 2.12.0(patch_hash=1b0fac9bc15853908a97cd3cd9cea13aa17484e649ce423b5f9bcbecd61ef42e)
+        version: 2.12.0(patch_hash=ceddd2c96260d6c8a3aff2ce1f55502d73c29f7111ec4ec1cec6a0fd9ab07df2)
       dsh-tavern-plugin:
         specifier: link:./tavern-plugin
         version: link:tavern-plugin
@@ -2679,7 +2679,7 @@ snapshots:
       yaml: 2.9.0
       zod: 4.6.5
 
-  dsh-pocket@2.12.0(patch_hash=1b0fac9bc15853908a97cd3cd9cea13aa17484e649ce423b5f9bcbecd61ef42e):
+  dsh-pocket@2.12.0(patch_hash=ceddd2c96260d6c8a3aff2ce1f55502d73c29f7111ec4ec1cec6a0fd9ab07df2):
     dependencies:
       qrcode: 1.5.4
       qrcode-terminal: 0.12.0
