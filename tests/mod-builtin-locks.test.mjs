@@ -3,6 +3,21 @@ import assert from 'node:assert/strict'
 import {fixture} from './helpers/mod-system-production-host.mjs'
 import {firstPartyDistributions} from '../tavern-plugin/lib/mod-system-distributions.js'
 
+test('startup reads installed mod releases without scanning cards except to reconcile locks',async t=>{
+  let scans=0
+  const {production}=await fixture(t,{listPaths:async()=>{scans++;return ['card.json']}})
+  await production.ready
+  assert.equal(scans,0)
+  await production.installBuiltins()
+
+  scans=0
+  await production.installBuiltins()
+  assert.equal(scans,2,'read the current locks and recheck them before publishing')
+  const selected=await production.selection()
+  assert.ok(selected.manifests.some(row=>row.id==='dsh.phone'))
+  assert.equal(scans,2)
+})
+
 // A rebuilt built-in (same version, new bytes) is the current code: cards that switched it on keep using it instead of
 // showing 版本不符 for the digest they locked at the time.
 test('a rebuilt built-in release keeps card locks current instead of reporting a version mismatch',async t=>{
