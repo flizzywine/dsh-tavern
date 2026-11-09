@@ -70,6 +70,15 @@ function ImageViewer(props) {
     const close = () => live.current.onClose && live.current.onClose();
     useOverlay(true, () => [root.current], close);
     const apply = (next, smooth) => { const value = { s: next.s, x: next.x, y: next.y, src: live.current.src }; latest.current = value; setGlide(!!smooth); setPlaced(value); };
+    // 顶层显示：挂到 body 并不够。正文楼层带 content-visibility（= contain: layout），卡片 iframe 和手机的舞台外壳
+    // 也自带包含块，这些祖先都会把 fixed 收进自己那一列，屏幕右侧于是露出没被大图盖住的酒馆本体。popover 把查看器
+    // 放进 top layer，任何祖先的包含块和裁切都不再影响它；浏览器不支持时属性被忽略，退回原来的 fixed 铺满。
+    React.useEffect(function () {
+        const node = root.current;
+        if (!node || typeof node.showPopover !== "function") return undefined;
+        try { if (!node.matches(":popover-open")) node.showPopover(); } catch (_) {}
+        return () => { try { if (node.matches(":popover-open")) node.hidePopover(); } catch (_) {} };
+    }, []);
     React.useEffect(function () {
         const previous = typeof document === "undefined" ? null : document.activeElement;
         if (root.current && root.current.focus) root.current.focus({ preventScroll: true });
@@ -201,7 +210,7 @@ function ImageViewer(props) {
     const button = (a, i) => h("button", { key: a.key || a.label || i, type: "button", className: "fork-viewer-button", "aria-label": a.label, title: a.label,
         "aria-pressed": a.pressed === undefined ? undefined : !!a.pressed, disabled: !!(a.disabled || a.busy), "aria-busy": a.busy || undefined, onClick: a.onClick },
         a.busy ? h(Spinner, { delay: 0 }) : a.icon);
-    const body = h("div", { ref: root, className: "fork-viewer", role: "dialog", "aria-modal": true, "aria-label": p.alt || "查看大图", tabIndex: -1,
+    const body = h("div", { ref: root, className: "fork-viewer", role: "dialog", "aria-modal": true, "aria-label": p.alt || "查看大图", tabIndex: -1, popover: "manual",
         onKeyDown: event => { onKeyDown(event); event.stopPropagation(); }, onPointerDown: keep, onPointerUp: keep, onMouseDown: keep, onMouseUp: keep, onClick: keep,
         onDoubleClick: keep, onContextMenu: keep, onTouchStart: keep, onTouchEnd: keep, onDragStart: event => { event.preventDefault(); event.stopPropagation(); } },
         h("div", { ref: stage, className: "fork-viewer-stage" + (dragging ? " is-dragging" : "") },
