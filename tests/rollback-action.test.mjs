@@ -129,6 +129,15 @@ test('视图在、却没带重生成能力字段时，按正文判断，不说�
   assert.doesNotMatch(regenerate.props.title, /还没有可重新生成的正文/)
 })
 
+test('视图缺能力字段时，只有开场白的局仍禁用（开场白算第 1 轮，不是正文）', () => {
+  const h = harness()
+  h.running(false); h.bareView(true)
+  h.view({ latestAssistantTurn: 1 })
+  const regenerate = h.buttons()[1]
+  assert.equal(regenerate.props.disabled, true)
+  assert.match(regenerate.props.title, /还没有可重新生成的正文/)
+})
+
 test('视图在、没有正文也没有能力字段时，仍然禁用并说明没东西可重生成', () => {
   const h = harness()
   h.running(false); h.bareView(true)

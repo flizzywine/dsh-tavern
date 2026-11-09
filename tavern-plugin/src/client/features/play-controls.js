@@ -558,7 +558,11 @@
 			// 不完整。正文就摆在玩家面前,按钮却说自己没东西可写——那是骗人的。
 			const scrollbackView = rollbackViewState.view;
 			const regenerable = viewReady ? (scrollbackView.canRegenerate ?? scrollbackView.canRollback) : undefined;
-			const viewHasBody = viewReady && (Number(scrollbackView.latestAssistantTurn) > 0 || Boolean(scrollbackView.latestAssistantMessageId));
+			// 只认「非开场白」的正文。latestAssistantTurn 会把开场白算成第 1 轮，
+			// 拿它有无来判会把只有开场白的新局点亮，点下去服务端只回
+			// 「没有可重新生成的正文」（round-history 的 no-non-greeting-assistant）。
+			// 正文的 native 消息 id 只在真有那一轮时才有；轮次大于 1 的自然不是开场白。
+			const viewHasBody = viewReady && (Boolean(scrollbackView.latestAssistantMessageId) || Number(scrollbackView.latestAssistantTurn) > 1);
 			const canRollback = viewReady && (regenerable === true || (regenerable === undefined && viewHasBody));
             const clearIncomplete = rollbackViewState.view && rollbackViewState.view.canClearIncompleteReply === true;
 			// A failure still owning the tail can be withdrawn or handed to the debugger.
