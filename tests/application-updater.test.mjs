@@ -159,7 +159,7 @@ for (const source of ['github']) {
   }
 }
 
-test('开始更新复用最近的检查结果，不重复请求或刷新本地身份', async t => {
+test('开始更新复用已有检查结果，不重复请求或刷新本地身份', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-update-reuse-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const latest = 'b'.repeat(40)
@@ -184,7 +184,7 @@ test('开始更新复用最近的检查结果，不重复请求或刷新本地�
   assert.ok(updater.diagnostics().records.some(entry => entry.event === 'check.reused'))
 })
 
-test('检查结果过期后 start 重新核实远端并再次确认本地身份', async t => {
+test('检查后隔很久仍直接启动固定提交，不让灰按钮等待第二次远端检查', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-update-reuse-expired-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   let clock = 1000
@@ -202,12 +202,35 @@ test('检查结果过期后 start 重新核实远端并再次确认本地身份'
   await updater.check()
   clock += 5 * 60 * 1000 + 1
   assert.equal((await updater.start()).phase, 'running')
+  assert.equal(networkChecks, 3, '检查年龄不影响已固定提交的安全性')
+  assert.equal(identityReads, 2)
+  assert.ok(updater.diagnostics().records.some(entry => entry.event === 'check.reused'))
+})
+
+test('本地提交变化后不复用旧检查，重新核实远端和本地身份', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-update-reuse-identity-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  let identity = knownIdentity
+  let identityReads = 0
+  let networkChecks = 0
+  const child = { pid: process.pid, once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() {} }
+  const updater = createApplicationUpdater({
+    dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli', now: () => 1000,
+    readLocalIdentity: async () => { identityReads += 1; return identity },
+    fetchManifest: async () => { networkChecks += 1; return { version: identity.currentVersion } },
+    fetchLatestCommit: async () => { networkChecks += 1; return 'b'.repeat(40) },
+    compareCommits: async () => { networkChecks += 1; return 'ahead' },
+    spawnProcess() { return child },
+  })
+  await updater.check()
+  identity = { ...knownIdentity, currentCommit: 'c'.repeat(40) }
+  assert.equal((await updater.start()).phase, 'running')
   assert.equal(networkChecks, 6)
   assert.equal(identityReads, 3)
   assert.ok(!updater.diagnostics().records.some(entry => entry.event === 'check.reused'))
 })
 
-test('修复安装复用同提交的最近检查，仍然启动重装', async t => {
+test('修复安装复用同提交的已有检查，仍然启动重装', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-update-reuse-repair-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const dataRoot = path.join(root, 'data')

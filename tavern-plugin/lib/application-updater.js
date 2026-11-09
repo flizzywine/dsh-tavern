@@ -32,7 +32,6 @@ const GITHUB_MANIFEST_URL = 'https://raw.githubusercontent.com/flizzywine/dsh-ta
 const RUNTIME_FILES = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh'])
 const RUNTIME_DIRECTORIES = ['android/', 'bin/', 'config/', 'presets/', 'tavern-plugin/', 'patches/']
 const RUNTIME_COMPARE_BATCH_SIZE = 8
-const CHECK_RESULT_REUSE_MS = 5 * 60 * 1000
 
 async function localCommitRelation(root, current, latest) {
   const ancestor = async (base, head) => {
@@ -646,16 +645,14 @@ export function createApplicationUpdater(options) {
       throw new Error('更新正在进行，请勿重复启动')
     }
     let version
-    const checkedAgo = now() - Number(current.checkedAt)
     const reuseCheck = ['update-available', 'repair-required'].includes(current.phase)
       && current.host === installHost
       && current.checkPolicy === UPDATE_CHECK_POLICY
       && current.checkedForCommit === identity.currentCommit
       && /^[0-9a-f]{40}$/i.test(String(current.latestCommit || ''))
-      && checkedAgo >= 0 && checkedAgo <= CHECK_RESULT_REUSE_MS
     if (reuseCheck) {
-      // The normal UI flow is check -> confirm -> start. Install the exact build
-      // the user just saw instead of repeating every network request and hash scan.
+      // Install the exact build shown beside the confirmation. Its age does not
+      // weaken the identity check; a changed local commit still revalidates.
       version = {
         currentVersion: identity.currentVersion,
         latestVersion: String(current.latestVersion || 'unknown'),
