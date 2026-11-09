@@ -9,6 +9,12 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+const GENERATION_PRESET_MAX_BYTES = 10 * 1024 * 1024
+function hasGenerationPresetFormat(document) {
+  return Array.isArray(document?.prompts) && document.prompts.length > 0
+    && Array.isArray(document.prompt_order) && document.prompt_order.some(group => Array.isArray(group?.order))
+}
+
 // Bypass plans were retired on this date; their file is only read for migrations.
 const PLANS_RETIRED_AT = Date.parse('2026-08-28T00:00:00+08:00')
 
@@ -138,6 +144,7 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
       title: preset.title,
       valid: preset.valid,
       recognized: preset.recognized,
+      generationCompatible: Buffer.byteLength(text) <= GENERATION_PRESET_MAX_BYTES && hasGenerationPresetFormat(document),
       promptCount: preset.promptCount,
       phaseCounts,
       unassignedPromptCount: (preset.entries || []).filter(function (entry) { return !phasedEntryKeys.has(str(entry && entry.entryKey)) }).length,
@@ -199,6 +206,19 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
     if (text === undefined) throw new Error('预设不存在: ' + presetPath)
     return { name: presetPath.split('/').pop() || 'preset.json', text }
   }
+  async function listForGeneration() {
+    return (await listPresets()).filter(preset => preset.generationCompatible)
+      .map(preset => ({ id: preset.path, name: preset.title }))
+  }
+  async function readForGeneration(id) {
+    const path = normalizeResourcePath(id, 'preset')
+    const { name, text } = await exportPreset(path)
+    if (Buffer.byteLength(text) > GENERATION_PRESET_MAX_BYTES) throw new Error('共享预设最多 10 MiB')
+    let document
+    try { document = JSON.parse(text) } catch { /* report the same error as an unsupported format */ }
+    if (!hasGenerationPresetFormat(document)) throw new Error('此预设缺少 SillyTavern 提示词或顺序数据，请在宿主预设库选择兼容的预设')
+    return { id: path, name: name.replace(/\.json$/i, ''), revision: createHash('sha256').update(text).digest('hex'), text }
+  }
   async function updateEntry(path, key, patch) {
     await presetEditor.updateEntry(path, key, patch)
     return await readPreset(path)
@@ -218,6 +238,7 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
   }
   return Object.freeze({ read: readPreset, readDocument: readPresetDocument, detail,
     catalog, select, import: importPreset, export: exportPreset, preview: previewPreset,
+    listForGeneration, readForGeneration,
     updateEntry, updateRegex, moveEntry, migrate, restoreChat: restoreRetiredPlanChat,
     editor: presetEditor, runtime: runtimePresets })
 }

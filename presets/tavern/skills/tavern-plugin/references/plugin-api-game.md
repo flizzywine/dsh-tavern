@@ -156,6 +156,16 @@ if (ctx.tavern.capabilities?.bodyGeneration === 1) {
 
 STcontext 的请求预览继续由插件维护；`operationId` 可用来区分不同尝试。模型响应同时含普通文本和工具正文时，插件应按声明的协议选择结果，不能简单取最长字符串。
 
+## 共享预设 `listGenerationPresets()` 和 `readGenerationPreset()`
+
+宿主提供 `ctx.tavern.capabilities?.generationPresets === 1` 时，插件可以读取预设库里的 SillyTavern 原始预设。
+
+- `await ctx.tavern.listGenerationPresets()` 返回 `[{ id, name }]`，可用于预设下拉框。
+- `await ctx.tavern.readGenerationPreset({ id })` 读取指定预设。传 `{ gameId }` 则读取本局绑定的预设。
+- 读取结果为 `{ id, name, revision, text }`。`text` 是原始 JSON 文本，保留提示词顺序和扩展字段。上限为 10 MiB。预设缺失、格式不符或本局未绑定时会抛出错误。
+
+插件可以只保存 `id` 或跟随本局的选项，每次 `prepare` 时再读取源文件，并将本次使用的内容冻结进生成配置。
+
 ## Provider 能力检查
 
 `tavern.capabilities` 只声明宿主实现了哪些 provider 接口，不代表某个插件已注册，也不代表当前游戏会选择它。检查该能力值为 `1`，并保留旧宿主的降级路径：

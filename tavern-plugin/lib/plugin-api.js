@@ -181,7 +181,8 @@ export function createTavernPluginApi(deps) {
   const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
-  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1 })
+  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1,
+    ...(deps.generationPresets ? { generationPresets: 1 } : {}) })
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -761,6 +762,24 @@ export function createTavernPluginApi(deps) {
     async readPluginData() {
       const owner = ownerOf(this)
       return deps.pluginData ? deps.pluginData.read(owner) : null
+    },
+
+    async listGenerationPresets() {
+      ownerOf(this)
+      if (!deps.generationPresets) throw new Error('当前 Tavern 不支持共享预设')
+      return deps.generationPresets.list()
+    },
+
+    async readGenerationPreset({ id, gameId } = {}) {
+      ownerOf(this)
+      if (!deps.generationPresets) throw new Error('当前 Tavern 不支持共享预设')
+      if (id === undefined) {
+        const game = await requireGame(gameId)
+        id = await deps.generationPresets.currentId(game.sessionId)
+        if (!id) throw new Error('本局未绑定宿主预设，请在本局应用一个预设或选择指定预设')
+      }
+      if (typeof id !== 'string' || id.trim() === '') throw new TypeError('共享预设标识无效')
+      return deps.generationPresets.read(id)
     },
 
     // Options of this plugin in each game's settings: Tavern draws them in 本局设置 and keeps the values with the game.

@@ -21,6 +21,21 @@ function harness() {
   return { create, files, state, writes, warnings }
 }
 
+test('共享预设列出可用源文件并读取最新的完整 JSON', async () => {
+  const h = harness(), library = h.create()
+  h.files.set('presets/native.json', JSON.stringify({ prompts: document().prompts }))
+  assert.deepEqual(await library.listForGeneration(), [{ id: path, name: '写作' }])
+  const original = await library.readForGeneration(path)
+  assert.equal(original.text, h.files.get(path))
+  await library.updateEntry(path, 'main#1', { content: '新规则' })
+  const updated = await library.readForGeneration(path)
+  assert.notEqual(updated.revision, original.revision)
+  assert.equal(JSON.parse(updated.text).prompts[0].content, '新规则')
+  assert.deepEqual(JSON.parse(updated.text).extensions, document().extensions)
+  await assert.rejects(library.readForGeneration('presets/native.json'), /缺少 SillyTavern/)
+  await assert.rejects(library.readForGeneration('cards/a.json'))
+})
+
 test('重复正则 ID 和空槽位映射到正确原文位置；编辑保留未知字段', async () => {
   const h = harness(), library = h.create()
   const detail = await library.detail(path)

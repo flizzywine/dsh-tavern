@@ -2814,6 +2814,14 @@ export async function apply(ctx) {
       return work
     },
     pluginData: pluginDataStore,
+    generationPresets: {
+      list: presetLibrary.listForGeneration,
+      read: presetLibrary.readForGeneration,
+      async currentId(sessionId) {
+        const chat = await chatHeaderForSession(sessionId, ['runtimePresetSnapshot.presetPath'])
+        return chat?.runtimePresetSnapshot?.presetPath
+      }
+    },
     ...pluginTurns,
     resolveGalleryContext,
     backgroundModel: async sessionId => backgroundModelSelection(await backgroundConfigForSession(sessionId)),
