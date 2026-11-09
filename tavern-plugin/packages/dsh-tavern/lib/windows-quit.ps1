@@ -14,20 +14,34 @@ Add-Type -AssemblyName UIAutomationTypes
 Add-Type @'
 using System;
 using System.Text;
+using System.Threading;
 using System.Runtime.InteropServices;
 public static class TavernTrayQuit {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
   [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint from, uint to, bool attach);
+  [DllImport("user32.dll")] public static extern bool IsGUIThread(bool convertToGuiThread);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
   public static bool Focus(IntPtr hwnd) {
-    if (SetForegroundWindow(hwnd)) return true;
-    uint owner;
-    uint foreground = GetWindowThreadProcessId(GetForegroundWindow(), out owner);
-    uint current = GetCurrentThreadId();
-    if (foreground == 0 || current == foreground || !AttachThreadInput(current, foreground, true)) return false;
-    try { return SetForegroundWindow(hwnd); }
-    finally { AttachThreadInput(current, foreground, false); }
+    IsGUIThread(true);
+    for (int attempt = 0; attempt < 10; attempt++) {
+      if (SetForegroundWindow(hwnd)) return true;
+      uint owner;
+      uint foreground = GetWindowThreadProcessId(GetForegroundWindow(), out owner);
+      uint current = GetCurrentThreadId();
+      if (foreground != 0 && current != foreground && AttachThreadInput(current, foreground, true)) {
+        try {
+          if (SetForegroundWindow(hwnd)) return true;
+        } finally {
+          AttachThreadInput(current, foreground, false);
+        }
+      }
+      keybd_event(0x12, 0, 2, UIntPtr.Zero);
+      if (SetForegroundWindow(hwnd)) return true;
+      Thread.Sleep(50);
+    }
+    return false;
   }
   public delegate bool EnumProc(IntPtr hwnd, IntPtr param);
   [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr param);
@@ -46,7 +60,12 @@ public static class TavernTrayQuit {
   }
 }
 '@
-$trayWindow = [TavernTrayQuit]::Find($DesktopProcessId)
+$trayDeadline = [DateTime]::UtcNow.AddSeconds(2)
+do {
+  $trayWindow = [TavernTrayQuit]::Find($DesktopProcessId)
+  if ($trayWindow -ne [IntPtr]::Zero) { break }
+  Start-Sleep -Milliseconds 100
+} while ([DateTime]::UtcNow -lt $trayDeadline)
 if ($trayWindow -eq [IntPtr]::Zero) { throw 'Official desktop tray is unavailable' }
 # A background Electron tray refuses to open its menu without foreground ownership.
 if (-not [TavernTrayQuit]::Focus($trayWindow)) { throw 'Could not focus the official desktop tray' }

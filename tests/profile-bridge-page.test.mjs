@@ -289,3 +289,28 @@ test('迁移只接受绝对路径，显示失败后保留输入允许取消或�
   assert.equal(page.dom.window.document.querySelector('#pb-destination'), null)
   page.dispose()
 })
+
+test('自动退出失败的待完成切换在新打开设置页时显示手动退出提示，且允许再次点击重试自动退出', async () => {
+  let status = {
+    appKind: 'desktop', desktopApp: true, profiles: [tavernProfile],
+    lastResult: { status: 'pending', mode: 'link', stamp: '1', closesApp: false },
+  }
+  const page = await mount(status, [], {
+    rpc: async endpoint => {
+      if (endpoint === 'status') return { ok: true, value: status }
+      if (endpoint === 'link') {
+        status = { ...status, lastResult: { status: 'pending', mode: 'link', stamp: '1', closesApp: true } }
+        return { ok: true, value: { stamp: '1', closesApp: true } }
+      }
+      return { ok: true, value: {} }
+    },
+  })
+  assert.match(page.text(), /请从托盘退出桌面版/)
+  assert.doesNotMatch(page.text(), /正在重启/)
+  assert.equal(page.button().disabled, false)
+  await page.act(async () => { page.button().click() })
+  assert.deepEqual(page.calls.at(-1), ['link', { target: 'tavern' }])
+  assert.match(page.text(), /正在重启/)
+  assert.equal(page.button(), null)
+  page.dispose()
+})

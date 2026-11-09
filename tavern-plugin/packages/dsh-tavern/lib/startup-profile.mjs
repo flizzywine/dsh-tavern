@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { trustedHome } from './trusted-home.mjs'
@@ -6,11 +6,50 @@ import { trustedHome } from './trusted-home.mjs'
 // A bridge-controlled restart continues the selected session. A fresh launch
 // from the official app entry has no marker and applies the saved preference.
 export const SESSION_SWITCH_ENV = 'DSH_TAVERN_CONTINUE_PROFILE'
+const CONTINUATION_TTL_MS = 2 * 60 * 1000
 
 function preferenceFile(home) {
   const file = join(home, 'profile-bridge', 'startup-profile.json')
   trustedHome(home).ordinary(file)
   return file
+}
+
+function continuationFile(home) {
+  const file = join(home, 'profile-bridge', 'continue-profile.json')
+  trustedHome(home).ordinary(file)
+  return file
+}
+
+export function recordProfileContinuation(home, profile, { now = Date.now } = {}) {
+  if (!['desktop', 'tavern'].includes(profile)) return
+  const file = continuationFile(home)
+  mkdirSync(join(home, 'profile-bridge'), { recursive: true })
+  const temporary = file + '.' + randomUUID() + '.tmp'
+  try {
+    writeFileSync(temporary, JSON.stringify({ schemaVersion: 1, profile, expiresAt: now() + CONTINUATION_TTL_MS }) + '\n', { flag: 'wx', mode: 0o600 })
+    renameSync(temporary, file)
+  } finally {
+    try { rmSync(temporary, { force: true }) } catch {}
+  }
+}
+
+export function consumeProfileContinuation(home, currentProfile, { now = Date.now } = {}) {
+  let claimed
+  try {
+    const file = continuationFile(home)
+    const candidate = file + '.' + randomUUID() + '.consumed'
+    renameSync(file, candidate)
+    claimed = candidate
+    const value = JSON.parse(readFileSync(claimed, 'utf8'))
+    return value?.schemaVersion === 1
+      && value.profile === currentProfile
+      && Number.isFinite(value.expiresAt)
+      && value.expiresAt >= now()
+  } catch {
+    return false
+  } finally {
+    if (claimed) try { rmSync(claimed, { force: true }) } catch {}
+  }
 }
 
 export function readDefaultProfile(home) {
