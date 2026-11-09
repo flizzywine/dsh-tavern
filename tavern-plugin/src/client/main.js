@@ -977,6 +977,7 @@ window.__ModuleLoader__.load({
 
 // @include features/story-transcript-data.js
 // @include modules/story-external-history.js
+// @include host/chat-flow.js
 // @include features/story-transcript-list.js
 
 // @include features/card-list.js

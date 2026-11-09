@@ -38050,6 +38050,51 @@ function installTavernStoryExternalHistory(options) {
 	}
 	return controller.attach()
 }
+function installTavernHostChatFlow(slots, renderFlow) {
+	const key = 'conversation.chat.flow'
+	return slots.inject(key, function () {
+		let activeEntry = null, dispose = null, installing = false, stopped = false
+		function detach() {
+			const current = dispose
+			dispose = null
+			activeEntry = null
+			if (current) current()
+		}
+		function install() {
+			if (stopped || installing || (activeEntry && slots.entries(key).includes(activeEntry))) return
+			installing = true
+			try {
+				detach()
+				const entries = slots.entries(key).filter(entry => entry.component)
+				const native = entries.find(entry => entry.children && entry.children['conversation.chat.node']) || entries[0]
+				if (!native) return
+				const original = native.component
+				function TavernHostChatFlow(props) {
+					return renderFlow(props, () => React.createElement(original, props))
+				}
+				if (native.children !== undefined) {
+					// renderSlot belongs to the host entry that declares the child slots.
+					if (!Object.getOwnPropertyDescriptor(native, 'component')?.writable) return
+					native.component = TavernHostChatFlow
+					dispose = () => { if (native.component === TavernHostChatFlow) native.component = original }
+				} else {
+					const registration = { name: key, priority: -1, registrant: 'dsh-tavern' }
+					for (const field of ['inject', 'store', 'locale']) if (native[field] !== undefined) registration[field] = native[field]
+					dispose = slots.register(registration, TavernHostChatFlow)
+				}
+				activeEntry = native
+			} finally { installing = false }
+		}
+		const unsubscribe = typeof slots.subscribe === 'function' ? slots.subscribe(key, install) : () => {}
+		function stop() {
+			if (stopped) return
+			stopped = true
+			try { unsubscribe() } finally { detach() }
+		}
+		try { install() } catch (error) { stop(); throw error }
+		return stop
+	})
+}
 // 故事历史的只读楼层列表。它直接消费 chat.messages 的故事投影，不按 native
 // turn 分组，不扫描 sessionEvents，也不复用旧 DOM 隐藏行的 data-chat-flow-kind。
 // 列表和原生 ChatFlow 一样直接返回行，槽锚点保持 display:contents，宿主继续负责滚动。
@@ -38452,7 +38497,6 @@ function createTavernStoryTranscriptFeature(deps) {
 		const sessionId = String(props.sessionId || '')
 		const sessionMode = typeof useTavernSessionMode === 'function' ? useTavernSessionMode(sessionId) : ''
 		const store = props.store || defaultStore()
-		const legacyFlow = props.nativeFlow
 		const controller = useStoryController(store, sessionId, {
 			historyFrom: props.historyFrom,
 			enabled: enabled && sessionMode !== 'card'
@@ -38541,7 +38585,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		}, [sessionId, view && view.mode])
 
 		if (!storyActive) {
-			return legacyFlow ? h(legacyFlow, props) : h('div', { role: 'alert' }, '原生聊天记录暂不可用')
+			return props.renderNative ? props.renderNative() : h('div', { role: 'alert' }, '原生聊天记录暂不可用')
 		}
 		return h(TavernStoryTranscriptContent, Object.assign({}, props, {
 			store: store,
@@ -38590,49 +38634,10 @@ function createTavernStoryTranscriptFeature(deps) {
 			}
 		}, 'dsh-tavern: story external history')
 		ctx.effect(function () {
-			const key = 'conversation.chat.flow'
-			return slots.inject(key, function () {
-				let activeEntry = null, dispose = null, installing = false
-				function install() {
-					if (installing || (activeEntry && slots.entries(key).includes(activeEntry))) return
-					installing = true
-					try {
-						if (dispose) dispose()
-						dispose = null
-						activeEntry = null
-						const entries = slots.entries(key).filter(function (entry) { return entry.component })
-						const nativeEntry = entries.find(function (entry) { return entry.children && entry.children['conversation.chat.node'] }) || entries[0]
-						if (!nativeEntry) return
-						const nativeFlow = nativeEntry.component
-						function StoryTranscriptFlowSlot(props) {
-							return h(TavernStoryTranscriptFlow, Object.assign({}, props, { nativeFlow: nativeFlow, store: options.store,
-								executeSlash: props.executeSlash || flowExecuteSlash }))
-						}
-						if (nativeEntry.children !== undefined) {
-							// The host binds renderSlot to the existing child-slot owner. Keep
-							// that registration and wrap just its component.
-							if (!Object.getOwnPropertyDescriptor(nativeEntry, 'component')?.writable) return
-							nativeEntry.component = StoryTranscriptFlowSlot
-							dispose = function () {
-								if (nativeEntry.component === StoryTranscriptFlowSlot) nativeEntry.component = nativeFlow
-							}
-						} else {
-							const registration = { name: key, priority: -1, registrant: 'dsh-tavern' }
-							for (const field of ['inject', 'store', 'locale']) if (nativeEntry[field] !== undefined) registration[field] = nativeEntry[field]
-							dispose = slots.register(registration, StoryTranscriptFlowSlot)
-						}
-						activeEntry = nativeEntry
-					}
-					finally { installing = false }
-				}
-				const unsubscribe = typeof slots.subscribe === 'function' ? slots.subscribe(key, install) : function () {}
-				install()
-				return function () {
-					unsubscribe()
-					const current = dispose
-					dispose = null
-					if (current) current()
-				}
+			return installTavernHostChatFlow(slots, function (props, renderNative) {
+				return h(TavernStoryTranscriptFlow, Object.assign({}, props, {
+					renderNative: renderNative, store: options.store, executeSlash: props.executeSlash || flowExecuteSlash
+				}))
 			})
 		}, 'dsh-tavern: story transcript flow')
 	}

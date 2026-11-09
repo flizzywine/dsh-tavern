@@ -400,7 +400,6 @@ function createTavernStoryTranscriptFeature(deps) {
 		const sessionId = String(props.sessionId || '')
 		const sessionMode = typeof useTavernSessionMode === 'function' ? useTavernSessionMode(sessionId) : ''
 		const store = props.store || defaultStore()
-		const legacyFlow = props.nativeFlow
 		const controller = useStoryController(store, sessionId, {
 			historyFrom: props.historyFrom,
 			enabled: enabled && sessionMode !== 'card'
@@ -489,7 +488,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		}, [sessionId, view && view.mode])
 
 		if (!storyActive) {
-			return legacyFlow ? h(legacyFlow, props) : h('div', { role: 'alert' }, '原生聊天记录暂不可用')
+			return props.renderNative ? props.renderNative() : h('div', { role: 'alert' }, '原生聊天记录暂不可用')
 		}
 		return h(TavernStoryTranscriptContent, Object.assign({}, props, {
 			store: store,
@@ -538,49 +537,10 @@ function createTavernStoryTranscriptFeature(deps) {
 			}
 		}, 'dsh-tavern: story external history')
 		ctx.effect(function () {
-			const key = 'conversation.chat.flow'
-			return slots.inject(key, function () {
-				let activeEntry = null, dispose = null, installing = false
-				function install() {
-					if (installing || (activeEntry && slots.entries(key).includes(activeEntry))) return
-					installing = true
-					try {
-						if (dispose) dispose()
-						dispose = null
-						activeEntry = null
-						const entries = slots.entries(key).filter(function (entry) { return entry.component })
-						const nativeEntry = entries.find(function (entry) { return entry.children && entry.children['conversation.chat.node'] }) || entries[0]
-						if (!nativeEntry) return
-						const nativeFlow = nativeEntry.component
-						function StoryTranscriptFlowSlot(props) {
-							return h(TavernStoryTranscriptFlow, Object.assign({}, props, { nativeFlow: nativeFlow, store: options.store,
-								executeSlash: props.executeSlash || flowExecuteSlash }))
-						}
-						if (nativeEntry.children !== undefined) {
-							// The host binds renderSlot to the existing child-slot owner. Keep
-							// that registration and wrap just its component.
-							if (!Object.getOwnPropertyDescriptor(nativeEntry, 'component')?.writable) return
-							nativeEntry.component = StoryTranscriptFlowSlot
-							dispose = function () {
-								if (nativeEntry.component === StoryTranscriptFlowSlot) nativeEntry.component = nativeFlow
-							}
-						} else {
-							const registration = { name: key, priority: -1, registrant: 'dsh-tavern' }
-							for (const field of ['inject', 'store', 'locale']) if (nativeEntry[field] !== undefined) registration[field] = nativeEntry[field]
-							dispose = slots.register(registration, StoryTranscriptFlowSlot)
-						}
-						activeEntry = nativeEntry
-					}
-					finally { installing = false }
-				}
-				const unsubscribe = typeof slots.subscribe === 'function' ? slots.subscribe(key, install) : function () {}
-				install()
-				return function () {
-					unsubscribe()
-					const current = dispose
-					dispose = null
-					if (current) current()
-				}
+			return installTavernHostChatFlow(slots, function (props, renderNative) {
+				return h(TavernStoryTranscriptFlow, Object.assign({}, props, {
+					renderNative: renderNative, store: options.store, executeSlash: props.executeSlash || flowExecuteSlash
+				}))
 			})
 		}, 'dsh-tavern: story transcript flow')
 	}

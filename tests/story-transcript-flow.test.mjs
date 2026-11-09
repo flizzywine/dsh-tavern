@@ -8,6 +8,7 @@ import { JSDOM } from 'jsdom'
 import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transcript.js'
 
 const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8')
+const hostChatFlowSource = await readFile(new URL('../tavern-plugin/src/client/host/chat-flow.js', import.meta.url), 'utf8')
 const listSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-list.js', import.meta.url), 'utf8')
 
 function page(t) {
@@ -32,6 +33,7 @@ function page(t) {
 		useTavernSessionMode: () => 'story', publishSessionMode: () => {}, isPlayMode: mode => mode === 'story' || mode === 'script'
 	})
 	vm.runInContext(dataSource, context)
+	vm.runInContext(hostChatFlowSource, context)
 	vm.runInContext(listSource, context)
 	return { dom, context, roots }
 }
@@ -77,7 +79,7 @@ test('打开游玩工作过程后只在对应故事楼层显示可展开的工�
 	} })
 	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data })
 	await mount(p, React.createElement(feature.StoryTranscriptFlow, {
-		sessionId: 's1', nativeFlow: () => null,
+		sessionId: 's1', renderNative: () => null,
 		useChat: selector => selector({ legacy: {} }), useSession: selector => selector({ running: false })
 	}))
 	const document = p.dom.window.document
@@ -123,7 +125,7 @@ test('故事视图就绪前外壳订阅不抢发完整会话读取', async t => 
 	const store = data.createStoryTranscriptStore(), mode = data.createModeStore()
 	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode })
 	await mount(p, React.createElement(feature.StoryTranscriptFlow, {
-		sessionId: 's1', store, nativeFlow: () => null,
+		sessionId: 's1', store, renderNative: () => null,
 		useChat: selector => selector({ legacy: {} }), useSession: selector => selector({ running: false })
 	}))
 	const revisionCalls = () => subscriptions.filter(args => args[1] === 'story-transcript-revision')
@@ -175,7 +177,7 @@ test('玩家输入先乐观显示，再按 requestId 原位交给持久故事行
 	const session = { running: false, pendingSubmissions: [{ requestId: 'submit-1', text: '立即显示输入' }] }
 	const chat = { legacy: { partial: null, nodes: [{ kind: 'user', content: '原生临时行', source: { kind: 'user', rpcId: 'native-only' } }], runningCalls: [] } }
 	const flow = () => React.createElement(feature.StoryTranscriptFlow, {
-		sessionId: 's1', store, nativeFlow: () => null,
+		sessionId: 's1', store, renderNative: () => null,
 		useChat: selector => selector(chat), useSession: selector => selector(session)
 	})
 	const root = await mount(p, flow())
@@ -225,7 +227,7 @@ test('撤回后故事气泡立即消失，重发与重新读取不会重复', as
 	const session = { running: false, pendingSubmissions: [{ requestId: 'rpc-6', text: '6' }] }
 	const chat = { legacy: { partial: null, nodes: [{ kind: 'user', content: '6', source: { kind: 'user', rpcId: 'rpc-6' } }], runningCalls: [] } }
 	const flow = () => React.createElement(feature.StoryTranscriptFlow, {
-		sessionId: 's1', store, nativeFlow: () => null,
+		sessionId: 's1', store, renderNative: () => null,
 		useChat: selector => selector(chat), useSession: selector => selector(session)
 	})
 	await mount(p, flow())
@@ -263,7 +265,7 @@ test('旧原生偏好在初始化时恢复故事楼层', async t => {
 	const NativeFlow = () => React.createElement('div', { 'data-native-flow': '' }, '原生')
 	const chat = { legacy: { partial: null, nodes: [], runningCalls: [] } }
 	await mount(p, React.createElement(feature.StoryTranscriptFlow, {
-		sessionId: 's1', store: store, nativeFlow: NativeFlow,
+		sessionId: 's1', store: store, renderNative: NativeFlow,
 		useChat: selector => selector(chat), useSession: selector => selector({ running: false })
 	}))
 	assert.equal(p.dom.window.document.querySelectorAll('[data-story-row]').length, 3)
@@ -294,7 +296,7 @@ test('空故事回退原生 ChatFlow 时同步恢复完整 native 投影', async
 	assert.equal(externalOptions.isEnabled('plain'), true, '首次读取前乐观按故事首屏处理')
 	const NativeFlow = () => React.createElement('div', { 'data-native-flow': '' }, '完整原生')
 	await mount(p, React.createElement(feature.StoryTranscriptFlow, {
-		sessionId: 'plain', store: store, nativeFlow: NativeFlow,
+		sessionId: 'plain', store: store, renderNative: NativeFlow,
 		useChat: selector => selector({ legacy: { partial: null, nodes: [], runningCalls: [] } }),
 		useSession: selector => selector({ running: false })
 	}))
@@ -326,7 +328,7 @@ test('首个 partial 读取占位，turn 结束后重读提交且两行始终可
 	const session = { running: true }
 	const NativeFlow = () => React.createElement('div', { 'data-native-flow': '' })
 	const element = () => React.createElement(feature.StoryTranscriptFlow, {
-		sessionId: 's1', store: store, nativeFlow: NativeFlow,
+		sessionId: 's1', store: store, renderNative: NativeFlow,
 		useChat: selector => selector(chat), useSession: selector => selector(session)
 	})
 	const root = await mount(p, element())
@@ -378,7 +380,7 @@ test('宿主一直报空闲时，流式正文结束会补读这一局，不用�
 	const chat = { legacy: { partial: { turn: 10, blocks: [{ kind: 'text', text: '流式草稿' }] }, nodes: [], runningCalls: [] } }
 	const session = { running: false }
 	const element = () => React.createElement(feature.StoryTranscriptFlow, {
-		sessionId: 's1', store: store, nativeFlow: () => React.createElement('div', { 'data-native-flow': '' }),
+		sessionId: 's1', store: store, renderNative: () => React.createElement('div', { 'data-native-flow': '' }),
 		useChat: selector => selector(chat), useSession: selector => selector(session)
 	})
 	const root = await mount(p, element())
@@ -415,14 +417,17 @@ test('没有子槽的原生条目继续使用独立的故事注册', async t => 
 	assert.equal(registrations.some(entry => entry.options.id === 'dsh-tavern-story-transcript-mode'), false, '不再注册楼层／原生切换按钮')
 })
 
-test('从游玩切到卡片时由原生条目提供子槽渲染器', async t => {
+test('游玩 → 卡片 → 游玩保留原生条目的子槽能力', async t => {
 	const p = page(t), { context } = p
 	context.useTavernSessionMode = sessionId => sessionId === 'card-session' ? 'card' : 'story'
 	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({
 		storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1
 	}) })
 	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data })
-	const NativeFlow = ({ renderSlot }) => renderSlot('conversation.chat.node', { text: '卡片工作台对话' })
+	const NativeFlow = props => {
+		assert.equal(props.renderNative, undefined)
+		return props.renderSlot('conversation.chat.node', { text: '卡片工作台对话' })
+	}
 	const children = { 'conversation.chat.node': { kind: 'keyed', scope: 'session' } }
 	const entry = { component: NativeFlow, children }
 	let entries = [entry], notify, dispose
@@ -446,6 +451,9 @@ test('从游玩切到卡片时由原生条目提供子槽渲染器', async t => 
 	assert.match(p.dom.window.document.querySelector('main').textContent, /正文/)
 	await act(async () => root.render(flow('card-session')))
 	assert.equal(p.dom.window.document.querySelector('[data-native-node]').textContent, '卡片工作台对话')
+	await act(async () => root.render(flow('play-session')))
+	assert.match(p.dom.window.document.querySelector('main').textContent, /正文/)
+	assert.equal(p.dom.window.document.querySelector('[data-native-node]'), null)
 	const replacement = { component: NativeFlow, children }
 	entries = [replacement]
 	notify()
