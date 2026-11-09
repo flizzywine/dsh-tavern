@@ -15,6 +15,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
+import { createTavernPluginApi } from '../../tavern-plugin/lib/plugin-api.js'
+
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
 const readPlugin = (...segments) => readFileSync(join(root, 'tavern-plugin', 'lib', ...segments), 'utf8')
@@ -24,12 +26,8 @@ const routes = readPlugin('http', 'routes.js')
 const mediaViews = readFileSync(join(root, 'tavern-plugin', 'lib', 'domain', 'plugin-media-views.js'), 'utf8')
 
 test('capabilities 声明 galleryProvider: 1，插件可以探测', () => {
-  assert.match(
-    pluginApi,
-    /capabilities\s*=\s*Object\.freeze\(\{[^}]*galleryProvider:\s*1[^}]*\}\)/,
-    'tavern.capabilities 里应当有 galleryProvider: 1',
-  )
-  assert.match(pluginApi, /capabilities,/, 'capabilities 需要出现在返回给插件的对象里')
+  const { service: tavern } = createTavernPluginApi({})
+  assert.equal(tavern.capabilities.galleryProvider, 1)
 })
 
 test('registerGalleryProvider 要求 list / read / remove 都是函数', () => {
