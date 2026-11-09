@@ -232,6 +232,9 @@ function createTavernStoryTranscriptFeature(deps) {
 				row.streaming ? h('span', { className: 'dsh-tavern-story-floor-tag' }, row.tool ? '正在调用 ' + row.tool : '正在生成') : null),
 			props.showPlayProcess && !row.streaming && row.toolCalls?.length > 0 ? h(StoryToolCalls, { calls: row.toolCalls }) : null,
 			h('div', { className: 'dsh-tavern-story-body' }, rendered || markdown(row.text, { greeting: row.greeting, streaming: row.streaming })),
+			row.greeting && !props.running && props.helperView?.tavernHelper?.openingHost
+				? h(TavernOpeningNav, { sessionId: props.sessionId, opening: props.helperView.tavernHelper.openingHost,
+					lifecycleRevision: Number(props.helperView.tavernHelper.lifecycleRevision) || 0 }) : null,
 			pluginMediaNode,
 			!row.streaming && projectionTurn > 0
 				? h(StoryTranscriptMvuReceipt, { sessionId: String(props.sessionId || ''), turn: projectionTurn }) : null,

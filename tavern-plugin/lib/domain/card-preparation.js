@@ -236,7 +236,8 @@ function isStandaloneWorldBook(raw) {
 
 export function projectCardSummary(value) {
   const data = rawData(rawOf(value))
-  return { name: str(data.name).trim() || '未命名角色', importedAt: Number(value?.meta?.importedAt) || 0 }
+  return { name: str(data.name).trim() || '未命名角色', importedAt: Number(value?.meta?.importedAt) || 0,
+    hasOpeningForm: typeof data.extensions?.dsh_tavern?.openingSetup?.form === 'string' && Boolean(data.extensions.dsh_tavern.openingSetup.form.trim()) }
 }
 
 function projectedCard(value) {

@@ -31,7 +31,7 @@ export const sessionViewMessageFields = Object.freeze([
   'sourceText', 'projectionText', 'text', 'displayText', 'displayMode', 'projectionVersion', 'projectionWarnings',
   // Sidebar origin uses frame receipts, not the external DOM/console capture.
   'displayRuntime.frames',
-  'stagePageVersion', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu',
+  'stagePageVersion', 'openingChoiceId', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu',
   'native', 'nativeAnchor', 'placeholder', 'bodyEdit', 'bodyRegenerationProcessed', 'importSource', 'templateHistoryEdit', 'templateInputSource'
 ])
 
@@ -136,7 +136,8 @@ export function createSessionViewProjection({
     // parse the whole card merely to discover markup that cannot be displayed.
     const cardStage = (stageMode.dialogue === true || stageMode.stage === true) && str(chat.cardPath) !== ''
       ? await requestPerformance.stage('cardStage', () => readLiveCardStage(chat.cardPath)) : null
-    const helperEnabled = hasTavernScriptRuntime(chat, cardExtensions.helperScripts) || (cardStage !== null && cardStage.html !== '')
+    const openingHost = sessionOpeningDescriptor(chat, card)
+    const helperEnabled = openingHost !== null || hasTavernScriptRuntime(chat, cardExtensions.helperScripts) || (cardStage !== null && cardStage.html !== '')
     const helperRuntime = helperEnabled
       ? projectTavernHelperScripts(cardExtensions.helperScripts, chat.tavernHelperScriptVariables)
       : { scripts: [], diagnostics: [] }
@@ -240,7 +241,7 @@ export function createSessionViewProjection({
       // automatic ones (body.polish, they keep polishedFrom) are told apart in its title.
       polishedTurns: (Array.isArray(chat.messages) ? chat.messages : []).filter(message => message?.role === 'assistant' && (message.polished || message.polishedFrom)).map(message => Number(message.turn) || 0),
       autoPolishedTurns: (Array.isArray(chat.messages) ? chat.messages : []).filter(message => message?.role === 'assistant' && message.polishedFrom).map(message => Number(message.turn) || 0),
-      tavernHelper: helperContext ? { ...helperContext, frameStorageScope: { cardPath: chat.cardPath, sessionId: chat.sessionId }, playerName: str(chat.macroState?.userName).trim() || '你', characterName: str(card?.name || chat.cardName), character: {name:str(card?.name || chat.cardName), path:str(chat.cardPath)}, openingHost: sessionOpeningDescriptor(chat, card), worldbook: helperWorldbook, globalVariables: await readPromptTemplateGlobalVariables(), characterVariables: cardExtensions.variables || {}, compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings, regexScripts: { global: cardExtensions.globalRegexScripts || [], preset: applyRegexOverrides(activePresetSnapshot?.regexScripts || [], chat.regexOverrides && chat.regexOverrides.preset, 'preset'), character: cardExtensions.characterRegexScripts || [] } } : null,
+      tavernHelper: helperContext ? { ...helperContext, frameStorageScope: { cardPath: chat.cardPath, sessionId: chat.sessionId }, playerName: str(chat.macroState?.userName).trim() || '你', characterName: str(card?.name || chat.cardName), character: {name:str(card?.name || chat.cardName), path:str(chat.cardPath)}, openingHost, worldbook: helperWorldbook, globalVariables: await readPromptTemplateGlobalVariables(), characterVariables: cardExtensions.variables || {}, compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings, regexScripts: { global: cardExtensions.globalRegexScripts || [], preset: applyRegexOverrides(activePresetSnapshot?.regexScripts || [], chat.regexOverrides && chat.regexOverrides.preset, 'preset'), character: cardExtensions.characterRegexScripts || [] } } : null,
       tavernMvuRuntime: chat.mvu && chat.mvu.enabled === true ? {
         owner: chat.mvu.owner === 'official' ? 'official' : 'legacy',
         commit: OFFICIAL_MVU_VERSION.commit,
@@ -499,7 +500,7 @@ export function createSessionViewProjection({
       }))
       next.tavernHelper = Object.assign({}, previous.tavernHelper, helperCore, {
         playerName: next.playerName,
-        openingHost: previous.tavernHelper.openingHost,
+        openingHost: sessionOpeningDescriptor(chat, card),
         worldbook: previous.tavernHelper.worldbook,
         globalVariables: previous.tavernHelper.globalVariables,
         characterVariables: previous.tavernHelper.characterVariables,

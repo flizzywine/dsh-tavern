@@ -601,23 +601,17 @@
 						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error.message || error) }, "*");
 					}).finally(settleOpeningCall);
 				} else if (data.type === "dsh-tavern-helper-call" && props.sessionId) {
-					const allowedMethods = new Set(["generateTavernHelper", "generateTavernHelperRaw", "stopTavernHelperGeneration", "stopAllTavernHelperGeneration", "prepareSessionOpening", "createTavernHelperMessages", "updateTavernHelperPrompts", "updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook", "patchTavernHelperWorldbook"]);
-					if (data.method === "startSessionOpening") {
-						const request = sourceDocument.openingRequest;
-						const start = async function () {
-							if (!current() || !request || request.preparationId !== (data.args && data.args.preparationId)) throw new Error("请先保存开场选择");
-							if (!sourceDocument.openingStart) sourceDocument.openingStart = new Promise(function (resolve, reject) {
-								const detail = { request: request, sourceSessionId: props.sessionId, resolve: resolve, reject: reject, handled: false };
-								hostWindow.dispatchEvent(new CustomEvent("dsh-tavern-start-session-opening", { detail: detail }));
-								if (!detail.handled) reject(new Error("开局入口尚未就绪，请刷新页面"));
-							}).catch(function (error) { sourceDocument.openingStart = null; throw error; });
-							return sourceDocument.openingStart;
-						};
-						start().then(function (result) {
-							if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result: result }, "*");
+					const allowedMethods = new Set(["generateTavernHelper", "generateTavernHelperRaw", "stopTavernHelperGeneration", "stopAllTavernHelperGeneration", "createTavernHelperMessages", "updateTavernHelperPrompts", "updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook", "patchTavernHelperWorldbook"]);
+					if (data.method === "switchSessionOpening") {
+						if (!current()) return;
+						invoke(data.method, data.args, requestProps.sessionId).then(function (result) {
+							if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result }, "*");
 						}, function (error) {
-							tavernErrorHub.report("开始旅程", error);
+							tavernErrorHub.report("切换开场白", error);
 							if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error.message || error) }, "*");
+						}).finally(function () {
+							invalidate(requestProps.sessionId);
+							tavernStoryInputChanged(hostWindow, requestProps.sessionId);
 						});
 						return;
 					}
@@ -647,12 +641,10 @@
                     }
 					const args = Object.assign({}, data.args || {}, { sessionId: props.sessionId, expectedLifecycleRevision: Math.max(0, Number(helperContext && helperContext.lifecycleRevision) || 0) });
 					frameCall(sourceDocument, data.method, args, requestProps.sessionId).then(function (result) {
-						if (current() && data.method === "prepareSessionOpening") sourceDocument.openingRequest = result;
 						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result: result }, "*");
 						// idle sessions do not poll; a swipe/message write must refresh its displayed projection.
 						if (current() && !(result && result.stale) && ["updateTavernHelperMessages", "createTavernHelperMessages"].includes(data.method)) invalidate(requestProps.sessionId);
 					}, function (error) {
-						if (data.method === "prepareSessionOpening") tavernErrorHub.report("开始旅程", error);
 						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error && error.message || error) }, "*");
 					});
 				}

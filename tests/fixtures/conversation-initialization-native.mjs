@@ -95,10 +95,11 @@ export async function createInitializationNative(bootPath, { preset, contextWind
     const timeline = createStoryTimeline({ id: () => randomUUID() })
     const initialization = createConversationInitialization({
       cards: { read: async () => card, readChat: async () => card, script: async () => undefined, extensions: async () => ({}) },
-      chats: { resolve: registry.resolve, publish: registry.publish, write }, snapshots, timeline, userPreferenceProfile,
+      chats: { resolve: registry.resolve, publish: registry.publish, write, update: persistence.update, openingSwitchState: registry.resolve },
+      snapshots, timeline, userPreferenceProfile,
       presets: { fullSnapshot: async () => null }, settings: async () => ({}),
       logger: { warn() {} }, emptyCardWorkspace: () => ({}), id: () => randomUUID(), present: async chat => structuredClone(chat),
-      native: { wait: async () => target, selection: () => selection, ensurePrefix: (session, text) => ensureSessionStablePrefix(session, text, storage),
+      native: { wait: async () => target, assertReplacementAllowed() {}, selection: () => selection, ensurePrefix: (session, text) => ensureSessionStablePrefix(session, text, storage),
         flush: session => target.agent ? ctx.sessions.flush(session) : flush(session) }
     })
     importer = createChatHistoryImportService({ initialization, cards: { read: async () => card }, worldBooks, store: data,

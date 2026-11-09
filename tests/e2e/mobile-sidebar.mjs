@@ -51,7 +51,6 @@ export async function mobileSidebarChecks({ page, step, output, report }) {
     await page.screenshot({ path: join(output, 'mobile-drawer.png') })
     await picker.first().click()
     await page.locator('.dsh-tavern-card-pick').filter({ hasText: 'E2E 奖励验收' }).first().click()
-    await page.getByRole('button', { name: '开始新游戏', exact: true }).click()
     await page.getByRole('textbox', { name: /发消息|Message/ }).filter({ visible: true }).first().waitFor()
     await page.waitForTimeout(1000)
     await page.screenshot({ path: join(output, 'mobile-started.png') })

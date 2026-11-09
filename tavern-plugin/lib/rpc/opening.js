@@ -1,16 +1,13 @@
 import { openingInitializationPayload } from '../domain/opening-transport.js'
-import { prepareSessionOpening } from '../domain/session-opening.js'
 
 // Opening selection and game start requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createOpeningHandlers(deps) {
-  const { chatForSession, ensureNativeOpening, fullTemplateRuntime, getCardOpenings, openingPreparation,
-    readChatCard, requestPerformance, runtimePresets, startChat, str } = deps
+  const { ensureNativeOpening, fullTemplateRuntime, getCardOpenings, openingPreparation,
+    requestPerformance, runtimePresets, startChat, switchSessionOpening, str } = deps
   return {
-    async prepareSessionOpening(args) {
-      const chat = await chatForSession(args && args.sessionId)
-      if (!chat) throw new Error('找不到原对话')
-      return await prepareSessionOpening({ chat, card: await readChatCard(chat), swipeId: args.swipeId, message: args.message, preparation: openingPreparation })
+    async switchSessionOpening(args) {
+      return await switchSessionOpening(args?.sessionId, args)
     },
     async callOpeningRuntime(args) {
       return await openingPreparation.callRuntime(args && args.id, args && args.method, args && args.args)

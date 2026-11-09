@@ -5,6 +5,7 @@ import { synchronizeBodyEdits } from '../domain/body-editor.js'
 import { randomUUID } from 'node:crypto'
 import { lastRoundVariableChanges } from '../domain/foreground-variable-changes.js'
 import { synchronizeTemplateHistory } from '../domain/template-history.js'
+import { projectSessionOpening } from '../domain/session-opening.js'
 
 // Appended once at the start of a reply, so it joins the history after the cached prefix.
 export function appendVariableChanges({ chat, payload, decision }) {
@@ -44,6 +45,7 @@ export function registerRequestHooks({
   chatForSession,
   ctx,
   foregroundStrategies,
+  finishOpeningSwitch,
   persistClearedBodyEdits,
   requestCoordinates,
   requestIdForMessages,
@@ -71,6 +73,7 @@ export function registerRequestHooks({
     // carries it, but has its own Tavern chat.
     if (backgroundAgentRunner.owns(sessionId) || (payload.agent.session.header?.parentSession && !await chatForSession(sessionId))) return next()
     if (gameModes && ['story', 'script'].includes((await chatForSession(sessionId))?.mode) && await gameModes.active(sessionId)) throw new Error('本局由玩法插件接管，请在玩法面板中行动')
+    if (Number(payload.step) === 1) await finishOpeningSwitch?.(sessionId)
     const decision = await next()
     if (decision.kind === 'reject') return decision
     const chat = await chatForSession(sessionId)
@@ -79,7 +82,7 @@ export function registerRequestHooks({
     const prepared = await foregroundStrategies.prepareStep({
       sessionId,
       payload,
-      decision,
+      decision: projectSessionOpening(payload.agent.session, chat, decision),
       chat,
       requestId: requestIdForMessages(payload.messages)
     })

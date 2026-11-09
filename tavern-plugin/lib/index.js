@@ -1235,6 +1235,7 @@ export async function apply(ctx) {
           path: cardPath,
           name: card.name,
           importedAt: card.importedAt,
+          hasOpeningForm: card.hasOpeningForm,
           hasImage,
           script: scriptPath === undefined ? null : { path: scriptPath, title: scriptPath.split('/').pop() }
         }
@@ -2106,7 +2107,8 @@ export async function apply(ctx) {
   const conversationInitialization = createConversationInitialization({
     cards: { read: readCard, readChat: readChatCard, script: readScript, extensions: readCardExtensions,
       startDefaults: async cardPath => (await castAssets.read(normalizeResourcePath(cardPath, 'card'))).startDefaults || null },
-    chats: { resolve: chatForSession, publish: conversationRegistry.publish, write: writeChat,
+    chats: { resolve: chatForSession, publish: conversationRegistry.publish, write: writeChat, update: updateChat,
+      openingSwitchState: async sessionId => (await chatSliceForSession(sessionId, [], ['nativeOpeningSwitch', 'openingText', 'id', 'sessionId']))?.chat,
       writeHeader: chat => updateChatHeader(chat.id, ['nativeOpeningAppended', 'updatedAt', '_storageRevision'],
         () => ({ nativeOpeningAppended: true }), { source: 'opening.native-append' }) },
     trace: requestPerformance,
@@ -2118,6 +2120,9 @@ export async function apply(ctx) {
     emptyCardWorkspace,
     id: uid,
     native: {
+      assertReplacementAllowed() {
+        if (!sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
+      },
       wait: function (sessionId) { return waitForWritableSession({ registry: agentRegistry, sessions: sessionStore, sessionId, sleep }) },
       ensurePrefix: function (session, text) { return ensureSessionStablePrefix(session, text, stablePrefixStorage) },
       ensureCardWorkspace: ensureNativeCardWorkspace,
@@ -3740,7 +3745,7 @@ export async function apply(ctx) {
     runtimeGeneration, runtimePresets, runtimePrompt, saveUpgrade, scriptContinuity,
     scriptNavigation, sessionActivity, sessionInventory, sessionOperation, sessionPatch,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setCardPlugins, setPlayerName,
-    skillImportFiles, sleep, speakLine, speech, startChat, startPluginTask, stopBackground, str,
+    skillImportFiles, sleep, speakLine, speech, startChat, switchSessionOpening: conversationInitialization.switchOpening, startPluginTask, stopBackground, str,
     tavernModelCatalog, tavernScriptHostAdapter, tavernSkills, templateHistoryFrom, turnOrchestrator, undoRollbackTurn,
     updateCard, updateChat, updateTavernSettings, uploads, userPluginInstaller, userPreferenceProfile, view,
     withCompactionSession, worldBooks, worldbookRecallLog,
@@ -4107,6 +4112,7 @@ export async function apply(ctx) {
   })
 
   registerRequestHooks({
+    finishOpeningSwitch: conversationInitialization.finishOpeningSwitch,
     gameModes: pluginApi.gameModes,
     projectWorldbookRecovery: async (chat, options) => nativeWorldBookTemplateContext(chat, await readChatCard(chat), options),
     backgroundAgentRunner,

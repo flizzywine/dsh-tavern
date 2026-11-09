@@ -12,6 +12,36 @@ import { projectVirtualWorldbookPrefix } from '../tavern-plugin/lib/domain/world
 
 const native = { skip: !process.env.DSH_BOOT_MODULE, timeout: 30000 }
 
+test('原地切换开场可从保存中恢复，第一条模型请求只看到最终选择', native, async t => {
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, {
+    cardOverrides: { first_mes: '旧路线', alternate_greetings: ['{{user}}，新路线', ''] }
+  })
+  t.after(() => h.dispose())
+  const initialization = h.open()
+  const original = await initialization.start(h.input)
+  await initialization.switchOpening(original.sessionId, { swipeId: 2, expectedLifecycleRevision: 0 })
+  assert.equal((await h.persistence.read(original.id)).messages[0].openingChoiceId, 'alternate:1')
+  h.state.failFlush = true
+  await assert.rejects(initialization.switchOpening(original.sessionId, {
+    swipeId: 1, message: '{{user}}，新路线', expectedLifecycleRevision: 1
+  }), /native flush failure/)
+  h.state.failFlush = false
+  assert.ok((await h.persistence.read(original.id)).nativeOpeningSwitch)
+  await h.restoreDetached()
+  const recovered = await h.open().ensureOpening(original.sessionId)
+  assert.equal(recovered.id, original.id)
+  assert.equal(recovered.sessionId, original.sessionId)
+  assert.equal(recovered.nativeOpeningSwitch, undefined)
+  assert.equal(recovered.messages.length, 1)
+  assert.equal(recovered.messages[0].text, '玩家，新路线')
+  await h.continueWithAgent()
+  const replies = h.requests[0].messages.filter(message => message.role === 'assistant')
+    .flatMap(message => message.content.map(part => part.text || ''))
+  assert.equal(replies.filter(text => text === '玩家，新路线').length, 1)
+  assert.ok(!replies.includes('旧路线'))
+  await assert.rejects(initialization.switchOpening(original.sessionId, { swipeId: 0, expectedLifecycleRevision: 2 }), /首轮已开始/)
+})
+
 test('first native reply uses the prepared static worldbook in the actual system prompt', native, async t => {
   const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, { assembleStablePrefix: false })
   t.after(() => h.dispose())

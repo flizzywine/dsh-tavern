@@ -14,7 +14,7 @@ for (const [name, file] of [['react','react.production.js'],['scheduler','schedu
 }
 const client = await readFile(process.env.DSH_CLIENT_SOURCE || new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const css = await readFile(new URL('../../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
-const card = { path:'retention.json', name:'开局保留测试', first_mes:'表单' }
+const card = { path:'retention.json', name:'开局保留测试', first_mes:'表单', hasOpeningForm:true }
 const content = '<label>角色名<input id="name"></label><label><input id="choice" type="checkbox">选项</label><button id="increment" onclick="window.chosen++;this.textContent=window.chosen">增加</button><script>window.chosen=0;window.instance=Math.random();</script>'
 const calls = []
 const runner = `${bundle}
