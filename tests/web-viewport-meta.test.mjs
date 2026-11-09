@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { link, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { patchViewportMetaSource } from '../tavern-plugin/lib/domain/web-viewport-meta.js'
-import { findWebFrontendPage, patchWebViewportFile } from '../bin/web-viewport-patch.mjs'
+import { findHostViewportPage, patchHostViewportFile } from '../tavern-plugin/lib/domain/host-viewport-patch.js'
 
 const host = `<!doctype html>
 <html lang="en">
@@ -54,10 +54,10 @@ test('就地改写宿主页面文件，重复执行不会二次追加', async ()
   try {
     const file = path.join(dir, 'index.html')
     await writeFile(file, host)
-    assert.equal(patchWebViewportFile(file), true)
+    assert.equal(patchHostViewportFile(file), true)
     const patched = await readFile(file, 'utf8')
     assert.match(patched, /interactive-widget=resizes-content/)
-    assert.equal(patchWebViewportFile(file), false)
+    assert.equal(patchHostViewportFile(file), false)
     assert.equal(await readFile(file, 'utf8'), patched)
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -69,10 +69,45 @@ test('认不出宿主页面时返回 null，宿主没装这个包也不会抛错
   try {
     const file = path.join(dir, 'index.html')
     await writeFile(file, '<!doctype html><p>不是外壳</p>')
-    assert.equal(patchWebViewportFile(file), null)
-    assert.equal(patchWebViewportFile(path.join(dir, 'missing.html')), null)
-    assert.equal(patchWebViewportFile(null), null)
-    assert.equal(findWebFrontendPage(path.join(dir, 'nope.js')), null)
+    assert.equal(patchHostViewportFile(file), null)
+    assert.equal(patchHostViewportFile(path.join(dir, 'missing.html')), null)
+    assert.equal(patchHostViewportFile(null), null)
+    assert.equal(findHostViewportPage(path.join(dir, 'nope.js')), null)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('按宿主安装根找到真正下发的那个 index.html', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'dsh-host-'))
+  try {
+    const tools = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh-tools', 'lib', 'index.js')
+    const page = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist', 'index.html')
+    await mkdir(path.dirname(tools), { recursive: true })
+    await mkdir(path.dirname(page), { recursive: true })
+    await writeFile(tools, 'export default {}')
+    await writeFile(path.join(dir, 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-web-frontend', exports: { './dist/*': './dist/*', './package.json': './package.json' },
+    }))
+    await writeFile(page, host)
+    assert.equal(findHostViewportPage(tools), page)
+    assert.equal(patchHostViewportFile(page), true)
+    assert.match(await readFile(page, 'utf8'), /interactive-widget=resizes-content/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('改写不碰 pnpm store：硬链接的原文件保持原样', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'dsh-store-'))
+  try {
+    const store = path.join(dir, 'store-index.html')
+    await writeFile(store, host)
+    const file = path.join(dir, 'index.html')
+    await link(store, file)
+    assert.equal(patchHostViewportFile(file), true)
+    assert.match(await readFile(file, 'utf8'), /interactive-widget=resizes-content/)
+    assert.equal(await readFile(store, 'utf8'), host, 'store 里的共享 inode 不能被就地改掉')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

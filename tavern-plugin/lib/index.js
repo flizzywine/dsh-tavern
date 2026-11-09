@@ -28,6 +28,7 @@ import {createTavernClientAssets} from './domain/tavern-client-assets.js'
 import { registerTavernHttpRoutes } from './http/routes.js'
 import { verifyPublicHostname } from './http/public-hostname.js'
 import { installChatAnswerBootPatch } from './domain/chat-answer-boot-patch.js'
+import { installHostViewportPatch } from './domain/host-viewport-patch.js'
 import { installGenerationStreamModeBootPatch } from './domain/generation-stream-mode-boot-patch.js'
 import { createGenerationStreamModeStore, installGenerationStreamModeHook } from './domain/generation-stream-mode.js'
 import { registerRequestHooks } from './hooks/request.js'
@@ -3969,6 +3970,9 @@ export async function apply(ctx) {
     tavernRemoteAssets,
     tavernStaticResources,
   })
+  // 安卓浏览器默认只缩可视区，键盘动画期间页面追不上输入法；这里把宿主网页外壳的
+  // viewport 补齐（interactive-widget 只在加载时读一次，页面里改不了）。失败不影响启动。
+  try { installHostViewportPatch(message => console.log(message)) } catch (error) { console.warn('[dsh-tavern] 视口补丁未生效：', error) }
   // A desktop host's chat view sits in a read-only app.asar: patch its answer step in the page.
   installChatAnswerBootPatch(ctx)
   installGenerationStreamModeBootPatch(ctx)
