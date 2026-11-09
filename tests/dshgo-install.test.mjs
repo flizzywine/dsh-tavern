@@ -16,7 +16,8 @@ test('mergeProfileManifest：六个本地包 link 回源码目录，仓库结构
   assert.equal(merged.dependencies['dsh-tavern-plugin'], 'link:/src/dsh-tavern-main/tavern-plugin')
   assert.equal(merged.dependencies['dsh-tavern-remote'], 'link:/src/dsh-tavern-main/tavern-plugin/packages/dsh-tavern-remote')
   for (const [name, version] of Object.entries(NPM_PACKAGES)) assert.equal(merged.dependencies[name], version)
-  assert.ok(!('@deepseek-ai/dsh-tools' in merged.dependencies), '宿主包不进 dependencies')
+  // overrides 不往 node_modules 放东西；宿主包必须作为直接依赖 link 进去。
+  assert.equal(merged.dependencies['@deepseek-ai/dsh-tools'], 'link:/opt/dsh/node_modules/@deepseek-ai/dsh-tools')
   assert.equal(merged.overrides, undefined, '顶层 overrides 是 npm 字段，pnpm 不认')
 })
 
@@ -24,6 +25,9 @@ test('workspaceYaml：宿主目录里有什么就 link 什么，不靠手写清�
   const hosts = ['@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-settings', '@deepseek-ai/dsh-tools']
   const yaml = workspaceYaml(['dsh-web-mobile@3.1.0.patch'], '/opt/dsh', hosts)
   assert.match(yaml, /overrides:\n/)
+  // YAML 的 plain scalar 不能以 @ 开头，键必须带引号，否则整份文件解析失败。
+  assert.ok(!yaml.split('\n').some(line => /^\s+@/.test(line)))
+  assert.ok(yaml.includes('"@deepseek-ai/dsh-agent"') || yaml.includes("'@deepseek-ai/dsh-agent'"))
   for (const name of hosts) assert.ok(yaml.includes(`link:/opt/dsh/node_modules/${name}`), name)
   assert.ok(!yaml.includes('@deepseek-ai/dsh-typert-protocol'), '只写传入的那几个')
 })

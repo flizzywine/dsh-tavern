@@ -54,7 +54,9 @@ export const PNPM_ARGS = [
 ]
 
 function yamlValue(value) {
-  return /^[A-Za-z0-9@/._-]+$/.test(value) ? value : JSON.stringify(value)
+  // YAML 的 plain scalar 不能以 @ 开头（保留字符），裸写会让整份文件解析失败。
+  const plain = /^[A-Za-z0-9@/._-]+$/.test(value) && !value.startsWith('@')
+  return plain ? value : JSON.stringify(value)
 }
 
 /** 只写酒馆需要的那几条；App 自己写的内容原样留在文件末尾。 */
@@ -98,6 +100,11 @@ export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot =
     next.dependencies[name] = `link:${join(srcRoot, relative)}`
   }
   for (const [name, version] of Object.entries(NPM_PACKAGES)) next.dependencies[name] = version
+  // overrides 只影响「依赖图里已经出现」的包，它本身不往 node_modules 放东西。
+  // 宿主包必须作为直接依赖 link 进去，profile 的 node_modules/@deepseek-ai 才是真的存在的。
+  for (const name of hostPackages(appRoot)) {
+    next.dependencies[name] = `link:${join(appRoot, 'node_modules', name)}`
+  }
 
   if (next.dsh === undefined || next.dsh === null) next.dsh = {}
   if (next.dsh.profile === undefined || next.dsh.profile === null) next.dsh.profile = {}
