@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
-  "revision": "e43694780c6a7943bbb608e5dc1f37ead33572ab",
-  "releaseSequence": 1388,
-  "version": "3.2.0",
+  "revision": "09a66711abaa7a02f3626f0fb04023cf3b11b418",
+  "releaseSequence": 1389,
+  "version": "3.3.0",
   "files": [
     {
       "path": "android/apk/build-offline-bundle.sh",
@@ -21,7 +21,7 @@
     },
     {
       "path": "android/apk/prepare.py",
-      "sha256": "511d2cd0f5c76e12598cab2e7a6ac8820bbf2f9461a47b0f89d3346390c1cd78",
+      "sha256": "4da80843437f50cbbf23004160da40f8ab0ad53c49a1c87bf6a5f6df1a384a86",
       "size": 17886
     },
     {
@@ -501,17 +501,17 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "d25d7d3c80573d9f4f9e1b07bb36aa143a8008f86b8cbcce3f6cbaefcaef6981",
+      "sha256": "f1e6bcdf94a02819e8c44b86c6d7cc3acb920d7a8ed7596544ab760f35bdcbea",
       "size": 120089
     },
     {
       "path": "install.sh",
-      "sha256": "9a8d063be81c58bf519d6b7a4fb75550642a4f71953cd83fe9ed5cc00ce9aed7",
+      "sha256": "1fe7e293142df5bc2e9b766b858c22efa0692c26029d1dbba040a70f7adc6e38",
       "size": 90571
     },
     {
       "path": "package.json",
-      "sha256": "e8ce86a8105a99270980cb21391f6a849164f37ce2c0f9397782f45453dd3865",
+      "sha256": "c1b1f9bbea8862129e29e98feab2d9e806ca4b1ac030c40958615446e89bbe2a",
       "size": 3417
     },
     {
@@ -5501,7 +5501,7 @@
     },
     {
       "path": "tavern-plugin/package.json",
-      "sha256": "198bfce415f7f857898e0bfcc895cbd2b0d651bcdf9aee259d2c0656ab103155",
+      "sha256": "5cd19cb7fcec989cf6820db1c22c23c10e0291fc8484ad3d5543026cfb6277d8",
       "size": 2258
     },
     {
@@ -9571,7 +9571,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/README.md",
-      "sha256": "3b980bfaf5aa44cacf13597e2feffd5c5aa509cb343ca31415a2c014d0bc8864",
+      "sha256": "9b49bce0f96f0b11d825386724c70b2e293c5bed12dc014d25203d37e0270b58",
       "size": 20783
     },
     {
@@ -9901,9 +9901,9 @@
     }
   ],
   "archive": {
-    "commit": "6bdbeed0867891dc4bd9b7a22cb8f4d1a8b31bf7",
+    "commit": "ba8eaccf4ebd3fd6f5479378b1d164ea38065b87",
     "path": "runtime.zip",
-    "sha256": "17d5b3a64b52c2d907a0dea6f6818ee47bf71cab0f0d80686d1a0ae97d8f2c88",
-    "size": 16547810
+    "sha256": "ab4bbe39f46d442589e4204be2033d0885bbd9675a08bdfc53127e1503932d38",
+    "size": 16547814
   }
 }
