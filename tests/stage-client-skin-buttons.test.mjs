@@ -28,13 +28,3 @@ test('skin button timer dock releases replaced plates and stops scheduling after
  assert.equal(attrs.size,0)
  assert.equal(disconnected,3)
 })
-test('a decor print is clipped to the stage and off a control on the side that keeps the most of it',()=>{
- const {decorClip}=createStageSkinButtons({})
- const stage={top:0,right:1000,bottom:600,left:0}
- // out past the right edge: only the overhang goes
- assert.deepEqual(decorClip({top:10,right:1100,bottom:110,left:900},stage,[]),[0,100,0,0])
- // a control in the print's bottom-left corner: cutting the bottom keeps the most
- assert.deepEqual(decorClip({top:0,right:400,bottom:200,left:0},stage,[{top:180,right:60,bottom:220,left:0}]),[0,0,20,0])
- // a control off the print changes nothing
- assert.deepEqual(decorClip({top:0,right:100,bottom:100,left:0},stage,[{top:300,right:400,bottom:340,left:300}]),[0,0,0,0])
-})

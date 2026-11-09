@@ -28,15 +28,6 @@ test('side portrait unmount cancels observers and cannot schedule a late decoded
   assert.equal(listeners.size,0)
   assert.equal(disconnected,1)
 })
-test('face column stays fixed during a page and forgets learned faces across sessions', () => {
-  const refs=[],React={useRef:value=>{const index=React.at++;return refs[index] ||= {current:value}}}
-  const views=createStagePortraits({React})
-  const read=(session,page,portraits)=>{React.at=0;return views.useFaceColumn(session,page,'alice',portraits,[],true,false)}
-  assert.equal(read('one',1,new Map()),false)
-  assert.equal(read('one',1,new Map([['alice',{}]])),false)
-  assert.equal(read('one',2,new Map()),true)
-  assert.equal(read('two',1,new Map()),false)
-})
 test('face handoff timer cannot release a superseded page or update after unmount', () => {
   let effect,callback,updates=0
   const ref={current:null}

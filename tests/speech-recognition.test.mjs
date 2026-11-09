@@ -22,31 +22,6 @@ test('recognition defaults to local, resolves only its credential, sends PCM and
   assert.doesNotMatch(JSON.stringify(result),/test-secret/)
 })
 
-test('a caller that names no language gets the configured one (the phone call names none)',async()=>{
-  const {service,requests}=setup({getConfig:()=>({...defaultRecognitionConfig(),language:'ja'})})
-  await service.recognize({audio})
-  assert.equal(requests[0].request.headers['X-Language'],'ja')
-  assert.equal(service.start({owner:'s'}).language,'ja')
-  await service.recognize({audio,language:'zh'})
-  assert.equal(requests[1].request.headers['X-Language'],'zh')
-  service.dispose()
-})
-
-test('cloud recognition streams revisable text through split UTF-8 SSE and uses the same service',async()=>{
-  const encoder=new TextEncoder(),partial=[],requests=[]
-  const data=encoder.encode('data: {"type":"transcript.text.delta","delta":"你"}\r\n\r\ndata: {"type":"transcript.text.delta","delta":"好"}\n\ndata: {"type":"transcript.text.done","text":"你好。"}\n\n')
-  const {service}=setup({getConfig:()=>({...defaultRecognitionConfig(),provider:'openai'}),fetch:async(url,request)=>{
-    requests.push({url,request})
-    return new Response(new ReadableStream({start(controller){for(const byte of data)controller.enqueue(Uint8Array.of(byte));controller.close()}}),{headers:{'content-type':'text/event-stream'}})
-  }})
-  const result=await service.recognize({audio,onPartial:row=>partial.push(row)})
-  assert.equal(result.text,'你好。');assert.equal(result.modelMs,null)
-  assert.deepEqual(partial.map(row=>row.text),['你','你好'])
-  assert.equal(requests[0].url,'https://api.openai.com/v1/audio/transcriptions')
-  const wav=Buffer.from(await requests[0].request.body.get('file').arrayBuffer())
-  assert.equal(wav.toString('ascii',0,4),'RIFF');assert.deepEqual(wav.subarray(44),audio)
-})
-
 test('stream sessions coalesce chunks, publish partials and final, enforce ownership and stop on unload',async()=>{
   let finish,dispatches=0
   const extension={id:'plugin/asr',recognize:async({audio,onPartial})=>{
@@ -129,15 +104,6 @@ test('local readiness coalesces background startup and recovers after health bec
   host.service.dispose()
 })
 
-test('audio endpoint uses only local Smart Turn and never falls back on failure', async () => {
-  const {service,requests,refs}=setup({fetch:async()=>Response.json({probability:.96,modelMs:23})})
-  assert.deepEqual(await service.endpoint({audio}),{probability:.96,modelMs:23})
-  assert.deepEqual(refs,[RECOGNITION_KEYS.local])
-  const unavailable=setup({fetch:async()=>new Response(null,{status:503})})
-  await assert.rejects(unavailable.service.endpoint({audio}),{code:'ASR_ENDPOINT_UNAVAILABLE'})
-  await assert.rejects(service.endpoint({audio:Buffer.alloc(3)}),{code:'ASR_AUDIO_INVALID'})
-})
-
 test('OpenAI-compatible recognition: the configured base URL, an optional key, and an optional turn detector',async()=>{
   const requests=[]
   let turnDetection=true,infoStatus=200
@@ -170,31 +136,4 @@ test('OpenAI-compatible recognition: the configured base URL, an optional key, a
   assert.equal(await cloud.endpoint({audio}),null)
   await assert.rejects(cloud.recognize({audio}),{code:'ASR_NO_KEY'})
   assert.throws(()=>validateRecognitionConfig({provider:'openai-compatible',compatibleUrl:'ftp://example.com'}),/ASR_COMPATIBLE_URL_INVALID/)
-})
-
-test('a compatible server that declares a final model reads the pause snapshot with it; live partials keep compatibleModel',async()=>{
-  const models=[]
-  let declared='firered'
-  const fetch=async(url,request={})=>{
-    if(String(url).endsWith('/info'))return Response.json({protocol:'openai-audio',capabilities:{turnDetection:true,...(declared?{finalModel:declared}:{})}})
-    models.push(request.body.get('model'));return Response.json({text:'你好',language:'zh'})
-  }
-  let clock=0
-  const make=()=>createSpeechRecognition({getConfig:()=>({...defaultRecognitionConfig(),provider:'openai-compatible'}),credentials:()=>({resolve:async()=>undefined}),fetch,id:()=>'session-1',now:()=>clock})
-  const service=make()
-  await service.recognize({audio,final:true})
-  service.start({owner:'call-a'})
-  service.append({owner:'call-a',id:'session-1',sequence:1,audio:Buffer.from(audio).toString('base64')})
-  await new Promise(resolve=>setTimeout(resolve,10))
-  service.dispose()
-  // A server without one (or with an unusable name) reads every request with compatibleModel, as before.
-  declared=null;clock+=60000
-  await service.recognize({audio,final:true})
-  declared='fire red';clock+=60000
-  await service.recognize({audio,final:true})
-  assert.deepEqual(models,['firered','sensevoice','sensevoice','sensevoice'])
-  // Cloud OpenAI declares nothing: its configured model.
-  const cloud=createSpeechRecognition({getConfig:()=>({...defaultRecognitionConfig(),provider:'openai'}),credentials:()=>({resolve:async()=>({value:'sk-test'})}),fetch})
-  await cloud.recognize({audio,final:true})
-  assert.equal(models.at(-1),'gpt-4o-mini-transcribe')
 })

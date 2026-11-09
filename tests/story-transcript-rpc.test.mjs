@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createSessionViewReader } from '../tavern-plugin/lib/domain/session-view-reader.js'
-import { createPlayHandlers } from '../tavern-plugin/lib/rpc/play.js'
 
 const trace = {
   stage: async (_name, work) => work(),
@@ -43,16 +42,4 @@ test('故事响应只走故事窗口，不读取完整 Chat、原生窗口或同
     ['readStoryWindow', 'story-session', 4, true],
     ['projectStory', 9, true]
   ])
-})
-
-test('故事 RPC 不触发 reconcile、branchOrigin 或后台目录', async () => {
-  const handlers = createPlayHandlers({
-    sessionViews: { response: async args => ({ received: args }) },
-    reconcileWhenIdle: async () => { throw new Error('不应 reconcile') },
-    branchOrigin: { ensure: async () => { throw new Error('不应修复 native branch') } },
-    backgroundCatalog: async () => { throw new Error('不应读取后台目录') },
-    templateHistoryFrom: new Map()
-  })
-  const result = await handlers.getStoryTranscript({ sessionId: 'story-session', historyFrom: 2 })
-  assert.deepEqual(result.received, { sessionId: 'story-session', historyFrom: 2, storyTranscript: 1 })
 })

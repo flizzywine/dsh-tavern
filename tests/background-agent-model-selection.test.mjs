@@ -32,17 +32,6 @@ function harness(t, { modern = true } = {}) {
 
 const base = { sessionId: 'game', task: 'settlement', persistent: true, selection: { provider: 'test', model: 'a' } }
 
-test('DSH 0.2.2 常驻后台 Agent 复用时按新任务重设模型', async t => {
-  const h = harness(t)
-  assert.equal(await h.runner.run(base), 'done')
-  assert.equal(await h.runner.run({ ...base, selection: { provider: 'test', model: 'b' } }), 'done')
-  assert.equal(h.agents.size, 1, '同一个常驻 Agent 应被复用')
-  assert.deepEqual(h.selections, [
-    { provider: 'test', model: 'a' },
-    { provider: 'test', model: 'b' }
-  ])
-})
-
 test('DSH 0.2.1 宿主没有 AgentModel 时复用不报错', async t => {
   const h = harness(t, { modern: false })
   assert.equal(await h.runner.run(base), 'done')

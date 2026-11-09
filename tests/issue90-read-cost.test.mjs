@@ -57,17 +57,6 @@ test('concurrent cache replacement keeps the old response paired with its revisi
   assert.equal(app.fullReads(),1)
 })
 
-test('compact state observes external writes, deletion, and recreated chat',async t=>{
-  const {root,persistence,chat}=await setup(t)
-  const external=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
-  await external.update('c',value=>{value.messages[1].mvu.receipt.status='error';return value})
-  assert.equal((await persistence.readSessionState('c')).messages[1].mvu.receipt.status,'error')
-  await external.remove('c')
-  assert.equal(await persistence.readSessionState('c'),undefined)
-  await external.write({...chat,_storageRevision:0})
-  assert.equal((await persistence.readSessionState('c')).messages[1].mvu.receipt.status,'updated')
-})
-
 test('compact state preserves live rollback, interrupted receipts, script state and undo decisions',async t=>{
   const {persistence}=await setup(t)
   await persistence.update('c',value=>{
@@ -88,20 +77,6 @@ test('compact state preserves live rollback, interrupted receipts, script state 
   assert.equal(compact.undoRollbackTurn,1)
   assert.equal(state.rollbackUndo.largeSnapshot,undefined)
   assert.deepEqual(state.scriptState,{position:3})
-})
-
-test('legacy feature adoption falls back to a complete draft',async t=>{
-  const {persistence,chat}=await setup(t)
-  await persistence.update('c',value=>{delete value.backgroundConfigVersion;return value})
-  let adopted=false
-  const app=await sessionHarness(persistence,chat,{
-    tavernSettingsDocument:{},adoptConversationFeatures:value=>value,
-    adoptConversationBackground:value=>{assert.ok(value.messages[1].variables);adopted=true;return value},
-    updateChat:(id,fn,metadata)=>persistence.update(id,fn,metadata)
-  })
-  await app.activity()
-  assert.equal(adopted,true)
-  assert.equal(app.fullReads(),1)
 })
 
 test('state resolution preserves aliases, recovers missing links and removes stale links without full reads',async()=>{

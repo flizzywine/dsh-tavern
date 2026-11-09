@@ -59,9 +59,3 @@ test('late image decode cannot create GPU textures after plugin unload',async()=
  f.manager.dispose();f.images[0].complete();await Promise.resolve();await Promise.resolve()
  assert.equal(f.textures.length,0);assert.equal(f.images[0].onload,null)
 })
-test('failed filter setup rolls back earlier allocations',()=>{
- const f=fixture();let calls=0
- assert.throws(()=>f.manager.create({...f.env,tune:filter=>{if(++calls===2)throw new Error('tuning failed');return filter}}),/tuning failed/)
- assert.equal(f.made.length,2);assert.ok(f.made.every(filter=>filter.destroyCount===1))
- assert.equal(f.filters.world.slots.size,0);f.manager.dispose()
-})

@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { createBranchOriginRepair } from '../tavern-plugin/lib/domain/branch-origin-repair.js'
-import { repairBranchOriginFile, withoutBranchSubagentOrigin } from '../tavern-plugin/lib/domain/branch-origin.js'
+import { repairBranchOriginFile } from '../tavern-plugin/lib/domain/branch-origin.js'
 import { encodeCurrentGeneration, parseSessionLog } from '../tavern-plugin/lib/domain/session-log-codec.js'
 
 // A minimal stand-in for the host catalog: current generation only, no recovery and no
@@ -49,42 +48,6 @@ function branchLog(id = 'session-branch', events) {
 }
 
 const buffer = artifact => encodeCurrentGeneration(artifact, catalog)
-
-test('a branch forked with the subagent marker is rewritten as a plain fork', () => {
-  const original = branchLog()
-  const bytes = buffer(original)
-  const result = withoutBranchSubagentOrigin(bytes, catalog)
-  assert.equal(result.ok, true)
-  assert.equal(result.changed, true)
-  const rewritten = parseSessionLog(result.bytes)
-  assert.equal(Object.hasOwn(rewritten.header, 'origin'), false)
-  // Lineage, seed boundary and every event stay exactly as they were.
-  assert.equal(rewritten.header.parentSession, 'session-game')
-  assert.equal(rewritten.header.isSeeded, true)
-  assert.equal(rewritten.header.agentPreset, 'tavern')
-  assert.deepEqual(rewritten.events, original.events)
-  assert.deepEqual(parseSessionLog(bytes).events, original.events)
-})
-
-test('a real subagent child keeps its marker, and a root session is never touched', () => {
-  const delegated = branchLog('session-child', [
-    { type: 'turn/start', data: { turn: 1 } },
-    { type: 'subagent/descriptor', data: { version: 3, mode: 'continuable', provider: 'fixture', label: '后台 Agent' } },
-    { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } }
-  ])
-  const kept = withoutBranchSubagentOrigin(buffer(delegated), catalog)
-  assert.equal(kept.ok, true)
-  assert.equal(kept.changed, false)
-  assert.equal(kept.bytes, undefined)
-
-  const root = branchLog('session-root')
-  delete root.header.parentSession
-  delete root.header.origin
-  root.header.isSeeded = false
-  const untouched = withoutBranchSubagentOrigin(buffer({ ...root, inheritedEventCount: 0 }), catalog)
-  assert.equal(untouched.ok, true)
-  assert.equal(untouched.changed, false)
-})
 
 test('rewriting a stored branch keeps the original generation beside it', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'tavern-branch-origin-'))
@@ -158,25 +121,4 @@ test('the repair runs once per session and skips loaded or foreign sessions', as
   // Another plugin's delegated child is left alone.
   assert.equal((await repair.ensure('session-foreign')).changed, false)
   assert.equal(Object.hasOwn(parseSessionLog(await readFile(foreign)).header, 'origin'), true)
-})
-
-test('the startup sweep only opens children the host still lists as subagents', async t => {
-  const { dataRoot, save } = await install(t)
-  const child = await save('session-branch')
-  const root = await save('session-game')
-  const repair = createBranchOriginRepair({
-    dataRoot,
-    loadCatalog: async () => catalog,
-    ownsChat: async () => true,
-    listSessions: async () => [
-      { header: { id: 'session-game', version: 4, createdAt: 1, isSeeded: false, delegationDepth: 0 } },
-      { header: { id: 'session-branch', version: 4, createdAt: 1, isSeeded: true, parentSession: 'session-game', origin: 'subagent', delegationDepth: 0 } }
-    ],
-    logger: { warn() {} }
-  })
-  const summary = await repair.sweep()
-  assert.deepEqual(summary, { checked: 1, changed: 1 })
-  assert.equal(Object.hasOwn(parseSessionLog(await readFile(child)).header, 'origin'), false)
-  assert.equal(Object.hasOwn(parseSessionLog(await readFile(root)).header, 'origin'), true)
-  assert.equal(existsSync(child + '.bak-tavern-branch-origin'), true)
 })

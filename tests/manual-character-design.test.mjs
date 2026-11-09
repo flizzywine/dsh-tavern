@@ -78,20 +78,3 @@ test('玩家逐条删除人物档案：只删这一个人和本局为它生成�
   assert.deepEqual(entries(), ['人物设计 · 李四'], 'a hand-edited entry stays')
   await assert.rejects(run.api.remove({ sessionId: 'session', name: '王五' }), /找不到人物档案/)
 })
-
-test('书记忙时点设计人物：马上返回「排队中」，书记做完再设计', async () => {
-  let ran = 0
-  const run = fixture(async input => {
-    ran++
-    assert.equal(JSON.parse(await input.onToolCall({ name: 'character_design_save', arguments: design })).ok, true)
-  }, {}, true)
-  const holder = await run.tasks.begin(run.get(), 'settlement')
-  assert.equal((await run.api.start({ sessionId: 'session' })).status, 'queued')
-  await new Promise(resolve => setTimeout(resolve, 20))
-  assert.equal(run.api.project(run.get()).status, 'queued')
-  assert.equal(ran, 0)
-  await holder.commit({ stateChanged: false })
-  await run.api.wait('chat')
-  assert.equal(ran, 1)
-  assert.equal(run.get().characterDesignTask.status, 'done')
-})

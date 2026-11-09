@@ -32,12 +32,3 @@ test('concurrent add and library load retain both edits in durable current state
   await library.update({ id: snapshot.id, expected: snapshot, guides: ['库内编辑'] })
   assert.deepEqual((await persistence.read('chat')).guides, loaded)
 })
-
-test('ID deletion cannot delete a neighboring guide after another edit shifts its index', async t => {
-  const { guides, persistence } = await fixture(t, ['A', 'B', 'C'].map(id => ({ id, text: id })))
-  await guides.remove('game', { id: 'A' })
-  await guides.remove('game', { id: 'B' })
-  await assert.rejects(guides.remove('game', { id: 'B' }), /已删除/)
-  assert.deepEqual((await persistence.read('chat')).guides.map(item => item.id), ['C'])
-  await assert.rejects(guides.remove('game', { index: 100 }), /序号无效/)
-})

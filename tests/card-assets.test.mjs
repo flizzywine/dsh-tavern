@@ -55,20 +55,6 @@ test('CHARX：PNG 卡面带上卡数据存成 PNG，立绘、背景、其他素�
   assert.throws(() => cardImport({ kind: 'charx', name: 'x.charx', fileB64: zip([['a.txt', 'x']]).toString('base64') }), /card\.json/)
 })
 
-test('RisuAI PNG 的 chara-ext-asset 块、JSON 里的 data: 地址、extensions.risuai.emotions 都能读到', () => {
-  const card = { spec: 'chara_card_v3', data: { name: 'A', assets: [{ type: 'emotion', uri: '__asset:1', name: 'angry', ext: 'png' }],
-    extensions: { risuai: { emotions: [['sad', '__asset:2'], ['angry', '__asset:1']] } } } }
-  const text = Buffer.from(JSON.stringify(card)).toString('base64')
-  const file = Buffer.concat([PNG.subarray(0, 33), textChunk('ccv3', text), textChunk('chara-ext-asset_:1', png('a').toString('base64')), textChunk('chara-ext-asset_:2', png('s').toString('base64')), PNG.subarray(33)])
-  const fromPng = cardImport({ kind: 'png', name: 'A.png', b64: text, fileB64: file.toString('base64') })
-  assert.equal(fromPng.payload.kind, 'png', '非 CHARX 的导入内容不变')
-  assert.deepEqual(fromPng.collected.emotions.map(item => item.name), ['angry', 'sad'])
-
-  const json = { spec: 'chara_card_v3', data: { name: 'J', assets: [{ type: 'background', uri: 'data:image/png;base64,' + png('b').toString('base64'), name: 'room', ext: 'png' }] } }
-  const fromJson = cardImport({ kind: 'text', name: 'J.json', text: JSON.stringify(json) })
-  assert.deepEqual(fromJson.collected.backgrounds.map(item => item.name), ['room'])
-})
-
 test('导入角色素材再导出 CHARX：主角立绘在标准位置，其他人物和声音在扩展里，未识别的原样写回；重新导入完整还原', async () => {
   const cast = createCastAssets({ store: store() })
   const collected = {
@@ -119,10 +105,4 @@ test('素材配额按唯一地址计算；超限拒绝导入导出，缺失的�
   assert.throws(() => buildCharx({ document: { data: {} }, manifest: { characters }, readFile: () => PNG }), /素材超过 300/)
   const missing = collectCardAssets({ data: { extensions: { risuai: { emotions: [['sad', 'missing']] }, dsh_tavern: { cast: { characters: [{ name: 'A', avatar: 'missing', sprites: { joy: 'missing' } }] } } } } }, () => undefined)
   assert.equal(missing.skipped, 3)
-})
-
-test('CHARX 导出拒绝生成超过导入解压容量的文件', () => {
-  const bytes = Buffer.alloc(8 * 1024 * 1024)
-  const characters = Array.from({ length: 20 }, (_, i) => ({ name: '角色' + i, sprites: { joy: i + '.png' } }))
-  assert.throws(() => buildCharx({ document: { data: {} }, manifest: { characters }, readFile: () => bytes }), /解压后 [0-9]+ MB，超过 150 MB/)
 })

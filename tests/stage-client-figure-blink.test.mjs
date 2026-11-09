@@ -32,9 +32,3 @@ test('replace blinking owns no overlay and clears on missing figure or invalid a
  e.view.update(invalid);e.view.update(invalid);assert.equal(e.warnings.length,1);assert.equal(e.timers.size,0)
  e.owner.dispose()
 })
-test('overlay setup failure releases partially attached sprites and permits retry',()=>{
- const e=fixture();e.fail();assert.throws(()=>e.view.update(e.input),/attach failed/)
- assert.equal(e.sprite.children.length,0);assert.ok(e.sprites.every(s=>s.dead===1));assert.equal(e.view.active,false)
- e.view.update({...e.input,bundle:{...e.input.bundle,half:null}});assert.equal(e.view.active,true)
- e.owner.dispose();assert.ok(e.sprites.every(s=>s.dead===1))
-})

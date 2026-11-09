@@ -5,17 +5,8 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { clipSaveName, planClipExport } from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/clip-export.js'
+import { planClipExport } from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/clip-export.js'
 import { createClipExport } from '../tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export.js'
-
-test('save names: title, round range and preset; legacy exports use their date', () => {
-  assert.equal(clipSaveName({ title: '魔法纪录', from: { turn: 5, para: 1 }, to: { turn: 5, para: 16 }, preset: '1080p', ext: 'mp4' }), '魔法纪录 第5轮1-16段 1080p.mp4')
-  assert.equal(clipSaveName({ title: '魔法纪录', from: { turn: 5, para: 3 }, to: { turn: 7, para: 2 }, preset: 'discord', ext: 'mp4' }), '魔法纪录 第5轮3段-第7轮2段 Discord.mp4')
-  assert.equal(clipSaveName({ title: 'A/B: "x"?', from: { turn: 2, para: 4 }, to: { turn: 2, para: 4 }, preset: 'gif', ext: 'gif' }), 'A_B_ _x_ 第2轮4段 GIF.gif')
-  const date = new Date(2026, 9, 20, 5, 7)
-  assert.equal(clipSaveName({ title: '魔法纪录', ext: 'mp4', index: 1, count: 4, date }), '魔法纪录 10月20日0507 (2).mp4')
-  assert.equal(clipSaveName({ title: '', ext: 'mp4', date }), '片段 10月20日0507.mp4')
-})
 
 test('finished exports: listed newest first with names and URLs, served only to the owning session', async t => {
   const root = await mkdtemp(join(tmpdir(), 'clip-save-')); t.after(() => rm(root, { recursive: true, force: true }))

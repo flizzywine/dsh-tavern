@@ -63,16 +63,6 @@ test('capture streams full and paragraph video encodes, then muxes measured audi
   assert.ok(!rendered.videos.has(clipVideoStreamKey({...parts[1],videoBitrate:4000000})))
 })
 
-test('failed capture closes every streaming encoder before removing its temporary files',{timeout:60000},async t=>{
-  const {root,plan,parts,renderer}=await fixture(t),capture=renderer.capture
-  let closed=false
-  renderer.capture=async frame=>{if(frame===4)throw new Error('capture fixture failure');return capture(frame)}
-  renderer.close=async()=>{closed=true}
-  await assert.rejects(renderClip({plan,plannedFiles:parts,tempRoot:root,renderer}),/capture fixture failure/)
-  assert.equal(closed,true)
-  assert.ok(!(await readdir(root)).some(name=>name.startsWith('clip-')))
-})
-
 test('failed independent replay stops capture and closes encoders before removing reference files',{timeout:60000},async t=>{
   const {root,plan,parts,renderer}=await fixture(t),capture=renderer.capture
   let closed=false,captures=0

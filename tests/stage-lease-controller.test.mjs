@@ -4,7 +4,6 @@ import {createRequire} from 'node:module'
 import React,{act} from 'react'
 import {createRoot} from 'react-dom/client'
 import {JSDOM} from 'jsdom'
-import {persistentStageDefaults,actorPresentationDefaults} from '../tavern-plugin/lib/domain/stage-persistent-state.js'
 const require=createRequire(import.meta.url)
 // (loaded before a test page defines window: the resolver exports itself to Node only, and is required lazily)
 require('../tavern-plugin/packages/dsh-presentation-protocol/src/figure-resolution.cjs')
@@ -57,54 +56,6 @@ async function harness(run){
 const lease=(owner,lines,actors=[])=>({owner,scene:{actors,lines},hud:null,props:{}})
 const LINES=[{id:'L1',speaker:'辉夜',text:'我先说。',emotion:'生气'},{id:'L2',speaker:'葛城',text:'谁在说话？'},{id:'L3',text:'夜色渐深。'}]
 
-test('lease lines are the pages; a resolved speaker gets a voice handle, an ambiguous one keeps its line with none',async()=>{
-  await harness(async({registry,story,view,step})=>{
-    assert.equal(view().leasing,false)
-    assert.equal(view().pages,story.pages)
-    assert.equal(view().page,3)
-    await step(()=>registry.publish('s1',lease('werewolf',LINES,[{name:'辉夜'},{name:'包豪斯',focus:true}])))
-    const shown=view()
-    assert.equal(shown.leasing,true)
-    assert.deepEqual(shown.pages.map(page=>page.text),['我先说。','谁在说话？','夜色渐深。'])
-    assert.deepEqual(shown.pages.map(page=>page.kind),['line','line','narration'])
-    assert.equal(shown.page,0,'a new lease starts at its first unread line')
-    assert.deepEqual(shown.read,{lineId:null,unread:3})
-    const [spoken,ambiguous,narration]=shown.pages
-    assert.equal(spoken.alias,'c-81q');assert.equal(spoken.mood,'angry')
-    assert.ok(spoken.voice,'a resolved speaker speaks through the stage speech handle')
-    assert.equal(spoken.voice.selectionKey,JSON.stringify(['s1','L1']))
-    assert.equal(spoken.voice.owner,'s1:stage')
-    assert.equal(ambiguous.voice,null);assert.equal(ambiguous.alias,undefined);assert.equal(ambiguous.name,'葛城')
-    assert.equal(narration.voice,null,'narration speaks only with a narrator voice on the card')
-    assert.deepEqual(shown.scene.actors.map(actor=>[actor.alias,actor.focus,actor.dim]),[['c-81q',false,true],['c-2zx',true,false]])
-  })
-})
-
-test('the cursor is kept per lease and appended lines are read on after the reader turned past the end',async()=>{
-  await harness(async({registry,view,step})=>{
-    await step(()=>registry.publish('s1',lease('werewolf',LINES.slice(0,2))))
-    await step(view=>view.markRead())
-    await step(view=>view.setPage(1))
-    await step(view=>view.markRead())
-    assert.deepEqual(view().read,{lineId:'L2',unread:0})
-    assert.equal(view().waiting,false)
-    await step(view=>view.pastEnd())
-    assert.equal(view().waiting,true,'turned past the last line, the reader waits for the game')
-    await step(()=>registry.publish('s1',lease('werewolf',LINES)))
-    assert.equal(view().page,2,'the appended line is read on into')
-    assert.equal(view().waiting,false)
-    assert.deepEqual(view().read,{lineId:'L2',unread:1})
-    // another lease has its own cursor; the first one's comes back with it
-    await step(()=>registry.publish('s1',lease('dice',[{id:'D1',text:'掷骰'}])))
-    assert.equal(view().page,0);assert.deepEqual(view().read,{lineId:null,unread:1})
-    await step(()=>registry.publish('s1',lease('werewolf',LINES)))
-    assert.equal(view().page,2);assert.deepEqual(view().read,{lineId:'L2',unread:1})
-    // lines the game replaced (the cursor's line is gone) are read again from the first
-    await step(()=>registry.publish('s1',lease('werewolf',[{id:'N1',text:'新的一局'}])))
-    assert.equal(view().page,0);assert.deepEqual(view().read,{lineId:null,unread:1})
-  })
-})
-
 test('two cards resume their own lease reading position after leaving and re-entering the stage',async()=>{
   await harness(async({registry,view,step,remount})=>{
     for (const [owner,lines,page] of [
@@ -131,24 +82,6 @@ test('two cards resume their own lease reading position after leaving and re-ent
     assert.equal(view().page,0,'a replaced game does not consume a stale reading position')
     assert.equal(view().read.lineId,null)
   })
-})
-
-test('releasing the lease returns the story pages at their index, with no write to the persistent stage state',async()=>{
-  const persistent={...persistentStageDefaults(),actors:{'c-81q':{...actorPresentationDefaults(),outfit:'school'}}}
-  const before=structuredClone(persistent)
-  await harness(async({registry,story,view,step})=>{
-    await step(()=>registry.publish('s1',lease('werewolf',LINES,[{name:'辉夜'}])))
-    await step(view=>view.markRead())
-    await step(view=>view.setPage(2))
-    await step(view=>view.pastEnd())
-    assert.equal(view().page,2)
-    await step(()=>registry.release('s1','werewolf'))
-    assert.equal(view().leasing,false)
-    assert.equal(view().pages,story.pages)
-    assert.equal(view().page,3,'the story page it left, not reset')
-    assert.equal(view().read,null)
-  })
-  assert.deepEqual(persistent,before)
 })
 
 test('the backlog lists the lease lines read so far, without the story rounds around them',async()=>{

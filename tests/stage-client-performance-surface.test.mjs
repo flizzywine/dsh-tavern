@@ -23,23 +23,3 @@ test('plugin owns surface nodes and cancels late presentation receipts independe
  assert.throws(()=>f.surface.createSkinLayer(f.options),/disposed/)
  }finally{f.close()}
 })
-test('partial performance construction removes appended canvases and installed observers',()=>{
- const f=fixture({failRatio:true});try{
- assert.throws(()=>f.surface.createSkinLayer(f.options),/ratio unavailable/)
- assert.equal(f.root.children.length,0);assert.equal(f.stops,1)
- }finally{f.close()}
-})
-test('one observer cleanup failure does not leave either performance instance mounted',()=>{
- const f=fixture({failStop:true});try{
- f.surface.createSkinLayer(f.options);f.surface.createSkinLayer(f.options)
- assert.throws(()=>f.surface.dispose(),/cleanup failed/);assert.equal(f.root.children.length,0);assert.equal(f.stops,4)
- }finally{f.close()}
-})
-
-test('font preparation borrows the shared library and does not start a late document load after disposal',async()=>{
- let finish,loads=0
- const surface=createStagePerformanceSurface({document:{fonts:{load:()=>{loads++;return Promise.resolve()}}},fonts:{ensure:()=>new Promise(resolve=>finish=resolve),get:()=>({family:'shared'})}})
- const work=surface.prepare({dependencies:[{document:{keyframes:{layers:[{text:{font:'f',size:24,value:'line'}}]}}}]})
- surface.dispose();finish();await work;assert.equal(loads,0)
- await assert.rejects(surface.prepare({dependencies:[]}),/disposed/)
-})

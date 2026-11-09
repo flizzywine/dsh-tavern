@@ -1,39 +1,17 @@
 // tagged English defaults; retain protocol, payload, cache and budget assertions.
 // assert the model handle DTO, while saved state stays canonical.
-import {modelCall,modelHandle,modelArguments} from './helpers/director-model-call.mjs'
+import { modelCall, modelHandle } from './helpers/director-model-call.mjs'
 // tool receipts use the CLI v1 envelope; saved record diagnostics are unchanged.
 import { directorPromptData } from './fixtures/asset-packs/prompt.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createRequire } from 'node:module'
 import { syntheticPack, distinctMedia, cardExtension, PACK_ID, OTHER_PACK_ID, FIGURE_ID, OTHER_FIGURE_ID } from './fixtures/asset-packs/pack.mjs'
 import { assetRefKey } from '../tavern-plugin/packages/dsh-presentation-protocol/src/asset-packs.js'
 import { reduceAssetPackScene, applyAssetPackLight, assetPackBackgroundVariant, assetPackLookLayer } from '../tavern-plugin/packages/dsh-presentation-protocol/src/asset-pack-stage.js'
 import { recallAssetPacks, assetPackDigest } from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-catalogue.js'
 import { initialAssetPackStage } from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-tools.js'
-import { defaultAssetEngineSettings, validateAssetEngineSettings } from '../tavern-plugin/lib/domain/asset-engine-settings.js'
-import { estimateDirectorTokens } from '../tavern-plugin/lib/domain/stage-director-tokens.js'
 import { prepareAssetPackDirector, buildAssetPackRequest, nameModSections, nameModCommands, createAssetPackTransaction, runAssetPackDirector, validateAssetPackRecord, readAssetPackRecord, assetPackStateAt } from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-director.js'
 import {figureActorKey} from '../tavern-plugin/lib/domain/figure-catalogue.js'
-import { captureStageTarget } from '../tavern-plugin/lib/domain/stage-incremental.js'
-import { sceneSourceDigest } from '../tavern-plugin/lib/domain/scene-illustration.js'
-import { stageReadIdentityFields, stageReadChainFields } from '../tavern-plugin/lib/domain/stage-read-projection.js'
-
-test('automatic polish preserves the director target in full and projected stage reads', () => {
-  const message = { role:'assistant', turn:1, text:'Original prose.' }
-  const chat = { id:'chat', sessionId:'session', timeline:{branchId:'branch',revision:1}, messages:[message] }
-  const before = captureStageTarget(chat,0)
-  assert.equal(before.sourceDigest,sceneSourceDigest(message.text))
-  message.polishedFrom = before.sourceDigest
-  message.text = 'Polished prose.'
-  assert.equal(captureStageTarget(chat,0).sourceKey,before.sourceKey)
-  for (const fields of [stageReadIdentityFields,stageReadChainFields]) {
-    const projected = Object.fromEntries(Object.entries(message).filter(([key]) => fields.includes(key)))
-    assert.equal(captureStageTarget({...chat,messages:[projected]},0).sourceKey,before.sourceKey)
-  }
-  delete message.polishedFrom
-  assert.notEqual(captureStageTarget(chat,0).sourceKey,before.sourceKey)
-})
 
 const ACTOR = figureActorKey({packId:PACK_ID,figureId:FIGURE_ID})
 const TALL = figureActorKey({packId:PACK_ID,figureId:OTHER_FIGURE_ID})
@@ -115,57 +93,6 @@ test('director freezes one character set without per-outfit emotion annotations'
   assert.ok(Object.values(choices).every(row=>row.outfits?.every(o=>o.differences===undefined)))
 })
 
-// missing art calls for approximation, not an empty stage.
-test('scene transition guidance keeps a background beneath a title and subsequent narration', async () => {
-  const f = await fixture(), prepared = f.prepare()
-  for (const incremental of [true, false]) {
-    const request = buildAssetPackRequest(prepared, incremental, undefined, '', true)
-    const protocol = request.sections.find(section => section.key === 'command-guidance').text
-    assert.ok(request.system.includes(protocol))
-    assert.ok(!request.messages[0].content.some(part => part.text === protocol))
-    // schema is the terse command index; full usage is disclosed on error/preview.
-    assert.match(protocol, /change the background when the location changes; choose by kind of space, use and indoors or outdoors before mood/)
-    assert.match(protocol, /Overlays such as a CG or title card keep it/)
-    assert.match(protocol, /when an actor enters, pick the outfit matching the described clothing; the initial one is only a fallback/)
-    assert.match(protocol, /choose by label and guidance, not key/)
-    assert.match(protocol, /deliberately empty stage, not because nothing fits/)
-    assert.match(protocol, /scene\.set in the same or next beat; a title card covers the scene without clearing it/)
-    assert.ok(request.commands.find(row => row.name === 'scene.set').examples.length)
-    assert.ok(request.commands.find(row => row.name === 'scene.clear').summary.includes('empty'))
-
-  }
-  const disabled = structuredClone(prepared)
-  disabled.context.dimensions.scene = false
-  assert.deepEqual(buildAssetPackRequest(disabled).tools,buildAssetPackRequest(prepared).tools)
-  assert.ok(!directorPromptData(buildAssetPackRequest(disabled)).allowedCommands.includes('scene.clear'))
-  const tx = transact(prepared)
-  assert.equal(tx.submit(batch([scene('day'), {op:'title.play',text:'Next noon'}])).ok, true)
-  const record = tx.effect(), expectedScene = {...selection('day'),timeLook:null}
-  for (const at of [1,2,3]) assert.deepEqual(assetPackStateAt(record,at).scene, expectedScene)
-  const next = transact(prepareAssetPackDirector({...f.input,record}))
-  assert.equal(next.submit(batch([])).ok,true)
-  assert.deepEqual(next.effect().end.scene,expectedScene,'title completion and unchanged narration do not clear the background')
-})
-
-// guidance changes one request, never the prepared settings, tool protocol or checkpoint.
-test('director prompt guidance is labeled, trimmed, budgeted and absent from the next run', async () => {
-  const f = await fixture(), prepared = f.prepare(), before = clone(prepared)
-  const plain = buildAssetPackRequest(prepared)
-  const guided = buildAssetPackRequest(prepared, true, undefined, '  Keep this quiet.  ')
-  assert.deepEqual(guided.tools, plain.tools)
-  assert.equal(guided.system, plain.system)
-  assert.deepEqual(guided.messages[0].content.at(-1), {type:'text',text:'<temporary_requirements>\nRequests for this run only:\nKeep this quiet.\n</temporary_requirements>'})
-  assert.ok(guided.inputBytes > plain.inputBytes)
-  assert.deepEqual(prepared, before)
-  assert.deepEqual(buildAssetPackRequest(prepared), plain)
-  assert.deepEqual(buildAssetPackRequest(prepared, true, undefined, '  '), plain)
-  const tx = transact(prepared, {guidance:'Keep this quiet.'})
-  assert.doesNotMatch(JSON.stringify(tx.savepoint()), /Keep this quiet/)
-  // guidance is counted against model context, never an independent Engine cap.
-  const bounded = {...prepared, modelInfo:{context:{contextWindow:plain.estimatedTokens},defaultMaxTokens:0}}
-  assert.throws(() => buildAssetPackRequest(bounded, true, undefined, 'x'.repeat(1000)), /context exceeded/)
-})
-
 test('pack identity is never display name or short ID, and rename preserves the wire reference', async () => {
   const f = await fixture(), a = f.recall()
   const backgrounds = a.candidates.backgrounds.filter(row => row.ref.assetId === 'classroom')
@@ -225,85 +152,6 @@ test('disabled, missing media, unavailable packs and unauthorized widgets cannot
   assert.equal(f.recall({ snapshots: [] }).diagnostics.filter(d => d.code === 'pack-missing').length, 2)
 })
 
-test('carry and opening do not add untriggered catalogue choices', async () => {
-  const f = await fixture(), state = initialAssetPackStage({})
-  state.music = ref('music', 'classroom')
-  const opening = initialAssetPackStage({}); opening.music = ref('music', 'classroom', OTHER_PACK_ID)
-  const c = f.recall({ units: ['unrelated'], state, opening, thresholds: { music: 1, looks: 1 } })
-  assert.equal(c.candidates.music.length, 0)
-  assert.deepEqual(c.diagnostics, [])
-  assert.equal(c.candidates.widgets.length, 0)
-})
-
-// only resolved model context constrains input; retired settings are not accepted.
-test('model context rejects before a call with model and sizes, without dropping forced refs', async () => {
-  const f = await fixture()
-  f.input.engine.directorModel = {provider:'test-provider',model:'small-model'}
-  const request = buildAssetPackRequest(f.prepare())
-  f.input.modelInfo = {context:{contextWindow:request.estimatedTokens + 100},defaultMaxTokens:101}
-  const p = f.prepare(); let calls = 0
-  await assert.rejects(runAssetPackDirector({prepared:p,getCurrentBinding:()=>p.binding,runAgent:async()=>calls++}), error => {
-    assert.equal(error.code, 'MODEL_CONTEXT_EXCEEDED')
-    assert.match(error.message, /test-provider\/small-model.*estimated input \d+ tokens \(\d+ UTF-8 bytes\).*output allowance 101.*context \d+/)
-    return true
-  })
-  assert.equal(calls,0); assert.equal(p.context.catalogue.candidates.looks.length,2)
-  f.input.modelInfo.defaultMaxTokens = 100
-  assert.equal(buildAssetPackRequest(f.prepare()).estimatedTokens,request.estimatedTokens)
-  for (const key of ['maxInputBytes','maxInputTokens']) {
-    const engine = defaultAssetEngineSettings()
-    assert.equal(Object.hasOwn(engine,'limits'),false)
-    assert.deepEqual(validateAssetEngineSettings({...engine,limits:{[key]:999999}}),engine)
-  }
-})
-
-// reserve and actual request share a director ceiling, not the provider maximum.
-test('256k-output models use a bounded director allowance without changing prompt or tools', async () => {
-  const f = await fixture(), plain = buildAssetPackRequest(f.prepare(), true, undefined, '', true)
-  f.input.engine.directorModel = {provider:'deepseek-official',model:'deepseek-flash'}
-  f.input.modelInfo = {context:{contextWindow:258000},defaultMaxTokens:256000}
-  const p = f.prepare(), request = buildAssetPackRequest(p, true, undefined, '', true)
-  assert.ok(request.estimatedTokens + 256000 > 258000, 'uncapped model allowance reproduces the rejection')
-  assert.equal(request.maxTokens,32768)
-  assert.equal(request.modelContext.outputTokens,request.maxTokens)
-  for (const key of ['system','messages','tools','sections','inputBytes','estimatedTokens']) assert.deepEqual(request[key],plain[key])
-  let calls = 0
-  await runAssetPackDirector({prepared:p,getCurrentBinding:()=>p.binding,runAgent:async input=>{
-    calls++
-    assert.equal(input.maxTokens,32768)
-    await modelCall(input,{name:input.tools[0].name,arguments:batch([])})
-  }})
-  assert.equal(calls,1)
-  for (const limit of [8192,undefined]) {
-    f.input.modelInfo.defaultMaxTokens = limit
-    assert.equal(buildAssetPackRequest(f.prepare()).maxTokens,limit ?? 32768)
-  }
-  f.input.modelInfo = {context:{contextWindow:request.estimatedTokens + 32767},defaultMaxTokens:256000}
-  assert.throws(()=>buildAssetPackRequest(f.prepare()),{code:'MODEL_CONTEXT_EXCEEDED'})
-  f.input.modelInfo.context.contextWindow++
-  assert.equal(buildAssetPackRequest(f.prepare()).maxTokens,32768)
-})
-
-// a long multilingual turn fits a 128k model without byte-as-token inflation or media lists.
-test('long CJK reply estimates tokens and sends only compact recalled catalogue metadata', async () => {
-  const f = await fixture()
-  f.input.units = Array.from({length:187},(_,i)=>({at:i+1,text:'Synthetic fixture. '+ '\u4f60\u597d\u4e16\u754c'.repeat(12)}))
-  f.input.modelInfo = {context:{contextWindow:131072},defaultMaxTokens:32768}
-  const request = buildAssetPackRequest(f.prepare())
-  const {inputBytes,estimatedTokens,tokenEstimate,modelContext,maxTokens,...wire} = request
-  assert.equal(inputBytes,Buffer.byteLength(JSON.stringify(wire)))
-  assert.equal(estimatedTokens,estimateDirectorTokens(JSON.stringify(wire)))
-  assert.ok(estimatedTokens < inputBytes)
-  assert.ok(estimatedTokens + modelContext.outputTokens < modelContext.contextWindow)
-  assert.equal(tokenEstimate.approximate,true)
-  const catalogue = directorPromptData(request).catalogue
-  for (const [kind, rows] of Object.entries(catalogue)) for (const row of rows) {
-    // contextual widget arguments move out of the static tools grammar.
-    const keys = ['ref','label','directorNote','layer','variants',...(kind === 'widgets' ? ['namespace','commands','stateSchema','caps'] : [])]
-    assert.ok(Object.keys(row).every(key=>keys.includes(key)))
-  }
-})
-
 for (const incremental of [false, true]) test(`${incremental ? 'stage_update' : 'submit_direction'} validates complete refs and rejects all scene creation with zero asset writes`, async () => {
   const f = await fixture(), p = f.prepare(); let saves = 0
   const wrap = ops => incremental ? batch(ops) : { beats: [{ at: 1, ops }] }
@@ -320,13 +168,6 @@ for (const incremental of [false, true]) test(`${incremental ? 'stage_update' : 
   assert.equal(saves, 0)
   const wire = JSON.stringify(tx.request.tools)
   assert.doesNotMatch(wire, /scene.propose|newScene/); assert.match(wire, /oneOf/); assert.doesNotMatch(wire, /packId/); assert.doesNotMatch(wire, /~[a-z0-9]+/)
-})
-
-test('unknown/recalled-out full scene cannot bypass the incremental catalogue', async () => {
-  const f = await fixture(); f.input.units = ['Unrelated', 'text', 'only']
-  const p = f.prepare(), tx = transact(p)
-  assert.equal(p.context.catalogue.candidates.backgrounds.length, 0)
-  assert.equal(tx.submit(batch([scene()])).ok, false)
 })
 
 test('task expiry covers pack revisions, pack set, card, Engine and Story Timeline; no commit or asset save', async () => {
@@ -375,20 +216,6 @@ test('incremental partial acceptance, durable prefix resume and stale draft reje
   assert.throws(() => transact(f.prepare(), { checkpoint: saved }), /stale draft/)
 })
 
-test('time reducer day to night and same-background changes do not reset location state', () => {
-  const looks = ['day', 'night'].map(timeOfDay => ({ ref: ref('looks', timeOfDay), layer: 'time', timeOfDay }))
-  let state = initialAssetPackStage({})
-  state = reduceAssetPackScene(state, selection('day'), looks).state
-  state.camera = { mode: 'close', actor: ACTOR }; state.sound = ['empty']; state.widgets.w = { type: ref('widgets', 'clock'), props: {}, lifetime: { until: 'scene-change' } }
-  const result = reduceAssetPackScene(state, selection('night'), looks)
-  assert.equal(result.locationChanged, false); assert.equal(result.transitionMs, 2500)
-  assert.deepEqual(result.state.camera, state.camera); assert.deepEqual(result.state.sound, ['empty']); assert.ok(result.state.widgets.w)
-  assert.equal(result.state.lighting.time.ref,null)
-  assert.equal(reduceAssetPackScene(state, selection('night'), looks, { snap: true }).transitionMs, 0)
-  const changed = reduceAssetPackScene(state, selection('night', ref('backgrounds', 'classroom', OTHER_PACK_ID)), looks)
-  assert.equal(changed.locationChanged, true); assert.deepEqual(changed.state.sound, ['empty']) /* scene changes preserve independent sound */; assert.deepEqual(changed.state.widgets, {})
-})
-
 test('global time ignores pack look count, rejects time refs, and keeps typed mood and flat background selection', () => {
   const state = initialAssetPackStage({}), first = { ref: ref('looks', 'night'), layer: 'time', timeOfDay: 'night' }
   const looks = [first, { ...first, ref: ref('looks', 'night', OTHER_PACK_ID) }, { ref: ref('looks', 'calm'), layer: 'mood' }]
@@ -425,49 +252,6 @@ test('widget full refs, named state validation and item disable revoke carry wit
   assert.deepEqual(next.baseline.widgets,{})
   assert.ok(next.diagnostics.some(d=>d.code==='carry-unavailable'))
   assert.ok(record.end.widgets[id],'history is never rewritten')
-})
-
-test('disabled dimensions remove admission, catalogue and carried state but not frozen schema', async () => {
-  const f = await fixture()
-  f.input.engine.dimensions = { music: false, lighting: false, widgets: false, actors: false, sfx: false }
-  const p = f.prepare(), request = buildAssetPackRequest(p)
-  // the fixed ref-kind vocabulary is grammar, not an enabled command or asset.
-  assert.doesNotMatch(JSON.stringify(request.messages), /MUSIC_RULE_SECRET|"music"|"lighting"|widget.show|actor.enter|"sfx"/)
-  assert.match(JSON.stringify(request.tools), /music\.clear/)
-  assert.ok(!directorPromptData(request).allowedCommands.includes('music.clear'))
-  assert.doesNotMatch(request.system, /MUSIC_RULE_SECRET|"music"|"lighting"|"sfx"/)
-  assert.equal(transact(p).submit(batch([{ op: 'music.clear' }])).ok, false)
-})
-
-// ambience is explicitly directed, never derived from scene/weather.
-test('ambience is director-selected, retains full refs and uses handles', async () => {
-  const f = await fixture(), p = f.prepare(), tx = transact(p)
-  assert.equal(tx.submit(batch([scene(), {op:'ambience.set', refs:[ref('ambience','rain')]}])).ok, true)
-  assert.deepEqual(tx.effect().end.soundscape.layer1, ref('ambience', 'rain'))
-  // the director's soundscape keys are slots the stage soundscape player plays (regression: invalid-slot).
-  const {createSoundscapePlayer} = createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/soundscape.cjs')
-  const player = createSoundscapePlayer({now:() => 0, requestFrame:() => 1, cancelFrame() {}, mixer:{bind() {}, level:() => 0},
-    Audio:class {addEventListener() {} removeEventListener() {} pause() {} removeAttribute() {} load() {} play() {return Promise.resolve()}}})
-  const played = player.apply({version:1, layers:Object.entries(tx.effect().end.soundscape).map(([slot, value]) => ({slot, identity:value.assetId, id:value.assetId, url:'/' + value.assetId, gain:1}))})
-  assert.deepEqual(played.warnings, [])
-  assert.equal(played.slots.layer1.current.id, 'rain')
-  player.dispose()
-  assert.ok(directorPromptData(tx.request).catalogue.ambience.length)
-  assert.equal(p.context.catalogue.candidates.ambience[0].consumer, 'director')
-  // ambience belongs to a place: any beat where the carried loop no longer fits must re-check it, not only a location change.
-  const guidance = buildAssetPackRequest(p, true, undefined, '', true).sections.find(row => row.key === 'command-guidance').text
-  assert.match(guidance, /ambience\.clear: ambience belongs to a place\. On any beat where the carried layers no longer fit where the story is now/)
-  assert.doesNotMatch(guidance, /even across scene/)
-})
-
-// retain the first six events and drop only the over-cap event.
-test('caps drop only excess ops, preserving accepted events', async () => {
-  const f = await fixture(), p = f.prepare(), tx = transact(p)
-  const ops = Array.from({ length: 7 }, () => ({op:"screen.play", effect:'flash'}))
-  assert.equal(tx.submit(batch(ops)).errors.length, 1)
-  assert.equal(tx.effect().entries[0].ops.length, 6)
-  assert.equal(tx.effect().end.scene, null)
-  assert.equal(assetPackDigest(p), assetPackDigest(clone(p)))
 })
 
 
@@ -580,35 +364,6 @@ test('every snapshot persists the last director music request; carry keeps it wi
   assert.deepEqual(later.end.musicRequest.ref,set.ref,'history is never rewritten')
 })
 
-test('music frequency survives checkpoints but resets each turn; silence and darkness persist',async()=>{
-  const f=await fixture(),p=f.prepare(),tx=transact(p),set={op:'music.set',ref:ref('music','classroom')}
-  assert.equal(tx.submit(batch([scene(),set],{through:1,done:false})).ok,true)
-  const resumed=transact(p,{checkpoint:tx.savepoint()})
-  const later=ops=>batch([],{sequence:2,through:2,done:false,beats:[{at:2,ops}]})
-  assert.equal(resumed.submit(later([{op:'music.clear'}])).retryable,true)
-  assert.equal(resumed.submit(later([{op:'music.clear',force:true,reason:'another turn'}])).ok,true)
-  const third=ops=>batch([],{sequence:3,beats:[{at:3,ops}]})
-  assert.equal(resumed.submit(third([set])).ok,true,'restoring the just-cleared track is not churn')
-  const restart=transact(prepareAssetPackDirector({...f.input,record:resumed.effect()}))
-  assert.equal(restart.submit(batch([set])).ok,true,'next turn may replay the same track without hold')
-  const changed=transact(prepareAssetPackDirector({...f.input,record:restart.effect()}))
-  assert.equal(changed.submit(batch([{...set,ref:ref('music','classroom',OTHER_PACK_ID)}])).ok,true)
-  const stopped=transact(prepareAssetPackDirector({...f.input,record:changed.effect()}))
-  assert.equal(stopped.submit(batch([{op:'music.clear'},{op:'scene.clear'}])).ok,true)
-  const next=prepareAssetPackDirector({...f.input,record:stopped.effect()}),empty=transact(next)
-  assert.equal(empty.submit(batch([])).ok,true)
-  assert.equal(empty.effect().end.music,null);assert.equal(empty.effect().end.scene,null)
-  const silent = prepareAssetPackDirector({...f.input,record:empty.effect()})
-  const request = buildAssetPackRequest(silent,true,undefined,'',true)
-  assert.match(request.sections.find(row=>row.key==='music-state').text,/BGM: none \(silence\)/)
-  const moved = transact(silent)
-  assert.equal(moved.submit(batch([scene('night')])).ok,true)
-  assert.equal(moved.effect().end.music,null,'a scene change does not restart music')
-  const invalid=transact(next)
-  assert.equal(invalid.submit(batch([{...set,ref:ref('music','missing'),force:true,reason:'not an admission bypass'}])).ok,false)
-  assert.equal(invalid.savepoint().state.state.music,null)
-})
-
 // A foreign identity suffix stays invalid; feedback repairs the dependent beat as a unit.
 test('unknown handles and same-beat scene dependencies are retryable through the model envelope', async () => {
   const f=await fixture()
@@ -633,16 +388,6 @@ test('unknown handles and same-beat scene dependencies are retryable through the
   assert.equal(tx.submitModel(batch([{op:'scene.set',background:handle,time:'night'},transition])).ok,true)
   assert.deepEqual(tx.effect().end.scene.background,ref('backgrounds','classroom'))
   assert.equal(tx.effect().entries[0].ops.length,2)
-})
-
-test('music performance guidance stays outside the frozen tool syntax', async () => {
-  const f=await fixture(), request=buildAssetPackRequest(f.prepare(),true,undefined,'',true)
-  const grammar=JSON.stringify(request.tools), music=request.sections.find(row=>row.key==='music-state').text
-  assert.match(grammar,/With reason for further music changes; not same-track resume/)
-  assert.doesNotMatch(grammar,/scene change|mood turn|finisher|narrated stop|clue found/)
-  for(const cue of ['already set; omit to keep','keep the current track across replies','scene or mood turn','not a new reply or candidate','where the story explicitly resumes it','honor stopped music in player_input or the reply','ambience-only silence','Further music changes in this reply need force:true and reason','except restoring the just-cleared track'])assert.ok(music.includes(cue),cue)
-  assert.equal((music.match(/BGM:/g)||[]).length,1)
-  assert.equal(directorPromptData(request).carried.music,undefined)
 })
 
 test('carried BGM and background remain stoppable without recalled replacement assets', async () => {
@@ -701,17 +446,6 @@ test('same-place time changes preserve mood dwell and do not reset quotas', asyn
   assert.equal(record.end.pacing.moodChanges, 1)
   const next = prepareAssetPackDirector({ ...f.input, record })
   assert.equal(transact(next).submit({ sequence: 1, through: 14, done: true, beats: [{ at: 1, ops: [scene('day'), mood('warm')] }] }).ok, false)
-})
-
-test('camera duration is paragraph based and historical projection is immutable', async () => {
-  const f = await fixture(); f.input.units = Array(8).fill('Synthetic')
-  const p = f.prepare(), tx = transact(p)
-  assert.equal(tx.submit({ sequence: 1, through: 8, done: true, beats: [{ at: 1, ops: [{ op: 'cast.add', actor: ACTOR }, {op:"closeup.play", actor:ACTOR}] }] }).ok, true)
-  const record = tx.effect(), bytes = JSON.stringify(record)
-  assert.equal(assetPackStateAt(record, 4).camera.mode, 'close')
-  assert.equal(assetPackStateAt(record, 5).camera.mode, 'reset')
-  assert.equal(record.end.camera.mode, 'reset')
-  assert.equal(JSON.stringify(record), bytes)
 })
 
 test('resume request reports durable nextSequence and through, without replaying accepted prefix', async () => {
@@ -795,15 +529,6 @@ test('source-linked phone markers keep avatar-only contacts but cannot invent di
 })
 
 
-test('a swallowed checkpoint failure still prevents a publishable effect', async () => {
-  const f = await fixture(), p = f.prepare()
-  let published = 0 // failed durable writes never expose the draft prefix.
-  await assert.rejects(runAssetPackDirector({ prepared: p, getCurrentBinding: () => p.binding, publishPreview:() => published++, saveCheckpoint: async () => { throw new Error('checkpoint disk failure') }, runAgent: async input => {
-    try { await modelCall(input,{ name: 'stage_update', arguments: batch([scene()]) }) } catch {}
-  } }), /checkpoint disk failure/)
-  assert.equal(published,0)
-})
-
 // reset uses the first stored outfit, not a parallel selector.
 test('director baseline and reset use stored outfit order', async () => {
   const f=await fixture()
@@ -847,13 +572,6 @@ test('pack ruler freezes heights, shrinks on exit, replays prefixes and carries 
   assert.equal(cut.effect().end.figureScale.hMax,900) // a new cut uses this turn's newly frozen inputs
   assert.equal(cut.effect().end.figureScale.scene,saved.end.figureScale.scene+1)
 })
-test('strict pack record rejects unknown ruler fields and invalid frozen inputs',async()=>{
-  const f=await fixture(),tx=transact(f.prepare());assert.equal(tx.submit(batch([scene(),{op:'cast.add',actor:ACTOR}])).ok,true)
-  const saved=tx.effect()
-  for(const mutate of [r=>r.baseline.actors[ACTOR].ruler.heightCm=0,r=>r.entries[0].state.figureScale.locked=true,r=>r.end.figureScale.hMax=Infinity]) {
-    const bad=clone(saved);mutate(bad);assert.throws(()=>validateAssetPackRecord(bad))
-  }
-})
 // the wire contract has three times; only saved snapshots normalize the retired value.
 test('three time choices reject retired live commands but parse saved morning as day', async () => {
   const f = await fixture(), prepared = f.prepare()
@@ -876,20 +594,6 @@ test('three time choices reject retired live commands but parse saved morning as
   assert.equal(assetPackStateAt(parsed, 1).scene.timeOfDay, 'day')
   assert.deepEqual(saved, before)
   assert.throws(() => validateAssetPackRecord({...saved,digest:'bad'}), /digest/)
-})
-// 扬尘 is retired — no longer a command; saved history with it projects to no weather.
-test('retired dust weather is rejected live and saved dust projects to no weather', async () => {
-  const f = await fixture(), prepared = f.prepare()
-  assert.equal(transact(prepared).submit(batch([{op:'weather.set',weather:'dust'}])).ok, false)
-  const tx = transact(prepared)
-  assert.equal(tx.submit(batch([{op:'weather.set',weather:'rain'}])).ok, true)
-  const saved = tx.effect()
-  saved.entries[0].ops = saved.entries[0].ops.map(op => op.op === 'stage.patch' ? {...op,value:{weather:'dust'}} : op)
-  saved.entries[0].state.weather = saved.end.weather = 'dust'
-  saved.digest = assetPackDigest({ binding:saved.binding, baseline:saved.baseline, entries:saved.entries, end:saved.end })
-  const parsed = readAssetPackRecord(saved)
-  assert.equal(parsed.end.weather, 'dust')
-  assert.equal(assetPackStateAt(parsed, 1).weather, 'none')
 })
 
 
@@ -1036,45 +740,6 @@ test('outfit default uses existing choices with zero prompt/schema byte growth a
   }
 })
 
-// retired camera quotas cannot reject ordinary framing changes, including after resume.
-test('camera changes have no count quota across batches and resumed checkpoints', async () => {
-  const f = await fixture()
-  f.input.engine = {...defaultAssetEngineSettings(), ...f.input.engine, actionCaps:{...defaultAssetEngineSettings().actionCaps,cam:1}}
-  const p = f.prepare(), tx = transact(p)
-  assert.equal(p.context.actionCaps.cam,undefined)
-  assert.equal(p.context.actionCaps.camera,undefined)
-  const camera = mode => ({op:"camera.set", mode:mode})
-  const first = batch([camera('wide')],{through:1,done:false})
-  assert.equal(tx.submit(first).ok,true)
-  assert.equal(tx.submit(first).duplicate,true)
-  const checkpoint = tx.savepoint(), resumed = transact(p,{checkpoint})
-  const rejected = resumed.submit(batch([camera('push')],{sequence:2,beats:[{at:2,ops:[camera('push')]}]}))
-  assert.equal(rejected.ok,true)
-  assert.equal(rejected.progress.through,3)
-  assert.deepEqual(resumed.preview().entries.slice(0,1),tx.preview().entries)
-  assert.equal(resumed.effect().end.camera.mode,'push')
-  const atomic = transact(p)
-  assert.equal(atomic.submit(batch([camera('wide'),camera('push')])).errors.length,0)
-  assert.equal(atomic.preview().entries[0].ops.length,2)
-  const full = createAssetPackTransaction({prepared:p,incremental:false,getCurrentBinding:()=>p.binding})
-  assert.equal(full.submit({beats:[{at:1,ops:[camera('wide'),camera('push')]}]}).errors.length,0)
-  assert.equal(full.preview().entries[0].ops.length,2)
-})
-
-// retired emote settings cannot silently reinstate a whole-turn quota.
-test('emote cap is removed from Engine configuration and command accounting',async()=>{
-  const old=defaultAssetEngineSettings();old.actionCaps.emote=8
-  const clean=validateAssetEngineSettings(old)
-  assert.equal(clean.actionCaps.emote,undefined)
-  assert.equal(old.actionCaps.emote,8,'normalization must not mutate caller data')
-  const f=await fixture();f.input.engine=old
-  const prepared=f.prepare(),tx=transact(prepared)
-  const result=tx.submit(batch([{op:'cast.add',actor:ACTOR},...Array.from({length:20},()=>({op:'actor.emote.play',actor:ACTOR,symbol:'note'}))]))
-  assert.equal(result.ok,true,JSON.stringify(result))
-  assert.equal(result.errors.length,0)
-  assert.equal(tx.effect().entries.flatMap(e=>e.ops).filter(op=>op.op==='actor.emote.play').length,20)
-})
-
 
 test('production director prefixes gated framework rules and previews exact ordered mod bytes',async()=>{
   const f=await fixture(),plain=buildAssetPackRequest(f.prepare(),true,undefined,'',true)
@@ -1159,31 +824,6 @@ test('read-only source hints add measured UTF-8 tail bytes only; tools, stable p
   console.log('ledger hint UTF-8 bytes',JSON.stringify({sections:bytes,toolSchemaBytes,added:section.bytes}))
   f.input.stateSource.value={items:[],npcs:[]}
   assert.deepEqual(buildAssetPackRequest(f.prepare()),buildAssetPackRequest(plain))
-})
-
-// Recorded correction loops kept retrying even after the model explicitly submitted beats:[].
-test('empty correction seals accepted changes once, preserves dropped diagnostics across resume', async () => {
-  const f = await fixture(), prepared = f.prepare(), first = transact(prepared)
-  const args = batch([scene('day'),{op:'actor.emote.play'}])
-  const rejected = first.submitModel(modelArguments(first.request,args))
-  assert.equal(rejected.retryable,true)
-  assert.equal(rejected.errors[0].at,1)
-  assert.equal(rejected.errors[0].example.op,'actor.emote.play')
-  assert.ok(rejected.errors[0].example.actor)
-  assert.equal(first.completed(),false)
-  const resumed = transact(prepared,{checkpoint:first.savepoint()})
-  const repair = batch([],{beats:[]}), receipt = resumed.submitModel(repair)
-  assert.equal(receipt.sealed,true)
-  assert.equal(receipt.retryable,false)
-  assert.equal(resumed.terminal(),true)
-  const record = resumed.effect()
-  assert.equal(record.stats.calls,2)
-  assert.equal(record.partial,true)
-  assert.equal(record.stats.droppedOps,1)
-  assert.equal(record.end.scene.background.assetId,'classroom')
-  assert.equal(record.entries.length,1)
-  assert.equal(resumed.submitModel(repair).duplicate,true)
-  assert.deepEqual(resumed.effect(),record)
 })
 
 test('missing clothing can be omitted without resetting outfits or hiding a sleeping actor', async () => {

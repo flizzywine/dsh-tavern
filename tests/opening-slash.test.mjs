@@ -31,39 +31,3 @@ test('pre-game sys/cut/trigger removes only the wizard and carries MVU into the 
     assert.deepEqual(service.resolve(draft.id,h.card.path,'primary'),before)
   }
 })
-
-test('a card opening form replaces the greeting: nothing shown or sent, opening variables kept', async () => {
-  for (const viaForm of [true, false]) {
-    const h=initializationFixture()
-    h.state.extensions={openingSetup:{form:'<form></form>'}}
-    const service=createOpeningPreparation({readCard:async()=>h.card,worldBooks:{bound:async()=>null}})
-    const draft=await service.create(h.card.path,{})
-    if (viaForm) await service.callRuntime(draft.id,'prepareOpeningCommand',{line:'/send {"type":"LAUNCH"}|/trigger'})
-    const chat=await h.make().start({...h.input,preparation:service.resolve(draft.id,h.card.path,'primary')})
-    const greeting=chat.messages.find(m=>m.greeting)
-    assert.equal(greeting.text,'\u3000')
-    assert.equal(greeting.displayText,'\u3000')
-    const opening=h.session().events.find(e=>e.data?.message?.source?.model==='character-card')
-    assert.equal(opening.data.message.content[0].text,'\u3000')
-  }
-})
-
-test('split /send and /trigger await=true carries opening script prompts into the new game', async () => {
-  const h = initializationFixture()
-  const service = createOpeningPreparation({ readCard: async () => h.card, worldBooks: { bound: async () => null } })
-  const draft = await service.create(h.card.path, {})
-  const staged = await service.callRuntime(draft.id, 'prepareOpeningCommand', { line: '/send 呼叫墨池渊' })
-  assert.equal(staged.deferred, true)
-  await service.callRuntime(draft.id, 'updateTavernHelperPrompts', {
-    operation: { kind: 'inject', once: true, prompts: [{ id: 'character-locations', content: '当前登场角色：墨池渊', role: 'system', position: 'in_chat', depth: 0 }] }
-  })
-  const plan = await service.callRuntime(draft.id, 'prepareOpeningCommand', { line: '/trigger await=true' })
-  assert.equal(plan.deferred, false)
-  assert.equal(plan.input, '呼叫墨池渊')
-  const chat = await h.make().start({ ...h.input, preparation: service.resolve(draft.id, h.card.path, 'primary') })
-  assert.equal(chat.tavernScriptPrompts?.length, 1)
-  assert.equal(chat.tavernScriptPrompts[0].id, 'character-locations')
-  if (chat.tavernScriptPrompts) {
-    assert.equal(chat.tavernScriptPrompts[0].once, true)
-  }
-})

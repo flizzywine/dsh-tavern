@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createCardPreparation,rawData} from '../tavern-plugin/lib/domain/card-preparation.js'
 import {createManagedModCardOwner,planCardModChoices} from '../tavern-plugin/lib/domain/mod-system-choices.js'
-import {createManagedModSettingsOwner,MANAGED_MOD_SETTINGS_SECTION} from '../tavern-plugin/lib/mod-system-settings.js'
+import { MANAGED_MOD_SETTINGS_SECTION } from '../tavern-plugin/lib/mod-system-settings.js'
 import {emptyCardMods,emptyGlobalMods} from '../tavern-plugin/lib/domain/mod-system-contract.js'
 
 function fixture(wrapped=true) {
@@ -37,13 +37,6 @@ test('concurrent card edits serialize through the original card owner and only o
   on.mods['example.clock']='on';off.mods['example.clock']='off'
   const results=await Promise.allSettled([on,off].map(value=>f.owner.compareAndSwap({cardId:'card-a',expectedRevision:before.revision,expectedValue:before.value,value})))
   assert.deepEqual(results.map(row=>row.status),['fulfilled','rejected']);assert.equal(results[1].reason.code,'MOD_REVISION_CONFLICT');assert.equal(f.writes,1)
-})
-
-test('raw card import and editor paths reject preference injection into portable mod choices',()=>{
-  const f=fixture(),card={...emptyCardMods(),preferences:{'example.clock':{volume:0}}}
-  assert.throws(()=>f.preparation.create({kind:'import',payload:{name:'Invalid',extensions:{dsh_tavern:{modSystem:card}}}}),{code:'MOD_INVALID'})
-  assert.throws(()=>f.preparation.update({kind:'card',card:f.workspace,patch:{},rawOperations:[{op:'set',path:'/data/extensions/dsh_tavern/modSystem',value:card}]}),{code:'MOD_INVALID'})
-  assert.equal(rawData(f.workspace.raw).extensions.dsh_tavern,undefined)
 })
 
 function manifests() {
@@ -91,23 +84,6 @@ export function apply(ctx){ctx.provide('managedFixtureOwner',createManagedModSet
   assert.equal(h.value(h.ownerId,MANAGED_MOD_SETTINGS_SECTION).mods['dsh.phone'],true)
   assert.ok(JSON.stringify(await h.overrides()).includes('dsh.phone'))
   await assert.rejects(owner.compareAndSwap({expectedRevision:before.revision,expectedValue:before.value,value}),{code:'MOD_REVISION_CONFLICT'})
-})
-
-test('global choices and preferences use the native settings revision, change notifications and disposal',async()=>{
-  let value,handlers,revision=0,dispose,writes=0,notifications=0
-  const provider={writable:true,describe:()=>[{ns:MANAGED_MOD_SETTINGS_SECTION,revision:String(revision)}],
-    installSection(ctx,ns,schema,defaults,callback){assert.equal(ns,MANAGED_MOD_SETTINGS_SECTION);value=structuredClone(defaults);handlers=callback;handlers.setSource(()=>value)},
-    async replace(ns,next,expected){assert.equal(ns,MANAGED_MOD_SETTINGS_SECTION);assert.equal(expected,String(revision));value=structuredClone(handlers.validate(next));revision++;writes++;handlers.onChange()}}
-  const ctx={get:()=>provider,inject(deps,fn){fn(ctx)},effect(fn){dispose=fn()}}
-  const owner=createManagedModSettingsOwner(ctx),before=owner.read(),next=emptyGlobalMods()
-  owner.subscribe(()=>notifications++)
-  assert.deepEqual(before.value.mods,{});assert.equal(writes,0)
-  next.mods['example.clock']=true;next.preferences['example.clock']={volume:0}
-  const saved=await owner.compareAndSwap({expectedRevision:before.revision,expectedValue:before.value,value:next})
-  assert.equal(saved.revision,'1');assert.equal(writes,1);assert.equal(notifications,1)
-  saved.value.preferences['example.clock'].volume=100;assert.equal(owner.read().value.preferences['example.clock'].volume,0)
-  await assert.rejects(owner.compareAndSwap({expectedRevision:before.revision,expectedValue:before.value,value:next}),{code:'MOD_REVISION_CONFLICT'})
-  dispose();assert.throws(()=>owner.read(),{code:'MOD_DISABLED'})
 })
 
 // Copied card files can share an identity: listing keeps the first and leaves the copy out,

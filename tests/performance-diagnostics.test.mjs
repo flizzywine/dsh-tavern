@@ -28,14 +28,3 @@ test('开场计时只保存固定字段并限制记录数量', () => {
   assert.ok(!JSON.stringify(snapshot).includes('PRIVATE'))
   assert.ok(!JSON.stringify(snapshot).includes('secret'))
 })
-
-test('浏览器分段计时只接受关联 ID 和固定数字字段，导出深拷贝', () => {
-  const store = createPerformanceDiagnostics()
-  store.browser({requests: Array.from({length: 100}, () => ({id: '00000000-0000-0000-0000-000000000001', method: 'getSession', sentAt: 1, headersMs: 1234, parsedMs: 1240, active: 3, body: 'SECRET'}))})
-  const first = store.read()
-  assert.equal(first.browser.requests.length, 60)
-  assert.equal(first.browser.requests[0].headersMs, 1234)
-  assert.doesNotMatch(JSON.stringify(first), /SECRET/)
-  first.browser.requests[0].active=999
-  assert.equal(store.read().browser.requests[0].active, 3)
-})

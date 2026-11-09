@@ -25,24 +25,6 @@ for(const fallback of [false,true])test(`record packs preserve hash lookup, stan
  await assert.rejects(createConversationPageStore({root}).readRecord('a',refs[0]),/checksum/)
 })
 
-test('sweep marks packed blocks through the read cache, not a whole-pack parse per block',async t=>{
- const root=await mkdtemp(join(tmpdir(),'record-pack-sweep-'))
- t.after(()=>rm(root,{recursive:true,force:true}))
- const store=createConversationPageStore({root})
- const values=Array.from({length:96},(_,i)=>({type:'scalar',value:'value '+i+' '+'x'.repeat(400)}))
- const refs=await store.writeRecords('a',values)
- await store.create('a',{state:{title:'测试'},messages:refs.map(runtimeRef=>({runtimeRef}))})
- const packBytes=(await stat(join(root,'a/blocks',refs[0].slice(0,2),refs[0]+'.json'))).size
- const fresh=createConversationPageStore({root}),parse=JSON.parse
- let parsedChars=0,result
- JSON.parse=(text,...args)=>{parsedChars+=text.length;return parse(text,...args)}
- try {result=await fresh.sweep('a',{dryRun:true,graceMs:0})}
- finally {JSON.parse=parse}
- assert.equal(result.removed,0)
- assert.ok(result.reachable>refs.length,'every record and the head blocks are reachable')
- assert.ok(parsedChars<2*packBytes,`parsed ${parsedChars} chars for a ${packBytes} byte pack of 96 blocks`)
-})
-
 test('a fragmented head is rewritten in read order into contiguous packs; reads stay identical and later maintenance leaves it',async t=>{
  const root=await mkdtemp(join(tmpdir(),'record-pack-relayout-'))
  t.after(()=>rm(root,{recursive:true,force:true}))

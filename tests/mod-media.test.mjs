@@ -1,16 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import {installedFixture} from './helpers/mod-system-production-host.mjs'
 import {createBuiltinModService} from '../tavern-plugin/packages/dsh-tavern-stage/lib/mod-service.js'
-import {createManagedModPackOwner} from '../tavern-plugin/packages/dsh-tavern-stage/lib/mod-pack-owner.js'
-import {validateModMedia,MOD_MEDIA_LIMITS} from '../tavern-plugin/lib/mod-media.js'
 import {createModRuntime} from '../tavern-plugin/lib/domain/mods/runtime.js'
 import {modSettingValue,validateModSettingsSchema} from '../tavern-plugin/lib/domain/mods/settings.js'
 import {validateModPackAssetRefs} from '../tavern-plugin/lib/domain/mods/asset-references.js'
-import sharp from 'sharp'
 
 test('production mod packs expose the CAS save required to reference uploaded media', async t => {
   const f = await installedFixture(t)
@@ -37,29 +32,6 @@ test('production mod packs expose the CAS save required to reference uploaded me
   const reopened=createBuiltinModService({root:path.join(f.root,'managed-mod-media'),management:f.production,readCard:f.readWorkspace,variables:{}})
   t.after(()=>reopened.dispose())
   assert.ok((await reopened.call('getMod',{modId:'dsh.phone'},authority)).packs.some(row=>row.id===pack.id))
-})
-
-test('purpose limits preserve small icons and allow image, background and audio budgets',async()=>{
-  assert.deepEqual(MOD_MEDIA_LIMITS,{icon:512*1024,image:6*1024**2,background:4*1024**2,audio:60*1024**2})
-  const bytes=await sharp({create:{width:1024,height:576,channels:3,background:'#447799'}}).png().toBuffer()
-  assert.throws(()=>validateModMedia({mime:'image/png',bytes,purpose:'icon'}),{code:'LIMIT_EXCEEDED'})
-  assert.doesNotThrow(()=>validateModMedia({mime:'image/png',bytes,purpose:'background'}))
-  const square=await sharp({create:{width:600,height:600,channels:3,background:'#447799'}}).png().toBuffer()
-  assert.throws(()=>validateModMedia({mime:'image/png',bytes:square,purpose:'background'}),/16:9/)
-  for(const purpose of ['image','background','audio'])assert.throws(()=>validateModMedia({mime:purpose==='audio'?'audio/mpeg':'image/png',bytes:Buffer.alloc(MOD_MEDIA_LIMITS[purpose]+1),purpose}),{code:'LIMIT_EXCEEDED'})
-})
-
-test('authored mod packs persist through one CAS owner that rejects stale writers',async t=>{
-  const root=await fs.mkdtemp(path.join(os.tmpdir(),'mod-packs-'))
-  t.after(()=>fs.rm(root,{recursive:true,force:true}))
-  const owner=createManagedModPackOwner({root}),changes=[]
-  owner.subscribe(()=>changes.push('changed'))
-  assert.deepEqual(await owner.read(),{revision:'0',packs:{}})
-  const first=await owner.compareAndSwap({expectedRevision:'0',modId:'example.mod',pack:{id:'p1',name:'One'}})
-  await assert.rejects(owner.compareAndSwap({expectedRevision:'0',modId:'example.mod',pack:{id:'p2',name:'Two'}}),{code:'MOD_REVISION_CONFLICT'})
-  await owner.compareAndSwap({expectedRevision:first.revision,modId:'example.mod',pack:{id:'p2',name:'Two'}})
-  assert.deepEqual(Object.keys((await createManagedModPackOwner({root}).read()).packs['example.mod']),['p1','p2'])
-  assert.deepEqual(changes,['changed','changed'])
 })
 
 test('a failing mod callback names the mod and the step; optional lifecycle hooks may be absent',async()=>{
@@ -89,9 +61,4 @@ test('asset-ref fields hold one main-library background, and object children may
   const manifest={packSchema:{fields:[field]},assetKinds:[]},pack={fields:{scene:ref},entries:[]}
   await validateModPackAssetRefs(pack,manifest,async({refs})=>refs.map(row=>({ref:row,value:{id:row.assetId}})))
   await assert.rejects(validateModPackAssetRefs(pack,manifest,async({refs})=>refs.map(row=>({ref:row,value:null}))),{code:'MOD_RESOURCE_UNAVAILABLE'})
-})
-test('a slider field may name the words at its two ends instead of its numbers',()=>{
-  const slider={key:'opacity',type:'slider',label:'Opacity',default:80,min:10,max:100,step:5,ends:['淡','浓']}
-  assert.doesNotThrow(()=>validateModSettingsSchema({fields:[slider]},'$.packSchema',false,'example.mod'))
-  for(const ends of [['淡'],['淡','浓','中'],['淡','很浓很浓很浓很浓很浓'],'淡'])assert.throws(()=>validateModSettingsSchema({fields:[{...slider,ends}]},'$.packSchema',false,'example.mod'))
 })

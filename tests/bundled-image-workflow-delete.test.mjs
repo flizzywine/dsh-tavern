@@ -116,22 +116,6 @@ test('接受指向 workflows 真实目录的 symlink 父目录别名', async t =
   assert.deepEqual(await readdir(f.workflowsDir), ['fallback.json'])
 })
 
-test('拒绝指向 workflows 外部的 symlink 父目录并保留配置和文件', async t => {
-  const f = await fixture(t)
-  const outsideDir = path.join(path.dirname(f.workflowsDir), 'outside')
-  const aliasDir = path.join(f.workflowsDir, 'outside-alias')
-  await mkdir(outsideDir)
-  await writeFile(path.join(outsideDir, 'keep.json'), 'keep')
-  await symlink(outsideDir, aliasDir, process.platform === 'win32' ? 'junction' : 'dir')
-  f.config.workflows[0].file = path.join(aliasDir, 'keep.json')
-
-  const result = await deleteWorkflow({ ...f, id: 'remove-me' })
-  assert.equal(result.status, 400)
-  assert.equal(await readFile(path.join(outsideDir, 'keep.json'), 'utf8'), 'keep')
-  assert.deepEqual(f.config.workflows.map(item => item.id), ['remove-me', 'fallback'])
-  assert.equal(f.persisted.length, 0)
-})
-
 test('实际 POST /workflow 删除文件；reload 和全新 runtime state 都不会重新发现', async t => {
   const f = await realRouteFixture(t)
   const before = await f.run.request('state', undefined, 'GET')

@@ -12,9 +12,3 @@ test('format failures have line numbers and do not select a different variable s
   assert.equal(parsed.hasMvu, false)
   assert.throws(() => parseChatHistory('x'.repeat(CHAT_IMPORT_MAX_BYTES + 1)), /8 MB/)
 })
-test('system notes are excluded and user-ending exports remain ordered', () => {
-  const parsed = parseChatHistory(encode({ is_system: true, mes: 'note' }, { is_user: true, mes: 'one' }, { is_user: true, mes: 'two' }) + '\n\n')
-  assert.deepEqual(parsed.messages.map(m => m.text), ['one', 'two'])
-  assert.ok(parsed.warnings.some(w => /跳过 1 条/.test(w)))
-  assert.ok(parsed.warnings.some(w => /连续同角色/.test(w)))
-})

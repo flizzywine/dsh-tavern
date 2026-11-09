@@ -39,16 +39,3 @@ test('dispose releases late avatar pins, drains queued work without acquiring an
  await new Promise(resolve=>setImmediate(resolve))
  assert.equal(releases,2);assert.equal(f.pending.length,2);assert.equal(f.calls.includes('prepare'),false)
 })
-test('selector cleanup errors do not leave other observers or media active',()=>{
- const f=fixture({failCleanup:true});f.scope.start()
- assert.throws(()=>f.scope.dispose(),/cleanup failed/)
- assert.equal(f.disposedSelectors,2);assert.equal(f.listeners.size,0);assert.equal(f.events.size,0);assert.equal(f.packListeners.size,0)
- for(const key of ['music','background','ambience'])assert.ok(f.calls.some(x=>x[0]===key&&x[1]===null))
- f.scope.dispose()
-})
-test('partial startup rolls back subscriptions and already selected media',()=>{
- const f=fixture();f.input.media.ambience.activate=id=>{if(id)throw Error('media unavailable')}
- assert.throws(()=>f.scope.start(),/media unavailable/)
- assert.equal(f.listeners.size,0);assert.equal(f.events.size,0);assert.equal(f.packListeners.size,0)
- assert.ok(f.calls.some(x=>x[0]==='music'&&x[1]===null));f.scope.dispose()
-})

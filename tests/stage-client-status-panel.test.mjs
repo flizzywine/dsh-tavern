@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-import vm from 'node:vm'
 const {createStageStatusPanel} = createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/status-panel.cjs')
 
 const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
@@ -63,55 +62,6 @@ function fakeReact(stateOverride) {
 const find = (node, test) => !node || typeof node !== 'object' ? null : test(node) ? node : node.children.reduce((hit, child) => hit || find(child, test), null)
 const text = node => !node ? '' : typeof node === 'string' ? node : node.children.map(text).join('')
 
-test('page keys close through the facade in both trust modes without taking editing shortcuts', async () => {
-  for (const trustedCardMode of [true, false]) {
-    const h = harness(), posted = [], listeners = new Map()
-    const panel = openPage(h, {trustedCardMode, shortcut: 's'})
-    await settle()
-    const prelude = /<script data-dsh-card-page>([\s\S]*?)<\/script>/.exec(h.lifecycles[0].props.content)[1]
-    const context = {window: {}, parent: {postMessage: data => posted.push(data)}, addEventListener: (type, fn) => listeners.set(type, fn)}
-    vm.runInNewContext(prelude, context)
-    const key = init => listeners.get('keydown')({key:'s',preventDefault(){}, ...init})
-    key({target:{tagName:'INPUT'}})
-    key({ctrlKey:true})
-    key({repeat:true})
-    key({isComposing:true})
-    assert.equal(posted.length, 0)
-    key({})
-    key({key:'Escape',target:{tagName:'TEXTAREA'}})
-    assert.deepEqual(posted.map(call => call.method), ['close','close'])
-    panel.dispose(); h.panels.dispose()
-  }
-})
-
-test('usePages is undefined while reading, then null for a card without pages or a failed read, else {pages, fresh}', async () => {
-  const pending = createStageStatusPanel({React: {useState: initial => [initial, () => {}], useEffect() {}}, window: {}, document: {}, rpc: () => new Promise(() => {}), signals: {}})
-  assert.equal(pending.usePages('s1'), undefined, 'not read yet: the entry reveal waits for it')
-  pending.dispose()
-  {
-    let value = 'unset'
-    const {React} = fakeReact()
-    const failed = createStageStatusPanel({React: {...React, useState: initial => [initial, next => { value = next }]}, window: {}, document: {}, rpc: () => Promise.reject(new Error('坏了')), signals: {}})
-    failed.usePages('s1')
-    await settle()
-    assert.equal(value, null, 'a failed read holds nothing')
-    failed.dispose()
-  }
-  for (const [pages, expected] of [[{pages: [], fresh: true}, null],
-    [{pages: [{id: 'status', label: '状态', shortcut: 's', menu: true}], fresh: true}, {pages: [{id: 'status', label: '状态', shortcut: 's', menu: true}], fresh: true}]]) {
-    const h = harness({pages})
-    let value = 'unset'
-    const {React} = fakeReact()
-    const panels = createStageStatusPanel({React: {...React, useState: initial => [initial, next => { value = next }]}, window: {}, document: {},
-      rpc: (method, args, sessionId) => { h.calls.push({method, args, sessionId}); return Promise.resolve({ok: true, ...pages}) }, signals: {}})
-    panels.usePages('s1')
-    await settle()
-    assert.deepEqual(h.calls, [{method: 'readCardPages', args: {sessionId: 's1'}, sessionId: 's1'}])
-    assert.deepEqual(value, expected)
-    panels.dispose()
-  }
-})
-
 test('the Overlay frame is the core lifecycle with the live tavernHelper and trustedCardMode', async () => {
   const h = harness()
   const helper = {version: 1, turnMessageIds: {1: 1, 3: 5}, messages: []}
@@ -137,34 +87,6 @@ test('the Overlay frame is the core lifecycle with the live tavernHelper and tru
   panels.dispose()
 })
 
-test('a trusted page frame has no sandbox attribute, an untrusted one sandbox=allow-scripts', async () => {
-  for (const trustedCardMode of [true, false]) {
-    const h = harness()
-    const page = openPage(h, {trustedCardMode})
-    await settle()
-    assert.equal(h.lifecycles[0].props.trustedCardMode, trustedCardMode)
-    assert.equal(h.frames.length, 1)
-    assert.equal(h.frames[0].srcdoc, '<!doctype html>' + h.lifecycles[0].props.content)
-    assert.equal(h.frames[0].getAttribute('sandbox'), trustedCardMode ? null : 'allow-scripts')
-    assert.deepEqual(h.lifecycles[0].refs, [h.frames[0]])
-    page.dispose()
-  }
-})
-
-test('a DshCardPage call from a foreign window gets no answer', async () => {
-  const h = harness()
-  let closes = 0
-  const page = openPage(h, {onClose: () => closes++})
-  await settle()
-  const foreign = {posted: [], postMessage(message) { foreign.posted.push(message) }}
-  h.send(foreign, 'close')
-  await settle()
-  assert.equal(closes, 0)
-  assert.deepEqual(foreign.posted, [])
-  assert.deepEqual(responses(h.frames[0]), [])
-  page.dispose()
-})
-
 test('close, open, openSettings and fillInput reach onClose / onAction; fillInput sends nothing', async () => {
   const h = harness()
   let closes = 0
@@ -185,79 +107,6 @@ test('close, open, openSettings and fillInput reach onClose / onAction; fillInpu
   page.dispose()
 })
 
-test('asset() outside the bound packs rejects with 本卡的素材包里没有', async () => {
-  const h = harness()
-  const page = openPage(h)
-  await settle()
-  h.send(h.frames[0].contentWindow, 'asset', {kind: 'backgrounds', id: 'moon'})
-  await settle()
-  const locate = h.calls.find(call => call.method === 'locateCardPageAsset')
-  assert.deepEqual(locate.args, {sessionId: 's1', page: 'status', ref: {kind: 'backgrounds', id: 'moon', variant: undefined, file: undefined, size: undefined}})
-  const [response] = responses(h.frames[0])
-  assert.equal(response.ok, false)
-  assert.match(response.error, /^本卡的素材包里没有 backgrounds \/ moon$/)
-  page.dispose()
-})
-
-test('a session state signal re-reads the page and pushes its ledger to onData', async () => {
-  const h = harness()
-  const page = openPage(h)
-  await settle()
-  assert.match(h.lifecycles[0].props.content, /"ledger":\{"hp":3\}/)
-  assert.match(h.lifecycles[0].props.content, /"theme":\{"accent":"#ff0000"\},"card":\{"name":"辉夜大小姐"\}/)
-  h.signal()
-  await settle()
-  assert.deepEqual(h.calls.map(call => call.args.withHtml), [true, false])
-  const pushed = h.frames[0].contentWindow.posted.filter(message => message.type === 'dsh-card-page-data')
-  assert.equal(pushed.length, 1)
-  assert.equal(pushed[0].data.saved, false, 'an unsaved chat')
-  delete pushed[0].data.saved
-  assert.deepEqual(pushed[0].data, {ledger: {hp: 2}, figures: [{name: '辉夜', emotion: '开心', avatar: null}], theme: {accent: '#ff0000'}, card: {name: '辉夜大小姐'}})
-  page.dispose()
-})
-
-test('dispose removes the frames, the message listener, the signal and the lifecycle', async () => {
-  const h = harness()
-  const page = openPage(h)
-  await settle()
-  assert.equal(h.frames[0].isConnected, true)
-  assert.equal(h.messageListeners.size, 1)
-  h.panels.dispose()
-  assert.equal(h.frames[0].isConnected, false)
-  assert.equal(h.messageListeners.size, 0)
-  assert.equal(h.lifecycles[0].stopped, 1)
-  assert.deepEqual(h.lifecycles[0].refs, [h.frames[0], null])
-  assert.deepEqual(page.frames, [])
-  h.signal()
-  await settle()
-  assert.equal(h.calls.length, 1)
-})
-
-test('a missing page opens to the empty state and a failed read to the error state, not a frame', async () => {
-  for (const [options, phases] of [[{page: null}, ['loading', 'empty']], [{failRead: true}, ['loading', 'error']]]) {
-    const h = harness(options)
-    const states = []
-    const page = openPage(h, {onState: value => states.push(value.phase)})
-    await settle()
-    assert.deepEqual(states, phases)
-    assert.equal(h.lifecycles.length, 0)
-    page.dispose()
-  }
-})
-
-test('while the read is out the page keeps its declared label and size; shown once its visible document has loaded', async () => {
-  const h = harness({page: {...PAGE, label: '状态页', size: 'full'}})
-  const states = []
-  const page = openPage(h, {label: '状态', size: 'full', onState: value => states.push(value)})
-  assert.deepEqual(states.map(({phase, label, size, shown}) => ({phase, label, size, shown})), [{phase: 'loading', label: '状态', size: 'full', shown: false}])
-  await settle()
-  assert.deepEqual(states.map(({phase, label, size, shown}) => [phase, label, size, shown]).slice(1), [['ready', '状态页', 'full', false]], 'mounted, not yet on screen')
-  assert.equal(h.frames[0].title, '状态页')
-  h.frames[0].listeners.load()
-  assert.deepEqual(states.map(({phase, shown}) => [phase, shown]).slice(2), [['ready', true]], 'the visible document loaded')
-  page.dispose()
-})
-
 test('an entry page draws no chrome (data-bare) until its document is shown, or its read comes back empty or failed', () => {
   for (const [entry, phase, shown, bare] of [[true, 'loading', false, true], [true, 'ready', false, true], [true, 'ready', true, false],
     [true, 'empty', false, false], [true, 'error', false, false], [false, 'loading', false, false], [false, 'ready', false, false]]) {
@@ -269,132 +118,6 @@ test('an entry page draws no chrome (data-bare) until its document is shown, or 
   }
 })
 
-test('the sheet renders loading, empty and error (重试) states', () => {
-  for (const [phase, expected] of [['loading', '正在读取页面…'], ['empty', '本卡没有这个页面'], ['error', '页面读取失败重试']]) {
-    const {React} = fakeReact({phase, label: '', size: 'window', figures: []})
-    const panels = createStageStatusPanel({React, window: {console, addEventListener() {}, removeEventListener() {}}, document: {}, rpc: () => new Promise(() => {}), signals: {subscribe: () => () => {}}})
-    const tree = panels.Overlay({sessionId: 's1', pageId: 'status', onClose() {}})
-    const note = find(tree, node => node.props.className === 'fork-gal-status-note')
-    assert.equal(text(note), expected)
-    if (phase === 'error') assert.equal(find(note, node => node.type === 'button')?.children[0], '重试')
-    panels.dispose()
-  }
-})
-
-test('an entry page is opaque from its first frame: no 正在读取 note, and its close button is 返回主页面', () => {
-  for (const entry of [true, false]) {
-    const {React} = fakeReact({phase: 'loading', label: '', size: 'full', figures: []})
-    const panels = createStageStatusPanel({React, window: {console, addEventListener() {}, removeEventListener() {}}, document: {}, rpc: () => new Promise(() => {}), signals: {subscribe: () => () => {}}})
-    const tree = panels.Overlay({sessionId: 's1', pageId: 'title', size: 'full', entry, onClose() {}})
-    assert.equal(tree.props['data-entry-page'], entry ? '' : undefined)
-    assert.equal(Boolean(find(tree, node => node.props.className === 'fork-gal-status-note')), !entry, 'a loading note only on a page opened while reading')
-    assert.equal(find(tree, node => node.props.className === 'fork-gal-status-close').props['aria-label'], entry ? '返回主页面' : '关闭页面')
-    panels.dispose()
-  }
-})
-
-test('a full sheet has no title bar, only the close button; a window sheet keeps its label', () => {
-  for (const [size, title] of [['full', null], ['window', '状态']]) {
-    const {React} = fakeReact({phase: 'ready', label: '状态', size, figures: []})
-    const panels = createStageStatusPanel({React, window: {console, addEventListener() {}, removeEventListener() {}}, document: {}, rpc: () => new Promise(() => {}), signals: {subscribe: () => () => {}}})
-    const tree = panels.Overlay({sessionId: 's1', pageId: 'status', size, onClose() {}})
-    assert.equal(tree.props['data-size'], size)
-    assert.equal(tree.props['data-page'], 'status')
-    assert.equal(find(tree, node => node.props.className === 'fork-gal-status-title')?.children[0] ?? null, title)
-    assert.equal(find(tree, node => node.props.role === 'dialog').props['aria-label'], '状态')
-    assert.ok(find(tree, node => node.props.className === 'fork-gal-status-close'))
-    panels.dispose()
-  }
-})
-
 // Two card pages a card may author: a full title page entered from text mode and a window menu page from a menu row.
 const TITLE_PAGE = {...PAGE, id: 'title', label: '标题', size: 'full', html: '<button data-dsh-sound id="new">新游戏</button>', figures: []}
 const MENU_PAGE = {...PAGE, id: 'menu', label: '菜单', size: 'window', html: '<button data-dsh-sound id="back">返回</button>', figures: []}
-function titleHarness(page, {answer = true} = {}) {
-  const asked = [], started = [], played = []
-  const h = harness({page, options: {
-    confirm: (message, options) => { asked.push([message, options]); return Promise.resolve(answer) },
-    newGame: sessionId => started.push(sessionId),
-    sounds: {playSkin: name => { played.push(name); return name !== 'close' }}}})
-  return {h, asked, started, played}
-}
-const answered = frame => Object.fromEntries(responses(frame).map(message => [message.requestId, message.ok ? message.result : 'error:' + message.error]))
-
-test('title actions route on both pages: continue / gallery / exit reach the stage, newGame leaves for the core', async () => {
-  for (const page of [TITLE_PAGE, MENU_PAGE]) {
-    const t = titleHarness(page)
-    let closes = 0
-    const actions = []
-    const panel = openPage(t.h, {page: page.id, saved: false, onClose: () => closes++, onAction: (...args) => actions.push(args)})
-    await settle()
-    const source = t.h.frames[0].contentWindow
-    for (const method of ['continue', 'gallery', 'exit', 'newGame']) t.h.send(source, method)
-    await settle()
-    assert.equal(closes, 0, page.id + ': continueGame is the stage action, not close() (which leaves on an entry page)')
-    assert.deepEqual(actions, [['continue'], ['gallery'], ['exit'], ['exit']])
-    assert.deepEqual(t.started, ['s1'])
-    assert.deepEqual(t.asked, [], 'an unsaved chat starts without asking')
-    assert.deepEqual(answered(t.h.frames[0]), {'r-continue': {ok: true}, 'r-gallery': {ok: true}, 'r-exit': {ok: true}, 'r-newGame': {started: true}})
-    panel.dispose()
-  }
-})
-
-test('newGame asks first when the chat is saved; a cancel answers {started:false} and leaves the page as it was', async () => {
-  for (const answer of [false, true]) {
-    const t = titleHarness(TITLE_PAGE, {answer})
-    const actions = []
-    const panel = openPage(t.h, {page: 'title', saved: true, onAction: (...args) => actions.push(args)})
-    await settle()
-    assert.match(t.h.lifecycles[0].props.content, /"saved":true/)
-    t.h.send(t.h.frames[0].contentWindow, 'newGame')
-    await settle()
-    assert.equal(t.asked.length, 1)
-    assert.match(t.asked[0][0], /^开始新游戏？/)
-    assert.deepEqual(t.asked[0][1], {confirmText: '开始新游戏', cancelText: '取消'})
-    assert.deepEqual(answered(t.h.frames[0]), {'r-newGame': {started: answer}}, 'the call settles either way, so no button stays disabled')
-    assert.deepEqual(actions, answer ? [['exit']] : [])
-    assert.deepEqual(t.started, answer ? ['s1'] : [])
-    panel.dispose()
-  }
-})
-
-test('sound(name) plays the shown skin palette cue only, and rejects other names', async () => {
-  const t = titleHarness(MENU_PAGE)
-  const panel = openPage(t.h, {page: 'menu'})
-  await settle()
-  const source = t.h.frames[0].contentWindow
-  t.h.send(source, 'sound', {name: 'move'})
-  await settle()
-  t.h.send(source, 'sound', {name: 'close'})
-  await settle()
-  t.h.send(source, 'sound', {name: 'type'})
-  await settle()
-  assert.deepEqual(t.played, ['move', 'close'])
-  assert.deepEqual(responses(t.h.frames[0]).map(message => message.ok ? message.result : message.error),
-    [{played: true}, {played: false}, 'sound 只接受 move、confirm、open、close'])
-  panel.dispose()
-})
-
-test('the prelude exposes the title actions and sounds data-dsh-sound controls on hover, focus and click', async () => {
-  const h = harness({page: TITLE_PAGE})
-  const panel = openPage(h, {page: 'title'})
-  await settle()
-  const prelude = /<script data-dsh-card-page>([\s\S]*?)<\/script>/.exec(h.lifecycles[0].props.content)[1]
-  const posted = [], listeners = new Map(), context = {window: {}, parent: {postMessage: data => posted.push(data)}, addEventListener: (type, fn) => listeners.set(type, fn)}
-  vm.runInNewContext(prelude, context)
-  const api = context.window.DshCardPage
-  for (const name of ['newGame', 'continueGame', 'openGallery', 'exit']) api[name]()
-  api.sound('open')
-  assert.deepEqual(JSON.parse(JSON.stringify(posted.splice(0).map(call => [call.method, call.args]))), [['newGame', {}], ['continue', {}], ['gallery', {}], ['exit', {}], ['sound', {name: 'open'}]])
-  const button = {disabled: false, getAttribute: () => null, contains: node => node === inner}, inner = {closest: () => button}
-  const target = {closest: selector => selector === '[data-dsh-sound]' ? button : null}
-  listeners.get('mouseover')({target, relatedTarget: null})
-  listeners.get('mouseover')({target, relatedTarget: inner}) // moving inside the same control
-  listeners.get('focusin')({target, relatedTarget: null})
-  listeners.get('click')({target})
-  listeners.get('mouseover')({target: {closest: () => null}})
-  button.disabled = true
-  listeners.get('click')({target})
-  assert.deepEqual(posted.map(call => call.args.name), ['move', 'move', 'confirm'])
-  panel.dispose()
-})

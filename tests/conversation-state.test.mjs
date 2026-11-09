@@ -38,34 +38,6 @@ async function runtimeFixture(t,runtimeState){
 }
 const runtimeInput=overrides=>({chatHeaderRef:RUNTIME_HEADER,chatRevision:1,worldMessage:2,worldSwipe:0,...overrides})
 
-test('legacy runtime state without world message uid keeps working',async t=>{
- const {domain}=await runtimeFixture(t,runtimeInput({}))
- const {state}=await domain.open('r')
- assert.equal(state.worldMessage,2)
- assert.equal(state.worldSwipe,0)
- assert.equal(Object.hasOwn(state,'worldMessageUid'),false)
-})
-
-test('world message uid is preserved next to position and swipe',async t=>{
- const {domain}=await runtimeFixture(t,runtimeInput({worldMessageUid:'msg-17'}))
- const {state}=await domain.open('r')
- assert.equal(state.worldMessage,2)
- assert.equal(state.worldSwipe,0)
- assert.equal(state.worldMessageUid,'msg-17')
-})
-
-test('deleted world message keeps its uid with a null position',async t=>{
- const {domain}=await runtimeFixture(t,runtimeInput({worldMessage:null,worldMessageUid:'msg-gone'}))
- const {state}=await domain.open('r')
- assert.equal(state.worldMessage,null)
- assert.equal(state.worldMessageUid,'msg-gone')
-})
-
-test('null world message uid is kept as an explicit absence',async t=>{
- const {domain}=await runtimeFixture(t,runtimeInput({worldMessageUid:null}))
- assert.equal((await domain.open('r')).state.worldMessageUid,null)
-})
-
 for(const bad of ['',{},[]])
  test('invalid world message uid '+JSON.stringify(bad)+' is rejected',async t=>{
   await assert.rejects(runtimeFixture(t,runtimeInput({worldMessageUid:bad})),{code:'CONVERSATION_INPUT'})

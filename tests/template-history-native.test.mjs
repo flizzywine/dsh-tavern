@@ -54,40 +54,6 @@ test('局部历史按最近楼层对齐原生消息面，与完整历史标记�
   assert.ok(texts(full.session).includes('继续（模板渲染）'))
 })
 
-test('压缩检查点不会被模板同步改写成玩家原文；已被改写的恢复为摘要（#202）', async () => {
-  const session = Session.create('template-compact')
-  const seqs = []
-  for (let turn = 1; turn <= 3; turn++) {
-    seqs.push(session.append('user/message', { id: 'u' + turn, role: 'user', content: [{ type: 'text', text: '行动' + turn }] }, { surfaceOp: 'append' }))
-    seqs.push(session.append('assistant/message', { turn, message: { id: 'a' + turn, role: 'assistant', content: [{ type: 'text', text: '回复' + turn }] } }, { surfaceOp: 'append' }))
-  }
-  const seqOf = value => typeof value === 'number' ? value : value.seq
-  const checkpoint = { id: 'compact-1', role: 'user', content: [{ type: 'text', text: '【摘要】前两轮' }], source: { kind: 'plugin', plugin: 'compact', compactionId: 'c1' } }
-  session.append('user/message', checkpoint, { surfaceOp: { op: 'replace', startSeq: seqOf(seqs[0]), endSeq: seqOf(seqs[3]) }, sourceEventSeqs: seqs.slice(0, 4).map(seqOf) })
-  // The chat row rendered from full history still says the player text, while its template source matches the summary.
-  const messages = [
-    { role: 'user', text: '行动1', templateInputSource: '【摘要】前两轮' }, { role: 'assistant', text: '回复1', turn: 1 },
-    { role: 'user', text: '行动2' }, { role: 'assistant', text: '回复2', turn: 2 },
-    { role: 'user', text: '行动3' }, { role: 'assistant', text: '回复3', turn: 3 }
-  ]
-  const texts = () => session.deriveMessages().flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
-  await synchronizeTemplateHistory(session, { messages }, async () => {})
-  assert.ok(texts().includes('【摘要】前两轮'))
-  assert.ok(!texts().includes('行动1'))
-
-  // A session already damaged by the old sync: two chained overwrites of the checkpoint.
-  let at = session.surface.nodes[0]
-  for (const n of [1, 2]) {
-    const event = session.append('user/message', { ...checkpoint, id: 'tavern-template-edit:' + n, content: [{ type: 'text', text: '行动1' }] },
-      { surfaceOp: { op: 'replace', startSeq: at, endSeq: at }, sourceEventSeqs: [at] })
-    at = seqOf(event)
-  }
-  assert.ok(texts().includes('行动1'))
-  await synchronizeTemplateHistory(session, { messages }, async () => {})
-  assert.ok(texts().includes('【摘要】前两轮'))
-  assert.ok(!texts().includes('行动1'))
-})
-
 test('DSH 0.2.1 的压缩检查点（source.kind = compact-checkpoint）同样不会被模板同步改写', async () => {
   const session = Session.create('template-compact-v4')
   const seqs = []

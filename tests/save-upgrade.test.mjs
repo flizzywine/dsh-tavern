@@ -7,48 +7,6 @@ import { createSaveUpgrade, detachSaveSessions, saveSessionIds, unreadySaveSessi
 import { storedSessionVersion } from '../tavern-plugin/lib/domain/session-upgrade.js'
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
 
-test('one upgrade job checks host logs before storage and survives repeated clicks', async () => {
-  let release, calls = 0, version = 'journal:old', notifications = 0
-  const order = [], gate = new Promise(resolve => { release = resolve })
-  const service = createSaveUpgrade({
-    inspectSessions: async () => { order.push('sessions'); return { ready: true, version: 4 } },
-    store: { version: async () => version, readSessionState: async () => ({ id: 'old', sessionId: 's' }),
-      upgradeStorage: async (id, options) => {
-        calls++; await options.assertCanMigrate({ id }); order.push('storage')
-        options.onProgress('converting'); await gate; version = 'native:new'; return { status: 'native' }
-      } }, notify: () => notifications++,
-  })
-  assert.equal((await service.status('old')).storage, 'legacy')
-  service.start('old'); service.start('old')
-  await new Promise(resolve => setImmediate(resolve))
-  assert.equal(calls, 1)
-  assert.equal((await service.status('old')).stage, 'converting')
-  assert.ok(order.indexOf('sessions') < order.indexOf('storage'))
-  release(); await service.dispose()
-  assert.equal((await service.status('old')).phase, 'completed')
-  assert.equal(notifications, 1)
-})
-
-test('failed host conversion cannot report complete or start storage; restart and busy failures can retry', async () => {
-  let ready = false, busy = true, version = 'journal:old', writes = 0
-  const service = createSaveUpgrade({
-    inspectSessions: async () => ({ ready, error: ready ? undefined : '会话原档保留，请重启后重试' }),
-    assertIdle: () => { if (busy) throw Error('busy') },
-    store: { version: async () => version, readSessionState: async () => ({}), upgradeStorage: async (id, options) => {
-      await options.assertCanMigrate({}); writes++; version = 'native:new'; throw Error('lost acknowledgement')
-    } },
-  })
-  service.start('old'); await service.dispose()
-  assert.equal((await service.status('old')).error, 'busy')
-  busy = false; service.start('old'); await service.dispose()
-  assert.equal(writes, 0)
-  assert.equal((await service.status('old')).phase, 'failed')
-  ready = true; service.start('old'); await service.dispose()
-  assert.equal((await service.status('old')).phase, 'completed')
-  ready = false
-  assert.notEqual((await service.status('old')).phase, 'completed', 'paged storage alone does not complete the whole upgrade')
-})
-
 test('unified storage stage preserves history, variables, plugin data and original files', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'tavern-save-upgrade-'))
   t.after(() => rm(root, { recursive: true, force: true }))

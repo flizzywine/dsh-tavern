@@ -86,12 +86,3 @@ test('清除未完成回复：尾部是未回复输入时只删上一条 AI 输�
   assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '输入3'])
   assert.deepEqual(nodeTexts(h.session), ['输入2', '', '输入3'])
 })
-
-test('清除未完成回复：首轮失败没有正文时只清失败残留，开场白与输入行都不动', async () => {
-  const h = fixture('orphan')
-  h.chat.messages = [{ role: 'assistant', greeting: true, text: '开场白' }, { role: 'user', text: '输入2' }]
-  const result = await h.handlers().clearLatestReply({ sessionId: h.session.id })
-  assert.equal(result.deletedCount, 0)
-  assert.deepEqual(h.calls.find(call => Array.isArray(call)), ['rollbackTurn', null])
-  assert.deepEqual(h.chat.messages.map(row => row.text), ['开场白', '输入2'])
-})

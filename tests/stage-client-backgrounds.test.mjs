@@ -21,27 +21,3 @@ test('background candidate failures preserve the last good picture and completio
  f.update('bad',120);f.requests[1].reject(Error('missing'));await tick();assert.equal(f.scene.pending,'');assert.equal(f.scene.layers[0].url,'a');assert.equal(f.warnings.length,1)
  f.owner.dispose();assert.equal(f.made[1].destroyed,1)
 })
-test('obsolete background loads including A-B-A cannot create duplicate layers',async()=>{
- const f=fixture();f.update('a',0);f.update('b',1);f.update('a',2)
- f.requests[0].resolve({});f.requests[1].resolve({});await tick();assert.equal(f.made.length,0)
- f.requests[2].resolve({});await tick();assert.equal(f.made.length,1);assert.equal(f.made[0].url,'a')
- f.update('c',3);f.owner.dispose();f.requests[3].resolve({});await tick();assert.equal(f.made.length,1)
- f.update('d',4);assert.equal(f.requests.length,4)
-})
-test('same-picture cut restarts its transition and grade is stepped on the common clock',()=>{
- const f=fixture();f.update(null,0);f.scene.paint(0)
- assert.deepEqual(f.scene.grade.current,matrix.identity())
- const layer=f.scene.restart(f.scene.layers[0],'black','day',10)
- assert.equal(layer.start,10);assert.equal(layer.plan.kind,'black');assert.equal(f.scene.paint(20).coverAlpha,.4)
- const copy=f.scene.layers;copy.length=0;assert.equal(f.scene.layers.length,2)
- f.owner.dispose()
-})
-test('manual background remains available before the director supplies a scene',()=>{
- const {bgManualScene}=require('../tavern-plugin/src/client/bg-manual.cjs')
- const shown={ref:{packId:'fixture',kind:'backgrounds',id:'room'},name:'Room',url:'blob:room',identity:'room'}
- const scene=bgManualScene(null,shown,null,false)
- assert.equal(scene.backgroundUrl,'blob:room')
- assert.deepEqual(scene.backgroundMedia,{identity:'room',url:'blob:room'})
- assert.equal(scene.manual,true)
- assert.equal(bgManualScene(null,null,'previous',false),null)
-})

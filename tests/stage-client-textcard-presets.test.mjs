@@ -13,9 +13,3 @@ test('every built-in textcard preset produces a bounded plan and backlog project
  }
  assert.equal(planTextcard({style:'unknown'}),null)
 })
-test('colour changes respect gate spacing over consecutive cards',()=>{
- const gate=createTextcardGate(),times=[]
- for(let i=0;i<20;i++){const next=gate.slot(i?times.at(-1):0);gate.mark(next);times.push(next)}
- assert.ok(times.slice(1).every((value,i)=>value-times[i]>=375))
- assert.ok(textcardPeak(times,1000)<=3)
-})

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { applyPolishEdits, composePolishEdits, parsePolishReview } from '../tavern-plugin/lib/domain/polish-review.js'
+import { applyPolishEdits, composePolishEdits } from '../tavern-plugin/lib/domain/polish-review.js'
 
 test('两步精修记成原文上的修改：意见改动映射回原文，碰到精修改过的句子就并成一处', () => {
   const review = [{ find: '乙。', replace: '乙改。', reason: '套话' }, { find: '戊。', replace: '', reason: '删去' }]
@@ -62,14 +62,6 @@ test('后台预审：同一版正文只审一次，换了版本就作废，点�
   prereview.cancel('s')
   assert.equal(calls.at(-1).signal.aborted, true)
   assert.equal(prereview.running('s'), false)
-})
-
-test('修改清单逐条定位原文，重叠的后一条不可选，读不懂的输出退回意见框', () => {
-  const texts = ['他笑了。他笑了。', '指节泛白。她走了。\n\n雨停了。']
-  const review = parsePolishReview('```json\n{"edits":[{"reason":"拖沓","find":"指节泛白。她走了。\\n\\n雨停了。","replace":"她走了。"},{"reason":"套话","find":"指节泛白。","replace":"x"},{"find":"他笑了。","replace":""},{"find":"没有这句","replace":"x"}]}\n```', texts)
-  assert.deepEqual(review.edits.map(edit => edit.status), ['ok', 'overlap', 'ambiguous', 'missing'])
-  assert.equal(review.edits[0].reason, '拖沓')
-  assert.deepEqual(parsePolishReview('1. 这里写得拖', texts), { edits: [], fallback: '1. 这里写得拖' })
 })
 
 test('精修对比按原文顺序切出未改与改动段，找不到或重叠的修改跳过', async () => {

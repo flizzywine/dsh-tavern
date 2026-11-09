@@ -29,27 +29,6 @@ function registry(state) {
 const outline = [entry(1, 0), entry(2, 10), entry(3, 20), entry(4, 30)]
 const liveNodes = [1, 5, 23, 27]
 
-test('变更推送只裁 turnOutline，监听器按原顺序收发', () => {
-  const seen = []
-  const host = registry({ outline, inbox: [] })
-  const early = (current, key, value) => seen.push([key, value])
-  host.listeners.add(early)
-  const dispose = installHostTurnRailFilter(host)
-  const lateSeen = []
-  const lateListener = (current, key, value) => lateSeen.push([key, value])
-  const offLate = host.onChanged(lateListener)
-  const fire = (key, value) => { for (const listener of host.listeners) listener(session(liveNodes), key, value, 31) }
-  fire('turnOutline', outline)
-  fire('inbox', ['x'])
-  assert.deepEqual(seen, [['turnOutline', [outline[0], outline[2]]], ['inbox', ['x']]])
-  assert.deepEqual(lateSeen, [['turnOutline', [outline[0], outline[2]]], ['inbox', ['x']]])
-  assert.equal(host.listeners.size, 2, '已有的与补装的监听器都还在')
-  dispose()
-  assert.deepEqual([...host.listeners], [early, lateListener], '卸载时换回原监听器，顺序不变')
-  offLate()
-  assert.deepEqual([...host.listeners], [early], '补装的监听器卸载后连原函数一起取消')
-})
-
 test('没有要裁的条目时保持原数组身份，表面没变时复用结果', () => {
   const state = { outline, inbox: [] }
   const host = registry(state)

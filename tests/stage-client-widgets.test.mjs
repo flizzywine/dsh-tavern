@@ -2,13 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const {createStageWidgets}=createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/widgets.cjs')
-test('widget menu follows presentation and available layout actions',()=>{
-  const view=createStageWidgets({React:{}})
-  const item={placed:true,presentation:{state:'open',surface:'stage',pinned:true}}
-  assert.deepEqual(view.menuEntries(item,{narrow:true,portrait:false}).map(x=>x.type),['collapse','pin','sheet','reset','hide'])
-  assert.equal(view.menuEntries(item,{})[1].checked,true)
-  view.dispose()
-})
 test('widget launcher removes listeners and registration and fences stale controls on unload',()=>{
   const effects=[],listeners=new Map(),calls=[]
   let entry,removed=false

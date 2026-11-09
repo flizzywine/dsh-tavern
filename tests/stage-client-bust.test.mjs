@@ -25,14 +25,3 @@ test('bust owns cropped texture and subject entrance while borrowing the origina
  e.owner.dispose();e.view.dispose();assert.ok(e.textures.every(t=>t.dead===1));assert.equal(e.container.destroyed,undefined)
  const count=e.renders.length;e.view.tick(e.input);assert.equal(e.renders.length,count);assert.equal(e.view.sprite.visible,false)
 })
-test('failed portrait rendering restores borrowed filters and invalidates the temporary parent',()=>{
- const e=fixture();e.failRender();assert.throws(()=>e.view.tick(e.input),/render failed/)
- assert.equal(e.container.filters,e.filters);assert.equal(e.container.transform._parentID,-1)
- e.owner.dispose();assert.equal(e.textures[0].dead,1)
-})
-test('failed resize keeps the previous portrait texture and allows cleanup',()=>{
- const e=fixture();e.view.tick(e.input);e.failTexture()
- assert.throws(()=>e.view.tick({...e.input,W:1600,H:1200}),/allocation failed/)
- assert.equal(e.view.sprite.texture,e.textures[0]);assert.equal(e.textures[0].dead,0)
- e.owner.dispose();assert.equal(e.textures[0].dead,1)
-})

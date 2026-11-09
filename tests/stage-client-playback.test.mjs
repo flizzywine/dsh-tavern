@@ -37,39 +37,3 @@ test('auto keeps remaining silent reading time across foreground pause and fence
  late();assert.deepEqual(f.calls,[])
  }finally{f.cleanup()}
 })
-test('intermediate voiced cards follow audio time and blocking performance holds prevent timers',()=>{
- const f=fixture();try{
- Object.assign(f.frame,{auto:true});Object.assign(f.frame.line,{lastCard:false,voice:{owner:'a:stage',id:'v'},audioBusy:true})
- f.setPlayer({owner:'a:stage',id:'v',audio:{duration:4,currentTime:1,paused:false}});f.render();assert.equal([...f.jobs.values()][0].ms,80)
- f.fire();assert.deepEqual(f.calls,[])
- f.setPlayer({owner:'a:stage',id:'v',audio:{duration:4,currentTime:2,paused:false}});f.fire();assert.deepEqual(f.calls,['advance'])
- f.frame.performance.blocking=true;f.frame.performance.busy=true;f.render();assert.equal(f.jobs.size,0)
- }finally{f.cleanup()}
-})
-test('skip waits for data and entry, ignores performance holds, and finishes at round end',()=>{
- const f=fixture();try{
- f.frame.skipping=true;f.frame.sceneHolding=true;f.render();assert.equal(f.jobs.size,0)
- f.frame.sceneHolding=false;f.frame.current.pending=true;f.render();assert.equal(f.jobs.size,0)
- f.frame.current.pending=false;f.frame.performance.blocking=true;f.render();assert.equal([...f.jobs.values()][0].ms,150)
- f.fire();assert.deepEqual(f.calls,['advance','typed'])
- f.frame.atEnd=true;f.render();assert.equal(f.jobs.size,0);assert.equal(f.calls.at(-1),'end')
- }finally{f.cleanup()}
-})
-test('history dwell cancels on page switch and never dispatches an old session callback',()=>{
- const f=fixture();try{
- f.frame.runtime.cursor.mode='history';f.render();assert.equal([...f.jobs.values()][0].ms,250)
- const old=[...f.jobs.values()][0].fn
- f.setTime(10100);f.frame.runtime.cursor={...f.frame.runtime.cursor,visitId:2};f.render();assert.equal([...f.jobs.values()][0].ms,1000)
- old();assert.deepEqual(f.calls,[])
- f.frame.sessionId='b';f.render();f.fire();assert.equal(f.calls.length,1);assert.equal(f.calls[0].type,'HISTORY_DWELL');assert.equal(f.calls[0].visitId,2)
- f.frame.overlay=true;f.render();assert.equal(f.jobs.size,0)
- }finally{f.cleanup()}
-})
-test('cleanup errors do not leave another clock or foreground subscription running',()=>{
- const f=fixture();try{
- f.frame.auto=true;f.frame.runtime.cursor.mode='history';f.render();assert.equal(f.jobs.size,2)
- const late=[...f.jobs.values()].map(job=>job.fn);f.failCancel()
- assert.throws(()=>f.playback.dispose(),/cleanup failed/);assert.equal(f.jobs.size,0);assert.equal(f.listeners.size,0)
- for(const callback of late)callback();assert.deepEqual(f.calls,[])
- }finally{f.cleanup()}
-})

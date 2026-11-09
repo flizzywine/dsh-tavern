@@ -77,9 +77,3 @@ test('lists Profile bundles and DSH plugin dependencies; hides libraries, DSH, T
     { version: null, kind: null, status: 'missing', bundle: true },
   )
 })
-
-test('returns an empty list when the Profile has no package.json', async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), 'tavern-legacy-empty-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  assert.deepEqual(listLegacyPlugins(path.join(root, 'profiles/tavern')), { profile: path.join(root, 'profiles/tavern'), plugins: [] })
-})

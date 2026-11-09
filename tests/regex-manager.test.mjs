@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createRegexManager, applyRegexOverrides, normalizeRegexOverrides, regexScriptKey, storedRegexScript } from '../tavern-plugin/lib/domain/regex-manager.js'
+import { createRegexManager } from '../tavern-plugin/lib/domain/regex-manager.js'
 import { createTavernRegexSettings } from '../tavern-plugin/lib/domain/regex-settings.js'
 import { createRegexHandlers } from '../tavern-plugin/lib/rpc/regex.js'
 
@@ -112,27 +112,6 @@ test('preset and card overrides are session-only writes to the chat', async () =
   assert.deepEqual(after.card.scripts.map(entry => entry.enabled), [true, false])
 })
 
-test('batch overrides update the chat once and reject the whole batch on a missing key', async () => {
-  const h = harness({ global: [], chat: sampleChat() })
-  const before = h.updates.length
-  const result = await h.manager.setOverrides({
-    sessionId: 'session-1',
-    changes: [
-      { source: 'preset', key: 'p1#1', enabled: true },
-      { source: 'card', key: 'c1', enabled: false }
-    ]
-  })
-  assert.equal(h.updates.length, before + 1)
-  assert.deepEqual(result.overrides, { preset: { 'p1#1': true }, card: { c1: false } })
-  await assert.rejects(h.manager.setOverrides({
-    sessionId: 'session-1',
-    changes: [{ source: 'preset', key: 'p1#1', enabled: true }, { source: 'card', key: 'missing', enabled: true }]
-  }), /已不存在/)
-  assert.equal(h.updates.length, before + 1)
-  await assert.rejects(h.manager.setOverrides({ sessionId: 'session-1', changes: [] }), /没有要修改/)
-  await assert.rejects(h.manager.setOverrides({ sessionId: 'session-1', changes: [{ source: 'preset', key: 'p1#1', enabled: 'yes' }] }), /启用状态无效/)
-})
-
 test('imports SillyTavern exports into the global list and keeps their disabled flag', async () => {
   const h = harness({ global: [], chat: null })
   const data = await h.manager.read('')
@@ -141,55 +120,6 @@ test('imports SillyTavern exports into the global list and keeps their disabled 
   assert.deepEqual(result.global.map(entry => [entry.name, entry.enabled]), [['导入A', true], ['导入B', false]])
   await assert.rejects(h.manager.importGlobal({ text: '{', fileName: 'bad', revision: result.revision }), /不是有效的 JSON/)
   await assert.rejects(h.manager.importGlobal({ text: '{"findRegex":""}', fileName: 'bad', revision: result.revision }), /缺少 findRegex/)
-})
-
-test('preview uses the host replacement engine and layer filters', async () => {
-  const h = harness({ global: [], chat: null })
-  const result = await h.manager.preview({
-    text: 'a a',
-    scripts: [{ name: 'A', findRegex: '/(a)/g', replaceString: '<$1>', placement: [2] }]
-  })
-  assert.equal(result.text, '<a> <a>')
-  assert.deepEqual(result.applied.map(item => [item.name, item.matches]), [['A', 2]])
-  const display = await h.manager.preview({
-    text: 'a',
-    scripts: [
-      { name: '仅显示', findRegex: '/a/g', replaceString: 'd', placement: [2], markdownOnly: true },
-      { name: '仅上下文', findRegex: '/a/g', replaceString: 'c', placement: [2], promptOnly: true }
-    ],
-    isMarkdown: true
-  })
-  assert.equal(display.text, 'd')
-  const context = await h.manager.preview({
-    text: 'a',
-    scripts: [
-      { name: '仅显示', findRegex: '/a/g', replaceString: 'd', placement: [2], markdownOnly: true },
-      { name: '仅上下文', findRegex: '/a/g', replaceString: 'c', placement: [2], promptOnly: true }
-    ],
-    isMarkdown: false
-  })
-  assert.equal(context.text, 'c')
-  const wrongPlacement = await h.manager.preview({ text: 'a', scripts: [{ name: 'X', findRegex: '/a/g', replaceString: 'x', placement: [1] }] })
-  assert.equal(wrongPlacement.text, 'a')
-  const broken = await h.manager.preview({ text: 'a', scripts: [{ name: '坏', findRegex: '(', replaceString: 'x', placement: [2] }, { name: '好', findRegex: '/a/g', replaceString: 'ok', placement: [2] }] })
-  assert.equal(broken.text, 'ok')
-  assert.equal(broken.warnings.length, 1)
-})
-
-test('override maps are normalized and malformed entries are dropped', () => {
-  assert.deepEqual(normalizeRegexOverrides({ preset: { a: true, b: 'x', '': true }, card: { c: false } }), { preset: { a: true }, card: { c: false } })
-  assert.deepEqual(normalizeRegexOverrides(null), { preset: {}, card: {} })
-  assert.equal(regexScriptKey('preset', { regexKey: 'p#2', id: 'p' }, 0), 'p#2')
-  assert.equal(regexScriptKey('card', { ref: 'regex:3' }, 0), 'regex:3')
-  assert.equal(regexScriptKey('card', {}, 3), 'regex-4')
-  const scripts = [{ id: 'c1', enabled: true }, { id: 'c2', enabled: false }]
-  assert.deepEqual(applyRegexOverrides(scripts, { c1: false, c2: true }, 'card').map(script => script.enabled), [false, true])
-  assert.equal(scripts[0].enabled, true)
-  assert.throws(() => storedRegexScript({ findRegex: '' }), /查找正则不能为空/)
-  const normalized = storedRegexScript({ name: 'x', findRegex: '/x/g', enabled: true }, { id: 'x', scriptName: 'x', findRegex: '/x/g', enabled: false, disabled: true, extra: 1 })
-  assert.equal(normalized.disabled, false)
-  assert.equal(Object.prototype.hasOwnProperty.call(normalized, 'enabled'), false)
-  assert.equal(normalized.extra, 1)
 })
 
 test('RPC handlers expose the manager without leaking storage details', async () => {

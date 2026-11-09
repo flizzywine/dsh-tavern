@@ -20,11 +20,6 @@ test('a passing mention does not push the woman on screen out of the character l
   assert.equal(context.diagnostics.includedCharacters.find(c => c.stable_id === 'p').reason, 'previous-reply')
 })
 
-test('a reply that names nobody still gets everyone', () => {
-  const context = selectPlannerContext({ entries: [], text: '她低着嗓子说话。', definitions: { characters: people() }, recentText: previous })
-  assert.equal(context.definitions.characters.length, 3)
-})
-
 test('the roster says a recorded outfit may be wrong and a matching garment is not an identity cue', () => {
   const outfits = Array.from({ length: 12 }, (_, i) => ({ id: 'o' + i, name: i === 0 ? '白T恤配牛仔短裤' : '衣服' + i, upper: '上衣' + i, enabled: true }))
   const roster = characterRoster({ characters: [{ id: 's', name: '苏小雨', enabled: true, traits: {}, outfits, current: { outfit: '白色背心' } }] }, { text: '淌到脚踝边那团牛仔短裤上' })

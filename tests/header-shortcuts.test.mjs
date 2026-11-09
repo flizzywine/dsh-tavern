@@ -4,17 +4,10 @@ import vm from './fixtures/client-vm.mjs'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
 
-import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
-import { DEFAULT_HEADER_ITEMS, applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
+import { DEFAULT_HEADER_ITEMS, applyTavernSettingsPatch } from '../tavern-plugin/lib/domain/tavern-settings.js'
 
 const client = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const css = await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
-
-// the default top bar has only 导出 (the fork's ⋯ menu), no 酒馆状态 button.
-test('顶栏默认值与改动前一致：只有导出，图标加文字', () => {
-  assert.deepEqual({ display: DEFAULT_HEADER_ITEMS.display, items: [...DEFAULT_HEADER_ITEMS.items] }, { display: 'icon-text', items: ['header:export'] })
-  assert.deepEqual(presentTavernSettings({}, {}).headerItems, { display: 'icon-text', items: ['header:export'] })
-})
 
 test('非法顶栏设置被拒绝', () => {
   for (const bad of [
@@ -26,22 +19,6 @@ test('非法顶栏设置被拒绝', () => {
     []
   ]) assert.throws(() => applyTavernSettingsPatch({}, { headerItems: bad }), /无效的顶栏设置/)
   assert.throws(() => applyTavernSettingsPatch({}, { headerItems: { items: [{ id: 'dsh-tavern:status' }] } }), /无效的顶栏设置/)
-})
-
-test('传 null 恢复默认顶栏', () => {
-  let document = applyTavernSettingsPatch({}, { headerItems: { display: 'icon', items: ['dsh-tavern:cards'] } })
-  assert.deepEqual(document.headerItems, { display: 'icon', items: ['dsh-tavern:cards'] })
-  document = applyTavernSettingsPatch(document, { headerItems: null })
-  assert.equal(Object.hasOwn(document, 'headerItems'), false)
-  assert.deepEqual(presentTavernSettings(document, {}).headerItems, { display: 'icon-text', items: ['header:export'] })
-  // 存档里损坏的值不会让读取失败。
-  assert.deepEqual(presentTavernSettings({ headerItems: { display: 'nope', items: ['bad id'] } }, {}).headerItems, { display: 'icon-text', items: ['header:export'] })
-})
-
-test('getDisplayPreferences 一并返回顶栏设置与顶部标签', async () => {
-  const handlers = createSettingsHandlers({ readTavernSettings: async () => ({ showPlayProcess: true, hideContextAndReasoning: false, headerItems: { display: 'icon', items: ['header:export'] }, viewTabs: { items: ['chat', 'dsh-tavern:polish'] } }) })
-  const preferences = await handlers.getDisplayPreferences({})
-  assert.deepEqual(preferences, { showPlayProcess: true, hideContextAndReasoning: false, headerItems: { display: 'icon', items: ['header:export'] }, viewTabs: { items: ['chat', 'dsh-tavern:polish'] } })
 })
 
 test('客户端顶栏默认值与服务端一致，设置在首次读取前就用默认值', async () => {

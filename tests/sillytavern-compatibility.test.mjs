@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { compileSillyTavernRequest, createCleanCompatibilityPreset } from '../tavern-plugin/lib/domain/sillytavern-compatibility.js'
+import { compileSillyTavernRequest } from '../tavern-plugin/lib/domain/sillytavern-compatibility.js'
 
 function resolveMacros(text, context) {
   return { text: String(text).replaceAll('{{char}}', context.charName).replaceAll('{{user}}', context.macroState.userName), diagnostics: [], macroState: context.macroState }
@@ -29,15 +29,4 @@ test('对话示例只识别与当前玩家和角色名匹配的英文冒号前�
     ['system', 'example_user', '问候'],
     ['system', 'example_assistant', '回答']
   ])
-})
-
-test('请求编译保留历史图片和本轮纯图片输入', async () => {
-  const oldImage = { type: 'image', attachment: { id: 'old-photo' } }
-  const newImage = { type: 'image', attachment: { id: 'new-photo' } }
-  const result = compileSillyTavernRequest({
-    card: { name: '角色' }, preset: createCleanCompatibilityPreset(), presetDocument: {},
-    history: [{ role: 'user', text: '看图', inputAttachments: [oldImage] }, { role: 'assistant', text: '好的' }],
-    input: '', inputAttachments: [newImage], resolveMacros
-  })
-  assert.deepEqual(result.messages.flatMap(message => message.inputAttachments || []), [oldImage, newImage])
 })

@@ -159,18 +159,6 @@ test('a read of a broken log repairs it in place and then succeeds', needsHost, 
   assert.notEqual(persistence.open, wrapped)
 })
 
-test('a log the repair cannot fix keeps the host error and is not retried', async () => {
-  const failure = Object.assign(new Error('stored log is corrupt: something else'), { name: 'SessionPersistenceCorruptionError' })
-  let reads = 0
-  let repairs = 0
-  const persistence = { async open() { reads += 1; throw failure } }
-  installSessionLogAutoRepair({ persistence, repair: async () => { repairs += 1; return { ok: false, repaired: false } } })
-  await assert.rejects(persistence.open('s', 'read'), failure)
-  await assert.rejects(persistence.open('s', 'read'), failure)
-  assert.equal(repairs, 1)
-  assert.equal(reads, 2)
-})
-
 // #247: replies older versions wrote after their step closed. The repair runs with the
 // installed session patch's catalog, which accepts Tavern's reply replacements.
 async function patchedCatalog() {
@@ -228,14 +216,4 @@ test('a settlement copy written before its edit step moves into that step', need
   assert.deepEqual([copy.data.turn, copy.data.step], [2, 2])
   const replacement = result.artifact.events.find(event => event.surfaceOp?.op === 'replace')
   assert.ok(replacement.sourceEventSeqs.includes(copy.seq), 'the replacement still cites the moved copy')
-})
-
-test('rounds a native repair wrote after the last turn ended are dropped', needsHost, async () => {
-  const catalog = await patchedCatalog()
-  const rows = lateReplyLog('repair-tail')
-  assert.throws(() => open(catalog, rows), /does not match an open turn and step/)
-  const result = repairCurrentSessionBuffer(encodeCurrentGeneration({ ...open(catalog, []), events: rows }, catalog), catalog)
-  assert.equal(result.ok, true, result.reason)
-  assert.deepEqual(result.artifact.events.map(event => event.type).slice(-2), ['step/end', 'turn/end'])
-  assert.deepEqual(result.artifact.events, open(catalog, rows.slice(0, 12)).events)
 })

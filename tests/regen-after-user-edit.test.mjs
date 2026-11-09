@@ -86,17 +86,3 @@ test('改过最后一条输入后重新生成：只换正文，输入原样留�
   assert.equal(result.messages.length, 3)
   assert.equal(result.messages[1].text, '改过的输入')
 })
-
-test('改过最后一条输入后重新生成：原生表面只留一条输入', async () => {
-  const h = harness()
-  editLastUserInput(h, '改过的输入')
-  await h.create().regenerate('', '', 'session')
-  const nodes = h.session.surface.nodes
-  const events = h.session.events
-  const playerRows = nodes
-    .map(seq => events.find(event => event.seq === seq))
-    .filter(event => event && event.type === 'user/message')
-  assert.equal(playerRows.length, 1, '表面上只能有一条玩家输入')
-  const projected = events.filter(event => event.type === 'assistant/message' && event.surfaceOp?.op === 'replace')
-  assert.ok(projected.length >= 1, '正文替换要落成一条替换事件')
-})

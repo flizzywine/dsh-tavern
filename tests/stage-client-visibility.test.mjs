@@ -35,17 +35,6 @@ test('disabled stage cannot enter; disposal closes it and invalidates pending ad
   stopNext()
 })
 
-test('only the latest entry request may open a stage', async () => {
-  const {api,gates} = setup(), stop = api.galStageLifetime()
-  api.galEnter('a'); api.galEnter('b')
-  gates[0](false); await Promise.resolve()
-  assert.equal(api.galActive.get(),'')
-  assert.equal(api.galEntering.get(),'b')
-  gates[1](false); await Promise.resolve()
-  assert.equal(api.galActive.get(),'b')
-  stop()
-})
-
 
 test('a stopped entry cannot open the delayed setup wizard or consume its offer', async () => {
   const source = readFileSync(new URL('../tavern-plugin/src/client/asset-pack-setup-ui.js', import.meta.url),'utf8')

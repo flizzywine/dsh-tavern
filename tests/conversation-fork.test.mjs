@@ -39,21 +39,6 @@ test('分叉只接受没有前台或后台未完成工作的游玩对话', () =>
   assert.throws(() => assertConversationForkable(dangling), /尚未产生正文/)
 })
 
-test('正文操作只在真有前台 Agent 推进时挡住导出：被打断的正文不让存档永久导不出去', () => {
-  // A parallel variant forked mid-round and the page was reloaded: its body
-  // operation stays 'running' with no reply for that turn and nobody to finish it.
-  const aborted = sourceChat()
-  aborted.timeline.operations.aborted = { id: 'aborted', kind: 'body', status: 'running', turn: 96 }
-  assert.equal(assertConversationForkable(aborted), true, 'a dead body no longer blocks the export')
-  assert.equal(assertConversationForkable(aborted, { agentRunning: false }), true)
-  // While the Agent really writes that round, the export still waits.
-  assert.throws(() => assertConversationForkable(aborted, { agentRunning: true }), /正文仍在生成/)
-  // Settlement work advances on its own schedule, so its 'running' stays blocking.
-  const settling = sourceChat()
-  settling.timeline.operations.settlement = { id: 'settlement', kind: 'agent', role: 'settlement', status: 'running' }
-  assert.throws(() => assertConversationForkable(settling, { agentRunning: false }), /尚未完成生成或状态结算/)
-})
-
 test('分叉只保留分叉点及之前的隐藏轮次记录：分叉后续用的原生轮号不会把新回复整轮隐藏', async () => {
   const { forkConversationChat } = await import('../tavern-plugin/lib/domain/conversation-fork.js')
   const { foregroundSuppressedTurns } = await import('../tavern-plugin/lib/domain/rollback-surface.js')

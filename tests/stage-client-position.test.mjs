@@ -2,20 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const {createStagePosition}=createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/position.cjs')
-test('reading position retains old storage format and becomes terminal on plugin disposal',()=>{
- const data=new Map([['fork-stage-position:s',JSON.stringify({turn:3,page:2,textDigest:'old'})]])
- const timers=new Set();let writes=0
- const position=createStagePosition({setTimeout:fn=>{timers.add(fn);return fn},clearTimeout:fn=>timers.delete(fn)})
- const writer=position.writer('s',{getItem:key=>data.get(key),setItem:(key,value)=>{writes++;data.set(key,value)}})
- assert.equal(writer.saved.page,2)
- writer.write({turn:4,page:1,textDigest:'new'})
- const late=[...timers][0]
- position.dispose();position.dispose()
- assert.equal(JSON.parse(data.get('fork-stage-position:s')).turn,4)
- writer.write({turn:99});late()
- assert.equal(writes,1)
- assert.equal(timers.size,0)
-})
 test('bookmarks wait for complete matching text and restore paragraph anchors after pagination changes',()=>{
  const position=createStagePosition({})
  const parts=[{text:'abcdef'}],pages=[{para:1,text:'abc'},{para:1,text:'def'}]

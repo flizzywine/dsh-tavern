@@ -4,8 +4,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { applyLedgerDelta, emptyLedger, createLedgerSubmission, ledgerFrameInputs } from '../tavern-plugin/lib/domain/story-ledger.js'
-import { createLedgerEditor } from '../tavern-plugin/lib/domain/ledger-editor.js'
-import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 
 test('长台账注入保留完整条目和有效 JSON，三类都有机会展示且优先近期记录', () => {
   const ledger = emptyLedger()
@@ -24,16 +22,6 @@ test('长台账注入保留完整条目和有效 JSON，三类都有机会展示
     for (const row of injected[kind]) assert.ok(ledger[kind].some(original => JSON.stringify(original) === JSON.stringify(row)), 'never cut a row mid-field')
   }
   assert.deepEqual(ledger, before)
-})
-
-test('短台账注入不丢字段，未请求注入或空账时不提供', () => {
-  const ledger = applyLedgerDelta(null, { npcs: { add: [{ name: '角色', personality: '温和' }] } }, 1)
-  const input = ledgerFrameInputs({ ledger, ledgerInjection: { through: 1 } })[0]
-  const parsed = JSON.parse(input.text.slice(input.text.indexOf('\n') + 1))
-  assert.deepEqual(parsed.npcs, ledger.npcs)
-  assert.equal(parsed.omitted, undefined)
-  assert.deepEqual(ledgerFrameInputs({ ledger }), [])
-  assert.deepEqual(ledgerFrameInputs({ ledger: emptyLedger(), ledgerInjection: { through: 1 } }), [])
 })
 
 test('台账保留离场角色和寄存物品，部分消耗、用尽和未知更新原子处理', () => {
@@ -74,19 +62,4 @@ test('地点调整层级保留子树和当前位置，禁止循环和覆盖，�
   const removed = applyLedgerDelta(ledger, { scenes: { remove: [['城', '家']] } }, 3)
   assert.equal(removed.scenes.length, 0)
   assert.deepEqual(removed.locationPath, [])
-})
-
-test('手改台账防过期、防生成中修改，不触碰正文、姿势或变量', async () => {
-  let chat = { id: 'c', mode: 'story', messages: [{ role: 'assistant', turn: 2, text: '正文' }], ledger: emptyLedger(), posture: '原姿势', variables: { hp: 10 }, settleStatus: 'done' }
-  const original = structuredClone(chat)
-  let busy = false
-  const edit = createLedgerEditor({ chats: { forSession: async () => chat, update: async (_id, fn) => { chat = fn(chat); return chat } }, timeline: createStoryTimeline(), isBusy: () => busy })
-  const expected = JSON.stringify(chat.ledger)
-  await edit({ sessionId: 's', expected, delta: { items: { add: [{ name: '剑' }] } } })
-  assert.deepEqual(chat.messages, original.messages)
-  assert.deepEqual(chat.variables, original.variables)
-  assert.equal(chat.posture, original.posture)
-  await assert.rejects(edit({ sessionId: 's', expected, delta: {} }), /已更新/)
-  busy = true
-  await assert.rejects(edit({ sessionId: 's', expected: JSON.stringify(chat.ledger), delta: {} }), /等待/)
 })

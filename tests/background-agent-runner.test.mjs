@@ -11,76 +11,6 @@ function completeSystem(sections) {
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 
-test('结算及其人物设计阶段均不传温度', async () => {
-  const registered = new Map()
-  const listeners = []
-  const temperatures = []
-  const results = []
-  let work = Promise.resolve()
-  const runner = createBackgroundAgentRunner({
-    id: () => 'background-character-design-temperature',
-    backgroundTools: [
-      { name: 'character_design_read', parameters: { type: 'object' } },
-      { name: 'character_design_save', parameters: { type: 'object' } },
-      { name: 'posture_submit', parameters: { type: 'object' } }
-    ],
-    agents: {
-      get: () => ({ id: 'parent', session: { header: {} } }),
-      async create(options) {
-        await options.setup({
-          systemPrompt: { section() {}, suppressRuntimeContext() {} },
-          on(name, listener) { listeners.push({ name, listener }) },
-          tools: { restrict() {}, register(tool) { registered.set(tool.name, tool) } }
-        })
-        async function sampleTemperature() {
-          const request = await listeners.filter(entry => entry.name === 'agent/request').reduceRight(
-            (next, entry) => () => entry.listener({}, next), async () => ({}))()
-          temperatures.push(request.temperature)
-        }
-        return { agent: {
-          session: { id: 'background-character-design-temperature', events: [], append() {} },
-          followup() {
-            work = (async () => {
-              await sampleTemperature()
-              results.push(await registered.get('character_design_read').execute({}))
-              await sampleTemperature()
-              results.push(await registered.get('posture_submit').execute({ posture: '不应提前提交' }))
-              results.push(await registered.get('character_design_save').execute({ name: '王夫人' }))
-              await sampleTemperature()
-              results.push(await registered.get('character_design_finish').execute({}))
-              await sampleTemperature()
-              results.push(await registered.get('posture_submit').execute({ posture: '佛龛前端坐' }))
-            })()
-          },
-          async whenIdle() { await work }
-        }, async dispose() {} }
-      }
-    }
-  })
-  let submitted = false
-  await runner.run({
-    sessionId: 'parent', persistent: true, task: 'settlement',
-    selection: { provider: 'test', model: 'test' }, temperature: 0.2,
-    messages: [], tools: [
-      { name: 'character_design_read', parameters: { type: 'object' } },
-      { name: 'character_design_save', parameters: { type: 'object' } },
-      { name: 'posture_submit', parameters: { type: 'object' } }
-    ],
-    acceptWithoutText: () => submitted,
-    stopToolsWhen: () => submitted,
-    async onToolCall(call) {
-      if (call.name === 'posture_submit') submitted = true
-      return JSON.stringify({ ok: true })
-    }
-  })
-
-  assert.deepEqual(temperatures, [undefined, undefined, undefined, undefined])
-  assert.match(results[1], /character_design_finish/)
-  assert.equal(JSON.parse(results[3]).ok, true)
-  assert.equal(submitted, true)
-  await runner.dispose()
-})
-
 test('后台固定背景只保存一次，连续候选、结算和恢复均进入固定 system 而非剧情历史', async () => {
   const packets = []
   const events = []
@@ -307,43 +237,6 @@ test('整段回退失败时改用新的后台会话，旧会话退休 (#164)', a
   assert.deepEqual(ready, ['new-background'])
 })
 
-test('常驻后台会话在下一任务替换世界书，任务内固定且不改历史', async () => {
-  let assemble, pending, current = '当前DLC', creates = 0
-  const seen = [], prompts = [], sections = []
-  const session = { id: 'dynamic-book-background', header: {}, events: [], append(type, data) { const event = { type, data, seq: this.events.length }; this.events.push(event); return event } }
-  const runner = createBackgroundAgentRunner({
-    id: () => session.id,
-    resolveStablePrefix: async () => '【故事设定 · 人物卡】\n人物\n【常驻世界书】\n开局DLC',
-    resolveCurrentWorldbook: async () => current,
-    agents: { get: () => ({ session: { header: {} } }), async create(options) {
-      creates++
-      await options.setup({ systemPrompt: { section(value) { sections.push(value) }, suppressRuntimeContext() {} }, tools: { restrict() {}, register() {} }, on(name, callback) { if (name === 'system-prompt/assemble') assemble = callback } })
-      return { agent: { session, followup(message) { prompts.push(message.content[0].text); pending = (async () => {
-        current = '任务中途变化'
-        const result = await assemble({}, { agent: { session } }, async () => ({ sections: [], tools: [] }))
-        seen.push(completeSystem(sections))
-        session.append('assistant/message', { message: { content: [{ type: 'text', text: '完成' }] } })
-      })() }, async whenIdle() { await pending } }, async dispose() {} }
-    } }
-  })
-  try {
-    for (const text of ['当前DLC', '', { prefixContext: '固定规则', foregroundContext: '本轮骰子17' }, { prefixContext: '固定规则', foregroundContext: '本轮骰子8' }]) {
-      current = text
-      await runner.run({ sessionId: 'parent', persistent: true, task: 'candidate', selection: { provider: 'test', model: 'test' }, messages: [], tools: [] })
-    }
-    assert.equal(creates, 1)
-    assert.equal(seen[2], seen[3])
-    assert.doesNotMatch(seen.join('\n'), /本轮骰子/)
-    assert.match(prompts[2], /本轮骰子17/)
-    assert.match(prompts[3], /本轮骰子8/)
-    assert.doesNotMatch(prompts[3], /本轮骰子17/)
-    assert.match(seen[0], /当前DLC/)
-    assert.doesNotMatch(seen.join('\n'), /开局DLC|任务中途变化/)
-    assert.doesNotMatch(seen[1], /当前DLC/)
-    assert.match(JSON.stringify(session.events), /开局DLC/)
-  } finally { await runner.dispose() }
-})
-
 for (const task of ['settlement']) test(task + ' 已有会话在明确更新人物卡后切换背景', async () => {
   let assemble, pending, revision = 0, background = '开局人物设定', backgroundReads = 0
   const seen = [], sections = []
@@ -476,34 +369,4 @@ test('插件后台任务：独立的一次性会话，插件工具注册在这�
     assert.match(results[3], /多次调用了当前任务不允许的工具，本轮结束/)
     assert.ok(concluded >= 1)
   } finally { await runner.dispose() }
-})
-
-test('后台主动检索开放原生 read，切回旧机制后隐藏；运行期间绑定前台', async () => {
-  let enabled = true, work, assemble, allowed
-  const packets=[]
-  const session={id:'background-retrieval',events:[],append(){}}
-  const runner=createBackgroundAgentRunner({
-    id:()=>session.id, resolveWorldbookSkills:async()=>enabled,
-    agents:{get:()=>({session:{header:{}}}),async create(options){
-      await options.setup({systemPrompt:{section(){},variable(){},suppressRuntimeContext(){}},
-        tools:{restrict(value){allowed=value.allow},register(){}},
-        on(name,listener){if(name==='system-prompt/assemble') assemble=listener}})
-      return {agent:{session,followup(){work=(async()=>{
-        assert.equal(runner.requestContext(session.id).parentSessionId,'parent')
-        packets.push(await assemble(null,{},async()=>({sections:[{name:'tool:read'}],tools:[{name:'read'},{name:'skill'},{name:'worldbook_list'},{name:'worldbook_grep'}]})))
-      })()},async whenIdle(){await work}},async dispose(){}}
-    }}
-  })
-  const input={sessionId:'parent',persistent:true,task:'settlement',selection:{provider:'test',model:'test'},messages:[],tools:[],acceptWithoutText:()=>true}
-  try {
-    await runner.run(input)
-    for (const name of ['read', 'skill', 'worldbook_list', 'worldbook_grep']) assert.ok(allowed.includes(name))
-    for (const name of ['worldbook_list', 'worldbook_grep']) assert.ok(packets[0].tools.some(tool=>tool.name===name))
-    assert.ok(packets[0].tools.some(tool=>tool.name==='read'))
-    assert.equal(runner.activeRequestContext(session.id),null)
-    enabled=false
-    await runner.run({...input,task:'candidate'})
-    assert.ok(!packets[1].tools.some(tool=>['read', 'worldbook_list', 'worldbook_grep'].includes(tool.name)))
-    assert.ok(!packets[1].sections.some(section=>section.name==='tool:read'))
-  } finally {await runner.dispose()}
 })

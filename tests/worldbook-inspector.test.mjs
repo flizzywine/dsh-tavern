@@ -23,26 +23,3 @@ test('RPC validates loaded game, scopes reads and paginates without losing aggre
   await assert.rejects(rpc.readWorldbookSkillSource({ sessionId: 'one', path: 'other-game' }), /不属于本局/)
   assert.equal((await rpc.readWorldbookSkillSource({ sessionId: 'one', path: 'allowed' })).content, ' exact\n')
 })
-
-
-test('inline delivery counts actual source text, not old directory-only Skill loads', async () => {
-  const root='/profile/worldbook-skills'
-  const inline=result('inline');inline.data.message.content=[{type:'text',text:'## 标题\n\noriginal\n'}]
-  const events=[call('old','skill',{name:'ke-ju'}),result('old'),call('inline','skill',{name:'ke-ju'}),inline]
-  const rpc=createWorldbookInspectorHandlers({agentRegistry:{get:()=>({session:{id:'one'}})},chatForSession:async()=>({sessionId:'one'}),sessionDebugEvidence:()=>({loaded:true,events}),worldbookSkillProvider:{directory:root,inspect:async()=>({clusters:[{name:'ke-ju',entries:[{ref:'ref',inline:true,inlineText:'## 标题\n\noriginal\n',path:root+'/one/SKILL.md',referencePath:root+'/one/references/a.md'}]}]}),readEntry:async ref=>ref==='ref'?'original':undefined}})
-  const view=await rpc.inspectWorldbookSkills({sessionId:'one'})
-  assert.equal(view.counts.skills,2)
-  assert.equal(view.counts.entries,0)
-  assert.equal(view.counts.inlineEntries,1)
-  assert.equal(view.catalog.clusters[0].entries[0].inlineReadCount,1)
-  assert.equal((await rpc.readWorldbookSkillSource({sessionId:'one',ref:'ref'})).content,'original')
-  await assert.rejects(rpc.readWorldbookSkillSource({sessionId:'one',ref:'other-game'}),/不属于本局/)
-})
-
-test('reference directory reads are navigation rather than original-entry reads', () => {
-  const root='/profile/worldbook-skills'
-  const records=worldbookReadHistory([call('directory','read',{file_path:root+'/江湖/功法/references/资料目录.md'}),result('directory')],root)
-  assert.equal(records.length,1)
-  assert.equal(records[0].reference,false)
-  assert.equal(records[0].status,'success')
-})

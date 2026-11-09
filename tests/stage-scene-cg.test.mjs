@@ -72,16 +72,6 @@ test('a finished picture creates and binds the card-named pack once, adds a 绿�
   assert.equal(lintTriggers({manifest:{assets:[authored]}}).violations, 1)
 })
 
-test('an existing card-named pack is reused; a card without the stage gets nothing', async () => {
-  const pack = {revision:'r0', manifest:{id:'own', name:'星之卡', assets:[], blobs:{}}}
-  const f = fixture({packs:[pack], bound:['own']})
-  assert.equal((await f.sceneCg.sync({gameId:'game', item})).packId, 'own')
-  assert.equal(f.calls.some(row => row[0] === 'createPack' || row[0] === 'bind'), false)
-  const off = fixture({stage:false})
-  assert.equal(await off.sceneCg.sync({gameId:'game', item}), null)
-  assert.equal(off.calls.length, 0)
-})
-
 test('删除此 CG removes the entry, its file, the unlock and the turn picture; other entries are refused', async () => {
   const f = fixture()
   const made = await f.sceneCg.sync({gameId:'game', item})

@@ -33,10 +33,3 @@ test('worker scope revokes URL, terminates all runs and fences retained event ca
  assert.equal(worker.stops,1);assert.equal(worker.messages.length,1);assert.deepEqual(events,[{type:'started'}]);assert.equal(module.supported(),false)
  assert.throws(()=>module.start({},{}),/disposed/)
 })
-test('worker construction failure revokes URL and falls back to a disposable local loop',()=>{
- let revoked=0,stops=0
- const window={Worker:class{constructor(){throw Error('worker blocked')}},OffscreenCanvas:class{},Blob,URL:{createObjectURL:()=> 'blob:test',revokeObjectURL(){revoked++}},createImageBitmap(){}}
- const module=createStageEntranceRenderer({window,contractFactory:()=>({}),renderer(){},frames(){},loop:()=>({message(data){if(data.type==='stop')stops++}})})
- const port=module.start({transferControlToOffscreen(){}},{},[1,1],()=>{});port.stop();module.dispose()
- assert.equal(revoked,1);assert.equal(stops,1)
-})

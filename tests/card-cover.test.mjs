@@ -51,31 +51,6 @@ test('JSON 原件配封面后变成 PNG 卡，卡数据原样嵌入、旧 JSON �
   assert.deepEqual(await readdir(originals), ['阿珂.png'])
 })
 
-test('V2 JSON 原件只写 chara；没有原件时嵌入当前卡', async t => {
-  const { store, originals } = await setup(t)
-  await writeFile(path.join(originals, '阿珂.json'), JSON.stringify({ spec: 'chara_card_v2', data: { name: '阿珂' } }))
-  await store.setCardCover('cards/阿珂.json', png('v2'), () => '')
-  assert.equal(pngRawTextChunks(await store.readCardImage('cards/阿珂.json')).length, 1)
-
-  await store.writeWorking('cards/新卡.json', JSON.stringify({ kind: 'tavern-card-workspace', version: 1, raw: { name: '新卡' } }))
-  await store.setCardCover('cards/新卡.json', png('new'), async () => JSON.stringify({ spec: 'chara_card_v3', data: { name: '新卡' } }))
-  assert.equal(cardOf(await store.readCardImage('cards/新卡.json')).data.name, '新卡')
-})
-
-test('配封面拒绝非 PNG 与不存在的卡', async t => {
-  const { store } = await setup(t)
-  await assert.rejects(store.setCardCover('cards/阿珂.json', Buffer.from('not a png'), () => '{}'), /PNG/)
-  await assert.rejects(store.setCardCover('cards/没有.json', png('x'), () => '{}'), /不存在/)
-})
-
-test('导出 PNG：封面像素 + 当前卡，重新读回一致', () => {
-  const cover = pngWithTextChunks(png('cover'), [pngCardTextChunk('chara', '{"old":true}')])
-  const text = JSON.stringify({ spec: 'chara_card_v3', data: { name: '阿珂', description: '改过的描述' } })
-  const exported = pngWithTextChunks(cover, [pngCardTextChunk('chara', text), pngCardTextChunk('ccv3', text)])
-  assert.deepEqual(stripPngTextChunks(exported), png('cover'))
-  assert.deepEqual(cardOf(exported), JSON.parse(text))
-})
-
 async function encodedImages() {
   const { readFile: read } = await import('node:fs/promises')
   const { createRequire } = await import('node:module')

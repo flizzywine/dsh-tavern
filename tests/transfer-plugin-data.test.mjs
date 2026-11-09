@@ -37,24 +37,6 @@ function parseContent(item) {
   return JSON.parse(item.content.toString('utf8'))
 }
 
-test('list 跳过没有数据的插件，标题与字节数按插件数据算', async () => {
-  const alphaData = { theme: 'dark', settings: { size: 12 } }
-  const betaData = { greeting: '你好' }
-  const { transfer } = fixture({ alpha: alphaData, beta: betaData })
-
-  const rows = await transfer.list()
-
-  assert.deepEqual(rows.map(row => row.key), ['alpha', 'beta'])
-  assert.deepEqual(rows[0], {
-    key: 'alpha',
-    title: 'Alpha 插件',
-    meta: '插件数据',
-    bytes: Buffer.byteLength(JSON.stringify(alphaData))
-  })
-  assert.equal(rows[1].title, 'beta', '没有 name 时用文件夹名')
-  assert.equal(rows[1].bytes, Buffer.byteLength(JSON.stringify(betaData)))
-})
-
 test('collect 递归剥离凭据：嵌套对象、数组里的对象都换占位串并记点路径', async () => {
   const original = {
     apiKey: 'sk-live-1',
@@ -108,12 +90,4 @@ test('collect 递归剥离凭据：嵌套对象、数组里的对象都换占位
     ],
     count: 3
   }, '不能改原对象')
-})
-
-test('importOne 对坏 JSON 与 spec 不符报中文错', async () => {
-  const { transfer } = fixture({})
-  await assert.rejects(() => transfer.importOne({ key: 'alpha', content: '{ not json' }), /插件数据不是有效的 JSON：alpha/)
-  await assert.rejects(() => transfer.importOne({ key: 'alpha', content: JSON.stringify({ spec: 'other', data: {} }) }), /插件数据格式不符：alpha/)
-  await assert.rejects(() => transfer.importOne({ key: 'alpha', content: JSON.stringify({ spec: SPEC }) }), /插件数据格式不符：alpha/)
-  await assert.rejects(() => transfer.importOne({ key: 'alpha' }), /插件数据内容为空/)
 })

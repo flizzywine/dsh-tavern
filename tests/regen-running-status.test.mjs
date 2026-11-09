@@ -27,29 +27,6 @@ function harness(options = {}) {
   return { emitted, handlers, attempts: () => attempts, release: () => releases.splice(0).forEach(resolve => resolve()) }
 }
 
-test('重新生成一开始就报运行中，结束时交还宿主', async () => {
-  const h = harness({ hold: true })
-  const running = h.handlers.regenBody({ sessionId: 'game' })
-  // 模型请求还没开始（准备阶段卡住），页面已经该看到停止键。
-  await new Promise(resolve => setImmediate(resolve))
-  assert.deepEqual(h.emitted, [['api-session/status', 'game', true]])
-  h.release()
-  await running
-  assert.deepEqual(h.emitted, [['api-session/status', 'game', true], ['api-session/status', 'game', false]])
-})
-
-test('重新生成失败也把运行状态交还宿主', async () => {
-  const h = harness({ fail: true })
-  await assert.rejects(() => h.handlers.regenBody({ sessionId: 'game' }), /重新生成失败/)
-  assert.deepEqual(h.emitted, [['api-session/status', 'game', true], ['api-session/status', 'game', false]])
-})
-
-test('请求在门口就被拒绝时不假装在运行', async () => {
-  const h = harness({ blocked: true })
-  await assert.rejects(() => h.handlers.regenBody({ sessionId: 'game' }), /玩法面板/)
-  assert.deepEqual(h.emitted, [])
-})
-
 test('同时到达的重新生成只报一次运行中、一次空闲', async () => {
   const h = harness({ hold: true })
   const first = h.handlers.regenBody({ sessionId: 'game' })

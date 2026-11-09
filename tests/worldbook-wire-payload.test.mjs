@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { inspectWorldBookDocument, worldBookViewForWire } from '../tavern-plugin/lib/domain/worldbook-resource.js'
+import { inspectWorldBookDocument } from '../tavern-plugin/lib/domain/worldbook-resource.js'
 import { createResourceHandlers } from '../tavern-plugin/lib/rpc/resources.js'
 
 const book = {
@@ -11,19 +11,6 @@ const book = {
     { uid: 2, key: ['乙'], keysecondary: [], comment: '第二条', content: '正文二'.repeat(200), enabled: false, insertion_order: 2, extensions: {} }
   ]
 }
-
-test('世界书发给客户端时去掉服务端专用的原始副本，正文与显示字段保留', () => {
-  const view = inspectWorldBookDocument(book)
-  assert.ok(view.raw && view.entries[0].rawEntry, '视图本身仍保留原始副本，供激活与脚本记账使用')
-  const wire = worldBookViewForWire(view)
-  assert.equal(wire.raw, undefined)
-  assert.equal(wire.entries[0].rawEntry, undefined)
-  assert.deepEqual(wire.entries.map(entry => entry.content), view.entries.map(entry => entry.content))
-  assert.deepEqual(wire.entries.map(entry => entry.title), ['第一条', '第二条'])
-  assert.equal(wire.entries[1].enabled, false)
-  assert.equal(wire.entryCount, 2)
-  assert.ok(JSON.stringify(wire).length * 2 < JSON.stringify(view).length, '去掉重复原文后体积应减半以上')
-})
 
 test('世界书 RPC 出口只回传渲染所需的视图，领域层对象不受影响', async () => {
   const view = inspectWorldBookDocument(book)

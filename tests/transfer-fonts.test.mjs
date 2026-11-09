@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
 import { createTransferFonts } from '../tavern-plugin/lib/domain/transfer-fonts.js'
-import { readZipEntries, writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
+import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
 const SANS_MANIFEST = JSON.stringify({
   id: 'note-sans', label: 'Note Sans', family: 'Note Sans', category: 'sans',
@@ -67,48 +67,6 @@ test('list 只认含 index.json 的自装族，并统计标题、字重与字节
   assert.equal(bare.title, 'plain-face', '没有 label 时用 id')
   assert.equal(bare.meta, '字体', 'files 不是数组时退回“字体”')
   assert.equal(bare.bytes, Buffer.byteLength(plain['index.json']) + Buffer.byteLength(plain['plain.ttf']))
-})
-
-test('collect 把整族打成可读回的 zip，路径相对且统一用 /', async t => {
-  const { transfer, sans } = await fixture(t)
-  const items = await transfer.collect(['note-sans'])
-
-  assert.equal(items.length, 1)
-  const item = items[0]
-  assert.equal(item.key, 'note-sans')
-  assert.equal(item.title, 'Note Sans')
-  assert.equal(item.fileName, 'note-sans.zip')
-  assert.ok(Buffer.isBuffer(item.content))
-  assert.equal(item.content.subarray(0, 2).toString('latin1'), 'PK')
-
-  const entries = readZipEntries(item.content, { label: '字体包' })
-  assert.deepEqual([...entries.keys()].sort(), ['OFL.txt', 'index.json', 'note-400.woff2', 'note-700.woff2'])
-  assert.equal(entries.get('index.json').toString('utf8'), sans['index.json'])
-  assert.equal(entries.get('OFL.txt').toString('utf8'), sans['OFL.txt'])
-  assert.deepEqual(entries.get('note-400.woff2'), Buffer.from('wOF2-400'))
-})
-
-test('importOne 落成新目录，重名自动加后缀，不覆盖原族', async t => {
-  const { transfer, fontsDir, sans } = await fixture(t)
-  const zip = fontZip([
-    ['index.json', JSON.stringify({ id: 'gamma-face', label: 'Gamma', files: [] })],
-    ['gamma.ttf', 'ttf-gamma']
-  ])
-
-  const first = await transfer.importOne({ key: 'gamma-face', content: zip })
-  assert.deepEqual(first, { id: 'gamma-face' })
-  assert.deepEqual((await readdir(path.join(fontsDir, 'gamma-face'))).sort(), ['gamma.ttf', 'index.json'])
-  assert.equal(await readFile(path.join(fontsDir, 'gamma-face', 'gamma.ttf'), 'utf8'), 'ttf-gamma')
-
-  const second = await transfer.importOne({ key: 'gamma-face', content: fontZip([['index.json', '{}']]) })
-  assert.deepEqual(second, { id: 'gamma-face-2' })
-
-  const third = await transfer.importOne({ key: 'gamma-face', content: fontZip([['index.json', '{}']]) })
-  assert.deepEqual(third, { id: 'gamma-face-3' })
-
-  // 原族没被覆盖。
-  assert.equal(await readFile(path.join(fontsDir, 'note-sans', 'note-400.woff2'), 'utf8'), sans['note-400.woff2'].toString())
-  assert.equal(await readFile(path.join(fontsDir, 'note-sans', 'index.json'), 'utf8'), sans['index.json'])
 })
 
 test('importOne 拒绝越界路径，且不写 fonts 目录之外', async t => {

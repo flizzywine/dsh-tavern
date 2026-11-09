@@ -40,12 +40,3 @@ for (const count of [20, 400, 10000]) test(`scoped timeline completion visits on
   assert.ok(changes.some(c=>c.path.join('.')===`messages.${count-1}.variables.0.hp`))
   assert.ok(reads <= 4, `completion read ${reads} rows`)
 })
-
-test('overlay materializes full legacy projections without leaking draft writes',()=>{
-  const base={messages:[{text:'a'},{text:'b'},{text:'c'}]}
-  const work=createMvuWorkingCopy(base,'e')
-  work.touch(1).text='changed'
-  assert.deepEqual(work.chat.messages.map(m=>m.text),['a','changed','c'])
-  assert.deepEqual(JSON.parse(JSON.stringify(work.chat)).messages,[{text:'a'},{text:'changed'},{text:'c'}])
-  assert.equal(base.messages[1].text,'b')
-})

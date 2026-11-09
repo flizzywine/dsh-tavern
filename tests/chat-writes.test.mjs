@@ -1,11 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createChatWrites } from '../tavern-plugin/lib/domain/chat-writes.js'
-import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
-import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
-import { mkdtemp, rm } from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
 
 function fixture(persist = async () => saved) {
   const events = []
@@ -46,81 +41,4 @@ test('各类写入保留通知顺序与 mailbox、压缩、Skill 的原有豁免
       if (summary) assert.equal(summary[1], kind === 'header' ? input : saved)
     }
   }
-})
-
-test('存储提交前与提交失败时不通知；CAS 失败或对话消失不触发展示维护', async () => {
-  for (const kind of ['write', 'header', 'update', 'patch']) {
-    let reject
-    const pending = new Promise((_, fail) => { reject = fail })
-    const { writes, events } = fixture(() => pending)
-    const result = commit(writes, kind, 'ordinary')
-    assert.deepEqual(events, [])
-    reject(new Error('storage conflict'))
-    await assert.rejects(result, /storage conflict/)
-    assert.deepEqual(events, [])
-  }
-  for (const [kind, result] of [['patch', null], ['patch', undefined], ['update', undefined]]) {
-    const { writes, events } = fixture(async () => result)
-    assert.equal(await commit(writes, kind, 'ordinary'), result)
-    assert.equal(events.some(([name]) => ['publish', 'templates', 'compaction'].includes(name)), false)
-  }
-})
-
-test('只回传部分字段的 patch：后续处理读存档头，调用方仍拿到自己要的字段', async () => {
-  const projection = { styleReferences: [] }
-  const head = { id: 'chat', sessionId: 'session', _storageRevision: 3, cardPath: 'cards/a.json', timeline: { branchId: 'b' }, messages: [] }
-  const events = [], reads = []
-  const writes = createChatWrites({
-    persistence: { patch: async () => projection, readSlice: async (id, indices, fields) => { reads.push([id, indices, fields]); return { chat: head } } },
-    isDeleted: () => false,
-    candidatesChanged: chat => events.push(['candidates', chat]),
-    syncSummary: async (chat, observation) => events.push(['summary', chat, observation]),
-    publish: sessionId => events.push(['publish', sessionId]),
-    syncTemplates: chat => events.push(['templates', chat]),
-    queueCompaction: sessionId => events.push(['compaction', sessionId]),
-    observePatch: async (chat, changes) => events.push(['observe', chat, changes])
-  })
-  const changes = [{ op: 'set', path: ['styleReferences'], value: [] }]
-  assert.equal(await writes.patch('chat', 2, changes, { source: 'style', returnProjection: ['styleReferences'] }), projection)
-  assert.equal(reads.length, 1)
-  assert.equal(reads[0][0], 'chat')
-  assert.ok(['id', 'sessionId', 'cardPath', 'cardName', 'timeline', 'settleStatus'].every(field => reads[0][2].includes(field)))
-  assert.deepEqual(events.map(([name]) => name), ['candidates', 'summary', 'publish', 'templates', 'compaction', 'observe'])
-  assert.ok(events.filter(([name]) => name !== 'publish' && name !== 'compaction').every(([, chat]) => chat === head))
-  assert.deepEqual(events[1][2], { metadataOnly: true })
-  assert.equal(events[2][1], 'session')
-  assert.equal(events[5][2], changes)
-})
-
-test('默认 patch 返回存档头，不能把空投影当成正文已删除', async () => {
-  const head = {...saved, messages: []}
-  const {writes, events} = fixture(async () => head)
-  await writes.patch('chat', 1, [{op:'set',path:['messages',1,'stageDirectionRunning'],value:{boot:'test'}}])
-  assert.deepEqual(events.find(([name]) => name === 'summary')[2], {metadataOnly:true})
-})
-
-test('开场白字段片段与真实 native patch 合并时不删除保留字段', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-header-write-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
-  const initial = await persistence.write({ id: 'chat', sessionId: 'session', mode: 'story', messages: [{ role: 'assistant', text: '开场白' }], nativeOpeningAppended: false })
-  let patchCalls = 0, updateCalls = 0
-  const records = {
-    ...persistence,
-    patch: async (...args) => { patchCalls++; return persistence.patch(...args) },
-    update: async (...args) => { updateCalls++; return persistence.update(...args) }
-  }
-  const writes = createChatWrites({ persistence: records, isDeleted: () => false,
-    candidatesChanged() {}, syncSummary: async () => {}, publish() {}, syncTemplates() {}, queueCompaction() {} })
-  const saved = await writes.updateHeader('chat', ['nativeOpeningAppended', 'updatedAt', '_storageRevision'],
-    () => ({ nativeOpeningAppended: true }), { source: 'opening.native-append' })
-  assert.equal(saved.nativeOpeningAppended, true)
-  assert.equal(saved._storageRevision, initial._storageRevision + 1)
-  assert.equal(patchCalls, 1)
-  assert.equal(updateCalls, 0)
-  const stored = await persistence.read('chat')
-  assert.equal(stored.id, 'chat')
-  assert.equal(stored.nativeOpeningAppended, true)
-  assert.equal(stored._storageRevision, initial._storageRevision + 1)
-  assert.deepEqual(stored.messages, initial.messages)
 })

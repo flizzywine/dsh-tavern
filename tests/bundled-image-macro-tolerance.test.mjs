@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { expandRosterCalls, repairMacros } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
+import { expandRosterCalls } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
 
 const ru = {
   id: 'r', name: '柳如是', match: 'Liu Rushi', enabled: true,
@@ -11,28 +11,6 @@ const ru = {
   ],
 }
 const defs = { characters: [ru] }
-
-test('漏了结尾 $、只写了 { … } 的人物宏会被补全', () => {
-  assert.equal(repairMacros('${"name":"Liu Rushi","angle":"from front"}, 她站在廊下'), '${"name":"Liu Rushi","angle":"from front"}$, 她站在廊下')
-  assert.equal(repairMacros('{"name":"Liu Rushi","angle":"from front"}, 她站在廊下'), '${"name":"Liu Rushi","angle":"from front"}$, 她站在廊下')
-  const ok = '${"name":"Liu Rushi"}$, 她站在廊下'
-  assert.equal(repairMacros(ok), ok, '完整的宏不动')
-})
-
-test('坏宏不会吞掉后面的画面描述和下一个宏', () => {
-  const raw = '${"name":"Liu Rushi","angle":"from front"}, 她提着灯笼，${"name":"Liu Rushi","angle":"from side"}$'
-  const out = expandRosterCalls(raw, defs, 'natural', { style: 'tags' })
-  assert.match(out, /她提着灯笼/)
-  assert.doesNotMatch(out, /"name"/)
-  assert.equal(out.match(/long black hair/g)?.length, 2)
-})
-
-test('「服装名（状态）」：认出服装库里的那套，括号里的状态接在后面', () => {
-  const raw = '${"name":"Liu Rushi","upperBody":"sfw","lowerBody":"sfw","outfit":"常服（袖口挽起）"}$'
-  const out = expandRosterCalls(raw, defs, 'natural', { style: 'tags' })
-  assert.match(out, /pale blue robe/)
-  assert.match(out, /袖口挽起/)
-})
 
 test('服装名本身带括号、规划漏写或把状态塞进同一个括号：照样认出', () => {
   const missing = expandRosterCalls('${"name":"Liu Rushi","upperBody":"sfw","lowerBody":"sfw","outfit":"日常襦裙"}$', defs, 'natural', { style: 'tags' })

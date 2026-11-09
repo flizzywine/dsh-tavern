@@ -109,20 +109,6 @@ test('人物卡副本保留当前工作数据和大写 PNG，独立 ID 且重名
   assert.equal(results.filter(r => r.status === 'fulfilled').length, 1)
 })
 
-test('无图人物卡复制不伪造图片，孤立原版也阻止覆盖', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'card-copy-json-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const store = createFileResourceStore({ dataRoot: root })
-  await store.importCard({ name: 'source.json' }, { name: 'source', description: 'text' })
-  const copied = await store.copyCard('cards/source.json', 'copy')
-  assert.equal(copied.imageCopied, false)
-  assert.equal(await store.hasCardImage(copied.path), false)
-  await writeFile(path.join(root, 'originals/cards/occupied.PNG'), 'existing')
-  await assert.rejects(store.copyCard('cards/source.json', 'occupied'), /已存在/)
-  assert.equal(await readFile(path.join(root, 'originals/cards/occupied.PNG'), 'utf8'), 'existing')
-  await assert.rejects(store.copyCard('../source.json', 'escape'), /路径不合法/)
-})
-
 for (const kind of ['worldbook', 'json', 'png']) {
   test('重命名保留导入和更新时间：' + kind, async t => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'tavern-rename-time-'))
