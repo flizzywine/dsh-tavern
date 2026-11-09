@@ -4062,7 +4062,7 @@ export async function apply(ctx) {
   })
 
   registerRequestHooks({
-    finishOpeningSwitch: conversationInitialization.finishOpeningSwitch,
+    openingRequest: conversationInitialization.openingRequest,
     gameModes: pluginApi.gameModes,
     projectWorldbookRecovery: async (chat, options) => nativeWorldBookTemplateContext(chat, await readChatCard(chat), options),
     backgroundAgentRunner,

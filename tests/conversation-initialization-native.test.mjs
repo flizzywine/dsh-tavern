@@ -52,13 +52,27 @@ test('原地切换开场可从保存中恢复，第一条模型请求只看到�
   h.state.failFlush = false
   assert.ok((await h.persistence.read(original.id)).nativeOpeningSwitch)
   await h.restoreDetached()
-  const recovered = await h.open().ensureOpening(original.sessionId)
+  const reopened = h.open()
+  registerRequestHooks({
+    ctx: h.ctx,
+    openingRequest: reopened.openingRequest,
+    chatForSession: () => h.persistence.read(original.id),
+    backgroundAgentRunner: { owns: () => false },
+    sessionStore: h.ctx.sessions,
+    foregroundStrategies: { prepareStep: ({ decision }) => decision },
+    cardMemory: { appendRecall: ({ decision }) => decision },
+    requestCoordinates: new Map(),
+    requestIdForMessages: () => '',
+    tavernRetryLimiter: { handle() {} }
+  })
+  // Enter the host directly without a view read that would repair the opening first.
+  await h.continueWithAgent()
+  const recovered = await h.persistence.read(original.id)
   assert.equal(recovered.id, original.id)
   assert.equal(recovered.sessionId, original.sessionId)
   assert.equal(recovered.nativeOpeningSwitch, undefined)
   assert.equal(recovered.messages.length, 1)
   assert.equal(recovered.messages[0].text, '玩家，新路线')
-  await h.continueWithAgent()
   const replies = h.requests[0].messages.filter(message => message.role === 'assistant')
     .flatMap(message => message.content.map(part => part.text || ''))
   assert.equal(replies.filter(text => text === '玩家，新路线').length, 1)
