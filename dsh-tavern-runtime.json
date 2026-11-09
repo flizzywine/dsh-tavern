@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2755fd6b02a1ffad13908d685b57ca45ca5bb66d",
-  "releaseSequence": 1402,
+  "revision": "7af041e7c917b733cd206f9272b8cf2b8ed9732d",
+  "releaseSequence": 1403,
   "version": "3.3.0",
   "files": [
     {
@@ -1966,8 +1966,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/host-viewport-patch.js",
-      "sha256": "0756998e8066cd55b8ab2293cea996729146793af6a0f445b4f1dc1d491d1cd9",
-      "size": 3140
+      "sha256": "c95e25bfef4a9c0c9b28e204bad2e402747d6e26169e408c483a7b8039d174ce",
+      "size": 4011
     },
     {
       "path": "tavern-plugin/lib/domain/html-fenced-segments.js",
@@ -9981,9 +9981,9 @@
     }
   ],
   "archive": {
-    "commit": "f9808b517b4691a9bb40526c858ba8606cf27982",
+    "commit": "fcec609a5616a685dd740e2935224872f020c8f5",
     "path": "runtime.zip",
-    "sha256": "e11f0e4fb7117e5ae96b70cea32def0960073af0c0ab6f301104399c94b853db",
-    "size": 16587508
+    "sha256": "103091614af7735673d64415a2905b7455b31f007d36a43e49e0ecc66ae96405",
+    "size": 16587852
   }
 }
