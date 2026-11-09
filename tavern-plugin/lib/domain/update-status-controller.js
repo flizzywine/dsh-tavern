@@ -22,6 +22,9 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
   }
   async function callUpdate(method) {
     const controller = new AbortController();
+    // Metadata fallbacks can legitimately exceed 30s. Status and cancellation
+    // stay fast; check/start use the longer bound and publish their own phases.
+    const timeoutMs = method === "checkUpdate" || method === "startUpdate" ? 60000 : 30000;
     let timer, cancel;
     const interrupted = new Promise((_resolve, reject) => {
       cancel = () => { controller.abort(); reject(new Error('更新界面已关闭')); };
@@ -29,7 +32,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
         const error = new Error('更新服务请求超时，正在核实状态');
         error.retryable = true;
         controller.abort(); reject(error);
-      }, 30000);
+      }, timeoutMs);
     });
     requests.add(cancel);
     try { return await Promise.race([call(method, undefined, { signal: controller.signal }), interrupted]); }

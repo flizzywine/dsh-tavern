@@ -31,6 +31,8 @@ const CDN_METADATA_URL = 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runt
 const GITHUB_MANIFEST_URL = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/dsh-tavern-runtime.json'
 const RUNTIME_FILES = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh'])
 const RUNTIME_DIRECTORIES = ['android/', 'bin/', 'config/', 'presets/', 'tavern-plugin/', 'patches/']
+const RUNTIME_COMPARE_BATCH_SIZE = 8
+const CHECK_RESULT_REUSE_MS = 5 * 60 * 1000
 
 async function localCommitRelation(root, current, latest) {
   const ancestor = async (base, head) => {
@@ -64,14 +66,23 @@ async function compareCdnRuntime(sourceRoot, metadata) {
   const remoteDigest = createHash('sha256')
   const localDigest = createHash('sha256')
   let matches = true
-  for (const file of files) {
-    remoteDigest.update(`${file.path}\0${file.hash}\n`)
-    let localHash = ''
-    try { localHash = createHash('sha256').update(await readFile(path.join(sourceRoot, ...file.path.split('/')))).digest('hex') } catch (error) {
-      if (error?.code !== 'ENOENT') throw error
+  // Small bounded batches avoid thousands of serial open/read syscalls on Android
+  // storage without opening the whole runtime tree at once.
+  for (let offset = 0; offset < files.length; offset += RUNTIME_COMPARE_BATCH_SIZE) {
+    const batch = files.slice(offset, offset + RUNTIME_COMPARE_BATCH_SIZE)
+    const localHashes = await Promise.all(batch.map(async file => {
+      try { return createHash('sha256').update(await readFile(path.join(sourceRoot, ...file.path.split('/')))).digest('hex') } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+        return ''
+      }
+    }))
+    for (let index = 0; index < batch.length; index += 1) {
+      const file = batch[index]
+      const localHash = localHashes[index]
+      remoteDigest.update(`${file.path}\0${file.hash}\n`)
+      localDigest.update(`${file.path}\0${localHash}\n`)
+      if (localHash !== file.hash) matches = false
     }
-    localDigest.update(`${file.path}\0${localHash}\n`)
-    if (localHash !== file.hash) matches = false
   }
   const version = String(metadata?.version || '')
   const releaseSequence = Number(metadata?.releaseSequence)
@@ -134,8 +145,12 @@ function processIsAlive(pid) {
   }
 }
 
-async function readRecordedCommit(sourceRoot, dshHome) {
-  const runtimeMetadata = await readVerifiedRuntimeMetadata(sourceRoot)
+async function readRecordedCommit(sourceRoot, dshHome, comparedRuntime) {
+  // loadLocalIdentity already compared the tree. Reuse that result when it was
+  // not verified instead of hashing every runtime file a second time.
+  const runtimeMetadata = comparedRuntime === undefined
+    ? await readVerifiedRuntimeMetadata(sourceRoot)
+    : comparedRuntime?.matches ? comparedRuntime : null
   if (runtimeMetadata) return runtimeMetadata.revision
   try {
     const content = await readFile(path.join(sourceRoot, RELEASE_FILE), 'utf8')
@@ -309,7 +324,7 @@ export function createApplicationUpdater(options) {
     const verified = runtimeMetadata?.matches ? runtimeMetadata : null
     return {
       currentVersion: String(local?.version || '') || 'unknown',
-      currentCommit: verified?.revision || await readRecordedCommit(sourceRoot, dshHome),
+      currentCommit: verified?.revision || await readRecordedCommit(sourceRoot, dshHome, runtimeMetadata),
       ...(verified?.releaseSequence ? { currentReleaseSequence: verified.releaseSequence } : {}),
       // The manifest is published by a later commit, so a build installed before
       // its own publish carries the previous manifest. That sequence is still a
@@ -631,14 +646,38 @@ export function createApplicationUpdater(options) {
       throw new Error('更新正在进行，请勿重复启动')
     }
     let version
-    try {
-      version = await versions(identity)
-    } catch (error) {
-      const failed = { phase: 'failed', ...(current.repairRequired ? { repairRequired: true, repairSince: current.repairSince || current.failedAt, attemptId: current.attemptId } : {}), host: installHost, failedAt: now(), error: `无法检查最新版，尚未开始下载：${sanitizeUpdateError(error?.message || error)}` }
-      await writeStatus(failed, { expectedAttemptId: current.attemptId })
-      throw new Error(failed.error)
+    const checkedAgo = now() - Number(current.checkedAt)
+    const reuseCheck = ['update-available', 'repair-required'].includes(current.phase)
+      && current.host === installHost
+      && current.checkPolicy === UPDATE_CHECK_POLICY
+      && current.checkedForCommit === identity.currentCommit
+      && /^[0-9a-f]{40}$/i.test(String(current.latestCommit || ''))
+      && checkedAgo >= 0 && checkedAgo <= CHECK_RESULT_REUSE_MS
+    if (reuseCheck) {
+      // The normal UI flow is check -> confirm -> start. Install the exact build
+      // the user just saw instead of repeating every network request and hash scan.
+      version = {
+        currentVersion: identity.currentVersion,
+        latestVersion: String(current.latestVersion || 'unknown'),
+        currentCommit: identity.currentCommit,
+        latestCommit: current.latestCommit,
+        updateAvailable: current.phase === 'update-available',
+        checkSource: current.checkSource,
+        checkWarning: current.checkWarning,
+      }
+      record('check.reused', { checkedAt: current.checkedAt, latestCommit: current.latestCommit })
+    } else {
+      try {
+        version = await versions(identity)
+      } catch (error) {
+        const failed = { phase: 'failed', ...(current.repairRequired ? { repairRequired: true, repairSince: current.repairSince || current.failedAt, attemptId: current.attemptId } : {}), host: installHost, failedAt: now(), error: `无法检查最新版，尚未开始下载：${sanitizeUpdateError(error?.message || error)}` }
+        await writeStatus(failed, { expectedAttemptId: current.attemptId })
+        throw new Error(failed.error)
+      }
     }
-    const refreshed = await statusWithIdentity(await localIdentity(true))
+    // A fresh network check can take long enough for a terminal install to change
+    // the running build. Keep the old second identity check only on that path.
+    const refreshed = await statusWithIdentity(reuseCheck ? identity : await localIdentity(true))
     if (BUSY_PHASES.has(refreshed.phase)) throw new Error('更新正在进行，请勿重复启动')
     if (refreshed.attemptId !== current.attemptId || refreshed.currentCommit !== identity.currentCommit) return refreshed
     if (!version.updateAvailable && !current.repairRequired) {

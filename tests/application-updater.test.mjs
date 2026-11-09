@@ -159,6 +159,76 @@ for (const source of ['github']) {
   }
 }
 
+test('开始更新复用最近的检查结果，不重复请求或刷新本地身份', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-update-reuse-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const latest = 'b'.repeat(40)
+  let identityReads = 0
+  let networkChecks = 0
+  let launchedArguments
+  const child = { pid: process.pid, once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() {} }
+  const updater = createApplicationUpdater({
+    dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli', now: () => 1000,
+    readLocalIdentity: async () => { identityReads += 1; return knownIdentity },
+    fetchManifest: async () => { networkChecks += 1; return { version: knownIdentity.currentVersion } },
+    fetchLatestCommit: async () => { networkChecks += 1; return latest },
+    compareCommits: async () => { networkChecks += 1; return 'ahead' },
+    spawnProcess(_command, args) { launchedArguments = args; return child },
+  })
+  assert.equal((await updater.check()).phase, 'update-available')
+  assert.equal(networkChecks, 3)
+  assert.equal((await updater.start()).phase, 'running')
+  assert.equal(networkChecks, 3, 'start 不得重复整套远端检查')
+  assert.equal(identityReads, 2, 'check 一次，start 只刷新一次身份')
+  assert.equal(launchedArguments[launchedArguments.indexOf('--target-commit') + 1], latest)
+  assert.ok(updater.diagnostics().records.some(entry => entry.event === 'check.reused'))
+})
+
+test('检查结果过期后 start 重新核实远端并再次确认本地身份', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-update-reuse-expired-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  let clock = 1000
+  let identityReads = 0
+  let networkChecks = 0
+  const child = { pid: process.pid, once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() {} }
+  const updater = createApplicationUpdater({
+    dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli', now: () => clock,
+    readLocalIdentity: async () => { identityReads += 1; return knownIdentity },
+    fetchManifest: async () => { networkChecks += 1; return { version: knownIdentity.currentVersion } },
+    fetchLatestCommit: async () => { networkChecks += 1; return 'b'.repeat(40) },
+    compareCommits: async () => { networkChecks += 1; return 'ahead' },
+    spawnProcess() { return child },
+  })
+  await updater.check()
+  clock += 5 * 60 * 1000 + 1
+  assert.equal((await updater.start()).phase, 'running')
+  assert.equal(networkChecks, 6)
+  assert.equal(identityReads, 3)
+  assert.ok(!updater.diagnostics().records.some(entry => entry.event === 'check.reused'))
+})
+
+test('修复安装复用同提交的最近检查，仍然启动重装', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-update-reuse-repair-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const dataRoot = path.join(root, 'data')
+  await mkdir(dataRoot, { recursive: true })
+  await writeFile(path.join(dataRoot, 'update-status.json'), JSON.stringify({ phase: 'failed', host: 'cli', repairRequired: true, repairSince: 1, error: 'interrupted' }))
+  let networkChecks = 0
+  let spawned = 0
+  const child = { pid: process.pid, once(event, listener) { if (event === 'spawn') queueMicrotask(listener); return this }, unref() {} }
+  const updater = createApplicationUpdater({
+    dataRoot, sourceRoot: root, runtimeHost: 'cli', now: () => 1000,
+    readLocalIdentity: async () => knownIdentity,
+    fetchManifest: async () => { networkChecks += 1; return { version: knownIdentity.currentVersion } },
+    fetchLatestCommit: async () => { networkChecks += 1; return knownIdentity.currentCommit },
+    spawnProcess() { spawned += 1; return child },
+  })
+  assert.equal((await updater.check()).phase, 'repair-required')
+  assert.equal((await updater.start()).phase, 'running')
+  assert.equal(networkChecks, 2)
+  assert.equal(spawned, 1)
+})
+
 test('GitHub raw 运行清单是清单主源：commits API 不可用时仍能判出更新', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-raw-first-'))
   t.after(() => rm(root, { recursive: true, force: true }))

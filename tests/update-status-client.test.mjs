@@ -15,7 +15,7 @@ const ok = () => Response.json({ ok: true, status: { phase: 'update-available' }
 const tick = () => new Promise(resolve => setImmediate(resolve))
 
 function updaterHarness({ call, initial = { phase: 'loading', host: 'cli' }, askConfirm = async () => true, polling = false } = {}) {
-  const reports = [], cleared = [], states = [], calls = [], signals = [], timers = new Map(), intervals = new Map()
+  const reports = [], cleared = [], states = [], calls = [], signals = [], timers = new Map(), intervals = new Map(), timeoutDurations = []
   let timerId = 0
   const controller = createUpdateStatusController({ initial, confirm: askConfirm,
     call: (method, args, options) => {
@@ -26,15 +26,15 @@ function updaterHarness({ call, initial = { phase: 'loading', host: 'cli' }, ask
     browser: {
       setInterval(fn, ms) { const id = ++timerId; intervals.set(id, { fn, ms }); return id },
       clearInterval(id) { intervals.delete(id) },
-      setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id }, clearTimeout(id) { timers.delete(id) },
+      setTimeout(fn, ms) { const id = ++timerId; timeoutDurations.push(ms); timers.set(id, { fn, ms }); return id }, clearTimeout(id) { timers.delete(id) },
       fetch: async () => ({ ok: true }), location: { origin: 'http://localhost', reload() {} }
     }
   })
   controller.subscribe(() => states.push(controller.getSnapshot()))
   controller.start()
   return { checkUpdate: controller.check, performUpdate: controller.perform, cancelUpdate: controller.cancel,
-    isUpdateBusy: controller.isBusy, reports, cleared, states, calls, signals,
-    expire: () => { for (const timer of [...timers.values()]) timer() },
+    isUpdateBusy: controller.isBusy, reports, cleared, states, calls, signals, timeoutDurations,
+    expire: () => { for (const timer of [...timers.values()]) timer.fn() },
     status: controller.getSnapshot, poll: () => [...intervals.values()].find(item => item.ms === 2500)?.fn(),
     stop: controller.stop, intervals, timers }
 
@@ -45,6 +45,19 @@ function deferred() {
   const promise = new Promise((done, fail) => { resolve = done; reject = fail })
   return { promise, resolve, reject }
 }
+
+test('检查和启动允许完整元数据回退，状态与取消仍使用短超时', async () => {
+  const available = { phase: 'update-available', host: 'cli' }
+  const h = updaterHarness({ initial: available, call: async method => ({ status:
+    method === 'startUpdate' ? { phase: 'running', host: 'cli', cancellable: true }
+      : method === 'cancelUpdate' ? { phase: 'up-to-date', host: 'cli' } : available }) })
+  await tick()
+  await h.checkUpdate()
+  await h.performUpdate()
+  await h.cancelUpdate()
+  assert.deepEqual(h.timeoutDurations, [30000, 60000, 60000, 30000])
+  h.stop()
+})
 
 test('网络中断可恢复，认证和业务错误立即提示', async () => {
   let calls = 0
