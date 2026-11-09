@@ -11,7 +11,7 @@ const summaryOf = message => ({
 // The reader still loads sourceText/nativeAnchor for legacyMessageUid and the
 // server-side view. They are removed only after stable row identity is computed.
 const transportFields = Object.freeze([
-  'id', 'messageUid', 'role', 'turn', 'greeting', 'text', 'displayText',
+  'id', 'messageUid', 'role', 'tavernRole', 'tavernHidden', 'turn', 'greeting', 'text', 'displayText',
   'displayMode', 'projectionVersion', 'projectionWarnings', 'placeholder', 'swipeId'
 ])
 function transportMessage(message) {

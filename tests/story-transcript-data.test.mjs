@@ -34,6 +34,23 @@ const NEXT = 6
 
 const baseRows = () => data.rows(story(MESSAGES))
 
+test('脚本写给模型的上下文和隐藏消息不出现在故事列表，原消息位置保持稳定', () => {
+	const transcript = story([
+		{ role: 'assistant', greeting: true, turn: 1, text: '开场' },
+		{ role: 'tavern-helper', tavernRole: 'user', tavernHidden: false, text: '脚本开局上下文' },
+		{ role: 'user', text: '玩家行动' },
+		{ role: 'assistant', turn: 3, text: '正文' },
+		{ role: 'tavern-helper', tavernRole: 'user', text: '末尾重复上下文' },
+		{ role: 'tavern-helper', tavernRole: 'assistant', tavernHidden: true, text: '隐藏笔记' },
+		{ role: 'tavern-helper', tavernRole: 'assistant', text: '卡片可见提示' }
+	])
+	const rows = data.rows(transcript)
+	assert.deepEqual(Array.from(rows, row => [row.absoluteIndex, row.text]), [
+		[0, '开场'], [2, '玩家行动'], [3, '正文'], [6, '卡片可见提示']
+	])
+	assert.equal(transcript.messages[4].message.text, '末尾重复上下文')
+})
+
 test('重生成只按 messageUid 覆盖目标行，同 turn 行与后续行（含 turn 提示指向的行）不动', () => {
 	const rows = baseRows()
 	assert.equal(rows.length, MESSAGES.length)

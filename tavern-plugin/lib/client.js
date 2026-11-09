@@ -37422,6 +37422,8 @@ function tavernStoryTranscriptRows(transcript) {
 		const entry = entries[position] && typeof entries[position] === 'object' ? entries[position] : {}
 		const message = entry.message && typeof entry.message === 'object' ? entry.message : {}
 		const role = typeof message.role === 'string' ? message.role : ''
+		// Helper-created user input feeds model context without becoming a player message.
+		if (role === 'tavern-helper' && (message.tavernRole === 'user' || message.tavernHidden === true)) continue
 		const absoluteIndex = Number.isInteger(entry.absoluteIndex) ? entry.absoluteIndex : null
 		const key = typeof entry.key === 'string' && entry.key !== ''
 			? entry.key

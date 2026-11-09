@@ -39,6 +39,15 @@ function fixture(messages, { paged = true, revision = 7, regeneratedDshTurns, re
   return { reader, state }
 }
 
+test('新旧存档的故事传输保留 Helper 消息的角色和显示标记', async () => {
+  const message = { role: 'tavern-helper', tavernRole: 'user', tavernHidden: false, text: '写给模型的开局上下文' }
+  for (const paged of [true, false]) {
+    const { reader } = fixture([message], { paged })
+    const result = await reader('session')
+    assert.deepEqual(result.storyTranscript.messages[0].message, message)
+  }
+})
+
 const history = [
   { role: 'assistant', greeting: true, turn: 1, text: '开场' },
   { role: 'user', text: '一' },
