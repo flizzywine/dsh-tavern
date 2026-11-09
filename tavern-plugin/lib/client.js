@@ -39425,6 +39425,13 @@ function TavernCardUpdateDialog(props) {
 			}
 			async function openSessionWhenReady(sessionId) {
 				await sessionListRecoveryRef.current.open(sessionId);
+				// 切过来就立刻把这一局的视图读出来。不这么做的话，按钮先拿着切换前那份
+				// 视图（多半是空会话的）判定，要等它自己重试或者玩家点开「更多」——那里的
+				// 菜单项一挂载就 invalidate——才恢复。等一个渲染周期，让订阅先挂上。
+				window.setTimeout(function () {
+					try { if (liveTavernView && typeof liveTavernView.invalidate === "function") liveTavernView.invalidate(sessionId); } catch (_) { /* 订阅方自己会重试 */ }
+					try { if (tavernCoordination && typeof tavernCoordination.invalidate === "function") tavernCoordination.invalidate(sessionId); } catch (_) { /* 同上 */ }
+				}, 80);
 				// Last-opened ordering is bookkeeping, not a first-paint dependency. Keep its
 				// write → list refresh order off the critical path to mounting the transcript.
 				void Promise.resolve().then(function () { return call("markConversationOpened", { sessionId: sessionId }); })
