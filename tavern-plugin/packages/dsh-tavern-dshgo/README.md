@@ -10,7 +10,7 @@ dsh-go 的本机引擎固定启动 `dsh web`，只有 `web` 和救援 profile �
 
 ## 装
 
-**第一步：把包装进 profile**（一次性，在 dsh-go 的终端里跑）：
+**第一步：把包装进 profile**（一次性）。这一步需要 shell：dsh-go 的终端在「会话详情页」的按钮里，或功能目录搜「终端」。
 
 ```sh
 node /root/.dsh/dsh-go/plugins/dsh-tavern/tavern-plugin/packages/dsh-tavern-dshgo/scripts/install-on-dshgo.mjs
@@ -40,9 +40,9 @@ dsh plugin --profile web add /root/.dsh/dsh-go/plugins/dsh-tavern/tavern-plugin/
 - 状态条：`酒馆 3.2.0` / `酒馆未启用` / `酒馆 · 读不到配置`
 - 面板：当前阶段、配置目录、bundle 计数（`8/8`）、缺哪些包
 - 存档目录那条 callout：存档实体在 `~/.dsh/dsh-go/tavern-data`，`~/.dsh/profile-data/tavern` 只是相对链接，所以「重置引擎」删不到它
-- 按钮：启用/停用、检查加载、刷新
+- 按钮：启用/停用、体检、刷新
 
-「检查加载」问的是宿主自己的 `@deepseek-ai/dsh-app-boot`：这 8 个 bundle 里有几个会被跳过。这个判断不能用 `dsh --dump-config` 代替——它遇到被跳过的 bundle 退出码仍是 0、也不报错。
+「体检」在面板里跑九项检查（包在不在、宿主肯不肯加载、存档安不安全…），结果逐条列在面板上，不用开终端。其中「宿主肯不肯加载」问的是 `@deepseek-ai/dsh-app-boot` 的 `skippedBundles`；这个判断不能用 `dsh --dump-config` 代替——它遇到被跳过的 bundle 退出码仍是 0、也不报错。
 
 ## 回滚
 

@@ -2,7 +2,8 @@
 // 这里只改 web profile 的 bundle 列表；profile 切换与重启由 App 负责。
 import { planDisable, planEnable, updateProfile } from './bundles.js'
 import { dataHomeHint, ensureDataHome, inspectDataHome } from './data-home.js'
-import { checkBundles, preflightHint } from './preflight.js'
+import { checkBundles } from './preflight.js'
+import { runChecks } from './verify.js'
 import { TAVERN_BUNDLES, readStatus, resolveDshHome } from './status.js'
 
 export const name = 'dsh-tavern-dshgo'
@@ -32,6 +33,14 @@ function toggleText(status, zh) {
   return zh ? '启用酒馆' : 'Enable Tavern'
 }
 
+// 上一次「体检」的结果。面板是纯函数渲染，结果存在这里，点刷新也还在。
+let report = null
+
+function checkLine(item) {
+  const mark = item.pass ? '✅' : item.blocking ? '❌' : '⬜'
+  return `${mark} ${item.title}：${item.detail}`
+}
+
 function panelView(status, home, zh) {
   const children = [
     { type: 'text', text: phaseText(status, zh) },
@@ -51,11 +60,16 @@ function panelView(status, home, zh) {
     })
   }
   if (status.error !== null) children.push({ type: 'text', text: status.error })
+  if (report !== null) {
+    children.push({ type: 'text', text: zh ? '体检结果' : 'Checks' })
+    for (const item of report.checks) children.push({ type: 'text', text: checkLine(item) })
+    children.push({ type: 'text', text: report.next })
+  }
   children.push({
     type: 'actions',
     items: [
       { label: toggleText(status, zh), action: 'toggle' },
-      { label: zh ? '检查加载' : 'Check load', action: 'check' },
+      { label: zh ? '体检' : 'Check up', action: 'verify' },
       { label: zh ? '刷新' : 'Refresh', action: 'refresh' },
     ],
   })
@@ -117,7 +131,19 @@ export function apply(ctx) {
             return { toast: String(error?.message ?? error).slice(0, 40) }
           }
         },
-        check: (scope, event) => ({ toast: preflightHint(checkBundles({ home }), zhOf(event)).slice(0, 40) }),
+        verify: (scope, event) => {
+          const zh = zhOf(event)
+          try {
+            report = runChecks({ home })
+            const bad = report.failed.length
+            const toast = bad === 0
+              ? (zh ? '九项全过，面板里能看详情' : 'All nine checks passed')
+              : (zh ? `${bad} 项要处理，面板里看哪一项` : `${bad} need attention`)
+            return { refresh: 'tavern', toast: toast.slice(0, 40) }
+          } catch (error) {
+            return { toast: String(error?.message ?? error).slice(0, 40) }
+          }
+        },
       },
     })
   })
