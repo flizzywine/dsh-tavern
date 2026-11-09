@@ -1,5 +1,5 @@
 // Synthetic production-store/adapter benchmark. No real user data or model calls.
-// node --expose-gc tests/fixtures/issue86-read-amplification.mjs [report.json] [--assert-budget]
+// node --expose-gc tests/performance/issue86-read-amplification.mjs [report.json] [--assert-budget]
 import assert from 'node:assert/strict'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
