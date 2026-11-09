@@ -89,11 +89,14 @@ export function createPresetSnapshotPool({ read, write, exists, limit = 4 } = {}
     while (cache.size > Math.max(1, limit)) cache.delete(cache.keys().next().value)
   }
   async function save(key, documents) {
-    if (!key || !object(documents) || Object.keys(documents).length === 0) return
+    // Returns whether this call added the entry, so callers can keep a reference index
+    // without rewriting it for every game that reuses the same preset.
+    if (!key || !object(documents) || Object.keys(documents).length === 0) return false
     remember(key, documents)
-    if (typeof write !== 'function') return
-    if (typeof exists === 'function' && await exists(key)) return
+    if (typeof write !== 'function') return false
+    if (typeof exists === 'function' && await exists(key)) return false
     await write(key, documents)
+    return true
   }
   async function load(key) {
     if (!key) return null

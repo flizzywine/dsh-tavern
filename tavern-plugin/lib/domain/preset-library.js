@@ -23,7 +23,7 @@ const PLANS_RETIRED_AT = Date.parse('2026-08-28T00:00:00+08:00')
  * Editors/compilers still own their existing formats; raw documents are never rewritten here.
  */
 
-export function createPresetLibrary({ resources: fileResources, state: profileData, prepareImport: prepareTextImport, logger = console }) {
+export function createPresetLibrary({ resources: fileResources, state: profileData, prepareImport: prepareTextImport, logger = console, snapshotPoolLimit = 24 }) {
   const readJson = function (path) { return profileData.readJson(path) }
   // Frozen preset snapshots store their two compatibility documents once here instead of
   // inside every save; the key is the snapshot digest, so an edited preset never reuses a
@@ -41,6 +41,34 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
       if (typeof profileData?.writeJson === 'function') await profileData.writeJson(key, value)
     }
   })
+  // Editing a preset mints a new digest, so the pool would grow by ~1 MB per edit. Keep the
+  // newest few and drop the rest: a dropped entry only costs the frozen copy, and `generate`
+  // then re-reads the preset the save points at.
+  const snapshotIndexPath = 'preset-snapshots/index.json'
+  // Saves in the same millisecond must still rank: a plain Date.now() leaves ties that
+  // keep the OLD entries and prune the new one.
+  let lastSnapshotStamp = 0
+  function snapshotStamp() {
+    const now = Date.now()
+    lastSnapshotStamp = now > lastSnapshotStamp ? now : lastSnapshotStamp + 1
+    return lastSnapshotStamp
+  }
+  async function pruneSnapshotPool(digest) {
+    if (typeof profileData?.updateJson !== 'function') return
+    const dropped = new Set()
+    try {
+      await profileData.updateJson(snapshotIndexPath, function (current) {
+        const index = current !== null && typeof current === 'object' && !Array.isArray(current) ? { ...current } : {}
+        index[digest] = snapshotStamp()
+        const ranked = Object.entries(index).sort(function (a, b) { return Number(b[1]) - Number(a[1]) })
+        const kept = Object.fromEntries(ranked.slice(0, Math.max(1, snapshotPoolLimit)))
+        for (const key of Object.keys(index)) if (!Object.hasOwn(kept, key)) dropped.add(key)
+        return kept
+      })
+    } catch { return }
+    if (typeof profileData?.remove !== 'function') return
+    for (const key of dropped) await profileData.remove(snapshotKey(key)).catch(() => {})
+  }
   // `generate` is the only reader of those documents; it reattaches them by reference.
   async function hydratePresetSnapshot(snapshot) {
     if (!snapshotNeedsDocuments(snapshot)) return snapshot
@@ -111,7 +139,9 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
     runtimeRegexScripts: runtimeRegexScriptsOf,
     readState: async function () { return await readJson('runtime-presets.json') },
     updateState: async function (updater) { return await profileData.updateJson('runtime-presets.json', updater) },
-    saveSnapshotDocuments: async function (digest, documents) { await snapshotPool.save(snapshotKey(digest), documents) },
+    saveSnapshotDocuments: async function (digest, documents) {
+      if (await snapshotPool.save(snapshotKey(digest), documents)) await pruneSnapshotPool(digest)
+    },
     now: Date.now
   })
   async function readRetiredPlans() {
@@ -265,6 +295,8 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
     listForGeneration, readForGeneration,
     updateEntry, updateRegex, moveEntry, migrate, restoreChat: restoreRetiredPlanChat,
     snapshotDocuments: Object.freeze({ hydrate: hydratePresetSnapshot, load: function (digest) { return snapshotPool.load(snapshotKey(digest)) },
-      save: function (digest, documents) { return snapshotPool.save(snapshotKey(digest), documents) } }),
+      save: async function (digest, documents) {
+        if (await snapshotPool.save(snapshotKey(digest), documents)) await pruneSnapshotPool(digest)
+      } }),
     editor: presetEditor, runtime: runtimePresets })
 }

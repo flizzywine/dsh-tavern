@@ -60,7 +60,7 @@ test('没有 digest 的快照保留内联文档；池里取不到时按预设路
 })
 
 const presetPath = 'presets/写作.json'
-function harness() {
+function harness(options = {}) {
   const document = { prompts: [{ identifier: 'main', name: '正文', role: 'system', content: '写故事', enabled: true }],
     prompt_order: [{ order: [{ identifier: 'main', enabled: true }] }] }
   const files = new Map([[presetPath, JSON.stringify(document)]]), state = new Map(), writes = []
@@ -72,9 +72,10 @@ function harness() {
     readJson: async key => structuredClone(state.get(key)),
     writeJson: async (key, value) => { writes.push(key); state.set(key, structuredClone(value)) },
     size: async key => state.has(key) ? Buffer.byteLength(JSON.stringify(state.get(key))) : 0,
+    remove: async key => { state.delete(key) },
     updateJson: async (key, update) => { const next = await update(structuredClone(state.get(key))); if (next !== undefined) state.set(key, structuredClone(next)); return structuredClone(state.get(key)) }
   }
-  const library = createPresetLibrary({ resources, state: profileData, prepareImport: value => value, logger: { warn() {} } })
+  const library = createPresetLibrary({ resources, state: profileData, prepareImport: value => value, logger: { warn() {} }, ...options })
   return { library, files, state, writes }
 }
 
@@ -86,12 +87,26 @@ test('开局快照只把兼容文档写进共享池一次，重开一局不再�
   assert.equal(first.compatibilityPreset, undefined)
   assert.equal(first.compatibilityPresetDocument, undefined)
   assert.equal(first.presetRevision, (await h.library.read(presetPath)).revision, '预设文本摘要用于跟随预设编辑')
-  const keys = h.writes.filter(key => key.startsWith('preset-snapshots/'))
-  assert.equal(keys.length, 1, '每个 digest 只写一次：' + h.writes.join(','))
-  // 第二局同一个预设：命中已有池条目，不再写入。
+  const documentsWritten = () => h.writes.filter(key => key.startsWith('preset-snapshots/') && !key.endsWith('/index.json'))
+  const indexed = () => Object.keys(h.state.get('preset-snapshots/index.json') || {})
+  assert.equal(documentsWritten().length, 1, '每个 digest 只写一次：' + h.writes.join(','))
+  assert.deepEqual(indexed(), [first.presetSnapshotRef], '新建条目时登记引用索引')
+  // 第二局同一个预设：命中已有池条目，文档不再写入，索引也不动。
   await h.library.runtime.fullSnapshot()
-  assert.equal(h.writes.filter(key => key.startsWith('preset-snapshots/')).length, 1)
+  assert.equal(documentsWritten().length, 1)
+  assert.deepEqual(indexed(), [first.presetSnapshotRef], '复用同一 digest 不重写索引')
   const hydrated = await h.library.snapshotDocuments.hydrate(first)
   assert.equal(hydrated.compatibilityPreset.valid, true)
   assert.equal(hydrated.compatibilityPresetDocument.prompts[0].content, '写故事')
+})
+
+test('编辑预设产生的新 digest 不会让文档池无限增长', async () => {
+  const h = harness({ snapshotPoolLimit: 2 })
+  const docs = index => ({ compatibilityPreset: { valid: true, recognized: true, entries: [], path: 'presets/写作.json', marker: index },
+    compatibilityPresetDocument: { temperature: 0.1 * index } })
+  for (const digest of ['d1', 'd2', 'd3']) await h.library.snapshotDocuments.save(digest, docs(digest.length))
+  const kept = Object.keys(h.state.get('preset-snapshots/index.json')).sort()
+  assert.deepEqual(kept, ['d2', 'd3'], '只保留最新的条目')
+  assert.equal(h.state.has('preset-snapshots/d1.json'), false, '最旧的文档已回收')
+  assert.ok(h.state.has('preset-snapshots/d3.json'))
 })
