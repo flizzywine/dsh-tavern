@@ -79,6 +79,10 @@ export function workspaceYaml(patches) {
     'minimumReleaseAgeExclude:',
     '  - dsh-web-mobile@3.1.0',
     '  - dsh-better-sidebar@0.28.0',
+    // sharp 与 undici 常把这两个包拉到当天发布的新版本；锁到具体版本会随上游升级再次撞策略，
+    // 所以按包名放行。它们只是实现细节，不参与酒馆的行为。
+    '  - ws',
+    '  - wasm-feature-detect',
     'patchedDependencies:',
   ]
   // 键是「包名@版本」，值是补丁文件路径；版本对不上 pnpm 就不会套补丁。

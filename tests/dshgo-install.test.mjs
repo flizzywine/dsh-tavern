@@ -47,6 +47,9 @@ test('workspaceYaml：两条补丁按文件名对齐版本，proot 里那几条 
   for (const line of ['nodeLinker: hoisted', 'confirmModulesPurge: false', 'ignorePnpmfile: true', '  sharp: true']) {
     assert.ok(yaml.includes(line), line)
   }
+  // 按包名放行，不锁版本：sharp/undici 升级后会再拉新版本，锁版本等于下次再撞。
+  assert.match(yaml, /minimumReleaseAgeExclude:\n(?: {2}- .*\n)* {2}- ws\n/)
+  assert.match(yaml, / {2}- wasm-feature-detect\n/)
 })
 
 test('planInstall：先复制源码再改清单，最后才 pnpm install 与校验', () => {
