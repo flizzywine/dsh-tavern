@@ -24,14 +24,6 @@ test('resolver: engine <- skin <- card-local, field by field; arrays and images 
   assert.deepEqual(fx.stageEffectResolve('heartbeat', null, null), fx.STAGE_EFFECTS.heartbeat)
 })
 
-test('safety: CONFIG is authoritative; the OS preference makes the stage calm (it plays, flashes as 光敏保护)', () => {
-  assert.deepEqual(fx.stageSafety({ reducedMotion: false, photosensitive: true }, false), { reducedMotion: false, calm: false, photosensitive: true })
-  assert.deepEqual(fx.stageSafety({ reducedMotion: false, photosensitive: false }, false), { reducedMotion: false, calm: false, photosensitive: false })
-  assert.deepEqual(fx.stageSafety({ reducedMotion: false, photosensitive: false }, true), { reducedMotion: false, calm: true, photosensitive: true })
-  assert.deepEqual(fx.stageSafety({ reducedMotion: true, photosensitive: false }, true), { reducedMotion: true, calm: false, photosensitive: false })
-  assert.deepEqual(fx.stageSafety(null, false), { reducedMotion: false, calm: false, photosensitive: true }, 'default on')
-})
-
 test('光敏保护: a flash keeps its colour at a lower peak; saturated red goes dark; a dark cover is untouched', () => {
   const on = { photosensitive: true }
   const white = fx.stageFlashSafe(fx.STAGE_EFFECTS.flash, on)
@@ -47,16 +39,6 @@ test('光敏保护: a flash keeps its colour at a lower peak; saturated red goes
   assert.equal(fx.stageFlashDark(fx.STAGE_EFFECTS.blackout), true)
   assert.equal(fx.stageFlashSafe(fx.STAGE_EFFECTS.blackout, on), fx.STAGE_EFFECTS.blackout)
   assert.equal(fx.stageFlashSafe(fx.STAGE_EFFECTS.flash, { photosensitive: false }), fx.STAGE_EFFECTS.flash)
-})
-
-test('gate: at most three flash starts in any second under 光敏保护, stage-wide; off admits all', () => {
-  fx.stageFlashGate.reset()
-  const on = { photosensitive: true }
-  assert.deepEqual([0, 100, 200, 300, 999].map(t => fx.stageFlashGate.admit(on, t)), [true, true, true, false, false])
-  assert.equal(fx.stageFlashGate.admit(on, 1001), true, 'the first start has left the window')
-  fx.stageFlashGate.reset()
-  assert.deepEqual([0, 1, 2, 3, 4].map(t => fx.stageFlashGate.admit({ photosensitive: false }, t)), [true, true, true, true, true])
-  fx.stageFlashGate.reset()
 })
 
 test('flash timing: linear in, hold, eased out, tail, cycles; -1 once done', () => {

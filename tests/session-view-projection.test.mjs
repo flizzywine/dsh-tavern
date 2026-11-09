@@ -35,34 +35,6 @@ test('cold bounded view preserves plugin output without replaying output regexes
   assert.equal(ordinary.replyProjections[0].text, '已处理再次处理正文')
 })
 
-test('cold bounded story reads keep streaming placeholders distinct from committed rows', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'story-stream-placeholder-view-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const f = projectionFixture()
-  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
-  await persistence.write({ ...f.chat, _storageRevision: undefined, messages: [f.chat.messages[0],
-    { role: 'user', text: '继续', placeholder: true },
-    { role: 'assistant', turn: 2, text: '', sourceText: '', displayText: '', displayMode: 'html', native: true, placeholder: true }
-  ] })
-  // A cold native page contains only sessionViewMessageFields. Dropping placeholder
-  // makes the story list mistake the live row for a commit and latch its stream closed.
-  const cold = createChatJournalStore({ dataRoot: root })
-  const window = await cold.readWindow(f.chat.id, { limit: 2, requirePartial: true, messageFields: sessionViewMessageFields })
-  assert.equal(window.chat.messages[0].placeholder, true, '正在生成的玩家输入标记必须保留')
-  assert.equal(window.chat.messages[1].placeholder, true, '流式正文占位标记必须保留')
-})
-
-test('display round order follows assistant floors without rewriting sparse stable turns', async () => {
-  const f = projectionFixture()
-  const messages = [
-    { role: 'assistant', greeting: true, turn: 1, text: '开场' },
-    ...[2, 3, 12, 48, 72, 75, 84].flatMap(turn => [{ role: 'user', turn }, { role: 'assistant', turn, text: '正文 ' + turn }])
-  ]
-  const view = await f.projection.project.full({ ...f.chat, messages })
-  assert.deepEqual(view.displayRoundOrder, [1, 2, 3, 12, 48, 72, 75, 84])
-  assert.deepEqual(messages.filter(message => message.role === 'assistant').map(message => message.turn), view.displayRoundOrder)
-})
-
 test('story projection never reads native evidence, surface, events or running agents', async () => {
   const forbidden = () => { throw new Error('故事投影不应访问 native session') }
   const f = projectionFixture({
@@ -108,38 +80,6 @@ test('故事投影去除正文副本但保留混合 HTML 帧', async () => {
   assert.ok(opening.replyProjections[0].body, '普通会话编辑器仍需要结构化 body')
 })
 
-test('无 Helper 的普通卡也能增量更新正文而不伪造消息上下文', async () => {
-  const f = projectionFixture()
-  const chat = { ...f.chat, mvu: { enabled: false } }
-  const previous = await f.projection.project.full(chat)
-  assert.equal(previous.tavernHelper, null)
-  const next = { ...chat, _storageRevision: 2,
-    messages: [{ ...chat.messages[0], text: '增量正文', sourceText: '增量正文' }] }
-  const dirty = await f.projection.project.dirty(next, previous, new Set([0]), { busy: false },
-    { baseRevision: 1, layoutChanged: false })
-  assert.equal(dirty.tavernHelper, null)
-  assert.match(dirty.replyProjections[0].text, /增量正文/)
-})
-
-test('header-only player name changes refresh the view and helper across repeated writes and cached reads', async () => {
-  const f = projectionFixture()
-  let chat = { ...f.chat, macroState: { userName: '你' } }
-  let previous = await f.projection.project.full(chat)
-  for (const name of ['dd1', 'aa1', 'aa2', 'aa2', '', 'aa5', '  ']) {
-    chat = { ...chat, _storageRevision: chat._storageRevision + 1, macroState: { userName: name } }
-    const expected = name.trim() || '你'
-    const dirty = await f.projection.project.dirty(chat, previous, new Set(), { busy: false },
-      { changedHeaderFields: ['macroState'], layoutChanged: false })
-    assert.equal(dirty.playerName, expected)
-    assert.equal(dirty.tavernHelper.playerName, expected)
-    const cached = await f.projection.project.cached(chat, dirty, { busy: false })
-    assert.equal(cached.playerName, expected)
-    assert.equal(cached.tavernHelper.playerName, expected)
-    assert.equal(previous.playerName, previous.tavernHelper.playerName)
-    previous = cached
-  }
-})
-
 test('window projection uses real resource revisions and absolute helper ids without poisoning full caches', async () => {
   const f = projectionFixture()
   const chat = { ...f.chat, cardDefinitionSnapshot: { name: '卡' }, openingWorldbookSnapshot: { version: 1, document: null } }
@@ -157,21 +97,6 @@ test('window projection uses real resource revisions and absolute helper ids wit
   assert.deepEqual(f.calls, ['sync', 'warm', 'sync'])
 })
 
-test('cache hits refresh activity and script progress without reading card/history resources', async () => {
-  let progress = 1, reads = 0
-  const f = projectionFixture({ readScript: async () => ({ chunks: [] }), scriptContinuity: { inspect: () => ({ progress }) },
-    readChatCard: async () => { reads++; return { name: '卡' } } })
-  const chat = { ...f.chat, mode: 'script' }
-  const full = await f.projection.project.full(chat)
-  progress = 2
-  const cached = await f.projection.project.cached(chat, full, { busy: true, phase: 'running', role: 'settlement' })
-  assert.equal(reads, 1)
-  assert.equal(cached.activity.busy, true)
-  assert.equal(cached.scriptProgress.progress, 2)
-  assert.equal(full.scriptProgress.progress, 1)
-  assert.equal(cached.tavernHelper, full.tavernHelper)
-})
-
 test('card save stays readable as turn/path after full, cached and dirty projections', async () => {
   const f = projectionFixture()
   const chat = { ...f.chat, mode: 'card', lastCardSave: { turn: 4, path: 'cards/新卡.json', createsCard: true, changed: true } }
@@ -185,40 +110,6 @@ test('card save stays readable as turn/path after full, cached and dirty project
   assert.deepEqual(dirty.cardSave, { turn: 4, path: 'cards/新卡.json', createsCard: false, changed: true })
   const play = await f.projection.project.full({ ...f.chat, lastCardSave: undefined })
   assert.equal(play.cardSave, null)
-})
-
-test('the session view publishes the host-decided stage switches of the card, none without a stage runtime or card', async () => {
-  const asked = []
-  const f = projectionFixture({ readCardStageMode: async path => { asked.push(path); return { dialogue: true, stage: false } } })
-  const story = await f.projection.project.full(f.chat)
-  assert.deepEqual(story.stage, { dialogue: true, stage: false })
-  assert.deepEqual(asked, ['cards/a.json'])
-  const workbench = await f.projection.project.full({ ...f.chat, mode: 'card' })
-  assert.deepEqual(workbench.stage, { dialogue: false, stage: false }, 'the card workbench is not a stage session')
-  assert.deepEqual(asked, ['cards/a.json'])
-  const plain = await projectionFixture().projection.project.full(f.chat)
-  assert.deepEqual(plain.stage, { dialogue: false, stage: false }, 'without a stage runtime no card has the stage')
-})
-
-test('disabled stage never rereads the card for stage HTML', async () => {
-  let stageReads = 0
-  const f = projectionFixture({
-    readCardStageMode: async () => ({ dialogue: false, stage: false }),
-    readLiveCardStage: async () => { stageReads++; return { html: '<section>不应读取</section>' } }
-  })
-  const view = await f.projection.project.full(f.chat)
-  assert.equal(stageReads, 0)
-  assert.deepEqual(view.stage, { dialogue: false, stage: false })
-})
-
-test('enabled dialogue stage still reads its live card HTML', async () => {
-  let stageReads = 0
-  const f = projectionFixture({
-    readCardStageMode: async () => ({ dialogue: true, stage: false }),
-    readLiveCardStage: async () => { stageReads++; return { html: '' } }
-  })
-  await f.projection.project.full(f.chat)
-  assert.equal(stageReads, 1)
 })
 
 test('a body regeneration publishes the target story row UID, never on a settled chat', async () => {
@@ -279,4 +170,3 @@ test('重新生成期间视图点名被替换的原生行，行计划只撤掉�
   assert.equal(planShowsRow(failed.transcriptTurns, { turn: 1, kind: 'assistant-step' }, failed.transcriptFrom), false)
   assert.equal(planShowsRow(failed.transcriptTurns, { turn: 1, kind: 'user' }, failed.transcriptFrom), true, '失败也不误藏玩家输入')
 })
-

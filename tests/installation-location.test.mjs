@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import location from '../bin/installation-location.cjs'
+import { removeTreeSync } from '../bin/portable-fs.mjs'
+import { createFileSymlink } from './helpers/file-symlink.mjs'
 
 function fixture(t) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'tavern-location-')))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
+  t.after(() => removeTreeSync(root, { retries: 5 }))
   const home = path.join(root, 'home'), destination = path.join(root, 'other volume 中文')
   const appDir = path.join(home, 'apps', 'dsh-tavern')
   mkdirSync(path.join(home, 'profile-bridge'), { recursive: true })
@@ -121,7 +123,7 @@ for (const registered of [true, false]) test(`linked state ancestor rejected, re
 test('linked terminal management journal is never trusted', { skip: process.platform === 'win32' }, t => {
   const f = fixture(t), target = path.join(f.destination, 'journal.json')
   writeFileSync(target, JSON.stringify({ schemaVersion: 1, phase: 'completed' }))
-  symlinkSync(target, path.join(f.home, 'profile-bridge/installation-operation.json'), 'file')
+  if (!createFileSymlink(t, target, path.join(f.home, 'profile-bridge/installation-operation.json'))) return
   assert.throws(() => location.resolveInstallationApp({ dshHome: f.home }), { code: 'INSTALLATION_LOCATION_UNSAFE' })
 })
 
@@ -129,7 +131,7 @@ test('linked terminal management journal is never trusted', { skip: process.plat
 // Fixtures never touch the current user's configured home.
 function redirectedFixture(t, { nested = false } = {}) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'tavern-home-redirect-')))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
+  t.after(() => removeTreeSync(root, { retries: 5 }))
   const physicalUser = path.join(root, 'physical user 中文'), logicalUser = path.join(root, 'user-link')
   mkdirSync(physicalUser)
   symlinkSync(physicalUser, logicalUser, process.platform === 'win32' ? 'junction' : 'dir')
@@ -175,7 +177,7 @@ test('redirected home rejects linked registry and retains specific CLI failure o
   mkdirSync(path.join(f.physical, 'profile-bridge'), { recursive: true })
   const target = path.join(f.root, 'record.json')
   writeFileSync(target, '{}')
-  symlinkSync(target, path.join(f.home, 'profile-bridge/installation.json'))
+  if (!createFileSymlink(t, target, path.join(f.home, 'profile-bridge/installation.json'))) return
   assert.throws(() => execFileSync(process.execPath, ['bin/installation-location.cjs', f.home], { encoding: 'utf8', stdio: 'pipe' }), error => {
     assert.equal(error.stdout, '')
     assert.match(error.stderr, /安装记录不能是链接/)

@@ -40,32 +40,3 @@ test('新开局的分段计时覆盖每个耗时步骤且不记录正文', async
   assert.ok(row.stages.every(stage => Number.isFinite(stage.durationMs) && stage.durationMs >= 0))
   assert.doesNotMatch(JSON.stringify(row), /第一句正文/)
 })
-
-test('新开局并行独立读取，扩展等待卡片迁移完成', async () => {
-  const started = [], resolvers = {}
-  function read(name, value) {
-    return async () => {
-      started.push(name)
-      return await new Promise(resolve => { resolvers[name] = () => resolve(value) })
-    }
-  }
-  const { initialization } = build(undefined, {
-    settings: read('settings', { defaultPlaySettings: {} }),
-    cards: {
-      read: read('card', card),
-      startDefaults: read('cardDefaults', null),
-      script: read('script', undefined),
-      extensions: read('extensions', { regexScripts: [] })
-    }
-  })
-  const work = initialization.start({ cardPath: 'card.json', sessionId: '', mode: 'story', userName: '你' })
-  await new Promise(resolve => setImmediate(resolve))
-  assert.deepEqual(started.slice().sort(), ['card', 'cardDefaults', 'script', 'settings'])
-  for (const name of started.slice()) resolvers[name]()
-  await new Promise(resolve => setImmediate(resolve))
-  assert.ok(started.includes('extensions'))
-  assert.ok(started.indexOf('card') < started.indexOf('extensions'))
-  resolvers.extensions()
-  const view = await work
-  assert.equal(view.presented, true)
-})

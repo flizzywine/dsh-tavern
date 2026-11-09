@@ -249,6 +249,62 @@ function useTavernStoryTranscript(store, sessionId, hookOptions) {
 	return snapshot
 }
 
+// Story windows and live views are separate projections. Coordinate reads here
+// so rendering does not have to order their refresh triggers.
+function useTavernStoryProjectionRefresh(store, sessionId, {
+	historyFrom, enabled, active, running, partial, transcript, view, status, externalHistory
+}) {
+	const live = typeof useLiveTavernView === 'function'
+		? useLiveTavernView(sessionId, 'story-transcript-revision', undefined, { deferLoad: !view }) : null
+	const liveRevision = Number(live?.view?.tavernHelper?.stateRevision ?? view?.tavernHelper?.stateRevision)
+	const storyRevision = Number(transcript?.revision)
+	const nativeTurn = Number.isInteger(partial?.turn) ? partial.turn : null
+	const storyTurn = nativeTurn !== null && typeof tavernStoryTurnForDshTurn === 'function'
+		? tavernStoryTurnForDshTurn(view, nativeTurn) : nativeTurn
+	const previous = React.useRef(null)
+
+	React.useEffect(function () {
+		const last = previous.current
+		const sameSession = last?.store === store && last.sessionId === sessionId
+		const sameWindow = sameSession && last.historyFrom === historyFrom
+		const checkedRevision = sameWindow ? last.checkedRevision : null
+		const current = { store, sessionId, historyFrom, enabled, active, running, nativeTurn, storyTurn, checkedRevision }
+		previous.current = current
+		if (!active) return
+
+		const resumed = sameSession && enabled && !last.enabled
+		const turnEnded = sameSession && last.running && !running
+		const openingStatus = !sameWindow ? store.snapshotFor?.(sessionId, historyFrom)?.status : null
+		const openingRead = openingStatus === 'loading' || openingStatus === 'refreshing'
+		const streamStarted = nativeTurn !== null && !openingRead && (!sameWindow || !last.active || last.nativeTurn !== nativeTurn)
+		const streamStopped = sameSession && last.active && last.storyTurn != null && nativeTurn === null && !running
+		const settled = streamStopped && Array.isArray(transcript?.messages) && transcript.messages.some(function (entry) {
+			const message = entry?.message
+			return message?.role === 'assistant' && message.placeholder !== true
+				&& (Number(message.turn) === Number(last.storyTurn) || (entry.messageUid && entry.messageUid === view?.streamingMessageUid))
+		})
+		const behind = status !== 'loading' && status !== 'refreshing'
+			&& Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision)
+			&& liveRevision > storyRevision && liveRevision !== checkedRevision
+
+		if (turnEnded) externalHistory?.refresh(sessionId, { force: true })
+		if (resumed || turnEnded || streamStarted || (streamStopped && !settled) || behind) {
+			if (behind) current.checkedRevision = liveRevision
+			void store.read(sessionId, { historyFrom, force: true })
+		}
+	}, [store, sessionId, historyFrom, enabled, active, running, nativeTurn, storyTurn,
+		transcript, view, status, liveRevision, storyRevision, externalHistory])
+
+	React.useEffect(function () {
+		if (!active || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined
+		function changed(event) {
+			if (String(event.detail?.sessionId || '') === sessionId) void store.read(sessionId, { historyFrom, force: true })
+		}
+		window.addEventListener('dsh-tavern-story-mutated', changed)
+		return function () { window.removeEventListener('dsh-tavern-story-mutated', changed) }
+	}, [store, sessionId, historyFrom, active])
+}
+
 function createTavernStoryTranscriptModeStore(storeOptions) {
 	const options = storeOptions || {}
 	const key = options.key || 'dsh-tavern-story-transcript-renderer'
@@ -396,9 +452,14 @@ function createTavernStoryTranscriptDataModule(deps) {
 			const sameSession = state.sessionId === id
 			const sameTarget = sameSession && state.historyFrom === historyFrom && (!includeToolCalls || state.includeToolCalls)
 			if (id === '') {
-				if (state !== IDLE) publish(IDLE)
+				if (state !== IDLE) {
+					ticket += 1
+					cancelLiveView(state.sessionId)
+					publish(IDLE)
+				}
 				return state
 			}
+			if (!sameSession) cancelLiveView(state.sessionId)
 			if (!force && sameTarget && (state.status === 'loading' || state.status === 'refreshing')) return state
 			if (!force && sameTarget && (state.status === 'ready' || state.status === 'empty')) {
 				touch(key)
@@ -471,6 +532,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 		fetchStoryTranscript: fetchStoryTranscript,
 		createStoryTranscriptStore: createStoryTranscriptStore,
 		useStoryTranscript: useTavernStoryTranscript,
+		useProjectionRefresh: useTavernStoryProjectionRefresh,
 		createModeStore: createTavernStoryTranscriptModeStore,
 		useMode: useTavernStoryTranscriptMode,
 		// 纯投影，列表组件与本模块的测试共用（顶层同名函数）。

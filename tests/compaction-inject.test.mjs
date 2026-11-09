@@ -3,11 +3,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readdir, readFile } from 'node:fs/promises'
+import { parse } from 'yaml'
+
+const customTags = [{ tag: 'tag:yaml.org,2002:js', resolve: value => value }]
 import { inject as relayInject } from '../tavern-plugin/lib/agent-compaction.js'
 
 const root = new URL('../tavern-plugin/', import.meta.url)
 async function* sources(dir, prefix = '') {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (entry.name.startsWith('.legacy-node_modules-')) continue
     if (['node_modules', 'vendor', 'tests', 'src'].includes(entry.name)) continue
     const relative = prefix + entry.name, url = new URL(entry.name, dir)
     // Host bundles combine multiple Cordis owners; audit their original sources instead.
@@ -18,8 +22,8 @@ async function* sources(dir, prefix = '') {
 }
 
 test('all fork tokenMeter accessors and their ctx service dependencies have owner inject declarations', async () => {
-  const patch = await readFile(new URL('cordis.patch.yml', root), 'utf8')
-  const mainInject = patch.slice(patch.indexOf('- id: dsh-tavern\n')).match(/inject:\n((?:\s+- \w+\n?)+)/)?.[1].match(/\w+/g)
+  const patch = parse(await readFile(new URL('cordis.patch.yml', root), 'utf8'), { customTags })
+  const mainInject = patch.flatMap(item => item.insert || []).find(item => item.id === 'dsh-tavern')?.inject
   assert.ok(mainInject?.includes('tokenMeter'), 'main plugin manifest injects its stream adapter meter')
   const owners = new Map([
     ['lib/agent-compaction.js', relayInject],

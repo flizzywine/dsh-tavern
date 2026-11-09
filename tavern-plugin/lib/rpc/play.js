@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 // In-game play, turn editing, compaction and background settlement requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createPlayHandlers(deps) {
-  const { agentCompaction, agentRegistry, autoChoices, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow, pluginApi, bodyEditor, branchOrigin, polishPrereview, polishRecords, polishReviewer, applyCardUpdate, cardAutoReload,
+  const { agentCompaction, agentRegistry, autoChoices, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow, pluginApi, bodyEditor, branchOrigin, polishPrereview, polishRecords, polishReviewer, cardUpdates,
     candidateGenerator, candidateTasks, chatForSession, compactionAbort, conversationGuides, ctx,
     ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline, phoneChat,
     pluginSettlementProgress, readBackgroundSuppression, readTavernSettings,
@@ -56,8 +56,7 @@ export function createPlayHandlers(deps) {
     // A legacy save's manual synchronization, or the retry after an automatic reload failed.
     async applyUpdatedCard(args) {
       const sessionId = str(args && args.sessionId)
-      cardAutoReload.retry(sessionId)
-      return { view: await applyCardUpdate(sessionId, args && args.digest) }
+      return { view: await cardUpdates.applyManual(sessionId, args && args.digest) }
     },
     async getSession(args) {
       // A save opened for the first time in this process is checked once, while nothing runs.

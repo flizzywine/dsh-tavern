@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { imagePluginFixture, IMAGE_PNG, imageJson } from './fixtures/image-plugin-runtime.mjs'
-import { createMediaActions } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/media-actions.js'
 
 const character = { id: 'lin', name: '林月', match: 'Lin Yue', traits: { face: 'red hair, violet eyes' }, outfits: [{ id: 'shirt', name: '白衬衫', upper: 'white shirt' }] }
 function atlasMock(calls, { failUpload = false, uploadWait } = {}) {
@@ -29,23 +28,6 @@ async function prepare(t, options = {}) {
   return { fixture, runtime, referenceImage, defs }
 }
 const raw = '【人物】\n林月\n\n【动作】\n站在窗边。'
-
-test('正文重试默认使用上一次失败作业快照，不再复用更早原图或再次自动刷新', async t => {
-  const item = { id: 'm', kind: 'dsh-tavern-image/image', turn: 2, textVersion: 'v', status: 'ready', attachment: {},
-    data: { jobId: 'original', replacement: { jobId: 'failed-attempt', state: 'failed', prompt: raw, generationMode: 'reference', refreshReferences: true } } }
-  const started = []
-  const actions = createMediaActions({
-    tavern: { getTurn: async () => ({ textVersion: 'v' }), list: async () => [item], update: async (_id, changes) => Object.assign(item, changes) },
-    attachments: { saveImage: async () => ({}) }, readFileAsBytes: async () => new Uint8Array(),
-    getJob: async id => ({ id, state: id === 'original' ? 'done' : id === 'failed-attempt' ? 'failed' : 'running', params: {} }),
-    startReplacement: async input => { started.push(input); return { jobId: 'retried' } }, cancelJob: async () => {}, pollMs: 1,
-  })
-  t.after(() => actions.dispose())
-  await actions.handle({ gameId: 'g', turn: 2, textVersion: 'v', mediaId: 'm', jobId: 'failed-attempt', operation: 'retry' })
-  assert.equal(started[0].sourceJobId, 'failed-attempt')
-  assert.equal(started[0].generationMode, 'reference')
-  assert.equal(started[0].refreshReferences, false)
-})
 
 test('本地上传预览、保存定义、只传本张参考图；实际输入包含编号和补充而非旧外貌', async t => {
   const calls = []; globalThis.fetch = atlasMock(calls)

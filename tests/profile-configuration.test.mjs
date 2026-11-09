@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import { parseDocument } from 'yaml'
 
-import { beginProfileConfigurationUpdate, mergeProfileManifest, migrateLegacyProfilePatch, prepareProfilePatch } from '../bin/profile-configuration.mjs'
+import { mergeProfileManifest, migrateLegacyProfilePatch } from '../bin/profile-configuration.mjs'
 
 const legacyPatch = await readFile(new URL('../config/legacy-profile-patch-v0.6.yml', import.meta.url), 'utf8')
 
@@ -98,33 +96,6 @@ for (const host of ['desktop', 'next', 'android', 'cli']) {
   }
 }
 
-test('Next 迁移独立酒馆配置时移除旧桥接和过时的素材库路径', async (t) => {
-  const profileDir = await mkdtemp(path.join(tmpdir(), 'tavern-next-profile-'))
-  t.after(() => rm(profileDir, { recursive: true, force: true }))
-  const original = '- id: dsh-asset-library\n  name: file:///some/profiles/desktop/node_modules/dsh-asset-library/lib/index.js\n  config:\n    assetRoot: ./custom\n'
-  await writeFile(path.join(profileDir, 'cordis.patch.yml'), original)
-  const current = {
-    dependencies: { 'legacy-profile-switcher': 'link:/bridge', 'user-plugin': '1.0.0' },
-    dsh: { profile: { bundles: ['legacy-profile-switcher', 'user-plugin'] } },
-    dshTavern: { officialDesktop: true, profileBridge: true },
-  }
-  const args = { source: sourceManifest(), current, previousLaunchers: ['legacy-profile-switcher'], pluginPath: '/app/tavern-plugin', dataRoot: '/data' }
-  const next = mergeProfileManifest({ ...args, host: 'next' })
-  const desktop = mergeProfileManifest({ ...args, host: 'desktop' })
-  assert.equal(next.dependencies['legacy-profile-switcher'], undefined)
-  assert.equal(next.dsh.profile.bundles.includes('legacy-profile-switcher'), false)
-  assert.equal(next.dshTavern.profileBridge, true)
-  assert.equal(next.dshTavern.officialDesktop, true)
-  assert.equal(next.dependencies['user-plugin'], '1.0.0')
-  assert.equal(desktop.dependencies['legacy-profile-switcher'], undefined)
-  assert.equal(desktop.dsh.profile.bundles.includes('legacy-profile-switcher'), false)
-  const patchOptions = { profileDir, profileConfigurationVersion: Number.MAX_SAFE_INTEGER }
-  for (const host of ['desktop', 'next']) assert.deepEqual(parseDocument(prepareProfilePatch({ ...patchOptions, host })).toJS(), [
-    { id: 'dsh-asset-library', config: { assetRoot: './custom' } },
-  ])
-  assert.equal(await readFile(path.join(profileDir, 'cordis.patch.yml'), 'utf8'), original)
-})
-
 test('首次迁移按 YAML 结构移除旧项目配置并保留用户覆盖', () => {
   const current = `# 用户排版可以不同
 - config:
@@ -153,33 +124,4 @@ test('首次迁移按 YAML 结构移除旧项目配置并保留用户覆盖', ()
     { id: 'user-extra', config: { enabled: true } },
     { insert: [{ id: 'user-insert', name: 'user-extra-plugin' }] },
   ])
-})
-
-test('配置事务先备份并原子写入，验证失败时可以恢复原文件', async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-profile-config-'))
-  const manifestPath = path.join(directory, 'package.json')
-  const patchPath = path.join(directory, 'cordis.patch.yml')
-  const originalManifest = '{"name":"before"}\n'
-  const originalPatch = '- id: user-before\n'
-  await writeFile(manifestPath, originalManifest)
-  await writeFile(patchPath, originalPatch)
-
-  try {
-    const transaction = await beginProfileConfigurationUpdate({
-      profileDir: directory,
-      manifest: { name: 'after' },
-      patchText: '- id: user-after\n',
-      timestamp: '20260824120000',
-    })
-    assert.equal(JSON.parse(await readFile(manifestPath, 'utf8')).name, 'after')
-    assert.equal(await readFile(patchPath, 'utf8'), '- id: user-after\n')
-    assert.equal(existsSync(`${manifestPath}.backup.20260824120000`), true)
-    assert.equal(existsSync(`${patchPath}.backup.20260824120000`), true)
-
-    await transaction.rollback()
-    assert.equal(await readFile(manifestPath, 'utf8'), originalManifest)
-    assert.equal(await readFile(patchPath, 'utf8'), originalPatch)
-  } finally {
-    await rm(directory, { recursive: true, force: true })
-  }
 })

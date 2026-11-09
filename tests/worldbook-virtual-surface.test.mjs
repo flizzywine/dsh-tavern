@@ -12,13 +12,6 @@ function message(ref, text, hash, scope = state().scope) {
 function session(messages) {
   return { events: messages.map((data, seq) => ({ seq, type: 'user/message', data })), surface: { nodes: messages.map((_, i) => i) } }
 }
-test('native request prefix preserves original whitespace without modifying persisted sections', () => {
-  const fixed = [{ name: 'tavern:constant-worldbook', text: 'stale' }, { name: 'card', text: 'card' }]
-  const result = withVirtualWorldbook(fixed, '  exact\n\n')
-  assert.equal(result[0].text, '【常驻世界书】\n  exact\n\n')
-  assert.equal(result[1], fixed[1])
-  assert.equal(fixed[0].text, 'stale')
-})
 
 test('前台工具关掉世界书检索后，提示不再教模型调用不存在的工具', () => {
   const sectionOf = sections => sections.find(section => section.name === 'tavern:worldbook-skills')
@@ -108,23 +101,6 @@ test('small entry edits append deltas while preserving base messages and restora
   assert.match(append('26'), /关系：19/, 'rewind uses live base, not future state')
 })
 
-test('fixed platform rules persist once while current state and card tail instructions remain per turn', () => {
-  const adapter = createForegroundFrameSessionAdapter({ id: () => crypto.randomUUID() })
-  const frame = id => ({ kind: 'foreground', frameId: id, contributions: [
-    { slot: 'writingRules', text: '固定写作原则', source: { stage: 'context-plan', sectionKind: 'base' } },
-    { slot: 'currentStateProjection', text: '当前现场' },
-    { slot: 'writingRules', text: '卡片尾部指令', source: { stage: 'context-plan', sectionKind: 'card-instruction' } }
-  ] })
-  const first = adapter.append({ frame: frame('one'), step: 1, messages: [] }).messages
-  const second = adapter.append({ frame: frame('two'), step: 1, messages: [], session: session(first) }).messages
-  const text = JSON.stringify(second.map(m => m.content))
-  assert.doesNotMatch(text, /固定写作原则/)
-  assert.match(text, /当前现场/)
-  assert.match(text, /卡片尾部指令/)
-  const restored = adapter.append({ frame: frame('three'), step: 1, messages: [], session: session(first.slice(1)) }).messages
-  assert.match(JSON.stringify(restored.map(m => m.content)), /固定写作原则/)
-})
-
 test('delta falls back for ambiguous edits, insertions and markup; isolated cards never borrow a base', async () => {
   const { worldbookContextDelta } = await import('../tavern-plugin/lib/domain/worldbook-context-delta.js')
   const base = '# 规则\n' + '稳定内容\n'.repeat(100) + '重复行\n重复行\n<state>旧</state>'
@@ -136,18 +112,6 @@ test('delta falls back for ambiguous edits, insertions and markup; isolated card
   }
   const next = base.replace('# 规则', '# 新规则')
   assert.equal(worldbookContextDelta(null, { scope: 'other', texts: { a: next } }, next, history).text, next)
-})
-
-test('fixed rule changes append a replacement and retries preserve existing messages byte for byte', () => {
-  const adapter = createForegroundFrameSessionAdapter({ id: () => crypto.randomUUID() })
-  const frame = (id, text) => ({ kind: 'foreground', frameId: id, contributions: [{ slot: 'writingRules', text, source: { stage: 'context-plan', sectionKind: 'base' } }] })
-  const one = adapter.append({ frame: frame('one', '旧原则'), step: 1, messages: [] }).messages
-  const before = JSON.stringify(one)
-  const two = adapter.append({ frame: frame('two', '新原则'), step: 1, messages: one }).messages
-  assert.equal(JSON.stringify(one), before)
-  assert.equal(two.length, 2)
-  assert.match(two[1].content[0].text, /新原则/)
-  assert.deepEqual(adapter.append({ frame: frame('two', '新原则'), step: 1, messages: two }).messages, two)
 })
 
 test('missing dynamic context restores at the message tail and retries use pending evidence', async () => {

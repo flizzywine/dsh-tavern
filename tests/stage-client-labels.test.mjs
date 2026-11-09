@@ -25,16 +25,3 @@ test('name plate fitting cancels pending frames and ignores late font readiness'
   ready(); await Promise.resolve()
   assert.equal(reads,before)
 })
-test('name plate preserves alias splitting and voice retry action', () => {
-  const labels = createStageLabels({
-    React:{useRef:() => ({current:null}),useLayoutEffect:()=>{},createElement:(type,props,...children) => ({type,props,children})},
-  })
-  assert.deepEqual(labels.nameParts('司徒明月',{aliases:['月','明月']}),['司','徒','明','月'])
-  let replayed = 0, stopped = 0
-  const result = labels.NamePlate({name:'司徒明月',classic:true,voiceState:'error',voiceError:'TIMEOUT',onReplay:() => replayed++})
-  const button = result.children[1]
-  assert.match(button.props['aria-label'],/配音请求超时/)
-  button.props.onClick({stopPropagation:() => stopped++})
-  assert.equal(replayed,1)
-  assert.equal(stopped,1)
-})

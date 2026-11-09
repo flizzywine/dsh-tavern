@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { createFileSymlink } from './helpers/file-symlink.mjs'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import path from 'node:path'
@@ -329,7 +330,8 @@ test('a symlink inside source bridge is rejected rather than copied into the ind
   const external = path.join(f.root, 'external-code.mjs')
   put(external, 'export default "external"\n')
   const revision = path.join(f.sourceRoot, bridgePath, 'revision.mjs')
-  fs.unlinkSync(revision); fs.symlinkSync(external, revision)
+  fs.unlinkSync(revision)
+  if (!createFileSymlink(t, external, revision)) return
   assert.throws(() => beginDesktopProfileInstallation(f))
   assertOld(f.original)
   assert.equal(text(external), 'export default "external"\n')
@@ -468,7 +470,10 @@ for (const journalName of ['install.json', 'bridge-update.json']) {
     if (fault === 'preparing') {
       const doc = JSON.parse(text(journal)); doc.phase = 'preparing'; json(journal, doc)
     } else if (fault === 'malformed') put(journal, '{')
-    else { fs.renameSync(journal, journal + '.saved'); fs.symlinkSync(journal + '.saved', journal) }
+    else {
+      fs.renameSync(journal, journal + '.saved')
+      if (!createFileSymlink(t, journal + '.saved', journal)) return
+    }
     assert.equal(await readInstallationReceipt(f.receiptOptions), null)
   })
 }

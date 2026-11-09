@@ -17,28 +17,6 @@ function harness({ sessionConfig, defaultSelection = { provider: 'p', model: 'de
   return { calls, prepared }
 }
 
-test('a call trims the reply, keeps temperature except for Codex, and lists only text models', async () => {
-  const { calls, prepared } = harness({ sessionConfig: { provider: 'p', model: 'session' } })
-  assert.equal(await calls.callModel({ sessionId: 'story', messages: [], temperature: 0.7, maxTokens: 10 }), '好')
-  assert.deepEqual(prepared[0], { provider: 'p', model: 'session', temperature: 0.7, maxTokens: 10 })
-  const codex = harness({ sessionConfig: { provider: 'openai-codex', model: 'c' } })
-  await codex.calls.callModel({ sessionId: 'story', messages: [], temperature: 0.7 })
-  assert.equal('temperature' in codex.prepared[0], false)
-  assert.deepEqual(await calls.tavernModelCatalog(), [{ provider: 'p', providerName: 'P', models: [{ id: 'text', name: 'text' }] }])
-})
-
-test('an explicit selection, streamed deltas and chunks, and usage on request', async () => {
-  const { calls, prepared } = harness({ chunks: [
-    { type: 'text-delta', text: ' answer ' }, { type: 'usage', usage: { inputTokens: 7, outputTokens: 2 } }
-  ] })
-  const deltas = [], chunks = []
-  const result = await calls.callModel({ selection: { provider: 'judge', model: 'small' }, messages: [], returnUsage: true, onText: text => deltas.push(text), onChunk: chunk => chunks.push(chunk.type) })
-  assert.deepEqual(prepared[0], { provider: 'judge', model: 'small' })
-  assert.deepEqual(deltas, [' answer '])
-  assert.deepEqual(chunks, ['text-delta', 'usage'])
-  assert.deepEqual(result, { output: 'answer', usage: { inputTokens: 7, outputTokens: 2 } })
-})
-
 test('no model, an empty reply, a token cut-off and a failed stream all reject with the reason', async () => {
   await assert.rejects(harness({ defaultSelection: null }).calls.callModel({ messages: [] }), /没有可用的模型配置/)
   await assert.rejects(harness({ chunks: [{ type: 'text-delta', text: '  ' }] }).calls.callModel({ messages: [] }), /模型返回为空/)

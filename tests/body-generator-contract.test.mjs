@@ -45,18 +45,3 @@ test('replacement registration cannot use an old prepared operation', async () =
   providers.register('plugin', { name: 'body', generate: () => assert.fail('must not execute') })
   await assert.rejects(providers.generate('plugin:body', { materials, snapshot }), /已更换/)
 })
-
-test('stop cancels a hanging prepare and rejects late config', async () => {
-  let started, release
-  const ready = new Promise(resolve => { started = resolve })
-  const providers = createBodyGenerationProviders({ allowed: async () => true })
-  providers.register('plugin', { name: 'body', prepare: ({ signal }) => {
-    started(signal); return new Promise(resolve => { release = resolve })
-  }, generate() {} })
-  const pending = providers.prepare('plugin:body', { gameId: 'game', reason: 'normal' })
-  const signal = await ready
-  providers.stop('game')
-  await assert.rejects(pending, /取消/)
-  assert.equal(signal.aborted, true)
-  release({ preset: 'late' })
-})

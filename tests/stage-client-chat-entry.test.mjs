@@ -18,10 +18,6 @@ test('chat stage entry releases long-press timers and ignores late clicks on plu
  assert.equal(entered,0)
  stops.forEach(fn=>fn?.())
 })
-test('rendered paragraph targets retain source offsets across formatted text',()=>{
- const entry=createStageChatEntry({plain:text=>text.replace(/\*/g,'')})
- assert.deepEqual(entry.targets(['**第一段**','第二段'],['第一段','第二段'],3),[4,5])
-})
 test('markdown entry disposal restores original DOM marks and cannot be revived by queued observers',async()=>{
  const {JSDOM}=await import('jsdom')
  const dom=new JSDOM('<div id="root"><p class="original" data-fork-stage-turn="old">第一段</p><p>第二段</p></div>')

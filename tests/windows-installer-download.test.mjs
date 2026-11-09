@@ -13,12 +13,13 @@ for (const transport of ['curl', 'node', 'curl-failed']) {
     t.after(() => rm(directory, { recursive: true, force: true }))
     const bytes = Buffer.from([0, 255, 13, 10, 128, 42])
     const revision = 'a'.repeat(40)
-    const metadata = { revision, files: [{ path: 'bin/test.bin', sha256: createHash('sha256').update(bytes).digest('hex') }] }
+    const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+    const metadata = { schemaVersion: 2, revision, version, files: [{ path: 'bin/test.bin', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') }] }
     const server = createServer((req, res) => {
       if (req.url === '/metadata') { res.end(JSON.stringify(metadata)); return }
       if (req.url === '/commit') { res.end(JSON.stringify({ sha: revision })); return }
       if (req.url === '/archive') { res.end(bytes); return }
-      if (req.url === `/@${revision}/bin/test.bin`) { res.end(bytes); return }
+      if (req.url === `/source@${revision}/bin/test.bin`) { res.end(bytes); return }
       res.writeHead(404); res.end('missing')
     })
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -28,18 +29,23 @@ for (const transport of ['curl', 'node', 'curl-failed']) {
     const functions = source.slice(source.indexOf('function Test-Command'), source.indexOf('$PreviousDshHome ='))
     const cdn = source.slice(source.indexOf("      Write-UpdateLog 'installer.stage.started' 'source.jsdelivr'"), source.indexOf('      $UsedCdn = $true'))
     assert.ok(cdn.length > 0, 'CDN download block must be exercised')
-    const archive = source.slice(source.indexOf('    $PreviousProgressPreference ='), source.indexOf('  if (-not $UsedGit -and -not $UsedArchive)'))
+    const archiveStart = source.lastIndexOf('  if (-not $UsedGit) {', source.indexOf('    $PreviousProgressPreference ='))
+    const archive = source.slice(archiveStart, source.indexOf('  if (-not $UsedGit -and -not $UsedArchive)', archiveStart))
+    assert.ok(archiveStart >= 0 && archive.includes('Invoke-SourceDownload $ArchiveUrl'), 'archive download block must be exercised')
     await writeFile(path.join(directory, 'bad-curl.cmd'), '@exit /b 7\r\n')
     const probe = `
 $ErrorActionPreference = 'Stop'
 $TempDir = $PSScriptRoot
 $AppDir = Join-Path $PSScriptRoot 'installed'
 $CdnMetadataUrl = '${url}/metadata'
-$CdnRootUrl = '${url}/'
+$InstallerVersion = '${version}'
+$UsedGit = $false
+$CdnRootUrl = '${url}/source/'
 ${functions}
 function Invoke-WebRequest { throw 'WSAEACCES: blocked PowerShell socket' }
 function Invoke-RestMethod { throw 'WSAEACCES: blocked PowerShell socket' }
 function Write-UpdateLog {}
+function Write-InstallStatus {}
 function Invoke-InstallCommand([string]$Step, [string]$Command, [string[]]$CommandArgs) {
   & $Command @CommandArgs
   if ($LASTEXITCODE -ne 0) { throw 'CDN file download failed' }
@@ -51,6 +57,7 @@ $CommitUrl = '${url}/commit'
 $ArchiveUrl = '${url}/archive'
 $ArchivePath = Join-Path $PSScriptRoot 'archive.zip'
 ${archive}
+if (-not $UsedArchive) { throw 'Archive fallback did not complete' }
 if ($TargetCommit -ne '${revision}') { throw 'Commit metadata not downloaded' }
 try {
   Invoke-SourceDownload '${url}/missing' (Join-Path $PSScriptRoot 'missing')
@@ -58,6 +65,7 @@ try {
 } catch { if ($_.Exception.Message -notmatch 'HTTP 404') { throw } }
 if (Test-Path (Join-Path $PSScriptRoot 'missing')) { throw 'Failed download left a file' }
 if (Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.download-*') { throw 'Partial download was not cleaned up' }
+exit 0
 `
     const file = path.join(directory, 'probe.ps1')
     await writeFile(file, '\ufeff' + probe)

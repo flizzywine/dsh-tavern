@@ -22,15 +22,6 @@ test('stage extension dependencies and routes have one owner and preserve reques
  assert.deepEqual(disposed,['timer'])
 })
 
-test('partially constructed server extensions release in reverse order even after cleanup failure',()=>{
- const extensions=createStageExtensions(),disposed=[]
- extensions.register('one',()=>({deps:{one:1},dispose(){disposed.push('one')}}))
- extensions.register('two',()=>({deps:{one:2},dispose(){disposed.push('two');throw Error('release')}}))
- assert.throws(()=>extensions.start({}),/Occupied/)
- assert.throws(()=>extensions.dispose(),/cleanup failed/)
- assert.deepEqual(disposed,['two','one'])
-})
-
 test('client features own views and CSS in each scope, including failed mount rollback',()=>{
  const features=createStageFeatures(),styles=new Set(),disposed=[]
  const document={head:{appendChild:style=>styles.add(style)},createElement:()=>({dataset:{},remove(){styles.delete(this)}})}

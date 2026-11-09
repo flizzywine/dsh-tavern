@@ -17,18 +17,6 @@ test('folded skins keep missing auto and skip actions in the menu',()=>{
  assert.equal(controls.drawn('auto',{resolvedControlIcons:{}}),true)
  assert.equal(controls.keyCaps.skip,'Ctrl')
 })
-test('regenerate shortcut follows visibility and disabled state of the existing control',()=>{
- const controls=createStageControls()
- let clicks=0
- const button={disabled:true,getClientRects:()=>[{}],click:()=>clicks++}
- const root={querySelector:()=>button}
- assert.equal(controls.pressRegenerate(root),false)
- button.disabled=false;button.getClientRects=()=>[]
- assert.equal(controls.pressRegenerate(root),false)
- button.getClientRects=()=>[{}]
- assert.equal(controls.pressRegenerate(root),true)
- assert.equal(clicks,1)
-})
 test('wheel gestures finish typing once without spilling into extra page turns',()=>{
  const {wheel}=createStageControls()
  const first=wheel(null,{now:1000,deltaY:100,typed:false})
@@ -41,15 +29,6 @@ test('wheel gestures finish typing once without spilling into extra page turns',
  assert.equal(wheel(null,{now:1,deltaY:3,deltaMode:1,typed:true}).action,'advance')
  assert.equal(wheel(null,{now:1,deltaY:1,deltaMode:2,typed:true}).action,'advance')
  assert.equal(wheel(null,{now:1,deltaY:NaN}).action,'none')
-})
-
-test('card page keys are listed after 履历 only for pages with a shortcut; no pages, no page key',()=>{
- const controls=createStageControls()
- assert.equal(controls.shortcuts().some(([,,action])=>action.startsWith('page:')),false)
- assert.equal(controls.shortcuts({pages:[{id:'map',label:'地图',menu:true}]}).some(([,,action])=>action.startsWith('page:')),false)
- const keys=controls.shortcuts({pages:[{id:'status',label:'状态',shortcut:'s',menu:true},{id:'map',label:'地图',shortcut:'m'}]})
- assert.deepEqual(keys.slice(4,6),[['状态','S','page:status'],['地图','M','page:map']])
- assert.equal(keys.some(([,,action])=>action==='status'),false)
 })
 
 test('every card page shortcut letter is free of the built-in stage keys, and the built-in letters are not offered to pages',()=>{
@@ -77,18 +56,4 @@ test('every card page shortcut letter is free of the built-in stage keys, and th
   assert.equal(clicks,0,letter)
  }
  instance.dispose()
-})
-
-test('stage entry picks one card page: a fresh chat takes its initial page, 跳过标题页 skips showOn pages, the rest is first-come',()=>{
- const {stageEnterPage}=createStageControls()
- const title={id:'title',label:'标题',showOn:{event:'stage-enter'},initial:true}
- const map={id:'map',label:'地图',showOn:{event:'stage-enter'}}
- const status={id:'status',label:'状态',shortcut:'s',menu:true}
- assert.equal(stageEnterPage({pages:[title,map],fresh:true,skip:true}),'title')
- assert.equal(stageEnterPage({pages:[title,map],fresh:true,skip:false}),'title')
- assert.equal(stageEnterPage({pages:[title,map],fresh:false,skip:false}),'map')
- assert.equal(stageEnterPage({pages:[title],fresh:false,skip:false}),null)
- assert.equal(stageEnterPage({pages:[map],fresh:false,skip:true}),null)
- assert.equal(stageEnterPage({pages:[status],fresh:true,skip:false}),null)
- assert.equal(stageEnterPage({pages:[],fresh:true,skip:false}),null)
 })

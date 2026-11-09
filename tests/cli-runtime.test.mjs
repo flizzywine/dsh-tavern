@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { createFileSymlink } from './helpers/file-symlink.mjs'
 import { installCliRuntime, migrateCliHome, cliRuntimeCommand } from '../bin/cli-runtime.mjs'
 import { adaptedDshVersion, dshCompatibilityNotice, desktopReleasesUrl, dshaReleasesUrl } from '../bin/dsh-compatibility.mjs'
 
@@ -31,7 +32,12 @@ function fakeDownload(platform, calls) {
 
 for (const platform of ['linux', 'win32']) {
   test(`${platform}: reinstall reuses healthy runtime; replacement rollback restores old runtime`, async t => {
-    const root = path.join(temporary(t), 'runtime'), calls = []
+    const fixture = temporary(t), root = path.join(fixture, 'runtime'), calls = []
+    if (process.platform === 'win32' && platform === 'linux') {
+      const target = path.join(fixture, 'symlink-probe.cjs')
+      put(target)
+      if (!createFileSymlink(t, target, path.join(fixture, 'symlink-probe'))) return
+    }
     put(path.join(root, 'old-only.txt'), 'old')
     let tx = await installCliRuntime({ root, platform, run: fakeDownload(platform, calls) })
     assert.ok(existsSync(tx.command))

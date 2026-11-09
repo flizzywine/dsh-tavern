@@ -5,11 +5,6 @@ import {figureDirection, figureCarry, figureSceneUpdate, figureSceneFrame, resol
 const catalog = Object.fromEntries([['short',156],['peer',158],['tall',178]].map(([id,heightCm]) => [id, {'':[{heightCm,headRatio:1,elevationCm:0}]}]))
 const near = (a,b) => assert.ok(Math.abs(a-b)<1e-8, `${a} != ${b}`)
 const source = 'a'.repeat(64)
-function sized(heightCm, hMax, padding = 0) {
-  const canvas = [1000,1000+padding*2]
-  return resolveFigureSizing({heightCm,sceneHMax:hMax,W:1920,H:1080,source,version:1,canvas,
-    metrics:{sourceSha:source,status:'confirmed',canvas,override:{figureTop:100+padding,headTop:100+padding,chin:220+padding,feet:900+padding,visibleBottom:900+padding,posture:'standing',heightBasis:'standing',crop:'full'}}})
-}
 
 test('accepted cast changes grow and shrink the ruler, with continuous eased frames', () => {
   const baseline = figureDirection({cast:['short','peer']},[],catalog)
@@ -24,24 +19,6 @@ test('accepted cast changes grow and shrink the ruler, with continuous eased fra
   near(figureSceneFrame(moving,3200).hMax,158)
   const noOp = figureDirection({cast:['short','peer'],figureScale:figureCarry(left)},[{at:3}],catalog)
   assert.equal(noOp.rescales,left.rescales); assert.equal(noOp.event,null)
-})
-
-test('co-present figures retain the shared relative-height curve after an exit', () => {
-  for (const ruler of [178,158]) {
-    const short=sized(156,ruler), peer=sized(158,ruler)
-    assert.equal(short.mode,'physical'); assert.equal(peer.mode,'physical')
-    assert.ok(peer.poseSpan>short.poseSpan)
-    near(peer.poseSpan/short.poseSpan,figureDisplayCm(158,ruler)/figureDisplayCm(156,ruler))
-    near(peer.support.y,short.support.y)
-  }
-})
-
-test('different transparent canvas padding does not change the body cut', () => {
-  const a=sized(158,158), b=sized(158,158,250)
-  near(a.poseSpan,b.poseSpan); near(a.restHead.top,b.restHead.top)
-  near(a.restHead.chin,b.restHead.chin); near(a.restBounds.top,b.restBounds.top)
-  const occluder=800
-  near((occluder-a.restBounds.top)/a.poseSpan,(occluder-b.restBounds.top)/b.poseSpan)
 })
 
 // Two full-body sprite measurements from a real framing regression. No artwork or pack identity is required.

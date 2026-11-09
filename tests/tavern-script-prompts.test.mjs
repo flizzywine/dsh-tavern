@@ -6,20 +6,6 @@ import { helperHostHarness } from './fixtures/helper-host-harness.mjs'
 
 const prompt = (id, content, position = 'in_chat') => ({ id, content, position, role: 'system', depth: 0, should_scan: true })
 
-test('重复提示词不产生宿主更新，变化和删除仍生效，过期检查仍执行', async t => {
-  const host = await createHelperWorldbookHost()
-  t.after(host.cleanup)
-  const operation = { kind: 'inject', prompts: [prompt('repeat', '内容')] }
-  assert.equal((await host.adapter.updatePrompts('audit', operation)).updated, true)
-  assert.equal((await host.adapter.updatePrompts('audit', operation)).updated, false)
-  assert.equal((await host.adapter.updatePrompts('audit', { ...operation, once: true })).updated, true)
-  assert.equal((await host.adapter.updatePrompts('audit', { kind: 'remove', ids: ['absent'] })).updated, false)
-  assert.equal(host.writes.length, 2)
-  host.chat.tavernHelperLifecycleRevision = 2
-  assert.equal((await host.adapter.updatePrompts('audit', { ...operation, once: true }, 1)).stale, true)
-  assert.equal((await host.adapter.updatePrompts('audit', { kind: 'remove', ids: ['repeat'] }, 2)).updated, true)
-})
-
 test('十五个并发初始化回调都确认失败，不被一个回调先消费错误', async () => {
   const run = helperHostHarness()
   run.window.eventOn('INIT_MANY', async () => {

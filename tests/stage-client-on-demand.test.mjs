@@ -218,5 +218,5 @@ test('transcript bubbles read the card dialogue flag before asking the stage for
   assert.equal(subscriptions.length, 4)
   // BubbleContent gates its voice-only request on it; text with @bubble lines always reads its speakers.
   const bubbles = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/bubbles.js', import.meta.url), 'utf8')
-  assert.match(bubbles, /const dialogue = useStageDialogue\(props\.sessionId\);\n\s*const data = useBubbles\(props\.sessionId, has \|\| dialogue && Boolean\(props\.voiceScope\), select\);/)
+  assert.match(bubbles, /const dialogue = useStageDialogue\(props\.sessionId\);\r?\n\s*const data = useBubbles\(props\.sessionId, has \|\| dialogue && Boolean\(props\.voiceScope\), select\);/)
 })

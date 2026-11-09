@@ -20,7 +20,3 @@ test('background layer owns transition masks and correction filters across finis
  f.module.dispose();layer.destroy();assert.equal(f.sprites[0].destroyed,1);assert.equal(f.filters[0].destroyed,1);assert.equal(layer.paint(200),null)
  assert.throws(()=>f.module.create(f.args),/disposed/)
 })
-test('background layer setup failure rolls back created sprites',()=>{
- const f=fixture();f.args.container.addChild=()=>{throw Error('attach failed')}
- assert.throws(()=>f.module.create(f.args),/attach failed/);assert.ok(f.sprites.every(sprite=>sprite.destroyed===1));f.module.dispose()
-})

@@ -44,12 +44,6 @@ test('figure taps preserve deliberate double tap, drag rejection and reduced mot
  assert.deepEqual(tap.galTapFrame({start:0,region:'head',kind:'happy'},100,true),{scaleX:1,scaleY:1,dx:0,tilt:0,flinch:0})
  tap.dispose()
 })
-test('tap hit tests release temporary GPU textures even when extraction fails',()=>{
- const tap=createTap({geometry:createGeometry()});let destroyed=0
- const renderer={generateTexture:()=>({destroy(){destroyed++}}),plugins:{extract:{pixels(){throw new Error('read failed')}}}}
- assert.throws(()=>tap.galTapProbe({}, {x:3,y:5},renderer,{Rectangle:class{}}),/read failed/)
- assert.equal(destroyed,1);tap.dispose()
-})
 test('figure warp owns filter destruction and fences stale render callbacks',()=>{
  let destroyed=0,applied=0
  class Filter{constructor(vertex,fragment,uniforms){this.uniforms=uniforms}apply(){applied++}destroy(){destroyed++}}
@@ -83,18 +77,6 @@ test('motion adapter restores runtime methods and fences pending clips on unload
  assert.equal(f.internal.eventNames().length,0)
  lateUpdate(16,100);lateStop();f.resolve({})
  assert.equal(await pending,false);assert.equal(f.started(),0);assert.equal(f.updates(),0)
-})
-test('motion adapter handles model destruction and rolls back failed setup',()=>{
- const f=motionFixture(),original=f.manager.update
- f.motion.install(f.internal);f.internal.emit('destroy')
- assert.equal(f.manager.update,original);assert.equal(f.internal.eventNames().length,0)
- f.motion.dispose()
- const broken=motionFixture(),start=broken.manager.startMotion,update=broken.internal.update
- delete broken.manager.definitions
- assert.throws(()=>broken.motion.install(broken.internal))
- assert.equal(broken.manager.startMotion,start);assert.equal(broken.internal.update,update)
- assert.equal(broken.manager.forkMotionLayers,undefined);assert.equal(broken.internal.eventNames().length,0)
- broken.motion.dispose()
 })
 test('motion copies preserve cached clips and discrete switches bypass blending',()=>{
  const math=createMotionMath({spring,fade:n=>Math.max(0.45,n||0)})

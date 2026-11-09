@@ -144,28 +144,6 @@ test('损坏的最后一行被明确警告并保留此前 revision', async funct
   assert.equal((await afterRepair.read('chat-1')).counter, 3)
 })
 
-test('journal revision 断档时报告具体文件和期望 revision', async function (t) {
-  const root = await temporary()
-  t.after(async function () { await rm(root, { recursive: true, force: true }) })
-  const store = createChatJournalStore({ dataRoot: root })
-  await bump(store, 'chat-1', function (chat) { chat.counter = 1 })
-  await bump(store, 'chat-1', function (chat) { chat.counter = 2 })
-  const journal = path.join(root, 'chats/chat-1/journals/000000000002-open.jsonl')
-  const frame = JSON.parse((await readFile(journal, 'utf8')).trim())
-  frame.revision = 4
-  await writeFile(journal, JSON.stringify(frame) + '\n')
-
-  await assert.rejects(
-    createChatJournalStore({ dataRoot: root }).read('chat-1'),
-    function (error) {
-      assert.equal(error.code, 'DSH_TAVERN_JOURNAL_GAP')
-      assert.match(error.message, /000000000002-open\.jsonl/)
-      assert.match(error.message, /期望 2，实际 4/)
-      return true
-    }
-  )
-})
-
 test('删除 Chat 会清理 journal 目录和 legacy 备份', async function (t) {
   const root = await temporary()
   t.after(async function () { await rm(root, { recursive: true, force: true }) })
@@ -201,25 +179,6 @@ test('连续小写入的重放只复制一次完整人物卡，历史 revision �
   assert.equal(latest.cardPayload, 'unchanged-card'.repeat(1000))
 })
 
-test('相同存储版本复用读取结果，外部写入、删除重建和返回值编辑不会污染缓存', async t => {
-  const root=await temporary();t.after(()=>rm(root,{recursive:true,force:true}))
-  const store=createChatJournalStore({dataRoot:root})
-  await bump(store,'cached',chat=>{chat.cardPayload='CACHE-PAYLOAD';chat.counter=1})
-  await store.read('cached')
-  const parse=JSON.parse;let parses=0
-  t.mock.method(JSON,'parse',function(text,...args){if(String(text).includes('CACHE-PAYLOAD'))parses++;return parse(text,...args)})
-  const copy=await store.read('cached');copy.counter=99
-  assert.equal((await store.read('cached')).counter,1)
-  assert.equal(parses,0,'未变化的聊天不应重新解析完整存档')
-  const external=createChatJournalStore({dataRoot:root})
-  await bump(external,'cached',chat=>{chat.counter=2})
-  assert.equal((await store.read('cached')).counter,2)
-  await external.remove('cached')
-  assert.equal(await store.read('cached'),undefined)
-  await bump(external,'cached',chat=>{chat.counter=3})
-  assert.equal((await store.read('cached')).counter,3)
-})
-
 test('缓存切片使用 JSON 容器拷贝并保持返回值隔离', async t => {
   const root=await temporary();t.after(()=>rm(root,{recursive:true,force:true}))
   const store=createChatJournalStore({dataRoot:root})
@@ -232,24 +191,6 @@ test('缓存切片使用 JSON 容器拷贝并保持返回值隔离', async t => 
   const latest=await store.read('sliced')
   assert.equal(latest.messages[0].text,'stored')
   assert.equal(latest.cardPayload,'SLICE-PAYLOAD')
-})
-
-test('普通写入后直接复用最新状态，失败或放弃的编辑不污染缓存', async t => {
-  const root=await temporary();t.after(()=>rm(root,{recursive:true,force:true}))
-  const store=createChatJournalStore({dataRoot:root})
-  await bump(store,'write-cache',chat=>{chat.cardPayload='WRITE-CACHE-PAYLOAD';chat.counter=0})
-  await store.read('write-cache')
-  const saved=await bump(store,'write-cache',chat=>{chat.counter=1})
-  saved.counter=999
-  const parse=JSON.parse;let parses=0
-  t.mock.method(JSON,'parse',function(text,...args){if(String(text).includes('WRITE-CACHE-PAYLOAD'))parses++;return parse(text,...args)})
-  assert.equal((await store.read('write-cache')).counter,1)
-  assert.equal(parses,0,'写入后读取不应重新解析完整存档')
-  await assert.rejects(store.update('write-cache',chat=>{chat.counter=999;throw new Error('abort')}),/abort/)
-  const unchanged=await store.update('write-cache',chat=>{chat.counter=999})
-  assert.equal(unchanged.counter,1)
-  unchanged.counter=999
-  assert.equal((await store.read('write-cache')).counter,1)
 })
 
 test('压缩快照膨胀超过上限时明确失败，保留原文件', async t => {

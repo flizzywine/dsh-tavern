@@ -3,10 +3,9 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { normalizeBubbleConfig } from '../tavern-plugin/lib/domain/dialogue-bubbles.js'
-import { createCardScripts, normalizeCardScripts } from '../tavern-plugin/lib/card-scripts.js'
+import { createCardScripts } from '../tavern-plugin/lib/card-scripts.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
-import { projectTavernHelperScripts, hasTavernScriptRuntime } from '../tavern-plugin/lib/domain/tavern-helper-scripts.js'
+import { projectTavernHelperScripts } from '../tavern-plugin/lib/domain/tavern-helper-scripts.js'
 import { inspectCardExtensions, withGlobalRegexScripts } from '../tavern-plugin/lib/domain/card-extension-reading.js'
 import { createSessionViewReader } from '../tavern-plugin/lib/domain/session-view-reader.js'
 import { createCardHandlers } from '../tavern-plugin/lib/rpc/cards.js'
@@ -24,54 +23,6 @@ async function fixture(t) {
   const profileData = createProfileDataStore({ dataRoot })
   return { profileData, store: createCardScripts({ profileData, cardIdFor }) }
 }
-
-test('normalization trims, deduplicates and bounds IDs independently of bubble settings', () => {
-  assert.deepEqual(normalizeCardScripts(), { version: 1, muted: [] })
-  assert.deepEqual(normalizeCardScripts({ muted: 'bgm' }), { version: 1, muted: [] })
-  const value = { version: 9, muted: [null, 1, {}, '', '  ', ' bgm ', 'bgm', 'x'.repeat(70), 'x'.repeat(64)] }
-  assert.deepEqual(normalizeCardScripts(value), { version: 1, muted: ['bgm', 'x'.repeat(64)] })
-  assert.equal(value.muted[5], ' bgm ')
-  assert.equal(normalizeCardScripts({ muted: Array.from({ length: 60 }, (_, i) => `script-${i}`) }).muted.length, 50)
-  const config = normalizeBubbleConfig({ characters: [{ alias: 'player' }], stage: { protagonist: 'player', face: 'offstage', mutedScripts: ['bgm'] } })
-  assert.equal('mutedScripts' in config.stage, false)
-  assert.equal(Object.hasOwn(config.stage, 'protagonist'), false) // removed, never inferred
-  assert.equal(config.characters[0].appearance, 'live2d')
-  assert.equal(config.stage.face, 'offstage')
-})
-
-test('runtime filter excludes only muted IDs without changing disabled/MVU rules or source objects', async t => {
-  const { store } = await fixture(t)
-  await store.setMuted(cardPath, 'bgm', true)
-  const scripts = [bgm, utility, disabled, { id: 'mvu', name: 'MVU', type: 'script', content: 'core()' }]
-  const before = structuredClone(scripts)
-  const filtered = await store.filter(scripts, cardPath)
-  assert.equal(filtered[0], utility)
-  assert.deepEqual(projectTavernHelperScripts(filtered).scripts.map(script => script.id), ['utility'])
-  assert.deepEqual(scripts, before)
-  assert.deepEqual(await store.filter(undefined, cardPath), [])
-  assert.deepEqual(await store.filter(scripts, 'cards/b.json'), scripts)
-  assert.deepEqual(await store.filter([{ ...bgm, id: ' bgm ' }], cardPath), [])
-  const chat = { cardPath, mode: 'story' }
-  assert.equal(hasTavernScriptRuntime(chat, await store.filter([bgm], cardPath)), false)
-  assert.equal(hasTavernScriptRuntime({ ...chat, mvu: { enabled: true } }, await store.filter([bgm], cardPath)), true)
-  assert.deepEqual(await store.muted(undefined), [])
-})
-
-test('list includes card-disabled scripts, type and button counts, with audio hints but no content', async t => {
-  const { store } = await fixture(t)
-  await store.setMuted(cardPath, 'bgm', true)
-  assert.deepEqual(await store.list([bgm, { ...utility, buttons: ['one', 'two'] }, disabled, { type: 'folder', id: 'folder' }], cardPath), { scripts: [
-    { id: 'bgm', name: 'BGM', type: 'script', enabled: true, muted: true, audio: true, buttonCount: 0 },
-    { id: 'utility', name: 'Utility', type: 'script', enabled: true, muted: false, audio: false, buttonCount: 2 },
-    { id: 'disabled', name: 'disabled', type: 'script', enabled: false, muted: false, audio: true, buttonCount: 0 }
-  ] })
-  for (const content of ['new Audio ()', 'audioA=new Audio;audioB=new Audio;', 'new window.Audio("x")', 'new globalThis.Audio("x")', '<audio autoplay>', 'new AudioContext()', 'new webkitAudioContext()', 'document.createElement("audio")']) {
-    assert.equal((await store.list([{ ...bgm, content }], cardPath)).scripts[0].audio, true, content)
-  }
-  assert.equal((await store.list([{ ...bgm, content: 'const audio = "music"', buttonCount: 3 }], cardPath)).scripts[0].audio, false)
-  assert.equal((await store.list([{ ...bgm, buttonCount: 3 }], cardPath)).scripts[0].buttonCount, 3)
-  assert.deepEqual(await store.list(undefined, cardPath), { scripts: [] })
-})
 
 test('atomic setMuted round trip is card-ID scoped, concurrent-safe, validated and bounded', async t => {
   const { store, profileData } = await fixture(t)

@@ -53,15 +53,6 @@ test('重复正则 ID 和空槽位映射到正确原文位置；编辑保留未�
   assert.equal((await library.export(path)).text, h.files.get(path))
 })
 
-test('启动时把旧版启用的方案换成其源预设，并清除方案选择', async () => {
-  const h = harness()
-  h.state.set('bypass-plans.json', { activePlanId: 'p1', plans: [{ id: 'p1', name: '旧方案', source: { presetPath: path } }] })
-  await h.create().migrate()
-  assert.equal((await h.create().catalog()).activePresetPath, path)
-  assert.equal(h.state.get('bypass-plans.json').activePlanId, '')
-  assert.equal(h.state.get('bypass-plans.json').plans.length, 1)
-})
-
 test('方案退役后新开的对话被误绑旧方案时，恢复为跟随源预设 (#166)', async () => {
   const h = harness(), library = h.create()
   h.state.set('bypass-plans.json', { plans: [

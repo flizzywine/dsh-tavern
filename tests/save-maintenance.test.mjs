@@ -37,24 +37,3 @@ test('分叉引用的父局版本保留；有任务进行时不整理', async t 
  await busy.persistence.write({id:'b',mode:'story',messages:[{role:'assistant',text:big(0)}]})
  assert.equal((await busy.maintenance.maintainChat('b')).status,'busy')
 })
-
-test('结算后不立即整理：这一局安静一段时间、期间没有新的结算才整理', {timeout:30000}, async t => {
- const timers=new Set()
- let completed
- const completion=new Promise(resolve=>{completed=resolve})
- const {persistence,maintenance,files}=await fixture(t,{timers,onSave:(_path,value)=>{if(value.compacted?.q===9)completed()}})
- await persistence.write({id:'q',mode:'story',messages:[{role:'assistant',text:big(0)}]})
- for(let i=1;i<=8;i++)await persistence.patch('q',i,[{op:'set',path:['messages',0,'text'],value:big(i)}])
- const compacted=()=>files.get('save-maintenance.json')?.compacted?.q
- maintenance.noteWrite('q',8)
- assert.equal(compacted(),undefined,'结算后不立即整理')
- assert.equal(timers.size,1)
- assert.equal([...timers][0].ms,600000)
- // Another settlement restarts the quiet period.
- maintenance.noteWrite('q',9)
- assert.equal(timers.size,1)
- const [timer]=timers
- timers.delete(timer); timer.fn()
- await completion
- assert.equal(compacted(),9,'安静期满后整理')
-})

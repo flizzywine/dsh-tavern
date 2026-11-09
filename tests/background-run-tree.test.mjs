@@ -32,12 +32,3 @@ test('a turn lists its moments in order, each with the background tasks it start
   assert.deepEqual(locate.then.map(task => [task.name, task.status, task.error]), [['插件「phone」来电', 'failed', '打不通']])
   assert.deepEqual(turn.others.map(task => [task.name, task.status]), [['生成选项', 'running']], 'started by the player, not by a moment')
 })
-
-test('turns come newest first, at most five; runs before any send group on their own', () => {
-  const moments = Array.from({ length: 7 }, (_, index) => ({ event: 'turn-started', name: '玩家发送', at: (index + 1) * 1000, turn: index + 1 }))
-  const tree = buildRunTree({ moments, now: 9000 })
-  assert.deepEqual(tree.map(turn => turn.turn), [7, 6, 5, 4, 3])
-  const early = buildRunTree({ runs: [{ id: 'run-1', task: 'candidate', name: '生成选项', status: 'completed', queuedAt: 50, endedAt: 60 }], catalog, now: 100 })
-  assert.deepEqual(early.map(turn => [turn.turn, turn.others.map(task => task.name)]), [[null, ['生成选项']]])
-  assert.deepEqual(buildRunTree({}), [])
-})

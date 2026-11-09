@@ -9,10 +9,8 @@ import { normalizeBackgroundModel } from './background-model-selection.js'
 import { normalizeConfiguredBackgroundTasks, normalizePlayDefaults } from './tavern-settings.js'
 import { ensureSessionSeedTrajectory } from './session-seed-trajectory.js'
 import { defaultUserPreferenceProfile } from './user-preference-profile.js'
-import { replyProse, writeReplyProse } from './reply-prose.js'
-import { projectReplyLayers } from './reply-presentation.js'
-import { composeTavernRegexScripts } from './card-extension-reading.js'
-import { assertOpeningIdle, findSessionOpening, renameOpeningPlayerSlots, replaceSessionOpening, selectSessionOpening, sessionOpeningDescriptor } from './session-opening.js'
+import { replyProse } from './reply-prose.js'
+import { createSessionOpeningChanges } from './session-opening.js'
 
 function str(value) { return value === undefined || value === null ? '' : String(value) }
 function groupOfMode(mode) { return !mode || mode === 'story' || mode === 'script' ? 'play' : 'card' }
@@ -36,6 +34,8 @@ export function createConversationInitialization(options) {
     pending.set(key, operation)
     return operation.finally(function () { if (pending.get(key) === operation) pending.delete(key) })
   }
+
+  const opening = createSessionOpeningChanges({ chats, cards, native, scriptContinuity, serialize })
 
   function newChat(card, mode) {
     const chatMode = mode === 'card' ? 'card' : (mode === 'script' ? 'script' : 'story')
@@ -123,7 +123,7 @@ export function createConversationInitialization(options) {
         return await trace.stage('reopen', async () => {
           if (groupOfMode(current.mode) === 'play') await snapshots.ensure(current, card)
           await appendNativeOpening(sessionId, current, card, undefined, true)
-          return await present(await syncOpeningSwitch(current), card)
+          return await present(await opening.recover(current), card)
         })
       }
     }
@@ -417,143 +417,16 @@ export function createConversationInitialization(options) {
     if (chat === undefined) return null
     const card = (chat.mode || 'story') === 'card' && str(chat.cardPath) === '' ? null : await cards.readChat(chat)
     await appendNativeOpening(sessionId, chat, card, undefined, true)
-    const synced = await syncOpeningSwitch(chat)
+    const synced = await opening.recover(chat)
     return await present(synced, card)
-  }
-
-  // Chat is the durable selection. Reopen and first submission can finish an
-  // interrupted write to the DSH history using this same operation.
-  async function syncOpeningSwitch(chat, target) {
-    if (!chat?.nativeOpeningSwitch) return chat
-    target ||= await native.wait(chat.sessionId)
-    replaceSessionOpening(target.session, chat)
-    await native.flush(target.session)
-    return await chats.update(chat.id, current => {
-      if (!current.nativeOpeningSwitch) return
-      delete current.nativeOpeningSwitch
-      return current
-    }, { source: 'opening.switch-synced', touchUpdatedAt: false }) || chat
-  }
-
-  async function switchOpening(sessionId, input) {
-    native.assertReplacementAllowed()
-    const original = await chats.resolve(sessionId)
-    if (!original) throw new Error('找不到游玩对话')
-    const target = await native.wait(sessionId)
-    assertOpeningIdle(target)
-    const chat = await syncOpeningSwitch(original, target)
-    const card = await cards.readChat(chat)
-    const selection = selectSessionOpening({ ...input, chat, card })
-    const lifecycle = Number(chat.tavernHelperLifecycleRevision) || 0
-    if (input.expectedOpeningVersion === undefined && input.expectedLifecycleRevision !== lifecycle) throw new Error('开场白已变化，请重新选择')
-    if (selection.current) return { selectedIndex: input.swipeId, lifecycleRevision: lifecycle, openingVersion: sessionOpeningDescriptor(chat, card).version }
-    const [extensions, script] = await Promise.all([
-      cards.extensions(chat.cardPath, chat),
-      chat.mode === 'script' ? cards.script(chat.cardPath) : null
-    ])
-    if (extensions?.openingSetup) throw new Error('此卡的开局表单需要在开局时选择')
-    const saved = await chats.update(chat.id, current => {
-      assertOpeningIdle(target)
-      if ((Number(current.tavernHelperLifecycleRevision) || 0) !== lifecycle) throw new Error('开局状态已变化，请重新选择')
-      selectSessionOpening({ ...input, chat: current, card })
-      const nativeGreeting = findSessionOpening(target.session, current)
-      if (!nativeGreeting) throw new Error('找不到本局开场白的原生消息')
-      const projection = projectOpeningCommit(selection.text, {
-        charName: card.name,
-        macroState: { userName: current.macroState.userName, local: {}, global: {} },
-        regexScripts: composeTavernRegexScripts(extensions, current.runtimePresetSnapshot?.regexScripts, current.regexOverrides?.preset),
-        regexPlacement: 2, isEdit: false, depth: 0
-      })
-      const choices = cardOpeningChoices(card)
-      const row = current.messages[0]
-      const greeting = {
-        ...replyProse(selection.text, projection),
-        role: 'assistant', greeting: true, turn: 1, ts: row.ts, stagePageVersion: row.stagePageVersion,
-        openingChoiceId: selection.id, openingSelectionRevision: lifecycle + 1
-      }
-      if (row.messageUid) greeting.messageUid = row.messageUid
-      if (current.mvu?.enabled) {
-        greeting.swipes = choices.map(choice => choice.text)
-        greeting.swipeId = choices.findIndex(choice => choice.id === selection.id)
-        greeting.variables = choices.map(() => ({}))
-        greeting.mvu = { modified: false, diagnostics: [], events: [] }
-        current.mvu = { ...current.mvu, diagnostics: [], openingInitialization: { version: 2, status: 'pending' } }
-      }
-      current.messages = [greeting]
-      current.openingText = projection.sessionText || '\u3000'
-      current.macroState = projection.macroState
-      current.presentationWarnings = projection.warnings
-      current.variables = {}
-      delete current.tavernPluginMetadata
-      delete current.tavernScriptPrompts
-      if (script) {
-        const chunkSize = current.scriptState?.chunkSize
-        current.scriptState = scriptContinuity.startAligned(script, projection.sessionText, card.script_start)
-        if (chunkSize !== undefined) current.scriptState = scriptContinuity.transition({
-          script, state: current.scriptState, event: { kind: 'set-chunk-size', chunkSize }
-        }).state
-      }
-      current.tavernHelperLifecycleRevision = lifecycle + 1
-      current.nativeOpeningSwitch = { messageId: nativeGreeting.data.message.id }
-      return current
-    }, { source: 'opening.switch' })
-    await syncOpeningSwitch(saved, target)
-    return { selectedIndex: input.swipeId, lifecycleRevision: lifecycle + 1, openingVersion: sessionOpeningDescriptor(saved, card).version }
-  }
-
-  async function setPlayerName(sessionId, userName) {
-    let chat = await chats.resolve(sessionId)
-    if (!chat) throw new Error('当前会话没有绑定人物卡')
-    if (chat.mode === 'card') throw new Error('卡片工作台不使用玩家称呼')
-    chat = await syncOpeningSwitch(chat)
-    const name = str(userName).trim().slice(0, 80) || '你'
-    const opening = chat.messages[0]
-    const previousName = str(chat.macroState?.userName) || '你'
-    const projectionText = renameOpeningPlayerSlots(opening, { previousName, playerName: name, charName: str(chat.cardName) })
-    const changed = projectionText !== null && projectionText !== opening.projectionText
-    const extensions = changed ? await cards.extensions(chat.cardPath, chat) : null
-    const target = changed && chat.nativeOpeningAppended ? await native.wait(sessionId) : null
-    const saved = await chats.update(chat.id, current => {
-      if (changed) {
-        const row = current.messages[0]
-        if (!row?.greeting || row.sourceText !== opening.sourceText || row.projectionText !== opening.projectionText) {
-          throw new Error('开场白已变化，请重新保存玩家称呼')
-        }
-        if (target?.agent?.phase?.kind === 'running' || current.regenInProgress) throw new Error('请等当前生成结束后再修改玩家称呼')
-        const projection = projectReplyLayers(row.sourceText, {
-          projectionText, charName: current.cardName, macroState: { userName: name },
-          regexScripts: composeTavernRegexScripts(extensions, current.runtimePresetSnapshot?.regexScripts, current.regexOverrides?.preset),
-          placement: 2, isEdit: false, depth: 0
-        })
-        const nativeGreeting = target && findSessionOpening(target.session, current)
-        if (nativeGreeting && projection.sessionText !== current.openingText) {
-          native.assertReplacementAllowed()
-          current.nativeOpeningSwitch = { messageId: nativeGreeting.data.message.id }
-        }
-        current.openingText = projection.sessionText
-        writeReplyProse(row, row.sourceText, projection)
-        delete row.displayRuntime
-        if (row.tavernPluginData) {
-          delete row.tavernPluginData.template_display
-          delete row.tavernPluginData.template_rendered
-        }
-      }
-      current.macroState = { local: {}, global: {}, ...current.macroState, userName: name }
-      return current
-    }, { source: 'player-name.set' })
-    await syncOpeningSwitch(saved, target)
-    return name
   }
 
   return Object.freeze({
     start: input => serialize(input.sessionId, () => initialize(input)),
     prepareImport: input => serialize(input.sessionId, () => initialize({ ...input, mode: 'play', requestMode: 'dsh', importDraft: true })),
     ensureOpening: sessionId => serialize(sessionId, () => recover(sessionId)),
-    switchOpening: (sessionId, input) => serialize(sessionId, () => switchOpening(sessionId, input)),
-    setPlayerName: (sessionId, userName) => serialize(sessionId, () => setPlayerName(sessionId, userName)),
-    finishOpeningSwitch: sessionId => serialize(sessionId, async () => {
-      const chat = await chats.openingSwitchState(sessionId)
-      if (chat?.nativeOpeningSwitch) await syncOpeningSwitch(chat)
-    })
+    switchOpening: opening.switchOpening,
+    setPlayerName: opening.setPlayerName,
+    openingRequest: opening.request
   })
 }

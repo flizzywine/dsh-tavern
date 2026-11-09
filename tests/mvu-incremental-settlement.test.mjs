@@ -79,18 +79,6 @@ for(const append of [false,true]) for(const rows of [20,400]) test(`MVU ${rows} 
  await assert.rejects(adapter.updateVariables('s',{type:'message',message_id:2},{},0,offer.event.id),/迟到/)
 })
 
-test('expired offer cannot deliver a context after asynchronous projection',async t=>{
- const gate=createTavernScriptDispatch();t.after(()=>gate.dispose('s'));gate.touch('s','browser',true)
- let release
- const prepared=new Promise(r=>{release=r})
- const result=gate.dispatch('s','MESSAGE_RECEIVED',[0],null,{contextForBaseline:()=>prepared})
- const offered=gate.claimWithContext('s','browser',true)
- gate.dispose('s','browser')
- release({chatId:'c',messages:[]})
- assert.equal((await offered).event,null)
- assert.equal((await result).disposed,true)
-})
-
 for(const reason of ['old-turn-change','old-client']) test(`append dispatch retains full fallback: ${reason}`,async t=>{
  const root=await mkdtemp(join(tmpdir(),'mvu-layout-'));t.after(()=>rm(root,{recursive:true,force:true}))
  const db=createChatPersistence({store:createChatJournalStore({dataRoot:root})})

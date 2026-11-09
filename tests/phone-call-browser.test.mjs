@@ -533,9 +533,9 @@ for (const language of ['zh','ja']) test(`${language}: an incomplete audio strea
     if(method==='phoneCallStart')return {callId:'c1',language:'${language}',contact:{id:args.contactId,name:'辉夜'}};
     if(method==='phoneCallPoll')return {segments:[{index:0,say:'${say}',sub:'第一句，',part:true},{index:1,say:'${language==='zh'?'最后的秘密。':'二。'}',sub:'最后的秘密。'}],done:true};
   `,undefined,{fakeClock:true})
-  await page.waitForTimeout(4300)
+  await page.waitForFunction(() => Number.isFinite(phoneModCallProbe.attempts[0]?.timing?.firstScheduledAt), null, {timeout:15000})
   await page.evaluate(()=>{audioClock.t=0.8})
-  await page.waitForTimeout(100)
+  await page.waitForFunction(() => phoneModCall.get().lines.length > 0)
   assert.deepEqual(await page.evaluate(()=>phoneModCall.get().lines.map(line=>line.text)),['第一句，'])
   assert.deepEqual(errors,[])
   await page.evaluate(()=>phoneModCall.command({action:'end'}))

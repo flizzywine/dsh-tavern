@@ -94,18 +94,3 @@ test('card-scoped callers and providers cannot read or use a different card, inc
   await assert.rejects(provider.service.listImageCharacters({ card: 'cards/b.json' }), { code: 'TAVERN_PLUGIN_SCOPE' })
   await assert.rejects(consumer.listImageCharacters({ gameId: 'a', card: 'cards/b.json' }), /不匹配/)
 })
-
-test('an in-flight library read cannot return data after its provider is unloaded', async () => {
-  const h = harness(), provider = h.plugin('images'), consumer = h.plugin('consumer').service
-  let finish, started
-  const ready = new Promise(resolve => { started = resolve })
-  provider.service.registerImageLibrary({ id: 'lib', label: '慢库', characters: () => {
-    started()
-    return new Promise(resolve => { finish = resolve })
-  } })
-  const pending = consumer.listImageCharacters()
-  await ready
-  provider.dispose()
-  finish([{ id: 'c', name: 'gone' }])
-  assert.equal((await pending).total, 0)
-})

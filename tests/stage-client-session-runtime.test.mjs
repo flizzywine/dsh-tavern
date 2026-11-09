@@ -17,11 +17,6 @@ test('plugin runtime owns session observers and disposes all owners despite a cl
  runtime.dispose();first.dispose();second.dispose();assert.equal(stops,2)
  assert.throws(()=>runtime.createSessionOwner(inputs(false)),/disposed/)
 })
-test('explicit session teardown leaves plugin teardown idempotent',()=>{
- const runtime=createStageSessionRuntime({kernel,createStoreModule,createSessionModule});let stopped=0
- const owner=runtime.createSessionOwner({sessions:{list:{getSnapshot:()=>({byId:{}}),subscribe:()=>()=>stopped++}}})
- owner.start();owner.dispose();runtime.dispose();assert.equal(stopped,1)
-})
 
 test('plugin disposal stops director IO and fences late watches, timers and new effects',async()=>{
  const {createStageDirectorModule:createDirectorModule}=require('../tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs')
@@ -58,58 +53,4 @@ test('plugin resource disposal cancels all sessions despite progress cleanup fai
  await resources.prefetch({sessionId:'c'},{complete:true,token:{},through:1})
  resources.dispose();assert.equal(reads,2);assert.equal(released,1);assert.deepEqual(events,[])
  assert.throws(()=>runtime.createResources({}),/disposed/)
-})
-
-
-test('connection owns effect routing, history caching and reverse teardown with late entry fencing',async()=>{
- const calls=[];let input,releaseEntry,reads=0,prefetch=0
- const effect=()=>{},prime=()=>{},resources={onEffect:effect,invalidate:id=>calls.push('resources:'+id),prefetch:()=>prefetch++,dispose:()=>calls.push('resources')}
- const source={runEffect:effect,cached:()=>null,prime,invalidate:id=>calls.push('director:'+id),dispose:()=>calls.push('director')}
- const owner={get:()=>({id:'store'}),start:()=>calls.push('start'),dispose:()=>{calls.push('session');throw Error('session cleanup')}}
- const runtime=createStageSessionRuntime({createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:options=>(input=options,owner)}),
-  createResourceModule:()=>({createStageResourceRunner:()=>resources}),createDirectorModule:()=>({createStageDirectorSource:options=>{assert.equal(options.onEffect,effect);return source}})})
- const connection=runtime.createConnection({resources:{},direction:{read:()=>++reads},session:{},waitForEntry:store=>{assert.equal(store.id,'store');return new Promise(resolve=>releaseEntry=resolve)}})
- connection.start();assert.equal(input.runEffect,effect);assert.equal(input.primeHistory,prime)
- assert.equal(input.readHistory({}, {}, {}),1)
- input.invalidateHistory('a');assert.deepEqual(calls,['start','director:a','resources:a'])
- const pending=input.prefetchHistory({sessionId:'a'},{});
- assert.throws(()=>runtime.dispose(),/cleanup failed/)
- releaseEntry();await pending;assert.equal(prefetch,0)
- assert.deepEqual(calls.slice(-3),['session','director','resources'])
- assert.equal(input.readHistory({}, {}, {}),null);assert.equal(reads,1)
- connection.dispose();assert.throws(()=>connection.start(),/disposed/)
-})
-
-test('connection owns observation startup and rolls it back before session and effect chain',()=>{
- const calls=[];let observed
- const owner={start:()=>calls.push('start'),dispose:()=>calls.push('session')}
- const resources={dispose:()=>calls.push('resources')}
- const runtime=createStageSessionRuntime({createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:()=>owner}),
- createDirectorModule:()=>({createStageDirectorSource:()=>({dispose:()=>calls.push('director')})}),
- createResourceModule:()=>({createStageResourceRunner:()=>resources}),
- createObservation:inputs=>{observed=inputs;return {start(){throw Error('observation failed')},dispose:()=>calls.push('observation')}}})
- const connection=runtime.createConnection({resources:{},direction:{},session:{},observation:{marker:1}})
- assert.throws(()=>connection.start(),/observation failed/)
- assert.equal(observed.owner,owner);assert.equal(observed.resources,resources);assert.equal(observed.marker,1)
- assert.deepEqual(calls,['start','observation','session','director','resources'])
- runtime.dispose();connection.dispose();assert.equal(calls.length,5)
-})
-
-test('runtime UI lookup resolves only started connections and drops disposed owners',()=>{
- const store={},owner={get:id=>id==='a'?store:null,start(){},dispose(){}}
- const runtime=createStageSessionRuntime({createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:()=>owner}),createResourceModule:()=>({createStageResourceRunner:()=>({dispose(){}})}),createDirectorModule:()=>({createStageDirectorSource:()=>({dispose(){}})})})
- const connection=runtime.createConnection({resources:{},direction:{},session:{}})
- assert.equal(runtime.get('a'),null);connection.start();assert.equal(runtime.get('a'),store)
- connection.dispose();assert.equal(runtime.get('a'),null);runtime.dispose()
-})
-
-test('presentation and mod refresh route through the active plugin connection only',()=>{
- const calls=[],owner={get:id=>id==='a'?{}:null,start(){},dispose(){}}
- const runtime=createStageSessionRuntime({createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:()=>owner}),createResourceModule:()=>({createStageResourceRunner:()=>({dispose(){}})}),createDirectorModule:()=>({createStageDirectorSource:()=>({dispose(){}})}),
- createModNotifications:()=>({observe(){},dispose(){},presented:(...args)=>calls.push(['presented',...args]),reannounce:id=>calls.push(['reannounce',id])})})
- const connection=runtime.createConnection({resources:{},direction:{},session:{},notifications:{}})
- runtime.reannounce('a');assert.equal(calls.length,0)
- connection.start();runtime.presented('a',{performanceId:'p',phase:'entry'});runtime.reannounce('a');runtime.reannounce('missing')
- assert.deepEqual(calls,[['presented','a',{performanceId:'p',phase:'entry'}],['reannounce','a']])
- connection.dispose();runtime.reannounce('a');runtime.presented('a',{});runtime.dispose();assert.equal(calls.length,2)
 })

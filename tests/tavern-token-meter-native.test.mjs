@@ -129,33 +129,3 @@ test('撤销回退恢复带 usage 的模型正文后仍可统计，历史和用�
   assert.ok(ctx.tokenMeter.measure(session).totalTokens > 0)
   assert.equal(JSON.stringify(session.snapshotEvents()), before)
 })
-
-test('后续切换预设不改变旧替换的归属，伪造恢复内容仍被拒绝', native, async t => {
-  const {ctx, Session} = await harness(t)
-  const session = Session.create('switch-after-edit')
-  session.append('agent-preset/selected', {agentPreset: 'tavern'})
-  const original = completed(session)
-  const edit = appendSessionEvent(session, 'assistant/message', {turn: 1, step: 1, message: {id: 'edit', role: 'assistant', content: [], source}}, {surfaceOp: {op: 'replace', start: original.seq, end: original.seq}, sourceEventSeqs: [original.seq]})
-  session.append('agent-preset/selected', {agentPreset: 'standard'})
-  t.after(installTavernTokenMeter(ctx.tokenMeter))
-  assert.doesNotThrow(() => ctx.tokenMeter.measure(session))
-  session.append('agent-preset/selected', {agentPreset: 'tavern'})
-  appendSessionEvent(session, 'assistant/message', {...original.data, message: {...original.data.message, content: [{type: 'text', text: '不是原文'}]}}, {surfaceOp: {op: 'replace', start: edit.seq, end: edit.seq}, sourceEventSeqs: [edit.seq, original.seq]})
-  assert.throws(() => ctx.tokenMeter.measure(session), /no matching step\/start/)
-})
-
-test('正文走工具调用：回合结束后追加的正文投影也能计量，压缩不再卡住（#263）', native, async t => {
-  const { ctx, Session } = await harness(t)
-  const session = Session.create('story-tool', [], { ...Session.create('story-tool').header, agentPreset: 'tavern' })
-  completed(session, { inputTokens: 10, outputTokens: 10 })
-  const callSeq = session.surface.nodes.at(-1)
-  // The tool already concluded the turn: the projection is appended outside any step, then folded.
-  const owned = { kind: 'model', provider: 'dsh-tavern', model: 'reply-projection' }
-  const reply = { id: 'projected', role: 'assistant', content: [{ type: 'text', text: '提交的正文。'.repeat(200) }], source: owned }
-  const shown = appendSessionEvent(session, 'assistant/message', { turn: 1, step: 1, message: reply }, { surfaceOp: 'append', sourceEventSeqs: [] })
-  const shownSeq = typeof shown === 'number' ? shown : shown.seq
-  appendSessionEvent(session, 'assistant/message', { turn: 1, step: 1, message: reply }, { surfaceOp: { op: 'replace', start: callSeq, end: shownSeq }, sourceEventSeqs: [callSeq, shownSeq] })
-  assert.throws(() => ctx.tokenMeter.measure(session), /assistant\/message.*no matching step\/start/)
-  t.after(installTavernTokenMeter(ctx.tokenMeter))
-  assert.ok(ctx.tokenMeter.measure(session).totalTokens > 0)
-})

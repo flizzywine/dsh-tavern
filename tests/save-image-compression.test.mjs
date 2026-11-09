@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 import { deflateSync, crc32 } from 'node:zlib'
 import { compressSaveImage } from '../tavern-plugin/lib/domain/save-image-compression.js'
 
@@ -35,7 +36,7 @@ test('导出存档时 PNG、JPEG 转成更小的 WebP', async () => {
   assert.equal(result.data.toString('ascii', 8, 12), 'WEBP')
   assert.ok(result.data.length < source.length / 3, source.length + ' → ' + result.data.length)
 
-  const jpegEncode = await import(require.resolve('@jsquash/jpeg/encode.js'))
+  const jpegEncode = await import(pathToFileURL(require.resolve('@jsquash/jpeg/encode.js')).href)
   await jpegEncode.init(await WebAssembly.compile(await readFile(require.resolve('@jsquash/jpeg/codec/enc/mozjpeg_enc.wasm'))))
   const jpeg = Buffer.from(await jpegEncode.default({ data: pixels, width: size, height: size }, { quality: 95 }))
   const fromJpeg = await compressSaveImage({ attachmentId: 'b', mediaType: 'image/jpeg', data: jpeg })

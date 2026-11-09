@@ -12914,7 +12914,7 @@ window.__ModuleLoader__.load({
 		    const notify=()=>{for(const fn of [...listeners])fn();};
 		    const take=next=>{({CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stageSwitchTag, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter}=next);};
 		    // The exact names the stage pages reference from this factory (its declarations and parameters) and from the core client.
-		    const names={VoiceCataloguePicker, voiceKey, voiceFromKey, generalVoiceOptions, React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+		    const names={React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
 		      EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
 		    return {names, get views(){return views;}, bound:()=>views!==null,
 		      bind(next){views=next;take(next);live2dKit=next.live2dKit||live2dOption;notify();return()=>{if(views!==next)return;views=null;take({});live2dKit=live2dOption;notify();};},
@@ -37697,6 +37697,62 @@ function useTavernStoryTranscript(store, sessionId, hookOptions) {
 	return snapshot
 }
 
+// Story windows and live views are separate projections. Coordinate reads here
+// so rendering does not have to order their refresh triggers.
+function useTavernStoryProjectionRefresh(store, sessionId, {
+	historyFrom, enabled, active, running, partial, transcript, view, status, externalHistory
+}) {
+	const live = typeof useLiveTavernView === 'function'
+		? useLiveTavernView(sessionId, 'story-transcript-revision', undefined, { deferLoad: !view }) : null
+	const liveRevision = Number(live?.view?.tavernHelper?.stateRevision ?? view?.tavernHelper?.stateRevision)
+	const storyRevision = Number(transcript?.revision)
+	const nativeTurn = Number.isInteger(partial?.turn) ? partial.turn : null
+	const storyTurn = nativeTurn !== null && typeof tavernStoryTurnForDshTurn === 'function'
+		? tavernStoryTurnForDshTurn(view, nativeTurn) : nativeTurn
+	const previous = React.useRef(null)
+
+	React.useEffect(function () {
+		const last = previous.current
+		const sameSession = last?.store === store && last.sessionId === sessionId
+		const sameWindow = sameSession && last.historyFrom === historyFrom
+		const checkedRevision = sameWindow ? last.checkedRevision : null
+		const current = { store, sessionId, historyFrom, enabled, active, running, nativeTurn, storyTurn, checkedRevision }
+		previous.current = current
+		if (!active) return
+
+		const resumed = sameSession && enabled && !last.enabled
+		const turnEnded = sameSession && last.running && !running
+		const openingStatus = !sameWindow ? store.snapshotFor?.(sessionId, historyFrom)?.status : null
+		const openingRead = openingStatus === 'loading' || openingStatus === 'refreshing'
+		const streamStarted = nativeTurn !== null && !openingRead && (!sameWindow || !last.active || last.nativeTurn !== nativeTurn)
+		const streamStopped = sameSession && last.active && last.storyTurn != null && nativeTurn === null && !running
+		const settled = streamStopped && Array.isArray(transcript?.messages) && transcript.messages.some(function (entry) {
+			const message = entry?.message
+			return message?.role === 'assistant' && message.placeholder !== true
+				&& (Number(message.turn) === Number(last.storyTurn) || (entry.messageUid && entry.messageUid === view?.streamingMessageUid))
+		})
+		const behind = status !== 'loading' && status !== 'refreshing'
+			&& Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision)
+			&& liveRevision > storyRevision && liveRevision !== checkedRevision
+
+		if (turnEnded) externalHistory?.refresh(sessionId, { force: true })
+		if (resumed || turnEnded || streamStarted || (streamStopped && !settled) || behind) {
+			if (behind) current.checkedRevision = liveRevision
+			void store.read(sessionId, { historyFrom, force: true })
+		}
+	}, [store, sessionId, historyFrom, enabled, active, running, nativeTurn, storyTurn,
+		transcript, view, status, liveRevision, storyRevision, externalHistory])
+
+	React.useEffect(function () {
+		if (!active || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined
+		function changed(event) {
+			if (String(event.detail?.sessionId || '') === sessionId) void store.read(sessionId, { historyFrom, force: true })
+		}
+		window.addEventListener('dsh-tavern-story-mutated', changed)
+		return function () { window.removeEventListener('dsh-tavern-story-mutated', changed) }
+	}, [store, sessionId, historyFrom, active])
+}
+
 function createTavernStoryTranscriptModeStore(storeOptions) {
 	const options = storeOptions || {}
 	const key = options.key || 'dsh-tavern-story-transcript-renderer'
@@ -37844,9 +37900,14 @@ function createTavernStoryTranscriptDataModule(deps) {
 			const sameSession = state.sessionId === id
 			const sameTarget = sameSession && state.historyFrom === historyFrom && (!includeToolCalls || state.includeToolCalls)
 			if (id === '') {
-				if (state !== IDLE) publish(IDLE)
+				if (state !== IDLE) {
+					ticket += 1
+					cancelLiveView(state.sessionId)
+					publish(IDLE)
+				}
 				return state
 			}
+			if (!sameSession) cancelLiveView(state.sessionId)
 			if (!force && sameTarget && (state.status === 'loading' || state.status === 'refreshing')) return state
 			if (!force && sameTarget && (state.status === 'ready' || state.status === 'empty')) {
 				touch(key)
@@ -37919,6 +37980,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 		fetchStoryTranscript: fetchStoryTranscript,
 		createStoryTranscriptStore: createStoryTranscriptStore,
 		useStoryTranscript: useTavernStoryTranscript,
+		useProjectionRefresh: useTavernStoryProjectionRefresh,
 		createModeStore: createTavernStoryTranscriptModeStore,
 		useMode: useTavernStoryTranscriptMode,
 		// 纯投影，列表组件与本模块的测试共用（顶层同名函数）。
@@ -38518,76 +38580,16 @@ function createTavernStoryTranscriptFeature(deps) {
 		const runningCalls = props.useChat(function (snapshot) { return snapshot && snapshot.legacy && Array.isArray(snapshot.legacy.runningCalls) ? snapshot.legacy.runningCalls : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true })
 		const pendingInputs = props.useSession(function (snapshot) { return snapshot && Array.isArray(snapshot.pendingSubmissions) ? snapshot.pendingSubmissions : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
-		const nativeStreamTurn = partial && Number.isInteger(partial.turn) ? partial.turn : null
-		const previous = React.useRef({ sessionId: sessionId, enabled: enabled, running: running })
-		React.useEffect(function () {
-			if (nativeStreamTurn !== null && storyActive) void store.read(sessionId, { historyFrom: controller.historyFrom, force: true })
-		}, [store, sessionId, controller.historyFrom, nativeStreamTurn, storyActive])
-		// 流式正文消失且宿主已经报空闲，说明这一轮写完了：正式楼层若还没读回来，屏幕上
-		// 只剩玩家那一行，要刷新才出现。重新生成、后台收尾都不一定把 running 从 true 翻
-		// 回 false，turn/end 的那次重读也就不会来，这里按流本身补一次。
-		const streamedStoryTurn = nativeStreamTurn !== null && typeof tavernStoryTurnForDshTurn === 'function'
-			? tavernStoryTurnForDshTurn(view, nativeStreamTurn) : nativeStreamTurn
-		const streamedTurnBefore = React.useRef(null)
-		React.useEffect(function () {
-			if (nativeStreamTurn !== null) { streamedTurnBefore.current = streamedStoryTurn; return }
-			const settling = streamedTurnBefore.current
-			streamedTurnBefore.current = null
-			if (settling === null || settling === undefined || !storyActive || running) return
-			if (state.status === 'loading' || state.status === 'refreshing') return
-			// 这一楼已经落在存档里就不用再读，收尾由 turn/end 与 revision 负责。
-			const settled = transcript && Array.isArray(transcript.messages) && transcript.messages.some(function (entry) {
-				const message = entry && entry.message
-				if (!message || message.role !== 'assistant' || message.placeholder === true) return false
-				return Number(message.turn) === Number(settling) || entry.messageUid === (view && view.streamingMessageUid)
-			})
-			if (settled) return
-			void store.read(sessionId, { historyFrom: controller.historyFrom, force: true })
-		}, [store, sessionId, controller.historyFrom, storyActive, state.status, transcript, streamedStoryTurn, running, view])
-		// The story response seeds this exact bounded view. Until it arrives this
-		// outer revision reader is passive; otherwise its first subscription starts
-		// a duplicate full getSession before the story response can be published.
-		const liveState = typeof useLiveTavernView === 'function' ? useLiveTavernView(sessionId, 'story-transcript-revision', undefined, { deferLoad: !view }) : null
-		const liveStoryRevision = Number(liveState && liveState.view && liveState.view.tavernHelper ? liveState.view.tavernHelper.stateRevision
-			: view && view.tavernHelper && view.tavernHelper.stateRevision)
-		const renderedStoryRevision = Number(transcript && transcript.revision)
-		React.useEffect(function () {
-			// Settlement and other background Chat writes do not end another native
-			// turn. Once the live save revision moves ahead, refresh the story rows so
-			// edit/fork/delete selectors never keep the pre-settlement revision.
-			if (!transcript || !storyActive || state.status === 'loading' || state.status === 'refreshing') return
-			if (!Number.isSafeInteger(liveStoryRevision) || !Number.isSafeInteger(renderedStoryRevision)) return
-			if (liveStoryRevision > renderedStoryRevision) void store.read(sessionId, { historyFrom: controller.historyFrom, force: true })
-		}, [store, sessionId, controller.historyFrom, storyActive, state.status, liveStoryRevision, renderedStoryRevision])
+		data.useProjectionRefresh(store, sessionId, {
+			historyFrom: controller.historyFrom, enabled, active: storyActive, running, partial,
+			transcript, view, status: state.status, externalHistory: storyExternalHistory
+		})
 		React.useEffect(function () {
 			// An ordinary chat with no Tavern story falls back to the native flow;
 			// restore every native row instead of leaving only the latest turn.
 			storyEligibility.set(sessionId, !storyUnavailable && sessionMode !== 'card' && (!view || view.mode !== 'card'))
 			if (storyExternalHistory) storyExternalHistory.refresh(sessionId)
 		}, [sessionId, enabled, sessionMode, view && view.mode, storyUnavailable])
-		React.useEffect(function () {
-			const last = previous.current
-			const sameSession = last.sessionId === sessionId
-			const resumed = sameSession && enabled && !last.enabled
-			// The host appends turn/end only after the awaited turn-stopping hook,
-			// which is where foreground.commit persists these same logical rows.
-			const turnEnded = sameSession && last.running && !running
-			previous.current = { sessionId: sessionId, enabled: enabled, running: running }
-			if ((resumed || turnEnded) && storyActive) {
-				if (turnEnded && storyExternalHistory) storyExternalHistory.refresh(sessionId, { force: true })
-				void store.read(sessionId, { historyFrom: controller.historyFrom, force: true })
-			}
-		}, [store, sessionId, controller.historyFrom, running, enabled, sessionMode, storyActive])
-		React.useEffect(function () {
-			if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined
-			function changed(event) {
-				if (event && event.detail && String(event.detail.sessionId || '') === sessionId && storyActive) {
-					void store.read(sessionId, { historyFrom: controller.historyFrom, force: true })
-				}
-			}
-			window.addEventListener('dsh-tavern-story-mutated', changed)
-			return function () { window.removeEventListener('dsh-tavern-story-mutated', changed) }
-		}, [store, sessionId, controller.historyFrom, storyActive])
 		React.useEffect(function () {
 			if (view && typeof view.mode === 'string' && typeof publishSessionMode === 'function') publishSessionMode(sessionId, view.mode)
 		}, [sessionId, view && view.mode])

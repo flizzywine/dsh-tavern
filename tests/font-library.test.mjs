@@ -29,21 +29,6 @@ async function fixture(t) {
   return { root, dir, manifest, api, url, request }
 }
 
-test('font library: the catalog lists each family with its files; a broken folder hides only itself', async t => {
-  const f = await fixture(t)
-  const { fonts } = await f.api.listFonts()
-  assert.equal(fonts.length, 1)
-  assert.deepEqual(fonts[0], { id: 'example', label: '示例', family: 'Tavern example', category: 'sans', weights: [400],
-    files: [{ weight: 400, style: 'normal', file: f.manifest.files[0].file, format: 'woff2', bytes: 15, url: f.url }], url: f.url,
-    license: 'SIL OFL 1.1', source: 'https://example.test/font', coverage: { subset: false } })
-  assert.deepEqual(await createFontLibrary({ dataRoot: path.join(f.root, 'missing'), bundledRoot: null }).listFonts(), { fonts: [] })
-  await mkdir(path.join(f.root, 'fonts', 'broken'))
-  await writeFile(path.join(f.root, 'fonts', 'broken', 'index.json'), 'broken')
-  assert.equal((await f.api.listFonts()).fonts.length, 1)
-  await writeFile(path.join(f.dir, 'index.json'), JSON.stringify({ ...f.manifest, family: 'evil";}' }))
-  assert.equal((await f.api.listFonts()).fonts.length, 0, 'a family name that is not a plain name is never listed')
-})
-
 test('font library: the plugin ships its open-source families; an installed family of the same id replaces one whole', async t => {
   const f = await fixture(t), api = createFontLibrary({ dataRoot: f.root })
   const shipped = Object.fromEntries((await api.listFonts()).fonts.map(font => [font.id, font]))

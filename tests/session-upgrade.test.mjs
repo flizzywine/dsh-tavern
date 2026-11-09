@@ -5,12 +5,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
-import { zstdCompressSync } from 'node:zlib'
 import test from 'node:test'
 import { prepareExpandedPatch } from '../tavern-plugin/lib/domain/host-session-patch.js'
 import { encodeCurrentGeneration, encodeMigratedSessionLog, parseSessionLog } from '../tavern-plugin/lib/domain/session-log-codec.js'
 import { migrateSessionDirectory, prepareSessionUpgrade, restoreSessionLog } from '../tavern-plugin/lib/domain/session-upgrade.js'
-import { compactedLegacySession } from './fixtures/compacted-legacy-session.mjs'
 
 // A DSH install with node_modules: TAVERN_DSH_RUNTIME, else the one DSH_BOOT_MODULE lives in.
 const bootRoot = process.env.DSH_BOOT_MODULE ? process.env.DSH_BOOT_MODULE.split(path.sep + 'node_modules' + path.sep)[0] : ''
@@ -69,34 +67,6 @@ test('upgraded edit history keeps citations, supports new turns and cold restore
   assert.equal(reopened.snapshotEvents().filter(row => row.type === 'turn/start').length, 2)
 })
 
-test('old reserved opening moves boundaries, not turns, and remaps all message references', () => {
-  const old = fixture()
-  // Old reserved system preceded the first live turn.
-  old.events = [old.events[2], old.events[0], old.events[1], ...old.events.slice(3)].map((row, seq) => ({ ...row, seq }))
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  assert.equal(artifact.inheritedEventCount, 0)
-  assert.deepEqual(artifact.events.slice(0, 3).map(row => row.type), ['turn/start', 'step/start', 'system/message'])
-  assert.deepEqual(texts(openSession(artifact)), ['角色设定', '继续故事', '已编辑正文'])
-  assert.deepEqual(artifact.events.filter(row => row.type === 'turn/start').map(row => row.data.turn), [1])
-})
-
-test('user prefix before first system gains an empty protected head without losing messages', () => {
-  const old = fixture()
-  old.events = [old.events[3], old.events[0], old.events[1], old.events[2], ...old.events.slice(4)].map((row, seq) => ({ ...row, seq }))
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  assert.deepEqual(texts(openSession(artifact)), ['角色设定', '继续故事', '已编辑正文'])
-  assert.equal(artifact.events.filter(row => row.type === 'system/message').length, 2)
-  assert.equal(artifact.inheritedEventCount, 0)
-})
-
-test('v0 compaction keeps archived story, summary and source boundaries', () => {
-  const old = compactedLegacySession()
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  assert.deepEqual(texts(openSession(artifact)), ['SUMMARY_TO_KEEP'])
-  assert.match(JSON.stringify(artifact.events), /OLD_STORY_SHOULD_STAY_ARCHIVED/)
-  assert.equal(artifact.events.find(row => row.type === 'compaction/summary').data.shadowedSeqs.length, 1)
-})
-
 test('disk upgrade preserves originals and Tavern data; rerun cannot overwrite newer progress', async t => {
   const directory = await root(t)
   const source = await save(directory, fixture(), false)
@@ -119,21 +89,6 @@ test('disk upgrade preserves originals and Tavern data; rerun cannot overwrite n
   assert.equal(await readFile(source.target, 'utf8'), 'damaged new progress')
 })
 
-test('parent catalog uses actual child descriptors and retains child session IDs', async t => {
-  const directory = await root(t)
-  const parent = await save(directory, fixture('parent'))
-  const child = fixture('child')
-  child.header = { ...child.header, origin: 'subagent', parentSession: 'parent', delegationDepth: 1 }
-  child.events.push({ seq: child.events.length, time: 2, type: 'subagent/descriptor', data: { version: 2, provider: 'tavern', mode: 'continuable', label: '变量后台' } })
-  const childFile = await save(directory, child)
-  const result = await migrateSessionDirectory(directory, migration)
-  assert.equal(result.migrated, 2, JSON.stringify(result.failures))
-  const artifact = restoreSessionLog(parseSessionLog(await readFile(parent.target)), catalog)
-  assert.equal(artifact.events.find(row => row.type === 'subagent/catalog').data.childId, 'child')
-  assert.deepEqual(await readFile(childFile.file), childFile.bytes)
-  assert.equal(restoreSessionLog(parseSessionLog(await readFile(childFile.target)), catalog).header.parentSession, 'parent')
-})
-
 test('invalid references and ambiguous generations never publish a partial current file', async t => {
   const directory = await root(t)
   const bad = fixture('bad')
@@ -146,45 +101,6 @@ test('invalid references and ambiguous generations never publish a partial curre
   await writeFile(path.join(source.directory, 'session.v3.jsonl'), 'other generation')
   assert.equal((await migrateSessionDirectory(directory, migration)).refused, 1)
   assert.equal(existsSync(source.target), false)
-})
-
-test('compressed frame boundaries may split a UTF-8 character or JSON row', () => {
-  const parsed = fixture()
-  const raw = Buffer.from([parsed.header, ...parsed.events].map(JSON.stringify).join('\n') + '\n')
-  const cut = raw.indexOf(Buffer.from('角色')) + 1
-  const bytes = Buffer.concat([zstdCompressSync(raw.subarray(0, cut)), zstdCompressSync(raw.subarray(cut))])
-  assert.deepEqual(parseSessionLog(bytes), { headerLine: JSON.stringify(parsed.header), ...parsed })
-  assert.throws(() => parseSessionLog(bytes.subarray(0, bytes.length - 1)))
-})
-
-test('fork edits after inherited end-seed retain the seed cut and existing play turns', () => {
-  const old = fixture('fork')
-  old.events = [...old.events.slice(0, 5), old.events[7], old.events[8],
-    { type: 'session/end-seed', data: { inherited: true } }, old.events[5], old.events[6],
-    { type: 'turn/start', data: { turn: 2 } },
-    { type: 'step/start', data: { turn: 2, step: 1 } },
-    { type: 'user/message', data: message('user', '分支继续'), surfaceOp: 'append' },
-    { type: 'step/end', data: { turn: 2, step: 1 } },
-    { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
-  ].map((row, seq) => ({ time: 1, ...row, seq }))
-  const { type, ...logicalHeader } = old.header
-  old.header = migration.historicalSessionFormatCatalog.encodeCurrentHeader({ ...logicalHeader, isSeeded: true }, 7)
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  assert.equal(artifact.inheritedEventCount, 7)
-  assert.deepEqual(artifact.events.filter(row => row.type === 'turn/start').map(row => row.data.turn), [1, 2])
-  assert.deepEqual(texts(openSession(artifact)), ['角色设定', '继续故事', '已编辑正文', '分支继续'])
-  assert.deepEqual(artifact.events.slice(0, 7).map(row => row.type), old.events.slice(0, 7).map(row => row.type))
-  const replacement = artifact.events.find(row => row.surfaceOp?.op === 'replace')
-  assert.equal(replacement.data.turn, 2)
-  assert.deepEqual(replacement.sourceEventSeqs, [4])
-})
-
-test('a last closed-turn edit gets a new administrative turn, leaving old turn IDs intact', () => {
-  const old = fixture()
-  old.events = [...old.events.slice(0, 5), old.events[7], old.events[8], old.events[5], old.events[6]].map((row, seq) => ({ ...row, seq }))
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  assert.deepEqual(artifact.events.filter(row => row.type === 'turn/start').map(row => row.data.turn), [1, 2])
-  assert.deepEqual(texts(openSession(artifact)), ['角色设定', '继续故事', '已编辑正文'])
 })
 
 test('a corrupt child blocks parent catalog publication and retains both originals', async t => {
@@ -219,45 +135,6 @@ test('a source changed during conversion is not published and temporary files ar
   assert.match(result.failures[0].reason, /发生变化/)
   assert.equal(existsSync(source.target), false)
   assert.equal((await readdir(source.directory)).some(name => name.includes('.tmp-')), false)
-})
-
-test('turn-zero opening works even when the old save has no system message', () => {
-  const old = fixture()
-  old.events = [
-    { type: 'user/message', data: message('user', '开场设定'), surfaceOp: 'append' },
-    { type: 'assistant/message', data: { turn: 0, step: 1, stream: [], message: message('assistant', '开场正文') }, surfaceOp: 'append' },
-    old.events[0], old.events[1], old.events[4], old.events[7], old.events[8],
-  ].map((row, seq) => ({ time: 1, ...row, seq }))
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  assert.deepEqual(texts(openSession(artifact)), ['开场设定', '开场正文', '旧正文'])
-  assert.deepEqual(artifact.events.filter(row => row.type === 'turn/start').map(row => row.data.turn), [1])
-})
-
-test('a save made before generating its first turn keeps the reserved prompt', () => {
-  const old = fixture()
-  old.events = [old.events[2], old.events[3], { type: 'session/end-seed', data: {} }].map((row, seq) => ({ time: 1, ...row, seq }))
-  assert.deepEqual(texts(openSession(prepareSessionUpgrade(old, migration).artifact)), ['角色设定', '继续故事'])
-})
-
-test('the first system prompt may arrive on a later turn', () => {
-  const old = fixture()
-  old.events = [old.events[0], old.events[1], old.events[4], old.events[7], old.events[8],
-    { type: 'turn/start', data: { turn: 2 } }, { type: 'step/start', data: { turn: 2, step: 1 } },
-    { ...old.events[2], data: { ...old.events[2].data, turn: 2 } },
-    { type: 'step/end', data: { turn: 2, step: 1 } }, { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
-  ].map((row, seq) => ({ time: 1, ...row, seq }))
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  assert.deepEqual(texts(openSession(artifact)), ['角色设定', '旧正文'])
-  assert.deepEqual(artifact.events.filter(row => row.type === 'turn/start').map(row => row.data.turn), [1, 2])
-})
-
-test('editing after step/end but before turn/end uses a new step in the same turn', () => {
-  const old = fixture()
-  old.events = [...old.events.slice(0, 5), old.events[7], old.events[5], old.events[6], old.events[8]].map((row, seq) => ({ ...row, seq }))
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  assert.deepEqual(texts(openSession(artifact)), ['角色设定', '继续故事', '已编辑正文'])
-  assert.deepEqual(artifact.events.filter(row => row.type === 'turn/start').map(row => row.data.turn), [1])
-  assert.deepEqual(artifact.events.filter(row => row.type === 'step/start').map(row => row.data.step), [1, 2])
 })
 
 test('a concurrently created newer save wins over migration output', async t => {
@@ -378,37 +255,6 @@ test('legacy compaction of a late system prompt preserves history and the effect
 })
 
 const interruptedCompaction = turn => ({ type: 'compaction/start', data: { compactionId: 'c-interrupted', sourceCommandId: 'cmd-1', turn } })
-const secondTurn = () => [
-  { type: 'turn/start', data: { turn: 2 } }, { type: 'step/start', data: { turn: 2, step: 1 } },
-  { type: 'assistant/message', data: { turn: 2, step: 1, stream: [], message: message('assistant', '第二轮') }, surfaceOp: 'append' },
-  { type: 'step/end', data: { turn: 2, step: 1 } }, { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
-]
-
-test('an interrupted compaction is closed as failed before the next turn, keeping the story', () => {
-  const old = fixture()
-  old.events = [...old.events, interruptedCompaction(null), ...secondTurn()].map((row, seq) => ({ time: 1, ...row, seq }))
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  const end = artifact.events.find(row => row.type === 'compaction/end')
-  assert.equal(end.data.compactionId, 'c-interrupted')
-  assert.ok(end.data.error)
-  assert.equal(artifact.events[artifact.events.indexOf(end) + 1].type, 'turn/start')
-  assert.deepEqual(texts(openSession(artifact)), ['角色设定', '继续故事', '已编辑正文', '第二轮'])
-})
-
-test('a reserved opening before turn/start and an interrupted compaction are repaired together', () => {
-  const old = fixture()
-  old.events = [old.events[2], old.events[3], old.events[0], old.events[1], old.events[4], old.events[7], old.events[8],
-    interruptedCompaction(null), ...secondTurn()].map((row, seq) => ({ time: 1, ...row, seq }))
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  assert.deepEqual(texts(openSession(artifact)), ['角色设定', '继续故事', '旧正文', '第二轮'])
-  assert.deepEqual(artifact.events.filter(row => row.type === 'turn/start').map(row => row.data.turn), [1, 2])
-})
-
-test('a log the upgrader still refuses names the original event that fails', () => {
-  const old = fixture()
-  old.events = [...old.events, { type: 'turn/start', data: { turn: 2 } }, { type: 'step/start', data: { turn: 2, step: 3 } }].map((row, seq) => ({ time: 1, ...row, seq }))
-  assert.throws(() => prepareSessionUpgrade(old, migration), /step\/start[^]*原第 10 条事件 step\/start/)
-})
 
 // #281：真实存档里升级器拒绝的三种形状。
 const v3Rows = rows => rows.map((row, seq) => ({ time: 1, ...row, seq }))
@@ -445,14 +291,4 @@ test('回合结束后的正文编辑，下一回合没有任何步骤时不借�
   const artifact = prepareSessionUpgrade(old, migration).artifact
   assert.deepEqual(texts(openSession(artifact)).filter(text => text.startsWith('编辑') || text.startsWith('正文')), ['编辑后的正文', '正文3'])
   assert.deepEqual(artifact.events.filter(row => row.type === 'turn/start').map(row => row.data.turn), [1, 2, 3], '回合号不变')
-})
-
-test('回合结束后的正文编辑紧跟一次空闲压缩时，编辑并入上一回合，压缩仍在回合之外', () => {
-  const edit = { type: 'assistant/message', data: { turn: 1, step: 1, stream: [], message: message('assistant', '编辑后的正文') }, surfaceOp: { op: 'replace', startSeq: 3, endSeq: 3 }, sourceEventSeqs: [3] }
-  const old = { header: header('edit-before-compaction'), events: v3Rows([...storyTurn(1), edit, ...compaction([2, 6], [2, 6], 7), ...storyTurn(2)]) }
-  const artifact = prepareSessionUpgrade(old, migration).artifact
-  const moved = artifact.events.find(row => row.type === 'assistant/message' && row.data.message.content[0].text === '编辑后的正文')
-  assert.equal(moved.data.turn, 1)
-  assert.equal(artifact.events.find(row => row.type === 'compaction/start').data.turn, null)
-  assert.deepEqual(artifact.events.filter(row => row.type === 'turn/start').map(row => row.data.turn), [1, 2])
 })

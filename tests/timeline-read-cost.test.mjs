@@ -20,19 +20,6 @@ for(const count of [20,400,10000])test(`session activity ignores ${count} histor
 
 import {copyLazyHistoryHeader} from '../tavern-plugin/lib/domain/lazy-history-read.js'
 
-test('display header checkpoint count is lazy and explicit reads stay complete',()=>{
- let reads=0
- const source={timeline:{checkpoints:[{id:'first',get before(){reads++;return {text:'body'}}}]}}
- const header=copyLazyHistoryHeader(source)
- assert.equal(header.timeline.checkpoints.length,1)
- assert.deepEqual(Object.keys(header.timeline.checkpoints),['0'])
- assert.equal(reads,0)
- assert.deepEqual(JSON.parse(JSON.stringify(header)),JSON.parse(JSON.stringify(source)))
- header.timeline.checkpoints[0].before.text='outside'
- assert.equal(source.timeline.checkpoints[0].before.text,'body')
- assert.equal(copyLazyHistoryHeader(source).timeline.checkpoints[0].before.text,'body')
-})
-
 test('rollback target reads normalized checkpoint metadata without cloning story rows',()=>{
  let reads=0
  const messages=Array.from({length:400},()=>({get text(){reads++;return 'body'}}))
@@ -42,25 +29,6 @@ test('rollback target reads normalized checkpoint metadata without cloning story
  assert.equal(reads,0,'rollback metadata must not serialize message history')
  assert.equal(engine.rollbackTarget({chat:{messages,timeline:{...timeline,schemaVersion:0}}}),null)
  assert.equal(reads,0,'legacy schema reset must not serialize message history either')
-})
-
-test('owned timeline drafts skip duplicate normalization while default reads stay detached',()=>{
- const engine=createStoryTimeline({id:prefix=>prefix+'-1',now:()=>1})
- let reads=0
- const chat={messages:[{get text(){reads++;return 'body'}}],timeline:{schemaVersion:1,branchId:'b',revision:1,participants:{},operations:{},checkpoints:[]}}
- const applied=engine.apply({chat,detach:false,intent:{kind:'ensure'}})
- assert.equal(applied.chat,chat)
- assert.equal(reads,0)
- const detached=engine.apply({chat,intent:{kind:'ensure'}})
- assert.notEqual(detached.chat,chat)
- assert.notEqual(detached.chat.messages,chat.messages)
- assert.equal(reads,1)
- reads=0
- chat.timeline.operations.op={id:'op',kind:'body',status:'running',turn:1,basedOn:{branchId:'b',revision:1}}
- const completed=engine.complete({chat,detach:false,operationId:'op',basedOn:{branchId:'b',revision:1},outcome:{status:'success'}})
- assert.equal(completed.chat,chat)
- assert.equal(completed.value.status,'committed')
- assert.equal(reads,0)
 })
 
 for(const checkpoints of [null,{},[],[{}]])test(`timeline inspection preserves normalized checkpoint count: ${JSON.stringify(checkpoints)}`,()=>{

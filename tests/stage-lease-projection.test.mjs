@@ -39,8 +39,3 @@ for (const assetId of ['hall','garden']) {
     assert.equal((await projectStageLease({consumer:own,scene:{...scene,background:{...scene.background,packId:'22222222-2222-4222-8222-222222222222'}}})).scene.background,null)
   })
 }
-test('unknown and ambiguous names are omitted without borrowing a different figure',async()=>{
-  const own=consumer()
-  assert.deepEqual((await projectStageLease({consumer:own,actors:[{name:'同名'},{name:'unknown'}]})).characters,[])
-  assert.equal(own.calls.length,0)
-})

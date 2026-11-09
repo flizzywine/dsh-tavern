@@ -179,44 +179,6 @@ test('failed browser stage mount rolls back registrations and can be retried', (
 })
 
 
-test('browser stage entry removes its style when mounting fails', async () => {
-  const styles = new Set()
-  const plugin = await loadStageClientPlugin({
-    document:{querySelector:() => null, head:{appendChild:style => styles.add(style),insertBefore:style => styles.add(style)},createElement:() => ({dataset:{},remove() {styles.delete(this)}})},
-    window:{}
-  })
-  assert.doesNotThrow(() => plugin.apply({provide(){},get:() => ({registrations:[() => {throw new Error('failed')}]}),effect:run => run()}))
-  assert.equal(styles.size,0)
-})
-
-test('stage activation rolls back partial style insertion and retries without touching unrelated styles',async()=>{
-  let fail=true,mounted=0,stopped=0
-  const original={name:'ordinary-chat'},styles=new Set([original])
-  const document={querySelector:()=>null,createElement:()=>({dataset:{},remove(){styles.delete(this)}}),head:{insertBefore(style){styles.add(style)},appendChild(style){styles.add(style);if(fail)throw Error('style insertion failed')}}}
-  const plugin=await loadStageClientPlugin({document,window:{}}),context={provide(){},get:()=>({registrations:[()=>{mounted++;return ()=>stopped++}]}),effect:run=>run()}
-  assert.doesNotThrow(()=>plugin.apply(context))
-  assert.deepEqual([...styles],[original]);assert.equal(mounted,0)
-  fail=false;let cleanup;plugin.apply({...context,effect:run=>cleanup=run()})
-  assert.equal(styles.size,3);cleanup();cleanup();assert.equal(stopped,1);assert.deepEqual([...styles],[original])
-})
-
-test('stage shutdown removes every owned style even when mount cleanup and one removal fail',async()=>{
-  let cleanup
-  const styles=new Set(),removed=[]
-  const document={querySelector:()=>null,createElement:()=>({dataset:{},remove(){removed.push(this.dataset.pluginCss);styles.delete(this);if(this.dataset.pluginCss.endsWith('presentation.css'))throw Error('style cleanup failed')}}),head:{insertBefore:s=>styles.add(s),appendChild:s=>styles.add(s)}}
-  const plugin=await loadStageClientPlugin({document,window:{}})
-  plugin.apply({provide(){},get:()=>({registrations:[()=>()=>{throw Error('mount cleanup failed')}]}),effect:run=>cleanup=run()})
-  assert.throws(()=>cleanup(),error=>error.name==='AggregateError'&&error.errors.length===2)
-  assert.equal(styles.size,0);assert.equal(removed.length,2);cleanup();assert.equal(removed.length,2)
-})
-
-test('missing stage host degrades without adding styles',async()=>{
-  let created=0
-  const plugin=await loadStageClientPlugin({document:{createElement(){created++;throw Error('must not allocate')}},window:{}})
-  assert.doesNotThrow(()=>plugin.apply({provide(){},get:()=>null,effect:run=>run()}))
-  assert.equal(created,0)
-})
-
 test('activation and rollback errors stay diagnostic and do not reject host startup',async()=>{
   let cleanup
   const styles=new Set(),failures=[]

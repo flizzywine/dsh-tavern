@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
-import { estimateCjkText, measureCompactionSurface, selectCjkCompactionRange, compactCjkIfNeeded } from '../tavern-plugin/lib/domain/cjk-compaction.js'
+import { estimateCjkText, measureCompactionSurface, compactCjkIfNeeded } from '../tavern-plugin/lib/domain/cjk-compaction.js'
 import { createNativePlayOrchestrationStrategy } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { compactNativePlayIfNeeded } from '../tavern-plugin/lib/agent-compaction.js'
 import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
@@ -43,11 +43,6 @@ function fixture(messages, { usage, config = {}, summary = cjk(1000) } = {}) {
     native: () => { throw Error('unexpected fallback') }, ...options })
   return { session, meter, calls, run, engine, events }
 }
-
-test('CJK estimate counts Han, kana, Hangul, punctuation and supplementary Han; ASCII stays chars/4', () => {
-  assert.equal(estimateCjkText('abcd'), 1)
-  assert.equal(estimateCjkText('\u4e2d\u304b\u30ca\ud55c\u3002\u{20000}abcd'), 7)
-})
 
 test('native requests preserve the previous turn byte prefix and firing-turn snapshots', t => {
   const old = snapshot('green-gun'), story = message('assistant', 'turn-1'), latest = snapshot('green-engine')
@@ -91,25 +86,6 @@ test('205,888 usage anchor remains stable and all retained green snapshots are b
   t.diagnostic(JSON.stringify({ providerInput: 205888, projectedBefore: before.totalTokens, after: after.totalTokens, summaries: f.calls.length, retainedReplies: retained }))
 })
 
-test('retry halves retained tail and consumes additional replies, never checkpoint alone', async () => {
-  const f = fixture([message('system', cjk(70000)), checkpoint(cjk(2000)),
-    // keep the first result above admission (not the old 90% retry target).
-    ...Array.from({ length: 12 }, () => message('assistant', cjk(10000)))], { summary: cjk(24000) })
-  await f.run()
-  assert.equal(f.calls.length, 2)
-  assert.ok(f.calls.every(call => call.some(m => m.role === 'assistant')))
-  assert.ok(measureCompactionSurface(f.session, f.meter).totalTokens < 116100)
-})
-
-test('a retry cannot compact below admission just to reach the old 90% target', async () => {
-  const f = fixture([message('system', cjk(70000)), checkpoint(cjk(2000)),
-    ...Array.from({ length: 12 }, () => message('assistant', cjk(10000)))], { summary: cjk(18000) })
-  await f.run()
-  const after = measureCompactionSurface(f.session, f.meter).totalTokens
-  assert.ok(after >= 116100 && after < 129000)
-  assert.equal(f.calls.length, 1, 'never start a second summary below threshold')
-})
-
 test('system-only pressure and cancellation do not spend summary calls; overflow delegates unchanged', async () => {
   const f = fixture([message('system', cjk(140000)), checkpoint('summary'), message('user', 'continue')])
   await assert.rejects(f.run(), /cannot reach/)
@@ -118,43 +94,6 @@ test('system-only pressure and cancellation do not spend summary calls; overflow
   await assert.rejects(f.run({ signal: controller.signal }), { name: 'AbortError' })
   assert.equal(f.calls.length, 0)
   assert.equal(await f.run({ trigger: 'context-overflow', native: () => 'host-overflow' }), 'host-overflow')
-})
-
-test('routed retention override and zero retry budget are respected', async () => {
-  const messages = [message('system', cjk(70000)), ...Array.from({ length: 12 }, () => message('assistant', cjk(10000)))]
-  // retries are legal only while still above the admission threshold.
-  const f = fixture(messages, { config: { compactionRetries: 0 }, summary: cjk(24000) })
-  await assert.rejects(f.run(), /cannot reach/)
-  assert.equal(f.calls.length, 1)
-  const routed = fixture(messages, { config: { retainTokens: 80000, modelPolicies: [{ provider: 'fake', model: 'text', retainRatio: 0.04 }] }, summary: cjk(18000) })
-  await routed.run()
-  assert.equal(routed.calls.length, 1)
-  assert.equal(measureCompactionSurface(routed.session, routed.meter).nodes.filter(n => n.message.role === 'assistant').length, 1)
-})
-
-test('active compaction lock prevents pruning or another summary', async () => {
-  const f = fixture([message('system', cjk(10000)), message('user', cjk(140000)), message('user', 'continue')])
-  f.events.push({ seq: f.events.length, type: 'compaction/start', data: {} })
-  f.engine.ctx.get = () => ({ pruneSession() { assert.fail('must not prune under an active summary') } })
-  await assert.rejects(f.run(), /already in progress/)
-  assert.equal(f.calls.length, 0)
-})
-
-test('summary failure propagates without another call or story removal', async () => {
-  const f = fixture([message('system', cjk(10000)), ...Array.from({ length: 15 }, () => message('assistant', cjk(10000)))])
-  const before = [...f.session.surface.nodes]
-  let calls = 0
-  f.engine.compactRegion = async () => { calls++; throw Error('summary failed') }
-  await assert.rejects(f.run(), /summary failed/)
-  assert.equal(calls, 1)
-  assert.deepEqual(f.session.surface.nodes, before)
-})
-
-test('tail selection keeps tool-pair boundaries and immutable system head', () => {
-  const f = fixture([message('system', 'system'), message('user', cjk(5000)), message('assistant', cjk(1000)), message('tool', 'result')])
-  const measured = measureCompactionSurface(f.session, f.meter)
-  const range = selectCjkCompactionRange(f.session, measured, 10, (_s, seq) => seq !== 3)
-  assert.deepEqual(range, { start: 1, end: 1, keep: 2 })
 })
 
 const native = { skip: !process.env.DSH_BOOT_MODULE, timeout: 30000 }

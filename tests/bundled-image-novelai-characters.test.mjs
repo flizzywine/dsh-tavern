@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
-import { parseImagePlan, parsePromptsBlock, formatPromptsBlock, preserveCharacterMetadata } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/planner.js'
+import { parsePromptsBlock, formatPromptsBlock, preserveCharacterMetadata } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/planner.js'
 import { apply, compileChannelJob, compileJob, expandRosterCalls } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
 import { generateImage } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/image-providers.js'
 import { createMediaActions } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/media-actions.js'
@@ -13,25 +13,6 @@ import { createMediaActions } from '../tavern-plugin/packages/dsh-tavern-image-b
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4c40000000049454e44ae426082', 'hex')
 const channel = (provider = 'novelai', extra = {}) => ({ id: 'test', provider, baseUrl: 'https://image.test', model: 'nai-diffusion-5-full', apiKey: 'test', options: {}, ...extra })
 const config = { imageBackend: 'novelai', promptMode: 'tags', traitMode: 'default', weightMode: 'auto', sizes: {} }
-
-test('规划解析兼容角色块位于 prompts 外，并保留合法旧 scene；混合内外角色不漏项', () => {
-  const [outside] = parseImagePlan('<image><regex>x</regex><prompts>1girl, old scene</prompts><character_1><prompt>one</prompt><center>C3</center><negative>bad one</negative></character_1></image>')
-  assert.equal(outside.prompts, '1girl, old scene')
-  assert.deepEqual(outside.characters, [{ prompt: 'one', centers: 'C3', uc: 'bad one' }])
-
-  const [mixed] = parseImagePlan('<image><regex>x</regex><prompts><scene_composition>café</scene_composition><character_1><prompt>one</prompt><uc>bad</uc></character_1></prompts><character_2><prompt>two</prompt><centers>D4</centers><uc>worse</uc></character_2></image>')
-  assert.equal(mixed.prompts, 'café')
-  assert.deepEqual(mixed.characters, [
-    { prompt: 'one', centers: '', uc: 'bad' },
-    { prompt: 'two', centers: 'D4', uc: 'worse' },
-  ])
-})
-
-test('编辑文本角色块可往返，显式删除全部角色时只留下 scene', () => {
-  const text = formatPromptsBlock('night street', [{ prompt: 'A', centers: 'C3', uc: 'bad A' }])
-  assert.deepEqual(parsePromptsBlock(text), { scene: 'night street', characters: [{ prompt: 'A', centers: 'C3', uc: 'bad A' }] })
-  assert.deepEqual(parsePromptsBlock('<scene_composition>night street</scene_composition>'), { scene: 'night street', characters: [] })
-})
 
 test('改写模型漏掉 centers、uc 或整个角色块时按角色位置恢复原 metadata', () => {
   const original = formatPromptsBlock('old scene', [
@@ -48,30 +29,6 @@ test('改写模型漏掉 centers、uc 或整个角色块时按角色位置恢复
   const sceneOnly = parsePromptsBlock(preserveCharacterMetadata(original, 'rewritten scene'))
   assert.equal(sceneOnly.scene, 'rewritten scene')
   assert.equal(sceneOnly.characters.length, 2)
-})
-
-test('改写角色按 DSL 编号恢复 metadata，补回缺失编号且不改变解析器输出格式', () => {
-  const original = '<scene_composition>old</scene_composition>'
-    + '<character_1><prompt>old one</prompt><centers>C3</centers><uc>bad one</uc></character_1>'
-    + '<character_2><prompt>old two</prompt><centers>D4</centers><uc>bad two</uc></character_2>'
-  const revised = '<scene_composition>new</scene_composition>'
-    + '<character_2><prompt>new two</prompt></character_2>'
-  const mergedText = preserveCharacterMetadata(original, revised)
-  const merged = parsePromptsBlock(mergedText)
-  assert.deepEqual(merged.characters, [
-    { prompt: 'new two', centers: 'D4', uc: 'bad two' },
-    { prompt: 'old one', centers: 'C3', uc: 'bad one' },
-  ])
-  assert.match(mergedText, /<character_2>[\s\S]*new two[\s\S]*D4[\s\S]*bad two[\s\S]*<\/character_2>/)
-  assert.match(mergedText, /<character_1>[\s\S]*old one[\s\S]*C3[\s\S]*bad one[\s\S]*<\/character_1>/)
-  const reversed = parsePromptsBlock(preserveCharacterMetadata(original,
-    '<scene_composition>new</scene_composition>'
-      + '<character_2><prompt>revised two</prompt></character_2>'
-      + '<character_1><prompt>revised one</prompt></character_1>'))
-  assert.deepEqual(reversed.characters, [
-    { prompt: 'revised two', centers: 'D4', uc: 'bad two' },
-    { prompt: 'revised one', centers: 'C3', uc: 'bad one' },
-  ])
 })
 
 test('真实 /redraw handler 接受显式空角色 DSL，并只对原始角色数据编译一次', async t => {

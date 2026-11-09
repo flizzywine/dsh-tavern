@@ -63,9 +63,8 @@ for (const check of [false, true]) {
     for (const name of ['tavern.css', 'theme.css', 'layered-sprite.css', 'mod-config.css']) await writeFile(path.join(root, 'tavern-plugin/lib/client-assets', name), '')
     await mkdir(path.join(root, 'tavern-plugin/shared'), { recursive: true })
     await writeFile(path.join(root, 'tavern-plugin/shared/keyword-catalogue.cjs'), 'module.exports = {};')
-    // The copied builder imports its dependencies (acorn) by package name. Windows needs a privilege to make
-    // symlinks; there the test runner's resolve hook finds the packages instead.
-    if (process.platform !== 'win32') await symlink(new URL('../node_modules', import.meta.url).pathname, path.join(root, 'node_modules'), 'dir')
+    // The copied builder resolves its own dependencies from the fixture root.
+    await symlink(await realpath(new URL('../node_modules', import.meta.url)), path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
     for (const name of ['logo', 'lockup', 'lockup-dark']) await writeFile(path.join(root, `tavern-plugin/lib/client-assets/${name}.svg`), '<svg/>')
     const valid = '// @include-stage runtime-kernel.cjs\nconst fixture = 1;\n'
     const invalid = 'const = 1;\n'

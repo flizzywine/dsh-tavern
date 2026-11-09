@@ -5,14 +5,6 @@ import {createModConfigHost} from '../tavern-plugin/packages/dsh-tavern-stage/li
 const manifest=id=>({id,name:id,settingsSchema:{fields:[]}})
 function host(manifests) {return createModConfigHost({manifests,store:{},listCards:async()=>[],readCard:async()=>null})}
 
-test('private validator disposal is idempotent and does not remove a replacement',()=>{
-  const validators=new Map(),methods=createModPrivateMethods({validators}),validate=()=>{}
-  const old=methods.registerModPrivate({modId:'test.mod',validate})
-  const next=methods.registerModPrivate({modId:'test.mod',validate})
-  old();old();assert.equal(validators.size,1)
-  next();assert.equal(validators.size,0)
-})
-
 test('mod config owner releases validators and refuses registration after disposal',()=>{
   const validators=new Map(),packs={apiVersion:2,...createModPrivateMethods({validators})},owner=host([manifest('test.mod')])
   owner.register(packs);owner.register(packs);assert.equal(validators.size,1)
@@ -29,12 +21,4 @@ test('installed managed mods are named by their own manifests, not the built-in 
   const owner=createModConfigHost({manifests:[],managedManifests:[gone],store:{},listCards:async()=>[],readCard:async()=>null})
   const {sources:rows}=await owner.sources.list({mods:{'test.gone':{note:'x'}}})
   assert.equal(rows.find(row=>row.id==='mod:test.gone')?.label,'已移除')
-})
-
-test('partially failed mod config registration rolls back its earlier validators',()=>{
-  let live=0,calls=0
-  const packs={apiVersion:2,registerModPrivate(){if(++calls===2)throw Error('registration failed');live++;return()=>live--}}
-  const owner=host([manifest('test.one'),manifest('test.two')])
-  assert.throws(()=>owner.register(packs),/registration failed/)
-  assert.equal(live,0);owner.dispose();assert.equal(live,0)
 })

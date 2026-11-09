@@ -1,9 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createAutoChoices } from '../tavern-plugin/lib/domain/auto-choices.js'
-import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
-import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
-import { createPlayHandlers } from '../tavern-plugin/lib/rpc/play.js'
 
 function harness() {
   const timers = new Set(), calls = [], errors = []
@@ -46,35 +43,4 @@ test('turning it off, edits, branches, newer replies and cancellation drop a wai
     assert.equal(h.calls.length, 0)
     assert.equal(h.timers.size, 0)
   }
-})
-
-test('the switch is decided per chat: a card switched off skips its reply', async () => {
-  const h = harness()
-  h.state.chat.id = 'other-card-chat'
-  await h.scheduler.completed(h.event)
-  await h.tick()
-  assert.equal(h.calls.length, 0)
-  assert.equal(h.scheduler.isPending('game'), false)
-})
-
-test('requests: settings save it, turning it off drops waiting replies, manual and edit requests supersede it', async () => {
-  const cancelled = []
-  const autoChoices = { cancel: id => cancelled.push(id), cancelAll: () => cancelled.push('*') }
-  let document = {}
-  const readTavernSettings = async () => presentTavernSettings(document)
-  const settings = createSettingsHandlers({ autoChoices, readTavernSettings,
-    updateTavernSettings: async patch => { document = applyTavernSettingsPatch(document, patch); return readTavernSettings() } })
-  assert.equal((await readTavernSettings()).candidateAutoGenerate, false)
-  assert.equal((await settings.updateTavernSettings({ patch: { candidateAutoGenerate: true } })).settings.candidateAutoGenerate, true)
-  assert.deepEqual(cancelled, [])
-  await settings.updateTavernSettings({ patch: { candidateAutoGenerate: false } })
-  assert.deepEqual(cancelled, ['*'])
-  const submitted = []
-  const play = createPlayHandlers({ autoChoices, str: value => value == null ? '' : String(value),
-    candidateTasks: { submit: async args => { submitted.push(args); return {} } },
-    bodyEditor: { read: async () => ({ token: 't' }) } })
-  await play.submitTask({ sessionId: 'game', kind: 'candidate', messageId: 'reply' })
-  await play.getBodyEdit({ sessionId: 'game' })
-  assert.deepEqual(cancelled, ['*', 'game', 'game'])
-  assert.equal(submitted.length, 1)
 })

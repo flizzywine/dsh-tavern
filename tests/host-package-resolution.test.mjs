@@ -10,6 +10,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createFileSymlink } from './helpers/file-symlink.mjs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -206,11 +207,7 @@ test('CLI 入口是无扩展名的 bin/dsh 链接时，跟到真实 bin.js 当�
   writeFileSync(real, '')
   mkdirSync(join(root, 'bin'))
   try {
-    try { symlinkSync(real, join(root, 'bin', 'dsh')) }
-    catch (error) {
-      if (process.platform === 'win32' && error.code === 'EPERM') return t.skip('Windows file symlinks require permission')
-      throw error
-    }
+    if (!createFileSymlink(t, real, join(root, 'bin', 'dsh'))) return
     assert.equal(desktopLauncherEntry({ env: {}, argv: ['node', join(root, 'bin', 'dsh')] }), realpathSync(real))
   } finally {
     rmSync(root, { recursive: true, force: true })

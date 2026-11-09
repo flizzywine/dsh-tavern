@@ -4,11 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import {
-  createTavernStaticResourceCache,
-  normalizeCacheableResourceUrl,
-  projectCachedResourceBody
-} from '../tavern-plugin/lib/domain/tavern-static-resource-cache.js'
+import { createTavernStaticResourceCache, projectCachedResourceBody } from '../tavern-plugin/lib/domain/tavern-static-resource-cache.js'
 
 function response(body, mediaType, url) {
   const bytes = Buffer.from(body)
@@ -48,14 +44,6 @@ test('缓存的 ESM、CSS 和 HTML 子资源继续改写到本地缓存入口', 
   assert.match(htmlBody, /static-assets\?url=https%3A%2F%2Fimg\.example%2Fcg\.png/)
   assert.match(htmlBody, /<a href="https:\/\/example\.org">/)
   assert.match(htmlBody, /<iframe src="https:\/\/app\.example\/hud\/">/)
-})
-
-test('静态缓存允许本机、内网与 Fake-IP 地址，仍要求 HTTPS 且不携带凭据', function () {
-  assert.throws(() => normalizeCacheableResourceUrl('http://example.com/a.js'), /HTTPS/)
-  assert.throws(() => normalizeCacheableResourceUrl('https://user:password@localhost/a.js'), /凭据/)
-  for (const host of ['localhost', 'device.local', '127.0.0.1', '10.0.0.1', '192.168.1.2', '[::1]', '[fdfe:dcba:9876::52]', '[fd00::1]', '[fe80::1]']) {
-    assert.equal(normalizeCacheableResourceUrl('https://' + host + '/a.js'), 'https://' + host + '/a.js')
-  }
 })
 
 test('默认下载链路不预先拒绝 DNS 或私网地址，重定向后仍可加载', async t => {

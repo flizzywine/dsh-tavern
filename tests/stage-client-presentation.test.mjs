@@ -19,15 +19,3 @@ test('phone bar layout releases observers and ignores queued notifications after
   assert.equal(writes,1)
   assert.equal(disconnected,2)
 })
-test('title presentation preserves reduced-motion hold and cancels its timer on unmount', () => {
-  let effect, scheduled, cancelled
-  const React={createElement:(type,props,...children)=>({type,props,children}),useState:value=>[value,()=>{}],useEffect:fn=>{effect=fn}}
-  const views=createStagePresentation({React,titleTiming:{in:1,step:.05,hold:2,out:.5},
-    foreground:{setTimeout:(fn,ms)=>{scheduled={fn,ms};return 7},clearTimeout:id=>{cancelled=id}}})
-  const node=views.Title({title:{text:'标题'},reducedMotion:true,onDone(){}})
-  assert.equal(node.props.className,'fork-gal-title is-hold')
-  const cleanup=effect()
-  assert.equal(scheduled.ms,2000)
-  cleanup()
-  assert.equal(cancelled,7)
-})

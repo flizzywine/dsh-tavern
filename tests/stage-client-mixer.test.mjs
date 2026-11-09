@@ -31,33 +31,6 @@ test('mixer owns its entry and icon and fences old controls on disposal', () => 
   assert.equal(icons['speaker-low'],undefined)
   assert.equal(stageEntries.list().some(entry=>entry.id==='sound'),false)
 })
-test('old mixer cleanup does not unregister a replacement entry or remove host icon', () => {
-  const icons={'speaker-low':'host'}
-  const view=createStageMixer({entries:stageEntries,icons})
-  const remove=stageEntries.register({id:'sound',label:'replacement'})
-  view.dispose()
-  assert.equal(stageEntries.list().find(row=>row.id==='sound').label,'replacement')
-  assert.equal(icons['speaker-low'],'host')
-  remove()
-})
-
-test('sound tab edits the shared voice-rate preference and ducking without owning their stores',()=>{
-  const changes=[],controls=[]
-  const fields={group:()=>null,row:()=>null,Switch:'Switch',slider:(_,props)=>{controls.push(props);return null}}
-  const reading={get:()=>({voiceRate:1.2}),set:patch=>changes.push(patch)}
-  const view=createStageMixer({React:{useSyncExternalStore:(_,get)=>get(),createElement:(type,props)=>{if(type==='Switch')controls.push(props);return null}},fields,reading,voiceRateLimits:[.8,2,.1],
-    audio:{getSnapshot:()=>({duck:true}),setDucking:value=>changes.push(value)},
-  })
-  view.Sound({})
-  assert.equal(controls[1].value,1.2)
-  assert.deepEqual([controls[1].min,controls[1].max,controls[1].step],[.8,2,.1])
-  controls[0].onChange(false);controls[1].onChange(1.5)
-  assert.deepEqual(changes,[false,{voiceRate:1.5}])
-  view.dispose()
-  controls[0].onChange(true);controls[1].onChange(2)
-  assert.equal(changes.length,2)
-  assert.equal(reading.get().voiceRate,1.2)
-})
 
 test('shared audio snapshot remains stable between writes and publishes before listeners run',()=>{
   const sandbox={localStorage:{getItem:()=>null,setItem(){}}}

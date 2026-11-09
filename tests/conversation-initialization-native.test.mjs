@@ -9,32 +9,8 @@ import { registerRequestHooks } from '../tavern-plugin/lib/hooks/request.js'
 import { createForegroundOrchestrationStrategies } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { createForegroundWorldbook } from '../tavern-plugin/lib/domain/foreground-worldbook.js'
 import { projectVirtualWorldbookPrefix } from '../tavern-plugin/lib/domain/worldbook-virtual-state.js'
-import { sessionOpeningDescriptor } from '../tavern-plugin/lib/domain/session-opening.js'
 
 const native = { skip: !process.env.DSH_BOOT_MODULE, timeout: 30000 }
-
-test('首页按钮在卡片自动更新后仍可开始，切过开场后旧首页按钮失效', native, async t => {
-  const card = { name: '角色', first_mes: '【首页】', alternate_greetings: ['实际开场'] }
-  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, { cardOverrides: card })
-  t.after(() => h.dispose())
-  const initialization = h.open()
-  const chat = await initialization.start(h.input)
-  const original = sessionOpeningDescriptor(chat, card)
-  await h.persistence.update(chat.id, current => {
-    current.tavernHelperLifecycleRevision = 2
-    current.cardAutoReload = { at: Date.now(), turn: 1 }
-    return current
-  })
-  const result = await initialization.switchOpening(chat.sessionId, {
-    swipeId: 1, message: '实际开场', expectedLifecycleRevision: 0, expectedOpeningVersion: original.version
-  })
-  assert.equal(result.lifecycleRevision, 3)
-  assert.equal((await h.persistence.read(chat.id)).messages[0].text, '实际开场')
-  await initialization.switchOpening(chat.sessionId, { swipeId: 0, expectedOpeningVersion: result.openingVersion })
-  await assert.rejects(initialization.switchOpening(chat.sessionId, {
-    swipeId: 1, expectedOpeningVersion: original.version
-  }), /开场白已变化/)
-})
 
 test('原地切换开场可从保存中恢复，第一条模型请求只看到最终选择', native, async t => {
   const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, {
@@ -52,13 +28,27 @@ test('原地切换开场可从保存中恢复，第一条模型请求只看到�
   h.state.failFlush = false
   assert.ok((await h.persistence.read(original.id)).nativeOpeningSwitch)
   await h.restoreDetached()
-  const recovered = await h.open().ensureOpening(original.sessionId)
+  const reopened = h.open()
+  registerRequestHooks({
+    ctx: h.ctx,
+    openingRequest: reopened.openingRequest,
+    chatForSession: () => h.persistence.read(original.id),
+    backgroundAgentRunner: { owns: () => false },
+    sessionStore: h.ctx.sessions,
+    foregroundStrategies: { prepareStep: ({ decision }) => decision },
+    cardMemory: { appendRecall: ({ decision }) => decision },
+    requestCoordinates: new Map(),
+    requestIdForMessages: () => '',
+    tavernRetryLimiter: { handle() {} }
+  })
+  // Enter the host directly without a view read that would repair the opening first.
+  await h.continueWithAgent()
+  const recovered = await h.persistence.read(original.id)
   assert.equal(recovered.id, original.id)
   assert.equal(recovered.sessionId, original.sessionId)
   assert.equal(recovered.nativeOpeningSwitch, undefined)
   assert.equal(recovered.messages.length, 1)
   assert.equal(recovered.messages[0].text, '玩家，新路线')
-  await h.continueWithAgent()
   const replies = h.requests[0].messages.filter(message => message.role === 'assistant')
     .flatMap(message => message.content.map(part => part.text || ''))
   assert.equal(replies.filter(text => text === '玩家，新路线').length, 1)
@@ -227,21 +217,6 @@ test('native card workbench starts with no scripted exchange or greeting, and re
     assert.equal(h.requests.length, 0)
     assert.deepEqual(h.target.session.deriveMessages(), initialMessages)
   }
-})
-
-// The card workbench reserves an opening turn and fills it with no greeting, so
-// Tavern closes it before the Agent ever runs. The live Agent must learn that turn
-// one is spent: otherwise its own first turn reuses turn one and the stored log can
-// never be reopened ("turn/start does not open the expected turn", exactly the
-// card-history load failure this guards).
-test('native card workbench releases the reserved opening turn to the live Agent', native, async t => {
-  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE)
-  t.after(() => h.dispose())
-  await h.open().start({ ...h.input, mode: 'card' })
-  assert.equal(openingEvents(h.target.session).length, 0)
-  await h.continueInPlace()
-  assert.deepEqual(sessionEvents(h.target.session).filter(e => e.type === 'turn/start').map(e => e.data.turn), [1, 2])
-  assert.equal(sessionEvents(h.target.session).at(-1).type, 'turn/end')
 })
 
 test('native Session and disk Chat journal recover a failed marker once, then actual Agent starts at turn two', native, async t => {

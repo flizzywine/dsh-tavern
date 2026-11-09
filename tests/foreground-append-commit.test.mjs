@@ -95,63 +95,6 @@ for (const [name, variablesAt] of [['最近楼层有变量', () => true], ['变�
   })
 }
 
-test('纯附件输入从准备到提交复用同一对分页消息', async t => {
-  const scoped = await app(t, base(history(5, () => true)), true)
-  const userContent = [{ type: 'image', source: { type: 'base64', data: 'IMAGE_DATA' } }]
-  await scoped.turns.prepare({ sessionId: 's', turn: 6, userText: '', userContent })
-  const pending = await scoped.stored()
-  assert.equal(pending.messages.length, 12)
-  assert.equal(pending.messages[10].placeholder, true)
-  assert.deepEqual(pending.messages[10].inputAttachments, userContent)
-  assert.equal(pending.messages[11].placeholder, true)
-  await scoped.turns.finalize({ sessionId: 's', turn: 6, userText: '', userContent, assistantText: '已查看图片。' })
-  const committed = await scoped.stored()
-  assert.equal(committed.messages.length, 12, '提交只替换占位，不追加第三行')
-  assert.deepEqual(committed.messages[10].inputAttachments, userContent)
-  assert.equal(committed.messages[11].text, '已查看图片。')
-  assert.ok(committed.messages.slice(10).every(message => message.placeholder === undefined))
-  assert.equal(scoped.calls.patch, 2, '准备和提交各使用一次分页 patch')
-})
-
-test('已保存玩家输入在分页准备和提交中保持同一索引', async t => {
-  const scoped = await app(t, base(history(5, () => true)), true)
-  const input = { sessionId: 's', requestId: 'rpc-paged', userText: '继续' }
-  const saved = await scoped.turns.appendUser(input)
-  const duplicate = await scoped.turns.appendUser(input)
-  assert.equal(saved.messageIndex, 10)
-  assert.deepEqual([duplicate.messageIndex, duplicate.duplicate], [10, true])
-  assert.equal((await scoped.stored()).messages.length, 11)
-
-  await scoped.turns.prepare({ ...input, turn: 6 })
-  const pending = await scoped.stored()
-  assert.equal(pending.messages.length, 12, '分页准备只追加 assistant')
-  assert.equal(pending.messages[10].source.rpcId, 'rpc-paged')
-  assert.equal(pending.messages[11].role, 'assistant')
-
-  await scoped.turns.finalize({ ...input, turn: 6, assistantText: '回复 6' })
-  const committed = await scoped.stored()
-  assert.equal(committed.messages.length, 12)
-  assert.equal(committed.messages[10].source.rpcId, 'rpc-paged')
-  assert.equal(committed.messages[10].text, '继续')
-  assert.equal(committed.messages[11].text, '回复 6')
-})
-
-test('剧情版本在生成期间被后台写入推进：仍然提交，不丢本轮正文', async t => {
-  const scoped = await app(t, base(history(5, () => true)), true)
-  await scoped.turns.prepare({ sessionId: 's', turn: 6, userText: '继续' })
-  // 结算/候选/世界书会在同一分支上推进 revision，那不代表玩家看到的剧情换了。
-  scoped.beforePatch(() => scoped.persistence.update('chat-1', chat => {
-    chat.timeline.revision++
-    chat.posture = '后台结算后的状态'
-    return chat
-  }, { source: 'settlement' }))
-  await scoped.turns.finalize({ sessionId: 's', turn: 6, userText: '继续', assistantText: '回复' })
-  const stored = await scoped.stored()
-  assert.equal(stored.messages.length, 12)
-  assert.equal(stored.messages[11].text, '回复')
-  assert.equal(stored.posture, '后台结算后的状态', '后台写入的状态不被本轮提交覆盖')
-})
-
 test('生成期间换了分支：拒绝提交，楼层不变', async t => {
   const scoped = await app(t, base(history(5, () => true)), true)
   await scoped.turns.prepare({ sessionId: 's', turn: 6, userText: '继续' })

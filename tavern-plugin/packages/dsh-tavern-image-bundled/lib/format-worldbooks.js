@@ -289,7 +289,9 @@ export function createFormatWorldbooks({ root, io = nodeFs } = {}) {
         // Windows file scanners can briefly hold either path while a worldbook
         // is being replaced. Keep the same-file rename atomic and retry only
         // transient sharing/permission errors; never unlink the destination.
-        const retryDelays = [50, 100, 200, 400, 800, 1200, 1600]
+        const retryDelays = process.platform === 'win32'
+          ? [50, 150, 400, 900, 2000, 3000, 4000, 4500]
+          : [50, 100, 200, 400, 800, 1200, 1600]
         for (let attempt = 0; ; attempt++) {
           if (beforeReplace) await beforeReplace()
           try {

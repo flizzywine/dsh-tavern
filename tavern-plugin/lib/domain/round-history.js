@@ -20,7 +20,7 @@ import { plainReplyProse, replyProse } from './reply-prose.js'
 import { createPluginBodyRegeneration } from './plugin-body-regeneration.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { consumeScriptPrompts } from './tavern-script-prompts.js'
-import { createRegenerationDiscard, restoreDiscardedRegeneration, installRegenerationDiscard, clearRegenerationFailure } from './regeneration-discard.js'
+import { restoreDiscardedRegeneration } from './regeneration-discard.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -232,18 +232,6 @@ export function attemptNativeAnchor(session, eventStart, turn) {
   const anchor = { formatVersion: 4, turn: Number(turn) || Number(reply.data?.turn) || 0, reply: Number(reply.seq) }
   if (input !== null) anchor.input = Number(input.seq)
   return anchor
-}
-
-/**
- * The save kept its unanswered tail while the attempt ran. The commit only has
- * to own the marker it wrote: no snapshot comparison here. Every field in the
- * save (variables, mvu, candidates, settle state, timestamps) is rewritten by
- * background work on its own schedule, and comparing the snapshot turned those
- * writes into refusals the player could never get past.
- */
-function assertUnansweredTailOwned(current, operationId) {
-  const saved = current?.regenRecovery
-  if (saved?.id !== operationId || saved?.phase !== 'prepared') throw new Error('重新生成操作已失效')
 }
 
 export function selectRegenerationTarget(chat, session, observe) {
@@ -547,8 +535,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     } else {
       regenerationFrames.delete(chat.id)
     }
-    const discarded = failedTail ? null : createRegenerationDiscard(msgs0[oldAssistantIndex], oldAssistantIndex, inputIndex)
-    const targetMessageUid = discarded?.assistant.messageUid || ''
     let legacyBefore = null
     if (!failedTail && storyTimeline.inspect({ chat: originalChat }).checkpointCount === 0) {
       let rollbackCommit = null
@@ -583,30 +569,22 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // miss it whenever the two
     // numberings differ.
     const replacingTurn = appending ? null : surfaceTurnOfSeq(sessionEvents(session), oldSeq)
-    const lifecycleRevision = Math.max(0, Number(originalChat.tavernHelperLifecycleRevision) || 0) + 1
-    let marked = false, committed = false
-    await stage('regen.begin', () => updateChat(chat.id, function (current) {
+    const attempt = regenerationRecovery.attempt({
+      originalChat, session, sessionId: effectiveSessionId, operationId, eventStart, replacingTurn,
+      assistantIndex: failedTail ? null : oldAssistantIndex, inputIndex
+    })
+    const { targetMessageUid } = attempt
+    let committed = false
+    await stage('regen.begin', () => attempt.begin(current => {
       if (agent.phase?.kind === 'running' || current.regenInProgress) throw new Error('前台正在生成，请完成或停止后再重新生成')
-      const logical = restoreDiscardedRegeneration(current)
-      if (!failedTail) assertRegenerationSourceCurrent({ originalChat, currentChat: logical, assistantIndex: oldAssistantIndex, inputIndex })
-      current.regenRecovery = { id: operationId, phase: 'prepared', detached: true,
-        beforeRevision: Number(current._storageRevision || 0), sessionId: effectiveSessionId,
-        eventStart, candidateTurn, candidateFrame, targetMessageUid, temporaryReplacingTurn: replacingTurn,
-        ...(discarded ? { discarded } : {}),
-        ...(failedTail ? { unansweredTail: true, storyTurn } : {}) }
-      if (discarded) installRegenerationDiscard(current, discarded)
-      else clearRegenerationFailure(current)
-      current.regenInProgress = true
-      current.tavernHelperLifecycleRevision = lifecycleRevision
-      return current
-    }, { source: 'foreground.regen-begin', worldSelection: { preserveWorld: true } }))
-    marked = true
+    }, { candidateTurn, candidateFrame, ...(failedTail ? { unansweredTail: true, storyTurn } : {}) }))
 
     let committedChat, body = '', syntheticTurn = candidateTurn, keptStreamed = false
     try {
       releaseOpeningTurn(agent.session, agent)
       const ready = await stage('regen.ready', () => readRegenerationTail(chat.id))
-      if (ready?.regenRecovery?.id !== operationId || agent.phase?.kind === 'running') throw new Error('重新生成操作已失效或前台正在生成')
+      attempt.checkPrepared(ready)
+      if (agent.phase?.kind === 'running') throw new Error('重新生成操作已失效或前台正在生成')
       let generationError = null
       await stage('regen.generate', async function () {
         agent.followup({
@@ -731,11 +709,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
           message: { id: 'tavern-regen:' + operationId, role: 'assistant', content: [{ type: 'text', text: prose.text }],
             source: { ...oldSource, tavernStoryTurn: storyTurn } } }, operationId)
 
-      committedChat = await stage('regen.commit', () => updateChat(chat.id, function (current) {
-        if (failedTail) assertUnansweredTailOwned(current, operationId)
-        else if (current?.regenRecovery?.id !== operationId || current.regenRecovery?.phase !== 'prepared') {
-          throw new Error('重新生成操作已失效')
-        }
+      committedChat = await stage('regen.commit', () => attempt.commit({ projection, apply(current) {
         if (agent.phase?.kind === 'running') throw new Error('前台已开始新一轮，本次候选已作废')
         for (const key of ['messages', 'timeline', 'foregroundFrames', ...INPUT_STATE_FIELDS, 'tavernPluginMetadata', 'posture', 'ledger', 'candidates',
           'settleStatus', 'settleError', 'lastSettle', 'foregroundError', 'presentationWarnings', 'candidateAgent',
@@ -743,19 +717,15 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
           if (Object.hasOwn(next, key)) current[key] = structuredClone(next[key])
           else delete current[key]
         }
-        current.regenInProgress = true
-        current.regenRecovery = { ...current.regenRecovery, phase: 'committed', projection }
-        current.tavernHelperLifecycleRevision = Number(current.tavernHelperLifecycleRevision || 0) + 1
-        return current
-      }, { source: 'foreground.regen-commit', worldSelection: { preserveDetachedWorld: true } }))
+      } }))
       committed = true
       const bodyIndex = failedTail ? (committedChat.messages?.length || 1) - 1 : oldAssistantIndex
       body = str(committedChat.messages?.[bodyIndex]?.text || prose.text).trim()
     } catch (error) {
-      if (marked && !committed) await regenerationRecovery.abort({ chatId: chat.id, originalChat, session, eventStart, operationId })
+      if (!committed) await attempt.abandon()
       throw error
     }
-    committedChat = await regenerationRecovery.complete({ chatId: chat.id, session, operationId }) || committedChat
+    committedChat = await attempt.project() || committedChat
     replyCommitted?.(committedChat.sessionId)
     // The body is already the save's truth; settlement is a background task. Waiting
     // for it unbounded held the whole response open, so the page sat on

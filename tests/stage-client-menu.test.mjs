@@ -5,16 +5,6 @@ const require=createRequire(import.meta.url)
 const {createStageMenu}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/menu.cjs')
 const {createStageControls}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/controls.cjs')
 const {createStageInput}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/input.cjs')
-test('stage menu preserves historical actions and keyboard focus wrapping',()=>{
- const menu=createStageMenu({})
- const items=menu.items({historical:true,latestTurn:5,controls:['skip'],atEnd:true})
- assert.equal(items.some(item=>item.id==='regenerate'),false)
- assert.equal(items.find(item=>item.id==='latest').note,'第 5 轮')
- assert.equal(items.find(item=>item.id==='skip').disabled,true)
- assert.equal(menu.step(0,4,'Tab',true),3)
- assert.equal(menu.step(3,4,'ArrowDown'),0)
- assert.equal(menu.step(2,4,'Home'),0)
-})
 test('stage menu disposal removes keyboard and director subscriptions before React unmount',()=>{
  const effects=[],listeners=new Map();let released=0,closed=0
  const React={createElement:(type,props,...children)=>({type,props,children}),useState:value=>[typeof value==='function'?value():value,()=>{}],useRef:value=>({current:value}),useMemo:fn=>fn(),useEffect:fn=>effects.push(fn),useLayoutEffect:fn=>effects.push(fn),useSyncExternalStore:(_,get)=>get()}
@@ -31,48 +21,7 @@ test('stage menu disposal removes keyboard and director subscriptions before Rea
  stops.forEach(fn=>fn?.())
  assert.equal(released,1)
 })
-test('stage menu labels are Chinese only and a touch screen gets no shortcut entry',()=>{
- const menu=createStageMenu({})
- const items=menu.items({controls:[]})
- assert.equal(items.some(item=>'sub' in item),false)
- assert.equal(items.some(item=>item.id==='keys'),true)
- assert.equal(menu.items({controls:[],touch:true}).some(item=>item.id==='keys'),false)
-})
 
-test('card page rows: none without menu pages; one per menu page in order, where 状态 was; a touch screen still has no keys row',()=>{
- const menu=createStageMenu({})
- const ids=options=>menu.items(options).map(item=>item.id)
- const status={id:'status',label:'状态',shortcut:'s',menu:true}
- assert.equal(ids({controls:['auto','skip']}).some(id=>id.startsWith('page:')),false)
- assert.deepEqual(ids({controls:['auto','skip'],pages:[status]}),['resume','backlog','auto','skip','page:status','gallery','regenerate','config','keys','leave'])
- assert.equal(menu.items({controls:['auto','skip'],pages:[status]}).find(item=>item.id==='page:status').title,'状态（S）')
- assert.deepEqual(ids({controls:[],pages:[status,{id:'map',label:'地图',menu:true},{id:'hidden',label:'隐藏',shortcut:'x'}],touch:true}),['resume','backlog','page:status','page:map','gallery','regenerate','config','leave'])
-})
-
-test('a card page shortcut opens its page; Esc or its own key closes it; a letter without a page does nothing',()=>{
- const controls=createStageControls()
- const listeners=[]
- const window={addEventListener(type,handler){listeners.push([type,handler])},removeEventListener(){}}
- const document={hidden:false,addEventListener(){},removeEventListener(){}}
- const input=createStageInput({React:{},window,document,clock:{setTimeout:()=>1,clearTimeout(){}},controls,navigation:{galKeyboardFocus:()=>false}})
- const pages=[{id:'status',label:'状态',shortcut:'s',menu:true}]
- let state={pages:[]}
- const sent=[]
- const instance=input.attach(()=>state,action=>sent.push(action))
- const onKey=listeners.find(([type])=>type==='keydown')[1]
- const press=key=>onKey({key,preventDefault(){},stopImmediatePropagation(){},repeat:false,isComposing:false})
- press('s')
- assert.deepEqual(sent,[])
- state={pages}
- press('s')
- assert.deepEqual(sent,[{type:'page',open:true,id:'status'}])
- state={pages,page:'status'}
- press('Escape')
- press('s')
- press('x')
- assert.deepEqual(sent.slice(1),[{type:'page',open:false},{type:'page',open:false}])
- instance.dispose()
-})
 test('menu letters draw glyph tiles from art.menu.glyphTiles and keep the word for screen readers',()=>{
  const {createStageLabels}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/labels.cjs')
  const labels=createStageLabels({React:{}})

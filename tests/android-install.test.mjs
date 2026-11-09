@@ -21,11 +21,12 @@ test('自动拉起插件默认使用 3088，并优先读取 Tavern Profile 的�
   t.after(() => rm(home, { recursive: true, force: true }))
   const profile = path.join(home, '.dsh', 'profiles', 'tavern')
   await mkdir(profile, { recursive: true })
-  await writeFile(path.join(profile, 'package.json'), JSON.stringify({ dshTavern: { source: '/opt/dsh-tavern' } }), 'utf8')
+  const source = path.join(home, 'dsh-tavern')
+  await writeFile(path.join(profile, 'package.json'), JSON.stringify({ dshTavern: { source } }), 'utf8')
 
   assert.deepEqual(resolveEntryConfig({}, home), {
     dshHome: path.join(home, '.dsh'),
-    appDir: '/opt/dsh-tavern',
+    appDir: source,
     port: 3088,
   })
   assert.equal(resolveEntryConfig({ DSH_TAVERN_ANDROID_PORT: '3099' }, home).port, 3099)

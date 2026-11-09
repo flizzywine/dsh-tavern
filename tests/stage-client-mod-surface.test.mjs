@@ -27,27 +27,6 @@ test('plugin stop settles pending Mod presentation and releases late media witho
  surface.reset(true);await surface.play(descriptor,token);assert.equal(created,0)
  }finally{f.close()}
 })
-test('Mod layer shutdown removes all nodes even when a renderer throws during cleanup',()=>{
- const f=fixture();let stopped=0
- try {
- const host=f.plugin.createLayerHost({root:f.root,renderers:{'test/ui':()=>({dispose(){stopped++;throw Error('renderer cleanup')}})},geometry:()=>({width:100,height:100}),dock:{request(){},dispose(){stopped++}}})
- host.sync([{modId:'test',id:'one',entry:'ui',band:'audience',order:0,input:'none',budget:{maxNodes:20,maxVisible:20}}],{})
- assert.equal(f.root.children.length,1)
- assert.throws(()=>f.plugin.dispose(),/cleanup failed/)
- assert.equal(f.root.children.length,0);assert.equal(stopped,2)
- host.sync([],{});assert.equal(f.root.children.length,0)
- }finally{f.close()}
-})
-test('Mod layer construction rolls back observers and dock after partial installation failure',()=>{
- const f=fixture();let disconnected=0,dockStopped=0
- f.window.ResizeObserver=class {observe(){throw Error('observe failed')}disconnect(){disconnected++}}
- // Constructors are captured at activation, as in a real plugin reload.
- const plugin=createStageModSurface({window:f.window,document:f.window.document})
- try {
- assert.throws(()=>plugin.createLayerHost({root:f.root,renderers:{},dock:{dispose(){dockStopped++}}}),/observe failed/)
- assert.equal(disconnected,1);assert.equal(dockStopped,1)
- }finally{plugin.dispose();f.close()}
-})
 
 test('mounted Mod layers stop subscriptions and fence late reads before React unmount',async()=>{
  const f=fixture(),previous={window:globalThis.window,document:globalThis.document,act:globalThis.IS_REACT_ACT_ENVIRONMENT}

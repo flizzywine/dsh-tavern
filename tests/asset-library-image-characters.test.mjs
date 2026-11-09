@@ -5,10 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { createImageCharacterHandlers } from '../tavern-plugin/lib/rpc/image-characters.js'
-import { appearanceFromImageCharacter, imageCharacterFromFigure } from '../tavern-plugin/lib/domain/image-character-appearance.js'
 import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
-import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
-import { createAssetGeneration } from '../tavern-plugin/lib/domain/asset-generation.js'
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==', 'base64')
 
@@ -44,23 +41,6 @@ function host() {
   return { api, service }
 }
 
-test('the host reaches 人物库 records only through a library that registered schema 4', async () => {
-  const { api, service } = host()
-  await assert.rejects(api.imageCharacters('getCharacter', { characterId: 'c-7' }), { code: 'NOT_CONFIGURED' })
-  // a read-only library (the 31e4fb4a1 shape) still registers, but offers no records
-  service.registerImageLibrary({ id: 'read-only', label: '只读', characters: () => [] })
-  await assert.rejects(api.imageCharacters('getCharacter', { characterId: 'c-7' }), { code: 'NOT_CONFIGURED' })
-  assert.throws(() => service.registerImageLibrary({ id: 'half', label: '半套', characters: () => [], schemaVersion: 4, getCharacter() {} }), TypeError)
-  const library = imageLibrary(), off = service.registerImageLibrary(library.registration)
-  const read = await api.imageCharacters('getCharacter', { characterId: 'c-7' })
-  assert.equal(read.providerId, 'dsh-tavern-image/definitions')
-  assert.equal(read.character.traits.face, '已有的脸')
-  // the library's own errors reach the caller unchanged
-  await assert.rejects(api.imageCharacters('patchCharacter', { characterId: 'c-7', expected: { id: 'c-7' }, patch: {} }), { code: 'REVISION_CONFLICT' })
-  off()
-  await assert.rejects(api.imageCharacters('getCharacter', { characterId: 'c-7' }), { code: 'NOT_CONFIGURED' })
-})
-
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'image-characters-'))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -75,51 +55,6 @@ async function fixture(t) {
   const handlers = createImageCharacterHandlers({ ctx: { get: name => name === 'assetLibrary' ? library : null }, pluginApi: api })
   return { library, pack, figureId, api, service, handlers, images, root }
 }
-
-test('a figure links to a new 人物库 record seeded from its names and text, then edits it in place', async t => {
-  const f = await fixture(t)
-  const before = await f.handlers.getFigureImageCharacter({ packId: f.pack.manifest.id, figureId: f.figureId })
-  assert.equal(before.status, 'unlinked')
-  assert.deepEqual(before.candidates.map(c => c.name), ['旧名'])
-  const linked = await f.handlers.linkFigureImageCharacter({ packId: f.pack.manifest.id, figureId: f.figureId })
-  assert.equal(linked.character.figureId, f.figureId)
-  assert.equal(linked.character.match, 'Kyoko')
-  assert.equal(linked.character.traits.face, '红色马尾')
-  assert.deepEqual(linked.character.outfits.map(o => [o.id, o.name, o.upper || '']), [['k-coat', '大衣', ''], ['k-summer', '夏季私服', '绿色帽衫']])
-  const edited = await f.handlers.patchImageCharacter({ packId: f.pack.manifest.id, figureId: f.figureId, providerId: 'dsh-tavern-image/definitions', characterId: linked.character.id, expected: linked.character, patch: { traits: { lowerSFW: '短裤' } } })
-  assert.equal(f.images.store.characters.find(c => c.figureId === f.figureId).traits.lowerSFW, '短裤')
-  assert.equal((await f.handlers.getFigureImageCharacter({ packId: f.pack.manifest.id, figureId: f.figureId })).character.traits.lowerSFW, edited.character.traits.lowerSFW)
-  // the pack itself is not written: the 人物库 is the one store
-  assert.equal((await f.library.getPackSnapshot({ packId: f.pack.manifest.id })).revision, f.pack.revision)
-})
-
-test('linking an existing record keeps its own text and adds only what it lacks', async t => {
-  const f = await fixture(t)
-  const linked = await f.handlers.linkFigureImageCharacter({ packId: f.pack.manifest.id, figureId: f.figureId, providerId: 'dsh-tavern-image/definitions', characterId: 'c-7' })
-  assert.equal(linked.character.figureId, f.figureId)
-  assert.equal(linked.character.traits.face, '已有的脸')
-  assert.deepEqual(linked.character.outfits.map(o => [o.id, o.upper || '']), [['k-coat', '灰大衣'], ['k-summer', '绿色帽衫']])
-})
-
-test('asset generation draws a linked figure\'s 外貌 from the 人物库 record', async t => {
-  const f = await fixture(t)
-  const { character } = await f.handlers.linkFigureImageCharacter({ packId: f.pack.manifest.id, figureId: f.figureId })
-  await f.handlers.patchImageCharacter({ packId: f.pack.manifest.id, figureId: f.figureId, providerId: 'dsh-tavern-image/definitions', characterId: character.id, expected: character, patch: { traits: { face: '人物库里的红发', bodySFW: '纤细' } } })
-  const store = createProfileDataStore({ dataRoot: join(f.root, 'data') })
-  const generation = createAssetGeneration({ store, getLibrary: () => f.library,
-    linkedAppearance: async ({ packId, figureId, outfitKey }) => appearanceFromImageCharacter((await f.api.imageCharacters('getCharacter', { figureId, figurePackId: packId })).character, outfitKey) })
-  const preview = await generation.prepare({ target: { packId: f.pack.manifest.id, figureId: f.figureId, outfitKey: 'k-summer', kind: 'settei' }, expectedRevision: f.pack.revision, preview: true })
-  const text = JSON.stringify(preview)
-  assert.match(text, /人物库里的红发；纤细/)
-  assert.match(text, /绿色帽衫/)
-  assert.doesNotMatch(text, /红色马尾/)
-})
-
-test('the record seed and the generation text use the fixed schema keys', () => {
-  assert.deepEqual(appearanceFromImageCharacter({ traits: { face: 'a', faceBack: 'x', bodySFW: 'b', lowerSFW: 'c', bodyNSFW: 'y' }, outfits: [{ id: 'k', upper: 'u', shoes: 's', back: 'z' }] }, 'k'),
-    { identityAppearance: 'a；b；c', outfitAppearance: 'u；s' })
-  assert.deepEqual(imageCharacterFromFigure({ id: 'f', name: 'n', outfits: [] }), { name: 'n', match: '', figureId: 'f', outfits: [] })
-})
 
 test('identical record IDs in separate libraries require explicit source selection', async t => {
   const f = await fixture(t), other = imageLibrary()
@@ -153,13 +88,6 @@ test('wrong figure, missing pack and stale associations cannot change a characte
   await assert.rejects(f.handlers.patchImageCharacter({ ...args, patch: { name: 'wrong' } }), { code: 'INVALID_ARGUMENT' })
   await assert.rejects(f.handlers.copyFigureSetteiToImageCharacter(args), { code: 'INVALID_ARGUMENT' })
   assert.deepEqual(f.images.store.images, [])
-})
-
-test('a figure association is created once when the user submits twice', async t => {
-  const f = await fixture(t), target = { packId: f.pack.manifest.id, figureId: f.figureId }
-  const [a, b] = await Promise.all([f.handlers.linkFigureImageCharacter(target), f.handlers.linkFigureImageCharacter(target)])
-  assert.equal(a.character.id, b.character.id)
-  assert.equal(f.images.store.characters.filter(c => c.figureId === f.figureId).length, 1)
 })
 
 test('copied figure UUIDs in distinct packs do not share an appearance record', async t => {

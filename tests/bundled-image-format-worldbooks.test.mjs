@@ -258,7 +258,12 @@ async function installedVersion(t, version, change = () => {}) {
   await createFormatWorldbooks({ root }).ensure()
   const books = structuredWorldbookDefaults(version)
   change(books)
-  for (const key of FORMAT_WORLDBOOK_GROUPS) await fs.writeFile(pathFor(root, 'structured', key), JSON.stringify(books[key], null, 3) + '\n\n')
+  // Create the historical fixture on its own inode instead of editing a just-published seed in place.
+  for (const key of FORMAT_WORLDBOOK_GROUPS) {
+    const file = pathFor(root, 'structured', key)
+    await fs.unlink(file)
+    await fs.writeFile(file, JSON.stringify(books[key], null, 3) + '\n\n', { flag: 'wx' })
+  }
   return { root, books }
 }
 const installedV1 = (t, change) => installedVersion(t, 1, change)

@@ -8,12 +8,13 @@ import { validateInstallationRequest, inspectInstallation, performInstallation }
 import { registeredTavernTarget, switchProfile, scheduleSwitch } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installation.mjs'
 import location from '../bin/installation-location.cjs'
-import { copyTreeSync } from '../bin/portable-fs.mjs'
+import { copyTreeSync, removeTreeSync } from '../bin/portable-fs.mjs'
+import { createFileSymlink } from './helpers/file-symlink.mjs'
 const repo = fileURLToPath(new URL('../', import.meta.url))
 const put = (p, value) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(value)) }
 function fixture(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'pb-management-e2e-')))
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  t.after(() => removeTreeSync(root, { retries: 5 }))
   const home = path.join(root, 'home'), app = path.join(home, 'apps/dsh-tavern')
   const paths = { home, stateDir: path.join(home, 'profile-bridge'), activeDir: path.join(home, 'profiles/desktop') }
   const manifest = name => ({ name, dsh: { profile: { bundles: ['dsh-tavern'] } } })
@@ -51,7 +52,8 @@ test('relocation → managed switch → reinstall target → second relocation k
 test('unregistered external profile and symlinked registry fail closed', async t => {
   const f = fixture(t); await performInstallation(plan(f))
   const record = path.join(f.paths.stateDir, 'installation.json'), saved = record + '.saved'
-  fs.renameSync(record, saved); fs.symlinkSync(saved, record)
+  fs.renameSync(record, saved)
+  if (!createFileSymlink(t, saved, record)) return
   assert.equal(registeredTavernTarget(f.profilesRoot, path.join(f.profilesRoot, 'tavern')), undefined)
   await assert.rejects(switchProfile({ mode: 'link', profilesRoot: f.profilesRoot, liveDir: f.paths.activeDir, targetDir: path.join(f.profilesRoot, 'tavern'), stamp: 'bad' }), /独立 profile/)
   assert.equal(fs.lstatSync(f.paths.activeDir).isSymbolicLink(), false)
@@ -151,7 +153,7 @@ test('redirected user home does not authorize replaced managed state or unregist
 
 test('read-only redirected management storage is inspectable but never bypasses write permissions', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async t => {
   const f = fixture(t), alias = path.join(f.root, 'readonly-user')
-  fs.symlinkSync(f.root, alias, 'dir')
+  fs.symlinkSync(f.root, alias, process.platform === 'win32' ? 'junction' : 'dir')
   f.paths.home = path.join(alias, 'home'); f.paths.stateDir = path.join(f.paths.home, 'profile-bridge')
   fs.mkdirSync(f.paths.stateDir)
   fs.chmodSync(f.paths.stateDir, 0o500)

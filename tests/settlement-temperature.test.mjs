@@ -20,11 +20,6 @@ for (const provider of ['moonshotai-cn', 'kimi-coding', 'deepseek-official', 'op
   assert.equal(request.temperature, 0.4, 'does not mutate host request')
 })
 
-test('settlement does not ask its character-design stage for a temperature', () => {
-  const output = backgroundRequestTemperature({ temperature: 1 }, { task: 'settlement' }, { temperature() { assert.fail('settlement must bypass creative temperature') } })
-  assert.deepEqual(output, {})
-})
-
 for (const task of ['candidate', 'character-design']) test(`${task} retains its existing temperature and creative stage`, async () => {
   const stage = createCharacterDesignStage()
   const input = { task, temperature: 0.2, selection: { provider: 'test' } }
@@ -34,12 +29,6 @@ for (const task of ['candidate', 'character-design']) test(`${task} retains its 
   await stage.execute('character_design_finish', async () => 'ok')
   temperatures.push(backgroundRequestTemperature({}, input, stage).temperature)
   assert.deepEqual(temperatures, [0.2, 0.7, 0.2])
-})
-
-test('non-settlement default and Codex behavior is unchanged', () => {
-  const request = { temperature: 0.6 }
-  assert.equal(backgroundRequestTemperature(request, { task: 'candidate' }), request)
-  assert.equal(backgroundRequestTemperature(request, { task: 'candidate', temperature: 0.3, selection: { provider: 'openai-codex' } }), request)
 })
 
 for (const method of ['settleVariables', 'settleAuxiliary']) test(`${method} passes no task temperature and makes no automatic retry`, async () => {

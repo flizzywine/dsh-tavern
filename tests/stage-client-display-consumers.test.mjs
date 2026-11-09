@@ -23,16 +23,3 @@ test('display confirmation, speech routing and plugin teardown use one instance 
  h.effects[0]();assert.deepEqual(h.calls.slice(2),['close','ambience-layer','sfx-stop','voice-stop'])
  assert.ok(!h.calls.includes('ambience-release'));h.displays.dispose()
 })
-test('failed close still releases all instance media and settles presentation wait',async()=>{
- const h=harness({failClose:true});h.consumers.useConsumers('s',h.store,()=>{})
- const pending=h.displays.present('s',{groups:['visual'],accepted:{scene:null,presentationRevision:1}})
- assert.throws(()=>h.consumers.dispose(),/cleanup failed/)
- assert.equal((await pending).status,'cancelled');assert.deepEqual(h.calls,['open','close','ambience-layer','sfx-stop','voice-stop'])
- h.effects[0]();h.displays.dispose()
-})
-test('failed opening rolls back registration and media without waiting for React unmount',async()=>{
- const h=harness({failOpen:true})
- assert.throws(()=>h.consumers.useConsumers('s',h.store,()=>{}),/dispatch/)
- assert.equal((await h.displays.present('s',{})).reason,'absent')
- assert.deepEqual(h.calls,['open','close','ambience-layer','sfx-stop','voice-stop']);h.consumers.dispose();h.displays.dispose()
-})

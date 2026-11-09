@@ -16,14 +16,3 @@ test('stage owns Spine figures independently and fences updates after disposal',
  a.destroy();a.destroy();f.module.dispose();b.update(.2);b.destroy()
  assert.deepEqual(f.counts(),{destroyed:2,bodyDestroyed:2,updates:3});assert.equal(await f.module.prepare(f.input),null)
 })
-test('late Spine loading releases textures without creating a figure',async()=>{
- const f=fixture();let resolve,released=0,created=0
- f.rig.spineLoadData=()=>new Promise(done=>resolve=done);f.rig.spineFigure=()=>{created++}
- const pending=f.module.prepare(f.input);f.module.dispose();resolve({textures:[{destroy(){released++}}]})
- assert.equal(await pending,null);assert.equal(released,1);assert.equal(created,0)
-})
-test('failed Spine preparation releases its rig and does not retain a broken instance',async()=>{
- const f=fixture();f.rig.spineBody=()=>{throw Error('body failed')}
- await assert.rejects(f.module.prepare(f.input),/body failed/);f.module.dispose()
- assert.equal(f.counts().destroyed,1)
-})

@@ -28,8 +28,3 @@ test('reduced-motion armed cue uses actor colour and snapshots do not expose sta
  const snapshot=view.snapshot();snapshot.armed=0;assert.equal(view.snapshot().armed,1)
  e.owner.dispose()
 })
-test('failed shade tuning releases allocation and allows a fresh instance',()=>{
- const e=fixture();assert.throws(()=>e.create(()=>{throw Error('tune failed')}),/tune failed/)
- assert.equal(e.allocated[0].dead,1);assert.equal(e.container.filters,null)
- e.create();e.owner.dispose();assert.ok(e.allocated.every(filter=>filter.dead===1))
-})

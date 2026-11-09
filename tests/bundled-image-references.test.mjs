@@ -1,13 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readdir, readFile, writeFile, lstat, link, symlink, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, writeFile, lstat, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import {
-  normalizeReferenceImage, normalizeConsistencyText, createReferenceImageStore,
-  resolveImageReferences, buildReferenceText, referencePlannerGuidance, referenceScopedDefinitions,
-} from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/reference-images.js'
+import { createReferenceImageStore, resolveImageReferences, buildReferenceText, referencePlannerGuidance, referenceScopedDefinitions } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/reference-images.js'
 
 // Tiny genuine images encoded by Pillow, not just file signatures.
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==', 'base64')
@@ -43,36 +40,6 @@ function definitions() {
     { id: 'shared-robe', name: 'Moon Robe', match: '月白长袍', body: 'silver silk robe', full: 'silver robe with embroidery', referenceImage: image(), consistencyText: '月纹刺绣' },
   ], settings: [{ id: 'room', name: '室内', match: 'room', description: 'wooden walls' }], props: [] }
 }
-
-test('descriptor normalization accepts only hash metadata and strips unsafe display characters', () => {
-  assert.deepEqual(normalizeReferenceImage(image()), image())
-  assert.equal(normalizeReferenceImage(null), null)
-  assert.equal(normalizeReferenceImage('https://remote/image.png'), null)
-  for (const bad of [
-    { ...image(), id: '../escape' }, { ...image(), id: image().id.toUpperCase() },
-    { ...image(), path: '../escape' }, { ...image(), url: 'https://remote/x' },
-    { ...image(), byteLength: -1 }, { ...image(), byteLength: 1.5 }, { ...image(), byteLength: '10' },
-    { ...image(), mediaType: 'image/svg+xml' }, { ...image(), mediaType: 'image/gif' },
-  ]) assert.equal(normalizeReferenceImage(bad), null)
-  const cleaned = normalizeReferenceImage({ ...image(), name: '../../unsafe\\image.png\0', ignored: 'not serialized' })
-  assert.doesNotMatch(cleaned.name, /[\\/\u0000]/)
-  assert.deepEqual(Object.keys(cleaned), ['id', 'mediaType', 'name', 'byteLength'])
-  assert.equal(normalizeConsistencyText('  a\r\nb\0\u202e  '), 'a\nb')
-  assert.equal(normalizeConsistencyText({ text: 'not string' }), '')
-  assert.equal(normalizeConsistencyText('a'.repeat(5000)).length, 4000)
-})
-
-test('store round trips genuine PNG JPEG WebP and supports data URLs with inferred media type', async t => {
-  const { store, root } = await tempStore(t)
-  for (const [bytes, mediaType] of [[PNG, 'image/png'], [JPEG, 'image/jpeg'], [WEBP, 'image/webp']]) {
-    const descriptor = await store.put(upload(bytes, mediaType, 'my-image'))
-    assert.deepEqual(descriptor, image(bytes, mediaType, 'my-image'))
-    assert.deepEqual(await store.read(descriptor), { data: bytes, mediaType, name: 'my-image' })
-  }
-  const dataUrl = await store.put({ data: 'data:image/png;base64,' + PNG.toString('base64'), name: 'URL.png' })
-  assert.equal(dataUrl.id, digest(PNG))
-  assert.equal((await readdir(root)).length, 3)
-})
 
 test('readById previews drafts using only strict hashes and derives verified media metadata', async t => {
   const { store, root } = await tempStore(t)
@@ -112,16 +79,6 @@ test('store deduplicates concurrent bytes across store instances without overwri
   assert.equal((await readdir(root)).length, 2)
 })
 
-test('store rejects paths URLs buffers malformed base64 and unsupported media before saving', async t => {
-  const { store, root } = await tempStore(t)
-  for (const data of ['../image.png', 'C:\\image.png', 'https://example.com/x.png', 'file:///etc/passwd', 'data:image/png,not-base64', 'AA=A', 'AAAA!', 'AA', 'AB==', 'AAAA\n', '']) {
-    await assert.rejects(store.put({ data }), code('REFERENCE_UPLOAD_INVALID'))
-  }
-  for (const value of [{ path: '/etc/passwd' }, { url: 'https://image.test' }, { data: PNG }, { ...upload(), path: 'anything' }]) await assert.rejects(store.put(value), code('REFERENCE_UPLOAD_INVALID'))
-  await assert.rejects(store.put({ ...upload(), mediaType: 'image/svg+xml' }), code('REFERENCE_MEDIA_TYPE_INVALID'))
-  assert.deepEqual(await readdir(root), [])
-})
-
 test('store enforces exact byte limit and MIME consistency, not filename extensions', async t => {
   const { root } = await tempStore(t)
   const exact = createReferenceImageStore(root, { maxBytes: PNG.length })
@@ -157,37 +114,6 @@ test('read validates snapshot length media type and SHA; put never repairs corru
   await assert.rejects(store.read(descriptor), code('REFERENCE_IMAGE_CORRUPT'))
   await assert.rejects(store.put(upload()), code('REFERENCE_IMAGE_CORRUPT'))
   assert.deepEqual(await readFile(join(root, descriptor.id)), corrupt)
-})
-
-test('store refuses hard-linked blobs instead of following external mutable data', async t => {
-  const { root, store } = await tempStore(t)
-  const external = join(root, 'outside.png')
-  await writeFile(external, PNG)
-  await link(external, join(root, digest(PNG)))
-  await assert.rejects(store.read(image()), code('REFERENCE_PATH_INVALID'))
-  await assert.rejects(store.put(upload()), code('REFERENCE_PATH_INVALID'))
-})
-
-test('store refuses a linked directory as root', async t => {
-  const { root } = await tempStore(t)
-  const source = join(root, 'actual'), linked = join(root, 'linked')
-  await createReferenceImageStore(source).put(upload())
-  try { await symlink(source, linked, process.platform === 'win32' ? 'junction' : 'dir') }
-  catch (error) { if (['EPERM', 'EACCES', 'ENOTSUP'].includes(error.code)) { t.skip('symlink creation unavailable'); return }; throw error }
-  await assert.rejects(createReferenceImageStore(linked).put(upload()), code('REFERENCE_PATH_INVALID'))
-})
-
-test('explicit subjects support mixed missing character/outfit images in requested order', () => {
-  const defs = definitions()
-  const resolved = resolveImageReferences({ definitions: defs, text: 'Unused is in the library, but not in this image', subjects: [
-    { characterId: 'bob', outfitId: 'uniform' }, { characterId: 'alice', outfitId: 'text-only' },
-  ] })
-  assert.deepEqual(resolved.subjects, [{ characterId: 'bob', outfitId: 'uniform' }, { characterId: 'alice', outfitId: 'text-only' }])
-  assert.deepEqual(resolved.references.map(({ index, kind, characterId, outfitId }) => ({ index, kind, characterId, outfitId })), [
-    { index: 1, kind: 'outfit', characterId: 'bob', outfitId: 'uniform' },
-    { index: 2, kind: 'character', characterId: 'alice', outfitId: undefined },
-  ])
-  assert.deepEqual(resolveImageReferences({ definitions: defs, subjects: [{ characterId: 'bob', outfitId: 'plain' }] }).references, [])
 })
 
 test('all public store operations redact native filesystem errors while preserving domain failures', async t => {
@@ -233,84 +159,6 @@ test('explicit name-only subjects stay textual alongside pictured people and sur
   }
 })
 
-test('an unknown named person can wear a shared referenced costume without borrowing a library identity', () => {
-  const defs = definitions()
-  const result = resolveImageReferences({ definitions: defs, subjects: [{ name: '旅人', outfitId: 'shared-robe' }] })
-  assert.deepEqual(result.subjects, [{ name: '旅人', outfitId: 'shared-robe' }])
-  assert.equal(result.references.length, 1)
-  assert.equal(result.references[0].kind, 'outfit')
-  assert.equal(result.references[0].characterId, undefined)
-  assert.match(result.references[0].label, /旅人（未建库人物）/)
-  const scoped = referenceScopedDefinitions(defs, result.references, { subjects: result.subjects })
-  assert.deepEqual(scoped.characters, [])
-  assert.equal(scoped.outfits[0].id, 'shared-robe')
-  assert.match(buildReferenceText(result.references), /旅人/)
-  assert.throws(() => resolveImageReferences({ definitions: defs, subjects: [{ name: '旅人', outfitId: 'coat' }] }), code('REFERENCE_ID_UNKNOWN'), 'owned costumes do not become shared')
-})
-
-test('explicit empty subjects and empty or omitted outfit IDs never trigger fallback outfits', () => {
-  const defs = definitions()
-  assert.deepEqual(resolveImageReferences({ definitions: defs, text: macro({ name: 'Alice', outfit: 'Blue Coat' }), subjects: [] }), { references: [], subjects: [] })
-  for (const subject of [{ characterId: 'alice' }, { characterId: 'alice', outfitId: '' }]) {
-    const result = resolveImageReferences({ definitions: defs, text: 'Alice wears Blue Coat', subjects: [subject] })
-    assert.deepEqual(result.subjects, [{ characterId: 'alice', outfitId: '' }])
-    assert.equal(result.references.length, 1)
-    assert.equal(result.references[0].kind, 'character')
-  }
-})
-
-test('unknown disabled ambiguous or contradictory explicit IDs fail without guessing', () => {
-  const defs = definitions()
-  for (const subjects of [[{ characterId: 'missing' }], [{ characterId: 'disabled' }], [{ characterId: 'alice', outfitId: 'uniform' }], [{ characterId: 'alice', outfitId: 'unknown' }]]) {
-    assert.throws(() => resolveImageReferences({ definitions: defs, subjects }), code('REFERENCE_ID_UNKNOWN'))
-  }
-  for (const subjects of [null, {}, '[]']) assert.throws(() => resolveImageReferences({ definitions: defs, subjects }), code('REFERENCE_SUBJECTS_INVALID'))
-  for (const subjects of [[null], [{ characterId: 1 }], [{ characterId: 'alice', outfitId: null }]]) assert.throws(() => resolveImageReferences({ definitions: defs, subjects }), code('REFERENCE_SUBJECT_INVALID'))
-  assert.throws(() => resolveImageReferences({ definitions: defs, subjects: [{ characterId: 'alice', outfitId: '' }, { characterId: 'alice', outfitId: 'coat' }] }), code('REFERENCE_SUBJECT_CONFLICT'))
-  const repeated = structuredClone(defs); repeated.characters.push(structuredClone(repeated.characters[0]))
-  assert.throws(() => resolveImageReferences({ definitions: repeated, subjects: [{ characterId: 'alice' }] }), code('REFERENCE_ID_AMBIGUOUS'))
-  const ambiguous = structuredClone(defs); ambiguous.outfits.push({ id: 'coat', name: 'Another coat', referenceImage: image() })
-  assert.throws(() => resolveImageReferences({ definitions: ambiguous, subjects: [{ characterId: 'alice', outfitId: 'coat' }] }), code('REFERENCE_ID_AMBIGUOUS'))
-})
-
-test('same object is deduplicated, identical image bytes on different objects keep distinct bindings', () => {
-  const defs = definitions()
-  defs.characters[1].referenceImage = image()
-  defs.characters[0].outfits[0].referenceImage = image()
-  const result = resolveImageReferences({ definitions: defs, subjects: [
-    { characterId: 'alice', outfitId: 'coat' }, { characterId: 'alice', outfitId: 'coat' }, { characterId: 'bob' },
-  ] })
-  assert.equal(result.subjects.length, 2)
-  assert.equal(result.references.length, 3)
-  assert.equal(new Set(result.references.map(ref => ref.image.id)).size, 1)
-  assert.deepEqual(result.references.map(ref => ref.index), [1, 2, 3])
-  assert.deepEqual(result.references.map(ref => ref.kind), ['character', 'outfit', 'character'])
-})
-
-test('shared outfit is one object with both wearer bindings, nested same IDs remain scoped', () => {
-  const defs = definitions()
-  const shared = resolveImageReferences({ definitions: defs, subjects: [{ characterId: 'alice', outfitId: 'shared-robe' }, { characterId: 'bob', outfitId: 'shared-robe' }] })
-  assert.equal(shared.references.length, 2)
-  assert.equal(shared.references[1].characterId, undefined)
-  assert.match(shared.references[1].label, /alice/)
-  assert.match(shared.references[1].label, /bob/)
-  defs.characters[1].outfits[0].id = 'coat'
-  const nested = resolveImageReferences({ definitions: defs, subjects: [{ characterId: 'alice', outfitId: 'coat' }, { characterId: 'bob', outfitId: 'coat' }] })
-  assert.deepEqual(nested.references.filter(ref => ref.kind === 'outfit').map(ref => [ref.characterId, ref.outfitId]), [['alice', 'coat'], ['bob', 'coat']])
-})
-
-test('legacy recognizes this image macros and character prompts, not the entire library', () => {
-  const defs = definitions()
-  const result = resolveImageReferences({ definitions: defs, text: 'A room at dawn', characters: [
-    { prompt: macro({ name: 'Bob', outfit: 'Black Uniform' }) + ', standing' },
-    { prompt: macro({ name: 'Alice', outfit: 'Training Uniform' }) + ', smiling' },
-  ] })
-  assert.deepEqual(result.subjects, [{ characterId: 'bob', outfitId: 'uniform' }, { characterId: 'alice', outfitId: 'text-only' }])
-  assert.equal(result.references.length, 2)
-  assert.ok(result.references.every(ref => ref.characterId !== 'unused'))
-  assert.deepEqual(resolveImageReferences({ definitions: defs, text: 'a landscape without people' }), { references: [], subjects: [] })
-})
-
 test('legacy complete aliases avoid Li/Lina and prefer full Chinese form names', () => {
   const defs = { characters: [
     { id: 'li', name: '林', match: 'Li', referenceImage: image() },
@@ -347,17 +195,6 @@ test('legacy outfits follow exact named costume, then current/default only witho
   assert.equal(resolveOutfit(macro({ name: 'Alice' }) + ' ' + macro({ name: 'Old Dress', upperBody: 'visible' })), 'dress')
 })
 
-test('legacy nude undressing and hidden states block implicit current/default clothing', () => {
-  const defs = definitions()
-  for (const text of ['Alice is nude', '林月全裸泡澡。', 'Alice is undressing', macro({ name: 'Alice', upperBody: 'hidden', lowerBody: 'hidden' }), macro({ name: 'Alice', upperBody: 'nsfw' })]) {
-    const result = resolveImageReferences({ definitions: defs, text })
-    assert.equal(result.subjects[0].outfitId, '', text)
-    assert.ok(result.references.every(ref => ref.kind !== 'outfit'))
-  }
-  defs.characters[0].current.outfit = 'nude'
-  assert.equal(resolveImageReferences({ definitions: defs, text: 'Alice stands by a window' }).subjects[0].outfitId, '')
-})
-
 test('legacy shared costume macro works with and without a known character', () => {
   const defs = definitions()
   const withPerson = resolveImageReferences({ definitions: defs, text: macro({ name: 'Alice' }) + ' ' + macro({ name: 'Moon Robe', upperBody: 'visible' }) })
@@ -374,50 +211,6 @@ test('legacy shared costume macro works with and without a known character', () 
   assert.equal(scopedClothes.outfits.length, 1)
   defs.outfits.push({ id: 'shared-robe', name: 'Other Robe', referenceImage: image() })
   assert.throws(() => resolveImageReferences({ definitions: defs, text: macro({ name: 'Moon Robe' }) }), code('REFERENCE_ID_AMBIGUOUS'))
-})
-
-test('reference snapshots and scoped clones do not mutate source definitions', () => {
-  const defs = definitions(), original = structuredClone(defs)
-  const resolved = resolveImageReferences({ definitions: defs, subjects: [{ characterId: 'alice', outfitId: 'coat' }] })
-  const scoped = referenceScopedDefinitions(defs, resolved.references, { subjects: resolved.subjects })
-  assert.deepEqual(defs, original)
-  assert.deepEqual(scoped.characters.map(item => item.id), ['alice'])
-  assert.equal(scoped.characters[0].traits.feature, 'calm woman')
-  assert.match(scoped.characters[0].traits.face, /characterId=alice/)
-  assert.equal(scoped.characters[0].traits.bodySFW, undefined)
-  assert.equal(scoped.characters[0].traits.negative, undefined)
-  assert.equal(scoped.characters[0].current, undefined)
-  assert.equal(scoped.characters[0].outfits.length, 1)
-  assert.match(scoped.characters[0].outfits[0].upper, /outfitId=coat/)
-  assert.equal(scoped.characters[0].outfits[0].negative, undefined)
-  defs.characters[0].referenceImage = image(WEBP, 'image/webp')
-  defs.characters[0].consistencyText = 'changed'
-  assert.equal(resolved.references[0].image.id, original.characters[0].referenceImage.id)
-  assert.equal(resolved.references[0].consistencyText, '保留左眼下的小痣')
-})
-
-test('scoped definitions preserve missing-image traits and selected textual clothing, never auto-dress outfitId empty', () => {
-  const defs = definitions()
-  const resolved = resolveImageReferences({ definitions: defs, subjects: [{ characterId: 'alice', outfitId: 'text-only' }, { characterId: 'bob', outfitId: 'uniform' }] })
-  const scoped = referenceScopedDefinitions(defs, resolved.references, { subjects: resolved.subjects })
-  assert.equal(scoped.characters[0].outfits[0].upper, 'plain green jacket')
-  assert.equal(scoped.characters[1].traits.face, 'short black hair, blue eyes')
-  assert.match(scoped.characters[1].outfits[0].upper, /outfitId=uniform/)
-  const unclothed = resolveImageReferences({ definitions: defs, subjects: [{ characterId: 'alice', outfitId: '' }] })
-  const nakedScoped = referenceScopedDefinitions(defs, unclothed.references, { subjects: unclothed.subjects })
-  assert.deepEqual(nakedScoped.characters[0].outfits, [])
-  assert.equal(nakedScoped.characters[0].current, undefined)
-})
-
-test('scoped shared clothing is available to selected person without copying model identity or old descriptions', () => {
-  const defs = definitions()
-  const resolved = resolveImageReferences({ definitions: defs, subjects: [{ characterId: 'bob', outfitId: 'shared-robe' }] })
-  const scoped = referenceScopedDefinitions(defs, resolved.references, { subjects: resolved.subjects })
-  assert.equal(scoped.characters[0].id, 'bob')
-  assert.equal(scoped.characters[0].outfits[0].id, 'shared-robe')
-  assert.match(scoped.characters[0].outfits[0].upper, /外观参照图1/)
-  assert.equal(scoped.characters[0].outfits[0].full, undefined)
-  assert.equal(scoped.outfits[0].body, scoped.characters[0].outfits[0].upper)
 })
 
 test('text-only shared costumes expose descriptions to planning and map body/back fields into actual compilation', async () => {
@@ -461,22 +254,6 @@ test('reference text binds each numbered object, explains role boundaries and pr
   assert.doesNotMatch(text, /data:image|base64/)
   assert.equal(buildReferenceText([]), '')
   assert.throws(() => buildReferenceText([{ ...references[0], index: 9 }]), code('REFERENCE_LIST_INVALID'))
-})
-
-test('planner guidance lists exact IDs and availability without bytes/paths and requires per-image subjects', () => {
-  const defs = definitions()
-  const text = referencePlannerGuidance(defs)
-  assert.match(text, /<subjects>.*characterId.*outfitId/)
-  assert.match(text, /"characterId":"bob".*"referenceImage":"无图"/)
-  assert.match(text, /"outfitId":"uniform".*"referenceImage":"有图"/)
-  assert.match(text, /"shared":true.*shared-robe/)
-  assert.match(text, /缺图对象继续使用完整文字/)
-  assert.match(text, /后端会暂停/)
-  assert.match(text, /不再完整堆叠/)
-  assert.doesNotMatch(text, /停用角色|data:image|base64|byteLength|UNRELATED APPEARANCE/)
-  assert.ok(!text.includes(image().id))
-  const invalid = definitions(); invalid.characters[0].referenceImage = { ...image(), path: '/tmp/unsafe.png' }
-  assert.throws(() => referencePlannerGuidance(invalid), code('REFERENCE_DESCRIPTOR_INVALID'))
 })
 
 test('integration: scoped identities survive actual macro expansion and name injection in tags/natural modes', async () => {

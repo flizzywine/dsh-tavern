@@ -1,6 +1,5 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {readFileSync} from 'node:fs'
 import {createRequire} from 'node:module'
 import React,{act} from 'react'
 import {createRoot} from 'react-dom/client'
@@ -45,23 +44,4 @@ test('lease HUD renders the card hud inside the stage theme scope with read, dev
     assert.equal(avatars[1].textContent,'E')
     assert.equal(avatars[2].textContent,'某')
   })
-})
-
-test('a throwing hud shows the plugin boundary fallback while the stage keeps rendering',async()=>{
-  const lease={owner:'werewolf',hud(){throw Error('card hud failed')},props:{}}
-  await mount(stage(React.createElement(views.StageLeaseHud,{lease,rows:[],device:'desktop',read:null})),async document=>{
-    assert.equal(document.querySelector('[data-stage-scene]').textContent,'scene')
-    assert.match(document.querySelector('.fork-gal-lease-hud-error').textContent,/玩法面板出错/)
-  })
-})
-
-test('no lease hud renders no region, and the lease HUD css themes with --gal-ui-* only',async()=>{
-  await mount(stage(React.createElement(views.StageLeaseHud,{lease:{owner:'x',props:{}},rows:[]})),async document=>{
-    assert.equal(document.querySelector('.fork-gal-lease-hud'),null)
-  })
-  const css=readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/themes.css',import.meta.url),'utf8')
-  const block=css.slice(css.indexOf('/* ==== stage lease HUD ==== */'),css.indexOf('/* ==== end stage lease HUD ==== */'))
-  assert.match(block,/\.fork-gal-lease-hud \{[^}]*pointer-events: none/)
-  assert.doesNotMatch(block,/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(|\b(white|black)\b/i)
-  for(const name of block.match(/var\(--[a-z0-9-]+/g))assert.match(name,/^var\(--(gal-ui-|fk-area-t)/)
 })

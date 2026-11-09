@@ -1,4 +1,6 @@
 import test from 'node:test'
+import { createFileSymlink } from './helpers/file-symlink.mjs'
+import { removeTreeSync } from '../bin/portable-fs.mjs'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import os from 'node:os'
@@ -10,7 +12,7 @@ import location from '../bin/installation-location.cjs'
 const put = (p, value) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, typeof value === 'string' ? value : JSON.stringify(value)) }
 function fixture(t, host = 'desktop') {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-management-')))
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  t.after(() => removeTreeSync(root, { retries: 5 }))
   const home = path.join(root, 'home'), app = path.join(home, 'apps/dsh-tavern')
   const paths = { home, stateDir: path.join(home, 'profile-bridge'), activeDir: path.join(home, 'profiles/desktop') }
   put(path.join(app, 'package.json'), { name: 'dsh-profile-tavern' })
@@ -41,7 +43,7 @@ test('refuses nonempty/relative/overlapping/symlink targets without mutation', t
   const f = fixture(t)
   fs.mkdirSync(f.destination); put(path.join(f.destination, 'mine'), 'mine')
   for (const destination of [f.destination, 'relative', f.home, f.root, path.join(f.app, 'inside')]) assert.throws(() => validateInstallationRequest(f.paths, 'relocate', { confirmed: true, destination }))
-  const alias = path.join(f.root, 'alias'); fs.symlinkSync(f.destination, alias, 'dir')
+  const alias = path.join(f.root, 'alias'); fs.symlinkSync(f.destination, alias, process.platform === 'win32' ? 'junction' : 'dir')
   assert.throws(() => validateInstallationRequest(f.paths, 'relocate', { confirmed: true, destination: path.join(alias, 'new') }))
   assert.equal(fs.lstatSync(f.app).isSymbolicLink(), false)
 })
@@ -54,11 +56,11 @@ test('requires consent and matching ownership; refuses git source', t => {
 test('rewrites internal dependency links; refuses user-data links escaping ownership', async t => {
   const f = fixture(t)
   put(path.join(f.app, 'node_modules/pkg/index.js'), 'export default 1')
-  fs.symlinkSync(path.join(f.app, 'node_modules/pkg'), path.join(f.home, 'profiles/tavern/pkg'), 'dir')
+  fs.symlinkSync(path.join(f.app, 'node_modules/pkg'), path.join(f.home, 'profiles/tavern/pkg'), process.platform === 'win32' ? 'junction' : 'dir')
   await performInstallation(plan(f))
   assert.equal(fs.realpathSync(path.join(f.destination, 'profile/pkg')), path.join(f.destination, 'app/node_modules/pkg'))
   const g = fixture(t)
-  fs.symlinkSync(g.root, path.join(g.home, 'profile-data/tavern/escape'), 'dir')
+  fs.symlinkSync(g.root, path.join(g.home, 'profile-data/tavern/escape'), process.platform === 'win32' ? 'junction' : 'dir')
   await assert.rejects(performInstallation(plan(g)), /外部链接/)
   assert.equal(fs.lstatSync(g.app).isSymbolicLink(), false)
 })
@@ -107,7 +109,7 @@ test('source changes during copy abort before activating any aliases', async t =
 test('registered alias tampering and interrupted journals fail closed', async t => {
   const f = fixture(t)
   await performInstallation(plan(f))
-  fs.unlinkSync(f.app); fs.symlinkSync(f.root, f.app, 'dir')
+  fs.unlinkSync(f.app); fs.symlinkSync(f.root, f.app, process.platform === 'win32' ? 'junction' : 'dir')
   assert.equal(inspectInstallation(f.paths).available, false)
   const g = fixture(t)
   put(path.join(g.paths.stateDir, 'installation-operation.json'), { phase: 'preparing' })
@@ -158,7 +160,7 @@ test('symlink journal is not trusted even when linked content says completed', t
   const outside = path.join(f.root, 'journal.json')
   put(outside, { schemaVersion: 1, phase: 'completed' })
   fs.mkdirSync(f.paths.stateDir, { recursive: true })
-  fs.symlinkSync(outside, path.join(f.paths.stateDir, 'installation-operation.json'))
+  if (!createFileSymlink(t, outside, path.join(f.paths.stateDir, 'installation-operation.json'))) return
   assert.equal(inspectInstallation(f.paths).recoveryRequired, true)
 })
 test('registered aliases cannot legitimize relocation inside shared DSH home', async t => {
@@ -172,7 +174,7 @@ test('registered aliases cannot legitimize relocation inside shared DSH home', a
   for (const e of record.entries) {
     fs.unlinkSync(e.from)
     e.to = path.join(forged, e.kind)
-    fs.symlinkSync(e.to, e.from, 'dir')
+    fs.symlinkSync(e.to, e.from, process.platform === 'win32' ? 'junction' : 'dir')
   }
   put(registry, record)
   assert.equal(inspectInstallation(f.paths).available, false)
@@ -183,8 +185,8 @@ test('registered aliases must point directly to the registered target, not an al
   const f = fixture(t)
   await performInstallation(plan(f))
   const middle = path.join(f.root, 'intermediate-link')
-  fs.symlinkSync(path.join(f.destination, 'app'), middle, 'dir')
-  fs.unlinkSync(f.app); fs.symlinkSync(middle, f.app, 'dir')
+  fs.symlinkSync(path.join(f.destination, 'app'), middle, process.platform === 'win32' ? 'junction' : 'dir')
+  fs.unlinkSync(f.app); fs.symlinkSync(middle, f.app, process.platform === 'win32' ? 'junction' : 'dir')
   assert.equal(inspectInstallation(f.paths).available, false)
 })
 function fakeOwnership() {

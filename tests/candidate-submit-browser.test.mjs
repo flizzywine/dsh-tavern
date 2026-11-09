@@ -40,6 +40,7 @@ async function mount(t, outcome) {
         getUpdateStatus: { status: { phase: 'idle', host: 'cli' } },
         getHostCompatibility: {},
         confirmSessionPatch: {},
+        gameMode: args.op === 'list' ? { modes: [] } : { mode: null },
         syncSession: { sync: sync() },
         getSession: { view: { mode: 'story', latestAssistantTurn: 1, activity: { busy: false }, tavernHelper: { messages: [] } } },
         getActiveInterfaceSkin: { css: '' },

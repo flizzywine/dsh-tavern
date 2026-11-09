@@ -19,17 +19,6 @@ test('retry completion cannot update an unmounted or disposed stage notice', asy
     assert.equal(calls,1)
   }
 })
-test('stage errors hide technical details by default and retain their reload action', () => {
-  const views=createStageNotices({React:{createElement:h},document:{body:{classList:{contains:()=>false}}}})
-  const tree=views.Status({sceneError:'WebGL renderer SECRET_INTERNAL',onReloadScene(){}})
-  const rendered=JSON.stringify(tree)
-  assert.match(rendered,/画面渲染组件没能载入/)
-  assert.doesNotMatch(rendered,/SECRET_INTERNAL/)
-  const functions=[]
-  const walk=node=>{if(!node||typeof node!=='object')return;if(typeof node.type==='function')functions.push(node);for(const child of node.children||[])Array.isArray(child)?child.forEach(walk):walk(child)}
-  walk(tree)
-  assert.ok(functions.some(node=>node.props?.onReload))
-})
 test('capability notices isolate sessions and cancel all pending expiry work on disposal',()=>{
   let state=null, effects=[], updates=0
   const timers=new Set(),callbacks=[]

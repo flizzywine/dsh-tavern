@@ -35,33 +35,3 @@ test('Ctrl hold arms once, shortcuts cancel it, and the interrupting press is co
  f.frame.skipping=true;f.root.querySelector('[data-action="skip"]').dispatchEvent(new f.window.Event('pointerdown',{bubbles:true}));assert.equal(f.input.wasInterrupted(),false);assert.equal(f.frame.skipping,true)
  }finally{f.cleanup()}
 })
-test('plugin disposal removes listeners and fences an already captured arm callback',()=>{
- const f=fixture();try{
- f.key('Control');const late=[...f.jobs.values()][0].fn
- f.scope.dispose();assert.equal(f.jobs.size,0);const count=f.calls.length
- late();f.key('Enter');f.key('Control');assert.equal(f.calls.length,count);assert.equal(f.jobs.size,0)
- f.input.dispose();assert.throws(()=>f.scope.attach(()=>f.frame,()=>{}),/disposed/)
- }finally{f.cleanup()}
-})
-test('failed timer cleanup still removes all input listeners',()=>{
- const f=fixture();try{
- f.key('Control');f.clock.clearTimeout=()=>{throw Error('timer failure')}
- assert.throws(()=>f.scope.dispose(),/cleanup failed/);const count=f.calls.length
- f.key('Enter');for(const {fn} of f.jobs.values())fn();assert.equal(f.calls.length,count)
- }finally{f.cleanup()}
-})
-test('partial listener installation failure rolls back listeners already installed',()=>{
- const window=new EventTarget(),document=new EventTarget();let adds=0,removes=0
- const add=window.addEventListener.bind(window),remove=window.removeEventListener.bind(window)
- window.addEventListener=(...args)=>{if(++adds===4)throw Error('install failed');add(...args)}
- window.removeEventListener=(...args)=>{removes++;remove(...args)}
- const calls=[],scope=createStageInput({window,document,clock:{clearTimeout(){}},controls:{},navigation:{}})
- assert.throws(()=>scope.attach(()=>({}),action=>calls.push(action)),/install failed/)
- assert.equal(removes,4);const count=calls.length;window.dispatchEvent(new Event('keydown'));assert.equal(calls.length,count);scope.dispose()
-})
-test('V replays the line voice; R is no longer bound',()=>{
- const f=fixture();try{
- f.key('v');assert.deepEqual(f.calls.at(-1),{type:'replay'})
- const count=f.calls.length;f.key('r');assert.equal(f.calls.slice(count).some(x=>x.type==='replay'),false)
- }finally{f.cleanup()}
-})

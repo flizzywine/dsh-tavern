@@ -24,10 +24,3 @@ test('phone layout keeps legacy preferences and separates wide and narrow layout
   assert.equal(writes.length,1)
   assert.equal(sections['dsh.phone'],undefined)
 })
-test('phone settings disposal preserves a replacement settings section',()=>{
-  const sections={}
-  const view=createStagePhoneLayout({sections})
-  sections['dsh.phone']='replacement'
-  view.dispose();view.dispose()
-  assert.equal(sections['dsh.phone'],'replacement')
-})

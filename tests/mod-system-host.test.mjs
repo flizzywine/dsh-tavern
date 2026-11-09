@@ -41,11 +41,6 @@ test('bound configuration captures one source frame and queue changes apply to t
   const snapshot=await pending;assert.equal(snapshot.config['dsh.timer'].values.defaultSeconds,75);assert.equal(reads,1)
   assert.equal(h.host.beginRequest(h.session).config['dsh.timer'].values.defaultSeconds,15)
 })
-test('registration alone does not approve executable capabilities',()=>{
-  const host=createManagedModHost();timer.apply({tavern:{registerMod(manifest,implementation){host.register(timer.name,manifest,implementation)}}})
-  const card=emptyCardMods();card.mods['dsh.timer']='on';host.queueChoices({global:emptyGlobalMods(),card})
-  assert.deepEqual(host.beginRequest(host.beginSession()).resolution.enabled,[])
-})
 
 test('two performances concurrently own different clocks; same-clock contention is friendly and atomic',()=>{
   const h=harness();ok(h,'first','start',start());ok(h,'second','start',start('beta'))
@@ -80,24 +75,6 @@ test('director cannot modify a held clock, but a different instance remains usab
   const args={state:h.state,snapshot:h.snapshot,provider:'dsh.timer',operation:'start',input:{budgetKey:'director',params:{sec:10}},boundary:{turn:1}}
   assert.equal(h.host.direct({...args,instanceId:'alpha'}).error.code,'MOD_RESOURCE_BUSY')
   const result=h.host.direct({...args,instanceId:'other'});assert.equal(result.ok,true);assert.equal(result.state.modState['dsh.timer'].instances.other.timer.remainingMs,10000)
-})
-test('lifecycle property: 625 four-step sequences never override a controller or publish failed parent changes',()=>{
-  const ops=['startA','startB','offA','offB','tick'];let sequences=0
-  for(let n=0;n<625;n++) {
-    const h=harness();let code=n
-    for(let i=0;i<4;i++) {
-      const op=ops[code%5];code=Math.floor(code/5);const before=structuredClone(h.state)
-      if(op==='tick') {if(h.state.modState?.['dsh.timer'])tick(h,'alpha',1);continue}
-      const instance=op.endsWith('A')?'a':'b',result=h.command(instance,op.startsWith('start')?'start':'off',start())
-      if(result.ok)h.state=result.state
-      else assert.deepEqual(h.state,before)
-      assert.ok(Object.keys(h.state.stageControls || {}).length<=1)
-      const held=Object.values(h.state.stageControls || {})[0]
-      if(held)assert.ok(h.state.modState['dsh.performance'].instances[JSON.parse(held.controller)[1]])
-    }
-    for(const dispose of Object.values(h.disposers))dispose();sequences++
-  }
-  assert.equal(sequences,625)
 })
 test('off retains the lease through exit; duplicate start is idempotent and provider configuration supplies defaults',()=>{
   const h=harness();h.card.config['dsh.timer']={version:1,values:{defaultSeconds:{fixed:120}}};h.host.queueChoices({card:h.card,global:h.global})

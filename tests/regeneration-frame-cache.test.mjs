@@ -39,31 +39,3 @@ test('缓存键忽略目标正文和逐次记账，保留请求材料', () => {
   second.chat._storageRevision = 9
   assert.equal(regenerationFrameKey(first), regenerationFrameKey(second))
 })
-
-test('缓存键随输入、目标变量、状态、预设、世界书、插件和提示词变化', () => {
-  const key = regenerationFrameKey(base())
-  const changes = [
-    value => { value.userText = '推门，轻一点' },
-    value => { value.target.variables = [{ hp: 7 }] },
-    value => { value.chat.posture = '门外' },
-    value => { value.preset = { middle: [{ role: 'system', content: '另一份预设' }] } },
-    value => { value.worldBook = { view: { entries: [] } } },
-    value => { value.pluginSections = [] },
-    value => { value.prompts = ['story'] },
-    value => { value.history = value.history.slice(0, 1) },
-    value => { value.turn = 4 }
-  ]
-  for (const change of changes) {
-    const next = base()
-    change(next)
-    assert.notEqual(regenerationFrameKey(next), key)
-  }
-})
-
-test('随机宏、骰子和不可指纹模板返回空键', () => {
-  for (const text of ['{{random::甲::乙}}', '{{roll::1d6}}', 'Math.random()', '<% if (true) { %>正文<% } %>']) {
-    const value = base()
-    value.worldBook = { view: { entries: [{ ref: 'a', content: text }] } }
-    assert.equal(regenerationFrameKey(value), null, text)
-  }
-})

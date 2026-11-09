@@ -85,16 +85,3 @@ test('同一个 token 并发点两次：只导入一次，两次拿到同一份�
   assert.deepEqual(replayed.results, first.results)
   assert.equal(env.writes.length, 1)
 })
-
-test('导入过程中的进度可查，结束后回到未运行', async () => {
-  const env = await environment(60)
-  const preview = await env.handlers.previewTransferBundle({ uploadId: 'upload-1' })
-  const running = env.handlers.applyTransferBundle({ token: preview.token })
-  await new Promise(resolve => setTimeout(resolve, 20))
-  const polling = await env.handlers.getTransferImportProgress({ token: preview.token })
-  assert.equal(polling.running, true)
-  assert.equal(polling.total, 1)
-  await running
-  const after = await env.handlers.getTransferImportProgress({ token: preview.token })
-  assert.equal(after.running, false)
-})

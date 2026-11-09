@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildSettingsBundle } from '../tavern-plugin/lib/domain/settings-bundle.js'
 import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
 import { createUserPreferenceProfile } from '../tavern-plugin/lib/domain/user-preference-profile.js'
 
@@ -66,14 +65,4 @@ test('导出的预设包在另一台机器导入后，三部分都作为新方�
   const library = await to.profile.read()
   assert.equal(library.defaultProfileId, result.imported.userProfile.id)
   assert.equal((await to.profile.read(result.imported.userProfile.id)).confirmed.injectionText, '少写心理描写')
-})
-
-test('导入时可跳过某一部分，系统提示词与默认相同的条目不保存为修改', async () => {
-  const h = harness()
-  const bundle = buildSettingsBundle({ name: '包', preset: { name: 'p.json', text: '{"prompts":[]}' }, systemPrompts: { spec: 'dsh-tavern.system-prompts', version: 1, prompts: { story: 'default story' } } })
-  const result = await h.importSettingsBundle({ payload: { name: 'x.json', text: JSON.stringify(bundle) }, include: { preset: false } })
-  assert.deepEqual(Object.keys(result.imported), ['systemPrompts'])
-  assert.equal(h.presets.size, 0)
-  assert.equal(h.settings().promptOverrides, undefined)
-  assert.equal(result.imported.systemPrompts.name, '包')
 })

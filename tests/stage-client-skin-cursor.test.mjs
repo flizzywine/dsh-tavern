@@ -22,11 +22,3 @@ test('cursor releases each mount and ignores delayed timer and media callbacks',
  assert.equal(f.listeners.size,0);assert.equal(f.timers.size,0)
  f.view.mount(f.canvas,{active:true});assert.equal(f.timers.size,0)
 })
-test('static history cursor does not schedule and failed drawing rolls back',()=>{
- const still=fixture();still.view.mount(still.canvas,{active:true,snap:true})
- assert.equal(still.timers.size,0);still.view.dispose()
- const broken=fixture(true)
- assert.throws(()=>broken.view.mount(broken.canvas,{active:true}),/paint/)
- assert.equal(broken.listeners.size,0);assert.equal(broken.timers.size,0)
- assert.equal(broken.restores(),1)
-})

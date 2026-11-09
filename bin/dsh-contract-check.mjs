@@ -23,6 +23,7 @@ export function hostReferences(base = root) {
   function walk(relative) {
     if (!existsSync(path.join(base, relative))) return
     for (const entry of readdirSync(path.join(base, relative), { withFileTypes: true })) {
+      if (entry.name.startsWith('.legacy-node_modules-')) continue
       if (['node_modules', 'vendor', 'host-build', 'client-assets', 'artifact', '.git'].includes(entry.name)) continue
       const file = path.posix.join(relative, entry.name)
       if (entry.isDirectory()) walk(file)
