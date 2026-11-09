@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f80aef8634e4de5cdeabe3488c4352015d989989",
-  "releaseSequence": 1392,
+  "revision": "7844ebe886579f917358c0f6c442deba4f645c2d",
+  "releaseSequence": 1393,
   "version": "3.3.0",
   "files": [
     {
@@ -181,8 +181,8 @@
     },
     {
       "path": "bin/desktop-profile-installation.mjs",
-      "sha256": "ac6ba503d8fa36b0fa087b5385e3341fa84a696f46288efc804f321cfec8a0b1",
-      "size": 13713
+      "sha256": "66ee9577f5484d52b5fd10417a861422388093549da5914e6454b21abc3f37b6",
+      "size": 14268
     },
     {
       "path": "bin/dev-sync-cli.sh",
@@ -231,8 +231,8 @@
     },
     {
       "path": "bin/import-user-home.mjs",
-      "sha256": "0fba7f84d5ac3e9b618781710580b35cfaad22f2eaff89420cc5a07543f58c3b",
-      "size": 13120
+      "sha256": "4a3253bd4d7c81816c4d9bde4753a33726fa41a9606096bee21e346f69a4b99f",
+      "size": 15779
     },
     {
       "path": "bin/install-next-plugin.ps1",
@@ -251,8 +251,8 @@
     },
     {
       "path": "bin/installation-receipt.mjs",
-      "sha256": "9b5d9940ad5b916c85c9f221b86e919387180e69fa6325d9b67b996c70a69753",
-      "size": 3974
+      "sha256": "ac7f3bd85e6a80ed9e93668125aec42eaaa673949e97eea20fc720e52fdad9d1",
+      "size": 4021
     },
     {
       "path": "bin/installation-state.cjs",
@@ -261,8 +261,8 @@
     },
     {
       "path": "bin/launcher-environment.mjs",
-      "sha256": "8e8d086ebf30e07d9ac89670200cdd65fed3ce2b29d7e2c6b36de7ee7c97164a",
-      "size": 12908
+      "sha256": "35961a60571f3eb4a62550458609d88449abfb60132d1a0cfba304665f3ecb44",
+      "size": 12924
     },
     {
       "path": "bin/launcher-settings.mjs",
@@ -296,8 +296,8 @@
     },
     {
       "path": "bin/original-bridge-update.mjs",
-      "sha256": "45b197696602beedd53fadfffd577f7a39971354c59af9671a4c78b9747b8d03",
-      "size": 12570
+      "sha256": "a7a83ff7d9e40f086c3db3a8d2a136790f6bf08ac91c966ddfbfe2eeb5da88c8",
+      "size": 15602
     },
     {
       "path": "bin/pi-ai-nonstream-patch.mjs",
@@ -320,6 +320,11 @@
       "size": 700
     },
     {
+      "path": "bin/prepared-next-profile.mjs",
+      "sha256": "3991e3ad4967468795c125467894c6635fd3ecade545d80bf7d2268af9aafaa6",
+      "size": 7561
+    },
+    {
       "path": "bin/preserve-font-assets.mjs",
       "sha256": "43ef198efbac0b0f29e44aa3d4d8fb144d88514b5855b1dcfb316497078d17a3",
       "size": 1759
@@ -336,8 +341,8 @@
     },
     {
       "path": "bin/profile-installation.mjs",
-      "sha256": "fa8edc8d90b7a287dd1a2375f3324ac9372cf30d170c20ec5ffa1d17b0aa8de2",
-      "size": 28842
+      "sha256": "a2f2b0e9dec2598e8555bf49145bee4ca89d42a4ce411d16f8e50695540c20fb",
+      "size": 31253
     },
     {
       "path": "bin/prune-installed-files.mjs",
@@ -386,8 +391,8 @@
     },
     {
       "path": "bin/staged-app-install.mjs",
-      "sha256": "0b88c99d3de3d01b4917390d04a8ec12f161911ba15cf2e81f6f78c5e6175506",
-      "size": 9018
+      "sha256": "862e553425223872d1a7cf16fd21e6a088f6f204979845f176e4987210cd1293",
+      "size": 9807
     },
     {
       "path": "bin/system-proxy.mjs",
@@ -501,13 +506,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "f1e6bcdf94a02819e8c44b86c6d7cc3acb920d7a8ed7596544ab760f35bdcbea",
-      "size": 120089
+      "sha256": "795149a8dd5efd0de2a6c4422cb228ce7e75c0db99fa202de737725d684abcaf",
+      "size": 121410
     },
     {
       "path": "install.sh",
-      "sha256": "1fe7e293142df5bc2e9b766b858c22efa0692c26029d1dbba040a70f7adc6e38",
-      "size": 90571
+      "sha256": "a9f6552d1aa5099a6761a84c593b5109b82115c361dd61a376e820a17d02855f",
+      "size": 91458
     },
     {
       "path": "package.json",
@@ -9466,8 +9471,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/client.js",
-      "sha256": "b46f499fb26ce27fc0af0c27467582c59c7b679ec6a904fa8eaf83c9803a029a",
-      "size": 44868
+      "sha256": "6e6c6998f77b642510504cdeea1e4c1b2212531d1713722ccf7e699d66039cd8",
+      "size": 45202
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/cordis.patch.yml",
@@ -9901,9 +9906,9 @@
     }
   ],
   "archive": {
-    "commit": "9005f18780da44ea64696c386cb46ea078829da6",
+    "commit": "84562224b86c0eee7686a29a706f748c25902001",
     "path": "runtime.zip",
-    "sha256": "da054ff43d68fd6dec799ecdbdabc97a50ac6163673197a1e70dd4f0a4a0272a",
-    "size": 16551258
+    "sha256": "b3273712684ac6f451d07fca7833db0cf205ef67ba528c0b7db3c8bf4b756cc4",
+    "size": 16557006
   }
 }
