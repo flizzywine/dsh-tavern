@@ -69,8 +69,9 @@ function openingPatch(ext,id,scene) {
   return {openings:{...(ext.openings||{}),scenes}};
 }
 // use the same downward appearance fallback as the runtime, never card offstage.
-const openingFigureKey=ref=>ref?ref.packId+'/'+ref.figureId:'';
-const openingStaged=ctx=>stageFigureRows(ctx).filter(row=>row.figure.enabled&&packAppearance(row.figure.outfits.find(o=>o.enabled),row.figure.appearance).form!=='avatar').map(row=>openingFigureKey(row.ref));
+const openingFigureKey=ref=>typeof ref==='string'?ref:ref?.packId&&ref?.figureId?ref.packId+'/'+ref.figureId:'';
+const openingStaged=ctx=>stageFigureRows(ctx).filter(row=>row.figure?.enabled&&packAppearance(row.figure.outfits.find(o=>o.enabled),row.figure.appearance).form!=='avatar').map(row=>openingFigureKey(row.ref));
+const openingFigureName=(figure,ref)=>figure?.name||openingFigureKey(ref)||'未知人物';
 const greetingLabel=index=>index?'备选 '+index:'开场白';
 // The grade is the stage's colour matrix through an SVG feColorMatrix, the way the stage's DOM layer follows its looks
 // (gal-stage.js fork-gal-look-ui, galUiApplier's rounding).
@@ -151,8 +152,8 @@ function StageOpenings({ctx,embedded=false,pick:held,onPick,onGreetings}) {
           '进入舞台时代替「载入中」播放；默认「无」。'),
         // the styled picker with each figure's face, never a native select.
         staged.length>0&&h('div',{className:'ap-section-part','data-blocked':blocked||undefined,inert:blocked||undefined},field('开场角色',h(OpeningPicker,{label:'开场角色',value:openingFigureKey(value.lead),
-          options:staged.map(alias=>({value:alias,label:stageFigure(ctx,alias).figure?.name||'人物'})),art:o=>h(StageAvatar,{ctx,alias:o.value,className:'ap-avatar is-mini'}),
-          onChange:alias=>{const lead=stageFigure(ctx,alias).ref;ctx.writer.write(c=>({openings:{...(c.openings||{}),lead}}));}}),'开场角色用于人物标识与模组取色，不是玩家身份，也不会自动登台；开场立绘请在下方「出场人物」中添加。')),
+          options:staged.map(alias=>({value:alias,label:openingFigureName(stageFigure(ctx,alias).figure,alias)})),art:o=>h(StageAvatar,{ctx,alias:o.value,className:'ap-avatar is-mini'}),
+          onChange:alias=>{const {figure,ref:lead}=stageFigure(ctx,alias);if(figure&&lead)ctx.writer.write(c=>({openings:{...(c.openings||{}),lead}}));}}),'开场角色用于人物标识与模组取色，不是玩家身份，也不会自动登台；开场立绘请在下方「出场人物」中添加。')),
         h('div',{className:'ap-section-part','data-blocked':blocked||undefined,inert:blocked||undefined},
           !greetings.length?h(EmptyState,{compact:true,noun:'开场白'}):h(React.Fragment,null,
             field('编辑开场白',h('div',{className:'ap-opening-greeting'},
@@ -166,7 +167,6 @@ function StageOpenings({ctx,embedded=false,pick:held,onPick,onGreetings}) {
 function OpeningScene({ctx,greeting,label,scene,onEdit,field}) {
   const addTrigger=React.useRef(null),backToAdd=()=>setTimeout(()=>addTrigger.current?.focus?.(),0);
   const draft=openingDraft(scene),cast=draft.cast,staged=openingStaged(ctx);
-  const name=alias=>stageFigure(ctx,alias).figure?.name||alias;
   const setCast=next=>onEdit({cast:next});
   const move=(index,delta)=>{const next=[...cast];[next[index],next[index+delta]]=[next[index+delta],next[index]];setCast(next);};
   const picker=(kind,label,value,onChange,art)=>{
@@ -186,21 +186,21 @@ function OpeningScene({ctx,greeting,label,scene,onEdit,field}) {
     field('CG',picker('cg','CG',draft.cg?.ref,ref=>onEdit({cg:ref?{ref}:undefined}))),
     cgAsset?.variants&&field('差分',h(OpeningPicker,{label:'CG 差分',value:assetVariantRow(cgAsset.variants,draft.cg.variant)?.id,options:cgAsset.variants.entries.map(v=>({value:v.id,label:v.name})),onChange:variant=>onEdit({cg:{...draft.cg,variant}})})),
     h(InlineRow,{label:'出场人物',className:'ap-opening-field ap-opening-cast'},h('div',{className:'ap-control'},
-      cast.map((entry,index)=>{const figure=stageFigure(ctx,entry.figure),outfits=(figure.figure?.outfits||[]).filter(o=>o.enabled),moods=figureEditorEmotions(figure.figure||{});
+      cast.map((entry,index)=>{const {figure}=stageFigure(ctx,entry.figure),outfits=(figure?.outfits||[]).filter(o=>o.enabled),moods=figureEditorEmotions(figure||{}),name=openingFigureName(figure,entry.figure);
         return h('div',{key:openingFigureKey(entry.figure),className:'ap-opening-actor'},
-          h(StageAvatar,{ctx,alias:entry.figure}),h('span',{className:'ap-opening-name'},name(entry.figure)),
-          outfits.length>1&&h(OpeningPicker,{label:name(entry.figure)+' 服装',compact:true,value:entry.outfitKey||outfits[0].key,
+          h(StageAvatar,{ctx,alias:entry.figure}),h('span',{className:'ap-opening-name'},name),
+          outfits.length>1&&h(OpeningPicker,{label:name+' 服装',compact:true,value:entry.outfitKey||outfits[0].key,
             options:outfits.map(o=>({value:o.key,label:o.label||o.key})),onChange:outfitKey=>setCast(cast.map((e,i)=>i===index?{...e,outfitKey}:e))}),
-          h(OpeningPicker,{label:name(entry.figure)+' 表情',compact:true,value:entry.emotion,
+          h(OpeningPicker,{label:name+' 表情',compact:true,value:entry.emotion,
             options:[...(!moods.some(m=>m.id===entry.emotion)?[{value:entry.emotion,label:entry.emotion}]:[]),...moods.map(m=>({value:m.id,label:m.label}))],onChange:emotion=>setCast(cast.map((e,i)=>i===index?{...e,emotion}:e))}),
           h('span',{className:'ap-opening-moves'},
-            h(IconButton,{icon:'back',label:'左移 '+name(entry.figure),disabled:index===0,onClick:()=>move(index,-1)}),
-            h(IconButton,{icon:'forward',label:'右移 '+name(entry.figure),disabled:index===cast.length-1,onClick:()=>move(index,1)}),
-            h(IconButton,{icon:'remove',label:'移除 '+name(entry.figure),onClick:()=>setCast(cast.filter((_,i)=>i!==index))})));}),
+            h(IconButton,{icon:'back',label:'左移 '+name,disabled:index===0,onClick:()=>move(index,-1)}),
+            h(IconButton,{icon:'forward',label:'右移 '+name,disabled:index===cast.length-1,onClick:()=>move(index,1)}),
+            h(IconButton,{icon:'remove',label:'移除 '+name,onClick:()=>setCast(cast.filter((_,i)=>i!==index))})));}),
       free.length>0&&cast.length<3&&h(Popover,{label:'添加人物',className:'ap-target-anchor ap-opening-add',
         trigger:({toggle,open})=>h('button',{ref:addTrigger,type:'button',className:'ap-target-button is-empty','aria-haspopup':'menu','aria-expanded':open,'aria-label':'添加人物',onClick:toggle},h(Glyph,{name:'plus'}),h('span',null,'添加人物')),
         content:close=>h('div',{className:'ap-opening-menu',ref:openingMenuFocus,onKeyDown:e=>openingMenuKeys(e,backToAdd)},free.map(alias=>h('button',{key:alias,type:'button',role:'menuitem',className:'ap-menu-item',
-          onClick:()=>{close();setCast([...cast,{figure:stageFigure(ctx,alias).ref,outfitKey:null,emotion:'calm'}]);backToAdd();}},h(StageAvatar,{ctx,alias,className:'ap-avatar is-mini'}),h('span',null,name(alias)))))}))),
+          onClick:()=>{const {figure,ref}=stageFigure(ctx,alias);if(!figure||!ref)return;close();setCast([...cast,{figure:ref,outfitKey:null,emotion:'calm'}]);backToAdd();}},h(StageAvatar,{ctx,alias,className:'ap-avatar is-mini'}),h('span',null,openingFigureName(stageFigure(ctx,alias).figure,alias)))))}))),
     field('BGM',picker('music','BGM',draft.music,music=>onEdit({music}))));
 }
 // 开场背景 — the opening picture as one small thumbnail (its own aspect), named under it.

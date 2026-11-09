@@ -75,7 +75,13 @@ function stageDetailRows(rows,global,bound) {
   return rows.filter(row=>!row.error&&row.manifest&&(global.includes(row.manifest.id)||bound.includes(row.manifest.id)||builtin.includes(row.manifest.id)||packCount(row,'widgets')>0));
 }
 async function stageReadDetails(binding,rows) {
-  return (await Promise.all(rows.map(row=>row.summary?loadPackDetail(binding,row).catch(()=>null):row))).filter(pack=>pack?.manifest);
+  return (await Promise.all(rows.map(async row=>{
+    if(!row.summary)return row;
+    try{return await loadPackDetail(binding,row);}
+    catch(_){await new Promise(resolve=>setTimeout(resolve,300));}
+    try{return await loadPackDetail(binding,row);}
+    catch(error){console.warn('[dsh-tavern-stage] 读取素材包详情失败',row.manifest.id,error);return null;}
+  }))).filter(pack=>pack?.manifest);
 }
 function unbindPatch(ext,packId) { return {assetBindings:{...ext.assetBindings,boundPackIds:ext.assetBindings.boundPackIds.filter(id=>id!==packId)}}; }
 // Return intent shared with the 配音 panel (dsh-tts reads the same key, marks consumedBy and opens toTab).
@@ -121,12 +127,19 @@ function useStageWriter(binding,path,state,sessionId) {
   const apply=(base,fn)=>({...base,...fn(base)});
   async function refetchCard(){const fresh=await binding.rpc('getCardAssetBindings',{path});s.server={...s.server,...fresh};render();return fresh;}
   async function refetchRows(){const list=await loadPackRows(binding);s.rows=list.filter(p=>!p.error);render();return list;}
-  // Reads the full documents a row newly needs (a pack lit meanwhile, a changed revision): each row revision is asked once.
+  // Mark revisions before awaiting so re-renders share the same bounded read.
   async function ensureDetails(){
     if(!s)return;const rows=stageDetailRows(s.rows,binding.globalEnabledPackIds||[],(s.server.extension||emptyExtension()).assetBindings.boundPackIds)
       .filter(row=>row.summary?s.asked.get(row.manifest.id)!==row.revision:!s.packs.has(row.manifest.id));
     if(!rows.length)return;for(const row of rows)s.asked.set(row.manifest.id,row.revision);
-    const details=await stageReadDetails(binding,rows);for(const pack of details)s.packs.set(pack.manifest.id,pack);if(details.length)render();
+    const revisions=new Map(rows.map(row=>[row.manifest.id,row.revision]));
+    const details=await stageReadDetails(binding,rows);
+    if(store.current!==s)return;
+    for(const pack of details){
+      const id=pack.manifest.id,revision=revisions.get(id);
+      if(s.asked.get(id)===revision&&s.rows.some(row=>row.manifest.id===id&&row.revision===revision))s.packs.set(id,pack);
+    }
+    if(details.length)render();
   }
   async function refetchPacks(){const list=await refetchRows();await ensureDetails();return list;}
   // quiet: the caller says what failed where it happened (the 新人物 page's fields); the page head keeps no error for it.
@@ -201,7 +214,7 @@ function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,t
   const services=useLoad(binding,async()=>binding.tts?(await binding.tts.call('voiceServices')).services.filter(s=>s.kind!=='browser'):null,[binding.tts]);
   React.useEffect(()=>binding.tts?.subscribe?.(()=>services.reload()),[binding.tts]);
   const writer=useStageWriter(binding,path,state,sessionId);
-  // A pack lit after the load (or a changed revision) is read in full once; the page renders again when it arrives.
+  // A pack lit after the load (or a changed revision) is read in full; the page renders again when it arrives.
   React.useEffect(()=>{void writer.ensureDetails().catch(()=>{});});
   const [confirm,setConfirm]=React.useState(null),[layer,setLayer]=React.useState(null),[packModal,setPackModal]=React.useState(null),[modPage,setModPage]=React.useState(null),[itemsPage,setItemsPage]=React.useState(false),[performancePage,setPerformancePage]=React.useState(false),[voicePage,setVoicePage]=React.useState(false);
   // 设置向导 is a sub-page of this page (‹ / Esc back).
@@ -701,7 +714,7 @@ function stageFigureRows(ctx) {
   return ids.flatMap(packId=>{const pack=ctx.writer.pack(packId);return (pack?.manifest.figures||[]).map(figureId=>({ref:{packId,figureId},pack,figure:pack.figures[figureId],sprites:pack.sprites}));});
 }
 function stageFigure(ctx,key) {
-  return stageFigureRows(ctx).find(row=>typeof key==='object'?row.ref.packId===key.packId&&row.ref.figureId===key.figureId:row.ref.packId+'/'+row.ref.figureId===key)||{};
+  return stageFigureRows(ctx).find(row=>key&&typeof key==='object'?row.ref.packId===key.packId&&row.ref.figureId===key.figureId:row.ref.packId+'/'+row.ref.figureId===key)||{};
 }
 function StageAvatar({ctx,alias,className='ap-avatar'}) {
   const info=stageFigure(ctx,alias),figure=info.figure;
