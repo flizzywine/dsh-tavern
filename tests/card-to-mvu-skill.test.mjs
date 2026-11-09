@@ -8,7 +8,7 @@ import { createTavernSkillModule } from '../tavern-plugin/lib/domain/tavern-skil
 import { validateCardText } from '../tavern-plugin/lib/domain/card-validation.js'
 
 const root = new URL('../presets/tavern/skills/', import.meta.url)
-const format = await readFile(new URL('card-to-mvu/references/mvu-format.md', root), 'utf8')
+const format = (await readFile(new URL('card-to-mvu/references/mvu-format.md', root), 'utf8')).replaceAll('\r\n', '\n')
 const panel = format.match(/```html\n([\s\S]*?)\n```/)[1]
 const regexScripts = JSON.parse(format.match(/```json\n(\[[\s\S]*?\])\n```/)[1].replace('（面板 HTML）', () => panel.replace(/\n/g, '\\n').replace(/"/g, '\\"')))
 
@@ -16,7 +16,7 @@ for (const name of ['card-to-mvu', 'edit-card', 'create-card']) test(`${name} �
   const skills = createTavernSkillModule({ directory: fileURLToPath(new URL('../data/skills/', import.meta.url)), builtInDirectory: fileURLToPath(root) })
   const skill = await skills.read(name)
   assert.equal(skill.source, 'builtin')
-  const metadata = parse(skill.content.match(/^---\n([\s\S]*?)\n---/)[1])
+  const metadata = parse(skill.content.match(/^---\r?\n([\s\S]*?)\r?\n---/)[1])
   assert.equal(metadata.name, name)
   assert.ok(metadata.description.length > 0 && metadata.description.length <= 500)
   for (const [, relative] of skill.content.matchAll(/\]\(((?:references|assets)\/[^)]+)\)/g)) {

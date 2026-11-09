@@ -60,7 +60,7 @@ test('AUTO on an insert page: a picture shown within 3 s of reaching it holds 3 
   const controller = readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs', import.meta.url), 'utf8')
   assert.match(controller, /pages\[page \+ 1\]\.para : null, true, auto\)/)
   assert.match(controller, /onShown: \(\) => setPictureShown\(insertPageKey\)/)
-  assert.match(controller, /const shown = !!insertPageKey && pictureShown === insertPageKey;\n\s*const timer = setTimeout\(\(\) => go\(1, true\), stageViews\.pictures\.autoDelay\(shown, options\.configText\.autoDelay\(reading, false, ''\), Date\.now\(\) - insert\.since\)\);/)
+  assert.match(controller, /const shown = !!insertPageKey && pictureShown === insertPageKey;\r?\n\s*const timer = setTimeout\(\(\) => go\(1, true\), stageViews\.pictures\.autoDelay\(shown, options\.configText\.autoDelay\(reading, false, ''\), Date\.now\(\) - insert\.since\)\);/)
   assert.equal(controller.match(/since:Date\.now\(\)/g).length, 3)
   assert.equal(controller.match(/stageViews\.pictures\.autoDelay\(/g).length, 1)
 })
