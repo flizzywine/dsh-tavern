@@ -2,11 +2,11 @@
 // 把酒馆装进 dsh-go 的 web profile。
 //
 // dsh-go 的 web profile 在 ~/.dsh/profiles/web，由 App 内的 pnpm 维护；
-// 酒馆的六个包是本仓库里的私有包，两个是打过补丁的 npm 包，五个 @deepseek-ai/*
-// 必须借用宿主（/opt/dsh/node_modules）那一份，不能另装——装上第二份会让插件的
-// ctx 与服务注册对不上。
+// 酒馆的六个包是本仓库里的私有包，两个是打过补丁的 npm 包，@deepseek-ai/*
+// 必须借用宿主（/opt/dsh/node_modules）那一份，不能另装——另装一份会拿到不同的
+// 服务实例，版本对不上还会被 dsh 判定 incompatible 后整行禁用。
 //
-// 用法：node scripts/install-on-dshgo.mjs [--dry-run] [--dsh-home DIR] [--app-root DIR]
+// 用法：node scripts/install-on-dshgo.mjs [--dry-run] [--dsh-home DIR] [--app-root DIR] [--src DIR]
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -14,12 +14,17 @@ import { fileURLToPath } from 'node:url'
 
 import { TAVERN_BUNDLES } from '../lib/status.js'
 import { mergeBundles } from '../lib/bundles.js'
+import { hostPackages } from '../lib/hosts.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const PACKAGE_ROOT = resolve(HERE, '..')
 export const REPO_ROOT = resolve(PACKAGE_ROOT, '..', '..', '..')
 
-/** 本仓库里的私有包：用 link: 指回源码目录，不复制——酒馆从 lib 里按 ../../bin 这类相对路径取仓库根的 bin/、shared/、packages/。 */
+/**
+ * 本仓库里的私有包：用 link: 指回源码目录，不复制。
+ * 酒馆在 lib 里按 ../../bin/update-diagnostics.mjs、../../shared/*.cjs、
+ * ../../packages/dsh-presentation-protocol/... 取文件，打平目录结构会全断。
+ */
 export const LOCAL_PACKAGES = Object.freeze({
   'dsh-tavern-plugin': 'tavern-plugin',
   'dsh-tavern-remote': 'tavern-plugin/packages/dsh-tavern-remote',
@@ -34,15 +39,6 @@ export const NPM_PACKAGES = Object.freeze({
   'dsh-web-mobile': '3.1.0',
   'dsh-better-sidebar': '0.28.0',
 })
-
-/** 必须指向宿主那一份的包；插件 import 它们，另装一份会拿到不同的服务实例。 */
-export const HOST_PACKAGES = Object.freeze([
-  '@deepseek-ai/dsh-agent',
-  '@deepseek-ai/dsh-skill-filesystem',
-  '@deepseek-ai/dsh-subagent',
-  '@deepseek-ai/dsh-tools',
-  '@deepseek-ai/dsh-typert-protocol',
-])
 
 const PATCH_FILES = [
   'dsh-better-sidebar@0.28.0.patch',
@@ -62,7 +58,7 @@ function yamlValue(value) {
 }
 
 /** 只写酒馆需要的那几条；App 自己写的内容原样留在文件末尾。 */
-export function workspaceYaml(patches, appRoot = '/opt/dsh') {
+export function workspaceYaml(patches, appRoot = '/opt/dsh', hosts = hostPackages(appRoot)) {
   const lines = [
     'packages:',
     '  - .',
@@ -82,9 +78,8 @@ export function workspaceYaml(patches, appRoot = '/opt/dsh') {
     '  - ws',
     '  - wasm-feature-detect',
     // pnpm 只认这里的 overrides；package.json 顶层的 overrides 是 npm/yarn 的字段，会被无视。
-    // 五个宿主包 link 回 App 自己那一份：另装一份版本对不上会被判 incompatible 并禁用整行。
     'overrides:',
-    ...HOST_PACKAGES.map(name => `  ${yamlValue(name)}: ${yamlValue(`link:${appRoot}/node_modules/${name}`)}`),
+    ...hosts.map(name => `  ${yamlValue(name)}: ${yamlValue(`link:${appRoot}/node_modules/${name}`)}`),
     'patchedDependencies:',
   ]
   // 键是「包名@版本」，值是补丁文件路径；版本对不上 pnpm 就不会套补丁。
@@ -94,7 +89,7 @@ export function workspaceYaml(patches, appRoot = '/opt/dsh') {
 
 /**
  * 把酒馆的依赖与 bundle 合并进 profile 的 package.json。
- * 已有条目一律保留顺序，只补缺的；@deepseek-ai/* 写 overrides 指回宿主。
+ * 已有条目一律保留顺序，只补缺的。
  */
 export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot = REPO_ROOT } = {}) {
   const next = structuredClone(manifest)
@@ -102,8 +97,7 @@ export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot =
   for (const [name, relative] of Object.entries(LOCAL_PACKAGES)) {
     next.dependencies[name] = `link:${join(srcRoot, relative)}`
   }
-  for (const [name, version] of Object.entries(NPM_PACKAGES)) if (next.dependencies[name] === undefined) next.dependencies[name] = version
-  for (const name of Object.keys(NPM_PACKAGES)) next.dependencies[name] = NPM_PACKAGES[name]
+  for (const [name, version] of Object.entries(NPM_PACKAGES)) next.dependencies[name] = version
 
   if (next.dsh === undefined || next.dsh === null) next.dsh = {}
   if (next.dsh.profile === undefined || next.dsh.profile === null) next.dsh.profile = {}
@@ -118,7 +112,6 @@ export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot =
 export function planInstall({ srcRoot = REPO_ROOT, dshHome = join('/root', '.dsh'), appRoot = '/opt/dsh' } = {}) {
   const profile = join(dshHome, 'profiles', 'web')
   const steps = []
-  // 源码原地不动：六个包用 link: 指过去，仓库结构（bin/ shared/ packages/）保持完整。
   for (const file of PATCH_FILES) {
     steps.push({ kind: 'copy-file', name: file, from: join(srcRoot, 'patches', file), to: join(profile, 'patches', file) })
   }
@@ -127,7 +120,12 @@ export function planInstall({ srcRoot = REPO_ROOT, dshHome = join('/root', '.dsh
   steps.push({ kind: 'pnpm', name: 'pnpm install', cwd: profile, args: PNPM_ARGS })
   steps.push({ kind: 'verify', name: 'verify', profile, appRoot })
   const sources = Object.values(LOCAL_PACKAGES).map(relative => join(srcRoot, relative, 'package.json'))
-  return { profile, steps, missingSources: sources.filter(file => !existsSync(file)) }
+  const patches = PATCH_FILES.map(file => join(srcRoot, 'patches', file))
+  return {
+    profile,
+    steps,
+    missingSources: [...sources, ...patches].filter(file => !existsSync(file)),
+  }
 }
 
 function backup(file) {
@@ -172,23 +170,28 @@ export function applyInstall(plan, { dry = false, log = console.log } = {}) {
       if (dry) continue
       run('pnpm', step.args, step.cwd)
     } else if (step.kind === 'verify') {
-      log('校验 8 个 bundle 与 5 个宿主包能否解析')
+      log('校验 8 个 bundle 与宿主的 @deepseek-ai 包能否解析')
       if (dry) continue
       const missing = []
       for (const name of TAVERN_BUNDLES) {
         if (!existsSync(join(step.profile, 'node_modules', name, 'package.json'))) missing.push(name)
       }
-      for (const name of HOST_PACKAGES) {
+      for (const name of hostPackages(step.appRoot)) {
         if (!existsSync(join(step.profile, 'node_modules', name, 'package.json'))) missing.push(name)
       }
-      if (missing.length > 0) throw new Error(`装完仍解析不到：${missing.join(', ')}`)
+      if (missing.length > 0) throw new Error(`装完仍解析不到：\n${missing.join('\n')}`)
       log('OK')
     }
   }
 }
 
 function parseArgs(argv) {
-  const options = { dry: false, dshHome: process.env.DSH_HOME ?? '/root/.dsh', appRoot: process.env.DSH_APP_ROOT ?? '/opt/dsh', srcRoot: REPO_ROOT }
+  const options = {
+    dry: false,
+    dshHome: process.env.DSH_HOME ?? '/root/.dsh',
+    appRoot: process.env.DSH_APP_ROOT ?? '/opt/dsh',
+    srcRoot: REPO_ROOT,
+  }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--dry-run') options.dry = true
@@ -214,8 +217,8 @@ function main() {
     return
   }
   console.log('\n装好了。下一步：')
-  console.log('  1. 关掉 dsh-go 里的引擎，再回来启动它（App「引擎」页的重启按钮）')
-  console.log('  2. 引擎里会出现「酒馆」原生面板；面板上再点一次「启用酒馆」把 bundle 写进去')
+  console.log('  1. 重启 dsh-go 的引擎')
+  console.log('  2. 进网页版应该就是酒馆；不是的话在「酒馆」面板点体检，把九行结果发我')
   console.log('  3. 想退回：把 profiles/web/package.json.pre-tavern 拷回 package.json，再重启引擎')
 }
 

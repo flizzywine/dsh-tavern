@@ -13,14 +13,17 @@ function full(t, { bundles = TAVERN_BUNDLES, dataLink = true, modules = TAVERN_B
   const home = mkdtempSync(join(tmpdir(), 'tavern-verify-'))
   t.after(() => rmSync(home, { recursive: true, force: true }))
   const appRoot = join(home, 'app')
-  mkdirSync(join(appRoot, 'node_modules', '@deepseek-ai', 'dsh'), { recursive: true })
+  for (const name of ['dsh', ...HOSTS]) {
+    mkdirSync(join(appRoot, 'node_modules', '@deepseek-ai', name), { recursive: true })
+    writeFileSync(join(appRoot, 'node_modules', '@deepseek-ai', name, 'package.json'), '{"name":"x"}')
+  }
   const dir = join(home, 'profiles', 'web')
   mkdirSync(join(dir, 'patches'), { recursive: true })
   for (const name of modules) {
     mkdirSync(join(dir, 'node_modules', name), { recursive: true })
     writeFileSync(join(dir, 'node_modules', name, 'package.json'), '{"name":"x"}')
   }
-  for (const name of HOSTS) {
+  for (const name of ['dsh', ...HOSTS]) {
     mkdirSync(join(dir, 'node_modules', '@deepseek-ai', name), { recursive: true })
     writeFileSync(join(dir, 'node_modules', '@deepseek-ai', name, 'package.json'), '{"name":"x"}')
   }

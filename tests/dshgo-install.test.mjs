@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
-  HOST_PACKAGES, LOCAL_PACKAGES, NPM_PACKAGES, PNPM_ARGS, REPO_ROOT,
+  LOCAL_PACKAGES, NPM_PACKAGES, PNPM_ARGS, REPO_ROOT,
   mergeProfileManifest, planInstall, workspaceYaml,
 } from '../tavern-plugin/packages/dsh-tavern-dshgo/scripts/install-on-dshgo.mjs'
+import { hostPackages } from '../tavern-plugin/packages/dsh-tavern-dshgo/lib/hosts.js'
 import { TAVERN_BUNDLES } from '../tavern-plugin/packages/dsh-tavern-dshgo/lib/status.js'
 
 test('mergeProfileManifest：六个本地包 link 回源码目录，仓库结构才不被打平', () => {
@@ -19,13 +20,22 @@ test('mergeProfileManifest：六个本地包 link 回源码目录，仓库结构
   assert.equal(merged.overrides, undefined, '顶层 overrides 是 npm 字段，pnpm 不认')
 })
 
-test('workspaceYaml：五个宿主包写进 pnpm 的 overrides，指回 App 里的那一份', () => {
-  const yaml = workspaceYaml(['dsh-web-mobile@3.1.0.patch'], '/opt/dsh')
+test('workspaceYaml：宿主目录里有什么就 link 什么，不靠手写清单', () => {
+  const hosts = ['@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-settings', '@deepseek-ai/dsh-tools']
+  const yaml = workspaceYaml(['dsh-web-mobile@3.1.0.patch'], '/opt/dsh', hosts)
   assert.match(yaml, /overrides:\n/)
-  for (const name of HOST_PACKAGES) {
-    // 值里带冒号，yamlValue 会加引号；锚定 link: 目标即可。
-    assert.ok(yaml.includes(`link:/opt/dsh/node_modules/${name}`), name)
-  }
+  for (const name of hosts) assert.ok(yaml.includes(`link:/opt/dsh/node_modules/${name}`), name)
+  assert.ok(!yaml.includes('@deepseek-ai/dsh-typert-protocol'), '只写传入的那几个')
+})
+
+test('hostPackages：扫目录，符号链接也算；目录不存在时有兜底清单', () => {
+  const read = () => [
+    { name: 'dsh-tools', isDirectory: () => true, isSymbolicLink: () => false },
+    { name: 'dsh-settings', isDirectory: () => false, isSymbolicLink: () => true },
+    { name: '.bin', isDirectory: () => false, isSymbolicLink: () => true },
+  ]
+  assert.deepEqual(hostPackages('/opt/dsh', read), ['@deepseek-ai/dsh-settings', '@deepseek-ai/dsh-tools'])
+  assert.ok(hostPackages('/nope').includes('@deepseek-ai/dsh-settings'))
 })
 
 test('mergeProfileManifest：bundle 保序补齐，官方与用户自己的不动，重复合并不增项', () => {
@@ -65,7 +75,7 @@ test('planInstall：源码目录不对时把缺的文件一次列出来', (t) =>
   const empty = mkdtempSync(join(tmpdir(), 'tavern-dshgo-install-'))
   t.after(() => rmSync(empty, { recursive: true, force: true }))
   const plan = planInstall({ srcRoot: empty })
-  assert.equal(plan.missingSources.length, Object.keys(LOCAL_PACKAGES).length)
+  assert.equal(plan.missingSources.length, Object.keys(LOCAL_PACKAGES).length + 2)
   assert.ok(plan.missingSources.every(file => file.startsWith(empty)))
 })
 

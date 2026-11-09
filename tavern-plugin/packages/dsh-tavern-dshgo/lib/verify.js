@@ -3,9 +3,9 @@ import { join } from 'node:path'
 
 import { checkBundles } from './preflight.js'
 import { inspectDataHome } from './data-home.js'
+import { hostPackages } from './hosts.js'
 import { TAVERN_BUNDLES, profileDir, resolveDshHome } from './status.js'
 
-const HOST_PACKAGES = ['dsh-agent', 'dsh-tools', 'dsh-subagent', 'dsh-skill-filesystem', 'dsh-typert-protocol']
 const PATCHES = ['dsh-better-sidebar@0.28.0.patch', 'dsh-web-mobile@3.1.0.patch']
 
 function readJson(read, file) {
@@ -38,7 +38,8 @@ export function runChecks({ home = resolveDshHome(), appRoot = '/opt/dsh', nodeV
   }
   const dataHome = inspectDataHome(home)
   const modules = TAVERN_BUNDLES.filter(name => existsSync(join(dir, 'node_modules', name, 'package.json')))
-  const hostResolved = HOST_PACKAGES.filter(name => existsSync(join(dir, 'node_modules', '@deepseek-ai', name, 'package.json')))
+  const hosts = hostPackages(appRoot)
+  const hostResolved = hosts.filter(name => existsSync(join(dir, 'node_modules', name, 'package.json')))
 
   const checks = []
   // blocking=false：这是状态而不是毛病，没过也不算失败（比如还没启用）。
@@ -54,8 +55,8 @@ export function runChecks({ home = resolveDshHome(), appRoot = '/opt/dsh', nodeV
     `${modules.length}/8`,
     `酒馆的包没装齐（${modules.length}/${TAVERN_BUNDLES.length}），先跑 install-on-dshgo.mjs`)
 
-  add('宿主那 5 个包能借用', hostResolved.length === HOST_PACKAGES.length,
-    `${hostResolved.length}/5`,
+  add('宿主的 @deepseek-ai 包都能借用', hostResolved.length === hosts.length,
+    `${hostResolved.length}/${hosts.length}`,
     '装了第二份 @deepseek-ai/*，插件会拿不到服务；重跑 install-on-dshgo.mjs')
 
   add('酒馆已启用', TAVERN_BUNDLES.every(name => bundles.includes(name)),
@@ -71,9 +72,9 @@ export function runChecks({ home = resolveDshHome(), appRoot = '/opt/dsh', nodeV
     '补丁没铺好，界面会有怪样子；重跑 install-on-dshgo.mjs')
 
   // pnpm 只认 pnpm-workspace.yaml 里的 overrides；写在 package.json 顶层会被无视。
-  const hostLinked = HOST_PACKAGES.filter(name => workspace.includes(`link:${appRoot}/node_modules/@deepseek-ai/${name}`))
-  add('依赖指向 App 自己那份', hostLinked.length === HOST_PACKAGES.length,
-    `${hostLinked.length}/5 条`,
+  const hostLinked = hosts.filter(name => workspace.includes(`link:${appRoot}/node_modules/${name}`))
+  add('依赖指向 App 自己那份', hostLinked.length === hosts.length,
+    `${hostLinked.length}/${hosts.length} 条`,
     '重跑 install-on-dshgo.mjs')
 
   const preflight = TAVERN_BUNDLES.every(name => modules.includes(name))
