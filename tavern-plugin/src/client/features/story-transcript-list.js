@@ -42,7 +42,6 @@ function createTavernStoryTranscriptFeature(deps) {
 	// 故事楼层是唯一展示模式；旧版本保存的“原生”偏好在升级后直接纠正。
 	mode.set(true)
 	let storyTranscriptStore = null
-	let nativeFlow = null
 	let flowExecuteSlash = options.executeSlash || null
 	let storyExternalHistory = options.externalHistory || null
 	const storyEligibility = new Map()
@@ -401,7 +400,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		const sessionId = String(props.sessionId || '')
 		const sessionMode = typeof useTavernSessionMode === 'function' ? useTavernSessionMode(sessionId) : ''
 		const store = props.store || defaultStore()
-		const legacyFlow = props.nativeFlow || nativeFlow
+		const legacyFlow = props.nativeFlow
 		const controller = useStoryController(store, sessionId, {
 			historyFrom: props.historyFrom,
 			enabled: enabled && sessionMode !== 'card'
@@ -507,11 +506,6 @@ function createTavernStoryTranscriptFeature(deps) {
 		}))
 	}
 
-	function StoryTranscriptFlowSlot(props) {
-		return h(TavernStoryTranscriptFlow, Object.assign({}, props, { nativeFlow: nativeFlow, store: options.store,
-			executeSlash: props.executeSlash || flowExecuteSlash }))
-	}
-
 	function register(input) {
 		const ctx = input.ctx, slots = input.slots
 		if (typeof installTavernPlayerInputPersistence === 'function') ctx.effect(function () {
@@ -544,22 +538,42 @@ function createTavernStoryTranscriptFeature(deps) {
 			}
 		}, 'dsh-tavern: story external history')
 		ctx.effect(function () {
-			return slots.inject('conversation.chat.flow', function () {
-				let dispose = null, installing = false
+			const key = 'conversation.chat.flow'
+			return slots.inject(key, function () {
+				let activeEntry = null, dispose = null, installing = false
 				function install() {
-					if (dispose || installing) return
-					const nativeEntry = slots.entries('conversation.chat.flow').find(function (entry) { return entry.component !== StoryTranscriptFlowSlot && entry.component })
-					if (!nativeEntry) return
-					nativeFlow = nativeEntry.component
-					const registration = { name: 'conversation.chat.flow', priority: -1, registrant: 'dsh-tavern' }
-					for (const key of ['inject', 'store', 'locale']) if (nativeEntry[key] !== undefined) registration[key] = nativeEntry[key]
-					// children deliberately stay on the native entry: conversation.chat.node
-					// is already declared there and cannot be declared a second time.
+					if (installing || (activeEntry && slots.entries(key).includes(activeEntry))) return
 					installing = true
-					try { dispose = slots.register(registration, StoryTranscriptFlowSlot) }
+					try {
+						if (dispose) dispose()
+						dispose = null
+						activeEntry = null
+						const entries = slots.entries(key).filter(function (entry) { return entry.component })
+						const nativeEntry = entries.find(function (entry) { return entry.children && entry.children['conversation.chat.node'] }) || entries[0]
+						if (!nativeEntry) return
+						const nativeFlow = nativeEntry.component
+						function StoryTranscriptFlowSlot(props) {
+							return h(TavernStoryTranscriptFlow, Object.assign({}, props, { nativeFlow: nativeFlow, store: options.store,
+								executeSlash: props.executeSlash || flowExecuteSlash }))
+						}
+						if (nativeEntry.children !== undefined) {
+							// The host binds renderSlot to the existing child-slot owner. Keep
+							// that registration and wrap just its component.
+							if (!Object.getOwnPropertyDescriptor(nativeEntry, 'component')?.writable) return
+							nativeEntry.component = StoryTranscriptFlowSlot
+							dispose = function () {
+								if (nativeEntry.component === StoryTranscriptFlowSlot) nativeEntry.component = nativeFlow
+							}
+						} else {
+							const registration = { name: key, priority: -1, registrant: 'dsh-tavern' }
+							for (const field of ['inject', 'store', 'locale']) if (nativeEntry[field] !== undefined) registration[field] = nativeEntry[field]
+							dispose = slots.register(registration, StoryTranscriptFlowSlot)
+						}
+						activeEntry = nativeEntry
+					}
 					finally { installing = false }
 				}
-				const unsubscribe = typeof slots.subscribe === 'function' ? slots.subscribe('conversation.chat.flow', install) : function () {}
+				const unsubscribe = typeof slots.subscribe === 'function' ? slots.subscribe(key, install) : function () {}
 				install()
 				return function () {
 					unsubscribe()

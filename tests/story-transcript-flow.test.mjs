@@ -390,7 +390,7 @@ test('宿主一直报空闲时，流式正文结束会补读这一局，不用�
 	assert.ok(calls > streamingCalls, '流式结束后应补读一次故事，不能等玩家刷新')
 })
 
-test('槽注册复制原生 inject/store/locale，保留 children 声明并优先故事条目', async t => {
+test('没有子槽的原生条目继续使用独立的故事注册', async t => {
 	const { context } = page(t)
 	const NativeFlow = () => null, inject = () => ({}), store = () => {}
 	const registrations = []
@@ -404,7 +404,7 @@ test('槽注册复制原生 inject/store/locale，保留 children 声明并优�
 	const ctx = { effect: run => run() }
 	context.createTavernStoryTranscriptFeature().register({ ctx, slots })
 	assert.equal(registrations.some(entry => entry.options.name === 'conversation.chat.flow'), false)
-	nativeEntries = [{ component: NativeFlow, inject, store, locale: 'chat', children: { 'conversation.chat.node': {} } }]
+	nativeEntries = [{ component: NativeFlow, inject, store, locale: 'chat' }]
 	notify()
 	const flow = registrations.find(entry => entry.options.name === 'conversation.chat.flow')
 	assert.equal(flow.options.priority, -1)
@@ -413,6 +413,46 @@ test('槽注册复制原生 inject/store/locale，保留 children 声明并优�
 	assert.equal(flow.options.locale, 'chat')
 	assert.equal(flow.options.children, undefined)
 	assert.equal(registrations.some(entry => entry.options.id === 'dsh-tavern-story-transcript-mode'), false, '不再注册楼层／原生切换按钮')
+})
+
+test('从游玩切到卡片时由原生条目提供子槽渲染器', async t => {
+	const p = page(t), { context } = p
+	context.useTavernSessionMode = sessionId => sessionId === 'card-session' ? 'card' : 'story'
+	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({
+		storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1
+	}) })
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data })
+	const NativeFlow = ({ renderSlot }) => renderSlot('conversation.chat.node', { text: '卡片工作台对话' })
+	const children = { 'conversation.chat.node': { kind: 'keyed', scope: 'session' } }
+	const entry = { component: NativeFlow, children }
+	let entries = [entry], notify, dispose
+	feature.register({ ctx: { effect: run => { dispose = run() } }, slots: {
+		inject: (_key, contribute) => contribute(), entries: () => entries,
+		subscribe: (_key, listener) => { notify = listener; return () => {} },
+		register: () => assert.fail('已有的子槽不能重复注册')
+	} })
+	assert.notEqual(entry.component, NativeFlow)
+	assert.equal(entry.children, children)
+	const flow = sessionId => React.createElement(entry.component, {
+		sessionId,
+		// The host only supplies renderSlot to the entry declaring these children.
+		renderSlot: entry.children && ((name, owner) => {
+			assert.ok(entry.children[name])
+			return React.createElement('div', { 'data-native-node': '' }, owner.text)
+		}),
+		useChat: selector => selector({ legacy: {} }), useSession: selector => selector({ running: false })
+	})
+	const root = await mount(p, flow('play-session'))
+	assert.match(p.dom.window.document.querySelector('main').textContent, /正文/)
+	await act(async () => root.render(flow('card-session')))
+	assert.equal(p.dom.window.document.querySelector('[data-native-node]').textContent, '卡片工作台对话')
+	const replacement = { component: NativeFlow, children }
+	entries = [replacement]
+	notify()
+	assert.equal(entry.component, NativeFlow)
+	assert.notEqual(replacement.component, NativeFlow)
+	dispose()
+	assert.equal(replacement.component, NativeFlow)
 })
 
 test('真实 story-flow 槽向尾部投影注入会话级 executeSlash', async t => {
