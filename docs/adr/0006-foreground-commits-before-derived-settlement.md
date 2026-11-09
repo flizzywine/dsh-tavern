@@ -11,7 +11,7 @@ ADR 0004 把前台正文与后台结算设计成原子 Round。实践中，后�
 
 Foreground Turn 成功后立即提交正文、checkpoint 与新的 Story Timeline revision。状态结算是绑定该正文 branch/revision 的派生 Background Operation：成功时只提交姿势、变量和回执；失败时保留正文、记录错误并提供手动重试，但不阻塞下一次 Foreground Turn。
 
-正文重新生成采用同一边界：新正文一旦生成和提交成功，就替换旧正文与模型 Surface；随后的结算失败不得触发 `replacement.abort`。只有前台生成、正文校验或正文提交失败时才恢复旧正文。
+正文重新生成采用同一提交边界。开始生成时撤下旧正文，提交前失败或取消时保持撤下，并保留重试所需的原正文。新正文提交后成为权威正文，模型 Surface 可从持久投影记录接续。投影或后台结算失败时保留已提交的新正文。
 
 任何结算结果在应用前必须同时匹配其绑定的 branch 与 revision。若用户已回退、重新生成或提交了下一轮正文，旧结算结果成为 stale，不得覆盖当前派生状态。旧版停留在 `foreground-completed` 的存档在读取时惰性迁移为已提交正文，使既有失败会话也能继续。
 
