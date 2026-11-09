@@ -271,7 +271,7 @@ export async function installProfile(host = RUNTIME_HOST, { guiRoot } = {}) {
     if (pathExistsNoFollow(desktop) && !lstatSync(desktop).isDirectory()) {
       throw new Error('NEXT 需要真实的 desktop 目录。请先在官方桌面切回原版 DSH，再安装酒馆。')
     }
-    assertDesktopStopped([DSH_ROOT], { requireGuiClosed: true, guiRoot, preparingForPid: prepared?.desktopPid })
+    if (!prepared) assertDesktopStopped([DSH_ROOT], { requireGuiClosed: true, guiRoot })
   }
   const attemptId = process.env.DSH_TAVERN_INSTALL_ATTEMPT || randomUUID()
   const lease = installationState.acquireInstallation({ dshHome: DSH_ROOT, sourceRoot: SOURCE_ROOT, host, attemptId })
@@ -336,8 +336,10 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
     // DSH_TAVERN_UNIFIED_DESKTOP: both desktop hosts publish the same profile and launcher.
     if (host === 'desktop' || host === 'next') {
       const launcherGate = host === 'next' && process.env.DSH_TAVERN_LAUNCHER_INSTALL === '1' ? process.env.DSH_TAVERN_PUBLISH_GATE : undefined
+      const checkStopped = prepared ? allowedPid => assertDesktopStopped([DSH_ROOT], { requireGuiClosed: true, guiRoot, preparingForPid: allowedPid,
+        nextUpdate: { app: prepared.app, profile: PROFILE_DIR, original: path.join(DSH_ROOT, 'profiles', 'desktop') } }) : undefined
       bridge = beginDesktopProfileInstallation({ home: DSH_ROOT, sourceRoot: SOURCE_ROOT, host, guiRoot,
-        preparingForPid: prepared?.desktopPid ?? preparingForPid, launcherGate, prepareNext: Boolean(prepared) })
+        preparingForPid: prepared?.desktopPid ?? preparingForPid, launcherGate, prepareNext: Boolean(prepared), checkStopped })
       if (bridge) console.log(`${bridge.refreshOnly ? '原版切换组件备份' : 'Profile 完整备份'}：${bridge.backup}`)
     }
     prepared?.initialize()
@@ -460,10 +462,11 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
           while (!existsSync(prepared.gate) && Date.now() < deadline) await delay(250)
           if (!existsSync(prepared.gate) || readFileSync(prepared.gate, 'utf8') !== 'publish') throw Error('未完成重启确认，已取消配置切换。')
           prepared.assertUnchanged()
-          bridge.finish(profile, () => {
+          const { originalBridgeDeferred } = bridge.finish(profile, () => {
             swapApp(prepared.app, { nextBridge: bridge.bridgeUpdateId })
             appSwapped = true
           })
+          if (originalBridgeDeferred) console.log('原版 DSH 正在使用独立的切换组件，留到原版空闲时更新。')
         }
         if (publishGate && !installInactive) {
           writeFileSync(publishGate + '.progress', '安装和验证完成，等待确认重启…')
