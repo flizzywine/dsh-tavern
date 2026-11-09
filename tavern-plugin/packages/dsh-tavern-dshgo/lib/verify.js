@@ -72,7 +72,7 @@ export function runChecks({ home = resolveDshHome(), appRoot = '/opt/dsh', nodeV
     '重跑 install-on-dshgo.mjs')
 
   const preflight = TAVERN_BUNDLES.every(name => modules.includes(name))
-    ? check({ home, appRoot, timeout: 4000 })
+    ? check({ dshHome: home, appRoot, timeout: 4000 })
     : { state: 'unknown', fatal: [], ignored: [], error: '包没装齐，跳过加载检查' }
   add('宿主愿意加载酒馆', preflight.state === 'ok',
     preflight.state === 'ok' ? '会加载' : preflight.state === 'fatal' ? `会跳过 ${preflight.fatal.map(item => item.packageName).join('、')}` : `没验成：${preflight.error ?? '未知'}`,

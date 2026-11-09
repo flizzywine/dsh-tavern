@@ -96,3 +96,23 @@ test('formatChecks：九行加总结，序号连续', (t) => {
   assert.match(lines[0], /1\/9/)
   assert.match(lines[8], /9\/9/)
 })
+
+test('传给加载检查的是 dshHome：名字对不上会直接崩（真机踩过）', (t) => {
+  const { home, appRoot } = full(t)
+  let received = null
+  runChecks({
+    home, appRoot, nodeVersion: 'v24.22.1',
+    check: (options) => { received = options; return okCheck },
+  })
+  assert.equal(received.dshHome, home)
+  assert.equal(received.appRoot, appRoot)
+  assert.equal(received.timeout, 4000)
+})
+
+test('真 checkBundles 不会被 undefined 的路径带崩', async (t) => {
+  const { home, appRoot } = full(t)
+  // 走真实的 checkBundles，只把 spawn 换成不存在的可执行文件：拿不到结果也不能抛。
+  const { checkBundles } = await import('../tavern-plugin/packages/dsh-tavern-dshgo/lib/preflight.js')
+  const result = checkBundles({ dshHome: home, appRoot, execPath: '/nonexistent/node' })
+  assert.equal(result.state, 'unknown')
+})
