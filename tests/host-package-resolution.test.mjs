@@ -10,6 +10,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createFileSymlink } from './helpers/file-symlink.mjs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -184,14 +185,14 @@ test('真机桌面：Windows 子进程补丁用 asar 根装得上、可回滚', 
   assert.equal(Local.prototype.spawn, original)
 })
 
-test('CLI 入口是无扩展名的 bin/dsh 链接时，跟到真实 bin.js 当启动器入口', () => {
+test('CLI 入口是无扩展名的 bin/dsh 链接时，跟到真实 bin.js 当启动器入口', t => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-cli-entry-'))
   const real = join(root, 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
   mkdirSync(dirname(real), { recursive: true })
   writeFileSync(real, '')
   mkdirSync(join(root, 'bin'))
-  symlinkSync(real, join(root, 'bin', 'dsh'))
   try {
+    if (!createFileSymlink(t, real, join(root, 'bin', 'dsh'))) return
     assert.equal(desktopLauncherEntry({ env: {}, argv: ['node', join(root, 'bin', 'dsh')] }), realpathSync(real))
   } finally {
     rmSync(root, { recursive: true, force: true })

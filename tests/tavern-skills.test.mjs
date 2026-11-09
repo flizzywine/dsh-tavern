@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { createFileSymlink } from './helpers/file-symlink.mjs'
 
 import { createTavernSkillModule } from '../tavern-plugin/lib/domain/tavern-skills.js'
 
@@ -38,10 +39,11 @@ test('参考文件独立于素材，覆盖保留引用，拒绝路径越界与�
   assert.equal(await skills.readReference('dialogue', 'references/lesson.md'), '现成教学方法')
   assert.deepEqual((await skills.read('dialogue')).agents, ['foreground'])
   await assert.rejects(skills.readReference('dialogue', 'references/../../secret.md'), /相对/)
-  const { symlink } = await import('node:fs/promises')
-  await writeFile(source, '外部')
-  await symlink(source, path.join(user, 'dialogue', 'references', 'external.md'))
-  await assert.rejects(skills.readReference('dialogue', 'references/external.md'), /目录之外/)
+  await t.test('拒绝指向外部文件的符号链接', async t => {
+    await writeFile(source, '外部')
+    if (!createFileSymlink(t, source, path.join(user, 'dialogue', 'references', 'external.md'))) return
+    await assert.rejects(skills.readReference('dialogue', 'references/external.md'), /目录之外/)
+  })
   await skills.remove('dialogue')
   assert.equal(await skills.read('dialogue'), null)
 })
