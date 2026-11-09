@@ -33,14 +33,25 @@ function chain(turns, turnsOf) {
   return { source, states, read }
 }
 
-test('缺少、变化或未完成的历史状态不使用当前变量冒充', async () => {
+test('历史状态不可用时只分叉正文，不拿当前变量冒充', async () => {
   const h = history(3)
   await assert.rejects(conversationStateAtTurn(h.source, 999, h.read), /找不到/)
-  await assert.rejects(conversationStateAtTurn(h.source, 1, async () => undefined), /不可用/)
+  // 快照读不到：正文照分，状态不带。
+  const missing = await conversationStateAtTurn(h.source, 1, async () => undefined)
+  assert.equal(missing.state.messages.length, 2)
+  assert.equal(missing.state.messages[1].text, 'reply1')
+  assert.deepEqual(Object.keys(missing.state).filter(key => ['variables', 'ledger', 'posture', 'scriptState'].includes(key)), [])
+  assert.equal(missing.state.mvu.enabled, false)
+  assert.equal(missing.state.settleStatus, 'done')
+  // 快照是别处的正文：同样只带正文，不把那份快照当这一版。
   h.states.get(1).messages[1].text = '其他分支'
-  await assert.rejects(conversationStateAtTurn(h.source, 1, h.read), /不一致/)
+  const mismatched = await conversationStateAtTurn(h.source, 1, h.read)
+  assert.equal(mismatched.state.messages[1].text, 'reply1')
+  // 快照还在结算：分支不借用半结算的值。
   h.states.get(2).settleStatus = 'running'
-  await assert.rejects(conversationStateAtTurn(h.source, 2, h.read), /结算/)
+  const settling = await conversationStateAtTurn(h.source, 2, h.read)
+  assert.equal(settling.state.settleStatus, 'done')
+  assert.equal(settling.state.mvu.enabled, false)
 })
 
 test('按绝对消息序号选择状态：不读 turn，缺 turn 也能定位，分叉点必须是正文', async () => {
@@ -120,17 +131,16 @@ test('旧 afterRevision 遇到 pending 和稀疏空洞时，只在所属区间�
   assert.deepEqual(reads, [14, 10, 15, 16, 17])
 })
 
-test('pending 扫描不越下一 checkpoint，永久 pending 保留结算错误', async () => {
+test('永久 pending 的历史快照不会被当成这一轮的状态', async () => {
   const messages = Array.from({ length: 6 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', text: 'row' + index }))
   const make = (rows, revision, settleStatus) => ({ id: 'chat', sessionId: 'source', mode: 'story', settleStatus, _storageRevision: revision,
     messages: structuredClone(messages.slice(0, rows)), timeline: { checkpoints: [] } })
   const states = new Map([[14, make(2, 14, 'pending')], [18, make(6, 18, 'done')], [35, make(2, 35, 'done')]])
   const source = { ...make(6, 30, 'done'), timeline: { checkpoints: [{ beforeRevision: 10, afterRevision: 14 }, { beforeRevision: 18 }] } }
-  const reads = []
-  await assert.rejects(conversationStateAtMessage(source, 1, async (_id, revision) => { reads.push(revision); return structuredClone(states.get(revision)) }), /尚未完成状态结算/)
-  assert.ok(!reads.includes(19), '旧 checkpoint 不得越过下一 checkpoint 的前状态')
-  assert.ok(!reads.includes(35), '不得从未引用的未来快照借用变量')
-  assert.ok(Math.max(...reads) <= 18)
+  const selected = await conversationStateAtMessage(source, 1, async (_id, revision) => structuredClone(states.get(revision)))
+  assert.notEqual(selected.state._storageRevision, 14, 'pending 快照不当分叉状态')
+  assert.equal(selected.state.messages.length, 2)
+  assert.equal(selected.state.settleStatus, 'done')
 })
 
 test('重复、缺失、非单调 turn 不影响状态选择，只按消息序号对齐前缀', async () => {
@@ -182,19 +192,24 @@ test('checkpoint 已含本轮输入时，向更早的提交快照回退取正文
   assert.equal(selected.state.messages.length, 2)
 })
 
-test('陈旧或内容不符的快照不会被当作所选消息的状态', async () => {
+test('没有可用快照时只复制正文，已清理或内容不符都不再挡住分叉', async () => {
   const { source, states, read } = chain(3)
   states.get(2).messages[1].text = '其他分支的正文'
-  await assert.rejects(conversationStateAtMessage(source, 1, read), /不一致/)
-  await assert.rejects(conversationStateAtMessage(source, 1, async () => undefined), /不可用/)
-  await assert.rejects(conversationStateAtMessage(source, 1, async () => {
+  const mismatched = await conversationStateAtMessage(source, 1, read)
+  assert.equal(mismatched.textOnly, true)
+  assert.equal(mismatched.state.messages[1].text, 'reply1')
+  assert.equal(mismatched.state.variables, undefined)
+  const missing = await conversationStateAtMessage(source, 1, async () => undefined)
+  assert.equal(missing.textOnly, true)
+  assert.deepEqual(missing.state.messages.map(row => row.text), ['input1', 'reply1'])
+  const reclaimed = await conversationStateAtMessage(source, 1, async () => {
     const error = new Error('gone')
     error.code = 'DSH_TAVERN_REVISION_NOT_FOUND'
     throw error
-  }), /已清理/)
-  const settling = chain(3)
-  settling.states.get(2).settleStatus = 'running'
-  await assert.rejects(conversationStateAtMessage(settling.source, 1, settling.read), /结算/)
+  })
+  assert.equal(reclaimed.textOnly, true)
+  assert.equal(reclaimed.state.messages.length, 2)
+  // 正在生成的当前对话仍然不能分：那不是历史快照的问题。
   const live = chain(3)
   live.source.regenInProgress = true
   await assert.rejects(conversationStateAtMessage(live.source, 5, live.read), /正文仍在生成/)
