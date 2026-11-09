@@ -92,7 +92,7 @@ export function createPluginBodyRegeneration(deps) {
     }, { source: 'foreground.plugin-regen-release', worldSelection: { preserveWorld: true } })
   }
 
-  return async function regenerateWithProvider({ gameId, sessionId = gameId, turn, textVersion, generate, prepare, providerId, validateProvider, guidance = '', signal, onPhase } = {}) {
+  return async function regenerateWithProvider({ gameId, sessionId = gameId, turn, textVersion, generate, prepare, providerId, hostRegex = false, validateProvider, guidance = '', signal, onPhase } = {}) {
     if (typeof generate !== 'function') throw new TypeError('generate 必须是函数')
     if (typeof readRegenerationMaterials !== 'function') throw new Error('当前宿主未提供正文重生成材料接口')
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
@@ -161,7 +161,7 @@ export function createPluginBodyRegeneration(deps) {
       const failedInput = failedMode ? text(original.userInputEdits?.[String(oldTurn)]?.text) || failed.userText : ''
       let materials = await readRegenerationMaterials({ chat: original, beforeChat, card, turn: oldTurn, assistantIndex: index, inputIndex, operationId,
         ...(failedMode ? { kind: 'failed', targetInput: { raw: failedInput } } : {}) })
-      materials = { ...materials, guidance: String(guidance).trim() }
+      materials = { ...materials, guidance: String(guidance).trim(), outputProcessing: { hostRegex } }
       delete materials.digest
       materials.digest = createHash('sha256').update(JSON.stringify(materials)).digest('hex')
       if (failedMode && textVersion !== undefined && textVersion !== materials.target?.textVersion) throw error('TAVERN_PLUGIN_STALE_VERSION', '失败输入版本已经变化')
@@ -207,6 +207,7 @@ export function createPluginBodyRegeneration(deps) {
       await phase('generating')
       signal?.throwIfAborted()
       const fingerprint = createHash('sha256').update(JSON.stringify({ ...materials, digest: undefined,
+        outputProcessing: hostRegex ? materials.outputProcessing : undefined,
         target: { ...materials.target, operationId: undefined }, providerId })).digest('hex')
       const reusable = original.bodyGenerationCandidate?.fingerprint === fingerprint && original.bodyGenerationCandidate?.providerId === providerId
         ? original.bodyGenerationCandidate : null
@@ -244,7 +245,7 @@ export function createPluginBodyRegeneration(deps) {
         delete draft.ledgerInjection
       }
       const projected = typeof prepareRegenerationReply === 'function'
-        ? await prepareRegenerationReply({ chat: draft, card, turn: bodyTurn, text: body }) : null
+        ? await prepareRegenerationReply({ chat: draft, card, turn: bodyTurn, text: body, hostRegex, regexChat: original }) : null
       const prose = projected ? replyProse(projected.sourceText ?? body, projected) : plainReplyProse(body)
       if (!text(prose.text).trim()) throw error('TAVERN_PLUGIN_INVALID_BODY', '插件正文处理后为空')
       const originalUser = failedMode ? { role: 'user', text: failedInput, native: true,
@@ -253,6 +254,7 @@ export function createPluginBodyRegeneration(deps) {
       const previousVariables = lastTavernHelperVariables(originalUser ? [originalUser] : []) ?? lastTavernHelperVariables(beforeChat.messages)
       const oldRow = failedMode ? {} : original.messages[index]
       const row = { role: 'assistant', ...prose, native: true, turn: bodyTurn, ts: Date.now(), swipeId: 0, bodyRegenerationProcessed: true,
+        ...(hostRegex ? { bodyHostRegexApplied: true } : {}),
         swipes: [prose.projectionText], ...(oldRow.nativeAnchor ? { nativeAnchor: clone(oldRow.nativeAnchor) } : {}),
         ...(oldRow.stagePageVersion ? { stagePageVersion: oldRow.stagePageVersion } : {}) }
       if (previousVariables !== undefined) row.variables = [clone(previousVariables)]

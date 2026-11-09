@@ -36,6 +36,11 @@ export function projectProcessedReply(value) {
     displayParts: display.parts, warnings: display.warnings, applied: { session: [], display: [] } }
 }
 
+export function projectPluginReply(value, { hostRegex, regexScripts } = {}) {
+  if (hostRegex !== true) return projectProcessedReply(value)
+  return projectReplyLayers(value, { regexScripts, placement: 2, isEdit: false, depth: 0, resolveIdentity: false })
+}
+
 /**
  * Project one authoritative model reply independently for Session and display.
  * Regex execution only transforms strings; it never extracts HTML or changes
@@ -65,7 +70,7 @@ export function projectReplyLayers(value, options = {}) {
       display.warnings.push('气泡显示：已为卡片渲染规则补齐缺失的 now_plot 标签（仅显示）')
     }
   }
-  display.text = resolveDisplayIdentityMacros(display.text, options)
+  if (options.resolveIdentity !== false) display.text = resolveDisplayIdentityMacros(display.text, options)
   const displayProjection = projectDisplayParts(display.text)
   const displayMode = displayProjection.parts.some(part => part.kind === 'html') ? 'html' : 'markdown'
 
@@ -175,11 +180,14 @@ export function createReplyHistoryProjector({ maxCacheBytes = 16 * 1024 * 1024, 
       // it on refresh too, rather than applying the game's preset a second time.
       // A matching template result is already final as well: fall through to the
       // zero-regex ordinaryDisplay path instead of discarding its HTML conversion.
-      if (message.bodyRegenerationProcessed === true && !ordinaryDisplay) {
-        const processed = projectProcessedReply(projectionText)
-        projections.push({ version: 2, turn, text: projectionText,
+      const frozenHostRegex = message.bodyHostRegexApplied === true
+      if (frozenHostRegex || message.bodyRegenerationProcessed === true && !ordinaryDisplay) {
+        const displayText = frozenHostRegex ? str(message.displayText ?? projectionText) : projectionText
+        const processed = projectProcessedReply(displayText)
+        projections.push({ version: 2, turn, text: displayText,
           mode: processed.displayMode,
-          parts: structuredClone(processed.displayParts), warnings: [...processed.warnings] })
+          parts: ordinaryDisplay ? annotateTemplateStatusParts(processed.displayParts, templateDisplay.html) : processed.displayParts,
+          warnings: frozenHostRegex && Array.isArray(message.projectionWarnings) ? [...message.projectionWarnings] : [...processed.warnings] })
         latestSourceBacked = hasSource
         continue
       }

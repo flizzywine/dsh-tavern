@@ -289,6 +289,10 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.storyGenerationProvider !== 'string' || input.storyGenerationProvider.length > 240) throw new Error('正文生成插件标识无效')
     next.storyGenerationProvider = input.storyGenerationProvider
   }
+  if (Object.hasOwn(input, 'storyPluginOutputRegex')) {
+    if (typeof input.storyPluginOutputRegex !== 'boolean') throw new Error('插件正文宿主正则设置无效')
+    next.storyPluginOutputRegex = input.storyPluginOutputRegex
+  }
   if (next.storyGenerationMode?.startsWith('plugin-') && !next.storyGenerationProvider?.trim()) throw new Error('请先选择正文生成插件')
   // Two independent directions: input replays the history that is sent to the
   // model, output turns this turn's body into a submission call. Legacy switches
@@ -433,6 +437,7 @@ export function presentTavernSettings(document, defaults) {
     polishPrereview: object(document).polishPrereview === true,
     storyGenerationMode: ['plugin-direct', 'plugin-tool-call'].includes(document?.storyGenerationMode) ? document.storyGenerationMode : 'host',
     storyGenerationProvider: typeof document?.storyGenerationProvider === 'string' ? document.storyGenerationProvider : '',
+    storyPluginOutputRegex: document?.storyPluginOutputRegex === true,
     storyInputToolCall: storyToolCalls.input,
     storyOutputToolCall: storyToolCalls.output,
     // A failed model request is resent once by default (tavern-retry-limiter); off means

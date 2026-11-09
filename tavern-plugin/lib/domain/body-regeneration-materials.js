@@ -92,6 +92,8 @@ function frozenProse(row) {
   // Editing a player floor updates text in place and intentionally leaves its
   // old template projection untouched. The visible edit is authoritative.
   if (row.role === 'user' && row.bodyEdit?.role === 'user') return text(row.text)
+  // Opted-in plugin replies use the saved model-context layer, just like the native session.
+  if (row.bodyHostRegexApplied === true && typeof row.text === 'string') return row.text
   if (typeof row.projectionText === 'string') return row.projectionText
   const selected = Math.max(0, Number(row.swipeId) || 0)
   const source = row.swipes?.[selected] ?? row.sourceText ?? row.text
@@ -226,6 +228,8 @@ export function buildBodyRegenerationMaterials({ chat, beforeChat, card: _liveCa
     writingRequirements: requirements,
     history,
     input,
+    ...(kind === 'generate' && typeof frame.source?.bodyGeneration?.hostRegex === 'boolean'
+      ? { outputProcessing: { hostRegex: frame.source.bodyGeneration.hostRegex } } : {}),
     generationState: clone(captured?.generationState),
     beforeState: { posture: text(beforeChat.posture), variables: clone(beforeChat.variables ?? null), messageVariables: lastMessageVariables(beforeChat) },
     completeness: { history: 'all-visible', materials: captured?.version === 1 ? 'captured' : 'checkpoint' }

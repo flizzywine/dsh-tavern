@@ -14,7 +14,7 @@ import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { normalizeResourcePath } from './file-resources.js'
 import { diffJson } from './json-mutation.js'
 import { hasTavernCredit, withTavernCredit } from './card-credit.js'
-import { projectProcessedReply } from './reply-presentation.js'
+import { projectPluginReply } from './reply-presentation.js'
 import { STORY_GENERATE_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, storyToolCallEnabled } from './story-tool-submission.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { variableUpdateFor } from './variable-update.js'
@@ -873,6 +873,7 @@ export function createTurnOrchestrator(options) {
     const sourceText = str(input.assistantText).trim()
     const frame = Object.values(chat.foregroundFrames || {}).findLast(item => Number(item.turn) === turn)
     const pluginBody = input.pluginBodyGeneration === true || frame?.source?.bodyGeneration?.mode?.startsWith('plugin-')
+    const hostRegex = pluginBody && frame?.source?.bodyGeneration?.hostRegex === true
     if (pluginBody) {
       const generated = chat.timeline?.operations?.[frame?.operationId]?.bodyGeneration
       if (generated?.status !== 'ready' || generated.receipt?.text?.trim() !== sourceText) throw new Error('本轮未取得有效的插件正文，不能保存或自动补记')
@@ -897,9 +898,10 @@ export function createTurnOrchestrator(options) {
         : null
       const presetRegexScripts = await resolvePresetRegexScripts(chat)
       const projectionText = assistantText
-      reply = pluginBody ? projectProcessedReply(sourceText) : projectReply(sourceText, {
+      const regexScripts = composeTavernRegexScripts(extensions, presetRegexScripts, chat.regexOverrides && chat.regexOverrides.preset)
+      reply = pluginBody ? projectPluginReply(sourceText, { hostRegex, regexScripts }) : projectReply(sourceText, {
         projectionText,
-        regexScripts: composeTavernRegexScripts(extensions, presetRegexScripts, chat.regexOverrides && chat.regexOverrides.preset),
+        regexScripts,
         placement: 2,
         isEdit: false,
         depth: 0
@@ -1035,6 +1037,7 @@ export function createTurnOrchestrator(options) {
           ts: now(),
           native: true,
           ...(pluginBody ? { bodyRegenerationProcessed: true } : {}),
+          ...(hostRegex ? { bodyHostRegexApplied: true } : {}),
           ...(input.incomplete === true ? { incomplete: true,
             incompleteReason: str(input.incompleteReason) || '这次生成被中断，保留了已生成的部分正文' } : {}),
           turn: turn,

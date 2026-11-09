@@ -16,7 +16,8 @@ const digest = value => createHash('sha256').update(JSON.stringify(value)).diges
 
 export function configuredBodyGeneration(chat, settings) {
   return { mode: chat?.storyGenerationMode ?? settings?.storyGenerationMode ?? 'host',
-    provider: chat?.storyGenerationProvider ?? settings?.storyGenerationProvider ?? '' }
+    provider: chat?.storyGenerationProvider ?? settings?.storyGenerationProvider ?? '',
+    hostRegex: (chat?.storyPluginOutputRegex ?? settings?.storyPluginOutputRegex) === true }
 }
 
 /** The selected route is frozen in the frame; changing global settings affects the next turn. */
@@ -186,26 +187,26 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
       }
     },
     async regenerate(gameId, guidance = '') {
-      const selection = await providers.controlRoute?.(gameId) || configuredBodyGeneration(await routeChatForSession(gameId), await settings())
-      const selected = { storyGenerationMode: selection.mode, storyGenerationProvider: selection.provider }
-      if (!selected.storyGenerationMode?.startsWith('plugin-')) return null
+      const configured = configuredBodyGeneration(await routeChatForSession(gameId), await settings())
+      const selected = { ...configured, ...await providers.controlRoute?.(gameId) }
+      if (!selected.mode?.startsWith('plugin-')) return null
       // A tail player row has no assistant body of its own to replace: the native
       // path must answer it instead of replacing the round before it.
       if (unansweredTailIndex(await chatForSession(gameId)) >= 0) return null
       if (regenerations.has(gameId)) throw error('正文正在重新生成')
-      const provider = await providers.require(selected.storyGenerationProvider, gameId)
+      const provider = await providers.require(selected.provider, gameId)
       if (regenerations.has(gameId)) throw error('正文正在重新生成')
       const controller = new AbortController(), task = { controller, pending: null, committed: false }
       const pending = Promise.resolve().then(() => regenerateWithProvider({ gameId, signal: controller.signal,
         onPhase: phase => { if (phase === 'committed') task.committed = true },
-        providerId: selected.storyGenerationProvider,
-        prepare: input => providers.prepare(selected.storyGenerationProvider, input),
+        providerId: selected.provider, hostRegex: selected.hostRegex,
+        prepare: input => providers.prepare(selected.provider, input),
         guidance,
         validateProvider: async () => {
-          if (await providers.require(selected.storyGenerationProvider, gameId) !== provider) throw error('正文生成插件已更换，请重新生成')
+          if (await providers.require(selected.provider, gameId) !== provider) throw error('正文生成插件已更换，请重新生成')
         },
         generate: async ({ materials, signal, snapshot }) => {
-          try { return await providers.generate(selected.storyGenerationProvider, { materials, signal, snapshot }) }
+          try { return await providers.generate(selected.provider, { materials, signal, snapshot }) }
           catch (cause) { throw bodyGenerationError(cause) }
         } }))
       task.pending = pending

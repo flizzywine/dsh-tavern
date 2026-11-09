@@ -5,8 +5,9 @@ import { createRoundHistory } from '../tavern-plugin/lib/domain/round-history.js
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { appendSessionEvent, sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { computeSceneTarget } from '../tavern-plugin/lib/domain/scene-illustration.js'
-import { findBodyRegenerationFrame } from '../tavern-plugin/lib/domain/body-regeneration-materials.js'
+import { findBodyRegenerationFrame, visibleBodyRegenerationHistory } from '../tavern-plugin/lib/domain/body-regeneration-materials.js'
 import { applyRegenerationProjection } from '../tavern-plugin/lib/domain/rollback-surface.js'
+import { projectPluginReply, projectReplyHistory } from '../tavern-plugin/lib/domain/reply-presentation.js'
 
 const copy = value => structuredClone(value)
 
@@ -64,13 +65,13 @@ async function fixture(options = {}) {
     chats, timeline, sessions: { get: () => agent, flush: async () => options.flush?.() }, scripts: {},
     readRegenerationMaterials: async ({ chat, beforeChat, turn }) => ({ target: { turn },
       history: [], currentInput: { text: chat.messages[0].text }, stateBefore: { posture: beforeChat.posture } }),
-    prepareRegenerationReply: async ({ chat, text }) => {
+    prepareRegenerationReply: options.prepareRegenerationReply || (async ({ chat, text }) => {
       assert.equal(chat.macroState.local.inputCount, 1)
       assert.equal(chat.macroState.local.oldOutput, undefined)
       assert.deepEqual(chat.tavernScriptPrompts, [])
       chat.macroState.local.newOutput = (chat.macroState.local.newOutput || 0) + 1
       return { projectionText: text, sessionText: text, displayText: text, displayMode: 'html', warnings: [] }
-    },
+    }),
     cancelSettlement: async () => options.cancelSettlement?.(),
     notifyRegeneration: async (gameId, target) => { notifications.push(target.turn) },
     queueSettlement: async () => {
@@ -174,6 +175,31 @@ test('provider replaces one round and native context, then settles from the orig
   assert.equal(rolled.posture, '起点 HP 10')
   assert.deepEqual(rolled.messages, [])
   assert.ok(findBodyRegenerationFrame(current, 2), 'the replacement retains its input snapshot for another retry')
+})
+
+test('plugin regeneration saves both regex layers and reopens without transforming the saved display again', async () => {
+  const regexScripts = [
+    { placement: [2], findRegex: '/X/g', replaceString: 'XX', markdownOnly: true },
+    { placement: [2], findRegex: '/X/g', replaceString: 'context', promptOnly: true }
+  ]
+  const h = await fixture({ prepareRegenerationReply: ({ text, hostRegex }) => projectPluginReply(text, { hostRegex, regexScripts }) })
+  await h.run(async ({ materials }) => {
+    assert.deepEqual(materials.outputProcessing, { hostRegex: true })
+    return { text: 'X {{user}} {{setvar::x::1}}' }
+  }, { hostRegex: true })
+  const current = JSON.parse(JSON.stringify(await h.chats.read()))
+  const reply = current.messages.at(-1)
+  assert.equal(reply.sourceText, 'X {{user}} {{setvar::x::1}}')
+  assert.equal(reply.text, 'context {{user}} {{setvar::x::1}}')
+  assert.equal(reply.displayText, 'XX {{user}} {{setvar::x::1}}')
+  assert.equal(reply.bodyHostRegexApplied, true)
+  assert.match(JSON.stringify(h.session.deriveMessages()), /context/)
+  assert.equal(visibleBodyRegenerationHistory(current, current.messages.length).at(-1).text, reply.text)
+  for (const rules of [regexScripts, []]) {
+    assert.equal(projectReplyHistory(current.messages, { regexScripts: rules }).projections[0].text, reply.displayText)
+  }
+  reply.tavernPluginData = { template_display: { source: reply.sourceText, swipe: 0, formattingText: 'XXXX', html: '<p>XXXX</p>' } }
+  assert.equal(projectReplyHistory(current.messages).projections[0].text, reply.displayText)
 })
 
 test('generation failure and cancellation keep the old body deleted and never start settlement', async () => {

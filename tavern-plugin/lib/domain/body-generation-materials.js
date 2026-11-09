@@ -22,5 +22,7 @@ export function publicBodyMaterials(materials) {
     identities: { characterName: materials.card?.name || '', playerName: materials.persona?.name || '你' },
     state: { variables: structuredClone(state.variables ?? null), messageVariables: structuredClone(state.messageVariables ?? null), status: state.posture || '' },
     guidance: materials.guidance || '',
+    ...(typeof materials.outputProcessing?.hostRegex === 'boolean'
+      ? { outputProcessing: { hostRegex: materials.outputProcessing.hostRegex } } : {}),
   }
 }

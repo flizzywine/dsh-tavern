@@ -83,6 +83,7 @@ test('current turn exports complete history and frozen state; successful duplica
   const f = fixture(async ({ materials }) => { observed = materials; return { text: '<div>完整正文</div>', metadata: { once: 1 } } })
   const value = await f.run()
   assert.equal(observed.reason, 'normal')
+  assert.equal(observed.outputProcessing, undefined, 'legacy prepared frames retain their original receipt materials')
   assert.deepEqual(observed.history.map(item => item.text), ['完整开场'])
   assert.equal(observed.input.text, '【输入】继续')
   assert.equal(observed.state.variables.hp, 10)
@@ -96,6 +97,18 @@ test('current turn exports complete history and frozen state; successful duplica
   const tampered = fixture(); const bad = JSON.parse(value); bad.text = '截断或篡改'
   assert.equal(receipt(tampered.session, JSON.stringify(bad)), null)
   assert.equal(receipt(fixture().session, value, { error: true }), null)
+})
+
+test('providers see the frozen host output policy, including after a settings change and receipt reuse', async () => {
+  let observed
+  const f = fixture(async ({ materials }) => { observed = materials.outputProcessing; return { text: 'X' } })
+  f.mutate(chat => { Object.values(chat.foregroundFrames)[0].source.bodyGeneration.hostRegex = true })
+  f.configure({ storyGenerationMode: 'host', storyPluginOutputRegex: false })
+  const result = await f.run()
+  assert.deepEqual(observed, { hostRegex: true })
+  assert.equal(JSON.parse(result).text, 'X', 'the receipt still contains the plugin output')
+  assert.equal(await f.run(), result)
+  assert.equal(f.calls, 1)
 })
 
 test('concurrent tool dispatches share one provider invocation', async () => {

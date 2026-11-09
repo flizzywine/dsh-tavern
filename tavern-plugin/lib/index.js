@@ -277,7 +277,7 @@ import { createRoundHistory } from './domain/round-history.js'
 import { buildBodyRegenerationMaterials } from './domain/body-regeneration-materials.js'
 import { createResourceWorkspaceProjection } from './domain/resource-workspace-projection.js'
 import { projectAgentContent, projectAgentMessageText, projectRuntimeReply } from './domain/runtime-content-projection.js'
-import { projectProcessedReply } from './domain/reply-presentation.js'
+import { projectPluginReply } from './domain/reply-presentation.js'
 import { plainReplyProse } from './domain/reply-prose.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
 import { appendWritingSkillState } from './domain/skill-visibility.js'
@@ -2918,7 +2918,7 @@ export async function apply(ctx) {
     startManualTask: ({ gameId, key, input }) => startPluginTask(gameId, key, input),
     publish: sessionId => sessionSignals.publish(sessionId, { kind: 'plugin-media', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) })
   })
-  const pluginBodyGeneration = createPluginBodyGeneration({ chatForSession, routeChatForSession: sessionId => chatHeaderForSession(sessionId, ['mode', 'foregroundFrames', 'timeline', 'storyGenerationMode', 'storyGenerationProvider']), readRevision: readChatRevision,
+  const pluginBodyGeneration = createPluginBodyGeneration({ chatForSession, routeChatForSession: sessionId => chatHeaderForSession(sessionId, ['mode', 'foregroundFrames', 'timeline', 'storyGenerationMode', 'storyGenerationProvider', 'storyPluginOutputRegex']), readRevision: readChatRevision,
     updateChat, settings: readTavernSettings, providers: pluginApi.bodyGenerators,
     isWorldbookPath: filePath => worldbookSkillProvider.ownsPath(filePath),
     isBackground: sessionId => backgroundAgentRunner.owns(sessionId),
@@ -3589,9 +3589,8 @@ export async function apply(ctx) {
       if (extensions !== undefined) argumentsForPreview.cardExtensions = extensions
       return { key, arguments: argumentsForPreview }
     },
-    // Providers return already-processed prose. Their imported regexes must not
-    // run again in the host, including when the view is refreshed later.
-    prepareRegenerationReply: ({ text }) => projectProcessedReply(text),
+    prepareRegenerationReply: async ({ text, hostRegex, regexChat }) =>
+      projectPluginReply(text, { hostRegex, regexScripts: hostRegex ? await replyRegexScripts(regexChat) : undefined }),
     notifyRegeneration: (sessionId, { turn }) => notifyPluginTimeline(sessionId, 'regenerate', { turn }),
     present: presentStory,
     trace: requestPerformance,
