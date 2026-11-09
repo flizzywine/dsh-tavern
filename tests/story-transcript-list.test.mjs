@@ -470,7 +470,7 @@ test('store 挡掉晚到的旧响应，hook 驱动 view 渲染', async t => {
 	assert.equal(deferred.length, 2, '同一会话 + historyFrom 不重复读取')
 })
 
-test('切回最近会话与历史窗口直接复用故事，force 与 reset 仍重新读取', async t => {
+test('切回最近会话与历史窗口先用缓存上屏，随后补读一次；force 与 reset 仍重新读取', async t => {
 	const page = createPage(t)
 	const { context } = page
 	const reads = []
@@ -484,20 +484,28 @@ test('切回最近会话与历史窗口直接复用故事，force 与 reset 仍�
 	await store.read('s1', { historyFrom: 20 })
 	reads.length = 0
 
-	await store.read('s1')
+	// 切走期间这一局可能已经在别的视图里生成完：缓存负责首帧，落盘的正文靠补读回来。
+	// 少了这次补读，切回页面就停在上次离开时的旧正文，必须刷新才看到最新输出。
+	const back = store.read('s1')
+	assert.equal(store.getSnapshot().sessionId, 's1', '切回时缓存立刻成为当前故事')
+	assert.equal(store.getSnapshot().status, 'ready', '首帧直接读缓存，不等网络')
+	await back
+	assert.deepEqual(reads, [['s1', null]], '缓存上屏后仍补读一次')
+	assert.equal(store.getSnapshot().status, 'ready')
+
 	await store.read('s2')
-	assert.deepEqual(reads, [], '已读会话和各自的历史窗口切回时不得重新下载')
+	assert.deepEqual(reads, [['s1', null], ['s2', null]], '切到另一个会话同样先缓存后补读')
 	assert.equal(store.getSnapshot().sessionId, 's2')
 	assert.equal(store.getSnapshot().status, 'ready')
 
 	await store.read('s2', { force: true })
-	assert.deepEqual(reads, [['s2', null]], '版本变化使用的 force 必须绕过缓存')
+	assert.deepEqual(reads, [['s1', null], ['s2', null], ['s2', null]], '版本变化使用的 force 必须绕过缓存')
 	store.reset()
 	await store.read('s2')
-	assert.deepEqual(reads, [['s2', null], ['s2', null]], 'reset 必须清空全部会话缓存')
+	assert.deepEqual(reads, [['s1', null], ['s2', null], ['s2', null], ['s2', null]], 'reset 必须清空全部会话缓存')
 })
 
-test('故事首读与缓存切回都播种 liveView 避免重复完整读取', async t => {
+test('故事首读与缓存切回都播种 liveView，切回仍补读一次', async t => {
 	const page = createPage(t)
 	const { context } = page
 	const seeds = [], reads = [], waits = []
@@ -515,9 +523,9 @@ test('故事首读与缓存切回都播种 liveView 避免重复完整读取', a
 	await store.read('s1')
 	await store.read('s2')
 	await store.read('s1')
-	assert.deepEqual(reads, ['s1', 's2'], '切回复用故事缓存')
-	assert.deepEqual(seeds, [['s1', 7], ['s2', 7], ['s1', 7]], '每次成为当前故事时都恢复对应 liveView 快照')
-	assert.deepEqual(waits, ['s1', 's2'], '只有真实网络读取需要等待种子，缓存切回不增加等待')
+	assert.deepEqual(reads, ['s1', 's2', 's1'], '切回先复用缓存上屏，再补读一次')
+	assert.deepEqual(seeds, [['s1', 7], ['s2', 7], ['s1', 7], ['s1', 7]], '每次成为当前故事时都恢复对应 liveView 快照')
+	assert.deepEqual(waits, ['s1', 's2'], '缓存切回有自己的视图，不额外等待种子')
 })
 
 test('故事缓存按最近使用顺序执行有界淘汰', async t => {
@@ -533,9 +541,9 @@ test('故事缓存按最近使用顺序执行有界淘汰', async t => {
 	await store.read('s2')
 	await store.read('s1')
 	await store.read('s3')
-	assert.deepEqual(reads, ['s1', 's2', 's3'], '缓存命中不读，新增窗口只读一次')
+	assert.deepEqual(reads, ['s1', 's2', 's1', 's3'], '缓存命中先上屏并补读，新增窗口只读一次')
 	await store.read('s2')
-	assert.deepEqual(reads, ['s1', 's2', 's3', 's2'], '最久未使用的 s2 已被淘汰')
+	assert.deepEqual(reads, ['s1', 's2', 's1', 's3', 's2'], '最久未使用的 s2 已被淘汰')
 })
 
 const flush = () => new Promise(resolve => setImmediate(resolve))
@@ -824,4 +832,35 @@ test('缓存会话快照按目标读取，不从当前槽继承', async t => {
 	assert.equal(store.snapshotFor('s1', null).sessionId, 's1')
 	assert.equal(store.snapshotFor('s1', null).transcript.messages[0].message.text, '开场正文')
 	assert.equal(store.snapshotFor('missing', null).status, 'idle', '没有缓存的会话不从 s2 继承正文')
+})
+
+test('切走时还没出正文，切回来补读到后台写完的楼层', async t => {
+	const page = createPage(t)
+	const { dom, context } = page
+	let chat = [{ role: 'user', text: '行动' }]
+	let revision = 1
+	const data = context.createTavernStoryTranscriptDataModule({ rpc: async (_method, args) => ({
+		storyTranscript: args.sessionId === 's-other' ? story([{ role: 'assistant', turn: 1, text: '另一局正文' }], 1) : story(chat, revision),
+		view: { mode: 'story' }, revision: args.sessionId === 's-other' ? 1 : revision
+	}) })
+	const store = data.createStoryTranscriptStore()
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data })
+	const element = sessionId => React.createElement(feature.StoryTranscriptView, { store, sessionId })
+	const settle = () => act(async () => { await new Promise(resolve => setImmediate(resolve)) })
+	const root = await mount(page, element('s-cut'))
+	await settle()
+	assert.deepEqual(textOf(dom).map(text => text.includes('行动')), [true], '离开前只有玩家那一行')
+	// 切到别的对话：故事槽位换成另一局，切走这一局在后台把这一轮写进存档，
+	// 故事缓存里的仍是离开时的快照。
+	await act(async () => root.render(element('s-other')))
+	await settle()
+	assert.ok(textOf(dom).every(text => !text.includes('后台写完的正文')))
+	chat = [{ role: 'user', text: '行动' }, { role: 'assistant', turn: 1, text: '后台写完的正文' }]
+	revision = 2
+	await act(async () => root.render(element('s-cut')))
+	await settle()
+	const texts = textOf(dom)
+	assert.ok(texts.some(text => text.includes('后台写完的正文')), '切回来补读后必须显示最新正文，不必刷新页面')
+	assert.ok(texts.some(text => text.includes('行动')))
+	assert.equal(dom.window.document.querySelector('[data-story-transcript]').getAttribute('data-revision'), '2')
 })

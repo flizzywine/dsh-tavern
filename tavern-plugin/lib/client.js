@@ -37661,24 +37661,30 @@ function createTavernStoryTranscriptDataModule(deps) {
 				return state
 			}
 			const cached = force ? null : touch(key)
-			if (cached && (!includeToolCalls || cached.includeToolCalls)) {
-				const current = ++ticket
-				publish(Object.assign({}, cached, { ticket: current }))
-				return state
+			const cacheHit = cached && (!includeToolCalls || cached.includeToolCalls) ? cached : null
+			// 缓存只负责首帧：玩家切走再切回时，这一局在别的视图里可能已经生成完，
+			// 宿主的流和 turn/end 都不会通知这里。命中缓存仍然继续读一次，落盘的
+			// 正文到位后替换这份旧快照（先上屏、后补读）；补读失败就留着缓存，
+			// 不把已经画出来的正文换成错误。
+			if (cacheHit) {
+				const shown = ++ticket
+				publish(Object.assign({}, cacheHit, { ticket: shown }))
 			}
 			const current = ++ticket
-			expectLiveView(id)
-			publish({
-				sessionId: id,
-				historyFrom: historyFrom,
-				includeToolCalls: includeToolCalls,
-				status: sameSession && state.transcript ? 'refreshing' : 'loading',
-				transcript: sameSession ? state.transcript : null,
-				view: sameSession ? state.view : null,
-				revision: sameSession ? state.revision : null,
-				error: null,
-				ticket: current
-			})
+			if (cacheHit === null) {
+				expectLiveView(id)
+				publish({
+					sessionId: id,
+					historyFrom: historyFrom,
+					includeToolCalls: includeToolCalls,
+					status: sameSession && state.transcript ? 'refreshing' : 'loading',
+					transcript: sameSession ? state.transcript : null,
+					view: sameSession ? state.view : null,
+					revision: sameSession ? state.revision : null,
+					error: null,
+					ticket: current
+				})
+			}
 			try {
 				const result = await load(id, { historyFrom: historyFrom === null ? undefined : historyFrom,
 					...(includeToolCalls ? { includeToolCalls: true } : {}) })
@@ -37696,6 +37702,9 @@ function createTavernStoryTranscriptDataModule(deps) {
 				publish(next)
 			} catch (error) {
 				if (current !== ticket) return state
+				// 有缓存就已经有东西可看：后台补读失败不打扰玩家，缓存留着，
+				// 下一次切换、故事变更或 force 读取会再试。
+				if (cacheHit) return state
 				cancelLiveView(id)
 				const preserve = state.sessionId === id && state.transcript
 				publish({ sessionId: id, historyFrom: historyFrom, status: 'error', transcript: preserve ? state.transcript : null,
