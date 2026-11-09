@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { Session } from './fixtures/dsh-session-host.mjs'
 import { appendSessionEvent, sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { replaceSessionSurface } from '../tavern-plugin/lib/domain/session-surface-mutations.js'
-import { createMessageDeletion, synchronizeMessageDeletion } from '../tavern-plugin/lib/domain/message-deletion.js'
+import { createMessageDeletion, normalizeMessageDeletionSelectors, synchronizeMessageDeletion } from '../tavern-plugin/lib/domain/message-deletion.js'
 import { createPlayHandlers } from '../tavern-plugin/lib/rpc/play.js'
 import { uncommittedRounds } from '../tavern-plugin/lib/domain/uncommitted-rounds.js'
 import { planTranscriptRows } from '../tavern-plugin/lib/domain/transcript-row-plan.js'
@@ -16,6 +16,7 @@ import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createConversationPageStore } from '../tavern-plugin/lib/domain/conversation-page-store.js'
 import { createConversationState } from '../tavern-plugin/lib/domain/conversation-state.js'
+import { legacyMessageUid } from '../tavern-plugin/lib/domain/message-uid.js'
 
 const model = { kind: 'model', provider: 'fixture', model: 'fixture' }
 function fixture() {
@@ -239,14 +240,21 @@ test('重载与重复同步复用 tombstone，不重复追加事件', async () =
   assert.deepEqual(restored.surface.nodes, h.session.surface.nodes)
 })
 
-test('真实 native journal 重开后保留物理 splice、messageUid 与完成审计', async t => {
+test('迁移后立即删除并重开仍保留物理 splice、来源 messageUid 与完成审计', async t => {
   const root = await mkdtemp(join(tmpdir(), 'message-delete-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const h = fixture()
-  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
   h.chat.messages[5].variables = [{ stat_data: { gold: 44 }, schema: {} }]
   h.chat.posture = '保留姿态'
-  await persistence.write({ ...h.chat, _storageRevision: 0 })
+  const legacy = createChatJournalStore({ dataRoot: root })
+  await legacy.update('chat', () => structuredClone(h.chat))
+  await legacy.upgradeStorage('chat')
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root }) })
+  const initial = await persistence.read('chat')
+  assert.equal(initial.messages[5].messageUid, undefined, '迁移保持旧 Chat 行原样')
+  const domain = createConversationState({ store: createConversationPageStore({ root: join(root, 'chats') }) })
+  const sourceUid = (await domain.open('chat')).state.worldMessageUid
+  assert.ok(sourceUid)
   h.options.chats = { forSession: async () => persistence.read('chat'), update: persistence.update }
   const result = await h.create().remove({ sessionId: h.session.id, items: [h.selectors.u2, h.selectors.a4] })
   assert.equal(result.deletedCount, 2)
@@ -258,9 +266,93 @@ test('真实 native journal 重开后保留物理 splice、messageUid 与完成�
   assert.equal(saved.messageDeletion.deletedCount, 2)
   assert.equal(saved.tavernHelperLifecycleRevision, 8)
   assert.equal(saved.nativeSync, undefined)
-  const domain = createConversationState({ store: createConversationPageStore({ root: join(root, 'chats') }) })
   assert.deepEqual(await domain.readWorld('chat'), { variables: { stat_data: { gold: 44 }, schema: {} }, posture: '保留姿态' },
     '删除最新变量所在 AI 及其同步状态写都不能回滚当前 world')
+  const head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, null)
+  assert.equal(head.state.worldMessageUid, sourceUid, '来源行删除后仍保留永久 UID')
+  assert.equal(head.state.worldSwipe, 0)
+})
+
+test('真实 native 删除前置行后世界 UID 随来源行迁移', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'message-delete-source-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const h = fixture()
+  h.chat.messages[3].variables = [{ stat_data: { gold: 33 }, schema: {} }]
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  const initial = await persistence.write({ ...h.chat, _storageRevision: 0 })
+  const sourceUid = initial.messages[3].messageUid
+  h.options.chats = { forSession: async () => persistence.read('chat'), update: persistence.update }
+  await h.create().remove({ sessionId: h.session.id, items: [h.selectors.u2] })
+  const saved = await persistence.read('chat')
+  assert.equal(saved.messages[2].text, '正文3')
+  assert.equal(saved.messages[2].messageUid, sourceUid)
+  const domain = createConversationState({ store: createConversationPageStore({ root: join(root, 'chats') }) })
+  const head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, 2)
+  assert.equal(head.state.worldMessageUid, sourceUid)
+  assert.equal(head.state.worldSwipe, 0)
+  assert.equal(head.state.world.variables.stat_data.gold, 33)
+})
+
+test('连续删除不会清空已脱离来源行的世界与 UID', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'message-delete-twice-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const h = fixture()
+  h.chat.messages[5].variables = [{ stat_data: { gold: 44 }, schema: {} }]
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  const initial = await persistence.write({ ...h.chat, _storageRevision: 0 })
+  const sourceUid = initial.messages[5].messageUid
+  h.options.chats = { forSession: async () => persistence.read('chat'), update: persistence.update }
+  const deletion = h.create()
+  await deletion.remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 5, revision: initial._storageRevision }] })
+  const afterFirst = await persistence.read('chat')
+  await deletion.remove({ sessionId: h.session.id, items: [{ role: 'user', messageIndex: 0, revision: afterFirst._storageRevision }] })
+  const domain = createConversationState({ store: createConversationPageStore({ root: join(root, 'chats') }) })
+  let head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, null)
+  assert.equal(head.state.worldMessageUid, sourceUid)
+  assert.equal(head.state.world.variables.stat_data.gold, 44)
+  const rolledBack = await persistence.read('chat')
+  rolledBack.messages = []
+  await persistence.write(rolledBack)
+  head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, null)
+  assert.equal(head.state.worldMessageUid, null, '显式结构回退仍可清空脱离来源的世界')
+  assert.deepEqual(head.state.world.variables, {})
+})
+
+test('来源删除后的正文编辑保留世界，后续新快照才接管', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'message-delete-edit-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const h = fixture()
+  h.chat.messages[5].variables = [{ stat_data: { gold: 44 }, schema: {} }]
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  const initial = await persistence.write({ ...h.chat, _storageRevision: 0 })
+  const sourceUid = initial.messages[5].messageUid
+  h.options.chats = { forSession: async () => persistence.read('chat'), update: persistence.update }
+  await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 5, revision: initial._storageRevision }] })
+  const afterDelete = await persistence.read('chat')
+  await persistence.patch('chat', afterDelete._storageRevision, [{ op: 'set', path: ['messages', 0, 'text'], value: '点写编辑正文2' }])
+  const domain = createConversationState({ store: createConversationPageStore({ root: join(root, 'chats') }) })
+  let head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, null)
+  assert.equal(head.state.worldMessageUid, sourceUid)
+  assert.equal(head.state.world.variables.stat_data.gold, 44)
+  const edited = await persistence.read('chat')
+  edited.messages[0].text = '整档编辑正文2'
+  await persistence.write(edited)
+  head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, null)
+  assert.equal(head.state.worldMessageUid, sourceUid)
+  assert.equal(head.state.world.variables.stat_data.gold, 44)
+  edited.messages.push({ role: 'user', text: '新行动' }, { role: 'assistant', text: '新正文', variables: [{ stat_data: { gold: 55 }, schema: {} }] })
+  const appended = await persistence.write(edited)
+  head = await domain.open('chat')
+  assert.equal(head.state.worldMessage, appended.messages.length - 1)
+  assert.equal(head.state.worldMessageUid, appended.messages.at(-1).messageUid)
+  assert.notEqual(head.state.worldMessageUid, sourceUid)
+  assert.equal(head.state.world.variables.stat_data.gold, 55)
 })
 
 test('删除前面输入后，后续重新生成和原生对账不会擦掉前面 AI 正文', async () => {
@@ -268,10 +360,19 @@ test('删除前面输入后，后续重新生成和原生对账不会擦掉前�
   await h.create().remove({ sessionId: h.session.id, items: [h.selectors.u2] })
   const originalChat = structuredClone(h.chat)
   const assistantIndex = originalChat.messages.length - 1
-  const merged = replaceLastRound({ originalChat, regeneratedChat: {
+  const regeneratedChat = {
     ...originalChat,
     messages: [{ role: 'user', text: '输入4' }, { role: 'assistant', turn: 4, text: '重新生成的正文4', sourceText: '重新生成的正文4' }]
-  }, assistantIndex })
+  }
+  const candidateMessages = regeneratedChat.messages
+  const merged = replaceLastRound({ originalChat, regeneratedChat, assistantIndex })
+  assert.equal(regeneratedChat.messages, candidateMessages, '不改写调用方 draft 的 messages 属性')
+  assert.equal(regeneratedChat.messages[1].text, '重新生成的正文4')
+  assert.equal(merged.chat.messages[assistantIndex].messageUid, originalChat.messages[assistantIndex].messageUid)
+  const outputText = merged.chat.messages[0].text
+  merged.chat.messages[0].text = '输出侧修改'
+  assert.notEqual(originalChat.messages[0].text, '输出侧修改', '返回历史仍与原始快照隔离')
+  merged.chat.messages[0].text = outputText
   h.chat = merged.chat
   replaceSessionSurface(h.session, 'assistant/message', { turn: 4, step: 1,
     message: { id: 'regenerated-4', role: 'assistant', content: [{ type: 'text', text: '重新生成的正文4' }], source: { ...model, tavernStoryTurn: 4 } } },
@@ -336,4 +437,149 @@ test('deleteMessages RPC 固定返回 view/deletedCount 并走取消与通知流
   assert.equal(calls[1], 'reconcile:session')
   assert.equal(calls[2].items.length, 1)
   assert.deepEqual(calls[3], ['session', 'edit', { settled: true }])
+})
+
+test('故事直选 assistant：按 messageIndex+revision 定位 Chat 行并写原生 tombstone', async () => {
+  const h = fixture(), revision = h.chat._storageRevision
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision }] })
+  assert.equal(result.deletedCount, 1)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '输入3', '输入4', '正文4'])
+  assert.deepEqual(nodeTexts(h.session), ['输入2', '正文2', '输入3', '', '输入4', '正文4'])
+  assert.equal(h.chat.messageDeletion.surface.operations.length, 1)
+  assert.equal(h.chat.messageDeletion.items[0].messageIndex, 3)
+  assert.equal(h.chat.messageDeletion.items[0].revision, revision)
+  assert.equal(typeof h.chat.messageDeletion.items[0].messageUid, 'string')
+})
+
+test('故事直选 user：自身无 nativeAnchor 时借用下一条正文锚点同步 Surface', async () => {
+  const h = fixture()
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'user', messageIndex: 2, revision: h.chat._storageRevision }] })
+  assert.equal(result.deletedCount, 1)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '正文3', '输入4', '正文4'])
+  assert.deepEqual(nodeTexts(h.session), ['输入2', '正文2', '', '正文3', '输入4', '正文4'])
+  assert.equal(h.chat.userInputEdits[3], undefined, '直选 user 仍清理对应 turn 的编辑缓存')
+})
+
+test('故事直选不依赖 turn：缺失、重复、非单调都可删除', async () => {
+  const h = fixture()
+  delete h.chat.messages[1].turn // 正文 2 缺 turn
+  h.chat.messages[3].turn = 9 // 正文 3 非单调
+  h.chat.messages[5].turn = 3 // 正文 4 与 3 重复
+  const revision = h.chat._storageRevision
+  const result = await h.create().remove({ sessionId: h.session.id, items: [
+    { role: 'assistant', messageIndex: 1, revision },
+    { role: 'assistant', messageIndex: 5, revision }
+  ] })
+  assert.equal(result.deletedCount, 2)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '输入3', '正文3', '输入4'])
+  assert.equal(h.chat.messageDeletion.items.length, 2)
+})
+
+test('故事直选无 nativeAnchor 且会话不支持预演时仍只删 Chat 并记录上下文修复', async () => {
+  const h = fixture()
+  delete h.chat.messages[3].nativeAnchor
+  const originalConstructor = h.agent.session.constructor
+  Object.defineProperty(h.agent.session, 'constructor', { value: {}, configurable: true })
+  try {
+    const nodes = h.session.surface.nodes.slice(), events = sessionEvents(h.session).length
+    const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: h.chat._storageRevision }] })
+    assert.equal(result.deletedCount, 1)
+    assert.equal(h.chat.messageDeletion.surface.operations.length, 0)
+    assert.equal(h.chat.messageDeletion.contextRepair.required, true)
+    assert.equal(h.chat.nativeSync.status, 'stale')
+    assert.match(h.chat.nativeSync.reason, /仍需后续上下文修复/)
+    assert.equal(sessionEvents(h.session).length, events)
+    assert.deepEqual(h.session.surface.nodes, nodes)
+    assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '输入3', '输入4', '正文4'])
+  } finally {
+    Object.defineProperty(h.agent.session, 'constructor', { value: originalConstructor, configurable: true })
+  }
+})
+
+test('故事直选带 messageUid 时，无关后台 revision 写入不让选中行过期', async () => {
+  const h = fixture(), revision = h.chat._storageRevision
+  const messageUid = legacyMessageUid(h.chat.messages[3], 3)
+  h.chat.candidates = { messageId: 'background-candidate', choices: [] }
+  h.chat._storageRevision += 1
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision, messageUid }] })
+  assert.equal(result.deletedCount, 1)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '输入3', '输入4', '正文4'])
+})
+
+test('持久 messageUid 在前置行变化后仍定位原正文，不误删原索引上的新消息', async () => {
+  const h = fixture(), revision = h.chat._storageRevision
+  h.chat.messages[3].messageUid = 'stable-reply-3'
+  h.chat.messages.unshift({ role: 'user', text: '后来插入的输入' })
+  h.chat._storageRevision += 1
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision, messageUid: 'stable-reply-3' }] })
+  assert.equal(result.deletedCount, 1)
+  assert.equal(h.chat.messages.some(row => row.text === '正文3'), false)
+  assert.equal(h.chat.messages.some(row => row.text === '输入4'), true)
+})
+
+test('故事直选 revision 陈旧时报剧情已变化且不提交', async () => {
+  const h = fixture(), before = structuredClone(h.chat)
+  await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: h.chat._storageRevision - 1 }] }), /剧情已变化，请刷新后重试/)
+  await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [{ role: 'user', messageIndex: 3, revision: h.chat._storageRevision }] }), /剧情已变化，请刷新后重试/)
+  assert.deepEqual(h.chat, before)
+  assert.equal(h.calls.length, 0)
+})
+
+test('故事直选选择器保留渲染正文与 swipe，不带时结构逐字不变', () => {
+  const [withText] = normalizeMessageDeletionSelectors([{ role: 'assistant', messageIndex: 3, revision: 1, text: '正文3', swipe: 0 }])
+  assert.deepEqual(withText, { role: 'assistant', messageIndex: 3, revision: 1, text: '正文3', swipe: 0 })
+  const [plain] = normalizeMessageDeletionSelectors([{ role: 'assistant', messageIndex: 3, revision: 1 }])
+  assert.deepEqual(plain, { role: 'assistant', messageIndex: 3, revision: 1 })
+  assert.equal('text' in plain, false, '旧客户端选择器不多出字段')
+})
+
+test('故事直选无 UID：无关后台写入不让选中行过期', async () => {
+  const h = fixture()
+  h.chat.candidates = { messageId: 'out-4', choices: [{ type: 'action', text: '新候选' }] }
+  h.chat._storageRevision += 1
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: 1, text: '正文3' }] })
+  assert.equal(result.deletedCount, 1)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '输入3', '输入4', '正文4'])
+})
+
+test('故事直选无 UID 且同位置正文不同时整批拒绝', async () => {
+  const h = fixture(), before = structuredClone(h.chat)
+  await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: 1, text: '别人改过的正文' }] }), /剧情已变化，请刷新后重试/)
+  assert.deepEqual(h.chat, before)
+  assert.equal(h.calls.length, 0)
+})
+
+test('故事直选无 UID 且 swipe 不同时拒绝', async () => {
+  const h = fixture()
+  h.chat.messages[3].swipeId = 0
+  const before = structuredClone(h.chat)
+  await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: 1, text: '正文3', swipe: 1 }] }), /剧情已变化，请刷新后重试/)
+  assert.deepEqual(h.chat, before)
+})
+
+test('预演后 revision 变化同样整批拒绝，不落任何 Chat 或 Surface 写入', async () => {
+  const h = fixture(), update = h.options.chats.update
+  const events = sessionEvents(h.session).length
+  h.options.chats.update = async (id, mutate, metadata) => {
+    if (metadata.source === 'foreground.message-delete') h.chat._storageRevision += 1
+    return update(id, mutate, metadata)
+  }
+  await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: h.chat._storageRevision }] }), /剧情已变化/)
+  assert.equal(h.chat.messageDeletion, undefined)
+  assert.equal(h.chat.messages.length, 6)
+  assert.equal(h.chat.tavernHelperLifecycleRevision, 7)
+  assert.equal(sessionEvents(h.session).length, events)
+})
+
+test('故事直选没有原生 Session 也能删除 Chat，旧 selector 仍要求原生上下文', async () => {
+  const h = fixture(), events = sessionEvents(h.session), before = events.length
+  h.options.sessions.get = () => undefined
+  const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: h.chat._storageRevision }] })
+  assert.equal(result.deletedCount, 1)
+  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '输入3', '输入4', '正文4'])
+  assert.equal(h.chat.messageDeletion.contextRepair.required, true)
+  assert.equal(h.chat.nativeSync.status, 'stale')
+  assert.equal(sessionEvents(h.session).length, before)
+  assert.deepEqual(sessionEvents(h.session), events)
+  await assert.rejects(h.create().remove({ sessionId: h.session.id, items: [h.selectors.a2] }), /无法访问原生会话/)
 })

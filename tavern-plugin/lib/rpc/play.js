@@ -14,11 +14,32 @@ export function createPlayHandlers(deps) {
     candidateGenerator, candidateTasks, chatForSession, compactionAbort, conversationGuides, ctx,
     ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline, phoneChat,
     pluginSettlementProgress, readBackgroundSuppression, readTavernSettings,
-    reconcileStory, reconcileWhenIdle, regenBody, replayFailedTurn, requestPerformance, retrySettlement,
+    reconcileStory, reconcileWhenIdle, regenBody, requestPerformance, retrySettlement,
     retryStyleReference, rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setPlayerName, stopBackground, str,
-    templateHistoryFrom, undoRollbackTurn, updateChat, view, withCompactionSession } = deps
+    templateHistoryFrom, turnOrchestrator, undoRollbackTurn, updateChat, view, withCompactionSession } = deps
+  // 发送键只认宿主的运行状态。重新生成要先把存档读出来、挑出要替换的正文、拼好这一轮的
+  // 提示词，模型请求才开始；那段准备时间里按键还是「发送」，看着像没点上，而面板上的
+  // 「正在重新生成正文…」早就出现了。请求一进门就把会话报成运行中（页面照宿主自己的
+  // 事件渲染停止键），结束——成功或失败——再交还给宿主，宿主随后的状态事件照常覆盖它。
+  // 同时到达的请求只由最先开始、最后结束的那一次发事件。
+  const regeneratingRuns = new Map()
+  function announceRegenerating(sessionId, active) {
+    if (sessionId === '' || typeof ctx?.emit !== 'function') return
+    const before = regeneratingRuns.get(sessionId) || 0
+    const after = Math.max(0, before + (active === true ? 1 : -1))
+    if (after === before) return
+    if (after === 0) regeneratingRuns.delete(sessionId)
+    else regeneratingRuns.set(sessionId, after)
+    if (before !== 0 && after !== 0) return
+    try { ctx.emit('api-session/status', sessionId, after > 0) }
+    catch (error) { console.warn('dsh-tavern: 重新生成的运行状态没有送到页面', str(error?.message || error)) }
+  }
   return {
+    async appendPlayerInput(args) {
+      return await turnOrchestrator.appendUser({ sessionId: str(args?.sessionId), requestId: str(args?.requestId),
+        userText: str(args?.text ?? args?.userText), userContent: args?.userContent })
+    },
     // For tools: send a player input as the page does; the turn runs like any other.
     async sendPlayerInput(args) {
       const sessionId = str(args?.sessionId), text = str(args?.text).trim()
@@ -47,7 +68,13 @@ export function createPlayHandlers(deps) {
       void backgroundCatalog(str(args && args.sessionId))
       if(args?.fullView === true)templateHistoryFrom.set(args.sessionId,0)
       else if(Number.isSafeInteger(args?.historyFrom) && args.historyFrom >= 0)templateHistoryFrom.set(args.sessionId,args.historyFrom)
-      return sessionViews.response(args || {})
+      const response = await sessionViews.response(args || {})
+      // 空视图以前是无声的：页面以为读完了，玩家看到的是「没有可重新生成的正文」。
+      if (response && response.view == null) console.warn('[dsh-tavern.view] 空视图 sessionId=' + str(args && args.sessionId) + ' reason=' + (response.emptyReason || 'unknown'))
+      return response
+    },
+    async getStoryTranscript(args) {
+      return sessionViews.response({ ...(args || {}), storyTranscript: 1 })
     },
     async designCharacter(args) {
       return await manualCharacterDesign.start(args || {})
@@ -124,7 +151,10 @@ export function createPlayHandlers(deps) {
     },
     async deleteMessages(args) {
       autoChoices.cancel(args && args.sessionId)
-      if (reconcileStory) await reconcileStory(args && args.sessionId)
+      const storyDirect = Array.isArray(args?.items) && args.items.length > 0 && args.items.every(item => Number.isSafeInteger(item?.messageIndex))
+      // Story-index operations already name the authoritative Chat row. Reconcile
+      // must not adopt or repair native history and move their revision first.
+      if (reconcileStory && !storyDirect) await reconcileStory(args && args.sessionId)
       const result = await messageDeletion.remove(args || {})
       notifyPluginTimeline(args && args.sessionId, 'edit', { settled: true })
       return { view: result.view, deletedCount: result.deletedCount }
@@ -132,11 +162,11 @@ export function createPlayHandlers(deps) {
     async getBodyEdit(args) {
       // Editing or regenerating the reply drops its waiting automatic candidates.
       autoChoices.cancel(args && args.sessionId)
-      return { edit: args?.role === 'user' ? await bodyEditor.readUser(args && args.sessionId, args) : await bodyEditor.read(args && args.sessionId) }
+      return { edit: args?.role === 'user' ? await bodyEditor.readUser(args && args.sessionId, args) : await bodyEditor.read(args && args.sessionId, args) }
     },
     async saveBodyEdit(args) {
       autoChoices.cancel(args && args.sessionId)
-      await reconcileStory(args && args.sessionId)
+      if (!Number.isSafeInteger(args?.messageIndex)) await reconcileStory(args && args.sessionId)
       if (args?.role === 'user') {
         const saved = await bodyEditor.saveUser(args && args.sessionId, args)
         if (saved && saved.detached === true) {
@@ -207,21 +237,21 @@ export function createPlayHandlers(deps) {
       return { view }
     },
     async regenBody(args) {
+      const sessionId = str(args?.sessionId)
       if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板回退后重新行动')
-      autoChoices.cancel(args && args.sessionId)
-      if (args?.restyle === true) await retryStyleReference(args.sessionId, { target: 'regenerate', guidance: args.styleGuidance })
-      await reconcileStory(args && args.sessionId)
-      polishPrereview.cancel(args?.sessionId)
-      const view = await regenBody(args && args.chatId, args && args.guidance, args && args.sessionId)
-      notifyPluginTimeline(args && args.sessionId, 'regenerate')
-      void polishPrereview.start(args?.sessionId).catch(() => {})
-      return { view }
-    },
-    async replayTurn(args) {
-      if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请在玩法面板重试当前行动')
-      const view = await replayFailedTurn(args && args.chatId, args && args.sessionId)
-      notifyPluginTimeline(args && args.sessionId, 'regenerate')
-      return { view }
+      announceRegenerating(sessionId, true)
+      try {
+        autoChoices.cancel(sessionId)
+        if (args?.restyle === true) await retryStyleReference(sessionId, { target: 'regenerate', guidance: args.styleGuidance })
+        await requestPerformance.stage('regen.reconcile', () => reconcileStory(sessionId))
+        polishPrereview.cancel(sessionId)
+        const view = await regenBody(args && args.chatId, args && args.guidance, sessionId)
+        notifyPluginTimeline(sessionId, 'regenerate')
+        void polishPrereview.start(sessionId).catch(() => {})
+        return { view }
+      } finally {
+        announceRegenerating(sessionId, false)
+      }
     },
     async setAllFailedErrorVisibility(args) {
       const sessionId = str(args && args.sessionId)
@@ -256,7 +286,30 @@ export function createPlayHandlers(deps) {
     },
     // Diagnostics and tests: does the save agree with what the model sees? Read-only.
     async storyAlignment(args) {
-      return { alignment: await reconcileStory(args && args.sessionId, { repair: false }) }
+      return { alignment: await reconcileStory(args && args.sessionId) }
+    },
+    // 清除未完成的回复：只删存档里最后一条 AI 正文，玩家输入与之前的轮次原样保留。
+    // 走消息删除的既有事务（Chat 行 + 原生表面一起清），不做失败轮推断、不回退轮次。
+    async clearLatestReply(args) {
+      const sessionId = str(args?.sessionId)
+      if (!sessionId) throw new Error('缺少会话')
+      await reconcileStory(sessionId)
+      const chat = await chatForSession(sessionId)
+      if (!chat) throw new Error('请先打开游玩会话')
+      const messages = Array.isArray(chat.messages) ? chat.messages : []
+      const index = messages.findLastIndex(message => message !== null && typeof message === 'object' && message.role === 'assistant' && message.greeting !== true)
+      if (index < 0) {
+        // 首轮就失败：没有正文可删，只清掉这一轮残留的失败标记与未回复输入。
+        const view = await rollbackTurn(sessionId, args?.chatId, null)
+        notifyPluginTimeline(sessionId, 'rollback', { turn: null })
+        return { view, deletedCount: 0, cleared: true }
+      }
+      if (messages.slice(index + 1).some(message => message !== null && typeof message === 'object' && message.role === 'assistant')) {
+        throw new Error('要清除的正文已经变化，请刷新后重试')
+      }
+      const result = await messageDeletion.remove({ sessionId, items: [{ role: 'assistant', messageIndex: index, revision: Number(chat._storageRevision) || 0 }] })
+      notifyPluginTimeline(sessionId, 'edit', { settled: true })
+      return { view: result.view, deletedCount: result.deletedCount }
     },
     async rollbackTurn(args) {
       if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板的回退一步')

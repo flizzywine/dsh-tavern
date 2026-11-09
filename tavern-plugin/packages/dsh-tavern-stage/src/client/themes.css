@@ -664,6 +664,14 @@ body:not(.dsh-fork-debug) .fork-gal-runtime-status[data-tone="debug"] { display:
 .fork-gal-runtime-round .stage-wait-stop { justify-self: start; color: var(--gal-ui-hud-ink-on); letter-spacing: .08em; }
 .fork-gal-runtime-status[data-tone="round"] .fork-gal-runtime-spinner { --fork-spinner-size: 12px; margin-top: 3px; color: var(--gal-ui-hud-ink-idle); }
 @media (max-width: 720px) { .fork-gal-runtime-round > .stage-wait.is-plain { min-height: 36px; margin: -9px 0 -9px -4px; } }
+/* 「配音中…」 (notices.cjs useVoiceStatus): a synthesizing voice is a quiet line in the round line's idle ink; slow, gone to text and
+   failed read as the stack's ordinary notices. */
+.fork-gal-runtime-status[data-tone="quiet"] { color: var(--gal-ui-hud-ink-idle); }
+.fork-gal-runtime-status[data-tone="quiet"] strong { font-weight: 400; }
+.fork-gal-runtime-status[data-tone="quiet"] .fork-gal-runtime-spinner { --fork-spinner-size: 12px; margin-top: 3px; color: var(--gal-ui-hud-ink-idle); }
+/* The handheld phone call fills the screen as a reading sheet over the top bar: her voice line stands at the sheet's top-right,
+   under its status bar. */
+.fork-gal-stage > .fork-gal-notices.is-over-sheet { z-index: 10; top: calc(env(safe-area-inset-top, 0px) + 54px); right: max(16px, env(safe-area-inset-right, 0px)); }
 .fork-gal-runtime-text > span { color: var(--gal-ui-hud-ink-idle); font-size: 12px; }
 /* one flat notice - the title line is the only fold (folded by default,
    a small chevron, no 详情), then one opaque list: 「第 N 段  reason」 rows, each raw technical line attached under its

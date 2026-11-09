@@ -430,8 +430,18 @@
 			}
 			async function openSessionWhenReady(sessionId) {
 				await sessionListRecoveryRef.current.open(sessionId);
-				await call("markConversationOpened", { sessionId: sessionId });
-				await refresh(["sessions"]);
+				// 切过来就立刻把这一局的视图读出来。不这么做的话，按钮先拿着切换前那份
+				// 视图（多半是空会话的）判定，要等它自己重试或者玩家点开「更多」——那里的
+				// 菜单项一挂载就 invalidate——才恢复。等一个渲染周期，让订阅先挂上。
+				window.setTimeout(function () {
+					try { if (liveTavernView && typeof liveTavernView.invalidate === "function") liveTavernView.invalidate(sessionId); } catch (_) { /* 订阅方自己会重试 */ }
+					try { if (tavernCoordination && typeof tavernCoordination.invalidate === "function") tavernCoordination.invalidate(sessionId); } catch (_) { /* 同上 */ }
+				}, 80);
+				// Last-opened ordering is bookkeeping, not a first-paint dependency. Keep its
+				// write → list refresh order off the critical path to mounting the transcript.
+				void Promise.resolve().then(function () { return call("markConversationOpened", { sessionId: sessionId }); })
+					.then(function () { return refresh(["sessions"]); })
+					.catch(function (error) { setError("更新最近打开顺序失败：" + String(error && error.message || error)); });
 				setError("");
 			}
 			// clearMain() leaves no Session for the host's blank-session entries
@@ -486,8 +496,8 @@
 				connectWorkspace: function (targetWorkspaceId) { return props.conversationHost.connectWorkspace(targetWorkspaceId); },
 				waitForSession: waitForSessionSummary,
 				ensurePreset: ensureTavernPreset,
-				createChat: function (request, sessionId) {
-					return call("startChat", {
+				createChat: async function (request, sessionId) {
+					const result = await call("startChat", {
 						path: request.card && request.card.path ? request.card.path : "",
 						sessionId: sessionId,
 						mode: request.targetMode,
@@ -497,6 +507,10 @@
 						userName: request.userName || "你",
 						requestMode: "dsh"
 					});
+					// startChat already returned the new chat's complete first view. The
+					// conversation consumes it on first subscribe instead of projecting it twice.
+					if (result && result.view && typeof liveTavernView.seed === "function") liveTavernView.seed(sessionId, result.view);
+					return result;
 				},
 				rememberPending: setPendingOpen,
 				finishOpen: finishPendingOpen
@@ -808,6 +822,24 @@
 				else if (nextMode === "card") openPicker();
 				else openPicker();
 			}
+			// 页面一打开常常落在 DSH 刚新建的空会话上：那里没有存档，getSession 只会
+			// 回 {view:null, emptyReason:'no-session'}，按钮也就无从谈起「重新生成正文」。
+			// 只在首屏、且不在新建/待打开流程里时，直接打开最近游玩的那一局。
+			const bootstrapRedirected = React.useRef(false);
+			React.useEffect(function () {
+				if (bootstrapRedirected.current) return;
+				if (!history.length || !current) return;
+				if (busy || picking || pendingOpen) return;
+				if (history.some(function (item) { return item.sessionId === current; })) { bootstrapRedirected.current = true; return; }
+				const fallback = history.reduce(function (best, item) {
+					if (groupOfMode(item.mode) !== "play" || item.requestMode === "sillytavern") return best;
+					return !best || tavernHistoryActivity(item, summaries) > tavernHistoryActivity(best, summaries) ? item : best;
+				}, null);
+				if (!fallback) return;
+				bootstrapRedirected.current = true;
+				openSessionWhenReady(fallback.sessionId).catch(function (err) { setError("打开上一局失败：" + String(err && err.message || err)); });
+			}, [history, current, busy, picking, pendingOpen]);
+
 			async function switchToPlay() {
 				playPrewarmRef.current.cancel();
 				setUiMode("play"); setPicking(false); setMenuSession(null); setBusy(true); setError("");
@@ -881,19 +913,28 @@
 				} catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
-			async function forkConversation(item, currentTitle, turn) {
+			async function forkConversation(item, currentTitle, turn, target) {
 				setMenuSession(null);
 				setBusy(true); setError("");
 				let targetSessionId = "";
 				let forkCreated = false;
 				try {
-					const plan = await call("prepareConversationFork", { chatId: item.chatId, sessionId: item.sessionId, turn: Number(turn) || 0 });
-					targetSessionId = await props.conversationHost.forkSession(item.sessionId, plan.atSeq);
+					const direct = Number.isSafeInteger(target && target.messageIndex);
+					const plan = await call("prepareConversationFork", direct
+						? { chatId: item.chatId, sessionId: item.sessionId, messageIndex: target.messageIndex, revision: target.revision, messageUid: target.messageUid }
+						: { chatId: item.chatId, sessionId: item.sessionId, turn: Number(turn) || 0 });
+					if (plan.storyDirect) {
+						const targetWorkspaceId = workspaceId || playWorkspaceIdRef.current || "";
+						if (!targetWorkspaceId) throw new Error("找不到可用的工作区");
+						targetSessionId = await props.conversationHost.connectWorkspace(targetWorkspaceId);
+						await ensureTavernPreset(targetSessionId, {});
+					} else targetSessionId = await props.conversationHost.forkSession(item.sessionId, plan.atSeq);
 					await call("forkChat", {
 						chatId: item.chatId,
 						sessionId: item.sessionId,
 						targetSessionId: targetSessionId,
-						turn: plan.turn, sourceRevision: plan.sourceRevision, atSeq: plan.atSeq
+						turn: plan.turn, sourceRevision: plan.sourceRevision, atSeq: plan.atSeq,
+						messageIndex: plan.messageIndex, messageUid: plan.messageUid
 					});
 					forkCreated = true;
 					const forkTitle = (currentTitle || item.cardName + "的新对话") + " · 分支";
@@ -915,7 +956,7 @@
 					if (busy) throw new Error("当前有其他操作正在进行，请稍后再分叉");
 					const item = history.find(function (entry) { return entry.sessionId === request.sessionId && isPlayMode(entry.mode); });
 					if (!item) throw new Error("找不到当前游玩存档");
-					return forkConversation(item, historyTitle(item, summaries[item.sessionId]), request.turn);
+					return forkConversation(item, historyTitle(item, summaries[item.sessionId]), request.turn, request);
 				});
 			}, [history, summaries, busy]);
 			// the host titles a session after its first message (Tavern's internal
@@ -1170,7 +1211,7 @@
 					? (updateStatus.host === "desktop"
 						? "更新完成，请重启 DeepSeek Harness。"
 						: updateStatus.host === "android"
-							? "Android 更新完成，3088 服务已重启；如移动端界面未更新，请重启 DSHA。"
+							? "Android 更新完成，3088 服务已加载新版；界面仍是旧版时请关闭并重开酒馆工作台。"
 							: "更新完成，请刷新页面。")
 					: updateStatus.phase === "failed" || updateStatus.phase === "check-failed"
 						? (updateStatus.error || "更新失败，请稍后重试。")
@@ -1178,6 +1219,11 @@
 			const currentVersionLabel = updateStatus.currentVersion && updateStatus.currentVersion !== "unknown" ? "v" + updateStatus.currentVersion : "版本未知";
 			const currentCommitLabel = (updateStatus.currentCommit || "").slice(0, 7) || "构建未知";
 			const updateHostLabel = { desktop: "Desktop 版", next: "Next 版", android: "Android 版" }[updateStatus.host] || "命令行版";
+			// 状态还没回来就整块不画，会让版本行和「检查更新」在每次页面重载、切对话后先
+			// 消失再出现；读到慢（后端忙、请求超时前重试）时会缺好几秒。行留在原地，只把
+			// 状态行交给下面的加载态。
+			const updateStatusLoading = updateStatus.phase === "loading";
+			const updateIdentityText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel;
 			// 已是最新且无警告时，结果直接写在按钮上，不再单占一行（手机侧栏高度紧张）。
 			const upToDateQuiet = updateStatus.phase === "up-to-date" && !updateStatus.checkWarning;
 			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? true;
@@ -1210,9 +1256,9 @@
 				deleteNotice ? h("div", { role: "status", style: { padding: "4px 12px" } }, deleteNotice) : null,
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				collapsed ? null : props.renderSlot("tavern.sidebar.chrome", {}),
-				updateStatus.host === "desktop" ? h(TavernHostCompatibility) : updateStatus.pluginManaged || updateStatus.phase === "loading" ? null : h("div", { className: "dsh-tavern-update" },
+				updateStatus.host === "desktop" ? h(TavernHostCompatibility) : updateStatus.pluginManaged ? null : h("div", { className: "dsh-tavern-update" },
 					h("div", { className: "dsh-tavern-update-row" },
-						h("div", { className: "dsh-tavern-update-identity", title: "DSH Tavern " + currentVersionLabel + " · " + updateHostLabel }, "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel),
+						h("div", { className: "dsh-tavern-update-identity", title: updateStatusLoading ? "DSH Tavern · " + updateHostLabel : "DSH Tavern " + currentVersionLabel + " · " + updateHostLabel }, updateIdentityText),
 						updateActions),
                     h(TavernHostCompatibility),
 					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status" }, updateMessage)

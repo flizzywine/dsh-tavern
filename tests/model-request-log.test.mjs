@@ -64,6 +64,32 @@ test('请求凭据脱敏不修改原请求或提示词内容', async () => {
   assert.equal(options.headers.get('Authorization'), 'Bearer secret-b')
 })
 
+test('请求正文克隆、字节统计和文本写入复用同一份序列化结果', async () => {
+  const files = new Map()
+  let raw = ''
+  const log = createModelRequestLog({
+    readJson: async path => structuredClone(files.get(path)),
+    writeJson: async (path, value) => files.set(path, structuredClone(value)),
+    updateJson: async (path, fn) => files.set(path, structuredClone(await fn(structuredClone(files.get(path))))),
+    writeText: async (path, value) => { raw = value; files.set(path, JSON.parse(value)) },
+    id: () => 'single-serialization',
+  })
+  const options = { sessionId: 's', messages: [{ role: 'user', content: '原始提示词' }], signal: new AbortController().signal }
+  const frame = { nested: { text: '原始帧' } }
+  const returned = await log.record({ chat: { id: 'chat' }, coordinates: { frame }, options })
+  options.messages[0].content = '调用后的修改'
+  frame.nested.text = '调用后的帧修改'
+  const index = await log.list('chat')
+  const stored = JSON.parse(raw)
+  assert.equal(typeof raw, 'string')
+  assert.equal(Buffer.byteLength(raw), index[0].bytes)
+  assert.equal(stored.request.messages[0].content, '原始提示词')
+  assert.equal(stored.frame.nested.text, '原始帧')
+  assert.equal(stored.request.signal, undefined)
+  assert.equal(returned.request.messages[0].content, '原始提示词')
+  assert.equal(returned.frame.nested.text, '原始帧')
+})
+
 test('同一轮的大量请求原文按每局大小上限清理，并可整理已有记录', async () => {
   const files = new Map(), removed = []
   const adapters = {

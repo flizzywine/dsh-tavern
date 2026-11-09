@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
 
-const source = await readFile(new URL('../tavern-plugin/packages/dsh-profile-bridge/client.js', import.meta.url), 'utf8')
+const source = await readFile(new URL('../tavern-plugin/packages/dsh-tavern/client.js', import.meta.url), 'utf8')
 
 async function mount(status, calls = [], options = {}) {
   const inTavern = options.inTavern ?? (status.activeIsLink === true && status.linkTargetName === 'tavern')
@@ -13,7 +13,7 @@ async function mount(status, calls = [], options = {}) {
   globalThis.document = dom.window.document
   // The Tavern client sets this flag on pages where it loaded.
   if (inTavern) dom.window.__dshTavernLoaded = true
-  if (options.next) dom.window.desktopNext = { state: async () => ({}) }
+  if (options.next) dom.window.desktopNext = { state: async () => ({}), command: options.next }
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator })
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   const React = (await import('react')).default
@@ -44,15 +44,65 @@ async function mount(status, calls = [], options = {}) {
   return { dom, act, label: () => registered.label(), text: () => dom.window.document.body.textContent, button: () => dom.window.document.querySelector('.pb-bar .pb-btn'), calls, dispose: () => act(() => root.unmount()) }
 }
 
-const tavernProfile = { name: 'tavern', bundles: ['dsh-tavern-plugin', 'dsh-profile-bridge'], hasNodeModules: true }
+const tavernProfile = { name: 'tavern', bundles: ['dsh-tavern-plugin', 'dsh-tavern'], hasBridge: true, hasNodeModules: true }
 
-test('NEXT 使用原生 Profile 设置，不注册旧切换页', async () => {
-  const page = await mount({}, [], { next: true })
+test('NEXT 共用酒馆启动器和更新状态，通过原生 Profile 切换', async () => {
+  const nativeCalls = []
+  const page = await mount({ host: 'next', activeName: 'desktop', appKind: 'desktop', desktopApp: true,
+    profiles: [tavernProfile], installation: { available: true } }, [], { next: command => nativeCalls.push(command) })
   try {
-    assert.equal(page.registered, false)
-    assert.deepEqual(page.calls, [])
+    assert.equal(page.label(), '酒馆启动器')
+    assert.match(page.text(), /检查更新/)
+    assert.match(page.text(), /删除 DSH 酒馆/)
+    await page.act(async () => page.button().click())
+    assert.deepEqual(nativeCalls, [{ type: 'switch', name: 'tavern' }])
+    assert.deepEqual(page.calls.map(([endpoint]) => endpoint), ['status', 'update-status'])
   } finally {
-    page.dispose()
+    await page.dispose()
+  }
+})
+
+test('NEXT 先准备更新，等用户确认后才请求原生退出', async () => {
+  const order = []
+  const status = { host: 'next', activeName: 'tavern', appKind: 'desktop', desktopApp: true,
+    profiles: [{ ...tavernProfile, name: 'desktop' }, tavernProfile], installation: { available: true } }
+  const available = { phase: 'update-available', canUpdate: true }
+  let preparing = false
+  const page = await mount(status, [], {
+    next: async command => {
+      order.push(command)
+      throw Error('native quit unavailable')
+    },
+    rpc: async (endpoint, payload) => {
+      if (endpoint === 'status') return { ok: true, value: preparing ? { ...status, nextUpdatePreparation: 'ready',
+        lastResult: { status: 'pending', mode: 'install', stamp: 'next-update' } } : status }
+      if (endpoint === 'start-update') {
+        order.push(endpoint)
+        preparing = true
+        return { ok: true, value: { ...available, canUpdate: false, scheduled: { stamp: 'next-update' } } }
+      }
+      if (endpoint === 'restart-update') {
+        order.push([endpoint, payload])
+        return { ok: true, value: { confirmed: true } }
+      }
+      return { ok: true, value: available }
+    },
+  })
+  try {
+    assert.match(page.text(), /准备更新期间可以继续使用酒馆/)
+    await page.act(async () => namedButton(page, '准备更新').click())
+    assert.deepEqual(order, ['start-update'])
+    assert.ok(page.dom.window.document.querySelector('progress'))
+    assert.doesNotMatch(page.text(), /从应用菜单或托盘退出/)
+    await page.act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)) })
+    assert.match(page.text(), /新版已准备好/)
+    assert.deepEqual(order, ['start-update'])
+    await page.act(async () => namedButton(page, '重启并应用更新').click())
+    assert.deepEqual(order, ['start-update', ['restart-update', { stamp: 'next-update' }], { type: 'quit' }])
+    assert.match(page.text(), /从应用菜单或托盘退出/)
+    assert.equal(page.dom.window.document.querySelector('[role="alert"]'), null)
+  } finally {
+    await page.dispose()
   }
 })
 
@@ -172,7 +222,7 @@ test('安装完成后可手动添加快捷方式，并重启切换到酒馆 Prof
 })
 
 test('酒馆启动器只提供切换到原版和酒馆的入口', async () => {
-  const readerProfile = { name: 'reader', bundles: ['dsh-reader', 'dsh-profile-bridge'], hasNodeModules: true }
+  const readerProfile = { name: 'reader', bundles: ['dsh-reader', 'dsh-tavern'], hasBridge: true, hasNodeModules: true }
   const original = '重启并切换到原版 DSH'
   const tavern = '重启并切换到 DSH 酒馆'
   for (const [current, label, available, action, request] of [

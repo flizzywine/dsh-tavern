@@ -189,6 +189,17 @@ test('timeout and disabled provider fail without fallback', async () => {
   assert.equal(disabled.calls, 0)
 })
 
+test('持久失败输入回到普通本轮生成，不进入旧正文替换流程', async () => {
+  let replacements = 0
+  const f = fixture(undefined, { regenerateWithProvider: async () => { replacements++; return { turn: 2 } } })
+  f.mutate(chat => {
+    chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true })
+    chat.foregroundError = null
+  })
+  assert.equal(await f.controller.regenerate('session'), null)
+  assert.equal(replacements, 0)
+})
+
 test('selected regeneration passes guidance, cancels before commit and never cancels committed settlement', async () => {
   const started = gate(), release = gate()
   const f = fixture(async () => '重生成正文', { regenerateWithProvider: async input => {
@@ -208,9 +219,10 @@ test('selected regeneration passes guidance, cancels before commit and never can
 })
 
 test('lifecycle rejects direct model text before saving and passes processed flag for plugin receipt', async () => {
-  const f = fixture(), handlers = new Map(), saved = [], failures = []
+  const f = fixture(), handlers = new Map(), saved = [], failures = [], traced = []
   registerTurnLifecycleHooks({ ctx: { on: (name, fn) => handlers.set(name, fn) }, pluginBodyGeneration: f.controller,
     clearRuntimePresetRequestState() {}, backgroundAgentRunner: { owns: () => false },
+    requestPerformance: { run: async (method, _id, operation) => { traced.push(method); return operation() } },
     userMessageForTurn: () => ({ role: 'user', content: [{ type: 'text', text: '继续' }] }),
     contentText: () => '继续', requestIdForTurn: () => 'req', turnOrchestrator: { recordFailure: async value => failures.push(value) },
     foregroundHandoff: { finalize: async value => { saved.push(value); return { reply: { sessionText: value.assistantText } } } }, replaceAssistantReply() {} })
@@ -219,6 +231,7 @@ test('lifecycle rejects direct model text before saving and passes processed fla
   await assert.rejects(stop(), /未通过/); assert.equal(saved.length, 0); assert.equal(failures.length, 1)
   receipt(f.session, await f.run())
   await stop(); assert.equal(saved.length, 1); assert.equal(saved[0].pluginBodyGeneration, true)
+  assert.deepEqual(traced, ['generateCommit'])
 })
 
 

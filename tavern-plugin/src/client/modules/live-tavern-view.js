@@ -17,7 +17,7 @@ function createLiveTavernViewModule(options) {
 	function recordFor(sessionId) {
 		const id = String(sessionId || "");
 		if (!records.has(id)) {
-			const record = { id: id, state: initialState(), listeners: new Set(), paths: dependencyNode(), watchdog: null, optimisticBusy: false, eviction: null, refresh: null };
+			const record = { id: id, state: initialState(), listeners: new Set(), passiveListeners: 0, paths: dependencyNode(), watchdog: null, optimisticBusy: false, eviction: null, refresh: null, seededView: undefined, emptyReads: 0 };
 			record.refresh = createRefresh(record);
 			records.set(id, record);
 		}
@@ -126,9 +126,49 @@ function createLiveTavernViewModule(options) {
 			onStart: function () {
 				if (record.state.view === null) publish(record, Object.assign({}, record.state, { phase: "loading", error: "" }));
 			},
-			load: function (scope) { return options.load(record.id, { signal: scope.signal }); },
+			load: function (scope) {
+				// startChat already projected this exact new chat. Consume that view through
+				// the normal publish path instead of immediately repeating getSession.
+				if (record.seededView !== undefined) {
+					const result = record.seededView;
+					record.seededView = undefined;
+					return result;
+				}
+				if (record.pendingSeed) return record.pendingSeed.promise;
+				return options.load(record.id, { signal: scope.signal });
+			},
 			onResult: async function (result, scope) {
 				let view = result && result.view ? result.view : null;
+				// 还没有会话 id 的时候没有任何东西可读：不建记录、不排重试。
+				// 以前这条路径会每 1.5 秒发一次 getSession，服务端 200 回一个空视图。
+				if (!record.id) {
+					publish(record, { phase: "idle", view: null, error: "", updatedAt: record.state.updatedAt });
+					return;
+				}
+				// 「读到了、但没有视图」不是 ready：那只是这一次没读到。标成 ready 之后
+				// 这里既没有轮询（pollWhileBusy:false）也没有看门狗（idlePollIntervalMs:0），
+				// 谁都不会再来读一次，按钮就一直灰着说「还没有可重新生成的正文」——
+				// 玩家只能靠点开「更多」（那里的菜单项一挂载就 invalidate）把它救回来。
+				// 重试几次；再读不到就停手，别把读取钉在轮询上。
+				if (view === null) {
+					record.emptyReads += 1;
+					// 服务端明说「这个会话还没有存档」（no-session / no-chat）时，存档正在被建出来，
+					// 等它；没带原因的空结果只当作偶发，读几次就停手。
+					// no-chat：会话在，存档正在建，值得等。no-session：这个 id 在 DSH 里还没被
+					// 加载出来（可能随后就出现），只短等几轮，不能把轮询钉死在一个空 id 上。
+					const reason = String(result && result.emptyReason || "");
+					const limit = reason === "no-chat" ? 40 : reason === "no-session" ? 4 : 5;
+					const delay = reason === "no-chat" ? 1500 : reason === "no-session" ? 1000 : (timeoutRetryDelayMs > 0 ? timeoutRetryDelayMs : 1500);
+					if (record.emptyReads <= limit) {
+						publish(record, { phase: "retrying", view: record.state.view, error: "", updatedAt: record.state.updatedAt });
+						return { retry: delay };
+					}
+					// 读到底也没有视图：把原因留在 state 上，界面说「这一局还没有开始」，
+					// 而不是拿空视图去解释「没有可重新生成的正文」。
+					publish(record, { phase: record.state.view ? "ready" : "unavailable", view: record.state.view, error: reason || "empty-view", updatedAt: record.state.updatedAt });
+					return;
+				}
+				record.emptyReads = 0;
 				if (pollWhileBusy && record.optimisticBusy && !shouldPoll(view)) return { delay: 200 };
 				if (shouldPoll(view)) record.optimisticBusy = false;
 				publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() }, result);
@@ -161,7 +201,12 @@ function createLiveTavernViewModule(options) {
 	}
 	function invalidate(sessionId) {
 		const targets = sessionId === undefined || sessionId === null || sessionId === "" ? Array.from(records.values()) : [recordFor(sessionId)];
-		targets.forEach(function (record) { record.refresh.request(); });
+		targets.forEach(function (record) {
+			// Passive plugin observers share the visible panel's record but never own a
+			// network read. The first real reader loads and later invalidations resume.
+			if (record.listeners.size === record.passiveListeners) return;
+			record.refresh.request();
+		});
 	}
 	function evict(sessionId) {
 		const record = records.get(String(sessionId || ""));
@@ -216,8 +261,56 @@ function createLiveTavernViewModule(options) {
 		},
 		evict: evict,
 		getSnapshot: function (sessionId) { return recordFor(sessionId).state; },
+		expectSeed: function (sessionId) {
+			const record = recordFor(sessionId);
+			if (record.pendingSeed) return;
+			let resolve;
+			const promise = new Promise(function (done) { resolve = done; });
+			record.pendingSeed = { promise: promise, resolve: resolve };
+			record.seededView = undefined;
+			record.refresh.replace();
+			if (record.listeners.size) record.refresh.request();
+		},
+		cancelSeed: function (sessionId) {
+			const record = recordFor(sessionId), pending = record.pendingSeed;
+			if (!pending) return;
+			record.pendingSeed = null;
+			record.refresh.replace();
+			pending.resolve(null);
+			if (record.listeners.size > record.passiveListeners) record.refresh.request();
+		},
+		seed: function (sessionId, view) {
+			// 没有视图就没有可种的东西：种一个空视图会让这一局在别人眼里「没有正文」，
+			// 而 phase 还是 ready，再没人去重读。
+			if (view === null || view === undefined) return;
+			const record = recordFor(sessionId);
+			const revisionOf = function (value) { return Number((value && value.historyWindow && value.historyWindow.revision) ?? (value && value.tavernHelper && value.tavernHelper.stateRevision)); };
+			const nextRevision = revisionOf(view), currentRevision = revisionOf(record.state.view);
+			if (record.state.view && Number.isSafeInteger(nextRevision) && Number.isSafeInteger(currentRevision) && nextRevision < currentRevision) {
+				if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve({ view: record.state.view }); }
+				return;
+			}
+			const result = { view: view };
+			if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve(result); }
+			// A story/startChat response is already a complete first-paint view for
+			// its consumer. Publish it now; the subscriber's scheduled first refresh
+			// consumes seededView and therefore performs no duplicate getSession.
+			record.refresh.replace();
+			record.seededView = result;
+			publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() }, result);
+			if (record.listeners.size) record.refresh.request();
+		},
 		setView: function (sessionId, view) {
 			const record = recordFor(sessionId);
+			// 调用方拿回来的结果偶尔没有 view（失败、被取消、只回了一行状态）。那不是
+			// 「这一局没有正文」：当真视图 publish 进去，phase 还是 ready，之后没人再读，
+			// 按钮就会一直说「还没有可重新生成的正文」。宁可丢掉这次写入，再读一次。
+			if (view === null || view === undefined) {
+				if (record.listeners.size > record.passiveListeners) record.refresh.request();
+				return function () {};
+			}
+			if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve({ view: view }); }
+			record.seededView = undefined;
 			record.refresh.replace();
 			const owner = {};
 			record.optimisticOwner = owner;
@@ -233,22 +326,27 @@ function createLiveTavernViewModule(options) {
 				if (records.get(record.id) === record) invalidate(sessionId);
 			};
 		},
-		subscribe: function (sessionId, listener, paths) {
+		subscribe: function (sessionId, listener, paths, options) {
 			const record = recordFor(sessionId);
 			if (record.eviction !== null) { cancelTimer(record.eviction); record.eviction = null; }
+			const deferred = options && options.deferLoad === true;
 			const firstSubscriber = record.listeners.size === 0;
+			const firstEagerSubscriber = !deferred && record.listeners.size === record.passiveListeners;
 			const unregister = register(record.paths, paths || [[]], listener);
 			record.listeners.add(listener);
+			if (deferred) record.passiveListeners++;
 			listener(record.state);
-			if (firstSubscriber) { record.refresh.start(); record.refresh.request(); }
+			if (firstSubscriber) record.refresh.start();
+			if (firstEagerSubscriber) record.refresh.request();
 			if (record.watchdog === null && (pollWhileBusy || idlePollIntervalMs > 0)) {
 				record.watchdog = startWatchdog(function () {
-					if (record.listeners.size > 0 && ((pollWhileBusy && shouldPoll(record.state.view)) || idlePollIntervalMs > 0)) void record.refresh.refresh();
+					if (record.listeners.size > record.passiveListeners && ((pollWhileBusy && shouldPoll(record.state.view)) || idlePollIntervalMs > 0)) void record.refresh.refresh();
 				}, watchdogIntervalMs);
 			}
 			return function () {
 				unregister();
 				record.listeners.delete(listener);
+				if (deferred) record.passiveListeners = Math.max(0, record.passiveListeners - 1);
 				if (record.listeners.size === 0) {
 					record.optimisticBusy = false;
 					record.optimisticOwner = null;

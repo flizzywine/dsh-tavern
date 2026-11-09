@@ -8,7 +8,7 @@ import { copyLazyHistoryHeader } from './lazy-history-read.js'
 import { Worker } from 'node:worker_threads'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { createIndexedArrayApi } from './indexed-array.js'
-import { copyJsonTree } from './copy-json-tree.js'
+import { copyJsonTree, normalizeJsonCopy } from './copy-json-tree.js'
 import { projectSceneImageState, projectChatSessionState, projectDisplayRuntimeState, projectChatBackgroundConfig, projectSettlementCheckpoint } from './chat-session-state.js'
 import { mkdir, open, readdir, rename, rm, stat, truncate } from 'node:fs/promises'
 import path from 'node:path'
@@ -16,7 +16,7 @@ import { channel } from 'node:diagnostics_channel'
 import { performance } from 'node:perf_hooks'
 const readMetrics = channel('dsh.chat.read')
 
-import { applyJsonChangesShared, diffJson } from './json-mutation.js'
+import { applyJsonChangesShared, diffNormalizedJson } from './json-mutation.js'
 
 const STORAGE_REVISION = '_storageRevision'
 // What every save stamps on itself (chat-persistence): alone, they are no change.
@@ -28,8 +28,7 @@ function revisionOf(value) {
 }
 
 function jsonClone(value) {
-  if (value === undefined) return undefined
-  return JSON.parse(JSON.stringify(value))
+  return normalizeJsonCopy(value)
 }
 
 function safeChatId(value) {
@@ -275,7 +274,7 @@ export function createChatJournalStore(options = {}) {
   }
 
   async function materialize(chatId, targetRevision = Number.POSITIVE_INFINITY) {
-    return await native.read(chatId,targetRevision) || await compatible?.read(chatId,targetRevision) || materializeLegacy(chatId,targetRevision)
+    return await native.readShared(chatId,targetRevision) || await compatible?.read(chatId,targetRevision) || materializeLegacy(chatId,targetRevision)
   }
   // Each cached game remains verified against disk on every read.
   async function cachedState(chatId) {
@@ -324,7 +323,8 @@ export function createChatJournalStore(options = {}) {
   }
   // Native-only opt-in. Null keeps legacy readers on their complete contract.
   async function readWindow(chatId,options) { return native.readWindow(chatId,options) }
-  async function readRecentSummaries(chatId,count) { return native.readRecentSummaries(chatId,count) }
+  async function readWorldSnapshot(chatId) { return native.readWorldSnapshot(chatId) }
+  async function readRecentSummaries(chatId,count,options) { return native.readRecentSummaries(chatId,count,options) }
   async function readHelperContext(chatId, range) {
     const selected = await native.readHelperContext(chatId, range)
     if (selected !== null) return selected
@@ -413,7 +413,7 @@ export function createChatJournalStore(options = {}) {
         target[parts.at(-1)] = source
       }
     }
-    return {chat:structuredClone({...head,messages:indices.map(i=>messages[i])}),messageCount:messages.length,denseMessages:Array.isArray(rawMessages) && (indexedMessages.info(rawMessages)?.complete ?? messages.every(m=>m && typeof m==='object' && !Array.isArray(m)))}
+    return {chat:copyJsonTree({...head,messages:indices.map(i=>messages[i])}),messageCount:messages.length,denseMessages:Array.isArray(rawMessages) && (indexedMessages.info(rawMessages)?.complete ?? messages.every(m=>m && typeof m==='object' && !Array.isArray(m)))}
   }
   // A pinned native snapshot for readers with their own shape (the stage's turn views); null without one.
   const openSnapshot = (chatId, options) => native.openSnapshot(chatId, options)
@@ -574,7 +574,7 @@ export function createChatJournalStore(options = {}) {
         const cached=readCache.get(chatId)?.state
         const reusable=cached?.native && cached.revision===expectedRevision
         const normalized=reusable ? normalizePatch(cached.chat,changes) : changes
-        const saved = await native.patch(chatId,expectedRevision,normalized,metadata.assertCurrent,metadata.returnProjection)
+        const saved = await native.patch(chatId,expectedRevision,normalized,metadata.assertCurrent,metadata.returnProjection,metadata.worldSelection)
         if (saved !== null) {
           // A scoped native commit must not fall back to materializing the full
           // cached archive, nor replace that cache with a partial projection.
@@ -600,7 +600,7 @@ export function createChatJournalStore(options = {}) {
       if(next.id!==chatId || revisionOf(next)!==expectedRevision+1)throw new Error('Invalid journal patch revision')
       if(state.native){
         const recent=knownChanges(chatId,state)
-        const saved=await native.write(chatId,state,next,changes,metadata.assertCurrent)
+        const saved=await native.write(chatId,state,next,changes,metadata.assertCurrent,metadata.worldSelection)
         rememberState(chatId,await version(chatId),saved,rememberChanges(recent,saved.revision,changes))
         committed(chatId,saved.revision)
         return slice(next,[],metadata.returnProjection).chat
@@ -654,7 +654,7 @@ export function createChatJournalStore(options = {}) {
       const next = jsonClone(produced)
       if (next === undefined || next === null || typeof next !== 'object' || Array.isArray(next)) throw new Error('Chat Journal 只能保存 JSON object')
       if (currentState == null && options.newConversations === true && next.mode !== 'card') {
-        const saved=await native.create(chatId,next,metadata.assertCurrent)
+        const saved=await native.create(chatId,next,metadata.assertCurrent,{worldSelection:metadata.worldSelection})
         rememberState(chatId,await version(chatId),saved)
         return copyJsonTree(next)
       }
@@ -670,7 +670,7 @@ export function createChatJournalStore(options = {}) {
       const baseRevision = currentState.revision
       const revision = revisionOf(next)
       if (revision !== baseRevision + 1) throw new Error('Chat Journal 写入 revision 非连续，期望 ' + (baseRevision + 1) + '，实际 ' + revision)
-      const changes = diffJson(current, next)
+      const changes = diffNormalizedJson(current, next)
       // A save that changes nothing but its own revision stamp and timestamp is no save:
       // nothing is written, the stored state and revision stay (as patch() does for no changes).
       if (changes.every(change => change.path.length === 1 && STAMPS.has(change.path[0]))) return copyJsonTree(current)
@@ -769,5 +769,5 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
-  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot })
+  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot })
 }

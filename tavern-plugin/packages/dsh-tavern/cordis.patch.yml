@@ -1,0 +1,5 @@
+# Tavern launcher bundle patch: one Host+Client plugin row.
+# The browser half is discovered through the package.json dsh.client declaration.
+- insert:
+    - id: profile-bridge
+      name: 'dsh-tavern'

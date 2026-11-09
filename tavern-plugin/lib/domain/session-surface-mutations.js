@@ -115,8 +115,12 @@ export function createSessionSurfaceMutator(session, events = sessionEvents(sess
     // Surface order is therefore not numeric event order.
     const targets = nodes.slice(startIndex, endIndex + 1)
     const referenced = new Set(Array.isArray(sourceEventSeqs) ? sourceEventSeqs : [])
-    if (!Array.isArray(sourceEventSeqs) || targets.some(seq => !referenced.has(seq)) ||
-        sourceEventSeqs.some(seq => !Number.isSafeInteger(seq) || !bySeq.has(seq))) throw new Error('消息替换缺少有效的来源引用')
+    // 两种失败要分开说：范围里混进了没被引用的消息，还是引用了日志里已经不存在的来源。
+    // 合并成一句话时调用方只能看到「缺少有效的来源引用」，误以为是宿主能力问题。
+    if (!Array.isArray(sourceEventSeqs) || sourceEventSeqs.some(seq => !Number.isSafeInteger(seq) || !bySeq.has(seq))) {
+      throw new Error('消息替换引用了日志里已经不存在的来源，请按当前消息面重试')
+    }
+    if (targets.some(seq => !referenced.has(seq))) throw new Error('替换范围里混进了这次没有引用的消息，请按当前消息面重试')
     if (!adoptsStep) return write(type, data, {
       surfaceOp: { op: 'replace', start, end }, sourceEventSeqs
     })

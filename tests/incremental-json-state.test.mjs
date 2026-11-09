@@ -87,6 +87,20 @@ test('bounded decoded reuse skips repeated tree walks without sharing mutable re
  assert.ok(io.length>0,'oversized decoded values are not retained')
 })
 
+test('内部共享解码把唯一一次脱离缓存留给外层存储',async()=>{
+ const f=fixture(),source={schema:{properties:{gold:{type:'number'}}},values:[1,2]}
+ const root=await f.tree.create(source)
+ const shared=createIncrementalJsonState({...f.adapter,shareSubtrees:true,detach:false,decodedCacheBytes:4096})
+ const first=await shared.get(root),second=await shared.get(root)
+ assert.equal(first,second,'明确的内部共享读取不重复复制 decoder-owned tree')
+ const detached=createIncrementalJsonState({...f.adapter,shareSubtrees:true,decodedCacheBytes:4096})
+ const output=await detached.get(root)
+ assert.notEqual(output,first)
+ output.schema.properties.gold.type='changed'
+ assert.equal(first.schema.properties.gold.type,'number')
+ assert.deepEqual(await detached.get(root),source)
+})
+
 test('floors sharing a large subtree decode it once per operation and still return detached copies',async()=>{
  const f=fixture()
  // Exceed the small-container inline budget so this exercises shared blocks, not inline values.

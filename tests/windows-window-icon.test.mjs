@@ -26,7 +26,7 @@ test('Windows 实际窗口按 DPI 使用 ICO 原生像素，并排除其他窗�
   const root = await mkdtemp(path.join(tmpdir(), 'tavern-window-icon-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const helper = fileURLToPath(new URL('../bin/windows-window-icon.ps1', import.meta.url))
-  const icoPath = fileURLToPath(new URL('../tavern-plugin/packages/dsh-profile-bridge/assets/dsh-tavern-app.ico', import.meta.url))
+  const icoPath = fileURLToPath(new URL('../tavern-plugin/packages/dsh-tavern/assets/dsh-tavern-app.ico', import.meta.url))
   const quote = value => "'" + value.replace(/'/g, "''") + "'"
   const script = `
 $ErrorActionPreference = 'Stop'

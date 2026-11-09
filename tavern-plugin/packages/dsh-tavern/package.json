@@ -1,0 +1,60 @@
+{
+  "name": "dsh-tavern",
+  "version": "1.5.3",
+  "description": "DeepSeek Harness 和 DSH NEXT 的酒馆启动器，安装、切换和管理同一个酒馆 Profile",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flizzywine/dsh-tavern.git",
+    "directory": "tavern-plugin/packages/dsh-tavern"
+  },
+  "homepage": "https://github.com/flizzywine/dsh-tavern#readme",
+  "bugs": {
+    "url": "https://github.com/flizzywine/dsh-tavern/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "profile",
+    "desktop"
+  ],
+  "type": "module",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "locale",
+    "assets",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

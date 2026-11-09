@@ -1,10 +1,11 @@
-name: Publish official Tavern launcher
+name: Publish Tavern desktop launcher
 
 on:
   push:
     branches: [main]
     paths:
-      - tavern-plugin/packages/dsh-profile-bridge/**
+      - tavern-plugin/packages/dsh-tavern/**
+      - '!tavern-plugin/packages/dsh-tavern/README.md'
       - .github/workflows/publish-official-launcher.yml
   workflow_dispatch:
 
@@ -22,16 +23,22 @@ jobs:
         with:
           fetch-depth: 0
       - name: Pack and publish the standard DSH bundle
+        id: launcher
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          source=tavern-plugin/packages/dsh-profile-bridge
+          source=tavern-plugin/packages/dsh-tavern
           version=$(node -p "require('./$source/package.json').version")
           tag="launcher-v$version"
           cdn_tag="launcher-cdn-v$version"
+          # A published launcher keeps the README that shipped with its version.
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            git show "refs/tags/$tag:$source/README.md" > "$source/README.md"
+          fi
           archive=$(npm pack "./$source" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP")
+          git restore -- "$source/README.md"
           node .github/scripts/check-runtime-archive.mjs "$RUNNER_TEMP/$archive"
           # jsDelivr can serve the small artifact tree behind this tag.
           if git show-ref --verify --quiet "refs/tags/$cdn_tag"; then
@@ -54,5 +61,62 @@ jobs:
             cmp "$RUNNER_TEMP/$archive" "$RUNNER_TEMP/launcher-release/$archive"
           else
             gh release create "$tag" "$RUNNER_TEMP/$archive" --target "$GITHUB_SHA" --latest=false \
-              --title "DSH Tavern Launcher $version" --notes 'Launcher for official DeepSeek Harness on Windows and macOS. Install it into the original desktop profile, then use Settings → Tavern Launcher to install Tavern.'
+              --title "dsh-tavern $version" --notes 'Shared launcher for DeepSeek Harness and DSH NEXT on Windows and macOS. Install it into the original desktop profile, then use Settings → Tavern Launcher to install Tavern.'
+          fi
+
+          printf 'archive=%s\nversion=%s\n' "$RUNNER_TEMP/$archive" "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the stable market download
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LAUNCHER_ARCHIVE: ${{ steps.launcher.outputs.archive }}
+          LAUNCHER_VERSION: ${{ steps.launcher.outputs.version }}
+        run: |
+          set -euo pipefail
+          # An older run can be rerun after a new launcher has shipped.
+          git fetch origin main
+          main_version=$(git show FETCH_HEAD:tavern-plugin/packages/dsh-tavern/package.json | jq -r .version)
+          if [[ "$main_version" != "$LAUNCHER_VERSION" ]]; then
+            echo "Skipping the market download for $LAUNCHER_VERSION. Main is at $main_version."
+            exit 0
+          fi
+
+          tag=launcher-current
+          asset=dsh-tavern.tgz
+          label="dsh-tavern $LAUNCHER_VERSION"
+          digest="sha256:$(sha256sum "$LAUNCHER_ARCHIVE" | cut -d' ' -f1)"
+          if ! release_id=$(gh release view "$tag" --json databaseId --jq .databaseId); then
+            cp "$LAUNCHER_ARCHIVE" "$RUNNER_TEMP/$asset"
+            gh release create "$tag" "$RUNNER_TEMP/$asset#$label" --target "$GITHUB_SHA" --latest=false \
+              --title 'DSH Tavern launcher for the plugin market' \
+              --notes 'This release provides a stable download URL for the current desktop launcher. Versioned launcher releases are available separately.'
+            release_id=$(gh release view "$tag" --json databaseId --jq .databaseId)
+          fi
+
+          release_assets="repos/$GITHUB_REPOSITORY/releases/$release_id/assets"
+          asset_api="repos/$GITHUB_REPOSITORY/releases/assets"
+          assets=$(gh api "$release_assets" --paginate --slurp | jq 'add')
+          if jq -e --arg name "$asset" --arg digest "$digest" \
+              'any(.[]; .name == $name and .digest == $digest and .state == "uploaded")' <<< "$assets" >/dev/null; then
+            exit 0
+          fi
+
+          # Upload and verify the replacement before moving the public asset.
+          candidate="candidate-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tgz"
+          cp "$LAUNCHER_ARCHIVE" "$RUNNER_TEMP/$candidate"
+          gh release upload "$tag" "$RUNNER_TEMP/$candidate#$label"
+          candidate_id=$(gh api "$release_assets" --paginate --slurp | jq -er --arg name "$candidate" --arg digest "$digest" \
+            'add | .[] | select(.name == $name and .digest == $digest and .state == "uploaded") | .id')
+          previous_id=$(jq -r --arg name "$asset" '.[] | select(.name == $name) | .id' <<< "$assets")
+          if [[ -n "$previous_id" ]]; then
+            trap 'gh api --method PATCH "$asset_api/$previous_id" -f name="$asset" --silent || true' EXIT
+            gh api --method PATCH "$asset_api/$previous_id" -f name="previous-$previous_id.tgz" --silent
+          fi
+          gh api --method PATCH "$asset_api/$candidate_id" -f name="$asset" --silent
+          [[ $(gh api "$asset_api/$candidate_id" --jq .name) == "$asset" ]]
+          trap - EXIT
+          if [[ -n "$previous_id" ]]; then
+            gh api --method DELETE "$asset_api/$previous_id" --silent
           fi

@@ -220,6 +220,20 @@ test('相同存储版本复用读取结果，外部写入、删除重建和返�
   assert.equal((await store.read('cached')).counter,3)
 })
 
+test('缓存切片使用 JSON 容器拷贝并保持返回值隔离', async t => {
+  const root=await temporary();t.after(()=>rm(root,{recursive:true,force:true}))
+  const store=createChatJournalStore({dataRoot:root})
+  await bump(store,'sliced',chat=>{chat.messages.push({role:'assistant',text:'stored'});chat.cardPayload='SLICE-PAYLOAD'})
+  await store.read('sliced')
+  t.mock.method(globalThis,'structuredClone',()=>{throw new Error('normalized JSON slice must not use structuredClone')})
+  const selected=await store.readSlice('sliced',[0])
+  assert.equal(selected.chat.messages[0].text,'stored')
+  selected.chat.messages[0].text='outside';selected.chat.cardPayload='outside'
+  const latest=await store.read('sliced')
+  assert.equal(latest.messages[0].text,'stored')
+  assert.equal(latest.cardPayload,'SLICE-PAYLOAD')
+})
+
 test('普通写入后直接复用最新状态，失败或放弃的编辑不污染缓存', async t => {
   const root=await temporary();t.after(()=>rm(root,{recursive:true,force:true}))
   const store=createChatJournalStore({dataRoot:root})

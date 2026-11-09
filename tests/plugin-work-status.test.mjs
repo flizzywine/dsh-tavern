@@ -39,7 +39,9 @@ function createClock() {
 function createLiveView() {
   const snapshots = new Map()
   const listeners = new Map()
+  const subscriptions = []
   return {
+    subscriptions,
     set(sessionId, view, error = '') {
       snapshots.set(sessionId, { phase: view ? 'ready' : 'idle', view, error })
       for (const listener of [...(listeners.get(sessionId) || [])]) listener()
@@ -47,7 +49,8 @@ function createLiveView() {
     getSnapshot(sessionId) {
       return snapshots.get(sessionId) || { phase: 'idle', view: null, error: '' }
     },
-    subscribe(sessionId, listener) {
+    subscribe(sessionId, listener, paths, options) {
+      subscriptions.push({ sessionId, paths, options })
       let set = listeners.get(sessionId)
       if (!set) { set = new Set(); listeners.set(sessionId, set) }
       set.add(listener)
@@ -99,6 +102,14 @@ function load() {
 function activity(busy, role = 'foreground') {
   return { busy, role, phase: busy ? 'running' : 'idle' }
 }
+
+test('工作状态旁路只被动监听，不为不可见会话发起完整视图读取', () => {
+  const { ui, live, plugin } = load()
+  const stop = plugin().watchWorkStatus('background', () => {})
+  assert.equal(live.subscriptions.length, 1)
+  assert.equal(live.subscriptions[0].options.deferLoad, true)
+  stop()
+})
 
 test('工作状态：没人动时是 idle，忙碌/工具/提问/结算失败各有自己的状态', () => {
   const { ui, live, plugin } = load()

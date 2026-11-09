@@ -46,6 +46,12 @@ export function createRequestPerformance({ now = () => performance.now(), wall =
     if (event.name === 'chat.materialize' && event.durationMs >= 100 && chatLoads++ < 40) onColdRead({method:'chat-load',...event})
     if (event.name === 'chat.write.hold' && event.durationMs >= 100 && chatLoads++ < 40) onColdRead({method:'chat-write',...event})
     const row = context.getStore()
+    // Native full reads used to be one opaque readFullChat stage. Keep just the
+    // two phase boundaries (header and history), without retaining story data or
+    // enabling the much larger cold-read payload on ordinary getSession requests.
+    if (row && event.kind === 'phase' && /^chat\.native\./.test(event.name) && row.stages.length < 120) {
+      row.stages.push({name:event.name,atMs:Math.round(now()-row.startedMono-event.durationMs),durationMs:Math.round(event.durationMs)})
+    }
     if (!row?.reads) return
     if (event.durationMs >= 10 && row.waits.length < 80 && /gate\.|recovery|materialize|join|registry|chat\.native\./.test(event.name)) {
       row.waits.push({name:event.name, atMs:Math.round(now() - row.startedMono - event.durationMs), durationMs:Math.round(event.durationMs), packIds:event.packIds})
@@ -65,8 +71,9 @@ export function createRequestPerformance({ now = () => performance.now(), wall =
   function append(rows, row, limit) { rows.push(row); if (rows.length > limit) rows.shift() }
   return {
     async run(method, id, operation) {
-      if (!coldMethods.has(method) && !['getSession', 'syncSession', 'getCardOpenings', 'initializeOpeningTemplate', 'preparePlayStart', 'startChat', 'stage-director'].includes(method)) return operation()
-      const start = now(), utilization = performance.eventLoopUtilization()
+      if (!coldMethods.has(method) && !['getSession', 'getStoryTranscript', 'syncSession', 'regenBody', 'generatePrepare', 'generateRequest', 'generateCommit', 'getCardOpenings', 'initializeOpeningTemplate', 'preparePlayStart', 'startChat', 'stage-director'].includes(method)) return operation()
+      const sampled = method !== 'getStoryTranscript'
+      const start = now(), utilization = sampled ? performance.eventLoopUtilization() : undefined
       const row = { startedMono: start, method, id: (/^(?:session-)?[a-f0-9-]{36}$/.test(id || '') || method === 'stage-director' && /^operation-[a-z0-9-]{1,140}$/.test(id || '')) ? id : '', receivedAt: wall(), active: ++active, stages: [] }
       if (coldMethods.has(method)) {
         row.reads = []
@@ -81,18 +88,19 @@ export function createRequestPerformance({ now = () => performance.now(), wall =
         row.eventLoopDelayMaxMs = Math.max(row.eventLoopDelayMaxMs, Math.round(Math.max(0, tick - lastTick - 100)))
         lastTick = tick
       }
-      const timer = setInterval(sample, 100)
-      timer.unref()
+      const timer = sampled ? setInterval(sample, 100) : undefined
+      timer?.unref()
       const mark = name => { if (row.stages.length < 120) row.stages.push({ name, durationMs: 0, atMs: Math.round(now() - start) }) }
       try { return await context.run(row, () => operation(mark)) }
       catch (error) { row.failed = true; throw error }
       finally {
-        sample(); clearInterval(timer)
+        if (sampled) sample()
+        clearInterval(timer)
         active--
         row.durationMs = Math.round(now() - start)
-        row.eventLoopUtilization = performance.eventLoopUtilization(utilization).utilization
+        if (sampled) row.eventLoopUtilization = performance.eventLoopUtilization(utilization).utilization
         append(recent, row, 120)
-        if (!['getSession', 'syncSession', 'stage-director'].includes(method)) append(openings, row, 60)
+        if (!['getSession', 'getStoryTranscript', 'syncSession', 'regenBody', 'generatePrepare', 'generateRequest', 'generateCommit', 'stage-director'].includes(method)) append(openings, row, 60)
         if (row.durationMs >= 1000) append(slow, row, 60)
         if (coldMethods.has(method) && (row.ordinal <= 3 || row.durationMs >= slowLogMs)) onColdRead({...row, phase:'end', endedAt:wall()})
       }

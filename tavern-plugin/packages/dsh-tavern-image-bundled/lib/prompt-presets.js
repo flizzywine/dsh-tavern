@@ -252,7 +252,8 @@ export function composeStructuredPrompt({ text = '', config = {}, artist = '', a
   composed = appendStructuredSection(composed, '视觉预设补充', textForMode(preset, 'structured'))
   composed = appendStructuredSection(composed, '画面补充', positive)
   composed = appendStructuredSection(composed, '手动补充', config.promptManualPositive)
-  composed = appendStructuredSection(composed, '参考图对应与一致性', referenceText)
+  const references = appendStructuredSection('', '参考图对应与一致性', referenceText)
+  if (references) composed = [references, composed.replace(references, '').trim()].filter(Boolean).join('\n\n')
   const constraints = [preset?.structuredNegative || preset?.negative, config.promptManualNegative, negative]
     .map(value => String(value ?? '').trim()).filter(Boolean).join('\n\n')
   return { positive: composed, negative: constraints, combined: combineStructuredPrompt(composed, constraints) }

@@ -26,10 +26,10 @@ test('安装脚本与更新检查在所有下载方式上都跟随 main 分支',
   assert.doesNotMatch(workflow, /@main\/|@0\.2\.1/, 'CDN 刷新按推送的分支')
 })
 
-test('安装脚本只接受桌面版与命令行版宿主', { skip: process.platform === 'win32' }, () => {
+test('桌面与命令行安装入口拒绝 Android 宿主', { skip: process.platform === 'win32' }, () => {
   const result = spawnSync('sh', [new URL('install.sh', root).pathname], { encoding: 'utf8', env: { ...process.env, DSH_TAVERN_HOST: 'android' } })
   assert.equal(result.status, 1)
-  assert.match(result.stderr, /只支持官方桌面和独立命令行/)
+  assert.match(result.stderr, /不支持宿主 android/)
 })
 
 test('安装脚本内嵌自己的版本号，jsDelivr 下载不接受比它旧的运行清单', () => {

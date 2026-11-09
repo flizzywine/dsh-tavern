@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync, symlinkSync, existsSync, renameSync, rmSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { switchProfile, waitForExit } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
+import { switchProfile, waitForExit } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 function fixture(t) {
  const root = mkdtempSync(join(tmpdir(), 'tavern-profile-bridge-'));t.after(()=>rmSync(root,{recursive:true,force:true}))
  for(const name of ['desktop','tavern','other']) {mkdirSync(join(root,name));writeFileSync(join(root,name,'package.json'),JSON.stringify({dsh:{profile:{bundles:['@deepseek-ai/dsh-base']}}}));writeFileSync(join(root,name,'cordis.patch.yml'),'[]\n')}
@@ -31,11 +31,68 @@ test('桥接安装更新始终写 tavern，不取决于 desktop 当前是否是�
  assert.equal(installedProfile('cli',home),'tavern')
 })
 
+test('统一启动器从 NEXT 宿主读取活动 Profile，拒绝目录链接切换', async t => {
+ const { apply } = await import('../tavern-plugin/packages/dsh-tavern/index.js')
+ const r = fixture(t)
+ const profile = { home: r.profilesRoot, dir: r.targetDir, name: 'tavern' }
+ let handle
+ apply({
+   get: name => ({ profileContext: profile, desktopProfiles: { current: profile } })[name],
+   connection: { rpc: { handle: (channel, handler) => { assert.equal(channel, '/profile-bridge'); handle = handler } } },
+   effect() {},
+ })
+ const status = await handle('status')
+ assert.equal(status.value.host, 'next')
+ assert.equal(status.value.activeName, 'tavern')
+ assert.equal(status.value.dshHome, profile.home)
+ assert.equal((await handle('unlink')).error.code, 'unsupported')
+})
+
+test('NEXT 酒馆及原版 Profile 均能发起已验证的安装更新', async t => {
+ const { apply } = await import('../tavern-plugin/packages/dsh-tavern/index.js')
+ const home = mkdtempSync(join(tmpdir(), 'tavern-next-update-'))
+ t.after(() => rmSync(home, { recursive: true, force: true }))
+ const app = join(home, 'apps', 'dsh-tavern')
+ const lib = join(app, 'tavern-plugin', 'lib')
+ const profiles = join(home, 'profiles')
+ for (const dir of [lib, join(home, 'logs'), join(home, 'profile-data', 'tavern'), ...['desktop', 'tavern', 'other'].map(name => join(profiles, name))]) {
+   mkdirSync(dir, { recursive: true })
+ }
+ const manifest = JSON.stringify({ name: 'dsh-profile-tavern', type: 'module' })
+ writeFileSync(join(app, 'package.json'), manifest)
+ writeFileSync(join(profiles, 'tavern', 'package.json'), manifest)
+ writeFileSync(join(app, '.dsh-tavern-local.json'), JSON.stringify({ host: 'next', dshHome: home }))
+ writeFileSync(join(home, 'logs', 'tavern-installation.json'), JSON.stringify({ host: 'next', dshHome: home, sourceRoot: app }))
+ writeFileSync(join(lib, 'application-updater.js'), `export function createApplicationUpdater() {
+   return { check: async () => ({ phase: 'up-to-date' }) }
+ }`)
+ for (const name of ['tavern', 'desktop', 'other']) {
+   const profile = { home, name, dir: join(profiles, name) }
+   let handle
+   apply({
+     get: key => ({ profileContext: profile, desktopProfiles: { current: profile } })[key],
+     connection: { rpc: { handle: (_channel, handler) => { handle = handler } } },
+     effect() {},
+   })
+   const canUpdate = name !== 'other'
+   assert.equal((await handle('check-update')).value.canUpdate, canUpdate, name)
+   const start = await handle('start-update')
+   assert.equal(start.ok, canUpdate, name)
+   if (canUpdate) assert.equal(start.value.phase, 'up-to-date')
+   else assert.equal(start.error.code, 'update-unavailable')
+ }
+})
+
 test('只能切到同样启用桥接的 profile，否则切过去后无法在应用内切回', async t => {
- const { validateTarget, listProfiles } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs')
+ const { validateTarget, listProfiles } = await import('../tavern-plugin/packages/dsh-tavern/lib/state.mjs')
  const root=mkdtempSync(join(tmpdir(),'pb-target-'));t.after(()=>rmSync(root,{recursive:true,force:true}))
  const profile=(name,bundles)=>{mkdirSync(join(root,name));writeFileSync(join(root,name,'package.json'),JSON.stringify({dependencies:{a:'1'},dsh:{profile:{bundles}}}))}
- profile('desktop',['dsh-profile-bridge']);profile('tavern',['@deepseek-ai/dsh-base','dsh-tavern-launcher']);profile('web',['@deepseek-ai/dsh-base'])
+ profile('desktop',['dsh-tavern']);profile('tavern',['@deepseek-ai/dsh-base','dsh-tavern']);profile('web',['@deepseek-ai/dsh-base'])
+ for (const name of ['desktop','tavern']) {
+   const dir = join(root,name,'node_modules','dsh-tavern')
+   mkdirSync(dir,{recursive:true})
+   writeFileSync(join(dir,'package.json'),readFileSync(new URL('../tavern-plugin/packages/dsh-tavern/package.json',import.meta.url)))
+ }
  const paths={profilesDir:root,activeDir:join(root,'desktop'),activeName:'desktop'}
  assert.equal(validateTarget(paths,'tavern').name,'tavern')
  assert.throws(()=>validateTarget(paths,'web'),/does not enable the Tavern launcher/)
@@ -43,21 +100,21 @@ test('只能切到同样启用桥接的 profile，否则切过去后无法在应
 })
 
 test('切换后重新打开桌面：macOS 打开 .app，其他平台直接启动可执行文件', async () => {
- const { relaunchCommand } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs')
+ const { relaunchCommand } = await import('../tavern-plugin/packages/dsh-tavern/lib/helper.mjs')
  assert.deepEqual(relaunchCommand('/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness','darwin'),['open',['/Applications/DeepSeek Harness.app']])
  assert.deepEqual(relaunchCommand('C:\\Apps\\DeepSeek Harness.exe','win32'),['C:\\Apps\\DeepSeek Harness.exe',[]])
  assert.deepEqual(relaunchCommand('/opt/dsh/deepseek-harness','linux'),['/opt/dsh/deepseek-harness',[]])
 })
 
 test('已有切换在排队时给出可读的 busy 错误', async t => {
- const { scheduleSwitch } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs')
+ const { scheduleSwitch } = await import('../tavern-plugin/packages/dsh-tavern/lib/helper.mjs')
  const stateDir=mkdtempSync(join(tmpdir(),'pb-lock-'));t.after(()=>rmSync(stateDir,{recursive:true,force:true}))
  mkdirSync(join(stateDir,'pending'))
  assert.throws(()=>scheduleSwitch({stateDir}),e=>e.code==='busy'&&/等待桌面退出/.test(e.message))
 })
 
 test('陈旧 pending 自动归档并重试，仍在等待应用的锁保持 busy', async t => {
- const { acquirePendingLock } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs')
+ const { acquirePendingLock } = await import('../tavern-plugin/packages/dsh-tavern/lib/helper.mjs')
  const stateDir=mkdtempSync(join(tmpdir(),'pb-stale-'));t.after(()=>rmSync(stateDir,{recursive:true,force:true}))
  const lock=join(stateDir,'pending');mkdirSync(lock)
  writeFileSync(join(lock,'request.json'),JSON.stringify({pids:[4242]}))
@@ -71,7 +128,7 @@ test('陈旧 pending 自动归档并重试，仍在等待应用的锁保持 busy
 })
 
 test('worker 仍在运行时保留 pending，worker 退出后立即回收', async t => {
- const { acquirePendingLock } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs')
+ const { acquirePendingLock } = await import('../tavern-plugin/packages/dsh-tavern/lib/helper.mjs')
  const stateDir=mkdtempSync(join(tmpdir(),'pb-worker-'));t.after(()=>rmSync(stateDir,{recursive:true,force:true}))
  const lock=join(stateDir,'pending');mkdirSync(lock)
  writeFileSync(join(lock,'request.json'),'{}')
@@ -83,7 +140,7 @@ test('worker 仍在运行时保留 pending，worker 退出后立即回收', asyn
 })
 
 test('陈旧锁归档只保留最近几份', async t => {
- const { acquirePendingLock } = await import('../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs')
+ const { acquirePendingLock } = await import('../tavern-plugin/packages/dsh-tavern/lib/helper.mjs')
  const stateDir=mkdtempSync(join(tmpdir(),'pb-prune-'));t.after(()=>rmSync(stateDir,{recursive:true,force:true}))
  const staleRoot=join(stateDir,'stale');mkdirSync(staleRoot,{recursive:true})
  for(let index=0;index<3;index+=1) mkdirSync(join(staleRoot,'pending-old-'+index))
@@ -100,7 +157,7 @@ test('worker 结束后释放 pending：登记的 worker.json 不会让锁目录�
  const lock=join(stateDir,'pending');mkdirSync(lock)
  writeFileSync(join(lock,'request.json'),JSON.stringify({stateDir,pids:[]}))
  writeFileSync(join(lock,'worker.json'),JSON.stringify({pid:1234,startedAt:0}))
- const worker=fileURLToPath(new URL('../tavern-plugin/packages/dsh-profile-bridge/lib/worker.mjs',import.meta.url))
+ const worker=fileURLToPath(new URL('../tavern-plugin/packages/dsh-tavern/lib/worker.mjs',import.meta.url))
  try { execFileSync(process.execPath,[worker,join(lock,'request.json')],{stdio:'ignore'}) } catch {}
  assert.equal(existsSync(lock),false)
 })

@@ -86,6 +86,45 @@ for (const sliced of [false, true]) test(`chat player identity is persisted atom
   assert.equal(before.macroState.userName, '原名', 'a previous snapshot must retain its identity')
 })
 
+for (const variablesChanged of [false, true]) test(`pending input variable write survives preparation only with unchanged variables: changed=${variablesChanged}`, async t => {
+  const host = await createHelperChatDataHost()
+  t.after(host.cleanup)
+  const before = await host.persistence.update('audit', chat => {
+    chat.mvu.enabled = true
+    chat.messages.push({ role: 'user', text: '推门 ZZ3', sourceText: '推门 ZZ3', placeholder: true,
+      source: { kind: 'user', rpcId: 'input-3' } })
+    return chat
+  })
+  let patches = 0
+  const adapter = harness(before, {
+    resolveChat: () => host.persistence.read('audit'),
+    resolveChatSlice: (id, indices, fields) => host.persistence.readSlice(id, indices, fields),
+    readChatRevision: (...args) => host.persistence.readRevision(...args),
+    writeChat: (...args) => host.persistence.write(...args),
+    async patchChat(id, revision, changes, metadata) {
+      if (++patches === 1) await host.persistence.update(id, chat => {
+        chat.messages[1].text = '推门 〔3〕'
+        if (variablesChanged) chat.messages[1].variables = [{ hp: 8 }]
+        chat.messages.push({ role: 'assistant', turn: 2, text: '', placeholder: true })
+        return chat
+      })
+      return host.persistence.patch(id, revision, changes, metadata)
+    }
+  }).adapter
+  const pending = adapter.updateVariables('audit', { type: 'message', message_id: 1 }, { hp: 10 }, 2, undefined,
+    { chatId: 'audit', stateRevision: before._storageRevision, lifecycleRevision: 2 })
+  if (variablesChanged) await assert.rejects(pending, { code: 'DSH_TAVERN_CHAT_CONFLICT' })
+  else {
+    const result = await pending
+    assert.equal(result.updated, true)
+    assert.equal(result.context.messages.length, 3)
+  }
+  const saved = await host.open().read('audit')
+  assert.equal(saved.messages[1].text, '推门 〔3〕')
+  assert.deepEqual(saved.messages[1].variables, [{ hp: variablesChanged ? 8 : 10 }])
+  assert.equal(saved.messages[2].role, 'assistant')
+})
+
 for (const hasIdentity of [false, true]) test(`MVU settlement commits the player identity with chat variables: existing=${hasIdentity}`, async () => {
   const value = chat()
   if (hasIdentity) value.macroState = { userName: '原名', local: { score: 2 }, global: { keep: true } }

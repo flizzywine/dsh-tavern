@@ -10,6 +10,7 @@ import { isScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
 import { locateUserEditFloor, locateUserInputFloor, userInputText } from './input-floor.js'
 import { inputEventForTurn, inputKind, isFailedTurnEnd } from './session-turn-input.js'
+import { legacyMessageUid, validMessageUid } from './message-uid.js'
 
 function latest(chat) {
   const message = chat.messages?.at(-1)
@@ -17,10 +18,48 @@ function latest(chat) {
   return message
 }
 function source(message) { return message.projectionText ?? message.sourceText ?? message.text ?? '' }
+// Player rows render message.text. Legacy/native imports may also carry an
+// assistant-style sourceText; that field must not resurrect the pre-edit input.
+function storyUserText(message) { return typeof message?.text === 'string' ? message.text : source(message) }
 function token(chat, message) {
-  // Template display bookkeeping is not an edit to the authoritative prose.
-  const { displayRuntime: _capture, tavernPluginData: _templateCache, ...body } = message
-  return createHash('sha256').update(JSON.stringify([chat.id, chat.timeline?.branchId, chat.timeline?.revision, chat.messages.length, body])).digest('hex')
+  // The last reply is addressed by position, so the row's own prose is the fence:
+  // a settlement pass, a header write or a template-cache refresh must not
+  // invalidate an editor the player already has open. An append moves the tail,
+  // and latest() never returns anything but an assistant tail.
+  return storyToken(chat, message, (chat.messages?.length || 1) - 1, 'assistant')
+}
+function storageRevision(chat) { return Math.max(0, Number(chat && chat._storageRevision) || 0) }
+// Story rows are addressed by array position (story-transcript.js absoluteIndex); the
+// row itself is the target, so a missing, duplicated or non-monotonic turn cannot
+// move the edit to another message.
+function hasStoryMessageIndex(input) {
+  return Boolean(input && input.messageIndex !== undefined && input.messageIndex !== null)
+}
+function storyMessageIndex(input) {
+  if (!hasStoryMessageIndex(input)) return null
+  const index = Number(input.messageIndex)
+  return Number.isSafeInteger(index) && index >= 0 ? index : null
+}
+function storyRevision(input) {
+  if (!input || input.revision === undefined || input.revision === null) return null
+  const revision = Number(input.revision)
+  return Number.isSafeInteger(revision) && revision >= 0 ? revision : null
+}
+function storyMessageUid(input) {
+  return validMessageUid(input?.messageUid) ? input.messageUid : null
+}
+/** UID edits bind the logical row, not unrelated Chat/timeline write counters. */
+function storyToken(chat, message, index, role, messageUid = null) {
+  // Settlement variables, receipts, display caches and edit markers never change
+  // the text being edited; the Chat write counter and timeline revision are not
+  // part of the row's identity either. Swipes, anchors and other edit inputs stay
+  // CAS-protected.
+  const { displayRuntime: _capture, tavernPluginData: _templateCache, variables: _variables,
+    mvu: _receipt, sessionText: _sessionText, bodyEdit: _oldEdit, ...body } = message
+  // A UID names the logical row; without one the index does, and the body covers
+  // the occupant so a shifted list still refuses the write.
+  const identity = messageUid ? ['story-message', messageUid] : ['story-row', Number.isSafeInteger(index) ? index : null]
+  return createHash('sha256').update(JSON.stringify([chat.id, chat.timeline?.branchId, role, ...identity, body])).digest('hex')
 }
 
 /** Reconcile a durable Chat edit to native Surface; retries never duplicate history. */
@@ -81,7 +120,7 @@ export async function synchronizeBodyEdits(session, chat, flush, persistChat) {
 }
 
 /** Edit prose only; do not replay macros, scripts or settlement. */
-export function createBodyEditor({ chats, sessions, timeline, activity, project, present, sessionPatch, repairNative, beforeReplyEdit }) {
+export function createBodyEditor({ chats, sessions, timeline, activity, project, present, sessionPatch, beforeReplyEdit }) {
   const pending = new Set()
   function refuseClosedPatch() {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
@@ -89,13 +128,9 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
   function idle(chat, agent) {
     if (agent?.phase?.kind === 'running' || chat.regenInProgress || ['pending', 'running'].includes(chat.settleStatus) || activity(chat)?.busy) throw new Error('请等待当前生成或后台处理完成后再编辑')
   }
-  async function context(sessionId) {
-    refuseClosedPatch()
-    let chat = await chats.forSession(sessionId)
-    if (!chat) throw new Error('会话不存在')
-    const agent = sessions.get(sessionId)
-    if (!agent?.session) throw new Error('无法访问原生会话')
-    idle(chat, agent)
+  // Mirror the model context onto the save first: pending body-edit anchors are
+  // replayed, and markers that no longer match any session event are dropped.
+  async function syncChatMarkers(agent, chat) {
     await synchronizeBodyEdits(agent.session, chat, sessions.flush, async (dirty, cleared) => {
       const drop = new Set(cleared)
       await chats.update(dirty.id, current => {
@@ -109,19 +144,131 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
         return changed ? current : undefined
       }, { source: 'body-edit.stale-clear' })
     })
+  }
+  async function openChat(sessionId) {
+    refuseClosedPatch()
+    const chat = await chats.forSession(sessionId)
+    if (!chat) throw new Error('会话不存在')
+    const agent = sessions.get(sessionId)
+    if (!agent?.session) throw new Error('无法访问原生会话')
+    idle(chat, agent)
+    return { chat, agent }
+  }
+  // A UID names the logical Chat row across unrelated writes and index movement.
+  // `messageIndex` remains a required hint, never the identity when a UID exists.
+  // Old clients without one retain the exact revision fence below.
+  function storyRow(chat, input, role) {
+    const messages = Array.isArray(chat.messages) ? chat.messages : []
+    const requestedIndex = storyMessageIndex(input)
+    if (requestedIndex === null) throw new Error('这条消息已不在当前列表中，请刷新后重新打开编辑')
+    if (typeof input?.role === 'string' && input.role !== role) throw new Error('这条消息已变化，请重新打开编辑')
+    const messageUid = storyMessageUid(input)
+    if (messageUid) {
+      const candidates = []
+      for (let index = 0; index < messages.length; index++) {
+        const message = messages[index]
+        if (legacyMessageUid(message, index) === messageUid) candidates.push({ message, index })
+      }
+      if (candidates.length !== 1 || candidates[0].message?.role !== role) throw new Error('这条消息已变化，请重新打开编辑')
+      return { chat, ...candidates[0], revision: storageRevision(chat), messageUid }
+    }
+    if (requestedIndex >= messages.length) throw new Error('这条消息已不在当前列表中，请刷新后重新打开编辑')
+    const message = messages[requestedIndex]
+    if (!message || typeof message !== 'object' || message.role !== role) throw new Error('这条消息已变化，请重新打开编辑')
+    const revision = storyRevision(input)
+    // The revision is the panel's render stamp, not a fence on the Chat write
+    // counter: settlement, candidates and worldbook syncs bump it without touching
+    // this row. The row still has to hold the prose the caller rendered — a save
+    // carries a storyToken, which fences the same row by identity and body.
+    if (revision === null) throw new Error('正文或会话已变化，请重新打开编辑')
+    const prose = typeof message.text === 'string' ? message.text : String(message.text ?? '')
+    const namesRow = typeof input?.text === 'string' ? input.text === prose : null
+    if (namesRow === false) throw new Error('正文或会话已变化，请重新打开编辑')
+    if (namesRow === null && typeof input?.token !== 'string' && storageRevision(chat) !== revision) throw new Error('正文或会话已变化，请重新打开编辑')
+    return { chat, index: requestedIndex, message, revision: storageRevision(chat), messageUid: null }
+  }
+  async function storyContext(sessionId, input, role) {
+    refuseClosedPatch()
+    const chat = await chats.forSession(sessionId)
+    if (!chat) throw new Error('会话不存在')
+    const agent = sessions.get(sessionId)
+    idle(chat, agent)
+    // Chat rows remain editable when an old save has no live native Session.
+    // Marker replay and Surface repair are downstream conveniences, not addressing.
+    if (agent?.session) await syncChatMarkers(agent, chat)
+    return { agent, ...storyRow(chat, input, role) }
+  }
+  // Valid prose edits only: same text parts, no new HTML, no empty reply.
+  function checkedTexts(parts, texts) {
+    if (!Array.isArray(texts) || texts.length !== parts.filter(part => part.kind === 'text').length || texts.some(text => typeof text !== 'string')) throw new Error('编辑文本格式无效')
+    if (!texts.some(text => text.trim())) throw new Error('正文不能为空')
+    if (texts.some(text => editableReplyParts(text).some(part => part.kind !== 'text'))) throw new Error('这里只能编辑文本，不能新增 HTML')
+  }
+  // Cards' status blocks must start on their own line. An edit box hides the blank lines
+  // around a text part, so keep the original edges when the edited text has none.
+  function joinedText(parts, texts) {
+    const keepEdges = (original, edited) => (/^\s/.test(edited) ? '' : original.match(/^\s*/)[0]) + edited + (/\s$/.test(edited) ? '' : original.match(/\s*$/)[0])
+    let index = 0
+    return parts.map(part => part.kind === 'text' ? keepEdges(part.text, texts[index++]) : part.text).join('')
+  }
+  async function editPatch(chat, message, text, kind, polished, target) {
+    const reply = message.bodyRegenerationProcessed === true ? projectProcessedReply(text) : await project(text, chat)
+    const patch = {
+      ...replyProse(text, { ...reply, projectionText: text }),
+      // The scene stays the original reply's (scene-illustration.js), however often it is reworded.
+      ...(kind === 'body.polish' ? { polishedFrom: message.polishedFrom || sceneSourceDigest(source(message)) } : {}),
+      ...(polished ? { polished: true } : {}),
+      ...(target ? { bodyEdit: { formatVersion: 4, id: 'tavern-body-edit:' + randomUUID(), seq: target.assistantSeq, turn: target.turn } } : {})
+    }
+    if (Array.isArray(message.swipes)) {
+      patch.swipes = structuredClone(message.swipes)
+      const swipe = Number(message.swipeId) || 0
+      if (typeof patch.swipes[swipe] === 'string') patch.swipes[swipe] = text
+    }
+    return patch
+  }
+  // Rewrite a native row only when its anchor/turn still locates this exact text.
+  // Earlier floors must be updated too: the next request reads this surface, not
+  // the Chat's edited copy. Ambiguous repeated or missing rows stay Chat-only.
+  function storyNativeTarget(chat, index, agent, message) {
+    if (!agent?.session || chat.messages[index]?.greeting === true) return null
+    const turn = Number(message && message.turn)
+    if (!Number.isSafeInteger(turn) || turn < 1) return null
+    const events = sessionEvents(agent.session)
+    const storedSeq = Number(message?.nativeAnchor?.reply)
+    const located = locateRegenerationSurface({ events, nodes: agent.session.surface?.nodes,
+      seq: Number.isSafeInteger(storedSeq) && storedSeq >= 0 ? storedSeq : undefined, turn })
+    if (!located) return null
+    const event = events.find(entry => Number(entry.seq) === Number(located.assistantSeq))
+    const content = event && event.data && event.data.message ? event.data.message.content : null
+    const text = Array.isArray(content) ? content.map(block => block && block.type === 'text' ? block.text : '').join('') : ''
+    return text === String(source(message)) ? located : null
+  }
+  // The last assistant row keeps the timeline's settlement semantics; a history row
+  // only changes its own prose (its settlement already happened and is not redone).
+  function applyStoryPatch(chat, index, message, patch, kind) {
+    const tail = index === chat.messages.length - 1 && chat.messages[index]?.greeting !== true
+    const turn = Number(message.turn)
+    if (tail && Number.isSafeInteger(turn) && turn > 0 && timeline && typeof timeline.apply === 'function') {
+      return timeline.apply({ chat, intent: { kind, turn, patch } }).chat
+    }
+    Object.assign(chat.messages[index], patch)
+    delete chat.messages[index].displayRuntime
+    delete chat.messages[index].sessionText
+    delete chat.messages[index].polishedFrom
+    if (patch.polished !== true) delete chat.messages[index].polished
+    return chat
+  }
+  async function context(sessionId) {
+    const { chat: opened, agent } = await openChat(sessionId)
+    let chat = opened
+    await syncChatMarkers(agent, chat)
     let message = latest(chat)
     const locate = () => locateRegenerationSurface({ events: sessionEvents(agent.session), nodes: agent.session.surface?.nodes, turn: message.turn })
     let target = locate()
-    // The save is the truth: bring the native tail back to it, then edit; if the
-    // round is still not there, edit the save and let repair carry the text over.
-    if (!target && typeof repairNative === 'function') {
-      await repairNative(sessionId, agent.session)
-      chat = await chats.forSession(sessionId)
-      idle(chat, agent)
-      message = latest(chat)
-      target = locate()
-    }
-    if (!target && typeof repairNative !== 'function') throw new Error('最后一轮正文已不在当前上下文中，无法编辑')
+    // Editing needs the round to still be in the model context. A missing round is
+    // refused here; nothing rewrites the native tail behind the player's back.
+    if (!target) throw new Error('最后一轮正文已不在当前上下文中，无法编辑')
     const parts = editableReplyParts(source(message))
     if (!parts.some(part => part.kind === 'text' && part.text.trim())) throw new Error('这轮只有 HTML，没有可编辑文本')
     return { chat, agent, message, target, parts }
@@ -141,13 +288,29 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       if (target && !agent.session.surface?.nodes.includes(target.assistantSeq)) throw new Error('模型上下文已变化，请重新打开编辑')
     } })
     if (!saved) return undefined
-    if (target) await synchronizeBodyEdits(agent.session, { messages: [row] }, sessions.flush)
-    else await repairNative(sessionId, agent.session)
+    await synchronizeBodyEdits(agent.session, { messages: [row] }, sessions.flush)
     return present(saved)
   }
-  async function read(sessionId) {
+  async function read(sessionId, input) {
+    if (hasStoryMessageIndex(input)) return readStoryMessage(sessionId, input)
     const { chat, message, parts } = await context(sessionId)
     return { token: token(chat, message), turn: message.turn, parts: parts.map(part => part.kind === 'text' ? part : { kind: part.kind }) }
+  }
+  // Story view: read the row the list points at (no turn, no native floor needed).
+  async function readStoryMessage(sessionId, input) {
+    const { chat, message, index, revision, messageUid } = await storyContext(sessionId, input, 'assistant')
+    const parts = editableReplyParts(source(message))
+    if (!parts.some(part => part.kind === 'text' && part.text.trim())) throw new Error('这轮只有 HTML，没有可编辑文本')
+    return {
+      role: 'assistant',
+      token: storyToken(chat, message, index, 'assistant', messageUid),
+      index,
+      messageIndex: index,
+      revision,
+      ...(messageUid ? { messageUid } : {}),
+      turn: Number(message.turn) || 0,
+      parts: parts.map(part => part.kind === 'text' ? part : { kind: part.kind })
+    }
   }
   // The last reply's text parts as saved, for reading only (the 精修 review): no editing lock,
   // so it reads while the turn's settlement still runs. Writing goes through read/polish.
@@ -165,28 +328,10 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       const { chat, agent, message, target, parts } = await context(sessionId)
       if (input?.token !== token(chat, message)) throw new Error('正文或会话已变化，请重新打开编辑')
       const texts = input.texts
-      if (!Array.isArray(texts) || texts.length !== parts.filter(part => part.kind === 'text').length || texts.some(text => typeof text !== 'string')) throw new Error('编辑文本格式无效')
-      if (!texts.some(text => text.trim())) throw new Error('正文不能为空')
-      if (texts.some(text => editableReplyParts(text).some(part => part.kind !== 'text'))) throw new Error('这里只能编辑文本，不能新增 HTML')
-      // Cards' status blocks must start on their own line. An edit box hides the blank lines
-      // around a text part, so keep the original edges when the edited text has none.
-      const keepEdges = (original, edited) => (/^\s/.test(edited) ? '' : original.match(/^\s*/)[0]) + edited + (/\s$/.test(edited) ? '' : original.match(/\s*$/)[0])
-      let index = 0
-      const text = parts.map(part => part.kind === 'text' ? keepEdges(part.text, texts[index++]) : part.text).join('')
+      checkedTexts(parts, texts)
+      const text = joinedText(parts, texts)
       if (text === source(message)) return present(chat)
-      const reply = message.bodyRegenerationProcessed === true ? projectProcessedReply(text) : await project(text, chat)
-      const patch = {
-        ...replyProse(text, { ...reply, projectionText: text }),
-        // The scene stays the original reply's (scene-illustration.js), however often it is reworded.
-        ...(kind === 'body.polish' ? { polishedFrom: message.polishedFrom || sceneSourceDigest(source(message)) } : {}),
-        ...(polished ? { polished: true } : {}),
-        ...(target ? { bodyEdit: { formatVersion: 4, id: 'tavern-body-edit:' + randomUUID(), seq: target.assistantSeq, turn: target.turn } } : {})
-      }
-      if (Array.isArray(message.swipes)) {
-        patch.swipes = structuredClone(message.swipes)
-        const swipe = Number(message.swipeId) || 0
-        if (typeof patch.swipes[swipe] === 'string') patch.swipes[swipe] = text
-      }
+      const patch = await editPatch(chat, message, text, kind, polished, target)
       // Validate on an isolated native Session before the durable Chat intent.
       // A rejected host event must never publish an edit that future requests
       // will keep trying (and failing) to synchronize. Accepted writes retain
@@ -204,14 +349,46 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
         return timeline.apply({ chat: current, intent: { kind, turn: message.turn, patch } }).chat
       }, { source: kind === 'body.polish' ? 'foreground.body-polish' : 'foreground.body-edit' })
       if (target) await synchronizeBodyEdits(agent.session, saved, sessions.flush)
-      else await repairNative(sessionId, agent.session)
+      return present(saved)
+    } finally { pending.delete(sessionId) }
+  }
+  // Story save: the row is chosen by its position, the token binds it to the save
+  // revision. A row without an exact native match is written to the Chat only.
+  async function saveStoryText(sessionId, input, kind = 'body.edit', { polished = kind === 'body.polish' } = {}) {
+    if (pending.has(sessionId)) throw new Error('正在保存正文，请稍候')
+    pending.add(sessionId)
+    try {
+      const { chat, agent, message, index, revision, messageUid } = await storyContext(sessionId, input, 'assistant')
+      if (input?.token !== storyToken(chat, message, index, 'assistant', messageUid)) throw new Error('正文或会话已变化，请重新打开编辑')
+      const parts = editableReplyParts(source(message))
+      if (!parts.some(part => part.kind === 'text' && part.text.trim())) throw new Error('这轮只有 HTML，没有可编辑文本')
+      checkedTexts(parts, input.texts)
+      const text = joinedText(parts, input.texts)
+      if (text === source(message)) return present(chat)
+      const target = storyNativeTarget(chat, index, agent, message)
+      const patch = await editPatch(chat, message, text, kind, polished, target)
+      // Validate on an isolated native Session before the durable Chat write, exactly
+      // like the last-reply path: a rejected host event must not publish the edit.
+      if (target) {
+        const preview = agent.session.constructor.fromRestore(agent.session.id, structuredClone(sessionEvents(agent.session)), structuredClone(agent.session.header), agent.session.inheritedEventCount, 'detached')
+        await synchronizeBodyEdits(preview, { messages: [{ ...message, ...patch }] }, async () => {})
+      }
+      const saved = await chats.update(chat.id, current => {
+        idle(current, agent)
+        const row = storyRow(current, { messageIndex: index, revision, messageUid }, 'assistant')
+        if (storyToken(current, row.message, row.index, 'assistant', messageUid) !== input.token) throw new Error('正文或会话已变化，请重新打开编辑')
+        return applyStoryPatch(current, row.index, row.message, patch, kind)
+      }, { source: kind === 'body.polish' ? 'foreground.body-polish' : 'foreground.body-edit' })
+      if (target) await synchronizeBodyEdits(agent.session, saved, sessions.flush)
       return present(saved)
     } finally { pending.delete(sessionId) }
   }
   // What hangs on the shown text version (dialogue speakers) follows the edit once it is saved.
   async function save(sessionId, input, options) {
     const carry = typeof beforeReplyEdit === 'function' ? await beforeReplyEdit(sessionId) : null
-    const saved = await saveText(sessionId, input, 'body.edit', options)
+    const saved = hasStoryMessageIndex(input)
+      ? await saveStoryText(sessionId, input, 'body.edit', options)
+      : await saveText(sessionId, input, 'body.edit', options)
     if (carry) await carry()
     return saved
   }
@@ -228,6 +405,22 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       if (native === turn || (message.bodyEdit && Number(message.bodyEdit.turn) === turn)) return { message, index }
     }
     return null
+  }
+  // A player row often carries no turn of its own; its native round is the reply's.
+  // This is used for the native floor only, never to pick the Chat row.
+  function userStoryTurn(chat, index, message) {
+    const own = Number(message && message.turn)
+    if (Number.isSafeInteger(own) && own > 0) return own
+    const reply = (chat.messages || [])[index + 1]
+    return Number(reply?.native?.turn) || Number(reply?.nativeAnchor?.turn) || Number(reply?.turn) || 0
+  }
+  // The native input floor for this row: only when it still holds the same text, so a
+  // repeated or missing turn cannot point at another message.
+  function userStoryFloor(agent, turn, original) {
+    if (!agent?.session || !Number.isSafeInteger(turn) || turn < 1) return null
+    const located = locateUserInputFloor(agent.session, turn)
+    if (!located) return null
+    return userInputText(located.event) === String(original) ? located : null
   }
   function userRecord(chat, turn) {
     const all = chat.userInputEdits
@@ -248,19 +441,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     const agent = sessions.get(sessionId)
     if (!agent?.session) throw new Error('无法访问原生会话')
     idle(chat, agent)
-    await synchronizeBodyEdits(agent.session, chat, sessions.flush, async (dirty, cleared) => {
-      const drop = new Set(cleared)
-      await chats.update(dirty.id, current => {
-        let changed = false
-        for (const message of current.messages || []) {
-          if (message.bodyEdit && drop.has(message.bodyEdit.id)) {
-            delete message.bodyEdit
-            changed = true
-          }
-        }
-        return changed ? current : undefined
-      }, { source: 'body-edit.stale-clear' })
-    })
+    await syncChatMarkers(agent, chat)
     chat = await chats.forSession(sessionId)
     if (!chat) throw new Error('会话不存在')
     idle(chat, agent)
@@ -290,15 +471,57 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     return { chat, agent, message: found?.message || null, index: found?.index ?? -1, turn, located, text, record, failed }
   }
   function userToken(chat, context) {
-    return createHash('sha256').update(JSON.stringify([chat.id, chat.timeline?.branchId, chat._storageRevision, context.turn, context.text,
+    // The native turn/seq, current text and edit marker identify this input;
+    // an unrelated Chat write must not invalidate an open editor.
+    return createHash('sha256').update(JSON.stringify([chat.id, chat.timeline?.branchId, context.turn, context.text,
       context.record?.id || '', context.message?.bodyEdit?.id || '', context.failed === true ? 'failed' : ''])).digest('hex')
   }
   async function readUser(sessionId, input) {
+    if (hasStoryMessageIndex(input)) return readStoryUser(sessionId, input)
     const context = await userContext(sessionId, input)
     return { token: userToken(context.chat, context), role: 'user', index: context.index, turn: context.turn, seq: context.located.seq,
       failed: context.failed === true, parts: [{ kind: 'text', text: context.text }] }
   }
+  // Story view: the pointed-at player row, even when its turn is missing, repeated or
+  // out of order; the row text is the save's own, never a turn's lookup result.
+  async function readStoryUser(sessionId, input) {
+    const { chat, message, index, revision, messageUid } = await storyContext(sessionId, input, 'user')
+    return { token: storyToken(chat, message, index, 'user', messageUid), role: 'user', index, messageIndex: index, revision,
+      ...(messageUid ? { messageUid } : {}), turn: Number(message.turn) || 0, seq: 0, failed: false,
+      parts: [{ kind: 'text', text: storyUserText(message) }] }
+  }
+  async function saveStoryUser(sessionId, input) {
+    if (pending.has(sessionId)) throw new Error('正在保存正文，请稍候')
+    pending.add(sessionId)
+    try {
+      const { chat, agent, message, index, revision, messageUid } = await storyContext(sessionId, input, 'user')
+      if (input?.token !== storyToken(chat, message, index, 'user', messageUid)) throw new Error('输入或会话已变化，请重新打开编辑')
+      const texts = input.texts
+      if (!Array.isArray(texts) || texts.length !== 1 || typeof texts[0] !== 'string') throw new Error('编辑文本格式无效')
+      const text = texts[0]
+      if (text.trim() === '') throw new Error('输入不能为空')
+      const before = storyUserText(message)
+      if (text === before) return present(chat)
+      const turn = userStoryTurn(chat, index, message)
+      // The native input floor is used only when it still holds this exact row's text;
+      // an ambiguous or missing round is repaired from the save instead.
+      const located = userStoryFloor(agent, turn, storyUserText(message))
+      const editId = 'tavern-user-edit:' + randomUUID()
+      const marker = located ? { id: editId, seq: Number(located.seq), turn, role: 'user' } : null
+      const saved = await chats.update(chat.id, current => {
+        idle(current, agent)
+        const row = storyRow(current, { messageIndex: index, revision, messageUid }, 'user')
+        if (storyToken(current, row.message, row.index, 'user', messageUid) !== input.token) throw new Error('输入或会话已变化，请重新打开编辑')
+        row.message.text = text
+        if (marker) row.message.bodyEdit = marker
+        return current
+      }, { source: 'foreground.user-edit' })
+      if (marker) await synchronizeBodyEdits(agent.session, saved, sessions.flush)
+      return present(saved)
+    } finally { pending.delete(sessionId) }
+  }
   async function saveUser(sessionId, input) {
+    if (hasStoryMessageIndex(input)) return saveStoryUser(sessionId, input)
     if (pending.has(sessionId)) throw new Error('正在保存正文，请稍候')
     pending.add(sessionId)
     try {

@@ -13,11 +13,11 @@ INSTALL_HOST=${DSH_TAVERN_HOST:-desktop}
 LAUNCHER_ONLY=0
 if [ "${1:-}" = "--launcher-only" ]; then
   LAUNCHER_ONLY=1
-  [ "$INSTALL_HOST" = desktop ] || { echo '安装失败：--launcher-only 仅用于官方 DeepSeek Harness。' >&2; exit 1; }
+  [ "$INSTALL_HOST" != cli ] || { echo '安装失败：--launcher-only 需要桌面宿主。' >&2; exit 1; }
 fi
 case ${INSTALL_HOST} in
-  desktop|cli) ;;
-  *) echo "安装失败：只支持官方桌面和独立命令行，不支持宿主 ${INSTALL_HOST}" >&2; exit 1 ;;
+  desktop|next|cli) ;;
+  *) echo "安装失败：不支持宿主 ${INSTALL_HOST}" >&2; exit 1 ;;
 esac
 
 REPOSITORY=${DSH_TAVERN_REPOSITORY:-flizzywine/dsh-tavern}
@@ -30,6 +30,7 @@ CDN_ROOT_URL=${DSH_TAVERN_CDN_ROOT_URL:-https://cdn.jsdelivr.net/gh/${REPOSITORY
 INSTALLER_VERSION='3.2.0'
 LEGACY_DSH_ROOT=${DSH_TAVERN_LEGACY_DSH_HOME:-${DSH_HOME:-${HOME}/.dsh}}
 DSH_ROOT=${DSH_HOME:-${HOME}/.dsh}
+if [ "${INSTALL_HOST}" = "next" ]; then DSH_ROOT=${DSH_HOME:-${DSH_DESKTOP_NEXT_HOME:-${HOME}/.dsh}}; fi
 if [ "${INSTALL_HOST}" = "cli" ]; then
   # CLI directory selection: explicit paths and existing installations never prompt.
   DSH_ROOT=${DSH_TAVERN_CLI_HOME:-}
@@ -133,17 +134,22 @@ fail() {
   exit 1
 }
 
-if [ "${INSTALL_HOST}" = "desktop" ]; then
+if [ "${INSTALL_HOST}" != "cli" ]; then
   desktop_executable=${DSH_DESKTOP_APP_EXECUTABLE:-}
+  desktop_name='DeepSeek Harness'
+  desktop_host_arg=
+  if [ "${INSTALL_HOST}" = "next" ]; then
+    desktop_executable=${DSH_TAVERN_NEXT_EXECUTABLE:-}
+    desktop_name='DSH NEXT'
+    desktop_host_arg=--next
+  fi
   if [ -z "$desktop_executable" ] && [ "$(uname -s)" = "Darwin" ]; then
-    # Only official DeepSeek Harness is supported.
-    for desktop_name in "DeepSeek Harness"; do
-      for desktop_app in "/Applications/${desktop_name}.app" "$HOME/Applications/${desktop_name}.app"; do
-        if [ -x "$desktop_app/Contents/MacOS/${desktop_name}" ]; then desktop_executable="$desktop_app/Contents/MacOS/${desktop_name}"; break 2; fi
-      done
+    for desktop_app in "/Applications/${desktop_name}.app" "$HOME/Applications/${desktop_name}.app"; do
+      if [ -x "$desktop_app/Contents/MacOS/${desktop_name}" ]; then desktop_executable="$desktop_app/Contents/MacOS/${desktop_name}"; break; fi
     done
   fi
   if ! { [ -n "$desktop_executable" ] && [ -x "$desktop_executable" ]; }; then
+    [ "${INSTALL_HOST}" != "next" ] || fail '请用 DSH_TAVERN_NEXT_EXECUTABLE 指定 DSH NEXT 的程序路径。'
     # A community app installed instead of the official one gets told where its installer is.
     for community_name in "DSH NEXT" "DSH Desktop"; do
       for community_app in "/Applications/${community_name}.app" "$HOME/Applications/${community_name}.app"; do
@@ -282,14 +288,43 @@ if (require.main === module) {
 DSH_OFFICIAL_DESKTOP_MODULE
   # Use the official desktop Electron runtime.
   desktop_runner=$desktop_executable
-  DSH_DESKTOP_APP_EXECUTABLE="$desktop_executable" ELECTRON_RUN_AS_NODE=1 "$desktop_runner" --expose-internals "${TEMP_DIR}/official-desktop-runtime.cjs" "$DSH_ROOT" --shell >"${TEMP_DIR}/desktop-env.sh" || fail "桌面运行环境校验失败"
+  DSH_DESKTOP_APP_EXECUTABLE="$desktop_executable" ELECTRON_RUN_AS_NODE=1 "$desktop_runner" --expose-internals "${TEMP_DIR}/official-desktop-runtime.cjs" "$DSH_ROOT" --shell ${desktop_host_arg:+"$desktop_host_arg"} >"${TEMP_DIR}/desktop-env.sh" || fail "桌面运行环境校验失败"
   . "${TEMP_DIR}/desktop-env.sh"
   if [ "$LAUNCHER_ONLY" -eq 1 ]; then
-    node -e 'const p = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); process.exit(p.dependencies?.["dsh-profile-bridge"] || p.dsh?.profile?.bundles?.includes("dsh-profile-bridge") ? 1 : 0)' "$desktop_profile/package.json" \
-      || fail '请检查原版 desktop 配置。如果已经安装 dsh-profile-bridge，请从插件页移除后再安装 dsh-tavern-launcher。'
-    launcher_url='https://raw.githubusercontent.com/flizzywine/dsh-tavern/refs/tags/launcher-cdn-v0.2.0-tavern.14/dsh-tavern-launcher-0.2.0-tavern.14.tgz'
+    node - "$desktop_profile" <<'DSH_CHECK_LAUNCHER' || fail '请检查原版 desktop 配置。'
+const { readFileSync } = require('node:fs')
+const { join } = require('node:path')
+const directory = process.argv[2]
+const profile = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+const hasBundle = name => Object.hasOwn(profile.dependencies ?? {}, name) || profile.dsh?.profile?.bundles?.includes(name)
+for (const name of profile.dsh?.profile?.bundles ?? []) {
+  if (name === 'dsh-tavern' || name === '.' || name === '..' || !/^(?:@[\w.-]+\/)?[\w.-]+$/.test(name)) continue
+  let installed
+  try { installed = JSON.parse(readFileSync(join(directory, 'node_modules', name, 'package.json'), 'utf8')) } catch { continue }
+  const repo = installed.repository?.url
+  const ownNext = repo === 'git+https://github.com/flizzywine/dsh-tavern.git' && installed.dshTavern?.profileHandoff === true
+  let patch = ''
+  if (installed.dsh?.bundle?.patch === './cordis.patch.yml') {
+    try { patch = readFileSync(join(directory, 'node_modules', name, 'cordis.patch.yml'), 'utf8') } catch {}
+  }
+  if (ownNext || /^\s*-\s+id:\s+profile-bridge\s*$/m.test(patch)) {
+    console.error('请从插件页移除旧启动器 ' + name + '，再安装 dsh-tavern。')
+    process.exit(1)
+  }
+}
+if (hasBundle('dsh-tavern')) {
+  let installed
+  try { installed = JSON.parse(readFileSync(join(directory, 'node_modules/dsh-tavern/package.json'), 'utf8')) } catch {}
+  const repository = installed?.repository
+  if (repository?.url !== 'git+https://github.com/flizzywine/dsh-tavern.git' || (repository.directory !== 'tavern-plugin/packages/dsh-tavern' && installed.dshTavern?.profileHandoff !== true)) {
+    console.error('当前 Profile 已有同名的 dsh-tavern 插件，请检查其来源后再安装酒馆。')
+    process.exit(1)
+  }
+}
+DSH_CHECK_LAUNCHER
+    launcher_url='https://github.com/flizzywine/dsh-tavern/releases/download/launcher-current/dsh-tavern.tgz'
     dsh plugin --profile desktop add "$launcher_url" || fail '安装酒馆启动器失败。'
-    printf '%s\n' '酒馆启动器已安装。打开官方 DeepSeek Harness，进入「设置 → 酒馆启动器 → 安装酒馆」。'
+    printf '%s\n' '酒馆启动器已安装。打开桌面，进入「设置 → 酒馆启动器 → 安装酒馆」。'
     INSTALL_COMPLETED=1
     exit 0
   fi
@@ -1099,11 +1134,36 @@ function runtimeFiles(metadata) {
 
 // jsDelivr's nodes keep separate caches of the mutable @branch manifest, and a purge is often
 // throttled after a release: ask all of them and keep the newest (CI's release sequence).
+// raw.githubusercontent.com reads the branch/commit directly and has no such alias cache, so a
+// jsDelivr `gh` URL is also asked at its raw equivalent, first, and raw wins when it is reachable.
 const JSDELIVR_NODES = ['cdn.jsdelivr.net', 'fastly.jsdelivr.net', 'gcore.jsdelivr.net']
+const RAW_HOST = 'raw.githubusercontent.com'
+const RAW_ORIGIN = `https://${RAW_HOST}`
+
+// <cdn.jsdelivr.net/gh/OWNER/REPO@ref/PATH> -> <raw.githubusercontent.com/OWNER/REPO/ref/PATH>.
+// The CDN distribution branch carries the source branch name with a `runtime-archive-` prefix.
+function rawMirror(url) {
+  let parsed
+  try { parsed = new URL(url) } catch { return null }
+  if (parsed.hostname !== JSDELIVR_NODES[0] || !parsed.pathname.startsWith('/gh/')) return null
+  const parts = parsed.pathname.slice('/gh/'.length).split('/')
+  const owner = parts[0]
+  const repoRef = parts[1] || ''
+  const at = repoRef.lastIndexOf('@')
+  if (!owner || at <= 0) return null
+  const repo = repoRef.slice(0, at)
+  const ref = repoRef.slice(at + 1).replace(/^runtime-archive-/, '')
+  const rest = parts.slice(2).join('/')
+  if (!repo || !ref || !rest) return null
+  return `${RAW_ORIGIN}/${owner}/${repo}/${ref}/${rest}`
+}
+
 function manifestCandidates(metadataUrl, exact) {
   const url = new URL(metadataUrl)
   if (exact || url.hostname !== JSDELIVR_NODES[0] || !/@[^/]+\/dsh-tavern-runtime\.json$/.test(url.pathname)) return [metadataUrl]
-  return JSDELIVR_NODES.map(host => { const each = new URL(url); each.hostname = host; return each.href })
+  const raw = rawMirror(metadataUrl)
+  const nodes = JSDELIVR_NODES.map(host => { const each = new URL(url); each.hostname = host; return each.href })
+  return raw ? [raw, ...nodes] : nodes
 }
 function compareVersions(left, right) {
   const parts = value => String(value || '').split(/[-+]/)[0].split('.').map(part => Number(part) || 0)
@@ -1114,7 +1174,10 @@ function compareVersions(left, right) {
 async function readManifest({ metadataUrl, exact, minVersion, stallMs, attempts, fetch: request, status = () => {} }) {
   const urls = manifestCandidates(metadataUrl, exact)
   const results = await Promise.allSettled(urls.map(async url => {
-    const { bytes } = await download([url], { label: '运行清单', stallMs: Math.min(stallMs, 15000), attempts, fetch: request })
+    // raw 在受限网络里可能完全不通：给它更短的等待，别让主源拖慢整次安装。
+    const rawHost = hostOf(url) === RAW_HOST
+    const { bytes } = await download([url], { label: '运行清单', stallMs: Math.min(stallMs, rawHost ? 4000 : 15000),
+      attempts: rawHost ? 1 : attempts, fetch: request })
     const metadata = JSON.parse(bytes.toString('utf8'))
     runtimeFiles(metadata)
     return { url, metadata }
@@ -1168,8 +1231,12 @@ function runtimeArchive(metadata) {
 // Every jsDelivr node, starting with the one the installer named, for the immutable archive URL.
 function archiveUrls(rootUrl, archive) {
   const first = new URL(`${rootUrl}@${archive.commit}/${archive.path}`)
-  if (!JSDELIVR_NODES.includes(first.hostname)) return [first.href]
-  return [first.hostname, ...JSDELIVR_NODES.filter(host => host !== first.hostname)].map(host => { const each = new URL(first); each.hostname = host; return each.href })
+  const raw = rawMirror(first.href)
+  if (!JSDELIVR_NODES.includes(first.hostname)) return raw ? [first.href, raw] : [first.href]
+  const urls = [first.hostname, ...JSDELIVR_NODES.filter(host => host !== first.hostname)].map(host => { const each = new URL(first); each.hostname = host; return each.href })
+  // 孤儿归档提交可能还没被 CDN 抓到；raw 按提交直读，放在最后兜底。
+  if (raw) urls.push(raw)
+  return urls
 }
 
 // Download the runtime files listed by a jsDelivr manifest into `destination`.
@@ -1224,7 +1291,8 @@ async function downloadRuntime({ metadataUrl, rootUrl, destination, installed, c
       }
       if (!content) {
         const url = `${rootUrl}@${metadata.revision}/${parts.map(encodeURIComponent).join('/')}`
-        content = (await download([url], { label: file.path, sha256: file.sha256, stallMs, attempts, signal, fetch: request,
+        const mirrors = [url, rawMirror(url)].filter(Boolean)
+        content = (await download(mirrors, { label: file.path, sha256: file.sha256, stallMs, attempts, signal, fetch: request,
           onRetry: ({ attempt, attempts: total, reason, willRetry }) => status(`下载失败（${source}）：${file.path}，${reason}；尝试 ${attempt}/${total}${willRetry ? '，正在重试' : '，将切换备用方案'}。`),
         })).bytes
         received += content.length
@@ -1393,7 +1461,7 @@ async function main(argv) {
   throw new Error(`未知命令：${command || '(空)'}`)
 }
 
-module.exports = { download, downloadFile, downloadRuntime, unzipEntries, readManifest, manifestCandidates, compareVersions, describeFailure, runtimeFiles, proxyEnvironment, applyProxyEnvironment, DownloadError, RUNTIME_PATH }
+module.exports = { download, downloadFile, downloadRuntime, unzipEntries, readManifest, manifestCandidates, archiveUrls, rawMirror, compareVersions, describeFailure, runtimeFiles, proxyEnvironment, applyProxyEnvironment, DownloadError, RUNTIME_PATH }
 
 if (require.main === module) {
   main(process.argv.slice(2)).catch(error => { console.error(error.message); process.exitCode = 1 })
@@ -1426,6 +1494,9 @@ else
 fi
 [ -n "${SOURCE_DIR}" ] || fail "下载内容不完整。"
 [ -f "${SOURCE_DIR}/package.json" ] || fail "下载内容不完整。"
+if [ "${INSTALL_HOST}" = "next" ]; then
+  grep -Fq DSH_TAVERN_UNIFIED_DESKTOP "${SOURCE_DIR}/bin/profile-installation.mjs" || fail "下载源尚未同步统一桌面安装支持，请稍后重试。"
+fi
 if [ "${DSH_TAVERN_INSTALL_INACTIVE:-0}" = "1" ]; then
   grep -Fq DSH_TAVERN_INSTALL_INACTIVE "${SOURCE_DIR}/bin/profile-installation.mjs" || fail "下载源尚未同步独立安装支持，请稍后重试。"
 fi
@@ -1479,7 +1550,7 @@ if [ "${INSTALL_HOST}" != "cli" ]; then
 fi
 
 STAGER=${SOURCE_DIR}/bin/staged-app-install.mjs
-if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" = "cli" ] && [ -f "${STAGER}" ]; }; then
+if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" != "desktop" ] && [ -f "${STAGER}" ]; }; then
   # Prepare beside the running app; only the final switch stops the service, and a
   # failure after it restores the previous directory (see bin/staged-app-install.mjs).
   echo "正在准备新版本（当前版本继续运行）……"
@@ -1504,7 +1575,7 @@ if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" = "cli" ] && [
     if [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then PREVIOUS_APP=1; fi
   elif [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then
     PREVIOUS_APP=1
-    DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" stop >/dev/null 2>&1 || true
+    if [ "${INSTALL_HOST}" = "cli" ]; then DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" stop >/dev/null 2>&1 || true; fi
   fi
   APP_SWAPPED=1
   node "${STAGER}" swap --app "${APP_DIR}"
@@ -1545,6 +1616,8 @@ fi
 if [ "${INSTALL_HOST}" = "desktop" ]; then
   echo "DSH Tavern Desktop 版安装完成。"
   echo "酒馆已安装到独立 tavern 配置；首次安装保留原版默认入口，更新保留已有选择。需要默认打开酒馆时，请在设置 → 酒馆启动器中主动选择。"
+elif [ "${INSTALL_HOST}" = "next" ]; then
+  echo 'DSH Tavern 安装完成。请打开 DSH NEXT，进入「设置 → 酒馆启动器」切换到酒馆。'
 else
   if [ "${DSH_TAVERN_DEFER_SERVICE_START:-0}" != "1" ]; then
     DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" start

@@ -10,6 +10,7 @@ import { projectHistoryAsToolCalls } from './history-tool-call.js'
 import { markRequestHandled, requestHandledBy } from './request-lineage.js'
 import { inputKind } from './session-turn-input.js'
 import { isProducerSource, isSystemPromptSource } from './message-source.js'
+import { virtualWorldbookPromptText } from './worldbook-virtual-surface.js'
 
 const CARD_REFERENCE_SECTIONS = new Set(['tavern:character-card', 'tavern:card-system-prompt', 'tavern:constant-worldbook'])
 // The card Agent resends its system prompt on every tool step and reads live
@@ -52,6 +53,11 @@ function isTurnInput(message) {
 
 function userTextOf(messages) {
   return (Array.isArray(messages) ? messages : []).filter(isTurnInput).map(contentText).filter(Boolean).join('\n').trim()
+}
+
+function userContentOf(messages) {
+  const input = (Array.isArray(messages) ? messages : []).findLast(isTurnInput)
+  return Array.isArray(input?.content) ? input.content : []
 }
 
 function replaceTurnInput(messages, text) {
@@ -276,6 +282,12 @@ function presetFrontSections(snapshot) {
 
 export function createNativePlayOrchestrationStrategy(options) {
   const stagedRequests = options.stagedRequests instanceof Map ? options.stagedRequests : new Map()
+  // DSH renders the assembled system sections after pre-step. Keep the empty
+  // section for this signal only, so the turn can fill it from its own frame.
+  const pendingWorldbookSections = new WeakMap()
+  function stageWorldbookSection({ agent, signal }, section) {
+    if (section && signal && !signal.aborted) pendingWorldbookSections.set(signal, { agent, section })
+  }
   // Digest of the front rendered by the latest assembly, and of the one last entered into a step.
   const renderedFronts = new Map()
   const enteredFronts = new Map()
@@ -295,6 +307,9 @@ export function createNativePlayOrchestrationStrategy(options) {
   async function prepareStep(input) {
     const sessionId = input.sessionId
     const payload = input.payload
+    const pending = pendingWorldbookSections.get(payload.signal)
+    const worldbookSection = pending && pending.agent === payload.agent ? pending.section : undefined
+    if (worldbookSection) pendingWorldbookSections.delete(payload.signal)
     const mode = await options.modeFor(sessionId)
     const visibleMessages = options.filterMessages(input.decision.messages, mode, {
       session: payload.agent?.session, disabledWritingSkills: input.chat?.disabledWritingSkills
@@ -331,9 +346,15 @@ export function createNativePlayOrchestrationStrategy(options) {
       })
     }
     if (Number(payload.step) === 1) {
-      const prepared = await options.prepareTurn({ sessionId, turn: payload.turn, requestId: input.requestId, userText: userTextOf(payload.messages), runtimePresetSnapshot: snapshot })
+      const prepared = await options.prepareTurn({ sessionId, turn: payload.turn, requestId: input.requestId,
+        userText: userTextOf(payload.messages), userContent: userContentOf(payload.messages), runtimePresetSnapshot: snapshot })
       if (prepared && prepared.duplicate) throw new Error('该消息已由酒馆处理，请勿重复发送')
       if (mode === 'story' || mode === 'script') {
+        const source = prepared.frame.source
+        const worldbookPrefix = source?.regenerationMaterials?.worldbookPrefix
+        if (worldbookSection && !input.chat?.regenInProgress && source?.worldBook?.virtualWorldbook && typeof worldbookPrefix === 'string') {
+          worldbookSection.text = virtualWorldbookPromptText(worldbookPrefix)
+        }
         agentMessages = replaceTurnInput(agentMessages, prepared.frame.userInput.projectedText)
         const adapted = options.appendFrame({ messages: agentMessages, frame: prepared.frame, step: payload.step, session: payload.agent?.session })
         agentMessages = adapted.messages
@@ -528,7 +549,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     return assembly
   }
 
-  return Object.freeze({ kind: 'native-play', prepareStep, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt })
+  return Object.freeze({ kind: 'native-play', prepareStep, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt, stageWorldbookSection })
 }
 
 export function createForegroundOrchestrationStrategies(options) {
@@ -563,5 +584,5 @@ export function createForegroundOrchestrationStrategies(options) {
     return await nativePlay.assembleSystemPrompt(assembly, input)
   }
 
-  return Object.freeze({ prepareStep, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt })
+  return Object.freeze({ prepareStep, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt, stageWorldbookSection: nativePlay.stageWorldbookSection })
 }

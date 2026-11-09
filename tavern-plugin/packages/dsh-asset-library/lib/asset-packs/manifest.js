@@ -1,3 +1,5 @@
+export { ASSET_KINDS } from '../shared/asset-pack-refs.js'
+export const BUNDLE_KINDS = Object.freeze(['live2d', 'spine', 'widget', 'skin', 'performance', 'entrance', 'video'])
 import { assertJson, check, shape, text, integer, bool, oneOf, version, array, unique, extensions, record, relativePath, validateUuid, validateShortId, validateHash, ASSET_KINDS } from './common.js'
 import { validateFiles } from './hash.js'
 import { validateCopiedFrom } from './copied-from.js'
@@ -53,7 +55,7 @@ export function validateAsset(value, path = '$') {
   assertJson(value)
   // a standalone skin entry is only an imported theme — no 启用 / 关闭 state.
   const common = value?.kind === 'skins' ? ['kind', 'id', 'name', 'recall', 'directorNote'] : ['kind', 'id', 'name', 'enabled', 'recall', 'directorNote']
-  check(value && [...ASSET_KINDS,'props'].includes(value.kind), path + '.kind')
+  check(value && ASSET_KINDS.includes(value.kind), path + '.kind')
   shape(value, [...common, ...(value.kind === 'skins' ? [] : ['skin']), 'remark', ...(value.kind === 'props' ? ['inventoryId'] : []), ...metadata.filter(field=>!value.variants || !ASSET_CONTENT_FIELDS[value.kind].includes(field)), ...(value.variants ? ['variants'] : ASSET_CONTENT_FIELDS[value.kind])], common, path)
   if (value.skin !== undefined) validateShortId(value.skin, path + '.skin')
   if (value.inventoryId !== undefined) text(value.inventoryId, path + '.inventoryId', 256)
@@ -167,7 +169,7 @@ export function validatePackManifest(value, path = '$') {
   record(value.sprites, path + '.sprites', (file, p, key) => { validateShortId(key, p); check(file === `sprites/${key}/manifest.json`, p) })
   record(value.bundles, path + '.bundles', (bundle, p, key) => {
     validateShortId(key, p); shape(bundle, ['kind', 'entry', 'contentHash'], ['kind', 'entry', 'contentHash'], p)
-    oneOf(bundle.kind, ['live2d', 'spine', 'widget', 'skin', 'performance', 'entrance', 'video'], p + '.kind'); relativePath(bundle.entry, p + '.entry'); validateHash(bundle.contentHash, p + '.contentHash')
+    oneOf(bundle.kind, BUNDLE_KINDS, p + '.kind'); relativePath(bundle.entry, p + '.entry'); validateHash(bundle.contentHash, p + '.contentHash')
   })
   record(value.blobs, path + '.blobs', (blob, p, hash) => { validateHash(hash, p); validateBlob(blob, p) })
   validateFiles(value.files, path + '.files')

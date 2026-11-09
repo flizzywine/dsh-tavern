@@ -19,6 +19,16 @@ test('安装前检测带参数的 Windows 和 macOS 桌面主进程', () => {
     'DeepSeek Harness',
   ]) assert.throws(() => assertDesktopStopped([], { requireGuiClosed: true, exec: ps(command) }), /完整退出 DeepSeek Harness/, command)
 })
+test('安装检查允许遗留的 Windows 崩溃报告进程，仍阻止桌面和宿主', () => {
+  const exe = '"C:\\Apps\\DSH NEXT.exe"'
+  const crashReporter = exe + ' --type=crashpad-handler --database="C:\\Users\\me\\Crashpad"'
+  const check = (...commands) => assertDesktopStopped([], { requireGuiClosed: true, platform: 'win32', pid: 1, exec: ps(...commands) })
+  assert.doesNotThrow(() => check(crashReporter))
+  assert.throws(() => check(crashReporter, exe), { code: 'DSH_DESKTOP_RUNNING' })
+  assert.throws(() => check(crashReporter, exe + ' --expose-internals host.js'), { code: 'DSH_DESKTOP_RUNNING' })
+  assert.throws(() => check(exe + ' --arg="--type=crashpad-handler"'), { code: 'DSH_DESKTOP_RUNNING' })
+  assert.throws(() => check(exe + ' --type=crashpad-handler-other'), { code: 'DSH_DESKTOP_RUNNING' })
+})
 test('安装器自身及其启动链以 Electron Node 模式运行桌面程序时不算 GUI 在运行', () => {
   const exe = '"C:\\Apps\\DeepSeek Harness\\DeepSeek Harness.exe"'
   const table = [

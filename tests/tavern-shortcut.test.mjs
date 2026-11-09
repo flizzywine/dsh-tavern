@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { createTavernShortcut, macLauncherScript, windowsLauncherScript } from '../tavern-plugin/packages/dsh-profile-bridge/lib/shortcut.mjs'
+import { createTavernShortcut, macLauncherScript, windowsLauncherScript } from '../tavern-plugin/packages/dsh-tavern/lib/shortcut.mjs'
 import { appWindowBrowser, desktopUsesTavern } from '../bin/tavern-window.mjs'
 
 test('应用图标完整保留正式 SVG Logo 的造型、线条和装饰', async () => {
@@ -17,7 +17,7 @@ test('应用图标完整保留正式 SVG Logo 的造型、线条和装饰', asyn
 })
 
 test('Windows 图标提供原生小尺寸和高清帧，避免从单张 192px 图片缩放', async () => {
-  const ico = await readFile(new URL('../tavern-plugin/packages/dsh-profile-bridge/assets/dsh-tavern-app.ico', import.meta.url))
+  const ico = await readFile(new URL('../tavern-plugin/packages/dsh-tavern/assets/dsh-tavern-app.ico', import.meta.url))
   assert.equal(ico.readUInt16LE(2), 1)
   const sizes = []
   let end = 6 + ico.readUInt16LE(4) * 16

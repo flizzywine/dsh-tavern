@@ -3,21 +3,21 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { inspectInstallation, validateInstallationRequest, performInstallation } from '../tavern-plugin/packages/dsh-profile-bridge/lib/installation.mjs'
+import { inspectInstallation, validateInstallationRequest, performInstallation } from '../tavern-plugin/packages/dsh-tavern/lib/installation.mjs'
 import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installation.mjs'
-import { switchProfile } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
+import { switchProfile } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 import location from '../bin/installation-location.cjs'
 const put = (p, value) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, typeof value === 'string' ? value : JSON.stringify(value)) }
-function fixture(t) {
+function fixture(t, host = 'desktop') {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-management-')))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const home = path.join(root, 'home'), app = path.join(home, 'apps/dsh-tavern')
   const paths = { home, stateDir: path.join(home, 'profile-bridge'), activeDir: path.join(home, 'profiles/desktop') }
   put(path.join(app, 'package.json'), { name: 'dsh-profile-tavern' })
-  put(path.join(app, '.dsh-tavern-local.json'), { host: 'desktop', dshHome: home })
+  put(path.join(app, '.dsh-tavern-local.json'), { host, dshHome: home })
   put(path.join(home, 'profiles/tavern/package.json'), { name: 'dsh-profile-tavern' })
   put(path.join(paths.activeDir, 'package.json'), { name: 'dsh-profile-desktop' })
-  put(path.join(home, 'logs/tavern-installation.json'), { host: 'desktop', dshHome: home, sourceRoot: app })
+  put(path.join(home, 'logs/tavern-installation.json'), { host, dshHome: home, sourceRoot: app })
   put(path.join(home, 'profile-data/tavern/data/cards/card.json'), 'card')
   put(path.join(home, 'profile-data/tavern/data/cache/fonts/verified-face'), 'cached-font')
   put(path.join(home, 'profile-data/tavern/sessions/session.json'), 'session')
@@ -76,8 +76,8 @@ test('failed rollback blocks retries with recovery required', async t => {
   await assert.rejects(performInstallation(plan(f), { link: () => { throw new Error('link failed') }, rename: (from, to) => { if (from.includes('.switch-backup-')) throw new Error('restore blocked'); return fs.renameSync(from, to) } }), e => e.recoveryRequired === true)
   assert.equal(inspectInstallation(f.paths).recoveryRequired, true)
 })
-test('uninstall quarantines app/profile but preserves original DSH and all Tavern data', async t => {
-  const f = fixture(t)
+for (const host of ['desktop', 'next']) test(`uninstall quarantines app/profile and preserves original DSH and Tavern data (${host})`, async t => {
+  const f = fixture(t, host)
   const result = await performInstallation(validateInstallationRequest(f.paths, 'uninstall', { confirmed: true }))
   assert.equal(fs.existsSync(f.app), false)
   assert.equal(fs.existsSync(path.join(f.home, 'profiles/tavern')), false)
@@ -226,7 +226,8 @@ test('lease lost after mutation does not roll back under a successor owner', asy
 
 for (const nextOperation of ['relocate', 'uninstall', 'relocate-rollback']) test(`relocated uninstall/reinstall keeps external data registered for another ${nextOperation}`, async t => {
   const f = fixture(t)
-  put(path.join(f.paths.activeDir, 'package.json'), { name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-profile-bridge'] } } })
+  put(path.join(f.paths.activeDir, 'package.json'), { name: 'dsh-profile-desktop', dsh: { profile: { bundles: ['official', 'dsh-tavern'] } } })
+  put(path.join(f.paths.activeDir, 'node_modules/dsh-tavern/package.json'), { name: 'dsh-tavern', license: 'MIT', repository: { url: 'git+https://github.com/flizzywine/dsh-tavern.git' }, dsh: { bundle: { patch: './cordis.patch.yml' } } })
   put(path.join(f.paths.activeDir, 'cordis.patch.yml'), '[]')
   await performInstallation(plan(f))
   const removed = await performInstallation(validateInstallationRequest(f.paths, 'uninstall', { confirmed: true }))

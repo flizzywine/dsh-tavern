@@ -47,7 +47,7 @@ export function initializationFixture(options = {}) {
     })
     return createConversationInitialization({
       cards: { read: async path => { state.reads++; await fail('card'); return path === card.path ? structuredClone(card) : undefined }, readChat: async () => structuredClone(card), script: async () => structuredClone(state.script), extensions: async () => structuredClone(state.extensions), startDefaults: async () => structuredClone(state.startDefaults || null) },
-      chats: { resolve: registry.resolve, publish: registry.publish, write }, snapshots,
+      chats: { resolve: registry.resolve, publish: registry.publish, write, writeHeader: options.writeHeader }, snapshots,
       timeline,
       userPreferenceProfile: options.userPreferenceProfile,
       presets: { fullSnapshot: async path => { state.presetReads++; state.presetPaths = [...(state.presetPaths || []), path]; await fail('preset'); return structuredClone(path ? { ...state.preset, presetPath: path } : state.preset) } },

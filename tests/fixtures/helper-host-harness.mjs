@@ -6,7 +6,8 @@ import { TAVERN_COMPATIBILITY_CAPABILITIES } from '../../tavern-plugin/lib/domai
 let descriptor
 vm.runInNewContext(await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8'), {
   // this Node harness has no presentation document or animation loops.
-  window: { forkForeground: { now: Date.now, setInterval, clearInterval }, __ModuleLoader__: { load(value) { descriptor = value } } }, console
+  window: { forkForeground: { now: Date.now, setInterval, clearInterval }, __ModuleLoader__: { load(value) { descriptor = value } } }, console,
+  TextEncoder, TextDecoder, structuredClone
 })
 export const helperClient = descriptor.factory(() => ({}))
 

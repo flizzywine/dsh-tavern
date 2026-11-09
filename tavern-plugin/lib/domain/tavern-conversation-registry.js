@@ -61,6 +61,7 @@ function sameSummary(left, right) {
  */
 export function createTavernConversationRegistry(options = {}) {
   const store = options.store || {}
+  const stage = (name, operation) => typeof options.trace?.stage === 'function' ? options.trace.stage(name, operation) : operation()
   for (const method of ['readLinks', 'updateLinks', 'readIndex', 'updateIndex', 'readChat', 'writeChat', 'removeChat']) {
     if (typeof store[method] !== 'function') throw new Error('Tavern Conversation Registry 缺少 store.' + method)
   }
@@ -146,28 +147,33 @@ export function createTavernConversationRegistry(options = {}) {
     return found
   }
 
-  async function publish(chat) {
+  async function publish(chat, { assertUnboundSession } = {}) {
     if (!chat || str(chat.id) === '') throw new Error('不能发布没有 id 的 Tavern Chat')
     const sessionId = str(chat.sessionId)
     let chatWritten = false
     let linked = false
     try {
-      await store.writeChat(chat, { source: 'chat.create' })
+      await stage('publish.writeChat', () => store.writeChat(chat, { source: 'chat.create' }))
       chatWritten = true
       if (sessionId !== '') {
-        await store.updateLinks(function (value) {
+        await stage('publish.updateLinks', () => store.updateLinks(function (value) {
           const current = Object.assign({}, normalizeLinks(value))
           if (current[sessionId] === chat.id) return undefined
+          if (assertUnboundSession) {
+            // Concurrent forks can both pass the initial check before either writes the link.
+            if (Object.hasOwn(current, sessionId)) throw new Error('分叉目标必须是尚未绑定对话的新 Session')
+            assertUnboundSession()
+          }
           current[sessionId] = chat.id
           return current
-        })
+        }))
         linked = true
       }
-      await store.updateIndex(index => {
+      await stage('publish.updateIndex', () => store.updateIndex(index => {
         const rows = chatRows(index).filter(item => item.id !== chat.id)
         rows.push(chatSummary(chat))
         return { ...index, chats: rows }
-      })
+      }))
       return chat
     } catch (error) {
       if (linked) {

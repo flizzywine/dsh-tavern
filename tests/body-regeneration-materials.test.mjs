@@ -44,6 +44,22 @@ test('materials expose original inputs and authoritative preturn state without h
   assert.equal(materials.card.description, '原始人物设定')
 })
 
+test('materials use the selected earlier input without dropping independent replies', () => {
+  const input = setup()
+  input.chat.messages.splice(2, 0, { role: 'assistant', turn: 90, text: '独立正文', sourceText: '独立正文' })
+  const result = buildBodyRegenerationMaterials({ ...input, assistantIndex: 3, inputIndex: 1 })
+  assert.deepEqual(result.input, { raw: '推开门', projected: '【玩家输入】推开门' })
+  assert.deepEqual(result.history.map(row => row.text), ['完整开场', '独立正文'])
+})
+
+test('materials accept a withdrawn player row as explicit empty input', () => {
+  const input = setup()
+  input.chat.messages.splice(1, 1)
+  const result = buildBodyRegenerationMaterials({ ...input, assistantIndex: 1, inputIndex: -1 })
+  assert.deepEqual(result.input, { raw: '', projected: '' })
+  assert.deepEqual(result.history.map(row => row.text), ['完整开场'])
+})
+
 test('canonical visible history excludes hidden work, discarded swipes and suppressed rounds without truncation', () => {
   const rows = [{ role: 'assistant', greeting: true, turn: 1, projectionText: '开场' },
     { role: 'system', text: 'private-system' }, { role: 'tool', text: 'private-tool' },

@@ -795,9 +795,10 @@ window.__ModuleLoader__.load({
 		}
 
 
-		function useLiveTavernView(sessionId, revision, paths) {
+		function useLiveTavernView(sessionId, revision, paths, subscribeOptions) {
             const dependencyKey = JSON.stringify(paths);
-			const subscribe = React.useCallback(function (notify) { return liveTavernView.subscribe(sessionId, notify, paths); }, [sessionId, dependencyKey]);
+            const deferLoad = subscribeOptions && subscribeOptions.deferLoad === true;
+			const subscribe = React.useCallback(function (notify) { return liveTavernView.subscribe(sessionId, notify, paths, { deferLoad: deferLoad }); }, [sessionId, dependencyKey, deferLoad]);
 			const snapshot = React.useCallback(function () { return liveTavernView.getSnapshot(sessionId); }, [sessionId]);
 			const state = React.useSyncExternalStore(subscribe, snapshot, snapshot);
 			const previous = React.useRef({ sessionId: sessionId, revision: revision });
@@ -939,6 +940,10 @@ window.__ModuleLoader__.load({
 // @include features/message-deletion.js
 // @include features/assistant-renderer.js
 
+// @include features/story-transcript-data.js
+// @include modules/story-external-history.js
+// @include features/story-transcript-list.js
+
 // @include features/card-list.js
 
 // @include-domain update-status-controller.js
@@ -1009,12 +1014,13 @@ function clipReplayCore() {
 
 
 
+		const storyTranscriptFeature = createTavernStoryTranscriptFeature();
 		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "commandUi", "betterSidebar", "remote", "remote.commands", "remote.session", "tavernSessionSignals", "theme", "modelDirectories", "remote.settings"]; // host theme, shared model directory, settings writes (「能看图」)
 
 		// @include tavern-presentation.js
 
 		function apply(ctx) {
-			// The profile switch page (dsh-profile-bridge) names itself by side from this flag.
+			// The Tavern profile switch page names itself by side from this flag.
 			window.__dshTavernLoaded = true;
             installTavernPresentation(ctx);
             // Stage registration is deferred until its optional client plugin mounts.
@@ -1256,6 +1262,7 @@ function clipReplayCore() {
 			playControlsFeature.register({ ctx: ctx, slots: slots });
 			messageDeletionFeature.register({ ctx: ctx, slots: slots });
 			assistantRendererFeature.register({ ctx: ctx, slots: slots });
+			storyTranscriptFeature.register({ ctx: ctx, slots: slots });
 			tavernReplyObserverFeature.register({ ctx: ctx, slots: slots });
 			ctx.effect(function () {
 				return slots.inject("conversation.input.right", function () { return slots.register({
@@ -1374,6 +1381,7 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.tavernMvuReceiptForTurn = tavernMvuReceiptForTurn;
 		exports.tavernUserTextForTurn = tavernUserTextForTurn;
 		exports.createTavernFrameSlashExecutor = createTavernFrameSlashExecutor;
+		exports.installTavernPlayerInputPersistence = installTavernPlayerInputPersistence;
 		exports.createWorldBookLibraryRefreshModule = createWorldBookLibraryRefreshModule;
 		exports.groupWorldBookEditorEntries = groupWorldBookEditorEntries;
 		exports.orderWorldBookCatalogItems = orderWorldBookCatalogItems;
@@ -1420,6 +1428,9 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.createCardLibraryFeatureModule = createCardLibraryFeatureModule;
 		exports.createPlayControlsFeatureModule = createPlayControlsFeatureModule;
 		exports.createTavernAssistantRendererFeatureModule = createTavernAssistantRendererFeatureModule;
+		exports.createTavernStoryTranscriptDataModule = createTavernStoryTranscriptDataModule;
+		exports.createTavernStoryTranscriptFeature = createTavernStoryTranscriptFeature;
+		exports.installTavernStoryExternalHistory = installTavernStoryExternalHistory;
 		exports.createTavernShellFeatureModule = createTavernShellFeatureModule;
 		exports.createTavernRuntimeGenerationMonitor = createTavernRuntimeGenerationMonitor;
 		// @include modules/reply-reveal.js

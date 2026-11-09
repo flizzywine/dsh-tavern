@@ -105,7 +105,7 @@
 				setEntryOpen(ref, true);
 				const entries = (draft.entries || []).concat([{
 					ref: ref, comment: "新条目", title: "新条目", content: "", enabled: true,
-					primaryKeys: [], secondaryKeys: [], constant: false, selective: false, selectiveLogic: 0, order: 100,
+					primaryKeys: [], secondaryKeys: [], constant: false, channelInherited: true, selective: false, selectiveLogic: 0, order: 100,
 					position: initial.format === "sillytavern-worldbook" ? 0 : "after_char", depth: 4, role: 0,
 					probabilityEnabled: true, probability: 100, caseSensitive: false, matchWholeWords: false,
 				}]);
@@ -118,7 +118,7 @@
 				editDraft(Object.assign({}, draft, { entries: (draft.entries || []).filter(function (_entry, itemIndex) { return itemIndex !== index; }) }));
 			}
 			function entryPatch(entry) {
-				return {
+				const patch = {
 					comment: entry.comment, content: entry.content, enabled: entry.enabled, primaryKeys: entry.primaryKeys,
 					secondaryKeys: entry.secondaryKeys, constant: entry.constant, selective: entry.selective,
 					selectiveLogic: entry.selectiveLogic, vectorized: entry.vectorized, order: entry.order,
@@ -128,6 +128,49 @@
 					excludeRecursion: entry.excludeRecursion, preventRecursion: entry.preventRecursion, group: entry.group,
 					groupOverride: entry.groupOverride, groupWeight: entry.groupWeight, useGroupScoring: entry.useGroupScoring, delayUntilRecursion: entry.delayUntilRecursion,
 				};
+				// An entry only owns a channel once someone overrides it here; otherwise it
+				// follows the book-wide default and this patch must not freeze a copy.
+				// Clearing an explicit channel has to write 'auto' so the key really goes away.
+				if (entry.channelInherited !== true || entry.channelCleared === true) patch.channel = channelOf(entry);
+				return patch;
+			}
+			const CHANNEL_OPTIONS = [
+				{ value: "auto", label: "自动" },
+				{ value: "prefix", label: "稳定前缀" },
+				{ value: "tail", label: "每轮尾部" },
+			];
+			const CHANNEL_LABELS = { auto: "自动", prefix: "稳定前缀", tail: "每轮尾部" };
+			const CHANNEL_INHERIT = "";
+			const CHANNEL_HINTS = {
+				auto: "自动：常驻且内容不变的进稳定前缀；会变、带模板或随机、或非常驻的进每轮尾部。",
+				prefix: "稳定前缀：固定设定放这里最省 token，改一次才重建一次；含模板或随机的条目仍走每轮尾部。",
+				tail: "每轮尾部：每轮都贴着最新消息出现，注意力最高；不看触发词、不吃冷却，但同样计入 Token 预算。",
+			};
+			function channelOf(entry) { const value = String(entry && entry.channel || "auto"); return CHANNEL_HINTS[value] ? value : "auto"; }
+			function bookChannel() { const value = String(draft.channel || "auto"); return CHANNEL_LABELS[value] ? value : "auto"; }
+			function channelSelect(entry, index) {
+				const inherited = entry.channelInherited !== false;
+				const options = [{ value: CHANNEL_INHERIT, label: "跟随整本（" + CHANNEL_LABELS[bookChannel()] + "）" }].concat(CHANNEL_OPTIONS);
+				return h("select", {
+					"aria-label": "注入通道",
+					value: inherited ? CHANNEL_INHERIT : channelOf(entry),
+					onChange: function (event) {
+						const next = event.target.value;
+						if (next === CHANNEL_INHERIT) updateEntry(index, { channel: "auto", channelInherited: true, channelCleared: true });
+						else updateEntry(index, { channel: next, channelInherited: false, channelCleared: false });
+					}
+				}, options.map(function (option) { return h("option", { key: option.value || "inherit", value: option.value }, option.label); }));
+			}
+			// One switch for the whole book: it moves the default and stamps every entry in
+			// the draft, so one save changes the book outright. Any entry can still be
+			// switched to 跟随整本 or to a different channel afterwards.
+			function applyBookChannel(value) {
+				editDraft(Object.assign({}, draft, {
+					channel: value,
+					entries: (draft.entries || []).map(function (entry) {
+						return Object.assign({}, entry, { channel: value, channelInherited: false, channelCleared: false });
+					})
+				}));
 			}
 			async function save() {
 				setBusy(true); setError("");
@@ -147,6 +190,7 @@
 					if (draft.tokenBudget !== initial.tokenBudget) update.tokenBudget = draft.tokenBudget;
 					if (draft.scanDepth !== initial.scanDepth) update.scanDepth = draft.scanDepth;
 					if (draft.recursiveScanning !== initial.recursiveScanning) update.recursiveScanning = draft.recursiveScanning;
+					if (bookChannel() !== (CHANNEL_LABELS[String(initial.channel || "auto")] ? String(initial.channel) : "auto")) update.channel = bookChannel();
 					const result = await rpc("updateWorldBook", { source: props.record.source, update: update }, props.sessionId);
 					props.onSaved(result); notifyTavernDataChanged(["worldbooks", "cards"], "worldbooks");
 				} catch (err) { setError(String(err && err.message || err)); }
@@ -183,6 +227,8 @@
 
                         h("details", null, h("summary", null, "激活规则"),
                           h("p", { className: "dsh-tavern-card-field-hint" }, "扫描当前输入和最近消息；非常驻条目共用估算 Token 软预算，沿用 10 轮冷却。排序越大越优先入选，同一位置内排序越小越靠前。位置用于分组编排，暂不映射到 ST 的精确消息锚点。"),
+                          h("div", { className: "dsh-tavern-card-field" }, h("label", null, "注入通道"), channelSelect(entry, index),
+                            h("span", { className: "dsh-tavern-card-field-hint" }, (entry.channelInherited === false ? "" : "跟随整本默认（" + CHANNEL_LABELS[bookChannel()] + "）。") + CHANNEL_HINTS[channelOf(entry)])),
                           h("div", { className: "dsh-tavern-worldbook-grid" },
                             h("label", null, "扫描消息数（留空跟随世界书）", h("input", { type: "number", min: 0, max: 1000, value: entry.scanDepth ?? "", onChange: function (event) { updateEntry(index, { scanDepth: event.target.value === "" ? null : numeric(event.target.value, 2) }); } })),
                             h("label", null, "二级条件逻辑", h("select", { value: entry.selectiveLogic || 0, onChange: function (event) { updateEntry(index, { selectiveLogic: Number(event.target.value) }); } }, ["至少一个命中", "不全部命中", "全部不命中", "全部命中"].map(function (label, value) { return h("option", { key: value, value: value }, label); }))),
@@ -230,6 +276,12 @@
 					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "世界书名称"), h("input", { value: draft.displayName || "", onChange: function (event) { editDraft(Object.assign({}, draft, { displayName: event.target.value })); } })),
 					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "说明"), h("textarea", { value: draft.description || "", onChange: function (event) { editDraft(Object.assign({}, draft, { description: event.target.value })); } })),
                     h("div", { className: "dsh-tavern-worldbook-summary" }, draft.entries.length + " 个条目 · " + draft.entries.filter(function (entry) { return entry.enabled !== false; }).length + " 个启用"),
+					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "整本注入通道"),
+						h("div", { className: "dsh-tavern-worldbook-checks" }, CHANNEL_OPTIONS.map(function (option) {
+							const active = bookChannel() === option.value;
+							return h("button", { key: option.value, type: "button", className: "dsh-tavern-worldbook-kind" + (active ? " is-active" : ""), "aria-pressed": active, onClick: function () { applyBookChannel(option.value); } }, option.label);
+						})),
+						h("span", { className: "dsh-tavern-card-field-hint" }, "一键把全部 " + draft.entries.length + " 个条目设为该通道，同时作为整本默认（之后新增的条目自动跟随）；设完还能在条目里单独改成别的通道。当前默认：" + CHANNEL_LABELS[bookChannel()] + "。固定设定用稳定前缀，随时会切换、需要更高注意力的用每轮尾部。")),
 					(initial.diagnostics || []).map(function (item, index) { return h("div", { key: index, className: "dsh-tavern-dock-error" }, item.message); }),
 					h("div", { className: "dsh-tavern-worldbook-head" }, h("span", { className: "dsh-tavern-worldbook-title" }, "条目"), h("button", { className: "dsh-tavern-worldbook-add", onClick: addEntry }, "＋ 新增条目")),
 					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "搜索条目"), h("input", { type: "search", value: query, placeholder: "搜索标题、正文或触发词", onChange: function (event) { setQuery(event.target.value); } }), h("span", null, "匹配 " + (entryGroups.constant.length + entryGroups.dynamic.length + entryGroups.background.length) + " / " + draft.entries.length + " 条")),

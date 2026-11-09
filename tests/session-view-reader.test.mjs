@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createSessionViewReader } from '../tavern-plugin/lib/domain/session-view-reader.js'
+import { projectChatSessionState } from '../tavern-plugin/lib/domain/chat-session-state.js'
 const gate=()=>{let resolve;const promise=new Promise(done=>{resolve=done});return {promise,resolve}}
 function fixture() {
   let chat={id:'c',sessionId:'s',mode:'story',cardPath:'card',_storageRevision:1,messages:[{role:'assistant',text:'one'}]}
@@ -13,7 +14,7 @@ function fixture() {
     activity:()=>({busy:false}),foregroundRunning:()=>false,trace:{stage:(_name,fn)=>fn(),state:state=>states.push(state)},
     synchronize:(_id,view,_cursor,options)=>({view,...options})}
   // Closures let the tests replace adapters at the actual asynchronous seam.
-  const reader=createSessionViewReader({...deps,readChat:(...args)=>deps.readChat(...args),readChanges:(...args)=>deps.readChanges(...args),readViewDelta:(...args)=>deps.readViewDelta?.(...args)})
+  const reader=createSessionViewReader({...deps,readState:(...args)=>deps.readState(...args),readChat:(...args)=>deps.readChat(...args),readChanges:(...args)=>deps.readChanges(...args),readViewDelta:(...args)=>deps.readViewDelta?.(...args)})
   return {reader,deps,calls,states,get chat(){return chat},set chat(value){chat=value}}
 }
 for (const changes of [undefined,{revision:99,indices:[0]}]) test(`missing or mismatched change coverage rebuilds the full view: ${JSON.stringify(changes)}`,async()=>{
@@ -24,6 +25,23 @@ for (const changes of [undefined,{revision:99,indices:[0]}]) test(`missing or mi
 for(const row of [{role:'user',text:'role changed'},null])test(`structural history changes retain full fallback: ${JSON.stringify(row)}`,async()=>{
   const f=fixture();await f.reader.read('s');f.chat={...f.chat,_storageRevision:2,messages:row?[row]:[]}
   await f.reader.read('s');assert.equal(f.calls.full,2);assert.equal(f.calls.dirty,0)
+})
+
+test('旧前台正文状态复用已读完整历史，不为首个视图再整读一次', async () => {
+  const f = fixture()
+  f.chat = {...f.chat, timeline:{schemaVersion:1,branchId:'b',revision:0,checkpoints:[],participants:{},operations:{old:{kind:'body',status:'foreground-completed'}}}}
+  f.deps.readState = async () => projectChatSessionState(f.chat)
+  const first = await f.reader.read('s')
+  assert.equal(f.calls.fullRead, 0)
+  assert.equal(first.tavernHelper.messages[0].text, 'one')
+  await f.reader.read('s')
+  assert.equal(f.calls.fullRead, 0)
+  assert.equal(f.calls.cached, 1)
+  assert.equal(Object.keys(projectChatSessionState(f.chat)).includes('_sessionStateHistoryComplete'), false)
+  f.deps.readState = async () => structuredClone(projectChatSessionState(f.chat))
+  f.chat = {...f.chat, _storageRevision:2}
+  await f.reader.read('s')
+  assert.equal(f.calls.fullRead, 1, '克隆丢掉完整性提示后仍安全回退到整读')
 })
 
 for (const kind of ['revision', 'resource', 'missing']) test(`invalid delta ${kind} falls back before rendering`,async()=>{
@@ -45,10 +63,111 @@ test('Helper hydration cannot promote incomplete ranges, another session or an o
  assert.equal(f.reader.acceptHelperMessages('s','c',1,{from:0,to:0,messages:[{message_id:0}]}),false)
 })
 
+test('有界窗口按存储与资源版本复用投影，变化后立即重建', async () => {
+  let window = {revision:1,from:4,to:4,messageCount:5,chat:{id:'c',sessionId:'s',mode:'story',cardPath:'card',messages:[{role:'assistant',text:'窗口'}]}}
+  let resource = 'r1', projections = 0
+  const states = []
+  const reader = createSessionViewReader({
+    readState:async () => { throw Error('窗口路径不应整读状态') },
+    readOpeningWindow:async () => window,
+    resourceVersion:async () => resource,
+    project:{opening:async value => { projections++; return {chatId:value.chat.id,revision:value.revision,historyWindow:{from:value.from}} }},
+    trace:{stage:(_name,fn) => fn(),state:value => states.push(value)},
+    synchronize:(_id,view) => ({view})
+  })
+  const request = {sessionId:'s',openingWindow:1,viewSync:1,resourceSync:1}
+  assert.equal((await reader.response(request)).view.revision, 1)
+  assert.equal((await reader.response(request)).view.revision, 1)
+  assert.equal(projections, 1)
+  assert.equal(states.at(-1).viewRebuild, 'window-cache')
+  window = {...window,revision:2}
+  await reader.response(request)
+  assert.equal(projections, 2)
+  resource = 'r2'
+  await reader.response(request)
+  assert.equal(projections, 3, '外部资源变化不能沿用旧窗口视图')
+})
+
+test('同版本窗口的并发刷新共享一次投影', async () => {
+  const release = gate()
+  let projections = 0
+  const window = {revision:1,from:4,to:4,messageCount:5,chat:{id:'c',sessionId:'s',messages:[{role:'assistant'}]}}
+  const reader = createSessionViewReader({
+    readOpeningWindow:async () => window,
+    project:{opening:async () => { projections++; await release.promise; return {chatId:'c'} }},
+    trace:{stage:(_name,fn) => fn(),state() {}},synchronize:(_id,view) => ({view})
+  })
+  const request = {sessionId:'s',openingWindow:1,viewSync:1}
+  const first = reader.response(request), second = reader.response(request)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(projections, 1)
+  release.resolve()
+  await Promise.all([first,second])
+  assert.equal(projections, 1)
+})
+
+test('不可用窗口按 revision 负缓存，版本前进后重新判定并可切换窗口', async () => {
+  let chat = {id:'c',sessionId:'s',mode:'story',_storageRevision:1,messages:[{role:'assistant',text:'正文'}]}
+  let openingReads = 0, fullReads = 0, available = false
+  const reader = createSessionViewReader({
+    readState:async () => ({...chat,messages:[]}),
+    readChat:async () => { fullReads++; return structuredClone(chat) },
+    readChanges:async () => ({revision:chat._storageRevision,indices:[0]}),
+    readOpeningWindow:async () => {
+      openingReads++
+      return available ? {revision:chat._storageRevision,from:0,to:0,messageCount:1,chat} : null
+    },
+    project:{
+      full:async value => ({revision:value._storageRevision}),
+      cached:async (_value,previous) => previous,
+      dirty:async value => ({revision:value._storageRevision}),
+      opening:async value => ({revision:value.revision,window:true})
+    },
+    activity:() => ({}),foregroundRunning:() => false,
+    trace:{stage:(_name,fn) => fn(),state() {}},synchronize:(_id,view) => ({view})
+  })
+  const request = {sessionId:'s',openingWindow:1,viewSync:1}
+  await reader.response(request)
+  await reader.response(request)
+  assert.equal(openingReads,1,'同版本不再重复读取已知不可用的窗口')
+  assert.equal(fullReads,1,'第二次仍复用完整视图缓存')
+  chat = {...chat,_storageRevision:2}
+  await reader.response(request)
+  assert.equal(openingReads,2,'revision 变化必须重新判定')
+  chat = {...chat,_storageRevision:3}
+  available = true
+  const response = await reader.response(request)
+  assert.equal(openingReads,3)
+  assert.equal(response.view.window,true)
+  assert.equal(fullReads,2,'可用窗口直接返回，不再补完整整读')
+})
+
 for(const request of [{viewSync:1},{viewSync:1,openingWindow:1,fullView:true}])test('legacy clients and explicit complete reads never receive a window: '+JSON.stringify(request),async()=>{
  const reader=createSessionViewReader({readOpeningWindow:()=>{throw Error('must keep complete contract')},readState:async()=>undefined,
   project:{opening:()=>{throw Error('unexpected')}},trace:{stage:(_name,fn)=>fn()},synchronize:(_id,view)=>({view})})
  assert.equal((await reader.response({sessionId:'s',...request})).view,null)
+})
+
+for (const enabled of [false, true]) test(`无 Helper 历史可增量复用，新启用 MVU 仍完整重建: ${enabled}`, async () => {
+  const f = fixture()
+  f.deps.project.full = async value => {
+    f.calls.full++
+    return { chatId:value.id, tavernHelper:value.mvu?.enabled === true
+      ? { stateRevision:value._storageRevision, messages:structuredClone(value.messages) } : null }
+  }
+  f.deps.project.dirty = async (value, previous, _indices, _activity, options) => {
+    f.calls.dirty++
+    assert.equal(options.baseRevision, 1)
+    return { ...previous, dirty:true }
+  }
+  await f.reader.read('s')
+  f.chat = {...f.chat, _storageRevision:2, mvu:{enabled}}
+  f.deps.readViewDelta = async () => ({baseRevision:1, revision:2, indices:[0], chat:f.chat})
+  const view = await f.reader.read('s')
+  assert.equal(f.calls.fullRead, enabled ? 2 : 1)
+  assert.equal(f.calls.full, enabled ? 2 : 1)
+  assert.equal(f.calls.dirty, enabled ? 0 : 1)
+  assert.equal(view.dirty === true, !enabled)
 })
 
 for (const fields of [undefined, ['openingWorldbookSnapshot'], ['cardDefinitionSnapshot']]) test(`resource snapshot changes rebuild deferred capabilities: ${fields}`, async () => {

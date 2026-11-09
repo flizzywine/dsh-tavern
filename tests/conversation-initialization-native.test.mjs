@@ -4,8 +4,83 @@ import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
 import { KNOWN_SESSION_EVENT_TYPES } from './fixtures/dsh-session-host.mjs'
+import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-lifecycle.js'
+import { registerRequestHooks } from '../tavern-plugin/lib/hooks/request.js'
+import { createForegroundOrchestrationStrategies } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
+import { createForegroundWorldbook } from '../tavern-plugin/lib/domain/foreground-worldbook.js'
+import { projectVirtualWorldbookPrefix } from '../tavern-plugin/lib/domain/worldbook-virtual-state.js'
 
 const native = { skip: !process.env.DSH_BOOT_MODULE, timeout: 30000 }
+
+test('first native reply uses the prepared static worldbook in the actual system prompt', native, async t => {
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, { assembleStablePrefix: false })
+  t.after(() => h.dispose())
+  let chat = { ...await h.open().start(h.input), worldbookStrategy: 'native-skills' }
+  let preparations = 0
+  const worldBook = { view: { entries: [
+    { ref: 'visible', constant: true, content: '已准备的常驻规则' },
+    { ref: 'hidden', constant: true, content: '预处理隐藏的规则' },
+    { ref: 'disabled', constant: true, enabled: false, content: '已禁用的常驻规则' },
+    { ref: 'controller', constant: true, content: '@@preprocessing\n<% controller %>' }
+  ] } }
+  const project = createForegroundWorldbook({
+    bound: async () => worldBook,
+    runtime: async () => ({
+      async prepareWorldbook(entries) {
+        preparations++
+        return { entries: entries.filter(entry => entry.uid !== 'hidden'), scopes: {} }
+      },
+      async render() { return { ok: true, text: '控制器输出', scopes: {} } }
+    }),
+    globalVariables: async () => ({})
+  })
+  t.after(() => project.dispose())
+  const foregroundStrategies = createForegroundOrchestrationStrategies({ nativePlay: {
+    modeFor: async () => 'story', filterMessages: messages => messages, resolvePreset: async () => null,
+    visibleTools: async () => [], controlledToolNames: new Set(),
+    async prepareTurn({ turn, userText }) {
+      const prepared = await project({ requestKey: String(turn), chat, card: { name: '角色' }, userText })
+      assert.equal(prepared.error, null)
+      chat = { ...chat, worldBookVirtualState: prepared.virtualState }
+      return { frame: { userInput: { projectedText: userText }, source: {
+        worldBook: { virtualWorldbook: { scope: prepared.virtualState.scope } },
+        regenerationMaterials: { worldbookPrefix: prepared.prefixContext }
+      } } }
+    },
+    appendFrame: ({ messages }) => ({ messages }), recordFrame() {}
+  } })
+  // The fixture owns turn finalization. Mount the two production hooks that
+  // deliver prepared content through the real host assembler and step loop.
+  const ctx = { on(name, listener, options) {
+    if (name === 'system-prompt/assemble' || name === 'agent/pre-step') return h.ctx.on(name, listener, options)
+  } }
+  const backgroundAgentRunner = { owns: () => false }, readChat = async () => chat
+  registerTurnLifecycleHooks({ ctx, foregroundStrategies, backgroundAgentRunner, hookChatForSession: readChat,
+    readChatCard: async () => ({}), turnOrchestrator: { modeFor: async () => 'story' }, ensureNativeSystemPrefix: async () => {},
+    publishResourceWorkspace: async () => null, runtimePrompt: () => '', sessionStore: h.ctx.sessions,
+    nativeWorldBookTemplateContext: async (current, _card, options) => projectVirtualWorldbookPrefix(worldBook, current, options) })
+  registerRequestHooks({ ctx, foregroundStrategies, backgroundAgentRunner, chatForSession: readChat, sessionStore: h.ctx.sessions,
+    cardMemory: { appendRecall: ({ decision }) => decision }, requestIdForMessages: () => '', tavernRetryLimiter: { handle() {} } })
+
+  const pending = projectVirtualWorldbookPrefix(worldBook, chat, { restore: false })
+  assert.equal(pending.prefixContext, '')
+  assert.equal(pending.visibilityPending, true)
+  await h.continueInPlace()
+  assert.equal(h.requests.length, 1)
+  assert.equal(preparations, 1, 'assembly and first pre-step share one preparation')
+  const first = h.requests[0].system
+  assert.match(first, /【常驻世界书】\n已准备的常驻规则/)
+  assert.equal(first.split('已准备的常驻规则').length - 1, 1)
+  assert.doesNotMatch(first, /预处理隐藏的规则|已禁用的常驻规则|控制器输出|Fixture constant worldbook/)
+  await h.continueInPlace()
+  assert.equal(preparations, 2)
+  assert.equal(h.requests[1].system, first)
+
+  worldBook.view.entries[0].enabled = false
+  await h.continueInPlace()
+  assert.equal(preparations, 3)
+  assert.doesNotMatch(h.requests[2].system, /【常驻世界书】|已准备的常驻规则|预处理隐藏的规则/)
+})
 
 // Released V4 rejects a surface event written before a turn opened. Every
 // Tavern-written archive must satisfy that contract, or the play history stops

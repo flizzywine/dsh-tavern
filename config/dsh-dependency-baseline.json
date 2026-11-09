@@ -191,16 +191,11 @@
     "@deepseek-ai/dsh-client-runtime/client",
     "@deepseek-ai/dsh-client-store"
   ],
-  "tavern-plugin/packages/dsh-profile-bridge/index.js": [
+  "tavern-plugin/packages/dsh-tavern/index.js": [
     "@deepseek-ai/cordis"
   ],
-  "tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs": [
+  "tavern-plugin/packages/dsh-tavern/lib/state.mjs": [
     "@deepseek-ai/dsh-desktop"
-  ],
-  "tavern-plugin/packages/dsh-tavern-launcher/index.js": [
-    "@deepseek-ai/dsh-app-boot",
-    "@deepseek-ai/dsh-official-bundles",
-    "@deepseek-ai/dsh-plugin-manager/operations"
   ],
   "tavern-plugin/packages/dsh-tavern-remote/lib/client.js": [
     "@deepseek-ai/dsh-api-gateway/client"
@@ -275,6 +270,9 @@
   "tavern-plugin/packages/dsh-tavern-tts/tests/package.test.mjs": [
     "@deepseek-ai/dsh-client-runtime"
   ],
+  "tavern-plugin/src/client/features/story-external-client.js": [
+    "@deepseek-ai/dsh-client-ui-conversation/client"
+  ],
   "tavern-plugin/src/client/main.js": [
     "@deepseek-ai/dsh-client-ui-primitives"
   ],
@@ -283,5 +281,8 @@
   ],
   "tavern-plugin/src/client/modules/host-session-patch.js": [
     "@deepseek-ai/dsh-api-session-controller/client"
+  ],
+  "tavern-plugin/src/client/modules/story-external-history.js": [
+    "@deepseek-ai/dsh-client-ui-conversation/client"
   ]
 }

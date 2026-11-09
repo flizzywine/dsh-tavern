@@ -1,3 +1,4 @@
+import {ASSET_KINDS,BUNDLE_KINDS} from '../../../dsh-asset-library/lib/asset-packs/manifest.js'
 // Card-workbench management tools the stage package owns: one request envelope per tool,
 // one row per action. Syntax only; payload semantics stay with each owner (asset library,
 // asset engine, mods, asset generation, the voice plugin).
@@ -6,18 +7,18 @@ const a=items=>({type:'array',items}),e=(...values)=>({type:typeof values[0],enu
 export const WORKBENCH_ACTIONS = {
   assets_read: [
     ["list", {"query?":s,"offset?":i,"limit?":i}],
-    ["item", {"packId":s,"kind":e("figures","backgrounds","music","sfx","ambience","skins","looks","cg","items","directions","performances","widgets","sprites","voices","bundles"),"id?":s,"offset?":i,"limit?":i}],
+    ["item", {"packId":s,"kind":e("figures",...ASSET_KINDS,"sprites","voices","bundles"),"id?":s,"offset?":i,"limit?":i}],
     ["resolve", {"refs":a(o)}],
     ["bindings", {"path?":s}],
     ["dependencies|pack", {"packId":s}],
     ["settings|catalogue", {}],
-    ["schema", {"kind":e("figures","backgrounds","music","sfx","ambience","skins","looks","cg","items","directions","performances","widgets","sprites","voices","bundles")}],
+    ["schema", {"kind":e("figures",...ASSET_KINDS,"sprites","voices","bundles")}],
   ],
   assets_patch: [
     ["create-pack", {"name":s,"description?":s,"expectedRevision":n}],
     ["patch-pack", {"packId":s,"expectedRevision":s,"patch":o}],
     ["item", {"packId":s,"expectedRevision":s,"item":o}],
-    ["remove-item", {"packId":s,"expectedRevision":s,"kind":e("backgrounds","music","sfx","ambience","skins","looks","cg","items","directions","performances","widgets"),"id":s}],
+    ["remove-item", {"packId":s,"expectedRevision":s,"kind":e(...ASSET_KINDS),"id":s}],
     ["create-figure", {"packId":s,"expectedRevision":s,"figure":o}],
     ["patch-figure", {"packId":s,"expectedRevision":s,"figureId":s,"patch":o}],
     ["remove-figure", {"packId":s,"expectedRevision":s,"figureId":s}],
@@ -32,7 +33,7 @@ export const WORKBENCH_ACTIONS = {
   media_upload: [
     ["blob", {"packId":s,"expectedRevision":s,"file":s,"purpose":e("music","sound","ambience","voice-reference")}],
     ["image", {"packId":s,"expectedRevision":s,"file":s,"target":o}],
-    ["bundle", {"packId":s,"expectedRevision":s,"directory":s,"bundleKey":s,"kind":e("live2d","widget","skin","performance"),"entry":s}],
+    ["bundle", {"packId":s,"expectedRevision":s,"directory":s,"bundleKey":s,"kind":e(...BUNDLE_KINDS),"entry":s}],
     ["mod-file", {"modId":s,"expectedRevision":s,"layer":e("global","card"),"file":s}],
     ["mod-media", {"modId":s,"packId":s,"kind":s,"slot":s,"file":s}],
   ],
@@ -77,7 +78,7 @@ export const WORKBENCH_ACTIONS = {
     ["clear-config", {"modId":s,"expectedRevision":s,"key":s,"layer":e("global","card")}],
   ],
   voice_read: [
-    ["services|provider-kinds|presets|choices|templates", {}],
+    ["services|provider-kinds|presets|choices|templates|reading", {}],
     ["voices|models", {"serviceId":s,"offset?":i,"limit?":i}],
     ["readings", {"id?":s,"offset?":i,"limit?":i}],
     ["figure", {"packId":s,"figureId":s}],
@@ -112,13 +113,10 @@ export const WORKBENCH_ACTIONS = {
 }
 // The Skills that unlock each tool: a tool joins the card-workbench request once one of them is loaded.
 export const WORKBENCH_SKILLS = {
-  'asset-library': ['tavern_assets_read', 'tavern_assets_patch', 'tavern_media_upload', 'tavern_assets_transfer'],
-  'figure-assets': ['tavern_assets_read', 'tavern_assets_patch', 'tavern_media_upload'],
+  'stage-assets': ['tavern_assets_read', 'tavern_assets_patch', 'tavern_media_upload', 'tavern_assets_transfer', 'tavern_asset_generation', 'tavern_voice_read', 'tavern_voice_patch'],
   'stage-setup': ['tavern_assets_read', 'tavern_stage_read', 'tavern_stage_patch'],
   'stage-directing': ['tavern_assets_read', 'tavern_assets_patch', 'tavern_stage_read', 'tavern_stage_patch'],
   'stage-mods': ['tavern_mods_read', 'tavern_mods_patch', 'tavern_media_upload'],
-  'card-sharing': ['tavern_assets_read', 'tavern_assets_transfer'],
-  'asset-generation': ['tavern_assets_read', 'tavern_asset_generation'],
-  'figure-voice': ['tavern_assets_read', 'tavern_voice_read', 'tavern_voice_patch', 'tavern_media_upload']
+  'stage-sharing': ['tavern_assets_read', 'tavern_assets_transfer']
 }
 export const WORKBENCH_TOOL_NAMES=Object.keys(WORKBENCH_ACTIONS).map(name=>'tavern_'+name)

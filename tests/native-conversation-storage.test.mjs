@@ -11,6 +11,7 @@ import {createChatPersistence} from '../tavern-plugin/lib/domain/chat-persistenc
 import {createConversationPageStore} from '../tavern-plugin/lib/domain/conversation-page-store.js'
 import {createConversationState} from '../tavern-plugin/lib/domain/conversation-state.js'
 import { projectChatSessionState, projectChatBackgroundConfig } from '../tavern-plugin/lib/domain/chat-session-state.js'
+import { mapRead } from '../tavern-plugin/lib/domain/native-conversation-storage.js'
 
 async function fixture(t){
  const root=await mkdtemp(join(tmpdir(),'native-chat-'))
@@ -21,6 +22,21 @@ async function fixture(t){
  return {root,store,persistence,pages,domain:createConversationState({store:pages}),io}
 }
 const row=gold=>({role:'assistant',text:'reward',variables:[{stat_data:{gold},schema:{}}]})
+
+test('大量原生记录解码时主动让出事件循环并保持原索引顺序',async()=>{
+ let ticked=false
+ const tick=new Promise(resolve=>setImmediate(()=>{ticked=true;resolve()}))
+ const values=Array.from({length:32},(_,index)=>index)
+ const result=await mapRead(values,async value=>{
+  const until=performance.now()+4
+  while(performance.now()<until){}
+  return value
+ },true)
+ const yieldedDuringRead=ticked
+ await tick
+ assert.equal(yieldedDuringRead,true)
+ assert.deepEqual(result,values)
+})
 
 test('process death during a buffered flush cannot publish half a variable transaction',async t=>{
  const {root,persistence}=await fixture(t)
@@ -83,7 +99,12 @@ test('cold selected reads skip historical variables and return the same session 
  assert.deepEqual(await fresh.readBackgroundConfig('a'),projectChatBackgroundConfig(chat))
  assert.ok(io.every(e=>e.bytes<65536))
  io=[]
- assert.deepEqual(await fresh.readSessionState('a'),projectChatSessionState(chat))
+ const sessionState=await fresh.readSessionState('a')
+  assert.deepEqual(sessionState,projectChatSessionState(chat))
+  sessionState.timeline.participants.background.status='outside'
+  sessionState.timeline.checkpoints[0]='outside'
+  assert.equal((await fresh.readSessionState('a')).timeline.participants.background.status,'idle')
+  assert.equal((await fresh.readSessionState('a')).timeline.checkpoints[0],chat.timeline.checkpoints[0])
  // Session's public contract includes checkpoints, but never historical variables.
  const historyBytes=Buffer.byteLength(JSON.stringify({kind:'record',value:{type:'scalar',value:historical.variables[0].stat_data.archive}}))
  assert.ok(!io.some(e=>e.bytes===historyBytes),'session metadata must not hydrate history-only payload')
@@ -95,6 +116,54 @@ test('cold selected reads skip historical variables and return the same session 
  assert.deepEqual((await fresh.read('a')).messages,chat.messages,'full read still returns complete historical values')
 })
 
+test('全量故事摘要复用会话缓存并透传固定版本',async t=>{
+ const {store,persistence,io}=await fixture(t)
+ const messages=Array.from({length:130},(_,index)=>({role:index%2?'assistant':'user',turn:index%2?(index+1)/2:undefined,text:'text-'+index}))
+ const saved=await persistence.write({id:'story',sessionId:'s',mode:'story',messages})
+ const snapshot=await store.openSnapshot('story',{revision:saved._storageRevision})
+ const expected=await snapshot.summaries()
+ io.length=0
+ const recent=await persistence.readRecentSummaries('story',messages.length,{revision:saved._storageRevision})
+ assert.deepEqual(recent.messages,expected)
+ assert.equal(io.filter(event=>event.name==='chat.native.summary-scan').length,0,'同一快照的全量摘要不得再次扫描页面')
+ recent.messages[0].role='changed'
+ assert.equal((await snapshot.summaries())[0].role,'user','调用方修改不得污染共享摘要')
+
+ await persistence.update('story',draft=>{draft.messages[0].text='newer'})
+ const pinned=await persistence.readRecentSummaries('story',1,{revision:saved._storageRevision})
+ assert.equal(pinned.revision,saved._storageRevision,'persistence 必须透传固定 revision')
+})
+
+test('旧前台正文的原生状态保留完整历史提示但不序列化内部标记',async t=>{
+ const {persistence}=await fixture(t)
+ await persistence.write({id:'a',sessionId:'s',mode:'story',messages:[row(0)],timeline:{schemaVersion:1,branchId:'b',revision:0,checkpoints:[],participants:{},operations:{old:{kind:'body',status:'foreground-completed'}}}})
+ const state=await persistence.readSessionState('a')
+ assert.equal(state._sessionStateHistoryComplete,true)
+ assert.equal(state.messages[0].text,'reward')
+ assert.equal(JSON.stringify(state).includes('_sessionStateHistoryComplete'),false)
+  state.messages[0].text='outside';state.timeline.operations.old.status='outside'
+  const reread=await persistence.readSessionState('a')
+  assert.equal(reread.messages[0].text,'reward')
+  assert.equal(reread.timeline.operations.old.status,'foreground-completed')
+})
+
+test('内部共享解码不泄漏到完整读取、窗口、历史版本或放弃的回写',async t=>{
+ const {persistence}=await fixture(t)
+ await persistence.write({id:'a',sessionId:'s',mode:'story',messages:[row(0)]})
+ const full=await persistence.read('a')
+ full.messages[0].text='changed';full.messages[0].variables[0].stat_data.gold=99
+ assert.equal((await persistence.read('a')).messages[0].text,'reward')
+ assert.equal((await persistence.read('a')).messages[0].variables[0].stat_data.gold,0)
+ const window=await persistence.readWindow('a',{limit:1})
+ window.chat.messages[0].text='window changed'
+ assert.equal((await persistence.readWindow('a',{limit:1})).chat.messages[0].text,'reward')
+ const revision=await persistence.readRevision('a',1)
+ revision.messages[0].text='revision changed'
+ assert.equal((await persistence.read('a')).messages[0].text,'reward')
+ await persistence.update('a',draft=>{draft.messages[0].text='aborted change';return undefined})
+ assert.equal((await persistence.read('a')).messages[0].text,'reward')
+})
+
 test('fresh native gameplay writes pages, recovers variables and preserves historical revisions',async t=>{
  const {root,store,persistence,domain,pages}=await fixture(t)
  const chat=await persistence.write({id:'a',messages:[row(0)],posture:'standing'})
@@ -104,6 +173,11 @@ test('fresh native gameplay writes pages, recovers variables and preserves histo
  const head=await domain.open('a')
  assert.equal(head.metadata.format,'conversation-state-v2')
  assert.equal(head.state.world.variables.stat_data.gold,10)
+ assert.equal(head.state.worldMessage,2)
+ assert.equal(head.state.worldMessageUid,saved.messages[2].messageUid)
+ assert.equal(head.state.worldSwipe,0)
+ assert.ok(saved.messages[2].messageUid)
+ assert.equal((await store.readWindow('a',{limit:1})).worldMessageUid,saved.messages[2].messageUid)
  assert.equal(head.messageCount,3)
  assert.ok(head.messages.every(r=>r.message.runtimeRef&&!Object.hasOwn(r.message,'variables')))
  assert.deepEqual((await readdir(join(root,'chats/a'))).sort(),['blocks','head.json'])
@@ -122,6 +196,79 @@ test('fresh native gameplay writes pages, recovers variables and preserves histo
  assert.equal((await pages.openConversation('a')).revision,before.revision)
 })
 
+test('world source keeps its permanent message uid across swipe and body writes',async t=>{
+ const {persistence,domain}=await fixture(t)
+ const chat=await persistence.write({id:'source',messages:[{...row(1),messageUid:'message-A',swipes:['a','b'],swipeId:0,variables:[{gold:1},{gold:2}]}]})
+ await persistence.patch(chat.id,chat._storageRevision,[{op:'set',path:['messages',0,'swipeId'],value:1}])
+ let head=await domain.open(chat.id)
+ assert.equal(head.state.worldMessageUid,'message-A')
+ assert.equal(head.state.worldSwipe,1)
+ assert.equal(head.state.world.variables.gold,2)
+ await persistence.patch(chat.id,chat._storageRevision+1,[{op:'set',path:['messages',0,'text'],value:'edited'}])
+ head=await domain.open(chat.id)
+ assert.equal(head.state.worldMessageUid,'message-A')
+ assert.equal(head.state.worldSwipe,1)
+})
+
+test('body-only writes keep the authoritative swipe when a legacy row disagrees with the head',async t=>{
+ const {persistence,domain}=await fixture(t)
+ const chat=await persistence.write({id:'swipe-head',messages:[{...row(0),messageUid:'message-A',swipeId:1,variables:[{gold:0},{gold:100}]}]})
+ const divergent=await persistence.read(chat.id)
+ divergent.messages[0].swipeId=0
+ await persistence.write(divergent,{worldSelection:{preserveWorld:true,selected:{position:0,swipe:1,messageUid:'message-A',world:{variables:{gold:100}}}}})
+ let head=await domain.open(chat.id)
+ assert.equal(head.state.worldSwipe,1)
+ assert.equal(head.state.world.variables.gold,100)
+ await persistence.patch(chat.id,divergent._storageRevision,[{op:'set',path:['messages',0,'text'],value:'point-edited'}])
+ head=await domain.open(chat.id)
+ assert.equal(head.state.worldSwipe,1)
+ assert.equal(head.state.world.variables.gold,100)
+ const full=await persistence.read(chat.id)
+ full.messages[0].text='full-edited'
+ await persistence.write(full)
+ head=await domain.open(chat.id)
+ assert.equal(head.state.worldSwipe,1)
+ assert.equal(head.state.world.variables.gold,100)
+})
+
+test('save import restores an authoritative detached world instead of reviving an older row',async t=>{
+ const {persistence,domain}=await fixture(t)
+ const selected={position:null,swipe:2,messageUid:'deleted-source',world:{variables:{stat_data:{gold:44}},posture:'kept'}}
+ await persistence.write({id:'imported',sessionId:'s',mode:'story',_storageRevision:0,messages:[row(3)]},{worldSelection:{selected}})
+ const head=await persistence.readWorldSnapshot('imported')
+ assert.equal(head.position,null)
+ assert.equal(head.swipe,2)
+ assert.equal(head.messageUid,'deleted-source')
+ assert.equal(head.world.variables.stat_data.gold,44)
+ assert.equal(head.world.posture,'kept')
+ assert.ok(head.chatRevision>0)
+ assert.ok(Number.isSafeInteger(head.worldRevision))
+ assert.equal((await domain.readWorld('imported')).variables.stat_data.gold,44)
+})
+
+test('legacy heads and restored rows heal the world source uid on their next story write',async t=>{
+ const {root,persistence,pages,domain}=await fixture(t)
+ const chat=await persistence.write({id:'legacy-source',messages:[{...row(7),messageUid:'legacy-stable-uid'}]})
+ const view=await pages.openConversation(chat.id),legacyState={...view.state}
+ delete legacyState.worldMessageUid
+ await pages.commit(chat.id,{expectedRevision:view.revision,state:legacyState,edits:[],append:[],truncateTo:view.messageCount})
+ const cold=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
+ await cold.patch(chat.id,chat._storageRevision,[{op:'set',path:['posture'],value:'after'}],{returnProjection:['id']})
+ assert.equal((await domain.open(chat.id)).state.worldMessageUid,'legacy-stable-uid')
+ const nullView=await pages.openConversation(chat.id)
+ await pages.commit(chat.id,{expectedRevision:nullView.revision,state:{...nullView.state,worldMessageUid:null},edits:[],append:[],truncateTo:nullView.messageCount})
+ const coldNull=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
+ await coldNull.patch(chat.id,chat._storageRevision+1,[{op:'set',path:['posture'],value:'null-healed'}])
+ assert.equal((await domain.open(chat.id)).state.worldMessageUid,'legacy-stable-uid')
+ const restored=await coldNull.read(chat.id)
+ delete restored.messages[0].messageUid
+ const healed=await coldNull.write(restored)
+ assert.ok(healed.messages[0].messageUid)
+ assert.equal(healed.messages[0].messageUid,'legacy-stable-uid','同一世界来源恢复缺 UID 行时沿用原身份')
+ assert.equal((await domain.open(chat.id)).state.worldMessageUid,healed.messages[0].messageUid)
+ assert.equal((await domain.readWorld(chat.id)).variables.stat_data.gold,7)
+})
+
 test('scalar variable writes do not read unrelated large values and corrupt heads never fall back',async t=>{
  const {root,persistence,io,domain}=await fixture(t)
  const message=row(0)
@@ -129,7 +276,7 @@ test('scalar variable writes do not read unrelated large values and corrupt head
  const chat=await persistence.write({id:'a',messages:[message]})
  io.length=0
  await persistence.patch('a',chat._storageRevision,[{op:'set',path:['messages',0,'variables',0,'stat_data','gold'],value:42}])
- assert.ok(io.every(event=>event.bytes<65536),'a scalar patch must not load or write the large sibling')
+ assert.ok(io.every(event=>event.bytes<65536),'a scalar patch must not load or write the large sibling: '+JSON.stringify(io.filter(event=>event.bytes>=65536)))
  assert.equal((await domain.readWorld('a',{path:'/variables/stat_data/gold'})),42)
  const {writeFile}=await import('node:fs/promises')
  await writeFile(join(root,'chats/a/head.json'),'{broken')
@@ -207,7 +354,7 @@ test('a cold native point patch reads only its target and keeps current world an
 
 test('cold native patches match warm JSON semantics and reject invalid or cancelled writes',async t=>{
  const {root,persistence}=await fixture(t)
- const initial={messages:[{...row(1),swipes:['a','b'],swipeId:0,variables:[{gold:1},{gold:2}],tavernPluginData:{old:true}},{role:'user',text:'next'}],variables:{chat:true},tavernHelperScriptVariables:{a:{value:1}}}
+ const initial={messages:[{...row(1),messageUid:'stable-world-source',swipes:['a','b'],swipeId:0,variables:[{gold:1},{gold:2}],tavernPluginData:{old:true}},{role:'user',text:'next',messageUid:'later-world-source'}],variables:{chat:true},tavernHelperScriptVariables:{a:{value:1}}}
  await persistence.write({id:'warm',...structuredClone(initial)})
  await persistence.write({id:'cold',...structuredClone(initial)})
  const cold=createChatPersistence({store:createChatJournalStore({dataRoot:root,cacheMaxBytes:1})})

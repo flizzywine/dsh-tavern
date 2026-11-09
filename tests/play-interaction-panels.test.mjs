@@ -34,7 +34,8 @@ test('panels use the flow interface and candidate selection preserves user edits
     useCandidateGuidePanel: usePanel(interactions.guide), useRegenPanel: usePanel(interactions.regeneration),
     usePhonePlay: () => false })
   let draft = '玩家原文'
-  const props = { sessionId: 'a', useSession: select => select({ running: false }), useChat: select => select({}),
+  let running = false
+  const props = { sessionId: 'a', useSession: select => select({ running }), useChat: select => select({}),
     useInput: select => select({ draft }), inputActions: { setDraft: value => { draft = value } } }
   const root = createRoot(dom.window.document.querySelector('main'))
   const render = component => act(async () => root.render(React.createElement(component, props)))
@@ -52,11 +53,21 @@ test('panels use the flow interface and candidate selection preserves user edits
   await act(async () => dom.window.document.querySelector('.dsh-tavern-regen-submit').click())
   assert.equal(calls[0][0], 'submitTask')
   assert.equal(interactions.guide.getSnapshot(), null)
-  interactions.regeneration.set({ sessionId: 'a', phase: 'input' })
+  interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'input' })
   await render(panels.RegenPanel)
   assert.equal(dom.window.document.querySelectorAll(".dsh-tavern-regen-submit").length, 1)
   await act(async () => dom.window.document.querySelector('.dsh-tavern-regen-submit').click())
   assert.deepEqual(calls[1], ['regenBody', { guidance: '' }, 'a'])
+  // 在途的重新生成面板在宿主报运行中（发送键已换成停止）时还要留着显示进度，
+  // 已经能填意见的表单照旧在运行中让位给正文区。
+  await act(async () => interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'loading' }))
+  running = true
+  await render(panels.RegenPanel)
+  assert.match(dom.window.document.querySelector('.dsh-tavern-regen-loading').textContent, /正在重新生成正文/)
+  await act(async () => interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'input' }))
+  await render(panels.RegenPanel)
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-regen'), null)
+  running = false
   await act(async () => interactions.regeneration.set({ sessionId: 'a', phase: 'input' }))
   await act(async () => [...dom.window.document.querySelectorAll('button')].find(button => button.textContent === '精修').click())
   assert.match(dom.window.document.querySelector('.dsh-tavern-regen-loading').textContent, /已修 1 处/)
@@ -68,3 +79,40 @@ test('panels use the flow interface and candidate selection preserves user edits
   assert.deepEqual(errors, [])
   await act(async () => root.unmount())
 })
+
+test('正文重生成在途时重复长按复用请求，但立即给出可见反馈', async () => {
+  let finish
+  const errors = [], seen = []
+  let calls = 0
+  const flow = createPlayInteractionFlow({
+    rpc: async () => { calls += 1; return new Promise(resolve => { finish = resolve }) },
+    coordinationView: value => value, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {},
+    reportError: (source, error) => errors.push([source, error.message, error.code]),
+    notifyRegenerating: (sessionId, active) => seen.push([sessionId, active])
+  })
+  const first = flow.submitBodyRegeneration('a', { tail: null }, '')
+  const replay = flow.submitBodyRegeneration('a', { tail: null }, '')
+  assert.strictEqual(replay, first)
+  assert.deepEqual(errors, [['正文重新生成', '正文正在重新生成，请等待完成', 'regen-busy']])
+  await Promise.resolve()
+  finish({ view: {} })
+  await Promise.all([first, replay])
+  assert.equal(calls, 1)
+  assert.deepEqual(seen, [['a', true], ['a', false]])
+})
+
+test('正文重新生成在开始时通知页面、结束时再通知一次（失败也一样）', async () => {
+  for (const mode of ['ok', 'fail']) {
+    const seen = []
+    const flow = createPlayInteractionFlow({
+      rpc: async () => { if (mode === 'fail') throw new Error('provider down'); return { view: {} } },
+      coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {},
+      notifyRegenerating: (sessionId, active) => seen.push([sessionId, active])
+    })
+    flow.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'input' })
+    if (mode === 'ok') await flow.regenerateBody(flow.regeneration.getSnapshot(), '')
+    else await flow.regenerateBody(flow.regeneration.getSnapshot(), '').catch(() => {})
+    assert.deepEqual(seen, [['a', true], ['a', false]], mode)
+  }
+})
+

@@ -26,10 +26,14 @@ export function nativeStoryTurns(session) {
     const message = event?.type === 'assistant/message' ? event.data?.message : null
     if (message?.source?.kind !== 'model' || !text(message) || String(message.id || '').startsWith('tavern-game-mode:')) continue
     const turn = storyEventTurn(event)
+    // 投影/修复写回的条目把剧情轮号记在 message.source 上，turn/end 记的是宿主轮号：
+    // 两个号查同一个表，否则修复过的轮次会被当成「没结束」整条丢掉。
+    const hostTurn = Number(event.data?.turn)
+    const endKind = ended.get(turn) ?? ended.get(hostTurn)
     // The seed exchange and the opening are not player rounds.
     if (!(turn > 1) || String(message.id || '').startsWith('tavern-seed-trajectory:') || String(message.id || '').startsWith('tavern-opening:')) continue
     // A failed or still running turn is not story yet; its cleanup is separate.
-    if (!ended.has(turn) || isFailedTurnEnd(ended.get(turn))) continue
+    if (endKind === undefined || isFailedTurnEnd(endKind)) continue
     if (turns.at(-1) !== turn && !turns.includes(turn)) turns.push(turn)
   }
   return turns

@@ -24,7 +24,10 @@ export function assistantResultForTurn(session, turn) {
   const start = turnStartIndex(events, turn)
   for (let index = events.length - 1; index > start; index -= 1) {
     const event = events[index]
-    if (!event || event.type !== 'assistant/message' || storyEventTurn(event) !== Number(turn)) continue
+    if (!event || event.type !== 'assistant/message') continue
+    // 投影/修复写回的正文把剧情轮号记在 message.source 上，宿主位置轮号是另一个：
+    // 两个号任一命中就是这一轮的正文，否则成功的一轮会被判成「没有返回正文」。
+    if (Number(event.data?.turn) !== Number(turn) && storyEventTurn(event) !== Number(turn)) continue
     const message = event.data && event.data.message
     const source = message && message.source
     if (!source || source.kind !== 'model') continue

@@ -93,6 +93,7 @@ test('rounds the native engine already keeps outside the request count toward th
 test('a summary answered with a tool call or no text is retried once as plain text without tools', async () => {
   const { installCompactionRequestProjection } = await import('../tavern-plugin/lib/domain/compaction-request.js')
   for (const first of [[{ type: 'block-end', index: 0, block: { type: 'tool-call', name: 'submit', arguments: {} } }, { type: 'finish', reason: { kind: 'tool' } }],
+    [{ type: 'block-end', index: 0, block: { type: 'tool-call', name: 'submit_story', arguments: { content: '摘要' } } }, { type: 'finish', reason: { kind: 'tool-calls' } }],
     [{ type: 'finish', reason: { kind: 'stop' } }]]) {
     const hooks = [], sent = []
     const dispatch = (request, index = 0) => index < hooks.length

@@ -29,8 +29,7 @@ test('结构化绑定按实际类型生成，不输出ID，不改用户的一致
   const selected = resolveImageReferences({ subjects: [{ characterId: 'jiang' }], definitions: defs })
   selected.references[0].consistencyText = '保留[眉间痣]。\n不要改变黑发。'
   const text = buildStructuredReferenceText(selected.references)
-  assert.match(text, /参考图1 → 江铭/)
-  assert.match(text, /固有体型比例/)
+  assert.equal(text, '人物的面部特征、发型和体型比例依据对应身份参考图及随附说明。\n\n参考图1 → 江铭（身份参考）：保留[眉间痣]。\n不要改变黑发。')
   assert.doesNotMatch(text, /服装图|characterId|outfitId/)
   assert.ok(text.includes(selected.references[0].consistencyText))
   assert.equal(buildStructuredReferenceText([]), '')
@@ -51,12 +50,13 @@ test('最终参考说明不携带无关状态示例，真实变化与用户补�
   const selected = resolveImageReferences({ subjects: [{ characterId: 'jiang' }], definitions: defs })
   const referenceText = buildStructuredReferenceText(selected.references)
   assert.doesNotMatch(referenceText, /换装|湿衣|破损|优先于|年轻男性|青年男子/)
-  assert.match(referenceText, /服装、表情、姿态、镜头、环境及外观的当前状态以本张描述为准/)
+  assert.match(referenceText, /参考图1 → 江铭（身份参考）$/)
+  assert.doesNotMatch(referenceText, /以本张描述为准|一致性补充/)
   const raw = '【人物与表情】\n江铭眉头微蹙。\n\n【服装】\n上衣湿透，左袖破损。'
   const output = compileChannelJob({ params: { tag: raw, rawTag: raw, referenceText }, definitions: {},
     config: { promptMode: 'structured', imageBackend: 'atlascloud' }, channel: { provider: 'atlascloud' } })
   assert.ok(output.positive.includes(raw), 'actual scene changes must not be filtered as template words')
-  assert.equal((output.positive.match(/身份图仅约束/g) || []).length, 1)
+  assert.ok(output.positive.startsWith('【参考图对应与一致性】\n' + referenceText + '\n\n'))
   selected.references[0].consistencyText = '用户指定：保留破损的耳饰。'
   assert.match(buildStructuredReferenceText(selected.references), /用户指定：保留破损的耳饰。/)
 })
@@ -91,6 +91,7 @@ test('同名人物宏、服装归属与绑定使用同一短称呼；同图不�
   const bindings = buildStructuredReferenceText(selected.references)
   assert.match(bindings, /参考图2 → 江铭（对象1）／常服/)
   assert.match(bindings, /参考图4 → 江铭（对象3）／常服/)
+  assert.match(bindings, /江铭（对象3）／常服（服装参考）/)
   assert.doesNotMatch(bindings, /characterId|outfitId/)
   const onlyOutfits = selected.references.filter(r => r.kind === 'outfit').map((r, index) => ({ ...r, index: index + 1 }))
   assert.doesNotMatch(buildStructuredReferenceText(onlyOutfits), /身份图/)
@@ -101,6 +102,16 @@ test('结构化Comfy编译保留组装来源', () => {
     config: { promptMode: 'structured', imageBackend: 'comfyui' }, params: { tag: '【人物】\n陈安' }, definitions: { characters: [{ name: '陈安', traits: { face: '黑发' } }] } })
   assert.equal(output.promptAssembly.version, 2)
   assert.match(output.promptAssembly.definitionAdditions.join('\n'), /黑发/)
+})
+
+test('行内引用不重复朝向，独立宏保留朝向，歧义别名不改写', () => {
+  const characters = [
+    { id: 'yue', name: '洛玥', match: '洛凰，月姐' },
+    { id: 'mi', name: '洛米', match: '洛璃，月姐' }
+  ]
+  const raw = '洛璃扶着${"name":"yue","angle":"低头"}$。月姐站在门口。\n${"name":"mi","angle":"侧身朝窗"}$'
+  const expanded = expandRosterCalls(raw, { characters }, 'sfw', { style: 'structured' })
+  assert.equal(expanded, '洛米扶着洛玥。月姐站在门口。\n人物“洛米”：侧身朝窗')
 })
 
 test('真实任务组装一次绑定；改词重画、重启仍使用快照，不累积说明', async t => {
@@ -132,10 +143,51 @@ test('真实任务组装一次绑定；改词重画、重启仍使用快照，�
   assert.equal((await restarted.terminal(redraw.body.jobId)).state, 'done')
   assert.equal(calls.length, 2)
   for (const payload of calls) {
+    assert.ok(payload.prompt.startsWith('【参考图对应与一致性】\n'))
     assert.equal((payload.prompt.match(/参考图1 →/g) || []).length, 1)
     assert.doesNotMatch(payload.prompt, /characterId|outfitId|人物“江铭”：|服装图|换装|湿衣|破损/)
     assert.ok(payload.prompt.includes(raw), 'manual/redraw text is not destructively rewritten by keyword removal')
   }
+})
+
+test('参考生图的跨分节人物称呼、动作宏和参考绑定在提交前统一', async t => {
+  const calls = []
+  const fixture = await imagePluginFixture(t, { config: { generationMode: 'reference', promptMode: 'structured' } })
+  globalThis.fetch = async (url, init = {}) => {
+    if (url.endsWith('/uploadMedia')) return imageJson({ data: { download_url: 'https://images.example.test/ref.png' } })
+    if (url.endsWith('/generateImage')) { calls.push(JSON.parse(init.body)); return imageJson({ data: { id: 'issue-731', status: 'completed', outputs: ['https://images.example.test/out.png'] } }) }
+    return new Response(IMAGE_PNG)
+  }
+  const runtime = await fixture.start()
+  const upload = await runtime.request('reference-image', { data: IMAGE_PNG.toString('base64'), mediaType: 'image/png' })
+  const library = { characters: [
+    { id: 'yue', name: '洛玥', match: '洛凰', referenceImage: upload.body.referenceImage, consistencyText: '18岁少女。', traits: {}, outfits: [] },
+    { id: 'mi', name: '洛米', match: '洛璃', referenceImage: upload.body.referenceImage, consistencyText: '9岁小女孩。', traits: {}, outfits: [] }
+  ] }
+  await runtime.request('definitions', { definitions: library })
+  const unknownId = 'c1794034469564y2pj'
+  const raw = [
+    '【人物与表情】\n${"name":"mi","angle":"仰脸"}$仰起小脸。',
+    '【服装】\n${"name":"洛凰","angle":"垂眸"}$穿玄黑色上袄。洛璃穿浅色外套。',
+    '【动作】\n洛璃紧贴洛凰身侧。${"name":"' + unknownId + '","angle":"侧脸朝桥头"}$被洛凰抱着。',
+    '【约束】\n洛璃的手不越到洛凰手臂；' + unknownId + '侧身坐稳。'
+  ].join('\n\n')
+  const start = await runtime.request('jobs', { tag: raw, negative: '洛璃的手不要遮住洛凰。', subjects: [{ characterId: 'yue' }, { characterId: 'mi' }] })
+  assert.equal(start.status, 200)
+  const job = await runtime.terminal(start.body.id)
+  assert.equal(job.state, 'done')
+  const detail = (await runtime.request('job-detail?id=' + job.id)).body.job
+  assert.equal(detail.rawPrompt, raw)
+  assert.deepEqual(detail.promptAssembly.unresolvedCharacterIds, [unknownId])
+  assert.equal(calls.length, 1)
+  const prompt = calls[0].prompt
+  assert.ok(prompt.startsWith('【参考图对应与一致性】\n人物的面部特征、发型和体型比例依据对应身份参考图及随附说明。\n\n参考图1 → 洛玥（身份参考）：18岁少女。\n参考图2 → 洛米（身份参考）：9岁小女孩。'))
+  assert.doesNotMatch(prompt, /洛凰|洛璃|c1794034469564y2pj|仰脸|垂眸|以本张描述为准|一致性补充/)
+  assert.match(prompt, /洛米仰起小脸/)
+  assert.match(prompt, /洛玥穿玄黑色上袄。洛米穿浅色外套/)
+  assert.match(prompt, /洛米紧贴洛玥身侧。未匹配人物1；侧脸朝桥头；被洛玥抱着/)
+  assert.match(prompt, /洛米的手不越到洛玥手臂；未匹配人物1侧身坐稳/)
+  assert.match(prompt, /洛米的手不要遮住洛玥/)
 })
 
 test('sync: saving and restarting preserves structured mode alongside the Chinese switch', async t => {

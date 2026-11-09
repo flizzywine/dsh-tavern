@@ -7,23 +7,29 @@ const model = { kind: 'model', provider: 'test', model: 'test-model' }
 const assistant = (seq, turn, source = model, content = [{ type: 'text', text: '正文' }]) => ({ seq, type: 'assistant/message', data: { turn, step: 1, message: { role: 'assistant', source, content } } })
 const cleanup = (seq, turn) => assistant(seq, turn, { kind: 'plugin', plugin: 'dsh-tavern-failed-turn-cleanup' }, [])
 const chat = { messages: [{ role: 'assistant', greeting: true, turn: 1 }, { role: 'user', text: '继续' }, { role: 'assistant', turn: 6, text: '已保存正文' }] }
-test('同一句配对错误记录不同结构原因，不修改消息或暴露文本', () => {
-  const cases = [
-    [[{ role: 'assistant', greeting: true }], 'no-non-greeting-assistant'],
-    [[{ role: 'assistant', turn: 2 }], 'assistant-at-start'],
-    [[null, { role: 'assistant', turn: 2 }], 'previous-message-invalid'],
-    [[{ role: 'user' }, { role: 'system' }, { role: 'assistant', turn: 2 }], 'previous-message-not-user']
-  ]
-  for (const [messages, reason] of cases) {
-    for (const msg of messages) if (msg) msg.text = 'private-user-story-and-key'
-    const before = structuredClone(messages)
-    let evidence
-    assert.throws(() => selectRegenerationTarget({messages}, {events:[],surface:{nodes:[]}}, value => { evidence = value }), /没有可重新生成/)
-    assert.equal(evidence.reason, reason)
-    assert.equal(evidence.chat.messageCount, messages.length)
-    assert.doesNotMatch(JSON.stringify(evidence), /private-user-story-and-key/)
-    assert.deepEqual(messages, before)
-  }
+test('没有非问候助手时才拒绝；前一条不是玩家输入不再是拒绝理由', () => {
+  let evidence
+  assert.throws(() => selectRegenerationTarget({ messages: [{ role: 'assistant', greeting: true }] }, { events: [], surface: { nodes: [] } }, value => { evidence = value }), /没有可重新生成的正文/)
+  assert.equal(evidence.reason, 'no-non-greeting-assistant')
+  // 尾巴是 [助手, 助手]（被撤回的输入、修复轮）时不再因"缺配对"拒绝；
+  // 消息面上没有这一轮的正文也不再拒绝：没有旧正文可替换，就按补写处理。
+  let second
+  const messages = [{ role: 'assistant', turn: 5, text: '上一轮' }, { role: 'assistant', turn: 7, text: '这一轮' }]
+  const selection = selectRegenerationTarget({ messages }, { events: [], surface: { nodes: [] } }, value => { second = value })
+  assert.equal(second.reason, 'save-only')
+  assert.equal(selection.saveOnly, true)
+  assert.equal(selection.oldSeq, null)
+  assert.equal(selection.oldTurn, 7)
+})
+
+test('存档行的 nativeAnchor 直接定位正文，不比对轮号', () => {
+  // 剧情第 8 轮存在宿主第 15 轮里，轮号根本对不上；但存档行记着事件号。
+  const events = [assistant(3, 15)]
+  const messages = [{ role: 'user', text: '继续' }, { role: 'assistant', turn: 8, text: '改过的正文', nativeAnchor: { formatVersion: 4, turn: 8, input: 2, reply: 3 } }]
+  const selection = selectRegenerationTarget({ messages }, { events, surface: { nodes: [3] } })
+  assert.equal(selection.saveOnly, false)
+  assert.equal(selection.oldSeq, 3)
+  assert.equal(selection.oldTurn, 8)
 })
 
 function select(events, nodes) {
@@ -86,4 +92,51 @@ test('投影出来的正文借了编辑回合的编号时，用存档正文找�
   // 空白差异不算不同版本。
   const spaced = [assistant(0, 1), assistant(9, 6, model, [{ type: 'text', text: '第一段\n第二段' }])]
   assert.equal(surface.locateRegenerationSurface({ events: spaced, nodes: [0, 9], turn: 4, texts: ['第一段 第二段'] })?.assistantSeq, 9)
+})
+
+test('失败轮的占位行不是重新生成目标：回落到上一条已提交正文', () => {
+  const messages = [
+    { role: 'user', text: '开场' },
+    { role: 'assistant', turn: 6, text: '正文' },
+    { role: 'user', text: '这一轮失败了' },
+    { role: 'assistant', turn: 7, placeholder: true }
+  ]
+  const { oldAssistantIndex, oldTurn } = selectRegenerationTarget({ messages }, { events: [assistant(3, 6)], surface: { nodes: [3] } })
+  // The target is the last round that actually has text, not the failed placeholder.
+  assert.equal(oldAssistantIndex, 1)
+  assert.equal(oldTurn, 6)
+})
+
+test('面上留着未认领的旧正文时，原地替换它，不在后面再挂一条', () => {
+  const events = []
+  const nodes = []
+  const session = {
+    events,
+    surface: { nodes },
+    append(type, data, options = {}) {
+      const seq = events.length
+      events.push({ seq, type, data, ...options })
+      if (options.surfaceOp === 'append') nodes.push(seq)
+      return seq
+    }
+  }
+  session.append('turn/start', { turn: 3 })
+  session.append('user/message', { content: '继续' }, { surfaceOp: 'append' })
+  const orphan = session.append('assistant/message', assistant(0, 3).data, { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
+  // 存档这一轮写着改过的正文，面上只剩上一次尝试留下的那一条 —— 它就是要被删的旧输出。
+  const messages = [{ role: 'user', text: '继续' }, { role: 'assistant', turn: 6, text: '存档里改过的这一轮' }]
+  const selection = selectRegenerationTarget({ messages }, session)
+  assert.equal(selection.saveOnly, false)
+  assert.equal(selection.oldSeq, orphan)
+  assert.equal(selection.oldTurn, 6)
+
+  const eventStart = events.length
+  session.append('turn/start', { turn: 4 })
+  session.append('user/message', { content: '重新生成' }, { surfaceOp: 'append' })
+  session.append('assistant/message', assistant(0, 4, model, [{ type: 'text', text: '新正文' }]).data, { surfaceOp: 'append' })
+  const plan = surface.planRegenerationSurface({ events, nodes, oldAssistantSeq: selection.oldSeq, eventStart })
+  assert.equal(plan.start, orphan)
+  assert.ok(plan.shadowedSeqs.includes(orphan))
+  assert.deepEqual(plan.cleanups, [])
 })

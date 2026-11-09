@@ -1,6 +1,6 @@
 import { preserveInstallationFonts } from './preserve-font-assets.mjs'
 import { beginDesktopProfileInstallation, clearUninstalledInstallationRecord } from './desktop-profile-installation.mjs'
-import { LAUNCHER_BUNDLE } from '../tavern-plugin/packages/dsh-profile-bridge/lib/state.mjs'
+import { assertLauncherSlotAvailable, hasNextTavern, LAUNCHER_BUNDLE, launcherBundles } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
 import { assertDesktopStopped, importUserHome } from './import-user-home.mjs'
 import { randomUUID } from 'node:crypto'
 import installationState from './installation-state.cjs'
@@ -8,7 +8,7 @@ import { recordInstallationReceipt } from './installation-receipt.mjs'
 import { assertRuntimeDependencies } from './runtime-dependencies.mjs'
 import { createUpdateState } from './update-state.mjs'
 import { recordUpdateDiagnostic } from './update-diagnostics.mjs'
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -61,8 +61,13 @@ function verifySource() {
 
 function prepareProfileConfiguration(host, dshVersion) {
   const source = JSON.parse(readFileSync(path.join(SOURCE_ROOT, 'package.json'), 'utf8'))
-  let current = loadProfileManifest({ profileDir: PROFILE_DIR })
-  if (current.name && current.name !== 'dsh-profile-tavern' && !(host === 'desktop' && current.name === 'dsh-profile-desktop')) {
+  const current = loadProfileManifest({ profileDir: PROFILE_DIR })
+  const desktop = host === 'desktop' || host === 'next'
+  const legacyNext = desktop && hasNextTavern(DSH_ROOT)
+  if (desktop && current.dsh?.profile?.bundles?.includes('dsh-tavern-bundle') && !legacyNext) {
+    throw new Error('无法核对现有 NEXT 酒馆包的来源，请先检查 tavern Profile。')
+  }
+  if (current.name && current.name !== 'dsh-profile-tavern' && !legacyNext && !(host === 'desktop' && current.name === 'dsh-profile-desktop')) {
     throw new Error(`目标 profile 已属于其他项目：${current.name}`)
   }
 
@@ -70,6 +75,11 @@ function prepareProfileConfiguration(host, dshVersion) {
   const manifest = mergeProfileManifest({
     source,
     current,
+    previousLaunchers: [
+      ...launcherBundles(current, PROFILE_DIR, 'desktop'),
+      ...launcherBundles(current, PROFILE_DIR, 'next'),
+      ...(legacyNext ? ['dsh-tavern-bundle'] : []),
+    ],
     pluginPath,
     dataRoot: resolveTavernDataRoot({ dshHome: DSH_ROOT }),
     host,
@@ -82,11 +92,13 @@ function prepareProfileConfiguration(host, dshVersion) {
     host,
     profileConfigurationVersion: current.dshTavern && current.dshTavern.profileConfigurationVersion,
   })
-  if (host === 'desktop') {
+  if (desktop) {
+    assertLauncherSlotAvailable(current, PROFILE_DIR, { replaceNext: true })
     manifest.dshTavern.officialDesktop = true
     manifest.dshTavern.profileBridge = true
-    manifest.dsh.profile.bundles.push(LAUNCHER_BUNDLE)
-    manifest.dependencies[LAUNCHER_BUNDLE] = `link:${path.join(pluginPath, 'packages/dsh-profile-bridge').replaceAll(path.sep, '/')}`
+    if (!manifest.dsh.profile.bundles.includes(LAUNCHER_BUNDLE)) manifest.dsh.profile.bundles.push(LAUNCHER_BUNDLE)
+    manifest.dependencies[LAUNCHER_BUNDLE] = `link:${path.join(pluginPath, 'packages/dsh-tavern').replaceAll(path.sep, '/')}`
+    manifest.dshTavern.managedBundles.push(LAUNCHER_BUNDLE)
   }
   return { manifest, patchText }
 }
@@ -250,10 +262,10 @@ export async function installProfile(host = RUNTIME_HOST, { guiRoot } = {}) {
       if (pathExistsNoFollow(directory) && !lstatSync(directory).isDirectory()) throw new Error(`Next 需要真实的 Profile 目录：${directory}`)
     }
     const desktop = path.join(DSH_ROOT, 'profiles', 'desktop')
-    if (pathExistsNoFollow(desktop) && lstatSync(desktop).isSymbolicLink() && existsSync(PROFILE_DIR) && realpathSync(desktop) === realpathSync(PROFILE_DIR)) {
-      throw new Error('旧版桌面正通过桥接使用 tavern。请先切回原版 DSH，再安装 Next 版酒馆。')
+    if (pathExistsNoFollow(desktop) && !lstatSync(desktop).isDirectory()) {
+      throw new Error('NEXT 需要真实的 desktop 目录。请先在官方桌面切回原版 DSH，再安装酒馆。')
     }
-    assertDesktopStopped([DSH_ROOT], { requireGuiClosed: true })
+    assertDesktopStopped([DSH_ROOT], { requireGuiClosed: true, guiRoot })
   }
   const attemptId = process.env.DSH_TAVERN_INSTALL_ATTEMPT || randomUUID()
   const lease = installationState.acquireInstallation({ dshHome: DSH_ROOT, sourceRoot: SOURCE_ROOT, host, attemptId })
@@ -312,8 +324,10 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
       const imported = importUserHome({ source: process.env.DSH_TAVERN_IMPORT_HOME, target: DSH_ROOT })
       console.log(`${imported.alreadyImported ? '已继承过该目录，保留当前进度' : '旧目录数据继承完成'}；双方备份：${imported.backup}`)
     }
-    if (host === 'desktop') {
-      bridge = beginDesktopProfileInstallation({ home: DSH_ROOT, sourceRoot: SOURCE_ROOT, guiRoot, preparingForPid })
+    // DSH_TAVERN_UNIFIED_DESKTOP: both desktop hosts publish the same profile and launcher.
+    if (host === 'desktop' || host === 'next') {
+      const launcherGate = host === 'next' && process.env.DSH_TAVERN_LAUNCHER_INSTALL === '1' ? process.env.DSH_TAVERN_PUBLISH_GATE : undefined
+      bridge = beginDesktopProfileInstallation({ home: DSH_ROOT, sourceRoot: SOURCE_ROOT, host, guiRoot, preparingForPid, launcherGate })
       if (bridge) console.log(`${bridge.refreshOnly ? '原版切换组件备份' : 'Profile 完整备份'}：${bridge.backup}`)
     }
     mkdirSync(PROFILE_DIR, { recursive: true })
@@ -449,7 +463,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
     runtime?.commit()
     const receipt = await recordInstallationReceipt({ sourceRoot: SOURCE_ROOT, dshHome: DSH_ROOT, host, attemptId, bridgeUpdateId: bridge?.bridgeUpdateId })
     bridge?.commit()
-    if (host !== 'next' && !clearUninstalledInstallationRecord(DSH_ROOT)) console.warn('未能清除卸载标记：请检查 profile-bridge/installation.json；本次安装已完成。')
+    if (!clearUninstalledInstallationRecord(DSH_ROOT)) console.warn('未能清除卸载标记：请检查 profile-bridge/installation.json；本次安装已完成。')
     console.log('DSH Tavern 已安装。')
     console.log(host === 'cli' ? `已安装独立 DSH ${dshVersion}：${CLI_RUNTIME_ROOT}；不使用全局 DSH。` : `已复用当前 DSH ${dshVersion} 的本地依赖；未升级或降级宿主。`)
     if (host === 'desktop') {

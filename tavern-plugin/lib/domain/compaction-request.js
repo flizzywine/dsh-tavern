@@ -73,7 +73,10 @@ async function* withTextFallback(ctx, request, stream) {
   for await (const chunk of boundedCompaction(ctx, request, stream)) chunks.push(chunk)
   const finish = chunks.find(chunk => chunk?.type === 'finish')?.reason?.kind
   const text = chunks.some(chunk => chunk?.type === 'block-end' && chunk.block?.type === 'text' && chunk.block.text.trim())
-  if (text || !['stop', 'tool'].includes(finish)) { yield* chunks; return }
+  // DSH reports a tool-call finish as 'tool-calls' (see plugin-body-generation and the e2e model); keep
+  // 'tool' too. Missing 'tool-calls' meant a summarizer that obeyed the story's submit tool never got the
+  // plain-text retry, and manual compaction failed with "no text summary content".
+  if (text || !['stop', 'tool', 'tool-calls'].includes(finish)) { yield* chunks; return }
   ctx.logger?.info?.('Tavern compaction: summary had no text (' + finish + '), retrying as plain text without tools')
   yield* boundedCompaction(ctx, request, stream, { quoted: true })
 }

@@ -98,6 +98,23 @@ body.dsh-tavern-shell-active,
 /* the raw text under the sentence, 调试视图 only. */
 .dsh-tavern-error-raw { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; opacity: .8; }
 .dsh-tavern-assistant { display: flex; flex-direction: column; gap: 16px; color: var(--dsw-alias-label-primary); font-size: var(--dsh-content-font-size, 14px); line-height: calc(24px + var(--dsh-content-font-delta, 0px)); }
+.dsh-tavern-story-transcript-row { min-width: 0; }
+.dsh-tavern-story-body { min-width: 0; overflow-wrap: anywhere; }
+.dsh-tavern-story-floor-head { display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 18px; }
+.dsh-tavern-story-floor-no { color: var(--dsw-alias-label-secondary); font-weight: 600; }
+.dsh-tavern-story-floor-tag { padding: 0 6px; border-radius: 999px; background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-tavern-story-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-height: 24px; color: var(--dsw-alias-label-tertiary); font-size: 12px; opacity: 0; transition: opacity .15s ease; }
+.dsh-tavern-story-transcript-row:hover .dsh-tavern-story-row-actions, .dsh-tavern-story-row-actions:focus-within, .dsh-tavern-story-row-actions:has(.dsh-tavern-message-select) { opacity: 1; }
+.dsh-tavern-story-row-action { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+.dsh-tavern-story-row-action:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.dsh-tavern-story-row-action:disabled { opacity: .5; cursor: wait; }
+.dsh-tavern-story-row-action svg { width: 15px; height: 15px; }
+.dsh-tavern-story-row-actions .dsh-tavern-message-select.assistant { position: static; }
+@media (hover: none) { .dsh-tavern-story-row-actions { opacity: 1; } }
+.dsh-tavern-story-older { display: flex; justify-content: center; }
+.dsh-tavern-story-loading, .dsh-tavern-story-empty { padding: 20px 0; color: var(--dsw-alias-label-secondary); text-align: center; }
+.dsh-tavern-story-error { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--dsh-tavern-accent-error); }
+.dsh-tavern-story-input .dsh-tavern-user-bubble { box-sizing: border-box; max-width: min(525px, 82%); }
 .dsh-tavern-illustration { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .dsh-tavern-illustration > a { display: block; max-width: 100%; }
 /* Earlier turns without a picture: a quiet entry that appears when the turn is hovered. */
@@ -215,13 +232,13 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-message-select:has(input:disabled) { cursor: wait; opacity: .55; }
 .dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant) { position: relative; box-sizing: border-box; padding-right: 30px; }
 .dsh-tavern-user-row:has(.dsh-tavern-message-select.user),
-.dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant) { cursor: pointer; }
+.dsh-tavern-assistant:has(.dsh-tavern-message-select.assistant) { cursor: pointer; }
 .dsh-tavern-user-row:has(.dsh-tavern-message-select.user input:disabled),
-.dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant input:disabled) { cursor: wait; }
+.dsh-tavern-assistant:has(.dsh-tavern-message-select.assistant input:disabled) { cursor: wait; }
 .dsh-tavern-message-select.assistant { position: absolute; z-index: 1; top: 0; right: 0; }
 /* 勾选不仅改变小框：整条楼层用主题色底和双层描边，跨轮检查时已选目标一眼可辨。 */
 .dsh-tavern-user-row:has(.dsh-tavern-message-select.user input:checked),
-.dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant input:checked) {
+.dsh-tavern-assistant:has(.dsh-tavern-message-select.assistant input:checked) {
   border-radius: 12px;
   background: var(--dsh-tavern-accent-soft);
   box-shadow: 0 0 0 2px var(--dsh-tavern-accent), 0 0 0 6px var(--dsh-tavern-accent-soft);
@@ -1149,10 +1166,6 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 /* Showing, hiding and restoring the notice are quiet text actions, not buttons. */
 .dsh-tavern-error-controls button.dsh-tavern-error-quiet { border-color: transparent; padding: 3px 4px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
 .dsh-tavern-error-controls button.dsh-tavern-error-quiet:hover { background: transparent; color: var(--dsw-alias-label-primary, #16181b); text-decoration: underline; text-underline-offset: 3px; }
-.dsh-tavern-error-controls button.dsh-tavern-error-replay { border-color: rgba(166,107,53,.55); color: #a66b35; font-weight: 650; }
-.dsh-tavern-error-controls button.dsh-tavern-error-replay:hover { background: rgba(166,107,53,.18); }
-.dsh-tavern-error-controls button.dsh-tavern-error-replay:disabled { opacity: .55; cursor: default; }
-.dsh-tavern-error-controls button.dsh-tavern-error-replay.is-secondary { border-color: currentColor; color: inherit; font-weight: normal; opacity: .75; }
 .dsh-tavern-error-controls button.is-primary { border-color: rgba(166,107,53,.55); color: #a66b35; font-weight: 650; }
 .dsh-tavern-error-controls button.is-primary:hover { background: rgba(166,107,53,.18); }
 .dsh-tavern-error-controls button:disabled { opacity: .55; cursor: default; }
@@ -1663,6 +1676,7 @@ header.dsh-tavern-immersive-header button.dsh-tavern-play-fullscreen {
 .dsh-tavern-worldbook-entry-actions > label { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dsw-alias-label-secondary); }
 .dsh-tavern-worldbook-entry-actions input { margin: 0; }
 .dsh-tavern-worldbook-kind.is-background { cursor: default; color: var(--dsw-alias-label-secondary); border-color: var(--dsw-alias-border-l2); background: transparent; }
+.dsh-tavern-worldbook-kind.is-active { border-color: var(--dsh-tavern-accent); background: var(--dsh-tavern-accent); color: var(--dsw-alias-label-primary-foreground, #fff); }
 .dsh-tavern-worldbook-content > label { font-size: 12px; color: var(--dsw-alias-label-primary); margin-bottom: 7px; }
 .dsh-tavern-worldbook-content textarea.large { min-height: 280px; max-height: 70vh; padding: 12px; font-size: 13px; line-height: 1.75; background: var(--dsw-specific-input-major); }
 .dsh-tavern-worldbook-entry-settings { border-top: 1px solid var(--dsw-alias-border-l2); padding-top: 10px; }
@@ -3268,6 +3282,12 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) [class*="_rowText"] { flex: 1 1 160px; padding-right: 0; }
 }
 
+/* dsh-web-mobile 也会标记桌面 frame，但只有窄触屏才使用 minmax(0, 1fr) 0 0。
+   宿主在竖屏时仍将中心列放在零宽的第二轨，需要移回第一轨。 */
+@media (max-width: 1023px) and (orientation: portrait) and (pointer: coarse) {
+  body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-mobile-nav="frame"] > [class*="_centerCol"] { grid-area: 1 / 1 !important; min-width: 0 !important; }
+}
+
 /* 极短窗口下列表覆盖内容区，关闭入口始终可见；不让 0px 的候选层遮住顶栏。 */
 @media (max-width: 1023px), (pointer: coarse) {
   html.dsh-tavern-short-viewport body.dsh-tavern-shell-active [data-composer-seat] {
@@ -3663,14 +3683,15 @@ body .dsh-tavern-picker-error { background: linear-gradient(color-mix(in srgb, v
 .dsh-tavern-rx-bulk .dsh-tavern-btn { min-height: 26px; padding: 2px 8px; font-size: 10px; }
 .dsh-tavern-rx-bulk .dsh-tavern-rx-spacer { flex: 1 1 auto; }
 
-/* ---------- 轮次导航：按页面上真正的正文块画刻度 ---------- */
-/* modules/turn-rail.js：收起宿主那列（它按整档目录画，重试的尝试轮也在里面），
-   给每一轮正文单独画一根刻度，点了滚到那一块的开头。 */
+/* ---------- 楼层跳转：照页面上的楼层画刻度 ---------- */
+/* modules/turn-rail.js：收起宿主那列（它按 turn 画，重试、被取代的尝试轮也在里面），
+   一层正文一根刻度，点了滚到那一层的开头。 */
 /* 只做视觉隐藏：display:none 会让宿主的虚拟列表量到 0 高度，连它自己的刻度都不再渲染。 */
 [data-dsh-tavern-rail-hidden] { visibility: hidden !important; pointer-events: none !important; }
-/* 宿主那列藏了，但它的悬浮预览（role=tooltip）要留着：我们的刻度替它收指针事件。 */
-nav[data-dsh-tavern-rail-hidden] [role="tooltip"] { visibility: visible !important; }
-.dsh-tavern-turn-rail { position: fixed; z-index: 6; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; margin: 0; padding: 0; max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; transform: translateY(-50%); }
+/* right / top 是脚本还没定位时的落脚点：贴右边居中，绝不停在页面末尾（手机上就是左下角）。 */
+.dsh-tavern-turn-rail { position: fixed; z-index: 6; right: 12px; top: 50%; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; margin: 0; padding: 0; max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; transform: translateY(-50%); }
+/* 收起时只设了 hidden：上面那条 display:flex 压掉了 UA 的 [hidden] 规则，这里补回来。 */
+.dsh-tavern-turn-rail[hidden] { display: none; }
 .dsh-tavern-turn-rail::-webkit-scrollbar { display: none; }
 .dsh-tavern-turn-rail-tick { position: relative; flex: none; box-sizing: border-box; width: 20px; height: 10px; margin: 0; padding: 0; border: 0; border-radius: 8px; background: none; cursor: pointer; }
 .dsh-tavern-turn-rail-tick::before { content: ""; position: absolute; top: 50%; right: 0; width: 20px; height: 2px; border-radius: 2px; background: var(--dsw-alias-border-l4); transform: translateY(-50%) scaleX(.6); transform-origin: 100%; transition: transform .14s, background-color .14s; }
@@ -3679,6 +3700,23 @@ nav[data-dsh-tavern-rail-hidden] [role="tooltip"] { visibility: visible !importa
 .dsh-tavern-turn-rail-tick:focus-visible { outline: none; }
 .dsh-tavern-turn-rail-tick:focus-visible::before { background: var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); transform: translateY(-50%) scaleX(1); }
 @media (prefers-reduced-motion: reduce) { .dsh-tavern-turn-rail-tick::before { transition: none; } }
+/* 窄屏紧凑版（place() 在 900px 以下加 data-compact）：贴右边，线更短，层与层之间留 6px 缝，
+   热区 24×12 —— 缝隙和列外的 pointer-events 都是 none，手指落在上面直接滑正文，不会被刻度
+   接走。最多 14 根（turn-rail.js 隔层取样），整列永远不滚，右边缘的上下滑也就不会被吃掉。 */
+.dsh-tavern-turn-rail[data-compact] { gap: 6px; max-height: none; overflow: visible; pointer-events: none; }
+.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick { width: 24px; height: 12px; pointer-events: auto; touch-action: manipulation; }
+.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick::before { width: 15px; background: color-mix(in srgb, var(--dsw-alias-border-l4) 82%, transparent); }
+.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick[data-active]::before { width: 19px; }
+/* 双击的第一步「选定」：线变长变深，配上「再点一下」的提示，一眼看出在等你点第二下。 */
+.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick[data-armed]::before { width: 22px; height: 3px; background: var(--dsh-tavern-accent); }
+/* 跳到的楼层闪一下浅底（turn-rail.js 的 flash）：点歪了也一眼看出跳到了哪。 */
+[data-story-row][data-floor-flash] { border-radius: 10px; background-color: color-mix(in srgb, var(--dsh-tavern-accent) 9%, transparent); }
+/* 「回到刚才」：挂在刻度列下面 1.8 秒，误触一键回原处。 */
+.dsh-tavern-turn-rail-undo, .dsh-tavern-turn-rail-hint { position: fixed; z-index: 7; display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border: 0; border-radius: 16px; background: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-base))); color: var(--dsw-alias-label-primary); box-shadow: 0 2px 10px color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; animation: dsh-tavern-menu-in 150ms cubic-bezier(0.23, 1, 0.32, 1); }
+/* 「再点一下 · 第 N 楼」：只是提示，不吃点击，第二下照样落在刻度上。 */
+.dsh-tavern-turn-rail-hint { pointer-events: none; transform: translateY(-50%); color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-turn-rail-undo:hover { background: var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-1)); }
+.dsh-tavern-turn-rail-undo:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 2px; }
 
 /* ── 导出与导入（.dshtransfer） ───────────────────────────────────────── */
 .dsh-tavern-transfer {
@@ -4034,9 +4072,11 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
 
 .dsh-tavern-auto-polished { font-size: 12px; color: var(--dsh-tavern-accent-muted); margin-top: 2px; }
 
-/* 长按发送键 2 秒：按住时描一圈进度，触发后短暂高亮；松手即消失。 */
+/* 长按发送键 2 秒：按住时描一圈进度，触发后短暂高亮。 */
+/* ready 在手指落下前由脚本标记：禁止浏览器把发送键上的按住抢成滚动、选中或系统长按菜单。 */
+.dsh-tavern-send-hold-ready { touch-action: none !important; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .dsh-tavern-send-hold { position: relative; }
-.dsh-tavern-send-hold::after { content: ""; position: absolute; inset: -3px; border-radius: inherit; border: 2px solid var(--dsh-tavern-accent); opacity: .12; pointer-events: none; animation: dsh-tavern-send-hold 2s linear forwards; }
+.dsh-tavern-send-hold::after { content: ""; position: absolute; inset: -5px; border-radius: inherit; border: 2px solid var(--dsh-tavern-accent); opacity: .12; pointer-events: none; animation: dsh-tavern-send-hold 2s linear forwards; }
 .dsh-tavern-send-hold-fired { animation: dsh-tavern-send-hold-fired 900ms ease-out; }
 @keyframes dsh-tavern-send-hold { 0% { opacity: .12; transform: scale(.96); } 100% { opacity: .8; transform: scale(1.04); } }
 @keyframes dsh-tavern-send-hold-fired { 0% { filter: brightness(1.25); } 100% { filter: none; } }

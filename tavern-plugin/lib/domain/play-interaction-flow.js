@@ -1,5 +1,5 @@
 /** Candidate and regeneration interaction state, independent of React and the host composer. */
-function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyBodyResult, reportError, timers = globalThis }) {
+function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyBodyResult, reportError, notifyRegenerating = function () {}, timers = globalThis }) {
     function store(normalize = value => value) {
         let value = null;
         const listeners = new Set();
@@ -85,6 +85,10 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         const loading = regeneration.set({ ...panel, phase: "loading", error: "", rewrite: text !== "", restyle });
         const candidate = candidates.getSnapshot();
         return once(pendingBodies, panel.sessionId, async () => {
+            // The page cannot see the save's busy marker until something refreshes it, and
+            // the request itself runs for as long as the model takes. Tell the page the
+            // replacement started, so it can take the old reply down right away.
+            notifyRegenerating(panel.sessionId, true);
             try {
                 const result = await rpc("regenBody", Object.assign({ guidance: text }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
                 applyBodyResult(panel.sessionId, result.view, panel.tail);
@@ -96,7 +100,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             } catch (error) {
                 reportError("正文重新生成", error);
                 if (regeneration.getSnapshot() === loading) regeneration.set({ ...panel, phase: "error", error: String(error?.message || error) });
-            }
+            } finally { notifyRegenerating(panel.sessionId, false); }
         });
     }
     // A body regeneration asked for without the guidance panel (the send key's long press,
@@ -106,8 +110,12 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         const tail = options && options.tail ? options.tail : null;
         const text = String(guidance || "").trim();
         if (text) guidanceBySession.set(sessionId, text); else guidanceBySession.delete(sessionId);
+        // A replay shares the in-flight model request, but must still produce immediate feedback;
+        // otherwise every long press during a slow generation looks as if it did nothing.
+        if (pendingBodies.has(sessionId)) reportError("正文重新生成", Object.assign(new Error("正文正在重新生成，请等待完成"), { code: "regen-busy" }));
         return once(pendingBodies, sessionId, async () => {
             const candidate = candidates.getSnapshot();
+            notifyRegenerating(sessionId, true);
             try {
                 const result = await rpc("regenBody", { guidance: text }, sessionId);
                 applyBodyResult(sessionId, result.view, tail);
@@ -117,7 +125,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             } catch (error) {
                 reportError("正文重新生成", error);
                 throw error;
-            }
+            } finally { notifyRegenerating(sessionId, false); }
         });
     }
     return Object.freeze({ candidates, guide, regeneration, readyCandidatePanel, submitCandidateTask,

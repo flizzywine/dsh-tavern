@@ -168,9 +168,14 @@ export function createReplyHistoryProjector({ maxCacheBytes = 16 * 1024 * 1024, 
         ? str(message.projectionText)
         : sourceText
 
+      const templateDisplay = message.tavernPluginData?.template_display
+      const validDisplay = templateDisplay && templateDisplay.source === sourceText && templateDisplay.swipe === (message.swipeId || 0)
+      const ordinaryDisplay = validDisplay && typeof templateDisplay.formattingText === 'string'
       // A regeneration provider already applied its output pipeline. Preserve
       // it on refresh too, rather than applying the game's preset a second time.
-      if (message.bodyRegenerationProcessed === true) {
+      // A matching template result is already final as well: fall through to the
+      // zero-regex ordinaryDisplay path instead of discarding its HTML conversion.
+      if (message.bodyRegenerationProcessed === true && !ordinaryDisplay) {
         const processed = projectProcessedReply(projectionText)
         projections.push({ version: 2, turn, text: projectionText,
           mode: processed.displayMode,
@@ -179,9 +184,6 @@ export function createReplyHistoryProjector({ maxCacheBytes = 16 * 1024 * 1024, 
         continue
       }
 
-      const templateDisplay = message.tavernPluginData?.template_display
-      const validDisplay = templateDisplay && templateDisplay.source === sourceText && templateDisplay.swipe === (message.swipeId || 0)
-      const ordinaryDisplay = validDisplay && typeof templateDisplay.formattingText === 'string'
       if (validDisplay && !ordinaryDisplay
         && !isDegenerateTemplateDisplay(templateDisplay.html, sourceText, options)) {
         let repaired = templateDisplay

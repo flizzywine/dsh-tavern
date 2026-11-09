@@ -42,7 +42,7 @@ function uniqueStrings(values) {
   return result
 }
 
-export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoot, host, dshVersion }) {
+export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoot, host, dshVersion, previousLaunchers = [] }) {
   const sourceDocument = object(source)
   const currentDocument = object(current)
   const sourceDsh = { ...object(sourceDocument.dsh) }
@@ -54,10 +54,6 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
   const currentProfile = object(currentDsh.profile)
   const currentTavern = { ...object(currentDocument.dshTavern) }
   delete currentTavern.cliPocketEnabled
-  if (host === 'next') {
-    delete currentTavern.officialDesktop
-    delete currentTavern.profileBridge
-  }
   // Pocket and web-mobile each include mobile-nav, so they cannot load together.
   // Desktop and Android ship one of them and drop whatever collides with it;
   // CLI ships none, so a layout the user installed there is left alone.
@@ -68,8 +64,7 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
     : []
   // Desktop installation re-adds its own launcher from the installed source.
   // Drop previous official and NEXT launchers before the profiles are composed.
-  if (desktop) excludedHostBundles.push('dsh-tavern-launcher')
-  excludedHostBundles.push('dsh-profile-bridge')
+  excludedHostBundles.push(...previousLaunchers)
   const sourceBundles = uniqueStrings(sourceProfile.bundles)
     .map(name => name === 'dsh-web-mobile' ? selectedLayout : name)
     .filter(name => name && !excludedHostBundles.includes(name))
@@ -272,7 +267,7 @@ export function prepareProfilePatch({ profileDir, templateText, legacyManagedTex
   try {
     const migrated = Number(profileConfigurationVersion) >= PROFILE_CONFIGURATION_VERSION
       ? undefined : migrateLegacyProfilePatch(currentText, legacyManagedText)
-    if (host !== 'next') return migrated
+    if (host !== 'desktop' && host !== 'next') return migrated
     const document = parsedSequence(migrated ?? currentText, '现有 Tavern Profile 配置')
     let changed = false
     for (const row of document.contents.items) {

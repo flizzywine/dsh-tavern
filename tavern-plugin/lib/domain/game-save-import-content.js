@@ -5,6 +5,15 @@ export function assertImportableSave(save) {
   const states = [save.chat, ...save.revisions.map(item => item.state)]
   if (states.some(state => !state || typeof state !== 'object' || !Array.isArray(state.messages))) throw new Error('存档包已损坏：存档内容不完整')
   if (!['story', 'script'].includes(save.chat.mode || 'story')) throw new Error('存档包不是游玩对话')
+  const world = save.world
+  if (world != null && (!world || typeof world !== 'object' || Array.isArray(world) ||
+    !(world.position === null || Number.isSafeInteger(world.position) && world.position >= 0 && world.position < save.chat.messages.length) ||
+    !Number.isSafeInteger(world.swipe) || world.swipe < 0 ||
+    !(world.messageUid === null || typeof world.messageUid === 'string' && world.messageUid.length > 0) ||
+    !world.world || typeof world.world !== 'object' || Array.isArray(world.world) ||
+    !world.world.variables || typeof world.world.variables !== 'object' || Array.isArray(world.world.variables))) {
+    throw new Error('存档包已损坏：世界状态不完整')
+  }
   const events = save.session?.events
   if (!Array.isArray(events) || !events.some(event => event?.type === 'turn/end')) throw new Error('存档包已损坏：缺少模型会话记录')
   if (events.some((event, index) => event?.seq !== index)) throw new Error('存档包已损坏：模型会话记录不连续')

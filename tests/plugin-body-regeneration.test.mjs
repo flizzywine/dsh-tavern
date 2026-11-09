@@ -55,7 +55,8 @@ async function fixture(options = {}) {
   const original = await chats.read()
   const session = Session.create('session')
   appendSessionEvent(session, 'user/message', { id: 'input', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] }, { surfaceOp: 'append' })
-  appendSessionEvent(session, 'assistant/message', { turn: 2, step: 1, message: { id: 'reply', role: 'assistant',
+  // withoutBody：这一轮的正文从来没落到消息面上（截断后没投影就丢了）。
+  if (!options.withoutBody) appendSessionEvent(session, 'assistant/message', { turn: 2, step: 1, message: { id: 'reply', role: 'assistant',
     source: { kind: 'model', provider: 'fixture', model: 'fixture' }, content: [{ type: 'text', text: '旧正文' }] } }, { surfaceOp: 'append', sourceEventSeqs: [] })
   const agent = { session, phase: { kind: 'idle', lastTurn: 2 }, followup() { throw new Error('must never use foreground agent') } }
   const phases = [], notifications = [], settlementInputs = []
@@ -93,6 +94,9 @@ test('prepared configuration is durable before generation and guidance is part o
     assert.equal(snapshot.config.preset, 'frozen')
     assert.equal(materials.guidance, '更简洁')
     assert.equal(saved.regenRecovery.generation.materialsDigest, materials.digest)
+    // 生成期间页面撤掉旧正文：原生行与故事行 UID 都记在这次操作的恢复点里。
+    assert.equal(saved.regenRecovery.temporaryReplacingTurn, 2)
+    assert.match(saved.regenRecovery.targetMessageUid, /^legacy-/)
     return { text: '新正文' }
   }, { guidance: '更简洁', providerId: 'test:body', prepare: ({ reason }) => {
     prepared++; assert.equal(reason, 'regenerate'); return { config: { preset: 'frozen' } }
@@ -116,12 +120,35 @@ test('restart retains a durable candidate and explicit retry adopts it without a
   assert.equal((await fresh.chats.read()).bodyGenerationCandidate, undefined)
 })
 
+test('生成期间后台结算推进版本与状态后，候选正文仍能提交并保留后台写入', async () => {
+  let commitState
+  const h = await fixture({ afterWrite(meta, saved) {
+    if (meta?.source === 'foreground.plugin-regen-commit') commitState = copy(saved)
+  } })
+  const result = await h.run(async () => {
+    // 后台结算/候选/世界书在自己的节奏上写这些字段，推进 revision 也不代表剧情变了。
+    await h.chats.update('chat', chat => {
+      chat.posture = '后台结算后的状态'
+      chat.variables = { hp: 5 }
+      chat.timeline = { ...chat.timeline, revision: Number(chat.timeline.revision || 0) + 1 }
+      return chat
+    })
+    return { text: '后台写入后仍提交的正文' }
+  })
+  const current = await h.chats.read()
+  assert.deepEqual(current.messages.map(row => row.text), ['继续', '后台写入后仍提交的正文'])
+  assert.equal(commitState.posture, '后台结算后的状态', '后台写入的 posture 不被提交覆盖')
+  assert.deepEqual(commitState.variables, { hp: 5 }, '后台写入的变量不被提交覆盖')
+  assert.equal(result.settlement, 'done')
+})
+
 test('provider replaces one round and native context, then settles from the original start exactly once', async () => {
   const h = await fixture()
   const result = await h.run(async ({ materials }) => {
     assert.equal(materials.stateBefore.posture, '起点 HP 10')
     const during = await h.chats.read()
-    assert.equal(during.messages.at(-1).text, '旧正文')
+    assert.equal(during.messages.at(-1).text, '')
+    assert.equal(during.messages.at(-1).regenerationDiscarded, true)
     assert.equal(during.regenRecovery.phase, 'prepared')
     assert.equal(during.posture, '旧正文后 HP 9')
     return { text: '<p>预设正则处理后的正文</p>' }
@@ -149,7 +176,7 @@ test('provider replaces one round and native context, then settles from the orig
   assert.ok(findBodyRegenerationFrame(current, 2), 'the replacement retains its input snapshot for another retry')
 })
 
-test('generation failure and cancellation retain the original story and never start settlement', async () => {
+test('generation failure and cancellation keep the old body deleted and never start settlement', async () => {
   for (const mode of ['failure', 'cancel', 'empty']) {
     const h = await fixture(), controller = new AbortController()
     await assert.rejects(h.run(async () => {
@@ -158,7 +185,8 @@ test('generation failure and cancellation retain the original story and never st
       return { text: ' ' }
     }, { signal: controller.signal }))
     const current = await h.chats.read()
-    assert.deepEqual(current.messages, h.original.messages)
+    assert.deepEqual(current.messages, h.original.messages.slice(0, -1))
+    assert.equal(current.failedRegenerationTarget.assistant.text, '旧正文')
     assert.equal(current.posture, h.original.posture)
     assert.deepEqual(current.timeline, h.original.timeline)
     assert.equal(current.regenInProgress, undefined)
@@ -176,7 +204,7 @@ async function unfinishedSettlement(h, running) {
   return chat
 }
 
-test('a failed or cancelled replacement resumes the old body settlement and releases its interrupted slot', async () => {
+test('a failed or cancelled replacement does not resume the discarded body settlement', async () => {
   for (const running of [false, true]) for (const cancelled of [false, true]) {
     const h = await fixture(), controller = new AbortController()
     const interrupted = await unfinishedSettlement(h, running)
@@ -184,15 +212,13 @@ test('a failed or cancelled replacement resumes the old body settlement and rele
       if (cancelled) { controller.abort(new Error('停止')); return new Promise(() => {}) }
       throw new Error('模型拒绝')
     }, { signal: controller.signal }), cancelled ? /停止/ : /模型拒绝/)
-    assert.equal(h.settlementInputs.length, 1)
-    const resumed = h.settlementInputs[0]
-    assert.deepEqual(resumed.messages, interrupted.messages)
-    assert.equal(resumed.posture, interrupted.posture)
-    assert.equal(resumed.regenInProgress, undefined)
-    assert.equal(resumed.timeline.branchId, interrupted.timeline.branchId)
-    assert.equal(resumed.timeline.revision, interrupted.timeline.revision)
-    assert.ok(!Object.values(resumed.timeline.operations).some(operation => operation.kind === 'agent'
-      && operation.role === 'settlement' && operation.status === 'running'), 'the cancelled job cannot retain the background slot')
+    assert.equal(h.settlementInputs.length, 0)
+    const current = await h.chats.read()
+    assert.deepEqual(current.messages, interrupted.messages.slice(0, -1))
+    assert.equal(current.posture, interrupted.posture)
+    assert.equal(current.regenInProgress, undefined)
+    assert.equal(current.timeline.branchId, interrupted.timeline.branchId)
+    assert.equal(current.timeline.revision, interrupted.timeline.revision)
   }
 })
 
@@ -232,7 +258,7 @@ test('a concurrent version change rejects the candidate without restoring stale 
     return { text: '过期候选' }
   }), /变化|修改/)
   const current = await h.chats.read()
-  assert.equal(current.messages.at(-1).text, '另一项操作改过的正文')
+  assert.deepEqual(current.messages.map(row => row.text), ['继续'])
   assert.equal(current.regenInProgress, undefined)
   assert.equal(h.settlementInputs.length, 0)
 })
@@ -358,4 +384,67 @@ for (const alreadyAppended of [false, true]) test('failed-input committed recove
   const visible = JSON.stringify(reopened.deriveMessages())
   assert.equal((visible.match(/恢复的新正文/g) || []).length, 1)
   assert.equal((visible.match(/失败输入/g) || []).length, 1)
+})
+
+test('面上没有这一轮正文时补写一条，旧正文不在了也能重新生成', async () => {
+  // 上一次重新生成截断后没有落位：这一轮的正文在存档里，消息流上却没有。
+  const h = await fixture({ withoutBody: true })
+  const result = await h.run(async () => ({ text: '补写的正文' }), { providerId: 'test:body' })
+  assert.equal(result.text, '补写的正文')
+  const saved = await h.chats.read()
+  assert.equal(saved.messages.at(-1).text, '补写的正文')
+  // 新正文作为第 2 轮落在消息面上，并记下了锚点，下一次重新生成不用再猜。
+  const current = (await import('../tavern-plugin/lib/domain/session-events.js')).sessionEvents(h.session)
+  const appended = h.session.surface.nodes.map(seq => current.find(event => event.seq === seq))
+    .filter(event => event?.type === 'assistant/message' && event.data?.message?.source?.tavernStoryTurn === 2)
+  assert.equal(appended.length, 1)
+  assert.equal(appended[0].data.message.content[0].text, '补写的正文')
+  assert.equal(saved.messages.at(-1).nativeAnchor.turn, Number(appended[0].data.turn))
+  assert.equal(saved.messages.at(-1).nativeAnchor.input, undefined)
+  assert.equal(saved.messages.at(-1).nativeAnchor.reply, Number(appended[0].seq))
+})
+
+test('补写缺少玩家行时使用空输入，不在生成后抛内部异常', async () => {
+  const h = await fixture({ withoutBody: true })
+  const chat = await h.chats.read()
+  chat.messages = [{ role: 'assistant', turn: 2, text: '旧正文', sourceText: '旧正文' }]
+  await h.chats.write(chat)
+  let calls = 0
+  await h.history.regenerateWithProvider({ gameId: 'session', turn: 2, providerId: 'missing-input',
+    generate: async () => { calls += 1; return { text: '空输入生成的新正文' } } })
+  const saved = await h.chats.read()
+  assert.equal(calls, 1)
+  assert.equal(saved.messages.length, 1)
+  assert.equal(saved.messages[0].role, 'assistant')
+  assert.equal(saved.messages[0].text, '空输入生成的新正文')
+  const operation = Object.values(saved.timeline.operations).filter(item => item.kind === 'body' && Number(item.turn) === 2).at(-1)
+  assert.equal(operation.userText, '')
+})
+
+test('连续 assistant 时仍使用选择器找到的玩家输入', async () => {
+  const h = await fixture({ withoutBody: true })
+  const chat = await h.chats.read()
+  chat.messages = [chat.messages[0],
+    { role: 'assistant', turn: 90, text: '上一条独立正文', sourceText: '上一条独立正文' },
+    chat.messages[1]]
+  await h.chats.write(chat)
+  await h.history.regenerateWithProvider({ gameId: 'session', turn: 2, providerId: 'recovered-input',
+    generate: async () => ({ text: '这一轮的新正文' }) })
+  const saved = await h.chats.read()
+  assert.deepEqual(saved.messages.map(row => [row.role, row.text]), [
+    ['user', '继续'], ['assistant', '上一条独立正文'], ['assistant', '这一轮的新正文']
+  ])
+  const operation = Object.values(saved.timeline.operations).filter(item => item.kind === 'body' && Number(item.turn) === 2).at(-1)
+  assert.equal(operation.userText, '继续')
+})
+
+test('插件补写保留原正文的持久 messageUid', async () => {
+  const h = await fixture({ withoutBody: true })
+  const chat = await h.chats.read()
+  chat.messages[1].messageUid = 'persistent-body-uid'
+  await h.chats.write(chat)
+  await h.history.regenerateWithProvider({ gameId: 'session', turn: 2, providerId: 'persistent-uid',
+    generate: async () => ({ text: '保留身份的新正文' }) })
+  const saved = await h.chats.read()
+  assert.equal(saved.messages.at(-1).messageUid, 'persistent-body-uid')
 })

@@ -12,25 +12,24 @@ const ref={packId:A,kind:'entrances',assetId:'dive'}
 const packs=[{manifest:{id:A,assets:[{id:'dive',kind:'entrances',name:'Dive',enabled:true,recall:{mode:'constant'},entrance:entranceDoc()}]}},{manifest:{id:B,assets:[]}}]
 const card=ids=>({schemaVersion:1,assetBindings:{boundPackIds:ids}})
 
-test('borrowing another card pack never implicitly selects its entrance; explicit choice, none and global precedence',()=>{
+test('the card choice alone plays an entrance: none by default, explicit null is none, no switch or global default',()=>{
   const engine=defaultAssetEngineSettings(), owner=card([A]), borrower=card([B,A])
-  assert.equal(selectStageEntrance(owner,packs,engine),null)
+  assert.equal(selectStageEntrance(owner,packs,engine),null,'default none')
   assert.equal(selectStageEntrance(borrower,packs,engine),null)
   owner.stage={defaultEntrance:ref}
   assert.deepEqual(selectStageEntrance(owner,packs,engine).ref,ref)
   borrower.stage={defaultEntrance:ref}
   assert.deepEqual(selectStageEntrance(borrower,packs,engine).ref,ref)
-  engine.defaultEntrance=ref
   borrower.stage={defaultEntrance:null}
   assert.equal(selectStageEntrance(borrower,packs,engine),null)
-  delete borrower.stage.defaultEntrance
-  assert.deepEqual(selectStageEntrance(borrower,packs,engine).ref,ref)
-  borrower.stage={defaultEntrance:ref,switches:{entrance:'off'}}
-  assert.equal(selectStageEntrance(borrower,packs,engine),null)
+  // the retired switches never gate it: a stored card switch is dropped on validation, the global one on read.
+  const stage={defaultEntrance:ref,switches:{entrance:'off'}}
+  validateCardStage(stage)
+  assert.deepEqual(stage.switches,{})
+  assert.deepEqual(selectStageEntrance({...card([A]),stage},packs,{...engine,stageToggles:{...engine.stageToggles,entrance:false}}).ref,ref)
   assert.equal(selectStageEntrance(card([B]),packs,engine),null)
   assert.doesNotThrow(()=>validateAssetEngineSettings(engine))
 })
-
 test('entrance choices ignore recall lamps and include the selected skin pack',()=>{
   const snapshots=structuredClone(packs), engine=defaultAssetEngineSettings(), extension=card([B])
   snapshots[0].manifest.assets[0].enabled=false

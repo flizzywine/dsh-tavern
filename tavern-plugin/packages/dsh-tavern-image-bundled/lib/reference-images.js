@@ -599,16 +599,16 @@ export function buildStructuredReferenceText(references) {
   const items = checkedReferences(references)
   if (!items.length) return ''
   const lines = []
-  if (items.some(item => item.kind === 'character')) lines.push('身份图仅约束面部、发型和固有体型比例，不继承其中的服装、姿势、表情或背景。')
+  if (items.some(item => item.kind === 'character')) lines.push('人物的面部特征、发型和体型比例依据对应身份参考图及随附说明。')
   if (items.some(item => item.kind === 'outfit')) lines.push('服装图仅约束服饰设计，不继承模特身份、面部、发型、体型、姿势或背景。')
   if (items.some(item => item.kind === 'character-outfit')) lines.push('角色×服装设定图同时约束人物身份与该套服饰，不继承姿势、表情或背景。')
-  lines.push('服装、表情、姿态、镜头、环境及外观的当前状态以本张描述为准。')
+  lines.push('')
   const labels = structuredReferenceLabels(items)
   for (const [index, item] of items.entries()) {
     const label = labels[index]
-    lines.push('参考图' + item.index + ' → ' + label + '：' + (item.kind === 'character' ? '身份参考。' : item.kind === 'character-outfit' ? '角色×服装参考。' : '服装参考。'))
+    const purpose = item.kind === 'character' ? '身份参考' : item.kind === 'character-outfit' ? '角色×服装参考' : '服装参考'
     const extra = normalizeConsistencyText(item.consistencyText)
-    if (extra) lines.push('此对象的一致性补充：\n' + extra)
+    lines.push('参考图' + item.index + ' → ' + label + '（' + purpose + '）' + (extra ? '：' + extra : ''))
   }
   return lines.join('\n')
 }
@@ -627,7 +627,8 @@ export function referencePlannerGuidance(definitions = {}, { structured = false 
     ...(structured ? [
       '有身份参考图的人物，结构化画面正文只写人物名称及本张可见状态，不再描述年龄、性别、面部、发型或固有体型等固定身份属性，不用“年轻男性”“青年男子”等概括词重新定义身份，也不从姓名、正文或人物库复述这些固定属性。剧情明确的外观变化与用户明确的一致性补充仍须保留并归属到具体人物；当前表情、衣着、姿态不是固定身份属性，应按本张描述。',
       '此限制仅适用于有身份图的人物；只有服装图或没有身份图的人物仍用库内文字与正文描述可见外貌，不把其他人物的参考图套给他们。',
-      '不要重复写“身份以参考图为准”、参考图编号、内部ID或通用参考图约束，不另设人物及参考图对应分节；绑定与用途说明由插件生成一次，人物节只描述本张状态。精确ID放在 subjects 元数据中。同名人物需要区别动作时，使用人物宏 ${"name":"精确角色ID","angle":"本张朝向"}$ 绑定各自描述，插件会展开为与参考图一致的短称呼；不要在普通正文中裸写内部ID。',
+      '不要重复写“身份以参考图为准”、参考图编号、内部ID或通用参考图约束，不另设人物及参考图对应分节；绑定与用途说明由插件生成一次，人物节只描述本张状态。精确ID放在 subjects 元数据中。同名人物需要区别动作时，使用人物宏 ${"name":"精确角色ID"}$ 绑定各自描述，朝向与动作直接写在句子里。独立成行的人物宏可填写朝向。普通正文使用可读称呼。',
+      '多人同框时，写清每个动作及身体接触的双方；按前后景、裁切和遮挡交代可见范围，只描写入镜部位的细节。',
     ] : []),
     '【可用对象与参考图清单；仅文字元数据】']
   for (const person of lib.people) {

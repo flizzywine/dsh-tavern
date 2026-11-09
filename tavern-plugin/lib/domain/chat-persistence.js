@@ -222,8 +222,16 @@ export function createChatPersistence(options = {}) {
           catch (error) { if (error.code !== 'DSH_TAVERN_REVISION_NOT_FOUND') throw error }
           if (baseline !== undefined) baseline = normalize(baseline)
         }
-        if (baseline === undefined) throw conflict(chatId, '<baseline>')
-        next = mergeValue(baseline, latest, desired, '', chatId)
+        if (baseline === undefined) {
+          // Bounded retention may have recycled the exact revision we wrote from,
+          // and without it a three-way merge is impossible. Accept only a save that
+          // leaves the story alone: the caller's header replaces the stored one and
+          // the stored rows stay, so a recycled baseline can never blank out history.
+          if (!same(withoutDisplayCapture(Array.isArray(desired.messages) ? desired.messages : []),
+            withoutDisplayCapture(Array.isArray(latest.messages) ? latest.messages : []))) throw conflict(chatId, '<baseline>')
+          next = mergeValue(captureChatHeader(latest), captureChatHeader(latest), captureChatHeader(desired), '', chatId)
+          next.messages = clone(latest.messages)
+        } else next = mergeValue(baseline, latest, desired, '', chatId)
       }
       next[STORAGE_REVISION] = latestRevision + 1
       next.updatedAt = touchUpdatedAt
@@ -251,23 +259,28 @@ export function createChatPersistence(options = {}) {
       let selected = await records.readSlice(input.id, [])
       if (!selected) throw conflict(input.id,'<deleted>')
       let fullMessages, entries=[]
-      if (selected.chat[STORAGE_REVISION] !== baseline[STORAGE_REVISION]) {
+      let diffed = selected.chat[STORAGE_REVISION] === baseline[STORAGE_REVISION]
+      if (!diffed) {
         const changed = await records.readChangedSlice?.(input.id,baseline[STORAGE_REVISION])
         if (changed?.denseMessages) {
+          diffed=true
           selected=changed
           entries=changed.indices.map((id,index)=>[id,changed.chat.messages[index]])
-        } else {
-          // Lost revision evidence is an explicit, safe full-read fallback.
-          // A bounded history cannot adopt it: the caller retries from fresh reads.
-          if (isScopedMessages(input.messages)) throw conflict(input.id,'messages')
-          const full=await records.read(input.id)
-          if (!full) throw conflict(input.id,'<deleted>')
-          fullMessages=full.messages
-          selected={chat:full,messageCount:fullMessages.length}
         }
       }
-      // A bounded history keeps its floor count: new floors mean the story moved on.
-      if (isScopedMessages(input.messages) && input.messages.length !== selected.messageCount) throw conflict(input.id,'messages')
+      // A bounded draft cannot express rows it never held: rows another writer
+      // appended behind its floor, or a revision history it can no longer diff.
+      // Both degrade to one full read instead of a refusal — the header save still
+      // merges field by field, and the caller gets the complete row set back.
+      if (!diffed || (isScopedMessages(input.messages) && input.messages.length < selected.messageCount)) {
+        const full=await records.read(input.id)
+        if (!full) throw conflict(input.id,'<deleted>')
+        fullMessages=full.messages
+        selected={chat:full,messageCount:fullMessages.length}
+      }
+      // A shorter story is a real concurrent edit (a rollback elsewhere): the
+      // header save must not adopt a floor that no longer exists.
+      if (isScopedMessages(input.messages) && input.messages.length > selected.messageCount) throw conflict(input.id,'messages')
       const latest=captureChatHeader(normalize(selected.chat))
       if (latest.sessionId !== baseline.sessionId) throw conflict(input.id,'sessionId')
       const next=mergeValue(baseline,latest,desired,'',input.id)
@@ -338,7 +351,8 @@ export function createChatPersistence(options = {}) {
   }
   // Do not normalize/remember a window as a full editable Chat baseline.
   async function readWindow(chatId,options) { return records.readWindow ? records.readWindow(chatId,options) : null }
-  async function readRecentSummaries(chatId,count) { return records.readRecentSummaries ? records.readRecentSummaries(chatId,count) : null }
+  async function readWorldSnapshot(chatId) { return records.readWorldSnapshot ? records.readWorldSnapshot(chatId) : null }
+  async function readRecentSummaries(chatId,count,options) { return records.readRecentSummaries ? records.readRecentSummaries(chatId,count,options) : null }
   async function readHelperContext(chatId, range) {
     return records.readHelperContext?.(chatId, range)
   }
@@ -376,5 +390,5 @@ export function createChatPersistence(options = {}) {
     await records.remove(chatId)
   }
 
-  return Object.freeze({ read, readWindow, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, write, writeHeader, update, version, remove })
+  return Object.freeze({ read, readWindow, readWorldSnapshot, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, write, writeHeader, update, version, remove })
 }

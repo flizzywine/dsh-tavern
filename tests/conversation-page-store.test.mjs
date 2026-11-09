@@ -80,7 +80,12 @@ test('corrupt immutable pages fail explicitly instead of returning incomplete hi
  const {readFile,writeFile}=await import('node:fs/promises')
  const pointer=JSON.parse(await readFile(join(root,'a','head.json'),'utf8'))
  const block=id=>join(root,'a','blocks',id.slice(0,2),id+'.json')
- const head=JSON.parse(await readFile(block(pointer.headId),'utf8'))
+ async function blockValue(id){
+  const stored=JSON.parse(await readFile(block(id),'utf8'))
+  if(stored.kind==='block-pack-v1')return stored.records.find(([ref])=>ref===id)[1]
+  return stored
+ }
+ const head=await blockValue(pointer.headId)
  await writeFile(block(head.root),'{}')
  await assert.rejects(createConversationPageStore({root}).openConversation('a'),/checksum/)
 })

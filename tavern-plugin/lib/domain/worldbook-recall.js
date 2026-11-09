@@ -1,4 +1,5 @@
 import { isScopedMessages } from './scoped-messages.js'
+import { worldBookChannel } from './worldbook-channel.js'
 import { worldbookPlacement } from './worldbook-placement.js'
 import { entryRandom, renderWorldbookRandom } from './worldbook-random.js'
 import { projectAgentContent } from './runtime-content-projection.js'
@@ -138,10 +139,18 @@ function readRecorder(entries, turn) {
   }
 }
 
-/** Snapshot constant content; request projection partitions mixed positions separately. */
+/**
+ * Snapshot the bodies that belong in the stable prefix; request projection
+ * partitions mixed positions separately. 'tail' entries never reach it (they
+ * are re-injected每轮), and 'prefix' entries join it even when they are not
+ * flagged 常驻. Executable bodies stay out: they re-render every round.
+ */
 export function constantWorldBookContext(input = {}) {
   const entries = promptOrder(enabledEntries(input.worldBook).filter(function (entry) {
-    return entry.constant === true && !isMvuUpdateEntry(entry) && !isWorldBookTemplateEntry(entry)
+    if (isMvuUpdateEntry(entry) || isWorldBookTemplateEntry(entry)) return false
+    const channel = worldBookChannel(entry)
+    if (channel === 'tail') return false
+    return channel === 'prefix' || entry.constant === true
   }))
   return {
     context: entries.map(function (entry) { return str(entry.content).trim() }).filter(Boolean).join('\n\n'),

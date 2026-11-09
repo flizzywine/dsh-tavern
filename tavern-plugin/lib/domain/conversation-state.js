@@ -1,6 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto'
 import {isDeepStrictEqual} from 'node:util'
 import {createIncrementalJsonState} from './incremental-json-state.js'
+import {createBufferedJsonRecords} from './buffered-json-records.js'
 
 const FORMAT='conversation-state-v2'
 const WORLD_FORMAT='incremental-world-v1'
@@ -37,13 +38,23 @@ export function createConversationState({store}){
    if(value.metadata?.runtimeLayout!==1||!object(r)||!/^[a-f0-9]{64}$/.test(r.chatHeaderRef)
      ||!Number.isSafeInteger(r.chatRevision)||r.chatRevision<1
      ||!(r.worldMessage===null||Number.isSafeInteger(r.worldMessage)&&r.worldMessage>=0)
+     ||!(r.worldMessageUid===undefined||r.worldMessageUid===null||typeof r.worldMessageUid==='string'&&r.worldMessageUid.length>0)
      ||!Number.isSafeInteger(r.worldSwipe)||r.worldSwipe<0)throw error('CONVERSATION_INPUT','Invalid runtime state')
    if(r.sceneIndexRef!==undefined&&(!/^[a-f0-9]{64}$/.test(r.sceneIndexRef)||r.sceneIndexRevision!==r.chatRevision))throw error('CONVERSATION_INPUT','Invalid scene index')
    if(r.displayIndexRevision!==undefined&&(!r.sceneIndexRef||r.displayIndexRevision!==r.chatRevision))throw error('CONVERSATION_INPUT','Invalid display index')
-   runtime={...(r.displayIndexRevision!==undefined?{displayIndexRevision:r.displayIndexRevision}:{}),...(r.sceneIndexRef?{sceneIndexRef:r.sceneIndexRef,sceneIndexRevision:r.sceneIndexRevision}:{}),chatHeaderRef:r.chatHeaderRef,chatRevision:r.chatRevision,worldMessage:r.worldMessage,worldSwipe:r.worldSwipe}
+   runtime={...(r.displayIndexRevision!==undefined?{displayIndexRevision:r.displayIndexRevision}:{}),...(r.sceneIndexRef?{sceneIndexRef:r.sceneIndexRef,sceneIndexRevision:r.sceneIndexRevision}:{}),chatHeaderRef:r.chatHeaderRef,chatRevision:r.chatRevision,worldMessage:r.worldMessage,...(r.worldMessageUid!==undefined?{worldMessageUid:r.worldMessageUid}:{}),worldSwipe:r.worldSwipe}
   }
+  // A new world may contain hundreds of immutable JSON nodes. Writing each node
+  // with its own fsync made a phone spend seconds creating an otherwise empty chat.
+  // Pack the reachable tree first; store.create still publishes its head only after
+  // every referenced record is durable, preserving the existing crash boundary.
+  const batch=typeof store.writeRecords==='function'?createBufferedJsonRecords({
+   read:ref=>store.readRecord(id,ref),writeMany:(values,refs)=>store.writeRecords(id,values,refs)
+  }):null
+  const worldRef=await (batch?batch.tree:tree(id)).create(value.world)
+  if(batch)await batch.flush([worldRef])
   return store.create(id,{metadata:{format:FORMAT,settings:value.metadata??{}},messages:value.messages??[],
-   state:{...runtime,branchId:randomUUID(),storyRevision:0,worldRevision:0,lifecycleRevision:0,activeSettlementId:null,worldRef:await tree(id).create(value.world)}},options)
+   state:{...runtime,branchId:randomUUID(),storyRevision:0,worldRevision:0,lifecycleRevision:0,activeSettlementId:null,worldRef}},options)
  }
  async function open(id,{limit=50,includeWorld=true}={}){
   const view=await store.openConversation(id,{limit})

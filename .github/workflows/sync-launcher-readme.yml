@@ -1,0 +1,40 @@
+name: Sync launcher README
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - .github/scripts/sync-launcher-readme.mjs
+      - .github/workflows/sync-launcher-readme.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-launcher-readme
+
+jobs:
+  sync:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Sync the project README
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          readme=tavern-plugin/packages/dsh-tavern/README.md
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git switch --detach FETCH_HEAD
+            node .github/scripts/sync-launcher-readme.mjs
+            if git diff --quiet -- "$readme"; then exit 0; fi
+            git add -- "$readme"
+            git commit -m 'docs: sync the launcher README [skip ci]'
+            if git push origin HEAD:main; then exit 0; fi
+          done
+          exit 1

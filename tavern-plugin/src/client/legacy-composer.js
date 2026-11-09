@@ -103,16 +103,27 @@ function installFrameHostComposer(doc, ownsFrame, submit, report, fill, read) {
     if (typeof owner.read !== 'function') return;
     try {
       const value = owner.read();
-      if (typeof value === 'string' && state.area.value !== value) state.area.value = value;
+      if (typeof value === 'string') {
+        state.committedValue = value;
+        if (state.area.value !== value) state.area.value = value;
+      }
     } catch (_) {}
   }
   function commit() {
     if (!state.area) return;
+    const value = String(state.area.value || '');
+    if (state.committedValue === value) return;
+    state.committedValue = value;
     let owner;
-    try { owner = resolveOwner(true); } catch (error) { report(error); return; }
-    if (typeof owner.fill !== 'function') return;
-    try { Promise.resolve(owner.fill(String(state.area.value || ''))).catch(owner.report); }
-    catch (error) { owner.report(error); }
+    // Native option handlers commonly dispatch input and change together. Start
+    // in a microtask so the pair shares one commit, including synchronous errors.
+    Promise.resolve().then(function () {
+      owner = resolveOwner(true);
+      if (typeof owner.fill === 'function') return owner.fill(value);
+    }).catch(function (error) {
+      if (state.committedValue === value) state.committedValue = null;
+      if (owner) owner.report(error); else report(error);
+    });
   }
   if (!state) {
     if (doc.getElementById('send_textarea') || doc.getElementById('send_but')) return function () {};
@@ -128,7 +139,7 @@ function installFrameHostComposer(doc, ownsFrame, submit, report, fill, read) {
     // the soft keyboard for an invisible box, so ask for no virtual keyboard.
     area.id = 'send_textarea'; area.tabIndex = -1; area.setAttribute('inputmode', 'none'); button.id = 'send_but'; button.type = 'button';
     controls.append(area, button); doc.body.append(controls);
-    state = { controls, area, owners: new Set(), lastOwner: null };
+    state = { controls, area, owners: new Set(), lastOwner: null, committedValue: null };
     tavernHostComposers.set(doc, state);
     // Native tavern regexes focus #send_textarea, read its value, append their
     // option text and fire input. Mirror the live draft on focus so append mode

@@ -121,7 +121,7 @@ function runtimeCommitIdentityOf(value) {
 
 function installHostOf(manifest) {
   const host = manifest?.dshTavern?.host
-  return host === 'desktop' || host === 'android' ? host : 'cli'
+  return ['desktop', 'next', 'android'].includes(host) ? host : 'cli'
 }
 
 function processIsAlive(pid) {
@@ -331,9 +331,9 @@ export function createApplicationUpdater(options) {
     return await identityLoad
   }
 
-  // Every remote source is optional. GitHub API is authoritative for the latest
-  // commit; jsDelivr is the fallback; raw package.json only supplies a label.
-  // Order is proven by release sequence, local Git or GitHub compare.
+  // Every remote source is optional. The order of proof is release sequence, local
+  // Git or GitHub compare. Manifest sources: GitHub raw first (no branch-alias
+  // cache), GitHub commits API to confirm just-pushed commits, jsDelivr last.
   async function relationTo(identity, latest, latestSequence, { sequenceFirst = false } = {}) {
     const { currentCommit, currentReleaseSequence, releaseSequenceFloor } = identity
     if (currentCommit.toLowerCase() === latest.toLowerCase()) return false
@@ -360,16 +360,22 @@ export function createApplicationUpdater(options) {
     if (currentVersion === 'unknown') throw new Error('无法确认当前构建，请手动重新安装')
     if (currentVersion === '') throw new Error('版本信息不完整')
     const settle = promise => promise.then(value => ({ status: 'fulfilled', value }), reason => ({ status: 'rejected', reason }))
-    // Start the CDN request in parallel, but only wait for it when GitHub cannot decide.
-    const cdn = settle(stage('cdn.fetch', fetchCdnMetadata))
-    // GitHub 自己的清单优先于 jsDelivr：CDN 分发分支会滞后，GitHub 的 raw 不会。
-    // 只有 GitHub 的 commits API 判不了时才取 GitHub 清单：正常检查不多发一次请求。
+    // 主源判得动就不请求 jsDelivr：它只是最后的兜底，不必为每次检查多发一次请求。
+    let cdnResult = null
+    const cdn = () => (cdnResult ||= settle(stage('cdn.fetch', fetchCdnMetadata)))
+    // 清单主源是 GitHub 自己发布的运行清单（raw）：它不带分发分支的缓存滞后。
+    // jsDelivr 只在前两者都判不了时兜底。
     let githubManifestPromise = null
     const githubManifest = () => (githubManifestPromise ||= settle(stage('github.manifest', fetchGithubManifest)))
-    const [manifest, commit] = await Promise.all([settle(stage('github.version', fetchManifest)), settle(stage('github.commit', fetchLatestCommit))])
+    const [manifest, commit, raw] = await Promise.all([
+      settle(stage('github.version', fetchManifest)),
+      settle(stage('github.commit', fetchLatestCommit)),
+      // 清单主源与其余请求并行发出：主源优先不等于多等一轮。
+      githubManifest(),
+    ])
     const manifestVersion = manifest.status === 'fulfilled' ? String(manifest.value?.version || '') : ''
     const cdnSequenceFor = async revision => {
-      const result = await cdn
+      const result = await cdn()
       const sequence = Number(result.value?.releaseSequence)
       return result.status === 'fulfilled' && String(result.value?.revision || '').toLowerCase() === revision.toLowerCase()
         && Number.isSafeInteger(sequence) && sequence > 0 ? sequence : null
@@ -378,39 +384,55 @@ export function createApplicationUpdater(options) {
     // 但清单里的发布序号仍然有效：拿它当「最新版本序号」的下界，旧安装靠序号也能
     // 判断要不要更新，不必等 CDN 与 GitHub 对齐。
     const latestSequenceOf = async revision => (await cdnSequenceFor(revision)) || (async () => {
-      const result = await cdn
+      const result = await cdn()
       const sequence = Number(result.value?.releaseSequence)
       return result.status === 'fulfilled' && Number.isSafeInteger(sequence) && sequence > 0 ? sequence : null
     })()
 
     const github = commit.status === 'fulfilled' ? runtimeCommitIdentityOf(commit.value) : null
-    if (github && /^[0-9a-f]{40}$/i.test(github.runtimeCommit)) {
+    const githubValid = github !== null && /^[0-9a-f]{40}$/i.test(github.runtimeCommit)
+    // 判得动就用 commits API：GitHub 的最新提交是权威值，能看见「推送了但清单还没发布」的一版。
+    const decideFromCommit = async () => {
       const { publishedCommit, runtimeCommit: latestCommit } = github
       const normalizedCurrentCommit = currentCommit.toLowerCase() === publishedCommit.toLowerCase() ? latestCommit : currentCommit
       const updateAvailable = await relationTo({ ...identity, currentCommit: normalizedCurrentCommit }, latestCommit, () => latestSequenceOf(latestCommit))
-      const latestVersion = manifestVersion || (await cdn).value?.version || 'unknown'
+      const latestVersion = manifestVersion || (await cdn()).value?.version || 'unknown'
       return { currentVersion, latestVersion: String(latestVersion), currentCommit: normalizedCurrentCommit, latestCommit, checkSource: 'github', updateAvailable, checkWarning: undefined }
     }
     const githubError = github ? new Error('GitHub 返回的提交号无效') : commit.reason
+    // 主源：GitHub 的 raw 运行清单。它随源码一起发布，没有 jsDelivr 分发分支的
+    // 12 小时分支别名缓存，因此新版本一发布就能读到。
+
+    let compared = null
+    if (raw.status === 'fulfilled') {
+      try { compared = await compareCdnRuntime(sourceRoot, raw.value) } catch (error) {
+        record('github.manifest.unusable', { error: sanitizeUpdateError(error?.message || error) })
+      }
+    }
+    if (compared) {
+      record('manifest.comparison', { ...identity, latestVersion: compared.version, latestCommit: compared.revision, latestReleaseSequence: compared.releaseSequence, matches: compared.matches, checkSource: 'github-manifest' })
+      const updateAvailable = !compared.matches && await relationTo(identity, compared.revision, async () => compared.releaseSequence, { sequenceFirst: true })
+      const checked = {
+        currentVersion, latestVersion: manifestVersion || compared.version || 'unknown', currentCommit,
+        latestCommit: compared.revision, checkSource: 'github-manifest', updateAvailable, checkWarning: undefined,
+      }
+      if (updateAvailable || !githubValid) return checked
+      if (github.runtimeCommit.toLowerCase() === compared.revision.toLowerCase()) return checked
+      // 清单可能比主干落后一版（刚推送、CI 还没把清单提交上去），用 commits API 补判。
+      try { return await decideFromCommit() } catch (error) { record('github.commit.unconfirmed', { error: sanitizeUpdateError(error?.message || error) }) }
+      return checked
+    }
+    if (githubValid) {
+      record('fallback.manifest', { reason: sanitizeUpdateError(raw.status === 'rejected' ? raw.reason?.message || raw.reason : '运行清单不可用') })
+      return await decideFromCommit()
+    }
     record('fallback.manifest', { reason: sanitizeUpdateError(githubError?.message || githubError) })
     try {
-      // 顺序固定：GitHub 的 commits API → GitHub raw 清单 → jsDelivr 清单。
-      let compared = null
-      let checkSource = 'github'
-      const raw = await githubManifest()
-      if (raw.status === 'fulfilled') {
-        try { compared = await compareCdnRuntime(sourceRoot, raw.value) } catch (error) {
-          record('github.manifest.unusable', { error: sanitizeUpdateError(error?.message || error) })
-        }
-      }
-      if (!compared) {
-        const metadata = await cdn
-        if (metadata.status === 'rejected') throw metadata.reason
-        try {
-          compared = await compareCdnRuntime(sourceRoot, metadata.value)
-          checkSource = 'jsdelivr'
-        } catch (error) { throw error }
-      }
+      // 兜底顺序的最后一段：jsDelivr 清单。CDN 分发分支会滞后，但发布序号仍然可用。
+      let checkSource = 'jsdelivr'
+      const metadata = await cdn()
+      if (metadata.status === 'rejected') throw metadata.reason
+      compared = await compareCdnRuntime(sourceRoot, metadata.value)
       record('manifest.comparison', { ...identity, latestVersion: compared.version, latestCommit: compared.revision, latestReleaseSequence: compared.releaseSequence, matches: compared.matches, checkSource })
       const updateAvailable = !compared.matches && await relationTo(identity, compared.revision, async () => compared.releaseSequence, { sequenceFirst: true })
       return {
@@ -540,7 +562,10 @@ export function createApplicationUpdater(options) {
           return { ...readable, ...identity }
         }
       }
-      if (current.phase === 'completed' && ['desktop', 'next'].includes(current.host) && current.requiresRestart && Number(current.completedAt) < runtimeStartedAt) {
+      // Android standalone restarts the 3088 service in place after installing, so its
+      // restart request must expire the same way Desktop's does; unlike CLI, where the
+      // runtime never restarts and the request would describe the build it just loaded.
+      if (current.phase === 'completed' && ['desktop', 'next', 'android'].includes(current.host) && current.requiresRestart && Number(current.completedAt) < runtimeStartedAt) {
         return { ...current, ...identity, requiresRestart: false }
       }
       return { ...current, ...identity }
@@ -592,7 +617,7 @@ export function createApplicationUpdater(options) {
       throw new Error('请返回日常 Profile，通过酒馆启动器更新。')
     }
     const installHost = await host()
-    if (installHost === 'next') throw new Error('请退出 DSH NEXT，更新酒馆源码后重新运行 node bin/dsh-tavern.mjs install --host next。')
+    if (installHost === 'next') throw new Error('请打开当前酒馆的「设置 → 酒馆启动器」进行更新。')
     // A Git checkout is the developer's: the updater would install a separate copy (or replace this one
     // and drop its .git), never update what is running. Checking for updates still works.
     // Android is the exception: android/setup.sh installs a Git checkout and android/update.sh fast-forwards it.
