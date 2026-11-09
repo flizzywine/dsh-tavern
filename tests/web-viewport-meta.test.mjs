@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { link, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -108,6 +108,31 @@ test('改写不碰 pnpm store：硬链接的原文件保持原样', async () => 
     assert.equal(patchHostViewportFile(file), true)
     assert.match(await readFile(file, 'utf8'), /interactive-widget=resizes-content/)
     assert.equal(await readFile(store, 'utf8'), host, 'store 里的共享 inode 不能被就地改掉')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('发布版运行时的 bin/dsh 是符号链接，也能顺着找到网页外壳', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'dsh-runtime-'))
+  try {
+    // 复刻 runtime/bin/dsh -> ../lib/node_modules/@deepseek-ai/dsh/lib/bin.js 的布局：
+    // lib/node_modules 不在 node 的逐级查找路径上，必须靠符号链接的真实位置去拼。
+    const bin = path.join(dir, 'bin')
+    const libDsh = path.join(dir, 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib')
+    const page = path.join(dir, 'lib', 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist', 'index.html')
+    await mkdir(bin, { recursive: true })
+    await mkdir(libDsh, { recursive: true })
+    await mkdir(path.dirname(page), { recursive: true })
+    await writeFile(path.join(libDsh, 'bin.js'), 'export default {}')
+    await writeFile(path.join(dir, 'lib', 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-web-frontend', exports: { './dist/*': './dist/*', './package.json': './package.json' },
+    }))
+    await writeFile(page, host)
+    await symlink(path.join('..', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'), path.join(bin, 'dsh'))
+    assert.equal(findHostViewportPage(path.join(bin, 'dsh')), page)
+    assert.equal(patchHostViewportFile(page), true)
+    assert.match(await readFile(page, 'utf8'), /interactive-widget=resizes-content/)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

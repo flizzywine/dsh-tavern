@@ -3,7 +3,7 @@
 // 才上移」，事件漏一次还会彻底不动。`interactive-widget` 只在页面加载时读一次，脚本改 meta
 // 无效，只能改宿主动态下发的 HTML；所以每次启动都补齐一次，装完/升级完立即生效。
 import { createRequire } from 'node:module'
-import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { patchViewportMetaSource } from './web-viewport-meta.js'
 
@@ -18,9 +18,19 @@ export function findHostViewportPage(anchor) {
   try {
     const manifest = createRequire(anchor).resolve(FRONTEND_MANIFEST)
     return path.join(path.dirname(manifest), 'dist', 'index.html')
-  } catch {
-    return null
+  } catch {}
+  // 发布版运行时是 npm 全局布局：bin/dsh 是指向 lib/node_modules/... 的符号链接，
+  // 该目录不在 node 的逐级 node_modules 查找路径上，只能顺着祖先目录自己拼。
+  let dir
+  try { dir = path.dirname(realpathSync(anchor)) } catch { return null }
+  for (let depth = 0; depth < 8; depth++) {
+    const file = path.join(dir, 'lib', 'node_modules', ...FRONTEND_MANIFEST.split('/'), '..', 'dist', 'index.html')
+    if (existsSync(file)) return path.normalize(file)
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
   }
+  return null
 }
 
 /**
@@ -54,7 +64,12 @@ export function hostViewportAnchors() {
   for (const hostPackage of ['@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-app-boot']) {
     try { anchors.push(own.resolve(hostPackage)); break } catch {}
   }
-  if (process.argv[1]) anchors.push(path.resolve(process.argv[1]))
+  if (process.argv[1]) {
+    // 发布版把 dsh 装成 bin/dsh -> ../lib/node_modules/... 的符号链接，入口的真实位置
+    // 才是可解析的锚点（node 自己解析符号链接后再加载模块）。
+    anchors.push(path.resolve(process.argv[1]))
+    try { anchors.push(realpathSync(process.argv[1])) } catch {}
+  }
   return anchors
 }
 
