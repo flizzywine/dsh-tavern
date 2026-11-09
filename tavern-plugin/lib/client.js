@@ -39034,7 +39034,9 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
     syncProbe();
   }
   function isUpdateBusy(status) {
-    return ['loading', 'checking', 'running', 'cancelling', 'blocked'].includes(status.phase);
+    // Loading only means the initial read has not answered. It must not block
+    // an explicit check, whose generation already supersedes that read.
+    return ['checking', 'running', 'cancelling', 'blocked'].includes(status.phase);
   }
   function isMissingUpdateApiError(error) {
     return String(error && error.message || error || '').includes('未知方法: getUpdateStatus');
@@ -39083,11 +39085,12 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
     void probe();
     probeTimer = browser.setInterval(probe, 400);
   }
-  // Poll fast only while an update is in flight; at rest a slow read still notices
-  // updates started elsewhere without asking the server every 2.5 seconds forever.
+  // Poll fast while an update is in flight or the first read is unresolved;
+  // at rest a slow read still notices updates started elsewhere without asking
+  // the server every 2.5 seconds forever.
   let lastPollAt = 0;
   function pollUpdateStatus() {
-    if (!isUpdateBusy(statusValue) && now() - lastPollAt < 30000) return;
+    if (statusValue.phase !== 'loading' && !isUpdateBusy(statusValue) && now() - lastPollAt < 30000) return;
     return refreshUpdateStatus();
   }
   async function refreshUpdateStatus() {
@@ -40614,7 +40617,7 @@ function TavernCardUpdateDialog(props) {
 			const updateIdentityText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel;
 			// 已是最新且无警告时，结果直接写在按钮上，不再单占一行（手机侧栏高度紧张）。
 			const upToDateQuiet = updateStatus.phase === "up-to-date" && !updateStatus.checkWarning;
-			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? true;
+			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? false;
 			const awaitingDesktopRestart = updateStatus.phase === "completed" && updateStatus.host === "desktop" && updateStatus.requiresRestart;
 			const cancelSupported = ["running", "cancelling"].includes(updateStatus.phase) && updateStatus.cancellable === true;
 			const updateActions = updateStatus.phase === "update-available" || updateStatus.phase === "repair-required"

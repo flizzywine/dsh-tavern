@@ -59,6 +59,24 @@ test('检查和启动允许完整元数据回退，状态与取消仍使用短�
   h.stop()
 })
 
+test('首次状态查询挂起时可直接检查，迟到的状态不覆盖检查结果', async () => {
+  const initialRead = deferred()
+  const available = { phase: 'update-available', host: 'cli', latestCommit: 'b'.repeat(40) }
+  const h = updaterHarness({ polling: true, call: async method => {
+    if (method === 'getUpdateStatus') return initialRead.promise
+    assert.equal(method, 'checkUpdate')
+    return { status: available }
+  } })
+  assert.equal(h.isUpdateBusy(h.status()), false)
+  await h.checkUpdate()
+  assert.equal(h.status().phase, 'update-available')
+  assert.deepEqual(h.calls, ['getUpdateStatus', 'checkUpdate'])
+  initialRead.resolve({ status: { phase: 'idle', host: 'cli' } })
+  await tick()
+  assert.equal(h.status().phase, 'update-available')
+  h.stop()
+})
+
 test('网络中断可恢复，认证和业务错误立即提示', async () => {
   let calls = 0
   const network = pollHarness(async () => { if (++calls === 1) throw new TypeError('Failed to fetch'); return ok() })

@@ -15,7 +15,9 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
     syncProbe();
   }
   function isUpdateBusy(status) {
-    return ['loading', 'checking', 'running', 'cancelling', 'blocked'].includes(status.phase);
+    // Loading only means the initial read has not answered. It must not block
+    // an explicit check, whose generation already supersedes that read.
+    return ['checking', 'running', 'cancelling', 'blocked'].includes(status.phase);
   }
   function isMissingUpdateApiError(error) {
     return String(error && error.message || error || '').includes('未知方法: getUpdateStatus');
@@ -64,11 +66,12 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
     void probe();
     probeTimer = browser.setInterval(probe, 400);
   }
-  // Poll fast only while an update is in flight; at rest a slow read still notices
-  // updates started elsewhere without asking the server every 2.5 seconds forever.
+  // Poll fast while an update is in flight or the first read is unresolved;
+  // at rest a slow read still notices updates started elsewhere without asking
+  // the server every 2.5 seconds forever.
   let lastPollAt = 0;
   function pollUpdateStatus() {
-    if (!isUpdateBusy(statusValue) && now() - lastPollAt < 30000) return;
+    if (statusValue.phase !== 'loading' && !isUpdateBusy(statusValue) && now() - lastPollAt < 30000) return;
     return refreshUpdateStatus();
   }
   async function refreshUpdateStatus() {

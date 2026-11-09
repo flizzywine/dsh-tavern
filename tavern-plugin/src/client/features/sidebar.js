@@ -1243,7 +1243,7 @@
 			const updateIdentityText = updateStatusLoading ? "DSH Tavern · DSH 0.2.1" : "DSH Tavern " + currentVersionLabel + " · DSH 0.2.1 · " + currentCommitLabel;
 			// 已是最新且无警告时，结果直接写在按钮上，不再单占一行（手机侧栏高度紧张）。
 			const upToDateQuiet = updateStatus.phase === "up-to-date" && !updateStatus.checkWarning;
-			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? true;
+			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? false;
 			const awaitingDesktopRestart = updateStatus.phase === "completed" && updateStatus.host === "desktop" && updateStatus.requiresRestart;
 			const cancelSupported = ["running", "cancelling"].includes(updateStatus.phase) && updateStatus.cancellable === true;
 			const updateActions = updateStatus.phase === "update-available" || updateStatus.phase === "repair-required"

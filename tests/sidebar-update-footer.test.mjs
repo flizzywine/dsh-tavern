@@ -70,7 +70,7 @@ test('更新状态还没回来时，版本行和「检查更新」已经在侧�
   await row.waitFor({ state: 'visible' })
   const check = page.getByRole('button', { name: '检查更新', exact: true })
   await check.waitFor({ state: 'visible' })
-  assert.equal(await check.isDisabled(), true, '状态未知时按钮不接点击，但位置已经在')
+  assert.equal(await check.isDisabled(), false, '首次状态查询慢时也能直接检查更新')
   assert.equal(await page.locator('.dsh-tavern-update-identity').innerText(), 'DSH Tavern · DSH 0.2.1')
 
   releaseStatus()
@@ -78,6 +78,18 @@ test('更新状态还没回来时，版本行和「检查更新」已经在侧�
   assert.equal(await page.locator('.dsh-tavern-update-identity').innerText(), 'DSH Tavern v3.2.0 · DSH 0.2.1 · a390af1')
   assert.equal(await check.isVisible(), true)
   assert.equal(await check.isDisabled(), false)
+})
+
+test('刚打开页面时不用等待状态查询，直接点击检查更新', async t => {
+  const available = { phase: 'update-available', host: 'cli', currentVersion: '3.2.0', currentCommit: 'a'.repeat(40), latestCommit: 'b'.repeat(40) }
+  const { page, releaseStatus, methods } = await mountSidebar(t, undefined, { checkUpdate: { status: available } })
+  const check = page.getByRole('button', { name: '检查更新', exact: true })
+  await check.waitFor({ state: 'visible' })
+  assert.equal(await check.isDisabled(), false)
+  await check.click()
+  await page.getByRole('button', { name: '进行更新', exact: true }).waitFor({ state: 'visible' })
+  assert.ok(methods.includes('checkUpdate'))
+  releaseStatus()
 })
 
 test('发现更新时进行更新可点击，确认后真正发送 startUpdate', async t => {
