@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b8df1ed4817414e4af297d7a1d4347efc6c40820",
-  "releaseSequence": 1376,
+  "revision": "bd4a9191a70d7b128ad276d374f7ef6e6e012cb2",
+  "releaseSequence": 1377,
   "version": "3.2.0",
   "files": [
     {
@@ -1006,8 +1006,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "30d8c715f4ab8a98d78148c56a9c3912ccd67326842918a8f99e95538b79ed05",
-      "size": 5702862
+      "sha256": "71559ca8500a34859205298ced3c7600221ec47542865ddae7dc834dc39756df",
+      "size": 5706479
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -3081,8 +3081,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-view-reader.js",
-      "sha256": "d96086d7e1d46aff6e8a4342b1d753de21799f79115b46629f0f6a1954f68b4e",
-      "size": 15531
+      "sha256": "70cd49bb9c1d29df11a96d35821fe47ac60a362a5bdf7f2772bfe8256fff0e4e",
+      "size": 15986
     },
     {
       "path": "tavern-plugin/lib/domain/session-view-sync.js",
@@ -4031,8 +4031,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/play.js",
-      "sha256": "2740ebc4a24f6d93684f9c1f7a0e6407b670cdd9a19a541304efcb02e4dc1f05",
-      "size": 23534
+      "sha256": "049b21a65110b490ad035d918722198802b8134e7f66fb937f32697195e6e98b",
+      "size": 23874
     },
     {
       "path": "tavern-plugin/lib/rpc/plugins.js",
@@ -9891,9 +9891,9 @@
     }
   ],
   "archive": {
-    "commit": "fd92e4509100c31034af64d3eebba3f4ff277e64",
+    "commit": "877256253a9dc5e78d16234682795029ed80ce68",
     "path": "runtime.zip",
-    "sha256": "a5694581779aad4756053a63fc720417888bddd0b01e6ccfb1f147b024d76151",
-    "size": 16525310
+    "sha256": "8bbcf498e272b098a7eea5534d97bdf5f06154988a501faf44e6481c36929b78",
+    "size": 16527042
   }
 }
