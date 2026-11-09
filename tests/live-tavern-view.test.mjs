@@ -214,3 +214,33 @@ test('人物卡删除后的状态错误进入不可用终态，不再自动重�
   assert.match(snapshot.error, /人物卡不存在: cards\/Erin\.json/)
   assert.deepEqual(delays, [])
 })
+
+test('setView 收到没有 view 的结果时不写进 store，只重读一次', async () => {
+  const create = await loadFactory()
+  const timer = fakeTimers()
+  let loads = 0
+  const live = create({
+    deduplicateViews: true, pollWhileBusy: false,
+    now: timer.now, schedule: timer.schedule, cancel: timer.cancel,
+    load: async () => { loads += 1; return { view: { canRegenerate: true, latestAssistantTurn: 7 } } }
+  })
+  live.setView('s', { canRegenerate: true, latestAssistantTurn: 7 })
+  assert.equal(live.getSnapshot('s').view.latestAssistantTurn, 7, '先有一份真视图')
+  live.subscribe('s', function () {})
+  // 失败 / 被取消的 RPC 会把 undefined 交回来。
+  live.setView('s', undefined)
+  assert.equal(live.getSnapshot('s').view.latestAssistantTurn, 7, '空结果不许把视图清成空')
+  live.setView('s', null)
+  assert.equal(live.getSnapshot('s').view.latestAssistantTurn, 7, 'null 同样不写')
+  assert.deepEqual(timer.activeDelays().length > 0, true, '空结果要补读一次')
+})
+
+test('seed 空视图不落到 store', async () => {
+  const create = await loadFactory()
+  const timer = fakeTimers()
+  const live = create({ deduplicateViews: true, pollWhileBusy: false, now: timer.now, schedule: timer.schedule, cancel: timer.cancel, load: async () => ({ view: null }) })
+  live.seed('s', { canRegenerate: true, latestAssistantTurn: 3 })
+  live.seed('s', null)
+  live.seed('s', undefined)
+  assert.equal(live.getSnapshot('s').view.latestAssistantTurn, 3, '空种子不能覆盖已有视图')
+})

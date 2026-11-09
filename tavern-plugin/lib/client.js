@@ -15208,6 +15208,9 @@ window.__ModuleLoader__.load({
 					if (record.listeners.size > record.passiveListeners) record.refresh.request();
 				},
 				seed: function (sessionId, view) {
+					// 没有视图就没有可种的东西：种一个空视图会让这一局在别人眼里「没有正文」，
+					// 而 phase 还是 ready，再没人去重读。
+					if (view === null || view === undefined) return;
 					const record = recordFor(sessionId);
 					const revisionOf = function (value) { return Number((value && value.historyWindow && value.historyWindow.revision) ?? (value && value.tavernHelper && value.tavernHelper.stateRevision)); };
 					const nextRevision = revisionOf(view), currentRevision = revisionOf(record.state.view);
@@ -15227,6 +15230,13 @@ window.__ModuleLoader__.load({
 				},
 				setView: function (sessionId, view) {
 					const record = recordFor(sessionId);
+					// 调用方拿回来的结果偶尔没有 view（失败、被取消、只回了一行状态）。那不是
+					// 「这一局没有正文」：当真视图 publish 进去，phase 还是 ready，之后没人再读，
+					// 按钮就会一直说「还没有可重新生成的正文」。宁可丢掉这次写入，再读一次。
+					if (view === null || view === undefined) {
+						if (record.listeners.size > record.passiveListeners) record.refresh.request();
+						return function () {};
+					}
 					if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve({ view: view }); }
 					record.seededView = undefined;
 					record.refresh.replace();
