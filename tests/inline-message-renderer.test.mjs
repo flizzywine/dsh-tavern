@@ -6,9 +6,9 @@ import vm from './fixtures/client-vm.mjs'
 
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 
-async function loadClient() {
+async function loadClient(fetch) {
   let descriptor
-  const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console }
+  const sandbox = { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console, fetch }
   vm.runInNewContext(clientSource, sandbox)
   return descriptor.factory(function () { return {} })
 }
@@ -702,13 +702,40 @@ test('Helper 增量不遍历未变历史，替换、追加与截断保留旧状�
   assert.equal(next.messages.length, 3)
 })
 
+async function playerInputHarness() {
+  const calls = []
+  let draft = ''
+  const scopedClient = await loadClient(async (url, request) => {
+    assert.equal(url, '/api/dsh-tavern/appendPlayerInput')
+    const { text, requestId } = JSON.parse(request.body)
+    assert.ok(requestId)
+    calls.push(['save', text, requestId])
+    return Response.json({ ok: true, saved: true })
+  })
+  const ctx = {
+    sessions: {
+      scope: () => ({}),
+      binding: () => ({ session: { async prompt(content, mode, _options, requestId) {
+        assert.equal(mode, 'queue')
+        calls.push(['prompt', content[0].text, requestId])
+        return { ok: true }
+      } } })
+    },
+    get: () => ({ input: { for: () => ({
+      state: { getSnapshot: () => ({ draft }) },
+      setDraft: text => { draft = text; calls.push(['draft', text]) }
+    }) } })
+  }
+  return { calls, execute: scopedClient.createTavernFrameSlashExecutor(ctx, { setTimeout, clearTimeout }) }
+}
+
 test('模板内生成命令在提交后返回，不占住模板队列等待下一轮', async () => {
-  const calls=[]
-  const ctx={sessions:{scope:()=>({}),binding:()=>({session:{prompt:async()=>({ok:true})}})},get:()=>({input:{for:()=>({setDraft:text=>calls.push(text),submit:mode=>calls.push(mode)})}})}
-  const execute=client.createTavernFrameSlashExecutor(ctx,{setTimeout,clearTimeout})
-  assert.equal((await execute('/send 下一步|/trigger','game',{waitForCompletion:false})).submitted,true)
-  assert.deepEqual(calls,['下一步','queue'])
-  assert.equal((await execute('/trigger','game',{waitForCompletion:false})).submitted,true)
+  const { calls, execute } = await playerInputHarness()
+  assert.equal((await execute('/send 下一步|/trigger', 'game', { waitForCompletion: false })).submitted, true)
+  assert.deepEqual(calls.map(call => call.slice(0, 2)), [['save', '下一步'], ['prompt', '下一步']])
+  assert.equal(calls[0][2], calls[1][2])
+  assert.equal((await execute('/trigger', 'game', { waitForCompletion: false })).submitted, true)
+  assert.deepEqual(calls.at(-1).slice(0, 2), ['prompt', '继续。'])
 })
 
 test('保留多个正式会话时，parent.Mvu 随当前会话切换而不是最后创建的沙箱', () => {
@@ -725,19 +752,16 @@ test('保留多个正式会话时，parent.Mvu 随当前会话切换而不是最
 })
 
 test('正式会话支持分步 /send 与 /trigger await=true|false', async () => {
-  const calls = []
-  const ctx = {
-    sessions: { scope: () => ({}), binding: () => ({ session: { prompt: async () => ({ ok: true }) } }) },
-    get: () => ({ input: { for: () => ({ setDraft: text => calls.push(['draft', text]), submit: mode => calls.push(['submit', mode]) }) } })
-  }
-  const execute = client.createTavernFrameSlashExecutor(ctx, { setTimeout, clearTimeout })
+  const { calls, execute } = await playerInputHarness()
   assert.deepEqual(JSON.parse(JSON.stringify(await execute('/send 租借墨池渊', 'game'))), { drafted: true, deferred: true, pipe: '' })
   assert.deepEqual(calls, [['draft', '租借墨池渊']])
   assert.equal((await execute('/trigger await=false', 'game')).submitted, true)
-  assert.deepEqual(calls, [['draft', '租借墨池渊'], ['draft', '租借墨池渊'], ['submit', 'queue']])
+  assert.deepEqual(calls.map(call => call.slice(0, 2)), [['draft', '租借墨池渊'], ['save', '租借墨池渊'], ['prompt', '租借墨池渊'], ['draft', '']])
+  assert.equal(calls[1][2], calls[2][2])
   calls.length = 0
   assert.equal((await execute('/send 呼叫墨池渊 | /trigger await=true', 'game', { waitForCompletion: false })).submitted, true)
-  assert.deepEqual(calls, [['draft', '呼叫墨池渊'], ['submit', 'queue']])
+  assert.deepEqual(calls.map(call => call.slice(0, 2)), [['save', '呼叫墨池渊'], ['prompt', '呼叫墨池渊']])
+  assert.equal(calls[0][2], calls[1][2])
 })
 
 test('消息 iframe 在 /trigger 前触发 GENERATION_AFTER_COMMANDS 并排空 injectPrompts', async () => {
