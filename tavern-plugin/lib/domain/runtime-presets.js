@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { resolveRuntimeMacroText } from './runtime-content-projection.js'
 import { entryRandom, renderWorldbookRandom } from './worldbook-random.js'
+import { snapshotDocuments, thinPresetSnapshot } from './preset-snapshot-pool.js'
 
 function normalizeState(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -146,6 +147,9 @@ export function createRuntimePresetModule(options = {}) {
   const readState = options.readState
   const updateState = options.updateState
   const now = typeof options.now === 'function' ? options.now : Date.now
+  // Diagnostics and the pool live outside this module; without adapters a snapshot
+  // simply keeps its documents inline (unit tests, callers that only render).
+  const saveSnapshotDocuments = typeof options.saveSnapshotDocuments === 'function' ? options.saveSnapshotDocuments : null
   const pendingFullSnapshots = new Map()
   let preparedFullSnapshot = null
   if ([listPaths, readPreset, readState, updateState].some(function (fn) { return typeof fn !== 'function' })) {
@@ -405,8 +409,23 @@ export function createRuntimePresetModule(options = {}) {
         createdAt: now()
       }
       result.digest = createHash('sha256').update(JSON.stringify({ front, middle, back, regexScripts, compatibilityPreset: preset, compatibilityPresetDocument: document })).digest('hex')
+      // The preset text digest decides whether a running game follows a preset edit;
+      // it used to be read back from the inline document.
+      result.presetRevision = preset.revision
       if (current.lastError !== null) await mutate(function (latest) { latest.lastError = null; return latest })
-      return result
+      // Documents go to the shared pool once; every save keeps only the reference. A pool
+      // failure must not fail a game start: the snapshot then keeps its documents inline.
+      let pooled = saveSnapshotDocuments === null
+      if (!pooled) {
+        const documents = snapshotDocuments(result)
+        try {
+          if (Object.keys(documents).length) await saveSnapshotDocuments(result.digest, documents)
+          pooled = true
+        } catch (error) {
+          console.warn('dsh-tavern: 预设快照文档归档失败', activePath, error?.message || error)
+        }
+      }
+      return pooled ? thinPresetSnapshot(result, result.digest) : result
     } catch (error) {
       const message = '预设加载失败：' + (error instanceof Error ? error.message : String(error))
       await persistError(message)

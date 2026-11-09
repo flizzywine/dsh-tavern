@@ -100,6 +100,7 @@ import { installSessionLogAutoRepair, repairStoredSessionLog } from './domain/se
 import { measureForegroundPressure } from './domain/foreground-context-pressure.js'
 import { replaceSessionSurface } from './domain/session-surface-mutations.js'
 import { createPresetDiagnostics } from './domain/preset-diagnostics.js'
+import { materializeSnapshotDocuments } from './domain/preset-snapshot-pool.js'
 import { createRequestPerformance } from './domain/request-performance.js'
 import { createFrameStorage } from './domain/frame-storage.js'
 import { createScriptReader } from './domain/script-reader.js'
@@ -1300,9 +1301,16 @@ export async function apply(ctx) {
       diagnostics: await resourceDiagnosticProjection(chat)
     })
   }
-  const helperGenerationPreset = (name, snapshot) => resolveHelperGenerationPreset(name, snapshot, {
-    catalog: () => presetLibrary.catalog(), read: readPreset, readDocument: readPresetDocument, selected: () => runtimePresets.state()
-  })
+  const helperGenerationPreset = async (name, snapshot) => {
+    const resolved = await resolveHelperGenerationPreset(name, snapshot, {
+      catalog: () => presetLibrary.catalog(), read: readPreset, readDocument: readPresetDocument, selected: () => runtimePresets.state()
+    })
+    // A saved game keeps only its snapshot digest; `generate` is the one reader of the
+    // two compatibility documents, so they are reattached here instead of in every save.
+    return await materializeSnapshotDocuments(resolved, {
+      load: digest => presetLibrary.snapshotDocuments.load(digest), readPreset, readDocument: readPresetDocument
+    })
+  }
   const openingPreparation = createOpeningPreparation({ readCard, worldBooks, extensionSettings: tavernExtensionSettings, trace: requestPerformance,
     readRuntimeExtensions: async cardPath => tavernRemoteAssets.pinExtensions(await readCardExtensions(cardPath)),
     generateRaw: (config, context) => defaultOrderedRawConfig(config) ? openingGenerate(defaultOrderedRawConfig(config), context)
@@ -3986,7 +3994,9 @@ export async function apply(ctx) {
     if (!saved?.presetPath || !chat.id) return saved
     let text
     try { text = await fileResources.readText(normalizeResourcePath(saved.presetPath, 'preset')) } catch { return saved }
-    if (text === undefined || createHash('sha256').update(text).digest('hex') === saved.compatibilityPreset?.revision) return saved
+    // Snapshots keep only the preset text digest; older saves carry it inside the
+    // compatibility document, which is no longer stored with the snapshot.
+    if (text === undefined || createHash('sha256').update(text).digest('hex') === (saved.presetRevision || saved.compatibilityPreset?.revision)) return saved
     let fresh
     try { fresh = await runtimePresets.fullSnapshot(saved.presetPath) } catch { return saved }
     if (!fresh) return saved

@@ -4,6 +4,7 @@ import { inspectPreset, nativeRegexScriptsOf } from './preset-reading.js'
 import { previewPresetConversion } from './preset-conversion-preview.js'
 import { createPresetEditor } from './preset-editor.js'
 import { createRuntimePresetModule } from './runtime-presets.js'
+import { createPresetSnapshotPool, snapshotNeedsDocuments, withSnapshotDocuments } from './preset-snapshot-pool.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -24,6 +25,28 @@ const PLANS_RETIRED_AT = Date.parse('2026-08-28T00:00:00+08:00')
 
 export function createPresetLibrary({ resources: fileResources, state: profileData, prepareImport: prepareTextImport, logger = console }) {
   const readJson = function (path) { return profileData.readJson(path) }
+  // Frozen preset snapshots store their two compatibility documents once here instead of
+  // inside every save; the key is the snapshot digest, so an edited preset never reuses a
+  // copy. Storage adapters are optional: without them the pool degrades to memory.
+  const snapshotKey = function (digest) { return 'preset-snapshots/' + digest + '.json' }
+  const snapshotPool = createPresetSnapshotPool({
+    exists: async function (key) {
+      if (typeof profileData?.size !== 'function') return false
+      try { return (await profileData.size(key)) > 0 } catch { return false }
+    },
+    read: async function (key) {
+      return typeof profileData?.readJson === 'function' ? await profileData.readJson(key) : null
+    },
+    write: async function (key, value) {
+      if (typeof profileData?.writeJson === 'function') await profileData.writeJson(key, value)
+    }
+  })
+  // `generate` is the only reader of those documents; it reattaches them by reference.
+  async function hydratePresetSnapshot(snapshot) {
+    if (!snapshotNeedsDocuments(snapshot)) return snapshot
+    const documents = await snapshotPool.load(snapshotKey(snapshot.presetSnapshotRef)).catch(() => null)
+    return documents ? withSnapshotDocuments(snapshot, documents) : snapshot
+  }
   async function readPreset(presetPath) {
     const normalized = normalizeResourcePath(presetPath, 'preset')
     const text = await fileResources.readText(normalized)
@@ -88,6 +111,7 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
     runtimeRegexScripts: runtimeRegexScriptsOf,
     readState: async function () { return await readJson('runtime-presets.json') },
     updateState: async function (updater) { return await profileData.updateJson('runtime-presets.json', updater) },
+    saveSnapshotDocuments: async function (digest, documents) { await snapshotPool.save(snapshotKey(digest), documents) },
     now: Date.now
   })
   async function readRetiredPlans() {
@@ -240,5 +264,7 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
     catalog, select, import: importPreset, export: exportPreset, preview: previewPreset,
     listForGeneration, readForGeneration,
     updateEntry, updateRegex, moveEntry, migrate, restoreChat: restoreRetiredPlanChat,
+    snapshotDocuments: Object.freeze({ hydrate: hydratePresetSnapshot, load: function (digest) { return snapshotPool.load(snapshotKey(digest)) },
+      save: function (digest, documents) { return snapshotPool.save(snapshotKey(digest), documents) } }),
     editor: presetEditor, runtime: runtimePresets })
 }
