@@ -8,8 +8,8 @@ test('card control provider takes native input even when story defaults select h
   providers.register('ra2-plugin', { name: 'commander', controlInput: true, generate: async () => ({ text: '战场未连接' }) })
   const controller = createPluginBodyGeneration({ providers,
     chatForSession: async id => ({ id, mode: 'story', storyGenerationMode: 'host' }), settings: async () => ({ storyGenerationMode: 'host' }) })
-  assert.deepEqual(await controller.route('ra2'), { mode: 'plugin-direct', provider: 'ra2-plugin:commander' })
-  assert.deepEqual(await controller.route('other'), { mode: 'host', provider: '' })
+  assert.deepEqual(await controller.route('ra2'), { mode: 'plugin-direct', provider: 'ra2-plugin:commander', hostRegex: false })
+  assert.deepEqual(await controller.route('other'), { mode: 'host', provider: '', hostRegex: false })
 })
 
 test('ambiguous control plugins fail instead of falling back to story', async () => {

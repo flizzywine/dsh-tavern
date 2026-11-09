@@ -23,9 +23,11 @@ for (const task of ['settlement', 'image', 'phone']) test(task + ' 复用会话�
   })
   try {
     for (text of ['第一版', '第二版', '']) await runner.run({ sessionId: 'parent', persistent: true, task, selection: { provider: 'test', model: 'fake' }, messages: [], tools: [] })
-    assert.deepEqual(seen.map(result => result.hook), [['第一版', '原有指令'], ['第二版', '原有指令'], ['原有指令']])
-    assert.ok(seen[0].system.startsWith('第一版\n\n'))
-    assert.ok(seen[1].system.startsWith('第二版\n\n'))
+    const first = '<system_append>\n第一版\n</system_append>'
+    const second = '<system_append>\n第二版\n</system_append>'
+    assert.deepEqual(seen.map(result => result.hook), [[first, '原有指令'], [second, '原有指令'], ['原有指令']])
+    assert.ok(seen[0].system.startsWith(first + '\n\n'))
+    assert.ok(seen[1].system.startsWith(second + '\n\n'))
     assert.equal(seen[2].system.includes('第一版'), false)
     assert.equal(seen[2].system.includes('第二版'), false)
     // 玩家手写指令与后台 persona 都拼接了人物卡快照，必须按字面文本渲染。

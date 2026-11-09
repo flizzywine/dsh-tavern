@@ -6,7 +6,8 @@ import { createChatJournalStore } from '../../tavern-plugin/lib/domain/chat-jour
 import { resolveTavernDataRoot } from '../../tavern-plugin/lib/domain/tavern-data.js'
 
 const root = resolveTavernDataRoot()
-await mkdir(root, { recursive: true })
+await mkdir(join(root, 'resources', 'cards'), { recursive: true })
+await writeFile(join(root, 'resources', 'cards', 'status.json'), JSON.stringify({ meta: { id: 'status' } }))
 await writeFile(join(root, 'sessions.json'), JSON.stringify({ s: 'status-chat' }))
 await createChatJournalStore({ dataRoot: root }).update('status-chat', () => ({
   id: 'status-chat', _storageRevision: 1, sessionId: 's', mode: 'story', cardPath: 'cards/status.json',
