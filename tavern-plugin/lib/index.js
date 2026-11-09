@@ -274,7 +274,6 @@ import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapt
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
 import { createTavernStaticResourceCache } from './domain/tavern-static-resource-cache.js'
-import { SILLYTAVERN_CSS_COMPAT_URLS } from './domain/sillytavern-css-compatibility.js'
 import { createRoundHistory } from './domain/round-history.js'
 import { buildBodyRegenerationMaterials } from './domain/body-regeneration-materials.js'
 import { createResourceWorkspaceProjection } from './domain/resource-workspace-projection.js'
@@ -539,10 +538,6 @@ export async function apply(ctx) {
       const configured = tavernSettingsDocument?.allowCdnFakeIp
       return verifyPublicHostname(url, undefined, typeof configured === 'boolean' ? configured : undefined)
     }
-  })
-  void tavernStaticResources.warm(SILLYTAVERN_CSS_COMPAT_URLS).then(function (results) {
-    const failures = results.filter(function (result) { return result.status === 'rejected' })
-    if (failures.length > 0) console.warn('dsh-tavern: 部分静态运行库暂未缓存，将在使用时重试:', failures.map(function (result) { return str(result.reason && result.reason.message || result.reason) }).join('；'))
   })
   const promptTemplateGlobalVariables = createPromptTemplateGlobalVariables(profileData)
   const readPromptTemplateGlobalVariables = promptTemplateGlobalVariables.read
