@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "068ad964dce723620e91e689e60001aa3449b893",
-  "releaseSequence": 1411,
+  "revision": "b2658ff0ddaea9309aff7074874a1f30253dca79",
+  "releaseSequence": 1412,
   "version": "3.3.0",
   "files": [
     {
@@ -1016,8 +1016,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "55b4b6c1bb5ddc0585b134e4b051f6590039abdc5b41641dbc24627e52f91181",
-      "size": 5731641
+      "sha256": "c734367cb0ce917159ef70cdf6bed1a4d6988cc6efd7487d160dedca88eb5a87",
+      "size": 5733925
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1356,8 +1356,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-plugin-managed.js",
-      "sha256": "ba9a1b2e14f11bf7899265408649507a5fa93b635c4690cbfe31f781a45a547a",
-      "size": 11724
+      "sha256": "610d2d319a0a508e980621b5b3b4d9a35c9f407e65e4b108f2c6000ddf7400ef",
+      "size": 12135
     },
     {
       "path": "tavern-plugin/lib/domain/card-plugins.js",
@@ -3160,11 +3160,6 @@
       "size": 10378
     },
     {
-      "path": "tavern-plugin/lib/domain/sillytavern-css-compatibility.js",
-      "sha256": "8504b010c8d58e535216838ea40256725bb8e9863cc465d42546b8b76dc7f6f9",
-      "size": 933
-    },
-    {
       "path": "tavern-plugin/lib/domain/sillytavern-migration-helper.js",
       "sha256": "29d1cc0f95369d8f1e0897568f553cf4cc403d52570afc55d4bbef76e9a8b4ef",
       "size": 61453
@@ -3491,8 +3486,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-static-resource-cache.js",
-      "sha256": "f7e972dfa91e8f92332b7e4834173234f2993a827e2d0d3c2052897621550ad7",
-      "size": 13245
+      "sha256": "e30b3d34ddf5fa3b37f481c98465bb1f49360447e03590044b46b5bebf4ba1b3",
+      "size": 13208
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-token-meter.js",
@@ -3946,8 +3941,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "805aeab40fa5c7c0647808a28638177ac3a71906e1f439c0cd23be0b59a18998",
-      "size": 275570
+      "sha256": "f924dc0b56aebf8cf4e9597b2b7c02a941a1316d3f97c73160d207f561c0fe59",
+      "size": 275156
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -4136,8 +4131,8 @@
     },
     {
       "path": "tavern-plugin/lib/stage-switch.js",
-      "sha256": "15161768c66974fea0f3bcbaa380c3e07a7b530f0df2b8d75507d5d08ccceabb",
-      "size": 1577
+      "sha256": "5716942158ab10796a5658b8e10f335fe5bcea09e3e93159c750ba8949339c34",
+      "size": 1893
     },
     {
       "path": "tavern-plugin/lib/tools/card-cover.js",
@@ -7626,8 +7621,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-service.js",
-      "sha256": "15bfd318133556a302d6d161f530d082bcbc477dfe8e8ffa4da2a8b31b45e225",
-      "size": 38388
+      "sha256": "b194f99a86e76e59f6b543f1ee33faca41f52f2e8c33e936f7ffe3b4b7b2aceb",
+      "size": 38783
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-stage.js",
@@ -7641,8 +7636,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-system-production.js",
-      "sha256": "85a213fa9c75968ff5d6cf3c506d624455ee68f197f90cf7d238e0d53a7de704",
-      "size": 9070
+      "sha256": "8890cdac59140c6f5262c1f69326ac6fd1b76f7c5b3b3c985518fb36fddb7646",
+      "size": 9313
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mods/phone/host.js",
@@ -8021,8 +8016,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/client.js",
-      "sha256": "6e6c6998f77b642510504cdeea1e4c1b2212531d1713722ccf7e699d66039cd8",
-      "size": 45202
+      "sha256": "3461b410d4a75889138f5312123f5eb96688e7c24197194c992dd0dec785da43",
+      "size": 46255
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/cordis.patch.yml",
@@ -8456,9 +8451,9 @@
     }
   ],
   "archive": {
-    "commit": "1e9f4d50ef84e6c1b995d02696d09e199c9c14ea",
+    "commit": "4554a1cc502d6677424416f1208e0dadef6262fb",
     "path": "runtime.zip",
-    "sha256": "5bdde98ab885c2cffad892046041edbafc36ee63544a6d0c44e83e30e5626d21",
-    "size": 15106621
+    "sha256": "6825dfcae972f2f909d8218742ef8222d2ec9b4db6bb59edc208208885d8284c",
+    "size": 15107035
   }
 }
