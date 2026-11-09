@@ -92,3 +92,50 @@ test('关掉自动分段就原样返回；开着时同一段文本重复排版�
   assert.equal(layout('', { sentences: 2 }), '')
   assert.equal(layout(null, { sentences: 2 }), '')
 })
+
+// 聊天正文在渲染前分段：模型的整块正文走自动分段，@ 台词行原样交给对白气泡；
+// 段落编号、配音和舞台定位仍按原文本算（分段只发生在交给 Markdown 的那一刻）。
+test('聊天正文渲染前自动分段；台词行与段落编号不受影响', () => {
+  const frame = slice('function bubbleProseText', '// Avatar import:') + '\n' + 'return { bubbleProseText: bubbleProseText, BubbleSafePublication: BubbleSafePublication, BubbleMarkdown: BubbleMarkdown };'
+  const react = {
+    Fragment: 'Fragment',
+    createElement(type, props, ...children) { return { type, props: Object.assign({}, props, children.length ? { children: children.length === 1 ? children[0] : children } : {}) }; },
+    useSyncExternalStore(subscribe, get) { return get(); },
+    useState(initial) { return [typeof initial === 'function' ? initial() : initial, () => {}]; },
+    useEffect() {},
+  }
+  const window = { addEventListener() {}, removeEventListener() {} }
+  const module = new Function('React', 'window', 'document',
+    'const TavernColoredMarkdown = "TavernColoredMarkdown";' +
+    'const StageMarkdown = "StageMarkdown";' +
+    'const StageParagraph = "StageParagraph";' +
+    'const StageEnterHere = "StageEnterHere";' +
+    'const BubbleRow = "BubbleRow";' +
+    'const galStageAvailable = { subscribe: () => () => {}, get: () => false };' +
+    'const stageViews = null;' +
+    'const tavernStageBoundary = (_, child) => child;' +
+    'const galParagraphs = (parts) => (parts[0].segments || []).map((segment, index) => ({ kind: segment.kind === "markdown" ? "narration" : "line", para: index + 1, index }));' +
+    'function useTavernProseLayoutRevision() { return 0; }\n' +
+    source + '\n' + frame
+  )(react, window, {})
+  const block = '夜色从窗棂上滑下来，落在她的发梢。她抬起头，轻声说：「雨停了，我们走吧。」窗外的水声一层层退下去，像有人在很远的地方翻书。'
+  const laid = layout(block)
+  assert.ok(laid.includes('\n\n'), '整块正文断成了多段')
+  assert.equal(module.bubbleProseText(block), laid)
+
+  const plain = module.BubbleSafePublication({ text: block })
+  assert.equal(plain.type, 'TavernColoredMarkdown')
+  assert.equal(plain.props.text, laid, '没有台词行的正文交给 Markdown 时已经分段')
+
+  const opening = module.BubbleMarkdown({ props: { sessionId: 's' }, markdownProps: { text: block }, has: false, enter: false, segments: [], base: 0 })
+  assert.equal(opening.props.text, laid, '打开预览等没有气泡的路径同样分段')
+
+  const bubble = { kind: 'bubble', alias: '小明', name: '小明', text: '我们走吧。' }
+  const mixed = module.BubbleMarkdown({ props: { sessionId: 's' }, markdownProps: { text: block }, has: true, enter: false, segments: [bubble, { kind: 'markdown', text: block }], base: 0, voice: [] })
+  assert.equal(mixed.props.children[0].props.children.type, 'BubbleRow', '台词行走气泡，不动')
+  assert.equal(mixed.props.children[1].props.text, laid, '气泡前后的散文照样分段')
+
+  const staged = module.BubbleMarkdown({ props: { sessionId: 's' }, markdownProps: { text: block }, has: true, enter: true, segments: [{ kind: 'markdown', text: block }], base: 0, voice: [] })
+  assert.equal(staged.props.children[0].type, 'StageMarkdown')
+  assert.equal(staged.props.children[0].props.text, block, '舞台自带的构建按原文本分页，不额外分段')
+})
