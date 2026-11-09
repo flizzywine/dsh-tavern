@@ -5324,7 +5324,10 @@ function channelWithPresetParams(config) {
   if (!channel) return channel
   const params = activePresetParams(config)
   if (effectiveImageProvider(channel) !== 'novelai' || !Object.keys(params).length) return channel
-  channel.options = { ...(channel.options ?? {}), ...params }
+  const options = { ...channel.options, ...params }
+  // 渠道选「不传」表示站点不接受这个字段，画风预设不能恢复它。
+  if (channel.options?.varietyBoost === 'omit') options.varietyBoost = 'omit'
+  channel.options = options
   return channel
 }
 
