@@ -44,6 +44,7 @@ async function mountSidebar(t, initialStatus = { phase: 'idle', host: 'cli', cur
   await page.addScriptTag({ content: clientSource })
   await page.evaluate(() => {
     const slots = {}, noop = () => () => {}
+    const tabCalls = []
     const sessionState = { current: '', byId: {} }
     const ctx = {
       inject() { return { dispose() {} } },
@@ -51,10 +52,22 @@ async function mountSidebar(t, initialStatus = { phase: 'idle', host: 'cli', cur
       effect(run, label) { return ['dsh-tavern: Tavern workspace browser'].includes(label) ? run() : () => {} },
       slots: { inject(_name, run) { return run() }, register(spec, component) { slots[spec.id || spec.name] = component; return () => {} } },
       sessions: { subagentAddress: () => null, refresh: async () => {}, list: { getSnapshot: () => sessionState }, binding: () => null },
-      workspaces: {}, betterSidebar: {},
+      workspaces: {}, betterSidebar: { openTab(seed) { tabCalls.push(seed.type) } },
+      layout: { toggleSidebar() { tabCalls.push('close-left') } },
       tavernSessionSignals: { subscribe: noop },
     }
     window.client.apply(ctx)
+    window.exerciseSidebarTabs = async () => {
+      tabCalls.length = 0
+      const { props } = slots['sidebar.workspaces']({ wide: true })
+      const sessionId = 'card-session'
+      await props.openConversationSettingsTab(sessionId)
+      await props.openCardLibraryTab(sessionId)
+      await props.openPresetLibraryTab(sessionId)
+      await props.openWorldBookLibraryTab(sessionId)
+      await props.openResourcesTab(sessionId)
+      return tabCalls
+    }
     const React = modules.react
     modules['react-dom/client'].createRoot(document.querySelector('#sidebar')).render(React.createElement(slots['sidebar.workspaces'], {
       wide: true, useSessions: select => select(sessionState), useWorkspaces: select => select({ items: [] }), renderSlot: () => null,
@@ -63,6 +76,18 @@ async function mountSidebar(t, initialStatus = { phase: 'idle', host: 'cli', cur
   t.after(() => { if (errors.length) throw Error(errors.join('\n')) })
   return { page, releaseStatus, methods }
 }
+
+test('侧栏在桌面宽度打开标签，在移动端断点只收起左栏', async t => {
+  const { page, releaseStatus } = await mountSidebar(t)
+  releaseStatus()
+  await page.setViewportSize({ width: 1024, height: 800 })
+  assert.deepEqual(await page.evaluate(() => window.exerciseSidebarTabs()), [
+    'dsh-tavern:conversation-settings', 'dsh-tavern:status', 'dsh-tavern:cards',
+    'dsh-tavern:presets', 'dsh-tavern:worldbooks', 'dsh-tavern:resources',
+  ])
+  await page.setViewportSize({ width: 1023, height: 800 })
+  assert.deepEqual(await page.evaluate(() => window.exerciseSidebarTabs()), ['close-left'])
+})
 
 test('更新状态还没回来时，版本行和「检查更新」已经在侧栏底部', async t => {
   const { page, releaseStatus } = await mountSidebar(t)

@@ -2,6 +2,7 @@
 // 宿主的插槽使用 display:contents 包装；它不占空间，但仍参与 CSS / DOM 选择器匹配。
 const TAVERN_HEADER_SELECTOR = '[data-slot="conversation.header"] > header, [data-phase] > header';
 const TAVERN_MOBILE_QUERY = "(max-width: 1023px)";
+function narrowLayout() { return typeof window.matchMedia === "function" && window.matchMedia(TAVERN_MOBILE_QUERY).matches; }
 // 布局视口与可视区之间差这么多就算键盘已经把页面顶上去；小于它只是取整或宿主安全区误差。
 const TAVERN_KEYBOARD_INSET_MIN = 8;
 // 焦点进出后自己刷这么多毫秒的帧：安卓输入法动画约 250ms，留出首尾事件的余量。
