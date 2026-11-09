@@ -3242,13 +3242,7 @@ export async function apply(ctx) {
   }
   const conversationGuides = createConversationGuides({ chats: { forSession: chatForSession, update: updateChat }, library: guideLibrary, isPlay: chat => groupOfMode(chat.mode) === 'play' })
   async function setPlayerName(sessionId, userName) {
-    const chat = await chatForSession(sessionId)
-    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
-    if ((chat.mode || 'story') === 'card') throw new Error('卡片工作台不使用玩家称呼')
-    const name = str(userName).trim().slice(0, 80) || '你'
-    if (chat.macroState === null || typeof chat.macroState !== 'object') chat.macroState = { userName: name, local: {}, global: {} }
-    else chat.macroState.userName = name
-    await writeChat(chat, { source: 'player-name.set' })
+    const name = await conversationInitialization.setPlayerName(sessionId, userName)
     sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'player-name:' + Date.now() + ':' + Math.random().toString(36).slice(2) })
     return name
   }

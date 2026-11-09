@@ -42,6 +42,37 @@ test('原地切换开场可从保存中恢复，第一条模型请求只看到�
   await assert.rejects(initialization.switchOpening(original.sessionId, { swipeId: 0, expectedLifecycleRevision: 2 }), /首轮已开始/)
 })
 
+test('修改玩家称呼更新已经生成的开场和后续模型请求，保留骰点与存档变量', native, async t => {
+  const source = '{{setvar::gold::30}}玩家站在门外。{{user}}，你好。骰点 {{roll::1d6}}。'
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, { cardOverrides: { first_mes: source } })
+  t.after(() => h.dispose())
+  const initialization = h.open()
+  const original = await initialization.start(h.input)
+  const firstText = original.messages[0].text
+  assert.match(firstText, /^玩家站在门外。玩家，你好。骰点 [1-6]。$/)
+  await h.continueWithAgent()
+  await h.persistence.update(original.id, chat => {
+    chat.macroState.local.gold = '50'
+    return chat
+  })
+  assert.equal(await initialization.setPlayerName(original.sessionId, '  旅人  '), '旅人')
+  await h.restoreDetached()
+  const saved = await h.open().ensureOpening(original.sessionId)
+  const renamed = firstText.replace('玩家，你好。', '旅人，你好。')
+  assert.equal(saved.macroState.userName, '旅人')
+  assert.equal(saved.macroState.local.gold, '50')
+  assert.equal(saved.messages[0].sourceText, source)
+  assert.equal(saved.messages[0].projectionText, renamed)
+  assert.equal(saved.messages[0].displayText, renamed)
+  assert.equal(saved.openingText, renamed)
+  assert.equal(saved.tavernHelperLifecycleRevision, original.tavernHelperLifecycleRevision)
+  await h.continueWithAgent()
+  const replies = h.requests[1].messages.filter(message => message.role === 'assistant')
+    .map(message => message.content.map(part => part.text || '').join(''))
+  assert.equal(replies.filter(text => text === renamed).length, 1)
+  assert.ok(!replies.includes(firstText))
+})
+
 test('first native reply uses the prepared static worldbook in the actual system prompt', native, async t => {
   const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, { assembleStablePrefix: false })
   t.after(() => h.dispose())

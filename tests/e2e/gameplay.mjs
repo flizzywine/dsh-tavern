@@ -261,7 +261,7 @@ try {
     const auditBook = process.env.TAVERN_E2E_AUDIT_CARD ? (raw => (raw.data || raw).character_book)(JSON.parse(await readFile(process.env.TAVERN_E2E_AUDIT_CARD, 'utf8')).raw || JSON.parse(await readFile(process.env.TAVERN_E2E_AUDIT_CARD, 'utf8'))) : null
     await writeFile(join(data, 'resources/cards/e2e.json'), JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: {
       name: 'E2E 奖励验收', description: '固定验收角色', first_mes: (inlineOpeningScenario ? routeMenu : process.argv.includes('--text-colors') ? '她说：“欢迎光临。” *窗外下着雨。*' : '欢迎领取奖励。') + (process.argv.includes('--opening-update') ? '\n<initvar>{"gold":0,"old":1}</initvar>' : '') + '\n\n<StatusPlaceHolderImpl/>',
-      ...(inlineOpeningScenario ? { alternate_greetings: ['第二条路线。\n<initvar>{"gold":30}</initvar>\n\n<StatusPlaceHolderImpl/>', '第三条路线。'] } : {}),
+      ...(inlineOpeningScenario ? { alternate_greetings: ['{{user}}，第二条路线。\n<initvar>{"gold":30}</initvar>\n\n<StatusPlaceHolderImpl/>', '第三条路线。'] } : {}),
       mes_example: '', scenario: '', personality: '',
       character_book: { name: '验收初始变量', entries: [{ id: 1, keys: [], comment: '[initvar]初始值', content: process.argv.includes('--settlement-performance') || process.argv.includes('--storage-audit') ? JSON.stringify(settlementPerformanceInitialVariables()) : 'gold: 0', enabled: true, constant: true, insertion_order: 1 }, ...(auditBook ? auditBook.entries.filter(entry => !/initvar/i.test(String(entry.comment || '') + String(entry.content || '').slice(0, 200))).map((entry, index) => ({ ...entry, id: 1000 + index })) : []), ...(helperApiScenario ? [{ id: 2, keys: ['金币规则'], comment: '金币规则', content: '每次领取十枚金币。', enabled: true, insertion_order: 2 }] : [])] },
       extensions: { mvu: {}, ...(helperApiScenario ? { TavernHelper_scripts: [{ type: 'script', value: { id: 'e2e-helper-api', name: 'E2E 助手接口', enabled: true, content: helperApiScript } }] } : {}), regex_scripts: [{ id: 'e2e-status', scriptName: '金币状态', findRegex: '<StatusPlaceHolderImpl/>',
@@ -463,10 +463,15 @@ try {
       await waitForVisibleStoryText('第二条路线。')
       assert.equal((await savedChat()).id, original.id)
     })
-    await step('刷新后保留开场与初始变量，模型首轮只读新开场', async () => {
+    await step('本局设置改名后立即刷新开场，重载和模型请求继续使用新称呼', async () => {
+      await page.getByRole('tab', { name: '本局设置' }).filter({ visible: true }).first().click()
+      const name = page.getByLabel('玩家称呼', { exact: true })
+      await name.fill('新玩家')
+      await name.press('Tab')
+      await waitForVisibleStoryText('新玩家，第二条路线。')
       await page.reload({ waitUntil: 'domcontentloaded' })
       await nav.getByText('2 / 3').waitFor()
-      await waitForVisibleStoryText('第二条路线。')
+      await waitForVisibleStoryText('新玩家，第二条路线。')
       await openStatus()
       await page.frameLocator('.dsh-tavern-status-runtime iframe:not([aria-hidden="true"])')
         .locator('#e2e-gold').filter({ hasText: /^金币：30$/ }).waitFor()
@@ -478,7 +483,9 @@ try {
       const audit = (await readFile(join(output, 'context-requests.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse)
       const request = audit.find(entry => entry.messages.some(message => message.role === 'user' && message.text.includes('领取任务奖励')))
       assert.ok(request)
-      assert.equal(request.messages.filter(message => message.role === 'assistant' && message.text.includes('第二条路线。')).length, 1)
+      const greetings = request.messages.filter(message => message.role === 'assistant' && message.text.includes('第二条路线。'))
+      assert.equal(greetings.length, 1)
+      assert.match(greetings[0].text, /新玩家，第二条路线。/)
       assert.doesNotMatch(JSON.stringify(request), /默认路线。|第三条路线。/)
       const after = await savedChat()
       assert.equal(after.id, original.id)
