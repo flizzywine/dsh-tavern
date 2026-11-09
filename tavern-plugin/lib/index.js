@@ -3647,7 +3647,13 @@ export async function apply(ctx) {
     performanceDiagnostics.browser(args?._performance)
     const started = performance.now()
     // A deleted game's card frames may still call in; do not recreate its diagnostics.
-    try { return await requestPerformance.run(method, args?._traceId || args?.sessionId, () => deletedSessionIds.has(args?.sessionId) ? dispatchMethod(method, args, authority, false) : apiDiagnostics.observe(method, args, () => dispatchMethod(method, args, authority, false))) }
+    try {
+      return await sessionPatch.runForPage(args?._sessionPatchPage, () =>
+        requestPerformance.run(method, args?._traceId || args?.sessionId, () =>
+          deletedSessionIds.has(args?.sessionId)
+            ? dispatchMethod(method, args, authority, false)
+            : apiDiagnostics.observe(method, args, () => dispatchMethod(method, args, authority, false))))
+    }
     finally { performanceDiagnostics.record(method, performance.now() - started) }
   }
   const displayRuntimeCaptures = createDisplayRuntimeCoalescer({

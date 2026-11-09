@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { accessSync, cpSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -67,9 +67,6 @@ test('补丁允许替换，未打补丁的读取仍拒绝，锚点漂移时明�
 
   const installed = await installHostSessionPatch({ hostRequire, persistence: ctx.sessionPersistence, query })
   assert.equal(installed.status, 'ready')
-  assert.equal(installed.replacementAllowed(), false)
-  installed.confirmClient({ protocol: 1, installed: true })
-  assert.equal(installed.replacementAllowed(), true)
   assert.equal(await installHostSessionPatch({ hostRequire, persistence: ctx.sessionPersistence, query }), installed)
 
   const session = Session.create('expanded-probe', undefined, { id: 'expanded-probe', version: 4, createdAt: Date.now(), isSeeded: false, delegationDepth: 0 })
@@ -108,6 +105,47 @@ test('补丁允许替换，未打补丁的读取仍拒绝，锚点漂移时明�
   client.SessionEventStream.prototype.readPage = patched.SessionEventStream.prototype.readPage
   assert.equal((await stream.readPage({}, edited.seq)).records[0].event.type, 'assistant/message')
   await ctx.fiber.dispose()
+})
+
+test('Session patch handshakes stay isolated across authenticated page requests', async t => {
+  const hostRequire = createRequire(process.env.DSH_BOOT_MODULE || join(runtime, "package.json"))
+  const load = name => import(pathToFileURL(hostRequire.resolve(name)).href)
+  const { Context } = await load('@deepseek-ai/cordis')
+  const Jsonl = jsonlPlugin(await load('@deepseek-ai/dsh-session-persistence-jsonl'))
+  const { SessionQueryEngine } = await load('@deepseek-ai/dsh-session-query')
+  const root = await mkdtemp(join(tmpdir(), 'tavern-page-patch-'))
+  const ctx = new Context()
+  t.after(async () => { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) })
+  await ctx.plugin(Jsonl, { root, compression: 'none' }).await()
+  const query = new SessionQueryEngine(ctx)
+  const installed = await installHostSessionPatch({ hostRequire, persistence: ctx.sessionPersistence, query })
+  assert.equal(installed.status, 'ready', installed.reason)
+  t.after(() => installed.dispose())
+  const pageA = 'a'.repeat(32), pageB = 'b'.repeat(32)
+  const installedReport = { protocol: 1, installed: true }
+  const denied = { protocol: 1, installed: false, reason: "missing browser contract" }
+  assert.equal(installed.replacementAllowed(), false)
+  await Promise.all([
+    installed.runForPage(pageA, async () => {
+      installed.confirmClient(installedReport)
+      await new Promise(resolve => setImmediate(resolve))
+      assert.equal(installed.replacementAllowed(), true)
+      assert.equal(installed.view().clientReady, true)
+    }),
+    installed.runForPage(pageB, async () => {
+      installed.confirmClient(denied)
+      await Promise.resolve()
+      assert.equal(installed.replacementAllowed(), false)
+      assert.equal(installed.view().reason, denied.reason)
+    }),
+  ])
+  assert.equal(installed.replacementAllowed(), true, "host-owned jobs keep working")
+  assert.equal(installed.runForPage(undefined, () => installed.replacementAllowed()), false)
+  installed.runForPage("invalid", () => installed.confirmClient(installedReport))
+  assert.equal(installed.runForPage("invalid", () => installed.replacementAllowed()), false)
+  installed.runForPage(pageA, () => installed.confirmClient(denied))
+  assert.equal(installed.replacementAllowed(), false)
+  assert.equal(installed.runForPage(pageA, () => installed.replacementAllowed()), false)
 })
 
 test('issue #74: patched persistence rewrites dynamic import("koffi") to a file URL', () => {
@@ -158,7 +196,7 @@ test('DSHA 改写过的宿主文件仍可安装补丁并完成替换', { skip: !
   const query = new SessionQueryEngine(ctx)
   const installed = await installHostSessionPatch({ hostRequire, persistence: ctx.sessionPersistence, query })
   assert.equal(installed.status, 'ready', installed.reason)
-  installed.confirmClient({ protocol: 1, installed: true })
+
   const session = Session.create('dsha-probe', undefined, { id: 'dsha-probe', version: 4, createdAt: Date.now(), isSeeded: false, delegationDepth: 0 })
   const assistant = text => ({ turn: 1, step: 1, stream: [], message: { id: 'body-' + text, role: 'assistant', content: [{ type: 'text', text }], source: { kind: 'model', provider: 'tavern-patch', model: 'fixture' } } })
   session.append('turn/start', { turn: 1 })

@@ -6,7 +6,8 @@ import { deferred } from './fixtures/sync-clock.mjs'
 const source = fs.readFileSync(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 function harness() {
   const reads = [], generations = []
-  const scope = vm.createContext({ window: { setTimeout: fn => setTimeout(fn, 0) }, performance, Date, Math, AbortController,
+  const scope = vm.createContext({ window: { crypto: globalThis.crypto, setTimeout: fn => setTimeout(fn, 0) }, performance, Date, Math, AbortController,
+    clipExportTransport: null,
     performanceReportAt: Date.now(), pagePerformanceStarted: Date.now(), pagePerformance: {},
     performanceRequests: [], performanceActiveRequests: 0, historyFromSessions: new Map(), rememberHistoryWindow() {},
     tavernRuntimeGenerationMonitor: { observe(value) { generations.push(value) } },
@@ -77,4 +78,21 @@ test('a request during the restart window waits for the routes instead of failin
   h.reads[2].reply({ ok: true, sessions: [] })
   assert.deepEqual((await task).sessions, [])
   assert.equal(h.reads.length, 3)
+})
+
+test('Tavern RPC uses the same patch identity for a page and different identities across pages', async () => {
+  const first = harness(), second = harness()
+  const call = (page, method) => {
+    const pending = page.rpc(method, {})
+    const read = page.reads.at(-1)
+    read.reply({ ok: true })
+    return { pending, identity: JSON.parse(read.request.body)._sessionPatchPage }
+  }
+  const confirm = call(first, 'confirmSessionPatch')
+  const edit = call(first, 'applyBodyEdit')
+  const other = call(second, 'confirmSessionPatch')
+  assert.match(confirm.identity, /^[0-9a-f]{32}$/)
+  assert.equal(confirm.identity, edit.identity)
+  assert.notEqual(confirm.identity, other.identity)
+  await Promise.all([confirm.pending, edit.pending, other.pending])
 })

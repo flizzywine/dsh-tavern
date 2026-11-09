@@ -14700,6 +14700,14 @@ window.__ModuleLoader__.load({
             const traced = ["getSession", "syncSession", "getCardOpenings", "initializeOpeningTemplate", "preparePlayStart", "startChat"].includes(method);
             const trace = traced ? { id: window.crypto?.randomUUID?.() || "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const n = Math.floor(Math.random() * 16); return (c === "x" ? n : (n & 3) | 8).toString(16); }), method, sentAt: started, active: ++performanceActiveRequests } : null;
             const payload = Object.assign({}, args || {});
+			if (!runtimeControl && window.crypto?.getRandomValues) {
+				const pageKey = Symbol.for("dsh-tavern.session-patch-page");
+				if (!window[pageKey]) {
+					const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+					window[pageKey] = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+				}
+				payload._sessionPatchPage = window[pageKey];
+			}
 			if (!runtimeControl && (started - performanceReportAt >= 60000 || /diagnostic|export/i.test(method))) {
 				pagePerformance.observedMs = started - pagePerformanceStarted;
 				payload._performance = Object.assign({}, pagePerformance, { requests: performanceRequests.slice(), openingRequests: typeof openingPerformance !== "undefined" ? openingPerformance.requests() : [], openings: typeof openingPerformance !== "undefined" ? openingPerformance.read() : [] });
