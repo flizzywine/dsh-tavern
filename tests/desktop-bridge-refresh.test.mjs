@@ -10,6 +10,8 @@ import { recordInstallationReceipt, readInstallationReceipt } from '../bin/insta
 import { switchProfile, acquirePendingLock, installPublishGate, scheduleSwitch } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 import { launcherBundles } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
 import { copyTreeSync, removeTreeSync } from '../bin/portable-fs.mjs'
+import { nextUpdatePreparation } from '../bin/prepared-next-profile.mjs'
+import { commit, rollback, stagedPaths, swap } from '../bin/staged-app-install.mjs'
 
 const repo = fileURLToPath(new URL('../', import.meta.url))
 const bridgePath = 'tavern-plugin/packages/dsh-tavern'
@@ -77,6 +79,65 @@ test('NEXT launcher update refreshes the original bridge under its existing inst
   assertNew(f.desktop)
   assertPreserved(f, f.desktop)
   assert.throws(() => acquirePendingLock(state), { code: 'busy' })
+})
+
+for (const failCutover of [false, true]) test(`NEXT prepared update ${failCutover ? 'restores the old app and Profile after a failed move' : 'publishes already prepared dependencies and Profile'}`, async t => {
+  const f = fixture(t)
+  await switchProfile({ mode: 'unlink', profilesRoot: f.profiles, liveDir: f.desktop, stamp: 'prepare-next' })
+  const app = f.sourceRoot
+  const { staging: sourceRoot } = stagedPaths(app)
+  copyTreeSync(path.join(app, bridgePath), path.join(sourceRoot, bridgePath))
+  put(path.join(sourceRoot, bridgePath, 'revision.mjs'), 'export default "new"\n')
+  put(path.join(f.tavern, 'node_modules/old.txt'), 'old dependencies')
+  put(path.join(f.tavern, 'user.txt'), 'user file')
+  const state = path.join(f.home, 'profile-bridge')
+  const { lock } = acquirePendingLock(state, { installing: true })
+  const gate = installPublishGate(state)
+  json(path.join(lock, 'request.json'), { mode: 'install', host: 'next', stamp: 'prepare', appDir: app, liveDir: failCutover ? f.desktop : f.tavern, pids: [123, 456] })
+  json(path.join(lock, 'worker.json'), { pid: process.pid })
+  json(path.join(state, 'last-result.json'), { status: 'pending', mode: 'install', stamp: 'prepare' })
+  const prepared = nextUpdatePreparation({ app, sourceRoot, home: f.home, profileDir: f.tavern, gate })
+  const checked = []
+  const tx = beginDesktopProfileInstallation({ ...f, host: 'next', sourceRoot, prepareNext: true, preparingForPid: prepared.desktopPid, launcherGate: gate,
+    checkStopped(pid) { checked.push(pid) }, rename(from, to) {
+      if (failCutover && from === path.join(prepared.directory, 'node_modules')) throw Error('profile move failed')
+      fs.renameSync(from, to)
+    } })
+  prepared.initialize()
+  const manifestFile = path.join(f.tavern, 'package.json')
+  const liveManifest = text(manifestFile)
+  const target = path.join(sourceRoot, bridgePath)
+  const specifier = 'link:' + target.split(path.sep).join('/')
+  const profileLink = path.join(prepared.directory, 'node_modules/dsh-tavern')
+  const appLink = path.join(sourceRoot, 'node_modules/dsh-tavern')
+  for (const destination of [profileLink, appLink]) {
+    fs.mkdirSync(path.dirname(destination), { recursive: true })
+    link(target, destination)
+    assert.equal(text(path.join(destination, 'revision.mjs')), 'export default "new"\n')
+  }
+  json(path.join(prepared.directory, 'package.json'), { dshTavern: { source: sourceRoot }, dependencies: { 'dsh-tavern': specifier } })
+  put(path.join(prepared.directory, 'pnpm-lock.yaml'), `importers:\n  .:\n    dependencies:\n      dsh-tavern:\n        specifier: ${specifier}\n        version: ${specifier}\n`)
+  const profile = prepared.finalize([])
+  assert.deepEqual(checked, [456])
+  assertOld(f.desktop)
+  assert.equal(text(manifestFile), liveManifest)
+  const publish = () => tx.finish(profile, () => swap(app, { nextBridge: tx.bridgeUpdateId }))
+  assert.equal(text(path.join(f.tavern, 'node_modules/old.txt')), 'old dependencies')
+  put(gate, 'publish')
+  if (failCutover) {
+    assert.throws(publish, /profile move failed/)
+    rollback(app)
+    assertOld(f.desktop)
+    assert.equal(text(manifestFile), liveManifest)
+    assert.equal(text(path.join(f.tavern, 'node_modules/old.txt')), 'old dependencies')
+  } else {
+    publish(); tx.commit(); commit(app, { retainPrevious: true })
+    assertNew(f.desktop)
+    assert.equal(JSON.parse(text(manifestFile)).dshTavern.source, app)
+    for (const root of [app, f.tavern]) assert.equal(text(path.join(root, 'node_modules/dsh-tavern/revision.mjs')), 'export default "new"\n')
+  }
+  assert.deepEqual(checked, [456, undefined])
+  assert.equal(text(path.join(f.tavern, 'user.txt')), 'user file')
 })
 
 test('Tavern update stages new independent bridge, restores new executable code, leaves historical backups and user files alone', async t => {

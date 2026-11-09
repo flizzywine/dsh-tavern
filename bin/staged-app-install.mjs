@@ -45,12 +45,23 @@ function remove(target) {
 
 // An interrupted earlier attempt may leave the app missing (killed mid-swap) or
 // a stale previous/staging copy. Restore a usable app before starting again.
-export function recover(app) {
+export function recover(app, { home = process.env.DSH_HOME || path.resolve(app, '../..') } = {}) {
   const paths = stagedPaths(app)
   // Killed between the two renames: the previous app is complete, move it back.
   if (!existsSync(paths.app) && existsSync(paths.previous)) rename(paths.previous, paths.app)
   // An unfinished switch still owns user files in previous: undo it properly.
-  if (existsSync(path.join(paths.app, SWAP_RECORD))) rollback(paths.app)
+  const recordFile = path.join(paths.app, SWAP_RECORD)
+  if (existsSync(recordFile)) {
+    const record = JSON.parse(readFileSync(recordFile, 'utf8'))
+    if (record.nextBridge) {
+      const bridge = JSON.parse(readFileSync(path.resolve(home, 'profile-bridge/bridge-update.json'), 'utf8'))
+      if (bridge.schemaVersion !== 1 || path.basename(bridge.backup || '') !== record.nextBridge || !['completed', 'rolled-back'].includes(bridge.phase)) {
+        throw Error('NEXT 更新的 Profile 事务尚未恢复，请保留安装备份。')
+      }
+      if (bridge.phase === 'completed') commit(paths.app, { retainPrevious: true })
+      else rollback(paths.app)
+    } else rollback(paths.app)
+  }
   // Without a record, previous is what a committed switch had not yet deleted.
   if (existsSync(paths.previous)) remove(paths.previous)
   if (existsSync(paths.staging)) remove(paths.staging)
@@ -92,11 +103,11 @@ export function carriedEntries(app, staging) {
   return carried
 }
 
-export function swap(app) {
+export function swap(app, { nextBridge } = {}) {
   const paths = stagedPaths(app)
   if (!existsSync(paths.staging)) throw new Error('缺少已准备的新版本：' + paths.staging)
   if (!existsSync(paths.app)) {
-    writeFileSync(path.join(paths.staging, SWAP_RECORD), JSON.stringify({ fresh: true, moved: [] }) + '\n')
+    writeFileSync(path.join(paths.staging, SWAP_RECORD), JSON.stringify({ fresh: true, moved: [], nextBridge }) + '\n')
     rename(paths.staging, paths.app)
     return []
   }
@@ -105,7 +116,7 @@ export function swap(app) {
   // with the new app; every planned target is absent until its user file moves.
   // Recovery can therefore inspect the paths instead of relying on a progress
   // record written after a move (which could be interrupted).
-  writeFileSync(path.join(paths.staging, SWAP_RECORD), JSON.stringify({ fresh: false, moved }) + '\n')
+  writeFileSync(path.join(paths.staging, SWAP_RECORD), JSON.stringify({ fresh: false, moved, nextBridge }) + '\n')
   try {
     rename(paths.app, paths.previous)
     rename(paths.staging, paths.app)
@@ -156,10 +167,10 @@ export function rollback(app) {
   return true
 }
 
-export function commit(app) {
+export function commit(app, { retainPrevious = false } = {}) {
   const paths = stagedPaths(app)
   // Previous first: a record without previous then unambiguously means committed.
-  if (existsSync(paths.previous)) remove(paths.previous)
+  if (!retainPrevious && existsSync(paths.previous)) remove(paths.previous)
   removeTreeSync(path.join(paths.app, SWAP_RECORD))
 }
 

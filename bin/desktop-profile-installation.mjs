@@ -88,7 +88,7 @@ function recover(journalFile, journal, rename) {
 }
 // Existing installs retain their independent original profile and refresh only its
 // bridge. Tavern-active updates need no Desktop shutdown or profile replacement.
-export function beginDesktopProfileInstallation({ home, sourceRoot, host = 'desktop', guiRoot, preparingForPid, launcherGate, checkStopped = (allowedPid) => assertDesktopStopped([home], { requireGuiClosed: true, guiRoot, preparingForPid: allowedPid }), rename = renameSync, retry = {} }) {
+export function beginDesktopProfileInstallation({ home, sourceRoot, host = 'desktop', guiRoot, preparingForPid, launcherGate, prepareNext = false, checkStopped = (allowedPid) => assertDesktopStopped([home], { requireGuiClosed: true, guiRoot, preparingForPid: allowedPid }), rename = renameSync, retry = {} }) {
   const moveDirectory = (from, to) => renameWithRetrySync(from, to, { ...retry, rename })
   const profiles = path.join(home, 'profiles'), live = path.join(profiles, 'desktop'), tavern = path.join(profiles, 'tavern')
   let replacesNext = hasNextTavern(home)
@@ -108,7 +108,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, host = 'desk
   const completed = installationRecord?.schemaVersion === 1 && installationRecord.phase === 'completed' && Array.isArray(installationRecord.entries)
   const retainedData = completed && installationRecord.layout === 'retained-data'
   const relocated = completed && installationRecord.layout === undefined
-  if (preparingForPid && (interrupted || relocated || !present(live) || !lstatSync(live).isDirectory()
+  if (!prepareNext && preparingForPid && (interrupted || relocated || !present(live) || !lstatSync(live).isDirectory()
       || !hasBridge(read(live), live) || isTavern(read(live)) || (present(tavern) && !replacesNext))) {
     throw Error('当前配置无法在桌面打开时准备安装，请先退出桌面再运行安装器。')
   }
@@ -116,6 +116,14 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, host = 'desk
   // this is a fresh install; any other or damaged registry must not silently fall
   // through and overwrite an installation whose state has not been recovered.
   if (!interrupted && hasInstallationRecord && !uninstalled && !relocated && !retainedData) throw Error('安装位置记录状态异常，请先恢复安装管理记录与备份。')
+  if (prepareNext) {
+    if (interrupted || relocated || replacesNext || linkedToTavern || !present(tavern) || !present(live)
+        || !lstatSync(tavern).isDirectory() || !lstatSync(live).isDirectory() || isTavern(read(live))
+        || !hasBridge(read(live), live)) {
+      throw Error('当前 NEXT 配置需要离线安装或迁移。请完整退出桌面后运行安装器。')
+    }
+    return beginOriginalBridgeUpdate({ home, sourceRoot, checkStopped, launcherGate, prepareNext, preparingForPid, rename })
+  }
   if (!interrupted && relocated) {
     const operationFile = path.join(home, 'profile-bridge', 'installation-operation.json')
     if (existsSync(operationFile) && JSON.parse(readFileSync(operationFile, 'utf8')).phase === 'preparing') throw Error('上次安装管理未完成，请先恢复事务与备份。')

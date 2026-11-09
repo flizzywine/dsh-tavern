@@ -1561,31 +1561,41 @@ if [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] || { [ "${INSTALL_HOST}" != "desktop" ]
   echo "正在安装程序依赖……"
   run_install dependencies.install 600000 pnpm --dir "${APP_DIR}.staging" install --frozen-lockfile --config.minimum-release-age=0
 
-  if [ "${DSH_TAVERN_LATE_PUBLISH:-0}" = "1" ]; then
-    if [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then PREVIOUS_APP=1; fi
-  elif [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ]; then
-    printf '%s' '准备完成，等待确认重启…' >"${DSH_TAVERN_PUBLISH_GATE}.progress"
-    : >"${DSH_TAVERN_PUBLISH_GATE}.ready"
-    deadline=$(( $(date +%s) + 900 ))
-    while [ ! -f "${DSH_TAVERN_PUBLISH_GATE}" ]; do
-      [ "$(date +%s)" -lt "$deadline" ] || fail "等待重启确认或桌面退出超时，尚未切换 Profile。"
-      sleep 1
-    done
-    [ "$(cat "${DSH_TAVERN_PUBLISH_GATE}")" = publish ] || fail "桌面未能退出，尚未切换 Profile。"
-    if [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then PREVIOUS_APP=1; fi
-  elif [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then
-    PREVIOUS_APP=1
-    if [ "${INSTALL_HOST}" = "cli" ]; then DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" stop >/dev/null 2>&1 || true; fi
-  fi
-  APP_SWAPPED=1
-  node "${STAGER}" swap --app "${APP_DIR}"
-  # Re-link in place: Windows junctions and pnpm metadata record absolute paths.
-  run_install dependencies.relink 300000 pnpm --dir "${APP_DIR}" install --frozen-lockfile --offline --config.minimum-release-age=0
+  if [ "${INSTALL_HOST}" = "next" ] && [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ] && [ ! -f "${DSH_TAVERN_PUBLISH_GATE}" ]; then
+    printf '%s' '本地配置：正在准备并验证新版 Tavern Profile…' >"${DSH_TAVERN_PUBLISH_GATE}.progress"
+    [ -f "${APP_DIR}.staging/bin/prepared-next-profile.mjs" ] || fail '下载源尚未同步 NEXT 重启前准备支持，请稍后重试。'
+    # The staged installer owns publication; discard the downloaded copy before readiness.
+    SOURCE_DIR=${APP_DIR}.staging
+    STAGED_INSTALL=0
+    rm -rf "${TEMP_DIR}/extract" "${TEMP_DIR}/cdn-source" "${TEMP_DIR}/app.tar" "${TEMP_DIR}/app.tar.gz"
+    (cd "${TEMP_DIR}" && DSH_HOME=${DSH_ROOT} DSH_TAVERN_PREPARE_NEXT_APP=${APP_DIR} run_install profile.prepare-next 1800000 node "${APP_DIR}.staging/bin/dsh-tavern.mjs" install --host next)
+  else
+    if [ "${DSH_TAVERN_LATE_PUBLISH:-0}" = "1" ]; then
+      if [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then PREVIOUS_APP=1; fi
+    elif [ -n "${DSH_TAVERN_PUBLISH_GATE:-}" ]; then
+      printf '%s' '准备完成，等待确认重启…' >"${DSH_TAVERN_PUBLISH_GATE}.progress"
+      : >"${DSH_TAVERN_PUBLISH_GATE}.ready"
+      deadline=$(( $(date +%s) + 900 ))
+      while [ ! -f "${DSH_TAVERN_PUBLISH_GATE}" ]; do
+        [ "$(date +%s)" -lt "$deadline" ] || fail "等待重启确认或桌面退出超时，尚未切换 Profile。"
+        sleep 1
+      done
+      [ "$(cat "${DSH_TAVERN_PUBLISH_GATE}")" = publish ] || fail "桌面未能退出，尚未切换 Profile。"
+      if [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then PREVIOUS_APP=1; fi
+    elif [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then
+      PREVIOUS_APP=1
+      if [ "${INSTALL_HOST}" = "cli" ]; then DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" stop >/dev/null 2>&1 || true; fi
+    fi
+    APP_SWAPPED=1
+    node "${STAGER}" swap --app "${APP_DIR}"
+    # Re-link in place: Windows junctions and pnpm metadata record absolute paths.
+    run_install dependencies.relink 300000 pnpm --dir "${APP_DIR}" install --frozen-lockfile --offline --config.minimum-release-age=0
 
-  echo "正在配置 Tavern……"
-  DSH_HOME=${DSH_ROOT} run_install profile.install 1200000 node "${APP_DIR}/bin/dsh-tavern.mjs" install --host "${INSTALL_HOST}"
-  node "${STAGER}" commit --app "${APP_DIR}"
-  APP_SWAPPED=0
+    echo "正在配置 Tavern……"
+    DSH_HOME=${DSH_ROOT} run_install profile.install 1200000 node "${APP_DIR}/bin/dsh-tavern.mjs" install --host "${INSTALL_HOST}"
+    node "${STAGER}" commit --app "${APP_DIR}"
+    APP_SWAPPED=0
+  fi
 else
   if [ "${INSTALL_HOST}" = "cli" ] && [ -f "${APP_DIR}/bin/dsh-tavern.mjs" ]; then
     DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" stop >/dev/null 2>&1 || true

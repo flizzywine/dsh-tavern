@@ -42,7 +42,7 @@ export async function readInstallationReceipt({ sourceRoot, dshHome, host, attem
     const receipt = await createProfileDataStore({ dataRoot: path.join(dshHome, 'logs') }).readJson(RECEIPT_FILE)
     if (receipt?.schemaVersion !== 1 || receipt.sourceRoot !== path.resolve(sourceRoot) || receipt.dshHome !== path.resolve(dshHome)
       || receipt.host !== host || receipt.verifiedAt <= after || (attemptId && receipt.attemptId !== attemptId)) return null
-    if (host === 'desktop') {
+    if (host === 'desktop' || (host === 'next' && receipt.bridgeUpdateId)) {
       const state = path.join(dshHome, 'profile-bridge')
       for (const name of ['install.json', 'bridge-update.json', 'installation-operation.json']) {
         const file = path.join(state, name)
