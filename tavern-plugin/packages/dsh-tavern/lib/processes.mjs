@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process'
 
+export const DESKTOP_EXIT_WAIT_MS = 120000
+
 // An executable name, command line or cwd is NOT evidence of ownership. Capture
 // ancestry while Desktop is alive, before the detached switch helper is spawned.
 // FILETIME strings preserve all 64 bits (JavaScript numbers cannot).
@@ -174,7 +176,7 @@ try { foreach ($item in $items) {
 }
 
 /** Wait on original process handles, not bare PIDs which can be recycled. */
-export async function waitForOwnedExit(ownership, { timeout = 120000, inspect = powershell } = {}) {
+export async function waitForOwnedExit(ownership, { timeout = DESKTOP_EXIT_WAIT_MS, inspect = powershell } = {}) {
   if (!Array.isArray(ownership?.roots) || !ownership.roots.length || !ownership.roots.every(valid)) throw new Error('无效的桌面进程身份记录')
   const payload = Buffer.from(JSON.stringify(ownership.roots), 'utf8').toString('base64')
   const result = await inspect(`

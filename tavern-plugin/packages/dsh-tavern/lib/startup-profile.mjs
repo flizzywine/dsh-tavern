@@ -25,22 +25,30 @@ export function recordProfileContinuation(home, profile, { now = Date.now } = {}
   const file = continuationFile(home)
   mkdirSync(join(home, 'profile-bridge'), { recursive: true })
   const temporary = file + '.' + randomUUID() + '.tmp'
-  writeFileSync(temporary, JSON.stringify({ schemaVersion: 1, profile, expiresAt: now() + CONTINUATION_TTL_MS }) + '\n', { flag: 'wx', mode: 0o600 })
-  renameSync(temporary, file)
+  try {
+    writeFileSync(temporary, JSON.stringify({ schemaVersion: 1, profile, expiresAt: now() + CONTINUATION_TTL_MS }) + '\n', { flag: 'wx', mode: 0o600 })
+    renameSync(temporary, file)
+  } finally {
+    try { rmSync(temporary, { force: true }) } catch {}
+  }
 }
 
 export function consumeProfileContinuation(home, currentProfile, { now = Date.now } = {}) {
+  let claimed
   try {
     const file = continuationFile(home)
-    if (!existsSync(file)) return false
-    const value = JSON.parse(readFileSync(file, 'utf8'))
-    try { rmSync(file, { force: true }) } catch {}
+    const candidate = file + '.' + randomUUID() + '.consumed'
+    renameSync(file, candidate)
+    claimed = candidate
+    const value = JSON.parse(readFileSync(claimed, 'utf8'))
     return value?.schemaVersion === 1
       && value.profile === currentProfile
       && Number.isFinite(value.expiresAt)
       && value.expiresAt >= now()
   } catch {
     return false
+  } finally {
+    if (claimed) try { rmSync(claimed, { force: true }) } catch {}
   }
 }
 

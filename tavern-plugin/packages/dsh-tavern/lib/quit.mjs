@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
+export const DESKTOP_QUIT_TIMEOUT_MS = 10000
+
 // Failure falls back to manual tray quit. A cancelled native task confirmation
 // is never overridden; the switch worker still waits for the app to exit.
 export async function requestDesktopQuit({ pid, executable, platform = process.platform }, { run = execFile, kill = process.kill, defer = setTimeout, onError = () => {} } = {}) {
@@ -12,7 +14,7 @@ export async function requestDesktopQuit({ pid, executable, platform = process.p
   return new Promise(resolve => {
     run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
       fileURLToPath(new URL('./windows-quit.ps1', import.meta.url)), '-DesktopProcessId', String(pid), '-Executable', executable],
-    { windowsHide: true, timeout: 10000, encoding: 'utf8' }, error => {
+    { windowsHide: true, timeout: DESKTOP_QUIT_TIMEOUT_MS, encoding: 'utf8' }, error => {
       if (error) onError(error)
       resolve(!error)
     })

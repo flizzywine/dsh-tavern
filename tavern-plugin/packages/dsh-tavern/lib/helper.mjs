@@ -1,9 +1,15 @@
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { existsSync, mkdirSync, writeFileSync, lstatSync, renameSync, symlinkSync, unlinkSync, readFileSync, readdirSync, realpathSync, statSync, rmSync, copyFileSync } from 'node:fs'
 import { join, dirname, resolve, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { trustedHome, withinPath } from './trusted-home.mjs'
 import { relaunchEnvironment } from './startup-profile.mjs'
+import { DESKTOP_EXIT_WAIT_MS } from './processes.mjs'
+import { DESKTOP_QUIT_TIMEOUT_MS } from './quit.mjs'
+
+const QUIT_RETRY_MARGIN_MS = 5000
 
 /** A lock older than this without a live helper is safe to reclaim. */
 const PENDING_STALE_MS = 3 * 60 * 1000
@@ -131,7 +137,7 @@ export function processAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 1) return false
   try { process.kill(pid, 0); return true } catch (e) { return e.code !== 'ESRCH' }
 }
-export async function waitForExit(pids, { timeout = 120000, alive = processAlive, delay = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+export async function waitForExit(pids, { timeout = DESKTOP_EXIT_WAIT_MS, alive = processAlive, delay = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
   const deadline = Date.now() + timeout
   while (pids.some(alive)) {
     if (Date.now() >= deadline) throw new Error('等待桌面退出超时，未修改 profile；请正常退出后重试')
@@ -195,7 +201,7 @@ export function readLastResult(stateDir, { alive = processAlive, now = Date.now 
       stamp: result.stamp,
       finishedAt: result.finishedAt,
       updated: result.updated === true,
-      closesApp: typeof result.closesApp === 'boolean' ? result.closesApp : undefined,
+      closesApp: result.status === 'pending' ? readPendingQuitStatus(stateDir, result) : undefined,
       message: typeof result.message === 'string' ? result.message : '',
       code: typeof result.code === 'string' ? result.code : undefined,
       recoveryRequired: result.recoveryRequired === true,
@@ -206,13 +212,28 @@ export function readLastResult(stateDir, { alive = processAlive, now = Date.now 
   }
 }
 
+function readPendingQuitStatus(stateDir, result) {
+  const pending = readJson(join(stateDir, 'pending', 'request.json'))
+  if (!result.stamp || pending?.stamp !== result.stamp || pending.mode !== result.mode) return undefined
+  const quit = readJson(join(stateDir, 'pending-quit.json'))
+  return quit?.stamp === result.stamp && typeof quit.closesApp === 'boolean' ? quit.closesApp : undefined
+}
+
 export function recordPendingQuitStatus(stateDir, stamp, closesApp) {
+  // The worker alone publishes terminal results. A late quit callback can
+  // publish this hint, which readers apply only to the matching pending job.
+  const file = join(stateDir, 'pending-quit.json')
+  const temporary = file + '.' + randomUUID() + '.tmp'
   try {
-    const file = join(stateDir, 'last-result.json')
-    const current = readJson(file)
-    if (current?.status !== 'pending' || current.stamp !== stamp || !present(join(stateDir, 'pending', 'request.json'))) return
-    writeFileSync(file, JSON.stringify({ ...current, closesApp: Boolean(closesApp) }), { mode: 0o600 })
-  } catch {}
+    trustedHome(dirname(resolve(stateDir))).ordinary(file)
+    const result = readJson(join(stateDir, 'last-result.json'))
+    const pending = readJson(join(stateDir, 'pending', 'request.json'))
+    if (result?.status !== 'pending' || result.stamp !== stamp || pending?.stamp !== stamp || pending.mode !== result.mode) return
+    writeFileSync(temporary, JSON.stringify({ stamp, closesApp }), { flag: 'wx', mode: 0o600 })
+    renameSync(temporary, file)
+  } catch {} finally {
+    try { rmSync(temporary, { force: true }) } catch {}
+  }
 }
 
 export function stagesNextUpdate(request) {
@@ -363,16 +384,27 @@ export function scheduleSwitch(request, options = {}) {
     throw Object.assign(new Error(`上次切换需要检查入口与备份，未安排新切换：${last.message} 日志：${last.logPath}`), { code: 'recovery-required' })
   }
   const alive = options.alive ?? processAlive
-  if (['link', 'unlink'].includes(request.mode) && last?.status === 'pending' && last.closesApp === false) {
-    const existing = readJson(join(request.stateDir, 'pending', 'request.json'))
-    const worker = readJson(join(request.stateDir, 'pending', 'worker.json'))
-    if (existing?.mode === request.mode
+  if (request.host !== 'next' && ['link', 'unlink'].includes(request.mode) && last?.status === 'pending' && last.closesApp === false) {
+    const lock = join(request.stateDir, 'pending')
+    const trust = trustedHome(dirname(resolve(request.stateDir)))
+    trust.ordinary(join(lock, 'request.json'))
+    trust.ordinary(join(lock, 'worker.json'))
+    assertBridgeUpdateComplete(request.stateDir)
+    const installLock = join(request.stateDir, 'install-pending')
+    if (present(installLock)) throw busyError(installLock)
+    const existing = readJson(join(lock, 'request.json'))
+    const worker = readJson(join(lock, 'worker.json'))
+    if (existing?.stamp === last.stamp && existing.mode === request.mode
+        && (existing.host ?? 'desktop') === (request.host ?? 'desktop')
         && existing.liveDir === request.liveDir
-        && (existing.targetDir ?? undefined) === (request.targetDir ?? undefined)
-        && Array.isArray(existing.pids) && Array.isArray(request.pids)
-        && existing.pids.length === request.pids.length
-        && existing.pids.every((pid, index) => pid === request.pids[index])
+        && existing.targetDir === request.targetDir
+        && Array.isArray(request.pids) && isDeepStrictEqual(existing.pids, request.pids)
+        && isDeepStrictEqual(existing.ownership?.roots, request.ownership?.roots)
         && Number.isInteger(worker?.pid) && worker.pid > 1 && alive(worker.pid)) {
+      const age = (options.now ?? Date.now)() - worker.startedAt
+      if (!Number.isFinite(age) || age < 0 || age + DESKTOP_QUIT_TIMEOUT_MS + QUIT_RETRY_MARGIN_MS >= DESKTOP_EXIT_WAIT_MS) {
+        throw busyError(lock, '等待即将结束，请等本次切换结束后重试')
+      }
       return { pid: worker.pid, logPath: join(request.stateDir, 'last-run.log'), reclaimed: false, reused: true, stamp: existing.stamp }
     }
   }
