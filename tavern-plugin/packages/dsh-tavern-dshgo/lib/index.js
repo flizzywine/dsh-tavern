@@ -2,6 +2,7 @@
 // 这里只改 web profile 的 bundle 列表；profile 切换与重启由 App 负责。
 import { planDisable, planEnable, updateProfile } from './bundles.js'
 import { dataHomeHint, ensureDataHome, inspectDataHome } from './data-home.js'
+import { checkBundles, preflightHint } from './preflight.js'
 import { TAVERN_BUNDLES, readStatus, resolveDshHome } from './status.js'
 
 export const name = 'dsh-tavern-dshgo'
@@ -48,6 +49,7 @@ function panelView(status, home, zh) {
     type: 'actions',
     items: [
       { label: toggleText(status, zh), action: 'toggle' },
+      { label: zh ? '检查加载' : 'Check load', action: 'check' },
       { label: zh ? '刷新' : 'Refresh', action: 'refresh' },
     ],
   })
@@ -75,7 +77,17 @@ function toggle(home, zh) {
       ? '存档目录已是实体目录或指向别处，先手动迁移再启用'
       : 'Move the data directory under dsh-go/tavern-data first'
   }
+  // 写进 bundle 列表和「宿主真的会加载」是两件事：先问一遍宿主自己的 loader，
+  // 免得装完重启停在 waiting for service。
+  const check = checkBundles({ home })
+  if (check.state === 'fatal') {
+    const first = check.fatal[0]
+    return zh
+      ? `宿主会跳过 ${first.packageName}，先解决依赖再启用`
+      : `The host would skip ${first.packageName}`
+  }
   updateProfile({ home, apply: planEnable, beforeFirstChange: true })
+  if (check.state === 'unknown') return zh ? '已启用（加载未验证），去引擎页重启' : 'Enabled (load unchecked); restart the engine'
   return zh ? '已启用，去「引擎」页重启后生效' : 'Enabled; restart the engine from its page'
 }
 
@@ -99,6 +111,7 @@ export function apply(ctx) {
             return { toast: String(error?.message ?? error).slice(0, 40) }
           }
         },
+        check: (scope, event) => ({ toast: preflightHint(checkBundles({ home }), zhOf(event)).slice(0, 40) }),
       },
     })
   })
