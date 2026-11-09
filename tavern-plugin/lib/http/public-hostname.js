@@ -3,7 +3,13 @@ import { isIP } from 'node:net'
 import { publicAddress } from '../../packages/dsh-asset-library/lib/pack-catalogue/network.js'
 import { StaticAssetError } from '../domain/tavern-static-resource-cache.js'
 
-const fakeIpCdnHosts = new Set(['cdn.jsdelivr.net', 'testingcf.jsdelivr.net', 'fastly.jsdelivr.net', 'raw.githubusercontent.com'])
+const fakeIpCdnHosts = new Set([
+  'cdn.jsdelivr.net',
+  'testingcf.jsdelivr.net',
+  'fastly.jsdelivr.net',
+  'raw.githubusercontent.com',
+  'pub-2d02b9ca4bb542cc988407a8c7a92627.r2.dev' // 岁岁年年 card artwork
+])
 
 function isFakeIp(address) {
   if (isIP(address) === 4) return /^198\.(?:18|19)\./.test(address)
