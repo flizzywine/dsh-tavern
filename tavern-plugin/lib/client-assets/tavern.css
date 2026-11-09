@@ -2868,7 +2868,9 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   html.dsh-tavern-viewport-pinned body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"] {
     position: fixed !important; top: var(--dsh-vv-top, 0px) !important;
     bottom: auto !important; left: 0; right: 0;
-    width: 100%; height: var(--dsh-vv-height, 100dvh) !important;
+    /* 布局视口自己会跟着键盘变短时用 100%（同帧跟随，事件漏了也不会卡住）；
+       键盘浮在页面之上才是 --dsh-vv-height 的像素锁。 */
+    width: 100%; height: var(--dsh-shell-height, 100dvh) !important;
     min-height: 0 !important; box-sizing: border-box;
   }
   /* 固定定位的外壳自成层叠上下文：better-sidebar 的底部工作台挂在 body 上（fixed, z 25），会盖住外壳里的整屏右栏、手机抽屉和宿主设置。
