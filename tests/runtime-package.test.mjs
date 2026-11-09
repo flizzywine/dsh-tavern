@@ -31,6 +31,8 @@ required.push(...['tavern-plugin/packages/dsh-tavern-stage/lib/domain/asset-pack
 // In the repository and the Git package, but never read by an installed copy (lib/client.js is the
 // built client; only settings.html and the licenses of the vendored upstream sources are loaded).
 const developmentOnly = ['tavern-plugin/src/client/main.js', 'tavern-plugin/lib/vendor/st-prompt-template/upstream/package.json', 'tavern-plugin/lib/vendor/magvarupdate/upstream/package.json']
+const packageBuildInputs = ['dsh-asset-library/src/index.js', 'dsh-tavern-tts/src/index.js', 'dsh-tavern-stage/src/client/views.cjs'].map(file => 'tavern-plugin/packages/' + file)
+required.push(...['dsh-asset-library/lib/index.js', 'dsh-tavern-tts/lib/index.js', 'dsh-presentation-protocol/src/asset-packs.js'].map(file => 'tavern-plugin/packages/' + file))
 const lazyFontBinaries = ['tavern-plugin/fonts', 'tavern-plugin/packages/dsh-dream-skin/fonts'].flatMap(root => ['woff2', 'ttf', 'otf'].map(ext => root + '/example/face.' + ext))
 const fontMetadata = ['tavern-plugin/fonts/example/index.json', 'tavern-plugin/fonts/example/OFL.txt', 'tavern-plugin/fonts/example/LICENSE']
 const keptUpstream = ['tavern-plugin/lib/vendor/st-prompt-template/upstream/settings.html', 'tavern-plugin/lib/vendor/st-prompt-template/upstream/LICENSE', 'tavern-plugin/lib/vendor/magvarupdate/upstream/LICENSE']
@@ -152,7 +154,7 @@ test('CDN 清单生成器包含全部依赖补丁及其校验值', async t => {
   const fixture = await mkdtemp(path.join(os.tmpdir(), 'tavern-runtime-package-'))
   t.after(() => rm(fixture, { recursive: true, force: true }))
   for (const directory of ['android', 'bin', 'config', 'presets', 'tavern-plugin']) await mkdir(path.join(fixture, directory))
-  for (const file of new Set([...required, ...developmentOnly, ...keptUpstream, 'cordis.patch.yml', 'install.sh', 'install.ps1', 'android/setup.sh'])) {
+  for (const file of new Set([...required, ...developmentOnly, ...packageBuildInputs, ...keptUpstream, 'cordis.patch.yml', 'install.sh', 'install.ps1', 'android/setup.sh'])) {
     await mkdir(path.dirname(path.join(fixture, file)), { recursive: true })
     await writeFile(path.join(fixture, file), await readFile(path.join(root, file)))
   }
@@ -173,7 +175,7 @@ test('CDN 清单生成器包含全部依赖补丁及其校验值', async t => {
   assert.ok(manifest.files.some(file => file.path === 'android/setup.sh'), 'CDN 清单需要 android/ 才能增量更新 APK 端的安装脚本')
   for (const file of lazyFontBinaries) assert.ok(!manifest.files.some(entry => entry.path === file), `Lazy font must not enter core: ${file}`)
   for (const file of fontMetadata) assert.ok(manifest.files.some(entry => entry.path === file), `Font metadata/license must remain: ${file}`)
-  for (const file of developmentOnly) assert.ok(!manifest.files.some(entry => entry.path === file), `CDN 清单不应下载开发用文件：${file}`)
+  for (const file of [...developmentOnly, ...packageBuildInputs]) assert.ok(!manifest.files.some(entry => entry.path === file), `CDN 清单不应下载开发用文件：${file}`)
   for (const file of [...required, ...keptUpstream]) {
     const entry = manifest.files.find(entry => entry.path === file)
     assert.ok(entry, `CDN 清单遗漏：${file}`)
@@ -225,6 +227,7 @@ for (const format of ['tar', 'zip']) {
         : execFileSync('tar', ['-tf', file], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'en_US.UTF-8' } })
     const files = listing.split(/\r?\n/)
     for (const file of required) assert.ok(files.includes(file), `运行包遗漏：${file}`)
+    for (const file of packageBuildInputs) assert.ok(files.includes(file), `源码下载包遗漏构建源码：${file}`)
     assert.ok(files.includes('LICENSE'), '保留许可文件')
     assert.ok(files.includes('android/setup.sh'), '源码下载包保留 Android 安装入口')
     assert.ok(!files.some(file => /(^|\/)(docs|tests|__tests__|testsets)(\/|$)/.test(file)), '下载包不应包含文档、图片或测试目录')
