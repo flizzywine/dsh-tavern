@@ -68,7 +68,10 @@ export function createPlayHandlers(deps) {
       void backgroundCatalog(str(args && args.sessionId))
       if(args?.fullView === true)templateHistoryFrom.set(args.sessionId,0)
       else if(Number.isSafeInteger(args?.historyFrom) && args.historyFrom >= 0)templateHistoryFrom.set(args.sessionId,args.historyFrom)
-      return sessionViews.response(args || {})
+      const response = await sessionViews.response(args || {})
+      // 空视图以前是无声的：页面以为读完了，玩家看到的是「没有可重新生成的正文」。
+      if (response && response.view == null) console.warn('[dsh-tavern.view] 空视图 sessionId=' + str(args && args.sessionId) + ' reason=' + (response.emptyReason || 'unknown'))
+      return response
     },
     async getStoryTranscript(args) {
       return sessionViews.response({ ...(args || {}), storyTranscript: 1 })

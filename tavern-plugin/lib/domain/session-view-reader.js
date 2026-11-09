@@ -85,7 +85,9 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
       return { chat, cached: chat && cache.get(chat.id), resourceVersion: resources, ...evidence }
     })
     const { chat, cached } = selected
-    if (chat === undefined) return { view: null, revision: 0, chat: undefined }
+    // 会话在、存档没建出来时这里只能给空视图。空视图不是「这一局没有正文」，
+    // 前端得知道是哪一种，否则只能把「读不到」当成「读完了」。
+    if (chat === undefined) return { view: null, revision: 0, chat: undefined, emptyReason: state === undefined ? 'no-session' : 'no-chat' }
     const next = {...identity(chat),resourceVersion:selected.resourceVersion}, currentActivity = activity(chat)
     let view, rebuild
     // The selected cache entry is request-local, even if another read replaces it.
@@ -183,10 +185,11 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
       openingNegative.set(openingKey, { chatId: result.chat.id, revision: result.revision })
       while (openingNegative.size > 16) openingNegative.delete(openingNegative.keys().next().value)
     }
-    if (args.viewSync !== 1) return { view: transportView(result.view) }
+    if (args.viewSync !== 1) return result.emptyReason ? { view: transportView(result.view), emptyReason: result.emptyReason } : { view: transportView(result.view) }
     const dirtyMessageIndices = result.chat && previous?.sessionId === String(sessionId)
       && Number.isSafeInteger(previous.revision) ? await changes(result.chat, previous.revision) : null
-    return synchronize(String(sessionId), transportView(result.view), args.viewCursor, { revision: result.revision, dirtyMessageIndices, receiptSync:args.receiptSync })
+    const synced = synchronize(String(sessionId), transportView(result.view), args.viewCursor, { revision: result.revision, dirtyMessageIndices, receiptSync:args.receiptSync })
+    return result.emptyReason ? { ...synced, emptyReason: result.emptyReason } : synced
   }
   function acceptHelperMessages(sessionId, chatId, revision, payload) {
     const pending = helperWindows.get(chatId)

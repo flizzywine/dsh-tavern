@@ -146,9 +146,14 @@ function createLiveTavernViewModule(options) {
 				// 重试几次；再读不到就停手，别把读取钉在轮询上。
 				if (view === null) {
 					record.emptyReads += 1;
-					if (record.emptyReads <= 5) {
+					// 服务端明说「这个会话还没有存档」（no-session / no-chat）时，存档正在被建出来，
+					// 等它；没带原因的空结果只当作偶发，读几次就停手。
+					const announced = Boolean(result && result.emptyReason);
+					const limit = announced ? 40 : 5;
+					const delay = announced ? 1500 : (timeoutRetryDelayMs > 0 ? timeoutRetryDelayMs : 1500);
+					if (record.emptyReads <= limit) {
 						publish(record, { phase: "retrying", view: record.state.view, error: "", updatedAt: record.state.updatedAt });
-						return { retry: timeoutRetryDelayMs > 0 ? timeoutRetryDelayMs : 1500 };
+						return { retry: delay };
 					}
 					publish(record, { phase: record.state.view ? "ready" : "retrying", view: record.state.view, error: record.state.error, updatedAt: record.state.updatedAt });
 					return;
