@@ -87,47 +87,21 @@ function cardLibraryDisplayName(card) {
 			if (props.forkCardZip && props.forkCardZip.pickerRef) props.forkCardZip.pickerRef.current = function () { if (importInput.current) importInput.current.click(); };
 			async function importCardFiles(picked) {
 				if (!picked.length || busy || importing.current) return;
-				let files = picked;
-				if (forkCardZip) {
-					const split = await splitCardFiles(picked);
-					files = split.cards;
-					if (split.zips.length) {
-						setError(split.zips.length > 1 ? "一次只能导入一个卡片 ZIP，只打开了「" + split.zips[0].name + "」。" : "");
-						forkCardZip.openFile(split.zips[0]).catch(function (err) { setError(String(err && err.message || err)); });
-					}
-					if (!files.length) return;
-				}
 				importing.current = true;
-				setBusy(true); if (files.length === picked.length) setError("");
+				setBusy(true); setError(""); setImportStatus("");
 				setTransferStatus('正在准备导入…');
-				let imported = 0, existing = 0;
-				let lastPath = "";
-				const failures = [], notices = [];
+				let failures = [];
 				try {
-					for (let index = 0; index < files.length; index++) {
-						const file = files[index];
-						setImportStatus("正在导入 " + (index + 1) + "/" + files.length + "：" + file.name);
-						try {
-							const result = await importTavernCardFile(file, rpc, setTransferStatus);
-							lastPath = result.card.path;
-							if (result.card.duplicate) {
-								existing += 1;
-								notices.push((files.length > 1 ? file.name + "：" : "") + "这张卡已经导入过（「" + result.card.name + "」），没有重复添加");
-								continue;
-							}
-							imported += 1;
-							const notice = tavernCardAssetNotice(result.card.assets, result.card);
-							if (notice) notices.push((files.length > 1 ? file.name + "：" : "") + notice);
-						} catch (err) { if (err?.code === 'TAVERN_CARD_IMPORT_CANCELLED') notices.push(file.name + "：已取消"); else failures.push(file.name + "：" + String(err && err.message || err)); }
-					}
-					setImportStatus("已导入 " + imported + " 张" + (existing ? "，" + existing + " 张已在卡库中" : "") + (failures.length ? "，" + failures.length + " 张失败" : "") + (notices.length ? "。" + notices.join("\n") : ""));
-					if (failures.length) setError(failures.join("\n"));
-					if (imported || existing) {
+					const result = await importTavernCardSelection(picked, rpc, { cardZip: forkCardZip, onProgress: setImportStatus, onTransfer: setTransferStatus });
+					failures = result.failures;
+					setImportStatus(result.summary);
+					if (result.lastPath) {
 						setTransferStatus('正在刷新人物卡库…');
 						notifyTavernDataChanged(["cards"], "cards");
 						await refreshCards();
-						if (files.length === 1) await loadCard(lastPath);
+						if (picked.length === 1) await loadCard(result.lastPath);
 					}
+					if (failures.length) setError(failures.join("\n"));
 				} catch (err) { setError(failures.concat("刷新人物卡库失败：" + String(err && err.message || err)).join("\n")); }
 				finally { importing.current = false; setBusy(false); setTransferStatus(''); }
 			}
@@ -199,10 +173,10 @@ function cardLibraryDisplayName(card) {
 			// "@" quotes a card into the card workspace conversation; only there does it mean anything.
 			const mentionButton = sessionMode === "card" ? function (item) { return h("button", { type: "button", className: "dsh-tavern-card-mention", title: "在对话中引用", "aria-label": "在对话中引用：" + item.name, onClick: function (event) { event.stopPropagation(); props.appendMention(item.path, item.name); } }, "@"); } : null;
 			return h("div", { className: "dsh-tavern-library dsh-tavern-card-library", 'aria-busy': !!transferStatus },
-				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"), h("div", { className: "dsh-tavern-question-sub" }, cards.length + " 张人物卡"), h("div", { className: "dsh-tavern-library-head-actions" }, h(MobileCardImportButton, { inputRef: importInput, disabled: busy, onImported: async function (imported) { await refreshCards(); await loadCard(imported.path); notifyTavernDataChanged(["cards"], "cards"); } }), forkCardZip ? h("button", { type: "button", className: "dsh-tavern-btn fork-card-url-import", disabled: busy || forkCardZip.busy, onClick: forkCardZip.openUrl }, "从网址导入卡") : null, h("input", { ref: importInput, type: "file", multiple: true, accept: TAVERN_CARD_FILE_ACCEPT, style: { display: "none" }, onChange: function (event) { const files = Array.from(event.target.files || []); importCardFiles(files); event.target.value = ""; } }))),
+				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"), h("div", { className: "dsh-tavern-question-sub" }, cards.length + " 张人物卡"), h("div", { className: "dsh-tavern-library-head-actions" }, h(MobileCardImportButton, { inputRef: importInput, batch: cardBatch.managing, disabled: busy, onImported: async function (imported) { await refreshCards(); await loadCard(imported.path); notifyTavernDataChanged(["cards"], "cards"); } }), forkCardZip ? h("button", { type: "button", className: "dsh-tavern-btn fork-card-url-import", disabled: busy || forkCardZip.busy, onClick: forkCardZip.openUrl }, "从网址导入卡") : null, h("input", { ref: importInput, type: "file", multiple: true, accept: TAVERN_CARD_FILE_ACCEPT, style: { display: "none" }, onChange: function (event) { const files = Array.from(event.target.files || []); event.target.value = ""; void importCardFiles(files); } }))),
 				h("div", { className: "dsh-tavern-question-sub dsh-tavern-card-import-hint", role: "status", 'aria-live': 'polite', style: { display: 'flex', alignItems: 'center', gap: 10 } },
 					transferStatus ? h('span', { style: { flexShrink: 0 }, 'aria-hidden': true }, h(Spinner)) : null,
-					h('span', { style: { whiteSpace: 'pre-line', overflowWrap: 'anywhere', minWidth: 0 } }, transferStatus ? transferStatus + '\n' + importStatus + '\n大卡包可能需要一会儿，请保持页面打开。' : importStatus || (forkCardZip ? "支持 PNG、JSON、CHARX、DSH 人物卡和卡片 ZIP" : "支持多选 PNG、JSON、CHARX、DSH 人物卡一起导入"))),
+					h('span', { style: { whiteSpace: 'pre-line', overflowWrap: 'anywhere', minWidth: 0 } }, transferStatus ? transferStatus + '\n' + importStatus + '\n大卡包可能需要一会儿，请保持页面打开。' : importStatus || "可多选 PNG、JSON、CHARX、DSH 人物卡一起导入" + (forkCardZip ? "，卡片 ZIP 逐个导入" : ""))),
 				organization.toolbar(),
 				h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, visible.length ? h(TavernCardList, { place: "library", cards: visible, displayName: cardLibraryDisplayName, batch: cardBatch, busy: busy, open: function (item) { loadCard(item.path); }, menu: organization.rowMenu, mention: mentionButton }) : h(EmptyState, cards.length ? { text: "没有匹配的人物卡", icon: "search" } : { noun: "人物卡" }), organization.addCardsFooter() )
 			);

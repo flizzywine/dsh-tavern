@@ -135,7 +135,7 @@
 					h("span", { className: "dsh-tavern-card-batch-count" }, selected.length ? "已选 " + selected.length + " 张" : "点击人物卡选择"),
 					h("span", { className: "dsh-tavern-spacer" }),
 					extra || null,
-					h("button", { className: "dsh-tavern-btn danger", disabled: busy || !selected.length, onClick: removeSelected }, busy ? "正在删除…" : "删除" + (selected.length ? "（" + selected.length + "）" : "")),
+					h("button", { className: "dsh-tavern-btn danger", disabled: busy || !selected.length, onClick: removeSelected }, running.current ? "正在删除…" : "删除" + (selected.length ? "（" + selected.length + "）" : "")),
 					h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: reset }, "完成"),
 					notice ? h("div", { role: "status", className: "dsh-tavern-card-batch-notice" }, notice) : null);
 			}

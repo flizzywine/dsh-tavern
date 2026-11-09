@@ -57,6 +57,7 @@ const helperApiScenario = process.argv.includes('--helper-api')
 const storyToolScenario = process.argv.includes('--story-tool')
 const storyWriteScenario = process.argv.includes('--story-write-ops')
 const inlineOpeningScenario = process.argv.includes('--inline-opening')
+const batchImportScenario = process.argv.includes('--batch-import')
 const routeMenu = '默认路线。\n\n' + [
   '```html',
   '<button id="e2e-route">READ STORY</button>',
@@ -391,6 +392,39 @@ try {
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
   })
+  if (batchImportScenario) {
+    await step('普通入口和批量管理都能多选，单份失败不影响后续导入', async () => {
+      const cardFile = name => ({ name: name + '.json', mimeType: 'application/json',
+        buffer: Buffer.from(JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0',
+          data: { name, description: '批量导入验收', first_mes: '你好。' } })) })
+      const first = cardFile('批量验收甲'), second = cardFile('批量验收乙'), third = cardFile('批量验收丙')
+      await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
+      const picker = page.getByRole('dialog', { name: '选择人物卡开始游玩' })
+      async function choose(label, files) {
+        const [chooser] = await Promise.all([
+          page.waitForEvent('filechooser'),
+          picker.getByRole('button', { name: label, exact: true }).click()
+        ])
+        assert.equal(chooser.isMultiple(), true)
+        await chooser.setFiles(files)
+      }
+      await choose('导入人物卡', [first, { name: '损坏.json', mimeType: 'application/json', buffer: Buffer.from('{') }, second])
+      const summary = picker.getByRole('status').filter({ hasText: '已导入 2 张，1 个文件失败' })
+      await summary.filter({ hasText: '失败文件：损坏.json' }).waitFor()
+      await picker.getByText('批量验收甲', { exact: true }).waitFor()
+      await picker.getByText('批量验收乙', { exact: true }).waitFor()
+      await picker.getByRole('button', { name: '批量管理', exact: true }).click()
+      await choose('批量导入', [second, third])
+      await picker.getByRole('status').filter({ hasText: '已导入 1 张，1 个文件失败' })
+        .filter({ hasText: '失败文件：批量验收乙.json' }).waitFor()
+      await picker.getByText('批量验收丙', { exact: true }).waitFor()
+      assert.equal(await picker.getByText('批量验收乙', { exact: true }).count(), 1)
+    })
+    assert.deepEqual(errors, [])
+    report.status = 'passed'
+    delete report.currentStep
+    break scenario
+  }
   if (restoredSave) await step('打开存档中的这局游戏', async () => {
     const history = page.locator('.dsh-tavern-history-group-toggle').filter({ hasText: report.card || 'E2E 奖励验收' })
     await history.filter({ visible: true }).first().waitFor()
@@ -1383,7 +1417,7 @@ try {
     if(captured?.profile)await writeFile(join(output,'browser.cpuprofile'),JSON.stringify(captured.profile))
   }
   // Read-only evidence, independent of the status iframe and its UI assertions.
-  const chat = process.argv.includes('--settlement-performance') || storyWriteScenario ? null : await savedChat().catch(error => { report.savedStateError = String(error.message || error); return null })
+  const chat = process.argv.includes('--settlement-performance') || storyWriteScenario || batchImportScenario ? null : await savedChat().catch(error => { report.savedStateError = String(error.message || error); return null })
   if (chat) await writeFile(join(output, 'saved-state.json'), JSON.stringify({ id: chat.id, posture: chat.posture, contextCompaction: chat.contextCompaction, timeline: chat.timeline,
     messages: chat.messages.map(message => ({ role: message.role, text: message.sourceText ?? message.text, turn: message.turn, variables: message.variables, mvu: message.mvu, ...(displayScenario ? {tavernPluginData:message.tavernPluginData} : {}) })) }, null, 2))
   await context?.tracing.stop({ path: join(output, 'trace.zip') }).catch(() => {})

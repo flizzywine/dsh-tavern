@@ -144,6 +144,41 @@ window.__ModuleLoader__.load({
 			return notes.join("；");
 		}
 
+		async function importTavernCardSelection(picked, call, { cardZip, onProgress, onTransfer } = {}) {
+			const { cards, zips } = cardZip ? await splitCardFiles(picked) : { cards: picked, zips: [] };
+			const failures = [], notices = [];
+			let imported = 0, existing = 0, lastPath = "";
+			for (const [index, file] of cards.entries()) {
+				onProgress?.("正在导入 " + (index + 1) + "/" + cards.length + "：" + file.name);
+				try {
+					const { card } = await importTavernCardFile(file, call, onTransfer);
+					lastPath = card.path;
+					if (card.duplicate) {
+						existing++;
+						notices.push(file.name + "：已在卡库中（「" + card.name + "」）");
+					} else {
+						imported++;
+						const notice = tavernCardAssetNotice(card.assets, card);
+						if (notice) notices.push((cards.length > 1 ? file.name + "：" : "") + notice);
+					}
+				} catch (error) {
+					if (error?.code === 'TAVERN_CARD_IMPORT_CANCELLED') notices.push(file.name + "：已取消");
+					else failures.push({ name: file.name, message: String(error?.message || error) });
+				}
+			}
+			if (zips.length) {
+				// The interactive ZIP sheet handles one archive at a time, after any password prompts.
+				try { await cardZip.openFile(zips[0]); }
+				catch (error) { failures.push({ name: zips[0].name, message: String(error?.message || error) }); }
+				if (zips.length > 1) notices.push("卡片 ZIP 每次处理一个，其余 " + (zips.length - 1) + " 个请单独选择。");
+			}
+			const summary = cards.length || failures.length ? "已导入 " + imported + " 张"
+				+ (existing ? "，" + existing + " 张已在卡库中" : "")
+				+ (failures.length ? "，" + failures.length + " 个文件失败" : "") : "";
+			if (failures.length) notices.unshift("失败文件：" + failures.map(file => file.name).join("、"));
+			return { lastPath, failures: failures.map(file => file.name + "：" + file.message), summary: [summary, ...notices].filter(Boolean).join("\n") };
+		}
+
 		// No file filter on card import: macOS file dialogs (Chrome, Safari) grey out .dshcard and
 		// .charx however the accept list names them, since the system knows no type for them.
 		// The import checks the format and says what it accepts.
@@ -270,7 +305,7 @@ window.__ModuleLoader__.load({
 			React.useEffect(function () { load(); }, []);
 			async function activate() {
 				const current = catalog || await load();
-				if (current.available) { setOpen(true); load(); }
+				if (current.available) { setSelecting(props.batch === true); setOpen(true); load(); }
 				else if (props.inputRef.current) props.inputRef.current.click();
 			}
 			function close() {
@@ -346,7 +381,7 @@ window.__ModuleLoader__.load({
 				+ (selected.size ? "，已选 " + selected.size + " 个" : "")
 				+ (progress ? "，正在导入 " + progress.done + "/" + progress.total : "");
 			return h(React.Fragment, null,
-				h("button", { className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, "导入人物卡"),
+				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
 					h("div", { className: "dsh-tavern-question-sub" }, "把 PNG 或 JSON 人物卡放进手机 Download，回到这里点选。"),
