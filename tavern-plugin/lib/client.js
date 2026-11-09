@@ -15115,8 +15115,8 @@ window.__ModuleLoader__.load({
 							// no-chat：会话在，存档正在建，值得等。no-session：这个 id 在 DSH 里还没被
 							// 加载出来（可能随后就出现），只短等几轮，不能把轮询钉死在一个空 id 上。
 							const reason = String(result && result.emptyReason || "");
-							const limit = reason === "no-chat" ? 40 : reason === "no-session" ? 8 : 5;
-							const delay = reason === "no-chat" ? 1500 : reason === "no-session" ? 2000 : (timeoutRetryDelayMs > 0 ? timeoutRetryDelayMs : 1500);
+							const limit = reason === "no-chat" ? 40 : reason === "no-session" ? 4 : 5;
+							const delay = reason === "no-chat" ? 1500 : reason === "no-session" ? 1000 : (timeoutRetryDelayMs > 0 ? timeoutRetryDelayMs : 1500);
 							if (record.emptyReads <= limit) {
 								publish(record, { phase: "retrying", view: record.state.view, error: "", updatedAt: record.state.updatedAt });
 								return { retry: delay };
