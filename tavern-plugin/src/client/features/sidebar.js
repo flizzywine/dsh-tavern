@@ -822,6 +822,24 @@
 				else if (nextMode === "card") openPicker();
 				else openPicker();
 			}
+			// 页面一打开常常落在 DSH 刚新建的空会话上：那里没有存档，getSession 只会
+			// 回 {view:null, emptyReason:'no-session'}，按钮也就无从谈起「重新生成正文」。
+			// 只在首屏、且不在新建/待打开流程里时，直接打开最近游玩的那一局。
+			const bootstrapRedirected = React.useRef(false);
+			React.useEffect(function () {
+				if (bootstrapRedirected.current) return;
+				if (!history.length || !current) return;
+				if (busy || picking || pendingOpen) return;
+				if (history.some(function (item) { return item.sessionId === current; })) { bootstrapRedirected.current = true; return; }
+				const fallback = history.reduce(function (best, item) {
+					if (groupOfMode(item.mode) !== "play" || item.requestMode === "sillytavern") return best;
+					return !best || tavernHistoryActivity(item, summaries) > tavernHistoryActivity(best, summaries) ? item : best;
+				}, null);
+				if (!fallback) return;
+				bootstrapRedirected.current = true;
+				openSessionWhenReady(fallback.sessionId).catch(function (err) { setError("打开上一局失败：" + String(err && err.message || err)); });
+			}, [history, current, busy, picking, pendingOpen]);
+
 			async function switchToPlay() {
 				playPrewarmRef.current.cancel();
 				setUiMode("play"); setPicking(false); setMenuSession(null); setBusy(true); setError("");
