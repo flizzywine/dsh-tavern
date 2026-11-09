@@ -1,0 +1,5 @@
+# dsh-tavern-dshgo bundle：把启动器挂进 DSH。
+# id 任意唯一；name 必须等于 package.json 的 name。
+- insert:
+    - id: dsh-tavern-dshgo
+      name: dsh-tavern-dshgo
