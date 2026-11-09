@@ -552,6 +552,9 @@
 			// 这一局的视图没读到时，按钮只能灰着：它既不知道该重生成哪一段，也拿不到
 			// canRegenerate。分开记下来，别让「还没读到」被说成「还没有正文」。
 			const viewReady = Boolean(rollbackViewState.view);
+			// 这一局在 DSH 那边还没有存档（页面落在新建的空会话上）时，只有它自己的
+			// 原因能说明白：读不到视图 ≠ 这一局没有正文。
+			const emptyReason = viewReady ? "" : String(rollbackViewState.error || "");
 			// 视图在、却没带上「能不能重生成」这一栏时(投影视图、正文落盘前的那一秒、
 			// 从别处塞进来的窗口),不能直接读成「没有正文」:服务端早把 canRegenerate
 			// 恒定成 true 了(能不能重生成只看这一轮有没有正文),缺字段只说明这份视图
@@ -683,7 +686,7 @@
 						generate(false);
 					}
 				} }, settlementActive ? "后台结算中…" : (activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项")))),
-				props.only !== "choices" ? h("button", { className: "dsh-tavern-choice-trigger", "data-fork-action": "regen", "data-busy": regenBusy || undefined, "aria-busy": regenBusy || undefined, disabled: !canRollback || frontRunning || compacting || (activity.busy && !settlementActive) || regenBusy, title: regenBusy ? "正在重新生成正文…" : compacting ? "正在压缩上下文，请稍候" : frontRunning ? "这一轮还在收尾，结束后才能重新生成" : !viewReady ? "正在读取这一局，稍候…" : !canRollback ? "还没有可重新生成的正文：先发送一条消息，或等这一轮写完" : (settlementActive ? "重新生成将取消当前正文的后台结算" : (activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文")), onClick: openRegeneration }, regenBusy ? "重生成中…" : "重新生成正文") : null,
+				props.only !== "choices" ? h("button", { className: "dsh-tavern-choice-trigger", "data-fork-action": "regen", "data-busy": regenBusy || undefined, "aria-busy": regenBusy || undefined, disabled: !canRollback || frontRunning || compacting || (activity.busy && !settlementActive) || regenBusy, title: regenBusy ? "正在重新生成正文…" : compacting ? "正在压缩上下文，请稍候" : frontRunning ? "这一轮还在收尾，结束后才能重新生成" : !viewReady && (emptyReason === "no-session" || emptyReason === "no-chat") ? (emptyReason === "no-chat" ? "这一局的存档正在建立，稍候…" : "这一局还没有开始：先选一张人物卡，或从游玩历史打开一局") : !viewReady ? "正在读取这一局，稍候…" : !canRollback ? "还没有可重新生成的正文：先发送一条消息，或等这一轮写完" : (settlementActive ? "重新生成将取消当前正文的后台结算" : (activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文")), onClick: openRegeneration }, regenBusy ? "重生成中…" : "重新生成正文") : null,
 				props.only !== "choices" && failedTailTurn !== null ? h("button", { className: "dsh-tavern-choice-trigger dsh-tavern-withdraw-failed", disabled: frontRunning || withdrawBusy, title: "清除这一轮：恢复到这一轮开始前，此前的剧情和变量不变，原输入放回输入框", onClick: withdrawFailed }, withdrawBusy ? "撤回中…" : "撤回这条输入") : null,
 				props.only !== "choices" && failedTailTurn !== null ? h(TavernDebugButton, { sessionId: props.sessionId, className: "dsh-tavern-choice-trigger", label: "交给调试 Agent" }) : null
 			);

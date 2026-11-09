@@ -163,7 +163,9 @@ function createLiveTavernViewModule(options) {
 						publish(record, { phase: "retrying", view: record.state.view, error: "", updatedAt: record.state.updatedAt });
 						return { retry: delay };
 					}
-					publish(record, { phase: record.state.view ? "ready" : "retrying", view: record.state.view, error: record.state.error, updatedAt: record.state.updatedAt });
+					// 读到底也没有视图：把原因留在 state 上，界面说「这一局还没有开始」，
+					// 而不是拿空视图去解释「没有可重新生成的正文」。
+					publish(record, { phase: record.state.view ? "ready" : "unavailable", view: record.state.view, error: reason || "empty-view", updatedAt: record.state.updatedAt });
 					return;
 				}
 				record.emptyReads = 0;

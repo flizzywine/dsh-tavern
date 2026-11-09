@@ -280,3 +280,17 @@ test('没有会话 id 的读取只允许一轮，之后停在 idle 不再重试'
   timers.dropAll()
   stop()
 })
+
+test('读不到视图时把原因留在 state 上，界面才说得清「这一局还没有开始」', async function () {
+  const timers = fakeTimers()
+  const module = createLiveTavernViewModule({
+    load: async function () { return { view: null, emptyReason: 'no-session' } },
+    shouldPoll() { return false }, now: timers.now, schedule: timers.schedule, cancel: timers.cancel,
+    timeoutRetryDelayMs: 1500
+  })
+  const stop = module.subscribe('ghost', function () {})
+  for (let i = 0; i < 5; i += 1) { await timers.runNext() }
+  assert.equal(module.getSnapshot('ghost').phase, 'unavailable')
+  assert.equal(module.getSnapshot('ghost').error, 'no-session')
+  stop()
+})
