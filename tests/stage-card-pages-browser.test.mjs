@@ -141,18 +141,30 @@ async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTi
     // The DSH host the core's slash executor writes to: the conversation input of the session.
     window.sent = []
     const actx = {sessionId: 'card-pages-session'}
-    const input = {state: {getSnapshot: () => ({draft: window.draft || ''})}, setDraft(text) { window.draft = text; window.sent.push({draft: text}) },
-      submit(mode) { window.sent.push({submit: mode, draft: window.draft}); return Promise.resolve({ok: true}) }}
-    const idle = {getSnapshot: () => ({byId: {}}), subscribe: () => () => {}}
+    const input = {state: {getSnapshot: () => ({draft: window.draft || ''})}, setDraft(text) { window.draft = text }}
+    const summary = {running: false}, listeners = new Set()
+    const list = {getSnapshot: () => ({byId: {[actx.sessionId]: summary}}), subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) }}
+    const session = {async prompt(content, mode, _options, requestId) {
+      window.sent.push({submit: mode, text: content[0].text, requestId})
+      summary.running = true; listeners.forEach(fn => fn())
+      setTimeout(() => {summary.running = false; listeners.forEach(fn => fn())}, 0)
+      return {ok: true}
+    }}
     window.clipClient.apply({inject() { return {dispose() {}} }, provide() {}, plugin() {}, effect() {},
       get: name => name === 'conversation' ? {input: {for: scope => scope === actx ? input : null}} : undefined,
-      sessions: {scope: id => id === 'card-pages-session' ? actx : null, binding: () => null, subagentAddress() {}, list: idle},
+      sessions: {scope: id => id === 'card-pages-session' ? actx : null, binding: id => id === actx.sessionId ? {session} : null, subagentAddress() {}, list},
       betterSidebar: {registerTab() {}}, tavernSessionSignals: {subscribe() { return () => {} }},
       slots: {inject() {}, register() {}}})
     const core = window.clipClient.clipReplayCore()
     if (skipTitlePage) core.stageReading.set({skipTitlePage: true})
     window.cardPagesCore = core
-    window.clipReplay = await window.clipStage.mountClipReplay(core, snapshot, window.cardPagesTransport)
+    window.clipReplay = await window.clipStage.mountClipReplay(core, snapshot, (method, args) => {
+      if (method === 'appendPlayerInput') {
+        window.sent.push({save: args.text, requestId: args.requestId})
+        return {ok: true, saved: true}
+      }
+      return window.cardPagesTransport(method, args)
+    })
     // the export page hides the stage's chrome; a player's stage shows it.
     for (const style of document.head.querySelectorAll('style')) if (style.textContent.startsWith('html,body{margin:0;overflow:hidden}')) style.remove()
   }, {snapshot, skipTitlePage})
@@ -187,8 +199,10 @@ test('entering the stage opens title; triggerSlash reaches the slash executor; M
 
   // (d) the page's script: triggerSlash('/send 你好|/trigger') through the core's slash executor into the conversation input
   await frameOf(page, 'title').locator('#start').click()
-  await page.waitForFunction(() => window.sent.some(row => row.submit))
-  assert.deepEqual(await page.evaluate(() => window.sent), [{draft: '你好'}, {submit: 'queue', draft: '你好'}])
+  assert.equal(await frameOf(page, 'title').locator('body').evaluate(() => window.__slash), 'ok')
+  const sent = await page.evaluate(() => window.sent)
+  assert.ok(sent[0].requestId)
+  assert.deepEqual(sent, [{save: '你好', requestId: sent[0].requestId}, {submit: 'queue', text: '你好', requestId: sent[0].requestId}])
   // the title page is the entry: closing it would leave, continueGame() enters
   await frameOf(page, 'title').locator('body').evaluate(() => { setTimeout(() => DshCardPage.continueGame()) })
   await waitPage(page, null)
