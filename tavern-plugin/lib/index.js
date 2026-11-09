@@ -216,7 +216,7 @@ import { bubbleCastLines } from './domain/cast-annotation.js'
 import { createPolishRecords } from './domain/polish-records.js'
 import { createPolishPrereview, createPolishReviewer } from './domain/polish-run.js'
 import { applyPolishEdits } from './domain/polish-review.js'
-import { createCardAutoReload } from './domain/card-auto-reload.js'
+import { CARD_RELOAD_BUSY, createCardAutoReload } from './domain/card-auto-reload.js'
 import { createRuntimeLogBuffer, runtimeHealthReport } from './domain/runtime-health.js'
 import { createCastAssets } from './domain/cast-assets.js'
 import { createLineSpeech, createSpeechProviderBridge } from './domain/speech.js'
@@ -1874,8 +1874,8 @@ export async function apply(ctx) {
       if (context.fresh === true) return playCardSnapshots.libraryBoundStatus(chat, context.card)
       const status = await playCardSnapshots.currentStatus(chat, { busy: context.busy === true })
       // An edited card or world book enters an idle game by itself; the page only hears about it.
-      if (context.busy !== true) cardAutoReload.schedule(chat.sessionId, status)
-      return { ...status, autoReloading: cardAutoReload.running(chat.sessionId), autoReloadError: cardAutoReload.failure(chat.sessionId) }
+      cardAutoReload.schedule(chat.sessionId, status, { busy: context.busy === true })
+      return { ...status, autoReloading: cardAutoReload.running(chat.sessionId), autoReloadError: cardAutoReload.failure(chat.sessionId, status.digest) }
     } catch (error) { return {available:true,error:String(error.message || error)} }
   }
   const cardAutoReload = createCardAutoReload({
@@ -1886,12 +1886,14 @@ export async function apply(ctx) {
   async function applyCardUpdate(sessionId, digest, { auto = false } = {}) {
     if (typeof digest !== 'string' || !digest) throw new Error('请刷新后确认人物卡和世界书更新')
     const conflict = new Error('游戏状态已变化，未应用更新，请稍后重试')
+    const busy = Object.assign(new Error('请等待当前生成和后台任务完成后再应用人物卡'), { code: CARD_RELOAD_BUSY })
     // Rebuild from the latest snapshot on a concurrent write. Never merge an
     // old prepared save over new state, or skip the exact revision check.
     for (let attempt = 0; attempt < 3; attempt++) {
       const chat = await chatForSession(sessionId)
       if (!chat || !['story', 'script'].includes(chat.mode || 'story') || chat.requestMode === 'sillytavern') throw new Error('仅支持当前游玩会话')
-      if ((await sessionActivity(sessionId))?.busy || agentRegistry.get(sessionId)?.phase?.kind === 'running') throw new Error('请等待当前生成和后台任务完成后再应用人物卡')
+      if ((await sessionActivity(sessionId))?.busy || agentRegistry.get(sessionId)?.phase?.kind === 'running'
+        || ['pending', 'running', 'waiting-runtime'].includes(chat.settleStatus)) throw busy
       // Applying the card restarts the card scripts; a regeneration left in progress could then never be restored.
       if (chat.regenInProgress) throw new Error('上一次正文重新生成尚未完成：请先点「重新生成正文」完成或恢复它，再应用人物卡')
       const card = await readCard(chat.cardPath)
@@ -1908,7 +1910,9 @@ export async function apply(ctx) {
       await playCardSnapshots.replacement(chat, await readCard(chat.cardPath), digest)
       try {
         const saved = await updateChat(chat.id, current => {
-          if (current._storageRevision !== chat._storageRevision || agentRegistry.get(sessionId)?.phase?.kind === 'running' || ['pending','running','waiting-runtime'].includes(current.settleStatus)) throw conflict
+          if (backgroundTasks.activity(current).busy || agentRegistry.get(sessionId)?.phase?.kind === 'running'
+            || ['pending', 'running', 'waiting-runtime'].includes(current.settleStatus)) throw busy
+          if (current._storageRevision !== chat._storageRevision) throw conflict
           return prepared
         }, { source: auto ? 'card-context.auto-reload' : 'card-context.apply-update' })
         if (nativeSession) await synchronizeTemplateHistory(nativeSession, saved, session => sessionStore.flush(session))
@@ -3884,10 +3888,11 @@ export async function apply(ctx) {
     if (!header || !['story', 'script'].includes(header.mode || 'story') || header.requestMode === 'sillytavern' || str(header.cardPath) === '') return
     const stamp = (await fileResources.metadata(normalizeResourcePath(header.cardPath, 'card')).catch(() => null))?.updatedAt || 0
     const seen = watchedCardStamps.get(sessionId)
-    if (seen === undefined) { watchedCardStamps.set(sessionId, stamp); return }
-    if (seen === stamp) return
+    if (seen === undefined) watchedCardStamps.set(sessionId, stamp)
+    if ((seen === undefined || seen === stamp) && !cardAutoReload.waiting(sessionId)) return
     // A busy game keeps the old stamp, so the edit is noticed again once it is idle.
-    if ((await sessionActivity(sessionId))?.busy === true || ['pending', 'running', 'waiting-runtime'].includes(header.settleStatus)) return
+    if ((await sessionActivity(sessionId))?.busy === true || agentRegistry.get(sessionId)?.phase?.kind === 'running'
+      || ['pending', 'running', 'waiting-runtime'].includes(header.settleStatus)) return
     watchedCardStamps.set(sessionId, stamp)
     const chat = await chatForSession(sessionId)
     if (chat) await cardUpdateStatus(chat)
