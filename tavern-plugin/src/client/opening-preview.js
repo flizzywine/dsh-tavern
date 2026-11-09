@@ -229,6 +229,7 @@ function installSessionOpeningBridge(token, descriptor) {
   const chat = [{ is_user: false, name: descriptor.characterName, mes: swipes[descriptor.selectedIndex], swipe_id: descriptor.selectedIndex, swipes }];
   const pending = new Map();
   let sequence = 0, selected = descriptor.selectedIndex, revision = descriptor.lifecycleRevision || 0;
+  let openingVersion = descriptor.version;
   let switching = null;
   function call(args) {
     const requestId = 'opening-session:' + (++sequence);
@@ -249,11 +250,12 @@ function installSessionOpeningBridge(token, descriptor) {
   async function select(index, message) {
     if (!Number.isInteger(index) || !descriptor.openingIds[index] || message !== swipes[index]) throw new Error('只能选择人物卡已有开场');
     if (switching) throw new Error('正在切换开场白');
-    switching = call({ swipeId: index, message, expectedLifecycleRevision: revision });
+    switching = call({ swipeId: index, message, expectedLifecycleRevision: revision, expectedOpeningVersion: openingVersion });
     try {
       const result = await switching;
       selected = result.selectedIndex;
       revision = result.lifecycleRevision;
+      openingVersion = result.openingVersion;
       return result;
     } finally {
       chat[0].swipe_id = selected;
@@ -366,7 +368,7 @@ function TavernOpeningNav({ sessionId, opening, lifecycleRevision }) {
 		setSwitching(true);
 		try {
 			const swipeId = indices[(position + offset + indices.length) % indices.length];
-			await rpc("switchSessionOpening", { swipeId, expectedLifecycleRevision: lifecycleRevision }, sessionId);
+			await rpc("switchSessionOpening", { swipeId, expectedLifecycleRevision: lifecycleRevision, expectedOpeningVersion: opening.version }, sessionId);
 			tavernErrorHub.resolve("切换开场白");
 		} catch (error) {
 			tavernErrorHub.report("切换开场白", error);

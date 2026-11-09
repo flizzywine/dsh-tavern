@@ -605,6 +605,7 @@
 					if (data.method === "switchSessionOpening") {
 						if (!current()) return;
 						invoke(data.method, data.args, requestProps.sessionId).then(function (result) {
+							tavernErrorHub.resolve("切换开场白");
 							if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result }, "*");
 						}, function (error) {
 							tavernErrorHub.report("切换开场白", error);

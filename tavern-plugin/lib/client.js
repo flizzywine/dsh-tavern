@@ -19290,6 +19290,7 @@ function tavernModelRefusalNotice(text) {
 		  const chat = [{ is_user: false, name: descriptor.characterName, mes: swipes[descriptor.selectedIndex], swipe_id: descriptor.selectedIndex, swipes }];
 		  const pending = new Map();
 		  let sequence = 0, selected = descriptor.selectedIndex, revision = descriptor.lifecycleRevision || 0;
+		  let openingVersion = descriptor.version;
 		  let switching = null;
 		  function call(args) {
 		    const requestId = 'opening-session:' + (++sequence);
@@ -19310,11 +19311,12 @@ function tavernModelRefusalNotice(text) {
 		  async function select(index, message) {
 		    if (!Number.isInteger(index) || !descriptor.openingIds[index] || message !== swipes[index]) throw new Error('只能选择人物卡已有开场');
 		    if (switching) throw new Error('正在切换开场白');
-		    switching = call({ swipeId: index, message, expectedLifecycleRevision: revision });
+		    switching = call({ swipeId: index, message, expectedLifecycleRevision: revision, expectedOpeningVersion: openingVersion });
 		    try {
 		      const result = await switching;
 		      selected = result.selectedIndex;
 		      revision = result.lifecycleRevision;
+		      openingVersion = result.openingVersion;
 		      return result;
 		    } finally {
 		      chat[0].swipe_id = selected;
@@ -19427,7 +19429,7 @@ function tavernModelRefusalNotice(text) {
 				setSwitching(true);
 				try {
 					const swipeId = indices[(position + offset + indices.length) % indices.length];
-					await rpc("switchSessionOpening", { swipeId, expectedLifecycleRevision: lifecycleRevision }, sessionId);
+					await rpc("switchSessionOpening", { swipeId, expectedLifecycleRevision: lifecycleRevision, expectedOpeningVersion: opening.version }, sessionId);
 					tavernErrorHub.resolve("切换开场白");
 				} catch (error) {
 					tavernErrorHub.report("切换开场白", error);
@@ -32219,6 +32221,7 @@ function bindTavernFontZoom(node, win) {
 					if (data.method === "switchSessionOpening") {
 						if (!current()) return;
 						invoke(data.method, data.args, requestProps.sessionId).then(function (result) {
+							tavernErrorHub.resolve("切换开场白");
 							if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result }, "*");
 						}, function (error) {
 							tavernErrorHub.report("切换开场白", error);

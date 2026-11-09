@@ -12,7 +12,7 @@ import { defaultUserPreferenceProfile } from './user-preference-profile.js'
 import { replyProse, writeReplyProse } from './reply-prose.js'
 import { projectReplyLayers } from './reply-presentation.js'
 import { composeTavernRegexScripts } from './card-extension-reading.js'
-import { assertOpeningIdle, findSessionOpening, renameOpeningPlayerSlots, replaceSessionOpening, selectSessionOpening } from './session-opening.js'
+import { assertOpeningIdle, findSessionOpening, renameOpeningPlayerSlots, replaceSessionOpening, selectSessionOpening, sessionOpeningDescriptor } from './session-opening.js'
 
 function str(value) { return value === undefined || value === null ? '' : String(value) }
 function groupOfMode(mode) { return !mode || mode === 'story' || mode === 'script' ? 'play' : 'card' }
@@ -445,8 +445,8 @@ export function createConversationInitialization(options) {
     const card = await cards.readChat(chat)
     const selection = selectSessionOpening({ ...input, chat, card })
     const lifecycle = Number(chat.tavernHelperLifecycleRevision) || 0
-    if (input.expectedLifecycleRevision !== lifecycle) throw new Error('开场白已变化，请重新选择')
-    if (selection.current) return { selectedIndex: input.swipeId, lifecycleRevision: lifecycle }
+    if (input.expectedOpeningVersion === undefined && input.expectedLifecycleRevision !== lifecycle) throw new Error('开场白已变化，请重新选择')
+    if (selection.current) return { selectedIndex: input.swipeId, lifecycleRevision: lifecycle, openingVersion: sessionOpeningDescriptor(chat, card).version }
     const [extensions, script] = await Promise.all([
       cards.extensions(chat.cardPath, chat),
       chat.mode === 'script' ? cards.script(chat.cardPath) : null
@@ -469,7 +469,7 @@ export function createConversationInitialization(options) {
       const greeting = {
         ...replyProse(selection.text, projection),
         role: 'assistant', greeting: true, turn: 1, ts: row.ts, stagePageVersion: row.stagePageVersion,
-        openingChoiceId: selection.id
+        openingChoiceId: selection.id, openingSelectionRevision: lifecycle + 1
       }
       if (row.messageUid) greeting.messageUid = row.messageUid
       if (current.mvu?.enabled) {
@@ -498,7 +498,7 @@ export function createConversationInitialization(options) {
       return current
     }, { source: 'opening.switch' })
     await syncOpeningSwitch(saved, target)
-    return { selectedIndex: input.swipeId, lifecycleRevision: lifecycle + 1 }
+    return { selectedIndex: input.swipeId, lifecycleRevision: lifecycle + 1, openingVersion: sessionOpeningDescriptor(saved, card).version }
   }
 
   async function setPlayerName(sessionId, userName) {

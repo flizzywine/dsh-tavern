@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { cardOpeningSwipes } from './card-openings.js'
 import { nativeOpeningMessageId } from './native-opening.js'
 import { sessionEvents } from './session-events.js'
@@ -14,12 +15,19 @@ export function sessionOpeningDescriptor(chat, card) {
   const selectedIndex = messages[0].openingChoiceId
     ? openingIds.indexOf(messages[0].openingChoiceId) : swipes.indexOf(text)
   if (selectedIndex < 0 || !openingIds[selectedIndex] || openingIds.filter(Boolean).length < 2) return null
-  return { swipes, selectedIndex, characterName: card.name, openingIds }
+  // Card/Helper reloads can change the script lifecycle while the opening stays intact.
+  const version = createHash('sha256').update(JSON.stringify([
+    chat.id, messages[0].openingSelectionRevision, text, selectedIndex, openingIds, swipes
+  ])).digest('hex')
+  return { swipes, selectedIndex, characterName: card.name, openingIds, version }
 }
 
-export function selectSessionOpening({ chat, card, swipeId, message }) {
+export function selectSessionOpening({ chat, card, swipeId, message, expectedOpeningVersion }) {
   const descriptor = sessionOpeningDescriptor(chat, card)
   if (!descriptor) throw new Error('已有剧情的对话不能切换开场，请新开游戏')
+  if (expectedOpeningVersion !== undefined && expectedOpeningVersion !== descriptor.version) {
+    throw new Error('开场白已变化，请重新选择')
+  }
   if (!Number.isInteger(swipeId) || !descriptor.openingIds[swipeId] ||
       (message !== undefined && descriptor.swipes[swipeId] !== message)) throw new Error('只能选择人物卡已有开场')
   return { id: descriptor.openingIds[swipeId], text: descriptor.swipes[swipeId], current: descriptor.selectedIndex === swipeId }

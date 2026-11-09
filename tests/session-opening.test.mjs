@@ -9,18 +9,20 @@ const initial = () => ({ id: 'chat', sessionId: 'session', mode: 'story', messag
 
 for (const method of ['saveChat', 'setChatMessage', 'setChatMessages', 'swipe.to']) test('第 0 楼兼容接口原地切换开场：' + method, async () => {
   const chat = initial()
+  const descriptor = sessionOpeningDescriptor(chat, card)
   const calls = []
   let listener
   const parent = { postMessage(data) {
     calls.push(data.method)
+    assert.equal(data.args.expectedOpeningVersion, descriptor.version)
     Promise.resolve().then(() => {
       const selection = selectSessionOpening({ chat, card, ...data.args })
       chat.messages[0].openingChoiceId = selection.id
-      return { selectedIndex: data.args.swipeId, lifecycleRevision: 1 }
+      return { selectedIndex: data.args.swipeId, lifecycleRevision: 1, openingVersion: sessionOpeningDescriptor(chat, card).version }
     }).then(result => listener({ source: parent, data: { type: 'dsh-tavern-helper-response', token: 't', requestId: data.requestId, ok: true, result } }))
   } }
   const w = { parent, setTimeout, clearTimeout, Map, addEventListener(_name, fn) { listener = fn } }; w.window = w
-  const html = helperClient.buildTavernFrameDocument({ token: 't', content: '', helperContext: { openingHost: sessionOpeningDescriptor(chat, card) } })
+  const html = helperClient.buildTavernFrameDocument({ token: 't', content: '', helperContext: { openingHost: descriptor } })
   const script = html.match(/<script data-dsh-tavern-session-opening>([\s\S]*?)<\/script>/)
   assert.ok(script, '正式消息必须加载开场宿主接口')
   vm.runInNewContext(script[1], w)
@@ -56,4 +58,7 @@ test('校验可切换的第 0 楼，并保留重复正文和空白开场各自�
   const duplicate = { ...card, first_mes: '实际开场' }
   assert.equal(sessionOpeningDescriptor(chat, duplicate).selectedIndex, 1)
   assert.deepEqual(selectSessionOpening({ chat, card, swipeId: 2, message: '' }), { id: 'alternate:1', text: '', current: false })
+  assert.throws(() => selectSessionOpening({
+    chat, card: duplicate, swipeId: 2, expectedOpeningVersion: sessionOpeningDescriptor(chat, card).version
+  }), /开场白已变化/)
 })

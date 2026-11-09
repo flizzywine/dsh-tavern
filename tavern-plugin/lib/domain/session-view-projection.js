@@ -31,7 +31,7 @@ export const sessionViewMessageFields = Object.freeze([
   'sourceText', 'projectionText', 'text', 'displayText', 'displayMode', 'projectionVersion', 'projectionWarnings',
   // Sidebar origin uses frame receipts, not the external DOM/console capture.
   'displayRuntime.frames',
-  'stagePageVersion', 'openingChoiceId', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu',
+  'stagePageVersion', 'openingChoiceId', 'openingSelectionRevision', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu',
   'native', 'nativeAnchor', 'placeholder', 'bodyEdit', 'bodyRegenerationProcessed', 'importSource', 'templateHistoryEdit', 'templateInputSource'
 ])
 
