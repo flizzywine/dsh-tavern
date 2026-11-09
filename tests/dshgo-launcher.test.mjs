@@ -45,6 +45,8 @@ test('readStatus：8 个 bundle 齐 → ready，并读出酒馆版本与 depende
   assert.deepEqual(status.installed, [...TAVERN_BUNDLES])
   assert.equal(status.tavernVersion, '3.2.0')
   assert.deepEqual(status.declared, ['dsh-tavern-plugin'])
+  assert.deepEqual(status.modules, ['dsh-tavern-plugin'])
+  assert.equal(status.missingModules.length, TAVERN_BUNDLES.length - 1)
   assert.equal(status.error, null)
 })
 
@@ -65,6 +67,7 @@ test('readStatus：package.json 存在但无酒馆 bundle → absent', () => {
   assert.equal(status.phase, 'absent')
   assert.deepEqual(status.installed, [])
   assert.equal(status.missing.length, TAVERN_BUNDLES.length)
+  assert.deepEqual(status.modules, [])
 })
 
 test('readStatus：package.json 读不到或不是 JSON → unreadable，不抛错', () => {

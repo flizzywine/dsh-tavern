@@ -51,6 +51,7 @@ export function readStatus({ home, read = readFileSync }) {
     : {}
   const installed = TAVERN_BUNDLES.filter(name => bundles.includes(name))
   const missing = TAVERN_BUNDLES.filter(name => !bundles.includes(name))
+  const modules = TAVERN_BUNDLES.filter(name => readJson(read, join(dir, 'node_modules', name, 'package.json')).value !== null)
   const tavern = readJson(read, join(dir, 'node_modules', 'dsh-tavern-plugin', 'package.json'))
   const phase = manifest.error
     ? 'unreadable'
@@ -67,6 +68,8 @@ export function readStatus({ home, read = readFileSync }) {
     missing,
     dependencies,
     declared: TAVERN_BUNDLES.filter(name => Object.hasOwn(dependencies, name)),
+    modules,
+    missingModules: TAVERN_BUNDLES.filter(name => !modules.includes(name)),
     tavernVersion: typeof tavern.value?.version === 'string' ? tavern.value.version : null,
     error: manifest.error === null ? null : String(manifest.error.message ?? manifest.error),
   }
