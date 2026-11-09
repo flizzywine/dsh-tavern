@@ -152,6 +152,11 @@ export function createCardPluginManagedOwner({stagingRoot,pluginsDir,serial,inva
       return {modId:row.manifest.id,version:row.manifest.version,digest:row.digest}
     }),
     read:()=>serial(async()=>{await recover();const {revision,value}=await frame();return {revision,value}}),
+    releasesNeedUpdate:update=>serial(async()=>{
+      await recover()
+      const {value,persisted}=await frame({includeCardRoots:false})
+      return !equal(update(value).releases,persisted.releases)
+    }),
     readReleases:()=>serial(async()=>{
       await recover()
       const {value}=await frame({includeCardRoots:false})

@@ -108,15 +108,22 @@ export function createManagedModProduction({ctx,cardPlugins,cardPreparation,list
       return freezeForegroundModPrompts({previous,nativeSession,sessionId:chat.sessionId,manifests:state.manifests,snapshot:{resolution:state.resolution,config}})
     },
     async installBuiltins() {
-      const bundles=await localDistributions(),current=await installations.read(),value=structuredClone(current.value)
-      for(const bundle of bundles) {
-        for(const row of value.releases.filter(row=>row.manifest.id===bundle.manifest.id)) {
-          row.active=row.digest===bundle.sha256
-          if(row.active)Object.assign(row,{installed:true,authorized:true,globalRoot:true})
+      const bundles=await localDistributions()
+      function activateBuiltins(current) {
+        const value=structuredClone(current)
+        for(const bundle of bundles) {
+          for(const row of value.releases.filter(row=>row.manifest.id===bundle.manifest.id)) {
+            row.active=row.digest===bundle.sha256
+            if(row.active)Object.assign(row,{installed:true,authorized:true,globalRoot:true})
+          }
+          // A rebuilt built-in stays current for cards locked to its version range.
+          for(const lock of value.locks.filter(lock=>lock.modId===bundle.manifest.id && modVersionMatches(bundle.manifest.version,lock.range)))lock.digest=bundle.sha256
         }
-        // A built-in release is the current code, not a choice: cards follow it within their range.
-        for(const lock of value.locks.filter(lock=>lock.modId===bundle.manifest.id && modVersionMatches(bundle.manifest.version,lock.range)))lock.digest=bundle.sha256
+        return value
       }
+      // Read card locks only when installing, updating, or retiring a release.
+      if(!await installations.releasesNeedUpdate(activateBuiltins))return ready
+      const current=await installations.read(),value=activateBuiltins(current.value)
       await installations.compareAndSwap({expectedRevision:current.revision,expectedValue:current.value,value})
       await authorize()
     },

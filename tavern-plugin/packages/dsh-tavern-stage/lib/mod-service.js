@@ -211,7 +211,12 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
         return libraryMedia.readBytes(args.modId,args.packId,args.path,file.size)
       },'media'),
     }),
-    installBuiltinAssets:owner=>run(async()=>{for(const pack of (await builtins).assetPacks?.() || [])await owner.ensureBuiltinPack(pack)}),
+    async installBuiltinAssets(owner) {
+      for(const pack of (await builtins).assetPacks?.() || []) {
+        if(!active)return
+        await owner.ensureBuiltinPack(pack)
+      }
+    },
     stageViews(sessionId,authority) {
       check(typeof authority?.origin==='string','$.origin','Same-origin stage authority required','MOD_PERMISSION_DENIED')
       return run(()=>sessionEvents?.views(sessionId) || {views:[]})
@@ -230,7 +235,14 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
     },
     disconnected(ids) {sessionEvents?.disconnected(ids)},
     async eventsIdle(){await tail;await sessionEvents?.idle()},
-    manifests:()=>run(()=>Object.values(library.snapshot().mods).map(row=>row.manifest)),
+    async manifests() {
+      check(active,'$','Mod service is disposed','MOD_RESOURCE_UNAVAILABLE')
+      await management.ready
+      const builtin=await builtins
+      const ids=new Set(builtin.catalogue().map(row=>row.id))
+      const releases=await management.installations.readReleases()
+      return releases.filter(row=>row.active && row.installed && ids.has(row.manifest.id)).map(row=>builtin.manifest(row.manifest.id))
+    },
     // The registered managed mods' declared stage performance kinds (stage-performance-kinds.cjs), for the 履历.
     performanceKinds:()=>management.modHost.manifests().map(manifest=>({owner:manifest.id,performances:manifest.performances})),
     readPerformanceMedia(input,authority) {
