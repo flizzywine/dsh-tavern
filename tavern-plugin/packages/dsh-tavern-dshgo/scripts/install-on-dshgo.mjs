@@ -19,7 +19,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 export const PACKAGE_ROOT = resolve(HERE, '..')
 export const REPO_ROOT = resolve(PACKAGE_ROOT, '..', '..', '..')
 
-/** 本仓库里的私有包：装到 profiles/web/vendor 下，用 file: 引用。 */
+/** 本仓库里的私有包：用 link: 指回源码目录，不复制——酒馆从 lib 里按 ../../bin 这类相对路径取仓库根的 bin/、shared/、packages/。 */
 export const LOCAL_PACKAGES = Object.freeze({
   'dsh-tavern-plugin': 'tavern-plugin',
   'dsh-tavern-remote': 'tavern-plugin/packages/dsh-tavern-remote',
@@ -49,8 +49,6 @@ const PATCH_FILES = [
   'dsh-web-mobile@3.1.0.patch',
 ]
 
-const COPY_EXCLUDES = ['node_modules', '.git', 'tests', '.turbo', 'dist/.cache']
-
 /** pnpm 在 proot 里要的三条设置：复制而非硬链接（跨层不共享 inode）、不缓存副作用、忽略发布年龄。 */
 export const PNPM_ARGS = [
   'install',
@@ -64,7 +62,7 @@ function yamlValue(value) {
 }
 
 /** 只写酒馆需要的那几条；App 自己写的内容原样留在文件末尾。 */
-export function workspaceYaml(patches) {
+export function workspaceYaml(patches, appRoot = '/opt/dsh') {
   const lines = [
     'packages:',
     '  - .',
@@ -83,6 +81,10 @@ export function workspaceYaml(patches) {
     // 所以按包名放行。它们只是实现细节，不参与酒馆的行为。
     '  - ws',
     '  - wasm-feature-detect',
+    // pnpm 只认这里的 overrides；package.json 顶层的 overrides 是 npm/yarn 的字段，会被无视。
+    // 五个宿主包 link 回 App 自己那一份：另装一份版本对不上会被判 incompatible 并禁用整行。
+    'overrides:',
+    ...HOST_PACKAGES.map(name => `  ${yamlValue(name)}: ${yamlValue(`link:${appRoot}/node_modules/${name}`)}`),
     'patchedDependencies:',
   ]
   // 键是「包名@版本」，值是补丁文件路径；版本对不上 pnpm 就不会套补丁。
@@ -94,15 +96,14 @@ export function workspaceYaml(patches) {
  * 把酒馆的依赖与 bundle 合并进 profile 的 package.json。
  * 已有条目一律保留顺序，只补缺的；@deepseek-ai/* 写 overrides 指回宿主。
  */
-export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', vendorDir = 'vendor' } = {}) {
+export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot = REPO_ROOT } = {}) {
   const next = structuredClone(manifest)
   if (next.dependencies === undefined || next.dependencies === null) next.dependencies = {}
-  for (const name of Object.keys(LOCAL_PACKAGES)) next.dependencies[name] = `file:./${vendorDir}/${name}`
+  for (const [name, relative] of Object.entries(LOCAL_PACKAGES)) {
+    next.dependencies[name] = `link:${join(srcRoot, relative)}`
+  }
   for (const [name, version] of Object.entries(NPM_PACKAGES)) if (next.dependencies[name] === undefined) next.dependencies[name] = version
   for (const name of Object.keys(NPM_PACKAGES)) next.dependencies[name] = NPM_PACKAGES[name]
-
-  if (next.overrides === undefined || next.overrides === null) next.overrides = {}
-  for (const name of HOST_PACKAGES) next.overrides[name] = `link:${join(appRoot, 'node_modules', name)}`
 
   if (next.dsh === undefined || next.dsh === null) next.dsh = {}
   if (next.dsh.profile === undefined || next.dsh.profile === null) next.dsh.profile = {}
@@ -116,19 +117,17 @@ export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', vendorDir
 /** 装机前先把要做的事列出来，dry-run 与真跑共用这一份。 */
 export function planInstall({ srcRoot = REPO_ROOT, dshHome = join('/root', '.dsh'), appRoot = '/opt/dsh' } = {}) {
   const profile = join(dshHome, 'profiles', 'web')
-  const vendor = join(profile, 'vendor')
   const steps = []
-  for (const [name, relative] of Object.entries(LOCAL_PACKAGES)) {
-    steps.push({ kind: 'copy', name, from: join(srcRoot, relative), to: join(vendor, name), excludes: COPY_EXCLUDES })
-  }
+  // 源码原地不动：六个包用 link: 指过去，仓库结构（bin/ shared/ packages/）保持完整。
   for (const file of PATCH_FILES) {
     steps.push({ kind: 'copy-file', name: file, from: join(srcRoot, 'patches', file), to: join(profile, 'patches', file) })
   }
-  steps.push({ kind: 'manifest', name: 'package.json', to: join(profile, 'package.json'), appRoot, vendorDir: 'vendor' })
-  steps.push({ kind: 'workspace', name: 'pnpm-workspace.yaml', to: join(profile, 'pnpm-workspace.yaml'), patches: PATCH_FILES })
+  steps.push({ kind: 'manifest', name: 'package.json', to: join(profile, 'package.json'), appRoot, srcRoot })
+  steps.push({ kind: 'workspace', name: 'pnpm-workspace.yaml', to: join(profile, 'pnpm-workspace.yaml'), patches: PATCH_FILES, appRoot })
   steps.push({ kind: 'pnpm', name: 'pnpm install', cwd: profile, args: PNPM_ARGS })
   steps.push({ kind: 'verify', name: 'verify', profile, appRoot })
-  return { profile, vendor, steps, missingSources: steps.filter(step => step.kind === 'copy' || step.kind === 'copy-file').filter(step => !existsSync(step.from)).map(step => step.from) }
+  const sources = Object.values(LOCAL_PACKAGES).map(relative => join(srcRoot, relative, 'package.json'))
+  return { profile, steps, missingSources: sources.filter(file => !existsSync(file)) }
 }
 
 function backup(file) {
@@ -149,34 +148,25 @@ export function applyInstall(plan, { dry = false, log = console.log } = {}) {
     throw new Error(`源码缺文件，先确认在仓库根跑：\n${plan.missingSources.join('\n')}`)
   }
   for (const step of plan.steps) {
-    if (step.kind === 'copy') {
-      log(`复制 ${step.from} → ${step.to}`)
-      if (dry) continue
-      mkdirSync(dirname(step.to), { recursive: true })
-      cpSync(step.from, step.to, {
-        recursive: true,
-        force: true,
-        filter: source => !step.excludes.some(part => source.split(/[\\/]/).includes(part)),
-      })
-    } else if (step.kind === 'copy-file') {
+    if (step.kind === 'copy-file') {
       log(`复制 ${step.from} → ${step.to}`)
       if (dry) continue
       mkdirSync(dirname(step.to), { recursive: true })
       cpSync(step.from, step.to)
     } else if (step.kind === 'manifest') {
-      log(`合并 ${step.to}（dependencies / overrides / dsh.profile.bundles）`)
+      log(`合并 ${step.to}（dependencies / dsh.profile.bundles）`)
       if (dry) continue
       const manifest = JSON.parse(readFileSync(step.to, 'utf8'))
       backup(step.to)
-      const merged = mergeProfileManifest(manifest, { appRoot: step.appRoot, vendorDir: step.vendorDir })
+      const merged = mergeProfileManifest(manifest, { appRoot: step.appRoot, srcRoot: step.srcRoot })
       const temporary = `${step.to}.tavern-tmp`
       writeFileSync(temporary, `${JSON.stringify(merged, null, 2)}\n`)
       renameSync(temporary, step.to)
     } else if (step.kind === 'workspace') {
-      log(`写 ${step.to}（patchedDependencies + pnpm 设置）`)
+      log(`写 ${step.to}（overrides + patchedDependencies + pnpm 设置）`)
       if (dry) continue
       backup(step.to)
-      writeFileSync(step.to, workspaceYaml(step.patches))
+      writeFileSync(step.to, workspaceYaml(step.patches, step.appRoot))
     } else if (step.kind === 'pnpm') {
       log(`在 ${step.cwd} 跑 pnpm ${step.args.join(' ')}`)
       if (dry) continue
@@ -223,7 +213,7 @@ function main() {
     console.log('\n（dry-run，没有改动任何文件）')
     return
   }
-  console.log(`\n装好了。下一步：`)
+  console.log('\n装好了。下一步：')
   console.log('  1. 关掉 dsh-go 里的引擎，再回来启动它（App「引擎」页的重启按钮）')
   console.log('  2. 引擎里会出现「酒馆」原生面板；面板上再点一次「启用酒馆」把 bundle 写进去')
   console.log('  3. 想退回：把 profiles/web/package.json.pre-tavern 拷回 package.json，再重启引擎')

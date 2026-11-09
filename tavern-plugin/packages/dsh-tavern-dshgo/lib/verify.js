@@ -30,7 +30,12 @@ export function runChecks({ home = resolveDshHome(), appRoot = '/opt/dsh', nodeV
   const manifest = readJson(read, join(dir, 'package.json')) ?? {}
   const bundles = Array.isArray(manifest?.dsh?.profile?.bundles) ? manifest.dsh.profile.bundles : []
   const dependencies = manifest?.dependencies ?? {}
-  const overrides = manifest?.overrides ?? {}
+  let workspace = ''
+  try {
+    workspace = read(join(dir, 'pnpm-workspace.yaml'), 'utf8')
+  } catch {
+    workspace = ''
+  }
   const dataHome = inspectDataHome(home)
   const modules = TAVERN_BUNDLES.filter(name => existsSync(join(dir, 'node_modules', name, 'package.json')))
   const hostResolved = HOST_PACKAGES.filter(name => existsSync(join(dir, 'node_modules', '@deepseek-ai', name, 'package.json')))
@@ -65,10 +70,10 @@ export function runChecks({ home = resolveDshHome(), appRoot = '/opt/dsh', nodeV
     `${PATCHES.filter(file => existsSync(join(dir, 'patches', file))).length}/2`,
     '补丁没铺好，界面会有怪样子；重跑 install-on-dshgo.mjs')
 
-  const hostOverrides = Object.keys(overrides).filter(name => name.startsWith('@deepseek-ai/'))
-  add('依赖指向 App 自己那份', hostOverrides.length === HOST_PACKAGES.length
-    && hostOverrides.every(name => String(overrides[name]).startsWith(`link:${appRoot}/node_modules/`)),
-    `${hostOverrides.length}/5 条`,
+  // pnpm 只认 pnpm-workspace.yaml 里的 overrides；写在 package.json 顶层会被无视。
+  const hostLinked = HOST_PACKAGES.filter(name => workspace.includes(`link:${appRoot}/node_modules/@deepseek-ai/${name}`))
+  add('依赖指向 App 自己那份', hostLinked.length === HOST_PACKAGES.length,
+    `${hostLinked.length}/5 条`,
     '重跑 install-on-dshgo.mjs')
 
   const preflight = TAVERN_BUNDLES.every(name => modules.includes(name))

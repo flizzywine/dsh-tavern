@@ -10,17 +10,22 @@ import {
 } from '../tavern-plugin/packages/dsh-tavern-dshgo/scripts/install-on-dshgo.mjs'
 import { TAVERN_BUNDLES } from '../tavern-plugin/packages/dsh-tavern-dshgo/lib/status.js'
 
-test('mergeProfileManifest：六个本地包走 file:，两个 npm 包钉死版本', () => {
-  const merged = mergeProfileManifest({ name: 'web', dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } } })
-  for (const name of Object.keys(LOCAL_PACKAGES)) assert.equal(merged.dependencies[name], `file:./vendor/${name}`)
+test('mergeProfileManifest：六个本地包 link 回源码目录，仓库结构才不被打平', () => {
+  const merged = mergeProfileManifest({ name: 'web', dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } } }, { srcRoot: '/src/dsh-tavern-main' })
+  assert.equal(merged.dependencies['dsh-tavern-plugin'], 'link:/src/dsh-tavern-main/tavern-plugin')
+  assert.equal(merged.dependencies['dsh-tavern-remote'], 'link:/src/dsh-tavern-main/tavern-plugin/packages/dsh-tavern-remote')
   for (const [name, version] of Object.entries(NPM_PACKAGES)) assert.equal(merged.dependencies[name], version)
   assert.ok(!('@deepseek-ai/dsh-tools' in merged.dependencies), '宿主包不进 dependencies')
+  assert.equal(merged.overrides, undefined, '顶层 overrides 是 npm 字段，pnpm 不认')
 })
 
-test('mergeProfileManifest：五个宿主包写进 overrides 指回 App 里的那一份', () => {
-  const merged = mergeProfileManifest({}, { appRoot: '/opt/dsh' })
-  assert.deepEqual(Object.keys(merged.overrides).sort(), [...HOST_PACKAGES].sort())
-  assert.equal(merged.overrides['@deepseek-ai/dsh-tools'], 'link:/opt/dsh/node_modules/@deepseek-ai/dsh-tools')
+test('workspaceYaml：五个宿主包写进 pnpm 的 overrides，指回 App 里的那一份', () => {
+  const yaml = workspaceYaml(['dsh-web-mobile@3.1.0.patch'], '/opt/dsh')
+  assert.match(yaml, /overrides:\n/)
+  for (const name of HOST_PACKAGES) {
+    // 值里带冒号，yamlValue 会加引号；锚定 link: 目标即可。
+    assert.ok(yaml.includes(`link:/opt/dsh/node_modules/${name}`), name)
+  }
 })
 
 test('mergeProfileManifest：bundle 保序补齐，官方与用户自己的不动，重复合并不增项', () => {
@@ -31,13 +36,9 @@ test('mergeProfileManifest：bundle 保序补齐，官方与用户自己的不�
   assert.deepEqual(base.dsh.profile.bundles.length, 3, '不改入参')
 })
 
-test('mergeProfileManifest：已存在的 overrides / dependencies 条目被保留', () => {
-  const merged = mergeProfileManifest({
-    dependencies: { 'some-user-pkg': '^1.0.0' },
-    overrides: { 'left-pad': '1.3.0' },
-  })
+test('mergeProfileManifest：用户自己装的依赖条目被保留', () => {
+  const merged = mergeProfileManifest({ dependencies: { 'some-user-pkg': '^1.0.0' } })
   assert.equal(merged.dependencies['some-user-pkg'], '^1.0.0')
-  assert.equal(merged.overrides['left-pad'], '1.3.0')
 })
 
 test('workspaceYaml：两条补丁按文件名对齐版本，proot 里那几条 pnpm 设置都在', () => {
@@ -55,11 +56,7 @@ test('workspaceYaml：两条补丁按文件名对齐版本，proot 里那几条 
 test('planInstall：先复制源码再改清单，最后才 pnpm install 与校验', () => {
   const plan = planInstall({ dshHome: '/root/.dsh', appRoot: '/opt/dsh' })
   assert.equal(plan.profile, '/root/.dsh/profiles/web')
-  assert.equal(plan.vendor, '/root/.dsh/profiles/web/vendor')
-  assert.deepEqual(plan.steps.map(step => step.kind), [
-    ...Array(Object.keys(LOCAL_PACKAGES).length).fill('copy'),
-    'copy-file', 'copy-file', 'manifest', 'workspace', 'pnpm', 'verify',
-  ])
+  assert.deepEqual(plan.steps.map(step => step.kind), ['copy-file', 'copy-file', 'manifest', 'workspace', 'pnpm', 'verify'])
   assert.deepEqual(plan.missingSources, [], '在仓库根跑时源码应齐全')
   assert.deepEqual(PNPM_ARGS.slice(0, 1), ['install'])
 })
@@ -68,7 +65,7 @@ test('planInstall：源码目录不对时把缺的文件一次列出来', (t) =>
   const empty = mkdtempSync(join(tmpdir(), 'tavern-dshgo-install-'))
   t.after(() => rmSync(empty, { recursive: true, force: true }))
   const plan = planInstall({ srcRoot: empty })
-  assert.equal(plan.missingSources.length, Object.keys(LOCAL_PACKAGES).length + 2)
+  assert.equal(plan.missingSources.length, Object.keys(LOCAL_PACKAGES).length)
   assert.ok(plan.missingSources.every(file => file.startsWith(empty)))
 })
 

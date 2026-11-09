@@ -29,10 +29,10 @@ function full(t, { bundles = TAVERN_BUNDLES, dataLink = true, modules = TAVERN_B
   mkdirSync(join(home, 'profile-data'), { recursive: true })
   if (dataLink) symlinkSync('../dsh-go/tavern-data', join(home, 'profile-data', 'tavern'))
   writeFileSync(join(dir, 'package.json'), JSON.stringify({
-    dependencies: Object.fromEntries(TAVERN_BUNDLES.map(name => [name, 'file:./vendor/' + name])),
-    overrides: Object.fromEntries(HOSTS.map(name => ['@deepseek-ai/' + name, `link:${appRoot}/node_modules/@deepseek-ai/${name}`])),
+    dependencies: Object.fromEntries(TAVERN_BUNDLES.map(name => [name, 'link:/src/tavern-plugin'])),
     dsh: { profile: { bundles } },
   }, null, 2))
+  writeFileSync(join(dir, 'pnpm-workspace.yaml'), ['overrides:', ...HOSTS.map(name => `  @deepseek-ai/${name}: link:${appRoot}/node_modules/@deepseek-ai/${name}`), ''].join('\n'))
   return { home, appRoot }
 }
 
