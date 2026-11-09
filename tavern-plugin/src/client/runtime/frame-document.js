@@ -234,6 +234,42 @@
 			win.document.addEventListener("submit", function (event) { event.preventDefault(); }, true);
 		}
 
+		// A card can ship a looping soundtrack and a looping trailer together.
+		// Start with the soundtrack, then let the card's native media controls switch sources.
+		function installTavernFrameSoundtrack(win) {
+			const document = win.document;
+			const soundtrack = "audio[autoplay][loop]";
+			const trailer = "video[autoplay][loop]";
+			const paired = new WeakSet();
+			const audible = node => !node.muted && node.volume > 0;
+			const tracks = () => Array.from(document.querySelectorAll(soundtrack)).filter(audible);
+			function silenceTrailers(except) {
+				for (const video of document.querySelectorAll(trailer)) {
+					if (video === except) continue;
+					paired.add(video);
+					video.muted = true;
+				}
+			}
+			document.addEventListener("DOMContentLoaded", function () {
+				if (tracks().length) silenceTrailers();
+			}, { once: true });
+			function onPlayback(event) {
+				const media = event.target;
+				if (media.paused || !audible(media)) return;
+				if (media.matches?.(soundtrack)) silenceTrailers();
+				else if (media.matches?.(trailer)) {
+					if (!paired.has(media)) {
+						if (tracks().length) silenceTrailers();
+					} else {
+						silenceTrailers(media);
+						for (const track of tracks()) if (!track.paused) track.pause();
+					}
+				}
+			}
+			document.addEventListener("play", onPlayback, true);
+			document.addEventListener("volumechange", onPlayback, true);
+		}
+
 		function buildTavernFrameDocument(input) {
 			const html = rewriteTavernStaticMarkup(String(input && (input.content !== undefined ? input.content : input.html) || ""));
 			const sizing = tavernFrameSizing(html, input && input.frameSizing, input && input.persistent ? input.panelId : undefined);
@@ -279,6 +315,7 @@
                 + '<script data-dsh-tavern-crypto>(' + installTavernCryptoSubtlePolyfill.toString() + ')(window);<\/script>'
                 + '<script data-dsh-tavern-tilt-guard>(' + installTavernPointerTiltGuard.toString() + ')(window);<\/script>'
                 + '<script data-dsh-tavern-form-guard>(' + installTavernFrameFormGuard.toString() + ')(window);<\/script>'
+                + (/<audio\b/i.test(html) && /<video\b/i.test(html) ? '<script data-dsh-tavern-soundtrack>(' + installTavernFrameSoundtrack.toString() + ')(window);<\/script>' : '')
 				+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
 				+ '<meta name="referrer" content="no-referrer">'
 				// No base-uri: srcdoc frames a card builds inherit this policy, and a page it
