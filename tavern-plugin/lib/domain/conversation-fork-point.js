@@ -3,6 +3,11 @@ import { assistantResultForTurn } from './session-turn-result.js'
 import { sessionEvents } from './session-events.js'
 import { assertConversationForkable } from './conversation-fork.js'
 
+// How far back from the live head an unanchored snapshot search reads. A save keeps a
+// bounded number of revisions for its own history, so this bounds the fallback scan
+// instead of letting a fork read every revision a long game ever wrote.
+const MAX_HISTORY_SCAN = 64
+
 const turnOf = message => Number(message?.turn || (message?.greeting ? 1 : 0))
 const lastAssistant = chat => (chat.messages || []).findLast(message => message?.role === 'assistant')
 
@@ -152,6 +157,43 @@ export async function conversationStateAtMessage(source, messageIndex, readRevis
     if (rowsOf(state).length <= index + 1 && holdsAvailablePrefix(state, messages)) queueForward(candidate)
     // A later snapshot can still hold this prefix through its own parent chain.
     harvestSnapshots(state, queue, claimed)
+  }
+  // A save can stop naming its own history: a rollback drops the checkpoint it
+  // consumed, a story edit or import rewrites the timeline, and maintenance only keeps
+  // the revisions some feature still points at. The rows are what identifies a state,
+  // so when no anchor reaches the chosen message, walk the Chat's own revisions back
+  // from the head and take the newest one that ends exactly at it. The anchors above
+  // stay first: they name settled revisions without scanning.
+  if (!pendingError) {
+    const chatId = str(source.id)
+    const head = Number(source._storageRevision)
+    let missing = 0
+    for (let revision = head - 1, probes = 0; Number.isSafeInteger(revision) && revision >= 1 && probes < MAX_HISTORY_SCAN; revision--, probes++) {
+      const key = chatId + '\u0000' + revision
+      if (visited.has(key)) continue
+      visited.add(key)
+      let state
+      try {
+        state = await readRevision(chatId, revision)
+      } catch (error) {
+        if (error?.code !== 'DSH_TAVERN_REVISION_NOT_FOUND') throw error
+        // Two holes in a row mean the retained history ends here; older revisions
+        // were reclaimed, so the requested message is simply too old to fork from.
+        if (++missing >= 2) { stale = true; break }
+        continue
+      }
+      missing = 0
+      if (!state || state._storageRevision !== revision) continue
+      readable = true
+      if (!holdsStoryPrefix(state, messages, index)) continue
+      try {
+        assertConversationForkable(state, { historical: true })
+        return { messageIndex: index, state, turn: turnOf(lastAssistant(state)) }
+      } catch (error) {
+        if (error?.forkTransient !== true) throw error
+        pendingError ||= error
+      }
+    }
   }
   if (pendingError) throw pendingError
   if (stale) throw new Error('这条消息的回合太早，历史状态已清理（只保留最近 50 轮），无法从这条消息分叉')

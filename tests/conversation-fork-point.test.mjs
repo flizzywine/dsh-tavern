@@ -149,6 +149,39 @@ test('重复、缺失、非单调 turn 不影响状态选择，只按消息序�
   assert.equal(turnless.state.messages.length, 6)
 })
 
+test('没有 checkpoint 的存档仍按行身份找到最近的历史快照', async () => {
+  const messages = []
+  for (let turn = 1; turn <= 3; turn++) messages.push({ role: 'user', text: 'in' + turn }, { role: 'assistant', text: 'out' + turn })
+  const make = (rows, revision) => ({ id: 'chat', sessionId: 'source', mode: 'story', settleStatus: 'done', _storageRevision: revision,
+    messages: structuredClone(messages.slice(0, rows)), timeline: { checkpoints: [] } })
+  // 回退与正文改写会消耗 checkpoint，快照本身仍在。
+  const states = new Map([[2, make(2, 2)], [3, make(2, 3)], [5, make(4, 5)]])
+  const source = make(6, 6)
+  const reads = []
+  const selected = await conversationStateAtMessage(source, 3, async (_id, revision) => {
+    reads.push(revision)
+    return structuredClone(states.get(revision))
+  })
+  assert.equal(selected.state._storageRevision, 5)
+  assert.equal(selected.state.messages.length, 4)
+  assert.deepEqual(reads, [5], '从最新版本往回读，命中即停')
+})
+
+test('checkpoint 已含本轮输入时，向更早的提交快照回退取正文结束状态', async () => {
+  const messages = []
+  for (let turn = 1; turn <= 2; turn++) messages.push({ role: 'user', text: 'in' + turn }, { role: 'assistant', text: 'out' + turn })
+  const make = (rows, revision) => ({ id: 'chat', sessionId: 'source', mode: 'story', settleStatus: 'done', _storageRevision: revision,
+    messages: structuredClone(messages.slice(0, rows)), timeline: { checkpoints: [] } })
+  const states = new Map([[2, make(2, 2)], [3, make(3, 3)], [4, make(3, 4)]])
+  // The second round's checkpoint names the state after the player's input row, so the
+  // first reply's own snapshot sits before it and no forward probe can reach it.
+  const source = make(4, 8)
+  source.timeline.checkpoints = [{ beforeRevision: 4 }]
+  const selected = await conversationStateAtMessage(source, 1, async (_id, revision) => structuredClone(states.get(revision)))
+  assert.equal(selected.state._storageRevision, 2)
+  assert.equal(selected.state.messages.length, 2)
+})
+
 test('陈旧或内容不符的快照不会被当作所选消息的状态', async () => {
   const { source, states, read } = chain(3)
   states.get(2).messages[1].text = '其他分支的正文'
