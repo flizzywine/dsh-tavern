@@ -1,6 +1,7 @@
 // dsh-go 上的酒馆启动器：面板与状态条都是 App 原生画的 JSON，逻辑跑在 DSH 引擎里。
 // 这里只改 web profile 的 bundle 列表；profile 切换与重启由 App 负责。
 import { planDisable, planEnable, updateProfile } from './bundles.js'
+import { dataHomeHint, ensureDataHome, inspectDataHome } from './data-home.js'
 import { TAVERN_BUNDLES, readStatus, resolveDshHome } from './status.js'
 
 export const name = 'dsh-tavern-dshgo'
@@ -30,7 +31,7 @@ function toggleText(status, zh) {
   return zh ? '启用酒馆' : 'Enable Tavern'
 }
 
-function panelView(status, zh) {
+function panelView(status, home, zh) {
   const children = [
     { type: 'text', text: phaseText(status, zh) },
     { type: 'text', text: `${zh ? '配置目录' : 'Profile'} ${status.profileDir}` },
@@ -41,6 +42,7 @@ function panelView(status, zh) {
   } else if (status.missing.length > 0) {
     children.push({ type: 'text', text: (zh ? '待写入：' : 'Pending: ') + status.missing.join(', ') })
   }
+  children.push({ type: 'callout', text: dataHomeHint(inspectDataHome(home), zh) })
   if (status.error !== null) children.push({ type: 'text', text: status.error })
   children.push({
     type: 'actions',
@@ -66,6 +68,13 @@ function toggle(home, zh) {
     const more = status.missingModules.length > 2 ? ' 等' : ''
     return zh ? `还缺 ${status.missingModules.length} 个包，先装 ${names}${more}` : `${status.missingModules.length} packages are not installed yet`
   }
+  // 存档目录没挂到 dsh-go 下就先别启用：一旦开玩，重置引擎会把 profile-data 整个删掉。
+  const data = ensureDataHome(home)
+  if (data.state !== 'linked') {
+    return zh
+      ? '存档目录已是实体目录或指向别处，先手动迁移再启用'
+      : 'Move the data directory under dsh-go/tavern-data first'
+  }
   updateProfile({ home, apply: planEnable, beforeFirstChange: true })
   return zh ? '已启用，去「引擎」页重启后生效' : 'Enabled; restart the engine from its page'
 }
@@ -80,7 +89,7 @@ export function apply(ctx) {
     ctx.dshGo.strip('tavern-status', (scope, emit, caps) => emit({ text: stripText(snapshot(), zhOf(caps)) }))
 
     ctx.dshGo.panel('tavern', {
-      view: (scope, caps) => panelView(snapshot(), zhOf(caps)),
+      view: (scope, caps) => panelView(snapshot(), home, zhOf(caps)),
       actions: {
         refresh: () => ({ refresh: 'tavern' }),
         toggle: (scope, event) => {
