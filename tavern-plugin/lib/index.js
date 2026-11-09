@@ -3816,7 +3816,7 @@ export async function apply(ctx) {
     const card = await castCardOf(str(args?.sessionId)).catch(() => null)
     const extension = card ? await cardStageExtension(card.path) : null
     const engine = settingsSectionProvider(ctx, ENGINE_SECTION)?.describe().find(row => row.ns === ENGINE_SECTION)?.value
-    return {stepAside:stageRuntime.status() === 'ready' && cardStageVoicing(extension, engine), auto:ctx.get('tts')?.reading().readAloud.auto === true}
+    return {stepAside:stageRuntime.status() === 'ready' && cardStageVoicing(extension, engine), auto:voiceService()?.reading().readAloud.auto === true}
   }
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
   rpcHandlers.setStageEnabled = async args => stageSwitch.setEnabled(args?.enabled)

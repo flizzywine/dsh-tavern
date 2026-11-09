@@ -297,6 +297,7 @@ export function createStageAssets(core) {
   stageExtensions.register('timer', createTimerExtension)
   ctx.provide('stageExtensions', stageExtensions)
   const assetEngineSettings = createAssetEngineSettings(ctx)
+  const getTts = () => ctx.get('tts')
   // A card's stage switch in effect (effectiveCardStage: the card's own setting over the global stageToggles), for the
   // readers that have a chat or card path, not a stage snapshot.
   async function cardStageSwitch(cardPath, key) {
@@ -310,7 +311,7 @@ export function createStageAssets(core) {
     return {dialogue:stage.dialogue === true, stage:stage.stage === true}
   }
   const cardStage = createCardStage({cardStorage:core.cardStorage,measure:core.measure,
-    getTts:() => ctx.get('tts'),getEngine:() => assetEngineSettings.read().values,
+    getTts,getEngine:() => assetEngineSettings.read().values,
     getAssetLibrary:() => ctx.get('assetLibrary'),getGlobalEnabledPackIds:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []})
   ctx.effect(() => core.modelSlots.register('dsh-tavern-stage',{
     rows:() => modelSlotRows(STAGE_MODEL_MANIFESTS,['dsh.stage']),scoring:() => assetEngineSettings.read().values.judge
@@ -322,7 +323,7 @@ export function createStageAssets(core) {
     resolveSelection:async args => {
       return Object.hasOwn(args,'selection') ? args.selection : resolveSlot('dsh.stage','director',args.sessionId)
     }})
-  const figureVoiceAuthoring = createFigureVoiceAuthoring({getLibrary:() => ctx.get('assetLibrary'),getTts:() => ctx.get('tts')})
+  const figureVoiceAuthoring = createFigureVoiceAuthoring({getLibrary:() => ctx.get('assetLibrary'),getTts})
   ctx.effect(() => assetEngineSettings.subscribe(() => figureVoiceAuthoring.invalidate()))
   ctx.effect(() => () => figureVoiceAuthoring.dispose())
   for (const name of ['assetLibrary','tts']) ctx.inject([name], child => child.effect(() => () => figureVoiceAuthoring.invalidate()))
