@@ -1134,6 +1134,82 @@ test('重新生成使用当前状态和当前预设材料，不复用旧正文�
   assert.doesNotMatch(JSON.stringify(frame), /冻结材料/)
 })
 
+test('重新生成准备缓存命中后跳过重新组建，但仍发送模型请求', async () => {
+  const h = harness()
+  let keyReads = 0, builds = 0, firstInput = null
+  h.options.prepareRegenerationFrameCache = async ({ chat, userText, turn }) => {
+    keyReads++
+    return {
+      key: [chat.posture, userText, turn].join('|'),
+      arguments: {
+        runtimePresetSnapshot: { middle: [{ role: 'system', content: '缓存预设' }] },
+        pluginSections: [{ owner: 'fixture', text: '缓存插件段落' }],
+        cardExtensions: { regexScripts: [] }
+      }
+    }
+  }
+  const prepare = h.options.prepareRegenerationFrame
+  h.options.prepareRegenerationFrame = async input => {
+    builds++
+    firstInput ||= input
+    return prepare(input)
+  }
+  const history = h.create()
+  h.setGeneration('throw')
+  await assert.rejects(history.regenerate('chat', '', 'session'), /fixture generation failed/)
+  assert.equal(builds, 1)
+  assert.equal(keyReads, 1)
+  assert.equal(firstInput.runtimePresetSnapshot.middle[0].content, '缓存预设')
+  assert.equal(firstInput.pluginSections[0].text, '缓存插件段落')
+  assert.deepEqual(firstInput.cardExtensions, { regexScripts: [] })
+
+  h.setGeneration('success')
+  await history.regenerate('chat', '', 'session')
+  assert.equal(builds, 1)
+  assert.equal(keyReads, 2)
+  assert.equal(h.calls.filter(call => call === 'followup').length, 2)
+})
+
+test('重新生成准备缓存随输入、状态和目标变量失效', async () => {
+  const h = harness()
+  let builds = 0
+  h.options.prepareRegenerationFrameCache = async ({ chat, userText, target }) => ({
+    key: [chat.posture, userText, JSON.stringify(target.variables)].join('|'),
+    arguments: {}
+  })
+  const prepare = h.options.prepareRegenerationFrame
+  h.options.prepareRegenerationFrame = async input => { builds++; return prepare(input) }
+  const history = h.create()
+
+  h.setGeneration('throw')
+  await assert.rejects(history.regenerate('chat', '', 'session'), /fixture generation failed/)
+  await assert.rejects(history.regenerate('chat', '更冷一点', 'session'), /fixture generation failed/)
+  assert.equal(builds, 2)
+
+  h.chat.posture = '门内'
+  await assert.rejects(history.regenerate('chat', '更冷一点', 'session'), /fixture generation failed/)
+  assert.equal(builds, 3)
+
+  h.chat.posture = '门外'
+  h.chat.messages.at(-1).variables = [{ hp: 7 }]
+  await assert.rejects(history.regenerate('chat', '更冷一点', 'session'), /fixture generation failed/)
+  assert.equal(builds, 4)
+})
+
+test('缓存键为空时每次都重新组建', async () => {
+  const h = harness()
+  let builds = 0
+  h.options.prepareRegenerationFrameCache = async () => null
+  const prepare = h.options.prepareRegenerationFrame
+  h.options.prepareRegenerationFrame = async input => { builds++; return prepare(input) }
+  const history = h.create()
+
+  h.setGeneration('throw')
+  await assert.rejects(history.regenerate('chat', '', 'session'))
+  await assert.rejects(history.regenerate('chat', '', 'session'))
+  assert.equal(builds, 2)
+})
+
 test('session 重生成入口读取完整故事，不需要页面传正文 ID', async () => {
   const h = harness()
   h.chat.messages.push({ role: 'user', text: '最新输入', sourceText: '最新输入', native: true,

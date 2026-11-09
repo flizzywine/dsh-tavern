@@ -407,9 +407,8 @@ export function createTurnOrchestrator(options) {
       // refuses any Proxy ("[object Array] could not be cloned."): materialize the
       // visible rows before the planning copy.
       chat = structuredClone(isScopedMessages(chat.messages) ? { ...chat, messages: Array.from(chat.messages) } : chat)
-      if (!Object.hasOwn(input, 'runtimePresetSnapshot')) {
-        input = { ...input, runtimePresetSnapshot: await resolvePreset(chat, { preview: true }) }
-      }
+      if (Object.hasOwn(input, 'runtimePresetSnapshot')) chat.runtimePresetSnapshot = clone(input.runtimePresetSnapshot)
+      else input = { ...input, runtimePresetSnapshot: await resolvePreset(chat, { preview: true }) }
     }
     // Candidate-first regeneration reuses the frozen frame captured for it.
     // A preview must always plan from current state, never from a remembered one.
@@ -547,9 +546,11 @@ export function createTurnOrchestrator(options) {
     const card = cardPath === '' ? null : mode === 'card' ? { name: chat.cardName } : await store.readCard(cardPath, chat)
     if (cardPath !== '' && card === undefined) throw new Error('人物卡不存在: ' + cardPath)
     if ((mode === 'story' || mode === 'script') && !reusedRuntimeInput) {
-      const extensions = typeof store.readCardExtensions === 'function'
-        ? await store.readCardExtensions(cardPath, chat)
-        : null
+      const extensions = Object.hasOwn(input, 'cardExtensions')
+        ? clone(input.cardExtensions)
+        : typeof store.readCardExtensions === 'function'
+          ? await store.readCardExtensions(cardPath, chat)
+          : null
       const presetRegexScripts = await resolvePresetRegexScripts(chat)
       const regexScripts = composeTavernRegexScripts(extensions, presetRegexScripts, chat.regexOverrides && chat.regexOverrides.preset)
       // As in SillyTavern, only permanent input rules change the stored player
@@ -633,8 +634,10 @@ export function createTurnOrchestrator(options) {
     }
     const plan = await planner.plan({ purpose: 'body', card, chat: templateWorldBook?.macroState ? { ...chat, macroState: templateWorldBook.macroState } : chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: null, variableUpdate: variableUpdateFor(chat), worldBookContext })
     // Seam to the plugin layer; it never throws and drops a failing plugin's part.
-    const pluginSections = typeof options.pluginTurnContext === 'function'
-      ? await options.pluginTurnContext({ gameId: input.sessionId, turn, input: userText }).catch(() => []) : []
+    const pluginSections = Object.hasOwn(input, 'pluginSections') && Array.isArray(input.pluginSections)
+      ? clone(input.pluginSections)
+      : typeof options.pluginTurnContext === 'function'
+        ? await options.pluginTurnContext({ gameId: input.sessionId, turn, input: userText }).catch(() => []) : []
     const rosterAddendum = foregroundWorldBook && typeof options.foregroundRosterAddendum === 'function'
       ? await options.foregroundRosterAddendum({ chat, userText: runtimeUserText }) : ''
     const source = frameSource(chat, card, foregroundOperation)

@@ -153,6 +153,7 @@ function harness(mode, options = {}) {
   })
   return {
     orchestrator,
+    store,
     chat: () => clone(chat),
     card: () => clone(card),
     cardWorkspace: () => clone(cardWorkspace),
@@ -226,6 +227,26 @@ test('重生成预演使用发送时的当前世界书且不写故事', async ()
   assert.deepEqual(run.chat(), before)
   assert.equal(run.chat().messages.length, 0)
   assert.equal(run.chat().foregroundFrames, undefined)
+})
+
+test('预演直接使用已解析的预设、插件段落和卡扩展，不重复读取', async () => {
+  const run = harness('story', {
+    resolvePreset: async () => { throw new Error('不应重新解析预设') },
+    pluginTurnContext: async () => { throw new Error('不应重新读取插件段落') }
+  })
+  let extensionReads = 0
+  const readExtensions = run.store.readCardExtensions
+  run.store.readCardExtensions = async (...args) => { extensionReads++; return readExtensions(...args) }
+  const preset = { middle: { entries: [{ role: 'system', content: '复用预设' }] } }
+  const pluginSections = [{ owner: 'fixture', name: 'fixture', text: '复用插件段落' }]
+
+  const prepared = await run.orchestrator.preview({ sessionId: 'session-1', turn: 5, userText: '新的行动',
+    runtimePresetSnapshot: preset, pluginSections, cardExtensions: { regexScripts: [], helperScripts: [] } })
+
+  const text = foregroundFrameText(prepared.frame)
+  assert.match(text, /复用预设/)
+  assert.match(text, /复用插件段落/)
+  assert.equal(extensionReads, 0)
 })
 
 test('卡片 raw 扩展修改先暂存，最终回复后才写入工作 raw', async () => {

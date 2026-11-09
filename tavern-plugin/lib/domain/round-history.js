@@ -99,27 +99,43 @@ function cloneFrame(value) {
  * body's frozen frame is not a request recipe: preset, worldbook, card and state
  * may all have changed since it was written.
  */
-async function candidateRegenerationFrame(chat, operationId, nativeTurn, inputText, prepareFrame) {
+async function candidateRegenerationFrame(chat, operationId, nativeTurn, inputText, prepareFrame, reuse = null) {
   if (typeof prepareFrame !== 'function') throw new Error('当前宿主未提供正文重新生成准备接口')
-  const prepared = await prepareFrame({
-    sessionId: chat.sessionId,
-    turn: nativeTurn,
-    requestId: 'regeneration:' + operationId,
-    userText: inputText,
-    userContent: { role: 'user', content: [{ type: 'text', text: inputText }] }
-  })
+  let prepared
+  if (reuse?.frame) {
+    prepared = { frame: reuse.frame, userText: str(reuse.frame.userInput?.projectedText) }
+  } else {
+    prepared = await prepareFrame({
+      ...(reuse?.arguments && typeof reuse.arguments === 'object' ? reuse.arguments : {}),
+      sessionId: chat.sessionId,
+      turn: nativeTurn,
+      requestId: 'regeneration:' + operationId,
+      userText: inputText,
+      userContent: { role: 'user', content: [{ type: 'text', text: inputText }] }
+    })
+  }
   const built = prepared?.frame
   if (!built || built.kind !== 'foreground' || !Array.isArray(built.contributions)) {
     throw new Error('重新生成没有取得当前请求材料')
   }
   const frame = cloneFrame(built)
   const branchId = str(chat.timeline?.branchId || frame.branchId) || 'main'
+  const basedOnRevision = Math.max(0, Number(chat.timeline?.revision) || 0)
   frame.frameId = 'foreground:' + chat.id + ':' + branchId + ':' + operationId
   frame.chatId = chat.id
   frame.branchId = branchId
-  frame.basedOnRevision = Math.max(0, Number(chat.timeline?.revision) || 0)
+  frame.basedOnRevision = basedOnRevision
   frame.operationId = operationId
   frame.turn = nativeTurn
+  // A reused frame still describes the same request; only this operation's
+  // identity and base revision move with the save.
+  if (frame.source && typeof frame.source === 'object') {
+    frame.source = { ...frame.source,
+      state: { ...(frame.source.state && typeof frame.source.state === 'object' ? frame.source.state : {}), branchId, revision: basedOnRevision },
+      ...(frame.source.worldBook && typeof frame.source.worldBook === 'object'
+        ? { worldBook: { ...frame.source.worldBook, branchId, revision: basedOnRevision } }
+        : {}) }
+  }
   frame.userInput = { ...(frame.userInput || {}), sourceText: inputText, projectedText: str(prepared.userText) || inputText, source: { stage: 'player-input' } }
   return frame
 }
@@ -310,7 +326,7 @@ function commitOfRound(commits, assistant, userText) {
 }
 
 export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement, present, diagnostics, sessionPatch,
-  readRegenerationMaterials, prepareRegenerationFrame, prepareRegenerationReply, notifyRegeneration, trace }) {
+  readRegenerationMaterials, prepareRegenerationFrame, prepareRegenerationFrameCache, prepareRegenerationReply, notifyRegeneration, trace }) {
   const { read: readChat, forSession: chatForSession, readCard: readChatCard, readState: readChatState,
     readRevision: readChatRevision, write: writeChat, update: updateChat } = chats
   const stage = (name, task) => trace?.stage ? trace.stage(name, task) : task()
@@ -320,6 +336,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   const view = present
   const pendingRollbacks = new Set()
   const pendingRegenerations = new Set()
+  // One prepared frame per save. It is only a request recipe: every hit is
+  // keyed by the current materials and still goes through the model request.
+  const regenerationFrames = new Map()
+  const REGENERATION_FRAME_CACHE_LIMIT = 8
   const regenerationRecovery = createRegenerationRecovery({ chats, sessions, timeline, isActive: id => pendingRegenerations.has(id) })
   const regenerateWithProvider = createPluginBodyRegeneration({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement,
     sessionPatch, readRegenerationMaterials, prepareRegenerationReply, notifyRegeneration,
@@ -493,11 +513,40 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // An edited body must reach the model even without guidance: the old body was
     // already taken off the native surface, so this request is its only copy.
     const currentBody = failedTail ? '' : replyTextOf(msgs0[oldAssistantIndex])
-    const syntheticText = regenerationInputText(originalUserText, guide, currentBody,
-      { keepBody: !failedTail && editedReplyBody(msgs0[oldAssistantIndex]) })
+    const editedBody = !failedTail && editedReplyBody(msgs0[oldAssistantIndex])
+    const syntheticText = regenerationInputText(originalUserText, guide, currentBody, { keepBody: editedBody })
+    // Only a body that the regeneration request actually carries can change the
+    // prepared frame. A plain reroll drops the old prose, so it stays out of the
+    // cache key while the player input and any guidance remain in it.
+    const cacheText = str(currentBody).trim() !== '' && (guide !== '' || editedBody)
+      ? syntheticText
+      : regenerationInputText(originalUserText, guide, '')
     const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
     const candidateTurn = beforeLastTurn + 1
-    const candidateFrame = await candidateRegenerationFrame(originalChat, operationId, candidateTurn, syntheticText, prepareRegenerationFrame)
+    // A fresh sample of the same round removes its old reply before the model
+    // request. When every other material is identical, the prepared frame is
+    // still the recipe for this request and the expensive preparation can be
+    // skipped; the model request itself is never skipped or cached.
+    const cacheProbe = typeof prepareRegenerationFrameCache === 'function'
+      ? await stage('regen.frame-key', async () => {
+          try {
+            return await prepareRegenerationFrameCache({ chat: originalChat, card, turn: candidateTurn, userText: cacheText,
+              target: failedTail ? null : msgs0[oldAssistantIndex], targetAssistantIndex: oldAssistantIndex })
+          } catch { return null }
+        })
+      : null
+    const cacheKey = typeof cacheProbe?.key === 'string' ? cacheProbe.key : ''
+    const cached = cacheKey !== '' ? regenerationFrames.get(chat.id) : null
+    const reusable = cached && cached.key === cacheKey ? cached : null
+    const candidateFrame = await stage('regen.prepare-frame', () => candidateRegenerationFrame(originalChat, operationId, candidateTurn,
+      syntheticText, prepareRegenerationFrame, reusable || (cacheProbe?.arguments ? { arguments: cacheProbe.arguments } : null)))
+    if (cacheKey !== '') {
+      regenerationFrames.delete(chat.id)
+      regenerationFrames.set(chat.id, { key: cacheKey, frame: cloneFrame(candidateFrame) })
+      while (regenerationFrames.size > REGENERATION_FRAME_CACHE_LIMIT) regenerationFrames.delete(regenerationFrames.keys().next().value)
+    } else {
+      regenerationFrames.delete(chat.id)
+    }
     const discarded = failedTail ? null : createRegenerationDiscard(msgs0[oldAssistantIndex], oldAssistantIndex, inputIndex)
     const targetMessageUid = discarded?.assistant.messageUid || ''
     let legacyBefore = null

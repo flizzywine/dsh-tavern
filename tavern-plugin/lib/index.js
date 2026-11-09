@@ -243,7 +243,8 @@ import { clearFailedTurnSurface, rollbackAvailability, reshadowRolledBackRounds,
 import { replyBody } from './domain/round-body.js'
 import { paragraphSpeech } from './domain/paragraph-speech.js'
 import { createDisplayRuntimeCapture } from './domain/display-runtime-capture.js'
-import { createPluginBodyGeneration } from './domain/plugin-body-generation.js'
+import { createPluginBodyGeneration, configuredBodyGeneration } from './domain/plugin-body-generation.js'
+import { regenerationFrameKey } from './domain/regeneration-frame-cache.js'
 import { STORY_GENERATE_TOOL_NAME, createStorySubmissionTool, foldStorySubmission, STORY_SUBMIT_TOOL_NAME } from './domain/story-tool-submission.js'
 import { readHistoryLayoutFile } from './domain/history-tool-call.js'
 import { createTavernRetryLimiter } from './domain/tavern-retry-limiter.js'
@@ -3354,6 +3355,16 @@ export async function apply(ctx) {
   }
   const foregroundFrameBuilder = createForegroundFrameBuilder()
   const foregroundFrameSessionAdapter = createForegroundFrameSessionAdapter({ id: randomUUID })
+  // Beside this turn's input: the plugins' sections, then (文风联想 on) a short reminder to make the
+  // style_reference_submit call first. The full instructions stay in the stable system prompt; the
+  // reminder is what the model reads last, so the call is not skipped.
+  async function projectPluginTurnContext(input) {
+    const sections = await Promise.resolve(pluginApi.turnContext(input)).catch(() => [])
+    const header = await chatHeaderForSession(str(input.gameId), ['mode', 'backgroundTasks']).catch(() => null)
+    if ((header?.mode || 'story') !== 'story' || header?.backgroundTasks?.styleReference !== true) return sections
+    return [...(sections || []), { owner: 'dsh-tavern', name: 'style-reference', position: 'after',
+      text: '【本轮先做文风联想】写正文之前，先按「前台文风联想」的要求调用 style_reference_submit，记下一段贴合本轮场景的范文；调用成功后再写本轮正文。' }]
+  }
   const turnOrchestrator = createTurnOrchestrator({
     // Either direction needs submit_story declared: output to submit this turn,
     // input because the replayed history calls name that tool.
@@ -3391,16 +3402,7 @@ export async function apply(ctx) {
     renderMacros: function (text, chat) {
       return renderCardText(text, { name: chat.cardName }, chat.macroState)
     },
-    // Beside this turn's input: the plugins' sections, then (文风联想 on) a short reminder to make the
-    // style_reference_submit call first. The full instructions stay in the stable system prompt; the
-    // reminder is what the model reads last, so the call is not skipped.
-    pluginTurnContext: async input => {
-      const sections = await Promise.resolve(pluginApi.turnContext(input)).catch(() => [])
-      const header = await chatHeaderForSession(str(input.gameId), ['mode', 'backgroundTasks']).catch(() => null)
-      if ((header?.mode || 'story') !== 'story' || header?.backgroundTasks?.styleReference !== true) return sections
-      return [...(sections || []), { owner: 'dsh-tavern', name: 'style-reference', position: 'after',
-        text: '【本轮先做文风联想】写正文之前，先按「前台文风联想」的要求调用 style_reference_submit，记下一段贴合本轮场景的范文；调用成功后再写本轮正文。' }]
-    },
+    pluginTurnContext: projectPluginTurnContext,
     projectUserTemplate: async ({chat,text,preview}) => {
       const global = await readPromptTemplateGlobalVariables()
       const result = await fullTemplateRuntime.forSession(chat.sessionId).renderInput(text, {userName:chat.macroState?.userName || '你',scopes:{global,local:chat.variables || {},initial:chat.promptTemplateInitialVariables || {},message:lastTavernHelperVariables(chat.messages) || {}}})
@@ -3555,6 +3557,29 @@ export async function apply(ctx) {
     // Build the replacement request from the save as it is now. This is the same
     // preparation a normal send runs, without writing a candidate story row.
     prepareRegenerationFrame: input => turnOrchestrator.preview(input),
+    // Same current materials as the preview above, hashed without the reply being
+    // replaced. A matching frame can be reused; a changed material returns a new
+    // key and the preview rebuilds it.
+    prepareRegenerationFrameCache: async ({ chat, card, turn, userText, target, targetAssistantIndex }) => {
+      if (!chat || !card || !['story', 'script'].includes(chat.mode || 'story')) return null
+      const settings = await readTavernSettings()
+      if (str(configuredBodyGeneration(chat, settings).mode).startsWith('plugin-')) return null
+      const preset = await resolveChatRuntimePreset({ ...chat }, { preview: true })
+      const worldBook = await playWorldBook(chat, card)
+      const pluginSections = await projectPluginTurnContext({ gameId: chat.sessionId, turn, input: userText })
+      const globals = await readPromptTemplateGlobalVariables()
+      const extensions = await readCardExtensions(chat.cardPath || chat.cardId, chat)
+      const prompts = ['story', 'script-story'].map(name => runtimePrompt(name))
+      const history = (Array.isArray(chat.messages) ? chat.messages : []).filter((_, index) => index !== targetAssistantIndex)
+      const key = regenerationFrameKey({ chat, card, preset, worldBook, pluginSections, globals, settings, extensions, prompts,
+        userText, target, turn, branchId: chat.timeline?.branchId, targetAssistantIndex })
+      if (key === null) return null
+      const argumentsForPreview = {}
+      if (preset !== undefined) argumentsForPreview.runtimePresetSnapshot = preset
+      if (Array.isArray(pluginSections)) argumentsForPreview.pluginSections = pluginSections
+      if (extensions !== undefined) argumentsForPreview.cardExtensions = extensions
+      return { key, arguments: argumentsForPreview }
+    },
     // Providers return already-processed prose. Their imported regexes must not
     // run again in the host, including when the view is refreshed later.
     prepareRegenerationReply: ({ text }) => projectProcessedReply(text),
