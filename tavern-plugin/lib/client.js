@@ -52348,7 +52348,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 				else if (e.key === "Escape") { e.preventDefault(); props.onCancel(); }
 			}
 			const body = props.loading
-				? h(React.Fragment, null, h("div", { className: "dsh-tavern-regen-loading" }, props.loading), props.loadingExtra || null)
+				? (props.loading || props.loadingExtra ? h(React.Fragment, null, props.loading ? h("div", { className: "dsh-tavern-regen-loading" }, props.loading) : null, props.loadingExtra || null) : null)
 				: h(React.Fragment, null,
 					props.error ? h("div", { className: "dsh-tavern-choice-error" }, props.error) : null,
 					h(TextArea, {
@@ -52373,7 +52373,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			return h("div", { className: "dsh-tavern-question dsh-tavern-regen" },
 				h("div", { className: "dsh-tavern-regen-head" },
 					h("span", { className: "dsh-tavern-regen-title" }, props.title),
-					h("span", { className: "dsh-tavern-question-sub" }, props.hint)
+					props.hint ? h("span", { className: "dsh-tavern-question-sub" }, props.hint) : null
 				),
 				body
 			);
@@ -52478,8 +52478,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         }
         return h(RegenGuideForm, {
                 title: "重新生成正文",
-                hint: "留空则重新生成；填写意见则按要求改写正文。" + (styleEnabled ? "同一份意见也会用于更新文风联想。" : "") + "精修会按精修原则和意见修改正文，对比和撤销在「精修」页。",
-                loading: reviewing ? "正在精修正文… " + reviewSeconds + " 秒" + (reviewProgress?.edits?.length ? " · 已修 " + reviewProgress.edits.length + " 处" : "") : panel.phase === "loading" ? (panel.restyle ? "正在换文风联想并重新生成…" : panel.rewrite ? "正在按意见改写正文…" : "正在重新生成正文…") : "",
+                loading: reviewing ? "正在精修正文… " + reviewSeconds + " 秒" + (reviewProgress?.edits?.length ? " · 已修 " + reviewProgress.edits.length + " 处" : "") : panel.phase === "loading" ? (panel.restyle ? "正在换文风联想并重新生成…" : panel.rewrite ? "正在按意见改写正文…" : "") : "",
                 loadingExtra: reviewing && reviewProgress?.edits?.length ? h("div", { className: "dsh-tavern-settings-desc", role: "status" },
                     h("p", null, "逐处生成中，完成后统一保存："),
                     reviewProgress.edits.map(function (edit, index) { return h("details", { key: index },

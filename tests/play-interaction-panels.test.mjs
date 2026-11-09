@@ -63,7 +63,9 @@ test('panels use the flow interface and candidate selection preserves user edits
   await act(async () => interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'loading' }))
   running = true
   await render(panels.RegenPanel)
-  assert.match(dom.window.document.querySelector('.dsh-tavern-regen-loading').textContent, /正在重新生成正文/)
+  assert.match(dom.window.document.querySelector('.dsh-tavern-regen-title').textContent, /重新生成正文/)
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-regen-loading'), null, '重新生成时不再挂提示标签')
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-question-sub'), null, '面板头不再显示提示小字')
   await act(async () => interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'input' }))
   await render(panels.RegenPanel)
   assert.equal(dom.window.document.querySelector('.dsh-tavern-regen'), null)
