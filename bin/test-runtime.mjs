@@ -3,6 +3,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import desktop from './official-desktop-runtime.cjs'
 import { isAsarPath } from './desktop-host-paths.mjs'
+import { desktopResourceHostAnchors } from '../tavern-plugin/lib/domain/host-package-resolution.js'
 import { assertCompatibleDshVersion } from './dsh-compatibility.mjs'
 
 // Select one installation for the whole test process, including its children.
@@ -18,8 +19,11 @@ export function selectTestRuntime({ env = process.env, installation = {}, execPa
     executable = path.resolve(executable)
     if (!existsSync(executable)) throw new Error('测试所选桌面程序不存在：' + executable)
     const layout = desktop.layout(executable, platform)
-    if (layout.name !== '@deepseek-ai/dsh-desktop') throw new Error('测试需要官方 DeepSeek Harness：' + executable)
-    return { command: executable, args: ['--expose-internals'], anchor: path.join(layout.host, 'package.json'),
+    const next = layout.name === 'dsh-desktop-next'
+    if (!next && layout.name !== '@deepseek-ai/dsh-desktop') throw new Error('测试需要官方 DeepSeek Harness：' + executable)
+    const anchor = path.join(layout.host, 'package.json')
+    const anchors = [...new Set([anchor, ...desktopResourceHostAnchors(layout.resources, { next }).map(candidate => candidate.anchor)])]
+    return { command: executable, args: ['--expose-internals'], anchor, anchors, host: next ? 'next' : 'desktop',
       boot: env.DSH_BOOT_MODULE ? path.resolve(env.DSH_BOOT_MODULE) : undefined,
       env: { ...env, ELECTRON_RUN_AS_NODE: '1', DSH_DESKTOP_APP_EXECUTABLE: executable } }
   }
@@ -29,8 +33,11 @@ export function selectTestRuntime({ env = process.env, installation = {}, execPa
 
 export function probeTestRuntime(runtime, run = spawnSync, { checkCompatibility = true } = {}) {
   const script = `const {createRequire}=require('node:module');
-const r=createRequire(${JSON.stringify(runtime.anchor || runtime.boot)});
-const boot=${JSON.stringify(runtime.boot)} || r.resolve('@deepseek-ai/dsh-app-boot');
+const anchors=${JSON.stringify(runtime.anchors || [runtime.anchor || runtime.boot])};
+const boot=${JSON.stringify(runtime.boot)} || anchors.map(anchor => {
+  try { return createRequire(anchor).resolve('@deepseek-ai/dsh-app-boot'); } catch { return null; }
+}).find(Boolean);
+if (!boot) throw new Error('未找到 DSH 启动入口');
 const br=createRequire(boot);
 console.log(JSON.stringify({boot,nodeVersion:process.versions.node,version:br('@deepseek-ai/dsh-app-boot/package.json').version}));`
   const result = run(runtime.command, [...runtime.args, '-e', script], {
@@ -40,6 +47,6 @@ console.log(JSON.stringify({boot,nodeVersion:process.versions.node,version:br('@
   let report
   try { report = JSON.parse(result.stdout.trim()) } catch { throw new Error('DSH 运行时没有返回有效版本信息') }
   if (!report.boot || !report.version) throw new Error('DSH 运行时缺少入口或版本信息')
-  if (checkCompatibility) assertCompatibleDshVersion(report.version, 'desktop', report.nodeVersion || '')
+  if (checkCompatibility) assertCompatibleDshVersion(report.version, runtime.host || 'desktop', report.nodeVersion || '')
   return { ...runtime, boot: report.boot, version: report.version, nodeVersion: report.nodeVersion, env: { ...runtime.env, DSH_BOOT_MODULE: report.boot } }
 }

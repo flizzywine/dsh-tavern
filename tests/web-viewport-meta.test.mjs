@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { patchViewportMetaSource } from '../tavern-plugin/lib/domain/web-viewport-meta.js'
-import { findHostViewportPage, patchHostViewportFile } from '../tavern-plugin/lib/domain/host-viewport-patch.js'
+import { findHostViewportPage, installHostViewportPatch, patchHostViewportFile } from '../tavern-plugin/lib/domain/host-viewport-patch.js'
 
 const host = `<!doctype html>
 <html lang="en">
@@ -113,7 +113,7 @@ test('改写不碰 pnpm store：硬链接的原文件保持原样', async () => 
   }
 })
 
-test('发布版运行时的 bin/dsh 是符号链接，也能顺着找到网页外壳', async () => {
+test('发布版运行时的 bin/dsh 是符号链接，也能顺着找到网页外壳', async t => {
   const dir = await mkdtemp(path.join(tmpdir(), 'dsh-runtime-'))
   try {
     // 复刻 runtime/bin/dsh -> ../lib/node_modules/@deepseek-ai/dsh/lib/bin.js 的布局：
@@ -129,11 +129,38 @@ test('发布版运行时的 bin/dsh 是符号链接，也能顺着找到网页�
       name: '@deepseek-ai/dsh-web-frontend', exports: { './dist/*': './dist/*', './package.json': './package.json' },
     }))
     await writeFile(page, host)
-    await symlink(path.join('..', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'), path.join(bin, 'dsh'))
+    try {
+      await symlink(path.join('..', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'), path.join(bin, 'dsh'))
+    } catch (error) {
+      if (process.platform === 'win32' && error.code === 'EPERM') return t.skip('Windows file symlinks require permission')
+      throw error
+    }
     assert.equal(findHostViewportPage(path.join(bin, 'dsh')), page)
     assert.equal(patchHostViewportFile(page), true)
     assert.match(await readFile(page, 'utf8'), /interactive-widget=resizes-content/)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('第一个宿主邻居缺网页时继续查找其他宿主邻居', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'dsh-viewport-neighbors-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const pluginAnchor = path.join(dir, 'plugin', 'package.json')
+  const scope = path.join(path.dirname(pluginAnchor), 'node_modules', '@deepseek-ai')
+  await mkdir(scope, { recursive: true })
+  await writeFile(pluginAnchor, '{}')
+  for (const [tree, name] of [['unrelated', 'dsh-tools'], ['host', 'dsh-agent']]) {
+    const dependency = path.join(dir, tree, 'node_modules', '@deepseek-ai', name)
+    await mkdir(dependency, { recursive: true })
+    await writeFile(path.join(dependency, 'index.js'), '')
+    await symlink(dependency, path.join(scope, name), 'junction')
+  }
+  const frontend = path.join(dir, 'host', 'node_modules', '@deepseek-ai', 'dsh-web-frontend')
+  const page = path.join(frontend, 'dist', 'index.html')
+  await mkdir(path.dirname(page), { recursive: true })
+  await writeFile(path.join(frontend, 'package.json'), '{}')
+  await writeFile(page, host)
+  assert.equal(installHostViewportPatch(null, { pluginAnchor, env: {}, argv: [] }), true)
+  assert.match(await readFile(page, 'utf8'), /interactive-widget=resizes-content/)
 })

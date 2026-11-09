@@ -5,6 +5,7 @@
 import { createRequire } from 'node:module'
 import { existsSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { hostRequireCandidates } from './host-package-resolution.js'
 import { patchViewportMetaSource } from './web-viewport-meta.js'
 
 const FRONTEND_MANIFEST = '@deepseek-ai/dsh-web-frontend/package.json'
@@ -57,25 +58,16 @@ export function patchHostViewportFile(file) {
   return true
 }
 
-/** 进程内解析宿主安装根：插件自己的 require、宿主包邻居、CLI 入口依次试。 */
-export function hostViewportAnchors() {
-  const anchors = [import.meta.url]
-  const own = createRequire(import.meta.url)
-  for (const hostPackage of ['@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-app-boot']) {
-    try { anchors.push(own.resolve(hostPackage)); break } catch {}
-  }
-  if (process.argv[1]) {
-    // 发布版把 dsh 装成 bin/dsh -> ../lib/node_modules/... 的符号链接，入口的真实位置
-    // 才是可解析的锚点（node 自己解析符号链接后再加载模块）。
-    anchors.push(path.resolve(process.argv[1]))
-    try { anchors.push(realpathSync(process.argv[1])) } catch {}
-  }
-  return anchors
-}
+const VIEWPORT_NEIGHBORS = [
+  '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-app-boot',
+]
 
 /** 启动时补齐；返回 true（刚写入）、false（本来就对）或 null（这套 DSH 认不出页面）。 */
-export function installHostViewportPatch(log) {
-  for (const anchor of hostViewportAnchors()) {
+export function installHostViewportPatch(log, options) {
+  const { candidates } = hostRequireCandidates({
+    ...options, names: [], neighbors: VIEWPORT_NEIGHBORS,
+  })
+  for (const { anchor } of candidates) {
     const file = findHostViewportPage(anchor)
     if (!file) continue
     const result = patchHostViewportFile(file)

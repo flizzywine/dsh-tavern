@@ -87,6 +87,12 @@
   "tavern-plugin/lib/domain/host-subprocess-patch.js": [
     "@deepseek-ai/dsh-subprocess-local"
   ],
+  "tavern-plugin/lib/domain/host-viewport-patch.js": [
+    "@deepseek-ai/dsh-agent",
+    "@deepseek-ai/dsh-app-boot",
+    "@deepseek-ai/dsh-tools",
+    "@deepseek-ai/dsh-web-frontend/package.json"
+  ],
   "tavern-plugin/lib/domain/message-source.js": [
     "@deepseek-ai/dsh-system-prompt"
   ],

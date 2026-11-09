@@ -39,12 +39,21 @@ export function desktopLauncherEntry({ env = process.env, argv = process.argv } 
   return ''
 }
 
-// 桌面包布局在两种形态间移动过依赖：0.1.5 的 <resources>\app 是真目录，0.2.0 把宿主包
-// 放进归档后 app 目录只保留 package.json。0.2.0 的宿主根是 <resources>\app.asar\dsh。
-// 只有入口落在 <resources>\app.asar[.unpacked]\ 下时才认得这批锚点；CLI 安装（入口在真实
-// 目录里）返回 null，调用方自然只会考虑插件闭包。asar 旁解包形态也归一到同一个宿主根。
-function archiveResourcesRoot(launcherEntry) {
-  return /^(.*[\\/]resources[\\/])app\.asar(?:\.unpacked)?[\\/]/i.exec(launcherEntry)?.[1] || null
+export function desktopResourcesFromAnchor(anchor) {
+  return /^(.*[\\/]resources[\\/])(?:app|app\.asar|app\.asar\.unpacked)(?:[\\/]|$)/i.exec(anchor)?.[1] || null
+}
+
+export function desktopResourceHostAnchors(resources, { next = false } = {}) {
+  const hostParts = next ? [] : [HOST_RUNTIME_DIRECTORY]
+  return [
+    { label: 'desktop-archive-host', anchor: path.join(resources, APP_ARCHIVE, ...hostParts, 'package.json') },
+    { label: 'resources-app-host', anchor: path.join(resources, 'app', ...hostParts, 'package.json') },
+    { label: 'resources-unpacked-host', anchor: path.join(resources, 'app.asar.unpacked', ...hostParts, 'package.json') },
+    ...next ? [] : [
+      { label: 'resources-app', anchor: path.join(resources, 'app', 'package.json') },
+      { label: 'resources-app-unpacked', anchor: path.join(resources, 'app.asar.unpacked', 'package.json') },
+    ],
+  ]
 }
 
 function resolveAnchorRequire(anchor) {
@@ -70,25 +79,32 @@ function resolvesAll(require, names) {
 }
 
 // 顺序即优先级。候选根之间不做混装：调用方拿到第一个能解析全部 name 的 require。
-export function hostRequireCandidates({ names, pluginAnchor, env = process.env, argv = process.argv } = {}) {
+export function hostRequireCandidates({ names, pluginAnchor, neighbors = [], env = process.env, argv = process.argv } = {}) {
   const wanted = [...names]
+  const plugin = pluginAnchor || fileURLToPath(new URL('../../package.json', import.meta.url))
   const anchors = []
-  const push = (label, anchor) => { if (anchor) anchors.push({ label, anchor }) }
+  const push = (label, anchor) => {
+    if (anchor && !anchors.some(item => item.anchor === anchor)) anchors.push({ label, anchor })
+  }
   const launcher = desktopLauncherEntry({ env, argv })
-  const resources = archiveResourcesRoot(launcher)
-  // 归档内宿主根排在第一位：与宿主进程自己的解析结果逐字相同（见文件头实测）。
-  if (resources) push('desktop-archive-host', path.join(resources, APP_ARCHIVE, HOST_RUNTIME_DIRECTORY, 'package.json'))
+  const selected = env.DSH_TAVERN_HOST_DEPENDENCY_ANCHOR
+  const resources = desktopResourcesFromAnchor(launcher || selected)
+  const next = resources && !/(?:^|[\\/])dsh[\\/]node_modules[\\/]/i.test(launcher) &&
+    !/(?:^|[\\/])dsh[\\/]package\.json$/i.test(selected || '')
+  const desktop = resources ? desktopResourceHostAnchors(resources, { next }) : []
+  push('configured-host', selected)
+  // 没有显式锚点时优先归档内宿主根，与宿主自己的解析结果相同。
+  if (desktop.length) push(desktop[0].label, desktop[0].anchor)
   push('launcher-entry', launcher)
   // 0.1.5 的 <resources>\app 真目录布局，以及归档旁解包出的宿主根。
-  if (resources) push('resources-app', path.join(resources, 'app', 'package.json'))
-  if (resources) push('resources-app-unpacked', path.join(resources, 'app.asar.unpacked', 'package.json'))
+  for (const { label, anchor } of desktop.slice(1)) push(label, anchor)
   // Electron's asar realpath preserves the launcher's casing on Windows, while
   // its native module loader may use the on-disk spelling. Keep both candidates
   // and let the caller prove class identity before patching any live service.
   if (resources && process.platform === 'win32') {
     try {
       const archive = realpathSync.native(path.join(resources, APP_ARCHIVE))
-      const canonical = path.join(archive, HOST_RUNTIME_DIRECTORY, 'package.json')
+      const canonical = path.join(archive, path.relative(path.join(resources, APP_ARCHIVE), desktop[0].anchor))
       if (!anchors.some(item => item.anchor === canonical)) push('desktop-archive-canonical', canonical)
     } catch { /* A synthetic probe or an older unpacked installation. */ }
   }
@@ -101,7 +117,11 @@ export function hostRequireCandidates({ names, pluginAnchor, env = process.env, 
       if (canonical !== launcher) push('launcher-canonical', canonical)
     } catch { /* Synthetic or unavailable launcher. */ }
   }
-  push('plugin-package', pluginAnchor || fileURLToPath(new URL('../../package.json', import.meta.url)))
+  push('plugin-package', plugin)
+  const own = neighbors.length ? resolveAnchorRequire(plugin) : null
+  for (const name of neighbors) {
+    try { push('host-neighbor', own.resolve(name)) } catch {}
+  }
   const candidates = anchors.map(entry => ({ ...entry, require: resolveAnchorRequire(entry.anchor) }))
   const resolvable = candidates.filter(candidate => resolvesAll(candidate.require, wanted))
   return { resolvable, candidates }
