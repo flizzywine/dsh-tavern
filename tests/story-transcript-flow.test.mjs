@@ -367,6 +367,8 @@ test('首个 partial 读取占位，turn 结束后重读提交且两行始终可
 test('宿主一直报空闲时，流式正文结束会补读这一局，不用刷新页面', async t => {
 	const p = page(t), { context } = p
 	let calls = 0
+	let liveRevision
+	context.useLiveTavernView = () => ({ view: { tavernHelper: { stateRevision: liveRevision } } })
 	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => {
 		calls++
 		return { storyTranscript: transcript(messages, calls), view: { mode: 'story' }, revision: calls }
@@ -384,10 +386,12 @@ test('宿主一直报空闲时，流式正文结束会补读这一局，不用�
 	const root = await mount(p, element())
 	await act(async () => Promise.resolve())
 	const streamingCalls = calls
+	liveRevision = streamingCalls + 1
 	chat.legacy = { partial: null, nodes: [], runningCalls: [] }
 	await act(async () => root.render(element()))
 	await act(async () => Promise.resolve())
-	assert.ok(calls > streamingCalls, '流式结束后应补读一次故事，不能等玩家刷新')
+	assert.equal(calls, streamingCalls + 1, '流式结束与 live revision 同时推进，只补读一次')
+	assert.equal(store.getSnapshot().revision, liveRevision)
 })
 
 test('槽注册复制原生 inject/store/locale，保留 children 声明并优先故事条目', async t => {
