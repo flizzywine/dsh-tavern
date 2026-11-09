@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "89152c809f4aa7b1757a148ddccd30b4aeb6cca1",
-  "releaseSequence": 1396,
+  "revision": "425784b8834e960674da752afc33922f44c5733e",
+  "releaseSequence": 1397,
   "version": "3.3.0",
   "files": [
     {
@@ -7146,8 +7146,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/scripts/install-on-dshgo.mjs",
-      "sha256": "2adf8c083ec69a53aa504f7d74d66fd4924fc35a672485fb69b2e565a34a5055",
-      "size": 10176
+      "sha256": "7e2b9388cf865a8c50815e4effae656cfc4605431cf317c5d1f6735bf6d9c919",
+      "size": 10437
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/scripts/verify-on-dshgo.mjs",
@@ -9966,9 +9966,9 @@
     }
   ],
   "archive": {
-    "commit": "ac864423dfd42cd92e2b1cd7e6985f6daf76ebf7",
+    "commit": "fe2ddd857fd2a8a57a52117310982160daca6b2b",
     "path": "runtime.zip",
-    "sha256": "ce333d9c8b515c08ea02328f2303ac55fa0757be68853ccde5b37dd266d0dfa3",
-    "size": 16582044
+    "sha256": "c5d3aca2b00778500332215944666b1e5dfa61f233f31f0cc0c235dbb0c162a2",
+    "size": 16582210
   }
 }
