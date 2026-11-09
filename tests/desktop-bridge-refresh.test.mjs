@@ -8,6 +8,7 @@ import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installa
 import { beginOriginalBridgeUpdate } from '../bin/original-bridge-update.mjs'
 import { recordInstallationReceipt, readInstallationReceipt } from '../bin/installation-receipt.mjs'
 import { switchProfile, acquirePendingLock, installPublishGate, scheduleSwitch } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
+import { launcherBundles } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
 import { copyTreeSync, removeTreeSync } from '../bin/portable-fs.mjs'
 
 const repo = fileURLToPath(new URL('../', import.meta.url))
@@ -110,12 +111,19 @@ test('original-mode update refreshes only owned packages without switching profi
   assertNew(f.desktop); assertPreserved(f, f.desktop)
 })
 
-for (const legacy of ['legacy-profile-switcher', 'legacy-tavern-entry']) test(`refresh keeps the legacy ${legacy} package name while updating its code`, t => {
+const upstreamBridge = { name: 'dsh-profile-bridge', version: '0.2.0-tavern.1', license: 'MIT',
+  repository: { url: 'git+https://github.com/2NF/dsh-profile-bridge.git' }, dsh: { bundle: { patch: './cordis.patch.yml' } } }
+
+for (const legacy of ['legacy-profile-switcher', 'legacy-tavern-entry', upstreamBridge.name]) test(`refresh keeps the legacy ${legacy} package name while updating its code`, t => {
   const f = fixture(t)
   const launcher = 'dsh-tavern'
   const manifestFile = path.join(f.original, 'package.json')
   put(manifestFile, f.manifest.replaceAll(launcher, legacy))
   copyTreeSync(path.join(f.original, 'node_modules', launcher), path.join(f.original, 'node_modules', legacy))
+  if (legacy === upstreamBridge.name) {
+    copyTreeSync(path.join(f.original, 'vendor', launcher), path.join(f.original, 'vendor', legacy))
+    for (const parent of ['vendor', 'node_modules']) json(path.join(f.original, parent, legacy, 'package.json'), upstreamBridge)
+  }
   const before = text(manifestFile)
   f.newSource()
   const tx = beginDesktopProfileInstallation(f)
@@ -127,6 +135,18 @@ for (const legacy of ['legacy-profile-switcher', 'legacy-tavern-entry']) test(`r
   assert.ok(text(path.join(pkg, 'client.js')).includes(`id: '${legacy}'`))
   assert.match(text(path.join(pkg, 'client.js')), /profile.hasBridge === true/)
   assert.equal(text(path.join(pkg, 'revision.mjs')), 'export default "new"\n')
+})
+
+test('ordinary upstream and handoff bridges do not qualify as managed desktop launchers', t => {
+  const f = fixture(t)
+  const name = upstreamBridge.name
+  const manifest = { dsh: { profile: { bundles: [name] } } }
+  const file = path.join(f.original, 'node_modules', name, 'package.json')
+  for (const override of [{ version: '0.2.0' }, { name: 'different-plugin' }, { repository: { url: 'https://example.com' } },
+    { dsh: {} }, { dshTavern: { profileHandoff: true } }]) {
+    json(file, { ...upstreamBridge, ...override })
+    assert.deepEqual(launcherBundles(manifest, f.original, 'desktop'), [], JSON.stringify(override))
+  }
 })
 
 for (const finish of [false, true]) test(`rollback ${finish ? 'after' : 'before'} publication restores both old copies and permits retry`, t => {
