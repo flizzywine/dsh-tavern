@@ -2195,12 +2195,25 @@ export async function apply(ctx) {
     const selection = agentDefaultModel?.currentSelection?.() || {}
     const handle = await ctx.get('agents').create({ sessionId, meta: { cwd, agentPreset: 'tavern' },
       agentOptions: { provider: selection.provider, model: selection.model }, setup: tavernPresetSetup() })
+    let published = false
     try {
       const workspace = await ctx.get('workspaceRegistry')?.resolveByPath(cwd)
       if (workspace) await workspace.attachSession(sessionId)
-      return await chatHistoryImporter.import({ operationId: randomUUID(), sessionId, cardPath, text: args.text,
-        fileName: str(args.fileName) || 'import.jsonl', ...(args.userName ? { userName: str(args.userName) } : {}) })
-    } finally { await handle.dispose() }
+      const imported = await chatHistoryImporter.import({ operationId: randomUUID(), sessionId, cardPath, text: args.text,
+        fileName: str(args.fileName) || 'import.jsonl', textOnly: args.textOnly === true, ...(args.userName ? { userName: str(args.userName) } : {}) })
+      published = true
+      const chat = await chatForSession(sessionId).catch(() => null)
+      return { ...imported, ...(chat?.id ? { chatId: str(chat.id) } : {}), ...(chat?.title ? { title: str(chat.title) } : {}) }
+    } finally {
+      await handle.dispose()
+      if (!published) {
+        await (await ctx.get('workspaceRegistry')?.resolveByPath(cwd))?.detachSession(sessionId).catch(() => {})
+        try {
+          const located = ctx.get('sessionPersistence')?.locate?.({ id: sessionId, cwd })
+          if (located?.path) await rm(path.dirname(located.path), { recursive: true, force: true }).catch(() => {})
+        } catch {}
+      }
+    }
   }
   // For long-run tests (bin/eval-compaction-memory.mjs --grow): append finished rounds to a game
   // as if they had been played, without a model, so the same story can be compacted again later.

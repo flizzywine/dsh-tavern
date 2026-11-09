@@ -1,3 +1,6 @@
+import path from 'node:path'
+import { parseChatHistory } from './chat-history-import.js'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -18,13 +21,75 @@ function cardNameOf(chat) {
   return str(chat && chat.cardName).trim()
 }
 
+export function cardNameFromText(text) {
+  try {
+    const doc = JSON.parse(str(text))
+    if (!doc || typeof doc !== 'object') return ''
+    return str(
+      doc.name ||
+      (doc.data && doc.data.name) ||
+      (doc.raw && doc.raw.data && doc.raw.data.name) ||
+      (doc.raw && doc.raw.name)
+    ).trim()
+  } catch {
+    return ''
+  }
+}
+
+export function isSillyTavernChatItem(entry, content) {
+  const entryStr = str(entry).trim()
+  if (/\.jsonl$/i.test(entryStr)) return true
+  if (/\.dshsave$/i.test(entryStr)) return false
+  if (!content) return false
+  const buf = Buffer.isBuffer(content) ? content : Buffer.from(str(content), 'utf8')
+  if (buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04) return false
+  const head = buf.subarray(0, Math.min(buf.length, 4096)).toString('utf8').replace(/^\uFEFF/, '').trimStart()
+  if (!head.startsWith('{')) return false
+  const firstLine = head.split(/\r?\n/, 1)[0]
+  try {
+    const parsed = JSON.parse(firstLine)
+    return Boolean(parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&
+      ['chat_metadata', 'user_name', 'character_name'].some(key => Object.hasOwn(parsed, key)))
+  } catch {
+    return false
+  }
+}
+
+export function inspectSillyTavernChatItem(content) {
+  const text = Buffer.isBuffer(content) ? content.toString('utf8') : str(content)
+  const firstLine = text.replace(/^\uFEFF/, '').split(/\r?\n/).find(line => line.trim())
+  let header = null
+  if (firstLine) {
+    try { header = JSON.parse(firstLine) } catch { /* parseChatHistory will report line error */ }
+  }
+  const parsed = parseChatHistory(text)
+  const headerCharName = str(
+    header && (
+      header.character_name ||
+      header.ch_name ||
+      (header.chat_metadata && (header.chat_metadata.character_name || header.chat_metadata.ch_name))
+    )
+  ).trim()
+  const assistantName = str(parsed.messages.find(m => m.role === 'assistant' && m.name)?.name).trim()
+  const characterName = headerCharName || assistantName
+  return {
+    text,
+    characterName,
+    userName: parsed.userName,
+    digest: parsed.digest,
+    messageCount: parsed.messages.length,
+    hasMvu: parsed.hasMvu,
+    warnings: parsed.warnings
+  }
+}
+
 /**
  * Dialogs and saves for the transfer page: one `.dshsave` per game, exported and imported through
- * the same services the game itself uses (`exportGameSave` / `importGameSave`). This module only
- * decides which games and how they are named; packing the bundle stays the caller's job.
+ * the same services the game itself uses (`exportGameSave` / `importGameSave`), plus SillyTavern
+ * `.jsonl` chat histories packed by the migration helper (`importChatHistoryText`).
  */
 export function createTransferChats(deps) {
-  const { listSessions, readChat, exportSave, importSave, updateChat } = deps
+  const { listSessions, readChat, exportSave, importSave, updateChat, importChatHistory, fileResources } = deps
 
   // A save is one playthrough. A chat in SillyTavern mode is the imported line itself, not a game.
   async function games() {
@@ -108,8 +173,30 @@ export function createTransferChats(deps) {
       try { record = await readChat(str(chat.id) || str(chat.chatId)) } catch { continue }
       const hash = str(record && record.importedSave && record.importedSave.sourceHash)
       if (hash) hashes.add(hash)
+      const digest = str(record && record.importHistory && record.importHistory.digest)
+      if (digest) hashes.add(digest)
     }
     return hashes
+  }
+
+  async function resolveCardPathForCharacter(characterName, cardPathsByCharacter) {
+    const key = str(characterName).trim().toLowerCase()
+    if (!key) return ''
+    if (cardPathsByCharacter && typeof cardPathsByCharacter.get === 'function') {
+      const matched = str(cardPathsByCharacter.get(key)).trim()
+      if (matched) return matched
+    }
+    if (!fileResources || typeof fileResources.list !== 'function') return ''
+    let stemFallback = ''
+    for (const cardPath of await fileResources.list('card').catch(() => [])) {
+      const stem = path.posix.basename(str(cardPath), path.posix.extname(str(cardPath))).toLowerCase()
+      if (!stemFallback && stem === key) stemFallback = cardPath
+      if (typeof fileResources.readText === 'function') {
+        const text = await fileResources.readText(cardPath).catch(() => undefined)
+        if (typeof text === 'string' && cardNameFromText(text).toLowerCase() === key) return cardPath
+      }
+    }
+    return stemFallback
   }
 
   // Importing decides the new ids and the real title inside the game services, not here.
@@ -117,6 +204,68 @@ export function createTransferChats(deps) {
     const title = str(args && args.title) || '未命名对话'
     const given = args && args.content
     const content = Buffer.isBuffer(given) ? given : Buffer.from(given === undefined || given === null ? '' : given)
+    if (isSillyTavernChatItem(args && args.entry, content)) {
+      if (typeof importChatHistory !== 'function') {
+        throw new Error('导入「' + title + '」失败：SillyTavern 聊天记录导入服务不可用')
+      }
+      let inspected
+      try {
+        inspected = inspectSillyTavernChatItem(content)
+      } catch (error) {
+        throw new Error('导入「' + title + '」失败：' + messageOf(error))
+      }
+      const cardPath = str(args && args.cardPath) ||
+        await resolveCardPathForCharacter(inspected.characterName, args && args.cardPathsByCharacter)
+      if (!cardPath) {
+        throw new Error('导入「' + title + '」失败：缺少角色「' + (inspected.characterName || '未知角色') + '」对应的人物卡')
+      }
+      const fileName = path.posix.basename(str(args && args.entry)) || (title + '.jsonl')
+      let imported
+      try {
+        imported = await importChatHistory({
+          cardPath,
+          text: inspected.text,
+          fileName,
+          userName: inspected.userName,
+          textOnly: Boolean(args && args.textOnly === true)
+        })
+      } catch (error) {
+        const msg = messageOf(error)
+        if (!(args && args.textOnly === true) && /变量结构与人物卡不兼容|无法读取这张 MVU 卡的初始变量/.test(msg)) {
+          try {
+            imported = await importChatHistory({
+              cardPath,
+              text: inspected.text,
+              fileName,
+              userName: inspected.userName,
+              textOnly: true
+            })
+          } catch (retryError) {
+            throw new Error('导入「' + title + '」失败：' + messageOf(retryError))
+          }
+        } else {
+          throw new Error('导入「' + title + '」失败：' + msg)
+        }
+      }
+      if (updateChat && imported && imported.chatId && str(args && args.sha256)) {
+        try {
+          await updateChat(imported.chatId, function (current) {
+            return Object.assign({}, current, {
+              importedSave: Object.assign({}, current && current.importedSave, {
+                sourceHash: str(args.sha256),
+                format: 'sillytavern-jsonl'
+              })
+            })
+          }, { source: 'transfer.import' })
+        } catch { /* the chat is already imported; the hash only helps a later duplicate check */ }
+      }
+      return {
+        chatId: str(imported && imported.chatId),
+        sessionId: str(imported && imported.sessionId),
+        title: str(imported && imported.title) || title,
+        digest: inspected.digest
+      }
+    }
     let imported
     try { imported = await importSave({ fileB64: content.toString('base64'), latestOnly: args && args.latestOnly === true }) }
     catch (error) { throw new Error('导入「' + title + '」失败：' + messageOf(error)) }
