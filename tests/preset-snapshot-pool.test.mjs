@@ -32,6 +32,16 @@ test('快照只带走引用，兼容文档按 digest 归档一次', async () => 
   assert.equal(restored.text, '甲')
 })
 
+test('三段齐全时不再落库拼接文本，回读按段重建', async () => {
+  const phases = { front: { entries: [{ id: 'a', content: '甲' }], text: '甲' }, middle: { entries: [], text: '' }, back: { entries: [{ id: 'b', content: '乙' }], text: '乙' } }
+  const snapshot = { presetPath: 'presets/写作.json', ...phases, text: '甲\n\n乙', ...documents(), digest: 'd2' }
+  const thin = thinPresetSnapshot(snapshot, snapshot.digest)
+  assert.equal(thin.text, undefined, 'text 是三段拼接的派生字段')
+  assert.equal(thin.front.text, '甲')
+  assert.equal(thin.back.text, '乙')
+  assert.equal([thin.front.text, thin.middle.text, thin.back.text].filter(Boolean).join('\n\n'), '甲\n\n乙')
+})
+
 test('没有 digest 的快照保留内联文档；池里取不到时按预设路径重新读取', async () => {
   const inline = { presetPath: 'presets/写作.json', ...documents() }
   assert.equal(thinPresetSnapshot(inline), inline)

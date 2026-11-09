@@ -56,15 +56,26 @@ export async function materializeSnapshotDocuments(snapshot, { load, readPreset,
 }
 
 /** Drop the pooled documents; the snapshot keeps everything a play turn renders plus the reference.
- * A snapshot without a digest cannot be resolved later, so it keeps its documents.
+ * `text` is the join of the three phase texts and is rebuilt on read, so it is not stored either.
+ * A snapshot without a digest cannot resolve its documents later, so it keeps them.
  */
 export function thinPresetSnapshot(snapshot, digest = '') {
-  if (!snapshotHasDocuments(snapshot)) return snapshot
-  const ref = String(digest || snapshot.digest || '')
-  if (ref === '') return snapshot
-  const thin = { ...snapshot, presetSnapshotRef: ref }
+  if (!object(snapshot)) return snapshot
+  let thin = snapshot
+  if (typeof snapshot.text === 'string' && hasPhaseEntries(snapshot)) {
+    thin = { ...snapshot }
+    delete thin.text
+  }
+  if (!snapshotHasDocuments(thin)) return thin
+  const ref = String(digest || thin.digest || '')
+  if (ref === '') return thin
+  thin = { ...thin, presetSnapshotRef: ref }
   for (const field of DOCUMENT_FIELDS) delete thin[field]
   return thin
+}
+
+function hasPhaseEntries(snapshot) {
+  return ['front', 'middle', 'back'].every(phase => object(snapshot[phase]) && Array.isArray(snapshot[phase].entries))
 }
 
 /** Documents behind one reference; `read`/`write`/`exists` address the pool storage.
