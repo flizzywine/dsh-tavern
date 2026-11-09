@@ -17,7 +17,7 @@ function createLiveTavernViewModule(options) {
 	function recordFor(sessionId) {
 		const id = String(sessionId || "");
 		if (!records.has(id)) {
-			const record = { id: id, state: initialState(), listeners: new Set(), passiveListeners: 0, paths: dependencyNode(), watchdog: null, optimisticBusy: false, eviction: null, refresh: null, seededView: undefined };
+			const record = { id: id, state: initialState(), listeners: new Set(), passiveListeners: 0, paths: dependencyNode(), watchdog: null, optimisticBusy: false, eviction: null, refresh: null, seededView: undefined, emptyReads: 0 };
 			record.refresh = createRefresh(record);
 			records.set(id, record);
 		}
@@ -139,6 +139,21 @@ function createLiveTavernViewModule(options) {
 			},
 			onResult: async function (result, scope) {
 				let view = result && result.view ? result.view : null;
+				// 「读到了、但没有视图」不是 ready：那只是这一次没读到。标成 ready 之后
+				// 这里既没有轮询（pollWhileBusy:false）也没有看门狗（idlePollIntervalMs:0），
+				// 谁都不会再来读一次，按钮就一直灰着说「还没有可重新生成的正文」——
+				// 玩家只能靠点开「更多」（那里的菜单项一挂载就 invalidate）把它救回来。
+				// 重试几次；再读不到就停手，别把读取钉在轮询上。
+				if (view === null) {
+					record.emptyReads += 1;
+					if (record.emptyReads <= 5) {
+						publish(record, { phase: "retrying", view: record.state.view, error: "", updatedAt: record.state.updatedAt });
+						return { retry: timeoutRetryDelayMs > 0 ? timeoutRetryDelayMs : 1500 };
+					}
+					publish(record, { phase: record.state.view ? "ready" : "retrying", view: record.state.view, error: record.state.error, updatedAt: record.state.updatedAt });
+					return;
+				}
+				record.emptyReads = 0;
 				if (pollWhileBusy && record.optimisticBusy && !shouldPoll(view)) return { delay: 200 };
 				if (shouldPoll(view)) record.optimisticBusy = false;
 				publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() }, result);

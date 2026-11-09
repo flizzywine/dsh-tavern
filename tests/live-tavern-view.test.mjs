@@ -244,3 +244,22 @@ test('seed 空视图不落到 store', async () => {
   live.seed('s', undefined)
   assert.equal(live.getSnapshot('s').view.latestAssistantTurn, 3, '空种子不能覆盖已有视图')
 })
+
+test('读到没有视图的结果不算读完：标成重试并自己再读，别停在 ready 上', async function () {
+  const timers = fakeTimers()
+  let loads = 0
+  const module = createLiveTavernViewModule({
+    load: async function () { loads += 1; return loads === 1 ? { view: null } : { view: { canRegenerate: true, latestAssistantTurn: 9 } } },
+    shouldPoll() { return false }, now: timers.now, schedule: timers.schedule, cancel: timers.cancel,
+    timeoutRetryDelayMs: 1500
+  })
+  const stop = module.subscribe('empty-view', function () {})
+  await timers.runNext()
+  assert.equal(module.getSnapshot('empty-view').phase, 'retrying', '空视图不能算 ready')
+  assert.equal(module.getSnapshot('empty-view').view, null)
+  await timers.runNext()
+  assert.equal(loads, 2, '要再读一次')
+  assert.equal(module.getSnapshot('empty-view').view.latestAssistantTurn, 9)
+  assert.equal(module.getSnapshot('empty-view').phase, 'ready')
+  stop()
+})
