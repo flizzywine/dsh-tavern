@@ -5,10 +5,10 @@ import { pathToFileURL } from 'node:url'
 import { inspectInstallation, validateInstallationRequest } from './lib/installation.mjs'
 import { captureOwnedProcesses } from './lib/processes.mjs'
 import { requestDesktopQuit } from './lib/quit.mjs'
-import { confirmNextUpdate, relaunchApp, scheduleSwitch } from './lib/helper.mjs'
+import { confirmNextUpdate, recordPendingQuitStatus, relaunchApp, scheduleSwitch } from './lib/helper.mjs'
 import { createTavernShortcut } from './lib/shortcut.mjs'
 import { canInstallTavern, detectAppExe, fail, isActiveTavern, isDesktopApp, isOfficialDesktopApp, isDesktopTavernWindow, launcherPaths, readLinkTarget, statusPayload, validateTarget } from './lib/state.mjs'
-import { initializeDefaultProfile, setDefaultProfile, startupSwitchMode } from './lib/startup-profile.mjs'
+import { consumeProfileContinuation, initializeDefaultProfile, setDefaultProfile, startupSwitchMode } from './lib/startup-profile.mjs'
 
 /** Shared RPC channel owned by this plugin; the browser half calls it by name. */
 const CHANNEL = '/profile-bridge'
@@ -105,6 +105,7 @@ async function runSwitch(mode, paths, payload, updateInstallation) {
       try { appendFileSync(result.logPath, new Date().toISOString() + ' 自动退出失败，可从托盘退出：' + error.message + '\n') } catch {}
     },
   })
+  if (!next) recordPendingQuitStatus(paths.stateDir, result.stamp, closesApp)
   return { ...result, mode, target: target?.name, warnings: target?.warnings ?? [], closesApp, reopensApp: true }
 }
 
@@ -222,7 +223,8 @@ export function apply(ctx) {
       const link = readLinkTarget(paths.activeDir)
       const current = link ? basename(link) : 'desktop'
       const preferred = initializeDefaultProfile(paths.home, current)
-      const mode = startupSwitchMode(current, preferred)
+      const continued = consumeProfileContinuation(paths.home, current)
+      const mode = continued ? undefined : startupSwitchMode(current, preferred)
       if (mode) await runSwitch(mode, paths, { target: 'tavern' })
     }).catch(error => ctx.logger?.warn?.(`默认配置未能应用：${error.message}`))
   }

@@ -8,6 +8,7 @@ import { installPublishGate, nextUpdateRestartMarker, processAlive, stagesNextUp
 import { cleanupOwnedProcesses, waitForOwnedExit } from './processes.mjs'
 import { hasNextTavern } from './state.mjs'
 import { downloadInstaller } from './installer-download.mjs'
+import { recordProfileContinuation } from './startup-profile.mjs'
 
 async function installTavern(request, { log, waitForDesktop }) {
   const windows = process.platform === 'win32'
@@ -166,6 +167,9 @@ export async function runSwitchJob(job, {
         }
       } } })
       log(JSON.stringify(result))
+      if (request.host !== 'next' && ['link', 'unlink'].includes(request.mode)) {
+        try { recordProfileContinuation(request.home || dirname(resolve(request.stateDir)), request.mode === 'link' ? 'tavern' : 'desktop') } catch {}
+      }
       const message = stagedUpdate ? '酒馆更新完成。' : request.mode === 'install' ? '酒馆安装完成。' : '切换完成。'
       persist({ status: 'succeeded', message, updated: stagedUpdate })
       log(message)

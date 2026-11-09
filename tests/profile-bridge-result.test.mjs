@@ -4,7 +4,9 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readLastResult, resolvePaths, statusPayload } from '../tavern-plugin/packages/dsh-tavern/lib/state.mjs'
-import { confirmNextUpdate, installPublishGate, nextUpdateRestartMarker } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
+import { confirmNextUpdate, installPublishGate, nextUpdateRestartMarker, recordPendingQuitStatus, scheduleSwitch } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
+import { consumeProfileContinuation, recordProfileContinuation } from '../tavern-plugin/packages/dsh-tavern/lib/startup-profile.mjs'
+import { runSwitchJob } from '../tavern-plugin/packages/dsh-tavern/lib/worker.mjs'
 
 test('NEXT accepts restart confirmation only for the prepared update in this session', t => {
   const stateDir = mkdtempSync(join(tmpdir(), 'pb-update-'))
@@ -69,4 +71,48 @@ test('abandoned pending reports uncertainty without rewriting durable evidence o
   assert.equal(readFileSync(file, 'utf8'), pending, 'status is read-only')
   rmSync(join(root, 'pending', 'worker.json'))
   assert.equal(readLastResult(root, { now: () => Date.now() + 181000 }).recoveryRequired, true)
+})
+
+test('pending switch records manual quit fallback and reuses the same session worker on retry', t => {
+  const root = mkdtempSync(join(tmpdir(), 'pb-quit-fallback-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const stateDir = join(root, 'profile-bridge')
+  const liveDir = join(root, 'profiles', 'desktop')
+  const targetDir = join(root, 'profiles', 'tavern')
+  mkdirSync(join(stateDir, 'pending'), { recursive: true })
+  writeFileSync(join(stateDir, 'last-result.json'), JSON.stringify({ status: 'pending', mode: 'link', stamp: 'one' }))
+  writeFileSync(join(stateDir, 'pending', 'request.json'), JSON.stringify({
+    mode: 'link', stamp: 'one', stateDir, liveDir, targetDir, pids: [101, 202],
+  }))
+  writeFileSync(join(stateDir, 'pending', 'worker.json'), JSON.stringify({ pid: 303, startedAt: Date.now() }))
+  recordPendingQuitStatus(stateDir, 'one', false)
+  assert.equal(readLastResult(stateDir, { alive: pid => pid === 303 }).closesApp, false)
+  const reused = scheduleSwitch({
+    mode: 'link', stamp: 'two', stateDir, liveDir, targetDir, pids: [101, 202],
+  }, { alive: pid => pid === 303 })
+  assert.deepEqual(reused, {
+    pid: 303, logPath: join(stateDir, 'last-run.log'), reclaimed: false, reused: true, stamp: 'one',
+  })
+})
+
+test('explicit switch records a one-shot continuation so reopening without env marker does not bounce back', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'pb-continue-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const stateDir = join(home, 'profile-bridge')
+  const lock = join(stateDir, 'pending')
+  mkdirSync(lock, { recursive: true })
+  const job = join(lock, 'request.json')
+  writeFileSync(job, JSON.stringify({
+    mode: 'unlink', stamp: 'switch-1', home, stateDir, pids: [11, 22],
+  }))
+  const code = await runSwitchJob(job, {
+    wait: async () => {},
+    perform: async () => ({ changed: true }),
+    relaunch: () => {},
+  })
+  assert.equal(code, 0)
+  assert.equal(consumeProfileContinuation(home, 'desktop'), true)
+  assert.equal(consumeProfileContinuation(home, 'desktop'), false, 'continuation is consumed once')
+  recordProfileContinuation(home, 'desktop', { now: () => 1000 })
+  assert.equal(consumeProfileContinuation(home, 'desktop', { now: () => 1000 + 3 * 60 * 1000 }), false, 'expired continuation is ignored')
 })

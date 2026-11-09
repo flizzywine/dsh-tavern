@@ -195,6 +195,7 @@ export function readLastResult(stateDir, { alive = processAlive, now = Date.now 
       stamp: result.stamp,
       finishedAt: result.finishedAt,
       updated: result.updated === true,
+      closesApp: typeof result.closesApp === 'boolean' ? result.closesApp : undefined,
       message: typeof result.message === 'string' ? result.message : '',
       code: typeof result.code === 'string' ? result.code : undefined,
       recoveryRequired: result.recoveryRequired === true,
@@ -203,6 +204,15 @@ export function readLastResult(stateDir, { alive = processAlive, now = Date.now 
   } catch {
     return undefined
   }
+}
+
+export function recordPendingQuitStatus(stateDir, stamp, closesApp) {
+  try {
+    const file = join(stateDir, 'last-result.json')
+    const current = readJson(file)
+    if (current?.status !== 'pending' || current.stamp !== stamp || !present(join(stateDir, 'pending', 'request.json'))) return
+    writeFileSync(file, JSON.stringify({ ...current, closesApp: Boolean(closesApp) }), { mode: 0o600 })
+  } catch {}
 }
 
 export function stagesNextUpdate(request) {
@@ -351,6 +361,20 @@ export function scheduleSwitch(request, options = {}) {
   const last = readLastResult(request.stateDir, options)
   if (last?.recoveryRequired) {
     throw Object.assign(new Error(`上次切换需要检查入口与备份，未安排新切换：${last.message} 日志：${last.logPath}`), { code: 'recovery-required' })
+  }
+  const alive = options.alive ?? processAlive
+  if (['link', 'unlink'].includes(request.mode) && last?.status === 'pending' && last.closesApp === false) {
+    const existing = readJson(join(request.stateDir, 'pending', 'request.json'))
+    const worker = readJson(join(request.stateDir, 'pending', 'worker.json'))
+    if (existing?.mode === request.mode
+        && existing.liveDir === request.liveDir
+        && (existing.targetDir ?? undefined) === (request.targetDir ?? undefined)
+        && Array.isArray(existing.pids) && Array.isArray(request.pids)
+        && existing.pids.length === request.pids.length
+        && existing.pids.every((pid, index) => pid === request.pids[index])
+        && Number.isInteger(worker?.pid) && worker.pid > 1 && alive(worker.pid)) {
+      return { pid: worker.pid, logPath: join(request.stateDir, 'last-run.log'), reclaimed: false, reused: true, stamp: existing.stamp }
+    }
   }
   const { lock, reclaimed } = acquirePendingLock(request.stateDir, { ...options, installing: request.mode === 'install' })
   const job = join(lock, 'request.json')

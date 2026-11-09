@@ -338,6 +338,7 @@ window.__ModuleLoader__.load({
 
       const next = status?.host === 'next'
       const nextUpdatePreparation = pending ? status.nextUpdatePreparation : undefined
+      const manualQuitPending = pending && !next && !['install', 'relocate', 'uninstall'].includes(status?.lastResult?.mode) && (applied?.closesApp === false || (applied === null && status?.lastResult?.closesApp === false))
       const current = next ? status.activeName : status?.linkTargetName ?? (inTavern() ? 'tavern' : 'desktop')
       const standalone = status?.desktopApp === false
       const ready = (name) => (status?.profiles ?? []).some((profile) => {
@@ -396,7 +397,7 @@ window.__ModuleLoader__.load({
       }
 
       async function apply(target) {
-        if (actionInFlight.current || busy || pending || updateInProgress(update?.phase) || lastFailure?.recoveryRequired) return
+        if (actionInFlight.current || busy || (pending && !manualQuitPending) || updateInProgress(update?.phase) || lastFailure?.recoveryRequired) return
         actionInFlight.current = true
         setBusy(true)
         setFailure(null)
@@ -409,7 +410,7 @@ window.__ModuleLoader__.load({
           const result = target === 'desktop' ? await call('unlink', {}) : await call('link', { target })
           if (result?.ok === true) {
             setApplied(result.value ?? {})
-            setStatus(previous => ({ ...previous, lastResult: { status: 'pending', stamp: result.value?.stamp } }))
+            setStatus(previous => ({ ...previous, lastResult: { status: 'pending', mode: target === 'desktop' ? 'unlink' : 'link', stamp: result.value?.stamp, closesApp: result.value?.closesApp } }))
           }
           else setFailure(describeFailure(result?.error))
         } catch (error) {
@@ -534,11 +535,11 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'pb-btn', disabled: busy, onClick: () => void openOriginal() }, t('openOriginal')),
         ) : blocked ? h('p', { className: 'pb-error' }, blocked) : h('div', { className: 'pb-bar' },
           h('span', { className: 'pb-bar-text' },
-            next && pending && !nextUpdatePreparation ? t('nextQuit') : status?.lastResult?.mode === 'install' ? `${t('current')} · ${currentLabel ? t(currentLabel) : current}` : applied === null ? (pending ? t('restarting') : `${t('current')} · ${currentLabel ? t(currentLabel) : current}`) : applied.closesApp ? t('restarting') : t('quitHint'),
+            next && pending && !nextUpdatePreparation ? t('nextQuit') : status?.lastResult?.mode === 'install' ? `${t('current')} · ${currentLabel ? t(currentLabel) : current}` : manualQuitPending ? t('quitHint') : applied === null ? (pending ? t('restarting') : `${t('current')} · ${currentLabel ? t(currentLabel) : current}`) : applied.closesApp ? t('restarting') : t('quitHint'),
             ...(applied?.warnings ?? []).map((warning) => h('span', { key: warning, style: { display: 'block', opacity: 0.75 } }, `• ${warning}`)),
           ),
-          applied !== null ? null : h('div', { className: 'pb-actions' }, ...options.map(({ name, action }) =>
-            h('button', { key: name, type: 'button', className: 'pb-btn', disabled: busy || pending || !!updateAction || updating || lastFailure?.recoveryRequired, onClick: () => void apply(name) }, t(action)))),
+          applied !== null && !manualQuitPending ? null : h('div', { className: 'pb-actions' }, ...options.map(({ name, action }) =>
+            h('button', { key: name, type: 'button', className: 'pb-btn', disabled: busy || (pending && !manualQuitPending) || !!updateAction || updating || lastFailure?.recoveryRequired, onClick: () => void apply(name) }, t(action)))),
         ),
         lastFailure ? h('div', { className: 'pb-error', role: 'alert' },
           h('strong', null, t(['install', 'relocate', 'uninstall'].includes(lastFailure.mode) ? 'lastOperationFailure' : 'lastFailure')),
