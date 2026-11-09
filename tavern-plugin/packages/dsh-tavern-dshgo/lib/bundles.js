@@ -30,11 +30,16 @@ function readManifest(dir, read = readFileSync) {
   return manifest
 }
 
+export function mergeBundles(current, add) {
+  const out = [...current]
+  for (const name of add) if (!out.includes(name)) out.push(name)
+  return out
+}
+
 /** 按 TAVERN_BUNDLES 的顺序追加，已存在的不重复。 */
 export function planEnable(manifest) {
   const next = structuredClone(manifest)
-  const bundles = next.dsh.profile.bundles
-  for (const name of TAVERN_BUNDLES) if (!bundles.includes(name)) bundles.push(name)
+  next.dsh.profile.bundles = mergeBundles(next.dsh.profile.bundles, TAVERN_BUNDLES)
   return next
 }
 
