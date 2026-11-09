@@ -10,7 +10,7 @@ import { synchronizeBodyEdits } from '../domain/body-editor.js'
 import { synchronizeTemplateHistory } from '../domain/template-history.js'
 import { turnRepliedByModel } from '../domain/story-alignment.js'
 import { isSurfaceEditTurn, sessionEvents } from '../domain/session-events.js'
-import { withVirtualWorldbook } from '../domain/worldbook-virtual-surface.js'
+import { VIRTUAL_WORLDBOOK_SECTION, withVirtualWorldbook } from '../domain/worldbook-virtual-surface.js'
 import { appendStorySubmissionReminder } from '../domain/story-tool-submission.js'
 
 function reachedOutputLimit(assistant) {
@@ -145,11 +145,15 @@ export function registerTurnLifecycleHooks({
     try { workspaceProjection = await publishResourceWorkspace(agent.session.id, chat) }
     catch { console.error('dsh-tavern: 资源工作区投影刷新失败，继续使用现有资源文件') }
     let fixedSystemSections = sessionStablePrefixSections(agent.session)
+    let deferWorldbook = false
     if (chat && ['story', 'script'].includes(chat.mode || 'story')) {
       const native = chat.worldbookStrategy === 'native-skills'
       const projected = await nativeWorldBookTemplateContext(chat, await readChatCard(chat), native
         ? { restore: false } : undefined)
-      fixedSystemSections = (native ? withVirtualWorldbook : withCurrentWorldbook)(fixedSystemSections, projected.prefixContext ?? '', chat.disabledForegroundTools)
+      deferWorldbook = native && !!context.signal && projected.visibilityPending === true
+      fixedSystemSections = native
+        ? withVirtualWorldbook(fixedSystemSections, projected.prefixContext ?? '', chat.disabledForegroundTools, { defer: deferWorldbook })
+        : withCurrentWorldbook(fixedSystemSections, projected.prefixContext ?? '', chat.disabledForegroundTools)
     }
     const assembled = await hostTools.assemble(assembly, context, (value, tools) => foregroundStrategies.assembleSystemPrompt(value, {
       sessionId: agent.session.id,
@@ -170,6 +174,8 @@ export function registerTurnLifecycleHooks({
     if (pluginContract) assembled.sections = [...assembled.sections, { ...pluginContract, name: 'tavern:plugin-body-generation-reminder' }]
     const hasSubmission = (assembled.sections || []).some(section => section.name === 'tavern:story-tool-submission')
     const outputToolCall = hasSubmission && typeof storyOutputToolCall === 'function' ? (await storyOutputToolCall()) === true : false
-    return markTavernSectionsLiteral(prependSystemInstruction(appendStorySubmissionReminder(assembled, outputToolCall), chat ? runtimePrompt('system-append') : ''))
+    const result = markTavernSectionsLiteral(prependSystemInstruction(appendStorySubmissionReminder(assembled, outputToolCall), chat ? runtimePrompt('system-append') : ''))
+    if (deferWorldbook) foregroundStrategies.stageWorldbookSection(context, result.sections.find(section => section.name === VIRTUAL_WORLDBOOK_SECTION))
+    return result
   })
 }
