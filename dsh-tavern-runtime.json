@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "11a9ab483ac8998a1e669b93f6d7474e120c99f2",
-  "releaseSequence": 1381,
+  "revision": "d11fde5e46a733460729a9411dfc7138913dc8a7",
+  "releaseSequence": 1382,
   "version": "3.2.0",
   "files": [
     {
@@ -1766,8 +1766,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "345caf2400497dbab16dfd9c265be53f61f6025e7273c8fb0622dcb942eb05f5",
-      "size": 32679
+      "sha256": "9bd09ab1e48290671c5b920c2e22b169f1134724425d2ab0af673478ed712d53",
+      "size": 33806
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -3806,13 +3806,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-virtual-state.js",
-      "sha256": "1e4028a8bab3f8480131c11b753a0403805432978e18068dcef8d0c6b2855366",
-      "size": 4062
+      "sha256": "dcb9d0a6dffa68ab71f01989ec0e81b98967dbf1fd946fc54739524f038b2304",
+      "size": 4278
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-virtual-surface.js",
-      "sha256": "cce9a2d6befbc65752734d415efcf7ec55cf6b29a647b99dd4e5e9a13a41d00a",
-      "size": 4204
+      "sha256": "453738398fe9b77e78178859e6bc7abae8fb8af0302d4ab2ca609c1ee80e3207",
+      "size": 4407
     },
     {
       "path": "tavern-plugin/lib/domain/zip-entries.js",
@@ -3851,8 +3851,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/turn-lifecycle.js",
-      "sha256": "4980e3ca8cb793812424218f26ab073d8debe454dd6b13e5f904fb891d09f6b2",
-      "size": 9699
+      "sha256": "54d14bc342118930d0bcb59d1c0ec235f8f5850d9a1292218c8e011071b48a5d",
+      "size": 10149
     },
     {
       "path": "tavern-plugin/lib/host/mod-dice.mjs",
@@ -9896,9 +9896,9 @@
     }
   ],
   "archive": {
-    "commit": "357c5ad981ede587cce13a991624c4e9387ba34c",
+    "commit": "2f07322c82e9756d4acbaa2f39f7f9dc0b0dc1cc",
     "path": "runtime.zip",
-    "sha256": "43ad61de7a7b34580001c3dbca879060b9d71616bb391a02a53d08be6016388f",
-    "size": 16529518
+    "sha256": "143f1615c86bbd856d8b8e2d918fc91c1501083206cdb2944d02782ba6cef490",
+    "size": 16530091
   }
 }
