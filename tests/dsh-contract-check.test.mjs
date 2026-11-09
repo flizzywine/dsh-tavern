@@ -47,12 +47,12 @@ test('candidate inspection can probe future versions without weakening normal ru
   assert.equal(probeTestRuntime(runtime, run, { checkCompatibility: false }).version, '0.3.0')
 })
 
-test('dependency inventory includes maintained clients and subpaths but excludes vendor copies', t => {
+test('dependency inventory includes maintained clients and subpaths but excludes vendored and retired dependency copies', t => {
   const cache = path.join(root, '.cache/dsh-contracts')
   mkdirSync(cache, { recursive: true })
   const directory = mkdtempSync(path.join(cache, 'inventory-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
-  for (const file of ['tavern-plugin/packages/example/client.js', 'tavern-plugin/lib/vendor/example.js']) {
+  for (const file of ['tavern-plugin/packages/example/client.js', 'tavern-plugin/lib/vendor/example.js', 'tavern-plugin/.legacy-node_modules-fixture/example.js']) {
     mkdirSync(path.dirname(path.join(directory, file)), { recursive: true })
     writeFileSync(path.join(directory, file), "import x from '@deepseek-ai/dsh-session/surface'")
   }
