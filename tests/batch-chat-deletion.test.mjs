@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 
 const source = readFileSync(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 const section = source.slice(source.indexOf('  async function stopChatForDeletion'), source.indexOf('  async function exportConversation'))
-function setup() {
+function setup({ projection = true } = {}) {
   const events = []
   const deletedChatIds = new Set()
   const workers = new Map(['a', 'background'].map(id => [id, { cancel: () => events.push('cancel:' + id), whenIdle: async () => events.push('idle:' + id) }]))
@@ -14,13 +14,22 @@ function setup() {
     deferSessionDeletion: async items => { events.push('defer:' + items.map(item => item.path).join(',')) }
   }
   const backgroundAgentRunner = { releaseFor: async id => { events.push('release:' + id) } }
-  const api = new Function('readChat', 'str', 'storyTimeline', 'agentRegistry', 'cancelSettlement', 'conversationRegistry', 'deletedChatIds', 'gameFootprint', 'backgroundAgentRunner', 'deletedSessionIds', 'apiDiagnostics', 'pluginMedia', 'pluginData', 'pluginApi', 'displayRuntimeStore', 'sceneWorldbookArchive', 'worldbookSkillProvider', section + '; return { deleteChats };')(
-    async id => ({ id, sessionId: id }), String,
+  // Deletion reads a header projection, not the whole save: a play save's preset
+  // snapshot and foreground frames must never be materialized just to stop a session.
+  const chatPersistence = {
+    readSlice: async (id, indices, fields) => {
+      events.push('project:' + id + ':' + (fields || []).join(','))
+      if (!projection) return { chat: { id, sessionId: id, messages: [] } }
+      return { chat: { id, sessionId: id, backgroundConfigVersion: 1, conversationFeaturesVersion: 1, messages: [] } }
+    }
+  }
+  const api = new Function('readChat', 'chatPersistence', 'str', 'storyTimeline', 'agentRegistry', 'cancelSettlement', 'conversationRegistry', 'deletedChatIds', 'gameFootprint', 'backgroundAgentRunner', 'deletedSessionIds', 'apiDiagnostics', 'pluginMedia', 'pluginData', 'pluginApi', 'displayRuntimeStore', 'sceneWorldbookArchive', 'worldbookSkillProvider', section + '; return { deleteChats };')(
+    async id => { events.push('whole:' + id); return { id, sessionId: id } }, chatPersistence, String,
     { inspect: () => ({ participants: { worker: { sessionId: 'background' } } }) }, workers,
     async id => { events.push('settlement:' + id) },
     { remove: async id => { events.push('remove:' + id); if (id === 'bad') throw new Error('disk error') } }, deletedChatIds, gameFootprint, backgroundAgentRunner, new Set(), { forget: async id => { events.push('forget:' + id) } },
     { removeChat: async id => { events.push('media:' + id) } }, { removeChat: async () => {} }, { gameRemoved: id => events.push('removed:' + id) }, { remove: async () => {} }, { forgetChat: async () => {} }, { removeChat: async id => { events.push('worldbook:' + id) } })
-  return { ...api, events, deletedChatIds }
+  return { ...api, events, deletedChatIds, chatPersistence }
 }
 test('batch deletion stops foreground and background before removing, deduplicates, and continues after a failure', async () => {
   const api = setup()
@@ -37,4 +46,18 @@ test('batch deletion stops foreground and background before removing, deduplicat
   assert.ok(api.events.includes('media:a') && api.events.includes('removed:a'), '清理插件媒体并通知插件')
   assert.ok(!api.events.includes('removed:bad'), '删除失败的局不通知')
   assert.ok(!api.events.some(event => event.startsWith('cleanup:log-bad')))
+})
+test('deletion reads a header projection, and only an older layout falls back to the whole save', async () => {
+  const projected = setup()
+  await projected.deleteChats(['a', 'c'])
+  // The 1 MB preset snapshot and the foreground frames are never materialized for a delete.
+  assert.ok(!projected.events.some(event => event.startsWith('whole:')), '当前布局的存档不整读：' + projected.events.join(','))
+  const projection = projected.events.find(event => event.startsWith('project:a:'))
+  for (const field of ['sessionId', 'timeline', 'backgroundHistoryIds', 'candidates', 'importHistory']) {
+    assert.ok(projection.slice(projection.indexOf(':') + 3).split(',').includes(field), '头部投影带删除所需字段：' + field)
+  }
+  const legacy = setup({ projection: false })
+  await legacy.deleteChats(['a'])
+  assert.ok(legacy.events.includes('whole:a'), '旧布局存档仍走整读以完成别名/配置升级')
+  assert.ok(legacy.events.includes('remove:a'), '回退后仍完成删除')
 })

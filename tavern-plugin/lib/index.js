@@ -1489,7 +1489,7 @@ export async function apply(ctx) {
     references: () => conversationRegistry.list(), archived: () => ctx.get('workspaceRegistry')?.archivedSessionIds
   })
   async function stopChatForDeletion(chatId) {
-    const chat = await readChat(str(chatId))
+    const chat = await readChatForDeletion(str(chatId))
     if (!chat) return undefined
     const ids = new Set([chat.sessionId, ...Object.values(storyTimeline.inspect({ chat }).participants || {}).map(item => item.sessionId)])
     const workers = [...ids].map(id => agentRegistry.get(id)).filter(Boolean)
@@ -1501,6 +1501,22 @@ export async function apply(ctx) {
       if (typeof worker.whenIdle === 'function') await worker.whenIdle()
     }
     return chat
+  }
+  // Stopping and deleting a game needs a handful of header fields, never the whole save.
+  // A play save carries a ~1 MB preset snapshot and megabytes of foreground frames, so a
+  // full readChat here decoded hundreds of blocks per deletion just to reach sessionId
+  // and the timeline. Saves outside the current header layout still take the whole read,
+  // which is what upgrades session aliases and configuration.
+  const DELETION_HEADER_FIELDS = ['id', 'sessionId', 'mode', 'cardPath', 'timeline', 'candidates', 'candidateAgent',
+    'backgroundSessionId', 'backgroundHistoryIds', 'importHistory', 'backgroundTasks',
+    'backgroundConfigVersion', 'conversationFeaturesVersion']
+  async function readChatForDeletion(chatId) {
+    try {
+      const chat = (await chatPersistence.readSlice(chatId, [], DELETION_HEADER_FIELDS))?.chat
+      if (chat && chat.id === chatId && chat.sessionId !== undefined
+        && chat.backgroundConfigVersion === 1 && chat.conversationFeaturesVersion === 1) return chat
+    } catch { /* a damaged save reports the same failure through the whole read */ }
+    return await readChat(chatId)
   }
   // Deleting a batch stops every game first, describes the whole batch in one disk
   // scan, then removes them one by one. Each game used to repeat all three phases,
