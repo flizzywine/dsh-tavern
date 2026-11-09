@@ -44,6 +44,12 @@ function panelView(status, home, zh) {
     children.push({ type: 'text', text: (zh ? '待写入：' : 'Pending: ') + status.missing.join(', ') })
   }
   children.push({ type: 'callout', text: dataHomeHint(inspectDataHome(home), zh) })
+  if (status.phase === 'ready') {
+    children.push({
+      type: 'text',
+      text: zh ? '启用期间原生会话列表换成酒馆的，停用并重启后恢复' : 'Native sessions switch to Tavern while enabled; disable and restart to get them back',
+    })
+  }
   if (status.error !== null) children.push({ type: 'text', text: status.error })
   children.push({
     type: 'actions',
