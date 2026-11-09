@@ -263,3 +263,20 @@ test('读到没有视图的结果不算读完：标成重试并自己再读，�
   assert.equal(module.getSnapshot('empty-view').phase, 'ready')
   stop()
 })
+
+test('没有会话 id 的读取只允许一轮，之后停在 idle 不再重试', async function () {
+  const timers = fakeTimers()
+  let loads = 0
+  const module = createLiveTavernViewModule({
+    load: async function () { loads += 1; return { view: null, emptyReason: 'no-session' } },
+    shouldPoll() { return false }, now: timers.now, schedule: timers.schedule, cancel: timers.cancel,
+    timeoutRetryDelayMs: 1500
+  })
+  const stop = module.subscribe('', function () {})
+  await timers.runNext()
+  assert.equal(loads, 1)
+  assert.equal(module.getSnapshot('').phase, 'idle')
+  assert.equal(module.getSnapshot('').view, null)
+  timers.dropAll()
+  stop()
+})

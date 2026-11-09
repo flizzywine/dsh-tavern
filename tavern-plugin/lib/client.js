@@ -15097,6 +15097,12 @@ window.__ModuleLoader__.load({
 					},
 					onResult: async function (result, scope) {
 						let view = result && result.view ? result.view : null;
+						// 还没有会话 id 的时候没有任何东西可读：不建记录、不排重试。
+						// 以前这条路径会每 1.5 秒发一次 getSession，服务端 200 回一个空视图。
+						if (!record.id) {
+							publish(record, { phase: "idle", view: null, error: "", updatedAt: record.state.updatedAt });
+							return;
+						}
 						// 「读到了、但没有视图」不是 ready：那只是这一次没读到。标成 ready 之后
 						// 这里既没有轮询（pollWhileBusy:false）也没有看门狗（idlePollIntervalMs:0），
 						// 谁都不会再来读一次，按钮就一直灰着说「还没有可重新生成的正文」——
@@ -15106,9 +15112,11 @@ window.__ModuleLoader__.load({
 							record.emptyReads += 1;
 							// 服务端明说「这个会话还没有存档」（no-session / no-chat）时，存档正在被建出来，
 							// 等它；没带原因的空结果只当作偶发，读几次就停手。
-							const announced = Boolean(result && result.emptyReason);
-							const limit = announced ? 40 : 5;
-							const delay = announced ? 1500 : (timeoutRetryDelayMs > 0 ? timeoutRetryDelayMs : 1500);
+							// no-chat：会话在，存档正在建，值得等。no-session：这个 id 在 DSH 里还没被
+							// 加载出来（可能随后就出现），只短等几轮，不能把轮询钉死在一个空 id 上。
+							const reason = String(result && result.emptyReason || "");
+							const limit = reason === "no-chat" ? 40 : reason === "no-session" ? 8 : 5;
+							const delay = reason === "no-chat" ? 1500 : reason === "no-session" ? 2000 : (timeoutRetryDelayMs > 0 ? timeoutRetryDelayMs : 1500);
 							if (record.emptyReads <= limit) {
 								publish(record, { phase: "retrying", view: record.state.view, error: "", updatedAt: record.state.updatedAt });
 								return { retry: delay };
