@@ -24,8 +24,13 @@ async function publicDnsRecords(hostname, type, family) {
 function resolvePublicDns(hostname) {
   const pending = publicLookups.get(hostname)
   if (pending) return pending
-  const query = Promise.all([publicDnsRecords(hostname, 1, 4), publicDnsRecords(hostname, 28, 6)])
-    .then(results => results.flat())
+  const query = Promise.allSettled([publicDnsRecords(hostname, 1, 4), publicDnsRecords(hostname, 28, 6)])
+    .then(results => {
+      const addresses = results.flatMap(result => result.status === 'fulfilled' ? result.value : [])
+      const failure = results.find(result => result.status === 'rejected')
+      if (addresses.length === 0 && failure) throw failure.reason
+      return addresses
+    })
     .finally(() => publicLookups.delete(hostname))
   publicLookups.set(hostname, query)
   return query
@@ -38,6 +43,11 @@ function isFakeIp(address) {
   return /^\[(?:fdfe:dcba:9876|2001:2:0):/.test(canonical) || canonical.startsWith('[2001:2::')
 }
 
+function publicAddresses(addresses) {
+  return addresses.filter(({ address }) => publicAddress(address))
+    .map(({ address }) => ({ address, family: isIP(address) }))
+}
+
 // A local TUN can synthesize DNS answers for any site. The opt-in re-resolves
 // those names independently and pins the connection to the validated public IPs.
 export async function verifyPublicHostname(value, resolve = lookup, allowCdnFakeIp = process.env.DSH_TAVERN_ALLOW_CDN_FAKE_IP === '1', resolvePublic = resolvePublicDns) {
@@ -45,15 +55,20 @@ export async function verifyPublicHostname(value, resolve = lookup, allowCdnFake
   const hostname = url.hostname.replace(/^\[|\]$/g, '')
   const family = isIP(hostname)
   const addresses = family ? [{ address: hostname, family }] : await resolve(hostname, { all: true, verbatim: true })
-  if (addresses.length && addresses.every(({ address }) => publicAddress(address))) return
+  const available = publicAddresses(addresses)
+  if (available.length > 0) {
+    // Keep the host's regular proxy path for an entirely public response.
+    return available.length === addresses.length ? undefined : available
+  }
   const domain = hostname.replace(/\.$/, '')
-  if (addresses.length && allowCdnFakeIp && !family && url.protocol === 'https:' && !url.port
+  if (allowCdnFakeIp && !family && url.protocol === 'https:'
       && domain.includes('.') && !/\.(?:local|localhost|internal|lan|arpa|test|invalid|onion)$/.test(domain)
-      && addresses.every(({ address }) => publicAddress(address) || isFakeIp(address))) {
+      && addresses.some(({ address }) => isFakeIp(address))) {
     let verified
     try { verified = await resolvePublic(domain) }
     catch { throw new StaticAssetError('无法通过公共 DNS 解析静态资源域名', 502) }
-    if (verified.length && verified.every(({ address, family }) => publicAddress(address) && isIP(address) === family)) return verified
+    const pinned = publicAddresses(verified)
+    if (pinned.length > 0) return pinned
   }
   throw new StaticAssetError('Static assets cannot access private or reserved network addresses', 403)
 }
