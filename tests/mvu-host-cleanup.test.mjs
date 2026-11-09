@@ -31,7 +31,7 @@ test('宿主 MVU 不提示或执行旧变量清理，即使旧设置已开启；
     vm.runInContext('cleanupMessageVariables(1, 29, 50)', context)
     assert.equal(JSON.stringify(chat), before)
     const init = await readFile(join(dir, 'src/function/initvar/variable_init.ts'), 'utf8')
-    assert.match(init, /await loadInitVarData\(current_data\);\n\s+const opening_schema[\s\S]*?cleanUpMetadata\(current_data\.stat_data\);/, '开场 <initvar> 要生成变量结构并清理元信息')
+    assert.match(init, /if \(is_initvar_applied \|\| authored\) \{\s+const opening_schema[\s\S]*?cleanUpMetadata\(current_data\.stat_data\);/, '开场 <initvar> 要生成变量结构并清理元信息')
     const util = await readFile(join(dir, 'src/util.ts'), 'utf8')
     const lookup = util.slice(util.indexOf('export function getLastValidMessageId'),util.indexOf('export function getLastValidVariable'))
     context.isMvuData = value => Boolean(value?.stat_data && value?.schema)

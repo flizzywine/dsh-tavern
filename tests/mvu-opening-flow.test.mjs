@@ -28,7 +28,8 @@ test('official MVU initializes a greeting or no-greeting start before its first 
   })
   const browser = await chromium.launch({ headless: true, args: ['--mute-audio'] })
   t.after(() => browser.close())
-  const modes = process.env.MVU_SMOKE_CARD_PATH ? ['opening-card-flow'] : ['opening', 'opening-setup', 'opening-flow-greeting', 'opening-flow']
+  const modes = process.env.MVU_SMOKE_CARD_PATH ? ['opening-card-flow']
+    : ['opening', 'opening-setup', 'opening-flow-greeting', 'opening-flow', 'opening-authored', 'opening-authored-helper']
   let greetingVariables
   for (const mode of modes) {
     const page = await browser.newPage()
@@ -42,6 +43,11 @@ test('official MVU initializes a greeting or no-greeting start before its first 
     }, null, { timeout: 45000 }).catch(async error => {
       throw new Error(mode + ': ' + await page.locator('#result').textContent() + '\n' + JSON.stringify(await page.evaluate(() => rpc('diagnostics'))) + '\n' + errors.join('\n') + '\n' + stderr, { cause: error })
     })
+    if (mode.startsWith('opening-authored')) {
+      assert.deepEqual(await page.evaluate(() => rpc('run-authored-settlement')), { pass: true })
+      await page.close()
+      continue
+    }
     if (mode.includes('-flow')) {
       const flow = await page.evaluate(() => window.openingFlow)
       if (process.env.MVU_SMOKE_REPORT) await writeFile(process.env.MVU_SMOKE_REPORT, JSON.stringify(flow, null, 2) + '\n')

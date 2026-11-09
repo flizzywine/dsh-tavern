@@ -20,6 +20,9 @@ The deterministic host build applies these adaptations:
 
 - uses the complete current-floor snapshot when no earlier floor has valid MVU
   data, so resumed/imported games can settle without rewriting historical floors.
+- uses the host's frozen turn snapshot for background settlement, even if the
+  card supplied only `stat_data`. Initialization preserves authored data and
+  completes the missing schema, with each opening swipe keeping its own values.
 
 - disables ST JSONL variable compaction, its legacy prompt, manual cleanup button,
   and enable controls; historical snapshots remain available for rollback and

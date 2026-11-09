@@ -14,7 +14,11 @@ function replaceExactlyOnce(source, original, replacement, label) {
   return source.slice(0, first) + replacement + source.slice(first + original.length)
 }
 
-let source = await readFile(configPath, 'utf8')
+async function readSource(file) {
+  return (await readFile(file, 'utf8')).replaceAll('\r\n', '\n')
+}
+
+let source = await readSource(configPath)
 source = replaceExactlyOnce(
   source,
   "import child_process from 'node:child_process';\n",
@@ -87,7 +91,7 @@ await writeFile(configPath, source)
 
 const root = path.dirname(configPath)
 const uniqueScriptPath = path.join(root, 'util/script.ts')
-let uniqueScript = await readFile(uniqueScriptPath, 'utf8')
+let uniqueScript = await readSource(uniqueScriptPath)
 uniqueScript = replaceExactlyOnce(
   uniqueScript,
   `        // 从共享状态中取出已注册实例集合（跨脚本实例共享在 window.parent）。
@@ -109,12 +113,12 @@ uniqueScript = uniqueScript.replaceAll('window.parent', 'window')
 await writeFile(uniqueScriptPath, uniqueScript)
 
 const globalPath = path.join(root, 'src/function/global/index.ts')
-let globalSource = await readFile(globalPath, 'utf8')
+let globalSource = await readSource(globalPath)
 globalSource = globalSource.replaceAll('window.parent', 'window')
 await writeFile(globalPath, globalSource)
 
 const mainPath = path.join(root, 'src/main.ts')
-let mainSource = await readFile(mainPath, 'utf8')
+let mainSource = await readSource(mainPath)
 mainSource = replaceExactlyOnce(
   mainSource,
   `    stop_list.push(initGlobals());
@@ -138,21 +142,45 @@ await writeFile(mainPath, mainSource)
 // trailing throttle returns the previous event's Promise and writes after the
 // current transaction has closed; each host event must await its own handler.
 const updatePath = path.join(root, 'src/function/update/index.ts')
-let updateSource = await readFile(updatePath, 'utf8')
+let updateSource = await readSource(updatePath)
 updateSource = replaceExactlyOnce(updateSource,
   'is_jest_environment ? onMessageReceived : _.throttle(onMessageReceived, 3000)',
   'onMessageReceived', 'await each serialized host message event')
 await writeFile(updatePath, updateSource)
 
-// Resumed/imported games may only have a complete snapshot on the current floor.
-// Preserve upstream's prior-floor baseline when available; otherwise use that
-// current snapshot rather than silently skipping a valid host settlement.
+// Host settlement supplies the frozen turn baseline on the target swipe. Other
+// MESSAGE_RECEIVED events still use the preceding snapshot, with the existing
+// current-floor fallback for resumed/imported games.
+const receivedPath = path.join(root, 'src/function/update/on_message_received.ts')
+let receivedSource = await readSource(receivedPath)
+receivedSource = replaceExactlyOnce(receivedSource,
+  '{ force = false }: { force?: boolean } = {}',
+  '{ force = false, useCurrentVariables = false }: { force?: boolean; useCurrentVariables?: boolean } = {}',
+  'accept the host settlement baseline option')
+for (const indent of ['        ', '    ']) {
+  receivedSource = replaceExactlyOnce(receivedSource,
+    `\n${indent}await handleVariablesInMessage(message_id);`,
+    `\n${indent}await handleVariablesInMessage(message_id, useCurrentVariables);`,
+    'pass the frozen baseline option to variable processing')
+}
+await writeFile(receivedPath, receivedSource)
+
 const variablesPath = path.join(root, 'src/function/update_variables.ts')
-let variablesSource = await readFile(variablesPath, 'utf8')
+let variablesSource = await readSource(variablesPath)
 variablesSource = replaceExactlyOnce(variablesSource,
-  'const variables = getLastValidVariable(request_message_id);',
-  "const variables = getLastValidVariable(request_message_id) ?? (() => { const current = getVariables({ type: 'message', message_id }); return _.has(current, 'stat_data') && _.has(current, 'schema') ? current : undefined; })();",
-  'allow complete current-floor MVU baseline when history has none')
+  'export async function handleVariablesInMessage(message_id: number) {',
+  'export async function handleVariablesInMessage(message_id: number, useCurrentVariables = false) {',
+  'accept explicit host baseline in variable processing')
+variablesSource = replaceExactlyOnce(variablesSource, `    const variables = getLastValidVariable(request_message_id);`, `    const current = () => getVariables({ type: 'message', message_id }) as MvuData;
+    const variables = useCurrentVariables ? current() : getLastValidVariable(request_message_id) ?? (() => {
+        const snapshot = current();
+        return _.has(snapshot, 'stat_data') && _.has(snapshot, 'schema') ? snapshot : undefined;
+    })();
+    if (useCurrentVariables && variables && _.isPlainObject(variables.stat_data) && !variables.schema) {
+        variables.schema = generateSchema(klona(variables.stat_data));
+        cleanUpMetadata(variables.stat_data);
+    }`,
+  'use the frozen host baseline and fill in a missing schema')
 await writeFile(variablesPath, variablesSource)
 
 // ST JSONL compaction cannot write host-owned history snapshots through saveChat.
@@ -163,19 +191,19 @@ for (const [file, signature, body] of [
   ['cleanup_variables.ts', 'export function cleanupMessageVariables(', 'export function cleanupMessageVariables(_start: number, _end: number, _interval: number) { return 0; }\n'],
 ]) {
   const filePath = path.join(root, 'src/function/cleanup', file)
-  const original = await readFile(filePath, 'utf8')
+  const original = await readSource(filePath)
   replaceExactlyOnce(original, signature, signature, 'disable host-incompatible cleanup: ' + file)
   await writeFile(filePath, '// DSH Tavern preserves authoritative historical variable snapshots.\n' + body)
 }
 const buttonsPath = path.join(root, 'src/button.ts')
-let buttonsSource = await readFile(buttonsPath, 'utf8')
+let buttonsSource = await readSource(buttonsPath)
 const cleanupButton = buttonsSource.match(/    \{\n        name: '清除旧楼层变量',[\s\S]*?\n    \},/)
 if (!cleanupButton) throw new Error('官方 MVU 清理按钮已变化，无法安全应用宿主转换')
 buttonsSource = replaceExactlyOnce(buttonsSource, cleanupButton[0], '', 'remove unsupported manual cleanup button')
 await writeFile(buttonsPath, buttonsSource)
 
 const cleanupPanelPath = path.join(root, 'src/panel/Cleanup.vue')
-const cleanupPanel = await readFile(cleanupPanelPath, 'utf8')
+const cleanupPanel = await readSource(cleanupPanelPath)
 replaceExactlyOnce(cleanupPanel, '<Section :label="t(\'panel.cleanup.section\')">', '', 'replace unsupported cleanup controls')
 await writeFile(cleanupPanelPath, `<template>
     <Section :label="t('panel.cleanup.section')">
@@ -192,7 +220,7 @@ const { t } = useMvuI18n();
 `)
 
 const notificationPath = path.join(root, 'src/function/notification/index.ts')
-let notificationSource = await readFile(notificationPath, 'utf8')
+let notificationSource = await readSource(notificationPath)
 for (const flag of ['已提醒自动清理旧变量功能', '已默认开启自动清理旧变量功能']) {
   notificationSource = replaceExactlyOnce(notificationSource,
     `if (store.settings.internal.${flag} === false) {`,
@@ -203,7 +231,14 @@ await writeFile(notificationPath, notificationSource)
 // Looking for the previous valid snapshot must not copy every earlier row.
 // On a paged host each array access can be an actual historical read.
 const utilPath = path.join(root, 'src/util.ts')
-let utilSource = await readFile(utilPath, 'utf8')
+let utilSource = await readSource(utilPath)
+utilSource = replaceExactlyOnce(utilSource,
+  'export function getLastValidMessageId(end_message_id: number): number {',
+  'export function getLastValidMessageId(end_message_id: number, includePartial = false): number {',
+  'allow initialization to find card-authored partial snapshots')
+utilSource = replaceExactlyOnce(utilSource, `export function getLastValidVariable(end_message_id: number): MvuData | undefined {
+    const message_id = getLastValidMessageId(end_message_id);`, `export function getLastValidVariable(end_message_id: number, includePartial = false): MvuData | undefined {
+    const message_id = getLastValidMessageId(end_message_id, includePartial);`, 'forward the partial snapshot option')
 utilSource = replaceExactlyOnce(utilSource, `    return _(SillyTavern.chat)
         .slice(0, end_message_id)
         .findLastIndex(chat_message => {
@@ -213,7 +248,8 @@ utilSource = replaceExactlyOnce(utilSource, `    return _(SillyTavern.chat)
     const limit = end < 0 ? Math.max(0, chat.length + end) : Math.min(chat.length, end);
     for (let index = limit - 1; index >= 0; index--) {
         const chat_message = chat[index];
-        if (isMvuData(_.get(chat_message, ['variables', chat_message.swipe_id ?? 0], {}))) return index;
+        const data = _.get(chat_message, ['variables', chat_message.swipe_id ?? 0], {});
+        if (isMvuData(data) || (includePartial && _.isPlainObject(data?.stat_data))) return index;
     }
     return -1;`, 'search prior MVU snapshot without copying historical rows')
 await writeFile(utilPath, utilSource)
@@ -221,7 +257,7 @@ await writeFile(utilPath, utilSource)
 // Restoration only acts when a missing snapshot is within the recent threshold.
 // Older missing rows have always taken the no-restoration branch.
 const restorePath = path.join(root, 'src/function/cleanup/restore_variables.ts')
-let restoreSource = await readFile(restorePath, 'utf8')
+let restoreSource = await readSource(restorePath)
 restoreSource = replaceExactlyOnce(restoreSource, `    const last_not_has_variable_message_id = SillyTavern.chat.findLastIndex(
         chat_message =>
             !_.has(chat_message, ['variables', chat_message.swipe_id ?? 0, 'stat_data']) ||
@@ -242,11 +278,39 @@ await writeFile(restorePath, restoreSource)
 // (strictSet, extensible) stays inert and $arrayMeta elements remain real data
 // until some later update reconciles. Treat it like the lorebook path does.
 const initPath = path.join(root, 'src/function/initvar/variable_init.ts')
-let initSource = await readFile(initPath, 'utf8')
+let initSource = await readSource(initPath)
+initSource = replaceExactlyOnce(initSource,
+  '    let variables: MvuData & Record<string, any>;',
+  '    let variables: MvuData & Record<string, any>;\n    let needsSchema = false;',
+  'track partial initialization separately from worldbook loading')
+initSource = replaceExactlyOnce(initSource,
+  '        variables = getLastValidVariable(getLastMessageId() + 1) ?? createEmptyGameData();',
+  `        const lastMessageId = getLastMessageId();
+        const snapshot = getLastValidVariable(lastMessageId + 1, true);
+        needsSchema = Boolean(snapshot && !snapshot.schema);
+        // On floor zero, each swipe contributes its own authored data below.
+        variables = (lastMessageId === 0 && needsSchema ? undefined : snapshot) ?? createEmptyGameData();`,
+  'recognize card-authored snapshots during initialization')
+initSource = replaceExactlyOnce(initSource,
+  '    const is_updated = await loadInitVarData(variables);',
+  '    const is_updated = (await loadInitVarData(variables)) || needsSchema;',
+  'complete a partial snapshot even when every worldbook is already initialized')
+initSource = replaceExactlyOnce(initSource,
+  '                        const current_data = correctlyMerge(',
+  `                        const authored = !vanilla_variable_data.schema && _.isPlainObject(vanilla_variable_data.stat_data)
+                            ? klona(vanilla_variable_data.stat_data) : undefined;
+                        const current_data = correctlyMerge(`,
+  'capture the authored data before merging opening defaults')
 initSource = replaceExactlyOnce(initSource, `                            //重新进行其他全局世界书的初始化。
                             await loadInitVarData(current_data);
+                        }
 `, `                            //重新进行其他全局世界书的初始化。
                             await loadInitVarData(current_data);
+                        }
+                        if (authored) {
+                            current_data.stat_data = { ...current_data.stat_data, ...authored };
+                        }
+                        if (is_initvar_applied || authored) {
                             const opening_schema: SchemaNode & RootAdditionalProps = generateSchema(
                                 klona(current_data.stat_data)
                             );
@@ -258,5 +322,6 @@ initSource = replaceExactlyOnce(initSource, `                            //重�
                                 current_data.schema = opening_schema;
                             }
                             cleanUpMetadata(current_data.stat_data);
-`, 'derive schema and strip metadata for opening initvar')
+                        }
+`, 'derive schema for opening initvar and preserve swipe-specific authored data')
 await writeFile(initPath, initSource)

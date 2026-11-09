@@ -4,7 +4,7 @@
 - Pinned commit: `0a730cd4a9b99689d1135a49b542c780b977c24c`
 - License: MIT (see `LICENSE`)
 - Audited upstream copy: `upstream/` contains the pinned official source, build inputs, license and published `artifact/bundle.js`. The upstream-published bundle SHA-256 is `3b510787a95c7a51523dcbbb2beff5f13b3bd069abf973dec1fdb1f21eeea61f`.
-- Host build: `host-build/` records the build-only patch, deterministic rebuild script and runtime artifact. The patch leaves MVU source semantics unchanged, keeps the expected Tavern globals external, and bundles the seven dependencies that the upstream artifact imports from a CDN. The host bundle SHA-256 is `8333353800b525fb6e01bd433fa429b347676b18fdff9565e751f311673ca378`.
+- Host build: `host-build/` records the host integration patch, deterministic rebuild script and runtime artifact. It keeps the expected Tavern globals external and bundles the dependencies that the upstream artifact imports from a CDN. The host bundle SHA-256 is `56d2ff8d24553b8356be63e4669de49a8f3974ace4e3e9c661d11cfd36675472`.
 - Runtime asset: `lib/domain/official-mvu-assets.js` verifies the host-build hash before exposing the package-local artifact. Loading this asset does not fetch MVU Core or its module dependencies from a CDN.
 - Local integration: the audited upstream bundle runs inside the shared per-chat script sandbox and reaches dsh-tavern state only through `lib/domain/tavern-script-host-adapter.js`. The retired self-written runtime is not part of the production path.
 - Integration checks: repository-root `tests/official-mvu-assets.test.mjs` verifies the packaged artifact and its hash; `tests/helper-host-api.test.mjs` exercises the script host bridge. These checks do not establish full upstream behavioral conformance.
