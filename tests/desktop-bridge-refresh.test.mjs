@@ -82,7 +82,11 @@ test('NEXT launcher update refreshes the original bridge under its existing inst
   assert.throws(() => acquirePendingLock(state), { code: 'busy' })
 })
 
-for (const failCutover of [false, true]) test(`NEXT prepared update ${failCutover ? 'restores the old app and Profile after a failed move' : 'publishes already prepared dependencies and Profile'}`, async t => {
+for (const [scenario, failCutover, originalActive] of [
+  ['publishes already prepared dependencies and Profile', false, false],
+  ['restores the old app and Profile after a failed move', true, false],
+  ['publishes Tavern while the independent original bridge is in use', false, true],
+]) test(`NEXT prepared update ${scenario}`, async t => {
   const f = fixture(t)
   await switchProfile({ mode: 'unlink', profilesRoot: f.profiles, liveDir: f.desktop, stamp: 'prepare-next' })
   const app = f.sourceRoot
@@ -100,7 +104,7 @@ for (const failCutover of [false, true]) test(`NEXT prepared update ${failCutove
   const prepared = nextUpdatePreparation({ app, sourceRoot, home: f.home, profileDir: f.tavern, gate })
   const checked = []
   const tx = beginDesktopProfileInstallation({ ...f, host: 'next', sourceRoot, prepareNext: true, preparingForPid: prepared.desktopPid, launcherGate: gate,
-    checkStopped(pid) { checked.push(pid) }, rename(from, to) {
+    checkStopped(pid) { checked.push(pid); return { originalDesktopActive: originalActive } }, rename(from, to) {
       if (failCutover && from === path.join(prepared.directory, 'node_modules')) throw Error('profile move failed')
       fs.renameSync(from, to)
     } })
@@ -132,8 +136,10 @@ for (const failCutover of [false, true]) test(`NEXT prepared update ${failCutove
     assert.equal(text(manifestFile), liveManifest)
     assert.equal(text(path.join(f.tavern, 'node_modules/old.txt')), 'old dependencies')
   } else {
-    publish(); tx.commit(); commit(app, { retainPrevious: true })
-    assertNew(f.desktop)
+    assert.deepEqual(publish(), { originalBridgeDeferred: originalActive })
+    tx.commit(); commit(app, { retainPrevious: true })
+    if (originalActive) assertOld(f.desktop)
+    else assertNew(f.desktop)
     assert.equal(JSON.parse(text(manifestFile)).dshTavern.source, app)
     for (const root of [app, f.tavern]) assert.equal(text(path.join(root, 'node_modules/dsh-tavern/revision.mjs')), 'export default "new"\n')
   }

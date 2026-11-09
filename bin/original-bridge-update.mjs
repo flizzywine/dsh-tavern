@@ -142,6 +142,7 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, prep
   try {
     const linked = lstatSync(live).isSymbolicLink()
     let original = live
+    let originalActive = false
     if (linked) {
       if (!same(realpathSync(live), realpathSync(path.join(profiles, 'tavern')))) throw Error('desktop 当前链接到其他 profile，未更新切换组件。')
       // Match switchProfile(unlink) exactly: never update historical backups or
@@ -151,7 +152,7 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, prep
           try { return lstatSync(dir).isDirectory() && !lstatSync(dir).isSymbolicLink() && Array.isArray(read(dir)?.dsh?.profile?.bundles) } catch { return false }
         })
       if (!original) throw Error('找不到可恢复的原版 desktop 配置，未更新切换组件。')
-    } else checkStopped(preparingForPid)
+    } else originalActive = checkStopped(preparingForPid)?.originalDesktopActive === true
     ordinary(original)
     const manifest = read(original)
     const bundle = launcherBundle(manifest, original)
@@ -173,6 +174,13 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, prep
       ordinary(parent)
       return path.join(parent, bundle)
     })
+    const assertIndependentBridge = () => {
+      for (const target of targets) ordinary(path.dirname(target))
+      if (!prepareNext || !targets.some(present) || targets.some(target => present(target) && lstatSync(target).isSymbolicLink())) {
+        throw Error('原版 DSH 正在使用共享的切换组件，请先退出原版 DSH。')
+      }
+    }
+    if (originalActive) assertIndependentBridge()
     journal = { schemaVersion: 1, phase: 'preparing', original, backup, actions: [], createdParents: [], previousManagement,
       ...(prepareNext ? { nextProfile: true } : {}) }; save()
     const bridgeProfile = prepareNext ? path.join(backup, 'prepared-desktop') : null
@@ -215,17 +223,23 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, prep
       finish(nextProfile, publishApp) {
         if (done || finished) return
         try {
-          if (prepareNext) holdProfileSwitches(state, launcherGate, trusted, false)
-          if (!linked) checkStopped()
+          if (prepareNext) {
+            holdProfileSwitches(state, launcherGate, trusted, false)
+            ordinary(original)
+          }
+          const originalBridgeDeferred = !linked && checkStopped()?.originalDesktopActive === true
+          if (originalBridgeDeferred) assertIndependentBridge()
           // The already-running Host may still have the previous helper loaded.
           // Fence crashes through its existing management-journal check too.
           writeManagement(JSON.stringify({ schemaVersion: 1, phase: 'preparing', mode: 'bridge-update', bridgeUpdateId: path.basename(backup) }))
           managementFenced = true
           publishApp?.()
-          for (let i = 0; i < targets.length; i++) {
-            ensureParent(path.dirname(targets[i]))
-            if (present(targets[i])) move(targets[i], path.join(backup, 'previous-' + i))
-            move(preparedTargets[i], targets[i])
+          if (!originalBridgeDeferred) {
+            for (let i = 0; i < targets.length; i++) {
+              ensureParent(path.dirname(targets[i]))
+              if (present(targets[i])) move(targets[i], path.join(backup, 'previous-' + i))
+              move(preparedTargets[i], targets[i])
+            }
           }
           if (nextProfile) {
             const profile = path.join(profiles, 'tavern')
@@ -244,7 +258,9 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, prep
               move(from, to)
             }
           }
+          if (originalBridgeDeferred) journal.originalBridgeDeferred = true
           finished = true
+          return { originalBridgeDeferred }
         } catch (error) { rollback(); throw error }
       },
       commit() {
