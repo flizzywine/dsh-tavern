@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { pathToFileURL } from 'node:url'
-import { loaderReload, readPatchedUserPlugins, syncUserPlugins, watchUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
+import { loaderReload, readPatchedUserPlugins, syncUserPlugins, userPluginPaths, watchUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
 
 async function home(t) {
   const dshHome = await mkdtemp(path.join(tmpdir(), 'user-plugins-'))
@@ -126,3 +126,35 @@ for (const pkg of [null, [], 'bad', {}, { name: 'broken' }, { name: 42, version:
     assert.equal((await syncUserPlugins({ dataRoot, logger: { warn() {} } })).plugins.length, 1)
   })
 }
+
+async function profileWith(dshHome, name, bundles) {
+  const dir = path.join(dshHome, 'profiles', name)
+  await mkdir(dir, { recursive: true })
+  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ dsh: { profile: { bundles } } }))
+  return dir
+}
+
+test('userPluginPaths：酒馆装在 web profile 里（dsh-go）时写到 web，而不是造一个空的 tavern', async t => {
+  const dshHome = await mkdtemp(path.join(tmpdir(), 'user-plugins-pick-'))
+  t.after(() => rm(dshHome, { recursive: true, force: true }))
+  const dataRoot = path.join(dshHome, 'profile-data', 'tavern', 'data')
+  const web = await profileWith(dshHome, 'web', ['@deepseek-ai/dsh-base', 'dsh-tavern-plugin'])
+  assert.equal(userPluginPaths(dataRoot, dshHome, 'cli').profile, web)
+})
+
+test('userPluginPaths：tavern 与 web 都有酒馆时用 tavern，保持既有安装不变', async t => {
+  const dshHome = await mkdtemp(path.join(tmpdir(), 'user-plugins-pick-'))
+  t.after(() => rm(dshHome, { recursive: true, force: true }))
+  const dataRoot = path.join(dshHome, 'profile-data', 'tavern', 'data')
+  const tavern = await profileWith(dshHome, 'tavern', ['dsh-tavern-plugin'])
+  await profileWith(dshHome, 'web', ['dsh-tavern-plugin'])
+  assert.equal(userPluginPaths(dataRoot, dshHome, 'cli').profile, tavern)
+})
+
+test('userPluginPaths：哪个 profile 都没有酒馆时按宿主老规矩回落，不猜 web', async t => {
+  const dshHome = await mkdtemp(path.join(tmpdir(), 'user-plugins-pick-'))
+  t.after(() => rm(dshHome, { recursive: true, force: true }))
+  const dataRoot = path.join(dshHome, 'profile-data', 'tavern', 'data')
+  await profileWith(dshHome, 'web', ['@deepseek-ai/dsh-base'])
+  assert.equal(userPluginPaths(dataRoot, dshHome, 'cli').profile, path.join(dshHome, 'profiles', 'tavern'))
+})
