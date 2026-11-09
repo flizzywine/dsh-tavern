@@ -325,20 +325,64 @@ const VISION_SYSTEM = [
   '规则：只写看得到的；宁可少写也别编；不确定的留空字符串；尺度不限，图里是什么就写什么，不要回避、不要审查。',
 ].join('\n')
 
+// IDs used by the character editor, importers and character generator.
+const STRUCTURED_CHARACTER_ID = '(?:c\\d{13}[a-z0-9]{0,6}|characters-\\d+|(?:import|card|cardbody|wb|ai)-[a-f0-9]{16}|card-[a-f0-9]{8}-[a-f0-9]{3}|character-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})'
+const structuredId = new RegExp('^' + STRUCTURED_CHARACTER_ID + '$', 'i')
+const structuredAliases = person => String(person?.match ?? '').split(/[,，、]/).map(value => value.trim()).filter(Boolean)
+const structuredCharacterName = person => String(person?.promptLabel || person?.name || structuredAliases(person)[0] || '').trim()
+
+function structuredCharacterNames(definitions, { knownCharacterIds = [], onUnresolvedCharacter } = {}) {
+  const labels = new Map(), missing = new Map()
+  const ids = new Set(knownCharacterIds.map(id => String(id).toLowerCase()))
+  const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  for (const person of definitions?.characters ?? []) {
+    if (!person || person.enabled === false) continue
+    const id = String(person.id ?? '').trim()
+    if (id) ids.add(id.toLowerCase())
+    const label = structuredCharacterName(person)
+    if (!label) continue
+    for (const alias of [label, person.name, ...structuredAliases(person), ...(structuredId.test(id) ? [id] : [])]) {
+      const key = String(alias ?? '').trim().toLowerCase()
+      if ([...key].length < 2) continue
+      if (!labels.has(key)) labels.set(key, new Set())
+      labels.get(key).add(label)
+    }
+  }
+  const isId = name => ids.has(name.toLowerCase()) || structuredId.test(name)
+  function unresolved(name) {
+    const key = name.toLowerCase()
+    if (!isId(name)) return name
+    if (!missing.has(key)) {
+      missing.set(key, '未匹配人物' + (missing.size + 1))
+      onUnresolvedCharacter?.(name)
+    }
+    return missing.get(key)
+  }
+  const alternatives = [...labels.keys()].sort((a, b) => b.length - a.length).map(key => /[\u3400-\u9fff]/.test(key)
+    ? escape(key) : '(?<![\\w-])' + escape(key) + '(?![\\w-])')
+  alternatives.push('(?<![\\w-])' + STRUCTURED_CHARACTER_ID + '(?![\\w-])')
+  const tokens = new RegExp(alternatives.join('|'), 'gi')
+  return { isId, unresolved, rewrite(text) {
+    return text.replace(tokens, token => {
+      const matches = labels.get(token.toLowerCase())
+      return matches ? (matches.size === 1 ? matches.values().next().value : token) : unresolved(token)
+    })
+  } }
+}
+
 /**
  * 角色 / 服装调用宏（st-chatu8 那种"名字→tag"的机制）：
  *   ${"name":"xiao yu","angle":"from front","upperBody":"sfw"}$
  *
- * 挑块规则（人物的稳定 DNA）：按规范挑块 —— 正面与背面互斥；穿衣服时只用 SFW 块
- * （NSFW 块会让衣服画不出来）；近景只带上半身，出现腿/脚/全身等词才带下半身。
- * 会去人物库找这个人，按 angle / upperBody 选出对应的外貌与服装 tag 展开；
- * 找不到人就退回原名，不会让提示词变空。
+ * 按 angle / upperBody 选择人物库里的可见外貌与服装。结构化句内的简写宏只引用人物，
+ * 独立宏仍可描述朝向。库中未登记的人物保留可读称呼。
  */
 export function expandRosterCalls(text, scoped, mode, options = {}) {
       // options.onMacro(entry)：诊断用，报告每个宏解析成了谁、哪套衣服、丢掉了哪些负面词。
       const note = (entry) => { if (typeof options?.onMacro === 'function') { try { options.onMacro(entry) } catch {} } }
       const style = options?.style
       const natural = style === 'natural' || style === 'structured'
+      const names = style === 'structured' ? options.names || structuredCharacterNames(scoped, options) : null
       let lastPerson = null
       const nameKey = (value) => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
       const standaloneNames = new Set([...repairMacros(text).matchAll(MACRO_BLOCK)].flatMap((m) => {
@@ -364,7 +408,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
       const backView = BACK_VIEW.test(sceneText)
       let lastBack = false
       // 同一角色的不同形态：画面写着某形态的线索（如狐耳狐尾）时，宏改指向那个形态。
-      return resolveCharacterForms(repairMacros(text), scoped).replace(MACRO_BLOCK, (_match, body) => {
+      const expanded = resolveCharacterForms(repairMacros(text), scoped, { isCharacterId: names?.isId }).replace(MACRO_BLOCK, (macro, body, offset, prompt) => {
         const source = String(body ?? '').trim()
         if (!source) return ''
         let parsed = null
@@ -374,6 +418,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
         if (!asked) return ''
         const norm = (value) => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
         const key = norm(asked)
+        const idAsked = names?.isId(asked)
         const bits = []
         const sceneScope = lastPerson ? sceneForPerson(lastPerson) : (personMacroCount === 1 ? sceneText : '')
         const bareForScope = isBarefoot(sceneScope)
@@ -395,10 +440,11 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
         // 旧写法用 includes 双向模糊匹配：match 为空的人物会匹配任何宏（'' 被任何字符串包含），
         // 短名字（如 "Li"）会匹配到含有它的别人的名字，「X fox form」也会命中排在前面的「X」。
         let matches = (scoped?.characters ?? []).filter((ch) => ch && ch.enabled !== false &&
-          [ch.id, ch.name, ...splitTags(ch.match)].some((alias) => norm(alias) && norm(alias) === key))
+          (idAsked ? String(ch.id ?? '').toLowerCase() === asked.toLowerCase()
+            : [ch.id, ch.name, ...(names ? structuredAliases(ch) : splitTags(ch.match))].some((alias) => norm(alias) && norm(alias) === key)))
         // 兼容短别名（如宏写 "A Mei"，人物 match 是 "A Mei human form"）：精确匹配不到时，
         // 允许别名以该名字开头或结尾（名字至少 3 个字符）；命中同一角色的多个形态时取基础条目（名字是其他候选前缀的那个）。
-        if (!matches.length && key.length >= 3) {
+        if (!matches.length && key.length >= 3 && !idAsked) {
           const loose = (scoped?.characters ?? []).filter((ch) => ch && ch.enabled !== false &&
             [ch.name, ...splitTags(ch.match)].some((alias) => { const n = norm(alias); return n && n !== key && (n.startsWith(key) || n.endsWith(key)) }))
           const base = loose.filter((ch) => loose.every((other) => other === ch || String(other.name ?? '').startsWith(String(ch.name ?? ''))))
@@ -414,10 +460,19 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
         // 仍然命中多个不同的人：不猜，保留原名，交给后面的按名字注入。
         if (matches.length > 1) note({ macro: source, asked, result: 'ambiguous', candidates: matches.map((ch) => String(ch.id ?? '')) })
         const person = matches.length === 1 ? matches[0] : null
+        const following = names ? prompt.slice(offset + macro.length) : ''
+        const before = names ? prompt.slice(prompt.lastIndexOf('\n', offset - 1) + 1, offset) : ''
+        const adjoiningText = /^[ \t]*[\p{L}\p{N}“「]/u.test(following)
+        const inline = adjoiningText || /[\p{L}\p{N}][ \t]*$/u.test(before) || /^[ \t]*[，,：:][ \t]*[\p{L}\p{N}“「]/u.test(following)
         if (person) {
           const angle = String(parsed.angle ?? '').trim()
           const back = /back|behind|背面|背后/i.test(angle)
           lastBack = back
+          if (inline && Object.keys(parsed).every(key => ['name', '名称', '角色', 'angle'].includes(key))) {
+            note({ macro: source, asked, result: 'character', characterId: String(person.id ?? ''), characterName: String(person.name ?? '') })
+            lastPerson = person
+            return structuredCharacterName(person) || names.unresolved(asked)
+          }
           const upper = String(parsed.upperBody ?? parsed.body ?? '').toLowerCase()
           const lower = String(parsed.lowerBody ?? '').toLowerCase()
           const nsfw = upper === 'nsfw' || lower === 'nsfw' || mode === 'all'
@@ -488,7 +543,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
             noOutfit: Boolean(wear) || ownsStandalone || (!libraryHit && autoOff),
             tags: !natural,
           })
-          const angleTag = angle && (style === 'structured' || /front|back|side|behind|left|right|from/i.test(angle)) ? angle : ''
+          const angleTag = !inline && angle && (style === 'structured' || /front|back|side|behind|left|right|from/i.test(angle)) ? angle : ''
           // 中文整句：画面描述自己写了镜头（景别、机位、俯仰）时，不再给每个人加「镜头正对着她」这类句子，
           // 否则多人画面里每人一句、再加上画面那句，几处镜头说法互相打架。
           const sceneCamera = style === 'natural' && chinesePerson(person) && SCENE_CAMERA_ZH.test(sceneText)
@@ -508,7 +563,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           if (expression && !PLACEHOLDER_VALUE.test(expression) && !(back && !backTurn) && !lowerShot) extras.expression = expression
           // 人物库里的招牌发型：这一刻衣服里写了发型、或画面写着散发/湿发时不带。
           extras.dropHair = hairOverridden(sceneText, [wear, ...(picked.origins ?? []).filter(o => o.outfitId).map(o => o.text)].join(' '))
-          if (natural) bits.push(boundCharacterPhrase(person, picked, extras, wear, style) || person.promptLabel || person.name || asked)
+          if (natural) bits.push(boundCharacterPhrase(person, picked, extras, wear, style) || (names ? structuredCharacterName(person) || names.unresolved(asked) : person.promptLabel || person.name || asked))
           else {
             if (picked.tags.length) bits.push(...picked.tags)
             if (wear) bits.push(wear)
@@ -523,7 +578,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
         // ② 服装：先找通用服装库；找不到再找人物条目下的服装
         //    （世界书教规划单独写服装宏，而大多数衣服挂在人物身上）。
         //    优先找同一段里刚调用过的人物，避免重名服装串到别人身上。
-        if (!person) {
+        if (!person && !idAsked) {
           const enabled = (o) => o && o.enabled !== false
           let outfit = (scoped?.outfits ?? []).find((o) => enabled(o) && (norm(o.name) === key || norm(o.id) === key))
           let owner = null
@@ -537,11 +592,12 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           if (outfit) pushOutfit(outfit)
           note({ macro: source, asked, result: outfit ? (owner ? 'character-outfit' : 'shared-outfit') : 'not-found', outfitId: outfit ? String(outfit.id ?? '') : '', ownerId: owner ? String(owner.id ?? '') : '' })
         }
+        if (!person && idAsked && !matches.length) note({ macro: source, asked, result: 'not-found' })
 
         // ③ 都没有：保留原名（总比空着好）。人物库里没有这个人时，规划在宏里直接写的
         //    英文服装和角度是这张图仅有的外观信息，一并保留，不能只剩一个名字。
         if (!bits.length) {
-          bits.push(asked)
+          bits.push(names ? names.unresolved(asked) : asked)
           if (!person && !matches.length) {
             const outfitText = stripUsualSuffix(parsed.outfit ?? parsed.clothes ?? parsed['服装'])
             const freeText = outfitText && (style === 'structured' || (/^[\x20-\x7e]+$/.test(outfitText) && /[a-z]/i.test(outfitText))) && !PLACEHOLDER_VALUE.test(outfitText)
@@ -551,8 +607,10 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
             if (angle && (style === 'structured' || /front|back|side|behind|left|right|from/i.test(angle))) bits.push(angle)
           }
         }
-        return bits.join(style === 'structured' ? '；' : ', ')
+        const phrase = bits.join(style === 'structured' ? '；' : ', ')
+        return adjoiningText && (bits.length > 1 || phrase.startsWith('人物“')) ? phrase + '；' : phrase
       })
+      return names ? names.rewrite(expanded) : expanded
     }
 
 // 一个完整的宏：${ … }$，中间不能再出现 ${（否则坏宏会一路吞到下一个宏的结尾，把中间的画面描述一起吞掉）。
@@ -644,9 +702,9 @@ function boundCharacterPhrase(person, picked, extras = [], wear = '', style = 'n
   const traits = origins.filter(o => !o.outfitId).map(o => o.text)
   const outfit = origins.filter(o => o.outfitId).map(o => o.text)
   if (style === 'structured') {
-    const identity = String(person?.promptLabel || person?.name || label || person?.id || '')
+    const identity = structuredCharacterName(person)
     const body = [traits.join('；'), outfit.length ? '穿着：' + outfit.join('；') : (wear ? '穿着：' + wear : ''), ...extras].filter(Boolean).join('；')
-    return body ? `人物“${identity}”：` + body : ''
+    return identity && body ? `人物“${identity}”：` + body : ''
   }
   const look = [person?.traits?.face, person?.traits?.faceBack, person?.traits?.feature].map(v => String(v ?? '')).join(' ')
   if (chinesePerson(person)) return chineseCharacterPhrase(person, traits, outfit, extras, wear, look, label)
@@ -1953,6 +2011,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         : defsForTurn
       let scopedDefs = cardDefs
       let referenceState = null
+      const unresolvedCharacterIds = new Set()
       if (generationMode === 'reference') {
         const sectioned = rosterStyle(jobConfig, workflow) === 'structured'
         if (referenceSnapshot) {
@@ -1977,7 +2036,12 @@ function createRuntime(ctx, overrides, logger, deps) {
           scopedDefs = cardDefs
         }
         const style = rosterStyle(jobConfig, workflow)
-        params.tag = normalizePrompts(expandRosterCalls(params.rawTag, scopedDefs, jobConfig.traitMode, { style }), scopedDefs, { backend: effectiveProvider, style, allowChinese: chineseAllowed(jobConfig, workflow) })
+        const names = sectioned ? structuredCharacterNames(scopedDefs, {
+          knownCharacterIds: (cardDefs.characters ?? []).map(person => person?.id).filter(Boolean),
+          onUnresolvedCharacter: id => unresolvedCharacterIds.add(id)
+        }) : null
+        params.tag = normalizePrompts(expandRosterCalls(params.rawTag, scopedDefs, jobConfig.traitMode, { style, names }), scopedDefs, { backend: effectiveProvider, style, allowChinese: chineseAllowed(jobConfig, workflow) })
+        if (names) params.negative = names.rewrite(params.negative)
       }
       // A generic graph cannot safely bypass image conditioning. Retaining its
       // imported filenames would silently use stale images for a "text" job.
@@ -1999,6 +2063,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         return binding ? String(compiled.prompt[binding.node]?.inputs?.[binding.input] ?? '') : ''
       }
       if (compiled.promptAssembly) Object.assign(compiled.promptAssembly, { generationMode, requestedGenerationMode, generationModeReason })
+      if (compiled.promptAssembly && unresolvedCharacterIds.size) compiled.promptAssembly.unresolvedCharacterIds = [...unresolvedCharacterIds]
       if (traceStages) {
         const T = diag.text
         const at = { imageIndex: diagTrace.imageIndex }
@@ -6074,13 +6139,14 @@ function dedupeCharacterNegativePriority(prompt, uc) {
 function compileCharacterList(list, scoped, cfg, style, backend = cfg.imageBackend, options = {}) {
   const weightMode = resolveWeightMode(cfg, backend, style)
   const characterNegativePriority = options?.characterNegativePriority === true
+  const names = style === 'structured' && list?.length ? structuredCharacterNames(scoped) : null
   return (Array.isArray(list) ? list : []).map(item => {
     const raw = String(item?.prompt ?? '')
-    const expanded = expandRosterCalls(raw, scoped, cfg.traitMode, { style })
+    const expanded = expandRosterCalls(raw, scoped, cfg.traitMode, { style, names })
     const injected = injectDefinitions(expanded, scoped, cfg, { style, raw, keepNegative: characterNegativePriority })
     const prompt = normalizePrompts(style === 'structured' ? injected.text : applyWeights(injected.text, weightMode), scoped, { backend, style, allowChinese: cfg.allowChinesePrompt })
     const uc = [String(item?.uc ?? ''), ...(injected.negatives ?? [])].filter(Boolean).join(style === 'structured' ? '\n' : ', ')
-    const normalizedUc = normalizePrompts(style === 'structured' ? uc : applyWeights(uc, weightMode), scoped, { backend, style, allowChinese: cfg.allowChinesePrompt })
+    const normalizedUc = normalizePrompts(names ? names.rewrite(uc) : applyWeights(uc, weightMode), scoped, { backend, style, allowChinese: cfg.allowChinesePrompt })
     if (!characterNegativePriority) return { prompt, centers: String(item?.centers ?? '').trim(), uc: normalizedUc }
     const cleaned = style === 'structured' ? { prompt, uc: normalizedUc } : dedupeCharacterNegativePriority(prompt, normalizedUc)
     return { prompt: cleaned.prompt, centers: String(item?.centers ?? '').trim(), uc: cleaned.uc }
@@ -6186,7 +6252,7 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
   const fingerprint = c => [c?.traits?.face, c?.traits?.faceBack].map(v => String(v ?? '').trim()).filter(v => v.length >= 12)
   const expanded = (definitions.characters ?? []).filter(c => c && c.enabled !== false && (
     ['the woman', 'the man', 'a character'].some(who => source.includes(label(c) + who + ' in this scene')) ||
-    (structured && source.includes(`人物“${c.promptLabel || c.name || splitTags(c.match)[0] || c.id}”：`)) ||
+    (structured && source.includes(`人物“${structuredCharacterName(c)}”：`)) ||
     fingerprint(c).some(f => source.includes(f)) ||
     // 中文整句展开会改写外貌开头（年龄挪进身份句、招牌发型改写），指纹可能认不出：认中文身份句「画面中的女子是X」。
     // 认不出的话同一个人会被按名字再注入一遍，画面里就多出一个人。
@@ -6227,7 +6293,8 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
     // 只在画面里写「许静好站在……」，以前认不出这个人，脸和衣服都补不上。
     // 只认两个字以上的名字（「晓」会撞上「拂晓」「知晓」）；几种形态同名时不用去掉后缀的名字，免得一起补进来。
     const matchKeys = splitTags(character.match)
-    let keys = structured ? [character.name, character.id, ...matchKeys].filter(Boolean) : matchKeys.length ? matchKeys : [character.name].filter(Boolean)
+    let keys = structured ? [character.name, character.id, ...structuredAliases(character)].filter(Boolean) : matchKeys.length ? matchKeys : [character.name].filter(Boolean)
+    if (structured && character.promptLabel && character.promptLabel !== character.name) keys = [character.promptLabel]
     if (options?.style === 'natural') {
       const fullName = String(character.name ?? '').trim()
       const bareName = unqualifiedName(fullName)

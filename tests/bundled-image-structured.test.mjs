@@ -124,7 +124,7 @@ test('final structured composition keeps custom sections and adds style/manual/r
     referenceText: '图1 → 林月身份；图2 → 白衬衫。',
     config: { promptMode: 'structured', activePromptPreset: 'story-cinematic', promptManualPositive: '【用户自定义标题】\n雨后，不下雨。', promptManualNegative: '不要文字, 不要水印。' },
   })
-  assert.ok(result.positive.startsWith(prose))
+  assert.ok(result.positive.startsWith('【参考图对应与一致性】\n图1 → 林月身份；图2 → 白衬衫。\n\n' + prose))
   assert.match(result.positive, /【风格补充】\n水彩\n纸张肌理/)
   assert.match(result.positive, /【用户自定义标题】\n雨后，不下雨。/)
   assert.match(result.positive, /两人各拿一把伞, 两人各拿一把伞。/)
@@ -135,6 +135,7 @@ test('final structured composition keeps custom sections and adds style/manual/r
   assert.match(result.combined, /【约束补充】\n/)
   assert.doesNotMatch(result.combined, /Avoid:/)
   assert.equal(combineStructuredPrompt(result.combined, result.negative), result.combined)
+  assert.equal(composeStructuredPrompt({ text: result.positive, referenceText: '图1 → 林月身份；图2 → 白衬衫。' }).positive, result.positive)
   assert.ok(composeStructuredPrompt({ text: prose, artist: '油画' }).positive.startsWith('【风格补充】\n油画\n\n' + prose))
   assert.equal(appendStructuredSection(prose, '空内容', ''), prose)
 })
