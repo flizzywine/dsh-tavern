@@ -20,6 +20,7 @@ import { normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { variableUpdateFor } from './variable-update.js'
 import { replyProse } from './reply-prose.js'
 import { captureBodyRegenerationSource } from './body-regeneration-materials.js'
+import { frameUserInput } from './agent-input-frame.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -526,7 +527,7 @@ export function createTurnOrchestrator(options) {
           ready: true,
           mode,
           cardName: str(chat.cardName),
-          userText: cachedFrame.userInput.projectedText,
+          userText: frameUserInput(cachedFrame).projectedText,
           frame: cachedFrame
         }
       }

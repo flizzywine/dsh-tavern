@@ -7,6 +7,7 @@ import { inputEventForTurn } from './session-turn-input.js'
 import { inputAttachments } from './player-input-content.js'
 import { unansweredTailIndex } from './rollback-surface.js'
 import { bodyGenerationWorldbookResults } from './body-generation-worldbook.js'
+import { frameUserInput } from './agent-input-frame.js'
 
 export const BODY_GENERATION_PROMPT = '<output_method>本轮正文由插件生成。最终必须调用 tavern_generate_body，参数为 {}。不得自行撰写正文，不得调用 submit_story（历史中的调用仅是旧正文记录）。工具会取得完整材料、生成并提交正文；成功后结束本轮，不要转述或补充回复。调用失败则停止，不要换用其他生成方式或重试。</output_method>'
 const routeMismatch = Symbol('body-generation-route-mismatch')
@@ -44,7 +45,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
       || frame.basedOnRevision !== chat.timeline?.revision) throw error('本轮正文生成操作已过期')
     const beforeChat = await readRevision(chat.id, op.beforeRevision)
     return buildBodyRegenerationMaterials({ chat, beforeChat, turn, operationId: op.id, kind: 'generate',
-      targetInput: { raw: frame.userInput.sourceText } })
+      targetInput: { raw: frameUserInput(frame).sourceText } })
   }
   async function generate(session, signal) {
     const turn = activeStoryTurn(session)

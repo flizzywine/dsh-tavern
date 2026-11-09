@@ -11,7 +11,8 @@ import { consumeScriptPrompts } from './tavern-script-prompts.js'
 import { findBodyRegenerationFrame } from './body-regeneration-materials.js'
 import { untilAborted } from './plugin-callback.js'
 import { projectPlayerContent } from './player-input-content.js'
-import { restoreDiscardedRegeneration } from './regeneration-discard.js'
+import { createRegenerationDiscard, regenerationAttemptMessages, restoreDiscardedRegeneration, installRegenerationDiscard, clearRegenerationFailure, retainRegenerationFailure } from './regeneration-discard.js'
+import { frameUserInput } from './agent-input-frame.js'
 
 const text = value => typeof value === 'string' ? value : ''
 const clone = value => value === undefined ? undefined : structuredClone(value)
@@ -104,7 +105,7 @@ export function createPluginBodyRegeneration(deps) {
       if (!card) throw new Error('人物卡不可读取')
       const frame = findBodyRegenerationFrame(original, oldTurn)
       if (!frame?.source?.regenerationState && ((original.mode || 'story') === 'script'
-        || /{{|<%/.test(frame?.userInput?.sourceText || '') || frame?.userInput?.sourceText !== frame?.userInput?.projectedText
+        || /{{|<%/.test(frameUserInput(frame).sourceText) || frameUserInput(frame).sourceText !== frameUserInput(frame).projectedText
         || inputRow?.templateInputSource)) {
         throw error('TAVERN_PLUGIN_MATERIALS_UNAVAILABLE', '这条旧存档缺少本轮输入处理后的快照，无法安全重生成')
       }

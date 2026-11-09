@@ -11,6 +11,7 @@ import { markRequestHandled, requestHandledBy } from './request-lineage.js'
 import { inputKind } from './session-turn-input.js'
 import { isProducerSource, isSystemPromptSource } from './message-source.js'
 import { virtualWorldbookPromptText } from './worldbook-virtual-surface.js'
+import { frameUserInput } from './agent-input-frame.js'
 
 const CARD_REFERENCE_SECTIONS = new Set(['tavern:character-card', 'tavern:card-system-prompt', 'tavern:constant-worldbook'])
 // The card Agent resends its system prompt on every tool step and reads live
@@ -355,7 +356,7 @@ export function createNativePlayOrchestrationStrategy(options) {
         if (worldbookSection && !input.chat?.regenInProgress && source?.worldBook?.virtualWorldbook && typeof worldbookPrefix === 'string') {
           worldbookSection.text = virtualWorldbookPromptText(worldbookPrefix)
         }
-        agentMessages = replaceTurnInput(agentMessages, prepared.frame.userInput.projectedText)
+        agentMessages = replaceTurnInput(agentMessages, frameUserInput(prepared.frame).projectedText)
         const adapted = options.appendFrame({ messages: agentMessages, frame: prepared.frame, step: payload.step, session: payload.agent?.session })
         agentMessages = adapted.messages
         options.recordFrame(sessionId, prepared.frame, adapted.receipt)

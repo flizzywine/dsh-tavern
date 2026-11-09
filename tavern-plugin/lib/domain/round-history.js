@@ -20,7 +20,8 @@ import { plainReplyProse, replyProse } from './reply-prose.js'
 import { createPluginBodyRegeneration } from './plugin-body-regeneration.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { consumeScriptPrompts } from './tavern-script-prompts.js'
-import { restoreDiscardedRegeneration } from './regeneration-discard.js'
+import { createRegenerationDiscard, restoreDiscardedRegeneration, installRegenerationDiscard, clearRegenerationFailure } from './regeneration-discard.js'
+import { compactUserInput, frameUserInput } from './agent-input-frame.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -103,7 +104,7 @@ async function candidateRegenerationFrame(chat, operationId, nativeTurn, inputTe
   if (typeof prepareFrame !== 'function') throw new Error('当前宿主未提供正文重新生成准备接口')
   let prepared
   if (reuse?.frame) {
-    prepared = { frame: reuse.frame, userText: str(reuse.frame.userInput?.projectedText) }
+    prepared = { frame: reuse.frame, userText: str(frameUserInput(reuse.frame).projectedText) }
   } else {
     prepared = await prepareFrame({
       ...(reuse?.arguments && typeof reuse.arguments === 'object' ? reuse.arguments : {}),
@@ -136,7 +137,7 @@ async function candidateRegenerationFrame(chat, operationId, nativeTurn, inputTe
         ? { worldBook: { ...frame.source.worldBook, branchId, revision: basedOnRevision } }
         : {}) }
   }
-  frame.userInput = { ...(frame.userInput || {}), sourceText: inputText, projectedText: str(prepared.userText) || inputText, source: { stage: 'player-input' } }
+  frame.userInput = compactUserInput({ sourceText: inputText, projectedText: str(prepared.userText) || inputText, source: { stage: 'player-input' } })
   return frame
 }
 

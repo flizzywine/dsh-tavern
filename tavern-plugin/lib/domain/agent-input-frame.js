@@ -25,6 +25,32 @@ function revision(value) {
   return number
 }
 
+/**
+ * A frame records the request the model saw. The projected input is usually the same
+ * string as the source input — no macro, no template — and storing it twice doubled the
+ * largest per-turn field of a save that is rewritten every turn. Store it once and derive
+ * the projection on read; a frame whose projection really differs keeps both.
+ */
+export function compactUserInput(userInput) {
+  const input = userInput !== null && typeof userInput === 'object' ? userInput : {}
+  const sourceText = str(input.sourceText)
+  const projectedText = typeof input.projectedText === 'string' ? input.projectedText : sourceText
+  const compact = { sourceText }
+  if (projectedText !== sourceText) compact.projectedText = projectedText
+  if (input.source !== undefined) compact.source = input.source
+  return compact
+}
+
+export function frameUserInput(frame) {
+  const input = frame !== null && typeof frame === 'object' && frame.userInput !== null && typeof frame.userInput === 'object' ? frame.userInput : {}
+  const sourceText = str(input.sourceText)
+  return {
+    sourceText,
+    projectedText: typeof input.projectedText === 'string' ? input.projectedText : sourceText,
+    source: input.source
+  }
+}
+
 function joined(items) {
   return items.map(function (item) { return str(item && item.text).trim() }).filter(Boolean).join('\n\n')
 }
@@ -110,7 +136,7 @@ export function createForegroundFrameBuilder() {
       basedOnRevision,
       operationId,
       turn,
-      userInput: clone(collected.userInput),
+      userInput: compactUserInput(clone(collected.userInput)),
       context,
       contributions: clone(collected.contributions),
       source: clone(input.source && typeof input.source === 'object' ? input.source : {}),
@@ -174,9 +200,10 @@ export function foregroundRequestContext(chat, turn) {
   const frames = Object.values(chat && typeof chat.foregroundFrames === 'object' && chat.foregroundFrames ? chat.foregroundFrames : {})
   const frame = frames.filter(item => item && item.kind === 'foreground' && Number(item.turn) === Number(turn) && (!branchId || item.branchId === branchId)).at(-1)
   if (!frame) return null
+  const userInput = frameUserInput(frame)
   return {
     turn: Number(frame.turn),
-    input: str(frame.userInput && frame.userInput.projectedText) || str(frame.userInput && frame.userInput.sourceText),
+    input: str(userInput.projectedText) || str(userInput.sourceText),
     sections: (Array.isArray(frame.contributions) ? frame.contributions : []).map(item => {
       const source = item && item.source && typeof item.source === 'object' ? item.source : {}
       const origin = contributionOrigin(source)

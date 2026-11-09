@@ -7,7 +7,7 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { renderTavernMacros } from '../tavern-plugin/lib/domain/tavern-macro-engine.js'
 import { projectReplyLayers } from '../tavern-plugin/lib/domain/reply-presentation.js'
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
-import { createForegroundFrameBuilder, foregroundFrameText } from '../tavern-plugin/lib/domain/agent-input-frame.js'
+import { createForegroundFrameBuilder, foregroundFrameText, frameUserInput } from '../tavern-plugin/lib/domain/agent-input-frame.js'
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { createForegroundFrameSessionAdapter } from '../tavern-plugin/lib/domain/foreground-frame-session-adapter.js'
 
@@ -251,6 +251,52 @@ test('new card is created and bound before tool returns; next write updates the 
   assert.equal(run.card().description, '第二次修改')
   assert.equal(run.createdCards.length, 1)
   assert.deepEqual(run.chat().lastCardSave, { turn: 1, path: 'cards/新角色.json', createsCard: false, changed: true })
+})
+
+test('玩家模板先于本轮召回，重试不重复执行；提交后只产生一条玩家消息', async () => {
+  let calls=0
+  const run=harness('story',{projectUserTemplate:async()=>{
+    calls++
+    return {message:{role:'user',text:'进入少林',variables:[{place:'少林'}],tavernPluginData:{is_ejs_processed:[true]}},scopes:{local:{place:'少林'},initial:{}}}
+  },projectForegroundWorldbook:async({chat,userText})=>{
+    assert.equal(chat.variables.place,'少林');assert.equal(userText,'进入少林')
+    return {context:'少林名册',activation:{refs:[]},refs:[],reads:{}}
+  }})
+  const input={sessionId:'session-1',turn:2,userText:'原始模板'}
+  const first=await run.orchestrator.prepare(input)
+  await run.orchestrator.prepare(input)
+  assert.equal(calls,1)
+  assert.equal(first.userText,'进入少林')
+  assert.deepEqual(first.frame.source.regenerationState.variables, { place: '少林' })
+  assert.equal(first.frame.source.regenerationState.promptTemplateInput.source, '原始模板')
+  assert.equal(first.frame.source.regenerationMaterials.card.name, run.card().name)
+  assert.equal(run.chat().messages.length,2,'准备阶段已经创建一对占位消息，重试不重复追加')
+  assert.equal(run.chat().messages[0].placeholder,true)
+  assert.equal(run.chat().messages[1].placeholder,true)
+  await run.orchestrator.finalize({...input,assistantText:'少林的僧人迎上前。'})
+  assert.equal(run.chat().messages.length,2,'提交替换占位，不再追加另一对消息')
+  assert.ok(run.chat().messages.every(message=>message.placeholder===undefined))
+  assert.equal(run.chat().messages[0].text,'进入少林')
+  assert.equal(run.chat().messages[0].variables[0].place,'少林')
+  assert.equal(run.chat().promptTemplateInput,undefined)
+})
+
+test('升级前已缓存 Frame 但没有占位的回合仍按原路径追加提交', async () => {
+  const run = harness('story')
+  const input = { sessionId: 'session-1', turn: 2, userText: '继续旧存档' }
+  const first = await run.orchestrator.prepare(input)
+  const legacy = run.chat()
+  legacy.messages = []
+  for (const operation of Object.values(legacy.timeline.operations)) delete operation.placeholder
+  run.replaceChat(legacy)
+  const repeated = await run.orchestrator.prepare(input)
+  assert.equal(repeated.frame.frameId, first.frame.frameId, '旧 Frame 直接复用，不要求迁移或重建占位')
+  assert.equal(frameUserInput(repeated.frame).projectedText, '继续旧存档')
+  assert.equal(run.chat().messages.length, 0)
+  await run.orchestrator.finalize({ ...input, assistantText: '旧存档的正文。' })
+  assert.deepEqual(run.chat().messages.map(message => [message.role, message.text]), [
+    ['user', '继续旧存档'], ['assistant', '旧存档的正文。']
+  ])
 })
 
 test('a speaker recalled after the frozen roster reaches only this turn\'s tail', async () => {
