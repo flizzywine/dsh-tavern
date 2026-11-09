@@ -19,7 +19,8 @@ import { patchThemeFontLimit } from './theme-font-limit.mjs'
 import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
 import { patchDeepSeekStreamOption } from './deepseek-stream-option-patch.mjs'
 import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
-import { installPluginDependencies, resolveHostDependencies } from './plugin-dependencies.mjs'
+import { patchWebViewportMeta } from './web-viewport-patch.mjs'
+import { installPluginDependencies, resolveHostAnchor, resolveHostDependencies } from './plugin-dependencies.mjs'
 import { installBundledSceneImagePlugin } from './bundled-scene-image-plugin.mjs'
 import { isAsarPath } from './desktop-host-paths.mjs'
 import { repairDirectoryLinksSync } from './portable-fs.mjs'
@@ -428,6 +429,12 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         if (patched === null) console.log('当前 DSH 的 DeepSeek 适配器与流式设置补丁不符，已跳过；非流式仍在响应完成后一次性显示。')
         else if (patched) console.log('已为 DeepSeek 适配器启用流式/非流式请求切换。')
       }
+      // 安卓 Chrome 默认只缩可视区（resizes-visual），键盘动画期间布局视口不动，页面只能等
+      // visualViewport 的事件 —— 就是「输入法先弹、页面过一会才上移」。让浏览器把键盘算进
+      // 窗口高度，页面按 100% 跟随就是同帧的。
+      const viewport = patchWebViewportMeta(resolveHostAnchor({ dsh, host }))
+      if (viewport === null) console.log('当前 DSH 的网页外壳与视口补丁不符，已跳过；安卓浏览器里键盘可能比页面先到。')
+      else if (viewport) console.log('已让安卓浏览器把软键盘算进窗口高度：输入法弹出时页面与键盘同帧重排。')
       let piAi = null
       try {
         const [adapter] = resolveHostDependencies({ dsh, host, requiredExports: {
