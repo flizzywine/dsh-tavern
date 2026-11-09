@@ -552,7 +552,14 @@
 			// 这一局的视图没读到时，按钮只能灰着：它既不知道该重生成哪一段，也拿不到
 			// canRegenerate。分开记下来，别让「还没读到」被说成「还没有正文」。
 			const viewReady = Boolean(rollbackViewState.view);
-			const canRollback = viewReady && (rollbackViewState.view.canRegenerate ?? rollbackViewState.view.canRollback) === true;
+			// 视图在、却没带上「能不能重生成」这一栏时(投影视图、正文落盘前的那一秒、
+			// 从别处塞进来的窗口),不能直接读成「没有正文」:服务端早把 canRegenerate
+			// 恒定成 true 了(能不能重生成只看这一轮有没有正文),缺字段只说明这份视图
+			// 不完整。正文就摆在玩家面前,按钮却说自己没东西可写——那是骗人的。
+			const scrollbackView = rollbackViewState.view;
+			const regenerable = viewReady ? (scrollbackView.canRegenerate ?? scrollbackView.canRollback) : undefined;
+			const viewHasBody = viewReady && (Number(scrollbackView.latestAssistantTurn) > 0 || Boolean(scrollbackView.latestAssistantMessageId));
+			const canRollback = viewReady && (regenerable === true || (regenerable === undefined && viewHasBody));
             const clearIncomplete = rollbackViewState.view && rollbackViewState.view.canClearIncompleteReply === true;
 			// A failure still owning the tail can be withdrawn or handed to the debugger.
 			const failedTailTurn = rollbackViewState.view && rollbackViewState.view.failedTailTurn !== null && rollbackViewState.view.failedTailTurn !== undefined
@@ -577,7 +584,9 @@
 			// 一挂载就会补读）。别的都在闲着时自己补读，最多三次，别把恢复寄托在下一次点击上。
 			const healTries = React.useRef({ key: "", count: 0 });
 			React.useEffect(function () {
-				if (viewReady || frontRunning || compacting || regenBusy || activity.busy || !latestMessageId) {
+				// 补读的判据是「按钮现在不能用」,不是「视图是空的」:视图在、却拿不到正文
+				// 状态时同样要重读一次,否则一句「还没有可重新生成的正文」会一直挂在那里。
+				if (canRollback || frontRunning || compacting || regenBusy || activity.busy || !latestMessageId) {
 					healTries.current = { key: "", count: 0 };
 					return;
 				}
@@ -590,7 +599,7 @@
 					tavernCoordination.invalidate(props.sessionId);
 				}, 700 + healTries.current.count * 900);
 				return function () { window.clearTimeout(timer); };
-			}, [viewReady, frontRunning, compacting, regenBusy, activity.busy, props.sessionId, latestMessageId]);
+			}, [canRollback, frontRunning, compacting, regenBusy, activity.busy, props.sessionId, latestMessageId]);
 			const [withdrawBusy, setWithdrawBusy] = React.useState(false);
 			const draft = props.useInput(snapshot => snapshot.draft);
 			const projectedTaskRef = React.useRef("");

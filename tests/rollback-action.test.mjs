@@ -10,7 +10,7 @@ const withdrawHelper = source.slice(source.indexOf('async function withdrawFaile
 // The replay submit path sits above CandidateAction; slice it with its only helper.
 
 function harness() {
-  let running = true, activity = { phase: 'idle', busy: false, role: '' }, regen = null, fail = false, warning = '', canRollback = true, undoTurn = null, noView = false
+  let running = true, activity = { phase: 'idle', busy: false, role: '' }, regen = null, fail = false, warning = '', canRollback = true, undoTurn = null, noView = false, bareView = false
   const states = [], calls = [], extraView = {}, refs = [], effects = [], timers = []
   let cursor = 0
   const context = {
@@ -31,7 +31,8 @@ function harness() {
     },
     useCandidatePanel: () => null, useRegenPanel: () => regen,
     useTavernSessionMode: () => 'story', latestTavernAssistantMessageId: () => 'reply',
-    useLiveTavernView: () => (noView ? { view: null } : { view: { canRollback, undoRollbackTurn: undoTurn, ...extraView } }),
+    // bareView：视图在、但没带上 canRegenerate/canRollback 这一栏（投影视图、落盘前那一秒）。
+    useLiveTavernView: () => (noView ? { view: null } : { view: bareView ? { undoRollbackTurn: undoTurn, ...extraView } : { canRollback, undoRollbackTurn: undoTurn, ...extraView } }),
     useTavernCoordination: () => ({ view: { activity } }),
     describeTavernActivity: value => value, isPlayMode: () => true,
     window: {
@@ -64,6 +65,7 @@ function harness() {
     regen(value) { regen = value ? { sessionId: 'session', phase: 'loading' } : null },
     fail(value) { fail = value }, warning(value) { warning = value },
     noView(value) { noView = value },
+    bareView(value) { bareView = value },
     effects() { return effects.slice() },
     renderEffects() {
       const cleanups = effects.map(fn => fn())
@@ -116,6 +118,32 @@ test('首轮正文删除后，待回复输入提供的 canRegenerate 直接启�
   const regenerate = h.buttons()[1]
   assert.equal(regenerate.children[0], '重新生成正文')
   assert.equal(regenerate.props.disabled, false)
+})
+
+test('视图在、却没带重生成能力字段时，按正文判断，不说「还没有正文」', () => {
+  const h = harness()
+  h.running(false); h.bareView(true)
+  h.view({ latestAssistantTurn: 46, latestAssistantMessageId: 'tavern-regen:1' })
+  const regenerate = h.buttons()[1]
+  assert.equal(regenerate.props.disabled, false)
+  assert.doesNotMatch(regenerate.props.title, /还没有可重新生成的正文/)
+})
+
+test('视图在、没有正文也没有能力字段时，仍然禁用并说明没东西可重生成', () => {
+  const h = harness()
+  h.running(false); h.bareView(true)
+  const regenerate = h.buttons()[1]
+  assert.equal(regenerate.props.disabled, true)
+  assert.match(regenerate.props.title, /还没有可重新生成的正文/)
+})
+
+test('视图在但按钮还不能用时，同样补读一次，不把灰的原因锁死在旧视图上', () => {
+  const h = harness()
+  h.running(false); h.bareView(true)
+  h.view({ latestAssistantTurn: 0 })
+  h.buttons(); h.renderEffects()
+  const pending = h.fire()
+  assert.equal(pending.length, 1)
 })
 
 test('视图还没读到时，灰按钮说的是「正在读取这一局」，不是「还没有正文」', () => {
