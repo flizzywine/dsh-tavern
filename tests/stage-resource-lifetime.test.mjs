@@ -4,6 +4,8 @@ import {createRequire} from 'node:module'
 import {pathToFileURL} from 'node:url'
 import {createResourceScope} from '../tavern-plugin/lib/domain/resource-scope.js'
 import {createStageRuntime} from '../tavern-plugin/packages/dsh-tavern-stage/lib/runtime.js'
+import {createFigureRuntimes} from '../tavern-plugin/packages/dsh-tavern-stage/lib/figure-runtimes.js'
+import {createStageExtensions} from '../tavern-plugin/packages/dsh-tavern-stage/lib/stage-extensions.js'
 
 function host() {
   const stops=[], listeners=new Set()
@@ -69,7 +71,7 @@ test('real Cordis injection and event effects end with the module scope',async()
 test('stage runtime assembles private RPC dependencies without exposing them through core',async()=>{
   const root=host(),privateAsset={},privateService={},registry={}
   let coreReads=0
-  const runtime=createStageRuntime({ctx:root},{assets:()=>({privateAsset}),
+  const runtime=createStageRuntime({ctx:root},{assets:()=>({privateAsset,figureRuntimes:createFigureRuntimes(),stageExtensions:createStageExtensions()}),
     start:async()=>({requests(deps,providedRegistry){
       assert.equal(coreReads,0)
       assert.equal(deps.privateAsset,privateAsset);assert.equal(deps.privateService,privateService)

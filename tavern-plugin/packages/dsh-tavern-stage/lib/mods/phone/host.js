@@ -99,10 +99,10 @@ export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspa
   })
   ctx.effect(() => () => callGreetings.dispose())
   // The call's persona section lives as long as the stage does.
-  ctx.effect(() => pluginApi.builtinPromptSection({name:'persona', target:'call', unbounded:true,
+  pluginApi.builtinPromptSection({name:'persona', target:'call', unbounded:true,
     text:async ({gameId,subject,turn}) => callRoundWorldbook({chat:await readRoundView(gameId,turn),turn,recallLog:worldbookRecallLog,
       fallback:() => phoneCalls.persona({sessionId:gameId,contactId:subject.id})}),
-  }))
+  }, ctx)
   const phoneCallHost = {
     calls: phoneCalls,
     // Host-only entry point for a future incoming call; no ringing or director wiring.

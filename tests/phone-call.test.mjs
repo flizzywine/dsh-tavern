@@ -597,7 +597,10 @@ test('stage phone requests answer from the stage-owned phone host', async () => 
   const chat = {id:'chat-1', sessionId:'s', cardPath:'cards/a.json', messages:[]}, readStageChat = {view:async () => chat}
   const {stagePhoneDirectory, phoneCallHost} = createStagePhoneHost({ctx:{effect:install => cleanups.push(install()), get:() => undefined},
     managedModManagement:{enabled:async ({modId}) => { assert.equal(modId, 'dsh.phone'); return false }}, readStageChat, chatForSession:async () => chat,
-    pluginApi:{builtinPromptSection:entry => { sections.push(entry.target + ':' + entry.name); return () => sections.pop() }},
+    pluginApi:{builtinPromptSection:(entry, owner) => owner.effect(() => {
+      sections.push(entry.target + ':' + entry.name)
+      return () => sections.pop()
+    })},
     speechRecognition:{readiness:async () => ({available:false})}})
   assert.deepEqual(sections, ['call:persona'])
   const handlers = createStageHandlers({ctx:{}, readStageChat, stagePhoneDirectory, phoneCallHost})

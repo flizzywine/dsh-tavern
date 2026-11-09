@@ -1943,8 +1943,8 @@ export function createTavernPluginApi(deps) {
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),
     imageCharacterLibraries: () => imageCatalog.recordLibraries({}),
     listImageLibrary: (kind, input) => imageCatalog.list(kind, {}, input),
-    builtinPromptSection({name,target,text,unbounded = false}) {
-      return register.call({ctx:deps.ctx},sections,'dsh-tavern\u0000'+target+'\u0000'+name,
+    builtinPromptSection({name,target,text,unbounded = false}, ctx = deps.ctx) {
+      return register.call({ctx},sections,'dsh-tavern\u0000'+target+'\u0000'+name,
         {owner:'dsh-tavern',name,target,text,unbounded},'tavern builtin prompt section','Duplicate built-in prompt section')
     },
     speechProviders: (capability = 'synthesize') => Array.from(speechProviders.values()).filter(entry => typeof entry[capability] === 'function'), imageProviders: () => Array.from(imageProviders.values()), pricingProviders: () => Array.from(pricingProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
