@@ -5,6 +5,7 @@ import {PACK_ID,cardExtension} from './fixtures/asset-packs/pack.mjs'
 import {assetRefKey} from '../tavern-plugin/packages/dsh-presentation-protocol/src/asset-packs.js'
 import {recallAssetPacks} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-catalogue.js'
 import {prepareAssetPackDirector,assetPackDirectorCatalogue,buildAssetPackRequest} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-director.js'
+import {activeStageSkin} from '../tavern-plugin/lib/domain/card-stage-settings.js'
 const ref=(kind,assetId)=>({packId:PACK_ID,kind,assetId})
 async function input() {
  const pack=await skinOwnedFixture(),ext=cardExtension();ext.assetBindings.boundPackIds=[];ext.stage={defaultSkin:ref('skins','trial')}
@@ -25,7 +26,7 @@ test('skin gate matches full identity, allows global owned entries, and preserve
 test('prepare and judge catalogue share selected skin including carried override',async()=>{
  const base=await input()
  for(const selected of ['trial','pop']) {
-  const value={...base,baseline:{...((await import('../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-tools.js')).initialAssetPackStage({})),skin:{ref:ref('skins',selected)}}}
+  const value={...base,activeStageSkin,baseline:{...((await import('../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-tools.js')).initialAssetPackStage({})),skin:{ref:ref('skins',selected)}}}
   const prepared=prepareAssetPackDirector(value),judge=assetPackDirectorCatalogue(value)
   assert.deepEqual(prepared.context.catalogue.candidates.performances,judge.candidates.performances)
   assert.deepEqual(judge.candidates.performances.map(r=>r.ref.assetId),[selected+'-show'])
