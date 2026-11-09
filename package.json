@@ -1,6 +1,6 @@
 {
   "name": "dsh-profile-tavern",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "scripts": {
     "build:website": "node bin/build-website.mjs",
     "wiki:references": "node bin/sync-wiki-references.mjs",

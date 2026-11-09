@@ -16,8 +16,8 @@ APK_SHA256 = '1fedf883d431af658d89c28b86d85974cc1d11b74e0c5d46ef3d3cf8650b1961'
 # 与上游 v2.1 APK 并存：签名不同，无法覆盖安装，也不该让用户卸载旧包丢数据。
 APPLICATION_ID = 'io.github.flizzywine.dshtavern.standalone'
 # 同一酒馆版本的重新打包（例如只更新 APK 内置快照）也递增，避免和已发布的包同号。
-VERSION_CODE = 30200
-VERSION_NAME = '3.2.0'
+VERSION_CODE = 30300
+VERSION_NAME = '3.3.0'
 # 桌面名称；测试版用独立名称，避免与正式版混淆。
 APP_NAME = 'DSH Tavern'
 # 内置快照跟随的源码分支：写进安装器的 tarball 地址，决定后续更新取哪个分支。
