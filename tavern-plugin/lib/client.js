@@ -14379,6 +14379,95 @@ window.__ModuleLoader__.load({
 			return mainSessionId(snapshot);
 		}
 
+		// Native sessions are torn down as soon as mainView drops its reference. Keep a
+		// few recently-visited sessions resident so A -> B -> A within the retention
+		// window reuses the same event stream and streaming tail instead of reopening
+		// readPage + follow. This is deliberately separate from the ten-minute browser
+		// resource retention: it holds the host Session, not only Tavern's view cache.
+		const TAVERN_RECENT_SESSION_RETENTIONS = new WeakMap()
+		function createTavernRecentSessionRetention(sessions, options) {
+			if (!sessions || typeof sessions.retain !== 'function') return null
+			const existing = TAVERN_RECENT_SESSION_RETENTIONS.get(sessions)
+			if (existing) return existing
+			const settings = options || {}
+			const limit = Number.isSafeInteger(settings.limit) ? Math.max(1, settings.limit) : 4
+			const durationMs = Number.isSafeInteger(settings.durationMs) ? Math.max(1000, settings.durationMs) : 60 * 1000
+			const busyRetryMs = Number.isSafeInteger(settings.busyRetryMs) ? Math.max(1000, settings.busyRetryMs) : 5 * 1000
+			const records = new Map()
+			const setTimer = function (run, ms) {
+				if (typeof window !== 'undefined' && window && typeof window.setTimeout === 'function') return window.setTimeout(run, ms)
+				return setTimeout(run, ms)
+			}
+			const clearTimer = function (timer) {
+				if (typeof window !== 'undefined' && window && typeof window.clearTimeout === 'function') window.clearTimeout(timer)
+				else clearTimeout(timer)
+			}
+			function snapshotRow(id) {
+				const snapshot = sessions.list && typeof sessions.list.getSnapshot === 'function' ? sessions.list.getSnapshot() : null
+				return snapshot && snapshot.byId && snapshot.byId[id] || null
+			}
+			function busy(id) {
+				if (snapshotRow(id) && snapshotRow(id).running === true) return true
+				try {
+					const binding = typeof sessions.binding === 'function' ? sessions.binding(id) : null
+					const snapshot = binding && binding.session && typeof binding.session.getSnapshot === 'function'
+						? binding.session.getSnapshot() : null
+					return Boolean(snapshot && snapshot.running === true)
+				} catch (_) { return false }
+			}
+			function release(id) {
+				const record = records.get(id)
+				if (!record) return
+				records.delete(id)
+				if (record.timer !== null) clearTimer(record.timer)
+				try { if (record.reference && typeof record.reference.release === 'function') record.reference.release() } catch (_) {}
+			}
+			function schedule(record, delay) {
+				if (record.timer !== null) clearTimer(record.timer)
+				record.timer = setTimer(function () {
+					record.timer = null
+					if (records.get(record.id) !== record) return
+					if (busy(record.id)) { schedule(record, busyRetryMs); return }
+					release(record.id)
+				}, delay)
+			}
+			function prune() {
+				while (records.size > limit) {
+					let victim = null
+					for (const id of records.keys()) {
+						if (!busy(id)) { victim = id; break }
+					}
+					// A generating session keeps its stream until the turn settles; when every
+					// recent session is busy, let the map grow rather than detach live work.
+					if (victim === null) break
+					release(victim)
+				}
+			}
+			function hold(sessionId) {
+				const id = String(sessionId || '')
+				if (id === '') return
+				const existingRecord = records.get(id)
+				if (existingRecord) {
+					records.delete(id)
+					records.set(id, existingRecord)
+					schedule(existingRecord, durationMs)
+					return
+				}
+				let reference
+				try { reference = sessions.retain(id, { source: 'tavern:recent' }) } catch (_) { return }
+				const record = { id: id, reference: reference, timer: null }
+				records.set(id, record)
+				schedule(record, durationMs)
+				prune()
+			}
+			function dispose() {
+				for (const id of Array.from(records.keys())) release(id)
+				TAVERN_RECENT_SESSION_RETENTIONS.delete(sessions)
+			}
+			return Object.freeze({ hold: hold, release: release, dispose: dispose,
+				inspect: function () { return Array.from(records.keys()) } })
+		}
+
 		// createSessionCompat(sessions) -> 兼容后的 sessions 视图
 		// 返回的新对象保留 list/binding/scope/create/fork/refresh 原样，并补回：
 		//   current    —— 主会话 id（0.1.5 语义，随列表快照推导）
@@ -14397,6 +14486,10 @@ window.__ModuleLoader__.load({
 				retain: typeof sessions.retain === "function" ? sessions.retain.bind(sessions) : undefined,
 				subagentAddress: typeof sessions.subagentAddress === "function" ? sessions.subagentAddress.bind(sessions) : undefined,
 			};
+
+			const recentRetention = createTavernRecentSessionRetention(sessions);
+			compat.holdRecent = function (sessionId) { if (recentRetention) recentRetention.hold(sessionId); };
+			compat.disposeRecentRetention = function () { if (recentRetention) recentRetention.dispose(); };
 
 			Object.defineProperty(compat, "current", {
 				enumerable: true,
@@ -14448,6 +14541,10 @@ window.__ModuleLoader__.load({
 			};
 			function openTarget(target) {
 				if (uiWorkspace && typeof uiWorkspace.openSession === "function") {
+					// Acquire the previous Session before replaceMain releases it. The reference
+					// keeps its event stream (and any running turn) alive for the hot-return window.
+					const previous = compat.current;
+					if (previous && previous !== target) compat.holdRecent(previous);
 					return Promise.resolve(uiWorkspace.openSession(target));
 				}
 				// 兜底：至少 retain 一次，让 summary+binding 两个就绪条件成立。
@@ -14460,6 +14557,7 @@ window.__ModuleLoader__.load({
 
 			compat.clear = function () {
 				if (uiWorkspace && typeof uiWorkspace.clearMain === "function") {
+					compat.holdRecent(compat.current);
 					return Promise.resolve(uiWorkspace.clearMain());
 				}
 				return Promise.resolve();
@@ -37193,10 +37291,20 @@ function tavernStoryTranscriptHistoryFrom(value) {
 	return Number.isSafeInteger(value) && value >= 0 ? value : null
 }
 
+// A transcript object is immutable while one stream is being published. Reuse
+// its base rows so a new partial only allocates the single overlaid tail row;
+// without this every published partial rebuilt every row object and defeated
+// memoization further down the list.
+const TAVERN_STORY_TRANSCRIPT_ROWS_CACHE = new WeakMap()
+
 // 严格按 messages 数组顺序逐条投影，一步都不排序：turn 只带走 legacyTurn，
 // 重复、缺失、非单调的 turn 都不会重排，也不参与 key（key 由 projection 给出）。
 function tavernStoryTranscriptRows(transcript) {
 	const entries = transcript && Array.isArray(transcript.messages) ? transcript.messages : []
+	if (transcript && typeof transcript === 'object') {
+		const cached = TAVERN_STORY_TRANSCRIPT_ROWS_CACHE.get(transcript)
+		if (cached && cached.messages === entries) return cached.rows
+	}
 	const rows = []
 	for (let position = 0; position < entries.length; position++) {
 		const entry = entries[position] && typeof entries[position] === 'object' ? entries[position] : {}
@@ -37210,6 +37318,9 @@ function tavernStoryTranscriptRows(transcript) {
 		const legacyTurn = Number.isInteger(entry.legacyTurn) && entry.legacyTurn > 0 ? entry.legacyTurn : null
 		const text = tavernStoryTranscriptMessageText(message)
 		const streaming = role === 'assistant' && message.placeholder === true
+		const source = message.source && typeof message.source === 'object' ? message.source
+			: entry.source && typeof entry.source === 'object' ? entry.source : null
+		const requestId = source && typeof source.rpcId === 'string' && source.rpcId ? source.rpcId : null
 		rows.push({
 			key: key,
 			position: position,
@@ -37221,6 +37332,7 @@ function tavernStoryTranscriptRows(transcript) {
 			absoluteIndex: absoluteIndex,
 			messageUid: typeof entry.messageUid === 'string' && entry.messageUid ? entry.messageUid
 				: (typeof message.messageUid === 'string' && message.messageUid ? message.messageUid : null),
+			requestId: requestId,
 			text: text,
 			streaming: streaming,
 			tool: null,
@@ -37235,6 +37347,7 @@ function tavernStoryTranscriptRows(transcript) {
 			message: message
 		})
 	}
+	if (transcript && typeof transcript === 'object') TAVERN_STORY_TRANSCRIPT_ROWS_CACHE.set(transcript, { messages: entries, rows: rows })
 	return rows
 }
 
@@ -37306,13 +37419,55 @@ function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn,
 	const streamed = tavernStoryTranscriptStreamText(partial)
 	const row = source[index]
 	const text = streamed !== '' ? streamed : row.text
+	const tool = latestCall && typeof latestCall.name === 'string' ? latestCall.name : row.tool || null
+	// Reasoning-only partials and repeated text should not allocate a new row.
+	if (row.streaming === true && row.text === text && row.tool === tool) return rows
 	const next = source.slice()
 	next[index] = Object.assign({}, row, {
 		streaming: true,
 		text: text,
-		tool: latestCall && typeof latestCall.name === 'string' ? latestCall.name : row.tool || null,
+		tool: tool,
 		projection: row.projection ? Object.assign({}, row.projection, { text: text, mode: 'markdown' }) : null
 	})
+	return next
+}
+
+// Host submissions are visible to the composer one frame before their player
+// row reaches the durable story log. Paint those echoes as ordinary story rows
+// and reconcile them by requestId; the durable row then replaces the same DOM
+// node (the list uses requestId as its React key).
+function tavernStoryTranscriptPendingRows(rows, pendingInputs) {
+	const source = Array.isArray(rows) ? rows : []
+	const pending = Array.isArray(pendingInputs) ? pendingInputs : []
+	if (pending.length === 0) return source
+	const represented = new Set()
+	for (const row of source) if (row && row.requestId) represented.add(row.requestId)
+	const seen = new Set()
+	let next = source
+	for (const input of pending) {
+		if (!input || typeof input !== 'object') continue
+		const requestId = typeof input.requestId === 'string' ? input.requestId : ''
+		const text = typeof input.text === 'string' ? input.text : ''
+		if (requestId === '' || text.trim() === '' || represented.has(requestId) || seen.has(requestId)) continue
+		seen.add(requestId)
+		if (next === source) next = source.slice()
+		next.push({
+			key: 'pending:' + requestId,
+			position: next.length,
+			role: 'user',
+			floorNo: null,
+			greeting: false,
+			legacyTurn: null,
+			absoluteIndex: null,
+			messageUid: null,
+			requestId: requestId,
+			text: text,
+			streaming: false,
+			tool: null,
+			projection: null,
+			message: { role: 'user', text: text, placeholder: true, source: { kind: 'user', rpcId: requestId } }
+		})
+	}
 	return next
 }
 
@@ -37320,7 +37475,7 @@ const TAVERN_STORY_TRANSCRIPT_NOOP_SUBSCRIBE = function () { return function () 
 const TAVERN_STORY_TRANSCRIPT_IDLE_SNAPSHOT = Object.freeze({
 	sessionId: '', historyFrom: null, status: 'idle', transcript: null, view: null, revision: null, error: null, ticket: 0
 })
-function tavernStoryTranscriptIdleSnapshot() { return TAVERN_STORY_TRANSCRIPT_IDLE_SNAPSHOT }
+
 
 // 组件订阅 store 的 hook（顶层函数，列表文件直接复用）。store 缺失时返回 idle，
 // 组件仍然无条件调用本 hook，避免条件 hook。
@@ -37329,10 +37484,18 @@ function useTavernStoryTranscript(store, sessionId, hookOptions) {
 	const historyFrom = tavernStoryTranscriptHistoryFrom(settings.historyFrom)
 	const enabled = settings.enabled !== false && store !== null && store !== undefined
 	const force = settings.force === true
+	// Read the cache for this exact target during render. Switching sessions must
+	// not inherit the previous slot's snapshot, and a warm target must paint on
+	// its first render instead of waiting for the read effect.
+	const getSnapshot = React.useCallback(function () {
+		if (!enabled) return TAVERN_STORY_TRANSCRIPT_IDLE_SNAPSHOT
+		if (typeof store.snapshotFor === 'function') return store.snapshotFor(sessionId, historyFrom)
+		return store.getSnapshot()
+	}, [enabled, store, sessionId, historyFrom])
 	const snapshot = React.useSyncExternalStore(
 		enabled ? store.subscribe : TAVERN_STORY_TRANSCRIPT_NOOP_SUBSCRIBE,
-		enabled ? store.getSnapshot : tavernStoryTranscriptIdleSnapshot,
-		enabled ? store.getSnapshot : tavernStoryTranscriptIdleSnapshot)
+		getSnapshot,
+		getSnapshot)
 	const read = enabled ? store.read : null
 	const showPlayProcess = settings.showPlayProcess === true
 	React.useEffect(function () {
@@ -37469,6 +37632,16 @@ function createTavernStoryTranscriptDataModule(deps) {
 			return function () { listeners.delete(listener) }
 		}
 		function getSnapshot() { return state }
+		function peek(sessionId, historyFrom) {
+			const id = String(sessionId || '')
+			const from = tavernStoryTranscriptHistoryFrom(historyFrom)
+			if (id === '') return null
+			if (state.sessionId === id && state.historyFrom === from) return state
+			return cache.get(cacheKey(id, from)) || null
+		}
+		function snapshotFor(sessionId, historyFrom) {
+			return peek(sessionId, historyFrom) || IDLE
+		}
 
 		async function read(sessionId, readOptions) {
 			const id = String(sessionId || '')
@@ -37538,7 +37711,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 			publish(IDLE)
 		}
 
-		return Object.freeze({ subscribe: subscribe, getSnapshot: getSnapshot, read: read, reset: reset, subscribeProcess, showPlayProcess })
+		return Object.freeze({ subscribe: subscribe, getSnapshot: getSnapshot, snapshotFor: snapshotFor, peek: peek, read: read, reset: reset, subscribeProcess, showPlayProcess })
 	}
 
 	return Object.freeze({
@@ -37550,6 +37723,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 		// 纯投影，列表组件与本模块的测试共用（顶层同名函数）。
 		storyTranscriptRows: tavernStoryTranscriptRows,
 		storyTranscriptStreamRows: tavernStoryTranscriptStreamRows,
+		storyTranscriptPendingRows: tavernStoryTranscriptPendingRows,
 		storyTranscriptStreamText: tavernStoryTranscriptStreamText,
 		storyTranscriptMessageText: tavernStoryTranscriptMessageText
 	})
@@ -37846,7 +38020,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			selector ? h(messageDeletionFeature.Checkbox, { sessionId: String(props.sessionId || ''), selector: selector }) : null)
 	}
 
-	function StoryTranscriptRow(props) {
+	const memoComponent = typeof React.memo === 'function' ? React.memo : function (component) { return component }
+	const StoryTranscriptRow = memoComponent(function StoryTranscriptRow(props) {
 		const row = props.row
 		const [renderRound, setRenderRound] = React.useState(false)
 		const floorNo = Number(row.floorNo) || 0
@@ -37920,7 +38095,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			!row.streaming && projectionTurn > 0
 				? h(StoryTranscriptMvuReceipt, { sessionId: String(props.sessionId || ''), turn: projectionTurn }) : null,
 			h(StoryTranscriptActions, { row: row, transcript: props.transcript, sessionId: props.sessionId, running: props.running }))
-	}
+	})
 
 	function StoryToolCalls({ calls }) {
 		return h('details', { className: 'dsh-tavern-assistant-reasoning dsh-tavern-story-tools' },
@@ -37990,13 +38165,15 @@ function createTavernStoryTranscriptFeature(deps) {
 			partial = null
 		}
 		const rows = React.useMemo(function () {
-			const base = tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn)
+			const base = typeof tavernStoryTranscriptPendingRows === 'function'
+				? tavernStoryTranscriptPendingRows(tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn), props.pendingInputs)
+				: tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn)
 			const overlaid = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial, storyStreamUid)
 			// 生成期间只处理当前流式目标；除此之外故事存档怎么返回就怎么渲染。
 			if (regeneratingTarget === null) return overlaid
 			const streaming = overlaid.some(function (row) { return row.streaming === true && row.messageUid === regeneratingTarget })
 			return streaming ? overlaid : overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === regeneratingTarget) })
-		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget, regeneratingStoryTurn])
+		}, [transcript, partial, props.runningCalls, props.pendingInputs, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget, regeneratingStoryTurn])
 		if (!rows.length) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',
@@ -38006,7 +38183,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			}, props.emptyLabel || '还没有故事内容')
 		}
 		return h(React.Fragment, null, rows.map(function (row) {
-			return h(StoryTranscriptRow, { key: row.key, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
+			const renderKey = row.requestId ? 'request:' + row.requestId : row.key
+			return h(StoryTranscriptRow, { key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
 				sessionId: sessionId, view: projectionView, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
 				showPlayProcess: props.showPlayProcess })
 		}))
@@ -38048,7 +38226,7 @@ function createTavernStoryTranscriptFeature(deps) {
 				state.status === 'refreshing' ? '正在加载更早…' : '加载更早')) : null
 		return h(React.Fragment, null, error, older,
 			h(TavernStoryTranscriptList, { transcript: transcript, partial: props.partial, running: props.running,
-				runningCalls: props.runningCalls, emptyLabel: props.emptyLabel, sessionId: props.sessionId, view: props.view,
+				runningCalls: props.runningCalls, pendingInputs: props.pendingInputs, emptyLabel: props.emptyLabel, sessionId: props.sessionId, view: props.view,
 				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess }))
 	}
 
@@ -38092,6 +38270,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		const partial = props.useChat(function (snapshot) { return snapshot && snapshot.legacy ? snapshot.legacy.partial : null })
 		const runningCalls = props.useChat(function (snapshot) { return snapshot && snapshot.legacy && Array.isArray(snapshot.legacy.runningCalls) ? snapshot.legacy.runningCalls : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true })
+		const pendingInputs = props.useSession(function (snapshot) { return snapshot && Array.isArray(snapshot.pendingSubmissions) ? snapshot.pendingSubmissions : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		const nativeStreamTurn = partial && Number.isInteger(partial.turn) ? partial.turn : null
 		const previous = React.useRef({ sessionId: sessionId, enabled: enabled, running: running })
 		React.useEffect(function () {
@@ -38179,7 +38358,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			view: view,
 			partial: partial,
 			running: running,
-			runningCalls: runningCalls
+			runningCalls: runningCalls,
+			pendingInputs: pendingInputs
 		}))
 	}
 
@@ -58447,6 +58627,7 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
         exports.createSessionViewReader = createSessionViewReader;
 		exports.createSessionCompat = createSessionCompat;
+		exports.createTavernRecentSessionRetention = createTavernRecentSessionRetention;
 		exports.tavernMainSessionId = tavernMainSessionId;
 		exports.sessionListAdapters = sessionListAdapters;
 		exports.applyBodyRegenerationResult = applyBodyRegenerationResult;

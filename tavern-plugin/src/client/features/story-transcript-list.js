@@ -161,7 +161,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			selector ? h(messageDeletionFeature.Checkbox, { sessionId: String(props.sessionId || ''), selector: selector }) : null)
 	}
 
-	function StoryTranscriptRow(props) {
+	const memoComponent = typeof React.memo === 'function' ? React.memo : function (component) { return component }
+	const StoryTranscriptRow = memoComponent(function StoryTranscriptRow(props) {
 		const row = props.row
 		const [renderRound, setRenderRound] = React.useState(false)
 		const floorNo = Number(row.floorNo) || 0
@@ -235,7 +236,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			!row.streaming && projectionTurn > 0
 				? h(StoryTranscriptMvuReceipt, { sessionId: String(props.sessionId || ''), turn: projectionTurn }) : null,
 			h(StoryTranscriptActions, { row: row, transcript: props.transcript, sessionId: props.sessionId, running: props.running }))
-	}
+	})
 
 	function StoryToolCalls({ calls }) {
 		return h('details', { className: 'dsh-tavern-assistant-reasoning dsh-tavern-story-tools' },
@@ -305,13 +306,15 @@ function createTavernStoryTranscriptFeature(deps) {
 			partial = null
 		}
 		const rows = React.useMemo(function () {
-			const base = tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn)
+			const base = typeof tavernStoryTranscriptPendingRows === 'function'
+				? tavernStoryTranscriptPendingRows(tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn), props.pendingInputs)
+				: tavernStoryTranscriptRegenerationDraftRows(tavernStoryTranscriptRows(transcript), transcript, regeneratingStoryTurn)
 			const overlaid = tavernStoryTranscriptStreamRows(base, partial, props.runningCalls, cached.turn, allowCommitted && partial === props.partial, storyStreamUid)
 			// 生成期间只处理当前流式目标；除此之外故事存档怎么返回就怎么渲染。
 			if (regeneratingTarget === null) return overlaid
 			const streaming = overlaid.some(function (row) { return row.streaming === true && row.messageUid === regeneratingTarget })
 			return streaming ? overlaid : overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === regeneratingTarget) })
-		}, [transcript, partial, props.runningCalls, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget, regeneratingStoryTurn])
+		}, [transcript, partial, props.runningCalls, props.pendingInputs, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget, regeneratingStoryTurn])
 		if (!rows.length) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',
@@ -321,7 +324,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			}, props.emptyLabel || '还没有故事内容')
 		}
 		return h(React.Fragment, null, rows.map(function (row) {
-			return h(StoryTranscriptRow, { key: row.key, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
+			const renderKey = row.requestId ? 'request:' + row.requestId : row.key
+			return h(StoryTranscriptRow, { key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
 				sessionId: sessionId, view: projectionView, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
 				showPlayProcess: props.showPlayProcess })
 		}))
@@ -363,7 +367,7 @@ function createTavernStoryTranscriptFeature(deps) {
 				state.status === 'refreshing' ? '正在加载更早…' : '加载更早')) : null
 		return h(React.Fragment, null, error, older,
 			h(TavernStoryTranscriptList, { transcript: transcript, partial: props.partial, running: props.running,
-				runningCalls: props.runningCalls, emptyLabel: props.emptyLabel, sessionId: props.sessionId, view: props.view,
+				runningCalls: props.runningCalls, pendingInputs: props.pendingInputs, emptyLabel: props.emptyLabel, sessionId: props.sessionId, view: props.view,
 				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess }))
 	}
 
@@ -407,6 +411,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		const partial = props.useChat(function (snapshot) { return snapshot && snapshot.legacy ? snapshot.legacy.partial : null })
 		const runningCalls = props.useChat(function (snapshot) { return snapshot && snapshot.legacy && Array.isArray(snapshot.legacy.runningCalls) ? snapshot.legacy.runningCalls : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true })
+		const pendingInputs = props.useSession(function (snapshot) { return snapshot && Array.isArray(snapshot.pendingSubmissions) ? snapshot.pendingSubmissions : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		const nativeStreamTurn = partial && Number.isInteger(partial.turn) ? partial.turn : null
 		const previous = React.useRef({ sessionId: sessionId, enabled: enabled, running: running })
 		React.useEffect(function () {
@@ -494,7 +499,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			view: view,
 			partial: partial,
 			running: running,
-			runningCalls: runningCalls
+			runningCalls: runningCalls,
+			pendingInputs: pendingInputs
 		}))
 	}
 

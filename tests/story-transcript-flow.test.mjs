@@ -157,7 +157,7 @@ test('加载更早期间保留旧窗口，扩展成功后一次性替换', async
 	assert.equal(store.getSnapshot().transcript.messages.length, 4)
 })
 
-test('玩家输入只来自持久故事行，准备、失败和提交始终保持同一 DOM', async t => {
+test('玩家输入先乐观显示，再按 requestId 原位交给持久故事行', async t => {
 	const p = page(t), { context } = p
 	const settledUser = { role: 'user', text: '立即显示输入', source: { kind: 'user', rpcId: 'submit-1' } }
 	const user = { ...settledUser, placeholder: true }
@@ -172,7 +172,7 @@ test('玩家输入只来自持久故事行，准备、失败和提交始终保�
 	await store.read('s1')
 	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data, mode,
 		externalHistory: { refresh() {}, dispose() {} } })
-	const session = { running: false, pendingSubmissions: [{ requestId: 'host-only', text: '宿主临时回声' }] }
+	const session = { running: false, pendingSubmissions: [{ requestId: 'submit-1', text: '立即显示输入' }] }
 	const chat = { legacy: { partial: null, nodes: [{ kind: 'user', content: '原生临时行', source: { kind: 'user', rpcId: 'native-only' } }], runningCalls: [] } }
 	const flow = () => React.createElement(feature.StoryTranscriptFlow, {
 		sessionId: 's1', store, nativeFlow: () => null,
@@ -180,8 +180,9 @@ test('玩家输入只来自持久故事行，准备、失败和提交始终保�
 	})
 	const root = await mount(p, flow())
 	const visibleRow = () => [...p.dom.window.document.querySelectorAll('article[data-story-row]')].find(row => row.textContent.includes('立即显示输入'))
-	assert.equal(p.dom.window.document.querySelectorAll('article').length, messages.length)
-	assert.equal(p.dom.window.document.body.textContent.includes('宿主临时回声'), false)
+	const optimistic = visibleRow()
+	assert.equal(p.dom.window.document.querySelectorAll('article').length, messages.length + 1, '宿主提交回声先画成一条故事行')
+	assert.equal(optimistic?.getAttribute('data-row-key'), 'pending:submit-1')
 	assert.equal(p.dom.window.document.body.textContent.includes('原生临时行'), false)
 	async function refresh(next) {
 		current = next
@@ -192,6 +193,7 @@ test('玩家输入只来自持久故事行，准备、失败和提交始终保�
 	}
 	await refresh(saved)
 	const original = visibleRow()
+	assert.equal(original, optimistic, '持久行接手时保留同一个 DOM')
 	assert.equal(original?.getAttribute('data-row-key'), 'index:3')
 	assert.equal(original.querySelector('.dsh-tavern-story-row-actions'), null, '生成中的持久输入不开放写操作')
 	await refresh(prepared)
@@ -235,6 +237,7 @@ test('撤回后故事气泡立即消失，重发与重新读取不会重复', as
 			p.dom.window.dispatchEvent(new p.dom.window.CustomEvent('dsh-tavern-story-mutated', { detail: { sessionId: 's1' } }))
 		})
 	}
+	session.pendingSubmissions = []
 	await refresh(messages)
 	assert.equal(bubbles().length, 0, '撤回事件重读后，持久用户行和气泡一起消失')
 	await refresh([...messages, { ...tail, placeholder: undefined }, { role: 'assistant', turn: 10, text: '新正文' }])

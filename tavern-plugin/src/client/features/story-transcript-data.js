@@ -33,10 +33,20 @@ function tavernStoryTranscriptHistoryFrom(value) {
 	return Number.isSafeInteger(value) && value >= 0 ? value : null
 }
 
+// A transcript object is immutable while one stream is being published. Reuse
+// its base rows so a new partial only allocates the single overlaid tail row;
+// without this every published partial rebuilt every row object and defeated
+// memoization further down the list.
+const TAVERN_STORY_TRANSCRIPT_ROWS_CACHE = new WeakMap()
+
 // 严格按 messages 数组顺序逐条投影，一步都不排序：turn 只带走 legacyTurn，
 // 重复、缺失、非单调的 turn 都不会重排，也不参与 key（key 由 projection 给出）。
 function tavernStoryTranscriptRows(transcript) {
 	const entries = transcript && Array.isArray(transcript.messages) ? transcript.messages : []
+	if (transcript && typeof transcript === 'object') {
+		const cached = TAVERN_STORY_TRANSCRIPT_ROWS_CACHE.get(transcript)
+		if (cached && cached.messages === entries) return cached.rows
+	}
 	const rows = []
 	for (let position = 0; position < entries.length; position++) {
 		const entry = entries[position] && typeof entries[position] === 'object' ? entries[position] : {}
@@ -50,6 +60,9 @@ function tavernStoryTranscriptRows(transcript) {
 		const legacyTurn = Number.isInteger(entry.legacyTurn) && entry.legacyTurn > 0 ? entry.legacyTurn : null
 		const text = tavernStoryTranscriptMessageText(message)
 		const streaming = role === 'assistant' && message.placeholder === true
+		const source = message.source && typeof message.source === 'object' ? message.source
+			: entry.source && typeof entry.source === 'object' ? entry.source : null
+		const requestId = source && typeof source.rpcId === 'string' && source.rpcId ? source.rpcId : null
 		rows.push({
 			key: key,
 			position: position,
@@ -61,6 +74,7 @@ function tavernStoryTranscriptRows(transcript) {
 			absoluteIndex: absoluteIndex,
 			messageUid: typeof entry.messageUid === 'string' && entry.messageUid ? entry.messageUid
 				: (typeof message.messageUid === 'string' && message.messageUid ? message.messageUid : null),
+			requestId: requestId,
 			text: text,
 			streaming: streaming,
 			tool: null,
@@ -75,6 +89,7 @@ function tavernStoryTranscriptRows(transcript) {
 			message: message
 		})
 	}
+	if (transcript && typeof transcript === 'object') TAVERN_STORY_TRANSCRIPT_ROWS_CACHE.set(transcript, { messages: entries, rows: rows })
 	return rows
 }
 
@@ -146,13 +161,55 @@ function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn,
 	const streamed = tavernStoryTranscriptStreamText(partial)
 	const row = source[index]
 	const text = streamed !== '' ? streamed : row.text
+	const tool = latestCall && typeof latestCall.name === 'string' ? latestCall.name : row.tool || null
+	// Reasoning-only partials and repeated text should not allocate a new row.
+	if (row.streaming === true && row.text === text && row.tool === tool) return rows
 	const next = source.slice()
 	next[index] = Object.assign({}, row, {
 		streaming: true,
 		text: text,
-		tool: latestCall && typeof latestCall.name === 'string' ? latestCall.name : row.tool || null,
+		tool: tool,
 		projection: row.projection ? Object.assign({}, row.projection, { text: text, mode: 'markdown' }) : null
 	})
+	return next
+}
+
+// Host submissions are visible to the composer one frame before their player
+// row reaches the durable story log. Paint those echoes as ordinary story rows
+// and reconcile them by requestId; the durable row then replaces the same DOM
+// node (the list uses requestId as its React key).
+function tavernStoryTranscriptPendingRows(rows, pendingInputs) {
+	const source = Array.isArray(rows) ? rows : []
+	const pending = Array.isArray(pendingInputs) ? pendingInputs : []
+	if (pending.length === 0) return source
+	const represented = new Set()
+	for (const row of source) if (row && row.requestId) represented.add(row.requestId)
+	const seen = new Set()
+	let next = source
+	for (const input of pending) {
+		if (!input || typeof input !== 'object') continue
+		const requestId = typeof input.requestId === 'string' ? input.requestId : ''
+		const text = typeof input.text === 'string' ? input.text : ''
+		if (requestId === '' || text.trim() === '' || represented.has(requestId) || seen.has(requestId)) continue
+		seen.add(requestId)
+		if (next === source) next = source.slice()
+		next.push({
+			key: 'pending:' + requestId,
+			position: next.length,
+			role: 'user',
+			floorNo: null,
+			greeting: false,
+			legacyTurn: null,
+			absoluteIndex: null,
+			messageUid: null,
+			requestId: requestId,
+			text: text,
+			streaming: false,
+			tool: null,
+			projection: null,
+			message: { role: 'user', text: text, placeholder: true, source: { kind: 'user', rpcId: requestId } }
+		})
+	}
 	return next
 }
 
@@ -160,7 +217,7 @@ const TAVERN_STORY_TRANSCRIPT_NOOP_SUBSCRIBE = function () { return function () 
 const TAVERN_STORY_TRANSCRIPT_IDLE_SNAPSHOT = Object.freeze({
 	sessionId: '', historyFrom: null, status: 'idle', transcript: null, view: null, revision: null, error: null, ticket: 0
 })
-function tavernStoryTranscriptIdleSnapshot() { return TAVERN_STORY_TRANSCRIPT_IDLE_SNAPSHOT }
+
 
 // 组件订阅 store 的 hook（顶层函数，列表文件直接复用）。store 缺失时返回 idle，
 // 组件仍然无条件调用本 hook，避免条件 hook。
@@ -169,10 +226,18 @@ function useTavernStoryTranscript(store, sessionId, hookOptions) {
 	const historyFrom = tavernStoryTranscriptHistoryFrom(settings.historyFrom)
 	const enabled = settings.enabled !== false && store !== null && store !== undefined
 	const force = settings.force === true
+	// Read the cache for this exact target during render. Switching sessions must
+	// not inherit the previous slot's snapshot, and a warm target must paint on
+	// its first render instead of waiting for the read effect.
+	const getSnapshot = React.useCallback(function () {
+		if (!enabled) return TAVERN_STORY_TRANSCRIPT_IDLE_SNAPSHOT
+		if (typeof store.snapshotFor === 'function') return store.snapshotFor(sessionId, historyFrom)
+		return store.getSnapshot()
+	}, [enabled, store, sessionId, historyFrom])
 	const snapshot = React.useSyncExternalStore(
 		enabled ? store.subscribe : TAVERN_STORY_TRANSCRIPT_NOOP_SUBSCRIBE,
-		enabled ? store.getSnapshot : tavernStoryTranscriptIdleSnapshot,
-		enabled ? store.getSnapshot : tavernStoryTranscriptIdleSnapshot)
+		getSnapshot,
+		getSnapshot)
 	const read = enabled ? store.read : null
 	const showPlayProcess = settings.showPlayProcess === true
 	React.useEffect(function () {
@@ -309,6 +374,16 @@ function createTavernStoryTranscriptDataModule(deps) {
 			return function () { listeners.delete(listener) }
 		}
 		function getSnapshot() { return state }
+		function peek(sessionId, historyFrom) {
+			const id = String(sessionId || '')
+			const from = tavernStoryTranscriptHistoryFrom(historyFrom)
+			if (id === '') return null
+			if (state.sessionId === id && state.historyFrom === from) return state
+			return cache.get(cacheKey(id, from)) || null
+		}
+		function snapshotFor(sessionId, historyFrom) {
+			return peek(sessionId, historyFrom) || IDLE
+		}
 
 		async function read(sessionId, readOptions) {
 			const id = String(sessionId || '')
@@ -378,7 +453,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 			publish(IDLE)
 		}
 
-		return Object.freeze({ subscribe: subscribe, getSnapshot: getSnapshot, read: read, reset: reset, subscribeProcess, showPlayProcess })
+		return Object.freeze({ subscribe: subscribe, getSnapshot: getSnapshot, snapshotFor: snapshotFor, peek: peek, read: read, reset: reset, subscribeProcess, showPlayProcess })
 	}
 
 	return Object.freeze({
@@ -390,6 +465,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 		// 纯投影，列表组件与本模块的测试共用（顶层同名函数）。
 		storyTranscriptRows: tavernStoryTranscriptRows,
 		storyTranscriptStreamRows: tavernStoryTranscriptStreamRows,
+		storyTranscriptPendingRows: tavernStoryTranscriptPendingRows,
 		storyTranscriptStreamText: tavernStoryTranscriptStreamText,
 		storyTranscriptMessageText: tavernStoryTranscriptMessageText
 	})

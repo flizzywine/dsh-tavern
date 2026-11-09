@@ -1392,6 +1392,7 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
         exports.createSessionViewReader = createSessionViewReader;
 		exports.createSessionCompat = createSessionCompat;
+		exports.createTavernRecentSessionRetention = createTavernRecentSessionRetention;
 		exports.tavernMainSessionId = tavernMainSessionId;
 		exports.sessionListAdapters = sessionListAdapters;
 		exports.applyBodyRegenerationResult = applyBodyRegenerationResult;

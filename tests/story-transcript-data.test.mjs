@@ -10,7 +10,7 @@ const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/
 // 纯投影函数不依赖 React 运行时；@include 片段按脚本语义执行，函数声明落在全局。
 const context = vm.createContext({ console })
 vm.runInContext(dataSource, context)
-vm.runInContext('globalThis.__storyData = { rows: tavernStoryTranscriptRows, streamRows: tavernStoryTranscriptStreamRows }', context)
+vm.runInContext('globalThis.__storyData = { rows: tavernStoryTranscriptRows, streamRows: tavernStoryTranscriptStreamRows, pendingRows: tavernStoryTranscriptPendingRows }', context)
 const data = context.__storyData
 
 const story = (messages, revision = 3) => projectStoryTranscript({
@@ -88,4 +88,35 @@ test('UID 命中且 turn 提示缺失（非整数）时仍然只覆盖目标行'
 	assert.equal(streamed[TARGET].text, '流式新正文')
 	assert.equal(streamed[NEXT].text, '后续旧正文')
 	assert.equal(streamed[SIBLING].text, '同轮旧正文')
+})
+
+
+test('同一份 transcript 复用基础投影；流式只分配尾部行', () => {
+	const transcript = story(MESSAGES)
+	const first = data.rows(transcript)
+	assert.strictEqual(data.rows(transcript), first, '同一份历史不得在每个 partial 重建全部行')
+	const streamed = data.streamRows(first, partial, [], 3, true, 'uid-target')
+	assert.notStrictEqual(streamed, first)
+	for (let index = 0; index < first.length; index++) {
+		if (index !== TARGET) assert.strictEqual(streamed[index], first[index], '非目标行保持同一对象引用')
+	}
+	assert.notStrictEqual(streamed[TARGET], first[TARGET])
+})
+
+test('宿主提交回声只补尚未落盘的 requestId', () => {
+	const transcript = story([
+		{ role: 'user', text: '已经落盘', source: { kind: 'user', rpcId: 'rpc-saved' } },
+		{ role: 'assistant', turn: 1, text: '正文' }
+	])
+	const base = data.rows(transcript)
+	assert.equal(base[0].requestId, 'rpc-saved')
+	const rows = data.pendingRows(base, [
+		{ requestId: 'rpc-saved', text: '已经落盘' },
+		{ requestId: 'rpc-new', text: '尚未落盘' }
+	])
+	assert.equal(rows.length, 3)
+	assert.equal(rows[2].key, 'pending:rpc-new')
+	assert.equal(rows[2].requestId, 'rpc-new')
+	assert.equal(rows[2].absoluteIndex, null)
+	assert.equal(data.pendingRows(base, []), base, '没有回声时不复制行数组')
 })

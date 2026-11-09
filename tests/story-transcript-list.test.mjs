@@ -781,3 +781,47 @@ test('故事 user 与 AI 楼层点按正文都会切换选择，AI 选中行匹�
 	assert.equal(checked(rows[2]), false, '再次点按 AI 楼层应取消选择')
 	assert.equal(deletion.store.getSnapshot('s-floor-click').items.length, 1)
 })
+
+
+test('流式 partial 只更新目标行，历史行不重复投影', async t => {
+	const page = createPage(t)
+	const { dom, context } = page
+	const many = []
+	for (let turn = 1; turn <= 40; turn++) {
+		many.push({ role: 'user', turn, text: '输入 ' + turn })
+		many.push({ role: 'assistant', turn, text: '正文 ' + turn, placeholder: turn === 40 })
+	}
+	const transcript = story(many, 1)
+	let projections = 0
+	const feature = context.createTavernStoryTranscriptFeature({ renderProjection: projection => {
+		projections += 1
+		return React.createElement('div', { 'data-projection': String(projection.turn) }, projection.text)
+	} })
+	const element = partial => React.createElement(feature.StoryTranscriptList, {
+		transcript, partial, running: true, sessionId: 's1'
+	})
+	const root = await mount(page, element(null))
+	const historyRows = [...dom.window.document.querySelectorAll('[data-story-row]')]
+	assert.equal(projections, 40)
+	const before = projections
+	await act(async () => root.render(element({ turn: 40, blocks: [{ kind: 'text', text: '新一段流式正文' }] })))
+	assert.equal(projections - before, 1, '一个 partial 只重渲染活动尾行')
+	assert.strictEqual(dom.window.document.querySelector('[data-projection="40"]').textContent, '新一段流式正文')
+	for (const row of historyRows.slice(0, -1)) assert.ok(dom.window.document.contains(row), '历史楼层 DOM 保持不变')
+})
+
+test('缓存会话快照按目标读取，不从当前槽继承', async t => {
+	const page = createPage(t)
+	const other = story([{ role: 'assistant', turn: 1, text: '另一个会话' }], 2)
+	const data = page.context.createTavernStoryTranscriptDataModule({ rpc: async (_method, args) => ({
+		storyTranscript: args.sessionId === 's1' ? story(MESSAGES) : other,
+		view: { mode: 'story' }, revision: 1
+	}) })
+	const store = data.createStoryTranscriptStore()
+	await store.read('s1')
+	await store.read('s2')
+	assert.equal(store.getSnapshot().sessionId, 's2')
+	assert.equal(store.snapshotFor('s1', null).sessionId, 's1')
+	assert.equal(store.snapshotFor('s1', null).transcript.messages[0].message.text, '开场正文')
+	assert.equal(store.snapshotFor('missing', null).status, 'idle', '没有缓存的会话不从 s2 继承正文')
+})
