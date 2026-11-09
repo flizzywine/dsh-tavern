@@ -37,11 +37,11 @@ test('static asset hostnames must resolve only to public addresses', async () =>
 test('Fake-IP only admits DNS answers for opted-in CDN hosts on the default HTTPS port', async () => {
   const addresses = [{ address: '198.19.255.1', family: 4 }, { address: 'fdfe:dcba:9876::52', family: 6 }, { address: '2001:2::52', family: 6 }]
   const resolve = async () => addresses
-  await assert.rejects(verifyPublicHostname('https://cdn.jsdelivr.net/a.js', resolve, false), /private or reserved/)
-  for (const host of ['cdn.jsdelivr.net', 'testingcf.jsdelivr.net', 'fastly.jsdelivr.net']) {
+  for (const host of ['cdn.jsdelivr.net', 'testingcf.jsdelivr.net', 'fastly.jsdelivr.net', 'raw.githubusercontent.com']) {
+    await assert.rejects(verifyPublicHostname('https://' + host + '/a.js', resolve, false), /private or reserved/)
     assert.equal(await verifyPublicHostname('https://' + host + '/a.js', resolve, true), addresses)
   }
-  for (const host of ['cdn.example', 'cdn.jsdelivr.net.example', 'cdn.jsdelivr.net:8443']) {
+  for (const host of ['cdn.example', 'cdn.jsdelivr.net.example', 'cdn.jsdelivr.net:8443', 'raw.githubusercontent.com.example', 'raw.githubusercontent.com:8443']) {
     await assert.rejects(verifyPublicHostname('https://' + host + '/a.js', resolve, true), /private or reserved/)
   }
   await assert.rejects(verifyPublicHostname('https://cdn.jsdelivr.net/a.js',
