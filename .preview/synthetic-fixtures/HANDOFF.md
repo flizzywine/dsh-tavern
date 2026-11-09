@@ -1,4 +1,10 @@
 
+- Synthetic fixture 2026-11-06T05:19:07.672Z: D:\Workspace\dsh-reader\data\preview\temp\native-settings-profile-DEcUxD; pid=35168; same-root links only; audited cleanup required.
+- Fixture cleaned after full link audit: D:\Workspace\dsh-reader\data\preview\temp\native-settings-profile-DEcUxD
+
+- Synthetic fixture 2026-11-06T05:19:16.938Z: D:\Workspace\dsh-reader\data\preview\temp\native-settings-profile-WuhuCI; pid=39252; same-root links only; audited cleanup required.
+- Fixture cleaned after full link audit: D:\Workspace\dsh-reader\data\preview\temp\native-settings-profile-WuhuCI
+
 - Synthetic fixture 2026-11-06T13:54:48.737Z: /tmp/cubism-import-taH0Km; pid=547508; same-root links only; audited cleanup required.
 - Fixture cleaned after full link audit: /tmp/cubism-import-taH0Km
 
