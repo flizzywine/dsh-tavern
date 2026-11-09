@@ -28,6 +28,8 @@ import { ensureUserExtensions } from '../tavern-plugin/lib/domain/user-extension
 import { beginProfileConfigurationUpdate, loadProfileManifest, mergeProfileManifest, prepareProfilePatch, prepareProfileWorkspace, syncProfileDependencyPatches } from './profile-configuration.mjs'
 import { ensureSidebarDefaults } from './launcher-settings.mjs'
 import { assertProfileBundlesLoad } from './profile-bundle-check.mjs'
+import { nextUpdatePreparation } from './prepared-next-profile.mjs'
+import { swap as swapApp, rollback as rollbackApp, commit as commitApp } from './staged-app-install.mjs'
 import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, BACKUP_ROOT, writeInstallationFile, LEGACY_DSH_ROOT, CLI_RUNTIME_ROOT, RUNTIME_HOST, PROFILE_DIR, LOG_DIR, SCRIPT_PATH, PROFILE, RELEASE_FILE, DEFAULT_COMMIT_URL, REQUIRED_SOURCE_FILES, findDshCommand, pinnedDesktopDsh, requireCommand, run, runInstallCommand, runInstallDsh } from './launcher-environment.mjs'
 
 // Own installation transaction and legacy-source discovery. Desktop never installs a CLI shim.
@@ -257,6 +259,10 @@ export async function recordInstalledRelease(options = {}) {
 }
 
 export async function installProfile(host = RUNTIME_HOST, { guiRoot } = {}) {
+  const nextApp = host === 'next' && process.env.DSH_TAVERN_PREPARE_NEXT_APP
+  const prepared = nextApp ? nextUpdatePreparation({
+    app: nextApp, sourceRoot: SOURCE_ROOT, home: DSH_ROOT, profileDir: PROFILE_DIR, gate: process.env.DSH_TAVERN_PUBLISH_GATE,
+  }) : null
   if (host === 'next') {
     for (const directory of [DSH_ROOT, path.dirname(PROFILE_DIR), PROFILE_DIR]) {
       if (pathExistsNoFollow(directory) && !lstatSync(directory).isDirectory()) throw new Error(`Next 需要真实的 Profile 目录：${directory}`)
@@ -265,7 +271,7 @@ export async function installProfile(host = RUNTIME_HOST, { guiRoot } = {}) {
     if (pathExistsNoFollow(desktop) && !lstatSync(desktop).isDirectory()) {
       throw new Error('NEXT 需要真实的 desktop 目录。请先在官方桌面切回原版 DSH，再安装酒馆。')
     }
-    assertDesktopStopped([DSH_ROOT], { requireGuiClosed: true, guiRoot })
+    assertDesktopStopped([DSH_ROOT], { requireGuiClosed: true, guiRoot, preparingForPid: prepared?.desktopPid })
   }
   const attemptId = process.env.DSH_TAVERN_INSTALL_ATTEMPT || randomUUID()
   const lease = installationState.acquireInstallation({ dshHome: DSH_ROOT, sourceRoot: SOURCE_ROOT, host, attemptId })
@@ -287,7 +293,7 @@ export async function installProfile(host = RUNTIME_HOST, { guiRoot } = {}) {
   const runInstall = (command, args, options = {}) => stage(options.label || command, () => runInstallCommand(command, args, { ...options, ...supervisedOptions() }))
   const runDsh = (command, args, options = {}) => stage(args.includes('--dump-config') ? '验证 Tavern 配置' : '读取 DSH 版本', () => runInstallDsh(command, args, { ...options, ...supervisedOptions() }))
   try {
-    const receipt = await installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoot })
+    const receipt = await installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoot, prepared })
     // A manual local install is authoritative only after the same complete
     // validation/finalization path succeeds. Nested installs leave final status
     // to their updater, which still has to verify the bootstrap outcome.
@@ -299,7 +305,7 @@ export async function installProfile(host = RUNTIME_HOST, { guiRoot } = {}) {
   } finally { if (safeToRelease) lease.release() }
 }
 
-async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoot }) {
+async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoot, prepared }) {
   const publishGate = host === 'desktop' && process.env.DSH_TAVERN_LATE_PUBLISH === '1' ? process.env.DSH_TAVERN_PUBLISH_GATE : undefined
   const installInactive = Boolean(publishGate && process.env.DSH_TAVERN_INSTALL_INACTIVE === '1')
   const preparingForPid = publishGate ? Number(process.env.DSH_TAVERN_PREPARING_DESKTOP_PID) : undefined
@@ -314,6 +320,9 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
   const runtime = host === 'cli' ? await installCliRuntime({ root: CLI_RUNTIME_ROOT, run: runInstall }) : null
   if (runtime?.reused) console.log('已复用版本匹配且可启动的独立 DSH，无需重新下载。')
   let bridge
+  let appSwapped = false, published = false
+  const profileDir = prepared?.directory ?? PROFILE_DIR
+  const publishedSource = prepared?.app ?? SOURCE_ROOT
   try {
     const dsh = runtime?.command || pinnedDesktopDsh(host)?.bootstrap || findDshCommand(host)
     const dshVersion = extractDshVersion(await runDsh(dsh, ['--version'], { capture: true, host, timeoutMs: 30_000 }))
@@ -327,10 +336,12 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
     // DSH_TAVERN_UNIFIED_DESKTOP: both desktop hosts publish the same profile and launcher.
     if (host === 'desktop' || host === 'next') {
       const launcherGate = host === 'next' && process.env.DSH_TAVERN_LAUNCHER_INSTALL === '1' ? process.env.DSH_TAVERN_PUBLISH_GATE : undefined
-      bridge = beginDesktopProfileInstallation({ home: DSH_ROOT, sourceRoot: SOURCE_ROOT, host, guiRoot, preparingForPid, launcherGate })
+      bridge = beginDesktopProfileInstallation({ home: DSH_ROOT, sourceRoot: SOURCE_ROOT, host, guiRoot,
+        preparingForPid: prepared?.desktopPid ?? preparingForPid, launcherGate, prepareNext: Boolean(prepared) })
       if (bridge) console.log(`${bridge.refreshOnly ? '原版切换组件备份' : 'Profile 完整备份'}：${bridge.backup}`)
     }
-    mkdirSync(PROFILE_DIR, { recursive: true })
+    prepared?.initialize()
+    mkdirSync(profileDir, { recursive: true })
     mkdirSync(LOG_DIR, { recursive: true })
     const dataRoot = resolveTavernDataRoot({ dshHome: DSH_ROOT })
     const migration = await migrateLegacyTavernData({
@@ -361,8 +372,9 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
       console.warn('[Tavern 插件] 内置剧情生图插件安装失败（不影响 Tavern 使用）：' + (error?.message || error))
     }
     const configuration = prepareProfileConfiguration(host, dshVersion)
+    prepared?.prepareManifest(configuration.manifest)
     const transaction = await beginProfileConfigurationUpdate({
-      profileDir: PROFILE_DIR,
+      profileDir,
       manifest: configuration.manifest,
       patchText: configuration.patchText,
     })
@@ -371,21 +383,22 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
     }
     try {
       const workspaceText = prepareProfileWorkspace(readFileSync(path.join(SOURCE_ROOT, 'pnpm-workspace.yaml'), 'utf8'), configuration.manifest)
-      writeFileSync(path.join(PROFILE_DIR, 'pnpm-workspace.yaml'), workspaceText)
-      syncProfileDependencyPatches({ sourceRoot: SOURCE_ROOT, profileDir: PROFILE_DIR, workspaceText })
+      writeFileSync(path.join(profileDir, 'pnpm-workspace.yaml'), workspaceText)
+      const patches = syncProfileDependencyPatches({ sourceRoot: SOURCE_ROOT, profileDir, workspaceText })
       // pnpm keeps an existing link whose target text matches, so untraversable Windows links
       // (they stop the desktop host at startup) must be replaced before it runs.
-      for (const directory of [PROFILE_DIR, bridge?.refreshOnly || publishGate ? null : bridge?.desktopStage].filter(Boolean)) {
+      for (const directory of [profileDir, bridge?.refreshOnly || publishGate ? null : bridge?.desktopStage].filter(Boolean)) {
         for (const link of repairDirectoryLinksSync(path.join(directory, 'node_modules'))) console.log(`已修复无法访问的依赖链接：${link}`)
       }
       // This generated profile changes dependencies and patch settings on upgrade.
       // Its previous lockfile is not the source repository's frozen lockfile.
-      await runInstall('pnpm', ['install', '--no-frozen-lockfile'], { cwd: PROFILE_DIR })
+      await runInstall('pnpm', ['install', '--no-frozen-lockfile'], { cwd: profileDir })
       if (host === 'desktop') await runInstall('node', [path.join(SOURCE_ROOT, 'bin', 'validate-desktop-profile.mjs')], { label: '验证桌面版配置', timeoutMs: 60_000 })
       else {
-        await runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { host, timeoutMs: 60_000 })
+        await runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { host, timeoutMs: 60_000,
+          ...(prepared ? { env: { DSH_HOME: prepared.stageHome } } : {}) })
         // --dump-config passes even when DSH would skip a bundle at boot; the desktop validator already checks this.
-        await assertProfileBundlesLoad({ dsh, host, profileDir: PROFILE_DIR, managedBundles: configuration.manifest.dshTavern.managedBundles })
+        await assertProfileBundlesLoad({ dsh, host, profileDir, managedBundles: configuration.manifest.dshTavern.managedBundles })
       }
       // --dump-config never imports the plugin; a partial node_modules would only fail after restart.
       assertRuntimeDependencies(SOURCE_ROOT)
@@ -434,10 +447,24 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         else if (patched) console.log('已为 pi-ai 的 OpenAI 兼容模型启用上游非流式请求。')
       }
       if (bridge) {
-        // Refresh publication is reversible until the installation receipt exists.
-        // Validate the newly published independent bridge, not its stale predecessor.
-        if (bridge.refreshOnly) bridge.finish()
+        // The ordinary installer publishes the bridge reversibly before validation.
+        if (bridge.refreshOnly && !prepared) bridge.finish()
         await runInstall('node', [path.join(SOURCE_ROOT, 'bin', 'validate-desktop-profile.mjs'), bridge.desktopStage], { label: '验证原版 Desktop 切换入口', timeoutMs: 60_000 })
+        if (prepared) {
+          await recordInstalledRelease({ sourceRoot: SOURCE_ROOT })
+          const profile = prepared.finalize(patches)
+          if (existsSync(prepared.gate)) throw Error('NEXT 已退出，已取消配置切换。')
+          writeFileSync(prepared.gate + '.progress', '新版已验证，重启后直接切换…')
+          writeFileSync(prepared.gate + '.ready', '')
+          const deadline = Date.now() + 15 * 60_000
+          while (!existsSync(prepared.gate) && Date.now() < deadline) await delay(250)
+          if (!existsSync(prepared.gate) || readFileSync(prepared.gate, 'utf8') !== 'publish') throw Error('未完成重启确认，已取消配置切换。')
+          prepared.assertUnchanged()
+          bridge.finish(profile, () => {
+            swapApp(prepared.app, { nextBridge: bridge.bridgeUpdateId })
+            appSwapped = true
+          })
+        }
         if (publishGate && !installInactive) {
           writeFileSync(publishGate + '.progress', '安装和验证完成，等待确认重启…')
           writeFileSync(publishGate + '.ready', '')
@@ -449,20 +476,22 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
       }
       transaction.commit()
     } catch (error) {
-      if (!error.unsafeToRetry) await transaction.rollback()
+      if (!error.unsafeToRetry && !prepared) await transaction.rollback()
       throw error
     }
     if (host === 'cli') installCommand()
     try {
-      await recordInstalledRelease()
+      if (!prepared) await recordInstalledRelease({ sourceRoot: publishedSource })
     } catch (error) {
       console.warn(`未能记录安装提交号，不影响本次安装：${String(error?.message || error)}`)
     }
 
-    writeInstallationFile({ host, dshHome: DSH_ROOT })
+    writeInstallationFile({ host, dshHome: DSH_ROOT }, path.join(publishedSource, '.dsh-tavern-local.json'))
     runtime?.commit()
-    const receipt = await recordInstallationReceipt({ sourceRoot: SOURCE_ROOT, dshHome: DSH_ROOT, host, attemptId, bridgeUpdateId: bridge?.bridgeUpdateId })
+    const receipt = await recordInstallationReceipt({ sourceRoot: publishedSource, dshHome: DSH_ROOT, host, attemptId, bridgeUpdateId: bridge?.bridgeUpdateId })
     bridge?.commit()
+    published = true
+    if (prepared) commitApp(prepared.app, { retainPrevious: true })
     if (!clearUninstalledInstallationRecord(DSH_ROOT)) console.warn('未能清除卸载标记：请检查 profile-bridge/installation.json；本次安装已完成。')
     console.log('DSH Tavern 已安装。')
     console.log(host === 'cli' ? `已安装独立 DSH ${dshVersion}：${CLI_RUNTIME_ROOT}；不使用全局 DSH。` : `已复用当前 DSH ${dshVersion} 的本地依赖；未升级或降级宿主。`)
@@ -480,7 +509,11 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
     }
     return receipt
   } catch (error) {
-    if (!error.unsafeToRetry) { bridge?.rollback(); runtime?.rollback() }
+    if (!error.unsafeToRetry && !published) {
+      bridge?.rollback()
+      if (appSwapped) rollbackApp(prepared.app)
+      runtime?.rollback()
+    }
     throw error
   }
 }

@@ -1652,8 +1652,8 @@ try {
     $Code = 1
     $InvocationError = ''
     # At a console these steps show only their progress, every few seconds; everything else is logged.
-    $Quiet = $FriendlyOutput -and $Step -in @('source.files', 'dependencies.install', 'dependencies.relink', 'profile.install')
-    $PackageLabel = if ($Step -eq 'profile.install') { '本地配置' } else { '安装依赖' }
+    $Quiet = $FriendlyOutput -and $Step -in @('source.files', 'dependencies.install', 'dependencies.relink', 'profile.install', 'profile.prepare-next')
+    $PackageLabel = if ($Step -like 'profile.*') { '本地配置' } else { '安装依赖' }
     $ShownAt = [DateTime]::MinValue
     try {
       $ErrorActionPreference = 'Continue'
@@ -1861,36 +1861,56 @@ try {
     Write-InstallStatus '安装依赖：正在连接软件包仓库，已有缓存将直接复用…'
     Invoke-InstallCommand 'dependencies.install' $PnpmCommand @('--dir', "$AppDir.staging", 'install', '--frozen-lockfile', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000')
 
-    if ($env:DSH_TAVERN_LATE_PUBLISH -eq '1') {
-      $PreviousApp = Test-Path $OldLauncher
-    } elseif ($env:DSH_TAVERN_PUBLISH_GATE) {
-      Write-InstallStatus '准备完成，等待确认重启…'
-      [IO.File]::WriteAllText(($env:DSH_TAVERN_PUBLISH_GATE + '.ready'), '')
-      $Deadline = [DateTime]::UtcNow.AddMinutes(15)
-      while (-not (Test-Path -LiteralPath $env:DSH_TAVERN_PUBLISH_GATE)) {
-        if ([DateTime]::UtcNow -ge $Deadline) { throw '等待重启确认或桌面退出超时，尚未切换 Profile。' }
-        Start-Sleep -Milliseconds 500
+    if ($InstallHost -eq 'next' -and $env:DSH_TAVERN_PUBLISH_GATE -and -not (Test-Path -LiteralPath $env:DSH_TAVERN_PUBLISH_GATE)) {
+      Write-InstallStatus '本地配置：正在准备并验证新版 Tavern Profile…'
+      if (-not (Test-Path -LiteralPath (Join-Path "$AppDir.staging" 'bin\prepared-next-profile.mjs') -PathType Leaf)) {
+        throw '下载源尚未同步 NEXT 重启前准备支持，请稍后重试。'
       }
-      if ([IO.File]::ReadAllText($env:DSH_TAVERN_PUBLISH_GATE) -ne 'publish') { throw '桌面未能退出，尚未切换 Profile。' }
-      $PreviousApp = Test-Path $OldLauncher
-    } elseif (Test-Path $OldLauncher) {
-      $PreviousApp = $true
-      if ($InstallHost -eq 'cli') { & node $OldLauncher stop *> $null }
-    }
-    Write-InstallStatus '本地处理：正在切换到新版本，保留用户数据…'
-    # Windows refuses to rename a directory that is any process's working directory.
-    Set-Location -LiteralPath ([System.IO.Path]::GetTempPath())
-    $AppSwapped = $true
-    & node $Stager swap --app $AppDir
-    Assert-LastCommand ('切换新版本失败，已恢复原版本。安装目录可能被占用：请关闭位于 ' + $AppDir + ' 中的终端、资源管理器窗口或编辑器后重试。')
-    # Re-link in place: Windows junctions and pnpm metadata record absolute paths.
-    Invoke-InstallCommand 'dependencies.relink' $PnpmCommand @('--dir', $AppDir, 'install', '--offline', '--frozen-lockfile', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000') -TimeoutMs 300000
+      Set-Location -LiteralPath ([System.IO.Path]::GetTempPath())
+      # The staged installer owns publication. Remove the download and extracted copy before readiness.
+      $SourceDir = Get-Item -LiteralPath "$AppDir.staging"
+      $StagedInstall = $false
+      foreach ($Download in @($ArchivePath, $ExtractDir, $CdnSource)) {
+        if ($Download -and (Test-Path -LiteralPath $Download)) { Remove-Item -LiteralPath $Download -Recurse -Force }
+      }
+      $env:DSH_TAVERN_PREPARE_NEXT_APP = $AppDir
+      try {
+        Invoke-InstallCommand 'profile.prepare-next' 'node' @((Join-Path "$AppDir.staging" 'bin\dsh-tavern.mjs'), 'install', '--host', 'next') -TimeoutMs 1800000
+      } finally {
+        Remove-Item Env:DSH_TAVERN_PREPARE_NEXT_APP -ErrorAction SilentlyContinue
+      }
+    } else {
+      if ($env:DSH_TAVERN_LATE_PUBLISH -eq '1') {
+        $PreviousApp = Test-Path $OldLauncher
+      } elseif ($env:DSH_TAVERN_PUBLISH_GATE) {
+        Write-InstallStatus '准备完成，等待确认重启…'
+        [IO.File]::WriteAllText(($env:DSH_TAVERN_PUBLISH_GATE + '.ready'), '')
+        $Deadline = [DateTime]::UtcNow.AddMinutes(15)
+        while (-not (Test-Path -LiteralPath $env:DSH_TAVERN_PUBLISH_GATE)) {
+          if ([DateTime]::UtcNow -ge $Deadline) { throw '等待重启确认或桌面退出超时，尚未切换 Profile。' }
+          Start-Sleep -Milliseconds 500
+        }
+        if ([IO.File]::ReadAllText($env:DSH_TAVERN_PUBLISH_GATE) -ne 'publish') { throw '桌面未能退出，尚未切换 Profile。' }
+        $PreviousApp = Test-Path $OldLauncher
+      } elseif (Test-Path $OldLauncher) {
+        $PreviousApp = $true
+        if ($InstallHost -eq 'cli') { & node $OldLauncher stop *> $null }
+      }
+      Write-InstallStatus '本地处理：正在切换到新版本，保留用户数据…'
+      # Windows refuses to rename a directory that is any process's working directory.
+      Set-Location -LiteralPath ([System.IO.Path]::GetTempPath())
+      $AppSwapped = $true
+      & node $Stager swap --app $AppDir
+      Assert-LastCommand ('切换新版本失败，已恢复原版本。安装目录可能被占用：请关闭位于 ' + $AppDir + ' 中的终端、资源管理器窗口或编辑器后重试。')
+      # Re-link in place: Windows junctions and pnpm metadata record absolute paths.
+      Invoke-InstallCommand 'dependencies.relink' $PnpmCommand @('--dir', $AppDir, 'install', '--offline', '--frozen-lockfile', '--config.minimum-release-age=0', '--reporter=append-only', '--fetch-timeout=30000', '--fetch-retries=2', '--fetch-retry-mintimeout=1000', '--fetch-retry-maxtimeout=5000') -TimeoutMs 300000
 
-    Write-InstallStatus '本地配置：正在注册 Tavern 并检查兼容性…'
-    if ($env:DSH_TAVERN_LATE_PUBLISH -ne '1' -and (Close-DesktopForFirstInstall)) { $ReopenDesktop = $true }
-    Invoke-InstallCommand 'profile.install' 'node' @((Join-Path $AppDir 'bin\dsh-tavern.mjs'), 'install', '--host', $InstallHost) -TimeoutMs 1200000
-    & node $Stager commit --app $AppDir
-    $AppSwapped = $false
+      Write-InstallStatus '本地配置：正在注册 Tavern 并检查兼容性…'
+      if ($env:DSH_TAVERN_LATE_PUBLISH -ne '1' -and (Close-DesktopForFirstInstall)) { $ReopenDesktop = $true }
+      Invoke-InstallCommand 'profile.install' 'node' @((Join-Path $AppDir 'bin\dsh-tavern.mjs'), 'install', '--host', $InstallHost) -TimeoutMs 1200000
+      & node $Stager commit --app $AppDir
+      $AppSwapped = $false
+    }
   }
   else {
     $OldLauncher = Join-Path $AppDir 'bin\dsh-tavern.mjs'
