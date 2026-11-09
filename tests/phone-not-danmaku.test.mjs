@@ -11,7 +11,7 @@ test('the phone rules define a phone message and keep livestream comments in the
   assert.match(rules, /Livestream danmaku and viewer comments, forum or social posts, broadcasts and narration are not phone messages: leave them unmarked in the prose\./)
   assert.match(rules, /participants: listed contacts, plus \$player when present\./)
   // The legacy manifest's prompt file carries the same rules.
-  assert.equal(await readFile(new URL('../tavern-plugin/mods/phone/prompts/phone.txt', import.meta.url), 'utf8'), '<mod_phone>\n' + rules + '\n</mod_phone>\n')
+  assert.equal((await readFile(new URL('../tavern-plugin/mods/phone/prompts/phone.txt', import.meta.url), 'utf8')).replaceAll('\r\n', '\n'), '<mod_phone>\n' + rules + '\n</mod_phone>\n')
 })
 
 // context.phone.characters as the director prepares it: card figures carry a ref, a source-only speaker does not.
