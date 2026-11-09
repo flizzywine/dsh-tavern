@@ -125,7 +125,7 @@ test('Windows persistent service launched after cleanup survives successful upda
   const { startUpdatedService } = await import('../bin/application-update.mjs')
   const receiptScript = path.join(f.sourceRoot, 'receipt.mjs')
   await writeFile(receiptScript, `import {recordInstallationReceipt} from ${JSON.stringify(receiptModule)};await recordInstallationReceipt({sourceRoot:${JSON.stringify(f.sourceRoot)},dshHome:process.env.DSH_HOME,host:'cli',attemptId:process.env.DSH_TAVERN_INSTALL_ATTEMPT})`)
-  await writeFile(path.join(f.sourceRoot, 'install.ps1'), `if ($env:DSH_TAVERN_DEFER_SERVICE_START -ne '1') { exit 11 }; & '${process.execPath.replaceAll("'", "''")}' '${receiptScript.replaceAll("'", "''")}'; exit $LASTEXITCODE`)
+  await writeFile(path.join(f.sourceRoot, 'install.ps1'), `if ($env:DSH_TAVERN_DEFER_SERVICE_START -ne '1') { exit 11 }; & '${(process.env.DSH_TEST_NODE_EXECUTABLE || process.execPath).replaceAll("'", "''")}' '${receiptScript.replaceAll("'", "''")}'; exit $LASTEXITCODE`)
   await mkdir(path.join(f.sourceRoot, 'bin'))
   const pidFile = path.join(f.root, 'service.pid')
   await writeFile(path.join(f.sourceRoot, 'bin/dsh-tavern.mjs'), `import {spawn} from 'node:child_process';import {writeFileSync} from 'node:fs';const p=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});writeFileSync(${JSON.stringify(pidFile)},String(p.pid));p.unref()`)

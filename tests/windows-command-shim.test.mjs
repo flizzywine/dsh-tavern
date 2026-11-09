@@ -49,7 +49,7 @@ test('status while stopped prints a useful error and exits 1', async t => {
   const port = probe.address().port
   await new Promise(resolve => probe.close(resolve))
   const result = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/dsh-tavern.mjs', import.meta.url)), 'status'], {
-    env: { ...process.env, DSH_HOME: root, DSH_TAVERN_CLI_HOME: root, DSH_TAVERN_PORT: String(port) }, encoding: 'utf8'
+    env: { ...process.env, DSH_HOME: root, DSH_TAVERN_CLI_HOME: root, DSH_TAVERN_RUNTIME_HOST: 'cli', DSH_TAVERN_PORT: String(port) }, encoding: 'utf8'
   })
   assert.equal(result.status, 1)
   assert.match(result.stderr, /DSH Tavern 未运行/)
