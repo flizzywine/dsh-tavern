@@ -58,11 +58,18 @@ function makeDocument({ width = 390 } = {}) {
   return doc
 }
 
-function makeView(doc, { height = 800, visual } = {}) {
+function makeView(doc, { height = 800, visual, keyboardTop } = {}) {
   const frames = new Map()
   let nextFrame = 1
   const listeners = new Map()
   const vvListeners = new Map()
+  const keyboardListeners = new Map()
+  const keyboard = keyboardTop === undefined ? null : {
+    boundingRect: { top: keyboardTop },
+    addEventListener: (name, handler) => keyboardListeners.set(name, [...(keyboardListeners.get(name) || []), handler]),
+    removeEventListener: (name, handler) => keyboardListeners.set(name, (keyboardListeners.get(name) || []).filter(item => item !== handler)),
+    dispatch: name => (keyboardListeners.get(name) || []).forEach(handler => handler())
+  }
   const vv = {
     height: visual ?? height,
     offsetTop: 0,
@@ -74,6 +81,7 @@ function makeView(doc, { height = 800, visual } = {}) {
   const view = {
     innerHeight: height,
     visualViewport: vv,
+    navigator: keyboard ? { virtualKeyboard: keyboard } : undefined,
     matchMedia: () => ({ matches: true, addEventListener() {}, removeEventListener() {} }),
     requestAnimationFrame: handler => { const id = nextFrame++; frames.set(id, handler); return id },
     cancelAnimationFrame: id => frames.delete(id),
@@ -84,6 +92,7 @@ function makeView(doc, { height = 800, visual } = {}) {
   return {
     view,
     vv,
+    keyboard,
     // 一帧一帧地跑排队的 rAF 回调。
     flush: () => { const queued = [...frames.values()]; frames.clear(); queued.forEach(handler => handler()) },
     pending: () => frames.size
@@ -92,9 +101,9 @@ function makeView(doc, { height = 800, visual } = {}) {
 
 const header = { getBoundingClientRect: () => ({ bottom: 44 }) }
 
-function installPin() {
+function installPin(options) {
   const doc = makeDocument()
-  const harness = makeView(doc)
+  const harness = makeView(doc, options)
   doc.view = harness.view
   doc.defaultView = harness.view
   doc.querySelector = selector => selector === '[data-composer-seat]' ? doc.seat : selector === '[data-composer-card]' ? doc.card : selector.includes('header') ? header : null
@@ -104,7 +113,7 @@ function installPin() {
     composerOffsetPx: () => 0,
     sheetMaxPx: () => 0
   }
-  const factory = vm.runInNewContext(`${layoutSource}\n;({ tavernShellHeight, installVisualViewportPin, TAVERN_KEYBOARD_INSET_MIN, TAVERN_KEYBOARD_SETTLE_MS })`, sandbox)
+  const factory = vm.runInNewContext(`${layoutSource}\n;({ tavernShellHeight, keyboardTopInset, installVisualViewportPin, TAVERN_KEYBOARD_INSET_MIN, TAVERN_KEYBOARD_SETTLE_MS })`, sandbox)
   const release = factory.installVisualViewportPin(doc)
   return { doc, harness, factory, release, clock, style: doc.documentElement.style }
 }
@@ -120,6 +129,36 @@ test('键盘顶起页面时外壳跟随布局视口，而不是可视区像素',
   assert.equal(factory.tavernShellHeight(0, 0), null)
   assert.equal(factory.tavernShellHeight(800, 795), '100%', '取整误差不能当成键盘')
   assert.equal(factory.tavernShellHeight(800, 780), '780px', '明显的遮挡仍要按可视区缩')
+})
+
+test('输入法压在底部系统栏上的那一段也要让出来', () => {
+  const { factory } = installPin()
+  // resizes-content：布局视口和可视区都停在 800，键盘其实从 780 起 —— 底下 20px 被盖住。
+  assert.equal(factory.tavernShellHeight(800, 800, 780), '780px')
+  // 键盘收起时矩形是零，不能拿它当遮挡。
+  assert.equal(factory.tavernShellHeight(800, 800, 0), '100%')
+  assert.equal(factory.tavernShellHeight(800, 800, 796), '100%', '取整级的矩形不缩页面')
+  // 矩形比可视区更靠上时以它为准。
+  assert.equal(factory.tavernShellHeight(800, 700, 640), '640px')
+  // 坐标系对不上的值（量级差太远）一律不认，宁可不缩也不要缩错。
+  assert.equal(factory.tavernShellHeight(800, 800, 51), '100%')
+  assert.equal(factory.tavernShellHeight(800, 800, 900), '100%')
+  assert.equal(factory.keyboardTopInset(null), 0)
+  assert.equal(factory.keyboardTopInset({ boundingRect: { top: 640 } }), 640)
+  assert.equal(factory.keyboardTopInset({ boundingRect: { top: Number.NaN } }), 0)
+})
+
+test('输入法几何一变就当场改高度，不等可视化视口事件', () => {
+  const { harness, style, release } = installPin({ keyboardTop: 780 })
+  assert.equal(style.getPropertyValue('--dsh-shell-height'), '780px', '进页面就要按输入法上沿让位')
+  assert.equal(style.getPropertyValue('--dsh-vv-height'), '780px', '输入条锚点跟着让位的那一段走')
+  harness.keyboard.boundingRect.top = 800
+  harness.keyboard.dispatch('geometrychange')
+  assert.equal(style.getPropertyValue('--dsh-shell-height'), '100%', '键盘收起立刻回落')
+  harness.keyboard.boundingRect.top = 640
+  harness.keyboard.dispatch('geometrychange')
+  assert.equal(style.getPropertyValue('--dsh-shell-height'), '640px')
+  release()
 })
 
 test('visualViewport 缩小时当场改高度，不等下一帧', () => {
