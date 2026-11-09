@@ -64,6 +64,7 @@ function tavernStoryTranscriptRows(transcript) {
 			text: text,
 			streaming: streaming,
 			tool: null,
+			toolCalls: entry.toolCalls,
 			projection: role === 'assistant' ? {
 				version: Math.max(1, Number(message.projectionVersion) || 1),
 				turn: Number.isInteger(message.turn) ? message.turn : (message.greeting === true ? 1 : 0),
@@ -173,10 +174,11 @@ function useTavernStoryTranscript(store, sessionId, hookOptions) {
 		enabled ? store.getSnapshot : tavernStoryTranscriptIdleSnapshot,
 		enabled ? store.getSnapshot : tavernStoryTranscriptIdleSnapshot)
 	const read = enabled ? store.read : null
+	const showPlayProcess = settings.showPlayProcess === true
 	React.useEffect(function () {
 		if (read === null) return
 		void read(sessionId, { historyFrom: historyFrom, force: force })
-	}, [read, sessionId, historyFrom, force])
+	}, [read, sessionId, historyFrom, force, showPlayProcess])
 	return snapshot
 }
 
@@ -229,6 +231,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 		if (id === '') throw fail('故事历史缺少会话', 'STORY_TRANSCRIPT_NO_SESSION')
 		const historyFrom = tavernStoryTranscriptHistoryFrom(readOptions && readOptions.historyFrom)
 		const args = historyFrom === null ? { sessionId: id } : { sessionId: id, historyFrom: historyFrom }
+		if (readOptions?.includeToolCalls === true) args.includeToolCalls = true
 		const result = await request('getStoryTranscript', args, id)
 		return {
 			sessionId: id,
@@ -245,6 +248,9 @@ function createTavernStoryTranscriptDataModule(deps) {
 	function createStoryTranscriptStore(storeOptions) {
 		const settings = storeOptions || {}
 		const load = typeof settings.load === 'function' ? settings.load : fetchStoryTranscript
+		const preferences = options.displayPreferences || (typeof displayPreferences === 'undefined' ? null : displayPreferences)
+		const showPlayProcess = () => preferences?.snapshot()?.showPlayProcess === true
+		const subscribeProcess = preferences ? preferences.subscribe : TAVERN_STORY_TRANSCRIPT_NOOP_SUBSCRIBE
 		const listeners = new Set()
 		// The visible store is single-slot, but switching sessions must not throw away
 		// every transcript it already downloaded. Keep a small LRU by session+window;
@@ -308,9 +314,10 @@ function createTavernStoryTranscriptDataModule(deps) {
 			const id = String(sessionId || '')
 			const historyFrom = tavernStoryTranscriptHistoryFrom(readOptions && readOptions.historyFrom)
 			const force = readOptions && readOptions.force === true
+			const includeToolCalls = showPlayProcess()
 			const key = cacheKey(id, historyFrom)
 			const sameSession = state.sessionId === id
-			const sameTarget = sameSession && state.historyFrom === historyFrom
+			const sameTarget = sameSession && state.historyFrom === historyFrom && (!includeToolCalls || state.includeToolCalls)
 			if (id === '') {
 				if (state !== IDLE) publish(IDLE)
 				return state
@@ -321,7 +328,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 				return state
 			}
 			const cached = force ? null : touch(key)
-			if (cached) {
+			if (cached && (!includeToolCalls || cached.includeToolCalls)) {
 				const current = ++ticket
 				publish(Object.assign({}, cached, { ticket: current }))
 				return state
@@ -331,6 +338,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 			publish({
 				sessionId: id,
 				historyFrom: historyFrom,
+				includeToolCalls: includeToolCalls,
 				status: sameSession && state.transcript ? 'refreshing' : 'loading',
 				transcript: sameSession ? state.transcript : null,
 				view: sameSession ? state.view : null,
@@ -339,11 +347,12 @@ function createTavernStoryTranscriptDataModule(deps) {
 				ticket: current
 			})
 			try {
-				const result = await load(id, { historyFrom: historyFrom === null ? undefined : historyFrom })
+				const result = await load(id, { historyFrom: historyFrom === null ? undefined : historyFrom,
+					...(includeToolCalls ? { includeToolCalls: true } : {}) })
 				if (current !== ticket) return state
 				const transcript = result && result.transcript ? result.transcript : null
 				const next = {
-					sessionId: id, historyFrom: historyFrom,
+					sessionId: id, historyFrom: historyFrom, includeToolCalls: includeToolCalls,
 					status: transcript ? 'ready' : 'empty',
 					transcript: transcript,
 					view: result && result.view ? result.view : null,
@@ -369,7 +378,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 			publish(IDLE)
 		}
 
-		return Object.freeze({ subscribe: subscribe, getSnapshot: getSnapshot, read: read, reset: reset })
+		return Object.freeze({ subscribe: subscribe, getSnapshot: getSnapshot, read: read, reset: reset, subscribeProcess, showPlayProcess })
 	}
 
 	return Object.freeze({

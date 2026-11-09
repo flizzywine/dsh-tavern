@@ -129,10 +129,10 @@ export function createSessionViewReader({ readState, readChat, readChanges, read
       const { tavernHelperWorldbook: _alias, ...result } = view
       return result
     }
-    // Story history has no native-session or complete-view dependency. It is a
-    // read-only transport and never participates in native view cursors.
+    // Story history is read-only and independent of native view cursors.
     if (args.storyTranscript === 1 && readStoryWindow && project.story) {
-      const window = await trace.stage('readStoryWindow', () => readStoryWindow(sessionId, args.historyFrom))
+      const window = await trace.stage('readStoryWindow', () => readStoryWindow(sessionId, args.historyFrom,
+        { includeToolCalls: args.includeToolCalls === true }))
       if (!window) return { view: null, storyTranscript: null, revision: 0 }
       const view = await trace.stage('projectStoryWindow', () => project.story(window, {deferResources:args.resourceSync === 1}))
       trace.state({viewRebuild:'story',helperMessageCount:window.chat.messages.length})

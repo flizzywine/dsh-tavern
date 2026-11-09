@@ -37224,6 +37224,7 @@ function tavernStoryTranscriptRows(transcript) {
 			text: text,
 			streaming: streaming,
 			tool: null,
+			toolCalls: entry.toolCalls,
 			projection: role === 'assistant' ? {
 				version: Math.max(1, Number(message.projectionVersion) || 1),
 				turn: Number.isInteger(message.turn) ? message.turn : (message.greeting === true ? 1 : 0),
@@ -37333,10 +37334,11 @@ function useTavernStoryTranscript(store, sessionId, hookOptions) {
 		enabled ? store.getSnapshot : tavernStoryTranscriptIdleSnapshot,
 		enabled ? store.getSnapshot : tavernStoryTranscriptIdleSnapshot)
 	const read = enabled ? store.read : null
+	const showPlayProcess = settings.showPlayProcess === true
 	React.useEffect(function () {
 		if (read === null) return
 		void read(sessionId, { historyFrom: historyFrom, force: force })
-	}, [read, sessionId, historyFrom, force])
+	}, [read, sessionId, historyFrom, force, showPlayProcess])
 	return snapshot
 }
 
@@ -37389,6 +37391,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 		if (id === '') throw fail('故事历史缺少会话', 'STORY_TRANSCRIPT_NO_SESSION')
 		const historyFrom = tavernStoryTranscriptHistoryFrom(readOptions && readOptions.historyFrom)
 		const args = historyFrom === null ? { sessionId: id } : { sessionId: id, historyFrom: historyFrom }
+		if (readOptions?.includeToolCalls === true) args.includeToolCalls = true
 		const result = await request('getStoryTranscript', args, id)
 		return {
 			sessionId: id,
@@ -37405,6 +37408,9 @@ function createTavernStoryTranscriptDataModule(deps) {
 	function createStoryTranscriptStore(storeOptions) {
 		const settings = storeOptions || {}
 		const load = typeof settings.load === 'function' ? settings.load : fetchStoryTranscript
+		const preferences = options.displayPreferences || (typeof displayPreferences === 'undefined' ? null : displayPreferences)
+		const showPlayProcess = () => preferences?.snapshot()?.showPlayProcess === true
+		const subscribeProcess = preferences ? preferences.subscribe : TAVERN_STORY_TRANSCRIPT_NOOP_SUBSCRIBE
 		const listeners = new Set()
 		// The visible store is single-slot, but switching sessions must not throw away
 		// every transcript it already downloaded. Keep a small LRU by session+window;
@@ -37468,9 +37474,10 @@ function createTavernStoryTranscriptDataModule(deps) {
 			const id = String(sessionId || '')
 			const historyFrom = tavernStoryTranscriptHistoryFrom(readOptions && readOptions.historyFrom)
 			const force = readOptions && readOptions.force === true
+			const includeToolCalls = showPlayProcess()
 			const key = cacheKey(id, historyFrom)
 			const sameSession = state.sessionId === id
-			const sameTarget = sameSession && state.historyFrom === historyFrom
+			const sameTarget = sameSession && state.historyFrom === historyFrom && (!includeToolCalls || state.includeToolCalls)
 			if (id === '') {
 				if (state !== IDLE) publish(IDLE)
 				return state
@@ -37481,7 +37488,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 				return state
 			}
 			const cached = force ? null : touch(key)
-			if (cached) {
+			if (cached && (!includeToolCalls || cached.includeToolCalls)) {
 				const current = ++ticket
 				publish(Object.assign({}, cached, { ticket: current }))
 				return state
@@ -37491,6 +37498,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 			publish({
 				sessionId: id,
 				historyFrom: historyFrom,
+				includeToolCalls: includeToolCalls,
 				status: sameSession && state.transcript ? 'refreshing' : 'loading',
 				transcript: sameSession ? state.transcript : null,
 				view: sameSession ? state.view : null,
@@ -37499,11 +37507,12 @@ function createTavernStoryTranscriptDataModule(deps) {
 				ticket: current
 			})
 			try {
-				const result = await load(id, { historyFrom: historyFrom === null ? undefined : historyFrom })
+				const result = await load(id, { historyFrom: historyFrom === null ? undefined : historyFrom,
+					...(includeToolCalls ? { includeToolCalls: true } : {}) })
 				if (current !== ticket) return state
 				const transcript = result && result.transcript ? result.transcript : null
 				const next = {
-					sessionId: id, historyFrom: historyFrom,
+					sessionId: id, historyFrom: historyFrom, includeToolCalls: includeToolCalls,
 					status: transcript ? 'ready' : 'empty',
 					transcript: transcript,
 					view: result && result.view ? result.view : null,
@@ -37529,7 +37538,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 			publish(IDLE)
 		}
 
-		return Object.freeze({ subscribe: subscribe, getSnapshot: getSnapshot, read: read, reset: reset })
+		return Object.freeze({ subscribe: subscribe, getSnapshot: getSnapshot, read: read, reset: reset, subscribeProcess, showPlayProcess })
 	}
 
 	return Object.freeze({
@@ -37905,11 +37914,21 @@ function createTavernStoryTranscriptFeature(deps) {
 				h('span', { className: 'dsh-tavern-story-floor-no' }, '第 ' + String(row.floorNo) + ' 楼'),
 				row.greeting ? h('span', { className: 'dsh-tavern-story-floor-tag' }, '开场') : null,
 				row.streaming ? h('span', { className: 'dsh-tavern-story-floor-tag' }, row.tool ? '正在调用 ' + row.tool : '正在生成') : null),
+			props.showPlayProcess && !row.streaming && row.toolCalls?.length > 0 ? h(StoryToolCalls, { calls: row.toolCalls }) : null,
 			h('div', { className: 'dsh-tavern-story-body' }, rendered || markdown(row.text, { greeting: row.greeting, streaming: row.streaming })),
 			pluginMediaNode,
 			!row.streaming && projectionTurn > 0
 				? h(StoryTranscriptMvuReceipt, { sessionId: String(props.sessionId || ''), turn: projectionTurn }) : null,
 			h(StoryTranscriptActions, { row: row, transcript: props.transcript, sessionId: props.sessionId, running: props.running }))
+	}
+
+	function StoryToolCalls({ calls }) {
+		return h('details', { className: 'dsh-tavern-assistant-reasoning dsh-tavern-story-tools' },
+			h('summary', null, '工作过程 · ' + calls.length + ' 次工具调用'),
+			h('ol', null, calls.map(call => h('li', { key: call.id },
+				h('strong', null, call.name), ' · ', call.status === 'error' ? '失败' : call.status === 'success' ? '完成' : '未返回结果',
+				call.arguments && h('pre', null, '参数\n' + call.arguments),
+				call.result && h('pre', null, '结果\n' + call.result)))))
 	}
 
 	function TavernStoryTranscriptList(props) {
@@ -37988,7 +38007,8 @@ function createTavernStoryTranscriptFeature(deps) {
 		}
 		return h(React.Fragment, null, rows.map(function (row) {
 			return h(StoryTranscriptRow, { key: row.key, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
-				sessionId: sessionId, view: projectionView, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner })
+				sessionId: sessionId, view: projectionView, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
+				showPlayProcess: props.showPlayProcess })
 		}))
 	}
 
@@ -37998,13 +38018,14 @@ function createTavernStoryTranscriptFeature(deps) {
 		const localFrom = requested.sessionId === sessionId ? requested.from : null
 		const explicitFrom = Number.isSafeInteger(settings.historyFrom) && settings.historyFrom >= 0 ? settings.historyFrom : null
 		const historyFrom = explicitFrom === null ? localFrom : explicitFrom
-		const state = useTavernStoryTranscript(store, sessionId, { historyFrom: historyFrom, enabled: settings.enabled !== false })
+		const showPlayProcess = React.useSyncExternalStore(store.subscribeProcess, store.showPlayProcess, store.showPlayProcess)
+		const state = useTavernStoryTranscript(store, sessionId, { historyFrom: historyFrom, enabled: settings.enabled !== false, showPlayProcess })
 		const loadOlder = React.useCallback(function () {
 			const transcript = state.transcript
 			if (!transcript || !Number.isInteger(transcript.from) || transcript.from <= 0) return
 			setRequested({ sessionId: sessionId, from: Math.max(0, transcript.from - 60) })
 		}, [sessionId, state.transcript])
-		return { state: state, historyFrom: historyFrom, loadOlder: loadOlder }
+		return { state: state, historyFrom: historyFrom, loadOlder: loadOlder, showPlayProcess: showPlayProcess && state.sessionId === sessionId }
 	}
 
 	function TavernStoryTranscriptContent(props) {
@@ -38028,7 +38049,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		return h(React.Fragment, null, error, older,
 			h(TavernStoryTranscriptList, { transcript: transcript, partial: props.partial, running: props.running,
 				runningCalls: props.runningCalls, emptyLabel: props.emptyLabel, sessionId: props.sessionId, view: props.view,
-				executeSlash: props.executeSlash, frameOwner: props.frameOwner }))
+				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess }))
 	}
 
 	function defaultStore() {
@@ -38047,6 +38068,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			state: controller.state,
 			historyFrom: controller.historyFrom,
 			loadOlder: controller.loadOlder,
+			showPlayProcess: controller.showPlayProcess,
 			transcript: props.transcript || controller.state.transcript,
 			view: props.view || controller.state.view
 		}))
@@ -38152,6 +38174,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			state: state,
 			historyFrom: controller.historyFrom,
 			loadOlder: controller.loadOlder,
+			showPlayProcess: controller.showPlayProcess,
 			transcript: transcript,
 			view: view,
 			partial: partial,

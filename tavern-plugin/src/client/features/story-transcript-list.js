@@ -229,11 +229,21 @@ function createTavernStoryTranscriptFeature(deps) {
 				h('span', { className: 'dsh-tavern-story-floor-no' }, '第 ' + String(row.floorNo) + ' 楼'),
 				row.greeting ? h('span', { className: 'dsh-tavern-story-floor-tag' }, '开场') : null,
 				row.streaming ? h('span', { className: 'dsh-tavern-story-floor-tag' }, row.tool ? '正在调用 ' + row.tool : '正在生成') : null),
+			props.showPlayProcess && !row.streaming && row.toolCalls?.length > 0 ? h(StoryToolCalls, { calls: row.toolCalls }) : null,
 			h('div', { className: 'dsh-tavern-story-body' }, rendered || markdown(row.text, { greeting: row.greeting, streaming: row.streaming })),
 			pluginMediaNode,
 			!row.streaming && projectionTurn > 0
 				? h(StoryTranscriptMvuReceipt, { sessionId: String(props.sessionId || ''), turn: projectionTurn }) : null,
 			h(StoryTranscriptActions, { row: row, transcript: props.transcript, sessionId: props.sessionId, running: props.running }))
+	}
+
+	function StoryToolCalls({ calls }) {
+		return h('details', { className: 'dsh-tavern-assistant-reasoning dsh-tavern-story-tools' },
+			h('summary', null, '工作过程 · ' + calls.length + ' 次工具调用'),
+			h('ol', null, calls.map(call => h('li', { key: call.id },
+				h('strong', null, call.name), ' · ', call.status === 'error' ? '失败' : call.status === 'success' ? '完成' : '未返回结果',
+				call.arguments && h('pre', null, '参数\n' + call.arguments),
+				call.result && h('pre', null, '结果\n' + call.result)))))
 	}
 
 	function TavernStoryTranscriptList(props) {
@@ -312,7 +322,8 @@ function createTavernStoryTranscriptFeature(deps) {
 		}
 		return h(React.Fragment, null, rows.map(function (row) {
 			return h(StoryTranscriptRow, { key: row.key, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
-				sessionId: sessionId, view: projectionView, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner })
+				sessionId: sessionId, view: projectionView, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
+				showPlayProcess: props.showPlayProcess })
 		}))
 	}
 
@@ -322,13 +333,14 @@ function createTavernStoryTranscriptFeature(deps) {
 		const localFrom = requested.sessionId === sessionId ? requested.from : null
 		const explicitFrom = Number.isSafeInteger(settings.historyFrom) && settings.historyFrom >= 0 ? settings.historyFrom : null
 		const historyFrom = explicitFrom === null ? localFrom : explicitFrom
-		const state = useTavernStoryTranscript(store, sessionId, { historyFrom: historyFrom, enabled: settings.enabled !== false })
+		const showPlayProcess = React.useSyncExternalStore(store.subscribeProcess, store.showPlayProcess, store.showPlayProcess)
+		const state = useTavernStoryTranscript(store, sessionId, { historyFrom: historyFrom, enabled: settings.enabled !== false, showPlayProcess })
 		const loadOlder = React.useCallback(function () {
 			const transcript = state.transcript
 			if (!transcript || !Number.isInteger(transcript.from) || transcript.from <= 0) return
 			setRequested({ sessionId: sessionId, from: Math.max(0, transcript.from - 60) })
 		}, [sessionId, state.transcript])
-		return { state: state, historyFrom: historyFrom, loadOlder: loadOlder }
+		return { state: state, historyFrom: historyFrom, loadOlder: loadOlder, showPlayProcess: showPlayProcess && state.sessionId === sessionId }
 	}
 
 	function TavernStoryTranscriptContent(props) {
@@ -352,7 +364,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		return h(React.Fragment, null, error, older,
 			h(TavernStoryTranscriptList, { transcript: transcript, partial: props.partial, running: props.running,
 				runningCalls: props.runningCalls, emptyLabel: props.emptyLabel, sessionId: props.sessionId, view: props.view,
-				executeSlash: props.executeSlash, frameOwner: props.frameOwner }))
+				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess }))
 	}
 
 	function defaultStore() {
@@ -371,6 +383,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			state: controller.state,
 			historyFrom: controller.historyFrom,
 			loadOlder: controller.loadOlder,
+			showPlayProcess: controller.showPlayProcess,
 			transcript: props.transcript || controller.state.transcript,
 			view: props.view || controller.state.view
 		}))
@@ -476,6 +489,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			state: state,
 			historyFrom: controller.historyFrom,
 			loadOlder: controller.loadOlder,
+			showPlayProcess: controller.showPlayProcess,
 			transcript: transcript,
 			view: view,
 			partial: partial,

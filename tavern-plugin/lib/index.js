@@ -2022,6 +2022,13 @@ export async function apply(ctx) {
     readWindow: chatPersistence.readWindow,
     readRecentSummaries: chatPersistence.readRecentSummaries,
     readChat,
+    readToolEvents: async id => {
+      try { return await withHostSession({ sessions: sessionStore, agents: agentRegistry }, id, sessionEvents) }
+      catch (error) {
+        console.warn('dsh-tavern: 读取故事工具调用记录失败', str(error?.message || error))
+        return []
+      }
+    },
     messageFields: sessionViewMessageFields,
     limit: HELPER_MESSAGE_COLD_WINDOW
   })

@@ -54,6 +54,55 @@ const messages = [
 	{ role: 'assistant', turn: 9, text: '正文' }
 ]
 
+test('打开游玩工作过程后只在对应故事楼层显示可展开的工具记录', async t => {
+	const p = page(t), { context } = p
+	const listeners = new Set(), requests = []
+	let preference = { showPlayProcess: false }
+	const displayPreferences = {
+		snapshot: () => preference,
+		subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) }
+	}
+	const setShowProcess = value => act(async () => {
+		preference = { showPlayProcess: value }
+		listeners.forEach(listener => listener())
+	})
+	const data = context.createTavernStoryTranscriptDataModule({ displayPreferences, rpc: async (method, args) => {
+		requests.push([method, args.includeToolCalls])
+		const storyTranscript = transcript(messages)
+		if (args.includeToolCalls) storyTranscript.messages[2].toolCalls = [
+			{ id: 'one', name: 'worldbook_grep', arguments: '{"query":"舞台"}', status: 'success', result: '<b>结果</b>' },
+			{ id: 'two', name: 'read', status: 'error', result: '找不到文件' }
+		]
+		return { storyTranscript, view: { mode: 'story' }, revision: 1 }
+	} })
+	const feature = context.createTavernStoryTranscriptFeature({ dataModule: data })
+	await mount(p, React.createElement(feature.StoryTranscriptFlow, {
+		sessionId: 's1', nativeFlow: () => null,
+		useChat: selector => selector({ legacy: {} }), useSession: selector => selector({ running: false })
+	}))
+	const document = p.dom.window.document
+	const floor = document.querySelector('[data-chat-flow-key="turn:9"]')
+	assert.ok(floor.textContent.includes('正文'))
+	assert.equal(document.querySelector('.dsh-tavern-story-tools'), null)
+	assert.deepEqual(requests, [['getStoryTranscript', undefined]])
+
+	await setShowProcess(true)
+	const details = document.querySelector('.dsh-tavern-story-tools')
+	assert.equal(document.querySelectorAll('.dsh-tavern-story-tools').length, 1)
+	assert.equal(details.closest('article'), floor)
+	assert.equal(details.open, false)
+	details.querySelector('summary').click()
+	assert.equal(details.open, true)
+	assert.match(details.textContent, /worldbook_grep · 完成/)
+	assert.match(details.textContent, /read · 失败/)
+	assert.match(details.textContent, /<b>结果<\/b>/)
+	assert.equal(details.querySelector('b'), null, '工具结果按文本显示')
+	await setShowProcess(false)
+	assert.equal(document.querySelector('.dsh-tavern-story-tools'), null)
+	assert.equal(document.querySelector('[data-chat-flow-key="turn:9"]'), floor)
+	assert.deepEqual(requests, [['getStoryTranscript', undefined], ['getStoryTranscript', true]])
+})
+
 test('故事行直接位于槽锚点下，提供滚动锚点且不带旧隐藏行类型', async t => {
 	const p = page(t), feature = p.context.createTavernStoryTranscriptFeature()
 	await mount(p, React.createElement(feature.StoryTranscriptList, { transcript: transcript(messages) }))
