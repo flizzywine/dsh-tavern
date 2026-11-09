@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "386c0efff9f390d9c7058f02e024f17493071aa4",
-  "releaseSequence": 1395,
+  "revision": "89152c809f4aa7b1757a148ddccd30b4aeb6cca1",
+  "releaseSequence": 1396,
   "version": "3.3.0",
   "files": [
     {
@@ -491,8 +491,8 @@
     },
     {
       "path": "config/dsh-dependency-baseline.json",
-      "sha256": "504ad0e84597c8c83d10558166a0580f18791fe836d9d2eb2888b76b01b2a065",
-      "size": 9212
+      "sha256": "1dd2980f28876c420583cc096f522da334ef6885e04157706bc526d001df8198",
+      "size": 9466
     },
     {
       "path": "config/legacy-profile-patch-v0.6.yml",
@@ -9966,9 +9966,9 @@
     }
   ],
   "archive": {
-    "commit": "953ab4e4247a91dda87060c32d2fa70a6b166fba",
+    "commit": "ac864423dfd42cd92e2b1cd7e6985f6daf76ebf7",
     "path": "runtime.zip",
-    "sha256": "6db2a0a8152e0c1c4be2b78b6c632c4868b51d8aa6c245c4fc9ba0d8d81259c3",
-    "size": 16582028
+    "sha256": "ce333d9c8b515c08ea02328f2303ac55fa0757be68853ccde5b37dd266d0dfa3",
+    "size": 16582044
   }
 }
