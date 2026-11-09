@@ -12,32 +12,29 @@ const TAVERN_KEYBOARD_SETTLE_MS = 450;
 // 所以先看布局视口本身有没有变短：变短说明原生窗口或父级 iframe 已经跟着键盘缩了，
 // 外壳直接 100% 跟随重排就是同帧的；只有键盘浮在页面之上（Chrome 的 resizes-visual）
 // 才退回 visualViewport 像素锁高，否则输入条会被键盘盖住。
-function tavernShellHeight(layoutHeight, visualHeight, keyboardTop) {
+function tavernShellHeight(layoutHeight, visualHeight) {
     const layout = Number(layoutHeight) || 0;
     if (!(layout > 0)) return null;
     const visual = Math.min(Number(visualHeight) > 0 ? Number(visualHeight) : layout, layout);
-    const keyboard = plausibleKeyboardTop(keyboardTop, visual);
-    const visible = keyboard > 0 ? keyboard : visual;
-    if (Math.round(layout - visible) < TAVERN_KEYBOARD_INSET_MIN) return "100%";
-    return Math.round(visible) + "px";
+    if (Math.round(layout - visual) < TAVERN_KEYBOARD_INSET_MIN) return "100%";
+    return Math.round(visual) + "px";
 }
 
-// 输入法上沿到可视区顶部的距离（CSS px）。Chrome 认 resizes-content 时布局视口会缩到
-// 键盘上方，但键盘压住底部系统栏的那一段两边都量不到，只有输入法自己的矩形说得清它到哪。
-// 拿不到（老内核、已收起、零矩形）就返回 0，沿用原来的判定。
-function keyboardTopInset(keyboard) {
+// 输入法压住外壳底部的那一截（CSS px），直接给输入条垫底。
+// 只有输入法自己的矩形知道它压到哪：布局视口和可视化视口都能缩到键盘上方，
+// 却都量不到键盘还盖着页面多少 —— 那一段的输入框下半截就是这么丢的。
+// boundingRect 在不同内核里的坐标系说法不一（有报告给过对不上任何已知原点的值），
+// 只认「压在底部那一截」：上沿落在可视区下半段，垫高不超过输入法自身高度。
+// 量级不对就是坐标系不认识，宁可垫 0 —— 垫多了会把输入条顶到屏幕中间。
+function keyboardPadPx(keyboard, shellHeight) {
     const rect = keyboard && keyboard.boundingRect;
-    const top = rect ? Number(rect.top) : 0;
-    return Number.isFinite(top) && top > 0 ? top : 0;
-}
-
-// 这个矩形在不同内核里的坐标系说法不一（有报告 Chrome 给过对不上任何已知原点的值），
-// 只承认「压在可视区下半截」的那一档：它只能把外壳改矮，且最多改掉一半。
-// 落在别的量级就是坐标系不对，宁可不动 —— 猜小了会把页面缩没。
-function plausibleKeyboardTop(top, visible) {
-    const value = Number(top);
-    if (!(value > 0) || !(visible > 0)) return 0;
-    return value >= visible * 0.5 && value <= visible ? value : 0;
+    if (!rect) return 0;
+    const shell = Number(shellHeight) || 0;
+    const top = Number(rect.top);
+    const height = Number(rect.height);
+    if (!(shell > 0) || !Number.isFinite(top) || !(height > 0)) return 0;
+    if (top < shell * 0.5) return 0;
+    return Math.round(Math.max(0, Math.min(shell - top, height)));
 }
 
 function installVisualViewportPin(doc) {
@@ -48,7 +45,7 @@ function installVisualViewportPin(doc) {
     const keyboard = view.navigator && view.navigator.virtualKeyboard;
     const narrow = view.matchMedia(TAVERN_MOBILE_QUERY);
     const touch = view.matchMedia("(pointer: coarse)");
-    const properties = ["--dsh-vv-top", "--dsh-vv-height", "--dsh-shell-height", "--dsh-composer-offset", "--dsh-sheet-max", "--dsh-header-bottom", "--dsh-composer-left", "--dsh-composer-width"];
+    const properties = ["--dsh-vv-top", "--dsh-vv-height", "--dsh-shell-height", "--dsh-keyboard-inset", "--dsh-composer-offset", "--dsh-sheet-max", "--dsh-header-bottom", "--dsh-composer-left", "--dsh-composer-width"];
     const previous = properties.map(name => [name, html.style.getPropertyValue(name), html.style.getPropertyPriority(name)]);
     let frame = 0, chaseFrame = 0, chaseUntil = 0, disposed = false, seat = null, header = null;
     // classList.add/remove rewrite the class attribute even when nothing changes; that no-op mutation
@@ -96,10 +93,14 @@ function installVisualViewportPin(doc) {
         if (!(height > 0)) return;
         html.classList.toggle("dsh-tavern-viewport-pinned", true);
         // 外壳高度：布局视口已被顶上去就 100%，键盘浮在页面上才用可视区像素。
-        const shell = tavernShellHeight(view.innerHeight, height, keyboardTopInset(keyboard));
+        const shell = tavernShellHeight(view.innerHeight, height);
         setValue("--dsh-shell-height", shell || "100%");
         // 外壳真占多高：100% 时由布局视口决定，否则就是脚本算出来的那一段。
-        const visible = shell && shell !== "100%" ? parseFloat(shell) : view.innerHeight || height;
+        const shellHeight = shell && shell !== "100%" ? parseFloat(shell) : view.innerHeight || height;
+        // 剩下的差额交给输入条自己垫：键盘压住多少就抬多少，外壳不用再动。
+        const keyboardInset = keyboardPadPx(keyboard, shellHeight);
+        setPx("--dsh-keyboard-inset", keyboardInset);
+        const visible = Math.max(0, shellHeight - keyboardInset);
         // 外壳高度已经按布局视口算的时候，可视区偏移由页面自己负责，不能再叠一次。
         setPx("--dsh-vv-top", shell === "100%" ? 0 : top);
         setPx("--dsh-vv-height", visible);

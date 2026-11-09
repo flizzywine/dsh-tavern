@@ -2898,6 +2898,8 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
     /* 宿主用外侧 box-shadow 描边；候选收起后卡片紧贴滚动容器，需为上描边保留绘制空间。
        border-box 让这 4px 计入可用高度，极短窗口也不能把发送栏挤到键盘下面。 */
     box-sizing: border-box; padding-top: 4px; scroll-padding-top: 4px;
+    /* 输入法压住的那一截直接垫在输入条下面：外壳不必再缩，工具栏和正文也不会跟着抖。 */
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--dsh-keyboard-inset, 0px));
     --dsh-composer-text-max-height: clamp(24px, calc(var(--dsh-vv-height, 100dvh) * .24), 160px);
     max-height: max(0px, calc(var(--dsh-vv-height, 100dvh) - var(--dsh-header-bottom, 80px)));
   }
@@ -3020,7 +3022,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   /* 输入区保持宿主的滚动与草稿生命周期，不再用 bottom 额外上推一个键盘高度。 */
   html.dsh-tavern-coarse-play [data-composer-seat] {
     bottom: 0 !important; z-index: var(--dsh-play-z-seat);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--dsh-keyboard-inset, 0px));
   }
   html.dsh-tavern-coarse-play [data-composer-card] {
     padding-top: 6px !important; padding-bottom: 6px; gap: 6px !important;

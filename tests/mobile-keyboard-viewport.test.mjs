@@ -58,14 +58,14 @@ function makeDocument({ width = 390 } = {}) {
   return doc
 }
 
-function makeView(doc, { height = 800, visual, keyboardTop } = {}) {
+function makeView(doc, { height = 800, visual, keyboardRect } = {}) {
   const frames = new Map()
   let nextFrame = 1
   const listeners = new Map()
   const vvListeners = new Map()
   const keyboardListeners = new Map()
-  const keyboard = keyboardTop === undefined ? null : {
-    boundingRect: { top: keyboardTop },
+  const keyboard = keyboardRect === undefined ? null : {
+    boundingRect: { ...keyboardRect },
     addEventListener: (name, handler) => keyboardListeners.set(name, [...(keyboardListeners.get(name) || []), handler]),
     removeEventListener: (name, handler) => keyboardListeners.set(name, (keyboardListeners.get(name) || []).filter(item => item !== handler)),
     dispatch: name => (keyboardListeners.get(name) || []).forEach(handler => handler())
@@ -113,7 +113,7 @@ function installPin(options) {
     composerOffsetPx: () => 0,
     sheetMaxPx: () => 0
   }
-  const factory = vm.runInNewContext(`${layoutSource}\n;({ tavernShellHeight, keyboardTopInset, installVisualViewportPin, TAVERN_KEYBOARD_INSET_MIN, TAVERN_KEYBOARD_SETTLE_MS })`, sandbox)
+  const factory = vm.runInNewContext(`${layoutSource}\n;({ tavernShellHeight, keyboardPadPx, installVisualViewportPin, TAVERN_KEYBOARD_INSET_MIN, TAVERN_KEYBOARD_SETTLE_MS })`, sandbox)
   const release = factory.installVisualViewportPin(doc)
   return { doc, harness, factory, release, clock, style: doc.documentElement.style }
 }
@@ -131,33 +131,35 @@ test('键盘顶起页面时外壳跟随布局视口，而不是可视区像素',
   assert.equal(factory.tavernShellHeight(800, 780), '780px', '明显的遮挡仍要按可视区缩')
 })
 
-test('输入法压在底部系统栏上的那一段也要让出来', () => {
+test('输入法压住多少就直接给输入条垫多少', () => {
   const { factory } = installPin()
-  // resizes-content：布局视口和可视区都停在 800，键盘其实从 780 起 —— 底下 20px 被盖住。
-  assert.equal(factory.tavernShellHeight(800, 800, 780), '780px')
-  // 键盘收起时矩形是零，不能拿它当遮挡。
-  assert.equal(factory.tavernShellHeight(800, 800, 0), '100%')
-  assert.equal(factory.tavernShellHeight(800, 800, 796), '100%', '取整级的矩形不缩页面')
-  // 矩形比可视区更靠上时以它为准。
-  assert.equal(factory.tavernShellHeight(800, 700, 640), '640px')
-  // 坐标系对不上的值（量级差太远）一律不认，宁可不缩也不要缩错。
-  assert.equal(factory.tavernShellHeight(800, 800, 51), '100%')
-  assert.equal(factory.tavernShellHeight(800, 800, 900), '100%')
-  assert.equal(factory.keyboardTopInset(null), 0)
-  assert.equal(factory.keyboardTopInset({ boundingRect: { top: 640 } }), 640)
-  assert.equal(factory.keyboardTopInset({ boundingRect: { top: Number.NaN } }), 0)
+  // 布局视口和可视化视口都停在 800，键盘其实从 786 起 —— 底下 14px 的输入框被盖住。
+  assert.equal(factory.keyboardPadPx({ boundingRect: { top: 786, height: 663 } }, 800), 14)
+  // 键盘收齐时矩形是零，不能拿它当遮挡。
+  assert.equal(factory.keyboardPadPx({ boundingRect: { top: 0, height: 0 } }, 800), 0)
+  assert.equal(factory.keyboardPadPx(null, 800), 0)
+  // 键盘整个在下面（布局视口已经缩到键盘上方）就没有要垫的。
+  assert.equal(factory.keyboardPadPx({ boundingRect: { top: 800, height: 663 } }, 800), 0)
+  // 坐标系对不上的值（上沿跑到可视区上半段）一律不认，垫多了会把输入条顶到屏幕中间。
+  assert.equal(factory.keyboardPadPx({ boundingRect: { top: 51, height: 663 } }, 800), 0)
+  assert.equal(factory.keyboardPadPx({ boundingRect: { top: Number.NaN, height: 663 } }, 800), 0)
+  // 垫高不超过输入法自身高度。
+  assert.equal(factory.keyboardPadPx({ boundingRect: { top: 480, height: 200 } }, 800), 200)
 })
 
-test('输入法几何一变就当场改高度，不等可视化视口事件', () => {
-  const { harness, style, release } = installPin({ keyboardTop: 780 })
-  assert.equal(style.getPropertyValue('--dsh-shell-height'), '780px', '进页面就要按输入法上沿让位')
-  assert.equal(style.getPropertyValue('--dsh-vv-height'), '780px', '输入条锚点跟着让位的那一段走')
+test('输入法几何一变就当场垫底，不等可视化视口事件', () => {
+  const { harness, style, release } = installPin({ keyboardRect: { top: 786, height: 663 } })
+  assert.equal(style.getPropertyValue('--dsh-keyboard-inset'), '14px', '进页面就按输入法压住的那一截垫底')
+  assert.equal(style.getPropertyValue('--dsh-shell-height'), '100%', '外壳不必再缩')
+  assert.equal(style.getPropertyValue('--dsh-vv-height'), '786px', '可视高度扣掉垫底那一段')
   harness.keyboard.boundingRect.top = 800
+  harness.keyboard.boundingRect.height = 0
   harness.keyboard.dispatch('geometrychange')
-  assert.equal(style.getPropertyValue('--dsh-shell-height'), '100%', '键盘收起立刻回落')
-  harness.keyboard.boundingRect.top = 640
+  assert.equal(style.getPropertyValue('--dsh-keyboard-inset'), '0px', '键盘收起立刻回落到 0')
+  harness.keyboard.boundingRect.top = 786
+  harness.keyboard.boundingRect.height = 663
   harness.keyboard.dispatch('geometrychange')
-  assert.equal(style.getPropertyValue('--dsh-shell-height'), '640px')
+  assert.equal(style.getPropertyValue('--dsh-keyboard-inset'), '14px')
   release()
 })
 
@@ -220,6 +222,14 @@ test('外壳高度走 --dsh-shell-height，不再直接吃 --dsh-vv-height', () 
   const rule = css.slice(start, css.indexOf('}', start))
   assert.match(rule, /height: var\(--dsh-shell-height, 100dvh\) !important/)
   assert.doesNotMatch(rule, /height: var\(--dsh-vv-height/)
+})
+
+test('输入条底部按输入法上报的高度垫底', () => {
+  const start = css.indexOf('html.dsh-tavern-coarse-play [data-composer-seat]')
+  assert.ok(start > 0)
+  const rule = css.slice(start, css.indexOf('}', start))
+  assert.match(rule, /padding-bottom: calc\(env\(safe-area-inset-bottom, 0px\) \+ var\(--dsh-keyboard-inset, 0px\)\)/)
+  assert.equal(css.match(/var\(--dsh-keyboard-inset, 0px\)/g).length, 2, '两条输入条规则都要垫')
 })
 
 test('内嵌酒馆的 iframe 外壳同样跟随布局视口', () => {
