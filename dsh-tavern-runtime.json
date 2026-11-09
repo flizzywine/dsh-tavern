@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "3cc89624ec3ba907a805bfab584167e25876448b",
-  "releaseSequence": 1386,
+  "revision": "32b0ff51103f1fd02850af785447bb1c184456cd",
+  "releaseSequence": 1387,
   "version": "3.2.0",
   "files": [
     {
@@ -1006,8 +1006,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "4f7baa188a3e382b72e9046788de738c355bc7b40bbee33dfd758a782cd8c1e0",
-      "size": 5717589
+      "sha256": "fda134fe1134f678812e81ffeba689db4108d0242cc0e44999f7230ae4b3a50e",
+      "size": 5718027
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1556,8 +1556,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-fork-point.js",
-      "sha256": "a2755e36f90da938a1976d857754c791f4a05d02cbaae870f933b6f5b402cf80",
-      "size": 11621
+      "sha256": "dc20e70f1e63648e55b918a3056ae296e34c00c2edab457118fc7fa0086218ed",
+      "size": 12468
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-fork-targets.js",
@@ -9901,9 +9901,9 @@
     }
   ],
   "archive": {
-    "commit": "5999f64692a7f9fac8fe358cddbb2ab14404c767",
+    "commit": "f4202669be7f5be02aadaec3590aab32de19d859",
     "path": "runtime.zip",
-    "sha256": "314036033c4c302e6f00b297781c010b4225170e15ea5c8535edbb59bf5576ab",
-    "size": 16539408
+    "sha256": "26d0cef268cd312ddeb92cbe3bb818ef15285f73ba621160aea937ae9bea7afc",
+    "size": 16540056
   }
 }
