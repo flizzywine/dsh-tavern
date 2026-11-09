@@ -246,6 +246,7 @@ curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-ma
 局域网 / VPN 绑定与安全要求见[命令行远程访问文档](https://github.com/flizzywine/dsh-tavern/wiki/命令行版：局域网与VPN访问)。
 
 如果本机启用了 TUN Fake-IP，且人物卡的 jsDelivr 或 GitHub Raw 静态资源被拦截，可在 DSH 服务的环境中设置 `DSH_TAVERN_ALLOW_CDN_FAKE_IP=1` 后重启。此设置仅适用于受支持的 CDN 域名及其标准 HTTPS 端口。
+也可在酒馆数据目录的 `tavern-settings.json` 中保存 `"allowCdnFakeIp": true`。显式保存的布尔值优先于环境变量。
 
 ### 手机远程访问
 

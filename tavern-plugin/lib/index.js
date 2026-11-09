@@ -529,16 +529,22 @@ export async function apply(ctx) {
     readJson: async function (path) { return await profileData.readJson(path) },
     updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
   })
-  const tavernStaticResources = createTavernStaticResourceCache({ rootDir: dataRoot + '/cache/static-assets', verifyHostname: verifyPublicHostname })
+  const settingsPath = 'tavern-settings.json'
+  let tavernSettingsDocument = await profileData.readJson(settingsPath)
+  const tavernStaticResources = createTavernStaticResourceCache({
+    rootDir: dataRoot + '/cache/static-assets',
+    verifyHostname(url) {
+      const configured = tavernSettingsDocument?.allowCdnFakeIp
+      return verifyPublicHostname(url, undefined, typeof configured === 'boolean' ? configured : undefined)
+    }
+  })
   void tavernStaticResources.warm(SILLYTAVERN_CSS_COMPAT_URLS).then(function (results) {
     const failures = results.filter(function (result) { return result.status === 'rejected' })
     if (failures.length > 0) console.warn('dsh-tavern: 部分静态运行库暂未缓存，将在使用时重试:', failures.map(function (result) { return str(result.reason && result.reason.message || result.reason) }).join('；'))
   })
-  const settingsPath = 'tavern-settings.json'
   const promptTemplateGlobalVariables = createPromptTemplateGlobalVariables(profileData)
   const readPromptTemplateGlobalVariables = promptTemplateGlobalVariables.read
   const writePromptTemplateGlobalVariables = promptTemplateGlobalVariables.save
-  let tavernSettingsDocument = await profileData.readJson(settingsPath)
   function promptDefaults() {
     return Object.fromEntries(SYSTEM_PROMPT_NAMES.map(function (name) { return [name, promptFile(name)] }))
   }

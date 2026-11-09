@@ -5,6 +5,16 @@ import test from 'node:test'
 
 import { applyTavernSettingsPatch, normalizePlayDefaults, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
 
+test('CDN Fake-IP 兼容保存为酒馆配置，且要求显式布尔值', () => {
+  assert.equal(presentTavernSettings({}).allowCdnFakeIp, false)
+  assert.equal(presentTavernSettings({ allowCdnFakeIp: '1' }).allowCdnFakeIp, false)
+  const enabled = applyTavernSettingsPatch({}, { allowCdnFakeIp: true })
+  const reloaded = JSON.parse(JSON.stringify(enabled))
+  assert.equal(presentTavernSettings(reloaded).allowCdnFakeIp, true)
+  assert.equal(applyTavernSettingsPatch(reloaded, { allowCdnFakeIp: false }).allowCdnFakeIp, false)
+  assert.throws(() => applyTavernSettingsPatch(reloaded, { allowCdnFakeIp: '1' }), /布尔值/)
+})
+
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 
 test('用户推进字数随配置保存和读回，旧配置默认 500 且拒绝非法值', () => {
