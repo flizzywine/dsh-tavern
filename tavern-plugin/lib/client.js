@@ -42057,9 +42057,39 @@ function TavernCardUpdateDialog(props) {
                 const h = React.createElement;
                 React.useEffect(() => galStageHold(), []);
                 const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
+                const [runtime, setRuntime] = React.useState(null), [busy, setBusy] = React.useState(false), [error, setError] = React.useState("");
+                React.useEffect(() => {
+                    let active = true, timer;
+                    async function refresh() {
+                        try {
+                            const value = await rpc("getStageRuntimeStatus", {});
+                            if (!active) return;
+                            setRuntime(value);
+                            if (["loading", "loaded"].includes(value.status)) timer = setTimeout(refresh, 500);
+                        } catch (err) { if (active) setError(err.message); }
+                    }
+                    if (!busy) void refresh();
+                    return () => { active = false; clearTimeout(timer); };
+                }, [enabled, busy]);
+                async function set(method, value) {
+                    setBusy(true); setError("");
+                    try { setRuntime(await rpc(method, {enabled:value})); }
+                    catch (err) { setError(err.message); }
+                    finally { setBusy(false); }
+                }
                 const Page = enabled && stageViews ? stageViews.GlobalSettings : null;
-                return Page ? h(Page) : h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
-                    h(SettingsGroup, {title:"舞台"}, h("p", {className:"dsh-tavern-settings-desc", role:"status"}, "正在加载舞台…")));
+                return h(React.Fragment, null,
+                    h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+                        h(SettingsGroup, {title:"舞台启动"},
+                            runtime?.installed ? h(TavernSettingRow, {title:"启动时加载舞台", help:"关闭后，下次启动会跳过舞台。需要时可以在这里为本次运行加载舞台。"},
+                                h(Switch, {label:"启动时加载舞台", checked:runtime.loadOnStartup !== false, disabled:busy, onChange:value => set("setStageLoadOnStartup", value)})) : null,
+                            !Page && runtime?.installed && (!runtime.enabled || runtime.status === "failed") ?
+                                h("button", {type:"button", className:"dsh-tavern-btn", disabled:busy, onClick:() => set("setStageEnabled", true)}, "本次加载舞台") : null,
+                            !Page && (!runtime || runtime.installed && runtime.enabled && runtime.status !== "failed") ?
+                                h("p", {className:"dsh-tavern-settings-desc", role:"status"}, "正在加载舞台…") : null,
+                            runtime?.installed === false ? h("p", {role:"status"}, "舞台插件不可用") : null,
+                            error ? h("p", {role:"alert"}, error) : null)),
+                    Page ? h(Page) : null);
             }
             return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection, stageGlobalSettingsOptions };
         }

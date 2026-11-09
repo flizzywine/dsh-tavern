@@ -3858,6 +3858,7 @@ export async function apply(ctx) {
     return {stepAside:stageRuntime.status() === 'ready' && cardStageVoicing(extension, engine), auto:voiceService()?.reading().readAloud.auto === true}
   }
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
+  rpcHandlers.setStageLoadOnStartup = async args => stageSwitch.setLoadOnStartup(args?.enabled)
   rpcHandlers.setStageEnabled = async args => stageSwitch.setEnabled(args?.enabled)
   rpcHandlers.getCardScripts = rpcHandlers.setCardScriptMuted
   const extensionRequests = createExtensionRequests({reserved:Object.keys(rpcHandlers)})

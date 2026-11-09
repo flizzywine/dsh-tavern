@@ -17,3 +17,21 @@ test('absent package cannot be enabled and failed persistence leaves runtime unc
  await control.uninstall();assert.equal(control.read().installed,false)
  await assert.rejects(control.setEnabled('false'),/布尔值/)
 })
+
+test('manual stage startup survives restart, and loading once does not change it',async()=>{
+ const f=fixture()
+ const control=await createStageSwitch({...f,builtin:true})
+ await control.install(()=>{})
+ await control.setLoadOnStartup(false)
+ assert.equal(control.read().status,'ready')
+ assert.equal(control.read().loadOnStartup,false)
+ await control.uninstall()
+
+ const next=await createStageSwitch({...f,builtin:true})
+ await next.install(()=>{})
+ assert.deepEqual(f.counts(),{starts:1,stops:1})
+ assert.equal(next.read().status,'disabled')
+ await next.setEnabled(true)
+ assert.equal(next.read().status,'ready')
+ assert.equal((await f.store.readJson()).enabled,false)
+})

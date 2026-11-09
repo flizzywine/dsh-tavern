@@ -156,6 +156,24 @@ test('舞台模型只在舞台设置展示，保存沿用原有模型槽', async
   assert.equal(settings.modModels['dsh.stage'].director.model,'next')
 })
 
+test('舞台设置可以只加载本次运行而不改启动偏好', async t => {
+  let runtime = { installed: true, loadOnStartup: true, enabled: false, status: 'disabled' }
+  const {page, calls} = await openTavernSettings(t, {section:'dsh-tavern: stage settings section', respond(method, args) {
+    if (method === 'getStageRuntimeStatus') return runtime
+    if (method === 'setStageLoadOnStartup') return runtime = {...runtime, loadOnStartup:args.enabled}
+    if (method === 'setStageEnabled') return runtime = {...runtime, enabled:args.enabled, status:'ready'}
+  }})
+  const startup = page.getByRole('switch', {name:'启动时加载舞台'})
+  await startup.press('Space')
+  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="启动时加载舞台"]')?.checked === false)
+  const load = page.getByRole('button', {name:'本次加载舞台'})
+  await load.click()
+  await load.waitFor({state:'hidden'})
+  assert.equal(await startup.isChecked(),false)
+  assert.deepEqual(calls.filter(row => row.method.startsWith('setStage')).map(row => [row.method, row.args.enabled]),
+    [['setStageLoadOnStartup', false], ['setStageEnabled', true]])
+})
+
 test('插件列表隐藏内置配图与模组，保留用户安装的插件', async t => {
   const {page}=await openTavernSettings(t,{section:'dsh-tavern: plugins settings section',respond(method){
     if(method==='listUserPlugins')return {plugins:[
