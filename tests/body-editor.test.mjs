@@ -26,11 +26,19 @@ function fixture(text = '原正文', seeded = false) {
     change(fn) { fn(chat) } }
 }
 
-test('stale tabs, blank text, new HTML, running turns and HTML-only replies reject without writes', async () => {
+test('stale tabs, blank text and new HTML reject without writes; a running turn queues instead', async () => {
   const h = fixture(), edit = await h.editor.read(h.session.id), original = structuredClone(h.chat)
   for (const input of [{ token: 'stale', texts: ['新'] }, { token: edit.token, texts: [''] }, { token: edit.token, texts: ['<div>注入</div>'] }, { token: edit.token, texts: [] }]) await assert.rejects(h.editor.save(h.session.id, input))
-  h.busy(true); await assert.rejects(h.editor.save(h.session.id, { token: edit.token, texts: ['新'] }), /等待/); h.busy(false)
-  h.agent.phase.kind = 'running'; await assert.rejects(h.editor.read(h.session.id), /等待/)
+  h.busy(true)
+  const queued = await h.editor.save(h.session.id, { token: edit.token, texts: ['新'] })
+  assert.equal(queued.queued, true)
+  assert.equal(queued.queuedCount, 1)
+  h.busy(false)
+  // Reading is side-effect free: the editor opens while the turn runs, it only
+  // must not write before the turn is over.
+  h.agent.phase.kind = 'running'
+  assert.equal((await h.editor.read(h.session.id)).token, edit.token)
+  h.agent.phase.kind = 'idle'
   assert.deepEqual(h.chat, original)
   const html = fixture('<div>纯 HTML</div>'); await assert.rejects(html.editor.read(html.session.id), /没有可编辑文本/)
 })
@@ -38,9 +46,10 @@ test('stale tabs, blank text, new HTML, running turns and HTML-only replies reje
 test('peek reads the last reply\'s text while settlement runs, the same text read gives once idle', async () => {
   const h = fixture('第一段\n\n第二段')
   h.change(chat => { chat.settleStatus = 'running' }); h.busy(true)
-  await assert.rejects(h.editor.read(h.session.id), /等待/)
+  const duringSettlement = (await h.editor.read(h.session.id)).parts.filter(part => part.kind === 'text').map(part => part.text)
   const peeked = await h.editor.peek(h.session.id)
   h.change(chat => { chat.settleStatus = 'done' }); h.busy(false)
+  assert.deepEqual(peeked, duringSettlement)
   assert.deepEqual(peeked, (await h.editor.read(h.session.id)).parts.filter(part => part.kind === 'text').map(part => part.text))
 })
 
@@ -147,12 +156,16 @@ assert.equal(patched, false)
 })
 
 
-test('编辑不再取消旧预备任务，仍遵守后台忙碌保护', async () => {
+test('编辑不再取消旧预备任务，后台忙碌时读取照常、写入排队', async () => {
   const h = fixture()
   const editor = createBodyEditor({ ...h.options, cancelPreparation: async () => assert.fail('retired callback') })
   h.busy(true)
-  await assert.rejects(editor.read(h.session.id), /等待/)
+  assert.equal((await editor.read(h.session.id)).parts.filter(part => part.kind === 'text')[0].text, '原正文')
+  const queued = await editor.save(h.session.id, { token: (await editor.read(h.session.id)).token, texts: ['排队正文'] })
+  assert.equal(queued.queued, true)
   h.busy(false)
+  await editor.flushQueued(h.session.id)
+  assert.equal(h.chat.messages[1].text, '排队正文')
   const edit = await editor.read(h.session.id)
   await editor.save(h.session.id, { token: edit.token, texts: ['改过的正文'] })
   assert.equal(h.chat.messages[1].text, '改过的正文')

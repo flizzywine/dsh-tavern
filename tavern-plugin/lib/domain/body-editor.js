@@ -120,13 +120,95 @@ export async function synchronizeBodyEdits(session, chat, flush, persistChat) {
 }
 
 /** Edit prose only; do not replay macros, scripts or settlement. */
-export function createBodyEditor({ chats, sessions, timeline, activity, project, present, sessionPatch, beforeReplyEdit }) {
+export function createBodyEditor({ chats, sessions, timeline, activity, project, present, sessionPatch, beforeReplyEdit, queuedEditApplied }) {
   const pending = new Set()
+  // An edit submitted while a turn is running is not refused: it waits here and
+  // applies once that turn ends. Only the write waits — reading the row it points
+  // at is side-effect free, so the editor opens during generation too.
+  const waiting = new Map()
+  const WAITING_LIMIT = 8
   function refuseClosedPatch() {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
   }
-  function idle(chat, agent) {
-    if (agent?.phase?.kind === 'running' || chat.regenInProgress || ['pending', 'running'].includes(chat.settleStatus) || activity(chat)?.busy) throw new Error('请等待当前生成或后台处理完成后再编辑')
+  function generating(chat, agent) {
+    return agent?.phase?.kind === 'running' || Boolean(chat && chat.regenInProgress)
+      || ['pending', 'running'].includes(chat && chat.settleStatus) || Boolean(activity(chat)?.busy)
+  }
+  function idle(chat, agent, options) {
+    if (options && options.whileBusy === true) return
+    if (generating(chat, agent)) throw new Error('请等待当前生成或后台处理完成后再编辑')
+  }
+  // Same target, later text wins: a player who edits twice while one turn runs
+  // means the last version, not both writes replayed in order.
+  function waitingKey(role, input) {
+    const index = Number(input && input.messageIndex)
+    if (Number.isSafeInteger(index)) return role + ':row:' + index
+    const turn = Number(input && input.turn)
+    if (Number.isSafeInteger(turn) && turn > 0) return role + ':turn:' + turn
+    const seq = Number(input && input.seq)
+    return role + ':seq:' + (Number.isSafeInteger(seq) ? seq : 0)
+  }
+  function waitForTurn(sessionId, role, input, replay) {
+    const list = waiting.get(sessionId) || []
+    const key = waitingKey(role, input)
+    const existing = list.findIndex(entry => entry.key === key)
+    if (existing >= 0) list.splice(existing, 1)
+    list.push({ key, role, input, replay, at: Date.now() })
+    while (list.length > WAITING_LIMIT) list.shift()
+    waiting.set(sessionId, list)
+    return { queued: true, queuedCount: list.length, view: null }
+  }
+  // Replay in the order the player submitted: each save re-checks its own token,
+  // so a row that moved on (another edit, a regeneration, a rollback) drops this
+  // text instead of writing it over a target it was not written for.
+  async function flushQueued(sessionId, attempt = 0) {
+    const list = waiting.get(sessionId)
+    if (!Array.isArray(list) || list.length === 0) return 0
+    // Take the batch out of the map: an edit queued while this pass runs is a new
+    // submission and must not be overwritten when the pass puts its leftovers back.
+    waiting.delete(sessionId)
+    const unapplied = []
+    let applied = 0
+    for (const entry of list) {
+      try { await entry.replay(); applied += 1 }
+      catch (error) {
+        const message = String((error && error.message) || error)
+        // Still running (or another save holds the lock): keep it for the next pass.
+        if (/等待当前生成|后台处理完成后再编辑|正在保存正文/.test(message)) { unapplied.push(entry); continue }
+        // The target changed under the queued text; the editor's own conflict is the report.
+        console.warn('dsh-tavern: 排队编辑未应用（目标已变化）：' + message)
+      }
+    }
+    const later = waiting.get(sessionId) || []
+    if (unapplied.length) {
+      waiting.set(sessionId, later.length ? [...unapplied, ...later] : unapplied)
+      // The turn ends between the host's event and the agent going idle: retry on a
+      // short backoff instead of asking the player to press 保存 again.
+      if (attempt < 40) {
+        const timer = setTimeout(() => { void flushQueued(sessionId, attempt + 1) }, 250)
+        if (typeof timer.unref === 'function') timer.unref()
+      }
+      return applied
+    }
+    if (later.length === 0 && waiting.get(sessionId) === undefined) waiting.delete(sessionId)
+    if (applied > 0 && typeof queuedEditApplied === 'function') { try { await queuedEditApplied(sessionId) } catch {} }
+    return applied
+  }
+  // Whether a turn owns this session right now: callers use it to skip work that
+  // must not race the running turn (story reconciliation, for one).
+  async function isBusy(sessionId) {
+    const chat = await chats.forSession(sessionId)
+    return generating(chat, sessions.get(sessionId))
+  }
+  function queuedCount(sessionId) {
+    const list = waiting.get(sessionId)
+    return Array.isArray(list) ? list.length : 0
+  }
+  async function runOrWait(sessionId, role, input, run) {
+    const chat = await chats.forSession(sessionId)
+    const agent = sessions.get(sessionId)
+    if (!chat || !generating(chat, agent)) return run()
+    return waitForTurn(sessionId, role, input, run)
   }
   // Mirror the model context onto the save first: pending body-edit anchors are
   // replayed, and markers that no longer match any session event are dropped.
@@ -145,14 +227,14 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       }, { source: 'body-edit.stale-clear' })
     })
   }
-  async function openChat(sessionId) {
+  async function openChat(sessionId, options) {
     refuseClosedPatch()
     const chat = await chats.forSession(sessionId)
     if (!chat) throw new Error('会话不存在')
     const agent = sessions.get(sessionId)
     if (!agent?.session) throw new Error('无法访问原生会话')
-    idle(chat, agent)
-    return { chat, agent }
+    idle(chat, agent, options)
+    return { chat, agent, busy: generating(chat, agent) }
   }
   // A UID names the logical Chat row across unrelated writes and index movement.
   // `messageIndex` remains a required hint, never the identity when a UID exists.
@@ -187,15 +269,17 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     if (namesRow === null && typeof input?.token !== 'string' && storageRevision(chat) !== revision) throw new Error('正文或会话已变化，请重新打开编辑')
     return { chat, index: requestedIndex, message, revision: storageRevision(chat), messageUid: null }
   }
-  async function storyContext(sessionId, input, role) {
+  async function storyContext(sessionId, input, role, options) {
     refuseClosedPatch()
     const chat = await chats.forSession(sessionId)
     if (!chat) throw new Error('会话不存在')
     const agent = sessions.get(sessionId)
-    idle(chat, agent)
+    const busy = generating(chat, agent)
+    idle(chat, agent, options)
     // Chat rows remain editable when an old save has no live native Session.
-    // Marker replay and Surface repair are downstream conveniences, not addressing.
-    if (agent?.session) await syncChatMarkers(agent, chat)
+    // Marker replay and Surface repair are downstream conveniences, not addressing:
+    // a running turn owns the Session's write path, so the read stays Chat-only.
+    if (agent?.session && !busy) await syncChatMarkers(agent, chat)
     return { agent, ...storyRow(chat, input, role) }
   }
   // Valid prose edits only: same text parts, no new HTML, no empty reply.
@@ -259,10 +343,12 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     if (patch.polished !== true) delete chat.messages[index].polished
     return chat
   }
-  async function context(sessionId) {
-    const { chat: opened, agent } = await openChat(sessionId)
+  async function context(sessionId, options) {
+    const { chat: opened, agent, busy } = await openChat(sessionId, options)
     let chat = opened
-    await syncChatMarkers(agent, chat)
+    // The last reply's row is a Chat read: while a turn runs the Session write
+    // path belongs to that turn, so marker replay waits for the save.
+    if (!busy) await syncChatMarkers(agent, chat)
     let message = latest(chat)
     const locate = () => locateRegenerationSurface({ events: sessionEvents(agent.session), nodes: agent.session.surface?.nodes, turn: message.turn })
     let target = locate()
@@ -271,7 +357,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     if (!target) throw new Error('最后一轮正文已不在当前上下文中，无法编辑')
     const parts = editableReplyParts(source(message))
     if (!parts.some(part => part.kind === 'text' && part.text.trim())) throw new Error('这轮只有 HTML，没有可编辑文本')
-    return { chat, agent, message, target, parts }
+    return { chat, agent, busy, message, target, parts }
   }
   // A bounded history edits only its last floor: apply the same timeline intent to
   // the header and that floor, then patch them on the read revision. A moved
@@ -293,12 +379,12 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
   }
   async function read(sessionId, input) {
     if (hasStoryMessageIndex(input)) return readStoryMessage(sessionId, input)
-    const { chat, message, parts } = await context(sessionId)
+    const { chat, message, parts } = await context(sessionId, { whileBusy: true })
     return { token: token(chat, message), turn: message.turn, parts: parts.map(part => part.kind === 'text' ? part : { kind: part.kind }) }
   }
   // Story view: read the row the list points at (no turn, no native floor needed).
   async function readStoryMessage(sessionId, input) {
-    const { chat, message, index, revision, messageUid } = await storyContext(sessionId, input, 'assistant')
+    const { chat, message, index, revision, messageUid } = await storyContext(sessionId, input, 'assistant', { whileBusy: true })
     const parts = editableReplyParts(source(message))
     if (!parts.some(part => part.kind === 'text' && part.text.trim())) throw new Error('这轮只有 HTML，没有可编辑文本')
     return {
@@ -385,12 +471,14 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
   }
   // What hangs on the shown text version (dialogue speakers) follows the edit once it is saved.
   async function save(sessionId, input, options) {
-    const carry = typeof beforeReplyEdit === 'function' ? await beforeReplyEdit(sessionId) : null
-    const saved = hasStoryMessageIndex(input)
-      ? await saveStoryText(sessionId, input, 'body.edit', options)
-      : await saveText(sessionId, input, 'body.edit', options)
-    if (carry) await carry()
-    return saved
+    return runOrWait(sessionId, 'assistant', input, async () => {
+      const carry = typeof beforeReplyEdit === 'function' ? await beforeReplyEdit(sessionId) : null
+      const saved = hasStoryMessageIndex(input)
+        ? await saveStoryText(sessionId, input, 'body.edit', options)
+        : await saveText(sessionId, input, 'body.edit', options)
+      if (carry) await carry()
+      return saved
+    })
   }
   // A player input is a floor too: the model surface gets a replacement
   // user/message, while the Chat keeps the new text so the page can render it.
@@ -434,17 +522,21 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     const reply = messages[index + 1]
     return Number(reply?.native?.turn) || Number(reply?.nativeAnchor?.turn) || Number(reply?.turn) || 0
   }
-  async function userContext(sessionId, input) {
+  async function userContext(sessionId, input, options) {
     refuseClosedPatch()
     let chat = await chats.forSession(sessionId)
     if (!chat) throw new Error('会话不存在')
     const agent = sessions.get(sessionId)
     if (!agent?.session) throw new Error('无法访问原生会话')
-    idle(chat, agent)
-    await syncChatMarkers(agent, chat)
-    chat = await chats.forSession(sessionId)
-    if (!chat) throw new Error('会话不存在')
-    idle(chat, agent)
+    const busy = generating(chat, agent)
+    idle(chat, agent, options)
+    // The marker replay writes the Session: it belongs to the turn while one runs.
+    if (!busy) {
+      await syncChatMarkers(agent, chat)
+      chat = await chats.forSession(sessionId)
+      if (!chat) throw new Error('会话不存在')
+    }
+    idle(chat, agent, options)
     const requested = Number(input?.turn) || 0
     const turn = requested > 0 ? requested : userFallbackTurn(chat)
     if (!Number.isSafeInteger(turn) || turn < 1) throw new Error('找不到这条输入对应的回合')
@@ -468,7 +560,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     // Never fall back to "the newest input": that edits another message.
     if (!located) throw new Error('这条输入已不在当前上下文中，无法编辑')
     const text = record ? record.text : found ? String(found.message.text ?? '') : userInputText(located.event)
-    return { chat, agent, message: found?.message || null, index: found?.index ?? -1, turn, located, text, record, failed }
+    return { chat, agent, busy, message: found?.message || null, index: found?.index ?? -1, turn, located, text, record, failed }
   }
   function userToken(chat, context) {
     // The native turn/seq, current text and edit marker identify this input;
@@ -478,14 +570,14 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
   }
   async function readUser(sessionId, input) {
     if (hasStoryMessageIndex(input)) return readStoryUser(sessionId, input)
-    const context = await userContext(sessionId, input)
+    const context = await userContext(sessionId, input, { whileBusy: true })
     return { token: userToken(context.chat, context), role: 'user', index: context.index, turn: context.turn, seq: context.located.seq,
       failed: context.failed === true, parts: [{ kind: 'text', text: context.text }] }
   }
   // Story view: the pointed-at player row, even when its turn is missing, repeated or
   // out of order; the row text is the save's own, never a turn's lookup result.
   async function readStoryUser(sessionId, input) {
-    const { chat, message, index, revision, messageUid } = await storyContext(sessionId, input, 'user')
+    const { chat, message, index, revision, messageUid } = await storyContext(sessionId, input, 'user', { whileBusy: true })
     return { token: storyToken(chat, message, index, 'user', messageUid), role: 'user', index, messageIndex: index, revision,
       ...(messageUid ? { messageUid } : {}), turn: Number(message.turn) || 0, seq: 0, failed: false,
       parts: [{ kind: 'text', text: storyUserText(message) }] }
@@ -520,8 +612,14 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       return present(saved)
     } finally { pending.delete(sessionId) }
   }
+  // A save requested while a turn runs waits for it: the editor stays open, and
+  // the text lands once the round it points at can no longer move.
   async function saveUser(sessionId, input) {
-    if (hasStoryMessageIndex(input)) return saveStoryUser(sessionId, input)
+    return runOrWait(sessionId, 'user', input, () => hasStoryMessageIndex(input)
+      ? saveStoryUser(sessionId, input)
+      : saveUserNow(sessionId, input))
+  }
+  async function saveUserNow(sessionId, input) {
     if (pending.has(sessionId)) throw new Error('正在保存正文，请稍候')
     pending.add(sessionId)
     try {
@@ -608,5 +706,5 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     if (carry) await carry()
     return saved
   }
-  return Object.freeze({ read, peek, save, polish, readUser, saveUser, replaceText })
+  return Object.freeze({ read, peek, save, polish, readUser, saveUser, replaceText, flushQueued, queuedCount, isBusy })
 }

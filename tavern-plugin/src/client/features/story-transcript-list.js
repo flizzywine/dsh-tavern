@@ -148,7 +148,9 @@ function createTavernStoryTranscriptFeature(deps) {
 				'aria-label': copied ? '已复制' : '复制', onClick: copy },
 				h(copied ? DshUi.IconCheckOutlineRegular : DshUi.IconCopyOutlineRegular, null)))
 		const editButton = h(DshUi.Tooltip, { label: busy === 'edit' ? '正在读取…' : editLabel, side: 'bottom' },
-			h('button', { type: 'button', className: 'dsh-tavern-story-row-action dsh-tavern-story-row-edit', disabled: Boolean(busy) || props.running === true,
+			// Editing opens while a turn runs: the read is side-effect free and the save
+			// waits for that turn (fork still needs an idle round).
+			h('button', { type: 'button', className: 'dsh-tavern-story-row-action dsh-tavern-story-row-edit', disabled: Boolean(busy),
 				'aria-label': editLabel, onClick: edit }, h(DshUi.IconEditOutlineRegular, null)))
 		const forkButton = row.role === 'assistant' ? h(DshUi.Tooltip, { label: busy === 'fork' ? '正在分叉…' : '从这一轮分叉', side: 'bottom' },
 			h('button', { type: 'button', className: 'dsh-tavern-story-row-action dsh-tavern-story-row-fork', disabled: Boolean(busy) || props.running === true,

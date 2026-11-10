@@ -376,7 +376,6 @@
 				const selectAssistantId = React.useCallback(function (snapshot) { return tavernAssistantMessageIdForTurn(snapshot, turn); }, [turn]);
 				const assistantMessageId = props.useChat(selectAssistantId);
 				const forkState = useScopedLiveTavernView(props.sessionId, "user-fork:" + String(assistantMessageId || ""), [["mode"], ["forkTurnsByMessageId", String(assistantMessageId || "")]]);
-				const running = props.useSession(function (snapshot) { return snapshot.running === true; });
 				const [forking, setForking] = React.useState(false);
 				const [editBusy, setEditBusy] = React.useState(false);
 				const playView = Boolean(liveState.view && isPlayMode(liveState.view.mode));
@@ -388,7 +387,9 @@
 				const failedTurns = Array.isArray(liveState.view?.failedUserInputTurns) ? liveState.view.failedUserInputTurns : [];
 				const committedEdit = editableTurns.some(value => Number(value) === Number(turn));
 				const failedEdit = failedTurns.some(value => Number(value) === Number(turn));
-				const canEdit = playView && latestUserTurn > 0 && Number(turn) === Number(latestUserTurn) && !running
+				// A running turn no longer hides the editor: opening it only reads, and the
+				// save is held until that turn ends (see body-editor's queued save).
+				const canEdit = playView && latestUserTurn > 0 && Number(turn) === Number(latestUserTurn)
 					&& liveState.view?.canEditBody !== false && (committedEdit || failedEdit);
 				async function fork() {
 					if (forking) return;

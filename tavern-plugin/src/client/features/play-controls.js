@@ -809,19 +809,19 @@
 			const running = props.useSession(function (snapshot) { return snapshot.running === true; });
 			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const live = useLiveTavernView(props.sessionId, "edit:" + String(running) + ":" + String(latestMessageId));
-			const coordination = useTavernCoordination(props.sessionId, String(running));
-			const activity = describeTavernActivity(coordination.view && coordination.view.activity);
 			async function openEditor() {
 				setBusy(true);
 				try {
 					const result = await rpc("getBodyEdit", {}, props.sessionId);
 					setRegenPanel(null); setCandidatePanel(null); setCandidateGuidePanel(null);
-					setBodyEditPanel({ sessionId: props.sessionId, edit: result.edit, texts: result.edit.parts.filter(function (part) { return part.kind === "text"; }).map(function (part) { return part.text; }), busy: false, error: "" });
+					setBodyEditPanel({ sessionId: props.sessionId, edit: result.edit, texts: result.edit.parts.filter(function (part) { return part.kind === "text"; }).map(function (part) { return part.text; }), busy: false, queued: false, error: "" });
 				} catch (error) { tavernErrorHub.report("编辑正文", error); }
 				finally { setBusy(false); }
 			}
 			if (!live.view || !(live.view.canEditBody ?? live.view.canRollback)) return null;
-			return React.createElement("button", { role: "menuitem", disabled: busy || running || activity.busy, onClick: openEditor }, busy ? "读取中…" : "编辑正文");
+			// Reading the reply is side-effect free, so a running turn does not close the
+			// editor: the save itself waits for that turn (bodyEditor's queued save).
+			return React.createElement("button", { role: "menuitem", disabled: busy, onClick: openEditor }, busy ? "读取中…" : "编辑正文");
 		}
 		function BodyEditPanel(props) {
 			const panel = useBodyEditPanel();
@@ -833,7 +833,7 @@
 				function open(event) {
 					const detail = event && event.detail ? event.detail : {};
 					if (!detail.edit || detail.sessionId !== props.sessionId) return;
-					setBodyEditPanel({ sessionId: detail.sessionId, edit: detail.edit, texts: Array.isArray(detail.texts) ? detail.texts : [], busy: false, error: "" });
+					setBodyEditPanel({ sessionId: detail.sessionId, edit: detail.edit, texts: Array.isArray(detail.texts) ? detail.texts : [], busy: false, queued: false, error: "" });
 				}
 				window.addEventListener("dsh-tavern-open-body-edit", open);
 				return function () { window.removeEventListener("dsh-tavern-open-body-edit", open); };
@@ -870,6 +870,14 @@
 							edit = refreshed.edit;
 						}
 					}
+					if (result && result.queued === true) {
+						// The round this row belongs to is still running: the save is held and
+						// lands when it ends, so nothing is written and the panel says so.
+						setBodyEditPanel(Object.assign({}, panel, { busy: false, queued: true, error: "" }));
+						liveTavernView.invalidate(props.sessionId);
+						tavernCoordination.invalidate(props.sessionId);
+						return;
+					}
 					if (result && typeof result.composerText === "string") {
 						// A failed turn was withdrawn; hand the edited text back to the composer.
 						if (result.view) liveTavernView.setView(props.sessionId, result.view);
@@ -893,9 +901,11 @@
 			let textIndex = 0;
 			return h("div", { className: "dsh-tavern-question fork-body-edit", role: "region", "aria-label": label },
 				h("div", { className: "dsh-tavern-question-head" }, h("span", null, label)),
-				panel.edit.role === "user" ? h("div", { className: "dsh-tavern-question-sub" }, failed
-					? "这是失败轮的输入。保存只改文字，不会自动重试；要按新文字重发，先点「撤回这条输入」把它放回输入框，再发送。"
-					: "只改这一条输入，不会自动重写已生成的回复；需要新回复时保存后再点「重新生成正文」。") : null,
+				panel.queued === true ? h("div", { className: "dsh-tavern-question-sub", role: "status" }, "已排队：这一轮生成结束后自动应用，不用再点保存。")
+					: panel.edit.role === "user" ? h("div", { className: "dsh-tavern-question-sub" }, failed
+						? "这是失败轮的输入。保存只改文字，不会自动重试；要按新文字重发，先点「撤回这条输入」把它放回输入框，再发送。"
+						: running ? "正在生成：保存会等这一轮结束后生效；需要新回复时再点「重新生成正文」。"
+							: "只改这一条输入，不会自动重写已生成的回复；需要新回复时保存后再点「重新生成正文」。") : null,
 				panel.error ? h("div", { className: "dsh-tavern-choice-error", role: "alert" }, panel.error) : null,
 				h("div", { style: { maxHeight: "50vh", overflowY: "auto" } }, panel.edit.parts.map(function (part, index) {
 					if (part.kind === "html") return h("div", { key: index, className: "dsh-tavern-question-sub" }, "HTML 内容保持原样");
@@ -903,11 +913,11 @@
 					const current = textIndex++;
 					return h("textarea", { key: index, className: "dsh-tavern-regen-input", "aria-label": "正文文本 " + (current + 1), rows: Math.min(60, Math.max(3, panel.texts[current].split("\n").length)), value: panel.texts[current], disabled: panel.busy, onChange: function (event) {
 						const texts = panel.texts.slice(); texts[current] = event.target.value;
-						setBodyEditPanel(Object.assign({}, panel, { texts: texts }));
+						setBodyEditPanel(Object.assign({}, panel, { texts: texts, queued: false }));
 					} });
 				})),
 				h("div", { className: "dsh-tavern-question-foot" },
-					h("button", { className: "dsh-tavern-question-primary", disabled: panel.busy || running, onClick: save }, panel.busy ? "保存中…" : "保存"),
+					h("button", { className: "dsh-tavern-question-primary", disabled: panel.busy, onClick: save }, panel.queued === true ? "重新排队" : panel.busy ? "保存中…" : "保存"),
 					h("button", { className: "dsh-tavern-question-free", disabled: panel.busy, onClick: function () { setBodyEditPanel(null); } }, "取消")));
 		}
 

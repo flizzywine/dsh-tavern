@@ -3618,6 +3618,11 @@ export async function apply(ctx) {
     },
     present: presentStory,
     sessionPatch,
+    // A queued edit lands between turns: wake the page so the row shows its new text.
+    queuedEditApplied: sessionId => {
+      notifyPluginTimeline(sessionId, 'edit', { settled: true })
+      sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'body-edit-queued:' + Date.now() })
+    },
   })
 
   const messageDeletion = createMessageDeletion({
@@ -4166,6 +4171,7 @@ export async function apply(ctx) {
   registerTurnLifecycleHooks({
     pluginBodyGeneration,
     turnStarted: (sessionId, turn) => storyEvents.emit('turn-started', { sessionId, turn }),
+    flushQueuedBodyEdits: sessionId => bodyEditor.flushQueued(sessionId),
     autoChoices,
     backgroundAgentRunner,
     hookChatForSession,

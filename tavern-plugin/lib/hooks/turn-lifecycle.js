@@ -35,6 +35,7 @@ export function registerTurnLifecycleHooks({
   ensureNativeSystemPrefix,
   foregroundHandoff,
   foregroundStrategies,
+  flushQueuedBodyEdits,
   nativeWorldBookTemplateContext,
   persistClearedBodyEdits,
   pluginPromptSections,
@@ -121,6 +122,9 @@ export function registerTurnLifecycleHooks({
     if (backgroundAgentRunner.owns(session.id)) return
     const reason = event.data && event.data.reason ? event.data.reason.kind : ''
     foregroundHandoff.end({ sessionId: session.id, turn: event.data && event.data.turn, reason, edit })
+    // Edits submitted while this turn ran are replayed now that the round cannot
+    // move any more; a target that changed in between drops its text instead.
+    if (typeof flushQueuedBodyEdits === 'function') void flushQueuedBodyEdits(session.id)
     const reply = assistantResultForTurn(session, event.data && event.data.turn)
     void autoChoices.completed({ sessionId: session.id, turn: event.data && event.data.turn, messageId: String(reply?.event?.data?.message?.id || ''), reason })
     // A turn whose record went missing (#196) is adopted before the player's next

@@ -161,13 +161,21 @@ export function createPlayHandlers(deps) {
     async getBodyEdit(args) {
       // Editing or regenerating the reply drops its waiting automatic candidates.
       autoChoices.cancel(args && args.sessionId)
+      // A queued edit the turn's end could not replay yet (settlement still running)
+      // lands here, so opening the editor never shows text that is about to change.
+      if (!(await bodyEditor.isBusy(args && args.sessionId))) await bodyEditor.flushQueued(args && args.sessionId)
       return { edit: args?.role === 'user' ? await bodyEditor.readUser(args && args.sessionId, args) : await bodyEditor.read(args && args.sessionId, args) }
     },
     async saveBodyEdit(args) {
       autoChoices.cancel(args && args.sessionId)
-      if (!Number.isSafeInteger(args?.messageIndex)) await reconcileStory(args && args.sessionId)
+      // Reconciliation adopts unfinished rounds: while a turn owns the session it
+      // must wait, exactly like the save itself (which is queued behind it).
+      if (!Number.isSafeInteger(args?.messageIndex) && !(await bodyEditor.isBusy(args && args.sessionId))) await reconcileStory(args && args.sessionId)
       if (args?.role === 'user') {
         const saved = await bodyEditor.saveUser(args && args.sessionId, args)
+        // The turn this input belongs to is still running: the edit is held and
+        // applied when it ends, so the page keeps the old text for now.
+        if (saved && saved.queued === true) return { view: null, queued: true, queuedCount: saved.queuedCount }
         if (saved && saved.detached === true) {
           // The failed turn is not in the model surface; withdraw it and give
           // the edited text back to the composer instead of rewriting history.
@@ -179,6 +187,7 @@ export function createPlayHandlers(deps) {
         return { view: saved }
       }
       const view = await bodyEditor.save(args && args.sessionId, args)
+      if (view && view.queued === true) return { view: null, queued: true, queuedCount: view.queuedCount }
       notifyPluginTimeline(args && args.sessionId, 'edit', { settled: true })
       return { view }
     },
