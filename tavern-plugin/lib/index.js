@@ -2909,7 +2909,6 @@ export async function apply(ctx) {
       const chat = await taskStateReader.forSession(sessionId, ['mvu.enabled', 'mvu.owner', 'mvu.openingInitialization.status'])
       const activity = chat ? backgroundTasks.activity(chat) : null
       const openingPending = officialMvuOpeningPending(chat)
-      if (openingPending && !pageInFront(sessionId)) serverScripts?.demand(sessionId)
       return { generating: agentRegistry.get(str(sessionId))?.phase?.kind === 'running',
         settling: openingPending || !!activity && (activity.busy === true || activity.phase === 'pending') }
     },
