@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
+import { beginRelaxedSync, endRelaxedSync } from './conversation-page-store.js'
 import { cardNameFromText, inspectSillyTavernChatItem, isSillyTavernChatItem } from './transfer-chats.js'
 
 function str(value) {
@@ -571,14 +572,22 @@ export function createTransferImport(deps) {
               result.duplicates = (result.duplicates || []).concat(item.title)
               continue
             }
-            const imported = await chats.importOne({
-              title: item.title,
-              entry: item.entry,
-              content,
-              sha256: saveHash,
-              latestOnly,
-              cardPathsByCharacter
-            })
+            // 一条记录要盖十来个目录，逐目录 fsync 在手机上是每条几十到上百毫秒。
+            // 这一条写完再一次性落盘：可见之前目录项已经是耐久的，中途崩只会留下这一条。
+            let imported
+            beginRelaxedSync()
+            try {
+              imported = await chats.importOne({
+                title: item.title,
+                entry: item.entry,
+                content,
+                sha256: saveHash,
+                latestOnly,
+                cardPathsByCharacter
+              })
+            } finally {
+              await endRelaxedSync()
+            }
             contents.get('chats').add(saveHash)
             if (imported && imported.digest) contents.get('chats').add(imported.digest)
             else if (stInspected && stInspected.digest) contents.get('chats').add(stInspected.digest)

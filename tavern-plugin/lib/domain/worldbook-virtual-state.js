@@ -4,7 +4,21 @@ import { isMvuUpdateEntry } from './worldbook-recall.js'
 import { promptOrder } from './worldbook-activation.js'
 
 export const virtualHash = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex')
-export const virtualEntryVersion = entry => virtualHash(entry)
+// A view entry is immutable for as long as its book snapshot lives: readers copy it, nobody
+// edits it in place. One request chain (a history import, a retry, a candidate round) hashes the
+// same entries again and again, and a big book is thousands of kilobytes per pass, so remember
+// the digest by identity. A re-read book yields new objects, so an edited book always re-hashes.
+const entryVersions = new WeakMap()
+export const virtualEntryVersion = entry => {
+  if (entry === null || typeof entry !== 'object') return virtualHash(entry)
+  const known = entryVersions.get(entry)
+  if (known !== undefined) return known
+  const version = virtualHash(entry)
+  entryVersions.set(entry, version)
+  return version
+}
+/** The same digest `virtualHash(entries)` gives, computed from the per-entry versions. */
+export const virtualEntriesVersion = entries => virtualHash(entries.map(virtualEntryVersion))
 export const virtualScope = chat => JSON.stringify([chat.sessionId || chat.id || '', chat.cardPath || ''])
 function dependencyValues(classification, chat, card, globals) {
   return classification.dependencies.map(({ scope, key }) => {

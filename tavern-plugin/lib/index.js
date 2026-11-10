@@ -2222,7 +2222,9 @@ export async function apply(ctx) {
       const workspace = await ctx.get('workspaceRegistry')?.resolveByPath(cwd)
       if (workspace) await workspace.attachSession(sessionId)
       const imported = await chatHistoryImporter.import({ operationId: randomUUID(), sessionId, cardPath, text: args.text,
-        fileName: str(args.fileName) || 'import.jsonl', textOnly: args.textOnly === true, ...(args.userName ? { userName: str(args.userName) } : {}) })
+        fileName: str(args.fileName) || 'import.jsonl', textOnly: args.textOnly === true, ...(args.userName ? { userName: str(args.userName) } : {}),
+        // 迁移包导入把内容指纹交给 plan，省掉导入完成后再整档读写的补写；没有它时行为不变。
+        ...(args.saveHash ? { saveHash: str(args.saveHash), saveFormat: str(args.saveFormat) } : {}) })
       published = true
       const chat = await chatForSession(sessionId).catch(() => null)
       return { ...imported, ...(chat?.id ? { chatId: str(chat.id) } : {}), ...(chat?.title ? { title: str(chat.title) } : {}) }

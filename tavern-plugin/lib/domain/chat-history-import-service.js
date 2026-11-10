@@ -101,7 +101,7 @@ export function createChatHistoryImportService({ initialization, cards, worldBoo
           if (projectForegroundWorldbook) {
             let projected
             try {
-              projected = await projectForegroundWorldbook({ chat, card, userText, userTextInHistory: true, worldBook, purpose: 'history-import', requestKey: `import:${input.operationId}:${turn}` })
+              projected = await projectForegroundWorldbook({ chat, card, userText, userTextInHistory: true, worldBook, purpose: 'history-import', requestKey: `import:${input.operationId}:${turn}`, preparationKey: `import:${input.operationId}` })
               assertImportedWorldbook(projected)
             } catch (error) {
               throw new Error(`导入第 ${turn} 轮世界书上下文失败：${error.message || error}`, { cause: error })
@@ -133,6 +133,10 @@ export function createChatHistoryImportService({ initialization, cards, worldBoo
         plan.chat.importHistory.rescue = input.rescue
         plan.chat.importHistory.warnings.push(rescueHistoryNotice(input.rescue))
       }
+      // 导入来源的内容指纹跟着这份 plan 一起落盘：迁移包导入不必再为一枚哈希把整档
+      // 读一遍、写一遍（大档在手机上是几百毫秒到好几秒）。
+      if (input.saveHash) plan.chat.importedSave = { ...(plan.chat.importedSave || {}),
+        sourceHash: String(input.saveHash), ...(input.saveFormat ? { format: String(input.saveFormat) } : {}) }
       const checkpointInputs = plan.chat.timeline.checkpoints.map(c => ({ id: c.id, messageCount: c.importMessageCount, before: c.importBefore }))
       journal = { version: 1, identity, sessionId: input.sessionId, status: 'writing', plan, checkpointInputs }
       await store.writeJson(path, journal)
@@ -140,21 +144,25 @@ export function createChatHistoryImportService({ initialization, cards, worldBoo
     if (journal.plan) {
       // Materialize ordinary Chat revisions for the native checkpoint mechanism.
       // Intermediate records are deliberately absent from the conversation registry.
+      //
+      // 这一圈里每一步都会写整份前缀，journal 又带着整个 plan（含全部消息）：每轮都回写
+      // journal 就是「轮数 × 整档大小」的落盘，一段几十轮的迁移在手机上光这一步就要好几秒。
+      // 修订号在内存里传递，journal 只在整圈跑完后写一次；崩在中途只会让下次重做存档点。
+      let revision = Number(journal.plan.chat._storageRevision) || 0
       for (const checkpoint of journal.plan.chat.timeline.checkpoints) {
         if (checkpoint.beforeRevision !== undefined && await chats.readRevision(journal.plan.chat.id, checkpoint.beforeRevision)) continue
         const savedInput = journal.checkpointInputs.find(c => c.id === checkpoint.id)
-        const latest = await chats.read(journal.plan.chat.id)
         const before = { ...structuredClone(journal.plan.chat), ...structuredClone(savedInput.before),
           messages: structuredClone(journal.plan.chat.messages.slice(0, savedInput.messageCount)),
-          _storageRevision: latest?._storageRevision || 0 }
+          _storageRevision: revision }
         before.timeline.checkpoints = []
         delete before.participants
         const saved = await chats.write(before, { source: 'chat-import.checkpoint' })
         checkpoint.beforeRevision = saved._storageRevision
         delete checkpoint.importBefore
         delete checkpoint.importMessageCount
-        journal.plan.chat._storageRevision = saved._storageRevision
-        await store.writeJson(path, journal)
+        revision = Number(saved._storageRevision) || revision
+        journal.plan.chat._storageRevision = revision
       }
       journal.status = 'prepared'
       await store.writeJson(path, journal)
@@ -163,7 +171,8 @@ export function createChatHistoryImportService({ initialization, cards, worldBoo
     await native.ensurePrefix(target.session, journal.plan.chat.cardContextSnapshot)
     await appendImportedEvents(target.session, journal.plan, native.flush)
     if (target.agent?.phase?.kind === 'idle') target.agent.phase.lastTurn = Math.max(target.agent.phase.lastTurn || 0, journal.plan.lastTurn)
-    journal.plan.chat._storageRevision = (await chats.read(journal.plan.chat.id))?._storageRevision || 0
+    // 续跑（存档点早就写完）才会缺这个数字；刚跑完这一圈时它已经在上面跟到了最后一份修订。
+    if (!Number.isSafeInteger(journal.plan.chat._storageRevision)) journal.plan.chat._storageRevision = (await chats.read(journal.plan.chat.id))?._storageRevision || 0
     await chats.publish(journal.plan.chat)
     await store.writeJson(path, { version: 1, identity, sessionId: input.sessionId, status: 'ready' })
     return { sessionId: input.sessionId, mode: journal.plan.chat.mode || 'story' }

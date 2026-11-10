@@ -220,6 +220,8 @@ export function createTransferChats(deps) {
         throw new Error('导入「' + title + '」失败：缺少角色「' + (inspected.characterName || '未知角色') + '」对应的人物卡')
       }
       const fileName = path.posix.basename(str(args && args.entry)) || (title + '.jsonl')
+      // 内容指纹随 plan 一起写进新对话：导入服务已经要落盘整档，不必再多读写一遍。
+      const saveHash = str(args && args.sha256)
       let imported
       try {
         imported = await importChatHistory({
@@ -227,7 +229,8 @@ export function createTransferChats(deps) {
           text: inspected.text,
           fileName,
           userName: inspected.userName,
-          textOnly: Boolean(args && args.textOnly === true)
+          textOnly: Boolean(args && args.textOnly === true),
+          ...(saveHash ? { saveHash, saveFormat: 'sillytavern-jsonl' } : {})
         })
       } catch (error) {
         const msg = messageOf(error)
@@ -238,7 +241,8 @@ export function createTransferChats(deps) {
               text: inspected.text,
               fileName,
               userName: inspected.userName,
-              textOnly: true
+              textOnly: true,
+              ...(saveHash ? { saveHash, saveFormat: 'sillytavern-jsonl' } : {})
             })
           } catch (retryError) {
             throw new Error('导入「' + title + '」失败：' + messageOf(retryError))
@@ -246,18 +250,6 @@ export function createTransferChats(deps) {
         } else {
           throw new Error('导入「' + title + '」失败：' + msg)
         }
-      }
-      if (updateChat && imported && imported.chatId && str(args && args.sha256)) {
-        try {
-          await updateChat(imported.chatId, function (current) {
-            return Object.assign({}, current, {
-              importedSave: Object.assign({}, current && current.importedSave, {
-                sourceHash: str(args.sha256),
-                format: 'sillytavern-jsonl'
-              })
-            })
-          }, { source: 'transfer.import' })
-        } catch { /* the chat is already imported; the hash only helps a later duplicate check */ }
       }
       return {
         chatId: str(imported && imported.chatId),

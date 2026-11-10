@@ -1,6 +1,6 @@
 import { worldbookTitleHints } from './worldbook-title-hints.js'
 import { classifyWorldbookEntry, hasWorldbookPreprocessingSyntax, isWorldbookRuntimeEntry } from './worldbook-entry-classification.js'
-import { currentVirtualState, virtualEntryVersion, virtualDependencyHash, virtualHash, virtualScope, virtualDependencyHasDynamicValue } from './worldbook-virtual-state.js'
+import { currentVirtualState, virtualEntriesVersion, virtualEntryVersion, virtualDependencyHash, virtualHash, virtualScope, virtualDependencyHasDynamicValue } from './worldbook-virtual-state.js'
 import { promptOrder } from './worldbook-activation.js'
 import { worldbookRandomState, hasWorldbookRandom, entryRandom } from './worldbook-random.js'
 import { fingerprint, isMvuUpdateEntry } from './worldbook-recall.js'
@@ -47,7 +47,9 @@ function unreadCharacterDesigns(worldBook, chat) {
 /** One request uses one bound-book snapshot for both selection and rendering. */
 export function createForegroundWorldbook({ bound, runtime, globalVariables, scanText = () => '' }) {
   const requests = new Map()
-  const project = async function project({ requestKey, chat, card, userText, userTextInHistory = false, worldBook: snapshot, purpose = 'generation', signal, selectedRefs = [] }) {
+  // `preparationKey` 只影响上游整书预处理的复用：历史迁移一轮一个 requestKey，
+  // 但一本书在同一段迁移里并不变，预处理没必要每轮重跑一遍。
+  const project = async function project({ requestKey, preparationKey, chat, card, userText, userTextInHistory = false, worldBook: snapshot, purpose = 'generation', signal, selectedRefs = [] }) {
     try {
       // No bound book is an empty projection, including its request preparation cache.
       let worldBook = snapshot || await bound(chat.cardPath, card, chat, {purpose,userText}) || { view: { entries: [] } }
@@ -56,17 +58,18 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
       const templateRuntime = await runtime(chat.sessionId), globals = await globalVariables()
       const sourceEntries = worldBook?.view?.entries || []
       const executionKey = String(requestKey ?? `${turn}:${purpose}:${virtualHash(userText || '')}`)
+      const preparationScope = String(preparationKey ?? executionKey)
       const scope = virtualScope(chat)
-      const version = virtualHash([executionKey, sourceEntries, selectedRefs])
+      const version = virtualHash([executionKey, virtualEntriesVersion(sourceEntries), selectedRefs])
       const previous = requests.get(scope)
       if (previous?.version === version) return await previous.result
       // Upstream preprocessing is an effectful whole-book batch without a
       // per-entry guard. Freeze it for one explicit execution request; ordinary
       // body edits may refresh, but new/changed decorators wait for next round.
-      const persistedPreparation = chat.worldBookVirtualState?.scope === scope && chat.worldBookVirtualState.preprocessing?.requestKey === executionKey
+      const persistedPreparation = chat.worldBookVirtualState?.scope === scope && chat.worldBookVirtualState.preprocessing?.requestKey === preparationScope
         ? chat.worldBookVirtualState.preprocessing : null
-      const reusingPreparation = previous?.requestKey === executionKey || Boolean(persistedPreparation)
-      const preparation = previous?.requestKey === executionKey ? previous.preparation
+      const reusingPreparation = previous?.preparationKey === preparationScope || Boolean(persistedPreparation)
+      const preparation = previous?.preparationKey === preparationScope ? previous.preparation
         : persistedPreparation ? Promise.resolve({ sources: persistedPreparation.sources, snapshot: persistedPreparation.prepared, prepared: restorePreparation(persistedPreparation.prepared, worldBook) })
         : prepareTemplateWorldbook(worldBook, templateRuntime, chat, globals).then(prepared => ({ prepared, snapshot: preparationSnapshot(prepared, sourceEntries),
           sources: sourceEntries.map(entry => ({ ref: entry.ref, version: virtualEntryVersion(entry), decorated: hasWorldbookPreprocessingSyntax(entry), enabled: entry.enabled })) }))
@@ -96,13 +99,13 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
         const executionChat = previousState ? { ...chat, worldBookVirtualState: previousState } : chat
         const projected = await projectMandatoryWorldbook({ worldBook, sourceEntries, chat: executionChat, card, templateRuntime, globals, preparedActivations, randomState, turn, requestKey: executionKey, userText, userTextInHistory, scanText: scanText(chat) })
         if (initial.sources.some(entry => entry.decorated)) projected.virtualState.preprocessing = {
-          requestKey: executionKey, sources: initial.sources,
+          requestKey: preparationScope, sources: initial.sources,
           prepared: initial.snapshot
         }
         projected.diagnostics.push(...preparationDiagnostics)
         return projected
       })()
-      requests.set(scope, { version, requestKey: executionKey, preparation, result })
+      requests.set(scope, { version, requestKey: executionKey, preparationKey: preparationScope, preparation, result })
       // A bounded foreground-request cache. No background scope is admitted.
       if (requests.size > 32) requests.delete(requests.keys().next().value)
       try { return await result } catch (error) { if (requests.get(scope)?.result === result) requests.delete(scope); throw error }
