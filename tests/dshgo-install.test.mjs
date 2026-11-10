@@ -6,7 +6,7 @@ import { join } from 'node:path'
 
 import {
   LOCAL_PACKAGES, NPM_PACKAGES, PNPM_ARGS, REPO_ROOT,
-  mergeProfileManifest, planInstall, workspaceYaml,
+  installBundles, mergeProfileManifest, planInstall, workspaceYaml,
 } from '../tavern-plugin/packages/dsh-tavern-dshgo/scripts/install-on-dshgo.mjs'
 import { hostPackages } from '../tavern-plugin/packages/dsh-tavern-dshgo/lib/hosts.js'
 import { TAVERN_BUNDLES } from '../tavern-plugin/packages/dsh-tavern-dshgo/lib/status.js'
@@ -44,10 +44,14 @@ test('hostPackages：扫目录，符号链接也算；目录不存在时有兜�
 
 test('mergeProfileManifest：bundle 保序补齐，官方与用户自己的不动，重复合并不增项', () => {
   const base = { dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dsh-user-thing', 'dsh-web-mobile'] } } }
-  const once = mergeProfileManifest(base)
-  assert.deepEqual(once.dsh.profile.bundles, ['@deepseek-ai/dsh-base', 'dsh-user-thing', 'dsh-web-mobile', ...TAVERN_BUNDLES.filter(name => name !== 'dsh-web-mobile')])
-  assert.deepEqual(mergeProfileManifest(once).dsh.profile.bundles, once.dsh.profile.bundles)
-  assert.deepEqual(base.dsh.profile.bundles.length, 3, '不改入参')
+  const merged = mergeProfileManifest(base, { appRoot: '/opt/dsh', srcRoot: '/src/x' })
+  // 官方两个与用户自己的顺序不动，酒馆的按 installBundles() 顺序补在后面，重复的不增项。
+  assert.deepEqual(merged.dsh.profile.bundles, ['@deepseek-ai/dsh-base', 'dsh-user-thing', 'dsh-web-mobile', ...installBundles().filter(name => name !== 'dsh-web-mobile')])
+  // 0.2.2 上会让引擎 fatal 的两个可选包默认不装。
+  assert.ok(!merged.dsh.profile.bundles.includes('dsh-tavern-stage'))
+  assert.ok(!merged.dsh.profile.bundles.includes('dsh-asset-library'))
+  const again = mergeProfileManifest(merged, { appRoot: '/opt/dsh', srcRoot: '/src/x' })
+  assert.deepEqual(again.dsh.profile.bundles, merged.dsh.profile.bundles)
 })
 
 test('mergeProfileManifest：用户自己装的依赖条目被保留', () => {

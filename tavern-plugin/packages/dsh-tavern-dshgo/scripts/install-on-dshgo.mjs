@@ -12,7 +12,7 @@ import { dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-import { TAVERN_BUNDLES } from '../lib/status.js'
+import { OPTIONAL_BUNDLES, TAVERN_BUNDLES } from '../lib/status.js'
 import { mergeBundles } from '../lib/bundles.js'
 import { hostPackages } from '../lib/hosts.js'
 
@@ -93,7 +93,7 @@ export function workspaceYaml(patches, appRoot = '/opt/dsh', hosts = hostPackage
  * 把酒馆的依赖与 bundle 合并进 profile 的 package.json。
  * 已有条目一律保留顺序，只补缺的。
  */
-export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot = REPO_ROOT } = {}) {
+export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot = REPO_ROOT, bundles = installBundles() } = {}) {
   const next = structuredClone(manifest)
   if (next.dependencies === undefined || next.dependencies === null) next.dependencies = {}
   for (const [name, relative] of Object.entries(LOCAL_PACKAGES)) {
@@ -110,19 +110,24 @@ export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot =
   if (next.dsh.profile === undefined || next.dsh.profile === null) next.dsh.profile = {}
   next.dsh.profile.bundles = mergeBundles(
     Array.isArray(next.dsh.profile.bundles) ? next.dsh.profile.bundles : [],
-    TAVERN_BUNDLES,
+    bundles,
   )
   return next
 }
 
+/** 默认装核心六个；stage 与 asset-library 在 0.2.2 上会让引擎 fatal，要用 --with-optional 才装。 */
+export function installBundles({ withOptional = false } = {}) {
+  return TAVERN_BUNDLES.filter(name => withOptional || !OPTIONAL_BUNDLES.includes(name))
+}
+
 /** 装机前先把要做的事列出来，dry-run 与真跑共用这一份。 */
-export function planInstall({ srcRoot = REPO_ROOT, dshHome = join('/root', '.dsh'), appRoot = '/opt/dsh' } = {}) {
+export function planInstall({ srcRoot = REPO_ROOT, dshHome = join('/root', '.dsh'), appRoot = '/opt/dsh', withOptional = false } = {}) {
   const profile = join(dshHome, 'profiles', 'web')
   const steps = []
   for (const file of PATCH_FILES) {
     steps.push({ kind: 'copy-file', name: file, from: join(srcRoot, 'patches', file), to: join(profile, 'patches', file) })
   }
-  steps.push({ kind: 'manifest', name: 'package.json', to: join(profile, 'package.json'), appRoot, srcRoot })
+  steps.push({ kind: 'manifest', name: 'package.json', to: join(profile, 'package.json'), appRoot, srcRoot, bundles: installBundles({ withOptional }) })
   steps.push({ kind: 'workspace', name: 'pnpm-workspace.yaml', to: join(profile, 'pnpm-workspace.yaml'), patches: PATCH_FILES, appRoot })
   steps.push({ kind: 'pnpm', name: 'pnpm install', cwd: profile, args: PNPM_ARGS })
   steps.push({ kind: 'verify', name: 'verify', profile, appRoot })
@@ -163,7 +168,7 @@ export function applyInstall(plan, { dry = false, log = console.log } = {}) {
       if (dry) continue
       const manifest = JSON.parse(readFileSync(step.to, 'utf8'))
       backup(step.to)
-      const merged = mergeProfileManifest(manifest, { appRoot: step.appRoot, srcRoot: step.srcRoot })
+      const merged = mergeProfileManifest(manifest, { appRoot: step.appRoot, srcRoot: step.srcRoot, bundles: step.bundles })
       const temporary = `${step.to}.tavern-tmp`
       writeFileSync(temporary, `${JSON.stringify(merged, null, 2)}\n`)
       renameSync(temporary, step.to)
@@ -177,10 +182,10 @@ export function applyInstall(plan, { dry = false, log = console.log } = {}) {
       if (dry) continue
       run('pnpm', step.args, step.cwd)
     } else if (step.kind === 'verify') {
-      log('校验 8 个 bundle 与宿主的 @deepseek-ai 包能否解析')
+      log('校验酒馆的 bundle 与宿主的 @deepseek-ai 包能否解析')
       if (dry) continue
       const missing = []
-      for (const name of TAVERN_BUNDLES) {
+      for (const name of installBundles()) {
         if (!existsSync(join(step.profile, 'node_modules', name, 'package.json'))) missing.push(name)
       }
       for (const name of hostPackages(step.appRoot)) {
@@ -198,10 +203,12 @@ function parseArgs(argv) {
     dshHome: process.env.DSH_HOME ?? '/root/.dsh',
     appRoot: process.env.DSH_APP_ROOT ?? '/opt/dsh',
     srcRoot: REPO_ROOT,
+    withOptional: false,
   }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--dry-run') options.dry = true
+    else if (arg === '--with-optional') options.withOptional = true
     else if (arg === '--dsh-home') options.dshHome = argv[++index]
     else if (arg === '--app-root') options.appRoot = argv[++index]
     else if (arg === '--src') options.srcRoot = resolve(argv[++index])

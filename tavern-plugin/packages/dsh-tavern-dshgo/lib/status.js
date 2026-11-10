@@ -4,6 +4,12 @@ import { join } from 'node:path'
 
 // 酒馆在 dsh-go 的 web profile 里是哪几个 bundle。
 // 顺序与根 package.json 的 dsh.profile.bundles 一致：dsh-web-mobile 在 dsh-better-sidebar 之前。
+// 舞台（mod 系统）与素材库在 dsh 0.2.2 上还起不来：stage 会调 installations.readReleases
+// 抛 TypeError，被 dsh 判成 fatal load failure 后整台引擎停摆；asset-library 等
+// assetPackWorkbench，摘掉 stage 之后它就一直 pending。两个都是可选的游玩增强，
+// 默认装核心六个，酒馆本体（角色卡/对话/皮肤/远程/TTS）都在核心六个里。
+export const OPTIONAL_BUNDLES = Object.freeze(['dsh-asset-library', 'dsh-tavern-stage'])
+
 export const TAVERN_BUNDLES = Object.freeze([
   'dsh-web-mobile',
   'dsh-better-sidebar',
@@ -51,6 +57,8 @@ export function readStatus({ home, read = readFileSync }) {
     : {}
   const installed = TAVERN_BUNDLES.filter(name => bundles.includes(name))
   const missing = TAVERN_BUNDLES.filter(name => !bundles.includes(name))
+  const required = TAVERN_BUNDLES.filter(name => !OPTIONAL_BUNDLES.includes(name))
+  const missingRequired = required.filter(name => !bundles.includes(name))
   const modules = TAVERN_BUNDLES.filter(name => readJson(read, join(dir, 'node_modules', name, 'package.json')).value !== null)
   const tavern = readJson(read, join(dir, 'node_modules', 'dsh-tavern-plugin', 'package.json'))
   const phase = manifest.error
