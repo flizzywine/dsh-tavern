@@ -369,6 +369,42 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     await agent.whenIdle()
   }
 
+  async function stopRollbackBackground(chat, agent, warning = '') {
+    if (typeof cancelSettlement === 'function') {
+      try { await cancelSettlement(chat.id, { wait: false }) }
+      catch (error) { warning = '正文已回退，后台停止请求失败：' + str(error?.message || error) }
+    }
+    for (const participant of Object.values(storyTimeline.inspect({ chat }).participants || {})) {
+      const worker = sessions.get(participant.sessionId)
+      if (worker && worker !== agent && typeof worker.cancel === 'function') {
+        try { worker.cancel({ kind: 'parent' }) } catch { /* Old results are rejected by the new branch. */ }
+      }
+    }
+    return warning
+  }
+
+  function rollbackUndoRecord(chat, session, nodes, turn, beforeRevision) {
+    return { version: 1, id: randomUUID(), ready: false, turn, beforeRevision,
+      foreground: { formatVersion: 4, sessionId: session.id || chat.sessionId, nodes: [...nodes] }, background: [] }
+  }
+
+  function applyRollbackHeader(chat, { undo, hiddenTurn, regeneratedVisibleTurn, rollbackCommitKey }) {
+    chat.rollbackUndo = undo
+    chat.regenInProgress = false
+    delete chat.regenRecovery
+    if (rollbackCommitKey !== '') delete chat.nativeCommits[rollbackCommitKey]
+    chat.tavernHelperLifecycleRevision = Math.max(0, Number(chat.tavernHelperLifecycleRevision) || 0) + 1
+    const suppressed = Array.isArray(chat.suppressedDshTurns) ? [...chat.suppressedDshTurns, hiddenTurn] : [hiddenTurn]
+    if (Number.isSafeInteger(regeneratedVisibleTurn) && regeneratedVisibleTurn > 0) suppressed.push(regeneratedVisibleTurn)
+    chat.suppressedDshTurns = [...new Set(suppressed)].sort((left, right) => left - right)
+  }
+
+  function readyRollbackUndo(undo, chat, session, storageRevision) {
+    return { ...undo, ready: true, branchId: chat.timeline.branchId, revision: chat.timeline.revision,
+      lifecycleRevision: Number(chat.tavernHelperLifecycleRevision || 0), storageRevision,
+      foreground: { ...undo.foreground, afterCount: sessionEvents(session).length } }
+  }
+
   // 回退守卫只认「正文身份 + 分支 + 剧情版本」。正文身份是行位置与文本：content/
   // inputAttachments/swipes/swipeId 是同一行的展示投影与备选稿，投影写回、换剑、
   // 重新生成追加 swipe 都会动它们却没换这一轮正文，算进来只会误判并发。
@@ -1012,8 +1048,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // The native surface must still show the round: nothing is rewritten to make it.
     const rollbackSurface = surfaceShowsLatest(chat, availability, events) ? availability.target : null
     if (rollbackSurface === null) throw new Error(availability.target ? '该轮已不在当前模型上下文中，不能直接回退；历史正文仍可通过 history_recall 检索' : availability.reason)
-    const hiddenTurn = rollbackSurface ? rollbackSurface.turn : latestStoryTurn(chat)
-    const shadowedSeqs = rollbackSurface ? rollbackSurface.shadowedSeqs : []
+    const hiddenTurn = rollbackSurface.turn
     const regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
       ? originalChat.regeneratedDshTurns : {}
     const regeneratedVisibleTurn = Number(regeneratedDshTurns[String(hiddenTurn)])
@@ -1071,23 +1106,13 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       rollbackIntent = { kind: 'turn.rollback', turn: hiddenTurn, legacyBefore: { ...chat, messages: msgs.slice(0, assistantIndex - 1), candidates: null, settleStatus: 'idle', settleError: null }, allowMissingHistory: true }
     }
     await stopRollbackGeneration(chat)
-    if (typeof cancelSettlement === 'function') {
-      try { await cancelSettlement(chat.id, { wait: false }) }
-      catch (error) { rollbackWarning = '正文已回退，后台停止请求失败：' + str(error?.message || error) }
+    rollbackWarning = await stopRollbackBackground(chat, agent, rollbackWarning)
+    const beforeRevision = Number(originalChat._storageRevision || 0)
+    const undo = rollbackUndoRecord(chat, session, nodes, expectedTurn || hiddenTurn, beforeRevision)
+    if (!beforeRevision) {
+      undo.before = structuredClone(originalChat)
+      delete undo.before.rollbackUndo
     }
-    for (const participant of Object.values(storyTimeline.inspect({ chat }).participants || {})) {
-      const worker = sessions.get(participant.sessionId)
-      if (worker && worker !== agent && typeof worker.cancel === 'function') {
-        try { worker.cancel({ kind: 'parent' }) } catch { /* Old results are rejected by the new branch. */ }
-      }
-    }
-    const undo = {
-      version: 1, id: randomUUID(), ready: false, turn: expectedTurn || hiddenTurn,
-      beforeRevision: Number(originalChat._storageRevision || 0),
-      ...(Number(originalChat._storageRevision || 0) ? {} : { before: structuredClone(originalChat) }),
-      foreground: { formatVersion: 4, sessionId: session.id || chat.sessionId, nodes: [...nodes] }, background: []
-    }
-    if (undo.before) delete undo.before.rollbackUndo
     const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
     chat = rolled.chat
     // Player input can be saved before body.begin takes its checkpoint.
@@ -1095,13 +1120,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (chat.messages.length === assistantIndex && isRollbackInputPlaceholder(chat.messages.at(-1), msgs[assistantIndex - 1])) {
       chat.messages.pop()
     }
-    chat.rollbackUndo = undo
-    chat.regenInProgress = false
-    delete chat.regenRecovery
-    if (rollbackCommitKey !== '') delete chat.nativeCommits[rollbackCommitKey]
-    chat.tavernHelperLifecycleRevision = Math.max(0, Number(chat.tavernHelperLifecycleRevision) || 0) + 1
-    chat.suppressedDshTurns = Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : []).concat(
-      [hiddenTurn], Number.isSafeInteger(regeneratedVisibleTurn) && regeneratedVisibleTurn > 0 ? [regeneratedVisibleTurn] : []))).sort(function (left, right) { return left - right })
+    applyRollbackHeader(chat, { undo, hiddenTurn, regeneratedVisibleTurn, rollbackCommitKey })
     chat.regeneratedDshTurns = chat.regeneratedDshTurns && typeof chat.regeneratedDshTurns === 'object' && !Array.isArray(chat.regeneratedDshTurns)
       ? structuredClone(chat.regeneratedDshTurns) : {}
     delete chat.regeneratedDshTurns[String(hiddenTurn)]
@@ -1116,7 +1135,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       assertRollbackSnapshot(current, originalChat)
       return chat
     }, { source: 'rollback' })
-    return await finishRollback({ chat, card, agent, session, rollbackSurface, shadowedSeqs, undo, rollbackWarning, hiddenTurn, removedUserText, removedAssistantText,
+    return await finishRollback({ chat, card, agent, session, rollbackSurface, undo, rollbackWarning, removedUserText, removedAssistantText,
       messageCount: (chat.messages || []).length, dispatchChat: chat,
       abort: () => updateChat(chat.id, current => {
         // 判据：正文 + 分支 + 剧情版本严格相等（存储计数与后台自有字段不参与）。
@@ -1125,10 +1144,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       }, { source: 'rollback.abort' }),
       saveUndoPoint: () => updateChat(chat.id, current => {
         if (current.timeline?.branchId !== chat.timeline?.branchId || current.timeline?.revision !== chat.timeline?.revision) return current
-        current.rollbackUndo = { ...undo, ready: true, branchId: current.timeline.branchId, revision: current.timeline.revision,
-          lifecycleRevision: Number(current.tavernHelperLifecycleRevision || 0),
-          storageRevision: Number(current._storageRevision || 0) + 1,
-          foreground: { ...undo.foreground, afterCount: sessionEvents(session).length } }
+        current.rollbackUndo = readyRollbackUndo(undo, current, session, Number(current._storageRevision || 0) + 1)
         return current
       }, { source: 'rollback.undo-point' }) })
   }
@@ -1192,29 +1208,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const restoredCount = checkInput && isRollbackInputPlaceholder(restoredRows.chat.messages.at(-1), user) ? checkpointCount - 1 : checkpointCount
     const { messages: _checkpointRows, ...checkpointHeader } = checkpointHead.chat
     const card = await readChatCard(chat)
-    let rollbackWarning = ''
-    if (typeof cancelSettlement === 'function') {
-      try { await cancelSettlement(chat.id, { wait: false }) }
-      catch (error) { rollbackWarning = '正文已回退，后台停止请求失败：' + str(error?.message || error) }
-    }
-    for (const participant of Object.values(storyTimeline.inspect({ chat: header }).participants || {})) {
-      const worker = sessions.get(participant.sessionId)
-      if (worker && worker !== agent && typeof worker.cancel === 'function') {
-        try { worker.cancel({ kind: 'parent' }) } catch { /* Old results are rejected by the new branch. */ }
-      }
-    }
-    const undo = {
-      version: 1, id: randomUUID(), ready: false, turn: expectedTurn || hiddenTurn, beforeRevision: revision,
-      foreground: { formatVersion: 4, sessionId: session.id || chat.sessionId, nodes: [...nodes] }, background: []
-    }
+    const rollbackWarning = await stopRollbackBackground(header, agent)
+    const undo = rollbackUndoRecord(chat, session, nodes, expectedTurn || hiddenTurn, revision)
     const rolled = storyTimeline.apply({ chat: { ...header, messages: [] }, intent: { kind: 'turn.rollback', turn: hiddenTurn, beforeChat: { ...checkpointHeader, messages: [] } } }).chat
-    rolled.rollbackUndo = undo
-    rolled.regenInProgress = false
-    delete rolled.regenRecovery
-    if (rollbackCommitKey !== '') delete rolled.nativeCommits[rollbackCommitKey]
-    rolled.tavernHelperLifecycleRevision = Math.max(0, Number(rolled.tavernHelperLifecycleRevision) || 0) + 1
-    rolled.suppressedDshTurns = Array.from(new Set((Array.isArray(rolled.suppressedDshTurns) ? rolled.suppressedDshTurns : []).concat(
-      [hiddenTurn], Number.isSafeInteger(regeneratedVisibleTurn) && regeneratedVisibleTurn > 0 ? [regeneratedVisibleTurn] : []))).sort(function (left, right) { return left - right })
+    applyRollbackHeader(rolled, { undo, hiddenTurn, regeneratedVisibleTurn, rollbackCommitKey })
     rolled.regeneratedDshTurns = structuredClone(regeneratedDshTurns)
     delete rolled.regeneratedDshTurns[String(hiddenTurn)]
     const changes = diffJson({ ...header, messages: [] }, rolled).filter(change => !['_storageRevision', 'updatedAt'].includes(change.path[0]))
@@ -1227,8 +1224,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (!saved) return undefined
     // Header only: rows stay unread holes so presentation reads its own window.
     const committed = { ...rolled, _storageRevision: saved._storageRevision, updatedAt: saved.updatedAt, messages: createScopedMessages(restoredCount) }
-    return await finishRollback({ chat: committed, card, agent, session, rollbackSurface, shadowedSeqs: rollbackSurface.shadowedSeqs, undo, rollbackWarning,
-      hiddenTurn, removedUserText, removedAssistantText, messageCount: restoredCount, dispatchChat: undefined,
+    return await finishRollback({ chat: committed, card, agent, session, rollbackSurface, undo, rollbackWarning,
+      removedUserText, removedAssistantText, messageCount: restoredCount,
       abort: async () => {
         // Rare error path: restore the exact pre-rollback Chat as the complete path does.
         const original = await readChatRevision(chat.id, revision)
@@ -1244,9 +1241,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         }, { source: 'rollback.abort' })
       },
       saveUndoPoint: async () => {
-        const point = { ...undo, ready: true, branchId: committed.timeline.branchId, revision: committed.timeline.revision,
-          lifecycleRevision: Number(committed.tavernHelperLifecycleRevision || 0), storageRevision: saved._storageRevision + 1,
-          foreground: { ...undo.foreground, afterCount: sessionEvents(session).length } }
+        const point = readyRollbackUndo(undo, committed, session, saved._storageRevision + 1)
         const head = await chats.patch(chat.id, saved._storageRevision, [{ op: 'set', path: ['rollbackUndo'], value: point }], { source: 'rollback.undo-point' })
         if (head) return { ...committed, ...head, messages: committed.messages }
         return updateChat(chat.id, current => {
@@ -1280,11 +1275,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   // After the story commit: hide the round on the native surface (aborting the
   // commit if the host refuses), rewind background contexts, notify scripts and
   // publish the undo point. Shared by the complete and the bounded rollback.
-  async function finishRollback({ chat, card, agent, session, rollbackSurface, shadowedSeqs, undo, hiddenTurn, removedUserText, removedAssistantText, messageCount, dispatchChat, abort, saveUndoPoint, ...state }) {
-    let rollbackWarning = state.rollbackWarning
+  async function finishRollback({ chat, card, agent, session, rollbackSurface, undo, rollbackWarning, removedUserText, removedAssistantText, messageCount, dispatchChat, abort, saveUndoPoint }) {
+    const { turn: hiddenTurn, shadowedSeqs } = rollbackSurface
     // 3) 原生消息面：用空消息替换最近一轮的所有 surface 节点（模型不再看到），UI 由客户端隐藏对应 turn tail
     try {
-      if (rollbackSurface === null) throw Object.assign(new Error('原生上下文中找不到这一轮'), { code: 'NATIVE_TARGET_MISSING' })
       // A rollback runs between turns, and the replacement is read at the log
       // tail: give it a turn of its own when none is open, so the archive keeps
       // loading instead of failing "does not match an open turn and step."
