@@ -641,26 +641,35 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   }
   if(nextHeader.id!==id||nextHeader._storageRevision!==revision+(changes.length?1:0))throw Error('Invalid journal patch revision')
   if(!changes.length){assertCurrent?.();return result({...nextHeader,messages:[]},view)}
-  const old={position:view.state.worldMessage,swipe:view.state.worldSwipe,messageUid:view.state.worldMessageUid??null,world:await t.get(view.state.worldRef)}
-  let selected={...old,world:{variables:old.world.variables,...(nextHeader.posture!==undefined?{posture:nextHeader.posture}:{})}}
-  // A changed newer floor may introduce a new active variable snapshot.
-  const preserveDetachedWorld=worldSelection?.preserveDetachedWorld===true&&old.position===null&&validMessageUid(old.messageUid)
-  const candidates=preserveDetachedWorld?[]:[...rows].filter(([position])=>old.position===null||position>=old.position).sort(([a],[b])=>b-a)
-  for(const [position,row] of candidates){
-   const snapshotChanged=normalized.some(change=>change.path[0]==='messages'&&change.path[1]===position&&
-    (change.path.length===2||['variables','swipeId'].includes(change.path[2])))
-   // Body-only edits never choose another swipe for the current source. A
-   // detached head likewise moves only for an explicit variable/swipe change.
-   if((old.position===null&&validMessageUid(old.messageUid)||position===old.position)&&!snapshotChanged)continue
-   const swipe=Math.max(0,Number(row.swipeId)||0),variables=row.variables?.[swipe]
-   if(variables&&typeof variables==='object'&&!Array.isArray(variables)){
-    selected={position,swipe,messageUid:legacyMessageUid(row,position),world:{variables,...(nextHeader.posture!==undefined?{posture:nextHeader.posture}:{})}}
-    break
+  // A settlement checkpoint only writes delivery data. Keep the world root
+  // without reading its variables again, even when the checkpoint is large.
+  const keepWorld=!worldSelection&&normalized.every(({path})=>path[0]==='messages'
+    ? ['mvu','mvuBaseline'].includes(path[2])
+    : ['_storageRevision','updatedAt'].includes(path[0]))
+  const old={position:view.state.worldMessage,swipe:view.state.worldSwipe,messageUid:view.state.worldMessageUid??null}
+  if(!keepWorld)old.world=await t.get(view.state.worldRef)
+  let selected=old
+  if(!keepWorld){
+   selected={...old,world:{variables:old.world.variables,...(nextHeader.posture!==undefined?{posture:nextHeader.posture}:{})}}
+   // A changed newer floor may introduce a new active variable snapshot.
+   const preserveDetachedWorld=worldSelection?.preserveDetachedWorld===true&&old.position===null&&validMessageUid(old.messageUid)
+   const candidates=preserveDetachedWorld?[]:[...rows].filter(([position])=>old.position===null||position>=old.position).sort(([a],[b])=>b-a)
+   for(const [position,row] of candidates){
+    const snapshotChanged=normalized.some(change=>change.path[0]==='messages'&&change.path[1]===position&&
+     (change.path.length===2||['variables','swipeId'].includes(change.path[2])))
+    // Body-only edits never choose another swipe for the current source. A
+    // detached head likewise moves only for an explicit variable/swipe change.
+    if((old.position===null&&validMessageUid(old.messageUid)||position===old.position)&&!snapshotChanged)continue
+    const swipe=Math.max(0,Number(row.swipeId)||0),variables=row.variables?.[swipe]
+    if(variables&&typeof variables==='object'&&!Array.isArray(variables)){
+     selected={position,swipe,messageUid:legacyMessageUid(row,position),world:{variables,...(nextHeader.posture!==undefined?{posture:nextHeader.posture}:{})}}
+     break
+    }
+    if(position===old.position)return null // needs an earlier world lookup
    }
-   if(position===old.position)return null // needs an earlier world lookup
   }
   const next={...nextHeader,messages:createScopedMessages(view.messageCount,rows)}
-  const saved=await write(id,result({...originalHeader,messages:[]},view),next,normalized,assertCurrent,{old,selected})
+  const saved=await write(id,result({...originalHeader,messages:[]},view),next,normalized,assertCurrent,{old,selected,keepWorld})
   return {...saved,chat:{...nextHeader,messages:[]}}
  }
  async function readWorldSnapshot(id){
@@ -687,6 +696,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  async function write(id,stored,next,changes,assertCurrent,worldSelection){
   const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:(values,refs)=>pages.writeRecords(id,values,refs)})
   const view=stored.native.view,t=batch.tree,grouped=new Map(),headChanges=[]
+  const keepWorld=worldSelection?.keepWorld===true
   let from=Infinity
   for(const change of changes){
    if(!change.path.length){from=0;headChanges.splice(0,headChanges.length,{op:'set',path:[],value:header(next)});continue}
@@ -699,7 +709,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   from=Math.min(from,next.messages.length<view.messageCount?next.messages.length:Infinity)
   const retained=Math.min(from,view.messageCount),edits=[],append=[]
   const preserveWorld=worldSelection?.preserveWorld===true,detachedHead=view.state.worldMessage===null&&validMessageUid(view.state.worldMessageUid)
-  const preserveDetachedWorld=detachedHead&&(worldSelection?.preserveDetachedWorld===true||
+  const preserveDetachedWorld=!keepWorld&&detachedHead&&(worldSelection?.preserveDetachedWorld===true||
    next.regenInProgress===true&&Boolean(next.regenRecovery?.id))
   const snapshotMutation=change=>!change.path.length||['variables','swipeId'].includes(change.path[0])
   const sourceChanged=view.state.worldMessage!==null&&(grouped.get(view.state.worldMessage)??[]).some(snapshotMutation)
@@ -763,19 +773,22 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   }
   // Reuse the exact received leaf changes on the common settlement hot path.
   // Switching swipes/rollback selects another world and explicitly diffs it.
-  let worldChanges
-  if(old.position===selected.position&&old.swipe===selected.swipe&&from>selected.position){
-   worldChanges=[]
-   for(const change of grouped.get(selected.position)??[]){
-    if(!change.path.length){worldChanges=null;break}
-    if(change.path[0]!=='variables')continue
-    if(change.path.length<2){worldChanges=null;break}
-    if(Number(change.path[1])===selected.swipe)worldChanges.push({...change,path:['variables',...change.path.slice(2)]})
+  let worldRef=view.state.worldRef
+  if(!keepWorld){
+   let worldChanges
+   if(old.position===selected.position&&old.swipe===selected.swipe&&from>selected.position){
+    worldChanges=[]
+    for(const change of grouped.get(selected.position)??[]){
+     if(!change.path.length){worldChanges=null;break}
+     if(change.path[0]!=='variables')continue
+     if(change.path.length<2){worldChanges=null;break}
+     if(Number(change.path[1])===selected.swipe)worldChanges.push({...change,path:['variables',...change.path.slice(2)]})
+    }
+    if(worldChanges)worldChanges.push(...diffJson(Object.hasOwn(old.world,'posture')?{posture:old.world.posture}:{},Object.hasOwn(selected.world,'posture')?{posture:selected.world.posture}:{}))
    }
-   if(worldChanges)worldChanges.push(...diffJson(Object.hasOwn(old.world,'posture')?{posture:old.world.posture}:{},Object.hasOwn(selected.world,'posture')?{posture:selected.world.posture}:{}))
+   worldChanges??=diffJson(old.world,selected.world)
+   worldRef=await mutate(t,view.state.worldRef,worldChanges,selected.world)
   }
-  worldChanges??=diffJson(old.world,selected.world)
-  const worldRef=await mutate(t,view.state.worldRef,worldChanges,selected.world)
   const chatHeaderRef=await mutate(t,view.state.chatHeaderRef,headChanges,header(next))
   const state={...view.state,displayIndexRevision:displayIndexCurrent?next._storageRevision:view.state.displayIndexRevision,sceneIndexRevision:next._storageRevision,sceneIndexRef,chatHeaderRef,chatRevision:next._storageRevision,worldRef,
    worldMessage:selected.position,worldMessageUid:selected.messageUid,worldSwipe:selected.swipe,
