@@ -295,12 +295,18 @@
 		}
 		function WorldBookLibraryTab(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
-			const [catalog, setCatalog] = React.useState(null);
+			// 世界书库列表与会话无关（库文件 + 全局生效标记）。把上一次结果放在 window 上跨面板实例复用：
+			// 重开面板或切换会话先直接渲染，再后台刷新，不必再等一次空加载。
+			const initialCatalog = (function () {
+				try { const cached = window.__dshTavernWorldBookCatalog; return cached && typeof cached === "object" ? cached : null; }
+				catch (_) { return null; }
+			})();
+			const [catalog, setCatalog] = React.useState(initialCatalog);
 			const [catalogWarning, setCatalogWarning] = React.useState("");
 			const [record, setRecord] = React.useState(null);
 			const [associations, setAssociations] = React.useState(null);
 			const [selectedCardPath, setSelectedCardPath] = React.useState("");
-			const [loading, setLoading] = React.useState(true);
+			const [loading, setLoading] = React.useState(!initialCatalog);
 			const [recordLoading, setRecordLoading] = React.useState(false);
 			const [busy, setBusy] = React.useState(false);
 			const [bindingBusy, setBindingBusy] = React.useState(false);
@@ -323,7 +329,7 @@
 			const h = React.createElement;
 			if (!refreshModule.current) refreshModule.current = createWorldBookLibraryRefreshModule({
 				load: function () { return rpcWithTimeout("listWorldBooks", {}, props.scope.sessionId); },
-				onValue: function (result) { setCatalog(result || { standalone: [], embedded: [] }); setCatalogWarning(worldBookCatalogDiagnostic(result)); },
+				onValue: function (result) { const next = result || { standalone: [], embedded: [] }; try { window.__dshTavernWorldBookCatalog = next; } catch (_) {} setCatalog(next); setCatalogWarning(worldBookCatalogDiagnostic(result)); },
 				onError: function (err) { setError(String(err && err.message || err)); },
 				onBusyChange: setLoading
 			});
@@ -370,7 +376,10 @@
 				if (!record) return listed;
 				if (draftDirty.current) { setRecordStale(true); return listed; }
 				const source = record.source;
-				return Promise.all([listed, rpcWithTimeout("getWorldBook", { source: source }, props.scope.sessionId).then(function (result) {
+				// 书没改就只回一个空壳：切会话、重开面板不再把整本文档取回来再解析一遍。
+				const ifRevision = record.revision === undefined ? null : record.revision;
+				return Promise.all([listed, rpcWithTimeout("getWorldBook", { source: source, ifRevision: ifRevision }, props.scope.sessionId).then(function (result) {
+					if (result && result.unchanged === true) return;
 					setRecord(function (current) { return current && JSON.stringify(current.source) === JSON.stringify(source) && !draftDirty.current ? result : current; });
 				}, function () {})]);
 			}

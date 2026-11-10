@@ -202,3 +202,32 @@ for (const source of [{ kind: 'standalone', path: 'worldbooks/王都.json' }, { 
     assert.ok((await library.get(source)).view.entries.some(entry => entry.content === '丙'))
   })
 }
+
+test('读取同名未改动的世界书复用解析结果，文件更新后才重新读取', async () => {
+  const files = new Map([['worldbooks/王都.json', JSON.stringify({ name: '王都', entries: { 7: { uid: 7, comment: '城门', content: '城门日落关闭。', key: ['城门'] } } })]])
+  let reads = 0, revision = 200
+  const library = createWorldBookLibrary({
+    normalizePath: path => String(path),
+    resources: {
+      async list() { return [] },
+      async readText(path) { reads += 1; return files.get(path) },
+      async metadata() { return { importedAt: 100, updatedAt: revision } },
+      async globalSources() { return [] }
+    },
+    cards: { async listPaths() { return [] }, async read() { return undefined } },
+    async removeStandalone() {}
+  })
+  const source = { kind: 'standalone', path: 'worldbooks/王都.json' }
+  const first = await library.get(source)
+  assert.equal(first.view.entryCount, 1)
+  assert.equal(first.revision, 200)
+  const second = await library.get(source)
+  assert.equal(reads, 1, '未改动的书不该被重新读取解析')
+  assert.equal(second.view, first.view, '同一 revision 直接复用同一份视图')
+  revision = 300
+  files.set('worldbooks/王都.json', JSON.stringify({ name: '王都', entries: { 7: { uid: 7, comment: '城门', content: '城门全天开放。', key: ['城门'] } } }))
+  const third = await library.get(source)
+  assert.equal(reads, 2, '文件改动后必须重新读取')
+  assert.equal(third.revision, 300)
+  assert.match(JSON.stringify(third.view), /城门全天开放/)
+})

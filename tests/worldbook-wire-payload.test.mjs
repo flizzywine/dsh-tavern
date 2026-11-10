@@ -28,3 +28,20 @@ test('世界书 RPC 出口只回传渲染所需的视图，领域层对象不受
   }
   assert.ok(view.entries[0].rawEntry, '同一份视图在服务端仍带着 rawEntry')
 })
+
+test('世界书读取带上相同 revision 时只回传未变化标记', async () => {
+  const source = { kind: 'standalone', path: 'worldbooks/甲.json' }
+  const view = inspectWorldBookDocument(book)
+  const handlers = createResourceHandlers({
+    worldBooks: {
+      get: async () => ({ source, view, globalEnabled: false, revision: 1700000000000 })
+    }
+  })
+  const same = await handlers.getWorldBook({ source, ifRevision: 1700000000000 })
+  assert.deepEqual(same, { unchanged: true, source, revision: 1700000000000 })
+  const stale = await handlers.getWorldBook({ source, ifRevision: 1 })
+  assert.equal(stale.unchanged, undefined)
+  assert.equal(stale.view.entryCount, 2)
+  const uncached = createResourceHandlers({ worldBooks: { get: async () => ({ source, view, globalEnabled: false, revision: null }) } })
+  assert.equal((await uncached.getWorldBook({ source, ifRevision: 1 })).view.entryCount, 2, '没有 revision 时照常回传整本书')
+})

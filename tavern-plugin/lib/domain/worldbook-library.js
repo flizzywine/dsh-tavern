@@ -93,8 +93,12 @@ export function createWorldBookLibrary(options = {}) {
   }
 
   async function get(locator) {
-    const record = await readRecord(locator)
-    return { source: record.source, view: record.view, globalEnabled: record.source.kind === 'standalone' && (await globalSources()).some(source => source.path === record.source.path) }
+    // Reading a book for display is the same file read the resolver does, so it
+    // shares that revision cache: switching sessions or reopening the panel must
+    // not re-parse an unchanged document.
+    const record = await readSource(sourceOf(locator))
+    return { source: record.source, view: record.view, revision: record.revision ?? null,
+      globalEnabled: record.source.kind === 'standalone' && (await globalSources()).some(source => source.path === record.source.path) }
   }
 
   async function globalSources() { return resources.globalSources ? await resources.globalSources() : [] }
@@ -298,7 +302,10 @@ export function createWorldBookLibrary(options = {}) {
   // a chat may still be running on an older snapshot of the card.
   const resolved = new Map()
   // Each entry is one book or one merged set: a three-book set needs four.
-  const RESOLVED_LIMIT = 4
+  // Bound books, merged sets and panel reads share this map, so the ceiling has
+  // to cover a few cards' worth of bindings; at four, switching between two
+  // cards evicted everything and every switch re-parsed the files.
+  const RESOLVED_LIMIT = 12
   // Only a merged book is game-local: one book writes back to the library, so a
   // script edit takes effect everywhere, while a merged set needs a private copy.
   function forChat(record, chat) {
@@ -321,7 +328,9 @@ export function createWorldBookLibrary(options = {}) {
     const key = JSON.stringify(['book', source.path, revision])
     const hit = resolved.get(key)
     if (hit !== undefined) { resolved.delete(key); resolved.set(key, hit); return hit }
-    return remember(key, await readRecord(source, suppliedCard))
+    // The revision travels with the record so a display read can tell an
+    // unchanged book apart without reading it again.
+    return remember(key, { ...await readRecord(source, suppliedCard), revision })
   }
   async function unchangedStandaloneSet(sources) {
     if (typeof resources.metadata !== 'function' || sources.some(source => source.kind !== 'standalone')) return null

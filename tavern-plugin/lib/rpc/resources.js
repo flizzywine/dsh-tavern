@@ -38,7 +38,15 @@ export function createResourceHandlers(deps) {
       return await worldBooks.catalog()
     },
     async getWorldBook(args) {
-      return worldBookForClient(await worldBooks.get(args && args.source))
+      const record = await worldBooks.get(args && args.source)
+      // A panel refresh may pass the revision it already holds. An unchanged
+      // file answers with a stub, so the whole book never crosses the wire.
+      const ifRevision = args && args.ifRevision
+      if (ifRevision !== undefined && ifRevision !== null && record && record.revision !== undefined && record.revision !== null
+        && String(record.revision) === String(ifRevision)) {
+        return { unchanged: true, source: record.source, revision: record.revision }
+      }
+      return worldBookForClient(record)
     },
     async getWorldBookBinding(args) {
       return { binding: await worldBooks.binding(args && args.cardPath) }
