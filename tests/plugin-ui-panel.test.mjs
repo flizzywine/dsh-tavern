@@ -370,11 +370,40 @@ test('消息按钮：when 拿得到这条消息的正文，可以只在合适的
   const actions = [{ owner: 'card', id: 'accept', label: '接受剧情对战', when: context => { seen.push(context); return !/【进入本轮战斗】/.test(context.text) }, run() {} }]
   const h = (type, props, ...children) => ({ type, props, children: children.flat() })
   const view = vm.runInNewContext(code + '; ({ TavernPluginActionButtons, TavernPluginMessageActions })', {
-    React: { createElement: h, useState: init => [init, () => {}] }, useTavernUiExtensions() {}, tavernPluginAllowed: () => true,
+    React: { createElement: h, useState: init => [init, () => {}] }, useTavernUiExtensions() {}, useTavernCardPluginScopes: () => ({}), tavernPluginAllowed: () => true,
     tavernUiExtensions: { messageActions: () => actions }, tavernErrorHub: { report() {} }
   })
   const render = text => { const outer = view.TavernPluginMessageActions({ sessionId: 'game-1', turn: 2, settled: true, text }); return outer && outer.type(outer.props) }
   assert.equal(render('小茂向你发起挑战。\n【进入本轮战斗】'), null)
   assert.equal(render('小茂说：来比一场吧。').children[0].children[0], '接受剧情对战')
   assert.deepEqual(JSON.parse(JSON.stringify(seen.at(-1))), { gameId: 'game-1', turn: 2, settled: true, text: '小茂说：来比一场吧。' })
+})
+
+test('two versions of a card expose only the active version’s action after the scope arrives', async () => {
+  const scopes = source.slice(source.indexOf('const tavernCardPluginScopes ='), source.indexOf('function TavernCardPluginsBox('))
+  const actions = source.slice(source.indexOf('function TavernPluginActionButtons('), source.indexOf('function tavernCardListViewCard('))
+  const entries = ['old', 'current'].map(owner => ({owner, id: 'journey', label: '宝可梦冒险', run() {}}))
+  let publish, subscribed = false, updates = 0
+  const pending = new Promise(resolve => { publish = resolve })
+  const h = (type, props, ...children) => ({ type, props, children: children.flat() })
+  const view = vm.runInNewContext(scopes + actions + '; ({ tavernCardPluginScopes, TavernPluginComposerActions, TavernPluginMessageActions })', {
+    window: {}, rpc: () => pending,
+    React: { createElement: h, useState: init => [init, () => {}], useSyncExternalStore(subscribe, get) {
+      if (!subscribed) { subscribed = true; subscribe(() => { updates++ }) }
+      return get()
+    } },
+    useTavernUiExtensions() {}, tavernUiExtensions: { composerActions: () => entries, messageActions: () => entries },
+    liveTavernView: { getSnapshot: () => ({ view: { card: { path: 'cards/current.json' } } }) },
+  })
+  const props = { sessionId: 'game-1' }
+  assert.equal(view.TavernPluginComposerActions(props), null)
+  assert.equal(view.TavernPluginMessageActions(props), null)
+  publish({scopes: {old: ['cards/old.json'], current: ['cards/current.json']}})
+  await view.tavernCardPluginScopes.load()
+  assert.equal(updates, 1)
+  for (const render of [view.TavernPluginComposerActions, view.TavernPluginMessageActions]) {
+    const outer = render(props), buttons = outer.type(outer.props)
+    assert.equal(buttons.children.length, 1)
+    assert.equal(buttons.children[0].props.title, 'current')
+  }
 })

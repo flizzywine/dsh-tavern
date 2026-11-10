@@ -34140,7 +34140,7 @@ function tavernFloorHeightRecall(key, width) {
 			const scopes = useTavernCardPluginScopes();
 			const [, setVersion] = React.useState(0);
 			const views = all.filter(function (entry) { return tavernPluginAllowed(entry.owner, sessionId); });
-			const cardView = views.find(function (entry) { return Array.isArray(scopes[entry.owner]) && scopes[entry.owner].length; }) || null;
+			const cardView = views.find(function (entry) { const cards = scopes?.[entry.owner]; return Array.isArray(cards) && cards.length; }) || null;
 			// Kept per card: the card this game plays (a plugin may be shared by copies of a card).
 			const snapshot = cardView && sessionId ? liveTavernView.getSnapshot(sessionId).view : null;
 			const storageKey = cardView && snapshot && snapshot.card ? storageBase + ":" + snapshot.card.path : storageBase;
@@ -34594,6 +34594,7 @@ function tavernFloorHeightRecall(key, width) {
 
 		function TavernPluginMessageActions(props) {
 			useTavernUiExtensions();
+			if (!useTavernCardPluginScopes()) return null;
 			const actions = tavernUiExtensions.messageActions().filter(function (entry) { return tavernPluginAllowed(entry.owner, props.sessionId); });
 			if (!actions.length) return null;
 			return React.createElement(TavernPluginActionButtons, { actions: actions, className: "dsh-tavern-plugin-message-actions", buttonClassName: "dsh-tavern-btn",
@@ -34603,6 +34604,7 @@ function tavernFloorHeightRecall(key, width) {
 
 		function TavernPluginComposerActions(props) {
 			useTavernUiExtensions();
+			if (!useTavernCardPluginScopes()) return null;
 			const actions = tavernUiExtensions.composerActions().filter(function (entry) { return tavernPluginAllowed(entry.owner, props.sessionId); });
 			if (!actions.length) return null;
 			return React.createElement(TavernPluginActionButtons, { actions: actions, className: "dsh-tavern-plugin-composer-actions", buttonClassName: "dsh-tavern-choice-trigger",
@@ -45997,12 +45999,12 @@ const transferFeature = createTransferFeatureModule()
 		// Plugins a DSH card carries (Wiki「设计：dsh-card-format」): listed with the card, turned on
 		// by the player, and confined to that card's games, here in the page as on the host.
 		const tavernCardPluginScopes = (function () {
-			let scopes = {}, loaded = false, loading = null;
+			let scopes = null, loading = null;
 			const listeners = new Set();
 			function load() {
 				if (loading) return loading;
 				loading = rpc("cardPluginScopes").then(function (reply) { scopes = reply && reply.scopes || {}; }, function () {}).finally(function () {
-					loading = null; loaded = true; Array.from(listeners).forEach(function (listener) { listener(); });
+					loading = null; Array.from(listeners).forEach(function (listener) { listener(); });
 				});
 				return loading;
 			}
@@ -46013,14 +46015,14 @@ const transferFeature = createTransferFeatureModule()
 			}
 			return {
 				load: load,
-				subscribe: function (listener) { listeners.add(listener); if (!loaded) void load(); return function () { listeners.delete(listener); }; },
+				subscribe: function (listener) { listeners.add(listener); if (!scopes) void load(); return function () { listeners.delete(listener); }; },
 				get: function () { return scopes; }
 			};
 		})();
 
 		/** Whether a plugin may show itself in this game: everything does, except another card's own plugins. */
 		function tavernPluginAllowed(owner, sessionId) {
-			const cards = tavernCardPluginScopes.get()[owner];
+			const cards = tavernCardPluginScopes.get()?.[owner];
 			if (!Array.isArray(cards) || !cards.length) return true;
 			if (!sessionId) return false;
 			const view = liveTavernView.getSnapshot(sessionId).view;

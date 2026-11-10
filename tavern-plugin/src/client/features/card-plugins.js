@@ -1,12 +1,12 @@
 		// Plugins a DSH card carries (Wiki「设计：dsh-card-format」): listed with the card, turned on
 		// by the player, and confined to that card's games, here in the page as on the host.
 		const tavernCardPluginScopes = (function () {
-			let scopes = {}, loaded = false, loading = null;
+			let scopes = null, loading = null;
 			const listeners = new Set();
 			function load() {
 				if (loading) return loading;
 				loading = rpc("cardPluginScopes").then(function (reply) { scopes = reply && reply.scopes || {}; }, function () {}).finally(function () {
-					loading = null; loaded = true; Array.from(listeners).forEach(function (listener) { listener(); });
+					loading = null; Array.from(listeners).forEach(function (listener) { listener(); });
 				});
 				return loading;
 			}
@@ -17,14 +17,14 @@
 			}
 			return {
 				load: load,
-				subscribe: function (listener) { listeners.add(listener); if (!loaded) void load(); return function () { listeners.delete(listener); }; },
+				subscribe: function (listener) { listeners.add(listener); if (!scopes) void load(); return function () { listeners.delete(listener); }; },
 				get: function () { return scopes; }
 			};
 		})();
 
 		/** Whether a plugin may show itself in this game: everything does, except another card's own plugins. */
 		function tavernPluginAllowed(owner, sessionId) {
-			const cards = tavernCardPluginScopes.get()[owner];
+			const cards = tavernCardPluginScopes.get()?.[owner];
 			if (!Array.isArray(cards) || !cards.length) return true;
 			if (!sessionId) return false;
 			const view = liveTavernView.getSnapshot(sessionId).view;

@@ -990,7 +990,7 @@
 			const scopes = useTavernCardPluginScopes();
 			const [, setVersion] = React.useState(0);
 			const views = all.filter(function (entry) { return tavernPluginAllowed(entry.owner, sessionId); });
-			const cardView = views.find(function (entry) { return Array.isArray(scopes[entry.owner]) && scopes[entry.owner].length; }) || null;
+			const cardView = views.find(function (entry) { const cards = scopes?.[entry.owner]; return Array.isArray(cards) && cards.length; }) || null;
 			// Kept per card: the card this game plays (a plugin may be shared by copies of a card).
 			const snapshot = cardView && sessionId ? liveTavernView.getSnapshot(sessionId).view : null;
 			const storageKey = cardView && snapshot && snapshot.card ? storageBase + ":" + snapshot.card.path : storageBase;
@@ -1444,6 +1444,7 @@
 
 		function TavernPluginMessageActions(props) {
 			useTavernUiExtensions();
+			if (!useTavernCardPluginScopes()) return null;
 			const actions = tavernUiExtensions.messageActions().filter(function (entry) { return tavernPluginAllowed(entry.owner, props.sessionId); });
 			if (!actions.length) return null;
 			return React.createElement(TavernPluginActionButtons, { actions: actions, className: "dsh-tavern-plugin-message-actions", buttonClassName: "dsh-tavern-btn",
@@ -1453,6 +1454,7 @@
 
 		function TavernPluginComposerActions(props) {
 			useTavernUiExtensions();
+			if (!useTavernCardPluginScopes()) return null;
 			const actions = tavernUiExtensions.composerActions().filter(function (entry) { return tavernPluginAllowed(entry.owner, props.sessionId); });
 			if (!actions.length) return null;
 			return React.createElement(TavernPluginActionButtons, { actions: actions, className: "dsh-tavern-plugin-composer-actions", buttonClassName: "dsh-tavern-choice-trigger",
