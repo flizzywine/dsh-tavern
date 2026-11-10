@@ -273,6 +273,43 @@ test('下载等待暂停初始化超时，同一沙箱可手动恢复且拒绝�
   assert.equal(states.at(-1), null)
 })
 
+test('MVU 配套脚本各自有初始化期限，超时后可重建沙箱并继续结算', () => {
+  const states = [], h = sandbox({ companionTimeoutMs: 1234, onMvuLoadState: state => states.push(copy(state)) })
+  const input = mvuView()
+  input.tavernHelperScripts.push({ id: 'slow', name: '慢脚本', content: 'void 0' })
+  h.runtime.sync('A', input)
+  const first = h.frames[0]
+  h.load(first)
+  const report = (frame, ...statuses) => h.message(frame, 'dsh-tavern-helper-subscriptions', {
+    ready: statuses.length === 3, names: [], scripts: statuses.map(id => ({ id, ready: true }))
+  })
+  report(first, '__dsh_official_mvu__')
+  const initialDeadline = [...h.timers.keys()][0]
+  report(first, '__dsh_official_mvu__')
+  assert.deepEqual([...h.timers.keys()], [initialDeadline])
+  report(first, '__dsh_official_mvu__', 'script')
+  assert.equal(h.timers.has(initialDeadline), false)
+  assert.deepEqual([...h.timers.values()].map(timer => timer.delay), [1234])
+  h.runTimer()
+  assert.equal(first.removed, true)
+  assert.equal(h.runtime.inspect().frameCount, 0)
+  assert.equal(states.at(-1).phase, 'companion-timeout')
+  assert.match(states.at(-1).error, /「慢脚本」/)
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), false)
+  assert.equal(h.runtime.inspect().initializationError, undefined, '保留暂停等待的结算任务')
+  h.runtime.sync('A', input)
+  assert.equal(h.frames.length, 1, '普通视图刷新不会自动重跑配套脚本')
+  assert.equal(h.runtime.retryMvuLoad(), true)
+  assert.equal(h.runtime.retryMvuLoad(), false)
+  const next = h.frames[1]
+  h.load(next)
+  report(next, '__dsh_official_mvu__', 'script', 'slow')
+  assert.equal(states.at(-1).phase, 'ready')
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), true)
+  assert.equal(h.timers.size, 0)
+  h.runtime.dispose()
+})
+
 for (const fail of [false, true]) test(`事件收尾等待已接收的排队写入，保存${fail ? '失败不能报成功' : '成功不误判迟到'}`, async () => {
   const h = sandbox(), blocked = deferred()
   h.runtime.sync('A', view())

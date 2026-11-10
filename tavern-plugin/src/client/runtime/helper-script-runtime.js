@@ -11,6 +11,7 @@
 			const onReady = options && typeof options.onReady === "function" ? options.onReady : function () {};
 			const onMvuLoadState = options && options.onMvuLoadState || function () {};
 			const initializationTimeoutMs = Math.max(1000, Number(options && options.initializationTimeoutMs) || 15000);
+			const companionTimeoutMs = Math.max(1000, Number(options && options.companionTimeoutMs) || 30000);
 			const eventTimeoutMs = Math.max(10, Number(options && options.eventTimeoutMs) || 15000);
 			// Card scripts often debounce derived writes with setTimeout after MESSAGE_RECEIVED.
 			// Keep mvu-work events open briefly so those writes still join the settlement.
@@ -85,7 +86,7 @@
 			function maybeAnnounceReady() {
 				if (!readinessKey || records.size === 0 || announcedReadinessKey === readinessKey) return;
 				if (Array.from(records.values()).some(function (record) { return mvuInitializationError(record); })) return;
-				if (Array.from(records.values()).some(function (record) { return !record.loaded || (!record.subscriptionsReady && !record.initializationFailed); })) return;
+				if (Array.from(records.values()).some(function (record) { return !record.loaded || record.reloading || (!record.subscriptionsReady && !record.initializationFailed); })) return;
 				announcedReadinessKey = readinessKey;
 				const readySessionId = activeSessionId;
 				const refreshAfterSuppress = suppressedCompactMutations > 0;
@@ -247,6 +248,16 @@
                 }
                 record.helperGenerations?.clear();
             }
+			function disposeRecordFrame(record) {
+				if (record.frameDisposed) return;
+				record.frameDisposed = true;
+				if (record.trustedCardMode) releaseTavernHostJQueryHandlers(hostWindow, record.frame.contentWindow);
+				if (record.releaseStorage) record.releaseStorage();
+				record.releaseStorage = null;
+				record.frame.remove();
+				if (record.hostArtifacts) record.hostArtifacts.dispose();
+				removeExternalCardUiArtifacts(record);
+			}
 			function removeRecord(id) {
 				const record = records.get(id);
 				if (!record) return;
@@ -261,11 +272,8 @@
 					pending.reject(new Error("人物卡脚本运行时已重置，事件未完成"));
 				}
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
-				if (record.trustedCardMode) releaseTavernHostJQueryHandlers(hostWindow, record.frame.contentWindow);
-				if (record.releaseStorage) record.releaseStorage(); // revoke before detaching the card sandbox
-				record.frame.remove();
-				if (record.hostArtifacts) record.hostArtifacts.dispose();
-				removeExternalCardUiArtifacts(record);
+				clearCompanionDeadline(record);
+				disposeRecordFrame(record);
 				records.delete(id);
 				announcedReadinessKey = "";
 			}
@@ -425,6 +433,7 @@
 				const record = {
 					id: "shared",
 					sessionId: sessionId,
+					scriptInputs: scripts,
 					name: "共享脚本沙箱",
 					trustedCardMode: trustedCardMode,
 					startedAt: Date.now(),
@@ -479,6 +488,7 @@
 				const frame = record.frame, reloaded = record.loaded;
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
 				record.initializationTimer = null;
+				clearCompanionDeadline(record);
 				record.reloading = false;
 				record.token = documentToken;
 				if (reloaded) {
@@ -531,6 +541,35 @@
 				}
 				post(record, { type: "dsh-tavern-helper-context", context: record.context });
 				if (!record.initializationFailed) armInitializationDeadline(record);
+			}
+			function clearCompanionDeadline(record) {
+				if (!record.companionDeadline) return;
+				hostWindow.clearTimeout(record.companionDeadline.timer);
+				record.companionDeadline = null;
+			}
+			function syncCompanionDeadline(record) {
+				const core = record.scripts.get("__dsh_official_mvu__");
+				const pending = core?.subscriptionsReady && !core.initializationFailed
+					? Array.from(record.scripts.values()).find(script => !script.subscriptionsReady && !script.initializationFailed)
+					: undefined;
+				if (record.companionDeadline?.script === pending) return;
+				clearCompanionDeadline(record);
+				if (!pending) return;
+				const deadline = { script: pending, timer: hostWindow.setTimeout(function () {
+					if (records.get(record.id) !== record || record.companionDeadline !== deadline || record.reloading) return;
+					record.companionDeadline = null;
+					const error = "人物卡配套脚本「" + pending.name + "」初始化超时（" + companionTimeoutMs / 1000 + " 秒）";
+					record.reloading = true;
+					record.suppressCompactViewRefresh = false;
+					cancelRecordGenerations(record);
+					disposeRecordFrame(record);
+					// Keep settlement paused. A retry starts a fresh document, so the
+					// stalled script can never resume after the timeout.
+					record.mvuLoadState = { phase: "companion-timeout", canRetry: true, error: error };
+					recordMvuLoadDiagnostic(record, { phase: "companion-timeout", failureStep: "companion-module", scriptId: pending.id, message: error });
+					onMvuLoadState(record.mvuLoadState);
+				}, companionTimeoutMs) };
+				record.companionDeadline = deadline;
 			}
 			function scriptsForView(view) {
 				const scripts = Array.isArray(view && view.tavernHelperScripts) ? view.tavernHelperScripts.slice() : [];
@@ -631,7 +670,7 @@
 				const data = event && event.data;
 				if (!data || !data.token) return;
 				const record = records.get("shared");
-				if (!record || event.source !== record.frame.contentWindow) return;
+				if (!record || record.frameDisposed || event.source !== record.frame.contentWindow) return;
 				if (data.type === "dsh-tavern-helper-document") {
 					if (data.token === record.bootstrapToken && typeof data.documentToken === "string" && data.documentToken
 						&& record.token !== data.documentToken) activateDocument(record, data.documentToken);
@@ -676,7 +715,11 @@
 					else if (!data.eventId) invoke("recordMvuRuntimeDiagnostic", { diagnostic: diagnostic }, activeSessionId).catch(function () {});
 					return;
 				}
-				if (data.type === "dsh-tavern-helper-reloading") { record.reloading = true; return; }
+				if (data.type === "dsh-tavern-helper-reloading") {
+					record.reloading = true;
+					clearCompanionDeadline(record);
+					return;
+				}
 				if (data.type === "dsh-tavern-helper-ui-open") { openRecordUi(record); return; }
 				if (data.type === "dsh-tavern-helper-ui-close") { closeRecordUi(); return; }
 				if (data.type === "dsh-tavern-helper-subscriptions") {
@@ -703,6 +746,7 @@
 						}
 					}
 					if (statuses.length === 0 && record.scripts.size === 1 && data.ready === true) record.scripts.values().next().value.subscriptionsReady = true;
+					syncCompanionDeadline(record);
 					if (data.ready === true) {
 						record.initializationFailed = Boolean(record.scripts.get("__dsh_official_mvu__")?.initializationFailed);
 						record.subscriptionsReady = !record.initializationFailed;
@@ -998,6 +1042,15 @@
 				retryMvuLoad: function () {
 					const record = records.get("shared");
 					if (!record || !record.mvuLoadState || !record.mvuLoadState.canRetry) return false;
+						if (record.mvuLoadState.phase === "companion-timeout") {
+							removeRecord(record.id);
+							const next = createRecord(record.sessionId, record.scriptInputs, record.context, record.trustedCardMode, false);
+							next.sourceHelper = record.sourceHelper;
+							next.committedContext = record.committedContext;
+							next.mvuLoadState = { phase: "loading", canRetry: false, attempt: 1 };
+							onMvuLoadState(next.mvuLoadState);
+							return true;
+						}
 					record.mvuLoadState = { phase: "loading", canRetry: false, attempt: 1 };
 					onMvuLoadState(record.mvuLoadState);
 					post(record, { type: "dsh-tavern-mvu-reload" });
@@ -1014,13 +1067,13 @@
 				dispose: function () { hostWindow.removeEventListener("message", receive); clear(); releaseHostStylesheetBridge(); },
 				inspect: function () {
 					const record = records.get("shared");
-					const scripts = record ? Array.from(record.scripts.values()).map(function (script) { return { id: script.id, loaded: script.loaded, subscriptionsReady: script.subscriptionsReady, initializationFailed: script.initializationFailed }; }) : [];
+						const scripts = record ? Array.from(record.scripts.values()).map(function (script) { return { id: script.id, loaded: script.loaded, subscriptionsReady: !record.reloading && script.subscriptionsReady, initializationFailed: script.initializationFailed }; }) : [];
 					const initializationError = mvuInitializationError(record);
 					const baseline=record && record.context;
                     const contextBaseline=baseline ? {workContextVersion:1,appendContextVersion:1,chatId:baseline.chatId,stateRevision:baseline.stateRevision,
                         lifecycleRevision:Number(baseline.lifecycleRevision)||0,messageCount:(baseline.messages||[]).length,
                         transaction:baseline.transaction,historyWindowVersion:baseline.historyAccess?1:undefined,complete:!baseline.messagesPending && (applyTavernVariableReceipt.indexApi.info(baseline.messages)?.complete ?? false)} : {workContextVersion:1,full:true};
-                    return { contextBaseline:contextBaseline, sessionId: activeSessionId, frameCount: record ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts, ...(record && record.scripts.has("__dsh_official_mvu__") ? { mvuDataReady: mvuDataReady(record) } : {}), ...(record && record.mvuLoadState ? { mvuLoadState: record.mvuLoadState } : {}), ...(initializationError ? { initializationError: initializationError } : {}) };
+                    return { contextBaseline:contextBaseline, sessionId: activeSessionId, frameCount: record && !record.frameDisposed ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts, ...(record && record.scripts.has("__dsh_official_mvu__") ? { mvuDataReady: mvuDataReady(record) } : {}), ...(record && record.mvuLoadState ? { mvuLoadState: record.mvuLoadState } : {}), ...(initializationError ? { initializationError: initializationError } : {}) };
 				}
 			});
 		}
