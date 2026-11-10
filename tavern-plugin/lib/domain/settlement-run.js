@@ -50,7 +50,6 @@ export function createSettlementRun(deps) {
         if (engine.deferred) return
         const { text, result, mvuResult, mvuTarget, backgroundTasksSettings } = engine
         signal?.throwIfAborted()
-        let stat = { postureUpdated: false }
         const mvuCompletion = mvuSettlementEngine.completion({ mvuTarget, mvuResult, backgroundTasksSettings })
         const completion = {
           ...(mvuCompletion.messageIndices ? { messageIndices: mvuCompletion.messageIndices } : { headerFields: SETTLEMENT_HEADER_FIELDS }),
@@ -58,7 +57,7 @@ export function createSettlementRun(deps) {
           participant: taskRun.participant({ sessionId: trace.sessionId, boundary: trace.boundary }),
           apply(draft, scope) {
             mvuCompletion.apply(draft, scope)
-            stat = applySettlement(draft, result)
+            const stat = applySettlement(draft, result)
             draft.settleStatus = 'done'
             draft.settleError = null
             draft.lastSettle = { ts: Date.now(), posture: stat.postureUpdated, raw: text.slice(0, 200) }
@@ -71,8 +70,6 @@ export function createSettlementRun(deps) {
           if (await retryStale(completed.chat)) continue
           return
         }
-        console.log('dsh-tavern: 结算完成', chatId, '姿势', stat.postureUpdated ? '已更新' : '未更新')
-        console.log('dsh-tavern: 结算原始输出:', text.slice(0, 200))
         return
       } catch (err) {
         if (signal?.aborted) return
