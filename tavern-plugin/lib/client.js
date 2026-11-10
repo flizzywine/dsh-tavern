@@ -24445,8 +24445,14 @@ function tavernModelRefusalNotice(text) {
 		                const refresh = () => load(sessionId, true);
 		                const timer = setInterval(refresh, 60000);
 		                timer.unref?.();
+		                const resourceChanged = event => { if (tavernDataChangeAffects(event, ["cards", "worldbooks"])) refresh(); };
 		                if (typeof document !== "undefined") document.addEventListener("visibilitychange", refresh);
-		                watch = {count:0, stop() { clearInterval(timer); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", refresh); }};
+		                window.addEventListener("dsh-tavern-data-changed", resourceChanged);
+		                watch = {count:0, stop() {
+		                    clearInterval(timer);
+		                    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", refresh);
+		                    window.removeEventListener("dsh-tavern-data-changed", resourceChanged);
+		                }};
 		                watches.set(sessionId, watch);
 		            }
 		            watch.count++;

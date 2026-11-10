@@ -50,3 +50,28 @@ test('one failed unsubscribe cannot retain other subscriptions or sessions', () 
   assert.equal(owner.get('b'), null)
   assert.doesNotThrow(() => owner.dispose())
 })
+
+test('round notifications reuse dialogue settings until the card or host changes', () => {
+  const list = source({current:'a', byId:{a:{}}})
+  const view = source({view:{card:{path:'cards/a.json'}}})
+  const sync = source({view:{runtimeGeneration:'v1'}})
+  const loads = []
+  const owner = createStageSessionOwner({
+    sessions:{list, binding: () => ({session:source({running:false})})},
+    resolveChat: () => source({nodes:new Map()}),
+    views:{select: () => view, invalidate() {}},
+    coordination:{getSnapshot:sync.getSnapshot, subscribe(_id, fn){return sync.subscribe(fn)}},
+    settings:{get: () => ({}), load(_id, force) {loads.push(force === true)}, subscribe:() => () => {}},
+    preferences:{get: () => ({}), subscribe:() => () => {}},
+    createIndex: () => ({getSnapshot: () => new Map(), reconcile: () => new Map(), clear() {}}),
+  })
+  try {
+    owner.start()
+    sync.publish({view:{runtimeGeneration:'v1', activity:{phase:'running'}}})
+    sync.publish({view:{runtimeGeneration:'v1', activity:{phase:'idle'}}})
+    assert.deepEqual(loads, [false])
+    view.publish({view:{card:{path:'cards/b.json'}}})
+    sync.publish({view:{runtimeGeneration:'v2'}})
+    assert.deepEqual(loads, [false,true,true])
+  } finally { owner.dispose() }
+})
