@@ -118,7 +118,18 @@ async function performJob(request, options) {
     throw error
   } finally {
     // Unsafe transactions retain the install fence until explicit recovery.
-    try { if (!lease.owner.unsafeToRetry) lease.release() } catch { /* A lost lease cannot release its replacement. */ }
+    for (let retry = 0; ; retry++) {
+      try {
+        if (!lease.owner.unsafeToRetry) lease.release()
+        break
+      } catch (error) {
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || retry >= 5) {
+          options.log(`安装锁清理未完成：${error.message}`)
+          break
+        }
+        await delay(50 * (retry + 1))
+      }
+    }
   }
 }
 

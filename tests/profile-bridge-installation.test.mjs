@@ -80,7 +80,13 @@ test('failed rollback blocks retries with recovery required', async t => {
 })
 for (const host of ['desktop', 'next']) test(`uninstall quarantines app/profile and preserves original DSH and Tavern data (${host})`, async t => {
   const f = fixture(t, host)
-  const result = await performInstallation(validateInstallationRequest(f.paths, 'uninstall', { confirmed: true }))
+  const selection = path.join(f.home, 'desktop-next.json')
+  const activeDir = host === 'next' ? path.join(f.home, 'profiles/tavern') : f.paths.activeDir
+  if (host === 'next') put(selection, { version: 1, active: 'tavern' })
+  assert.throws(() => validateInstallationRequest({ ...f.paths, host, activeDir: path.join(f.home, 'profiles/other') }, 'uninstall', { confirmed: true }), { code: 'installation-unsafe' })
+  const request = validateInstallationRequest({ ...f.paths, host, activeDir }, 'uninstall', { confirmed: true })
+  assert.equal(request.liveDir, f.paths.activeDir)
+  const result = await performInstallation(request)
   assert.equal(fs.existsSync(f.app), false)
   assert.equal(fs.existsSync(path.join(f.home, 'profiles/tavern')), false)
   assert.ok(result.retained.every(p => fs.existsSync(p)))
@@ -88,6 +94,26 @@ for (const host of ['desktop', 'next']) test(`uninstall quarantines app/profile 
   assert.equal(fs.readFileSync(path.join(f.home, 'credentials.json'), 'utf8'), 'secret')
   assert.equal(fs.readFileSync(path.join(f.home, 'profile-data/tavern/data/cache/fonts/verified-face'), 'utf8'), 'cached-font')
   assert.ok(fs.existsSync(path.join(f.paths.activeDir, 'package.json')))
+  if (host === 'next') assert.deepEqual(JSON.parse(fs.readFileSync(selection, 'utf8')), { version: 1, active: 'desktop' })
+})
+
+test('failed NEXT removal restores the Tavern selection and installation for retry', async t => {
+  const f = fixture(t, 'next')
+  const selection = path.join(f.home, 'desktop-next.json')
+  const activeDir = path.join(f.home, 'profiles/tavern')
+  put(selection, { version: 1, active: 'tavern' })
+  const request = validateInstallationRequest({ ...f.paths, host: 'next', activeDir }, 'uninstall', { confirmed: true })
+  await assert.rejects(performInstallation(request, { persist: (file, value) => {
+    if (value.phase === 'uninstalled') {
+      assert.equal(JSON.parse(fs.readFileSync(selection, 'utf8')).active, 'desktop')
+      throw new Error('cannot publish removal')
+    }
+    put(file, value)
+  } }), /cannot publish removal/)
+  assert.equal(JSON.parse(fs.readFileSync(selection, 'utf8')).active, 'tavern')
+  assert.equal(inspectInstallation(f.paths).available, true)
+  await performInstallation(request)
+  assert.equal(JSON.parse(fs.readFileSync(selection, 'utf8')).active, 'desktop')
 })
 test('second relocation and relocated uninstall preserve data without alias chains', async t => {
   const f = fixture(t)

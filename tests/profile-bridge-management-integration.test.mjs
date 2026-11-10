@@ -5,25 +5,25 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { validateInstallationRequest, inspectInstallation, performInstallation } from '../tavern-plugin/packages/dsh-tavern/lib/installation.mjs'
-import { registeredTavernTarget, switchProfile, scheduleSwitch } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
+import { readLastResult, registeredTavernTarget, switchProfile, scheduleSwitch } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
 import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installation.mjs'
 import location from '../bin/installation-location.cjs'
 import { copyTreeSync, removeTreeSync } from '../bin/portable-fs.mjs'
 import { createFileSymlink } from './helpers/file-symlink.mjs'
 const repo = fileURLToPath(new URL('../', import.meta.url))
 const put = (p, value) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(value)) }
-function fixture(t) {
+function fixture(t, host = 'desktop') {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'pb-management-e2e-')))
   t.after(() => removeTreeSync(root, { retries: 5 }))
   const home = path.join(root, 'home'), app = path.join(home, 'apps/dsh-tavern')
   const paths = { home, stateDir: path.join(home, 'profile-bridge'), activeDir: path.join(home, 'profiles/desktop') }
   const manifest = name => ({ name, dsh: { profile: { bundles: ['dsh-tavern'] } } })
   put(path.join(app, 'package.json'), manifest('dsh-profile-tavern'))
-  put(path.join(app, '.dsh-tavern-local.json'), { host: 'desktop', dshHome: home })
+  put(path.join(app, '.dsh-tavern-local.json'), { host, dshHome: home })
   fs.mkdirSync(path.join(app, 'bin')); fs.copyFileSync(path.join(repo, 'bin/installation-state.cjs'), path.join(app, 'bin/installation-state.cjs'))
   put(path.join(home, 'profiles/tavern/package.json'), manifest('dsh-profile-tavern'))
   put(path.join(paths.activeDir, 'package.json'), manifest('dsh-profile-desktop'))
-  put(path.join(home, 'logs/tavern-installation.json'), { host: 'desktop', dshHome: home, sourceRoot: app })
+  put(path.join(home, 'logs/tavern-installation.json'), { host, dshHome: home, sourceRoot: app })
   put(path.join(home, 'profile-data/tavern/sessions/saved.json'), { saved: true })
   put(path.join(home, '.credentials.json'), { token: 'untouched' })
   return { root, home, app, paths, destination: path.join(root, 'other volume 酒馆'), profilesRoot: path.join(home, 'profiles') }
@@ -58,25 +58,32 @@ test('unregistered external profile and symlinked registry fail closed', async t
   await assert.rejects(switchProfile({ mode: 'link', profilesRoot: f.profilesRoot, liveDir: f.paths.activeDir, targetDir: path.join(f.profilesRoot, 'tavern'), stamp: 'bad' }), /独立 profile/)
   assert.equal(fs.lstatSync(f.paths.activeDir).isSymbolicLink(), false)
 })
-test('standalone management worker survives relocating its source and uninstall restores original', async t => {
-  const f = fixture(t)
+for (const host of ['desktop', 'next']) test(`standalone worker removes Tavern from the active session (${host})`, async t => {
+  const f = fixture(t, host)
   const run = async request => {
     const receipt = scheduleSwitch({ ...request, stamp: String(Date.now()), pids: [], relaunch: undefined })
     const end = Date.now() + 15000
     let result
     do {
       await new Promise(resolve => setTimeout(resolve, 25))
-      result = JSON.parse(fs.readFileSync(path.join(f.paths.stateDir, 'last-result.json')))
-    } while ((result.status === 'pending' || fs.existsSync(path.join(f.paths.stateDir, 'pending'))) && Date.now() < end)
-    assert.equal(result.status, 'succeeded', JSON.stringify(result))
+      result = readLastResult(f.paths.stateDir)
+    } while ((!result || result.status === 'pending' || fs.existsSync(path.join(f.paths.stateDir, 'pending'))) && Date.now() < end)
+    assert.equal(result?.status, 'succeeded', JSON.stringify(result))
     assert.ok(receipt.pid > 1)
   }
-  await run(plan(f))
-  await switchProfile({ mode: 'link', profilesRoot: f.profilesRoot, liveDir: f.paths.activeDir, targetDir: path.join(f.profilesRoot, 'tavern'), stamp: 'before-remove' })
-  await run(validateInstallationRequest(f.paths, 'uninstall', { confirmed: true }))
+  const tavernDir = path.join(f.profilesRoot, 'tavern')
+  const selection = path.join(f.home, 'desktop-next.json')
+  if (host === 'next') put(selection, { version: 1, active: 'tavern' })
+  else {
+    await run(plan(f))
+    await switchProfile({ mode: 'link', profilesRoot: f.profilesRoot, liveDir: f.paths.activeDir, targetDir: tavernDir, stamp: 'before-remove' })
+  }
+  const paths = { ...f.paths, host, activeDir: host === 'next' ? tavernDir : f.paths.activeDir }
+  await run(validateInstallationRequest(paths, 'uninstall', { confirmed: true }))
   assert.equal(fs.lstatSync(f.paths.activeDir).isSymbolicLink(), false)
   assert.equal(JSON.parse(fs.readFileSync(path.join(f.paths.activeDir, 'package.json'))).name, 'dsh-profile-desktop')
-  assert.equal(fs.existsSync(path.join(f.profilesRoot, 'tavern')), false)
+  assert.equal(fs.existsSync(tavernDir), false)
+  if (host === 'next') assert.equal(JSON.parse(fs.readFileSync(selection)).active, 'desktop')
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.home, 'profile-data/tavern/sessions/saved.json'))), { saved: true })
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.home, '.credentials.json'))), { token: 'untouched' })
   assert.equal(fs.existsSync(path.join(f.home, '.tavern-install.lock')), false)

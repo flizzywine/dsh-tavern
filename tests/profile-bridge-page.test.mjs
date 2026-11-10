@@ -291,6 +291,36 @@ test('卸载需要独立确认，保留数据和原版 DSH；重复点击只提�
   page.dispose()
 })
 
+test('NEXT 从酒馆配置确认删除，排队成功后请求正常退出，失败时提示手动退出', async () => {
+  const steps = []
+  const status = { ...managedStatus, host: 'next', activeName: 'tavern', profiles: [tavernProfile] }
+  let queued = false
+  const page = await mount(status, [], {
+    next: async command => { steps.push(command); throw new Error('native quit unavailable') },
+    rpc: async (endpoint, payload) => {
+      if (endpoint === 'status') return { ok: true, value: status }
+      if (endpoint === 'update-status') return { ok: true, value: { phase: 'idle' } }
+      steps.push([endpoint, payload])
+      return queued ? { ok: true, value: { stamp: 'uninstall' } } : { ok: false, error: { message: '暂时无法排队' } }
+    },
+  })
+  try {
+    await page.act(async () => namedButton(page, '删除 DSH 酒馆').click())
+    assert.match(page.text(), /删除完成后会重新打开原版 DSH/)
+    assert.deepEqual(steps, [])
+    await page.act(async () => namedButton(page, '确认删除并重启').click())
+    assert.deepEqual(steps, [['uninstall', { confirmed: true }]])
+    assert.match(page.text(), /暂时无法排队/)
+    queued = true
+    await page.act(async () => namedButton(page, '确认删除并重启').click())
+    assert.deepEqual(steps.slice(1), [['uninstall', { confirmed: true }], { type: 'quit' }])
+    assert.match(page.text(), /两分钟内从应用菜单或托盘退出 NEXT/)
+    assert.equal(namedButton(page, '删除 DSH 酒馆').disabled, true)
+  } finally {
+    await page.dispose()
+  }
+})
+
 test('迁移只接受绝对路径，显示失败后保留输入允许取消或重试', async () => {
   const page = await mount(managedStatus, [], { rpc: async endpoint => endpoint === 'status'
     ? { ok: true, value: managedStatus } : { ok: false, error: { message: '目标目录非空' } } })

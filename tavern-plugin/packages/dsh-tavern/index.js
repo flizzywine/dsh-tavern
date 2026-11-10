@@ -66,7 +66,7 @@ export const inject = ['connection', 'profileContext', 'webServer']
 
 /**
  * Prepare and launch one switch operation.
- * @param {'link' | 'unlink'} mode - operation to perform.
+ * @param {'link' | 'unlink' | 'install' | 'relocate' | 'uninstall'} mode - operation to perform.
  * @param {ReturnType<typeof launcherPaths>} paths - resolved plugin paths.
  * @param {unknown} payload - browser request payload.
  * @returns {object} JSON-safe receipt for the UI.
@@ -88,14 +88,14 @@ async function runSwitch(mode, paths, payload, updateInstallation) {
   const management = ['relocate', 'uninstall'].includes(mode)
     ? validateInstallationRequest(paths, mode, request) : undefined
   const target = mode === 'link' ? validateTarget(paths, request.target) : undefined
-  const relaunch = mode === 'install' ? process.execPath : detectAppExe()
+  const relaunch = next || mode === 'install' ? process.execPath : detectAppExe()
   if (!process.versions.electron || !process.send || process.ppid <= 1) {
     fail('not-desktop', '请在 DSH 桌面中执行此操作。')
   }
   // Snapshot before quitting: detached children lose a trustworthy parent once it exits.
   const ownership = await captureOwnedProcesses([process.pid, process.ppid])
   const result = scheduleSwitch({ ...management, mode, host: paths.host, appDir: updateInstallation?.logicalAppDir,
-    home: paths.home, profilesRoot: paths.profilesDir, liveDir: paths.activeDir,
+    home: paths.home, profilesRoot: management?.profilesRoot ?? paths.profilesDir, liveDir: management?.liveDir ?? paths.activeDir,
     activeName: paths.activeName, targetDir: target?.dir, stateDir: paths.stateDir,
     stamp: new Date().toISOString().replace(/[:.]/g, '-') + '-' + process.pid,
     pids: [process.pid, process.ppid], ownership, relaunch })

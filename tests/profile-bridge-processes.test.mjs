@@ -40,6 +40,7 @@ test('identity waits are bounded and cleanup records reused PID skips', async ()
   let script
   await waitForOwnedExit(ownership, { timeout: 123, inspect: async (body, options) => { script = body; assert.equal(options.timeout, 30123); return true } })
   assert.match(script, /WaitExit/)
+  await assert.rejects(waitForOwnedExit(ownership, { inspect: async () => false }), /等待桌面退出超时/)
   const logs = []
   const result = await cleanupOwnedProcesses(ownership, { platform: 'win32', log: line => logs.push(line), inspect: async body => {
     assert.match(body, /Desktop is still running/)

@@ -80,7 +80,8 @@ window.__ModuleLoader__.load({
       nextUpdateReady: '新版已准备好，程序和配置均已验证。保存工作后，重启 NEXT 即可切换。',
       nextUpdateRestarting: '正在退出 NEXT，切换后会自动打开。若窗口仍在，请从应用菜单或托盘退出。',
       nextRestartUpdate: '重启并应用更新',
-      nextManage: '请切回原版 DSH，再管理酒馆安装。',
+      nextManage: '请在原版 DSH 或酒馆配置中删除酒馆。',
+      nextUninstallWarning: '请先保存工作。确认后 NEXT 将退出，删除完成后会重新打开原版 DSH。',
       nextQuit: '请在两分钟内从应用菜单或托盘退出 NEXT。操作完成后会重新打开。',
       startupTitle: '默认启动配置',
       startupOriginal: '下次从官方入口启动时打开原版 DSH。',
@@ -180,7 +181,8 @@ window.__ModuleLoader__.load({
       nextUpdateReady: 'The new version and profile have been verified. Save your work and restart NEXT to switch.',
       nextUpdateRestarting: 'NEXT is closing and will reopen after switching. If the window stays open, quit from the menu or tray.',
       nextRestartUpdate: 'Restart and apply update',
-      nextManage: 'Switch back to original DSH to manage this installation.',
+      nextManage: 'Remove Tavern from the original DSH or Tavern Profile.',
+      nextUninstallWarning: 'Save your work first. NEXT will quit after confirmation and reopen in original DSH when removal finishes.',
       nextQuit: 'Quit NEXT from the app menu or tray within two minutes. It reopens after the operation.',
       startupTitle: 'Default startup profile',
       startupOriginal: 'The next fresh launch opens original DSH.',
@@ -437,7 +439,8 @@ window.__ModuleLoader__.load({
       const installation = status?.installation
       const showUpdates = isDesktop && (status?.desktopApp === true || status?.desktopTavernWindow === true) && installation?.available && !status?.installAvailable
       const updating = updateInProgress(update?.phase)
-      const managementBlocked = !isDesktop || status?.desktopApp !== true || (next && current !== 'desktop') || !installation?.available || busy || pending || !!updateAction || updating || Boolean(lastFailure?.recoveryRequired)
+      const nextManagementUnavailable = next && !['desktop', 'tavern'].includes(current)
+      const managementBlocked = !isDesktop || status?.desktopApp !== true || nextManagementUnavailable || !installation?.available || busy || pending || !!updateAction || updating || Boolean(lastFailure?.recoveryRequired)
       React.useEffect(() => {
         if (!showUpdates || updateAction) return
         let alive = true, timer
@@ -527,6 +530,9 @@ window.__ModuleLoader__.load({
             setApplied(result.value ?? {})
             setStatus(previous => ({ ...previous, lastResult: { status: 'pending', mode: managementAction, stamp: result.value?.stamp } }))
             setManagementAction(null)
+            if (next && managementAction === 'uninstall') {
+              try { await window.desktopNext?.command?.({ type: 'quit' }) } catch { /* Keep the manual exit hint. */ }
+            }
           } else setFailure(describeFailure(result?.error))
         } catch (error) {
           setFailure(describeFailure(error))
@@ -546,7 +552,7 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'pb-btn', disabled: busy, onClick: () => void openOriginal() }, t('openOriginal')),
         ) : blocked ? h('p', { className: 'pb-error' }, blocked) : h('div', { className: 'pb-bar' },
           h('span', { className: 'pb-bar-text' },
-            next && pending && !nextUpdatePreparation ? t('nextQuit') : status?.lastResult?.mode === 'install' ? `${t('current')} · ${currentLabel ? t(currentLabel) : current}` : manualQuitPending ? t('quitHint') : applied === null ? (pending ? t('restarting') : `${t('current')} · ${currentLabel ? t(currentLabel) : current}`) : applied.closesApp ? t('restarting') : t('quitHint'),
+            next && pending && !nextUpdatePreparation ? t(status.lastResult?.mode === 'uninstall' ? 'restarting' : 'nextQuit') : status?.lastResult?.mode === 'install' ? `${t('current')} · ${currentLabel ? t(currentLabel) : current}` : manualQuitPending ? t('quitHint') : applied === null ? (pending ? t('restarting') : `${t('current')} · ${currentLabel ? t(currentLabel) : current}`) : applied.closesApp ? t('restarting') : t('quitHint'),
             ...(applied?.warnings ?? []).map((warning) => h('span', { key: warning, style: { display: 'block', opacity: 0.75 } }, `• ${warning}`)),
           ),
           applied !== null && !manualQuitPending ? null : h('div', { className: 'pb-actions' }, ...options.map(({ name, action }) =>
@@ -630,8 +636,8 @@ window.__ModuleLoader__.load({
           h('p', null, t('backupSpace')),
           !installation.available ? h('p', { className: 'pb-error' }, installation.reason || t('unavailable')) : null,
           !isDesktop || status?.desktopApp !== true ? h('p', null, t('desktopOnly')) : null,
-          next && current !== 'desktop' ? h('p', null, t('nextManage')) : null,
-          pending ? h('p', { role: 'status' }, t('operationPending')) : null,
+          nextManagementUnavailable ? h('p', null, t('nextManage')) : null,
+          pending ? h('p', { role: 'status' }, t(next && status.lastResult?.mode === 'uninstall' ? 'nextQuit' : 'operationPending')) : null,
           status?.lastResult?.status === 'succeeded' && ['relocate', 'uninstall'].includes(status.lastResult.mode)
             ? h('p', { role: 'status' }, t('operationDone')) : null,
           h('div', { className: 'pb-actions' },
@@ -644,7 +650,7 @@ window.__ModuleLoader__.load({
               h('input', { id: 'pb-destination', className: 'pb-input', type: 'text', value: destination, disabled: busy || pending, autoComplete: 'off', spellCheck: false, 'aria-describedby': 'pb-destination-hint', onChange: event => setDestination(event.target.value) }),
               h('p', { id: 'pb-destination-hint', className: 'pb-sub' }, t('destinationHint')),
             ) : h('p', null, t('uninstallScope')),
-            h('p', null, t(next ? 'nextQuit' : 'restartWarning')),
+            h('p', null, t(next ? 'nextUninstallWarning' : 'restartWarning')),
             h('div', { className: 'pb-actions' },
               h('button', { type: 'button', className: 'pb-btn', disabled: managementBlocked || (managementAction === 'relocate' && !absoluteDestination), onClick: () => void confirmManagement() }, t(managementAction === 'relocate' ? 'confirmRelocate' : 'confirmUninstall')),
               h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy || pending, onClick: () => { setManagementAction(null); setDestination(''); setFailure(null) } }, t('cancel'))),

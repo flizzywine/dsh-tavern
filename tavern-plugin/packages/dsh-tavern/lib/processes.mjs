@@ -184,9 +184,10 @@ $roots = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}
 $watch = [Diagnostics.Stopwatch]::StartNew()
 foreach ($root in $roots) {
   $remaining = [Math]::Max(0, ${Math.max(0, Math.floor(timeout))} - $watch.ElapsedMilliseconds)
-  if (-not [BridgeProcesses]::WaitExit([int]$root.pid, [string]$root.created, [uint32]$remaining)) { throw '等待桌面退出超时，未修改 profile；请正常退出后重试' }
+  if (-not [BridgeProcesses]::WaitExit([int]$root.pid, [string]$root.created, [uint32]$remaining)) { 'false'; return }
 }
 ' true '
 `, { timeout: timeout + 30000 })
+  if (result === false) throw new Error('等待桌面退出超时，未修改 profile；请正常退出后重试')
   if (result !== true) throw new Error('无法确认桌面进程已退出')
 }
