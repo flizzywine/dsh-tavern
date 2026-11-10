@@ -18,14 +18,20 @@ export function createPluginVariableWriter({ readState, readSlice, activity, gen
       const state = await readState(sessionId)
       writable(state, taskOperation)
       if (state.messages.findLastIndex(row => row?.role === 'assistant') !== material.index) throw stale()
-      const selected = await readSlice(sessionId, [material.index], ['_storageRevision'])
+      const selected = await readSlice(sessionId, [material.index], ['_storageRevision', 'mvu.enabled', 'mvu.owner'])
       if (!selected) throw stale()
       if (state._storageRevision !== selected.chat._storageRevision) continue
       const row = selected.chat.messages?.[0]
       if (!row || row.role !== 'assistant' || Number(row.turn || (row.greeting ? 1 : 0)) !== material.turn
         || await currentKey(sessionId, material.turn) !== material.key) throw stale()
       const next = Array.isArray(row.variables) ? row.variables.slice() : []
-      next[Math.max(0, Number(row.swipeId) || 0)] = variables
+      const swipe = Math.max(0, Number(row.swipeId) || 0)
+      const savedSchema = next[swipe]?.schema
+      // Official MVU may finish initializing after the plugin reads the opening.
+      // Replacing stat_data must not undo a schema saved in the meantime.
+      next[swipe] = selected.chat.mvu?.enabled === true && selected.chat.mvu.owner === 'official'
+        && Object.hasOwn(variables, 'stat_data') && !Object.hasOwn(variables, 'schema') && savedSchema !== undefined
+        ? { ...variables, schema: savedSchema } : variables
       writable(state, taskOperation)
       const saved = await patch(selected.chat.id, selected.chat._storageRevision,
         [{ op: 'set', path: ['messages', material.index, 'variables'], value: JSON.parse(JSON.stringify(next)) }], { source: 'plugin.variables' })

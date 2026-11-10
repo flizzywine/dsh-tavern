@@ -6,8 +6,9 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
 
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
-function harness() {
+function harness({ official = false } = {}) {
   let chat = { id: 'chat', sessionId: 'game', mode: 'story', _storageRevision: 1, settleStatus: 'done',
+    ...(official ? { mvu: { enabled: true, owner: 'official' } } : {}),
     messages: [{ role: 'user', text: '输入' }, { role: 'assistant', turn: 3, text: 'version-1', variables: [{ hp: 10 }] }] }
   const copy = () => structuredClone(chat)
   const save = value => { chat = { ...structuredClone(value), _storageRevision: chat._storageRevision + 1 }; return copy() }
@@ -22,7 +23,7 @@ function harness() {
     readState: async () => copy(),
     readSlice: async () => {
       const hook = state.beforeSlice; state.beforeSlice = null; await hook?.()
-      return { chat: { id: chat.id, _storageRevision: chat._storageRevision, messages: [structuredClone(chat.messages[1])] } }
+      return { chat: { id: chat.id, _storageRevision: chat._storageRevision, mvu: chat.mvu, messages: [structuredClone(chat.messages[1])] } }
     },
     activity: coordinator.activity, generating: () => state.generating,
     currentKey: async () => material().key,
@@ -44,7 +45,7 @@ function harness() {
     try { return await work(task.operationId) } finally { await task.commit({ stateChanged: false }) }
   }
   return { api, service: api.service, coordinator, state, material, writer, input, around, copy,
-    writes: () => writes, changeText() { const next = copy(); next.messages[1].text = 'version-2'; save(next) } }
+    writes: () => writes, saveVariables(variables) { const next = copy(); next.messages[1].variables[0] = variables; save(next) }, changeText() { const next = copy(); next.messages[1].text = 'version-2'; save(next) } }
 }
 
 test('结算后任务可以改变量，后续任务读到新值；任务外和其他插件不能借用权限', async () => {
@@ -96,3 +97,13 @@ for (const boundary of ['beforeSlice', 'beforePatch']) {
     assert.equal(h.writes(), 0)
   })
 }
+
+test('official MVU keeps the schema initialized while a plugin writes opening state', async () => {
+  const h = harness({ official: true })
+  h.saveVariables({ stat_data: { hp: 10 } })
+  const schema = { type: 'object', properties: { hp: { type: 'number' } } }
+  h.state.beforePatch = () => h.saveVariables({ stat_data: { hp: 10 }, schema })
+  await h.service.setVariables(h.input({ stat_data: { hp: 8 } }))
+  assert.deepEqual(h.copy().messages[1].variables[0], { stat_data: { hp: 8 }, schema })
+  assert.equal(h.writes(), 1)
+})

@@ -1091,7 +1091,7 @@ export function createTavernPluginApi(deps) {
       return await deps.readHistory(game.sessionId, first, Math.min(last, first + MAX_HISTORY_TURNS - 1))
     },
 
-    // Replace the variables of the latest turn's shown version (after its settlement).
+    // Replace the latest settled version's variables; official MVU keeps an omitted schema.
     async setVariables({ gameId, turn, textVersion, variables } = {}) {
       const owner = ownerOf(this)
       const material = await writableTurn(owner, gameId, turn, textVersion, 'setVariables')

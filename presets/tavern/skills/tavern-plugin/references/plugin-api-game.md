@@ -390,6 +390,8 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, text }) => {
 
 用 `variables` 整个替换这一轮当前版本的消息变量（结构同 `onTurnSettled` 收到的 `variables`，MVU 卡的数据在 `stat_data` 下）。先读、改、再整个写回：
 
+在使用官方 MVU 的对话中，如果本次提交包含 `stat_data` 但未传 `schema`，会保留当前版本已经保存的 `schema`。显式提交 `schema` 时使用提交值。
+
 ```js
 ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
   if (!variables?.stat_data) return
