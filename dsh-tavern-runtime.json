@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "682bd1fb330fa1a01b07d53a1f566b0e813956d9",
-  "releaseSequence": 1421,
+  "revision": "2aa9d3bb943e3fa037804670b6fa63988a8ba938",
+  "releaseSequence": 1422,
   "version": "3.3.0",
   "files": [
     {
@@ -101,8 +101,8 @@
     },
     {
       "path": "bin/application-update.mjs",
-      "sha256": "8607077060d778920a58af88e3a4787c323ab42c34b605fdaeeb7cd9298cf56a",
-      "size": 22118
+      "sha256": "389c5ca6e72f2859a8ce6634a753a7035e1c70adf5b6bd3579ad4aaa64f61192",
+      "size": 26003
     },
     {
       "path": "bin/build-image-client.mjs",
@@ -256,8 +256,8 @@
     },
     {
       "path": "bin/installation-state.cjs",
-      "sha256": "71aadf22bb8dc1cf95ccf8e0f5ad95297f8a863924db39c83a6ea2c2203116c7",
-      "size": 18528
+      "sha256": "9cdf6bb6756f2fe1816b3302463a12b36ce52d12ca53ff48c1f6a13b1a672f49",
+      "size": 18786
     },
     {
       "path": "bin/launcher-environment.mjs",
@@ -391,8 +391,8 @@
     },
     {
       "path": "bin/staged-app-install.mjs",
-      "sha256": "862e553425223872d1a7cf16fd21e6a088f6f204979845f176e4987210cd1293",
-      "size": 9807
+      "sha256": "a1bda3876a47d16853aa866ad2764d97cf5663914cdce7b74d2de4c0c07a1096",
+      "size": 10050
     },
     {
       "path": "bin/system-proxy.mjs",
@@ -511,13 +511,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "795149a8dd5efd0de2a6c4422cb228ce7e75c0db99fa202de737725d684abcaf",
-      "size": 121410
+      "sha256": "795646f6af3b6ec679c4a0642eb482b966218bcce8440006cec03fca8a65e800",
+      "size": 121773
     },
     {
       "path": "install.sh",
-      "sha256": "a9f6552d1aa5099a6761a84c593b5109b82115c361dd61a376e820a17d02855f",
-      "size": 91458
+      "sha256": "5ceb38c71a5674efdb9d42fb7fd65dbe6d658c119e64bce661c204bb2175ce63",
+      "size": 91716
     },
     {
       "path": "package.json",
@@ -901,8 +901,8 @@
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
-      "sha256": "e373ce3faac1795bcfe8e8591ef41aa27898c7f8892f92647d7f69506f06f736",
-      "size": 48064
+      "sha256": "1eed44e6ee83038f85de9e89070c9995e164e51afc27182e71f14875116250fd",
+      "size": 48673
     },
     {
       "path": "tavern-plugin/lib/background-agent-runner.js",
@@ -1016,8 +1016,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "1f3f153f9c3251721aa6516635e3971cb09b2f423e208847c751b4fd6028abab",
-      "size": 5741426
+      "sha256": "fd5767ceaa7116a00e3dce8c38849a0b97a419110eed771c8b08f2f616a51798",
+      "size": 5741563
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -3621,8 +3621,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/update-status-controller.js",
-      "sha256": "ad6f23efd8e4ec8bea3fed4269d2bac234cdd7215fa96fe237a6a4aaf6603ade",
-      "size": 9898
+      "sha256": "176421ba237f99ec046d5b322316f1afb17a4df0e534e4bec68015dcb719842d",
+      "size": 10035
     },
     {
       "path": "tavern-plugin/lib/domain/uploads.js",
@@ -8031,8 +8031,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/client.js",
-      "sha256": "b3dfa018a683293893779558112542553508bb77bd5cf793b004cdc54dbcef1b",
-      "size": 46921
+      "sha256": "b65de75cddbdb4e83128bed03558948261523e482f78af78ba93faf9d6fdbab9",
+      "size": 47801
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/cordis.patch.yml",
@@ -8046,13 +8046,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/index.js",
-      "sha256": "edc2cab09261464911bce6b085dfcebf97cad207015d4facfee7df2a82d8c6a2",
-      "size": 14522
+      "sha256": "27b8ff54f2f81e2d865f0dd671bd4bad5a81d37b71dc6d60d01ecd9f43a282b3",
+      "size": 15028
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/helper.mjs",
-      "sha256": "7c5b80bc13504005a97bc775dea4b2d666ca43f0f4def6a74a91962c15179878",
-      "size": 24139
+      "sha256": "293dc5244f7a6926cbac51b58b8402d8642db6634fc9b6b580d960f0cf08a306",
+      "size": 24174
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/installation-processes.mjs",
@@ -8466,9 +8466,9 @@
     }
   ],
   "archive": {
-    "commit": "dd179d8fefe42740a9b974464ad2535fcb8dda8a",
+    "commit": "e218c3549463e7b7f132a84297f9b6e0d6dcb984",
     "path": "runtime.zip",
-    "sha256": "b6830f0eeab282e7efd3d7a8f17ae7317c2f6925c4a0e69fc8f06d99e22ef16c",
-    "size": 15119960
+    "sha256": "3d58b57b66d382bff4d15ea8314a0e3ad231ca03c31d6a95cfd1821cc3f0433e",
+    "size": 15121799
   }
 }
