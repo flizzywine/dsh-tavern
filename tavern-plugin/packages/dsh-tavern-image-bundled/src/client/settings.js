@@ -1083,7 +1083,6 @@
           patch(index, changes)
         }
         // 注意：peopleTab 是被调用的普通函数，不能用 hooks（会让 SettingsPanel 的 hooks 数不稳定）
-        onDesignResult = () => { refresh() }
         function setCharacters(update) {
           const current = dataRef.current
           const before = current?.definitions?.characters || []
