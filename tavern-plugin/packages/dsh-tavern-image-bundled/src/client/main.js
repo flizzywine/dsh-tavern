@@ -190,9 +190,7 @@ let openImageOverlay = null
         })
       } catch (error) { reportHost('apply-report-failed', { message: String(error && error.message) }) }
       try {
-        // 默认：标记通道按配置走；规划通道读不到配置就先不开（免得每轮白跑一次模型）
-        // 默认先按「开」处理：渲染器可能在配置读回来之前就被调用，第一次太保守会整条消息都不接管
-        const settings = { autoImageGen: true, plannerEnabled: true, smartImageSelection: true, imageEnabled: true }
+        const settings = { smartImageSelection: true, imageEnabled: true }
         // 配图总开关变化时重新登记 illustrator（关掉时不给 draw，Tavern 就不显示配图按钮）。
         let refreshIllustrator = null
         const applyImageEnabled = value => {
@@ -204,14 +202,12 @@ let openImageOverlay = null
         window.addEventListener('dsh-tavern-image:config', event => applyImageEnabled(event?.detail?.imageEnabled))
         jsonFetch(`${BASE}/state`).then(state => {
           if (state?.config) {
-            settings.autoImageGen = state.config.autoImageGen !== false
-            settings.plannerEnabled = state.config.plannerEnabled !== false
             settings.smartImageSelection = state.config.smartImageSelection !== false
             applyImageEnabled(state.config.imageEnabled)
             // 正文插图统一宽度：每次启动都从 /state 读回来，所以刷新 / 重启之后依然生效。
             applyImageWidth(state.config.imageDisplayWidth)
           }
-        }).catch(() => { /* 拿不到配置就安静退化成只在有标记时出图 */ })
+        }).catch(() => { /* 读取失败时沿用默认值 */ })
 
         // 全屏看图浮层
         try {

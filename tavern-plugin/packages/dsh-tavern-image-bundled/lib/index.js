@@ -28,7 +28,6 @@ import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile 
 import { createReadStream } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildAutoImageGenPrompt } from './prompts.js'
 import { installTavernBridge, removeMountedPicture } from './tavern-bridge.js'
 import { readImageFileMetadata } from './image-file-metadata.js'
 import { createPluginUpdater } from './updater.js'
@@ -72,8 +71,6 @@ const CONFIG_PATH = join(ROOT, 'config.json')
 const DEFS_PATH = join(ROOT, 'definitions.json')
 const WORKFLOW_DIR = join(ROOT, 'workflows')
 const CONSOLE_PATH = join(ROOT, 'console.html')
-const AUTO_SECTION = 'dsh-tavern-image:auto-image'
-const AUTO_SECTION_ORDER = 10150
 // text = 文生图；reference = 必须用参考图；auto = 有参考图就用，没有就按文生图画这一张
 const GENERATION_MODES = ['text', 'reference', 'auto']
 function workflowAcceptsReferences(workflow) {
@@ -1217,33 +1214,6 @@ async function handleJobs(request, response, url, engine) {
   if (!job) { sendJson(response, 404, { ok: false, error: 'job-not-found' }); return }
   if (url.searchParams.get('image') === '1') { engine.sendImage(response, job, request.headers.range); return }
   sendJson(response, 200, { ok: true, job: engine.publicJob(job) })
-}
-
-// =====================================================================
-// 自动生图提示词注入
-// =====================================================================
-
-function installAutoImagePrompt(ctx, ready) {
-  if (typeof ctx.inject !== 'function') return
-  // 拿到的就是运行时那个 config 对象本身，所以控制台一改开关，下一次装配立刻生效。
-  let configRef = null
-  ready()
-    .then(engine => { configRef = engine.currentConfig() })
-    .catch(error => ctx.logger?.warn?.('dsh-tavern-image: 自动生图规则未就绪：' + (error?.message ?? error)))
-  ctx.inject(['systemPrompt'], scoped => {
-    const systemPrompt = scoped.systemPrompt
-    if (!systemPrompt || typeof systemPrompt.section !== 'function') {
-      scoped.logger?.warn?.('dsh-tavern-image: 当前 DSH 没有 systemPrompt.section，自动生图规则未注入')
-      return
-    }
-    const register = () => systemPrompt.section({
-      name: AUTO_SECTION,
-      order: AUTO_SECTION_ORDER,
-      text: () => (configRef?.autoImageGen ? buildAutoImageGenPrompt(configRef.imageGenCount) : ''),
-    })
-    if (typeof scoped.effect === 'function') scoped.effect(register, 'dsh-tavern-image: auto image section')
-    else register()
-  })
 }
 
 // =====================================================================
