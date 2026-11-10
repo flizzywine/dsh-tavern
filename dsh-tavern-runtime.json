@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "4b05998e439020e5a8e1da515d8ec24800ba47de",
-  "releaseSequence": 1415,
+  "revision": "87ace59a6995afb0fd7d0471cb66b8b29a7a4183",
+  "releaseSequence": 1416,
   "version": "3.3.0",
   "files": [
     {
@@ -1016,8 +1016,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "c734367cb0ce917159ef70cdf6bed1a4d6988cc6efd7487d160dedca88eb5a87",
-      "size": 5733925
+      "sha256": "f776dd5bbf5884676c4b362b56edcf9076a5e45aea01ac566e84b36844803f6d",
+      "size": 5734268
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1461,13 +1461,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/chat-history-import-service.js",
-      "sha256": "de53eaded8e7ba3bb10907294b695e722c56d71fa8317c21c8a7e4cd804b9246",
-      "size": 12171
+      "sha256": "5531eb67f11c991656c154a553d4fbe9db1603be5e0a24526c3eb154efd7374f",
+      "size": 12452
     },
     {
       "path": "tavern-plugin/lib/domain/chat-history-import.js",
-      "sha256": "68e2b548f412a5f4dc7d4ce4828222fc5a118cafd37dc3bcb1496fdd1086d3c2",
-      "size": 4395
+      "sha256": "6c3c087d4d72bd65ef9b30d388108e5a11ee3da00ea90d2f4b8f59c456bd47e5",
+      "size": 4599
     },
     {
       "path": "tavern-plugin/lib/domain/chat-history-rescue.js",
@@ -3161,8 +3161,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/sillytavern-migration-helper.js",
-      "sha256": "29d1cc0f95369d8f1e0897568f553cf4cc403d52570afc55d4bbef76e9a8b4ef",
-      "size": 61453
+      "sha256": "5db82e560b185f6b50c4fe7204b851f1349643dbf65e70bb41eb820e19d8a30f",
+      "size": 65037
     },
     {
       "path": "tavern-plugin/lib/domain/skill-catalog-session-scope.js",
@@ -6591,8 +6591,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/lib/status.js",
-      "sha256": "398c7f55280baa6c3e75d35324848a342c79b24e0550bad92e4e4838818afaf7",
-      "size": 2845
+      "sha256": "1129365111f161101bb0989da2cae521a57e0df6257a7d1e98bf7b2556e72a38",
+      "size": 3504
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/lib/verify.js",
@@ -6611,8 +6611,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/scripts/install-on-dshgo.mjs",
-      "sha256": "e73eea0404e9fc5a7280476c992fb5eb05cd4367547d463bde1895bd06b3fe3c",
-      "size": 10264
+      "sha256": "d31b066279d3808fcde9fc738da6d3cc70e6cfc973a0a9802adcfc1013eff146",
+      "size": 10767
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/scripts/verify-on-dshgo.mjs",
@@ -8466,9 +8466,9 @@
     }
   ],
   "archive": {
-    "commit": "dee9c245a78215ed3589897501ceaabbc88108c9",
+    "commit": "230ed7b19c4ae77b9ac8c5dcc50d6ce76e7fcd75",
     "path": "runtime.zip",
-    "sha256": "d769ff08e4c6c83445a57c6dfaae2b7aa5a838e4fc79944139889bfd4e707e17",
-    "size": 15110246
+    "sha256": "366d69311fd483aeb283a29a6b77bae29dfe40c76915abf40244773413fff300",
+    "size": 15111535
   }
 }
