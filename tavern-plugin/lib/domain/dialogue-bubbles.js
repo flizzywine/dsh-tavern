@@ -1,7 +1,7 @@
 import { promptSection } from './prompt-section.js'
 import { prompt } from '../prompt-catalog.js'
 import figureResolution from '../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'
-const { figureSpeakerHandle } = figureResolution
+const { createSpeakerHandleResolver } = figureResolution
 // optional height fields never infer a height for legacy characters.
 import { figureCharacter } from './figure-scale.js'
 import { matchBubbleMood, figureBubbleMoods, bubbleCharacter, effectiveVoiceLanguage, voiceTranslates } from '../../src/client/bubble-line.cjs'
@@ -259,13 +259,14 @@ function voicedBubblesSection(current, characters) {
 }
 function rosterGroups(current, speakerRows, characters) {
   const groups = new Map(), packIds = []
+  const speakerHandle = createSpeakerHandleResolver(speakerRows)
   let hasTranslation = false
   for (const character of characters) {
     const translated = bubbleVoiceSwitches(current, character).voiceTranslates
     if (translated) hasTranslation = true
-    const name = figureSpeakerHandle(speakerRows, character) + '|' + (character.name || character.alias)
+    const name = speakerHandle(character) + '|' + (character.name || character.alias)
       + (translated ? PROMPT_PROSE.p018 + languageDisplayName(character.voiceLang, 'en') + ']' : '')
-    const rows = effectiveBubbleMoods(current, character.alias)
+    const rows = figureBubbleMoods([], character.emotions)
       .filter(row => !character.promptEmotionIds || character.promptEmotionIds.includes(row.id))
 
     // the migration's exact stock sentence is not authored guidance.
