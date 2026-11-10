@@ -408,6 +408,23 @@ for (const thrown of [false, true]) test('重生成保留真实结算错误但�
   assert.ok(!h.calls.includes('foreground.regen-abort'))
 })
 
+test('重生成先交回正文后，迟到的结算错误仍写入存档', async () => {
+  const h = harness({ checkpoint: true })
+  const settlement = Promise.withResolvers()
+  h.options.queueSettlement = () => settlement.promise
+  h.options.trace = { stage: (name, task) => name === 'regen.settlement' ? false : task() }
+
+  const view = await h.create().regenerate('chat', '', 'session')
+  assert.equal(view.messages.at(-1).text, '新正文3')
+  assert.equal(view.settleStatus, 'pending')
+
+  settlement.reject(new Error('后台连接断开'))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(h.chat.settleStatus, 'failed')
+  assert.equal(h.chat.settleError, '后台连接断开')
+  assert.equal(h.chat.messages.at(-1).text, '新正文3')
+})
+
 for (const mode of ['throw', 'missing', 'empty']) test('重生成 '+mode+' 保持旧正文已删除且不排后台结算', async () => {
   const h = harness()
   const original = structuredClone(h.chat.messages)

@@ -762,33 +762,29 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // view never reached the transcript. A failed or slow settlement must not keep
     // the new body off the page: report what has been committed, and let the
     // settlement's own state (settleStatus / activity) arrive through the save.
-    let settledChat = committedChat
-    const settlement = Promise.resolve(queueSettlement(committedChat.id))
-    try {
-      const finished = await stage('regen.settlement', () => Promise.race([
-        settlement.then(() => true),
-        new Promise(function (resolve) { setTimeout(finished => resolve(finished), REGEN_SETTLEMENT_WAIT_MS, false) })
-      ]))
-      if (finished) settledChat = await stage('regen.settled-read', () => readChat(committedChat.id)) || committedChat
-      else void settlement.catch(async error => {
-        const message = str(error?.message || error) || '后台结算失败'
-        try {
-          await updateChat(committedChat.id, function (current) {
-            if (!current || typeof current !== 'object') return current
-            current.settleStatus = 'failed'
-            current.settleError = message
-            return current
-          }, { source: 'settlement.regen-failed' })
-        } catch (failure) { console.warn('dsh-tavern: 重新生成结算失败状态未保存', str(failure?.message || failure)) }
-      })
-    } catch (error) {
+    const saveSettlementFailure = error => {
       const message = str(error?.message || error) || '后台结算失败'
-      settledChat = await updateChat(committedChat.id, function (current) {
+      return updateChat(committedChat.id, current => {
         if (!current || typeof current !== 'object') return current
         current.settleStatus = 'failed'
         current.settleError = message
         return current
       }, { source: 'settlement.regen-failed' })
+    }
+    let settledChat = committedChat
+    const settlement = Promise.resolve(queueSettlement(committedChat.id))
+    try {
+      const finished = await stage('regen.settlement', () => Promise.race([
+        settlement.then(() => true),
+        new Promise(resolve => setTimeout(resolve, REGEN_SETTLEMENT_WAIT_MS, false))
+      ]))
+      if (finished) settledChat = await stage('regen.settled-read', () => readChat(committedChat.id)) || committedChat
+      else void settlement.catch(async error => {
+        try { await saveSettlementFailure(error) }
+        catch (failure) { console.warn('dsh-tavern: 重新生成结算失败状态未保存', str(failure?.message || failure)) }
+      })
+    } catch (error) {
+      settledChat = await saveSettlementFailure(error)
     }
     const result = await stage('regen.present', () => view(settledChat, card))
     result.adopted = { text: body, guidance: guide, hiddenTurn: failedTail ? storyTurn : oldTurn, syntheticTurn }
