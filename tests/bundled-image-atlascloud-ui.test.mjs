@@ -28,7 +28,7 @@ function binding(name) {
 }
 const fragments = [
   ...['config', 'imageBackend', 'providers', 'selectedChannel'].map(binding),
-  between(settings, '\n      function post(', '\n      function mergePluginUpdateLocalStatus('),
+  between(settings, '\n      function post(', '\n      async function save('),
   between(settings, '\n      async function save(', '\n      async function saveDisplayWidth('),
   between(settings, '\n      function ComfyBackendCard(', '\n      function imageDisplayCard('),
   between(settings, '\n      function worldbookTab(', '\n      function galleryTab('),
