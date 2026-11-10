@@ -281,15 +281,11 @@ export function createTavernPluginApi(deps) {
   }
 
   /** Card plugins (card-plugins.js): those of another card than this game's, and this card's own. */
-  async function cardPluginsFor(game) {
-    let scopes = null
-    if (deps.cardScope) {
-      try { scopes = await deps.cardScope() } catch { return [] }
-      if (!(scopes instanceof Map)) return []
-    }
-    if (!scopes?.size) return { elsewhere: new Set(), own: new Set() }
-    const cardPath = game && deps.cardPathOf ? await deps.cardPathOf(game.sessionId).catch(() => null) : null
+  async function cardPluginsFor(game, knownCardPath) {
+    const scopes = deps.cardScope ? await deps.cardScope().catch(() => null) : null
     const elsewhere = new Set(), own = new Set()
+    if (!(scopes instanceof Map) || !scopes.size) return { elsewhere, own }
+    const cardPath = knownCardPath ?? (game && deps.cardPathOf ? await deps.cardPathOf(game.sessionId).catch(() => null) : null)
     for (const [name, scope] of scopes) (scope.cards.includes(cardPath) ? own : elsewhere).add(name)
     return { elsewhere, own }
   }
@@ -1805,7 +1801,11 @@ export function createTavernPluginApi(deps) {
     const gameId = gameIdOf(input.gameId)
     const material = deps.readPendingTurn ? await deps.readPendingTurn(gameId).catch(() => null) : null
     if (!material || material.turn !== Number(input.turn) || typeof material.key !== 'string') return null
-    const choices = await choicesFor(gameId)
+    // Pending turn material already includes the card path from its chat header.
+    const scopeFor = turn => typeof turn.card?.path === 'string'
+      ? cardPluginsFor(null, turn.card.path)
+      : choicesFor(gameId)
+    const choices = await scopeFor(material)
     const entries = Array.from(mvuSettlementProviders.values()).filter(entry => choices.own.has(entry.owner))
       .sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))
     if (entries.length !== 1) {
@@ -1823,13 +1823,13 @@ export function createTavernPluginApi(deps) {
       recordError(gameId, entry.owner, 'mvuSettlementProvider', error)
       throw error
     }
+    if (result === null || result === false) return null
     // A callback may finish after unload, a card switch, or the canonical text changes.
-    if (mvuSettlementProviders.get(entry.owner + '\u0000' + entry.name) !== entry) return null
-    const latest = await choicesFor(gameId)
-    if (!latest.own.has(entry.owner) || latest.disabled.has(entry.owner)) return null
     const current = await deps.readPendingTurn?.(gameId).catch(() => null)
     if (!current || current.turn !== material.turn || current.key !== material.key) return null
-    if (result === null || result === false) return null
+    if (typeof material.card?.path === 'string' && typeof current.card?.path === 'string' && current.card.path !== material.card.path) return null
+    const latest = await scopeFor(current)
+    if (!latest.own.has(entry.owner) || mvuSettlementProviders.get(entry.owner + '\u0000' + entry.name) !== entry) return null
     if (!result || typeof result !== 'object' || !Array.isArray(result.operations)) {
       throw new Error('MVU 提供器必须返回 { operations } 或 null')
     }

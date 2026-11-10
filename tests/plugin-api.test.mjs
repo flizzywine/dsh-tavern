@@ -131,10 +131,13 @@ test('共享预设 API 支持指定预设和跟随本局', { skip: !cordis }, as
 
 test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis 卸载撤销', { skip: !cordis }, async t => {
   let cardPath = '/cards/a.json'
+  let includeCardPath = true
+  const reads = { game: 0, card: 0, scope: 0 }
   const h = await harness(t, {
-    cardScope: async () => new Map([['card-provider', { cards: ['/cards/a.json'] }]]),
-    cardPathOf: async () => cardPath,
-    readPendingTurn: async () => turnMaterial()
+    resolveGame: async sessionId => { reads.game++; return { chatId: 'chat-1', sessionId } },
+    cardScope: async () => { reads.scope++; return new Map([['card-provider', { cards: ['/cards/a.json'] }]]) },
+    cardPathOf: async () => { reads.card++; return cardPath },
+    readPendingTurn: async () => turnMaterial({ card: includeCardPath ? { path: cardPath } : undefined })
   })
   let tavern
   const seen = []
@@ -154,12 +157,17 @@ test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis �
   assert.equal(h.api.mvuProviderRegistered('card-provider'), true)
   const input = { gameId: 'game-1', turn: 3, textVersion: 'caller-version', currentVariables: { stat_data: { hp: 10 } }, signal: new AbortController().signal }
   assert.deepEqual(await h.api.mvuProvider(input), { owner: 'card-provider', operations: [{ op: 'replace', path: '/stat_data/hp', valueJson: '2' }] })
+  assert.deepEqual(reads, { game: 0, card: 0, scope: 2 })
   assert.equal(input.currentVariables.stat_data.hp, 10, 'provider only mutates its structured clone')
   assert.equal(seen[0].signal, input.signal, 'callback receives the active cancellation signal')
   assert.equal(seen[0].textVersion, 'key-3', 'provider sees the same canonical version as getTurn')
   cardPath = '/cards/other.json'
   assert.equal(await h.api.mvuProvider(input), null, 'a plugin bound to another card is not a candidate')
   cardPath = '/cards/a.json'
+  includeCardPath = false
+  assert.equal((await h.api.mvuProvider(input)).owner, 'card-provider')
+  assert.equal(reads.game, 2)
+  assert.equal(reads.card, 2)
   await fiber.dispose()
   await tick()
   assert.equal(h.api.mvuProviderRegistered('card-provider'), false)
@@ -218,7 +226,7 @@ test('MVU provider：decline为null，异常保持为异常，正文版本变化
   const started = new Promise(resolve => { resolveStarted = resolve })
   const late = new Promise(resolve => { resolveLate = resolve })
   const h = await harness(t, {
-    cardScope: async () => new Map([['version-provider', { cards: ['/cards/a.json'] }]]),
+    cardScope: async () => new Map([['version-provider', { cards: ['/cards/a.json', '/cards/b.json'] }]]),
     cardPathOf: async () => '/cards/a.json',
     readPendingTurn: async () => latest
   })
@@ -241,6 +249,12 @@ test('MVU provider：decline为null，异常保持为异常，正文版本变化
   latest = turnMaterial({ key: 'key-3b' })
   resolveLate({ operations: [] })
   assert.equal(await pending, null, 'a changed canonical key invalidates the late result')
+  latest = turnMaterial()
+  settleNow = () => {
+    latest = turnMaterial({ card: { path: '/cards/b.json' } })
+    return { operations: [] }
+  }
+  assert.equal(await h.api.mvuProvider(input), null, 'a card switch invalidates even a provider shared by both cards')
   await fiber.dispose()
 })
 
