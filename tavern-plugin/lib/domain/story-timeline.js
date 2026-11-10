@@ -41,6 +41,17 @@ function persistentParticipant(value) {
   return value === 'chat' || value === 'branch'
 }
 
+function isLegacyForegroundBody(operation) {
+  return operation?.kind === 'body' && operation.status === 'foreground-completed'
+}
+
+function cancelUncommittedOperations(operations) {
+  for (const operation of Object.values(operations)) {
+    if (operation.status === 'running' || isLegacyForegroundBody(operation)) operation.status = 'cancelled'
+    if (['pending', 'running'].includes(operation.background?.phase)) operation.background = { ...operation.background, phase: 'cancelled' }
+  }
+}
+
 export function createStoryTimeline(options = {}) {
   const makeId = typeof options.id === 'function' ? options.id : function (prefix) { return prefix + '-' + Math.random().toString(36).slice(2) }
   const now = typeof options.now === 'function' ? options.now : Date.now
@@ -99,7 +110,7 @@ export function createStoryTimeline(options = {}) {
     // v1 原子 Round 存档把正文停在 foreground-completed，等待结算后才建 checkpoint。
     // 新语义下正文本身就是提交边界；惰性迁移可让既有失败轮次立即继续游玩。
     const legacyForeground = Object.values(incoming.operations).filter(function (operation) {
-      return operation && operation.kind === 'body' && operation.status === 'foreground-completed' &&
+      return isLegacyForegroundBody(operation) &&
         str(operation.basedOn && operation.basedOn.branchId) === incoming.branchId
     }).sort(function (left, right) {
       return (Number(left.foregroundCompletedAt) || Number(left.createdAt) || 0) - (Number(right.foregroundCompletedAt) || Number(right.createdAt) || 0)
@@ -466,10 +477,7 @@ export function createStoryTimeline(options = {}) {
     const oldRevision = chat.timeline.revision
     const currentParticipants = object(chat.timeline.participants)
     const operations = chat.timeline.operations
-    for (const operation of Object.values(operations)) {
-      if (operation.status === 'running' || (operation.kind === 'body' && operation.status === 'foreground-completed')) operation.status = 'cancelled'
-      if (['pending', 'running'].includes(operation.background?.phase)) operation.background = { ...operation.background, phase: 'cancelled' }
-    }
+    cancelUncommittedOperations(operations)
     let restoredState
     if (checkpoint.before !== undefined) {
       restoredState = checkpoint.before
@@ -652,10 +660,7 @@ export function createStoryTimeline(options = {}) {
       chat.timeline.branchId = branchId
       chat.timeline.revision = Math.max(currentRevision, chat.timeline.revision) + 1
       chat.timeline.participants = participants
-      for (const operation of Object.values(chat.timeline.operations)) {
-        if (operation.status === 'running' || (operation.kind === 'body' && operation.status === 'foreground-completed')) operation.status = 'cancelled'
-      if (['pending', 'running'].includes(operation.background?.phase)) operation.background = { ...operation.background, phase: 'cancelled' }
-      }
+      cancelUncommittedOperations(chat.timeline.operations)
       chat.candidateAgent = null
       value = { status: 'restored', branchId, revision: chat.timeline.revision }
     }
@@ -732,8 +737,7 @@ export function createStoryTimeline(options = {}) {
     const source = input && input.chat
     // Legacy foreground migration commits a body and may need story data.
     // Ordinary inspection only normalizes detached timeline metadata.
-    const legacyBody = Object.values(object(source?.timeline?.operations)).some(operation =>
-      operation && operation.kind === 'body' && operation.status === 'foreground-completed')
+    const legacyBody = Object.values(object(source?.timeline?.operations)).some(isLegacyForegroundBody)
     // Inspection needs only the count. Old checkpoint.before values can hold
     // whole histories; normalization must not serialize those unused payloads.
     const checkpoints = source?.timeline?.checkpoints
@@ -756,8 +760,7 @@ export function createStoryTimeline(options = {}) {
     const timeline = object(source && source.timeline)
     // Older schemas are reset by ensure(), so they cannot have a rollback target.
     if (Number(timeline.schemaVersion) !== 1) return null
-    const legacyBody = Object.values(object(timeline.operations)).some(operation =>
-      operation && operation.kind === 'body' && operation.status === 'foreground-completed')
+    const legacyBody = Object.values(object(timeline.operations)).some(isLegacyForegroundBody)
     // A normalized timeline needs no story rows to inspect its final checkpoint.
     // Preserve the legacy foreground migration, which can create that checkpoint.
     const resolved = legacyBody ? ensure(source).timeline : timeline
