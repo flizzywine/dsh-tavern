@@ -78,20 +78,9 @@ function originalCard(record, card, workingName) {
 // Card PNGs embed the whole card (often several MB of worldbook/scripts) in text
 // chunks. Thumbnails only need the pixels, so drop tEXt/zTXt/iTXt.
 export function stripPngTextChunks(buffer) {
-  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-  if (!Buffer.isBuffer(buffer) || buffer.length <= signature.length || !buffer.subarray(0, signature.length).equals(signature)) return buffer
-  const parts = [signature]
-  let offset = signature.length
-  while (offset + 12 <= buffer.length) {
-    const length = buffer.readUInt32BE(offset)
-    const type = buffer.toString('ascii', offset + 4, offset + 8)
-    const end = offset + 12 + length
-    if (end > buffer.length) return buffer
-    if (type !== 'tEXt' && type !== 'zTXt' && type !== 'iTXt') parts.push(buffer.subarray(offset, end))
-    offset = end
-    if (type === 'IEND') return Buffer.concat(parts)
-  }
-  return buffer
+  if (!isPng(buffer)) return buffer
+  try { return pngWithTextChunks(buffer, []) }
+  catch { return buffer }
 }
 
 export function createFileResourceStore(options = {}) {
