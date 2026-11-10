@@ -170,6 +170,13 @@ try {
   const page = await browser.newPage()
   const pageErrors = []
   page.on('pageerror', err => pageErrors.push(err.message))
+  let releaseHostJQueryUi
+  const hostJQueryUiGate = new Promise(resolve => { releaseHostJQueryUi = resolve })
+  await page.exposeFunction('releaseHostJQueryUi', releaseHostJQueryUi)
+  await page.route('**/jquery-ui/jquery-ui.min.js', async route => {
+    await hostJQueryUiGate
+    await route.continue()
+  })
   await page.goto(`http://127.0.0.1:${port}/`)
 
   const result = await page.evaluate(async (caps) => {
@@ -223,9 +230,22 @@ try {
     })
 
     const msgs = [{ role: 'assistant', message: '开场白', variables: {} }]
+    const helperFrame = () => document.querySelector('iframe[title="人物卡共享脚本沙箱"]')
+    runtime.sync('discarded-S1', makeView(msgs))
+    const discardedFrame = helperFrame()
+    const hostJQueryUi = () => document.querySelector('script[data-dsh-tavern-host-jquery-ui]')
+    for (let i = 0; i < 60 && !hostJQueryUi(); i++) await new Promise(r => setTimeout(r, 50))
+    if (!hostJQueryUi()) throw new Error('The first iframe did not start the host jQuery UI load')
+
     runtime.sync('S1', makeView(msgs))
+    if (discardedFrame.isConnected) throw new Error('The previous session iframe is still attached')
+    const frame = helperFrame()
+    for (let i = 0; i < 60 && !frame.contentWindow.__dshTavernHelperReady; i++) await new Promise(r => setTimeout(r, 50))
+    await frame.contentWindow.__dshTavernHelperReady
+    await window.releaseHostJQueryUi()
 
     for (let i = 0; i < 60 && !presence.inspect().attached; i++) await new Promise(r => setTimeout(r, 50))
+    if (!presence.inspect().attached) throw new Error('The replacement session did not finish loading host jQuery UI')
     const initialPresence = presence.inspect()
     const initialSlotHeight = slot.getBoundingClientRect().height
 

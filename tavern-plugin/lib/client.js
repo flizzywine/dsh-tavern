@@ -29907,7 +29907,7 @@ function bindTavernFontZoom(node, win) {
 				+ 'const scripts=' + JSON.stringify(modules).replace(/</g, "\\u003c") + ';\n'
 				+ 'const token=' + JSON.stringify(metadata.token) + ';\n'
 				+ 'try{'
-				+ (input && input.trustedCardMode ? 'const ensureHostJQuery=' + ensureTavernHostJQuery.toString() + ';await ensureHostJQuery(window.parent);const ensureHostJQueryUi=' + ensureTavernHostJQueryUi.toString() + ';await ensureHostJQueryUi(window.parent);const artifacts=window.frameElement&&window.frameElement.__dshTavernHostArtifacts;window.$=window.jQuery=artifacts?artifacts.bindJQuery(window.parent.jQuery):window.parent.jQuery;const installHostFacade=' + installTavernTrustedHostFacade.toString() + ';const releaseHostFacade=installHostFacade(window.parent,window);window.addEventListener("pagehide",releaseHostFacade,{once:true});window.addEventListener("unload",releaseHostFacade,{once:true});\n' : '')
+				+ (input && input.trustedCardMode ? 'const frame=window.frameElement;await frame.__dshTavernPrepareTrustedHost();const artifacts=frame.__dshTavernHostArtifacts;window.$=window.jQuery=artifacts?artifacts.bindJQuery(window.parent.jQuery):window.parent.jQuery;const installHostFacade=' + installTavernTrustedHostFacade.toString() + ';const releaseHostFacade=installHostFacade(window.parent,window);window.addEventListener("pagehide",releaseHostFacade,{once:true});window.addEventListener("unload",releaseHostFacade,{once:true});\n' : '')
 				+ 'const installComposer=' + installLegacyTavernComposer.toString() + ';await installComposer();\n'
                 + 'window.__dshTavernComposerWindow=(' + createTavernComposerWindow.toString() + ')(window);if(window.jQuery){window.$=window.jQuery=window.__dshTavernComposerWindow.jQuery;}\n'
                 + 'const installNodeCompatibility=' + installTavernNodeCompatibility.toString() + ';installNodeCompatibility(window);\n'
@@ -30384,7 +30384,13 @@ function bindTavernFontZoom(node, win) {
 				frame.__dshTavernSessionId = sessionId;
                 frame.__dshTavernHostArtifacts = record.hostArtifacts;
 				frame.title = "人物卡共享脚本沙箱";
-				if (!trustedCardMode) frame.sandbox = "allow-scripts";
+				if (trustedCardMode) {
+					// Keep the shared load and its callbacks alive when a card iframe is replaced.
+					frame.__dshTavernPrepareTrustedHost = async function () {
+						await ensureTavernHostJQuery(hostWindow);
+						await ensureTavernHostJQueryUi(hostWindow);
+					};
+				} else frame.sandbox = "allow-scripts";
 				frame.referrerPolicy = "no-referrer";
 				record.storage = forkFrameStorage.capability({ sessionId: sessionId, cardPath: context.frameStorageScope && context.frameStorageScope.cardPath }, hostWindow); // owner-only storage grant
 				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: record.storage, token: record.token, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });

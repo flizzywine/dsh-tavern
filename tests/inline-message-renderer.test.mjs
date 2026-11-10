@@ -422,11 +422,12 @@ test('Host acknowledgements confirm liveness without imposing a total event dead
 })
 
 test('trusted scripts await host jQuery before executing; isolated scripts do not access host', () => {
+  const prepareHost = 'await frame.__dshTavernPrepareTrustedHost()';
   for (const trustedCardMode of [true, false]) {
     const document = client.buildTavernHelperScriptDocument({ trustedCardMode, scripts: [{ id: 'ball', content: 'void 0' }] });
     const loader = helperLoaderSource(document);
-    assert.equal(loader.includes('await ensureHostJQuery(window.parent)'), trustedCardMode);
-    if (trustedCardMode) assert.ok(loader.indexOf('await ensureHostJQuery(window.parent)') < loader.indexOf('for(const script of scripts)'));
+    assert.equal(loader.includes(prepareHost), trustedCardMode);
+    if (trustedCardMode) assert.ok(loader.indexOf(prepareHost) < loader.indexOf('for(const script of scripts)'));
   }
 });
 
@@ -496,11 +497,14 @@ test('trusted script UI uses host body and its installed draggable; isolation re
     const hostJQuery = () => hostBody
     hostJQuery.fn = { jquery: '3.7.1', draggable() {} }
     const localJQuery = () => localBody
+    let preparedHost = false
     const window = { parent: { jQuery: hostJQuery }, $: localJQuery, jQuery: localJQuery,
+      frameElement: trustedCardMode ? { async __dshTavernPrepareTrustedHost() { preparedHost = true } } : null,
       __dshTavernHelperReady: Promise.resolve(), addEventListener() {}, __dshTavernResolveCompanionScriptsReady() {} }
     const document = client.buildTavernHelperScriptDocument({ trustedCardMode, scripts: [] })
     const loader = helperLoaderSource(document)
     await vm.runInNewContext('(async()=>{' + loader + '})()', { window })
+    assert.equal(preparedHost, trustedCardMode)
     assert.equal(window.$('body'), trustedCardMode ? hostBody : localBody)
     if (trustedCardMode) assert.equal(typeof window.$.fn.draggable, 'function')
   }

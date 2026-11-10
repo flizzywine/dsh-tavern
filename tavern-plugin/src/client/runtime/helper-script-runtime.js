@@ -445,7 +445,13 @@
 				frame.__dshTavernSessionId = sessionId;
                 frame.__dshTavernHostArtifacts = record.hostArtifacts;
 				frame.title = "人物卡共享脚本沙箱";
-				if (!trustedCardMode) frame.sandbox = "allow-scripts";
+				if (trustedCardMode) {
+					// Keep the shared load and its callbacks alive when a card iframe is replaced.
+					frame.__dshTavernPrepareTrustedHost = async function () {
+						await ensureTavernHostJQuery(hostWindow);
+						await ensureTavernHostJQueryUi(hostWindow);
+					};
+				} else frame.sandbox = "allow-scripts";
 				frame.referrerPolicy = "no-referrer";
 				record.storage = forkFrameStorage.capability({ sessionId: sessionId, cardPath: context.frameStorageScope && context.frameStorageScope.cardPath }, hostWindow); // owner-only storage grant
 				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: record.storage, token: record.token, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
