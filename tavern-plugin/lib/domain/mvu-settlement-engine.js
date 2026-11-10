@@ -118,7 +118,7 @@ export function createMvuSettlementEngine(deps) {
       result.posture = posture
       result.text = auxiliaryText
       if (providerOwner) result.providerOwner = providerOwner
-      if (settlementInput.onPrepared) await settlementInput.onPrepared(structuredClone({ ...result, posture }))
+      await saveDelivery(result.submission, result)
       return result
     }
     let mvuResult
