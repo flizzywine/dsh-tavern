@@ -143,7 +143,7 @@
 1. **安装酒馆启动器。** 打开左侧的 **插件 → 添加插件**，粘贴下面的地址，点 **安装**，再按提示启用 **dsh-tavern**。
 
    ```text
-   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v1.5.1/dsh-tavern-1.5.1.tgz
+   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v1.5.3/dsh-tavern-1.5.3.tgz
    ```
 
    已安装旧版启动器时，先在插件页移除旧启动器，再添加新版。
@@ -182,7 +182,7 @@ curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-ma
 1. 在 NEXT 的 **桌面设置 → Profile** 选择 `desktop`。打开 **插件 → 添加插件**，粘贴下方地址并启用 `dsh-tavern`。如果该 Profile 里装了旧版酒馆启动器，先从插件页移除旧启动器。
 
    ```text
-   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v1.5.1/dsh-tavern-1.5.1.tgz
+   https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@launcher-cdn-v1.5.3/dsh-tavern-1.5.3.tgz
    ```
 
    CDN 无法访问时，可以使用 [GitHub Release 下载地址](https://github.com/flizzywine/dsh-tavern/releases/download/launcher-current/dsh-tavern.tgz)。
