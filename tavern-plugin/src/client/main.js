@@ -767,6 +767,13 @@ window.__ModuleLoader__.load({
 			hydrateHelperMessages: hydrateLiveTavernHelperMessages,
 			shouldPoll: function (view) { return !!(view && view.activity && view.activity.busy); },
 			pollWhileBusy: false,
+			pendingReceiptKey: function (view) {
+				const turn = view?.settlementTurn, receipts = view?.mvuReceipts;
+				if (!Number.isSafeInteger(turn) || !Array.isArray(receipts)) return null;
+				const index = createSessionViewReader.receiptOrderedIndex;
+				const row = index?.info(receipts) ? index.get(receipts, turn) : receipts.findLast(row => row?.turn === turn);
+				return row?.receipt?.status === "pending" ? turn + ":" + (row.receipt.diagnosticId || "") : null;
+			},
 			isTerminalError: isMissingTavernCardError
 		});
 		// Side panels read the session view too. Started together with the conversation's own

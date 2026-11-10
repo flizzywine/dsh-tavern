@@ -57,6 +57,27 @@ function fakeIntervals() {
 
 const createLiveTavernViewModule = await loadFactory()
 
+test('当前结算回执缺少完成通知时补读，结束后停止', async function () {
+  const timers = fakeTimers()
+  let status = 'pending', reads = 0
+  const module = createLiveTavernViewModule({
+    pollWhileBusy: false,
+    pendingReceiptKey: view => view?.receipt?.status === 'pending' ? view.receipt.id : null,
+    load: async () => { reads++; return { view: { receipt: { id: 'turn-3', status } } } },
+    now: timers.now, schedule: timers.schedule, cancel: timers.cancel
+  })
+  const stop = module.subscribe('receipt-recovery', () => {})
+  await timers.runNext()
+  assert.equal(module.getSnapshot('receipt-recovery').view.receipt.status, 'pending')
+  assert.equal(await timers.runNext(), 2000)
+  status = 'updated'
+  assert.equal(await timers.runNext(), 4000)
+  assert.equal(module.getSnapshot('receipt-recovery').view.receipt.status, 'updated')
+  assert.equal(reads, 3)
+  assert.deepEqual(timers.activeDelays(), [])
+  stop()
+})
+
 test('后台已空闲但主轮询定时器丢失时，watchdog 会恢复权威查询并解除 busy', async function () {
   const timers = fakeTimers()
   const watchdog = fakeIntervals()

@@ -12,6 +12,7 @@ function createLiveTavernViewModule(options) {
 	const timeoutRetryDelayMs = Number(options.timeoutRetryDelayMs) > 0 ? Number(options.timeoutRetryDelayMs) : 0;
 	const idlePollIntervalMs = Number(options.idlePollIntervalMs) > 0 ? Number(options.idlePollIntervalMs) : 0;
 	const pollWhileBusy = options.pollWhileBusy !== false;
+	const receiptRecoveryDelays = [2000, 4000, 8000, 16000];
 	const cacheRetentionMs = Number(options.cacheRetentionMs) || 0;
 	function initialState() { return { phase: "idle", view: null, error: "", updatedAt: 0 }; }
 	function recordFor(sessionId) {
@@ -65,8 +66,28 @@ function createLiveTavernViewModule(options) {
 			paths.push(["$settlementOwner", String(before?.settlementTurn)], ["$settlementOwner", String(after?.settlementTurn)]);
 		}
 	}
+	function clearReceiptRecovery(record) {
+		const recovery = record.receiptRecovery;
+		if (!recovery) return;
+		if (recovery.timer !== null) cancelTimer(recovery.timer);
+		record.receiptRecovery = null;
+	}
+	function recoverPendingReceipt(record, state) {
+		const key = options.pendingReceiptKey?.(state.view);
+		if (record.receiptRecovery?.key !== key) clearReceiptRecovery(record);
+		if (key == null || state.phase !== "ready" || record.listeners.size === record.passiveListeners) return;
+		const recovery = record.receiptRecovery ||= { key, reads: 0, timer: null };
+		const delay = receiptRecoveryDelays[recovery.reads];
+		if (recovery.timer !== null || delay === undefined) return;
+		recovery.timer = scheduleTimer(function () {
+			recovery.timer = null;
+			recovery.reads++;
+			void record.refresh.refresh();
+		}, delay);
+	}
 	function publish(record, state, result) {
 		if (records.get(record.id) !== record) return;
+		recoverPendingReceipt(record, state);
 		// A confirmed no-op should not wake every mounted history component.
 		// In this opt-in mode updatedAt records the last published state change.
 		if (options.deduplicateViews === true && record.state.phase === state.phase
@@ -347,6 +368,7 @@ function createLiveTavernViewModule(options) {
 				unregister();
 				record.listeners.delete(listener);
 				if (deferred) record.passiveListeners = Math.max(0, record.passiveListeners - 1);
+				if (record.listeners.size === record.passiveListeners) clearReceiptRecovery(record);
 				if (record.listeners.size === 0) {
 					record.optimisticBusy = false;
 					record.optimisticOwner = null;
