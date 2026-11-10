@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "75296fb983188d6950653e04ff3334c748107509",
-  "releaseSequence": 1419,
+  "revision": "c87d93c1d6b7d9a8399f30a5fa86c351ba3cbefd",
+  "releaseSequence": 1420,
   "version": "3.3.0",
   "files": [
     {
@@ -1461,8 +1461,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/chat-history-import-service.js",
-      "sha256": "5531eb67f11c991656c154a553d4fbe9db1603be5e0a24526c3eb154efd7374f",
-      "size": 12452
+      "sha256": "7dd46dbea7f23207202eb6f7e649a0694926e1417040e775b303d2146c90c1d1",
+      "size": 13475
     },
     {
       "path": "tavern-plugin/lib/domain/chat-history-import.js",
@@ -1791,8 +1791,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-worldbook.js",
-      "sha256": "2b29476fee78ec01d4c0895f708e8f66d915d2c331e0add2197348ebf4b25af9",
-      "size": 16818
+      "sha256": "8d8e3a72ff038e2c2c94b5b293d288b21bebba18f481d83d0c2aed8892851f6b",
+      "size": 17201
     },
     {
       "path": "tavern-plugin/lib/domain/frame-sizing.js",
@@ -3551,8 +3551,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-chats.js",
-      "sha256": "b55539f351554366f9a50f2770effdfdc9fbcea3a3050ce588d6e8f15fdf7a42",
-      "size": 11574
+      "sha256": "282593326fa5ee33a42e5d55d23fda031a547abf162832775c1df7d479ef7cd9",
+      "size": 11335
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-folder-match.js",
@@ -3566,8 +3566,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-import.js",
-      "sha256": "f46a5bf65e83a29cde36b5eef2841aa3f1c9cbf89a4c64c5ff7a5a795954b20a",
-      "size": 34499
+      "sha256": "8025e12b2bcc07e9660410f5a9b6db8dd4b4c4bd12ea6978599c5a69804fdb42",
+      "size": 34978
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-logs.js",
@@ -3836,8 +3836,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-virtual-state.js",
-      "sha256": "dcb9d0a6dffa68ab71f01989ec0e81b98967dbf1fd946fc54739524f038b2304",
-      "size": 4278
+      "sha256": "ffc0d99c0f7054c23bbc36630ecb909ef2d1436e4b830873f5224e079eb3941c",
+      "size": 5117
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-virtual-surface.js",
@@ -3941,8 +3941,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "205549f162c9060c7a4e35a7a4a5e0b37ef6a39134972e2a1bb722c63e5a9730",
-      "size": 275702
+      "sha256": "4f3440d3984c15ce0536dbdbd64cf90b84dbbce38b41a8849977fc35369846d1",
+      "size": 275935
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -6571,8 +6571,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/lib/hosts.js",
-      "sha256": "84d6763aa221266ae71279ab44130e55aab023070b00af78ca130a74e66355bf",
-      "size": 1014
+      "sha256": "3e85aa8f4a21ecbc9f31913f74818f7af4111010543b49bfc40cbb643f3b59da",
+      "size": 2251
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/lib/index.js",
@@ -6596,8 +6596,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/lib/verify.js",
-      "sha256": "f580c34fff8a9842d07cd63d56b9a1aab5d0b480bb5d070552af284d5c564839",
-      "size": 5583
+      "sha256": "1fd2e2fd09ed0493e8f6ec11620a905b83a21f93c67e0cbea14cb6f614b0df6d",
+      "size": 5603
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/package.json",
@@ -6611,8 +6611,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/scripts/install-on-dshgo.mjs",
-      "sha256": "d31b066279d3808fcde9fc738da6d3cc70e6cfc973a0a9802adcfc1013eff146",
-      "size": 10767
+      "sha256": "9d143ca13664e5e11212e724f8754133a66c3804cce05e541bb226db6d3adb34",
+      "size": 11966
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/scripts/verify-on-dshgo.mjs",
@@ -8466,9 +8466,9 @@
     }
   ],
   "archive": {
-    "commit": "b0f4d7f676f376769516c3be05e40f7bae87c2c6",
+    "commit": "1977333b69985dc6d87d32aa65b3fdecec57dba8",
     "path": "runtime.zip",
-    "sha256": "e6788b54e2a4c3796066d94be81d49a8afc5a5907f3f0a76329d62f463082b65",
-    "size": 15115696
+    "sha256": "7e4d8278b15f946ccb222f6763a4ff1538d4bfb2e4407de62db1f0919ac457fe",
+    "size": 15118206
   }
 }
