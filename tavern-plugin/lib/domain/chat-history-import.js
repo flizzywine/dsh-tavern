@@ -8,6 +8,7 @@ const copy = value => structuredClone(value)
 /** Parse untrusted ST exports as data; never retain unselected swipes or reasoning. */
 export function parseChatHistory(text) {
   if (typeof text !== 'string' || Buffer.byteLength(text) > CHAT_IMPORT_MAX_BYTES) throw new Error('聊天文件最大支持 8 MB')
+  if (text.startsWith('PK\u0003\u0004')) throw new Error('这是压缩包（.dshtransfer / .dshsave），请在侧栏「导出与导入 → 导入」或「导入存档 → DSH Tavern 存档」中导入')
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/)
   const rows = []
   for (let index = 0; index < lines.length; index++) {

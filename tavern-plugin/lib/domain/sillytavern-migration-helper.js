@@ -287,6 +287,14 @@ export function createMigrationHelperCore() {
       hasMvu = true
     }
 
+    // 若存在 MVU 快照但首条消息缺少快照，则用最早的快照补齐首条消息，避免无静态 [initvar] 的 MVU 卡在导入阶段报错
+    if (hasMvu && cleanedMessages.length > 0 && !cleanedMessages[0].variables) {
+      const earliestWithVar = cleanedMessages.find(m => Array.isArray(m.variables) && m.variables[0])
+      if (earliestWithVar) {
+        cleanedMessages[0].variables = [earliestWithVar.variables[0]]
+      }
+    }
+
     if (skippedSystem > 0) warnings.push('已过滤 ' + skippedSystem + ' 条系统/旁白消息')
     if (skippedEmpty > 0) warnings.push('已跳过 ' + skippedEmpty + ' 条空消息')
     if (strippedAttachments > 0) warnings.push('已剥离 ' + strippedAttachments + ' 条消息中的附件或工具调用字段')
@@ -432,12 +440,27 @@ export function createMigrationHelperCore() {
       characterBook = convertWorldInfoToCharacterBook(givenBook, str(givenBook.name || data.extensions?.world || name))
     }
 
-    const extensions = isPlainObject(data.extensions) ? Object.assign({}, data.extensions) : {}
+    const extensions = Object.assign(
+      {},
+      isPlainObject(base.extensions) ? base.extensions : {},
+      isPlainObject(data.extensions) ? data.extensions : {}
+    )
+    if (Array.isArray(extensions.tavern_helper)) {
+      const converted = {}
+      for (const item of extensions.tavern_helper) {
+        if (Array.isArray(item) && typeof item[0] === 'string' && item.length >= 2) {
+          converted[item[0]] = item[1]
+        }
+      }
+      extensions.tavern_helper = converted
+    }
     if (isPlainObject(extensions.tavern_helper)) {
       const th = Object.assign({}, extensions.tavern_helper)
       if (th.variables !== undefined && !isPlainObject(th.variables)) delete th.variables
       if (th.scripts !== undefined && !Array.isArray(th.scripts)) delete th.scripts
       extensions.tavern_helper = th
+    } else if (extensions.tavern_helper !== undefined) {
+      delete extensions.tavern_helper
     }
 
     const normalizedData = {
@@ -598,6 +621,7 @@ export function buildMigrationHelperScriptContent() {
     str,
     isPlainObject,
     safeFileName,
+    utf8Bytes,
     sanitizeSillyTavernChatForDsh,
     normalizeSillyTavernCardForDsh,
     packMigrationTransferBundle
@@ -667,7 +691,7 @@ export function buildMigrationHelperScriptContent() {
     return chars.map((ch, index) => ({
       index,
       avatar: str(ch.avatar),
-      name: str(ch.name || ch.data?.name || ch.avatar).replace(/\\.[^.]+$/, '') || '未命名角色',
+      name: str(ch.name || ch.data?.name).trim() || str(ch.avatar).replace(/\\.[^.]+$/, '') || '未命名角色',
       currentChat: str(ch.chat),
       worldName: str(ch.data?.extensions?.world || ch.extensions?.world || ''),
       isCurrent: Boolean(currentAvatar && ch.avatar === currentAvatar),
@@ -774,10 +798,10 @@ export function buildMigrationHelperScriptContent() {
     return null;
   }
 
-  function triggerBrowserDownload(bytes, filename) {
+  function triggerBrowserDownload(bytes, filename, mimeType) {
     const host = getHostWindow();
     const doc = host.document;
-    const blob = new Blob([bytes], { type: 'application/zip' });
+    const blob = new Blob([bytes], { type: mimeType || 'application/zip' });
     const url = host.URL.createObjectURL(blob);
     const link = doc.createElement('a');
     link.href = url;
@@ -1136,7 +1160,7 @@ export function buildMigrationHelperScriptContent() {
               skippedEmptyChats += 1;
               continue;
             }
-            const title = ch.name + ' · ' + chatMeta.fileId;
+            const title = ch.name + ' · ' + chatMeta.fileId + '（' + sanitized.messageCount + ' 条）';
             const fileName = safeFileName(ch.name + ' - ' + chatMeta.fileId, 'chat') + '.jsonl';
             exportedChats.push({
               key: 'st-chat:' + ch.avatar + ':' + chatMeta.fileName,
@@ -1180,6 +1204,52 @@ export function buildMigrationHelperScriptContent() {
           (exportedWorldbooks.length ? '、' + exportedWorldbooks.length + ' 本世界书' : '') +
           (skippedEmptyChats ? '（跳过 ' + skippedEmptyChats + ' 份空记录）' : '');
         notify('success', '已生成 ' + bundle.filename + '，请在 DSH Tavern「导出与导入 → 导入」中选该文件完成迁移');
+      } catch (err) {
+        const msg = str(err && err.message || err);
+        state.statusText = '导出失败：' + msg;
+        notify('error', msg);
+      } finally {
+        state.exporting = false;
+        render();
+      }
+    }
+
+    async function runJsonlExport() {
+      const counts = selectedCounts();
+      if (counts.chatCount === 0 || state.exporting) {
+        notify('warning', '请至少勾选一份要导出的聊天记录');
+        return;
+      }
+      state.exporting = true;
+      render();
+      try {
+        let exportedCount = 0;
+        let processed = 0;
+        for (const ch of state.characters) {
+          const pickedSet = state.selectedChats.get(ch.avatar);
+          if (!pickedSet || pickedSet.size === 0) continue;
+          const chatList = await ensureChatsLoaded(ch);
+          const pickedMetas = chatList.filter(item => pickedSet.has(item.fileName));
+          for (const chatMeta of pickedMetas) {
+            processed += 1;
+            state.statusText = '正在清洗 (' + processed + '/' + counts.chatCount + ')：' + ch.name + ' · ' + chatMeta.fileId;
+            render();
+            const rawChat = await fetchSingleChatContent(ch, chatMeta);
+            const sanitized = sanitizeSillyTavernChatForDsh(rawChat, {
+              characterName: ch.name,
+              characterAvatar: ch.avatar
+            });
+            if (sanitized.messageCount === 0) continue;
+            const fileName = safeFileName(ch.name + ' - ' + chatMeta.fileId, 'chat') + '.jsonl';
+            triggerBrowserDownload(utf8Bytes(sanitized.jsonl), fileName, 'application/x-ndjson');
+            exportedCount += 1;
+          }
+        }
+        if (exportedCount === 0) {
+          throw new Error('所选聊天记录均为空，没有可导出的有效消息');
+        }
+        state.statusText = '已导出 ' + exportedCount + ' 份清洗后 .jsonl，可在 DSH Tavern「选择人物卡 → 导入 SillyTavern 聊天记录」中导入';
+        notify('success', '已导出 ' + exportedCount + ' 份清洗后 .jsonl 聊天文件');
       } catch (err) {
         const msg = str(err && err.message || err);
         state.statusText = '导出失败：' + msg;
@@ -1439,6 +1509,14 @@ export function buildMigrationHelperScriptContent() {
         redownloadBtn.onclick = () => triggerBrowserDownload(state.lastExport.bytes, state.lastExport.filename);
         actionBox.appendChild(redownloadBtn);
       }
+
+      const jsonlBtn = doc.createElement('button');
+      jsonlBtn.className = 'dsh-mig-btn';
+      jsonlBtn.disabled = state.exporting || state.scanning || counts.chatCount === 0;
+      jsonlBtn.textContent = '导出清洗后 .jsonl';
+      jsonlBtn.title = '直接下载清洗后的 .jsonl 文件，可在 DSH Tavern「选择人物卡 → 导入 SillyTavern 聊天记录」中导入';
+      jsonlBtn.onclick = runJsonlExport;
+      actionBox.appendChild(jsonlBtn);
 
       const exportBtn = doc.createElement('button');
       exportBtn.className = 'dsh-mig-btn primary';

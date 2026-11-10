@@ -61,7 +61,11 @@ export function createChatHistoryImportService({ initialization, cards, worldBoo
       warnings: [...result.parsed.warnings, ...(result.initialError ? [result.initialError] : []),
         ...(!result.parsed.hasMvu ? ['未找到 MVU 快照；如人物卡有初始变量，将使用初始值'] : [])] }
   }
+  function normalizeOperationId(raw) {
+    return String(raw || '').trim().replace(/[:.]/g, '-')
+  }
   async function perform(input) {
+    input = { ...input, operationId: normalizeOperationId(input.operationId) }
     if (!/^[a-zA-Z0-9-]{8,100}$/.test(input.operationId || '') || !input.sessionId) throw new Error('导入操作或 Session 标识无效')
     const { parsed, card, worldBook, initialVariables, initialError, incompatible } = await inspect(input)
     if (incompatible && !input.textOnly) throw new Error('变量结构与人物卡不兼容，请换卡或选择仅导入正文')
@@ -165,13 +169,14 @@ export function createChatHistoryImportService({ initialization, cards, worldBoo
     return { sessionId: input.sessionId, mode: journal.plan.chat.mode || 'story' }
   }
   function importPrepared(input) {
-    const key = input.operationId
-    const signature = JSON.stringify(input)
+    const key = normalizeOperationId(input.operationId)
+    const normalizedInput = { ...input, operationId: key }
+    const signature = JSON.stringify(normalizedInput)
     if (pending.has(key)) {
       const existing = pending.get(key)
       return existing.signature === signature ? existing.task : Promise.reject(new Error('同一导入操作正在处理其他内容'))
     }
-    const task = perform(input).finally(() => pending.delete(key))
+    const task = perform(normalizedInput).finally(() => pending.delete(key))
     pending.set(key, { signature, task })
     return task
   }

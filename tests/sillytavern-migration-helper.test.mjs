@@ -405,3 +405,43 @@ test('包内与本机均缺少对应人物卡时，预览提示缺少人物卡�
   assert.equal(calls[1].textOnly, true)
   assert.equal(calls[1].cardPath, 'cards/girl-workspace.json')
 })
+
+test('移动端非安全上下文 operationId、旧版数组格式 tavern_helper 与首条消息 MVU 快照补齐兼容', () => {
+  // 1. 旧版酒馆助手将 extensions.tavern_helper 存为键值对数组时，规范化后可通过人物卡校验
+  const legacyCard = normalizeSillyTavernCardForDsh({
+    name: 'Dr. Alice v1.2',
+    first_mes: '你好。',
+    data: {
+      extensions: {
+        tavern_helper: [
+          ['scripts', [{ id: 's1', name: 'test', content: '' }]],
+          ['variables', { hp: 100 }]
+        ]
+      }
+    }
+  })
+  const cardValidation = validateCardText(JSON.stringify(legacyCard))
+  assert.equal(cardValidation.valid, true)
+  assert.deepEqual(cardValidation.errors, [])
+  assert.equal(legacyCard.name, 'Dr. Alice v1.2')
+  assert.deepEqual(legacyCard.data.extensions.tavern_helper.variables, { hp: 100 })
+
+  // 2. 仅尾部或 chat_metadata 含 MVU 快照时，自动补齐到首条消息，使得 parsed.messages 不出现无快照缺口
+  const sanitized = sanitizeSillyTavernChatForDsh([
+    { user_name: '玩家', character_name: 'Dr. Alice v1.2', chat_metadata: { variables: { stat_data: { hp: 85 } } } },
+    { name: 'Dr. Alice v1.2', is_user: false, mes: '第一轮回复' },
+    { name: '玩家', is_user: true, mes: '继续' },
+    { name: 'Dr. Alice v1.2', is_user: false, mes: '第二轮回复' }
+  ])
+  const parsed = parseChatHistory(sanitized.jsonl)
+  assert.equal(parsed.hasMvu, true)
+  assert.equal(parsed.messages.some(m => !m.variables), false)
+  assert.deepEqual(parsed.messages[0].variables.stat_data, { hp: 85 })
+
+  // 3. 误将 .dshtransfer 压缩包传给 parseChatHistory 时给出明确入口提示
+  assert.throws(
+    () => parseChatHistory('PK\u0003\u0004binaryzipcontent'),
+    /这是压缩包（\.dshtransfer \/ \.dshsave）/
+  )
+})
+

@@ -40069,9 +40069,9 @@ function TavernCardUpdateDialog(props) {
 				const key = "dsh-tavern:chat-import:" + JSON.stringify([entry.preview.digest, request.cardPath, request.userName, request.textOnly]);
 				let attempt;
 				try { attempt = JSON.parse(localStorage.getItem(key) || "null"); } catch (_) {}
-				if (!attempt) {
+				if (!attempt || !/^[a-zA-Z0-9-]{8,100}$/.test(attempt.operationId || "") || !attempt.sessionId) {
 					const targetWorkspaceId = await playWorkspaceResolverRef.current();
-					attempt = { operationId: window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random()), sessionId: await props.conversationHost.connectWorkspace(targetWorkspaceId) };
+					attempt = { operationId: window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : "op-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12), sessionId: await props.conversationHost.connectWorkspace(targetWorkspaceId) };
 					localStorage.setItem(key, JSON.stringify(attempt));
 				}
 				await waitForSessionSummary(attempt.sessionId);
@@ -40321,9 +40321,9 @@ function TavernCardUpdateDialog(props) {
                     await playPrewarmRef.current.cancel();
                     let attempt;
                     try { attempt = JSON.parse(localStorage.getItem(key) || "null"); } catch (_) {}
-                    if (!attempt) {
+                    if (!attempt || !/^[a-zA-Z0-9-]{8,100}$/.test(attempt.operationId || "") || !attempt.sessionId) {
                         const workspaceId = await playWorkspaceResolverRef.current();
-                        attempt = { operationId: window.crypto.randomUUID(), sessionId: await props.conversationHost.connectWorkspace(workspaceId) };
+                        attempt = { operationId: window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : "op-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12), sessionId: await props.conversationHost.connectWorkspace(workspaceId) };
                         localStorage.setItem(key, JSON.stringify(attempt));
                     }
                     await waitForSessionSummary(attempt.sessionId);
