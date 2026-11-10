@@ -605,8 +605,8 @@ export function createNativeConversationStorage({dataRoot,onIO}){
     ...(view.state.sceneIndexRevision===revision?{sceneIndexRevision:nextRevision}:{}),
     ...(view.state.displayIndexRevision===revision?{displayIndexRevision:nextRevision}:{})}
    assertCurrent?.()
-   await batch.flush([chatHeaderRef])
-   const changeRef=await pages.writeRecord(id,{baseRevision:revision,revision:nextRevision,indices:[],tail:null,layoutFrom:null})
+   const [changeRef]=await batch.flush([chatHeaderRef],[
+    {baseRevision:revision,revision:nextRevision,indices:[],tail:null,layoutFrom:null}])
    await pages.commit(id,{expectedRevision:view.revision,state,edits:[],append:[],truncateTo:view.messageCount,
     records:[['chat-revision:'+revision,view.snapshotCursor.snapshotId],['chat-change:'+nextRevision,changeRef]]},{assertCurrent})
    const saved=await head(id)
@@ -781,12 +781,11 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    worldMessage:selected.position,worldMessageUid:selected.messageUid,worldSwipe:selected.swipe,
    storyRevision:view.state.storyRevision+(append.length||changedMessageIndices.length||retained<view.messageCount?1:0),
    worldRevision:view.state.worldRevision+(worldRef!==view.state.worldRef?1:0)}
-  assertCurrent?.()
-  await batch.flush([sceneIndexRef,worldRef,chatHeaderRef,...edits.map(edit=>edit.message.runtimeRef),...append.map(row=>row.runtimeRef)])
   let layoutFrom=Number.isFinite(from)?from:null
   for(const [position,mutations] of grouped)if(mutations.some(change=>!change.path.length||['turn','role','greeting','tavernRole','importSource'].includes(change.path[0])))layoutFrom=Math.min(layoutFrom??Infinity,position)
-  const changeRef=await pages.writeRecord(id,{baseRevision:stored.revision,revision:next._storageRevision,
-   indices:changedMessageIndices,tail:Number.isFinite(from)?from:null,layoutFrom})
+  assertCurrent?.()
+  const [changeRef]=await batch.flush([sceneIndexRef,worldRef,chatHeaderRef,...edits.map(edit=>edit.message.runtimeRef),...append.map(row=>row.runtimeRef)],
+   [{baseRevision:stored.revision,revision:next._storageRevision,indices:changedMessageIndices,tail:Number.isFinite(from)?from:null,layoutFrom}])
   await pages.commit(id,{expectedRevision:view.revision,state,edits,append,truncateTo:retained,
    records:[['chat-revision:'+stored.revision,view.snapshotCursor.snapshotId],['chat-change:'+next._storageRevision,changeRef]]},{assertCurrent})
   return result(next,await head(id))

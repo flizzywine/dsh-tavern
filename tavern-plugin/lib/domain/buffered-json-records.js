@@ -20,7 +20,8 @@ export function createBufferedJsonRecords({read,writeMany}){
    return ref
   }
  })
- async function flush(roots){
+ // Revision metadata can share the same durable batch as the reachable nodes.
+ async function flush(roots,records=[]){
   const selected=new Map()
   function visit(ref){
    if(!pending.has(ref)||selected.has(ref))return
@@ -32,8 +33,9 @@ export function createBufferedJsonRecords({read,writeMany}){
    else if(value.type!=='scalar')throw Error('Invalid buffered JSON tree node')
   }
   roots.forEach(visit)
-  const expected=[...selected.keys()],refs=await writeMany([...selected.values()])
-  if(refs.some((ref,i)=>ref!==expected[i])||refs.length!==selected.size)throw Error('Buffered record hash mismatch')
+  const expected=[...selected.keys()],refs=await writeMany([...selected.values(),...records])
+  if(refs.length!==selected.size+records.length||expected.some((ref,i)=>refs[i]!==ref))throw Error('Buffered record hash mismatch')
+  return refs.slice(selected.size)
  }
  return Object.freeze({tree,flush})
 }
