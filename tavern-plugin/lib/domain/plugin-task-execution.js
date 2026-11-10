@@ -140,7 +140,7 @@ export function createPluginTaskExecution({ runTask, currentKey, readLatestSettl
    * `around(work)` lets Tavern wrap the run (only called when there is something to run).
    */
   async function runSettlementTasks({ gameId, phase, signal, onStart, around }) {
-    if (!settlementTasks.size) return
+    if (!Array.from(settlementTasks.values()).some(entry => entry.phase === phase)) return
     const choices = await choicesFor(gameId)
     const tasks = orderedTasks(phase, choices).filter(entry => !choices.disabledTasks.has(taskKey(entry.owner, entry.name)))
     if (!tasks.length) return
