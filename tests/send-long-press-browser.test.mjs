@@ -78,6 +78,12 @@ function regenerations(backend) {
   return backend.calls.filter(call => call.method === 'regenBody')
 }
 
+// 传输层会往参数里补 _sessionPatchPage、_traceId 等内部字段，断言只看业务参数。
+function regenArgs(backend, index = 0) {
+  const args = regenerations(backend)[index]?.args || {}
+  return Object.fromEntries(Object.entries(args).filter(([key]) => !key.startsWith('_')))
+}
+
 test('桌面端长按发送键 1 秒直接重新生成正文，松手的那次点击不发消息', async t => {
   const backend = fixture()
   const { page, center } = await open(t, backend)
@@ -89,7 +95,7 @@ test('桌面端长按发送键 1 秒直接重新生成正文，松手的那次�
   assert.equal(regenerations(backend).length, 1)
   // 空意见 = 跳过意见面板的那次重新生成；sessionId 由 rpc 传输层带上。
   assert.equal(regenerations(backend)[0].args.guidance, '')
-  assert.deepEqual(regenerations(backend)[0].args, { guidance: '', sessionId: 'game' })
+  assert.deepEqual(regenArgs(backend), { guidance: '', sessionId: 'game' })
   assert.equal(await page.evaluate(() => window.__sends), 0)
 })
 
@@ -123,7 +129,7 @@ test('触屏按住 1 秒稳定重新生成，轻微移动不会取消', async t 
   // 真实 touch 事件流；总位移约 14px，小于 24px 容差。
   await touchHold(page, center, { move: { x: 12, y: 8 } })
   assert.equal(regenerations(backend).length, 1)
-  assert.deepEqual(regenerations(backend)[0].args, { guidance: '', sessionId: 'game' })
+  assert.deepEqual(regenArgs(backend), { guidance: '', sessionId: 'game' })
   assert.equal(await page.evaluate(() => window.__sends), 0)
 })
 
