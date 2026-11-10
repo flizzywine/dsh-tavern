@@ -9,6 +9,7 @@ const TAVERN_PROSE_SENTENCE_RANGE = Object.freeze([1, 4]);
 const TAVERN_PROSE_MIN_CHARS = 40;
 const TAVERN_PROSE_CACHE_LIMIT = 48;
 const TAVERN_PROSE_FENCE = /^[ \t]*(`{3,}|~{3,})/;
+const TAVERN_PROSE_SETEXT = /^ {0,3}(?:=+|-+)[ \t]*\r?$/;
 const TAVERN_PROSE_TERMINAL = /[。！？!?…；;：:.”’"」』）)\]]$/;
 const TAVERN_PROSE_ASCII_TAIL = /[A-Za-z0-9.,;:!?)\]"']$/;
 const TAVERN_PROSE_ASCII_HEAD = /^[A-Za-z0-9(]/;
@@ -145,6 +146,13 @@ function layoutTavernProseText(text, options) {
         }
         const open = TAVERN_PROSE_FENCE.exec(line);
         if (open) { flush(); fence = open[1]; out.push(line); return; }
+        // 下划线式标题可以跨多行。改写标题与下划线之间的空行会改变字号和块类型。
+        if (TAVERN_PROSE_SETEXT.test(line)) {
+            if (run.length) out.push(run.join("\n"));
+            out.push(line);
+            run = [];
+            return;
+        }
         if (tavernProseIsRawLine(line)) { flush(); out.push(line); return; }
         run.push(line);
     });

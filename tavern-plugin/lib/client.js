@@ -24813,9 +24813,10 @@ function tavernModelRefusalNotice(text) {
 		// 外观 → 正文排版：模型常常把一整轮正文写成一整块（句子之间只有软换行，甚至没有换行），
 		// CommonMark 把软换行当空格，整块就挤成一大段。这里只在把文字交给 Markdown 之前按句子重新分段
 		// （features/prose-layout.js）；段落编号、配音和舞台定位仍按原文本算，@ 台词行原样交给对白气泡。
-		function bubbleProseText(text) {
+		function bubbleProseText(text, streaming) {
 		    const value = String(text === undefined || text === null ? "" : text);
-		    return typeof layoutTavernProseText === "function" ? layoutTavernProseText(value) : value;
+		    // DSH 的流式 Markdown 解析器要求输入只追加，分段可能改写已显示的前缀。
+		    return streaming !== true && typeof layoutTavernProseText === "function" ? layoutTavernProseText(value) : value;
 		}
 		// 外观页改完排版，已经画出来的正文要按新设置重画。舞台自带的构建没有这份设置时保持原样。
 		function useBubbleProseLayout() {
@@ -24826,7 +24827,7 @@ function tavernModelRefusalNotice(text) {
 		function BubbleSafePublication(props) {
 		    const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
 		    useBubbleProseLayout();
-		    const plain = Object.assign({}, props, { text: bubbleProseText(props.text) });
+		    const plain = Object.assign({}, props, { text: bubbleProseText(props.text, props.streaming) });
 		    for (const key of ["sessionId", "voiceScope", "stageParaBase", "stageParaOffset", "stageSource", "stageOrder", "stageSuperseded", "interrupted"]) delete plain[key];
 		    const staged = Boolean(enabled && stageViews);
 		    // @bubble lines are body text: with the stage off they still render as bubble rows (name, avatar), never raw.
@@ -24841,11 +24842,11 @@ function tavernModelRefusalNotice(text) {
 
 		function BubbleMarkdown({ props, markdownProps, has, enter, segments, base, config, voice, turn }) {
 		    const h = React.createElement;
-		    if (!has && !enter) return h(TavernColoredMarkdown, Object.assign({}, markdownProps, { text: bubbleProseText(markdownProps.text) }));
+		    if (!has && !enter) return h(TavernColoredMarkdown, Object.assign({}, markdownProps, { text: bubbleProseText(markdownProps.text, markdownProps.streaming) }));
 		    const paragraphs = galParagraphs([{ segments }], base);
 		    return h("div", { className: "fork-bubbles" }, segments.map(function (segment, index) {
 		        if (segment.kind === "markdown") {
-		            if (!enter) return h(TavernColoredMarkdown, Object.assign({}, markdownProps, { key: "m" + index, text: bubbleProseText(segment.text) }));
+		            if (!enter) return h(TavernColoredMarkdown, Object.assign({}, markdownProps, { key: "m" + index, text: bubbleProseText(segment.text, markdownProps.streaming) }));
 		            const units = paragraphs.filter(unit => unit.index === index);
 		            return h(StageMarkdown, { key: "m" + index, sessionId: props.sessionId, turn, base: units.length ? units[0].para - 1 : base, text: segment.text,
 		                markdownProps: Object.assign({}, markdownProps, { text: segment.text }) });
@@ -42124,6 +42125,7 @@ const TAVERN_PROSE_SENTENCE_RANGE = Object.freeze([1, 4]);
 const TAVERN_PROSE_MIN_CHARS = 40;
 const TAVERN_PROSE_CACHE_LIMIT = 48;
 const TAVERN_PROSE_FENCE = /^[ \t]*(`{3,}|~{3,})/;
+const TAVERN_PROSE_SETEXT = /^ {0,3}(?:=+|-+)[ \t]*\r?$/;
 const TAVERN_PROSE_TERMINAL = /[。！？!?…；;：:.”’"」』）)\]]$/;
 const TAVERN_PROSE_ASCII_TAIL = /[A-Za-z0-9.,;:!?)\]"']$/;
 const TAVERN_PROSE_ASCII_HEAD = /^[A-Za-z0-9(]/;
@@ -42260,6 +42262,13 @@ function layoutTavernProseText(text, options) {
         }
         const open = TAVERN_PROSE_FENCE.exec(line);
         if (open) { flush(); fence = open[1]; out.push(line); return; }
+        // 下划线式标题可以跨多行。改写标题与下划线之间的空行会改变字号和块类型。
+        if (TAVERN_PROSE_SETEXT.test(line)) {
+            if (run.length) out.push(run.join("\n"));
+            out.push(line);
+            run = [];
+            return;
+        }
         if (tavernProseIsRawLine(line)) { flush(); out.push(line); return; }
         run.push(line);
     });
@@ -42427,7 +42436,7 @@ function createTavernTextLayoutFeature() {
             field("字号", "px", shownFontSize, TAVERN_THEME_FONT_MIN, maxFontSize, 1, "px", changeFontSize, false),
             field("行间距", "倍", lineHeight, 1, 3, 0.05, "×", function (value) { update({ lineHeight: value }); }, true),
             field("字间距", "em", letterSpacing, -0.1, 0.3, 0.01, "em", function (value) { update({ letterSpacing: value }); }, true),
-            toggle("自动分段", "模型把整轮正文写成一整块时，按句子重新分段；代码块、列表和台词行原样保留。只改显示，不改存档。", current.paragraphs, function (value) { update({ paragraphs: value }); }),
+            toggle("自动分段", "正文生成完成后，按句子重新分段；代码块、列表和台词行原样保留。只改显示，不改存档。", current.paragraphs, function (value) { update({ paragraphs: value }); }),
             field("每段", "句", current.sentences, TAVERN_PROSE_SENTENCE_RANGE[0], TAVERN_PROSE_SENTENCE_RANGE[1], 1, "句", function (value) { update({ sentences: value }); }, false),
             toggle("段首缩进", "正文每一段缩进两个字，像纸书排版。", current.indent, function (value) { update({ indent: value }); }),
             h("p", { className: "dsh-tavern-text-layout-preview", style: { fontSize: shownFontSize + "px", lineHeight: lineHeight, letterSpacing: letterSpacing + "em", textIndent: current.indent ? "2em" : undefined } },

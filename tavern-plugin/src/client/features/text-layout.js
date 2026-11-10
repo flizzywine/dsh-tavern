@@ -145,7 +145,7 @@ function createTavernTextLayoutFeature() {
             field("字号", "px", shownFontSize, TAVERN_THEME_FONT_MIN, maxFontSize, 1, "px", changeFontSize, false),
             field("行间距", "倍", lineHeight, 1, 3, 0.05, "×", function (value) { update({ lineHeight: value }); }, true),
             field("字间距", "em", letterSpacing, -0.1, 0.3, 0.01, "em", function (value) { update({ letterSpacing: value }); }, true),
-            toggle("自动分段", "模型把整轮正文写成一整块时，按句子重新分段；代码块、列表和台词行原样保留。只改显示，不改存档。", current.paragraphs, function (value) { update({ paragraphs: value }); }),
+            toggle("自动分段", "正文生成完成后，按句子重新分段；代码块、列表和台词行原样保留。只改显示，不改存档。", current.paragraphs, function (value) { update({ paragraphs: value }); }),
             field("每段", "句", current.sentences, TAVERN_PROSE_SENTENCE_RANGE[0], TAVERN_PROSE_SENTENCE_RANGE[1], 1, "句", function (value) { update({ sentences: value }); }, false),
             toggle("段首缩进", "正文每一段缩进两个字，像纸书排版。", current.indent, function (value) { update({ indent: value }); }),
             h("p", { className: "dsh-tavern-text-layout-preview", style: { fontSize: shownFontSize + "px", lineHeight: lineHeight, letterSpacing: letterSpacing + "em", textIndent: current.indent ? "2em" : undefined } },

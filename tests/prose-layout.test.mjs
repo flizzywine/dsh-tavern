@@ -84,6 +84,14 @@ test('Markdown 标记不被切断：强调、行内代码和括号里的句号�
   assert.ok(layout(inline, { sentences: 1 }).includes('`a。b`'), '行内代码里的句号不当句子边界')
 })
 
+test('开场白的多行标题与正文之间保留原来的 Markdown 边界', () => {
+  const body = '她站在窗边。窗外的雨仍在下。屋檐水声一阵接一阵，像很远的地方有人在敲门。'
+  for (const underline of ['---', '===']) {
+    const heading = '第一幕。\n雨停了。\n' + underline
+    assert.equal(layout(heading + '\n\n' + body, { sentences: 1 }), heading + '\n\n' + layout(body, { sentences: 1 }))
+  }
+})
+
 test('关掉自动分段就原样返回；开着时同一段文本重复排版结果不变', () => {
   const text = '一整块正文。句子一句接一句。模型从不空行。三层意思挤在一起，读起来确实很累。'
   assert.equal(layout(text, { paragraphs: false, sentences: 2 }), text)
@@ -127,6 +135,14 @@ test('聊天正文渲染前自动分段；台词行与段落编号不受影响',
   assert.equal(plain.type, 'TavernColoredMarkdown')
   assert.equal(plain.props.text, laid, '没有台词行的正文交给 Markdown 时已经分段')
 
+  const chunks = [block.slice(0, 30), block]
+  for (const text of chunks) {
+    const plainStream = module.BubbleSafePublication({ text, streaming: true })
+    assert.equal(plainStream.props.text, text, '流式期间保持原始前缀，结算时才分段')
+    const bubbleStream = module.BubbleMarkdown({ props: { sessionId: 's' }, markdownProps: { text, streaming: true }, has: false, enter: false, segments: [], base: 0 })
+    assert.equal(bubbleStream.props.text, text, '舞台启用时的普通流式正文也保持原始前缀')
+  }
+
   const opening = module.BubbleMarkdown({ props: { sessionId: 's' }, markdownProps: { text: block }, has: false, enter: false, segments: [], base: 0 })
   assert.equal(opening.props.text, laid, '打开预览等没有气泡的路径同样分段')
 
@@ -134,6 +150,8 @@ test('聊天正文渲染前自动分段；台词行与段落编号不受影响',
   const mixed = module.BubbleMarkdown({ props: { sessionId: 's' }, markdownProps: { text: block }, has: true, enter: false, segments: [bubble, { kind: 'markdown', text: block }], base: 0, voice: [] })
   assert.equal(mixed.props.children[0].props.children.type, 'BubbleRow', '台词行走气泡，不动')
   assert.equal(mixed.props.children[1].props.text, laid, '气泡前后的散文照样分段')
+  const mixedStream = module.BubbleMarkdown({ props: { sessionId: 's' }, markdownProps: { text: block, streaming: true }, has: true, enter: false, segments: [bubble, { kind: 'markdown', text: block }], base: 0, voice: [] })
+  assert.equal(mixedStream.props.children[1].props.text, block, '气泡旁的流式散文等结算后分段')
 
   const staged = module.BubbleMarkdown({ props: { sessionId: 's' }, markdownProps: { text: block }, has: true, enter: true, segments: [{ kind: 'markdown', text: block }], base: 0, voice: [] })
   assert.equal(staged.props.children[0].type, 'StageMarkdown')
