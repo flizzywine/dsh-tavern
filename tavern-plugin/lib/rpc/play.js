@@ -329,7 +329,7 @@ export function createPlayHandlers(deps) {
     async rollbackToTurn(args) {
       if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板回退节点')
       await reconcileStory(args && args.sessionId)
-      const view = await rollbackToTurn(args && args.sessionId, args && args.chatId, args && args.turn)
+      const view = await rollbackToTurn(args?.sessionId, args?.chatId, args?.turn, args?.messageUid)
       notifyPluginTimeline(args && args.sessionId, 'rollback', { turn: view?.rolledBackTo?.latest })
       return { view }
     },

@@ -907,12 +907,17 @@
 				const liveState = useScopedLiveTavernView(props.sessionId, String(props.messageId || ""), [["mode"], ["forkTurnsByMessageId", String(props.messageId || "")]]);
 				const view = liveState.view;
 				const turn = Number(view && view.forkTurnsByMessageId && view.forkTurnsByMessageId[String(props.messageId || "")]) || 0;
+				return view && isPlayMode(view.mode) && turn > 0
+					? React.createElement(TavernIllustrateTurnAction, { sessionId: props.sessionId, turn: turn }) : null;
+			}
+			function TavernIllustrateTurnAction(props) {
 				useTavernUiExtensions();
 				useTavernProseLayoutRevision();
-				const play = Boolean(view && isPlayMode(view.mode) && turn > 0);
 				// Tavern draws nothing itself; an illustrator plugin answers this button.
-				const illustrator = play ? tavernUiExtensions.illustrator() : null;
-				return illustrator && tavernPluginAllowed(illustrator.owner, props.sessionId) ? React.createElement(TavernPluginIllustrateAction, { key: props.sessionId + ":" + turn, sessionId: props.sessionId, turn: turn, illustrator: illustrator }) : null;
+				const illustrator = tavernUiExtensions.illustrator();
+				return illustrator && tavernPluginAllowed(illustrator.owner, props.sessionId) ? React.createElement(TavernPluginIllustrateAction, {
+					key: props.sessionId + ":" + props.turn, sessionId: props.sessionId, turn: props.turn, illustrator: illustrator
+				}) : null;
 			}
 			// Drawn like DSH's own action icons (copy, branch): 16px, 1px strokes.
 			function TavernIllustrateIcon() {
@@ -1074,5 +1079,5 @@
 					}, TavernIllustrateAssistantAction); });
 				}, "dsh-tavern: earlier-turn illustration action");
 			}
-			return Object.freeze({ register: register });
+			return Object.freeze({ register: register, IllustrateTurnAction: TavernIllustrateTurnAction });
 		}

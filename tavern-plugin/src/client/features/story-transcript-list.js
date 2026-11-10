@@ -1,9 +1,13 @@
-// 故事历史的只读楼层列表。它直接消费 chat.messages 的故事投影，不按 native
+// 故事历史的楼层列表。它直接消费 chat.messages 的故事投影，不按 native
 // turn 分组，不扫描 sessionEvents，也不复用旧 DOM 隐藏行的 data-chat-flow-kind。
 // 列表和原生 ChatFlow 一样直接返回行，槽锚点保持 display:contents，宿主继续负责滚动。
 
 const TAVERN_STORY_TRANSCRIPT_LABELS = Object.freeze({ code: Object.freeze({ copyLabel: '复制', copiedLabel: '已复制' }), footnotes: '脚注' })
 const TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS = Object.freeze([])
+
+function tavernStoryReadAloudId(row) {
+	return JSON.stringify([row.messageUid || row.key, row.message?.swipeId])
+}
 
 function TavernStoryMarkdown(props) {
 	const text = String(props.text === undefined || props.text === null ? '' : props.text)
@@ -30,6 +34,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		throw new Error('故事历史列表缺少数据模块：先包含 features/story-transcript-data.js')
 	}
 	const options = deps || {}
+	const replyActions = options.replyActions
 	const h = React.createElement
 	const data = options.dataModule || createTavernStoryTranscriptDataModule({ rpc: options.rpc })
 	const labels = options.labels || TAVERN_STORY_TRANSCRIPT_LABELS
@@ -70,14 +75,12 @@ function createTavernStoryTranscriptFeature(deps) {
 	}
 
 	function StoryTranscriptMvuReceipt(props) {
-		if (typeof useLiveTavernView !== 'function' || typeof TavernMvuReceipt !== 'function' || typeof tavernMvuReceiptForTurn !== 'function') return null
-		const turn = Number(props.turn) || 0
-		const state = useLiveTavernView(props.sessionId, 'story-receipt:' + String(turn),
+		const { sessionId, turn } = props
+		const state = useLiveTavernView(sessionId, 'story-receipt:' + String(turn),
 			[['$mvuReceiptTurn', String(turn)], ['$settlementOwner', String(turn)], ['$receiptBusy']])
 		const receipt = tavernMvuReceiptForTurn(state.view, turn)
 		if (!receipt) return null
-		return h(TavernMvuReceipt, { sessionId: props.sessionId, turn: turn, receipt: receipt,
-			latest: turn === state.view?.settlementTurn, busy: Boolean(state.view?.activity?.busy) })
+		return h(replyActions.Receipt, { sessionId, storyTurn: turn, receipt, view: state.view })
 	}
 
 	function StoryTranscriptActions(props) {
@@ -155,10 +158,27 @@ function createTavernStoryTranscriptFeature(deps) {
 		const forkButton = row.role === 'assistant' ? h(DshUi.Tooltip, { label: busy === 'fork' ? '正在分叉…' : '从这一轮分叉', side: 'bottom' },
 			h('button', { type: 'button', className: 'dsh-tavern-story-row-action dsh-tavern-story-row-fork', disabled: Boolean(busy) || props.running === true,
 				'aria-label': '从这一轮分叉', onClick: fork }, h(DshUi.IconBranchOutlineRegular, null))) : null
-		return h('div', { className: 'dsh-tavern-story-row-actions' },
+		// Turn-based APIs need a unique saved turn. Old imports can repeat a turn
+		// or have no turn at all, but still have a row identity and readable text.
+		const turn = row.key === 'turn:' + row.legacyTurn ? row.legacyTurn : null
+		const assistantActions = replyActions && row.role === 'assistant' && isPlayMode(props.view?.mode)
+		const actionProps = { sessionId: props.sessionId, turn }
+		return h('div', { className: 'dsh-tavern-story-row-actions', 'data-story-latest-actions': props.latest || undefined },
 			row.role === 'user' ? editButton : copyButton,
 			row.role === 'user' ? copyButton : editButton,
+			assistantActions ? h('span', { className: 'dsh-fork-turn-actions' },
+				h('span', { 'data-fork-turn': 'speech' }, h(replyActions.ReadAloud, {
+					sessionId: props.sessionId, messageId: tavernStoryReadAloudId(row), source: row.text, state: props.readAloudState
+				})),
+				turn ? h('span', { 'data-fork-turn': 'receipt' }, h(StoryTranscriptMvuReceipt, actionProps)) : null,
+				props.latest && props.host ? h(replyActions.Latest, {
+					...props.host, sessionId: props.sessionId, messageId: props.view.latestAssistantMessageId
+				}) : null) : null,
+			assistantActions && turn && props.latestTurn > turn && row.messageUid ? h(replyActions.RollbackTo, {
+				...actionProps, floorNo: row.floorNo, messageUid: row.messageUid, running: props.running
+			}) : null,
 			forkButton,
+			assistantActions && turn ? h(replyActions.Illustrate, actionProps) : null,
 			selector ? h(messageDeletionFeature.Checkbox, { sessionId: String(props.sessionId || ''), selector: selector }) : null)
 	}
 
@@ -223,6 +243,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			? h('div', { className: 'dsh-tavern-plugin-media-list' }, trailingMedia.map(function (item) {
 				return h(TavernPluginMediaItem, { key: item.id, item: item, sessionId: mediaSessionId, turn: projectionTurn })
 			})) : null
+		const hasTurn = replyActions && playView && !row.streaming && row.key === 'turn:' + projectionTurn
 		return h('article', Object.assign({}, attributes, {
 			className: 'dsh-tavern-story-transcript-row dsh-tavern-assistant dsh-tavern-story-floor' + (row.streaming ? ' dsh-tavern-story-streaming' : ''),
 			'aria-live': row.streaming ? 'polite' : undefined
@@ -237,9 +258,10 @@ function createTavernStoryTranscriptFeature(deps) {
 				? h(TavernOpeningNav, { sessionId: props.sessionId, opening: props.helperView.tavernHelper.openingHost,
 					lifecycleRevision: Number(props.helperView.tavernHelper.lifecycleRevision) || 0 }) : null,
 			pluginMediaNode,
-			!row.streaming && projectionTurn > 0
-				? h(StoryTranscriptMvuReceipt, { sessionId: String(props.sessionId || ''), turn: projectionTurn }) : null,
-			h(StoryTranscriptActions, { row: row, transcript: props.transcript, sessionId: props.sessionId, running: props.running }))
+			hasTurn ? h(replyActions.IllustrationDraft, { sessionId: mediaSessionId, turn: projectionTurn, items: pluginMedia.items }) : null,
+			hasTurn ? h(replyActions.PluginActions, { sessionId: mediaSessionId, turn: projectionTurn, settled: true, text: row.text }) : null,
+			h(StoryTranscriptActions, { row, transcript: props.transcript, sessionId: props.sessionId, running: props.running,
+				view: props.helperView, latest: props.latest, latestTurn: props.latestTurn, readAloudState: props.readAloudState, host: props.host }))
 	})
 
 	function StoryToolCalls({ calls }) {
@@ -319,6 +341,11 @@ function createTavernStoryTranscriptFeature(deps) {
 			const streaming = overlaid.some(function (row) { return row.streaming === true && row.messageUid === regeneratingTarget })
 			return streaming ? overlaid : overlaid.filter(function (row) { return !(row.role === 'assistant' && row.messageUid === regeneratingTarget) })
 		}, [transcript, partial, props.runningCalls, props.pendingInputs, cached.turn, allowCommitted, storyStreamUid, regeneratingTarget, regeneratingStoryTurn])
+		const latest = rows.findLast(row => row.role === 'assistant')
+		const generating = Boolean(props.partial || props.view?.regenInProgress || (props.running && rows.at(-1)?.role === 'user'))
+		const readAloudSignal = generating ? '[true,null,""]' : latest && !latest.streaming
+			? JSON.stringify([false, tavernStoryReadAloudId(latest), latest.text, latest.floorNo]) : null
+		const readAloudState = replyActions ? replyActions.useReadAloudState(sessionId, readAloudSignal) : null
 		if (!rows.length) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',
@@ -331,7 +358,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			const renderKey = row.requestId ? 'request:' + row.requestId : row.key
 			return h(StoryTranscriptRow, { key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
 				sessionId: sessionId, view: projectionView, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
-				showPlayProcess: props.showPlayProcess })
+				showPlayProcess: props.showPlayProcess, latest: row === latest, latestTurn: latest?.legacyTurn, readAloudState,
+				host: row === latest ? props.host : null })
 		}))
 	}
 
@@ -372,7 +400,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		return h(React.Fragment, null, error, older,
 			h(TavernStoryTranscriptList, { transcript: transcript, partial: props.partial, running: props.running,
 				runningCalls: props.runningCalls, pendingInputs: props.pendingInputs, emptyLabel: props.emptyLabel, sessionId: props.sessionId, view: props.view,
-				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess }))
+				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess, host: props.host }))
 	}
 
 	function defaultStore() {
@@ -443,7 +471,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			partial: partial,
 			running: running,
 			runningCalls: runningCalls,
-			pendingInputs: pendingInputs
+			pendingInputs: pendingInputs,
+			host: { useChat: props.useChat, useSession: props.useSession, useInput: props.useInput, inputActions: props.inputActions }
 		}))
 	}
 

@@ -43,7 +43,7 @@ function harness() {
     rpc: async () => { calls.push('rpc'); if (fail) throw new Error('本次回复未完成'); return { view: { rollbackWarning: warning } } },
     historyProjection: { rolledBack: () => calls.push('project'), restored: () => calls.push('restore') },
     setCandidatePanel() { calls.push('set-candidate-panel') }, setRegenPanel() { calls.push('set-regen-panel') }, setCandidateGuidePanel() { calls.push('set-guide-panel') },
-    liveTavernView: { invalidate: () => calls.push('refresh-view') },
+    liveTavernView: { setView() {}, invalidate: () => calls.push('refresh-view') },
     tavernCoordination: { invalidate: () => calls.push('refresh-activity') },
     notifyTavernDataChanged: () => calls.push('notify'),
     tavernErrorHub: { report: (name, error) => calls.push(name + ': ' + error.message) },

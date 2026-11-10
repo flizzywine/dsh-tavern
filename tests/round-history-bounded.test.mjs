@@ -12,6 +12,7 @@ import { createBoundedHistory, readRowsAt } from '../tavern-plugin/lib/domain/bo
 import { isScopedMessages } from '../tavern-plugin/lib/domain/scoped-messages.js'
 import { createConversationPageStore } from '../tavern-plugin/lib/domain/conversation-page-store.js'
 import { createConversationState } from '../tavern-plugin/lib/domain/conversation-state.js'
+import { legacyMessageUid } from '../tavern-plugin/lib/domain/message-uid.js'
 
 const model = { kind: 'model', provider: 'fixture', model: 'fixture' }
 
@@ -244,7 +245,10 @@ test('rollback to a turn removes every later round and one undo restores them al
     for (const text of ['上楼', '开窗']) { h.agent.followup({ content: [{ type: 'text', text }] }); await h.agent.whenIdle() }
     const before = await h.p.read('chat'), nodes = [...h.session.surface.nodes]
     assert.equal(before.messages.at(-1).turn, 83)
-    const result = await h.rounds.rollbackTo('session', 'chat', 81)
+    const targetIndex = before.messages.findIndex(row => row.role === 'assistant' && row.turn === 81)
+    await assert.rejects(h.rounds.rollbackTo('session', 'chat', 81, 'stale-uid'), /回退目标楼层已变化/)
+    assert.deepEqual((await h.p.read('chat')).messages, before.messages)
+    const result = await h.rounds.rollbackTo('session', 'chat', 81, legacyMessageUid(before.messages[targetIndex], targetIndex))
     assert.deepEqual(result.rolledBackTo, { target: 81, latest: 81, removed: 2 })
     assert.equal(result.rollbackWarning, undefined)
     const after = await h.p.read('chat')

@@ -181,7 +181,7 @@ async function waitForVisibleStoryText(text) {
 async function inspectScreen() {
   await page.locator('.dsh-tavern-user-bubble').filter({ hasText: '领取任务奖励' }).first().waitFor({ state: 'visible' })
   await waitForVisibleStoryText('你获得了十枚金币。')
-  await page.getByText(/变量已更新/).filter({ visible: true }).first().waitFor()
+  await page.getByRole('button', { name: /变量已更新/ }).first().waitFor({ state: 'visible' })
   await openStatus()
   await page.frameLocator('.dsh-tavern-status-runtime iframe.dsh-tavern-message-frame:not([aria-hidden="true"])')
     .locator('#e2e-gold').filter({ hasText: /^金币：10$/ }).waitFor()

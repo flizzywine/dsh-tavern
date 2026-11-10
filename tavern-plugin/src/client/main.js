@@ -1058,7 +1058,18 @@ function clipReplayCore() {
 
 
 
-		const storyTranscriptFeature = createTavernStoryTranscriptFeature();
+		const storyTranscriptFeature = createTavernStoryTranscriptFeature({
+			replyActions: {
+				useReadAloudState: useTavernReadAloudState,
+				ReadAloud: TavernReplyReadAloudAction,
+				Receipt: playControlsFeature.TurnReceiptButton,
+				Latest: playControlsFeature.LatestReplyActions,
+				RollbackTo: playControlsFeature.RollbackToTurnButton,
+				Illustrate: assistantRendererFeature.IllustrateTurnAction,
+				IllustrationDraft: TavernIllustrationDraft,
+				PluginActions: TavernPluginMessageActions
+			}
+		});
 		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "commandUi", "betterSidebar", "remote", "remote.commands", "remote.session", "tavernSessionSignals", "theme", "modelDirectories", "remote.settings"]; // host theme, shared model directory, settings writes (「能看图」)
 
 		// @include tavern-presentation.js

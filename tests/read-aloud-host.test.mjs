@@ -22,11 +22,11 @@ test('host state gates the effective card switch by runtime readiness', async ()
   const source = readFileSync(new URL('../tavern-plugin/lib/index.js',import.meta.url),'utf8')
   const body = source.slice(source.indexOf('  rpcHandlers.readAloudLine ='),source.indexOf('  rpcHandlers.getStageRuntimeStatus ='))
   let extension, ready = true, globalOn = false
-  const handlers = new Function('speech','castCardOf','str','cardStageExtension','settingsSectionProvider','ctx','ENGINE_SECTION','stageRuntime','cardStageVoicing',
+  const handlers = new Function('speech','castCardOf','str','cardStageExtension','settingsSectionProvider','ctx','voiceService','ENGINE_SECTION','stageRuntime','cardStageVoicing',
     'const rpcHandlers={};' + body + ';return rpcHandlers')(
     {read:async line => line},async () => ({path:'card'}),String,async () => extension,
     () => ({describe:() => [{ns:'engine',value:{stageToggles:{dialogue:true,voice:globalOn}}}]}),
-    {get:() => ({reading:() => ({readAloud:{auto:true}})})},'engine',{status:() => ready ? 'ready' : 'disabled'},cardStageVoicing)
+    {},() => ({reading:() => ({readAloud:{auto:true}})}),'engine',{status:() => ready ? 'ready' : 'disabled'},cardStageVoicing)
   for (const item of [
     {card:{stage:{enabled:true,switches:{voice:'on'}}},global:false,want:true},
     {card:{stage:{enabled:true}},global:true,want:true},

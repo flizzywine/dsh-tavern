@@ -11,6 +11,7 @@ import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transc
 const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8')
 const listSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-list.js', import.meta.url), 'utf8')
 const deletionSource = await readFile(new URL('../tavern-plugin/src/client/features/message-deletion.js', import.meta.url), 'utf8')
+const playControlsSource = await readFile(new URL('../tavern-plugin/src/client/features/play-controls.js', import.meta.url), 'utf8')
 
 // 一个页面 DOM + 两个 @include 片段共用同一个 factory 作用域（data 先、list 后）。
 function createPage(t, extra) {
@@ -70,6 +71,61 @@ async function mount(page, element) {
 	page.roots.push(root)
 	return root
 }
+
+test('楼层操作用故事正文和稳定轮次，回退提交确认过的消息 UID', async t => {
+	const calls = []
+	const page = createPage(t, {
+		isPlayMode: mode => mode === 'story',
+		useLiveTavernView: () => ({ view }),
+		tavernMvuReceiptForTurn: (_view, turn) => turn === 12 ? { status: 'updated' } : null,
+		useTavernConfirm: () => async text => { calls.push(text); return true },
+		rpc: async (method, args, sessionId) => { calls.push({ method, ...args, sessionId }); return {} },
+		historyProjection: { rolledBack() {} },
+		setCandidatePanel() {}, setRegenPanel() {}, setCandidateGuidePanel() {},
+		notifyTavernDataChanged() {},
+		liveTavernView: { setView() {}, invalidate() {} }, tavernCoordination: { invalidate() {} }
+	})
+	const view = { mode: 'story', canRollback: true, rollbackTargetTurn: 19, settlementTurn: 12 }
+	const saved = story([
+		{ role: 'assistant', turn: 2, text: '重号正文甲' },
+		{ role: 'assistant', turn: 2, text: '重号正文乙' },
+		{ role: 'assistant', turn: 12, text: '可回退的正文', messageUid: 'story-12' },
+		{ role: 'assistant', turn: 19, text: '最新正文' },
+		{ role: 'user', text: '玩家输入' }
+	])
+	const button = (label, value) => React.createElement('button', { 'aria-label': label }, value)
+	const rollback = vm.runInContext(playControlsSource.slice(
+		playControlsSource.indexOf('function TavernRollbackToTurnButton('),
+		playControlsSource.indexOf('const bodyEditPanel =')
+	) + '\nTavernRollbackToTurnButton', page.context)
+	const feature = page.context.createTavernStoryTranscriptFeature({
+		replyActions: {
+			useReadAloudState: () => ({ auto: false }),
+			ReadAloud: props => button('朗读', props.source),
+			Illustrate: props => button('配图', props.turn),
+			Receipt: props => button('变量结算', props.storyTurn),
+			Latest: () => button('更多'),
+			RollbackTo: rollback,
+			IllustrationDraft: () => null, PluginActions: () => null
+		}
+	})
+	await mount(page, React.createElement(feature.StoryTranscriptList, { sessionId: 'game', transcript: saved, view, host: {} }))
+	const document = page.dom.window.document
+	const [duplicate, , historical, latest, user] = document.querySelectorAll('[data-story-row]')
+	const action = (row, label) => row.querySelector('button[aria-label="' + label + '"]')
+	assert.equal(action(duplicate, '朗读').textContent, '重号正文甲')
+	assert.equal(action(duplicate, '配图'), null)
+	assert.equal(action(duplicate, '回退到这一轮'), null)
+	assert.equal(action(historical, '配图').textContent, '12')
+	assert.equal(action(historical, '变量结算').textContent, '12')
+	assert.equal(action(historical, '更多'), null)
+	assert.ok(action(latest, '更多'))
+	assert.equal(action(latest, '回退到这一轮'), null)
+	assert.equal(action(user, '朗读'), null)
+	await act(async () => action(historical, '回退到这一轮').click())
+	assert.match(calls[0], /回退到第 3 楼/)
+	assert.deepEqual(calls[1], { method: 'rollbackToTurn', turn: 12, messageUid: 'story-12', sessionId: 'game' })
+})
 
 
 test('首轮占位、流式正文和最终 HTML 始终复用同一逻辑行', async t => {

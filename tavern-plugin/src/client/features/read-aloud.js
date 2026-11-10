@@ -53,23 +53,24 @@
                     if (reading?.owner === owner) { reading = null; emit(); }
                 });
             }
-            // signal: [streaming or a new player input, the latest reply's message id, its body while idle].
+            // The story signal adds the floor so a regenerated reply can retain
+            // its identity and a rollback to earlier prose does not read it again.
             function observe(sessionId, signal) {
                 const state = session(sessionId);
                 if (state.signal === signal) return;
                 state.signal = signal;
-                const [busy, messageId, source] = JSON.parse(signal);
+                const [busy, messageId, source, floor] = JSON.parse(signal);
                 if (busy) {
                     if (!state.armed) { state.armed = true; state.before = state.latest; }
                     state.generation++;
                     stop(sessionId);
                     return;
                 }
-                state.latest = messageId;
+                state.latest = { messageId, source, floor };
                 // The finished reply may land a snapshot after the stream ends: stay armed until a new reply is there.
-                if (!state.armed || !messageId || messageId === state.before) return;
+                if (!state.armed || !messageId || (messageId === state.before?.messageId && (floor == null || source === state.before.source))) return;
                 state.armed = false;
-                if (source) void read(sessionId, state, messageId, source);
+                if (source && (floor == null || state.before?.floor == null || floor >= state.before.floor)) void read(sessionId, state, messageId, source);
             }
             function attach(sessionId) {
                 const state = session(sessionId);
@@ -94,24 +95,43 @@
             const node = !busy && messageId ? nodes.find(item => item.kind === "assistant" && item.messageId === messageId) : null;
             return JSON.stringify([busy, messageId, node ? tavernReplyBody(node) : ""]);
         }
-        function TavernReadAloudAction(props) {
+        function useTavernReadAloudState(sessionId, signal) {
             const available = usePackRevision(ttsClientAvailable);
-            const [state, setState] = React.useState(null);
+            const [snapshot, setSnapshot] = React.useState(null);
+            const refreshRef = React.useRef(null);
+            const refresh = React.useCallback(() => refreshRef.current?.(), []);
             const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
-            const source = props.useChat(snapshot => tavernReplyBody((snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId)));
-            const signal = props.useChat(tavernReadAloudSignal);
-            React.useEffect(() => tavernReadAloud.attach(props.sessionId), [props.sessionId]);
-            React.useEffect(() => tavernReadAloud.observe(props.sessionId, signal), [props.sessionId, signal]);
-            React.useEffect(() => { if (active === props.sessionId) tavernReadAloud.stop(props.sessionId); }, [active, props.sessionId]);
+            React.useEffect(() => tavernReadAloud.attach(sessionId), [sessionId]);
+            React.useEffect(() => { if (signal) tavernReadAloud.observe(sessionId, signal); }, [sessionId, signal]);
+            React.useEffect(() => { if (active === sessionId) tavernReadAloud.stop(sessionId); }, [active, sessionId]);
             React.useEffect(() => {
                 let live = true;
-                const refresh = () => rpc("readAloudState", {}, props.sessionId).then(value => { if (live) setState(value); }, () => { if (live) setState(null); });
-                void refresh();
-                const off = forkTtsScope?.get("ttsClient")?.subscribe(event => { if (event.type === "readingChanged") void refresh(); });
-                return () => { live = false; off?.(); };
-            }, [props.sessionId, available]);
+                if (!available) return;
+                const read = async () => {
+                    const value = await rpc("readAloudState", {}, sessionId).catch(() => null);
+                    if (!live) return null;
+                    setSnapshot({ sessionId, value });
+                    return value;
+                };
+                refreshRef.current = read;
+                void read();
+                const off = forkTtsScope?.get("ttsClient")?.subscribe(event => { if (event.type === "readingChanged") void read(); });
+                return () => { live = false; refreshRef.current = null; off?.(); };
+            }, [sessionId, available]);
+            const state = available && snapshot?.sessionId === sessionId ? snapshot.value : null;
+            return React.useMemo(() => state ? { ...state, refresh } : null, [state, refresh]);
+        }
+        function TavernReadAloudAction(props) {
+            const source = props.useChat(snapshot => tavernReplyBody((snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId)));
+            const signal = props.useChat(tavernReadAloudSignal);
+            const state = useTavernReadAloudState(props.sessionId, signal);
+            return React.createElement(TavernReplyReadAloudAction, { ...props, source, state });
+        }
+        function TavernReplyReadAloudAction(props) {
+            const { source, state } = props;
+            const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
             const playing = React.useSyncExternalStore(tavernReadAloud.subscribe, () => tavernReadAloud.reading(props.sessionId, props.messageId));
-            if (!available || !source || !state) return null;
+            if (!source || !state) return null;
             if (state.stepAside) return React.createElement(TavernBodySpeechAction, props);
             if (active === props.sessionId) return null;
             const text = parseBubbles(source, false).map(part => tavernSpeechPlainText(part.text)).join(" ");
@@ -119,8 +139,7 @@
                 key:JSON.stringify([props.sessionId,props.messageId,source]),sessionId:props.sessionId,body:true,text,line:"readAloudLine",label:"朗读",playing,
                 onStop:() => tavernReadAloud.stop(props.sessionId),
                 beforeRead:async () => {
-                    const value = await rpc("readAloudState", {}, props.sessionId).catch(() => null);
-                    setState(value);
+                    const value = await state.refresh();
                     return !!value && !value.stepAside && galActive.get() !== props.sessionId;
                 }
             });

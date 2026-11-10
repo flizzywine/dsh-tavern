@@ -22,6 +22,7 @@ import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { consumeScriptPrompts } from './tavern-script-prompts.js'
 import { createRegenerationDiscard, restoreDiscardedRegeneration, installRegenerationDiscard, clearRegenerationFailure } from './regeneration-discard.js'
 import { compactUserInput, frameUserInput } from './agent-input-frame.js'
+import { legacyMessageUid } from './message-uid.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -855,7 +856,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (state?.regenInProgress) throw new Error('正文正在重新生成，请先完成恢复或生成')
   }
 
-  async function rollbackToTurn(sessionId, chatId, targetTurn) {
+  async function rollbackToTurn(sessionId, chatId, targetTurn, messageUid) {
     const target = Number(targetTurn)
     if (!Number.isSafeInteger(target) || target < 1) throw new Error('回退目标轮次无效')
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
@@ -868,6 +869,26 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     try {
       if (!sessions.get(state.sessionId)?.session && !sessions.getSession?.(state.sessionId) && typeof sessions.resume === 'function') {
         restoredHandle = await sessions.resume(state.sessionId)
+      }
+      if (messageUid !== undefined) {
+        const chat = await readChat(state.id)
+        const messages = chat.messages || []
+        const matches = messages.filter(row => row?.role === 'assistant' && Number(row.turn) === target)
+        const index = messages.indexOf(matches[0])
+        if (matches.length !== 1 || legacyMessageUid(matches[0], index) !== messageUid) {
+          throw new Error('回退目标楼层已变化，请刷新后重试')
+        }
+        // The rollback loop steps down by story turn. Reject ambiguous imported
+        // sequences before it removes anything.
+        let previous = target
+        for (const row of messages.slice(index + 1)) {
+          if (row?.role !== 'assistant' || row.greeting === true) continue
+          const turn = Number(row.turn)
+          if (row.placeholder === true || !Number.isSafeInteger(turn) || turn <= previous) {
+            throw new Error('此楼之后的剧情轮次无法安全回退，请使用「从这一轮分叉」')
+          }
+          previous = turn
+        }
       }
       const recent = async () => chats.readRecent ? await chats.readRecent(state.id) : await readChat(state.id)
       const latestOf = async () => latestStoryTurn(await recent())

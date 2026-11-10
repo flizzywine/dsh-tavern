@@ -42,13 +42,15 @@ function usePopover(open, setOpen, anchor, layer) {
 }
 
 function ReceiptButton(props) {
-    const h = React.createElement;
     const live = useLiveTavernView(props.sessionId, "receipt:" + String(props.messageId || ""));
-    const [open, setOpen] = React.useState(false);
     const view = live.view;
     const found = receiptForMessage(view, props.messageId, useChatTurn(props));
-    if (!found) return null;
-    const receipt = found.receipt;
+    return found ? React.createElement(TurnReceiptButton, { sessionId: props.sessionId, view, ...found }) : null;
+}
+
+function TurnReceiptButton({ sessionId, view, receipt, storyTurn }) {
+    const h = React.createElement;
+    const [open, setOpen] = React.useState(false);
     const status = RECEIPT_TITLES[receipt.status] ? receipt.status : "unchanged";
     const busy = Boolean(view && view.activity && view.activity.busy);
     const changes = Array.isArray(receipt.changes) ? receipt.changes.length : 0;
@@ -57,22 +59,22 @@ function ReceiptButton(props) {
     const shown = status === "pending" && busy ? "running" : status;
     // Sliders icon + an inline count (not a corner badge); other states tint the icon.
     const detail = status === "updated" && changes ? (changes > 99 ? "99+" : String(changes)) : status === "partial" ? changes + "/" + (changes + failures) : "";
-    const subtitle = "第 " + found.storyTurn + " 轮 · " + (status === "updated" ? (changes ? changes + " 项" : "已更新") : status === "partial" ? changes + " 项 · 失败 " + failures + " 项" : RECEIPT_TITLES[status]);
+    const subtitle = "第 " + storyTurn + " 轮 · " + (status === "updated" ? (changes ? changes + " 项" : "已更新") : status === "partial" ? changes + " 项 · 失败 " + failures + " 项" : RECEIPT_TITLES[status]);
     return h(React.Fragment, null,
         h("button", { type: "button", className: "fork-receipt-icon", "data-receipt": shown, title: title, "aria-label": title, onClick: function () { setOpen(true); } },
             detail ? h("span", { className: "fork-receipt-count" }, detail) : null),
         open ? bodyPortal(h("div", { className: "fork-dialog-backdrop", onPointerDown: function (event) { if (event.target === event.currentTarget) setOpen(false); } },
-            h("div", { className: "fork-dialog", role: "dialog", "aria-label": "第 " + found.storyTurn + " 轮变量结算",
+            h("div", { className: "fork-dialog", role: "dialog", "aria-label": "第 " + storyTurn + " 轮变量结算",
                 ref: function (node) { if (node && !node.contains(document.activeElement)) node.focus(); }, tabIndex: -1,
                 onKeyDown: function (event) { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); } } },
                 h("header", { className: "fork-dialog-head" },
                     h("div", { className: "fork-dialog-title" },
                         h("strong", null, "变量变化"),
                         h("span", { className: "fork-dialog-subtitle", "data-status": status }, subtitle),
-                        found.storyTurn === (view && view.settlementTurn) ? h(VariableRetryButton, { sessionId: props.sessionId, turn: found.storyTurn, status: status, busy: busy }) : null),
+                        storyTurn === view?.settlementTurn ? h(VariableRetryButton, { sessionId, turn: storyTurn, status: status, busy }) : null),
                     h("button", { type: "button", className: "fork-dialog-close", "aria-label": "关闭", onClick: function () { setOpen(false); } }, "×")),
                 h("div", { className: "fork-dialog-body fork-var-body" },
-                    h(VariableReceipt, { receipt: receipt, sessionId: props.sessionId, turn: found.storyTurn, latest: found.storyTurn === (view && view.settlementTurn), busy: busy }))))) : null);
+                    h(VariableReceipt, { receipt, sessionId, turn: storyTurn, latest: storyTurn === view?.settlementTurn, busy }))))) : null);
 }
 
 function TurnMenu(props) {
@@ -104,8 +106,14 @@ function TurnActions(props) {
         latest ? h("span", { "data-fork-turn": "edit", title: "编辑正文" }, h(TavernEditBodyAction, props)) : null,
         h("span", { "data-fork-turn": "speech" }, h(TavernReadAloudAction, props)),
         h("span", { "data-fork-turn": "receipt" }, h(ReceiptButton, props)),
-        latest ? h("span", { "data-fork-turn": "regen" }, h(CandidateAction, Object.assign({}, props, { only: "regen" }))) : null,
-        h("span", { "data-fork-turn": "more" }, h(TurnMenu, Object.assign({}, props, { latest: latest }))));
+        latest ? h(LatestReplyActions, props) : null);
+}
+
+function LatestReplyActions(props) {
+    const h = React.createElement;
+    return h(React.Fragment, null,
+        h("span", { "data-fork-turn": "regen" }, h(CandidateAction, { ...props, only: "regen" })),
+        h("span", { "data-fork-turn": "more" }, h(TurnMenu, { ...props, latest: true })));
 }
 
 // ---------------------------------------------------------------------------

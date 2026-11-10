@@ -86,9 +86,7 @@
         }
         function TavernBodySpeechAction(props) {
             const available = usePackRevision(ttsClientAvailable);
-            const source = props.useChat(function (snapshot) {
-                return tavernReplyBody((snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId));
-            });
+            const source = props.source;
             const parts = React.useMemo(() => tavernBodySpeechParts(source), [source]);
             return available && source ? React.createElement(TavernSpeakButton, { key: JSON.stringify([props.sessionId, props.messageId, source]), sessionId: props.sessionId, parts, body: true, disabled: !parts.length }) : null;
         }
