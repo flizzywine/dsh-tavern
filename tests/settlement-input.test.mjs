@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readSettlementInput} from '../tavern-plugin/lib/domain/settlement-input.js'
+import {collectMvuHelperContext} from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
 const window = () => ({from:9997,messageCount:10000,revision:8,chat:{id:'c',_storageRevision:8,
  backgroundConfigVersion:1,conversationFeaturesVersion:1,timeline:{schemaVersion:1,revision:3,checkpoints:[],operations:{}},
  preparedWorldBook:{revision:3},mvu:{enabled:true,owner:'official'},messages:[{role:'assistant',text:'prior'},
@@ -29,6 +30,40 @@ for(const [name,edit] of [['ordinary reply',value=>delete value.chat.messages[2]
  assert.equal(result.messages.length,value.messageCount)
  assert.equal(result.messages[value.from+2].turn,5000)
  assert.equal(result.messages[value.from-1],undefined)
+})
+
+test('short tail widens on the same revision when the previous reply is outside it',async()=>{
+ const messages=Array.from({length:400},(_,index)=>({role:'user',turn:index+1,text:'old '+index}))
+ messages[390]={role:'assistant',turn:195,text:'previous reply'}
+ for(let index=391;index<399;index++)messages[index]={role:'tavern-helper',text:'handoff '+index}
+ messages[399]={role:'assistant',turn:200,text:'pending reply',mvu:{pending:true},variables:[{hp:10}]}
+ const calls=[]
+ const readWindow=async(_id,options)=>{
+  calls.push(options)
+  const limit=options.limit,from=400-limit
+  return {from,messageCount:400,revision:8,chat:{id:'c',_storageRevision:8,backgroundConfigVersion:1,conversationFeaturesVersion:1,
+   timeline:{schemaVersion:1,revision:3,checkpoints:[],operations:{}},preparedWorldBook:{revision:3},mvu:{enabled:true,owner:'official'},messages:messages.slice(from)}}
+ }
+ const result=await readSettlementInput('c',{readWindow,readChat:async()=>assert.fail('the widened window contains the full settlement context'),scanDepth:async()=>0})
+ assert.deepEqual(calls.map(({limit,revision})=>[limit,revision??null]),[[8,null],[200,8]])
+ assert.equal(Object.keys(result.messages).length,200)
+ assert.deepEqual(collectMvuHelperContext(result.messages,399),collectMvuHelperContext(messages,399))
+})
+
+test('stale World Book scan widens the pinned tail only as far as the previous limit',async()=>{
+ const messages=Array.from({length:400},(_,index)=>({role:index%2?'user':'assistant',turn:index+1,text:'row '+index}))
+ messages[398]={role:'assistant',turn:200,text:'previous reply'}
+ messages[399]={role:'assistant',turn:201,text:'pending reply',mvu:{pending:true},variables:[{hp:10}]}
+ const calls=[]
+ const readWindow=async(_id,options)=>{
+  calls.push(options)
+  const from=400-options.limit
+  return {from,messageCount:400,revision:8,chat:{id:'c',_storageRevision:8,backgroundConfigVersion:1,conversationFeaturesVersion:1,
+   timeline:{schemaVersion:1,revision:3,checkpoints:[],operations:{}},preparedWorldBook:{revision:2},mvu:{enabled:true,owner:'official'},messages:messages.slice(from)}}
+ }
+ const result=await readSettlementInput('c',{readWindow,readChat:async()=>assert.fail('the widened window contains the full World Book scan depth'),scanDepth:async()=>10})
+ assert.deepEqual(calls.map(({limit,revision})=>[limit,revision??null]),[[8,null],[200,8]])
+ assert.equal(Object.keys(result.messages).length,200)
 })
 
 // A game without official MVU variables settles from the last reply and the row
