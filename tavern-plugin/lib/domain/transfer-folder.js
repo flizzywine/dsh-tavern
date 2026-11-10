@@ -10,6 +10,26 @@ const LAST_NUMBERED_SUFFIX = 60
 // 插件的 node_modules 也是内容；只有版本库目录不进包、不计字节。
 const SKIP_DIRECTORIES = new Set(['.git'])
 
+export function existingTransferFolder(root, name, kind) {
+  if (!name || name !== path.basename(name) || name.startsWith('.')) throw new Error(kind + '不存在：' + name)
+  const dir = path.join(root, name)
+  if (!existsSync(dir)) throw new Error(kind + '不存在：' + name)
+  return dir
+}
+
+export function folderZipName(name) {
+  return name.replace(/[\\/:*?"<>|]/g, '_') + '.zip'
+}
+
+/** 插件和 Skill 使用单层目录名，各自提供空名称时的默认值。 */
+export function namedFolderBase(name, fallback) {
+  const base = path.posix.basename(name.replace(/\\/g, '/')).normalize('NFC')
+  const clean = base.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
+    .replace(/^[-.\s]+|[-.\s]+$/g, '')
+    .slice(0, 80)
+  return clean || fallback
+}
+
 /** 打包用的相对路径：统一 `/`，顺序稳定。 */
 export async function readFolderFiles(dir, prefix = '') {
   const entries = []
