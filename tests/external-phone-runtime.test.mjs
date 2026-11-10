@@ -1,3 +1,4 @@
+import { announceHelperDocument } from './fixtures/helper-document-handshake.mjs'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
@@ -395,7 +396,7 @@ test('helper-script-runtime 在官方 MVU 卡下派发开始和结束事件，�
   runtime.sync('S1', makeView([{ role: 'assistant', message: 'opening', variables: { stat_data: {}, schema: {} } }], true))
   const frame = frames[0]
   frame.load()
-  const token = frame.contentWindow.messages[0].token
+  const token = announceHelperDocument(frame, event => h.deliver(frame, event.data))
   h.deliver(frame, {
     token,
     type: 'dsh-tavern-helper-subscriptions',
@@ -459,6 +460,7 @@ test('helper-script-runtime 在官方 MVU 卡下派发开始和结束事件，�
   h.deliver(frame, { token, type: 'dsh-tavern-helper-reloading' })
   frame.contentWindow.messages.length = 0
   frame.load()
+  const reloadedToken = announceHelperDocument(frame, event => h.deliver(frame, event.data), 'reloaded-document')
 
   // Pre-reload event must settle cleanly without throwing or replaying on phase="unknown"
   assert.deepEqual(copy(await pendingEmit), ['chat-phone'])
@@ -476,7 +478,7 @@ test('helper-script-runtime 在官方 MVU 卡下派发开始和结束事件，�
 
   // Reloaded scripts report ready -> onReady fires again cleanly
   h.deliver(frame, {
-    token,
+    token: reloadedToken,
     type: 'dsh-tavern-helper-subscriptions',
     ready: true,
     names: ['CHAT_CHANGED', 'GENERATION_ENDED'],

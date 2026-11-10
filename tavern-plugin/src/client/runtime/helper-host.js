@@ -264,19 +264,26 @@
         // archive data out of executable srcdoc and install the facade before
         // companion modules can continue past their existing readiness gate.
         function startTavernHelperFromMessage(metadata, bootstrap) {
+            const documentToken = window.crypto?.randomUUID?.() || Date.now() + ":" + Math.random();
             window.__dshTavernHelperReady = new Promise(function (resolve, reject) {
                 function receive(event) {
                     const data = event && event.data;
-                    if (event.source !== parent || !data || data.token !== metadata.token || data.type !== "dsh-tavern-helper-context") return;
+                    if (event.source !== parent || !data || data.token !== documentToken || data.type !== "dsh-tavern-helper-context") return;
                     window.removeEventListener("message", receive);
-                    window.addEventListener("pagehide", function () { parent.postMessage({ type: "dsh-tavern-helper-reloading", token: metadata.token }, "*"); }, { once: true });
-                    try { bootstrap(data.context); resolve(window.__dshTavernHelperReady); }
+                    window.__dshTavernHelperDocumentToken = documentToken;
+                    window.addEventListener("pagehide", function () { parent.postMessage({ type: "dsh-tavern-helper-reloading", token: documentToken }, "*"); }, { once: true });
+                    try { bootstrap(data.context, documentToken); resolve(window.__dshTavernHelperReady); }
                     catch (error) {
-                        parent.postMessage({type:"dsh-tavern-helper-bootstrap-failed",token:metadata.token,message:String(error && error.message || error)},"*");
+                        parent.postMessage({type:"dsh-tavern-helper-bootstrap-failed",token:documentToken,message:String(error && error.message || error)},"*");
                         reject(error);
                     }
                 }
                 window.addEventListener("message", receive);
+                // A real navigation runs this bootstrap again. document.open() can
+                // fire another load while keeping the current JavaScript realm.
+                window.addEventListener("load", function () {
+                    parent.postMessage({ type: "dsh-tavern-helper-document", token: metadata.token, documentToken: documentToken }, "*");
+                }, { once: true });
             });
         }
 
@@ -302,7 +309,9 @@
 			metadata.frameStorage = input && input.frameStorage || null; // persistent card storage
 			const safeMetadata = JSON.stringify(metadata).replace(/</g, "\\u003c");
 			const safeContext = input && input.deferContext === true ? "initialContext" : JSON.stringify(context).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
-			let bootstrap = '(' + tavernHelperScriptBootstrap.toString() + ')(' + safeMetadata + ',' + safeContext + ',{'
+            const deferred = input && input.deferContext === true;
+            const bootstrapMetadata = deferred ? 'Object.assign(' + safeMetadata + ',{token:documentToken})' : safeMetadata;
+			let bootstrap = '(' + tavernHelperScriptBootstrap.toString() + ')(' + bootstrapMetadata + ',' + safeContext + ',{'
 				+ 'installFrameStorage:' + installFrameStorage.toString() + ','
 				+ 'createInitializationTiming:' + createTavernInitializationTiming.toString() + ','
 				+ 'createTransport:' + createTavernHelperTransport.toString() + ','
@@ -329,7 +338,7 @@
                 + 'createLocalVariables:' + createTavernLocalVariables.toString() + ','
 				+ 'installBackgroundModel:' + installTavernBackgroundModel.toString() + ','
 				+ 'installFacade:' + installTavernHelperFacade.toString() + '});';
-            if (input && input.deferContext === true) bootstrap = '(' + startTavernHelperFromMessage.toString() + ')(' + safeMetadata + ',function(initialContext){' + bootstrap + '});';
+            if (deferred) bootstrap = '(' + startTavernHelperFromMessage.toString() + ')(' + safeMetadata + ',function(initialContext,documentToken){' + bootstrap + '});';
 			const modules = scripts.map(function (script) {
 				return { id: String(script && script.id || ""), system: String(script && script.system || ""), assetUrl: String(script && script.assetUrl || ""), content: patchCardScript(script) };
 			});
@@ -339,7 +348,7 @@
 				+ 'const loadModule=' + loadTavernHelperModule.toString() + ';\n'
 				+ 'const createMvuLoader=' + createMvuBundleLoader.toString() + ';\n'
 				+ 'const scripts=' + JSON.stringify(modules).replace(/</g, "\\u003c") + ';\n'
-				+ 'const token=' + JSON.stringify(metadata.token) + ';\n'
+				+ 'const token=' + (deferred ? 'window.__dshTavernHelperDocumentToken' : JSON.stringify(metadata.token)) + ';\n'
 				+ 'try{'
 				+ (input && input.trustedCardMode ? 'const frame=window.frameElement;await frame.__dshTavernPrepareTrustedHost();const artifacts=frame.__dshTavernHostArtifacts;window.$=window.jQuery=artifacts?artifacts.bindJQuery(window.parent.jQuery):window.parent.jQuery;const installHostFacade=' + installTavernTrustedHostFacade.toString() + ';const releaseHostFacade=installHostFacade(window.parent,window);window.addEventListener("pagehide",releaseHostFacade,{once:true});window.addEventListener("unload",releaseHostFacade,{once:true});\n' : '')
 				+ 'const installComposer=' + installLegacyTavernComposer.toString() + ';await installComposer();\n'

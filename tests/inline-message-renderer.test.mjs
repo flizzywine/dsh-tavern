@@ -1,3 +1,4 @@
+import { announceHelperDocument } from './fixtures/helper-document-handshake.mjs'
 import { helperLoaderSource } from './fixtures/helper-loader-source.mjs'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -60,6 +61,7 @@ test('Helper Host 在共享沙箱全部脚本完成初始化后才开放事件',
   assert.equal(frames.length, 1, '进入对话时应立即建立一个共享脚本 iframe')
   frames[0].listeners.load()
   const receive = windowListeners.get('message')
+  announceHelperDocument(frames[0], receive, 'init-token')
   receive({
     source: frames[0].contentWindow,
     data: {
@@ -382,6 +384,7 @@ test('Host acknowledgements confirm liveness without imposing a total event dead
   })
   frames[0].listeners.load()
   const receive = windowListeners.get('message')
+  announceHelperDocument(frames[0], receive, 'timeout-runtime-token')
   receive({
     source: frames[0].contentWindow,
     data: {

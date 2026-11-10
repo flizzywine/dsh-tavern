@@ -1,3 +1,4 @@
+import { announceHelperDocument } from './fixtures/helper-document-handshake.mjs'
 import { helperHostHarness } from './fixtures/helper-host-harness.mjs'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -205,15 +206,20 @@ function sandbox(options = {}) {
     onMutation(...args) { mutations.push(args) }, reportError(_source, error) { errors.push(error.message) }, resolveError() {}, ...options
   })
   function message(frame, type, data = {}) {
-    const token = frame.contentWindow.messages[0].token
+    const token = frame.contentWindow.messages.findLast(item => item.type === 'dsh-tavern-helper-context').token
     h.deliver(frame, { token, type, ...data })
   }
-  function ready(frame = frames.at(-1)) {
+  let documents = 0
+  function load(frame = frames.at(-1)) {
     frame.load()
+    return announceHelperDocument(frame, event => h.deliver(frame, event.data), 'document-' + ++documents)
+  }
+  function ready(frame = frames.at(-1)) {
+    load(frame)
     message(frame, 'dsh-tavern-helper-subscriptions', { ready: true, names: ['UPDATE'] })
     return frame
   }
-  return Object.assign(h, { runtime, frames, calls, mutations, errors, ready, message, respond(fn) { respond = fn } })
+  return Object.assign(h, { runtime, frames, calls, mutations, errors, load, ready, message, respond(fn) { respond = fn } })
 }
 
 test('helper sandbox accepts nested worldbooks and legacy aliases without overwriting explicit null', () => {
@@ -222,7 +228,7 @@ test('helper sandbox accepts nested worldbooks and legacy aliases without overwr
     input.tavernHelperWorldbook = { entries: [{ content: 'legacy' }] }
     if (nested !== undefined) input.tavernHelper.worldbook = nested
     h.runtime.sync('A', input)
-    h.frames[0].load()
+    h.load()
     const delivered = h.frames[0].contentWindow.messages.find(item => item.type === 'dsh-tavern-helper-context')
     assert.deepEqual(delivered.context.worldbook, nested === undefined ? input.tavernHelperWorldbook : nested)
     h.runtime.dispose()
@@ -233,7 +239,7 @@ test('下载等待暂停初始化超时，同一沙箱可手动恢复且拒绝�
   const states = [], h = sandbox({ onMvuLoadState: state => states.push(copy(state)) })
   const input = mvuView()
   h.runtime.sync('A', input)
-  const frame = h.frames[0]; frame.load()
+  const frame = h.frames[0]; h.load(frame)
   const report = state => h.message(frame, 'dsh-tavern-mvu-load-state', { state })
   assert.equal(h.timers.size, 1)
   report({ phase: 'loading', attempt: 1 })

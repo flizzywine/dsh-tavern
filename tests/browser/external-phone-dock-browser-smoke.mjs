@@ -184,10 +184,15 @@ try {
     const disposer = client.installFrameStorageBridge(window)
     await new Promise(r => setTimeout(r, 30))
     const readyChats = []
+    let finishOldWorldbookRead
     const runtime = client.createTavernHelperScriptRuntime({
       window,
       document,
-      rpc: () => Promise.resolve({ updated: true, ok: true }),
+      rpc(method, args) {
+        if (method !== 'loadTavernWorldInfo') return Promise.resolve({ updated: true, ok: true })
+        if (args.name === 'before-reset') return new Promise(resolve => { finishOldWorldbookRead = resolve })
+        return Promise.resolve({ worldInfo: { name: args.name } })
+      },
       onMutation() {},
       reportError(src, err) { window.__runtimeErrors = (window.__runtimeErrors || []).concat([[src, err.message]]) },
       resolveError() {},
@@ -275,9 +280,15 @@ try {
     const eventsBeforeReset = [...window.__phoneEvents]
     const themeBeforeReset = window.__lastSeenTheme
 
+    void frame.contentWindow.SillyTavern.loadWorldInfo('before-reset')
+    for (let i = 0; i < 60 && !finishOldWorldbookRead; i++) await new Promise(r => setTimeout(r, 50))
+    if (!finishOldWorldbookRead) throw new Error('Worldbook read did not start before reload')
     await dock.trigger('复位')
     for (let i = 0; i < 60 && window.__phoneLoads < 2; i++) await new Promise(r => setTimeout(r, 50))
     for (let i = 0; i < 60 && !presence.inspect().attached; i++) await new Promise(r => setTimeout(r, 50))
+    const worldbookAfterReset = frame.contentWindow.SillyTavern.loadWorldInfo('after-reset')
+    finishOldWorldbookRead({ worldInfo: { name: 'before-reset' } })
+    if ((await worldbookAfterReset).name !== 'after-reset') throw new Error('The new iframe document received an old worldbook reply')
     await new Promise(r => setTimeout(r, 150))
 
     const out = {

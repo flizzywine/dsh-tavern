@@ -1,3 +1,4 @@
+import { announceHelperDocument } from './fixtures/helper-document-handshake.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createSessionViewSync} from '../tavern-plugin/lib/domain/session-view-sync.js'
@@ -27,6 +28,7 @@ for(const count of [20,400,10000]) test(`wire merge and parent refresh avoid unc
  const sync=createSessionViewSync(),begin=helperClient.createSessionViewReader()
  let request=begin('s'),first=request.accept(sync('s',view,request.cursor,{revision:1})).view
  runtime.sync('s',first);frame.listeners.load()
+ announceHelperDocument(frame,listeners.message,'view-test')
  listeners.message({source:frame.contentWindow,data:{token:'view-test',type:'dsh-tavern-helper-subscriptions',ready:true,names:['MESSAGE_RECEIVED']}})
  // A transaction draft changes another floor. Committed refresh must restore it too.
  const pending=runtime.emit('MESSAGE_RECEIVED',[count-1],{contextDelta:{version:2,kind:'dispatch',chatId:'c',lifecycleRevision:0,baseRevision:1,stateRevision:1,eventId:'e',messageCount:count,header:{},messages:[{...messages[1],variables:{hp:123}}]}},[],'e')

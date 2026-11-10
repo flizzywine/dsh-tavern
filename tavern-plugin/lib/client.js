@@ -29830,19 +29830,26 @@ function bindTavernFontZoom(node, win) {
         // archive data out of executable srcdoc and install the facade before
         // companion modules can continue past their existing readiness gate.
         function startTavernHelperFromMessage(metadata, bootstrap) {
+            const documentToken = window.crypto?.randomUUID?.() || Date.now() + ":" + Math.random();
             window.__dshTavernHelperReady = new Promise(function (resolve, reject) {
                 function receive(event) {
                     const data = event && event.data;
-                    if (event.source !== parent || !data || data.token !== metadata.token || data.type !== "dsh-tavern-helper-context") return;
+                    if (event.source !== parent || !data || data.token !== documentToken || data.type !== "dsh-tavern-helper-context") return;
                     window.removeEventListener("message", receive);
-                    window.addEventListener("pagehide", function () { parent.postMessage({ type: "dsh-tavern-helper-reloading", token: metadata.token }, "*"); }, { once: true });
-                    try { bootstrap(data.context); resolve(window.__dshTavernHelperReady); }
+                    window.__dshTavernHelperDocumentToken = documentToken;
+                    window.addEventListener("pagehide", function () { parent.postMessage({ type: "dsh-tavern-helper-reloading", token: documentToken }, "*"); }, { once: true });
+                    try { bootstrap(data.context, documentToken); resolve(window.__dshTavernHelperReady); }
                     catch (error) {
-                        parent.postMessage({type:"dsh-tavern-helper-bootstrap-failed",token:metadata.token,message:String(error && error.message || error)},"*");
+                        parent.postMessage({type:"dsh-tavern-helper-bootstrap-failed",token:documentToken,message:String(error && error.message || error)},"*");
                         reject(error);
                     }
                 }
                 window.addEventListener("message", receive);
+                // A real navigation runs this bootstrap again. document.open() can
+                // fire another load while keeping the current JavaScript realm.
+                window.addEventListener("load", function () {
+                    parent.postMessage({ type: "dsh-tavern-helper-document", token: metadata.token, documentToken: documentToken }, "*");
+                }, { once: true });
             });
         }
 
@@ -29868,7 +29875,9 @@ function bindTavernFontZoom(node, win) {
 			metadata.frameStorage = input && input.frameStorage || null; // persistent card storage
 			const safeMetadata = JSON.stringify(metadata).replace(/</g, "\\u003c");
 			const safeContext = input && input.deferContext === true ? "initialContext" : JSON.stringify(context).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
-			let bootstrap = '(' + tavernHelperScriptBootstrap.toString() + ')(' + safeMetadata + ',' + safeContext + ',{'
+            const deferred = input && input.deferContext === true;
+            const bootstrapMetadata = deferred ? 'Object.assign(' + safeMetadata + ',{token:documentToken})' : safeMetadata;
+			let bootstrap = '(' + tavernHelperScriptBootstrap.toString() + ')(' + bootstrapMetadata + ',' + safeContext + ',{'
 				+ 'installFrameStorage:' + installFrameStorage.toString() + ','
 				+ 'createInitializationTiming:' + createTavernInitializationTiming.toString() + ','
 				+ 'createTransport:' + createTavernHelperTransport.toString() + ','
@@ -29895,7 +29904,7 @@ function bindTavernFontZoom(node, win) {
                 + 'createLocalVariables:' + createTavernLocalVariables.toString() + ','
 				+ 'installBackgroundModel:' + installTavernBackgroundModel.toString() + ','
 				+ 'installFacade:' + installTavernHelperFacade.toString() + '});';
-            if (input && input.deferContext === true) bootstrap = '(' + startTavernHelperFromMessage.toString() + ')(' + safeMetadata + ',function(initialContext){' + bootstrap + '});';
+            if (deferred) bootstrap = '(' + startTavernHelperFromMessage.toString() + ')(' + safeMetadata + ',function(initialContext,documentToken){' + bootstrap + '});';
 			const modules = scripts.map(function (script) {
 				return { id: String(script && script.id || ""), system: String(script && script.system || ""), assetUrl: String(script && script.assetUrl || ""), content: patchCardScript(script) };
 			});
@@ -29905,7 +29914,7 @@ function bindTavernFontZoom(node, win) {
 				+ 'const loadModule=' + loadTavernHelperModule.toString() + ';\n'
 				+ 'const createMvuLoader=' + createMvuBundleLoader.toString() + ';\n'
 				+ 'const scripts=' + JSON.stringify(modules).replace(/</g, "\\u003c") + ';\n'
-				+ 'const token=' + JSON.stringify(metadata.token) + ';\n'
+				+ 'const token=' + (deferred ? 'window.__dshTavernHelperDocumentToken' : JSON.stringify(metadata.token)) + ';\n'
 				+ 'try{'
 				+ (input && input.trustedCardMode ? 'const frame=window.frameElement;await frame.__dshTavernPrepareTrustedHost();const artifacts=frame.__dshTavernHostArtifacts;window.$=window.jQuery=artifacts?artifacts.bindJQuery(window.parent.jQuery):window.parent.jQuery;const installHostFacade=' + installTavernTrustedHostFacade.toString() + ';const releaseHostFacade=installHostFacade(window.parent,window);window.addEventListener("pagehide",releaseHostFacade,{once:true});window.addEventListener("unload",releaseHostFacade,{once:true});\n' : '')
 				+ 'const installComposer=' + installLegacyTavernComposer.toString() + ';await installComposer();\n'
@@ -30096,7 +30105,7 @@ function bindTavernFontZoom(node, win) {
 				return decorateHelperContext(context);
 			}
 			function post(record, message) {
-				if (records.get(record.id) !== record || !record.loaded || !record.frame.contentWindow) return;
+				if (records.get(record.id) !== record || !record.loaded || record.reloading || !record.frame.contentWindow) return;
 				if (message.context && applyTavernVariableReceipt.indexApi.info(message.context.messages)) {
                     message = {...message, context:{...message.context, messages:Array.from(message.context.messages)}};
                 }
@@ -30179,14 +30188,18 @@ function bindTavernFontZoom(node, win) {
 				});
 				return record.compatibilityTail;
 			}
-			function removeRecord(id) {
-				const record = records.get(id);
-				if (!record) return;
-				void flushCompatibility(record);
+            function cancelRecordGenerations(record) {
                 for (const [generationId, job] of record.helperGenerations || []) {
                     job.cancel();
                     if (job.started) void Promise.resolve(invoke("stopTavernHelperGeneration", {generationId, generationToken:job.generationToken, pending:true}, record.sessionId)).catch(function () {});
                 }
+                record.helperGenerations?.clear();
+            }
+			function removeRecord(id) {
+				const record = records.get(id);
+				if (!record) return;
+				void flushCompatibility(record);
+                cancelRecordGenerations(record);
 				for (const [eventId, pending] of pendingEvents) {
 					if (pending.record !== record) continue;
 					hostWindow.clearTimeout(pending.timer);
@@ -30250,7 +30263,8 @@ function bindTavernFontZoom(node, win) {
 					return Promise.reject(new Error(initializationError));
 				}
 				if (diagnostics) diagnostics.push({ kind: "dispatch", name: name, ready: record.subscriptionsReady, initializationFailed: record.initializationFailed, subscribed: record.subscriptions.has(String(name)) });
-				if (!record.loaded || !record.subscriptionsReady || record.initializationFailed) return Promise.resolve(args);
+				if (!record.loaded || record.reloading || !record.subscriptionsReady || record.initializationFailed) return Promise.resolve(args);
+				const documentToken = record.token;
 				if (context && typeof context === "object" && context.contextWindow) {
                     // A bounded event context: recent rows at their absolute ids; older
                     // rows stay stubs that the history lease reads on demand.
@@ -30264,7 +30278,7 @@ function bindTavernFontZoom(node, win) {
                         const next = applyTavernVariableReceipt(record.context, context.contextDelta);
                         if (next === null) {
                             const snapshot = await invoke("getTavernHelperContext", {eventId:hostEventId}, record.sessionId);
-                            if (records.get(record.id) !== record) throw new Error("脚本运行时已失效");
+                            if (records.get(record.id) !== record || record.token !== documentToken || record.reloading) throw new Error("脚本运行时已失效");
                             record.context = decorateHelperContext(snapshot.context, record.context);
                             post(record,{type:"dsh-tavern-helper-context",context:record.context});
                         } else {
@@ -30364,7 +30378,8 @@ function bindTavernFontZoom(node, win) {
 					startedAt: Date.now(),
 					fingerprint: fingerprint,
 					suppressCompactViewRefresh: true,
-					token: token(),
+					bootstrapToken: token(),
+					token: null,
 					compatibilityId: token(),
 					compatibilityCatalog: new Map((context.compatibilityCapabilities || []).map(function (entry) { return [entry.id, entry]; })),
 					compatibilityPending: new Map(),
@@ -30393,66 +30408,77 @@ function bindTavernFontZoom(node, win) {
 				} else frame.sandbox = "allow-scripts";
 				frame.referrerPolicy = "no-referrer";
 				record.storage = forkFrameStorage.capability({ sessionId: sessionId, cardPath: context.frameStorageScope && context.frameStorageScope.cardPath }, hostWindow); // owner-only storage grant
-				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: record.storage, token: record.token, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
+				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: record.storage, token: record.bootstrapToken, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
 				frame.addEventListener("load", function () {
-					if (records.get(record.id) !== record) return;
-					const reloaded = Boolean(record.reloading || record.subscriptionsReady || record.initializationFailed);
-					record.reloading = false;
-					if (reloaded) {
-						if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
-						record.initializationTimer = null;
-						// Card scripts (e.g. phone reset/refresh) may call location.reload() inside an
-						// event callback. Close pre-reload host events instead of replaying them into the
-						// fresh document when a watchdog probe sees phase="unknown".
-						for (const [eventId, pending] of pendingEvents) {
-							if (pending.record !== record) continue;
-							hostWindow.clearTimeout(pending.timer);
-							if (pending.deferTimer) hostWindow.clearTimeout(pending.deferTimer);
-							closeEventId(eventId);
-							pendingEvents.delete(eventId);
-							if (eventId.indexOf(mvuWorkEventPrefix) === 0) pending.reject(new Error("人物卡脚本沙箱已重新加载，事件未完成"));
-							else pending.resolve(clone(pending.envelope && pending.envelope.args || []));
-						}
-						if (record.hostArtifacts) {
-							record.hostArtifacts.dispose();
-							record.hostArtifacts = createTavernHostArtifactScope({ document: hostDocument, sessionId: record.sessionId });
-							frame.__dshTavernHostArtifacts = record.hostArtifacts;
-							record.hostArtifacts.setVisible(foreground);
-						}
-						removeExternalCardUiArtifacts(record);
-						record.subscriptions.clear();
-						record.subscriptionsReady = false;
-						record.initializationFailed = false;
-						record.mvuLoadState = null;
-						record.mvuLastInitializationDiagnostic = "";
-						record.suppressCompactViewRefresh = true;
-						for (const script of record.scripts.values()) {
-							script.loaded = true;
-							script.subscriptionsReady = false;
-							script.initializationFailed = false;
-							script.initializationError = "";
-						}
-						announcedReadinessKey = "";
-					}
-					record.loaded = true;
-					for (const script of record.scripts.values()) script.loaded = true;
-					post(record, { type: "dsh-tavern-helper-context", context: record.context });
-					if (reloaded && record.storage) {
-						if (record.releaseStorage) record.releaseStorage();
-						record.releaseStorage = forkFrameStorage.register(frame, record.storage);
-					}
-					if (!record.subscriptionsReady && !record.initializationFailed && !record.mvuLoadState) {
-						record.initializationTimer = hostWindow.setTimeout(function () {
-							settleInitialization(record, new Error("初始化超时（" + String(initializationTimeoutMs) + "ms）"));
-						}, initializationTimeoutMs);
-					}
-					maybeAnnounceReady();
+					if (records.get(record.id) === record && !record.loaded && !record.initializationTimer) armInitializationDeadline(record);
 				});
 				container.appendChild(frame);
 				record.releaseStorage = forkFrameStorage.register(frame, record.storage); // contentWindow exists only after insertion
 				records.set(record.id, record);
                 if (record.hostArtifacts) record.hostArtifacts.setVisible(foreground);
 				return record;
+			}
+			function armInitializationDeadline(record) {
+				record.initializationTimer = hostWindow.setTimeout(function () {
+					settleInitialization(record, new Error("初始化超时（" + String(initializationTimeoutMs) + "ms）"));
+				}, initializationTimeoutMs);
+			}
+			function activateDocument(record, documentToken) {
+				const frame = record.frame, reloaded = record.loaded;
+				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
+				record.initializationTimer = null;
+				record.reloading = false;
+				record.token = documentToken;
+				if (reloaded) {
+                    cancelRecordGenerations(record);
+                    record.queuedPromptBatch = null;
+					if (record.context.transaction) record.context = record.deferredContext || record.committedContext || record.context;
+					record.deferredContext = null;
+					record.deferredEvents = null;
+					// Card scripts (e.g. phone reset/refresh) may call location.reload() inside an
+					// event callback. Close pre-reload host events instead of replaying them into the
+					// fresh document when a watchdog probe sees phase="unknown".
+					for (const [eventId, pending] of pendingEvents) {
+						if (pending.record !== record) continue;
+						hostWindow.clearTimeout(pending.timer);
+						if (pending.deferTimer) hostWindow.clearTimeout(pending.deferTimer);
+						closeEventId(eventId);
+						pendingEvents.delete(eventId);
+						if (eventId.indexOf(mvuWorkEventPrefix) === 0) pending.reject(new Error("人物卡脚本沙箱已重新加载，事件未完成"));
+						else pending.resolve(clone(pending.envelope && pending.envelope.args || []));
+					}
+					if (record.hostArtifacts) {
+						record.hostArtifacts.dispose();
+						record.hostArtifacts = createTavernHostArtifactScope({ document: hostDocument, sessionId: record.sessionId });
+						frame.__dshTavernHostArtifacts = record.hostArtifacts;
+						record.hostArtifacts.setVisible(foreground);
+					}
+					removeExternalCardUiArtifacts(record);
+					record.subscriptions.clear();
+					record.subscriptionsReady = false;
+					record.initializationFailed = false;
+					record.mvuLoadState = null;
+					record.mvuLastInitializationDiagnostic = "";
+					record.mvuDataError = "";
+					record.lastRuntimeError = "";
+					record.runtimeErrorKeys?.clear();
+					record.suppressCompactViewRefresh = true;
+					for (const script of record.scripts.values()) {
+						script.loaded = true;
+						script.subscriptionsReady = false;
+						script.initializationFailed = false;
+						script.initializationError = "";
+					}
+					announcedReadinessKey = "";
+				}
+				record.loaded = true;
+				for (const script of record.scripts.values()) script.loaded = true;
+				if (reloaded && record.storage) {
+					if (record.releaseStorage) record.releaseStorage();
+					record.releaseStorage = forkFrameStorage.register(frame, record.storage);
+				}
+				post(record, { type: "dsh-tavern-helper-context", context: record.context });
+				if (!record.initializationFailed) armInitializationDeadline(record);
 			}
 			function scriptsForView(view) {
 				const scripts = Array.isArray(view && view.tavernHelperScripts) ? view.tavernHelperScripts.slice() : [];
@@ -30552,8 +30578,14 @@ function bindTavernFontZoom(node, win) {
 			function receive(event) {
 				const data = event && event.data;
 				if (!data || !data.token) return;
-				const record = Array.from(records.values()).find(function (item) { return item.token === data.token && event.source === item.frame.contentWindow; });
-				if (!record) return;
+				const record = records.get("shared");
+				if (!record || event.source !== record.frame.contentWindow) return;
+				if (data.type === "dsh-tavern-helper-document") {
+					if (data.token === record.bootstrapToken && typeof data.documentToken === "string" && data.documentToken
+						&& record.token !== data.documentToken) activateDocument(record, data.documentToken);
+					return;
+				}
+				if (record.token !== data.token || record.reloading) return;
 				if (data.type === "dsh-tavern-mvu-load-diagnostic") { recordMvuLoadDiagnostic(record, data.diagnostic); return; }
 				if (data.type === "dsh-tavern-mvu-load-state") {
 					const core = record.scripts.get("__dsh_official_mvu__");
@@ -30738,11 +30770,18 @@ function bindTavernFontZoom(node, win) {
 					}
 					return;
 				}
-                if (data.type === "dsh-tavern-helper-call" && data.method === "triggerTavernSlash") {
+                if (data.type !== "dsh-tavern-helper-call") return;
+                function currentDocument() {
+                    return records.get(record.id) === record && record.token === data.token && !record.reloading;
+                }
+                function reply(message) {
+                    if (currentDocument()) post(record, Object.assign({ type: "dsh-tavern-helper-response", requestId: data.requestId }, message));
+                }
+                if (data.method === "triggerTavernSlash") {
                     // Wait for earlier persistence, but do not put generation on the
                     // RPC tail: its MVU events must be able to issue their own writes.
                     Promise.resolve(record.rpcTail).catch(function () {}).then(function () {
-                        if (!foreground || records.get(record.id) !== record) throw new Error("对话已切换，人物卡命令未执行；请返回原对话重试");
+                        if (!foreground || !currentDocument()) throw new Error("对话已切换，人物卡命令未执行；请返回原对话重试");
                         if (data.lifecycleRevision !== undefined && Number(data.lifecycleRevision) !== Number(record.context?.lifecycleRevision || 0)) throw new Error("存档版本已变化，人物卡命令未执行");
                         if (data.eventId && (closedEventIds.has(String(data.eventId)) || pendingEvents.get(String(data.eventId))?.finishing)) {
                             throw Object.assign(new Error("事件已经结束，人物卡命令未执行"), { code: "TAVERN_SCRIPT_EVENT_CLOSED" });
@@ -30750,31 +30789,30 @@ function bindTavernFontZoom(node, win) {
                         if (typeof options.executeSlash !== "function") throw new Error("当前对话命令入口尚未就绪");
                         return options.executeSlash(String(data.args?.line || ""), record.sessionId, data.eventId ? { waitForCompletion: false } : undefined);
                     }).then(function (result) {
-                        post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: true,
+                        reply({ ok: true,
                             result: typeof result === "string" ? { pipe: result } : result });
                     }, function (error) {
-                        post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false,
+                        reply({ ok: false,
                             error: String(error.message || error), errorCode: String(error.code || "") });
                     });
                     return;
                 }
-                if (data.type === "dsh-tavern-helper-call" && data.method === "submitTavernHelperInput") {
+                if (data.method === "submitTavernHelperInput") {
                     Promise.resolve().then(function () {
-                        if (!foreground || records.get(record.id) !== record) throw new Error("对话已切换，开局消息未发送；请返回原对话重试");
+                        if (!foreground || !currentDocument()) throw new Error("对话已切换，开局消息未发送；请返回原对话重试");
                         if (data.lifecycleRevision !== undefined && Number(data.lifecycleRevision) !== Number(record.context?.lifecycleRevision || 0)) throw new Error("存档版本已变化，开局消息未发送");
                         if (typeof options.executeSlash !== "function") throw new Error("当前对话发送入口尚未就绪");
                         return options.executeSlash("", record.sessionId, { inputText: String(data.args?.text || "") });
                     }).then(function (result) {
-                        post(record, { type:"dsh-tavern-helper-response", requestId:data.requestId, ok:true, result:result });
+                        reply({ ok:true, result:result });
                     }, function (error) {
-                        reportError("人物卡发送消息", error);
-                        post(record, { type:"dsh-tavern-helper-response", requestId:data.requestId, ok:false, error:String(error.message || error) });
+                        if (currentDocument()) reportError("人物卡发送消息", error);
+                        reply({ ok:false, error:String(error.message || error) });
                     });
                     return;
                 }
-                if (data.type !== "dsh-tavern-helper-call") return;
                 if (!allowedMethods.has(data.method)) {
-                    post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false,
+                    reply({ ok: false,
                         error: "当前人物卡不支持 Helper 方法: " + String(data.method || ""), errorCode: "UNSUPPORTED_HELPER_METHOD" });
                     return;
                 }
@@ -30790,16 +30828,19 @@ function bindTavernFontZoom(node, win) {
                         job.cancel(); cancelledLocal = true;
                     }
                     if (all) stopArgs.pendingGenerations = (stopArgs.pendingGenerations || []).concat(pendingGenerations);
-                    Promise.resolve().then(() => invoke(data.method, stopArgs, record.sessionId)).then(function (result) {
-                        post(record, {type:"dsh-tavern-helper-response", requestId:data.requestId, ok:true,
+                    Promise.resolve().then(() => {
+                        if (!currentDocument()) throw new Error("脚本运行时已失效");
+                        return invoke(data.method, stopArgs, record.sessionId);
+                    }).then(function (result) {
+                        reply({ ok:true,
                             result:Object.assign({}, result, {stopped:cancelledLocal || result?.stopped === true})});
                     }, function (error) {
-                        post(record, {type:"dsh-tavern-helper-response", requestId:data.requestId, ok:false, error:String(error.message || error)});
+                        reply({ ok:false, error:String(error.message || error)});
                     });
                     return;
                 }
 				if (data.eventId && (closedEventIds.has(String(data.eventId)) || pendingEvents.get(String(data.eventId))?.finishing)) {
-					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: "事件已经结束，已拒绝迟到写入", errorCode: "TAVERN_SCRIPT_EVENT_CLOSED" });
+					reply({ ok: false, error: "事件已经结束，已拒绝迟到写入", errorCode: "TAVERN_SCRIPT_EVENT_CLOSED" });
 					return;
 				}
 					let mutationArgs = Object.assign({}, data.args || {}, { apiCallOrigin: { scriptId: String(data.scriptId || ""), scriptName: String(record.scripts.get(String(data.scriptId || ""))?.name || ""), eventId: String(data.eventId || ""), requestId: String(data.requestId || "") } });
@@ -30830,7 +30871,7 @@ function bindTavernFontZoom(node, win) {
                         // Respect earlier mutations, but don't put a long model job
                         // in the mutation queue: cancellation must reach it immediately.
                         const generation = (record.rpcTail || Promise.resolve()).catch(function () {}).then(function () {
-                            if (job.cancelled || records.get(record.id) !== record) throw new Error("生成已取消");
+                            if (job.cancelled || !currentDocument()) throw new Error("生成已取消");
                             if (data.lifecycleRevision !== undefined && Number(data.lifecycleRevision) !== Number(record.context?.lifecycleRevision || 0)) throw new Error("存档版本已变化，生成已取消");
                             job.started = true;
                             return invoke(data.method, mutationArgs, record.sessionId);
@@ -30847,14 +30888,14 @@ function bindTavernFontZoom(node, win) {
 					if (batch) mutationArgs.operation = { kind: "batch", operations: batch.operations };
 					rpcTask = (record.rpcTail || Promise.resolve()).catch(function () {}).then(function () {
 						if (record.queuedPromptBatch === batch) record.queuedPromptBatch = null;
-						if (records.get(record.id) !== record) throw new Error("脚本运行时已失效");
+						if (!currentDocument()) throw new Error("脚本运行时已失效");
 						if (data.eventId && closedEventIds.has(String(data.eventId))) throw Object.assign(new Error("事件已经结束，已拒绝迟到写入"), { code: "TAVERN_SCRIPT_EVENT_CLOSED" });
 						return Promise.resolve(invoke(data.method, mutationArgs, record.sessionId)).then(async function (result) {
-                            if (!result || !result.contextDelta || records.get(record.id) !== record) return result;
+                            if (!result || !result.contextDelta || !currentDocument()) return result;
                             const next = applyTavernVariableReceipt(record.context, result.contextDelta);
                             if (next === null) {
                                 const snapshot = await invoke("getTavernHelperContext", result.contextDelta.version === 2 ? {eventId:result.contextDelta.eventId} : {}, record.sessionId);
-                                record.context = decorateHelperContext(snapshot.context, record.context);
+                                if (currentDocument()) record.context = decorateHelperContext(snapshot.context, record.context);
                                 return Object.assign({}, result, { contextDelta: undefined, context: snapshot.context });
                             }
                             record.context = next;
@@ -30877,24 +30918,24 @@ function bindTavernFontZoom(node, win) {
 				}
 
 				rpcTask.then(function (result) {
-					if (records.get(record.id) === record && result && !result.stale) {
+					if (currentDocument() && result && !result.stale) {
 						const pending = pendingEvents.get(String(data.eventId || ""));
 						if (pending && pending.record === record) {
 							pending.contactAt = now();
 						}
 					}
 					// Readiness follows acknowledged persistence, not an iframe's speculative variables.
-					if (result && result.updated === true && !result.stale && !result.transactional && result.context && records.get(record.id) === record
+					if (result && result.updated === true && !result.stale && !result.transactional && result.context && currentDocument()
 						&& result.context.chatId === record.context.chatId
 						&& Number(result.context.lifecycleRevision) === Number(record.context.lifecycleRevision)
 						&& Number(result.context.stateRevision) >= Number(record.context.stateRevision)) {
 						record.context = decorateHelperContext(result.context, record.context);
 						syncMvuDataReadiness(record);
 					}
-					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: true, result: result });
-					if ((data.method === "updateTavernHelperPrompts" || data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "createTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook" || data.method === "patchTavernHelperWorldbook" || data.method === "saveTavernExtensionSettings" || data.method === "saveTavernWorldInfo" || data.method === "saveTavernChatData") && result && !result.transactional && result.updated !== false && result.stale !== true && records.get(record.id) === record) reportMutation(record.sessionId, data.method, result.contextDelta ? Object.assign({}, result, { context: record.context }) : result);
+					reply({ ok: true, result: result });
+					if ((data.method === "updateTavernHelperPrompts" || data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "createTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook" || data.method === "patchTavernHelperWorldbook" || data.method === "saveTavernExtensionSettings" || data.method === "saveTavernWorldInfo" || data.method === "saveTavernChatData") && result && !result.transactional && result.updated !== false && result.stale !== true && records.get(record.id) === record) reportMutation(record.sessionId, data.method, result.contextDelta && currentDocument() ? Object.assign({}, result, { context: record.context }) : result);
 				}, function (error) {
-					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: String(error && error.message || error), errorCode: String(error && error.code || "") });
+					reply({ ok: false, error: String(error && error.message || error), errorCode: String(error && error.code || "") });
 				});
 			}
 			hostWindow.addEventListener("message", receive);
