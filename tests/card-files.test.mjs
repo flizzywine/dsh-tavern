@@ -185,12 +185,14 @@ test('invalid card plugin identity fails before persistence; retries stay failur
 // The stage reads packs from the asset library: a card's packs install there too. A new pack is installed, an
 // identical one left as it is; a different installed version is not touched but reported. Importing the very same
 // file again still makes sure its packs are in the library (cards imported before the library carry none there).
-test('DSH 人物卡的素材包装进素材库：新包安装、相同的不动、不同版本只提示；重复导入也补装', async t => {
+test('DSH 卡导入舞台素材库，插件私有素材只进入卡片资源', async t => {
   const { openZipFile } = await import('../tavern-plugin/lib/domain/zip-file.js')
   const fresh = '55555555-5555-4555-8555-555555555555', changed = '66666666-6666-4666-8666-666666666666'
   const installed = new Map([[changed, 'other-version']]), applied = []
+  let inspections = 0
   const assetLibrary = () => ({
     async inspectImportFile({ file }) {
+      inspections++
       const zip = await openZipFile(file)
       try {
         const manifest = JSON.parse((await zip.readBuffer(zip.entries.get('manifest.json'), 65536)).toString())
@@ -209,16 +211,21 @@ test('DSH 人物卡的素材包装进素材库：新包安装、相同的不动�
   const card = join(root, '鱼.dshcard')
   const pack = (id, name) => [[`assets/${name}/manifest.json`, JSON.stringify({ id, contentHash: 'v1' })], [`assets/${name}/media/a.png`, 'png']]
   await writeFile(card, writeZipEntries([
-    { path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1, packs: [{ id: fresh, path: 'assets/new/', title: '新包' }, { id: changed, path: 'assets/old/', title: '旧包' }] }) },
+    { path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1, packs: [{ id: fresh, path: 'assets/new/', title: '新包', format: 'dsh-asset-pack' }, { id: changed, path: 'assets/old/', title: '旧包' }, { id: 'kanto-media', path: 'assets/kanto-media/', title: '游戏素材', format: 'dsh-kanto-media-v1' }] }) },
     { path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name: '鱼' } }) },
+    { path: 'assets/kanto-media/artwork.txt', content: 'opaque plugin asset' },
     ...[...pack(fresh, 'new'), ...pack(changed, 'old')].map(([path, content]) => ({ path, content })),
   ]))
   const first = await files.importCardArchiveFile(card, '鱼.dshcard')
   assert.deepEqual(applied, [[fresh, 'install'], [changed, 'cancel']])
-  assert.match(first.libraryNotices.join(''), /旧包.*不同的版本/)
+  assert.equal(inspections, 2)
+  assert.equal(first.packs.find(pack => pack.id === 'kanto-media')?.files, 1)
+  assert.equal(first.libraryNotices.length, 1)
+  assert.match(first.libraryNotices[0], /旧包.*不同的版本/)
   applied.length = 0
   const again = await files.importCardArchiveFile(card, '鱼.dshcard')
   assert.equal(again.duplicate, true)
+  assert.equal(inspections, 4)
   assert.deepEqual(applied, [[fresh, 'noop'], [changed, 'cancel']], 'the same file again checks its packs')
 })
 

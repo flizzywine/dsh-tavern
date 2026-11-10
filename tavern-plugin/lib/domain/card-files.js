@@ -31,11 +31,14 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   // whose identity clashes or one that carries scripts is not touched; it is reported, and the player decides
   // in the asset library.
   async function installPacksInLibrary(zip, packs) {
-    if (!packs.length) return []
+    // Plugins can declare their own opaque packs. They still go through the
+    // card-scoped asset store below, but are not stage library archives.
+    const libraryPacks = packs.filter(pack => !pack.format || pack.format === 'dsh-asset-pack')
+    if (!libraryPacks.length) return []
     const library = assetLibrary()
     if (!library || typeof library.inspectImportFile !== 'function') return ['素材库不可用：这张卡的素材包没有装进素材库，舞台用不到它们']
     const notices = []
-    for (const pack of packs) {
+    for (const pack of libraryPacks) {
       const label = pack.title || pack.id
       const dir = await mkdtemp(path.join(os.tmpdir(), 'tavern-card-pack-'))
       try {
