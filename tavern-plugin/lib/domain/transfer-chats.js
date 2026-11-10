@@ -222,28 +222,22 @@ export function createTransferChats(deps) {
       const fileName = path.posix.basename(str(args && args.entry)) || (title + '.jsonl')
       // 内容指纹随 plan 一起写进新对话：导入服务已经要落盘整档，不必再多读写一遍。
       const saveHash = str(args && args.sha256)
+      const input = {
+        cardPath,
+        text: inspected.text,
+        fileName,
+        userName: inspected.userName,
+        textOnly: Boolean(args && args.textOnly === true),
+        ...(saveHash ? { saveHash, saveFormat: 'sillytavern-jsonl' } : {})
+      }
       let imported
       try {
-        imported = await importChatHistory({
-          cardPath,
-          text: inspected.text,
-          fileName,
-          userName: inspected.userName,
-          textOnly: Boolean(args && args.textOnly === true),
-          ...(saveHash ? { saveHash, saveFormat: 'sillytavern-jsonl' } : {})
-        })
+        imported = await importChatHistory({ ...input })
       } catch (error) {
         const msg = messageOf(error)
-        if (!(args && args.textOnly === true) && /变量结构与人物卡不兼容|无法读取这张 MVU 卡的初始变量/.test(msg)) {
+        if (!input.textOnly && /变量结构与人物卡不兼容|无法读取这张 MVU 卡的初始变量/.test(msg)) {
           try {
-            imported = await importChatHistory({
-              cardPath,
-              text: inspected.text,
-              fileName,
-              userName: inspected.userName,
-              textOnly: true,
-              ...(saveHash ? { saveHash, saveFormat: 'sillytavern-jsonl' } : {})
-            })
+            imported = await importChatHistory({ ...input, textOnly: true })
           } catch (retryError) {
             throw new Error('导入「' + title + '」失败：' + messageOf(retryError))
           }
