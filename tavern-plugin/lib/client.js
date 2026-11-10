@@ -39185,7 +39185,9 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
   }
   function syncProbe() {
     const awaitingDesktopRestart = statusValue.host === 'desktop' && statusValue.phase === 'completed' && statusValue.requiresRestart;
-    const key = active && (statusValue.phase === 'running' || awaitingDesktopRestart) ? statusValue.host || 'cli' : '';
+    // The native window belongs to the running Electron process. A page reload
+    // cannot switch it to a newly installed build.
+    const key = active && browser.location.protocol !== 'dsh-app:' && (statusValue.phase === 'running' || awaitingDesktopRestart) ? statusValue.host || 'cli' : '';
     if (key === probeKey) return;
     probeKey = key;
     const generation = ++probeGeneration;
@@ -39241,7 +39243,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
         if ((err && err.retryable || err instanceof TypeError) && failures < 3) return;
         if ((err && err.retryable || err instanceof TypeError) && statusValue.host === 'desktop' && statusValue.phase === 'running') {
           publishUpdateStatus({ ...statusValue, connectionLost: true,
-            error: '桌面连接已断开，安装结果尚未确认。请勿重复安装；安装完成后请手动重启 DeepSeek Harness，连接恢复后页面会自动刷新。' });
+            error: '桌面连接已断开，安装结果尚未确认。请勿重复安装；安装完成后请手动重启 DeepSeek Harness。' });
         }
         if (isMissingUpdateApiError(err)) {
           if (!received) publishUpdateStatus({ phase: "restart-required", host: "desktop" });

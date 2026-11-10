@@ -8,12 +8,15 @@ import installationLocation from './installation-location.cjs'
 import { applySystemProxy, withoutAppliedSystemProxy } from './system-proxy.mjs'
 import { createUpdateState } from './update-state.mjs'
 import { readInstallationReceipt } from './installation-receipt.mjs'
-import { closeSync, copyFileSync, existsSync, openSync, readFileSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
+import { closeSync, copyFileSync, existsSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
 import { StringDecoder } from 'node:string_decoder'
 import os from 'node:os'
 import path from 'node:path'
 import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, RUNTIME_HOST, runtimeEnvironment, commandExists, sleep } from './launcher-environment.mjs'
 import { startupTimeoutMs } from './service-startup.mjs'
+import { assertDesktopStopped } from './import-user-home.mjs'
+import { processAlive, relaunchApp } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
+import { recordProfileContinuation } from '../tavern-plugin/packages/dsh-tavern/lib/startup-profile.mjs'
 
 // Own update execution and durable terminal outcomes, including installed-but-needs-restart.
 export function encodeWindowsPowerShellScript(source) {
@@ -95,6 +98,7 @@ export function parseUpdateOptions(args) {
   let delay = 0
   let targetCommit = ''
   let attemptId = ''
+  let desktopPids
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index]
     if (value === '--host') host = args[++index]
@@ -107,6 +111,7 @@ export function parseUpdateOptions(args) {
     else if (value.startsWith('--attempt-id=')) attemptId = value.slice('--attempt-id='.length)
     else if (value === '--target-commit') targetCommit = args[++index]
     else if (value.startsWith('--target-commit=')) targetCommit = value.slice('--target-commit='.length)
+    else if (value === '--desktop-pids') desktopPids = (args[++index] || '').split(',').map(Number)
     else throw new Error(`无法识别的更新参数：${value}`)
   }
   if (!INSTALL_HOSTS.has(host)) throw new Error(`不支持的安装宿主：${host}`)
@@ -114,7 +119,10 @@ export function parseUpdateOptions(args) {
   if (!Number.isInteger(delay) || delay < 0 || delay > 5000) throw new Error('更新延迟必须是 0 到 5000 毫秒的整数')
   if (targetCommit !== '' && !/^[0-9a-f]{40}$/i.test(targetCommit)) throw new Error('目标提交号无效')
   if (attemptId && !/^[a-zA-Z0-9-]{1,100}$/.test(attemptId)) throw new Error('更新尝试编号无效')
-  return { host, statusFile, delay, targetCommit, ...(attemptId ? { attemptId } : {}) }
+  if (desktopPids && (host !== 'desktop' || desktopPids.length !== 2 || !desktopPids.every(pid => Number.isSafeInteger(pid) && pid > 1) || desktopPids[0] === desktopPids[1])) {
+    throw new Error('桌面更新进程编号无效')
+  }
+  return { host, statusFile, delay, targetCommit, ...(attemptId ? { attemptId } : {}), ...(desktopPids ? { desktopPids } : {}) }
 }
 
 
@@ -173,14 +181,39 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
   const state = createUpdateState(options.statusFile, dshHome)
   const writeUpdateStatus = value => state.write(value, { attemptId })
   const controller = new AbortController()
+  const desktopGate = options.host === 'desktop' && options.desktopPids ? installationState.desktopPublishGate(lease.lockDir) : ''
+  let desktopPublishing = false
+  let desktopGateError
   const poll = setInterval(() => {
-    try { if (installationState.cancellationRequested(dshHome, attemptId)) controller.abort(new Error('用户请求中止更新')) } catch (error) { controller.abort(error) }
+    if (controller.signal.aborted || desktopPublishing) return
+    try {
+      if (installationState.cancellationRequested(dshHome, attemptId)) {
+        controller.abort(new Error('用户请求中止更新'))
+        return
+      }
+      if (!desktopGate || !existsSync(desktopGate + '.ready') || options.desktopPids.some(processAlive)) return
+      const checkDesktopStopped = options.assertDesktopStopped || assertDesktopStopped
+      checkDesktopStopped([dshHome], { requireGuiClosed: true, preparingForPid: process.pid })
+      lease.withOwnership(() => {
+        if (installationState.cancellationRequested(dshHome, attemptId)) return
+        writeFileSync(desktopGate + '.tmp', 'publish', { flag: 'wx', mode: 0o600 })
+        renameSync(desktopGate + '.tmp', desktopGate)
+        desktopPublishing = true
+      })
+    } catch (error) {
+      desktopGateError = error
+      controller.abort(error)
+    }
   }, 200)
   let safeToRelease = true
+  let reopenDesktop = false
   const targetCommit = String(options.targetCommit || '')
   let temporary = ''
   let outputFile = ''
   try {
+    if (desktopGate && existsSync(path.join(installedAppRoot, '.dsh-tavern-swap.json'))) {
+      throw new Error('上次桌面安装尚未恢复。请退出 DeepSeek Harness，再从终端修复安装。')
+    }
     await writeUpdateStatus({
       phase: 'running', attemptId, host: options.host, startedAt, pid: process.pid, supervisorReady: true, cancellable: true,
       ...(targetCommit ? { targetCommit } : {}),
@@ -223,7 +256,8 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
         env: {
           ...runtimeEnvironment(),
           DSH_TAVERN_HOST: options.host,
-          ...(options.host === 'cli' ? { DSH_TAVERN_DEFER_SERVICE_START: '1' } : {}),
+          ...(desktopGate ? { DSH_TAVERN_PUBLISH_GATE: desktopGate, DSH_TAVERN_LATE_PUBLISH: '0', DSH_TAVERN_DESKTOP_UPDATE: '1' } : {}),
+          ...(desktopGate || options.host === 'cli' ? { DSH_TAVERN_DEFER_SERVICE_START: '1' } : {}),
           DSH_TAVERN_UPDATE_ATTEMPT: attemptId,
           DSH_TAVERN_SOURCE_ROOT: sourceRoot,
           DSH_TAVERN_APP_DIR: installedAppRoot,
@@ -251,6 +285,7 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
         omittedCharacters: Math.max(0, output.length - 12000) })
     }
     if (commandError) {
+      if (desktopGateError) commandError.message += '\n' + desktopGateError.message
       if (capture && existsSync(outputFile)) commandError.message += '\n' + installerFailureTail(decodeUpdateOutput(readFileSync(outputFile)))
       throw commandError
     }
@@ -266,6 +301,7 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
     const installedSourceRoot = installedAppRoot
     const receipt = await readInstallationReceipt({ sourceRoot: installedSourceRoot, dshHome, host: options.host, attemptId, after: startedAt - 1 })
     if (!receipt) throw new Error('安装程序已退出，但未确认配置验证和安装完成；请修复安装。')
+    if (desktopGate && !desktopPublishing) throw new Error('安装程序没有等待桌面退出，未确认安全切换。')
     if (controller.signal.aborted) throw Object.assign(new Error('更新已取消'), { code: 'INSTALLATION_ABORTED' })
     if (options.host === 'cli') {
       lease.update({ stage: '启动 Tavern 服务', supervised: false })
@@ -274,9 +310,10 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
     }
     await writeUpdateStatus({
       phase: 'completed', attemptId, host: options.host, completedAt: Date.now(),
-      requiresRestart: options.host === 'desktop' || (options.host === 'android' && process.env.DSH_TAVERN_ANDROID_STANDALONE === '1'),
+      requiresRestart: (options.host === 'desktop' && !desktopPublishing) || (options.host === 'android' && process.env.DSH_TAVERN_ANDROID_STANDALONE === '1'),
       ...(targetCommit ? { targetCommit } : {}),
     })
+    reopenDesktop = desktopPublishing
   } catch (error) {
     let failure = error
     if (error.unsafeToRetry || installationState.readInstallation(dshHome)?.unsafeToRetry) {
@@ -295,6 +332,20 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
     // Its earlier receipt still matching proves that build is intact. The installer
     // job has ended, so the service may be started outside it, as on success.
     let restored = false
+    if (desktopGate && safeToRelease) {
+      const stager = [installedAppRoot, installedAppRoot + '.previous'].map(root => path.join(root, 'bin/staged-app-install.mjs')).find(file => existsSync(file))
+      try {
+        if (desktopPublishing) {
+          const checkDesktopStopped = options.assertDesktopStopped || assertDesktopStopped
+          checkDesktopStopped([dshHome], { requireGuiClosed: true, preparingForPid: process.pid })
+        }
+        if (stager) await promisify(execFile)(process.execPath, [stager, desktopPublishing ? 'rollback' : 'discard', '--app', installedAppRoot], { windowsHide: true, timeout: 120_000 })
+        restored = !!await readInstallationReceipt({ sourceRoot: installedAppRoot, dshHome, host: options.host })
+        reopenDesktop = desktopPublishing && restored
+      } catch (recoveryError) {
+        failure = new Error(`${String(failure?.message || failure)}\n检查原版本失败：${String(recoveryError?.stderr || recoveryError?.message || recoveryError)}`)
+      }
+    }
     if (options.host === 'cli' && safeToRelease) {
       const appRoot = installedAppRoot
       // Cancellation ends the whole installer tree, so its own cleanup may not run.
@@ -339,13 +390,23 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
     }
     await writeUpdateStatus({
       phase: safeToRelease ? 'failed' : 'blocked', attemptId, ...(restored ? {} : { repairRequired: true, repairSince: Date.now() }), host: options.host, failedAt: Date.now(),
-      error: (restored ? (options.host === 'android' ? '更新未完成，已恢复更新前的源码。' : '更新未完成，已恢复原版本并继续运行。') : '') + String(failure?.message || failure),
+      error: (restored ? (options.host === 'cli' ? '更新未完成，已恢复原版本并继续运行。' : '更新未完成，已恢复更新前的源码。') : '') + String(failure?.message || failure),
       ...(targetCommit ? { targetCommit } : {}),
     })
     throw failure
   } finally {
     clearInterval(poll)
     if (safeToRelease) lease.release()
+    if (reopenDesktop) {
+      const reportRelaunchError = error => {
+        log('请重新打开 DeepSeek Harness：' + error.message)
+        if (options.statusFile) recordUpdateDiagnostic(path.dirname(options.statusFile), { event: 'updater.desktop-relaunch.failed', attemptId, error: error.message })
+      }
+      try { recordProfileContinuation(dshHome, 'tavern') } catch {}
+      try {
+        (options.relaunchDesktop || relaunchApp)(process.execPath, { continueProfile: true, env: withoutAppliedSystemProxy() })?.once('error', reportRelaunchError)
+      } catch (error) { reportRelaunchError(error) }
+    }
   }
 }
 

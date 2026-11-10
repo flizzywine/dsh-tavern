@@ -18,7 +18,7 @@ const BODY_LIMIT_BYTES = 64 * 1024
 
 const updateActions = new Map([
   ['update-status', 'status'], ['check-update', 'check'],
-  ['start-update', 'start'], ['cancel-update', 'cancel'],
+  ['start-update', 'start'], ['cancel-update', 'cancel'], ['restart-desktop-update', 'restart'],
 ])
 let installedUpdater
 
@@ -33,7 +33,7 @@ async function runUpdate(method, paths) {
   // Official updates run from Tavern and refresh the inactive original launcher.
   // NEXT prepares the update from either managed Profile before asking to restart.
   const canUpdate = isActiveTavern(paths, installation) || (next && original)
-  if (['start', 'cancel'].includes(method) && !canUpdate) {
+  if (['start', 'cancel', 'restart'].includes(method) && !canUpdate) {
     fail('update-unavailable', next ? '请在 NEXT 的原版 DSH 或酒馆配置中更新。' : '请先切换到 DSH 酒馆，再在启动器中更新。')
   }
   const sourceRoot = installation.appDir
@@ -52,6 +52,13 @@ async function runUpdate(method, paths) {
     service.catch(() => { if (installedUpdater?.service === service) installedUpdater = undefined })
   }
   const updater = await installedUpdater.service
+  if (method === 'restart') {
+    if (next || !isOfficialDesktopApp()) fail('not-desktop', '请在官方 DeepSeek Harness 中重启应用。')
+    const current = await updater.status()
+    if (!current.awaitingDesktopExit) fail('update-not-ready', '新版尚未准备好，或当前更新已结束。')
+    const closesApp = await requestDesktopQuit({ pid: process.ppid, executable: process.execPath })
+    return { ...current, canUpdate, closesApp }
+  }
   if (next && method === 'start') {
     const current = await updater.check()
     if (!['update-available', 'repair-required'].includes(current.phase)) return { ...current, canUpdate }

@@ -210,6 +210,23 @@ test('官方酒馆启动器按提交检查同版本更新，并跟踪安装到�
   }
 })
 
+test('官方桌面在新版准备好后提供重启和手动退出提示', async () => {
+  const tavern = { ...managedStatus, activeIsLink: true, linkTargetName: 'tavern' }
+  const ready = { phase: 'running', canUpdate: true, cancellable: true, awaitingDesktopExit: true }
+  const page = await mount(tavern, [], { rpc: async endpoint => ({
+    ok: true, value: endpoint === 'status' ? tavern : endpoint === 'restart-desktop-update' ? { ...ready, closesApp: false } : ready,
+  }) })
+  try {
+    assert.match(page.text(), /新版已准备好/)
+    assert.equal(namedButton(page, '取消更新').disabled, false)
+    await page.act(async () => namedButton(page, '重启并应用更新').click())
+    assert.equal(page.calls.filter(([endpoint]) => endpoint === 'restart-desktop-update').length, 1)
+    assert.match(page.text(), /请从应用菜单或托盘退出 DeepSeek Harness/)
+  } finally {
+    await page.dispose()
+  }
+})
+
 test('原版桌面首次安装需要确认，排队后隐藏安装按钮', async () => {
   const page = await mount({ appKind: 'desktop', desktopApp: true, installAvailable: true, profiles: [] })
   try {

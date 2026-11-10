@@ -356,6 +356,7 @@ const LOCK_NAME = '.tavern-install.lock'
 const sleep = milliseconds => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
 const failure = (code, message, extra = {}) => Object.assign(new Error(message), { code, ...extra })
 const lockPath = dshHome => path.join(path.resolve(dshHome), LOCK_NAME)
+const desktopPublishGate = lockDir => path.join(lockDir, 'desktop-publish')
 const uncertain = lockDir => ({ lockDir, state: 'uncertain', unsafeToRetry: true })
 // Longer than the whole supervised update (30 minutes), which refreshes progress per stage.
 const STALE_IDLE_MS = 60 * 60 * 1000
@@ -621,6 +622,7 @@ function requestCancellation(dshHome, attemptId) {
     const owner = assertOwner(dshHome, attemptId)
     try {
       return withMutation(dshHome, attemptId, owner.generation, current => {
+        if (fs.existsSync(desktopPublishGate(lockPath(dshHome)))) throw failure('INSTALLATION_PUBLISHING', '正在切换桌面版本，请等待安装结束。')
         const filename = path.join(lockPath(dshHome), 'cancel-request.json')
         const request = { attemptId, requestedAt: Date.now() }
         if (!fs.existsSync(filename)) writeRecord(lockPath(dshHome), 'cancel-request.json', request)
@@ -696,7 +698,7 @@ function main(argv) {
   throw new Error(`Unknown installation-state command: ${command}`)
 }
 
-module.exports = { acquireInstallation, readInstallation, reclaimStaleInstallation: reclaimStale, requestCancellation, cancellationRequested, releaseStoppedInstallation, LOCK_NAME }
+module.exports = { acquireInstallation, readInstallation, reclaimStaleInstallation: reclaimStale, requestCancellation, cancellationRequested, releaseStoppedInstallation, desktopPublishGate, LOCK_NAME }
 if (require.main === module) {
   try { main(process.argv.slice(2)) } catch (error) { console.error(`${error.code || 'INSTALLATION_ERROR'}: ${error.message}`); process.exitCode = 1 }
 }

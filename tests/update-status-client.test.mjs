@@ -186,6 +186,25 @@ test('刷新桌面更新页面后仍提示已安装待重启，不能重复启�
   h.stop()
 })
 
+test('原生桌面更新不会探测连接并重载当前窗口', async () => {
+  const intervals = new Map()
+  const controller = createUpdateStatusController({ initial: { phase: 'running', host: 'desktop' },
+    call: async () => ({ status: { phase: 'completed', host: 'desktop', requiresRestart: true } }),
+    confirm: async () => true, errors: { report() {}, resolve() {} },
+    browser: { setTimeout, clearTimeout,
+      setInterval(fn, ms) { intervals.set(ms, fn); return ms }, clearInterval(id) { intervals.delete(id) },
+      location: { protocol: 'dsh-app:', reload() { assert.fail('native window reloaded') } },
+      async fetch() { assert.fail('native window probed') }
+    }
+  })
+  controller.start()
+  assert.equal(intervals.has(400), false)
+  await tick()
+  assert.equal(controller.getSnapshot().requiresRestart, true)
+  assert.equal(intervals.has(400), false)
+  controller.stop()
+})
+
 test('桌面更新断线后提供手动恢复提示，不能将断线当作安装完成', async () => {
   let offline = true
   const h = updaterHarness({ initial: { phase: 'running', host: 'desktop' }, polling: true,

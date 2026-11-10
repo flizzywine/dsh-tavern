@@ -161,14 +161,15 @@ export function relaunchCommand(exe, platform = process.platform) {
  * Reopen Desktop detached from the helper.
  * @param {string} exe - the running application binary.
  */
-export function relaunchApp(exe, { continueProfile = false } = {}) {
+export function relaunchApp(exe, { continueProfile = false, env = process.env } = {}) {
   // Explicit restarts need to pass the session environment to the app itself,
   // rather than handing the launch to macOS Launch Services.
   const [command, args] = continueProfile && process.platform === 'darwin' && !exe.endsWith('.app')
     ? [exe, []] : relaunchCommand(exe)
   // The helper itself runs the app binary as node; the reopened app must not.
-  const env = relaunchEnvironment(process.env, continueProfile)
-  spawn(command, args, { detached: true, stdio: 'ignore', env }).unref()
+  const child = spawn(command, args, { detached: true, stdio: 'ignore', env: relaunchEnvironment(env, continueProfile) })
+  child.unref()
+  return child
 }
 
 function readJson(file) {

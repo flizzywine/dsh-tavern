@@ -196,7 +196,14 @@ if (isEntryPoint) {
     // prepare may clean an interrupted .previous; commit removes the old release.
     if (command === 'prepare' || command === 'commit') await preserveInstallationFonts(app)
     if (command === 'prepare') console.log(prepare({ app, source: argument(args, 'source'), commit: argument(args, 'commit') || '' }))
-    else if (command === 'swap') { const moved = swap(app); console.log(`已切换到新版本，保留用户文件 ${moved.length} 项。`) }
+    else if (command === 'swap') {
+      if (process.env.DSH_TAVERN_DESKTOP_UPDATE === '1') {
+        const { assertDesktopStopped } = await import('./import-user-home.mjs')
+        assertDesktopStopped([process.env.DSH_HOME], { requireGuiClosed: true })
+      }
+      const moved = swap(app)
+      console.log(`已切换到新版本，保留用户文件 ${moved.length} 项。`)
+    }
     else if (command === 'rollback') { if (rollback(app)) console.log('已恢复原版本。') }
     else if (command === 'commit') commit(app)
     else if (command === 'discard') discard(app)

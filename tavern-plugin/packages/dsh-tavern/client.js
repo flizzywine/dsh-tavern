@@ -58,6 +58,8 @@ window.__ModuleLoader__.load({
       updateBlocked: '正在等待安装进程安全停止。',
       updateFailed: '更新失败，请重试。',
       updateComplete: '酒馆已更新。',
+      desktopUpdateReady: '新版已准备好。请先保存工作，重启后会应用更新。',
+      desktopUpdateQuit: '请从应用菜单或托盘退出 DeepSeek Harness，更新完成后会自动打开。',
       updateRestart: '更新已安装。请退出并重新打开 DeepSeek Harness 以应用更新。',
       updateRestartWindow: '更新已安装。请重启酒馆服务后重新打开酒馆。',
       section: '酒馆启动器',
@@ -159,6 +161,8 @@ window.__ModuleLoader__.load({
       updateBlocked: 'Waiting for the installer to stop safely.',
       updateFailed: 'Update failed. Please try again.',
       updateComplete: 'Tavern was updated.',
+      desktopUpdateReady: 'The update is ready. Save your work, then restart to apply it.',
+      desktopUpdateQuit: 'Quit DeepSeek Harness from the app menu or tray. It will reopen after the update.',
       updateRestart: 'The update is installed. Quit and reopen DeepSeek Harness to apply it.',
       updateRestartWindow: 'The update is installed. Restart the Tavern service and reopen this window.',
       section: 'Tavern Launcher',
@@ -471,6 +475,7 @@ window.__ModuleLoader__.load({
           const result = await call(endpoint, {})
           if (result?.ok !== true) throw new Error(describeFailure(result?.error))
           setUpdate(result.value)
+          if (endpoint === 'restart-desktop-update' && !result.value.closesApp) setUpdateFailure(t('desktopUpdateQuit'))
           if (result.value.scheduled) {
             setApplied(result.value.scheduled)
             setStatus(previous => ({ ...previous, nextUpdatePreparation: 'preparing', installProgress: '',
@@ -614,7 +619,8 @@ window.__ModuleLoader__.load({
           next && showUpdateAction && !pending ? h('p', { className: 'pb-sub' }, t('nextUpdateHint')) : null,
           !checking && update?.checkWarning ? h('p', { className: 'pb-sub' }, update.checkWarning) : null,
           checking ? h('p', { role: 'status' }, t('checkingUpdate')) : null,
-          updating || updateAction === 'start-update' ? h(React.Fragment, null,
+          update?.awaitingDesktopExit ? h('p', { role: 'status' }, t('desktopUpdateReady'))
+            : updating || updateAction === 'start-update' ? h(React.Fragment, null,
             h('p', { role: 'status' }, progressLabel),
             update?.phase !== 'blocked' ? h('progress', { 'aria-label': progressLabel }) : null) : null,
           updateError ? h('p', { className: 'pb-error', role: 'alert' }, updateError) : null,
@@ -622,6 +628,8 @@ window.__ModuleLoader__.load({
           h('div', { className: 'pb-actions' },
             ['ready', 'restarting'].includes(nextUpdatePreparation) ? h('button', { type: 'button', className: 'pb-btn',
               disabled: Boolean(updateAction), onClick: () => void restartNextUpdate() }, t('nextRestartUpdate')) : null,
+            update?.awaitingDesktopExit && !standalone ? h('button', { type: 'button', className: 'pb-btn',
+              disabled: updateButtonsBlocked, onClick: () => void applyUpdate('restart-desktop-update') }, t('nextRestartUpdate')) : null,
             !pending && !updating && !updateRestart ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('check-update') }, t('checkUpdate')) : null,
             showUpdateAction ? h('button', { type: 'button', className: 'pb-btn', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('start-update') }, t(updateButtonLabel)) : null,
             update?.phase === 'running' && update.canUpdate && update.cancellable ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('cancel-update') }, t('cancelUpdate')) : null)) : null,

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { recordUpdateDiagnostic, readUpdateDiagnostics } from '../../bin/update-diagnostics.mjs'
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -512,11 +513,15 @@ export function createApplicationUpdater(options) {
       const stale = idleMs >= RUNNING_TIMEOUT_MS || (owner.pid > 0 && !isProcessAlive(owner.pid))
       const blocked = owner.unsafeToRetry || owner.uncertain || (owner.pid > 0 && !isProcessAlive(owner.pid))
       const cancelling = installationState.cancellationRequested(dshHome, owner.attemptId)
+      const publishGate = installationState.desktopPublishGate(owner.lockDir)
+      const publishing = existsSync(publishGate)
+      const awaitingDesktopExit = !blocked && !cancelling && !publishing && existsSync(publishGate + '.ready')
       return { ...active, ...identity, attemptId: owner.attemptId, host: await host(),
         phase: blocked ? 'blocked' : cancelling ? 'cancelling' : 'running',
         startedAt: owner.startedAt, pid: owner.pid, stage: owner.stage || active.stage,
         progressAt: owner.progressAt || active.progressAt,
-        cancellable: !!owner.supervised && !blocked, stalled: stale,
+        cancellable: !!owner.supervised && !blocked && !publishing, stalled: stale,
+        ...(awaitingDesktopExit ? { awaitingDesktopExit: true, stage: '新版已准备好，等待桌面退出' } : {}),
         ...(blocked ? { error: '上次安装的执行链尚未确认停止，已阻止重复安装。请先确认旧安装进程全部退出，再恢复安装。' }
           : stale ? { error: `更新已经 ${Math.round(RUNNING_TIMEOUT_MS / 60000)} 分钟没有新进展；尚未确认执行链停止，请勿同时重新安装。` } : {}),
       }
@@ -711,6 +716,8 @@ export function createApplicationUpdater(options) {
       '--status-file', statusFile,
       '--attempt-id', attemptId,
       '--delay=800',
+      ...(installHost === 'desktop' && process.versions.electron && typeof process.send === 'function' && process.ppid > 1
+        ? ['--desktop-pids', [process.pid, process.ppid].join(',')] : []),
       ...(version.latestCommit ? ['--target-commit', version.latestCommit] : []),
     ]
     const args = platform === 'win32'
