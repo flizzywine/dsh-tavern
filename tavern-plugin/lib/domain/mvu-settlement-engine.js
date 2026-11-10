@@ -84,7 +84,6 @@ export function createMvuSettlementEngine(deps) {
       variableSchema: mvuTarget.variables.schema,
       charName: card && card.name,
       macroState: snapshot.macroState,
-      updateRules: await mvuUpdateRules(snapshot, card, mvuTarget),
       webSearchEnabled: snapshot.webSearchEnabled === true
     }
     const pendingSubmission = mvuTarget.message.mvu && mvuTarget.message.mvu.pendingSubmission
@@ -169,6 +168,7 @@ export function createMvuSettlementEngine(deps) {
         if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
         mvuResult = await mvuSettlement.settleVariables({
           ...settlementInput,
+          updateRules: await mvuUpdateRules(snapshot, card, mvuTarget),
           system: backgroundTasksSettings.posture ? postureItem.requirement() : '',
           selection,
           persistentSessionId: trace.sessionId,
