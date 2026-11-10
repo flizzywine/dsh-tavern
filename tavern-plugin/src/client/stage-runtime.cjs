@@ -18,16 +18,7 @@ const {createStageRuntimeState, reduceStageRuntime, stageRuntimeStatus, stageRun
 
 return {createStageRuntimeState, reduceStageRuntime, stageRuntimeStatus, stageRuntimeIndicators, stageHistoryModPlays, stageBeatHold, stageRuntimeErrorText, stageDiagnosticText, stageSkipShows, sourceKey, sameSource, STAGE_HISTORY_SETTLE_MS};
 })() : null;
-const createStageRuntimeState = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).createStageRuntimeState(...args);
-const reduceStageRuntime = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).reduceStageRuntime(...args);
-const stageRuntimeStatus = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageRuntimeStatus(...args);
-const stageRuntimeIndicators = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageRuntimeIndicators(...args);
-const stageHistoryModPlays = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageHistoryModPlays(...args);
-const stageBeatHold = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageBeatHold(...args);
 const stageRuntimeErrorText = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageRuntimeErrorText(...args);
 const stageDiagnosticText = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageDiagnosticText(...args);
-const stageSkipShows = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageSkipShows(...args);
-const sourceKey = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).sourceKey(...args);
-const sameSource = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).sameSource(...args);
 const STAGE_HISTORY_SETTLE_MS = 1000;
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = stageRuntimeNode;

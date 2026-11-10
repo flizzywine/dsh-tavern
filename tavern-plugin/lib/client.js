@@ -21179,7 +21179,7 @@ function tavernModelRefusalNotice(text) {
 		}
 		// A round's checks lead its text in the 履历, as in the chat floor: after the round's separator and the player's input.
 		// nativeTurnOf(storyTurn) maps a row's turn to the rolls' native turn; rowOf(roll, storyTurn) is the 履历's performance row
-		// (gal-backlog.js backlogPerformanceEntry, kind core.dice.roll).
+		// (stage backlog-rows.cjs, kind core.dice.roll).
 		function diceBacklogEntries(entries, rolls, nativeTurnOf, rowOf) {
 		    if (!rolls.size) return entries;
 		    const out = [];
@@ -48365,7 +48365,7 @@ function cardLibraryDisplayName(card) {
 		}
 		if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createSpineRig};
 		const spineRig=createSpineRig({window,loadPixi:loadPixiRuntime,loadScript:forkLoadScript,files:(...args)=>stageViews?.resources.getStageBundleFiles(...args) ?? null,fetch,URL,Blob,location,
-		    measure:{cache:figureCached,head:galEstimateHeadTop,alpha:measureFigureAlpha}});
+		    measure:{cache:figureCached,head:(...args)=>stageViews.sceneMath.galEstimateHeadTop(...args),alpha:measureFigureAlpha}});
 		const {loadSpineRuntime,spineSources,forkSpineLocalSource,spineLoadData,spineFigure,spineBottomFade,spineFrame,spineMeasure,spineBody}=spineRig;
 		// the 素材库 figure editor's Spine reader and live preview. The asset-pack
 		// factory gets them through forkSpineKit() (injected like the Live2D preview kit). A `source` is {identity, open()}:
@@ -48439,9 +48439,6 @@ function cardLibraryDisplayName(card) {
 		        status === "error" ? h("span", { className: "ap-hint-chip fork-spine-preview-error", role: "alert" }, "⚠ 无法预览这个模型") : null);
 		}
 		function forkSpineKit() { return { Preview: SpinePreview, inspect: spineInspect, localSource: (...args) => forkSpineLocalSource(...args), leaseSource: (...args) => spineSources(...args) }; }
-
-
-		// ---------- Scene helpers (pure; gal-scene-helpers.cjs) ----------
 		// Shared by material look previews and stage rendering; no plugin or browser state.
 		// Colour matrices (pixi ColorMatrixFilter layout: 4 rows × 5, offsets in 0..1). multiply(a, b) = apply b, then a.
 		const galMatrix = {
@@ -48468,83 +48465,6 @@ function cardLibraryDisplayName(card) {
 		};
 		function galClamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
 		if(typeof module!=="undefined"&&typeof window==="undefined")module.exports={galMatrix,galClamp01};
-		// Temporary host delegates while scene and control consumers move into the plugin.
-		const stageSceneMathNode = typeof module !== 'undefined' && typeof window === 'undefined' ? require('../../packages/dsh-tavern-stage/src/client/scene-math.cjs').createStageSceneMath({colorMath:require('../../shared/color-math.cjs'),figureScale:require('../../packages/dsh-presentation-protocol/src/figure-scale.cjs')}) : null;
-		function galFigureRects(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFigureRects(...args); }
-		function galCropHidden(...args) { return (stageSceneMathNode || stageViews.sceneMath).galCropHidden(...args); }
-		function galBodyX(...args) { return (stageSceneMathNode || stageViews.sceneMath).galBodyX(...args); }
-		function galBodyReport(...args) { return (stageSceneMathNode || stageViews.sceneMath).galBodyReport(...args); }
-		function sceneFigureScale(...args) { return (stageSceneMathNode || stageViews.sceneMath).sceneFigureScale(...args); }
-		function galFrameRate(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFrameRate(...args); }
-		function galFrameDue(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFrameDue(...args); }
-		function galTextureOwners(...args) { return (stageSceneMathNode || stageViews.sceneMath).galTextureOwners(...args); }
-		function galMoodMotionPlan(...args) { return (stageSceneMathNode || stageViews.sceneMath).galMoodMotionPlan(...args); }
-		function galPlayMoodMotion(...args) { return (stageSceneMathNode || stageViews.sceneMath).galPlayMoodMotion(...args); }
-		function galMotionFade(...args) { return (stageSceneMathNode || stageViews.sceneMath).galMotionFade(...args); }
-		function galMotionTransitions(...args) { return (stageSceneMathNode || stageViews.sceneMath).galMotionTransitions(...args); }
-		function galShouldBlink(...args) { return (stageSceneMathNode || stageViews.sceneMath).galShouldBlink(...args); }
-		function forkGalOwnBlink(...args) { return (stageSceneMathNode || stageViews.sceneMath).forkGalOwnBlink(...args); }
-		function live2dStartIdle(...args) { return (stageSceneMathNode || stageViews.sceneMath).live2dStartIdle(...args); }
-		function galMeshHead(...args) { return (stageSceneMathNode || stageViews.sceneMath).galMeshHead(...args); }
-		function galFaceDrawables(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFaceDrawables(...args); }
-		function galCheekIndex(...args) { return (stageSceneMathNode || stageViews.sceneMath).galCheekIndex(...args); }
-		function galCheekValue(...args) { return (stageSceneMathNode || stageViews.sceneMath).galCheekValue(...args); }
-		function galBlushStep(...args) { return (stageSceneMathNode || stageViews.sceneMath).galBlushStep(...args); }
-		function galFlushFace(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFlushFace(...args); }
-		function galInitFace(...args) { return (stageSceneMathNode || stageViews.sceneMath).galInitFace(...args); }
-		function galMeshRotation(...args) { return (stageSceneMathNode || stageViews.sceneMath).galMeshRotation(...args); }
-		function galFallbackHead(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFallbackHead(...args); }
-		function galDisplayMatrix(...args) { return (stageSceneMathNode || stageViews.sceneMath).galDisplayMatrix(...args); }
-		function galSmoothHead(...args) { return (stageSceneMathNode || stageViews.sceneMath).galSmoothHead(...args); }
-		function galLipSyncIds(...args) { return (stageSceneMathNode || stageViews.sceneMath).galLipSyncIds(...args); }
-		function galApplyLipSync(...args) { return (stageSceneMathNode || stageViews.sceneMath).galApplyLipSync(...args); }
-		function galApplyStageHead(...args) { return (stageSceneMathNode || stageViews.sceneMath).galApplyStageHead(...args); }
-		function galSpring(...args) { return (stageSceneMathNode || stageViews.sceneMath).galSpring(...args); }
-		function galSpringValue(...args) { return (stageSceneMathNode || stageViews.sceneMath).galSpringValue(...args); }
-		function galTween(...args) { return (stageSceneMathNode || stageViews.sceneMath).galTween(...args); }
-		function galTweenAt(...args) { return (stageSceneMathNode || stageViews.sceneMath).galTweenAt(...args); }
-		function galCallView(...args) { return (stageSceneMathNode || stageViews.sceneMath).galCallView(...args); }
-		function galCover(...args) { return (stageSceneMathNode || stageViews.sceneMath).galCover(...args); }
-		function galBackgroundTransition(...args) { return (stageSceneMathNode || stageViews.sceneMath).galBackgroundTransition(...args); }
-		function galTransitionPlan(...args) { return (stageSceneMathNode || stageViews.sceneMath).galTransitionPlan(...args); }
-		function galTransitionFrame(...args) { return (stageSceneMathNode || stageViews.sceneMath).galTransitionFrame(...args); }
-		function galBlinkLids(...args) { return (stageSceneMathNode || stageViews.sceneMath).galBlinkLids(...args); }
-		function galSlashBars(...args) { return (stageSceneMathNode || stageViews.sceneMath).galSlashBars(...args); }
-		function galFigureCutFrame(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFigureCutFrame(...args); }
-		function galWipeRect(...args) { return (stageSceneMathNode || stageViews.sceneMath).galWipeRect(...args); }
-		function galIrisSize(...args) { return (stageSceneMathNode || stageViews.sceneMath).galIrisSize(...args); }
-		function galFigureMatrix(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFigureMatrix(...args); }
-		function galCameraTarget(...args) { return (stageSceneMathNode || stageViews.sceneMath).galCameraTarget(...args); }
-		function galFigureInit(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFigureInit(...args); }
-		function galFigureStep(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFigureStep(...args); }
-		function galFigureGone(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFigureGone(...args); }
-		function galSlots(...args) { return (stageSceneMathNode || stageViews.sceneMath).galSlots(...args); }
-		function galFigureLayout(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFigureLayout(...args); }
-		function galShotFrame(...args) { return (stageSceneMathNode || stageViews.sceneMath).galShotFrame(...args); }
-		function galVisibleFrame(...args) { return (stageSceneMathNode || stageViews.sceneMath).galVisibleFrame(...args); }
-		function galFrameMix(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFrameMix(...args); }
-		function galFramedHead(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFramedHead(...args); }
-		function galCloseFrame(...args) { return (stageSceneMathNode || stageViews.sceneMath).galCloseFrame(...args); }
-		function galChoiceReserveTop(...args) { return (stageSceneMathNode || stageViews.sceneMath).galChoiceReserveTop(...args); }
-		function galFrameCameraTarget(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFrameCameraTarget(...args); }
-		function galEstimateHeadTop(...args) { return (stageSceneMathNode || stageViews.sceneMath).galEstimateHeadTop(...args); }
-		function galHeadroomShift(...args) { return (stageSceneMathNode || stageViews.sceneMath).galHeadroomShift(...args); }
-		function galFaceRest(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFaceRest(...args); }
-		function galFaceRestFrame(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFaceRestFrame(...args); }
-		function galFaceRestUpdate(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFaceRestUpdate(...args); }
-		function galFaceUnion(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFaceUnion(...args); }
-		function galFaceClamp(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFaceClamp(...args); }
-		function galTextureHeadTop(...args) { return (stageSceneMathNode || stageViews.sceneMath).galTextureHeadTop(...args); }
-		function galFlatLayout(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFlatLayout(...args); }
-		function galHopAt(...args) { return (stageSceneMathNode || stageViews.sceneMath).galHopAt(...args); }
-		function galHopReduced(...args) { return (stageSceneMathNode || stageViews.sceneMath).galHopReduced(...args); }
-		function galBlinkCalm(...args) { return (stageSceneMathNode || stageViews.sceneMath).galBlinkCalm(...args); }
-		function galShiverAt(...args) { return (stageSceneMathNode || stageViews.sceneMath).galShiverAt(...args); }
-		function galBodyActAt(...args) { return (stageSceneMathNode || stageViews.sceneMath).galBodyActAt(...args); }
-		function galFlatActAt(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFlatActAt(...args); }
-		function galSceneMerge(...args) { return (stageSceneMathNode || stageViews.sceneMath).galSceneMerge(...args); }
-		if(typeof module!=='undefined'&&typeof window==='undefined')module.exports=stageSceneMathNode;
-		// ---------- Scene runtime (pixi) ----------
 
 		// Machine preference: stage effects quality, "high" (default) or "low".
 		const stageQuality = (function () {
@@ -48557,9 +48477,6 @@ function cardLibraryDisplayName(card) {
 		        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 		    };
 		})();
-		function useStageQuality() { return React.useSyncExternalStore(stageQuality.subscribe, stageQuality.get); }
-
-		function GalScene(props) { return React.createElement(stageViews.scene.Scene,props); }
 // Shared effect definitions and flash gate serve every stage presentation.
 // The core stage effects. The director names an effect
 // (screen.play / screen.set, transition.play, title.play) and never tunes it; each name has one definition here with
@@ -49459,6 +49376,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createWidgetMedia};
 		// Only visible source text and declared variable projections cross this bridge; never chat/session context.
 		let stageWidgetMediaOwner;
+		function stageWidgetCount(name) { stageViews?.widgets.count(name); }
 		// nine inert tokens; no selectors, webfont URLs or style sheets cross the bridge.
 		const STAGE_WIDGET_THEME_COLOURS = ['accent','accentText','surface','surfaceText','muted','border'];
 		const STAGE_WIDGET_THEME_TOKENS = [...STAGE_WIDGET_THEME_COLOURS,'radius','fontFamily','headingFont'];
@@ -49771,26 +49689,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		            init(); clearTimeout(state.timer); state.timer = setTimeout(() => fail('timeouts'), 1500);
 		        } });
 		}
-		// only host-authorized v2 widget leases reach the opaque iframe.
-		function hydrateWidgetDefinitions(items) {
-		    return (items || []).filter(item => item.thirdParty && item.ref?.kind === 'widgets' &&
-		        item.id === [item.ref.packId,item.ref.kind,item.ref.assetId].join('/') &&
-		        /^\/api\/dsh-asset-library\/v2\/lease\/[A-Za-z0-9_-]+\//.test(item.url));
-		}
-		function WidgetPreview({ definition, state, sample = 0, settings = {}, theme = 'classic', film = false }) {
-		    const item = hydrateWidgetDefinitions([definition])[0];
-		    if (!item) return null;
-		    // preview executes no commands; it displays a validated declared state.set sample.
-		    const example = item.samples?.[sample] || item.samples?.[0];
-		    const command = item.document?.commands.find(command => command.name === example?.command && command.effect === 'state.set');
-		    const candidate = state ?? (command ? example.params : null);
-		    const normalized = candidate && stageWidgetSchemaValue(item.stateSchema,candidate) && stageWidgetBytes(candidate) <= item.caps.bytes ? candidate : null;
-		    if (!normalized) return React.createElement('p', { role: 'status' }, '模组参数不符合 schema');
-		    const widget = stageWidgetPresentation({ widgetId: 'preview', ref: item.ref, originKey:'preview:'+item.id, state: normalized, slot: item.slot || 'corner-right', remainingSeconds: normalized.remainingSeconds }, item);
-		    widget.settings=stageWidgetResolveSettings(item.document,{...item.settingsDefaults,...settings}).settings;
-		    return React.createElement('div', { className: 'fork-gal-theme-scope fork-widget-preview', 'data-theme': theme, 'data-film': film, style: { padding: film ? '40px 16px' : '16px', maxWidth: '100%' } },
-		        React.createElement(getWidgetBoundary(), { key: item.id + ':' + (item.revision || item.version) }, React.createElement(WidgetCard, { widget })));
-		}
 		// the one registry of stage
 		// entries. Every feature / mod registers its entry here (its button in the top bar); none is forced onto the stage. The top bar
 		// is the entries' only home in every skin: it hides while reading and reveals on demand (gal-stage.js useGalHudReveal);
@@ -49849,11 +49747,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		}
 
 		if (typeof module !== "undefined" && typeof window === "undefined" && module.exports) module.exports = { stageEntries, stageEntryOrder, createStageEntryStore };
-		// Transitional consumers of the optional stage widget views.
-		function GalWidgets(props) { return stageViews ? React.createElement(stageViews.widgets.Widgets, props) : null; }
-		function WidgetCard(props) { return stageViews ? React.createElement(stageViews.widgets.Card, props) : null; }
-		function getWidgetBoundary() { return stageViews ? stageViews.widgets.boundary() : React.Fragment; }
-		function stageWidgetCount(name) { stageViews?.widgets.count(name); }
         // minimal production overlay; artwork stays outside scene grading and camera transforms.
         'use strict';
         // presentation-only clock. Canonical CG intent remains in the stage store.
@@ -49980,8 +49873,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
             });
             return !!frame.current && images[1].complete && images[1].naturalWidth > 0 && view.width > 0 && view.height > 0 && element.isConnected && !document.hidden && element.checkVisibility?.({checkVisibilityCSS:true,checkOpacity:true}) !== false;
         }
-        function CgGallery(props) { return stageViews ? React.createElement(stageViews.gallery.Gallery, props) : null; }
-        function useCgStage(...args) { return stageViews.cg.useStage(...args); }
 		// galgame stage view.
 		// A presentation of the same reply the chat view shows: it never writes story, variables
 		// or prompts. The session runtime owns text, observation and accepted presentation.
@@ -50008,9 +49899,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		}
 
 		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {stageNarrationLayout, stageNarrationPresentation, stagePerformanceImageShown};
-		// Temporary GalStage delegates to the plugin-owned widget controller.
-		function useWidgetStage(props){return stageViews.sourceWidgets.useStage(props);}
-		function usePhoneSettings(props){return stageViews.sourceWidgets.usePhoneSettings(props);}
 		// Read-only phone presentation. Paragraph IDs belong to the existing GAL source index.
 		function phoneModMarker(raw, unit, characters, threads = {}) {
 		    if (!raw || Object.keys(raw).some(key => !['op', 'contact', 'to', 'thread', 'sender', 'side', 'form'].includes(key)) || raw.op !== 'phone.message'
@@ -50464,24 +50352,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		function StageEnterHere(props) { return stageViews ? React.createElement(stageViews.chatEntry.EnterHere, props) : null; }
 		function StageParagraph(props) { return stageViews ? React.createElement(stageViews.chatEntry.Paragraph, props) : props.children; }
 		function StageMarkdown(props) { return React.createElement(stageViews ? stageViews.chatEntry.Markdown : TavernColoredMarkdown, stageViews ? props : props.markdownProps); }
-		// Temporary GalStage delegates; implementation and lifetimes belong to the plugin.
-		function useModPerformances(...args){return stageViews.modSurface.usePerformances(...args);}
-		function ModStageLayers(props){return stageViews ? React.createElement(stageViews.modSurface.Layers,props) : null;}
-		function useTextcardStage(props) { return stageViews.textcard.useStage(props); }
-		// Temporary consumers delegate to the optional plugin's admission owner.
-		const galEntryShown = {
-		    get:() => stageViews?.admission.shown.get() || null,
-		    subscribe:fn => stageViews?.admission.shown.subscribe(fn) || (() => {}),
-		    wait:(...args) => stageViews?.admission.shown.wait(...args) || Promise.resolve(),
-		    settled:() => stageViews?.admission.shown.settled() || Promise.resolve()
-		};
-		function useGalEntry(...args) { return stageViews.admission.useEntry(...args); }
-		function useGalEntryLoader(...args) { return stageViews.admission.useLoader(...args); }
-		function GalEntryOverlay(props) {
-		    return stageViews ? React.createElement(stageViews.admission.Overlay, props) : null;
-		}
-
-		function useStageLoadProgress(...args) { return stageViews.progress.useProgress(...args); }
 		'use strict';
 		// the 视频 asset kind (`videos`) - one first-class stage video that
 		// any stage feature references by entry id (an entrance's `video` layer today; performances / cut-ins, CG movies, OP/ED and
@@ -50543,7 +50413,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		}
 		const stageVideo = stageVideoContract();
 		if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = Object.assign({ stageVideoContract }, stageVideo);
-		function stageVideoPlayer(...args) { return stageViews.video.player(...args); }
 		// the one
 		// client adapter to a mod's resolved options on the stage. A mod is a pure capability with a built-in preset; the active
 		// skin may set option values, turn features on or off and lock options; the player adjusts the user-adjustable ones in two
@@ -50577,7 +50446,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    }, [sessionId, modId, enabled, skinKey, epoch]);
 		    return answer;
 		}
-		function useStageTimerSlot(...args) { return stageViews.timer.useSlot(...args); }
 
 		// Stage helpers: the galgame stage's top-level pure functions and hooks (gal-stage.js includes this source inside its
 		// module factory; Node tests require it or evaluate it beside their stubs). Runtime neighbours (typewriter pages, bubble
@@ -50693,35 +50561,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        galActive.emit(); galStageAvailable.emit();
 		    };
 		}
-		function GalTypewriter(props) {
-		    return stageViews ? React.createElement(stageViews.Typewriter, props) : null;
-		}
-		function GalNarrationLines(props) {
-		    return stageViews ? React.createElement(stageViews.NarrationLines, props) : null;
-		}
-		function GalBoxFrame(props) { return stageViews ? React.createElement(stageViews.BoxFrame, props) : null; }
-		// Scene names are 「地点·细节·时间」. When the cued scene has no picture yet (待补图), stand in with the
-		// closest picture of the card's range: shared place words first, then the same time of day, and grade
-		// the picture towards the wanted time (a night filter over a daytime street) rather than show sunshine.
-		const GAL_TIMES = [["night", /夜|晚上|深夜|午夜/], ["dusk", /黄昏|傍晚|夕/], ["day", /清晨|早晨|早上|晨|白天|昼|中午|午后|下午|上午|晴/]];
-		function galTimeOf(name) { const hit = GAL_TIMES.find(([, pattern]) => pattern.test(String(name || ""))); return hit ? hit[0] : ""; }
-		function galStandIn(name, entries) {
-		    const parts = String(name || "").split(/[·・\s]+/).filter(part => part && !galTimeOf(part));
-		    const time = galTimeOf(name);
-		    let best = null, bestScore = 0;
-		    entries.forEach(function (entry) {
-		        const words = entry.name.split(/[·・\s]+/);
-		        let score = 0;
-		        parts.forEach(part => { if (words.includes(part)) score += 4; else if (words.some(word => word.includes(part) || part.includes(word))) score += 2; else { const shared = new Set([...part].filter(ch => entry.name.includes(ch))).size; if (shared >= 2) score += shared * 0.8; } });
-		        if (time && galTimeOf(entry.name) === time) score += 1.5;
-		        if (score > bestScore) { best = entry; bestScore = score; }
-		    });
-		    return bestScore >= 1.5 ? best : null;
-		}
-		function GalFace(props) { return stageViews ? React.createElement(stageViews.Face, props) : null; }
-		function GalSide(props) { return stageViews ? React.createElement(stageViews.Side, props) : null; }
-		function galPlaceholderFace(...args) { return stageViews.placeholderFace(...args); }
-		function GalTitle(props) { return stageViews ? React.createElement(stageViews.Title, props) : null; }
+
 		// Machine preference: film mode (letterbox + subtitles instead of the dialogue box), off by default.
 		const stageFilm = (function () {
 		    const KEY = "fork-stage-film";
@@ -50733,7 +50573,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 		    };
 		})();
-		function useStageFilm() { return React.useSyncExternalStore(stageFilm.subscribe, stageFilm.get); }
+
 		// Machine preference: reading pace (Config → 文字). textSpeed = milliseconds per typed character (0 = the whole
 		// line at once); autoWait = the auto mode's pause after a line's voice ends. A silent page waits its reading
 		// time (galAutoHold) shifted by the same amount. autoSpeed scales both waits;
@@ -51007,53 +50847,9 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		})();
 		function useStageReading() { return React.useSyncExternalStore(stageReading.subscribe, stageReading.get); }
 
-
-		function useGalFaceColumn(...args) { return stageViews.useFaceColumn(...args); }
-		function useGalFaceHandoff(...args) { return stageViews.useFaceHandoff(...args); }
-		function galFaceClearMs(...args) { return stageViews.faceClearMs(...args); }
-		function galHandoffAutoDelay(...args) { return stageViews.handoffAutoDelay(...args); }
-		function useGalSpriteFallbacks(...args) { return stageViews.notices.useSpriteFallbacks(...args); }
-		function GalStandIns(props) { return stageViews ? React.createElement(stageViews.StandIns, props) : null; }
-
-		// first-run hints, shown in the stage's notice stack (not a modal) once the entry
-		// is revealed. keys: the stage's real shortcuts (GAL_SHORTCUTS), once per profile — 「已看过」 is kept in the persisted
-		// host-only frame storage (forkFrameStorage.seen / markSeen, frame-storage.json), which survives restarts and port changes;
-		// nothing shows before that store has loaded, nor without it. sound: 「点任意处开启声音」 while the browser's autoplay policy
-		// holds the BGM back (stageMusic.blocked()), at most once per page load. Any key or click dismisses both; the same
-		// gesture resumes the audio (the BGM kick and the mixer resume listen to it). A click on the bare stage only dismisses
-		// (it does not also turn the page); keys pass through (A still starts auto). the first page turn
-		// (auto, skip or a click) also retires the key list, and the system menu's 「快捷键」 shows it again (showKeys).
-		const GAL_NO_PHONE_CALL = Object.freeze({ subscribe: () => () => {}, stage: () => '' });
-		function useGalFirstRunHints(...args) { return stageViews.hints.useHints(...args); }
-		// The text box's wait names it (its aria-label); the default one shows the rotating wait lines (wait-lines.js).
-		const GAL_AWAITING_WRITING = '正在书写下一幕';
-		function galAwaitingText(activity) {
-		    if (activity?.role === 'settlement' && (activity.busy || ['pending', 'running'].includes(activity.phase))) {
-		        return '正在等待上一轮后台结算，完成后开始正文';
-		    }
-		    return GAL_AWAITING_WRITING;
-		}
-		function useCapabilityNotice(...args) { return stageViews.notices.useCapabilityNotice(...args); }
-		function GalRuntimeStatus(props) { return stageViews ? React.createElement(stageViews.notices.Status, props) : null; }
-		// a stage moment's skin cue, or (cue "") the shown skin's palette (returns its
-		// cleanup). Pages without the UI sound module (tests, previews) stay silent.
-		function galSkinSfx(cue, palette) {
-		    const sfx = typeof forkUiSfx === "object" && forkUiSfx ? forkUiSfx : null;
-		    if (cue) return void sfx?.play?.(cue);
-		    sfx?.useSkin?.(palette || null);
-		    return () => sfx?.useSkin?.(null);
-		}
-		function useGalNarrow() { return stageViews.useNarrow(); }
-		function useGalTopbarGroup(...args) { return stageViews.useTopbarGroup(...args); }
-		function useGalHudReveal(...args) { return stageViews.useHudReveal(...args); }
-
 		function GalHudLabels(props) {
 		    return stageViews ? React.createElement(stageViews.HudLabels, props) : null;
 		}
-		function GalNamePlate(props) {
-		    return stageViews ? React.createElement(stageViews.NamePlate, props) : null;
-		}
-		function galNameParts(...args) { return stageViews.nameParts(...args); }
 
 		// Stable slots render only the optional plugin's current view implementation.
 		let stageViews = null;
@@ -51200,13 +50996,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        throw error;
 		    }
 		}
-		// the stage's CONFIG screen, visual-novel
-		// style - the one home of the stage's lasting preferences. The system menu's 设置 (and the top bar's 声音) open a full-screen
-		// overlay over the blurred stage with left tabs: 声音 (every audio layer, with previews), 文字 (reading pace, fonts, text size),
-		// 画面 (本卡皮肤, 顶栏按钮, effects) and 模组 (each enabled mod's stage preferences; no tab without one). The stage owns the open
-		// state (auto / skip pause while it is open, like the backlog). Styled only through the stage UI tokens (--gal-ui-*).
-
-		// The font picker (舞台字体 / 字幕字体 here, 正文字体 on the 外观 settings page — appearance.js, same closure).
 		// Stage-owned adapter supplies its popover and role resolver to the skin picker.
 		const skinFontPickers = new WeakMap();
 		function FontPicker(props) {
@@ -51221,59 +51010,9 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    return React.createElement(skinFontPickers.get(provider), props);
 		}
 
-		// 本卡皮肤 - the card's one skin value 「使用皮肤」 (stage.defaultSkin; null clears it, back to the
-		// global default). Serialized per session, same RPC and store as the settings tab (bubbleStore).
-		// Application-owned slots; imported mods cannot register executable client code.
+		// The stage package and the phone mod share the CONFIG sections registry.
 		const STAGE_CONFIG_SECTIONS = {};
-		function GalConfigScreen(props) { return stageViews ? React.createElement(stageViews.configScreen.Screen, props) : null; }
-
-		function galConfigGroup(...args) { return stageViews.configFields.group(...args); }
-		function galConfigRow(...args) { return stageViews.configFields.row(...args); }
-		function galConfigSegmented(...args) { return stageViews.configFields.segmented(...args); }
-		function galConfigSlider(...args) { return stageViews.configFields.slider(...args); }
-		// 文字大小 - the stage text of the skin on screen (props.textSkin from the stage) as a percent of
-		// that skin's own size; each skin keeps its own value on this machine (stageReading textScale), 100% = as designed.
-		function stageTextScaleSet(...args) { return stageViews.configText.setScale(...args); }
-		// 音量: the mixer rows, larger, with ▶ previews where cheap (a built-in one-shot, the current voice line).
-		// an on / off switch drawn in the stage tokens (track + knob), the same geometry as the stage
-		// settings' switches; a button with role="switch", never a native checkbox. No state word beside it (UI standard §三.7,
-		// phase 2 batch 4).
 		function GalConfigSwitch(props) { return stageViews ? React.createElement(stageViews.configFields.Switch, props) : null; }
-
-		// 文字: text speed and auto-mode pace, the stage / subtitle fonts (font-picker.js, applied at once), the current skin's
-		// text size, and a live preview that types and waits like the stage, in the stage font, with a subtitle line in the film font.
-		// 本卡皮肤 as a compact select instead of a grid of preview cards. The trigger shows a
-		// small preview of the chosen skin and its name; the list (portaled like the font picker's, in the stage tokens) shows
-		// every skin with its preview, the chosen one marked. Keys: ↓ / ↑ on the trigger open it; ↑ ↓ Home End move,
-		// Enter / Space choose, Esc / Tab close (Esc does not reach the CONFIG screen).
-		// Built-in ids compare by id; pack skins by all three identity fields (storage may reorder the keys).
-		// the one generic CONFIG row renderer, for the settings a mod (or the engine)
-		// hands over as plain data instead of building rows. An item: { key, type, label, help?, value, onChange(value), onCommit?(value),
-		// disabled?, choices [{ value, label }], min, max, step, unit?, maxLength?, placeholder?, palette?, auto? (colour: the automatic
-		// colour, the value null = automatic), display? (picker / other: the value in words), onOpen? (picker: open its chooser) }.
-		// Types are the mod settings' (settingsSchema): text, toggle, slider, segmented, colour, asset-picker / sound-picker (= picker),
-		// plus select; any other type is `other` - its label and its value in words, read-only, never a broken control. Each row
-		// carries data-fk-control, so the skin's surface draws it (its controls.<type>, else controls.other).
-		function GalConfigItems(props) { return stageViews ? React.createElement(stageViews.configFields.Items, props) : null; }
-		function galConfigFieldSections(...args) { return stageViews.configFields.sections(...args); }
-        // where and how big the stage phone is, on this
-        // device. A browser preference (localStorage, never the chat, the card or the director), kept per layout - wide (a desktop
-        // window) and narrow (a phone, under 700px) each remember their own size (percent of the automatic band size, 50–150; narrow
-        // 70–150: smaller is too cramped on a phone, and a smaller stored value reads as 70) and
-        // place (fractions of the free stage, as stageWidgetPlaces, so a resize keeps the phone inside); `unlocked` lets the reader
-        // drag the phone by its edge (gal-widgets.js ring) and nudge it with the arrow keys. Without a place the phone sits
-        // centred in the band above the dialogue box as before, so by default it never covers the box; a moved phone stays where
-        // it was put. The stage CONFIG › 模组 › 手机 section edits it (ui-design R21: a per-play, often-adjusted setting).
-        function phoneModSizeMin(name) { return stageViews.phoneLayout.min(name); }
-        const phoneModPrefs = {
-            get:()=>stageViews?.phoneLayout.prefs.get() || null,
-            subscribe:fn=>stageViews?.phoneLayout.prefs.subscribe(fn) || (()=>{}),
-            set:patch=>stageViews?.phoneLayout.prefs.set(patch),
-            update:(...args)=>stageViews?.phoneLayout.prefs.update(...args),
-            current:width=>stageViews.phoneLayout.prefs.current(width),
-        };
-
-        function usePhoneAdjust(...args) { return stageViews.phoneAdjust.useAdjust(...args); }
 		// the BGM player. One panel, two placements: in the stage the
 		// HUD track label is its chip; in chat a header chip opens the same panel. State: bgmPlayer (bgm-player.cjs);
 		// volume: CONFIG › 声音 only (PROPOSAL §八: no second slider here). Styles: .fork-bgm-* on --bgm-* tokens,
@@ -51782,28 +51521,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    snapshot:() => stageViews?.ambience.snapshot() || {plan:null,performance:null,player:null}
 		};
 		window.forkSoundscapeDebug = {snapshot: () => ambience.snapshot()};
-		// Host chat snapshots and canonical direction projection enter through this adapter.
-		function useGalPlayerInputs(sessionId, useChat) {
-		    const nodes = useChat ? useChat(snapshot => snapshot && snapshot.legacy && snapshot.legacy.nodes || null) : null;
-		    const live = useLiveTavernView(sessionId, "gal-backlog");
-		    const view = live && live.view;
-		    return React.useMemo(function () {
-		        const sources = view && view.inputSources;
-		        return stageViews.backlogRows.galPlayerInputs(nodes, dsh => tavernStoryTurnForDshTurn(view, dsh),
-		            dsh => sources && Object.prototype.hasOwnProperty.call(sources, String(dsh)) && sources[dsh] != null ? String(sources[dsh]) : null);
-		    }, [nodes, view]);
-		}
-		function GalBacklog(props) {
-		    const inputs=useGalPlayerInputs(props.sessionId,props.useChat);
-		    const chatId=useLiveTavernView(props.sessionId,"gal-backlog")?.view?.chatId || "";
-		    const sessionRuntime=stageViews?.sessionRuntime;
-		    const readDirection=React.useMemo(()=>props.readDirection ? async request=>{
-		        const value=await props.readDirection(request);
-		        const projected=value.token ? await sessionRuntime?.projectDirection(value,{sessionId:props.sessionId,turn:request.turn}) : null;
-		        return projected ? {...value,entries:projected.entries} : value;
-		    } : null,[props.sessionId,props.readDirection,sessionRuntime]);
-		    return stageViews ? React.createElement(stageViews.backlogView.Backlog,{...props,inputs,chatId,readDirection}) : null;
-		}
 
 
 		function createSupersededErrorProjection(root) {
@@ -57228,17 +56945,8 @@ const {createStageRuntimeState, reduceStageRuntime, stageRuntimeStatus, stageRun
 
 return {createStageRuntimeState, reduceStageRuntime, stageRuntimeStatus, stageRuntimeIndicators, stageHistoryModPlays, stageBeatHold, stageRuntimeErrorText, stageDiagnosticText, stageSkipShows, sourceKey, sameSource, STAGE_HISTORY_SETTLE_MS};
 })() : null;
-const createStageRuntimeState = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).createStageRuntimeState(...args);
-const reduceStageRuntime = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).reduceStageRuntime(...args);
-const stageRuntimeStatus = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageRuntimeStatus(...args);
-const stageRuntimeIndicators = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageRuntimeIndicators(...args);
-const stageHistoryModPlays = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageHistoryModPlays(...args);
-const stageBeatHold = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageBeatHold(...args);
 const stageRuntimeErrorText = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageRuntimeErrorText(...args);
 const stageDiagnosticText = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageDiagnosticText(...args);
-const stageSkipShows = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).stageSkipShows(...args);
-const sourceKey = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).sourceKey(...args);
-const sameSource = (...args) => (stageRuntimeNode || stageViews.runtimeKernel).sameSource(...args);
 const STAGE_HISTORY_SETTLE_MS = 1000;
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = stageRuntimeNode;
 'use strict';
@@ -57344,15 +57052,6 @@ function stagePageAtAnchor(index, {para, offset}) {
 }
 
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {STAGE_PAGE_CHARS, stagePagePlain, stageBlockPages, stagePageMovableTail, stagePageHeldTail, stagePageCards, stagePageIndex, stagePageAtAnchor};
-// Temporary entry points for the remaining host controls; state and speech policy live in the plugin.
-function useStageSelector(...args) { return stageViews.runtimeUi.useSelector(...args); }
-function useStageRuntime(...args) { return stageViews.runtimeUi.useRuntime(...args); }
-function useStagePerformanceKinds(...args) { return stageViews.runtimeUi.usePerformanceKinds(...args); }
-function useStagePosition(...args) { return stageViews.position.usePosition(...args); }
-function stageVoiceHandle(...args) { return stageViews?.speech.handle(...args) || null; }
-function stageVoiceAvailable() { return stageViews?.speech.available() || false; }
-function stageVoiceWindowFromIndex(...args) { return stageViews?.speech.window(...args) || []; }
-function useStageConsumers(...args) { return stageViews.displayConsumers.useConsumers(...args); }
 'use strict';
 // inert dsh.skin/1 contract, shared by importer and stage. No CSS input.
 const skinColor = value => typeof value === 'string' && /^#[\da-f]{6}$/i.test(value);
@@ -58508,48 +58207,9 @@ const BUILTIN_STAGE_SKINS = Object.freeze(Object.fromEntries([
     nameplate:{shape:'plain',paint:{bg,fg}},font:{...(stage ? {body:stage} : {}),film:'neo-xihei-screen'},textFx:{reveal:'type'},
     ui:{bg,fg,fgMuted,accent,onAccent:bg,border,radius,...(veil ? {veil} : {})}}])));
 if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = {STAGE_SKIN_SOURCE_KINDS,stageSkinForDevice,STAGE_PORTRAIT_SOURCES,stageSkinPortraitOrder,validateStageSkin,stageSkinFiles,stageSkinConfigFiles,STAGE_CONFIG_LOOKS,stageSkinScreenFiles,stageSkinImageOf,stageSkinSliceEdges,skinContrast,STAGE_SKIN_SFX_CUES,stageSkinAppearance,BUILTIN_STAGE_SKINS,STAGE_SKIN_PLATE_ALPHA,STAGE_BACKLOG_ROLES,STAGE_SKIN_TRANSITION_SURFACES,STAGE_SKIN_SCROLLBAR_SURFACES,STAGE_SKIN_SLIDE_SURFACES,STAGE_SKIN_WIPES,STAGE_SKIN_TX_EASES};
-// Temporary facade for the remaining host stage composition; implementation belongs to the optional stage plugin.
-function stageSkinTxEase(...args) { return stageViews.skin.stageSkinTxEase(...args); }
-function stageSkinWipeClip(...args) { return stageViews.skin.stageSkinWipeClip(...args); }
-function stageSkinTransitionList(...args) { return stageViews.skin.stageSkinTransitionList(...args); }
-function stageSkinBacklog(...args) { return stageViews.skin.stageSkinBacklog(...args); }
-function stageSkinBacklogPlate(...args) { return stageViews.skin.stageSkinBacklogPlate(...args); }
-function stageSkinBacklogPlateStyle(...args) { return stageViews.skin.stageSkinBacklogPlateStyle(...args); }
-function stageSkinBacklogOutline(...args) { return stageViews.skin.stageSkinBacklogOutline(...args); }
-function stageSkinInset(...args) { return stageViews.skin.stageSkinInset(...args); }
-function stageSkinSfx(...args) { return stageViews.skin.stageSkinSfx(...args); }
-function stageSkinMotionKeyframes(...args) { return stageViews.skin.stageSkinMotionKeyframes(...args); }
-function stageSkinGlyphPoses(...args) { return stageViews.skin.stageSkinGlyphPoses(...args); }
-function stageSkinEffects(...args) { return stageViews.skin.stageSkinEffects(...args); }
-function stageSkinTokens(...args) { return stageViews.skin.stageSkinTokens(...args); }
-function stageSkinPanelTokens(...args) { return stageViews.skin.stageSkinPanelTokens(...args); }
-function stageSkinQuickMenu(...args) { return stageViews.skin.stageSkinQuickMenu(...args); }
-function stageSkinMarks(...args) { return stageViews.skin.stageSkinMarks(...args); }
-function stageSkinConfigSurface(...args) { return stageViews.skin.stageSkinConfigSurface(...args); }
-function stageSkinConfigArt(...args) { return stageViews.skin.stageSkinConfigArt(...args); }
-function stageSkinControlIcons(...args) { return stageViews.skin.stageSkinControlIcons(...args); }
-function stageSkinArt(...args) { return stageViews.skin.stageSkinArt(...args); }
-function stageSkinSpinner(...args) { return stageViews.skin.stageSkinSpinner(...args); }
-function stageSkinTint(...args) { return stageViews.skin.stageSkinTint(...args); }
-function stageSkinMenuTint(...args) { return stageViews.skin.stageSkinMenuTint(...args); }
-function stageSkinFontFaces(...args) { return stageViews.skin.stageSkinFontFaces(...args); }
-function applyStageSkin(...args) { return stageViews.skin.applyStageSkin(...args); }
-function stageSkinMode(...args) { return stageViews.skin.stageSkinMode(...args); }
-function applyStageSkinMode(...args) { return stageViews.skin.applyStageSkinMode(...args); }
-function useStageConfigSkin(...args) {return stageViews.skinResources.useConfig(...args);}
-function useStageSkin(...args) {return stageViews.skinPresentation.useSkin(...args);}
-function skinTxLeaveMs(...args) { return stageViews.transitions.leaveMs(...args); }
-// Transitional call sites; the optional stage package owns all transition work.
-function useSkinLeave(...args) { return stageViews.transitions.useLeave(...args); }
-function useSkinSweep(...args) { return stageViews.transitions.useSweep(...args); }
-function useSkinParts(...args) { return stageViews.transitions.useParts(...args); }
-function SkinSweep(props) { return stageViews ? React.createElement(stageViews.transitions.Sweep, props) : null; }
-function StageSkinCursor(props) { return stageViews ? React.createElement(stageViews.skinCursor.Cursor, props) : null; }
-function StageSkinFrame(props) { return stageViews ? React.createElement(stageViews.skinFrame.Frame, props) : null; }
-// Temporary control delegate; the plugin owns performance rendering and lifetime.
-function usePerformanceLayer(...args){return stageViews.performanceSurface.useLayer(...args);}
 
 // Temporary read delegates for controls that have not yet moved into the plugin.
+function useStageSelector(...args) { return stageViews.runtimeUi.useSelector(...args); }
 const stageResourceAuthority = source => JSON.stringify([source.sessionId,source.authorityEpoch]);
 const stageSessions = {
     get owner(){return stageViews?.sessions.owner || null;},

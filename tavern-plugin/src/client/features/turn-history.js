@@ -114,16 +114,13 @@
 		// @include stage-widgets.cjs
 		// @include widget-sandbox.js
 		// @include stage-entries.js
-		// @include gal-widgets.js
         // @include cg-stage.js
 		// @include gal-stage.js
 		// @include gal-config.js
-        // @include phone-layout.js
 		// @include bgm-player.js
 		// @include bg-manual.js
 		// @include stage-scene-images.js
 		// @include stage-ambience.js
-		// @include gal-backlog.js
 
 
 		function createSupersededErrorProjection(root) {

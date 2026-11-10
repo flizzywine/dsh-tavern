@@ -4,49 +4,17 @@
 // The chat view can stay frozen or unmounted; backlog reads the same session index.
 
 // @include-domain stage-narration.cjs
-// @include widget-source.js
 // @include-mod phone/stage-phone.cjs
 // @include stage-offstage.cjs
 // @include-protocol stage-pacing.cjs
 // @include-protocol stage-soundscape.cjs
 // @include gal-history.js
-// @include mod-performance.js
-// @include textcard-stage.js
-// @include gal-entry.js
-// @include stage-video.js
-// @include timer-stage.js
+// @include-protocol stage-video.cjs
+// @include mod-options.js
 
 // @include gal-stage-helpers.cjs
 // @include gal-stage-active.cjs
-function GalTypewriter(props) {
-    return stageViews ? React.createElement(stageViews.Typewriter, props) : null;
-}
-function GalNarrationLines(props) {
-    return stageViews ? React.createElement(stageViews.NarrationLines, props) : null;
-}
-function GalBoxFrame(props) { return stageViews ? React.createElement(stageViews.BoxFrame, props) : null; }
-// Scene names are 「地点·细节·时间」. When the cued scene has no picture yet (待补图), stand in with the
-// closest picture of the card's range: shared place words first, then the same time of day, and grade
-// the picture towards the wanted time (a night filter over a daytime street) rather than show sunshine.
-const GAL_TIMES = [["night", /夜|晚上|深夜|午夜/], ["dusk", /黄昏|傍晚|夕/], ["day", /清晨|早晨|早上|晨|白天|昼|中午|午后|下午|上午|晴/]];
-function galTimeOf(name) { const hit = GAL_TIMES.find(([, pattern]) => pattern.test(String(name || ""))); return hit ? hit[0] : ""; }
-function galStandIn(name, entries) {
-    const parts = String(name || "").split(/[·・\s]+/).filter(part => part && !galTimeOf(part));
-    const time = galTimeOf(name);
-    let best = null, bestScore = 0;
-    entries.forEach(function (entry) {
-        const words = entry.name.split(/[·・\s]+/);
-        let score = 0;
-        parts.forEach(part => { if (words.includes(part)) score += 4; else if (words.some(word => word.includes(part) || part.includes(word))) score += 2; else { const shared = new Set([...part].filter(ch => entry.name.includes(ch))).size; if (shared >= 2) score += shared * 0.8; } });
-        if (time && galTimeOf(entry.name) === time) score += 1.5;
-        if (score > bestScore) { best = entry; bestScore = score; }
-    });
-    return bestScore >= 1.5 ? best : null;
-}
-function GalFace(props) { return stageViews ? React.createElement(stageViews.Face, props) : null; }
-function GalSide(props) { return stageViews ? React.createElement(stageViews.Side, props) : null; }
-function galPlaceholderFace(...args) { return stageViews.placeholderFace(...args); }
-function GalTitle(props) { return stageViews ? React.createElement(stageViews.Title, props) : null; }
+
 // Machine preference: film mode (letterbox + subtitles instead of the dialogue box), off by default.
 const stageFilm = (function () {
     const KEY = "fork-stage-film";
@@ -58,7 +26,7 @@ const stageFilm = (function () {
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
     };
 })();
-function useStageFilm() { return React.useSyncExternalStore(stageFilm.subscribe, stageFilm.get); }
+
 // Machine preference: reading pace (Config → 文字). textSpeed = milliseconds per typed character (0 = the whole
 // line at once); autoWait = the auto mode's pause after a line's voice ends. A silent page waits its reading
 // time (galAutoHold) shifted by the same amount. autoSpeed scales both waits;
@@ -129,53 +97,9 @@ const stageReading = (function () {
 })();
 function useStageReading() { return React.useSyncExternalStore(stageReading.subscribe, stageReading.get); }
 
-
-function useGalFaceColumn(...args) { return stageViews.useFaceColumn(...args); }
-function useGalFaceHandoff(...args) { return stageViews.useFaceHandoff(...args); }
-function galFaceClearMs(...args) { return stageViews.faceClearMs(...args); }
-function galHandoffAutoDelay(...args) { return stageViews.handoffAutoDelay(...args); }
-function useGalSpriteFallbacks(...args) { return stageViews.notices.useSpriteFallbacks(...args); }
-function GalStandIns(props) { return stageViews ? React.createElement(stageViews.StandIns, props) : null; }
-
-// first-run hints, shown in the stage's notice stack (not a modal) once the entry
-// is revealed. keys: the stage's real shortcuts (GAL_SHORTCUTS), once per profile — 「已看过」 is kept in the persisted
-// host-only frame storage (forkFrameStorage.seen / markSeen, frame-storage.json), which survives restarts and port changes;
-// nothing shows before that store has loaded, nor without it. sound: 「点任意处开启声音」 while the browser's autoplay policy
-// holds the BGM back (stageMusic.blocked()), at most once per page load. Any key or click dismisses both; the same
-// gesture resumes the audio (the BGM kick and the mixer resume listen to it). A click on the bare stage only dismisses
-// (it does not also turn the page); keys pass through (A still starts auto). the first page turn
-// (auto, skip or a click) also retires the key list, and the system menu's 「快捷键」 shows it again (showKeys).
-const GAL_NO_PHONE_CALL = Object.freeze({ subscribe: () => () => {}, stage: () => '' });
-function useGalFirstRunHints(...args) { return stageViews.hints.useHints(...args); }
-// The text box's wait names it (its aria-label); the default one shows the rotating wait lines (wait-lines.js).
-const GAL_AWAITING_WRITING = '正在书写下一幕';
-function galAwaitingText(activity) {
-    if (activity?.role === 'settlement' && (activity.busy || ['pending', 'running'].includes(activity.phase))) {
-        return '正在等待上一轮后台结算，完成后开始正文';
-    }
-    return GAL_AWAITING_WRITING;
-}
-function useCapabilityNotice(...args) { return stageViews.notices.useCapabilityNotice(...args); }
-function GalRuntimeStatus(props) { return stageViews ? React.createElement(stageViews.notices.Status, props) : null; }
-// a stage moment's skin cue, or (cue "") the shown skin's palette (returns its
-// cleanup). Pages without the UI sound module (tests, previews) stay silent.
-function galSkinSfx(cue, palette) {
-    const sfx = typeof forkUiSfx === "object" && forkUiSfx ? forkUiSfx : null;
-    if (cue) return void sfx?.play?.(cue);
-    sfx?.useSkin?.(palette || null);
-    return () => sfx?.useSkin?.(null);
-}
-function useGalNarrow() { return stageViews.useNarrow(); }
-function useGalTopbarGroup(...args) { return stageViews.useTopbarGroup(...args); }
-function useGalHudReveal(...args) { return stageViews.useHudReveal(...args); }
-
 function GalHudLabels(props) {
     return stageViews ? React.createElement(stageViews.HudLabels, props) : null;
 }
-function GalNamePlate(props) {
-    return stageViews ? React.createElement(stageViews.NamePlate, props) : null;
-}
-function galNameParts(...args) { return stageViews.nameParts(...args); }
 
 // Stable slots render only the optional plugin's current view implementation.
 let stageViews = null;

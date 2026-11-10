@@ -6,14 +6,10 @@
 // @include phone-beat.cjs
 // @include stage-runtime.cjs
 // @include stage-page-index.cjs
-// @include stage-ui.js
 // @include-protocol stage-skin.cjs
-// @include stage-skin-adapter.cjs
-// @include stage-skin-ui.js
-// @include stage-skin-decoration.js
-// @include performance-layer.js
 
 // Temporary read delegates for controls that have not yet moved into the plugin.
+function useStageSelector(...args) { return stageViews.runtimeUi.useSelector(...args); }
 const stageResourceAuthority = source => JSON.stringify([source.sessionId,source.authorityEpoch]);
 const stageSessions = {
     get owner(){return stageViews?.sessions.owner || null;},

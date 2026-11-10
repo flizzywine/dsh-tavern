@@ -153,7 +153,7 @@ function useDiceBacklog(useChat) {
 }
 // A round's checks lead its text in the 履历, as in the chat floor: after the round's separator and the player's input.
 // nativeTurnOf(storyTurn) maps a row's turn to the rolls' native turn; rowOf(roll, storyTurn) is the 履历's performance row
-// (gal-backlog.js backlogPerformanceEntry, kind core.dice.roll).
+// (stage backlog-rows.cjs, kind core.dice.roll).
 function diceBacklogEntries(entries, rolls, nativeTurnOf, rowOf) {
     if (!rolls.size) return entries;
     const out = [];
