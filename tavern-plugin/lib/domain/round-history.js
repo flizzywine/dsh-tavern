@@ -318,7 +318,7 @@ function commitOfRound(commits, assistant, userText) {
 export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement, present, diagnostics, sessionPatch,
   readRegenerationMaterials, prepareRegenerationFrame, prepareRegenerationFrameCache, prepareRegenerationReply, notifyRegeneration, trace }) {
   const { read: readChat, forSession: chatForSession, readCard: readChatCard, readState: readChatState,
-    readRevision: readChatRevision, write: writeChat, update: updateChat } = chats
+    readRevision: readChatRevision, update: updateChat } = chats
   const stage = (name, task) => trace?.stage ? trace.stage(name, task) : task()
   const { read: readScript, continuity: scriptContinuity } = scripts
   const tavernScriptHostAdapter = scripts
@@ -357,7 +357,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     await stage('regen.recover', () => regenerationRecovery.recover(chat.id, chat))
     if (pendingRegenerations.has(chat.id) || pendingRollbacks.has(chat.id)) throw new Error('正文正在重新生成，请等待完成')
     pendingRegenerations.add(chat.id)
-    try { return await regenRecent(chat.id, guidance, sessionId, reusable) ?? await regenBody(chat.id, guidance, sessionId, reusable) }
+    try { return await regenBody(chat.id, guidance, sessionId, reusable) }
     finally { pendingRegenerations.delete(chat.id) }
   }
 
@@ -443,7 +443,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     return await readChat(chatId)
   }
-  async function regenBody(chatId, guidance, sessionId, initialChat = null) {
+  async function regenBody(chatId, guidance, sessionId, initialChat) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
     let chat = initialChat || await stage('regen.load-body', () => str(chatId) === '' ? chatForSession(sessionId) : readChat(chatId))
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
@@ -714,29 +714,20 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       if (completed.value.status !== 'committed') throw new Error('正文提交条件已失效')
       const next = completed.chat
       const appendAnchor = appending ? attemptNativeAnchor(session, eventStart, syntheticTurn) : null
-      // A save-only replacement must not retain the stale anchor of the body that
-      // disappeared. Recovery writes the new full or reply-only anchor below.
-      if (saveOnly && next.messages?.[oldAssistantIndex]) delete next.messages[oldAssistantIndex].nativeAnchor
       next.nativeCommits = originalChat.nativeCommits && typeof originalChat.nativeCommits === 'object' ? structuredClone(originalChat.nativeCommits) : {}
+      next.suppressedDshTurns = Array.isArray(originalChat.suppressedDshTurns) ? [...originalChat.suppressedDshTurns] : []
+      next.regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
+        ? structuredClone(originalChat.regeneratedDshTurns) : {}
       if (saveOnly) {
-        // Only a real native reply creates a new story-to-host mapping. A missing
-        // reply must not leave a mapping to an unrelated or empty host round.
-        next.suppressedDshTurns = Array.isArray(originalChat.suppressedDshTurns) ? [...originalChat.suppressedDshTurns] : []
-        next.regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
-          ? structuredClone(originalChat.regeneratedDshTurns) : {}
+        // Recovery anchors the new native reply, if one landed. Discard the
+        // vanished reply's anchor and any mapping we cannot replace.
+        if (next.messages?.[oldAssistantIndex]) delete next.messages[oldAssistantIndex].nativeAnchor
         if (appendAnchor) next.regeneratedDshTurns[String(oldTurn)] = syntheticTurn
         else delete next.regeneratedDshTurns[String(oldTurn)]
-      } else if (failedTail) {
-        // Nothing native was replaced: the attempt's own reply is the body, so no
-        // turn is hidden and no earlier body is remapped.
-        next.suppressedDshTurns = Array.isArray(originalChat.suppressedDshTurns) ? [...originalChat.suppressedDshTurns] : []
-        next.regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
-          ? structuredClone(originalChat.regeneratedDshTurns) : {}
-      } else {
+      } else if (!failedTail) {
+        // Only an in-place replacement hides the separate attempt's turn.
         delete next.nativeCommits[String(syntheticTurn)]
-        next.suppressedDshTurns = Array.from(new Set((Array.isArray(originalChat.suppressedDshTurns) ? originalChat.suppressedDshTurns : []).concat([syntheticTurn]))).sort((left, right) => left - right)
-        next.regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
-          ? structuredClone(originalChat.regeneratedDshTurns) : {}
+        next.suppressedDshTurns = [...new Set([...next.suppressedDshTurns, syntheticTurn])].sort((left, right) => left - right)
         next.regeneratedDshTurns[String(oldTurn)] = syntheticTurn
       }
       // A replacement rewrites the old reply in place; the answered tail only has
@@ -803,13 +794,6 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     result.adopted = { text: body, guidance: guide, hiddenTurn: failedTail ? storyTurn : oldTurn, syntheticTurn }
     if (keptStreamed) result.regenerationWarning = '这次重新生成没有完成（可能被内容审核拦截或已停止），已保留生成到的部分正文。' + FOREGROUND_TOOL_HINT
     return result
-  }
-
-  // The former bounded path rolled back a checkpoint before generation and
-  // restored later floors on failure. Both full and scoped saves now share the
-  // candidate-first transaction: story rows stay authoritative until one commit.
-  async function regenRecent(chatId, guidance, sessionId, initialChat = null) {
-    return await regenBody(chatId, guidance, sessionId, initialChat)
   }
 
   // ---------- 回退本轮（删除最近一次用户输入 + LLM 输出） ----------

@@ -420,6 +420,24 @@ for (const mode of ['throw', 'missing', 'empty']) test('重生成 '+mode+' 保�
   assert.ok(!h.calls.includes('settlement'))
 })
 
+test('补写只有流式正文时保留正文并清除旧原生位置', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  h.session.surface.nodes = [0]
+  h.chat.messages.at(-1).nativeAnchor = { formatVersion: 4, turn: 2, input: 0, reply: 1 }
+  h.chat.regeneratedDshTurns = { 1: 11, 2: 12 }
+  h.chat.suppressedDshTurns = [12]
+  h.setGeneration('missing')
+  h.beforeGenerate(() => h.session.append('assistant/attempt', {
+    turn: 3, stream: [{ type: 'text-chunks', index: 0, texts: ['只收到流式正文'] }]
+  }))
+
+  await h.create().regenerate('chat', '', 'session')
+  assert.equal(h.chat.messages.at(-1).text, '只收到流式正文')
+  assert.equal(h.chat.messages.at(-1).nativeAnchor, undefined)
+  assert.deepEqual(h.chat.regeneratedDshTurns, { 1: 11 })
+  assert.deepEqual(h.chat.suppressedDshTurns, [12])
+})
+
 test('重新创建流程模块后连续重生成仍替换原轮次；回退恢复 checkpoint 并按顺序通知脚本', async () => {
   // Revision-backed checkpoints require the same monotonic revisions as the real journal.
   const h = harness({ checkpoint: true, journal: true })
