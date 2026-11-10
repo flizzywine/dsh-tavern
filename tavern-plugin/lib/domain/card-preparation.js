@@ -1,3 +1,4 @@
+import { readTextPage } from './text-page.js'
 import {migrateFigureNameCopies} from '../../packages/dsh-asset-library/lib/asset-packs/figure-names.js'
 import { withTavernCredit } from './card-credit.js'
 import { inspectCardExtensions } from './card-extension-reading.js'
@@ -542,18 +543,7 @@ export function createCardPreparation(options = {}) {
       // Compact JSON: indentation would be resent on every later step.
       const serialized = JSON.stringify(value)
       const text = serialized === undefined ? 'null' : serialized
-      const offset = Number.isInteger(request.offset) && request.offset > 0 ? request.offset : 1
-      const limit = Number.isInteger(request.limit) ? Math.max(1, Math.min(request.limit, 12000)) : 6000
-      const start = Math.min(offset - 1, text.length)
-      const chunk = text.slice(start, start + limit)
-      return {
-        pointer,
-        text: chunk,
-        totalChars: text.length,
-        from: chunk.length > 0 ? start + 1 : 0,
-        to: chunk.length > 0 ? start + chunk.length : 0,
-        done: start + chunk.length >= text.length
-      }
+      return { pointer, ...readTextPage(text, request) }
     }
     const card = project(request.card)
     if (request.as === 'world-book-overview') return worldBookOverview(card)
