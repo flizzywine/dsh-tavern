@@ -1833,7 +1833,8 @@ export function createTavernPluginApi(deps) {
     if (!result || typeof result !== 'object' || !Array.isArray(result.operations)) {
       throw new Error('MVU 提供器必须返回 { operations } 或 null')
     }
-    return { owner: entry.owner, operations: structuredClone(result.operations) }
+    return { owner: entry.owner, operations: structuredClone(result.operations),
+      ...(result.unchanged === true && result.operations.length === 0 ? { unchanged: true } : {}) }
   }
 
   async function mvuProviderActive({ gameId, owner } = {}) {

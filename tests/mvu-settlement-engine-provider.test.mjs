@@ -19,9 +19,9 @@ function fixture(providerResult) {
     participantRequest: { sessionId: 'background' },
     async checkpointMessage() {}, bindSession() {}, participant() { return null }
   }
-  let loadedUpdateRules = 0, fallbackInput
+  let loadedUpdateRules = 0, fallbackInput, providerRuns = 0
   const mvuSettlement = {
-    async resumeProviderVariables() { return { submission: { operations: [] }, receipt: { status: 'updated', changes: [] } } },
+    async resumeProviderVariables() { providerRuns++; return { submission: { operations: [] }, receipt: { status: 'updated', changes: [] } } },
     async settleVariables(input) { fallbackInput = input; return { receipt: { status: 'unchanged', changes: [] } } }
   }
   const engine = createMvuSettlementEngine({
@@ -31,11 +31,28 @@ function fixture(providerResult) {
     postureItem: { requirement: () => '' }, tavernScriptDispatch: { status: () => ({ ready: true }) },
     pluginApi: {
       mvuProvider: async () => providerResult,
-      mvuProviderActive: async () => true
+      mvuProviderActive: async () => true,
+      mvuProviderRegistered: owner => owner === 'card-provider'
     }
   })
-  return { engine, snapshot, taskRun, counts: () => ({ loadedUpdateRules, fallbackInput }) }
+  return { engine, snapshot, taskRun, providerRuns: () => providerRuns, counts: () => ({ loadedUpdateRules, fallbackInput }) }
 }
+
+test('明确无变化的 provider 回执无需运行浏览器 MVU，普通空补丁仍投递', async () => {
+  for (const unchanged of [false, true]) {
+    const { engine, snapshot, taskRun, providerRuns } = fixture({ owner: 'card-provider', operations: [], unchanged })
+    const mvuTarget = engine.target(snapshot)
+    const result = await engine.run({ snapshot, taskRun, card: {}, trace: {}, backgroundTasksSettings: snapshot.backgroundTasks, mvuTarget })
+    assert.equal(providerRuns(), unchanged ? 0 : 1)
+    if (unchanged) {
+      engine.completion({ mvuTarget, mvuResult: result.mvuResult }).apply(snapshot)
+      assert.equal(snapshot.messages[1].mvu.pending, false)
+      assert.equal(snapshot.messages[1].mvu.receipt.status, 'unchanged')
+      assert.deepEqual(snapshot.messages[1].mvu.events, [])
+      assert.equal(snapshot.messages[1].variables[0].stat_data.hp, 10)
+    }
+  }
+})
 
 test('MVU provider 已提交补丁时跳过模型专用 World Book 规则读取，fallback 仍读取', async () => {
   const provider = fixture({ owner: 'card-provider', operations: [{ op: 'replace', path: '/stat_data/hp', value: 9 }] })

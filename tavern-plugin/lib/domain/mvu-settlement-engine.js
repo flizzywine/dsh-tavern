@@ -154,6 +154,13 @@ export function createMvuSettlementEngine(deps) {
         if (typeof mvuSettlement.resumeProviderVariables !== 'function') throw new Error('MVU provider 缺少官方事务恢复入口')
         providerOwner = provided.owner
         providerAuxiliaryPending = backgroundTasksSettings.posture === true || backgroundTasksSettings.characterDesign === true
+        if (provided.unchanged === true && provided.operations.length === 0 && !providerAuxiliaryPending) {
+          await assertProviderActive(providerOwner, '结算提交')
+          return { text: '', mvuResult: { providerOwner, runtimeSkipped: true, receipt: {
+            version: 1, status: 'unchanged', summary: '', diagnosticId: taskRun.operationId + ':unchanged',
+            changes: [], sideEffects: [], failures: []
+          } } }
+        }
         await assertProviderActive(providerOwner, '官方事务派发')
         // onSubmission saves before dispatch. Delay onPrepared until auxiliary work
         // finishes so a restart resumes the durable submission without rerunning provider.
@@ -225,7 +232,7 @@ export function createMvuSettlementEngine(deps) {
               pending: false,
               modified: receipt.status === 'updated',
               diagnostics: receipt.status === 'stale' ? [{ message: receipt.summary }] : [],
-              events: receipt.status === 'stale' ? [] : ['MESSAGE_RECEIVED'],
+              events: receipt.status === 'stale' || mvuResult.runtimeSkipped ? [] : ['MESSAGE_RECEIVED'],
               receipt
             }
           }

@@ -211,6 +211,8 @@ async function settle({ currentVariables, signal }) {
 
 该接口只接管变量，姿势与人物设计仍按原有开关运行，不改变现有对白处理。它不是 `replaceSettlement`，也不用于没有官方 MVU 状态的游戏。启用正式 MVU 变量结算仍需人物卡启用了官方 MVU，且游戏的后台变量结算开关开启。
 
+确认这一轮没有变量更新且无需脚本执行时，可以返回 `{ operations: [], unchanged: true }`。姿势与人物设计都关闭时，支持该选项的宿主直接记录未变化，不另行投递 MVU 的 `MESSAGE_RECEIVED`。普通空数组仍走原执行流程。
+
 ## `onTurnSettled(handler)`
 
 一轮正文写完、后台变量结算结束（成功或失败）后调用一次。同一个 `textVersion` 只通知一次；插件没加载时发生的轮次不补发；开场白不触发，需要时用 `getTurn` 读第 1 轮。
