@@ -3,7 +3,7 @@ import { worldBookDisplayName } from './worldbook-resource.js'
 import { planTranscriptWindow } from './transcript-row-plan.js'
 import { createInputFieldsProjection } from './input-fields-projection.js'
 import { createScopedMessages } from './scoped-messages.js'
-import { createSessionStateView, settlementTurn } from './chat-session-state.js'
+import { createSessionStateView, officialMvuOpeningPending, settlementTurn } from './chat-session-state.js'
 import { rescueHistoryNotice } from './chat-history-rescue.js'
 import { createIncrementalReplyView } from './incremental-reply-view.js'
 import { latestStyleReference } from './style-reference.js'
@@ -244,6 +244,7 @@ export function createSessionViewProjection({
       tavernHelper: helperContext ? { ...helperContext, frameStorageScope: { cardPath: chat.cardPath, sessionId: chat.sessionId }, playerName: str(chat.macroState?.userName).trim() || '你', characterName: str(card?.name || chat.cardName), character: {name:str(card?.name || chat.cardName), path:str(chat.cardPath)}, openingHost, worldbook: helperWorldbook, globalVariables: await readPromptTemplateGlobalVariables(), characterVariables: cardExtensions.variables || {}, compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings, regexScripts: { global: cardExtensions.globalRegexScripts || [], preset: applyRegexOverrides(activePresetSnapshot?.regexScripts || [], chat.regexOverrides && chat.regexOverrides.preset, 'preset'), character: cardExtensions.characterRegexScripts || [] } } : null,
       tavernMvuRuntime: chat.mvu && chat.mvu.enabled === true ? {
         owner: chat.mvu.owner === 'official' ? 'official' : 'legacy',
+        openingPending: officialMvuOpeningPending(chat),
         commit: OFFICIAL_MVU_VERSION.commit,
         assetUrl: OFFICIAL_MVU_VERSION.assetUrl
       } : null,

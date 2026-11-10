@@ -1,3 +1,5 @@
+import { officialMvuOpeningPending } from './chat-session-state.js'
+
 // Writes to a plugin turn stay bound to its text version and the owning task.
 // The activity and row must come from the same storage revision; the final CAS
 // rejects a task stop or a new foreground turn that changes it before commit.
@@ -18,9 +20,12 @@ export function createPluginVariableWriter({ readState, readSlice, activity, gen
       const state = await readState(sessionId)
       writable(state, taskOperation)
       if (state.messages.findLastIndex(row => row?.role === 'assistant') !== material.index) throw stale()
-      const selected = await readSlice(sessionId, [material.index], ['_storageRevision', 'mvu.enabled', 'mvu.owner'])
+      const selected = await readSlice(sessionId, [material.index], ['_storageRevision', 'mvu.enabled', 'mvu.owner', 'mvu.openingInitialization.status'])
       if (!selected) throw stale()
       if (state._storageRevision !== selected.chat._storageRevision) continue
+      if (officialMvuOpeningPending(selected.chat)) {
+        throw Object.assign(new Error('开局变量正在初始化，请稍后再操作'), { code: 'TAVERN_PLUGIN_BUSY' })
+      }
       const row = selected.chat.messages?.[0]
       if (!row || row.role !== 'assistant' || Number(row.turn || (row.greeting ? 1 : 0)) !== material.turn
         || await currentKey(sessionId, material.turn) !== material.key) throw stale()

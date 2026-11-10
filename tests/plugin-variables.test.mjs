@@ -6,9 +6,9 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
 
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
-function harness({ official = false } = {}) {
+function harness({ official = false, openingPending = false } = {}) {
   let chat = { id: 'chat', sessionId: 'game', mode: 'story', _storageRevision: 1, settleStatus: 'done',
-    ...(official ? { mvu: { enabled: true, owner: 'official' } } : {}),
+    ...(official ? { mvu: { enabled: true, owner: 'official', ...(openingPending ? { openingInitialization: { status: 'pending' } } : {}) } } : {}),
     messages: [{ role: 'user', text: '输入' }, { role: 'assistant', turn: 3, text: 'version-1', variables: [{ hp: 10 }] }] }
   const copy = () => structuredClone(chat)
   const save = value => { chat = { ...structuredClone(value), _storageRevision: chat._storageRevision + 1 }; return copy() }
@@ -106,4 +106,10 @@ test('official MVU keeps the schema initialized while a plugin writes opening st
   await h.service.setVariables(h.input({ stat_data: { hp: 8 } }))
   assert.deepEqual(h.copy().messages[1].variables[0], { stat_data: { hp: 8 }, schema })
   assert.equal(h.writes(), 1)
+})
+
+test('plugin writes wait for the official MVU opening to finish', async () => {
+  const h = harness({ official: true, openingPending: true })
+  await assert.rejects(h.service.setVariables(h.input({ stat_data: { hp: 8 } })), { code: 'TAVERN_PLUGIN_BUSY' })
+  assert.equal(h.writes(), 0)
 })

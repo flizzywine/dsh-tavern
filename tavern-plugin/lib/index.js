@@ -68,6 +68,7 @@ import { createTemplateWindowReader, templateStateFields } from './domain/templa
 import { createSessionResourceAccess } from './domain/session-resource-access.js'
 import { createSaveUpgrade, detachSaveSessions, prepareSaveUpgrade, saveSessionIds, unreadySaveSessions } from './domain/save-upgrade.js'
 import { storedSessionVersion } from './domain/session-upgrade.js'
+import { officialMvuOpeningPending } from './domain/chat-session-state.js'
 import { createTaskStateReader, taskStateFields } from './domain/task-state-reader.js'
 import { installHostProjectionReplay } from './domain/host-projection-replay.js'
 import { installHostTurnRailFilter } from './domain/host-turn-rail.js'
@@ -2905,10 +2906,12 @@ export async function apply(ctx) {
         characters: await castView(sessionId, card.path, await castAssets.read(card.path)) }
     },
     readActivity: async sessionId => {
-      const chat = await taskStateReader.forSession(sessionId)
+      const chat = await taskStateReader.forSession(sessionId, ['mvu.enabled', 'mvu.owner', 'mvu.openingInitialization.status'])
       const activity = chat ? backgroundTasks.activity(chat) : null
+      const openingPending = officialMvuOpeningPending(chat)
+      if (openingPending && !pageInFront(sessionId)) serverScripts?.demand(sessionId)
       return { generating: agentRegistry.get(str(sessionId))?.phase?.kind === 'running',
-        settling: !!activity && (activity.busy === true || activity.phase === 'pending') }
+        settling: openingPending || !!activity && (activity.busy === true || activity.phase === 'pending') }
     },
     writeVariables: writePluginVariables,
     editText: async (material, text) => {

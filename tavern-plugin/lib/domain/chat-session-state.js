@@ -7,6 +7,10 @@ import { canUndoRollback } from './surface-restoration.js'
 import { failedErrorTurnStates } from './failed-error-visibility.js'
 import { surfaceTurns } from './host-turn-rail.js'
 
+export function officialMvuOpeningPending(chat) {
+  return chat?.mvu?.enabled === true && chat.mvu.owner === 'official' && chat.mvu.openingInitialization?.status === 'pending'
+}
+
 export function pendingMvuSettlementState(chat) {
   if (Object.hasOwn(chat, 'pendingMvuSettlement')) return chat.pendingMvuSettlement
   // Retry eligibility needs only the newest pending assistant and two flags,

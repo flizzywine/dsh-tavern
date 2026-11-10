@@ -1,3 +1,5 @@
+import { officialMvuOpeningPending } from './chat-session-state.js'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -38,7 +40,7 @@ export function createForegroundHandoff(options = {}) {
     // MVU's greeting/initvar path runs while floor 0 is still the latest floor.
     // An immediate first send must wait before templates, context or body.begin
     // capture an empty baseline and advance beyond that initialization boundary.
-    if (chat?.mvu?.enabled && chat.mvu.owner === 'official' && chat.mvu.openingInitialization?.status === 'pending') {
+    if (officialMvuOpeningPending(chat)) {
       await options.scriptDispatch.waitUntilReady(input.sessionId)
     }
     // The tasks the next turn waits for (blocksNextTurn: settlement, plugin tasks) finish first.

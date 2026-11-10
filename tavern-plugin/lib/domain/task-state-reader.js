@@ -17,9 +17,9 @@ export function createTaskStateReader({ readSlice, readState, headerForSession, 
       if (!selected || needsStory(selected.chat)) return readState(chatId)
       return selected.chat
     },
-    async forSession(sessionId) {
+    async forSession(sessionId, extraFields = []) {
       // The host adapter still owns alias recovery and configuration adoption.
-      const chat = await headerForSession(sessionId, taskStateFields)
+      const chat = await headerForSession(sessionId, extraFields.length ? [...taskStateFields, ...extraFields] : taskStateFields)
       return needsStory(chat) ? stateForSession(sessionId) : chat
     },
   })

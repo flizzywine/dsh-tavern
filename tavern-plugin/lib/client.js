@@ -33720,7 +33720,7 @@ function tavernFloorHeightRecall(key, width) {
 							const next = list.getSnapshot().byId[gameId]?.running === true;
 							if (next !== running) { running = next; refresh(); }
 						}) : function () {};
-						const stopView = liveTavernView.subscribe(gameId, refresh, [["latestAssistantTurn"], ["activity"], ["settlementTurn"], ["settleStatus"]], { deferLoad: true });
+						const stopView = liveTavernView.subscribe(gameId, refresh, [["latestAssistantTurn"], ["activity"], ["settlementTurn"], ["settleStatus"], ["tavernMvuRuntime", "openingPending"]], { deferLoad: true });
 						return function () { disposed = true; stopView(); if (typeof stopSessions === "function") stopSessions(); };
 					}, "tavernUi.watchTurnState()");
 				},
