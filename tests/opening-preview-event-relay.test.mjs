@@ -14,13 +14,13 @@ async function loadClient() {
 
 const client = await loadClient()
 
-function makeWindow(pagehide) {
+function makeWindow() {
   const target = new EventTarget()
   const win = {
     CustomEvent,
     Event,
     document: target,
-    addEventListener(name, fn) { if (name === 'pagehide' && pagehide) pagehide.push(fn); else target.addEventListener(name, fn) },
+    addEventListener(name, fn) { target.addEventListener(name, fn) },
     removeEventListener(name, fn) { target.removeEventListener(name, fn) },
   }
   win.parent = win
@@ -37,35 +37,55 @@ function buildPreviewScript() {
   return document.match(/<script data-dsh-tavern-opening-preview>([\s\S]*?)<\/script>/)[1]
 }
 
-function runPreviewScript() {
-  const pagehide = []
-  const parentWin = makeWindow(), frameWin = makeWindow(pagehide)
-  frameWin.parent = parentWin
-  frameWin.top = parentWin
-  vm.runInNewContext(buildPreviewScript(), {
-    window: frameWin, parent: parentWin, document: frameWin.document,
-    addEventListener: (name, fn) => frameWin.addEventListener(name, fn),
-    removeEventListener: (name, fn) => frameWin.removeEventListener(name, fn),
-    setTimeout, clearTimeout, console,
-  })
-  return { parentWin, frameWin, pagehide }
-}
-
-test('中继过滤 dsh- 前缀与无对象 detail 的事件，释放后停止中继', () => {
-  const { parentWin, frameWin, pagehide } = runPreviewScript()
-  const received = []
-  frameWin.document.addEventListener('hc1:opening-confirm', event => received.push(event.detail))
-  parentWin.document.dispatchEvent(new CustomEvent('dsh-tavern-internal', { detail: { x: 1 } }))
-  parentWin.document.dispatchEvent(new CustomEvent('plain-detail'))
-  parentWin.document.dispatchEvent(new Event('no-detail'))
-  assert.deepEqual(received, [])
-  parentWin.document.dispatchEvent(new CustomEvent('hc1:opening-confirm', { detail: { chatId: 'c1' } }))
-  assert.equal(received.length, 1)
-  for (const handler of pagehide) handler()
-  parentWin.document.dispatchEvent(new CustomEvent('hc1:opening-confirm', { detail: { chatId: 'c2' } }))
-  assert.equal(received.length, 1, '释放后不再中继')
-  const descriptor = Object.getOwnPropertyDescriptor(parentWin.document, 'dispatchEvent')
-  assert.ok(!descriptor || descriptor.value === EventTarget.prototype.dispatchEvent, '释放后还原宿主 dispatchEvent')
+test('开场预览就绪后接管宿主转发，旧预览卸载不会移除新预览的转发', () => {
+  const parentWin = makeWindow(), host = parentWin.document
+  host.getElementById = () => ({}) // A host composer already exists.
+  const initial = { openingPreview: { preparationId: 'draft' }, trustedCardMode: true, content: 'first' }
+  const lifecycle = client.createTavernMessageFrameLifecycle(initial, { window: parentWin })
+  const stop = lifecycle.start(() => {})
+  function attach(descriptor) {
+    const received = []
+    const frame = makeWindow()
+    frame.document.defaultView = frame
+    frame.postMessage = () => {}
+    for (const type of ['hc1:opening-confirm', 'dsh-tavern-internal', 'plain-detail', 'no-detail']) {
+      frame.document.addEventListener(type, event => received.push(event.detail))
+    }
+    const node = { isConnected: true, contentWindow: frame, contentDocument: frame.document }
+    descriptor.ref(node)
+    return {
+      received,
+      ready() {
+        host.dispatchEvent(Object.assign(new Event('message'), {
+          source: frame, data: { type: 'dsh-tavern-frame-ready', token: descriptor.token }
+        }))
+      },
+      detach() { node.isConnected = false; descriptor.ref(null) }
+    }
+  }
+  function confirm(value) {
+    host.dispatchEvent(new CustomEvent('hc1:opening-confirm', { detail: { value } }))
+  }
+  const first = attach(lifecycle.snapshot().visibleDocument)
+  host.dispatchEvent(new CustomEvent('dsh-tavern-internal', { detail: { x: 1 } }))
+  host.dispatchEvent(new CustomEvent('plain-detail'))
+  host.dispatchEvent(new Event('no-detail'))
+  assert.deepEqual(first.received, [])
+  lifecycle.update({ ...initial, content: 'next' })
+  const next = attach(lifecycle.snapshot().pendingDocument)
+  confirm('while-loading')
+  assert.deepEqual(first.received, [{ value: 'while-loading' }])
+  assert.deepEqual(next.received, [])
+  next.ready()
+  confirm('before-old-unmount')
+  first.detach()
+  confirm('after-old-unmount')
+  assert.deepEqual(first.received, [{ value: 'while-loading' }])
+  assert.deepEqual(next.received, [{ value: 'before-old-unmount' }, { value: 'after-old-unmount' }])
+  stop()
+  confirm('after-close')
+  assert.equal(next.received.length, 2)
+  assert.equal(Object.hasOwn(host, 'dispatchEvent'), false)
 })
 
 function runPreviewScriptWithTransport() {

@@ -235,6 +235,7 @@
 			let desired = createDocument();
 			let visible = desired;
 			let pending = null;
+				let previewRelayFrame = null, releasePreviewRelay = null;
 			let height = (props.openingPreview ? 160 : restoredTavernFrameHeight(visible.heightKey, visible.content));
 			function documentKey() {
 				const values = [props.sessionId, props.content, props.persistent === true ? 0 : props.turn, props.observeMvuView, props.runtimeReporting, props.persistent, props.trustedCardMode, Boolean(props.helperContext), JSON.stringify(props.openingPreview), JSON.stringify(props.frameSizing), refreshRevision, props.helperContext?.frameStorageScope?.cardPath];
@@ -253,7 +254,7 @@
 					heightKey: tavernFrameHeightKey(props), content: props.content,
                     sizing: tavernFrameSizing(props.content, props.frameSizing, props.persistent ? props.panelId : undefined),
 					sessionId: props.sessionId,
-					trustedCardMode: props.trustedCardMode, refreshRequested: false
+						trustedCardMode: props.trustedCardMode, openingPreview: Boolean(props.openingPreview), refreshRequested: false
 				};
 				document.storage = forkFrameStorage.capability({ sessionId: props.sessionId, cardPath: helperContext && helperContext.frameStorageScope && helperContext.frameStorageScope.cardPath }, hostWindow); // storage token is separate from helper tokens
 				document.zoomCard = helperContext?.frameStorageScope?.cardPath || "";
@@ -319,6 +320,7 @@
                         if (document.sizing.mode !== "content") applySizing(document, channel, layout.height);
                     }));
                     if (!node) { retireGenerations(document); channels.delete(document.token); }
+						syncPreviewRelay();
 				};
 				return document;
 			}
@@ -333,7 +335,16 @@
                 if (document === visible && (changed || height !== value || (config && Math.abs(node?.clientHeight - value) > 1))) { rememberHeight(document, value); publish(); }
             }
 			function snapshot() { return { visibleDocument: visible, pendingDocument: pending, height: height }; }
-			function publish() { if (listener) listener(snapshot()); }
+			function syncPreviewRelay() {
+				const frame = listener && visible.openingPreview && visible.trustedCardMode
+					? channels.get(visible.token)?.element() : null;
+				if (frame === previewRelayFrame) return;
+				const release = releasePreviewRelay;
+				previewRelayFrame = frame;
+				releasePreviewRelay = frame ? installTavernPreviewHostEventRelay(hostWindow.document, frame) : null;
+				if (release) release();
+			}
+			function publish() { syncPreviewRelay(); if (listener) listener(snapshot()); }
 			function cancelRuntimeReport() {
 				if (runtimeTimer !== null) hostWindow.clearTimeout(runtimeTimer);
 				runtimeTimer = null;
@@ -690,6 +701,7 @@
 				update: update, snapshot: snapshot,
 				start: function (onChange) {
 					listener = onChange;
+						syncPreviewRelay();
 					tavernSessionFrameBeforeGenerate.add(beforeGenerateEntry);
 					// Preview companions can import modules that append UI to the real host.
 					// Give them the same lifetime cleanup as the conversation script runtime.
@@ -737,7 +749,8 @@
                         frameVisibility.forEach(stop => stop());
                         frameVisibility.clear();
                         for (const owner of Array.from(generationOwners)) retireGenerations(owner);
-						listener = null; lifetime++;
+							listener = null; lifetime++;
+							syncPreviewRelay();
 						hostWindow.removeEventListener("message", receive);
 						cancelRuntimeReport();
 					};

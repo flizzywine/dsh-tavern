@@ -326,37 +326,43 @@ function retainOpeningPreparation(id, options) {
   };
 }
 
-// The opening preview renders card panels inline in the preview frame, while card host scripts run through the
-// preview window proxy whose parent is the frame itself. Panels then dispatch confirm events on the real app
-// document (window.parent.document) where no card listener exists. Mirror those events synchronously into the
-// preview document so preview-scope host scripts can answer them in the same dispatch.
-function installTavernPreviewHostEventRelay(parentWindow, frameWindow) {
-  let parentDocument = null;
-  try { parentDocument = parentWindow && parentWindow.document; } catch (error) { parentDocument = null; }
-  if (!parentDocument || parentDocument === frameWindow.document) return function () {};
-  if (parentDocument.__dshTavernPreviewEventRelay) return parentDocument.__dshTavernPreviewEventRelay.release;
-  const originalDispatch = parentDocument.dispatchEvent;
-  const release = function () {
-    if (Object.getOwnPropertyDescriptor(parentDocument, "dispatchEvent")?.value === dispatch) delete parentDocument.dispatchEvent;
-    delete parentDocument.__dshTavernPreviewEventRelay;
-  };
-  const dispatch = function (event) {
-    let result;
-    try { result = originalDispatch.call(parentDocument, event); } finally {
-      try {
-        const detail = event && event.detail;
-        if (event && typeof event.type === "string" && !String(event.type).startsWith("dsh-") && detail && typeof detail === "object") {
-          frameWindow.document.dispatchEvent(new frameWindow.CustomEvent(event.type, { detail: detail }));
+// Preview panels emit compatibility events on the real host document.
+const tavernPreviewEventRelays = new WeakMap();
+function installTavernPreviewHostEventRelay(hostDocument, frame) {
+  if (!hostDocument || typeof hostDocument.dispatchEvent !== 'function') return function () {};
+  let relay = tavernPreviewEventRelays.get(hostDocument);
+  if (!relay) {
+    const originalDispatch = hostDocument.dispatchEvent;
+    const previous = Object.getOwnPropertyDescriptor(hostDocument, 'dispatchEvent');
+    const owners = new Map();
+    function dispatch(event) {
+      try { return originalDispatch.call(hostDocument, event); }
+      finally {
+        const detail = event?.detail;
+        if (typeof event?.type === 'string' && !event.type.startsWith('dsh-') && detail && typeof detail === 'object') {
+          const target = Array.from(owners.values()).findLast(node => node.isConnected !== false);
+          try {
+            const preview = target?.contentDocument;
+            if (preview) preview.dispatchEvent(new preview.defaultView.CustomEvent(event.type, { detail }));
+          } catch (_) { /* A frame can navigate away from the preview origin. */ }
         }
-      } catch (error) { /* 预览帧已卸载时静默放弃 */ }
+      }
     }
-    return result;
+    try { Object.defineProperty(hostDocument, 'dispatchEvent', { configurable: true, value: dispatch }); }
+    catch (_) { return function () {}; }
+    relay = { owners, dispatch, previous };
+    tavernPreviewEventRelays.set(hostDocument, relay);
+  }
+  const owner = {};
+  relay.owners.set(owner, frame);
+  return function () {
+    if (!relay.owners.delete(owner) || relay.owners.size) return;
+    if (Object.getOwnPropertyDescriptor(hostDocument, 'dispatchEvent')?.value === relay.dispatch) {
+      if (relay.previous) Object.defineProperty(hostDocument, 'dispatchEvent', relay.previous);
+      else delete hostDocument.dispatchEvent;
+    }
+    tavernPreviewEventRelays.delete(hostDocument);
   };
-  try {
-    Object.defineProperty(parentDocument, "dispatchEvent", { configurable: true, value: dispatch });
-    parentDocument.__dshTavernPreviewEventRelay = { release: release };
-  } catch (error) { return function () {}; }
-  return release;
 }
 
 function TavernOpeningNav({ sessionId, opening, lifecycleRevision }) {

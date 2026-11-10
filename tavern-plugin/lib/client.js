@@ -19395,37 +19395,43 @@ function tavernModelRefusalNotice(text) {
 		  };
 		}
 
-		// The opening preview renders card panels inline in the preview frame, while card host scripts run through the
-		// preview window proxy whose parent is the frame itself. Panels then dispatch confirm events on the real app
-		// document (window.parent.document) where no card listener exists. Mirror those events synchronously into the
-		// preview document so preview-scope host scripts can answer them in the same dispatch.
-		function installTavernPreviewHostEventRelay(parentWindow, frameWindow) {
-		  let parentDocument = null;
-		  try { parentDocument = parentWindow && parentWindow.document; } catch (error) { parentDocument = null; }
-		  if (!parentDocument || parentDocument === frameWindow.document) return function () {};
-		  if (parentDocument.__dshTavernPreviewEventRelay) return parentDocument.__dshTavernPreviewEventRelay.release;
-		  const originalDispatch = parentDocument.dispatchEvent;
-		  const release = function () {
-		    if (Object.getOwnPropertyDescriptor(parentDocument, "dispatchEvent")?.value === dispatch) delete parentDocument.dispatchEvent;
-		    delete parentDocument.__dshTavernPreviewEventRelay;
-		  };
-		  const dispatch = function (event) {
-		    let result;
-		    try { result = originalDispatch.call(parentDocument, event); } finally {
-		      try {
-		        const detail = event && event.detail;
-		        if (event && typeof event.type === "string" && !String(event.type).startsWith("dsh-") && detail && typeof detail === "object") {
-		          frameWindow.document.dispatchEvent(new frameWindow.CustomEvent(event.type, { detail: detail }));
+		// Preview panels emit compatibility events on the real host document.
+		const tavernPreviewEventRelays = new WeakMap();
+		function installTavernPreviewHostEventRelay(hostDocument, frame) {
+		  if (!hostDocument || typeof hostDocument.dispatchEvent !== 'function') return function () {};
+		  let relay = tavernPreviewEventRelays.get(hostDocument);
+		  if (!relay) {
+		    const originalDispatch = hostDocument.dispatchEvent;
+		    const previous = Object.getOwnPropertyDescriptor(hostDocument, 'dispatchEvent');
+		    const owners = new Map();
+		    function dispatch(event) {
+		      try { return originalDispatch.call(hostDocument, event); }
+		      finally {
+		        const detail = event?.detail;
+		        if (typeof event?.type === 'string' && !event.type.startsWith('dsh-') && detail && typeof detail === 'object') {
+		          const target = Array.from(owners.values()).findLast(node => node.isConnected !== false);
+		          try {
+		            const preview = target?.contentDocument;
+		            if (preview) preview.dispatchEvent(new preview.defaultView.CustomEvent(event.type, { detail }));
+		          } catch (_) { /* A frame can navigate away from the preview origin. */ }
 		        }
-		      } catch (error) { /* 预览帧已卸载时静默放弃 */ }
+		      }
 		    }
-		    return result;
+		    try { Object.defineProperty(hostDocument, 'dispatchEvent', { configurable: true, value: dispatch }); }
+		    catch (_) { return function () {}; }
+		    relay = { owners, dispatch, previous };
+		    tavernPreviewEventRelays.set(hostDocument, relay);
+		  }
+		  const owner = {};
+		  relay.owners.set(owner, frame);
+		  return function () {
+		    if (!relay.owners.delete(owner) || relay.owners.size) return;
+		    if (Object.getOwnPropertyDescriptor(hostDocument, 'dispatchEvent')?.value === relay.dispatch) {
+		      if (relay.previous) Object.defineProperty(hostDocument, 'dispatchEvent', relay.previous);
+		      else delete hostDocument.dispatchEvent;
+		    }
+		    tavernPreviewEventRelays.delete(hostDocument);
 		  };
-		  try {
-		    Object.defineProperty(parentDocument, "dispatchEvent", { configurable: true, value: dispatch });
-		    parentDocument.__dshTavernPreviewEventRelay = { release: release };
-		  } catch (error) { return function () {}; }
-		  return release;
 		}
 
 		function TavernOpeningNav({ sessionId, opening, lifecycleRevision }) {
@@ -27556,7 +27562,7 @@ function tavernModelRefusalNotice(text) {
 				+ (input && input.helperContext && input.helperContext.openingHost ? '<script data-dsh-tavern-session-opening>(' + installSessionOpeningBridge.toString() + ')(' + token + ',' + JSON.stringify(Object.assign({}, input.helperContext.openingHost, { extensionSettings: input.helperContext.extensionSettings || {}, lifecycleRevision: input.helperContext.lifecycleRevision })).replace(/</g, '\\u003c') + ');<\/script>' : '')
 				+ (input && input.helperContext ? '<script data-dsh-tavern-frame-variable-aliases>(' + installTavernFrameVariableAliases.toString() + ')();<\/script>' : '')
 				+ (input && input.helperContext && input.persistent === true && input.preserveInstance !== true ? '<script data-dsh-tavern-status-refresh>(' + installTavernStatusRefresh.toString() + ')(' + token + ');<\/script>' : '')
-				+ (input && input.openingPreview ? '<script data-dsh-tavern-opening-preview>(function(){const releaseRelay=(' + installTavernPreviewHostEventRelay.toString() + ')(window.parent,window);if(typeof window.addEventListener==="function"){window.addEventListener("pagehide",releaseRelay,{once:true});window.addEventListener("unload",releaseRelay,{once:true});}const install=()=>(' + installOpeningPreviewBridge.toString() + ')(' + token + ',' + JSON.stringify(input.openingPreview).replace(/</g, '\\u003c') + ');if(window.__dshTavernHelperReady)window.__dshTavernHelperReady.then(install);else install();})();<\/script>' : '')
+				+ (input && input.openingPreview ? '<script data-dsh-tavern-opening-preview>(function(){const install=()=>(' + installOpeningPreviewBridge.toString() + ')(' + token + ',' + JSON.stringify(input.openingPreview).replace(/</g, '\\u003c') + ');if(window.__dshTavernHelperReady)window.__dshTavernHelperReady.then(install);else install();})();<\/script>' : '')
 				+ (preparationRuntime && input.trustedCardMode === true ? '<script data-dsh-tavern-opening-host>(function(){const release=(' + installTavernTrustedHostFacade.toString() + ')(window.parent,window,10);window.addEventListener("pagehide",release,{once:true});window.addEventListener("unload",release,{once:true});})();<\/script>' : '')
 				// Viewers without the execution lease still receive live variables. Legacy
 				// status panels read parent.Mvu; expose their Helper API below the executor.
@@ -31919,6 +31925,7 @@ function bindTavernFontZoom(node, win) {
 			let desired = createDocument();
 			let visible = desired;
 			let pending = null;
+				let previewRelayFrame = null, releasePreviewRelay = null;
 			let height = (props.openingPreview ? 160 : restoredTavernFrameHeight(visible.heightKey, visible.content));
 			function documentKey() {
 				const values = [props.sessionId, props.content, props.persistent === true ? 0 : props.turn, props.observeMvuView, props.runtimeReporting, props.persistent, props.trustedCardMode, Boolean(props.helperContext), JSON.stringify(props.openingPreview), JSON.stringify(props.frameSizing), refreshRevision, props.helperContext?.frameStorageScope?.cardPath];
@@ -31937,7 +31944,7 @@ function bindTavernFontZoom(node, win) {
 					heightKey: tavernFrameHeightKey(props), content: props.content,
                     sizing: tavernFrameSizing(props.content, props.frameSizing, props.persistent ? props.panelId : undefined),
 					sessionId: props.sessionId,
-					trustedCardMode: props.trustedCardMode, refreshRequested: false
+						trustedCardMode: props.trustedCardMode, openingPreview: Boolean(props.openingPreview), refreshRequested: false
 				};
 				document.storage = forkFrameStorage.capability({ sessionId: props.sessionId, cardPath: helperContext && helperContext.frameStorageScope && helperContext.frameStorageScope.cardPath }, hostWindow); // storage token is separate from helper tokens
 				document.zoomCard = helperContext?.frameStorageScope?.cardPath || "";
@@ -32003,6 +32010,7 @@ function bindTavernFontZoom(node, win) {
                         if (document.sizing.mode !== "content") applySizing(document, channel, layout.height);
                     }));
                     if (!node) { retireGenerations(document); channels.delete(document.token); }
+						syncPreviewRelay();
 				};
 				return document;
 			}
@@ -32017,7 +32025,16 @@ function bindTavernFontZoom(node, win) {
                 if (document === visible && (changed || height !== value || (config && Math.abs(node?.clientHeight - value) > 1))) { rememberHeight(document, value); publish(); }
             }
 			function snapshot() { return { visibleDocument: visible, pendingDocument: pending, height: height }; }
-			function publish() { if (listener) listener(snapshot()); }
+			function syncPreviewRelay() {
+				const frame = listener && visible.openingPreview && visible.trustedCardMode
+					? channels.get(visible.token)?.element() : null;
+				if (frame === previewRelayFrame) return;
+				const release = releasePreviewRelay;
+				previewRelayFrame = frame;
+				releasePreviewRelay = frame ? installTavernPreviewHostEventRelay(hostWindow.document, frame) : null;
+				if (release) release();
+			}
+			function publish() { syncPreviewRelay(); if (listener) listener(snapshot()); }
 			function cancelRuntimeReport() {
 				if (runtimeTimer !== null) hostWindow.clearTimeout(runtimeTimer);
 				runtimeTimer = null;
@@ -32374,6 +32391,7 @@ function bindTavernFontZoom(node, win) {
 				update: update, snapshot: snapshot,
 				start: function (onChange) {
 					listener = onChange;
+						syncPreviewRelay();
 					tavernSessionFrameBeforeGenerate.add(beforeGenerateEntry);
 					// Preview companions can import modules that append UI to the real host.
 					// Give them the same lifetime cleanup as the conversation script runtime.
@@ -32421,7 +32439,8 @@ function bindTavernFontZoom(node, win) {
                         frameVisibility.forEach(stop => stop());
                         frameVisibility.clear();
                         for (const owner of Array.from(generationOwners)) retireGenerations(owner);
-						listener = null; lifetime++;
+							listener = null; lifetime++;
+							syncPreviewRelay();
 						hostWindow.removeEventListener("message", receive);
 						cancelRuntimeReport();
 					};
