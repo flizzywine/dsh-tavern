@@ -1332,18 +1332,20 @@ export async function apply(ctx) {
     const card = await timedStage('readCard', () => readCard(cardPath))
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
     const settings = await readTavernSettings()
+    const defaultPlayerName = settings.defaultPlaySettings.playerName
+    const playerName = str(userName).trim().slice(0, 80) || defaultPlayerName
     const cardExtensions = await timedStage('readExtensions', () => readCardExtensions(cardPath))
     const extensions = { ...cardExtensions, ...await timedStage('resources', () => tavernRemoteAssets.pinExtensions(cardExtensions)) }
     const previews = await timedStage('preview', () => projectCardOpeningPreviews({
       card,
       extensions,
-      userName,
+      userName: playerName,
       presetRegexScripts: []
     }))
     const hasOpeningScript = opening => /<script\b/i.test(opening.projection.text) || opening.projection.parts.some(part => /<script\b/i.test(part.content || ''))
     const hasHelperScripts = projectTavernHelperScripts(extensions.helperScripts).scripts.length > 0
     const interactive = hasHelperScripts || previews.openings.some(hasOpeningScript)
-    const preparation = interactive ? await timedStage('prepare', () => openingPreparation.create(cardPath, { card, extensions, runtime: (extensions.mvuResources || []).some(item => item.enabled !== false), userName })) : null
+    const preparation = interactive ? await timedStage('prepare', () => openingPreparation.create(cardPath, { card, extensions, runtime: (extensions.mvuResources || []).some(item => item.enabled !== false), userName: playerName })) : null
     if (preparation) {
       const choices = cardOpeningChoices(card)
       const swipes = choices.map(opening => opening.text)
@@ -1351,12 +1353,13 @@ export async function apply(ctx) {
       for (const opening of previews.openings) if (hasHelperScripts || hasOpeningScript(opening)) {
         opening.openingPreview = { swipes, openingIds, selectedIndex: openingIds.indexOf(opening.id),
           messageHtml: opening.projection.parts.map(part => part.kind === 'markdown' ? marked.parse(str(part.text), { gfm: true }) : str(part.content)).join('\n'),
-          preparationId: preparation.id, characterName: card.name, playerName: str(userName).trim() || '你', ...openingPreviewPayload(preparation, previewTransport) }
+          preparationId: preparation.id, characterName: card.name, playerName, ...openingPreviewPayload(preparation, previewTransport) }
       }
     }
     success = true
     return {
       preparationId: preparation?.id || '',
+      defaultPlayerName,
       previewTransport: previewTransport === 'deferred-v1' ? previewTransport : undefined,
       openings: previews.openings,
       diagnostics: previews.diagnostics,
