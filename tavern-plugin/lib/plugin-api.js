@@ -1837,9 +1837,14 @@ export function createTavernPluginApi(deps) {
   }
 
   async function mvuProviderActive({ gameId, owner } = {}) {
-    const choices = await choicesFor(gameId)
-    const entries = Array.from(mvuSettlementProviders.values()).filter(entry => choices.own.has(entry.owner))
-    return entries.length === 1 && entries[0].owner === owner && !choices.disabled.has(owner)
+    if (!gameId || !mvuProviderRegistered(owner)) return false
+    // Recovery and commit checks need a fresh binding, not the recent floors.
+    const scope = deps.readPlayCardPath
+      ? await deps.readPlayCardPath(gameId).catch(() => null).then(path => path ? cardPluginsFor(null, path) : null)
+      : await choicesFor(gameId)
+    if (!scope?.own.has(owner)) return false
+    const entries = Array.from(mvuSettlementProviders.values()).filter(entry => scope.own.has(entry.owner))
+    return entries.length === 1 && entries[0].owner === owner
   }
 
   function mvuProviderRegistered(owner) {

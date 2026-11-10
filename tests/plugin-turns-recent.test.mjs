@@ -25,3 +25,20 @@ test('插件读最近一轮只读最近几层楼；读很早的一轮才退回�
   assert.equal(await pluginTurns.readTurn('s', 3), null)
   assert.equal(calls.whole, 1)
 })
+
+test('MVU 提供器检查只读取游玩会话的卡片头字段', async () => {
+  const headers = {
+    story: { mode: 'story', cardPath: '/cards/a.json' },
+    script: { mode: 'script', cardPath: '/cards/b.json' },
+    editor: { mode: 'editor', cardPath: '/cards/a.json' }
+  }
+  const pluginTurns = createPluginTurnReader({
+    header: async (sessionId, fields) => { assert.deepEqual(fields, ['cardPath']); return headers[sessionId] },
+    recentState: async () => assert.fail('scope check should not read floors'),
+    sessionState: async () => assert.fail('scope check should not read full state')
+  })
+  assert.equal(await pluginTurns.readPlayCardPath('story'), '/cards/a.json')
+  assert.equal(await pluginTurns.readPlayCardPath('script'), '/cards/b.json')
+  assert.equal(await pluginTurns.readPlayCardPath('editor'), null)
+  assert.equal(await pluginTurns.readPlayCardPath('missing'), null)
+})

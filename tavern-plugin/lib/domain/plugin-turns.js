@@ -103,6 +103,10 @@ export function createPluginTurnReader(deps) {
   }
 
   return Object.freeze({
+    readPlayCardPath: async sessionId => {
+      const header = await deps.header(sessionId, ['cardPath'])
+      return header && isPlay(header) ? String(header.cardPath || '') || null : null
+    },
     resolveGame: async sessionId => {
       const game = await resolveGame(sessionId)
       return game ? { chatId: game.chatId, sessionId: game.sessionId } : null
