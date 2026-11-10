@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import { checkBundles } from './preflight.js'
 import { inspectDataHome } from './data-home.js'
-import { hostPackages } from './hosts.js'
+import { declaredHostPackages } from './hosts.js'
 import { TAVERN_BUNDLES, profileDir, resolveDshHome } from './status.js'
 
 const PATCHES = ['dsh-better-sidebar@0.28.0.patch', 'dsh-web-mobile@3.1.0.patch']
@@ -38,7 +38,7 @@ export function runChecks({ home = resolveDshHome(), appRoot = '/opt/dsh', nodeV
   }
   const dataHome = inspectDataHome(home)
   const modules = TAVERN_BUNDLES.filter(name => existsSync(join(dir, 'node_modules', name, 'package.json')))
-  const hosts = hostPackages(appRoot)
+  const hosts = declaredHostPackages({ appRoot })
   const hostResolved = hosts.filter(name => existsSync(join(dir, 'node_modules', name, 'package.json')))
 
   const checks = []

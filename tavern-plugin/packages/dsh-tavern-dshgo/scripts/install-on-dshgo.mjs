@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 
 import { OPTIONAL_BUNDLES, TAVERN_BUNDLES } from '../lib/status.js'
 import { mergeBundles } from '../lib/bundles.js'
-import { hostPackages } from '../lib/hosts.js'
+import { declaredHostPackages } from '../lib/hosts.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const PACKAGE_ROOT = resolve(HERE, '..')
@@ -60,7 +60,7 @@ function yamlValue(value) {
 }
 
 /** 只写酒馆需要的那几条；App 自己写的内容原样留在文件末尾。 */
-export function workspaceYaml(patches, appRoot = '/opt/dsh', hosts = hostPackages(appRoot)) {
+export function workspaceYaml(patches, appRoot = '/opt/dsh', hosts = declaredHostPackages({ appRoot })) {
   const lines = [
     'packages:',
     '  - .',
@@ -93,7 +93,7 @@ export function workspaceYaml(patches, appRoot = '/opt/dsh', hosts = hostPackage
  * 把酒馆的依赖与 bundle 合并进 profile 的 package.json。
  * 已有条目一律保留顺序，只补缺的。
  */
-export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot = REPO_ROOT, bundles = installBundles() } = {}) {
+export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot = REPO_ROOT, bundles = installBundles(), hosts } = {}) {
   const next = structuredClone(manifest)
   if (next.dependencies === undefined || next.dependencies === null) next.dependencies = {}
   for (const [name, relative] of Object.entries(LOCAL_PACKAGES)) {
@@ -102,7 +102,20 @@ export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot =
   for (const [name, version] of Object.entries(NPM_PACKAGES)) next.dependencies[name] = version
   // overrides 只影响「依赖图里已经出现」的包，它本身不往 node_modules 放东西。
   // 宿主包必须作为直接依赖 link 进去，profile 的 node_modules/@deepseek-ai 才是真的存在的。
-  for (const name of hostPackages(appRoot)) {
+  // 早先的版本把宿主目录里 331 个包全 link 了进来，连 dsh-host-webserver 这种
+  // 「必须唯一」的服务也塞进 profile，服务注册失败后整站请求挂住不返回（白屏）。
+  // 重跑一次要把这些多出来的条目清掉，否则清单越滚越大。
+  const prefix = `link:${join(appRoot, 'node_modules')}/@deepseek-ai/`
+  const wanted = new Set(hosts ?? declaredHostPackages({ srcRoot, appRoot }))
+  for (const [name, value] of Object.entries(next.dependencies)) {
+    if (name.startsWith('@deepseek-ai/') && typeof value === 'string' && value.startsWith(prefix) && !wanted.has(name)) {
+      delete next.dependencies[name]
+    }
+  }
+  // 只 link 酒馆声明过的那十几个。把宿主目录里的 331 个全 link 进来，会连
+  // dsh-host-webserver 这类「必须唯一」的服务一起塞进 profile，服务注册失败后
+  // web-runtime（required）等不到 webServer，整站请求挂住不返回，页面白屏。
+  for (const name of hosts ?? declaredHostPackages({ srcRoot, appRoot })) {
     next.dependencies[name] = `link:${join(appRoot, 'node_modules', name)}`
   }
 
@@ -127,7 +140,8 @@ export function planInstall({ srcRoot = REPO_ROOT, dshHome = join('/root', '.dsh
   for (const file of PATCH_FILES) {
     steps.push({ kind: 'copy-file', name: file, from: join(srcRoot, 'patches', file), to: join(profile, 'patches', file) })
   }
-  steps.push({ kind: 'manifest', name: 'package.json', to: join(profile, 'package.json'), appRoot, srcRoot, bundles: installBundles({ withOptional }) })
+  const hosts = declaredHostPackages({ srcRoot, appRoot })
+  steps.push({ kind: 'manifest', name: 'package.json', to: join(profile, 'package.json'), appRoot, srcRoot, hosts, bundles: installBundles({ withOptional }) })
   steps.push({ kind: 'workspace', name: 'pnpm-workspace.yaml', to: join(profile, 'pnpm-workspace.yaml'), patches: PATCH_FILES, appRoot })
   steps.push({ kind: 'pnpm', name: 'pnpm install', cwd: profile, args: PNPM_ARGS })
   steps.push({ kind: 'verify', name: 'verify', profile, appRoot })
@@ -168,7 +182,7 @@ export function applyInstall(plan, { dry = false, log = console.log } = {}) {
       if (dry) continue
       const manifest = JSON.parse(readFileSync(step.to, 'utf8'))
       backup(step.to)
-      const merged = mergeProfileManifest(manifest, { appRoot: step.appRoot, srcRoot: step.srcRoot, bundles: step.bundles })
+      const merged = mergeProfileManifest(manifest, { appRoot: step.appRoot, srcRoot: step.srcRoot, bundles: step.bundles, hosts: step.hosts })
       const temporary = `${step.to}.tavern-tmp`
       writeFileSync(temporary, `${JSON.stringify(merged, null, 2)}\n`)
       renameSync(temporary, step.to)
@@ -188,7 +202,7 @@ export function applyInstall(plan, { dry = false, log = console.log } = {}) {
       for (const name of installBundles()) {
         if (!existsSync(join(step.profile, 'node_modules', name, 'package.json'))) missing.push(name)
       }
-      for (const name of hostPackages(step.appRoot)) {
+      for (const name of step.hosts ?? declaredHostPackages({ srcRoot: step.srcRoot ?? REPO_ROOT, appRoot: step.appRoot })) {
         if (!existsSync(join(step.profile, 'node_modules', name, 'package.json'))) missing.push(name)
       }
       if (missing.length > 0) throw new Error(`装完仍解析不到：\n${missing.join('\n')}`)

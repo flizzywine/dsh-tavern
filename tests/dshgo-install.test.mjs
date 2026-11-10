@@ -12,7 +12,7 @@ import { hostPackages } from '../tavern-plugin/packages/dsh-tavern-dshgo/lib/hos
 import { TAVERN_BUNDLES } from '../tavern-plugin/packages/dsh-tavern-dshgo/lib/status.js'
 
 test('mergeProfileManifest：六个本地包 link 回源码目录，仓库结构才不被打平', () => {
-  const merged = mergeProfileManifest({ name: 'web', dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } } }, { srcRoot: '/src/dsh-tavern-main' })
+  const merged = mergeProfileManifest({ name: 'web', dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } } }, { srcRoot: '/src/dsh-tavern-main', hosts: ['@deepseek-ai/dsh-tools'] })
   assert.equal(merged.dependencies['dsh-tavern-plugin'], 'link:/src/dsh-tavern-main/tavern-plugin')
   assert.equal(merged.dependencies['dsh-tavern-remote'], 'link:/src/dsh-tavern-main/tavern-plugin/packages/dsh-tavern-remote')
   for (const [name, version] of Object.entries(NPM_PACKAGES)) assert.equal(merged.dependencies[name], version)
@@ -44,13 +44,13 @@ test('hostPackages：扫目录，符号链接也算；目录不存在时有兜�
 
 test('mergeProfileManifest：bundle 保序补齐，官方与用户自己的不动，重复合并不增项', () => {
   const base = { dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dsh-user-thing', 'dsh-web-mobile'] } } }
-  const merged = mergeProfileManifest(base, { appRoot: '/opt/dsh', srcRoot: '/src/x' })
+  const merged = mergeProfileManifest(base, { appRoot: '/opt/dsh', srcRoot: '/src/x', hosts: [] })
   // 官方两个与用户自己的顺序不动，酒馆的按 installBundles() 顺序补在后面，重复的不增项。
   assert.deepEqual(merged.dsh.profile.bundles, ['@deepseek-ai/dsh-base', 'dsh-user-thing', 'dsh-web-mobile', ...installBundles().filter(name => name !== 'dsh-web-mobile')])
   // 0.2.2 上会让引擎 fatal 的两个可选包默认不装。
   assert.ok(!merged.dsh.profile.bundles.includes('dsh-tavern-stage'))
   assert.ok(!merged.dsh.profile.bundles.includes('dsh-asset-library'))
-  const again = mergeProfileManifest(merged, { appRoot: '/opt/dsh', srcRoot: '/src/x' })
+  const again = mergeProfileManifest(merged, { appRoot: '/opt/dsh', srcRoot: '/src/x', hosts: [] })
   assert.deepEqual(again.dsh.profile.bundles, merged.dsh.profile.bundles)
 })
 
@@ -89,4 +89,11 @@ test('planInstall：源码目录不对时把缺的文件一次列出来', (t) =>
 
 test('REPO_ROOT：从包内 scripts 往上三级就是仓库根', () => {
   assert.ok(existsSync(join(REPO_ROOT, 'tavern-plugin', 'package.json')))
+})
+
+test('mergeProfileManifest：重跑会把早先多塞的宿主 link 清掉，清单不会越滚越大', () => {
+  const stale = { '@deepseek-ai/p1': 'link:/opt/dsh/node_modules/@deepseek-ai/p1', '@deepseek-ai/dsh-tools': 'link:/opt/dsh/node_modules/@deepseek-ai/dsh-tools', 'dsh-tavern-plugin': 'link:/src/tavern-plugin' }
+  const out = mergeProfileManifest({ dependencies: stale, dsh: { profile: { bundles: [] } } }, { srcRoot: '/src', appRoot: '/opt/dsh', hosts: ['@deepseek-ai/dsh-tools'] })
+  assert.deepEqual(Object.keys(out.dependencies).filter(name => name.startsWith('@deepseek-ai/')), ['@deepseek-ai/dsh-tools'])
+  assert.equal(out.dependencies['dsh-tavern-plugin'], 'link:/src/tavern-plugin', '本地包不动')
 })

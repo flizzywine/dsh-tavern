@@ -1,13 +1,17 @@
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-/**
- * 必须指向宿主那一份的包；插件 import 它们，另装一份会拿到不同的服务实例，
- * 版本对不上还会被 dsh 判定 incompatible 后整行禁用。
- *
- * 按目录扫，不写清单：漏一个（比如 better-sidebar 要的 dsh-settings 不在酒馆自己的
- * dependencies 里）就会「failed to import: Cannot find package」。
- */
+/** 酒馆自己的六个包；它们 package.json 里声明过的 @deepseek-ai/* 才是 profile 需要的。 */
+export const TAVERN_PACKAGE_DIRS = Object.freeze([
+  'tavern-plugin',
+  'tavern-plugin/packages/dsh-tavern-remote',
+  'tavern-plugin/packages/dsh-dream-skin',
+  'tavern-plugin/packages/dsh-tavern-tts',
+  'tavern-plugin/packages/dsh-asset-library',
+  'tavern-plugin/packages/dsh-tavern-stage',
+])
+
+/** 宿主 /opt/dsh/node_modules/@deepseek-ai 里实际有哪些包。 */
 export function hostPackages(appRoot = '/opt/dsh', read = readdirSync) {
   try {
     return read(join(appRoot, 'node_modules', '@deepseek-ai'), { withFileTypes: true })
@@ -20,4 +24,35 @@ export function hostPackages(appRoot = '/opt/dsh', read = readdirSync) {
       '@deepseek-ai/dsh-subagent', '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-typert-protocol',
     ]
   }
+}
+
+/**
+ * profile 里该 link 的宿主包：酒馆的包声明了、宿主里也确实有的那些。
+ *
+ * 不能把宿主目录里的 331 个全 link 进来。dsh-host-webserver 这类服务必须在 profile 里
+ * 只出现一份，link 进去就成了第二个来源，服务注册失败，web-runtime（required）等不到
+ * webServer，整站请求挂住不返回——表现就是白屏。
+ */
+export function declaredHostPackages({
+  srcRoot = process.cwd(),
+  appRoot = '/opt/dsh',
+  read = readFileSync,
+  scan = readdirSync,
+} = {}) {
+  const declared = new Set()
+  for (const dir of TAVERN_PACKAGE_DIRS) {
+    let manifest
+    try {
+      manifest = JSON.parse(read(join(srcRoot, dir, 'package.json'), 'utf8'))
+    } catch {
+      continue
+    }
+    for (const field of ['dependencies', 'peerDependencies', 'devDependencies']) {
+      for (const name of Object.keys(manifest[field] ?? {})) {
+        if (name.startsWith('@deepseek-ai/')) declared.add(name)
+      }
+    }
+  }
+  const available = new Set(hostPackages(appRoot, scan))
+  return [...declared].filter(name => available.has(name)).sort()
 }
