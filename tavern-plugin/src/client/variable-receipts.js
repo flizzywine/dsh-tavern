@@ -31,6 +31,12 @@ function applyTavernVariableReceipt(previous, delta) {
             const index = source.message_id;
             if (!Number.isInteger(index) || index < 0 || index >= length) return null;
             const message = JSON.parse(JSON.stringify(source));
+            if (delta.kind === 'transaction' && delta.retainMessageVariables === true) {
+                const prior = previous.messages?.[index];
+                if (!prior || prior.stub || prior.swipe_id !== message.swipe_id) return null;
+                message.swipes_data = prior.swipes_data;
+                message.variables = prior.variables;
+            }
             // Dispatch used to decorate every floor. A compact floor must keep
             // these aliases too: official MVU compares name with SillyTavern.name2.
             message.mes = message.message;

@@ -57,21 +57,22 @@ function tavernHelperRole(source) {
 }
 
 /** Project one Chat floor into the synchronous Tavern Helper message shape. */
-export function projectTavernHelperMessage(source, messageId) {
+export function projectTavernHelperMessage(source, messageId, {includeVariables = true} = {}) {
   const swipeId = selectedSwipe(source)
   const swipes = Array.isArray(source.swipes) && source.swipes.length > 0
     ? source.swipes.map(str)
     : [str(source.projectionText ?? source.sourceText ?? source.text)]
-  const variables = Array.isArray(source.variables) ? clone(source.variables) : []
   const projected = {
     pluginData: clone(source.tavernPluginData || {}),
     message_id: messageId,
     role: tavernHelperRole(source),
     message: swipes[swipeId] ?? swipes[0] ?? '',
     swipe_id: swipeId,
-    swipes,
-    swipes_data: variables,
-    variables: clone(variables[swipeId] || {})
+    swipes
+  }
+  if (includeVariables) {
+    projected.swipes_data = Array.isArray(source.variables) ? clone(source.variables) : []
+    projected.variables = clone(projected.swipes_data[swipeId] || {})
   }
   if (source.role === 'tavern-helper') {
     projected.is_hidden = source.tavernHidden === true

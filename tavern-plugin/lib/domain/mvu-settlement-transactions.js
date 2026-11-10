@@ -100,16 +100,18 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
     return transaction === undefined ? await resolveChat(sessionId) : transaction.draft
   }
 
-  async function transactionResult(sessionId, target, multiple = false, eventId = '') {
+  async function transactionResult(sessionId, target, multiple = false, eventId = '', textOnly = false) {
     const transaction = settlementTransactions.get(str(sessionId))
     assertTransactionEvent(transaction, eventId)
     if (transaction === undefined) return null
     transaction.mutations++
+    const targets = multiple ? target : [target]
+    const retainMessageVariables = textOnly && transaction.textReceipt && targets.every(row => row.messageId === transaction.messageId)
     return {
       updated: true,
       transactional: true,
       ...(multiple ? { targets: target } : { target }),
-      ...(transaction.compact ? { contextDelta: projectMvuReceipt(transaction.work, multiple ? target : [target]) }
+      ...(transaction.compact ? { contextDelta: projectMvuReceipt(transaction.work, targets, {retainMessageVariables}) }
         : { context: await fullContext(transaction.draft) })
     }
   }
@@ -181,6 +183,7 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
       }
       async function executionContext(baseline) {
         transaction.compact = input.compactContext === true || baseline?.workContextVersion === 1
+        transaction.textReceipt = baseline?.textReceiptVersion === 1
         let indices, appended = false
         if (baseline?.workContextVersion === 1 && (baseline.complete === true || baseline.historyWindowVersion === 1) && !baseline.full
           && baseline.chatId === current.id && baseline.lifecycleRevision === (current.tavernHelperLifecycleRevision || 0)
@@ -337,7 +340,7 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
     })
     if (transaction) {
       for (const patch of patches) if (patch && typeof patch === 'object') await transaction.work.touchAsync(patch.message_id)
-      if (chat.messages.length) await transaction.work.ensure([0])
+      if (chat.mvu?.openingInitialization?.status !== 'complete' && chat.messages.length) await transaction.work.ensure([0])
       assertEvent(sessionId, eventId)
     }
     return patches

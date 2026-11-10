@@ -16,14 +16,18 @@ async function fixture(t){
 
 for(const full of [false,true])test(`adapter transaction edits old floors and reads its writes, full=${full}`,async t=>{
  const {db}=await fixture(t)
- let adapter,eventId,materializations=0,reads=0
+ let adapter,eventId,materializations=0,reads=0,regexReads=0
  const baseline=(await db.readSlice('c',[])).chat._storageRevision
  const dispatch={supportsContextProjection:true,status:()=>({ready:true}),async dispatch(_session,_name,_args,_context,options){
   eventId=options.eventId
-  const initial=await options.contextForBaseline({workContextVersion:1,complete:true,chatId:'c',stateRevision:baseline,lifecycleRevision:0,messageCount:256})
+  const initial=await options.contextForBaseline({workContextVersion:1,...(!full?{textReceiptVersion:1}:{}),complete:true,chatId:'c',stateRevision:baseline,lifecycleRevision:0,messageCount:256})
   assert.equal(initial.contextDelta.messages.length,1)
   const result=await adapter.updateVariables('s',{type:'message',message_id:20},{stat_data:{hp:77},schema:{}},0,eventId)
   assert.equal(result.contextDelta.messages[0].variables.stat_data.hp,77)
+  const text=await adapter.updateMessages('s',[{message_id:255,message:'rewritten by helper'}],0,eventId)
+  assert.equal(text.contextDelta.messages[0].message,'body 255')
+  assert.equal(text.contextDelta.retainMessageVariables,!full||undefined)
+  assert.equal(text.contextDelta.messages[0].variables?.stat_data.hp,full?255:undefined)
   if(full){
    const all=await adapter.transactionContext('s',eventId)
    assert.equal(all.messages.length,256)
@@ -34,9 +38,10 @@ for(const full of [false,true])test(`adapter transaction edits old floors and re
  }}
  adapter=createTavernScriptHostAdapter({resolveChat:async()=>{reads++;throw Error('full Chat read')},writeChat:db.write,
   resolveSettlementBase:async()=>{const base=await db.readSettlementBase('c'),ensure=base.ensure;return {...base,ensure:async indices=>{if(indices===undefined)materializations++;return ensure(indices)}}},
-  resolveChatSlice:(_s,indices,fields)=>db.readSlice('c',indices,fields),readCard:async()=>({}),worldBooks:{bound:async()=>null},scriptDispatch:dispatch})
+  resolveChatSlice:(_s,indices,fields)=>db.readSlice('c',indices,fields),replyRegexScripts:async()=>{regexReads++;return []},readCard:async()=>({}),worldBooks:{bound:async()=>null},scriptDispatch:dispatch})
  const result=await adapter.settleMvuUpdate({sessionId:'s',operationId:'op',branchId:'b',basedOnRevision:1,messageId:255,swipeId:0,expectedLifecycleRevision:0,command:'update',compactResult:true,compactContext:true})
  assert.equal(reads,0)
+ assert.equal(regexReads,0)
  assert.equal(materializations,full?1:0)
  assert.ok(result.effect.changes.some(change=>change.path[0]==='messages'&&change.path[1]===20))
  const {applyMvuSettlementEffect}=await import('../tavern-plugin/lib/domain/mvu-settlement-effect.js')

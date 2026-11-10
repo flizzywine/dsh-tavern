@@ -300,15 +300,18 @@ export function createTavernScriptHostAdapter(options = {}) {
     await assertScriptEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
     const patches = await settlement.prepareMessages(sessionId, messages, eventId)
-    const updated = replaceTavernHelperMessages(chat, patches, await replyProjection(chat))
-    if (chat.mvu && chat.mvu.owner === 'official') {
+    const rows = Array.isArray(patches) ? patches.filter(patch => patch && typeof patch === 'object') : []
+    const touchesProse = rows.some(patch => Object.hasOwn(patch, 'message') || Object.hasOwn(patch, 'swipe_id'))
+    const textOnly = !rows.some(patch => ['data', 'swipes_data', 'swipe_id'].some(key => Object.hasOwn(patch, key)))
+    const updated = replaceTavernHelperMessages(chat, rows, touchesProse ? await replyProjection(chat) : undefined)
+    if (chat.mvu?.owner === 'official' && chat.mvu.openingInitialization?.status !== 'complete') {
       const opening = Array.isArray(chat.messages) ? chat.messages[0] : null
       const snapshots = opening && Array.isArray(opening.variables) ? opening.variables : []
       if (snapshots.length > 0 && snapshots.every(isOfficialMvuData)) {
         chat.mvu.openingInitialization = { version: 2, status: 'complete', completedAt: Date.now() }
       }
     }
-    const transactional = await transactionResult(sessionId, updated, true, eventId)
+    const transactional = await transactionResult(sessionId, updated, true, eventId, textOnly)
     if (transactional !== null) return transactional
     try { await options.writeChat(chat, { source: 'tavern-helper.messages' }) }
     catch (error) {
