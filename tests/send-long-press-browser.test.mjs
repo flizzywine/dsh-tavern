@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
 
-// 长按发送键 2 秒直接重新生成本轮正文：开关在 设置 › 高级（longPressSendRegenerate）。
+// 长按发送键 1 秒直接重新生成本轮正文：开关在 设置 › 高级（longPressSendRegenerate）。
 // 宿主的输入框只用一具最小替身：卡片 [data-composer-card] + 发送键 button[aria-label="发送消息"]。
 // 组件按 aria-label 认键，支持正常命中与 disabled 时的坐标回退，所以替身的层级必须和宿主一致。
 const COMPOSER = `<div data-composer-card style="position:fixed;left:0;top:0;width:300px;height:80px">
@@ -49,7 +49,7 @@ async function open(t, backend, { mobile = false, running = false } = {}) {
   return { page, center: { x: box.x + box.width / 2, y: box.y + box.height / 2 } }
 }
 
-async function touchHold(page, center, { duration = 2400, move = null, cancelPointer = false } = {}) {
+async function touchHold(page, center, { duration = 1400, move = null, cancelPointer = false } = {}) {
   const cdp = await page.context().newCDPSession(page)
   try {
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...center, id: 1 }] })
@@ -78,12 +78,12 @@ function regenerations(backend) {
   return backend.calls.filter(call => call.method === 'regenBody')
 }
 
-test('桌面端长按发送键 2 秒直接重新生成正文，松手的那次点击不发消息', async t => {
+test('桌面端长按发送键 1 秒直接重新生成正文，松手的那次点击不发消息', async t => {
   const backend = fixture()
   const { page, center } = await open(t, backend)
   await page.mouse.move(center.x, center.y)
   await page.mouse.down()
-  await page.waitForTimeout(2400)
+  await page.waitForTimeout(1400)
   await page.mouse.up()
   await page.waitForTimeout(200)
   assert.equal(regenerations(backend).length, 1)
@@ -93,12 +93,12 @@ test('桌面端长按发送键 2 秒直接重新生成正文，松手的那次�
   assert.equal(await page.evaluate(() => window.__sends), 0)
 })
 
-test('桌面端按住不到 2 秒就松开时什么都不做，这一次点击照常发出', async t => {
+test('桌面端按住不到 1 秒就松开时什么都不做，这一次点击照常发出', async t => {
   const backend = fixture()
   const { page, center } = await open(t, backend)
   await page.mouse.move(center.x, center.y)
   await page.mouse.down()
-  await page.waitForTimeout(700)
+  await page.waitForTimeout(500)
   await page.mouse.up()
   await page.waitForTimeout(1800)
   assert.equal(regenerations(backend).length, 0)
@@ -110,13 +110,13 @@ test('宿主忙碌与视图可用性快照过期时，完成长按仍进入服�
   const { page, center } = await open(t, backend, { running: true })
   await page.mouse.move(center.x, center.y)
   await page.mouse.down()
-  await page.waitForTimeout(2400)
+  await page.waitForTimeout(1400)
   await page.mouse.up()
   await page.waitForTimeout(200)
   assert.equal(regenerations(backend).length, 1)
 })
 
-test('触屏按住 2 秒稳定重新生成，轻微移动不会取消', async t => {
+test('触屏按住 1 秒稳定重新生成，轻微移动不会取消', async t => {
   const backend = fixture()
   const { page, center } = await open(t, backend, { mobile: true })
   assert.equal(await page.locator('#send').evaluate(button => getComputedStyle(button).touchAction), 'none')
@@ -127,7 +127,7 @@ test('触屏按住 2 秒稳定重新生成，轻微移动不会取消', async t 
   assert.equal(await page.evaluate(() => window.__sends), 0)
 })
 
-test('触屏按住期间即使 pointercancel 被触发，2 秒后仍只重新生成一次', async t => {
+test('触屏按住期间即使 pointercancel 被触发，1 秒后仍只重新生成一次', async t => {
   const backend = fixture()
   const { page, center } = await open(t, backend, { mobile: true })
   await page.evaluate(() => {
@@ -144,17 +144,17 @@ test('触屏按住期间即使 pointercancel 被触发，2 秒后仍只重新生
   assert.equal(await page.evaluate(() => window.__sends), 0)
 })
 
-test('动画照常但 2 秒 JS 计时器被节流时，松手按实际时长补触发', async t => {
+test('动画照常但 1 秒 JS 计时器被节流时，松手按实际时长补触发', async t => {
   const backend = fixture()
   const { page, center } = await open(t, backend, { mobile: true })
   await page.evaluate(() => {
     window.__nativeSetTimeout = window.setTimeout.bind(window)
     window.__nativeClearTimeout = window.clearTimeout.bind(window)
-    window.setTimeout = (callback, delay, ...args) => delay === 2000 ? -777 : window.__nativeSetTimeout(callback, delay, ...args)
+    window.setTimeout = (callback, delay, ...args) => delay === 1000 ? -777 : window.__nativeSetTimeout(callback, delay, ...args)
     window.clearTimeout = id => { if (id !== -777) window.__nativeClearTimeout(id) }
   })
   try {
-    await touchHold(page, center, { duration: 2200 })
+    await touchHold(page, center, { duration: 1200 })
   } finally {
     await page.evaluate(() => {
       window.setTimeout = window.__nativeSetTimeout
@@ -176,7 +176,7 @@ test('原生 touchcancel 才表示本次触摸结束，不会迟发重新生成'
   } finally {
     await cdp.detach()
   }
-  await page.waitForTimeout(2200)
+  await page.waitForTimeout(1200)
   assert.equal(regenerations(backend).length, 0)
   assert.equal(await page.evaluate(() => window.__sends), 0)
 })
@@ -207,7 +207,7 @@ test('开关关闭（默认）时长按发送键只发送，不会重新生成',
   const { page, center } = await open(t, backend)
   await page.mouse.move(center.x, center.y)
   await page.mouse.down()
-  await page.waitForTimeout(2400)
+  await page.waitForTimeout(1400)
   await page.mouse.up()
   assert.equal(regenerations(backend).length, 0)
   assert.equal(await page.evaluate(() => window.__sends), 1)
@@ -227,12 +227,12 @@ test('设置 › 高级 里的开关保存 longPressSendRegenerate 并广播给�
       return undefined
     }
   })
-  const toggle = page.getByRole('switch', { name: '长按 2 秒发送键重新生成', exact: true })
+  const toggle = page.getByRole('switch', { name: '长按 1 秒发送键重新生成', exact: true })
   await toggle.waitFor()
   await page.evaluate(() => { window.__settingsChanged = 0; window.addEventListener('dsh-tavern-settings-changed', () => { window.__settingsChanged += 1 }) })
   assert.equal(await toggle.isChecked(), false)
   await toggle.press('Space')
-  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="长按 2 秒发送键重新生成"]')?.checked === true)
+  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="长按 1 秒发送键重新生成"]')?.checked === true)
   assert.deepEqual(calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch, { longPressSendRegenerate: true })
   assert.equal(await toggle.isChecked(), true)
 })

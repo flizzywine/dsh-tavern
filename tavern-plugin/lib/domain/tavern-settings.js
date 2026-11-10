@@ -444,7 +444,7 @@ export function presentTavernSettings(document, defaults) {
     // the turn ends right there and the reply is only remade when the player asks.
     retryOnFailure: object(document).retryOnFailure !== false,
     allowCdnFakeIp: object(document).allowCdnFakeIp === true,
-    // 长按 2 秒发送键直接重新生成正文；默认关闭。
+    // 长按 1 秒发送键直接重新生成正文；默认关闭。
     longPressSendRegenerate: object(document).longPressSendRegenerate === true,
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,

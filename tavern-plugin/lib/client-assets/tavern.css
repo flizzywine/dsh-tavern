@@ -4076,11 +4076,11 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
 
 .dsh-tavern-auto-polished { font-size: 12px; color: var(--dsh-tavern-accent-muted); margin-top: 2px; }
 
-/* 长按发送键 2 秒：按住时描一圈进度，触发后短暂高亮。 */
+/* 长按发送键 1 秒：按住时描一圈进度，触发后短暂高亮。 */
 /* ready 在手指落下前由脚本标记：禁止浏览器把发送键上的按住抢成滚动、选中或系统长按菜单。 */
 .dsh-tavern-send-hold-ready { touch-action: none !important; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .dsh-tavern-send-hold { position: relative; }
-.dsh-tavern-send-hold::after { content: ""; position: absolute; inset: -5px; border-radius: inherit; border: 2px solid var(--dsh-tavern-accent); opacity: .12; pointer-events: none; animation: dsh-tavern-send-hold 2s linear forwards; }
+.dsh-tavern-send-hold::after { content: ""; position: absolute; inset: -5px; border-radius: inherit; border: 2px solid var(--dsh-tavern-accent); opacity: .12; pointer-events: none; animation: dsh-tavern-send-hold 1s linear forwards; }
 .dsh-tavern-send-hold-fired { animation: dsh-tavern-send-hold-fired 900ms ease-out; }
 @keyframes dsh-tavern-send-hold { 0% { opacity: .12; transform: scale(.96); } 100% { opacity: .8; transform: scale(1.04); } }
 @keyframes dsh-tavern-send-hold-fired { 0% { filter: brightness(1.25); } 100% { filter: none; } }
