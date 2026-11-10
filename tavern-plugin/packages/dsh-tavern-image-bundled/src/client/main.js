@@ -92,26 +92,13 @@ function createMessageDrawRunner(send, onStart) {
 // 表现成「查看器永远打不开、也没有任何报错」。
 let openImageOverlay = null
 
-    // 把浏览器里发生的事发回宿主：前端到底跑没跑、有没有抛错，宿主的 /state 里看得到
-    //
-    // ⚠ 性能守卫（2026-10-07 加入）：本函数被放在**渲染热路径**上调用
-    //   （renderAssistantText 每次渲染 → 'renderer-takeover'；
-    //     register 的渲染器每次被调 → 'renderer-calls'）。
-    //   原来每次调用都发一个 POST，一个几千条消息的会话每轮重渲染就会打出几千个请求，
-    //   连接池打满、事件循环被 fetch/JSON 反复占用 —— 实测导致渲染进程被 DSH 看门狗判为
-    //   「页面无响应」并反复终止（minidump 显示主线程持续在 V8 中执行、不 yield）。
-    //   现在：按 stage+data 指纹去重，同一指纹只在首次发送；并发与总量各有上限；
-    //   热路径上的指纹超预算直接丢弃。冷路径（错误、注册结果等）不受影响。
+    // 浏览器诊断发回宿主的 /state。按指纹去重，并限制普通上报的并发。
     const REPORT_CONCURRENCY = 6
     const REPORT_TOTAL_BUDGET = 60
     const seenReports = new Set()
     let reportInFlight = 0
     let reportSent = 0
-    // 这些 stage 出现在渲染热路径上，指纹超预算时必须丢弃，不能积压
-    const HOT_REPORT_STAGES = new Set(['renderer-takeover', 'renderer-called', 'plannedbody-mounted'])
-    // 这些是低频且关键的取证上报：不受总量与并发限制，必须发出去。
-    // 2026-10-07：history-fail 曾经一条都收不到 —— 因为聊天渲染的 renderer-called
-    // 把 6 个并发槽占满，非热路径的失败上报被静默丢弃，导致无法定位真因。
+    // 关键故障和注册结果不受并发限制。
     const CRITICAL_REPORT_STAGES = new Set([
       'history-fail', 'history-ok', 'fetch-retry', 'state-fail',
       'window-error', 'unhandled-rejection',
@@ -131,14 +118,8 @@ let openImageOverlay = null
         // 同一指纹只报一次（去重：这是原来请求量爆炸的主因）
         if (seenReports.has(key)) return
         if (!CRITICAL_REPORT_STAGES.has(stage)) {
-          if (reportSent >= REPORT_TOTAL_BUDGET) {
-            if (HOT_REPORT_STAGES.has(stage)) return   // 热路径：直接丢弃
-            if (seenReports.size > 2000) seenReports.clear()
-          }
-          if (reportInFlight >= REPORT_CONCURRENCY) {
-            if (HOT_REPORT_STAGES.has(stage)) return   // 热路径：宁可丢也不排队
-            return
-          }
+          if (reportSent >= REPORT_TOTAL_BUDGET && seenReports.size > 2000) seenReports.clear()
+          if (reportInFlight >= REPORT_CONCURRENCY) return
         }
         seenReports.add(key)
         reportSent += 1
@@ -169,47 +150,7 @@ let openImageOverlay = null
     } catch { /* 老环境没有这些事件就算了 */ }
     // 当前会话 id：设置页里点「让 agent 设计角色」时要拿它去读卡片设定
     let lastSessionId = ''
-    // 每条助手消息的正文（消息下方那个「生图」按钮要用它）
-    const textByMessage = new Map()
     const IMAGE_TAG = /image###((?:(?!image###|###)[^\r\n])*?)(?:###|(?=\r?\n)|$)/gi
-
-    function usablePrompt(raw) {
-      const prompt = String(raw ?? '').trim()
-      return /[^#]/.test(prompt) ? prompt : ''
-    }
-
-    /** 把正文切成 text / image 两种段落。
-     *  ⚠ 记忆化（2026-10-07）：本函数在渲染热路径上每条消息每次渲染都会被调用，
-     *  且正文可能上万字符。按 text 缓存最近一次结果（渲染是顺序的，命中率很高），
-     *  避免重复做正则扫描与切片。 */
-    let segmentCacheText = null
-    let segmentCacheValue = null
-    function splitSegments(text) {
-      const source = String(text ?? '')
-      if (source === segmentCacheText && segmentCacheValue) return segmentCacheValue
-      const segments = []
-      const regex = new RegExp(IMAGE_TAG.source, IMAGE_TAG.flags)
-      let cursor = 0
-      for (const match of source.matchAll(regex)) {
-        const index = match.index ?? 0
-        const prompt = usablePrompt(match[1])
-        if (index > cursor) segments.push({ type: 'text', value: source.slice(cursor, index) })
-        if (prompt) segments.push({ type: 'image', prompt })
-        cursor = index + match[0].length
-      }
-      if (cursor < source.length) segments.push({ type: 'text', value: source.slice(cursor) })
-      segmentCacheText = source
-      segmentCacheValue = segments
-      return segments
-    }
-
-    /** 正文指纹（和 host 侧一致），用来认领"模型主动调工具生成的那一批图"。 */
-    function textHash(value) {
-      let a = 2166136261
-      const source = String(value ?? '')
-      for (let i = 0; i < source.length; i++) a = Math.imul(a ^ source.charCodeAt(i), 16777619)
-      return (a >>> 0).toString(36)
-    }
 
     /** 内容键：同一段提示词在同一位置只画一次，翻历史、刷新页面都复用。 */
     function contentKey(messageId, turn, index, prompt) {

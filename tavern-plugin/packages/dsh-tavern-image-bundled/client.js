@@ -129,26 +129,13 @@ function createMessageDrawRunner(send, onStart) {
 // 表现成「查看器永远打不开、也没有任何报错」。
 let openImageOverlay = null
 
-    // 把浏览器里发生的事发回宿主：前端到底跑没跑、有没有抛错，宿主的 /state 里看得到
-    //
-    // ⚠ 性能守卫（2026-10-07 加入）：本函数被放在**渲染热路径**上调用
-    //   （renderAssistantText 每次渲染 → 'renderer-takeover'；
-    //     register 的渲染器每次被调 → 'renderer-calls'）。
-    //   原来每次调用都发一个 POST，一个几千条消息的会话每轮重渲染就会打出几千个请求，
-    //   连接池打满、事件循环被 fetch/JSON 反复占用 —— 实测导致渲染进程被 DSH 看门狗判为
-    //   「页面无响应」并反复终止（minidump 显示主线程持续在 V8 中执行、不 yield）。
-    //   现在：按 stage+data 指纹去重，同一指纹只在首次发送；并发与总量各有上限；
-    //   热路径上的指纹超预算直接丢弃。冷路径（错误、注册结果等）不受影响。
+    // 浏览器诊断发回宿主的 /state。按指纹去重，并限制普通上报的并发。
     const REPORT_CONCURRENCY = 6
     const REPORT_TOTAL_BUDGET = 60
     const seenReports = new Set()
     let reportInFlight = 0
     let reportSent = 0
-    // 这些 stage 出现在渲染热路径上，指纹超预算时必须丢弃，不能积压
-    const HOT_REPORT_STAGES = new Set(['renderer-takeover', 'renderer-called', 'plannedbody-mounted'])
-    // 这些是低频且关键的取证上报：不受总量与并发限制，必须发出去。
-    // 2026-10-07：history-fail 曾经一条都收不到 —— 因为聊天渲染的 renderer-called
-    // 把 6 个并发槽占满，非热路径的失败上报被静默丢弃，导致无法定位真因。
+    // 关键故障和注册结果不受并发限制。
     const CRITICAL_REPORT_STAGES = new Set([
       'history-fail', 'history-ok', 'fetch-retry', 'state-fail',
       'window-error', 'unhandled-rejection',
@@ -168,14 +155,8 @@ let openImageOverlay = null
         // 同一指纹只报一次（去重：这是原来请求量爆炸的主因）
         if (seenReports.has(key)) return
         if (!CRITICAL_REPORT_STAGES.has(stage)) {
-          if (reportSent >= REPORT_TOTAL_BUDGET) {
-            if (HOT_REPORT_STAGES.has(stage)) return   // 热路径：直接丢弃
-            if (seenReports.size > 2000) seenReports.clear()
-          }
-          if (reportInFlight >= REPORT_CONCURRENCY) {
-            if (HOT_REPORT_STAGES.has(stage)) return   // 热路径：宁可丢也不排队
-            return
-          }
+          if (reportSent >= REPORT_TOTAL_BUDGET && seenReports.size > 2000) seenReports.clear()
+          if (reportInFlight >= REPORT_CONCURRENCY) return
         }
         seenReports.add(key)
         reportSent += 1
@@ -206,47 +187,7 @@ let openImageOverlay = null
     } catch { /* 老环境没有这些事件就算了 */ }
     // 当前会话 id：设置页里点「让 agent 设计角色」时要拿它去读卡片设定
     let lastSessionId = ''
-    // 每条助手消息的正文（消息下方那个「生图」按钮要用它）
-    const textByMessage = new Map()
     const IMAGE_TAG = /image###((?:(?!image###|###)[^\r\n])*?)(?:###|(?=\r?\n)|$)/gi
-
-    function usablePrompt(raw) {
-      const prompt = String(raw ?? '').trim()
-      return /[^#]/.test(prompt) ? prompt : ''
-    }
-
-    /** 把正文切成 text / image 两种段落。
-     *  ⚠ 记忆化（2026-10-07）：本函数在渲染热路径上每条消息每次渲染都会被调用，
-     *  且正文可能上万字符。按 text 缓存最近一次结果（渲染是顺序的，命中率很高），
-     *  避免重复做正则扫描与切片。 */
-    let segmentCacheText = null
-    let segmentCacheValue = null
-    function splitSegments(text) {
-      const source = String(text ?? '')
-      if (source === segmentCacheText && segmentCacheValue) return segmentCacheValue
-      const segments = []
-      const regex = new RegExp(IMAGE_TAG.source, IMAGE_TAG.flags)
-      let cursor = 0
-      for (const match of source.matchAll(regex)) {
-        const index = match.index ?? 0
-        const prompt = usablePrompt(match[1])
-        if (index > cursor) segments.push({ type: 'text', value: source.slice(cursor, index) })
-        if (prompt) segments.push({ type: 'image', prompt })
-        cursor = index + match[0].length
-      }
-      if (cursor < source.length) segments.push({ type: 'text', value: source.slice(cursor) })
-      segmentCacheText = source
-      segmentCacheValue = segments
-      return segments
-    }
-
-    /** 正文指纹（和 host 侧一致），用来认领"模型主动调工具生成的那一批图"。 */
-    function textHash(value) {
-      let a = 2166136261
-      const source = String(value ?? '')
-      for (let i = 0; i < source.length; i++) a = Math.imul(a ^ source.charCodeAt(i), 16777619)
-      return (a >>> 0).toString(36)
-    }
 
     /** 内容键：同一段提示词在同一位置只画一次，翻历史、刷新页面都复用。 */
     function contentKey(messageId, turn, index, prompt) {
@@ -292,16 +233,12 @@ let openImageOverlay = null
     }
     const jsonFetch = createJsonTransport({ onRetry: ({ url, error }) => reportHost('fetch-retry', { tail: String(url).slice(-40), msg: String(error.message || '') }) })
 
-    // 正文兜底渲染：模块级常量，保证引用稳定（见 renderAssistantText 里的说明）
-    const FALLBACK_RENDER_TEXT = (value, key) => h('span', { key }, String(value ?? ''))
-
     // 注意：Tavern 的 .dsh-tavern-illustration 是 flex 列容器且 align-items:flex-start，
     // 子元素默认宽度由内容决定（图片多宽就多宽）。显式撑满，宽度设置与容器测量才有参照。
     // 不能写 width:100%：Tavern 插图容器是 flex 列容器且 align-items:flex-start，子元素宽度由内容决定，
     // 写 100% 会让「我的宽度依赖父容器、父容器又由我决定」形成循环，
     // 浏览器只能按最小内容解析，图会塔缩成缩略图大小（实测设 2000 只显示 95px）。
     const wrapStyle = { margin: '14px 0', textAlign: 'center' }
-    const imgStyle = { maxWidth: '100%', borderRadius: '10px', cursor: 'zoom-in', background: '#111' }
     const noteStyle = { display: 'inline-block', padding: '10px 16px', borderRadius: '10px', fontSize: '13px',
       color: 'var(--dsw-alias-label-tertiary)', border: '1px dashed var(--dsw-alias-border-l2)', background: 'transparent' }
     const buttonStyle = { padding: '8px 16px', borderRadius: '9px', border: '1px solid var(--dsw-alias-border-l2)',
@@ -487,76 +424,6 @@ let openImageOverlay = null
       return h('div', { style: wrapStyle },
         h('span', { style: noteStyle }, (state === 'running' ? '正在画…' : '排队中…') + ' ' + prompt.slice(0, 40)))
     }
-
-    /** 计划里的一张图：jobId 由 host 建好了，这里只负责等它画完。 */
-    function PlanImage(props) {
-      const { plan, index } = props
-      const displayWidth = useImageWidth()
-      const forcedWidthRef = useForcedImageWidth(displayWidth, { width: '100%', 'max-width': 'min(660px, 96vw)' })
-      // 一律先当 pending：宿主给的 status 可能已经过时（图还没真画好），靠轮询拿真实状态
-      const [state, setState] = useState('pending')
-      const [error, setError] = useState('')
-      // 图片自身加载失败 —— 最常见的原因是「作业已报 done，但文件还没写完」，这一小段窗口里
-      // 取图会返回 404。所以这里**自动重试**，别一失败就给用户看"取不到"。
-      const [imgError, setImgError] = useState('')
-      const [imgNonce, setImgNonce] = useState(0)
-      const [imgRetry, setImgRetry] = useState(0)
-
-      useEffect(() => {
-        if (!plan.jobId || state === 'done') return undefined
-        let cancelled = false
-        let timer = null
-        function poll() {
-          jsonFetch(BASE + '/jobs?id=' + encodeURIComponent(plan.jobId)).then(data => {
-            if (cancelled) return
-            const job = data?.job
-            if (!job) { timer = setTimeout(poll, 2000); return }
-            if (job.status === 'failed') { setState('failed'); setError(job.error || '画失败了'); return }
-            if (job.status === 'done') { setState('done'); return }
-            timer = setTimeout(poll, 1500)
-          }).catch(err => { if (!cancelled) { setState('failed'); setError(err?.message ?? String(err)) } })
-        }
-        poll()
-        return () => { cancelled = true; if (timer) clearTimeout(timer) }
-      }, [plan.jobId])
-
-      // 取图失败自动重试：最多 20 次 / 约 30 秒，之后才把「重试」按钮交给用户
-      useEffect(() => {
-        if (!imgError || imgRetry >= 20) return undefined
-        const timer = setTimeout(() => { setImgError(''); setImgRetry(n => n + 1); setImgNonce(x => x + 1) }, 1500)
-        return () => clearTimeout(timer)
-      }, [imgError, imgRetry])
-
-      if (state === 'done') {
-        const src = BASE + '/jobs?id=' + encodeURIComponent(plan.jobId) + '&image=1'
-        // 自动重试用尽后才显示"取不到"
-        if (imgError && imgRetry >= 20) {
-          return h('div', { style: wrapStyle },
-            h('span', { style: noteStyle }, '第 ' + (index + 1) + ' 张图取不到（' + imgError + '）　'),
-            h('button', {
-              type: 'button',
-              style: { fontSize: '12px', padding: '3px 12px', borderRadius: '8px', border: '1px solid rgba(160,180,210,.5)', background: 'transparent', color: '#dbe3ee', cursor: 'pointer' },
-              onClick: () => { setImgError(''); setImgRetry(0); setImgNonce(x => x + 1) },
-            }, '重试'),
-          )
-        }
-        // 正在自动重试中：给个安静的状态，不要露出破图
-        if (imgError) {
-          return h('div', { style: wrapStyle },
-            h('span', { style: noteStyle }, '🎨 第 ' + (index + 1) + ' 张正在取回…（第 ' + imgRetry + ' 次）'))
-        }
-        return h('div', { style: wrapStyle },
-          h('img', { ref: forcedWidthRef, key: 'img-' + imgNonce, src, loading: 'lazy', decoding: 'async', alt: plan.title || '插图',
-            onError: () => setImgError('加载失败'), title: '点一下在 DSH 里看大图', style: { display: 'block', ...imageWidthStyle({ width: '100%', maxWidth: 'min(660px, 96vw)' }, displayWidth), borderRadius: '10px', cursor: 'zoom-in', background: '#1a1d24', margin: '10px auto' }, onClick: () => viewImage(plan.jobId, plan.title), onContextMenu: (event) => { event.preventDefault(); openEditorFor(plan.jobId, plan.title) }, onMouseDown: () => beginPress(plan.jobId, plan.title), onMouseUp: cancelPress, onMouseLeave: cancelPress, onTouchStart: () => beginPress(plan.jobId, plan.title), onTouchEnd: cancelPress, onTouchMove: cancelPress }))
-      }
-      if (state === 'failed') {
-        return h('div', { style: wrapStyle },
-          h('span', { style: noteStyle }, '第 ' + (index + 1) + ' 张画失败：' + error + ' '))
-      }
-      return h('div', { style: wrapStyle },
-        h('span', { style: noteStyle }, '🎨 正在画第 ' + (index + 1) + ' 张…' + (plan.title ? '「' + plan.title + '」' : '')))
-    }
-
 
     /** 官方接口下的插图（kind = dsh-tavern-image/image）。
      *  item.data 里带着 jobId —— 所以放大、右键看提示词、长按、重画全都照用。
@@ -839,56 +706,6 @@ let openImageOverlay = null
     const mediaPostLocks = new Set()
     const mediaUncertainActions = new Set()
 
-    /** 段落：只渲染正文，不再带「画这段」按钮（生图入口统一在消息下方）。 */
-    function Segment(props) {
-      try {
-        return props.renderText(props.value, props.keyName || ('seg-' + props.index))
-      } catch (error) {
-        return h('span', null, String(props.value ?? ''))
-      }
-    }
-
-    /** 切段：每个非空行当成一段。 */
-    function paragraphsOf(text) {
-      return String(text ?? '').split(/\n+/).filter(line => line.trim())
-    }
-
-    /** 按 agent 给的挂载句把正文切开，在每句之后插一张图；每一段都带"画这段"按钮。 */
-    function splitByPlan(text, plans, renderText, info) {
-      const source = String(text ?? '')
-      const points = []
-      for (const plan of plans) {
-        const mount = String(plan.mount ?? '').trim()
-        if (!mount) continue
-        const at = source.indexOf(mount)
-        points.push({ plan, at: at < 0 ? source.length : at + mount.length })
-      }
-      points.sort((a, b) => a.at - b.at)
-      const nodes = []
-      let cursor = 0
-      points.forEach((point, i) => {
-        if (point.at > cursor) {
-          nodes.push(h(Segment, {
-            key: 'plan-seg-' + i, value: source.slice(cursor, point.at), index: i,
-            renderText, keyName: 'plan-text-' + i, ...info,
-          }))
-          cursor = point.at
-        }
-        nodes.push(h(PlanImage, { key: 'plan-img-' + i, plan: point.plan, index: i }))
-      })
-      if (cursor < source.length) {
-        nodes.push(h(Segment, { key: 'plan-tail', value: source.slice(cursor), index: points.length, renderText, keyName: 'plan-tail', ...info }))
-      }
-      return nodes
-    }
-
-    /**
-     * 正文渲染：默认什么都不做，只在末尾放一个「生图」按钮。
-     * 点了才去规划 —— 这样不会因为你翻历史就一排后台任务堆起来。
-     */
-    /**
-     * 整段正文 + 末尾一个「生图」按钮。正文整段交给宿主渲染一次（切段会让界面卡死）。
-     */
     /**
      * 长按 / 右键图片：打开编辑器，并把这张图的提示词读出来。
      */
@@ -1480,353 +1297,6 @@ function versionsOf(jobId) {
       } catch { /* 看图失败不影响正文 */ }
     }
 
-    function PlannedBody(props) {
-      const { text, messageId, turn, sessionId, renderText } = props
-      const [plans, setPlans] = React.useState(null)
-      const [jobIds, setJobIds] = React.useState([])
-      const [state, setState] = React.useState('idle')
-      const [note, setNote] = React.useState('')
-      const [hover, setHover] = React.useState(false)
-      const [progress, setProgress] = React.useState(0)
-
-      React.useEffect(() => {
-        // 恢复已有计划：切换页面 / 重新渲染 / 滚动回来时，宿主里可能早就存过这条的计划了。
-        // 之前只在"收到事件"时才查，所以一离开页面图就没了。
-        if (messageId) {
-          jsonFetch(BASE + '/plans?messageId=' + encodeURIComponent(String(messageId)))
-            .then(found => {
-              const list = found?.plans ?? []
-              if (!list.length) return
-              reportHost('inline-restored', { messageId: String(messageId).slice(0, 14), plans: list.length })
-              setPlans(list)
-              setJobIds(list.map(p => p.jobId).filter(Boolean))
-              setState('done')
-            })
-            .catch(() => {})
-        }
-
-        const handler = (event) => {
-          const target = event && event.detail ? String(event.detail.messageId ?? '') : ''
-          reportHost('inline-event', { target, mine: String(messageId ?? ''), match: target === String(messageId ?? '') })
-          // 只有被点的那一条才处理（广播会给所有消息，这里必须筛掉）
-          if (!messageId || !target || target !== String(messageId)) return
-          jsonFetch(BASE + '/plans?messageId=' + encodeURIComponent(String(messageId)))
-            .then(found => {
-              const list = found?.plans ?? []
-              reportHost('inline-fetched', { messageId: String(messageId ?? ''), got: list.length, mounts: list.map(p => String(p.mount ?? '').slice(0, 20)) })
-              if (list.length) { setPlans(list); setJobIds(list.map(p => p.jobId).filter(Boolean)); setState('done') }
-            })
-            .catch(() => {})
-        }
-        window.addEventListener('dsh-tavern-image:planned', handler)
-        return () => window.removeEventListener('dsh-tavern-image:planned', handler)
-      }, [messageId])
-
-      // 只有出过图才轮询进度，平时一声不响
-      React.useEffect(() => {
-        if (!jobIds.length) return
-        let alive = true
-        const timer = setInterval(async () => {
-          if (!alive) return
-          let done = 0
-          for (const id of jobIds) {
-            const r = await jsonFetch(BASE + '/jobs?id=' + encodeURIComponent(id)).catch(() => null)
-            if (r?.job?.status === 'done') done += 1
-          }
-          if (!alive) return
-          setProgress(done)
-          if (done >= jobIds.length) clearInterval(timer)
-        }, 4000)
-        return () => { alive = false; clearInterval(timer) }
-      }, [jobIds])
-
-      async function generate() {
-        if (state === 'working') return
-        setState('working')
-        setNote('')
-        setJobIds([])
-        try {
-          const r = await jsonFetch(BASE + '/plan', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ messageId, turn, text, sessionId, manual: true }),
-          })
-          const list = r.plans ?? []
-          if (!list.length) { setState('failed'); setNote(r.error || '没有产出画面'); return }
-          setState('done')
-          setPlans(list)
-          setJobIds(list.map(item => item.jobId).filter(Boolean))
-        } catch (error) {
-          setState('failed')
-          setNote(error && error.message ? error.message : String(error))
-        }
-      }
-
-      // 已经有图：按 host 给的「挂载句」把图插进正文对应位置
-      if (plans && plans.length) {
-        reportHost('inline-splitting', { messageId: String(messageId ?? ''), plans: plans.length, textLen: String(text ?? '').length })
-        return h(React.Fragment, null,
-          splitByPlan(text, plans, renderText, { messageId, turn, sessionId }),
-        )
-      }
-
-      // 没有计划：先看正文里有没有模型自己写的 image###Tag### 标记（自动生图开的那个通道）。
-      // 有就按标记切段、就地出图 —— 只按标记切（通常 4 段以内），不是按行切，不会把 markdown 渲染几十次。
-      // 宿主按 key 去重，同一条消息的同一个位置永远只画一次，翻历史、刷新页面都复用同一张。
-      const segments = splitSegments(text)
-      let markerCount = 0
-      for (const segment of segments) if (segment.type === 'image') markerCount += 1
-      if (markerCount) {
-        const owner = String(messageId ?? 'x')
-        reportHost('inline-markers', { messageId: owner.slice(0, 14), markers: markerCount, textLen: String(text ?? '').length })
-        return h(React.Fragment, null, segments.map((segment, index) => (
-          segment.type === 'image'
-            ? h(InlineImage, {
-              key: 'marker-img-' + index,
-              prompt: segment.prompt,
-              imageKey: contentKey(messageId, turn, index, segment.prompt),
-              auto: true,
-            })
-            : h(Segment, {
-              key: 'marker-text-' + index,
-              value: segment.value,
-              index,
-              renderText,
-              keyName: 'marker-text-' + owner + '-' + index,
-              messageId, turn, sessionId,
-            })
-        )))
-      }
-
-      // 没有计划、也没有待显示的图：正文照常渲染出来，不要返回 null。
-      // ⚠️ 宿主（message-frame.js 的 renderTavernProjection）只检查渲染器**函数**的返回值：
-      //    不是 null/undefined 就直接采用，不会再回落原生渲染。所以"返回 null 交回宿主"
-      //    只在 renderAssistantText 那一层成立，在 PlannedBody 这一层不成立 —— 在这里
-      //    返回 null 会让整段正文空白（2026-10-07 踩过）。
-      if (!jobIds.length) {
-        return h(Segment, {
-          key: 'rphub-plain',
-          value: text,
-          index: 0,
-          renderText,
-          keyName: 'rphub-plain-' + String(messageId ?? 'x'),
-          messageId, turn, sessionId,
-        })
-      }
-      const body = renderText(text, 'rphub-body-' + String(messageId ?? 'x'))
-      return h(React.Fragment, null,
-        body,
-        h('div', { style: { margin: '6px 0 12px' } },
-          jobIds.map(id => h('img', {
-            key: id,
-            src: BASE + '/jobs?id=' + encodeURIComponent(id) + '&image=1',
-            style: { display: 'block', width: '100%', maxWidth: '520px', borderRadius: '10px', margin: '8px 0' },
-            onClick: () => viewImage(id, ''),
-          })),
-          progress < jobIds.length ? h('div', { style: { fontSize: '11px', color: '#9aa3b2' } }, '画好了 ' + progress + ' / ' + jobIds.length) : null,
-        ),
-      )
-    }
-
-    /** 渲染器：有 image### 标记就走标记；没有就用 agent 规划。都没命中就返回 null。 */
-    /** 已经主动规划过的消息，避免重复调模型 */
-    const planEnsured = new Set()
-    /**
-     * 「自动生图」只认最新一轮，而且**要等渲染稳定下来**再动手。
-     *
-     * 为什么必须防抖：打开一个长会话时，历史消息是逐条渲染的，每一步的 turn 都比上一步大。
-     * 如果"见到更大的 turn 就规划"，一屏历史能一口气排出一串后台任务 —— 这个坑第一次上线就踩了
-     * （重启后冒出几十张图）。所以这里只记下见过的最大轮次，等 1.2 秒不再有更新的轮次出现，
-     * 它才真的是"最新一轮"，那时才去规划。
-     * turn 拿不到就什么都不做：宁可不自动，也不要乱触发。
-     */
-    let autoPlanSession = ''
-    let autoPlanTurn = -1
-    let autoPlanTimer = null
-    let autoPlanPending = null
-    function scheduleAutoPlan(sessionId, turn, messageId, text) {
-      const sid = String(sessionId ?? '')
-      if (sid !== autoPlanSession) { autoPlanSession = sid; autoPlanTurn = -1 }
-      const t = Number(turn)
-      if (!Number.isFinite(t) || t <= 0) return
-      if (t <= autoPlanTurn) return        // 比已见过的更旧：一定是历史消息，不规划
-      autoPlanTurn = t
-      autoPlanPending = { messageId, text, sessionId: sid, turn: t }
-      if (autoPlanTimer) clearTimeout(autoPlanTimer)
-      autoPlanTimer = setTimeout(() => {
-        autoPlanTimer = null
-        const job = autoPlanPending
-        autoPlanPending = null
-        // 期间又出现了更新的轮次 → 那一次会重新排，这次作废
-        if (!job || job.turn !== autoPlanTurn) return
-        ensurePlanFor(job.messageId, job.text, job.sessionId, job.turn)
-      }, 1200)
-    }
-    /**
-     * 渲染器一被调用就主动去要计划 —— 不等 React 组件挂载。
-     * （React 那边会不会挂载取决于宿主，不能把规划押在它身上。）
-     */
-    function ensurePlanFor(messageId, text, sessionId, turn) {
-      try {
-        if (!messageId) return
-        if (planEnsured.has(messageId)) return
-        planEnsured.add(messageId)
-        jsonFetch(BASE + '/plans?messageId=' + encodeURIComponent(messageId)).then(found => {
-          if (found?.plans?.length) return null
-          reportHost('plan-request', { messageId, textLen: String(text ?? '').length, source: 'renderer' })
-          return jsonFetch(BASE + '/plan', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ messageId, turn, text, sessionId }),
-          }).then(response => {
-            const got = (response?.plans ?? []).length
-            reportHost('plan-response', { ok: response?.ok, plans: got, error: response?.error ?? '' })
-            if (got) {
-              try { window.dispatchEvent(new CustomEvent('dsh-tavern-image:planned', { detail: { messageId } })) } catch {}
-            }
-            return null
-          })
-        }).catch(error => {
-          reportHost('plan-threw', { messageId, message: String(error?.message ?? error).slice(0, 400) })
-        })
-      } catch (error) {
-        reportHost('plan-ensure-failed', { message: String(error?.message ?? error).slice(0, 300) })
-      }
-    }
-
-    /**
-     * 正文渲染：整段交给宿主的渲染器（**不切段** —— 切段会让 markdown 渲染几十次、界面卡死），
-     * 末尾跟一个「生图」按钮。只在游玩时的回复里出现（那种消息带着 turn）。
-     */
-    function renderAssistantText(text, context, options) {
-      try {
-        if (context?.sessionId) lastSessionId = String(context.sessionId)
-        // ⚠️ 这是 v1.0「打补丁时代」的遗留函数，**当前没有任何地方注册它**，留着只为备查。
-        //    正文渲染已经交回 Tavern 原生：图由宿主侧 tavern.attach 按 anchor 挂上，
-        //    Tavern 自己渲染、自己跟 textVersion 绑定。
-        //    不要再注册它 —— 一旦注册，会和 attach 挂的图重复渲染。
-        if (context?.streaming) return null
-        const renderText = typeof context?.renderText === 'function' ? context.renderText : null
-        if (!renderText) return null
-        // 卡片工作台（Tavern 的 mode === "card"）不生成插图、也不接管正文：
-        // 这里是"改卡"的地方，正文里出现的 image### 标记不该在这里被画成图。
-        // 判定来自 Tavern 侧渲染补丁给出的 cardBench 字段（见 message-frame.js）。
-        // 注意：Tavern 宿主已经对"消息级动作"做了 isPlayMode 判定，所以「🎨 生图」按钮
-        // 本来就不在工作台出现，这里补的是正文渲染这一条路径。
-        if (context?.cardBench) {
-          // 卡片工作台：绝不出图。
-          // 正常情况这里没有任何标记，直接返回 null 让 Tavern 原生渲染，零影响；
-          // 万一模型还是写了 image### 标记（自动生图规则会跟到所有请求），就把它清掉再渲染，
-          // 免得工作台的正文里露出一串标记。
-          const original = String(text ?? '')
-          const cleaned = original.replace(new RegExp(IMAGE_TAG.source, 'gi'), '').replace(/\n{3,}/g, '\n\n').trim()
-          if (cleaned === original.trim()) return null
-          reportHost('cardbench-stripped', { messageId: String(context?.messageId ?? '').slice(0, 14), removed: original.length - cleaned.length })
-          return h(React.Fragment, null, renderText(cleaned, 'card-bench-' + String(context?.messageId ?? 'x')))
-        }
-        // 不再依赖 turn：Tavern 的渲染链路只服务游玩对话，工作台/设置页不走这里，
-        // 所以"只在游玩时出现"是天然成立的（之前按 turn 判定导致按钮永不出现）。
-        reportHost('renderer-takeover', { messageId: String(context?.messageId ?? ''), turn: context?.turn, cardBench: Boolean(context?.cardBench), textLen: String(text ?? '').length })
-        // 「自动生图」：生图规划开着时，正文渲染稳定后替**最新一轮**要一次计划，不用点按钮。
-        //   短消息（工具回执、寒暄）不配图；历史消息不规划；连续渲染时只认最后停下来的那一轮。
-        // 「🎨 生图」按钮完全不受影响 —— 点它依然是对那一条消息单独生图、重新生图。
-        // 自动配图已由**宿主侧**的 Tavern 官方接口桥接管（tavern.onTurnSettled → 规划 → attach），
-        // 图由 Tavern 自己按 anchor 渲染并与正文版本绑定。前端不再在渲染时发起规划 ——
-        // 否则同一条正文会被规划两次、出两批图。手动按钮不受影响，仍然可用。
-        return h(PlannedBody, {
-          text: String(text ?? ''),
-          messageId: context?.messageId,
-          turn: context?.turn,
-          sessionId: context?.sessionId,
-          renderText,
-        })
-      } catch (error) {
-        reportHost('render-error', { message: String(error?.message ?? error).slice(0, 300) })
-        return null
-      }
-    }
-
-    /**
-     * 消息级生图：挂在整条消息容器里（Tavern 的 extensionActions 通道），
-     * 不管这条消息是纯文本还是 HTML 面板卡，都能看到。图直接显示在消息下方。
-     */
-    function MessageImageButton(props) {
-      const { text, messageId, turn, sessionId } = props
-      const [plans, setPlans] = React.useState(null)
-      const [state, setState] = React.useState('idle')
-      const [note, setNote] = React.useState('')
-      const [hover, setHover] = React.useState(false)
-      const [progress, setProgress] = React.useState(0)
-
-      React.useEffect(() => {
-        if (!plans || !plans.length) return
-        let alive = true
-        const timer = setInterval(async () => {
-          if (!alive) return
-          let done = 0
-          for (const p of plans) {
-            const r = await jsonFetch(BASE + '/jobs?id=' + encodeURIComponent(p.jobId)).catch(() => null)
-            if (r?.job?.status === 'done') done += 1
-          }
-          if (!alive) return
-          setProgress(done)
-          if (done >= plans.length) clearInterval(timer)
-        }, 4000)
-        return () => { alive = false; clearInterval(timer) }
-      }, [plans])
-
-      async function generate() {
-        if (state === 'working') return
-        setState('working')
-        setNote('')
-        setPlans(null)
-        reportHost('plan-request', { messageId: String(messageId ?? ''), textLen: String(text ?? '').length, source: 'message-action' })
-        try {
-          const r = await jsonFetch(BASE + '/plan', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ messageId, turn, text, sessionId, manual: true }),
-          })
-          const list = r.plans ?? []
-          reportHost('plan-response', { ok: r?.ok, plans: list.length, error: r?.error ?? '' })
-          if (!list.length) { setState('failed'); setNote(r.error || '没有产出画面'); return }
-          setState('done')
-          setPlans(list)
-          try {
-            reportHost('inline-dispatch', { messageId: String(messageId ?? ''), textLen: String(text ?? '').length, plans: list.length })
-            window.dispatchEvent(new CustomEvent('dsh-tavern-image:planned', { detail: { messageId: String(messageId ?? '') } }))
-          } catch (error) { reportHost('inline-dispatch-failed', { message: String(error?.message ?? error) }) }
-        } catch (error) {
-          reportHost('plan-threw', { message: String(error?.message ?? error).slice(0, 300) })
-          setState('failed')
-          setNote(error && error.message ? error.message : String(error))
-        }
-      }
-
-      const busy = state === 'working'
-      return React.createElement('div', { style: { margin: '6px 0 10px' } },
-        React.createElement('div', { style: { textAlign: 'right' } },
-          React.createElement('button', {
-            type: 'button',
-            disabled: busy,
-            onClick: generate,
-            onMouseEnter: () => setHover(true),
-            onMouseLeave: () => setHover(false),
-            title: '按这一整段回复生成插图',
-            style: {
-              padding: '3px 12px', fontSize: '12px', borderRadius: '8px',
-              border: '1px solid rgba(120,140,170,.5)',
-              background: hover ? 'rgba(106,168,255,.16)' : 'rgba(106,168,255,.06)',
-              color: state === 'failed' ? '#f2686b' : '#b9c3d1',
-              cursor: busy ? 'default' : 'pointer',
-            },
-          }, busy ? '🎨 生成中…' : state === 'failed' ? '🎨 重试' : state === 'done' ? '🎨 重新生图' : '🎨 生图'),
-          note ? React.createElement('span', { style: { fontSize: '11px', color: '#f2686b', marginLeft: '8px' } }, note) : null,
-        ),
-        // 图只显示在正文里（这里不再重复显示），按钮留着触发
-      )
-    }
-
     function ImageOverlay() {
       const [view, setView] = React.useState({ open: false, jobIds: [], note: '', working: false, index: 0 })
       // 缩放与平移：滚轮缩放、按住拖动（触摸同样支持）
@@ -1981,56 +1451,16 @@ function versionsOf(jobId) {
       ))
     }
 
-    function DockImageButton(props) {
-      const [working, setWorking] = React.useState(false)
-      const [hover, setHover] = React.useState(false)
-      async function run() {
-        if (working) return
-        setWorking(true)
-        try {
-          if (openImageOverlay) openImageOverlay({ open: true, jobIds: [], note: '', working: true })
-          const r = await jsonFetch(BASE + '/plan', {
-            method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ sessionId: String(props?.sessionId ?? lastSessionId ?? ''), turn: 0, manual: true }),
-          })
-          const ids = (r.plans || []).map(p => p.jobId).filter(Boolean)
-          if (openImageOverlay) openImageOverlay({ open: true, jobIds: ids, note: ids.length ? ('本轮 ' + ids.length + ' 张') : (r.error || '没产出画面'), working: false })
-        } catch (error) {
-          if (openImageOverlay) openImageOverlay({ open: true, jobIds: [], note: '生成失败：' + (error && error.message ? error.message : error), working: false })
-        } finally {
-          setWorking(false)
-        }
-      }
-      return React.createElement('button', {
-        type: 'button',
-        title: '按最新一段正文生成插图',
-        disabled: working,
-        onClick: run,
-        onMouseEnter: () => setHover(true),
-        onMouseLeave: () => setHover(false),
-        style: {
-          padding: '4px 12px', fontSize: '13px', borderRadius: '8px',
-          border: '1px solid rgba(120,140,170,.55)',
-          background: hover ? 'rgba(106,168,255,.16)' : 'rgba(106,168,255,.07)',
-          color: '#dbe3ee', cursor: working ? 'default' : 'pointer', whiteSpace: 'nowrap',
-        },
-      }, working ? '🎨 生成中…' : '🎨 生图')
-    }
-
-    // ================= 助手消息下方的「生图」按钮（保留，万一以后能用） =================
-    /** 点了之后就地规划这一条消息的正文，并通知正文里的图重新取一次计划。 */
+    // 生图按钮兼容没有 registerIllustrator 的宿主。
     function ImageActionButton(props) {
       const messageId = String(props?.messageId ?? '')
       const sessionId = String(props?.sessionId ?? '')
       const [state, setState] = React.useState('idle')
       const [note, setNote] = React.useState('')
-      // 正文由宿主自己从会话里读（不依赖前端的渲染钩子）；这里只在已知太短时藏掉按钮
-      const cached = textByMessage.get(messageId)
-      const usable = cached === undefined ? true : cached.trim().length >= 12
       const [jobIds, setJobIds] = React.useState([])
 
       async function generate() {
-        if (state === 'working' || !usable) return
+        if (state === 'working') return
         setState('working')
         setNote('')
         try {
@@ -2048,7 +1478,6 @@ function versionsOf(jobId) {
           setState('done')
           setNote('已生成 ' + list.length + ' 张')
           setJobIds(list.map(item => item.jobId).filter(Boolean))
-          // 正文里那套渲染是另一个组件，靠这个事件让它去取新计划并插图
           try { window.dispatchEvent(new CustomEvent('dsh-tavern-image:planned', { detail: { messageId } })) } catch {}
         } catch (error) {
           setState('failed')
@@ -2056,7 +1485,6 @@ function versionsOf(jobId) {
         }
       }
 
-      if (!usable) return null
       const label = state === 'working' ? '🎨 生成中…' : state === 'done' ? '🎨 重新生图' : state === 'failed' ? '🎨 重试生图' : '🎨 生图'
       const images = state === 'done' && jobIds.length
         ? React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px', width: '100%' } },
