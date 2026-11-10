@@ -6,9 +6,9 @@ import { selectStageEntrance } from './domain/stage-entrance.js'
 import { rawData } from '../../../lib/domain/card-preparation.js'
 import { readCardAssetExtension } from '../../../lib/domain/card-asset-bindings.js'
 import { hasCardAssetBindings } from '../../../lib/card-asset-bindings.js'
-import { normalizeBubbleConfig, effectiveBubbleMoods, syncDialogueBubbleWorldbook } from '../../../lib/domain/dialogue-bubbles.js'
+import { normalizeBubbleConfig, syncDialogueBubbleWorldbook } from '../../../lib/domain/dialogue-bubbles.js'
 import { selectPackFigure } from './domain/asset-pack-presentation.js'
-import { effectiveVoiceLanguage } from '../../../src/client/bubble-line.cjs'
+import { effectiveVoiceLanguage, figureBubbleMoods } from '../../../src/client/bubble-line.cjs'
 import { assetPackDigest } from './domain/stage-asset-pack-catalogue.js'
 import { collectSpriteDialogue } from '../../../lib/domain/layered-sprite-dialogue.js'
 import { inspectWorldBookDocument, updateWorldBookDocument } from '../../../lib/domain/worldbook-resource.js'
@@ -40,10 +40,12 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
   const stage = effectiveCardStage(extension, engine), chosen = cardStageSkin(extension, engine, packSnapshots.map(pack => pack.manifest))
   const dialogue = engine.dialogue, models = []
   const rows = figureCatalogue({snapshots:packSnapshots,bindings:extension?.assetBindings,globalEnabledPackIds}).filter(row => row.enabled)
+  const figuresByAlias = new Map(rows.map(row => [row.actorKey, row]))
+  const packsById = new Map(packSnapshots.map(pack => [pack.manifest.id, pack]))
   const characters = rows.map(row => {
     const {actorKey:alias,figure,ref} = row
     const value = {name:figure.name,description:figure.description,appearance:figure.appearance,aliases:figure.aliases || [],ref,recall:figure.recall}
-    const pack = packSnapshots.find(pack => pack.manifest.id === ref.packId)
+    const pack = packsById.get(ref.packId)
     const voice = pack?.manifest.voiceLibrary?.voices[figure.voice?.voice]
     const source = voice && figure.voice?.source !== null ? voice.sources[figure.voice.source ?? voice.defaultSource] : null
     const voiceDirection = source?.provider === 'fish-audio' && chooseService(source, services)?.capabilities?.voiceDirections === true
@@ -64,9 +66,10 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
   // settings has no figures to show and writes plain text (no dialogue-format injection) until 「开启对话气泡」.
   const config = normalizeBubbleConfig({...dialogue, enabled:!!extension && stage.dialogue, characters,
     stage:{theme:typeof chosen.skin === 'string' ? chosen.skin : 'classic',enabled:!!extension && stage.stage,director:!!extension && stage.stage,music:stage.music,widgets:stage.widgets}})
+  // These are resolved catalogue rows. Their normalized emotions need no speaker lookup.
   config.characters = config.characters.map(({avatar, moods, full, ...character}) => {
-    const row = rows.find(row => row.actorKey === character.alias), {ref,figure} = row
-    const pack = packSnapshots.find(pack => pack.manifest.id === ref.packId)
+    const row = figuresByAlias.get(character.alias), {ref,figure} = row
+    const pack = packsById.get(ref.packId)
     character.color = (figure.imageColor ?? figure.autoColor ?? '').toLowerCase()
     // Transcript portraits use the bound figure's default outfit, not stage directions.
     const media = emotion => {
@@ -77,7 +80,7 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
     const promptEmotionIds = (figure.emotions || []).map(row=>row.id)
     // 通用声音 speaks an enabled figure that has no voice binding (one set to 「不配音」, source null, stays silent).
     const general = stage.voice && figure.enabled && !figure.voice
-    return {...character, ...(general ? {general:true} : {}), promptEmotionIds, defaultEmotion:figure.outfits.find(outfit=>outfit.enabled)?.defaultEmotion || figure.emotions?.[0]?.id || null, ref, aliases:figure.aliases || [], recall:figure.recall, voiceKey:figure?.voice ? assetPackDigest({ref,voice:figure.voice,voiceSpec:pack?.manifest.voiceLibrary?.voices[figure.voice.voice],readings:extension?.readings || null}) : null, avatarMedia:{default:media(figure.outfits.find(o=>o.enabled)?.defaultEmotion || figure.emotions?.[0]?.id), moods:Object.fromEntries(effectiveBubbleMoods(config, character.alias).map(mood => [mood.id, media(mood.id)]))},
+    return {...character, ...(general ? {general:true} : {}), promptEmotionIds, defaultEmotion:figure.outfits.find(outfit=>outfit.enabled)?.defaultEmotion || figure.emotions?.[0]?.id || null, ref, aliases:figure.aliases || [], recall:figure.recall, voiceKey:figure?.voice ? assetPackDigest({ref,voice:figure.voice,voiceSpec:pack?.manifest.voiceLibrary?.voices[figure.voice.voice],readings:extension?.readings || null}) : null, avatarMedia:{default:media(figure.outfits.find(o=>o.enabled)?.defaultEmotion || figure.emotions?.[0]?.id), moods:Object.fromEntries(figureBubbleMoods([], character.emotions).map(mood => [mood.id, media(mood.id)]))},
       voiceLanguage:figureVoiceLanguage(figure, pack)}
   })
   config.stage.styles = directionStyles(packSnapshots, extension?.assetBindings.boundPackIds, globalEnabledPackIds)
