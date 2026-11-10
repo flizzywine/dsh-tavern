@@ -146,14 +146,14 @@ export function createTavernRemoteAssetPinStore(options = {}) {
     loaded = true
   }
 
-  async function persist(key, value) {
+  async function persist(change) {
     if (typeof updateJson !== 'function') return
     mutationTail = mutationTail.catch(() => {}).then(async function () {
       await updateJson(storagePath, function (current) {
         const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
         next.version = 2
         next.pins = next.pins && typeof next.pins === 'object' ? Object.assign({}, next.pins) : {}
-        next.pins[key] = clone(value)
+        change(next)
         next.updatedAt = Date.now()
         return next
       })
@@ -161,26 +161,17 @@ export function createTavernRemoteAssetPinStore(options = {}) {
     await mutationTail
   }
 
-  async function persistAsset(asset) {
-    if (typeof updateJson !== 'function') return
-    mutationTail = mutationTail.catch(() => {}).then(async function () {
-      await updateJson(storagePath, function (current) {
-        const next = current && typeof current === 'object' ? Object.assign({}, current) : {}
-        next.version = 2
-        next.pins = next.pins && typeof next.pins === 'object' ? Object.assign({}, next.pins) : {}
-        next.assets = next.assets && typeof next.assets === 'object' ? Object.assign({}, next.assets) : {}
-        next.assets[asset.url] = {
-          hash: asset.hash,
-          path: asset.path,
-          mediaType: asset.mediaType,
-          content: asset.content,
-          cachedAt: asset.cachedAt
-        }
-        next.updatedAt = Date.now()
-        return next
-      })
+  function persistAsset(asset) {
+    return persist(next => {
+      next.assets = next.assets && typeof next.assets === 'object' ? Object.assign({}, next.assets) : {}
+      next.assets[asset.url] = {
+        hash: asset.hash,
+        path: asset.path,
+        mediaType: asset.mediaType,
+        content: asset.content,
+        cachedAt: asset.cachedAt
+      }
     })
-    await mutationTail
   }
 
   function cacheFixed(reference) { return shared("asset:" + reference.url, () => cacheFixedOnce(reference)) }
@@ -228,7 +219,7 @@ export function createTavernRemoteAssetPinStore(options = {}) {
     if (!FIXED_COMMIT.test(commit)) throw new Error('GitHub 返回了无效提交号')
     const value = { owner: reference.owner, repo: reference.repo, ref: reference.ref, commit, resolvedAt: Date.now() }
     memory.set(key, value)
-    await persist(key, value)
+    await persist(next => { next.pins[key] = clone(value) })
     return value
   }
 
