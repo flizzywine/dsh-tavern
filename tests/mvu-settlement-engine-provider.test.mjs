@@ -19,9 +19,10 @@ function fixture(providerResult) {
     participantRequest: { sessionId: 'background' },
     async checkpointMessage() {}, bindSession() {}, participant() { return null }
   }
-  let loadedUpdateRules = 0, fallbackInput, providerRuns = 0
+  let loadedUpdateRules = 0, fallbackInput, providerRuns = 0, auxiliaryRuns = 0
   const mvuSettlement = {
     async resumeProviderVariables() { providerRuns++; return { submission: { operations: [] }, receipt: { status: 'updated', changes: [] } } },
+    async settleAuxiliary() { auxiliaryRuns++; return { posture: '站在林间', text: '', traceSessionId: 'auxiliary' } },
     async settleVariables(input) { fallbackInput = input; return { receipt: { status: 'unchanged', changes: [] } } }
   }
   const engine = createMvuSettlementEngine({
@@ -35,8 +36,18 @@ function fixture(providerResult) {
       mvuProviderRegistered: owner => owner === 'card-provider'
     }
   })
-  return { engine, snapshot, taskRun, providerRuns: () => providerRuns, counts: () => ({ loadedUpdateRules, fallbackInput }) }
+  return { engine, snapshot, taskRun, providerRuns: () => providerRuns, auxiliaryRuns: () => auxiliaryRuns, counts: () => ({ loadedUpdateRules, fallbackInput }) }
 }
+
+test('明确无变化但启用姿势时仍派发 MVU 并完成辅助姿势', async () => {
+  const { engine, snapshot, taskRun, providerRuns, auxiliaryRuns } = fixture({ owner: 'card-provider', operations: [], unchanged: true })
+  snapshot.backgroundTasks.posture = true
+  const result = await engine.run({ snapshot, taskRun, card: {}, trace: {}, backgroundTasksSettings: engine.settings(snapshot), mvuTarget: engine.target(snapshot) })
+  assert.equal(providerRuns(), 1)
+  assert.equal(auxiliaryRuns(), 1)
+  assert.equal(result.posture, '站在林间')
+  assert.equal(result.mvuResult.runtimeSkipped, undefined)
+})
 
 test('明确无变化的 provider 回执无需运行浏览器 MVU，普通空补丁仍投递', async () => {
   for (const unchanged of [false, true]) {
