@@ -4,7 +4,8 @@ import { ENGINE_SECTION, defaultAssetEngineSettings, validateAssetEngineSettings
 import { check, canonicalJson } from '../../dsh-presentation-protocol/src/asset-pack-json.js'
 
 // DSH owns persistence; this module never writes a second settings file.
-export function createAssetEngineSettings(ctx) {
+// owner: the profile entry context that holds the section (dsh-tavern's; native-settings.js installSettingsSection).
+export function createAssetEngineSettings(ctx, owner = ctx) {
   const entry = defaultAssetEngineSettings()
   const schema = z.object(Object.fromEntries(Object.entries(entry).map(([key, value]) => [key, z.any().default(value)])))
   let source = () => entry, active = true, chain = Promise.resolve()
@@ -16,19 +17,19 @@ export function createAssetEngineSettings(ctx) {
     // these `dimensions` (舞台引擎 › 可用演出) are the one director
     // command setting; a card's stored stage.dimensions is ignored (cardEngineSettings).
     const values = source()
-    return { values, revision:engineSettingsRevision(values), writable:!!settingsSectionProvider(ctx, ENGINE_SECTION) && settingsSectionProvider(ctx, ENGINE_SECTION).writable !== false, live:true }
+    return { values, revision:engineSettingsRevision(values), writable:!!settingsSectionProvider(ctx, ENGINE_SECTION, owner) && settingsSectionProvider(ctx, ENGINE_SECTION, owner).writable !== false, live:true }
   }
   ctx.inject(['settings'], child => {
     installSettingsSection(ctx, child.get('settings'), ENGINE_SECTION, schema, entry, {
       setSource:fn => { source = fn }, onChange:changed, validate:validateAssetEngineSettings,
-    })
+    }, owner)
   })
   ctx.effect(() => () => { active = false; changed(); listeners.clear() })
   function serial(task) { const pending = chain.then(task); chain = pending.catch(() => {}); return pending }
   async function replace(next, expectedRevision) {
     const current = read()
     check(typeof expectedRevision === 'string' && current.revision === expectedRevision, '$.expectedRevision', 'Engine settings changed', 'REVISION_CONFLICT')
-    const provider = settingsSectionProvider(ctx, ENGINE_SECTION)
+    const provider = settingsSectionProvider(ctx, ENGINE_SECTION, owner)
     check(!!provider && provider.writable !== false, '$', 'Native settings unavailable or read-only', 'SETTINGS_UNAVAILABLE')
     const nativeRevision = provider.describe?.().find(section => section.ns === ENGINE_SECTION)?.revision
     await provider.replace(ENGINE_SECTION, next, nativeRevision)
