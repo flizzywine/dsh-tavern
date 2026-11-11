@@ -1,5 +1,6 @@
-import { access, copyFile, cp, mkdir, readFile, readdir, stat } from 'node:fs/promises'
+import { access, copyFile, mkdir, readFile, readdir, stat } from 'node:fs/promises'
 import os from 'node:os'
+import {copyBackupFiles} from '../metadata-backup.js'
 import path from 'node:path'
 import { createDurableFilePromotion } from '../durable-file-promotion.js'
 
@@ -149,15 +150,22 @@ export async function migrateLegacyTavernData(options) {
   const migrated = new Set((Array.isArray(marker.sources) ? marker.sources : []).map((item) => path.resolve(item.path)))
   let migratedSources = 0
   let conflicts = 0
+  let backup
+  const originalFiles=[]
+  for(const name of [...MERGED_JSON_FILES,MIGRATION_MARKER])if(await exists(path.join(targetRoot,name)))originalFiles.push(name)
 
   for (const candidate of options.legacyRoots || []) {
     const source = path.resolve(candidate.path)
     if (source === targetRoot || migrated.has(source) || !await exists(source) || !(await stat(source)).isDirectory()) continue
     const label = safeLabel(candidate.label || path.basename(path.dirname(source)))
     const stamp = String(now())
-    const backup = await uniqueBackupPath(backupRoot, stamp, label)
-    await mkdir(backup, { recursive: true })
-    await cp(source, path.join(backup, 'data'), { recursive: true, errorOnExist: true, force: false })
+    if(!backup) {
+      backup = await uniqueBackupPath(backupRoot, stamp, 'legacy-data')
+      await mkdir(backup, { recursive: true })
+    }
+    const changed = []
+    for (const name of originalFiles) if (name === MIGRATION_MARKER || await exists(path.join(source,name))) changed.push(name)
+    await copyBackupFiles(targetRoot, path.join(backup, 'data'), changed, {reuse:true})
     const sourceConflicts = await mergeTree(source, targetRoot, label)
     marker.sources.push({ path: source, label, migratedAt: Number(stamp), backup, conflicts: sourceConflicts })
     await writeJsonAtomic(markerPath, marker)
