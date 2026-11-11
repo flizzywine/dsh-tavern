@@ -24037,6 +24037,10 @@ function tavernModelRefusalNotice(text) {
 		  } while (ordinal < rank)
 		  return candidate
 		}
+		function createSpeakerHandleResolver(rows) {
+		  const index = speakerIndex(rows)
+		  return row => indexedSpeakerHandle(index, row)
+		}
 		function figureSpeakerHandle(rows, row) {
 		  return indexedSpeakerHandle(speakerIndex(rows), row)
 		}
@@ -24065,7 +24069,7 @@ function tavernModelRefusalNotice(text) {
 		  if (named.length && !named.some(row => speakerIdentity(row) === speakerIdentity(found))) return {status:'conflict', actorKey:found.actorKey, ref:found.ref};
 		  return {status:'resolved', actorKey:found.actorKey, ref:found.ref, row:found};
 		}
-		return {normalizeCatalogueText, codepointCompare, promptHandleStem, figureSpeakerHandle, resolveFigureName, figureLatinAlias};
+		return {normalizeCatalogueText, codepointCompare, promptHandleStem, figureSpeakerHandle, createSpeakerHandleResolver, resolveFigureName, figureLatinAlias};
 		})();
 		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = figureResolution;
 		// Voice directions are projections; the story's raw text remains authoritative; the protocol's voice-cues.cjs projects them.
