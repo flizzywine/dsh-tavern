@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0c84eeceb50bad53b78756c022ba0d9f5c23e198",
-  "releaseSequence": 1461,
+  "revision": "87b6153eb520aaa2dd44983bf9a100d69c65f3ec",
+  "releaseSequence": 1462,
   "version": "3.3.0",
   "files": [
     {
@@ -1016,8 +1016,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "0b721951a72a491d7cfba3c3af127175a25bd79000134c452924e7e99e817eb5",
-      "size": 5975353
+      "sha256": "4b10ec909f7bf49b9795e71a3c3a9ca54881cc44e560d719aceda016d76419b6",
+      "size": 5975813
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2581,8 +2581,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-body-regeneration.js",
-      "sha256": "ae34f6aa9ff2a35a58bbc745084daba301fa1b70f3d864d310fb125060f089df",
-      "size": 25634
+      "sha256": "e7307f7d0cf122f4c10499b12788e0f74d72160886d636bffa4eecb239f80f7f",
+      "size": 25658
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-callback.js",
@@ -2881,8 +2881,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/round-history.js",
-      "sha256": "14f9f6e207382e5c24273bf4a964a9f04f06e92c823410963fd4be4cd84b5275",
-      "size": 97106
+      "sha256": "e247a560c105912253a7666b2d8e66a9af80665df194bb4dad4853ade0f9effb",
+      "size": 97138
     },
     {
       "path": "tavern-plugin/lib/domain/runtime-content-projection.js",
@@ -3931,8 +3931,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "4f3440d3984c15ce0536dbdbd64cf90b84dbbce38b41a8849977fc35369846d1",
-      "size": 275935
+      "sha256": "e6537785854b1ae3ffe57915ef329ed98952d8bb742d10938d47ca1717ab0d0a",
+      "size": 276156
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -8481,9 +8481,9 @@
     }
   ],
   "archive": {
-    "commit": "ab54d5f434ba80d9663513af17bfd7533a40a0ba",
+    "commit": "86079f1e433895104503b93ddb0b5ba8d780e1f4",
     "path": "runtime.zip",
-    "sha256": "dccecee8ad98d741fbaf4c0a1374b1f8723c229059e5fed5092f7b6ebccb44ab",
-    "size": 15172801
+    "sha256": "47ace90dc85dc3934a584dd8c49e501f11365b97be81c817cd761b013cae71b8",
+    "size": 15173023
   }
 }
