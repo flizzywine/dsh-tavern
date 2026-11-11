@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "450fac4367c7f049e28c96e2b5c0a5340f3098c9",
-  "releaseSequence": 1497,
+  "revision": "53dab81855bc6e27f7a70892bc38da83a0fbec92",
+  "releaseSequence": 1498,
   "version": "3.3.0",
   "files": [
     {
@@ -1901,8 +1901,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/game-save-import.js",
-      "sha256": "2ede7f58c65c929aa0e0d41f73ec21dc48c9c776a5f7f1cdca4a8cf43240e503",
-      "size": 9027
+      "sha256": "43d23d0d371bba019d1db3fa9d3294deafe8c591b584b0dd2f9676028f98bef6",
+      "size": 9267
     },
     {
       "path": "tavern-plugin/lib/domain/game-save-resources.js",
@@ -3991,8 +3991,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "2c18c0fe961e6b02b2c2e5265a4202c41b364ef6311018e90a19147c6eafe1cb",
-      "size": 277158
+      "sha256": "4d486fed0174cac2784f20e8370d4de01b553e97d87ccc47bbb7b27458e22f59",
+      "size": 277412
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -8611,9 +8611,9 @@
     }
   ],
   "archive": {
-    "commit": "35273d5eafd7e2d144d02a4ba1b4bd0d3f7baeec",
+    "commit": "e60e00713754ded121f5de72053293c9203924ee",
     "path": "runtime.zip",
-    "sha256": "6c037a27b84fbe2ef1599e9adb58ace67fd1cc8b43bac22ac28b3c5406821669",
-    "size": 15299146
+    "sha256": "67cfb8ca95f6165808f06f7ac94aa6e88b6bc0b8272aacd83875ac5cb6c77248",
+    "size": 15299308
   }
 }
