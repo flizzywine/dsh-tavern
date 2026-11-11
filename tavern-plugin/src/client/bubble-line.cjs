@@ -216,10 +216,63 @@ function voiceTranslates(language) {
 function characterVoiceLanguage(character) {
     return effectiveVoiceLanguage(character?.voiceLanguage || character?.voiceLang);
 }
+// A line spoken with 通用声音: a figure on the card without a voice of its own, or a speaker that is no figure (a
+// passing NPC with a name). 「不配音」 figures stay silent.
+function speaksGeneral(config, character, segment) {
+    return Boolean(config?.voice?.general) && (character ? character.general === true && !character.voice : Boolean(String(segment?.name || '').trim()));
+}
+// The 配音语言 a line is spoken in: its figure's, 通用声音's for a general line; null = the line is not spoken.
+function lineVoiceLanguage(config, character, segment) {
+    if (speaksGeneral(config, character, segment)) return effectiveVoiceLanguage(config.voice.generalLanguage);
+    return character?.voice ? characterVoiceLanguage(character) : null;
+}
+// 配音补译: a complete line of a speaker whose voice translates, written without a voice
+// field, is spoken from the voice text a background task wrote into its round (message.voiceBackfill, keyed by
+// voiceBackfillKey); the subtitle stays the display text. An explicitly empty voice field stays silent.
+// `language`: the line's lineVoiceLanguage (null = not spoken).
+function voiceBackfillNeeded(segment, language) {
+    return segment?.kind === 'bubble' && !segment.streaming && segment.speech === undefined && Boolean(language)
+        && voiceTranslates(language) && /[\p{L}\p{N}]/u.test(segment.text || '') && segment.text.length <= 1500;
+}
+function voiceBackfillKey(segment) {
+    return JSON.stringify([segment.alias ?? '', segment.name ?? '', segment.text]);
+}
+// The round's record on one parsed line (host round body): its voice text; or a hold while the round streams or its
+// task runs on this line; or, once that task failed, the display-text fallback. A line no record names keeps that
+// fallback too (an older round, or a line rewritten since).
+function applyVoiceBackfill(segment, record, streaming) {
+    if (segment?.kind !== 'bubble' || segment.streaming || segment.speech !== undefined) return segment;
+    const key = voiceBackfillKey(segment), voice = record?.lines?.[key], asked = record?.keys?.includes(key) === true;
+    if (typeof voice === 'string') { segment.speech = voice; segment.voiceBackfilled = true; }
+    else if (streaming || asked && record.status === 'pending') segment.voiceHold = true;
+    else if (asked && record.status === 'failed') segment.voiceFallback = true;
+    return segment;
+}
+// 旁白配音 in a 配音语言 other than 中文 (config.narrator.wholeParagraph, card-stage.js): a whole narration paragraph is
+// translated by the same 配音补译 task (keyed by narrationVoiceKey) and read from its first page; page turns inside the
+// paragraph do not cut it. A paragraph over the task's length stays Chinese.
+function narrationVoiceKey(text) {
+    return JSON.stringify(['旁白', text]);
+}
+function narrationBackfillNeeded(paragraph) {
+    return paragraph?.kind === 'narration' && !paragraph.pending && paragraph.speech === undefined
+        && /[\p{L}\p{N}]/u.test(paragraph.text || '') && paragraph.text.length <= 3000;
+}
+// The round's record on one narration paragraph, as applyVoiceBackfill does for a line (host round body).
+function applyNarrationBackfill(paragraph, record, streaming) {
+    if (paragraph.kind !== 'narration' || paragraph.pending || !/[\p{L}\p{N}]/u.test(paragraph.text || '')) return paragraph;
+    const key = narrationVoiceKey(paragraph.text), voice = record?.lines?.[key], asked = record?.keys?.includes(key) === true;
+    if (typeof voice === 'string') { paragraph.speech = voice; paragraph.voiceBackfilled = true; }
+    else if (streaming || asked && record.status === 'pending') paragraph.voiceHold = true;
+    else if (asked && record.status === 'failed') paragraph.voiceFallback = true;
+    return paragraph;
+}
 // Shared by playback and export; missing voice text uses the display text with the same bound voice.
 // An explicitly empty/incomplete voice field stays silent; identity/mood resolution stays with the caller.
+// A held line (applyVoiceBackfill) of a translating speaker waits for its voice text.
 function packSpeechInput(segment, config, character, mood) {
     if (segment.kind !== 'bubble' || segment.streaming || !character?.voice) return null;
+    if (segment.voiceHold === true && voiceBackfillNeeded(segment, characterVoiceLanguage(character))) return null;
     const text = segment.speech ?? segment.text;
     if (!speakableText(text)) return null;
     return {text, mood:mood?.id || character.defaultEmotion || null};
@@ -228,4 +281,4 @@ function packSpeechInput(segment, config, character, mood) {
 function speakableText(text) {
     return Boolean(text) && /[\p{L}\p{N}]/u.test(text) && text.length <= 1500;
 }
-if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { bubbleSpeechCut, createBubbleStream, projectVoiceCues, hasLeadingVoiceCue, stripBubbleCodeQuote, parseBubbles, matchBubbleMood, bubbleDisplayName, figureBubbleMoods, bubbleCharacter, stageActorCharacter, effectiveVoiceLanguage, voiceTranslates, characterVoiceLanguage, packSpeechInput, speakableText };
+if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { bubbleSpeechCut, createBubbleStream, projectVoiceCues, hasLeadingVoiceCue, stripBubbleCodeQuote, parseBubbles, matchBubbleMood, bubbleDisplayName, figureBubbleMoods, bubbleCharacter, stageActorCharacter, effectiveVoiceLanguage, voiceTranslates, characterVoiceLanguage, speaksGeneral, lineVoiceLanguage, voiceBackfillNeeded, voiceBackfillKey, applyVoiceBackfill, narrationVoiceKey, narrationBackfillNeeded, applyNarrationBackfill, packSpeechInput, speakableText };

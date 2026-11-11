@@ -14,8 +14,9 @@ export function fishVoiceMetadata(v) {
 export function createFishDiscovery({fetch = globalThis.fetch} = {}) {
   async function get(provider, secret, route) {
     const config = providerConfig('fish-audio',provider.config), signal = AbortSignal.timeout(10000)
+    // no answer at all (refused, reset, timed out) is the server not running, not a failed request
+    const response = await fetch(config.url + route,{method:'GET',headers:secret?.key ? {Authorization:'Bearer ' + secret.key} : {},redirect:'error',signal}).catch(() => fail(signal.aborted ? 'TIMEOUT' : 'SERVICE_OFFLINE'))
     try {
-      const response = await fetch(config.url + route,{method:'GET',headers:secret?.key ? {Authorization:'Bearer ' + secret.key} : {},redirect:'error',signal})
       if (!response.ok) { await response.body?.cancel(); fail(({401:'FISH_AUTH_FAILED',403:'FISH_AUTH_FAILED',404:'VOICE_NOT_FOUND',429:'FISH_RATE_LIMITED'})[response.status] || 'FISH_REQUEST_FAILED') }
       const chunks = []; let size = 0
       for await (const chunk of response.body) { size += chunk.length; if (size > 2 * 1024 ** 2) fail('FISH_REQUEST_FAILED'); chunks.push(chunk) }
@@ -38,7 +39,9 @@ export function createFishDiscovery({fetch = globalThis.fetch} = {}) {
       // idleUnloadMs: 0 = resident; otherwise the model unloads after that long unused unless a `/v1/hold` lease is live.
       const concurrency = limit(data.capabilities?.concurrency, 16), loadTimeoutMs = limit(data.capabilities?.loadTimeoutMs, 600000), idleUnloadMs = limit(data.capabilities?.idleUnloadMs, 86400000)
       // voiceLibrary: the server serves Fish's voice library API (/model listing, search and ID lookup) for 声音库 voice IDs.
-      return {voices:[],models,source:'live',state:['loading','ready','sleeping','paused','error'].includes(data.state) ? data.state : 'unknown',capabilities:{prepareVoice:data.capabilities?.prepareVoice === true,voiceDirections:data.capabilities?.voiceDirections === true,
+      // Optional recent speed of a local worker (dsh-local-voice): median RTF and first PCM of its last lines, its VRAM cache budget.
+      const speed = data.speed && typeof data.speed === 'object' ? data.speed : null, number = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+      return {voices:[],models,source:'live',...(speed ? {speed:{rtf:number(speed.rtf),firstPcmP50Ms:number(speed.firstPcmP50Seconds) === null ? null : Math.round(speed.firstPcmP50Seconds * 1000),gpuBudget:number(speed.gpuBudget),degraded:speed.degraded === true}} : {}),state:['loading','ready','sleeping','paused','error'].includes(data.state) ? data.state : 'unknown',capabilities:{prepareVoice:data.capabilities?.prepareVoice === true,voiceDirections:data.capabilities?.voiceDirections === true,
         hold:data.capabilities?.hold === true,voiceLibrary:data.capabilities?.voiceLibrary === true,...(concurrency ? {concurrency} : {}),...(loadTimeoutMs !== undefined ? {loadTimeoutMs} : {}),...(idleUnloadMs !== undefined ? {idleUnloadMs} : {})}}
     },
     // Whether the server answers Fish's public voice library API (a public listing): asked of a server without `/v1/info`.

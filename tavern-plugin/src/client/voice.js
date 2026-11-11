@@ -2,6 +2,8 @@
 // @include pack-playback.cjs
 // @include browser-speech.cjs
 let forkTtsScope;
+// The page's voice service client (ttsClient), read from the scope on each use.
+const pageTtsClient = () => forkTtsScope?.get('ttsClient');
 // The 配音 page's 浏览器朗读 row (service ttsBrowserSpeech): its voices and a 试听 at master volume.
 const browserSpeechService = (function () {
     let current = null;
@@ -18,13 +20,13 @@ const browserSpeechService = (function () {
         stop() { current?.pause(); }
     });
 })();
-const voicePlayer = createPackVoicePlayer({now: forkForeground.now, schedule: forkForeground.setInterval, cancel: forkForeground.clearInterval, getClient:() => forkTtsScope?.get('ttsClient'),
+const voicePlayer = createPackVoicePlayer({now: forkForeground.now, schedule: forkForeground.setInterval, cancel: forkForeground.clearInterval, getClient:pageTtsClient,
     createSpeech:line => browserSpeechClip(line),
     prepareAudio:(audio,blob,result) => {if(audio.browserSpeech){audio.playbackRate=stageReading.get().voiceRate;return;}forkForeground.media(audio);forkStageAudio.prepareVoice(audio,blob,result.loudness);audio.preservesPitch=true;audio.playbackRate=stageReading.get().voiceRate;},
     disposeAudio:audio => { if (!audio.browserSpeech) forkStageAudio.release(audio); },
     onAudio:audio => forkStageAudio.voice(Boolean(audio))});
 // Whether the voice service is on for this page (ttsClient): the stage voices and a reply's 🔊 show only then.
-const ttsClientAvailable = () => Boolean(forkTtsScope?.get('ttsClient')?.available());
+const ttsClientAvailable = () => Boolean(pageTtsClient()?.available());
 function voiceObservedTurn(_session,_turn,running) { return running; }
 // @include voice-speech.cjs
 function useVoiceBubbles(props,segments,_cardPath,config) {

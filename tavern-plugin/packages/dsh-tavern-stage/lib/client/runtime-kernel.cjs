@@ -277,10 +277,11 @@ function reduceStageRuntime(previous, event) {
         patch({projection: null});
         pending({projection: false, resources: false});
     }
-    function cancelPlayback(reason) {
+    // keep: the key of a sounding voice the page turn leaves alone (a whole translated narration paragraph, PAGE).
+    function cancelPlayback(reason, keep = null) {
         let ledger = state.ledger;
         for (const [key, entry] of Object.entries(ledger)) {
-            if (entry.status !== 'pending' && entry.status !== 'playing') continue;
+            if (entry.status !== 'pending' && entry.status !== 'playing' || key === keep) continue;
             if (ledger === state.ledger) ledger = {...ledger};
             // What already started is played; the consumer cuts it (cancel-playback), except that a page turn lets a
             // sounding one-shot SE ring out (option A; stage-sfx.js caps it).
@@ -292,7 +293,7 @@ function reduceStageRuntime(previous, event) {
             else ledger[key] = {...entry, status: 'skipped', reason};
         }
         patch({ledger, playbackEpoch:state.playbackEpoch+1, performancePlayback:null});
-        effect('cancel-playback', {source: state.source, visitId: state.cursor.visitId, reason});
+        effect('cancel-playback', {source: state.source, visitId: state.cursor.visitId, reason, ...(keep ? {keep: ledger[keep].token.id} : {})});
     }
     function cancelSource() {
         cancelTimer(); cancelProjection(); cancelPlayback('source-changed');
@@ -453,7 +454,9 @@ function reduceStageRuntime(previous, event) {
         // Voice starts only after the mounted consumer opens the stage, never during closed-session observation.
         if (state.opened && page?.voice && (!page.voice.narration || state.settings?.config?.narrator) && phoneBeatKernel.phoneModAutoVoiceAllowed(state.director,page.anchor.para,state.settings?.config?.stage?.director===true)) {
             // narration speaks per page (stageVoiceDescriptor); a line once per paragraph, its subtitle cards sharing the clip.
-            const key = JSON.stringify([sourceKey(state.source), 'voice', page.anchor.paragraphId, state.cursor.visitId, ...(page.voice.narration ? [page.anchor.offset] : [])]);
+            // A line held for its 配音补译 (silent under the plain key) plays once its voice text, or the fallback, arrives.
+            const key = JSON.stringify([sourceKey(state.source), 'voice', page.anchor.paragraphId, state.cursor.visitId, ...(page.voice.narration ? [page.anchor.offset] : []),
+                ...(page.voice.voiceBackfilled ? [page.voice.speech] : page.voice.voiceFallback ? ['fallback'] : [])]);
             ledgerEvent(key, page.anchor.para, {kind: 'voice', ...page.voice});
         }
     }
@@ -713,7 +716,14 @@ function reduceStageRuntime(previous, event) {
     case 'PAGE': {
         const page = state.text.pages[event.index];
         if (!page || sameAnchor(page.anchor, state.cursor.anchor)) break;
-        cancelPlayback('page-changed');
+        // 旁白 reading another language (config.narrator.wholeParagraph) reads its whole paragraph from the first page:
+        // turning forward inside that paragraph lets it go on (owner 11-11: 整段译好，同段翻页不打断).
+        const reading = state.settings?.config?.narrator?.wholeParagraph ? Object.keys(state.ledger).find(key => {
+            const entry = state.ledger[key];
+            return entry.status === 'playing' && entry.descriptor.kind === 'voice' && entry.descriptor.narration &&
+                entry.token.anchor.paragraphId === page.anchor.paragraphId && page.anchor.offset > entry.token.anchor.offset;
+        }) : null;
+        cancelPlayback('page-changed', reading || null);
         const forward = !state.cursor.anchor || page.anchor.para > state.cursor.anchor.para;
         // History reading never plays; live reading and a replay play what a forward page turn reaches.
         const plays = state.cursor.mode !== 'history';

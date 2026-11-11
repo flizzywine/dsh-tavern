@@ -3,6 +3,7 @@ import {spineRuntimeAvailable, spineRuntimeStatus, importSpineRuntime} from '../
 import {createCardStage, watchFigureBubbleBooks} from './card-stage.js'
 import {modelSlotRows} from '../../../lib/domain/model-slots.js'
 import {createStageWorkflow} from './workflow.js'
+import {createVoiceBackfill} from './voice-backfill.js'
 import {createStageRequests} from './requests.js'
 import {createStageStoryObserver} from './story-observer.js'
 // 舞台、导演与 mod 的组装。index.js 只用这里导出的三个工厂和它们的返回值。
@@ -235,6 +236,13 @@ export async function createStageModule(core) {
       else backgroundTaskPolicies.set('stage-director', previous)
     }
   }, 'dsh-tavern: director task policy')
+  // 配音补译: voice text for unrecalled foreign-voice lines, stored with the round (voice-backfill.js).
+  const voiceBackfill = createVoiceBackfill({workflow:core.workflow, chatHeaderForSession:core.chatHeaderForSession, dialogueBubbles:core.dialogueBubbles, chatForSession,
+    bodyForTurn:async (chat, turn) => (await replyDisplayForChat(chat, await readChatCard(chat), true)).projections.find(item => item.turn === turn)?.body,
+    voiceBackfillLines:core.voiceBackfillLines, voiceBackfillKept:core.voiceBackfillKept,
+    writeMessage:(chatId, index, mutate) => updateChatMessage(chatId, index, mutate, {source:'voice-backfill'}),
+    runAgent:input => backgroundAgentRunner.run(input), selection:sessionId => modelSelection(sessionId), blocked:chat => core.backgroundBlocked(chat)})
+  ctx.effect(() => () => voiceBackfill.dispose(), 'dsh-tavern: voice backfill')
   const stageWorkflow = createStageWorkflow({workflow:core.workflow, chatHeaderForSession:core.chatHeaderForSession,
     dialogueBubbles:core.dialogueBubbles,chatForSession,chatPersistence,stageDirector})
   ctx.effect(() => () => stageWorkflow.dispose(), 'dsh-tavern: stage workflow')

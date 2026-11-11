@@ -57,11 +57,13 @@ export async function outputPath(root, value, fresh = false) {
   inside(file)
   return file
 }
-export function validatePilot(action, plan, now = Date.now(), enforceBudget = true) {
-  keys(plan, action === 'design' ? ['language','characters','maxCostUsd'] : ['language','model','rows','maxCostUsd'])
-  if (!['design','pilot'].includes(action) || plan.language !== 'zh' || !Number.isFinite(plan.maxCostUsd) || plan.maxCostUsd <= 0 || plan.maxCostUsd > 0.5) fail('INVALID_INPUT')
+// local: a pilot on a configured local Fish-compatible service (e.g. the Drama 3 worker): free, no model or budget fields.
+export function validatePilot(action, plan, now = Date.now(), enforceBudget = true, local = false) {
+  if (local && action !== 'pilot') fail('INVALID_PROVIDER')
+  keys(plan, action === 'design' ? ['language','characters','maxCostUsd'] : local ? ['language','rows'] : ['language','model','rows','maxCostUsd'])
+  if (!['design','pilot'].includes(action) || plan.language !== 'zh' || (!local && (!Number.isFinite(plan.maxCostUsd) || plan.maxCostUsd <= 0 || plan.maxCostUsd > 0.5))) fail('INVALID_INPUT')
   let price = 0
-  if (action === 'pilot') {
+  if (action === 'pilot' && !local) {
     if (!Object.hasOwn(prices, plan.model)) fail('INVALID_INPUT')
     price = plan.model === 'drama-3' && now < Date.parse('2026-12-01T08:00:00Z') ? 10 : prices[plan.model]
   }
@@ -69,7 +71,7 @@ export function validatePilot(action, plan, now = Date.now(), enforceBudget = tr
   if (!Array.isArray(rows) || !rows.length || rows.length > 100) fail('INVALID_INPUT')
   const ids = new Set()
   const requests = rows.map(row => {
-    keys(row, action === 'design' ? ['id','instruction','reference_text','n'] : ['id','text','reference'])
+    keys(row, action === 'design' ? ['id','instruction','reference_text','n'] : ['id','text','reference','references'])
     if (typeof row.id !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(row.id) || ids.has(row.id)) fail('INVALID_INPUT')
     ids.add(row.id)
     if (action === 'design') {
@@ -77,23 +79,29 @@ export function validatePilot(action, plan, now = Date.now(), enforceBudget = tr
       if (!Number.isInteger(row.n) || row.n < 1 || row.n > 4) fail('INVALID_INPUT')
       return {id:row.id, body:{instruction:row.instruction, reference_text:row.reference_text, language:'zh', n:row.n}, textUtf8Bytes:Buffer.byteLength(row.reference_text), cost:10000000}
     }
-    chinese(row.text); keys(row.reference, ['file','text','audioBase64']); chinese(row.reference.text)
+    // One reference, or a whole reference pool (as an installed voice sends it) via references.
+    if ((row.reference === undefined) === (row.references === undefined)) fail('INVALID_INPUT')
+    const references = row.references ?? [row.reference]
+    if (!Array.isArray(references) || !references.length || references.length > 32) fail('INVALID_INPUT')
+    chinese(row.text); for (const reference of references) { keys(reference, ['file','text','audioBase64']); chinese(reference.text) }
     const textUtf8Bytes = Buffer.byteLength(row.text)
-    return {id:row.id, text:row.text, reference:row.reference, textUtf8Bytes, cost:textUtf8Bytes * price * 1000}
+    return {id:row.id, text:row.text, references, pool:row.references !== undefined, textUtf8Bytes, cost:textUtf8Bytes * price * 1000}
   })
-  if (enforceBudget && requests.reduce((n,r) => n + r.cost, 0) > Math.floor(plan.maxCostUsd * units)) fail('BUDGET_EXCEEDED')
-  return {requests, price, model:action === 'design' ? 'voice-design-1' : plan.model}
+  if (enforceBudget && !local && requests.reduce((n,r) => n + r.cost, 0) > Math.floor(plan.maxCostUsd * units)) fail('BUDGET_EXCEEDED')
+  return {requests, price, model:action === 'design' ? 'voice-design-1' : local ? null : plan.model}
 }
 
 // Reservations survive crashes and lost replies. Only a known unbilled response releases one.
 export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Date.now} = {}) {
   return async function run(args, provider, resolveKey) {
     keys(args, ['action','serviceId','plan','dryRun','confirm'])
-    if (typeof args.serviceId !== 'string' || args.serviceId !== provider.id || provider.kind !== 'fish-audio' || !isFishCloud(provider.config)) fail('INVALID_PROVIDER')
+    if (typeof args.serviceId !== 'string' || args.serviceId !== provider.id || provider.kind !== 'fish-audio') fail('INVALID_PROVIDER')
     if (!((args.dryRun === true && !args.confirm) || (args.confirm === true && !args.dryRun))) fail('INVALID_INPUT')
-    const prepared = validatePilot(args.action, args.plan, now(), args.dryRun === true)
+    // Design is cloud only; a pilot on a local Fish-compatible service is free and never touches the budget.
+    const local = !isFishCloud(provider.config)
+    const prepared = validatePilot(args.action, args.plan, now(), args.dryRun === true, local)
     if (!budgetRoot) fail('PILOT_STORAGE_UNAVAILABLE')
-    for (const row of prepared.requests) if (row.reference) row.referenceBytes = decodePilotAudio(row.reference.audioBase64)
+    for (const row of prepared.requests) if (row.references) row.referenceBytes = row.references.map(reference => decodePilotAudio(reference.audioBase64))
     const total = prepared.requests.reduce((n,r) => n + r.cost, 0)
     const budgetFile = join(budgetRoot, 'voice-pilot-budget.json'), lock = join(budgetRoot, 'voice-pilot-budget.lock')
     async function loadBudget() {
@@ -110,12 +118,12 @@ export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Da
     await mkdir(lock)
     try {
       const budget = await loadBudget()
-      const budgetExceeded = budget.reserved + total > cap || total > Math.floor(args.plan.maxCostUsd * units)
+      const budgetExceeded = !local && (budget.reserved + total > cap || total > Math.floor(args.plan.maxCostUsd * units))
       const receiptId = randomUUID()
       const receiptFile = join(budgetRoot, 'voice-pilot-receipts', receiptId + '.json')
       await mkdir(dirname(receiptFile), {recursive:true})
       const deadline = now() + 110000, signal = AbortSignal.timeout(110000)
-      const receipt = {receiptId, receiptFile, serviceId:args.serviceId, model:prepared.model, language:'zh', priceSource, priceUsd:args.action === 'design' ? 0.01 : prepared.price / 1000000, priceUnit:args.action === 'design' ? 'successful-request' : 'utf8-byte', accounting:'public-price-not-invoice', complete:false, stopReason:'in_progress', plannedRequests:prepared.requests.length, requests:prepared.requests.map(row => ({id:row.id, kind:args.action, ...(row.body ? {instruction:row.body.instruction, reference_text:row.body.reference_text} : {text:row.text, reference:{file:row.reference.file, text:row.reference.text}}), textUtf8Bytes:row.textUtf8Bytes, outcome:'not_attempted', unknownCostUsd:0, estimatedCostUsd:null, audio:[]}))}
+      const receipt = {receiptId, receiptFile, serviceId:args.serviceId, model:prepared.model, language:'zh', ...(local ? {priceSource:null, priceUsd:0, priceUnit:null, accounting:'local-free'} : {priceSource, priceUsd:args.action === 'design' ? 0.01 : prepared.price / 1000000, priceUnit:args.action === 'design' ? 'successful-request' : 'utf8-byte', accounting:'public-price-not-invoice'}), complete:false, stopReason:'in_progress', plannedRequests:prepared.requests.length, requests:prepared.requests.map(row => ({id:row.id, kind:args.action, ...(row.body ? {instruction:row.body.instruction, reference_text:row.body.reference_text} : {text:row.text, ...(row.pool ? {references:row.references.map(r => ({file:r.file, text:r.text}))} : {reference:{file:row.references[0].file, text:row.references[0].text}})}), textUtf8Bytes:row.textUtf8Bytes, outcome:'not_attempted', unknownCostUsd:0, estimatedCostUsd:null, audio:[]}))}
       const save = async () => {
         await writeFile(budgetFile + '.tmp', JSON.stringify(budget) + '\n', {flag:'wx'}); await rename(budgetFile + '.tmp', budgetFile)
         await writeFile(receiptFile + '.tmp', JSON.stringify(receipt, (key,value) => key === 'audioBase64' ? undefined : value, 2) + '\n')
@@ -150,7 +158,9 @@ export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Da
               return {bytes:decodePilotAudio(c.audio_base64),index,candidateId:c.id,candidateIndex:c.index,text:c.text ?? null,transcriptStatus:typeof c.text === 'string' && c.text.trim() ? 'provider_supplied' : 'not_provided',durationMs:c.duration_ms,sampleRate:c.sample_rate}
             })
           } else {
-            const audio = await createFishAudioAdapter({fetch:singleFetch}).synthesize({kind:'fish-audio',config:{url:'https://api.fish.audio',model:prepared.model}}, {key}, {text:row.text,textPrepared:true,references:[{bytes:referenceBytes,promptText:row.reference.text}], signal})
+            // a local pilot speaks with its server's default model; a cloud pilot with the planned one.
+            const target = local ? {kind:'fish-audio',config:provider.config} : {kind:'fish-audio',config:{url:'https://api.fish.audio'}}
+            const audio = await createFishAudioAdapter({fetch:singleFetch}).synthesize(target, {key}, {text:row.text,textPrepared:true,references:row.references.map((r,i) => ({bytes:referenceBytes[i],promptText:r.text})),...(local ? {} : {params:{model:prepared.model}}), signal})
             candidates = [{bytes:audio,index:0,durationMs:durationMs(audio),sampleRate:44100}]
           }
           for (const c of candidates) {

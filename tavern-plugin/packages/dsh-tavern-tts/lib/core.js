@@ -8,7 +8,12 @@ export class TtsError extends Error {
 }
 export function fail(code, status) { throw new TtsError(code, status) }
 // One safe presentation boundary for control errors and asynchronous synthesis jobs; the messages live in the protocol.
-export const describeTtsError = ttsMessages.describeTtsError
+const managedServiceMessages = new Map([
+  ['SERVICE_NOT_FOUND','找不到该服务，请刷新服务列表。'],
+  ['SERVICE_OPERATION_FAILED','服务操作未能提交，请稍后重试。'],
+  ['SERVICE_STATUS_FAILED','暂时无法读取服务状态。'],
+])
+export const describeTtsError = code => managedServiceMessages.get(code) || ttsMessages.describeTtsError(code)
 export const canonical = value => JSON.stringify(sort(value))
 function sort(value) {
   if (Array.isArray(value)) return value.map(sort)

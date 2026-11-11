@@ -45,6 +45,23 @@ export function createFigureVoiceAuthoring({getLibrary,getTts}) {
     if (!standalone && snapshot.revision !== input.expectedRevision) fail('REVISION_CONFLICT')
     return snapshot
   }
+  // What a preview speaks: a pack figure's voice.
+  // `revision` is the CAS the page sent; `spec` / `binding` the saved voice; `readReference(hash)` its clips; `watch` closes
+  // the preview when the owner of the voice changes.
+  async function subject(library, input, standalone = false, origin) {
+    const pack = await current(library,input,standalone), figure = pack.figures[input.figureId]
+    return {key:input.packId + ':' + figure.id, revision:pack.revision, spec:figure.voice && pack.manifest.voiceLibrary?.voices[figure.voice.voice], binding:figure.voice, emotions:figure.emotions,
+      readReference:async hash => {
+        const lease = await library.leaseMedia({packId:input.packId,hash,scope:'dsh-browser',origin})
+        try {
+          if (lease.revision !== pack.revision) fail('REVISION_CONFLICT')
+          const response = await library.respondLease({ticket:lease.ticket,resource:'media',request:new Request(new URL(lease.url,origin),{headers:{Origin:origin}})})
+          if (!response.ok) fail('MISSING_REFERENCE')
+          return new Uint8Array(await response.arrayBuffer())
+        } finally { library.releaseLease(lease.ticket) }
+      },
+      watch:fn => library.subscribe(event => { if (event.packId === input.packId) fn() })}
+  }
   function close(scope) {
     const entry = previews.get(scope)
     if (!entry) return {closed:false}
@@ -86,12 +103,12 @@ export function createFigureVoiceAuthoring({getLibrary,getTts}) {
       if (!origin) fail('FORBIDDEN')
       // A complete external candidate without figure moods reads no saved voice or pack media.
       const standalone = !!input.voiceSpec && input.mood === undefined && Object.values(input.voiceSpec.sources || {}).every(source => ['voice-id','preset'].includes(source?.kind))
-      const started = epoch, {library,tts} = services(), pack = await current(library,input,standalone), figure = pack.figures[input.figureId]
+      const started = epoch, {library,tts} = services(), owner = await subject(library,input,standalone,origin)
       if (!tts) fail('SERVICE_REQUIRED')
-      const spec = structuredClone(input.voiceSpec ?? pack.manifest.voiceLibrary?.voices[figure.voice?.voice])
+      const spec = structuredClone(input.voiceSpec ?? owner.spec)
       if (!spec) fail('VOICE_NOT_FOUND')
       validateVoiceSpec(spec)
-      const voiceBinding = structuredClone(input.binding ?? (input.voiceSpec ? {voice:'preview'} : figure.voice))
+      const voiceBinding = structuredClone(input.binding ?? (input.voiceSpec ? {voice:'preview'} : owner.binding))
       validateVoiceBinding(voiceBinding,{version:1,voices:{[voiceBinding?.voice]:spec}})
       const language = effectiveVoiceLanguage(voiceBinding.language, spec.language)
       // The voice page omits text when its displayed language sample is unchanged.
@@ -102,7 +119,7 @@ export function createFigureVoiceAuthoring({getLibrary,getTts}) {
       if (!binding) fail(resolution.issues[0]?.code || 'SERVICE_REQUIRED')
       if (disposed || epoch !== started || getLibrary() !== library || getTts() !== tts) fail('PLUGIN_UNAVAILABLE')
       const request = {text,language,...(input.mood === undefined ? {} : {mood:input.mood})}
-      const fingerprint = hash({origin,packId:input.packId,figureId:input.figureId,revision:pack.revision,spec,voiceBinding,request,binding,epoch})
+      const fingerprint = hash({origin,owner:owner.key,revision:owner.revision,spec,voiceBinding,request,binding,epoch})
       for (const [token,entry] of confirmations) if (entry.expiresAt <= Date.now()) confirmations.delete(token)
       if (binding.capabilities?.paid !== false) {
         if (input.confirmToken !== undefined) {
@@ -112,7 +129,8 @@ export function createFigureVoiceAuthoring({getLibrary,getTts}) {
           if (confirmations.size >= 16) fail('QUEUE_FULL')
           const confirmToken = randomUUID(), expiresAt = Date.now() + 60000
           confirmations.set(confirmToken,{fingerprint,expiresAt})
-          return {status:'confirmation-required',confirmToken,expiresAt,billing:{serviceId:binding.serviceId,paid:true}}
+          // the model this source speaks with (a Fish figure's own choice), named in the dialog.
+          return {status:'confirmation-required',confirmToken,expiresAt,billing:{serviceId:binding.serviceId,paid:true,...(binding.capabilities?.modelLabel ? {modelLabel:binding.capabilities.modelLabel} : {})}}
         }
       }
       let used = false
@@ -125,34 +143,26 @@ export function createFigureVoiceAuthoring({getLibrary,getTts}) {
     },
     async open(input,origin,policy) {
       if (!origin) fail('FORBIDDEN')
-      const started = epoch, {library,tts} = services(), pack = await current(library,input,policy?.standalone), figure = pack.figures[input.figureId]
-      const voiceBinding = policy?.voiceBinding || figure.voice
+      const started = epoch, {library,tts} = services(), owner = await subject(library,input,policy?.standalone,origin)
+      const voiceBinding = policy?.voiceBinding || owner.binding
       // The figure lamp is the stage's: a figure switched off (or the new-figure page's hidden draft) still auditions.
       if (!voiceBinding) fail('VOICE_NOT_FOUND')
-      const spec = policy?.spec || pack.manifest.voiceLibrary.voices[voiceBinding.voice]
+      const spec = policy?.spec || owner.spec
       const binding = await assetVoiceBinding(tts,{voice:spec,binding:voiceBinding})
       if (policy && !same(binding, policy.binding)) fail('PREVIEW_CONFIRMATION_REQUIRED')
       if (!binding) fail('SERVICE_REQUIRED')
       // Billing is a generic provider capability; Tavern never distinguishes local/cloud backends.
       if (!policy && binding.capabilities?.paid !== false) fail('PAID_PREVIEW_DISABLED')
-      const scope = 'figure-preview:' + randomUUID(), sourceId = policy ? 'figure-preview:' + hash({packId:input.packId,figureId:figure.id,spec,voiceBinding}) : scope
-      await current(library,input,policy?.standalone)
+      const scope = 'figure-preview:' + randomUUID(), sourceId = policy ? 'figure-preview:' + hash({owner:owner.key,spec,voiceBinding}) : scope
+      await subject(library,input,policy?.standalone,origin)
       if (disposed || epoch !== started || getLibrary() !== library || getTts() !== tts) fail('PLUGIN_UNAVAILABLE')
       if (previews.size >= 16) fail('QUEUE_FULL')
-      const source = tts.registerVoiceSource({owner:'dsh-tavern',sourceId,revision:pack.revision,voices:[figureTtsVoice(voiceBinding,spec,input.packId+':'+figure.id,figure.emotions)],bindings:{voice:binding.serviceId},
-        readReference:async hash => {
-          const lease = await library.leaseMedia({packId:input.packId,hash,scope:'dsh-browser',origin})
-          try {
-            if (lease.revision !== pack.revision) fail('REVISION_CONFLICT')
-            const response = await library.respondLease({ticket:lease.ticket,resource:'media',request:new Request(new URL(lease.url,origin),{headers:{Origin:origin}})})
-            if (!response.ok) fail('MISSING_REFERENCE')
-            return new Uint8Array(await response.arrayBuffer())
-          } finally { library.releaseLease(lease.ticket) }
-        }})
+      const source = tts.registerVoiceSource({owner:'dsh-tavern',sourceId,revision:owner.revision,voices:[figureTtsVoice(voiceBinding,spec,owner.key,owner.emotions)],bindings:{voice:binding.serviceId},
+        readReference:owner.readReference})
       let grant
       try { grant = tts.grantConsumer({principal:'dsh-browser',source:sourceId,scope,...(policy ? {authorize:policy.authorize} : {})}) }
       catch (error) { source.dispose(); throw error }
-      const offLibrary = library.subscribe(event => { if (event.packId === input.packId) close(scope) })
+      const offLibrary = owner.watch(() => close(scope))
       const offTts = tts.subscribe(event => { if (['disposed','providerRemoved','providerChanged','cacheInvalidated'].includes(event.type)) close(scope) })
       const timer = setTimeout(() => close(scope),180000 + (binding.capabilities?.loadTimeoutMs ?? binding.capabilities?.warmupTimeoutMs ?? 0)); timer.unref?.()
       previews.set(scope,{source,grant,offLibrary,offTts,timer})

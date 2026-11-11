@@ -729,7 +729,7 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
             // a sounding SE rings out across a page turn and keeps its pin
             // until it ends (the play completion above releases it); everything else is cut.
             for (const [id,shot] of state.shots) {
-                if (intent.reason === 'page-changed' && shot.ringing) continue;
+                if (intent.reason === 'page-changed' && (shot.ringing || id === intent.keep)) continue;
                 cancel(shot); state.shots.delete(id);
             }
             cancelPlayback(sessionId,intent); break;

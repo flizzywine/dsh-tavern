@@ -6,9 +6,9 @@ import { selectStageEntrance } from './domain/stage-entrance.js'
 import { rawData } from '../../../lib/domain/card-preparation.js'
 import { readCardAssetExtension } from '../../../lib/domain/card-asset-bindings.js'
 import { hasCardAssetBindings } from '../../../lib/card-asset-bindings.js'
-import { normalizeBubbleConfig, effectiveBubbleMoods, syncDialogueBubbleWorldbook } from '../../../lib/domain/dialogue-bubbles.js'
+import { normalizeBubbleConfig, syncDialogueBubbleWorldbook } from '../../../lib/domain/dialogue-bubbles.js'
 import { selectPackFigure } from './domain/asset-pack-presentation.js'
-import { effectiveVoiceLanguage } from '../../../src/client/bubble-line.cjs'
+import { effectiveVoiceLanguage, figureBubbleMoods, voiceTranslates } from '../../../src/client/bubble-line.cjs'
 import { assetPackDigest } from './domain/stage-asset-pack-catalogue.js'
 import { collectSpriteDialogue } from '../../../lib/domain/layered-sprite-dialogue.js'
 import { inspectWorldBookDocument, updateWorldBookDocument } from '../../../lib/domain/worldbook-resource.js'
@@ -32,20 +32,33 @@ export function stageSkinPreview(document) {
 const figureVoiceLanguage = (figure, pack) => effectiveVoiceLanguage(figure?.voice?.language, pack?.manifest.voiceLibrary?.voices[figure?.voice?.voice]?.language).split('-')[0].toLowerCase()
 // Every figure a card can resolve, enabled or not: the automatic figure writer checks speakers against these rows.
 export const cardFigureRows = ({raw, snapshots, globalEnabledPackIds}) => figureCatalogue({snapshots, bindings:readCardAssetExtension(raw)?.assetBindings, globalEnabledPackIds})
+// 自动选角's 选角助理 searches the card's text as pieces: its own fields, each world book entry, and the game's 人物档案.
+export function cardLorePieces(raw, chat) {
+  const data = rawData(raw) || {}, pieces = []
+  for (const [key, label] of [['description', '卡描述'], ['personality', '性格'], ['scenario', '场景'], ['first_mes', '开场白'], ['mes_example', '对话示例']])
+    for (const text of String(data[key] || '').split(/\n\s*\n/)) if (text.trim()) pieces.push({source:label, text:text.trim()})
+  for (const entry of data.character_book?.entries || []) if (String(entry.content || '').trim())
+    pieces.push({source:'世界书：' + (entry.comment || [].concat(entry.keys || []).join('、') || '条目'), text:String(entry.content).trim(), keys:[].concat(entry.keys || [])})
+  for (const character of chat?.characterDesignDocument?.characters || [])
+    pieces.push({source:'人物档案：' + character.name, text:JSON.stringify(character)})
+  return pieces
+}
 // Dialogue text is projected from Card Preparation; no card-local media catalogue.
 // services: getTts().listServices(); chooseService: the tts service's sync choice among them (getTts().chooseService) —
 // the source's own serviceId, else the sole service of its provider; none = no voice-direction flag.
-// globalNarrator: 旁白配音's global layer, getTts().reading().narrator; none = off. generalVoice: the 通用声音,
-// getTts().reading().dialogueVoice (null = the browser's default voice).
-export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledPackIds = [], services = [], chooseService = () => undefined, globalNarrator = null, generalVoice = null) {
+// globalNarrator: 旁白配音's global layer, getTts().reading().narrator; none = off. pointed: the figures 通用声音 and 旁白 point
+// at ({general, narrator}, each {ref, pack, figure} read from tts.reading(), or null = the browser's default voice).
+export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledPackIds = [], services = [], chooseService = () => undefined, globalNarrator = null, pointed = {}) {
   const extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
   const stage = effectiveCardStage(extension, engine), chosen = cardStageSkin(extension, engine, packSnapshots.map(pack => pack.manifest))
   const dialogue = engine.dialogue, models = []
   const rows = figureCatalogue({snapshots:packSnapshots,bindings:extension?.assetBindings,globalEnabledPackIds}).filter(row => row.enabled)
+  const figuresByAlias = new Map(rows.map(row => [row.actorKey, row]))
+  const packsById = new Map(packSnapshots.map(pack => [pack.manifest.id, pack]))
   const characters = rows.map(row => {
     const {actorKey:alias,figure,ref} = row
-    const value = {name:figure.name,description:figure.description,appearance:figure.appearance,aliases:figure.aliases || [],ref,recall:figure.recall}
-    const pack = packSnapshots.find(pack => pack.manifest.id === ref.packId)
+    const value = {name:figure.name,guidance:figure.guidance,appearance:figure.appearance,aliases:figure.aliases || [],ref,recall:figure.recall}
+    const pack = packsById.get(ref.packId)
     const voice = pack?.manifest.voiceLibrary?.voices[figure.voice?.voice]
     const source = voice && figure.voice?.source !== null ? voice.sources[figure.voice.source ?? voice.defaultSource] : null
     const voiceDirection = source?.provider === 'fish-audio' && chooseService(source, services)?.capabilities?.voiceDirections === true
@@ -66,20 +79,24 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
   // settings has no figures to show and writes plain text (no dialogue-format injection) until 「开启对话气泡」.
   const config = normalizeBubbleConfig({...dialogue, enabled:!!extension && stage.dialogue, characters,
     stage:{theme:typeof chosen.skin === 'string' ? chosen.skin : 'classic',enabled:!!extension && stage.stage,director:!!extension && stage.stage,music:stage.music,widgets:stage.widgets}})
+  // These are resolved catalogue rows. Their normalized emotions need no speaker lookup.
   config.characters = config.characters.map(({avatar, moods, full, ...character}) => {
-    const row = rows.find(row => row.actorKey === character.alias), {ref,figure} = row
-    const pack = packSnapshots.find(pack => pack.manifest.id === ref.packId)
+    const row = figuresByAlias.get(character.alias), {ref,figure} = row
+    const pack = packsById.get(ref.packId)
     character.color = (figure.imageColor ?? figure.autoColor ?? '').toLowerCase()
-    // Transcript portraits use the bound figure's default outfit, not stage directions.
-    const media = emotion => {
-      const selected = selectPackFigure(figure, pack?.sprites || {}, {emotion}), hash = selected.avatar
+    // Transcript portraits: the opening (first enabled) outfit at the top level; every other enabled outfit under
+    // `outfits`, which a bubble wears when the round's stage state dresses the figure in it (getTranscriptOutfits).
+    const media = (emotion, outfitKey) => {
+      const selected = selectPackFigure(figure, pack?.sprites || {}, {emotion, outfitKey}), hash = selected.avatar
       return hash ? {resource:true, kind:'media', ref:{...ref}, alias:character.alias, revision:pack.revision,
         hash, outfitKey:selected.avatarOutfitKey, stateId:selected.avatarStateId, crop:selected.avatarCrop, identity:`${ref.packId}:figures:${ref.figureId}:${hash}`} : null
     }
+    const opening = figure.outfits.find(outfit => outfit.enabled), bubbleMoods = figureBubbleMoods([], character.emotions)
+    const outfitMedia = outfit => ({default:media(outfit?.defaultEmotion || figure.emotions?.[0]?.id, outfit?.key), moods:Object.fromEntries(bubbleMoods.map(mood => [mood.id, media(mood.id, outfit?.key)]))})
     const promptEmotionIds = (figure.emotions || []).map(row=>row.id)
     // 通用声音 speaks an enabled figure that has no voice binding (one set to 「不配音」, source null, stays silent).
     const general = stage.voice && figure.enabled && !figure.voice
-    return {...character, ...(general ? {general:true} : {}), promptEmotionIds, defaultEmotion:figure.outfits.find(outfit=>outfit.enabled)?.defaultEmotion || figure.emotions?.[0]?.id || null, ref, aliases:figure.aliases || [], recall:figure.recall, voiceKey:figure?.voice ? assetPackDigest({ref,voice:figure.voice,voiceSpec:pack?.manifest.voiceLibrary?.voices[figure.voice.voice],readings:extension?.readings || null}) : null, avatarMedia:{default:media(figure.outfits.find(o=>o.enabled)?.defaultEmotion || figure.emotions?.[0]?.id), moods:Object.fromEntries(effectiveBubbleMoods(config, character.alias).map(mood => [mood.id, media(mood.id)]))},
+    return {...character, ...(general ? {general:true} : {}), promptEmotionIds, defaultEmotion:figure.outfits.find(outfit=>outfit.enabled)?.defaultEmotion || figure.emotions?.[0]?.id || null, ref, aliases:figure.aliases || [], recall:figure.recall, voiceKey:figure?.voice ? figureVoiceKey(ref, figure, pack, extension) : null, avatarMedia:{...outfitMedia(opening), outfits:Object.fromEntries(figure.outfits.filter(outfit => outfit.enabled && outfit !== opening).map(outfit => [outfit.key, outfitMedia(outfit)]))},
       voiceLanguage:figureVoiceLanguage(figure, pack)}
   })
   config.stage.styles = directionStyles(packSnapshots, extension?.assetBindings.boundPackIds, globalEnabledPackIds)
@@ -119,31 +136,27 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
   config.stage.entrance = extension ? selectStageEntrance(extension, packSnapshots, engine) : null
   config.voice = {enabled:stage.voice && config.characters.some(character => character.voice)}
   // Neither reaches the dialogue-format prompt (normalizeBubbleConfig keeps only voice.enabled).
-  const generalKey = readingVoiceKey(generalVoice)
-  if (stage.voice && !generalVoice?.silent) config.voice.general = generalKey
-  // 旁白配音: present only while it speaks on this card (on, 配音 on, its voice usable here). It never changes config.voice,
+  // 通用声音 / 旁白 speak as the figure they point at: its voice key (the cast's, so the clips are shared) and its 配音语言,
+  // which decides 配音补译; neither reaches the prompt. 「不配音」 is silent; a figure gone has no key (silent, a 配音页 problem).
+  const general = pointedVoice(pointed.general, extension)
+  if (stage.voice && general) Object.assign(config.voice, {general:general.voiceKey, generalLanguage:general.language})
+  // 旁白配音: present only while it speaks on this card (on, 配音 on, its voice not 不配音). It never changes config.voice,
   // so the dialogue-format prompt is the same with it on or off.
-  const narrator = extension && stage.voice ? cardNarrator(effectiveNarrator(extension, globalNarrator, generalVoice), packSnapshots, extension, services) : null
-  if (narrator) config.narrator = narrator
+  const narrator = pointedVoice(pointed.narrator, extension)
+  // wholeParagraph: 旁白 reads in another language, so each narration paragraph is translated whole (配音补译) and read from
+  // its first page (bubble-line.cjs narrationVoiceKey); in 中文 it reads page by page.
+  if (extension && stage.voice && effectiveNarrator(extension, globalNarrator).enabled && narrator) config.narrator = {...narrator, ...(voiceTranslates(narrator.language) ? {wholeParagraph:true} : {})}
   config.spriteDialogue = collectSpriteDialogue(config, models)
   return config
 }
 
-// The narrator's voice identity (client cache key): a browser system voice, a service voice, or the figure's voice as
-// cardBubbleConfig keys a character's. A figure in a pack this card cannot use, or without a voice, or a service that is not
-// listed leaves the narration silent.
-function readingVoiceKey(voice) {
-  return voice?.voiceId || voice?.templateId || voice?.serviceId ? assetPackDigest({reading:voice}) : 'browser:' + (voice?.browser ?? '')
-}
-
-function cardNarrator(narrator, packSnapshots, extension, services) {
-  const voice = narrator.enabled ? narrator.voice : null
-  if (!narrator.enabled || voice?.silent) return null
-  if (!voice || voice.voiceId || voice.templateId || voice.browser !== undefined) return {voiceKey:readingVoiceKey(voice)}
-  if (voice.serviceId) return services.some(service => service.id === voice.serviceId) ? {voiceKey:readingVoiceKey(voice)} : null
-  const pack = packSnapshots.find(pack => pack.manifest.id === voice.packId), figure = pack?.figures?.[voice.figureId]
-  const spec = figure?.voice && figure.voice.source !== null ? pack.manifest.voiceLibrary?.voices[figure.voice.voice] : null
-  return spec ? {voiceKey:assetPackDigest({narrator:true, ref:voice, voice:figure.voice, voiceSpec:spec, readings:extension.readings || null})} : null
+// A figure's voice identity (the client's clip cache key): one formula for the cast and the figures 通用声音 / 旁白 point at.
+const figureVoiceKey = (ref, figure, pack, extension) => assetPackDigest({ref,voice:figure.voice,voiceSpec:pack?.manifest.voiceLibrary?.voices[figure.voice.voice],readings:extension?.readings || null})
+// null = silent (「不配音」, or the figure is gone); none chosen = the browser's default voice in 中文.
+function pointedVoice(row, extension) {
+  if (!row) return {voiceKey:'browser:', language:'zh'}
+  if (!row.figure?.voice || row.figure.voice.source === null || !row.pack?.manifest.voiceLibrary?.voices[row.figure.voice.voice]) return null
+  return {voiceKey:figureVoiceKey(row.ref, row.figure, row.pack, extension), language:figureVoiceLanguage(row.figure, row.pack)}
 }
 
 // ZIP imports prepare the embedded book in memory before computing the commit proof.
@@ -197,7 +210,7 @@ export function createCardStage({cardStorage, getEngine, getAssetLibrary = () =>
   const bubbles = {
     async read(cardPath, options) { return (await bubbles.snapshot(cardPath, options)).config },
     async snapshot(cardPath, {requireAvailable = false} = {}) {
-      const raw = cardPath ? (await measure('bubbles.workspace', () => workspace(cardPath)))?.raw : null
+      const opened = cardPath ? await measure('bubbles.workspace', () => workspace(cardPath)) : null, raw = opened?.raw || null
       const extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
       const service = getAssetLibrary(), packs = []
       const packIds = [...new Set([...(extension?.assetBindings.boundPackIds || []),...getGlobalEnabledPackIds()])]
@@ -212,7 +225,14 @@ export function createCardStage({cardStorage, getEngine, getAssetLibrary = () =>
       if (requireAvailable) assertAvailable()
       for (const result of reads) if (result.status === 'fulfilled' && result.value) packs.push(result.value)
       const services = await measure('bubbles.voiceServices', () => getTts()?.listServices()) || []
-      const config = await measure('bubbles.project', () => cardBubbleConfig(raw, getEngine(), packs, getGlobalEnabledPackIds(), services, (source, list) => getTts()?.chooseService(source, list), getTts()?.reading().narrator, getTts()?.reading().dialogueVoice))
+      // 通用声音 / 旁白: the figures tts.reading() points at, from any installed pack (already read when the card uses it).
+      const reading = getTts()?.reading(), pointAt = async ref => {
+        if (!ref) return null
+        const pack = packs.find(row => row.manifest.id === ref.packId) || await service?.getPackSnapshot({packId:ref.packId})
+        return {ref, pack, figure:pack?.figures[ref.figureId]}
+      }
+      const pointed = {general:await pointAt(reading?.general.figure), narrator:await pointAt(reading?.narrator.figure)}
+      const config = await measure('bubbles.project', () => cardBubbleConfig(raw, getEngine(), packs, getGlobalEnabledPackIds(), services, (source, list) => getTts()?.chooseService(source, list), reading?.narrator, pointed))
       // One request may also preview a prompt. Reuse its catalogue, but retain strict admission failures.
       return {config, requireAvailable() { assertAvailable(); return config }}
     },

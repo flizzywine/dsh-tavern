@@ -7,9 +7,9 @@ test('reading returns normalized TTS settings without writes or approval and ret
   const calls=[],settings={}
   const f=await workbenchFixture({tts:{call(method,args){calls.push({method,args});assert.equal(method,'reading');return readingOf(settings)}}})
   t.after(()=>f.close())
-  const fresh={dialogueVoice:null,narrator:{enabled:false,voice:null},readAloud:{voice:null,auto:false}}
+  const fresh={general:{figure:null},narrator:{enabled:false,figure:null},readAloud:{voice:null,auto:false}}
   assert.deepEqual((await f.invoke('voice_read',{action:'reading'})).data,fresh)
-  settings.reading={dialogueVoice:{browser:'Dialogue'},narrator:{enabled:true,voice:{browser:'Narrator'}},readAloud:{voice:{browser:'Reader'},auto:true}}
+  settings.reading={general:{figure:{packId:'11111111-1111-4111-8111-111111111111',figureId:'speaker-a'}},narrator:{enabled:true,figure:null},readAloud:{voice:{browser:'Reader'},auto:true}}
   const before=structuredClone(settings)
   assert.deepEqual((await f.invoke('voice_read',{action:'reading'})).data,before.reading)
   assert.deepEqual(settings,before)

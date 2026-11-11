@@ -22,77 +22,102 @@ async function voicedCard() {
   return {pack, figure, raw}
 }
 
+// 通用声音 / 旁白 point at a figure of the library (tts.reading general / narrator .figure): here figures of an unlit pack
+// that only holds voices, read through getPackSnapshot like any pack; none chosen = the browser's default voice.
+const audio = pcmWav(Buffer.alloc(64, 1))
+const VOICE_PACK = '22222222-2222-4222-8222-222222222222'
+const preset = (serviceId, extra = {}) => ({voiceSpec:{name:'通用', language:'zh', defaultSource:'main', sources:{main:{kind:'preset', provider:'qwen', serviceId, voiceName:'Cherry'}}}, binding:extra})
+const clone = language => ({voiceSpec:{name:'小圆', language, defaultSource:'local', sources:{local:{kind:'reference-list', provider:'fish-audio', serviceId:'local', references:[{media:'a'.repeat(64), text:'你好', language}]}}}, binding:{}})
+function voicePack(voices) {
+  return {revision:'vp-1', manifest:{id:VOICE_PACK, voiceLibrary:{version:1, voices:Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.voiceSpec]))}},
+    figures:Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, {id, name:id, voice:{voice:id, ...v.binding}}]))}
+}
+const at = figureId => ({packId:VOICE_PACK, figureId})
+// cardBubbleConfig's `pointed`: what card-stage.js reads for each pointer.
+const pointing = (pack, ids) => Object.fromEntries(Object.entries(ids).map(([role, id]) => [role, id ? {ref:at(id), pack, figure:pack.figures[id] || null} : null]))
+
 test('bubble config: an unbound enabled figure speaks the 通用声音, 「不配音」 stays silent; the prompt bytes do not change', async () => {
-  const {pack, figure, raw} = await voicedCard(), engine = engineWith({})
-  const service = {serviceId:'svc-q', voice:'v-cherry'}, bound = figure.voice
+  const {pack, figure, raw} = await voicedCard(), engine = engineWith({}), voices = voicePack({tongyong:preset('svc-q'), mute:preset('svc-q', {source:null})}), bound = figure.voice
   delete figure.voice
-  let config = cardBubbleConfig(raw, engine, [pack], [], [], () => undefined, null, service)
+  const configFor = id => cardBubbleConfig(raw, engine, [pack], [], [], () => undefined, null, pointing(voices, {general:id}))
+  let config = configFor('tongyong')
   const character = config.characters.find(row => row.ref.figureId === FIGURE_ID)
   assert.equal(character.general, true)
   assert.equal(typeof config.voice.general, 'string')
-  assert.notEqual(config.voice.general, cardBubbleConfig(raw, engine, [pack], [], [], () => undefined, null, null).voice.general, 'the clip key follows the chosen voice')
+  assert.equal(config.voice.generalLanguage, 'zh', 'the pointed figure\'s own 配音语言')
+  assert.equal(configFor(null).voice.general, 'browser:', 'none chosen: the browser default')
   assert.equal(config.voice.fullReading, undefined)
   // The general fields never reach the dialogue-format prompt.
   const strip = value => ({...value, voice:{enabled:value.voice.enabled}, characters:value.characters.map(({general, ...row}) => row)})
   assert.deepEqual(bubbleInjection(config), bubbleInjection(strip(config)))
+  assert.equal(configFor('mute').voice.general, undefined, '不配音')
+  assert.equal(configFor('gone').voice.general, undefined, 'a figure gone is silent, never another voice')
   figure.voice = {...bound, source:null}
-  config = cardBubbleConfig(raw, engine, [pack], [], [], () => undefined, null, service)
+  config = configFor('tongyong')
   assert.equal(config.characters.find(row => row.ref.figureId === FIGURE_ID).general, undefined)
 })
 
-function speechFor(reading, toggles = {}) {
-  const tts = createTts({profileId:'general-voice-test', reading:() => reading})
+function speechFor(pack, {general = null, narrator = null} = {}, toggles = {}, narratorOn = false) {
+  const reads = []
+  const tts = createTts({profileId:'general-voice-test', reading:() => ({general:{figure:general && at(general)}, narrator:{enabled:narratorOn, figure:narrator && at(narrator)}, readAloud:{voice:null, auto:false}})})
+  const library = {getPackSnapshot:async ({packId}) => packId === VOICE_PACK ? pack : null, readMedia:async input => { reads.push(input); return {bytes:audio} }}
   const presentation = {extension:withSwitches({}), subscribe:() => () => {}}
-  return {tts, speech:createAssetPackSpeech({presentation, getEngine:() => engineWith(toggles), getTts:() => tts, scope:'dsh-browser'})}
+  return {tts, reads, speech:createAssetPackSpeech({presentation, getEngine:() => engineWith(toggles), getTts:() => tts, getLibrary:() => library, scope:'dsh-browser'})}
 }
 
-test('the GENERAL entry: null opens the browser default; a service voice registers one source every NPC shares', async t => {
-  const browser = speechFor({dialogueVoice:null, narrator:{enabled:false, voice:null}})
+test('the GENERAL entry: none chosen opens the browser default; a service voice registers one source every NPC shares, in its own 配音语言', async t => {
+  const browser = speechFor(voicePack({}))
   t.after(() => { browser.speech.dispose(); browser.tts.dispose() })
   const opened = await browser.speech.open(GENERAL_VOICE)
   assert.equal(opened.available, true); assert.deepEqual(opened.browser, {voice:''})
 
-  const service = speechFor({dialogueVoice:{serviceId:'svc-q', voice:'v-cherry'}, narrator:{enabled:false, voice:null}})
+  const service = speechFor(voicePack({tongyong:preset('svc-q', {language:'ja'})}), {general:'tongyong'})
   t.after(() => { service.speech.dispose(); service.tts.dispose() })
-  service.tts.registerProvider('test', {id:'svc-q', kind:'qwen', revision:'one', capabilities:{}, health:async () => ({state:'ready'}), synthesize:async () => pcmWav(Buffer.alloc(64, 1))})
+  service.tts.registerProvider('test', {id:'svc-q', kind:'qwen', revision:'one', capabilities:{}, health:async () => ({state:'ready'}), synthesize:async () => audio})
   const first = await service.speech.open(GENERAL_VOICE), second = await service.speech.open(GENERAL_VOICE)
   assert.equal(first.available, true)
+  assert.equal(first.language, 'ja')
   assert.deepEqual(first.voice, second.voice, 'two NPC lines reuse the one registered source')
   assert.equal(service.tts.listVoices({source:first.voice.source}).length, 1)
-  // 角色配音 off: no 通用声音 either; 全文朗读 opens it for the narrator's pages.
-  const off = speechFor({dialogueVoice:null, narrator:{enabled:false, voice:null}}, {voice:false})
+  // a figure gone: silent, not the browser.
+  const gone = speechFor(voicePack({}), {general:'gone'})
+  t.after(() => { gone.speech.dispose(); gone.tts.dispose() })
+  assert.equal((await gone.speech.open(GENERAL_VOICE)).available, false)
+  // 角色配音 off: no 通用声音 either.
+  const off = speechFor(voicePack({}), {}, {voice:false})
   t.after(() => { off.speech.dispose(); off.tts.dispose() })
   assert.equal((await off.speech.open(GENERAL_VOICE)).available, false)
-
 })
-
-for (const template of [false,true]) test(`stage catalogue ${template?'template':'clone'} routes general and narrator to local synthesis`, async t => {
-  const ref=template?{templateId:'33333333-3333-4333-8333-333333333333'}:{packId:'11111111-1111-4111-8111-111111111111',voiceId:'clone'}
-  assert.deepEqual(validateCardStage({narrator:{voice:ref}}).narrator.voice,ref)
-  const calls=[],audio=pcmWav(Buffer.alloc(64,1)),reading={dialogueVoice:ref,narrator:{enabled:true,voice:ref}}
-  const tts=createTts({reading:()=>reading})
-  tts.registerProvider('test',{id:'local',kind:'fish-audio',revision:'one',capabilities:{voiceKinds:['reference'],referenceInput:['bytes-list-v1']},health:async()=>({state:'ready'}),synthesize:async input=>{calls.push(input);return audio}})
-  const library={listVoiceCatalogue:async()=>({voices:[{ref,revision:'one',binding:{voice:'clone'},voiceSpec:{name:'小圆',language:'zh',defaultSource:'local',sources:{local:{kind:'reference-list',provider:'fish-audio',serviceId:'local',references:[{media:'a'.repeat(64),text:'你好',language:'zh'}]}}}}]}),readMedia:async()=>({bytes:audio}),readVoiceTemplateMedia:async()=>({bytes:audio})}
-  const speech=createAssetPackSpeech({presentation:{extension:withSwitches({}),subscribe:()=>()=>{}},getEngine:()=>engineWith({}),getTts:()=>tts,getLibrary:()=>library,scope:'dsh-browser'})
-  t.after(()=>{speech.dispose();tts.dispose()})
-  for (const [alias,text] of [[GENERAL_VOICE,'欢迎'],[NARRATOR_VOICE,'夜深了']]) {
-    const opened=await speech.open(alias)
-    assert.equal(opened.available,true,JSON.stringify(opened))
-    assert.ok((await speech.synthesize(alias,{text})).key)
-  }
-  assert.equal(calls.length,2)
-  assert.ok(calls.every(input=>input.voice.kind==='reference'))
-})
-for (const generalVoice of [{browser:'Kyoko'}, {serviceId:'svc-q',voice:'v-cherry'}]) test('narrator fallback and silent general voice: ' + JSON.stringify(generalVoice), async t => {
-  const {pack,raw} = await voicedCard()
-  raw.extensions.dsh_tavern.stage.narrator = {enabled:true}
-  const configFor = voice => cardBubbleConfig(raw,engineWith({}),[pack],[],[{id:'svc-q'}],() => undefined,{enabled:false,voice:null},voice)
-  const config = configFor(generalVoice)
-  assert.equal(config.narrator.voiceKey,config.voice.general)
-  const silent = configFor({silent:true})
-  assert.equal(silent.voice.general,undefined)
-  assert.equal(silent.narrator,undefined)
-  const entry = speechFor({dialogueVoice:{silent:true},narrator:{enabled:true,voice:null}})
+test('通用声音 and 旁白 with reference clips synthesize locally from the pointed figures\' pack; one figure is one source', async t => {
+  const calls = [], pack = voicePack({xiaoyuan:clone('ja'), pangbai:clone('zh')})
+  const provider = sink => ({id:'local', kind:'fish-audio', revision:'one', capabilities:{voiceKinds:['reference'], referenceInput:['bytes-list-v1']}, health:async () => ({state:'ready'}), synthesize:async input => { sink?.push(input); return audio }})
+  const entry = speechFor(pack, {general:'xiaoyuan', narrator:'pangbai'}, {}, true)
+  entry.tts.registerProvider('test', provider(calls))
   t.after(() => { entry.speech.dispose(); entry.tts.dispose() })
-  for (const alias of [GENERAL_VOICE,NARRATOR_VOICE]) assert.equal((await entry.speech.open(alias)).available,false)
+  const general = await entry.speech.open(GENERAL_VOICE), narrator = await entry.speech.open(NARRATOR_VOICE)
+  assert.deepEqual([general.language, narrator.language], ['ja', 'zh'])
+  assert.notEqual(general.voice.source, narrator.voice.source)
+  for (const [alias, text] of [[GENERAL_VOICE, '欢迎'], [NARRATOR_VOICE, '夜深了']]) assert.ok((await entry.speech.synthesize(alias, {text})).key)
+  assert.equal(calls.length, 2)
+  assert.ok(calls.every(input => input.voice.kind === 'reference'))
+  assert.ok(entry.reads.length > 0 && entry.reads.every(input => input.packId === VOICE_PACK && input.expectedRevision === 'vp-1'), 'clips come from the library')
+  // 旁白 on 通用声音's figure: the same source (and so the same cached clips).
+  const same = speechFor(pack, {general:'xiaoyuan', narrator:'xiaoyuan'}, {}, true)
+  same.tts.registerProvider('test', provider())
+  t.after(() => { same.speech.dispose(); same.tts.dispose() })
+  assert.equal((await same.speech.open(NARRATOR_VOICE)).voice.source, (await same.speech.open(GENERAL_VOICE)).voice.source)
+})
+test('旁白 keys as the figure it points at, 通用声音\'s when they share one; 不配音 silences it', async t => {
+  const {pack, raw} = await voicedCard(), voices = voicePack({tongyong:preset('svc-q'), ja:preset('svc-q', {language:'ja'}), mute:preset('svc-q', {source:null})})
+  raw.extensions.dsh_tavern.stage.narrator = {enabled:true}
+  const configFor = ids => cardBubbleConfig(raw, engineWith({}), [pack], [], [{id:'svc-q'}], () => undefined, {enabled:false}, pointing(voices, ids))
+  const config = configFor({general:'tongyong', narrator:'tongyong'})
+  assert.equal(config.narrator.voiceKey, config.voice.general)
+  assert.deepEqual(configFor({general:'tongyong', narrator:'ja'}).narrator.language, 'ja')
+  assert.notEqual(configFor({general:'tongyong', narrator:'ja'}).narrator.voiceKey, config.voice.general)
+  assert.deepEqual(configFor({general:'tongyong', narrator:null}).narrator, {voiceKey:'browser:', language:'zh'}, 'none chosen: the browser default')
+  assert.equal(configFor({general:'tongyong', narrator:'mute'}).narrator, undefined)
+  const entry = speechFor(voices, {general:'mute', narrator:'mute'}, {}, true)
+  t.after(() => { entry.speech.dispose(); entry.tts.dispose() })
+  for (const alias of [GENERAL_VOICE, NARRATOR_VOICE]) assert.equal((await entry.speech.open(alias)).available, false)
 })

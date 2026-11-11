@@ -12,7 +12,7 @@ import { qwenVoices, QWEN_MODELS } from '../src/providers/qwen.js'
 
 const source = await readFile(new URL('../src/client.js',import.meta.url),'utf8')
 const keyed = {azure:'DSH_AZ',qwen:'DSH_QW',volcengine:'DSH_VO'}
-export function fixture({sidebar = true, configured: initial, external = true, returnIntent, focus, failNavigation = false, blockedStorage = false, readingsEditor, browserSpeech, deleteGuard, modelStatus = () => ({issues:[],modelInstructions:null})} = {}) {
+export function fixture({sidebar = true, configured: initial, external = true, returnIntent, focus, failNavigation = false, blockedStorage = false, readingsEditor, browserSpeech, deleteGuard, testResult, modelStatus = () => ({issues:[],modelInstructions:null})} = {}) {
   const services = new Map(), tabs = new Map(), slots = new Map(), effects = [], calls = [], opened = []
   // The panel remembers its basic/advanced mode in localStorage.
   const storage = new Map(), localStorage = {getItem:key => storage.get(key) ?? null,setItem:(key,value) => storage.set(key,String(value))}
@@ -21,11 +21,11 @@ export function fixture({sidebar = true, configured: initial, external = true, r
   if (focus) session.set('dsh-tts:focus-service',JSON.stringify({at:Date.now(),...focus}))
   // an EventTarget: the page also takes a focus request sent while it is mounted (the key's window event).
   const window = Object.assign(new EventTarget(),{sessionStorage:{getItem:key => {if (blockedStorage) throw Error('storage unavailable');return session.get(key) ?? null},setItem:(key,value) => session.set(key,value),removeItem:key => session.delete(key)}})
-  let events, enabled = true, bytes = 42, presets = [], cacheSettings = {cacheMaxGB:1,cacheMaxAgeDays:30}, reading = {dialogueVoice:null,narrator:{enabled:false,voice:null}}
-  const keys = new Set(['azure-main','qwen-main','volc-main'])
+  let events, enabled = true, bytes = 42, presets = [], cacheSettings = {cacheMaxGB:1,cacheMaxAgeDays:30}, reading = {narrator:{enabled:false},readAloud:{voice:null,auto:false}}
+  const keys = new Set(['azure-main','qwen-main','volc-main','fish-local','fish'])
   let configured = initial ?? [{id:'azure-main',kind:'azure',label:'Test Azure',config:{region:'eastasia'}},{id:'qwen-main',kind:'qwen',label:'Test Qwen',config:{region:'cn'}},{id:'volc-main',kind:'volcengine',label:'Test Volcengine',config:{appId:'test',resourceId:'seed-tts-2.0'}}]
   const checks = new Map()
-  const listed = () => configured.map(p => ({...p,revision:hash(p),...(checks.has(p.id) ? {check:checks.get(p.id)} : {}),secrets:{key:{configured:keys.has(p.id),writable:true}}}))
+  const listed = () => configured.map(p => ({...p,revision:hash(p),selfHosted:p.kind === 'fish-audio' && p.config?.url !== 'https://api.fish.audio',...(checks.has(p.id) ? {check:checks.get(p.id)} : {}),secrets:{key:{configured:keys.has(p.id),writable:true}}}))
   const voicesOf = kind => kind === 'fish-audio' ? {status:'ok',source:'manual',voices:[],models:[]} : kind === 'openai-compatible' ? {status:'ok',source:'live',voices:[{id:'alloy',label:'Alloy',languages:['en']}],models:[{id:'tts-1',label:'TTS 1'}]} : kind === 'qwen' ? {status:'ok',source:'builtin',voices:qwenVoices(),models:structuredClone(QWEN_MODELS)} :
     kind === 'azure' ? {status:'ok',source:'live',models:[],voices:[{id:'en-US-AshleyNeural',label:'Ashley',languages:['en'],gender:'Female'},{id:'ja-JP-NanamiNeural',label:'七海',languages:['ja'],gender:'Female'}]} :
     {status:'ok',source:'builtin',models:[],voices:[{id:'zh_female_cancan_mars_bigtts',label:'灿灿',languages:['zh','en'],gender:'Female'}]}
@@ -46,7 +46,7 @@ export function fixture({sidebar = true, configured: initial, external = true, r
       const next = {id:args.id,kind:args.kind,label:args.label,config:args.config}
       configured = [...configured.filter(p => p.id !== args.id),next]; if (args.secrets?.key) keys.add(args.id); result = listed().find(p => p.id === args.id)
     }
-    else if (method === 'testService') { const p = configured.find(p => p.id === args.id); checks.set(args.id,{status:'connected',voiceCount:voicesOf(p.kind).voices.length}); result = {reachable:true} }
+    else if (method === 'testService') { const p = configured.find(p => p.id === args.id); checks.set(args.id,testResult?.(p) ?? {status:'connected',voiceCount:voicesOf(p.kind).voices.length}); result = {reachable:true} }
     // the route answers a code plus a sentence (routes.js); the panel must branch on the code.
     else if (method === 'deleteService' && deleteGuard && !args.force) return {ok:false,status:409,json:async () => ({error:deleteGuard,message:'服务器文案'})}
     else if (method === 'deleteService') {configured = configured.filter(p => p.id !== args.id); result = {deleted:true}}
@@ -55,7 +55,7 @@ export function fixture({sidebar = true, configured: initial, external = true, r
     else if (method === 'voiceModelStatus') result = modelStatus(args)
     else if (method === 'listOnlinePresetVoices') result = {provider:args.provider,...voicesOf(args.provider)}
     else if (method === 'reading') result = structuredClone(reading)
-    else if (method === 'setReading') { reading = {...reading,...('dialogueVoice' in args ? {dialogueVoice:args.dialogueVoice} : {}),narrator:{...reading.narrator,...args.narrator}}; result = structuredClone(reading) }
+    else if (method === 'setReading') { reading = {...reading,narrator:{...reading.narrator,...args.narrator}}; result = structuredClone(reading) }
     else if (method === 'voicePresets') result = presets.map(preset => ({preset,revision:hash(preset)}))
     else if (method === 'saveVoicePreset') {
       try {
@@ -116,7 +116,7 @@ test('one page: service rows with state words, ⚠ only for problems, a register
   const f = fixture()
   await withDom(async root => {
     assert.equal(f.tabs.size,1)
-    const tab = f.tabs.get('dsh-tts:voice'); assert.equal(tab.title,'配音后端'); assert.equal(tab.single,true)
+    const tab = f.tabs.get('dsh-tts:voice'); assert.equal(tab.title,'语音后端'); assert.equal(tab.single,true)
     assert.equal(tab.component,f.slots.get('tts'))
     await act(async () => {root.render(React.createElement(tab.component))}); await settle()
     const text = () => document.body.textContent
@@ -125,9 +125,11 @@ test('one page: service rows with state words, ⚠ only for problems, a register
     assert.equal(document.querySelectorAll('.dtts-list .dtts-warn').length,0,'nothing is wrong, so no chip')
     assert.equal(button('基础'),undefined); assert.equal(button('高级'),undefined)
     const word = title => row(title).closest('.dtts-line').querySelector('.dtts-state, .dtts-warn')?.textContent
-    assert.equal(word('Test Azure'),'已设置'); assert.equal(word('Fish Audio'),'未设置','a common provider is listed before it is set up')
+    // Opening the page checks the services whose check is free (a list request) once: 可用; a check that would synthesize waits for 测试.
+    assert.deepEqual(f.calls.filter(c => c.method === 'testService').map(c => c.args.id).sort(),['azure-main','qwen-main'])
+    assert.equal(word('Test Azure'),'可用'); assert.equal(word('Test Volcengine'),'未测试'); assert.equal(word('Fish Audio'),'未设置','a common provider is listed before it is set up')
     // A service another plugin registered reads as its label, never its raw id; it has no controls here.
-    assert.equal(word('外部语音服务'),'就绪'); assert.doesNotMatch(text(),/local:default/)
+    assert.equal(word('外部语音服务'),'可用'); assert.doesNotMatch(text(),/local:default/)
     assert.ok(button('停止') === undefined)
     // No text buttons on rows: ⋯ only (删除… inside it, UI standard R13); dashed ＋ without a label.
     for (const word of ['测试连接','编辑','复制','删除','添加服务','新建预设','指定给角色 ›','保存缓存设置']) assert.ok(button(word) === undefined, word)
@@ -143,7 +145,8 @@ test('one page: service rows with state words, ⚠ only for problems, a register
     const leave = async (input,value) => { await change(input,value); await act(async () => input[Object.keys(input).find(k => k.startsWith('__reactProps'))].onBlur({target:{value}})); await settle() }
     await leave(maxGB,'0.5'); await leave(maxAge,'7')
     assert.deepEqual(f.calls.filter(call => call.method === 'saveCacheSettings').map(c => c.args),[{cacheMaxGB:0.5,cacheMaxAgeDays:30},{cacheMaxGB:0.5,cacheMaxAgeDays:7}])
-    assert.equal(f.calls.some(call => ['start','stop','restart','testService','probeService'].includes(call.method)),false)
+    assert.equal(f.calls.some(call => ['start','stop','restart','probeService'].includes(call.method)),false)
+    assert.equal(f.calls.filter(call => call.method === 'testService').length,2,'checked once, not on every reload')
     const master = byLabel('启用配音')
     await click(master); assert.equal(master.checked,false); assert.equal(f.services.has('ttsClient'),false)
     await click(master); assert.equal(f.services.get('ttsClient').available(),true)
@@ -158,7 +161,8 @@ test('a missing key or a failed test is a ⚠ chip on the row; the stylesheet ha
   await withDom(async root => {
     await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
     const chips = [...document.querySelectorAll('.dtts-list .dtts-warn')]
-    assert.deepEqual(chips.map(c => c.textContent),['需要密钥'])
+    assert.deepEqual(chips.map(c => c.textContent),['缺少 API Key'])
+    assert.deepEqual(f.calls.filter(c => c.method === 'testService').map(c => c.args.id),['qwen-main'],'a service without its key is not checked')
     assert.ok(row('No Key').closest('.dtts-line').contains(chips[0]))
   })
   f.dispose()
@@ -192,7 +196,7 @@ test('browser speech is a free 语音服务 row: its system voices listed when o
       await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
       const line = row('浏览器朗读')
       assert.ok(line,'listed with the other services')
-      assert.equal(line.closest('.dtts-line').querySelector('.dtts-state').textContent,'免费')
+      assert.equal(line.closest('.dtts-line').querySelector('.dtts-state').textContent,'可用')
       assert.equal(byLabel('系统声音'),null,'voices are read when the row opens')
       await click(line); await settle()
       assert.deepEqual([...byLabel('系统声音').querySelectorAll('.dtts-item-title')].map(n => n.textContent),['Microsoft Xiaoxiao','Microsoft Nanami'])
@@ -220,32 +224,43 @@ test('add service: dashed ＋ → type → name / region / key; explicit test sh
   await withDom(async root => {
     await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
     await click(byLabel('添加其他语音服务'))
-    assert.deepEqual([...document.querySelectorAll('.dtts-kind')].map(b => b.textContent),['自定义 Fish 协议','通义千问','Azure','Fish Audio','火山引擎','MiniMax','OpenAI 兼容服务'])
-    await click(radio('服务类型','通义千问'))
-    assert.equal(byLabel('服务名称').value,'通义千问'); assert.equal(checked('区域'),'中国内地')
+    assert.deepEqual([...document.querySelectorAll('.dtts-kind')].map(b => b.textContent),['自定义 Fish 协议','通义千问','Azure','Fish Audio','火山引擎','MiniMax','自定义语音服务'])
+    await click(radio('协议类型','通义千问'))
+    assert.equal(byLabel('显示名称').value,'通义千问'); assert.equal(checked('区域'),'中国内地')
     assert.ok(byLabel('服务 ID') === null) // ids are never shown
     const key = byLabel('API Key'); assert.equal(key.type,'password'); assert.equal(key.autocomplete,'new-password')
-    await click('测试连接'); await settle()
-    assert.match(byLabel('测试结果').textContent,/还没有填写密钥/)
-    await change('API Key','sk-test'); await click('测试连接'); await settle()
+    // 测试 ends the API Key row (no 清除 before a key is stored).
+    const keyRow = key.closest('.dtts-key-row'); assert.deepEqual([...keyRow.querySelectorAll('button')].map(b => b.textContent),['测试'])
+    await click('测试'); await settle()
+    assert.match(byLabel('测试结果').textContent,/缺少 API Key/)
+    await change('API Key','sk-test'); await click('测试'); await settle()
     assert.deepEqual(f.calls.filter(c => c.method === 'probeService').at(-1).args,{id:'qwen',kind:'qwen',config:{region:'cn'},secrets:{key:'sk-test'}})
-    assert.match(byLabel('测试结果').textContent,/连接成功 · \d+ 个音色/)
-    await change('服务名称','我的千问'); await click('保存'); await settle()
+    assert.match(byLabel('测试结果').textContent,/可用 · \d+ 个音色/)
+    await change('显示名称','我的千问'); await click('添加'); await settle()
     assert.deepEqual(f.calls.find(c => c.method === 'saveService').args,{id:'qwen',kind:'qwen',label:'我的千问',config:{region:'cn'},secrets:{key:'sk-test'}})
-    assert.equal(f.calls.some(c => c.method === 'testService'),false,'saving never makes a request to the provider')
+    assert.equal(f.calls.filter(c => c.method === 'probeService').length,2,'saving never makes a request to the provider')
     assert.ok(byLabel('API Key') === null); assert.ok(row('我的千问'))
     assert.equal(document.body.innerHTML.includes('sk-test'),false)
     // Click the row: the form opens right under it, key write-only.
     await click(row('我的千问'))
     assert.ok(row('我的千问').closest('li').querySelector('[aria-label="API Key"]') === byLabel('API Key'))
-    assert.equal(byLabel('API Key').value,''); assert.equal(byLabel('API Key').placeholder,'已保存')
-    await click('保存'); await settle()
+    // a saved service: × at the key field's end clears a stored key; no 测试 / 取消 / 保存 — each field saves when it is
+    // left, and the row's state word is its 测试 (owner 11-08).
+    assert.deepEqual([...byLabel('API Key').closest('.dtts-key-row').querySelectorAll('button')].map(b => b.getAttribute('aria-label')),['清除 API Key'])
+    assert.equal(byLabel('API Key').value,''); assert.match(byLabel('API Key').placeholder,/已保存$/)
+    const form = row('我的千问').closest('li').querySelector('.dtts-form')
+    assert.deepEqual([...form.querySelectorAll('button')].map(b => b.textContent).filter(t => /取消|保存|测试/.test(t)),[])
+    const saves = f.calls.filter(c => c.method === 'saveService').length
+    await change('API Key','sk-new'); await settle()
     const resave = f.calls.filter(c => c.method === 'saveService').at(-1).args
-    assert.equal('secrets' in resave,false); assert.ok(resave.expectedRevision)
+    assert.equal(f.calls.filter(c => c.method === 'saveService').length,saves + 1,'leaving a field saves it')
+    assert.deepEqual(resave.secrets,{key:'sk-new'}); assert.ok(resave.expectedRevision); assert.equal(resave.label,'我的千问')
+    await click(byLabel('重新测试 我的千问')); await settle()
+    assert.deepEqual(f.calls.filter(c => c.method === 'testService').at(-1).args,{id:'qwen'},'the state word tests again')
     // A second 通义千问 gets its own id and credential.
-    await click(byLabel('添加其他语音服务')); await click(radio('服务类型','通义千问'))
-    assert.equal(byLabel('服务名称').value,'通义千问')
-    await change('API Key','sk-two'); await click('保存'); await settle()
+    await click(byLabel('添加其他语音服务')); await click(radio('协议类型','通义千问'))
+    assert.equal(byLabel('显示名称').value,'通义千问')
+    await change('API Key','sk-two'); await click('添加'); await settle()
     assert.deepEqual(f.calls.filter(c => c.method === 'saveService').at(-1).args,{id:'qwen-2',kind:'qwen',label:'通义千问',config:{region:'cn'},secrets:{key:'sk-two'}})
     assert.ok(row('通义千问')); assert.ok(row('我的千问'))
     // ⋯ → 删除… → inline confirm → delete.
@@ -325,19 +340,39 @@ test('return intent survives failed navigation, ignores replacement and tolerate
 })
 
 // Fish setup never synthesizes until explicit preview, and the free default is visible.
-test('Fish service defaults to free and saves without synthesis',async () => {
+test('Fish service is a connection only and saves without synthesis',async () => {
   const f = fixture({configured:[],external:false})
   await withDom(async root => {
     await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
     // Fish Audio is listed before it is set up; its row opens the key form.
     await click(row('Fish Audio'))
-    assert.deepEqual([...document.querySelectorAll('[role=radiogroup][aria-label="模型"] [role=radio]')].map(o => o.textContent),['S2.1 Pro Free（免费）','S2.1 Pro（计费）','Drama 3（支持方括号内自然语言指示）（计费）'])
-    assert.equal(checked('模型'),'S2.1 Pro Free（免费）')
-    await change('API Key','fake-fish-key'); await click('保存'); await settle()
+    // a connection only: the model is each figure's choice (素材库 人物 › 声音).
+    assert.equal(byLabel('模型'),null)
+    await change('API Key','fake-fish-key'); await click('添加'); await settle()
     const service = f.calls.find(c => c.method === 'saveService').args
-    assert.equal(service.kind,'fish-audio');assert.deepEqual(service.config,{url:'https://api.fish.audio',model:'s2.1-pro-free'})
+    assert.equal(service.kind,'fish-audio');assert.deepEqual(service.config,{url:'https://api.fish.audio'})
     assert.equal(f.calls.some(c => c.method === 'synthesis'),false)
     assert.equal(document.body.innerHTML.includes('fake-fish-key'),false)
+  })
+  f.dispose()
+})
+
+// pick a preset; only 服务地址 and API Key show, the request and response sit under 高级.
+test('自定义语音服务 starts from a preset, keeps the request and response under 高级 and saves the whole connection',async () => {
+  const f = fixture({configured:[],external:false})
+  await withDom(async root => {
+    await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
+    await click(byLabel('添加其他语音服务')); await click(radio('协议类型','自定义语音服务'))
+    assert.equal(radio('预设','OpenAI 兼容').getAttribute('aria-checked'),'true')
+    const more = document.querySelector('.dtts-form details')
+    assert.equal(more.open,false); assert.ok(more.contains(byLabel('请求体模板'))); assert.equal(more.contains(byLabel('Base URL')),false)
+    await click(radio('预设','火山方舟 Agent Plan'))
+    assert.equal(byLabel('Base URL').value,'https://openspeech.bytedance.com')
+    await change('API Key','mock-plan-key'); await click('添加'); await settle()
+    const saved = f.calls.find(c=>c.method==='saveService').args
+    assert.equal(saved.kind,'openai-compatible'); assert.equal(saved.config.preset,'volc-agent-plan')
+    assert.equal(saved.config.speechPath,'/api/v3/plan/tts/unidirectional'); assert.match(saved.config.headers,/X-Api-Key: \{\{key\}\}/)
+    assert.deepEqual(saved.secrets,{key:'mock-plan-key'}); assert.equal(JSON.stringify(saved.config).includes('mock-plan-key'),false)
   })
   f.dispose()
 })
@@ -346,11 +381,11 @@ test('Volcengine service form uses one new-console API Key and no App ID',async 
   const f = fixture({configured:[],external:false})
   await withDom(async root => {
     await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
-    await click(byLabel('添加其他语音服务')); await click(radio('服务类型','火山引擎'))
+    await click(byLabel('添加其他语音服务')); await click(radio('协议类型','火山引擎'))
     assert.equal(byLabel('App ID'),null)
     assert.equal(byLabel('Access Key'),null)
     assert.equal(byLabel('API Key').type,'password')
-    await change('API Key','mock-new-console-key'); await click('保存'); await settle()
+    await change('API Key','mock-new-console-key'); await click('添加'); await settle()
     assert.deepEqual(f.calls.find(c=>c.method==='saveService').args,{id:'volc',kind:'volcengine',label:'火山引擎',config:{resourceId:'seed-tts-2.0'},secrets:{key:'mock-new-console-key'}})
     assert.equal(f.calls.some(c=>c.method==='probeService' || c.method==='testService'),false)
     assert.equal(document.body.innerHTML.includes('mock-new-console-key'),false)
@@ -359,12 +394,12 @@ test('Volcengine service form uses one new-console API Key and no App ID',async 
 })
 
 // the figure voice page's 在线 TTS list hands over once — its dashed ＋ opens
-// 添加语音服务 with the custom (OpenAI 兼容) type chosen; a custom row's 去设置 opens that very service, not the first of its type.
+// 添加语音服务 with 自定义语音服务 chosen; a custom row's 去设置 opens that very service, not the first of its type.
 test('focus hand-over: add opens 添加语音服务 with the type chosen; an id opens that saved service',async () => {
   const configured = [{id:'openai',kind:'openai-compatible',label:'服务 A',config:{url:'https://a.example',speechPath:'/v1/audio/speech'}},{id:'openai-2',kind:'openai-compatible',label:'服务 B',config:{url:'https://b.example',speechPath:'/v1/audio/speech'}}]
   for (const [focus,check] of [
-    [{kind:'openai-compatible',add:true},() => { assert.equal(checked('服务类型'),'OpenAI 兼容服务'); assert.equal(byLabel('服务名称').value,'OpenAI 兼容服务') }],
-    [{kind:'openai-compatible',id:'openai-2'},() => { assert.equal(byLabel('服务名称').value,'服务 B'); assert.ok(row('服务 B').closest('li').contains(byLabel('服务名称'))) }]]) {
+    [{kind:'openai-compatible',add:true},() => { assert.equal(checked('协议类型'),'自定义语音服务'); assert.equal(byLabel('显示名称').value,'自定义语音服务') }],
+    [{kind:'openai-compatible',id:'openai-2'},() => { assert.equal(byLabel('显示名称').value,'服务 B'); assert.ok(row('服务 B').closest('li').contains(byLabel('显示名称'))) }]]) {
     const f = fixture({configured,external:false,focus})
     await withDom(async root => {
       await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
@@ -375,21 +410,21 @@ test('focus hand-over: add opens 添加语音服务 with the type chosen; an id 
   }
 })
 
-// 配音后端 — 语音服务 → 发音字典 → 合成缓存; 浏览器朗读 first and fixed. Who speaks with which voice
+// 语音后端 — 语音合成 → (plugin sections: 语音识别) → 发音字典 → 合成缓存; 浏览器朗读 first and fixed. Who speaks with which voice
 // (tts.reading) is chosen in 舞台设置 › 配音, so this page has no 朗读 section and no default engine.
-test('配音后端 page: section order, 浏览器朗读 first and fixed, no 朗读 section or default engine',async () => {
+test('语音后端 page: section order, 浏览器朗读 first and fixed, no 朗读 section or default engine',async () => {
   const browserSpeech = {available:() => true,voices:async () => [{id:'Microsoft Yunxi',label:'Microsoft Yunxi',languages:['zh-CN']}],speak:async () => {},stop:() => {}}
   const f = fixture({browserSpeech,readingsEditor:{render:() => React.createElement('div',null,React.createElement('h3',null,'发音字典'))}})
   try {
     await withDom(async root => {
       await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
-      assert.equal(document.querySelector('.dtts-head h2').textContent,'配音后端')
-      assert.ok(byLabel('配音后端 说明'))
+      assert.equal(document.querySelector('.dtts-head h2').textContent,'语音后端')
+      assert.ok(byLabel('语音后端 说明'))
       const headings = [...document.querySelectorAll('section h3')].map(h => h.querySelector('span')?.textContent || h.textContent)
-      assert.deepEqual(headings,['语音服务','发音字典','合成缓存'])
+      assert.deepEqual(headings,['语音合成','发音字典','合成缓存'])
       const first = document.querySelector('.dtts-list > li')
       assert.equal(first.querySelector('.dtts-line-title').textContent,'浏览器朗读')
-      assert.equal(first.querySelector('.dtts-state').textContent,'免费')
+      assert.equal(first.querySelector('.dtts-state').textContent,'可用')
       assert.equal(first.querySelector('[aria-haspopup=menu], .dtts-icon-button'),null,'no ⋯: it cannot be removed')
       assert.equal(document.querySelector('.dtts-reading'),null)
       for (const label of ['对白默认声音','旁白配音','旁白声音','默认语音引擎']) assert.equal(byLabel(label),null,label)
@@ -406,8 +441,9 @@ test('plugin sections mount, update and unregister without changing backend serv
       const Panel = f.tabs.get('dsh-tts:voice').component
       await act(async () => root.render(React.createElement(Panel)))
       let off
-      await act(async () => { off = registry.register('fixture', ({ Confirm, Help }) => {
-        assert.equal(typeof Confirm, 'function'); assert.equal(typeof Help, 'function')
+      await act(async () => { off = registry.register('fixture', parts => {
+        // the page's own parts, so a plugin's section (Tavern's 语音识别) looks like the page's
+        for (const part of ['Section','Field','Line','Confirm','Help','Button','Menu','AddRow','StateWord','Status','Warn']) assert.equal(typeof parts[part], 'function', part)
         return React.createElement('div', { 'data-plugin-section': true }, 'Plugin section')
       }) })
       assert.equal(document.querySelector('[data-plugin-section]').textContent, 'Plugin section')
@@ -416,4 +452,21 @@ test('plugin sections mount, update and unregister without changing backend serv
       assert.equal(document.querySelector('[data-plugin-section]'), null)
     })
   } finally { f.dispose() }
+})
+// A self-hosted server row (a local worker) has no key to be wrong: nothing answering is 未启动, a refused token is 访问被拒绝, an answer is 可用;
+// a cloud Fish row refused for its key still says API Key 无效.
+test('a self-hosted Fish row reads 未启动 / 访问被拒绝 / 可用 and never an API Key problem; a cloud row keeps its key words',async () => {
+  const rows = [{id:'fish-local',kind:'fish-audio',label:'本地 Drama3',config:{url:'http://127.0.0.1:9884'}},{id:'fish',kind:'fish-audio',label:'Fish Audio',config:{url:'https://api.fish.audio'}}]
+  for (const [check,local,cloud] of [[{status:'offline',message:'没有连上服务，它可能还没有启动'},'未启动','连不上'],[{status:'rejected',message:'服务拒绝了这次访问'},'访问被拒绝','可用'],
+    [{status:'connected',voiceCount:0},'可用','可用'],[{status:'invalid-key',message:'服务要求鉴权'},'API Key 无效','API Key 无效']]) {
+    const f = fixture({configured:rows,external:false,testResult:p => p.id === 'fish-local' && check.status !== 'invalid-key' ? check : p.id === 'fish' && ['connected','invalid-key','offline'].includes(check.status) ? check : {status:'connected',voiceCount:0}})
+    await withDom(async root => {
+      await act(async () => {root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))}); await settle()
+      const word = title => row(title).closest('.dtts-line').querySelector('.dtts-state, .dtts-warn')?.textContent
+      assert.equal(word('本地 Drama3'),check.status === 'invalid-key' ? '可用' : local)
+      if (check.status !== 'connected') assert.doesNotMatch(row('本地 Drama3').closest('.dtts-line').textContent,/Key|密钥/)
+      if (check.status === 'invalid-key') assert.equal(word('Fish Audio'),cloud)
+    })
+    f.dispose()
+  }
 })

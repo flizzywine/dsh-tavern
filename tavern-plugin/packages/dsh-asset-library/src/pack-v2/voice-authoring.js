@@ -3,25 +3,8 @@ import {mkdir,open,rename} from 'node:fs/promises'
 import path from 'node:path'
 import {checkedPath} from './storage.js'
 import {check,validateUuid,validateShortId} from '../asset-packs/common.js'
-import {createHash} from 'node:crypto'
-import {validateVoiceBinding,validateVoiceSpec,voiceReferences} from '../shared/voice-schema.js'
+import {validateVoiceBinding,voiceReferences} from '../shared/voice-schema.js'
 import {jsonBytes,readDocument} from './validation.js'
-import {audioKind,MEDIA_PURPOSE_LIMITS} from './media.js'
-
-// 朗读声音 (reading voices: 通用声音 `general`, 旁白 `narrator`, a card's own 旁白 `narrator:<cardId>`): one voice each, the
-// shape of a pack voice (voiceSpec) with a figure's binding (voice is always 'voice'). They live beside the templates
-// (voice-templates/index.json `readings`, reference clips in the same immutable media directory) and are edited in place.
-const READING_ID = /^(?:general|narrator(?::[A-Za-z0-9_-]{1,120})?)$/
-const READING_AUDIO = {wav:'audio/wav',mp3:'audio/mpeg'}
-// a bad reading voice is the voice schema's repairable INVALID_INPUT.
-const invalid = (ok, path, message = 'Invalid reading voice') => check(ok, path, message, 'INVALID_INPUT')
-function readingId(id) { invalid(typeof id === 'string' && READING_ID.test(id),'$.id','Invalid reading voice id') }
-function readingDocument(voiceSpec,binding) {
-  validateVoiceSpec(voiceSpec,'$.voiceSpec')
-  invalid(binding?.voice === 'voice','$.binding.voice')
-  validateVoiceBinding(binding,{version:1,voices:{voice:voiceSpec}},'$.binding')
-}
-
 
 // A changed voice cannot retain pointers into a different voice's options.
 export function retainVoiceEmotionPointers(figure,manifest) {
@@ -63,112 +46,43 @@ export function createVoiceAuthoring({assetRoot,storage,run,load,edit,cas,limits
       return {affectedFigures:users.map(f => ({id:f.id,name:f.name}))}
     })
   }
-  const publicReading = item => item ? structuredClone(item.link ? {id:item.id,revision:item.revision,link:item.link,...(item.language ? {language:item.language} : {})}
-    : {id:item.id,revision:item.revision,voiceSpec:item.voiceSpec,binding:item.binding}) : null
-  // A reading voice is written whole (CAS on its own revision); its clips are named by hash and must already be stored.
-  async function publishReading(data,id,voiceSpec,binding,copied = {}) {
-    const blobs = {}
-    for (const hash of new Set(voiceReferences(voiceSpec).map(r => r.media))) {
-      const descriptor = copied[hash] || data.readingMedia?.[hash] || data.readings?.[id]?.blobs?.[hash]
-      check(descriptor,'$.voiceSpec','Missing reference','MISSING_REFERENCE')
-      blobs[hash] = structuredClone(descriptor)
-    }
-    const item = {id,revision:randomUUID(),voiceSpec:structuredClone(voiceSpec),binding:structuredClone(binding),blobs}
-    ;(data.readings ||= {})[id] = item
-    // staged clips now owned by a voice leave the staging list.
-    if (data.readingMedia) for (const hash of Object.keys(blobs)) delete data.readingMedia[hash]
-    await publish(data)
-    return publicReading(item)
+  // A stored voice (a template, or a legacy reading voice) becomes a new voice of the pack, assigned to the figure with its
+  // binding; its reference clips are copied into the pack.
+  function assignStored(input, item, missing) {
+    return edit(input,async (manifest,files) => {
+      const stored = item(await index())
+      check(stored,missing[0],missing[1],'VOICE_NOT_FOUND')
+      check(manifest.figures.includes(input.figureId),'$.figureId','Figure missing','ASSET_UNAVAILABLE')
+      const voiceId = 'v-' + randomUUID(), voiceSpec = structuredClone(stored.voiceSpec)
+      for (const hash of new Set(voiceReferences(voiceSpec).map(r => r.media))) {
+        const descriptor = stored.blobs[hash]
+        check(descriptor,'$.media','Missing reference','MISSING_REFERENCE')
+        const relative = 'media/' + hash + '.' + descriptor.ext
+        if (manifest.blobs[hash]) check(manifest.blobs[hash].ext === descriptor.ext && manifest.blobs[hash].size === descriptor.size,'$.media','Blob conflict','INVALID_INPUT')
+        // Reuse installed bytes; new copies receive their write-time identity in sealPack.
+        if (!files.has(relative)) {
+          const bytes = await storage.read('voice-templates/' + relative)
+          check(bytes,'$.media','Missing reference','MISSING_REFERENCE')
+          files.set(relative,bytes)
+        }
+        manifest.blobs[hash] = structuredClone(descriptor)
+      }
+      ;(manifest.voiceLibrary ||= {version:1,voices:{}}).voices[voiceId] = voiceSpec
+      const name = 'figures/' + input.figureId + '.json', figure = readDocument(files.get(name))
+      figure.voice = {...structuredClone(stored.binding),voice:voiceId}; retainVoiceEmotionPointers(figure,manifest); files.set(name,jsonBytes(figure))
+      return {voiceId}
+    })
   }
-  const readingListeners = new Set()
-  const changed = id => result => { for (const fn of readingListeners) { try { fn({id}) } catch { /* observers cannot undo a write */ } } return result }
-  function readingCas(data,id,revision) { check((data.readings?.[id]?.revision ?? null) === revision,'$.expectedRevision','Reading voice revision changed','REVISION_CONFLICT') }
   return {
-    listReadingVoices() { return run([],async () => ({readings:Object.values((await index()).readings || {}).map(publicReading)})) },
-    // async: a bad input is a rejected call like a CAS conflict.
-    async getReadingVoice({id}) { readingId(id); return run([],async () => ({reading:publicReading((await index()).readings?.[id])})) },
-    // voiceSpec null removes the voice (it then speaks as the browser's default voice). `link` {packId, figureId} instead
-    // makes it follow that figure's voice (「人物的声音」), spoken in `language` (absent = 中文).
-    async saveReadingVoice(input) {
-      readingId(input.id)
-      if (input.link !== undefined) {
-        invalid(input.link && Object.keys(input.link).sort().join() === 'figureId,packId','$.link'); validateUuid(input.link.packId); validateShortId(input.link.figureId,'$.link.figureId')
-        if (input.language !== undefined) invalid(typeof input.language === 'string' && /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(input.language),'$.language')
-      } else if (input.voiceSpec !== null) readingDocument(input.voiceSpec,input.binding)
+    // One-time (dsh-tavern-stage reading-voice-migration.js): 通用声音 / 旁白's voices kept here before they became pointers
+    // at figures (tts.reading general / narrator .figure). Listed, each own voice assigned to a figure, then dropped.
+    legacyReadingVoices() { return run([],async () => Object.values((await index()).readings || {}).map(item => structuredClone(item.link ? {id:item.id,link:item.link} : {id:item.id,voiceSpec:item.voiceSpec,binding:item.binding}))) },
+    assignLegacyReadingVoice(input) { return assignStored(input,data => data.readings?.[input.readingId]?.voiceSpec && data.readings[input.readingId],['$.readingId','Reading voice missing']) },
+    dropLegacyReadingVoices() {
       return run([],async () => {
-        const data = await index(); readingCas(data,input.id,input.expectedRevision)
-        if (input.link !== undefined) {
-          const item = {id:input.id,revision:randomUUID(),link:{packId:input.link.packId,figureId:input.link.figureId},...(input.language ? {language:input.language} : {})}
-          ;(data.readings ||= {})[input.id] = item; await publish(data); return {reading:publicReading(item)}
-        }
-        if (input.voiceSpec === null) { if (data.readings) delete data.readings[input.id]; await publish(data); return {reading:null} }
-        return {reading:await publishReading(data,input.id,input.voiceSpec,input.binding)}
-      }).then(changed(input.id))
-    },
-    // The host hears each saved reading voice (speech and the cards' bubble projection open it again).
-    subscribeReadings(fn) { readingListeners.add(fn); return () => readingListeners.delete(fn) },
-    // A reference clip for a reading voice (WAV / MP3, checked once here): stored by hash, then named by saveReadingVoice.
-    async putReadingVoiceBlob(input) {
-      const bytes = Buffer.from(input.bytes), ext = audioKind(bytes)
-      invalid(READING_AUDIO[ext] && input.descriptor?.ext === ext,'$.descriptor','Reference clips are WAV or MP3')
-      check(bytes.length > 0 && bytes.length <= MEDIA_PURPOSE_LIMITS.audio,'$.bytes','Reference clip too large','LIMIT_EXCEEDED')
-      const hash = createHash('sha256').update(bytes).digest('hex'), descriptor = {ext,mime:READING_AUDIO[ext],size:bytes.length}
-      return run([],async () => {
-        const relative = 'media/' + hash + '.' + ext
-        if (!await storage.exists('voice-templates/' + relative)) await write(relative,bytes)
-        const data = await index()
-        ;(data.readingMedia ||= {})[hash] = descriptor; await publish(data)
-        return {hash,descriptor:structuredClone(descriptor)}
-      })
-    },
-    // Copies a pack voice ({packId, voiceId}), a template ({templateId}) or another reading voice ({readingId}: 旁白's
-    // 「本卡单独指定」 starts as the global one) into a reading voice, clips included.
-    async copyReadingVoice(input) {
-      readingId(input.id)
-      const from = input.from || {}
-      if (from.readingId !== undefined) readingId(from.readingId)
-      else if (from.templateId !== undefined) validateUuid(from.templateId); else { validateUuid(from.packId); validateShortId(from.voiceId,'$.from.voiceId') }
-      return run(from.packId ? [from.packId] : [],async () => {
-        const data = await index(); readingCas(data,input.id,input.expectedRevision)
-        let voiceSpec, binding, copied = {}
-        if (from.readingId !== undefined) {
-          const item = data.readings?.[from.readingId]
-          check(item,'$.from.readingId','Reading voice missing','VOICE_NOT_FOUND')
-          if (item.link) {
-            const copy = {id:input.id,revision:randomUUID(),link:structuredClone(item.link),...(item.language ? {language:item.language} : {})}
-            ;(data.readings ||= {})[input.id] = copy; await publish(data); return {reading:publicReading(copy)}
-          }
-          voiceSpec = item.voiceSpec; binding = structuredClone(item.binding); copied = item.blobs
-        } else if (from.templateId !== undefined) {
-          const item = data.templates[from.templateId]
-          check(item,'$.from.templateId','Template missing','VOICE_NOT_FOUND')
-          voiceSpec = item.voiceSpec; binding = {...item.binding,voice:'voice'}; copied = item.blobs
-        } else {
-          const pack = await load(from.packId), voice = pack?.manifest.voiceLibrary?.voices[from.voiceId]
-          check(voice,'$.from.voiceId','Voice missing','VOICE_NOT_FOUND')
-          voiceSpec = voice; binding = {voice:'voice'}
-          for (const hash of new Set(voiceReferences(voice).map(r => r.media))) {
-            const descriptor = pack.manifest.blobs[hash], bytes = descriptor && pack.files.get('media/' + hash + '.' + descriptor.ext)
-            check(bytes,'$.media','Missing reference','MISSING_REFERENCE')
-            const relative = 'media/' + hash + '.' + descriptor.ext
-            if (!await storage.exists('voice-templates/' + relative)) await write(relative,bytes)
-            copied[hash] = descriptor
-          }
-        }
-        if (input.language !== undefined) binding.language = input.language
-        readingDocument(voiceSpec,binding)
-        return {reading:await publishReading(data,input.id,voiceSpec,binding,copied)}
-      }).then(changed(input.id))
-    },
-    // Host-only: a reading voice's own reference clip (or one just staged for it).
-    async readReadingVoiceMedia({id, hash}) {
-      readingId(id)
-      return run([],async () => {
-        const data = await index(), descriptor = data.readings?.[id]?.blobs?.[hash] || data.readingMedia?.[hash]
-        check(descriptor,'$.hash','Missing reference','MISSING_REFERENCE')
-        const bytes = await storage.read('voice-templates/media/' + hash + '.' + descriptor.ext)
-        check(bytes,'$.hash','Missing reference','MISSING_REFERENCE')
-        return {bytes,descriptor:structuredClone(descriptor)}
+        const data = await index(), dropped = Object.keys(data.readings || {}).length
+        if (!data.readings && !data.readingMedia) return {dropped:0}
+        delete data.readings; delete data.readingMedia; await publish(data); return {dropped}
       })
     },
     savePackVoiceVariant:input => variantEdit(input,false),
@@ -221,29 +135,7 @@ export function createVoiceAuthoring({assetRoot,storage,run,load,edit,cas,limits
     },
     assignVoiceTemplate(input) {
       validateUuid(input.templateId)
-      return edit(input,async (manifest,files) => {
-        const item = (await index()).templates[input.templateId]
-        check(item,'$.templateId','Template missing','VOICE_NOT_FOUND'); templateCas(item,input.templateRevision)
-        check(manifest.figures.includes(input.figureId),'$.figureId','Figure missing','ASSET_UNAVAILABLE')
-        const voiceId = 'v-' + randomUUID(), voiceSpec = structuredClone(item.voiceSpec)
-        for (const hash of new Set(voiceReferences(voiceSpec).map(r => r.media))) {
-          const descriptor = item.blobs[hash]
-          check(descriptor,'$.media','Missing reference','MISSING_REFERENCE')
-          const relative = 'media/' + hash + '.' + descriptor.ext
-          if (manifest.blobs[hash]) check(manifest.blobs[hash].ext === descriptor.ext && manifest.blobs[hash].size === descriptor.size,'$.media','Blob conflict','INVALID_INPUT')
-          // Reuse installed bytes; new copies receive their write-time identity in sealPack.
-          if (!files.has(relative)) {
-            const bytes = await storage.read('voice-templates/' + relative)
-            check(bytes,'$.media','Missing reference','MISSING_REFERENCE')
-            files.set(relative,bytes)
-          }
-          manifest.blobs[hash] = structuredClone(descriptor)
-        }
-        ;(manifest.voiceLibrary ||= {version:1,voices:{}}).voices[voiceId] = voiceSpec
-        const name = 'figures/' + input.figureId + '.json', figure = readDocument(files.get(name))
-        figure.voice = {...structuredClone(item.binding),voice:voiceId}; retainVoiceEmotionPointers(figure,manifest); files.set(name,jsonBytes(figure))
-        return {voiceId}
-      })
+      return assignStored(input,data => { const item = data.templates[input.templateId]; if (item) templateCas(item,input.templateRevision); return item },['$.templateId','Template missing'])
     },
   }
 }

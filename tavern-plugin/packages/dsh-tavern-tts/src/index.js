@@ -32,7 +32,15 @@ export function apply(ctx, config = {}) {
   const services = createServiceSettings({ tts, samples, pilotBudgetRoot:config.dataDir, get:() => source(), changed:() => tts.servicesChanged(), credentials:() => ctx.get('credentials'), warn:message => ctx.logger.warn(message),
     replace: async value => { const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE'); await settings.replace('tts',validateSettings(value),settings.describe().find(row => row.ns === 'tts')?.revision) },
   })
-  Object.assign(tts, { listVoiceServices:services.voiceServices, listRecommendedFishVoices:services.listRecommendedFishVoices, saveService:services.save, deleteService:services.delete, testService:services.test, importVoicePresets:services.importVoicePresets })
+  // The one write of tts.reading (the 配音 page through ttsControl, the stage's one-time migration on the host).
+  tts.setReading = async patch => {
+    const next = patchReading(source().reading, patch)
+    const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE')
+    await settings.replace('tts',validateSettings({...source(),reading:next}),settings.describe().find(row => row.ns === 'tts')?.revision); syncReading()
+    return readingOf(source())
+  }
+  Object.assign(tts, { listVoiceServices:services.voiceServices, listRecommendedFishVoices:services.listRecommendedFishVoices, saveService:services.save, deleteService:services.delete, testService:services.test, importVoicePresets:services.importVoicePresets,
+    legacyServiceModels:services.legacyServiceModels, dropLegacyServiceModels:services.dropLegacyServiceModels })
   // Status is stale-while-revalidate: concurrent panels share one bounded probe per provider.
   const statuses = new Map()
   tts.subscribe(event => {
@@ -66,6 +74,12 @@ export function apply(ctx, config = {}) {
   }
   const enabledListeners = new Set()
   let unprovide, removing = Promise.resolve(), disposed = false
+  // Activity belongs to the plugin, not the optional synthesis service. Disabled
+  // still reports in-flight provider work and the last successful synthesis.
+  ctx.provide('ttsActivity', Object.freeze({read() {
+    if (disposed || !ready) fail('PLUGIN_UNAVAILABLE')
+    return {enabled:source().enabled, ...tts.activity()}
+  }}))
   async function syncEnabled() {
     const enabled = ready && source().enabled
     tts.setEnabled(enabled)
@@ -102,7 +116,7 @@ export function apply(ctx, config = {}) {
   ctx.inject(['settings'], child => {
     const settings = settingsSectionProvider(ctx, 'tts')
     installSettingsSection(ctx,child.get('settings'),'tts',Settings,entry,{
-      setSource:fn => { source = fn; void settingsReady.then(ok => { if (ok) migrating ??= migratePronunciations(settings).catch(error => ctx.logger.warn(error)) }) },
+      setSource:fn => { source = fn; void settingsReady.then(ok => { if (ok) migrating ??= migratePronunciations(settings).then(() => services.upgradeHttpServices()).catch(error => ctx.logger.warn(error)) }) },
       onChange:() => { void changed().catch(error => ctx.logger.warn(error)) }, validate:validateSettings,
     })
   })
@@ -120,12 +134,7 @@ export function apply(ctx, config = {}) {
         return {enabled:source().enabled}
       }
       case 'reading': return readingOf(source())
-      case 'setReading': {
-        const next = patchReading(source().reading, args)
-        const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE')
-        await settings.replace('tts',validateSettings({...source(),reading:next}),settings.describe().find(row => row.ns === 'tts')?.revision); syncReading()
-        return readingOf(source())
-      }
+      case 'setReading': return tts.setReading(args)
       case 'capabilities': return tts.capabilities()
       case 'settings': return { ...source(), providers:await services.list() }
       case 'services': return { configured:await services.list(), running:await runningStatus(await tts.listServices()) }
@@ -133,9 +142,11 @@ export function apply(ctx, config = {}) {
       case 'providerKinds': return services.kinds()
       case 'listRecommendedFishVoices': return services.listRecommendedFishVoices(args)
       case 'validateFishVoice': return services.validateFishVoice(args)
+      case 'validateMinimaxVoice': return services.validateMinimaxVoice(args)
       case 'searchFishVoices': return services.searchFishVoices(args)
       case 'fishSample': return services.fishSample(args)
       case 'voicePilot': return services.voicePilot(args)
+      case 'credentialNames': return services.credentialNames()
       case 'voiceModelStatus': return services.voiceModelStatus(args)
       case 'validateVoiceModel': return services.validateVoiceModel(args)
       case 'listOnlinePresetVoices': return services.listOnlinePresetVoices(args)

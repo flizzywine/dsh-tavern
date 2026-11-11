@@ -24,7 +24,7 @@ export async function body(request, limit = BODY_LIMIT) {
 export function registerRoutes(ctx, prefix, dispatch, audio, jobs, samples) {
   ctx.inject(['connection'], child => {
     const connection = child.get('connection')
-    child.effect(() => connection.fetch.register({ path:prefix + '/control', methods:['POST'], requestBody:'streaming', fetch:request => handleControl(request, dispatch) }))
+    child.effect(() => connection.fetch.register({ path:prefix + '/control', methods:['POST'], requestBody:'streaming', fetch:request => handleControl(request, dispatch, ctx.logger) }))
     if (jobs) {
       child.effect(() => connection.fetch.register({ path:prefix + '/synthesis', methods:['POST'], requestBody:'streaming', fetch:request => handleSynthesis(request,jobs) }))
       child.effect(() => connection.fetch.register({ path:prefix + '/synthesis/status', methods:['GET','DELETE'], requestBody:'buffered', fetch:request => handleSynthesis(request,jobs) }))
@@ -55,10 +55,21 @@ export async function handleSynthesis(request, jobs) {
     return json(jobs.submit(input.input,{principal,scope:input.scope,priority:input.priority}),202)
   } catch (e) { const code = /^[A-Z_]+$/.test(e.code || '') ? e.code : 'INVALID_INPUT'; return json({error:code,message:describeTtsError(code)},code === 'FORBIDDEN' ? 403 : code === 'JOB_GONE' ? 410 : 400) }
 }
-export async function handleControl(request, dispatch) {
+// The control methods dispatched by src/index.js control(); a request naming anything else is logged as '-'.
+export const CONTROL_METHODS = new Set(['getEnabled','setEnabled','reading','setReading','capabilities','settings','services','voiceServices','providerKinds','listRecommendedFishVoices','validateFishVoice','validateMinimaxVoice','searchFishVoices','fishSample','voicePilot','credentialNames','voiceModelStatus','validateVoiceModel','listOnlinePresetVoices','probeService','providerVoices','listModels','listVoices','saveService','deleteService','serviceUsage','testService','voicePresets','saveVoicePreset','deleteVoicePreset','importVoicePresets','voices','catalog','health','cache','clearCache','deleteCacheEntry','saveCacheSettings','readingPresets','readingPreset','editReading','mergeReadings','createReadingPreset','renameReadingPreset','deleteReadingPreset','setActiveReadingPreset','exportReadingPreset','importReadingPreset'])
+const LOGGED_NAMES = new Set(['Error','TypeError','SyntaxError','RangeError'])
+export async function handleControl(request, dispatch, logger = console) {
   if (!sameOrigin(request)) return json({error:'FORBIDDEN'},403)
-  try { const input = await body(request, CONTROL_BODY_LIMIT); return json(await dispatch(input.method, input.args || {})) }
-  catch (e) { const code = /^[A-Z_]+$/.test(e.code || '') ? e.code : 'REQUEST_FAILED'; return json({error:code,message:describeTtsError(code)},400) }
+  let method
+  try { const input = await body(request, CONTROL_BODY_LIMIT); method = input.method; return json(await dispatch(input.method, input.args || {})) }
+  catch (e) {
+    const code = /^[A-Z_]+$/.test(e.code || '') ? e.code : 'REQUEST_FAILED', text = describeTtsError(code)
+    // Trusted identifiers only, never e.message: JSON.parse and provider errors can echo request text or keys.
+    // An unknown code's text echoes the code itself, so the log uses the generic text instead.
+    const message = text.includes(code) ? describeTtsError('-') : text
+    logger.warn('[tts control] method=%s code=%s name=%s message=%s', typeof method === 'string' && CONTROL_METHODS.has(method) ? method : '-', code, LOGGED_NAMES.has(e.name) ? e.name : '-', message)
+    return json({error:code,message:text},400)
+  }
 }
 
 // Management stays available when the consumer service is disabled. Connection

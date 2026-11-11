@@ -27,10 +27,9 @@ export function resolveVoiceSpec({voice, binding, mood = 'default', emotions = [
   const references = source.kind === 'reference-list' ? source.references : undefined
   const kind = references ? 'reference' : source.provider
   if (source.kind === 'voice-id') params.referenceId = source.voiceId
-  if (source.kind === 'preset') {
-    params[source.provider === 'azure' ? 'voiceName' : source.provider === 'volcengine' ? 'speaker' : 'voice'] = source.voiceName
-    if (source.model) params.model = source.model
-  }
+  if (source.kind === 'preset') params[source.provider === 'azure' ? 'voiceName' : source.provider === 'volcengine' ? 'speaker' : 'voice'] = source.voiceName
+  // the figure's model choice (any source kind); absent = the service's default model.
+  if (source.model) params.model = source.model
   // Emotion variants have already selected a single style/instruction. The adapter must not apply legacy maps again.
   const voiceData = {schemaVersion:1,id:'voice',enabled:true,label:voice.name,kind,languages:[binding.language || voice.language],params,
     ...(references ? {references:references.map(r => ({sha256:r.media,transcript:r.text,language:r.language}))} : {})}

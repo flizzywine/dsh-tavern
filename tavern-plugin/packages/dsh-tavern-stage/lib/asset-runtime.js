@@ -6,6 +6,8 @@ import { cardEngineSettings, effectiveCardStage } from '../../../lib/domain/card
 import { assetRefKey, resolveAssetSnapshot } from '../../dsh-presentation-protocol/src/asset-packs.js'
 
 import { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
+import { migrateServiceSourceModels } from './service-model-migration.js'
+import { migrateReadingVoices } from './reading-voice-migration.js'
 export { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
 
 // The authenticated Tavern carrier owns sessions; pack services own bytes and leases.
@@ -25,6 +27,12 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
     for (const listener of listeners) listener(cardPath,event)
     onInvalidate(cardPath,event)
   }
+  // the Fish / MiniMax model moves once from 配音后端 to each figure's source (service-model-migration.js).
+  ctx.inject(['assetLibrary', 'tts'], child => { migrateServiceSourceModels({library:child.get('assetLibrary'), tts:child.get('tts')})
+    .then(done => done && ctx.logger.info('service model migration %s', JSON.stringify(done)), error => ctx.logger.warn('service model migration failed: %s', error?.code || error?.message))
+    // 通用声音 / 旁白's voices kept in the library move once onto figures they then point at (reading-voice-migration.js).
+    migrateReadingVoices({library:child.get('assetLibrary'), tts:child.get('tts')})
+      .then(done => done && ctx.logger.info('reading voice migration %s', JSON.stringify(done)), error => ctx.logger.warn('reading voice migration failed: %s', error?.code || error?.message)) })
   for (const name of ['assetLibrary', 'assetPackSettings', 'tts']) ctx.inject([name], child => {
     const lifecycle = reason => {
       if (name === 'tts') for (const entry of consumers.values()) {entry.speech?.dispose(); entry.speech = null}
@@ -32,8 +40,13 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
     }
     lifecycle('service-installed')
     const off = child.get(name)?.subscribe?.(event => {
-      if (name !== 'tts') clear(undefined,{kind:event.revision === null ? 'revoked' : 'refresh',scope:{packId:event.packId},reason:'service-event'})
-      // readingChanged: 旁白配音's global layer (tts.reading) changed, so each card's config.narrator is projected again.
+      // A pack 通用声音 / 旁白 point at changed: the same as a readingChanged (their figure may be in no card's packs).
+      if (name !== 'tts') {
+        if (name === 'assetLibrary' && pointsAt(event.packId)) for (const entry of consumers.values()) {entry.speech?.dispose(); entry.speech = null}
+        clear(undefined,{kind:event.revision === null ? 'revoked' : 'refresh',scope:{packId:event.packId},reason:'service-event'})
+      }
+      // readingChanged: tts.reading changed (旁白配音's global layer, or the figure 通用声音 / 旁白 point at), so each card's
+      // config.voice.general / config.narrator is projected again.
       else if (['providerChanged','providerRemoved','disposed','cacheInvalidated','readingChanged'].includes(event.type)) {
         for (const entry of consumers.values()) {entry.speech?.dispose(); entry.speech = null}
         clear()
@@ -41,6 +54,7 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
     })
     child.effect(() => () => { off?.(); lifecycle('service-unloaded') })
   })
+  const pointsAt = packId => { const reading = getTts()?.reading?.(); return !!packId && [reading?.general.figure, reading?.narrator.figure].some(ref => ref?.packId === packId) }
   const offEngine = engineSettings.subscribe(() => clear())
   // extraPackIds: packs a caller adds on top of the card's own (an enabled mod's built-in pack); the caller decides their state.
   async function snapshot(cardPath, {extraPackIds = []} = {}) {
@@ -65,7 +79,9 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
       }
 
     }
-    if (epoch !== generation || owner !== service()) throw Object.assign(new Error('Assets changed; retry explicitly'), {code:'REVISION_CONFLICT'})
+    // A change landing while the packs were read makes the read mixed: read them again, so a pack
+    // write never fails the director that asked.
+    if (epoch !== generation || owner !== service()) return snapshot(cardPath, {extraPackIds})
     const values = cardEngineSettings(settings.values, extension)
     return {raw, cardRevision:cardAssetWorkspaceRevision(workspace), snapshots, globalEnabledPackIds, assetStatus,
       engine:{...values, widgetsEnabled:values.dimensions.widgets},
@@ -95,11 +111,11 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
         }
         onInvalidate(chat.cardPath,event)
       }})
-      const speech = createAssetPackSpeech({getLibrary:service,presentation, getEngine:() => engineSettings.read().values, getTts, getBinding, cardId:workspace.meta.id, scope:'dsh-browser'})
+      const speech = createAssetPackSpeech({getLibrary:service,presentation, getEngine:() => engineSettings.read().values, getTts, getBinding, scope:'dsh-browser'})
       entry = {cardPath:chat.cardPath, revision, origin, presentation, speech}
       consumers.set(id, entry)
     }
-    if (!entry.speech) entry.speech = createAssetPackSpeech({getLibrary:service,presentation:entry.presentation,getEngine:() => engineSettings.read().values,getTts,getBinding,cardId:workspace.meta.id,scope:'dsh-browser'})
+    if (!entry.speech) entry.speech = createAssetPackSpeech({getLibrary:service,presentation:entry.presentation,getEngine:() => engineSettings.read().values,getTts,getBinding,scope:'dsh-browser'})
     entry.allowedPackIds = [...new Set([...entry.presentation.extension.assetBindings.boundPackIds,
       ...(ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || [])])]
     return entry

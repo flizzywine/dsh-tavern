@@ -1,4 +1,4 @@
-import {fishModel, isFishCloud} from './providers/fish-models.js'
+import {FISH_DEFAULT_MODEL, FISH_MODELS, fishModel, isFishCloud} from './providers/fish-models.js'
 import z from '@deepseek-ai/schemastery'
 import { providerConfig, providerKind, credentialRef, PROVIDER_ID, PROVIDER_KINDS } from './providers/params.js'
 import { createOpenAICompatibleAdapter } from './providers/openai-compatible.js'
@@ -9,19 +9,22 @@ import { createQwenAdapter, qwenModelInstructions, qwenVoices, QWEN_MODELS } fro
 import { createFishAudioAdapter } from './providers/fish-audio.js'
 import { createVoicePilot } from './providers/fish-voice-design.js'
 import { createVolcengineAdapter } from './providers/volcengine.js'
-import { createMinimaxAdapter } from './providers/minimax.js'
+import { createMinimaxAdapter, MINIMAX_MODELS } from './providers/minimax.js'
 import { hash, canonical, fail, voicePreset, describeTtsError } from './core.js'
 import { boundedFetch } from './providers/fetch.js'
 import { createModelValidation } from './model-validation.js'
 
-// 台词朗读: the voice for per-reply 🔊 (null = the browser's system default) and the narration voice (off by default).
-// A voice is the figure picker's binding: {browser:name} or {serviceId, voice}. Schemastery drops null defaults, so readingOf fills them.
-const Reading = z.object({ dialogueVoice: z.any(), narrator: z.object({ enabled: z.boolean().default(false), voice: z.any() }), readAloud: z.object({ voice: z.any(), auto: z.boolean().default(false) }) })
+// 台词朗读: 通用声音 and 旁白 each point at one figure of the asset library ({packId, figureId}: they speak with that figure's
+// voice; null = the browser's default voice), 旁白配音's global switch (off by default) and 全文朗读's reader. The reader is the voice
+// picker's binding: {browser:name}, {serviceId, voice}, a pack voice or a template. Schemastery drops null defaults, so readingOf fills them.
+const Reading = z.object({ general: z.object({ figure: z.any() }), narrator: z.object({ enabled: z.boolean().default(false), figure: z.any() }), readAloud: z.object({ voice: z.any(), auto: z.boolean().default(false) }) })
 export const Settings = z.object({ enabled: z.boolean().default(true), providers: z.array(z.any()).default([]), voices: z.array(z.any()).default([]),
   reading: Reading,
   cacheMaxGB: z.number().min(0.1).max(100).default(1).description('\u7f13\u5b58\u4e0a\u9650\uff08GB\uff09'),
   cacheMaxAgeDays: z.natural().min(1).max(3650).default(30).description('\u7f13\u5b58\u4fdd\u7559\u5929\u6570'),
 })
+// The service kinds whose model is each figure's choice (its voice source's `model`) since 语音后端 keeps only the connection.
+const MODEL_MOVED = ['fish-audio', 'minimax']
 export function validateSettings(value) {
   if (typeof value.enabled !== 'boolean') fail('INVALID_INPUT')
   if (!Number.isFinite(value.cacheMaxGB) || value.cacheMaxGB < 0.1 || value.cacheMaxGB > 100 || !Number.isInteger(value.cacheMaxAgeDays) || value.cacheMaxAgeDays < 1 || value.cacheMaxAgeDays > 3650) fail('INVALID_INPUT')
@@ -31,7 +34,14 @@ export function validateSettings(value) {
     seen.add(p.id); providerKind(p.kind); providerConfig(p.kind, p.config)
     if (Object.keys(p).some(k => !['id','kind','label','config'].includes(k))) fail('INVALID_INPUT')
     const normalized = providerConfig(p.kind, p.config)
-    if (canonical(normalized) !== canonical(p.config)) fail('INVALID_INPUT')
+    // A Fish or MiniMax service saved before the model moved to the figure still carries config.model until the one-time
+    // migration (legacyServiceModels → dropLegacyServiceModels) runs; the plugin must load that config to run it.
+    const legacy = MODEL_MOVED.includes(p.kind) && typeof p.config?.model === 'string'
+    const saved = legacy ? Object.fromEntries(Object.entries(p.config).filter(([key]) => key !== 'model')) : p.config
+    // An OpenAI-compatible service saved before 自定义语音服务 ({url, speechPath, modelsPath, voicesPath}) reads as the
+    // OpenAI preset until the one-time upgradeHttpServices writes it out in full.
+    if (p.kind === 'openai-compatible' && p.config?.preset === undefined) continue
+    if (canonical(normalized) !== canonical(saved)) fail('INVALID_INPUT')
   }
   const voices = value.voices || []
   if (!Array.isArray(voices) || voices.length > 256 || new Set(voices.map(v => voicePreset(v).id)).size !== voices.length) fail('INVALID_INPUT')
@@ -41,14 +51,14 @@ export function validateSettings(value) {
 }
 export function readingOf(settings) {
   const r = settings.reading || {}
-  return { dialogueVoice: r.dialogueVoice ?? null, narrator: { enabled: r.narrator?.enabled === true, voice: r.narrator?.voice ?? null }, readAloud: { voice: r.readAloud?.voice ?? null, auto: r.readAloud?.auto === true } }
+  return { general: { figure: r.general?.figure ?? null }, narrator: { enabled: r.narrator?.enabled === true, figure: r.narrator?.figure ?? null },
+    readAloud: { voice: r.readAloud?.voice ?? null, auto: r.readAloud?.auto === true } }
 }
 const plainObject = v => v !== null && typeof v === 'object' && !Array.isArray(v)
 const voiceName = v => typeof v === 'string' && v.trim() !== '' && v.length <= 200 && !/[\u0000-\u001f]/.test(v)
-function readingVoice(v, allowSilent = false) {
+function readingVoice(v) {
   if (v === null) return null
   const keys = plainObject(v) ? Object.keys(v).sort().join() : ''
-  if (allowSilent && keys === 'silent' && v.silent === true) return {silent:true}
   if (keys === 'browser' && voiceName(v.browser)) return { browser: v.browser }
   if (keys === 'serviceId,voice' && PROVIDER_ID.test(v.serviceId) && voiceName(v.voice)) return { serviceId: v.serviceId, voice: v.voice }
   const uuid = s => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s)
@@ -56,16 +66,26 @@ function readingVoice(v, allowSilent = false) {
   if (keys === 'templateId' && uuid(v.templateId)) return {templateId:v.templateId}
   fail('INVALID_READING_VOICE')
 }
+// 通用声音 / 旁白's figure: null, or a figure of an installed pack (whether it exists is the speaker's to find out).
+function figureRef(v) {
+  if (v === null) return null
+  const uuid = s => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s)
+  if (plainObject(v) && Object.keys(v).sort().join() === 'figureId,packId' && uuid(v.packId) && typeof v.figureId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(v.figureId)) return {packId:v.packId, figureId:v.figureId}
+  fail('INVALID_READING_VOICE')
+}
 // Validated once here, on write; a bad patch is a repairable INVALID_READING_VOICE.
 export function patchReading(current, patch) {
   const next = readingOf({ reading: current })
-  if (!plainObject(patch) || Object.keys(patch).some(k => !['dialogueVoice','narrator','readAloud'].includes(k))) fail('INVALID_READING_VOICE')
-  if (Object.hasOwn(patch,'dialogueVoice')) next.dialogueVoice = readingVoice(patch.dialogueVoice, true)
+  if (!plainObject(patch) || Object.keys(patch).some(k => !['general','narrator','readAloud'].includes(k))) fail('INVALID_READING_VOICE')
+  if (patch.general !== undefined) {
+    if (!plainObject(patch.general) || Object.keys(patch.general).some(k => k !== 'figure')) fail('INVALID_READING_VOICE')
+    if (Object.hasOwn(patch.general,'figure')) next.general.figure = figureRef(patch.general.figure)
+  }
   if (patch.narrator !== undefined) {
     const n = patch.narrator
-    if (!plainObject(n) || Object.keys(n).some(k => !['enabled','voice'].includes(k))) fail('INVALID_READING_VOICE')
+    if (!plainObject(n) || Object.keys(n).some(k => !['enabled','figure'].includes(k))) fail('INVALID_READING_VOICE')
     if (n.enabled !== undefined) { if (typeof n.enabled !== 'boolean') fail('INVALID_READING_VOICE'); next.narrator.enabled = n.enabled }
-    if (Object.hasOwn(n,'voice')) next.narrator.voice = readingVoice(n.voice)
+    if (Object.hasOwn(n,'figure')) next.narrator.figure = figureRef(n.figure)
   }
   if (patch.readAloud !== undefined) {
     const r = patch.readAloud
@@ -77,7 +97,7 @@ export function patchReading(current, patch) {
 }
 // Pure migration primitive. No files, credentials, or automatic startup writes.
 // 浏览器朗读 is always in the voice services catalog: the device's own voices, free, nothing to set up.
-export const BROWSER_VOICE_SERVICE = Object.freeze({id:'browser', kind:'browser', label:'浏览器朗读', state:'ready', billing:'free', sources:Object.freeze(['preset']), voiceList:'browser'})
+export const BROWSER_VOICE_SERVICE = Object.freeze({id:'browser', kind:'browser', label:'浏览器朗读', state:'ready', billing:'free', sources:Object.freeze(['preset']), voiceList:'browser', voice:Object.freeze(['voice']), models:Object.freeze([])})
 export function importProviders(document) {
   if (document?.version !== 1 || !Array.isArray(document.providers)) fail('API_INCOMPATIBLE')
   return validateSettings({ enabled:true, providers: document.providers.map(p => ({ id:p.id, kind:p.kind, label:String(p.label || p.id).slice(0,160), config:providerConfig(p.kind,p.config) })), cacheMaxGB:1, cacheMaxAgeDays:30 })
@@ -85,7 +105,7 @@ export function importProviders(document) {
 
 // provider failures in plain words; adapters never put bodies, URLs or keys in messages.
 const PLAIN_ERRORS = {FISH_AUTH_FAILED:'服务要求鉴权，请填写或检查 API Key 与访问权限',FISH_BILLING_REQUIRED:'Fish Audio 额度或余额不足',FISH_RATE_LIMITED:'Fish Audio 请求太频繁，稍后再试',FISH_REQUEST_FAILED:'Fish Audio 请求失败',
-  CREDENTIALS_REQUIRED:'还没有填写密钥',SERVICE_OFFLINE:'连不上服务',TIMEOUT:'请求超时',ABORTED:'已取消'}
+  CREDENTIALS_REQUIRED:'缺少 API Key',SERVICE_OFFLINE:'连不上服务',TIMEOUT:'请求超时',ABORTED:'已取消'}
 export function plainError(error) {
   const message = String(error?.message || '')
   if (error?.code?.startsWith('MINIMAX_')) return message
@@ -118,13 +138,19 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     const state = await credentials()?.describe(credentialRef(p.id,f.key)) || {configured:false,writable:false}
     return !state.configured && envKey(p) ? {...state,configured:true,source:'env'} : state
   }
+  // A cloud service with an unset secret cannot speak; a self-hosted Fish or OpenAI-compatible server may run keyless.
+  async function missingKey(p) {
+    if (p.kind === 'openai-compatible' || p.kind === 'fish-audio' && !isFishCloud(p.config)) return false
+    return (await Promise.all(providerKind(p.kind).fields.filter(f => f.secret).map(f => describeSecret(p,f)))).some(s => !s.configured)
+  }
   const record = id => { const p = get().providers.find(p => p.id === id); if (!p) fail('SERVICE_OFFLINE'); return p }
   // service setup flow.
   // Last connection check per saved service, kept in memory for this activation only.
-  const checks = new Map(), onlineLists = new Map()
+  const checks = new Map(), onlineLists = new Map(), FAILED_READ_RETRY_MS = 3000
   // Opening a picker never waits for credentials or a remote catalogue.
   function onlineList(provider, p) {
-    const builtin = provider === 'azure' ? {voices:azureVoices(),models:[],source:'builtin'} : {voices:qwenVoices(),models:structuredClone(QWEN_MODELS),source:'builtin'}
+    // MiniMax has no voice list of its own here: its voices are the account's (/v1/get_voice), read in the background.
+    const builtin = provider === 'azure' ? {voices:azureVoices(),models:[],source:'builtin'} : provider === 'minimax' ? {voices:[],models:structuredClone(MINIMAX_MODELS),source:'none'} : {voices:qwenVoices(),models:structuredClone(QWEN_MODELS),source:'builtin'}
     if (!p) return {provider,status:'ok',...builtin}
     const key = hash([p,credentialEpochs.get(p.id) || 0])
     let entry = onlineLists.get(p.id)
@@ -132,15 +158,38 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     if (!entry.refreshing && Date.now() - entry.at > 300000) {
       entry.refreshing = true
       void (async () => {
-        // Azure and Qwen catalogues are cloud APIs: without a key the builtin list stands and nothing is requested.
-        try { const secret = await draftSecrets(provider,p.id); if (secret.key) entry.value = await baseVoices(p,secret); entry.message = undefined }
-        catch (error) { entry.message = plainError(error) + '；已保留可选声音，请在配音设置中检查连接后重试。' }
-        finally { entry.at = Date.now(); entry.refreshing = false }
+        // Azure, Qwen and MiniMax catalogues are cloud APIs: without a key the builtin list stands and nothing is requested.
+        let failed = false
+        try {
+          const secret = await draftSecrets(provider,p.id)
+          if (secret.key) { entry.value = await baseVoices(p,secret); entry.message = undefined }
+          else if (provider === 'minimax') { failed = true; entry.message = 'MiniMax 缺少 API Key，没有读到账号下的音色；请到语音后端填写后重试。' }
+        } catch (error) { failed = true; entry.message = plainError(error) + (entry.value.voices.length ? '；已保留可选声音，请在语音后端检查连接后重试。' : '；没有读到音色，请在语音后端检查连接后重试。') }
+        // a failed read is asked again a few seconds later (an open or 重试), not kept for five minutes
+        finally { entry.at = Date.now() - (failed ? 300000 - FAILED_READ_RETRY_MS : 0); entry.refreshing = false }
       })()
     }
     return {provider,status:'ok',...structuredClone(entry.value),refreshing:entry.refreshing,...(entry.message ? {message:entry.message} : {})}
   }
-  const remember = (p, result) => { checks.set(p.id, { revision:hash(p), status:result.status, ...(result.message ? {message:result.message} : {}), voiceCount:result.voices.length, at:Date.now() }); changed() }
+  const authFailed = error => [error?.code, error?.category, error?.message].some(c => typeof c === 'string' && /_AUTH_FAILED$|^(CREDENTIALS_INVALID|UNAUTHORIZED)$/.test(c))
+  // A self-hosted Fish server (a local worker) is not a cloud account. It has no key to get wrong: if it answers 401 its own
+  // token differs from the one saved on this row, and if it does not answer at all it is not running.
+  const selfHosted = p => p.kind === 'fish-audio' && !isFishCloud(p.config)
+  const SELF_HOSTED_WORDS = {rejected:'服务拒绝了这次访问：它设置了访问令牌，这一行保存的与它不符', offline:'没有连上服务，它可能还没有启动'}
+  // The one place a failed check becomes a status: invalid-key (a cloud service refused the key) · rejected (a self-hosted
+  // server refused) · offline (nothing answered) · error (anything else). The words of a self-hosted row never mention a key.
+  function checkOutcome(p, result) {
+    if (result.status !== 'error') return {status:result.status, message:result.message}
+    const status = authFailed(result.error) ? selfHosted(p) ? 'rejected' : 'invalid-key' : result.error?.code === 'SERVICE_OFFLINE' ? 'offline' : 'error'
+    return {status, message:selfHosted(p) && SELF_HOSTED_WORDS[status] || result.message}
+  }
+  // A failed connection is a moment's observation, not a property of the service: the backend may have been loading (or
+  // restarted by DSH itself) when it was made. A self-hosted server starts and stops by itself, so every check of it expires
+  // (the open page asks again); a cloud service's failure expires, its success and refused key stay until its config changes.
+  const OFFLINE_CHECK_MS = 15000, SELF_HOSTED_CHECK_MS = 60000
+  const checkExpiry = (p, c) => selfHosted(p) ? SELF_HOSTED_CHECK_MS : ['error','offline'].includes(c.status) ? OFFLINE_CHECK_MS : Infinity
+  const checkOf = (p, revision) => { const c = checks.get(p.id); return c?.revision === revision && Date.now() - c.at <= checkExpiry(p, c) ? c : null }
+  const remember = (p, result) => { const {status, message} = checkOutcome(p, result); checks.set(p.id, { revision:hash(p), status, ...(message ? {message} : {}), voiceCount:result.voices.length, at:Date.now() }); changed() }
   // Typed secrets win; otherwise reuse the stored credential of the same saved service. Never returned.
   async function draftSecrets(kind, id, given = {}, config) {
     const result = {}, c = credentials()
@@ -169,18 +218,17 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     const a = adapters[p.kind]
     if (!secret) {
       let listed = { voices:[], models:[], source:'none' }
-      if (p.kind !== 'azure') try { listed = await baseVoices(p, {}) } catch {}
-      return { status:'credentials-required', message:'还没有填写密钥', ...listed }
+      if (!['azure','minimax'].includes(p.kind)) try { listed = await baseVoices(p, {}) } catch {}
+      return { status:'credentials-required', message:'缺少 API Key', ...listed }
     }
     try {
       if (p.kind === 'qwen' && !secret.key) await a.probe(p, secret)
-      if (['azure','qwen'].includes(p.kind)) return { status:'connected', ...await baseVoices(p, secret) }
+      if (['azure','qwen','minimax'].includes(p.kind)) return { status:'connected', ...await baseVoices(p, secret) }
       if (p.kind === 'openai-compatible') {
         const listed = await baseVoices(p, secret)
-        return listed.source === 'manual' ? { ...await a.verify(p, secret), ...listed } : { status:'connected', ...listed }
+        return listed.source === 'live' ? { status:'connected', ...listed } : { ...await a.verify(p, secret), ...listed }
       }
       if (p.kind === 'volcengine') return { ...await a.verify(p, secret), ...await baseVoices(p, secret) }
-      if (p.kind === 'minimax') return { status:'connected', ...await a.probe(p, secret) }
       if (a.probe) await a.probe(p, secret); else await a.catalog(p, secret)
       return { status:'connected', ...await baseVoices(p, secret) }
     } catch (error) {
@@ -232,7 +280,22 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
   const api = {
     voicePilot(args) {
       const p = record(args.serviceId)
-      return voicePilot(args, p, async () => (await credentials()?.resolve(credentialRef(p.id,'key')))?.value)
+      return voicePilot(args, p, async () => (await secrets(p)).key)
+    },
+    // Read-only names for the CLI. Host records are listed by key only; each saved Fish service is asked by its canonical
+    // credential ref through describe alone. `present` is the host's configured flag, never a value or a successful lookup.
+    async credentialNames() {
+      const c = credentials()
+      if (typeof c?.listRecords !== 'function' || typeof c?.describe !== 'function') fail('CREDENTIALS_UNAVAILABLE')
+      try {
+        const records = (await c.listRecords()).map(r => { const i = r.key.indexOf('/'); return {serviceId:null, scope:r.key.slice(0,i), key:r.key.slice(i+1), present:true} })
+        const fish = []
+        for (const p of get().providers.filter(p => p.kind === 'fish-audio')) for (const f of providerKind(p.kind).fields.filter(f => f.secret)) {
+          const ref = credentialRef(p.id,f.key)
+          fish.push({serviceId:p.id, scope:null, key:ref, present:(await c.describe(ref))?.configured === true})
+        }
+        return {records, fish}
+      } catch { fail('CREDENTIALS_UNAVAILABLE') }
     },
     kinds() { return structuredClone(PROVIDER_KINDS) },
     listRecommendedFishVoices:fishCatalogue,
@@ -241,6 +304,13 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
       const voice = await discovery.validate(p,await secrets(p),input)
       knownFishVoices(p).set(voice.voiceId,voice)
       return voice
+    },
+    // A self-made MiniMax voice (clone / design) typed by id: it must be one this account can speak with (/v1/get_voice, free).
+    async validateMinimaxVoice({serviceId,voiceId}) {
+      const configured = get().providers.filter(p => p.kind === 'minimax')
+      if (!serviceId && configured.length !== 1) fail('SERVICE_REQUIRED')
+      const p = serviceId ? record(serviceId) : configured[0]; if (p.kind !== 'minimax') fail('INVALID_INPUT')
+      return adapters.minimax.findVoice(p,await draftSecrets(p.kind,p.id),voiceId)
     },
     async searchFishVoices(input) {
       const p = record(input.serviceId); if (p.kind !== 'fish-audio') fail('INVALID_INPUT')
@@ -262,7 +332,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
       if (!serviceId && configured.length > 1) fail('SERVICE_REQUIRED')
       const p = serviceId ? record(serviceId) : configured[0]
       if (p && p.kind !== provider) fail('INVALID_INPUT')
-      if (['volcengine','minimax'].includes(provider)) return {provider,status:'ok',voices:(await adapters[provider].catalog()).items,models:[],source:'builtin'}
+      if (provider === 'volcengine') return {provider,status:'ok',voices:(await adapters[provider].catalog()).items,models:[],source:'builtin'}
       return onlineList(provider,p)
     },
     async probe(input = {}) {
@@ -273,12 +343,12 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
       const typed = Object.values(input.secrets || {}).some(Boolean)
       const { error, ...result } = await check(p, await draftSecrets(p.kind, input.id, input.secrets || {}, p.config))
       const saved = get().providers.find(s => s.id === input.id)
-      if (saved && saved.kind === p.kind && canonical(saved.config) === canonical(p.config) && !typed) remember(saved, result)
+      if (saved && saved.kind === p.kind && canonical(saved.config) === canonical(p.config) && !typed) remember(saved, {...result, error})
       return result
     },
     async voices({ id }) {
       const p = record(id), secret = await draftSecrets(p.kind, p.id)
-      if (!secret && p.kind === 'azure') return { status:'credentials-required', voices:[], models:[], source:'none' }
+      if (!secret?.key && ['azure','minimax'].includes(p.kind)) return { status:'credentials-required', voices:[], models:[], source:'none' }
       try { return { status:'ok', ...await baseVoices(p, secret || {}) } }
       catch (e) { return { status:'error', message:String(e?.message || e).slice(0,300), voices:[], models:[], source:'none' } }
     },
@@ -306,6 +376,24 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
       const voices = api.listVoicePresets(), old = voices.find(v => v.id === id)
       if (!old || hash(old) !== expectedRevision) fail('REVISION_CONFLICT')
       await replace({...get(), voices:voices.filter(v => v.id !== id)}); api.sync(); return {deleted:true}
+    }) },
+    // One-time move of the Fish / MiniMax model to the figure (语音后端 keeps only the connection): the services whose saved
+    // config still names a model, read once by the stage's migration (it writes the model into the figure sources that
+    // speak through them), then dropped from the saved config. Nothing reads a service model otherwise.
+    legacyServiceModels() { return get().providers.filter(p => MODEL_MOVED.includes(p.kind) && typeof p.config?.model === 'string' && p.config.model).map(p => ({serviceId:p.id, kind:p.kind, model:p.config.model})) },
+    dropLegacyServiceModels() { return serial(async () => {
+      const value = get(), providers = value.providers.map(p => MODEL_MOVED.includes(p.kind) && p.config && 'model' in p.config ? {...p, config:Object.fromEntries(Object.entries(p.config).filter(([key]) => key !== 'model'))} : p)
+      if (canonical(providers) === canonical(value.providers)) return {dropped:0}
+      await replace(validateSettings({...value, providers})); api.sync()
+      return {dropped:providers.filter((p, i) => p !== value.providers[i]).length}
+    }) },
+    // One-time: services saved before 自定义语音服务 are written out as their full connection (the OpenAI preset's values
+    // with their own address and paths); nothing else changes.
+    upgradeHttpServices() { return serial(async () => {
+      const value = get(), providers = value.providers.map(p => p.kind === 'openai-compatible' && p.config?.preset === undefined ? {...p, config:providerConfig(p.kind, p.config)} : p)
+      const upgraded = providers.filter((p, i) => p !== value.providers[i]).length
+      if (upgraded) { await replace(validateSettings({...value, providers})); api.sync() }
+      return {upgraded}
     }) },
     importVoicePresets({presets}) { return serial(async () => {
       if (!Array.isArray(presets) || presets.length > 256) fail('INVALID_INPUT')
@@ -336,12 +424,20 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         // do not reuse audio rendered with Volcengine's old language filter.
         const audioRevision = p.kind === 'volcengine' ? hash([revision, 'v3-api-key-json-additions-v2']) : revision
         const customFish = p.kind === 'fish-audio' && !isFishCloud(p.config)
-        const model = customFish ? {label:p.config.model,billing:'unknown'} : fishModel(p.config.model)
+        // A Fish service's models (the cloud's known list, a server's discovered one): each figure picks its own (its
+        // source's `model`); `speaking` is what one of them costs and can do, the first listed when none is picked.
+        let fishModels = customFish ? [] : structuredClone(FISH_MODELS)
+        const speaking = model => {
+          const found = model ? fishModels.find(m => m.id === model) : fishModels.find(m => m.id === FISH_DEFAULT_MODEL) || fishModels[0]
+          const m = found || (model ? {id:model,label:model,billing:customFish ? 'unknown' : fishModel(model).billing} : null)
+          return m ? {model:m.id,modelLabel:m.label,billing:m.billing || 'unknown',paid:m.billing !== 'free',voiceDirections:m.voiceDirections === true} : {billing:'unknown',paid:true,voiceDirections:false}
+        }
         // 配音来源 (Provider.capabilities.voiceSources): what the protocol always serves (its kind's declaration); a Fish
         // service adds voice IDs in discover, once its own server answers that it serves a voice library.
         const voiceSources = [...providerKind(p.kind).voiceSources]
         const voiceList = p.kind === 'fish-audio' ? customFish ? 'provider' : 'fish-recommended' : p.kind === 'openai-compatible' ? 'provider' : 'preset'
-        const port = { id:p.id, kind:p.kind, label:p.label || providerKind(p.kind).label, revision:audioRevision, model:p.config.model ?? null, endpoint:p.config.url || p.kind + ':' + (p.config.region || p.config.appId), capabilities:{ voiceSources, voiceList, referenceInput:p.kind === 'fish-audio' ? ['bytes-v1','bytes-list-v1'] : [], paid:p.kind === 'fish-audio' ? model.billing !== 'free' : providerKind(p.kind).paid, ...(p.kind === 'fish-audio' ? {voiceKinds:['fish-audio','reference'],referenceLimits:{count:null,totalBytes:null,formats:['wav','mp3']},model:p.config.model,modelLabel:model.label,billing:model.billing,voiceDirections:model.voiceDirections === true,prepareVoice:false,stream:{sampleRate:44100}} : {}), ...(p.kind === 'qwen' ? {serviceVoiceEngines:['qwen']} : {}), ...(p.kind === 'minimax' ? {billing:'paid'} : {}) },
+        const port = { id:p.id, kind:p.kind, label:p.label || providerKind(p.kind).label, revision:audioRevision, endpoint:p.config.url || p.kind + ':' + (p.config.region || p.config.appId), capabilities:{ voiceSources, voiceList, referenceInput:p.kind === 'fish-audio' ? ['bytes-v1','bytes-list-v1'] : [], paid:providerKind(p.kind).paid, ...(p.kind === 'fish-audio' ? {voiceKinds:['fish-audio','reference'],referenceLimits:{count:null,totalBytes:null,formats:['wav','mp3']},billing:customFish ? 'unknown' : 'paid',prepareVoice:false,stream:{sampleRate:44100}} : {}), ...(p.kind === 'qwen' ? {serviceVoiceEngines:['qwen']} : {}), ...(p.kind === 'minimax' ? {billing:'paid'} : {}) },
+          ...(p.kind === 'fish-audio' ? {speaking} : {}),
           validateModel: (model, voiceName) => api.validateVoiceModel({serviceId:p.id,model,voiceName}),
           // A custom Fish server takes the server's own `/v1/hold` lease when it advertises one.
           ...(customFish ? {hold:async () => adapter.hold(p, await secrets(p))} : {}),
@@ -352,16 +448,18 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
               const library = await secrets(p).then(secret => adapter.voiceLibrary(p, secret)).catch(() => null)
               if (library !== null) port.capabilities.voiceSources = [...providerKind(p.kind).voiceSources, ...(library ? ['voice-id'] : [])]
               if (!customFish) return
-              const info = await adapter.info(p, await secrets(p)), selected = p.config.model ? info.models.find(m => m.id === p.config.model) : info.models[0]
-              Object.assign(port.capabilities, {prepareVoice:info.capabilities.prepareVoice,voiceDirections:selected?.voiceDirections ?? info.capabilities.voiceDirections,
-                paid:selected?.billing !== 'free',billing:selected?.billing || 'unknown',modelLabel:selected?.label || p.config.model,
+              const info = await adapter.info(p, await secrets(p))
+              fishModels = info.models.map(m => ({...m,voiceDirections:m.voiceDirections ?? info.capabilities.voiceDirections}))
+              // the service as a whole: free when every model it serves is (a figure's own model still decides per line).
+              const billings = new Set(fishModels.map(m => m.billing || 'unknown'))
+              Object.assign(port.capabilities, {prepareVoice:info.capabilities.prepareVoice, billing:billings.size === 1 ? [...billings][0] : billings.has('paid') ? 'paid' : 'unknown',
                 ...(info.capabilities.concurrency ? {concurrency:info.capabilities.concurrency} : {}),...(info.capabilities.loadTimeoutMs !== undefined ? {loadTimeoutMs:info.capabilities.loadTimeoutMs} : {})})
             },
           } : {}),
           ...(customFish ? {
             prewarm: async (spec, options) => adapter.prewarm(p, await secrets(p), {...spec, signal:options.signal}),
           } : {}),
-          health: async () => { try { await secrets(p) } catch { return {state:'credentials-required'} }; return {state:'configured', probed:false} },
+          health: async () => await missingKey(p) ? {state:'credentials-required'} : {state:'configured', probed:false},
           catalog: async () => (await adapter.catalog(p, await secrets(p))).items,
           synthesize: async (spec, options) => {
             const identity = modelIdentity(p, spec.params?.model, spec.params?.voice)
@@ -386,20 +484,25 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     async voiceServices() {
       const reported = new Map((await tts.providerVoiceSources()).map(r => [r.id,r]))
       const services = await Promise.all(get().providers.map(async p => {
-        const kind = providerKind(p.kind), revision = hash(p), check = checks.get(p.id)?.revision === revision ? checks.get(p.id) : null
+        const kind = providerKind(p.kind), revision = hash(p), check = checkOf(p, revision)
         const fish = p.kind === 'fish-audio', custom = fish && !isFishCloud(p.config) || p.kind === 'openai-compatible'
-        const keyless = !custom && (await Promise.all(kind.fields.filter(f => f.secret).map(f => describeSecret(p,f)))).some(s => !s.configured)
-        const state = keyless || check?.status === 'credentials-required' ? 'needs-key' : !check ? 'configured' : ['connected','reachable'].includes(check.status) ? 'ready' : 'offline'
+        const keyless = await missingKey(p)
+        const state = keyless || check?.status === 'credentials-required' ? 'needs-key' : !check ? 'configured' : ['connected','reachable'].includes(check.status) ? 'ready' : check.status === 'invalid-key' ? 'invalid-key' : check.status === 'rejected' ? 'rejected' : check.status === 'offline' && selfHosted(p) ? 'stopped' : 'offline'
         const own = reported.get(p.id); reported.delete(p.id)
-        return {id:p.id, kind:p.kind, label:p.label || kind.label, state, billing:fish ? custom ? 'unknown' : fishModel(p.config.model).billing : kind.paid ? 'paid' : 'free',
-          sources:own?.sources || [], voiceList:own?.voiceList || 'provider'}
+        // What a figure picks for a source of this service (its kind's `voice` declaration) and the models it picks from:
+        // the default model first. A server that does not answer its model list lists none (a figure keeps its own pick).
+        const models = !kind.voice.includes('model') ? [] : !fish ? p.kind === 'qwen' ? QWEN_MODELS.map(m => ({id:m.id,label:m.label})) : p.kind === 'minimax' ? MINIMAX_MODELS.map(m => ({id:m.id,label:m.label})) : []
+          : custom ? await secrets(p).then(secret => adapters[p.kind].info(p, secret)).then(i => i.models.map(m => ({id:m.id,label:m.label})), () => [])
+          : [...FISH_MODELS].sort((a,b) => (b.id === FISH_DEFAULT_MODEL) - (a.id === FISH_DEFAULT_MODEL)).map(m => ({id:m.id,label:m.label}))
+        return {id:p.id, kind:p.kind, label:p.label || kind.label, state, billing:custom ? 'unknown' : kind.paid ? 'paid' : 'free',
+          sources:own?.sources || [], voiceList:own?.voiceList || 'provider', voice:[...kind.voice], models}
       }))
       // Another plugin's provider: listed with what it reports; one that reports no 配音来源 is not a voice service here.
       const plugins = [...reported.values()].filter(r => r.owner !== 'dsh-tavern-tts' && r.sources.length).map(r => ({id:r.id, kind:r.kind, label:r.label,
-        state:'configured', billing:r.billing, sources:r.sources, voiceList:r.voiceList || 'provider'}))
+        state:'configured', billing:r.billing, sources:r.sources, voiceList:r.voiceList || 'provider', voice:[], models:[]}))
       return {services:[...services, ...plugins, structuredClone(BROWSER_VOICE_SERVICE)], kinds:Object.fromEntries([...PROVIDER_KINDS.map(k => [k.kind,k.label]), ['browser',BROWSER_VOICE_SERVICE.label]])}
     },
-    async list() { return Promise.all(get().providers.map(async p => { const revision = hash(p); return { ...structuredClone(p), category:p.kind === 'fish-audio' && !isFishCloud(p.config) || p.kind === 'openai-compatible' ? 'custom' : 'builtin', revision, ...(checks.get(p.id)?.revision === revision ? {check:{...checks.get(p.id)}} : {}), secrets:Object.fromEntries(await Promise.all(providerKind(p.kind).fields.filter(f => f.secret).map(async f => [f.key, await describeSecret(p,f)])))} })) },
+    async list() { return Promise.all(get().providers.map(async p => { const revision = hash(p); return { ...structuredClone(p), category:selfHosted(p) || p.kind === 'openai-compatible' ? 'custom' : 'builtin', selfHosted:selfHosted(p), revision, ...(checkOf(p, revision) ? {check:{...checkOf(p, revision)}} : {}), secrets:Object.fromEntries(await Promise.all(providerKind(p.kind).fields.filter(f => f.secret).map(async f => [f.key, await describeSecret(p,f)])))} })) },
     save(input) { return serial(async () => {
       const before = get(), old = before.providers.find(p => p.id === input.id)
       if (old && (input.expectedRevision !== hash(old) || old.kind !== input.kind)) fail('REVISION_CONFLICT')
@@ -439,7 +542,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     async test({id}) {
       const p = record(id), a = adapters[p.kind]; if (!a) fail('SERVICE_OFFLINE')
       const secret = await draftSecrets(p.kind, p.id), { error, ...result } = await check(p, secret)
-      remember(p, result)
+      remember(p, {...result, error})
       const ok = ['connected','reachable'].includes(result.status)
       return {ok, status:result.status, ...(result.message ? {message:result.message} : {}), voiceCount:result.voices.length, reachable:ok,
         synthesisTested:result.synthesisTested === true, credentialScope:p.kind === 'qwen' ? 'models' : ['volcengine','openai-compatible'].includes(p.kind) && result.synthesisTested ? 'synthesis' : 'catalog'}

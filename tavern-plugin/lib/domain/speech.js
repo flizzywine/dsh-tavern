@@ -1,5 +1,5 @@
 import { effectiveNarrator } from './card-stage-settings.js'
-import { figureTtsVoice, catalogueTtsVoice } from './figure-voice.js'
+import { figureTtsVoice, catalogueTtsVoice, figureRefTtsVoice } from './figure-voice.js'
 import { createHash } from 'node:crypto'
 import { canonicalJson } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 
@@ -27,8 +27,8 @@ export const TTS_UNAVAILABLE = Object.freeze({ skip: true, reason: 'TTS_UNAVAILA
 
 /**
  * One line in its voice. A speaker with a figure voice on this card speaks through the card's asset-pack speech (`figures`,
- * from the stage); other dialogue uses tts.reading().dialogueVoice. Narration speaks only when the narrator is enabled
- * (effectiveNarrator: the card layer over tts.reading().narrator).
+ * from the stage); other dialogue uses 通用声音 (the library's reading voice `general`). Narration speaks only when the narrator
+ * is enabled (effectiveNarrator: the card layer over tts.reading().narrator), with the figure tts.reading().narrator points at.
  * Answers { url, mediaType, loudness } (a voice-service audio ticket), { browser: true, voice, text } for the browser's own
  * voices, or { skip: true, reason }.
  * @param {object} input
@@ -76,8 +76,10 @@ export function createLineSpeech({ getTts, getLibrary }) {
   }
   async function bindingLine(tts, binding, text, emotion) {
     if (binding?.silent) return {skip:true, reason:'silent'}
-    if (binding?.templateId || binding?.voiceId) {
-      const selected = await catalogueTtsVoice(getLibrary(),tts,binding)
+    // 通用声音 / 旁白 ({figure}: the figure tts.reading() points at) in its own 配音语言; a pack voice or template (全文朗读) in 中文.
+    if (binding && Object.hasOwn(binding,'figure') || binding?.templateId || binding?.voiceId) {
+      const selected = Object.hasOwn(binding,'figure') ? await figureRefTtsVoice(getLibrary(),tts,binding.figure) : await catalogueTtsVoice(getLibrary(),tts,binding)
+      if (!selected) return {skip:true, reason:'silent'}
       if (selected.browser !== undefined) return {browser:true,voice:selected.browser,text}
       const revision = voiceDigest({voice:selected.voice,binding:selected.binding,revision:selected.revision})
       const sourceId = 'reading:' + revision
@@ -87,7 +89,7 @@ export function createLineSpeech({ getTts, getLibrary }) {
         catch (error) { source.dispose(); throw error }
       }
       const {grant} = await voices.get(sourceId)
-      const result = await tts.synthesize({voice:{source:sourceId,id:'voice'},text,mood:mood(emotion),language:'zh'},{grant:grant.grant,scope:SCOPE})
+      const result = await tts.synthesize({voice:{source:sourceId,id:'voice'},text,mood:mood(emotion),language:selected.voice.languages[0]},{grant:grant.grant,scope:SCOPE})
       return url(tts,await tts.createAudioTicket({key:result.key,grant:grant.grant}),result.loudness)
     }
     if (!binding || binding.browser !== undefined) return { browser: true, voice: binding?.browser || '', text }
@@ -123,17 +125,15 @@ export function createLineSpeech({ getTts, getLibrary }) {
     if (!text) return { skip: true, reason: 'empty' }
     if (narration) {
       if (figures) return await figureLine(tts, figures, NARRATOR_ALIAS, text, emotion) || { skip: true, reason: 'narration' }
-      const narrator = effectiveNarrator(extension, tts.reading().narrator, tts.reading().dialogueVoice)
-      // A figure narrator ({packId, figureId}) speaks only where the stage resolves her.
-      if (!narrator.enabled || narrator.voice && !narrator.voice.silent && narrator.voice.browser === undefined && !narrator.voice.serviceId && !narrator.voice.voiceId && !narrator.voice.templateId) return { skip: true, reason: 'narration' }
-      return bindingLine(tts, narrator.voice, text, emotion)
+      if (!effectiveNarrator(extension, tts.reading().narrator).enabled) return { skip: true, reason: 'narration' }
+      return bindingLine(tts, { figure: tts.reading().narrator.figure }, text, emotion)
     }
     const name = String(speaker || '').trim()
     if (figures && name && await figures.voiced(name)) {
       const spoken = await figureLine(tts, figures, name, text, emotion)
       if (spoken) return spoken
     }
-    return bindingLine(tts, tts.reading().dialogueVoice, text, emotion)
+    return bindingLine(tts, { figure: tts.reading().general.figure }, text, emotion)
   }
   return Object.freeze({
     async speak(line) { active++; try { return await speak(line) } finally { active-- } },
