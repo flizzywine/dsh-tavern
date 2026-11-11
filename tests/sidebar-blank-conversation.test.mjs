@@ -31,10 +31,7 @@ function deleteFixture() {
   const calls = []
   const ctx = vm.createContext({
     current: 'session-open',
-    uiMode: 'play',
-    requestMode: 'dsh',
-    history: [],
-    groupOfMode: () => 'play',
+    activeHistory: [],
     setMenuSession() {}, setBusy() {}, setError() {},
     askConfirm: async () => true,
     call: async method => {
@@ -51,7 +48,8 @@ function deleteFixture() {
     openPicker: () => { calls.push(['picker']) },
     refresh: async () => {},
   })
-  vm.runInContext(source.slice(source.indexOf('async function deleteConversation'), source.indexOf('async function forkConversation')), ctx)
+  vm.runInContext(sourceFunction(source, 'changeConversationArchive'), ctx)
+  vm.runInContext(sourceFunction(source, 'deleteConversation'), ctx)
   return { ctx, calls }
 }
 
@@ -59,4 +57,11 @@ test('删掉当前仅剩的对话时回到空白会话，而不是只清空主�
   const { ctx, calls } = deleteFixture()
   await ctx.deleteConversation({ sessionId: 'session-open', chatId: 'chat-1', cardName: '测试卡' }, '测试对话')
   assert.deepEqual(calls, [['prepareDeleteChats'], ['archive', 'session-open'], ['deleteChat'], ['blank'], ['picker']])
+})
+
+test('归档当前对话后切到仍在历史中的对话', async () => {
+  const { ctx, calls } = deleteFixture()
+  ctx.activeHistory = [{ sessionId: 'session-open' }, { sessionId: 'session-next' }]
+  await ctx.changeConversationArchive({ sessionId: 'session-open' }, true)
+  assert.deepEqual(calls, [['archive', 'session-open'], ['clear'], ['open', 'session-next']])
 })

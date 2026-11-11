@@ -11,12 +11,12 @@ function fixture() {
   const state = { openingPicker: draft, picking: true, uiMode: 'play', requestMode: 'dsh' }
   const ctx = vm.createContext({ ...state, busy: false, compatibilityAvailable: true,
     playPrewarmRef: { current: { cancel() {} } }, cardBatch: { reset() {} },
-    tavernErrorHub: { clear() {}, report() {}, resolve() {} }, setCards() {}, setMenuSession() {}, setCardEntry() {}, setError() {}, setChatImport() {}, setBusy() {},
+    tavernErrorHub: { clear() {}, report() {}, resolve() {} }, setCards() {}, setMenuSession() {}, setShowArchived() {}, setCardEntry() {}, setError() {}, setChatImport() {}, setBusy() {},
     setOpeningPicker(value) { ctx.openingPicker = state.openingPicker = value },
     setPicking(value) { ctx.picking = state.picking = value },
     setUiMode(value) { ctx.uiMode = state.uiMode = value },
     setRequestMode(value) { ctx.requestMode = state.requestMode = value },
-    call: async () => ({}), history: [], groupOfMode: v => v, isPlayMode: v => v !== 'card',
+    call: async () => ({}), unarchivedHistory: [], groupOfMode: v => v, isPlayMode: v => v !== 'card',
     props: { sessions: { clear() {} } }, window: { localStorage: { setItem() {} } },
     openSessionWhenReady: async () => {}, askConfirm: async () => false,
   })
@@ -62,7 +62,7 @@ test('切换游玩 / 卡片时回到该模式下最近用过的对话，而不�
   Object.assign(ctx, {
     summaries: { 'card-old': { updatedAt: 500 } }, groupOfMode: mode => mode === 'card' ? 'card' : 'play',
     openSessionWhenReady: async sessionId => { opened.push(sessionId) },
-    history: [
+    unarchivedHistory: [
       { sessionId: 'card-new', mode: 'card', createdAt: 300, updatedAt: 300, lastOpenedAt: 300 },
       { sessionId: 'card-old', mode: 'card', createdAt: 100, updatedAt: 100, lastOpenedAt: 100 },
       { sessionId: 'play-new', mode: 'story', requestMode: 'dsh', createdAt: 300, updatedAt: 300, lastOpenedAt: 300 },

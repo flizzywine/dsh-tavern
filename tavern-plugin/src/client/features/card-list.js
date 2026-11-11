@@ -64,7 +64,7 @@
 			const counts = new Map();
 			for (const entry of chats) { const key = tavernCardPathKey(entry.cardPath); counts.set(key, { name: entry.cardName || key, count: (counts.get(key)?.count || 0) + 1 }); }
 			const lines = paths.length > 1 ? "\n\n" + Array.from(counts.values()).slice(0, 20).map(item => "• " + item.name + "：" + item.count + " 个").join("\n") + (counts.size > 20 ? "\n……共 " + counts.size + " 张卡" : "") : "";
-			const accepted = await askConfirm((paths.length > 1 ? "所选人物卡中有 " + counts.size + " 张" : "这张人物卡") + "还有 " + chats.length + " 个游玩记录，要一起删除吗？" + lines + "\n\n删除后无法恢复。", { confirmText: "一起删除", cancelText: "保留游玩记录" });
+			const accepted = await askConfirm((paths.length > 1 ? "所选人物卡中有 " + counts.size + " 张" : "这张人物卡") + "还有 " + chats.length + " 个游玩记录，要一起彻底删除吗？" + lines + "\n\n此操作不可撤销。", { confirmText: "一起彻底删除", cancelText: "保留游玩记录" });
 			return accepted ? chats : [];
 		}
 
