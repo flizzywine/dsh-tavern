@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "237a4a208ac3e6fa0760afb642f6ec380af8d804",
-  "releaseSequence": 1493,
+  "revision": "1952d95a0d3493817d7599b1ccaae37bc18eb8f6",
+  "releaseSequence": 1494,
   "version": "3.3.0",
   "files": [
     {
@@ -1031,8 +1031,8 @@
     },
     {
       "path": "tavern-plugin/lib/director-probe.js",
-      "sha256": "6118f7c0a15f308fb00325fd471530109a3dd90710c77eba38eb9e9a89316ca5",
-      "size": 4854
+      "sha256": "7dca87f34d282f4067833ade51cd6ca6cb20fed7b16e9de87bdf8f502b7ee7ea",
+      "size": 5013
     },
     {
       "path": "tavern-plugin/lib/domain/agent-input-frame.js",
@@ -4041,8 +4041,8 @@
     },
     {
       "path": "tavern-plugin/lib/mod-system-settings.js",
-      "sha256": "1ddafaf2db1ac4f29fb53fe26eb87ef7651182953075e2f67e9fa3566017de60",
-      "size": 2233
+      "sha256": "9443a93cd9c005d5321d85e743f03c43c05ecc979cc9a87c67c41fb188c512a0",
+      "size": 2377
     },
     {
       "path": "tavern-plugin/lib/mod-variables.js",
@@ -4051,8 +4051,8 @@
     },
     {
       "path": "tavern-plugin/lib/native-settings.js",
-      "sha256": "7b2ec4cbcb2ca5c1f4d1d33e2380d7e788f9ef38fadf65484bb67fb3b5ed6de5",
-      "size": 1621
+      "sha256": "2a52643f81c19104a4876cc75c73a0e5c47ba5b5a3ec47b87f2d3d6f6e81c950",
+      "size": 1887
     },
     {
       "path": "tavern-plugin/lib/optional-stage.js",
@@ -8611,9 +8611,9 @@
     }
   ],
   "archive": {
-    "commit": "87bd84e8cecfb96ab9c75b0bb811a8ba5480ecf4",
+    "commit": "69e73c5192409223ca05688bf4ec3411de0f8588",
     "path": "runtime.zip",
-    "sha256": "c837861d5777d80114df0b45d757f96a2f549946d5f6868de781fc7797411937",
-    "size": 15298726
+    "sha256": "62aa6ac75abb8982622862a9d2c2d213e5c591708297288833180d7179b380c6",
+    "size": 15298974
   }
 }
