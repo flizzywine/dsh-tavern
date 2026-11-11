@@ -203,6 +203,7 @@ import { MVU_SUBMIT_UPDATE_TOOL, createMvuSettlementModule } from './domain/mvu-
 import { createMvuSettlementEngine } from './domain/mvu-settlement-engine.js'
 import { createPlainSettlementEngine } from './domain/plain-settlement-engine.js'
 import { createSettlementRun } from './domain/settlement-run.js'
+import { createSettlementParticipants } from './domain/settlement-participants.js'
 import { createSettlementControls } from './domain/settlement-controls.js'
 import { createMvuSettlementResume } from './domain/mvu-settlement-resume.js'
 import {
@@ -706,6 +707,7 @@ export async function apply(ctx) {
   // Told after a card's working copy changed (plugins' onCardChanged).
   const cardRevisionListeners = new Set()
   const presentationObservers = createPresentationObservers({warn:({owner,phase,error}) => console.warn('dsh-tavern: presentation observer failed', owner, phase, error?.message || error)})
+  const settlementParticipants = createSettlementParticipants({warn:({owner,phase,error}) => console.warn('dsh-tavern: settlement participant failed', owner, phase, error?.code || error?.message || error)})
   ctx.effect(() => () => presentationObservers.dispose())
   async function cardProjectionRevision(cardPath) {
     return cardProjectionRevisionOf(await readJson(CARD_PROJECTION_REVISIONS), cardPath)
@@ -2550,7 +2552,7 @@ export async function apply(ctx) {
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
   await stageRuntime.start({dataRoot, activeStageSkin,
-    presentationObservers, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies, voiceBackfillLines, voiceBackfillKept,
+    presentationObservers, settlementParticipants, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies, voiceBackfillLines, voiceBackfillKept,
     // No background task starts while the game is compacted (ADR 0003); the coordinator's own guard.
     backgroundBlocked: chat => Boolean(autoCompaction?.blocked(chat)),
     readReplyPrefix:(sessionId,turn) => assistantResultForTurn(sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,turn)?.text || '',
@@ -3306,13 +3308,13 @@ export async function apply(ctx) {
     if (selected && ['story', 'script'].includes(selected.chat.mode || 'story') && selected.chat.requestMode !== 'sillytavern') return normalizeChat(selected.chat)
     return chatId === undefined ? chatForSession(sessionId) : readChat(chatId)
   }
-  const mvuSettlementEngine = createMvuSettlementEngine({ mvuSettlement, mvuUpdateRules, backgroundModelSelection, postureItem, tavernScriptDispatch,
+  const mvuSettlementEngine = createMvuSettlementEngine({ mvuSettlement, mvuUpdateRules, backgroundModelSelection, postureItem, tavernScriptDispatch, settlementParticipants,
     pluginApi, readPendingTurn: gameId => pluginTurns.readPendingTurn(gameId) })
   const plainSettlementEngine = createPlainSettlementEngine({ pluginApi, pluginSettlementProgress, settlementItems, backgroundModelSelection, postureItem, backgroundAgentRunner, agentRegistry, sessionStore })
   const settlementRun = createSettlementRun({
     backgroundAgentRunner,
     backgroundTasks, chatPersistence, readChat, writeChat, readChatCard, taskStateReader, worldBookScanDepth,
-    mvuSettlementEngine, plainSettlementEngine, pluginApi, pluginSettlementProgress, agentRegistry, storyEvents
+    mvuSettlementEngine, plainSettlementEngine, pluginApi, pluginSettlementProgress, agentRegistry, storyEvents, settlementParticipants
   })
   const { startPluginTask } = settlementRun
   function queueSettlement(chatId) {
