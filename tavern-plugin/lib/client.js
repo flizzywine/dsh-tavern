@@ -28005,7 +28005,7 @@ function bindTavernFontZoom(node, win) {
 					if (hasCancel) {
 						const cancel = document.createElement("button");
 						cancel.type = "button"; cancel.textContent = typeof cancelButton === "string" && cancelButton ? cancelButton : "取消";
-						cancel.style.cssText = "border:1px solid rgba(255,255,255,.24);border-radius:9px;padding:7px 14px;background:rgba(255,255,255,.08);color:#eef4fb;cursor:pointer";
+						cancel.style.cssText = "border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:9px;padding:7px 14px;background:none;color:inherit;cursor:pointer";
 						cancel.addEventListener("click", popup.completeNegative);
 						actions.appendChild(cancel);
 					}
