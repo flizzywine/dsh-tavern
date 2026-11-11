@@ -147,6 +147,13 @@ function otherExtensionsOf(extensions) {
   })
 }
 
+// the card's own opening setup, shown on the prep page: v1 {form} (scripted) or a v2 spec (docs/specs/opening-setup-v2.md); null: none.
+export function cardOpeningSetup(extensions) {
+  const setup = extensions?.dsh_tavern?.openingSetup
+  if (setup?.version === 2) return { spec: clone(setup) }
+  return typeof setup?.form === 'string' && setup.form.trim() ? { form: setup.form } : null
+}
+
 export function inspectCardExtensions(value) {
   const data = dataOf(value)
   const extensions = object(data.extensions) ? data.extensions : {}
@@ -160,9 +167,7 @@ export function inspectCardExtensions(value) {
   return {
     hasSelectableAssetPacks: Array.isArray(boundPackIds) && boundPackIds.some(id => id !== tavern.modConfigPackId),
     frameSizing: normalizeCardFrameSizing(tavern?.frameSizing),
-    // the card's own opening form, shown on the prep page.
-    openingSetup: typeof extensions.dsh_tavern?.openingSetup?.form === 'string' && extensions.dsh_tavern.openingSetup.form.trim()
-      ? { form: extensions.dsh_tavern.openingSetup.form } : null,
+    openingSetup: cardOpeningSetup(extensions),
     extensionCount: regexScripts.length + helperScripts.length + otherExtensions.length + mvuResources.filter(function (item) { return item.kind === 'extension' }).length,
     regexScripts,
     helperScripts,

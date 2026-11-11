@@ -122,6 +122,7 @@ import { legacyMessageUid } from './domain/message-uid.js'
 import { createCardResponseTest } from './domain/card-response-test.js'
 import { createGameplayApi } from './gameplay-api.js'
 import { cardOpeningChoices } from './domain/card-openings.js'
+import { projectCardPageOpening } from './domain/card-page-opening.js'
 import { marked } from 'marked'
 import { resolveAgentCompaction, compactNativePlayIfNeeded } from './agent-compaction.js'
 import { warnCompactionPressureOnce } from './domain/compaction-pressure-guard.js'
@@ -1458,6 +1459,7 @@ export async function apply(ctx) {
           name: card.name,
           importedAt: card.importedAt,
           hasOpeningForm: card.hasOpeningForm,
+          ...(card.openingPage ? { openingPage: card.openingPage } : {}),
           hasImage,
           script: scriptPath === undefined ? null : { path: scriptPath, title: scriptPath.split('/').pop() }
         }
@@ -1526,7 +1528,8 @@ export async function apply(ctx) {
     })
   }
   const openingPreparation = createOpeningPreparation({ readCard, worldBooks, extensionSettings: tavernExtensionSettings, trace: requestPerformance,
-    readRuntimeExtensions: async cardPath => tavernRemoteAssets.pinExtensions(await readCardExtensions(cardPath)),
+    // the card's extensions with its remote script assets pinned, as getCardOpenings reads them (openingSetup included)
+    readRuntimeExtensions: async cardPath => { const extensions = await readCardExtensions(cardPath); return { ...extensions, ...await tavernRemoteAssets.pinExtensions(extensions) } },
     generateRaw: (config, context) => defaultOrderedRawConfig(config) ? openingGenerate(defaultOrderedRawConfig(config), context)
       : generateHelperRaw(config, { ...context, callModel: opts => callModel({ ...opts, background: true, signal: context.signal }) }),
     generate: (config, context) => openingGenerate(config, context)
@@ -1563,13 +1566,13 @@ export async function apply(ctx) {
     }))
     const hasOpeningScript = opening => /<script\b/i.test(opening.projection.text) || opening.projection.parts.some(part => /<script\b/i.test(part.content || ''))
     const hasHelperScripts = projectTavernHelperScripts(extensions.helperScripts).scripts.length > 0
-    const interactive = hasHelperScripts || previews.openings.some(hasOpeningScript)
+    const interactive = hasHelperScripts || previews.openings.some(opening => opening.setup || hasOpeningScript(opening))
     const preparation = interactive ? await timedStage('prepare', () => openingPreparation.create(cardPath, { card, extensions, runtime: (extensions.mvuResources || []).some(item => item.enabled !== false), userName: playerName })) : null
     if (preparation) {
       const choices = cardOpeningChoices(card)
       const swipes = choices.map(opening => opening.text)
       const openingIds = choices.map(opening => opening.id)
-      for (const opening of previews.openings) if (hasHelperScripts || hasOpeningScript(opening)) {
+      for (const opening of previews.openings) if (hasHelperScripts || opening.setup || hasOpeningScript(opening)) {
         opening.openingPreview = { swipes, openingIds, selectedIndex: openingIds.indexOf(opening.id),
           messageHtml: opening.projection.parts.map(part => part.kind === 'markdown' ? marked.parse(str(part.text), { gfm: true }) : str(part.content)).join('\n'),
           preparationId: preparation.id, characterName: card.name, playerName, ...openingPreviewPayload(preparation, previewTransport) }
@@ -3554,7 +3557,9 @@ export async function apply(ctx) {
   }, 'dsh-tavern: reconcile deferred MVU settlement')
   const { stopBackground, retrySettlement, pullBackgroundCycle } = createSettlementControls({
     chatForSession, readOpeningWindow, projectOpeningWindow, view, readChatCard, backgroundTasks, storyTimeline,
-    patchChat, writeChat, queueSettlement, cancelSettlement, mvuSettlementEngine, pluginApi, backgroundAgentRunner
+    patchChat, writeChat, queueSettlement, cancelSettlement, mvuSettlementEngine, pluginApi, backgroundAgentRunner,
+    // 停止后台 stops the game's director too, through the stage's presentation observer.
+    stageDirector: { cancel: chat => { void presentationObservers.cancelled(chat.sessionId) } }
   })
   // ---------- 卡片工作台：剧本素材与新卡创建 ----------
   async function sourceWindowOf(chat) {
@@ -3888,7 +3893,7 @@ export async function apply(ctx) {
   })
 
   // 小组件变量、CG 图鉴、舞台计时器（stage-module.js）。
-  stageRuntime.services({profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage})
+  stageRuntime.services({profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage, cardPageOpening:projectCardPageOpening})
 
   // ---------- HTTP RPC（客户端同源 fetch） ----------
   async function dispatch(method, args, authority) {

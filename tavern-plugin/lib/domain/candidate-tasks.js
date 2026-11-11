@@ -10,6 +10,9 @@ export function createCandidateTasks({ chats, generator, backgroundTasks, sessio
   const candidateGenerator = generator
   const runtimeGeneration = sessions.runtimeGeneration
   const candidateTaskJobs = new Map()
+  // tasks the player stopped (the stage's wait chip). The mailbox already reads
+  // 'cancelled'; the job only has to keep its model from starting and close its operation without a failure.
+  const stopped = new Set()
   const taskMailbox = createDurableTaskMailbox({
     store: { readChat, writeChat, readState: chats.readState, patchChat: chats.patch },
     now,
@@ -50,6 +53,10 @@ export function createCandidateTasks({ chats, generator, backgroundTasks, sessio
           // additional whole task checkpoints on the result delivery path.
         })
         operationId = str(prepared.operationId)
+        if (stopped.has(taskId)) {
+          if (prepared.created !== false) await backgroundTasks.recover?.({ id: chatId }, { operationId })
+          return
+        }
         if (!prepared.startCommitted) await taskMailbox.transition(chatId, taskId, { status: 'running', stage: 'generating', operationId })
         if (prepared.created === false) {
           await taskMailbox.sync(chatId, { taskId })
@@ -58,6 +65,7 @@ export function createCandidateTasks({ chats, generator, backgroundTasks, sessio
         const candidates = await prepared.execute()
         await taskMailbox.transition(chatId, taskId, { status: 'succeeded', stage: 'completed', operationId, result: { candidates }, error: '' })
       } catch (error) {
+        if (stopped.has(taskId)) return
         const repaired = await taskMailbox.sync(chatId, { taskId })
         if (repaired.task && repaired.task.status === 'succeeded') return
         const message = str(error && error.message || error)
@@ -69,7 +77,7 @@ export function createCandidateTasks({ chats, generator, backgroundTasks, sessio
           error: message || '候选生成失败'
         })
       }
-    }).finally(function () { candidateTaskJobs.delete(taskId) })
+    }).finally(function () { candidateTaskJobs.delete(taskId); stopped.delete(taskId) })
     candidateTaskJobs.set(taskId, job)
   }
 
@@ -142,6 +150,24 @@ export function createCandidateTasks({ chats, generator, backgroundTasks, sessio
     return await sessionSync(sessionId, { requestId: task.requestId, kind: 'candidate' })
   }
 
+  // The player stops this reply's choices: the task ends 'cancelled' at once (the end panel offers 生成选项 again, not an
+  // error). Returns the operation to interrupt when its model already runs; a task still preparing (e.g. waiting for
+  // the settlement) never starts it. A task that already ended is left as it is.
+  async function cancelCandidateTask(args = {}) {
+    const sessionId = str(args.sessionId)
+    const chat = await (chats.stateForSession || chatForSession)(sessionId)
+    if (chat === undefined) throw new Error('当前会话没有绑定人物卡')
+    const taskId = str(args.taskId)
+    const { task } = await taskMailbox.sync(chat.id, { taskId })
+    let operationId = ''
+    if (task && task.kind === 'candidate' && !task.terminal) {
+      if (candidateTaskJobs.has(taskId)) stopped.add(taskId)
+      await taskMailbox.transition(chat.id, taskId, { status: 'cancelled', stage: 'cancelled', error: '' })
+      operationId = str(task.operationId)
+    }
+    return { chatId: str(chat.id), operationId, sync: await sessionSync(sessionId, { taskId, kind: 'candidate' }) }
+  }
+
   async function startLegacy(args = {}) {
     const choiceChat = await chatForSession(args && args.sessionId)
     if (choiceChat === undefined) throw new Error('当前会话没有绑定人物卡')
@@ -169,5 +195,5 @@ export function createCandidateTasks({ chats, generator, backgroundTasks, sessio
     }
   }
 
-  return Object.freeze({ submit: submitCandidateTask, sync: sessionSync, recover, startLegacy })
+  return Object.freeze({ submit: submitCandidateTask, cancel: cancelCandidateTask, sync: sessionSync, recover, startLegacy })
 }

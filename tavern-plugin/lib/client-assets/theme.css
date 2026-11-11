@@ -1190,6 +1190,9 @@ textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(
 }
 .fork-gal-toggle { display: inline-flex; align-items: center; gap: 4px; }
 .fork-gal-toggle.on { color: var(--fork-accent); }
+/* the opening floor's way into the stage for a card played there (stage views.cjs OpeningEntry) */
+.fork-gal-opening-entry { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; margin: 8px 0; padding: 10px 12px; border-radius: var(--fork-radius); background: var(--fork-hover); color: var(--fork-ink-2); font-size: var(--fork-fs-body); }
+.fork-gal-opening-entry > button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; }
 /* Effects quality (machine preference): low = dimmed sparkle with a slash */
 /* Background library */
 .fork-bg-tags { display: flex; flex-wrap: wrap; gap: 6px; }

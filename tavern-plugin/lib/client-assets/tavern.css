@@ -4176,3 +4176,50 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
 .dsh-tavern-send-hold-fired { animation: dsh-tavern-send-hold-fired 900ms ease-out; }
 @keyframes dsh-tavern-send-hold { 0% { opacity: .12; transform: scale(.96); } 100% { opacity: .8; transform: scale(1.04); } }
 @keyframes dsh-tavern-send-hold-fired { 0% { filter: brightness(1.25); } 100% { filter: none; } }
+/* Opening setup v2 (docs/specs/opening-setup-v2.md §3): the card's form on the prep page. Card tokens --dsh-opening-*
+   fall back to the host theme; phone is one column, desktop centre or split (left art, right form). */
+.dsh-tavern-greeting-preview:has(> .dsh-opening-setup) { height: min(78vh, 900px); }
+.dsh-opening-setup { position: relative; box-sizing: border-box; min-height: 100%; display: flex; justify-content: center; align-items: flex-start; padding: 20px 16px 28px;
+  color: var(--dsh-opening-text, var(--fork-ink)); background: var(--dsh-opening-bg, transparent); font-family: var(--dsh-opening-font, inherit); font-size: var(--fork-fs-body); }
+.dsh-opening-setup[data-layout="split"] { background-image: none; }
+.dsh-opening-art { display: none; }
+.dsh-opening-panel { position: relative; z-index: 1; box-sizing: border-box; width: 100%; max-width: 720px; display: flex; flex-direction: column; gap: 14px; }
+.dsh-opening-setup[data-opening-setup="template"] .dsh-opening-panel { max-width: none; }
+.dsh-opening-setup[data-layout="split"] .dsh-opening-art { display: block; flex: 0 0 38%; align-self: stretch; min-height: 320px; margin-right: 24px; border-radius: var(--dsh-opening-radius, var(--fork-radius)); background: var(--dsh-opening-image) center / cover no-repeat; }
+.dsh-opening-setup[data-layout="center"] .dsh-opening-head { text-align: center; }
+.dsh-opening-head { display: flex; flex-direction: column; gap: 6px; }
+.dsh-opening-title { margin: 0; font-family: var(--dsh-opening-title-font, var(--dsh-opening-font, inherit)); font-size: var(--fork-fs-title); font-weight: 700; color: var(--dsh-opening-accent, var(--fork-ink)); }
+.dsh-opening-intro { margin: 0; color: var(--dsh-opening-muted, var(--fork-ink-2)); line-height: 1.7; white-space: pre-wrap; }
+.dsh-opening-fields { display: flex; flex-direction: column; gap: 14px; padding: 16px; border-radius: var(--dsh-opening-radius, var(--fork-radius)); background: var(--dsh-opening-surface, var(--fork-surface)); }
+.dsh-opening-field { display: flex; flex-direction: column; gap: 6px; }
+.dsh-opening-field-label, .dsh-opening-group-title { font-weight: 600; color: var(--dsh-opening-text, var(--fork-ink)); }
+.dsh-opening-group { display: flex; align-items: baseline; gap: 10px; padding-top: 4px; border-top: 1px solid var(--dsh-opening-border, var(--fork-hairline)); }
+.dsh-opening-group-points { font-size: var(--fork-fs-meta); color: var(--dsh-opening-muted, var(--fork-ink-2)); }
+.dsh-opening-group-points[data-over] { color: var(--fork-danger); }
+.dsh-opening-help { font-size: var(--fork-fs-meta); color: var(--dsh-opening-muted, var(--fork-ink-2)); }
+.dsh-opening-note { margin: 0; line-height: 1.7; white-space: pre-wrap; color: var(--dsh-opening-muted, var(--fork-ink-2)); }
+.dsh-opening-note summary { cursor: pointer; color: var(--dsh-opening-text, var(--fork-ink)); font-weight: 600; }
+.dsh-opening-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+/* .ap-ui-prefixed to outrank the .ap-ui button look that the form root (and a template frame) takes for its shared controls. */
+.ap-ui button.dsh-opening-card { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; min-height: 44px; padding: 10px 12px; cursor: pointer;
+  border: 1px solid var(--dsh-opening-border, var(--fork-hairline)); border-radius: var(--dsh-opening-radius, var(--fork-radius)); background: var(--dsh-opening-surface, var(--fork-surface-2)); color: var(--dsh-opening-text, var(--fork-ink)); }
+/* Hover tints the card's own surface: the host's --fork-hover is a light-theme fill that hid a dark card's light text. */
+.ap-ui button.dsh-opening-card:hover:not(:disabled) { background: color-mix(in srgb, var(--dsh-opening-accent, var(--fork-ink)) 12%, var(--dsh-opening-surface, var(--fork-surface-2))); }
+.ap-ui button.dsh-opening-card:focus-visible { outline: var(--fork-focus); outline-offset: 2px; }
+.ap-ui button.dsh-opening-card[aria-checked="true"] { border-color: var(--dsh-opening-accent, var(--fork-accent)); box-shadow: inset 0 0 0 1px var(--dsh-opening-accent, var(--fork-accent)); }
+.ap-ui button.dsh-opening-card[disabled] { cursor: default; filter: var(--fk-current-dim, none); }
+.dsh-opening-card-image { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: calc(var(--dsh-opening-radius, var(--fork-radius)) - 2px); }
+.dsh-opening-card-label { font-weight: 600; }
+.dsh-opening-card-desc { font-size: var(--fork-fs-meta); color: var(--dsh-opening-muted, var(--fork-ink-2)); line-height: 1.5; }
+.dsh-opening-actions { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.dsh-opening-start { min-width: 160px; }
+.dsh-opening-setup .dsh-opening-start { background: var(--dsh-opening-accent, var(--fk-current-fill)); }
+.dsh-opening-error { margin: 0; color: var(--fork-danger); font-size: var(--fork-fs-meta); text-align: center; }
+.dsh-opening-template { display: block; width: 100%; border: 0; background: transparent; }
+/* The greeting frame keeps running behind the form: laid out, out of sight, never hit. */
+.dsh-opening-frame-host { position: absolute; left: 0; top: 0; width: 100%; height: 1px; overflow: hidden; visibility: hidden; pointer-events: none; }
+@media (max-width: 719px) {
+  .dsh-opening-setup { padding: 14px 10px 20px; }
+  .dsh-opening-setup[data-layout="split"] .dsh-opening-art { display: none; }
+  .dsh-opening-cards { grid-template-columns: 1fr; }
+}

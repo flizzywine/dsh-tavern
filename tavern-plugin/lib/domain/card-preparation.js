@@ -1,19 +1,28 @@
 import { readTextPage } from './text-page.js'
 import {migrateFigureNameCopies} from '../../packages/dsh-asset-library/lib/asset-packs/figure-names.js'
 import { withTavernCredit } from './card-credit.js'
-import { inspectCardExtensions } from './card-extension-reading.js'
+import { cardOpeningSetup, inspectCardExtensions } from './card-extension-reading.js'
 import { validateCardAssetExtension } from './card-asset-bindings.js'
 import { validateModSystem } from './mod-system-contract.js'
-import { validateCardPages } from './card-status-panel.js'
+import { validateOpeningSetupSpec } from './opening-setup.js'
+import { cardOpeningPage, validateCardPages } from './card-status-panel.js'
 
 function validateOptInAssets(raw, previousRaw) {
   const extension = rawData(raw).extensions?.dsh_tavern
   const previous = previousRaw && rawData(previousRaw).extensions?.dsh_tavern
   if (extension !== undefined && (Object.hasOwn(extension || {}, 'assetBindings') || Object.hasOwn(previous || {}, 'assetBindings'))) validateCardAssetExtension(extension)
   if (extension?.modSystem !== undefined) validateModSystem('card', extension.modSystem)
+  // A version 2 opening setup is checked once, when it changes; v1 {form} documents are accepted as before.
+  const setup = extension?.openingSetup
+  if (setup?.version === 2 && JSON.stringify(setup) !== JSON.stringify(previous?.openingSetup)) validateOpeningSetupSpec(setup)
   // checked only when this write changes it: an unchanged panel is never re-validated.
   const panel = extension?.pages
   if (panel !== undefined && JSON.stringify(panel) !== JSON.stringify(previous?.pages)) validateCardPages(panel)
+  // an opening page completes the card's version 2 openingSetup (its fields and message): one without it could not start
+  const changed = JSON.stringify([panel, setup]) !== JSON.stringify([previous?.pages, previous?.openingSetup])
+  if (changed && cardOpeningPage(panel) && setup?.version !== 2) {
+    throw Object.assign(new Error('卡页面 pages：开局页需要卡里有 version 2 的 openingSetup（开局设置）'), { code: 'CARD_PAGES_INVALID', path: 'pages' })
+  }
 }
 
 const TEXT_FIELDS = Object.freeze([
@@ -238,7 +247,9 @@ function isStandaloneWorldBook(raw) {
 export function projectCardSummary(value) {
   const data = rawData(rawOf(value))
   return { name: str(data.name).trim() || '未命名角色', importedAt: Number(value?.meta?.importedAt) || 0,
-    hasOpeningForm: typeof data.extensions?.dsh_tavern?.openingSetup?.form === 'string' && Boolean(data.extensions.dsh_tavern.openingSetup.form.trim()) }
+    hasOpeningForm: Boolean(cardOpeningSetup(data.extensions)),
+    // the card's own opening page on the stage (card page opening:true): with the stage on, its new game starts there
+    openingPage: cardOpeningPage(data.extensions?.dsh_tavern?.pages)?.id || '' }
 }
 
 function projectedCard(value) {

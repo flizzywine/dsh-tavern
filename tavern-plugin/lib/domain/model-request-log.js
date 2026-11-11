@@ -4,6 +4,13 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+// DSH usage buckets are disjoint: inputTokens excludes cache reads and cache writes.
+// cacheWrite1hTokens + cacheWrite5mTokens split cacheWriteTokens by Anthropic cache TTL.
+function providerUsage(usage) {
+  return Object.fromEntries(['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'cacheWrite1hTokens', 'cacheWrite5mTokens']
+    .filter(key => Number.isSafeInteger(usage[key])).map(key => [key, usage[key]]))
+}
+
 function phaseEntries(messages, phase) {
   const name = 'tavern:runtime-preset-' + phase
   return (Array.isArray(messages) ? messages : []).filter(function (message) {
@@ -166,7 +173,7 @@ export function createModelRequestLog(options = {}) {
       id: requestId,
       chatId: chat.id,
       scope,
-      task: scope === 'background' ? str(context.task) : 'reply',
+      task: scope === 'background' ? str(context.task) : str(context && context.task) || 'reply',
       sessionId: str(requestOptions && requestOptions.sessionId),
       turn,
       agentTurn: Math.max(0, Number(coordinates && coordinates.turn) || 0),
@@ -177,7 +184,8 @@ export function createModelRequestLog(options = {}) {
       compatibility: chat.requestMode === 'sillytavern' && chat.compatibilityTraces && chat.compatibilityTraces[String(turn)]
         ? chat.compatibilityTraces[String(turn)]
         : null,
-      frame: coordinates && coordinates.frame ? coordinates.frame : null,
+      frame: coordinates && coordinates.frame ? JSON.parse(JSON.stringify(coordinates.frame)) : null,
+      ...(context && context.window ? { window: { first: context.window.first, through: context.window.through } } : {}),
       bypassPlan: {
         id: str(chat.bypassPlanId || chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.planId),
         name: str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.planName),
@@ -206,7 +214,7 @@ export function createModelRequestLog(options = {}) {
           requests: retainRecentBodies(requests.concat([{
             id: requestId, scope, task: record.task, sessionId: record.sessionId,
             turn: record.turn, agentTurn: record.agentTurn, step: record.step,
-            createdAt: record.createdAt, preset: record.preset, bytes
+            createdAt: record.createdAt, preset: record.preset, bytes, ...(record.window ? { window: record.window } : {})
           }]), Math.max(turn, record.agentTurn), pruned)
         }
       })
@@ -228,15 +236,19 @@ export function createModelRequestLog(options = {}) {
     if (!previous) return null
     const completedAt = now()
     const createdAt = Number.isFinite(previous.createdAt) ? previous.createdAt : completedAt
+    const interrupted = input.interrupted === true || (!input.finish && !input.error) || input.finish?.kind === 'aborted'
+    const error = str(input.error) || (interrupted ? '模型流已中断，未确认完整结束。' : input.finish?.kind === 'error' ? '模型返回错误结束标记。' : '')
     const result = {
       createdAt,
-      status: str(input.error) !== '' ? 'failed' : 'completed',
+      status: interrupted ? 'interrupted' : error !== '' ? 'failed' : 'completed',
+      ...(input.timing ? {timing:input.timing} : {}),
+      ...(input.usage ? { usage: providerUsage(input.usage) } : {}),
       completedAt,
       durationMs: Math.max(0, completedAt - createdAt),
       response: {
         text: str(input.text),
         finish: input.finish === undefined ? null : JSON.parse(JSON.stringify(input.finish)),
-        error: str(input.error) || null
+        error: error || null
       }
     }
     await writeJson(resultPath, result)

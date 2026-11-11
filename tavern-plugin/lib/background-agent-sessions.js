@@ -360,6 +360,8 @@ export function createBackgroundAgentSessions(options, task) {
       ...(input.contextPolicy ? { contextPolicy: input.contextPolicy } : {}),
       ...(input.frozenBackground ? { frozenBackground: { policy: input.frozenBackground.policy, historical: input.frozenBackground.historical, binding: input.frozenBackground.binding } } : {}),
       task: str(input.task) || 'background',
+      // Dev diagnostics: the streaming director window this request stages (request log).
+      ...(input.window ? { window: { first: input.window.first, through: input.window.through } } : {}),
       turn: Math.max(0, Number(input.turn) || 0)
     })
     input.runRecord?.bind(traceSessionId)
