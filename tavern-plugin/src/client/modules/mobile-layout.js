@@ -49,6 +49,16 @@ function installVisualViewportPin(doc) {
     const properties = ["--dsh-vv-top", "--dsh-vv-height", "--dsh-shell-height", "--dsh-keyboard-inset", "--dsh-composer-offset", "--dsh-sheet-max", "--dsh-header-bottom", "--dsh-composer-left", "--dsh-composer-width"];
     const previous = properties.map(name => [name, html.style.getPropertyValue(name), html.style.getPropertyPriority(name)]);
     let frame = 0, chaseFrame = 0, chaseUntil = 0, disposed = false, seat = null, header = null;
+    // Anything wider than the screen lets a phone browser zoom the page out to fit it: the layout viewport grows past
+    // 100vw, so every overlay sized to the screen (stage CONFIG art, the phone, sheets) leaves a strip on the right.
+    // A phone layout never wants that zoom-out; pinch zoom in stays.
+    const viewportMeta = doc.querySelector('meta[name="viewport"]');
+    const viewportContent = viewportMeta ? viewportMeta.getAttribute("content") || "" : "";
+    const heldContent = /minimum-scale/.test(viewportContent) ? viewportContent : (viewportContent ? viewportContent + ", " : "") + "minimum-scale=1";
+    function holdScale(on) {
+        const next = on ? heldContent : viewportContent;
+        if (viewportMeta && viewportMeta.getAttribute("content") !== next) viewportMeta.setAttribute("content", next);
+    }
     // classList.add/remove rewrite the class attribute even when nothing changes; that no-op mutation
     // re-ran document-wide observers (surface styles, quote colours) on every focus change.
     function removeClasses(...names) { const present = names.filter(name => html.classList.contains(name)); if (present.length) html.classList.remove(...present); }
@@ -84,8 +94,10 @@ function installVisualViewportPin(doc) {
         if (!narrow.matches && !touch.matches) {
             removeClasses("dsh-tavern-viewport-pinned", "dsh-tavern-short-viewport", "dsh-tavern-seat-scroll");
             restore();
+            holdScale(false);
             return;
         }
+        holdScale(true);
         // 双指缩放时保留原布局供用户平移查看；不能把缩放误判成软键盘。
         if (vv && Math.abs(vv.scale - 1) > 0.02) return;
         rebind();
@@ -187,5 +199,6 @@ function installVisualViewportPin(doc) {
         touch.removeEventListener("change", schedule);
         html.classList.remove("dsh-tavern-coarse-play", "dsh-tavern-viewport-pinned", "dsh-tavern-short-viewport", "dsh-tavern-seat-scroll");
         restore();
+        holdScale(false);
     };
 }
