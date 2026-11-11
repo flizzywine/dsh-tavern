@@ -445,14 +445,14 @@ test('a fresh chat: the opening page holds the first line too and 继续 is off'
   await page.waitForTimeout(1500)
   assert.equal(await typedGlyphs(page), 0, 'no glyph of the first line typed behind the opening page')
   await shot(page, 'title-actions-375.png')
-  // an unsaved chat starts a new game without asking
-  await page.evaluate(() => { window.newGames = []; window.addEventListener('dsh-tavern-new-game', event => window.newGames.push(event.detail.sessionId)) })
+  // an unsaved chat is the new game - 新游戏 never asks and never makes a
+  // second chat: the core is asked whether there is a 游戏准备 to replace it (fresh); with none this chat starts here
+  await page.evaluate(() => { window.newGames = []; window.addEventListener('dsh-tavern-new-game', event => window.newGames.push([event.detail.sessionId, event.detail.fresh])) })
   await frameOf(page, 'opening').locator('#new').click()
-  await page.waitForFunction(() => window.newGames.length === 1)
-  assert.equal(await page.locator('dialog.dsh-tavern-prompt').count(), 0)
-  await frameOf(page, 'opening').locator('body').evaluate(() => { setTimeout(() => DshCardPage.continueGame()) })
   await waitPage(page, null)
   await page.waitForFunction(() => document.querySelectorAll('.fork-gal-stage .fork-gal-type-shown, .fork-gal-stage .fork-gal-glyph').length > 0)
+  assert.equal(await page.locator('dialog.dsh-tavern-prompt').count(), 0)
+  assert.deepEqual(await page.evaluate(() => window.newGames), [[SESSION, true]])
 })
 test('every stage entry, frame by frame: a title page covers the stage from its first frame; a card without one never mounts a page', {timeout: 90000}, async t => {
   const titled = await openStage(t, {pages: [ACTION_TITLE, MAP], sample: true})

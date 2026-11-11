@@ -392,7 +392,7 @@ export function createStageServices(core) {
   })
 
   // The status panel reads the library card's declared paths and ledger sections, never the chat's frozen snapshot.
-  const cardPages = createCardPagesService({readWorkspace:cardStorage.readWorkspace, chatForSession, index:readSessionIndex,
+  const cardPages = createCardPagesService({readWorkspace:cardStorage.readWorkspace, chatForSession, index:readSessionIndex, cardPageOpening:core.cardPageOpening,
     packSnapshot:packId => ctx.get('assetLibrary')?.getPackSnapshot({packId}).catch(() => null)})
   // no gallery state is exported through cards or asset packs.
   const cgGallery = createCgGallery({profileData,cardStorage,resolveCard:cardStorage.resolve,chatForSession,assets:assetRuntime,

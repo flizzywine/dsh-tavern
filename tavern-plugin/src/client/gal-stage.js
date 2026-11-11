@@ -116,6 +116,11 @@ function GalStageToggle(props) {
     const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
     return enabled && stageViews ? React.createElement(stageViews.Toggle, props) : null;
 }
+// the opening floor's 进入舞台 bar for a card played on the stage (stage views.cjs OpeningEntry)
+function GalStageOpeningEntry(props) {
+    const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
+    return enabled && stageViews?.OpeningEntry ? React.createElement(stageViews.OpeningEntry, props) : null;
+}
 function bindStageViews(createViews) {
     if (stageViews) throw new Error('Stage views already mounted');
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
@@ -196,8 +201,13 @@ function bindStageViews(createViews) {
         // document, Helper and trust model) with the session slash executor message frames use; the page's data is re-read
         // after each session state signal while open; asset() reads the card's bound packs through the pack service.
         // newGame() asks with the core confirm, and the sidebar opens the session card's 游戏准备 (dsh-tavern-new-game).
+        // newGame(id, {fresh:true}) (a never-played chat) resolves true when the sidebar opened a 游戏准备 that replaces it,
+        // false when there is nothing to prepare (no listener answers: false).
         statusPanel:{rpc, signals:{subscribe:(id,refresh)=>tavernSessionSignals.subscribe(id,'tavern-state',refresh,()=>{},refresh)}, themeTokens:stageWidgetThemeTokens, sounds:forkUiSfx,
-            confirm:askTavernConfirm, newGame:sessionId=>window.dispatchEvent(new CustomEvent('dsh-tavern-new-game',{detail:{sessionId}})),
+            confirm:askTavernConfirm, newGame:(sessionId,options)=>new Promise(resolve=>{const detail={sessionId,fresh:options?.fresh===true,respond:resolve};window.dispatchEvent(new CustomEvent('dsh-tavern-new-game',{detail}));if(!detail.handled)resolve(false);}),
+            // startOpening(id, {openingId, values, withoutGreeting}): a card's opening page starts the game (the sidebar's
+            // one start path, dsh-tavern-stage-opening); it settles once the game stands and the stage has entered it.
+            startOpening:(sessionId,choice)=>new Promise((resolve,reject)=>{const detail={sessionId,choice,respond:resolve,fail:reject};window.dispatchEvent(new CustomEvent('dsh-tavern-stage-opening',{detail}));if(!detail.handled)reject(new Error('开始游戏不可用'));}),
             useLiveView:useLiveTavernView, packService:()=>packTransport?.service,
             createCardFrame:props=>createTavernMessageFrameLifecycle(props,{executeSlash:stageCardPageSlash()})},
         device:{matchMedia},

@@ -7,7 +7,9 @@ export const OPENING_ID = /^(?:primary|alternate:\d{1,4})$/
 // Greeting text fingerprint: a scene follows its greeting when alternates are reordered.
 export const greetingKey = value => createHash('sha256').update(String(value)).digest('hex').slice(0, 16)
 
-// openings = {lead?: alias, scenes?: {[openingId]: {greeting, background, timeOfDay, music, cast:[{alias, outfitKey, emotion}]}}}
+// openings = {lead?: alias, scenes?: {[openingId]: {greeting, title?, summary?, background, timeOfDay, music, cast:[{alias, outfitKey, emotion}]}}}
+// title: the greeting's short display name, written by the card author (an opening page names the greeting by it);
+// summary: one plain sentence of what this opening is about, for a player choosing between greetings (up to 60 chars).
 export function validateCardOpenings(value, path = '$.openings') {
   shape(value, ['lead', 'scenes'], [], path)
   if (value.lead !== undefined) validateFigureRef(value.lead, path + '.lead')
@@ -16,8 +18,16 @@ export function validateCardOpenings(value, path = '$.openings') {
   for (const [id, scene] of Object.entries(value.scenes)) {
     const p = path + '.scenes.' + id
     check(OPENING_ID.test(id), p, 'Unknown greeting')
-    shape(scene, ['greeting', 'background', 'timeOfDay', 'music', 'cast', 'cg'], ['greeting', 'background', 'timeOfDay', 'music', 'cast'], p)
+    shape(scene, ['greeting', 'title', 'summary', 'background', 'timeOfDay', 'music', 'cast', 'cg'], ['greeting', 'background', 'timeOfDay', 'music', 'cast'], p)
     check(/^[0-9a-f]{16}$/.test(scene.greeting), p + '.greeting')
+    if (scene.title !== undefined) {
+      text(scene.title, p + '.title', 12)
+      check(scene.title.trim() === scene.title, p + '.title', 'Title must be a short name without surrounding spaces, e.g. 竹取之夜')
+    }
+    if (scene.summary !== undefined) {
+      text(scene.summary, p + '.summary', 60)
+      check(scene.summary.trim() === scene.summary, p + '.summary', 'Summary must be one sentence without surrounding spaces, e.g. 她第一次登入虚拟城，一落地就撞上了你')
+    }
     if (scene.background !== null) validateAssetRef(scene.background, p + '.background', 'backgrounds')
     if (scene.music !== null) validateAssetRef(scene.music, p + '.music', 'music')
     // opening CG is independent of the underlying background.

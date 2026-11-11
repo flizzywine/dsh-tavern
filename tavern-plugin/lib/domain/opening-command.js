@@ -40,7 +40,13 @@ export function applyPendingOpeningCommand(command, pending, line) {
   return merged
 }
 
+// note: a setup note for the model only (a stage opening page that keeps its greeting): sent once with the next
+// request, with no floor of its own, so the greeting stays the floor official MVU builds first.
+const injectSetup = (chat, content) => mutateScriptPrompts(chat, { kind: 'inject', once: true, prompts: [{
+  id: 'dsh-opening-system', content, role: 'system', position: 'in_chat', depth: 0
+}] })
 export function applyOpeningCommand(chat, command, variables, now) {
+  if (command?.note) injectSetup(chat, command.note)
   if (!command?.systemText) return
   let initialization = ''
   if (command.removeGreeting) {
@@ -56,9 +62,7 @@ export function applyOpeningCommand(chat, command, variables, now) {
   const text = command.systemText
   chat.messages.push({ role: 'system', openingSetup: true, text, sourceText: text, ts: now(),
     swipeId: 0, swipes: [[text, initialization].filter(Boolean).join('\n\n')], variables: [structuredClone(variables || {})] })
-  mutateScriptPrompts(chat, { kind: 'inject', once: true, prompts: [{
-    id: 'dsh-opening-system', content: text, role: 'system', position: 'in_chat', depth: 0
-  }] })
+  injectSetup(chat, text)
   if (command.removeGreeting && chat.mvu?.enabled && variables?.stat_data !== undefined && variables?.schema !== undefined) {
     chat.mvu.openingInitialization = { version: 2, status: 'complete', completedAt: now() }
   }

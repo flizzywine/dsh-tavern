@@ -23,7 +23,8 @@ export function createOpeningHandlers(deps) {
       try { return openingInitializationPayload(await openingPreparation.applyTemplateInitial(args.id, await requestPerformance.stage('templateInitialize', () => fullTemplateRuntime.forSession('opening:' + args.id).initializeVariables([]))), args.compact) } finally { fullTemplateRuntime.cancel('opening:' + args.id) }
     },
     async createOpeningPreparation(args) {
-      return await openingPreparation.create(args && args.path)
+      // brief: only the draft id (a stage opening page starts from its own read of the card, not the draft's projection)
+      return args?.brief === true ? await openingPreparation.begin(args.path) : await openingPreparation.create(args && args.path)
     },
     async getOpeningPreparation(args) {
       return args?.touchOnly === true ? openingPreparation.retain(args.id) : openingPreparation.get(args && args.id)

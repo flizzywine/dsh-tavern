@@ -275,6 +275,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			row.greeting && !props.running && props.helperView?.tavernHelper?.openingHost
 				? h(TavernOpeningNav, { sessionId: props.sessionId, opening: props.helperView.tavernHelper.openingHost,
 					lifecycleRevision: Number(props.helperView.tavernHelper.lifecycleRevision) || 0 }) : null,
+			row.greeting && typeof GalStageOpeningEntry === 'function' ? tavernStageBoundary('舞台入口', h(GalStageOpeningEntry, { sessionId: props.sessionId })) : null,
 			pluginMediaNode,
 			hasTurn ? h(replyActions.IllustrationDraft, { sessionId: mediaSessionId, turn: projectionTurn, items: pluginMedia.items }) : null,
 			hasTurn ? h(replyActions.PluginActions, { sessionId: mediaSessionId, turn: projectionTurn, settled: true, text: row.text }) : null,

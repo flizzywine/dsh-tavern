@@ -214,6 +214,19 @@ function installOpeningPreviewBridge(token, preview) {
     if (data.ok) task.resolve(data.result); else task.reject(new Error(data.error || '开场选择失败'));
   }
   addEventListener('message', receive);
+  // v2 opening setup (docs/specs/opening-setup-v2.md §6): the prep page's own form sends the values;
+  // the host resolves them and this frame starts through the same dshOpening.start as a v1 form.
+  addEventListener('message', function (event) {
+    const data = event.data;
+    if (event.source !== parent || !data || data.type !== 'dsh-tavern-opening-setup-start') return;
+    request('dsh-tavern-helper-call', { method: 'resolveOpeningSetup', args: { values: copy(data.values || {}) } }).then(function (resolved) {
+      return window.dshOpening.start(resolved);
+    }).then(function () {
+      parent.postMessage({ type: 'dsh-tavern-opening-setup-result', ok: true }, '*');
+    }, function (error) {
+      parent.postMessage({ type: 'dsh-tavern-opening-setup-result', ok: false, error: String(error && error.message || error) }, '*');
+    });
+  });
   window.__dshTavernHelperCompatibility?.refresh();
 }
 

@@ -857,6 +857,7 @@
                 const greetingId = helper?.turnMessageIds?.[String(storyTurn)];
                 const openingNav = playView && settled && greetingId === 0 && helper?.openingHost
                     ? React.createElement(TavernOpeningNav, { sessionId: props.sessionId, opening: helper.openingHost, lifecycleRevision: Number(helper.lifecycleRevision) || 0 }) : null;
+                const stageEntry = playView && settled && greetingId === 0 ? tavernStageBoundary("舞台入口", React.createElement(GalStageOpeningEntry, { sessionId: props.sessionId })) : null;
                 const legacyGreeting = settled && !sessionTransitioning && greetingId === 0 && liveState.view?.tavernRuntimePolicy?.trustedCardMode;
                 const greetingSource = helper?.messages?.[0]?.message || "";
                 // Recover messages staged by earlier system versions, independent
@@ -883,7 +884,7 @@
 				const diceNode = typeof props.useChat === "function" ? tavernStageBoundary("骰子", React.createElement(DiceRolls, { useChat: props.useChat, nativeTurn: turn, nodeKey: props.node.key })) : null;
 				const illustrationDraft = playView && settled ? React.createElement(TavernIllustrationDraft, { sessionId: props.sessionId, turn: storyTurn, items: pluginMedia.items }) : null;
 				const gameSurface = playView && settled && storyTurn === latestProjectionTurn ? React.createElement(tavernReplyObserverFeature.GameModeSurface, { key: props.sessionId, sessionId: props.sessionId }) : null;
-				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, deletionNode, foldBack, diceNode, body, openingNav, gameSurface, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
+				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, deletionNode, foldBack, diceNode, body, openingNav, stageEntry, gameSurface, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
 			}
 			function TavernForkAssistantAction(props) {
 				const liveState = useScopedLiveTavernView(props.sessionId, String(props.messageId || ""), [["mode"], ["forkTurnsByMessageId", String(props.messageId || "")]]);
