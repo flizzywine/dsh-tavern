@@ -714,11 +714,13 @@
 				if (!canRollback || blocked) return;
 				setRolling(true);
 				try {
-					// 清除未完成回复只删最新一条 AI 正文；回退本轮才删「输入 + 正文」一整轮。
 					const result = clearIncomplete
-						? await rpc("clearLatestReply", {}, props.sessionId)
+						? await rpc("clearLatestReply", {
+							chatId: rollbackViewState.view.chatId,
+							expectedTarget: rollbackViewState.view.clearIncompleteReplyTarget ?? undefined
+						}, props.sessionId)
 						: await rpc("rollbackTurn", { expectedTurn: targetTurn }, props.sessionId);
-					if (!clearIncomplete) historyProjection.rolledBack(props.sessionId, result && result.view);
+					if (!clearIncomplete || result?.cleared) historyProjection.rolledBack(props.sessionId, result && result.view);
 					setCandidatePanel(null);
 					setRegenPanel(null);
 					setCandidateGuidePanel(null);

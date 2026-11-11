@@ -55,6 +55,16 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  const domain=createConversationState({store:pages})
  const summaryCache=new Map(),summaryLoads=new Map()
  let summaryBytes=0
+ async function completeTailSummary(summary,runtimeRef,t){
+  const row=summary.message
+  // Older page summaries lack the incomplete flag. Only the tail assistant
+  // can be a cleanup target, so read just its missing metadata from the row.
+  if(row?.role==='assistant'&&row.greeting!==true&&!Object.hasOwn(row,'incomplete')){
+   const cleanup=await t.getFields(runtimeRef,['/incomplete','/messageUid','/nativeAnchor/turn'])
+   return {...summary,message:{...row,...cleanup}}
+  }
+  return summary
+ }
  async function sessionSummaries(id,view){
   const key=JSON.stringify([id,view.snapshotCursor.snapshotId])
   const cached=summaryCache.get(key)
@@ -67,7 +77,8 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    while(cursor){
     const page=await pages.readHistoryPage(id,{cursor,limit:500})
     for(const {position,message} of [...page.messages].reverse()){
-     const summary=message.session || sessionSummary(await t.get(message.runtimeRef))
+     let summary=message.session || sessionSummary(await t.get(message.runtimeRef))
+     if(position===view.messageCount-1)summary=await completeTailSummary(summary,message.runtimeRef,t)
      messages[position]=projectSessionMessage(summary.message)
      bytes+=48+JSON.stringify(messages[position]).length*2
      if(pending===null&&summary.pending)pending=summary.pending
@@ -245,7 +256,9 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    const page=await pages.readHistoryPage(id,{cursor,limit:Math.min(500,cursor.before-start)})
    for(const {position,message} of page.messages){
     if(position<start)continue
-    messages[position-start]=projectSessionMessage((message.session||sessionSummary(await t.get(message.runtimeRef))).message)
+    let summary=message.session || sessionSummary(await t.get(message.runtimeRef))
+    if(position===view.messageCount-1)summary=await completeTailSummary(summary,message.runtimeRef,t)
+    messages[position-start]=projectSessionMessage(summary.message)
    }
    cursor=page.previousCursor
   }

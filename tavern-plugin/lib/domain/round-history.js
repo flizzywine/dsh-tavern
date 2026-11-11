@@ -812,12 +812,12 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     return anchoredToSaveRow(target, latestStoryRow(chat))
   }
 
-  async function rollbackTurn(sessionId, chatId, expectedTurn) {
+  async function rollbackTurn(sessionId, chatId, expectedTurn, { failedTailOnly = false } = {}) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
     // Identity and task flags only; rollbackChat reads the story it changes.
     const chat = str(chatId) === '' ? await (chats.stateForSession || chatForSession)(sessionId) : await (chats.readState || readChat)(chatId)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    await settleStaleRegeneration(chat)
+    if (!failedTailOnly) await settleStaleRegeneration(chat)
     if (pendingRollbacks.has(chat.id)) throw new Error('正在回退本轮，请等待完成')
     pendingRollbacks.add(chat.id)
     let restoredHandle
@@ -825,7 +825,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       if (!sessions.get(chat.sessionId)?.session && !sessions.getSession?.(chat.sessionId) && typeof sessions.resume === 'function') {
         restoredHandle = await sessions.resume(chat.sessionId)
       }
-      return await rollbackChat(chat, expectedTurn, restoredHandle?.agent)
+      return await rollbackChat(chat, expectedTurn, restoredHandle?.agent, failedTailOnly)
     } finally {
       try { await restoredHandle?.dispose?.() }
       finally { pendingRollbacks.delete(chat.id) }
@@ -956,11 +956,13 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     return await view(saved, await readChatCard(saved))
   }
 
-  async function rollbackChat(chat, requestedTurn, restoredAgent) {
+  async function rollbackChat(chat, requestedTurn, restoredAgent, failedTailOnly = false) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
-    await stopRollbackGeneration(chat)
-    const bounded = await rollbackRecent(chat, requestedTurn, restoredAgent)
-    if (bounded !== undefined) return bounded
+    if (!failedTailOnly) {
+      await stopRollbackGeneration(chat)
+      const bounded = await rollbackRecent(chat, requestedTurn, restoredAgent)
+      if (bounded !== undefined) return bounded
+    }
     chat = await readChat(chat.id)
     const originalChat = cloneChat(chat)
     const mode = chat.mode || 'story'
@@ -971,7 +973,19 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (!session) throw new Error('无法访问 DSH 会话: ' + chat.sessionId)
     const events = sessionEvents(session)
     const nodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
-    let availability = rollbackAvailability(chat, { events, nodes })
+    const availability = rollbackAvailability(chat, { events, nodes })
+    if (failedTailOnly) {
+      const started = events.findLastIndex(event => event?.type === 'turn/start')
+      const ended = events.findLastIndex(event => event?.type === 'turn/end')
+      if (agent?.phase?.kind === 'running' || started > ended || chat.regenInProgress ||
+        ['pending', 'running', 'waiting-runtime'].includes(chat.settleStatus)) {
+        throw new Error('请等待当前生成或后台处理完成后再清除未完成回复')
+      }
+      const target = availability.clearIncompleteReplyTarget
+      if (target?.kind !== 'failed-tail' || target.turn !== requestedTurn) {
+        throw new Error('清理目标已经变化，请刷新后重试')
+      }
+    }
     // Player input is persisted before Session acceptance. Withdrawing that tail must
     // remove its story row as well as any native failure, never roll back the previous
     // completed round merely because it is the latest assistant/user pair.

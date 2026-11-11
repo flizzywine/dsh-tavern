@@ -116,6 +116,26 @@ test('cold selected reads skip historical variables and return the same session 
  assert.deepEqual((await fresh.read('a')).messages,chat.messages,'full read still returns complete historical values')
 })
 
+test('旧原生摘要从末尾正文补读截断标记与身份',async t=>{
+ const {root,persistence,pages}=await fixture(t)
+ const saved=await persistence.write({id:'legacy-summary',sessionId:'s',mode:'story',messages:[
+  {role:'user',text:'input'}, {...row(1),turn:2,incomplete:true,nativeAnchor:{turn:3,input:1,reply:2}}
+ ]})
+ const view=await pages.readHead(saved.id)
+ const page=await pages.readHistoryPage(saved.id,{cursor:view.snapshotCursor,limit:1})
+ const {position,message}=page.messages[0]
+ for(const key of ['incomplete','messageUid','nativeAnchor'])delete message.session.message[key]
+ await pages.commit(saved.id,{expectedRevision:view.revision,edits:[{position,message}],append:[]})
+ const fresh=createChatJournalStore({dataRoot:root})
+ const state=await fresh.readSessionState(saved.id,{scoped:true})
+ const tail=state.messages.at(-1)
+ assert.equal(tail.incomplete,true)
+ assert.equal(tail.messageUid,saved.messages.at(-1).messageUid)
+ assert.deepEqual(tail.nativeAnchor,{turn:3})
+ const recent=await fresh.readRecentSummaries(saved.id,1)
+ assert.deepEqual(recent.messages,[tail])
+})
+
 test('全量故事摘要复用会话缓存并透传固定版本',async t=>{
  const {store,persistence,io}=await fixture(t)
  const messages=Array.from({length:130},(_,index)=>({role:index%2?'assistant':'user',turn:index%2?(index+1)/2:undefined,text:'text-'+index}))

@@ -4,6 +4,7 @@ import { buildRunTree } from '../domain/background-run-tree.js'
 import { listMembers } from '../domain/background-members.js'
 import { setAllFailedErrorVisibility, setFailedErrorVisibility } from '../domain/failed-error-visibility.js'
 import { sessionEvents } from '../domain/session-events.js'
+import { rollbackAvailability } from '../domain/rollback-surface.js'
 import { applyPolishEdits, composePolishEdits } from '../domain/polish-review.js'
 import { randomUUID } from 'node:crypto'
 
@@ -296,26 +297,32 @@ export function createPlayHandlers(deps) {
     async storyAlignment(args) {
       return { alignment: await reconcileStory(args && args.sessionId) }
     },
-    // 清除未完成的回复：只删存档里最后一条 AI 正文，玩家输入与之前的轮次原样保留。
-    // 走消息删除的既有事务（Chat 行 + 原生表面一起清），不做失败轮推断、不回退轮次。
     async clearLatestReply(args) {
       const sessionId = str(args?.sessionId)
       if (!sessionId) throw new Error('缺少会话')
+      if (agentRegistry.get(sessionId)?.phase?.kind === 'running' || (await sessionActivity(sessionId))?.busy) {
+        throw new Error('请等待当前生成或后台处理完成后再清除未完成回复')
+      }
       await reconcileStory(sessionId)
       const chat = await chatForSession(sessionId)
       if (!chat) throw new Error('请先打开游玩会话')
-      const messages = Array.isArray(chat.messages) ? chat.messages : []
-      const index = messages.findLastIndex(message => message !== null && typeof message === 'object' && message.role === 'assistant' && message.greeting !== true)
-      if (index < 0) {
-        // 首轮就失败：没有正文可删，只清掉这一轮残留的失败标记与未回复输入。
-        const view = await rollbackTurn(sessionId, args?.chatId, null)
-        notifyPluginTimeline(sessionId, 'rollback', { turn: null })
+      if (args?.chatId && args.chatId !== chat.id) throw new Error('会话已切换，请刷新后重试')
+      const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
+      const { clearIncompleteReplyTarget: target } = rollbackAvailability(chat, { events: sessionEvents(session), nodes: session?.surface?.nodes })
+      const expected = args?.expectedTarget
+      if (expected !== undefined && (!target || target.kind !== expected?.kind || target.turn !== expected?.turn ||
+        target.messageUid !== expected?.messageUid)) {
+        throw new Error('清理目标已经变化，请刷新后重试')
+      }
+      if (!target) throw new Error('当前没有可清除的未完成回复')
+      if (target.kind === 'failed-tail') {
+        const view = await rollbackTurn(sessionId, chat.id, target.turn, { failedTailOnly: true })
+        notifyPluginTimeline(sessionId, 'rollback', { turn: target.turn })
         return { view, deletedCount: 0, cleared: true }
       }
-      if (messages.slice(index + 1).some(message => message !== null && typeof message === 'object' && message.role === 'assistant')) {
-        throw new Error('要清除的正文已经变化，请刷新后重试')
-      }
-      const result = await messageDeletion.remove({ sessionId, items: [{ role: 'assistant', messageIndex: index, revision: Number(chat._storageRevision) || 0 }] })
+      const result = await messageDeletion.remove({ sessionId, items: [
+        { role: 'assistant', messageIndex: chat.messages.length - 1, revision: Number(chat._storageRevision) || 0 }
+      ] })
       notifyPluginTimeline(sessionId, 'edit', { settled: true })
       return { view: result.view, deletedCount: result.deletedCount }
     },
