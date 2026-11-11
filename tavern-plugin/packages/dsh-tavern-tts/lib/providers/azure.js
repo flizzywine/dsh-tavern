@@ -25,7 +25,7 @@ export function createAzureAdapter({ fetch: fetchImpl = globalThis.fetch } = {})
   async function request(provider, secret, route, body, signal) {
     let response
     try { response = await fetchImpl('https://' + provider.config.region + '.tts.speech.microsoft.com/cognitiveservices/' + route, { method: body ? 'POST' : 'GET', headers: { ...(secret.key ? { 'Ocp-Apim-Subscription-Key': secret.key } : {}), 'User-Agent': 'dsh-tavern-tts', ...(body ? { 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'riff-24khz-16bit-mono-pcm' } : {}) }, ...(body ? { body } : {}), redirect: 'error', signal: AbortSignal.any([AbortSignal.timeout(45000), ...(signal ? [signal] : [])]) }) } catch { throw new Error('Azure 语音连接失败或请求超时') }
-    if (!response.ok) throw Object.assign(new Error(response.status === 401 || response.status === 403 ? 'Azure 密钥或区域无效' : response.status === 429 ? 'Azure 语音额度不足或请求过于频繁' : 'Azure 语音服务请求失败（' + response.status + '）'), {status:response.status})
+    if (!response.ok) throw Object.assign(new Error(response.status === 401 || response.status === 403 ? 'Azure API Key 或区域无效' : response.status === 429 ? 'Azure 语音额度不足或请求过于频繁' : 'Azure 语音服务请求失败（' + response.status + '）'), {status:response.status})
     return response
   }
   return {

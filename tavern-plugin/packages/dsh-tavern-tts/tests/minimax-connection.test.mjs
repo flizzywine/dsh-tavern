@@ -4,13 +4,13 @@ import { createServer } from 'node:http'
 import { createServiceSettings } from '../src/settings.js'
 import { createMinimaxAdapter } from '../src/providers/minimax.js'
 
-const invalid = '密钥无效：请确认是中国版（api.minimaxi.com）还是国际版（api.minimax.io）的密钥并填对地址'
+const invalid = 'API Key 无效：请确认是中国版（api.minimaxi.com）还是国际版（api.minimax.io）的 API Key，并填对 Base URL'
 test('MiniMax connection uses live free listing, rejects HTTP 200 errors, and decodes synthesis hex', async t => {
   let body = {base_resp:{status_code:2049,status_msg:'invalid api key'}}, paths = []
   const server = createServer((req,res) => { paths.push(req.url); res.setHeader('Content-Type','application/json'); res.end(JSON.stringify(body)) })
   await new Promise(resolve => server.listen(0,'127.0.0.1',resolve))
   t.after(() => new Promise(resolve => server.close(resolve)))
-  const provider = {id:'mm',kind:'minimax',config:{url:`http://127.0.0.1:${server.address().port}`,model:'speech-02-turbo'}}
+  const provider = {id:'mm',kind:'minimax',config:{url:`http://127.0.0.1:${server.address().port}`}}
   const services = createServiceSettings({get:()=>({enabled:true,providers:[provider],voices:[]}),replace:async()=>{},credentials:()=>({resolve:async()=>({value:'test-key'})}),tts:{}})
   t.after(()=>services.dispose())
   let result = await services.test({id:'mm'})
