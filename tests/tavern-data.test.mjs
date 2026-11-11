@@ -31,6 +31,7 @@ test('旧数据升级时备份并合并索引，冲突文件保留但不覆盖�
   await json(path.join(newerData, 'chats/chat-new.json'), { id: 'chat-new' })
   await writeFile(path.join(newerData, 'shared.txt'), '冲突数据', 'utf8')
 
+  await json(path.join(targetRoot,'sessions.json'),{})
   const first = await migrateLegacyTavernData({
     targetRoot,
     backupRoot,
@@ -54,8 +55,9 @@ test('旧数据升级时备份并合并索引，冲突文件保留但不覆盖�
     'cards/新卡.json': 'materials/新资料.md',
   })
   assert.equal(JSON.parse(await readFile(path.join(targetRoot, '.legacy-data-migration-v1.json'), 'utf8')).sources.length, 2)
-  assert.equal((await readFile(path.join(backupRoot, '123-old/data/shared.txt'), 'utf8')), '主数据')
-  assert.equal((await readFile(path.join(backupRoot, '123-newer/data/shared.txt'), 'utf8')), '冲突数据')
+  assert.equal(first.sources[0].backup,first.sources[1].backup)
+  await assert.rejects(readFile(path.join(backupRoot, '123-legacy-data/data/shared.txt')), {code:'ENOENT'})
+  assert.deepEqual(JSON.parse(await readFile(path.join(backupRoot, '123-legacy-data/data/sessions.json'),'utf8')), {})
 
   const second = await migrateLegacyTavernData({
     targetRoot,
