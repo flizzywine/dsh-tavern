@@ -25,6 +25,9 @@ test('minimax sends the upstream T2A v2 body and maps voice, model and mood', as
   const [, turbo, explicit] = calls.map(c => JSON.parse(c.options.body))
   assert.equal(turbo.model,'speech-02-turbo'); assert.equal(turbo.voice_setting.emotion,'neutral')
   assert.equal(explicit.voice_setting.emotion,'sad')
+  // A service saved before the model moved to the figure: a source without its own model speaks the saved one (read old, write new).
+  await adapter.synthesize({...provider,config:{...provider.config,model:'speech-01-hd'}},{key:'secret'},{text:'嗯',params:presetParams('minimax',{voice:'v'})})
+  assert.equal(JSON.parse(calls.at(-1).options.body).model,'speech-01-hd')
 })
 
 test('minimax failures come back as readable Chinese messages with stable codes', async () => {
@@ -43,22 +46,63 @@ test('minimax failures come back as readable Chinese messages with stable codes'
   await assert.rejects(offline.synthesize(provider,{key:'k'},{text:'x',params:{voice:'v'}}),error => error.code === 'MINIMAX_CONNECTION_FAILED' && !error.message.includes('ECONNREFUSED'))
 })
 
-test('minimax is a paid service kind with a key credential, a free connection check and a builtin voice list', async () => {
+test('minimax is a paid service kind with a key credential; 测试连接 and the figure voice list read the same account voices', async () => {
   const kind = PROVIDER_KINDS.find(k => k.kind === 'minimax')
   assert.equal(kind.paid,true); assert.ok(kind.fields.some(f => f.key === 'key' && f.secret))
   assert.equal(credentialRef('minimax','key'),'DSH_TAVERN_TTS_MINIMAX_KEY')
-  assert.deepEqual(providerConfig('minimax',{}),{url:'https://api.minimaxi.com',model:'speech-02-hd'})
+  assert.deepEqual(providerConfig('minimax',{}),{url:'https://api.minimaxi.com'},'the model belongs to the figure, not the connection')
+  assert.deepEqual(providerConfig('minimax',{model:'speech-02-hd'}),{url:'https://api.minimaxi.com'})
+  assert.deepEqual(kind.voice,['model','voice'])
   assert.throws(() => providerConfig('minimax',{url:'https://u:p@api.minimaxi.com'}))
   const calls = [], registered = []
+  // 300+ in a real account; the older Chinese voices carry no language prefix, the newer ones name it.
+  const voices = [{voice_id:'female-shaonv',voice_name:'少女'},{voice_id:'Japanese_IntellectualSenior',voice_name:'Intellectual Senior'},{voice_id:'Chinese (Mandarin)_News_Anchor',voice_name:'新闻女声'},
+    ...Array.from({length:300},(_, i) => ({voice_id:'English_voice_' + i,voice_name:'Voice ' + i}))]
   const settings = {enabled:true,providers:[provider],voices:[]}
   const services = createServiceSettings({get:() => settings,replace:async () => {},credentials:() => ({resolve:async () => ({value:'k'}),describe:async () => ({configured:true})}),
-    fetch:async (url, options) => { calls.push({url,body:JSON.parse(options.body)}); return reply({base_resp:{status_code:0},system_voice:[{voice_id:'female-shaonv',voice_name:'少女'}]}) },
-    tts:{registerProvider:(_owner, port) => { registered.push(port); return () => {} },registerVoiceSource:() => ({replace() {},dispose() {}})}})
+    fetch:async (url, options) => { calls.push({url,body:JSON.parse(options.body)}); return reply({base_resp:{status_code:0},system_voice:voices,voice_cloning:[{voice_id:'my-clone-1',description:[]}]}) },
+    tts:{registerProvider:(_owner, port) => { registered.push(port); return () => {} },registerVoiceSource:() => ({replace() {},dispose() {}}),providerVoiceSources:async () => []}})
   const result = await services.test({id:'minimax'})
   assert.equal(result.ok,true); assert.equal(result.voiceCount > 0,true)
-  assert.deepEqual(calls.map(c => [new URL(c.url).pathname,c.body]),[['/v1/get_voice',{voice_type:'system'}]])
+  assert.equal(result.voiceCount,304)
+  assert.deepEqual(calls.map(c => [new URL(c.url).pathname,c.body]),[['/v1/get_voice',{voice_type:'all'}]])
   services.sync()
   assert.equal(registered[0].kind,'minimax'); assert.equal(registered[0].capabilities.billing,'paid'); assert.equal(registered[0].capabilities.paid,true)
-  assert.equal((await services.listOnlinePresetVoices({provider:'minimax'})).voices[0].id,'female-shaonv')
+  // The picker answers at once and reads the account's list in the background (refreshing until it lands).
+  const first = await services.listOnlinePresetVoices({provider:'minimax'})
+  assert.equal(first.refreshing,true); assert.deepEqual(first.models.map(m => m.id).slice(0,1),['speech-02-hd'])
+  let listing = first
+  for (let i = 0; i < 50 && listing.refreshing; i++) { await new Promise(r => setTimeout(r,5)); listing = await services.listOnlinePresetVoices({provider:'minimax'}) }
+  assert.equal(listing.voices.length,result.voiceCount,'the figure picker lists what 测试连接 counted')
+  assert.deepEqual(listing.voices.slice(0,3).map(v => [v.id,v.label,v.languages]),[['female-shaonv','少女',['zh']],['Japanese_IntellectualSenior','Intellectual Senior',['ja']],['Chinese (Mandarin)_News_Anchor','新闻女声',['zh']]])
+  assert.deepEqual(listing.voices.at(-1),{id:'my-clone-1',label:'my-clone-1',languages:[],mine:true},'the account clones are listed too, marked as the account own and tied to no language')
+  assert.equal(presetParams('minimax',{voice:'Chinese (Mandarin)_News_Anchor'}).voice,'Chinese (Mandarin)_News_Anchor')
+  const catalog = await services.voiceServices()
+  assert.deepEqual(catalog.services.find(s => s.id === 'minimax').models.map(m => m.id),listing.models.map(m => m.id))
+  services.dispose()
+})
+
+test('a self-made voice id is checked once against the account list; a read that fails says why instead of listing nothing quietly', async () => {
+  let reply2 = () => reply({base_resp:{status_code:0},system_voice:[{voice_id:'female-shaonv',voice_name:'少女'}],voice_cloning:[{voice_id:'my-clone-1'}],voice_generation:[{voice_id:'designed-7',voice_name:'设计音色'}]})
+  const settings = {enabled:true,providers:[provider],voices:[]}
+  const services = createServiceSettings({get:() => settings,replace:async () => {},credentials:() => ({resolve:async () => ({value:'k'}),describe:async () => ({configured:true})}),
+    fetch:async () => reply2(),
+    tts:{registerProvider:() => () => {},registerVoiceSource:() => ({replace() {},dispose() {}}),providerVoiceSources:async () => []}})
+  assert.equal((await services.validateMinimaxVoice({serviceId:'minimax',voiceId:'my-clone-1'})).id,'my-clone-1')
+  assert.equal((await services.validateMinimaxVoice({voiceId:'designed-7'})).label,'设计音色')
+  await assert.rejects(services.validateMinimaxVoice({serviceId:'minimax',voiceId:'nope'}),error => error.code === 'MINIMAX_VOICE_NOT_FOUND' && /[\u3400-\u9fff]/.test(error.message))
+  // the saved voice goes to T2A as the request's voice_id
+  const bodies = [], adapter = createMinimaxAdapter({fetch:async (_url, options) => { bodies.push(JSON.parse(options.body)); return reply({data:{audio:pcm},base_resp:{status_code:0}}) }})
+  await adapter.synthesize(provider,{key:'k'},{text:'x',params:presetParams('minimax',{voice:'my-clone-1'})})
+  assert.equal(bodies[0].voice_setting.voice_id,'my-clone-1')
+  // a failed read: no key voices, the message names the cause, and the next open asks again
+  reply2 = () => reply({base_resp:{status_code:1004,status_msg:'auth failed'}})
+  const settle = async () => { let r; for (let i = 0; i < 50; i++) { r = await services.listOnlinePresetVoices({provider:'minimax'}); if (!r.refreshing) return r; await new Promise(x => setTimeout(x,5)) } return r }
+  await settle()
+  const failed = await settle()
+  assert.deepEqual(failed.voices,[]); assert.match(failed.message,/API Key 无效/); assert.doesNotMatch(failed.message,/已保留可选/)
+  reply2 = () => reply({base_resp:{status_code:0},system_voice:[{voice_id:'female-shaonv',voice_name:'少女'}]})
+  const now = Date.now; Date.now = () => now() + 4000
+  try { assert.equal((await settle()).voices.length,1) } finally { Date.now = now }
   services.dispose()
 })
