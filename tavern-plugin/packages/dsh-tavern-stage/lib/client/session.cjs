@@ -115,7 +115,7 @@ function createStageSessionOwner(options) {
         if (options.visible) store.dispatch({type: 'VISIBILITY', visible: options.visible()});
         const record = {id, store, index: options.createIndex(), active: true, stops: [], binding: null,
             stopBinding: () => {}, reconciling: false, dirty: false, sources: new Map(), epoch: 0, branch: 0,
-            widgetUi:{state:null,refs:new Map()}, widgetHistory:null, historyReads:new Map(), prefetches:new Map(), authority: null, context: null, chatId: null, held: null, lastTurns: [], lastNativeTurn: 0, lastRunning: false, promptError: null, rejectedSend: null, settingsKey: '', prefsKey: '', revision: 0};
+            widgetUi:{state:null,refs:new Map()}, widgetHistory:null, historyReads:new Map(), prefetches:new Map(), authority: null, context: null, chatId: null, held: null, lastTurns: [], lastNativeTurn: 0, lastRunning: false, dialogueAuthority: null, promptError: null, rejectedSend: null, settingsKey: '', prefsKey: '', revision: 0};
         records.set(id, record);
         const viewSource = options.views.select(id, options.viewPaths);
         function reconcile() {
@@ -132,7 +132,12 @@ function createStageSessionOwner(options) {
                     const view = viewSource.getSnapshot().view;
                     const coordination = options.coordination.getSnapshot(id).view;
                     const settings = options.settings.get(id);
-                    if (!settings) options.settings.load(id);
+                    const cardPath = view?.card?.path || coordination?.cardPath || '';
+                    const dialogueAuthority = JSON.stringify([cardPath, coordination?.runtimeGeneration || '']);
+                    const bindingChanged = record.dialogueAuthority !== null && record.dialogueAuthority !== dialogueAuthority;
+                    record.dialogueAuthority = dialogueAuthority;
+                    if (bindingChanged) options.settings.load(id, true);
+                    else if (!settings) options.settings.load(id);
                     const prefs = options.preferences.get();
                     const authority = JSON.stringify([view?.chatId || '', view?.card?.path || coordination?.cardPath || '', coordination?.runtimeGeneration || '']);
                     // historyWindow.revision is a storage/cache revision (including
@@ -282,7 +287,6 @@ function createStageSessionOwner(options) {
         record.stops.push(viewSource.subscribe(reconcile), options.coordination.subscribe(id, () => {
             // Notifications only wake an authoritative snapshot read; no signal payload is input.
             options.views.invalidate(id);
-            options.settings.load(id, true);
             reconcile();
         }), options.settings.subscribe(reconcile), options.preferences.subscribe(reconcile));
         // session-owned speculation, never dependent on mounted history DOM.
