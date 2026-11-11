@@ -24,6 +24,8 @@ import { frameUserInput } from './agent-input-frame.js'
 import { readRowsAt } from './bounded-history.js'
 import { legacyMessageUid } from './message-uid.js'
 import { isDeepStrictEqual } from 'node:util'
+import { createHash } from 'node:crypto'
+import { canonicalJson } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -161,10 +163,28 @@ function rememberRuntimeInput(chat, turn, source, text) {
   for (const oldTurn of keys.slice(40)) delete chat.runtimeInputs[String(oldTurn)]
 }
 
-// The prompt-template projection of a turn's input changes the template variables before the
-// reply exists. Keep what they were, so a turn that fails (or is left behind by one) is undone
-// instead of carrying its input into the next turn.
-function stageTemplateInput(chat, turn, source, projected) {
+function requestUserIndex(messages, requestId) {
+  return requestId ? messages.findLastIndex(row => row?.role === 'user' && str(row.source?.rpcId).trim() === requestId) : -1
+}
+
+function inputVariablesDigest(row) {
+  return createHash('sha256').update(canonicalJson(clone(row?.variables ?? null), { admitted: true })).digest('hex')
+}
+
+function copyInputVariables(target, row) {
+  if (Object.hasOwn(row, 'variables')) target.variables = clone(row.variables)
+  else delete target.variables
+}
+
+function inputVariablesChanged(stage, row, baseline) {
+  return row && (stage?.inputVariablesDigest
+    ? stage.inputVariablesDigest !== inputVariablesDigest(row)
+    : !isDeepStrictEqual(row.variables, baseline?.variables))
+}
+
+// Store what the template wrote alongside the old values so abort can undo
+// its changes without reverting later writes.
+function stageTemplateInput(chat, turn, source, projected, baselineDigest) {
   if (chat.promptTemplateInput && chat.promptTemplateInput.turn !== turn) restoreTemplateInput(chat)
   const before = chat.promptTemplateInput?.before || { variables: clone(chat.variables ?? null), initial: clone(chat.promptTemplateInitialVariables ?? null) }
   // The template input row inherits the previous floor; a blank opening has none, so it
@@ -172,18 +192,36 @@ function stageTemplateInput(chat, turn, source, projected) {
   const inherited = chat.messages?.length ? undefined : lastTavernHelperVariables([], chat.variables)
   const message = inherited === undefined ? projected.message
     : { ...projected.message, variables: (projected.message.variables || [{}]).map(value => ({ ...inherited, ...value })) }
-  chat.promptTemplateInput = { turn, source, message, before }
+  const after = { variables: clone(projected.scopes.local ?? null), initial: clone(projected.scopes.initial ?? null) }
+  chat.promptTemplateInput = { turn, source, message, before, after, inputVariablesDigest: baselineDigest }
   chat.variables = projected.scopes.local
   chat.promptTemplateInitialVariables = projected.scopes.initial
 }
 
+function undoTemplateValue(before, written, current) {
+  if (isDeepStrictEqual(current, written)) return before
+  if (isDeepStrictEqual(before, written) || !written || !current
+    || typeof written !== 'object' || typeof current !== 'object' || Array.isArray(written) || Array.isArray(current)
+    || (before !== undefined && (before === null || typeof before !== 'object' || Array.isArray(before)))) return current
+  const keys = new Set([...Object.keys(before ?? {}), ...Object.keys(written), ...Object.keys(current)])
+  const entries = []
+  for (const key of keys) {
+    const own = (value) => value && Object.hasOwn(value, key) ? value[key] : undefined
+    const value = undoTemplateValue(own(before), own(written), own(current))
+    if (value !== undefined) entries.push([key, value])
+  }
+  return before === undefined && entries.length === 0 ? undefined : Object.fromEntries(entries)
+}
+
 function restoreTemplateInput(chat) {
-  const before = chat.promptTemplateInput?.before
+  const { before, after } = chat.promptTemplateInput ?? {}
   if (before) {
-    if (before.variables === null) delete chat.variables
-    else chat.variables = before.variables
-    if (before.initial === null) delete chat.promptTemplateInitialVariables
-    else chat.promptTemplateInitialVariables = before.initial
+    for (const [scope, field] of [['variables', 'variables'], ['initial', 'promptTemplateInitialVariables']]) {
+      // Legacy stages stored only the pre-turn snapshot.
+      const value = after ? undoTemplateValue(before[scope] ?? undefined, after[scope] ?? undefined, chat[field]) : before[scope] ?? undefined
+      if (value === undefined) delete chat[field]
+      else chat[field] = value
+    }
   }
   delete chat.promptTemplateInput
 }
@@ -466,15 +504,15 @@ export function createTurnOrchestrator(options) {
       if (operation.placeholder) return savePreparation({ source: 'foreground.prepare' })
       const attachments = inputAttachments(input.userContent)
       const withUser = userText !== '' || attachments.length > 0
-      const savedUserIndex = withUser && requestId ? chat.messages.findLastIndex(row =>
-        row?.role === 'user' && str(row.source?.rpcId).trim() === requestId) : -1
+      const savedUserIndex = withUser ? requestUserIndex(chat.messages, requestId) : -1
       const savedUser = savedUserIndex >= 0 ? chat.messages[savedUserIndex] : null
       const user = Object.assign({}, savedUser, {
         role: 'user', text: runtimeUserText, sourceText: userText, ts: savedUser?.ts ?? now(), native: true,
         ...(attachments.length ? { inputAttachments: attachments } : {}),
         ...(requestId ? { source: { kind: 'user', rpcId: requestId } } : {})
       })
-      if (chat.promptTemplateInput?.turn === turn) Object.assign(user, clone(chat.promptTemplateInput.message), { templateInputSource: userText })
+      const template = chat.promptTemplateInput?.turn === turn ? chat.promptTemplateInput : null
+      if (template) Object.assign(user, clone(template.message), { templateInputSource: userText })
       user.placeholder = true
       user.native = true
       const assistant = {
@@ -525,20 +563,21 @@ export function createTurnOrchestrator(options) {
               if (index === savedUserIndex) latestUser = after
             }
           }
-          if (savedUser) {
-            const nextUser = { ...latestUser, ...user }
-            if (!isDeepStrictEqual(latestUser.variables, savedUser.variables)) {
-              if (Object.hasOwn(latestUser, 'variables')) nextUser.variables = latestUser.variables
-              else delete nextUser.variables
-              if (header.promptTemplateInput?.turn === turn) {
-                const staged = { ...header.promptTemplateInput.message }
-                if (Object.hasOwn(latestUser, 'variables')) staged.variables = latestUser.variables
-                else delete staged.variables
-                changes.push(...diffJson(header.promptTemplateInput.message, staged).map(change => ({
-                  ...change, path: ['promptTemplateInput', 'message', ...change.path]
-                })))
-              }
+          const nextUser = { ...latestUser, ...user }
+          if (inputVariablesChanged(template, latestUser, savedUser)) {
+            copyInputVariables(nextUser, latestUser)
+            if (template) {
+              const staged = { ...template.message }
+              copyInputVariables(staged, latestUser)
+              changes.push(...diffJson(template.message, staged).map(change => ({
+                ...change, path: ['promptTemplateInput', 'message', ...change.path]
+              })))
             }
+          }
+          if (template && withUser) changes.push({ op: 'set',
+            path: ['timeline', 'operations', foregroundOperation.operationId, 'placeholder', 'inputVariablesDigest'],
+            value: inputVariablesDigest(nextUser) })
+          if (savedUser) {
             changes.push(...diffJson(latestUser, nextUser).map(change => ({
               ...change, path: ['messages', savedUserIndex, ...change.path]
             })))
@@ -551,6 +590,13 @@ export function createTurnOrchestrator(options) {
       // Legacy/flat saves use the same identity rule as the scoped patch path.
       operation.placeholder = { userIndex: savedUserIndex >= 0 ? savedUserIndex : withUser ? chat.messages.length : null,
         assistantIndex: chat.messages.length + rows.length - 1 }
+      if (template && withUser) {
+        if (inputVariablesChanged(template, savedUser, savedUser)) {
+          copyInputVariables(user, savedUser)
+          copyInputVariables(template.message, savedUser)
+        }
+        operation.placeholder.inputVariablesDigest = inputVariablesDigest(user)
+      }
       if (savedUser) chat.messages[savedUserIndex] = user
       chat.messages.push(...rows)
       await store.writeChat(chat, { source: 'foreground.prepare' })
@@ -635,9 +681,10 @@ export function createTurnOrchestrator(options) {
       const promptOnly = regexScripts.filter(script => script?.promptOnly === true)
       runtimeUserText = projectBackgroundInput(runtimeUserText, regexScripts.filter(script => script?.promptOnly !== true), 1).text
       if (typeof options.projectUserTemplate === 'function' && runtimeUserText !== '') {
+        const baselineDigest = inputVariablesDigest(chat.messages[requestUserIndex(chat.messages, requestId)])
         const projected = await options.projectUserTemplate({ chat, card, turn, text: runtimeUserText, preview })
         runtimeUserText = projected.message.text
-        stageTemplateInput(chat, turn, userText, projected)
+        stageTemplateInput(chat, turn, userText, projected, baselineDigest)
       }
       const prompted = projectBackgroundInput(runtimeUserText, promptOnly, 1)
       if (prompted.changed) {
@@ -695,6 +742,9 @@ export function createTurnOrchestrator(options) {
       const current = chat && timeline.inspect({ chat })
       if (!current || current.branchId !== foregroundOperation.basedOn.branchId || current.revision !== foregroundOperation.basedOn.revision ||
           current.operations[foregroundOperation.operationId]?.status !== 'running') throw preparationConflict()
+      const stage = chat.promptTemplateInput
+      const row = chat.messages[requestUserIndex(chat.messages, requestId)]
+      if (stage?.turn === turn && inputVariablesChanged(stage, row, row)) copyInputVariables(stage.message, row)
     }
     const templateWorldBook = foregroundWorldBook || await projectWorldBookTemplates({ chat, card, turn, userText: runtimeUserText })
     const scriptWorldBook = !foregroundWorldBook && typeof options.projectScriptPromptWorldbook === 'function' ? await options.projectScriptPromptWorldbook({ chat, card, turn }) : null
@@ -879,13 +929,22 @@ export function createTurnOrchestrator(options) {
       const revision = before._storageRevision, count = selected.messageCount
       expectedTimeline ??= { branchId: before.timeline.branchId, revision: before.timeline.revision }
       let stale = false
+      async function readRows(indices) {
+        const rows = await store.readChatSlice(input.sessionId, indices, ['id', '_storageRevision'])
+        if (!rows?.denseMessages || rows.chat.id !== before.id || rows.chat._storageRevision !== revision) {
+          stale = true
+          return []
+        }
+        return rows.chat.messages
+      }
       const history = {
+        async userMessage(index) { return (await readRows([index]))[0] },
         async previousVariables() {
           for (let end = count, size = 8; end > 0; end -= size, size = Math.min(size * 8, 512)) {
             const start = Math.max(0, end - size)
-            const rows = await store.readChatSlice(input.sessionId, Array.from({ length: end - start }, (_, i) => start + i), ['_storageRevision'])
-            if (!rows?.denseMessages || rows.chat._storageRevision !== revision) { stale = true; return undefined }
-            const found = lastTavernHelperVariables(rows.chat.messages)
+            const rows = await readRows(Array.from({ length: end - start }, (_, i) => start + i))
+            if (stale) return undefined
+            const found = lastTavernHelperVariables(rows)
             if (found !== undefined) return found
           }
           return undefined
@@ -956,6 +1015,9 @@ export function createTurnOrchestrator(options) {
     }
     let assistantText = sourceText
     let previousMvuVariables
+    let operation
+    let currentUser
+    let preserveInputVariables = false
     let reply = {
       sourceText,
       projectionText: sourceText,
@@ -966,10 +1028,23 @@ export function createTurnOrchestrator(options) {
       warnings: []
     }
     if (mode === 'story' || mode === 'script') {
+      operation = Object.values(timeline.inspect({ chat }).operations).find(item =>
+        item.kind === 'body' && item.status === 'running' && Number(item.turn) === turn)
+      const placeholder = chat.timeline?.operations?.[operation?.id]?.placeholder
+      const userIndex = placeholder?.userIndex
+      const template = chat.promptTemplateInput?.turn === turn ? chat.promptTemplateInput : null
+      if (validMessageIndex(userIndex)) {
+        const row = history ? await history.userMessage(userIndex) : chat.messages[userIndex]
+        if (row?.role === 'user' && row.placeholder === true && (!requestId || row.source?.rpcId === requestId)) currentUser = row
+      }
+      preserveInputVariables = Boolean(currentUser && (placeholder.inputVariablesDigest
+        ? inputVariablesDigest(currentUser) !== placeholder.inputVariablesDigest
+        : Array.isArray(currentUser.variables)))
       if (!pluginBody && renderMacros !== null && assistantText.includes('{{')) assistantText = renderMacros(assistantText, chat)
-      previousMvuVariables = chat.promptTemplateInput?.turn === turn ? lastTavernHelperVariables([chat.promptTemplateInput.message])
-        : history ? await history.previousVariables() ?? lastTavernHelperVariables([], chat.variables)
-          : lastTavernHelperVariables(chat.messages, chat.variables)
+      if (preserveInputVariables) previousMvuVariables = lastTavernHelperVariables([currentUser])
+      else if (template) previousMvuVariables = lastTavernHelperVariables([template.message])
+      else previousMvuVariables = history ? await history.previousVariables() ?? lastTavernHelperVariables([], chat.variables)
+        : lastTavernHelperVariables(chat.messages, chat.variables)
       const extensions = typeof store.readCardExtensions === 'function'
         ? await store.readCardExtensions(cardPathOf(chat), chat)
         : null
@@ -1048,9 +1123,6 @@ export function createTurnOrchestrator(options) {
       return { saved: true, mode, changed, chatId: chat.id, cardName: savedCard.name }
     }
 
-    let operation = Object.values(timeline.inspect({ chat }).operations).find(function (item) {
-      return item.kind === 'body' && item.status === 'running' && Number(item.turn) === turn
-    })
     // Adopting a round the save missed (#196): its own operation is long gone,
     // so record it the way a fresh turn would have begun.
     if (operation === undefined && input.adopt === true) {
@@ -1091,6 +1163,8 @@ export function createTurnOrchestrator(options) {
             ...(requestId ? { source: { kind: 'user', rpcId: requestId } } : {}), ...(attachments.length ? { inputAttachments: attachments } : {}) }
           if (previousMvuVariables !== undefined) Object.assign(userMessage, { swipeId: 0, swipes: [userText], variables: [clone(previousMvuVariables)] })
           if (draft.promptTemplateInput?.turn === turn) Object.assign(userMessage, clone(draft.promptTemplateInput.message), {templateInputSource:userText})
+          if (preserveInputVariables) copyInputVariables(userMessage, currentUser)
+          if (currentUser?.messageUid) userMessage.messageUid = currentUser.messageUid
           // A wizard wrote its opening record into the floor it sent before the game
           // existed; this is that floor arriving, so the record travels with it.
           if (draft.pendingOpeningMessageVariables) {

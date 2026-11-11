@@ -33,6 +33,7 @@ async function app(t, chat, scoped, template = false) {
   const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }), now: () => clock })
   await persistence.write(structuredClone(chat), { source: 'chat.create' })
   const calls = { full: 0, update: 0, patch: 0 }
+  let duringWorldbook = null
   let beforePlan = null
   let beforePatch = null
   const store = {
@@ -58,7 +59,7 @@ async function app(t, chat, scoped, template = false) {
     planner: { plan: async () => { await beforePlan?.(); return { text: 'context' } } },
     projectReply: text => ({ sourceText: text, projectionText: text, sessionText: text, displayText: text, warnings: [] }),
     ...(template ? {
-      projectForegroundWorldbook: async () => ({ context: '' }),
+      projectForegroundWorldbook: async () => { await duringWorldbook?.(); return { context: '' } },
       projectUserTemplate: async ({ text, turn }) => ({ message: { role: 'user', text, tavernPluginData: { rendered: turn },
         variables: [{ stat_data: { hp: -turn }, schema: {} }] }, scopes: { local: { turn }, initial: {} } })
     } : {})
@@ -75,7 +76,7 @@ async function app(t, chat, scoped, template = false) {
     return turns.finalize({ sessionId: chat.sessionId, turn, userText, assistantText: '回复 ' + turn })
   }
   return { persistence, turns, calls, play, helper, stored: () => persistence.read(chat.id),
-    beforePlan: fn => { beforePlan = fn }, beforePatch: fn => { beforePatch = fn } }
+    duringWorldbook: fn => { duringWorldbook = fn }, beforePlan: fn => { beforePlan = fn }, beforePatch: fn => { beforePatch = fn } }
 }
 
 function base(messages, extra = {}) {
@@ -86,6 +87,13 @@ function base(messages, extra = {}) {
 function comparable(chat) {
   const { updatedAt: _updatedAt, ...rest } = chat
   return rest
+}
+
+async function writeHelperVariables(run, option, variables) {
+  const { _storageRevision: stateRevision, id: chatId } = (await run.persistence.readSlice('chat-1')).chat
+  const result = await run.helper.updateVariables('s', option, variables, 0, '', { chatId, stateRevision, lifecycleRevision: 0 })
+  assert.equal(result.updated, true)
+  assert.ok(result.contextDelta)
 }
 
 for (const [name, variablesAt] of [['最近楼层有变量', () => true], ['变量只在很早的楼层', turn => turn === 3], ['全无变量', () => false]]) {
@@ -126,15 +134,10 @@ for (const timing of ['beforePlan', 'beforePatch']) {
     }), true, true)
     const input = { sessionId: 's', turn: 13, requestId: 'input-13', userText: '继续' }
     await scoped.turns.appendUser(input)
-    const writeVariables = async (option, variables) => {
-      const { _storageRevision: stateRevision, id: chatId } = (await scoped.persistence.readSlice('chat-1')).chat
-      const result = await scoped.helper.updateVariables('s', option, variables, 0, '', { chatId, stateRevision, lifecycleRevision: 0 })
-      assert.ok(result.contextDelta)
-    }
     scoped[timing](async () => {
-      await writeVariables({ type: 'message', message_id: 1 }, { stat_data: { hp: 100 }, schema: {} })
-      await writeVariables({ type: 'message', message_id: 24 }, { stat_data: { hp: 200 }, schema: {} })
-      await writeVariables({ type: 'chat' }, { turn: 13, playerName: '新名字' })
+      await writeHelperVariables(scoped, { type: 'message', message_id: 1 }, { stat_data: { hp: 100 }, schema: {} })
+      await writeHelperVariables(scoped, { type: 'message', message_id: 24 }, { stat_data: { hp: 200 }, schema: {} })
+      await writeHelperVariables(scoped, { type: 'chat' }, { turn: 13, playerName: '新名字' })
     })
 
     assert.equal((await scoped.turns.prepare(input)).ready, true)
@@ -166,4 +169,36 @@ test('准备正文时改写历史正文：拒绝旧帧，即使楼层数量不�
   const saved = await scoped.stored()
   assert.equal(saved.messages[1].text, '改写过的正文')
   assert.equal(saved.messages.length, 24)
+})
+
+for (const timing of ['duringWorldbook', 'afterPrepare']) {
+  test(`本轮输入变量写入后，准备和提交保留最新值（${timing}）`, async t => {
+    const scoped = await app(t, base(history(12, () => true)), true, true)
+    const input = { sessionId: 's', turn: 13, requestId: 'input-13', userText: '继续' }
+    await scoped.turns.appendUser(input)
+    const write = () => writeHelperVariables(scoped, { type: 'message', message_id: 24 }, { stat_data: { hp: 200 }, schema: {} })
+    if (timing === 'duringWorldbook') scoped.duringWorldbook(write)
+    const prepared = await scoped.turns.prepare(input)
+    if (timing === 'afterPrepare') await write()
+    else assert.equal(prepared.frame.source.regenerationMaterials.generationState.messageVariables.stat_data.hp, 200)
+    assert.equal((await scoped.stored()).messages[24].variables[0].stat_data.hp, 200)
+
+    await scoped.turns.finalize({ ...input, assistantText: '回复' })
+    const saved = await scoped.stored()
+    assert.equal(saved.messages.length, 26)
+    assert.equal(saved.messages[24].variables[0].stat_data.hp, 200)
+    assert.equal(saved.messages[25].variables[0].stat_data.hp, 200)
+  })
+}
+
+test('失败清理只撤销模板写入，保留 Helper 后续写入的聊天变量', async t => {
+  const scoped = await app(t, base(history(12, () => true), { variables: { flag: false } }), true, true)
+  const input = { sessionId: 's', turn: 13, requestId: 'input-13', userText: '继续' }
+  await scoped.turns.prepare(input)
+  await writeHelperVariables(scoped, { type: 'chat' }, { turn: 13, flag: true })
+  await scoped.turns.discard(input)
+  const saved = await scoped.stored()
+  assert.deepEqual(saved.variables, { flag: true })
+  assert.equal(saved.promptTemplateInput, undefined)
+  assert.equal(saved.messages.length, 25)
 })
