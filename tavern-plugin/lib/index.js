@@ -57,6 +57,7 @@ import { registerPresetTools } from './tools/preset.js'
 import { registerRegexLibraryTools } from './tools/regex-library.js'
 import { registerCardEditingTools } from './tools/card-editing.js'
 import { createConversationGuides } from './domain/conversation-guides.js'
+import { withConversationReadLane } from './domain/conversation-read-lanes.js'
 import { createGuideLibrary } from './domain/guide-library.js'
 import { createRegexLibrary } from './domain/regex-library.js'
 import { createTavernRegexSettings } from './domain/regex-settings.js'
@@ -4342,7 +4343,8 @@ export async function apply(ctx) {
     const recoveredIndex = await initializeRuntimeState()
     settleRuntimeReadiness({ ok: true })
     setImmediate(function () {
-      recoverRuntimeHistory(recoveredIndex, startedAt).catch(function (error) {
+      // Recovery reads every save after a start; a player's reads go first.
+      withConversationReadLane('background', () => recoverRuntimeHistory(recoveredIndex, startedAt)).catch(function (error) {
         console.error('dsh-tavern: 后台恢复历史对话失败', error && error.message || error)
       })
     })
