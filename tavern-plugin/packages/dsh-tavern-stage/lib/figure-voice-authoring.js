@@ -24,6 +24,13 @@ export async function countServiceUsers({library, tts, serviceId}) {
   }
   return {serviceId, count}
 }
+// A voice the 配音后端 offers (Tts.listServiceVoices) as a pack voice: its portable data, converted once (the figure voice
+// picker and 自动选角 both write this). language: the figure's 配音语言, else the voice's first. → {voice, emotionVariants}
+export async function serviceVoiceSpec(tts, voiceId, language) {
+  const {voice} = await tts.exportPortableVoice({voiceId})
+  const {schemaVersion,id,enabled,modelDigest,providerId,...preset} = voice
+  return migrateVoice(preset, language || preset.languages[0])
+}
 export function createFigureVoiceAuthoring({getLibrary,getTts}) {
   const previews = new Map(), confirmations = new Map()
   let disposed = false, epoch = 0
@@ -67,10 +74,7 @@ export function createFigureVoiceAuthoring({getLibrary,getTts}) {
       if (input.voiceId === null) delete figure.voice
       else {
         if (!tts) fail('PLUGIN_UNAVAILABLE')
-        const {voice} = await tts.exportPortableVoice({voiceId:input.voiceId})
-        const {schemaVersion,id,enabled,modelDigest,providerId,...preset} = voice
-        const language = input.language || preset.languages[0], voiceId = 'v-' + randomUUID()
-        const converted = migrateVoice(preset,language)
+        const voiceId = 'v-' + randomUUID(), converted = await serviceVoiceSpec(tts, input.voiceId, input.language)
         voiceLibrary.voices[voiceId] = converted.voice
         figure.voice = {voice:voiceId,...(Object.keys(converted.emotionVariants).length ? {emotionVariants:converted.emotionVariants} : {})}
       }
