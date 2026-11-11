@@ -1,6 +1,7 @@
 import { createResourceBindings } from './resource-bindings.js'
 import { access, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { withCardCover } from './card-cover.js'
 import { randomUUID } from 'node:crypto'
 import { createDurableFilePromotion } from '../durable-file-promotion.js'
 import { createResourceMutationJournal } from './resource-mutation-journal.js'
@@ -198,6 +199,20 @@ export function createFileResourceStore(options = {}) {
     const originalName = await originalCardName(normalized)
     if (originalName === null || path.extname(originalName).toLowerCase() !== '.png') return undefined
     return await readFile(path.join(path.dirname(absolute(normalized, true)), originalName))
+  }
+
+  async function writeCardImage(relative, cover, workspace) {
+    await ensure()
+    const normalized = normalizeResourcePath(relative, 'card')
+    const originalName = await originalCardName(normalized)
+    const directory = path.dirname(absolute(normalized, true))
+    const filename = path.parse(normalized).name + '.png'
+    // Keep the workspace commit proof and its picker image in the same resource transaction.
+    await mutations.run('card-cover:' + normalized, async plan => {
+      await plan.write(path.join(directory, filename), withCardCover(cover, workspace.raw))
+      if (originalName && originalName !== filename) await plan.remove(path.join(directory, originalName))
+      await plan.write(absolute(normalized), JSON.stringify(workspace, null, 2))
+    })
   }
 
   // Gives a card a cover by making its original a card PNG: the new pixels, carrying the
@@ -812,7 +827,7 @@ export function createFileResourceStore(options = {}) {
     globalWorldBookSources, setGlobalWorldBook, absolute, copyCard, bindMaterial, bindWorldBook, bindWorldBooks,
     cardsForMaterial, cardImagePreview, ensure, ensureCardWorkspace,
     originalCardPayload: relative => originalCardPayload(normalizeResourcePath(relative, 'card')),
-    originalCardNames, hasCardImage, importCard,
+    originalCardNames, hasCardImage, writeCardImage, importCard,
     importText: (...args) => bindings.mutate(() => importText(...args)),
     importBoundScript: (...args) => bindings.mutate(edit => importBoundScript(edit, ...args)),
     importWorldBook, list, metadata,

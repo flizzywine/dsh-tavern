@@ -43,10 +43,10 @@ function referencedPaths(card) {
 
 /**
  * What an archive holds: { kind, card, packs: [{ prefix, id, contentHash, format, title, credits }],
- * plugins, info, resolve(uri) }. Pack files are not read here; only the card's own asset files are.
+ * dependencies: [{ id, title }] (bound packs the archive does not carry), plugins, info, resolve(uri) }. Pack files are not read here; only the card's own asset files are.
  */
 export async function readCardArchive(zip) {
-  let kind, card, packs = [], plugins = [], info = null, defaults = null
+  let kind, card, packs = [], dependencies = [], plugins = [], info = null, defaults = null
   if (zip.entries.has('dsh.json')) {
     kind = 'dshcard'
     const manifest = await readJson(zip, 'dsh.json', 'DSH 人物卡')
@@ -60,6 +60,10 @@ export async function readCardArchive(zip) {
       if (!validPackId(pack.id)) throw invalid('素材包 id 无效：' + pack.id)
       packs.push({ prefix, id: pack.id, contentHash: pack.contentHash || undefined, format: pack.format || '', title: pack.title || '',
         credits: (Array.isArray(pack.credits) ? pack.credits : []).filter(file => typeof file === 'string' && file.startsWith(prefix)).map(file => file.slice(prefix.length)) })
+    }
+    for (const dependency of Array.isArray(manifest.dependencies) ? manifest.dependencies : []) {
+      if (!validPackId(dependency?.id)) throw invalid('依赖的素材包 id 无效：' + dependency?.id)
+      dependencies.push({ id: dependency.id, title: String(dependency.title || '').slice(0, 120) })
     }
     plugins = (Array.isArray(manifest.plugins) ? manifest.plugins : []).map(plugin => ({ name: String(plugin?.name || ''), path: String(plugin?.path || ''), purpose: String(plugin?.purpose || '') }))
     // Preflight before the caller persists cards, packs, or import fingerprints.
@@ -109,7 +113,7 @@ export async function readCardArchive(zip) {
     const match = /^data:[^,]*;base64,(.*)$/s.exec(uri)
     return match ? Buffer.from(match[1], 'base64') : undefined
   }
-  return { kind, card, packs, plugins, info, defaults, resolve }
+  return { kind, card, packs, dependencies, plugins, info, defaults, resolve }
 }
 
 /**
