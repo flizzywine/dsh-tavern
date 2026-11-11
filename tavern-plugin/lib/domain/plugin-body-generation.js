@@ -102,7 +102,9 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
           if (provider.registration !== snapshot.registration) throw error('正文生成插件已更换，请重新生成')
           signal.throwIfAborted()
           current.timeline.operations[operationId].bodyGeneration = {
-            status: 'ready', materialsDigest: materials.digest, provider: selected.provider, receipt
+            status: 'ready', materialsDigest: materials.digest, provider: selected.provider, receipt,
+            ...(result.regexScripts !== undefined ? { regexScripts: result.regexScripts } : {}),
+            ...(result.projectionWarning ? { projectionWarning: result.projectionWarning } : {}),
           }
           return current
         }, { source: 'foreground.plugin-generation-ready' })

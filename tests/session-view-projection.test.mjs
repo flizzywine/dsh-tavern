@@ -9,7 +9,7 @@ import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persiste
 import { sessionViewMessageFields } from '../tavern-plugin/lib/domain/session-view-projection.js'
 import { planShowsRow } from '../tavern-plugin/lib/domain/transcript-row-plan.js'
 
-test('cold bounded view preserves plugin output without replaying output regexes', async t => {
+for (const projected of [false, true]) test('cold bounded view preserves plugin output; dual projection=' + projected, async t => {
   const root = await mkdtemp(join(tmpdir(), 'plugin-output-view-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const f = projectionFixture({ readCardExtensions: async () => ({ helperScripts: [], regexScripts: [{
@@ -19,7 +19,7 @@ test('cold bounded view preserves plugin output without replaying output regexes
   const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
   await persistence.write({ ...f.chat, _storageRevision: undefined, messages: [f.chat.messages[0],
     { role: 'assistant', turn: 2, sourceText: '已处理正文', projectionText: '已处理正文', text: '已处理正文',
-      bodyRegenerationProcessed: true }
+      bodyRegenerationProcessed: true, ...(projected ? { bodyPluginProjection: true, displayText: '显示正文' } : {}) }
   ] })
   // Construct a fresh storage reader, as on a reopen: no complete in-memory
   // message can supply fields omitted from the bounded read contract.
@@ -27,7 +27,7 @@ test('cold bounded view preserves plugin output without replaying output regexes
   const window = await cold.readWindow(f.chat.id, { limit: 1, requirePartial: true, messageFields: sessionViewMessageFields })
   assert.equal(window.chat.messages[0].bodyRegenerationProcessed, true)
   const view = await f.projection.project.opening(window)
-  assert.equal(view.replyProjections[0].text, '已处理正文')
+  assert.equal(view.replyProjections[0].text, projected ? '显示正文' : '已处理正文')
   // The rule is active for ordinary replies; only already processed output
   // bypasses it, including after opening the persisted bounded history page.
   const ordinary = await f.projection.project.full({ ...f.chat, id: 'ordinary',

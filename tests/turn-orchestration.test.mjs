@@ -393,3 +393,23 @@ test('插件新正文按处理后的原文保存，不重复运行输出宏或�
   assert.equal((await h.orchestrator.finalize(input)).duplicate, true)
   assert.equal(h.chat().messages.filter(row => row.role === 'assistant').length, 1)
 })
+
+test('plugin projection uses durable rules and freezes distinct prompt/display channels', async () => {
+  const h = harness('story', { autoSettle: false,
+    bodyGeneration: { mode: 'plugin-tool-call', provider: 'p:body' },
+    extensions: { regexScripts: [{ findRegex: 'X', replaceString: 'HOST', placement: [2] }] } })
+  const prepared = await h.orchestrator.prepare({ sessionId: 'session', turn: 2, userText: '继续', requestId: 'request' })
+  const ready = h.chat()
+  ready.timeline.operations[prepared.frame.operationId].bodyGeneration = { status: 'ready', receipt: { text: 'X' },
+    regexScripts: [
+      { findRegex: 'X', replaceString: 'context', placement: [2], promptOnly: true },
+      { findRegex: 'X', replaceString: 'display', placement: [2], markdownOnly: true },
+    ] }
+  h.replaceChat(ready)
+  await h.orchestrator.finalize({ sessionId: 'session', turn: 2, userText: '继续', requestId: 'request', assistantText: 'X', pluginBodyGeneration: true })
+  const row = h.chat().messages.at(-1)
+  assert.equal(row.sourceText, 'X')
+  assert.equal(row.text, 'context')
+  assert.equal(row.displayText, 'display')
+  assert.equal(row.bodyPluginProjection, true)
+})

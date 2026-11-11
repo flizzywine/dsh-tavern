@@ -94,7 +94,7 @@ function frozenProse(row) {
   // old template projection untouched. The visible edit is authoritative.
   if (row.role === 'user' && row.bodyEdit?.role === 'user') return text(row.text)
   // Opted-in plugin replies use the saved model-context layer, just like the native session.
-  if (row.bodyHostRegexApplied === true && typeof row.text === 'string') return row.text
+  if ((row.bodyHostRegexApplied === true || row.bodyPluginProjection === true) && typeof row.text === 'string') return row.text
   if (typeof row.projectionText === 'string') return row.projectionText
   const selected = Math.max(0, Number(row.swipeId) || 0)
   const source = row.swipes?.[selected] ?? row.sourceText ?? row.text

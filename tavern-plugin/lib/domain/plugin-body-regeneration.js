@@ -155,7 +155,7 @@ export function createPluginBodyRegeneration(deps) {
       await attempt.updatePrepared('config', marker => {
         marker.generation = { provider: providerId, snapshot: clone(snapshot), materialsDigest: materials.digest, status: 'running' }
       })
-      const generation = Promise.resolve().then(() => reusable ? { text: reusable.text } : generate({ materials: clone(materials), snapshot, signal }))
+      const generation = Promise.resolve().then(() => reusable ? { text: reusable.text, regexScripts: reusable.regexScripts, projectionWarning: reusable.projectionWarning } : generate({ materials: clone(materials), snapshot, signal }))
       const candidate = await (signal ? untilAborted(generation, signal) : generation)
       signal?.throwIfAborted()
       const body = typeof candidate === 'string' ? candidate : candidate?.text
@@ -163,7 +163,9 @@ export function createPluginBodyRegeneration(deps) {
       await validateProvider?.()
       await attempt.updatePrepared('candidate', marker => {
         signal?.throwIfAborted()
-        marker.candidate = { fingerprint, providerId, snapshot: clone(snapshot), text: body }
+        marker.candidate = { fingerprint, providerId, snapshot: clone(snapshot), text: body,
+          ...(candidate?.regexScripts !== undefined ? { regexScripts: clone(candidate.regexScripts) } : {}),
+          ...(candidate?.projectionWarning ? { projectionWarning: candidate.projectionWarning } : {}) }
       })
       await phase('validating')
       signal?.throwIfAborted()
@@ -181,7 +183,7 @@ export function createPluginBodyRegeneration(deps) {
         delete draft.ledgerInjection
       }
       const projected = typeof prepareRegenerationReply === 'function'
-        ? await prepareRegenerationReply({ chat: draft, card, turn: bodyTurn, text: body, hostRegex, regexChat: original }) : null
+        ? await prepareRegenerationReply({ chat: draft, card, turn: bodyTurn, text: body, hostRegex, regexChat: original, pluginRegexScripts: candidate?.regexScripts, projectionWarning: candidate?.projectionWarning }) : null
       const prose = projected ? replyProse(projected.sourceText ?? body, projected) : plainReplyProse(body)
       if (!text(prose.text).trim()) throw error('TAVERN_PLUGIN_INVALID_BODY', '插件正文处理后为空')
       const originalUser = failedMode ? { role: 'user', text: failedInput, native: true,
@@ -191,6 +193,7 @@ export function createPluginBodyRegeneration(deps) {
       const oldRow = failedMode ? {} : original.messages[index]
       const row = { role: 'assistant', ...prose, native: true, turn: bodyTurn, ts: Date.now(), swipeId: 0, bodyRegenerationProcessed: true,
         ...(hostRegex ? { bodyHostRegexApplied: true } : {}),
+        ...(candidate?.regexScripts !== undefined || candidate?.projectionWarning ? { bodyPluginProjection: true } : {}),
         swipes: [prose.projectionText], ...(oldRow.nativeAnchor ? { nativeAnchor: clone(oldRow.nativeAnchor) } : {}),
         ...(oldRow.stagePageVersion ? { stagePageVersion: oldRow.stagePageVersion } : {}) }
       if (previousVariables !== undefined) row.variables = [clone(previousVariables)]

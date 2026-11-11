@@ -32,7 +32,7 @@ export const sessionViewMessageFields = Object.freeze([
   // Sidebar origin uses frame receipts, not the external DOM/console capture.
   'displayRuntime.frames',
   'stagePageVersion', 'openingChoiceId', 'openingSelectionRevision', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu',
-  'native', 'nativeAnchor', 'placeholder', 'bodyEdit', 'bodyRegenerationProcessed', 'bodyHostRegexApplied', 'importSource', 'templateHistoryEdit', 'templateInputSource'
+  'native', 'nativeAnchor', 'placeholder', 'bodyEdit', 'bodyRegenerationProcessed', 'bodyHostRegexApplied', 'bodyPluginProjection', 'importSource', 'templateHistoryEdit', 'templateInputSource'
 ])
 
 const NO_STAGE = Object.freeze({dialogue: false, stage: false})

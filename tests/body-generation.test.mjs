@@ -148,3 +148,14 @@ for (const [code, category, message] of [
     assert.equal(f.state.messages.at(-1).projectionText, '完整开场');
   }
 });
+
+test('normal generation persists projection metadata outside the model-visible receipt', async () => {
+  const regexScripts = [{ findRegex: 'X', replaceString: 'Y', placement: [2], promptOnly: true }]
+  const f = fixture(async () => ({ text: 'X', regexScripts }))
+  const value = await f.run()
+  assert.equal(JSON.parse(value).regexScripts, undefined)
+  const generated = Object.values(f.state.timeline.operations).find(op => op.bodyGeneration)?.bodyGeneration
+  assert.deepEqual(generated.regexScripts, regexScripts)
+  assert.equal(await createPluginBodyGeneration(f.deps).tool.execute({}, f.exec), value)
+  assert.equal(f.calls, 1)
+})

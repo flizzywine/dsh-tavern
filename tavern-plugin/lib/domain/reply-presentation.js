@@ -36,9 +36,10 @@ export function projectProcessedReply(value) {
     displayParts: display.parts, warnings: display.warnings, applied: { session: [], display: [] } }
 }
 
-export function projectPluginReply(value, { hostRegex, regexScripts } = {}) {
-  if (hostRegex !== true) return projectProcessedReply(value)
-  return projectReplyLayers(value, { regexScripts, placement: 2, isEdit: false, depth: 0, resolveIdentity: false })
+export function projectPluginReply(value, { hostRegex, regexScripts, pluginRegexScripts } = {}) {
+  if (hostRegex !== true && pluginRegexScripts === undefined) return projectProcessedReply(value)
+  const scripts = [...(pluginRegexScripts || []), ...(hostRegex === true ? regexScripts || [] : [])]
+  return projectReplyLayers(value, { regexScripts: scripts, placement: 2, isEdit: false, depth: 0, resolveIdentity: false })
 }
 
 /**
@@ -180,7 +181,7 @@ export function createReplyHistoryProjector({ maxCacheBytes = 16 * 1024 * 1024, 
       // it on refresh too, rather than applying the game's preset a second time.
       // A matching template result is already final as well: fall through to the
       // zero-regex ordinaryDisplay path instead of discarding its HTML conversion.
-      const frozenHostRegex = message.bodyHostRegexApplied === true
+      const frozenHostRegex = message.bodyHostRegexApplied === true || message.bodyPluginProjection === true
       if (frozenHostRegex || message.bodyRegenerationProcessed === true && !ordinaryDisplay) {
         const displayText = frozenHostRegex ? str(message.displayText ?? projectionText) : projectionText
         const processed = projectProcessedReply(displayText)

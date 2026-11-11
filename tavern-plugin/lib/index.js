@@ -1,3 +1,4 @@
+import { tavernStContract, projectPluginBody } from './domain/st-contract-service.js'
 import {installHttpStreamPatch} from './domain/http-stream-patch.js'
 import {selectSessionModel} from './domain/session-model-selection.js'
 import {createExtensionRequests} from './domain/extension-requests.js'
@@ -278,7 +279,6 @@ import { createRoundHistory } from './domain/round-history.js'
 import { buildBodyRegenerationMaterials } from './domain/body-regeneration-materials.js'
 import { createResourceWorkspaceProjection } from './domain/resource-workspace-projection.js'
 import { projectAgentContent, projectAgentMessageText, projectRuntimeReply } from './domain/runtime-content-projection.js'
-import { projectPluginReply } from './domain/reply-presentation.js'
 import { plainReplyProse } from './domain/reply-prose.js'
 import { createScriptContinuity } from './domain/script-continuity.js'
 import { appendWritingSkillState } from './domain/skill-visibility.js'
@@ -2930,6 +2930,7 @@ export async function apply(ctx) {
     isBackground: sessionId => backgroundAgentRunner.owns(sessionId),
     regenerateWithProvider: input => regenerateWithProvider(input) })
   ctx.provide('tavern', pluginApi.service)
+  ctx.provide('tavernStContract', tavernStContract)
   cardRevisionListeners.add((cardPath, revision) => pluginApi.cardChanged(cardPath, revision))
   // Tell plugins the story line changed (informational: their turn data follows text versions
   // by itself). After an edit or an undone rollback the visible version may be new to them.
@@ -3599,8 +3600,8 @@ export async function apply(ctx) {
       if (extensions !== undefined) argumentsForPreview.cardExtensions = extensions
       return { key, arguments: argumentsForPreview }
     },
-    prepareRegenerationReply: async ({ text, hostRegex, regexChat }) =>
-      projectPluginReply(text, { hostRegex, regexScripts: hostRegex ? await replyRegexScripts(regexChat) : undefined }),
+    prepareRegenerationReply: async ({ text, hostRegex, regexChat, pluginRegexScripts, projectionWarning }) =>
+      projectPluginBody(text, { hostRegex, pluginRegexScripts, projectionWarning, regexScripts: hostRegex ? await replyRegexScripts(regexChat) : undefined }),
     notifyRegeneration: (sessionId, { turn }) => notifyPluginTimeline(sessionId, 'regenerate', { turn }),
     present: presentStory,
     trace: requestPerformance,

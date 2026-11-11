@@ -144,3 +144,15 @@ test('tavernReplyState：流式取 partial，结束后取最后一条终稿，�
   assert.equal(settled.tool, null)
   assert.equal(settled.cardSave, null)
 })
+
+test('play composer slot covers story and script, preserves card isolation and unload priority', () => {
+  const ui = load(), first = plugin(ui, 'first'), second = plugin(ui, 'second')
+  const dispose = first.registerComposerSlot({ id: 'suggestions', modes: ['play'], render: () => null })
+  second.registerComposerSlot({ id: 'legacy', modes: ['story'], render: () => null })
+  assert.equal(ui.composerSlotFor('story').owner, 'first')
+  assert.equal(ui.composerSlotFor('script').owner, 'first')
+  assert.equal(ui.composerSlotFor('card'), null)
+  dispose()
+  assert.equal(ui.composerSlotFor('story').owner, 'second')
+  assert.equal(ui.composerSlotFor('script'), null)
+})

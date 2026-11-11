@@ -63,8 +63,7 @@
 				if (input.when !== undefined && typeof input.when !== "function") throw new TypeError(kind + " 的 when 必须是函数");
 				return { id: String(input.id || input.label), label: input.label.trim(), when: input.when, run: input.run };
 			}
-			// Mode lists on the two card-workbench APIs; only "card" exists today, but a plugin
-			// may also ask for a play mode without Tavern changing.
+			// Mode lists retain internal tokens; composer slots also accept public "play".
 			function modesOf(value, label) {
 				const modes = value === undefined ? ["card"] : value;
 				if (!Array.isArray(modes) || modes.length === 0 || modes.length > 8) throw new TypeError(label + " 的 modes 需要 1–8 个模式名");
@@ -950,7 +949,7 @@
 				replySnapshot: replySnapshot,
 				presentReply: presentReply,
 				replyPresenters: function () { return replyPresenters.slice(); },
-				composerSlotFor: function (mode) { for (const slot of composerSlots) if (slot.modes.indexOf(mode) >= 0) return slot; return null; },
+				composerSlotFor: function (mode) { for (const slot of composerSlots) if (slot.modes.indexOf(mode) >= 0 || (mode === "story" || mode === "script") && slot.modes.indexOf("play") >= 0) return slot; return null; },
 				gameModeView: function (key) { return gameModeViews.get(key); },
 				composerSlots: function () { return composerSlots.slice(); }
 			};

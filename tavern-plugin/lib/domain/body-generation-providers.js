@@ -1,3 +1,4 @@
+import { copyPluginRegexScripts } from './st-contract-service.js'
 import { bodyGenerationError } from './body-generation-failure.js'
 import { randomUUID } from 'node:crypto'
 import { untilAborted } from './plugin-callback.js'
@@ -71,7 +72,11 @@ export function createBodyGenerationProviders({ allowed, timeoutMs = 600000 }) {
       }))
       const text = result?.text
       if (typeof text !== 'string' || !text.trim() || text.length > 200000) throw new Error('插件必须返回 { text }，正文非空且最多 200000 字符')
-      return { text }
+      try {
+        return result.regexScripts === undefined ? { text } : { text, regexScripts: copyPluginRegexScripts(result.regexScripts) }
+      } catch {
+        return { text, projectionWarning: '插件正则规则无效或超限' }
+      }
     },
     stop(gameId) {
       let stopped = false

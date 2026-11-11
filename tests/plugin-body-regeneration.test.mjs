@@ -1,3 +1,4 @@
+import { projectPluginBody } from '../tavern-plugin/lib/domain/st-contract-service.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Session } from './fixtures/dsh-session-host.mjs'
@@ -273,4 +274,37 @@ test('面上没有这一轮正文时补写一条，旧正文不在了也能重�
   assert.equal(saved.messages.at(-1).nativeAnchor.turn, Number(appended[0].data.turn))
   assert.equal(saved.messages.at(-1).nativeAnchor.input, undefined)
   assert.equal(saved.messages.at(-1).nativeAnchor.reply, Number(appended[0].seq))
+})
+
+test('plugin-owned projection survives regeneration, history reads and refreshed display', async () => {
+  const h = await fixture({ prepareRegenerationReply: ({ text, ...options }) => projectPluginBody(text, options) })
+  await h.run(async () => ({ text: '<think>plan</think>story', regexScripts: [
+    { findRegex: '<think>.*?</think>', replaceString: '', placement: [2], promptOnly: true },
+    { findRegex: 'plan', replaceString: 'visible plan', placement: [2], markdownOnly: true },
+  ] }))
+  const current = JSON.parse(JSON.stringify(await h.chats.read())), row = current.messages.at(-1)
+  assert.equal(row.text, 'story')
+  assert.equal(row.displayText, '<think>visible plan</think>story')
+  assert.equal(row.bodyPluginProjection, true)
+  assert.equal(visibleBodyRegenerationHistory(current, current.messages.length).at(-1).text, 'story')
+  assert.equal(projectReplyHistory(current.messages, { regexScripts: [{ findRegex: 'story', replaceString: 'wrong', placement: [2] }] }).projections[0].text, row.displayText)
+  assert.match(JSON.stringify(h.session.deriveMessages()), /story/)
+  assert.doesNotMatch(JSON.stringify(h.session.deriveMessages()), /visible plan/)
+})
+
+test('crash recovery retains plugin rules with the paid candidate', async () => {
+  let candidateState
+  const prepareRegenerationReply = ({ text, ...options }) => projectPluginBody(text, options)
+  const h = await fixture({ prepareRegenerationReply, afterWrite(meta, saved) {
+    if (meta?.source === 'foreground.plugin-regen-candidate') candidateState = copy(saved)
+  } })
+  await h.run(async () => ({ text: 'X', regexScripts: [{ findRegex: 'X', replaceString: 'display', placement: [2], markdownOnly: true }] }), { providerId: 'test:body' })
+  const fresh = await fixture({ prepareRegenerationReply })
+  await fresh.chats.write(candidateState)
+  await fresh.history.recover('chat')
+  await fresh.run(() => assert.fail('must reuse paid candidate'), { providerId: 'test:body' })
+  const row = (await fresh.chats.read()).messages.at(-1)
+  assert.equal(row.text, 'X')
+  assert.equal(row.displayText, 'display')
+  assert.equal(row.bodyPluginProjection, true)
 })

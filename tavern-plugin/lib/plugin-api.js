@@ -181,7 +181,7 @@ export function createTavernPluginApi(deps) {
   const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
-  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1,
+  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1,
     ...(deps.generationPresets ? { generationPresets: 1 } : {}) })
   const sections = new Map()
   const turnSections = new Map()
