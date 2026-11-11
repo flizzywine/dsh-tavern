@@ -14,6 +14,8 @@ import performanceContract from '../../../dsh-presentation-protocol/src/performa
 
 export const assetPackDigest = (value, options) => createHash('sha256').update(canonicalJson(value, options)).digest('hex')
 const jsonHash = assetPackDigest
+// an entry still waiting for its file (a blank entry) is never offered to the director, of any kind.
+const blankEntry = asset => asset?.pendingMedia === true
 export function stageAssetRefs(state) {
   if (!state) return []
   check(state.format === 'asset-packs-v1', '$.state.format', 'Unsupported stage format')
@@ -48,7 +50,7 @@ export function recallAssetPacks({ snapshots, boundPackIds = [], globalEnabledPa
       const ref = { packId, kind: asset.kind, assetId: asset.id }, key = assetRefKey(ref)
       check(!seen.has(key), '$.snapshots.assets', 'Duplicate asset identity'); seen.add(key)
       const status = assetStatus[key]
-      let excluded = !asset.enabled ? 'disabled' : status?.available !== true ? 'asset-unavailable' : null
+      let excluded = !asset.enabled ? 'disabled' : status?.available !== true || blankEntry(asset) ? 'asset-unavailable' : null
       if (!excluded && asset.skin && !(activeSkin?.packId === packId && activeSkin.assetId === asset.skin)) excluded = 'skin-inactive'
       if (!excluded && ['audience','timers'].includes(asset.kind) && !modAssetKinds.includes(asset.kind)) excluded = 'mod-disabled'
       const dimension = {props:'items',backgrounds:'scene',music:'music',sfx:'sfx',ambience:'sound',looks:'lighting',widgets:'widgets',skins:'skin',performances:'performance',cg:'cg'}[asset.kind]
@@ -71,7 +73,7 @@ export function recallAssetPacks({ snapshots, boundPackIds = [], globalEnabledPa
         else for (const {ref:dependency} of performanceContract.performanceReferences(document, packId)) {
           const dependencyKey = assetRefKey(dependency), resolved = assetStatus[dependencyKey]
           const item = snapshots.find(row => row.manifest.id === dependency.packId)?.manifest.assets.find(row => row.kind === dependency.kind && row.id === dependency.assetId)
-          if (!assetEntryEnabled(item) || resolved?.available !== true) { excluded = 'performance-dependency-unavailable'; break }
+          if (!assetEntryEnabled(item) || resolved?.available !== true || blankEntry(item)) { excluded = 'performance-dependency-unavailable'; break }
           if (dependency.kind === 'widgets' && (!widgetsEnabled || !snapshots.find(row => row.manifest.id === dependency.packId)?.widgets?.[dependency.assetId]?.commands.some(command => command.effect === 'state.set'))) { excluded = 'performance-widget-unavailable'; break }
         }
         if (!excluded) for (const block of Object.values(document.timeline)) for (const event of block.events) if (event.do === 'skin' && event.level !== undefined) {
