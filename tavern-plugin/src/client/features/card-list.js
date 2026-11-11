@@ -207,3 +207,60 @@
 			if (tavernHistoryOrder(order) === "recent") for (const group of grouped) group.items = sortTavernHistoryByActivity(group.items, summaries);
 			return grouped.sort((a, b) => b.activity - a.activity);
 		}
+
+		// 在人物卡分组下展示时，剥离 SillyTavern 导入产生的重复角色名前缀（如 "Storyteller - Storyteller - 2026-..."）。
+		function compactTavernHistoryTitle(rawTitle, cardName) {
+			const title = String(rawTitle || "").trim();
+			const card = String(cardName || "").trim();
+			if (!title || !card) return title;
+			let rest = title;
+			for (let step = 0; step < 3; step++) {
+				if (rest.slice(0, card.length).toLowerCase() !== card.toLowerCase()) break;
+				const tail = rest.slice(card.length);
+				const match = /^\s*(?:[-_—·:|/]+|\s+)\s*(.+)$/.exec(tail);
+				if (!match || !match[1].trim()) break;
+				rest = match[1].trim();
+			}
+			return rest || title;
+		}
+
+		function tavernPreviewLines(text, limit, role, label) {
+			const lines = String(text || "").split(/\r?\n/).map(function (line) { return line.trim(); }).filter(Boolean);
+			if (!lines.length) return null;
+			// Folded to one paragraph: the clamp in CSS counts wrapped lines, so a
+			// pre-wrapped list would make "one line here, five lines expanded" lie.
+			return { role: role, label: label, text: lines.slice(0, limit).join(" ") };
+		}
+
+		function formatTavernHistoryPreview(preview) {
+			const empty = { hasPreview: false, turnCount: 0, messageCount: 0, isOpeningOnly: false, turnBadge: "", compactLines: [], detailLines: [], tooltip: "", searchText: "" };
+			if (!preview || typeof preview !== "object") return empty;
+			const turnCount = Math.max(0, Number(preview.turnCount) || 0);
+			const messageCount = Math.max(0, Number(preview.messageCount) || 0);
+			const userText = String(preview.userText || "").trim();
+			const replyText = String(preview.replyText || "").trim();
+			const openingText = String(preview.openingText || "").trim();
+			const hasDialogue = Boolean(userText || replyText);
+			const turnBadge = turnCount > 0 ? (turnCount + " 轮") : (messageCount > 0 || openingText || userText ? "仅开场" : "空对话");
+			const compactLines = [];
+			const detailLines = [];
+			function push(brief, full) { if (brief) compactLines.push(brief); if (full) detailLines.push(full); }
+			if (hasDialogue) {
+				push(tavernPreviewLines(userText, 1, "user", "你"), tavernPreviewLines(userText, 3, "user", "你"));
+				push(tavernPreviewLines(replyText, 2, "reply", "角色"), tavernPreviewLines(replyText, 5, "reply", "角色"));
+			} else if (openingText) {
+				push(tavernPreviewLines(openingText, 2, "opening", "开场"), tavernPreviewLines(openingText, 5, "opening", "开场"));
+			}
+			return {
+				hasPreview: compactLines.length > 0,
+				turnCount,
+				messageCount,
+				isOpeningOnly: turnCount === 0 && !hasDialogue,
+				turnBadge,
+				compactLines,
+				detailLines,
+				tooltip: detailLines.map(function (line) { return line.label + "：" + line.text; }).join("\n"),
+				searchText: [userText, replyText, openingText].filter(Boolean).join("\n").toLowerCase()
+			};
+		}
+
