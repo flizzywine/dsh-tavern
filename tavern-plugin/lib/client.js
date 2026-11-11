@@ -46386,10 +46386,10 @@ const transferFeature = createTransferFeatureModule()
 			};
 		})();
 
-		/** Whether a plugin may show itself in this game: everything does, except another card's own plugins. */
+		/** Whether a plugin may show itself in this game: everything does, except a card plugin outside the cards it is bound to. */
 		function tavernPluginAllowed(owner, sessionId) {
 			const cards = tavernCardPluginScopes.get()[owner];
-			if (!Array.isArray(cards) || !cards.length) return true;
+			if (!Array.isArray(cards)) return true; // an empty list is a card plugin with no live binding: shown nowhere
 			if (!sessionId) return false;
 			const view = liveTavernView.getSnapshot(sessionId).view;
 			return Boolean(view && view.card && cards.indexOf(view.card.path) >= 0);
