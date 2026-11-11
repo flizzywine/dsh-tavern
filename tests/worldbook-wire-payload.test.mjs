@@ -45,3 +45,32 @@ test('世界书读取带上相同 revision 时只回传未变化标记', async (
   const uncached = createResourceHandlers({ worldBooks: { get: async () => ({ source, view, globalEnabled: false, revision: null }) } })
   assert.equal((await uncached.getWorldBook({ source, ifRevision: 1 })).view.entryCount, 2, '没有 revision 时照常回传整本书')
 })
+
+test('世界书开关支持 lean 返回：只回 revision，不推整本视图', async () => {
+  const source = { kind: 'standalone', path: 'worldbooks/甲.json' }
+  const view = inspectWorldBookDocument(book)
+  const handlers = createResourceHandlers({
+    worldBooks: { update: async () => ({ source, view, revision: 42, globalEnabled: true }) }
+  })
+  const lean = await handlers.updateWorldBook({ source, lean: true, update: { operations: [] } })
+  assert.deepEqual(lean, { source, revision: 42, globalEnabled: true, lean: true })
+  assert.equal(lean.view, undefined)
+  const full = await handlers.updateWorldBook({ source, update: { operations: [] } })
+  assert.equal(full.view.entryCount, 2, '不传 lean 时仍回传完整视图')
+})
+
+test('世界书读取命中 revision 时连领域读取都不发生', async () => {
+  const source = { kind: 'standalone', path: 'worldbooks/甲.json' }
+  const view = inspectWorldBookDocument(book)
+  let gets = 0
+  const handlers = createResourceHandlers({
+    worldBooks: {
+      revision: async () => 7,
+      get: async () => { gets += 1; return { source, view, globalEnabled: false, revision: 7 } }
+    }
+  })
+  assert.deepEqual(await handlers.getWorldBook({ source, ifRevision: 7 }), { unchanged: true, source, revision: 7 })
+  assert.equal(gets, 0, '命中 revision 时不该加载整本书')
+  assert.equal((await handlers.getWorldBook({ source, ifRevision: 8 })).view.entryCount, 2)
+  assert.equal(gets, 1)
+})

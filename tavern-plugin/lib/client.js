@@ -45307,6 +45307,15 @@ function wbRowLabel(entry) {
 	return String(entry && (entry.title || entry.comment) || "").trim() || "未命名条目";
 }
 
+// 本地先翻开关，等写入返回再换成服务端视图；写入失败回滚。
+function wbEntryToggled(record, ref, enabled) {
+	if (!record || !record.view || !Array.isArray(record.view.entries)) return record;
+	const entries = record.view.entries.map(entry => entry.ref === ref ? Object.assign({}, entry, { enabled: enabled }) : entry);
+	const view = Object.assign({}, record.view, { entries: entries });
+	if (typeof record.view.enabledCount === "number") view.enabledCount = entries.filter(entry => entry.enabled !== false).length;
+	return Object.assign({}, record, { view: view });
+}
+
 // 下拉分组：全局生效的书最常用，放最前；其余独立书与人物卡内置书各成一组。
 function wbCatalogGroups(catalog) {
 	const byName = (left, right) => String(left.name || "").localeCompare(String(right.name || ""), "zh-Hans-CN");
@@ -45326,6 +45335,36 @@ function wbPickDefault(rows, selectedKey) {
 function createWorldBookSwitcherFeatureModule() {
 	let switcherState = { open: false, anchor: null, rect: null, sessionId: "" };
 	const switcherListeners = new Set();
+
+	// 面板每次打开都会重新挂载。目录和上次打开的那本书留在 window 上，打开即渲染，
+	// 再按 revision 后台校验：只有真的改过才重新取整本，不再每次都转一圈「正在读取」。
+	function readSwitcherCache() {
+		try {
+			const value = window.__dshTavernWorldBookSwitcher;
+			return value && typeof value === "object" ? value : null;
+		} catch (_) { return null; }
+	}
+	function writeSwitcherCache(patch) {
+		try {
+			const cache = readSwitcherCache() || {};
+			window.__dshTavernWorldBookSwitcher = Object.assign({}, cache, patch);
+		} catch (_) {}
+	}
+	function cachedBook(key) {
+		const cache = readSwitcherCache();
+		const books = cache && cache.books;
+		return books && key && books[key] ? books[key] : null;
+	}
+	// 每本缓存都带着整份条目正文，只留最近几本，避免长期运行越攒越大。
+	const SWITCHER_BOOK_CACHE_LIMIT = 6;
+	function rememberBook(cacheKey, book) {
+		if (!cacheKey || !book) return;
+		const cache = readSwitcherCache() || {};
+		const books = Object.assign({}, cache.books || {}, { [cacheKey]: book });
+		const keys = Object.keys(books);
+		for (const stale of keys.slice(0, Math.max(0, keys.length - SWITCHER_BOOK_CACHE_LIMIT))) delete books[stale];
+		writeSwitcherCache({ books: books });
+	}
 
 	function publishSwitcher(next) {
 		switcherState = Object.assign({}, switcherState, next);
@@ -45382,20 +45421,32 @@ function createWorldBookSwitcherFeatureModule() {
 		const h = React.createElement;
 		const state = props.state;
 		const sessionId = state.sessionId;
-		const [catalog, setCatalog] = React.useState(null);
-		const [book, setBook] = React.useState(null);
-		const [loading, setLoading] = React.useState(true);
+		const cache = readSwitcherCache();
+		const initialBook = cachedBook(readWbSwitcherSelected());
+		const [catalog, setCatalog] = React.useState(cache && cache.catalog ? cache.catalog : null);
+		const [book, setBook] = React.useState(initialBook);
+		const [loading, setLoading] = React.useState(!initialBook);
 		const [error, setError] = React.useState("");
 		const [query, setQuery] = React.useState("");
 		const [geometry, setGeometry] = React.useState(null);
 		const rootRef = React.useRef(null);
 
-		async function selectRow(row) {
+		async function selectRow(row, options) {
 			if (!row) return;
 			setError("");
+			const held = cachedBook(row.key);
+			// 换书时先用缓存里那本顶上，避免又空等一次读取；随后按 revision 校验。
+			if (!(options && options.quiet) && held) setBook(Object.assign({}, held, { key: row.key, source: row.source }));
 			try {
-				const record = await rpcWithTimeout("getWorldBook", { source: row.source }, sessionId);
-				setBook(Object.assign({}, record, { key: row.key, source: row.source }));
+				const ifRevision = held && held.revision !== undefined ? held.revision : null;
+				const record = await rpcWithTimeout("getWorldBook", { source: row.source, ifRevision: ifRevision }, sessionId);
+				if (record && record.unchanged === true) {
+					if (held) setBook(Object.assign({}, held, { key: row.key, source: row.source }));
+				} else {
+					const next = Object.assign({}, record, { key: row.key, source: row.source });
+					setBook(next);
+					rememberBook(row.key, next);
+				}
 				setQuery("");
 				writeWbSwitcherSelected(row.key);
 			} catch (err) {
@@ -45405,12 +45456,13 @@ function createWorldBookSwitcherFeatureModule() {
 
 		React.useEffect(function () {
 			let alive = true;
-			setLoading(true);
+			if (!initialBook) setLoading(true);
 			loadWbCatalog(sessionId).then(async function (next) {
 				if (!alive) return;
 				setCatalog(next);
+				writeSwitcherCache({ catalog: next });
 				const row = wbPickDefault(next.all, readWbSwitcherSelected());
-				if (row) await selectRow(row);
+				if (row) await selectRow(row, { quiet: true });
 				if (alive) setLoading(false);
 			}).catch(function (err) {
 				if (!alive) return;
@@ -45453,11 +45505,23 @@ function createWorldBookSwitcherFeatureModule() {
 
 		async function toggleEntry(entry, next) {
 			if (!book) return;
+			const previous = book;
+			const optimistic = wbEntryToggled(book, entry.ref, next);
+			setBook(optimistic);
+			rememberBook(optimistic.key, optimistic);
 			try {
-				const record = await rpc("updateWorldBook", { source: book.source, update: { operations: [{ op: "update", ref: entry.ref, patch: { enabled: next } }] } }, sessionId);
-				setBook(Object.assign({}, record, { key: book.key, source: book.source }));
+				// lean：服务端只回 revision，视图用本地这份，省掉每次开关的整本传输。
+				const record = await rpc("updateWorldBook", { source: previous.source, lean: true, update: { operations: [{ op: "update", ref: entry.ref, patch: { enabled: next } }] } }, sessionId);
+				const saved = Object.assign({}, optimistic, {
+					revision: record && record.revision !== undefined ? record.revision : optimistic.revision,
+					globalEnabled: record && typeof record.globalEnabled === "boolean" ? record.globalEnabled : optimistic.globalEnabled
+				});
+				setBook(saved);
+				rememberBook(saved.key, saved);
 				notifyTavernDataChanged(["worldbooks"], "worldbook-switcher");
 			} catch (err) {
+				setBook(previous);
+				rememberBook(previous.key, previous);
 				setError(String(err && err.message || err));
 			}
 		}
