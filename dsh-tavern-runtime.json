@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "4c82fdb8b180a826f5e1164d697cea348e81cefb",
-  "releaseSequence": 1513,
+  "revision": "b0b926a94db9fe9f433846ea48be1700a9ae8eb3",
+  "releaseSequence": 1514,
   "version": "3.3.0",
   "files": [
     {
@@ -1503,6 +1503,11 @@
       "path": "tavern-plugin/lib/domain/chat-answer-step.js",
       "sha256": "5b22c94b892930feadfc4d2a72a211f0d1790d1b4833321bae93d322a4b9f194",
       "size": 2655
+    },
+    {
+      "path": "tavern-plugin/lib/domain/chat-field-transaction.js",
+      "sha256": "a2082e382a157f3bc583cb878e60dbd88446718a342cebe2e910a3fc88230de0",
+      "size": 1946
     },
     {
       "path": "tavern-plugin/lib/domain/chat-history-import-service.js",
@@ -3446,8 +3451,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-helper-context.js",
-      "sha256": "0ac2b1d69988322a33d51491da534dcfae1f26b1326b1abc1f3e95b7bd11542d",
-      "size": 17818
+      "sha256": "18f832dcf91b005bf70fdd1b14cdeaeea090f4f98a4c075094c39f58f0aa7f5b",
+      "size": 17825
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-helper-regex-api.js",
@@ -3511,8 +3516,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-script-host-adapter.js",
-      "sha256": "dfcc75b63b4943861868977e8f98d227d4b66df035fa98ea2409818f8c8e7bf1",
-      "size": 49770
+      "sha256": "bfffd830d7526cca81140b67732f49ba804d9f43d03e8dedbd30bb1098eb2e9e",
+      "size": 50442
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-script-prompts.js",
@@ -3666,8 +3671,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "d6e34f1ac22c206668298d58d83c41ebb6a2df1d7f88a87b9d0523d33f00c122",
-      "size": 73195
+      "sha256": "a1f2a4b940e5fa62d57e688486af7bcc76b512369c95e4fcaf592cf7cda455d3",
+      "size": 79241
     },
     {
       "path": "tavern-plugin/lib/domain/uncommitted-rounds.js",
@@ -8621,9 +8626,9 @@
     }
   ],
   "archive": {
-    "commit": "0b12aad2a56910c913ce765e65d8791af9e7c347",
+    "commit": "e3bcdd7b2bd9af35cbd19b4862b0db901ee470e5",
     "path": "runtime.zip",
-    "sha256": "35f7b788b1fa715552e5577acfeb4b62ecfb3e4cb8b0816b33b25689ef2dd70b",
-    "size": 15305586
+    "sha256": "539b5280033f19d42eb8fd0f07aede12edd4e0cb10d8cd763d92f5e6dc38edba",
+    "size": 15308357
   }
 }
