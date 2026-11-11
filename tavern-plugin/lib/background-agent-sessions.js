@@ -323,6 +323,8 @@ export function createBackgroundAgentSessions(options, task) {
       selection: { ...input.selection },
       maxTokens,
       task: str(input.task) || 'background',
+      // Dev diagnostics: the streaming director window this request stages (request log).
+      ...(input.window ? { window: { first: input.window.first, through: input.window.through } } : {}),
       turn: Math.max(0, Number(input.turn) || 0)
     })
     input.runRecord?.bind(traceSessionId)

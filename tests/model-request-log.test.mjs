@@ -52,6 +52,28 @@ test('并发请求的完成结果互不串写，缺少状态文件仍可查看�
   assert.equal((await log.evidence('chat')).requests[0].response.text, '恢复结果')
 })
 
+test('结果记录用量（含缓存写入的 TTL 分段）、计时和中断状态', async () => {
+  const fixture = storageFixture()
+  let sequence = 0
+  const log = createModelRequestLog({ ...fixture.adapters, id: () => String(++sequence) })
+  const context = { scope: 'background', task: 'stage-director', turn: 2, window: { first: 3, through: 7, extra: true } }
+  const done = await log.record({ chat: { id: 'chat' }, context, coordinates: { frame: { name: 'f' } }, options: { sessionId: 's' } })
+  const cut = await log.record({ chat: { id: 'chat' }, context: { task: 'compaction' }, options: { sessionId: 's' } })
+  const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 100, cacheWriteTokens: 30, cacheWrite1hTokens: 20, cacheWrite5mTokens: 10, costUsd: 0.1 }
+  await log.complete({ chatId: 'chat', id: done.id, text: '好', finish: { kind: 'stop' }, usage, timing: { firstTokenMs: 12 } })
+  await log.complete({ chatId: 'chat', id: cut.id, text: '半' })
+  const [first, second] = (await log.evidence('chat')).requests
+  assert.equal(first.status, 'completed')
+  assert.deepEqual(first.usage, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 100, cacheWriteTokens: 30, cacheWrite1hTokens: 20, cacheWrite5mTokens: 10 })
+  assert.deepEqual(first.timing, { firstTokenMs: 12 })
+  assert.deepEqual(first.window, { first: 3, through: 7 })
+  assert.equal(first.task, 'stage-director')
+  assert.deepEqual((await log.list('chat'))[0].window, { first: 3, through: 7 })
+  assert.equal(second.task, 'compaction')
+  assert.equal(second.status, 'interrupted')
+  assert.match(second.response.error, /中断/)
+})
+
 test('请求凭据脱敏不修改原请求或提示词内容', async () => {
   let stored
   const log = createModelRequestLog({ readJson: async () => undefined, writeJson: async (path, value) => { if (value.request) stored = value }, updateJson: async (_path, fn) => fn(undefined) })
