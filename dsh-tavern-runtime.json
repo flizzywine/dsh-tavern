@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "3fe579ff5e8d3f7a2e936c09078877385a172f76",
-  "releaseSequence": 1511,
+  "revision": "a9e6a45964b9bca49c0662352a17b4b82bb97666",
+  "releaseSequence": 1512,
   "version": "3.3.0",
   "files": [
     {
@@ -1636,8 +1636,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-page-store.js",
-      "sha256": "36c2d4078da4551f297efbce868f47948f626924aa644fed6b455760e4c0ec9b",
-      "size": 43207
+      "sha256": "0a1b834685eb7e4b3d82f82dd3b584eb13149eb36803920bf7425b88b2274da1",
+      "size": 43891
+    },
+    {
+      "path": "tavern-plugin/lib/domain/conversation-read-lanes.js",
+      "sha256": "0cf45f37c21c018f59a6d0bc6f5507afac7a050dcbb82a571989b7eee9e14999",
+      "size": 2627
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-retention.js",
@@ -2056,8 +2061,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/incremental-json-state.js",
-      "sha256": "b0c49f30d2b7c6e5efbd06afa0bcdb4b867db242001f8714d9f6ef318bc44333",
-      "size": 18898
+      "sha256": "d8e5c2176f483c0c2095dba54e2796cf6c1b98e4616c23464d77d8f0caeec30d",
+      "size": 19787
     },
     {
       "path": "tavern-plugin/lib/domain/incremental-reply-view.js",
@@ -3991,8 +3996,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "de3872a7778018f100f9493f87354bd423e8a58e6a262996fd43da58d518772f",
-      "size": 277516
+      "sha256": "843fddd962944358fc565309b96bb76db16adf9d00973622faeb93ed324d8549",
+      "size": 277718
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -8616,9 +8621,9 @@
     }
   ],
   "archive": {
-    "commit": "7bcf4f45ea1ddcb07c5a8add7fe1f7272e0bdf9c",
+    "commit": "3f8d0c9e4de7148a9838e77dac69852da59a2773",
     "path": "runtime.zip",
-    "sha256": "43b5a005369cc632fcd1d32907f890294d02bab1320a5140ad898e9e5754752b",
-    "size": 15302915
+    "sha256": "1a9549d2fcbe8d52269890711cf9c781fa6bd027ebb84bba599d861e06089a97",
+    "size": 15304707
   }
 }
