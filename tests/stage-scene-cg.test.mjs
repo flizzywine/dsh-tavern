@@ -2,7 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createSceneCg} from '../tavern-plugin/packages/dsh-tavern-stage/lib/scene-cg.js'
 import {validateAsset} from '../tavern-plugin/packages/dsh-asset-library/lib/asset-packs/manifest.js'
-import {lintTriggers} from '../tavern-plugin/packages/dsh-asset-library/lib/asset-packs/trigger-lint.js'
 
 // 场景生图: a finished plugin picture becomes a CG entry of the card's own pack (made and bound when missing) and a 回想 unlock;
 // 删除此 CG takes the entry, the unlock and the turn's picture away.
@@ -65,11 +64,8 @@ test('a finished picture creates and binds the card-named pack once, adds a 绿�
   assert.deepEqual(pack.manifest.blobs[media], {ext:'png', mime:'image/png', size:PNG.length})
   assert.deepEqual(f.calls.find(row => row[0] === 'patchPack')[2], ['media/' + media + '.png'])
   assert.deepEqual(f.unlocked, [['card-1', {packId:first.packId, kind:'cg', assetId:asset.id}]])
-  // the library's own write checks accept it: a valid CG, and no trigger words until the player gives it some
+  // the library's own write checks accept it: a valid CG, with no trigger words until the player gives it some
   assert.doesNotThrow(() => validateAsset(asset))
-  assert.equal(lintTriggers({manifest:pack.manifest}).violations, 0)
-  const authored = {...asset, id:'authored', extensions:undefined}
-  assert.equal(lintTriggers({manifest:{assets:[authored]}}).violations, 1)
 })
 
 test('删除此 CG removes the entry, its file, the unlock and the turn picture; other entries are refused', async () => {

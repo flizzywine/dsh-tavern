@@ -164,8 +164,7 @@ test('figure CRUD is CAS protected, voice-only works, and retired outfit/asset I
   const assets = current.manifest.assets.filter(a => a.id !== 'bell')
   current = snap(await service.patchPack({packId:PACK_ID,expectedRevision:current.revision,patch:{assets}}))
   const old = await syntheticPack()
-  // Bypass keyword authoring lint so this rejected write reaches the retired-identity boundary.
-  await assert.rejects(service.patchPack({packId:PACK_ID,expectedRevision:current.revision,patch:{assets:old.manifest.assets},force:true}),rejected('DUPLICATE_ID'))
+  await assert.rejects(service.patchPack({packId:PACK_ID,expectedRevision:current.revision,patch:{assets:old.manifest.assets}}),rejected('DUPLICATE_ID'))
   assert.deepEqual(await service.getPackSnapshot({packId:PACK_ID}),current)
 })
 

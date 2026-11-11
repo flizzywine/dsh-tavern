@@ -4683,8 +4683,8 @@ window.__ModuleLoader__.load({
 		// The raw text goes to the console (and the 调试视图's 最新错误) only.
 		const PLAYER_ERRORS={REVISION_CONFLICT:'内容已被修改，请重新载入',
 		  LIMIT_EXCEEDED:'素材数据超过大小或数量限制，未能保存；请减少本次提交的内容后重试',
-		  TRIGGER_LINT:'触发词不符合要求：蓝灯、绿灯至少 3 个、最多 6 个正文里会出现的简短词语，去掉重复或过于笼统的词后再保存',
 		  MISSING_DEPENDENCY:'素材引用不完整，请补齐所引用的图片、差分或资源后重试；无需安装额外程序',
+		  INVALID_ASSET_PACK:'改完的素材没通过保存前的检查，这次修改没有生效，素材包保持原样',
 		  PACK_UNAVAILABLE:'这张卡用到的一个素材包找不到了，请在 舞台设置 › 素材包 里移除或重新安装它',
 		  AbortError:'保存超时，结果尚未确认；请重新载入后检查',TimeoutError:'保存超时，结果尚未确认；请重新载入后检查'};
 		// Names a player reads as words, not code: product names and short capitals (MP3、FLAC、CG、BGM — not HTTP or a CODE_NAME).
@@ -5542,7 +5542,7 @@ window.__ModuleLoader__.load({
 		  }
 		  const fileStem=name=>[...String(name||'').replace(/\.[^.]+$/,'').trim()].slice(0,120).join('')||'未命名';
 		  let entrySerial=0;
-		  // An added file starts 关闭 with no words: 蓝灯 / 绿灯 need 3–6 of them, which the player writes in the opened entry.
+		  // An added file starts 关闭 with no words; the player adds words (optional — the name alone is matched) in the opened entry.
 		  const newFileEntry=(kind,id,name,content)=>({kind,id,name,enabled:false,recall:{mode:'keyword',keywords:[]},directorNote:'',...content});
 		  const newEntryId=(pack,kind)=>{let id;do{id='u'+Date.now().toString(36)+(entrySerial++).toString(36)+Math.random().toString(36).slice(2,5);}while(pack.manifest.assets.some(a=>a.kind===kind&&a.id===id));return id;};
 		  // One figure picture (立绘 / 头像) into a pack through its serialized writer `enqueue(job(snapshot) → {snapshot})`: the pack
@@ -6438,12 +6438,12 @@ window.__ModuleLoader__.load({
 		      const ranked=bands.flatMap(band=>[...band].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'zh')).map(([word])=>word));
 		      return [...new Set(ranked)];
 		    }
-		    // 蓝灯 / 绿灯 need 3–6 words (the pack service's trigger lint); 关闭 may stay empty, so a new entry starts there.
-		    const TRIGGER_HELP='名称本身也算触发词。蓝灯、绿灯要 3–6 个正文里会出现的词，每个 2–40 字；关闭时可以留空。';
+		    // Words are optional in every lamp: the name is always matched; a new entry still starts 关闭.
+		    const TRIGGER_HELP='名称本身也算触发词。可以再加几个正文里会出现的其他叫法或场景词，每个 2–40 字；不填也行。';
 		    // `fresh`: an entry the player just added (关闭, no words) — the field stands open with the caret in it and a hint after it.
 		    const triggerFields=({value,suggest,onCommit,fresh})=>[
 		      h(InlineField,{key:'triggers',kind:'chips',label:'触发词',hideEmpty:!fresh,autoEdit:fresh||undefined,help:entryHelp('触发词',TRIGGER_HELP),value,split:splitKeywords,validate:keywordProblem,suggest,onCommit}),
-		      fresh&&h('p',{key:'triggers-hint',className:'ap-hint-line ap-trigger-hint',role:'status'},'填 3–6 个正文里会出现的词，再打开蓝灯/绿灯')];
+		      fresh&&h('p',{key:'triggers-hint',className:'ap-hint-line ap-trigger-hint',role:'status'},'可以填几个正文里会出现的词，再打开蓝灯/绿灯')];
 		    function keywordProblem(words){
 		      if(words.length>16)return '触发词最多 16 个';
 		      const bad=words.find(word=>chars(word)<2||chars(word)>40);
@@ -8436,7 +8436,7 @@ window.__ModuleLoader__.load({
 		    const setStand=(id,v)=>{setError('');return figureActions.setFallback(outfit.key,id,!!v,v&&v!==outfit.defaultEmotion?v:undefined).catch(e=>setError(errorText(e)));};
 		    const runTile=fn=>Promise.resolve().then(fn).catch(e=>{if(['ALIGNMENT_REQUIRED','TARGET_CHANGED'].includes(e?.code))return;setError(errorText(e));});
 		    const askRemoveImage=(r,k,dynamic=false)=>{const noun=k==='avatar'?'头像':'立绘',kept=k==='avatar'?'立绘、模型':'头像、模型';
-		      setConfirm({title:'删除「'+r.label+'」的'+noun+'？',body:'只删除「'+outfit.label+'」的这张'+(dynamic?'动态立绘，连同它的口型和眨眼':noun)+'；差分「'+r.label+'」和它的'+kept+'都保留，格子变回空位。',confirmLabel:'删除',danger:true,
+		      setConfirm({title:'只删「'+outfit.label+'」的这张'+noun+'？',body:'只删除「'+outfit.label+'」里「'+r.label+'」的这张'+(dynamic?'动态立绘，连同它的口型和眨眼':noun)+'；'+(list.length>1?'其他服装的「'+r.label+'」不受影响，':'')+'差分「'+r.label+'」和它的'+kept+'都保留，格子变回空位。',confirmLabel:'删除',danger:true,
 		      onConfirm:()=>removeFigureImage(figure.id,outfit.key,r.id,k)});};
 		    // A 动态立绘 replaced by one picture: 重画 deletes it first, then opens the dialog on the empty slot; 替换 deletes it only
 		    // once the new picture is framed (finishFraming), so cancelling the picker keeps it.
@@ -8448,7 +8448,7 @@ window.__ModuleLoader__.load({
 		      const goes=[['张立绘',o=>emotionMapped('sprite',o,o.sprite&&pack.sprites?.[o.sprite.manifestKey],r.id)],['张头像',o=>!!o.avatars?.[outfitImageId(o,r.id)]],['个模型表情',o=>!!(o.live2d?.emotionMap?.[r.id]||o.spine?.emotionMap?.[r.id])]]
 		        .map(([noun,has])=>[noun,list.filter(has).length]).filter(([,n])=>n).map(([noun,n])=>n+' '+noun);
 		      if(figure.voice?.emotionVariants?.[r.id])goes.push('声音设置');
-		      setConfirm({title:'删除差分「'+r.label+'」？',body:'从'+(list.length>1?'全部 '+list.length+' 套服装':'服装「'+outfit.label+'」')+'删除「'+r.label+'」'+(goes.length?'，连同 '+goes.join('、'):'')+'；其他差分不变。',confirmLabel:'删除',danger:true,
+		      setConfirm({title:(list.length>1?'从所有服装删除「'+r.label+'」？':'删除差分「'+r.label+'」？'),body:'从'+(list.length>1?'全部 '+list.length+' 套服装':'服装「'+outfit.label+'」')+'删除「'+r.label+'」'+(goes.length?'，连同 '+goes.join('、'):'')+'；其他差分不变。',confirmLabel:'删除',danger:true,
 		        onConfirm:async()=>{await figureActions.removeEmotion(r.id);if(r.id===face)setFace(rows.find(x=>x.id!==r.id)?.id||'');}});};
 		    const menuFor=outfit?(r,close,page,setPage)=>{
 		      const cell=faces[r.id]?.cell,state=cell?.state||'idle',k=kind,has=!!faces[r.id]?.mapped,target={packId,figureId:figure.id,outfitKey:outfit.key,kind:k,emotionId:r.id};
@@ -8473,8 +8473,8 @@ window.__ModuleLoader__.load({
 		      // 裁切: 头像 from this 差分's own 立绘 (empty or not); 立绘 re-frames its own still picture.
 		      const cropItem=!!importFigureImage&&!!ownStill(r.id)&&(k==='avatar'?item('crop','从立绘裁切…',go(()=>frameStill(r,'avatar'))):has&&takes(r.id)&&item('crop','重新裁切…',go(()=>frameStill(r,'sprite'))));
 		      const tail=state==='running'||state==='queued'?[]:[
-		        (k==='sprite'||k==='avatar')&&has&&!!removeFigureImage&&item('remove','删除这张'+viewNoun+'…',go(()=>askRemoveImage(r,k,dynamic)),{danger:true}),
-		        !!figureActions?.removeEmotion&&item('remove','删除差分…',go(()=>askRemoveEmotion(r)),{key:'remove-emotion',danger:true,off:rows.length<2?'至少保留一个差分':''})].filter(Boolean);
+		        (k==='sprite'||k==='avatar')&&has&&!!removeFigureImage&&item('remove','只删'+outfit.label+'的这张'+viewNoun+'…',go(()=>askRemoveImage(r,k,dynamic)),{danger:true}),
+		        !!figureActions?.removeEmotion&&item('remove',list.length>1?'从所有服装删除「'+r.label+'」…':'删除差分「'+r.label+'」…',go(()=>askRemoveEmotion(r)),{key:'remove-emotion',danger:true,off:rows.length<2?'至少保留一个差分':''})].filter(Boolean);
 		      const standItem=stand&&item('fallback','设置回退',()=>setPage('stand'),{more:true,hint:standNow?standName:'无回退'});
 		      const items=!genView?[]:state==='candidate'?(cell.sheet?[item('eye','查看八个头像',go(()=>gen.openSheet(cell.sheet)))]:[
 		          cell.error&&h('p',{key:'why',className:'ap-cell-menu-warn'},h(Glyph,{name:'warning'}),h('span',null,'采用失败：'+cell.error)),
