@@ -118,6 +118,9 @@ function GalRegenerate(props) {
     // fork-gal-confirm: the stage's confirm dialogs, drawn by a skin's art.confirm (stage-skin-adv.md).
     return h("form", { ref: root, className: "fork-gal-menu-panel fork-gal-regenerate fork-gal-confirm", role: "dialog", "aria-modal": true, "aria-label": "重新生成", "aria-busy": busy, onSubmit: submit,
         onClick: event => event.stopPropagation(), onKeyDown: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); dismiss(); } },
+        // the empty first child: dsh-pocket's phone stylesheet otherwise takes this dialog (h2 ending in the 「?」 button) for DSH's
+        // settings dialog — the stopgap of Modal in src/client/asset-pack-ui.js (bug:asset-figure-dialog-phone), deleted with it.
+        h("i", { hidden: true }),
         // no grey helper text — what each target does lives behind the title's 「?」 (and each option's title).
         h("h2", null, "重新生成", typeof HelpTip === "function" ? h(HelpTip, { label: "重新生成说明" }, targets.map(([id, label, note]) => h("span", { key: id }, label + "：" + note))) : null),
         // the target is the shared Segmented in the stage skin (was native

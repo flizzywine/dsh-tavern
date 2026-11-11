@@ -15,7 +15,7 @@
 //   the title-screen actions, each the stage's or core's existing way: newGame() the card's 游戏准备 (after the core confirm
 //   when this chat is saved, i.e. has a player message), continueGame() closes the page and reading goes on where it is
 //   (on an entry page close() is 返回主页面 instead: closing a title page is not entering),
-//   openGallery() 回想 over the page, exit() 返回主页面; sound(name) the shown skin's own move / confirm / open / close cue
+//   openGallery() 回想 and openBacklog() 履历 over the page (a jump from the 履历 enters the stage there), exit() 返回主页面; sound(name) the shown skin's own move / confirm / open / close cue
 //   (a skin without that cue stays silent). Every action's Promise settles, so a page that disables its buttons while one
 //   runs can enable them again. An element with data-dsh-sound sounds move on hover / focus and confirm on click.
 // The data is the page's ledger sections (readCardPage), the declared figures' faces as data: URLs (useFaces) and the
@@ -74,7 +74,7 @@ function cardPagePrelude(token, page, snapshot, shortcut, scrollbars, owned) {
         + 'onCloseRequest:function(fn){if(typeof fn!=="function")throw new TypeError("onCloseRequest 需要一个函数");closers.add(fn);return function(){closers.delete(fn);};},'
         + 'close:function(){return call("close");},open:function(id){return call("open",{id:String(id==null?"":id)});},openSettings:function(){return call("settings");},'
         + 'fillInput:function(text){return call("fillInput",{text:String(text==null?"":text)});},assets:function(kind){return call("assets",{kind:String(kind||"")});},'
-        + 'newGame:function(){return call("newGame");},continueGame:function(){return call("continue");},openGallery:function(){return call("gallery");},exit:function(){return call("exit");},'
+        + 'newGame:function(){return call("newGame");},continueGame:function(){return call("continue");},openGallery:function(){return call("gallery");},openBacklog:function(){return call("backlog");},exit:function(){return call("exit");},'
         + 'sound:function(name){return call("sound",{name:String(name||"")});},'
         + 'asset:function(ref){var key=JSON.stringify(ref||{});if(!assets.has(key)){var task=call("asset",ref||{}).then(function(blob){return URL.createObjectURL(blob);});task.catch(function(){assets.delete(key);});assets.set(key,task);}return assets.get(key);}});})();<\/script>';
 }
@@ -130,7 +130,7 @@ function createAssetReader(sessionId, page) {
 // (size 'full': the sheet fills the stage instead of the centred window). label / size: the page's declaration (usePages),
 // what the sheet keeps until the read returns. shown: the lifecycle's visible document has loaded in its frame, so the page
 // is on screen. onAction(kind, arg): 'open' (page id),
-// 'settings', 'fill' (after fillInput(sessionId, text)), 'continue', 'gallery', 'exit' (newGame() leaves too, then asks the core).
+// 'settings', 'fill' (after fillInput(sessionId, text)), 'continue', 'gallery', 'backlog', 'exit' (newGame() leaves too, then asks the core).
 // saved: the chat has a player message (usePages' fresh is false), so newGame() asks first.
 // closeControl 'page': the page answers close requests itself; onEscape() is its Esc / shortcut (the Overlay decides
 // whether it closes a page over this one or asks this page by requestClose()).
@@ -167,7 +167,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         if (method === 'escape') { (onEscape || onClose)(); return {ok: true}; }
         if (method === 'open') { onAction('open', String(args?.id || '')); return {ok: true}; }
         if (method === 'settings') { onAction('settings'); return {ok: true}; }
-        if (method === 'continue' || method === 'gallery' || method === 'exit') { onAction(method); return {ok: true}; }
+        if (method === 'continue' || method === 'gallery' || method === 'backlog' || method === 'exit') { onAction(method); return {ok: true}; }
         if (method === 'newGame') {
             if (typeof newGame !== 'function') throw new Error('新游戏不可用');
             if (saved === true && !(typeof confirm === 'function' && await confirm('开始新游戏？\n\n当前这局会保留在游玩记录里，随时可以回来继续。', {confirmText: '开始新游戏', cancelText: '取消'}))) return {started: false};
@@ -355,7 +355,7 @@ function usePages(sessionId) {
 // config / source: what useFaces needs to find the declared figures' faces.
 // closeControl 'page' (a full page that closes itself): once its document shows, the sheet draws no ×, and Esc, the page's
 // shortcut, the backdrop and right-click ask the page (requestClose → its onCloseRequest) instead of closing; covered
-// (CONFIG or 回想 opened over the page) keeps them closing that one first. Loading, empty and failed pages keep the ×.
+// (CONFIG, 回想 or 履历 opened over the page) keeps them closing that one first. Loading, empty and failed pages keep the ×.
 function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, closeControl, covered, saved, entry, config, source, onClose, onAction}) {
     const h = React.createElement, root = React.useRef(null), body = React.useRef(null), panel = React.useRef(null);
     const close = React.useRef(onClose), act = React.useRef(onAction), coveredNow = React.useRef(covered);
@@ -406,6 +406,9 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     return h('div', {className: 'fork-gal-status', 'data-size': state.size, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, 'data-close-control': pageCloses ? 'page' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) request(); },
         onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); request(); }},
         h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': label, 'data-phase': state.phase},
+            // the empty first child: dsh-pocket's phone stylesheet otherwise takes a page-closed sheet whose body ends in 重试 for DSH's
+            // settings dialog — the stopgap of Modal in src/client/asset-pack-ui.js (bug:asset-figure-dialog-phone), deleted with it.
+            h('i', {hidden: true}),
             pageCloses ? null : h('header', {className: 'fork-gal-status-head'},
                 state.size === 'full' ? null : h('b', {className: 'fork-gal-status-title'}, label),
                 h('button', {type: 'button', className: 'fork-gal-status-close', title: closeLabel, 'aria-label': closeLabel, onClick: () => close.current?.()},
