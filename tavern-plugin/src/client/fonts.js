@@ -134,7 +134,8 @@ function createTavernFonts(options) {
         syncStorage: function () { readOverrides(); notify(); },
         invalidateLibrary: function () { generation++; fonts = []; loaded = false; loading = null; registered.clear(); notify(); },
         dispose: function () {
-            generation++; if (faceStyle) faceStyle.remove(); faceStyle = null; registered.clear();
+            // a read in flight belongs to the old generation (its result is dropped): the next list() reads again
+            generation++; loading = null; if (faceStyle) faceStyle.remove(); faceStyle = null; registered.clear();
             provided.forEach(function (entry) { if (entry.face && doc && doc.fonts) doc.fonts.delete(entry.face); }); provided.clear(); providing.clear();
         }
     });
