@@ -1,7 +1,25 @@
+import { promptSection } from './prompt-section.js'
 import { scriptForState } from './script-layout.js'
 import { projectAgentContent, projectAgentMessageText } from './runtime-content-projection.js'
 import { createBackgroundTaskCoordinator } from './background-task-coordinator.js'
 import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './character-design-document.js'
+
+// Prompt prose source: task-specific additions.
+const TASK_PROMPT_PROSE = Object.freeze({
+  p001: "\n\nExtra user requirements:\n",
+  p002: "\n\nThe extra requirements don't change the ",
+  p003: "script direction, ",
+  p004: "-choice count or type rules.",
+  p010: "If a long-term character design truly needs creating, completing or revising, load character-design with skill in this background agent and use the character design tools per the Skill; no other agent is needed. Then submit the choices."
+})
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  // the background session is persistent, so a repeat request at the same choice point
+  // sees its earlier accepted submission; the model must not treat that as already done.
+  p001: "Generate the choices by the rules above. This is a new request: submit with candidate_submit_choices now, even if this session already submitted choices before — earlier submissions were for earlier requests and don't count for this one."
+})
+
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -316,8 +334,8 @@ export function createCandidateGenerator(options) {
     const participantRequest = taskRun.participantRequest
     const persistentSessionId = str(participantRequest.sessionId)
     const guidance = str(input.guidance).trim().slice(0, 600)
-    let request = '请按上述规则生成候选项。'
-    if (guidance !== '') request += '\n\n【用户额外要求】\n' + guidance + '\n\n额外要求不改变 ' + (scriptMode ? '剧本走向、' : '') + (scriptMode ? 1 : 5) + ' 个候选及类型约束。'
+    let request = PROMPT_PROSE.p001
+    if (guidance !== '') request += TASK_PROMPT_PROSE.p001 + guidance + TASK_PROMPT_PROSE.p002 + (scriptMode ? TASK_PROMPT_PROSE.p003 : '') + (scriptMode ? 1 : 5) + TASK_PROMPT_PROSE.p004
     // Only a session that actually read this revision may skip the newest body: a null mark
     // means the resident agent never saw it, and Number(null) must not read as revision 0.
     const syncedRevision = participantRequest.syncedRevision
@@ -328,7 +346,7 @@ export function createCandidateGenerator(options) {
     const messages = recentMessages.concat([{
       id: 'choices-' + now().toString(36),
       role: 'user',
-      content: [{ type: 'text', text: request }],
+      content: [{ type: 'text', text: promptSection('candidate_request', request) }],
       source: { kind: 'plugin:dsh-tavern' }
     }])
     const research = scriptMode ? scriptResearchAttempt(script, scriptWindow, card, chat) : null
@@ -373,7 +391,7 @@ export function createCandidateGenerator(options) {
       temperature: 0.8,
       system: [
         context.taskText,
-        ...(designEnabled ? ['若确实需要建立、补全或修订长期人物设计，在当前后台 Agent 内调用 skill 加载 character-design，并按 Skill 使用人物档案工具；无需也不得创建另一个 Agent。完成后继续提交候选项。'] : [])
+        ...(designEnabled ? [TASK_PROMPT_PROSE.p010] : [])
       ].join('\n\n'),
       backgroundContext: context.stableText,
       turnContext: context.dynamicText,

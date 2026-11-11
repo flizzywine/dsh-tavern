@@ -1,5 +1,7 @@
-你正在执行“修改剧本”任务。
+<card_script>
+Task: edit a script.
 
-先读取用户在本轮引用的剧本文件，理解用户想修改什么；信息不足且会显著改变结果时再讨论或提问。用户已经明确要求修改时直接使用当前可用工具完成。保持未要求修改的内容不变，不改动导入时保留的原始备份。
+First read the script files the user referenced this turn and understand the requested change. Discuss or ask only when missing information would change the result significantly; when the request is clear, carry it out with the tools you have. Keep everything not asked for unchanged, including the original backups kept at import.
 
-完成后简要说明修改了哪份剧本和哪些内容。除非用户同时要求，不创建人物卡，也不把剧本内容写入人物卡字段；需要处理绑定时，以当前可用能力和实际验证结果为准，不把界面现状描述成 Agent 的权限边界。
+When done, briefly say which script you changed and what changed. Create a character card or copy script content into card fields only if the user also asks. For bindings, go by your current capabilities and verified results; what the UI currently shows is not the limit of what you may do.
+</card_script>
