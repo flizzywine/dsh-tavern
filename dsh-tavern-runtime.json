@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c302e6cee6387bb0cf1d98a2ea7cc98596de2d3f",
-  "releaseSequence": 1482,
+  "revision": "f02aaf7a83e190fc245c91ec43f1ddf8c625c8ee",
+  "releaseSequence": 1484,
   "version": "3.3.0",
   "files": [
     {
@@ -1021,8 +1021,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "3f76dd6561ddd103b11b6937ea2993dbbe546643223c781b06408dc97ae63a94",
-      "size": 5986322
+      "sha256": "1eb9f2ff275f7de320f3fed515ac7b65bfd2bc09248a0759a31595231f992df0",
+      "size": 5986395
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1276,8 +1276,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-asset-bindings.js",
-      "sha256": "4342821e61943a9313228f35692de141d841ed371f046a2cb25d617c43f0175d",
-      "size": 4711
+      "sha256": "bf3c28d560ca2155748b32ec5bf5660cc4fda945102f3d9c660c866fc79508dc",
+      "size": 4858
     },
     {
       "path": "tavern-plugin/lib/domain/card-assets.js",
@@ -8576,9 +8576,9 @@
     }
   ],
   "archive": {
-    "commit": "c91f0f1342fc1f20b135b5058b1a82814c8bd0d2",
+    "commit": "aa56b2fb45af3e7790541d25119f990f23220071",
     "path": "runtime.zip",
-    "sha256": "91219d165e5c86463d28eda64c824a7a65601f75f24b224c6b53378ec98971c2",
-    "size": 15261876
+    "sha256": "202305257271626314775fa441494b4f92c9715fd377ea38d788ddb2b2c26994",
+    "size": 15261967
   }
 }
