@@ -102,7 +102,7 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
         const data = Buffer.from(reply.data.buffer, reply.data.byteOffset, reply.data.byteLength), checks = images.check(data, job.kind)
         if (job.kind === 'sprite' && !checks.hasTransparency) {
           // This channel draws no transparent picture: no more 立绘 for it.
-          await update(cast.cardId, current => jobFailed(channelOpaque(current, channel), job, now()))
+          await update(cast.cardId, current => jobFailed(channelOpaque(current, channel), job, now(), 'OPAQUE_CHANNEL'))
           return
         }
         if (attempt === 0 && checks.warnings.some(row => REDRAW.has(row.code))) continue
@@ -131,7 +131,7 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
         for (const job of jobs.slice(0, PER_CARD - running.size)) {
           const key = jobKey(job)
           running.set(key, draw(cast, job, channel)
-            .catch(error => { onError(error); return update(cast.cardId, current => jobFailed(current, job, now())) })
+            .catch(error => { onError(error); return update(cast.cardId, current => jobFailed(current, job, now(), error.code ? error.code + ': ' + error.message : error)) })
             .finally(() => { running.delete(key); void land(cardPath) }))
         }
         if (!running.size) return
