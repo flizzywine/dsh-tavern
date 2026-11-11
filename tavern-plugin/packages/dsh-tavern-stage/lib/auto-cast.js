@@ -15,7 +15,8 @@ const REDRAW = new Set(['EMPTY_IMAGE', 'EDGE_CONTACT', 'LOW_RESOLUTION', 'ASPECT
 const joinTraits = traits => [traits.face, traits.bodySFW].filter(Boolean).join('；')
 
 // One committed round's requests: every line whose speaker resolves (the shared resolver, over the card's whole cast) to a
-// figure of the automatic pack, with the figure emotion its mood names (null: none written or none matched).
+// figure of the automatic pack, with the figure emotion its mood names (null: none matched); a line with no mood shows the
+// figure's default emotion, so that is what it asks for.
 export function roundRequests(body, cast) {
   const requests = []
   for (const paragraph of body.paragraphs || []) {
@@ -24,7 +25,7 @@ export function roundRequests(body, cast) {
     const found = resolveFigureName(cast.rows, {...segment, ...(paragraph.figureId ? {figureId:paragraph.figureId, packId:paragraph.packId} : {})})
     if (found.status !== 'resolved' || found.row.ref.packId !== cast.packId) continue
     const figure = cast.figures.find(row => row.ref.figureId === found.row.ref.figureId)
-    requests.push({ref:figure.ref, emotionId:segment.mood ? matchBubbleMood(segment.mood, figure.emotions || [])?.id ?? null : null})
+    requests.push({ref:figure.ref, emotionId:segment.mood ? matchBubbleMood(segment.mood, figure.emotions || [])?.id ?? null : figure.defaultEmotion})
   }
   return requests
 }
@@ -59,12 +60,18 @@ const sourceOf = (chat, body) => {
   return {chatId:chat.id, branchId:chat.timeline.branchId, revision:chat.timeline.revision, turn, messageId:message.id || 'turn:' + turn, paragraphIds:body.paragraphs.map(row => row.paragraphId)}
 }
 
+// The key colour for a channel without transparency (as Dot's deliveries): green, magenta for a figure that wears green.
+const keyColor = (figure, pending) => /绿|green/i.test([figure.name, figure.identityAppearance, pending && joinTraits(pending)].filter(Boolean).join(' ')) ? '#FF00FF' : '#00FF00'
+const keyBackground = key => 'Background: one flat solid ' + key + ' colour filling the whole canvas, no shadow, gradient or floor; keep that colour out of the character.'
+
 // 自动选角's runtime: each committed round, the 选角助理 decides about the new speakers and they are
 // written at once (copied, or created with their voice); then the round's requests are counted and the queue's best jobs are
 // drawn on the image plugin's channel (at most PER_CARD at a time per card). A picture stays on disk until it lands; the ready
 // pictures of a card land together while no director runs. Never in the way of the story: errors stay in the record and log.
 // store: profile data; settings(cardPath) → {enabled, level} in effect; library: auto-cast-library.js; images: {prompt,
-// generate, status, check} (the plugin image entry's automatic prompt, picture and cheap checks); idle() resolves once no director runs; cast({cardPath, chat, speakers, cast}) → the assistant's decisions.
+// generate, status, check, matte?} (the plugin image entry's automatic prompt, picture and cheap checks; matte({data, key}) → a transparent PNG,
+// the local keying of a channel that cannot draw transparent pictures — not wired yet); idle() resolves once no director runs;
+// cast({cardPath, chat, speakers, cast}) → the assistant's decisions.
 export function createAutoCast({store, settings, library, images, idle, cast:castAssistant = null, now = Date.now, onError = () => {}}) {
   let active = true, chain = Promise.resolve()
   const records = new Map(), busy = new Map(), pumps = new Map(), landing = new Map(), controllers = new Set()
@@ -81,7 +88,8 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
   const castFor = (cast, record) => cast.figures.filter(figure => castDrawn(record, figure)).map(figure => ({...figure,
     settei:figure.settei || record.jobs[jobKey({kind:'identity-settei', ref:figure.ref})]?.status === 'ready'}))
 
-  async function draw(cast, job, channel) {
+  // keyed: the channel draws no transparent picture, so a 立绘 is drawn on a flat key colour and keyed out here (images.matte).
+  async function draw(cast, job, channel, keyed) {
     const figure = cast.figures.find(row => row.ref.figureId === job.ref.figureId), record = await read(cast.cardId)
     const pictures = []
     if (job.kind === 'sprite') {
@@ -90,16 +98,20 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
     }
     // 外貌: the figure's 人物库 record's; the 选角助理's text stands in while the record has none.
     const pending = record.appearance?.[figureKey(job.ref)]
-    const {prompt, output} = await images.prompt({kind:job.kind, figure:{ref:job.ref, name:figure.name, emotions:figure.emotions}, appearance:pending ? joinTraits(pending) : '',
+    const {prompt:base, output} = await images.prompt({kind:job.kind, figure:{ref:job.ref, name:figure.name, emotions:figure.emotions}, appearance:pending ? joinTraits(pending) : '',
       emotionId:job.emotionId, userPrompt:job.kind === 'identity-settei' ? SETTEI_VIEWS : '', fromSettei:job.kind === 'sprite'})
+    const key = keyed && job.kind === 'sprite' ? keyColor(figure, pending) : null
+    const prompt = key ? base + '\n\n' + keyBackground(key) : base
     const [width, height] = output.size.split('x').map(Number), controller = new AbortController()
     controllers.add(controller)
     try {
       for (let attempt = 0; ; attempt++) {
-        const reply = await images.generate({prompt, width, height, background:output.background, quality:output.quality, references:pictures, signal:controller.signal})
+        const reply = await images.generate({prompt, width, height, background:key ? 'opaque' : output.background, quality:output.quality, references:pictures, signal:controller.signal})
         if (!active) return
         if (reply.mediaType !== 'image/png') throw Object.assign(new Error('生图渠道没有返回 PNG'), {code:'GENERATION_FAILED'})
-        const data = Buffer.from(reply.data.buffer, reply.data.byteOffset, reply.data.byteLength), checks = images.check(data, job.kind)
+        const drawn = Buffer.from(reply.data.buffer, reply.data.byteOffset, reply.data.byteLength)
+        const data = key ? Buffer.from(await images.matte({data:drawn, key})) : drawn, checks = images.check(data, job.kind)
+        if (key && !checks.hasTransparency) { await update(cast.cardId, current => jobFailed(current, job, now(), 'MATTE_FAILED')); return }
         if (job.kind === 'sprite' && !checks.hasTransparency) {
           // This channel draws no transparent picture: no more 立绘 for it.
           await update(cast.cardId, current => jobFailed(channelOpaque(current, channel), job, now(), 'OPAQUE_CHANNEL'))
@@ -126,11 +138,12 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
         const cast = await library.readCast(cardPath), status = await images.status()
         if (!cast?.packId || !status?.ready) return
         const channel = status.channel ?? status.model ?? 'default', record = await read(cast.cardId)
-        const jobs = planAutoCast(record, castFor(cast, record), choice.level, {busy:new Set(running.keys()), sprites:channelDrawsSprites(record, channel, status), now:now()})
+        const transparent = channelDrawsSprites(record, channel, status), keyed = !transparent && !!images.matte
+        const jobs = planAutoCast(record, castFor(cast, record), choice.level, {busy:new Set(running.keys()), sprites:transparent || keyed, now:now()})
         if (!jobs.length && !running.size) return
         for (const job of jobs.slice(0, PER_CARD - running.size)) {
           const key = jobKey(job)
-          running.set(key, draw(cast, job, channel)
+          running.set(key, draw(cast, job, channel, keyed)
             .catch(error => { onError(error); return update(cast.cardId, current => jobFailed(current, job, now(), error.code ? error.code + ': ' + error.message : error)) })
             .finally(() => { running.delete(key); void land(cardPath) }))
         }
@@ -194,6 +207,8 @@ export function createAutoCast({store, settings, library, images, idle, cast:cas
       if (speakers.length && active) {
         const decided = castAssistant ? await castAssistant({cardPath, chat, speakers, cast}).catch(error => { onError(error); return null }) : null
         const plan = castChanges(speakers, decided)
+        // The assistant takes seconds: by now the player may have sent the next round, and a pack write would stop its director.
+        if (plan.changes.length) await idle()
         const written = plan.changes.length ? await library.write({cardPath, changes:plan.changes, sources:plan.sources, source, requestId:sha(JSON.stringify([source, plan.changes]))}) : {refs:[]}
         await update(cast.cardId, current => noteCasting(current, plan.entries.map((entry, index) => ({...entry, ref:written.refs[index]})), decided?.same || {}))
         cast = await library.readCast(cardPath)
