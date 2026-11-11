@@ -108,10 +108,11 @@ export function hostRequireCandidates({ names, pluginAnchor, neighbors = [], env
       if (!anchors.some(item => item.anchor === canonical)) push('desktop-archive-canonical', canonical)
     } catch { /* A synthetic probe or an older unpacked installation. */ }
   }
-  // Standalone Windows hosts can also be launched with different path casing.
-  // Retain the original spelling for an already-loaded module, then try the
-  // on-disk spelling; defaultHostRequire still proves the live class identity.
-  if (!resources && launcher && process.platform === 'win32') {
+  // Standalone and unpacked (<resources>\app\) Windows hosts can also be launched
+  // with different path casing. Retain the original spelling for an already-loaded
+  // module, then try the on-disk spelling; defaultHostRequire still proves the live
+  // class identity. A launcher inside an archive has no on-disk path and is skipped.
+  if (launcher && process.platform === 'win32') {
     try {
       const canonical = realpathSync.native(launcher)
       if (canonical !== launcher) push('launcher-canonical', canonical)
