@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "87b6153eb520aaa2dd44983bf9a100d69c65f3ec",
-  "releaseSequence": 1462,
+  "revision": "d088725147e237e63ca9ec6ad340150d4b7eea3f",
+  "releaseSequence": 1463,
   "version": "3.3.0",
   "files": [
     {
@@ -1016,8 +1016,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "4b10ec909f7bf49b9795e71a3c3a9ca54881cc44e560d719aceda016d76419b6",
-      "size": 5975813
+      "sha256": "f75b7af8f90b89cf7855c2463db63965d6c1a281200d2596467e81cabc382ad4",
+      "size": 5979003
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1171,8 +1171,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/body-editor.js",
-      "sha256": "de25ba769270a448773b713019b1ad3ceae0f864e27ac8d6b5c51782cd1cd3b7",
-      "size": 43489
+      "sha256": "384ea07a813f607ed76c80e0ce76eb990b7058f9ee078f63a32103d9321c8bba",
+      "size": 43522
     },
     {
       "path": "tavern-plugin/lib/domain/body-generation-failure.js",
@@ -2676,8 +2676,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/polish-records.js",
-      "sha256": "7b8f253ef9921d446d95c7173330a18b0e2985785b95bfdb3fb5da0edaa1317d",
-      "size": 3430
+      "sha256": "bfd8cac3b8d977314508295c01c1822af594c8d410cdb395415f834ee9644a61",
+      "size": 3491
     },
     {
       "path": "tavern-plugin/lib/domain/polish-review.js",
@@ -3931,8 +3931,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "e6537785854b1ae3ffe57915ef329ed98952d8bb742d10938d47ca1717ab0d0a",
-      "size": 276156
+      "sha256": "f0ee932ec0ae058ab4577d591f1f542c5c542c08601db407c4178be9d4bdf8f3",
+      "size": 276298
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -4056,8 +4056,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/play.js",
-      "sha256": "eed810e0a0e7a66c8b60040dc77c07eea4b40df7e37b527dd93949156b5e0eb7",
-      "size": 24980
+      "sha256": "d1de5a0dea4f57b0eb4bfaabb2e6b7871cab9b59cb7c00b120f29eabf3c93a85",
+      "size": 25092
     },
     {
       "path": "tavern-plugin/lib/rpc/plugins.js",
@@ -8481,9 +8481,9 @@
     }
   ],
   "archive": {
-    "commit": "86079f1e433895104503b93ddb0b5ba8d780e1f4",
+    "commit": "1dc7e082f711bc0524ba4b3bc4f387a79cf353d2",
     "path": "runtime.zip",
-    "sha256": "47ace90dc85dc3934a584dd8c49e501f11365b97be81c817cd761b013cae71b8",
-    "size": 15173023
+    "sha256": "9a3673adbf315fd9c0032cd23aaa9b16ff1b0cd98ceae13363332b2955ba9455",
+    "size": 15174045
   }
 }
