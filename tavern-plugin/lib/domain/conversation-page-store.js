@@ -2,6 +2,7 @@ import {createHash, randomUUID} from 'node:crypto'
 import {mkdir, open, readFile, readdir, rename, rm, link, stat} from 'node:fs/promises'
 import path from 'node:path'
 import {createDurableFilePromotion} from '../durable-file-promotion.js'
+import {createConversationReadLanes,conversationReadLane} from './conversation-read-lanes.js'
 
 // Syncing every touched directory on every commit costs tens of milliseconds each on a phone.
 // Inside a relaxed window the store only remembers them; the window's end syncs each once,
@@ -63,7 +64,9 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
  // A live, slow writer must never lose its lock merely due to elapsed time.
  // Dead process recovery and pending head promotion use the existing protocol.
  const promotion=createDurableFilePromotion({writeLockStaleMs:Number.MAX_SAFE_INTEGER})
- const packed=new Map();let packedBytes=0
+ const packed=new Map(),loading=new Map();let packedBytes=0
+ // Physical reads are bounded and a player's reads go before background recovery's.
+ const scheduleRead=createConversationReadLanes()
  function cachePacked(dir,id,value,size){
   const key=dir+'/'+id,old=packed.get(key)
   if(old){packedBytes-=old.size;packed.delete(key)}
@@ -141,8 +144,18 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
     const remembered=packed.get(dir+'/'+id)
     if(remembered){cache.set(id,remembered.value);packed.delete(dir+'/'+id);packed.set(dir+'/'+id,remembered)}
     else {
-     const bytes=await readFile(blobPath(dir,id),'utf8'),value=decodeBlock(dir,id,bytes)
-     cache.set(id,value);onIO({kind:'read',type:value.kind,bytes:Buffer.byteLength(bytes)})
+     // Concurrent readers of one block share a single file read and parse.
+     const key=dir+'/'+id
+     let pending=loading.get(key)
+     if(!pending){
+      pending=scheduleRead(async()=>{
+       const bytes=await readFile(blobPath(dir,id),'utf8'),value=decodeBlock(dir,id,bytes)
+       onIO({kind:'read',type:value.kind,bytes:Buffer.byteLength(bytes)})
+       return value
+      })
+      loading.set(key,pending)
+     }else if(conversationReadLane()!=='background')pending.promote()
+     try{cache.set(id,await pending.promise)}finally{if(loading.get(key)===pending)loading.delete(key)}
     }
    }
    const value=cache.get(id)
@@ -155,7 +168,7 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
   return head
  }
  async function current(dir,id,read){
-  const bytes=await promotion.read(path.join(dir,'head.json'))
+  const bytes=await scheduleRead(()=>promotion.read(path.join(dir,'head.json'))).promise
   if(bytes===undefined)return undefined
   const pointer=JSON.parse(bytes)
   if(!readablePointer(pointer.format))throw Error('Unsupported conversation format')

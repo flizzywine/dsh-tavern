@@ -15,6 +15,18 @@ async function fixture(t, count=20000) {
  return {root,store,io}
 }
 
+test('concurrent cold head readers share each immutable file read and parse',async t=>{
+ const {root}=await fixture(t,4),io=[]
+ await createConversationPageStore({root,onIO:event=>io.push(event)}).readHead('a')
+ const single=io.filter(row=>row.kind==='read').length;io.length=0
+ const cold=createConversationPageStore({root,onIO:event=>io.push(event)})
+ const views=await Promise.all(Array.from({length:12},()=>cold.readHead('a')))
+ assert.equal(io.filter(row=>row.kind==='read').length,single,'twelve concurrent readers read each file once, like one reader')
+ views[0].state.gold=99
+ assert.equal(views[1].state.gold,10,'public projections remain detached')
+ assert.equal((await cold.readHead('a')).state.gold,10)
+})
+
 test('stale writers conflict across store instances without losing committed history',async t=>{
  const {root,store}=await fixture(t,4)
  const another=createConversationPageStore({root})
