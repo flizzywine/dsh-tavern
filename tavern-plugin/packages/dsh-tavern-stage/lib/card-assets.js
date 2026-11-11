@@ -5,9 +5,9 @@ import {normalizeResourcePath} from '../../../lib/domain/file-resources.js'
 import {readCardVariableSources} from '../../../lib/domain/card-variable-bindings.js'
 
 // Private composition of the stage-owned asset/card bridge.
-export function createStageCardAssets({ctx,active,assetEngineSettings,modManifests,fileResources,readCardWorkspace,updateCard,
+export function createStageCardAssets({ctx,active,assetEngineSettings,fileResources,readCardWorkspace,updateCard,
   syncBubbles,readCharacterBook,readSessionMap,persistence,cardId,cardPreparation,cardStorage,bumpCardProjectionRevision,syncCardName}) {
-  const cardAssetBindings = createCardAssetBoundary({ctx, modConfig:true, getEngine:() => assetEngineSettings.read().values, modManifests, listCards:async () => (await fileResources.list('card')).map(path => ({path})), readWorkspace:readCardWorkspace, updateCard, syncBubbles:path => syncBubbles(path), readCharacterBook:path => readCharacterBook(path),
+  const cardAssetBindings = createCardAssetBoundary({ctx, modConfig:true, getEngine:() => assetEngineSettings.read().values, listCards:async () => (await fileResources.list('card')).map(path => ({path})), readWorkspace:readCardWorkspace, updateCard, syncBubbles:path => syncBubbles(path), readCharacterBook:path => readCharacterBook(path),
     readVariableSources:async ({path,sessionId}) => {
       const chatPersistence = persistence()
       const chatId = (await readSessionMap())[sessionId]

@@ -9,7 +9,7 @@ import { verifiedWidgetSnapshot, widgetSettlementState, widgetWriteReason } from
 const size = value => Buffer.byteLength(JSON.stringify(value))
 const failure = (status,reason,operationId) => ({status,reason,...(operationId ? {operationId} : {})})
 const refKey = ref => JSON.stringify([ref?.packId,ref?.kind,ref?.assetId])
-export function createWidgetVariableService({ index, readWindow, authorize, timeline, patch: writePatch, execute, availability = () => ({ready:false}), now = Date.now, prepareCommit }) {
+export function createWidgetVariableService({ index, readWindow, authorize, timeline, patch: writePatch, execute, availability = () => ({ready:false}), now = Date.now }) {
   let active = true
   const assertActive = () => {if (!active) throw Object.assign(new Error('Stage unavailable'), {code:'STAGE_UNAVAILABLE'})}
   const patch = (id, revision, changes, metadata = {}) => {
@@ -156,10 +156,8 @@ export function createWidgetVariableService({ index, readWindow, authorize, time
       if (renewed?.chatId!==chat.id || !renewed?.current() || !authorized.current() || widgetVariableJson(renewed.declarations)!==widgetVariableJson(authorized.declarations)) return failure('unavailable','revoked',operationId)
       const before={...begun.chat,_storageRevision:saved._storageRevision}
       const committed=timeline.apply({chat:before,messageIndices:[id],intent:{kind:'variables.edit.commit',operationId,messageId:id,position,declarations:authorized.declarations,operations:input.operations,effect:result.effect}})
-      const afterCommit=await prepareCommit?.({before:chat,after:committed.chat,messageId:id})
       committing=true
       const final=await patch(chat.id,before._storageRevision,diffMvuChanges(before,committed.chat,[id]),{source:'variables.edit.commit',assertCurrent(){if(controller.signal.aborted||!current(context)||!authorized.current()||!renewed.current())throw new Error('position-changed')}})
-      if(final && afterCommit)queueMicrotask(()=>{if(active)afterCommit(final._storageRevision)})
       return final ? committed.value : failure('conflict','baseline-changed',operationId)
     } catch(error) {
       if (committing) {
