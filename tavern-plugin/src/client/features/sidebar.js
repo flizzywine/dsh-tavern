@@ -1230,6 +1230,8 @@
 				const generating = sessionGenerating(item.sessionId);
 				const preview = historyPreview(item, summary);
 				const expanded = preview.hasPreview && expandedPreviews[item.sessionId] === true;
+				const stamp = tavernHistoryStamp(item, summary, summaries, historyOrder);
+				const stampIsInTitle = !item.title && isPlayMode(item.mode || "story") && Boolean(formatTime(stamp)) && title.indexOf(formatTime(stamp)) >= 0;
 				return h("div", { key: item.sessionId, className: "dsh-tavern-side-row" + (current === item.sessionId ? " active" : "") + (generating ? " is-generating" : "") + (preview.hasPreview ? " has-preview" : "") },
 					// in 管理 the whole row is the checkbox (house round check), not a small native box.
 					h("button", Object.assign({ className: "dsh-tavern-side-row-main" + (managing ? " ap-check-row" : ""), disabled: busy, title: preview.hasPreview && !expanded && preview.tooltip ? preview.tooltip : undefined }, managing ? { role: "checkbox", "aria-checked": selectedChats.includes(item.chatId), "aria-label": "选择对话：" + title } : null, { onClick: async function () {
@@ -1246,11 +1248,17 @@
 						generating ? h("span", { className: "dsh-tavern-side-row-spinner", role: "status", "aria-label": "正在生成" }, h(Spinner, {})) : null,
 						h("span", { className: "dsh-tavern-side-row-title" }, title)),
 					preview.hasPreview ? previewLinesNode(expanded ? preview.detailLines : preview.compactLines, expanded, "dsh-tavern-side-row-preview") : null,
-					h("div", { className: "dsh-tavern-side-row-meta" }, h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")), preview.hasPreview || preview.messageCount ? h("span", { className: "dsh-tavern-side-row-turns" }, preview.turnBadge) : null, h("span", null, generating ? "生成中" : formatTime(tavernHistoryStamp(item, summary, summaries, historyOrder)))))
+					h("div", { className: "dsh-tavern-side-row-meta" },
+						h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")),
+						preview.hasPreview || preview.messageCount ? h("span", { className: "dsh-tavern-side-row-turns" }, preview.turnBadge) : null,
+						// 自动标题本身就是「11/7 20:25 开局」，再重复一次时间只是占宽度。
+						generating || !stampIsInTitle ? h("span", null, generating ? "生成中" : formatTime(stamp)) : null))
 					),
 					!managing && preview.hasPreview ? h("button", { className: "dsh-tavern-side-row-expand", title: expanded ? "收起预览" : "展开预览", "aria-label": (expanded ? "收起预览：" : "展开预览：") + title, "aria-expanded": expanded ? "true" : "false", onClick: function (event) { event.stopPropagation(); togglePreview(item); } }, expanded ? "▴" : "▾") : null,
 					!managing ? h("button", { className: "dsh-tavern-side-row-more", title: "对话操作", "aria-label": "对话操作", "aria-expanded": menuSession === item.sessionId ? "true" : "false", onClick: function () { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); } }, "⋯") : null,
 					!managing && menuSession === item.sessionId ? h("div", { className: "dsh-tavern-side-row-menu" },
+						// 触屏没有悬停的 ▾，展开/收起预览收进菜单，行内不再多占一列。
+						preview.hasPreview ? h("button", { disabled: busy, "aria-pressed": expanded ? "true" : "false", onClick: function () { togglePreview(item); } }, expanded ? "收起预览" : "展开预览") : null,
 						!archived ? h("button", { disabled: busy, onClick: function () { renameConversation(item, title); } }, "重命名") : null,
 						h("button", { disabled: busy, onClick: () => changeConversationArchive(item, !archived) }, archived ? "恢复到历史" : "归档"),
                         !archived && isPlayMode(item.mode || "story") ? h("button", { disabled: busy, onClick: () => rescueConversation(item) }, "存档救援") : null,

@@ -1220,6 +1220,8 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-tavern-history-group-items { padding-left: 10px; display: flex; flex-direction: column; gap: 4px; }
 
 .dsh-tavern-history-group-items .dsh-tavern-side-row-meta > span:last-child { white-space: nowrap; flex-shrink: 0; }
+/* 分组内的行已经在「游玩历史」下，模式名（故事/剧本）是恒定的噪声；留给预览和轮数。 */
+.dsh-tavern-history-group-items .dsh-tavern-side-row-meta > span:first-child { display: none; }
 
 /* ---------- 宽屏会话管理器 ---------- */
 .dsh-tavern-history-manager { display: flex; flex-direction: column; width: min(980px, calc(100vw - 48px)); max-height: min(86vh, 900px); box-sizing: border-box; border: 1px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-specific-sidebar-fill); box-shadow: 0 22px 64px rgba(0,0,0,.30); overflow: hidden; }
@@ -2992,6 +2994,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active [data-dockkit-strip] [role="tab"][aria-selected="false"] [data-dockkit-tab-close] { display: none; }
   body.dsh-tavern-shell-active [data-dockkit-strip] [role="tab"] [data-dockkit-tab-title]:not([data-dockkit-tab-clipped]) { mask-image: none; }
   body.dsh-tavern-shell-active .dsh-tavern-side-row-more { opacity: 1; min-width: 40px; min-height: 40px; }
+  body.dsh-tavern-shell-active .dsh-tavern-side-row-expand { display: none; }
   /* 每轮下方的变量回执、⋯ 等图标桌面是 28px；触屏放大命中区。 */
   body.dsh-tavern-shell-active .dsh-fork-turn-actions [data-fork-turn] > button { min-width: 36px; min-height: 36px; }
   body.dsh-tavern-shell-active :is(button, summary, [role="button"], [role="tab"]) { touch-action: manipulation; }
@@ -3190,8 +3193,10 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   .dsh-tavern-card-row-menu > summary, .dsh-tavern-message-fork,
   .dsh-tavern-swipe-controls button, .dsh-tavern-side-icon, .dsh-tavern-side-row-more { min-width: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }
   /* 触屏没有悬停，历史会话操作不能等 hover 后才出现。 */
-  .dsh-tavern-side-row-more, .dsh-tavern-side-row-expand { opacity: 1; }
-  .dsh-tavern-side-row-expand { min-width: 34px; min-height: 34px; }
+  .dsh-tavern-side-row-more { opacity: 1; }
+  /* 触屏宽度下不再并排两个按钮：▾ 让给文字，展开/收起进 ⋯ 菜单，预览收到 2 行。 */
+  .dsh-tavern-side-row-expand { display: none; }
+  .dsh-tavern-side-row-preview { -webkit-line-clamp: 2; }
   .dsh-tavern-btn, .dsh-card-primary, .dsh-tavern-script-primary,
   .dsh-tavern-card-row-popup button, .dsh-tavern-group-picker > summary { min-height: 40px; }
   /* 16px 输入字号防止 iOS 自动放大；正文、标签和代码展示不受影响。 */

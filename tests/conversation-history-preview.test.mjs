@@ -205,3 +205,14 @@ test('侧边栏行渲染预览、轮数与展开开关，并挂上宽屏管理�
   assert.match(css, /\.dsh-tavern-side-row-preview \{/)
   assert.match(css, /\.dsh-tavern-history-manager \{/)
 })
+
+test('移动端不再并排两个按钮：▾ 让给文字，展开/收起进 ⋯ 菜单，预览收到 2 行', () => {
+  // 行菜单里的一项，而不是行内第二个按钮（触屏上它只占宽度）。
+  assert.match(sidebar, /"aria-pressed": expanded \? "true" : "false", onClick: function \(\) \{ togglePreview\(item\); \}/)
+  assert.match(css, /\.dsh-tavern-side-row-expand \{ display: none; \}/)
+  assert.match(css, /\.dsh-tavern-side-row-preview \{ -webkit-line-clamp: 2; \}/)
+  // 分组内的模式名（故事/剧本）是恒定噪声，行里只留轮数和时间。
+  assert.match(css, /\.dsh-tavern-history-group-items \.dsh-tavern-side-row-meta > span:first-child \{ display: none; \}/)
+  // 自动标题已经是「11/7 20:25 开局」时不再重复时间。
+  assert.match(sidebar, /stampIsInTitle/)
+})
