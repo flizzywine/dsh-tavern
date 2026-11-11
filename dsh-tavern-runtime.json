@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f94e43fbf99d871cd6bf7e1942fcab0011c82e9c",
-  "releaseSequence": 1464,
+  "revision": "cdeebc012c38e1216a07d9fc2cbe8b2d225e01d0",
+  "releaseSequence": 1466,
   "version": "3.3.0",
   "files": [
     {
@@ -7261,13 +7261,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast-library.js",
-      "sha256": "585a2aff24675b2343bad69329360a437b389f8100d727b89dd5d1b715560a47",
-      "size": 4989
+      "sha256": "dcfeaa562a4bc82d2ab245c0189dddd644c90c832154fb828a3cba2bc7606f7b",
+      "size": 5186
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast.js",
-      "sha256": "9e157f63c7607a92083cbfb6297b34e4732a1114b2c13d14bfa1a2037e140af5",
-      "size": 14784
+      "sha256": "c6ee0612dd6a62da34dc27cf0c66f41ddcac762ed535a206c246affe7e733ae7",
+      "size": 16300
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/card-assets.js",
@@ -8481,9 +8481,9 @@
     }
   ],
   "archive": {
-    "commit": "af59eae6ad9848e9a54a0fa13b490584fa36cb68",
+    "commit": "748aa8b632979d025bc6caafe2727c5b3f54cbf2",
     "path": "runtime.zip",
-    "sha256": "e4155efbfda2b8867308065395422522332df7072abe4ca5cb1e88e83950f075",
-    "size": 15174791
+    "sha256": "793d56e9b0a401e63bf1d247d8bd65a319d337b81ca02b9e93e28d23c0371aaf",
+    "size": 15175407
   }
 }
