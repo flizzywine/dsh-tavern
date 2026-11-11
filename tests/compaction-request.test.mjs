@@ -113,3 +113,41 @@ test('a summary answered with a tool call or no text is retried once as plain te
     assert.deepEqual(out.filter(chunk => chunk.type === 'block-end').map(chunk => chunk.block.text), ['后台摘要'])
   }
 })
+
+test('summary replay drops prefix-bound reasoning before the provider without changing story or tool pairs', async () => {
+  const { projectCompactionRequest, installCompactionRequestProjection } = await import('../tavern-plugin/lib/domain/compaction-request.js')
+  const text = text => ({ type: 'text', text })
+  // Evidence shape: messages.19.content.0 is signed thinking from another prefix.
+  // This is a scripted provider rejection, not a paid Anthropic request.
+  const messages = Array.from({ length: 19 }, (_, i) => ({ role: 'user', content: [text('worldbook fact ' + i)] }))
+  messages.push({ role: 'assistant', content: [{ type: 'reasoning', text: 'private reasoning' }, text('story'), { type: 'tool-call', id: 'call-1', name: 'dice', arguments: '{}' }],
+    source: { kind: 'model', provider: 'anthropic-official', model: 'claude-opus-5-5', replayState: { kind: 'pi-ai', blocks: [{ type: 'reasoning', thinkingSignature: 'other-prefix' }, { type: 'text' }, { type: 'tool-call' }] } } })
+  messages.push({ role: 'tool', content: [{ type: 'tool-result', id: 'call-1', result: '6' }] })
+  messages.push({ role: 'assistant', content: [{ type: 'reasoning', text: '', redacted: true }], source: { kind: 'model', replayState: { opaque: 'signed' } } })
+  messages.push({ role: 'user', content: [text('Summarize')] })
+  const request = { purpose: 'compaction', sessionId: 'copy', messages, toolHistory: { 'call-1': { name: 'dice' } } }
+  const before = structuredClone(request)
+  const provider = async function* (input) {
+    if (input.messages.some(m => m.content.some(b => b.type === 'reasoning'))) throw Object.assign(new Error('messages.19.content.0: Invalid signature in thinking block. The block is bound to a different conversation.'), { status: 400 })
+    yield { type: 'block-end', index: 0, block: text('A useful summary') }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+  const drain = async stream => { const out = []; for await (const event of stream) out.push(event); return out }
+  await assert.rejects(drain(provider(request)), error => error.status === 400 && /bound to a different conversation/.test(error.message))
+  const hooks = [], sent = []
+  const dispatch = (r, i = 0) => i < hooks.length ? hooks[i](r, () => dispatch(r, i + 1)) : (sent.push(r), provider(r))
+  const ctx = { on: (_, hook) => hooks.push(hook), llm: { stream: dispatch, resolveModelInfo: async () => undefined } }
+  installCompactionRequestProjection(ctx, async () => true)
+  const output = await drain(dispatch(request))
+  assert.equal(output[0].block.text, 'A useful summary')
+  assert.equal(sent.length, 1, 'no paid retry needed')
+  assert.deepEqual(sent[0].messages[19].content, messages[19].content.slice(1))
+  assert.equal(sent[0].messages[19].source.replayState, undefined)
+  assert.equal(sent[0].messages[20], messages[20], 'tool result unchanged')
+  assert.equal(sent[0].toolHistory, request.toolHistory)
+  assert.deepEqual(sent[0].messages.slice(0, 19), messages.slice(0, 19), 'worldbook unchanged')
+  assert.ok(sent[0].messages.every(m => m.content.length))
+  assert.deepEqual(request, before, 'saved history is never edited')
+  const normal = { ...request, purpose: undefined }
+  assert.equal(projectCompactionRequest(normal), normal, 'normal turns retain native replay and existing binding controls')
+})
