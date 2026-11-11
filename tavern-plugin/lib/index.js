@@ -2618,6 +2618,8 @@ export async function apply(ctx) {
   })
   void branchOrigin.sweep().catch(error => console.warn('dsh-tavern: 检查旧分支会话头部失败', error?.message || error))
   const runtimePresetSnapshots = new Map()
+  // The stage director runs beside the game's background work: a game-wide stop or progress read leaves it alone.
+  const parallelBackgroundTasks = ['stage-director']
   const BACKGROUND_TOOLS = [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, CHARACTER_DESIGN_REUSE_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL, LEDGER_SUBMIT_TOOL]
   // What a background task asks of the runner beyond the game's background defaults, declared by the task's owner:
   // ownModel (keep the selection it brings), webSearch: false, cardContext: false (no card/worldbook injection),
@@ -2639,6 +2641,7 @@ export async function apply(ctx) {
     prepareSharedContext: contextHost.prepareSharedContext,
     resolveSharedTaskAnchor: contextHost.resolveSharedTaskAnchor,
     resolveSharedReadTools: contextHost.resolveSharedReadTools,
+    parallelTasks: parallelBackgroundTasks,
     allowRun: async input => (await pluginApi.hostBehavior.forGame(input.sessionId)).backgroundAgents,
     retirement: backgroundRetirement,
     onRunFinished: run => { try { storyEvents.emit('task-finished', run) } catch (error) { console.warn('dsh-tavern: 任务完成通知失败', str(error?.message || error)) } },

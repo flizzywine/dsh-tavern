@@ -90,6 +90,9 @@ export function createBackgroundAgentSessions(options, task) {
   const runs = createBackgroundRunLedger({ now: options.now })
   const queues = new Map()
   const preparing = new Map()
+  // Tasks that run beside the game's background work (the stage director): a game-wide cancel and the
+  // game's progress leave them alone; only a cancel naming the task stops them.
+  const parallelTasks = new Set(options.parallelTasks || [])
 
   const now = typeof options.now === 'function' ? options.now : Date.now
   const idleMs = Number.isSafeInteger(options.residentIdleMs) && options.residentIdleMs > 0 ? options.residentIdleMs : 5 * 60 * 1000
@@ -179,7 +182,10 @@ export function createBackgroundAgentSessions(options, task) {
     const member = persistent ? pluginMember(input.member) : null
     if (member) return snapshotSubagentDescriptor({ mode: 'continuable', provider: 'dsh-tavern-plugin-member-v1', label: '插件成员：' + member.name })
     if (input.task === 'polish') return snapshotSubagentDescriptor({ mode: 'continuable', provider: 'dsh-tavern-polish', label: '正文精修', agentProvider: input.selection.provider, agentModel: input.selection.model, persona: '只审读正文，通过精修工具逐处提交修改。' })
-    if (input.task === 'stage-director') return snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'dsh-tavern-stage', label: '舞台导演' })
+    if (input.task === 'stage-director') return snapshotSubagentDescriptor({
+      mode: 'one-shot', provider: 'dsh-tavern-stage-director', label: '舞台导演',
+      persona: '独立处理已完成正文的增量演出，与变量和姿势任务并行；不改写剧情或变量。'
+    })
     if (input.task === 'phone') return snapshotSubagentDescriptor({
       mode: 'one-shot', provider: 'dsh-tavern-phone', label: '手机私聊',
       persona: '只扮演指定联系人回复一条手机私聊，不推进正文或修改游戏状态。'
@@ -350,6 +356,9 @@ export function createBackgroundAgentSessions(options, task) {
       parentSessionId: str(input.sessionId),
       selection: { ...input.selection },
       maxTokens,
+      operationId: str(input.operationId),
+      ...(input.contextPolicy ? { contextPolicy: input.contextPolicy } : {}),
+      ...(input.frozenBackground ? { frozenBackground: { policy: input.frozenBackground.policy, historical: input.frozenBackground.historical, binding: input.frozenBackground.binding } } : {}),
       task: str(input.task) || 'background',
       // Dev diagnostics: the streaming director window this request stages (request log).
       ...(input.window ? { window: { first: input.window.first, through: input.window.through } } : {}),
@@ -568,22 +577,22 @@ export function createBackgroundAgentSessions(options, task) {
   }
 
   // `task`: only that task's runs (停止选项 stops the choices, an interrupted turn its director);
-  // without it every run of the game but the phone's.
-  function cancel(parentSessionId, { task } = {}) {
+  // without it every run of the game but the phone's and the parallel tasks'.
+  function cancel(parentSessionId, input = {}) {
     let count = 0
     for (const [controller, pending] of preparing) {
-      if (pending.sessionId !== parentSessionId || pending.task === 'phone' || (task && pending.task !== task)) continue
+      if (pending.sessionId !== parentSessionId || pending.task === 'phone' || (input.task ? pending.task !== input.task : parallelTasks.has(pending.task))) continue
       controller.abort(); count++
     }
     for (const [id, resident] of residentHandles) {
       const context = requestContexts.get(id)
-      if (context?.parentSessionId !== parentSessionId || context.task === 'phone' || (task && context.task !== task)) continue
+      if (context?.parentSessionId !== parentSessionId || context.task === 'phone' || (input.task ? context.task !== input.task : parallelTasks.has(context.task))) continue
       resident.state.sharedRequest = null
       resident.state.sharedAnchor = null
     }
     for (const sessionId of activeSessions) {
       const context = requestContexts.get(sessionId)
-      if (context?.parentSessionId !== parentSessionId || context.task === 'phone' || (task && context.task !== task)) continue
+      if (context?.parentSessionId !== parentSessionId || context.task === 'phone' || (input.task ? context.task !== input.task : parallelTasks.has(context.task))) continue
       const agent = residentHandles.get(sessionId)?.handle?.agent || agents.get(sessionId)
       const progress=residentHandles.get(sessionId)?.state.progress
       if (progress) { progress.cancel(); count++ }
@@ -593,7 +602,7 @@ export function createBackgroundAgentSessions(options, task) {
   }
 
   function progress(parentSessionId) {
-    for(const id of activeSessions) if(requestContexts.get(id)?.parentSessionId===parentSessionId && requestContexts.get(id)?.task!=='phone') {
+    for(const id of activeSessions) if(requestContexts.get(id)?.parentSessionId===parentSessionId && requestContexts.get(id)?.task !== 'phone' && !parallelTasks.has(requestContexts.get(id)?.task)) {
       const snapshot=residentHandles.get(id)?.state.progress?.snapshot()
       if(snapshot) return {...snapshot,task:requestContexts.get(id).task}
     }

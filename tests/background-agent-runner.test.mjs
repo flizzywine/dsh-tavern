@@ -9,6 +9,31 @@ function completeSystem(sections) {
 }
 
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
+test('candidate and settlement reject terminal failure even after text and a tool submission', async () => {
+  for (const task of ['candidate','settlement']) for (const reason of [{kind:'error',error:{message:'transport failed'}},{kind:'aborted',reason:{kind:'user'}}]) {
+    const registered = new Map()
+    let work, submitted = false
+    const session = {id:'failed-background',events:[],append(type,data){this.events.push({type,data})}}
+    const runner = createBackgroundAgentRunner({id:()=>session.id,agents:{
+      get:()=>({session:{header:{}}}),
+      async create(options){
+        await options.setup({systemPrompt:{section(){},suppressRuntimeContext(){}},on(){},tools:{restrict(){},register(tool){registered.set(tool.name,tool)}}})
+        return {agent:{session,followup(){work=(async()=>{
+          await registered.get('submit_result').execute({})
+          session.append('assistant/message',{message:{content:[{type:'text',text:'partial result'}]}})
+          session.append('turn/end',{reason})
+        })()},async whenIdle(){await work}},async dispose(){}}
+      }
+    }})
+    try {
+      await assert.rejects(runner.run({sessionId:'parent',task,selection:{provider:'test',model:'fake'},messages:[],
+        tools:[{name:'submit_result',parameters:{type:'object'}}],onToolCall:async()=>{submitted=true;return '{}'},acceptWithoutText:()=>submitted
+      }), /transport failed|已中断/)
+      assert.equal(submitted,true)
+    } finally {await runner.dispose()}
+  }
+})
+
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 
 test('后台固定背景只保存一次，连续候选、结算和恢复均进入固定 system 而非剧情历史', async () => {
@@ -237,6 +262,35 @@ test('整段回退失败时改用新的后台会话，旧会话退休 (#164)', a
   assert.deepEqual(ready, ['new-background'])
 })
 
+// internal cancellation must keep skipping the parallel director.
+for (const task of ['settlement', 'stage-director']) test('manual stop cancels only the selected game/task: ' + task, async () => {
+  let ready, finish, cancelled = 0;
+  const started = new Promise(resolve => { ready = resolve; });
+  const idle = new Promise(resolve => { finish = resolve; });
+  const session = { id: 'stop-background', header: {}, events: [], append(type, data) { this.events.push({ type, data }); } };
+  const runner = createBackgroundAgentRunner({ parallelTasks: ['stage-director'], id: () => session.id, agents: {
+    get: () => ({ session: { header: {} } }),
+    async create(options) {
+      await options.setup({ systemPrompt: { section() {}, suppressRuntimeContext() {} }, on() {}, tools: { presentAs() {}, restrict() {}, register() { return () => {}; } } });
+      return { agent: { session, followup() { ready(); }, whenIdle: () => idle,
+        cancel(reason) { assert.equal(reason.kind, 'user'); cancelled++; finish(); }
+      }, async dispose() {} };
+    }
+  } });
+  const run = runner.run({ sessionId: 'game', persistent: true, task, selection: { provider: 'fake', model: 'fake' }, messages: [{role:'user',content:[{type:'text',text:'test'}]}], tools: task === 'stage-director' ? [{name:'submit_direction',parameters:{type:'object'}}] : [] });
+  const rejected = assert.rejects(run);
+  await Promise.race([started, run]);
+  assert.equal(runner.cancel('other-game', {task}), 0);
+  if (task === 'stage-director') {
+    assert.equal(runner.cancel('game'), 0);
+    assert.equal(cancelled, 0);
+    assert.equal(runner.cancel('game', {task}), 1);
+  } else assert.equal(runner.cancel('game'), 1);
+  await rejected;
+  assert.equal(cancelled, 1);
+  assert.equal(runner.cancel('game'), 0);
+  await runner.dispose();
+});
 for (const task of ['settlement']) test(task + ' 已有会话在明确更新人物卡后切换背景', async () => {
   let assemble, pending, revision = 0, background = '开局人物设定', backgroundReads = 0
   const seen = [], sections = []
@@ -264,6 +318,104 @@ for (const task of ['settlement']) test(task + ' 已有会话在明确更新人�
     assert.equal(session.events.filter(e => e.data?.id === 'tavern-session-prefix:' + session.id + ':revision-1').length, 1)
     assert.equal(backgroundReads, 2, 'unchanged revision reuses the saved background')
   } finally { await runner.dispose() }
+})
+
+// same real runner with a stable catalogue, director and candidate controls.
+test('stage-director isolates native tools/persona and preserves correction history; candidate stays unchanged', async () => {
+  for (const task of ['stage-director', 'candidate']) {
+    const director = task === 'stage-director'
+    const registered = new Map(), sections = [], hooks = new Map(), followed = [], restrictions = [], modes = [], usages = []
+    let mounted = 0, prefixes = 0, worldbooks = 0, appended = 0, concluded = 0, calls = 0
+    const session = { id: 'isolated-' + task, header: {}, events: [], append(type, data) { this.events.push({ type, data }) } }
+    const messages = [{ role: 'user', content: [{ type: 'text', text: 'Completed reply data' }] }]
+    const tool = { name: 'submit_direction', parameters: { type: 'object' } }
+    const runner = createBackgroundAgentRunner({
+      id: () => session.id,
+      setupAgent: () => mounted++, systemAppend: () => { appended++; return 'GLOBAL APPEND' },
+      backgroundTools: [{ name: 'posture_submit', parameters: { type: 'object' } }],
+      resolveStablePrefix: () => { prefixes++; return 'FIXED PREFIX' },
+      resolveCurrentWorldbook: () => { worldbooks++; return 'WORLDBOOK' },
+      agents: {
+        get: () => ({ id: 'parent', session: { header: {} } }),
+        async create(options) {
+          await options.setup({
+            on(event, hook) { const list = hooks.get(event) || []; list.push(hook); hooks.set(event, list) },
+            systemPrompt: { section(section) { sections.push(section) }, suppressRuntimeContext() {} },
+            tools: { presentAs(mode) { modes.push(mode) }, restrict(input) { restrictions.push(input.allow) }, register(tool) { registered.set(tool.name, tool); return () => registered.delete(tool.name) } }
+          })
+          async function request(base) {
+            const list = hooks.get('agent/request') || []
+            const invoke = i => i === list.length ? base : list[i]({}, () => invoke(i + 1))
+            return invoke(0)
+          }
+          return { agent: {
+            session, followup(message) { followed.push(message) },
+            async whenIdle() {
+              if (director) {
+                assert.deepEqual([...registered.keys()], ['submit_direction'])
+                const history = [{ role: 'user', content: messages[0].content }]
+                const first = await request({ tools: [tool], messages: history })
+                assert.equal(first.messages, history)
+                let feedback
+                await assert.rejects(registered.get('submit_direction').execute({ beats: 'bad' }, { concludeTurn() { concluded++ } }), error => {
+                  feedback = error.message
+                  assert.equal(JSON.parse(feedback).errors[0].message, 'Fix beats[0]')
+                  return true
+                })
+                assert.equal(concluded, 0)
+                history.push({ role: 'assistant', content: [{ type: 'tool-call', name: 'submit_direction', id: 'call-1', arguments: { beats: 'bad' } }] }, { role: 'tool', content: [{ type: 'text', text: feedback }] })
+                const second = await request({ tools: [tool], messages: history })
+                assert.equal(second.messages, history, 'no correction history replacement/filtering')
+                const streamGuard = (payload, next) => {
+                  const list = hooks.get('llm/stream') || []
+                  const invoke = i => i === list.length ? next() : list[i](payload, () => invoke(i + 1))
+                  return invoke(0)
+                }
+                assert.throws(() => streamGuard({ sessionId: session.id, tools: [tool, { name: 'skill' }] }, () => {}), /only submit_direction/)
+                streamGuard({ sessionId: session.id, tools: [tool] }, () => {})
+                await registered.get('submit_direction').execute({ beats: [] }, { concludeTurn() { concluded++ } })
+                assert.equal(concluded, 1)
+                // tool-only settlements still expose the provider's disjoint usage buckets.
+                session.append('assistant/message', { message: { content: [] }, usage: { inputTokens: 100, cacheReadTokens: 200, cacheWriteTokens: 30 } })
+              } else {
+                assert.deepEqual([...registered.keys()], ['posture_submit'])
+                const tools = [{ name: 'skill' }, { name: 'posture_submit' }]
+                assert.deepEqual((await request({ tools })).tools, tools)
+                session.append('assistant/message', { message: { content: [{ type: 'text', text: 'candidate text' }] } })
+              }
+            }
+          }, async dispose() {} }
+        }
+      }
+    })
+    try {
+      const result = await runner.run({ sessionId: 'parent', task, persistent: false, selection: { provider: 'test', model: 'fake' },
+        system: 'DIRECTOR COMPLETE PERSONA', messages, tools: [tool], maxToolCalls: 3, onProviderUsage: usage => usages.push(usage),
+        onToolCall: () => JSON.stringify(++calls === 1 ? {ok:false,retryable:true,errors:[{message:'Fix beats[0]'}]} : {ok:true}), stopToolsWhen: () => calls === 2, acceptWithoutText: () => calls > 0 })
+      const system = completeSystem(sections)
+      assert.deepEqual(usages, director ? [{ inputTokens: 330, cacheHitTokens: 200 }] : [])
+      if (director) {
+        assert.equal(result.text, '')
+        assert.equal(system, 'DIRECTOR COMPLETE PERSONA')
+        assert.equal(mounted, 1, 'the preset mount is still required for DSH agent wiring')
+        assert.equal(prefixes + worldbooks + appended, 0)
+        assert.deepEqual(modes, ['native'])
+        assert.deepEqual(restrictions, [[]])
+        // DSH session listeners require a message source (a missing one broke the live run).
+        assert.deepEqual(followed.map(({ id, ...message }) => message), messages.map(message => ({ ...message, source: { kind: 'plugin:dsh-tavern' } })))
+      } else {
+        assert.equal(result.text, 'candidate text')
+        assert.equal(mounted, 1)
+        assert.equal(prefixes, 1)
+        assert.equal(worldbooks, 1)
+        assert.match(system, /GLOBAL APPEND/)
+        assert.notEqual(system, 'DIRECTOR COMPLETE PERSONA')
+        assert.deepEqual(modes, [])
+        assert.deepEqual(restrictions, [['skill', 'read', 'worldbook_list', 'worldbook_grep', 'tavern_read_skill_reference', 'web_search']])
+        assert.match(followed[0].content[0].text, /DIRECTOR COMPLETE PERSONA/)
+      }
+    } finally { await runner.dispose() }
+  }
 })
 
 test('插件结算工具：随后台会话固定注册，只在结算任务里可调用，说明附在本轮任务后', async () => {

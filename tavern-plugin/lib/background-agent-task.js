@@ -7,9 +7,12 @@ import { CARD_SYSTEM_PROMPT_SECTION, cardSystemPromptSnapshot, cardSystemPromptS
 import { projectCandidateScriptContext } from './domain/candidate-script-context.js'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { prependSystemInstruction } from './domain/system-append.js'
+import { backgroundSystemPrompt, backgroundTaskPrompt, usesSharedBackgroundContext, directorTaskTools, assertDirectorToolSurface } from './domain/background-task-prompt.js'
 import { markTavernSectionsLiteral } from './domain/literal-sections.js'
 import { rewindBackgroundSurface } from './domain/background-surface.js'
 import { ensureSessionSystemHead, releaseOpeningTurn, sessionEvents } from './domain/session-events.js'
+// expose provider-reported director usage before the temporary agent is disposed.
+import { lastDirectorProviderUsage } from './domain/stage-director-tokens.js'
 import { randomUUID } from 'node:crypto'
 import {
   CHARACTER_DESIGN_FINISH_TOOL,
@@ -22,31 +25,10 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-function messageText(message) {
-  const blocks = message && Array.isArray(message.content) ? message.content : []
-  return blocks.filter(function (block) { return block && block.type === 'text' }).map(function (block) { return str(block.text) }).join('')
-}
-
-function backgroundPrompt(messages, turnContext, task, taskProtocol, input = {}) {
-  const sections = []
-  const authoritative = str(turnContext).trim()
-  if (authoritative !== '') {
-    sections.push('【本轮权威状态】\n' + authoritative)
-  }
-  const recent = (messages || []).map(function (message) {
-    const role = task === 'phone'
-      ? (message && message.role === 'assistant' ? '联系人' : '你')
-      : (message && message.role === 'assistant' ? '正文' : '用户')
-    return '[' + role + ']\n' + messageText(message)
-  }).filter(function (text) { return text.trim() !== '' }).join('\n\n')
-  const taskName = task === 'stage-director' ? '舞台导演' : task === 'settlement' ? '状态结算' : task === 'phone' ? '手机私聊' : task === 'character-design' ? '人物设计' : task === 'ledger' ? '台账整理' : task === 'plugin' ? '插件任务' : '候选生成'
-  sections.push('【最近剧情与本次任务】\n任务类型：' + taskName + '\n' + recent)
-  const protocol = str(taskProtocol).trim()
-  if (protocol !== '') sections.push('【任务要求】\n' + protocol)
-  if (task === 'candidate' && str(input.postHistoryText).trim()) {
-    sections.push('【人物卡历史后指令】\n' + str(input.postHistoryText).trim())
-  }
-  return sections.join('\n\n')
+// Tasks with a prefix of their own (its system prompt and tools only): 精修, a plugin member that
+// defines one (tavern.member with `system`), and a director without the shared background context.
+function ownsPrefix(input) {
+  return input.task === 'polish' || input.ownPrefix === true || !usesSharedBackgroundContext(input)
 }
 
 function finalMessage(events, startAt) {
@@ -66,6 +48,7 @@ function terminalError(events, startAt) {
     const event = events[index]
     if (event === null || typeof event !== 'object' || event.type !== 'turn/end') continue
     const reason = event.data && event.data.reason
+    if (reason?.kind === 'aborted' || reason?.kind === 'interrupted') return new Error('后台 Agent 请求已中断，未完成结果不予提交')
     if (reason !== null && typeof reason === 'object' && reason.kind === 'max-tokens') {
       return new Error('后台 Agent 输出达到模型 token 上限，正式结果尚未生成')
     }
@@ -115,7 +98,7 @@ export function createBackgroundAgentTask(options) {
   // Host-owned capability: null when disabled; generation changes with settings,
   // authorization or sources. Readers receive a host anchor, never a model chat id.
   async function resolveReadCapability(input) {
-    if (['stage-director', 'polish'].includes(input.task) || input.ownPrefix === true || !options.resolveSharedReadTools) return null
+    if (ownsPrefix(input) || input.task === 'stage-director' || !options.resolveSharedReadTools) return null
     const value = await options.resolveSharedReadTools({ sessionId: input.sessionId })
     if (!value) return null
     if (typeof value.generation !== 'string' || !value.generation || typeof value.readHistory !== 'function' ||
@@ -187,9 +170,6 @@ export function createBackgroundAgentTask(options) {
   }
 
   function setupFor(state, descriptor, appendDescriptor) {
-    // Tasks with a prefix of their own (its system prompt and tools only): 舞台导演, 精修, and a
-    // plugin member that defines one (tavern.member with `system`).
-    const isolated = ['stage-director', 'polish'].includes(state.input.task) || state.input.ownPrefix === true
     const backgroundPersona = state.input.task === 'phone'
       ? '你是与故事正文隔离的手机私聊 Agent。你只代表指定联系人回复当前手机消息，不推进正文、不修改状态，也不把私聊虚构成已经发生的现场剧情。'
       : state.input.task === 'plugin'
@@ -197,7 +177,11 @@ export function createBackgroundAgentTask(options) {
       : '你是与前台正文生成隔离的酒馆后台 Agent。你会在同一个剧情分支中依次承担状态结算与候选生成，人物设计仅在用户明确发起人物设计任务时执行；严格按每轮末尾追加的任务协议输出，不得把某类任务的输出格式混入另一类任务。最新权威状态优先于 Session 中的旧动态状态。'
     let descriptorAppended = !appendDescriptor
     return async function (childCtx) {
+      // Legacy directors retain their exact preview; shared-context directors keep scoped native tools.
+      const director = state.input.task === 'stage-director'
+      // The preset mount is still required (DSH agent wiring); tools and prompt are narrowed below.
       if (setupAgent !== null) await setupAgent(childCtx)
+      if (director) childCtx.tools.presentAs('native')
       state.ctx = childCtx
       if (typeof options.resolveSharedTaskAnchor === 'function') {
         childCtx.on('llm/stream', function (request, next) {
@@ -214,7 +198,21 @@ export function createBackgroundAgentTask(options) {
       // model/selection event decides the route (set at creation and on reuse
       // in background-agent-sessions.js). Passing it keeps both host lines.
       installModelSelection(childCtx, state.modelSelection)
-      childCtx.on('agent/assistant-stream', ({frame}) => state.progress?.frame(frame))
+      // DSH frames wrap native chunks; argumentsDelta is a fragment,
+      // not a snapshot. Attempt + block index isolates retries and parallel calls.
+      const directionCalls = new Map()
+      childCtx.on('agent/assistant-stream', ({frame}) => {
+        state.progress?.frame(frame)
+        if (!director || typeof state.input.onToolCallDelta !== 'function') return
+        if (frame.type === 'start') { directionCalls.clear(); return }
+        const chunk = frame.type === 'chunk' ? frame.chunk : null
+        if (chunk?.type !== 'tool-call-delta') return
+        const call = directionCalls.get(chunk.index) || { name: '', argumentsText: '', streamId: frame.attemptId + ':' + chunk.index }
+        if (chunk.name) call.name = chunk.name
+        call.argumentsText += chunk.argumentsDelta || ''
+        directionCalls.set(chunk.index, call)
+        state.input.onToolCallDelta({ ...call })
+      })
       childCtx.on('agent/pre-step', async function ({ agent, turn, step }, next) {
         const decision = await next()
         if (!descriptorAppended && decision.kind === 'enter') {
@@ -222,6 +220,7 @@ export function createBackgroundAgentTask(options) {
           agent.session.append('subagent/descriptor', descriptor)
         }
         if (decision.kind !== 'enter') return decision
+        if (director && !usesSharedBackgroundContext(state.input)) return decision
         const input = state.input || {}
         // A prefix of its own carries no card preset either.
         const snapshot = input.task !== 'polish' && input.ownPrefix !== true && typeof options.resolveRuntimePresetSnapshot === 'function'
@@ -246,7 +245,7 @@ export function createBackgroundAgentTask(options) {
         // DSH restores complete sections after the assembly waterfall, so the
         // additional instruction must be part of this authoritative text.
         text: () => {
-          if (isolated) return state.input.system
+          if (ownsPrefix(state.input)) return str(state.input.system)
           // Settlement and candidates share a Session: scope the fixed writing
           // instruction without changing its system prefix when the task switches.
           const fixed = sessionStablePrefixSections(state.session).flatMap(section => {
@@ -257,12 +256,13 @@ export function createBackgroundAgentTask(options) {
           let sections = state.currentWorldbook === undefined ? fixed : withCurrentWorldbook(fixed, state.currentWorldbook)
           if (state.input.worldbookSkillsEnabled) sections = withWorldbookFileInstructions(sections)
           else sections = sections.filter(section => section.name !== 'tavern:worldbook-skills')
-          const assembly = { sections: [...sections, { name: 'deployment:persona', text: backgroundPersona }] }
-          return prependSystemInstruction(assembly, options.systemAppend?.()).sections.map(section => section.text).join('\n\n')
+          return backgroundSystemPrompt({ input: state.input, sections,
+            persona: backgroundPersona,
+            systemAppend: options.systemAppend?.() })
         }
       })
       childCtx.systemPrompt.suppressRuntimeContext()
-      childCtx.tools.restrict({ allow: isolated ? [] : state.input.task === 'phone' ? [] : ['skill', 'read', 'worldbook_list', 'worldbook_grep', 'tavern_read_skill_reference', 'web_search', ...(childCtx.tools.get?.('web_fetch') ? ['web_fetch'] : [])] })
+      childCtx.tools.restrict({ allow: director || ownsPrefix(state.input) ? [] : state.input.task === 'phone' ? [] : ['skill', 'read', 'worldbook_list', 'worldbook_grep', 'tavern_read_skill_reference', 'web_search', ...(childCtx.tools.get?.('web_fetch') ? ['web_fetch'] : [])] })
       const hostTools = createHostToolPolicy(childCtx)
       childCtx.on('system-prompt/assemble', async function (_assembly, context, next) {
         return hostTools.assemble(await next(), context, async (assembly, tools) => {
@@ -274,7 +274,8 @@ export function createBackgroundAgentTask(options) {
             markTavernSectionsLiteral(assembly)
             return assembly
           }
-          if (!isolated) prependSystemInstruction(assembly, options.systemAppend?.())
+          if (director && !usesSharedBackgroundContext(state.input)) return markTavernSectionsLiteral(assembly)
+          prependSystemInstruction(assembly, options.systemAppend?.())
           markTavernSectionsLiteral(assembly)
           if (state.input.task === 'phone') {
             assembly.sections = (assembly.sections || []).filter(function (section) {
@@ -294,7 +295,7 @@ export function createBackgroundAgentTask(options) {
         })
       })
       state.refreshConfiguredTools = function () {
-        if (isolated || state.stableToolDisposers) return
+        if (director || ownsPrefix(state.input) || state.stableToolDisposers) return
         // Every task sharing this Session sees one fixed tool list: tool definitions sit in the
         // cached request prefix. What a task may call is enforced when the tool executes.
         // Plugin tools join the list when the Session is set up; a plugin loaded later
@@ -320,6 +321,11 @@ export function createBackgroundAgentTask(options) {
         }).filter(function (dispose) { return typeof dispose === 'function' })
       }
       state.refreshConfiguredTools()
+      // agent/request only carries model config; tools exist at the LLM boundary.
+      if (director) childCtx.on('llm/stream', function (request, next) {
+        if (request.sessionId === state.session?.id) assertDirectorToolSurface(state.input, request.tools, state.directorTools)
+        return next()
+      }, { global: true })
       childCtx.on('agent/request', async function (_payload, next) {
         const input = state.input || {}
         const inherited = await next()
@@ -332,7 +338,8 @@ export function createBackgroundAgentTask(options) {
   }
 
   function installTaskTools(state, input, session) {
-    let tools = Array.isArray(input.tools) ? input.tools : []
+    let tools = (input.task === 'stage-director' ? directorTaskTools(input, sharedBackgroundTools) : (Array.isArray(input.tools) ? input.tools : []))
+    if (input.task === 'stage-director') state.directorTools = tools
     const hasCharacterDesignTools = tools.some(function (tool) {
       return tool && (tool.name === 'character_design_read' || tool.name === 'character_design_save')
     })
@@ -343,7 +350,8 @@ export function createBackgroundAgentTask(options) {
       ? createCharacterDesignStage({ temperature: input.characterDesignTemperature })
       : null
     state.characterDesignStage = characterDesignStage
-    const maxToolCalls = Number.isInteger(input.maxToolCalls) && input.maxToolCalls > 0 ? input.maxToolCalls : 8
+    // director turns end by transaction/model choice, not a call quota.
+    const maxToolCalls = input.task === 'stage-director' ? Infinity : Number.isInteger(input.maxToolCalls) && input.maxToolCalls > 0 ? input.maxToolCalls : 8
     let toolCallCount = 0
     let refusedCount = 0
     const readScope = {}
@@ -427,6 +435,11 @@ export function createBackgroundAgentTask(options) {
             render: function (_args, value) { return [{ type: 'text', text: value }] }
           },
           async execute(args, execution) {
+            // ignore parallel/late submissions after terminal acceptance.
+            if (input.task === 'stage-director' && input.stopToolsWhen?.()) {
+              execution?.concludeTurn?.()
+              return str(await input.onToolCall({name:tool.name,arguments:args}))
+            }
             if (input.task === 'polish' && input.stopToolsWhen?.()) return JSON.stringify({ ok: false, error: '本次精修已完成。' })
             if (tool.countsTowardLimit !== false) {
               toolCallCount++
@@ -436,7 +449,11 @@ export function createBackgroundAgentTask(options) {
               }
             }
             const call = { name: tool.name, arguments: args }
-            const invoke = async function () { input.signal?.throwIfAborted(); return str(await input.onToolCall(call, { signal: input.signal })) }
+            const shared = input.task === 'stage-director' && usesSharedBackgroundContext(input) ? sharedByName.get(tool.name) : undefined
+            const invoke = async function () {
+              input.signal?.throwIfAborted()
+              return shared ? str(await shared.execute({ input, args, execution })) : str(await input.onToolCall(call, { signal: input.signal }))
+            }
             const result = characterDesignStage
               ? str(await characterDesignStage.execute(tool.name, invoke))
               : await invoke()
@@ -444,6 +461,12 @@ export function createBackgroundAgentTask(options) {
               const complete = input.stopToolsWhen()
               if (complete) execution?.concludeTurn?.()
               if (input.task !== 'polish' && (complete || toolCallCount >= maxToolCalls)) await removeTools()
+            }
+            // Rejections are native tool errors, not successful submissions. The
+            // same session/step budget remains available for the model's repair.
+            if (input.task === 'stage-director' && !shared) {
+              const feedback = JSON.parse(result)
+              if (feedback.retryable && feedback.errors?.length) throw new Error(result)
             }
             return result
           }
@@ -477,8 +500,7 @@ export function createBackgroundAgentTask(options) {
     state.sharedAnchor = null
     if (input.undoLastTask === true) return undoLastTask(agent.session, traceSessionId, agent)
     const runtimeInput = state.input
-    const isolated = ['stage-director', 'polish'].includes(input.task) || input.ownPrefix === true
-    state.sharedAnchor = persistent && !isolated && typeof options.resolveSharedTaskAnchor === 'function'
+    state.sharedAnchor = persistent && !ownsPrefix(input) && typeof options.resolveSharedTaskAnchor === 'function'
       ? await options.resolveSharedTaskAnchor(input) : null
     try { rewindBackgroundSurface(agent.session, input.rewindTo, agent, input.rewindFormatVersion || 3) }
     catch (error) {
@@ -503,7 +525,10 @@ export function createBackgroundAgentTask(options) {
         if (typeof options.flushSession === 'function') await options.flushSession(agent.session)
         await input.onPersistentSessionReady(traceSessionId)
       }
-      if (!isolated) {
+      // keep native tool-call/result history untouched between correction steps.
+      const director = input.task === 'stage-director'
+      const sharedContext = !ownsPrefix(input)
+      if (sharedContext) {
         const existing = readSessionStablePrefix(agent.session)
         const revision = typeof options.resolveStablePrefixRevision === 'function' ? await options.resolveStablePrefixRevision(input) : 0
         const background = existing && revision <= existing.revision ? existing.text : typeof options.resolveStablePrefix === 'function'
@@ -518,7 +543,7 @@ export function createBackgroundAgentTask(options) {
         if (input.task === 'polish') ensureSessionSystemHead(agent.session)
         releaseOpeningTurn(agent.session, agent)
       }
-      const projectsWorldbook = !isolated
+      const projectsWorldbook = sharedContext
       const worldbook = projectsWorldbook && typeof options.resolveCurrentWorldbook === 'function'
         ? await options.resolveCurrentWorldbook(input) : undefined
       if (projectsWorldbook) state.currentWorldbook = worldbook && typeof worldbook === 'object' ? worldbook.prefixContext : worldbook
@@ -536,9 +561,13 @@ export function createBackgroundAgentTask(options) {
       const candidateNotes = input.task === 'candidate' && typeof options.pluginCandidate === 'function'
         ? await options.pluginCandidate()?.sections(pluginContext).catch(() => []) || [] : []
       const candidateText = candidateNotes.length ? ['【插件附加的候选要求】', ...candidateNotes.map(note => note.text)].join('\n\n') : ''
-      const taskText = input.task === 'polish' || input.ownPrefix === true ? (typeof input.taskText === 'function' ? input.taskText() : input.taskText) : [snapshot?.rendered, systemUpdate?.rendered,
-        backgroundPrompt(input.messages, scriptContext?.turnContext ?? input.turnContext, input.task, isolated ? '' : input.system, input), settlementText, candidateText].filter(Boolean).join('\n\n')
-      agent.followup({
+      const ownTaskText = input.task === 'polish' || input.ownPrefix === true
+      const taskText = ownTaskText ? (typeof input.taskText === 'function' ? input.taskText() : input.taskText)
+        : backgroundTaskPrompt({ input, turnContext: scriptContext?.turnContext ?? input.turnContext, worldbook: snapshot, systemUpdate,
+          pluginText: [settlementText, candidateText].filter(Boolean).join('\n\n') })
+      if (!sharedContext && !ownTaskText) {
+        for (const message of input.messages || []) agent.followup({ ...message, id: randomUUID(), source: message.source || { kind: 'plugin:dsh-tavern' } })
+      } else agent.followup({
         id: randomUUID(),
         role: 'user',
         content: [{ type: 'text', text: taskText }],
@@ -548,15 +577,18 @@ export function createBackgroundAgentTask(options) {
       })
       await progress.wait(agent.whenIdle())
       input.signal?.throwIfAborted()
-      if (input.task === 'polish') {
-        const underlying = terminalError(sessionEvents(agent.session), eventStart)
-        if (underlying) throw underlying
+      // Transport failure must not become success after an earlier tool submission,
+      // including settlement and candidate tasks, not only the director.
+      if (director) {
+        const usage = lastDirectorProviderUsage(sessionEvents(agent.session), eventStart)
+        if (usage) input.onProviderUsage?.(usage)
       }
+      const transportFailure = terminalError(sessionEvents(agent.session), eventStart)
+      if (transportFailure !== null) throw transportFailure
       const rawResult = finalMessage(sessionEvents(agent.session), eventStart)
       if (rawResult === null) {
-        const underlying = terminalError(sessionEvents(agent.session), eventStart)
-        if (underlying !== null) throw underlying
         if (typeof runtimeInput.acceptWithoutText !== 'function' || runtimeInput.acceptWithoutText() !== true) {
+          if (director) throw new Error('导演模型没有调用工具，请换一个支持工具调用的模型')
           throw new Error(input.task === 'settlement' ? '后台 Agent 没有返回结算文本' : input.task === 'plugin' ? '后台 Agent 没有返回任务结果' : '后台 Agent 没有返回候选文本')
         }
       }
