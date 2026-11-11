@@ -7,11 +7,23 @@ import { isPluginSource, sourceProducerName } from './message-source.js'
 // the normal request projection, so omit them at this request boundary too.
 export function projectCompactionRequest(request) {
   if (request?.purpose !== 'compaction' || !Array.isArray(request.messages)) return request
-  const messages = request.messages.filter(message => !(message?.role === 'user' &&
-    Array.isArray(message.content) && message.content.length === 0 &&
-    isPluginSource(message.source) &&
-    ['dsh-tavern', 'dsh-tavern-failed-turn-cleanup'].includes(sourceProducerName(message.source))))
-  return messages.length === request.messages.length ? request : { ...request, messages }
+  const messages = request.messages.flatMap(message => {
+    if (message?.role === 'user' && Array.isArray(message.content) && message.content.length === 0 &&
+      isPluginSource(message.source) &&
+      ['dsh-tavern', 'dsh-tavern-failed-turn-cleanup'].includes(sourceProducerName(message.source))) return []
+    if (message?.role !== 'assistant' || !Array.isArray(message.content)) return [message]
+    // Summary projection changes the signed prefix. Replay reasoning is not story
+    // content; remove whole blocks, including redacted reasoning, only in this copy.
+    const content = message.content.filter(block => block.type !== 'reasoning')
+    if (content.length === message.content.length) return [message]
+    if (!content.length) return []
+    // Adapter-owned replay metadata indexes the original block array. Use the
+    // provider-neutral contract rather than passing stale indexes to the adapter.
+    const { replayState, ...source } = message.source || {}
+    return [{ ...message, content, ...(message.source ? { source } : {}) }]
+  })
+  return messages.length === request.messages.length && messages.every((message, index) => message === request.messages[index])
+    ? request : { ...request, messages }
 }
 
 /**
