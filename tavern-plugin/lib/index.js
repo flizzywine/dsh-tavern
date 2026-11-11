@@ -3412,6 +3412,8 @@ export async function apply(ctx) {
       writeChatHeader,
       updateChat,
       readChatSlice: chatSliceForSession,
+      readChangedSlice: chatPersistence.readChangedSlice,
+      readWindow: chatPersistence.readWindow,
       patchChat,
       updateCard,
       createCard: createWorkspaceCard

@@ -21,6 +21,9 @@ import { variableUpdateFor } from './variable-update.js'
 import { replyProse } from './reply-prose.js'
 import { captureBodyRegenerationSource } from './body-regeneration-materials.js'
 import { frameUserInput } from './agent-input-frame.js'
+import { readRowsAt } from './bounded-history.js'
+import { legacyMessageUid } from './message-uid.js'
+import { isDeepStrictEqual } from 'node:util'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -55,6 +58,23 @@ function cardPathOf(chat) { return str(chat && (chat.cardPath || chat.cardId)) }
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+}
+
+function preparationConflict() {
+  return Object.assign(new Error('存档在准备正文期间发生冲突，本轮已停止'), { code: 'TAVERN_PREPARE_CONFLICT' })
+}
+
+function storageStamp(change) {
+  return change.path[0] === '_storageRevision' || change.path[0] === 'updatedAt'
+}
+
+function variableHeaderChange({ path }) {
+  return path[0] === 'variables' || path[0] === 'tavernHelperScriptVariables'
+    || (path[0] === 'macroState' && path[1] === 'userName')
+}
+
+function changesOverlap(left, right) {
+  return left.path.slice(0, Math.min(left.path.length, right.path.length)).every((key, index) => key === right.path[index])
 }
 
 function object(value) {
@@ -423,11 +443,14 @@ export function createTurnOrchestrator(options) {
         frame
       }
     }
-    let preparationBase = store.writeChatHeader ? captureChatHeader(chat) : null
+    let preparationBase = captureChatHeader(chat)
     async function savePreparation(metadata) {
       if (preview) return
       if (store.writeChatHeader) preparationBase = await store.writeChatHeader(chat,preparationBase,metadata)
-      else await store.writeChat(chat,metadata)
+      else {
+        await store.writeChat(chat,metadata)
+        preparationBase = captureChatHeader(chat)
+      }
     }
     async function saveStoryPreparation() {
       if (preview) return
@@ -455,23 +478,70 @@ export function createTurnOrchestrator(options) {
       }
       // An already saved player row is updated in place; only the assistant is appended.
       const rows = savedUser ? [assistant] : withUser ? [user, assistant] : [assistant]
-      const selected = store.readChatSlice ? await store.readChatSlice(input.sessionId, []) : null
+      let selected = store.readChatSlice ? await store.readChatSlice(input.sessionId, []) : null
       if (selected?.denseMessages && store.patchChat && Number.isSafeInteger(selected.messageCount)) {
-        const baseline = preparationBase || selected.chat
+        const baseline = preparationBase
         const revision = Number(baseline?._storageRevision)
-        if (!Number.isSafeInteger(revision) || selected.chat?._storageRevision !== revision) throw new Error('剧情已变化，本次正文准备已过期')
-        const userIndex = savedUserIndex >= 0 ? savedUserIndex : withUser ? selected.messageCount : null
-        const assistantIndex = selected.messageCount + rows.length - 1
+        const count = chat.messages.length
+        if (!Number.isSafeInteger(revision)) throw preparationConflict()
+        const userIndex = savedUserIndex >= 0 ? savedUserIndex : withUser ? count : null
+        const assistantIndex = count + rows.length - 1
         operation.placeholder = { userIndex, assistantIndex }
         const header = captureChatHeader(chat)
-        const changes = diffJson({ ...baseline, messages: [] }, { ...header, messages: [] })
-          .filter(change => !['_storageRevision', 'updatedAt'].includes(change.path[0]))
-        if (savedUser) changes.push({ op: 'set', path: ['messages', savedUserIndex], value: user })
-        changes.push({ op: 'splice', path: ['messages'], index: selected.messageCount, deleteCount: 0, items: rows })
-        const saved = await store.patchChat(chat.id, revision, changes, { source: 'foreground.prepare' })
-        if (!saved) throw new Error('剧情已变化，本次正文准备已过期')
-        preparationBase = { ...header, _storageRevision: saved._storageRevision }
-        return
+        const prepared = diffJson(baseline, header).filter(change => !storageStamp(change))
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (attempt > 0) selected = await store.readChatSlice(input.sessionId, [])
+          if (!selected?.denseMessages || selected.chat.id !== chat.id || selected.messageCount !== count) throw preparationConflict()
+          const currentRevision = selected.chat._storageRevision
+          let latestUser = savedUser
+          let changes = [...prepared]
+          if (currentRevision !== revision) {
+            // Helper/MVU can save after the frame takes its snapshot. Keep its
+            // variables while still rejecting edits to the story or its layout.
+            const concurrent = diffJson(baseline, captureChatHeader(selected.chat)).filter(change => !storageStamp(change))
+            if (!concurrent.every(change => variableHeaderChange(change) &&
+              prepared.every(patch => !changesOverlap(change, patch) || isDeepStrictEqual(change, patch)))) throw preparationConflict()
+            const changed = await store.readChangedSlice?.(chat.id, revision)
+            if (!changed?.denseMessages || changed.layoutChanged || changed.messageCount !== count) throw preparationConflict()
+            if (changed.chat._storageRevision !== currentRevision) continue
+            changes = prepared.filter(patch => !concurrent.some(change => isDeepStrictEqual(change, patch)))
+            const unloaded = changed.indices.filter(index => !chat.messages[index])
+            const historical = unloaded.length && store.readWindow ? await readRowsAt(store.readWindow, chat.id, revision, unloaded) : null
+            const historicalRows = new Map(unloaded.map((index, offset) => [index, historical?.chat.messages[offset]]))
+            for (const [offset, index] of changed.indices.entries()) {
+              const before = chat.messages[index] ?? historicalRows.get(index)
+              const after = changed.chat.messages[offset]
+              if (!before || !after) throw preparationConflict()
+              const { variables: _beforeVariables, messageUid: beforeUid, ...beforeMessage } = before
+              const { variables: _afterVariables, messageUid: afterUid, ...afterMessage } = after
+              // A first variable snapshot can assign the floor its stable native identity.
+              if (!isDeepStrictEqual(beforeMessage, afterMessage) ||
+                (beforeUid !== afterUid && (beforeUid || afterUid !== legacyMessageUid(before, index)))) throw preparationConflict()
+              if (index === savedUserIndex) latestUser = after
+            }
+          }
+          if (savedUser) {
+            const nextUser = { ...latestUser, ...user }
+            if (!isDeepStrictEqual(latestUser.variables, savedUser.variables)) {
+              if (Object.hasOwn(latestUser, 'variables')) nextUser.variables = latestUser.variables
+              else delete nextUser.variables
+              if (header.promptTemplateInput?.turn === turn) {
+                const staged = { ...header.promptTemplateInput.message }
+                if (Object.hasOwn(latestUser, 'variables')) staged.variables = latestUser.variables
+                else delete staged.variables
+                changes.push(...diffJson(header.promptTemplateInput.message, staged).map(change => ({
+                  ...change, path: ['promptTemplateInput', 'message', ...change.path]
+                })))
+              }
+            }
+            changes.push(...diffJson(latestUser, nextUser).map(change => ({
+              ...change, path: ['messages', savedUserIndex, ...change.path]
+            })))
+          }
+          changes.push({ op: 'splice', path: ['messages'], index: count, deleteCount: 0, items: rows })
+          if (await store.patchChat(chat.id, currentRevision, changes, { source: 'foreground.prepare' })) return
+        }
+        throw preparationConflict()
       }
       // Legacy/flat saves use the same identity rule as the scoped patch path.
       operation.placeholder = { userIndex: savedUserIndex >= 0 ? savedUserIndex : withUser ? chat.messages.length : null,
@@ -504,7 +574,7 @@ export function createTurnOrchestrator(options) {
       if (!exists) {
         await appendUser({ sessionId: input.sessionId, requestId, userText, userContent: input.userContent })
         chat = await contextForSession(input.sessionId)
-        preparationBase = store.writeChatHeader ? captureChatHeader(chat) : null
+        preparationBase = captureChatHeader(chat)
       }
     }
     let chatChanged = clearStaleStages(chat, turn)
@@ -615,11 +685,11 @@ export function createTurnOrchestrator(options) {
     if (typeof options.projectForegroundWorldbook === 'function') {
       if (!preview) {
         chat = await contextForSession(input.sessionId)
-        if (chat && store.writeChatHeader) preparationBase = captureChatHeader(chat)
+        if (chat) preparationBase = captureChatHeader(chat)
       }
       const current = chat && timeline.inspect({ chat })
       if (!current || current.branchId !== foregroundOperation.basedOn.branchId || current.revision !== foregroundOperation.basedOn.revision ||
-          current.operations[foregroundOperation.operationId]?.status !== 'running') throw new Error('剧情已变化，本次正文准备已过期')
+          current.operations[foregroundOperation.operationId]?.status !== 'running') throw preparationConflict()
     }
     const templateWorldBook = foregroundWorldBook || await projectWorldBookTemplates({ chat, card, turn, userText: runtimeUserText })
     const scriptWorldBook = !foregroundWorldBook && typeof options.projectScriptPromptWorldbook === 'function' ? await options.projectScriptPromptWorldbook({ chat, card, turn }) : null
