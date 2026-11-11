@@ -69,9 +69,11 @@ test('宿主先空闲时，落盘信号刷新故事并挡住迟到的旧读取',
 	const earlyRead = Promise.withResolvers()
 	const old = { storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1 }
 	const replacement = '重新生成的长正文'.repeat(800)
-	let committed = old, reads = 0
-	const data = p.context.createTavernStoryTranscriptDataModule({ rpc: async () => {
-		return ++reads === 2 ? earlyRead.promise : committed
+	let committed = old, reads = 0, earlySignal
+	const data = p.context.createTavernStoryTranscriptDataModule({ rpc: async (_method, _args, _id, options) => {
+		if (++reads !== 2) return committed
+		earlySignal = options.signal
+		return earlyRead.promise
 	} })
 	const feature = p.context.createTavernStoryTranscriptFeature({ dataModule: data })
 	const flow = running => React.createElement(feature.StoryTranscriptFlow, {
@@ -80,6 +82,7 @@ test('宿主先空闲时，落盘信号刷新故事并挡住迟到的旧读取',
 	})
 	const root = await mount(p, flow(true))
 	await act(async () => root.render(flow(false)))
+	await act(async () => clock.advance(0))
 	assert.equal(reads, 2, '宿主先变空闲，提前发出了读取')
 
 	committed = { ...old, storyTranscript: transcript([...messages.slice(0, -1), { ...messages.at(-1), text: replacement }], 2), revision: 2 }
@@ -87,6 +90,7 @@ test('宿主先空闲时，落盘信号刷新故事并挡住迟到的旧读取',
 		signals.publish('s1', { kind: 'story-regenerated', version: '2' })
 		await clock.advance(0)
 	})
+	assert.equal(earlySignal.aborted, true, '提交信号取消还在途的旧读取')
 	assert.equal(reads, 3, '正文提交后独立触发重新读取')
 	await act(async () => earlyRead.resolve(old))
 	assert.ok(p.dom.window.document.querySelector('[data-chat-flow-key="turn:9"]').textContent.includes(replacement))
@@ -131,6 +135,38 @@ test('提交信号只到一次时，重读失败或读到旧版本会自动恢�
 	assert.equal(store.getSnapshot().revision, 2)
 	assert.match(p.dom.window.document.querySelector('main').textContent, /已提交的新正文/)
 	assert.deepEqual(clock.delays(), [])
+})
+
+test('回合结束与页面变更合并读取，切换会话后旧会话停止重试', async t => {
+	const p = page(t)
+	const clock = syncClock(), signals = createSessionSignalTransport()
+	const createRefresh = p.context.createSessionRefreshController
+	p.context.createSessionRefreshController = options => createRefresh({ ...options, ...clock })
+	p.context.tavernSessionSignals = signals
+	const requests = []
+	const data = p.context.createTavernStoryTranscriptDataModule({ rpc: async (_method, _args, sessionId, options) => {
+		requests.push(sessionId)
+		if (sessionId === 's1' && options?.signal) throw new Error('暂时断网')
+		return { storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1 }
+	} })
+	const feature = p.context.createTavernStoryTranscriptFeature({ dataModule: data })
+	const flow = (sessionId, running = false) => React.createElement(feature.StoryTranscriptFlow, {
+		sessionId, renderNative: () => null, useChat: selector => selector({ legacy: {} }),
+		useSession: selector => selector({ running })
+	})
+	const root = await mount(p, flow('s1', true))
+	await act(async () => root.render(flow('s1')))
+	await act(async () => {
+		const { window } = p.dom
+		window.dispatchEvent(new window.CustomEvent('dsh-tavern-story-mutated', { detail: { sessionId: 's1' } }))
+		await clock.advance(0)
+	})
+	assert.deepEqual(requests, ['s1', 's1'])
+	assert.deepEqual(clock.delays(), [500])
+	await act(async () => root.render(flow('s2')))
+	assert.deepEqual(clock.delays(), [])
+	await act(async () => clock.advance(10000))
+	assert.deepEqual(requests, ['s1', 's1', 's2'])
 })
 
 test('打开游玩工作过程后只在对应故事楼层显示可展开的工具记录', async t => {

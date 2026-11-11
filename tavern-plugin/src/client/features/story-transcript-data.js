@@ -263,40 +263,56 @@ function useTavernStoryProjectionRefresh(store, sessionId, {
 	const storyTurn = nativeTurn !== null && typeof tavernStoryTurnForDshTurn === 'function'
 		? tavernStoryTurnForDshTurn(view, nativeTurn) : nativeTurn
 	const previous = React.useRef(null)
-	const requireRevision = React.useRef(null)
+	const requestRefresh = React.useRef(null)
 
 	React.useEffect(function () {
 		if (!active || !sessionId || typeof window === 'undefined') return undefined
 		let wantedRevision = 0
+		// Local invalidations have no revision. Remember any that arrive during a read.
+		let requestedRead = 0, acceptedRead = 0
+		const snapshot = () => store.snapshotFor(sessionId, historyFrom)
+		const reached = read => (read.status === 'ready' || read.status === 'empty') && read.revision >= wantedRevision
 		const refresh = createSessionRefreshController({
 			loadTimeoutMs: 10000,
 			retryDelaysMs: TAVERN_PROJECTION_RETRY_DELAYS_MS,
 			async load({ signal }) {
-				const read = store.snapshotFor(sessionId, historyFrom)
-				if (read.revision >= wantedRevision) return read
-				return await store.read(sessionId, { historyFrom, force: true, signal, minimumRevision: wantedRevision })
+				const requested = requestedRead
+				if (requested !== acceptedRead || !reached(snapshot())) {
+					await store.read(sessionId, { historyFrom, force: true, signal, minimumRevision: wantedRevision })
+				}
+				return requested
 			},
-			onResult(read) {
-				if (!(read.revision >= wantedRevision)) throw read.error || new Error('故事历史尚未读到已提交版本')
+			onResult(requested) {
+				const read = snapshot()
+				if (!reached(read)) {
+					throw read.error || new Error('故事历史尚未读到已提交版本')
+				}
+				acceptedRead = requested
 			},
 			onError() {}
 		})
 		refresh.start()
-		function requestVersion(revision) {
-			if (!Number.isSafeInteger(revision) || revision <= wantedRevision || revision <= store.snapshotFor(sessionId, historyFrom).revision) return
-			wantedRevision = revision
+		function request(revision, committed = false) {
+			if (revision === undefined) requestedRead++
+			else {
+				if (!Number.isSafeInteger(revision) || revision <= snapshot().revision || revision < wantedRevision) return
+				if (revision === wantedRevision && !committed) return
+				wantedRevision = revision
+				// A durable commit can overtake a read started while the model was still finishing.
+				if (committed) refresh.replace()
+			}
 			refresh.request()
 		}
-		requireRevision.current = requestVersion
+		requestRefresh.current = request
 		function changed(event) {
-			if (String(event.detail?.sessionId || '') === sessionId) void store.read(sessionId, { historyFrom, force: true })
+			if (String(event.detail?.sessionId || '') === sessionId) request()
 		}
 		window.addEventListener('dsh-tavern-story-mutated', changed)
 		const unsubscribe = typeof tavernSessionSignals !== 'undefined' && tavernSessionSignals?.subscribe(sessionId, 'story-regenerated', signal => {
-			requestVersion(Number(signal.version))
+			request(Number(signal.version), true)
 		})
 		return function () {
-			requireRevision.current = null
+			requestRefresh.current = null
 			refresh.stop()
 			window.removeEventListener('dsh-tavern-story-mutated', changed)
 			if (unsubscribe) unsubscribe()
@@ -323,9 +339,9 @@ function useTavernStoryProjectionRefresh(store, sessionId, {
 		})
 		if (turnEnded) externalHistory?.refresh(sessionId, { force: true })
 		if (resumed || turnEnded || streamStarted || (streamStopped && !settled)) {
-			void store.read(sessionId, { historyFrom, force: true })
+			requestRefresh.current?.()
 		}
-		if (Number.isSafeInteger(storyRevision) && liveRevision > storyRevision) requireRevision.current?.(liveRevision)
+		if (Number.isSafeInteger(storyRevision) && liveRevision > storyRevision) requestRefresh.current?.(liveRevision)
 	}, [store, sessionId, historyFrom, enabled, active, running, nativeTurn, storyTurn,
 		transcript, view, liveRevision, storyRevision, externalHistory])
 }
