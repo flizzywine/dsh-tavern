@@ -1092,12 +1092,16 @@ export async function apply(ctx) {
     const recovered = await conversationRegistry.recoverUnlisted(chatIds)
     if (recovered.length) console.warn('dsh-tavern: 找回 ' + recovered.length + ' 局未登记的存档：' + recovered.join('、'))
   } catch (error) { console.warn('dsh-tavern: 核对存档登记失败', error?.message || error) }
+  // A play conversation takes this install's background and feature configuration once (reader adoption, save import).
+  function adoptConversationConfiguration(chat) {
+    return adoptConversationFeatures(adoptConversationBackground(chat, tavernSettingsDocument), tavernSettingsDocument)
+  }
   const sessionChats = createSessionChatReader({
     registry: conversationRegistry,
     needsAdoption: chat => groupOfMode(chat.mode) === 'play'
       && (chat.backgroundConfigVersion !== 1 || chat.conversationFeaturesVersion !== 1),
     adopt: async function (chat) {
-      return updateChat(chat.id, current => adoptConversationFeatures(adoptConversationBackground(current, tavernSettingsDocument), tavernSettingsDocument), { source: 'background-config.adopt' })
+      return updateChat(chat.id, adoptConversationConfiguration, { source: 'background-config.adopt' })
     }
   })
   // Plugin/extra tools last seen in a play request, per game. The settings
@@ -1650,7 +1654,7 @@ export async function apply(ctx) {
     tavernVersion: TAVERN_PACKAGE_VERSION, dataRoot, readCard,
     prepareGameSaveResources: createGameSaveResources({ resources: fileResources, cardPreparation }),
     getAttachments: () => ctx.get('attachments'), newChatId: () => uid('chat'),
-    rawWriteChat, conversationRegistry, profileData, sceneWorldbookArchive,
+    rawWriteChat, conversationRegistry, profileData, sceneWorldbookArchive, adoptConfiguration: adoptConversationConfiguration,
     // 导出时可以不带预设快照（同包已带预设），导入时按这局记下的预设重新冻结一份：
     // 目标机刚装回来的就是它，渲染路径照旧只读快照。
     restorePresetSnapshot: async function (chat) {

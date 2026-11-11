@@ -9,7 +9,7 @@ const str = value => value == null ? '' : String(value)
 /** Own import admission, publication and compensating cleanup. A game is published only after all restores succeed. */
 export function createGameSaveImporter({ tavernVersion, dataRoot, readCard, prepareGameSaveResources, getAttachments,
   rawWriteChat, conversationRegistry, sessions, profileData, sceneWorldbookArchive, pluginApi,
-  restorePresetSnapshot = async chat => chat,
+  restorePresetSnapshot = async chat => chat, adoptConfiguration = chat => chat,
   newChatId = () => 'chat-' + randomUUID(), newSessionId = () => 'session-' + randomUUID() }) {
   const importingGameSaves = new Set()
   async function importGameSave(args) {
@@ -59,13 +59,15 @@ export function createGameSaveImporter({ tavernVersion, dataRoot, readCard, prep
         // 只要最新进度时这些存档点不写：一局 7 份快照就是 7 倍写盘，还带来几千个块。
         const historyRevisions = args?.latestOnly === true ? [] : save.revisions
         for (const { revision, state } of historyRevisions) {
-          const historyState = await rawWriteChat(await restorePresetSnapshot(prepare(state)), { source: 'game-save.import.history' })
+          const historyState = await rawWriteChat(adoptConfiguration(await restorePresetSnapshot(prepare(state))), { source: 'game-save.import.history' })
           written = true
           content.recordRevision(revision, historyState._storageRevision)
         }
         markStage('revisions')
         if (args?.latestOnly === true) stageMs.skippedRevisions = save.revisions.length
-        const current = await restorePresetSnapshot(prepare(save.chat))
+        // An older save enters with this install's configuration adopted, so no later
+        // reader migrates (and re-revisions) the game after it is published.
+        const current = adoptConfiguration(await restorePresetSnapshot(prepare(save.chat)))
         current.title = (sessionTitleOf(save.session.events) || str(save.chat.title) || str(save.chat.cardName) || '游戏') + '（导入）'
         current.lastOpenedAt = Date.now()
         current.importedSave = { sourceChatId, exportedAt: save.manifest.exportedAt, tavernVersion: save.manifest.tavernVersion }

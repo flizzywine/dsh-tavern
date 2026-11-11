@@ -14,7 +14,7 @@ function archive(world = null) {
     session: { header: { id: 'old-session' }, events: [{ seq: 0, type: 'turn/end', data: { turn: 1 } }] },
     plugins: { data: {}, media: {}, attachments: [] }, tavernVersion: '3.0.1' }).toString('base64') }
 }
-async function harness(t, fail = '') {
+async function harness(t, fail = '', options = {}) {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'save-import-'))
   t.after(() => rm(dataRoot, { recursive: true, force: true }))
   const calls = [], states = [], metadata = []
@@ -29,7 +29,8 @@ async function harness(t, fail = '') {
     sceneWorldbookArchive: { forgetChat: () => op('forget-scene') },
     pluginApi: { importGame: () => op('plugins') },
     sessions: { create: async input => { await op('create'); assert.equal(input.sessionId, 'new-session'); return { agent: { session: {} }, dispose: () => op('dispose') } },
-      flush: () => op('flush'), attach: () => op('attach'), detach: () => op('detach'), remove: () => op('remove-session') }
+      flush: () => op('flush'), attach: () => op('attach'), detach: () => op('detach'), remove: () => op('remove-session') },
+    ...options
   })
   return { run, calls, states, metadata, hold(promise) { release = promise } }
 }
@@ -65,4 +66,14 @@ test('导入把可选权威世界只用于当前 head，并拒绝非法来源坐
   assert.deepEqual(h.metadata.at(-1).worldSelection, { selected: world })
   const invalid = await harness(t)
   await assert.rejects(invalid.run(archive({ ...world, position: 99 })), /世界状态不完整/)
+})
+
+test('旧存档在导入时一次性采用本机配置，发布后不再由读取方迁移改写', async t => {
+  const h = await harness(t, '', { adoptConfiguration: chat => ({ ...chat, backgroundConfigVersion: 1, conversationFeaturesVersion: 1 }) })
+  await h.run(archive())
+  assert.equal(h.states.length, 2)
+  for (const state of h.states) {
+    assert.equal(state.backgroundConfigVersion, 1)
+    assert.equal(state.conversationFeaturesVersion, 1)
+  }
 })
