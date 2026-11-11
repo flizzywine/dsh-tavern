@@ -1,5 +1,6 @@
 import {cardFigureRows} from './card-stage.js'
 import {selectPackFigure} from './domain/asset-pack-presentation.js'
+import {figureDefaultEmotion} from '../../dsh-asset-library/lib/asset-packs/figure-emotions.js'
 import {serviceVoiceSpec} from './figure-voice-authoring.js'
 
 // 自动选角's one port to the asset library and the shared figure records: the library's
@@ -20,7 +21,7 @@ export function createAutoCastLibrary({getLibrary, getTts = () => null}) {
   const figuresOf = pack => Object.entries(pack?.figures || {}).map(([figureId, figure]) => {
     const ref = {packId:pack.manifest.id, figureId}
     const sprites = (figure.emotions || []).map(row => row.id).filter(emotion => selectPackFigure(figure, pack.sprites || {}, {emotion, appearance:'sprite'}).spriteResolution?.resolvedEmotion === emotion)
-    return {ref, name:figure.name, aliases:figure.aliases || [], emotions:figure.emotions || [], settei:!!figure.identitySettei?.board, setteiHash:figure.identitySettei?.board ?? null, sprites}
+    return {ref, name:figure.name, aliases:figure.aliases || [], emotions:figure.emotions || [], defaultEmotion:figureDefaultEmotion(figure, figure.outfits?.find(outfit => outfit.enabled)) ?? null, settei:!!figure.identitySettei?.board, setteiHash:figure.identitySettei?.board ?? null, sprites}
   })
   // What a cast figure speaks with, as provider:voiceName of its source (a 配音后端 voice is checked against it).
   const spokenSources = (rows, packs) => new Set(rows.flatMap(row => {
