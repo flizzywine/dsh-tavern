@@ -37,6 +37,7 @@ export function createPlainSettlementEngine(deps) {
     let settlementToolTail = Promise.resolve()
     const plan = plainSettlementPlan({ posture: backgroundTasksSettings.posture ? postureItem : null })
     const run = await backgroundAgentRunner.run({
+      ...deps.requestAnchor?.(snapshot, taskRun),
       onPersistentSessionReady: id => taskRun.bindSession(id, { stateOnly: true }),
       task: 'settlement',
       turn: settlementTurn(snapshot),

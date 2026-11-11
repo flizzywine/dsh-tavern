@@ -195,6 +195,55 @@ export function createTavernPluginApi(deps) {
   }
   const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1,
     ...(deps.generationPresets ? { generationPresets: 1 } : {}) })
+  // Allocated only when a plugin declares a read capability.
+  let readDeclarations
+  let readEpoch = 0
+  const staleRead = () => Object.assign(new Error('Read capability was revoked'), { code: 'TAVERN_PLUGIN_READ_REVOKED' })
+  function readDefinition({ sources, authorize } = {}) {
+    if (!Array.isArray(sources) || typeof authorize !== 'function') throw new TypeError('sources and authorize are required')
+    const readers = new Map()
+    for (const { name, readRaw } of sources) {
+      sectionName(name)
+      if (readers.has(name) || typeof readRaw !== 'function') throw new TypeError('Unique source names and readRaw functions are required')
+      readers.set(name, readRaw)
+    }
+    return { readers, authorize }
+  }
+  async function resolveReadCapability({ owner, name, sessionId, consumer, anchor, scope, readHistory }) {
+    const key = owner + ':' + name
+    const entry = readDeclarations?.get(key)
+    if (!entry) return null
+    const epoch = entry.epoch
+    const current = () => readDeclarations?.get(key) === entry && entry.epoch === epoch
+    await guardScope(owner, { gameId: sessionId })
+    const binding = structuredClone({ sessionId, consumer, anchor, scope })
+    if (!await entry.authorize(structuredClone(binding)) || !current()) return null
+    if (typeof readHistory !== 'function') throw new TypeError('readHistory is required')
+    const readers = new Map([...entry.readers].map(([local, reader]) => [owner + ':' + name + ':' + local, reader]))
+    const execute = async (reader, { args, signal } = {}) => {
+      if (!current()) throw staleRead()
+      signal?.throwIfAborted()
+      const result = await reader({ sessionId: binding.sessionId, anchor: structuredClone(binding.anchor),
+        args: structuredClone(args), signal, scope: structuredClone(binding.scope) })
+      if (!current()) throw staleRead()
+      signal?.throwIfAborted()
+      return result
+    }
+    return Object.freeze({ generation: String(epoch), sources: Object.freeze([...readers.keys()].sort()),
+      readHistory: context => execute(readHistory, context),
+      readSource: context => {
+        const args = context?.args
+        const reader = readers.get(args?.sourceId)
+        if (!reader) throw new Error('Source is not authorized')
+        if (Object.keys(args).some(key => !['sourceId', 'turn', 'para'].includes(key)) ||
+          !Number.isSafeInteger(args.turn) || args.turn < 1 || args.turn > binding.anchor.turn ||
+          (args.para !== undefined && (!Number.isSafeInteger(args.para) || args.para < 0 ||
+            args.turn === binding.anchor.turn && binding.anchor.para !== undefined && args.para > binding.anchor.para))) {
+          throw new Error('Query exceeds the bound anchor or contains unsupported fields')
+        }
+        return execute(reader, context)
+      } })
+  }
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -422,6 +471,29 @@ export function createTavernPluginApi(deps) {
     return !(await choicesFor(gameId)).disabled.has(owner)
   } })
   const service = {
+    readCapability({ name, ...definition } = {}) {
+      const owner = ownerOf(this)
+      sectionName(name)
+      const initial = readDefinition(definition)
+      const key = owner + ':' + name
+      let entry
+      const revoke = owned(this, () => {
+        readDeclarations ??= new Map()
+        if (readDeclarations.has(key)) throw new Error('Read capability already registered')
+        entry = { ...initial, epoch: ++readEpoch }
+        readDeclarations.set(key, entry)
+        return () => {
+          if (readDeclarations?.get(key) !== entry) return
+          readDeclarations.delete(key)
+          if (!readDeclarations.size) readDeclarations = undefined
+        }
+      }, 'tavern.readCapability()')
+      return Object.freeze({ revoke, update(next) {
+        if (readDeclarations?.get(key) !== entry) throw staleRead()
+        const value = readDefinition(next)
+        Object.assign(entry, value, { epoch: ++readEpoch })
+      } })
+    },
     hostBehavior(input) {
       const owner = ownerOf(this)
       return owned(this, () => hostBehavior.register(owner, input), 'tavern.hostBehavior()')
@@ -1985,7 +2057,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady,
+  return Object.freeze({ resolveReadCapability, hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),

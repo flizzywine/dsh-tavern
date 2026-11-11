@@ -78,8 +78,11 @@ const lineOf = unit => {
   return text === '' ? '' : (unit.message.role === 'user' ? '[玩家]\n' : '[正文]\n') + text
 }
 
+/** The story's token estimate; any other budget measured against story text uses this one. */
+export const estimateStoryTokens = text => Math.ceil(text.length / 4)
+
 /** How many of the newest rounds fit both the round quota and the token budget. */
-function retentionPlan(history, rounds, { budget = Infinity, estimate = text => Math.ceil(text.length / 4) } = {}) {
+function retentionPlan(history, rounds, { budget = Infinity, estimate = estimateStoryTokens } = {}) {
   const units = history.flatMap((message, source) => storyUnits(message).map(unit => ({ ...unit, source })))
   const starts = units.flatMap((unit, index) => unit.player ? [index] : [])
   let fit = 0, used = 0
@@ -163,7 +166,7 @@ export function storySummaryVolumes(history) {
  * blocks placed before its output (the note and the carried volumes). `through` is the last
  * story turn being folded, when known.
  */
-export function storyVolumePlan(request, { through, budget = Infinity, estimate = text => Math.ceil(text.length / 4) } = {}) {
+export function storyVolumePlan(request, { through, budget = Infinity, estimate = estimateStoryTokens } = {}) {
   const volumes = storySummaryVolumes(Array.isArray(request?.messages) ? request.messages.slice(0, -1) : [])
   const last = volumes.at(-1)
   const from = volumes.length === 0 ? 1 : (Number.isInteger(last.through) ? last.through + 1 : null)
