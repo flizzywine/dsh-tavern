@@ -15,7 +15,6 @@ import {resolveBoundConfig} from '../../../lib/domain/mod-system.js'
 import {createModConfigHost,createModConfigStageReader} from './mod-config-host.js'
 import {createModConfigFiles} from './mod-config.js'
 import {createModStagePort} from './mod-stage.js'
-import {createModCoreMedia} from './domain/mods/core-media.js'
 import {createModelStreamTiming} from './domain/mods/models.js'
 import {managedConfigStore} from './mod-system-execution.js'
 import {createStageDirector} from './domain/stage-director.js'
@@ -88,7 +87,7 @@ export async function createStageModule(core) {
   let modConfigHost
   const workbenchAuthority=Object.freeze({})
   let modViewVersion=0
-  modService=createBuiltinModService({workbenchAuthority,root:dataRoot+'/managed-mod-media',management:managedModManagement,readCard:readModCard,
+  modService=createBuiltinModService({workbenchAuthority,management:managedModManagement,readCard:readModCard,
     config:{values:(...args)=>modConfigHost.values(...args),bindings:(...args)=>modConfigHost.bindings(...args),
       managedRequest:async chat=>managedModManagement.request(chat,{sources:modConfigHost.sources,context:await modConfigHost.context({sessionId:chat.sessionId})}),
       // the phone reads which layer supplied a value and that layer's uploaded files.
@@ -122,10 +121,8 @@ export async function createStageModule(core) {
       },
     },
     engineJudge,coreCommands:coreModCommands,connected:sessionId=>sessionSignals.connected(sessionId),
-    resolveAssets:input=>ctx.get('assetLibrary').resolveAssets(input),
     assetSnapshot:assetRuntime.snapshot,publishView:(sessionId,snapshot)=>sessionSignals.publish(sessionId,{kind:'mod-view',sessionId,version:String(++modViewVersion),snapshot}),
     stage:createModStagePort({readChat:readStageChat,readTurn:(sessionId,turn)=>readRoundView(sessionId,turn),readSource:(sessionId,turn)=>readStageChat.view(sessionId,{turn,sourceOnly:true}),updateChat:rawUpdateChat,readCard:readModCard,publish:event=>sessionSignals.publish(event.sessionId,event)}),
-    coreMedia:createModCoreMedia({readChat:(sessionId,turn)=>readRoundView(sessionId,turn),snapshot:assetRuntime.snapshot,service:()=>ctx.get('assetLibrary')}),
     onLog:event=>event.kind==='mod-delivery'?ctx.logger.debug('%s',JSON.stringify(event)):console.info('dsh-tavern:',JSON.stringify(event)),onChange:()=>assetRuntime.invalidate(),onError:error=>ctx.logger.warn('MOD_CALLBACK_FAILED %s',JSON.stringify({code:error?.code || 'MOD_RUNTIME_FAILED',message:error?.message,stack:error?.stack})),variables:{
       // Mod admission needs operation facts and message coordinates, not rollback checkpoints.
       index:sessionId=>readStageChat.view(sessionId,{configOnly:true}),
@@ -165,7 +162,6 @@ export async function createStageModule(core) {
   ctx.inject(['assetLibrary'],child => {
     const owner=child.get('assetLibrary')
     child.effect(() => {modConfigHost.register(owner);return () => modConfigHost.unregister(owner)})
-    child.effect(() => owner.registerModMedia(modService.media))
     void modService.installBuiltinAssets(owner).catch(error=>ctx.logger.warn('MOD_BUILTIN_ASSETS %s',error.message))
   })
   // galgame stage director

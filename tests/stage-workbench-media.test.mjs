@@ -43,7 +43,7 @@ test('workspace intake rejects escapes, device paths, credentials and oversized 
   for(const name of ['../outside','C:/outside','image.png:stream','NUL','.credentials.yaml','folder/../../outside','folder\\..\\outside'])await assert.rejects(files.read(name),{code:'WORKSPACE_PATH_DENIED'})
   await writeFile(f.workspace+'/large.png',Buffer.alloc(60*1024**2+1))
   f.setApproval('allowed-once')
-  assert.equal((await f.invoke('media_upload',{action:'mod-media',modId:'dsh.phone',packId:'pack',kind:'image',slot:'base-1',file:'large.png'})).error.code,'LIMIT_EXCEEDED')
+  assert.equal((await f.invoke('media_upload',{action:'mod-file',modId:'dsh.phone',expectedRevision:'r',layer:'global',file:'large.png'})).error.code,'LIMIT_EXCEEDED')
   await mkdir(f.workspace+'/bundle');await writeFile(f.workspace+'/bundle/model.json','{}')
   assert.deepEqual([...await files.directory('bundle')].map(([key])=>key),['model.json'])
 })

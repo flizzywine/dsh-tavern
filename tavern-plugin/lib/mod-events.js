@@ -154,7 +154,7 @@ export function createModSessionEvents({library,builtins,readCard,config,index,r
     if(!live || !card)return null
     const manifests=library.active(card.meta.id).filter(manifest=>manifest.subscriptions?.length)
     const views=await catalogues?.(value,manifests)
-    const admitted=new Set(manifests.filter(manifest=>modTurnActive(manifest,views?.[manifest.id] || modCatalogue(manifest,library.getMod({modId:manifest.id,cardId:card.meta.id}).packs,library.listModPacks({modId:manifest.id,cardId:card.meta.id}).packs,value.units.map(row=>row.text).join('\n')))).map(row=>row.id))
+    const admitted=new Set(manifests.filter(manifest=>modTurnActive(manifest,views?.[manifest.id] || modCatalogue(manifest))).map(row=>row.id))
     if(!manifests.length)return null
     let row=sessions.get(sessionId)
     if(!row || row.closed || row.epoch!==epoch()) {

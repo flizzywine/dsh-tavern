@@ -12,13 +12,10 @@ import {createModEventCatalogue} from '../../../lib/mod-event-catalogue.js'
 import {isDeepStrictEqual as equal} from 'node:util'
 import {managedExecutionView} from './mod-system-execution.js'
 import {createFirstPartyMods} from '../../../lib/mod-builtins.js'
-import {createLibraryModMedia,withModMedia} from '../../../lib/mod-media.js'
-import {createManagedModPackOwner} from './mod-pack-owner.js'
-import {createModPerformanceMedia} from '../../../lib/domain/mods/performance-media.js'
 import {createModHostRuntime} from '../../../lib/mod-runtime.js'
 import {createModVariablePort} from '../../../lib/mod-variables.js'
 import {compileModPrompts} from '../../../lib/domain/mods/prompts.js'
-import {modCatalogue,modAssetCatalogue,modTurnActive,modJudgeQuestions} from '../../../lib/domain/mods/catalogue.js'
+import {modCatalogue,modAssetCatalogue,modTurnActive} from '../../../lib/domain/mods/catalogue.js'
 import {selectModAdmission,modKeepFragments} from '../../../lib/domain/mods/relevance.js'
 import {phoneSourceView} from '../../../mods/phone/source-view.js'
 import {phoneDevices} from '../../../mods/phone/logic.js'
@@ -27,7 +24,7 @@ import {captureStageTarget} from '../../../lib/domain/stage-incremental.js'
 import {createModStageCorrections,admitModSettlement} from '../../../lib/domain/mods/stage-corrections.js'
 import contract from '../../dsh-presentation-protocol/src/mod-contract.cjs'
 const {modCheck:check,modShape:shape,modFreeze,modResultError}=contract
-export const MOD_MANAGEMENT_METHODS=Object.freeze(['listMods','getMod','listModPacks','saveModSettings','saveModPack'])
+export const MOD_MANAGEMENT_METHODS=Object.freeze(['listMods','getMod','saveModSettings'])
 const messageAt=(chat,turn)=>chat.messages.findLast(row=>row?.role==='assistant' && Number(row.turn || (row.greeting?1:0))===turn)
 const sourceValue=message=>[message.swipeId || 0,message.stageDirectionGeneration || 0,message.sourceText ?? message.text]
 // Installed grammar is resource data, not an executable hook. Disabled or
@@ -37,10 +34,8 @@ const installedCommands=snapshot=>Object.values(snapshot.mods).flatMap(({manifes
 ).sort((a,b)=>a.op<b.op?-1:a.op>b.op?1:0)
 
 // First-party-only composition. Archive/transfer code deliberately does not enter this graph.
-export function createBuiltinModService({workbenchAuthority,root,management,readCard,engineJudge,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,coreMedia,connected,models,assetSnapshot,resolveAssets,publishView,builtins=createFirstPartyMods({host:management.modHost})}) {
-  let service,library,runtime,sessionEvents,settledSource,performanceMedia,libraryMedia,dirty=true,active=true,epoch=0,tail=Promise.resolve()
-  const packs=createManagedModPackOwner({root})
-  const stopPacks=packs.subscribe(()=>invalidate())
+export function createBuiltinModService({workbenchAuthority,management,readCard,engineJudge,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,connected,models,assetSnapshot,publishView,builtins=createFirstPartyMods({host:management.modHost})}) {
+  let service,library,runtime,sessionEvents,settledSource,dirty=true,active=true,epoch=0,tail=Promise.resolve()
   const modelTasks=models?createModModelTasks(models):null
   const eventCatalogue=assetSnapshot?createModEventCatalogue({snapshot:assetSnapshot,builtinPacks:async()=>(await builtins).assetPacks?.() || []}):null
   let grammarRevision,grammarCommands
@@ -106,14 +101,15 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
     return page?.revision===head._storageRevision && equal(sourceValue(page.chat.messages[0]),proof.value)
   }
   function invalidate() {epoch++;dirty=true;runtime?.dispose();sessionEvents?.dispose();modelTasks?.invalidate();eventCatalogue?.clear();prepared.clear();onChange()}
-  let writingSettings=false,settingsNotified=false
-  const unsubscribe=management.settings.subscribe(()=>{if(writingSettings)settingsNotified=true;else invalidate()})
+  // A settings save invalidates once, after it has returned (not mid-write on the serial lane).
+  let writingSettings=false
+  const unsubscribe=management.settings.subscribe(()=>{if(!writingSettings)invalidate()})
   const unregister=management.modHost.subscribe(invalidate)
   async function open() {
     check(active,'$','Mod service is disposed','MOD_RESOURCE_UNAVAILABLE')
     if(!dirty)return
     const builtin=await builtins
-    library=await managedExecutionView({management,builtins:builtin,packs,resolveAssets})
+    library=await managedExecutionView({management,builtins:builtin})
     dirty=false
     const variablePort=createModVariablePort({...variables,sourceCurrent,prepareCommit:input=>service.variableCommit(input),onError})
     settledSource=variables && stage?.source?createSettledModSource({...variables,source:stage.source}):null
@@ -129,8 +125,6 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
       readText:async(id,name)=>builtin.file(library.snapshot().mods[id].origin?.builtinId || id,name)?.toString('utf8'),
       variablePort,stagePort,sourcePort,
     })
-    const media=libraryMedia=createLibraryModMedia({root,library,builtins:builtin}),mediaEpoch=epoch
-    performanceMedia=stage?.readPresentation?createModPerformanceMedia({library,media,coreMedia,readPresentation:stage.readPresentation,isCurrent:()=>active && !dirty && epoch===mediaEpoch}):null
   }
   function run(task,name='service') {
     const queued=performance.now()
@@ -152,10 +146,10 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
     valid()
     return result
   }
-  function catalogueViews(cardId,manifests,text,judgeRecall,assetCatalogue) {
+  function catalogueViews(manifests,assetCatalogue) {
     return Object.fromEntries(manifests.map(manifest=>[manifest.id,manifest.admission.entryKinds.some(kind=>['props','performances','audience','timers'].includes(kind))
       ? modAssetCatalogue(manifest,assetCatalogue)
-      : modCatalogue(manifest,library.getMod({modId:manifest.id,cardId}).packs,library.listModPacks({modId:manifest.id,cardId}).packs,text,judgeRecall)]))
+      : modCatalogue(manifest)]))
   }
   function catalogue(catalogues,settingsByMod) {
     return Object.entries(catalogues).filter(([modId])=>library.snapshot().mods[modId].manifest.prompts.some(row=>row.target==='director') || library.snapshot().mods[modId].manifest.commands.length).flatMap(([modId,view])=>modId==='dsh.timer' ? timerCatalogueFragments(view) : view.recalled.filter(ref=>view.packs.find(pack=>pack.id===ref.packId)?.scope!=='builtin').map(ref=>{
@@ -203,14 +197,6 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
   }
   return service=Object.freeze({invalidate,
     assetsChanged(){eventCatalogue?.clear();sessionEvents?.refresh()},
-    media:Object.freeze({
-      put:args=>run(()=>withModMedia(library,libraryMedia).putModMedia(args),'upload'),
-      read:args=>run(()=>{
-        const file=library.snapshot().mods[args.modId]?.packs[args.packId]?.files.find(row=>row.path===args.path)
-        check(file,'$.path','Media is not part of this pack','MOD_RESOURCE_UNAVAILABLE')
-        return libraryMedia.readBytes(args.modId,args.packId,args.path,file.size)
-      },'media'),
-    }),
     async installBuiltinAssets(owner) {
       for(const pack of (await builtins).assetPacks?.() || []) {
         if(!active)return
@@ -245,27 +231,13 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
     },
     // The registered managed mods' declared stage performance kinds (stage-performance-kinds.cjs), for the 履历.
     performanceKinds:()=>management.modHost.manifests().map(manifest=>({owner:manifest.id,performances:manifest.performances})),
-    readPerformanceMedia(input,authority) {
-      check(typeof authority?.origin==='string','$.origin','Same-origin stage authority required','MOD_PERMISSION_DENIED')
-      return run(()=>{check(performanceMedia,'$','Stage media unavailable','MOD_RESOURCE_UNAVAILABLE');return performanceMedia(input)}).catch(error=>{const value=modResultError(error).error;throw Object.assign(new Error(value.message),value)})
-    },
     call(method,args,authority) {
       check(MOD_MANAGEMENT_METHODS.includes(method),'$.method','Management method is unavailable','MOD_API_UNSUPPORTED')
       check(typeof authority?.origin==='string' || !!workbenchAuthority && authority===workbenchAuthority,'$.origin','Same-origin or workbench management required','MOD_PERMISSION_DENIED')
       return run(async()=>{
-        if(method==='saveModPack')return withModMedia(library,libraryMedia).saveModPack(args)
         if(method!=='saveModSettings')return library[method](args)
-        writingSettings=true;settingsNotified=false
-        try {
-          const result=await library.saveModSettings(args),changes=library.presentationChanged(management.settings.read())
-          if(changes)sessionEvents?.presentationSettings(changes)
-          else invalidate()
-          settingsNotified=false
-          return result
-        } finally {
-          writingSettings=false
-          if(settingsNotified)invalidate()
-        }
+        writingSettings=true
+        try {return await library.saveModSettings(args)} finally {writingSettings=false;invalidate()}
       })
     },
     readPhonePresentation({chat,direction,at,view}) {
@@ -285,7 +257,7 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
       const record=direction.record || direction.preview
       view ||= record?.binding.mods?.sourceViews?.phone
       if(!manifest || !record || at>direction.through)return []
-      const catalogue=modCatalogue(manifest,library.getMod({modId:manifest.id,cardId:card.meta.id}).packs,library.listModPacks({modId:manifest.id,cardId:card.meta.id}).packs,'')
+      const catalogue=modCatalogue(manifest)
       const snapshot=await config.managedRequest(chat),builtin=await builtins
       const declaration=management.modHost.manifests().find(row=>row.id===manifest.id)
       return management.modHost.render(snapshot,manifest.id,{catalogue,view},{assets:{
@@ -309,7 +281,7 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
       if(chat.timeline?.branchId!==proof.branchId || !metadataOnly && (!message || !equal(sourceValue(message),proof.value)))proof.active=false
     },
     // memo: a caller-owned Map; calls sharing it and the same chat read settings and bindings once.
-    prepare(chat,turn,{target,preview=false,isCurrent=()=>true,judgeRecall,stageState,assetCatalogue,streamSource,memo}) {return run(async()=>{
+    prepare(chat,turn,{target,preview=false,isCurrent=()=>true,stageState,assetCatalogue,streamSource,memo}) {return run(async()=>{
       const card=await readCard(chat.cardPath),enabled=card ? library.active(card.meta.id) : []
       const installed=library.snapshot(),builtin=await builtins
       const memoKey=JSON.stringify([chat.sessionId,card?.meta.id,installed.revision,enabled.map(manifest=>manifest.id)])
@@ -322,19 +294,18 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
       const revision=JSON.stringify(Object.entries(installed.mods).map(([id,row])=>[id,row.releaseRevision]).sort(([a],[b])=>a<b?-1:a>b?1:0))
       if(revision!==grammarRevision) {grammarCommands=modFreeze(installedCommands(installed));grammarRevision=revision}
       const schemaCommands=grammarCommands
-      if(!enabled.length)return schemaCommands.length ? modFreeze({revision:installed.revision,manifests:[],contexts:[],commands:[],schemaCommands,grammarRevision,enabledAssetKinds,capabilities:library.capabilities([],card?.meta.id),fragments:[],judgeQuestions:[]}) : null
+      if(!enabled.length)return schemaCommands.length ? modFreeze({revision:installed.revision,manifests:[],contexts:[],commands:[],schemaCommands,grammarRevision,enabledAssetKinds,capabilities:library.capabilities([],card?.meta.id),fragments:[]}) : null
       const settingsByMod=await once('settings',async()=>Object.fromEntries(await Promise.all(enabled.map(async manifest=>[manifest.id,card && config?await config.resolved(manifest.id,card,chat):library.getMod({modId:manifest.id,cardId:card?.meta.id}).settings]))))
       const message=messageAt(chat,turn),key=target.sourceKey,version=installed.revision
       // In-flight previews may inspect only an admitted body operation, never execute mod hooks.
       const body=streamSource && chat.timeline?.operations?.[streamSource.operationId]
       check(isCurrent() && (streamSource ? preview && body?.kind==='body' && body.status==='running' && Number(body.turn)===turn : message),'$.source','Director source changed','MOD_SOURCE_STALE')
       if(!preview)eventCatalogue?.remember(chat.sessionId,key,assetCatalogue)
-      const cacheKey=JSON.stringify([chat.sessionId,key,version,[...(judgeRecall || [])].sort(),stageState,assetCatalogue?.revisions,assetCatalogue?.candidates.props,assetCatalogue?.candidates.performances,assetCatalogue?.candidates.audience,assetCatalogue?.candidates.timers])
+      const cacheKey=JSON.stringify([chat.sessionId,key,version,stageState,assetCatalogue?.revisions,assetCatalogue?.candidates.props,assetCatalogue?.candidates.performances,assetCatalogue?.candidates.audience,assetCatalogue?.candidates.timers])
       // a preview names each mod by its registered display name (提示词 › 模组 labels).
       const names=Object.fromEntries(enabled.map(manifest=>[manifest.id,installed.mods[manifest.id].name]))
       if(preview && prepared.has(cacheKey) && !prepared.get(cacheKey).restored)return modFreeze({...prepared.get(cacheKey),names})
-      const catalogues=catalogueViews(card.meta.id,enabled,streamSource ? streamSource.text : message.sourceText ?? message.text,judgeRecall,assetCatalogue)
-      const judgeQuestions=enabled.flatMap(manifest=>manifest.admission.entryKinds.some(kind=>['props','performances','audience','timers'].includes(kind)) ? [] : modJudgeQuestions(manifest,catalogues[manifest.id]))
+      const catalogues=catalogueViews(enabled,assetCatalogue)
       const selection=selectModAdmission(enabled,catalogues)
       const selectedModIds=selection.mods.filter(row=>row.selected).map(row=>row.id)
       const bindings=await once('bindings',async()=>Object.fromEntries(await Promise.all(enabled.map(async manifest=>[manifest.id,config?await config.bindings(manifest,card,chat):modReadBindings(manifest,card.raw || card)]))))
@@ -344,12 +315,12 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
       const capabilities=library.capabilities(manifests.map(manifest=>manifest.id),card?.meta.id)
       const keep=modKeepFragments(enabled,selection,stageState)
       for(const fragment of keep)selection.mods.find(row=>row.id===fragment.modId).persistent=true
-      if(!manifests.length)return modFreeze({revision:version,manifests:[],contexts:[],commands:[],schemaCommands,grammarRevision,enabledAssetKinds,capabilities,fragments:keep,judgeQuestions,selection,...(preview?{names}:{})})
+      if(!manifests.length)return modFreeze({revision:version,manifests:[],contexts:[],commands:[],schemaCommands,grammarRevision,enabledAssetKinds,capabilities,fragments:keep,selection,...(preview?{names}:{})})
       const activeCatalogues=Object.fromEntries(manifests.map(manifest=>[manifest.id,catalogues[manifest.id]]))
       const sourceViews=activeCatalogues['dsh.phone'] ? {phone:phoneSourceView(activeCatalogues['dsh.phone'])} : {}
       // Preview never executes a module or makes a model/variable write request.
       if(preview) {
-        return modFreeze({revision:version,manifests,commands:configured,validateCommand:runtime.validateCommand,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,judgeQuestions,sourceViews,names,selection,fragments:[...keep,...compileModPrompts(manifests,(id,name)=>builtin.file(library.snapshot().mods[id].origin?.builtinId || id,name).toString('utf8'),'director',configured),...catalogue(activeCatalogues,settingsByMod)]})
+        return modFreeze({revision:version,manifests,commands:configured,validateCommand:runtime.validateCommand,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,sourceViews,names,selection,fragments:[...keep,...compileModPrompts(manifests,(id,name)=>builtin.file(library.snapshot().mods[id].origin?.builtinId || id,name).toString('utf8'),'director',configured),...catalogue(activeCatalogues,settingsByMod)]})
       }
       proofs.set(chat.sessionId,{key,turn,branchId:target.branchId,value:sourceValue(message),active:true,
         stageState:stageState && modFreeze(structuredClone(stageState)),commands:new Map()})
@@ -360,7 +331,7 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
         const result=await host.prepare({cardId:card.meta.id,gameId:chat.sessionId,turn,
           source:{branchId:target.branchId,sourceKey:key,generation:message.stageDirectionGeneration || 0,textVersion:key},authorityEpoch:ownEpoch,catalogueRevision:version,catalogues,bindings,settingsByMod,selectedModIds})
         check(ownEpoch===epoch && isCurrent(),'$.source','Director source changed','MOD_SOURCE_STALE')
-        const snapshot=modFreeze({...result,revision:version,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,judgeQuestions,sourceViews,selection,fragments:[...keep,...result.fragments,...catalogue(activeCatalogues,settingsByMod)]})
+        const snapshot=modFreeze({...result,revision:version,schemaCommands,grammarRevision,enabledAssetKinds,capabilities,sourceViews,selection,fragments:[...keep,...result.fragments,...catalogue(activeCatalogues,settingsByMod)]})
         prepared.set(cacheKey,snapshot);while(prepared.size>64)prepared.delete(prepared.keys().next().value)
         queueMicrotask(()=>{try {notify(snapshot,settlements.get(chat.sessionId));void correct(snapshot)}catch(error){onError(error)}})
         return snapshot
@@ -476,6 +447,6 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
         if(snapshot)await correct(snapshot)
       })().catch(onError).finally(()=>recovering.delete(id))})
     },
-    dispose() {active=false;stopPacks();runtime?.dispose();sessionEvents?.dispose();modelTasks?.dispose();unsubscribe();unregister();proofs.clear();prepared.clear();settlements.clear()},
+    dispose() {active=false;runtime?.dispose();sessionEvents?.dispose();modelTasks?.dispose();unsubscribe();unregister();proofs.clear();prepared.clear();settlements.clear()},
   })
 }
