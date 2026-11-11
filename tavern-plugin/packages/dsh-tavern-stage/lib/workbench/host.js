@@ -38,7 +38,7 @@ export function createWorkbenchHost({chatForSession,getLibrary,getPackSettings,g
     if(name==='voice_patch') return input.action==='test-service'?'paid':localVoice.has(input.action)?(await shared(input,chat)?'shared':'card'):'global'
     if(name==='mods_patch') return ['config','clear-config'].includes(input.action)&&input.layer==='card'?'card':'global'
     if(name==='assets_patch') return globalAssets.has(input.action)?'global':input.action==='bind'?'card':await shared({...input,packId:input.packId || input.target?.packId},chat)?'shared':input.action.startsWith('remove-')?'delete':'card'
-    if(name==='media_upload') return input.action==='mod-file'&&input.layer==='global'||input.action==='mod-media'?'global':await shared(input,chat)?'shared':'card'
+    if(name==='media_upload') return input.action==='mod-file'&&input.layer==='global'?'global':await shared(input,chat)?'shared':'card'
     if(name==='assets_transfer'&&input.action.startsWith('apply-')) return 'import'
     return 'read'
   }

@@ -28,7 +28,7 @@ export function createClipHost(options) {
     // Bind the library before the speech consumer captures its authority epoch.
     // Lazy first binding otherwise invalidates the very first cached-voice read.
     presentation?.available()
-    const speech=createAssetPackSpeech({getLibrary:library,presentation,getEngine:()=>snapshot.engine.values,getTts:tts,scope:'dsh-browser',readOnly:true,
+    const speech=createAssetPackSpeech({getLibrary:library,presentation,getEngine:()=>snapshot.engine.values,getTts:tts,cardId:snapshot.cardId,scope:'dsh-browser',readOnly:true,
       getBinding:(_ref,voice,flags)=>assetVoiceBinding(tts(),voice,flags)})
     return {presentation,speech,allowedPackIds,close(){speech?.dispose();presentation?.dispose()}}
   }
@@ -40,7 +40,7 @@ export function createClipHost(options) {
     if(!range)return {chatId,paragraphs}
     const selected=clipRange(paragraphs,range)
     if(selected.length>100)throw clipUserError('一次最多导出 100 段，请缩小范围')
-    const snapshot={sessionId,chatId,cardPath:chat.cardPath,from:range.from,config,raw:workspace.raw,engine:structuredClone(settings()),allowedPacks:[...globalPacks()],
+    const snapshot={sessionId,chatId,cardPath:chat.cardPath,cardId:workspace.meta?.id,from:range.from,config,raw:workspace.raw,engine:structuredClone(settings()),allowedPacks:[...globalPacks()],
       turns:[],paragraphs:[],regeneratedDshTurns:chat.regeneratedDshTurns || {},...await extras(chat)}
     const first=display.projections.findIndex(row=>row.turn===range.from.turn)
     for(const projection of display.projections.slice(Math.max(0,first-20)).filter(row=>row.turn<=range.to.turn)) {
@@ -138,11 +138,10 @@ export function createClipHost(options) {
           case 'releaseLease':tickets.delete(args.ticket);return library().releaseLease(args.ticket)
           case 'getStagePerformanceKinds':return {kinds:performanceKinds?.() || []}
           case 'getStageModHistory':return {turns:snapshot.turns.filter(row=>row.direction.modPerformances?.length).map(row=>({turn:row.turn,performances:row.direction.modPerformances})),kinds:performanceKinds?.() || []}
-          case 'getModStageViews':return {views:[]}
           case 'getMod':return {manifest:{id:args.modId},config:{}}
           case 'getDialogueBubbles':return {config:snapshot.config,cardPath:snapshot.cardPath}
           case 'getSession':return {view:{chatId:snapshot.chatId,card:{path:snapshot.cardPath},replyProjections:snapshot.turns}}
-          case 'getStageItems':case 'readStageModMedia':case 'getStagePhoneThreads':
+          case 'getStageItems':case 'getStagePhoneThreads':
             if(args.turn!==undefined&&!turn(args.turn))throw new Error('Export resource is outside the snapshot')
             if(!readStageResource)throw new Error('Recorded resource reader unavailable')
             return readStageResource(method,{...args,sessionId:snapshot.sessionId})
