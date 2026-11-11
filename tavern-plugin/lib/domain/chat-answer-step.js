@@ -18,10 +18,10 @@ export function patchChatSource(text) {
   const MARKER = '/* dsh-tavern:answer-step */'
   const LATEST_ANSWER = /function\s+latestAnswer\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*\{/g
   // Plain loop: findLast is missing from older Android WebViews.
-  const answerStep = turn => MARKER + '((steps) => { if (!Array.isArray(steps)) return steps.at(-1); '
+  const answerStep = MARKER + '((steps) => { if (!Array.isArray(steps)) return steps.at(-1); '
     + 'for (let index = steps.length - 1; index > 0; index--) { '
     + 'if (steps[index]?.data?.get?.("assistant-step")?.blocks?.length > 0) return steps[index]; } '
-    + 'return steps[0]; })(' + turn + '.steps)'
+    + 'return steps[0]; })('
   if (text.includes(MARKER)) return { status: 'patched', text }
   let patched = text
   let applied = 0
@@ -36,7 +36,7 @@ export function patchChatSource(text) {
     const found = target.exec(end === -1 ? head : head.slice(0, end))
     if (!found) continue
     const at = bodyStart + found.index
-    patched = patched.slice(0, at) + answerStep(turn) + patched.slice(at + found[0].length)
+    patched = patched.slice(0, at) + answerStep + turn + '.steps)' + patched.slice(at + found[0].length)
     applied++
   }
   return applied ? { status: 'applied', text: patched } : { status: 'unmatched', text }
