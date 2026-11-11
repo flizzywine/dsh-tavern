@@ -1,6 +1,6 @@
 // art.backlog.roll (C4): the art layer's check line in the skin's drawing - its mark in place of the generic die, the rolled
 // number in its ink and scale, the tier word on its success / fail tile - while the words stay the engine's check line
-// (dice-roll.js diceLine). The validator names the field to fix and checks each tier tile's ink on its ground at 4.5:1.
+// (mods/dice/client/roll.js diceLine). The validator names the field to fix and checks each tier tile's ink on its ground at 4.5:1.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
@@ -47,7 +47,7 @@ async function open(browser,skin,viewport){
   page.on('pageerror',e=>errors.push(e.message))
   await page.setContent('<!doctype html><meta charset="utf-8"><style>html,body{margin:0}</style><div class="fork-gal-stage" style="position:fixed;inset:0"></div>')
   await page.addStyleTag({content:await client('themes.css')+'\n*,*::before,*::after{animation-duration:0s!important;transition:none!important}'})
-  const dice=await readFile(new URL('../tavern-plugin/src/client/dice-roll.js',import.meta.url),'utf8')
+  const dice=await readFile(new URL('../tavern-plugin/mods/dice/client/roll.js',import.meta.url),'utf8')
   const sources=(await Promise.all(['labels.cjs','backlog-rows.cjs','backlog-history.cjs','backlog-paging.cjs','backlog-voice.cjs','backlog-view.cjs'].map(client))).join('\n')
   await page.addScriptTag({content:await browserReactScript()+`
     const React=modules.react,ReactDOM={...modules['react-dom'],...modules['react-dom/client']};
@@ -67,7 +67,7 @@ async function open(browser,skin,viewport){
       const backlogVoice=createStageBacklogVoice({player});
       const VoiceButton=()=>h('button',{type:'button',className:'fork-voice-button','aria-label':'重播这一句'},'▶');
       const Icon=({name,size})=>h('svg',{className:'fork-icon','data-icon':name,width:size,height:size,'aria-hidden':true});
-      const view=createStageBacklogView({React,window,document,stageViews:{backlogRows,backlogHistory,backlogPaging,backlogVoice},voicePlayer:player,useDiceBacklog:()=>byTurn,diceBacklogEntries,diceLine,useJumpLatest:()=>({away:false,jump(){}}),JumpLatest:()=>null,useFigureTextContrast(){},
+      const view=createStageBacklogView({React,window,document,stageViews:{backlogRows,backlogHistory,backlogPaging,backlogVoice},voicePlayer:player,modClients:{slot:name=>name==='backlog'?[{modId:'dsh.dice',value:{kind:'core.dice.roll',use:()=>byTurn,entries:diceBacklogEntries,line:diceLine}}]:[]},useJumpLatest:()=>({away:false,jump(){}}),JumpLatest:()=>null,useFigureTextContrast(){},
         bubbleCharacter:()=>null,galQuoted:t=>t,VoiceButton,PackImage:()=>null,Icon,HelpTip:()=>null,Spinner:()=>null,ransom,getComputedStyle,ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame});
       window.root?.unmount();
       window.root=ReactDOM.createRoot(stage);

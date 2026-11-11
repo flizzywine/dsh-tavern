@@ -1361,9 +1361,12 @@ export function createTurnOrchestrator(options) {
     // Search and browse expose current real files; native read is restricted
     // to the calling game's effective static worldbook generation.
     const worldbookTools = ['read', 'worldbook_list', 'worldbook_grep']
-    // The dice tool belongs to the 骰子 mod: offered where the card has it on, or where this game's
-    // history already calls it (a replayed call needs its tool declared).
-    const modTools = (chat.usedModTools || []).includes('tavern_roll') || await options.modEnabled?.('dsh.dice', chat.cardPath) === true ? ['tavern_roll'] : []
+    // A mod's foreground tool (options.modTools: [{modId, name}]) is offered where the card has its mod on, or where
+    // this game's history already calls it (a replayed call needs its tool declared).
+    const modTools = []
+    for (const tool of options.modTools || []) {
+      if ((chat.usedModTools || []).includes(tool.name) || await options.modEnabled?.(tool.modId, chat.cardPath) === true) modTools.push(tool.name)
+    }
     const names = mode === 'script'
       ? [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_read_script', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]
       : [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]

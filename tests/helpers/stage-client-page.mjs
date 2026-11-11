@@ -85,8 +85,8 @@ export function stageHostScript() {
     skinPresentation:{fonts,appearance:stageSkinAppearance,forDevice:stageSkinForDevice},
     skinResources:{setTimeout,clearTimeout},
     directorCommands,
-    // no checks offline: useDiceBacklog null keeps the rows as they are (diceBacklogEntries merges rolls into them)
-    backlogView:{voicePlayer:player,useDiceBacklog:()=>null,diceBacklogEntries:rows=>rows,diceLine:()=>'',useJumpLatest:()=>({}),JumpLatest:Nothing,useFigureTextContrast:typeof useFigureTextContrast==='function'?useFigureTextContrast:noop,bubbleCharacter,galQuoted,VoiceButton:Nothing,PackImage,Icon,HelpTip,Spinner,getComputedStyle,ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
+    // no mod parts offline (mod-clients.js): the rows stay as they are
+    backlogView:{voicePlayer:player,modClients:{slot:()=>[]},useJumpLatest:()=>({}),JumpLatest:Nothing,useFigureTextContrast:typeof useFigureTextContrast==='function'?useFigureTextContrast:noop,bubbleCharacter,galQuoted,VoiceButton:Nothing,PackImage,Icon,HelpTip,Spinner,getComputedStyle,ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
     modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readMedia:async()=>null,readItems:async()=>({performances:[]})},
     performanceSurface:{fonts,resolution:()=>1,subscribeResolution:off,policy:{stageFlashAt,stageFlashDark,stageFlashGate,stageFlashSafe,stageSafety,stageEffectHex,stageEffectRgb}},
     textIndex:{pageCards:stagePageCards},
@@ -117,7 +117,7 @@ export function stageHostScript() {
       // the core's resolver and display name; colour as bubbles.js bubbleColor (no mood badges offline)
       dialogue:{color:character=>character?.color||'var(--fork-figure-fallback)',displayName:bubbleDisplayName,moodBadge:()=>null,moods:()=>[],actor:stageActorCharacter},
       figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
-      DiceRolls:Nothing,DiceThrow:Nothing,narration:stageNarrationPresentation,offstage:()=>new Set(),skinFigures:stageSkinFigures,phoneBeat:()=>null,
+      modClients:{slot:()=>[]},narration:stageNarrationPresentation,offstage:()=>new Set(),skinFigures:stageSkinFigures,phoneBeat:()=>null,
       playEvents:{emit:noop}},
     controllerLegacy:{film:stageFilm,background:(_id,scene)=>scene,widgetTheme:()=>null,entryContext:stageEntryContextType,entryStore:createStageEntryStore},
     // The core's shared controls (Segmented/Slider/ResetButton/TextArea/FloatingPanel/wait lines) as inert stand-ins.

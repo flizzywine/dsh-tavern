@@ -3,7 +3,7 @@ function createStageController({React:react,window,document,views:stageViews,nav
 const {useLiveView,storyTurn,useCoordination:useTavernCoordination,rpc,phoneCall:readPhoneCall,
     dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},
     figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
-    DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,ClipStatus,playEvents}=services;
+    modClients,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,ClipStatus,playEvents}=services;
 // galVisitCount: navigation.visit, read here because GalStage's own `navigation` (its paging ref) shadows the parameter.
 const {galActive,galMenuRequest,visit:galVisitCount,getEntryPage:galEntryPage}=navigation;
 const galCurrentEntry=()=>navigation.getEntry(),galHoldLeave=hold=>navigation.holdLeave(hold);
@@ -1401,9 +1401,8 @@ function GalStage(props) {
             // while this reply's choices generate their wait sits here, under the page, in
             // the reply wait's look (StageWaitStop + StageWaitLines, portalled by gal-choices.js); empty, it takes no room.
             h("div", { ref: setChoiceWaitSlot, className: "fork-gal-box-wait" }),
-            // a live tavern_roll's strip sits on the box's top edge, out of its flow, on the page it lands on and
-            // fades out on the next (one-shot; its record is the round's 履历 line) (dice-roll.js).
-            props.choiceProps && props.choiceProps.useChat ? h(DiceRolls, { useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey }) : null,
+            // the mods' page parts sit on the box's top edge, out of its flow (mod-clients.js; e.g. a live roll's one-shot strip).
+            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey })) : null,
             // film mode shows the page count briefly on each page turn
             // (the keyed node restarts its CSS fade); hover still shows it in full.
             h("div", { key: film ? "flash:" + pageKey : "meta", className: "fork-gal-meta" + (film ? " is-flash" : "") },
@@ -1425,15 +1424,13 @@ function GalStage(props) {
         // The entry veil: it covers the whole stage until the gate is ready (gal-entry.js), never a notice over the scene.
         h(GalEntryOverlay, {phase:entryGate.phase, progress:loadProgress, nameOf, loader:entryLoader, entrance:entrance.overlay}),
         entrance.element,
-        // a roll arriving live is thrown as two d10s in the band above the box, then
-        // becomes its static card; never on history, reload, an open overlay or while skipping (silent, no WebGL at skip pace:
-        // stageSkipShows; starting a skip ends a throw at its card) (dice-throw.js). Only the CONFIG
-        // 减少动态 setting ends it at once — the throw does not follow the OS reduced-motion setting (ui-design R20). Like the
-        // other one-shots it waits under the first-entry veil and plays once the scene shows (veiled).
-        props.choiceProps && props.choiceProps.useChat ? h(DiceThrow, { sessionId, useChat: props.choiceProps.useChat, running, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
+        // the mods' overlay parts (mod-clients.js; e.g. a live roll thrown above the box). live: the reader follows the
+        // arrival with nothing over the stage and no skip; calm: only the CONFIG 减少动态 setting, not the OS one (ui-design
+        // R20); veiled: under the first-entry veil; replay: a clip replay's visit or the settled history page's replay.
+        props.choiceProps && props.choiceProps.useChat ? modClients.slot('overlay').map(part => h(part.value, { key: part.modId, sessionId, useChat: props.choiceProps.useChat, running, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
             veiled: !entryGate.visible,
             replay: replaying && runtime.replay?.phase === 'play' ? runtime.cursor.visitId : historyRolls, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0,
-            live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen }) : null,
+            live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen })) : null,
         // Reading done: the next move sits in the middle of the screen.
         // a latest turn with nothing to read (an HTML introduction / opening chooser) is done too: the
         // panel offers 生成选项 and 自由输入 (no 重新生成); leaving is the existing 返回主页面 (R13).

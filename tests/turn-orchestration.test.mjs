@@ -7,6 +7,7 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { renderTavernMacros } from '../tavern-plugin/lib/domain/tavern-macro-engine.js'
 import { projectReplyLayers } from '../tavern-plugin/lib/domain/reply-presentation.js'
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
+import { modTools } from '../tavern-plugin/lib/mod-tools.js'
 import { createForegroundFrameBuilder, foregroundFrameText, frameUserInput } from '../tavern-plugin/lib/domain/agent-input-frame.js'
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { createForegroundFrameSessionAdapter } from '../tavern-plugin/lib/domain/foreground-frame-session-adapter.js'
@@ -97,6 +98,7 @@ function harness(mode, options = {}) {
     bodyGeneration: async () => options.bodyGeneration || { mode: 'host' },
     storyToolCall: async () => options.storyToolCall === true,
     modEnabled: async (modId, cardPath) => (options.enabledMods || []).includes(modId) && cardPath === 'cards/阿芙拉.json',
+    modTools,
     storyInputToolCall: async () => options.storyInputToolCall === true,
     store,
     planner: {

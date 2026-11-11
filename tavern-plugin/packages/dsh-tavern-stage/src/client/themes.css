@@ -924,7 +924,7 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
   --gal-ui-widget-pink: color-mix(in srgb, var(--gal-base-ink) 60%, deeppink);
   --gal-ui-widget-info: color-mix(in srgb, var(--gal-base-ink) 70%, steelblue);
   --gal-ui-widget-warning: color-mix(in srgb, var(--gal-base-ink) 70%, darkorange);
-  /* the dice throw (dice-throw.js): the tens die in the panel paint with accent numbers, the ones die in
+  /* the dice throw (mods/dice/client/throw.js): the tens die in the panel paint with accent numbers, the ones die in
      the accent paint; the critical burst's gold; the hidden roll's 骰盅 is a physical prop - black-red lacquer with grain,
      brass bands, a talisman of aged paper and cinnabar - with its contact shadow and dust. */
   --gal-dice-a: var(--gal-ui-surface); --gal-dice-a-ink: var(--gal-ui-accent);
@@ -6411,7 +6411,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-dice-throw-gl, .fork-dice-throw-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 /* The band has no frame: what enters from above (the cup, a high hop) fades in through its top edge. */
 .fork-dice-throw-gl { -webkit-mask: linear-gradient(transparent, var(--gal-dice-shadow) var(--dice-fade, 22%)); mask: linear-gradient(transparent, var(--gal-dice-shadow) var(--dice-fade, 22%)); }
-/* (「数字压在骰子和光圈上」; the ring around the stamp removed, 「莫名其妙的圈」): nothing crosses. The script lays the band out (dice-throw.js
+/* (「数字压在骰子和光圈上」; the ring around the stamp removed, 「莫名其妙的圈」): nothing crosses. The script lays the band out (mods/dice/client/throw.js
    diceLayout): the stake line on top; a row with the tens die, the number (--dice-num-y), the ones die; under it the
    seal row - the stamp centred on --dice-seal-y in its seal box (--dice-seal-w / -h, the box the burst spreads out to), the
    critical's burst filling that box, its rays and the fumble's cracks behind everything from the same centre. Sizes follow

@@ -880,11 +880,11 @@
 					return React.createElement(TavernPluginMediaItem, { key: item.id, item: item, sessionId: props.sessionId, turn: storyTurn });
 				})) : null;
 				const pluginActions = playView && settled ? React.createElement(TavernPluginMessageActions, { sessionId: props.sessionId, turn: storyTurn, settled: settled, text: replyTextForFold }) : null;
-				// the round's tavern_roll results lead its story text (dice-roll.js).
-				const diceNode = typeof props.useChat === "function" ? tavernStageBoundary("骰子", React.createElement(DiceRolls, { useChat: props.useChat, nativeTurn: turn, nodeKey: props.node.key })) : null;
+				// the mods' floor parts lead the round's story text (mod-clients.js), each behind its own boundary.
+				const modFloorNodes = typeof props.useChat === "function" ? tavernModClients.slot("floor").map(part => tavernStageBoundary(part.label, React.createElement(part.value, { key: part.modId, useChat: props.useChat, nativeTurn: turn, nodeKey: props.node.key }))) : null;
 				const illustrationDraft = playView && settled ? React.createElement(TavernIllustrationDraft, { sessionId: props.sessionId, turn: storyTurn, items: pluginMedia.items }) : null;
 				const gameSurface = playView && settled && storyTurn === latestProjectionTurn ? React.createElement(tavernReplyObserverFeature.GameModeSurface, { key: props.sessionId, sessionId: props.sessionId }) : null;
-				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, deletionNode, foldBack, diceNode, body, openingNav, stageEntry, gameSurface, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
+				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, deletionNode, foldBack, modFloorNodes, body, openingNav, stageEntry, gameSurface, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
 			}
 			function TavernForkAssistantAction(props) {
 				const liveState = useScopedLiveTavernView(props.sessionId, String(props.messageId || ""), [["mode"], ["forkTurnsByMessageId", String(props.messageId || "")]]);

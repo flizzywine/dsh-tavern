@@ -155,8 +155,8 @@
 		// @include frame-storage.js
 		// @include fonts.js
 		// @include settings-ui.js
-		// @include dice-roll.js
-		// @include dice-throw.js
+		// @include mod-clients.js
+		// @include-mods client/core.js
 		// @include modal.js
 		// @include stage-audio-math.js
 		// @include stage-audio.js

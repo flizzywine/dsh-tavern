@@ -3,7 +3,8 @@ import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
-import { createDiceTool } from '../tavern-plugin/lib/tools/dice.js'
+import { createDiceTool } from '../tavern-plugin/mods/dice/tools.js'
+import { modTools } from '../tavern-plugin/lib/mod-tools.js'
 import { registerGameplayTools } from '../tavern-plugin/lib/tools/gameplay.js'
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
 import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
@@ -18,8 +19,12 @@ test('registered tool returns full hidden record, gates execution and keeps sche
   let mode = 'story'
   const deps = { activeTurnOf, chatForSession: async () => mode === null ? undefined : { mode }, isBackground: id => id === 'background' }
   const registered = []
-  registerGameplayTools({ ...deps, tools: { register: tool => registered.push(tool) } })
-  assert.ok(registered.some(tool => tool.name === 'tavern_roll'))
+  const authorized = []
+  registerGameplayTools({ ...deps, modTools, authorizeMod: async (modId, chat) => authorized.push([modId, chat.mode]) > 0, markModToolUsed: async () => {}, tools: { register: tool => registered.push(tool) } })
+  assert.deepEqual(modTools.map(tool => [tool.modId, tool.name]), [['dsh.dice', 'tavern_roll']], 'the dice mod declares its tool in its folder')
+  assert.equal(JSON.stringify(registered.find(tool => tool.name === 'tavern_roll')), JSON.stringify(defineTool(createDiceTool(deps))), 'registered from the mod with the same schema')
+  await registered.find(tool => tool.name === 'tavern_roll').execute(args, exec)
+  assert.deepEqual(authorized, [['dsh.dice', 'story']], 'authorized under its own mod')
   const tool = createDiceTool(deps)
   const schema = JSON.stringify(defineTool(tool))
   assert.equal(tool.isConcurrencySafe(), false)
@@ -39,7 +44,7 @@ test('registered tool returns full hidden record, gates execution and keeps sche
   for (const [enabled, usedModTools] of [[true, undefined], [false, ['tavern_roll']], [false, undefined]]) {
     for (mode of ['story', 'script', 'card']) {
       const orchestrator = createTurnOrchestrator({ store: { chatForSession: async () => ({ mode, cardPath: 'cards/a.json', usedModTools }) },
-        modEnabled: async modId => enabled && modId === 'dsh.dice', frameBuilder: { build() {} } })
+        modTools, modEnabled: async modId => enabled && modId === 'dsh.dice', frameBuilder: { build() {} } })
       assert.equal((await orchestrator.visibleTools('front')).includes('tavern_roll'), mode !== 'card' && (enabled || Boolean(usedModTools)))
     }
   }
