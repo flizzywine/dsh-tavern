@@ -56381,9 +56381,10 @@ function createStoryFloorRail(root, options) {
 		function TavernStopBackgroundAction(props) {
 			const [busy, setBusy] = React.useState(false);
 			const state = useTavernCoordination(props.sessionId);
-			const activity = state.view && state.view.activity;
-			// The game's own background work only: a director runs beside it and is not stopped here.
-			if (!activity || (!activity.busy && activity.phase !== "pending")) return null;
+			const current = state.view && state.view.activity;
+			// director-only work is stoppable without blocking normal foreground actions.
+			const activity = current && (current.busy || current.phase === "pending" ? current : current.director);
+			if (!activity) return null;
 			async function stop() {
 				if (busy) return;
 				setBusy(true);

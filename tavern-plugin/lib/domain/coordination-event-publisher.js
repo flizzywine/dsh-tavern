@@ -15,6 +15,7 @@ export function coordinationEventId(snapshot) {
     snapshot && snapshot.liveSession === true ? '1' : '0',
     Number(snapshot && snapshot.mailboxVersion) || 0,
     str(activity.operationId),
+    str(activity.director?.operationId), // parallel-only start/stop wakes the existing action.
     str(activity.phase),
     activity.busy === true ? '1' : '0',
     Number(activity.updatedAt) || 0,
