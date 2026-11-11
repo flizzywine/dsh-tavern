@@ -74,7 +74,8 @@ test('workspaceYaml：两条补丁按文件名对齐版本，proot 里那几条 
 test('planInstall：先复制源码再改清单，最后才 pnpm install 与校验', () => {
   const plan = planInstall({ dshHome: '/root/.dsh', appRoot: '/opt/dsh' })
   assert.equal(plan.profile, '/root/.dsh/profiles/web')
-  assert.deepEqual(plan.steps.map(step => step.kind), ['copy-file', 'copy-file', 'manifest', 'workspace', 'pnpm', 'verify'])
+  // link-modules 必须在 pnpm 之前：被 link 的包要靠它解析到 profile 的 node_modules。
+  assert.deepEqual(plan.steps.map(step => step.kind), ['copy-file', 'copy-file', 'manifest', 'workspace', 'link-modules', 'pnpm', 'verify'])
   assert.deepEqual(plan.missingSources, [], '在仓库根跑时源码应齐全')
   assert.deepEqual(PNPM_ARGS.slice(0, 1), ['install'])
 })
