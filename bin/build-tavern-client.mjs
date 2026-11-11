@@ -74,7 +74,10 @@ export async function assembleTavernClient() {
   // Keep the plugin theme at its original cascade position between shared rules.
   const featureParts = featureCss.split('/* @stage-theme-slot */')
   const keywordCatalogue = await readFile(path.join(root, 'tavern-plugin/shared/keyword-catalogue.cjs'), 'utf8').then(value => value.replace(/\r\n?/g, '\n'))
-  const expanded = (await expand(template, new Set())).replace('__TAVERN_KEYWORD_CATALOGUE__', () => '(function () { const window = undefined, module = { exports: {} }; ' + keywordCatalogue + '; return module.exports; })()')
+  const hostJQueryUi = await readFile(path.join(root, 'tavern-plugin/lib/vendor/runtime-assets/jquery-ui/jquery-ui.min.js'), 'utf8')
+  const expanded = (await expand(template, new Set()))
+    .replace('__TAVERN_HOST_JQUERY_UI__', () => hostJQueryUi.trimEnd())
+    .replace('__TAVERN_KEYWORD_CATALOGUE__', () => '(function () { const window = undefined, module = { exports: {} }; ' + keywordCatalogue + '; return module.exports; })()')
   const moods = expanded.includes('__TAVERN_BUBBLE_MOODS__')
     ? [] : null
   const brand = {}

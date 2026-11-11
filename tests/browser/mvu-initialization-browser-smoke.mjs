@@ -463,9 +463,10 @@ const server = createServer(async (req, res) => {
         const tavernSessionTransition = { getSnapshot:()=>active, subscribe(fn){transitionListeners.add(fn);return()=>transitionListeners.delete(fn)},
           begin(value){active=value;transitionListeners.forEach(fn=>fn())}, end(){active=null;transitionListeners.forEach(fn=>fn())} };
         const sessions = { list:{getSnapshot:()=>({current}), subscribe(fn){sessionListeners.add(fn);return()=>sessionListeners.delete(fn)}}, subagentAddress(){} };
+        const liveTavernView = {getSnapshot:()=>({phase:'ready',view}),invalidate(){},subscribe(id,fn){fn({phase:'ready',view});return()=>{}}};
         const owner = client.createTavernScriptSessionOwner({sessions,rpc,transition:tavernSessionTransition,
           signals:{subscribe(id,kind,run){const timer=setInterval(run,100);return()=>clearInterval(timer)}},
-          liveView:{invalidate(){},subscribe(id,fn){fn({phase:'ready',view});return()=>{}}}});
+          liveView:liveTavernView});
         owner.start();
         const openingPicker={openings:[]}, uiMode='play', setBusy=()=>{}, setError=()=>{}, setOpeningPicker=()=>{};
         const openingPerformance={begin:()=>({measure:(_name,run)=>run(),finish(){}})};

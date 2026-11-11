@@ -1417,7 +1417,6 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.installFrameStorageBridge = installFrameStorageBridge;
 		exports.createTavernHelperScriptRuntime = createTavernHelperScriptRuntime;
 		exports.ensureTavernHostJQuery = ensureTavernHostJQuery;
-		exports.ensureTavernHostJQueryUi = ensureTavernHostJQueryUi;
 		exports.installTavernTrustedHostFacade = installTavernTrustedHostFacade;
         exports.loadTavernHelperModule = loadTavernHelperModule;
         exports.installTavernBackgroundModel = installTavernBackgroundModel;

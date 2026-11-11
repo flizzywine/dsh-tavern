@@ -26,27 +26,13 @@
 			return script.tavernReady;
 		}
 
-		function ensureTavernHostJQueryUi(host) {
-			if (host.jQuery && typeof host.jQuery.fn.draggable === "function") return Promise.resolve();
-			const doc = host.document;
-			const existing = doc.querySelector('script[data-dsh-tavern-host-jquery-ui]');
-			if (existing && existing.tavernReady) return existing.tavernReady;
-			const script = doc.createElement('script');
-			script.setAttribute('data-dsh-tavern-host-jquery-ui', '');
-			script.src = '/api/dsh-tavern/vendor/runtime-assets/jquery-ui/jquery-ui.min.js';
-			script.tavernReady = new Promise(function (resolve, reject) {
-				const timer = host.setTimeout(function () { finish(new Error('宿主 jQuery UI 加载超时')); }, 15000);
-				function finish(error) {
-					host.clearTimeout(timer);
-					script.onload = script.onerror = null;
-					script.remove();
-					if (error) reject(error); else resolve();
-				}
-				script.onload = function () { finish(typeof host.jQuery.fn.draggable === 'function' ? null : new Error('宿主 jQuery UI 未初始化')); };
-				script.onerror = function () { finish(new Error('宿主 jQuery UI 加载失败')); };
-			});
-			doc.head.appendChild(script);
-			return script.tavernReady;
+		function ensureTavernHostJQueryUi(window) {
+			const jQuery = window.jQuery;
+			if (typeof jQuery.fn.draggable === "function") return;
+			const document = window.document;
+			// Run the vendored UMD bundle against the host jQuery on first use.
+			const define = undefined;
+			__TAVERN_HOST_JQUERY_UI__
 		}
 
         function mountTavernLegacyMessage(options) {

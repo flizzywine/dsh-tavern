@@ -37,6 +37,7 @@ test('official MVU initializes a greeting or no-greeting start before its first 
     page.on('pageerror', error => errors.push(error.message))
     page.on('console', message => errors.push(message.text()))
     page.on('requestfailed', request => errors.push(request.url() + ': ' + request.failure()?.errorText))
+    await page.route('**/jquery-ui/jquery-ui.min.js', route => route.abort())
     await page.goto(url + '/?mode=' + mode)
     await page.waitForFunction(() => {
       try { return JSON.parse(document.querySelector('#result').textContent).ready === true } catch { return false }

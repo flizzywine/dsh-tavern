@@ -464,7 +464,7 @@
 					// Keep the shared load and its callbacks alive when a card iframe is replaced.
 					frame.__dshTavernPrepareTrustedHost = async function () {
 						await ensureTavernHostJQuery(hostWindow);
-						await ensureTavernHostJQueryUi(hostWindow);
+						ensureTavernHostJQueryUi(hostWindow);
 					};
 				} else frame.sandbox = "allow-scripts";
 				frame.referrerPolicy = "no-referrer";

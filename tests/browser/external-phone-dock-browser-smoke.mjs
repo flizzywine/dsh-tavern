@@ -11,7 +11,6 @@ import { projectTavernHostScript } from '../../tavern-plugin/lib/domain/tavern-h
 let clientSource = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const cssSource = await readFile(new URL('../../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 const jqSource = await readFile(new URL('../../tavern-plugin/lib/vendor/runtime-assets/jquery/jquery.min.js', import.meta.url), 'utf8')
-const jqUiSource = await readFile(new URL('../../tavern-plugin/lib/vendor/runtime-assets/jquery-ui/jquery-ui.min.js', import.meta.url), 'utf8')
 
 for (const dep of ['tavernIconDependencies', 'tavernStaticAssetShim', 'tavernHelperScriptDependencies']) {
   clientSource = clientSource.replaceAll('+ ' + dep + '()', "+ ''")
@@ -51,11 +50,6 @@ const server = createServer(async (req, res) => {
   if (req.url.startsWith('/api/dsh-tavern/vendor/runtime-assets/jquery/jquery.min.js')) {
     res.writeHead(200, { 'content-type': 'application/javascript' })
     res.end(jqSource)
-    return
-  }
-  if (req.url.startsWith('/api/dsh-tavern/vendor/runtime-assets/jquery-ui/jquery-ui.min.js')) {
-    res.writeHead(200, { 'content-type': 'application/javascript' })
-    res.end(jqUiSource)
     return
   }
   if (req.url.startsWith('/api/dsh-tavern/vendor/runtime-assets/zod/') || req.url.startsWith('/api/dsh-tavern/vendor/runtime-assets/yaml/')) {
@@ -108,6 +102,8 @@ const server = createServer(async (req, res) => {
       wrapper.appendChild(closeBtn);
       root.appendChild(wrapper);
       shadow.appendChild(root);
+      window.$(wrapper).draggable();
+      if (!window.$(wrapper).draggable('instance')) throw new Error('宿主拖拽组件未初始化');
       hostDoc.body.appendChild(host);
 
       window.replaceScriptButtons([
@@ -170,12 +166,17 @@ try {
   const page = await browser.newPage()
   const pageErrors = []
   page.on('pageerror', err => pageErrors.push(err.message))
-  let releaseHostJQueryUi
-  const hostJQueryUiGate = new Promise(resolve => { releaseHostJQueryUi = resolve })
-  await page.exposeFunction('releaseHostJQueryUi', releaseHostJQueryUi)
-  await page.route('**/jquery-ui/jquery-ui.min.js', async route => {
-    await hostJQueryUiGate
+  let releaseHostJQuery
+  const hostJQueryGate = new Promise(resolve => { releaseHostJQuery = resolve })
+  await page.exposeFunction('releaseHostJQuery', releaseHostJQuery)
+  await page.route('**/jquery/jquery.min.js', async route => {
+    await hostJQueryGate
     await route.continue()
+  })
+  let hostJQueryUiRequests = 0
+  await page.route('**/jquery-ui/jquery-ui.min.js', route => {
+    hostJQueryUiRequests++
+    return route.abort()
   })
   await page.goto(`http://127.0.0.1:${port}/`)
 
@@ -238,19 +239,19 @@ try {
     const helperFrame = () => document.querySelector('iframe[title="人物卡共享脚本沙箱"]')
     runtime.sync('discarded-S1', makeView(msgs))
     const discardedFrame = helperFrame()
-    const hostJQueryUi = () => document.querySelector('script[data-dsh-tavern-host-jquery-ui]')
-    for (let i = 0; i < 60 && !hostJQueryUi(); i++) await new Promise(r => setTimeout(r, 50))
-    if (!hostJQueryUi()) throw new Error('The first iframe did not start the host jQuery UI load')
+    const hostJQuery = () => document.querySelector('script[data-dsh-tavern-host-jquery]')
+    for (let i = 0; i < 60 && !hostJQuery(); i++) await new Promise(r => setTimeout(r, 50))
+    if (!hostJQuery()) throw new Error('The first iframe did not start the host jQuery load')
 
     runtime.sync('S1', makeView(msgs))
     if (discardedFrame.isConnected) throw new Error('The previous session iframe is still attached')
     const frame = helperFrame()
     for (let i = 0; i < 60 && !frame.contentWindow.__dshTavernHelperReady; i++) await new Promise(r => setTimeout(r, 50))
     await frame.contentWindow.__dshTavernHelperReady
-    await window.releaseHostJQueryUi()
+    await window.releaseHostJQuery()
 
     for (let i = 0; i < 60 && !presence.inspect().attached; i++) await new Promise(r => setTimeout(r, 50))
-    if (!presence.inspect().attached) throw new Error('The replacement session did not finish loading host jQuery UI')
+    if (!presence.inspect().attached) throw new Error('The replacement session did not open the phone with jQuery UI: ' + JSON.stringify(window.__runtimeErrors))
     const initialPresence = presence.inspect()
     const initialSlotHeight = slot.getBoundingClientRect().height
 
@@ -465,6 +466,7 @@ try {
   ])
   assert.equal(result.themeBeforeReset, 'pink')
   assert.equal(result.themeAfterReset, null, '复位 reload 后 localStorage 已同步清除旧键')
+  assert.equal(hostJQueryUiRequests, 0, 'Trusted scripts must use bundled host jQuery UI')
   assert.deepEqual(result.readyChats, ['S1', 'S1'])
   assert.equal(result.multiSession.storyBeforeSyncPresence.visible, false, '新会话挂载初期独立 presence 不串台显示旧状态')
   assert.equal(result.multiSession.storyAttachedPresence.attached, true, 'ReadStory 进入新会话后成功停靠新手机宿主')

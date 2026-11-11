@@ -476,24 +476,6 @@ test('host cleanup removes only callbacks from the retiring iframe realm', () =>
   assert.ok(removed.every(row => row[1] === 'click.shared' && row[2] === realm.callback && row[3] === '.ball'));
 });
 
-test('trusted card widgets await the full host jQuery UI before executing', async () => {
-  let attached
-  const jq = { fn: {} }
-  const host = { jQuery: jq, setTimeout: () => 1, clearTimeout() {}, document: {
-    querySelector: () => attached,
-    createElement: () => ({ setAttribute() {}, remove() { attached = null } }),
-    head: { appendChild(script) { attached = script } }
-  } }
-  const ready = client.ensureTavernHostJQueryUi(host)
-  assert.equal(client.ensureTavernHostJQueryUi(host), ready)
-  assert.match(attached.src, /jquery-ui\/jquery-ui.min.js$/)
-  jq.fn.draggable = () => {}
-  attached.onload()
-  await ready
-  await client.ensureTavernHostJQueryUi(host)
-  assert.equal(attached, null)
-})
-
 test('trusted script UI uses host body and its installed draggable; isolation retains local body', async () => {
   for (const trustedCardMode of [true, false]) {
     const hostBody = {}, localBody = {}
