@@ -203,8 +203,9 @@
   "tavern-plugin/packages/dsh-tavern/lib/state.mjs": [
     "@deepseek-ai/dsh-desktop"
   ],
-  "tavern-plugin/packages/dsh-tavern-dshgo/scripts/install-on-dshgo.mjs": [
+  "tavern-plugin/packages/dsh-tavern-dshgo/lib/hosts.js": [
     "@deepseek-ai/dsh-agent",
+    "@deepseek-ai/dsh-settings",
     "@deepseek-ai/dsh-skill-filesystem",
     "@deepseek-ai/dsh-subagent",
     "@deepseek-ai/dsh-tools",
