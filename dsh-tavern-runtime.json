@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "45dc2ccc462584e766ebfab8929677a1a5198b34",
-  "releaseSequence": 1451,
+  "revision": "04091e11b6e96eeeb3a8944aad9e2b72f9aeed8b",
+  "releaseSequence": 1452,
   "version": "3.3.0",
   "files": [
     {
@@ -5941,8 +5941,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/voice-authoring.js",
-      "sha256": "1b3e46f86a4c0a89592560f24d2623df88c2da2b2727d39d8548f6e9016b3f0b",
-      "size": 8145
+      "sha256": "a163cb95e03c128b5d1f0b617d7b982bcda0be50eea0a70e24a80bd98a420849",
+      "size": 17072
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/schema/atlas.schema.json",
@@ -6526,8 +6526,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/types/tts.d.ts",
-      "sha256": "c544383d7082c8d13b578c7850421e5dc638e94387fde30c7b352b538c505477",
-      "size": 14098
+      "sha256": "c6ccb6521b932938dd2db21aa3bf79aa2395c4f28da4f6963b6525f306244730",
+      "size": 14142
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/voice-cues.cjs",
@@ -8461,9 +8461,9 @@
     }
   ],
   "archive": {
-    "commit": "89bf3d1f6a3aaa74a21a3bc68494103b8d87ebf5",
+    "commit": "cd94d9e571f292fe3e6a90feb571f7bf503a5a81",
     "path": "runtime.zip",
-    "sha256": "efed4f91834a5234440c7db3333e3882a32ed3d09309f48313abac9a18d18d6a",
-    "size": 15154555
+    "sha256": "9e62165ed5f960d117da05272b7f4e90dab4f043e0caff53530f9d600e0c43c8",
+    "size": 15156842
   }
 }
