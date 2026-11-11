@@ -5,6 +5,10 @@ import {assertJson, check, shape, text, array, unique, record, integer, oneOf} f
 // a 差分 display name is at most 4 characters (code points). Checked where
 // labels enter (pack install, the editor, lint); the badge never truncates.
 export const FIGURE_EMOTION_LABEL_MAX = 4
+// The nine standard 差分 (id + label, no images): an automatically created figure starts with them so the speaker roster
+// offers them and the story can ask for one; calm first, so it is the default.
+export const STANDARD_FIGURE_EMOTIONS = Object.freeze([['calm','平和'],['joy','喜悦'],['anger','愤怒'],['sad','悲伤'],['anxious','紧张'],['shy','害羞'],['disgust','嫌弃'],['love','爱恋'],['crying','哭泣']]
+ .map(([id,label]) => Object.freeze({id,label})))
 export function figureEmotionLabelProblem(label) {
  return [...label].length > FIGURE_EMOTION_LABEL_MAX ? '差分名「' + label + '」超过 ' + FIGURE_EMOTION_LABEL_MAX + ' 个字；改成保留原意的自然短名（如「抬右翼闭眼」→「右翼闭眼」），ID 不变' : ''
 }
