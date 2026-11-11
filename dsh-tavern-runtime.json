@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "4188b1e8f2cd65c9a0d631cec702b2ecad954440",
-  "releaseSequence": 1490,
+  "revision": "bf5c87cca6347ce6f46ed2142e08902790258607",
+  "releaseSequence": 1491,
   "version": "3.3.0",
   "files": [
     {
@@ -1021,8 +1021,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "ab89ec2ef3f11f85119a5a0d5a67cd078a0ec3bab318b992ce4cdcb15e26173a",
-      "size": 5986961
+      "sha256": "df0181b881ee1d81dac89336fd5b055c87c2d3e87b0f4bc12df1428297448ebe",
+      "size": 5987416
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1821,8 +1821,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-handoff.js",
-      "sha256": "2ae7f69b67aa39f34e821d62a0fe8989eafcf30a51350c0a120ee5bb6e96fefc",
-      "size": 5557
+      "sha256": "1199bcddb72b7e5971b1d18b7bd9911125c5860b66355285597b03b15592f393",
+      "size": 6524
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
@@ -3126,8 +3126,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/session-variable-directory.js",
-      "sha256": "9662af3c4c263b7bd55a6d7af7101b1734a0aa90c9d12090f6ee6b3f417e840f",
-      "size": 2444
+      "sha256": "ac3709e7d39db8299f803ff5b9315a5fc42eada97d5724bdd33cd1e77c58dbf9",
+      "size": 2866
     },
     {
       "path": "tavern-plugin/lib/domain/session-view-projection.js",
@@ -3661,8 +3661,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "81cc4c4a2371c1c99d5363ccf30f4eae9d0bfceab970c7ba7a197f8c8d382f6f",
-      "size": 68654
+      "sha256": "c6882b0bb6290a6e3e7c121b90a1f3e2451a9c6ee582715f17026e374be077b8",
+      "size": 68852
     },
     {
       "path": "tavern-plugin/lib/domain/uncommitted-rounds.js",
@@ -3931,8 +3931,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/turn-lifecycle.js",
-      "sha256": "2e0216c7e850ef9c97c588ad90b81772eb8d1d86454a38ebded66480b3355003",
-      "size": 10424
+      "sha256": "f84204463f1a692547efc2a7646af7015c00eba2c0cebdf7c9df2fcf3a496d04",
+      "size": 10824
     },
     {
       "path": "tavern-plugin/lib/host/mod-dice.mjs",
@@ -8606,9 +8606,9 @@
     }
   ],
   "archive": {
-    "commit": "5e43960a69d1342f34c9df98fa35b5a690bbf729",
+    "commit": "4ededf8b0c06f3b1a87ebc1124b6d7abb446fdc3",
     "path": "runtime.zip",
-    "sha256": "9d56e2b55ee8183241f490fd8159d015db62dfb50b0e129cafbf00e3bff4145a",
-    "size": 15271936
+    "sha256": "8fae9a182fd4ed9d1b5d27cdf225f17e96389fe9d63dae9dd55f59787b9aee98",
+    "size": 15272729
   }
 }
