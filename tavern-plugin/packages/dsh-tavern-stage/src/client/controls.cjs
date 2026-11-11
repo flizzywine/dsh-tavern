@@ -12,11 +12,14 @@ function galShortcuts(options) {
 }
 // The page a stage entry from text mode opens (null: none). fresh: the chat has no player message yet, so its initial page
 // opens even with 跳过标题页 on. Otherwise the skip switch leaves the stage at its latest round; else the first non-initial showOn page.
+// A fresh chat of a card with an opening page (opening: true) is not set up yet: with no title page to show (none, or
+// skipped) the entry opens that page.
 function stageEnterPage({ pages, fresh, skip }) {
     const entering = (pages || []).filter(page => page.showOn?.event === 'stage-enter');
     if (fresh) { const initial = entering.find(page => page.initial === true); if (initial) return initial.id; }
-    if (skip) return null;
-    return entering.find(page => page.initial !== true)?.id ?? null;
+    const title = skip ? null : entering.find(page => page.initial !== true);
+    if (title) return title.id;
+    return fresh ? (pages || []).find(page => page.opening === true)?.id ?? null : null;
 }
 // G: presses the turn-end menu's 重新生成 badge (gal-choices.js) when it is on screen and can act -
 // the key follows the control's own rule (hidden while the choices generate, disabled while the stage is busy).

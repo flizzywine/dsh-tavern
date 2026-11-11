@@ -12,15 +12,16 @@
 //   which goes back inside itself or calls close(); with no listener the request closes, as without the declaration);
 //   close(); open(id) another page; openSettings() the stage's 设置; fillInput(text) fills the stage's 自由输入 (never sends);
 //   asset({kind, id, variant?, file?, size?}) → Promise<blob: URL> of a file of the card's own bound packs; assets(kind);
-//   the title-screen actions, each the stage's or core's existing way: newGame() the card's 游戏准备 (after the core confirm
-//   when this chat is saved, i.e. has a player message), continueGame() closes the page and reading goes on where it is
+//   the title-screen actions, each the stage's or core's existing way: newGame() on a saved chat (it has a player message)
+//   the card's 游戏准备 for another chat after the core confirm, on an unsaved one the card's
+//   游戏准备 when it has one (the game made there replaces this chat), else starts this chat as continueGame(); continueGame() closes the page and reading goes on where it is
 //   (on an entry page close() is 返回主页面 instead: closing a title page is not entering),
 //   openGallery() 回想 and openBacklog() 履历 over the page (a jump from the 履历 enters the stage there), exit() 返回主页面; sound(name) the shown skin's own move / confirm / open / close cue
 //   (a skin without that cue stays silent). Every action's Promise settles, so a page that disables its buttons while one
 //   runs can enable them again. An element with data-dsh-sound sounds move on hover / focus and confirm on click.
 // The data is the page's ledger sections (readCardPage), the declared figures' faces as data: URLs (useFaces) and the
 // stage skin tokens (--gal-ui-*). It is read once on open and again, coalesced, after each session state signal.
-function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, sounds, confirm, newGame, useFaces, useLiveView, createCardFrame, packService, fillInput}) {
+function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, sounds, confirm, newGame, startOpening, useFaces, useLiveView, createCardFrame, packService, fillInput}) {
 const FACE_PX = 96;
 let disposed = false;
 const open = new Set(), faceData = new Map(), readers = new Map();
@@ -74,6 +75,7 @@ function cardPagePrelude(token, page, snapshot, shortcut, scrollbars, owned) {
         + 'onCloseRequest:function(fn){if(typeof fn!=="function")throw new TypeError("onCloseRequest 需要一个函数");closers.add(fn);return function(){closers.delete(fn);};},'
         + 'close:function(){return call("close");},open:function(id){return call("open",{id:String(id==null?"":id)});},openSettings:function(){return call("settings");},'
         + 'fillInput:function(text){return call("fillInput",{text:String(text==null?"":text)});},assets:function(kind){return call("assets",{kind:String(kind||"")});},'
+        + 'opening:function(userName){return call("opening",{userName:String(userName==null?"":userName)});},startGame:function(choice){return call("startGame",choice||{});},'
         + 'newGame:function(){return call("newGame");},continueGame:function(){return call("continue");},openGallery:function(){return call("gallery");},openBacklog:function(){return call("backlog");},exit:function(){return call("exit");},'
         + 'sound:function(name){return call("sound",{name:String(name||"")});},'
         + 'asset:function(ref){var key=JSON.stringify(ref||{});if(!assets.has(key)){var task=call("asset",ref||{}).then(function(blob){return URL.createObjectURL(blob);});task.catch(function(){assets.delete(key);});assets.set(key,task);}return assets.get(key);}});})();<\/script>';
@@ -130,11 +132,11 @@ function createAssetReader(sessionId, page) {
 // (size 'full': the sheet fills the stage instead of the centred window). label / size: the page's declaration (usePages),
 // what the sheet keeps until the read returns. shown: the lifecycle's visible document has loaded in its frame, so the page
 // is on screen. onAction(kind, arg): 'open' (page id),
-// 'settings', 'fill' (after fillInput(sessionId, text)), 'continue', 'gallery', 'backlog', 'exit' (newGame() leaves too, then asks the core).
-// saved: the chat has a player message (usePages' fresh is false), so newGame() asks first.
+// 'settings', 'fill' (after fillInput(sessionId, text)), 'continue', 'gallery', 'backlog', 'exit' (newGame() on a saved chat leaves too, then asks the core).
+// saved: the chat has a player message (usePages' fresh is false), so newGame() asks first; unsaved, newGame() is 'exit' into a replacing 游戏准备 or 'continue'.
 // closeControl 'page': the page answers close requests itself; onEscape() is its Esc / shortcut (the Overlay decides
 // whether it closes a page over this one or asks this page by requestClose()).
-function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction}) {
+function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, openingPage, opening, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction}) {
     let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = helperContext || null;
     let inFlight = false, again = false, faceJob = 0, token = '', content = '', readAsset = null, heldFaces = null;
     let lifecycle = null, stopLifecycle = null, stopSignals = null, stopMessages = null;
@@ -168,9 +170,27 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         if (method === 'open') { onAction('open', String(args?.id || '')); return {ok: true}; }
         if (method === 'settings') { onAction('settings'); return {ok: true}; }
         if (method === 'continue' || method === 'gallery' || method === 'backlog' || method === 'exit') { onAction(method); return {ok: true}; }
+        if (method === 'opening' || method === 'startGame') {
+            if (!opening) throw new Error('只有开局页能读取开局和开始游戏');
+            if (method === 'opening') return (await rpc('readCardOpening', {sessionId, page, userName: String(args?.userName ?? '')}, sessionId))?.opening || null;
+            if (typeof startOpening !== 'function') throw new Error('开始游戏不可用');
+            const choice = args && typeof args === 'object' ? args : {};
+            await startOpening(sessionId, {openingId: String(choice.openingId || ''), values: choice.values && typeof choice.values === 'object' ? choice.values : {}, withoutGreeting: choice.withoutGreeting === true});
+            return {started: true};
+        }
         if (method === 'newGame') {
+            // a never-played chat of a card with an opening page is the new game: its opening page takes it from here
+            if (saved !== true && openingPage) { onAction('open', openingPage); return {started: true}; }
             if (typeof newGame !== 'function') throw new Error('新游戏不可用');
-            if (saved === true && !(typeof confirm === 'function' && await confirm('开始新游戏？\n\n当前这局会保留在游玩记录里，随时可以回来继续。', {confirmText: '开始新游戏', cancelText: '取消'}))) return {started: false};
+            // a never-played chat is the new game: with a 游戏准备 to fill the core opens it and the game made there
+            // replaces this chat; with nothing to prepare this chat starts here (as 继续) - never a second chat
+            if (saved !== true) {
+                const preparing = await newGame(sessionId, {fresh: true});
+                if (closed) return {started: false};
+                onAction(preparing ? 'exit' : 'continue');
+                return {started: true};
+            }
+            if (!(typeof confirm === 'function' && await confirm('开始新游戏？\n\n当前这局会保留在游玩记录里，随时可以回来继续。', {confirmText: '开始新游戏', cancelText: '取消'}))) return {started: false};
             if (closed) return {started: false};
             onAction('exit');
             newGame(sessionId);
@@ -356,7 +376,7 @@ function usePages(sessionId) {
 // closeControl 'page' (a full page that closes itself): once its document shows, the sheet draws no ×, and Esc, the page's
 // shortcut, the backdrop and right-click ask the page (requestClose → its onCloseRequest) instead of closing; covered
 // (CONFIG, 回想 or 履历 opened over the page) keeps them closing that one first. Loading, empty and failed pages keep the ×.
-function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, closeControl, covered, saved, entry, config, source, onClose, onAction}) {
+function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, closeControl, covered, saved, entry, openingPage, opening, config, source, onClose, onAction}) {
     const h = React.createElement, root = React.useRef(null), body = React.useRef(null), panel = React.useRef(null);
     const close = React.useRef(onClose), act = React.useRef(onAction), coveredNow = React.useRef(covered);
     close.current = onClose; act.current = onAction; coveredNow.current = covered === true;
@@ -371,12 +391,12 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     const facesNow = React.useRef(null);
     React.useEffect(() => {
         if (disposed || !ready) return;
-        const current = openCardPage({sessionId, page: pageId, label: declaredLabel, size, shortcut, closeControl, saved: saved === true, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
+        const current = openCardPage({sessionId, page: pageId, label: declaredLabel, size, shortcut, closeControl, saved: saved === true, openingPage, opening: opening === true, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
             onClose: () => close.current?.(), onEscape: request, onState: setState, onAction: (kind, arg) => act.current?.(kind, arg)});
         panel.current = current;
         if (facesNow.current) current.setFaces(facesNow.current);
         return () => { if (panel.current === current) panel.current = null; current.dispose(); };
-    }, [sessionId, pageId, declaredLabel, size, shortcut, closeControl, saved, ready, trusted]);
+    }, [sessionId, pageId, declaredLabel, size, shortcut, closeControl, saved, openingPage, opening, ready, trusted]);
     React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
     const names = state.figures.map(figure => figure.name);
     const faces = useFaces ? useFaces({config, sessionId, source, names, px: FACE_PX}) : new Map();

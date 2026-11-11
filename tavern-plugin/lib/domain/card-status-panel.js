@@ -4,7 +4,13 @@ import { emptyLedger } from './story-ledger.js'
 export const STATUS_PANEL_LEDGER_SECTIONS = Object.freeze(Object.keys(emptyLedger()).filter(name => name !== 'version'))
 export const STATUS_PANEL_SIZES = Object.freeze(['window', 'full'])
 export const CARD_PAGE_SHORTCUT_KEYS = Object.freeze([... 'bcdefijkmnopqrstuwxyz'])
-const KEYS = ['id', 'label', 'html', 'shortcut', 'menu', 'showOn', 'initial', 'size', 'closeControl', 'ledger', 'preload', 'figures']
+const KEYS = ['id', 'label', 'html', 'shortcut', 'menu', 'showOn', 'initial', 'opening', 'size', 'closeControl', 'ledger', 'preload', 'figures']
+
+// The card's opening page (opening: true): its stage completes the card's openingSetup there, in place of the generic
+// 游戏准备 (presets/tavern/skills/stage-status-panel/references/panel-contract.md「开局页」). The one reading of the declaration; null when the card has none.
+export function cardOpeningPage(pages) {
+  return Array.isArray(pages) ? pages.find(page => page?.opening === true) || null : null
+}
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 function invalid(path, message) {
   throw Object.assign(new Error('卡页面 ' + path + '：' + message), { code: 'CARD_PAGES_INVALID', path })
@@ -17,10 +23,13 @@ export function validateCardPages(value, path = 'pages') {
   if (!Array.isArray(value)) invalid(path, '必须是数组')
   if (value.length > 8) invalid(path + '.8', '最多 8 个页面')
   const ids = new Set(), shortcuts = new Set()
+  let opening = false
   value.forEach((page, i) => {
     const p = path + '.' + i
     validatePage(page, p)
     if (ids.has(page.id)) invalid(p + '.id', '页面 id 不能重复')
+    if (page.opening && opening) invalid(p + '.opening', '一张卡只能有一个开局页')
+    opening ||= page.opening === true
     ids.add(page.id)
     if (page.shortcut !== undefined) {
       if (shortcuts.has(page.shortcut)) invalid(p + '.shortcut', '快捷键不能重复')
@@ -40,6 +49,7 @@ function validatePage(value, path) {
   if (value.menu !== undefined && typeof value.menu !== 'boolean') invalid(path + '.menu', '必须是布尔值')
   if (value.showOn !== undefined && (!plain(value.showOn) || value.showOn.event !== 'stage-enter' || Object.keys(value.showOn).some(key => key !== 'event'))) invalid(path + '.showOn', '必须是 {event:"stage-enter"}')
   if (value.initial !== undefined && (value.initial !== true || value.showOn === undefined)) invalid(path + '.initial', '只能是 true，且需要 showOn')
+  if (value.opening !== undefined && (value.opening !== true || value.size !== 'full' || value.showOn !== undefined)) invalid(path + '.opening', '只能是 true，需要 size:"full"，且不能有 showOn（开局页由新游戏打开）')
   if (value.size !== undefined && !STATUS_PANEL_SIZES.includes(value.size)) invalid(path + '.size', '只能是 window 或 full')
   if (value.closeControl !== undefined && (value.closeControl !== 'page' || value.size !== 'full')) invalid(path + '.closeControl', '只能是 "page"，且需要 size:"full"')
   if (value.preload !== undefined) {

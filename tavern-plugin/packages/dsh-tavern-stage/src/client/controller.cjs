@@ -5,7 +5,7 @@ const {useLiveView,storyTurn,useCoordination:useTavernCoordination,rpc,phoneCall
     figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
     modClients,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,ClipStatus,playEvents}=services;
 // galVisitCount: navigation.visit, read here because GalStage's own `navigation` (its paging ref) shadows the parameter.
-const {galActive,galMenuRequest,visit:galVisitCount}=navigation;
+const {galActive,galMenuRequest,visit:galVisitCount,getEntryPage:galEntryPage}=navigation;
 const galCurrentEntry=()=>navigation.getEntry(),galHoldLeave=hold=>navigation.holdLeave(hold);
 const voicePlayer=options.speech?.player,bubbleCharacter=options.speaker?.character,galQuoted=options.backlogView?.galQuoted;
 const forkForeground=options.sceneServices?.foreground,forkLipSync=options.sceneServices?.lipSync,forkStageAudio=options.mixer?.audio,forkUiSfx=options.widgets?.sounds;
@@ -521,7 +521,7 @@ function GalStage(props) {
     // A page's DshCardPage actions (status-panel.cjs onAction): open(id) switches to another page; openSettings() opens the
     // stage's CONFIG over the page, which stays up behind it; fillInput(text) has handed the text to the 自由输入 draft
     // (choices.cjs fill), which waits at the latest round's end - the page closes and the reader goes there (跳到最新).
-    // openGallery() opens 回想 over the page (which stays up behind it); exit() (and newGame()) is 返回主页面; continueGame()
+    // openGallery() opens 回想 over the page (which stays up behind it); exit() (and newGame() into a 游戏准备) is 返回主页面; continueGame() (and newGame() on an unsaved chat with nothing to prepare)
     // closes the page (an entry page too: the stage is entered).
     function cardPageAction(kind, arg) {
         if (kind === 'continue') { closeCardPage(); return; }
@@ -605,7 +605,11 @@ function GalStage(props) {
     React.useLayoutEffect(() => {
         if (!cardPages || !stageVisit || galActive.get() !== sessionId || cardPageVisits.get(sessionId) === stageVisit) return;
         cardPageVisits.set(sessionId, stageVisit);
-        const id = stageViews.controls.stageEnterPage({pages: cardPages.pages, fresh: cardPages.fresh, skip: reading.skipTitlePage === true});
+        // an entry that names its page (galEnter target.page: a new game's opening page, or none for its first act)
+        const asked = galEntryPage(), named = asked?.sessionId === sessionId && asked.visit === stageVisit;
+        const id = named ? (cardPages.pages.some(page => page.id === asked.page) ? asked.page : null)
+            : stageViews.controls.stageEnterPage({pages: cardPages.pages, fresh: cardPages.fresh, skip: reading.skipTitlePage === true});
+        if (named && id === null) return;
         if (id === null) {
             if (reading.skipTitlePage === true && cardPages.pages.some(page => page.showOn && !page.initial)) jumpLatest();
             return;
@@ -1441,7 +1445,7 @@ function GalStage(props) {
             onExit:()=>{setGallery(false);props.onExit();}}) : null,
         // CONFIG or 回想 opened from a page (openSettings / openGallery) stands over it: Esc, which the page takes first, closes that then.
         pageOpen ? h(stageViews.statusPanel.Overlay, { key: sessionId + ":" + openPage, sessionId, pageId: openPage, label: openDeclared.label, shortcut: openDeclared.shortcut, config, source: runtime.source, size: openDeclared.size,
-            closeControl: openDeclared.closeControl, covered: configOpen || galleryOpen, saved: cardPages.fresh !== true, entry: entryOpen, onClose: configOpen ? closeConfig : galleryOpen ? closeGallery : entryOpen ? leaveEntryPage : closeCardPage, onAction: cardPageAction }) : null,
+            closeControl: openDeclared.closeControl, covered: configOpen || galleryOpen, saved: cardPages.fresh !== true, entry: entryOpen, openingPage: pageList.find(declared => declared.opening === true)?.id || '', opening: openDeclared.opening === true, onClose: configOpen ? closeConfig : galleryOpen ? closeGallery : entryOpen ? leaveEntryPage : closeCardPage, onAction: cardPageAction }) : null,
         configOpen || configLeaving ? h(GalConfigScreen, { sessionId, data: props.data, tests: mixTests, textSkin: shownSkin.current, skinHud: activeSkin?.hud?.reveal || "auto", skinPending: configSkin.pending === true, onClose: closeConfig, leaving: configLeaving }) : null,
         // §18 E3: after closing, a drawn menu with an exit motion stays mounted (inert) while its items leave.
         menuOpen ? h(stageViews.menu.Menu, menuProps(false)) : menuLeaving ? h(stageViews.menu.Menu, menuProps(true)) : null,

@@ -41,6 +41,9 @@ return widgetVariables.read({...args,origin:authority?.origin})
     async readCardPage(args) {
       return { page: await deps.cardPages.read(args) }
     },
+    async readCardOpening(args) {
+      return { opening: await deps.cardPages.opening(args) }
+    },
     async locateCardPageAsset(args) {
       return { place: await deps.cardPages.locate(args) }
     },

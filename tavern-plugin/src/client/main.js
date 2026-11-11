@@ -991,6 +991,8 @@ window.__ModuleLoader__.load({
 // @include features/card-list.js
 
 // @include-domain update-status-controller.js
+// @include features/opening-setup-form.js
+// @include features/opening-setup-template.js
 // @include modules/card-update-dialog.js
 // @include features/sidebar.js
 

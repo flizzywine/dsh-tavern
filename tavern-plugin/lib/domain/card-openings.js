@@ -17,6 +17,13 @@ export function cardOpeningChoices(card) {
   return choices
 }
 
+/** The state a greeting's own <initvar> block starts its game with (MVU's initial stat_data), or undefined. */
+export function openingInitialState(text) {
+  const block = /<initvar>([\s\S]*?)<\/initvar>/i.exec(str(text))
+  if (!block) return undefined
+  try { return JSON.parse(block[1].replace(/^\s*```[^\n]*\n|\n```\s*$/g, '').trim()) } catch { return undefined }
+}
+
 export function resolveCardOpening(card, openingId) {
   const choices = cardOpeningChoices(card)
   const requested = str(openingId)

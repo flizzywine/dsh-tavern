@@ -94,7 +94,7 @@ function OpeningBackground({ctx,background,timeOfDay,className}) {
 // its own scene) and that greeting's scene — picture, 背景, 时段, CG, 人物, BGM — every control saving at once like the rest
 // of the page (使用默认 drops the greeting's own scene). The skin applies whenever bubbles are on; 主角 and the scenes need
 // 舞台模式, so only that part greys out (the head names what it needs, as a blocked section does).
-const openingDraft=scene=>({background:scene?.background||null,timeOfDay:scene?.timeOfDay??null,music:scene?.music||null,cast:clone(scene?.cast||[]),...(scene?.cg?{cg:clone(scene.cg)}:{})});
+const openingDraft=scene=>({...(scene?.title?{title:scene.title}:{}),...(scene?.summary?{summary:scene.summary}:{}),background:scene?.background||null,timeOfDay:scene?.timeOfDay??null,music:scene?.music||null,cast:clone(scene?.cast||[]),...(scene?.cg?{cg:clone(scene.cg)}:{})});
 // a greeting without its own scene is edited from what the stage shows by default (WYSIWYG):
 // theme gradient, 时段 自动, the host's default BGM and nobody on stage. Its first customisation starts from exactly that.
 function openingSeed(ctx,value,scene) {

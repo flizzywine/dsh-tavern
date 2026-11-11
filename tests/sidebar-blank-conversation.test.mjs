@@ -49,7 +49,8 @@ function deleteFixture() {
     refresh: async () => {},
   })
   vm.runInContext(sourceFunction(source, 'changeConversationArchive'), ctx)
-  vm.runInContext(sourceFunction(source, 'deleteConversation'), ctx)
+  // (removeChat, the shared removal deleteConversation calls, sits right before it)
+  vm.runInContext(source.slice(source.indexOf('async function removeChat'), source.indexOf('async function forkConversation')), ctx)
   return { ctx, calls }
 }
 

@@ -12,6 +12,14 @@ const intro={id:'intro',label:'导览',html:'<p>i</p>',showOn:{event:'stage-ente
 const map={id:'map',label:'地图',html:'<p>m</p>',shortcut:'m',menu:true,showOn:{event:'stage-enter'}}
 const status={id:'status',label:'状态',html:'<p>s</p>',shortcut:'s',menu:true}
 
+test('a fresh chat of a card with an opening page shows its title page, else (none, or skipped) its opening page',()=>{
+ const opening={id:'opening',label:'开局',html:'<p>o</p>',size:'full',opening:true}
+ assert.equal(stageEnterPage({pages:[intro,opening],fresh:true,skip:false}),'intro')
+ assert.equal(stageEnterPage({pages:[intro,opening],fresh:true,skip:true}),'opening')
+ assert.equal(stageEnterPage({pages:[status,opening],fresh:true,skip:false}),'opening')
+ assert.equal(stageEnterPage({pages:[status,opening],fresh:false,skip:false}),null,'a game already set up never reopens it')
+})
+
 test('a showOn page opens on a later stage entry when the chat already has a player message',()=>{
  assert.equal(stageEnterPage({pages:[intro,status],fresh:false,skip:false}),'intro')
 })
@@ -35,7 +43,7 @@ test('the controller handles each navigation visit once and skipping resumes the
  const navigation=createStageNavigation({window:{},document,navigator:{},playCue(){},getSessionId:()=> 's',getSettings:()=>null})
  const stop=navigation.galStageLifetime(), opened=[], entries=[]
  let latest=0,ended=0
- const context={cardPages:{pages:[intro],fresh:false},sessionId:'s',cardPageVisits:new Map(),galActive:navigation.galActive,
+ const context={cardPages:{pages:[intro],fresh:false},sessionId:'s',cardPageVisits:new Map(),galActive:navigation.galActive,galEntryPage:navigation.getEntryPage,
   stageViews:{controls:{stageEnterPage}},reading:{skipTitlePage:false},setHidden(){},setOpenPage:id=>opened.push(id),setEntryCardPage:id=>entries.push(id),entrance:{end:()=>ended++},jumpLatest:()=>latest++}
  const run=()=>{context.stageVisit=navigation.visit();vm.runInNewContext('(function(){'+effect+'})()',context)}
  navigation.galOpen('s');run()
@@ -52,6 +60,11 @@ test('the controller handles each navigation visit once and skipping resumes the
  navigation.galLeave();navigation.galOpen('s');run()
  assert.deepEqual(opened,['intro','intro','title']);assert.equal(latest,1)
  assert.deepEqual(entries,opened,'each page an entry opens is the entry page')
+ // an entry that names its page (a new game's opening page, or none for its first act) opens exactly that
+ navigation.galLeave();navigation.galOpen('s',{page:'intro'});run()
+ assert.deepEqual(opened.slice(3),['intro'])
+ navigation.galLeave();navigation.galOpen('s',{page:''});run()
+ assert.deepEqual(opened.slice(3),['intro'],'page \'\' opens none');assert.equal(latest,1,'and does not skip to the latest round')
  stop()
 })
 
