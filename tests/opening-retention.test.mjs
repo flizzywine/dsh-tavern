@@ -11,7 +11,7 @@ function fixture() {
   const state = { openingPicker: draft, picking: true, uiMode: 'play', requestMode: 'dsh' }
   const ctx = vm.createContext({ ...state, busy: false, compatibilityAvailable: true,
     playPrewarmRef: { current: { cancel() {} } }, cardBatch: { reset() {} },
-    tavernErrorHub: { clear() {}, report() {}, resolve() {} }, setCards() {}, setMenuSession() {}, setShowArchived() {}, setCardEntry() {}, setError() {}, setChatImport() {}, setBusy() {},
+    tavernErrorHub: { clear() {}, report() {}, resolve() {} }, setCards() {}, setMenuSession() {}, setCardEntry() {}, setError() {}, setChatImport() {}, setBusy() {},
     setOpeningPicker(value) { ctx.openingPicker = state.openingPicker = value },
     setPicking(value) { ctx.picking = state.picking = value },
     setUiMode(value) { ctx.uiMode = state.uiMode = value },

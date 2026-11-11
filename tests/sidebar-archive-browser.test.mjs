@@ -4,7 +4,7 @@ import test from 'node:test'
 import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
 
-test('历史跟随宿主归档状态，归档可恢复，也可彻底删除', async t => {
+test('已归档在历史列表底部折叠，展开后可恢复或彻底删除', async t => {
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
   const page = await browser.newPage()
@@ -64,23 +64,37 @@ test('历史跟随宿主归档状态，归档可恢复，也可彻底删除', as
   const row = title => page.locator('.dsh-tavern-side-row').filter({ hasText: title })
   const button = name => page.getByRole('button', { name, exact: true })
   const menu = title => row(title).getByRole('button', { name: '对话操作' }).click()
-  await page.locator('.dsh-tavern-history-group-toggle').click()
+  const archiveToggle = page.getByRole('button', { name: /^已归档/ })
+  await page.getByRole('button', { name: /^测试卡/ }).click()
   await row('普通存档').waitFor()
+  assert.equal(await page.locator('.dsh-tavern-history-group-toggle').last().getAttribute('title'), '已归档')
+  assert.equal(await archiveToggle.getAttribute('aria-expanded'), 'false')
   assert.equal(await row('旧归档').count(), 0)
   await menu('普通存档')
   await button('归档').click()
   await row('普通存档').waitFor({ state: 'detached' })
   assert.deepEqual(deleteCalls, [])
 
-  await button('已归档').click()
+  await archiveToggle.click()
   await menu('普通存档')
   await button('恢复到历史').click()
-  await row('普通存档').waitFor({ state: 'detached' })
+  await row('普通存档').waitFor()
+  await row('旧归档').waitFor()
+
+  await button('管理').click()
+  await page.getByRole('checkbox', { name: '选择对话：旧归档' }).click()
+  await button('彻底删除所选（1）').waitFor()
+  await archiveToggle.click()
+  assert.equal(await button('彻底删除所选（0）').isDisabled(), true)
+  await archiveToggle.click()
+  assert.equal(await page.getByRole('checkbox', { name: '选择对话：旧归档' }).getAttribute('aria-checked'), 'false')
+  await button('取消').click()
+
   await menu('旧归档')
   await button('彻底删除').click()
   await page.getByRole('dialog').getByRole('button', { name: '彻底删除', exact: true }).click()
   await row('旧归档').waitFor({ state: 'detached' })
-  await button('返回历史').click()
+  await archiveToggle.waitFor({ state: 'detached' })
   await row('普通存档').waitFor()
   assert.deepEqual(deleteCalls, [
     { method: 'prepareDeleteChats', args: { chatIds: ['chat-archived'] } },

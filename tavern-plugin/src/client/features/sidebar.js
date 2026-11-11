@@ -111,11 +111,11 @@
 			const chatImportFile = React.useRef(null);
 			const [pendingOpen, setPendingOpen] = React.useState(null);
 			const [menuSession, setMenuSession] = React.useState(null);
-			const [showArchived, setShowArchived] = React.useState(false);
+			const [archiveExpanded, setArchiveExpanded] = React.useState(false);
 			const [managing, setManaging] = React.useState(false);
 			const [selectedChats, setSelectedChats] = React.useState([]);
 			const [deleteNotice, setDeleteNotice] = React.useState("");
-			React.useEffect(function () { setSelectedChats([]); setManaging(false); setMenuSession(null); setDeleteNotice(""); }, [uiMode, showArchived]);
+			React.useEffect(function () { setSelectedChats([]); setManaging(false); setMenuSession(null); setDeleteNotice(""); setArchiveExpanded(false); }, [uiMode]);
 			const removedChatsHandler = React.useRef(null);
 			React.useEffect(function () {
 				function onRemoved(event) { if (removedChatsHandler.current) removedChatsHandler.current(event.detail && event.detail.sessionIds || []); }
@@ -829,7 +829,7 @@
 			}
 			async function switchMode(nextMode) {
 				playPrewarmRef.current.cancel();
-				setUiMode(nextMode); setPicking(false); setShowArchived(false); setMenuSession(null);
+				setUiMode(nextMode); setPicking(false); setMenuSession(null);
 				// Back to the conversation last used in that mode, not the newest created (#220).
 				const first = unarchivedHistory.filter(function (item) {
 					if (groupOfMode(item.mode) !== nextMode) return false;
@@ -863,7 +863,7 @@
 
 			async function switchToPlay() {
 				playPrewarmRef.current.cancel();
-				setUiMode("play"); setPicking(false); setShowArchived(false); setMenuSession(null); setBusy(true); setError("");
+				setUiMode("play"); setPicking(false); setMenuSession(null); setBusy(true); setError("");
                 if (openingPicker) {
                     setPicking(true); setBusy(false); return;
                 }
@@ -1014,7 +1014,8 @@
 			) : null;
 			const isHistoryInMode = item => groupOfMode(item.mode) === uiMode && (uiMode !== "play" || item.requestMode !== "sillytavern");
 			const activeHistory = unarchivedHistory.filter(isHistoryInMode);
-			const visibleHistory = showArchived ? history.filter(item => archivedSessions.has(item.sessionId) && isHistoryInMode(item)) : activeHistory;
+			const archivedHistory = history.filter(item => archivedSessions.has(item.sessionId) && isHistoryInMode(item));
+			const visibleHistory = archiveExpanded ? activeHistory.concat(archivedHistory) : activeHistory;
 			// Deleting a card elsewhere may remove the chat open here; never leave it on screen.
 			removedChatsHandler.current = function (sessionIds) {
 				if (!sessionIds.includes(current)) return;
@@ -1031,6 +1032,7 @@
 				return !!(live && live.running);
 			}
 			function renderHistoryRow(item) {
+				const archived = archivedSessions.has(item.sessionId);
 				const summary = summaries[item.sessionId];
 				const title = historyTitle(item, summary);
 				const generating = sessionGenerating(item.sessionId);
@@ -1038,7 +1040,7 @@
 					// in 管理 the whole row is the checkbox (house round check), not a small native box.
 					h("button", Object.assign({ className: "dsh-tavern-side-row-main" + (managing ? " ap-check-row" : ""), disabled: busy }, managing ? { role: "checkbox", "aria-checked": selectedChats.includes(item.chatId), "aria-label": "选择对话：" + title } : null, { onClick: async function () {
 					if (managing) { toggleChatSelection(item.chatId); return; }
-					if (showArchived) { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); return; }
+					if (archived) { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); return; }
 					try {
 						if (summary && summary.blank) await call("ensureOpening", { sessionId: item.sessionId });
 						await openSessionWhenReady(item.sessionId);
@@ -1053,25 +1055,32 @@
 					),
 					!managing ? h("button", { className: "dsh-tavern-side-row-more", title: "对话操作", "aria-label": "对话操作", "aria-expanded": menuSession === item.sessionId ? "true" : "false", onClick: function () { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); } }, "⋯") : null,
 					!managing && menuSession === item.sessionId ? h("div", { className: "dsh-tavern-side-row-menu" },
-						!showArchived ? h("button", { disabled: busy, onClick: function () { renameConversation(item, title); } }, "重命名") : null,
-						h("button", { disabled: busy, onClick: () => changeConversationArchive(item, !showArchived) }, showArchived ? "恢复到历史" : "归档"),
-                        !showArchived && isPlayMode(item.mode || "story") ? h("button", { disabled: busy, onClick: () => rescueConversation(item) }, "存档救援") : null,
-                        !showArchived && isPlayMode(item.mode || "story") ? h("button", { disabled: busy, title: "存档打不开或迁移失败时，导出会话结构发给开发者；不含剧情正文", onClick: () => { setMenuSession(null); downloadSessionDiagnostics({ chatId: item.chatId }).catch(err => setError("导出诊断文件失败：" + String(err.message || err))); } }, "导出诊断文件") : null,
+						!archived ? h("button", { disabled: busy, onClick: function () { renameConversation(item, title); } }, "重命名") : null,
+						h("button", { disabled: busy, onClick: () => changeConversationArchive(item, !archived) }, archived ? "恢复到历史" : "归档"),
+                        !archived && isPlayMode(item.mode || "story") ? h("button", { disabled: busy, onClick: () => rescueConversation(item) }, "存档救援") : null,
+                        !archived && isPlayMode(item.mode || "story") ? h("button", { disabled: busy, title: "存档打不开或迁移失败时，导出会话结构发给开发者；不含剧情正文", onClick: () => { setMenuSession(null); downloadSessionDiagnostics({ chatId: item.chatId }).catch(err => setError("导出诊断文件失败：" + String(err.message || err))); } }, "导出诊断文件") : null,
 						h("button", { className: "danger", disabled: busy, onClick: function () { deleteConversation(item, title); } }, "彻底删除")
 					) : null
 				);
 			}
-			const rows = showArchived || uiMode !== "play" ? visibleHistory.map(renderHistoryRow) : groupTavernHistory(visibleHistory, summaries).map(function (group) {
-				const expanded = historyGroupState[group.key] === true;
+			function renderHistoryGroup(group, expanded, toggle) {
 				return h("section", { key: group.key, className: "dsh-tavern-history-group" },
 					h("button", { className: "dsh-tavern-history-group-toggle", "aria-expanded": expanded, title: group.path || group.name,
-						onClick: function () { setHistoryGroupState(previous => ({ ...previous, [group.key]: !expanded })); setMenuSession(null); }
+						onClick: function () { toggle(); setMenuSession(null); }
 					}, h("span", { "aria-hidden": true }, expanded ? "▾" : "▸"),
 						// A collapsed group hides its rows, so its head carries the same mark when one of them generates.
 						group.items.some(function (item) { return sessionGenerating(item.sessionId); }) ? h("span", { className: "dsh-tavern-history-group-spinner", role: "status", "aria-label": "有对话正在生成" }, h(Spinner, {})) : null,
 						h("span", { className: "dsh-tavern-history-group-name" }, group.name), h("span", { className: "dsh-tavern-history-group-count" }, group.items.length)),
 					expanded ? h("div", { className: "dsh-tavern-history-group-items" }, group.items.map(renderHistoryRow)) : null);
+			}
+			const rows = uiMode !== "play" ? activeHistory.map(renderHistoryRow) : groupTavernHistory(activeHistory, summaries).map(function (group) {
+				const expanded = historyGroupState[group.key] === true;
+				return renderHistoryGroup(group, expanded, () => setHistoryGroupState(previous => ({ ...previous, [group.key]: !expanded })));
 			});
+			const archiveGroup = archivedHistory.length ? renderHistoryGroup({ key: "archived", name: "已归档", items: archivedHistory }, archiveExpanded, () => {
+				if (archiveExpanded) setSelectedChats(ids => ids.filter(id => !archivedHistory.some(item => item.chatId === id)));
+				setArchiveExpanded(!archiveExpanded);
+			}) : null;
 			const selectedOpening = openingPicker && openingPicker.openings[openingPicker.index];
 			const pickerError = error ? h("div", { className: "dsh-tavern-picker-error", role: "alert" },
 				h("div", null, error),
@@ -1287,13 +1296,12 @@
                     h('input',{ref:updateInput,type:'file',accept:'.json,.png,.charx,.dshcard',style:{display:'none'},onChange:e=>{const file=e.target.files?.[0]; if(!file)return; setUpdateFile(file); setUpdatingCard(true);setUpdateNotice('');setUpdateError('');setUpdateResult(null);e.target.value='';}}),
                 updatingCard ? h(TavernCardUpdateDialog, { target: updateTarget, name: cards.find(card => card.path === updateTarget)?.name || updateTarget, file: updateFile, notice: updateNotice, error: updateError, result: updateResult, busy, call, pick: () => updateInput.current.click(), close: () => setUpdatingCard(false), replace: replaceSelectedCard }) : null,
 				h("div", { className: "dsh-tavern-side-title dsh-tavern-history-heading" },
-					h("span", null, showArchived ? "已归档" : uiMode === "play" ? "游玩历史" : "卡片历史"),
-					h("button", { className: "dsh-tavern-history-action", disabled: busy, onClick: () => setShowArchived(!showArchived) }, showArchived ? "返回历史" : "已归档"),
+					h("span", null, uiMode === "play" ? "游玩历史" : "卡片历史"),
 					h("button", { className: "dsh-tavern-history-action", disabled: busy, onClick: function () { setManaging(!managing); setSelectedChats([]); setMenuSession(null); setDeleteNotice(""); } }, managing ? "取消" : "管理")),
 				managing ? h("div", { className: "dsh-tavern-history-selection" },
 					h("button", { className: "dsh-tavern-history-action", disabled: busy || !visibleHistory.length, onClick: function () { setSelectedChats(visibleHistory.map(function (item) { return item.chatId; })); } }, "全选"),
 					h("span", null, "已选 " + visibleHistory.filter(function (item) { return selectedChats.includes(item.chatId); }).length)) : null,
-				h("div", { className: "dsh-tavern-side-list" }, rows.length ? rows : h(EmptyState, { noun: showArchived ? "已归档对话" : uiMode === "play" ? "游玩对话" : "卡片工作台对话" })),
+				h("div", { className: "dsh-tavern-side-list" }, rows.length || archiveGroup ? rows : h(EmptyState, { noun: uiMode === "play" ? "游玩对话" : "卡片工作台对话" }), archiveGroup),
 				managing ? h("button", { className: "dsh-tavern-btn", style: { flexShrink: 0, margin: "8px 12px", color: "#e57373" }, disabled: busy || !visibleHistory.some(function (item) { return selectedChats.includes(item.chatId); }), onClick: deleteSelectedConversations }, busy ? "正在删除…" : "彻底删除所选（" + visibleHistory.filter(function (item) { return selectedChats.includes(item.chatId); }).length + "）") : null,
 				deleteNotice ? h("div", { role: "status", style: { padding: "4px 12px" } }, deleteNotice) : null,
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
