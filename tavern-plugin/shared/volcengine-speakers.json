@@ -1,0 +1,108 @@
+[
+  {
+    "id": "zh_female_shuangkuaisisi_moon_bigtts",
+    "label": "爽快思思",
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "gender": "Female"
+  },
+  {
+    "id": "zh_female_cancan_mars_bigtts",
+    "label": "灿灿",
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "gender": "Female"
+  },
+  {
+    "id": "zh_female_vv_uranus_bigtts",
+    "label": "vivi",
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "gender": "Female"
+  },
+  {
+    "id": "zh_female_qingxinnvsheng_mars_bigtts",
+    "label": "清新女声",
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "gender": "Female"
+  },
+  {
+    "id": "zh_female_sajiaoxuemei_uranus_bigtts",
+    "label": "撒娇学妹",
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "gender": "Female"
+  },
+  {
+    "id": "zh_female_luoli_uranus_bigtts",
+    "label": "萝莉音",
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "gender": "Female"
+  },
+  {
+    "id": "zh_male_dayi_uranus_bigtts",
+    "label": "大义",
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "gender": "Male"
+  },
+  {
+    "id": "zh_male_wennuanahu_moon_bigtts",
+    "label": "温暖阿虎",
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "gender": "Male"
+  },
+  {
+    "id": "zh_male_shaonianzixin_moon_bigtts",
+    "label": "少年自信",
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "gender": "Male"
+  },
+  {
+    "id": "zh_male_dongmanxiaoxin_moon_bigtts",
+    "label": "动漫小新",
+    "languages": [
+      "zh",
+      "en"
+    ],
+    "gender": "Male"
+  },
+  {
+    "id": "en_female_anna_mars_bigtts",
+    "label": "Anna",
+    "languages": [
+      "en"
+    ],
+    "gender": "Female"
+  },
+  {
+    "id": "en_male_adam_mars_bigtts",
+    "label": "Adam",
+    "languages": [
+      "en"
+    ],
+    "gender": "Male"
+  }
+]
