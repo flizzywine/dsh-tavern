@@ -3193,26 +3193,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   /* 触屏没有悬停，历史会话操作不能等 hover 后才出现。 */
   .dsh-tavern-side-row-more, .dsh-tavern-side-row-expand { opacity: 1; }
   .dsh-tavern-side-row-expand { min-width: 34px; min-height: 34px; }
-  /* ---------- 手机宽度：酒馆侧栏铺满整屏（2026-11-11） ----------
-     移动外壳把左栏收成 min(88vw, 280px) 的抽屉，首轮预览、轮数和宽屏管理器都挤在
-     大半屏里。手机上酒馆就是主界面，直接整屏铺开；宿主的抽屉把手会被盖住，所以右上角
-     给一个酒馆自己的收回按钮（固定定位，不受抽屉位移影响）。 */
-  body.dsh-tavern-shell-active [data-mobile-nav="frame"] > :first-child:has(.dsh-tavern-sidebar) {
-    width: 100vw !important; max-width: none !important; border-right: 0 !important;
-  }
-  body.dsh-tavern-shell-active .dsh-tavern-sidebar {
-    position: fixed !important; inset: 0 !important; width: auto !important; max-width: none !important;
-    padding-top: max(12px, env(safe-area-inset-top, 0px));
-  }
-  body.dsh-tavern-shell-active .dsh-tavern-side-collapse {
-    position: fixed; z-index: 70; display: inline-flex; align-items: center; gap: 2px;
-    top: calc(env(safe-area-inset-top, 0px) + 8px); right: 10px; box-sizing: border-box;
-    height: 40px; padding: 0 14px 0 9px;
-    border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px;
-    background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base, #fff)); color: var(--dsw-alias-label-secondary);
-    font: inherit; font-size: 12px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.08);
-  }
-  body.dsh-tavern-shell-active .dsh-tavern-side-collapse:active { background: var(--dsw-alias-interactive-bg-hover); }
+
   .dsh-tavern-btn, .dsh-card-primary, .dsh-tavern-script-primary,
   .dsh-tavern-card-row-popup button, .dsh-tavern-group-picker > summary { min-height: 40px; }
   /* 16px 输入字号防止 iOS 自动放大；正文、标签和代码展示不受影响。 */
@@ -3290,6 +3271,30 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
 
 }
 
+@media (max-width: 1023px) and (pointer: coarse) {
+  /* ---------- 手机宽度：酒馆侧栏铺满整屏（2026-11-11） ----------
+     移动外壳把左栏收成 min(88vw, 280px) 的抽屉，首轮预览、轮数和宽屏管理器都挤在
+     大半屏里。手机上酒馆就是主界面，直接整屏铺开；宿主的抽屉把手会被盖住，所以右上角
+     给一个酒馆自己的收回按钮（固定定位，不受抽屉位移影响）。 */
+  body.dsh-tavern-shell-active [data-mobile-nav="frame"]:not([data-sidebar-collapsed]) > :first-child:has(.dsh-tavern-sidebar) {
+    width: 100vw !important; max-width: none !important; border-right: 0 !important;
+  }
+  /* 只铺开「展开」的那棵树：收起状态是 .dsh-tavern-sidebar.collapsed 的 ＋ 窄条，
+     跟着 inset:0 会变成一整屏空白盖住正文。 */
+  body.dsh-tavern-shell-active .dsh-tavern-sidebar:not(.collapsed) {
+    position: fixed !important; inset: 0 !important; width: auto !important; max-width: none !important;
+    padding-top: max(12px, env(safe-area-inset-top, 0px));
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-side-collapse {
+    position: fixed; z-index: 70; display: inline-flex; align-items: center; gap: 2px;
+    top: calc(env(safe-area-inset-top, 0px) + 8px); right: 10px; box-sizing: border-box;
+    height: 40px; padding: 0 14px 0 9px;
+    border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px;
+    background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base, #fff)); color: var(--dsw-alias-label-secondary);
+    font: inherit; font-size: 12px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  }
+  body.dsh-tavern-shell-active .dsh-tavern-side-collapse:active { background: var(--dsw-alias-interactive-bg-hover); }
+}
 /* 窄屏手机上默认的 5 个视图标签要放得下：收紧标签间距，仍可左右滑动。 */
 @media (max-width: 430px) {
   body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) [class*="_tabs"] { gap: 12px; }

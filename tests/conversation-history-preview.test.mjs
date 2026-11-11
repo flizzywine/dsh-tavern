@@ -209,9 +209,11 @@ test('侧边栏行渲染预览、轮数与展开开关，并挂上宽屏管理�
 test('移动端侧栏整屏铺开，右上角有收回按钮，▾ 仍然在行内', () => {
   assert.match(sidebar, /dsh-tavern-side-collapse/)
   assert.match(sidebar, /togglePreview\(item\); \}/)
-  // 抽屉（frame 的第一个子元素）在手机上铺满整屏。
-  assert.match(css, /\[data-mobile-nav="frame"\] > :first-child:has\(\.dsh-tavern-sidebar\) \{\n    width: 100vw !important;/)
-  assert.match(css, /\.dsh-tavern-sidebar \{\n    position: fixed !important; inset: 0 !important;/)
+  // 抽屉（frame 的第一个子元素）在手机上铺满整屏，且只在抽屉展开时生效。
+  assert.match(css, /\[data-mobile-nav="frame"\]:not\(\[data-sidebar-collapsed\]\) > :first-child:has\(\.dsh-tavern-sidebar\) \{\n    width: 100vw !important;/)
+  assert.match(css, /\.dsh-tavern-sidebar:not\(\.collapsed\) \{\n    position: fixed !important; inset: 0 !important;/)
+  // 收起状态（.collapsed 的 ＋ 窄条）绝不能被撑成整屏空白。
+  assert.doesNotMatch(css, /\.dsh-tavern-sidebar \{\n    position: fixed !important; inset: 0/)
   // 行内展开按钮在触屏上也照样渲染，不再被 CSS 藏掉。
   assert.doesNotMatch(css, /\.dsh-tavern-side-row-expand \{ display: none; \}/)
   assert.match(css, /\.dsh-tavern-side-row-preview \{[^}]*-webkit-line-clamp: 3;/)
