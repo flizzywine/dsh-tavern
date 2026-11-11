@@ -113,12 +113,20 @@ export function createCardBundleMethods(host) {
           if (!privateExportFile) await assertPublicPackChain(pack, metadata)
           packs.push(pack)
         }
-        // A chosen list (input.packIds) leaves the other packs out of the exported card's bindings; keepPackIds are
-        // bound packs the host embeds from elsewhere.
+        // The exported card stays bound to every pack it binds. A bound pack left out (input.packIds) travels as a
+        // dependency the importing library may already have; keepPackIds are bound packs the host embeds from elsewhere.
+        // input.dependencyPackIds (a chosen release scope) names the left-out packs the card still declares; any other
+        // left-out binding is dropped from the exported card, so the importer never meets a pack outside the scope.
         const exported = packs.map(pack => pack.manifest.id)
         const bound = exported.length ? adapter().bindRaw(card.raw, exported) : value.raw
-        const raw = input.packIds ? adapter().retainRaw(bound, [...exported, ...(input.keepPackIds || [])]) : bound
-        const result = await consume({...card, raw, packs})
+        const declared = value.boundPackIds.filter(id => !exported.includes(id) && (!input.dependencyPackIds || input.dependencyPackIds.includes(id)))
+        const raw = input.dependencyPackIds ? adapter().retainRaw(bound, [...exported, ...(input.keepPackIds || []), ...declared]) : bound
+        const dependencies = []
+        for (const id of declared) {
+          const manifest = (await metadata(id, 'manifest'))?.manifest
+          dependencies.push({id, title:manifest?.name || '', contentHash:manifest?.contentHash || null})
+        }
+        const result = await consume({...card, raw, packs, dependencies})
         check((await adapter().snapshot({path:input.path})).revision === card.revision, '$.revision', 'Card changed', 'REVISION_CONFLICT')
         return result
       }, !!privateExportFile)
