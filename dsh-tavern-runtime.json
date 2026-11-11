@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "829155453f8653db59cfcdbb6588f0c8e421c921",
-  "releaseSequence": 1424,
+  "revision": "acc7e80f0fba0caa9e70c45503134469facbf707",
+  "releaseSequence": 1427,
   "version": "3.3.0",
   "files": [
     {
@@ -7301,8 +7301,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "81939048fe473046dcb0389c0633cf47d611d5ae3e5db0043e6c7c299e4affc8",
-      "size": 3403487
+      "sha256": "93405c150d1e2d3ea413549dc7357fdb33f4be1465167391ab93848d45633917",
+      "size": 3403679
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -7700,6 +7700,11 @@
       "size": 6346
     },
     {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/service-model-migration.js",
+      "sha256": "009f4e6557878479583dc609ffc0a346851d7c9125acc94a61897d01a205adc5",
+      "size": 1725
+    },
+    {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/stage-extensions.js",
       "sha256": "245e569c09becbea8abac7716c8265c7cd2b1dcb62c0beac3953388d4bcc0aa0",
       "size": 1785
@@ -7850,14 +7855,19 @@
       "size": 13347
     },
     {
+      "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/http-config.js",
+      "sha256": "aa5e3ba1844a4533b15ef687cb788e4226f4ac4f94eb0f1d6d830e3bce95bef7",
+      "size": 8561
+    },
+    {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/minimax.js",
       "sha256": "a4e22883bb0e96630e57aa9a6c44b9d906cbbb65320d52385324e47c5d2967af",
       "size": 4908
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/openai-compatible.js",
-      "sha256": "a87427eb1e7d6b88482ff7d44b137a189ee4768e508f86743a2271d763b25e8e",
-      "size": 4686
+      "sha256": "6c290792798bb1c2ddf6cc22a5bbab08b6e0ee56b5bec324001f017f595eb725",
+      "size": 8746
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/params.js",
@@ -8466,9 +8476,9 @@
     }
   ],
   "archive": {
-    "commit": "f21d34d9b05debb3bc5699bcac8f003ed6d6e970",
+    "commit": "8c03e2f38fc88e139b46c34f5b8243689c88d03f",
     "path": "runtime.zip",
-    "sha256": "45743159ffebc6021da4891c10abed6151a519ed306fb63f42d6e6ad66e32186",
-    "size": 15122993
+    "sha256": "764d37522a43bbbedee6fb41e257693ed58dd2dd067bebc5d94e3f844b6bb5b8",
+    "size": 15129437
   }
 }
