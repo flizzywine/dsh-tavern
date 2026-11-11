@@ -34,26 +34,20 @@
 		}
 
 		const WORLD_BOOK_RECALL_STEPS = [
-			{ icon: "📌", title: "常驻条目始终生效", body: "开启“常驻”的条目不看关键词、不占预算。内容固定的放进稳定前缀以提高缓存命中；含随机、分组或模板的每轮重新渲染。" },
-			{ icon: "🔑", title: "关键词匹配", body: "扫描本轮输入和最近一条 AI 正文（默认 2 条消息，可按世界书或条目调整）。命中任一主关键词即成为候选；开启次关键词时再按“任一 / 不全部 / 全部不 / 全部”判断。默认不区分大小写，支持 /正则/。" },
-			{ icon: "🧠", title: "智能筛选", body: "候选超过 5 条或约 2000 Token 时，后台模型会挑出与当前剧情真正相关的条目；候选特别多（超过 20 条或约 8000 Token）时先用 BM25 词频粗筛。" },
-			{ icon: "⚖️", title: "排序与预算", body: "按条目的“排序”值从大到小入选，共用估算 Token 软预算（默认 8192，中文约每字 1 Token）。预算用完后，本轮不再加入更多条目。" },
-			{ icon: "⏳", title: "10 回合冷却", body: "注入过的非常驻条目，之后 10 个剧情回合内不再自动召回，避免同一设定反复占用上下文；条目正文修改后冷却立即解除。" },
-			{ icon: "🔍", title: "主动检索补查", body: "自动召回之外，正文 Agent 和后台任务（候选、结算、人物设计）可以主动搜索当前世界书：先按关键词查到条目标题和片段（标题匹配优先），再按编号读取完整正文。补查不受关键词条件、冷却和预算裁剪限制，也不会触发冷却；前台本轮读过的条目会交给后台任务参考。" }
+			{ icon: "📌", title: "常驻条目直接加入上下文", body: "启用的静态常驻条目每轮都生效，正文放在上下文的稳定前缀，无需匹配关键词。" },
+			{ icon: "🔑", title: "非常驻条目按关键词提示名称", body: "系统用本轮输入和近期对话匹配条目配置的关键词，把命中的静态非常驻条目名称放进上下文，供 Agent 参考。" },
+			{ icon: "🔍", title: "Agent 按需检索正文", body: "Agent 自行决定要查哪些资料，可以用提示的条目名称，也可以用剧情里的其他线索搜索本局世界书。搜索返回文件路径和匹配片段，Agent 按路径读取需要的正文。" }
 		];
 		const WORLD_BOOK_RECALL_NOTES = [
 			"人物卡绑定的世界书与全局世界书合并使用，同一本书只加载一次。",
-			"条目的“位置”只用于分组排序，暂不映射到酒馆的精确消息深度。",
-			"酒馆的粘性、延迟、概率字段由冷却机制代替，字段本身原样保留。",
-			"MVU 变量更新规则条目、已禁用和空正文的条目不参与召回，也搜不到。",
-			"主动检索是词面搜索，只能搜到条目的静态正文；完全由模板动态生成的内容可改用条目标题或主关键词查找。"
+			"含模板或脚本的条目按运行时规则处理。可检索的动态条目使用最近一次渲染的快照。"
 		];
 		function WorldBookRecallGuide() {
 			const h = React.createElement;
 			return h("details", { className: "dsh-tavern-help dsh-tavern-recall-guide" },
 				h("summary", null,
 					h("span", { className: "dsh-tavern-recall-guide-icon", "aria-hidden": "true" }, "📖"),
-					h("span", { className: "dsh-tavern-recall-guide-heading" }, h("strong", null, "世界书如何召回"), h("span", null, "每轮自动挑选与剧情相关的条目放进上下文"))),
+					h("span", { className: "dsh-tavern-recall-guide-heading" }, h("strong", null, "世界书如何召回"), h("span", null, "常驻正文自动加入，其他资料由 Agent 按需检索"))),
 				h("ol", { className: "dsh-tavern-recall-steps" }, WORLD_BOOK_RECALL_STEPS.map(function (step, index) {
 					return h("li", { key: step.title },
 						h("span", { className: "dsh-tavern-recall-step-mark", "aria-hidden": "true" }, step.icon),
