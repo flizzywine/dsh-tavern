@@ -249,3 +249,46 @@ test('没有楼层时不画刻度', t => {
   assert.equal(empty.document.querySelector('.dsh-tavern-turn-rail'), null, '没有楼层就没有刻度')
   rail.dispose()
 })
+
+// 宿主切会话 / 重挂会话视图时会把 [data-conversation-scroll] 整棵换成新节点。传进来的 root
+// 还指着旧节点：旧节点脱离文档后量到的宽高是 0，刻度列会被判成看不见，而且再没有尺寸变化或
+// 滚动事件把它叫回来 —— 表现就是「一会有一会没有」。同步时要回到当前那个滚动容器。
+test('宿主换掉滚动容器后，刻度列跟着回到新容器', t => {
+  const { dom, document, scope, create } = page([[1, 40], [2, 140]])
+  t.after(() => dom.window.close())
+  const rail = create(scope.querySelector('[data-story-row]'))
+  rail.apply()
+  assert.deepEqual(tickFloors(document), [1, 2], '先照旧容器画刻度')
+
+  const fresh = document.createElement('div')
+  fresh.setAttribute('data-conversation-scroll', '')
+  fresh.innerHTML = '<article data-story-row data-floor="10" data-role="assistant">第 10 楼</article><article data-story-row data-floor="11" data-role="assistant">第 11 楼</article>'
+  fresh.getBoundingClientRect = () => ({ left: 0, right: 1200, top: 0, bottom: 700, width: 1200, height: 700 })
+  for (const row of fresh.querySelectorAll('[data-story-row]')) row.getBoundingClientRect = () => ({ height: 100, width: 400, top: 0, bottom: 100, left: 0, right: 400 })
+  scope.replaceWith(fresh)
+
+  rail.sync()
+  assert.deepEqual(tickFloors(document), [10, 11], '刻度跟着新容器里的楼层重画')
+  const nav = document.querySelector('.dsh-tavern-turn-rail')
+  assert.notEqual(nav.hasAttribute('hidden'), true, '刻度列没有跟着旧节点一起消失')
+  assert.notEqual(nav.style.display, 'none', '也不该被 display:none 藏起来')
+  rail.dispose()
+})
+
+// 页面一时量到 0 宽（会话列被折叠、窗口暂时藏起来）时先收起；尺寸没变、也没滚动时，
+// 自己补一次迟到复查，别让刻度列一直藏着等人滚一下才回来。
+test('容器一度量不到尺寸时，刻度列迟一点自己回来', async t => {
+  const { dom, document, scope, create } = page([[1, 40], [2, 140]])
+  t.after(() => dom.window.close())
+  const narrowBox = { left: 0, right: 0, top: 0, bottom: 700, width: 0, height: 700 }
+  const rail = create(scope)
+  rail.apply()
+  scope.getBoundingClientRect = () => narrowBox
+  rail.sync()
+  const nav = document.querySelector('.dsh-tavern-turn-rail')
+  assert.equal(nav.hasAttribute('hidden'), true, '量不到宽度时先收起')
+  scope.getBoundingClientRect = () => ({ left: 0, right: 1200, top: 0, bottom: 700, width: 1200, height: 700 })
+  await new Promise(resolve => dom.window.setTimeout(resolve, 520))
+  assert.notEqual(nav.hasAttribute('hidden'), true, '不用滚动也应该自己回来')
+  rail.dispose()
+})

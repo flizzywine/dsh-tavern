@@ -1216,10 +1216,20 @@
 				tavernCoordination.invalidate(props.sessionId);
 			}
 			React.useEffect(function () {
-				const root = marker.current && marker.current.closest("[data-conversation-scroll]");
+				// input.dock 在会话还没就绪时可能整棵卸载，marker 一时还没进滚动容器：
+				// 退回页面里当前的会话滚动容器，别把刻度列一起丢掉。
+				const root = (marker.current && marker.current.closest("[data-conversation-scroll]"))
+					|| document.querySelector("[data-conversation-scroll]");
 				if (!root) return;
 				const projection = createSupersededErrorProjection(root);
-				const rail = createStoryFloorRail(root);
+				// 宿主重挂会话视图时，marker 跟着换进新的滚动容器；刻度列每次同步都按 marker
+				// 重新找容器，不会跟着旧节点一起「消失」。
+				const rail = createStoryFloorRail(root, {
+					resolveScope: function () {
+						const live = marker.current && marker.current.closest("[data-conversation-scroll]");
+						return live || null;
+					}
+				});
 				const controls = createTurnErrorControls(root, {
                     sessionId: props.sessionId, storage: window.localStorage, hiddenTurns: hiddenTurns, failedTailTurn: failedTailTurn,
                     onVisible: function (turn) { tavernPlayEvents.emitOnce(props.sessionId + ":" + turn, "native_error", props.sessionId, { nativeTurn: turn }); },

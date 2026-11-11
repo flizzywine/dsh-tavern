@@ -3707,7 +3707,7 @@ body .dsh-tavern-picker-error { background: linear-gradient(color-mix(in srgb, v
 .dsh-tavern-turn-rail[hidden] { display: none; }
 .dsh-tavern-turn-rail::-webkit-scrollbar { display: none; }
 .dsh-tavern-turn-rail-tick { position: relative; flex: none; box-sizing: border-box; width: 20px; height: 10px; margin: 0; padding: 0; border: 0; border-radius: 8px; background: none; cursor: pointer; }
-.dsh-tavern-turn-rail-tick::before { content: ""; position: absolute; top: 50%; right: 0; width: 20px; height: 2px; border-radius: 2px; background: var(--dsw-alias-border-l4); transform: translateY(-50%) scaleX(.6); transform-origin: 100%; transition: transform .14s, background-color .14s; }
+.dsh-tavern-turn-rail-tick::before { content: ""; position: absolute; top: 50%; right: 0; width: 20px; height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--dsw-alias-label-tertiary) 62%, transparent); transform: translateY(-50%) scaleX(.72); transform-origin: 100%; transition: transform .14s, background-color .14s; }
 .dsh-tavern-turn-rail-tick:hover::before { background: var(--dsw-alias-label-tertiary); transform: translateY(-50%) scaleX(.9); }
 .dsh-tavern-turn-rail-tick[data-active]::before { background: var(--dsw-alias-label-primary); transform: translateY(-50%) scaleX(1); }
 .dsh-tavern-turn-rail-tick:focus-visible { outline: none; }
@@ -3718,8 +3718,8 @@ body .dsh-tavern-picker-error { background: linear-gradient(color-mix(in srgb, v
    接走。最多 14 根（turn-rail.js 隔层取样），整列永远不滚，右边缘的上下滑也就不会被吃掉。 */
 .dsh-tavern-turn-rail[data-compact] { gap: 6px; max-height: none; overflow: visible; pointer-events: none; }
 .dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick { width: 24px; height: 12px; pointer-events: auto; touch-action: manipulation; }
-.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick::before { width: 15px; background: color-mix(in srgb, var(--dsw-alias-border-l4) 82%, transparent); }
-.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick[data-active]::before { width: 19px; }
+.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick::before { width: 16px; background: color-mix(in srgb, var(--dsw-alias-label-tertiary) 58%, transparent); }
+.dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick[data-active]::before { width: 20px; height: 3px; background: var(--dsw-alias-label-primary); }
 /* 双击的第一步「选定」：线变长变深，配上「再点一下」的提示，一眼看出在等你点第二下。 */
 .dsh-tavern-turn-rail[data-compact] .dsh-tavern-turn-rail-tick[data-armed]::before { width: 22px; height: 3px; background: var(--dsh-tavern-accent); }
 /* 跳到的楼层闪一下浅底（turn-rail.js 的 flash）：点歪了也一眼看出跳到了哪。 */

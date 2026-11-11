@@ -14,7 +14,22 @@
 function createStoryFloorRail(root, options) {
 	const host = (options && options.window) || (typeof window !== "undefined" ? window : null);
 	const doc = host && host.document || (root && root.ownerDocument) || (typeof document !== "undefined" ? document : null);
-	const scope = (root && root.closest && root.closest("[data-conversation-scroll]")) || root || (doc && doc.body);
+	// 滚动容器是宿主的 scrollBody（[data-conversation-scroll]）。切换会话或宿主重挂会话视图时，
+	// 这一层会被整个换成新节点，而传进来的 root 还指着旧节点：旧节点脱离文档后量到的宽高全是
+	// 0，刻度列就被判成「看不见」，并且再没有尺寸变化 / 滚动事件把它叫回来 —— 表现就是同一局
+	// 里有刻度、下一次会话却一直没有。所以每次都重新解析一次，旧节点失效就回到当前会话的那个
+	// 滚动容器。
+	const resolveScope = (options && options.resolveScope) || null;
+	function findScope() {
+		const resolved = resolveScope ? resolveScope() : null;
+		if (resolved) return resolved;
+		if (root && root.isConnected === false) {
+			const live = doc && doc.querySelector("[data-conversation-scroll]");
+			if (live) return live;
+		}
+		return (root && root.closest && root.closest("[data-conversation-scroll]")) || root || (doc && doc.body);
+	}
+	let scope = findScope();
 	const hiddenAttribute = "data-dsh-tavern-rail-hidden";
 	const compactAttribute = "data-compact";
 	const label = (options && options.label) || "楼层跳转";
@@ -32,7 +47,17 @@ function createStoryFloorRail(root, options) {
 	let rail = null, frame = 0, floorsKey = "", compact = false;
 	let undoBox = null, undoTimer = 0, flashTimer = 0, undoFrom = 0, undoRow = null;
 	let hintBox = null, armTimer = 0, armedFloor = null;
+	let retryTimer = 0, retries = 0;
+	// 收到「暂时看不见」之后自己补几次迟到的复查：容器某一刻量到 0 宽、不到 96 高（切会话、
+	// 开合面板、窗口一度藏起来）时先收起；这类状态未必带着新的尺寸变化或滚动事件，不复查就会
+	// 一直藏着，等人滚一下才回来。
+	function recheck() {
+		if (!host || retryTimer || retries >= 6) return;
+		retries++;
+		retryTimer = host.setTimeout(function () { retryTimer = 0; sync(); }, 400);
+	}
 	const ticks = new Map(); // floor -> { button, row }
+	const hiddenHostNavs = new Set(); // 被这一列收起来的宿主刻度列，卸下时还给宿主
 	function floorOf(row) {
 		const value = Number(row.getAttribute("data-floor"));
 		return Number.isInteger(value) && value > 0 ? value : null;
@@ -231,7 +256,8 @@ function createStoryFloorRail(root, options) {
 		// `hidden` 只是 UA 的 display:none，class 上那条 display:flex 会把它压回去；
 		// 二者一起写，没被定位的刻度才不会停在 body 末尾 —— 手机上的左下角。
 		rail.style.display = visible ? "" : "none";
-		if (!visible) { hideUndo(); disarm(); return; }
+		if (!visible) { hideUndo(); disarm(); recheck(); return; }
+		retries = 0;
 		if (roomy) rail.removeAttribute(compactAttribute);
 		else rail.setAttribute(compactAttribute, "");
 		// 窄屏离边 10px：退出系统边缘手势区（iOS 右缘返回、安卓边缘返回），少一层误触来源。
@@ -263,11 +289,14 @@ function createStoryFloorRail(root, options) {
 	}
 	function sync() {
 		if (frame) { host.clearTimeout(frame); frame = 0; }
+		// 宿主换过滚动容器就跟着换：观察对象与刻度列一起落到新节点上。
+		const next = findScope();
+		if (next && next !== scope) { scope = next; floorsKey = ""; watch(scope); }
 		const list = rows();
 		// 宿主那列刻度还在 DOM 里（它按 turn 画，跟故事楼层对不上），继续收起来。
 		const mark = scope.querySelector('[class*="_mark"][aria-label]');
 		const hostNav = mark ? mark.closest("nav") : null;
-		if (hostNav && !hostNav.hasAttribute(hiddenAttribute)) hostNav.setAttribute(hiddenAttribute, "");
+		if (hostNav && !hostNav.hasAttribute(hiddenAttribute)) { hostNav.setAttribute(hiddenAttribute, ""); hiddenHostNavs.add(hostNav); }
 		// 宽/窄决定刻度怎么取样，所以也进 key：跨过 900px 时整列重画。
 		const width = scope.getBoundingClientRect().width;
 		compact = width > 0 && width <= narrow;
@@ -284,9 +313,13 @@ function createStoryFloorRail(root, options) {
 		else { hideUndo(); disarm(); }
 	}
 	const observer = host && typeof host.MutationObserver === "function" ? new host.MutationObserver(schedule) : null;
-	if (observer) observer.observe(scope, { subtree: true, childList: true });
 	const resize = host && typeof host.ResizeObserver === "function" ? new host.ResizeObserver(schedule) : null;
-	if (resize) resize.observe(scope);
+	function watch(target) {
+		if (!target) return;
+		if (observer) { observer.disconnect(); observer.observe(target, { subtree: true, childList: true }); }
+		if (resize) { resize.disconnect(); resize.observe(target); }
+	}
+	watch(scope);
 	const onScroll = function () { schedule(); };
 	if (host) {
 		host.addEventListener("scroll", onScroll, true);
@@ -303,10 +336,13 @@ function createStoryFloorRail(root, options) {
 				host.removeEventListener("resize", onScroll);
 			}
 			if (frame) { host.clearTimeout(frame); frame = 0; }
+			if (retryTimer) { host.clearTimeout(retryTimer); retryTimer = 0; }
 			hideUndo();
 			disarm();
 			if (flashTimer) { host.clearTimeout(flashTimer); flashTimer = 0; }
 			if (undoRow) { undoRow.removeAttribute("data-floor-flash"); undoRow = null; }
+			for (const nav of hiddenHostNavs) nav.removeAttribute(hiddenAttribute);
+			hiddenHostNavs.clear();
 			for (const nav of Array.from(scope.querySelectorAll("[" + hiddenAttribute + "]"))) nav.removeAttribute(hiddenAttribute);
 			if (rail) rail.remove();
 			rail = null; ticks.clear(); floorsKey = "";
