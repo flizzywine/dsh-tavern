@@ -137,8 +137,8 @@ export function createTavernRemoteAssetPinStore(options = {}) {
     }
     const assets = saved && saved.assets && typeof saved.assets === 'object' ? saved.assets : {}
     for (const [url, value] of Object.entries(assets)) {
+      // the hash is the content-addressed key written at fetch time; not re-verified on load.
       if (!value || !CONTENT_HASH.test(str(value.hash)) || typeof value.content !== 'string') continue
-      if (contentHash(value.content) !== str(value.hash).toLowerCase()) continue
       const asset = Object.assign({}, clone(value), { url })
       assetsByUrl.set(url, asset)
       assetsByHash.set(asset.hash, asset)

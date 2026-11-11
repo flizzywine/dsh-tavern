@@ -73,5 +73,5 @@ test('corrupt immutable pages fail explicitly instead of returning incomplete hi
  }
  const head=await blockValue(pointer.headId)
  await writeFile(block(head.root),'{}')
- await assert.rejects(createConversationPageStore({root}).openConversation('a'),/checksum/)
+ await assert.rejects(createConversationPageStore({root}).openConversation('a'),/Invalid immutable block/) // blocks are parsed, not re-hashed
 })

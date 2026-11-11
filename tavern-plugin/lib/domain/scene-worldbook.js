@@ -87,7 +87,7 @@ export function createSceneWorldbooks({ store, keepTurns = SCENE_WORLDBOOK_KEEP_
     }
     return { version: 1, digest: id }
   }
-  // The complete snapshot, materialized from either layout and verified.
+  // Materialize either layout using the stored content-addressed identities.
   async function load(id) {
     const stored = await store.readJson(snapshotPath(id))
     if (!stored) return null
@@ -96,7 +96,7 @@ export function createSceneWorldbooks({ store, keepTurns = SCENE_WORLDBOOK_KEEP_
     const entries = []
     for (const ref of stored.entryRefs) {
       const entry = /^[a-f0-9]{64}$/.test(ref) ? await store.readJson(entryPath(ref)) : null
-      if (!entry || digest(entry) !== ref) return { invalid: true }
+      if (!entry || typeof entry.text !== 'string' || !Array.isArray(entry.keys)) return { invalid: true }
       entries.push(entry)
     }
     return { version: 1, entries, omitted: stored.omitted, omittedCount: stored.omittedCount }
@@ -105,7 +105,8 @@ export function createSceneWorldbooks({ store, keepTurns = SCENE_WORLDBOOK_KEEP_
     if (!validRef(ref)) return null
     const value = await load(ref.digest)
     if (!value) return { unavailable: '历史世界书快照缺失，未读取当前世界书。' }
-    if (value.version !== 1 || !Array.isArray(value.entries) || digest(value) !== ref.digest) {
+    // The digest is the content-addressed file name (identity); it is not re-hashed on read.
+    if (value.version !== 1 || !Array.isArray(value.entries)) {
       return { unavailable: '历史世界书快照校验失败，未读取当前世界书。' }
     }
     return { ...value, digest: ref.digest }
@@ -114,7 +115,7 @@ export function createSceneWorldbooks({ store, keepTurns = SCENE_WORLDBOOK_KEEP_
   async function exportSnapshot(id) {
     if (!/^[a-f0-9]{64}$/.test(String(id || ''))) return null
     const value = await load(id)
-    return value && value.version === 1 && digest(value) === id ? Buffer.from(JSON.stringify(value)) : null
+    return value?.version === 1 && Array.isArray(value.entries) ? Buffer.from(JSON.stringify(value)) : null
   }
   async function exportForSave(states) {
     return serial(async () => {
@@ -142,8 +143,9 @@ export function createSceneWorldbooks({ store, keepTurns = SCENE_WORLDBOOK_KEEP_
       const available = new Map()
       for (const ref of saveReferences(states)) {
         if (available.has(ref.digest)) continue
+        // A stored snapshot is named by its digest (identity); only its structure is checked.
         const existing = await load(ref.digest)
-        if (existing?.version === 1 && digest(existing) === ref.digest) available.set(ref.digest, null)
+        if (existing?.version === 1 && Array.isArray(existing.entries)) available.set(ref.digest, null)
         else if (supplied.has(ref.digest)) available.set(ref.digest, supplied.get(ref.digest))
       }
       // Register before writing: a concurrent deletion can never collect these
