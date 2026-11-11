@@ -4,11 +4,25 @@ import { presetMood } from './params.js'
 // MiniMax T2A v2 (ported from upstream lib/domain/speech.js): the same request body, except audio comes back as PCM, which
 // this service keeps as PCM16 WAV like every other provider.
 const SAMPLE_RATE = 32000
-export const MINIMAX_VOICES = Object.freeze([
-  ['female-shaonv','少女'], ['female-yujie','御姐'], ['female-chengshu','成熟女性'], ['female-tianmei','甜美女性'],
-  ['male-qn-qingse','青涩青年'], ['male-qn-jingying','精英青年'], ['male-qn-badao','霸道青年'], ['male-qn-daxuesheng','青年大学生'],
-  ['presenter_male','男性主持人'], ['presenter_female','女性主持人'], ['audiobook_male_1','男性有声书 1'], ['audiobook_female_1','女性有声书 1'],
-].map(([id, label]) => Object.freeze({id, label, languages:['zh','en']})))
+// The T2A models a figure picks from (its voice source's `model`); the first is what a source without one speaks with.
+// MiniMax has no model listing, so this table is the list.
+export const MINIMAX_MODELS = Object.freeze(['speech-02-hd', 'speech-02-turbo', 'speech-2.6-hd', 'speech-2.6-turbo', 'speech-01-hd', 'speech-01-turbo']
+  .map(id => Object.freeze({id, label:id})))
+export const MINIMAX_DEFAULT_MODEL = MINIMAX_MODELS[0].id
+// A system voice id names its language before the first `_` ("Japanese_IntellectualSenior"); the older Chinese voices
+// (female-shaonv) carry no prefix and a Chinese voice_name. Anything else lists without a language.
+const LANGUAGES = {'Chinese (Mandarin)':'zh', Chinese:'zh', Cantonese:'yue', English:'en', Japanese:'ja', Korean:'ko', Spanish:'es', Portuguese:'pt', French:'fr',
+  Indonesian:'id', German:'de', Russian:'ru', Italian:'it', Arabic:'ar', Turkish:'tr', Ukrainian:'uk', Dutch:'nl', Vietnamese:'vi', Thai:'th', Polish:'pl',
+  Romanian:'ro', Greek:'el', Czech:'cs', Finnish:'fi', Hindi:'hi'}
+function voiceLanguages(id, name) {
+  const prefix = LANGUAGES[id.slice(0, id.indexOf('_'))]
+  return prefix ? [prefix] : /[\u3400-\u9fff]/.test(name || '') ? ['zh'] : []
+}
+// /v1/get_voice (free): every voice this account can speak with — system voices, its clones and designed voices.
+// The account's own voices (mine) are not tied to a language: a clone or design speaks in any of them, so the language filter keeps them.
+const listed = body => ['system_voice', 'voice_cloning', 'voice_generation'].flatMap(group => (body[group] || []).filter(v => typeof v?.voice_id === 'string' && v.voice_id)
+  .map(v => group === 'system_voice' ? {id:v.voice_id, label:v.voice_name || v.voice_id, languages:voiceLanguages(v.voice_id, v.voice_name)}
+    : {id:v.voice_id, label:v.voice_name || v.voice_id, languages:[], mine:true}))
 // Upstream's emotion → MiniMax style table; a mood outside it speaks neutral.
 const STYLES = {
   happy: ['joy', 'amusement', 'excitement', 'love', 'gratitude', 'pride', 'optimism', 'relief', 'admiration', 'approval', 'caring', 'desire'],
@@ -46,7 +60,7 @@ export function createMinimaxAdapter({ fetch: fetchImpl = globalThis.fetch } = {
     const code = Number(result?.base_resp?.status_code || 0)
     if (!response.ok || code) {
       const error = failure(failureCode(code, response.ok ? undefined : response.status), response.ok ? undefined : response.status)
-      if (path === '/v1/get_voice' && code && code !== 2049 && result.base_resp.status_msg) {
+      if (path === '/v1/get_voice' && error.code === 'MINIMAX_REQUEST_FAILED' && result.base_resp?.status_msg) {
         error.message = String(result.base_resp.status_msg)
         if (secret.key) error.message = error.message.split(secret.key).join('[redacted]')
       }
@@ -56,15 +70,22 @@ export function createMinimaxAdapter({ fetch: fetchImpl = globalThis.fetch } = {
     return result
   }
   return {
-    async catalog() { return { items: structuredClone(MINIMAX_VOICES), manual: true } },
-    async voices() { return { voices: structuredClone(MINIMAX_VOICES), models: [], source: 'builtin' } },
-    // The voice listing is free and answers authentication; 测试连接 never synthesizes.
-    async probe(provider, secret) {
-      const body = await post(provider, secret, '/v1/get_voice', {voice_type:'system'}, undefined, 10000)
-      return { voices:(body.system_voice || []).map(v => ({id:v.voice_id,label:v.voice_name || v.voice_id})), models:[], source:'live' }
+    async catalog(provider, secret) { return { items: (await this.voices(provider, secret)).voices } },
+    // The one voice list: 测试连接 counts it and a figure's 音色 picks from it. Free, answers authentication, never synthesizes.
+    async voices(provider, secret) {
+      const body = await post(provider, secret, '/v1/get_voice', {voice_type:'all'}, undefined, 10000)
+      return { voices:listed(body), models:structuredClone(MINIMAX_MODELS), source:'live' }
+    },
+    // An id this account can speak with (its clones and designed voices included), checked against the live list.
+    async findVoice(provider, secret, voiceId) {
+      const hit = (await this.voices(provider, secret)).voices.find(v => v.id === voiceId)
+      if (!hit) throw failure('MINIMAX_VOICE_NOT_FOUND')
+      return hit
     },
     async synthesize(provider, secret, spec) {
-      const body = await post(provider, secret, '/v1/t2a_v2', {model:spec.params.model || provider.config.model, text:spec.text, stream:false,
+      // The figure's model; a service saved before the model moved still names one until the startup move
+      // (service-model-migration.js) takes it to the figures.
+      const body = await post(provider, secret, '/v1/t2a_v2', {model:spec.params.model || provider.config.model || MINIMAX_DEFAULT_MODEL, text:spec.text, stream:false,
         voice_setting:{voice_id:spec.params.voice, speed:spec.params.speed ?? 1, vol:1, pitch:0, emotion:minimaxMood(spec) || 'neutral'},
         audio_setting:{format:'pcm', sample_rate:SAMPLE_RATE, channel:1}}, spec.signal, 45000)
       const audio = body.data?.audio
