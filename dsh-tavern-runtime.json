@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "3eeaccae8f27fa9a13dde8974d4efde9feb5bb6d",
-  "releaseSequence": 1519,
+  "revision": "e4c4bffd1850d5a8bd3e280c912b68c591838665",
+  "releaseSequence": 1520,
   "version": "3.3.0",
   "files": [
     {
@@ -1021,8 +1021,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "cee2f4762271ff1229259a8e08fd390cb1e06c45382e2483d61ba652a7201114",
-      "size": 6068420
+      "sha256": "72b4394e4e0c66010cdfa9a0fd3e8c85e1c085c2c9bacc939d22ce36dcf4b3c0",
+      "size": 6068462
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1291,8 +1291,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-tasks.js",
-      "sha256": "88b921e355a9e9333e64e5f3e3d887504ee8380c008f800ee990e2a86037729d",
-      "size": 8592
+      "sha256": "7af7a0b3b8c63bf5e112e06ad713121e5621d9831f5c6435134a7ebd7f506172",
+      "size": 10176
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-worldbook-preparation.js",
@@ -1671,8 +1671,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/coordination-event-publisher.js",
-      "sha256": "296de357cf5f08b1aafc385615bf209ba3aca0f6ac9e0ac9b0c3e85c4e3bf3d5",
-      "size": 5164
+      "sha256": "f696570aa8212a0855a245c252e9a8b9d1a5ad60711d16568b4dcf0cf7e45255",
+      "size": 5260
     },
     {
       "path": "tavern-plugin/lib/domain/copy-json-tree.js",
@@ -3171,8 +3171,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-controls.js",
-      "sha256": "f1c4399200075bdb8749e8091fc8cb1c1431e2c415fa14d77dfeb1f060a73354",
-      "size": 5919
+      "sha256": "f9d0f7dd26a2e2cecfeccaa43a080de752e6cf0ad8b1551315e3f381794f6040",
+      "size": 6173
     },
     {
       "path": "tavern-plugin/lib/domain/settlement-input.js",
@@ -4011,8 +4011,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "e6bbf2967dd430e6ec11f460adaae8483bb13b5d68787998351a1e631f4c9482",
-      "size": 291982
+      "sha256": "9a4cac259f345fa26e70e39937a4f262c28df5f319125fb773006b67f6370fc4",
+      "size": 292173
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -8636,9 +8636,9 @@
     }
   ],
   "archive": {
-    "commit": "c5a64a1eb4b35989b740584a4c4df0280ad1e9d8",
+    "commit": "e3f4096c3111f46f1115a69440f92b73789294e2",
     "path": "runtime.zip",
-    "sha256": "1692e1209b772519a2f22600c0d47c2c31ae8e257f0db2bcc512239442a2804e",
-    "size": 15358405
+    "sha256": "23493667a0eafa5b24e26c7760bcabd586266e82bfba816e29cc3222b39865a5",
+    "size": 15359018
   }
 }
