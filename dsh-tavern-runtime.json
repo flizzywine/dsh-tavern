@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b3d48b243cd4d8858014e7f1541824b233ff88d7",
-  "releaseSequence": 1495,
+  "revision": "cd3b74f7388abf5162acea971d1ccaeb23f82b13",
+  "releaseSequence": 1496,
   "version": "3.3.0",
   "files": [
     {
@@ -1501,8 +1501,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/chat-answer-step.js",
-      "sha256": "e830964ac64041fdc14f89f7a720af8c7763f34ccad4bf1d9dedc4aedd2ad81d",
-      "size": 2669
+      "sha256": "5b22c94b892930feadfc4d2a72a211f0d1790d1b4833321bae93d322a4b9f194",
+      "size": 2655
     },
     {
       "path": "tavern-plugin/lib/domain/chat-history-import-service.js",
@@ -8611,9 +8611,9 @@
     }
   ],
   "archive": {
-    "commit": "b4ec941e37275019b59287e444e0d90622d62559",
+    "commit": "8ced0a7d1389017f7e4f58037e02174adcb9cd83",
     "path": "runtime.zip",
-    "sha256": "ab09dffcf23e9d6144ddbc051285a0a71518160910c4d6142c03f20a0fe1e5e4",
-    "size": 15299114
+    "sha256": "233919e1c701f258eae9b211d0eb8036bebb1383bcfb1d474919fdff28d6beaf",
+    "size": 15299109
   }
 }
