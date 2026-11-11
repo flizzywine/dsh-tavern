@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a6ebf18ae1b436aa8209df04432c610a799812b8",
-  "releaseSequence": 1467,
+  "revision": "d3eafab23c74548e7d966972a75dc30cbcbc6a1e",
+  "releaseSequence": 1468,
   "version": "3.3.0",
   "files": [
     {
@@ -76,8 +76,8 @@
     },
     {
       "path": "android/install.sh",
-      "sha256": "fa10a1ea2f61ada6ad331c10546f2a57ce5f33475b51ce1d5c67ca8dfe2338bb",
-      "size": 15649
+      "sha256": "aaa9a98e8c767e3cde7a992ea102e5079f898b96fd9979291ae09add31698d0d",
+      "size": 15930
     },
     {
       "path": "android/LICENSE",
@@ -91,8 +91,8 @@
     },
     {
       "path": "android/setup.sh",
-      "sha256": "6e9fdde319a5dde61f2b8ee83c0c43b948ece9a9acd22ab1de8e642d96fa0d20",
-      "size": 20445
+      "sha256": "2ed1f257ad210f8e6279fb671a28cf11401b661e8dcfeb3f8ee094b4d71d122a",
+      "size": 20604
     },
     {
       "path": "android/update.sh",
@@ -246,8 +246,8 @@
     },
     {
       "path": "bin/installation-process.mjs",
-      "sha256": "9c55828162a2f900b44b991f72a4695ace3060cd8accb7f717d95c41ec22bb3a",
-      "size": 38407
+      "sha256": "a6201b59fa916a1276a18e6b7357dbb3f30f2b959b989830bdecc0fef81efa6c",
+      "size": 39370
     },
     {
       "path": "bin/installation-receipt.mjs",
@@ -901,8 +901,8 @@
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
-      "sha256": "1eed44e6ee83038f85de9e89070c9995e164e51afc27182e71f14875116250fd",
-      "size": 48673
+      "sha256": "5bd379490dfd6a2acd6223375b21905e74258ac28a1e9b89b738438bffdec539",
+      "size": 49323
     },
     {
       "path": "tavern-plugin/lib/background-agent-runner.js",
@@ -8481,9 +8481,9 @@
     }
   ],
   "archive": {
-    "commit": "a6eb98bb4b872d0cd5832ec56c4d5a34f9a1ea92",
+    "commit": "199503622a88da92dbe78c59fd02b5b78fe1f0cf",
     "path": "runtime.zip",
-    "sha256": "ce1056873109315b4a2067d77d2a47b38bed01119e5f07f69314da750187545a",
-    "size": 15175816
+    "sha256": "6110c27ed2efe75fea1030bb03f8a27c8f35f05ea8317ccf38fc8dfc765df7fe",
+    "size": 15176420
   }
 }
