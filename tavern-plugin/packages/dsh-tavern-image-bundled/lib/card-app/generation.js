@@ -95,7 +95,8 @@ export async function runCardImage(engine, args, { sessionId, signal, key, onJob
   const picked = cardSelection(engine.config(), engine.workflows(), args)
   const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
   if (!prompt || prompt.length > 16000) throw fail('prompt 必须是 1–16000 字的画面描述')
-  const mode = args.generation_mode || 'text'
+  // Raw reference pictures (already stored by the caller) always mean reference mode.
+  const mode = args.referenceImages?.length ? 'reference' : args.generation_mode || 'text'
   if (!['text', 'reference'].includes(mode)) throw fail('generation_mode 无效')
   let job
   const abort = () => { if (job) engine.cancelJob(job.id) }
@@ -103,7 +104,7 @@ export async function runCardImage(engine, args, { sessionId, signal, key, onJob
   try {
     const created = await engine.startJob({ tag: prompt, rawTag: prompt, size: picked.size, explicitSize: true, seed: args.seed,
       sessionId, key, negative: args.negative || '', generationMode: mode, subjects: args.subjects, characters: args.characters },
-    { cardRequest: true, jobConfig: picked.config, forceWorkflow: picked.workflow, label: '卡片工作台', onCreated(value) { job = value; if (signal?.aborted) abort() } })
+    { cardRequest: true, plainReferences: args.referenceImages, jobConfig: picked.config, forceWorkflow: picked.workflow, label: '卡片工作台', onCreated(value) { job = value; if (signal?.aborted) abort() } })
     job ||= engine.getJob(created.id)
     await onJob?.(created)
     const deadline = Date.now() + 10 * 60_000

@@ -54,6 +54,27 @@ test('model discovery uses one snapshot, does not read credentials and isolates 
   await assert.rejects(generator.generate({ prompt: 'one traveler', modelId: 'removed' }), { requestMayHaveSucceeded: false })
 })
 
+test('status reports transparent background support only when the channel is known', () => {
+  const status = channels => createImageGenerator(() => ({ imageBackend: 'openai', activeImageChannel: channels[0].id, imageChannels: channels })).status()
+  assert.equal(status([{ id: 'a', provider: 'openai', model: 'gpt-image-1' }]).transparent, true)
+  assert.equal(status([{ id: 'a', provider: 'openai', model: 'dall-e-3' }]).transparent, false)
+  assert.equal('transparent' in status([{ id: 'a', provider: 'openai' }]), false)
+  assert.equal('transparent' in status([{ id: 'a', provider: 'custom', baseUrl: 'https://x.test/v1', model: 'flux', options: { apiProtocol: 'openai' } }]), false)
+  assert.equal('transparent' in status([{ id: 'a', provider: 'atlascloud', model: 'm' }]), false)
+})
+
+test('ComfyUI backend reports the workflow reference slots and renders through the injected runner', async () => {
+  let seen
+  const workflow = { id: 'w', label: 'Flux', bindings: { referenceImages: [{ node: '1' }, { node: '2' }] } }
+  const config = { imageBackend: 'comfyui', imageChannels: [] }
+  const comfy = { workflow: () => workflow, generate: async request => { seen = request; return { data: new Uint8Array([7]), mediaType: 'image/png' } } }
+  const generator = createImageGenerator(() => config, undefined, { comfy })
+  assert.deepEqual(generator.status(), { ready: true, model: 'Flux', maxReferences: 2 })
+  const result = await generator.generate({ prompt: 'p', width: 64, height: 96, background: 'transparent' })
+  assert.deepEqual([result.data[0], result.mediaType, seen.prompt, seen.width, seen.height], [7, 'image/png', 'p', 64, 96])
+  assert.match(createImageGenerator(() => config).status().reason, /暂不支持 ComfyUI/)
+  assert.match(createImageGenerator(() => config, undefined, { comfy: { workflow: () => undefined } }).status().reason, /工作流/)
+})
 test('library projections read one live snapshot, preserve shared outfit text and do not mutate records', () => {
   let reads = 0, definitions = { characters: [{ id: 'a', name: 'A', traits: { face: 'original' }, outfitRefs: ['coat'] }], outfits: [{ id: 'coat', name: 'Coat', body: 'front', full: 'full outfit', bodyBack: 'back' }] }
   const library = createImageLibrary(() => { reads++; return definitions })

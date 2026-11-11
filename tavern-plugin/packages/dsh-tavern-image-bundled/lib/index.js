@@ -38,7 +38,7 @@ import { createComfyProgress } from './comfy-progress.js'
 import { CHARACTER_LIBRARY_VERSION, createCharacterLibrary } from './character-library.js'
 import { createDefinitionsStore } from './definitions-store.js'
 import { wardrobeSection } from './wardrobe-hints.js'
-import { runCardImage } from './card-app/generation.js'
+import { runCardImage, cardSelection } from './card-app/generation.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
@@ -1133,7 +1133,7 @@ export function apply(ctx, config = {}) {
           }
           // Tavern's own picture requests (stage asset packs) run on the current online channel.
           if (typeof tavern.imageProvider === 'function') {
-            const off = tavern.imageProvider(stageImageProvider(() => engine.currentConfig()))
+            const off = tavern.imageProvider(stageImageProvider(() => engine.currentConfig(), undefined, { comfy: engine.assetComfy }))
             if (typeof off === 'function') lifecycleDisposes.push(off)
           }
           if (tavern.capabilities?.imageLibrary >= 1 && typeof tavern.registerImageLibrary === 'function') {
@@ -1956,7 +1956,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       return pending
     }
 
-    async function createJob(rawParams, { label = '', forceWorkflow = null, jobConfig = config, diagTrace = null, referenceSnapshot = null, onCreated, cardRequest = false } = {}) {
+    async function createJob(rawParams, { label = '', forceWorkflow = null, jobConfig = config, diagTrace = null, referenceSnapshot = null, plainReferences = null, onCreated, cardRequest = false } = {}) {
       // 浏览器半边只传 tag 和 key，其余（画师串、画幅）由控制台配置兜底。
       const params = {
         tag: String(rawParams?.tag ?? ''),
@@ -2014,7 +2014,11 @@ function createRuntime(ctx, overrides, logger, deps) {
       const unresolvedCharacterIds = new Set()
       if (generationMode === 'reference') {
         const sectioned = rosterStyle(jobConfig, workflow) === 'structured'
-        if (referenceSnapshot) {
+        if (plainReferences) {
+          // Caller-supplied pictures (stage assets) are not library characters: bind them by order only.
+          referenceState = { version: 1, subjects: [], definitions: structuredClone(scopedDefs),
+            references: plainReferences.map((image, at) => ({ index: at + 1, kind: 'character', characterId: 'reference-' + (at + 1), label: '参考图' + (at + 1), consistencyText: '', image })) }
+        } else if (referenceSnapshot) {
           referenceState = structuredClone(referenceSnapshot)
           scopedDefs = sectioned
             ? referenceScopedDefinitions(referenceState.definitions, referenceState.references, { subjects: referenceState.subjects, markers: false })
@@ -2027,7 +2031,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         if (!referenceState.references?.length && requestedGenerationMode !== 'auto') throw Object.assign(new Error('本张图片没有可用的角色或服装参考图；请添加参考图，或明确切换为文生图'), { submissionNotStarted: true, code: 'REFERENCE_IMAGES_REQUIRED' })
         if (referenceState.references?.length) {
           params.subjects = structuredClone(referenceState.subjects)
-          if (sectioned) params.referenceText = buildStructuredReferenceText(referenceState.references)
+          if (sectioned && !plainReferences) params.referenceText = buildStructuredReferenceText(referenceState.references)
         } else {
           // 自动模式本张没有参考图：按文生图提交，用完整人物库展开外貌。
           generationMode = 'text'
@@ -2056,7 +2060,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       const onStage = traceStages ? (name, data) => traceStages.push({ name, data }) : null
       const compiled = workflow ? compileJob({ workflow, params, config: compileConfig, definitions: scopedDefs, onStage })
         : compileChannelJob({ params, config: jobConfig, definitions: scopedDefs, channel, onStage })
-      if (referenceState && compiled.promptMode !== 'structured') compiled.positive = [compiled.positive, buildReferenceText(referenceState.references)].filter(Boolean).join('\n\n')
+      if (referenceState && !plainReferences && compiled.promptMode !== 'structured') compiled.positive = [compiled.positive, buildReferenceText(referenceState.references)].filter(Boolean).join('\n\n')
       const novelaiChat = effectiveProvider === 'novelai' && channel.options?.protocol === 'chat'
       const boundPrompt = kind => {
         const binding = workflow.bindings[kind]?.[0]
@@ -5165,6 +5169,23 @@ function createRuntime(ctx, overrides, logger, deps) {
       currentDefinitions: () => definitions,
       characterLibrary,
       cardWorkflows: () => usable(),
+      // Stage asset requests on the selected ComfyUI workflow: the card job path, with raw reference pictures.
+      assetComfy: {
+        workflow() { try { return cardSelection(config, usable(), { channel: 'comfyui' }).workflow } catch {} },
+        async generate({ prompt, references = [], width, height, signal }) {
+          const args = { channel: 'comfyui', prompt, ...(width > 0 && height > 0 ? { size: width + 'x' + height } : {}) }
+          if (references.length) {
+            args.referenceImages = []
+            for (const { data, mediaType, name } of references) args.referenceImages.push(await referenceStore.put({ data: Buffer.from(data).toString('base64'), mediaType, name }))
+          } else if (comfyLoadImageBindings(cardSelection(config, usable(), args).workflow).length) {
+            throw Object.assign(new Error('当前 ComfyUI 工作流有参考图输入，本次没有参考图；请换用文生图工作流'), { requestMayHaveSucceeded: false })
+          }
+          const result = await runCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, { signal })
+          // Assets are PNG; the console's JPEG output switch would silently drop any alpha channel.
+          if (result.mediaType !== 'image/png') throw Object.assign(new Error('素材需要 PNG，但这张图已被转为 ' + result.mediaType + '；请在配图设置里关闭 JPEG 输出'), { requestMayHaveSucceeded: true })
+          return { data: new Uint8Array(await readFile(result.file)), mediaType: 'image/png' }
+        },
+      },
       generateCardImage: (args, options) => runCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
       saveCardDefinitions: (value, expectedRevision) => definitionStore.update(current => normalizeDefinitions({ ...current, ...value }), { expectedRevision, requireRevision: true }),
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach

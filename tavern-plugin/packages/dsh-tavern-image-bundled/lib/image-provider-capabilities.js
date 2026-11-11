@@ -35,3 +35,16 @@ export function imageReferenceLimit(channel) {
 export function supportsImageTaskResume(channel) {
   return resumableProtocols.has(effectiveImageProvider(channel))
 }
+
+/**
+ * Whether a transparent-background request comes back with alpha.
+ * true = the request is sent and honoured (OpenAI gpt-image models); false = the official
+ * OpenAI endpoint with a model that cannot; undefined = unknown, so callers must not assume.
+ */
+export function imageTransparency(channel) {
+  if (effectiveImageProvider(channel) !== 'openai') return undefined
+  const model = String(channel?.model || '')
+  if (!model) return undefined
+  if (model.startsWith('gpt-image-')) return true
+  return channel?.provider === 'openai' ? false : undefined
+}

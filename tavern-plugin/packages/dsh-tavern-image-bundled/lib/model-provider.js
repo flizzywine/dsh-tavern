@@ -1,8 +1,12 @@
 import { activeChannel } from './image-channels.js'
-import { imageReferenceLimit } from './image-provider-capabilities.js'
+import { imageReferenceLimit, imageTransparency } from './image-provider-capabilities.js'
 
-/** The same adapter serves Tavern assets and public model discovery. Model IDs are saved channel IDs. */
-export function createImageGenerator(getConfig, generate) {
+/**
+ * The same adapter serves Tavern assets and public model discovery. Model IDs are saved channel IDs.
+ * comfy (optional, server side) runs the selected ComfyUI workflow: workflow() returns the usable
+ * workflow that would run (or nothing) and generate(request) renders it. Without it, ComfyUI is unsupported.
+ */
+export function createImageGenerator(getConfig, generate, { comfy } = {}) {
   const current = (modelId) => {
     const config = getConfig()
     if (modelId !== undefined) {
@@ -10,14 +14,21 @@ export function createImageGenerator(getConfig, generate) {
       if (!selected) return { config, reason: '生图模型已移除，请重新读取模型列表' }
       return { config, channel: selected }
     }
-    if (config?.imageBackend === 'comfyui') return { config, reason: '素材生图暂不支持 ComfyUI；请在 配图 设置里切到「在线服务」渠道' }
+    if (config?.imageBackend === 'comfyui') {
+      if (!comfy) return { config, reason: '素材生图暂不支持 ComfyUI；请在 配图 设置里切到「在线服务」渠道' }
+      const workflow = comfy.workflow()
+      return workflow ? { config, workflow } : { config, reason: '请先在 配图 设置里导入并启用一个 ComfyUI 工作流' }
+    }
     const channel = config.imageChannels?.find(item => item.id === config.activeImageChannel && (item.provider === config.imageBackend || config.imageBackend === 'custom' && item.provider === 'atlascloud'))
     if (!channel) return { config, reason: '请先在 配图 设置里添加并选中一个生图渠道' }
     return { config, channel }
   }
-  const status = ({ channel, reason }) => {
+  // 	ransparent is present only when the channel's protocol/model is known to honour (or refuse) it.
+  const status = ({ channel, workflow, reason }) => {
+    if (workflow) return { ready: true, model: workflow.label || workflow.id || '', maxReferences: workflow.bindings?.referenceImages?.length || 0 }
     if (!channel) return { ready: false, reason, maxReferences: 0 }
-    return { ready: true, model: channel.model || '', maxReferences: imageReferenceLimit(channel) }
+    const transparent = imageTransparency(channel)
+    return { ready: true, model: channel.model || '', maxReferences: imageReferenceLimit(channel), ...(transparent === undefined ? {} : { transparent }) }
   }
   return {
     id: 'online', label: '配图',
@@ -27,7 +38,11 @@ export function createImageGenerator(getConfig, generate) {
     },
     status({ modelId } = {}) { return status(current(modelId)) },
     async generate({ prompt, references = [], width, height, background, quality, signal, modelId } = {}) {
-      const { config, channel: selected, reason } = current(modelId)
+      const { config, channel: selected, workflow, reason } = current(modelId)
+      if (workflow) {
+        signal?.throwIfAborted()
+        return comfy.generate({ prompt: String(prompt || ''), references, width, height, signal })
+      }
       if (!selected) throw Object.assign(new Error(reason), { requestMayHaveSucceeded: false })
       signal?.throwIfAborted()
       // Clone only at submission, before an asynchronous module load can observe later edits.

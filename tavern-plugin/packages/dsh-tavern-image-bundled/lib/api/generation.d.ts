@@ -6,7 +6,8 @@ export interface ImageChannel {
 export interface ImageConfiguration {
   imageBackend: string; activeImageChannel?: string; imageChannels: ImageChannel[]; maxImageBytes?: number;
 }
-export interface ImageStatus { ready: boolean; reason?: string; model?: string; maxReferences: number }
+/** 	ransparent is omitted when the channel's ability to return an alpha background is unknown. */
+export interface ImageStatus { ready: boolean; reason?: string; model?: string; maxReferences: number; transparent?: boolean }
 export interface ImageReference { data: Uint8Array; mediaType: string }
 export interface GenerateRequest {
   prompt: string; modelId?: string; references?: ImageReference[]; width?: number; height?: number;
@@ -24,5 +25,9 @@ export type ImageAdapter = (channel: ImageChannel, request: {
   background?: string; quality?: string;
 }, options: { signal?: AbortSignal; maxImageBytes?: number }) => Promise<{ bytes: Uint8Array; mediaType: string }>;
 /** Server-side, stateless online generator. No UI, jobs, gallery or story hooks are installed. */
-export function createImageGenerator(getConfig: () => ImageConfiguration, adapter?: ImageAdapter): ImageGenerator;
+export interface ComfyRunner {
+  workflow(): { id: string; label?: string; bindings?: { referenceImages?: unknown[] } } | null | undefined;
+  generate(input: Omit<GenerateRequest, 'modelId' | 'background' | 'quality'>): Promise<ImageResult>;
+}
+export function createImageGenerator(getConfig: () => ImageConfiguration, adapter?: ImageAdapter, options?: { comfy?: ComfyRunner }): ImageGenerator;
 export { createImageGenerator as stageImageProvider };

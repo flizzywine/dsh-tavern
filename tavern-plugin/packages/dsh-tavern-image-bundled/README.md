@@ -444,7 +444,9 @@ export function createDrawingFeature(getConfig) {
 
 `getConfig()` 返回调用方自己的 `imageBackend/activeImageChannel/imageChannels/maxImageBytes`，渠道可先用 `normalizeChannels` 规范化。`draw` 接受 `prompt/modelId/references/width/height/background/quality/signal`，返回 `{ data: Uint8Array, mediaType }`。出图前快照选中渠道，不修改全局默认；模型目录不读取凭据。`generation` 和 `library` 附带 TypeScript 类型定义，旧 `stageImageProvider/imageLibraryProvider` 名称继续兼容。
 
-独立适配器不登记工具、剧情钩子、HTTP 路由、图库或后台定时器，也不替调用方管理配置、并发、图片持久化和付费任务状态。ComfyUI 的工作流、排队与恢复继续由完整插件的任务引擎管理。需要现成队列和任务记录时复用运行中的插件；自己调用底层适配器时应保留取消信号和 `requestMayHaveSucceeded`，不自动重试结果不确定的付费请求。
+`status()` 返回 `{ ready, model, maxReferences }`，并在能确定时附带可选的 `transparent`：请求透明背景能否得到带 alpha 的 PNG（OpenAI gpt-image 系列为 `true`，官方 OpenAI 端点上的其他模型为 `false`；其他协议不确定，字段省略，调用方应按「不知道」处理）。选中 ComfyUI 时，完整插件把当前默认工作流接给 Tavern 的素材生图：`maxReferences` 取工作流 `bindings.referenceImages` 的个数（与卡片工作台相同），出图走同一套任务引擎并返回 PNG；带参考图输入的工作流若本次没有参考图会在提交前报错，避免误用导入时的旧图。仅用 `createImageGenerator(getConfig)` 的独立适配器不带 ComfyUI 运行器，选中 ComfyUI 时仍提示暂不支持。
+
+独立适配器不登记工具、剧情钩子、HTTP 路由、图库或后台定时器，也不替调用方管理配置、并发、图片持久化和付费任务状态。ComfyUI 的工作流、排队与恢复由完整插件的任务引擎管理。需要现成队列和任务记录时复用运行中的插件；自己调用底层适配器时应保留取消信号和 `requestMayHaveSucceeded`，不自动重试结果不确定的付费请求。
 
 ### 前后端维护边界
 
