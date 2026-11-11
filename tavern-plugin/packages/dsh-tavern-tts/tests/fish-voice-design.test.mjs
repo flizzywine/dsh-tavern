@@ -47,9 +47,10 @@ test('design exact Chinese Fish request and redacted receipt; successful request
   assert.equal(JSON.parse(await readFile(join(root,'voice-pilot-budget.json'),'utf8')).reserved,10000000)
 })
 
-test('only Fish cloud, zh and approved fields; credentials.resolve only, no environment fallback', async t => {
+test('only Fish cloud, zh and approved fields; saved service shares secrets(p): stored key wins, env key is the fallback', async t => {
   const {root} = await fixture(t); let calls = 0, resolves = 0
-  const fetch = async () => { calls++; return success() }
+  const authorization = [], storedKey = 'private-test-stored-secret-never-in-receipt'
+  const fetch = async (url,init) => { calls++; authorization.push(init.headers.Authorization); return success() }
   const run = createVoicePilot({budgetRoot:root,fetch})
   for (const kind of ['minimax','qwen','openai-compatible']) await assert.rejects(run(args('denied'),{...provider,kind},async () => key),{code:'INVALID_PROVIDER'})
   await assert.rejects(run(args('denied'),{...provider,config:{url:'http://127.0.0.1:9884'}},async () => key),{code:'INVALID_PROVIDER'})
@@ -59,12 +60,19 @@ test('only Fish cloud, zh and approved fields; credentials.resolve only, no envi
   await assert.rejects(run(args('denied',{plan:extra}),provider,async () => key),{code:'INVALID_INPUT'})
   const previous = process.env.FISH_AUDIO_API_KEY; process.env.FISH_AUDIO_API_KEY = key
   t.after(() => { if (previous === undefined) delete process.env.FISH_AUDIO_API_KEY; else process.env.FISH_AUDIO_API_KEY = previous })
-  const services = createServiceSettings({tts:{},get:() => ({providers:[provider]}),credentials:() => ({resolve:async ref => {resolves++; assert.deepEqual(ref,credentialRef(provider.id,'key')); return undefined}}),fetch,pilotBudgetRoot:root})
+  let stored
+  const services = createServiceSettings({tts:{},get:() => ({providers:[provider]}),credentials:() => ({resolve:async ref => {resolves++; assert.deepEqual(ref,credentialRef(provider.id,'key')); return stored}}),fetch,pilotBudgetRoot:root})
+  // No stored credential: the saved service falls back to FISH_AUDIO_API_KEY, as every other Fish path does.
+  assert.equal((await services.voicePilot(args('env'))).receipt.requests[0].outcome,'success')
+  assert.equal(resolves,1); assert.equal(calls,1); assert.equal(authorization.at(-1),'Bearer ' + key)
+  // A stored credential wins over the environment key.
+  stored = {value:storedKey}
+  assert.equal((await services.voicePilot(args('stored'))).receipt.requests[0].outcome,'success')
+  assert.equal(resolves,2); assert.equal(calls,2); assert.equal(authorization.at(-1),'Bearer ' + storedKey)
+  // Neither source: refused before any request.
+  stored = undefined; delete process.env.FISH_AUDIO_API_KEY
   await assert.rejects(services.voicePilot(args('denied')),{code:'CREDENTIALS_REQUIRED'})
-  assert.equal(resolves,1); assert.equal(calls,0); assert.deepEqual(await readdir(root),[])
-  const configured = createServiceSettings({tts:{},get:() => ({providers:[provider]}),credentials:() => ({resolve:async ref => {assert.deepEqual(ref,credentialRef(provider.id,'key')); return {value:key}}}),fetch,pilotBudgetRoot:root})
-  assert.equal((await configured.voicePilot(args('configured'))).receipt.requests[0].outcome,'success')
-  assert.equal(calls,1)
+  assert.equal(resolves,3); assert.equal(calls,2)
 })
 
 test('cumulative budget refuses exceeding request before fetch; final UTF-8 bytes determine TTS price', async t => {
