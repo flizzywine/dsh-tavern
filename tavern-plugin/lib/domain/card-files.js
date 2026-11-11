@@ -278,8 +278,9 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       }
       const imported = importedPacks.map(pack => pack.manifest.id)
       const ids = boundIds.filter(id => !imported.includes(id) && (!chosen || chosen.has(id)))
-      const library = assetLibrary()
-      if (!backup && (ids.length || chosen) && !library) throw Object.assign(new Error('素材库尚未就绪'), { code: 'TAVERN_EXPORT_UNAVAILABLE' })
+      // Only bound library packs need the card adapter supplied by the optional stage runtime.
+      const library = backup || boundIds.length ? assetLibrary() : undefined
+      if (!backup && (ids.length || chosen && boundIds.length) && !library) throw Object.assign(new Error('素材库尚未就绪'), { code: 'TAVERN_EXPORT_UNAVAILABLE' })
       // Replacement owns the card, not its installed packs: retain references without copying media.
       const selection = backup
         ? { path: cardPath, packIds: [], keepPackIds: [...boundIds, ...(material.packs || []).map(ref => ref.id), ...(document.data?.extensions?.dsh_tavern?.modConfigPackId ? [document.data.extensions.dsh_tavern.modConfigPackId] : [])] }

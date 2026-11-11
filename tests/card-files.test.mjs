@@ -71,8 +71,9 @@ test('encrypted DSH imports authenticate before saving cards/plugins, and duplic
   assert.equal(entries.get('plugins/game/assets/data.bin').toString(), 'fixture bytes')
 })
 
-test('a CHARX imports once; the same file again opens the card already imported; a bare card exports as DSH', async t => {
-  const { root, files } = await library(t)
+test('a CHARX imports once and a card without packs exports as DSH without the stage card adapter', async t => {
+  const assetLibrary = () => ({ withCardExport: () => assert.fail('a card without packs needs no stage adapter') })
+  const { root, files, cardPreparation, readCardWorkspace } = await library(t, { assetLibrary })
   const charx = join(root, '鱼.charx')
   await writeFile(charx, writeZipEntries([{ path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name: '鱼', description: '一条鱼' } }) }]))
 
@@ -84,6 +85,8 @@ test('a CHARX imports once; the same file again opens the card already imported;
   const again = await files.importCardArchiveFile(charx, '鱼')
   assert.deepEqual(again, { path: first.path, name: '鱼', duplicate: true })
 
+  const detail = cardPreparation.present({ card: await readCardWorkspace(first.path), as: 'detail' })
+  assert.equal(detail.extensions.hasSelectableAssetPacks, false)
   const exported = await files.exportCardFile(first.path)
   assert.equal(exported.extension, 'dshcard')
   assert.equal(JSON.parse((await exportedEntries(exported)).get('card.json').toString()).data.description, '一条鱼')

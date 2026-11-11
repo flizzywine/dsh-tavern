@@ -155,8 +155,11 @@ export function inspectCardExtensions(value) {
   const mvuResources = mvuResourcesOf(data, extensions, regexScripts, helperScripts)
   const otherExtensions = otherExtensionsOf(extensions)
   const tavernHelper = object(extensions.tavern_helper) ? extensions.tavern_helper : {}
+  const tavern = extensions.dsh_tavern
+  const boundPackIds = tavern?.assetBindings?.boundPackIds
   return {
-    frameSizing: normalizeCardFrameSizing(extensions.dsh_tavern?.frameSizing),
+    hasSelectableAssetPacks: Array.isArray(boundPackIds) && boundPackIds.some(id => id !== tavern.modConfigPackId),
+    frameSizing: normalizeCardFrameSizing(tavern?.frameSizing),
     // the card's own opening form, shown on the prep page.
     openingSetup: typeof extensions.dsh_tavern?.openingSetup?.form === 'string' && extensions.dsh_tavern.openingSetup.form.trim()
       ? { form: extensions.dsh_tavern.openingSetup.form } : null,
