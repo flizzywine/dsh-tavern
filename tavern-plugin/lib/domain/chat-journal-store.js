@@ -73,6 +73,7 @@ export function createChatJournalStore(options = {}) {
   const now = typeof options.now === 'function' ? options.now : Date.now
   const maxSnapshotBytes = Number.isSafeInteger(options.maxSnapshotBytes) && options.maxSnapshotBytes > 0 ? options.maxSnapshotBytes : 256 * 1024 * 1024
   const mutationTails = new Map()
+  const nativeMaintenanceTails = new Map()
   const maintenancePending = new Map()
   let maintenanceRunning = null
   function requestSnapshot(chatId, revision) {
@@ -719,22 +720,37 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
+  // Maintenance can recreate a deleted directory when taking its head lock.
+  // Queue it with removal separately from ordinary saves, which can proceed
+  // while maintenance reads and repacks immutable blocks.
+  function serializeNativeMaintenance(chatId, operation) {
+    const id = safeChatId(chatId)
+    const previous = nativeMaintenanceTails.get(id) || Promise.resolve()
+    const current = previous.then(operation, operation)
+    nativeMaintenanceTails.set(id, current)
+    return current.finally(() => {
+      if (nativeMaintenanceTails.get(id) === current) nativeMaintenanceTails.delete(id)
+    })
+  }
+
   async function version(chatId) {return await native.version(chatId) || await compatible?.version(chatId) || legacyVersion(chatId)}
   async function remove(chatId) {
-    await flushMaintenance()
-    await serialize(chatId, async function () {
-      const paths = layout(chatId)
-      forgetState(chatId)
-      sessionMessages.forget(chatId)
-      await compatible?.remove(chatId)
-      await rm(paths.root, { recursive: true, force: true })
-      if (legacyData && typeof legacyData.remove === 'function') await legacyData.remove(paths.legacyRelative)
-      else await rm(paths.legacy, { force: true })
-      let names
-      try { names = await readdir(chatsRoot) } catch (error) { if (error?.code === 'ENOENT') return; throw error }
-      await Promise.all(names.filter(function (name) { return name.startsWith(paths.id + '.legacy-') && name.endsWith('.json') }).map(function (name) {
-        return rm(path.join(chatsRoot, name), { force: true })
-      }))
+    await serializeNativeMaintenance(chatId, async () => {
+      await flushMaintenance()
+      await serialize(chatId, async () => {
+        const paths = layout(chatId)
+        forgetState(chatId)
+        sessionMessages.forget(chatId)
+        await compatible?.remove(chatId)
+        await rm(paths.root, { recursive: true, force: true })
+        if (legacyData && typeof legacyData.remove === 'function') await legacyData.remove(paths.legacyRelative)
+        else await rm(paths.legacy, { force: true })
+        let names
+        try { names = await readdir(chatsRoot) } catch (error) { if (error?.code === 'ENOENT') return; throw error }
+        await Promise.all(names.filter(function (name) { return name.startsWith(paths.id + '.legacy-') && name.endsWith('.json') }).map(function (name) {
+          return rm(path.join(chatsRoot, name), { force: true })
+        }))
+      })
     })
   }
 
@@ -743,12 +759,12 @@ export function createChatJournalStore(options = {}) {
   // Only native saves have unreachable revisions to drop. The pass reads and lists
   // without the write queue; only its short publishing and deleting steps join it.
   async function compact(chatId, options) {
-    return await native.compact(chatId, { ...options, exclusive: operation => serialize(chatId, operation) })
+    return await serializeNativeMaintenance(chatId, () => native.compact(chatId, { ...options, exclusive: operation => serialize(chatId, operation) }))
   }
   // Not serialized: it reads one pinned immutable head and takes the write lock
   // only in short relink steps, so play is never queued behind it.
   async function relayout(chatId, options) {
-    return await native.relayout(chatId, options)
+    return await serializeNativeMaintenance(chatId, () => native.relayout(chatId, options))
   }
   async function readRetentionHeader(chatId, revision) {
     try { return await native.readRetentionHeader(chatId, revision) }

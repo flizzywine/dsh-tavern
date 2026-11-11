@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import fs, { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+import { setTimeout as delay } from 'node:timers/promises'
 import { gunzipSync } from 'node:zlib'
 
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
@@ -156,6 +158,47 @@ test('删除 Chat 会清理 journal 目录和 legacy 备份', async function (t)
   await assert.rejects(access(path.join(root, 'chats/chat-old')), { code: 'ENOENT' })
   assert.deepEqual((await readdir(path.join(root, 'chats'))).filter(function (name) { return name.startsWith('chat-old') }), [])
   assert.equal(await store.read('chat-old'), undefined)
+})
+
+test('压缩与删除同时进行时，后台整理不会重新创建已删除的存档目录', { timeout: 10000 }, async t => {
+  const root = await temporary()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const chatId = 'chat-native'
+  const directory = path.join(root, 'chats', chatId)
+  const store = createChatJournalStore({ dataRoot: root, newConversations: true })
+  await bump(store, chatId, chat => { chat.mode = 'story' })
+  await access(path.join(directory, 'head.json'))
+
+  const locking = Promise.withResolvers()
+  const resume = Promise.withResolvers()
+  const originalMkdir = mkdir
+  const mocked = t.mock.method(fs, 'mkdir', async (target, options) => {
+    if (target === directory) {
+      locking.resolve()
+      await resume.promise
+    }
+    return originalMkdir(target, options)
+  })
+  syncBuiltinESMExports()
+  try {
+    const compacted = store.compact(chatId)
+    await locking.promise
+    const removed = store.remove(chatId)
+    // Pause just before the native head lock would recreate the directory.
+    await Promise.race([removed, delay(150)])
+    resume.resolve()
+    const [compaction] = await Promise.allSettled([compacted, removed])
+    await removed
+    await assert.rejects(access(directory), { code: 'ENOENT' })
+    assert.equal(compaction.status, 'fulfilled')
+    assert.equal(await store.compact(chatId), null)
+    assert.equal(await store.relayout(chatId), undefined)
+    await assert.rejects(access(directory), { code: 'ENOENT' })
+  } finally {
+    resume.resolve()
+    mocked.mock.restore()
+    syncBuiltinESMExports()
+  }
 })
 
 test('连续小写入的重放只复制一次完整人物卡，历史 revision 保持隔离', async function (t) {
