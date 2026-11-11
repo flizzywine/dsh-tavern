@@ -200,7 +200,9 @@ test('真机桌面：Windows 子进程补丁用 asar 根装得上、可回滚', 
   assert.equal(Local.prototype.spawn, original)
 })
 
-test('CLI 入口是无扩展名的 bin/dsh 链接时，跟到真实 bin.js 当启动器入口', t => {
+test('CLI 入口是无扩展名的 bin/dsh 链接时，跟到真实 bin.js 当启动器入口', {
+  skip: process.platform === 'win32' ? 'POSIX CLI symlink layout; Windows Desktop uses an explicit bootstrap entry' : false,
+}, t => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-cli-entry-'))
   const real = join(root, 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
   mkdirSync(dirname(real), { recursive: true })
