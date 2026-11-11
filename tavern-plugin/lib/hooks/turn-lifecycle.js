@@ -6,6 +6,7 @@ import { inputAttachments } from '../domain/player-input-content.js'
 import { prependSystemInstruction } from '../domain/system-append.js'
 import { markTavernSectionsLiteral } from '../domain/literal-sections.js'
 import { sessionStablePrefixSections, withCurrentWorldbook } from '../domain/session-stable-prefix.js'
+import { variableDirectoryOpen } from '../domain/session-variable-directory.js'
 import { synchronizeBodyEdits } from '../domain/body-editor.js'
 import { synchronizeTemplateHistory } from '../domain/template-history.js'
 import { turnRepliedByModel } from '../domain/story-alignment.js'
@@ -121,7 +122,7 @@ export function registerTurnLifecycleHooks({
     if (!event || event.type !== 'turn/end') return
     if (backgroundAgentRunner.owns(session.id)) return
     const reason = event.data && event.data.reason ? event.data.reason.kind : ''
-    foregroundHandoff.end({ sessionId: session.id, turn: event.data && event.data.turn, reason, edit })
+    foregroundHandoff.end({ sessionId: session.id, turn: event.data && event.data.turn, reason, error: event.data?.reason?.error, edit })
     // Edits submitted while this turn ran are replayed now that the round cannot
     // move any more; a target that changed in between drops its text instead.
     if (typeof flushQueuedBodyEdits === 'function') void flushQueuedBodyEdits(session.id)
@@ -139,6 +140,9 @@ export function registerTurnLifecycleHooks({
     const agent = context && context.agent
     if (agent === undefined || agent.session === undefined) return assembly
     if (backgroundAgentRunner.owns(agent.session.id)) return assembly
+    // DSH assembles the system prompt before agent/pre-step. The first request freezes the
+    // variable directory into it, so the opening's MVU variables must be saved before that.
+    if (variableDirectoryOpen(agent.session)) await foregroundHandoff.awaitOpening(agent.session.id)
     const chat = await hookChatForSession(agent.session.id)
     if (chat) await synchronizeTemplateHistory(agent.session, chat, session => sessionStore.flush(session))
     if (chat) await synchronizeBodyEdits(agent.session, chat, session => sessionStore.flush(session), persistClearedBodyEdits)

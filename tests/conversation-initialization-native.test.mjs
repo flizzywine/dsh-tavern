@@ -130,7 +130,7 @@ test('first native reply uses the prepared static worldbook in the actual system
     if (name === 'system-prompt/assemble' || name === 'agent/pre-step') return h.ctx.on(name, listener, options)
   } }
   const backgroundAgentRunner = { owns: () => false }, readChat = async () => chat
-  registerTurnLifecycleHooks({ ctx, foregroundStrategies, backgroundAgentRunner, hookChatForSession: readChat,
+  registerTurnLifecycleHooks({ ctx, foregroundStrategies, backgroundAgentRunner, hookChatForSession: readChat, foregroundHandoff: { awaitOpening: async () => {} },
     readChatCard: async () => ({}), turnOrchestrator: { modeFor: async () => 'story' }, ensureNativeSystemPrefix: async () => {},
     publishResourceWorkspace: async () => null, runtimePrompt: () => '', sessionStore: h.ctx.sessions,
     nativeWorldBookTemplateContext: async (current, _card, options) => projectVirtualWorldbookPrefix(worldBook, current, options) })

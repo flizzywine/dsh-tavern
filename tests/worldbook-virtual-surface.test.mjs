@@ -47,7 +47,7 @@ test('system assembly excludes dynamic recovery and stays byte-identical across 
   let background = false
   registerTurnLifecycleHooks({
     ctx: { on: (name, callback) => hooks.set(name, callback), tools: { schemas: (_agent, toolSet) => toolSet?.schemas } },
-    backgroundAgentRunner: { owns: () => background }, hookChatForSession: async () => chat,
+    backgroundAgentRunner: { owns: () => background }, hookChatForSession: async () => chat, foregroundHandoff: { awaitOpening: async () => {} },
     sessionStore: { flush: async () => assert.fail('assembly must not append restored snapshots to history') },
     turnOrchestrator: { modeFor: async () => 'story' }, ensureNativeSystemPrefix: async () => {},
     publishResourceWorkspace: async () => null, readChatCard: async () => ({}), runtimePrompt: () => '',

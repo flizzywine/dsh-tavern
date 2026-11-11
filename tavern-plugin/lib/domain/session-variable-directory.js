@@ -6,9 +6,18 @@ export function sessionVariableDirectorySection(session) {
   return event?.data?.source?.sections?.find(section => section.name === name) || null
 }
 
+/**
+ * The directory sits in the system prompt, which must stay byte-identical once a
+ * model has answered under it (prompt cache, reasoning signatures). So it can only
+ * be frozen before the session's first request; later stat_data never adds it.
+ */
+export function variableDirectoryOpen(session) {
+  return !sessionVariableDirectorySection(session) && !sessionEvents(session).some(event => event.type === 'request/header')
+}
+
 /** Freeze discovery once; current values remain available through the read tool. */
 export function ensureSessionVariableDirectory(session, chat) {
-  if (!['story', 'script'].includes(chat?.mode || 'story') || sessionVariableDirectorySection(session)) return null
+  if (!['story', 'script'].includes(chat?.mode || 'story') || !variableDirectoryOpen(session)) return null
   let state
   for (const message of [...(chat.messages || [])].reverse()) {
     if (message.role === 'tavern-helper') continue
