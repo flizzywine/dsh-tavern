@@ -51,12 +51,16 @@ function validateMetadata(value, path) {
   if (value.credits !== undefined) { array(value.credits, path + '.credits', 128); value.credits.forEach(v => relativePath(v, path + '.credits')) }
   if (value.extensions !== undefined) extensions(value.extensions, path + '.extensions')
 }
+// 解耦 (11-08): an entry of any media kind may be created blank - `media: null, pendingMedia: true` - and gets its
+// file later (a blank entry). The audio kinds' protocol field lists have no pendingMedia yet, so it is added here.
+const PENDING_MEDIA_KINDS = ['backgrounds', 'cg', 'props', 'music', 'sfx', 'ambience']
+const contentFields = kind => PENDING_MEDIA_KINDS.includes(kind) && !ASSET_CONTENT_FIELDS[kind].includes('pendingMedia') ? [...ASSET_CONTENT_FIELDS[kind], 'pendingMedia'] : ASSET_CONTENT_FIELDS[kind]
 export function validateAsset(value, path = '$') {
   assertJson(value)
   // a standalone skin entry is only an imported theme — no 启用 / 关闭 state.
   const common = value?.kind === 'skins' ? ['kind', 'id', 'name', 'recall', 'directorNote'] : ['kind', 'id', 'name', 'enabled', 'recall', 'directorNote']
   check(value && ASSET_KINDS.includes(value.kind), path + '.kind')
-  shape(value, [...common, ...(value.kind === 'skins' ? [] : ['skin']), 'remark', ...(value.kind === 'props' ? ['inventoryId'] : []), ...metadata.filter(field=>!value.variants || !ASSET_CONTENT_FIELDS[value.kind].includes(field)), ...(value.variants ? ['variants'] : ASSET_CONTENT_FIELDS[value.kind])], common, path)
+  shape(value, [...common, ...(value.kind === 'skins' ? [] : ['skin']), 'remark', ...(value.kind === 'props' ? ['inventoryId'] : []), ...metadata.filter(field=>!value.variants || !ASSET_CONTENT_FIELDS[value.kind].includes(field)), ...(value.variants ? ['variants'] : contentFields(value.kind))], common, path)
   if (value.skin !== undefined) validateShortId(value.skin, path + '.skin')
   if (value.inventoryId !== undefined) text(value.inventoryId, path + '.inventoryId', 256)
   validateShortId(value.id, path + '.id'); text(value.name, path + '.name'); if (value.kind !== 'skins') bool(value.enabled, path + '.enabled')
@@ -72,12 +76,12 @@ export function validateAsset(value, path = '$') {
   // a 视频 is played where another entry references it - on (蓝灯) or off, never recalled by words.
   if (value.kind === 'videos') check(value.recall.mode === 'constant' && value.recall.keywords.length === 0, path + '.recall', 'A video is on or off; it has no keywords')
   if (value.variants !== undefined) validateAssetVariants(value.kind,value.variants,value.kind === 'audience' ? (_kind,content) => validateAudienceContent(content) : validateAssetContent,path + '.variants')
-  else validateAssetContent(value.kind,Object.fromEntries(ASSET_CONTENT_FIELDS[value.kind].filter(key=>Object.hasOwn(value,key)).map(key=>[key,value[key]])),path)
+  else validateAssetContent(value.kind,Object.fromEntries(contentFields(value.kind).filter(key=>Object.hasOwn(value,key)).map(key=>[key,value[key]])),path)
   return value
 }
 export function validateAssetContent(kind, content, path = '$') {
   check(Object.hasOwn(ASSET_CONTENT_FIELDS,kind),path,'Unknown asset kind')
-  shape(content, ASSET_CONTENT_FIELDS[kind], [], path)
+  shape(content, contentFields(kind), [], path)
   const value = {...content,kind}
   if (kind === 'audience') validateAudienceContent(value.content)
   if (kind === 'timers') {
@@ -93,8 +97,8 @@ export function validateAssetContent(kind, content, path = '$') {
     // A story countdown may hold while the player chooses; a reply deadline runs exactly then.
     if (value.pauseOnChoices !== undefined) check(value.pauseOnChoices === true && value.mode !== 'reply', path + '.pauseOnChoices', 'Set true on a story countdown, or omit')
   }
-  if (['backgrounds', 'cg', 'props', 'music', 'sfx', 'ambience'].includes(value.kind)) {
-    if (['backgrounds','cg','props'].includes(value.kind) && value.media === null) check(value.pendingMedia === true, path + '.pendingMedia', 'Missing image must be marked pending')
+  if (PENDING_MEDIA_KINDS.includes(value.kind)) {
+    if (value.media === null) check(value.pendingMedia === true, path + '.pendingMedia', 'Missing image must be marked pending')
     else validateHash(value.media, path + '.media')
   }
   if (kind === 'entrances') {
@@ -106,10 +110,11 @@ export function validateAssetContent(kind, content, path = '$') {
   }
   if (kind === 'videos') videoContract.validateStageVideo(content, path)
   if (value.kind === 'directions') {
-    check(typeof value.text === 'string' && value.text.trim().length > 0 && [...value.text].length <= 2000 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value.text), path + '.text')
+    // a blank 演出风格 (text '') saves; play skips it (direction-styles.js).
+    check(typeof value.text === 'string' && [...value.text].length <= 2000 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value.text), path + '.text')
   }
   if (value.kind === 'cg') validateCg(value, path)
-  if (['backgrounds','cg','props'].includes(kind) && value.pendingMedia !== undefined) { bool(value.pendingMedia,path+'.pendingMedia'); check(!value.pendingMedia || value.media === null,path+'.pendingMedia') }
+  if (PENDING_MEDIA_KINDS.includes(kind) && value.pendingMedia !== undefined) { bool(value.pendingMedia,path+'.pendingMedia'); check(!value.pendingMedia || value.media === null,path+'.pendingMedia') }
   if (value.kind === 'backgrounds') {
     if (value.stageTheme !== undefined) widgetTheme.validateStageTheme(value.stageTheme)
   }
