@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0c9362b4100519aadb203dc8b03d26dfa6d67989",
-  "releaseSequence": 1509,
+  "revision": "3778468e50be9ad8228e3857ff001c51333c60c8",
+  "releaseSequence": 1510,
   "version": "3.3.0",
   "files": [
     {
@@ -1631,8 +1631,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-initialization.js",
-      "sha256": "dec57a6ed19740223c1841ce8620a3ea11c1e98bcb34d331ebf51d57032c7c7f",
-      "size": 27066
+      "sha256": "4a4a20163142d225c61ded1b4de4a189e0ca054c2d0cb02b17cc029789907fb1",
+      "size": 27401
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-page-store.js",
@@ -2526,7 +2526,7 @@
     },
     {
       "path": "tavern-plugin/lib/domain/official-mvu-assets.js",
-      "sha256": "3b7d1ac9dd1276c2dc56c5298605a9f8476ddcaeca181d656c55072d4f1ed458",
+      "sha256": "dcd136473622498def6d166423a45a69f8e5b6f157437028b84710e9ca67d058",
       "size": 4274
     },
     {
@@ -2791,8 +2791,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/read-variables.js",
-      "sha256": "953d419eebf4af491da47da4d5ff0602c100176b103e78da24ce3494debf2d8e",
-      "size": 5566
+      "sha256": "62dee72a7674f3177e4836771ea0f9af6a5b7dcca679d55c0477db0a638a2045",
+      "size": 5707
     },
     {
       "path": "tavern-plugin/lib/domain/regeneration-diagnostics.js",
@@ -3441,8 +3441,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-helper-context.js",
-      "sha256": "281f7154f09d044780c1eae007110055073ee919edaae9b65d5bef0683ed38d0",
-      "size": 17610
+      "sha256": "0ac2b1d69988322a33d51491da534dcfae1f26b1326b1abc1f3e95b7bd11542d",
+      "size": 17818
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-helper-regex-api.js",
@@ -3506,8 +3506,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-script-host-adapter.js",
-      "sha256": "4fde19f02af73c6768934a3795aaf2c2d5490ee0172a66431825996fa3f8cb29",
-      "size": 49214
+      "sha256": "dfcc75b63b4943861868977e8f98d227d4b66df035fa98ea2409818f8c8e7bf1",
+      "size": 49770
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-script-prompts.js",
@@ -3661,8 +3661,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "6e874ac7dafcb8c0886607f8e1e65fed5bb81a101eaeae3d28e297d196fa757b",
-      "size": 72711
+      "sha256": "d6e34f1ac22c206668298d58d83c41ebb6a2df1d7f88a87b9d0523d33f00c122",
+      "size": 73195
     },
     {
       "path": "tavern-plugin/lib/domain/uncommitted-rounds.js",
@@ -4276,8 +4276,8 @@
     },
     {
       "path": "tavern-plugin/lib/vendor/magvarupdate/host-build/artifact/bundle.js",
-      "sha256": "56d2ff8d24553b8356be63e4669de49a8f3974ace4e3e9c661d11cfd36675472",
-      "size": 1245608
+      "sha256": "bf7fb5c06246ad923a6ce5ab122c2eb178dc410ea8511be0efa7cf41cbff191c",
+      "size": 1245645
     },
     {
       "path": "tavern-plugin/lib/vendor/magvarupdate/host-build/artifact/bundle.js.LICENSE.txt",
@@ -4286,18 +4286,18 @@
     },
     {
       "path": "tavern-plugin/lib/vendor/magvarupdate/host-build/build-host-bundle.sh",
-      "sha256": "794e208eb1e9e5027c082166d1c89c1e47a0592b7df2acdef6851e47fe3090ae",
+      "sha256": "fe77197cf5a1983149223947510336a23d3042ddee082959434e65247611c5a2",
       "size": 1247
     },
     {
       "path": "tavern-plugin/lib/vendor/magvarupdate/host-build/prepare-host-build.mjs",
-      "sha256": "f0fb48d66f3761423a43f1cee9057f123494d7b496fa0f28922d8d712f09a6db",
-      "size": 16835
+      "sha256": "fdea9e62fd1614aea302170e3f811fc6497719b220ab8635d33ff60bfb71ea3d",
+      "size": 18706
     },
     {
       "path": "tavern-plugin/lib/vendor/magvarupdate/host-build/README.md",
-      "sha256": "08f05e0fa39e3821a6ccbfc134d37f11a86a7a928b86cb3dcb0583e6bf07cad1",
-      "size": 2738
+      "sha256": "6160d3739425f63c0f09723779baff4f97efdba105e12f0c908e32435045c685",
+      "size": 3032
     },
     {
       "path": "tavern-plugin/lib/vendor/magvarupdate/LICENSE",
@@ -4306,7 +4306,7 @@
     },
     {
       "path": "tavern-plugin/lib/vendor/magvarupdate/SOURCE.md",
-      "sha256": "0b75afbf93d872b1eafe5be2d6236e994b1c73fd5f428e20f76bc3ec087ba571",
+      "sha256": "4727f85fdf4cc44532dd42bc04b40956f5e5a3a756175ed05b3dfa31436d32f8",
       "size": 1887
     },
     {
@@ -8616,9 +8616,9 @@
     }
   ],
   "archive": {
-    "commit": "aef0797a1613f8952d33c882d282bcdbe353a544",
+    "commit": "32d1027cbdc6f1c49a27d4a8c8e6c268e888fbbf",
     "path": "runtime.zip",
-    "sha256": "5f4ae1284a458c354a3478216f469fa1ac89637f0e6884bdf757cf805a0f2291",
-    "size": 15301440
+    "sha256": "4d5480f28b0b5ab26e6513bcc23ec7012bbb9807db9ebf6c9c7dad1eca939796",
+    "size": 15302554
   }
 }
