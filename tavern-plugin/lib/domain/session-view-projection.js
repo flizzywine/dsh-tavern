@@ -61,15 +61,16 @@ export function createSessionViewProjection({
     // assistant editor and duplicates the complete reply a third time.
     delete result.body
     const parts = result.parts
-    if (Array.isArray(parts) && parts.every(part => part?.kind === 'markdown')
-      && parts.map(part => String(part?.text || '')).join('') === String(result.text || '')) {
-      // projectionPartsOf already reconstructs this exact shape from text.
+    if (Array.isArray(parts) && parts.length === 1 && parts[0]?.kind === 'markdown'
+      && result.mode !== 'html' && result.mode !== 'rich'
+      && String(parts[0].text || '') === String(result.text || '')) {
+      // Without parts, projectionPartsOf uses the mode and renders a single block.
+      // A sidebar status panel can leave Markdown parts in an HTML-mode projection.
       delete result.parts
     } else if (Array.isArray(parts) && parts.length > 0
       && parts.map(part => part?.kind === 'markdown' ? String(part?.text || '')
         : part?.kind === 'html' ? String(part?.content ?? part?.html ?? '') : '').join('') === String(result.text || '')) {
-      // Mixed parts are already the complete ordered representation, including
-      // card HTML. The renderer consumes them directly and needs no second text.
+      // Explicit parts preserve block boundaries and kinds without a second text.
       delete result.text
     }
     return result

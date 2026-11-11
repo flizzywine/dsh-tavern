@@ -80,6 +80,28 @@ test('故事投影去除正文副本但保留混合 HTML 帧', async () => {
   assert.ok(opening.replyProjections[0].body, '普通会话编辑器仍需要结构化 body')
 })
 
+test('开场状态栏移到侧栏后，故事投影仍按 Markdown 渲染正文', async () => {
+  const status = '<section>当前状态</section><script>document.title = "状态"</script>'
+  const f = projectionFixture({ readCardExtensions: async () => ({ helperScripts: [], regexScripts: [{
+    id: 'opening-status', findRegex: '/<mvu-status\\s*\\/>/g', replaceString: '```html\n' + status + '\n```',
+    placement: [2], markdownOnly: true
+  }] }) })
+  const text = '窗外的雨渐渐停了。她收起了伞。\n\n灯下还有一封信。'
+  const window = {
+    chat: { ...f.chat, messages: [{ ...f.chat.messages[0], text: text + '\n\n<mvu-status/>' }] },
+    revision: 4, from: 0, to: 0, messageCount: 1
+  }
+  const live = await f.projection.project.opening(window)
+  const story = await f.projection.project.story(window)
+  assert.equal(live.replyProjections[0].mode, 'html', '原投影包含被移到侧栏的 HTML')
+  assert.deepEqual(live.replyProjections[0].parts.map(part => part.kind), ['markdown'])
+  assert.match(live.replyProjections[0].parts[0].text, /\n\n灯下/)
+  assert.deepEqual(story.replyProjections[0].parts, live.replyProjections[0].parts)
+  assert.equal(story.replyProjections[0].text, undefined)
+  assert.deepEqual(story.tavernStatusViews, live.tavernStatusViews)
+  assert.equal(story.tavernStatusViews.length, 1)
+})
+
 test('window projection uses real resource revisions and absolute helper ids without poisoning full caches', async () => {
   const f = projectionFixture()
   const chat = { ...f.chat, cardDefinitionSnapshot: { name: '卡' }, openingWorldbookSnapshot: { version: 1, document: null } }
