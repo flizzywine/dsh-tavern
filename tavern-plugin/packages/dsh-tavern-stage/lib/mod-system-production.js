@@ -15,10 +15,10 @@ export {MANAGED_MOD_METHODS}
 
 // The authenticated application dispatch and the existing card/settings/plugin owners are the
 // only entry points. This is management, not a second plugin loader or runtime registry.
-export function createManagedModProduction({ctx,cardPlugins,cardPreparation,listPaths,readWorkspace,writeWorkspace,withCardLock,validateReferences=createManagedConfigAssetValidator({getAssetLibrary:()=>ctx.get('assetLibrary')}),onChange,readSkin=async()=>null,readSession=async()=>null,resolveOptionConfig,distributions=firstPartyDistributions}) {
+export function createManagedModProduction({ctx,settingsOwner=ctx,cardPlugins,cardPreparation,listPaths,readWorkspace,writeWorkspace,withCardLock,validateReferences=createManagedConfigAssetValidator({getAssetLibrary:()=>ctx.get('assetLibrary')}),onChange,readSkin=async()=>null,readSession=async()=>null,resolveOptionConfig,distributions=firstPartyDistributions}) {
   let bundles
   const localDistributions=()=>bundles ||= distributions()
-  const settings=createManagedModSettingsOwner(ctx)
+  const settings=createManagedModSettingsOwner(ctx,settingsOwner)
   const cards=createManagedModCardOwner({cardPreparation,listPaths,readWorkspace,writeWorkspace,withCardLock})
   // Retired: performance moved into core; danmaku was removed (#456). Their installed releases leave the catalogue and
   // the native loader at the next installBuiltins.
@@ -28,7 +28,11 @@ export function createManagedModProduction({ctx,cardPlugins,cardPreparation,list
     const releases=await installations.readReleases()
     modHost.authorize(releases.filter(row=>row.active && row.installed && row.authorized).map(row=>row.manifest.id))
   }
-  const ready=authorize()
+  // Startup authorization starts when a consumer first awaits it (installBuiltins at stage start, the mod service),
+  // never at construction: a failure there stays the stage's contained failure instead of an unhandled rejection that
+  // takes the whole engine down with it.
+  let initial
+  const ready=()=>initial ||= authorize()
   let tail=Promise.resolve(),active=true
   async function contextFor({cardId,sessionId}={}) {
     if(sessionId) {
@@ -87,7 +91,7 @@ export function createManagedModProduction({ctx,cardPlugins,cardPreparation,list
     return validateSkinModOptions(mods,{manifests,assets}).mods
   }})
   ctx.effect(()=>()=>{active=false;manager.dispose();modHost.dispose()})
-  return Object.freeze({cards,settings,installations,modHost,ready,selection,skinFor,validateReferences,
+  return Object.freeze({cards,settings,installations,modHost,get ready(){return ready()},selection,skinFor,validateReferences,
     async optionValues(modId,workspace,chat,resolvedValues) {
       const context=await contextFor({cardId:workspace.meta.id,sessionId:chat?.sessionId})
       const state=await selection(context.cardPath,{sessionId:chat?.sessionId}),manifest=state.manifests.find(row=>row.id===modId)
@@ -122,7 +126,7 @@ export function createManagedModProduction({ctx,cardPlugins,cardPreparation,list
         return value
       }
       // Read card locks only when installing, updating, or retiring a release.
-      if(!await installations.releasesNeedUpdate(activateBuiltins))return ready
+      if(!await installations.releasesNeedUpdate(activateBuiltins))return ready()
       const current=await installations.read(),value=activateBuiltins(current.value)
       await installations.compareAndSwap({expectedRevision:current.revision,expectedValue:current.value,value})
       await authorize()
