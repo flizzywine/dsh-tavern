@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "6016b24a5eaa4ba94120c6a366c58d56e800c7ad",
-  "releaseSequence": 1517,
+  "revision": "c760a73ab365524148ee5f92588492e8d6d1f990",
+  "releaseSequence": 1518,
   "version": "3.3.0",
   "files": [
     {
@@ -911,8 +911,8 @@
     },
     {
       "path": "tavern-plugin/lib/background-agent-sessions.js",
-      "sha256": "e2d7f4a903b8158d88f2416aebb4c40418e16ca09100d0910e08ce7fd09a1ac4",
-      "size": 27177
+      "sha256": "dff78365169b31d722690c5040ad4627cda3ba6453f7ab1ddeee025fed5fd33a",
+      "size": 27373
     },
     {
       "path": "tavern-plugin/lib/background-agent-task.js",
@@ -2291,8 +2291,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/model-request-log.js",
-      "sha256": "3c1aca33d98a4dfd01c839dd6484a0d0990c66a9e24c3be9df081cb9e9e0bfb9",
-      "size": 14896
+      "sha256": "2f23d15fe431813487c40f1e10a4889e9146ff40a574bf0b9ef8d8206d05ea4f",
+      "size": 16000
     },
     {
       "path": "tavern-plugin/lib/domain/model-slot-registry.js",
@@ -8636,9 +8636,9 @@
     }
   ],
   "archive": {
-    "commit": "cd759249e5b5138ed40f903ce345b42508748564",
+    "commit": "14e8af24e8865d0370937894fcc68e4aa97dd774",
     "path": "runtime.zip",
-    "sha256": "62a526fa0ab69134f8d663951c640400baea90fefad929ffcfadc71142f3c2c7",
-    "size": 15348292
+    "sha256": "8ac6a91a4cd1ac7db63d5958f9320e34ebdbf417a9298e68b935bc08b7a839b4",
+    "size": 15348770
   }
 }
