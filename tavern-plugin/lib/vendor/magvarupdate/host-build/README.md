@@ -36,6 +36,11 @@ The deterministic host build applies these adaptations:
 - derives the schema from an opening `<initvar>` block and strips its `$meta` /
   `$arrayMeta` metadata, as upstream already does for lorebook `[initvar]` data.
 
+- initializes a chat with no floor (an explicitly blank opening) instead of
+  refusing it: the same initvar data, `VARIABLE_INITIALIZED` callbacks and
+  initial update are committed to the chat variable scope, which upstream's
+  chat-variable cleanup keeps until a floor carries the snapshot.
+
 It does not otherwise patch MVU parsing, validation or variable calculation.
 The sandbox-local uniqueness change is valid because the Host enforces exactly
 one official MVU core per chat sandbox; the readiness barrier only restores the

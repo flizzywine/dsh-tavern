@@ -167,7 +167,12 @@ function rememberRuntimeInput(chat, turn, source, text) {
 function stageTemplateInput(chat, turn, source, projected) {
   if (chat.promptTemplateInput && chat.promptTemplateInput.turn !== turn) restoreTemplateInput(chat)
   const before = chat.promptTemplateInput?.before || { variables: clone(chat.variables ?? null), initial: clone(chat.promptTemplateInitialVariables ?? null) }
-  chat.promptTemplateInput = { turn, source, message: projected.message, before }
+  // The template input row inherits the previous floor; a blank opening has none, so it
+  // inherits the chat-start MVU baseline instead.
+  const inherited = chat.messages?.length ? undefined : lastTavernHelperVariables([], chat.variables)
+  const message = inherited === undefined ? projected.message
+    : { ...projected.message, variables: (projected.message.variables || [{}]).map(value => ({ ...inherited, ...value })) }
+  chat.promptTemplateInput = { turn, source, message, before }
   chat.variables = projected.scopes.local
   chat.promptTemplateInitialVariables = projected.scopes.initial
 }
@@ -963,7 +968,8 @@ export function createTurnOrchestrator(options) {
     if (mode === 'story' || mode === 'script') {
       if (!pluginBody && renderMacros !== null && assistantText.includes('{{')) assistantText = renderMacros(assistantText, chat)
       previousMvuVariables = chat.promptTemplateInput?.turn === turn ? lastTavernHelperVariables([chat.promptTemplateInput.message])
-        : history ? await history.previousVariables() : lastTavernHelperVariables(chat.messages)
+        : history ? await history.previousVariables() ?? lastTavernHelperVariables([], chat.variables)
+          : lastTavernHelperVariables(chat.messages, chat.variables)
       const extensions = typeof store.readCardExtensions === 'function'
         ? await store.readCardExtensions(cardPathOf(chat), chat)
         : null

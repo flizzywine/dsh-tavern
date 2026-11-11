@@ -5,7 +5,8 @@
 // and persistence are isolated. ?mode=manual|auto|unsafe|json|server-error covers recovery/diagnostics.
 // Add navigation=1 to test game ownership across parent/child header unmounts.
 // mode=capture overlaps a display capture with real MVU execution/persistence.
-// mode=opening starts without variables. Optional MVU_SMOKE_CARD_PATH plus
+// mode=opening starts without variables; mode=opening-blank starts with no floor
+// (an explicitly blank opening) and runs one scripted turn. Optional MVU_SMOKE_CARD_PATH plus
 // MVU_SMOKE_OPERATIONS (JSON array) exercises a real card in mode=opening-card,
 // reading it without modifying any live chat or invoking a paid model.
 // mode=opening-card-flow drives preparation -> start -> immediate foreground ->
@@ -40,6 +41,7 @@ import { projectTavernHelperWorldbook } from '../../tavern-plugin/lib/domain/tav
 import { createCardPreparation } from '../../tavern-plugin/lib/domain/card-preparation.js'
 import { projectTavernHelperScripts } from '../../tavern-plugin/lib/domain/tavern-helper-scripts.js'
 import { projectTavernHelperContext, lastTavernHelperVariables } from '../../tavern-plugin/lib/domain/tavern-helper-context.js'
+import { readVariables } from '../../tavern-plugin/lib/domain/read-variables.js'
 import { createTurnOrchestrator } from '../../tavern-plugin/lib/domain/turn-orchestration.js'
 import { createStoryTimeline } from '../../tavern-plugin/lib/domain/story-timeline.js'
 import { createForegroundFrameBuilder } from '../../tavern-plugin/lib/domain/agent-input-frame.js'
@@ -59,7 +61,7 @@ const gate = createTavernScriptDispatch({ publishSignal: (sessionId, signal) => 
 const states = new Map()
 const records = new Map()
 const diagnostics = createMvuDiagnosticStore({ readJson: async key => records.get(key), updateJson: async (key, update) => { records.set(key, update(records.get(key))) } })
-const openingBook = { name: '开场变量', entries: [{ id: 1, comment: '[initvar]初始值', content: 'hp: 10', enabled: true }] }
+const openingBook = { name: '开场变量', entries: [{ id: 1, comment: '[initvar]初始值', content: 'hp: 10\naffection: 5\nstage: early', enabled: false }] }
 const cardWorkspace = process.env.MVU_SMOKE_CARD_PATH ? JSON.parse(await readFile(process.env.MVU_SMOKE_CARD_PATH, 'utf8')) : null
 const cardPreparation = createCardPreparation()
 const realCard = cardWorkspace ? cardPreparation.project(cardWorkspace) : null
@@ -92,6 +94,10 @@ function state(id) {
       const swipes = [realCard.first_mes, ...(realCard.alternate_greetings || [])]
       const swipeId = Math.min(2, swipes.length - 1)
       states.get(id).chat.messages[0] = { role: 'assistant', greeting: true, turn: 1, text: swipes[swipeId], swipeId, swipes, variables: swipes.map(() => ({})) }
+    }
+    if (id.startsWith('opening-blank')) {
+      states.get(id).chat.messages = []
+      states.get(id).chat.mvu.openingInitialization = { version: 2, status: 'pending' }
     }
     if (id.startsWith('opening-setup')) {
       const chat = states.get(id).chat
@@ -131,7 +137,7 @@ const persistence = createChatPersistence({ store: journal ? {
 const adapter = createTavernScriptHostAdapter({ diagnostics, resolveChat: async id => (journal || id.startsWith('capture')) ? persistence.read(id) : state(id).chat,
   writeChat: async (chat, metadata) => {
     const s = state(chat.id)
-    if (s.chat.messages[0].variables[0].stat_data?.hp !== chat.messages[0].variables[0].stat_data?.hp) s.hpWrites++
+    if (s.chat.messages[0]?.variables?.[0]?.stat_data?.hp !== chat.messages[0]?.variables?.[0]?.stat_data?.hp) s.hpWrites++
     s.writes++
     if (journal || chat.id.startsWith('capture')) await persistence.write(chat, metadata)
     else s.chat = structuredClone(chat)
@@ -335,8 +341,9 @@ const server = createServer(async (req, res) => {
       }
       else if (method === 'status') {
         const s = state(sessionId)
+        const variables = lastTavernHelperVariables(s.chat.messages, s.chat.variables) || {}
         result = { ...gate.status(sessionId), downloads: s.downloads, calls: s.calls, writes: s.writes, hpWrites: s.hpWrites, resumes: s.resumes,
-          hp: s.chat.messages[0].variables[0].stat_data?.hp, variableKeys: Object.keys(s.chat.messages[0].variables[0].stat_data || {}), initialized: s.chat.mvu.openingInitialization,
+          hp: variables.stat_data?.hp, variableKeys: Object.keys(variables.stat_data || {}), initialized: s.chat.mvu.openingInitialization,
           capture: sessionId.startsWith('capture') ? s.chat.messages[0].displayRuntime : undefined, receipt: s.result?.receipt, resumeError: s.resumeError }
       }
       else if (method === 'flow-context') result = projectTavernHelperContext(state(sessionId).chat)
@@ -367,6 +374,53 @@ const server = createServer(async (req, res) => {
       }
       else if (method === 'run') {
         const s = state(sessionId); s.writes = 0; s.hpWrites = 0
+        if (sessionId.startsWith('opening-blank')) {
+          assert.equal(s.chat.messages.length, 0, 'initialization must not fabricate a greeting')
+          assert.equal(s.chat.mvu.openingInitialization.status, 'complete')
+          const initial = structuredClone(s.chat.variables)
+          assert.deepEqual(initial.stat_data, { hp: 10, affection: 5, stage: 'early' })
+          assert.equal(readVariables(s.chat, { action: 'read', path: '/affection' }).value, 5)
+          let planned = false
+          s.chat.cardPath = 'fixture.json'
+          const turns = createTurnOrchestrator({
+            store: { chatForSession: async () => structuredClone(s.chat), readCard: async () => ({ name: 'Fixture' }),
+              writeChat: async chat => { s.chat = structuredClone(chat) } },
+            timeline: createStoryTimeline(), frameBuilder: createForegroundFrameBuilder(), projectReply: projectReplyLayers,
+            planner: { plan: async ({ chat }) => {
+              // Prompt templates read the chat scope; the next floor inherits the same baseline.
+              assert.deepEqual(chat.variables.stat_data, initial.stat_data)
+              assert.deepEqual(lastTavernHelperVariables(chat.messages, chat.variables).stat_data, initial.stat_data)
+              planned = true
+              return { text: 'stage early; affection 5', sections: [] }
+            } },
+            queueSettlement: async () => {},
+            // Like the prompt-template runtime with no floor to inherit from: the input row starts empty.
+            ...(sessionId.startsWith('opening-blank-template') ? { projectUserTemplate: async ({ chat, text }) => ({
+              scopes: { local: structuredClone(chat.variables), initial: {} },
+              message: { role: 'user', text, sourceText: text, swipeId: 0, swipes: [text], variables: [{}] }
+            }) } : {})
+          })
+          const prepared = await turns.prepare({ sessionId, turn: 2, userText: 'Hello' })
+          assert.equal(prepared.ready, true)
+          assert.equal(planned, true, 'initial state must be visible before prompt assembly')
+          await turns.finalize({ sessionId, turn: 2, userText: 'Hello', assistantText: 'A friendly encounter.' })
+          const messageId = s.chat.messages.findIndex(row => row.role === 'assistant')
+          const message = s.chat.messages[messageId]
+          assert.deepEqual(s.chat.messages[messageId - 1].variables[0].stat_data, initial.stat_data, 'the first player floor inherits the baseline')
+          assert.deepEqual(message.variables[0].stat_data, initial.stat_data)
+          s.operations = [{ op: 'replace', path: '/affection', value: 7 }, { op: 'replace', path: '/stage', value: 'friends' }]
+          const updated = await settlement.settleVariables({ sessionId, operationId: 'op', chatId: sessionId,
+            branchId: s.chat.timeline.branchId, basedOnRevision: s.chat.timeline.revision,
+            messageId, swipeId: 0, storyText: message.text, currentVariables: message.variables[0] })
+          assert.equal(updated.receipt.status, 'updated', JSON.stringify(updated.receipt))
+          applyMvuSettlementEffect(s.chat, updated.effect)
+          assert.equal(readVariables(s.chat, { action: 'read', path: '/affection' }).value, 7)
+          assert.equal(readVariables(s.chat, { action: 'read', path: '/stage' }).value, 'friends')
+          assert.deepEqual(s.chat.variables, initial, 'settlement must not mutate the chat-start baseline')
+          assert.equal(s.calls, 1)
+          s.result = updated
+          return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ pass: true, calls: s.calls, receipt: updated.receipt }))
+        }
         let input = settlementInput(sessionId), openingBefore
         if (sessionId.startsWith('opening')) {
           assert.equal(s.chat.mvu.openingInitialization?.status, 'complete', 'opening must initialize before settlement')

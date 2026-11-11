@@ -253,6 +253,10 @@ export function createConversationInitialization(options) {
     if (preparation && groupOfMode(chatMode) === 'play') {
       chat.variables = structuredClone(preparation.variables || {});
       const opening = chat.messages.find(message => message.greeting);
+      if (usesMvu && !opening && preparation.messageVariables?.stat_data !== undefined && preparation.messageVariables?.schema !== undefined) {
+        Object.assign(chat.variables, structuredClone(preparation.messageVariables));
+        chat.mvu.openingInitialization = { version: 2, status: 'complete', completedAt: now() };
+      }
       if (usesMvu && opening) {
         if (preparation.openingVariables) {
           opening.variables = openingChoices.map(choice => structuredClone(preparation.openingVariables[choice.id] || {}));

@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto'
+import {lastTavernHelperVariables} from './tavern-helper-context.js'
 const object=value=>value!==null&&typeof value==='object'
 const type=value=>value===null?'null':Array.isArray(value)?'array':typeof value
 const escape=value=>value.replace(/~/g,'~0').replace(/\//g,'~1')
@@ -19,6 +20,7 @@ export function readVariables(chat,args={}) {
     const value=message.variables?.[message.swipeId||0]
     if(object(value?.stat_data)){snapshot=value.stat_data;turn=message.turn;break}
   }
+  snapshot ??= lastTavernHelperVariables([], chat.variables)?.stat_data
   if(!snapshot)return {available:false,message:'当前会话尚无已保存的变量快照',settlement:chat.settleStatus||'idle'}
   const revision=digest([chat.id,chat._storageRevision,snapshot])
   const identity=digest([revision,action,path,query])

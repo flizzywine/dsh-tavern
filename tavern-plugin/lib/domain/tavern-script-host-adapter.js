@@ -214,6 +214,11 @@ export function createTavernScriptHostAdapter(options = {}) {
     let patched = false
     if (!option?.type || option.type === 'message') await settlement.touchMessage(sessionId, option?.message_id, eventId)
     const updated = replaceTavernHelperVariables(chat, { option, variables })
+    // A blank opening has no floor: official MVU initializes it in the chat scope.
+    const initializedChat = updated.type === 'chat' && !chat.messages?.length
+      && chat.mvu?.owner === 'official' && isOfficialMvuData(chat.variables)
+      && chat.mvu.openingInitialization?.status !== 'complete'
+    if (initializedChat) chat.mvu.openingInitialization = { version: 2, status: 'complete', completedAt: Date.now() }
     const transactional = await transactionResult(sessionId, updated, false, eventId)
     if (transactional !== null) return transactional
     try {
@@ -231,6 +236,7 @@ export function createTavernScriptHostAdapter(options = {}) {
         if (updated.type === 'chat' && chat.macroState !== before.macroState) {
           changes.push(...diffJson(before.macroState, chat.macroState).map(change => ({ ...change, path: ['macroState', ...change.path] })))
         }
+        if (initializedChat) changes.push({ op: 'set', path: ['mvu', 'openingInitialization'], value: chat.mvu.openingInitialization })
         const metadata = {
           source: 'tavern-helper.variables',
           assertCurrent: () => settlement.assertEvent(sessionId, eventId)
