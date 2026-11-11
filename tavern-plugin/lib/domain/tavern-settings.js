@@ -342,6 +342,11 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.autoOpenStatusPanel !== 'boolean') throw new Error('自动打开酒馆状态面板设置必须是布尔值')
     next.autoOpenStatusPanel = input.autoOpenStatusPanel
   }
+  // 设置 › 高级 › 对话按最新回复排序：默认按创建时间固定排列，打开后最近活动的对话排到最前。
+  if (Object.hasOwn(input, 'recentReplyFirst')) {
+    if (typeof input.recentReplyFirst !== 'boolean') throw new Error('对话排序设置必须是布尔值')
+    next.recentReplyFirst = input.recentReplyFirst
+  }
   if (Object.hasOwn(input, 'headerItems')) {
     // null restores the shipped top bar.
     if (input.headerItems === null) delete next.headerItems
@@ -448,6 +453,8 @@ export function presentTavernSettings(document, defaults) {
     longPressSendRegenerate: object(document).longPressSendRegenerate === true,
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,
+    // 设置 › 高级 › 对话按最新回复排序：默认关闭，左侧对话按创建时间固定排列。
+    recentReplyFirst: object(document).recentReplyFirst === true,
     // Library edits reach a running game on its next turn; only an explicit
     // reload still refreshes the card definition, initvars and MVU state.
     webSearchEnabled: object(document).webSearchEnabled === true,

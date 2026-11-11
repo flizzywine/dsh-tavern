@@ -20,6 +20,21 @@
 			return { read: function () { return (loaded || load()).then(function () { return enabled; }); } };
 		})();
 
+		// 设置 › 高级 › 对话按最新回复排序（tavern-settings.json 的 recentReplyFirst）。
+		// 关闭时按创建时间固定排列（默认）；打开后最近回复/打开过的对话排到最前。
+		const tavernHistoryOrderPreference = (function () {
+			let order = "created", loaded = null;
+			function load() {
+				loaded = rpc("getTavernSettings").then(function (result) {
+					order = result && result.settings && result.settings.recentReplyFirst === true ? "recent" : "created";
+					return order;
+				}, function () { return order; });
+				return loaded;
+			}
+			if (typeof window.addEventListener === "function") window.addEventListener("dsh-tavern-settings-changed", function () { void load(); });
+			return { read: function () { return (loaded || load()).then(function () { return order; }); }, refresh: load };
+		})();
+
 		// The Tavern sidebar occupies `sidebar.workspaces`, so the host's session tree — and with it the live
 		// 「进行中」 StateDot — is not on screen. `useSessionStatus` is a standard prop of that slot: a Map of
 		// sessionId -> { running, pendingInteraction, completionUnread }, updated by api-session/status events.
@@ -45,6 +60,14 @@
 			const [initialResources, setInitialResources] = React.useState([]);
 			const [selectedInitialResources, setSelectedInitialResources] = React.useState({});
 			const [history, setHistory] = React.useState([]);
+			// "created"（默认，按创建时间固定排列）或 "recent"（最近回复优先）。
+			const [historyOrder, setHistoryOrder] = React.useState("created");
+			function reloadHistoryOrder(stillWanted) {
+				return tavernHistoryOrderPreference.refresh().then(function (order) {
+					if (typeof stillWanted === "function" ? stillWanted() : true) setHistoryOrder(tavernHistoryOrder(order));
+					return order;
+				});
+			}
 			const unarchivedHistory = React.useMemo(() => history.filter(item => !archivedSessions.has(item.sessionId)), [history, archivedSessions]);
 			const [historyGroupState, setHistoryGroupState] = React.useState(function () {
 				try { const value = JSON.parse(window.localStorage.getItem("dsh-tavern-history-groups") || "{}"); return value && typeof value === "object" && !Array.isArray(value) ? value : {}; } catch (_) { return {}; }
@@ -256,10 +279,16 @@
 				]);
 			}
 			React.useEffect(function () {
-				function refreshSettings() { void refresh(); }
+				function refreshSettings() { void refresh(); void reloadHistoryOrder(); }
 				window.addEventListener("dsh-tavern-settings-changed", refreshSettings);
 				return function () { window.removeEventListener("dsh-tavern-settings-changed", refreshSettings); };
 			}, [props.sessionId]);
+			// 对话排序偏好：保存后立即生效，不用刷新页面。
+			React.useEffect(function () {
+				let active = true;
+				void reloadHistoryOrder(function () { return active; });
+				return function () { active = false; };
+			}, []);
 			React.useEffect(function () {
 				refresh();
 				function onData(event) { if (tavernDataChangeAffects(event, ["cards", "sessions"], "sidebar")) refresh(event && event.detail && event.detail.kinds); }
@@ -1016,6 +1045,9 @@
 			const activeHistory = unarchivedHistory.filter(isHistoryInMode);
 			const archivedHistory = history.filter(item => archivedSessions.has(item.sessionId) && isHistoryInMode(item));
 			const visibleHistory = archiveExpanded ? activeHistory.concat(archivedHistory) : activeHistory;
+			// 最新回复序下整张列表按活动重排；创建序保持注册表的固定位置。
+			const orderedActiveHistory = orderTavernHistory(activeHistory, summaries, historyOrder);
+			const orderedArchivedHistory = orderTavernHistory(archivedHistory, summaries, historyOrder);
 			// Deleting a card elsewhere may remove the chat open here; never leave it on screen.
 			removedChatsHandler.current = function (sessionIds) {
 				if (!sessionIds.includes(current)) return;
@@ -1051,7 +1083,7 @@
 					h("div", { className: "dsh-tavern-side-row-name" },
 						generating ? h("span", { className: "dsh-tavern-side-row-spinner", role: "status", "aria-label": "正在生成" }, h(Spinner, {})) : null,
 						h("span", { className: "dsh-tavern-side-row-title" }, title)),
-					h("div", { className: "dsh-tavern-side-row-meta" }, h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")), h("span", null, generating ? "生成中" : formatTime(item.createdAt || item.lastOpenedAt || (summary ? summary.updatedAt : item.updatedAt)))))
+					h("div", { className: "dsh-tavern-side-row-meta" }, h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")), h("span", null, generating ? "生成中" : formatTime(tavernHistoryStamp(item, summary, summaries, historyOrder)))))
 					),
 					!managing ? h("button", { className: "dsh-tavern-side-row-more", title: "对话操作", "aria-label": "对话操作", "aria-expanded": menuSession === item.sessionId ? "true" : "false", onClick: function () { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); } }, "⋯") : null,
 					!managing && menuSession === item.sessionId ? h("div", { className: "dsh-tavern-side-row-menu" },
@@ -1073,12 +1105,12 @@
 						h("span", { className: "dsh-tavern-history-group-name" }, group.name), h("span", { className: "dsh-tavern-history-group-count" }, group.items.length)),
 					expanded ? h("div", { className: "dsh-tavern-history-group-items" }, group.items.map(renderHistoryRow)) : null);
 			}
-			const rows = uiMode !== "play" ? activeHistory.map(renderHistoryRow) : groupTavernHistory(activeHistory, summaries).map(function (group) {
+			const rows = uiMode !== "play" ? orderedActiveHistory.map(renderHistoryRow) : groupTavernHistory(orderedActiveHistory, summaries, historyOrder).map(function (group) {
 				const expanded = historyGroupState[group.key] === true;
 				return renderHistoryGroup(group, expanded, () => setHistoryGroupState(previous => ({ ...previous, [group.key]: !expanded })));
 			});
-			const archiveGroup = archivedHistory.length ? renderHistoryGroup({ key: "archived", name: "已归档", items: archivedHistory }, archiveExpanded, () => {
-				if (archiveExpanded) setSelectedChats(ids => ids.filter(id => !archivedHistory.some(item => item.chatId === id)));
+			const archiveGroup = orderedArchivedHistory.length ? renderHistoryGroup({ key: "archived", name: "已归档", items: orderedArchivedHistory }, archiveExpanded, () => {
+				if (archiveExpanded) setSelectedChats(ids => ids.filter(id => !orderedArchivedHistory.some(item => item.chatId === id)));
 				setArchiveExpanded(!archiveExpanded);
 			}) : null;
 			const selectedOpening = openingPicker && openingPicker.openings[openingPicker.index];

@@ -39323,10 +39323,38 @@ function createTavernStoryTranscriptFeature(deps) {
 			return Math.max(timestamp(item.lastOpenedAt), timestamp(item.updatedAt), timestamp(summaries[item.sessionId]?.updatedAt));
 		}
 
-		function groupTavernHistory(history, summaries = {}) {
+		// 设置 › 高级 › 对话按最新回复排序：默认 created（创建时间固定排列），recent 为最近活动优先。
+		function tavernHistoryOrder(order) { return order === "recent" ? "recent" : "created"; }
+
+		// 一行右侧那个时间：创建序时是创建时间，最新回复序时是这次排序用的活动时间。
+		function tavernHistoryStamp(item, summary, summaries, order) {
+			if (tavernHistoryOrder(order) === "recent") {
+				return tavernHistoryActivity(item, summaries || (summary ? { [item.sessionId]: summary } : {}));
+			}
+			return Number(item.createdAt) || Number(item.lastOpenedAt) || Number(summary && summary.updatedAt) || Number(item.updatedAt) || 0;
+		}
+
+		function sortTavernHistoryByActivity(history, summaries = {}) {
+			function timestamp(value) { const n = Number(value); return Number.isFinite(n) ? n : (Date.parse(value) || 0); }
+			return history.slice().sort(function (left, right) {
+				return tavernHistoryActivity(right, summaries) - tavernHistoryActivity(left, summaries) || timestamp(right.createdAt) - timestamp(left.createdAt);
+			});
+		}
+
+		// 最新回复序下整张列表按活动排；创建序保持注册表的固定位置（同时间按最近打开）。
+		function orderTavernHistory(history, summaries = {}, order) {
+			function timestamp(value) { const n = Number(value); return Number.isFinite(n) ? n : (Date.parse(value) || 0); }
+			if (tavernHistoryOrder(order) === "recent") return sortTavernHistoryByActivity(history, summaries);
+			return history.slice().sort(function (left, right) {
+				return timestamp(right.createdAt) - timestamp(left.createdAt) || timestamp(right.lastOpenedAt) - timestamp(left.lastOpenedAt);
+			});
+		}
+
+		function groupTavernHistory(history, summaries = {}, order) {
 			function timestamp(value) { const n = Number(value); return Number.isFinite(n) ? n : (Date.parse(value) || 0); }
 			function activity(item) { return tavernHistoryActivity(item, summaries); }
-			// Groups follow the latest activity; conversations inside keep their creation order.
+			// Groups follow the latest activity; conversations inside keep their creation order
+			// unless 「对话按最新回复排序」 is on, then the inner list follows the same activity.
 			const groups = new Map();
 			for (const item of history.slice().sort((a, b) => timestamp(b.createdAt) - timestamp(a.createdAt))) {
 				const key = tavernHistoryCardKey(item);
@@ -39335,7 +39363,9 @@ function createTavernStoryTranscriptFeature(deps) {
 				group.items.push(item);
 				group.activity = Math.max(group.activity, activity(item));
 			}
-			return Array.from(groups.values()).sort((a, b) => b.activity - a.activity);
+			const grouped = Array.from(groups.values());
+			if (tavernHistoryOrder(order) === "recent") for (const group of grouped) group.items = sortTavernHistoryByActivity(group.items, summaries);
+			return grouped.sort((a, b) => b.activity - a.activity);
 		}
 
 // Owns update requests and page recovery; a stopped controller cannot publish late results.
@@ -39717,6 +39747,21 @@ function TavernCardUpdateDialog(props) {
 			return { read: function () { return (loaded || load()).then(function () { return enabled; }); } };
 		})();
 
+		// 设置 › 高级 › 对话按最新回复排序（tavern-settings.json 的 recentReplyFirst）。
+		// 关闭时按创建时间固定排列（默认）；打开后最近回复/打开过的对话排到最前。
+		const tavernHistoryOrderPreference = (function () {
+			let order = "created", loaded = null;
+			function load() {
+				loaded = rpc("getTavernSettings").then(function (result) {
+					order = result && result.settings && result.settings.recentReplyFirst === true ? "recent" : "created";
+					return order;
+				}, function () { return order; });
+				return loaded;
+			}
+			if (typeof window.addEventListener === "function") window.addEventListener("dsh-tavern-settings-changed", function () { void load(); });
+			return { read: function () { return (loaded || load()).then(function () { return order; }); }, refresh: load };
+		})();
+
 		// The Tavern sidebar occupies `sidebar.workspaces`, so the host's session tree — and with it the live
 		// 「进行中」 StateDot — is not on screen. `useSessionStatus` is a standard prop of that slot: a Map of
 		// sessionId -> { running, pendingInteraction, completionUnread }, updated by api-session/status events.
@@ -39742,6 +39787,14 @@ function TavernCardUpdateDialog(props) {
 			const [initialResources, setInitialResources] = React.useState([]);
 			const [selectedInitialResources, setSelectedInitialResources] = React.useState({});
 			const [history, setHistory] = React.useState([]);
+			// "created"（默认，按创建时间固定排列）或 "recent"（最近回复优先）。
+			const [historyOrder, setHistoryOrder] = React.useState("created");
+			function reloadHistoryOrder(stillWanted) {
+				return tavernHistoryOrderPreference.refresh().then(function (order) {
+					if (typeof stillWanted === "function" ? stillWanted() : true) setHistoryOrder(tavernHistoryOrder(order));
+					return order;
+				});
+			}
 			const unarchivedHistory = React.useMemo(() => history.filter(item => !archivedSessions.has(item.sessionId)), [history, archivedSessions]);
 			const [historyGroupState, setHistoryGroupState] = React.useState(function () {
 				try { const value = JSON.parse(window.localStorage.getItem("dsh-tavern-history-groups") || "{}"); return value && typeof value === "object" && !Array.isArray(value) ? value : {}; } catch (_) { return {}; }
@@ -39953,10 +40006,16 @@ function TavernCardUpdateDialog(props) {
 				]);
 			}
 			React.useEffect(function () {
-				function refreshSettings() { void refresh(); }
+				function refreshSettings() { void refresh(); void reloadHistoryOrder(); }
 				window.addEventListener("dsh-tavern-settings-changed", refreshSettings);
 				return function () { window.removeEventListener("dsh-tavern-settings-changed", refreshSettings); };
 			}, [props.sessionId]);
+			// 对话排序偏好：保存后立即生效，不用刷新页面。
+			React.useEffect(function () {
+				let active = true;
+				void reloadHistoryOrder(function () { return active; });
+				return function () { active = false; };
+			}, []);
 			React.useEffect(function () {
 				refresh();
 				function onData(event) { if (tavernDataChangeAffects(event, ["cards", "sessions"], "sidebar")) refresh(event && event.detail && event.detail.kinds); }
@@ -40713,6 +40772,9 @@ function TavernCardUpdateDialog(props) {
 			const activeHistory = unarchivedHistory.filter(isHistoryInMode);
 			const archivedHistory = history.filter(item => archivedSessions.has(item.sessionId) && isHistoryInMode(item));
 			const visibleHistory = archiveExpanded ? activeHistory.concat(archivedHistory) : activeHistory;
+			// 最新回复序下整张列表按活动重排；创建序保持注册表的固定位置。
+			const orderedActiveHistory = orderTavernHistory(activeHistory, summaries, historyOrder);
+			const orderedArchivedHistory = orderTavernHistory(archivedHistory, summaries, historyOrder);
 			// Deleting a card elsewhere may remove the chat open here; never leave it on screen.
 			removedChatsHandler.current = function (sessionIds) {
 				if (!sessionIds.includes(current)) return;
@@ -40748,7 +40810,7 @@ function TavernCardUpdateDialog(props) {
 					h("div", { className: "dsh-tavern-side-row-name" },
 						generating ? h("span", { className: "dsh-tavern-side-row-spinner", role: "status", "aria-label": "正在生成" }, h(Spinner, {})) : null,
 						h("span", { className: "dsh-tavern-side-row-title" }, title)),
-					h("div", { className: "dsh-tavern-side-row-meta" }, h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")), h("span", null, generating ? "生成中" : formatTime(item.createdAt || item.lastOpenedAt || (summary ? summary.updatedAt : item.updatedAt)))))
+					h("div", { className: "dsh-tavern-side-row-meta" }, h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")), h("span", null, generating ? "生成中" : formatTime(tavernHistoryStamp(item, summary, summaries, historyOrder)))))
 					),
 					!managing ? h("button", { className: "dsh-tavern-side-row-more", title: "对话操作", "aria-label": "对话操作", "aria-expanded": menuSession === item.sessionId ? "true" : "false", onClick: function () { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); } }, "⋯") : null,
 					!managing && menuSession === item.sessionId ? h("div", { className: "dsh-tavern-side-row-menu" },
@@ -40770,12 +40832,12 @@ function TavernCardUpdateDialog(props) {
 						h("span", { className: "dsh-tavern-history-group-name" }, group.name), h("span", { className: "dsh-tavern-history-group-count" }, group.items.length)),
 					expanded ? h("div", { className: "dsh-tavern-history-group-items" }, group.items.map(renderHistoryRow)) : null);
 			}
-			const rows = uiMode !== "play" ? activeHistory.map(renderHistoryRow) : groupTavernHistory(activeHistory, summaries).map(function (group) {
+			const rows = uiMode !== "play" ? orderedActiveHistory.map(renderHistoryRow) : groupTavernHistory(orderedActiveHistory, summaries, historyOrder).map(function (group) {
 				const expanded = historyGroupState[group.key] === true;
 				return renderHistoryGroup(group, expanded, () => setHistoryGroupState(previous => ({ ...previous, [group.key]: !expanded })));
 			});
-			const archiveGroup = archivedHistory.length ? renderHistoryGroup({ key: "archived", name: "已归档", items: archivedHistory }, archiveExpanded, () => {
-				if (archiveExpanded) setSelectedChats(ids => ids.filter(id => !archivedHistory.some(item => item.chatId === id)));
+			const archiveGroup = orderedArchivedHistory.length ? renderHistoryGroup({ key: "archived", name: "已归档", items: orderedArchivedHistory }, archiveExpanded, () => {
+				if (archiveExpanded) setSelectedChats(ids => ids.filter(id => !orderedArchivedHistory.some(item => item.chatId === id)));
 				setArchiveExpanded(!archiveExpanded);
 			}) : null;
 			const selectedOpening = openingPicker && openingPicker.openings[openingPicker.index];
@@ -42287,6 +42349,7 @@ function TavernCardUpdateDialog(props) {
                             sw("storyInputToolCall", "输入走工具调用", "把发给模型的历史（此前的玩家消息和正文）以 submit_story 工具参数的形式回放，而不是普通对话文字；可降低续写被拒答。只影响请求，本轮输入、存档和界面保持不变。需要模型支持工具调用。", false),
                             sw("storyOutputToolCall", "输出走工具调用", "仅用于宿主生成方式。让模型通过 submit_story 提交本轮正文，可缓解 Gemini 等模型在正文中途截断或拒答。需要模型支持工具调用；正文生成完成后一次性显示。", false),
                             sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),
+                            sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：刚生成过新回复、或最近打开的对话排到最前，一行右侧的时间也换成最近活动时间。只改变列表顺序，不改动存档。", false),
                             h(PromptTemplateSettingsEntry),
                             h(ContextCompactionSettings)))
                 );
@@ -59060,6 +59123,9 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.askTavernCardChatRemoval = askTavernCardChatRemoval;
 		exports.removeTavernCardChats = removeTavernCardChats;
 		exports.groupTavernHistory = groupTavernHistory;
+		exports.orderTavernHistory = orderTavernHistory;
+		exports.sortTavernHistoryByActivity = sortTavernHistoryByActivity;
+		exports.tavernHistoryStamp = tavernHistoryStamp;
 		exports.createPlayWorkspaceResolver = createPlayWorkspaceResolver;
 		exports.createSessionListRecoveryModule = createSessionListRecoveryModule;
 		exports.createTavernFrameLifecycle = createTavernFrameLifecycle;

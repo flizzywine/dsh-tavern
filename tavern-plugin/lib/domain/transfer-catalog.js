@@ -25,7 +25,7 @@ function uniqueEntry(used, entry) {
 export const TRANSFER_SETTINGS_KEYS = Object.freeze([
   'headerItems', 'viewTabs', 'candidateDismissMode', 'candidateAutoGenerate',
   'polishPrereview', 'storyGenerationMode', 'storyGenerationProvider', 'storyPluginOutputRegex', 'storyInputToolCall', 'storyOutputToolCall', 'autoOpenStatusPanel',
-  'contextCompaction', 'defaultPlaySettings', 'retryOnFailure'
+  'contextCompaction', 'defaultPlaySettings', 'retryOnFailure', 'recentReplyFirst'
 ])
 
 const PART_DEFS = [
