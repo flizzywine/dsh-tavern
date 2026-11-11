@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f781e7bc3f031fca604ec5ccd1c1d2c6638765c5",
-  "releaseSequence": 1507,
+  "revision": "cd6bc85b8e8098f6fd5baaebefd9ea674253f732",
+  "releaseSequence": 1508,
   "version": "3.3.0",
   "files": [
     {
@@ -3661,8 +3661,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "c6882b0bb6290a6e3e7c121b90a1f3e2451a9c6ee582715f17026e374be077b8",
-      "size": 68852
+      "sha256": "6e874ac7dafcb8c0886607f8e1e65fed5bb81a101eaeae3d28e297d196fa757b",
+      "size": 72711
     },
     {
       "path": "tavern-plugin/lib/domain/uncommitted-rounds.js",
@@ -3991,8 +3991,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "4d486fed0174cac2784f20e8370d4de01b553e97d87ccc47bbb7b27458e22f59",
-      "size": 277412
+      "sha256": "de3872a7778018f100f9493f87354bd423e8a58e6a262996fd43da58d518772f",
+      "size": 277516
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -8611,9 +8611,9 @@
     }
   ],
   "archive": {
-    "commit": "773879baf4fef7c7f9eb9daccaa6381a0cbb9d21",
+    "commit": "ffa995ac06267406f99e4929c78c52425e24e5d5",
     "path": "runtime.zip",
-    "sha256": "d5ffa3342945b64718463bdae81b210524ffbceaaad848ad2d4390875165fb1a",
-    "size": 15299266
+    "sha256": "b267ae8211e5fc251c99f89f4eef034cbdf030f6d18d6f948ad227067e9220de",
+    "size": 15300259
   }
 }
