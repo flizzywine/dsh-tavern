@@ -239,7 +239,11 @@ test('修复移动正文后，锚点和映射指向实际编辑轮，修复替�
   assert.ok(Number(reply.data.turn) > 3)
   assert.equal(last.nativeAnchor.turn, Number(reply.data.turn), '锚点轮号与 reply 事件的原生轮一致')
   assert.equal(h.chat.regeneratedDshTurns[3], Number(reply.data.turn), '映射同步到正文实际所在行')
-  assert.equal(projectedReplyTurns({ events: sessionEvents(h.session), nodes: h.session.surface.nodes }).has(3), false,
+  assert.equal(reply.surfaceOp, 'append')
+  assert.equal(projectedReplyTurns({ events: sessionEvents(h.session), nodes: h.session.surface.nodes }).get(3), Number(reply.data.turn),
+    'native-repair 追加正文按显式故事号映射到实际原生轮')
+  const replacement = { ...reply, surfaceOp: { op: 'replace' } }
+  assert.equal(projectedReplyTurns({ events: [replacement], nodes: [reply.seq] }).has(3), false,
     'native-repair 替换不能再用范围尾部覆盖这个映射')
 
   last.text = '再次修复的正文'

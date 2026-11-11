@@ -195,3 +195,14 @@ test('native-repair 写回的正文带着别的剧情轮号时，撤回最后一
   assert.equal(located.userSeq, 20)
   assert.deepEqual(located.shadowedSeqs, [20, 21, 22, 23])
 })
+
+test('an upgraded appended repair body maps its story turn to the administrative turn it now lives in', async () => {
+  const { projectedReplyTurns } = await import('../tavern-plugin/lib/domain/rollback-surface.js')
+  const events = [
+    { seq: 1, type: 'assistant/message', surfaceOp: 'append', data: { turn: 1, message: { source: { tavernStoryTurn: 1 } } } },
+    { seq: 2, type: 'assistant/message', surfaceOp: 'append', data: { turn: 3, message: { source: { provider: 'dsh-tavern', model: 'native-repair', tavernStoryTurn: 2 } } } },
+  ]
+  const turns = projectedReplyTurns({ events, nodes: [1, 2] })
+  assert.equal(turns.get(1), 1)
+  assert.equal(turns.get(2), 3)
+})
