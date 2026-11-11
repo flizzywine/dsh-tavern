@@ -183,6 +183,15 @@ variablesSource = replaceExactlyOnce(variablesSource, `    const variables = get
   'use the frozen host baseline and fill in a missing schema')
 await writeFile(variablesPath, variablesSource)
 
+// Until a real floor inherits it, the chat scope is the only initialization carrier.
+const chatVariablesPath = path.join(root, 'src/function/cleanup/chat_variables.ts')
+let chatVariablesSource = await readSource(chatVariablesPath)
+chatVariablesSource = replaceExactlyOnce(chatVariablesSource,
+  'export function checkAndRemoveChatVariables() {',
+  'export function checkAndRemoveChatVariables() {\n    if (SillyTavern.chat.length === 0) return;',
+  'preserve the zero-message initialization baseline')
+await writeFile(chatVariablesPath, chatVariablesSource)
+
 // ST JSONL compaction cannot write host-owned history snapshots through saveChat.
 // Disable it at the plugin boundary, including legacy enabled settings. Keep the
 // restore listener for imported chats and leave variable calculation untouched.
@@ -324,4 +333,23 @@ initSource = replaceExactlyOnce(initSource, `                            //重�
                             cleanUpMetadata(current_data.stat_data);
                         }
 `, 'derive schema for opening initvar and preserve swipe-specific authored data')
+// A blank opening has no message zero. Keep the same loader, schema and companion
+// events, but commit its baseline to the existing chat variable namespace.
+initSource = replaceExactlyOnce(initSource, `        if (SillyTavern.chat.length === 0) {
+            console.error(tr('runtime.initvar.noMessagesLog'));
+            toastr.error(
+                tr('runtime.initvar.greetingRequired'),
+                tr('runtime.initvar.initializationFailedTitle')
+            );
+            return;
+        }
+`, '', 'initialize chats without a greeting carrier')
+initSource = replaceExactlyOnce(initSource, `    if (useDataStore().effective_settings.兼容性.更新到聊天变量) {`,
+    `    if (SillyTavern.chat.length > 0 && useDataStore().effective_settings.兼容性.更新到聊天变量) {`,
+    'commit blank chat variables only after initialization callbacks')
+initSource = replaceExactlyOnce(initSource, `    if (getLastMessageId() == 0) {`, `    if (SillyTavern.chat.length === 0) {
+        await eventEmit(variable_events.VARIABLE_INITIALIZED, variables, 0);
+        await updateVariables('', variables);
+        await updateVariablesWith(data => _.assign(data, variables), { type: 'chat' });
+    } else if (getLastMessageId() == 0) {`, 'persist blank-opening baseline without fabricating a message')
 await writeFile(initPath, initSource)
