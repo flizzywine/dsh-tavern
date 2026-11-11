@@ -219,6 +219,23 @@ test('打开游玩工作过程后只在对应故事楼层显示可展开的工�
 })
 
 
+test('故事读取不把自己的精简视图写进会话视图（舞台读的回合正文不会时有时无）', async t => {
+	const p = page(t), { context } = p
+	const touched = []
+	// The live session view the stage reads: any write from a story read is the regression.
+	context.liveTavernView = new Proxy({}, { get: (_target, name) => (...args) => { touched.push([name, args[0]]) } })
+	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({
+		storyTranscript: transcript(messages), view: { mode: 'story', replyProjections: [{ turn: 9, text: '正文' }] }, revision: 1
+	}) })
+	const store = data.createStoryTranscriptStore()
+	await store.read('s1')
+	await store.read('s1', { force: true })
+	await store.read('s2')
+	store.reset()
+	assert.equal(store.getSnapshot().status, 'idle')
+	assert.deepEqual(touched, [])
+})
+
 test('空故事回退原生 ChatFlow 时同步恢复完整 native 投影', async t => {
 	const p = page(t), { context } = p
 	const data = context.createTavernStoryTranscriptDataModule({ rpc: async () => ({ storyTranscript: null, view: null, revision: 0 }) })

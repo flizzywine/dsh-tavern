@@ -106,45 +106,6 @@ test('新建对话复用 startChat 首份视图，后续失效刷新才请求服
   stop()
 })
 
-test('故事读取期间主动订阅等待种子而不抢发 getSession', async function () {
-  const timers = fakeTimers()
-  let loads = 0
-  const module = createLiveTavernViewModule({
-    load: async function () { loads += 1; return { view: { source: 'getSession' } } },
-    shouldPoll() { return false }, now: timers.now, schedule: timers.schedule, cancel: timers.cancel
-  })
-  module.expectSeed('story-session')
-  const stop = module.subscribe('story-session', function () {})
-  await timers.runNext()
-  assert.equal(loads, 0, '首次主动订阅也必须等待即将到达的故事视图')
-  module.seed('story-session', { source: 'story', historyWindow: { revision: 3 } })
-  await timers.runNext()
-  assert.equal(loads, 0)
-  assert.equal(module.getSnapshot('story-session').view.source, 'story')
-  module.invalidate('story-session')
-  await timers.runNext()
-  assert.equal(loads, 1, '种子消费后，失效刷新仍走权威读取')
-  stop()
-})
-
-test('故事读取失败释放种子等待并恢复权威加载', async function () {
-  const timers = fakeTimers()
-  let loads = 0
-  const module = createLiveTavernViewModule({
-    load: async function () { loads += 1; return { view: { source: 'getSession' } } },
-    shouldPoll() { return false }, now: timers.now, schedule: timers.schedule, cancel: timers.cancel
-  })
-  module.expectSeed('story-failed')
-  const stop = module.subscribe('story-failed', function () {})
-  await timers.runNext()
-  assert.equal(loads, 0)
-  module.cancelSeed('story-failed')
-  await timers.runNext()
-  assert.equal(loads, 1)
-  assert.equal(module.getSnapshot('story-failed').view.source, 'getSession')
-  stop()
-})
-
 test('较旧的故事种子不能覆盖已发布的新 revision', async function () {
   const timers = fakeTimers()
   let loads = 0

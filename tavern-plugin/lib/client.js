@@ -15320,7 +15320,6 @@ window.__ModuleLoader__.load({
 							record.seededView = undefined;
 							return result;
 						}
-						if (record.pendingSeed) return record.pendingSeed.promise;
 						return options.load(record.id, { signal: scope.signal });
 					},
 					onResult: async function (result, scope) {
@@ -15447,24 +15446,6 @@ window.__ModuleLoader__.load({
 				},
 				evict: evict,
 				getSnapshot: function (sessionId) { return recordFor(sessionId).state; },
-				expectSeed: function (sessionId) {
-					const record = recordFor(sessionId);
-					if (record.pendingSeed) return;
-					let resolve;
-					const promise = new Promise(function (done) { resolve = done; });
-					record.pendingSeed = { promise: promise, resolve: resolve };
-					record.seededView = undefined;
-					record.refresh.replace();
-					if (record.listeners.size) record.refresh.request();
-				},
-				cancelSeed: function (sessionId) {
-					const record = recordFor(sessionId), pending = record.pendingSeed;
-					if (!pending) return;
-					record.pendingSeed = null;
-					record.refresh.replace();
-					pending.resolve(null);
-					if (record.listeners.size > record.passiveListeners) record.refresh.request();
-				},
 				seed: function (sessionId, view) {
 					// 没有视图就没有可种的东西：种一个空视图会让这一局在别人眼里「没有正文」，
 					// 而 phase 还是 ready，再没人去重读。
@@ -15472,13 +15453,9 @@ window.__ModuleLoader__.load({
 					const record = recordFor(sessionId);
 					const revisionOf = function (value) { return Number((value && value.historyWindow && value.historyWindow.revision) ?? (value && value.tavernHelper && value.tavernHelper.stateRevision)); };
 					const nextRevision = revisionOf(view), currentRevision = revisionOf(record.state.view);
-					if (record.state.view && Number.isSafeInteger(nextRevision) && Number.isSafeInteger(currentRevision) && nextRevision < currentRevision) {
-						if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve({ view: record.state.view }); }
-						return;
-					}
+					if (record.state.view && Number.isSafeInteger(nextRevision) && Number.isSafeInteger(currentRevision) && nextRevision < currentRevision) return;
 					const result = { view: view };
-					if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve(result); }
-					// A story/startChat response is already a complete first-paint view for
+					// A startChat response is already a complete first-paint view for
 					// its consumer. Publish it now; the subscriber's scheduled first refresh
 					// consumes seededView and therefore performs no duplicate getSession.
 					record.refresh.replace();
@@ -15495,7 +15472,6 @@ window.__ModuleLoader__.load({
 						if (record.listeners.size > record.passiveListeners) record.refresh.request();
 						return function () {};
 					}
-					if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve({ view: view }); }
 					record.seededView = undefined;
 					record.refresh.replace();
 					const owner = {};
@@ -38185,9 +38161,6 @@ function createTavernStoryTranscriptDataModule(deps) {
 		// force/read-after-mutation still bypasses it and replaces the cached revision.
 		const cacheSize = Number.isSafeInteger(settings.cacheSize) ? Math.max(0, settings.cacheSize) : 4
 		const cache = new Map()
-		const expectedLiveViews = new Set()
-		const liveViews = settings.liveTavernView || options.liveTavernView
-			|| (typeof liveTavernView !== 'undefined' && liveTavernView ? liveTavernView : null)
 		let ticket = 0
 		let state = IDLE
 
@@ -38206,27 +38179,12 @@ function createTavernStoryTranscriptDataModule(deps) {
 			while (cache.size > cacheSize) cache.delete(cache.keys().next().value)
 		}
 
-		function expectLiveView(sessionId) {
-			if (!liveViews || typeof liveViews.expectSeed !== 'function') return
-			expectedLiveViews.add(sessionId)
-			liveViews.expectSeed(sessionId)
-		}
-		function cancelLiveView(sessionId) {
-			if (!expectedLiveViews.delete(sessionId)) return
-			if (liveViews && typeof liveViews.cancelSeed === 'function') liveViews.cancelSeed(sessionId)
-		}
-
+		// The story response's view is the story's own reduced projection (no round bodies,
+		// fork turns or editable inputs); it stays here. The live session view (getSession) is
+		// another projection with its own readers: publishing this one into it made the stage
+		// lose and regain the round's text on every story read while a round was running.
 		function publish(next) {
 			state = next
-			// The story response already carries the bounded Helper/projection view.
-			// Seed liveView so its first subscriber does not download the same window
-			// again through getSession; later invalidations still refresh normally.
-			if (next && (next.status === 'ready' || next.status === 'empty')) {
-				if (next.view && liveViews && typeof liveViews.seed === 'function') {
-					expectedLiveViews.delete(next.sessionId)
-					liveViews.seed(next.sessionId, next.view)
-				} else cancelLiveView(next.sessionId)
-			}
 			listeners.forEach(function (listener) {
 				try { listener(state) } catch (_) { /* 订阅方自己处理 */ }
 			})
@@ -38260,12 +38218,10 @@ function createTavernStoryTranscriptDataModule(deps) {
 			if (id === '') {
 				if (state !== IDLE) {
 					ticket += 1
-					cancelLiveView(state.sessionId)
 					publish(IDLE)
 				}
 				return state
 			}
-			if (!sameSession) cancelLiveView(state.sessionId)
 			if (!force && sameTarget && (state.status === 'loading' || state.status === 'refreshing')) return state
 			if (!force && sameTarget && (state.status === 'ready' || state.status === 'empty')) {
 				touch(key)
@@ -38283,7 +38239,6 @@ function createTavernStoryTranscriptDataModule(deps) {
 			}
 			const current = ++ticket
 			if (cacheHit === null) {
-				expectLiveView(id)
 				publish({
 					sessionId: id,
 					historyFrom: historyFrom,
@@ -38320,7 +38275,6 @@ function createTavernStoryTranscriptDataModule(deps) {
 				// 有缓存就已经有东西可看：后台补读失败不打扰玩家，缓存留着，
 				// 下一次切换、故事变更或 force 读取会再试。
 				if (cacheHit) return state
-				cancelLiveView(id)
 				const preserve = state.sessionId === id && state.transcript
 				publish({ sessionId: id, historyFrom: historyFrom, status: 'error', transcript: preserve ? state.transcript : null,
 					view: preserve ? state.view : null, revision: preserve ? state.revision : null, error: error, ticket: current })
@@ -38330,7 +38284,6 @@ function createTavernStoryTranscriptDataModule(deps) {
 
 		function reset() {
 			ticket += 1
-			for (const sessionId of Array.from(expectedLiveViews)) cancelLiveView(sessionId)
 			cache.clear()
 			publish(IDLE)
 		}
