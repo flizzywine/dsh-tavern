@@ -7,21 +7,23 @@ function entryId(ctx) {
 }
 
 // Legacy providers own sections; 0.2.1+ forms own volatile fields of a profile entry.
-export function installSettingsSection(ctx, provider, section, schema, defaults, hooks) {
+// owner: the context of the profile entry whose config holds the section (default ctx); listeners stay on ctx. The
+// stage plugin runs on its own fiber, but its sections (mod switches, engine, director probes) are dsh-tavern's.
+export function installSettingsSection(ctx, provider, section, schema, defaults, hooks, owner = ctx) {
   if (typeof provider.installSection === 'function') return provider.installSection(ctx, section, schema, defaults, hooks)
-  hooks.setSource(() => (hooks.validate || schema)((ctx.fiber.effectiveConfig ?? ctx.fiber.config)?.[section]?.get() ?? defaults))
-  ctx.on('settings/document-updated', ns => { if (ns === entryId(ctx)) hooks.onChange?.() })
+  hooks.setSource(() => (hooks.validate || schema)((owner.fiber.effectiveConfig ?? owner.fiber.config)?.[section]?.get() ?? defaults))
+  ctx.on('settings/document-updated', ns => { if (ns === entryId(owner)) hooks.onChange?.() })
 }
 
-export function settingsSectionProvider(ctx, section) {
+export function settingsSectionProvider(ctx, section, owner = ctx) {
   const provider = ctx.get('settings')
   if (!provider || typeof provider.installSection === 'function') return provider
   return {
     get writable() { return provider.writable !== false },
-    describe() { return provider.describe().filter(row => row.ns === entryId(ctx)).map(row => ({ ...row, ns: section, value: row.value[section] })) },
+    describe() { return provider.describe().filter(row => row.ns === entryId(owner)).map(row => ({ ...row, ns: section, value: row.value[section] })) },
     async replace(name, value, revision) {
       if (name !== section || revision === undefined) throw new Error('Native settings section revision is unavailable')
-      await provider.mutate(entryId(ctx), [{ op: 'set', path: [section], value }], revision)
+      await provider.mutate(entryId(owner), [{ op: 'set', path: [section], value }], revision)
     },
   }
 }

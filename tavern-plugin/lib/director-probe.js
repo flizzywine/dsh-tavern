@@ -14,17 +14,18 @@ export function validateDirectorProbeSettings(value) {
   return structuredClone(value)
 }
 
-export function createDirectorProbeStore(ctx) {
+// owner: the profile entry context that holds the section (dsh-tavern's; native-settings.js installSettingsSection).
+export function createDirectorProbeStore(ctx, owner = ctx) {
   let source = () => ({models:{}}), chain = Promise.resolve()
   const validate = validateDirectorProbeSettings
   ctx.inject(['settings'], child => installSettingsSection(ctx, child.get('settings'), DIRECTOR_PROBE_SECTION,
-    z.object({models:z.any().default({})}), {models:{}}, {setSource:fn => {source = fn}, onChange:() => {}, validate}))
+    z.object({models:z.any().default({})}), {models:{}}, {setSource:fn => {source = fn}, onChange:() => {}, validate}, owner))
   return {
     read:() => structuredClone(source().models),
-    writable:() => !!settingsSectionProvider(ctx, DIRECTOR_PROBE_SECTION) && settingsSectionProvider(ctx, DIRECTOR_PROBE_SECTION).writable !== false,
+    writable:() => !!settingsSectionProvider(ctx, DIRECTOR_PROBE_SECTION, owner) && settingsSectionProvider(ctx, DIRECTOR_PROBE_SECTION, owner).writable !== false,
     save(selection, supported) {
       const pending = chain.then(async () => {
-        const settings = settingsSectionProvider(ctx, DIRECTOR_PROBE_SECTION)
+        const settings = settingsSectionProvider(ctx, DIRECTOR_PROBE_SECTION, owner)
         check(settings && settings.writable !== false, '$', 'Native settings unavailable or read-only', 'SETTINGS_UNAVAILABLE')
         const revision = settings.describe?.().find(section => section.ns === DIRECTOR_PROBE_SECTION)?.revision
         await settings.replace(DIRECTOR_PROBE_SECTION, {models:{...source().models,[directorProbeKey(selection)]:supported}}, revision)
