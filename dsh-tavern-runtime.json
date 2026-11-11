@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "7068f6712e52b0cd18d4ae7fab64518a0269005e",
-  "releaseSequence": 1453,
+  "revision": "355be06cd3671094a0a31d5649572caa7a24c265",
+  "releaseSequence": 1454,
   "version": "3.3.0",
   "files": [
     {
@@ -1486,8 +1486,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/chat-journal-store.js",
-      "sha256": "cc220718bf5a2412901012f3142ad2bec56ab270feb0cd8dfe7765d14c31c92b",
-      "size": 45305
+      "sha256": "544e78b2e8333196124272af17fcf80a1872abc8478f058c7cdf2091f70966d4",
+      "size": 46136
     },
     {
       "path": "tavern-plugin/lib/domain/chat-persistence.js",
@@ -8471,9 +8471,9 @@
     }
   ],
   "archive": {
-    "commit": "4a2c627bb37d9e8a871641c0253d5da91cd9352c",
+    "commit": "6ac8f3b02a86fbb83619d2ad4526b3fc0699c4c7",
     "path": "runtime.zip",
-    "sha256": "7e8483095ce1144d845030425d76fcd49c5de52675e23675d61735678f9c44d6",
-    "size": 15165490
+    "sha256": "f2e2044329fb9f1692901f9d4c4823e7a8d40ff32e9667920b9422b13915e39e",
+    "size": 15165658
   }
 }
