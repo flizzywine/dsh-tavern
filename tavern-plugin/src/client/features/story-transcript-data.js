@@ -298,11 +298,20 @@ function useTavernStoryProjectionRefresh(store, sessionId, {
 
 	React.useEffect(function () {
 		if (!active || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined
+		const refresh = () => { void store.read(sessionId, { historyFrom, force: true }) }
 		function changed(event) {
-			if (String(event.detail?.sessionId || '') === sessionId) void store.read(sessionId, { historyFrom, force: true })
+			if (String(event.detail?.sessionId || '') === sessionId) refresh()
 		}
 		window.addEventListener('dsh-tavern-story-mutated', changed)
-		return function () { window.removeEventListener('dsh-tavern-story-mutated', changed) }
+		const unsubscribe = typeof tavernSessionSignals !== 'undefined' && tavernSessionSignals?.subscribe(sessionId, 'story-regenerated', signal => {
+			// The stream can replay the last commit after a reconnect or a window change.
+			const committedRevision = Number(signal.version)
+			if (committedRevision > (store.snapshotFor?.(sessionId, historyFrom)?.revision ?? 0)) refresh()
+		})
+		return function () {
+			window.removeEventListener('dsh-tavern-story-mutated', changed)
+			if (unsubscribe) unsubscribe()
+		}
 	}, [store, sessionId, historyFrom, active])
 }
 

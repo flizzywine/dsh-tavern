@@ -3563,7 +3563,11 @@ export async function apply(ctx) {
       dispatchEvent: function (event) { return tavernScriptHostAdapter.dispatchEvent(event) } },
     timeline: storyTimeline,
     queueSettlement,
-    replyCommitted: sessionId => storyEvents.emit('reply-committed', { sessionId }),
+    replyCommitted: (sessionId, revision) => {
+      // The native agent and the HTTP request can both finish before the new story is readable.
+      sessionSignals.publish(sessionId, { kind: 'story-regenerated', version: String(revision) })
+      storyEvents.emit('reply-committed', { sessionId })
+    },
     cancelSettlement,
     readRegenerationMaterials: buildBodyRegenerationMaterials,
     // Build the replacement request from the save as it is now. This is the same

@@ -5,6 +5,7 @@ import vm from 'node:vm'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { JSDOM } from 'jsdom'
+import { createSessionSignalTransport } from '../tavern-plugin/lib/domain/session-signal-transport.js'
 import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transcript.js'
 
 const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8')
@@ -55,6 +56,36 @@ const messages = [
 	{ role: 'user', text: '行动' },
 	{ role: 'assistant', turn: 9, text: '正文' }
 ]
+
+test('宿主先空闲时，落盘信号刷新故事并挡住迟到的旧读取', async t => {
+	const p = page(t)
+	const signals = createSessionSignalTransport()
+	p.context.tavernSessionSignals = signals
+	const earlyRead = Promise.withResolvers()
+	const old = { storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1 }
+	const replacement = '重新生成的长正文'.repeat(800)
+	let committed = old, reads = 0
+	const data = p.context.createTavernStoryTranscriptDataModule({ rpc: async () => {
+		return ++reads === 2 ? earlyRead.promise : committed
+	} })
+	const feature = p.context.createTavernStoryTranscriptFeature({ dataModule: data })
+	const flow = running => React.createElement(feature.StoryTranscriptFlow, {
+		sessionId: 's1', renderNative: () => null,
+		useChat: selector => selector({ legacy: {} }), useSession: selector => selector({ running })
+	})
+	const root = await mount(p, flow(true))
+	await act(async () => root.render(flow(false)))
+	assert.equal(reads, 2, '宿主先变空闲，提前发出了读取')
+
+	committed = { ...old, storyTranscript: transcript([...messages.slice(0, -1), { ...messages.at(-1), text: replacement }], 2), revision: 2 }
+	await act(async () => { signals.publish('s1', { kind: 'story-regenerated', version: '2' }) })
+	assert.equal(reads, 3, '正文提交后独立触发重新读取')
+	await act(async () => earlyRead.resolve(old))
+	assert.ok(p.dom.window.document.querySelector('[data-chat-flow-key="turn:9"]').textContent.includes(replacement))
+
+	await act(async () => { signals.publish('s1', { kind: 'story-regenerated', version: '1' }) })
+	assert.equal(reads, 3, '已经读过的旧提交无需再次刷新')
+})
 
 test('打开游玩工作过程后只在对应故事楼层显示可展开的工具记录', async t => {
 	const p = page(t), { context } = p

@@ -755,7 +755,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       throw error
     }
     committedChat = await attempt.project() || committedChat
-    replyCommitted?.(committedChat.sessionId)
+    replyCommitted?.(committedChat.sessionId, committedChat._storageRevision)
     // The body is already the save's truth; settlement is a background task. Waiting
     // for it unbounded held the whole response open, so the page sat on
     // 「正在重新生成正文…」 long after the reply was written and the replacement's

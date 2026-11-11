@@ -270,7 +270,7 @@ export function createPluginBodyRegeneration(deps) {
       await phase('committed')
       saved = await attempt.project() || saved
       try { await notifyRegeneration?.(sessionId, { turn: bodyTurn }) } catch { /* The committed story must still reach settlement. */ }
-      try { await replyCommitted?.(sessionId) } catch { /* Listeners do not own the story commit. */ }
+      try { await replyCommitted?.(sessionId, saved._storageRevision) } catch { /* Listeners do not own the story commit. */ }
       await phase('settling')
       try { await queueSettlement(chatId) }
       catch (cause) {

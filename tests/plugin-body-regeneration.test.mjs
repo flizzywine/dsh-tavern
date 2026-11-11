@@ -60,7 +60,7 @@ async function fixture(options = {}) {
   if (!options.withoutBody) appendSessionEvent(session, 'assistant/message', { turn: 2, step: 1, message: { id: 'reply', role: 'assistant',
     source: { kind: 'model', provider: 'fixture', model: 'fixture' }, content: [{ type: 'text', text: '旧正文' }] } }, { surfaceOp: 'append', sourceEventSeqs: [] })
   const agent = { session, phase: { kind: 'idle', lastTurn: 2 }, followup() { throw new Error('must never use foreground agent') } }
-  const phases = [], notifications = [], settlementInputs = []
+  const phases = [], notifications = [], commits = [], settlementInputs = []
   const deps = {
     chats, timeline, sessions: { get: () => agent, flush: async () => options.flush?.() }, scripts: {},
     readRegenerationMaterials: async ({ chat, beforeChat, turn }) => ({ target: { turn },
@@ -74,6 +74,7 @@ async function fixture(options = {}) {
     }),
     cancelSettlement: async () => options.cancelSettlement?.(),
     notifyRegeneration: async (gameId, target) => { notifications.push(target.turn) },
+    replyCommitted: (sessionId, revision) => { commits.push({ sessionId, revision }) },
     queueSettlement: async () => {
       settlementInputs.push(await chats.read())
       if (options.settlementError) throw new Error('结算失败')
@@ -83,7 +84,7 @@ async function fixture(options = {}) {
   const history = createRoundHistory(deps)
   const run = (generate, extra = {}) => history.regenerateWithProvider({ gameId: 'session', turn: 2,
     textVersion: computeSceneTarget(original, 2).key, generate, onPhase: value => phases.push(value), ...extra })
-  return { chats, timeline, session, agent, original, start, history, deps, run, phases, notifications, settlementInputs }
+  return { chats, timeline, session, agent, original, start, history, deps, run, phases, notifications, commits, settlementInputs }
 }
 
 test('prepared configuration is durable before generation and guidance is part of the bound material', async () => {
@@ -141,6 +142,7 @@ test('provider replaces one round and native context, then settles from the orig
   assert.deepEqual(h.notifications, [2])
   assert.deepEqual(h.phases, ['generating', 'validating', 'committed', 'settling'])
   assert.equal(h.settlementInputs.length, 1)
+  assert.deepEqual(h.commits, [{ sessionId: 'session', revision: h.settlementInputs[0]._storageRevision }])
   assert.equal(h.settlementInputs[0].posture, '起点 HP 10')
   assert.deepEqual(h.settlementInputs[0].messages.at(-1).variables, [{ hp: 10 }])
   assert.equal(h.settlementInputs[0].messages.at(-1).mvu.pending, true)

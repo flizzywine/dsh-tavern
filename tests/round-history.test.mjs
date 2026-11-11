@@ -409,9 +409,17 @@ for (const thrown of [false, true]) test('重生成保留真实结算错误但�
 })
 
 test('重生成先交回正文后，迟到的结算错误仍写入存档', async () => {
-  const h = harness({ checkpoint: true })
+  const h = harness({ checkpoint: true, journal: true })
   const settlement = Promise.withResolvers()
-  h.options.queueSettlement = () => settlement.promise
+  const commits = []
+  h.options.replyCommitted = (sessionId, revision) => commits.push({
+    sessionId, revision, savedRevision: h.chat._storageRevision, regenerating: h.chat.regenInProgress, text: h.chat.messages.at(-1).text
+  })
+  h.options.queueSettlement = () => {
+    assert.deepEqual(commits, [{ sessionId: 'session', revision: h.chat._storageRevision,
+      savedRevision: h.chat._storageRevision, regenerating: undefined, text: '新正文3' }])
+    return settlement.promise
+  }
   h.options.trace = { stage: (name, task) => name === 'regen.settlement' ? false : task() }
 
   const view = await h.create().regenerate('chat', '', 'session')
