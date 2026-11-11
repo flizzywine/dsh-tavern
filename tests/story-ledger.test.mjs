@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { applyLedgerDelta, emptyLedger, createLedgerSubmission, ledgerFrameInputs } from '../tavern-plugin/lib/domain/story-ledger.js'
+import { promptSectionBody } from '../tavern-plugin/lib/domain/prompt-section.js'
 
 test('长台账注入保留完整条目和有效 JSON，三类都有机会展示且优先近期记录', () => {
   const ledger = emptyLedger()
@@ -12,7 +13,8 @@ test('长台账注入保留完整条目和有效 JSON，三类都有机会展示
   ledger.scenes = [{ path: ['城', '客栈'], desc: '住处', updatedTurn: 100 }]
   const before = structuredClone(ledger)
   const input = ledgerFrameInputs({ ledger, ledgerInjection: { through: 100 } })[0]
-  const text = input.text.slice(input.text.indexOf('\n') + 1), injected = JSON.parse(text)
+  const body = promptSectionBody('story_ledger', input.text)
+  const text = body.slice(body.indexOf('\n') + 1), injected = JSON.parse(text)
   assert.ok(text.length <= 12000)
   assert.equal(injected.npcs[0].name, '人物59')
   assert.equal(injected.items[0].name, '物品99')

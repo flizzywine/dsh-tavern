@@ -1,3 +1,4 @@
+import { promptSection } from './prompt-section.js'
 import { openingSettlementContext } from './settlement-turn.js'
 import { keyForms } from './encoded-keys.js'
 import { createBackgroundTaskFrame } from './agent-input-frame.js'
@@ -11,6 +12,28 @@ import { variableDiagnosticSummary } from './mvu-diagnostics.js'
 import { normalizeBackgroundTasks } from './tavern-settings.js'
 import { POSTURE_SUBMIT_TOOL, POSTURE_SUBMIT_TOOL_NAME, normalizePostureSubmission } from './posture-submission.js'
 import { resolveRuntimeMacroText } from './runtime-content-projection.js'
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  p001: "Variable schema:",
+  p002: "Card variable update rules:",
+  p003: "Current variable snapshot:",
+  p004: "Card Helper handoff for this turn:",
+  p005: "Data and requests from the card's scripts before this turn's story. Confirmed character-creation settings and explicit variable-initialization requests may initialize this turn; other story intentions and choice actions yield to facts the story has shown. Obey read-only variable rules; leave script-derived fields to the scripts.",
+  p006: "Player Guide (ongoing):",
+  p007: "The player's standing requests for this game. Follow what they say about variable direction, numeric scale and state changes, but create no events the story hasn't shown.",
+  p008: "Guidance for this re-settlement (this run only):",
+  p009: "Character design (as needed):",
+  p010: "If an important character worth keeping long-term appears this turn, you may load character-design with skill, then read or save character files per the Skill. Designs are saved separately, not as MVU operations.",
+  p011: "Settle variables from facts the story text confirms and explicit initialization facts in this turn's opening setup or Card Helper handoff, never from the player's unrealized intentions, read or inferred.",
+  p012: "Don't update from older turns, hidden reasoning, choices or events that didn't happen.",
+  p013: "If character design is truly needed, load character-design and call the character file tools in this background agent; no other agent is needed. Then continue this turn's settlement.",
+  p014: "In one reply, call posture_submit (character postures visible at this turn's end) and mvu_submit_update (variable changes) together; they are independent, so don't wait for either. Keep JSON in tool calls, not the reply text.",
+  p015: "Posture settlement is off this turn: submit variables directly, without postures.",
+  p016: "You must call mvu_submit_update this turn. Each tool's result is authoritative for its postures or variables; resubmit only unfinished items.",
+  p017: "If a number is uncertain, a reasonable value is enough; exactness isn't required."
+})
+
 
 export const MVU_SUBMIT_UPDATE_TOOL_NAME = 'mvu_submit_update'
 
@@ -506,30 +529,30 @@ export function projectMvuBackgroundRequest(frame) {
       source: { kind: 'plugin:dsh-tavern', form: 'mvu-final-story' }
     }],
     // Stable schema and rules precede the per-turn snapshot so the shared background prefix stays cacheable.
-    turnContext: [
-      '【变量结构】',
+    turnContext: promptSection('variable_state', [
+      PROMPT_PROSE.p001,
       JSON.stringify(state.variableSchema || {}),
-      ...(updateRules.length === 0 ? [] : ['【人物卡变量更新规则】', updateRules.join('\n\n')]),
-      '【当前变量快照】',
+      ...(updateRules.length === 0 ? [] : [PROMPT_PROSE.p002, updateRules.join('\n\n')]),
+      PROMPT_PROSE.p003,
       JSON.stringify(promptVariables(state.currentVariables)),
-      ...(rules.helperContext?.length ? ['【本轮人物卡 Helper 交接】',
-        '以下是本轮正文之前人物卡脚本提供的数据与要求。已确认的建角设定和明确的变量初始化要求可用于本轮初始化；其余剧情意图、候选行动仍须以正文已经发生的事实为准。遵守变量只读规则，不重算脚本负责的派生字段。',
+      ...(rules.helperContext?.length ? [PROMPT_PROSE.p004,
+        PROMPT_PROSE.p005,
         ...rules.helperContext] : []),
-      ...(rules.guides?.length ? ['【玩家 Guide · 持续生效】',
-        '玩家对本局的持续要求。结算时遵循其中关于变量取向、数值尺度和状态变化的要求；不得据此制造正文未发生的事件。',
+      ...(rules.guides?.length ? [PROMPT_PROSE.p006,
+        PROMPT_PROSE.p007,
         ...rules.guides.map((text, index) => (index + 1) + '. ' + text)] : []),
-      ...(rules.guidance ? ['【本次重新结算的指导意见（仅本次有效）】', str(rules.guidance)] : []),
-      ...(tasks.characterDesign ? ['【人物设计（按需）】',
-      '若本轮出现值得长期保留的重要人物，可先调用 skill 加载 character-design，再按 Skill 读取或保存人物档案。人物设计独立保存，不属于 MVU operations。'] : [])
-    ].join('\n'),
-    system: [
-      '根据【正文】中已经确认发生的事实，以及本轮【开局设定】或人物卡 Helper 交接中明确的初始化事实结算变量；不得读取或推断玩家尚未实现的意图。',
-      '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
-      ...(tasks.characterDesign ? ['若确实需要人物设计，在当前后台 Agent 内先加载 character-design 并调用人物档案工具；无需也不得创建另一个 Agent。完成后继续本轮结算。'] : []),
-      tasks.posture ? '在同一次回复中同时调用 posture_submit 和 mvu_submit_update，分别提交本轮结束时可见的人物姿势与变量变化；两者互不依赖，无需等待前一个工具返回。不得在回复正文输出 JSON。' : '本轮姿势结算已关闭，直接提交变量，不生成姿势。',
-      '本轮必须调用 mvu_submit_update；姿势和变量分别以各自工具返回结果为准，只补交未完成项。',
-      '数值不确定时，合理即可，不要求必须精确。'
-    ].join('\n'),
+      ...(rules.guidance ? [PROMPT_PROSE.p008, str(rules.guidance)] : []),
+      ...(tasks.characterDesign ? [PROMPT_PROSE.p009,
+      PROMPT_PROSE.p010] : [])
+    ].join('\n')),
+    system: promptSection('variable_settlement', [
+      PROMPT_PROSE.p011,
+      PROMPT_PROSE.p012,
+      ...(tasks.characterDesign ? [PROMPT_PROSE.p013] : []),
+      tasks.posture ? PROMPT_PROSE.p014 : PROMPT_PROSE.p015,
+      PROMPT_PROSE.p016,
+      PROMPT_PROSE.p017
+    ].join('\n')),
     tools: [...(tasks.posture ? [POSTURE_SUBMIT_TOOL] : []), ...(tasks.characterDesign ? [CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL] : []), MVU_SUBMIT_UPDATE_TOOL]
   }
 }
