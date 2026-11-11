@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { pathToFileURL } from 'node:url'
-import { readPatchedUserPlugins, syncUserPlugins, userPluginPaths, watchUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
+import { loaderReload, readPatchedUserPlugins, syncUserPlugins, userPluginPaths, watchUserPlugins, runningUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
 
 async function home(t) {
   const dshHome = await mkdtemp(path.join(tmpdir(), 'user-plugins-'))
@@ -69,6 +69,8 @@ test('插件经由 Tavern 的保护入口加载：导入失败或 apply 抛错�
   assert.deepEqual(ok.inject, ['tavern'])
   await ok.apply(ctx)
   assert.equal(ctx.applied, true)
+  assert.equal(runningUserPlugins.get('good-plugin').origin, 'global')
+  assert.equal(runningUserPlugins.get('good-plugin').runtimeName, 'good-plugin')
   assert.equal(existsSync(path.join(good, '.tavern-restart.json')), false, '成功加载后清掉重启标记')
   const thrown = await load('throws')
   assert.equal(thrown.name, 'throws', '没有导出 name 时用包名')
