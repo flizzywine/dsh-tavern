@@ -3562,6 +3562,12 @@ body :is(
   html.dsh-tavern-viewport-pinned .dsh-tavern-candidate-question:not(.collapsed),
   html.dsh-tavern-short-viewport .dsh-tavern-candidate-question .dsh-tavern-question-head
 ) { background: var(--dsh-tavern-solid); }
+/* 宿主的设置窗口画的是上浮层 token（--dsw-alias-bg-layer-2），玻璃皮肤把它做成半透明且没有模糊，窗口后面的正文会透出来：
+   同样叠在 Canvas 上，保留宿主的色调。 */
+body [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]) { background: linear-gradient(var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base, transparent)) 0 0) Canvas; }
+/* 原生下拉的弹出列表以下拉框自己的底色为底：皮肤把输入框底色做成半透明时，列表落回白底，而选项继承了浅色字。
+   选项一律用系统的不透明配色（随 color-scheme 明暗），任何下拉都看得清；舞台和 fork 弹窗在 theme.css 里另给自己的配色。 */
+select option, select optgroup { background-color: Canvas; color: CanvasText; }
 body .dsh-tavern-picker-error { background: linear-gradient(color-mix(in srgb, var(--dsw-specific-sidebar-fill) 88%, #c45f5f 12%) 0 0) Canvas; }
 /* ---------- 正则库：全局 + 本局预设/人物卡 ---------- */
 .dsh-tavern-btn.dsh-tavern-rx-small { min-height: 28px; padding: 3px 9px; font-size: 11px; }
