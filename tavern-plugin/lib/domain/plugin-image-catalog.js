@@ -10,6 +10,8 @@ const TRAITS = [...IMAGE_CHARACTER_TRAITS, 'fullSFW', 'fullNSFW']
 // A library may also offer its full character records (schema 4) for Tavern's asset library to edit in place.
 export const IMAGE_CHARACTER_SCHEMA = 4
 const RECORD_OPS = ['getCharacter', 'patchCharacter', 'createCharacter', 'putReferenceImage']
+// Offered by newer libraries only; a host asks recordLibraries() whether one can.
+const OPTIONAL_RECORD_OPS = ['deleteCharacter']
 const PARTS = ['upper', 'lower', 'shoes', 'accessory', 'full', 'back']
 
 function rows(value) {
@@ -69,7 +71,7 @@ export function createPluginImageCatalog({ imageProviders, available, reportErro
       const key = owner + '/' + id
       if (libraries.has(key)) throw new Error('图片资源库 ' + id + ' 已注册')
       const entry = { id: key, owner, label: label.trim(), characters, outfits,
-        ...(schemaVersion === undefined ? {} : { records: { schemaVersion, ...Object.fromEntries(RECORD_OPS.map(op => [op, records[op]])) } }) }
+        ...(schemaVersion === undefined ? {} : { records: { schemaVersion, ...Object.fromEntries([...RECORD_OPS, ...OPTIONAL_RECORD_OPS].filter(op => typeof records[op] === 'function').map(op => [op, records[op]])) } }) }
       libraries.set(key, entry)
       return () => { if (current(libraries, entry)) libraries.delete(key) }
     },
@@ -104,17 +106,18 @@ export function createPluginImageCatalog({ imageProviders, available, reportErro
 
     async recordLibraries(context) {
       return (await visible(libraries, context)).filter(item => item.records?.schemaVersion === IMAGE_CHARACTER_SCHEMA)
-        .map(item => ({ providerId: item.id, label: item.label }))
+        .map(item => ({ providerId: item.id, label: item.label, deletes: typeof item.records.deleteCharacter === 'function' }))
     },
 
     // Record IDs are local to a provider. Never silently route a write to the first library.
     async record(op, context, { providerId, ...input } = {}) {
-      if (!RECORD_OPS.includes(op)) throw Object.assign(new Error('未知的人物记录操作'), { code: 'INVALID_ARGUMENT' })
+      if (!RECORD_OPS.includes(op) && !OPTIONAL_RECORD_OPS.includes(op)) throw Object.assign(new Error('未知的人物记录操作'), { code: 'INVALID_ARGUMENT' })
       if (providerId !== undefined && (typeof providerId !== 'string' || !providerId)) throw Object.assign(new Error('请选择有效的人物库来源'), { code: 'INVALID_ARGUMENT' })
       const entries = (await visible(libraries, context)).filter(item => item.records?.schemaVersion === IMAGE_CHARACTER_SCHEMA)
       if (!providerId && entries.length > 1) throw Object.assign(new Error('存在多个配图人物库，请选择来源'), { code: 'INVALID_ARGUMENT' })
       const entry = providerId ? entries.find(item => item.id === providerId) : entries[0]
       if (!entry) throw Object.assign(new Error('配图插件未启用，或版本还不支持共用人物记录'), { code: 'NOT_CONFIGURED' })
+      if (!entry.records[op]) throw Object.assign(new Error('这个配图插件版本还不能删除人物记录'), { code: 'NOT_SUPPORTED' })
       const result = await bounded(Promise.resolve().then(async () => {
         if (!current(libraries, entry) || !await available(entry.owner, context)) throw Object.assign(new Error('人物库已卸载或不可用'), { code: 'NOT_CONFIGURED' })
         return entry.records[op](structuredClone(input))
