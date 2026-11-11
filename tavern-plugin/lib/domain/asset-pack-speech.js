@@ -1,12 +1,12 @@
 // each figure registers its own immutable, pack-scoped portable preset.
 import { effectiveCardStage, effectiveNarrator } from './card-stage-settings.js'
 import { assetPackDigest } from '../../packages/dsh-tavern-stage/lib/domain/stage-asset-pack-catalogue.js'
-import { figureTtsVoice, assetVoiceBinding, browserSpeechSource, catalogueTtsVoice } from './figure-voice.js'
+import { figureTtsVoice, assetVoiceBinding, browserSpeechSource } from './figure-voice.js'
 const failure = code => Object.assign(new Error(code), {code})
 // The key the narrator's voice opens under (旁白配音); never a figure name, so it cannot resolve to a cast member.
 export const NARRATOR_VOICE = '\u0000narrator'
-// The key the 通用声音 (tts.reading().dialogueVoice) opens under: one shared entry for every temporary NPC and every enabled
-// figure without a voice binding, and the reader of 全文朗读.
+// The key the 通用声音 (tts.reading().general.figure) opens under: one shared entry for every temporary NPC and
+// every enabled figure without a voice binding, and the reader of 全文朗读.
 export const GENERAL_VOICE = '\u0000general'
 
 export function createAssetPackSpeech({presentation, getEngine, getTts, getBinding, getLibrary, scope, principal = 'dsh-browser', readOnly: onlyCached = false}) {
@@ -44,28 +44,25 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
   // The figure's declared voice, or null when she has none here (voice off on this card, unknown name, figure off, no voice).
   async function declared(alias) {
     const engine = getEngine?.(), stage = effectiveCardStage(presentation.extension, engine)
-    if (alias === GENERAL_VOICE && stage.voice) {
-      const tts = getTts(), voice = tts?.apiVersion === 1 ? tts.reading().dialogueVoice : null
-      if (voice?.silent) return null
-      return voice?.voiceId || voice?.templateId ? {catalogue:voice} : voice?.serviceId ? {service:voice} : {browser:voice?.browser ?? ''}
+    // 通用声音 / 旁白 speak with the figure tts.reading() points at (any installed pack, enabled or not), exactly as that
+    // figure speaks on a card; none chosen = the browser's default voice. 旁白's switch: the card layer over tts.reading().narrator.
+    if (alias === GENERAL_VOICE || alias === NARRATOR_VOICE) {
+      if (!stage.voice) return null
+      const tts = getTts(), reading = tts?.apiVersion === 1 ? tts.reading() : null
+      if (alias === NARRATOR_VOICE && !effectiveNarrator(presentation.extension, reading?.narrator).enabled) return null
+      return pointed(alias === GENERAL_VOICE ? reading?.general.figure : reading?.narrator.figure)
     }
-    if (!stage.voice || alias === GENERAL_VOICE) return null
-    // The narrator speaks the Chinese narration with the chosen figure's voice (or a browser system voice, or a voice of a
-    // configured service), whatever her 配音语言. Its global layer is tts.reading().narrator.
-    if (alias === NARRATOR_VOICE) {
-      const tts = getTts(), global = tts?.apiVersion === 1 ? tts.reading().narrator : null
-      const narrator = effectiveNarrator(presentation.extension, global, tts?.apiVersion === 1 ? tts.reading().dialogueVoice : null), voice = narrator.enabled ? narrator.voice : null
-      if (!narrator.enabled || voice?.silent) return null
-      if (!voice || voice.browser !== undefined) return {browser:voice?.browser ?? ''}
-      if (voice.serviceId) return {service:voice}
-      if (voice.voiceId || voice.templateId) return {catalogue:voice}
-      const resolved = await presentation.resolveFigure(voice)
-      return resolved.value?.voice ? {ref:voice, resolved, language:'zh'} : null
-    }
+    if (!stage.voice) return null
     const resolvedName = await presentation.resolveName(alias), ref = resolvedName.ref
     if (resolvedName.status !== 'resolved' || !ref) return null
     const resolved = await presentation.resolveFigure(ref)
     return resolved.value?.enabled && resolved.value.voice ? {ref, resolved} : null
+  }
+  async function pointed(ref) {
+    if (!ref) return {browserDefault:true}
+    const pack = await getLibrary().getPackSnapshot({packId:ref.packId}), figure = pack?.figures[ref.figureId]
+    const voiceSpec = figure?.voice && pack.manifest.voiceLibrary?.voices[figure.voice.voice]
+    return voiceSpec ? {ref, resolved:{value:figure, voiceSpec}, pack} : null
   }
   async function prepare(alias, service, generation, readOnly) {
     const drop = () => {
@@ -75,30 +72,9 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     const found = await declared(alias)
     if (!found) { drop(); return {available:false,diagnostics:['voice-unbound']} }
     if (disposed || epoch !== generation || getTts() !== service) throw failure('TTS_STALE')
-    if (found.browser !== undefined) {
-      drop()
-      return {available:true,browser:{voice:found.browser},voiceId:'browser',language:'zh',scope,diagnostics:[]}
-    }
-    // A service voice ({serviceId, voice}, the voice picker's binding): that service speaks it as a one-source voice, the
-    // voice name in the slot its provider reads (fish-audio: a voice id). A service that is gone leaves the narration silent.
-    if (found.service) {
-      const {serviceId, voice:name} = found.service, kind = (await service.listServices()).find(row => row.id === serviceId)?.kind
-      if (!kind) { drop(); return {available:false,diagnostics:['SERVICE_OFFLINE']} }
-      const spec = {name:'旁白', language:'zh', defaultSource:'narrator',
-        sources:{narrator:kind === 'fish-audio' ? {kind:'voice-id', provider:kind, voiceId:name} : {kind:'preset', provider:kind, voiceName:name}}}
-      const voice = figureTtsVoice({voice:'narrator'}, spec, 'narrator'), binding = {serviceId}
-      const revision = assetPackDigest({voice, readings:[], binding, id:name, language:'zh'})
-      return register(alias, service, generation, {voice, binding, revision, sourceId:`narrator:${revision}`, voiceId:name,
-        readReference:async () => { throw failure('MISSING_REFERENCE') }})
-    }
-    if (found.catalogue) {
-      const selected = await catalogueTtsVoice(getLibrary(),service,found.catalogue,{readOnly})
-      if (selected.browser !== undefined) { drop(); return {available:true,browser:{voice:selected.browser},voiceId:'browser',language:'zh',scope,diagnostics:[]} }
-      const revision = assetPackDigest({voice:selected.voice,binding:selected.binding,revision:selected.revision})
-      return register(alias,service,generation,{...selected,revision,sourceId:'reading:' + revision})
-    }
-    const {ref, resolved} = found, figure = resolved.value, spokenBinding = found.language ? {...figure.voice, language:found.language} : figure.voice
-    const voice = figureTtsVoice(spokenBinding, resolved.voiceSpec, `${ref.packId}:${ref.figureId}`, figure.emotions)
+    if (found.browserDefault) { drop(); return {available:true,browser:{voice:''},voiceId:'browser',language:'zh',scope,diagnostics:[]} }
+    const {ref, resolved} = found, figure = resolved.value
+    const voice = figureTtsVoice(figure.voice, resolved.voiceSpec, `${ref.packId}:${ref.figureId}`, figure.emotions)
     // Browser speech: the browser speaks with the named system voice (none named = the system default); nothing is bound or registered.
     const spoken = browserSpeechSource(resolved.voiceSpec, figure.voice)
     if (spoken) {
@@ -112,7 +88,9 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     // identity) inside dsh-tts. The empty `readings` keeps every figure's source id — and so its cached audio — unchanged.
     const revision = assetPackDigest({voice,readings:[],binding,id:figure.voice.voice,language:voice.languages[0]})
     return register(alias, service, generation, {voice, binding, revision, sourceId:`figure:${ref.packId}:${ref.figureId}:${revision}`, voiceId:figure.voice.voice,
-      readReference:async hash => presentation.readReference(ref, (await presentation.resolveFigure(ref)).revision, hash)})
+      // a pointed figure (通用声音 / 旁白) may be in a pack this card does not use: its clips come from the library.
+      readReference:found.pack ? async hash => (await getLibrary().readMedia({packId:ref.packId, expectedRevision:found.pack.revision, hash})).bytes :
+        async hash => presentation.readReference(ref, (await presentation.resolveFigure(ref)).revision, hash)})
   }
   // Registers the voice as this alias's source and grant (kept while its source id is unchanged).
   function register(alias, service, generation, {voice, binding, revision, sourceId, voiceId, readReference}) {

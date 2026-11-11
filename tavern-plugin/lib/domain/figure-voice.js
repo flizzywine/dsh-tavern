@@ -16,7 +16,25 @@ export async function assetVoiceBinding(tts, declaration, options) {
   return (await tts.resolveVoiceService(declaration,options)).effective
 }
 
-// Reading selections use the library's plain catalogue, not the current card's cast.
+// 通用声音 / 旁白 (tts.reading().general / .narrator .figure): a figure of any installed pack, enabled or not, spoken with its own
+// voice in its own 配音语言 - the same declaration as that figure on a card. null = the browser's default voice; a figure
+// gone (or without a voice) throws VOICE_NOT_FOUND; 「不配音」 is silent (null).
+export async function figureRefTtsVoice(library, tts, ref, options) {
+  if (!ref) return {browser:''}
+  const pack = await library.getPackSnapshot({packId:ref.packId}), figure = pack?.figures[ref.figureId]
+  const voice = figure?.voice && pack.manifest.voiceLibrary?.voices[figure.voice.voice]
+  if (!voice) throw Object.assign(new Error('VOICE_NOT_FOUND'), {code:'VOICE_NOT_FOUND'})
+  const binding = figure.voice
+  if (binding.source === null) return null
+  const browser = browserSpeechSource(voice, binding)
+  if (browser) return {browser:browser.voiceName ?? '',language:effectiveVoiceLanguage(binding.language, voice.language)}
+  const effective = await assetVoiceBinding(tts,{voice,binding},options)
+  if (!effective) throw Object.assign(new Error('SERVICE_REQUIRED'), {code:'SERVICE_REQUIRED'})
+  return {voice:figureTtsVoice(binding,voice,`${pack.manifest.id}:${figure.id}`),binding:effective,voiceId:binding.voice,revision:pack.revision,
+    readReference:async hash => (await library.readMedia({packId:pack.manifest.id,expectedRevision:pack.revision,hash})).bytes}
+}
+
+// 全文朗读's reader (tts.reading().readAloud.voice) uses the library's plain catalogue, not the current card's cast.
 export async function catalogueTtsVoice(library, tts, ref, options) {
   const item = (await library.listVoiceCatalogue()).voices.find(row => ref.templateId
     ? row.ref.templateId === ref.templateId : row.ref.packId === ref.packId && row.ref.voiceId === ref.voiceId)

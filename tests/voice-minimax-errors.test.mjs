@@ -19,7 +19,7 @@ test('MiniMax preview and figure warnings use shared messages; a valid 少女 ha
   const figure = {voice:{voice:'girl'}}, pack = {manifest:{voiceLibrary:{voices:{girl:{name:'少女',defaultSource:'mm',sources:{mm:{kind:'preset',provider:'minimax',voiceName:'female-shaonv'}}}}}}}
   assert.equal(sandbox.FigureVoiceField({pack,figure,status:{issues:[]}}).props.before,undefined)
   const warning = sandbox.FigureVoiceField({pack,figure,status:{issues:[{code:'SERVICE_REQUIRED'}]}})
-  assert.match(warning.props.ariaLabel,/这个声音绑定的服务商还没配置/)
+  assert.match(warning.props.ariaLabel,/这个声音绑定的语音服务还没设置/)
   assert.doesNotMatch(warning.props.ariaLabel,/通义千问/)
   assert.ok(warning.props.before)
 })

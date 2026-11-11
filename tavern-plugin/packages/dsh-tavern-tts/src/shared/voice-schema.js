@@ -34,10 +34,14 @@ export function voiceReferences(voice) {
   return Object.values(voice.sources).flatMap(s => s.kind === 'reference-list' ? s.references : [])
 }
 export function validateVoiceSpec(v, path = '$.voice') {
-  shape(v,['name','language','defaultSource','sources','variants','emotions','fallbackSources'],['name','language','defaultSource','sources'],path)
+  shape(v,['name','guidance','language','defaultSource','sources','variants','emotions','fallbackSources'],['name','language','defaultSource','sources'],path)
   text(v.name,path+'.name'); language(v.language,path+'.language'); id(v.defaultSource,path+'.defaultSource')
+  // 使用情景: one optional line saying whom the voice suits (「适合中年男性」); the casting assistant searches it.
+  if (v.guidance !== undefined) check(typeof v.guidance === 'string' && [...v.guidance].length <= 60 && !/[\u0000-\u001f\u007f]/.test(v.guidance),path+'.guidance')
   record(v.sources,path+'.sources',(s,p) => {
-    const fields = {'voice-id':['voiceId'],preset:['voiceName','model'],'reference-list':['references']}[s?.kind]
+    // `model`: the provider's synthesis model this source speaks with (a figure's choice, never the service's); absent = the
+    // service's default model.
+    const fields = {'voice-id':['voiceId','model'],preset:['voiceName','model'],'reference-list':['references','model']}[s?.kind]
     check(fields,p+'.kind'); shape(s,['kind','provider','serviceId',...fields],['kind','provider'],p); id(s.provider,p+'.provider')
     // the service instance this source speaks through (one of several of its provider); the same name as a reading voice's.
     if (s.serviceId !== undefined) id(s.serviceId,p+'.serviceId')
@@ -45,7 +49,8 @@ export function validateVoiceSpec(v, path = '$.voice') {
     // a library voice or online preset without its voice. Resolving it reports what is
     // missing (dsh-tts voice-resolver sourceUnsetIssue) instead of the pack refusing the choice.
     if (s.kind === 'voice-id') { check(s.provider === 'fish-audio',p+'.provider'); if (s.voiceId !== undefined) check(typeof s.voiceId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(s.voiceId),p+'.voiceId') }
-    if (s.kind === 'preset') { if (s.voiceName !== undefined) text(s.voiceName,p+'.voiceName'); if (s.model !== undefined) text(s.model,p+'.model') }
+    if (s.kind === 'preset' && s.voiceName !== undefined) text(s.voiceName,p+'.voiceName')
+    if (s.model !== undefined) text(s.model,p+'.model')
     if (s.kind === 'reference-list') { check(s.provider === 'fish-audio',p+'.provider'); refs(s.references,p+'.references') }
     if (s.model !== undefined) safeData(s.model,p+'.model')
   })

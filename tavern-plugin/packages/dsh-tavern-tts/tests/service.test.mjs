@@ -3,17 +3,18 @@ import { normalizeReadingEntries } from '../src/reading-dictionary.js'
 import { normalizeDashes } from '../src/pronunciation.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { format } from 'node:util'
 import { createTts } from '../src/service.js'
 import { createCache } from '../src/cache.js'
-import { lexicon, hash, portableVoice } from '../src/core.js'
+import { lexicon, hash, portableVoice, describeTtsError } from '../src/core.js'
 import { pcmWav } from '../src/providers/audio.js'
 import ttsMessages from '../src/shared/tts-messages.cjs'
 import { importProviders, createServiceSettings } from '../src/settings.js'
 import { azureSsml } from '../src/providers/azure.js'
-import { sameOrigin, handleControl, registerRoutes, CONTROL_BODY_LIMIT } from '../src/routes.js'
+import { sameOrigin, handleControl, registerRoutes, CONTROL_BODY_LIMIT, CONTROL_METHODS } from '../src/routes.js'
 const audio = pcmWav(Buffer.alloc(100,1))
 const voice = {schemaVersion:1,id:'v',label:'Voice',enabled:true,kind:'azure',languages:['ja','en'],params:{voiceName:'ja-JP-NanamiNeural'}}
 const deferred = () => { let resolve; const promise = new Promise(r => {resolve=r}); return {promise,resolve} }
@@ -139,6 +140,30 @@ test('route same-origin rejects cross-site markers and oversize bodies, admits t
   assert.equal((await handleControl(req({origin:'http://localhost:123'},big),() => ({ok:true}))).status,200)
   const over=await handleControl(req({origin:'http://localhost:123'},'x'.repeat(CONTROL_BODY_LIMIT + 1)),() => ({}))
   assert.equal(over.status,400); assert.equal((await over.json()).error,'BODY_TOO_LARGE')
+})
+test('control failures log bounded identifiers only, never the request text or key',async () => {
+  const logs=[], logger={warn:(...args) => logs.push(format(...args))}
+  const req=body => new Request('http://localhost:123/api/dsh-tts/v1/control',{method:'POST',headers:{'Content-Type':'application/json',origin:'http://localhost:123'},body})
+  const secret='我的私密台词 sk-test-SECRET123456'
+  const failed=await handleControl(req(JSON.stringify({method:'testService',args:{text:secret}})),() => { throw Object.assign(new Error('voice missing: '+secret),{code:'VOICE_NOT_FOUND'}) },logger)
+  assert.equal(failed.status,400); assert.deepEqual(await failed.json(),{error:'VOICE_NOT_FOUND',message:describeTtsError('VOICE_NOT_FOUND')})
+  let dispatched=false
+  const torn=await handleControl(req(`{"method":"testService","args":{"text":"${secret}"`),() => { dispatched=true; return {} },logger)
+  assert.equal(torn.status,400); assert.equal((await torn.json()).error,'REQUEST_FAILED'); assert.equal(dispatched,false)
+  // a method the control path does not dispatch, and a pure alphanumeric key as the error name, are logged as '-'.
+  const keyed='SECRETKEY123456'
+  const unknown=await handleControl(req(JSON.stringify({method:keyed,args:{}})),() => { throw Object.assign(new Error('UNKNOWN_METHOD'),{code:'UNKNOWN_METHOD'}) },logger)
+  assert.equal(unknown.status,400)
+  const named=await handleControl(req(JSON.stringify({method:'testService',args:{}})),() => { throw Object.assign(new Error('x'),{code:'SERVICE_OFFLINE',name:keyed}) },logger)
+  assert.equal(named.status,400)
+  assert.equal(logs.length,4)
+  assert.match(logs[0],/method=testService code=VOICE_NOT_FOUND name=Error/); assert.match(logs[1],/method=- code=REQUEST_FAILED name=SyntaxError/)
+  assert.match(logs[2],/method=- code=UNKNOWN_METHOD name=Error/); assert.match(logs[3],/method=testService code=SERVICE_OFFLINE name=-/)
+  for (const line of logs) { for (const leak of [secret,'sk-test-SECRET123456',keyed]) assert.equal(line.includes(leak),false) }
+})
+test('control log methods are exactly the methods the control dispatch switches on',async () => {
+  const cases=[...(await readFile(new URL('../src/index.js',import.meta.url),'utf8')).matchAll(/case '(\w+)':/g)].map(m => m[1])
+  assert.deepEqual([...CONTROL_METHODS].sort(),[...new Set(cases)].sort())
 })
 test('routes attach only to authenticated Connection and dispose all registrations',() => {
   const routes=[], cleanups=[]; const ctx={inject(names,fn){assert.deepEqual(names,['connection']);fn(this)},get(){return {fetch:{register(r){routes.push(r);return () => routes.splice(routes.indexOf(r),1)}}}},effect(fn){cleanups.push(fn())}}
@@ -288,4 +313,17 @@ test('story backlog first-voice measurement (synthetic provider, no playback)', 
   assert.ok(Number.isFinite(firstVoiceMs))
   assert.equal(f.order.indexOf('call'),1)
   await f.tts.dispose()
+})
+
+// 语音后端 keeps only the connection: a Fish / MiniMax model still saved on a service is read once for the figures (the
+// stage's migration) and then dropped; the other services and fields stay as they are.
+test('a Fish or MiniMax service model saved before is listed once and dropped from the saved config',async()=>{
+  const f=fixture(); let settings={enabled:true,providers:[{id:'fish',kind:'fish-audio',config:{url:'https://api.fish.audio',model:'drama-3'}},{id:'q',kind:'qwen',config:{region:'cn'}},{id:'mm',kind:'minimax',config:{url:'https://api.minimaxi.com',model:'speech-02-hd'}}],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}
+  const service=createServiceSettings({tts:f.tts,get:() => settings,replace:async v => {settings=v},credentials:() => undefined})
+  assert.deepEqual(service.legacyServiceModels(),[{serviceId:'fish',kind:'fish-audio',model:'drama-3'},{serviceId:'mm',kind:'minimax',model:'speech-02-hd'}])
+  assert.deepEqual(await service.dropLegacyServiceModels(),{dropped:2})
+  assert.deepEqual(settings.providers,[{id:'fish',kind:'fish-audio',config:{url:'https://api.fish.audio'}},{id:'q',kind:'qwen',config:{region:'cn'}},{id:'mm',kind:'minimax',config:{url:'https://api.minimaxi.com'}}])
+  assert.deepEqual(service.legacyServiceModels(),[])
+  assert.deepEqual(await service.dropLegacyServiceModels(),{dropped:0},'nothing left: no write')
+  service.dispose?.()
 })

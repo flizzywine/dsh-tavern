@@ -24,7 +24,7 @@ test('使用舞台 is four-state: the card declaration is its card layer, 本卡
 })
 
 test('the other switches take a card layer in stage.switches, resolved like a mod switch', () => {
-  assert.deepEqual(CARD_STAGE_SWITCHES, ['voice','music','sfx','ambience','items','performance','autoChoices'])
+  assert.deepEqual(CARD_STAGE_SWITCHES, ['voice','music','sfx','ambience','items','performance','autoChoices','autoCast'])
   const ext = cardExtension(), engine = defaultAssetEngineSettings(), with_ = switches => ({...ext, stage:{switches}})
   for (const globalOn of [false, true]) for (const choice of [undefined, 'on', 'off']) {
     const value = {...engine, stageToggles:{...engine.stageToggles, music:globalOn}}
@@ -40,17 +40,17 @@ test('the other switches take a card layer in stage.switches, resolved like a mo
   assert.equal(effectiveAutoChoices(with_({autoChoices:'off'}), true), false)
   assert.equal(effectiveAutoChoices(null, true), true)
   assert.equal(effectiveAutoChoices(null, false), false)
-  // 旁白配音: the card layer's enabled is 本卡开启 / 本卡关闭; its voice still overrides key by key.
-  const narrator = {enabled:true, voice:{browser:'a'}}
-  assert.deepEqual(effectiveNarrator({...ext, stage:{narrator:{enabled:false}}}, narrator), {enabled:false, voice:{browser:'a'}})
-  assert.deepEqual(effectiveNarrator({...ext, stage:{narrator:{enabled:true}}}, null), {enabled:true, voice:null})
+  // 旁白配音: the card layer owns only its switch; the voice is the figure named by tts.reading().narrator.
+  const narrator = {enabled:true}
+  assert.deepEqual(effectiveNarrator({...ext, stage:{narrator:{enabled:false}}}, narrator), {enabled:false})
+  assert.deepEqual(effectiveNarrator({...ext, stage:{narrator:{enabled:true}}}, null), {enabled:true})
   assert.equal(effectiveNarrator(ext, narrator).enabled, true)
   // written once: only known keys, only 'on' / 'off'; the declared pair stays on stage.enabled.
   for (const switches of [{dialogue:'on'}, {stage:'on'}, {music:true}, {music:'yes'}, {unknown:'on'}]) assert.throws(() => validateCardStage({switches}), JSON.stringify(switches))
   assert.doesNotThrow(() => validateCardStage({enabled:true, switches:{voice:'on', autoChoices:'off'}}))
 })
 
-for (const voice of [{browser:'Kyoko'}, {serviceId:'mm',voice:'female-shaonv'}]) test('narrator falls back to general voice: ' + JSON.stringify(voice), () => {
-  assert.deepEqual(effectiveNarrator({stage:{narrator:{enabled:true}}}, {enabled:false,voice:null}, voice), {enabled:true,voice})
-  assert.deepEqual(effectiveNarrator({stage:{narrator:{voice:null}}}, {enabled:true,voice}, {browser:'other'}), {enabled:true,voice})
+test('narrator card settings resolve only the switch, not a card or general voice', () => {
+  assert.deepEqual(effectiveNarrator({stage:{narrator:{enabled:true}}}, {enabled:false,figure:null}), {enabled:true})
+  assert.deepEqual(effectiveNarrator({stage:{narrator:{voice:null}}}, {enabled:true,figure:null}), {enabled:true})
 })

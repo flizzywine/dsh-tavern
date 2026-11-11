@@ -17,6 +17,7 @@
     "cordis.patch.yml",
     "README.md",
     "LICENSE",
+    "worker",
     "src",
     "build.mjs"
   ],

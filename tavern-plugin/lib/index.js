@@ -243,7 +243,7 @@ import { createDisplayRuntimeStore, displayRuntimeReceipt } from './domain/displ
 import { createPresetLibrary } from './domain/preset-library.js'
 import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
 import { clearFailedTurnSurface, rollbackAvailability, reshadowRolledBackRounds, interruptedSurfaceTurns } from './domain/rollback-surface.js'
-import { replyBody } from './domain/round-body.js'
+import { replyBody, voiceBackfillLines, voiceBackfillKept } from './domain/round-body.js'
 import { paragraphSpeech } from './domain/paragraph-speech.js'
 import { createDisplayRuntimeCapture } from './domain/display-runtime-capture.js'
 import { createPluginBodyGeneration, configuredBodyGeneration } from './domain/plugin-body-generation.js'
@@ -2542,7 +2542,9 @@ export async function apply(ctx) {
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
   await stageRuntime.start({dataRoot, activeStageSkin,
-    presentationObservers, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
+    presentationObservers, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies, voiceBackfillLines, voiceBackfillKept,
+    // No background task starts while the game is compacted (ADR 0003); the coordinator's own guard.
+    backgroundBlocked: chat => Boolean(autoCompaction?.blocked(chat)),
     readReplyPrefix:(sessionId,turn) => assistantResultForTurn(sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,turn)?.text || '',
  worldBooks, containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
   const mvuSettlement = createMvuSettlementModule({

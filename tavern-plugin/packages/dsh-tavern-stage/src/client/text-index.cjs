@@ -65,13 +65,19 @@ function createStageTextIndex({paginate, storyTurn, superseded, projectionForTur
 
 // 旁白配音: every host narration unit (not a bubble, so never a thought) reads card by card - the text the
 // reader sees on that page, Markdown already stripped by the host. Whether it speaks is the handle's (config.narrator).
+// Each card also carries its paragraph (paragraphText) and the paragraph's 配音补译 marks: a 旁白 reading in another
+// language (config.narrator.wholeParagraph) reads the whole translated paragraph from its first card instead.
 function stageVoiceDescriptor(unit, settings, card) {
     if (unit.kind === 'narration') return card && !unit.pending && /[\p{L}\p{N}]/u.test(card.text)
-        ? {narration:true, paragraphId:unit.paragraphId, lineIdentity:[...unit.voiceLine, card.offset], text:card.text} : null;
+        ? {narration:true, paragraphId:unit.paragraphId, lineIdentity:[...unit.voiceLine, card.offset], text:card.text, paragraphText:unit.text,
+            ...(unit.speech !== undefined ? {speech:unit.speech} : {}), ...(unit.voiceHold ? {voiceHold:true} : {}),
+            ...(unit.voiceBackfilled ? {voiceBackfilled:true} : {}), ...(unit.voiceFallback ? {voiceFallback:true} : {})} : null;
     if (unit.kind !== 'line' || unit.pending || !unit.segment) return null;
     const segment = unit.segment;
     return {paragraphId: unit.paragraphId, lineIdentity:unit.voiceLine, alias: segment.alias, name: segment.name, mood: segment.mood,
         text: segment.text, speech: segment.speech, singleVoiceText: segment.singleVoiceText, thought: !!segment.thought,
+        // 配音补译 marks (applyVoiceBackfill): a held line waits; its voice text or fallback makes the line speak anew.
+        ...(segment.voiceHold ? {voiceHold:true} : {}), ...(segment.voiceBackfilled ? {voiceBackfilled:true} : {}), ...(segment.voiceFallback ? {voiceFallback:true} : {}),
         cardPath: settings?.cardPath || '', character: character(settings?.config,segment) || null};
 }
 

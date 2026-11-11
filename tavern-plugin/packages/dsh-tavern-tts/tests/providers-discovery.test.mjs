@@ -162,10 +162,10 @@ test('OpenAI-compatible test: free model list first, else one tiny synthesis; pr
   const run = async (models, speech) => { const calls = []; const adapter = createOpenAICompatibleAdapter({fetch:async (url,options) => { calls.push({path:new URL(url).pathname,method:options.method || 'GET',body:options.body,auth:options.headers.Authorization}); return new Response(null,{status:url.endsWith('/v1/models') ? models : speech}) }})
     try { return {result:await adapter.verify(provider,{key:'k'}),calls} } catch (error) { return {error:error.message,calls} } }
   let r = await run(200,500); assert.deepEqual(r.result,{status:'connected'}); assert.equal(r.calls.length,1); assert.equal(r.calls[0].auth,'Bearer k')
-  r = await run(401,200); assert.match(r.error,/密钥无效（HTTP 401）/); assert.equal(r.calls.length,1)
+  r = await run(401,200); assert.match(r.error,/API Key 无效（HTTP 401）/); assert.equal(r.calls.length,1)
   r = await run(404,200); assert.deepEqual(r.result,{status:'connected',synthesisTested:true}); assert.deepEqual(r.calls.map(c => c.method + ' ' + c.path),['GET /v1/models','POST /v1/audio/speech'])
   assert.equal(JSON.parse(r.calls[1].body).input,'嗯','one character only')
-  r = await run(404,403); assert.match(r.error,/密钥无效/)
+  r = await run(404,403); assert.match(r.error,/API Key 无效/)
   r = await run(404,404); assert.match(r.error,/找不到合成接口/)
   r = await run(404,422); assert.equal(r.result.status,'reachable')
   const offline = createOpenAICompatibleAdapter({fetch:async () => { throw Error('secret-detail') }})
@@ -307,7 +307,8 @@ test('keyless custom Fish discovers server models and prepares references only w
     req.resume()
     if (req.url.endsWith('/v1/info')) {
       res.setHeader('Content-Type','application/json')
-      res.end(JSON.stringify({state:'ready',models:[{id:'fixture-model',label:'Fixture model'}],capabilities:req.url.startsWith('/warm/') ? {prepareVoice:true,voiceDirections:true} : {}}))
+      res.end(JSON.stringify({state:'ready',models:[{id:'fixture-model',label:'Fixture model'}],capabilities:req.url.startsWith('/warm/') ? {prepareVoice:true,voiceDirections:true} : {},
+        ...(req.url.startsWith('/warm/') ? {speed:{lines:3,rtf:8.9,firstPcmP50Seconds:2.5,gpuBudget:0,degraded:true,lastHeal:null}} : {})}))
     } else if (req.url.endsWith('/v1/warm')) { res.writeHead(202); res.end('{}') }
     else { res.setHeader('Content-Type','application/octet-stream'); res.end(Buffer.alloc(8820)) }
   })
@@ -322,6 +323,8 @@ test('keyless custom Fish discovers server models and prepares references only w
   const listed = await adapter.voices(p('/warm'),{})
   assert.deepEqual(listed.models,[{id:'fixture-model',label:'Fixture model'}])
   assert.equal(listed.state,'ready')
+  // A slow-but-ready local worker reports its recent speed (bug:voice-self-heal).
+  assert.deepEqual(listed.speed,{rtf:8.9,firstPcmP50Ms:2500,gpuBudget:0,degraded:true})
   assert.equal(listed.source,'live'); assert.equal(listed.models[0].billing,undefined)
   const references = [{bytes:Buffer.from([1,2]),promptText:'Sample'}]
   assert.equal(await adapter.prewarm(p('/warm'),{},{references}),true)
@@ -332,7 +335,7 @@ test('keyless custom Fish discovers server models and prepares references only w
   assert.ok(calls.every(c => c.authorization === undefined))
 })
 
-test('custom Fish with a configured model synthesizes without info and retries discovery', async () => {
+test('custom Fish with a figure-chosen model synthesizes without info and retries discovery', async () => {
   const {createFishAudioAdapter} = await import('../src/providers/fish-audio.js')
   const calls = []
   let available = false
@@ -345,14 +348,14 @@ test('custom Fish with a configured model synthesizes without info and retries d
     assert.equal(options.headers.model,'fixture-model')
     return new Response(route === '/v1/tts' ? Buffer.alloc(8820) : '{}')
   }})
-  const provider = {config:{url:'http://fixture.invalid',model:'fixture-model'}}
-  const spec = {text:'hello',language:'en',params:{referenceId:'voice'}}
+  const provider = {config:{url:'http://fixture.invalid'}}
+  const spec = {text:'hello',language:'en',params:{referenceId:'voice',model:'fixture-model'}}
   await adapter.synthesize(provider,{},spec)
   await adapter.synthesize(provider,{},spec)
   assert.deepEqual(calls,['/v1/info','/v1/tts','/v1/info','/v1/tts'])
-  await assert.rejects(adapter.synthesize({config:{url:provider.config.url}},{},spec),{code:'VOICE_NOT_FOUND'})
+  await assert.rejects(adapter.synthesize(provider,{},{...spec,params:{referenceId:'voice'}}),{code:'VOICE_NOT_FOUND'})
   available = true
-  assert.equal(await adapter.prewarm(provider,{},{references:[{bytes:Buffer.from([1,2]),promptText:'Sample'}]}),true)
+  assert.equal(await adapter.prewarm(provider,{},{references:[{bytes:Buffer.from([1,2]),promptText:'Sample'}],model:'fixture-model'}),true)
   assert.deepEqual(calls.slice(-2),['/v1/info','/v1/warm'])
 })
 
@@ -396,7 +399,7 @@ test('a pack voice source picks its own service instance; no global default serv
 test('empty authentication is omitted across Azure, Qwen and Volcengine',async () => {
   const {createAzureAdapter} = await import('../src/providers/azure.js')
   const calls = [], fetch = async (url,options) => {calls.push({url,headers:options.headers}); return new Response('{}',{status:401})}
-  await assert.rejects(createAzureAdapter({fetch}).catalog({config:{region:'eastasia'}},{}),/密钥/)
+  await assert.rejects(createAzureAdapter({fetch}).catalog({config:{region:'eastasia'}},{}),/API Key/)
   await assert.rejects(createQwenAdapter({fetch}).probe({config:{region:'cn'}},{}),{code:'QWEN_AUTH_FAILED'})
   await assert.rejects(createVolcengineAdapter({fetch}).verify({config:{resourceId:'seed-tts-2.0'}},{}))
   assert.ok(calls.length >= 3)
@@ -499,4 +502,81 @@ test('another plugin\'s provider is listed with the 配音来源 it declares; on
     ['clone-box','reference','克隆盒','free','provider','reference-list'],
     ['speaker-box','reference','speaker-box','paid','provider','preset+voice-id']])
   assert.equal(discovered,1)
+})
+// A self-hosted Fish server (a local worker) has no key to get wrong: not running reads 未启动, running reads 可用, and a
+// server that refuses the saved token reads 被拒绝 — none of them says anything about an API Key. A cloud service keeps its key words.
+const KEY_WORDS = /Key|密钥|API/i
+async function localRow(t, answer) {
+  let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}
+  const tts = createTts(), services = createServiceSettings({tts,fetch:async (input, init) => answer(new URL(String(input)), init),get:() => settings,replace:async v => {settings=v},credentials:() => null})
+  t.after(async () => {services.dispose();await tts.dispose()})
+  await services.save({id:'fish-local',kind:'fish-audio',label:'本地 Drama3',config:{url:'http://local.invalid'},secrets:{key:''}})
+  const row = async () => { const listed = (await services.list())[0]; return {status:listed.check?.status,message:listed.check?.message || '',selfHosted:listed.selfHosted,state:(await services.voiceServices()).services.find(s => s.id === 'fish-local').state} }
+  return {services,row}
+}
+test('a self-hosted server that is not running reads 未启动, never an API Key problem',async t => {
+  const {services,row} = await localRow(t,() => { throw new TypeError('fetch failed') })
+  await services.test({id:'fish-local'})
+  const seen = await row()
+  assert.deepEqual([seen.status,seen.state,seen.selfHosted],['offline','stopped',true])
+  assert.doesNotMatch(seen.message,KEY_WORDS)
+})
+test('a self-hosted server that answers reads 可用',async t => {
+  const {services,row} = await localRow(t,url => fishServers([])(url.href))
+  const result = await services.test({id:'fish-local'})
+  assert.equal(result.ok,true)
+  assert.deepEqual(await row(),{status:'connected',message:'',selfHosted:true,state:'ready'})
+})
+test('a self-hosted server that refuses the saved token reads 被拒绝, without a word about an API Key',async t => {
+  for (const status of [401,403]) {
+    const {services,row} = await localRow(t,() => new Response('{}',{status}))
+    await services.test({id:'fish-local'})
+    const seen = await row()
+    assert.deepEqual([seen.status,seen.state],['rejected','rejected'])
+    assert.doesNotMatch(seen.message,KEY_WORDS)
+  }
+})
+test('a self-hosted server that is loading (503) reads 连不上 with its reason, not 未启动',async t => {
+  const {services,row} = await localRow(t,() => new Response('{}',{status:503}))
+  await services.test({id:'fish-local'})
+  const seen = await row()
+  assert.deepEqual([seen.status,seen.state],['error','offline'])
+})
+test('the Fish cloud refusing a key is still an API Key problem',async t => {
+  let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}
+  const tts = createTts(), services = createServiceSettings({tts,fetch:async () => new Response('{}',{status:401}),get:() => settings,replace:async v => {settings=v},credentials:() => ({resolve:async () => ({value:'bad'}),describe:async () => ({configured:true})})})
+  t.after(async () => {services.dispose();await tts.dispose()})
+  await services.save({id:'fish',kind:'fish-audio',label:'Fish Audio',config:{url:'https://api.fish.audio'},secrets:{}})
+  await services.test({id:'fish'})
+  const listed = (await services.list())[0]
+  assert.deepEqual([listed.check.status,listed.selfHosted,(await services.voiceServices()).services.find(s => s.id === 'fish').state],['invalid-key',false,'invalid-key'])
+})
+test('every check of a self-hosted server expires, so a server that stopped (or started) is asked again',async t => {
+  let up = true
+  const servers = fishServers([])
+  const {services,row} = await localRow(t,(url, init) => { if (!up) throw new TypeError('fetch failed'); return servers(url.href,init) })
+  await services.test({id:'fish-local'})
+  assert.equal((await row()).status,'connected')
+  up = false
+  const now = Date.now
+  t.after(() => { Date.now = now })
+  Date.now = () => now() + 61000
+  assert.deepEqual([(await row()).status,(await row()).state],[undefined,'configured'])
+  await services.test({id:'fish-local'})
+  assert.equal((await row()).state,'stopped')
+})
+test('a failed cloud check expires, so a service that came back stops reading 连不上',async t => {
+  let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}, offline = true
+  const tts = createTts()
+  const fetch = async () => { if (offline) throw new TypeError('fetch failed'); return Response.json({total:0,items:[]}) }
+  const services = createServiceSettings({tts,fetch,get:() => settings,replace:async v => {settings=v},credentials:() => ({resolve:async () => ({value:'k'}),describe:async () => ({configured:true})})})
+  t.after(async () => {services.dispose();await tts.dispose()})
+  await services.save({id:'fish',kind:'fish-audio',label:'Fish Audio',config:{url:'https://api.fish.audio'},secrets:{}})
+  await services.test({id:'fish'})
+  assert.equal((await services.list())[0].check.status,'offline')
+  offline = false
+  const now = Date.now
+  t.after(() => { Date.now = now })
+  Date.now = () => now() + 16000
+  assert.equal((await services.list())[0].check,undefined)
 })

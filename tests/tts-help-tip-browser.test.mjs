@@ -1,4 +1,4 @@
-// The 配音后端 page's 「?」 inside Tavern is Tavern's HelpTip: a 「?」 near the left edge of the narrow right sidebar
+// The 语音后端 page's 「?」 inside Tavern is Tavern's HelpTip: a 「?」 near the left edge of the narrow right sidebar
 // (overflow hidden) opens its text fully inside the viewport, never cut by the sidebar or any clipping ancestor.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -31,7 +31,7 @@ const boot = `(() => {
   modules['react-dom/client'].createRoot(document.getElementById('panel')).render(React.createElement(tabs.get('dsh-tts:voice').component))
 })()`
 
-test('the 配音后端 page 「?」 at the sidebar left edge opens its whole text inside the viewport', { timeout: 60000 }, async () => {
+test('the 语音后端 page 「?」 at the sidebar left edge opens its whole text inside the viewport', { timeout: 60000 }, async () => {
   const [react, theme, settings, tts] = await Promise.all([browserReactScript(), read('lib/client-assets/theme.css'), read('src/client/settings-ui.js'), read('packages/dsh-tavern-tts/lib/client.js')])
   const browser = await chromium.launch()
   try {
@@ -45,11 +45,11 @@ test('the 配音后端 page 「?」 at the sidebar left edge opens its whole tex
       await page.addScriptTag({ content: mock })
       await page.addScriptTag({ content: tts })
       await page.addScriptTag({ content: boot })
-      const help = page.getByRole('button', { name: '配音后端 说明' })
+      const help = page.getByRole('button', { name: '语音后端 说明' })
       await help.click()
       const tip = page.locator('.fork-popover.fork-help-tip-body')
       await tip.waitFor()
-      assert.match(await tip.textContent(), /这台电脑能用的配音服务/)
+      assert.match(await tip.textContent(), /这台电脑能用的语音合成与语音识别服务/)
       const geometry = await tip.evaluate(node => {
         node.style.pointerEvents = 'auto' // the tip ignores the pointer; let the hit probe see it
         const rect = node.getBoundingClientRect(), clipped = []

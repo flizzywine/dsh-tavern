@@ -1,3 +1,4 @@
+import {createRequestObservers} from './request-observers.js'
 import {resolveVoiceSpec, chooseService, describeVoiceCapabilities, sourceUnsetIssue} from './voice-resolver.js'
 import { randomBytes } from 'node:crypto'
 import { createCache } from './cache.js'
@@ -23,9 +24,20 @@ const loadWait = p => p?.capabilities?.loadTimeoutMs ?? 0
 // A self-hosted service's voice list changes with the service, so it is read afresh, not kept for a day.
 const selfHosted = p => p?.capabilities?.loadTimeoutMs !== undefined
 
-export function createTts({ profileId = '', dataDir, cache = createCache({ dataDir }), voiceLoudness = createVoiceLoudness({ dataDir }), globalReadings = () => [], reading = () => ({dialogueVoice:null,narrator:{enabled:false,voice:null}}), now = Date.now } = {}) {
+export function createTts({ profileId = '', dataDir, cache = createCache({ dataDir }), voiceLoudness = createVoiceLoudness({ dataDir }), globalReadings = () => [], reading = () => ({narrator:{enabled:false},readAloud:{voice:null,auto:false}}), now = Date.now } = {}) {
   const providers = new Map(), sources = new Map(), grants = new Map(), tickets = new Map(), flights = new Map(), lanes = new Map(), catalogs = new Map(), listeners = new Set(), usage = new Map()
   let disposed = false, enabled = true, epoch = 0, waiters = 0, activeSyntheses = 0
+  const requests = createRequestObservers()
+  let activeProviders = 0, lastSynthesisAt = null
+  async function providerWork(work, synthesis = true) {
+    activeProviders++
+    try {
+      const result = await work()
+      if (synthesis) lastSynthesisAt = now()
+      return result
+    } finally {activeProviders--}
+  }
+  const requestFor = requests.forProvider
   const emit = e => { for (const fn of listeners) fn(e) }
   const alive = () => { if (disposed) fail('PLUGIN_UNAVAILABLE') }
   function grantFor(grant, source, scope) {
@@ -107,7 +119,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       const params = structuredClone(voice.params)
       const resolveMood = Object.hasOwn(moodResolvers, p.kind) ? moodResolvers[p.kind] : undefined
       const spoken = text => normalizeDashes(readings.apply(text, input.language))
-      const text = p.kind === 'fish-audio' ? fishSpeechText(input.text, params, p.capabilities?.voiceDirections, spoken) : voiceCues.projectVoiceCues(input.text, {spoken})
+      const text = p.kind === 'fish-audio' ? fishSpeechText(input.text, params, p.speaking ? p.speaking(params.model).voiceDirections : p.capabilities?.voiceDirections, spoken) : voiceCues.projectVoiceCues(input.text, {spoken})
       const identity = { version: 3, profileId, source: source.sourceId, voice, provider: { id:p.id, revision:p.revision }, mood: input.mood || 'default', ...(resolveMood ? { resolvedMood: resolveMood({ params, mood: input.mood, moodStyles: voice.moodStyles }) } : {}), language: input.language, params, readings: readings.revision, text }
       const key = ttsCacheKey(identity)
       return {g,source,voice,entry,p,ref,params,readings,identity,key}
@@ -146,11 +158,13 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       if (!selected) return {effective:null,issues:[{code:'SERVICE_REQUIRED'}]}
       const provider = providers.get(selected.id).provider
       if (!readOnly) await provider.discover?.()
-      if (readOnly) return {effective:{serviceId:selected.id,serviceRevision:provider.revision,capabilities:selected.capabilities},issues:[]}
+      // what this source's own model costs and can do (a Fish figure's model choice), over the service's capabilities.
+      const capabilities = () => ({...structuredClone(provider.capabilities),...provider.speaking?.(source.model)})
+      if (readOnly) return {effective:{serviceId:selected.id,serviceRevision:provider.revision,capabilities:{...selected.capabilities,...provider.speaking?.(source.model)}},issues:[]}
       const health = provider.health ? await provider.health({}) : {state:'ready'}
       if (health.state === 'credentials-required') return {effective:null,issues:[{code:'CREDENTIALS_REQUIRED'}]}
       const validation = provider.validateModel ? await provider.validateModel(source.model, source.voiceName) : {issues:[]}
-      return {effective:{serviceId:selected.id,serviceRevision:provider.revision,capabilities:structuredClone(provider.capabilities)},issues:validation.issues}
+      return {effective:{serviceId:selected.id,serviceRevision:provider.revision,capabilities:capabilities()},issues:validation.issues}
     },
     reading: () => structuredClone(reading()),
     readingChanged() { emit({type:'readingChanged'}) },
@@ -261,7 +275,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       return { ...structuredClone(voice), state: !voice.enabled ? 'disabled' : !source.bindings[voice.id] ? 'service-required' : provider ? 'ready' : 'offline' }
     },
     async listServices() { alive(); return [...providers.values()].map(({provider:p}) => (
-      {id:p.id,kind:p.kind,revision:p.revision,...(p.model ? {model:p.model} : {}),capabilities:structuredClone(p.capabilities || {})}
+      {id:p.id,kind:p.kind,revision:p.revision,capabilities:structuredClone(p.capabilities || {})}
     )) },
     // What each registered provider reports it serves (the voice services catalog's `sources`): the provider is asked first
     // (discover, no wake; it caches its server's answer per service config), and a failed ask keeps its last answer.
@@ -334,7 +348,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
           flight.promise = queue.run(async () => {
             signal.throwIfAborted()
             const {reference, references} = ref ? await readReferences({source, voice, p, readings}, signal) : {}
-            const audio = wav(await interrupted(Promise.resolve().then(() => p.synthesize({ ...identity, text: identity.text, textPrepared:true, voiceId:voice.voiceId, revision:voice.revision, reference, ...(references ? {references} : {}), readingsRevision: readings.revision, mood:input.mood, moodStyles:voice.moodStyles, identity:key }, { signal, ...(onPcm ? {onPcm} : {}) })), signal))
+            const audio = wav(await interrupted(providerWork(() => p.synthesize({ request:requestFor(p.id), ...identity, text: identity.text, textPrepared:true, voiceId:voice.voiceId, revision:voice.revision, reference, ...(references ? {references} : {}), readingsRevision: readings.revision, mood:input.mood, moodStyles:voice.moodStyles, identity:key }, { signal, ...(onPcm ? {onPcm} : {}) })), signal))
             live?.end()
             signal.throwIfAborted(); alive(); if (started !== epoch) fail('CACHE_CLEARED')
             flight.durationMs = durationMs(audio)
@@ -342,7 +356,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
             await cache.put(key, audio, [...flight.scopes], {
               version: 1, text: identity.text, chars: [...identity.text].length,
               language: input.language, provider: p.id, providerKind: p.kind,
-              model: p.kind === 'fish-audio' ? p.model ?? null : params.model ?? null,
+              model: p.speaking ? p.speaking(params.model).model ?? null : params.model ?? null,
               voice: voice.voiceId ?? params.voice ?? params.voiceName ?? params.speaker ?? voice.id ?? null,
               source: source.sourceId, readingsRevision: readings.revision,
               synthesizedAt: new Date().toISOString(),
@@ -372,7 +386,9 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     // Dev diagnostics: the provider's own fresh state (Fish `/v1/info`), never a cached capability or a worker probe.
     async serviceState(input, options) {
       const {p} = await resolveUtterance({...input, text:'diagnostic'}, options, true)
-      return {serviceId:p.id, state:p.info ? (await p.info()).state || 'unknown' : 'unsupported'}
+      if (!p.info) return {serviceId:p.id, state:'unsupported'}
+      const info = await p.info()
+      return {serviceId:p.id, state:info.state || 'unknown', ...(info.speed ? {speed:info.speed} : {})}
     },
     // A residency lease (an open phone call): while held, a provider that can idle-unload (its port has hold) stays resident.
     // Returns its release; providers with nothing to hold return a no-op.
@@ -381,12 +397,12 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       return p.hold?.() || (() => {})
     },
     async prewarm(input, options) {
-      const {g, source, voice, p, readings} = await resolveUtterance({...input, text:'prewarm'}, options, true)
+      const {g, source, voice, p, readings, params} = await resolveUtterance({...input, text:'prewarm'}, options, true)
       const pack = voiceFor(input.voice).voice.pack
       if (!p.prewarm || !voice.references || pack?.voice.sources[pack.binding.source ?? pack.voice.defaultSource].kind !== 'reference-list') return {prewarmed:false}
       const signal = AbortSignal.any([g.abort.signal, AbortSignal.timeout(130000)])
       const {references} = await readReferences({source, voice, p, readings}, signal)
-      const result = await p.prewarm({references}, {signal})
+      const result = await providerWork(() => p.prewarm({references, ...(params.model ? {model:params.model} : {}), request:requestFor(p.id)}, {signal}), false)
       return {prewarmed:result !== false}
     },
     async readAudio({ key, grant }) {
@@ -419,6 +435,11 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     },
     cacheStats: () => cache.stats(),
     pendingCount: () => activeSyntheses + api.jobs.pendingCount(),
+    observeRequests(observer) { alive(); return requests.observe(observer) },
+    activity() {
+      alive()
+      return {synthesisActive:activeProviders + activeSyntheses + api.jobs.pendingCount() > 0,lastSynthesisAt}
+    },
     cacheSnapshot: () => cache.snapshot(),
     async deleteCacheEntry({ key } = {}) {
       alive()

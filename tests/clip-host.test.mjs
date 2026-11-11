@@ -111,19 +111,50 @@ test('旁白配音: an export reads each measured narration page\'s cached narra
     stage:{textLanguage:'zh', director:false, face:'off', music:false, theme:'classic'}}
   const pcm = Buffer.alloc(48000); for (let i = 0; i < 24000; i++) pcm.writeInt16LE(Math.round(9000 * Math.sin(i / 24000 * 523 * Math.PI * 2)), i * 2)
   const reads = []
-  const tts = {apiVersion:1, subscribe:() => () => {}, reading:() => ({dialogueVoice:null, narrator:{enabled:false, voice:null}}), resolveVoiceService:async () => ({effective:{serviceId:'fixture', capabilities:{}}, issues:[]}),
+  // 旁白 points at a figure of the pack whose voice speaks 中文.
+  const tts = {apiVersion:1, subscribe:() => () => {}, reading:() => ({general:{figure:null}, narrator:{enabled:false, figure:{packId:PACK_ID, figureId:'narrator'}}, readAloud:{voice:null, auto:false}}), resolveVoiceService:async () => ({effective:{serviceId:'fixture', capabilities:{}}, issues:[]}),
     registerVoiceSource:() => ({dispose() {}}), grantConsumer:() => ({grant:{}, dispose() {}}),
     async readCached(input) { reads.push([input.text, input.language]); return input.text === '雨下了一整夜。' ? {key:'narrator-page', audio:pcmWav(pcm), durationMs:1000, loudness:{version:1, gain:1, gainDb:0}} : null }}
-  const library = {apiVersion:2, subscribe:() => () => {}, getPackSnapshot:async () => ({...pack, revision:'r1'}),
+  const figure = pack.figures[FIGURE_ID], withNarrator = {...pack, revision:'r1', figures:{...pack.figures, narrator:{...figure, id:'narrator', voice:{...figure.voice, language:'zh'}}}}
+  const library = {apiVersion:2, subscribe:() => () => {}, getPackSnapshot:async () => withNarrator, readMedia:async () => ({bytes:new Uint8Array()}),
     resolveFigures:async ({refs}) => refs.map(ref => resolveFigureSnapshot({...pack, revision:'r1'}, ref))}
   const service = createClipHost({paragraphSpeech,readChat:async sessionId => ({id:'narrated', sessionId, cardPath:'fixture.json'}), readDisplay:async () => ({projections:[{turn:1, body}]}), readConfig:async () => config,
-    readWorkspace:async () => ({raw:{extensions:{dsh_tavern:{schemaVersion:1, assetBindings:{boundPackIds:[PACK_ID]}, stage:{narrator:{enabled:true, voice:{packId:PACK_ID, figureId:FIGURE_ID}}}}}}}),
+    readWorkspace:async () => ({meta:{id:'card-1'}, raw:{extensions:{dsh_tavern:{schemaVersion:1, assetBindings:{boundPackIds:[PACK_ID]}, stage:{narrator:{enabled:true}}}}}}),
     readDirection:async () => ({phase:'off', revision:0, generation:0, token:null}),
     library:() => library, tts:() => tts, settings:() => ({revision:1, values:{stageToggles:{voice:true}}}), globalPacks:() => [], extras:async () => ({mods:{}, fonts:{fonts:[]}}), readHostAsset:async () => null,
     exportsRoot:join(root, 'exports'), tempRoot:join(root, 'temp'), openFolder:async () => {}, checkDisk:async () => {}})
   t.after(() => service.dispose())
   const estimate = await service.call('estimateClipExport', {sessionId:'session', range:{chatId:'narrated', from:{turn:1, para:1}, to:{turn:1, para:2}}})
   assert.deepEqual(reads.find(row => row[0] === '雨下了一整夜。'), ['雨下了一整夜。', 'zh'], 'the narrator reads the page text in Chinese')
+  assert.deepEqual(estimate.timeline.voices.map(row => [row.id, row.key, row.startFrame]), [['1:1:0', 'narrator-page', 0]])
+  assert.ok(estimate.timeline.lines[0].frames >= 30, 'the page holds for its narrator voice')
+  assert.equal(estimate.missingVoiceCount, 1, 'the uncached line is counted')
+  assert.deepEqual(estimate.voiceCache.keys, ['narrator-page'])
+})
+// 旁白 in another language reads its paragraph's whole 配音补译 voice text on the first page, as the stage does.
+test('旁白配音 in another language: an export plans the whole translated paragraph on its first page', {timeout:60000}, async t => {
+  const KEY = JSON.stringify(['旁白', '雨下了一整夜。'])
+  const root = await mkdtemp(join(tmpdir(), 'clip-narrator-')); t.after(() => rm(root, {recursive:true, force:true}))
+  const pack = await syntheticPack(), body = roundBody([{kind:'markdown', text:'雨下了一整夜。\n\n@bubble:actor|Synthetic figure|calm|[早上好。]|[おはよう。]'}], {chatId:'narrated', turn:1, voiceBackfill:{status:'done', keys:[KEY], lines:{[KEY]:'一晩中雨が降った。'}}})
+  const config = {characters:[{alias:'actor', name:'Synthetic figure', voice:'voice', voiceKey:'voice', voiceLanguage:'ja'}], voice:{enabled:true}, narrator:{voiceKey:'narrator-key', language:'ja', wholeParagraph:true},
+    stage:{textLanguage:'zh', director:false, face:'off', music:false, theme:'classic'}}
+  const pcm = Buffer.alloc(48000); for (let i = 0; i < 24000; i++) pcm.writeInt16LE(Math.round(9000 * Math.sin(i / 24000 * 523 * Math.PI * 2)), i * 2)
+  const reads = []
+  // 旁白 points at a figure of the pack whose voice speaks 中文.
+  const tts = {apiVersion:1, subscribe:() => () => {}, reading:() => ({general:{figure:null}, narrator:{enabled:false, figure:{packId:PACK_ID, figureId:'narrator'}}, readAloud:{voice:null, auto:false}}), resolveVoiceService:async () => ({effective:{serviceId:'fixture', capabilities:{}}, issues:[]}),
+    registerVoiceSource:() => ({dispose() {}}), grantConsumer:() => ({grant:{}, dispose() {}}),
+    async readCached(input) { reads.push([input.text, input.language]); return input.text === '一晩中雨が降った。' ? {key:'narrator-page', audio:pcmWav(pcm), durationMs:1000, loudness:{version:1, gain:1, gainDb:0}} : null }}
+  const figure = pack.figures[FIGURE_ID], withNarrator = {...pack, revision:'r1', figures:{...pack.figures, narrator:{...figure, id:'narrator', voice:{...figure.voice, language:'zh'}}}}
+  const library = {apiVersion:2, subscribe:() => () => {}, getPackSnapshot:async () => withNarrator, readMedia:async () => ({bytes:new Uint8Array()}),
+    resolveFigures:async ({refs}) => refs.map(ref => resolveFigureSnapshot({...pack, revision:'r1'}, ref))}
+  const service = createClipHost({paragraphSpeech,readChat:async sessionId => ({id:'narrated', sessionId, cardPath:'fixture.json'}), readDisplay:async () => ({projections:[{turn:1, body}]}), readConfig:async () => config,
+    readWorkspace:async () => ({meta:{id:'card-1'}, raw:{extensions:{dsh_tavern:{schemaVersion:1, assetBindings:{boundPackIds:[PACK_ID]}, stage:{narrator:{enabled:true}}}}}}),
+    readDirection:async () => ({phase:'off', revision:0, generation:0, token:null}),
+    library:() => library, tts:() => tts, settings:() => ({revision:1, values:{stageToggles:{voice:true}}}), globalPacks:() => [], extras:async () => ({mods:{}, fonts:{fonts:[]}}), readHostAsset:async () => null,
+    exportsRoot:join(root, 'exports'), tempRoot:join(root, 'temp'), openFolder:async () => {}, checkDisk:async () => {}})
+  t.after(() => service.dispose())
+  const estimate = await service.call('estimateClipExport', {sessionId:'session', range:{chatId:'narrated', from:{turn:1, para:1}, to:{turn:1, para:2}}})
+  assert.ok(reads.some(row => row[0] === '一晩中雨が降った。'), 'the whole voice text is read');assert.equal(reads.some(row => row[0] === '雨下了一整夜。'), false, 'never the Chinese page')
   assert.deepEqual(estimate.timeline.voices.map(row => [row.id, row.key, row.startFrame]), [['1:1:0', 'narrator-page', 0]])
   assert.ok(estimate.timeline.lines[0].frames >= 30, 'the page holds for its narrator voice')
   assert.equal(estimate.missingVoiceCount, 1, 'the uncached line is counted')

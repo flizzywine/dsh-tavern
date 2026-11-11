@@ -115,18 +115,17 @@ exports.apply = function(ctx) {
   // 语音服务 → 发音字典 → 合成缓存. Rows are click-to-edit
   // with the form opening right under its row; actions are a quiet trash icon or ⋯; a dashed ＋ adds. No grey subtitles:
   // a row shows its name and, only when something is wrong, a ⚠ chip. Explanations live behind a 「?」.
-  // services are named by what they are (never by mechanism).
-  const KINDS = {qwen:'通义千问',azure:'Azure','fish-audio':'Fish Audio',volcengine:'火山引擎',minimax:'MiniMax','openai-compatible':'OpenAI 兼容服务'}
-  const KIND_NOTES = {qwen:'阿里云百炼，按字数计费','fish-audio':'默认用免费模型','openai-compatible':'任何 OpenAI 兼容的语音接口',azure:'微软 Azure 语音，按字符计费',volcengine:'豆包语音，按字数计费',minimax:'MiniMax 语音，按字符计费'}
+  // services are named by what they are (never by mechanism): the kind's label from providerKinds (params.js PROVIDER_KINDS).
+  const KIND_NOTES = {qwen:'阿里云百炼，按字数计费','fish-audio':'模型在人物「声音」里选','openai-compatible':'任何语音接口：OpenAI 兼容、火山方舟 Agent Plan，或自己填请求和返回格式',azure:'微软 Azure 语音，按字符计费',volcengine:'豆包语音，按字数计费',minimax:'MiniMax 语音，按字符计费；模型在人物「声音」里选'}
   const COMMON_KINDS = ['fish-audio','qwen','azure']
   // async synthesis jobs expose safe codes, never upstream response bodies.
   const FISH_ERRORS = {FISH_AUTH_FAILED:'服务要求鉴权，请填写或检查 API Key 与访问权限',FISH_BILLING_REQUIRED:'Fish Audio 额度或余额不足（402），未切换付费模型',FISH_RATE_LIMITED:'Fish Audio 请求受限（429），请稍后重试',FISH_REQUEST_FAILED:'Fish Audio 请求失败，请检查声音模型 ID 与服务状态'}
-  const CODES = {SERVICE_IN_USE:'还有人物在用这个服务',REVISION_CONFLICT:'内容已在别处修改，请重新打开',CREDENTIALS_READ_ONLY:'这个密钥由环境变量提供，不能在这里修改',INVALID_PARAMS:'参数超出范围（INVALID_PARAMS）'}
+  const CODES = {SERVICE_IN_USE:'还有人物在用这个服务',REVISION_CONFLICT:'内容已在别处修改，请重新打开',CREDENTIALS_READ_ONLY:'这个 API Key 由环境变量提供，不能在这里修改',INVALID_PARAMS:'参数超出范围（INVALID_PARAMS）'}
   const failText = e => FISH_ERRORS[e.code || e.message] || CODES[e.code || e.message] || (e instanceof SyntaxError ? 'JSON 格式有误' : /^[A-Z_]+$/.test(e.message) ? '操作失败（' + e.message + '）' : e.message)
   const sizeText = bytes => bytes < 1024 ? bytes + ' B' : bytes < 1024 ** 2 ? (bytes / 1024).toFixed(1) + ' KB' : bytes < 1024 ** 3 ? (bytes / 1024 ** 2).toFixed(1) + ' MB' : (bytes / 1024 ** 3).toFixed(2) + ' GB'
   // Line icons (16 px, currentColor).
   const PATHS = {plus:['M8 3.5v9M3.5 8h9'],trash:['M3 4.5h10','M6.5 4.5V3h3v1.5','M4.5 4.5l.6 8.5h5.8l.6-8.5','M6.8 7v4','M9.2 7v4'],
-    warn:['M8 2.5l6 10.5H2z','M8 6.5v3','M8 11.4v.1'],refresh:['M12.8 7.2A4.9 4.9 0 1 0 12 10.6','M13 3.2v3.6H9.4'],check:['M3.5 8.5l3 3 6-6.5'],chevron:['M6 4l4 4-4 4'],back:['M10 3.5 5.5 8l4.5 4.5']}
+    warn:['M8 2.5l6 10.5H2z','M8 6.5v3','M8 11.4v.1'],refresh:['M12.8 7.2A4.9 4.9 0 1 0 12 10.6','M13 3.2v3.6H9.4'],check:['M3.5 8.5l3 3 6-6.5'],chevron:['M6 4l4 4-4 4'],close:['M4.5 4.5l7 7','M11.5 4.5l-7 7'],back:['M10 3.5 5.5 8l4.5 4.5']}
   const Icon = ({name,size = 16}) => h('svg',{className:'dtts-icon',width:size,height:size,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},
     name === 'more' ? [3.5,8,12.5].map(x => h('circle',{key:x,cx:x,cy:8,r:1.25,fill:'currentColor'})) :
       PATHS[name].map((d,i) => h('path',{key:i,d,stroke:'currentColor',strokeWidth:1.3,strokeLinecap:'round',strokeLinejoin:'round'})))
@@ -206,7 +205,7 @@ exports.apply = function(ctx) {
   // A clickable row: the name opens the editor in place; the ⚠ chip and actions stay beside it.
   function Line({title,code,open,onOpen,warn,children,current}) {
     return h('div',{className:'dtts-line','data-open':open || undefined},
-      onOpen ? h('button',{type:'button',className:'dtts-line-main','aria-expanded':open,onClick:onOpen},h('span',{className:'dtts-line-title'},title),code && h('code',null,code))
+      onOpen ? h('button',{type:'button',className:'dtts-line-main','aria-expanded':open,onClick:onOpen},h('span',{className:'dtts-line-caret'},h(Icon,{name:'chevron',size:12})),h('span',{className:'dtts-line-title'},title),code && h('code',null,code))
         : h('span',{className:'dtts-line-main is-static'},h('span',{className:'dtts-line-title'},title),code && h('code',null,code)),
       current, warn, children && h('span',{className:'dtts-line-actions'},children))
   }
@@ -218,31 +217,39 @@ exports.apply = function(ctx) {
     React.useEffect(() => {
       let mounted = true, timer
       const reload = () => { clearTimeout(timer); call('services').then(value => { if (!mounted) return; setState(value); setError('')
-        if ((value?.running || []).some(p => p.status?.state === 'checking')) timer = setTimeout(reload,1000) }).catch(e => { if (mounted) setError(failText(e)) }) }
+        // a self-hosted server starts and stops by itself: its row asks it again every 15 s while the page is open
+        if ((value?.running || []).some(p => p.status?.state === 'checking')) timer = setTimeout(reload,1000)
+        else if ((value?.configured || []).some(p => p.selfHosted)) timer = setTimeout(() => { void Promise.allSettled(value.configured.filter(p => p.selfHosted).map(p => call('testService',{id:p.id}))).then(reload) },15000) }).catch(e => { if (mounted) setError(failText(e)) }) }
       reload(); managementListeners.add(reload)
       return () => { mounted = false; clearTimeout(timer); managementListeners.delete(reload) }
     },[])
     return [state,error]
   }
-  const runningName = p => p.label || KINDS[p.kind] || p.id
-  // every row says whether it can speak — [tone, word, detail]. A configured
-  // connection is 已设置 until a check or a running status says 就绪; the local engine sleeping is 待机 (it starts when used).
+  // One set of state words for every service (浏览器朗读 too; the figure voice page reads the same catalog state):
+  // 可用 · 缺少 API Key · API Key 无效 · 连不上 (⚠, the reason in its title) · 正在检查… [tone, word, detail]. A self-hosted server
+  // (a local worker) has no key to be wrong: it says 未启动 (nothing answers) or 访问被拒绝 (its token differs). A free connection check
+  // runs by itself when the page opens (AutoCheck); a service whose only check costs money (it synthesizes) says 未测试
+  // until 测试 is pressed. A local server that idles counts as 可用: it starts when used.
+  const costlyCheck = (kind, config = {}) => kind === 'volcengine' || kind === 'openai-compatible' && !config.modelsPath && !config.voicesPath && !config.testPath
   function serviceState(p, kind, live) {
     const missing = (kind?.fields || []).some(f => f.secret && f.required && !p.secrets?.[f.key]?.configured)
-    if (missing || p.check?.status === 'credentials-required' || live?.status?.state === 'credentials-required') return ['warn','需要密钥']
-    if (p.check?.status === 'error') return ['warn','连不上',p.check.message]
+    if (missing || p.check?.status === 'credentials-required' || live?.status?.state === 'credentials-required') return ['warn','缺少 API Key']
+    if (p.check?.status === 'invalid-key') return ['warn','API Key 无效',p.check.message]
+    if (p.check?.status === 'rejected') return ['warn','访问被拒绝',p.check.message]
+    if (p.check?.status === 'offline' && p.selfHosted) return ['warn','未启动',p.check.message]
+    if (['offline','error'].includes(p.check?.status)) return ['warn','连不上',p.check.message]
     if (live?.status?.state === 'checking') return ['busy','正在检查…']
     if (live && ['offline','error'].includes(live.status?.state)) return ['warn','连不上',live.status.error]
-    if (['connected','reachable'].includes(p.check?.status) || live?.status?.state === 'ready') return ['ready','就绪']
-    return ['idle','已设置']
+    if (['connected','reachable'].includes(p.check?.status) || live?.status?.state === 'ready') return ['ready','可用']
+    return costlyCheck(p.kind, p.config) ? ['idle','未测试'] : ['busy','正在检查…']
   }
   function runningState(p) {
     const state = p.status?.state
     if (state === 'checking') return ['busy','正在检查…']
-    return state === 'ready' ? ['ready','就绪'] : state === 'credentials-required' ? ['warn','需要密钥'] : ['warn','连不上',p.status?.error]
+    return state === 'ready' ? ['ready','可用'] : state === 'credentials-required' ? ['warn','缺少 API Key'] : ['warn','连不上',p.status?.error]
   }
   const StateWord = ([tone,text,title]) => tone === 'warn' ? h(Warn,{title},text) :
-    h('span',{className:'dtts-state','data-tone':tone,title:tone === 'idle' && text === '待机' ? '用到时自动启动' : title || undefined},h('span',{className:'dtts-dot','data-state':tone === 'busy' ? 'starting' : tone,'aria-hidden':true}),text)
+    h('span',{className:'dtts-state','data-tone':tone,title:title || undefined},h('span',{className:'dtts-dot','data-state':tone === 'busy' ? 'starting' : tone,'aria-hidden':true}),text)
   // 「去设置」 from a figure's voice page: open that provider's row once (asset-pack-voice-ui.js openVoiceSettings);
   // `id` opens that saved service, `add` opens 添加语音服务 with the kind chosen (the 在线 TTS list's dashed ＋).
   const FOCUS_KEY = 'dsh-tts:focus-service'
@@ -251,8 +258,8 @@ exports.apply = function(ctx) {
   }
   function resultView(r) {
     const count = r.voices?.length ? ' · ' + r.voices.length + ' 个音色' : ''
-    const [tone,text] = r.status === 'connected' ? ['ready',(r.message || '连接成功') + count] : r.status === 'reachable' ? ['ready',r.message || '服务能连上'] :
-      r.status === 'credentials-required' ? ['warn','还没有填写密钥'] : r.status === 'invalid' ? ['error','配置有误：' + (r.message || '')] : ['error',r.message || '连接失败']
+    const [tone,text] = r.status === 'connected' ? ['ready',(r.message || '可用') + count] : r.status === 'reachable' ? ['ready',r.message || '可用'] :
+      r.status === 'credentials-required' ? ['warn','缺少 API Key'] : r.status === 'invalid' ? ['error','配置有误：' + (r.message || '')] : ['error',r.message || '连接失败']
     return h('p',{className:'dtts-result','data-state':tone,role:'status','aria-label':'测试结果'},h(Icon,{name:tone === 'ready' ? 'check' : 'warn',size:14}),text)
   }
   // The browser's own speech is a provider in this list — free, nothing
@@ -277,7 +284,7 @@ exports.apply = function(ctx) {
       service.speak({voice:v.id,language:v.languages[0],text:browserSample(v.languages[0])}).finally(() => setPlaying(current => current === v.id ? '' : current))
     }
     return h('div',{className:'dtts-form',role:'group','aria-label':'浏览器朗读的声音'},
-      h(Field,{label:'系统声音',help:'这台设备自带的声音，免费，不用设置。给人物用：素材编辑器的人物「声音」→ 在线 TTS → 浏览器朗读。由系统直接朗读，不进混音器：音量只跟「总音量 × 语音」，没有响度均衡；电话和片段导出里没有这种声音。'},
+      h(Field,{label:'系统声音',help:'这台设备自带的声音，免费，不用设置。给人物用：素材编辑器的人物「声音」→ 配音来源 → 浏览器朗读。由系统直接朗读，不进混音器：音量只跟「总音量 × 语音」，没有响度均衡；电话和片段导出里没有这种声音。'},
         voices === null ? h('span',{className:'dtts-spinner','aria-label':'正在读取'}) : h('span',{className:'dtts-value'},voices.length ? voices.length + ' 个' : '没有系统声音')),
       voices?.length > 0 && h('ul',{className:'dtts-list','aria-label':'系统声音'},voices.map(v => h('li',{key:v.id},h('div',{className:'dtts-item'},
         h('span',{className:'dtts-item-main'},h('span',{className:'dtts-item-title'},v.label),v.languages[0] && h('span',{className:'dtts-item-meta'},v.languages[0])),
@@ -287,9 +294,9 @@ exports.apply = function(ctx) {
   function ServicesSection({data}) {
     const browserSpeech = useBrowserSpeech(), [browserOpen,setBrowserOpen] = React.useState(false)
     const InlineField = ctx.get('tavernPresentation')?.getInlineField?.()
-    const textField = ({label,value,onCommit,secret=false,placeholder=''}) => InlineField
-      ? h(InlineField,{label,hideLabel:true,value,onCommit,secret,placeholder,trim:!secret})
-      : h('input',{'aria-label':label,value,placeholder,type:secret ? 'password' : 'text',autoComplete:secret ? 'new-password' : 'off',spellCheck:false,onChange:e => onCommit(e.target.value)})
+    const textField = ({label,value,onCommit,secret=false,placeholder='',lines=false}) => InlineField
+      ? h(InlineField,{label,hideLabel:true,value,onCommit,secret,placeholder,trim:!secret,...(lines ? {multiline:true,lines:true} : {})})
+      : h(lines ? 'textarea' : 'input',{'aria-label':label,value,placeholder,...(lines ? {rows:4} : {type:secret ? 'password' : 'text',autoComplete:secret ? 'new-password' : 'off'}),spellCheck:false,onChange:e => onCommit(e.target.value)})
     const menu = props => InlineField ? h(InlineField,{kind:'menu',hideLabel:true,...props,options:props.options.map(([value,label]) => ({value,label})),onCommit:props.onChange}) : h(Choices,props)
     const cloudFish = config => (config?.url || '').replace(/\/+$/, '') === 'https://api.fish.audio'
     const customKind = kind => kind === 'openai-compatible'
@@ -301,45 +308,75 @@ exports.apply = function(ctx) {
     const run = fn => async () => { setBusy(true); setMessage(''); try { await fn() } catch(e) { setMessage(failText(e)) } finally { setBusy(false) } }
     const patch = values => setEditor(e => ({...e,...values}))
     const descriptor = kind => kinds.find(k => k.kind === kind)
+    const kindLabel = kind => descriptor(kind)?.label || kind
+    // a new service starts from its fields' defaults; 自定义语音服务 from its default preset's whole connection.
+    const defaults = kind => { const d = descriptor(kind), fields = Object.fromEntries((d?.fields || []).filter(f => !f.secret && f.default !== undefined).map(f => [f.key,f.default]))
+      return d?.presets ? {...d.presets[fields.preset]} : fields }
     function uniqueId(kind) {
-      const base = {azure:'azure',qwen:'qwen',volcengine:'volc','openai-compatible':'openai','fish-audio':'fish'}[kind] || kind, taken = new Set([...configured,...external].map(p => p.id))
+      const base = {azure:'azure',qwen:'qwen',volcengine:'volc','openai-compatible':'custom','fish-audio':'fish'}[kind] || kind, taken = new Set([...configured,...external].map(p => p.id))
       if (!taken.has(base)) return base
       for (let n = 2; ; n++) if (!taken.has(base + '-' + n)) return base + '-' + n
     }
     function uniqueLabel(kind) {
-      const base = KINDS[kind] || kind, taken = new Set(configured.map(p => p.label))
+      const base = kindLabel(kind), taken = new Set(configured.map(p => p.label))
       if (!taken.has(base)) return base
       for (let n = 2; ; n++) if (!taken.has(base + ' ' + n)) return base + ' ' + n
     }
     function chooseKind(kind, custom = false) {
-      const d = descriptor(kind), config = Object.fromEntries((d?.fields || []).filter(f => !f.secret && f.default !== undefined).map(f => [f.key,f.default]))
-      if (custom && kind === 'fish-audio') { config.url = ''; config.model = '' }
-      patch({kind,id:uniqueId(kind),label:custom ? '自定义语音服务' : uniqueLabel(kind),config,secrets:{},probe:null,models:null,custom:custom || customKind(kind)})
+      const config = defaults(kind)
+      if (custom && kind === 'fish-audio') config.url = ''
+      patch({kind,id:uniqueId(kind),label:custom ? '自定义语音服务' : uniqueLabel(kind),config,secrets:{},probe:null,custom:custom || customKind(kind)})
     }
     const close = () => { setEditor(null); setTesting(false) }
     const startAdd = () => { setMessage(''); setConfirm(null); setEditor({mode:'add',kind:'',id:'',label:'',config:{},secrets:{},probe:null}) }
     const toggleEdit = p => { setMessage(''); setConfirm(null); if (editor?.mode === 'edit' && editor.id === p.id) return close()
-      setEditor({mode:'edit',kind:p.kind,id:p.id,label:p.label,config:{...p.config},originalUrl:p.config.url,secrets:{},stored:p.secrets || {},expectedRevision:p.revision,probe:null,models:null,custom:p.category === 'custom' || customKind(p.kind) || p.kind === 'fish-audio' && !cloudFish(p.config)}) }
+      setEditor({mode:'edit',kind:p.kind,id:p.id,label:p.label,config:{...defaults(p.kind),...p.config},originalUrl:p.config.url,secrets:{},stored:p.secrets || {},expectedRevision:p.revision,probe:null,custom:p.category === 'custom' || customKind(p.kind) || p.kind === 'fish-audio' && !cloudFish(p.config)}) }
     const typedSecrets = () => ({...(editor.originalUrl !== undefined && editor.originalUrl !== editor.config.url ? {key:''} : {}),...editor.secrets})
-    React.useEffect(() => {
-      if (!editor || editor.kind !== 'fish-audio' || !editor.custom || editor.mode !== 'edit') return
-      let active = true
-      call('providerVoices',{serviceId:editor.id}).then(result => { if (active) patch({models:result.models || [],discoveryError:result.status === 'error' ? result.message : ''}) }).catch(error => { if (active) patch({discoveryError:failText(error)}) })
-      return () => { active = false }
-    },[editor?.id,editor?.mode])
-    // Explicit only: one real minimal request (see settings.js check()); the saved row picks up the result.
+    // 测试 (the API Key row): one real minimal request (see settings.js check()); the saved row picks up the result.
     const probe = async () => {
       setTesting(true); patch({probe:null})
-      try { const result = await call('probeService',{id:editor.id,kind:editor.kind,config:editor.config,secrets:typedSecrets()}); patch({probe:result,models:result.models || [],...(editor.kind === 'fish-audio' && !editor.config.model && result.models?.length ? {config:{...editor.config,model:result.models[0].id}} : {})}) }
+      try { patch({probe:await call('probeService',{id:editor.id,kind:editor.kind,config:editor.config,secrets:typedSecrets()})}) }
       catch(e) { patch({probe:{status:'error',message:failText(e)}}) }
       finally { setTesting(false); for (const fn of managementListeners) fn() }
     }
+    // Opening the page checks every saved service whose check is free (a list request: no synthesis, no charge) and that
+    // has not been checked since it last changed, so each row says 可用 / 缺少 API Key / API Key 无效 / 连不上 on its own.
+    const checked = React.useRef(new Map())
+    React.useEffect(() => {
+      if (!kinds.length) return
+      const due = configured.filter(p => !p.check && !costlyCheck(p.kind,p.config) && !(Date.now() - (checked.current.get(p.id + '@' + p.revision) || 0) < 15000)
+        && !(state?.running || []).some(r => r.id === p.id && r.status?.state === 'credentials-required'))
+      if (!due.length) return
+      for (const p of due) checked.current.set(p.id + '@' + p.revision,Date.now())
+      void Promise.allSettled(due.map(p => call('testService',{id:p.id}))).then(() => { for (const fn of managementListeners) fn() })
+    },[kinds.length,configured.map(p => p.id + '@' + p.revision + (p.check ? '+' : '')).join()])
     const save = run(async () => {
       if (!editor.label.trim()) throw new Error('请填写名称')
       const secrets = typedSecrets(), saved = await call('saveService',{id:editor.id,kind:editor.kind,label:editor.label.trim(),config:editor.config,
         ...(editor.expectedRevision ? {expectedRevision:editor.expectedRevision} : {}),...(Object.keys(secrets).length ? {secrets} : {})})
       close(); setMessage('已保存「' + saved.label + '」')
     })
+    // A saved service saves each field when it is left, like every other setting (owner 11-08: no 取消 / 保存 row); the
+    // row's state then checks the new connection by itself (a free check) or says 未测试.
+    const commit = values => {
+      const next = {...editor,...values,probe:null}
+      setEditor(next)
+      if (next.mode !== 'edit') return
+      if (!next.label.trim()) { setMessage('请填写名称'); return }
+      const secrets = {...(next.originalUrl !== undefined && next.originalUrl !== next.config.url ? {key:''} : {}),...next.secrets}
+      run(async () => {
+        const saved = await call('saveService',{id:next.id,kind:next.kind,label:next.label.trim(),config:next.config,expectedRevision:next.expectedRevision,...(Object.keys(secrets).length ? {secrets} : {})})
+        setEditor(e => e?.mode === 'edit' && e.id === saved.id ? {...e,label:saved.label,config:{...defaults(saved.kind),...saved.config},originalUrl:saved.config.url,secrets:{},stored:saved.secrets || {},expectedRevision:saved.revision} : e)
+        setMessage('已保存')
+        for (const fn of managementListeners) fn()
+      })()
+    }
+    // The state word of a saved service is its 测试: pressing it checks the connection again.
+    const [retesting,setRetesting] = React.useState('')
+    const retest = p => async () => {
+      setRetesting(p.id); setMessage('')
+      try { await call('testService',{id:p.id}) } catch(e) { setMessage(failText(e)) } finally { setRetesting(''); for (const fn of managementListeners) fn() }
+    }
     const remove = (p,force) => run(async () => {
       try { await call('deleteService',{id:p.id,expectedRevision:p.revision,...(force ? {force:true} : {})}) }
       // without a registered usage source nobody can tell whether a voice uses the service: ask, never hard-fail.
@@ -347,38 +384,40 @@ exports.apply = function(ctx) {
       setConfirm(null); if (editor?.id === p.id) close(); setMessage('已删除「' + p.label + '」')
     })
     const fieldView = f => {
-      const value = editor.config[f.key] ?? '', set = v => patch({config:{...editor.config,[f.key]:v,
-        ...(f.key === 'url' && editor.kind === 'fish-audio' ? {model:cloudFish({url:v}) ? descriptor(editor.kind).fields.find(field => field.key === 'model').default : ''} : {})},
-        probe:null,...(f.key === 'url' ? {models:null,custom:editor.kind === 'fish-audio' ? !cloudFish({url:v}) : editor.custom,discoveryError:''} : {})})
-      if (editor.kind === 'fish-audio' && f.key === 'model' && editor.custom) {
-        const models = editor.models || []
-        return h(Field,{key:f.key,label:f.label,help:'从服务的模型信息接口读取；不使用云端预设。'},models.length
-          ? menu({label:f.label,value,options:models.map(m => [m.id,m.label + (m.billing === 'free' ? '（免费）' : m.billing === 'paid' ? '（计费）' : '')]),onChange:set})
-          : InlineField ? h(InlineField,{label:f.label,hideLabel:true,value,onCommit:set,placeholder:'先测试连接以发现模型'})
-            : h('input',{'aria-label':f.label,value,placeholder:'先测试连接以发现模型',onChange:e => set(e.target.value)}))
-      }
-      if (f.type === 'select') return h(Field,{key:f.key,label:f.label},menu({label:f.label,value,options:f.options,onChange:set}))
-      return h(Field,{key:f.key,label:f.label},textField({label:f.label,value,placeholder:f.placeholder || '',onCommit:set}))
+      const value = editor.config[f.key] ?? '', set = v => commit({config:{...editor.config,[f.key]:v},
+        ...(f.key === 'url' ? {custom:editor.kind === 'fish-audio' ? !cloudFish({url:v}) : editor.custom} : {})})
+      // a preset is a starting point: picking one fills the whole connection (the typed address stays when it has none).
+      if (f.type === 'preset') { const presets = descriptor(editor.kind).presets
+        return h(Field,{key:f.key,label:f.label},menu({label:f.label,value,options:f.options,onChange:v => commit({config:{...presets[v],url:presets[v].url || editor.config.url || ''}})})) }
+      if (f.type === 'select') return h(Field,{key:f.key,label:f.label,help:f.help},menu({label:f.label,value,options:f.options,onChange:set}))
+      return h(Field,{key:f.key,label:f.label,help:f.help,top:f.type === 'lines'},textField({label:f.label,value:String(value),placeholder:f.placeholder || (f.required ? '' : '选填'),lines:f.type === 'lines',onCommit:set}))
     }
-    const secretField = f => h(Field,{key:f.key,label:f.label,help:'密钥交给 DSH 凭据存储，不写进设置、预设或卡片；保存后不再显示。'},textField({secret:true,label:f.label,value:editor.secrets[f.key] || '',
-      placeholder:editor.stored?.[f.key]?.configured ? '已保存' : '可选',onCommit:value => patch({secrets:{...editor.secrets,[f.key]:value},probe:null})}))
-    const costly = editor?.kind === 'volcengine' || editor?.kind === 'openai-compatible' && !editor.config.modelsPath && !editor.config.voicesPath
+    // The API Key field: a stored key shows as dots; × at the field's end clears it (owner 11-08). A new service tests
+    // from the field's end before it is added; a saved one tests from its state word.
+    const costly = editor ? costlyCheck(editor.kind,editor.config) : false
+    const secretField = (f,last) => { const stored = editor.stored?.[f.key]?.configured && !Object.hasOwn(editor.secrets,f.key)
+      return h(Field,{key:f.key,label:f.label,help:'API Key 交给 DSH 凭据存储，不写进设置、预设或卡片；保存后不再显示。'},
+        h('span',{className:'dtts-key-row'},h('span',{className:'dtts-key-field'},textField({secret:true,label:f.label,value:editor.secrets[f.key] || '',
+          placeholder:stored ? '•••••••••• 已保存' : editor.custom ? '选填' : '',onCommit:value => commit({secrets:{...editor.secrets,[f.key]:value}})})),
+          // × sits beside the box, not inside it: the box's own end holds the shared edit ✎ (ui-design R23).
+          stored && h('button',{type:'button',className:'dtts-key-clear','aria-label':'清除 ' + f.label,title:'清除已保存的 ' + f.label,disabled:busy,onClick:() => commit({secrets:{...editor.secrets,[f.key]:''}})},h(Icon,{name:'close',size:14})),
+          last && editor.mode !== 'edit' && h(Button,{link:true,disabled:testing || busy,title:costly ? '会真的合成一个字来验证 API Key，可能产生极少费用' : undefined,onClick:probe},'测试'))) }
     function Form() {
       const kind = descriptor(editor.kind)
       if (!kind) return null
       return h('div',{className:'dtts-form',role:'group','aria-label':editor.mode === 'add' ? '添加语音服务' : '编辑 ' + editor.label},
-        h(Field,{label:'提供方'},editor.custom ? '自定义 · ' + (KINDS[editor.kind] || kind.label) + ' 协议' : '内置 · ' + (KINDS[editor.kind] || kind.label)),
-        h(Field,{label:'名称'},textField({label:'服务名称',value:editor.label,onCommit:label => patch({label})})),
-        kind.fields.filter(f => !f.secret).map(fieldView),
-        kind.fields.filter(f => f.secret).map(secretField),
-        kind.fields.filter(f => f.secret && editor.stored?.[f.key]?.configured && !Object.hasOwn(editor.secrets,f.key)).map(f => h(Button,{key:f.key,link:true,onClick:() => patch({secrets:{...editor.secrets,[f.key]:''},probe:null})},'清除密钥')),
-        editor.discoveryError && h(Status,{label:'模型发现'},editor.discoveryError),
-        (testing || editor.probe) && (testing ? h('p',{className:'dtts-result',role:'status','aria-label':'测试结果'},h('span',{className:'dtts-spinner','aria-hidden':true}),'正在连接…') : resultView(editor.probe)),
-        h('div',{className:'dtts-actions'},
-          h('span',{className:'dtts-actions-start'},h(Button,{disabled:testing || busy,onClick:probe},'测试连接'),
-            h(Help,{label:'测试连接 说明',text:costly ? '会真的合成一个字来验证密钥，可能产生极少费用。' : '会真的请求一次服务（只查列表，不合成、不计费）。'})),
+        h(Field,{label:'协议类型'},editor.custom && editor.kind === 'fish-audio' ? '自定义 Fish 协议' : kind.label),
+        h(Field,{label:'显示名称'},textField({label:'显示名称',value:editor.label,onCommit:label => commit({label})})),
+        kind.fields.filter(f => !f.secret && !f.more).map(fieldView),
+        kind.fields.filter(f => f.secret).map((f,i,all) => secretField(f,i === all.length - 1)),
+        // 自定义语音服务: the preset fills the request and response; they sit under 高级.
+        kind.fields.some(f => f.more) && h('details',{className:'dtts-details'},h('summary',null,'高级：请求与返回格式'),kind.fields.filter(f => f.more).map(fieldView)),
+        // a new service with no key field (a local server) tests from its own row before it is added.
+        editor.mode !== 'edit' && !kind.fields.some(f => f.secret) && h(Field,{label:'连接'},h('span',{className:'dtts-key-row'},h('span',{className:'dtts-value'}),h(Button,{link:true,disabled:testing || busy,onClick:probe},'测试'))),
+        editor.mode !== 'edit' && h('div',{className:'dtts-actions'},
+          h('span',{className:'dtts-actions-start'},(testing || editor.probe) && (testing ? h('p',{className:'dtts-result',role:'status','aria-label':'测试结果'},h('span',{className:'dtts-spinner','aria-hidden':true}),'正在连接…') : resultView(editor.probe))),
           h(Button,{onClick:close},'取消'),
-          h(Button,{primary:true,disabled:busy,onClick:save},'保存')))
+          h(Button,{primary:true,disabled:busy,onClick:save},'添加')))
     }
     const editing = id => editor?.mode === 'edit' && editor.id === id
     // Fish Audio / 通义千问 / Azure are listed before they are set up (the row opens its key form); a registered local engine row opens
@@ -393,7 +432,7 @@ exports.apply = function(ctx) {
     React.useEffect(() => {
       if (!state || !kinds.length) return
       const focus = takeFocus(); if (!focus) return
-      // kind '' (「配音后端 ›」): the page as it is, with the keyboard focus on its first service.
+      // kind '' (「语音后端 ›」): the page as it is, with the keyboard focus on its first service.
       const kind = focus.kind, own = !kind || kind === 'local' ? null : configured.find(c => focus.id ? c.id === focus.id : c.kind === kind)
       if (!kind) {} else if (focus.add && descriptor(kind)) { startAdd(); chooseKind(kind) } else if (kind === 'local') setLocalOpen(true); else if (own) { if (!editing(own.id)) toggleEdit(own) } else startKind(kind)
       setTimeout(() => {
@@ -402,26 +441,28 @@ exports.apply = function(ctx) {
       },50)
     },[!!state,kinds.length,focusAsked])
     const count = state ? configured.length + external.length + unset.length + (browserSpeech ? 1 : 0) : undefined
-    return h(Section,{title:'语音服务',meta:count,help:'合成声音的服务，这台电脑设一次，所有卡通用。人物用哪一个，在素材编辑器的人物「声音」里选。'},
+    return h(Section,{title:'语音合成',meta:count,help:'合成声音的服务，这台电脑设一次，所有卡通用。人物用哪一个，在素材编辑器的人物「声音」里选。'},
       !state ? h('p',{className:'dtts-muted dtts-loading',role:loadError ? 'alert' : undefined},loadError ? h(Warn,null,loadError) : h('span',{className:'dtts-spinner','aria-label':'正在载入'})) :
       h('ul',{className:'dtts-list',ref:root},
         browserSpeech && h('li',{key:'browser','data-open':browserOpen || undefined},
-          h(Line,{title:'浏览器朗读',open:browserOpen,onOpen:() => setBrowserOpen(!browserOpen),warn:StateWord(!browserSpeech.available() ? ['warn','这台设备不支持'] : ['ready','免费'])}),
+          h(Line,{title:'浏览器朗读',open:browserOpen,onOpen:() => setBrowserOpen(!browserOpen),warn:StateWord(!browserSpeech.available() ? ['warn','这台设备不支持'] : ['ready','可用'])}),
           browserOpen && h(BrowserSpeechVoices,{service:browserSpeech})),
         configured.map(p => { const live = (state.running || []).find(r => r.id === p.id); return h('li',{key:p.id,'data-open':editing(p.id) || undefined},
-          h(Line,{title:p.label,open:editing(p.id),onOpen:() => toggleEdit(p),warn:StateWord(serviceState(p,descriptor(p.kind),live))},
+          h(Line,{title:p.label,open:editing(p.id),onOpen:() => toggleEdit(p),warn:h('button',{type:'button',className:'dtts-state-test',disabled:retesting === p.id || busy,onClick:retest(p),
+              'aria-label':'重新测试 ' + p.label,title:costlyCheck(p.kind,p.config) ? '点一下重新测试（会真的合成一个字，可能产生极少费用）' : '点一下重新测试'},
+              StateWord(retesting === p.id ? ['busy','正在检查…'] : serviceState(p,descriptor(p.kind),live)))},
             // no resident delete on the row — 删除… sits in the row's ⋯.
             h(Menu,{label:p.label + ' 更多操作',items:[{label:'删除…',danger:true,disabled:busy,onSelect:() => { setConfirm({id:p.id}) }}]})),
           confirm?.id === p.id && h(Confirm,{text:{SERVICE_IN_USE:'还有 ' + confirm.count + ' 个人物在用「' + p.label + '」，仍要删除？',USAGE_UNKNOWN:'不确定有没有人物在用「' + p.label + '」，仍要删除？'}[confirm.force] || '删除「' + p.label + '」？',
             yes:confirm.force ? '仍要删除' : '删除',onYes:remove(p,!!confirm.force),onNo:() => setConfirm(null)}),
           editing(p.id) && Form()) }),
         unset.map(kind => { const open = editor?.mode === 'add' && editor.fixed && editor.kind === kind; return h('li',{key:'+' + kind,'data-open':open || undefined},
-          h(Line,{title:KINDS[kind],open,onOpen:() => startKind(kind),warn:StateWord(['idle','未设置'])}),open && h('div',{className:'dtts-adding-fixed'},Form())) }),
-        external.map(p => h('li',{key:p.id},h(Line,{title:runningName(p),warn:StateWord(runningState(p))})))),
+          h(Line,{title:kindLabel(kind),open,onOpen:() => startKind(kind),warn:StateWord(['idle','未设置'])}),open && h('div',{className:'dtts-adding-fixed'},Form())) }),
+        external.map(p => h('li',{key:p.id},h(Line,{title:p.label || kindLabel(p.kind),warn:StateWord(runningState(p))})))),
       editor?.mode === 'add' && !editor.fixed ? h('div',{className:'dtts-adding'},
-          h('div',{className:'dtts-adding-head'},h('span',{className:'dtts-label'},'选择类型'),!editor.kind && h(Button,{link:true,onClick:close},'取消')),
-          h('div',{className:'dtts-kinds',role:'radiogroup','aria-label':'服务类型'},h('button',{type:'button',role:'radio',className:'dtts-kind','aria-checked':!!editor.custom && editor.kind === 'fish-audio',onClick:() => chooseKind('fish-audio',true)},'自定义 Fish 协议'),kinds.map(k => h('button',{key:k.kind,type:'button',role:'radio',className:'dtts-kind','aria-checked':editor.kind === k.kind,
-            title:KIND_NOTES[k.kind] || undefined,onClick:() => chooseKind(k.kind)},KINDS[k.kind] || k.label))),
+          h('div',{className:'dtts-adding-head'},h('span',{className:'dtts-label'},'选择协议类型'),!editor.kind && h(Button,{link:true,onClick:close},'取消')),
+          h('div',{className:'dtts-kinds',role:'radiogroup','aria-label':'协议类型'},h('button',{type:'button',role:'radio',className:'dtts-kind','aria-checked':!!editor.custom && editor.kind === 'fish-audio',onClick:() => chooseKind('fish-audio',true)},'自定义 Fish 协议'),kinds.map(k => h('button',{key:k.kind,type:'button',role:'radio',className:'dtts-kind','aria-checked':editor.kind === k.kind && !(editor.custom && k.kind === 'fish-audio'),
+            title:KIND_NOTES[k.kind] || undefined,onClick:() => chooseKind(k.kind)},k.label))),
           editor.kind && Form())
         : state && h(AddRow,{label:'添加其他语音服务',disabled:busy,onClick:startAdd}),
       h(Status,{label:'服务状态'},message))
@@ -487,7 +528,7 @@ exports.apply = function(ctx) {
   }))
   function PluginSections() {
     const sections = React.useSyncExternalStore(notify => { panelListeners.add(notify); return () => panelListeners.delete(notify) }, () => panelSnapshot)
-    return sections.map(({ id, component }) => h(component, { key: id, Confirm, Help, Button, Line }))
+    return sections.map(({ id, component }) => h(component, { key: id, Section, Field, Line, Confirm, Help, Button, Menu, AddRow, StateWord, Status, Warn }))
   }
   function VoicePanel() {
     const current = React.useSyncExternalStore(fn => {stateListeners.add(fn);return () => stateListeners.delete(fn)},() => enabled)
@@ -514,7 +555,7 @@ exports.apply = function(ctx) {
     return h('div',{className:'dtts',ref:root},
       // opened from 舞台设置 › 配音, the page shows the shared sub-page header —
       // a quiet ‹ (its name and tooltip are the return label) right before the title, no separate link line.
-      h('header',{className:'dtts-head'},h('div',{className:'dtts-title'},returnIntent && sidebar && h('button',{type:'button',className:'dtts-back','aria-label':returnIntent.label,title:returnIntent.label,onClick:returnToSettings},h(Icon,{name:'back',size:18})),h('h2',null,'配音后端'),h(Help,{label:'配音后端 说明',text:'这台电脑能用的配音服务，每个单独设置。谁用什么声音在「舞台设置 › 配音」里选。'})),
+      h('header',{className:'dtts-head'},h('div',{className:'dtts-title'},returnIntent && sidebar && h('button',{type:'button',className:'dtts-back','aria-label':returnIntent.label,title:returnIntent.label,onClick:returnToSettings},h(Icon,{name:'back',size:18})),h('h2',null,'语音后端'),h(Help,{label:'语音后端 说明',text:'这台电脑能用的语音合成与语音识别服务，每个单独设置。谁用什么声音在「舞台设置 › 配音」里选，手机通话用哪个识别在手机模组的设置里选。'})),
         // the master switch sits on the title row (no 基础 / 高级 switch any more).
         h('label',{className:'dtts-head-switch',title:'启用配音'},h('input',{type:'checkbox',role:'switch',className:'dtts-switch','aria-label':'启用配音',checked:current === true,disabled:current === null,onChange:async e => {
           try { await call('setEnabled',{enabled:e.target.checked}); setMessage('') } catch (error) {setMessage(failText(error))}
@@ -525,10 +566,10 @@ exports.apply = function(ctx) {
   }
   const icon = size => h('svg',{width:size || 16,height:size || 16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},
     h('path',{d:'M2.5 6.5v3M5.25 4.5v7M8 2.5v11M10.75 5v6M13.5 6.5v3',stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round'}))
-  ctx.slots.inject('settings.section',() => ctx.slots.register({name:'settings.section',id:'tts',order:70,label:() => '配音后端'},VoicePanel))
+  ctx.slots.inject('settings.section',() => ctx.slots.register({name:'settings.section',id:'tts',order:70,label:() => '语音后端'},VoicePanel))
   ctx.inject(['betterSidebar'], child => child.effect(() => {
     sidebar = child.get('betterSidebar')
-    const dispose = sidebar.registerTab({id:'dsh-tts:voice',title:'配音后端',order:10,single:true,icon,component:VoicePanel})
+    const dispose = sidebar.registerTab({id:'dsh-tts:voice',title:'语音后端',order:10,single:true,icon,component:VoicePanel})
     return () => { dispose(); sidebar = null }
   }))
   ctx.inject(['tavernUi'], child => { child.get('tavernUi').registerStartGroup({title:'舞台装置',tabs:['dsh-tts:voice']}) })

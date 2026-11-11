@@ -7,8 +7,12 @@
 // 「不配音」 (a figure with no voice that is not general) stays silent.
 function segmentSpeechInput(segment, config) {
     const character = bubbleCharacter(config,segment);
-    if (config?.voice?.general && (character ? character.general === true && !character.voice : String(segment.name || '').trim())) {
-        return segment.kind === 'bubble' && !segment.streaming && speakableText(segment.text) ? {text:segment.text, mood:null, general:true} : null;
+    if (speaksGeneral(config,character,segment)) {
+        // 配音语言 not 中文: its 配音补译 voice text (segment.speech); a held line waits for it.
+        if (segment.kind !== 'bubble' || segment.streaming) return null;
+        if (segment.voiceHold === true && voiceBackfillNeeded(segment, lineVoiceLanguage(config,character,segment))) return null;
+        const text = segment.speech ?? segment.text;
+        return speakableText(text) ? {text, mood:null, general:true} : null;
     }
     return packSpeechInput(segment,config,character,bubbleMood(segment.mood,bubbleMoodList(config,character?.alias)));
 }

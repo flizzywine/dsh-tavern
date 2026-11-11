@@ -3,65 +3,66 @@ import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 import vm from 'node:vm'
 
-// 素材库人物声音页 › 配音来源: the rows come from the TTS voice services catalog (tts.call('voiceServices')).
+// 素材库人物声音页 › 配音来源: one flat list from the TTS voice services catalog (tts.call('voiceServices')) — a row per
+// service set up in 语音后端, then 浏览器朗读 and 不配音 (owner 11-08: no 在线 TTS group).
 async function load() {
   const source = await readFile(new URL('../tavern-plugin/src/client/asset-pack-voice-ui.js', import.meta.url), 'utf8')
   const sandbox = {}
   vm.createContext(sandbox)
   const line = name => source.match(new RegExp('^const ' + name + '=.*$', 'm'))[0]
   const between = (from, to) => source.slice(source.indexOf(from), source.indexOf(to))
-  vm.runInContext([line('VOICE_PROVIDERS'), line('providerName'), line('VOICE_UNSET_TEXT'), line('voiceSourceUnset'),
-    between('const VOICE_WAYS=[', '// Does a row speak'),
-    between('const BROWSER_ROW=', '// The name a saved online source reads as'),
+  vm.runInContext([line('VOICE_PROVIDERS'), line('FIGURE_VOICE_LANGUAGES'), line('providerName'), line('VOICE_UNSET_TEXT'), line('voiceSourceUnset'), line('primaryLanguage'), line('voiceLanguageName'),
+    between('const FISH_WAYS=[', '// ---------- data + preview plumbing'),
     line('spacedName'), between('function voiceReadiness(', '// The catalog (`.services`'),
-    'this.onlineProviders=onlineProviders;this.voiceWayRows=voiceWayRows;this.voiceSourceUnset=voiceSourceUnset;this.voiceReadiness=voiceReadiness;',
-    'this.headerProvider=(way, entry)=>{'+source.match(/^  const provider=way=>.*$/m)[0]+'return provider(way);};'].join('\n'), sandbox)
+    'this.voiceSourceRows=voiceSourceRows;this.rowHolds=rowHolds;this.voiceRowState=voiceRowState;this.voiceSourceUnset=voiceSourceUnset;this.voiceReadiness=voiceReadiness;'].join('\n'), sandbox)
   return sandbox
 }
 const plain = value => JSON.parse(JSON.stringify(value))
 const browser = {id:'browser', kind:'browser', label:'浏览器朗读', state:'ready', billing:'free', sources:['preset'], voiceList:'browser'}
-const service = (id, kind, label, extra = {}) => ({id, kind, label, state:'configured', billing:'paid', sources:kind === 'fish-audio' ? ['reference-list','voice-id'] : ['preset'], voiceList:kind === 'fish-audio' ? 'fish-recommended' : 'preset', ...extra})
+const service = (id, kind, label, extra = {}) => ({id, kind, label, state:'configured', billing:'paid', sources:kind === 'fish-audio' ? ['reference-list','voice-id'] : ['preset'], voiceList:kind === 'fish-audio' ? 'fish-recommended' : 'preset', models:[], ...extra})
 
-test('nothing set up: generic 在线 TTS, 浏览器朗读 and 不配音; no provider rows', async () => {
-  const {voiceWayRows, onlineProviders} = await load()
-  const catalog = {services:[browser], kinds:{}}
-  assert.deepEqual(plain(voiceWayRows(catalog, null)).map(w => w.id), ['online', 'browser', 'off'])
-  assert.deepEqual(plain(onlineProviders(catalog, null)), [])
+test('nothing set up: 浏览器朗读 and 不配音 only', async () => {
+  const {voiceSourceRows} = await load()
+  assert.deepEqual(plain(voiceSourceRows({services:[browser]}, null)).map(w => w.id), ['browser', 'off'])
 })
 
-test('在线 TTS lists every configured online service (MiniMax included) by its name; Fish stays in its own ways', async () => {
-  const {voiceWayRows, onlineProviders} = await load()
+test('every configured service is a row of its own, by its own name, in 语音后端 order', async () => {
+  const {voiceSourceRows} = await load()
   const catalog = {services:[service('mm-1', 'minimax', '我的 MiniMax'), service('fish-1', 'fish-audio', 'Fish'), service('qwen-1', 'qwen', '千问'), browser]}
-  assert.deepEqual(plain(voiceWayRows(catalog, null)).map(w => w.id), ['clone', 'library', 'online', 'browser', 'off'])
-  const listed = plain(onlineProviders(catalog, null))
-  assert.deepEqual(listed.map(r => [r.kind, r.name, r.serviceId, r.bind]), [['minimax', 'MiniMax', 'mm-1', false], ['qwen', '通义千问', 'qwen-1', false]])
-  // several services of one kind are a row each, under their own names.
-  const two = plain(onlineProviders({services:[...catalog.services, service('mm-2', 'minimax', '备用')]}, null)).filter(r => r.kind === 'minimax')
-  assert.deepEqual(two.map(r => [r.name, r.serviceId, r.bind]), [['我的 MiniMax', 'mm-1', true], ['备用', 'mm-2', true]])
+  const rows = plain(voiceSourceRows(catalog, null))
+  assert.deepEqual(rows.map(r => [r.id, r.title, r.serviceId ?? null, !!r.bind]), [['service:mm-1', '我的 MiniMax', 'mm-1', false], ['service:fish-1', 'Fish', 'fish-1', false], ['service:qwen-1', '千问', 'qwen-1', false], ['browser', '浏览器朗读', null, false], ['off', '不配音', null, false]])
+  assert.deepEqual(rows[1].ways.map(w => w.id), ['clone', 'library'])
+  // several services of one kind: each row names its service in what it writes.
+  const two = plain(voiceSourceRows({services:[...catalog.services, service('mm-2', 'minimax', '备用')]}, null)).filter(r => r.kind === 'minimax')
+  assert.deepEqual(two.map(r => [r.title, r.serviceId, r.bind]), [['我的 MiniMax', 'mm-1', true], ['备用', 'mm-2', true]])
 })
 
-// 声音库 is a row only under a service whose provider reports voice IDs (catalog `sources`); with several Fish services the
-// rows stay bound to their service, so a pick never writes a source that is ambiguous among them.
-test('a Fish service whose provider reports no voice library has no 声音库 row', async () => {
-  const {voiceWayRows} = await load()
+// 生成方式 lists only what the service's provider reports (catalog `sources`): a server without a voice library has none.
+test('a Fish service without a voice library offers only 参考音频克隆; several Fish services hold their own sources', async () => {
+  const {voiceSourceRows, rowHolds} = await load()
   const cloud = service('fish', 'fish-audio', 'Fish Audio'), local = service('fish-local', 'fish-audio', 'Fish Audio（本地 Drama 3）', {sources:['reference-list'], voiceList:'provider'})
-  const rows = plain(voiceWayRows({services:[cloud, local, browser]}, null))
-  assert.deepEqual(rows.map(w => [w.id, w.title, w.serviceId, !!w.bind]), [
-    ['clone:fish', 'Fish Audio · 声音克隆', 'fish', true], ['clone:fish-local', 'Fish Audio（本地 Drama 3）· 声音克隆', 'fish-local', true],
-    ['library:fish', 'Fish Audio · 声音库', 'fish', true], ['online', '在线 TTS', undefined, false], ['browser', '浏览器朗读', undefined, false], ['off', '不配音', undefined, false]])
-  assert.deepEqual(plain(voiceWayRows({services:[local, browser]}, null)).map(w => w.id), ['clone', 'online', 'browser', 'off'])
+  const rows = voiceSourceRows({services:[cloud, local, browser]}, null)
+  assert.deepEqual(plain(rows.slice(0, 2)).map(r => [r.title, r.ways.map(w => w.id), r.bind]), [['Fish Audio', ['clone', 'library'], true], ['Fish Audio（本地 Drama 3）', ['clone'], true]])
+  const source = {kind:'reference-list', provider:'fish-audio', serviceId:'fish-local', references:[]}
+  assert.deepEqual(plain(rows.filter(r => rowHolds(r, source)).map(r => r.id)), ['service:fish-local'])
+  assert.deepEqual(plain(rows.filter(r => rowHolds(r, {...source, serviceId:undefined})).map(r => r.id)), [], 'ambiguous among several: no row holds it')
 })
 
-test('a source naming a service that is not set up keeps its way, with a row of its own marked missing', async () => {
-  const {voiceWayRows, onlineProviders} = await load()
-  const catalog = {services:[browser]}
+test('a source naming a kind that is not set up gets a row of its own marked missing', async () => {
+  const {voiceSourceRows, voiceRowState} = await load()
   const qwen = {kind:'preset', provider:'qwen', voiceName:'Cherry'}
-  assert.deepEqual(plain(voiceWayRows(catalog, qwen)).map(w => [w.id, !!w.unconfigured]), [['online', false], ['browser', false], ['off', false]])
-  assert.deepEqual(plain(onlineProviders(catalog, qwen)).map(r => [r.kind, r.name, r.missing]), [['qwen', '通义千问', true]])
-  const clone = {kind:'reference-list', provider:'fish-audio', references:[]}
-  assert.deepEqual(plain(voiceWayRows(catalog, clone)).map(w => w.id), ['clone', 'online', 'browser', 'off'])
-  // a browser voice is the 浏览器朗读 way, not 在线 TTS.
-  assert.deepEqual(plain(voiceWayRows(catalog, {kind:'preset', provider:'browser', voiceName:'Kyoko'})).map(w => w.id), ['online', 'browser', 'off'])
+  const rows = plain(voiceSourceRows({services:[browser]}, qwen))
+  assert.deepEqual(rows.map(r => [r.id, !!r.missing]), [['missing:qwen', true], ['browser', false], ['off', false]])
+  assert.equal(voiceRowState(rows[0], 'ja', null).text, '未设置')
+  // a browser voice is the 浏览器朗读 row.
+  assert.deepEqual(plain(voiceSourceRows({services:[browser]}, {kind:'preset', provider:'browser', voiceName:'Kyoko'})).map(r => r.id), ['browser', 'off'])
+})
+
+// One set of state words with 语音后端: 可用, or ⚠ and why; a service not checked yet is 可用.
+test('row states use the 语音后端 words', async () => {
+  const {voiceSourceRows, voiceRowState} = await load()
+  const words = ['configured', 'ready', 'needs-key', 'invalid-key', 'offline', 'stopped', 'rejected'].map(state => voiceRowState(voiceSourceRows({services:[service('q', 'qwen', '千问', {state})]}, null)[0], 'ja', null))
+  assert.deepEqual(plain(words).map(w => [w.text, !!w.warn]), [['可用', false], ['可用', false], ['缺少 API Key', true], ['API Key 无效', true], ['连不上', true], ['未启动', true], ['访问被拒绝', true]])
 })
 
 // 浏览器朗读 without a voiceName is the system default voice: set up, never a voice still to pick.
@@ -73,12 +74,9 @@ test('a browser source without a voice name is set up; an online one without a v
 })
 
 test('source-specific readiness follows MiniMax, not Qwen', async () => {
-  const {headerProvider,voiceReadiness} = await load()
-  const source = {kind:'preset',provider:'minimax',voiceName:'female-shaonv'}
-  const provider = headerProvider({id:'online'},()=>['mm',source])
-  assert.equal(provider,'minimax')
-  assert.equal(voiceReadiness({services:[service('mm','minimax','MiniMax')]},provider),null)
-  assert.match(voiceReadiness({services:[]},provider).text,/MiniMax/)
-  assert.doesNotMatch(voiceReadiness({services:[]},provider).text,/通义千问/)
-  assert.equal(headerProvider({id:'online'},()=>null),undefined)
+  const {voiceReadiness} = await load()
+  assert.equal(voiceReadiness({services:[service('mm','minimax','MiniMax')]},'minimax'),null)
+  assert.match(voiceReadiness({services:[]},'minimax').text,/MiniMax/)
+  assert.doesNotMatch(voiceReadiness({services:[]},'minimax').text,/通义千问/)
+  assert.equal(voiceReadiness({services:[service('mm','minimax','我的 MiniMax',{state:'invalid-key'})]},'minimax').text,'我的 MiniMax API Key 无效')
 })

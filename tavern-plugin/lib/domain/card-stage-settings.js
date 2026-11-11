@@ -17,7 +17,7 @@ export function validateStageSkinSelection(skin, path) {
 export function validateCardStage(value, path = '$.stage') {
   // enabled is the single card declaration; dialogue/stage remain accepted for old cards.
   const switches = ['enabled', 'widgets', 'dialogue', 'stage']
-  shape(value, [...switches, 'switches', 'defaultSkin', 'defaultEntrance', 'skinChoice', 'dimensions', 'narrator'], [], path)
+  shape(value, [...switches, 'switches', 'defaultSkin', 'defaultEntrance', 'skinChoice', 'dimensions', 'narrator', 'autoCast'], [], path)
   for (const key of switches) if (value[key] !== undefined) bool(value[key], path + '.' + key)
   // 基础设置's card layer (本卡开启 / 本卡关闭) of each four-state switch; a missing key follows the global switch.
   if (value.switches !== undefined) {
@@ -29,7 +29,10 @@ export function validateCardStage(value, path = '$.stage') {
   }
   // 入场演出 is the card's opening setting only: a ref plays it, absent (or a stored null) is none.
   if (value.defaultEntrance !== undefined && value.defaultEntrance !== null) validateAssetRef(value.defaultEntrance, path + '.defaultEntrance', 'entrances')
-  if (value.narrator !== undefined) validateNarratorSettings(value.narrator, path + '.narrator')
+  // Drop the retired card narrator voice (旁白's voice is the library's reading voice narrator:<cardId> since 11-10).
+  if (value.narrator !== undefined) { delete value.narrator.voice; validateNarratorSettings(value.narrator, path + '.narrator') }
+  // 自动选角's card layer of its settings (its switch is stage.switches.autoCast): only what this card overrides.
+  if (value.autoCast !== undefined) validateAutoCastLayer(value.autoCast, path + '.autoCast')
   // defaultSkin is the card's one skin value 「使用皮肤」: exported and imported with the card, and written by
   // CONFIG › 画面「本卡皮肤」. Presentation policy, never a recorded director operation. `skinChoice` is the retired
   // per-player choice: old cards keep it as stored and it is still shape-checked, but nothing reads it (CONFIG's next save drops it).
@@ -81,7 +84,28 @@ const CARD_DECLARED = ['dialogue', 'stage']
 // The four-state switches of 基础设置: the engine's stageToggles (global) and 自动生成选项 (global: tavern settings
 // candidateAutoGenerate), each with this card's stage.switches key. 旁白配音's card layer is stage.narrator.enabled;
 // 对话气泡 / 舞台模式's is stage.enabled.
-export const CARD_STAGE_SWITCHES = Object.freeze([...STAGE_TOGGLES.filter(key => !CARD_DECLARED.includes(key)), 'autoChoices'])
+export const CARD_STAGE_SWITCHES = Object.freeze([...STAGE_TOGGLES.filter(key => !CARD_DECLARED.includes(key)), 'autoChoices', 'autoCast'])
+
+// 自动选角: its 激进程度. late = only what the story asked for, usable the round after; eager = also the
+// opening's people at once and the common emotions of whoever has spoken while idle; all = every figure the card may bring,
+// drawn while idle until each has its sprite and common emotions.
+export const AUTO_CAST_LEVELS = Object.freeze(['late', 'eager', 'all'])
+export const AUTO_CAST_DEFAULTS = Object.freeze({enabled:false, level:'late'})
+// One layer of its settings: the global one (the stage's tavern-auto-cast section, enabled + level) or a card's
+// stage.autoCast (level only; the card's switch is stage.switches.autoCast).
+export function validateAutoCastLayer(value, path, keys = ['level']) {
+  shape(value, keys, [], path)
+  if (value.enabled !== undefined) bool(value.enabled, path + '.enabled')
+  if (value.level !== undefined) check(AUTO_CAST_LEVELS.includes(value.level), path + '.level')
+  return value
+}
+
+// 自动选角 in effect for a card: its switch four-state like the others (resolveSwitch), its level the card's over the global
+// one. It casts for the bubbles, so it also needs 对话气泡 in effect (`dialogue`, from effectiveCardStage).
+export function effectiveAutoCast(extension, global, dialogue) {
+  const layer = {...AUTO_CAST_DEFAULTS, ...global}, card = extension?.stage || {}
+  return {enabled:dialogue === true && resolveSwitch(layer.enabled === true, card.switches?.autoCast), level:card.autoCast?.level ?? layer.level}
+}
 
 // The card layer of 对话气泡 / 舞台模式: the card's declaration as cardStageMode reads it (stage.enabled for both, or an
 // older card's dialogue / stage pair; 舞台模式 needs 对话气泡); no declaration = null, follow the global switch.
@@ -116,11 +140,11 @@ export function effectiveAutoChoices(extension, globalOn) {
 }
 
 // 旁白配音 in effect for a card: each key of the card layer (stage.narrator) wins over the global one, the tts plugin's
-// tts.reading().narrator (`globalNarrator`; absent = off). The voice is {packId, figureId}, {browser} or {serviceId, voice}.
-export function effectiveNarrator(extension, globalNarrator, generalVoice = null) {
-  const global = globalNarrator || {enabled:false, voice:null}, card = extension?.stage?.narrator || {}
+// tts.reading().narrator (`globalNarrator`; absent = off). Its voice is the figure tts.reading().narrator.figure points at.
+export function effectiveNarrator(extension, globalNarrator) {
+  const global = globalNarrator || {enabled:false}, card = extension?.stage?.narrator || {}
   // its switch is four-state too: the card layer's enabled (true 本卡开启, false 本卡关闭) with the global one.
-  return {enabled:resolveSwitch(global.enabled, card.enabled === undefined ? null : card.enabled ? 'on' : 'off'), voice:card.voice ?? global.voice ?? generalVoice}
+  return {enabled:resolveSwitch(global.enabled, card.enabled === undefined ? null : card.enabled ? 'on' : 'off')}
 }
 
 export function cardEngineSettings(engine, extension) {

@@ -194,7 +194,15 @@ button.dtts-help:is(:hover, :focus-visible), .dtts-help-anchor[data-open] button
 .dtts-line { display: flex; align-items: center; gap: 8px; min-height: 48px; min-width: 0; }
 .dtts button.dtts-line-main, .dtts-line-main.is-static { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 48px; padding: 0 2px; border: 0; border-radius: 0; background: none; color: var(--dtts-ink); font: inherit; text-align: left; }
 .dtts button.dtts-line-main { cursor: pointer; }
-.dtts button.dtts-line-main:hover, .dtts-line[data-open] .dtts-line-main { color: var(--dtts-accent); }
+.dtts button.dtts-line-main:hover { color: var(--dtts-accent); }
+/* the open row has its ▾ before the name (the collapsed rows have none). */
+.dtts-line-caret { display: none; flex: none; color: var(--dtts-ink-3); }
+.dtts-line-main[aria-expanded=true] .dtts-line-caret { display: inline-flex; transform: rotate(90deg); }
+/* a saved service's state word is its 测试: pressing it checks the connection again. */
+.dtts button.dtts-state-test { display: inline-flex; flex: none; align-items: center; min-height: 30px; padding: 0 4px; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.dtts button.dtts-state-test:hover:not(:disabled) { background: var(--dtts-hover); }
+.dtts button.dtts-state-test:disabled { cursor: default; }
+.dtts-state-test > .dtts-warn { max-width: none; }
 .dtts button.dtts-line-main:focus-visible { outline-offset: -2px; }
 .dtts-line-title { min-width: 0; overflow: hidden; font-size: 13.5px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
 .dtts-line-main code { flex: none; color: var(--dtts-ink-3); font: 11.5px ui-monospace, "Cascadia Code", Consolas, monospace; }
@@ -225,6 +233,15 @@ button.dtts-help:is(:hover, :focus-visible), .dtts-help-anchor[data-open] button
 .dtts-actions { align-items: center; }
 .dtts-actions-start { display: inline-flex; align-items: center; gap: 2px; margin-right: auto; }
 .dtts-actions-start .dtts-help-anchor .dtts-help-tip { left: 0; transform: none; top: auto; bottom: calc(100% + 6px); }
+.dtts-actions-start .dtts-result { margin: 0; }
+/* The API Key row: the key field with × at its end (a stored key only); a new service's 测试 after it. */
+.dtts-key-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.dtts-key-row > :first-child { flex: 1; min-width: 0; }
+.dtts-key-field { position: relative; display: flex; }
+.dtts-key-field > * { flex: 1; min-width: 0; }
+.dtts button.dtts-key-clear { position: relative; display: grid; flex: none; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--dtts-ink-3); cursor: pointer; }
+.dtts button.dtts-key-clear::after { content: ''; position: absolute; inset: -6px; }
+.dtts button.dtts-key-clear:hover:not(:disabled) { background: var(--dtts-hover); color: var(--dtts-ink); }
 .dtts-result { display: flex; align-items: center; gap: 6px; margin: 10px 0 0 124px; color: var(--dtts-ink-2); font-size: 12.5px; }
 .dtts-result[data-state=ready] { color: var(--dsw-alias-state-success-primary, #2e9d5b); }
 .dtts-result[data-state=warn] { color: var(--dsw-alias-state-warning-primary, #c77c0e); }

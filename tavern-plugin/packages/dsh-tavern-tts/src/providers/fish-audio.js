@@ -15,7 +15,7 @@ export function fishSpeechText(text, params, voiceDirections, spoken) {
 
 export const FISH_MOODS = Object.freeze({}) // styles belong to voice declarations.
 export {FISH_MODELS} from './fish-models.js'
-import {FISH_MODELS, fishModel, isFishCloud} from './fish-models.js'
+import {FISH_DEFAULT_MODEL, FISH_MODELS, fishModel, isFishCloud} from './fish-models.js'
 export function fishRetryDelay(value, attempt, now = Date.now()) {
   const seconds = value === null ? NaN : Number(value)
   const requested = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - now
@@ -28,7 +28,7 @@ function failure(status) {
   throw error
 }
 const HOLD_TTL_MS = 120000
-export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, signal) => delay(ms, undefined, {signal})} = {}) {
+export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, signal) => delay(ms, undefined, {signal}), networkTimeoutMs = 120000} = {}) {
   const lanes = new Map(), infos = new Map(), libraries = new Map(), discovery = createFishDiscovery({fetch})
   // a server's own /v1/info, cached per URL and key until a refresh; a failed ask is not kept.
   function served(p, secret, refresh = false) {
@@ -52,11 +52,31 @@ export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, s
     }).catch(error => { libraries.delete(key); throw error }))
     return libraries.get(key)
   }
-  async function request(p, key, route, init, signal, onChunk) {
+  // The model a line speaks with: the figure's choice (its source's `model`), else the service's default — the cloud's
+  // free model, a server's first listed one. The cloud takes only its known models (an unknown one is billed); a server
+  // takes what it lists, or the asked model as is when it does not implement discovery.
+  async function speakingModel(p, secret, requested) {
+    if (isFishCloud(p.config)) {
+      const id = requested ?? FISH_DEFAULT_MODEL
+      if (!FISH_MODELS.some(m => m.id === id)) fail('INVALID_PARAMS')
+      return {model:fishModel(id),capabilities:{}}
+    }
+    const metadata = await info(p, secret).catch(error => {
+      // Keep this fallback out of the info cache so later calls retry capabilities.
+      if (requested) return {models:[],capabilities:{}}
+      throw error
+    })
+    const model = requested ? metadata.models.find(m => m.id === requested) || (metadata.models.length ? null : {id:requested,label:requested,billing:'unknown'}) : metadata.models[0]
+    if (!model) fail('INVALID_PARAMS')
+    return {model,capabilities:metadata.capabilities}
+  }
+  async function request(p, key, route, init, signal, onChunk, model, activity) {
     for (let attempt = 0; ; attempt++) {
       signal.throwIfAborted()
-      const response = await fetch(p.config.url + route, {...init, headers:{...(key ? {Authorization:'Bearer ' + key} : {}),...init.headers},redirect:'error',signal})
-      if (response.status === 429 && isFishCloud(p.config) && fishModel(p.config.model).billing === 'free' && attempt < 2) {
+      const options = {...init, headers:{...(key ? {Authorization:'Bearer ' + key} : {}),...init.headers},redirect:'error',signal}
+      const response = await (activity ? activity.send(fetch,p.config.url + route,options) : fetch(p.config.url + route,options))
+      await activity?.headers(response)
+      if (response.status === 429 && isFishCloud(p.config) && model?.billing === 'free' && attempt < 2) {
         const wait = fishRetryDelay(response.headers.get('retry-after'), attempt)
         await response.body?.cancel()
         // Do not shorten Retry-After: the operation deadline aborts long waits instead.
@@ -68,6 +88,7 @@ export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, s
         size += chunk.length; if (size > 32 * 1024 ** 2) fail('INVALID_AUDIO')
         chunks.push(chunk); onChunk?.(chunk)
       }
+      await activity?.complete()
       return Buffer.concat(chunks)
     }
   }
@@ -80,6 +101,7 @@ export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, s
     // the curated picks are the starting list; the picker searches Fish's own
     // (free) model listing by name and keeps manual ID entry.
     info,
+    speakingModel,
     voiceLibrary,
     async voices(p = {config:{url:'https://api.fish.audio'}}, secret = {}) {
       if (!isFishCloud(p.config)) return info(p, secret, true)
@@ -94,32 +116,32 @@ export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, s
     },
     synthesize(provider, secret, spec) {
       const p = {...provider,config:providerConfig('fish-audio',provider.config)}
-      const signal = AbortSignal.any([AbortSignal.timeout(120000),...(spec.signal ? [spec.signal] : [])])
+      // Unobserved calls retain the original deadline, including lane and discovery time.
+      const deadline = () => AbortSignal.any([AbortSignal.timeout(networkTimeoutMs),...(spec.signal ? [spec.signal] : [])])
+      const snapshot = spec.request?.capture('synthesize', spec.signal)
+      let signal = snapshot?.observed ? snapshot.signal : deadline()
       // One lane per endpoint, shared by presets and inline references, including body reads/backoff.
       const previous = lanes.get(p.config.url) || Promise.resolve()
       const work = previous.catch(() => {}).then(async () => {
-        signal.throwIfAborted()
+        signal?.throwIfAborted()
         const references = spec.references || (spec.reference ? [spec.reference] : undefined)
-        // portable local model metadata is unrelated to Fish in either voice mode.
-        // Only p.config.model selects the Fish model; spec.model is never sent upstream.
+        // The figure's model is params.model (its source's choice); portable voice metadata (spec.model) is never sent upstream.
         const params = presetParams('fish-audio',spec.params, references ? {referenceId:'inline'} : {})
         if (references && spec.params?.referenceId !== undefined) fail('INVALID_PARAMS')
         const voice = references ? {references:inlineReferences(references)} : {reference_id:params.referenceId}
+        const {model,capabilities} = await speakingModel(p, secret, params.model)
         // The service prepares text before cache identity; direct adapter callers use the same projection.
-        const metadata = await info(p, secret).catch(error => {
-          // Custom Fish servers need not implement discovery when the model is configured.
-          // Keep this fallback out of the info cache so later calls retry capabilities.
-          if (!isFishCloud(p.config) && p.config.model) return {models:[],capabilities:{}}
-          throw error
-        })
-        const model = p.config.model ? metadata.models.find(m => m.id === p.config.model) : metadata.models[0]
-        if (!p.config.model) { if (!model) fail('INVALID_PARAMS'); p.config.model = model.id }
-        const text = spec.textPrepared ? spec.text : fishSpeechText(spec.text, params, model?.voiceDirections ?? metadata.capabilities.voiceDirections)
+        const text = spec.textPrepared ? spec.text : fishSpeechText(spec.text, params, model.voiceDirections ?? capabilities.voiceDirections)
         const body = {text,...voice,format:'pcm',sample_rate:44100,latency:params.latency,prosody:{speed:params.speed,volume:params.volume},normalize:params.normalize}
         // Fish streams /v1/tts as it speaks; spec.onPcm receives the 16-bit mono 44.1 kHz PCM as it arrives.
-        const pcm = await request(p,secret.key,'/v1/tts',{method:'POST',headers:{'Content-Type':references ? 'application/msgpack' : 'application/json',model:p.config.model},body:references ? fishMessagePack(body) : JSON.stringify(body)},signal,spec.onPcm)
+        const init = {method:'POST',headers:{'Content-Type':references ? 'application/msgpack' : 'application/json',model:model.id},body:references ? fishMessagePack(body) : JSON.stringify(body)}
+        const run = snapshot ? work => snapshot.run(work) : work => work(null)
+        const pcm = await run(activity => {
+          if (activity) signal = AbortSignal.any([AbortSignal.timeout(networkTimeoutMs),activity.signal])
+          return request(p,secret.key,'/v1/tts',init,signal,spec.onPcm,model,activity)
+        })
         return wav(pcmWav(pcm,44100))
-      }).catch(error => { if (error instanceof TtsError) throw error; fail(signal.aborted ? signal.reason?.name === 'TimeoutError' ? 'TIMEOUT' : 'ABORTED' : 'SERVICE_OFFLINE') })
+      }).catch(error => { if (error instanceof TtsError) throw error; fail(signal?.aborted ? signal.reason?.name === 'TimeoutError' ? 'TIMEOUT' : 'ABORTED' : error?.name === 'AbortError' ? 'ABORTED' : 'SERVICE_OFFLINE') }).finally(() => snapshot?.dispose())
       lanes.set(p.config.url,work)
       void work.finally(() => { if (lanes.get(p.config.url) === work) lanes.delete(p.config.url) }).catch(() => {})
       return work
@@ -144,11 +166,20 @@ export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, s
     async prewarm(provider, secret, spec) {
       const p = {...provider,config:providerConfig('fish-audio',provider.config)}
       if (!(await info(p, secret)).capabilities.prepareVoice) return false
-      const response = await fetch(p.config.url + '/v1/warm', {method:'POST',redirect:'error',signal:AbortSignal.any([AbortSignal.timeout(10000),...(spec.signal ? [spec.signal] : [])]),
-        headers:{...(secret.key ? {Authorization:'Bearer ' + secret.key} : {}),'Content-Type':'application/msgpack',model:p.config.model},body:fishMessagePack({references:inlineReferences(spec.references)})})
-      await response.body?.cancel()
+      const {model} = await speakingModel(p, secret, spec.model)
+      const body = fishMessagePack({references:inlineReferences(spec.references)})
+      const run = spec.request || ((operation, signal, work) => work(null))
+      return run('prewarm',spec.signal,async activity => {
+      const init = {method:'POST',redirect:'error',signal:AbortSignal.any([AbortSignal.timeout(10000),...((activity?.signal || spec.signal) ? [activity?.signal || spec.signal] : [])]),
+        headers:{...(secret.key ? {Authorization:'Bearer ' + secret.key} : {}),'Content-Type':'application/msgpack',model:model.id},body}
+      init.signal.throwIfAborted()
+      const response = await (activity ? activity.send(fetch,p.config.url + '/v1/warm',init) : fetch(p.config.url + '/v1/warm',init))
+      await activity?.headers(response)
+      if (activity) {await response.arrayBuffer();activity.complete()}
+      else await response.body?.cancel()
       if (!response.ok) failure(response.status)
       return true
+      })
     },
   }
 }
