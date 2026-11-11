@@ -37,7 +37,6 @@ test('isolated full production client mounts replay with no host window or synth
       case 'getRoundBody':return body
       case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null}
       case 'getStageModHistory':return {turns:[]}
-      case 'getModStageViews':return {views:[]}
       case 'getStageMusicTracks':return {tracks:[]}
       case 'listFonts':return {fonts:[]}
       case 'getDialogueBubbles':return {config:snapshot.config}
@@ -86,8 +85,7 @@ test('resource readiness uses the phase deadline rather than a fixed number of p
       case 'getRoundBody':return body
       case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null}
       case 'getStageModHistory':return {turns:[]}
-      case 'getModStageViews':if(!delayed){delayed=true;await new Promise(resolve=>setTimeout(resolve,16000));resolved=true}return {views:[]}
-      case 'getStageMusicTracks':return {tracks:[]}
+      case 'getStageMusicTracks':if(!delayed){delayed=true;await new Promise(resolve=>setTimeout(resolve,16000));resolved=true}return {tracks:[]}
       case 'listFonts':return {fonts:[]}
       case 'getDialogueBubbles':return {config:snapshot.config}
       default:throw new Error(method)
@@ -104,7 +102,7 @@ test('acknowledged JPEG frames visit every canonical card and agree with indepen
   const snapshot={sessionId:'pages-session',chatId:'pages',cardPath:'fixture.json',from:{turn:1,para:1},config:{characters:[],voice:{enabled:false},stage:{director:false,face:'off',music:false,theme:'classic'}},
     turns:[{turn:1,body},{turn:2,body:last}],paragraphs:[{turn:1,para:1,pageFrames:[10,10],durationMs:2000/3,text:first+' '+second},{turn:2,para:1,pageFrames:[10],durationMs:1000/3,text:'Last recorded round.'}]}
   const renderer=await createClipBrowser({snapshot,plan:{from:snapshot.from,to:{turn:2,para:1},frames:30,captureFormat:'jpeg',resolution:{width:1280,height:720}},
-    transport:async(method,args)=>{switch(method){case 'getRoundBody':return args.turn===1?body:last;case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null};case 'getStageModHistory':return {turns:[]};case 'getModStageViews':return {views:[]};case 'getStageMusicTracks':return {tracks:[]};case 'listFonts':return {fonts:[]};case 'getDialogueBubbles':return {config:snapshot.config};default:throw new Error(method)}},
+    transport:async(method,args)=>{switch(method){case 'getRoundBody':return args.turn===1?body:last;case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null};case 'getStageModHistory':return {turns:[]};case 'getStageMusicTracks':return {tracks:[]};case 'listFonts':return {fonts:[]};case 'getDialogueBubbles':return {config:snapshot.config};default:throw new Error(method)}},
     readAsset:async url=>{const client=await readTavernClientAsset(url.pathname);if(client)return client;const asset=await resolveTavernRuntimeAsset(url.pathname);if(asset)return {body:await readFile(asset.file),mediaType:asset.mediaType}}
   });t.after(()=>renderer.close())
   // Measured timeline: the long paragraph's two canonical pages (one text box card each), then the next round.
@@ -170,7 +168,7 @@ test('controlled capture matches independent replay on an art-skin narration bou
     turns:[{turn:1,body}],paragraphs:[{turn:1,para:1,durationMs:100,text:'Recorded words.'},{turn:1,para:2,durationMs:100,text:narration}]}
   const plan={from:snapshot.from,to:{turn:1,para:2},frames:6,captureFormat:'jpeg',resolution:{width:1920,height:1080}}
   const renderer=await createClipBrowser({snapshot,plan,
-    transport:async method=>{switch(method){case 'leaseBundle':leases++;return {ticket:'fixture',revision,url:base+'skin.json',resources:[base+'skin.json',base+'box.png']};case 'releaseLease':return {};case 'getRoundBody':return body;case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null};case 'getStageModHistory':return {turns:[]};case 'getModStageViews':return {views:[]};case 'getStageMusicTracks':return {tracks:[]};case 'listFonts':return {fonts:[]};case 'getDialogueBubbles':return {config:snapshot.config};default:throw new Error(method)}},
+    transport:async method=>{switch(method){case 'leaseBundle':leases++;return {ticket:'fixture',revision,url:base+'skin.json',resources:[base+'skin.json',base+'box.png']};case 'releaseLease':return {};case 'getRoundBody':return body;case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null};case 'getStageModHistory':return {turns:[]};case 'getStageMusicTracks':return {tracks:[]};case 'listFonts':return {fonts:[]};case 'getDialogueBubbles':return {config:snapshot.config};default:throw new Error(method)}},
     readAsset:async url=>{if(url.pathname.startsWith('/clip-skin/'))return bundle;const client=await readTavernClientAsset(url.pathname);if(client)return client;const asset=await resolveTavernRuntimeAsset(url.pathname);if(asset)return {body:await readFile(asset.file),mediaType:asset.mediaType}}
   });t.after(()=>renderer.close())
   let image
@@ -196,7 +194,7 @@ test('paragraph-segment capture replays prefixes and rejoins exact frame order',
   const plan={from:snapshot.from,to:{turn:1,para:2},frames:0,fps:30,captureFormat:'jpeg',resolution:{width:640,height:360}}
   const renderer=await createClipBrowser({snapshot,captureResources:{cpus:16,freeBytes:20*2**30,workers:2},
     plan,
-    transport:async method=>{switch(method){case 'getRoundBody':return body;case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null};case 'getStageModHistory':return {turns:[]};case 'getModStageViews':return {views:[]};case 'getStageMusicTracks':return {tracks:[]};case 'listFonts':return {fonts:[]};case 'getDialogueBubbles':return {config:snapshot.config};default:throw new Error(method)}},
+    transport:async method=>{switch(method){case 'getRoundBody':return body;case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null};case 'getStageModHistory':return {turns:[]};case 'getStageMusicTracks':return {tracks:[]};case 'listFonts':return {fonts:[]};case 'getDialogueBubbles':return {config:snapshot.config};default:throw new Error(method)}},
     readAsset:async url=>{const client=await readTavernClientAsset(url.pathname);if(client)return client;const asset=await resolveTavernRuntimeAsset(url.pathname);if(asset)return {body:await readFile(asset.file),mediaType:asset.mediaType}}
   })
   const directory=await mkdtemp(join(tmpdir(),'clip-parallel-browser-'))

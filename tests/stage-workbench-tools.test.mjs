@@ -5,16 +5,26 @@ import {workbenchFixture,requestFor} from './fixtures/workbench-features.mjs'
 import {registerStageWorkbench} from '../tavern-plugin/packages/dsh-tavern-stage/lib/workbench/index.js'
 import {WORKBENCH_SKILLS,WORKBENCH_TOOL_NAMES} from '../tavern-plugin/packages/dsh-tavern-stage/lib/workbench/schema.js'
 import {createSkillGatedTools} from '../tavern-plugin/lib/domain/skill-gated-tools.js'
+import {createRequire} from 'node:module'
+import {pathToFileURL} from 'node:url'
 
 test('the stage registers its workbench tools for the card workbench only, each behind its Skills, and removes them with the stage',async ()=>{
   const registered=new Map(),modes=new Map(),skills=new Map(),owners=new Set()
-  const services={tools:{register(tool){registered.set(tool.name,tool);return ()=>registered.delete(tool.name)}},
-    // Like the Cordis service proxy: writes are refused, and a method called on the proxy gets the caller's ctx as this.
-    tavern:new Proxy({toolModes({name,modes:value}){owners.add(this.ctx.fiber.name);modes.set(name,value);return ()=>modes.delete(name)},
-      toolSkills({name,skills:value}){owners.add(this.ctx.fiber.name);skills.set(name,value);return ()=>skills.delete(name)}},{set:()=>false,
-      get:(target,prop,receiver)=>new Proxy(target[prop],{apply:(method,self,args)=>Reflect.apply(method,self===receiver?{ctx:{fiber:{name:'dsh-tavern'}}}:self,args)})})}
-  const dispose=registerStageWorkbench({ctx:{get:name=>services[name]},deps:{},call:async()=>{throw new Error('no request expected')}})
-  assert.deepEqual([...owners],['dsh-tavern-stage'])
+  const require=createRequire(pathToFileURL(process.env.DSH_BOOT_MODULE))
+  const {Context,Service}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href)
+  const root=new Context()
+  class Tavern extends Service {
+    toolModes({name,modes:value}){owners.add(this.ctx.fiber);modes.set(name,value);return ()=>modes.delete(name)}
+    toolSkills({name,skills:value}){owners.add(this.ctx.fiber);skills.set(name,value);return ()=>skills.delete(name)}
+  }
+  new Tavern(root,'tavern')
+  root.provide('tools',{register(tool){registered.set(tool.name,tool);return ()=>registered.delete(tool.name)}})
+  const child=root.plugin({name:'dsh-tavern-stage',inject:['tools','tavern'],apply(ctx){
+    ctx.effect(()=>registerStageWorkbench({ctx,deps:{},call:async()=>{throw new Error('no request expected')}}))
+  }})
+  await child.await()
+  assert.deepEqual([...owners],[child.ctx.fiber])
+  assert.equal(child.parent.fiber,root.fiber)
   const names=[...registered.keys()]
   assert.deepEqual(names.toSorted(),WORKBENCH_TOOL_NAMES.toSorted())
   for(const name of names) {assert.deepEqual(modes.get(name),['card']);assertSupportedJsonSchema(registered.get(name).parameters)}
@@ -32,8 +42,9 @@ test('the stage registers its workbench tools for the card workbench only, each 
   }
   const all=names.reduce((sum,name)=>sum+size(name),0)
   assert.ok(all<=25*1024,String(all))
-  await dispose()
+  await child.dispose()
   assert.equal(registered.size+modes.size+skills.size,0)
+  await root.fiber.dispose()
 })
 
 test('mod config writes go to the stage mod owner: the card layer directly, the global layer only after approval',async t=>{

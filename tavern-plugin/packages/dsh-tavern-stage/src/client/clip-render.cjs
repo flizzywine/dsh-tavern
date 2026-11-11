@@ -3,8 +3,8 @@
 // the core bindings it replaces for the export page go through that object's setters.
 async function mountClipReplay(snapshot, transport, stagePlugin) {
     if (document.location.hostname !== 'clip-export.invalid') throw new Error('Isolated export page required');
-    const signalListeners=new Map(),pageTimes=new Map();let announcedPage;
-    core.tavernSessionSignals = {subscribe:(_session,kind,listener)=>{if(!signalListeners.has(kind))signalListeners.set(kind,new Set());signalListeners.get(kind).add(listener);return ()=>signalListeners.get(kind).delete(listener);}};
+    // A clip export has no live session: its signals never fire.
+    core.tavernSessionSignals = {subscribe:()=>()=>{}};
     const localStorageValues = structuredClone(snapshot.frameStorage || {});
     // A narration page's voice (旁白配音, pageVoices) is the narrator's, matched by its page text.
     const voices = snapshot.paragraphs.flatMap(row=>[row.voice,...(row.pageVoices || [])]).filter(Boolean), voiceRequests=[];
@@ -40,17 +40,6 @@ async function mountClipReplay(snapshot, transport, stagePlugin) {
         if(method === 'syncSession')return {cardPath:snapshot.cardPath,liveSession:false,tasks:{}};
         if(method === 'openAssetPackVoice') {const voice=voices.find(row=>args.narrator ? row.narration : row.alias===args.alias);return voice?{available:true,voice:{source:'clip-export',id:voice.alias},scope:'clip-export',language:voice.language}:{available:false,diagnostics:['export-voice-missing']};}
         if(method === 'saveStagePlaybackMeasurement' || method === 'ackCgPlayed')return {saved:false};
-        if(method === 'notifyModPresentation') {
-            const key=JSON.stringify(args);
-            if(key!==announcedPage){announcedPage=key;queueMicrotask(()=>{for(const fn of signalListeners.get('mod-view') || [])fn({});});}
-            return {accepted:true};
-        }
-        if(method === 'getModStageViews') {
-            const current=owner.get(snapshot.sessionId)?.getSnapshot(),source=current?.source,anchor=current?.cursor?.anchor;
-            if(!source || !anchor)return {views:[]};
-            const key=JSON.stringify([source,current.cursor.visitId,anchor]);if(!pageTimes.has(key))pageTimes.set(key,performance.now());
-            return transport(method,{...args,turn:source.turn,para:anchor.para,offset:anchor.offset,elapsedMs:performance.now()-pageTimes.get(key),displayToken:JSON.stringify([source.sourceKey,source.generation,source.branchId,source.authorityEpoch])});
-        }
         if(method === 'getFrameStorage')return {values:localStorageValues};
         if(method === 'updateFrameStorage') {
             for(const op of args.ops) {
@@ -77,8 +66,7 @@ async function mountClipReplay(snapshot, transport, stagePlugin) {
             settings:{get:()=>settings,subscribe:()=>()=>{},load(){}},storyTurn:(_view,turn)=>turn,
             projectionForTurn:(value,turn)=>value.replyProjections.find(row=>row.turn===turn),superseded:()=>false},
         // The stage sessions add the Live2D core (getLive2dRuntime through probe, the snapshot's live2dStatus).
-        io:{presentation:args=>transport('getAssetPackPresentation',args),direction:args=>transport('getStageDirection',args),body:args=>transport('getRoundBody',args),probe:(method,args)=>transport(method,args),watch:()=>()=>{},
-            notifications:{send:input=>clipExportTransport('notifyModPresentation',input),browseMs:STAGE_HISTORY_SETTLE_MS,report:error=>console.warn('Mod presentation notification failed',error)}},
+        io:{presentation:args=>transport('getAssetPackPresentation',args),direction:args=>transport('getStageDirection',args),body:args=>transport('getRoundBody',args),probe:(method,args)=>transport(method,args),watch:()=>()=>{}},
         assets:{createOwner:createStageResourceOwner,service:()=>media,async decode(blob,url) {
             if (!blob.type.startsWith('image/')) return null;
             const image = new Image();image.src=url;await image.decode();return image;

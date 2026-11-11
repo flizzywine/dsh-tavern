@@ -87,7 +87,7 @@ export function stageHostScript() {
     directorCommands,
     // no checks offline: useDiceBacklog null keeps the rows as they are (diceBacklogEntries merges rolls into them)
     backlogView:{voicePlayer:player,useDiceBacklog:()=>null,diceBacklogEntries:rows=>rows,diceLine:()=>'',useJumpLatest:()=>({}),JumpLatest:Nothing,useFigureTextContrast:typeof useFigureTextContrast==='function'?useFigureTextContrast:noop,bubbleCharacter,galQuoted,VoiceButton:Nothing,PackImage,Icon,HelpTip,Spinner,getComputedStyle,ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
-    modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readMedia:async()=>null,readItems:async()=>({performances:[]}),readViews:async()=>({views:[]}),subscribe:off,useLiveView:()=>({view:{}})},
+    modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readMedia:async()=>null,readItems:async()=>({performances:[]})},
     performanceSurface:{fonts,resolution:()=>1,subscribeResolution:off,policy:{stageFlashAt,stageFlashDark,stageFlashGate,stageFlashSafe,stageSafety,stageEffectHex,stageEffectRgb}},
     textIndex:{pageCards:stagePageCards},
     playbackTiming:{delay:stageAutoDelay,remaining:stageAutoRemaining},

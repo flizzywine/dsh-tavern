@@ -25,7 +25,7 @@ for(const prefix of [false,true])test(`cached original voice plays through the r
     config:{characters:[{alias:'actor',name:'Actor',voice:'voice',voiceKey:'voice',voiceLanguage:'zh'}],voice:{enabled:true},stage:{textLanguage:'zh',director:false,face:'off',music:false,theme:'classic'}},
     turns:[{turn:1,body}],paragraphs:[...(prefix?[1,2,3].map(para=>({turn:1,para,durationMs:1000})):[]),{turn:1,para,durationMs:1000,text:'Recorded words.',voice:{key,durationMs:1000,loudness:{version:1,gain:2,gainDb:6.020599913279624},alias:'actor',input:{text:'Recorded words.',mood:'calm'},selectionKey:JSON.stringify(['export-fixture',1,para-1]),language:'zh'}}]}
   const calls=[],renderer=await createClipBrowser({snapshot,plan:{from:{turn:1,para:1},to:{turn:1,para},frames:60*para,fps:60,resolution:{width:1280,height:720}},
-    transport:async method=>{calls.push(method);switch(method){case 'getRoundBody':return body;case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null};case 'getStageModHistory':return {turns:[]};case 'getModStageViews':return {views:[]};case 'getStageMusicTracks':return {tracks:[]};case 'listFonts':return {fonts:[]};case 'getDialogueBubbles':return {config:snapshot.config};default:throw new Error('Unexpected host RPC '+method)}},
+    transport:async method=>{calls.push(method);switch(method){case 'getRoundBody':return body;case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null};case 'getStageModHistory':return {turns:[]};case 'getStageMusicTracks':return {tracks:[]};case 'listFonts':return {fonts:[]};case 'getDialogueBubbles':return {config:snapshot.config};default:throw new Error('Unexpected host RPC '+method)}},
     readAsset:async url=>{if(url.pathname==='/clip-voice/'+key)return {body:wav,mediaType:'audio/wav'};const client=await readTavernClientAsset(url.pathname);if(client)return client;const asset=await resolveTavernRuntimeAsset(url.pathname);if(asset)return {body:await readFile(asset.file),mediaType:asset.mediaType}}
   });t.after(()=>renderer.close())
   // The voiced paragraph starts after the earlier ones' measured frames (30 fps timing, captured at 60 fps).
@@ -51,7 +51,6 @@ test('isolated replay activates the production BGM owner and records nonzero ori
       case 'getStageDirection':return direction
       case 'getAssetPackPresentation':return {status:'ready',revision:1,directionToken:token,value:{state:{cast:[],actors:{},camera:{mode:'reset'},figureScale:{version:6,scene:1,hMax:150,rescales:0}},scene:{},characters:[],avatars:[],widgets:[],audio:{music:{ref:{packId:'fixture',kind:'music',assetId:'music'},identity:'original-music',name:'Original',url:'https://clip-export.invalid/music.wav'},soundscape:{version:1,layers:[]}}}}
       case 'getStageModHistory':return {turns:[]}
-      case 'getModStageViews':return {views:[]}
       case 'getStageMusicTracks':return {tracks:[]}
       case 'listFonts':return {fonts:[]}
       case 'getDialogueBubbles':return {config:snapshot.config}
@@ -73,7 +72,7 @@ for(const long of [false,true])test(`旁白配音: each narration page plays its
     turns:[{turn:1,body}],paragraphs:[{turn:1,para:1,kind:'narration',text}]}
   const plan={from:{turn:1,para:1},to:{turn:1,para:1},frames:60,fps:60,resolution:{width:1280,height:720}}
   const options={plan,
-    transport:async method=>{switch(method){case 'getRoundBody':return body;case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null};case 'getStageModHistory':return {turns:[]};case 'getModStageViews':return {views:[]};case 'getStageMusicTracks':return {tracks:[]};case 'listFonts':return {fonts:[]};case 'getDialogueBubbles':return {config:snapshot.config};default:throw new Error('Unexpected host RPC '+method)}},
+    transport:async method=>{switch(method){case 'getRoundBody':return body;case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null};case 'getStageModHistory':return {turns:[]};case 'getStageMusicTracks':return {tracks:[]};case 'listFonts':return {fonts:[]};case 'getDialogueBubbles':return {config:snapshot.config};default:throw new Error('Unexpected host RPC '+method)}},
     readAsset:async url=>{if(url.pathname.startsWith('/clip-voice/narrator-'))return {body:wav,mediaType:'audio/wav'};const client=await readTavernClientAsset(url.pathname);if(client)return client;const asset=await resolveTavernRuntimeAsset(url.pathname);if(asset)return {body:await readFile(asset.file),mediaType:asset.mediaType}}}
   // The host reads each page's narrator line after measuring the stage's own pages (clip-export-host.js narratorVoices).
   const measuring=await createClipBrowser({...options,snapshot,measureOnly:true})

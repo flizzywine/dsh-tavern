@@ -51120,7 +51120,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        speech:{player:voicePlayer,available:()=>!!forkTtsScope?.get('ttsClient')?.available(),speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
 		        sourceWidgets:{storage:(()=>{try{return localStorage;}catch{return null;}})(),foreground:forkForeground,rpc,signals:tavernSessionSignals,characters:{character:bubbleCharacter,mood:bubbleMood,moods:bubbleMoodList,actor:stageActorCharacter},avatarCache,phoneProtocol:{phoneModDirect,phoneModOwnership,run:phoneModRun},figureResolution,playerErrorText,fetch,createImageBitmap,
 		            sandbox:{stopSfx:()=>stageWidgetMediaOwner?.stopSfx(),scroll:(id,...args)=>stageWidgetScrollTargets.get(id)?.wheel(...args),theme:root=>stageWidgetThemeOwners.get(root)}},
-		        modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readMedia:(id,args)=>rpc('readStageModMedia',args,id),readItems:(id,turn)=>rpc('getStageItems',{turn},id),readViews:id=>rpc('getModStageViews',{sessionId:id},id),subscribe:(id,...callbacks)=>tavernSessionSignals.subscribe(id,'mod-view',...callbacks),useLiveView:useLiveTavernView},
+		        modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readItems:(id,turn)=>rpc('getStageItems',{turn},id)},
 		        performanceSurface:{fonts:tavernFonts,resolution:galResolution,subscribeResolution:galResolutionSubscribe,policy:{stageFlashAt,stageFlashDark,stageFlashGate,stageFlashSafe,stageSafety,stageEffectHex,stageEffectRgb}},
 		        textIndex:{pageCards:stagePageCards},
 		        playbackTiming:{delay:stageAutoDelay,remaining:stageAutoRemaining},
@@ -58560,12 +58560,12 @@ function stageSessionInputs(ctx){
             coordination:tavernCoordination,settings:bubbleStore,storyTurn:tavernStoryTurnForDshTurn,projectionForTurn:tavernProjectionForTurn,superseded:galIsSuperseded},
         io:{presentation:args=>rpc('getAssetPackPresentation',args,args.sessionId),direction:args=>rpc('getStageDirection',args,args.sessionId),body:args=>rpc('getRoundBody',args,args.sessionId),
             probe:(method,args,signal)=>rpc(method,args,args.sessionId,{signal}),
-            watch:(source,wake,reannounce)=>{
+            watch:(source,wake)=>{
                 const stops=[];
-                try{for(const kind of ['stage-direction','tavern-state'])stops.push(tavernSessionSignals.subscribe(source.sessionId,kind,wake,wake,()=>{wake();reannounce();}));}
+                try{for(const kind of ['stage-direction','tavern-state'])stops.push(tavernSessionSignals.subscribe(source.sessionId,kind,wake,wake,wake));}
                 catch(error){for(const stop of stops)try{stop();}catch(_){}throw error;}
                 return ()=>{const errors=[];for(const stop of stops)try{stop();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Stage signals cleanup failed');};
-            },notifications:{send:input=>rpc('notifyModPresentation',input,input.sessionId),browseMs:STAGE_HISTORY_SETTLE_MS,report:error=>console.warn('Mod presentation notification failed',error)}},
+            }},
         // The resource owner and image decoding come from the stage client (entry.js, resources.cjs).
         assets:{service:()=>packTransport?.service},
         dialogue:{character:bubbleCharacter,media:bubbleMediaDescriptor,moods:bubbleMoodList},

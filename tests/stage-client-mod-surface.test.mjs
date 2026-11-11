@@ -2,8 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {JSDOM} from 'jsdom'
-import React,{act} from 'react'
-import {createRoot} from 'react-dom/client'
 const require=createRequire(import.meta.url)
 const {createStageModSurface}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/mod-surface.cjs')
 const timing=require('../tavern-plugin/src/client/stage-auto-timing.cjs')
@@ -26,24 +24,4 @@ test('plugin stop settles pending Mod presentation and releases late media witho
  assert.equal(released,1);assert.equal(created,0);assert.equal(shown.at(-1),0);assert.equal(f.tasks.size,0)
  surface.reset(true);await surface.play(descriptor,token);assert.equal(created,0)
  }finally{f.close()}
-})
-
-test('mounted Mod layers stop subscriptions and fence late reads before React unmount',async()=>{
- const f=fixture(),previous={window:globalThis.window,document:globalThis.document,act:globalThis.IS_REACT_ACT_ENVIRONMENT}
- globalThis.window=f.window;globalThis.document=f.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
- f.root.className='fork-gal-stage'
- let changed,finish,stopped=0,rendered=0,reannounced=0
- const plugin=createStageModSurface({React,window:f.window,document:f.window.document,
-  sessions:()=>({get:()=>({getSnapshot:()=>({source:{sourceKey:'src'},cursor:{},visible:true})})}),
-  runtime:{reannounce(){reannounced++}},readViews:()=>new Promise(resolve=>finish=resolve),
-  subscribe:(id,onChange)=>{changed=onChange;return ()=>stopped++},
-  renderers:{'test/ui':()=>{rendered++;return {update(){},dispose(){}}}}})
- const root=createRoot(f.root),row={modId:'test',context:{settledTurn:1,sourceKey:'src'},view:{},manifest:{uiLayers:[{id:'one',entry:'ui',band:'audience',order:0,input:'none',budget:{maxNodes:10,maxVisible:10}}]}}
- try {
- await act(async()=>root.render(React.createElement(plugin.Layers,{sessionId:'s',sourceKey:'src',stage:{turn:1},config:{}})))
- act(()=>changed({snapshot:{views:[row]}}));assert.equal(rendered,1);assert.equal(f.root.querySelectorAll('.fork-mod-ui-layer').length,1)
- act(()=>plugin.dispose());assert.equal(stopped,1);assert.equal(f.root.querySelectorAll('.fork-mod-ui-layer').length,0)
- await act(async()=>{finish({views:[row]});changed({snapshot:{views:[row]}});f.window.dispatchEvent(new f.window.Event('focus'))})
- assert.equal(rendered,1);assert.equal(reannounced,1);assert.equal(f.tasks.size,0)
- }finally{plugin.dispose();act(()=>root.unmount());f.close();globalThis.window=previous.window;globalThis.document=previous.document;globalThis.IS_REACT_ACT_ENVIRONMENT=previous.act}
 })

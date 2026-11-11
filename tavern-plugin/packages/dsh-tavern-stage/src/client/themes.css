@@ -6322,7 +6322,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage > .fork-gal-menu { z-index: 10; }
 /* right-click / H hides every stage overlay with the text box (top bar, notices, mod layers,
    widget chips); an open widget (the phone) stays. */
-.fork-gal-stage.is-ui-hidden > :is(.fork-gal-topbar, .fork-gal-notices, .fork-widget-source-controls, .fork-mod-ui-layer),
+.fork-gal-stage.is-ui-hidden > :is(.fork-gal-topbar, .fork-gal-notices, .fork-widget-source-controls),
 .fork-gal-stage.is-ui-hidden > .fork-widget-layer .fork-widget-panel:not([data-presentation="open"]) { visibility: hidden; pointer-events: none; }
 
 /* ==== stage timer (dsh.timer, timer-stage.js) ==== */

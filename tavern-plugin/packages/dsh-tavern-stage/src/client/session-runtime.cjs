@@ -1,6 +1,6 @@
 // Plugin-owned session/store assembly. Native session inputs remain supplied by the host adapter.
-function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,createModNotifications,displays,createObservation}) {
-    let disposed=false;const owners=new Set(),connections=new Map();
+function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,displays,createObservation}) {
+    let disposed=false;const owners=new Set(),connections=new Set();
     // Construction is lazy: package activation does not create any session or subscribe to host inputs.
     let sessionModule=null,directorModule=null;
     function own(owner){
@@ -27,9 +27,9 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
         sessionModule ||= createSessionModule(createStoreModule(kernel));
         return own(sessionModule.createStageSessionOwner(inputs));
     }
-    function createConnection({resources:resourceInputs,direction,session:sessionInputs,notifications:notificationInputs,observation:observationInputs,waitForEntry=async()=>{}}){
+    function createConnection({resources:resourceInputs,direction,session:sessionInputs,observation:observationInputs,waitForEntry=async()=>{}}){
         if(disposed)throw new Error('Stage session runtime disposed');
-        const acquired=[];let closed=false,started=false,owner,resources,notifications;
+        const acquired=[];let closed=false,started=false,owner,resources;
         function dispose(){
             if(closed)return;closed=true;connections.delete(owner);
             const errors=[];
@@ -37,15 +37,10 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
             if(errors.length)throw new AggregateError(errors,'Stage connection cleanup failed');
         }
         try{
-            if(notificationInputs){
-                notifications=createModNotifications({...notificationInputs,getSnapshot:id=>owner?.get(id)?.getSnapshot()});
-                acquired.push(notifications);
-            }
             resources=createResources({...resourceInputs,...(displays?{present:displays.present,play:displays.play,performance:displays.performance,cancelPlayback:displays.cancel}:{})});acquired.push(resources);
-            const source=createDirector({...direction,watch:(origin,wake)=>direction.watch(origin,wake,()=>notifications?.reannounce(origin.sessionId)),onEffect:resources.onEffect});acquired.push(source);
+            const source=createDirector({...direction,onEffect:resources.onEffect});acquired.push(source);
             owner=createSessionOwner({...sessionInputs,
                 runEffect:source.runEffect,
-                observe:notifications?notifications.observe.bind(notifications):sessionInputs.observe,
                 readHistory:(args,origin,text)=>closed?null:source.cached(origin,text)||direction.read(args),
                 primeHistory:source.prime,
                 async prefetchHistory(origin,envelope){
@@ -63,7 +58,7 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
                 if(started)return;started=true;
                 try{
                     owner.start();
-                    connections.set(owner,notifications);
+                    connections.add(owner);
                     if(observationInputs){
                         const observation=createObservation({...observationInputs,owner,resources});
                         acquired.push(observation);
@@ -79,13 +74,7 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
             throw error;
         }
     }
-    function notify(id,method,detail){
-        if(disposed)return;
-        for(const [owner,notifications] of connections){
-            if(owner.get(id)){notifications?.[method](id,detail);return;}
-        }
-    }
-    return {presented:(id,detail)=>notify(id,'presented',detail),reannounce:id=>notify(id,'reannounce'),get(id){if(disposed)return null;for(const owner of connections.keys()){const store=owner.get(id);if(store)return store;}return null;},createSessionOwner,createDirector,createResources,projectDirection,createConnection,dispose(){
+    return {get(id){if(disposed)return null;for(const owner of connections){const store=owner.get(id);if(store)return store;}return null;},createSessionOwner,createDirector,createResources,projectDirection,createConnection,dispose(){
         if(disposed)return;disposed=true;const errors=[];
         for(const owner of [...owners].reverse())try{owner.dispose();}catch(error){errors.push(error);}
         sessionModule=directorModule=null;
