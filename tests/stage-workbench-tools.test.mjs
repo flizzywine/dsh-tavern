@@ -86,8 +86,9 @@ test('prepare uses the application generation owner without issuing a paid reque
   let generated=0
   const imageProvider=()=>({label:'fixture',status:async()=>({ready:true,model:'fixture-image',maxReferences:4}),generate:async()=>{generated++;throw new Error('No paid request permitted in fixture')}})
   const f=await workbenchFixture({imageProvider});t.after(()=>f.close())
-  const result=await f.invoke('asset_generation',{action:'prepare',target:{packId:f.pack.manifest.id,kind:'background'},expectedRevision:f.pack.revision,userPrompt:'Quiet library',count:2})
+  const result=await f.invoke('asset_generation',{action:'prepare',target:{packId:f.pack.manifest.id,kind:'background'},expectedRevision:f.pack.revision,userPrompt:'Quiet library',quality:'max',count:2})
   assert.equal(result.ok,true,JSON.stringify(result));assert.equal(result.data.imageCount,2)
+  assert.equal(result.data.output.quality,'max')
   assert.ok(result.data.planId);assert.equal(f.paidCalls,0);assert.equal(generated,0);assert.equal(f.approvals.length,0)
   assert.ok(!JSON.stringify(result).includes('fixture-no-network'))
   assert.equal((await f.library.getPackSnapshot({packId:f.pack.manifest.id})).revision,f.pack.revision)

@@ -2775,8 +2775,13 @@ function versionsOf(jobId) {
                   h('option', { value: 'true', style: optStyle }, '开（Variety Boost）'),
                   // 有些第三方站点把 variety_boost 当未知字段直接 422，选这个就整条不发
                   h('option', { value: 'omit', style: optStyle }, '不传（站点不认这条参数）')))) : null,
-            // 画质 only where the wire API has a quality tier (OpenAI Images, gpt-image models). 自动 saves an empty value, so requests stay exactly as before.
-            protocolBackend === 'openai' ? selectOptionField('quality', '画质', [['', '自动（默认）'], ['low', '低（最快）'], ['medium', '中'], ['high', '高（最慢）']], '', '仅 gpt-image 模型生效；越高越慢') : null,
+            protocolBackend === 'openai' ? selectOptionField('quality', '画质', [
+              ['', '服务端默认（不传）'], ['auto', '自动（auto）'], ['low', '低'], ['medium', '中'], ['high', '高'],
+              ['xhigh', '超高（xhigh）'], ['max', '最高（max）'],
+            ], '', '画质档位取决于模型和中转服务，尤其是 xhigh 和 max。') : null,
+            protocolBackend === 'openai' ? selectOptionField('moderation', '内容审核级别', [
+              ['', '服务端默认（不传）'], ['auto', '自动（auto）'], ['low', '较宽松（low）'],
+            ], '', '实际支持情况取决于模型和中转服务。') : null,
             protocolBackend === 'novelai' ? h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '10px 12px' } },
               sizeField('sizeWidth', '宽（像素）', '如 832', legacySize.width),
               sizeField('sizeHeight', '高（像素）', '如 1216', legacySize.height),

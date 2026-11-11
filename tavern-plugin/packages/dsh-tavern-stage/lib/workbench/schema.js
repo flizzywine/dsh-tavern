@@ -1,4 +1,5 @@
 import {ASSET_KINDS,BUNDLE_KINDS} from '../../../dsh-asset-library/lib/asset-packs/manifest.js'
+import {ASSET_IMAGE_QUALITIES} from '../../../../lib/domain/asset-production-contract.js'
 // Card-workbench management tools the stage package owns: one request envelope per tool,
 // one row per action. Syntax only; payload semantics stay with each owner (asset library,
 // asset engine, mods, asset generation, the voice plugin).
@@ -102,7 +103,7 @@ export const WORKBENCH_ACTIONS = {
     ["remove-template", {"templateId":s,"expectedRevision":s}],
   ],
   asset_generation: [
-    ["prepare", {"target":o,"expectedRevision":s,"userPrompt?":s,"references?":a(o),"quality?":e("low","medium","high","auto"),"count?":i,"redrawOf?":s,"note?":s,"useCandidateReference?":b}],
+    ["prepare", {"target":o,"expectedRevision":s,"userPrompt?":s,"references?":a(o),"quality?":e(...ASSET_IMAGE_QUALITIES),"count?":i,"redrawOf?":s,"note?":s,"useCandidateReference?":b}],
     ["generate", {"planId":s,"consentToken":s,"confirmNewRequestIds?":a(s)}],
     ["status|cancel|reject|retry-save", {"jobId":s}],
     ["read", {"jobId":s,"emotionId?":s}],

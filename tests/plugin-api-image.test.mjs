@@ -15,10 +15,14 @@ const channel = (generate, status = { ready: true, model: 'm', maxReferences: 2 
 
 test('generateImage uses the explicitly resolved provider under the same validation and concurrency limit', async t => {
   const service = generation(t, channel(() => { throw new Error('must not fall back') }))
-  let dispatched = 0
-  const selected = channel(async () => { dispatched++; return { data: png, mediaType: 'image/png' } })
+  const dispatched = []
+  const selected = channel(async ({ quality }) => { dispatched.push(quality); return { data: png, mediaType: 'image/png' } })
   await assert.rejects(service.image({ prompt: 'cat', width: 0, height: 64 }, selected), { code: 'INVALID_ARGUMENT' })
-  assert.equal(dispatched, 0)
-  assert.deepEqual(await service.image({ prompt: 'cat', width: 64, height: 64 }, selected), { data: png, mediaType: 'image/png' })
-  assert.equal(dispatched, 1)
+  const input = { prompt: 'cat', width: 64, height: 64 }
+  await assert.rejects(service.image({ ...input, quality: 'invalid' }, selected), { code: 'INVALID_ARGUMENT' })
+  assert.deepEqual(dispatched, [])
+  for (const quality of [undefined, 'xhigh', 'max']) {
+    assert.deepEqual(await service.image({ ...input, quality }, selected), { data: png, mediaType: 'image/png' })
+  }
+  assert.deepEqual(dispatched, ['auto', 'xhigh', 'max'])
 })

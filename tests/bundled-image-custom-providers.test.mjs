@@ -32,9 +32,11 @@ test('custom Gemini inlineData, Gemini Chat image parts, Seedream and Grok use d
     } })
   })
   await t.test('Seedream', async () => {
-    await generateImage(custom('seedream'), { positive: 'edit this', references: [ref()] }, { fetchImpl: async (_url, init) => {
+    await generateImage(custom('seedream', { quality: 'max', moderation: 'low' }), { positive: 'edit this', quality: 'xhigh', references: [ref()] }, { fetchImpl: async (_url, init) => {
       const body = JSON.parse(init.body)
       assert.deepEqual(body.image, [`data:image/png;base64,${PNG.toString('base64')}`])
+      assert.equal(Object.hasOwn(body, 'quality'), false)
+      assert.equal(Object.hasOwn(body, 'moderation'), false)
       return output()
     } })
   })
@@ -103,6 +105,41 @@ test('unsupported NovelAI references fail before HTTP; custom text generation re
       return output()
     } })
     assert.equal(calls, 1)
+  })
+})
+
+test('OpenAI Images sends the same quality and moderation in JSON generation and multipart edits', async t => {
+  const named = { ...custom(), provider: 'openai', model: 'gpt-image-2.5-flare' }
+  const cases = [
+    ['unset', named, {}, {}],
+    ['legacy empty', { ...named, options: { quality: '', moderation: '' } }, {}, {}],
+    ...['auto', 'low', 'medium', 'high', 'xhigh', 'max'].map((quality, index) => {
+      const moderation = index % 2 ? 'low' : 'auto'
+      const options = { quality, moderation }
+      return [quality, custom('openai', options), {}, options]
+    }),
+    ['request override', custom('openai', { quality: 'medium' }), { quality: 'max' }, { quality: 'max' }],
+    ['request override xhigh', { ...named, options: { quality: 'medium' } }, { quality: 'xhigh' }, { quality: 'xhigh' }],
+    ['invalid override', custom('openai', { quality: 'auto', moderation: 'invalid' }), { quality: 'invalid' }, { quality: 'auto' }],
+    ['invalid channel options', custom('openai', { quality: 'invalid', moderation: 'invalid' }), {}, {}],
+  ]
+  for (const [name, channel, override, expected] of cases) await t.test(name, async () => {
+    for (const editing of [false, true]) {
+      const references = editing ? [ref()] : []
+      let calls = 0
+      await generateImage(channel, { positive: 'A lake at sunrise', references, ...override }, { fetchImpl: async (url, init) => {
+        calls++
+        assert.ok(url.endsWith(editing ? '/images/edits' : '/images/generations'))
+        assert.equal(init.body instanceof FormData, editing)
+        const payload = editing ? Object.fromEntries(init.body) : JSON.parse(init.body)
+        assert.equal(payload.model, channel.model)
+        assert.equal(payload.quality, expected.quality)
+        assert.equal(payload.moderation, expected.moderation)
+        if (editing) assert.deepEqual(Buffer.from(await payload['image[]'].arrayBuffer()), PNG)
+        return output()
+      } })
+      assert.equal(calls, 1)
+    }
   })
 })
 

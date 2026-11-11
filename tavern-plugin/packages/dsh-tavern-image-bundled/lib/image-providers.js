@@ -10,6 +10,8 @@ import { IMAGE_PROVIDERS, PROVIDER_DEFAULTS as PROVIDERS } from './provider-defi
 export { IMAGE_PROVIDERS } from './provider-definitions.js'
 
 const imageTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+const openaiImageQualities = new Set(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
+const openaiImageModeration = new Set(['auto', 'low'])
 const secretValues = channel => [channel?.apiKey, channel?.password,
   channel?.authMode === 'basic' && (channel.username || channel.password) ? `${channel.username || ''}:${channel.password || ''}` : '',
 ].filter(Boolean).map(String)
@@ -343,8 +345,11 @@ async function generateOpenai(channel, request, ctx, provider) {
   const size = provider === 'seedream' ? option(ch, 'size', '2K') : request.exactSize === true ? orientationSize : option(ch, 'size', orientationSize)
   const payload = { model: ch.model || PROVIDERS[provider][2], prompt: combinedPrompt(request), size, n: 1 }
   if (provider === 'openai') {
+    const quality = openaiImageQualities.has(request.quality) ? request.quality : ch.options?.quality
+    const moderation = ch.options?.moderation
+    if (openaiImageQualities.has(quality)) payload.quality = quality
+    if (openaiImageModeration.has(moderation)) payload.moderation = moderation
     if (payload.model.startsWith('gpt-image-')) {
-      payload.quality = ['low', 'medium', 'high', 'auto'].includes(request.quality) ? request.quality : option(ch, 'quality', 'medium')
       payload.output_format = request.background === 'transparent' ? 'png' : option(ch, 'outputFormat', 'png')
       if (request.background === 'transparent') payload.background = 'transparent'
     }
@@ -369,10 +374,10 @@ async function generateOpenai(channel, request, ctx, provider) {
     body.append('model', payload.model)
     body.append('prompt', payload.prompt)
     body.append('size', payload.size)
-    body.append('n', '1')
-    if (payload.quality) body.append('quality', String(payload.quality))
-    if (payload.output_format) body.append('output_format', String(payload.output_format))
-    if (payload.background) body.append('background', String(payload.background))
+    body.append('n', String(payload.n))
+    for (const name of ['quality', 'moderation', 'output_format', 'background']) {
+      if (payload[name]) body.append(name, String(payload[name]))
+    }
     for (const [index, ref] of refs.entries()) body.append('image[]', new Blob([ref.bytes], { type: ref.mediaType }), `reference-${index + 1}.${imageExtension(ref.mediaType)}`)
     const data = await fetchJson(fetchImpl, joinUrl(base, endpointFromOption(ch, 'editPath', '/images/edits')),
       { method: 'POST', headers: requestHeaders(ch, provider, false), body }, jsonLimit, signal, ch)

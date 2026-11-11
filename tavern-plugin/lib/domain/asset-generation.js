@@ -13,7 +13,7 @@ import {imageKind, imageDimensions, pngSize} from '../../packages/dsh-asset-libr
 const ROOT = 'asset-generation/', INDEX = ROOT + 'jobs.json'
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const clone = value => structuredClone(value)
-import {renderAssetTemplate, assetStyleLines, assetOutput, assetPromptValues, ASSET_REFERENCE_ROLES as roles, ASSET_PRODUCTION_DEFAULTS, ASSET_STYLE_DEFAULT, BACKGROUND_STYLE_REFERENCE_ROLE} from './asset-production-contract.js'
+import {renderAssetTemplate, assetStyleLines, assetOutput, assetPromptValues, ASSET_REFERENCE_ROLES as roles, ASSET_PRODUCTION_DEFAULTS, ASSET_IMAGE_QUALITIES, ASSET_STYLE_DEFAULT, BACKGROUND_STYLE_REFERENCE_ROLE} from './asset-production-contract.js'
 export {renderAssetTemplate} from './asset-production-contract.js'
 const fail = (code, message, extra = {}) => { throw Object.assign(new Error(message), {code, ...extra}) }
 const assert = (condition, code, message) => { if (!condition) fail(code, message) }
@@ -360,7 +360,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         ? `当前生图渠道最多带 ${status.maxReferences} 张参考图，这次需要 ${images.length} 张；可在对话框里少选几张参考`
         : '当前生图渠道不支持参考图；请在 配图 设置里换用支持参考图的渠道')
       const output = assetOutput(target.kind,input.quality || ASSET_PRODUCTION_DEFAULTS.quality)
-      assert(['auto','low','medium','high'].includes(output.quality), 'INVALID_ARGUMENT', '无效的图片质量')
+      assert(ASSET_IMAGE_QUALITIES.includes(output.quality), 'INVALID_ARGUMENT', '无效的图片质量')
       if (preview) return clone({preview:true,target,expectedRevision:pack.revision,prompt,...(parts ? {parts} : {}),promptBytes:Buffer.byteLength(prompt),references:refs,output})
       const planId = randomUUID(), provider = {label:source.label, model:status.model}
       const view = {defaults:ASSET_PRODUCTION_DEFAULTS,planId,target,expectedRevision:pack.revision,prompt,promptBytes:Buffer.byteLength(prompt),references:refs,provider,output,consentToken:randomUUID(),expiresAt:now() + planTtlMs,imageCount:count}
@@ -409,7 +409,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       assert(source, 'NOT_CONFIGURED', '生图由「配图」插件出图；请先安装并启用配图插件')
       assert(status.ready, 'NOT_CONFIGURED', status.reason || '请先在 配图 设置里配置生图渠道')
       assert(typeof prompt === 'string' && prompt.trim() && prompt.length <= 32000 && [width, height].every(n => Number.isInteger(n) && n > 0 && n <= 8192), 'INVALID_ARGUMENT', '需要提示词和图片尺寸')
-      assert(['auto','transparent','opaque'].includes(background) && ['auto','low','medium','high'].includes(quality), 'INVALID_ARGUMENT', 'background 或 quality 无效')
+      assert(['auto','transparent','opaque'].includes(background) && ASSET_IMAGE_QUALITIES.includes(quality), 'INVALID_ARGUMENT', 'background 或 quality 无效')
       assert(Array.isArray(references) && references.length <= Math.min(4, status.maxReferences), 'UNSUPPORTED_CHANNEL', `当前生图渠道最多带 ${status.maxReferences} 张参考图`)
       const images = references.map(reference => {
         const data = reference?.data, kind = data instanceof Uint8Array && data.length <= 8 * 1024 ** 2 ? imageKind(Buffer.from(data.buffer, data.byteOffset, data.byteLength)) : null
