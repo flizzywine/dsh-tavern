@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createPlayWorldBook } from '../tavern-plugin/lib/domain/play-world-book.js'
 import { UpstreamTemplateRuntime } from './fixtures/upstream-template-runtime.mjs'
 import { createWorldBookLibrary } from '../tavern-plugin/lib/domain/worldbook-library.js'
-import { createMvuSettlementModule } from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
+import { createMvuSettlementModule, PROMPT_PROSE } from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
 const runtime = await UpstreamTemplateRuntime.create()
 const entry = (ref, content, extra = {}) => ({ ref, comment: '[mvu_update]' + ref, enabled: true, content, ...extra })
 const rules = entries => createPlayWorldBook({ worldBooks: { bound: async () => ({ view: { entries } }) }, runtime: async () => runtime }).mvuUpdateRules
@@ -33,9 +33,9 @@ test('MVU settlement keeps card rules alongside separately bound and global book
     basedOnRevision: 1, sessionId: 'game', messageId: 0, swipeId: 0, storyText: '本轮正文',
     currentVariables: { stat_data: {} }, updateRules }), error => error === captured)
   const prompt = request.turnContext
-  const ruleStart = prompt.indexOf('【人物卡变量更新规则】')
+  const ruleStart = prompt.indexOf(PROMPT_PROSE.p002)
   assert.ok(ruleStart >= 0)
-  const ruleSection = prompt.slice(ruleStart, prompt.indexOf('【当前变量快照】', ruleStart))
+  const ruleSection = prompt.slice(ruleStart, prompt.indexOf(PROMPT_PROSE.p003, ruleStart))
   for (const rule of updateRules) assert.ok(ruleSection.includes(rule), rule)
   globals = false
   assert.deepEqual(await render(chat, card), [card.character_book.entries[0].content, '绑定规则'])

@@ -1,28 +1,23 @@
-把更早的剧情压缩成结构化摘要，供后续续写使用。保留主线剧情与世界书快照中的关键事实；新正文与旧摘要冲突时，以新正文为准。
+<story_compaction>
+Summarize prior history to continue the story. Include the main story and worldbook snapshot facts; newer story text overrides conflicting old summaries.
 
-只输出摘要本身，按以下八段组织；某段完全没有内容就整段省略，不要写「无」「未涉及」「ToPopulate」等占位文字。
+Output only these eight sections; leave out any section that has nothing to record, without placeholders such as "none" or "not covered".
 
-剧情脉络：按时间顺序逐条列出事件，一件事一条（以「- 」开头），不要并成一大段；每条写清时间、地点、人物、起因和结果，保留原文中的具体数字、名称和约定（如测试成绩、金额、日期）。同一指标前后变化时保留变化轨迹（如「力量 12 → 15 → 30」），不要只留最新值。每条尽量带上轮次或故事内日期，便于回查原文。
+- **Plot thread**: events in time order, one per line starting with `- `, never merged into one paragraph. Each line gives time, place, people, cause and outcome, and keeps the exact numbers, names and agreements from the text (test scores, sums, dates). When one measure changes over time keep its trail (`strength 12 → 15 → 30`), not only the latest value. Tag each line with its round or in-story date where possible, so the text can be looked up.
+- **Characters**: only characters who are new or changed in this volume, one line each. New characters get their known starting profile: identity, appearance, personality, speech habits, abilities, motives, secrets, current state (injuries, possessions, location, activity); existing characters get only the fields added or changed in this volume, without rewriting unchanged identity, appearance or abilities. Record Sexualization, Erogenous, Allure, Genitalia only when the story involves them, and leave out unused fields. Note new characters; monitor changes, and OfflineActivity for departed characters. Skip characters who did not change.
+- **Relationships**: only relationships that changed in this volume: type, current stage, key turning points, secrets, promises, Amorous, Lust. Don't rewrite unchanged ones.
+- **World and setting**: only rules newly set or rewritten in this volume: geography, organizations, power systems, economic and political rules, public and secret states. Distill key rules; don't copy old volumes.
+- **Items and resources**: only items and resources added or changed in this volume (transferred, destroyed, changed hands, charged, repaired, upgraded, count or balance changed). New entries give known holder, location, condition and origin; existing entries give only what is new or changed.
+- **Foreshadowing and promises**: all unresolved clues, unkept promises, open questions and directions the user rejected. Note outcomes of resolved ones; if space runs short, compress or drop resolved ones to essential facts. Never drop unresolved ones.
+- **Current situation** (at most three lines): time, place, characters present, their states and ongoing actions, mood; other dynamic state lives in the variables, so don't repeat it. Prioritize hidden-thread developments and off-screen character movements; don't repeat the plot thread.
+- **User intent**: preferences, limits and story corrections the user has stated, one per line, newest first; facts the user states always hold.
 
-人物档案：只写本卷新出现或发生变化的人物，每位人物一行。新人物记录已知的初始档案——身份、外貌特征、性格、口吻习惯、能力、动机、秘密、当前状态（伤势/持有/所在位置/活动）；已有角色只记录本卷新增或变化的字段，不重写未变化的身份、外貌、能力等信息；剧情涉及时再记 Sexualization、Erogenous、Allure、Genitalia，未涉及的字段整项省略；留意新登场的人物，跟踪人物变化与已退场人物的 OfflineActivity。本卷没有变化的人物不要重写。
-
-关系网：只写本卷发生变化的关系——关系类型、当前阶段、关键转折事件、秘密与承诺，含 Amorous、Lust 等维度；未变化的关系不重写。
-
-世界与设定：只写本卷新确立或被改写的规则——地理、组织、能力体系、经济政治规则、公开与秘密状态；不要抄录旧卷，整理为关键规则。
-
-物品与资源：只写本卷新增或发生变化的物品与资源（如转移、损毁、易主、充能、修复、升级、数量或余额变化）；新条目记录已知的持有者、所在位置、状态与来历，已有条目只记录新增或变化的信息。
-
-伏笔与约定：列出所有未解决线索、未兑现约定、待确认事项、用户否定过的走向；已兑现的注明结果，若篇幅不足，则压缩或删除已兑现的伏笔，仅保留精要事实；未兑现项永不删除。
-
-当前情况（最多三行）：时间、地点、在场人物及其状态与正在进行的动作、氛围；其余动态状态以变量为准，不要重复。优先记录暗线进展与画面外的人物动向，不要和剧情脉络冗余。
-
-用户意志：用户明确表达过的偏好、底线与对剧情的纠正，逐条列出、按时间倒序；用户表述的事实永远有效。
-
-记录要求：
-保留专名、数字、称谓与用户原话中的关键表述，但不要冗余，拒绝无意义的修辞
-一次性描写不得写成永久设定
-同一事实只在一处详述：剧情脉络负责「发生了什么」，人物档案负责「现在是什么状态」，不要在人物档案里重讲事件经过
-遇到取舍时优先保：用户意志 > 人物关系 > 未兑现伏笔 > 当前生效设定 > 历史事件细节 > 当前现场；结果 > 过程；结构关系 > 场景叙述；暗线发展 > 过期主线; 长期影响 > 短期事态
-只总结已发生的内容，不续写、不猜测、不评价，只输出摘要
-旧卷会原样保留、不再重压，所以本次摘要不为简短牺牲细节：保留新剧情的关键条件、细节和原话，只省略琐碎和失效的内容。篇幅以原文的十分之一左右为宜，剧情多就写长，不要为了简短丢掉具体细节；但也不要为了完整而重复旧卷已经写过的内容。任何字段没有内容就整项省略，不写占位文字。旧卷如何处理见下方「本次摘要的写法」
-核心要务：提炼关键信息，精炼有效的规则集，而非叙述性描写；结构化摘要，各段不要重复冗余，职责清晰；旧卷已经写过、本卷没有变化的内容不要重复
+Recording rules:
+- Keep proper names, numbers, forms of address and key phrases from the user's words, without redundancy or empty rhetoric.
+- One-off descriptions are not permanent settings.
+- Detail each fact in one place only: the plot thread says what happened, characters say what state they are in now; don't retell events in character lines.
+- When choosing, keep: user intent > relationships > unresolved foreshadowing > settings in force > past event details > current scene; results > process; structure > scene narration; hidden-thread developments > stale main plot; long-term effects > short-term events.
+- Summarize only what happened: no continuing, guessing or judging; output only the summary.
+- Old volumes are kept verbatim and never compressed again, so this summary does not trade details for brevity: keep the key conditions, details and quotes of the new story and drop only trivial or outdated details. About a tenth of the original is right; write more when much happened rather than losing specifics, but don't repeat what old volumes already say just to be complete. Leave out empty fields without placeholder text. How to treat old volumes is in 【本次摘要的写法】 below.
+- Core aim: distill key information into a tight rule set, not narrative. Keep it structured, each section with a clear role and no overlap; don't repeat what old volumes already say and this volume did not change.
+</story_compaction>
