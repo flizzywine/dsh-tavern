@@ -4,6 +4,7 @@ import { templateStateFields } from './template-window-reader.js'
 import { createScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
 import { commitChatFields, rebaseChatChanges, sameChatMessageIdentity } from './chat-field-transaction.js'
+import { applyOpeningVariables } from './opening-setup.js'
 import { createFullPromptTemplateSync } from './full-prompt-template-sync.js'
 import { createJsonValueProjectionCache } from './immutable-json-projection.js'
 import { resourceSaveSummary, observeResourceSave } from './resource-save-summary.js'
@@ -71,6 +72,23 @@ function str(value) {
 function isOfficialMvuData(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     && value.stat_data !== undefined && value.schema !== undefined
+}
+
+// Official MVU's first build of the opening state (from <initvar>: the greeting floor, the start's setting floor after
+// it, or the chat scope of a blank opening) takes the start's chosen values over it, once
+// (conversation-initialization.js openingStartVariables). true when this write was that build.
+function layOpeningStartValues(chat, updated) {
+  const values = chat.mvu?.openingStartVariables
+  if (!values) return false
+  const floor = updated.type === 'message' ? chat.messages?.[updated.messageId] : null
+  if (floor) {
+    const index = floor.swipeId || 0
+    if (!Array.isArray(floor.variables) || !isOfficialMvuData(floor.variables[index])) return false
+    floor.variables[index] = applyOpeningVariables(floor.variables[index], values)
+  } else if (updated.type === 'chat' && isOfficialMvuData(chat.variables)) chat.variables = applyOpeningVariables(chat.variables, values)
+  else return false
+  delete chat.mvu.openingStartVariables
+  return true
 }
 
 function worldbookEntries(value) {
@@ -244,6 +262,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     if (!option?.type || option.type === 'message') await settlement.touchMessage(sessionId, option?.message_id, eventId)
     if (canPatch && settlement.has(str(sessionId))) return updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, false)
     const updated = replaceTavernHelperVariables(chat, { option, variables })
+    const startApplied = layOpeningStartValues(chat, updated)
     // A blank opening has no floor: official MVU initializes it in the chat scope.
     const beforeOpening = chat.mvu?.openingInitialization
     const initializedChat = updated.type === 'chat' && !chat.messages?.length
@@ -257,6 +276,8 @@ export function createTavernScriptHostAdapter(options = {}) {
         const changes = variableChanges(updated, before, row ?? chat)
         const openingChange = initializedChat
           ? [{ op: 'set', path: ['mvu', 'openingInitialization'], value: chat.mvu.openingInitialization }] : []
+        // the start's values were laid over MVU's first build (layOpeningStartValues): they are not laid twice
+        const startChange = startApplied ? [{ op: 'delete', path: ['mvu', 'openingStartVariables'] }] : []
         const metadata = {
           source: 'tavern-helper.variables',
           assertCurrent: () => {
@@ -265,7 +286,7 @@ export function createTavernScriptHostAdapter(options = {}) {
           }
         }
         const receipt = await commitChatFields(options.patchChat, chat.id, metadata, async attempt => {
-          if (attempt === 0) return { revision: baseRevision, changes: changes.concat(openingChange) }
+          if (attempt === 0) return { revision: baseRevision, changes: changes.concat(openingChange, startChange) }
           metadata.assertCurrent()
           const indices = messageId === undefined ? [] : [messageId]
           const selected = await options.resolveChatSlice?.(str(sessionId), indices, variableMutationFields(updated.type))
@@ -286,6 +307,7 @@ export function createTavernScriptHostAdapter(options = {}) {
             if (latest.mvu?.owner !== 'official' || !isDeepStrictEqual(latestOpening, beforeOpening)) throw variableConflict()
             pending.push(...openingChange)
           }
+          if (latest.mvu?.openingStartVariables) pending.push(...startChange)
           return { revision: latest._storageRevision, changes: pending }
         })
         if (!receipt) throw variableConflict()
@@ -324,6 +346,8 @@ export function createTavernScriptHostAdapter(options = {}) {
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
     const patches = await settlement.prepareMessages(sessionId, messages, eventId)
     const updated = replaceTavernHelperMessages(chat, patches, await replyProjection(chat))
+    // (MVU's opening build writes the floor's swipes_data through here)
+    for (const { messageId } of updated) if (layOpeningStartValues(chat, { type: 'message', messageId })) break
     if (chat.mvu && chat.mvu.owner === 'official') {
       const opening = Array.isArray(chat.messages) ? chat.messages[0] : null
       const snapshots = opening && Array.isArray(opening.variables) ? opening.variables : []

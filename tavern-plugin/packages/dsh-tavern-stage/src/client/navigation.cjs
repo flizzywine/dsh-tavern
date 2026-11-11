@@ -49,7 +49,7 @@ function galStageLifetime() {
         if (!live) return;
         live = false;
         galVisitGeneration++;
-        galEntry = null; galEntering.set(""); galLeaveHold = null; galLeavePending = false;
+        galEntry = null; galEntryPage = null; galEntering.set(""); galLeaveHold = null; galLeavePending = false;
         try { galStageAvailable.set(false); }
         finally {
             try { galLeaveNow(); }
@@ -72,7 +72,7 @@ const galEntering = (function () {
     let session = "";
     return { get: () => session, set(value) { session = value || ""; } };
 })();
-let galEntry = null;
+let galEntry = null, galEntryPage = null;
 // One count per stage entry from text mode (galOpen): a card's showOn stage-enter page opens once per entry (controller.cjs),
 // never on a remount, a round change or a settings toggle.
 let galVisit = 0;
@@ -96,6 +96,9 @@ function galOpen(sessionId, target) {
     playCue("open"); // ui-sfx.js (fetches only this cue; the rest follow the entry)
     galVisit++;
     galEntry = target && Number.isInteger(target.turn) ? { sessionId, turn: target.turn, para: Math.max(1, Number(target.para) || 1), token: Date.now() } : null;
+    // target.page: this entry opens that card page in place of the one stageEnterPage picks ('' : none; a new game's
+    // opening page, or the first act right after it)
+    galEntryPage = target && typeof target.page === 'string' ? { sessionId, page: target.page, visit: galVisit } : null;
     galActive.set(sessionId);
     // Called from the click itself, so the browser grants full screen.
     const root = document.documentElement;
@@ -179,6 +182,7 @@ function galStageShortcut() {
 }
 return {galKeyboardFocus:() => document.documentElement.hasAttribute("data-fork-keynav"), galCoverChat, galUncover, galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
     getEntry: () => galEntry,
+    getEntryPage: () => galEntryPage,
     visit: () => galVisit,
     holdLeave(hold) {galLeaveHold = hold; return () => {if (galLeaveHold === hold) galLeaveHold = null;};}};
 }

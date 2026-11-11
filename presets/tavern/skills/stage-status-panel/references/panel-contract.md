@@ -21,6 +21,7 @@
 | `menu` | 否 | `true` 时在 Esc 菜单里加一行，按数组顺序排在原来「状态」的位置。 |
 | `showOn` | 否 | 只能是 `{"event": "stage-enter"}`：进入舞台时打开，见「入口」。 |
 | `initial` | 否 | 只能是 `true`，且必须同时有 `showOn`：只在新聊天里出现的开场页。 |
+| `opening` | 否 | 只能是 `true`，需要 `size:"full"`、不能有 `showOn`，一张卡最多一页，且本卡要有 v2 开局设置（`openingSetup`）：本卡的**开局页**。玩家开新游戏时舞台直接打开这一页，不再出现通用的「游戏准备」；页面用 `opening()` 读开场白、用 `startGame(choice)` 开局，见「开局页」。 |
 | `size` | 否 | `window`（默认，舞台中央最大 1080×860 的窗口，带标题栏）或 `full`（铺满整个舞台，没有标题栏，只在右上角浮一个关闭按钮；内容自己适配视口）。手机宽度下两者都铺满。 |
 | `closeControl` | 否 | 只能是 `"page"`，且需要 `size:"full"`：页面自己负责关闭和返回。页面显示出来后舞台不画关闭按钮；Esc、本页快捷键、右键交给页面的 `onCloseRequest`，页面决定是先返回自己的上一层（比如从详情回到地图）还是 `close()`。没有登记 `onCloseRequest` 时照常关闭；页面读取中、读取失败时舞台仍画关闭按钮。页面要自己画一个关闭按钮。 |
 | `ledger` | 否 | 要读的台账分区名，最多 8 个、不重复：`location`、`locationPath`、`items`、`npcs`、`scenes`、`itemLog`、`updatedTurn`。 |
@@ -40,6 +41,8 @@
 1. 聊天里还没有玩家消息（只有开场白也算），并且有 `initial` 页：打开第一个 `initial` 页，「跳过标题页」开着也打开。
 2. 否则，玩家打开了舞台设置「跳过标题页」（CONFIG 的文字区，全局，默认关）：不开页，直接从最新一轮继续。
 3. 否则：打开第一个不带 `initial` 的 showOn 页。
+
+本卡有开局页（`opening:true`）时还有一条：聊天还没开局（新游戏开出的空档）、上面也没有打开任何页（没有标题页，或「跳过标题页」开着）时，打开开局页。
 
 聊天有了玩家消息之后，`initial` 页不会再被自动打开。校验不限制 showOn 页的数量，排在后面的匹配页不会自动出现，但仍可以用快捷键、菜单或 `open(id)` 打开。
 
@@ -89,7 +92,9 @@ tavern_update_card({ rawOperations: [
 | `fillInput(text)` | 把文字填进舞台「自由输入」：关闭本页、跳到最新一轮末尾并显示草稿，不发送。 |
 | `asset(ref)` | 本卡绑定素材包里的媒体，返回 `Promise<blob: URL>`。`ref` 是 `{kind, id, variant?, file?, size?}`：图片按 `variant`（默认该条目的默认差分），视频包按 `file`（默认入口文件，`'poster'` 是封面）；`size` 取缩略图。不在本卡绑定包里时 Promise 拒绝，报「本卡的素材包里没有」。 |
 | `assets(kind)` | 本卡绑定包里某类条目的列表 `[{id, name, description?, variants?, files?}]`，同一 id 以绑定顺序靠前的包为准。 |
-| `newGame()` | 离开舞台，打开本卡的「游戏准备」（与人物卡列表的开始游戏相同）。本局已存档（`saved`）时先弹确认框；玩家取消时得到 `{started: false}`，页面保持打开。 |
+| `opening(userName)` | 只用于开局页：本卡的开局，返回 `Promise<{userName, setup, openings}>`。`userName` 是名字框里的名字（空时用玩家默认名，返回的 `userName` 就是它）；`setup` 是本卡的 v2 开局设置（字段、消息）；`openings` 是每段开场白 `{id, text, state?, scene?}`：`text` 是按这个名字投影好的正文，`state` 是它 `<initvar>` 里的起点变量，`scene` 是作者给它配的画面 `{title?, background?, music?, timeOfDay?}`（素材 id，名称用 `assets(kind)` 查）。 |
+| `startGame(choice)` | 只用于开局页：开局。`choice` 是 `{openingId, values, withoutGreeting?}`：`openingId` 是 `openings` 里的一段，`values` 是开局设置字段的值（键是字段的 `key`，和「游戏准备」表单交的一样），`withoutGreeting:true` 时不用这段开场白，由 AI 按开局消息写第一幕。宿主用和「游戏准备」同一份开局设置结算（字段校验、变量路由、开局消息），开出的一局取代这个没玩过的空档，舞台从第一幕开始；值不合格时 Promise 拒绝，报错写明哪个字段，页面显示给玩家。 |
+| `newGame()` | 本卡有开局页时打开开局页（本局已存档时先确认、另开一局，舞台直接进那一局的开局页）。其余：本局还没存档（`saved` 不为 true，玩家还没说过话）时，这一局就是新游戏，不另开一局：本卡有开局设置（`openingSetup`）时离开舞台、打开「游戏准备」，在那里开始的一局取代这个没玩过的空档；没有开局设置时和 `continueGame()` 一样关闭本页、从开场进入舞台。本局已存档时先弹确认框，确认后离开舞台、打开本卡的「游戏准备」开一局新的（与人物卡列表的开始游戏相同，旧的一局留在游玩记录里）；玩家取消时得到 `{started: false}`，页面保持打开。 |
 | `continueGame()` | 关闭本页，从当前读到的那一句继续（showOn 页由此进入舞台）。 |
 | `openGallery()` | 在本页上面打开「回想」，关掉回想回到本页。 |
 | `exit()` | 返回主页面（与舞台菜单的「返回主页面」相同）。 |
@@ -100,6 +105,7 @@ tavern_update_card({ rawOperations: [
 给元素加 `data-dsh-sound` 属性，舞台替页面放音效：鼠标移上或获得焦点时 `move`，点击时 `confirm`；禁用的元素不出声。
 
 ```html
+<!-- 新游戏在继续左边；还没存档时焦点默认落在新游戏 -->
 <button data-dsh-sound id="new">新游戏</button>
 <button data-dsh-sound id="continue">继续</button>
 <script>
@@ -133,6 +139,16 @@ tavern_update_card({ rawOperations: [
 - `figures` 的头像是 `data:` URL，到得比文字晚：打开时 `avatar` 可能还是 `null`，就绪后再推送一次。认不出的人物 `avatar` 一直是 `null`。
 - 台账和人物名来自剧情，插进 HTML 前转义。
 - `saved`：这局已经有玩家发过的消息（不是刚开局）。标题页用它决定「继续」是否可用。
+
+## 开局页
+
+开局页（`opening:true`）让卡在舞台里用自己的画面完成开局，代替通用的「游戏准备」。玩家从人物卡开始游戏、或在标题页点「新游戏」时，宿主开一个没玩过的空档并进入舞台，舞台打开开局页（有标题页时先是标题页，它的 `newGame()` 到开局页）。页面：
+
+1. `opening(名字)` 读开场白和开局设置；名字改了再读一次，正文里的 `{{user}}` 就是新名字。
+2. 让玩家选一段开场白（可以给一个「不用开场白」）、填开局设置的字段；字段的含义、必填和开局消息都是卡的 `openingSetup`（`docs/specs/opening-setup-v2.md`），页面只画。
+3. `startGame({openingId, values, withoutGreeting})` 开局；页面在 Promise 结束前禁用开始按钮，拒绝时把报错显示出来。
+
+开局页要自己画返回（通常回标题页 `open('title')`）并声明 `closeControl:"page"`；支持键盘（方向键选、Enter 开始、Esc 返回）和手机宽度。
 
 ## 皮肤配色
 

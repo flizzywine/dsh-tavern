@@ -1,5 +1,6 @@
 import { applyPendingOpeningCommand, parseOpeningCommand, parsePendingOpeningCommand } from './opening-command.js'
-import { parseOpeningScriptStart } from './opening-setup.js'
+import { parseOpeningScriptStart, resolveOpeningSetup, openingWorldbookEnabled, applyOpeningVariables } from './opening-setup.js'
+import { worldbookContentDigest } from './worldbook-version.js'
 import { projectFullPromptTemplateState, applyFullPromptTemplateState } from './full-prompt-template-state.js'
 import { projectTavernHelperScripts } from './tavern-helper-scripts.js'
 import { mutateScriptPrompts } from './tavern-script-prompts.js'
@@ -54,6 +55,21 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
       globalVariables: copy(draft.globalVariables || {}), characterVariables: copy(draft.characterVariables || {}),
       extensionSettings: copy(draft.extensionSettings), regexScripts: copy(draft.regexScripts || { global: [], character: [] }) }
   }
+  // The card's openingSetup resolved with the player's values (opening-setup.js, the one authority for what a setup
+  // writes). Route switches edit this draft's snapshot only; the card and other chats keep their book.
+  async function resolveSetup(draft, values, options) {
+    if (!draft.openingSetup) throw new Error('这张卡没有开局设置')
+    const { worldbook, ...resolved } = resolveOpeningSetup(draft.openingSetup, values, { userName: draft.userName, charName: draft.card.name, ...options })
+    if (worldbook && draft.document) {
+      const before = projectTavernHelperWorldbook(inspectWorldBookDocument(draft.document)).entries
+      const after = before.map(entry => {
+        const enabled = openingWorldbookEnabled(entry.name, worldbook)
+        return enabled === undefined || enabled === entry.enabled ? entry : { ...entry, enabled }
+      })
+      if (after.some((entry, index) => entry !== before[index])) await preparation.replaceWorldbook(draft.id, after, before)
+    }
+    return resolved
+  }
   function present(draft) {
     return copy({ id: draft.id, cardPath: draft.cardPath, openings: draft.openings,
       openingId: draft.openingId || draft.openings[0]?.id, diagnostics: copy(draft.diagnostics || []),
@@ -90,11 +106,14 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
     draft.extensionSettings = extensionSettings ? await trace.stage('prepSettings', () => extensionSettings.read()) : {}
     // Starting MVU must not replace another plugin's settings or its save baseline.
     if (settings.runtime === true) draft.runtimeEnabled = true
+    // A v2 opening setup starts through the frame's dshOpening.start, which writes variables in this runtime.
+    draft.openingSetup = extensions.openingSetup?.spec
+    if (draft.openingSetup) draft.runtimeEnabled = true
     draft.chat.sessionId = 'opening:' + draft.id
     drafts.set(draft.id, draft)
     return draft
   }
-  return {
+  const preparation = {
     // Plain greetings start from the draft id alone; projecting the card and the
     // whole worldbook for a presentation nobody reads would run twice per start.
     async begin(cardPath, settings = {}) {
@@ -188,7 +207,34 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         draft.pendingOpening = undefined
         const scriptStart = parseOpeningScriptStart(args.scriptStart)
         draft.startCommand = { ...command, openingId, ...(typeof args.userName === 'string' ? { userName: args.userName } : {}), ...(scriptStart ? { scriptStart } : {}) }
+        // A v2 setup's variables belong to this start only (a later skip or v1 start carries none).
+        draft.startVariables = draft.openingSetupVariables
+        draft.openingSetupVariables = undefined
         return { deferred: false, input: command.input }
+      }
+      if (method === 'resolveOpeningSetup') {
+        const { variables, ...resolved } = await resolveSetup(draft, args.values)
+        // Kept on the host and written when the game is made: the frame's MVU may still be initializing the greeting
+        // floor and would overwrite a write made now (a player who starts right away lost every variable).
+        draft.openingSetupVariables = variables
+        return resolved
+      }
+      // A card's own opening page on the stage (card page `opening: true`, presets/tavern/skills/stage-status-panel/references/panel-contract.md「开局页」)
+      // completes the same openingSetup with its values in one call. The chosen greeting stays the game's first floor and
+      // the resolved message is the setup note to the model (sent once with the next request, no floor of its own); or,
+      // withoutGreeting, the game starts as the 游戏准备 form's does: the greeting floor only owns the opening variables
+      // and the message is the first player input, so the AI writes the first scene. Nothing runs in a frame here, so
+      // the variables are laid over the floor official MVU first builds in the game (conversation-initialization.js).
+      if (method === 'prepareOpeningPage') {
+        const openingId = String(args.openingId || '')
+        if (!draft.openings.some(opening => opening.id === openingId)) throw new Error('人物卡开场白不存在')
+        const withoutGreeting = args.withoutGreeting === true
+        const { variables, playerName, message, scriptStart } = await resolveSetup(draft, args.values, { requireMessage: withoutGreeting })
+        draft.startCommand = withoutGreeting ? { input: message, openingId, userName: playerName, ...(scriptStart ? { scriptStart } : {}) }
+          : { input: '', openingId, userName: playerName, keepGreeting: true, ...(message ? { note: message } : {}), ...(scriptStart ? { scriptStart } : {}) }
+        draft.startVariables = Object.keys(variables).length ? variables : undefined
+        draft.openingSetupVariables = undefined
+        return { playerName, input: draft.startCommand.input }
       }
       if (method === 'updateTavernHelperPrompts') {
         mutateScriptPrompts(draft.chat, args.operation)
@@ -299,7 +345,7 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         chatPluginMetadata: draft.chat.tavernPluginMetadata ? copy(draft.chat.tavernPluginMetadata) : undefined,
         tavernScriptPrompts: Array.isArray(draft.chat.tavernScriptPrompts) && draft.chat.tavernScriptPrompts.length ? copy(draft.chat.tavernScriptPrompts) : undefined,
         preparedMessages: created.map(message => copy(message)),
-        openingMessages: Object.fromEntries(draft.openings.map((opening,index)=>[opening.id,draft.chat.messages[0]?.swipes?.[index] ?? opening.text])), openingVariables: Object.fromEntries(draft.openings.map((opening, index) => [opening.id, draft.chat.messages[0]?.variables?.[index] || {}])), variables: draft.chat.variables || {}, messageVariables: draft.chat.messages[0]?.variables?.[selectedIndex] || {}, openingId: selected, sourceSessionId: draft.sourceSessionId, sourceLifecycleRevision: draft.sourceLifecycleRevision,
+        openingMessages: Object.fromEntries(draft.openings.map((opening,index)=>[opening.id,draft.chat.messages[0]?.swipes?.[index] ?? opening.text])), openingVariables: Object.fromEntries(draft.openings.map((opening, index) => [opening.id, draft.chat.messages[0]?.variables?.[index] || {}])), variables: draft.chat.variables || {}, messageVariables: draft.startCommand?.openingId === selected && draft.startVariables ? applyOpeningVariables(draft.chat.messages[0]?.variables?.[selectedIndex], draft.startVariables) : draft.chat.messages[0]?.variables?.[selectedIndex] || {}, startVariables: draft.startCommand?.openingId === selected && draft.startVariables ? copy(draft.startVariables) : undefined, openingId: selected, sourceSessionId: draft.sourceSessionId, sourceLifecycleRevision: draft.sourceLifecycleRevision,
         // A wizard's record for the floor it sent belongs to the new game's opening
         // user floor; without the start command no such floor is ever sent.
         openingMessageVariables: draft.startCommand && draft.pendingOpeningFloor !== undefined
@@ -309,4 +355,5 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         worldbook: draft.worldBookView ? { source: draft.source, document: draft.document, view: draft.worldBookView } : null }
     }
   }
+  return preparation
 }

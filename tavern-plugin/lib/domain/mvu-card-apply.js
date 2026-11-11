@@ -4,6 +4,7 @@
 // the two regex scripts. Opening prose and everything else is left untouched.
 import { inspectCardExtensions } from './card-extension-reading.js'
 import { plainKeys, plainPath } from './encoded-keys.js'
+import { openingInitialState as existingState } from './card-openings.js'
 
 export const STATUS_VIEW_ID = 'dsh-mvu-status-view'
 export const HIDE_MARKER_ID = 'dsh-mvu-hide-marker'
@@ -28,11 +29,6 @@ function withMeta(state) {
   return { $meta: { ...(object($meta) ? $meta : {}), strictSet: true }, ...rest }
 }
 function stateJson(state) { return JSON.stringify(withMeta(state), null, 2).replace(/</g, '\\u003c') }
-function existingState(text) {
-  const block = /<initvar>([\s\S]*?)<\/initvar>/i.exec(str(text))
-  if (!block) return undefined
-  try { return JSON.parse(block[1].replace(/^\s*```[^\n]*\n|\n```\s*$/g, '').trim()) } catch { return undefined }
-}
 export function leafPaths(value, prefix = '', out = []) {
   if (object(value) && Object.keys(value).length) {
     for (const [key, child] of Object.entries(value)) if (!key.startsWith('$')) leafPaths(child, prefix + '/' + key, out)

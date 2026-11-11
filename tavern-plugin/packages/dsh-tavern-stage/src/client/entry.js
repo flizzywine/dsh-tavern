@@ -341,7 +341,7 @@ const stageClientPlugin = (() => {
                     // included): while none is attached the game keeps its page view.
                     const ControllerStage=views.controller.Stage,leases=host.stageLeases;
                     const GalStage=leases?function StageLeaseConsumer(props){options.React.useEffect(()=>leases.attach(props.sessionId),[props.sessionId]);return options.React.createElement(ControllerStage,props);}:ControllerStage;
-                    Object.assign(views,own(createStageViews({...options,GalStage,useGalEntryLoader:admission.useLoader})));
+                    Object.assign(views,own(createStageViews({...options,GalStage,useGalEntryLoader:admission.useLoader,usePages:views.statusPanel?.usePages})));
                     if(options.globalSettings)views.GlobalSettings=createStageSettingsModule({React:options.React,...options.globalSettings,CubismCoreEntry:live2d?.Entry}).TavernStageSettingsSection;
                     // 素材库 / 舞台 tab pages: built over the core asset-pack closure and bound into it for this activation.
                     if(options.assetPack){views.assetPack=createStageAssetPackViews(options.assetPack.names);if(live2d)views.assetPack.live2dKit=live2d.previews;own({dispose:options.assetPack.bind(views.assetPack)});}

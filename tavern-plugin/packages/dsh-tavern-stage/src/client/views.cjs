@@ -1,5 +1,5 @@
 'use strict';
-function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon}) {
+function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon, usePages}) {
 const cleanups = new Set();
 let disposed = false;
 function own(cleanup) {
@@ -141,6 +141,20 @@ function GalStageToggle(props) {
         React.createElement(Icon, { name: "stage", size: 16 }), React.createElement("span", null, "舞台"));
 }
 
-return {Host:GalStageHost, Toggle:GalStageToggle, dispose};
+// The opening floor's way in: a card that greets the player with a page on
+// entering the stage (a title page, showOn stage-enter) is played there, and its text-mode opening may be blank (an
+// opening setup's greeting) - the floor says so and enters the stage, so it never reads as broken.
+function GalStageOpeningEntry(props) {
+    const state = useGalOn(props.sessionId);
+    const pages = usePages ? usePages(props.sessionId) : null;
+    if (!state.available || state.on || !pages?.pages?.some(page => page.showOn?.event === 'stage-enter')) return null;
+    const h = React.createElement;
+    return h("div", { className: "fork-gal-opening-entry", role: "group", "aria-label": "舞台游玩" },
+        h("span", null, "这张卡在舞台里游玩，开场和标题画面都在舞台上。"),
+        h("button", { type: "button", className: "dsh-tavern-btn", onClick: () => { if (!disposed) galEnter(props.sessionId); } },
+            h(Icon, { name: "stage", size: 16 }), h("span", null, "进入舞台")));
+}
+
+return {Host:GalStageHost, Toggle:GalStageToggle, OpeningEntry:GalStageOpeningEntry, dispose};
 }
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageViews};

@@ -23,4 +23,10 @@ test('invalid declarations identify the exact page and field', () => {
   invalid([{...page,size:'full',closeControl:'stage'}], 'pages.0.closeControl')
   invalid([{...page,showOn:{event:'other'}}], 'pages.0.showOn')
   invalid([{...page,preload:[{kind:'backgrounds',id:'port',size:42}]}], 'pages.0.preload.0.size')
+  const opening = { id: 'opening', label: '开局', html: '<p>开局</p>', size: 'full', opening: true }
+  invalid([{...opening,size:'window'}], 'pages.0.opening')
+  invalid([{...opening,showOn:{event:'stage-enter'}}], 'pages.0.opening')
+  invalid([{...opening,opening:'yes'}], 'pages.0.opening')
+  invalid([opening, {...opening,id:'opening-b'}], 'pages.1.opening')
+  assert.deepEqual(validateCardPages([page, opening]), [page, opening])
 })

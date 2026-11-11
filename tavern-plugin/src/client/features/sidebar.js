@@ -693,21 +693,57 @@
 				rememberPending: setPendingOpen,
 				finishOpen: finishPendingOpen
 			});
-			// The stage's new game action uses the same entry as the card list.
+			// The stage's new game action uses the same entry as the card list. fresh: the chat has no player message yet
+			// a card with an opening setup opens its 游戏准备 and the new game replaces this
+			// never-played chat; any other card has nothing to prepare, and respond(false) lets the stage start this chat.
 			const newGameFrom = React.useRef(null);
-			newGameFrom.current = function (sessionId) {
+			newGameFrom.current = function (sessionId, fresh, respond) {
 				const item = history.find(function (row) { return row.sessionId === sessionId; });
-				if (!item || !item.cardPath || busy) return;
-				openPicker();
+				if (!item || !item.cardPath || busy) return respond(false);
+				if (!fresh) openPicker();
 				void call("listCards").then(function (result) {
 					const card = (result.cards || []).find(function (row) { return row.path === item.cardPath && !row.readError; });
-					if (card) return openPlayCard(card);
-				}).catch(function (err) { setError(String(err && err.message || err)); });
+					if (fresh && !(card && card.hasOpeningForm)) return respond(false);
+					respond(true);
+					if (fresh) { openPicker(); return preparePlayConversation(card, item); }
+					if (card) return openPlayCard(card, true);
+				}).catch(function (err) { respond(false); setError(String(err && err.message || err)); });
 			};
 			React.useEffect(function () {
-				const listener = function (event) { newGameFrom.current(event.detail && event.detail.sessionId); };
+				const listener = function (event) {
+					const detail = event.detail || {};
+					detail.handled = true;
+					newGameFrom.current(detail.sessionId, detail.fresh === true, typeof detail.respond === "function" ? detail.respond : function () {});
+				};
 				window.addEventListener("dsh-tavern-new-game", listener);
 				return function () { window.removeEventListener("dsh-tavern-new-game", listener); };
+			}, []);
+			// A card's opening page on the stage (card page opening:true, presets/tavern/skills/stage-status-panel/references/panel-contract.md「开局页」) starts the game
+			// with its choice: the card's openingSetup resolved by the host (prepareOpeningPage, the 游戏准备 form's own authority),
+			// then the same start as every game. The game replaces the never-played chat the page stood on, and the stage enters
+			// it at its first act (no entry page).
+			const stageOpeningFrom = React.useRef(null);
+			stageOpeningFrom.current = async function (sessionId, choice) {
+				const item = history.find(function (row) { return row.sessionId === sessionId; });
+				if (!item || !item.cardPath) throw new Error("找不到这局游戏");
+				if (busy) throw new Error("正在处理别的操作，请稍候再开始");
+				const card = ((await call("listCards")).cards || []).find(function (row) { return row.path === item.cardPath && !row.readError; });
+				if (!card) throw new Error("人物卡不存在");
+				const draft = await call("createOpeningPreparation", { path: card.path, brief: true });
+				try {
+					const prepared = await call("callOpeningRuntime", { id: draft.id, method: "prepareOpeningPage", args: choice });
+					await newConversation(card, null, choice.openingId, prepared.playerName, prepared.input || undefined, { preparationId: draft.id, replaces: item,
+						onCreated: function (created) { galEnter(created.sessionId, { page: "" }); } });
+				} finally { void call("releaseOpeningPreparation", { id: draft.id }).catch(function () {}); }
+			};
+			React.useEffect(function () {
+				const listener = function (event) {
+					const detail = event.detail || {};
+					detail.handled = true;
+					stageOpeningFrom.current(detail.sessionId, detail.choice || {}).then(detail.respond, detail.fail);
+				};
+				window.addEventListener("dsh-tavern-stage-opening", listener);
+				return function () { window.removeEventListener("dsh-tavern-stage-opening", listener); };
 			}, []);
 			async function retryPendingOpen() {
 				if (!pendingOpen) return;
@@ -835,12 +871,14 @@
 				} catch (error) { setError("导入失败：" + String(error.message || error)); }
 				finally { setImportProgress(""); setBusy(false); }
 			}
-			async function newConversation(card, requestedMode, openingId, userName, initialMessage) {
+			// from: a start that is not the 游戏准备 page's ({preparationId, replaces, onCreated(created)}: a card's opening page on the
+			// stage); its failure is thrown to the caller and the page stays where it is.
+			async function newConversation(card, requestedMode, openingId, userName, initialMessage, from) {
 				const targetMode = requestedMode || (uiMode === "play" ? playModeOfCard(card) : "card");
 				const startedAt = Date.now();
                 const timing = openingPerformance.begin("startClick");
                 let successful = false;
-				const previousOpeningPicker = openingPicker;
+				const previousOpeningPicker = from || openingPicker;
                 let created = null;
 				const transitionOpening = previousOpeningPicker && previousOpeningPicker.openings ? previousOpeningPicker.openings.filter(function (item) { return item.id === openingId; })[0] : null;
 				tavernSessionTransition.begin({ projection: transitionOpening && transitionOpening.projection, trustedCardMode: previousOpeningPicker && previousOpeningPicker.trustedCardMode === true });
@@ -856,25 +894,60 @@
 						// Release the script owner before /trigger waits for its MVU initialization.
 						tavernSessionTransition.end();
 					}
+					if (from && from.onCreated) from.onCreated(created);
 					if (initialMessage) {
 						const playerName = liveTavernView.getSnapshot(created.sessionId).view?.playerName || resolvedUserName || previousOpeningPicker?.defaultPlayerName;
 						await timing.measure("submitInitialMessage", () => props.executeSlash("/send " + substituteTavernIdentityMacros(initialMessage, { playerName, characterName: card && card.name }) + "|/trigger", created.sessionId));
 					}
+					// the never-played chat this game replaces (newGameFrom) goes once the new one stands
+					const replaces = previousOpeningPicker && previousOpeningPicker.replaces;
+					if (replaces && replaces.sessionId !== created.sessionId) {
+						try { await removeChat(replaces); await refresh(["sessions"]); }
+						catch (removeError) { setError("旧的空白开局没有删掉，可以在游玩历史里手动删除：" + String(removeError && removeError.message || removeError)); }
+					}
 					successful = true;
 					console.info("dsh-tavern: 开始游戏完成", (Date.now() - startedAt) + "ms", preparedWorkspaceId ? "工作区已就绪" : "即时创建");
-				} catch (err) { if (!created) setOpeningPicker(previousOpeningPicker); setError((created ? "游戏已创建，开局消息发送失败：" : String(err && err.phase || "创建对话") + "失败：") + String(err && err.message || err)); if (initialMessage) throw err; }
+				} catch (err) { if (!created && !from) setOpeningPicker(previousOpeningPicker); setError((created ? "游戏已创建，开局消息发送失败：" : String(err && err.phase || "创建对话") + "失败：") + String(err && err.message || err)); if (initialMessage || (from && from.preparationId)) throw err; }
 				finally { timing.finish(successful); setBusy(false); }
 			}
-			function openPlayCard(card) {
+			// toOpening: the player asked for a new game on the stage (its title page's 新游戏 on a saved chat), so a card with an
+			// opening page enters it at once instead of at its title page.
+			async function openPlayCard(card, toOpening) {
 				if (busy) return;
 				if (pendingChatImport) {
 					setOpeningPicker({ card: card, openings: [], importOnly: true });
 					return;
 				}
+				if (card.hasOpeningForm && await stageOpens(card)) {
+					// the card's own opening page on the stage takes the place of the 游戏准备: the chat made here is the
+					// never-played game the page completes (and replaces). The stage client loads only while an open session
+					// needs it (none may be open yet, e.g. a fresh install): it is held until the new game is entered.
+					const release = galStageHold();
+					let entering = false;
+					try {
+						return await newConversation(card, null, undefined, undefined, undefined, { onCreated: function (created) {
+							entering = true;
+							whenStageAvailable(function () { release(); galEnter(created.sessionId, toOpening ? { page: card.openingPage } : undefined); });
+						} });
+					} finally { if (!entering) release(); }
+				}
 				if (card.hasOpeningForm) return preparePlayConversation(card);
 				return newConversation(card);
 			}
-			async function preparePlayConversation(card) {
+			// The card declares an opening page, the server stage is ready and the card's 舞台模式 is effective.
+			async function stageOpens(card) {
+				if (!card.openingPage) return false;
+				try {
+					if ((await call("getStageRuntimeStatus", {}))?.status !== "ready") return false;
+					return (await call("getCardAssetBindings", { path: card.path, metadataOnly: true }))?.effectiveStage?.stage === true;
+				} catch (error) { console.warn("dsh-tavern: 读不到舞台设置，改用游戏准备", error); return false; }
+			}
+			function whenStageAvailable(run) {
+				if (galStageAvailable.get()) return run();
+				const stop = galStageAvailable.subscribe(function () { if (galStageAvailable.get()) { stop(); run(); } });
+			}
+			// replaces: a never-played chat of this card (newGameFrom) that the game started here takes the place of.
+			async function preparePlayConversation(card, replaces) {
 				setBusy(true); setError("");
                 const timing = typeof openingPerformance !== "undefined" ? openingPerformance.begin("preparePreview") : null;
                 let successful = false;
@@ -882,10 +955,10 @@
 				try {
 					const userName = "";
 					const preparedKey = JSON.stringify([userName]);
-					setOpeningPicker({ card: card, openings: [], index: 0, userName: userName, preparing: true });
+					setOpeningPicker({ card: card, openings: [], index: 0, userName: userName, preparing: true, replaces: replaces || null });
 					const response = await initializeFullOpeningTemplate(await call("getCardOpenings", { previewTransport: "deferred-v1", path: card.path, userName: userName }));
 					const openings = response.openings || [];
-					setOpeningPicker({ card: card, preparing: false, preparedKey: preparedKey, preparationId: response.preparationId || "", defaultPlayerName: response.defaultPlayerName, openings: openings, index: 0, userName: userName, trustedCardMode: response.trustedCardMode });
+					setOpeningPicker({ card: card, replaces: replaces || null, preparing: false, preparedKey: preparedKey, preparationId: response.preparationId || "", defaultPlayerName: response.defaultPlayerName, openings: openings, index: 0, userName: userName, trustedCardMode: response.trustedCardMode });
 				successful = true;
 				} catch (err) { setOpeningPicker(null); playPrewarmRef.current.cancel(); setError(String(err && err.message || err)); }
 				finally { if (timing) timing.finish(successful); setBusy(false); }
@@ -1093,16 +1166,19 @@
 				} catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
+			async function removeChat(item) {
+				const prepared = await call("prepareDeleteChats", { chatIds: [item.chatId] });
+				if (!prepared.results[0].ok) throw new Error(prepared.results[0].error);
+				try { await props.archiveSession(item.sessionId); }
+				catch (archiveError) { if (!isMissingSessionArchiveError(archiveError)) throw archiveError; }
+				await call("deleteChat", { chatId: item.chatId });
+			}
 			async function deleteConversation(item, currentTitle) {
 				setMenuSession(null);
 				if (!await askConfirm("彻底删除对话“" + (currentTitle || item.cardName + "的新对话") + "”？\n此操作不可撤销，人物卡和世界书会保留。", { confirmText: "彻底删除" })) return;
 				setBusy(true); setError("");
 				try {
-					const prepared = await call("prepareDeleteChats", { chatIds: [item.chatId] });
-					if (!prepared.results[0].ok) throw new Error(prepared.results[0].error);
-					try { await props.archiveSession(item.sessionId); }
-					catch (archiveError) { if (!isMissingSessionArchiveError(archiveError)) throw archiveError; }
-					await call("deleteChat", { chatId: item.chatId });
+					await removeChat(item);
 					if (current === item.sessionId) {
 						const next = activeHistory.find(entry => entry.sessionId !== item.sessionId);
 						if (next) await openSessionWhenReady(next.sessionId);
@@ -1407,7 +1483,11 @@
                     style: { pointerEvents: busy ? "none" : undefined },
 					role: "region",
 					"aria-label": openingPicker.card.name + "开场白预览"
-				}, selectedOpening.text === '' && !selectedOpening.openingSetup ? h("p", null, "空白开场") : renderTavernProjection(selectedOpening.projection, {
+				}, selectedOpening.text === '' && !selectedOpening.openingSetup ? h("p", null, "空白开场") : (function (frame) {
+					// v2 opening setup: the card's form in front, the greeting frame mounted behind it (docs/specs/opening-setup-v2.md §6).
+					return selectedOpening.setup ? h(OpeningSetupForm, { key: selectedOpening.id, setup: selectedOpening.setup, card: openingPicker.card, disabled: busy || openingPicker.preparing }, frame) : frame;
+				})(renderTavernProjection(selectedOpening.projection, {
+					eagerFrame: Boolean(selectedOpening.setup),
 					streaming: false,
 					codeLabels: { copyLabel: "复制", copiedLabel: "已复制" },
 					mentions: undefined,
@@ -1424,7 +1504,7 @@
 						setOpeningPicker(Object.assign({}, openingPicker, { index: index }));
 					},
 					trustedCardMode: openingPicker.trustedCardMode
-				})) : null,
+				}))) : null,
 				h("div", { className: "dsh-tavern-picker-foot", style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "24px", flexWrap: "wrap" } }, h("input", { ref: chatImportFile, type: "file", accept: TAVERN_CARD_FILE_ACCEPT, multiple: true, style: { display: "none" }, onChange: function (event) { const files = Array.prototype.slice.call(event.target.files || []); event.target.value = ""; void previewChatImport(files); } }), h("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "6px" } }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { chatImportFile.current.click(); } }, busy && importProgress ? importProgress : "导入 SillyTavern 聊天记录"), h("small", null, "（可多选，必须都和这张人物卡匹配）")), h("button", { className: selectedOpening && selectedOpening.openingSetup ? "dsh-tavern-btn" : "dsh-tavern-question-primary", disabled: busy || openingPicker.preparing || (openingPicker.openings.length > 0 && !selectedOpening), onClick: function () { newConversation(openingPicker.card, null, selectedOpening ? selectedOpening.id : "", openingPicker.userName); } }, selectedOpening && selectedOpening.openingSetup ? "跳过设定，直接开始" : "开始新游戏"))
 			) : null;
 			const playPicker = h("div", { ref: openingLayoutRef, className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": openingPicker && !openingPicker.importOnly ? "游戏准备" : "选择人物卡开始游玩" }, pickerError, (openingChoice || importChoice) ? h(React.Fragment, null, importChoice, h("div", { style: { display: importChoice ? "none" : "contents" } }, openingChoice)) : h(React.Fragment, null,

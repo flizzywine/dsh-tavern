@@ -18,7 +18,8 @@ export function projectStatusPanelLedger(ledger, sections = []) {
   return out
 }
 
-export function createCardPagesService({ readWorkspace, chatForSession, index, packSnapshot }) {
+// cardPageOpening: the core's projection of a card's opening page (lib/domain/card-page-opening.js, via the stage core contract).
+export function createCardPagesService({ readWorkspace, chatForSession, index, packSnapshot, cardPageOpening }) {
   async function context(sessionId) {
     const chat = await chatForSession(sessionId)
     if (!chat || chat.mode === 'card') return null
@@ -33,12 +34,13 @@ export function createCardPagesService({ readWorkspace, chatForSession, index, p
       if (!value?.pages.length) return { pages: [], fresh: false }
       const indexed = await index(sessionId)
       return {
-        pages: value.pages.map(({ id, label, shortcut, menu, showOn, initial, size = 'window', closeControl }) => ({
+        pages: value.pages.map(({ id, label, shortcut, menu, showOn, initial, opening, size = 'window', closeControl }) => ({
           id, label, size, ...(closeControl !== undefined ? { closeControl } : {}),
           ...(shortcut !== undefined ? { shortcut } : {}), ...(menu !== undefined ? { menu } : {}),
-          ...(showOn !== undefined ? { showOn } : {}), ...(initial !== undefined ? { initial } : {})
+          ...(showOn !== undefined ? { showOn } : {}), ...(initial !== undefined ? { initial } : {}), ...(opening !== undefined ? { opening } : {})
         })),
-        fresh: !(indexed?.messages || []).some(message => message.role === 'user')
+        // never played: no player message, and not a game set up before it began (an opening page's kept greeting)
+        fresh: value.chat.openingPrepared !== true && !(indexed?.messages || []).some(message => message.role === 'user')
       }
     },
     async read({ sessionId, page, withHtml } = {}) {
@@ -52,6 +54,12 @@ export function createCardPagesService({ readWorkspace, chatForSession, index, p
         ...(withHtml === true ? { html: definition.html } : {}),
         data: { ledger: projectStatusPanelLedger(readLedger(value.chat.ledger), definition.ledger) }
       }
+    },
+    // The card's opening page (opening: true) reads the card's greetings and the openingSetup it completes.
+    async opening({ sessionId, page, userName } = {}) {
+      const value = await context(sessionId)
+      if (!value) return null
+      return cardPageOpening(value.card, { page, userName: String(userName ?? '').trim().slice(0, 80) || value.chat.macroState?.userName || '你' })
     },
     async locate({ sessionId, page, ref } = {}) {
       const value = await context(sessionId)
