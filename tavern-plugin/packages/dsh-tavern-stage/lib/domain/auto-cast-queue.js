@@ -74,9 +74,10 @@ export function planAutoCast(record, cast, level, {busy = new Set(), sprites = t
 export function jobReady(record, job, file, at) {
   return {...record, jobs:{...record.jobs, [jobKey(job)]:{...job, status:'ready', file, at}}}
 }
-export function jobFailed(record, job, at) {
-  const key = jobKey(job), before = record.jobs[key]
-  return {...record, jobs:{...record.jobs, [key]:{...job, status:'failed', failures:(before?.status === 'failed' ? before.failures : 0) + 1, at}}}
+// error: why it failed (its code, else its message), kept with the job for whoever reads the record.
+export function jobFailed(record, job, at, error = null) {
+  const key = jobKey(job), before = record.jobs[key], reason = error && String(error.code || error.message || error).slice(0, 200)
+  return {...record, jobs:{...record.jobs, [key]:{...job, status:'failed', failures:(before?.status === 'failed' ? before.failures : 0) + 1, at, ...(reason ? {error:reason} : {})}}}
 }
 export function jobsLanded(record, jobs) {
   const next = structuredClone(record)
