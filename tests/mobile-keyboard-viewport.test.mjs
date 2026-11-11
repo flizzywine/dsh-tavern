@@ -257,3 +257,19 @@ test('内嵌酒馆的 iframe 外壳同样跟随布局视口', () => {
   assert.equal(root.style.height, '100%')
   release()
 })
+
+test('phone layout holds minimum-scale=1 so stray overflow cannot zoom the page out; dispose restores the viewport meta', () => {
+  const doc = makeDocument()
+  const harness = makeView(doc)
+  doc.view = harness.view
+  doc.defaultView = harness.view
+  let content = 'width=device-width, initial-scale=1'
+  const meta = { getAttribute: () => content, setAttribute: (_name, value) => { content = value } }
+  doc.querySelector = selector => selector === 'meta[name="viewport"]' ? meta : selector === '[data-composer-seat]' ? doc.seat : selector === '[data-composer-card]' ? doc.card : selector.includes('header') ? header : null
+  const factory = vm.runInNewContext(`${layoutSource}\n;({ installVisualViewportPin })`, { Date, composerOffsetPx: () => 0, sheetMaxPx: () => 0 })
+  const release = factory.installVisualViewportPin(doc)
+  harness.flush()
+  assert.equal(content, 'width=device-width, initial-scale=1, minimum-scale=1')
+  release()
+  assert.equal(content, 'width=device-width, initial-scale=1')
+})
