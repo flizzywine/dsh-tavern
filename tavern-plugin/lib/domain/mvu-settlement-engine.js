@@ -246,6 +246,7 @@ export function createMvuSettlementEngine(deps) {
       events: [],
       receipt: error?.mvuReceipt ? structuredClone(error.mvuReceipt) : { version: 1, status: 'error', summary: '', changes: [], failures: [{ command: '', message }] }
     }
+    deps.settlementParticipants?.closed(latest, mvuTarget.messageId)
     return true
   }
 
@@ -269,6 +270,7 @@ export function createMvuSettlementEngine(deps) {
         throw new Error('这轮旧记录没有结算前快照，无法安全重新结算变量')
       }
     }
+    deps.settlementParticipants?.retrying(target.message)
     target.message.mvu = { pending: true, variableRetry: true, guidance: guidance === undefined ? str(target.message.mvu?.guidance).trim() : str(guidance).trim(), modified: false, diagnostics: [], events: [] }
     return 'reset'
   }
