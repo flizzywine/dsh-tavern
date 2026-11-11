@@ -59,7 +59,8 @@ function useStageConsumers(sessionId, store, onEvent, performanceAdapter, cgAdap
             cancel(intent) {
                 if (!intent.token) modSink.current?.cancel(intent);
                 if (intent.reason === 'revoked' && intent.token) sfx.stopToken(intent.token.id);
-                else if (intent.reason === 'page-changed') { ringing.forEach(id => carried.add(id)); voice.stopPlayback(sessionId); }
+                // a whole translated narration paragraph (intent.keep) goes on across its own pages.
+                else if (intent.reason === 'page-changed') { ringing.forEach(id => carried.add(id)); if (!intent.keep) voice.stopPlayback(sessionId); }
                 else { sfx.stop(); voice.stopPlayback(sessionId); }
             }
         };

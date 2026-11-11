@@ -28,7 +28,7 @@ export function createClipHost(options) {
     // Bind the library before the speech consumer captures its authority epoch.
     // Lazy first binding otherwise invalidates the very first cached-voice read.
     presentation?.available()
-    const speech=createAssetPackSpeech({getLibrary:library,presentation,getEngine:()=>snapshot.engine.values,getTts:tts,cardId:snapshot.cardId,scope:'dsh-browser',readOnly:true,
+    const speech=createAssetPackSpeech({getLibrary:library,presentation,getEngine:()=>snapshot.engine.values,getTts:tts,scope:'dsh-browser',readOnly:true,
       getBinding:(_ref,voice,flags)=>assetVoiceBinding(tts(),voice,flags)})
     return {presentation,speech,allowedPackIds,close(){speech?.dispose();presentation?.dispose()}}
   }
@@ -36,11 +36,11 @@ export function createClipHost(options) {
     const chat=await readChat(sessionId)
     if(!chat || chat.id!==chatId || chat.sessionId!==sessionId)throw clipUserError('对话与所选内容不匹配，请重新打开对话后选择片段')
     const [display,config,workspace]=await Promise.all([readDisplay(chat),readConfig(chat.cardPath),readWorkspace(chat.cardPath)])
-    const paragraphs=display.projections.flatMap(({turn,body})=>(body?.paragraphs || []).filter(row=>!row.pending).map(row=>({turn,para:row.para,kind:row.kind,text:row.text,source:row.source,segment:row.segment}))).sort((a,b)=>a.turn-b.turn || a.para-b.para)
+    const paragraphs=display.projections.flatMap(({turn,body})=>(body?.paragraphs || []).filter(row=>!row.pending).map(row=>({turn,para:row.para,kind:row.kind,text:row.text,source:row.source,segment:row.segment,...(row.speech!==undefined?{speech:row.speech}:{}),...(row.voiceHold?{voiceHold:true}:{})}))).sort((a,b)=>a.turn-b.turn || a.para-b.para)
     if(!range)return {chatId,paragraphs}
     const selected=clipRange(paragraphs,range)
     if(selected.length>100)throw clipUserError('一次最多导出 100 段，请缩小范围')
-    const snapshot={sessionId,chatId,cardPath:chat.cardPath,cardId:workspace.meta?.id,from:range.from,config,raw:workspace.raw,engine:structuredClone(settings()),allowedPacks:[...globalPacks()],
+    const snapshot={sessionId,chatId,cardPath:chat.cardPath,from:range.from,config,raw:workspace.raw,engine:structuredClone(settings()),allowedPacks:[...globalPacks()],
       turns:[],paragraphs:[],regeneratedDshTurns:chat.regeneratedDshTurns || {},...await extras(chat)}
     const first=display.projections.findIndex(row=>row.turn===range.from.turn)
     for(const projection of display.projections.slice(Math.max(0,first-20)).filter(row=>row.turn<=range.to.turn)) {
@@ -72,17 +72,21 @@ export function createClipHost(options) {
     return snapshot
   }
   // Each narration page's cached narrator voice (pageVoices; null = silent, counted missing). True when any is found.
+  // 旁白 in another language (config.narrator.wholeParagraph) reads the paragraph's whole voice text on its first page, as
+  // the stage does (speech.cjs stageNarratorHandle); its later pages carry none.
   async function narratorVoices(snapshot,measured) {
-    const own=consumer(snapshot)
+    const own=consumer(snapshot),narrator=snapshot.config?.narrator,language=narrator?.language || 'zh'
     let found=false
     try {
       for(const [index,row] of snapshot.paragraphs.entries()) {
-        const texts=measured[index].narration
-        if(!texts.some(Boolean))continue
+        const pages=measured[index].narration
+        if(!pages.some(Boolean))continue
+        const whole=row.voiceHold&&row.speech===undefined?null:row.speech ?? row.text
+        const texts=narrator?.wholeParagraph?pages.map((text,n)=>n===0?whole:null):pages
         row.pageVoices=[]
         for(const text of texts) {
           const input={text,mood:'default'},voice=text?await own.speech?.readCached(NARRATOR_VOICE,input):null
-          row.pageVoices.push(voice?{key:voice.key,durationMs:voice.durationMs,loudness:voice.loudness,alias:NARRATOR_VOICE,narration:true,input,language:'zh',audio:Buffer.from(voice.audio).toString('base64')}:null)
+          row.pageVoices.push(voice?{key:voice.key,durationMs:voice.durationMs,loudness:voice.loudness,alias:NARRATOR_VOICE,narration:true,input,language,audio:Buffer.from(voice.audio).toString('base64')}:null)
           if(text&&!voice)row.missingVoiceCount=(row.missingVoiceCount || 0)+1
           found||=!!voice
         }
