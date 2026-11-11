@@ -1,7 +1,8 @@
 import { bodyGenerationFailure } from './body-generation-failure.js'
-import { isScopedMessages } from './scoped-messages.js'
+import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { promptSection } from './prompt-section.js'
 import { captureChatHeader } from './chat-persistence.js'
+import { commitChatFields, rebaseChatChanges, sameChatMessageIdentity } from './chat-field-transaction.js'
 import { validAnchor } from './round-anchor.js'
 import { CARD_MEMORY_TOOLS } from '../../packages/dsh-tavern-card-memory/index.js'
 import { inputAttachments } from './player-input-content.js'
@@ -12,7 +13,7 @@ import { ledgerFrameInputs } from './story-ledger.js'
 import { projectBackgroundInput } from './runtime-content-projection.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { normalizeResourcePath } from './file-resources.js'
-import { diffJson } from './json-mutation.js'
+import { applyJsonChangesShared, diffJson } from './json-mutation.js'
 import { hasTavernCredit, withTavernCredit } from './card-credit.js'
 import { projectPluginBody } from './st-contract-service.js'
 import { STORY_GENERATE_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, storyToolCallEnabled } from './story-tool-submission.js'
@@ -22,8 +23,9 @@ import { replyProse } from './reply-prose.js'
 import { captureBodyRegenerationSource } from './body-regeneration-materials.js'
 import { frameUserInput } from './agent-input-frame.js'
 import { readRowsAt } from './bounded-history.js'
-import { legacyMessageUid } from './message-uid.js'
 import { isDeepStrictEqual } from 'node:util'
+import { createHash } from 'node:crypto'
+import { canonicalJson } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -68,13 +70,10 @@ function storageStamp(change) {
   return change.path[0] === '_storageRevision' || change.path[0] === 'updatedAt'
 }
 
-function variableHeaderChange({ path }) {
+function compatiblePreparationHeaderChange({ path }) {
   return path[0] === 'variables' || path[0] === 'tavernHelperScriptVariables'
     || (path[0] === 'macroState' && path[1] === 'userName')
-}
-
-function changesOverlap(left, right) {
-  return left.path.slice(0, Math.min(left.path.length, right.path.length)).every((key, index) => key === right.path[index])
+    || (path[0] === 'rollbackUndo' && path[1] === 'storageRevision')
 }
 
 function object(value) {
@@ -161,10 +160,28 @@ function rememberRuntimeInput(chat, turn, source, text) {
   for (const oldTurn of keys.slice(40)) delete chat.runtimeInputs[String(oldTurn)]
 }
 
-// The prompt-template projection of a turn's input changes the template variables before the
-// reply exists. Keep what they were, so a turn that fails (or is left behind by one) is undone
-// instead of carrying its input into the next turn.
-function stageTemplateInput(chat, turn, source, projected) {
+function requestUserIndex(messages, requestId) {
+  return requestId ? messages.findLastIndex(row => row?.role === 'user' && str(row.source?.rpcId).trim() === requestId) : -1
+}
+
+function inputVariablesDigest(row) {
+  return createHash('sha256').update(canonicalJson(clone(row?.variables ?? null), { admitted: true })).digest('hex')
+}
+
+function copyInputVariables(target, row) {
+  if (Object.hasOwn(row, 'variables')) target.variables = clone(row.variables)
+  else delete target.variables
+}
+
+function inputVariablesChanged(stage, row, baseline) {
+  return row && (stage?.inputVariablesDigest
+    ? stage.inputVariablesDigest !== inputVariablesDigest(row)
+    : !isDeepStrictEqual(row.variables, baseline?.variables))
+}
+
+// Store what the template wrote alongside the old values so abort can undo
+// its changes without reverting later writes.
+function stageTemplateInput(chat, turn, source, projected, baselineDigest) {
   if (chat.promptTemplateInput && chat.promptTemplateInput.turn !== turn) restoreTemplateInput(chat)
   const before = chat.promptTemplateInput?.before || { variables: clone(chat.variables ?? null), initial: clone(chat.promptTemplateInitialVariables ?? null) }
   // The template input row inherits the previous floor; a blank opening has none, so it
@@ -172,18 +189,36 @@ function stageTemplateInput(chat, turn, source, projected) {
   const inherited = chat.messages?.length ? undefined : lastTavernHelperVariables([], chat.variables)
   const message = inherited === undefined ? projected.message
     : { ...projected.message, variables: (projected.message.variables || [{}]).map(value => ({ ...inherited, ...value })) }
-  chat.promptTemplateInput = { turn, source, message, before }
+  const after = { variables: clone(projected.scopes.local ?? null), initial: clone(projected.scopes.initial ?? null) }
+  chat.promptTemplateInput = { turn, source, message, before, after, inputVariablesDigest: baselineDigest }
   chat.variables = projected.scopes.local
   chat.promptTemplateInitialVariables = projected.scopes.initial
 }
 
+function undoTemplateValue(before, written, current) {
+  if (isDeepStrictEqual(current, written)) return before
+  if (isDeepStrictEqual(before, written) || !written || !current
+    || typeof written !== 'object' || typeof current !== 'object' || Array.isArray(written) || Array.isArray(current)
+    || (before !== undefined && (before === null || typeof before !== 'object' || Array.isArray(before)))) return current
+  const keys = new Set([...Object.keys(before ?? {}), ...Object.keys(written), ...Object.keys(current)])
+  const entries = []
+  for (const key of keys) {
+    const own = (value) => value && Object.hasOwn(value, key) ? value[key] : undefined
+    const value = undoTemplateValue(own(before), own(written), own(current))
+    if (value !== undefined) entries.push([key, value])
+  }
+  return before === undefined && entries.length === 0 ? undefined : Object.fromEntries(entries)
+}
+
 function restoreTemplateInput(chat) {
-  const before = chat.promptTemplateInput?.before
+  const { before, after } = chat.promptTemplateInput ?? {}
   if (before) {
-    if (before.variables === null) delete chat.variables
-    else chat.variables = before.variables
-    if (before.initial === null) delete chat.promptTemplateInitialVariables
-    else chat.promptTemplateInitialVariables = before.initial
+    for (const [scope, field] of [['variables', 'variables'], ['initial', 'promptTemplateInitialVariables']]) {
+      // Legacy stages stored only the pre-turn snapshot.
+      const value = after ? undoTemplateValue(before[scope] ?? undefined, after[scope] ?? undefined, chat[field]) : before[scope] ?? undefined
+      if (value === undefined) delete chat[field]
+      else chat[field] = value
+    }
   }
   delete chat.promptTemplateInput
 }
@@ -457,7 +492,7 @@ export function createTurnOrchestrator(options) {
         preparationBase = captureChatHeader(chat)
       }
     }
-    async function saveStoryPreparation() {
+    async function saveStoryPreparation(refreshFrame) {
       if (preview) return
       const operation = foregroundOperation && chat.timeline?.operations?.[foregroundOperation.operationId]
       if (!operation) return savePreparation({ source: 'foreground.prepare' })
@@ -466,17 +501,18 @@ export function createTurnOrchestrator(options) {
       if (operation.placeholder) return savePreparation({ source: 'foreground.prepare' })
       const attachments = inputAttachments(input.userContent)
       const withUser = userText !== '' || attachments.length > 0
-      const savedUserIndex = withUser && requestId ? chat.messages.findLastIndex(row =>
-        row?.role === 'user' && str(row.source?.rpcId).trim() === requestId) : -1
+      const savedUserIndex = withUser ? requestUserIndex(chat.messages, requestId) : -1
       const savedUser = savedUserIndex >= 0 ? chat.messages[savedUserIndex] : null
-      const user = Object.assign({}, savedUser, {
+      const userFields = {
         role: 'user', text: runtimeUserText, sourceText: userText, ts: savedUser?.ts ?? now(), native: true,
         ...(attachments.length ? { inputAttachments: attachments } : {}),
         ...(requestId ? { source: { kind: 'user', rpcId: requestId } } : {})
-      })
-      if (chat.promptTemplateInput?.turn === turn) Object.assign(user, clone(chat.promptTemplateInput.message), { templateInputSource: userText })
-      user.placeholder = true
-      user.native = true
+      }
+      const template = chat.promptTemplateInput?.turn === turn ? chat.promptTemplateInput : null
+      if (template) Object.assign(userFields, clone(template.message), { templateInputSource: userText })
+      userFields.placeholder = true
+      userFields.native = true
+      const user = { ...savedUser, ...userFields }
       const assistant = {
         role: 'assistant', text: '', sourceText: '', displayText: '', displayMode: 'html',
         ts: now(), native: true, turn, placeholder: true
@@ -494,22 +530,25 @@ export function createTurnOrchestrator(options) {
         operation.placeholder = { userIndex, assistantIndex }
         const header = captureChatHeader(chat)
         const prepared = diffJson(baseline, header).filter(change => !storageStamp(change))
-        for (let attempt = 0; attempt < 3; attempt++) {
+        let refreshedFrame
+        const receipt = await commitChatFields(store.patchChat, chat.id, { source: 'foreground.prepare' }, async attempt => {
           if (attempt > 0) selected = await store.readChatSlice(input.sessionId, [])
           if (!selected?.denseMessages || selected.chat.id !== chat.id || selected.messageCount !== count) throw preparationConflict()
           const currentRevision = selected.chat._storageRevision
           let latestUser = savedUser
           let changes = [...prepared]
+          const changedRows = new Map()
+          let refreshNeeded = false
+          refreshedFrame = undefined
           if (currentRevision !== revision) {
-            // Helper/MVU can save after the frame takes its snapshot. Keep its
-            // variables while still rejecting edits to the story or its layout.
             const concurrent = diffJson(baseline, captureChatHeader(selected.chat)).filter(change => !storageStamp(change))
-            if (!concurrent.every(change => variableHeaderChange(change) &&
-              prepared.every(patch => !changesOverlap(change, patch) || isDeepStrictEqual(change, patch)))) throw preparationConflict()
+            if (!concurrent.every(compatiblePreparationHeaderChange)) throw preparationConflict()
+            refreshNeeded = concurrent.some(change => change.path[0] !== 'rollbackUndo')
+            changes = rebaseChatChanges(prepared, concurrent)
+            if (!changes) throw preparationConflict()
             const changed = await store.readChangedSlice?.(chat.id, revision)
             if (!changed?.denseMessages || changed.layoutChanged || changed.messageCount !== count) throw preparationConflict()
-            if (changed.chat._storageRevision !== currentRevision) continue
-            changes = prepared.filter(patch => !concurrent.some(change => isDeepStrictEqual(change, patch)))
+            if (changed.chat._storageRevision !== currentRevision) return undefined
             const unloaded = changed.indices.filter(index => !chat.messages[index])
             const historical = unloaded.length && store.readWindow ? await readRowsAt(store.readWindow, chat.id, revision, unloaded) : null
             const historicalRows = new Map(unloaded.map((index, offset) => [index, historical?.chat.messages[offset]]))
@@ -517,40 +556,56 @@ export function createTurnOrchestrator(options) {
               const before = chat.messages[index] ?? historicalRows.get(index)
               const after = changed.chat.messages[offset]
               if (!before || !after) throw preparationConflict()
-              const { variables: _beforeVariables, messageUid: beforeUid, ...beforeMessage } = before
-              const { variables: _afterVariables, messageUid: afterUid, ...afterMessage } = after
-              // A first variable snapshot can assign the floor its stable native identity.
-              if (!isDeepStrictEqual(beforeMessage, afterMessage) ||
-                (beforeUid !== afterUid && (beforeUid || afterUid !== legacyMessageUid(before, index)))) throw preparationConflict()
+              const { variables: _beforeVariables, messageUid: _beforeUid, displayRuntime: _beforeDisplay, ...beforeMessage } = before
+              const { variables: _afterVariables, messageUid: _afterUid, displayRuntime: _afterDisplay, ...afterMessage } = after
+              if (!sameChatMessageIdentity(before, after, index) || !isDeepStrictEqual(beforeMessage, afterMessage)) throw preparationConflict()
+              changedRows.set(index, after)
+              if (!isDeepStrictEqual(before.variables, after.variables)) refreshNeeded = true
               if (index === savedUserIndex) latestUser = after
             }
           }
-          if (savedUser) {
-            const nextUser = { ...latestUser, ...user }
-            if (!isDeepStrictEqual(latestUser.variables, savedUser.variables)) {
-              if (Object.hasOwn(latestUser, 'variables')) nextUser.variables = latestUser.variables
-              else delete nextUser.variables
-              if (header.promptTemplateInput?.turn === turn) {
-                const staged = { ...header.promptTemplateInput.message }
-                if (Object.hasOwn(latestUser, 'variables')) staged.variables = latestUser.variables
-                else delete staged.variables
-                changes.push(...diffJson(header.promptTemplateInput.message, staged).map(change => ({
-                  ...change, path: ['promptTemplateInput', 'message', ...change.path]
-                })))
-              }
+          const nextUser = { ...latestUser, ...userFields }
+          if (inputVariablesChanged(template, latestUser, savedUser)) {
+            copyInputVariables(nextUser, latestUser)
+            if (template) {
+              const staged = { ...template.message }
+              copyInputVariables(staged, latestUser)
+              changes.push(...diffJson(template.message, staged).map(change => ({
+                ...change, path: ['promptTemplateInput', 'message', ...change.path]
+              })))
             }
+          }
+          if (template && withUser) changes.push({ op: 'set',
+            path: ['timeline', 'operations', foregroundOperation.operationId, 'placeholder', 'inputVariablesDigest'],
+            value: inputVariablesDigest(nextUser) })
+          if (refreshNeeded) {
+            if (savedUser) changedRows.set(savedUserIndex, nextUser)
+            const latest = applyJsonChangesShared(captureChatHeader(selected.chat), changes)
+            latest.messages = createScopedMessages(count, changedRows, index => chat.messages[index])
+            refreshedFrame = await refreshFrame(latest)
+            if (refreshedFrame) changes.push({ op: 'set', path: ['foregroundFrames', foregroundOperation.operationId], value: refreshedFrame })
+          }
+          if (savedUser) {
             changes.push(...diffJson(latestUser, nextUser).map(change => ({
               ...change, path: ['messages', savedUserIndex, ...change.path]
             })))
           }
           changes.push({ op: 'splice', path: ['messages'], index: count, deleteCount: 0, items: rows })
-          if (await store.patchChat(chat.id, currentRevision, changes, { source: 'foreground.prepare' })) return
-        }
-        throw preparationConflict()
+          return { revision: currentRevision, changes }
+        })
+        if (!receipt) throw preparationConflict()
+        return refreshedFrame
       }
       // Legacy/flat saves use the same identity rule as the scoped patch path.
       operation.placeholder = { userIndex: savedUserIndex >= 0 ? savedUserIndex : withUser ? chat.messages.length : null,
         assistantIndex: chat.messages.length + rows.length - 1 }
+      if (template && withUser) {
+        if (inputVariablesChanged(template, savedUser, savedUser)) {
+          copyInputVariables(user, savedUser)
+          copyInputVariables(template.message, savedUser)
+        }
+        operation.placeholder.inputVariablesDigest = inputVariablesDigest(user)
+      }
       if (savedUser) chat.messages[savedUserIndex] = user
       chat.messages.push(...rows)
       await store.writeChat(chat, { source: 'foreground.prepare' })
@@ -635,9 +690,10 @@ export function createTurnOrchestrator(options) {
       const promptOnly = regexScripts.filter(script => script?.promptOnly === true)
       runtimeUserText = projectBackgroundInput(runtimeUserText, regexScripts.filter(script => script?.promptOnly !== true), 1).text
       if (typeof options.projectUserTemplate === 'function' && runtimeUserText !== '') {
+        const baselineDigest = inputVariablesDigest(chat.messages[requestUserIndex(chat.messages, requestId)])
         const projected = await options.projectUserTemplate({ chat, card, turn, text: runtimeUserText, preview })
         runtimeUserText = projected.message.text
-        stageTemplateInput(chat, turn, userText, projected)
+        stageTemplateInput(chat, turn, userText, projected, baselineDigest)
       }
       const prompted = projectBackgroundInput(runtimeUserText, promptOnly, 1)
       if (prompted.changed) {
@@ -695,6 +751,9 @@ export function createTurnOrchestrator(options) {
       const current = chat && timeline.inspect({ chat })
       if (!current || current.branchId !== foregroundOperation.basedOn.branchId || current.revision !== foregroundOperation.basedOn.revision ||
           current.operations[foregroundOperation.operationId]?.status !== 'running') throw preparationConflict()
+      const stage = chat.promptTemplateInput
+      const row = chat.messages[requestUserIndex(chat.messages, requestId)]
+      if (stage?.turn === turn && inputVariablesChanged(stage, row, row)) copyInputVariables(stage.message, row)
     }
     const templateWorldBook = foregroundWorldBook || await projectWorldBookTemplates({ chat, card, turn, userText: runtimeUserText })
     const scriptWorldBook = !foregroundWorldBook && typeof options.projectScriptPromptWorldbook === 'function' ? await options.projectScriptPromptWorldbook({ chat, card, turn }) : null
@@ -708,7 +767,15 @@ export function createTurnOrchestrator(options) {
       chat.lastWorldBookRecall = clone(chat.preparedWorldBook)
       chat.worldBookError = foregroundWorldBook.error
     }
-    const plan = await planner.plan({ purpose: 'body', card, chat: templateWorldBook?.macroState ? { ...chat, macroState: templateWorldBook.macroState } : chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: null, variableUpdate: variableUpdateFor(chat), worldBookContext })
+    const plannedUserName = chat.macroState?.userName
+    const planBody = state => {
+      const templateMacros = templateWorldBook?.macroState
+      const macroState = templateMacros && state.macroState?.userName !== plannedUserName
+        ? { ...templateMacros, userName: state.macroState?.userName } : templateMacros
+      return planner.plan({ purpose: 'body', card, chat: macroState ? { ...state, macroState } : state, userText: runtimeUserText,
+        sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: null, variableUpdate: variableUpdateFor(state), worldBookContext })
+    }
+    const plan = await planBody(chat)
     // Seam to the plugin layer; it never throws and drops a failing plugin's part.
     const pluginSections = Object.hasOwn(input, 'pluginSections') && Array.isArray(input.pluginSections)
       ? clone(input.pluginSections)
@@ -718,7 +785,6 @@ export function createTurnOrchestrator(options) {
       ? await options.foregroundRosterAddendum({ chat, userText: runtimeUserText }) : ''
     const source = frameSource(chat, card, foregroundOperation)
     if (typeof options.bodyGeneration === 'function') source.bodyGeneration = await (options.prepareBodyGeneration || options.bodyGeneration)(input.sessionId)
-    source.card.systemPromptText = plan.systemPromptText
     source.worldBook.scriptPromptRefs = Array.isArray(scriptWorldBook && scriptWorldBook.refs) ? clone(scriptWorldBook.refs) : []
     if (scriptWorldBook && typeof scriptWorldBook.recordReads === 'function') chat.worldBookReads = scriptWorldBook.recordReads(chat.worldBookReads)
     source.worldBook.templateRefs = Array.isArray(templateWorldBook && templateWorldBook.refs) ? clone(templateWorldBook.refs) : []
@@ -728,27 +794,29 @@ export function createTurnOrchestrator(options) {
       entries: Object.fromEntries((foregroundWorldBook.changedVirtualRefs || []).map(ref => [ref, foregroundWorldBook.virtualState.entries[ref]?.renderHash]))
     }
     source.worldBook.templateDiagnostics = Array.isArray(templateWorldBook && templateWorldBook.diagnostics) ? clone(templateWorldBook.diagnostics) : []
-    Object.assign(source, captureBodyRegenerationSource({ chat, card,
-      worldbookPrefix: foregroundWorldBook?.prefixContext ?? templateWorldBook?.prefixContext,
-      systemPromptText: plan.systemPromptText }))
-    const frameInput = {
-      chatId: chat.id,
+    const regeneration = (state, systemPromptText) => captureBodyRegenerationSource({ chat: state, card,
+      worldbookPrefix: foregroundWorldBook?.prefixContext ?? templateWorldBook?.prefixContext, systemPromptText })
+    const preparedState = regeneration(chat, plan.systemPromptText)
+    const buildFrame = (state, contextPlan, regenerationState) => frameBuilder.build({
+      chatId: state.id,
       branchId: foregroundOperation.basedOn.branchId,
       basedOnRevision: foregroundOperation.basedOn.revision,
       operationId: foregroundOperation.operationId,
       turn,
-      inputs: foregroundFrameInputs(plan, userText, runtimeUserText,
+      inputs: foregroundFrameInputs(contextPlan, userText, runtimeUserText,
         Object.hasOwn(input, 'runtimePresetSnapshot') ? input.runtimePresetSnapshot
-          : resolveRuntimePresetMacros(chat.runtimePresetSnapshot, { charName: card.name, macroState: chat.macroState }).snapshot, chat, pluginSections, rosterAddendum),
-      source
-    }
-    let frame = frameBuilder.build(frameInput)
+          : resolveRuntimePresetMacros(state.runtimePresetSnapshot, { charName: card.name, macroState: state.macroState }).snapshot, state, pluginSections, rosterAddendum),
+      source: { ...source, card: { ...source.card, systemPromptText: contextPlan.systemPromptText }, ...regenerationState }
+    })
+    let frame = buildFrame(chat, plan, preparedState)
     if (!preview && foregroundWorldBook?.log && typeof options.recordWorldbookRecall === 'function') {
       let receipt
       try { receipt = { recallLog: await options.recordWorldbookRecall({ chat, frame, log: foregroundWorldBook.log }) } }
       catch (error) { receipt = { recallLogError: String(error?.message || error) } }
-      frame = frameBuilder.build({ ...frameInput, source: { ...source, worldBook: { ...source.worldBook, ...receipt } } })
+      Object.assign(source.worldBook, receipt)
+      frame = buildFrame(chat, plan, preparedState)
     }
+    const { ledgerInjection, tavernScriptPrompts } = chat
     consumeScriptPrompts(chat)
     // The ledger is read once after a consolidation; this turn's frame keeps it for retries.
     delete chat.ledgerInjection
@@ -757,7 +825,20 @@ export function createTurnOrchestrator(options) {
     // The frame is already built, so these logical rows cannot leak into the
     // current model request. They become visible immediately and are replaced
     // in place by foreground.commit.
-    if (chatChanged && (mode === 'story' || mode === 'script')) await saveStoryPreparation()
+    if (chatChanged && (mode === 'story' || mode === 'script')) {
+      frame = await saveStoryPreparation(async latest => {
+        // The staged scripts and worldbook controllers already ran for this
+        // turn. Refresh the frame's variable inputs without executing them again.
+        if (tavernScriptPrompts !== undefined) latest.tavernScriptPrompts = tavernScriptPrompts
+        latest.ledgerInjection = ledgerInjection
+        const current = regeneration(latest, plan.systemPromptText)
+        if (isDeepStrictEqual(current.regenerationMaterials.generationState, preparedState.regenerationMaterials.generationState)
+          && isDeepStrictEqual(latest.macroState?.userName, plannedUserName)
+          && isDeepStrictEqual(current.regenerationState.tavernHelperScriptVariables, preparedState.regenerationState.tavernHelperScriptVariables)) return undefined
+        const refreshed = await planBody(latest)
+        return buildFrame(latest, refreshed, regeneration(latest, refreshed.systemPromptText))
+      }) || frame
+    }
     else if (chatChanged) await savePreparation({ source: 'foreground.prepare' })
     return { ready: true, mode, cardName: card.name, userText: runtimeUserText, frame }
   }
@@ -879,13 +960,22 @@ export function createTurnOrchestrator(options) {
       const revision = before._storageRevision, count = selected.messageCount
       expectedTimeline ??= { branchId: before.timeline.branchId, revision: before.timeline.revision }
       let stale = false
+      async function readRows(indices) {
+        const rows = await store.readChatSlice(input.sessionId, indices, ['id', '_storageRevision'])
+        if (!rows?.denseMessages || rows.chat.id !== before.id || rows.chat._storageRevision !== revision) {
+          stale = true
+          return []
+        }
+        return rows.chat.messages
+      }
       const history = {
+        async userMessage(index) { return (await readRows([index]))[0] },
         async previousVariables() {
           for (let end = count, size = 8; end > 0; end -= size, size = Math.min(size * 8, 512)) {
             const start = Math.max(0, end - size)
-            const rows = await store.readChatSlice(input.sessionId, Array.from({ length: end - start }, (_, i) => start + i), ['_storageRevision'])
-            if (!rows?.denseMessages || rows.chat._storageRevision !== revision) { stale = true; return undefined }
-            const found = lastTavernHelperVariables(rows.chat.messages)
+            const rows = await readRows(Array.from({ length: end - start }, (_, i) => start + i))
+            if (stale) return undefined
+            const found = lastTavernHelperVariables(rows)
             if (found !== undefined) return found
           }
           return undefined
@@ -956,6 +1046,9 @@ export function createTurnOrchestrator(options) {
     }
     let assistantText = sourceText
     let previousMvuVariables
+    let operation
+    let currentUser
+    let preserveInputVariables = false
     let reply = {
       sourceText,
       projectionText: sourceText,
@@ -966,10 +1059,23 @@ export function createTurnOrchestrator(options) {
       warnings: []
     }
     if (mode === 'story' || mode === 'script') {
+      operation = Object.values(timeline.inspect({ chat }).operations).find(item =>
+        item.kind === 'body' && item.status === 'running' && Number(item.turn) === turn)
+      const placeholder = chat.timeline?.operations?.[operation?.id]?.placeholder
+      const userIndex = placeholder?.userIndex
+      const template = chat.promptTemplateInput?.turn === turn ? chat.promptTemplateInput : null
+      if (validMessageIndex(userIndex)) {
+        const row = history ? await history.userMessage(userIndex) : chat.messages[userIndex]
+        if (row?.role === 'user' && row.placeholder === true && (!requestId || row.source?.rpcId === requestId)) currentUser = row
+      }
+      preserveInputVariables = Boolean(currentUser && (placeholder.inputVariablesDigest
+        ? inputVariablesDigest(currentUser) !== placeholder.inputVariablesDigest
+        : Array.isArray(currentUser.variables)))
       if (!pluginBody && renderMacros !== null && assistantText.includes('{{')) assistantText = renderMacros(assistantText, chat)
-      previousMvuVariables = chat.promptTemplateInput?.turn === turn ? lastTavernHelperVariables([chat.promptTemplateInput.message])
-        : history ? await history.previousVariables() ?? lastTavernHelperVariables([], chat.variables)
-          : lastTavernHelperVariables(chat.messages, chat.variables)
+      if (preserveInputVariables) previousMvuVariables = lastTavernHelperVariables([currentUser])
+      else if (template) previousMvuVariables = lastTavernHelperVariables([template.message])
+      else previousMvuVariables = history ? await history.previousVariables() ?? lastTavernHelperVariables([], chat.variables)
+        : lastTavernHelperVariables(chat.messages, chat.variables)
       const extensions = typeof store.readCardExtensions === 'function'
         ? await store.readCardExtensions(cardPathOf(chat), chat)
         : null
@@ -1048,9 +1154,6 @@ export function createTurnOrchestrator(options) {
       return { saved: true, mode, changed, chatId: chat.id, cardName: savedCard.name }
     }
 
-    let operation = Object.values(timeline.inspect({ chat }).operations).find(function (item) {
-      return item.kind === 'body' && item.status === 'running' && Number(item.turn) === turn
-    })
     // Adopting a round the save missed (#196): its own operation is long gone,
     // so record it the way a fresh turn would have begun.
     if (operation === undefined && input.adopt === true) {
@@ -1091,6 +1194,8 @@ export function createTurnOrchestrator(options) {
             ...(requestId ? { source: { kind: 'user', rpcId: requestId } } : {}), ...(attachments.length ? { inputAttachments: attachments } : {}) }
           if (previousMvuVariables !== undefined) Object.assign(userMessage, { swipeId: 0, swipes: [userText], variables: [clone(previousMvuVariables)] })
           if (draft.promptTemplateInput?.turn === turn) Object.assign(userMessage, clone(draft.promptTemplateInput.message), {templateInputSource:userText})
+          if (preserveInputVariables) copyInputVariables(userMessage, currentUser)
+          if (currentUser?.messageUid) userMessage.messageUid = currentUser.messageUid
           // A wizard wrote its opening record into the floor it sent before the game
           // existed; this is that floor arriving, so the record travels with it.
           if (draft.pendingOpeningMessageVariables) {

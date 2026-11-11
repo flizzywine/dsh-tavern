@@ -108,7 +108,14 @@
 			}, [openingPicker && openingPicker.card.path]);
 			// 选卡/开局准备页展开时收起卡片自带的悬浮应用（外置小手机挂在宿主 body 上，
 			// 会盖住开场白预览和 letter 列表）；进入对局后由「人物卡应用」面板停靠显示。
-			const pickerOpen = picking && uiMode === "play";
+			const [expandedPreviews, setExpandedPreviews] = React.useState({});
+			const [historyManagerOpen, setHistoryManagerOpen] = React.useState(false);
+			const [managerQuery, setManagerQuery] = React.useState("");
+			const [managerCardFilter, setManagerCardFilter] = React.useState("all");
+			const [managerStatusFilter, setManagerStatusFilter] = React.useState("all");
+			const [managerRenaming, setManagerRenaming] = React.useState(null);
+			const attemptedPreviewIds = React.useRef(new Set());
+			const pickerOpen = (picking && uiMode === "play") || historyManagerOpen;
 			React.useEffect(function () {
 				if (!pickerOpen) return;
 				document.body.classList.add("dsh-tavern-picker-open");
@@ -138,7 +145,66 @@
 			const [managing, setManaging] = React.useState(false);
 			const [selectedChats, setSelectedChats] = React.useState([]);
 			const [deleteNotice, setDeleteNotice] = React.useState("");
-			React.useEffect(function () { setSelectedChats([]); setManaging(false); setMenuSession(null); setDeleteNotice(""); setArchiveExpanded(false); }, [uiMode]);
+			React.useEffect(function () {
+				setSelectedChats([]);
+				setManaging(false);
+				setMenuSession(null);
+				setDeleteNotice("");
+				setArchiveExpanded(false);
+				setHistoryManagerOpen(false);
+				setManagerQuery("");
+				setManagerCardFilter("all");
+				setManagerStatusFilter("all");
+				setManagerRenaming(null);
+			}, [uiMode]);
+			// 弹窗管理面板铺满主区域，Esc 收起来，别让玩家非去找关闭按钮。
+			React.useEffect(function () {
+				if (!historyManagerOpen) return;
+				function onKey(event) {
+					if (event.key !== "Escape" || managerRenaming) return;
+					event.stopPropagation();
+					setHistoryManagerOpen(false);
+					setMenuSession(null);
+				}
+				window.addEventListener("keydown", onKey, true);
+				return function () { window.removeEventListener("keydown", onKey, true); };
+			}, [historyManagerOpen, managerRenaming]);
+			// 存量旧存档若索引里还没有 preview，按需分批回填并写回 index.json，避免列表加载时全量读盘。
+			const previewBackfillMounted = React.useRef(true);
+			React.useEffect(function () {
+				return function () { previewBackfillMounted.current = false; };
+			}, []);
+			React.useEffect(function () {
+				const missing = history.filter(function (item) {
+					return item && item.chatId && item.preview === undefined && !attemptedPreviewIds.current.has(item.chatId);
+				});
+				if (!missing.length) return;
+				// 已展开的分组和打开的管理器里的会话优先，用户正在看的那几行先补齐。
+				const prioritized = missing.slice().sort(function (a, b) {
+					const aVisible = historyManagerOpen || historyGroupState[tavernHistoryCardKey(a)] === true ? 1 : 0;
+					const bVisible = historyManagerOpen || historyGroupState[tavernHistoryCardKey(b)] === true ? 1 : 0;
+					return bVisible - aVisible;
+				});
+				const batch = prioritized.slice(0, 40).map(function (item) { return item.chatId; });
+				batch.forEach(function (id) { attemptedPreviewIds.current.add(id); });
+				call("loadSessionPreviews", { chatIds: batch, limit: 40 }).then(function (result) {
+					if (!previewBackfillMounted.current) return;
+					const map = result && result.previews && typeof result.previews === "object" ? result.previews : {};
+					if (!Object.keys(map).length) return;
+					setHistory(function (prev) {
+						let changed = false;
+						const next = prev.map(function (item) {
+							if (!item || item.preview !== undefined || !map[item.chatId]) return item;
+							changed = true;
+							return Object.assign({}, item, { preview: map[item.chatId] });
+						});
+						return changed ? next : prev;
+					});
+				}, function () {
+					// 宿主还没有这个接口或这轮读盘失败：放开标记，下次展开分组时再试。
+					batch.forEach(function (id) { attemptedPreviewIds.current.delete(id); });
+				});
+			}, [history, historyGroupState, historyManagerOpen]);
 			const removedChatsHandler = React.useRef(null);
 			React.useEffect(function () {
 				function onRemoved(event) { if (removedChatsHandler.current) removedChatsHandler.current(event.detail && event.detail.sessionIds || []); }
@@ -149,8 +215,9 @@
 				if (busy) return;
 				setSelectedChats(function (ids) { return ids.includes(chatId) ? ids.filter(function (id) { return id !== chatId; }) : ids.concat(chatId); });
 			}
-			async function deleteSelectedConversations() {
-				const items = visibleHistory.filter(function (item) { return selectedChats.includes(item.chatId); });
+			async function deleteSelectedConversations(customItems) {
+				const pool = Array.isArray(customItems) ? customItems : visibleHistory;
+				const items = pool.filter(function (item) { return selectedChats.includes(item.chatId); });
 				if (busy || !items.length || !await askConfirm("彻底删除这 " + items.length + " 个对话？\n此操作不可撤销，人物卡和世界书会保留。", { confirmText: "彻底删除" })) return;
 				setBusy(true); setError(""); setDeleteNotice("");
 				try {
@@ -171,6 +238,76 @@
 					await refresh(["sessions"]);
 				} catch (error) { setError(String(error.message || error)); await refresh(); }
 				finally { setBusy(false); }
+			}
+			// 归档/恢复按小并发走：一次选中几十个存档时串行会等到用户以为卡死。
+			async function archiveSelectedConversations(archive, customItems) {
+				const pool = Array.isArray(customItems) ? customItems : activeHistory.concat(archivedHistory);
+				const items = pool.filter(function (item) {
+					return selectedChats.includes(item.chatId) && archivedSessions.has(item.sessionId) !== Boolean(archive);
+				});
+				if (busy || !items.length) return;
+				setBusy(true); setError(""); setDeleteNotice("");
+				const failures = [];
+				let next = 0;
+				let archivedCount = 0;
+				async function worker() {
+					for (;;) {
+						const index = next++;
+						if (index >= items.length) return;
+						const item = items[index];
+						try {
+							if (archive) await props.archiveSession(item.sessionId);
+							else await props.workspaces.unarchiveSession(item.sessionId);
+							archivedCount++;
+						} catch (err) { failures.push((item.title || item.cardName || item.chatId) + "：" + String(err && err.message || err)); }
+					}
+				}
+				try {
+					await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
+					if (archive && items.some(function (item) { return item.sessionId === current; })) {
+						props.sessions.clear();
+						const archivedIds = new Set(items.map(function (item) { return item.sessionId; }));
+						const alternative = activeHistory.find(function (entry) { return !archivedIds.has(entry.sessionId); });
+						if (alternative) await openSessionWhenReady(alternative.sessionId);
+						else await openBlankConversation();
+					}
+					setSelectedChats([]);
+					setDeleteNotice((archive ? "已归档 " : "已恢复 ") + archivedCount + " 个对话" + (failures.length ? "，" + failures.length + " 个失败" : ""));
+					if (failures.length) setError(failures.slice(0, 10).join("\n"));
+					await refresh(["sessions"]);
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			function openHistoryManager() {
+				setMenuSession(null);
+				setManagerRenaming(null);
+				setSelectedChats([]);
+				setHistoryManagerOpen(true);
+			}
+			function closeHistoryManager() {
+				setHistoryManagerOpen(false);
+				setManagerRenaming(null);
+				setSelectedChats([]);
+			}
+			// 面板里直接改名：存档改的是 chat.title，卡片工作台改的是会话名。
+			async function commitManagerRename(item) {
+				const pending = managerRenaming;
+				if (!pending || pending.chatId !== item.chatId) return;
+				setManagerRenaming(null);
+				const play = isPlayMode(item.mode || "story");
+				const previous = play ? (item.title || "") : historyTitle(item, summaries[item.sessionId]);
+				const title = String(pending.value || "").trim();
+				if (title === previous) return;
+				setBusy(true); setError("");
+				try {
+					await (play ? props.renameChat : props.renameSession)(item.sessionId, title);
+					await refresh(["sessions"]);
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			async function openManagerSession(item) {
+				try { await openSessionWhenReady(item.sessionId); setHistoryManagerOpen(false); }
+				catch (err) { setError(String(err && err.message || err)); }
 			}
             const [updateStatus, setUpdateStatus] = React.useState({ phase: "loading", host: "cli" });
             const updater = React.useRef(null);
@@ -1063,14 +1200,41 @@
 				const live = liveStatus && typeof liveStatus.get === "function" ? liveStatus.get(sessionId) : null;
 				return !!(live && live.running);
 			}
-			function renderHistoryRow(item) {
+			// 索引行有 preview 就直接展示；没有的旧存档先留空，回填 effect 拿到后补齐。
+			function historyPreview(item, summary) {
+				return formatTavernHistoryPreview(item && item.preview !== undefined ? item.preview : (summary && summary.preview));
+			}
+			function previewLinesNode(lines, expanded, className) {
+				const children = [];
+				lines.forEach(function (line, index) {
+					if (index) children.push("\n");
+					children.push(h("span", { key: "who-" + index, className: "dsh-tavern-preview-who is-" + line.role }, line.label + "："));
+					children.push(h("span", { key: "text-" + index }, line.text));
+				});
+				return h("div", { className: className + (expanded ? " expanded" : ""), "aria-hidden": "true" }, children);
+			}
+			function togglePreview(item) {
+				setMenuSession(null);
+				setExpandedPreviews(function (previous) {
+					const next = Object.assign({}, previous);
+					if (previous[item.sessionId] === true) delete next[item.sessionId];
+					else next[item.sessionId] = true;
+					return next;
+				});
+			}
+			function renderHistoryRow(item, groupName) {
 				const archived = archivedSessions.has(item.sessionId);
 				const summary = summaries[item.sessionId];
-				const title = historyTitle(item, summary);
+				// 分组标题已经是角色名，行内再重复一遍只会挤掉真正有区分度的尾部。
+				const title = groupName ? compactTavernHistoryTitle(historyTitle(item, summary), groupName) : historyTitle(item, summary);
 				const generating = sessionGenerating(item.sessionId);
-				return h("div", { key: item.sessionId, className: "dsh-tavern-side-row" + (current === item.sessionId ? " active" : "") + (generating ? " is-generating" : "") },
+				const preview = historyPreview(item, summary);
+				const expanded = preview.hasPreview && expandedPreviews[item.sessionId] === true;
+				const stamp = tavernHistoryStamp(item, summary, summaries, historyOrder);
+				const stampIsInTitle = !item.title && isPlayMode(item.mode || "story") && Boolean(formatTime(stamp)) && title.indexOf(formatTime(stamp)) >= 0;
+				return h("div", { key: item.sessionId, className: "dsh-tavern-side-row" + (current === item.sessionId ? " active" : "") + (generating ? " is-generating" : "") + (preview.hasPreview ? " has-preview" : "") },
 					// in 管理 the whole row is the checkbox (house round check), not a small native box.
-					h("button", Object.assign({ className: "dsh-tavern-side-row-main" + (managing ? " ap-check-row" : ""), disabled: busy }, managing ? { role: "checkbox", "aria-checked": selectedChats.includes(item.chatId), "aria-label": "选择对话：" + title } : null, { onClick: async function () {
+					h("button", Object.assign({ className: "dsh-tavern-side-row-main" + (managing ? " ap-check-row" : ""), disabled: busy, title: preview.hasPreview && !expanded && preview.tooltip ? preview.tooltip : undefined }, managing ? { role: "checkbox", "aria-checked": selectedChats.includes(item.chatId), "aria-label": "选择对话：" + title } : null, { onClick: async function () {
 					if (managing) { toggleChatSelection(item.chatId); return; }
 					if (archived) { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); return; }
 					try {
@@ -1083,10 +1247,18 @@
 					h("div", { className: "dsh-tavern-side-row-name" },
 						generating ? h("span", { className: "dsh-tavern-side-row-spinner", role: "status", "aria-label": "正在生成" }, h(Spinner, {})) : null,
 						h("span", { className: "dsh-tavern-side-row-title" }, title)),
-					h("div", { className: "dsh-tavern-side-row-meta" }, h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")), h("span", null, generating ? "生成中" : formatTime(tavernHistoryStamp(item, summary, summaries, historyOrder)))))
+					preview.hasPreview ? previewLinesNode(expanded ? preview.detailLines : preview.compactLines, expanded, "dsh-tavern-side-row-preview") : null,
+					h("div", { className: "dsh-tavern-side-row-meta" },
+						h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")),
+						preview.hasPreview || preview.messageCount ? h("span", { className: "dsh-tavern-side-row-turns" }, preview.turnBadge) : null,
+						// 自动标题本身就是「11/7 20:25 开局」，再重复一次时间只是占宽度。
+						generating || !stampIsInTitle ? h("span", null, generating ? "生成中" : formatTime(stamp)) : null))
 					),
+					!managing && preview.hasPreview ? h("button", { className: "dsh-tavern-side-row-expand", title: expanded ? "收起预览" : "展开预览", "aria-label": (expanded ? "收起预览：" : "展开预览：") + title, "aria-expanded": expanded ? "true" : "false", onClick: function (event) { event.stopPropagation(); togglePreview(item); } }, expanded ? "▴" : "▾") : null,
 					!managing ? h("button", { className: "dsh-tavern-side-row-more", title: "对话操作", "aria-label": "对话操作", "aria-expanded": menuSession === item.sessionId ? "true" : "false", onClick: function () { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); } }, "⋯") : null,
 					!managing && menuSession === item.sessionId ? h("div", { className: "dsh-tavern-side-row-menu" },
+						// 触屏没有悬停的 ▾，展开/收起预览收进菜单，行内不再多占一列。
+						preview.hasPreview ? h("button", { disabled: busy, "aria-pressed": expanded ? "true" : "false", onClick: function () { togglePreview(item); } }, expanded ? "收起预览" : "展开预览") : null,
 						!archived ? h("button", { disabled: busy, onClick: function () { renameConversation(item, title); } }, "重命名") : null,
 						h("button", { disabled: busy, onClick: () => changeConversationArchive(item, !archived) }, archived ? "恢复到历史" : "归档"),
                         !archived && isPlayMode(item.mode || "story") ? h("button", { disabled: busy, onClick: () => rescueConversation(item) }, "存档救援") : null,
@@ -1103,9 +1275,9 @@
 						// A collapsed group hides its rows, so its head carries the same mark when one of them generates.
 						group.items.some(function (item) { return sessionGenerating(item.sessionId); }) ? h("span", { className: "dsh-tavern-history-group-spinner", role: "status", "aria-label": "有对话正在生成" }, h(Spinner, {})) : null,
 						h("span", { className: "dsh-tavern-history-group-name" }, group.name), h("span", { className: "dsh-tavern-history-group-count" }, group.items.length)),
-					expanded ? h("div", { className: "dsh-tavern-history-group-items" }, group.items.map(renderHistoryRow)) : null);
+					expanded ? h("div", { className: "dsh-tavern-history-group-items" }, group.items.map(function (item) { return renderHistoryRow(item, group.name); })) : null);
 			}
-			const rows = uiMode !== "play" ? orderedActiveHistory.map(renderHistoryRow) : groupTavernHistory(orderedActiveHistory, summaries, historyOrder).map(function (group) {
+			const rows = uiMode !== "play" ? orderedActiveHistory.map(function (item) { return renderHistoryRow(item, ""); }) : groupTavernHistory(orderedActiveHistory, summaries, historyOrder).map(function (group) {
 				const expanded = historyGroupState[group.key] === true;
 				return renderHistoryGroup(group, expanded, () => setHistoryGroupState(previous => ({ ...previous, [group.key]: !expanded })));
 			});
@@ -1113,6 +1285,85 @@
 				if (archiveExpanded) setSelectedChats(ids => ids.filter(id => !orderedArchivedHistory.some(item => item.chatId === id)));
 				setArchiveExpanded(!archiveExpanded);
 			}) : null;
+			// ---------- 宽屏会话管理器 ----------
+			// 侧边栏一行放不下「玩家首条输入 + AI 首条回复 + 轮数」，批量整理 200+ 个
+			// 同前缀的导入存档要靠这一层：宽列表、搜标题和正文、按卡/轮数筛选、批量归档。
+			const managerPool = orderTavernHistory(history.filter(isHistoryInMode), summaries, historyOrder);
+			const managerCardOptions = Array.from(new Map(managerPool.filter(function (item) { return item.cardPath; }).map(function (item) { return [tavernHistoryCardKey(item), item.cardName || item.cardPath]; })).entries());
+			const managerQueryText = managerQuery.trim().toLowerCase();
+			// 面板收起时不跑筛选和预览格式化：侧边栏每敲一个字都会重渲染一次。
+			const managerVisible = !historyManagerOpen ? [] : managerPool.filter(function (item) {
+				const archived = archivedSessions.has(item.sessionId);
+				const preview = historyPreview(item, summaries[item.sessionId]);
+				if (managerStatusFilter === "archived") { if (!archived) return false; }
+				else if (archived) return false;
+				else if (managerStatusFilter === "opening" && !preview.isOpeningOnly) return false;
+				else if (managerStatusFilter === "dialogue" && !(preview.turnCount > 0)) return false;
+				if (managerCardFilter !== "all" && tavernHistoryCardKey(item) !== managerCardFilter) return false;
+				if (!managerQueryText) return true;
+				return [historyTitle(item, summaries[item.sessionId]), item.cardName, preview.searchText].filter(Boolean).join("\n").toLowerCase().includes(managerQueryText);
+			});
+			const managerSelectedItems = managerPool.filter(function (item) { return selectedChats.includes(item.chatId); });
+			const managerSelectedActive = managerSelectedItems.filter(function (item) { return !archivedSessions.has(item.sessionId); }).length;
+			const managerSelectedArchived = managerSelectedItems.length - managerSelectedActive;
+			function renderManagerRow(item) {
+				const archived = archivedSessions.has(item.sessionId);
+				const summary = summaries[item.sessionId];
+				const title = historyTitle(item, summary);
+				const preview = historyPreview(item, summary);
+				const selected = selectedChats.includes(item.chatId);
+				const renaming = Boolean(managerRenaming) && managerRenaming.chatId === item.chatId;
+				const play = isPlayMode(item.mode || "story");
+				return h("div", { key: item.sessionId, className: "dsh-tavern-history-manager-row" + (selected ? " selected" : "") + (current === item.sessionId ? " current" : "") },
+					h("input", { type: "checkbox", className: "dsh-tavern-history-manager-check", checked: selected, disabled: busy, "aria-label": "选择对话：" + title, onChange: function () { toggleChatSelection(item.chatId); } }),
+					h("div", { className: "dsh-tavern-history-manager-body" },
+						h("div", { className: "dsh-tavern-history-manager-headline" },
+							renaming ? h("input", {
+								className: "dsh-tavern-history-manager-rename", value: managerRenaming.value, maxLength: 80, disabled: busy, autoFocus: true, "aria-label": "对话标题",
+								onChange: function (event) { setManagerRenaming({ chatId: item.chatId, value: event.target.value }); },
+								onBlur: function () { void commitManagerRename(item); },
+								onKeyDown: function (event) {
+									if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
+									else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setManagerRenaming(null); }
+								}
+							}) : h("button", { className: "dsh-tavern-history-manager-title", title: "点击改名", disabled: busy, onClick: function () { setManagerRenaming({ chatId: item.chatId, value: play ? (item.title || "") : title }); } }, title),
+							archived ? h("span", { className: "dsh-tavern-history-manager-tag" }, "已归档") : null,
+							h("span", { className: "dsh-tavern-history-manager-turn" }, preview.turnBadge),
+							h("span", { className: "dsh-tavern-history-manager-time" }, formatTime(tavernHistoryStamp(item, summary, summaries, historyOrder)))),
+						h("div", { className: "dsh-tavern-history-manager-card" }, (item.cardName || "未绑定人物卡") + (play ? "" : " · 卡片工作台")),
+						preview.hasPreview ? previewLinesNode(preview.detailLines, false, "dsh-tavern-history-manager-preview") : h("div", { className: "dsh-tavern-history-manager-preview empty" }, "还没有正文内容")),
+					h("div", { className: "dsh-tavern-history-manager-actions" },
+						h("button", { disabled: busy, onClick: function () { void openManagerSession(item); } }, "打开"),
+						h("button", { disabled: busy, onClick: function () { void changeConversationArchive(item, !archived); } }, archived ? "恢复" : "归档"),
+						h("button", { className: "danger", disabled: busy, onClick: function () { void deleteConversation(item, title); } }, "删除")));
+			}
+			const historyManagerPanel = historyManagerOpen ? h("div", { key: "history-manager", className: "dsh-tavern-picker-overlay dsh-tavern-history-manager-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closeHistoryManager(); } },
+				h("div", { className: "dsh-tavern-history-manager", role: "dialog", "aria-modal": "true", "aria-label": "会话管理" },
+					h("div", { className: "dsh-tavern-history-manager-head" },
+						h("span", null, uiMode === "play" ? "游玩历史 · 管理" : "卡片历史 · 管理"),
+						h("span", { className: "dsh-tavern-history-manager-count" }, "共 " + managerPool.length + " · 当前 " + managerVisible.length),
+						h("span", { className: "dsh-tavern-spacer" }),
+						h("button", { className: "dsh-tavern-btn", onClick: closeHistoryManager }, "关闭")),
+					h("div", { className: "dsh-tavern-history-manager-toolbar" },
+						h("input", { className: "dsh-tavern-library-search dsh-tavern-history-manager-search", value: managerQuery, placeholder: "搜索标题或对话内容", "aria-label": "搜索会话", onChange: function (event) { setManagerQuery(event.target.value); } }),
+						managerCardOptions.length ? h("select", { className: "dsh-tavern-history-manager-select", value: managerCardFilter, "aria-label": "按人物卡筛选", onChange: function (event) { setManagerCardFilter(event.target.value); } },
+							h("option", { value: "all" }, "全部人物卡"),
+							managerCardOptions.slice(0, 300).map(function (entry) { return h("option", { key: entry[0], value: entry[0] }, entry[1]); })) : null,
+						h("div", { className: "dsh-tavern-history-manager-filters" },
+							[["all", "全部"], ["dialogue", "有交互"], ["opening", "仅开场"], ["archived", "已归档"]].map(function (choice) {
+								return h("button", { key: choice[0], className: "dsh-tavern-history-manager-filter", "aria-pressed": managerStatusFilter === choice[0] ? "true" : "false", onClick: function () { setManagerStatusFilter(choice[0]); } }, choice[1]);
+							}))),
+					h("div", { className: "dsh-tavern-history-manager-list" },
+						managerVisible.length ? managerVisible.map(renderManagerRow) : h("div", { className: "dsh-tavern-history-manager-empty" }, managerQueryText ? "没有匹配的会话" : "没有会话")),
+					h("div", { className: "dsh-tavern-history-manager-foot" },
+						h("button", { className: "dsh-tavern-btn", disabled: busy || !managerVisible.length, onClick: function () { setSelectedChats(managerVisible.map(function (item) { return item.chatId; })); } }, "全选筛选结果"),
+						h("button", { className: "dsh-tavern-btn", disabled: busy || !managerSelectedItems.length, onClick: function () { setSelectedChats([]); } }, "取消选择"),
+						h("span", { className: "dsh-tavern-history-manager-selected" }, "已选 " + managerSelectedItems.length + " 个"),
+						h("span", { className: "dsh-tavern-spacer" }),
+						h("button", { className: "dsh-tavern-btn", disabled: busy || !managerSelectedActive, onClick: function () { void archiveSelectedConversations(true, managerPool); } }, "归档所选" + (managerSelectedActive ? "（" + managerSelectedActive + "）" : "")),
+						h("button", { className: "dsh-tavern-btn", disabled: busy || !managerSelectedArchived, onClick: function () { void archiveSelectedConversations(false, managerPool); } }, "恢复所选" + (managerSelectedArchived ? "（" + managerSelectedArchived + "）" : "")),
+						h("button", { className: "dsh-tavern-btn danger", disabled: busy || !managerSelectedItems.length, onClick: function () { void deleteSelectedConversations(managerPool); } }, busy ? "处理中…" : "彻底删除" + (managerSelectedItems.length ? "（" + managerSelectedItems.length + "）" : ""))),
+					deleteNotice ? h("div", { className: "dsh-tavern-history-manager-notice", role: "status" }, deleteNotice) : null)) : null;
 			const selectedOpening = openingPicker && openingPicker.openings[openingPicker.index];
 			const pickerError = error ? h("div", { className: "dsh-tavern-picker-error", role: "alert" },
 				h("div", null, error),
@@ -1314,6 +1565,8 @@
 					h("button", { className: "dsh-tavern-update-button", disabled: checkingOrRunning || awaitingDesktopRestart || updateStatus.phase === "restart-required" || updateStatus.phase === "installed-restart-required", onClick: checkUpdate }, awaitingDesktopRestart ? "请重启 Desktop" : updateStatus.phase === "checking" ? "正在检查…" : (updateStatus.phase === "running" ? "正在更新…" : (updateStatus.phase === "cancelling" ? "正在取消…" : (updateStatus.phase === "blocked" ? "等待安全停止" : (updateStatus.phase === "installed-restart-required" ? "请手动重启" : (updateStatus.phase === "restart-required" ? "重启 Desktop 后可用" : (upToDateQuiet ? "✓ 已是最新" : "检查更新"))))))),
 					cancelSupported ? h("button", { className: "dsh-tavern-update-button", disabled: updateStatus.phase === "cancelling", onClick: cancelUpdate }, updateStatus.phase === "cancelling" ? "正在取消…" : "取消更新") : null);
 			return h(React.Fragment, null, h(TavernErrorCenter), collapsedSidebar, h("div", { className: "dsh-tavern-sidebar", style: { display: collapsed ? "none" : undefined, position: "relative", width: props.embedded ? "100%" : props.width + "px" } },
+				// 手机宽度整屏铺开时宿主的抽屉把手被盖住，右上角留酒馆自己的收回按钮（桌面端由 CSS 隐藏）。
+				collapsed ? null : h("button", { className: "dsh-tavern-side-collapse", title: "收起侧栏", "aria-label": "收起侧栏", onClick: function () { props.toggleSidebar(); } }, h("span", { "aria-hidden": "true" }, "‹"), h("span", null, "收起")),
 				h("div", { className: "dsh-tavern-side-head" }, h("div", { className: "dsh-tavern-side-brand dsh-tavern-lockup", role: "img", "aria-label": "DSH Tavern" }), props.embedded ? null : h("button", { className: "dsh-tavern-side-icon", title: "收起侧栏", onClick: props.toggleSidebar }, "◧")),
 				h("div", { className: "dsh-tavern-mode-switch" },
 					h("button", { className: uiMode === "play" ? "active" : "", disabled: busy, onClick: function () { switchToPlay(); } }, "游玩"),
@@ -1329,10 +1582,13 @@
                 updatingCard ? h(TavernCardUpdateDialog, { target: updateTarget, name: cards.find(card => card.path === updateTarget)?.name || updateTarget, file: updateFile, notice: updateNotice, error: updateError, result: updateResult, busy, call, pick: () => updateInput.current.click(), close: () => setUpdatingCard(false), replace: replaceSelectedCard }) : null,
 				h("div", { className: "dsh-tavern-side-title dsh-tavern-history-heading" },
 					h("span", null, uiMode === "play" ? "游玩历史" : "卡片历史"),
-					h("button", { className: "dsh-tavern-history-action", disabled: busy, onClick: function () { setManaging(!managing); setSelectedChats([]); setMenuSession(null); setDeleteNotice(""); } }, managing ? "取消" : "管理")),
+					h("button", { className: "dsh-tavern-history-action", disabled: busy, onClick: function () { setManaging(!managing); setSelectedChats([]); setMenuSession(null); setDeleteNotice(""); } }, managing ? "取消" : "管理"),
+					h("button", { className: "dsh-tavern-history-action dsh-tavern-history-panel", title: "宽屏管理会话", "aria-label": "宽屏管理会话", disabled: busy || !managerPool.length, onClick: openHistoryManager }, "⤢")),
 				managing ? h("div", { className: "dsh-tavern-history-selection" },
 					h("button", { className: "dsh-tavern-history-action", disabled: busy || !visibleHistory.length, onClick: function () { setSelectedChats(visibleHistory.map(function (item) { return item.chatId; })); } }, "全选"),
-					h("span", null, "已选 " + visibleHistory.filter(function (item) { return selectedChats.includes(item.chatId); }).length)) : null,
+					h("span", null, "已选 " + visibleHistory.filter(function (item) { return selectedChats.includes(item.chatId); }).length),
+					h("span", { className: "dsh-tavern-spacer" }),
+					h("button", { className: "dsh-tavern-history-action", disabled: busy || !visibleHistory.length, onClick: openHistoryManager }, "宽屏管理")) : null,
 				h("div", { className: "dsh-tavern-side-list" }, rows.length || archiveGroup ? rows : h(EmptyState, { noun: uiMode === "play" ? "游玩对话" : "卡片工作台对话" }), archiveGroup),
 				managing ? h("button", { className: "dsh-tavern-btn", style: { flexShrink: 0, margin: "8px 12px", color: "#e57373" }, disabled: busy || !visibleHistory.some(function (item) { return selectedChats.includes(item.chatId); }), onClick: deleteSelectedConversations }, busy ? "正在删除…" : "彻底删除所选（" + visibleHistory.filter(function (item) { return selectedChats.includes(item.chatId); }).length + "）") : null,
 				deleteNotice ? h("div", { role: "status", style: { padding: "4px 12px" } }, deleteNotice) : null,
@@ -1345,6 +1601,7 @@
                     h(TavernHostCompatibility),
 					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status" }, updateMessage)
 				),
+				historyManagerPanel,
 				(openingPicker || (picking && uiMode === "play")) ? h("div", { key: "play-picker", className: "dsh-tavern-picker-overlay", style: { display: picking && uiMode === "play" && !updatingCard ? undefined : "none" }, onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, playPicker) : null,
                 picking && uiMode === "card" ? h("div", { key: "card-picker", className: "dsh-tavern-picker-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, cardPicker) : null,
 				cardZipImport ? cardZipImport.element : null
