@@ -27,6 +27,20 @@ function userPrompt(call) {
   return call.messages[0].content.find(part => part.type === 'text').text
 }
 
+test('旧配置仍通过 Tavern 正文入口注入自动配图标记，智能选图时不注入', async t => {
+  let prompt
+  const tavern = { ...mockTavern(), promptSection(section) { prompt = section; return () => {} } }
+  const fixture = await imagePluginFixture(t, { tavern, files: {
+    'config.json': { autoImageGen: true, smartImageSelection: false, imageGenCount: 4 },
+  } })
+  const runtime = await fixture.start()
+  await runtime.request('state')
+  assert.equal(prompt?.name, 'auto-image-gen')
+  assert.match(prompt.text(), /选出 4 个.*\n\nimage###<英文提示词>###/)
+  assert.equal((await runtime.request('config', { smartImageSelection: true })).status, 200)
+  assert.equal(prompt.text(), '')
+})
+
 test('draw-turn 单次要求使用已有角色快照但不写回；空白要求保持原提示词兼容', async t => {
   const calls = []
   let reads = 0

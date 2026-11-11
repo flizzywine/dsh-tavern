@@ -1,6 +1,7 @@
 // @include widget-media.cjs
 // Only visible source text and declared variable projections cross this bridge; never chat/session context.
 let stageWidgetMediaOwner;
+function stageWidgetCount(name) { stageViews?.widgets.count(name); }
 // @include widget-theme.js
 // phone and thread ids from the phone view are bounded strings (an NPC pair id is two figure ids).
 const phoneModBridgeId = value => typeof value === 'string' && value.length > 0 && value.length <= 200;
@@ -195,24 +196,4 @@ function WidgetSandbox({ widget, seconds }) {
             if (++state.loads > 1) { fail('navigations'); return; }
             init(); clearTimeout(state.timer); state.timer = setTimeout(() => fail('timeouts'), 1500);
         } });
-}
-// only host-authorized v2 widget leases reach the opaque iframe.
-function hydrateWidgetDefinitions(items) {
-    return (items || []).filter(item => item.thirdParty && item.ref?.kind === 'widgets' &&
-        item.id === [item.ref.packId,item.ref.kind,item.ref.assetId].join('/') &&
-        /^\/api\/dsh-asset-library\/v2\/lease\/[A-Za-z0-9_-]+\//.test(item.url));
-}
-function WidgetPreview({ definition, state, sample = 0, settings = {}, theme = 'classic', film = false }) {
-    const item = hydrateWidgetDefinitions([definition])[0];
-    if (!item) return null;
-    // preview executes no commands; it displays a validated declared state.set sample.
-    const example = item.samples?.[sample] || item.samples?.[0];
-    const command = item.document?.commands.find(command => command.name === example?.command && command.effect === 'state.set');
-    const candidate = state ?? (command ? example.params : null);
-    const normalized = candidate && stageWidgetSchemaValue(item.stateSchema,candidate) && stageWidgetBytes(candidate) <= item.caps.bytes ? candidate : null;
-    if (!normalized) return React.createElement('p', { role: 'status' }, '模组参数不符合 schema');
-    const widget = stageWidgetPresentation({ widgetId: 'preview', ref: item.ref, originKey:'preview:'+item.id, state: normalized, slot: item.slot || 'corner-right', remainingSeconds: normalized.remainingSeconds }, item);
-    widget.settings=stageWidgetResolveSettings(item.document,{...item.settingsDefaults,...settings}).settings;
-    return React.createElement('div', { className: 'fork-gal-theme-scope fork-widget-preview', 'data-theme': theme, 'data-film': film, style: { padding: film ? '40px 16px' : '16px', maxWidth: '100%' } },
-        React.createElement(getWidgetBoundary(), { key: item.id + ':' + (item.revision || item.version) }, React.createElement(WidgetCard, { widget })));
 }

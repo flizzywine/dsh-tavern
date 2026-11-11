@@ -21,10 +21,13 @@ export function validateCardStage(value, path = '$.stage') {
   for (const key of switches) if (value[key] !== undefined) bool(value[key], path + '.' + key)
   // 基础设置's card layer (本卡开启 / 本卡关闭) of each four-state switch; a missing key follows the global switch.
   if (value.switches !== undefined) {
-    delete value.switches.fullReading // Drop the retired reading switch before strict validation.
+    // Drop the retired reading and 入场演出 switches before strict validation.
+    delete value.switches.fullReading
+    delete value.switches.entrance
     shape(value.switches, CARD_STAGE_SWITCHES, [], path + '.switches')
     for (const [key, choice] of Object.entries(value.switches)) check(choice === 'on' || choice === 'off', path + '.switches.' + key)
   }
+  // 入场演出 is the card's opening setting only: a ref plays it, absent (or a stored null) is none.
   if (value.defaultEntrance !== undefined && value.defaultEntrance !== null) validateAssetRef(value.defaultEntrance, path + '.defaultEntrance', 'entrances')
   if (value.narrator !== undefined) validateNarratorSettings(value.narrator, path + '.narrator')
   // defaultSkin is the card's one skin value 「使用皮肤」: exported and imported with the card, and written by
@@ -88,7 +91,7 @@ export function cardStageChoice(stored, key) {
 }
 
 // The one place a card's stage switches are decided: each resolves 本卡关闭 > 全局开启 > 本卡开启 > 全局关闭 (resolveSwitch,
-// the mods' own rule), then 舞台模式 needs 对话气泡 in effect. The stage's own kinds (BGM … 入场演出) need no gate here: without
+// the mods' own rule), then 舞台模式 needs 对话气泡 in effect. The stage's own kinds (BGM … 演出组合) need no gate here: without
 // the stage there is no stage snapshot (asset-runtime.js), and the panel greys them by the same effective state.
 export function effectiveCardStage(extension, engine) {
   const stored = extension?.stage || {}

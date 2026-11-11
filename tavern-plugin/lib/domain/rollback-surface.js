@@ -445,11 +445,16 @@ export function locateRegenerationSurface(input) {
 }
 
 /**
- * A missing target is safe to append only when every remaining native body is
- * accounted for by another saved row. An unclaimed body is a conflict, not proof
- * that the selected round disappeared; appending there would duplicate a reply.
+ * Native bodies no saved row accounts for, in message order.
+ *
+ * The save's own row is the round being regenerated, so when its body cannot be
+ * located these are what remains of that round on the model surface: the reply an
+ * interrupted or failed attempt already streamed there. That reply is exactly the
+ * output the player is asking to throw away, so regeneration adopts the last one
+ * as its replacement target — replacing a body that is about to be deleted never
+ * needs the player's confirmation, and appending after it would leave two.
  */
-export function hasConflictingRegenerationSurface(input) {
+export function unclaimedRegenerationSurfaces(input) {
   const events = Array.isArray(input?.events) ? input.events : []
   const nodes = Array.isArray(input?.nodes) ? input.nodes : []
   const messages = Array.isArray(input?.messages) ? input.messages : []
@@ -464,11 +469,16 @@ export function hasConflictingRegenerationSurface(input) {
       turn: row.turn, texts: [row.text, row.sourceText, row.projectionText] })
     if (match) claimed.add(Number(match.assistantSeq))
   }
-  return nodes.some(seq => {
-    if (claimed.has(Number(seq))) return false
+  const orphans = []
+  for (const seq of nodes) {
+    if (claimed.has(Number(seq))) continue
     const event = eventAt(events, seq)
-    return event?.type === 'assistant/message' && modelSourceOf(event) !== null && !isRollbackAssistantTombstone(event, events)
-  })
+    if (!event || event.type !== 'assistant/message') continue
+    const source = modelSourceOf(event)
+    if (source === null || isRollbackAssistantTombstone(event, events)) continue
+    orphans.push(Object.freeze({ assistantSeq: Number(seq), source, turn: storyEventTurn(event) }))
+  }
+  return orphans
 }
 
 // Failed turns have already left the model surface, but remain visible until
@@ -1042,10 +1052,10 @@ function unclearedFailedTail(chat, events, nodes) {
     return !isRollbackAssistantTombstone(event, events) && !isRollbackUserTombstone(event) && !isForegroundContext(event)
   })
   if (tail === undefined) return []
-  const latest = (chat.messages || []).findLast(message => message?.role === 'assistant')
+  const latest = (chat.messages || []).findLast(message => message?.role === 'assistant' && message.placeholder !== true)
   const lastEvent = eventAt(events, tail)
   if (lastEvent?.type === 'assistant/message' && (storyEventTurn(lastEvent) === Number(latest?.turn) || storyEventTurn(lastEvent) === Number(chat.regeneratedDshTurns?.[String(latest?.turn)]))) return []
-  const committed = new Set((chat.messages || []).filter(message => message?.role === 'assistant').map(message => Number(message.turn)))
+  const committed = new Set((chat.messages || []).filter(message => message?.role === 'assistant' && message.placeholder !== true).map(message => Number(message.turn)))
   for (const turn of Object.values(chat.regeneratedDshTurns || {})) committed.add(Number(turn))
   const intervals = turnIntervals(events)
   const ownership = createSurfaceOwnership(events)
@@ -1068,11 +1078,28 @@ function unclearedFailedTail(chat, events, nodes) {
   return result
 }
 
+function incompleteReplyTarget(chat, failedTurns) {
+  const failedTurn = failedTurns.at(-1)
+  const reply = chat.messages?.at(-1)
+  if (reply?.role === 'assistant' && reply.greeting !== true) {
+    const turn = Number(reply.turn) || 0
+    const nativeTurn = Number(chat.regeneratedDshTurns?.[String(turn)]) || Number(reply.nativeAnchor?.turn) || turn
+    // A failure after this row owns the action, even when the saved history
+    // does not contain its input. A placeholder also needs a proven failure.
+    if ((failedTurn === undefined || nativeTurn === failedTurn) &&
+      (reply.incomplete === true || (reply.placeholder === true && nativeTurn === failedTurn))) {
+      return { kind: 'reply', turn, messageUid: reply.messageUid || null }
+    }
+  }
+  return failedTurn === undefined ? null : { kind: 'failed-tail', turn: failedTurn }
+}
+
 // UI and mutation share the same native target and failed-tail precedence.
 function planRollbackAvailability(chat, { events = [], nodes = [] } = {}) {
   const unclearedTurns = unclearedFailedTail(chat, events, nodes)
   const failedTurns = [...new Set([...pendingFailedSurfaceTurns({ events, nodes, suppressed: chat.suppressedDshTurns || [] }), ...unclearedTurns])].sort((a, b) => a - b)
-  if (failedTurns.length) return { canRollback: true, canClearIncompleteReply: true, failedTurns, unclearedTurns, target: null, reason: '' }
+  const clearIncompleteReplyTarget = incompleteReplyTarget(chat, failedTurns)
+  if (failedTurns.length) return { canRollback: true, canClearIncompleteReply: true, clearIncompleteReplyTarget, failedTurns, unclearedTurns, target: null, reason: '' }
   const messages = Array.isArray(chat.messages) ? chat.messages : []
   const latest = messages.findLast(message => message?.role === 'assistant' && message.greeting !== true)
   const target = locateRollbackSurface({ events, nodes, anchor: latest?.nativeAnchor })
@@ -1084,7 +1111,7 @@ function planRollbackAvailability(chat, { events = [], nodes = [] } = {}) {
   const matches = matchesTurn || matchesAnchor
   const hasMessages = hasRollbackMessages(messages)
   const canRollback = hasMessages && Boolean(matches)
-  return { canRollback, canClearIncompleteReply: false, failedTurns, target: canRollback ? target : null,
+  return { canRollback, canClearIncompleteReply: clearIncompleteReplyTarget !== null, clearIncompleteReplyTarget, failedTurns, target: canRollback ? target : null,
     reason: canRollback ? '' : hasMessages ? '当前轮次已不在可回退的消息流中，请继续发送新消息；历史正文仍保留。' : '当前没有可回退的已提交轮次' }
 }
 

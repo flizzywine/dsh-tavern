@@ -125,6 +125,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                         h(InlineField, { kind: "menu", label: "正文生成方式", hideLabel: true, disabled: state.loading || state.busy,
                             value: state.settings?.storyGenerationMode || "host", options: [{ value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
                             onCommit: value => saveDefault("storyGenerationMode", value) })),
+                    sw("storyPluginOutputRegex", "插件生成正文后仍应用宿主正则", "插件处理完成后，继续应用全局、预设和人物卡正则。若两边配置相同规则，可能先后执行。", false),
                     sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项；关闭后仍可手动生成。只对之后的新回复生效。", false))),
             // one card per group; each entry (incl. the UI plugin's 界面大小 slot) is a row of it.
             group("显示与交互", "",
@@ -137,7 +138,8 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                 card(sw("retryOnFailure", "请求失败自动重试", "模型请求因网络中断、服务端错误或限流失败时，自动再发一次（一轮最多两次请求）。关闭后失败即停在这一步，等你手动重发；DSH 自身的重试也不会介入。下一轮生效。", true),
                     sw("storyInputToolCall", "输入走工具调用", "把发给模型的历史（此前的玩家消息和正文）以 submit_story 工具参数的形式回放，而不是普通对话文字；可降低续写被拒答。只影响请求，本轮输入、存档和界面保持不变。需要模型支持工具调用。", false),
                     sw("storyOutputToolCall", "输出走工具调用", "仅用于宿主生成方式。让模型通过 submit_story 提交本轮正文，可缓解 Gemini 等模型在正文中途截断或拒答。需要模型支持工具调用；正文生成完成后一次性显示。", false),
-                    sw("longPressSendRegenerate", "长按 2 秒发送键重新生成", "按住输入框右侧的发送键 2 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；松开即取消。默认关闭。", false),
+                    sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),
+                    sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：刚生成过新回复、或最近打开的对话排到最前，一行右侧的时间也换成最近活动时间。只改变列表顺序，不改动存档。", false),
                     h(PromptTemplateSettingsEntry),
                     h(ContextCompactionSettings)))
         );
@@ -190,9 +192,39 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
         const h = React.createElement;
         React.useEffect(() => galStageHold(), []);
         const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
+        const [runtime, setRuntime] = React.useState(null), [busy, setBusy] = React.useState(false), [error, setError] = React.useState("");
+        React.useEffect(() => {
+            let active = true, timer;
+            async function refresh() {
+                try {
+                    const value = await rpc("getStageRuntimeStatus", {});
+                    if (!active) return;
+                    setRuntime(value);
+                    if (["loading", "loaded"].includes(value.status)) timer = setTimeout(refresh, 500);
+                } catch (err) { if (active) setError(err.message); }
+            }
+            if (!busy) void refresh();
+            return () => { active = false; clearTimeout(timer); };
+        }, [enabled, busy]);
+        async function set(method, value) {
+            setBusy(true); setError("");
+            try { setRuntime(await rpc(method, {enabled:value})); }
+            catch (err) { setError(err.message); }
+            finally { setBusy(false); }
+        }
         const Page = enabled && stageViews ? stageViews.GlobalSettings : null;
-        return Page ? h(Page) : h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
-            h(SettingsGroup, {title:"舞台"}, h("p", {className:"dsh-tavern-settings-desc", role:"status"}, "正在加载舞台…")));
+        return h(React.Fragment, null,
+            h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+                h(SettingsGroup, {title:"舞台启动"},
+                    runtime?.installed ? h(TavernSettingRow, {title:"启动时加载舞台", help:"关闭后，下次启动会跳过舞台。需要时可以在这里为本次运行加载舞台。"},
+                        h(Switch, {label:"启动时加载舞台", checked:runtime.loadOnStartup !== false, disabled:busy, onChange:value => set("setStageLoadOnStartup", value)})) : null,
+                    !Page && runtime?.installed && (!runtime.enabled || runtime.status === "failed") ?
+                        h("button", {type:"button", className:"dsh-tavern-btn", disabled:busy, onClick:() => set("setStageEnabled", true)}, "本次加载舞台") : null,
+                    !Page && (!runtime || runtime.installed && runtime.enabled && runtime.status !== "failed") ?
+                        h("p", {className:"dsh-tavern-settings-desc", role:"status"}, "正在加载舞台…") : null,
+                    runtime?.installed === false ? h("p", {role:"status"}, "舞台插件不可用") : null,
+                    error ? h("p", {role:"alert"}, error) : null)),
+            Page ? h(Page) : null);
     }
     return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection, stageGlobalSettingsOptions };
 }

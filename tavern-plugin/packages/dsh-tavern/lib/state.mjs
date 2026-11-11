@@ -298,6 +298,10 @@ function launcherHost(manifest) {
   if (repository === tavernRepository && manifest.dshTavern?.profileHandoff === true) return 'next'
   if (manifest?.dsh?.bundle?.patch !== './cordis.patch.yml' || manifest.license !== 'MIT') return undefined
   if (repository === tavernRepository) return 'desktop'
+  // Early Tavern builds retained the upstream bridge's repository metadata.
+  if (manifest.name === 'dsh-profile-bridge' && repository === 'git+https://github.com/2NF/dsh-profile-bridge.git'
+    && typeof manifest.version === 'string' && /^0\.2\.0-tavern\.[1-9]\d*$/.test(manifest.version)
+    && manifest.dshTavern?.profileHandoff !== true) return 'desktop'
 }
 
 function managedLauncherLink(manifest, dir, name) {

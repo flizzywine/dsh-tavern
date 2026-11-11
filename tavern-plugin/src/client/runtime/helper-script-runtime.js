@@ -11,6 +11,7 @@
 			const onReady = options && typeof options.onReady === "function" ? options.onReady : function () {};
 			const onMvuLoadState = options && options.onMvuLoadState || function () {};
 			const initializationTimeoutMs = Math.max(1000, Number(options && options.initializationTimeoutMs) || 15000);
+			const companionTimeoutMs = Math.max(1000, Number(options && options.companionTimeoutMs) || 30000);
 			const eventTimeoutMs = Math.max(10, Number(options && options.eventTimeoutMs) || 15000);
 			// Card scripts often debounce derived writes with setTimeout after MESSAGE_RECEIVED.
 			// Keep mvu-work events open briefly so those writes still join the settlement.
@@ -85,7 +86,7 @@
 			function maybeAnnounceReady() {
 				if (!readinessKey || records.size === 0 || announcedReadinessKey === readinessKey) return;
 				if (Array.from(records.values()).some(function (record) { return mvuInitializationError(record); })) return;
-				if (Array.from(records.values()).some(function (record) { return !record.loaded || (!record.subscriptionsReady && !record.initializationFailed); })) return;
+				if (Array.from(records.values()).some(function (record) { return !record.loaded || record.reloading || (!record.subscriptionsReady && !record.initializationFailed); })) return;
 				announcedReadinessKey = readinessKey;
 				const readySessionId = activeSessionId;
 				const refreshAfterSuppress = suppressedCompactMutations > 0;
@@ -157,7 +158,7 @@
 				return decorateHelperContext(context);
 			}
 			function post(record, message) {
-				if (records.get(record.id) !== record || !record.loaded || !record.frame.contentWindow) return;
+				if (records.get(record.id) !== record || !record.loaded || record.reloading || !record.frame.contentWindow) return;
 				if (message.context && applyTavernVariableReceipt.indexApi.info(message.context.messages)) {
                     message = {...message, context:{...message.context, messages:Array.from(message.context.messages)}};
                 }
@@ -240,14 +241,28 @@
 				});
 				return record.compatibilityTail;
 			}
-			function removeRecord(id) {
-				const record = records.get(id);
-				if (!record) return;
-				void flushCompatibility(record);
+            function cancelRecordGenerations(record) {
                 for (const [generationId, job] of record.helperGenerations || []) {
                     job.cancel();
                     if (job.started) void Promise.resolve(invoke("stopTavernHelperGeneration", {generationId, generationToken:job.generationToken, pending:true}, record.sessionId)).catch(function () {});
                 }
+                record.helperGenerations?.clear();
+            }
+			function disposeRecordFrame(record) {
+				if (record.frameDisposed) return;
+				record.frameDisposed = true;
+				if (record.trustedCardMode) releaseTavernHostJQueryHandlers(hostWindow, record.frame.contentWindow);
+				if (record.releaseStorage) record.releaseStorage();
+				record.releaseStorage = null;
+				record.frame.remove();
+				if (record.hostArtifacts) record.hostArtifacts.dispose();
+				removeExternalCardUiArtifacts(record);
+			}
+			function removeRecord(id) {
+				const record = records.get(id);
+				if (!record) return;
+				void flushCompatibility(record);
+                cancelRecordGenerations(record);
 				for (const [eventId, pending] of pendingEvents) {
 					if (pending.record !== record) continue;
 					hostWindow.clearTimeout(pending.timer);
@@ -257,11 +272,8 @@
 					pending.reject(new Error("人物卡脚本运行时已重置，事件未完成"));
 				}
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
-				if (record.trustedCardMode) releaseTavernHostJQueryHandlers(hostWindow, record.frame.contentWindow);
-				if (record.releaseStorage) record.releaseStorage(); // revoke before detaching the card sandbox
-				record.frame.remove();
-				if (record.hostArtifacts) record.hostArtifacts.dispose();
-				removeExternalCardUiArtifacts(record);
+				clearCompanionDeadline(record);
+				disposeRecordFrame(record);
 				records.delete(id);
 				announcedReadinessKey = "";
 			}
@@ -311,7 +323,8 @@
 					return Promise.reject(new Error(initializationError));
 				}
 				if (diagnostics) diagnostics.push({ kind: "dispatch", name: name, ready: record.subscriptionsReady, initializationFailed: record.initializationFailed, subscribed: record.subscriptions.has(String(name)) });
-				if (!record.loaded || !record.subscriptionsReady || record.initializationFailed) return Promise.resolve(args);
+				if (!record.loaded || record.reloading || !record.subscriptionsReady || record.initializationFailed) return Promise.resolve(args);
+				const documentToken = record.token;
 				if (context && typeof context === "object" && context.contextWindow) {
                     // A bounded event context: recent rows at their absolute ids; older
                     // rows stay stubs that the history lease reads on demand.
@@ -325,7 +338,7 @@
                         const next = applyTavernVariableReceipt(record.context, context.contextDelta);
                         if (next === null) {
                             const snapshot = await invoke("getTavernHelperContext", {eventId:hostEventId}, record.sessionId);
-                            if (records.get(record.id) !== record) throw new Error("脚本运行时已失效");
+                            if (records.get(record.id) !== record || record.token !== documentToken || record.reloading) throw new Error("脚本运行时已失效");
                             record.context = decorateHelperContext(snapshot.context, record.context);
                             post(record,{type:"dsh-tavern-helper-context",context:record.context});
                         } else {
@@ -420,12 +433,14 @@
 				const record = {
 					id: "shared",
 					sessionId: sessionId,
+					scriptInputs: scripts,
 					name: "共享脚本沙箱",
 					trustedCardMode: trustedCardMode,
 					startedAt: Date.now(),
 					fingerprint: fingerprint,
 					suppressCompactViewRefresh: true,
-					token: token(),
+					bootstrapToken: token(),
+					token: null,
 					compatibilityId: token(),
 					compatibilityCatalog: new Map((context.compatibilityCapabilities || []).map(function (entry) { return [entry.id, entry]; })),
 					compatibilityPending: new Map(),
@@ -445,69 +460,116 @@
 				frame.__dshTavernSessionId = sessionId;
                 frame.__dshTavernHostArtifacts = record.hostArtifacts;
 				frame.title = "人物卡共享脚本沙箱";
-				if (!trustedCardMode) frame.sandbox = "allow-scripts";
+				if (trustedCardMode) {
+					// Keep the shared load and its callbacks alive when a card iframe is replaced.
+					frame.__dshTavernPrepareTrustedHost = async function () {
+						await ensureTavernHostJQuery(hostWindow);
+						ensureTavernHostJQueryUi(hostWindow);
+					};
+				} else frame.sandbox = "allow-scripts";
 				frame.referrerPolicy = "no-referrer";
 				record.storage = forkFrameStorage.capability({ sessionId: sessionId, cardPath: context.frameStorageScope && context.frameStorageScope.cardPath }, hostWindow); // owner-only storage grant
-				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: record.storage, token: record.token, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
+				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: record.storage, token: record.bootstrapToken, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
 				frame.addEventListener("load", function () {
-					if (records.get(record.id) !== record) return;
-					const reloaded = Boolean(record.reloading || record.subscriptionsReady || record.initializationFailed);
-					record.reloading = false;
-					if (reloaded) {
-						if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
-						record.initializationTimer = null;
-						// Card scripts (e.g. phone reset/refresh) may call location.reload() inside an
-						// event callback. Close pre-reload host events instead of replaying them into the
-						// fresh document when a watchdog probe sees phase="unknown".
-						for (const [eventId, pending] of pendingEvents) {
-							if (pending.record !== record) continue;
-							hostWindow.clearTimeout(pending.timer);
-							if (pending.deferTimer) hostWindow.clearTimeout(pending.deferTimer);
-							closeEventId(eventId);
-							pendingEvents.delete(eventId);
-							if (eventId.indexOf(mvuWorkEventPrefix) === 0) pending.reject(new Error("人物卡脚本沙箱已重新加载，事件未完成"));
-							else pending.resolve(clone(pending.envelope && pending.envelope.args || []));
-						}
-						if (record.hostArtifacts) {
-							record.hostArtifacts.dispose();
-							record.hostArtifacts = createTavernHostArtifactScope({ document: hostDocument, sessionId: record.sessionId });
-							frame.__dshTavernHostArtifacts = record.hostArtifacts;
-							record.hostArtifacts.setVisible(foreground);
-						}
-						removeExternalCardUiArtifacts(record);
-						record.subscriptions.clear();
-						record.subscriptionsReady = false;
-						record.initializationFailed = false;
-						record.mvuLoadState = null;
-						record.mvuLastInitializationDiagnostic = "";
-						record.suppressCompactViewRefresh = true;
-						for (const script of record.scripts.values()) {
-							script.loaded = true;
-							script.subscriptionsReady = false;
-							script.initializationFailed = false;
-							script.initializationError = "";
-						}
-						announcedReadinessKey = "";
-					}
-					record.loaded = true;
-					for (const script of record.scripts.values()) script.loaded = true;
-					post(record, { type: "dsh-tavern-helper-context", context: record.context });
-					if (reloaded && record.storage) {
-						if (record.releaseStorage) record.releaseStorage();
-						record.releaseStorage = forkFrameStorage.register(frame, record.storage);
-					}
-					if (!record.subscriptionsReady && !record.initializationFailed && !record.mvuLoadState) {
-						record.initializationTimer = hostWindow.setTimeout(function () {
-							settleInitialization(record, new Error("初始化超时（" + String(initializationTimeoutMs) + "ms）"));
-						}, initializationTimeoutMs);
-					}
-					maybeAnnounceReady();
+					if (records.get(record.id) === record && !record.loaded && !record.initializationTimer) armInitializationDeadline(record);
 				});
 				container.appendChild(frame);
 				record.releaseStorage = forkFrameStorage.register(frame, record.storage); // contentWindow exists only after insertion
 				records.set(record.id, record);
                 if (record.hostArtifacts) record.hostArtifacts.setVisible(foreground);
 				return record;
+			}
+			function armInitializationDeadline(record) {
+				record.initializationTimer = hostWindow.setTimeout(function () {
+					settleInitialization(record, new Error("初始化超时（" + String(initializationTimeoutMs) + "ms）"));
+				}, initializationTimeoutMs);
+			}
+			function activateDocument(record, documentToken) {
+				const frame = record.frame, reloaded = record.loaded;
+				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
+				record.initializationTimer = null;
+				clearCompanionDeadline(record);
+				record.reloading = false;
+				record.token = documentToken;
+				if (reloaded) {
+                    cancelRecordGenerations(record);
+                    record.queuedPromptBatch = null;
+					if (record.context.transaction) record.context = record.deferredContext || record.committedContext || record.context;
+					record.deferredContext = null;
+					record.deferredEvents = null;
+					// Card scripts (e.g. phone reset/refresh) may call location.reload() inside an
+					// event callback. Close pre-reload host events instead of replaying them into the
+					// fresh document when a watchdog probe sees phase="unknown".
+					for (const [eventId, pending] of pendingEvents) {
+						if (pending.record !== record) continue;
+						hostWindow.clearTimeout(pending.timer);
+						if (pending.deferTimer) hostWindow.clearTimeout(pending.deferTimer);
+						closeEventId(eventId);
+						pendingEvents.delete(eventId);
+						if (eventId.indexOf(mvuWorkEventPrefix) === 0) pending.reject(new Error("人物卡脚本沙箱已重新加载，事件未完成"));
+						else pending.resolve(clone(pending.envelope && pending.envelope.args || []));
+					}
+					if (record.hostArtifacts) {
+						record.hostArtifacts.dispose();
+						record.hostArtifacts = createTavernHostArtifactScope({ document: hostDocument, sessionId: record.sessionId });
+						frame.__dshTavernHostArtifacts = record.hostArtifacts;
+						record.hostArtifacts.setVisible(foreground);
+					}
+					removeExternalCardUiArtifacts(record);
+					record.subscriptions.clear();
+					record.subscriptionsReady = false;
+					record.initializationFailed = false;
+					record.mvuLoadState = null;
+					record.mvuLastInitializationDiagnostic = "";
+					record.mvuDataError = "";
+					record.lastRuntimeError = "";
+					record.runtimeErrorKeys?.clear();
+					record.suppressCompactViewRefresh = true;
+					for (const script of record.scripts.values()) {
+						script.loaded = true;
+						script.subscriptionsReady = false;
+						script.initializationFailed = false;
+						script.initializationError = "";
+					}
+					announcedReadinessKey = "";
+				}
+				record.loaded = true;
+				for (const script of record.scripts.values()) script.loaded = true;
+				if (reloaded && record.storage) {
+					if (record.releaseStorage) record.releaseStorage();
+					record.releaseStorage = forkFrameStorage.register(frame, record.storage);
+				}
+				post(record, { type: "dsh-tavern-helper-context", context: record.context });
+				if (!record.initializationFailed) armInitializationDeadline(record);
+			}
+			function clearCompanionDeadline(record) {
+				if (!record.companionDeadline) return;
+				hostWindow.clearTimeout(record.companionDeadline.timer);
+				record.companionDeadline = null;
+			}
+			function syncCompanionDeadline(record) {
+				const core = record.scripts.get("__dsh_official_mvu__");
+				const pending = core?.subscriptionsReady && !core.initializationFailed
+					? Array.from(record.scripts.values()).find(script => !script.subscriptionsReady && !script.initializationFailed)
+					: undefined;
+				if (record.companionDeadline?.script === pending) return;
+				clearCompanionDeadline(record);
+				if (!pending) return;
+				const deadline = { script: pending, timer: hostWindow.setTimeout(function () {
+					if (records.get(record.id) !== record || record.companionDeadline !== deadline || record.reloading) return;
+					record.companionDeadline = null;
+					const error = "人物卡配套脚本「" + pending.name + "」初始化超时（" + companionTimeoutMs / 1000 + " 秒）";
+					record.reloading = true;
+					record.suppressCompactViewRefresh = false;
+					cancelRecordGenerations(record);
+					disposeRecordFrame(record);
+					// Keep settlement paused. A retry starts a fresh document, so the
+					// stalled script can never resume after the timeout.
+					record.mvuLoadState = { phase: "companion-timeout", canRetry: true, error: error };
+					recordMvuLoadDiagnostic(record, { phase: "companion-timeout", failureStep: "companion-module", scriptId: pending.id, message: error });
+					onMvuLoadState(record.mvuLoadState);
+				}, companionTimeoutMs) };
+				record.companionDeadline = deadline;
 			}
 			function scriptsForView(view) {
 				const scripts = Array.isArray(view && view.tavernHelperScripts) ? view.tavernHelperScripts.slice() : [];
@@ -607,8 +669,14 @@
 			function receive(event) {
 				const data = event && event.data;
 				if (!data || !data.token) return;
-				const record = Array.from(records.values()).find(function (item) { return item.token === data.token && event.source === item.frame.contentWindow; });
-				if (!record) return;
+				const record = records.get("shared");
+				if (!record || record.frameDisposed || event.source !== record.frame.contentWindow) return;
+				if (data.type === "dsh-tavern-helper-document") {
+					if (data.token === record.bootstrapToken && typeof data.documentToken === "string" && data.documentToken
+						&& record.token !== data.documentToken) activateDocument(record, data.documentToken);
+					return;
+				}
+				if (record.token !== data.token || record.reloading) return;
 				if (data.type === "dsh-tavern-mvu-load-diagnostic") { recordMvuLoadDiagnostic(record, data.diagnostic); return; }
 				if (data.type === "dsh-tavern-mvu-load-state") {
 					const core = record.scripts.get("__dsh_official_mvu__");
@@ -647,7 +715,11 @@
 					else if (!data.eventId) invoke("recordMvuRuntimeDiagnostic", { diagnostic: diagnostic }, activeSessionId).catch(function () {});
 					return;
 				}
-				if (data.type === "dsh-tavern-helper-reloading") { record.reloading = true; return; }
+				if (data.type === "dsh-tavern-helper-reloading") {
+					record.reloading = true;
+					clearCompanionDeadline(record);
+					return;
+				}
 				if (data.type === "dsh-tavern-helper-ui-open") { openRecordUi(record); return; }
 				if (data.type === "dsh-tavern-helper-ui-close") { closeRecordUi(); return; }
 				if (data.type === "dsh-tavern-helper-subscriptions") {
@@ -674,6 +746,7 @@
 						}
 					}
 					if (statuses.length === 0 && record.scripts.size === 1 && data.ready === true) record.scripts.values().next().value.subscriptionsReady = true;
+					syncCompanionDeadline(record);
 					if (data.ready === true) {
 						record.initializationFailed = Boolean(record.scripts.get("__dsh_official_mvu__")?.initializationFailed);
 						record.subscriptionsReady = !record.initializationFailed;
@@ -793,11 +866,18 @@
 					}
 					return;
 				}
-                if (data.type === "dsh-tavern-helper-call" && data.method === "triggerTavernSlash") {
+                if (data.type !== "dsh-tavern-helper-call") return;
+                function currentDocument() {
+                    return records.get(record.id) === record && record.token === data.token && !record.reloading;
+                }
+                function reply(message) {
+                    if (currentDocument()) post(record, Object.assign({ type: "dsh-tavern-helper-response", requestId: data.requestId }, message));
+                }
+                if (data.method === "triggerTavernSlash") {
                     // Wait for earlier persistence, but do not put generation on the
                     // RPC tail: its MVU events must be able to issue their own writes.
                     Promise.resolve(record.rpcTail).catch(function () {}).then(function () {
-                        if (!foreground || records.get(record.id) !== record) throw new Error("对话已切换，人物卡命令未执行；请返回原对话重试");
+                        if (!foreground || !currentDocument()) throw new Error("对话已切换，人物卡命令未执行；请返回原对话重试");
                         if (data.lifecycleRevision !== undefined && Number(data.lifecycleRevision) !== Number(record.context?.lifecycleRevision || 0)) throw new Error("存档版本已变化，人物卡命令未执行");
                         if (data.eventId && (closedEventIds.has(String(data.eventId)) || pendingEvents.get(String(data.eventId))?.finishing)) {
                             throw Object.assign(new Error("事件已经结束，人物卡命令未执行"), { code: "TAVERN_SCRIPT_EVENT_CLOSED" });
@@ -805,31 +885,30 @@
                         if (typeof options.executeSlash !== "function") throw new Error("当前对话命令入口尚未就绪");
                         return options.executeSlash(String(data.args?.line || ""), record.sessionId, data.eventId ? { waitForCompletion: false } : undefined);
                     }).then(function (result) {
-                        post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: true,
+                        reply({ ok: true,
                             result: typeof result === "string" ? { pipe: result } : result });
                     }, function (error) {
-                        post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false,
+                        reply({ ok: false,
                             error: String(error.message || error), errorCode: String(error.code || "") });
                     });
                     return;
                 }
-                if (data.type === "dsh-tavern-helper-call" && data.method === "submitTavernHelperInput") {
+                if (data.method === "submitTavernHelperInput") {
                     Promise.resolve().then(function () {
-                        if (!foreground || records.get(record.id) !== record) throw new Error("对话已切换，开局消息未发送；请返回原对话重试");
+                        if (!foreground || !currentDocument()) throw new Error("对话已切换，开局消息未发送；请返回原对话重试");
                         if (data.lifecycleRevision !== undefined && Number(data.lifecycleRevision) !== Number(record.context?.lifecycleRevision || 0)) throw new Error("存档版本已变化，开局消息未发送");
                         if (typeof options.executeSlash !== "function") throw new Error("当前对话发送入口尚未就绪");
                         return options.executeSlash("", record.sessionId, { inputText: String(data.args?.text || "") });
                     }).then(function (result) {
-                        post(record, { type:"dsh-tavern-helper-response", requestId:data.requestId, ok:true, result:result });
+                        reply({ ok:true, result:result });
                     }, function (error) {
-                        reportError("人物卡发送消息", error);
-                        post(record, { type:"dsh-tavern-helper-response", requestId:data.requestId, ok:false, error:String(error.message || error) });
+                        if (currentDocument()) reportError("人物卡发送消息", error);
+                        reply({ ok:false, error:String(error.message || error) });
                     });
                     return;
                 }
-                if (data.type !== "dsh-tavern-helper-call") return;
                 if (!allowedMethods.has(data.method)) {
-                    post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false,
+                    reply({ ok: false,
                         error: "当前人物卡不支持 Helper 方法: " + String(data.method || ""), errorCode: "UNSUPPORTED_HELPER_METHOD" });
                     return;
                 }
@@ -845,16 +924,19 @@
                         job.cancel(); cancelledLocal = true;
                     }
                     if (all) stopArgs.pendingGenerations = (stopArgs.pendingGenerations || []).concat(pendingGenerations);
-                    Promise.resolve().then(() => invoke(data.method, stopArgs, record.sessionId)).then(function (result) {
-                        post(record, {type:"dsh-tavern-helper-response", requestId:data.requestId, ok:true,
+                    Promise.resolve().then(() => {
+                        if (!currentDocument()) throw new Error("脚本运行时已失效");
+                        return invoke(data.method, stopArgs, record.sessionId);
+                    }).then(function (result) {
+                        reply({ ok:true,
                             result:Object.assign({}, result, {stopped:cancelledLocal || result?.stopped === true})});
                     }, function (error) {
-                        post(record, {type:"dsh-tavern-helper-response", requestId:data.requestId, ok:false, error:String(error.message || error)});
+                        reply({ ok:false, error:String(error.message || error)});
                     });
                     return;
                 }
 				if (data.eventId && (closedEventIds.has(String(data.eventId)) || pendingEvents.get(String(data.eventId))?.finishing)) {
-					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: "事件已经结束，已拒绝迟到写入", errorCode: "TAVERN_SCRIPT_EVENT_CLOSED" });
+					reply({ ok: false, error: "事件已经结束，已拒绝迟到写入", errorCode: "TAVERN_SCRIPT_EVENT_CLOSED" });
 					return;
 				}
 					let mutationArgs = Object.assign({}, data.args || {}, { apiCallOrigin: { scriptId: String(data.scriptId || ""), scriptName: String(record.scripts.get(String(data.scriptId || ""))?.name || ""), eventId: String(data.eventId || ""), requestId: String(data.requestId || "") } });
@@ -885,7 +967,7 @@
                         // Respect earlier mutations, but don't put a long model job
                         // in the mutation queue: cancellation must reach it immediately.
                         const generation = (record.rpcTail || Promise.resolve()).catch(function () {}).then(function () {
-                            if (job.cancelled || records.get(record.id) !== record) throw new Error("生成已取消");
+                            if (job.cancelled || !currentDocument()) throw new Error("生成已取消");
                             if (data.lifecycleRevision !== undefined && Number(data.lifecycleRevision) !== Number(record.context?.lifecycleRevision || 0)) throw new Error("存档版本已变化，生成已取消");
                             job.started = true;
                             return invoke(data.method, mutationArgs, record.sessionId);
@@ -902,14 +984,14 @@
 					if (batch) mutationArgs.operation = { kind: "batch", operations: batch.operations };
 					rpcTask = (record.rpcTail || Promise.resolve()).catch(function () {}).then(function () {
 						if (record.queuedPromptBatch === batch) record.queuedPromptBatch = null;
-						if (records.get(record.id) !== record) throw new Error("脚本运行时已失效");
+						if (!currentDocument()) throw new Error("脚本运行时已失效");
 						if (data.eventId && closedEventIds.has(String(data.eventId))) throw Object.assign(new Error("事件已经结束，已拒绝迟到写入"), { code: "TAVERN_SCRIPT_EVENT_CLOSED" });
 						return Promise.resolve(invoke(data.method, mutationArgs, record.sessionId)).then(async function (result) {
-                            if (!result || !result.contextDelta || records.get(record.id) !== record) return result;
+                            if (!result || !result.contextDelta || !currentDocument()) return result;
                             const next = applyTavernVariableReceipt(record.context, result.contextDelta);
                             if (next === null) {
                                 const snapshot = await invoke("getTavernHelperContext", result.contextDelta.version === 2 ? {eventId:result.contextDelta.eventId} : {}, record.sessionId);
-                                record.context = decorateHelperContext(snapshot.context, record.context);
+                                if (currentDocument()) record.context = decorateHelperContext(snapshot.context, record.context);
                                 return Object.assign({}, result, { contextDelta: undefined, context: snapshot.context });
                             }
                             record.context = next;
@@ -932,24 +1014,24 @@
 				}
 
 				rpcTask.then(function (result) {
-					if (records.get(record.id) === record && result && !result.stale) {
+					if (currentDocument() && result && !result.stale) {
 						const pending = pendingEvents.get(String(data.eventId || ""));
 						if (pending && pending.record === record) {
 							pending.contactAt = now();
 						}
 					}
 					// Readiness follows acknowledged persistence, not an iframe's speculative variables.
-					if (result && result.updated === true && !result.stale && !result.transactional && result.context && records.get(record.id) === record
+					if (result && result.updated === true && !result.stale && !result.transactional && result.context && currentDocument()
 						&& result.context.chatId === record.context.chatId
 						&& Number(result.context.lifecycleRevision) === Number(record.context.lifecycleRevision)
 						&& Number(result.context.stateRevision) >= Number(record.context.stateRevision)) {
 						record.context = decorateHelperContext(result.context, record.context);
 						syncMvuDataReadiness(record);
 					}
-					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: true, result: result });
-					if ((data.method === "updateTavernHelperPrompts" || data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "createTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook" || data.method === "patchTavernHelperWorldbook" || data.method === "saveTavernExtensionSettings" || data.method === "saveTavernWorldInfo" || data.method === "saveTavernChatData") && result && !result.transactional && result.updated !== false && result.stale !== true && records.get(record.id) === record) reportMutation(record.sessionId, data.method, result.contextDelta ? Object.assign({}, result, { context: record.context }) : result);
+					reply({ ok: true, result: result });
+					if ((data.method === "updateTavernHelperPrompts" || data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "createTavernHelperMessages" || data.method === "replaceTavernHelperWorldbook" || data.method === "patchTavernHelperWorldbook" || data.method === "saveTavernExtensionSettings" || data.method === "saveTavernWorldInfo" || data.method === "saveTavernChatData") && result && !result.transactional && result.updated !== false && result.stale !== true && records.get(record.id) === record) reportMutation(record.sessionId, data.method, result.contextDelta && currentDocument() ? Object.assign({}, result, { context: record.context }) : result);
 				}, function (error) {
-					post(record, { type: "dsh-tavern-helper-response", requestId: data.requestId, ok: false, error: String(error && error.message || error), errorCode: String(error && error.code || "") });
+					reply({ ok: false, error: String(error && error.message || error), errorCode: String(error && error.code || "") });
 				});
 			}
 			hostWindow.addEventListener("message", receive);
@@ -960,6 +1042,15 @@
 				retryMvuLoad: function () {
 					const record = records.get("shared");
 					if (!record || !record.mvuLoadState || !record.mvuLoadState.canRetry) return false;
+						if (record.mvuLoadState.phase === "companion-timeout") {
+							removeRecord(record.id);
+							const next = createRecord(record.sessionId, record.scriptInputs, record.context, record.trustedCardMode, false);
+							next.sourceHelper = record.sourceHelper;
+							next.committedContext = record.committedContext;
+							next.mvuLoadState = { phase: "loading", canRetry: false, attempt: 1 };
+							onMvuLoadState(next.mvuLoadState);
+							return true;
+						}
 					record.mvuLoadState = { phase: "loading", canRetry: false, attempt: 1 };
 					onMvuLoadState(record.mvuLoadState);
 					post(record, { type: "dsh-tavern-mvu-reload" });
@@ -976,13 +1067,13 @@
 				dispose: function () { hostWindow.removeEventListener("message", receive); clear(); releaseHostStylesheetBridge(); },
 				inspect: function () {
 					const record = records.get("shared");
-					const scripts = record ? Array.from(record.scripts.values()).map(function (script) { return { id: script.id, loaded: script.loaded, subscriptionsReady: script.subscriptionsReady, initializationFailed: script.initializationFailed }; }) : [];
+						const scripts = record ? Array.from(record.scripts.values()).map(function (script) { return { id: script.id, loaded: script.loaded, subscriptionsReady: !record.reloading && script.subscriptionsReady, initializationFailed: script.initializationFailed }; }) : [];
 					const initializationError = mvuInitializationError(record);
 					const baseline=record && record.context;
                     const contextBaseline=baseline ? {workContextVersion:1,appendContextVersion:1,chatId:baseline.chatId,stateRevision:baseline.stateRevision,
                         lifecycleRevision:Number(baseline.lifecycleRevision)||0,messageCount:(baseline.messages||[]).length,
                         transaction:baseline.transaction,historyWindowVersion:baseline.historyAccess?1:undefined,complete:!baseline.messagesPending && (applyTavernVariableReceipt.indexApi.info(baseline.messages)?.complete ?? false)} : {workContextVersion:1,full:true};
-                    return { contextBaseline:contextBaseline, sessionId: activeSessionId, frameCount: record ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts, ...(record && record.scripts.has("__dsh_official_mvu__") ? { mvuDataReady: mvuDataReady(record) } : {}), ...(record && record.mvuLoadState ? { mvuLoadState: record.mvuLoadState } : {}), ...(initializationError ? { initializationError: initializationError } : {}) };
+                    return { contextBaseline:contextBaseline, sessionId: activeSessionId, frameCount: record && !record.frameDisposed ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts, ...(record && record.scripts.has("__dsh_official_mvu__") ? { mvuDataReady: mvuDataReady(record) } : {}), ...(record && record.mvuLoadState ? { mvuLoadState: record.mvuLoadState } : {}), ...(initializationError ? { initializationError: initializationError } : {}) };
 				}
 			});
 		}

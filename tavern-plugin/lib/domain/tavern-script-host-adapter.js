@@ -40,6 +40,35 @@ function isOfficialMvuData(value) {
     && value.stat_data !== undefined && value.schema !== undefined
 }
 
+function worldbookEntries(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && value.entries !== null && typeof value.entries === 'object' && !Array.isArray(value.entries)
+    ? value.entries : null
+}
+
+// A script's save carries the whole document, so a concurrent library edit or a
+// book auto-swap used to fail the entire write. Merge entry by entry instead:
+// only an entry both sides changed is a real conflict.
+function mergeWorldbookWrite(expected, current, desired) {
+  const base = worldbookEntries(expected)
+  const latest = worldbookEntries(current)
+  const wanted = worldbookEntries(desired)
+  if (!base || !latest || !wanted) return null
+  const merged = { ...structuredClone(desired), entries: {} }
+  for (const [id, entry] of Object.entries(latest)) merged.entries[id] = structuredClone(entry)
+  for (const id of new Set([...Object.keys(base), ...Object.keys(latest), ...Object.keys(wanted)])) {
+    const before = base[id], now = latest[id], want = wanted[id]
+    if (isDeepStrictEqual(before, want)) continue
+    if (isDeepStrictEqual(before, now)) {
+      if (want === undefined) delete merged.entries[id]
+      else merged.entries[id] = structuredClone(want)
+      continue
+    }
+    if (!isDeepStrictEqual(now, want)) return null
+  }
+  return merged
+}
+
 /**
  * Translate the Tavern-shaped host API exposed to card scripts into mutations
  * of dsh-tavern's authoritative chat and worldbook state.
@@ -324,7 +353,10 @@ export function createTavernScriptHostAdapter(options = {}) {
     }
     const written = writtenWorldbooks.get(str(sessionId))
     if (written === undefined) return { chat, record }
-    if (written.key === worldbookKey(record) && Number(chat._storageRevision) <= written.revision) return { chat, record: written.record }
+    // The storage counter says nothing about the book: a library edit or a card
+    // update rewrites the file without touching the chat, so comparing revisions
+    // handed scripts a copy they had already replaced. Compare the content itself.
+    if (written.key === worldbookKey(record) && written.version === scriptWorldbookVersion(record)) return { chat, record: written.record }
     writtenWorldbooks.delete(str(sessionId))
     return { chat, record }
   }
@@ -368,7 +400,7 @@ export function createTavernScriptHostAdapter(options = {}) {
       const plugins = updated === resolved.record ? [] : resolved.record.view.entries.filter(entry => entry.plugin)
       const version = scriptWorldbookVersion(updated)
       const revision = Number(resolved.chat?._storageRevision)
-      if (operations.length > 0 && Number.isFinite(revision)) writtenWorldbooks.set(str(sessionId), { key: worldbookKey(updated), revision, record: { ...updated, view: { ...updated.view, entries: [...updated.view.entries, ...plugins] } } })
+      if (operations.length > 0 && Number.isFinite(revision)) writtenWorldbooks.set(str(sessionId), { key: worldbookKey(updated), revision, version: scriptWorldbookVersion(updated), record: { ...updated, view: { ...updated.view, entries: [...updated.view.entries, ...plugins] } } })
       return { updated: operations.length > 0, before, version, worldbook: projectTavernHelperWorldbook({ ...updated.view, entries: [...updated.view.entries, ...plugins] }) }
     })
   }
@@ -444,9 +476,13 @@ export function createTavernScriptHostAdapter(options = {}) {
       const resolved = await worldbookRecord(sessionId, name)
       if (worldbookKey(resolved.record) !== worldbookKey(initial.record)) throw new Error('世界书绑定已变化，请重新读取后重试')
       const current = await exportBoundWorldbook(resolved.record)
-      if (!isDeepStrictEqual(current, expectedWorldInfo)) throw new Error('世界书已被其他操作修改，请重新读取后重试')
+      // The caller only wants its own edits written. A library edit or an auto-swap
+      // that touched other entries must not fail the whole save, and an entry both
+      // sides rewrote must not be silently overwritten.
+      const merged = isDeepStrictEqual(current, expectedWorldInfo) ? worldInfo : mergeWorldbookWrite(expectedWorldInfo, current, worldInfo)
+      if (!merged) throw new Error('世界书已被其他操作修改，请重新读取后重试')
       if (settlement.has(sessionId)) throw new Error('MVU 结算事务不能修改跨存储的世界书')
-      const updated = await observeResourceSave(resourceSaveSummary('worldbook', resolved.record.localChatId ? 'session' : resolved.record.source.kind === 'card' ? 'card' : 'worldbook', current.entries, worldInfo.entries, true), () => updateBoundWorldbook(resolved, {}, worldInfo), summary => options.recordResourceSave?.(sessionId, summary))
+      const updated = await observeResourceSave(resourceSaveSummary('worldbook', resolved.record.localChatId ? 'session' : resolved.record.source.kind === 'card' ? 'card' : 'worldbook', current.entries, merged.entries, true), () => updateBoundWorldbook(resolved, {}, merged), summary => options.recordResourceSave?.(sessionId, summary))
       return { updated: true, worldbook: projectTavernHelperWorldbook(updated.view), worldInfo: await exportBoundWorldbook(updated) }
     })
   }

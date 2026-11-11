@@ -1,19 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Session } from './fixtures/dsh-session-host.mjs'
-import { appendSessionEvent, isSurfaceEditTurn, withSurfaceEditTurn } from '../tavern-plugin/lib/domain/session-events.js'
-
-test('a turn opened for a Tavern edit is known as one; the player\'s turns are not', () => {
-  const session = Session.create('surface-edit-turn')
-  appendSessionEvent(session, 'turn/start', { turn: 1 })
-  appendSessionEvent(session, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  let opened
-  withSurfaceEditTurn(session, null, turn => { opened = turn })
-  assert.equal(opened, 2)
-  assert.equal(isSurfaceEditTurn(session, 2), true)
-  assert.equal(isSurfaceEditTurn(session, 1), false)
-  assert.equal(isSurfaceEditTurn(Session.create('other'), 2), false)
-})
+import { appendSessionEvent, isSurfaceEditTurn } from '../tavern-plugin/lib/domain/session-events.js'
 
 test('a surface write after the round closed opens an edit turn that is known as Tavern\'s', async () => {
   const { replaceSessionSurface } = await import('../tavern-plugin/lib/domain/session-surface-mutations.js')

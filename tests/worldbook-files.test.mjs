@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { createFileSymlink } from './helpers/file-symlink.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -47,8 +48,11 @@ test('reads reject foreign scope, traversal, symlinks, cancellation and permits 
   const { files } = await provider.listFiles({}, lookup)
   assert.equal(await provider.authorizeRead(files[0].path, { scope: { session: { id: 'foreign' } } }), false)
   assert.equal(await provider.authorizeRead(path.join(files[0].path, '../../secret'), lookup), false)
-  await fs.unlink(files[0].path); await fs.symlink(files[1].path, files[0].path)
-  await assert.rejects(provider.authorizeRead(files[0].path, lookup), /symlink/)
+  await t.test('rejects a file symlink in the materialized worldbook', async t => {
+    await fs.unlink(files[0].path)
+    if (!createFileSymlink(t, files[1].path, files[0].path)) return
+    await assert.rejects(provider.authorizeRead(files[0].path, lookup), /symlink/)
+  })
   const abort = new AbortController(); abort.abort()
   await assert.rejects(provider.listFiles({}, { ...lookup, signal: abort.signal }))
   state.chat.worldbookStrategy = 'legacy'

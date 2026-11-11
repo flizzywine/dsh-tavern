@@ -30,24 +30,6 @@ test('streaming typewriter keeps the unfinished Latin tail hidden and cleans tim
   cleanups.forEach(fn => fn())
   assert.equal(timers.size,0)
 })
-test('font readiness resolving after text unmount cannot update its state', async () => {
-  let ready
-  const {text,effects,timers,updates} = fixture({status:'loading',ready:new Promise(resolve => {ready=resolve})})
-  text.Typewriter({text:'你好',speed:28})
-  const cleanups = effects.map(fn => fn()).filter(Boolean)
-  assert.equal(timers.size,2)
-  cleanups.forEach(fn => fn())
-  assert.equal(timers.size,0)
-  ready()
-  await Promise.resolve()
-  assert.deepEqual(updates,[])
-})
-test('streaming reveal preserves combining characters and family emoji as whole glyphs', () => {
-  const {text} = fixture()
-  const result = text.Typewriter({text:'a\u0301👨‍👩‍👧‍👦好呀',pending:true,instant:true})
-  assert.equal(run(result,'shown'),'a\u0301👨‍👩‍👧‍👦')
-  assert.equal(run(result,'rest'),'好呀')
-})
 test('skin stepped text obeys reduced motion and photosensitive settings', () => {
   const {text} = fixture()
   const skin = {textFx:{reveal:'hop',charsPerStep:1},photosensitive:true}

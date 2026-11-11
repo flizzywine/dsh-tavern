@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -27,7 +29,9 @@ async function fixture(t, { beforeCleanup } = {}) {
   const statusFile = path.join(dataRoot, 'update-status.json')
   const updater = extra => createApplicationUpdater({ dataRoot, sourceRoot, dshHome: root, runtimeHost: 'desktop', platform: 'linux',
     readLocalIdentity: async () => identity, fetchManifest: async () => ({ version: identity.currentVersion }),
-    fetchLatestCommit: async () => identity.currentCommit, fetchCdnMetadata: async () => { throw new Error('offline') }, ...extra })
+    fetchLatestCommit: async () => identity.currentCommit,
+    fetchGithubManifest: async () => { throw new Error('offline') },
+    fetchCdnMetadata: async () => { throw new Error('offline') }, ...extra })
   return { root, sourceRoot, dataRoot, statusFile, updater, options: { host: 'desktop', sourceRoot, dshHome: root, statusFile, delay: 0, log() {} } }
 }
 async function until(operation) {
@@ -36,6 +40,68 @@ async function until(operation) {
   throw new Error('fixture did not reach expected state')
 }
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
+
+for (const cancel of [false, true]) {
+  test(cancel ? 'desktop update can be cancelled while both desktop processes are running'
+    : 'desktop update publishes only after the window and host both exit', { skip: process.platform === 'win32' }, async t => {
+    const f = await fixture(t)
+    const live = path.join(f.sourceRoot, 'plugin.js')
+    const finish = path.join(f.root, 'finish')
+    await writeFile(live, 'old')
+    const program = `import {recordInstallationReceipt} from ${JSON.stringify(receiptModule)};await recordInstallationReceipt({sourceRoot:${JSON.stringify(f.sourceRoot)},dshHome:process.env.DSH_HOME,host:'desktop',attemptId:process.env.DSH_TAVERN_INSTALL_ATTEMPT})`
+    await writeFile(path.join(f.sourceRoot, 'install.sh'), `#!/bin/sh
+test "$DSH_TAVERN_DEFER_SERVICE_START" = 1 || exit 11
+: > "$DSH_TAVERN_PUBLISH_GATE.ready"
+while [ ! -f "$DSH_TAVERN_PUBLISH_GATE" ]; do sleep 0.02; done
+test "$(cat "$DSH_TAVERN_PUBLISH_GATE")" = publish || exit 12
+printf new > ${quote(live)}
+while [ ! -f ${quote(finish)} ]; do sleep 0.02; done
+${quote(process.execPath)} --input-type=module -e ${quote(program)}
+`)
+    const children = [0, 1].map(() => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }))
+    const exits = children.map(child => once(child, 'exit'))
+    const relaunches = []
+    const active = updateApplication({ ...f.options, desktopPids: children.map(child => child.pid), timeoutMs: 10000,
+      assertDesktopStopped() { assert.ok(children.every(child => child.signalCode === 'SIGTERM')) },
+      relaunchDesktop(exe, { continueProfile }) { relaunches.push([exe, continueProfile]) },
+    }).catch(error => error)
+    try {
+      await until(async () => (await f.updater().status()).awaitingDesktopExit)
+      assert.equal(await readFile(live, 'utf8'), 'old')
+      if (cancel) {
+        assert.equal((await f.updater().cancel()).phase, 'cancelling')
+        assert.equal((await active).code, 'INSTALLATION_ABORTED')
+        assert.equal(await readFile(live, 'utf8'), 'old')
+        assert.deepEqual(relaunches, [])
+        return
+      }
+      children[0].kill()
+      await exits[0]
+      await new Promise(resolve => setTimeout(resolve, 350))
+      assert.equal((await f.updater().status()).awaitingDesktopExit, true)
+      assert.equal(await readFile(live, 'utf8'), 'old')
+      children[1].kill()
+      await exits[1]
+      await until(async () => await readFile(live, 'utf8') === 'new')
+      const owner = installationState.readInstallation(f.root)
+      assert.equal((await f.updater().status()).cancellable, false)
+      assert.throws(() => installationState.requestCancellation(f.root, owner.attemptId), { code: 'INSTALLATION_PUBLISHING' })
+      await writeFile(finish, '')
+      assert.equal(await active, undefined)
+      const completed = JSON.parse(await readFile(f.statusFile))
+      assert.equal(completed.phase, 'completed')
+      assert.equal(completed.requiresRestart, false)
+      assert.equal(installationState.readInstallation(f.root), null)
+      assert.deepEqual(relaunches, [[process.execPath, true]])
+      assert.equal(JSON.parse(await readFile(path.join(f.root, 'profile-bridge/continue-profile.json'))).profile, 'tavern')
+    } finally {
+      for (const child of children) child.kill()
+      await Promise.all(exits)
+      await writeFile(finish, '')
+      await active
+    }
+  })
+}
 
 // The fixture installer uses the real receipt writer after its simulated profile
 // validation. The production updater must both stop its process tree and verify
@@ -123,7 +189,7 @@ test('Windows persistent service launched after cleanup survives successful upda
   const { startUpdatedService } = await import('../bin/application-update.mjs')
   const receiptScript = path.join(f.sourceRoot, 'receipt.mjs')
   await writeFile(receiptScript, `import {recordInstallationReceipt} from ${JSON.stringify(receiptModule)};await recordInstallationReceipt({sourceRoot:${JSON.stringify(f.sourceRoot)},dshHome:process.env.DSH_HOME,host:'cli',attemptId:process.env.DSH_TAVERN_INSTALL_ATTEMPT})`)
-  await writeFile(path.join(f.sourceRoot, 'install.ps1'), `if ($env:DSH_TAVERN_DEFER_SERVICE_START -ne '1') { exit 11 }; & '${process.execPath.replaceAll("'", "''")}' '${receiptScript.replaceAll("'", "''")}'; exit $LASTEXITCODE`)
+  await writeFile(path.join(f.sourceRoot, 'install.ps1'), `if ($env:DSH_TAVERN_DEFER_SERVICE_START -ne '1') { exit 11 }; & '${(process.env.DSH_TEST_NODE_EXECUTABLE || process.execPath).replaceAll("'", "''")}' '${receiptScript.replaceAll("'", "''")}'; exit $LASTEXITCODE`)
   await mkdir(path.join(f.sourceRoot, 'bin'))
   const pidFile = path.join(f.root, 'service.pid')
   await writeFile(path.join(f.sourceRoot, 'bin/dsh-tavern.mjs'), `import {spawn} from 'node:child_process';import {writeFileSync} from 'node:fs';const p=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});writeFileSync(${JSON.stringify(pidFile)},String(p.pid));p.unref()`)

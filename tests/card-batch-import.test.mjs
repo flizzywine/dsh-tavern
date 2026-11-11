@@ -4,17 +4,24 @@ import { readFileSync } from 'node:fs'
 const source = readFileSync(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const start = source.indexOf('async function importCardFiles(')
 const body = source.slice(start, source.indexOf('async function renameCard()', start))
-function setup() {
+const selectionStart = source.indexOf('async function importTavernCardSelection(')
+const selection = source.slice(selectionStart, source.indexOf('// No file filter on card import', selectionStart))
+function setup(cardZip = null) {
   const state = { status: '', error: '', calls: [], loads: [], refreshes: 0 }
   const importing = { current: false }
-  const rpc = async (_, { payload }) => { state.calls.push(payload.name); if (payload.name === 'bad.json') throw new Error('invalid card'); return { card: { path: payload.name } } }
-  const parseCardFile = async file => file
-  const run = new Function('busy', 'importing', 'setBusy', 'setError', 'setImportStatus', 'rpc', 'parseCardFile', 'notifyTavernDataChanged', 'refreshCards', 'loadCard',
-    'importTavernCardFile', 'tavernCardAssetNotice', 'forkCardZip', 'setTransferStatus', body + '; return importCardFiles;')(
+  const rpc = async (_, { payload }) => {
+    state.calls.push(payload.name)
+    if (payload.name === 'bad.json') throw new Error('invalid card')
+    if (payload.name === 'cancel.dshcard') throw Object.assign(new Error('cancelled'), { code: 'TAVERN_CARD_IMPORT_CANCELLED' })
+    return { card: { path: payload.name, name: payload.name, duplicate: payload.name === 'existing.json' } }
+  }
+  const run = new Function('busy', 'importing', 'setBusy', 'setError', 'setImportStatus', 'rpc', 'notifyTavernDataChanged', 'refreshCards', 'loadCard',
+    'importTavernCardFile', 'tavernCardAssetNotice', 'forkCardZip', 'setTransferStatus', 'splitCardFiles', selection + body + '; return importCardFiles;')(
     false, importing, value => { state.busy = value }, value => { state.error = value }, value => { state.status = value },
-    rpc, parseCardFile, () => {}, async () => { state.refreshes++ }, async path => { state.loads.push(path) },
-    async (file, call) => call('importCard', { payload: await parseCardFile(file) }), () => '',
-    null, value => { state.transferStatus = value }) // no asset library: card ZIPs are not routed to its import sheet here
+    rpc, () => {}, async () => { state.refreshes++; state.error = '' }, async path => { state.loads.push(path) },
+    async (file, call) => call('importCard', { payload: file }), () => '',
+    cardZip, value => { state.transferStatus = value },
+    async files => ({ cards: files.filter(file => !file.name.endsWith('.zip')), zips: files.filter(file => file.name.endsWith('.zip')) }))
   return { state, run, importing }
 }
 
@@ -25,6 +32,27 @@ test('single import still opens the imported card; cancelling picker does nothin
   await run([{ name: 'a.png' }])
   assert.deepEqual(state.loads, ['a.png'])
   assert.equal(state.transferStatus, '')
+})
+
+test('batch continues after failure and cancelled password, then refreshes once without opening a card', async () => {
+  const { state, run } = setup()
+  const names = ['bad.json', 'cancel.dshcard', 'existing.json', 'new.json']
+  await run(names.map(name => ({ name })))
+  assert.deepEqual(state.calls, names)
+  assert.equal(state.refreshes, 1)
+  assert.deepEqual(state.loads, [])
+  assert.equal(state.error, 'bad.json：invalid card')
+  assert.match(state.status, /已导入 1 张，1 张已在卡库中，1 个文件失败/)
+  assert.match(state.status, /cancel\.dshcard：已取消/)
+})
+
+test('mixed selection imports cards and opens one interactive ZIP sheet', async () => {
+  const opened = []
+  const { state, run } = setup({ openFile: async file => { opened.push(file.name) } })
+  await run(['one.zip', 'card.json', 'two.zip'].map(name => ({ name })))
+  assert.deepEqual(state.calls, ['card.json'])
+  assert.deepEqual(opened, ['one.zip'])
+  assert.match(state.status, /其余 1 个请单独选择/)
 })
 
 test('导入文件分流：PNG、JSON 在页面里解析；CHARX、DSH 人物卡和其他扩展名（插件导入器）整份上传', async () => {

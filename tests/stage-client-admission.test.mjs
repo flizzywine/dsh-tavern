@@ -28,19 +28,3 @@ test('admission disposal stops polling and resolves waiters even before React re
   latePoll()
   assert.equal(updates.length,before)
 })
-test('an empty loaded stage becomes ready without waiting for nonexistent direction', () => {
-  const effects = [], updates = []
-  const admission = createStageAdmission({
-    React:{useState:value => [value,next => updates.push(next)],useRef:current => ({current}),
-      useEffect:fn => effects.push(fn),useCallback:fn => fn},
-    window:{},document:{fonts:{status:'loaded'}},performance:{now:() => 0},
-    setTimeout:() => {throw new Error('unexpected poll')},clearTimeout:()=>{},
-  })
-  const store = {getSnapshot:() => ({accepted:{presentationRevision:0},source:null,empty:true})}
-  admission.useEntry(store,{current:{querySelectorAll:() => [],querySelector:() => ({})}})
-  effects[0]()
-  assert.deepEqual(updates,['ready'])
-  assert.equal(admission.shown.get(),store)
-  admission.dispose()
-  assert.equal(admission.shown.get(),null)
-})

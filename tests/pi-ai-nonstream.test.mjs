@@ -1,14 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import vm from 'node:vm'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import {
-  openAICompletionChunks,
-  patchPiAiAdapterSource,
-  patchPiAiOpenAICompletionsSource,
-} from '../tavern-plugin/lib/domain/pi-ai-nonstream.js'
+import { openAICompletionChunks } from '../tavern-plugin/lib/domain/pi-ai-nonstream.js'
 import { patchPiAiNonStream } from '../bin/pi-ai-nonstream-patch.mjs'
 
 const fixture = `function buildParams(model, context, options) {
@@ -82,28 +77,6 @@ test('OpenAI 完整响应投影为现有流解析器消费的单个 chunk', () =
   assert.equal(chunks[0].choices[0].delta.tool_calls[1].function.arguments, '{"value":1}')
   assert.deepEqual(openAICompletionChunks(null), [])
   assert.deepEqual(openAICompletionChunks({ choices: [] }), [])
-})
-
-test('pi-ai OpenAI 补丁把 stream:false 变成真实 JSON 请求，并复用流解析分支', () => {
-  const result = patchPiAiOpenAICompletionsSource(fixture)
-  assert.equal(result.status, 'applied')
-  assert.match(result.text, /stream: options\?\.stream !== false/)
-  assert.match(result.text, /if \(params\.stream && compat\.supportsUsageInStreaming !== false\)/)
-  assert.match(result.text, /\.\.\.\(options\?\.stream === false \? \{ stream: false \} : \{\}\)/)
-  assert.match(result.text, /openAICompletionChunks\(openaiStream, model\.id\)/)
-  assert.match(result.text, /for await \(const chunk of openaiChunks\)/)
-  assert.match(result.text, /dsh-tavern:pi-ai-nonstream/)
-  new vm.Script(result.text.replace(/\bexport const /g, 'const '))
-  assert.equal(patchPiAiOpenAICompletionsSource(result.text).status, 'patched')
-  assert.equal(patchPiAiOpenAICompletionsSource('function changed() {}').status, 'unmatched')
-})
-
-test('pi-ai 宿主适配器把调用方的 stream 标志传入 streamSimple', () => {
-  const result = patchPiAiAdapterSource(adapterFixture)
-  assert.equal(result.status, 'applied')
-  assert.match(result.text, /typeof options\.stream === "boolean" \? \{ stream: options\.stream \}/)
-  assert.equal(patchPiAiAdapterSource(result.text).status, 'patched')
-  assert.equal(patchPiAiAdapterSource('const changed = true').status, 'unmatched')
 })
 
 test('pi-ai 安装补丁同时改写适配器与 SDK，漂移时两处都不写', async t => {

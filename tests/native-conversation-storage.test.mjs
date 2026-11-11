@@ -11,6 +11,7 @@ import {createChatPersistence} from '../tavern-plugin/lib/domain/chat-persistenc
 import {createConversationPageStore} from '../tavern-plugin/lib/domain/conversation-page-store.js'
 import {createConversationState} from '../tavern-plugin/lib/domain/conversation-state.js'
 import { projectChatSessionState, projectChatBackgroundConfig } from '../tavern-plugin/lib/domain/chat-session-state.js'
+import { mapRead } from '../tavern-plugin/lib/domain/native-conversation-storage.js'
 
 async function fixture(t){
  const root=await mkdtemp(join(tmpdir(),'native-chat-'))
@@ -21,6 +22,21 @@ async function fixture(t){
  return {root,store,persistence,pages,domain:createConversationState({store:pages}),io}
 }
 const row=gold=>({role:'assistant',text:'reward',variables:[{stat_data:{gold},schema:{}}]})
+
+test('大量原生记录解码时主动让出事件循环并保持原索引顺序',async()=>{
+ let ticked=false
+ const tick=new Promise(resolve=>setImmediate(()=>{ticked=true;resolve()}))
+ const values=Array.from({length:32},(_,index)=>index)
+ const result=await mapRead(values,async value=>{
+  const until=performance.now()+4
+  while(performance.now()<until){}
+  return value
+ },true)
+ const yieldedDuringRead=ticked
+ await tick
+ assert.equal(yieldedDuringRead,true)
+ assert.deepEqual(result,values)
+})
 
 test('process death during a buffered flush cannot publish half a variable transaction',async t=>{
  const {root,persistence}=await fixture(t)
@@ -83,7 +99,12 @@ test('cold selected reads skip historical variables and return the same session 
  assert.deepEqual(await fresh.readBackgroundConfig('a'),projectChatBackgroundConfig(chat))
  assert.ok(io.every(e=>e.bytes<65536))
  io=[]
- assert.deepEqual(await fresh.readSessionState('a'),projectChatSessionState(chat))
+ const sessionState=await fresh.readSessionState('a')
+  assert.deepEqual(sessionState,projectChatSessionState(chat))
+  sessionState.timeline.participants.background.status='outside'
+  sessionState.timeline.checkpoints[0]='outside'
+  assert.equal((await fresh.readSessionState('a')).timeline.participants.background.status,'idle')
+  assert.equal((await fresh.readSessionState('a')).timeline.checkpoints[0],chat.timeline.checkpoints[0])
  // Session's public contract includes checkpoints, but never historical variables.
  const historyBytes=Buffer.byteLength(JSON.stringify({kind:'record',value:{type:'scalar',value:historical.variables[0].stat_data.archive}}))
  assert.ok(!io.some(e=>e.bytes===historyBytes),'session metadata must not hydrate history-only payload')
@@ -93,6 +114,74 @@ test('cold selected reads skip historical variables and return the same session 
  scoped.messages[0].role='changed'
  assert.equal((await fresh.readSessionState('a')).messages[0].role,'assistant')
  assert.deepEqual((await fresh.read('a')).messages,chat.messages,'full read still returns complete historical values')
+})
+
+test('旧原生摘要从末尾正文补读截断标记与身份',async t=>{
+ const {root,persistence,pages}=await fixture(t)
+ const saved=await persistence.write({id:'legacy-summary',sessionId:'s',mode:'story',messages:[
+  {role:'user',text:'input'}, {...row(1),turn:2,incomplete:true,nativeAnchor:{turn:3,input:1,reply:2}}
+ ]})
+ const view=await pages.readHead(saved.id)
+ const page=await pages.readHistoryPage(saved.id,{cursor:view.snapshotCursor,limit:1})
+ const {position,message}=page.messages[0]
+ for(const key of ['incomplete','messageUid','nativeAnchor'])delete message.session.message[key]
+ await pages.commit(saved.id,{expectedRevision:view.revision,edits:[{position,message}],append:[]})
+ const fresh=createChatJournalStore({dataRoot:root})
+ const state=await fresh.readSessionState(saved.id,{scoped:true})
+ const tail=state.messages.at(-1)
+ assert.equal(tail.incomplete,true)
+ assert.equal(tail.messageUid,saved.messages.at(-1).messageUid)
+ assert.deepEqual(tail.nativeAnchor,{turn:3})
+ const recent=await fresh.readRecentSummaries(saved.id,1)
+ assert.deepEqual(recent.messages,[tail])
+})
+
+test('全量故事摘要复用会话缓存并透传固定版本',async t=>{
+ const {store,persistence,io}=await fixture(t)
+ const messages=Array.from({length:130},(_,index)=>({role:index%2?'assistant':'user',turn:index%2?(index+1)/2:undefined,text:'text-'+index}))
+ const saved=await persistence.write({id:'story',sessionId:'s',mode:'story',messages})
+ const snapshot=await store.openSnapshot('story',{revision:saved._storageRevision})
+ const expected=await snapshot.summaries()
+ io.length=0
+ const recent=await persistence.readRecentSummaries('story',messages.length,{revision:saved._storageRevision})
+ assert.deepEqual(recent.messages,expected)
+ assert.equal(io.filter(event=>event.name==='chat.native.summary-scan').length,0,'同一快照的全量摘要不得再次扫描页面')
+ recent.messages[0].role='changed'
+ assert.equal((await snapshot.summaries())[0].role,'user','调用方修改不得污染共享摘要')
+
+ await persistence.update('story',draft=>{draft.messages[0].text='newer'})
+ const pinned=await persistence.readRecentSummaries('story',1,{revision:saved._storageRevision})
+ assert.equal(pinned.revision,saved._storageRevision,'persistence 必须透传固定 revision')
+})
+
+test('旧前台正文的原生状态保留完整历史提示但不序列化内部标记',async t=>{
+ const {persistence}=await fixture(t)
+ await persistence.write({id:'a',sessionId:'s',mode:'story',messages:[row(0)],timeline:{schemaVersion:1,branchId:'b',revision:0,checkpoints:[],participants:{},operations:{old:{kind:'body',status:'foreground-completed'}}}})
+ const state=await persistence.readSessionState('a')
+ assert.equal(state._sessionStateHistoryComplete,true)
+ assert.equal(state.messages[0].text,'reward')
+ assert.equal(JSON.stringify(state).includes('_sessionStateHistoryComplete'),false)
+  state.messages[0].text='outside';state.timeline.operations.old.status='outside'
+  const reread=await persistence.readSessionState('a')
+  assert.equal(reread.messages[0].text,'reward')
+  assert.equal(reread.timeline.operations.old.status,'foreground-completed')
+})
+
+test('内部共享解码不泄漏到完整读取、窗口、历史版本或放弃的回写',async t=>{
+ const {persistence}=await fixture(t)
+ await persistence.write({id:'a',sessionId:'s',mode:'story',messages:[row(0)]})
+ const full=await persistence.read('a')
+ full.messages[0].text='changed';full.messages[0].variables[0].stat_data.gold=99
+ assert.equal((await persistence.read('a')).messages[0].text,'reward')
+ assert.equal((await persistence.read('a')).messages[0].variables[0].stat_data.gold,0)
+ const window=await persistence.readWindow('a',{limit:1})
+ window.chat.messages[0].text='window changed'
+ assert.equal((await persistence.readWindow('a',{limit:1})).chat.messages[0].text,'reward')
+ const revision=await persistence.readRevision('a',1)
+ revision.messages[0].text='revision changed'
+ assert.equal((await persistence.read('a')).messages[0].text,'reward')
+ await persistence.update('a',draft=>{draft.messages[0].text='aborted change';return undefined})
+ assert.equal((await persistence.read('a')).messages[0].text,'reward')
 })
 
 test('fresh native gameplay writes pages, recovers variables and preserves historical revisions',async t=>{

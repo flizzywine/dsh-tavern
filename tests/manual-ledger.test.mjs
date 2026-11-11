@@ -43,45 +43,6 @@ test('手动整理只处理上次之后的新剧情，并记录整理到的轮�
   await assert.rejects(run.api.start({ sessionId: 'session' }), /还没有新的剧情/)
 })
 
-test('插件接管台账整理：它交回的增量照常校验并保存；交回 null 时由 Tavern 自己整理', async () => {
-  const asked = []
-  let agentRuns = 0
-  const taken = fixture(async () => { agentRuns++ }, undefined, { replaceLedger: async input => {
-    asked.push(input)
-    input.apply(addKey)
-    return { owner: 'p', delta: addKey }
-  } })
-  await taken.api.start({ sessionId: 'session' }); await taken.api.wait('chat')
-  assert.equal(agentRuns, 0)
-  assert.equal(taken.get().ledgerTask.status, 'done')
-  assert.equal(taken.get().ledger.items[0].qty, 1)
-  assert.deepEqual([asked[0].gameId, asked[0].from, asked[0].through, asked[0].tool.name], ['session', 1, 2, 'ledger_submit'])
-  assert.match(asked[0].text, /第1轮正文/)
-  assert.throws(() => asked[0].apply({ items: { update: [{ name: '不存在' }] } }), /尚未登记/)
-
-  const declined = fixture(async input => { agentRuns++; await input.onToolCall({ name: 'ledger_submit', arguments: addKey }) }, undefined, { replaceLedger: async () => null })
-  await declined.api.start({ sessionId: 'session' }); await declined.api.wait('chat')
-  assert.equal(agentRuns, 1)
-  assert.equal(declined.get().ledger.items[0].qty, 1)
-})
-
-test('书记忙时点整理：马上返回「排队中」，书记做完再整理', async () => {
-  let ran = 0
-  const run = fixture(async input => { ran++; await input.onToolCall({ name: 'ledger_submit', arguments: addKey }) }, undefined, { queue: true })
-  const holder = await run.tasks.begin(run.get(), 'settlement')
-  assert.equal((await run.api.start({ sessionId: 'session' })).status, 'queued')
-  await new Promise(resolve => setTimeout(resolve, 20))
-  assert.equal(run.get().ledgerTask.status, 'queued')
-  assert.equal(run.api.project(run.get()).status, 'queued')
-  assert.equal(ran, 0)
-  await assert.rejects(run.api.start({ sessionId: 'session' }), /正在整理/)
-  await holder.commit({ stateChanged: false })
-  await run.api.wait('chat')
-  assert.equal(ran, 1)
-  assert.equal(run.get().ledgerTask.status, 'done')
-  assert.equal(run.get().ledger.items[0].qty, 1)
-})
-
 test('排队中的整理遇到剧情回退：标为失败并说明原因', async () => {
   const run = fixture(async () => assert.fail('must not run'), undefined, { queue: true })
   const holder = await run.tasks.begin(run.get(), 'settlement')

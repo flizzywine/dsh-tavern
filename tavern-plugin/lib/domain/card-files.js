@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { StoredFile } from '../../packages/dsh-asset-library/lib/pack-v2/service.js'
 import { exportDshCardSnapshot } from './dsh-card-export.js'
+import { withoutPlayerChoices } from './card-export-settings.js'
 import { readCardArchive } from './card-archive.js'
 import { buildCharxContents, cardImport, cardImportFromCard, cardLibraryMaterial, pngCardTextChunk, pngWithTextChunks } from './card-assets.js'
 import { cardAssetExtensionPointer, validateCardAssetExtension } from './card-asset-bindings.js'
@@ -197,7 +198,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   async function presentCardText(cardPath) {
     const workspace = await readCardWorkspace(cardPath)
     if (workspace === undefined) throw Object.assign(new Error('人物卡不存在: ' + cardPath), { code: 'TAVERN_NOT_FOUND' })
-    const document = cardPreparation.present({ card: workspace, as: 'sillytavern-v3', characterBook: await worldBooks.characterBookForCard(cardPath) })
+    const document = withoutPlayerChoices(cardPreparation.present({ card: workspace, as: 'sillytavern-v3', characterBook: await worldBooks.characterBookForCard(cardPath) }))
     return { document, text: JSON.stringify(document) }
   }
   // A standard card PNG: the cover's pixels carrying the current working card, as `chara`
@@ -215,8 +216,14 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   // the card binds (and the packs it came with); `packIds` chooses, and a pack left out also leaves the exported card's
   // bindings. `excludeFigures` leaves figures of the packs out (e.g. the one the player plays) with the media only they
   // use. Packs can be large, so the archive is written to a spool file under exportRoot and streamed.
-  async function exportCardFile(input, options = {}) {
-    return writeCardFile(input, options)
+  async function exportCardFile(input, { format = 'dshcard', packIds, excludeFigures = [] } = {}) {
+    if (format === 'dshcard') return writeCardFile(input, { packIds, excludeFigures })
+    if (format !== 'json' && format !== 'png') throw Object.assign(new Error('不支持的人物卡导出格式'), { code: 'TAVERN_EXPORT_INVALID' })
+    if (packIds !== undefined || !Array.isArray(excludeFigures) || excludeFigures.length) throw Object.assign(new Error('素材包与人物选择仅用于导出 .dshcard'), { code: 'TAVERN_EXPORT_INVALID' })
+
+    if (format === 'png') return { ...await exportCardPng(input), extension: format, contentType: 'image/png' }
+    const { document, text } = await presentCardText(normalizeResourcePath(input, 'card'))
+    return { name: str(document.data.name) || '人物卡', extension: format, contentType: 'application/json; charset=utf-8', bytes: Buffer.from(text) }
   }
   async function writeCardFile(input, { excludeFigures = [], packIds } = {}, backup = false) {
     if (!Array.isArray(excludeFigures) || excludeFigures.some(id => typeof id !== 'string')
@@ -278,8 +285,9 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       }
       const imported = importedPacks.map(pack => pack.manifest.id)
       const ids = boundIds.filter(id => !imported.includes(id) && (!chosen || chosen.has(id)))
-      const library = assetLibrary()
-      if (!backup && (ids.length || chosen) && !library) throw Object.assign(new Error('素材库尚未就绪'), { code: 'TAVERN_EXPORT_UNAVAILABLE' })
+      // Only bound library packs need the card adapter supplied by the optional stage runtime.
+      const library = backup || boundIds.length ? assetLibrary() : undefined
+      if (!backup && (ids.length || chosen && boundIds.length) && !library) throw Object.assign(new Error('素材库尚未就绪'), { code: 'TAVERN_EXPORT_UNAVAILABLE' })
       // Replacement owns the card, not its installed packs: retain references without copying media.
       const selection = backup
         ? { path: cardPath, packIds: [], keepPackIds: [...boundIds, ...(material.packs || []).map(ref => ref.id), ...(document.data?.extensions?.dsh_tavern?.modConfigPackId ? [document.data.extensions.dsh_tavern.modConfigPackId] : [])] }

@@ -15,7 +15,7 @@ test('stage owns its executable chunk across repeated registration and disposal'
     // The stage client itself is the stage's asset too: the core imports it only for a session that needs the stage.
     const client = await assets.read(TAVERN_CLIENT_ASSET_PREFIX + 'stage-client.mjs')
     assert.equal(client.mediaType, 'text/javascript; charset=utf-8')
-    assert.match(client.body.toString(), /\nexport default stageClientPlugin;\n?$/)
+    assert.match(client.body.toString(), /\r?\nexport default stageClientPlugin;(?:\r?\n)?$/)
     assert.throws(() => registerStageClientAssets(assets), /already registered/)
     stop(); stop()
     assert.equal(await assets.read(url), undefined)

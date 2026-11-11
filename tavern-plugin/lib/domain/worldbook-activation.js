@@ -1,4 +1,6 @@
 // Selection priority and prompt order are different in SillyTavern.
+import { worldBookChannel } from './worldbook-channel.js'
+
 const str = value => value == null ? '' : String(value)
 export const DEFAULT_WORLD_BOOK_TOKEN_BUDGET = 8192
 // Local admission estimate, not provider usage. CJK text is about 0.6 tokens per character on current tokenizers.
@@ -186,6 +188,12 @@ export function activateWorldBook(input) {
     matchWholeWords: entry.matchWholeWords ?? settings.matchWholeWords
   }))
   const activated = [], recurse = [], diagnostics = new Map(), rejected = new Set()
+  // A pinned channel turns selection off (no keywords, no cooldown, no semantic
+  // allowlist) without also turning off the token budget — except 'prefix', which
+  // behaves like 常驻 because its body is paid for once in the stable prefix.
+  const channelOf = entry => worldBookChannel(entry)
+  const alwaysOn = entry => entry.constant === true || channelOf(entry) !== 'auto'
+  const chargesBudget = entry => channelOf(entry) === 'tail' || (entry.constant !== true && channelOf(entry) === 'auto')
   const reject = (entry, reason, extra = {}) => diagnostics.set(entry.ref, { ...diagnostics.get(entry.ref), ref: entry.ref, title: str(entry.title || entry.comment), constant: entry.constant === true,
     order: entry.order ?? 100, displayIndex: entry.displayIndex, placement: placementKey(entry), priorityRank: entries.indexOf(entry) + 1,
     scanDepth: integer(entry.scanDepth, settings.scanDepth), caseSensitive: entry.caseSensitive, matchWholeWords: entry.matchWholeWords, reason, ...extra })
@@ -204,7 +212,7 @@ export function activateWorldBook(input) {
       if (rejected.has(entry.ref) || activated.some(item => item.ref === entry.ref)) continue
       const requests = (input.activationRequests || []).filter(request => request.ref === entry.ref)
       if (requests.length) reject(entry, 'requested', { activationRequests: requests })
-      const cooling = !entry.constant && input.isCoolingDown(entry)
+      const cooling = !alwaysOn(entry) && input.isCoolingDown(entry)
       // A screened-out entry comes back as soon as the player names it in this turn's input.
       const playerNamed = cooling === 'screened' && !input.userTextInHistory && str(input.userText).trim() &&
         keywordEvaluation(entry, str(input.userText), [{ text: str(input.userText), source: 'current-input' }]).matched
@@ -212,12 +220,12 @@ export function activateWorldBook(input) {
       const delay = integer(entry.delayUntilRecursion, 0)
       if (delay && (!iteration || delay > level)) { reject(entry, 'recursion-delay'); continue }
       if (iteration && entry.excludeRecursion) { reject(entry, 'recursion-excluded'); continue }
-      if (!entry.constant && !requests.some(request => request.force)) {
+      if (!alwaysOn(entry) && !requests.some(request => request.force)) {
         const match = keywordEvaluation(entry, textFor(entry), sourcesFor(entry))
         reject(entry, 'matched', { match, stage: iteration ? 'recursion' : 'initial', recursionLevel: level, scanSources: sourcesFor(entry).map(({ text, ...source }) => ({ ...source, chars: text.length })) })
         if (!match.matched) { reject(entry, 'keywords'); continue }
       }
-      if (!entry.constant && input.allowedRefs && !input.allowedRefs.has(entry.ref) && !input.protectedRefs?.has(entry.ref)) { reject(entry, 'semantic'); continue }
+      if (!alwaysOn(entry) && input.allowedRefs && !input.allowedRefs.has(entry.ref) && !input.protectedRefs?.has(entry.ref)) { reject(entry, 'semantic'); continue }
       candidates.push(entry)
     }
     const winners = filterGroups(candidates, activated, textFor, random, (entry, reason, extra) => {
@@ -228,18 +236,18 @@ export function activateWorldBook(input) {
     for (const entry of winners) {
       const tokenCost = input.tokenCosts ? (input.tokenCosts[entry.ref] ?? 0) : (estimateWorldBookTokens(entry.content) + 2)
       const hardLimit = settings.tokenBudget * 2
-      if (!entry.constant && !input.ignoreBudget && (budgetOverflowed || budgetUsed >= settings.tokenBudget || budgetUsed + tokenCost > hardLimit)) {
+      if (chargesBudget(entry) && !input.ignoreBudget && (budgetOverflowed || budgetUsed >= settings.tokenBudget || budgetUsed + tokenCost > hardLimit)) {
         reject(entry, 'budget', { tokenCost, budgetUsed, tokenBudget: settings.tokenBudget, hardLimit,
           budgetReason: budgetOverflowed ? 'stopped' : budgetUsed >= settings.tokenBudget ? 'soft-limit-reached' : 'hard-limit', overflowedEarlier: budgetOverflowed,
-          selectedBefore: activated.filter(item => !item.constant).map(item => item.ref) })
+          selectedBefore: activated.filter(item => chargesBudget(item)).map(item => item.ref) })
         budgetOverflowed = true
         rejected.add(entry.ref)
         continue
       }
       activated.push(entry)
       added.push(entry)
-      if (!entry.constant) budgetUsed += tokenCost
-      reject(entry, 'selected', { tokenCost: entry.constant ? 0 : tokenCost, budgetUsed, stage: iteration ? 'recursion' : 'initial', scanDepth: integer(entry.scanDepth, settings.scanDepth) })
+      if (chargesBudget(entry)) budgetUsed += tokenCost
+      reject(entry, 'selected', { tokenCost: chargesBudget(entry) ? tokenCost : 0, budgetUsed, stage: iteration ? 'recursion' : 'initial', scanDepth: integer(entry.scanDepth, settings.scanDepth) })
     }
     if (!settings.recursive) break
     const sources = added.filter(entry => !entry.preventRecursion).map(entry => ({ text: str(entry.content), source: 'recursion', ref: entry.ref })).filter(source => source.text)

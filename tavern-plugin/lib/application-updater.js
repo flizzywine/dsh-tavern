@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { recordUpdateDiagnostic, readUpdateDiagnostics } from '../../bin/update-diagnostics.mjs'
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -31,6 +32,7 @@ const CDN_METADATA_URL = 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runt
 const GITHUB_MANIFEST_URL = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/dsh-tavern-runtime.json'
 const RUNTIME_FILES = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh'])
 const RUNTIME_DIRECTORIES = ['android/', 'bin/', 'config/', 'presets/', 'tavern-plugin/', 'patches/']
+const RUNTIME_COMPARE_BATCH_SIZE = 8
 
 async function localCommitRelation(root, current, latest) {
   const ancestor = async (base, head) => {
@@ -64,14 +66,23 @@ async function compareCdnRuntime(sourceRoot, metadata) {
   const remoteDigest = createHash('sha256')
   const localDigest = createHash('sha256')
   let matches = true
-  for (const file of files) {
-    remoteDigest.update(`${file.path}\0${file.hash}\n`)
-    let localHash = ''
-    try { localHash = createHash('sha256').update(await readFile(path.join(sourceRoot, ...file.path.split('/')))).digest('hex') } catch (error) {
-      if (error?.code !== 'ENOENT') throw error
+  // Small bounded batches avoid thousands of serial open/read syscalls on Android
+  // storage without opening the whole runtime tree at once.
+  for (let offset = 0; offset < files.length; offset += RUNTIME_COMPARE_BATCH_SIZE) {
+    const batch = files.slice(offset, offset + RUNTIME_COMPARE_BATCH_SIZE)
+    const localHashes = await Promise.all(batch.map(async file => {
+      try { return createHash('sha256').update(await readFile(path.join(sourceRoot, ...file.path.split('/')))).digest('hex') } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+        return ''
+      }
+    }))
+    for (let index = 0; index < batch.length; index += 1) {
+      const file = batch[index]
+      const localHash = localHashes[index]
+      remoteDigest.update(`${file.path}\0${file.hash}\n`)
+      localDigest.update(`${file.path}\0${localHash}\n`)
+      if (localHash !== file.hash) matches = false
     }
-    localDigest.update(`${file.path}\0${localHash}\n`)
-    if (localHash !== file.hash) matches = false
   }
   const version = String(metadata?.version || '')
   const releaseSequence = Number(metadata?.releaseSequence)
@@ -134,8 +145,12 @@ function processIsAlive(pid) {
   }
 }
 
-async function readRecordedCommit(sourceRoot, dshHome) {
-  const runtimeMetadata = await readVerifiedRuntimeMetadata(sourceRoot)
+async function readRecordedCommit(sourceRoot, dshHome, comparedRuntime) {
+  // loadLocalIdentity already compared the tree. Reuse that result when it was
+  // not verified instead of hashing every runtime file a second time.
+  const runtimeMetadata = comparedRuntime === undefined
+    ? await readVerifiedRuntimeMetadata(sourceRoot)
+    : comparedRuntime?.matches ? comparedRuntime : null
   if (runtimeMetadata) return runtimeMetadata.revision
   try {
     const content = await readFile(path.join(sourceRoot, RELEASE_FILE), 'utf8')
@@ -309,7 +324,7 @@ export function createApplicationUpdater(options) {
     const verified = runtimeMetadata?.matches ? runtimeMetadata : null
     return {
       currentVersion: String(local?.version || '') || 'unknown',
-      currentCommit: verified?.revision || await readRecordedCommit(sourceRoot, dshHome),
+      currentCommit: verified?.revision || await readRecordedCommit(sourceRoot, dshHome, runtimeMetadata),
       ...(verified?.releaseSequence ? { currentReleaseSequence: verified.releaseSequence } : {}),
       // The manifest is published by a later commit, so a build installed before
       // its own publish carries the previous manifest. That sequence is still a
@@ -331,9 +346,9 @@ export function createApplicationUpdater(options) {
     return await identityLoad
   }
 
-  // Every remote source is optional. GitHub API is authoritative for the latest
-  // commit; jsDelivr is the fallback; raw package.json only supplies a label.
-  // Order is proven by release sequence, local Git or GitHub compare.
+  // Every remote source is optional. The order of proof is release sequence, local
+  // Git or GitHub compare. Manifest sources: GitHub raw first (no branch-alias
+  // cache), GitHub commits API to confirm just-pushed commits, jsDelivr last.
   async function relationTo(identity, latest, latestSequence, { sequenceFirst = false } = {}) {
     const { currentCommit, currentReleaseSequence, releaseSequenceFloor } = identity
     if (currentCommit.toLowerCase() === latest.toLowerCase()) return false
@@ -360,16 +375,22 @@ export function createApplicationUpdater(options) {
     if (currentVersion === 'unknown') throw new Error('无法确认当前构建，请手动重新安装')
     if (currentVersion === '') throw new Error('版本信息不完整')
     const settle = promise => promise.then(value => ({ status: 'fulfilled', value }), reason => ({ status: 'rejected', reason }))
-    // Start the CDN request in parallel, but only wait for it when GitHub cannot decide.
-    const cdn = settle(stage('cdn.fetch', fetchCdnMetadata))
-    // GitHub 自己的清单优先于 jsDelivr：CDN 分发分支会滞后，GitHub 的 raw 不会。
-    // 只有 GitHub 的 commits API 判不了时才取 GitHub 清单：正常检查不多发一次请求。
+    // 主源判得动就不请求 jsDelivr：它只是最后的兜底，不必为每次检查多发一次请求。
+    let cdnResult = null
+    const cdn = () => (cdnResult ||= settle(stage('cdn.fetch', fetchCdnMetadata)))
+    // 清单主源是 GitHub 自己发布的运行清单（raw）：它不带分发分支的缓存滞后。
+    // jsDelivr 只在前两者都判不了时兜底。
     let githubManifestPromise = null
     const githubManifest = () => (githubManifestPromise ||= settle(stage('github.manifest', fetchGithubManifest)))
-    const [manifest, commit] = await Promise.all([settle(stage('github.version', fetchManifest)), settle(stage('github.commit', fetchLatestCommit))])
+    const [manifest, commit, raw] = await Promise.all([
+      settle(stage('github.version', fetchManifest)),
+      settle(stage('github.commit', fetchLatestCommit)),
+      // 清单主源与其余请求并行发出：主源优先不等于多等一轮。
+      githubManifest(),
+    ])
     const manifestVersion = manifest.status === 'fulfilled' ? String(manifest.value?.version || '') : ''
     const cdnSequenceFor = async revision => {
-      const result = await cdn
+      const result = await cdn()
       const sequence = Number(result.value?.releaseSequence)
       return result.status === 'fulfilled' && String(result.value?.revision || '').toLowerCase() === revision.toLowerCase()
         && Number.isSafeInteger(sequence) && sequence > 0 ? sequence : null
@@ -378,39 +399,55 @@ export function createApplicationUpdater(options) {
     // 但清单里的发布序号仍然有效：拿它当「最新版本序号」的下界，旧安装靠序号也能
     // 判断要不要更新，不必等 CDN 与 GitHub 对齐。
     const latestSequenceOf = async revision => (await cdnSequenceFor(revision)) || (async () => {
-      const result = await cdn
+      const result = await cdn()
       const sequence = Number(result.value?.releaseSequence)
       return result.status === 'fulfilled' && Number.isSafeInteger(sequence) && sequence > 0 ? sequence : null
     })()
 
     const github = commit.status === 'fulfilled' ? runtimeCommitIdentityOf(commit.value) : null
-    if (github && /^[0-9a-f]{40}$/i.test(github.runtimeCommit)) {
+    const githubValid = github !== null && /^[0-9a-f]{40}$/i.test(github.runtimeCommit)
+    // 判得动就用 commits API：GitHub 的最新提交是权威值，能看见「推送了但清单还没发布」的一版。
+    const decideFromCommit = async () => {
       const { publishedCommit, runtimeCommit: latestCommit } = github
       const normalizedCurrentCommit = currentCommit.toLowerCase() === publishedCommit.toLowerCase() ? latestCommit : currentCommit
       const updateAvailable = await relationTo({ ...identity, currentCommit: normalizedCurrentCommit }, latestCommit, () => latestSequenceOf(latestCommit))
-      const latestVersion = manifestVersion || (await cdn).value?.version || 'unknown'
+      const latestVersion = manifestVersion || (await cdn()).value?.version || 'unknown'
       return { currentVersion, latestVersion: String(latestVersion), currentCommit: normalizedCurrentCommit, latestCommit, checkSource: 'github', updateAvailable, checkWarning: undefined }
     }
     const githubError = github ? new Error('GitHub 返回的提交号无效') : commit.reason
+    // 主源：GitHub 的 raw 运行清单。它随源码一起发布，没有 jsDelivr 分发分支的
+    // 12 小时分支别名缓存，因此新版本一发布就能读到。
+
+    let compared = null
+    if (raw.status === 'fulfilled') {
+      try { compared = await compareCdnRuntime(sourceRoot, raw.value) } catch (error) {
+        record('github.manifest.unusable', { error: sanitizeUpdateError(error?.message || error) })
+      }
+    }
+    if (compared) {
+      record('manifest.comparison', { ...identity, latestVersion: compared.version, latestCommit: compared.revision, latestReleaseSequence: compared.releaseSequence, matches: compared.matches, checkSource: 'github-manifest' })
+      const updateAvailable = !compared.matches && await relationTo(identity, compared.revision, async () => compared.releaseSequence, { sequenceFirst: true })
+      const checked = {
+        currentVersion, latestVersion: manifestVersion || compared.version || 'unknown', currentCommit,
+        latestCommit: compared.revision, checkSource: 'github-manifest', updateAvailable, checkWarning: undefined,
+      }
+      if (updateAvailable || !githubValid) return checked
+      if (github.runtimeCommit.toLowerCase() === compared.revision.toLowerCase()) return checked
+      // 清单可能比主干落后一版（刚推送、CI 还没把清单提交上去），用 commits API 补判。
+      try { return await decideFromCommit() } catch (error) { record('github.commit.unconfirmed', { error: sanitizeUpdateError(error?.message || error) }) }
+      return checked
+    }
+    if (githubValid) {
+      record('fallback.manifest', { reason: sanitizeUpdateError(raw.status === 'rejected' ? raw.reason?.message || raw.reason : '运行清单不可用') })
+      return await decideFromCommit()
+    }
     record('fallback.manifest', { reason: sanitizeUpdateError(githubError?.message || githubError) })
     try {
-      // 顺序固定：GitHub 的 commits API → GitHub raw 清单 → jsDelivr 清单。
-      let compared = null
-      let checkSource = 'github'
-      const raw = await githubManifest()
-      if (raw.status === 'fulfilled') {
-        try { compared = await compareCdnRuntime(sourceRoot, raw.value) } catch (error) {
-          record('github.manifest.unusable', { error: sanitizeUpdateError(error?.message || error) })
-        }
-      }
-      if (!compared) {
-        const metadata = await cdn
-        if (metadata.status === 'rejected') throw metadata.reason
-        try {
-          compared = await compareCdnRuntime(sourceRoot, metadata.value)
-          checkSource = 'jsdelivr'
-        } catch (error) { throw error }
-      }
+      // 兜底顺序的最后一段：jsDelivr 清单。CDN 分发分支会滞后，但发布序号仍然可用。
+      let checkSource = 'jsdelivr'
+      const metadata = await cdn()
+      if (metadata.status === 'rejected') throw metadata.reason
+      compared = await compareCdnRuntime(sourceRoot, metadata.value)
       record('manifest.comparison', { ...identity, latestVersion: compared.version, latestCommit: compared.revision, latestReleaseSequence: compared.releaseSequence, matches: compared.matches, checkSource })
       const updateAvailable = !compared.matches && await relationTo(identity, compared.revision, async () => compared.releaseSequence, { sequenceFirst: true })
       return {
@@ -439,14 +476,22 @@ export function createApplicationUpdater(options) {
       return { ...identity, host: 'next', phase: 'package-managed' }
     }
     const saved = await statusState.read()
-    const current = saved === undefined ? undefined : { ...saved, host: await host() }
+    const installHost = await host()
+    const current = saved === undefined ? undefined : { ...saved, host: installHost }
     let owner = installationState.readInstallation(dshHome)
+    const processDirectory = owner && path.join(owner.lockDir, 'processes')
+    const supervisedAndroid = installHost === 'android' && owner?.supervised && existsSync(path.join(processDirectory, 'supervisor.json'))
     if (owner?.supervised && owner.pid > 0 && !isProcessAlive(owner.pid)) {
-      const proof = await verifyInstallationProcessesStopped(path.join(owner.lockDir, 'processes'))
+      const proof = await verifyInstallationProcessesStopped(processDirectory, supervisedAndroid ? { orphanedSupervisorPid: owner.pid } : {})
       if (proof.safe) {
-        installationState.releaseStoppedInstallation({ dshHome, attemptId: owner.attemptId, generation: owner.generation, processesVerifiedStopped: true })
+        try {
+          installationState.releaseStoppedInstallation({ dshHome, attemptId: owner.attemptId, generation: owner.generation, processesVerifiedStopped: true })
+        } catch (error) {
+          if (error.code === 'INSTALLATION_OWNERSHIP_LOST') return statusWithIdentity(identity)
+          throw error
+        }
         if (current?.phase === 'completed' && current.attemptId === owner.attemptId) return { ...current, ...identity }
-        const interrupted = { phase: 'failed', attemptId: owner.attemptId, repairRequired: true, repairSince: now(), host: await host(), failedAt: now(), error: '更新已中断，已确认安装执行链停止，可以修复安装。' }
+        const interrupted = { phase: 'failed', attemptId: owner.attemptId, repairRequired: true, repairSince: now(), host: installHost, failedAt: now(), error: '更新已中断，已确认安装执行链停止，可以修复安装。' }
         await writeStatus(interrupted, { expectedAttemptId: current?.attemptId })
         return { ...interrupted, ...identity }
       }
@@ -456,7 +501,9 @@ export function createApplicationUpdater(options) {
     // A reservation is never adopted when the launched updater dies before its first
     // line of Tavern code; nothing inside it can report that, so say it here.
     const notAdopted = owner?.state === 'reserved' && owner.launcherPid > 1
-    if (owner && installationState.reclaimStaleInstallation(dshHome, owner)) {
+    // A supervised Android registry can contain live process groups whose leaders
+    // have exited. Preserve the lock while process-group verification is pending.
+    if (owner && !supervisedAndroid && installationState.reclaimStaleInstallation(dshHome, owner)) {
       if (current?.phase === 'completed' && current.attemptId === owner.attemptId) return { ...current, ...identity }
       if (notAdopted) record('updater.notadopted', { attemptId: owner.attemptId, launcherPid: owner.launcherPid, reservedForMs: now() - (Number(owner.startedAt) || now()) })
       const interrupted = { phase: 'failed', attemptId: owner.attemptId, repairRequired: true, repairSince: now(), host: await host(), failedAt: now(),
@@ -476,11 +523,15 @@ export function createApplicationUpdater(options) {
       const stale = idleMs >= RUNNING_TIMEOUT_MS || (owner.pid > 0 && !isProcessAlive(owner.pid))
       const blocked = owner.unsafeToRetry || owner.uncertain || (owner.pid > 0 && !isProcessAlive(owner.pid))
       const cancelling = installationState.cancellationRequested(dshHome, owner.attemptId)
+      const publishGate = installationState.desktopPublishGate(owner.lockDir)
+      const publishing = existsSync(publishGate)
+      const awaitingDesktopExit = !blocked && !cancelling && !publishing && existsSync(publishGate + '.ready')
       return { ...active, ...identity, attemptId: owner.attemptId, host: await host(),
         phase: blocked ? 'blocked' : cancelling ? 'cancelling' : 'running',
         startedAt: owner.startedAt, pid: owner.pid, stage: owner.stage || active.stage,
         progressAt: owner.progressAt || active.progressAt,
-        cancellable: !!owner.supervised && !blocked, stalled: stale,
+        cancellable: !!owner.supervised && !blocked && !publishing, stalled: stale,
+        ...(awaitingDesktopExit ? { awaitingDesktopExit: true, stage: '新版已准备好，等待桌面退出' } : {}),
         ...(blocked ? { error: '上次安装的执行链尚未确认停止，已阻止重复安装。请先确认旧安装进程全部退出，再恢复安装。' }
           : stale ? { error: `更新已经 ${Math.round(RUNNING_TIMEOUT_MS / 60000)} 分钟没有新进展；尚未确认执行链停止，请勿同时重新安装。` } : {}),
       }
@@ -540,7 +591,10 @@ export function createApplicationUpdater(options) {
           return { ...readable, ...identity }
         }
       }
-      if (current.phase === 'completed' && ['desktop', 'next'].includes(current.host) && current.requiresRestart && Number(current.completedAt) < runtimeStartedAt) {
+      // Android standalone restarts the 3088 service in place after installing, so its
+      // restart request must expire the same way Desktop's does; unlike CLI, where the
+      // runtime never restarts and the request would describe the build it just loaded.
+      if (current.phase === 'completed' && ['desktop', 'next', 'android'].includes(current.host) && current.requiresRestart && Number(current.completedAt) < runtimeStartedAt) {
         return { ...current, ...identity, requiresRestart: false }
       }
       return { ...current, ...identity }
@@ -606,14 +660,36 @@ export function createApplicationUpdater(options) {
       throw new Error('更新正在进行，请勿重复启动')
     }
     let version
-    try {
-      version = await versions(identity)
-    } catch (error) {
-      const failed = { phase: 'failed', ...(current.repairRequired ? { repairRequired: true, repairSince: current.repairSince || current.failedAt, attemptId: current.attemptId } : {}), host: installHost, failedAt: now(), error: `无法检查最新版，尚未开始下载：${sanitizeUpdateError(error?.message || error)}` }
-      await writeStatus(failed, { expectedAttemptId: current.attemptId })
-      throw new Error(failed.error)
+    const reuseCheck = ['update-available', 'repair-required'].includes(current.phase)
+      && current.host === installHost
+      && current.checkPolicy === UPDATE_CHECK_POLICY
+      && current.checkedForCommit === identity.currentCommit
+      && /^[0-9a-f]{40}$/i.test(String(current.latestCommit || ''))
+    if (reuseCheck) {
+      // Install the exact build shown beside the confirmation. Its age does not
+      // weaken the identity check; a changed local commit still revalidates.
+      version = {
+        currentVersion: identity.currentVersion,
+        latestVersion: String(current.latestVersion || 'unknown'),
+        currentCommit: identity.currentCommit,
+        latestCommit: current.latestCommit,
+        updateAvailable: current.phase === 'update-available',
+        checkSource: current.checkSource,
+        checkWarning: current.checkWarning,
+      }
+      record('check.reused', { checkedAt: current.checkedAt, latestCommit: current.latestCommit })
+    } else {
+      try {
+        version = await versions(identity)
+      } catch (error) {
+        const failed = { phase: 'failed', ...(current.repairRequired ? { repairRequired: true, repairSince: current.repairSince || current.failedAt, attemptId: current.attemptId } : {}), host: installHost, failedAt: now(), error: `无法检查最新版，尚未开始下载：${sanitizeUpdateError(error?.message || error)}` }
+        await writeStatus(failed, { expectedAttemptId: current.attemptId })
+        throw new Error(failed.error)
+      }
     }
-    const refreshed = await statusWithIdentity(await localIdentity(true))
+    // A fresh network check can take long enough for a terminal install to change
+    // the running build. Keep the old second identity check only on that path.
+    const refreshed = await statusWithIdentity(reuseCheck ? identity : await localIdentity(true))
     if (BUSY_PHASES.has(refreshed.phase)) throw new Error('更新正在进行，请勿重复启动')
     if (refreshed.attemptId !== current.attemptId || refreshed.currentCommit !== identity.currentCommit) return refreshed
     if (!version.updateAvailable && !current.repairRequired) {
@@ -650,6 +726,8 @@ export function createApplicationUpdater(options) {
       '--status-file', statusFile,
       '--attempt-id', attemptId,
       '--delay=800',
+      ...(installHost === 'desktop' && process.versions.electron && typeof process.send === 'function' && process.ppid > 1
+        ? ['--desktop-pids', [process.pid, process.ppid].join(',')] : []),
       ...(version.latestCommit ? ['--target-commit', version.latestCommit] : []),
     ]
     const args = platform === 'win32'

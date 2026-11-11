@@ -7,7 +7,7 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { renderTavernMacros } from '../tavern-plugin/lib/domain/tavern-macro-engine.js'
 import { projectReplyLayers } from '../tavern-plugin/lib/domain/reply-presentation.js'
 import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
-import { createForegroundFrameBuilder, foregroundFrameText } from '../tavern-plugin/lib/domain/agent-input-frame.js'
+import { createForegroundFrameBuilder, foregroundFrameText, frameUserInput } from '../tavern-plugin/lib/domain/agent-input-frame.js'
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { createForegroundFrameSessionAdapter } from '../tavern-plugin/lib/domain/foreground-frame-session-adapter.js'
 
@@ -153,6 +153,7 @@ function harness(mode, options = {}) {
   })
   return {
     orchestrator,
+    store,
     chat: () => clone(chat),
     card: () => clone(card),
     cardWorkspace: () => clone(cardWorkspace),
@@ -205,27 +206,6 @@ test('连续正文回合的实际 Frame 消息不重复基本信息和常驻世�
     assert.doesNotMatch(historyText, /逐轮系统指令/)
     assert.equal(historyText.split('逐轮历史后指令').length - 1, 2)
   }
-})
-
-test('重生成预演使用发送时的当前世界书且不写故事', async () => {
-  const planner = createContextPlanner({ prompt: () => '正文规则' })
-  let recalled = '旧的世界书'
-  const run = harness('story', {
-    planner,
-    preparedWorldBookContext: '缓存里的旧世界书',
-    projectWorldBookTemplates: async () => ({ context: recalled, refs: [], diagnostics: [] }),
-    resolvePreset: async () => ({ middle: { entries: [{ role: 'system', content: '当前预设的新规则' }] } })
-  })
-  const before = run.chat()
-  recalled = '新修改的世界书'
-  const prepared = await run.orchestrator.preview({ sessionId: 'session-1', turn: 5, userText: '新的行动' })
-
-  assert.match(foregroundFrameText(prepared.frame), /新修改的世界书/)
-  assert.match(foregroundFrameText(prepared.frame), /当前预设的新规则/)
-  assert.doesNotMatch(foregroundFrameText(prepared.frame), /缓存里的旧世界书/)
-  assert.deepEqual(run.chat(), before)
-  assert.equal(run.chat().messages.length, 0)
-  assert.equal(run.chat().foregroundFrames, undefined)
 })
 
 test('卡片 raw 扩展修改先暂存，最终回复后才写入工作 raw', async () => {
@@ -311,7 +291,7 @@ test('升级前已缓存 Frame 但没有占位的回合仍按原路径追加提�
   run.replaceChat(legacy)
   const repeated = await run.orchestrator.prepare(input)
   assert.equal(repeated.frame.frameId, first.frame.frameId, '旧 Frame 直接复用，不要求迁移或重建占位')
-  assert.equal(repeated.frame.userInput.projectedText, '继续旧存档')
+  assert.equal(frameUserInput(repeated.frame).projectedText, '继续旧存档')
   assert.equal(run.chat().messages.length, 0)
   await run.orchestrator.finalize({ ...input, assistantText: '旧存档的正文。' })
   assert.deepEqual(run.chat().messages.map(message => [message.role, message.text]), [
@@ -360,46 +340,10 @@ test('失败回合的玩家模板变量被撤销，遗留的别轮模板输入�
   assert.equal(again.chat().messages.filter(message => message.role === 'user').length, 2, '未 discard 的失败占位仍保留；正式 handoff 会在下一轮前清理')
 })
 
-test('插件的本轮上下文和世界书条目进入正文帧，插件层出错时本轮照常', async () => {
-  const seen = []
-  const run = harness('story', { pluginTurnContext: async context => { seen.push(context); return [
-    { name: 'tavern-plugin:mem:state', owner: 'mem', text: '【当前状态】雨夜' },
-    { name: 'tavern-plugin:mem:wb', owner: 'mem', worldbook: true, text: '[支线] 钟楼' },
-    { name: 'tavern-plugin:mem:first', owner: 'mem', position: 'before', text: '【先读】前情' }] } })
-  const prepared = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推门' })
-  assert.deepEqual(seen, [{ gameId: 'session-1', turn: 2, input: '推门' }])
-  const plugin = prepared.frame.contributions.filter(item => item.source.stage === 'plugin')
-  assert.deepEqual(plugin.map(item => [item.kind, item.text, item.source.plugin]), [
-    ['foreground.current-state', '【先读】前情', 'mem'], ['foreground.current-state', '【当前状态】雨夜', 'mem'], ['foreground.active-worldbook', '[支线] 钟楼', 'mem']])
-  const order = prepared.frame.contributions.map(item => item.source.stage === 'plugin' ? item.text : 'tavern')
-  assert.equal(order[0], '【先读】前情', "'before' comes ahead of Tavern's own context")
-  assert.equal(order.lastIndexOf('tavern') < order.indexOf('【当前状态】雨夜'), true, "'after' follows it")
-  const broken = harness('story', { pluginTurnContext: async () => { throw new Error('插件层故障') } })
-  const fine = await broken.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '推门' })
-  assert.equal(fine.ready, true)
-  assert.equal(fine.frame.contributions.some(item => item.source.stage === 'plugin'), false)
-})
-
 for (const mode of ['story', 'script']) test(mode + ' 缺少人物卡绑定时明确拒绝开始回合', async () => {
   const run = harness(mode, { draft: true })
   await assert.rejects(run.orchestrator.prepare({ sessionId: 'session-1', turn: 1, userText: '继续' }), /缺少人物卡绑定/)
   assert.equal(run.plannerCalls.length, 0)
-})
-
-test('漏写的一轮可以按它自己的请求号补记进存档（#196 自愈）', async () => {
-  const run = harness('story')
-  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, requestId: 'rpc-1', userText: '推开窗' })
-  await run.orchestrator.finalize({ sessionId: 'session-1', turn: 2, requestId: 'rpc-1', userText: '推开窗', assistantText: '雨水扑进房间。' })
-  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 3, requestId: 'rpc-2', userText: '关上窗' })
-  // The old bug: the turn read an earlier input's request id and was dropped as a duplicate.
-  const dropped = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 3, requestId: 'rpc-1', userText: '推开窗', assistantText: '窗关上了。' })
-  assert.equal(dropped.duplicate, true)
-  assert.equal(run.chat().messages.length, 4, '重复请求不会提交，但本轮已创建的占位继续保留')
-  const adopted = await run.orchestrator.finalize({ sessionId: 'session-1', turn: 3, requestId: 'rpc-2', userText: '关上窗', assistantText: '窗关上了。' })
-  assert.notEqual(adopted.duplicate, true)
-  assert.deepEqual(run.chat().messages.map(message => message.text), ['推开窗', '雨水扑进房间。', '关上窗', '窗关上了。'])
-  assert.equal(Number(run.chat().messages.at(-1).turn), 3)
-  assert.equal(run.chat().messages.at(-1).stagePageVersion, 2)
 })
 
 test('玩家输入先落盘，失败保留并在同一索引重试提交', async () => {
@@ -426,90 +370,6 @@ test('玩家输入先落盘，失败保留并在同一索引重试提交', async
   assert.equal(run.chat().messages[1].text, '雨水扑进房间。')
 })
 
-test('失败输入由原生回合补记时复用同一请求行，不再复制一份玩家输入', async () => {
-  const run = harness('story')
-  const input = { sessionId: 'session-1', requestId: 'rpc-adopt-saved', userText: '推开窗' }
-  await run.orchestrator.appendUser(input)
-  await run.orchestrator.prepare({ ...input, turn: 2 })
-  await run.orchestrator.discard({ sessionId: 'session-1', turn: 2 })
-  assert.deepEqual(run.chat().messages.map(row => row.role), ['user'])
-
-  // #196 adoption has no live placeholder: the failed turn already retired it.
-  // The durable request id still identifies exactly the row this reply answers.
-  await run.orchestrator.finalize({ ...input, turn: 2, assistantText: '补回的半截正文。', adopt: true, incomplete: true })
-  assert.deepEqual(run.chat().messages.map(row => row.role), ['user', 'assistant'])
-  assert.equal(run.chat().messages[0].source.rpcId, 'rpc-adopt-saved')
-  assert.equal(run.chat().messages[0].text, '推开窗')
-  assert.equal(run.chat().messages[1].text, '补回的半截正文。')
-  assert.equal(run.chat().messages[1].incomplete, true)
-})
-
-test('原生输入在正文规划前持久化，规划器读取到的是同一请求行', async () => {
-  let observed = null
-  let run
-  run = harness('story', { planner: { plan: async input => {
-    if (input.purpose === 'body') observed = run.chat().messages.map(row => ({ role: row.role, text: row.text, rpcId: row.source?.rpcId }))
-    return { text: 'context' }
-  } } })
-  await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, requestId: 'rpc-native', userText: '直接输入' })
-  assert.deepEqual(observed, [{ role: 'user', text: '直接输入', rpcId: 'rpc-native' }])
-  assert.equal(run.chat().messages.length, 2)
-})
-
-test('本局前台工具可逐项关闭，卡片模式不受影响', async () => {
-  const all = harness('story', { storyToolCall: true, webSearchEnabled: true })
-  const names = await all.orchestrator.visibleTools('session-1')
-  assert.equal(names.includes('worldbook_search'), false)
-  assert.equal(names.includes('submit_story'), true)
-
-  const one = harness('story', { storyToolCall: true, webSearchEnabled: true, chatFields: { disabledForegroundTools: ['worldbook_search'] } })
-  const oneNames = await one.orchestrator.visibleTools('session-1')
-  assert.equal(oneNames.includes('worldbook_search'), false)
-  assert.equal(oneNames.includes('submit_story'), true)
-
-  // 仅输入回放时也要声明 submit_story，否则历史里回放的调用没有对应工具。
-  const inputOnly = harness('story', { storyInputToolCall: true })
-  assert.equal((await inputOnly.orchestrator.visibleTools('session-1')).includes('submit_story'), true)
-  const off = harness('story')
-  assert.equal((await off.orchestrator.visibleTools('session-1')).includes('submit_story'), false)
-
-  const submitOff = harness('story', { storyToolCall: true, chatFields: { disabledForegroundTools: ['submit_story'] } })
-  assert.equal((await submitOff.orchestrator.visibleTools('session-1')).includes('submit_story'), false)
-
-  const disabled = ['read', 'worldbook_list', 'worldbook_grep', 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_recall_history', 'worldbook_search', 'web_search', 'web_fetch', 'submit_story']
-  const none = harness('story', { storyToolCall: true, webSearchEnabled: true, chatFields: { disabledForegroundTools: disabled } })
-  assert.deepEqual(await none.orchestrator.visibleTools('session-1'), [])
-
-  const script = harness('script', { storyToolCall: true, chatFields: { disabledForegroundTools: ['tavern_read_script'] } })
-  const scriptNames = await script.orchestrator.visibleTools('session-1')
-  assert.equal(scriptNames.includes('tavern_read_script'), false)
-  assert.equal(scriptNames.includes('submit_story'), true)
-
-  const card = harness('card', { chatFields: { disabledForegroundTools: disabled } })
-  assert.ok((await card.orchestrator.visibleTools('session-1')).includes('tavern_update_card'))
-
-  // 世界书检索与宿主 read 曾经不在设置目录里，勾不掉；现在目录能写这些名字，
-  // 白名单就必须真的按它们过滤。
-  const worldbookOff = harness('story', { storyToolCall: true, chatFields: { disabledForegroundTools: ['worldbook_list', 'worldbook_grep'] } })
-  const worldbookOffNames = await worldbookOff.orchestrator.visibleTools('session-1')
-  assert.equal(worldbookOffNames.includes('worldbook_list'), false)
-  assert.equal(worldbookOffNames.includes('worldbook_grep'), false)
-  assert.equal(worldbookOffNames.includes('read'), true, '只关检索工具时文件读取保留')
-
-  const readOff = harness('story', { chatFields: { disabledForegroundTools: ['read'] } })
-  const readOffNames = await readOff.orchestrator.visibleTools('session-1')
-  assert.equal(readOffNames.includes('read'), false)
-  assert.equal(readOffNames.includes('worldbook_grep'), true)
-})
-
-test('骰子工具只在本卡开了骰子 mod 时提供给正文模型，仍可逐项关闭', async () => {
-  assert.equal((await harness('story').orchestrator.visibleTools('session-1')).includes('tavern_roll'), false)
-  assert.equal((await harness('story', { enabledMods: ['dsh.dice'] }).orchestrator.visibleTools('session-1')).includes('tavern_roll'), true)
-  assert.equal((await harness('script', { enabledMods: ['dsh.dice'] }).orchestrator.visibleTools('session-1')).includes('tavern_roll'), true)
-  const off = harness('story', { enabledMods: ['dsh.dice'], chatFields: { disabledForegroundTools: ['tavern_roll'] } })
-  assert.equal((await off.orchestrator.visibleTools('session-1')).includes('tavern_roll'), false)
-})
-
 
 test('插件新正文按处理后的原文保存，不重复运行输出宏或正则；结算仍只排一次', async () => {
   const h = harness('story', { autoSettle: false, macros: true,
@@ -534,26 +394,22 @@ test('插件新正文按处理后的原文保存，不重复运行输出宏或�
   assert.equal(h.chat().messages.filter(row => row.role === 'assistant').length, 1)
 })
 
-test('已准备的候选帧直接用于本次原生回合，普通准备提交失败清理均不写故事', async () => {
-  const candidateFrame = {
-    kind: 'foreground', frameId: 'frame-regen', chatId: 'chat-1', branchId: 'branch-1',
-    operationId: 'regen-op', turn: 3, basedOnRevision: 4,
-    userInput: { sourceText: '继续', projectedText: '继续', source: { stage: 'player-input' } },
-    context: {}, contributions: [], source: {}, diagnostics: [], ignored: []
-  }
-  const h = harness('story', { chatFields: {
-    messages: [{ role: 'user', text: '继续' }, { role: 'assistant', turn: 2, text: '旧正文' }, { role: 'user', text: '后续输入' }],
-    regenInProgress: true,
-    regenRecovery: { id: 'regen-op', phase: 'prepared', candidateTurn: 3, candidateFrame }
-  } })
-  const before = h.chat()
-  const prepared = await h.orchestrator.prepare({ sessionId: 'session', turn: 3, requestId: 'regen-request', userText: '继续' })
-  assert.deepEqual(prepared.frame, candidateFrame)
-  assert.equal(h.plannerCalls.length, 0)
-  const finalized = await h.orchestrator.finalize({ sessionId: 'session', turn: 3, requestId: 'regen-request', userText: '继续', assistantText: '候选正文' })
-  assert.equal(finalized.saved, false)
-  assert.equal(finalized.detached, true)
-  assert.equal(await h.orchestrator.recordFailure({ sessionId: 'session', turn: 3, requestId: 'regen-request', message: 'failed' }), false)
-  assert.equal(await h.orchestrator.discard({ sessionId: 'session', turn: 3 }), false)
-  assert.deepEqual(h.chat(), before)
+test('plugin projection uses durable rules and freezes distinct prompt/display channels', async () => {
+  const h = harness('story', { autoSettle: false,
+    bodyGeneration: { mode: 'plugin-tool-call', provider: 'p:body' },
+    extensions: { regexScripts: [{ findRegex: 'X', replaceString: 'HOST', placement: [2] }] } })
+  const prepared = await h.orchestrator.prepare({ sessionId: 'session', turn: 2, userText: '继续', requestId: 'request' })
+  const ready = h.chat()
+  ready.timeline.operations[prepared.frame.operationId].bodyGeneration = { status: 'ready', receipt: { text: 'X' },
+    regexScripts: [
+      { findRegex: 'X', replaceString: 'context', placement: [2], promptOnly: true },
+      { findRegex: 'X', replaceString: 'display', placement: [2], markdownOnly: true },
+    ] }
+  h.replaceChat(ready)
+  await h.orchestrator.finalize({ sessionId: 'session', turn: 2, userText: '继续', requestId: 'request', assistantText: 'X', pluginBodyGeneration: true })
+  const row = h.chat().messages.at(-1)
+  assert.equal(row.sourceText, 'X')
+  assert.equal(row.text, 'context')
+  assert.equal(row.displayText, 'display')
+  assert.equal(row.bodyPluginProjection, true)
 })

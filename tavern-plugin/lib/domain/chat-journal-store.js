@@ -8,7 +8,7 @@ import { copyLazyHistoryHeader } from './lazy-history-read.js'
 import { Worker } from 'node:worker_threads'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { createIndexedArrayApi } from './indexed-array.js'
-import { copyJsonTree } from './copy-json-tree.js'
+import { copyJsonTree, normalizeJsonCopy } from './copy-json-tree.js'
 import { projectSceneImageState, projectChatSessionState, projectDisplayRuntimeState, projectChatBackgroundConfig, projectSettlementCheckpoint } from './chat-session-state.js'
 import { mkdir, open, readdir, rename, rm, stat, truncate } from 'node:fs/promises'
 import path from 'node:path'
@@ -16,7 +16,7 @@ import { channel } from 'node:diagnostics_channel'
 import { performance } from 'node:perf_hooks'
 const readMetrics = channel('dsh.chat.read')
 
-import { applyJsonChangesShared, diffJson } from './json-mutation.js'
+import { applyJsonChangesShared, diffNormalizedJson } from './json-mutation.js'
 
 const STORAGE_REVISION = '_storageRevision'
 // What every save stamps on itself (chat-persistence): alone, they are no change.
@@ -28,8 +28,7 @@ function revisionOf(value) {
 }
 
 function jsonClone(value) {
-  if (value === undefined) return undefined
-  return JSON.parse(JSON.stringify(value))
+  return normalizeJsonCopy(value)
 }
 
 function safeChatId(value) {
@@ -74,6 +73,7 @@ export function createChatJournalStore(options = {}) {
   const now = typeof options.now === 'function' ? options.now : Date.now
   const maxSnapshotBytes = Number.isSafeInteger(options.maxSnapshotBytes) && options.maxSnapshotBytes > 0 ? options.maxSnapshotBytes : 256 * 1024 * 1024
   const mutationTails = new Map()
+  const nativeMaintenanceTails = new Map()
   const maintenancePending = new Map()
   let maintenanceRunning = null
   function requestSnapshot(chatId, revision) {
@@ -275,7 +275,7 @@ export function createChatJournalStore(options = {}) {
   }
 
   async function materialize(chatId, targetRevision = Number.POSITIVE_INFINITY) {
-    return await native.read(chatId,targetRevision) || await compatible?.read(chatId,targetRevision) || materializeLegacy(chatId,targetRevision)
+    return await native.readShared(chatId,targetRevision) || await compatible?.read(chatId,targetRevision) || materializeLegacy(chatId,targetRevision)
   }
   // Each cached game remains verified against disk on every read.
   async function cachedState(chatId) {
@@ -414,7 +414,7 @@ export function createChatJournalStore(options = {}) {
         target[parts.at(-1)] = source
       }
     }
-    return {chat:structuredClone({...head,messages:indices.map(i=>messages[i])}),messageCount:messages.length,denseMessages:Array.isArray(rawMessages) && (indexedMessages.info(rawMessages)?.complete ?? messages.every(m=>m && typeof m==='object' && !Array.isArray(m)))}
+    return {chat:copyJsonTree({...head,messages:indices.map(i=>messages[i])}),messageCount:messages.length,denseMessages:Array.isArray(rawMessages) && (indexedMessages.info(rawMessages)?.complete ?? messages.every(m=>m && typeof m==='object' && !Array.isArray(m)))}
   }
   // A pinned native snapshot for readers with their own shape (the stage's turn views); null without one.
   const openSnapshot = (chatId, options) => native.openSnapshot(chatId, options)
@@ -671,7 +671,7 @@ export function createChatJournalStore(options = {}) {
       const baseRevision = currentState.revision
       const revision = revisionOf(next)
       if (revision !== baseRevision + 1) throw new Error('Chat Journal 写入 revision 非连续，期望 ' + (baseRevision + 1) + '，实际 ' + revision)
-      const changes = diffJson(current, next)
+      const changes = diffNormalizedJson(current, next)
       // A save that changes nothing but its own revision stamp and timestamp is no save:
       // nothing is written, the stored state and revision stay (as patch() does for no changes).
       if (changes.every(change => change.path.length === 1 && STAMPS.has(change.path[0]))) return copyJsonTree(current)
@@ -720,22 +720,37 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
+  // Maintenance can recreate a deleted directory when taking its head lock.
+  // Queue it with removal separately from ordinary saves, which can proceed
+  // while maintenance reads and repacks immutable blocks.
+  function serializeNativeMaintenance(chatId, operation) {
+    const id = safeChatId(chatId)
+    const previous = nativeMaintenanceTails.get(id) || Promise.resolve()
+    const current = previous.then(operation, operation)
+    nativeMaintenanceTails.set(id, current)
+    return current.finally(() => {
+      if (nativeMaintenanceTails.get(id) === current) nativeMaintenanceTails.delete(id)
+    })
+  }
+
   async function version(chatId) {return await native.version(chatId) || await compatible?.version(chatId) || legacyVersion(chatId)}
   async function remove(chatId) {
-    await flushMaintenance()
-    await serialize(chatId, async function () {
-      const paths = layout(chatId)
-      forgetState(chatId)
-      sessionMessages.forget(chatId)
-      await compatible?.remove(chatId)
-      await rm(paths.root, { recursive: true, force: true })
-      if (legacyData && typeof legacyData.remove === 'function') await legacyData.remove(paths.legacyRelative)
-      else await rm(paths.legacy, { force: true })
-      let names
-      try { names = await readdir(chatsRoot) } catch (error) { if (error?.code === 'ENOENT') return; throw error }
-      await Promise.all(names.filter(function (name) { return name.startsWith(paths.id + '.legacy-') && name.endsWith('.json') }).map(function (name) {
-        return rm(path.join(chatsRoot, name), { force: true })
-      }))
+    await serializeNativeMaintenance(chatId, async () => {
+      await flushMaintenance()
+      await serialize(chatId, async () => {
+        const paths = layout(chatId)
+        forgetState(chatId)
+        sessionMessages.forget(chatId)
+        await compatible?.remove(chatId)
+        await rm(paths.root, { recursive: true, force: true })
+        if (legacyData && typeof legacyData.remove === 'function') await legacyData.remove(paths.legacyRelative)
+        else await rm(paths.legacy, { force: true })
+        let names
+        try { names = await readdir(chatsRoot) } catch (error) { if (error?.code === 'ENOENT') return; throw error }
+        await Promise.all(names.filter(function (name) { return name.startsWith(paths.id + '.legacy-') && name.endsWith('.json') }).map(function (name) {
+          return rm(path.join(chatsRoot, name), { force: true })
+        }))
+      })
     })
   }
 
@@ -744,12 +759,12 @@ export function createChatJournalStore(options = {}) {
   // Only native saves have unreachable revisions to drop. The pass reads and lists
   // without the write queue; only its short publishing and deleting steps join it.
   async function compact(chatId, options) {
-    return await native.compact(chatId, { ...options, exclusive: operation => serialize(chatId, operation) })
+    return await serializeNativeMaintenance(chatId, () => native.compact(chatId, { ...options, exclusive: operation => serialize(chatId, operation) }))
   }
   // Not serialized: it reads one pinned immutable head and takes the write lock
   // only in short relink steps, so play is never queued behind it.
   async function relayout(chatId, options) {
-    return await native.relayout(chatId, options)
+    return await serializeNativeMaintenance(chatId, () => native.relayout(chatId, options))
   }
   async function readRetentionHeader(chatId, revision) {
     try { return await native.readRetentionHeader(chatId, revision) }

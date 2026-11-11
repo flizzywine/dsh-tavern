@@ -30,12 +30,12 @@ export function createCardPluginManagedOwner({stagingRoot,pluginsDir,serial,inva
     for(const row of rows)validateDistributionManifest(row.manifest)
     return rows
   })
-  async function frame() {
+  async function frame({includeCardRoots=true}={}) {
     const state=await readJson(stateFile,empty()),value=clone(state.value),bundles=await local()
     value.releases=value.releases.filter(row=>!retiredIds.includes(row.manifest.id))
     value.locks=value.locks.filter(row=>!retiredIds.includes(row.modId))
     for(const bundle of bundles)if(!value.releases.some(row=>identity(row)===bundle.manifest.packageName+'\0'+bundle.sha256))value.releases.push({manifest:clone(bundle.manifest),digest:bundle.sha256,files:clone(bundle.files),installed:false,active:false,authorized:false,globalRoot:false})
-    const roots=cardRoots?await cardRoots():null
+    const roots=includeCardRoots && cardRoots?await cardRoots():null
     if(roots) {
       const previous=value.locks
       value.locks=roots.flatMap(card=>card.mods.flatMap(modId=>{
@@ -152,6 +152,16 @@ export function createCardPluginManagedOwner({stagingRoot,pluginsDir,serial,inva
       return {modId:row.manifest.id,version:row.manifest.version,digest:row.digest}
     }),
     read:()=>serial(async()=>{await recover();const {revision,value}=await frame();return {revision,value}}),
+    releasesNeedUpdate:update=>serial(async()=>{
+      await recover()
+      const {value,persisted}=await frame({includeCardRoots:false})
+      return !equal(update(value).releases,persisted.releases)
+    }),
+    readReleases:()=>serial(async()=>{
+      await recover()
+      const {value}=await frame({includeCardRoots:false})
+      return value.releases
+    }),
     compareAndSwap:input=>serial(async()=>{
       await recover()
       const current=await frame()

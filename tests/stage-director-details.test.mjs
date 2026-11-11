@@ -6,9 +6,6 @@ import {fixture, answer} from './helpers/stage-director-harness.mjs'
 import {modelCall} from './helpers/director-model-call.mjs'
 import {directorPromptData} from './fixtures/asset-packs/prompt.mjs'
 import {createBackgroundNativeRuntime} from './fixtures/background-native-runtime.mjs'
-import {selectStageEntrance} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-entrance.js'
-import {defaultAssetEngineSettings} from '../tavern-plugin/lib/domain/asset-engine-settings.js'
-import {entranceDoc} from './fixtures/stage-entrance.mjs'
 
 const text = Array.from({length:7}, (_, i) => `Synthetic paragraph ${i + 1}.`).join('\n\n')
 
@@ -62,13 +59,4 @@ test('native: one-shot runs of one conversation continue its session; a closed c
   const fresh = await run('Fresh round', runtime.conversation())
   assert.notEqual(fresh.traceSessionId, first.traceSessionId)
   assert.doesNotMatch(JSON.stringify(runtime.requests.at(-1).messages), /Window one marker/)
-})
-
-test('the entrance follows the stage switch in effect for the card', () => {
-  const PACK = '11111111-1111-4111-8111-111111111111', engine = defaultAssetEngineSettings()
-  const entry = {kind:'entrances', id:'dive', name:'Dive', enabled:true, recall:{mode:'constant', keywords:[]}, directorNote:'', entrance:entranceDoc()}
-  const packs = [{revision:'r', manifest:{id:PACK, name:'Pack', contentHash:'0'.repeat(64), assets:[entry], figures:[]}}]
-  const extension = {schemaVersion:1, assetBindings:{boundPackIds:[PACK]}, stage:{defaultEntrance:{packId:PACK, kind:'entrances', assetId:'dive'}}}
-  assert.equal(selectStageEntrance(extension, packs, engine).ref.assetId, 'dive')
-  assert.equal(selectStageEntrance(extension, packs, {...engine, stageToggles:{...engine.stageToggles, entrance:false}}), null)
 })

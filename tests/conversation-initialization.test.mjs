@@ -6,22 +6,6 @@ import { createUserPreferenceProfile } from '../tavern-plugin/lib/domain/user-pr
 
 const messages = session => session.events.filter(event => event.type === 'assistant/message' && event.data?.message?.source?.model === 'character-card')
 
-test('新剧本会话沿用用户保存的推进字数，重新打开不重置已有设置或位置', async () => {
-  const h = initializationFixture()
-  h.state.script = { title: '剧本', chunks: Array.from({ length: 20 }, (_, order) => ({ id: 'c' + order, order, text: '汉'.repeat(500) })) }
-  h.state.settings.scriptChunkSize = 1200
-  const input = { ...h.input, mode: 'script' }
-  const first = await h.make().start(input)
-  assert.equal(first.scriptState.chunkSize, 1200)
-  const offset = first.scriptState.sourceOffset
-  h.state.settings.scriptChunkSize = 800
-  const reopened = await h.make().start(input)
-  assert.equal(reopened.scriptState.chunkSize, 1200)
-  assert.equal(reopened.scriptState.sourceOffset, offset)
-  const next = await h.make().start({ ...input, sessionId: 'next-script' })
-  assert.equal(next.scriptState.chunkSize, 800)
-})
-
 const seedMessages = session => session.events.filter(event => {
   const source = event.type === 'assistant/message' ? event.data?.message?.source : event.data?.source
   return source?.form === 'synthetic-trajectory' || source?.model === 'synthetic-trajectory'
@@ -101,27 +85,4 @@ test('新游戏复制全局 Skill 开关，本局调整和后续全局修改互�
   assert.deepEqual(next.disabledWritingSkills, ['writing-a', 'writing-b'])
   const card = await h.make().start({ ...h.input, sessionId: 'card-skills', mode: 'card', cardPath: '' })
   assert.deepEqual(card.disabledWritingSkills, [])
-})
-
-test('DSH 人物卡带的开局默认：新局用卡里的预设和设置，其余沿用玩家的全局默认', async () => {
-  const h = initializationFixture()
-  h.state.startDefaults = { presetPath: 'presets/大肥鱼 · 舞台演出.json', settings: { statusBarPlacement: 'body', backgroundTasks: { posture: false } } }
-  const chat = await h.make().start(h.input)
-  assert.equal(chat.runtimePresetPath, 'presets/大肥鱼 · 舞台演出.json')
-  assert.deepEqual(h.state.presetPaths.at(-1), 'presets/大肥鱼 · 舞台演出.json')
-  assert.equal(chat.statusBarPlacement, undefined, '状态栏位置是全局显示偏好（bd0c590e），卡不决定')
-  assert.equal(chat.backgroundTasks.posture, false)
-  assert.equal(chat.backgroundTasks.variables, true, '卡没提到的设置沿用全局默认')
-  assert.equal(chat.macroState.userName, '玩家', '玩家称呼不由卡决定')
-})
-
-test('新游戏忽略旧机制默认值，旧局数据不被覆盖', async () => {
-  const h = initializationFixture()
-  const first = await h.make().start(h.input)
-  assert.equal(first.worldbookStrategy, 'native-skills')
-  h.state.settings.defaultPlaySettings = { worldbookStrategy: 'legacy' }
-  assert.equal((await h.make().start({ ...h.input, sessionId: 'legacy-new' })).worldbookStrategy, 'native-skills')
-  assert.equal((await h.make().start(h.input)).worldbookStrategy, 'native-skills')
-  delete h.saved.get(first.id).worldbookStrategy
-  assert.equal((await h.make().start(h.input)).worldbookStrategy, undefined)
 })

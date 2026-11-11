@@ -58,6 +58,8 @@ window.__ModuleLoader__.load({
       updateBlocked: '正在等待安装进程安全停止。',
       updateFailed: '更新失败，请重试。',
       updateComplete: '酒馆已更新。',
+      desktopUpdateReady: '新版已准备好。请先保存工作，重启后会应用更新。',
+      desktopUpdateQuit: '请从应用菜单或托盘退出 DeepSeek Harness，更新完成后会自动打开。',
       updateRestart: '更新已安装。请退出并重新打开 DeepSeek Harness 以应用更新。',
       updateRestartWindow: '更新已安装。请重启酒馆服务后重新打开酒馆。',
       section: '酒馆启动器',
@@ -77,9 +79,11 @@ window.__ModuleLoader__.load({
       nextUpdateHint: '准备更新期间可以继续使用酒馆。新版准备好后，你可以选择何时重启。',
       nextUpdate: '准备更新',
       nextRepair: '准备修复',
-      nextUpdateReady: '新版已准备好。保存工作后，重启 NEXT 即可应用。',
+      nextUpdateReady: '新版已准备好，程序和配置均已验证。保存工作后，重启 NEXT 即可切换。',
+      nextUpdateRestarting: '正在退出 NEXT，切换后会自动打开。若窗口仍在，请从应用菜单或托盘退出。',
       nextRestartUpdate: '重启并应用更新',
-      nextManage: '请切回原版 DSH，再管理酒馆安装。',
+      nextManage: '请在原版 DSH 或酒馆配置中删除酒馆。',
+      nextUninstallWarning: '请先保存工作。确认后 NEXT 将退出，删除完成后会重新打开原版 DSH。',
       nextQuit: '请在两分钟内从应用菜单或托盘退出 NEXT。操作完成后会重新打开。',
       startupTitle: '默认启动配置',
       startupOriginal: '下次从官方入口启动时打开原版 DSH。',
@@ -95,6 +99,8 @@ window.__ModuleLoader__.load({
       toTavern: '重启并切换到 DSH 酒馆',
       noTavern: '还没有装好 DSH 酒馆，装好后这里就能切过去。',
       noOriginal: '找不到原版 DSH 的备份，暂时切不回去。请看下面的「说明与日志」。',
+      nextOriginalLinked: '原版 desktop Profile 当前是目录链接。请在官方 DeepSeek Harness 的「设置 → 酒馆启动器」切回原版 DSH，退出官方桌面后重新打开 NEXT。',
+      nextOriginalUnavailable: '酒馆启动器无法切到原版 desktop Profile。请在 NEXT 的「桌面设置 → Profile」中检查 desktop 是否可用。',
       standalone: '这是 DSH 酒馆的独立窗口，原版 DSH 就是 DeepSeek Harness 本身，不用切换、不用重启。',
       openOriginal: '打开原版 DSH',
       restarting: '正在重启…',
@@ -155,6 +161,8 @@ window.__ModuleLoader__.load({
       updateBlocked: 'Waiting for the installer to stop safely.',
       updateFailed: 'Update failed. Please try again.',
       updateComplete: 'Tavern was updated.',
+      desktopUpdateReady: 'The update is ready. Save your work, then restart to apply it.',
+      desktopUpdateQuit: 'Quit DeepSeek Harness from the app menu or tray. It will reopen after the update.',
       updateRestart: 'The update is installed. Quit and reopen DeepSeek Harness to apply it.',
       updateRestartWindow: 'The update is installed. Restart the Tavern service and reopen this window.',
       section: 'Tavern Launcher',
@@ -174,9 +182,11 @@ window.__ModuleLoader__.load({
       nextUpdateHint: 'Keep using Tavern while the update is prepared. Choose when to restart once it is ready.',
       nextUpdate: 'Prepare update',
       nextRepair: 'Prepare repair',
-      nextUpdateReady: 'The update is ready. Save your work and restart NEXT to apply it.',
+      nextUpdateReady: 'The new version and profile have been verified. Save your work and restart NEXT to switch.',
+      nextUpdateRestarting: 'NEXT is closing and will reopen after switching. If the window stays open, quit from the menu or tray.',
       nextRestartUpdate: 'Restart and apply update',
-      nextManage: 'Switch back to original DSH to manage this installation.',
+      nextManage: 'Remove Tavern from the original DSH or Tavern Profile.',
+      nextUninstallWarning: 'Save your work first. NEXT will quit after confirmation and reopen in original DSH when removal finishes.',
       nextQuit: 'Quit NEXT from the app menu or tray within two minutes. It reopens after the operation.',
       startupTitle: 'Default startup profile',
       startupOriginal: 'The next fresh launch opens original DSH.',
@@ -192,6 +202,8 @@ window.__ModuleLoader__.load({
       toTavern: 'Restart and switch to DSH Tavern',
       noTavern: 'DSH Tavern is not installed yet; once it is, you can switch from here.',
       noOriginal: 'The original DSH backup is missing, so switching back is not possible right now. See "Details and log" below.',
+      nextOriginalLinked: 'The original desktop Profile is currently a directory link. In the official DeepSeek Harness, use Settings → Tavern Launcher to switch back to original DSH, then quit that app and reopen NEXT.',
+      nextOriginalUnavailable: 'The Tavern launcher cannot switch to the original desktop Profile. Check whether desktop is available under Desktop Settings → Profile in NEXT.',
       standalone: 'This is the standalone DSH Tavern window. The original DSH is DeepSeek Harness itself; no switch or restart needed.',
       openOriginal: 'Open original DSH',
       restarting: 'Restarting…',
@@ -338,6 +350,7 @@ window.__ModuleLoader__.load({
 
       const next = status?.host === 'next'
       const nextUpdatePreparation = pending ? status.nextUpdatePreparation : undefined
+      const manualQuitPending = pending && !next && !['install', 'relocate', 'uninstall'].includes(status?.lastResult?.mode) && (applied?.closesApp === false || (applied === null && status?.lastResult?.closesApp === false))
       const current = next ? status.activeName : status?.linkTargetName ?? (inTavern() ? 'tavern' : 'desktop')
       const standalone = status?.desktopApp === false
       const ready = (name) => (status?.profiles ?? []).some((profile) => {
@@ -351,7 +364,12 @@ window.__ModuleLoader__.load({
       ]
       const currentLabel = current === 'reader' ? 'profileReader' : destinations.find(({ name }) => name === current)?.label
       const options = destinations.filter(({ name, ready }) => name !== current && ready)
-      const blocked = options.length === 0 && !status?.installAvailable ? t(current === 'desktop' ? 'noTavern' : 'noOriginal') : null
+      let originalUnavailable = 'noOriginal'
+      if (next) {
+        const desktopIsLink = status.profiles?.some(profile => profile.name === 'desktop' && profile.isLink)
+        originalUnavailable = desktopIsLink ? 'nextOriginalLinked' : 'nextOriginalUnavailable'
+      }
+      const blocked = options.length === 0 && !status?.installAvailable ? t(current === 'desktop' ? 'noTavern' : originalUnavailable) : null
 
       const [shortcut, setShortcut] = React.useState(null)
       async function addShortcut() {
@@ -396,7 +414,7 @@ window.__ModuleLoader__.load({
       }
 
       async function apply(target) {
-        if (actionInFlight.current || busy || pending || updateInProgress(update?.phase) || lastFailure?.recoveryRequired) return
+        if (actionInFlight.current || busy || (pending && !manualQuitPending) || updateInProgress(update?.phase) || lastFailure?.recoveryRequired) return
         actionInFlight.current = true
         setBusy(true)
         setFailure(null)
@@ -409,7 +427,7 @@ window.__ModuleLoader__.load({
           const result = target === 'desktop' ? await call('unlink', {}) : await call('link', { target })
           if (result?.ok === true) {
             setApplied(result.value ?? {})
-            setStatus(previous => ({ ...previous, lastResult: { status: 'pending', stamp: result.value?.stamp } }))
+            setStatus(previous => ({ ...previous, lastResult: { status: 'pending', mode: target === 'desktop' ? 'unlink' : 'link', stamp: result.value?.stamp, closesApp: result.value?.closesApp } }))
           }
           else setFailure(describeFailure(result?.error))
         } catch (error) {
@@ -425,7 +443,8 @@ window.__ModuleLoader__.load({
       const installation = status?.installation
       const showUpdates = isDesktop && (status?.desktopApp === true || status?.desktopTavernWindow === true) && installation?.available && !status?.installAvailable
       const updating = updateInProgress(update?.phase)
-      const managementBlocked = !isDesktop || status?.desktopApp !== true || (next && current !== 'desktop') || !installation?.available || busy || pending || !!updateAction || updating || Boolean(lastFailure?.recoveryRequired)
+      const nextManagementUnavailable = next && !['desktop', 'tavern'].includes(current)
+      const managementBlocked = !isDesktop || status?.desktopApp !== true || nextManagementUnavailable || !installation?.available || busy || pending || !!updateAction || updating || Boolean(lastFailure?.recoveryRequired)
       React.useEffect(() => {
         if (!showUpdates || updateAction) return
         let alive = true, timer
@@ -456,6 +475,7 @@ window.__ModuleLoader__.load({
           const result = await call(endpoint, {})
           if (result?.ok !== true) throw new Error(describeFailure(result?.error))
           setUpdate(result.value)
+          if (endpoint === 'restart-desktop-update' && !result.value.closesApp) setUpdateFailure(t('desktopUpdateQuit'))
           if (result.value.scheduled) {
             setApplied(result.value.scheduled)
             setStatus(previous => ({ ...previous, nextUpdatePreparation: 'preparing', installProgress: '',
@@ -515,6 +535,9 @@ window.__ModuleLoader__.load({
             setApplied(result.value ?? {})
             setStatus(previous => ({ ...previous, lastResult: { status: 'pending', mode: managementAction, stamp: result.value?.stamp } }))
             setManagementAction(null)
+            if (next && managementAction === 'uninstall') {
+              try { await window.desktopNext?.command?.({ type: 'quit' }) } catch { /* Keep the manual exit hint. */ }
+            }
           } else setFailure(describeFailure(result?.error))
         } catch (error) {
           setFailure(describeFailure(error))
@@ -534,11 +557,11 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'pb-btn', disabled: busy, onClick: () => void openOriginal() }, t('openOriginal')),
         ) : blocked ? h('p', { className: 'pb-error' }, blocked) : h('div', { className: 'pb-bar' },
           h('span', { className: 'pb-bar-text' },
-            next && pending && !nextUpdatePreparation ? t('nextQuit') : status?.lastResult?.mode === 'install' ? `${t('current')} · ${currentLabel ? t(currentLabel) : current}` : applied === null ? (pending ? t('restarting') : `${t('current')} · ${currentLabel ? t(currentLabel) : current}`) : applied.closesApp ? t('restarting') : t('quitHint'),
+            next && pending && !nextUpdatePreparation ? t(status.lastResult?.mode === 'uninstall' ? 'restarting' : 'nextQuit') : status?.lastResult?.mode === 'install' ? `${t('current')} · ${currentLabel ? t(currentLabel) : current}` : manualQuitPending ? t('quitHint') : applied === null ? (pending ? t('restarting') : `${t('current')} · ${currentLabel ? t(currentLabel) : current}`) : applied.closesApp ? t('restarting') : t('quitHint'),
             ...(applied?.warnings ?? []).map((warning) => h('span', { key: warning, style: { display: 'block', opacity: 0.75 } }, `• ${warning}`)),
           ),
-          applied !== null ? null : h('div', { className: 'pb-actions' }, ...options.map(({ name, action }) =>
-            h('button', { key: name, type: 'button', className: 'pb-btn', disabled: busy || pending || !!updateAction || updating || lastFailure?.recoveryRequired, onClick: () => void apply(name) }, t(action)))),
+          applied !== null && !manualQuitPending ? null : h('div', { className: 'pb-actions' }, ...options.map(({ name, action }) =>
+            h('button', { key: name, type: 'button', className: 'pb-btn', disabled: busy || (pending && !manualQuitPending) || !!updateAction || updating || lastFailure?.recoveryRequired, onClick: () => void apply(name) }, t(action)))),
         ),
         lastFailure ? h('div', { className: 'pb-error', role: 'alert' },
           h('strong', null, t(['install', 'relocate', 'uninstall'].includes(lastFailure.mode) ? 'lastOperationFailure' : 'lastFailure')),
@@ -582,7 +605,7 @@ window.__ModuleLoader__.load({
         showUpdates ? h('section', { className: 'pb-management', 'aria-label': t('updates') },
           h('h3', null, t('updates')),
           nextUpdatePreparation === 'ready' ? h('p', { role: 'status' }, t('nextUpdateReady')) : null,
-          nextUpdatePreparation === 'restarting' ? h('p', { role: 'status' }, t('nextQuit')) : null,
+          nextUpdatePreparation === 'restarting' ? h('p', { role: 'status' }, t('nextUpdateRestarting')) : null,
           nextUpdatePreparation === 'preparing' ? h(React.Fragment, null,
             h('p', { role: 'status' }, status.installProgress || t('updating')),
             h('progress', { 'aria-label': status.installProgress || t('updating') })) : null,
@@ -596,7 +619,8 @@ window.__ModuleLoader__.load({
           next && showUpdateAction && !pending ? h('p', { className: 'pb-sub' }, t('nextUpdateHint')) : null,
           !checking && update?.checkWarning ? h('p', { className: 'pb-sub' }, update.checkWarning) : null,
           checking ? h('p', { role: 'status' }, t('checkingUpdate')) : null,
-          updating || updateAction === 'start-update' ? h(React.Fragment, null,
+          update?.awaitingDesktopExit ? h('p', { role: 'status' }, t('desktopUpdateReady'))
+            : updating || updateAction === 'start-update' ? h(React.Fragment, null,
             h('p', { role: 'status' }, progressLabel),
             update?.phase !== 'blocked' ? h('progress', { 'aria-label': progressLabel }) : null) : null,
           updateError ? h('p', { className: 'pb-error', role: 'alert' }, updateError) : null,
@@ -604,6 +628,8 @@ window.__ModuleLoader__.load({
           h('div', { className: 'pb-actions' },
             ['ready', 'restarting'].includes(nextUpdatePreparation) ? h('button', { type: 'button', className: 'pb-btn',
               disabled: Boolean(updateAction), onClick: () => void restartNextUpdate() }, t('nextRestartUpdate')) : null,
+            update?.awaitingDesktopExit && !standalone ? h('button', { type: 'button', className: 'pb-btn',
+              disabled: updateButtonsBlocked, onClick: () => void applyUpdate('restart-desktop-update') }, t('nextRestartUpdate')) : null,
             !pending && !updating && !updateRestart ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('check-update') }, t('checkUpdate')) : null,
             showUpdateAction ? h('button', { type: 'button', className: 'pb-btn', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('start-update') }, t(updateButtonLabel)) : null,
             update?.phase === 'running' && update.canUpdate && update.cancellable ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: updateButtonsBlocked, onClick: () => void applyUpdate('cancel-update') }, t('cancelUpdate')) : null)) : null,
@@ -618,8 +644,8 @@ window.__ModuleLoader__.load({
           h('p', null, t('backupSpace')),
           !installation.available ? h('p', { className: 'pb-error' }, installation.reason || t('unavailable')) : null,
           !isDesktop || status?.desktopApp !== true ? h('p', null, t('desktopOnly')) : null,
-          next && current !== 'desktop' ? h('p', null, t('nextManage')) : null,
-          pending ? h('p', { role: 'status' }, t('operationPending')) : null,
+          nextManagementUnavailable ? h('p', null, t('nextManage')) : null,
+          pending ? h('p', { role: 'status' }, t(next && status.lastResult?.mode === 'uninstall' ? 'nextQuit' : 'operationPending')) : null,
           status?.lastResult?.status === 'succeeded' && ['relocate', 'uninstall'].includes(status.lastResult.mode)
             ? h('p', { role: 'status' }, t('operationDone')) : null,
           h('div', { className: 'pb-actions' },
@@ -632,7 +658,7 @@ window.__ModuleLoader__.load({
               h('input', { id: 'pb-destination', className: 'pb-input', type: 'text', value: destination, disabled: busy || pending, autoComplete: 'off', spellCheck: false, 'aria-describedby': 'pb-destination-hint', onChange: event => setDestination(event.target.value) }),
               h('p', { id: 'pb-destination-hint', className: 'pb-sub' }, t('destinationHint')),
             ) : h('p', null, t('uninstallScope')),
-            h('p', null, t(next ? 'nextQuit' : 'restartWarning')),
+            h('p', null, t(next ? 'nextUninstallWarning' : 'restartWarning')),
             h('div', { className: 'pb-actions' },
               h('button', { type: 'button', className: 'pb-btn', disabled: managementBlocked || (managementAction === 'relocate' && !absoluteDestination), onClick: () => void confirmManagement() }, t(managementAction === 'relocate' ? 'confirmRelocate' : 'confirmUninstall')),
               h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy || pending, onClick: () => { setManagementAction(null); setDestination(''); setFailure(null) } }, t('cancel'))),

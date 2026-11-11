@@ -10,6 +10,8 @@ import { IMAGE_PROVIDERS, PROVIDER_DEFAULTS as PROVIDERS } from './provider-defi
 export { IMAGE_PROVIDERS } from './provider-definitions.js'
 
 const imageTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+const openaiImageQualities = new Set(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
+const openaiImageModeration = new Set(['auto', 'low'])
 const secretValues = channel => [channel?.apiKey, channel?.password,
   channel?.authMode === 'basic' && (channel.username || channel.password) ? `${channel.username || ''}:${channel.password || ''}` : '',
 ].filter(Boolean).map(String)
@@ -305,12 +307,17 @@ async function generateNovelai(channel, request, ctx) {
     v4Prompt.caption.char_captions.push({ char_caption: String(item.prompt), centers: [center || {}] })
     v4Negative.caption.char_captions.push({ char_caption: String(item.uc ?? ''), centers: [center || {}] })
   })
+  // 有些第三方站点把 variety_boost 当未知字段直接 422，选 'omit' 时整条字段都不发
+  const varietyRaw = option(ch, 'varietyBoost', false)
+  const omitVarietyBoost = varietyRaw === 'omit'
   const payload = { input: String(request.positive || ''), model: novelaiModel, action: 'generate', parameters: {
     width, height, seed: Number.isFinite(Number(request.seed)) ? Number(request.seed) : Math.floor(Math.random() * 2 ** 32),
     steps: bounded(request.steps ?? option(ch, 'steps', 28), 1, 100), scale: clampedNumber(request.cfg ?? option(ch, 'cfg', option(ch, 'scale', 5)), 0, 30, 5), n_samples: 1,
     cfg_rescale: clampedNumber(option(ch, 'cfgRescale', 0), 0, 1, 0),
     negative_prompt: negative, sampler: novelaiSampler, noise_schedule: option(ch, 'noiseSchedule', 'karras'),
-    qualityToggle: option(ch, 'qualityToggle', true) !== false, ucPreset: clampedNumber(option(ch, 'ucPreset', 3), 0, 4, 3), variety_boost: isNovelaiV5 ? false : option(ch, 'varietyBoost', false) === true, sm: false, dynamic_thresholding: false, params_version: isNovelaiV5 ? 4 : 3,
+    qualityToggle: option(ch, 'qualityToggle', true) !== false, ucPreset: clampedNumber(option(ch, 'ucPreset', 3), 0, 4, 3),
+    ...(omitVarietyBoost ? {} : { variety_boost: isNovelaiV5 ? false : varietyRaw === true }),
+    sm: false, dynamic_thresholding: false, params_version: isNovelaiV5 ? 4 : 3,
     v4_prompt: v4Prompt,
     v4_negative_prompt: v4Negative,
     add_original_image: true, legacy: false, legacy_uc: false, controlnet_strength: 1,
@@ -338,8 +345,11 @@ async function generateOpenai(channel, request, ctx, provider) {
   const size = provider === 'seedream' ? option(ch, 'size', '2K') : request.exactSize === true ? orientationSize : option(ch, 'size', orientationSize)
   const payload = { model: ch.model || PROVIDERS[provider][2], prompt: combinedPrompt(request), size, n: 1 }
   if (provider === 'openai') {
+    const quality = openaiImageQualities.has(request.quality) ? request.quality : ch.options?.quality
+    const moderation = ch.options?.moderation
+    if (openaiImageQualities.has(quality)) payload.quality = quality
+    if (openaiImageModeration.has(moderation)) payload.moderation = moderation
     if (payload.model.startsWith('gpt-image-')) {
-      payload.quality = ['low', 'medium', 'high', 'auto'].includes(request.quality) ? request.quality : option(ch, 'quality', 'medium')
       payload.output_format = request.background === 'transparent' ? 'png' : option(ch, 'outputFormat', 'png')
       if (request.background === 'transparent') payload.background = 'transparent'
     }
@@ -364,10 +374,10 @@ async function generateOpenai(channel, request, ctx, provider) {
     body.append('model', payload.model)
     body.append('prompt', payload.prompt)
     body.append('size', payload.size)
-    body.append('n', '1')
-    if (payload.quality) body.append('quality', String(payload.quality))
-    if (payload.output_format) body.append('output_format', String(payload.output_format))
-    if (payload.background) body.append('background', String(payload.background))
+    body.append('n', String(payload.n))
+    for (const name of ['quality', 'moderation', 'output_format', 'background']) {
+      if (payload[name]) body.append(name, String(payload[name]))
+    }
     for (const [index, ref] of refs.entries()) body.append('image[]', new Blob([ref.bytes], { type: ref.mediaType }), `reference-${index + 1}.${imageExtension(ref.mediaType)}`)
     const data = await fetchJson(fetchImpl, joinUrl(base, endpointFromOption(ch, 'editPath', '/images/edits')),
       { method: 'POST', headers: requestHeaders(ch, provider, false), body }, jsonLimit, signal, ch)

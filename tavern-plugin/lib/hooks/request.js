@@ -44,16 +44,19 @@ export function registerRequestHooks({
   chatForSession,
   ctx,
   foregroundStrategies,
+  openingRequest,
   persistClearedBodyEdits,
   requestCoordinates,
   requestIdForMessages,
+  requestPerformance,
   sessionStore,
   tavernRetryLimiter,
 }) {
   ctx.on('agent/request', async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     if (sessionId !== '') requestCoordinates.set(sessionId, { turn: payload.turn, step: payload.step })
-    return await next()
+    if (!requestPerformance || sessionId === '' || backgroundAgentRunner.owns(sessionId)) return await next()
+    return await requestPerformance.run('generateRequest', sessionId, () => next())
   })
 
   ctx.on('agent/request-error', tavernRetryLimiter.handle, { prepend: true })
@@ -61,7 +64,7 @@ export function registerRequestHooks({
   // overflow compaction both see the normalized code.
   ctx.on('agent/request-error', normalizeProviderOverflow, { prepend: true })
 
-  ctx.on('agent/pre-step', async function (payload, next) {
+  const prepareStep = async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     // Tavern drives only game sessions; child agents (its own background
     // agents, plugin agents, DSH subagents) never get a turn frame or status.
@@ -69,6 +72,7 @@ export function registerRequestHooks({
     // carries it, but has its own Tavern chat.
     if (backgroundAgentRunner.owns(sessionId) || (payload.agent.session.header?.parentSession && !await chatForSession(sessionId))) return next()
     if (gameModes && ['story', 'script'].includes((await chatForSession(sessionId))?.mode) && await gameModes.active(sessionId)) throw new Error('本局由玩法插件接管，请在玩法面板中行动')
+    if (Number(payload.step) === 1) await openingRequest?.beforeFirstStep(sessionId)
     const decision = await next()
     if (decision.kind === 'reject') return decision
     const chat = await chatForSession(sessionId)
@@ -77,7 +81,7 @@ export function registerRequestHooks({
     const prepared = await foregroundStrategies.prepareStep({
       sessionId,
       payload,
-      decision,
+      decision: openingRequest?.project(payload.agent.session, chat, decision) ?? decision,
       chat,
       requestId: requestIdForMessages(payload.messages)
     })
@@ -88,5 +92,10 @@ export function registerRequestHooks({
     const withChanges = appendVariableChanges({ chat, payload, decision: recovered })
     try { return await cardMemory.appendRecall({ chat, payload, decision: withChanges }) }
     catch (error) { console.warn('[Tavern card memory] recall unavailable:', error.message); return withChanges }
+  }
+  ctx.on('agent/pre-step', async function (payload, next) {
+    const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
+    if (!requestPerformance || sessionId === '' || backgroundAgentRunner.owns(sessionId)) return await prepareStep(payload, next)
+    return await requestPerformance.run('generatePrepare', sessionId, () => prepareStep(payload, next))
   })
 }

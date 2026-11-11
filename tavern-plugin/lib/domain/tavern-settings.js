@@ -289,6 +289,10 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.storyGenerationProvider !== 'string' || input.storyGenerationProvider.length > 240) throw new Error('正文生成插件标识无效')
     next.storyGenerationProvider = input.storyGenerationProvider
   }
+  if (Object.hasOwn(input, 'storyPluginOutputRegex')) {
+    if (typeof input.storyPluginOutputRegex !== 'boolean') throw new Error('插件正文宿主正则设置无效')
+    next.storyPluginOutputRegex = input.storyPluginOutputRegex
+  }
   if (next.storyGenerationMode?.startsWith('plugin-') && !next.storyGenerationProvider?.trim()) throw new Error('请先选择正文生成插件')
   // Two independent directions: input replays the history that is sent to the
   // model, output turns this turn's body into a submission call. Legacy switches
@@ -325,6 +329,10 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.retryOnFailure !== 'boolean') throw new Error('自动重试设置必须是布尔值')
     next.retryOnFailure = input.retryOnFailure
   }
+  if (Object.hasOwn(input, 'allowCdnFakeIp')) {
+    if (typeof input.allowCdnFakeIp !== 'boolean') throw new Error('CDN Fake-IP 兼容设置必须是布尔值')
+    next.allowCdnFakeIp = input.allowCdnFakeIp
+  }
   // 长按发送键 2 秒直接重新生成本轮正文；默认关闭，避免误触改写正文。
   if (Object.hasOwn(input, 'longPressSendRegenerate')) {
     if (typeof input.longPressSendRegenerate !== 'boolean') throw new Error('长按发送键重新生成设置必须是布尔值')
@@ -333,6 +341,11 @@ export function applyTavernSettingsPatch(current, patch) {
   if (Object.hasOwn(input, 'autoOpenStatusPanel')) {
     if (typeof input.autoOpenStatusPanel !== 'boolean') throw new Error('自动打开酒馆状态面板设置必须是布尔值')
     next.autoOpenStatusPanel = input.autoOpenStatusPanel
+  }
+  // 设置 › 高级 › 对话按最新回复排序：默认按创建时间固定排列，打开后最近活动的对话排到最前。
+  if (Object.hasOwn(input, 'recentReplyFirst')) {
+    if (typeof input.recentReplyFirst !== 'boolean') throw new Error('对话排序设置必须是布尔值')
+    next.recentReplyFirst = input.recentReplyFirst
   }
   if (Object.hasOwn(input, 'headerItems')) {
     // null restores the shipped top bar.
@@ -429,15 +442,19 @@ export function presentTavernSettings(document, defaults) {
     polishPrereview: object(document).polishPrereview === true,
     storyGenerationMode: ['plugin-direct', 'plugin-tool-call'].includes(document?.storyGenerationMode) ? document.storyGenerationMode : 'host',
     storyGenerationProvider: typeof document?.storyGenerationProvider === 'string' ? document.storyGenerationProvider : '',
+    storyPluginOutputRegex: document?.storyPluginOutputRegex === true,
     storyInputToolCall: storyToolCalls.input,
     storyOutputToolCall: storyToolCalls.output,
     // A failed model request is resent once by default (tavern-retry-limiter); off means
     // the turn ends right there and the reply is only remade when the player asks.
     retryOnFailure: object(document).retryOnFailure !== false,
-    // 长按 2 秒发送键直接重新生成正文；默认关闭。
+    allowCdnFakeIp: object(document).allowCdnFakeIp === true,
+    // 长按 1 秒发送键直接重新生成正文；默认关闭。
     longPressSendRegenerate: object(document).longPressSendRegenerate === true,
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,
+    // 设置 › 高级 › 对话按最新回复排序：默认关闭，左侧对话按创建时间固定排列。
+    recentReplyFirst: object(document).recentReplyFirst === true,
     // Library edits reach a running game on its next turn; only an explicit
     // reload still refreshes the card definition, initvars and MVU state.
     webSearchEnabled: object(document).webSearchEnabled === true,

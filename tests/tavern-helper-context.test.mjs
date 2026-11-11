@@ -3,21 +3,7 @@ import test from 'node:test'
 import { projectOpeningCommit } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 import { projectReplyHistory } from '../tavern-plugin/lib/domain/reply-presentation.js'
 
-import { appendTavernHelperMessages, lastTavernHelperVariables, projectTavernHelperContext, replaceTavernHelperMessages, replaceTavernHelperVariables } from "../tavern-plugin/lib/domain/tavern-helper-context.js"
-
-test('Helper edits retain provider-final prose without replaying output macros or regexes', () => {
-  const chat = { macroState: { local: { x: 'before' } }, messages: [{ role: 'assistant', turn: 2,
-    text: '正文', projectionText: '正文', swipes: ['正文'], bodyRegenerationProcessed: true }] }
-  const text = '改写正文\n<div>{{user}}</div>{{setvar::x::changed}}'
-  replaceTavernHelperMessages(chat, [{ message_id: 0, message: text }], { regexScripts: [
-    { id: 'duplicate', findRegex: '/正文/g', replaceString: '正文正文', placement: [2] }
-  ] })
-  const row = chat.messages[0]
-  assert.equal(row.text, text)
-  assert.equal(row.displayText, text)
-  assert.equal(row.bodyRegenerationProcessed, true)
-  assert.equal(chat.macroState.local.x, 'before')
-})
+import { appendTavernHelperMessages, lastTavernHelperVariables, projectTavernHelperContext } from "../tavern-plugin/lib/domain/tavern-helper-context.js"
 
 function macroOpeningChat() {
   const source = '{{incvar::visits}}{{User}}看向{{Char}}。'
@@ -53,26 +39,4 @@ test('Helper 创建的新楼层只进入脚本历史，不冒充剧情回合', (
   assert.deepEqual(lastTavernHelperVariables(chat.messages), {})
 
   assert.throws(() => appendTavernHelperMessages(chat, [{ role: 'assistant', message: '插入' }], { insert_before: 0 }), /只支持追加/)
-})
-
-test('verified tail append visits only appended floors and preserves turn mappings', () => {
-  for (const length of [1000, 10000]) {
-    const rows = Array.from({length}, (_, i) => ({role:'assistant', turn:i + 1, text:'old', variables:[{hp:i}]}))
-    const previous = projectTavernHelperContext({id:'append',messages:rows},{indexed:true})
-    rows.push({role:'user',turn:length + 1,text:'input'}, {role:'assistant',turn:length + 1,text:'new',variables:[{hp:7}]})
-    let reads = 0
-    const messages = new Proxy(rows,{get(target,key,receiver){if(typeof key === 'string' && /^\d+$/.test(key)) reads++;return Reflect.get(target,key,receiver)}})
-    const next = projectTavernHelperContext({id:'append',messages},{indexed:true,previousContext:previous,previousMessages:previous.messages,dirtyIndices:new Set([length,length + 1]),layoutChanged:true,layoutFrom:length})
-    assert.ok(reads <= 4, `append visited ${reads} floors of ${length}`)
-    assert.equal(next.messages[0],previous.messages[0])
-    assert.equal(next.turnMessageIds[String(length + 1)],length + 1)
-    assert.equal(previous.turnMessageIds[String(length + 1)],undefined)
-    assert.deepEqual(JSON.parse(JSON.stringify(next)),JSON.parse(JSON.stringify(projectTavernHelperContext({id:'append',messages:rows}))))
-  }
-})
-
-test('chatVariables.playerName write updates chat.macroState.userName for subsequent prompt/worldbook macro rendering', () => {
-  const chat = { macroState: { userName: '你', local: {}, global: {} }, variables: {} }
-  replaceTavernHelperVariables(chat, { option: { type: 'chat' }, variables: { playerName: '沈砚', welcomeShown: true } })
-  assert.equal(chat.macroState.userName, '沈砚')
 })

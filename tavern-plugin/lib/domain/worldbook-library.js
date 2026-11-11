@@ -47,8 +47,9 @@ export function createWorldBookLibrary(options = {}) {
       const source = sourceOf(typeof locator === 'string' ? { kind: 'standalone', path: locator } : locator)
       const key = source.cardPath || source.path
       // A write must be visible to the next read even when the file system
-      // reports the same revision for both.
-      const operation = (mutations.get(key) || Promise.resolve()).catch(() => {}).then(() => work(locator, ...args)).then(result => { resolved.clear(); return result })
+      // reports the same revision for both. Each mutation publishes its own
+      // result, so the cache is only refreshed where it changed, not dropped.
+      const operation = (mutations.get(key) || Promise.resolve()).catch(() => {}).then(() => work(locator, ...args))
       mutations.set(key, operation)
       const release = () => { if (mutations.get(key) === operation) mutations.delete(key) }
       operation.then(release, release)
@@ -93,8 +94,16 @@ export function createWorldBookLibrary(options = {}) {
   }
 
   async function get(locator) {
-    const record = await readRecord(locator)
-    return { source: record.source, view: record.view, globalEnabled: record.source.kind === 'standalone' && (await globalSources()).some(source => source.path === record.source.path) }
+    // Reading a book for display is the same file read the resolver does, so it
+    // shares that revision cache: switching sessions or reopening the panel must
+    // not re-parse an unchanged document.
+    return await forClient(await readSource(sourceOf(locator)))
+  }
+
+  // The view plus the revision a caller can send back to skip the next full read.
+  async function forClient(record) {
+    return { source: record.source, view: record.view, revision: record.revision ?? null,
+      globalEnabled: record.source.kind === 'standalone' && (await globalSources()).some(source => source.path === record.source.path) }
   }
 
   async function globalSources() { return resources.globalSources ? await resources.globalSources() : [] }
@@ -298,7 +307,10 @@ export function createWorldBookLibrary(options = {}) {
   // a chat may still be running on an older snapshot of the card.
   const resolved = new Map()
   // Each entry is one book or one merged set: a three-book set needs four.
-  const RESOLVED_LIMIT = 4
+  // Bound books, merged sets and panel reads share this map, so the ceiling has
+  // to cover a few cards' worth of bindings; at four, switching between two
+  // cards evicted everything and every switch re-parsed the files.
+  const RESOLVED_LIMIT = 12
   // Only a merged book is game-local: one book writes back to the library, so a
   // script edit takes effect everywhere, while a merged set needs a private copy.
   function forChat(record, chat) {
@@ -309,19 +321,61 @@ export function createWorldBookLibrary(options = {}) {
     while (resolved.size > RESOLVED_LIMIT) resolved.delete(resolved.keys().next().value)
     return record
   }
-  async function standaloneRevision(source) {
-    if (source.kind !== 'standalone' || typeof resources.metadata !== 'function') return null
+  // One file revision covers both storage kinds: a standalone book's file and a
+  // card's working copy answer the same question for the panel — did the bytes
+  // this view came from change?
+  async function sourceRevision(source) {
+    if (source.kind === 'card') {
+      if (typeof cards.metadata !== 'function') return null
+      const metadata = await cards.metadata(source.cardPath).catch(() => undefined)
+      return metadata === undefined ? null : metadata.updatedAt ?? 0
+    }
+    if (typeof resources.metadata !== 'function') return null
     const metadata = await resources.metadata(source.path).catch(() => undefined)
     return metadata === undefined ? null : metadata.updatedAt ?? 0
   }
+  async function standaloneRevision(source) {
+    return source.kind === 'standalone' ? await sourceRevision(source) : null
+  }
+  function bookKey(source, revision) {
+    return JSON.stringify(['book', source.kind, source.kind === 'card' ? source.cardPath : source.path, revision])
+  }
+  // A write invalidates only the book it touched. Merged sets that include that
+  // book carry its path in their key, so they rebuild on their next read while
+  // every other parsed book survives.
+  function forgetPath(path) {
+    const needle = JSON.stringify(String(path)).slice(1, -1)
+    for (const key of [...resolved.keys()]) if (key.includes(needle)) resolved.delete(key)
+  }
+  // A mutation already holds the new document: publish the projection it
+  // produced instead of reading the file back, or projecting it twice.
+  async function publish(source, document, view) {
+    forgetPath(source.kind === 'standalone' ? source.path : source.cardPath)
+    const record = { source, document, view: view || inspectWorldBookDocument(document, { filename: source.kind === 'card' ? source.cardName : source.path.split('/').pop() }) }
+    const revision = await sourceRevision(source)
+    if (revision !== null) {
+      record.revision = revision
+      remember(bookKey(source, revision), record)
+    }
+    return record
+  }
   async function readSource(source, suppliedCard, templateOnly) {
     if (templateOnly) return await readRecord(source, suppliedCard, true)
-    const revision = await standaloneRevision(source)
-    if (revision === null) return await readRecord(source, suppliedCard)
-    const key = JSON.stringify(['book', source.path, revision])
+    // A card the caller already holds is authoritative for that caller; only a
+    // read that goes to storage is shared through the revision cache.
+    if (suppliedCard !== undefined) return await readRecord(source, suppliedCard)
+    const revision = await sourceRevision(source)
+    if (revision === null) return await readRecord(source)
+    const key = bookKey(source, revision)
     const hit = resolved.get(key)
     if (hit !== undefined) { resolved.delete(key); resolved.set(key, hit); return hit }
-    return remember(key, await readRecord(source, suppliedCard))
+    // The revision travels with the record so a display read can tell an
+    // unchanged book apart without reading it again.
+    return remember(key, { ...await readRecord(source), revision })
+  }
+  /** The current file revision alone: a conditional read answers without loading the book. */
+  async function revision(locator) {
+    return await sourceRevision(sourceOf(locator))
   }
   async function unchangedStandaloneSet(sources) {
     if (typeof resources.metadata !== 'function' || sources.some(source => source.kind !== 'standalone')) return null
@@ -386,24 +440,27 @@ export function createWorldBookLibrary(options = {}) {
   }
 
   async function importBook(payload) {
-    try { return await importBookPayload(payload) } finally { resolved.clear() }
+    return await importBookPayload(payload)
   }
   async function importBookPayload(payload) {
     const prepared = prepareWorldBookImport(payload)
     const path = await resources.import(prepared, prepared.working)
+    forgetPath(path)
     const record = await readRecord({ kind: 'standalone', path })
     return { kind: 'standalone', path, name: record.view.displayName, entryCount: record.view.entryCount }
   }
 
   async function update(locator, request) {
-    const record = await readRecord(locator)
+    // A view the panel already holds may come from the same revision: reuse it
+    // instead of parsing the book again for every single switch.
+    const record = await readSource(sourceOf(locator))
     const changed = updateWorldBookDocument(record.document, request)
     if (record.source.kind === 'card') {
       await cards.update(record.source.cardPath, { character_book: changed.document })
-    } else {
-      await resources.write(record.source.path, JSON.stringify(changed.document, null, 2))
+      return await forClient(await publish(record.source, changed.document, changed.view))
     }
-    return await get(record.source)
+    await resources.write(record.source.path, JSON.stringify(changed.document, null, 2))
+    return await forClient(await publish(record.source, changed.document, changed.view))
   }
 
   /** Replace through the native ST API, preserving unknown plugin fields. */
@@ -418,16 +475,16 @@ export function createWorldBookLibrary(options = {}) {
         || entry.uid < 0 || String(entry.uid) !== key || ids.has(entry.uid)) throw new Error('世界书条目编号无效或重复')
       ids.add(entry.uid)
     }
-    const record = await readRecord(locator)
+    const record = await readSource(sourceOf(locator))
     const native = clone(document)
     // originalData is conversion provenance, never a second writable authority.
     delete native.originalData
     if (record.source.kind === 'card') {
       await cards.update(record.source.cardPath, { character_book: exportCharacterBook(native, { replace: true }) })
-    } else {
-      await resources.write(record.source.path, JSON.stringify(native, null, 2))
+      return await forClient(await publish(record.source, native))
     }
-    return await get(record.source)
+    await resources.write(record.source.path, JSON.stringify(native, null, 2))
+    return await forClient(await publish(record.source, native))
   }
 
   async function exportBook(locator) {
@@ -445,13 +502,14 @@ export function createWorldBookLibrary(options = {}) {
 
   async function remove(locator) {
     const source = sourceOf(typeof locator === 'string' ? { kind: 'standalone', path: locator } : locator)
-    if (source.kind === 'standalone') return await removeStandalone(source.path)
+    if (source.kind === 'standalone') { forgetPath(source.path); return await removeStandalone(source.path) }
     await readRecord(source)
     const relations = await associations(source)
     for (const card of relations.boundCards) await unbind(card.path, source)
     await cards.update(source.cardPath, { character_book: null })
+    forgetPath(source.cardPath)
     return { removed: source.cardPath, kind: 'embedded' }
   }
 
-  return Object.freeze({ catalog, get, setGlobal, binding, associations, bound, templateSnapshot, bind, setBindings, unbind, import: importBook, update: serializeMutation(update), replaceNative: serializeMutation(replaceNative), export: exportBook, characterBookForCard, remove: serializeMutation(remove) })
+  return Object.freeze({ catalog, get, revision, setGlobal, binding, associations, bound, templateSnapshot, bind, setBindings, unbind, import: importBook, update: serializeMutation(update), replaceNative: serializeMutation(replaceNative), export: exportBook, characterBookForCard, remove: serializeMutation(remove) })
 }

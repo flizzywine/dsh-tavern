@@ -425,6 +425,22 @@ function createTransferFeatureModule() {
 			})
 		}
 
+		function downloadMigrationScript() {
+			setError("")
+			setBusy(true)
+			rpc("exportSillyTavernMigrationScript", {}, sessionId).then(function (result) {
+				if (!result || !result.text) throw new Error("未获取到酒馆迁移助手脚本内容")
+				downloadTavernBlob(
+					new Blob([result.text], { type: "application/json;charset=utf-8" }),
+					result.filename || "酒馆助手脚本-dsh-tavern迁移助手.json"
+				)
+			}, function (err) {
+				setError(String(err && err.message || err))
+			}).finally(function () {
+				setBusy(false)
+			})
+		}
+
 		function renderImport() {
 			const state = importing
 			if (!state) {
@@ -444,7 +460,22 @@ function createTransferFeatureModule() {
 						h("strong", null, "选择 .dshtransfer 文件"),
 						h("span", null, "或把导出包拖到这里；导入只新增，不会覆盖现有内容")
 					),
-					h("p", { className: "dsh-tavern-transfer-hint" }, "包里只有数据：人物卡、世界书、预设、提示词、长期偏好、正则与设置。插件和对话记录在下一版加入。")
+					h("p", { className: "dsh-tavern-transfer-hint" }, "支持导入 DSH 酒馆备份包，或由 SillyTavern「dsh-tavern迁移助手」导出的聊天记录与角色迁移包（.dshtransfer）。"),
+					h("div", { className: "dsh-tavern-transfer-exported dsh-tavern-transfer-migration-helper" },
+						h("div", { className: "dsh-tavern-transfer-file" },
+							h("span", { className: "dsh-tavern-transfer-file-icon" }, "ST"),
+							h("div", null,
+								h("div", { className: "dsh-tavern-transfer-file-name" }, "从 SillyTavern 批量迁移聊天记录"),
+								h("div", { className: "dsh-tavern-transfer-file-sub" }, "下载「dsh-tavern迁移助手」脚本（.json），导入 SillyTavern 的酒馆助手（JS-Slash-Runner）脚本库后，点「📦 DSH 迁移导出」即可批量打包角色与聊天记录为 .dshtransfer")
+							)
+						),
+						h("button", {
+							type: "button",
+							className: "dsh-tavern-btn",
+							disabled: busy,
+							onClick: downloadMigrationScript
+						}, "下载酒馆迁移助手脚本")
+					)
 				)
 			}
 			if (state.stage === "reading") {

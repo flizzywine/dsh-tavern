@@ -4,9 +4,16 @@ import { inspectPreset, nativeRegexScriptsOf } from './preset-reading.js'
 import { previewPresetConversion } from './preset-conversion-preview.js'
 import { createPresetEditor } from './preset-editor.js'
 import { createRuntimePresetModule } from './runtime-presets.js'
+import { createPresetSnapshotPool, snapshotNeedsDocuments, withSnapshotDocuments } from './preset-snapshot-pool.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
+}
+
+const GENERATION_PRESET_MAX_BYTES = 10 * 1024 * 1024
+function hasGenerationPresetFormat(document) {
+  return Array.isArray(document?.prompts) && document.prompts.length > 0
+    && Array.isArray(document.prompt_order) && document.prompt_order.some(group => Array.isArray(group?.order))
 }
 
 // Bypass plans were retired on this date; their file is only read for migrations.
@@ -16,8 +23,58 @@ const PLANS_RETIRED_AT = Date.parse('2026-08-28T00:00:00+08:00')
  * Editors/compilers still own their existing formats; raw documents are never rewritten here.
  */
 
-export function createPresetLibrary({ resources: fileResources, state: profileData, prepareImport: prepareTextImport, logger = console }) {
+export function createPresetLibrary({ resources: fileResources, state: profileData, prepareImport: prepareTextImport, logger = console, snapshotPoolLimit = 24 }) {
   const readJson = function (path) { return profileData.readJson(path) }
+  // Frozen preset snapshots store their two compatibility documents once here instead of
+  // inside every save; the key is the snapshot digest, so an edited preset never reuses a
+  // copy. Storage adapters are optional: without them the pool degrades to memory.
+  const snapshotKey = function (digest) { return 'preset-snapshots/' + digest + '.json' }
+  const snapshotPool = createPresetSnapshotPool({
+    exists: async function (key) {
+      if (typeof profileData?.size !== 'function') return false
+      try { return (await profileData.size(key)) > 0 } catch { return false }
+    },
+    read: async function (key) {
+      return typeof profileData?.readJson === 'function' ? await profileData.readJson(key) : null
+    },
+    write: async function (key, value) {
+      if (typeof profileData?.writeJson === 'function') await profileData.writeJson(key, value)
+    }
+  })
+  // Editing a preset mints a new digest, so the pool would grow by ~1 MB per edit. Keep the
+  // newest few and drop the rest: a dropped entry only costs the frozen copy, and `generate`
+  // then re-reads the preset the save points at.
+  const snapshotIndexPath = 'preset-snapshots/index.json'
+  // Saves in the same millisecond must still rank: a plain Date.now() leaves ties that
+  // keep the OLD entries and prune the new one.
+  let lastSnapshotStamp = 0
+  function snapshotStamp() {
+    const now = Date.now()
+    lastSnapshotStamp = now > lastSnapshotStamp ? now : lastSnapshotStamp + 1
+    return lastSnapshotStamp
+  }
+  async function pruneSnapshotPool(digest) {
+    if (typeof profileData?.updateJson !== 'function') return
+    const dropped = new Set()
+    try {
+      await profileData.updateJson(snapshotIndexPath, function (current) {
+        const index = current !== null && typeof current === 'object' && !Array.isArray(current) ? { ...current } : {}
+        index[digest] = snapshotStamp()
+        const ranked = Object.entries(index).sort(function (a, b) { return Number(b[1]) - Number(a[1]) })
+        const kept = Object.fromEntries(ranked.slice(0, Math.max(1, snapshotPoolLimit)))
+        for (const key of Object.keys(index)) if (!Object.hasOwn(kept, key)) dropped.add(key)
+        return kept
+      })
+    } catch { return }
+    if (typeof profileData?.remove !== 'function') return
+    for (const key of dropped) await profileData.remove(snapshotKey(key)).catch(() => {})
+  }
+  // `generate` is the only reader of those documents; it reattaches them by reference.
+  async function hydratePresetSnapshot(snapshot) {
+    if (!snapshotNeedsDocuments(snapshot)) return snapshot
+    const documents = await snapshotPool.load(snapshotKey(snapshot.presetSnapshotRef)).catch(() => null)
+    return documents ? withSnapshotDocuments(snapshot, documents) : snapshot
+  }
   async function readPreset(presetPath) {
     const normalized = normalizeResourcePath(presetPath, 'preset')
     const text = await fileResources.readText(normalized)
@@ -82,6 +139,9 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
     runtimeRegexScripts: runtimeRegexScriptsOf,
     readState: async function () { return await readJson('runtime-presets.json') },
     updateState: async function (updater) { return await profileData.updateJson('runtime-presets.json', updater) },
+    saveSnapshotDocuments: async function (digest, documents) {
+      if (await snapshotPool.save(snapshotKey(digest), documents)) await pruneSnapshotPool(digest)
+    },
     now: Date.now
   })
   async function readRetiredPlans() {
@@ -138,6 +198,7 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
       title: preset.title,
       valid: preset.valid,
       recognized: preset.recognized,
+      generationCompatible: Buffer.byteLength(text) <= GENERATION_PRESET_MAX_BYTES && hasGenerationPresetFormat(document),
       promptCount: preset.promptCount,
       phaseCounts,
       unassignedPromptCount: (preset.entries || []).filter(function (entry) { return !phasedEntryKeys.has(str(entry && entry.entryKey)) }).length,
@@ -199,6 +260,19 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
     if (text === undefined) throw new Error('预设不存在: ' + presetPath)
     return { name: presetPath.split('/').pop() || 'preset.json', text }
   }
+  async function listForGeneration() {
+    return (await listPresets()).filter(preset => preset.generationCompatible)
+      .map(preset => ({ id: preset.path, name: preset.title }))
+  }
+  async function readForGeneration(id) {
+    const path = normalizeResourcePath(id, 'preset')
+    const { name, text } = await exportPreset(path)
+    if (Buffer.byteLength(text) > GENERATION_PRESET_MAX_BYTES) throw new Error('共享预设最多 10 MiB')
+    let document
+    try { document = JSON.parse(text) } catch { /* report the same error as an unsupported format */ }
+    if (!hasGenerationPresetFormat(document)) throw new Error('此预设缺少 SillyTavern 提示词或顺序数据，请在宿主预设库选择兼容的预设')
+    return { id: path, name: name.replace(/\.json$/i, ''), revision: createHash('sha256').update(text).digest('hex'), text }
+  }
   async function updateEntry(path, key, patch) {
     await presetEditor.updateEntry(path, key, patch)
     return await readPreset(path)
@@ -218,6 +292,11 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
   }
   return Object.freeze({ read: readPreset, readDocument: readPresetDocument, detail,
     catalog, select, import: importPreset, export: exportPreset, preview: previewPreset,
+    listForGeneration, readForGeneration,
     updateEntry, updateRegex, moveEntry, migrate, restoreChat: restoreRetiredPlanChat,
+    snapshotDocuments: Object.freeze({ hydrate: hydratePresetSnapshot, load: function (digest) { return snapshotPool.load(snapshotKey(digest)) },
+      save: async function (digest, documents) {
+        if (await snapshotPool.save(snapshotKey(digest), documents)) await pruneSnapshotPool(digest)
+      } }),
     editor: presetEditor, runtime: runtimePresets })
 }

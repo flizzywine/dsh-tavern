@@ -376,7 +376,6 @@
 				const selectAssistantId = React.useCallback(function (snapshot) { return tavernAssistantMessageIdForTurn(snapshot, turn); }, [turn]);
 				const assistantMessageId = props.useChat(selectAssistantId);
 				const forkState = useScopedLiveTavernView(props.sessionId, "user-fork:" + String(assistantMessageId || ""), [["mode"], ["forkTurnsByMessageId", String(assistantMessageId || "")]]);
-				const running = props.useSession(function (snapshot) { return snapshot.running === true; });
 				const [forking, setForking] = React.useState(false);
 				const [editBusy, setEditBusy] = React.useState(false);
 				const playView = Boolean(liveState.view && isPlayMode(liveState.view.mode));
@@ -388,7 +387,9 @@
 				const failedTurns = Array.isArray(liveState.view?.failedUserInputTurns) ? liveState.view.failedUserInputTurns : [];
 				const committedEdit = editableTurns.some(value => Number(value) === Number(turn));
 				const failedEdit = failedTurns.some(value => Number(value) === Number(turn));
-				const canEdit = playView && latestUserTurn > 0 && Number(turn) === Number(latestUserTurn) && !running
+				// A running turn no longer hides the editor: opening it only reads, and the
+				// save is held until that turn ends (see body-editor's queued save).
+				const canEdit = playView && latestUserTurn > 0 && Number(turn) === Number(latestUserTurn)
 					&& liveState.view?.canEditBody !== false && (committedEdit || failedEdit);
 				async function fork() {
 					if (forking) return;
@@ -854,6 +855,8 @@
                     ? React.createElement(TavernInlineStatusRuntime, { sessionId: props.sessionId, executeSlash: props.executeSlash }) : null;
                 const helper = liveState.view?.tavernHelper;
                 const greetingId = helper?.turnMessageIds?.[String(storyTurn)];
+                const openingNav = playView && settled && greetingId === 0 && helper?.openingHost
+                    ? React.createElement(TavernOpeningNav, { sessionId: props.sessionId, opening: helper.openingHost, lifecycleRevision: Number(helper.lifecycleRevision) || 0 }) : null;
                 const legacyGreeting = settled && !sessionTransitioning && greetingId === 0 && liveState.view?.tavernRuntimePolicy?.trustedCardMode;
                 const greetingSource = helper?.messages?.[0]?.message || "";
                 // Recover messages staged by earlier system versions, independent
@@ -880,7 +883,7 @@
 				const diceNode = typeof props.useChat === "function" ? tavernStageBoundary("骰子", React.createElement(DiceRolls, { useChat: props.useChat, nativeTurn: turn, nodeKey: props.node.key })) : null;
 				const illustrationDraft = playView && settled ? React.createElement(TavernIllustrationDraft, { sessionId: props.sessionId, turn: storyTurn, items: pluginMedia.items }) : null;
 				const gameSurface = playView && settled && storyTurn === latestProjectionTurn ? React.createElement(tavernReplyObserverFeature.GameModeSurface, { key: props.sessionId, sessionId: props.sessionId }) : null;
-				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, deletionNode, foldBack, diceNode, body, gameSurface, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
+				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, deletionNode, foldBack, diceNode, body, openingNav, gameSurface, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
 			}
 			function TavernForkAssistantAction(props) {
 				const liveState = useScopedLiveTavernView(props.sessionId, String(props.messageId || ""), [["mode"], ["forkTurnsByMessageId", String(props.messageId || "")]]);
@@ -904,12 +907,17 @@
 				const liveState = useScopedLiveTavernView(props.sessionId, String(props.messageId || ""), [["mode"], ["forkTurnsByMessageId", String(props.messageId || "")]]);
 				const view = liveState.view;
 				const turn = Number(view && view.forkTurnsByMessageId && view.forkTurnsByMessageId[String(props.messageId || "")]) || 0;
+				return view && isPlayMode(view.mode) && turn > 0
+					? React.createElement(TavernIllustrateTurnAction, { sessionId: props.sessionId, turn: turn }) : null;
+			}
+			function TavernIllustrateTurnAction(props) {
 				useTavernUiExtensions();
 				useTavernProseLayoutRevision();
-				const play = Boolean(view && isPlayMode(view.mode) && turn > 0);
 				// Tavern draws nothing itself; an illustrator plugin answers this button.
-				const illustrator = play ? tavernUiExtensions.illustrator() : null;
-				return illustrator && tavernPluginAllowed(illustrator.owner, props.sessionId) ? React.createElement(TavernPluginIllustrateAction, { key: props.sessionId + ":" + turn, sessionId: props.sessionId, turn: turn, illustrator: illustrator }) : null;
+				const illustrator = tavernUiExtensions.illustrator();
+				return illustrator && tavernPluginAllowed(illustrator.owner, props.sessionId) ? React.createElement(TavernPluginIllustrateAction, {
+					key: props.sessionId + ":" + props.turn, sessionId: props.sessionId, turn: props.turn, illustrator: illustrator
+				}) : null;
 			}
 			// Drawn like DSH's own action icons (copy, branch): 16px, 1px strokes.
 			function TavernIllustrateIcon() {
@@ -1071,5 +1079,5 @@
 					}, TavernIllustrateAssistantAction); });
 				}, "dsh-tavern: earlier-turn illustration action");
 			}
-			return Object.freeze({ register: register });
+			return Object.freeze({ register: register, IllustrateTurnAction: TavernIllustrateTurnAction });
 		}

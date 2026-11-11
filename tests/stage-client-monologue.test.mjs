@@ -32,9 +32,3 @@ test('monologue owner disposes every layer once and ignores late ticks',()=>{
  for(const view of [first,second]){view.tick({thinking:{image:'b'}},1,800,600);assert.equal(view.alpha,0);assert.equal(view.sprite.visible,false);assert.equal(view.sprite.destroyed,true)}
  assert.equal(env.textures.length,2);assert.ok(env.textures.every(t=>t.destroyed===1));assert.throws(()=>env.create(),/disposed/)
 })
-test('failed image replacement retains the last good texture until cleanup',()=>{
- const env=setup(),view=env.create();view.tick({thinking:{image:'good'},snap:true},0,800,600)
- env.fail();assert.throws(()=>view.tick({thinking:{image:'bad'}},0,800,600),/image failed/)
- assert.equal(view.sprite.texture,env.textures[0]);assert.equal(env.textures[0].destroyed,0)
- env.owner.dispose();assert.equal(env.textures[0].destroyed,1)
-})

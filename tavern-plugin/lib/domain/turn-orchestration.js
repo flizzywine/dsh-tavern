@@ -14,12 +14,13 @@ import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { normalizeResourcePath } from './file-resources.js'
 import { diffJson } from './json-mutation.js'
 import { hasTavernCredit, withTavernCredit } from './card-credit.js'
-import { projectProcessedReply } from './reply-presentation.js'
+import { projectPluginBody } from './st-contract-service.js'
 import { STORY_GENERATE_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, storyToolCallEnabled } from './story-tool-submission.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { variableUpdateFor } from './variable-update.js'
 import { replyProse } from './reply-prose.js'
 import { captureBodyRegenerationSource } from './body-regeneration-materials.js'
+import { frameUserInput } from './agent-input-frame.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -407,9 +408,8 @@ export function createTurnOrchestrator(options) {
       // refuses any Proxy ("[object Array] could not be cloned."): materialize the
       // visible rows before the planning copy.
       chat = structuredClone(isScopedMessages(chat.messages) ? { ...chat, messages: Array.from(chat.messages) } : chat)
-      if (!Object.hasOwn(input, 'runtimePresetSnapshot')) {
-        input = { ...input, runtimePresetSnapshot: await resolvePreset(chat, { preview: true }) }
-      }
+      if (Object.hasOwn(input, 'runtimePresetSnapshot')) chat.runtimePresetSnapshot = clone(input.runtimePresetSnapshot)
+      else input = { ...input, runtimePresetSnapshot: await resolvePreset(chat, { preview: true }) }
     }
     // Candidate-first regeneration reuses the frozen frame captured for it.
     // A preview must always plan from current state, never from a remembered one.
@@ -527,7 +527,7 @@ export function createTurnOrchestrator(options) {
           ready: true,
           mode,
           cardName: str(chat.cardName),
-          userText: cachedFrame.userInput.projectedText,
+          userText: frameUserInput(cachedFrame).projectedText,
           frame: cachedFrame
         }
       }
@@ -547,9 +547,11 @@ export function createTurnOrchestrator(options) {
     const card = cardPath === '' ? null : mode === 'card' ? { name: chat.cardName } : await store.readCard(cardPath, chat)
     if (cardPath !== '' && card === undefined) throw new Error('人物卡不存在: ' + cardPath)
     if ((mode === 'story' || mode === 'script') && !reusedRuntimeInput) {
-      const extensions = typeof store.readCardExtensions === 'function'
-        ? await store.readCardExtensions(cardPath, chat)
-        : null
+      const extensions = Object.hasOwn(input, 'cardExtensions')
+        ? clone(input.cardExtensions)
+        : typeof store.readCardExtensions === 'function'
+          ? await store.readCardExtensions(cardPath, chat)
+          : null
       const presetRegexScripts = await resolvePresetRegexScripts(chat)
       const regexScripts = composeTavernRegexScripts(extensions, presetRegexScripts, chat.regexOverrides && chat.regexOverrides.preset)
       // As in SillyTavern, only permanent input rules change the stored player
@@ -633,8 +635,10 @@ export function createTurnOrchestrator(options) {
     }
     const plan = await planner.plan({ purpose: 'body', card, chat: templateWorldBook?.macroState ? { ...chat, macroState: templateWorldBook.macroState } : chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: null, variableUpdate: variableUpdateFor(chat), worldBookContext })
     // Seam to the plugin layer; it never throws and drops a failing plugin's part.
-    const pluginSections = typeof options.pluginTurnContext === 'function'
-      ? await options.pluginTurnContext({ gameId: input.sessionId, turn, input: userText }).catch(() => []) : []
+    const pluginSections = Object.hasOwn(input, 'pluginSections') && Array.isArray(input.pluginSections)
+      ? clone(input.pluginSections)
+      : typeof options.pluginTurnContext === 'function'
+        ? await options.pluginTurnContext({ gameId: input.sessionId, turn, input: userText }).catch(() => []) : []
     const rosterAddendum = foregroundWorldBook && typeof options.foregroundRosterAddendum === 'function'
       ? await options.foregroundRosterAddendum({ chat, userText: runtimeUserText }) : ''
     const source = frameSource(chat, card, foregroundOperation)
@@ -858,7 +862,10 @@ export function createTurnOrchestrator(options) {
     }
     const prior = commitFor(chat, turn)
     if (prior !== null) return { saved: true, duplicate: true, mode: chat.mode || 'story', changed: prior.changed === true }
-    if (expectedTimeline && (chat.timeline?.branchId !== expectedTimeline.branchId || chat.timeline?.revision !== expectedTimeline.revision)) {
+    // 同一分支上后台写入可以推进 revision（结算、候选、世界书），那不是本轮失效；
+    // 换分支或 revision 倒退（回退/重置）才作废这次结果。
+    if (expectedTimeline && (chat.timeline?.branchId !== expectedTimeline.branchId
+      || Number(chat.timeline?.revision || 0) < Number(expectedTimeline.revision || 0))) {
       throw new Error('正文生成期间剧情状态已变化，本轮结果已作废')
     }
     const userText = str(input.userText).trim()
@@ -867,8 +874,9 @@ export function createTurnOrchestrator(options) {
     const sourceText = str(input.assistantText).trim()
     const frame = Object.values(chat.foregroundFrames || {}).findLast(item => Number(item.turn) === turn)
     const pluginBody = input.pluginBodyGeneration === true || frame?.source?.bodyGeneration?.mode?.startsWith('plugin-')
+    const hostRegex = pluginBody && frame?.source?.bodyGeneration?.hostRegex === true
+    const generated = pluginBody ? chat.timeline?.operations?.[frame?.operationId]?.bodyGeneration : null
     if (pluginBody) {
-      const generated = chat.timeline?.operations?.[frame?.operationId]?.bodyGeneration
       if (generated?.status !== 'ready' || generated.receipt?.text?.trim() !== sourceText) throw new Error('本轮未取得有效的插件正文，不能保存或自动补记')
     }
     let assistantText = sourceText
@@ -891,9 +899,10 @@ export function createTurnOrchestrator(options) {
         : null
       const presetRegexScripts = await resolvePresetRegexScripts(chat)
       const projectionText = assistantText
-      reply = pluginBody ? projectProcessedReply(sourceText) : projectReply(sourceText, {
+      const regexScripts = composeTavernRegexScripts(extensions, presetRegexScripts, chat.regexOverrides && chat.regexOverrides.preset)
+      reply = pluginBody ? await projectPluginBody(sourceText, { hostRegex, regexScripts, pluginRegexScripts: generated?.regexScripts, projectionWarning: generated?.projectionWarning }) : projectReply(sourceText, {
         projectionText,
-        regexScripts: composeTavernRegexScripts(extensions, presetRegexScripts, chat.regexOverrides && chat.regexOverrides.preset),
+        regexScripts,
         placement: 2,
         isEdit: false,
         depth: 0
@@ -1029,6 +1038,8 @@ export function createTurnOrchestrator(options) {
           ts: now(),
           native: true,
           ...(pluginBody ? { bodyRegenerationProcessed: true } : {}),
+          ...(hostRegex ? { bodyHostRegexApplied: true } : {}),
+          ...(generated?.regexScripts !== undefined || generated?.projectionWarning ? { bodyPluginProjection: true } : {}),
           ...(input.incomplete === true ? { incomplete: true,
             incompleteReason: str(input.incompleteReason) || '这次生成被中断，保留了已生成的部分正文' } : {}),
           turn: turn,

@@ -1,3 +1,4 @@
+import { announceHelperDocument } from './fixtures/helper-document-handshake.mjs'
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -75,6 +76,7 @@ function helperRuntime(options = {}) {
   runtime.sync('session', view)
   const frame = frames.at(-1)
   frame.load()
+  announceHelperDocument(frame, event => host.deliver(frame, event.data))
   return {
     host, runtime, frame, mutations,
     respond(fn) { respond = fn },

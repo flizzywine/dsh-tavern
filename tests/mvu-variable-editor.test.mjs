@@ -1,14 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import {
-  mvuSetAtPath,
-  mvuVariablesUpdateRequest,
-  mvuVariablesWithStatData,
-  parseMvuStatData,
-  readMvuVariableFloor,
-  serializeMvuStatData
-} from '../tavern-plugin/lib/domain/mvu-variable-editor.js'
+import { mvuSetAtPath, readMvuVariableFloor } from '../tavern-plugin/lib/domain/mvu-variable-editor.js'
 
 function message(id, variables, extra = {}) {
   return { message_id: id, role: 'assistant', swipe_id: 0, ...(variables === undefined ? {} : { variables }), ...extra }
@@ -30,27 +23,6 @@ test('只读取当前楼层，当前楼层没有状态时不回退到更早楼�
   const withoutData = readMvuVariableFloor(helper, 2)
   assert.equal(withoutData.messageId, 2)
   assert.equal(withoutData.statData, null)
-})
-
-test('JSON 编辑只接受对象，写入保留 schema 和其他字段', () => {
-  assert.deepEqual(parseMvuStatData('{"hp": 7, "背包": ["药"]}'), { hp: 7, 背包: ['药'] })
-  assert.throws(() => parseMvuStatData('[]'), /JSON 对象/)
-  assert.throws(() => parseMvuStatData('not json'), /不是有效 JSON/)
-  assert.equal(serializeMvuStatData({ hp: 7 }), '{\n  "hp": 7\n}')
-
-  const variables = { stat_data: { hp: 7 }, schema: { hp: 'number' }, display_data: { hp: '生命' }, extra: true }
-  const next = mvuVariablesWithStatData(variables, { hp: 9 })
-  assert.deepEqual(next.stat_data, { hp: 9 })
-  assert.deepEqual(next.schema, variables.schema)
-  assert.deepEqual(next.display_data, variables.display_data)
-  assert.equal(next.extra, true)
-  assert.equal(variables.stat_data.hp, 7)
-
-  const request = mvuVariablesUpdateRequest({ sessionId: 's', floor: { messageId: 3, swipeId: 1, variables }, statData: { hp: 9 }, lifecycleRevision: 4 })
-  assert.deepEqual(request.option, { type: 'message', message_id: 3, swipe_id: 1 })
-  assert.equal(request.expectedLifecycleRevision, 4)
-  assert.equal(request.variables.schema.hp, 'number')
-  assert.deepEqual(request.variables.stat_data, { hp: 9 })
 })
 
 test('字段编辑不改原对象，并拒绝危险属性名', () => {

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
-const source=readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene.cjs',import.meta.url),'utf8')
+const source=readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene.cjs',import.meta.url),'utf8').replaceAll('\r\n','\n')
 test('scene frame failure stops ticker, foreground and pump once even when one stop fails',()=>{
  const calls=[],state={pump:{off(){calls.push('pump')}}}
  const start=source.indexOf('    let releaseForeground ='),end=source.indexOf('    // Be deliberately conservative:',start)
@@ -14,7 +14,7 @@ test('scene frame failure stops ticker, foreground and pump once even when one s
 test('scene destruction attempts every owner and is idempotent after cleanup errors',()=>{
  const calls=[],state={offstage:new Map([['a',{next:{id:'next'},id:'current'}]])}
  const owner=name=>({dispose(){calls.push(name)},destroy(){calls.push(name)}})
- const start=source.lastIndexOf('        destroy() {'),end=source.indexOf('\n    };\n}',start)
+ const start=source.lastIndexOf('        destroy() {'),end=source.indexOf('\n        }',start)+'\n        }'.length
  const destroy=vm.runInNewContext('('+source.slice(start,end).replace('destroy()','function destroy()')+')',{
   state,renderers:new Map(),app:{ticker:{stop(){calls.push('ticker')},remove(){calls.push('remove')}},destroy(){calls.push('app')}},
   releaseForeground(){calls.push('foreground');throw Error('foreground')},releaseResolution(){calls.push('resolution')},

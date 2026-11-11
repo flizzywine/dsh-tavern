@@ -63,7 +63,8 @@ function createConversationSettingsModule({
         }, [props.sessionId]);
         async function save(patch) {
             setBusy(true); setError("");
-            try { setData(await rpc("setBodyGenerationSettings", { sessionId: props.sessionId, mode: data.mode, provider: data.provider, ...patch }, props.sessionId)); }
+            const selection = Object.hasOwn(patch, "hostRegex") ? {} : { mode: data.mode, provider: data.provider };
+            try { setData(await rpc("setBodyGenerationSettings", { sessionId: props.sessionId, ...selection, ...patch }, props.sessionId)); }
             catch (err) { setError(String(err.message || err)); }
             finally { setBusy(false); }
         }
@@ -75,6 +76,9 @@ function createConversationSettingsModule({
             h(InlineField, { kind: "menu", label: "本局正文生成插件", value: data?.provider || "", disabled: busy || !data,
                 options: [{ value: "", label: "未选择" }, ...(data?.provider && !data.providers.some(item => item.id === data.provider) ? [{ value: data.provider, label: "已选插件不可用" }] : []), ...(data?.providers || []).map(item => ({ value: item.id, label: item.title }))],
                 onCommit: provider => save({ provider }) }),
+            h(InlineField, { kind: "menu", label: "插件生成正文后仍应用宿主正则", value: data?.hostRegexInherited ? "inherit" : data?.hostRegex ? "on" : "off", disabled: busy || !data,
+                options: [{ value: "inherit", label: "跟随全局设置" }, { value: "on", label: "开启" }, { value: "off", label: "关闭" }],
+                onCommit: value => save({ hostRegex: value === "inherit" ? null : value === "on" }) }),
             h("p", { className: "dsh-local-help" }, "先选生成插件，再切换方式。修改对下一次操作生效。"),
             error ? h("p", { role: "alert" }, error) : null);
     }

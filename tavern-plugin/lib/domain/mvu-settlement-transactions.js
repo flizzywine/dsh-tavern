@@ -171,9 +171,11 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
     try {
       const internalText = str(input.storyText).trim() + '\n\n' + command
       const hasMvuSnapshot = value => value && value.stat_data !== undefined && value.schema !== undefined
+      const baselineStatData = input.baselineVariables?.stat_data
+      const useCurrentVariables = baselineStatData !== null && typeof baselineStatData === 'object' && !Array.isArray(baselineStatData)
       const indexedBase = settlementReaders.get(current)
-      let priorId = indexedBase ? await indexedBase.previousMvu(messageId) : -1
-      for (let i=indexedBase ? -1 : messageId-1;i>=0;i--) {
+      let priorId = !useCurrentVariables && indexedBase ? await indexedBase.previousMvu(messageId) : -1
+      for (let i=useCurrentVariables || indexedBase ? -1 : messageId-1;i>=0;i--) {
         const row=current.messages[i]
         if (hasMvuSnapshot(row.variables?.[row.swipeId || 0])) { priorId=i; break }
       }
@@ -193,13 +195,9 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
             }
           }
         }
-        if (indices) indices=[...new Set([...indices,messageId,...(priorId>=0 && input.baselineVariables ? [priorId] : [])])].filter(i=>i<current.messages.length)
+        if (indices) indices=[...new Set([...indices,messageId])].filter(i=>i<current.messages.length)
         const projected = await context(sessionId, transaction.draft, '', indices)
         const target = indices ? projected.messages.find(row=>row.message_id===messageId) : projected.messages[messageId]
-        if (input.baselineVariables && priorId>=0) {
-          const prior=indices ? projected.messages.find(row=>row.message_id===priorId) : projected.messages[priorId]
-          prior.variables=structuredClone(input.baselineVariables)
-        }
         target.message=internalText
         if (!Array.isArray(target.swipes)) target.swipes=[originalText]
         target.swipes[swipeId]=internalText
@@ -223,7 +221,7 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
       const eventContext = lazy ? null : await executionContext()
       const availability = scriptDispatch.status?.(sessionId)
       const currentSnapshot=hasMvuSnapshot(transaction.draft.messages[messageId].variables?.[swipeId])
-      await record('runtime-dispatch', { availability, baseline: { currentSnapshot, priorSnapshot:priorId>=0, usesCurrentFallback:currentSnapshot && priorId<0 } })
+      await record('runtime-dispatch', { availability, baseline: { currentSnapshot, priorSnapshot:priorId>=0, usesCurrentFallback:!useCurrentVariables && currentSnapshot && priorId<0, usesFrozenBaseline:useCurrentVariables } })
       async function initializationRejected(error) {
         const validation = { changes: [], sideEffects: [], failures: [{ message: error }] }
         await record('runtime-initialization-failed', { error })
@@ -240,7 +238,8 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
         await record('runtime-deferred', { availability })
         return { updated: false, deferred: true, deferredReason: 'runtime-not-ready', context: await fullContext(current) }
       }
-      const dispatched = await scriptDispatch.dispatch(sessionId, 'MESSAGE_RECEIVED', [messageId], eventContext, { eventId: transaction.eventId, signal: input.signal, ...(lazy ? { contextForBaseline: executionContext } : {}) })
+      const args = useCurrentVariables ? [messageId, { useCurrentVariables: true }] : [messageId]
+      const dispatched = await scriptDispatch.dispatch(sessionId, 'MESSAGE_RECEIVED', args, eventContext, { eventId: transaction.eventId, signal: input.signal, ...(lazy ? { contextForBaseline: executionContext } : {}) })
       await record('runtime-completed', { handled: dispatched.handled === true, timedOut: dispatched.timedOut === true, executionLost: dispatched.executionLost === true, claimTimedOut: dispatched.claimTimedOut === true, phase: dispatched.phase, disposed: dispatched.disposed === true, error: dispatched.error, diagnostics: dispatched.diagnostics || [] })
       if (dispatched.handled !== true) {
         if (dispatched.initializationFailed === true) return await initializationRejected(str(dispatched.error))

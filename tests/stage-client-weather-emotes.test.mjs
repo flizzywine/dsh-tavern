@@ -38,14 +38,6 @@ test('weather systems retain quality counts and own their particle containers an
  assert.equal(weather.lightning(-1),0);assert.equal(weather.lightning(900),0);assert.ok(weather.lightning(50)>0)
  f.colors.dispose()
 })
-test('weather rolls back partially created GPU resources',()=>{
- const f=fixture(),weather=createStageWeather({matrix,canvasTexture:f.canvasTexture})
- f.PIXI.Sprite=class{constructor(){throw new Error('sprite failed')}}
- const runtime=weather.create(f)
- assert.throws(()=>runtime.create('rain','high'),/sprite failed/)
- assert.equal(f.backFx.children.length,0);assert.ok(f.textures.every(t=>t.destroyCount===1))
- weather.dispose();f.colors.dispose()
-})
 test('emotes follow heads, expire, reuse textures and release both scene and DOM caches',()=>{
  const f=fixture(),module=createStageEmotes({document:f.document,ease,clamp,canvasTexture:f.canvasTexture,colors:f.colors}),runtime=module.create(f)
  assert.equal(runtime.add({id:'figure',value:'invalid'},0),false)

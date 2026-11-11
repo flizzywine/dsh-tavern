@@ -9,8 +9,12 @@ import { selectTestRuntime, probeTestRuntime } from './test-runtime.mjs'
 
 let runtime
 try {
-  runtime = probeTestRuntime(selectTestRuntime({ installation: readInstallationFile(),
+  const installation = readInstallationFile()
+  runtime = probeTestRuntime(selectTestRuntime({ installation,
     cliBoot: () => resolveDshBootModule({ dsh: findDshCommand() }) }))
+  if (installation.testPlaywrightBrowsersPath) {
+    runtime.env.PLAYWRIGHT_BROWSERS_PATH ??= path.resolve(SOURCE_ROOT, installation.testPlaywrightBrowsersPath)
+  }
 } catch (error) {
   console.error(`无法运行真实 DSH 集成测试：${error.message}`)
   console.error('可用 DSH_DESKTOP_APP_EXECUTABLE 或 .dsh-tavern-local.json 的 testDesktopExecutable 指定官方桌面程序；也支持 DSH_BOOT_MODULE 指定独立运行时。不会自动安装 DSH。')

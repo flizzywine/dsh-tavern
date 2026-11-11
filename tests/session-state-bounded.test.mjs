@@ -59,13 +59,14 @@ for(const change of ['events','generation','layout','session','legacy'])test(`ro
  assert.deepEqual(next,fresh)
 })
 
-test('cached rollback view refreshes undo eligibility on storage revision changes',()=>{
+test('cached rollback view keeps undo through storage-only changes and invalidates on a new timeline revision',()=>{
  const events=Object.freeze([])
  const session={header:{version:3},snapshotEvents:()=>events,surface:{nodes:[],replaceGeneration:0}}
  const view=createSessionStateView({activity:()=>({}),evidence:()=>({events,session})})
  const chat={id:'c',sessionId:'s',_storageRevision:1,messages:[],timeline:{branchId:'b',revision:1},rollbackUndo:{version:1,ready:true,branchId:'b',revision:1,lifecycleRevision:0,storageRevision:1,turn:3,foreground:{afterCount:0}}}
  assert.equal(view.volatile(chat,{}).undoRollbackTurn,3)
- assert.equal(view.volatile({...chat,_storageRevision:2},{},{baseRevision:1,indices:[],layoutChanged:false}).undoRollbackTurn,null)
+ assert.equal(view.volatile({...chat,_storageRevision:2},{},{baseRevision:1,indices:[],layoutChanged:false}).undoRollbackTurn,3)
+ assert.equal(view.volatile({...chat,_storageRevision:3,timeline:{...chat.timeline,revision:2}},{},{baseRevision:2,indices:[],layoutChanged:false}).undoRollbackTurn,null)
 })
 
 import {createSessionViewSync} from '../tavern-plugin/lib/domain/session-view-sync.js'

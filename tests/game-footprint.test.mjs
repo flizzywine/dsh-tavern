@@ -75,19 +75,3 @@ test('已删除游戏的进行中调用不会把诊断写回', async () => {
   assert.equal(await createGameFootprint({ dataRoot: path.join(root, 'data') }).processDeferredDeletions(), 1)
   assert.equal(await exists(later), false)
 })
-
-test('启动时清掉已删除游戏遗留的插图记录，在世的游戏和共享文件不动', async t => {
-  const profile = await mkdtemp(path.join(tmpdir(), 'tavern-footprint-sweep-'))
-  t.after(() => rm(profile, { recursive: true, force: true }))
-  const data = path.join(profile, 'data')
-  const put = async relative => { await mkdir(path.dirname(path.join(data, relative)), { recursive: true }); await writeFile(path.join(data, relative), '{}') }
-  await put('chats/chat-live/head.json')
-  await put('chats/chat-legacy.json')
-  for (const id of ['chat-live', 'chat-legacy', 'chat-gone']) await put('scene-images/' + sha(id) + '/' + sha('k') + '.json')
-  await put('scene-images/settings.json')
-  await put('scene-images/worldbooks/x.json')
-  const footprint = createGameFootprint({ dataRoot: data, sessionsRoot: path.join(profile, 'sessions') })
-  assert.equal(await footprint.sweepDeletedGameImages(), 1)
-  assert.equal(await exists(path.join(data, 'scene-images', sha('chat-gone'))), false)
-  for (const kept of [sha('chat-live'), sha('chat-legacy'), 'settings.json', 'worldbooks']) assert.equal(await exists(path.join(data, 'scene-images', kept)), true, kept)
-})

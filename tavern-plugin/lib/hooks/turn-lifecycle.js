@@ -10,7 +10,7 @@ import { synchronizeBodyEdits } from '../domain/body-editor.js'
 import { synchronizeTemplateHistory } from '../domain/template-history.js'
 import { turnRepliedByModel } from '../domain/story-alignment.js'
 import { isSurfaceEditTurn, sessionEvents } from '../domain/session-events.js'
-import { withVirtualWorldbook } from '../domain/worldbook-virtual-surface.js'
+import { VIRTUAL_WORLDBOOK_SECTION, withVirtualWorldbook } from '../domain/worldbook-virtual-surface.js'
 import { appendStorySubmissionReminder } from '../domain/story-tool-submission.js'
 
 function reachedOutputLimit(assistant) {
@@ -35,6 +35,7 @@ export function registerTurnLifecycleHooks({
   ensureNativeSystemPrefix,
   foregroundHandoff,
   foregroundStrategies,
+  flushQueuedBodyEdits,
   nativeWorldBookTemplateContext,
   persistClearedBodyEdits,
   pluginPromptSections,
@@ -42,6 +43,7 @@ export function registerTurnLifecycleHooks({
   readChatCard,
   replaceAssistantReply,
   requestIdForTurn,
+  requestPerformance,
   runtimePrompt,
   sessionStore,
   storyOutputToolCall,
@@ -85,7 +87,7 @@ export function registerTurnLifecycleHooks({
       })
       throw new Error(message)
     }
-    const saved = await foregroundHandoff.finalize({
+    const finalize = () => foregroundHandoff.finalize({
       sessionId,
       turn: payload.turn,
       requestId,
@@ -97,6 +99,7 @@ export function registerTurnLifecycleHooks({
       incompleteReason: '这次生成达到输出上限或被中断，保留了已生成的部分正文',
       nativeAnchor: roundAnchor(payload.turn, inputEventForTurn(session, payload.turn), assistant.event)
     })
+    const saved = requestPerformance ? await requestPerformance.run('generateCommit', sessionId, finalize) : await finalize()
     // A submit_story call and its receipt both carry the body; fold them into one
     // plain reply so context, regeneration and rollback see an ordinary round.
     if (assistant.storyToolSubmission) replaceAssistantReply(session, assistant, saved.reply ? saved.reply.sessionText : assistant.content)
@@ -119,6 +122,9 @@ export function registerTurnLifecycleHooks({
     if (backgroundAgentRunner.owns(session.id)) return
     const reason = event.data && event.data.reason ? event.data.reason.kind : ''
     foregroundHandoff.end({ sessionId: session.id, turn: event.data && event.data.turn, reason, edit })
+    // Edits submitted while this turn ran are replayed now that the round cannot
+    // move any more; a target that changed in between drops its text instead.
+    if (typeof flushQueuedBodyEdits === 'function') void flushQueuedBodyEdits(session.id)
     const reply = assistantResultForTurn(session, event.data && event.data.turn)
     void autoChoices.completed({ sessionId: session.id, turn: event.data && event.data.turn, messageId: String(reply?.event?.data?.message?.id || ''), reason })
     // A turn whose record went missing (#196) is adopted before the player's next
@@ -143,11 +149,15 @@ export function registerTurnLifecycleHooks({
     try { workspaceProjection = await publishResourceWorkspace(agent.session.id, chat) }
     catch { console.error('dsh-tavern: 资源工作区投影刷新失败，继续使用现有资源文件') }
     let fixedSystemSections = sessionStablePrefixSections(agent.session)
+    let deferWorldbook = false
     if (chat && ['story', 'script'].includes(chat.mode || 'story')) {
       const native = chat.worldbookStrategy === 'native-skills'
       const projected = await nativeWorldBookTemplateContext(chat, await readChatCard(chat), native
         ? { restore: false } : undefined)
-      fixedSystemSections = (native ? withVirtualWorldbook : withCurrentWorldbook)(fixedSystemSections, projected.prefixContext ?? '', chat.disabledForegroundTools)
+      deferWorldbook = native && !!context.signal && projected.visibilityPending === true
+      fixedSystemSections = native
+        ? withVirtualWorldbook(fixedSystemSections, projected.prefixContext ?? '', chat.disabledForegroundTools, { defer: deferWorldbook })
+        : withCurrentWorldbook(fixedSystemSections, projected.prefixContext ?? '', chat.disabledForegroundTools)
     }
     const assembled = await hostTools.assemble(assembly, context, (value, tools) => foregroundStrategies.assembleSystemPrompt(value, {
       sessionId: agent.session.id,
@@ -168,6 +178,8 @@ export function registerTurnLifecycleHooks({
     if (pluginContract) assembled.sections = [...assembled.sections, { ...pluginContract, name: 'tavern:plugin-body-generation-reminder' }]
     const hasSubmission = (assembled.sections || []).some(section => section.name === 'tavern:story-tool-submission')
     const outputToolCall = hasSubmission && typeof storyOutputToolCall === 'function' ? (await storyOutputToolCall()) === true : false
-    return markTavernSectionsLiteral(prependSystemInstruction(appendStorySubmissionReminder(assembled, outputToolCall), chat ? runtimePrompt('system-append') : ''))
+    const result = markTavernSectionsLiteral(prependSystemInstruction(appendStorySubmissionReminder(assembled, outputToolCall), chat ? runtimePrompt('system-append') : ''))
+    if (deferWorldbook) foregroundStrategies.stageWorldbookSection(context, result.sections.find(section => section.name === VIRTUAL_WORLDBOOK_SECTION))
+    return result
   })
 }

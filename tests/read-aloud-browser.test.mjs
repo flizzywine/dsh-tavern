@@ -6,10 +6,12 @@ import {chromium} from 'playwright'
 import {browserReactScript} from './fixtures/browser-react.mjs'
 
 const sources = await Promise.all(['bubble-line.cjs', 'text-colors.js', 'pack-playback.cjs', 'browser-speech.cjs', 'voice.js', 'features/speech.js', 'features/read-aloud.js'].map(name => readFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8').then(withVoiceCues)))
+const storySources = await Promise.all(['story-transcript-data.js', 'story-transcript-list.js'].map(name =>
+  readFile(new URL('../tavern-plugin/src/client/features/' + name, import.meta.url), 'utf8')))
 const OLD = '旧的一轮。'
 const BODY = '夜色很深。'.repeat(240) + '\n@bubble:lin|林月|喜悦|[你好。]\n@bubble:lin|林月|平静|[*她在想什么呢*]\n她笑着说：“走吧。”'
 
-async function mount(t, {auto = true, stepAside = false, nodes = [{kind:'assistant', messageId:'m1', blocks:[{kind:'text', text:OLD}]}]} = {}) {
+async function mount(t, {auto = true, stepAside = false, story = false, nodes = [{kind:'assistant', messageId:'m1', blocks:[{kind:'text', text:OLD}]}]} = {}) {
   const browser = await chromium.launch({headless:true, args:['--mute-audio']})
   t.after(() => browser.close())
   const page = await browser.newPage()
@@ -43,11 +45,32 @@ async function mount(t, {auto = true, stepAside = false, nodes = [{kind:'assista
     let chat={legacy:{nodes:${JSON.stringify(nodes)},partial:null}};
     const chatListeners=new Set();
     const useChat=select=>React.useSyncExternalStore(fn=>{chatListeners.add(fn);return()=>chatListeners.delete(fn);},()=>select(chat));
+    ${story ? `
+      const isPlayMode = mode => mode === 'story';
+      const DshUi = {Tooltip: props => props.children, MarkdownText: props => props.text,
+        IconEditOutlineRegular: () => null, IconBranchOutlineRegular: () => null, IconCopyOutlineRegular: () => null};
+      ${storySources.join('\n')}
+      const feature = createTavernStoryTranscriptFeature({replyActions: {
+        useReadAloudState: useTavernReadAloudState, ReadAloud: TavernReplyReadAloudAction
+      }});
+      function Story() {
+        const snapshot = useChat(s => s.legacy);
+        let floorNo = 0;
+        const messages = snapshot.nodes.map((node, absoluteIndex) => ({
+          absoluteIndex, key: 'index:' + absoluteIndex, messageUid: node.messageId,
+          floorNo: node.kind === 'assistant' ? ++floorNo : null,
+          message: { role: node.kind, text: tavernReplyBody(node) }
+        }));
+        return React.createElement(feature.StoryTranscriptList, {sessionId: 'game',
+          transcript: {messages, floorCount: floorNo, revision: messages.length},
+          view: {mode: 'story'}, partial: snapshot.partial, running: Boolean(snapshot.partial)});
+      }
+    ` : ''}
     // The chat: one action row under every finished reply, as the assistant-actions slot draws them.
     function Chat(){const ids=useChat(s=>s.legacy.nodes.filter(n=>n.kind==='assistant').map(n=>n.messageId).join(','));
       return ids.split(',').filter(Boolean).map(id=>React.createElement('div',{key:id,'data-message':id},React.createElement(TavernReadAloudAction,{sessionId:'game',messageId:id,useChat})));}
     let root=null;
-    function render(){root=modules["react-dom/client"].createRoot(document.getElementById('root'));root.render(React.createElement(Chat));}
+    function render(){root=modules["react-dom/client"].createRoot(document.getElementById('root'));root.render(React.createElement(${story ? 'Story' : 'Chat'}));}
     render();
     window.fixture={calls,utterances,errors,
       lines:()=>calls.filter(c=>c.method==='readAloudLine'),
@@ -142,4 +165,20 @@ test('stage voicing shows only the character action and suppresses auto-read', a
   await page.locator('[data-message="m2"]').getByRole('button',{name:'朗读正文',exact:true}).waitFor()
   assert.equal(await page.locator('[data-message="m2"] button').count(),1)
   assert.deepEqual(await lines(page),[])
+})
+
+test('故事楼层只读被点击的历史正文，整页共用一次朗读设置读取', async t => {
+  const page = await mount(t, {story:true, auto:false, nodes:[
+    {kind:'assistant', messageId:'story-old', blocks:[{kind:'text', text:OLD}]},
+    {kind:'assistant', messageId:'story-new', blocks:[{kind:'text', text:'最新一轮。'}]}
+  ]})
+  const old = page.locator('[data-floor="1"]')
+  const newest = page.locator('[data-floor="2"]')
+  await newest.getByRole('button', {name:'朗读', exact:true}).waitFor()
+  assert.equal(await page.evaluate(() => fixture.calls.filter(call => call.method === 'readAloudState').length), 1)
+  await old.getByRole('button', {name:'朗读', exact:true}).click()
+  await page.waitForFunction(() => fixture.utterances.length === 1)
+  assert.deepEqual((await lines(page)).map(call => call.args.text), [OLD])
+  await old.getByRole('button', {name:'停止朗读', exact:true}).click()
+  await old.getByRole('button', {name:'朗读', exact:true}).waitFor()
 })

@@ -15,7 +15,7 @@ const ok = () => Response.json({ ok: true, status: { phase: 'update-available' }
 const tick = () => new Promise(resolve => setImmediate(resolve))
 
 function updaterHarness({ call, initial = { phase: 'loading', host: 'cli' }, askConfirm = async () => true, polling = false } = {}) {
-  const reports = [], cleared = [], states = [], calls = [], signals = [], timers = new Map(), intervals = new Map()
+  const reports = [], cleared = [], states = [], calls = [], signals = [], timers = new Map(), intervals = new Map(), timeoutDurations = []
   let timerId = 0
   const controller = createUpdateStatusController({ initial, confirm: askConfirm,
     call: (method, args, options) => {
@@ -26,15 +26,15 @@ function updaterHarness({ call, initial = { phase: 'loading', host: 'cli' }, ask
     browser: {
       setInterval(fn, ms) { const id = ++timerId; intervals.set(id, { fn, ms }); return id },
       clearInterval(id) { intervals.delete(id) },
-      setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id }, clearTimeout(id) { timers.delete(id) },
+      setTimeout(fn, ms) { const id = ++timerId; timeoutDurations.push(ms); timers.set(id, { fn, ms }); return id }, clearTimeout(id) { timers.delete(id) },
       fetch: async () => ({ ok: true }), location: { origin: 'http://localhost', reload() {} }
     }
   })
   controller.subscribe(() => states.push(controller.getSnapshot()))
   controller.start()
   return { checkUpdate: controller.check, performUpdate: controller.perform, cancelUpdate: controller.cancel,
-    isUpdateBusy: controller.isBusy, reports, cleared, states, calls, signals,
-    expire: () => { for (const timer of [...timers.values()]) timer() },
+    isUpdateBusy: controller.isBusy, reports, cleared, states, calls, signals, timeoutDurations,
+    expire: () => { for (const timer of [...timers.values()]) timer.fn() },
     status: controller.getSnapshot, poll: () => [...intervals.values()].find(item => item.ms === 2500)?.fn(),
     stop: controller.stop, intervals, timers }
 
@@ -45,6 +45,37 @@ function deferred() {
   const promise = new Promise((done, fail) => { resolve = done; reject = fail })
   return { promise, resolve, reject }
 }
+
+test('检查和启动允许完整元数据回退，状态与取消仍使用短超时', async () => {
+  const available = { phase: 'update-available', host: 'cli' }
+  const h = updaterHarness({ initial: available, call: async method => ({ status:
+    method === 'startUpdate' ? { phase: 'running', host: 'cli', cancellable: true }
+      : method === 'cancelUpdate' ? { phase: 'up-to-date', host: 'cli' } : available }) })
+  await tick()
+  await h.checkUpdate()
+  await h.performUpdate()
+  await h.cancelUpdate()
+  assert.deepEqual(h.timeoutDurations, [30000, 60000, 60000, 30000])
+  h.stop()
+})
+
+test('首次状态查询挂起时可直接检查，迟到的状态不覆盖检查结果', async () => {
+  const initialRead = deferred()
+  const available = { phase: 'update-available', host: 'cli', latestCommit: 'b'.repeat(40) }
+  const h = updaterHarness({ polling: true, call: async method => {
+    if (method === 'getUpdateStatus') return initialRead.promise
+    assert.equal(method, 'checkUpdate')
+    return { status: available }
+  } })
+  assert.equal(h.isUpdateBusy(h.status()), false)
+  await h.checkUpdate()
+  assert.equal(h.status().phase, 'update-available')
+  assert.deepEqual(h.calls, ['getUpdateStatus', 'checkUpdate'])
+  initialRead.resolve({ status: { phase: 'idle', host: 'cli' } })
+  await tick()
+  assert.equal(h.status().phase, 'update-available')
+  h.stop()
+})
 
 test('网络中断可恢复，认证和业务错误立即提示', async () => {
   let calls = 0
@@ -155,6 +186,25 @@ test('刷新桌面更新页面后仍提示已安装待重启，不能重复启�
   h.stop()
 })
 
+test('原生桌面更新不会探测连接并重载当前窗口', async () => {
+  const intervals = new Map()
+  const controller = createUpdateStatusController({ initial: { phase: 'running', host: 'desktop' },
+    call: async () => ({ status: { phase: 'completed', host: 'desktop', requiresRestart: true } }),
+    confirm: async () => true, errors: { report() {}, resolve() {} },
+    browser: { setTimeout, clearTimeout,
+      setInterval(fn, ms) { intervals.set(ms, fn); return ms }, clearInterval(id) { intervals.delete(id) },
+      location: { protocol: 'dsh-app:', reload() { assert.fail('native window reloaded') } },
+      async fetch() { assert.fail('native window probed') }
+    }
+  })
+  controller.start()
+  assert.equal(intervals.has(400), false)
+  await tick()
+  assert.equal(controller.getSnapshot().requiresRestart, true)
+  assert.equal(intervals.has(400), false)
+  controller.stop()
+})
+
 test('桌面更新断线后提供手动恢复提示，不能将断线当作安装完成', async () => {
   let offline = true
   const h = updaterHarness({ initial: { phase: 'running', host: 'desktop' }, polling: true,
@@ -169,5 +219,15 @@ test('桌面更新断线后提供手动恢复提示，不能将断线当作安�
   assert.equal(h.status().phase, 'failed')
   assert.equal(h.status().connectionLost, undefined)
   assert.equal(h.status().error, '依赖安装失败')
+  h.stop()
+})
+
+test('Android standalone 重启后的完成记录不再占用侧栏，可直接检查更新', async () => {
+  // 服务重启后读侧把 requiresRestart 视为已过期；这一页不是发起更新的那一页，
+  // 于是完成态折算为 idle，侧栏不再挂着「请重启 DSHA」。
+  const h = updaterHarness({ polling: true, call: async () => ({ status: { phase: 'completed', host: 'android', requiresRestart: false, completedAt: 100 } }) })
+  await tick()
+  assert.equal(h.status().phase, 'idle')
+  assert.equal(h.status().host, 'android')
   h.stop()
 })

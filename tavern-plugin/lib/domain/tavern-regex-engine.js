@@ -162,7 +162,7 @@ function createTavernRegexEngine() {
     }
   }
 
-  return { applyTavernRegexText, renderTavernRegexDisplay }
+  return { applyTavernRegexText, renderTavernRegexDisplay, regexFromString }
 }
 
 export { createTavernRegexEngine }

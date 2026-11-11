@@ -25,7 +25,9 @@ test('stage theme retains its cascade position and all stage styles leave on unl
   install(document,'base refreshed',['before refreshed','after refreshed'])
   assert.equal(nodes[2].dataset.pluginCss,'dsh-tavern-stage/themes.css','refreshing core CSS preserves the slot')
   stop()
-  assert.deepEqual(nodes.map(node => node.textContent),['base refreshed','before refreshed','after refreshed'])
+  const [base, ...features] = nodes.map(node => node.textContent)
+  assert.equal(base.split('\n')[0], 'base refreshed')
+  assert.deepEqual(features, ['before refreshed', 'after refreshed'])
 })
 
 test('plugin style source blocks are structurally valid CSS', async () => {

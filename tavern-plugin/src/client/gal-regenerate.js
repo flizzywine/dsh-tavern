@@ -3,12 +3,18 @@
 async function galSubmitRegeneration(sessionId, turn, target, guidance, messageId) {
     const text = String(guidance || "").trim();
     let started = null;
-    if (target === "body") await submitBodyRegeneration(sessionId, { tail: null }, text);
-    else if (target === "mvu") await rpc("retryMvuSettlement", { turn, guidance: text }, sessionId);
-    else if (target === "director") await rpc("retryStageDirection", { turn, guidance: text }, sessionId);
-    else if (target === "choices") started = await submitCandidateTask(sessionId, messageId, text);
-    liveTavernView.invalidate(sessionId);
-    tavernCoordination.invalidate(sessionId);
+    // 提交后服务端才写 regenInProgress；视图没读到之前正文被标记遮住，靠它自己重读。
+    notifyRegenerating(sessionId, true);
+    try {
+        if (target === "body") await submitBodyRegeneration(sessionId, { tail: null }, text);
+        else if (target === "mvu") await rpc("retryMvuSettlement", { turn, guidance: text }, sessionId);
+        else if (target === "director") await rpc("retryStageDirection", { turn, guidance: text }, sessionId);
+        else if (target === "choices") started = await submitCandidateTask(sessionId, messageId, text);
+    } finally {
+        // 正文落盘、被停止、报错都是这一轮的收尾：视图、协调状态和故事列表一起重读。
+        // 少读故事这一份时，新正文只写进存档，页面上仍是原来那几行，要刷新才回来。
+        notifyRegenerating(sessionId, false);
+    }
     return started;
 }
 // the dialog's 停止 goes through the stop each kind of work already
@@ -30,7 +36,7 @@ async function galStopRegeneration(sessionId, target, started, turn) {
             if (activity && activity.operationId) await rpc("stopBackground", { operationId: activity.operationId }, sessionId);
         }
     } catch (error) { tavernErrorHub.report("停止重新生成", error); }
-    finally { liveTavernView.invalidate(sessionId); tavernCoordination.invalidate(sessionId); }
+    finally { notifyRegenerating(sessionId, false); }
 }
 
 function GalRegenerate(props) {

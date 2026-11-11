@@ -197,7 +197,7 @@ test('control exposes provider kinds, external service status, base voices and k
     assert.equal((await raw('providerVoices',{serviceId:'missing'})).status,400)
     assert.equal((await raw('providerVoices',{serviceId:'../x'})).status,400)
     const probe = await control('probeService',{kind:'qwen',config:{region:'cn'}})
-    assert.equal(probe.status,'error'); assert.match(probe.message,/密钥/)
+    assert.equal(probe.status,'error'); assert.match(probe.message,/API Key/)
     assert.equal(probes.length,1); assert.equal(probes[0].options.headers.Authorization,undefined)
     assert.equal((await control('probeService',{kind:'azure',config:{region:'Bad Region'}})).status,'invalid')
   } finally { globalThis.fetch = fetch; for (const off of offProviders) off(); await plugin.dispose(); await ctx.fiber.dispose() }

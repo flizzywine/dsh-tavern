@@ -20,17 +20,15 @@ for(const count of [20,400,10000])test(`session activity ignores ${count} histor
 
 import {copyLazyHistoryHeader} from '../tavern-plugin/lib/domain/lazy-history-read.js'
 
-test('display header checkpoint count is lazy and explicit reads stay complete',()=>{
+test('rollback target reads normalized checkpoint metadata without cloning story rows',()=>{
  let reads=0
- const source={timeline:{checkpoints:[{id:'first',get before(){reads++;return {text:'body'}}}]}}
- const header=copyLazyHistoryHeader(source)
- assert.equal(header.timeline.checkpoints.length,1)
- assert.deepEqual(Object.keys(header.timeline.checkpoints),['0'])
- assert.equal(reads,0)
- assert.deepEqual(JSON.parse(JSON.stringify(header)),JSON.parse(JSON.stringify(source)))
- header.timeline.checkpoints[0].before.text='outside'
- assert.equal(source.timeline.checkpoints[0].before.text,'body')
- assert.equal(copyLazyHistoryHeader(source).timeline.checkpoints[0].before.text,'body')
+ const messages=Array.from({length:400},()=>({get text(){reads++;return 'body'}}))
+ const timeline={schemaVersion:1,branchId:'b',revision:4,participants:{},operations:{},checkpoints:[{id:'cp',beforeRevision:3}]}
+ const engine=createStoryTimeline()
+ assert.deepEqual(engine.rollbackTarget({chat:{messages,timeline}}),{checkpointId:'cp',beforeRevision:3})
+ assert.equal(reads,0,'rollback metadata must not serialize message history')
+ assert.equal(engine.rollbackTarget({chat:{messages,timeline:{...timeline,schemaVersion:0}}}),null)
+ assert.equal(reads,0,'legacy schema reset must not serialize message history either')
 })
 
 for(const checkpoints of [null,{},[],[{}]])test(`timeline inspection preserves normalized checkpoint count: ${JSON.stringify(checkpoints)}`,()=>{

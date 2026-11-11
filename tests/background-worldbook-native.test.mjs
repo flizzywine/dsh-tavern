@@ -1,13 +1,13 @@
-import { sharedWorldbookSearch } from '../tavern-plugin/lib/domain/worldbook-search.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
 import { SCRIPT_READ_TOOL } from '../tavern-plugin/lib/domain/candidate-generation.js'
 import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
+import { registerWorldbookFileTools } from '../tavern-plugin/lib/tools/worldbook-files.js'
 
 test('原生后台按需检索与重启保持缓存前缀且不复制前台召回正文', { skip: !process.env.DSH_BOOT_MODULE, timeout: 30000 }, async t => {
   const bootUrl = pathToFileURL(process.env.DSH_BOOT_MODULE)
@@ -30,16 +30,18 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
   const requests = []
   let searchPhase = null
   const searchCalls = []
+  const worldbookPath = join(root, '少林.md')
+  await writeFile(worldbookPath, '少林门规原文')
   const worldbookProjections = []
   class Model extends LlmAdapter {
     async resolveModel(provider, model) { return { provider, id: model, name: model } }
     async *stream(input) {
       requests.push(structuredClone({ system: input.messages.filter(message => message.role === 'system').flatMap(message => message.content).map(block => block.text || '').join('\n\n'), messages: input.messages, tools: input.tools }))
-      const current = input.messages.filter(message => message.role === 'user').at(-1)
       const lookup = searchPhase === null ? null : searchPhase++
-      if (lookup !== null) assert.ok(input.tools.some(tool => tool.name === 'worldbook_search' && tool.parameters.properties.query))
+      if (lookup !== null) assert.ok(input.tools.some(tool => tool.name === 'worldbook_grep' && tool.parameters.properties.query))
       const block = lookup === 0 || lookup === 1
-        ? { type: 'tool-call', id: 'lookup-' + requests.length, name: 'worldbook_search', arguments: JSON.stringify(lookup === 0 ? { query: '少林' } : { refs: ['entry:62'] }) }
+        ? { type: 'tool-call', id: 'lookup-' + requests.length, name: lookup === 0 ? 'worldbook_grep' : 'read',
+          arguments: JSON.stringify(lookup === 0 ? { query: '少林' } : { file_path: worldbookPath }) }
         : { type: 'text', text: '结算完成' }
       yield { type: 'block-start', index: 0, blockType: block.type }
       yield { type: 'block-end', index: 0, block }
@@ -47,7 +49,23 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
     }
   }
   ctx.llm.registerAdapter(['filter-fixture'], new Model())
-  for (const name of ['read', 'worldbook_list', 'worldbook_grep', 'skill', 'tavern_read_skill_reference', 'web_search']) ctx.tools.register({
+  registerWorldbookFileTools(ctx.tools, {
+    listFiles: async () => ({ files: [{ path: worldbookPath }] }),
+    async searchFiles({ query }, { scope }) {
+      searchCalls.push({ query, owner: runner.activeRequestContext(scope.session.id)?.parentSessionId })
+      return { matches: [{ path: worldbookPath, line: 1, text: '少林' }] }
+    }
+  })
+  ctx.tools.register({
+    name: 'read', description: 'Fixture file reader',
+    parameters: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+    async execute(args) {
+      assert.equal(args.file_path, worldbookPath)
+      return readFile(worldbookPath, 'utf8')
+    }
+  })
+  for (const name of ['skill', 'tavern_read_skill_reference', 'web_search']) ctx.tools.register({
     name, description: 'Fixture tool', parameters: { type: 'object', properties: {} },
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
     execute: async () => 'fixture'
@@ -55,7 +73,7 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
   const selection = { provider: 'filter-fixture', model: 'scripted' }
   parent = await ctx.agents.create({ sessionId: 'parent', agentOptions: selection })
   const makeRunner = () => createBackgroundAgentRunner({ agents: ctx.agents, backgroundTools: [],
-    sharedTools: [sharedWorldbookSearch(async (sessionId, args) => { searchCalls.push({ sessionId, args }); return { entries: [{ ref: 'entry:62', text: '少林门规原文' }] } })],
+    resolveWorldbookSkills: async () => true,
     resolveCurrentWorldbook: async input => { worldbookProjections.push(input.task); return { prefixContext: '常驻：旅店规矩', foregroundContext: '' } },
     resolveForegroundWorldbookReads: async input => input.task === 'settlement' ? '【前台本轮完整查阅的世界书资料】\n少林门规只读快照' : '',
     resolveStablePrefix: async () => '固定背景：雨夜旅店', flushSession: session => ctx.sessions.flush(session) })
@@ -112,8 +130,7 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
     assert.ok(searchPhase >= 3)
     assert.match(JSON.stringify(requests.at(-1).messages), /少林门规原文/)
   }
-  assert.equal(searchCalls.length, 6)
-  assert.ok(searchCalls.every(call => call.sessionId === 'parent'))
+  assert.deepEqual(searchCalls, Array.from({ length: 3 }, () => ({ query: '少林', owner: 'parent' })))
   const descriptors = sessionEvents(runner.requestSession(first.traceSessionId)).filter(event => event.type === 'subagent/descriptor')
   assert.equal(descriptors.length, 1)
   assert.equal(descriptors[0].data.label, '酒馆后台 Agent')

@@ -65,9 +65,21 @@ test('uiWorkspace 缺失时 open() 退化为 retain，未知会话错误冒泡�
   assert.equal(host.retained.length, 2)
 })
 
+test('切换前先 retain 上一个主会话，热返回窗口内不销毁事件流', async function (t) {
+  const host = host2020()
+  const compat = client.createSessionCompat(host.sessions, host.uiWorkspace)
+  t.after(function () { compat.disposeRecentRetention() })
+  await compat.open('session-blank')
+  assert.deepEqual(host.retained, [['session-main', 'tavern:recent']])
+  assert.deepEqual(host.opened, ['session-blank'])
+  assert.equal(host.sessions.binding('session-main').sessionId, 'session-main')
+  compat.disposeRecentRetention()
+  assert.equal(host.sessions.binding('session-main'), undefined, '保留期结束后释放原生引用')
+})
+
 // 真实故障：点「开始新游戏」→ create() 只写入 placeholder 行，scope 尚未 retain。
 // 旧适配器只读 scope，wait() 必然 8 秒超时（session-110820bb-... 即此路径）。
-test('sessionListAdapters：新建但未 retain 的会话立即就绪（修复列表同步超时）', async function () {
+test('sessionListAdapters：新建但未 retain 的会话立即就绪（修复列表同步超时）', async function (t) {
   const host = host2020()
   // 模拟 create 之后：会话已进列表，但没有 scope。
   host.rows['session-fresh'] = {
@@ -75,6 +87,7 @@ test('sessionListAdapters：新建但未 retain 的会话立即就绪（修复�
     retainedBy: Object.freeze(Object.create(null)),
   }
   const compat = client.createSessionCompat(host.sessions, host.uiWorkspace)
+  t.after(function () { compat.disposeRecentRetention() })
   const adapters = client.sessionListAdapters(compat)
   const recovery = client.createSessionListRecoveryModule(adapters)
 

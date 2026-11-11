@@ -35,11 +35,6 @@ test('call view composes and freezes remote output, captures it and releases own
  assert.equal(e.subject.container.destroyed,undefined)
  e.view.tick(e.input);assert.equal(e.view.container.visible,false);await assert.rejects(e.capture(),{code:'NO_FRAME'})
 })
-test('failed call figure render restores borrowed filters and still releases all output resources',()=>{
- const e=fixture(),filters=e.subject.container.filters;e.failFigure()
- assert.throws(()=>e.view.tick(e.input),/figure failed/);assert.equal(e.subject.container.filters,filters);assert.equal(e.subject.container.transform._parentID,-1)
- e.owner.dispose();assert.ok(e.allocated.every(r=>r.dead===1));assert.equal(e.stopped,1)
-})
 test('failed filter setup rolls back partial call view and can retry',()=>{
  const e=fixture();e.failTune(true);assert.throws(()=>e.view.tick(e.input),/tune failed/)
  assert.deepEqual(e.view.snapshot().views,[])

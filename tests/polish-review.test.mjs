@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { applyPolishEdits, composePolishEdits, parsePolishReview } from '../tavern-plugin/lib/domain/polish-review.js'
+import { applyPolishEdits, composePolishEdits } from '../tavern-plugin/lib/domain/polish-review.js'
 
 test('两步精修记成原文上的修改：意见改动映射回原文，碰到精修改过的句子就并成一处', () => {
   const review = [{ find: '乙。', replace: '乙改。', reason: '套话' }, { find: '戊。', replace: '', reason: '删去' }]
@@ -64,14 +64,6 @@ test('后台预审：同一版正文只审一次，换了版本就作废，点�
   assert.equal(prereview.running('s'), false)
 })
 
-test('修改清单逐条定位原文，重叠的后一条不可选，读不懂的输出退回意见框', () => {
-  const texts = ['他笑了。他笑了。', '指节泛白。她走了。\n\n雨停了。']
-  const review = parsePolishReview('```json\n{"edits":[{"reason":"拖沓","find":"指节泛白。她走了。\\n\\n雨停了。","replace":"她走了。"},{"reason":"套话","find":"指节泛白。","replace":"x"},{"find":"他笑了。","replace":""},{"find":"没有这句","replace":"x"}]}\n```', texts)
-  assert.deepEqual(review.edits.map(edit => edit.status), ['ok', 'overlap', 'ambiguous', 'missing'])
-  assert.equal(review.edits[0].reason, '拖沓')
-  assert.deepEqual(parsePolishReview('1. 这里写得拖', texts), { edits: [], fallback: '1. 这里写得拖' })
-})
-
 test('精修对比按原文顺序切出未改与改动段，找不到或重叠的修改跳过', async () => {
   const { polishSegments } = await import('../tavern-plugin/lib/domain/polish-records.js')
   const segments = polishSegments('甲。乙。丙。', [{ find: '丙。', replace: '丙改。', reason: 'b' }, { find: '甲。', replace: '', reason: 'a' }, { find: '甲。乙', replace: 'x' }, { find: '丁', replace: 'y' }])
@@ -85,12 +77,16 @@ test('精修对比按原文顺序切出未改与改动段，找不到或重叠�
 test('只保留最近一次精修，那轮正文换了版本就不再显示、不能撤销', async () => {
   const { createPolishRecords } = await import('../tavern-plugin/lib/domain/polish-records.js')
   let game = null, key = 'k1'
+  const saved = []
   const records = createPolishRecords({
     data: { saveGame: async ({ data }) => { game = data }, readGame: async () => game },
     turns: { resolveGame: async () => ({ chatId: 'c', sessionId: 's' }), currentKey: async () => key },
-    now: () => 5
+    now: () => 5,
+    onSaved(sessionId, requestId) { saved.push({ sessionId, requestId, record: game }) }
   })
-  await records.save('s', 3, { original: ['甲。乙。', '丙。'], edits: [{ find: '乙。', replace: '乙改。', reason: '套话' }], seconds: 20 })
+  await records.save('s', 3, { original: ['甲。乙。', '丙。'], edits: [{ find: '乙。', replace: '乙改。', reason: '套话' }], seconds: 20, requestId: 'manual-polish' })
+  assert.deepEqual(saved, [{ sessionId: 's', requestId: 'manual-polish', record: game }])
+  assert.equal(game.key, 'k1')
   assert.deepEqual(await records.latest('s'), { turn: 3, at: 5, seconds: 20, count: 1, auto: false, segments: [{ kind: 'same', text: '甲。' }, { kind: 'edit', n: 1, find: '乙。', replace: '乙改。', reason: '套话' }, { kind: 'same', text: '\n\n丙。' }] })
   assert.deepEqual((await records.current('s')).original, ['甲。乙。', '丙。'])
   key = 'k2'

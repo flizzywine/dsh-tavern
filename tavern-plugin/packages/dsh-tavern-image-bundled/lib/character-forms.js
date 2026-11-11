@@ -50,7 +50,7 @@ const cueHits = (scene, cues) => cues.filter(cue => (/[㐀-鿿]/.test(cue)
   ? hasPositiveChineseCue(scene, cue)
   : new RegExp('(?<![\\w-])' + escape(cue) + '(?![\\w-])', 'i').test(scene))).length
 
-export function resolveCharacterForms(value, definitions) {
+export function resolveCharacterForms(value, definitions, { isCharacterId } = {}) {
   const text = String(value ?? '')
   const people = (definitions?.characters ?? []).filter(c => c && c.enabled !== false && c.name)
   const withCues = people.filter(c => split(c.formCues).length)
@@ -61,6 +61,10 @@ export function resolveCharacterForms(value, definitions) {
   const findPerson = asked => {
     const key = norm(asked)
     if (!key) return null
+    if (isCharacterId?.(String(asked))) {
+      const matches = people.filter(person => String(person.id ?? '').toLowerCase() === String(asked).toLowerCase())
+      return matches.length === 1 ? matches[0] : null
+    }
     const exact = people.filter(c => aliases(c).includes(key))
     if (exact.length === 1) return exact[0]
     if (exact.length || key.length < 3) return null

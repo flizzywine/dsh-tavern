@@ -10,7 +10,11 @@ on:
       - 'bin/launcher-environment.mjs'
       - 'bin/service-lifecycle.mjs'
       - 'tavern-plugin/lib/application-updater.js'
+      - 'tavern-plugin/packages/dsh-tavern/lib/installer-download.mjs'
+      - 'tavern-plugin/packages/dsh-tavern/lib/proxy-environment.mjs'
+      - 'tavern-plugin/packages/dsh-tavern/lib/worker.mjs'
       - 'tests/application-update-proxy.test.mjs'
+      - 'tests/profile-bridge-download.test.mjs'
       - 'tests/system-proxy*.test.mjs'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -22,7 +26,11 @@ on:
       - 'bin/launcher-environment.mjs'
       - 'bin/service-lifecycle.mjs'
       - 'tavern-plugin/lib/application-updater.js'
+      - 'tavern-plugin/packages/dsh-tavern/lib/installer-download.mjs'
+      - 'tavern-plugin/packages/dsh-tavern/lib/proxy-environment.mjs'
+      - 'tavern-plugin/packages/dsh-tavern/lib/worker.mjs'
       - 'tests/application-update-proxy.test.mjs'
+      - 'tests/profile-bridge-download.test.mjs'
       - 'tests/system-proxy*.test.mjs'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -52,5 +60,5 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Check updater proxy inheritance without external network requests
-        run: node --test tests/system-proxy.test.mjs tests/system-proxy-inheritance.test.mjs tests/application-update-proxy.test.mjs
+      - name: Check launcher downloads and updater proxy inheritance
+        run: node --test tests/system-proxy.test.mjs tests/system-proxy-inheritance.test.mjs tests/application-update-proxy.test.mjs tests/profile-bridge-download.test.mjs

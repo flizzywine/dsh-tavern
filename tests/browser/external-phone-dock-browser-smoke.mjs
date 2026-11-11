@@ -11,7 +11,6 @@ import { projectTavernHostScript } from '../../tavern-plugin/lib/domain/tavern-h
 let clientSource = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const cssSource = await readFile(new URL('../../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 const jqSource = await readFile(new URL('../../tavern-plugin/lib/vendor/runtime-assets/jquery/jquery.min.js', import.meta.url), 'utf8')
-const jqUiSource = await readFile(new URL('../../tavern-plugin/lib/vendor/runtime-assets/jquery-ui/jquery-ui.min.js', import.meta.url), 'utf8')
 
 for (const dep of ['tavernIconDependencies', 'tavernStaticAssetShim', 'tavernHelperScriptDependencies']) {
   clientSource = clientSource.replaceAll('+ ' + dep + '()', "+ ''")
@@ -51,11 +50,6 @@ const server = createServer(async (req, res) => {
   if (req.url.startsWith('/api/dsh-tavern/vendor/runtime-assets/jquery/jquery.min.js')) {
     res.writeHead(200, { 'content-type': 'application/javascript' })
     res.end(jqSource)
-    return
-  }
-  if (req.url.startsWith('/api/dsh-tavern/vendor/runtime-assets/jquery-ui/jquery-ui.min.js')) {
-    res.writeHead(200, { 'content-type': 'application/javascript' })
-    res.end(jqUiSource)
     return
   }
   if (req.url.startsWith('/api/dsh-tavern/vendor/runtime-assets/zod/') || req.url.startsWith('/api/dsh-tavern/vendor/runtime-assets/yaml/')) {
@@ -108,6 +102,8 @@ const server = createServer(async (req, res) => {
       wrapper.appendChild(closeBtn);
       root.appendChild(wrapper);
       shadow.appendChild(root);
+      window.$(wrapper).draggable();
+      if (!window.$(wrapper).draggable('instance')) throw new Error('宿主拖拽组件未初始化');
       hostDoc.body.appendChild(host);
 
       window.replaceScriptButtons([
@@ -170,6 +166,18 @@ try {
   const page = await browser.newPage()
   const pageErrors = []
   page.on('pageerror', err => pageErrors.push(err.message))
+  let releaseHostJQuery
+  const hostJQueryGate = new Promise(resolve => { releaseHostJQuery = resolve })
+  await page.exposeFunction('releaseHostJQuery', releaseHostJQuery)
+  await page.route('**/jquery/jquery.min.js', async route => {
+    await hostJQueryGate
+    await route.continue()
+  })
+  let hostJQueryUiRequests = 0
+  await page.route('**/jquery-ui/jquery-ui.min.js', route => {
+    hostJQueryUiRequests++
+    return route.abort()
+  })
   await page.goto(`http://127.0.0.1:${port}/`)
 
   const result = await page.evaluate(async (caps) => {
@@ -177,10 +185,15 @@ try {
     const disposer = client.installFrameStorageBridge(window)
     await new Promise(r => setTimeout(r, 30))
     const readyChats = []
+    let finishOldWorldbookRead
     const runtime = client.createTavernHelperScriptRuntime({
       window,
       document,
-      rpc: () => Promise.resolve({ updated: true, ok: true }),
+      rpc(method, args) {
+        if (method !== 'loadTavernWorldInfo') return Promise.resolve({ updated: true, ok: true })
+        if (args.name === 'before-reset') return new Promise(resolve => { finishOldWorldbookRead = resolve })
+        return Promise.resolve({ worldInfo: { name: args.name } })
+      },
       onMutation() {},
       reportError(src, err) { window.__runtimeErrors = (window.__runtimeErrors || []).concat([[src, err.message]]) },
       resolveError() {},
@@ -223,9 +236,22 @@ try {
     })
 
     const msgs = [{ role: 'assistant', message: '开场白', variables: {} }]
+    const helperFrame = () => document.querySelector('iframe[title="人物卡共享脚本沙箱"]')
+    runtime.sync('discarded-S1', makeView(msgs))
+    const discardedFrame = helperFrame()
+    const hostJQuery = () => document.querySelector('script[data-dsh-tavern-host-jquery]')
+    for (let i = 0; i < 60 && !hostJQuery(); i++) await new Promise(r => setTimeout(r, 50))
+    if (!hostJQuery()) throw new Error('The first iframe did not start the host jQuery load')
+
     runtime.sync('S1', makeView(msgs))
+    if (discardedFrame.isConnected) throw new Error('The previous session iframe is still attached')
+    const frame = helperFrame()
+    for (let i = 0; i < 60 && !frame.contentWindow.__dshTavernHelperReady; i++) await new Promise(r => setTimeout(r, 50))
+    await frame.contentWindow.__dshTavernHelperReady
+    await window.releaseHostJQuery()
 
     for (let i = 0; i < 60 && !presence.inspect().attached; i++) await new Promise(r => setTimeout(r, 50))
+    if (!presence.inspect().attached) throw new Error('The replacement session did not open the phone with jQuery UI: ' + JSON.stringify(window.__runtimeErrors))
     const initialPresence = presence.inspect()
     const initialSlotHeight = slot.getBoundingClientRect().height
 
@@ -255,9 +281,15 @@ try {
     const eventsBeforeReset = [...window.__phoneEvents]
     const themeBeforeReset = window.__lastSeenTheme
 
+    void frame.contentWindow.SillyTavern.loadWorldInfo('before-reset')
+    for (let i = 0; i < 60 && !finishOldWorldbookRead; i++) await new Promise(r => setTimeout(r, 50))
+    if (!finishOldWorldbookRead) throw new Error('Worldbook read did not start before reload')
     await dock.trigger('复位')
     for (let i = 0; i < 60 && window.__phoneLoads < 2; i++) await new Promise(r => setTimeout(r, 50))
     for (let i = 0; i < 60 && !presence.inspect().attached; i++) await new Promise(r => setTimeout(r, 50))
+    const worldbookAfterReset = frame.contentWindow.SillyTavern.loadWorldInfo('after-reset')
+    finishOldWorldbookRead({ worldInfo: { name: 'before-reset' } })
+    if ((await worldbookAfterReset).name !== 'after-reset') throw new Error('The new iframe document received an old worldbook reply')
     await new Promise(r => setTimeout(r, 150))
 
     const out = {
@@ -434,6 +466,7 @@ try {
   ])
   assert.equal(result.themeBeforeReset, 'pink')
   assert.equal(result.themeAfterReset, null, '复位 reload 后 localStorage 已同步清除旧键')
+  assert.equal(hostJQueryUiRequests, 0, 'Trusted scripts must use bundled host jQuery UI')
   assert.deepEqual(result.readyChats, ['S1', 'S1'])
   assert.equal(result.multiSession.storyBeforeSyncPresence.visible, false, '新会话挂载初期独立 presence 不串台显示旧状态')
   assert.equal(result.multiSession.storyAttachedPresence.attached, true, 'ReadStory 进入新会话后成功停靠新手机宿主')

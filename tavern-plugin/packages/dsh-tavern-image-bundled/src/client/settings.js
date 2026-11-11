@@ -57,18 +57,6 @@
       }
       const [tab, setTab] = React.useState('plan')
       const promptFormatFocus = React.useRef(false)
-      const [updateOpen, setUpdateOpen] = React.useState(false)
-      const [pluginUpdateLocal, setPluginUpdateLocal] = React.useState(null)
-      const [pluginUpdateCheck, setPluginUpdateCheck] = React.useState(null)
-      const [pluginUpdateNote, setPluginUpdateNote] = React.useState('')
-      const [pluginUpdatePending, setPluginUpdatePending] = React.useState('')
-      const pluginUpdateLocalAttempted = React.useRef(false)
-      const pluginUpdateLocalInFlight = React.useRef(false)
-      const pluginUpdatePendingRef = React.useRef('')
-      const pluginUpdateView = React.useRef(0)
-      const pluginUpdateTabRef = React.useRef(updateOpen)
-      const pluginUpdateMounted = React.useRef(true)
-      pluginUpdateTabRef.current = updateOpen
       const [note, setNote] = React.useState('')
       // 正文图片显示大小：输入过程只改草稿（绝不边输边发请求），点「保存」才发一次 /config。
       // null = 跟随已保存的配置；保存成功后回到 null，输入框显示服务端确认过的值。
@@ -286,20 +274,6 @@
       // 等 /state 到位再测 ComfyUI：那时才拿得到 comfyUrl，也避开首次渲染的 config TDZ
       React.useEffect(() => { if (data?.config?.imageBackend === 'comfyui') loadComfyStatus() }, [data?.config?.imageBackend])
       const channelTestsInFlight = React.useRef({})
-      React.useEffect(() => {
-        const view = ++pluginUpdateView.current
-        if (updateOpen && !pluginUpdateLocalAttempted.current) {
-          pluginUpdateLocalAttempted.current = true
-          void loadPluginUpdateLocal()
-        }
-        return () => {
-          if (pluginUpdateView.current === view) pluginUpdateView.current += 1
-        }
-      }, [updateOpen])
-      React.useEffect(() => {
-        pluginUpdateMounted.current = true
-        return () => { pluginUpdateMounted.current = false; pluginUpdateView.current += 1 }
-      }, [])
       // Poll only progress while a task runs. Load libraries/worldbooks/diagnostics
       // once on completion; slow requests never overlap and hidden pages stay idle.
       React.useEffect(() => {
@@ -361,111 +335,6 @@
 
       function post(pathname, body) {
         return jsonFetch(BASE + pathname, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-      }
-      function mergePluginUpdateLocalStatus(status) {
-        setPluginUpdateLocal(current => {
-          const next = Object.assign({}, current, {
-            currentVersion: status?.currentVersion ?? current?.currentVersion,
-            restartRequired: status?.restartRequired ?? current?.restartRequired,
-            directoryMigrationRequired: status?.directoryMigrationRequired ?? current?.directoryMigrationRequired,
-            directoryMigrationMessage: status?.directoryMigrationMessage ?? current?.directoryMigrationMessage,
-          })
-          if (typeof status?.supported === 'boolean') {
-            next.supported = status.supported
-            next.reason = status.reason || ''
-          } else if (status?.reason) next.reason = status.reason
-          return next
-        })
-      }
-      async function loadPluginUpdateLocal() {
-        if (pluginUpdatePendingRef.current || pluginUpdateLocalInFlight.current) return
-        pluginUpdateLocalInFlight.current = true
-        pluginUpdatePendingRef.current = 'local'
-        setPluginUpdatePending('local')
-        setPluginUpdateNote('读取本地插件状态…')
-        const view = pluginUpdateView.current
-        try {
-          const status = await jsonFetch(BASE + '/plugin-update')
-          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
-          setPluginUpdateLocal(status)
-          setPluginUpdateNote(status?.supported === false
-            ? (status.reason || '当前安装方式暂不支持自动更新。')
-            : status?.restartRequired
-              ? '插件需要完整重启 DSH 后生效。'
-              : status?.directoryMigrationRequired ? status.directoryMigrationMessage : '')
-        } catch (error) {
-          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
-          setPluginUpdateNote('读取本地插件状态失败：' + (error?.message ?? error))
-        } finally {
-          pluginUpdateLocalInFlight.current = false
-          if (pluginUpdatePendingRef.current === 'local') {
-            pluginUpdatePendingRef.current = ''
-            if (pluginUpdateMounted.current) setPluginUpdatePending('')
-          }
-        }
-      }
-      async function checkPluginUpdate() {
-        if (pluginUpdatePendingRef.current || !(pluginUpdateLocal?.mode === 'release' || pluginUpdateLocal?.supported === true) || pluginUpdateLocal?.compatibility?.compatible === false) return
-        pluginUpdatePendingRef.current = 'check'
-        setPluginUpdatePending('check')
-        setPluginUpdateNote('正在检查插件更新…')
-        const view = pluginUpdateView.current
-        try {
-          const status = await post('/plugin-update/check', {})
-          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
-          setPluginUpdateCheck(status)
-          mergePluginUpdateLocalStatus(status)
-          const supported = status?.supported ?? pluginUpdateLocal?.supported
-          const reason = status?.reason ?? (status?.supported === false ? '' : pluginUpdateLocal?.reason)
-          setPluginUpdateNote(supported === false
-            ? (reason || '当前安装方式暂不支持自动更新。')
-            : status?.restartRequired
-              ? (status.message && status.message.includes('完整重启 DSH') ? status.message : [status.message, '插件已更新，需要完整重启 DSH 才会生效。'].filter(Boolean).join(' '))
-              : status?.directoryMigrationRequired
-                ? [status?.available ? '发现可用更新。' : '', status.directoryMigrationMessage].filter(Boolean).join(' ')
-                : reason
-                  ? reason
-                  : status?.available
-                    ? (status?.canUpdate ? '发现可用更新。' : (status?.reason || '发现新版本，但当前无法自动更新。'))
-                    : '当前已是最新版本。')
-        } catch (error) {
-          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
-          setPluginUpdateNote('检查更新失败：' + (error?.message ?? error))
-        } finally {
-          if (pluginUpdatePendingRef.current === 'check') {
-            pluginUpdatePendingRef.current = ''
-            if (pluginUpdateMounted.current) setPluginUpdatePending('')
-          }
-        }
-      }
-      async function applyPluginUpdate() {
-        if (pluginUpdatePendingRef.current || (!(pluginUpdateLocal?.mode === 'release' || pluginUpdateLocal?.supported) ) || !pluginUpdateCheck?.available || !pluginUpdateCheck?.canUpdate || pluginUpdateCheck?.restartRequired || pluginUpdateLocal?.restartRequired) return
-        if (libraryDirty.current) {
-          setPluginUpdateNote('请先保存人物库，再更新插件。')
-          return
-        }
-        pluginUpdatePendingRef.current = 'apply'
-        setPluginUpdatePending('apply')
-        setPluginUpdateNote('正在更新插件…')
-        const view = pluginUpdateView.current
-        try {
-          const status = await post('/plugin-update/apply', { target: pluginUpdateCheck.target })
-          if (!pluginUpdateMounted.current) return
-          const completedStatus = Object.assign({}, status, { restartRequired: true })
-          setPluginUpdateCheck(completedStatus)
-          mergePluginUpdateLocalStatus(completedStatus)
-          setPluginUpdateNote(status?.message && status.message.includes('完整重启 DSH')
-            ? status.message
-            : [status?.message, '插件更新完成，请完整重启 DSH 后生效。'].filter(Boolean).join(' '))
-        } catch (error) {
-          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
-          setPluginUpdateNote('更新插件失败：' + (error?.message ?? error))
-        } finally {
-          if (pluginUpdatePendingRef.current === 'apply') {
-            pluginUpdatePendingRef.current = ''
-            if (pluginUpdateMounted.current) setPluginUpdatePending('')
-          }
-        }
       }
       async function save(patch) {
         const operation = configSaveQueue.current.catch(() => {}).then(async () => {
@@ -794,11 +663,18 @@
                   h('option', { value: 'true', style: optStyle }, '开（默认）'),
                   h('option', { value: 'false', style: optStyle }, '关'))),
               h('div', { style: { marginBottom: '10px' } }, label('多样性（variety_boost）'),
-                h('select', { 'aria-label': '多样性', value: String((localFields.options || {}).varietyBoost ?? false), style: full(), onChange: e => updateOption('varietyBoost', e.target.value === 'true') },
+                h('select', { 'aria-label': '多样性', value: String((localFields.options || {}).varietyBoost ?? false), style: full(), onChange: e => updateOption('varietyBoost', e.target.value === 'omit' ? 'omit' : e.target.value === 'true') },
                   h('option', { value: 'false', style: optStyle }, '关（默认）'),
-                  h('option', { value: 'true', style: optStyle }, '开（Variety Boost）')))) : null,
-            // 画质 only where the wire API has a quality tier (OpenAI Images, gpt-image models). 自动 saves an empty value, so requests stay exactly as before.
-            protocolBackend === 'openai' ? selectOptionField('quality', '画质', [['', '自动（默认）'], ['low', '低（最快）'], ['medium', '中'], ['high', '高（最慢）']], '', '仅 gpt-image 模型生效；越高越慢') : null,
+                  h('option', { value: 'true', style: optStyle }, '开（Variety Boost）'),
+                  // 有些第三方站点把 variety_boost 当未知字段直接 422，选这个就整条不发
+                  h('option', { value: 'omit', style: optStyle }, '不传（站点不认这条参数）')))) : null,
+            protocolBackend === 'openai' ? selectOptionField('quality', '画质', [
+              ['', '服务端默认（不传）'], ['auto', '自动（auto）'], ['low', '低'], ['medium', '中'], ['high', '高'],
+              ['xhigh', '超高（xhigh）'], ['max', '最高（max）'],
+            ], '', '画质档位取决于模型和中转服务，尤其是 xhigh 和 max。') : null,
+            protocolBackend === 'openai' ? selectOptionField('moderation', '内容审核级别', [
+              ['', '服务端默认（不传）'], ['auto', '自动（auto）'], ['low', '较宽松（low）'],
+            ], '', '实际支持情况取决于模型和中转服务。') : null,
             protocolBackend === 'novelai' ? h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '10px 12px' } },
               sizeField('sizeWidth', '宽（像素）', '如 832', legacySize.width),
               sizeField('sizeHeight', '高（像素）', '如 1216', legacySize.height),
@@ -1212,7 +1088,6 @@
           patch(index, changes)
         }
         // 注意：peopleTab 是被调用的普通函数，不能用 hooks（会让 SettingsPanel 的 hooks 数不稳定）
-        onDesignResult = () => { refresh() }
         function setCharacters(update) {
           const current = dataRef.current
           const before = current?.definitions?.characters || []
@@ -3586,99 +3461,6 @@
             h('div', { style: S.row }, h('label', { style: S.label }, '质量 50–100'), h('input', { type: 'number', min: 50, max: 100, value: quality, style: Object.assign({}, S.input, { width: '75px' }), onChange: e => setQuality(e.target.value) }), h('label', { style: S.label }, '透明底色'), h('input', { type: 'color', value: background, onChange: e => setBackground(e.target.value) }), h('button', { style: buttonStyle, onClick: () => save({ jpegQuality: quality, jpegBackground: background }) }, '保存')),
             h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, '仅转换 PNG；GIF/WebP 或转换失败时保留原图并显示提示。')),
           message ? h('div', { style: { fontSize: '12px', marginTop: '7px', color: 'var(--dsw-alias-brand-primary)' } }, message) : null,
-        )
-      }
-
-      // ---- 工作流 ----
-      function pluginUpdateTab() {
-        const releaseMode = pluginUpdateLocal?.mode === 'release'
-        const supported = releaseMode || pluginUpdateLocal?.supported === true
-        const canCheck = (releaseMode || pluginUpdateLocal?.supported === true) && pluginUpdateLocal?.compatibility?.compatible !== false
-        const version = value => value ? String(value) : '暂无结果'
-        const restartNeeded = pluginUpdateCheck?.restartRequired === true || pluginUpdateLocal?.restartRequired === true
-        const canUpdate = supported && pluginUpdateCheck?.available === true && pluginUpdateCheck?.canUpdate === true && !restartNeeded
-        const latestConfirmed = pluginUpdateCheck?.available === false && pluginUpdateCheck?.restartRequired !== true && pluginUpdateCheck?.supported !== false && pluginUpdateLocal?.supported !== false && !pluginUpdateCheck?.reason && !pluginUpdateLocal?.reason
-        const migrationNeeded = pluginUpdateLocal?.directoryMigrationRequired === true && pluginUpdateLocal?.supported !== false
-        const downloads = data.pluginDownloads && typeof data.pluginDownloads === 'object' ? data.pluginDownloads : {}
-        const externalDownload = (key, hostname, pathname) => {
-          try {
-            const url = new URL(String(downloads[key] ?? ''))
-            if (url.protocol !== 'https:' || url.hostname !== hostname || url.port || url.username || url.password || url.search || url.hash || url.pathname !== pathname) return ''
-            return url.href
-          } catch { return '' }
-        }
-        const localDownloadPath = (() => {
-          try {
-            const value = String(downloads.local ?? '')
-            if (!value.startsWith('/') || value.startsWith('//')) return ''
-            const url = new URL(value, window.location.origin)
-            const validPath = ['/api/dsh-tavern-image/plugin-download', '/api/dsh-tavern-comfy/plugin-download', '/plugins/dsh-tavern-image/plugin-download', '/plugins/dsh-tavern-comfy/plugin-download'].includes(url.pathname)
-            return url.origin === window.location.origin && validPath && !url.username && !url.password && !url.search && !url.hash ? url.pathname : ''
-          } catch { return '' }
-        })()
-        const sourceUrl = externalDownload('source', 'github.com', '/weixinlll/dsh-tavern-image/archive/refs/heads/master.zip')
-        const alternateUrl = externalDownload('alternate', 'codeload.github.com', '/weixinlll/dsh-tavern-image/zip/refs/heads/master')
-        const releasesUrl = externalDownload('releases', 'github.com', '/weixinlll/dsh-tavern-image/releases')
-        const repositoryUrl = externalDownload('repository', 'github.com', '/weixinlll/dsh-tavern-image.git')
-        async function downloadLocalPackage() {
-          if (!localDownloadPath) return
-          setPluginUpdateNote('正在生成本机安装包…')
-          try {
-            const response = await fetch(localDownloadPath, { method: 'GET', credentials: 'same-origin', cache: 'no-store' })
-            if (!response.ok) {
-              let detail = ''
-              try { detail = (await response.json())?.error || '' } catch {}
-              throw new Error(detail || ('HTTP ' + response.status))
-            }
-            const type = String(response.headers.get('content-type') || '').toLowerCase()
-            if (!type.includes('application/zip')) throw new Error('服务没有返回 ZIP 安装包')
-            const blobUrl = URL.createObjectURL(await response.blob())
-            const anchor = document.createElement('a')
-            anchor.href = blobUrl
-            anchor.download = 'dsh-tavern-image-local.zip'
-            document.body.appendChild(anchor)
-            anchor.click()
-            anchor.remove()
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
-            setPluginUpdateNote('✓ 本机安装包已开始下载。它包含当前本机插件代码和测试改动。')
-          } catch (error) {
-            setPluginUpdateNote('本机安装包下载失败：' + String(error?.message ?? error))
-          }
-        }
-        const linkStyle = Object.assign({}, buttonStyle, { display: 'inline-block', textDecoration: 'none' })
-        return h('div', null,
-          h('div', { style: S.card },
-            h('div', { style: { fontSize: '14px', fontWeight: 600, marginBottom: '8px' } }, '插件更新'),
-            h('div', { role: 'note', style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } }, releaseMode ? 'Release 更新：下载官方发布包并校验 SHA-256。' : 'Git 更新：仅对官方、干净的 master checkout 执行 fast-forward。'),
-            pluginUpdateLocal?.compatibility?.compatible === false ? h('div', { role: 'alert', style: { fontSize: '12px', color: 'var(--dsw-alias-state-warning-primary)', marginBottom: '8px' } }, pluginUpdateLocal.compatibility.reason || '当前 Tavern 版本不兼容，请先更新 Tavern。') : null,
-            h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(120px, auto) 1fr', gap: '6px 12px', fontSize: '13px' } },
-              h('span', { style: S.label }, '当前版本'), h('span', null, version(pluginUpdateLocal?.currentVersion)),
-              h('span', { style: S.label }, '远端版本'), h('span', null, version(pluginUpdateCheck?.latestVersion)),
-            ),
-            latestConfirmed ? h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '8px' } }, '当前已是最新版本。') : null,
-            pluginUpdateLocal?.supported === false && repositoryUrl ? h('a', { href: repositoryUrl.slice(0, -4), target: '_blank', rel: 'noopener noreferrer', style: { display: 'inline-block', marginTop: '8px', color: 'var(--dsw-alias-brand-primary)' } }, '打开插件 GitHub 页面手动下载') : null,
-            h('div', { style: S.row },
-              h('button', { style: buttonStyle, disabled: !canCheck || Boolean(pluginUpdatePending), onClick: () => { setPluginUpdateCheck(null); void checkPluginUpdate() } }, pluginUpdatePending === 'check' ? '正在检查…' : '检查更新'),
-              h('button', { style: buttonStyle, disabled: !canUpdate || Boolean(pluginUpdatePending), onClick: applyPluginUpdate }, pluginUpdatePending === 'apply' ? '正在更新…' : '更新插件'),
-              !pluginUpdateLocal && pluginUpdatePending !== 'local' ? h('button', { style: buttonStyle, disabled: Boolean(pluginUpdatePending), onClick: () => { pluginUpdateLocalAttempted.current = true; void loadPluginUpdateLocal() } }, '重试读取本地状态') : null,
-            ),
-            h('div', { role: 'status', 'aria-live': 'polite', style: { minHeight: '18px', fontSize: '12px', color: restartNeeded || migrationNeeded ? 'var(--dsw-alias-state-warning-primary)' : 'var(--dsw-alias-label-tertiary)', marginTop: '8px' } },
-              pluginUpdateNote || (pluginUpdatePending === 'local' ? '读取本地插件状态…' : ''),
-            ),
-            migrationNeeded ? h('div', { role: 'note', style: { fontSize: '12px', color: 'var(--dsw-alias-state-warning-primary)', marginTop: '8px', lineHeight: 1.55 } }, pluginUpdateLocal.directoryMigrationMessage) : null,
-            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '8px', lineHeight: 1.55 } }, releaseMode ? 'Release 更新使用发布 metadata 中的版本和 SHA-256 校验；只更新插件代码，更新后请完整重启 DSH。' : 'Git 更新仅允许官方干净 master checkout 快进；只更新插件代码，更新后请完整重启 DSH。'),
-            h('div', { style: { borderTop: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)', marginTop: '12px', paddingTop: '10px' } },
-              h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-primary)', marginBottom: '6px' } }, '手动下载插件包'),
-              h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '9px', lineHeight: 1.55 } }, '本机安装包包含当前本机代码（包括未发布测试改动）；GitHub ZIP 与备用下载是公开仓库 master 版本，不包含本机测试改动。若公开 ZIP 下载较慢，可试备用下载；它也由 GitHub codeload 提供。历史发布可选稳定版本。'),
-              h('div', { style: S.row },
-                h('button', { type: 'button', style: buttonStyle, disabled: !localDownloadPath, onClick: downloadLocalPackage }, '本机安装包'),
-                sourceUrl ? h('a', { href: sourceUrl, target: '_blank', rel: 'noopener noreferrer', style: linkStyle }, 'GitHub 源码ZIP') : null,
-                alternateUrl ? h('a', { href: alternateUrl, target: '_blank', rel: 'noopener noreferrer', style: linkStyle }, '备用下载') : null,
-                releasesUrl ? h('a', { href: releasesUrl, target: '_blank', rel: 'noopener noreferrer', style: linkStyle }, '历史发布') : null,
-              ),
-              !localDownloadPath && !sourceUrl && !alternateUrl && !releasesUrl ? h('div', { role: 'status', style: { fontSize: '11px', color: 'var(--dsw-alias-state-warning-primary)', marginTop: '6px' } }, '下载地址尚不可用，请刷新控制台状态后重试。') : null,
-            ),
-          ),
         )
       }
 

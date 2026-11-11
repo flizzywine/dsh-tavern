@@ -33,7 +33,7 @@
 			const [notice, setNotice] = React.useState("");
 			const [saving, setSaving] = React.useState(false);
 			const [catalog, setCatalog] = React.useState([]);
-			const revision = React.useRef(0);
+			const refresh = React.useRef(null);
 			React.useEffect(function () {
 				let active = true;
 				rpc("getTavernSettings").then(function (result) { if (active) setCatalog(Array.isArray(result.modelCatalog) ? result.modelCatalog : []); }, function () {});
@@ -48,23 +48,33 @@
 						onClick: function (event) { if (tip && tip.n === segment.n) setTip(null); else show(event); } };
 				}
 			};
-			const load = React.useCallback(async function () {
-				const requested = ++revision.current;
-				setBusy(true);
-				try {
-					const result = await rpc("polishComparison", {}, sessionId);
-					if (requested === revision.current) setState({ sessionId: sessionId, comparison: result.comparison || null, prereview: result.prereview === true, polishModel: result.polishModel || null, error: "" });
-				} catch (error) {
-					if (requested === revision.current) setState({ sessionId: sessionId, comparison: null, error: String(error && error.message || error) });
-				} finally { if (requested === revision.current) setBusy(false); }
-			}, [sessionId]);
 			React.useEffect(function () {
 				setState(null);
-				void load();
-				function changed(event) { if (!event.detail || event.detail.sessionId === sessionId) void load(); }
-				window.addEventListener("dsh-tavern-polished", changed);
-				return function () { window.removeEventListener("dsh-tavern-polished", changed); };
-			}, [sessionId, load]);
+				const controller = createSessionRefreshController({
+					loadTimeoutMs: 10000,
+					retryDelaysMs: TAVERN_PROJECTION_RETRY_DELAYS_MS,
+					onStart: () => setBusy(true),
+					load: ({ signal }) => rpc("polishComparison", {}, sessionId, { signal }),
+					onResult(result) {
+						setState({ sessionId, comparison: result.comparison || null, prereview: result.prereview === true, polishModel: result.polishModel || null, error: "" });
+						setBusy(false);
+					},
+					onError(error) {
+						setState(previous => ({ ...(previous?.sessionId === sessionId ? previous : { sessionId, comparison: null }), error: String(error?.message || error) }));
+						setBusy(false);
+					}
+				});
+				refresh.current = controller;
+				controller.start();
+				const unsubscribe = tavernSessionSignals?.subscribe(sessionId, "polish-saved", () => controller.request());
+				controller.request();
+				return function () {
+					unsubscribe?.();
+					controller.stop();
+					refresh.current = null;
+				};
+			}, [sessionId]);
+			function load() { refresh.current?.request(); }
 			// 自动精修 is one switch for every game: each reply is reviewed as it is written and reworded in place.
 			async function togglePrereview(enabled) {
 				setSaving(true); setNotice("");
@@ -91,7 +101,7 @@
 					notifyTavernDataChanged(["sessions"], "polish-compare");
 					tavernCoordination.invalidate(sessionId);
 					setNotice("已撤销精修，正文恢复成精修前的样子。");
-					await load();
+					load();
 				} catch (error) { setNotice("撤销失败：" + String(error && error.message || error)); }
 				finally { setUndoing(false); }
 			}

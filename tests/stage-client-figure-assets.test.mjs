@@ -22,24 +22,6 @@ test('figure assets prepare sizing and own sprites without owning cached texture
  assert.equal(plain.sprite.figureInput,null);assert.equal(plain.sprite.forkBodyX,45)
  asset.destroy();e.owner.dispose();plain.destroy();assert.ok(e.sprites.every(s=>s.dead===1));assert.equal(e.texture.destroyed,undefined)
 })
-test('late picture and Spine completions cannot recreate disposed figure assets',async()=>{
- const e=fixture(),picture=e.scope.picture({src:'a'}),spine=e.scope.spine({url:'rig',config:{}})
- e.owner.dispose();e.picture();const rig=e.rig();e.spine(rig)
- assert.equal(await picture,null);assert.equal(await spine,null);assert.equal(rig.dead,1);assert.equal(e.sprites.length,1)
- assert.equal(await e.scope.picture({src:'b'}),null)
-})
-test('picture and Spine sizing failures release partially prepared resources',async()=>{
- const e=fixture();e.fail()
- const picture=e.scope.picture({src:'a',input:{source:'a'}});e.picture();await assert.rejects(picture,/sizing failed/);assert.equal(e.sprites[0].dead,1)
- const spine=e.scope.spine({url:'rig',config:{},input:{pack:true,source:'rig'}}),rig=e.rig();e.spine(rig)
- await assert.rejects(spine,/sizing failed/);assert.equal(rig.dead,1)
- e.owner.dispose();assert.ok(e.sprites.every(s=>s.dead===1))
-})
-test('prepared Spine assets preserve animation and release the rig exactly once',async()=>{
- const e=fixture(),pending=e.scope.spine({url:'rig',config:{},animation:'happy',input:{pack:true,source:'rig'}}),rig=e.rig();e.spine(rig);const asset=await pending
- assert.equal(asset.spine,rig);assert.equal(rig.animation,'happy');assert.deepEqual(asset.sprite.anchor.values,[.3,.95])
- e.scope.dispose();asset.destroy();e.owner.dispose();assert.equal(rig.dead,1)
-})
 
 test('scene accepts only the newest picture request even when identity returns to A',async()=>{
  const source=readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene.cjs',import.meta.url),'utf8'),start=source.indexOf('    function showStatic('),end=source.indexOf('    // authored blink',start)

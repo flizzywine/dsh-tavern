@@ -6,7 +6,7 @@ const read=path=>readFileSync(new URL('../tavern-plugin/'+path,import.meta.url),
 test('host look initialization and preview grading run with no stage plugin or stageViews',()=>{
  const context={window:{},stageLookLayer:item=>item.layer||'mood'}
  const result=vm.runInNewContext([
-  read('shared/color-math.cjs'),read('src/client/gal-scene-helpers.cjs'),
+  read('shared/color-math.cjs'),
   read('packages/dsh-presentation-protocol/src/stage-light.cjs'),read('shared/stage-look-math.cjs'),read('src/client/gal-looks.js'),
   '({neutral:stageLookMath.galLookMatrix(stageLookMath.galLookNormalize({})),identity:galMatrix.identity(),clamp:galClamp01(2)})'
  ].join('\n'),context)

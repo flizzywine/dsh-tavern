@@ -10,6 +10,7 @@ import { normalizeConfiguredBackgroundTasks, normalizePlayDefaults } from './tav
 import { ensureSessionSeedTrajectory } from './session-seed-trajectory.js'
 import { defaultUserPreferenceProfile } from './user-preference-profile.js'
 import { replyProse } from './reply-prose.js'
+import { createSessionOpeningChanges } from './session-opening.js'
 
 function str(value) { return value === undefined || value === null ? '' : String(value) }
 function groupOfMode(mode) { return !mode || mode === 'story' || mode === 'script' ? 'play' : 'card' }
@@ -33,6 +34,8 @@ export function createConversationInitialization(options) {
     pending.set(key, operation)
     return operation.finally(function () { if (pending.get(key) === operation) pending.delete(key) })
   }
+
+  const opening = createSessionOpeningChanges({ chats, cards, native, scriptContinuity, serialize })
 
   function newChat(card, mode) {
     const chatMode = mode === 'card' ? 'card' : (mode === 'script' ? 'script' : 'story')
@@ -85,16 +88,28 @@ export function createConversationInitialization(options) {
 
   async function initialize({ cardPath, sessionId, mode, openingId, userName, requestMode, preparation, cardTask, importDraft = false }) {
     if (requestMode === 'sillytavern') throw new Error('silly 模式已停用')
-    const currentSettings = await trace.stage('settings', () => settings())
-    let defaults = normalizePlayDefaults(currentSettings.defaultPlaySettings)
     const requestedMode = mode === 'card' || mode === 'revision' || mode === 'extract' ? 'card' : (mode === 'script' ? 'script' : (mode === 'story' ? 'story' : null))
-    const card = str(cardPath) === '' && requestedMode === 'card' ? null : await trace.stage('card', () => cards.read(cardPath))
+    const withoutCard = str(cardPath) === '' && requestedMode === 'card'
+    // These inputs only depend on the requested path, not on one another. Starting
+    // them together matters on mobile storage, where serial reads dominate creation.
+    const cardRead = withoutCard ? Promise.resolve(null) : trace.stage('card', () => cards.read(cardPath))
+    // Extension discovery reads the same workspace. Let the card read finish any
+    // legacy migration first instead of racing a second migration of the same file.
+    const extensionsRead = requestedMode === 'card' ? Promise.resolve(null)
+      : cardRead.then(() => trace.stage('extensions', () => cards.extensions(cardPath)))
+    const [currentSettings, card, cardDefaults, script, openingExtensions] = await Promise.all([
+      trace.stage('settings', () => settings()),
+      cardRead,
+      !withoutCard && typeof cards.startDefaults === 'function'
+        ? trace.stage('cardDefaults', () => cards.startDefaults(cardPath).catch(() => null)) : Promise.resolve(null),
+      withoutCard ? Promise.resolve(undefined) : trace.stage('script', () => cards.script(cardPath)),
+      extensionsRead
+    ])
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
+    let defaults = normalizePlayDefaults(currentSettings.defaultPlaySettings)
     // A DSH card may suggest a preset and a few settings for its new games; the player's global defaults fill the rest.
-    const cardDefaults = card !== null && typeof cards.startDefaults === 'function' ? await trace.stage('cardDefaults', () => cards.startDefaults(cardPath).catch(() => null)) : null
     if (cardDefaults?.settings) defaults = normalizePlayDefaults({ ...defaults, ...cardDefaults.settings, backgroundTasks: { ...defaults.backgroundTasks, ...(cardDefaults.settings.backgroundTasks || {}) } })
     // 游玩模式内部仍是 story/script 两类：人物卡已绑定剧本时必须走剧本（script）。
-    const script = card === null ? undefined : await trace.stage('script', () => cards.script(cardPath))
     const hasScript = script !== undefined && Array.isArray(script.chunks) && script.chunks.length > 0
     let chatMode = requestedMode
     if (chatMode === null || mode === 'play') chatMode = hasScript ? 'script' : 'story'
@@ -108,7 +123,7 @@ export function createConversationInitialization(options) {
         return await trace.stage('reopen', async () => {
           if (groupOfMode(current.mode) === 'play') await snapshots.ensure(current, card)
           await appendNativeOpening(sessionId, current, card, undefined, true)
-          return await present(current, card)
+          return await present(await opening.recover(current), card)
         })
       }
     }
@@ -124,7 +139,7 @@ export function createConversationInitialization(options) {
       : cardDefaults?.presetPath ? await trace.stage('preset', () => presets.fullSnapshot(cardDefaults.presetPath).catch(() => playPresetSnapshot())) : await trace.stage('preset', () => playPresetSnapshot())
     // The card workbench opens empty: no greeting is shown or sent to the model.
     let openingSourceText = chatMode === 'card' ? '' : resolveCardOpening(card, openingId)
-    const openingExtensions = chatMode === 'card' ? null : await trace.stage('extensions', () => cards.extensions(cardPath))
+    // Card workbenches skip opening extensions in the initial read above.
     const openingChoices = chatMode === 'card' ? [] : cardOpeningChoices(card)
     const selectedOpeningIndex = str(openingId) === '' ? 0 : Math.max(0, openingChoices.findIndex(function (choice) { return choice.id === str(openingId) }))
     const usesMvu = chatMode !== 'card' && (
@@ -158,7 +173,9 @@ export function createConversationInitialization(options) {
     // nothing is shown or sent. The greeting floor stays only to own the opening variables; its one
     // blank character keeps the native opening structure, which the chat and provider requests skip.
     const formOpening = Boolean(openingExtensions?.openingSetup) && openingProjection.sessionText !== ''
-    const greeting = formOpening ? '\u3000' : openingProjection.sessionText
+    // Keep an anchor in the DSH transcript for a selectable blank greeting.
+    const greeting = formOpening || (openingChoices.length > 1 && openingProjection.sessionText === '')
+      ? '\u3000' : openingProjection.sessionText
     // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
     const openingTarget = typeof sessionId === 'string' && sessionId !== '' ? await trace.stage('waitSession', () => native.wait(sessionId)) : undefined
@@ -221,6 +238,7 @@ export function createConversationInitialization(options) {
       stagePageVersion: 2,
       ts: now(),
       greeting: true,
+      ...(!formOpening && openingChoices[selectedOpeningIndex] ? { openingChoiceId: openingChoices[selectedOpeningIndex].id } : {}),
       turn: 1
     }, usesMvu !== true ? {} : {
       swipeId: selectedOpeningIndex,
@@ -283,7 +301,10 @@ export function createConversationInitialization(options) {
     if (openingTarget && defaultModel) await trace.stage('selectModel', () => native.selectModel(openingTarget, defaultModel))
     await trace.stage('publish', () => chats.publish(chat))
     if (hasSession) await trace.stage('nativeAppend', () => appendNativeOpening(sessionId, chat, card, openingTarget))
-    return await trace.stage('present', () => present(chat, card, preparedBook === undefined ? undefined : { worldBook: preparedBook, freshSnapshot: true }))
+    // Match the client's first getSession resource contract. The startChat view
+    // can then seed Helper iframes without a second RPC just for resource handles.
+    return await trace.stage('present', () => present(chat, card, preparedBook === undefined
+      ? { deferResources: true } : { worldBook: preparedBook, freshSnapshot: true, deferResources: true }))
   }
 
 
@@ -348,33 +369,44 @@ export function createConversationInitialization(options) {
     const text = openingText(chat, card)
     const target = readyTarget || await native.wait(sessionId)
     if (groupOfMode(chat.mode) === 'play' && chat.requestMode !== 'sillytavern') {
-      await native.ensurePrefix(target.session, await snapshots.ensure(chat, card))
-      await ensureSessionSeedTrajectory(target.session)
-      await native.flush(target.session)
+      const prefix = await trace.stage('nativeSnapshot', () => snapshots.ensure(chat, card))
+      await trace.stage('nativePrefix', () => native.ensurePrefix(target.session, prefix))
+      await trace.stage('nativeSeed', () => ensureSessionSeedTrajectory(target.session))
+      await trace.stage('nativeFlush', () => native.flush(target.session))
     }
     if (groupOfMode(chat.mode) === 'card') {
-      await native.ensurePrefix(target.session, await snapshots.ensure(chat, card))
+      const prefix = await trace.stage('nativeSnapshot', () => snapshots.ensure(chat, card))
+      await trace.stage('nativePrefix', () => native.ensurePrefix(target.session, prefix))
       // A card-edit session mirrors the play session's prefix (prompt cache); the plain
       // workbench needs no scripted exchange: its role comes from the system prompt.
-      if (chat.cardEditContext?.version === 1) await ensureSessionSeedTrajectory(target.session)
-      if (chat.cardEditContext?.version === 1) await native.ensureCardWorkspace(target.session, chat)
-      await native.flush(target.session)
+      if (chat.cardEditContext?.version === 1) await trace.stage('nativeSeed', () => ensureSessionSeedTrajectory(target.session))
+      if (chat.cardEditContext?.version === 1) await trace.stage('nativeCardWorkspace', () => native.ensureCardWorkspace(target.session, chat))
+      await trace.stage('nativeFlush', () => native.flush(target.session))
     }
     if (text !== '') {
       if (target.agent === undefined) logger.warn('dsh-tavern: Agent 尚未注册，直接使用已绑定 Session 写入开场白', { sessionId })
       appendOpeningEvents(target.session, chat, text, recovering)
       if (target.agent?.phase?.kind === 'idle') target.agent.phase.lastTurn = Math.max(Number(target.agent.phase.lastTurn) || 0, 1)
-      await native.flush(target.session)
+      await trace.stage('nativeFlush', () => native.flush(target.session))
     } else {
       // No greeting fills the reserved opening turn, so close it here and publish it as
       // used: the Agent numbers its next turn from the turn it can read, so it continues
       // after the reserved one instead of colliding with a turn left open.
       releaseOpeningTurn(target.session, target.agent)
-      await native.flush(target.session)
+      await trace.stage('nativeFlush', () => native.flush(target.session))
     }
-    // Publish the marker in memory only after durable save succeeds.
+    // Publish the marker in memory only after durable save succeeds. This is one
+    // header field, not another whole-Chat clone/diff on a phone. Legacy adapters
+    // retain their original full-write recovery contract.
+    if (typeof chats.writeHeader === 'function') {
+      const saved = await trace.stage('nativeMarker', () => chats.writeHeader(chat))
+      chat.nativeOpeningAppended = true
+      if (Number.isSafeInteger(saved?._storageRevision)) chat._storageRevision = saved._storageRevision
+      if (Number.isFinite(saved?.updatedAt)) chat.updatedAt = saved.updatedAt
+      return
+    }
     const draft = Object.assign({}, chat, { nativeOpeningAppended: true })
-    const saved = await chats.write(draft, { source: 'opening.native-append' })
+    const saved = await trace.stage('nativeMarker', () => chats.write(draft, { source: 'opening.native-append' }))
     const committed = saved && typeof saved === 'object' ? saved : draft
     for (const field of Object.keys(chat)) if (!Object.hasOwn(committed, field)) delete chat[field]
     Object.assign(chat, committed)
@@ -385,12 +417,16 @@ export function createConversationInitialization(options) {
     if (chat === undefined) return null
     const card = (chat.mode || 'story') === 'card' && str(chat.cardPath) === '' ? null : await cards.readChat(chat)
     await appendNativeOpening(sessionId, chat, card, undefined, true)
-    return await present(chat, card)
+    const synced = await opening.recover(chat)
+    return await present(synced, card)
   }
 
   return Object.freeze({
     start: input => serialize(input.sessionId, () => initialize(input)),
     prepareImport: input => serialize(input.sessionId, () => initialize({ ...input, mode: 'play', requestMode: 'dsh', importDraft: true })),
-    ensureOpening: sessionId => serialize(sessionId, () => recover(sessionId))
+    ensureOpening: sessionId => serialize(sessionId, () => recover(sessionId)),
+    switchOpening: opening.switchOpening,
+    setPlayerName: opening.setPlayerName,
+    openingRequest: opening.request
   })
 }

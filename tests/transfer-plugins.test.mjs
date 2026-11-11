@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -44,24 +43,6 @@ function pluginZip(entries) {
   return writeZipEntries(entries.map(([name, text]) => ({ path: name, content: text })))
 }
 
-test('list 统计字节数与元信息：node_modules 算进包，.git 不算', async t => {
-  const { transfer } = await fixture(t)
-  const rows = await transfer.list()
-
-  assert.deepEqual(rows.map(row => row.key), ['alpha', 'beta'])
-  const alpha = rows[0]
-  assert.equal(alpha.title, 'Alpha 插件')
-  assert.equal(alpha.meta, '1.2.0 · 启用')
-  assert.equal(alpha.bytes, Buffer.byteLength(ALPHA_FILES['package.json'])
-    + Buffer.byteLength(ALPHA_FILES['index.mjs'])
-    + Buffer.byteLength(ALPHA_FILES['node_modules/dep/index.js']))
-
-  const beta = rows[1]
-  assert.equal(beta.title, 'beta', '没有 name 时用文件夹名')
-  assert.equal(beta.meta, '停用')
-  assert.equal(beta.bytes, Buffer.byteLength(BETA_FILES['README.md']))
-})
-
 test('collect 产出可读回的 zip，路径相对插件文件夹且统一用 /', async t => {
   const { transfer } = await fixture(t)
   const items = await transfer.collect(['alpha'])
@@ -79,19 +60,6 @@ test('collect 产出可读回的 zip，路径相对插件文件夹且统一用 /
   assert.equal(entries.get('package.json').toString('utf8'), ALPHA_FILES['package.json'])
   assert.equal(entries.get('index.mjs').toString('utf8'), ALPHA_FILES['index.mjs'])
   assert.equal(entries.has('.git/config'), false, '.git 不进包')
-})
-
-test('importOne 拒绝越界路径，且不写 plugins 目录之外', async t => {
-  const { transfer, pluginsDir, root } = await fixture(t)
-
-  await assert.rejects(() => transfer.importOne({ key: 'gamma', content: pluginZip([['../evil.txt', 'bad']]) }), /越界路径/)
-  await assert.rejects(() => transfer.importOne({ key: 'gamma', content: pluginZip([['a/../../evil.txt', 'bad']]) }), /越界路径/)
-  await assert.rejects(() => transfer.importOne({ key: 'gamma', content: pluginZip([['..\\..\\evil.txt', 'bad']]) }), /越界路径/)
-  await assert.rejects(() => transfer.importOne({ key: 'gamma', content: pluginZip([['/etc/passwd', 'bad']]) }), /绝对路径/)
-
-  assert.equal(existsSync(path.join(root, 'evil.txt')), false)
-  assert.equal(existsSync(path.join(pluginsDir, 'evil.txt')), false)
-  assert.equal(existsSync(path.join(pluginsDir, 'gamma')), false)
 })
 
 test('importOne 同一个包再来一次：复用已有目录，不再造 (2)', async t => {

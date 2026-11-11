@@ -1,4 +1,4 @@
-import { existsSync, watch } from 'node:fs'
+import { existsSync, readFileSync, watch } from 'node:fs'
 import { lstat, mkdir, readdir, readFile, realpath, writeFile, rename } from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -60,6 +60,25 @@ export async function apply(ctx, config) {
 `
 }
 
+// The profile Tavern actually runs in. Usually profiles/tavern, but dsh-go stacks Tavern onto its
+// own web profile, and an older desktop install had it directly in profiles/desktop. Ask the manifest
+// instead of guessing from the host name: a patch written to a profile none of whose bundles includes
+// Tavern never loads, and the plugin looks installed while doing nothing.
+function profileRunningTavern(profiles, read = readFileSync) {
+  for (const name of ['tavern', 'web', 'desktop']) {
+    const dir = path.join(profiles, name)
+    let manifest
+    try {
+      manifest = JSON.parse(read(path.join(dir, 'package.json'), 'utf8'))
+    } catch {
+      continue
+    }
+    const bundles = manifest?.dsh?.profile?.bundles
+    if (Array.isArray(bundles) && bundles.includes('dsh-tavern-plugin')) return dir
+  }
+  return null
+}
+
 export function userPluginPaths(dataRoot, dshHome = path.resolve(dataRoot, '../../..'), host = process.env.DSH_TAVERN_RUNTIME_HOST || (process.versions.electron ? 'desktop' : 'cli')) {
   const profiles = path.join(path.resolve(dshHome), 'profiles')
   // Tavern runs from profiles/tavern; the desktop app reaches it through a profiles/desktop link.
@@ -67,7 +86,7 @@ export function userPluginPaths(dataRoot, dshHome = path.resolve(dataRoot, '../.
   // its own, writing to desktop would load Tavern plugins into the original DSH instead. Only an
   // older desktop install with Tavern directly in profiles/desktop has no tavern profile.
   const tavern = path.join(profiles, 'tavern')
-  const profile = host !== 'desktop' || existsSync(path.join(tavern, 'package.json')) ? tavern : path.join(profiles, 'desktop')
+  const profile = profileRunningTavern(profiles) ?? (host !== 'desktop' || existsSync(path.join(tavern, 'package.json')) ? tavern : path.join(profiles, 'desktop'))
   return { plugins: path.join(path.resolve(dataRoot), 'plugins'), profile }
 }
 

@@ -88,21 +88,6 @@ async function harness({ beginRunning = true, mvu = true } = {}) {
   return { tasks, timeline, store, running, body, sandbox, history, onReady, reconciler, get: () => structuredClone(current) }
 }
 
-test('non-MVU settlement binds session before first response so interruption can reuse it', async () => {
-  const h = await harness({ beginRunning: false, mvu: false });
-  let bound = false;
-  h.sandbox.backgroundAgentRunner.run = async input => {
-    await input.onPersistentSessionReady('background-first-interrupted');
-    bound = true;
-    throw new Error('first request interrupted before response');
-  };
-  await h.sandbox.queueSettlement('chat');
-  assert.equal(bound, true);
-  const restarted = createBackgroundTaskCoordinator({ timeline: h.timeline, store: h.store });
-  const next = await restarted.begin(h.get(), 'candidate');
-  assert.equal(next.participantRequest.sessionId, 'background-first-interrupted');
-});
-
 test('旧版安全挂起任务离线时保留提交，不丢弃为失败', async () => {
   const run = await harness()
   await run.running.defer({ apply(chat) { chat.messages[1].mvu.pendingSubmission = { operations: [] } } })
@@ -203,26 +188,6 @@ for (const recovery of ['自动恢复', '手动重新投递']) test('正式模�
   await assert.rejects(adapter.updateMessages('session', [{ message_id: 1, data: { stat_data: { hp: 8 } } }], 0, offer.event.id), { code: 'MVU_SETTLEMENT_EVENT_MISMATCH' })
   assert.equal(run.get().messages[1].variables[0].stat_data.hp, 9)
   run.reconciler.dispose()
-})
-
-test('接续刚创建新 operation 再次崩溃，仍能从原持久任务恢复', async () => {
-  const run = await harness()
-  await run.running.checkpoint(chat => {
-    chat.messages[1].mvu.pendingSubmission = { operations: [] }
-    chat.messages[1].mvu.delivery = { version: 1, operationId: run.running.operationId,
-      branchId: run.running.basedOn.branchId, revision: run.running.basedOn.revision, lifecycleRevision: 0, swipeId: 0 }
-  })
-  await run.tasks.recover(run.get())
-  const resumed = await run.tasks.begin(run.get(), 'settlement')
-  assert.notEqual(resumed.operationId, run.running.operationId)
-  await run.tasks.recover(run.get())
-  assert.equal(run.tasks.activity(run.get()).phase, 'pending')
-  const target = run.get()
-  target.tavernHelperLifecycleRevision = 1
-  await run.store.writeChat(target)
-  await run.tasks.begin(run.get(), 'settlement')
-  await run.tasks.recover(run.get())
-  assert.equal(run.tasks.activity(run.get()).phase, 'failed', 'changed target cannot reuse the old task')
 })
 
 for (const stage of ['read']) test(`销毁期间结束的 ${stage} 不能再启动后台结算`, async () => {

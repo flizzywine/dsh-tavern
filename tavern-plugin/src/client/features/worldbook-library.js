@@ -34,26 +34,20 @@
 		}
 
 		const WORLD_BOOK_RECALL_STEPS = [
-			{ icon: "📌", title: "常驻条目始终生效", body: "开启“常驻”的条目不看关键词、不占预算。内容固定的放进稳定前缀以提高缓存命中；含随机、分组或模板的每轮重新渲染。" },
-			{ icon: "🔑", title: "关键词匹配", body: "扫描本轮输入和最近一条 AI 正文（默认 2 条消息，可按世界书或条目调整）。命中任一主关键词即成为候选；开启次关键词时再按“任一 / 不全部 / 全部不 / 全部”判断。默认不区分大小写，支持 /正则/。" },
-			{ icon: "🧠", title: "智能筛选", body: "候选超过 5 条或约 2000 Token 时，后台模型会挑出与当前剧情真正相关的条目；候选特别多（超过 20 条或约 8000 Token）时先用 BM25 词频粗筛。" },
-			{ icon: "⚖️", title: "排序与预算", body: "按条目的“排序”值从大到小入选，共用估算 Token 软预算（默认 8192，中文约每字 1 Token）。预算用完后，本轮不再加入更多条目。" },
-			{ icon: "⏳", title: "10 回合冷却", body: "注入过的非常驻条目，之后 10 个剧情回合内不再自动召回，避免同一设定反复占用上下文；条目正文修改后冷却立即解除。" },
-			{ icon: "🔍", title: "主动检索补查", body: "自动召回之外，正文 Agent 和后台任务（候选、结算、人物设计）可以主动搜索当前世界书：先按关键词查到条目标题和片段（标题匹配优先），再按编号读取完整正文。补查不受关键词条件、冷却和预算裁剪限制，也不会触发冷却；前台本轮读过的条目会交给后台任务参考。" }
+			{ icon: "📌", title: "常驻条目直接加入上下文", body: "启用的静态常驻条目每轮都生效，正文放在上下文的稳定前缀，无需匹配关键词。" },
+			{ icon: "🔑", title: "非常驻条目按关键词提示名称", body: "系统用本轮输入和近期对话匹配条目配置的关键词，把命中的静态非常驻条目名称放进上下文，供 Agent 参考。" },
+			{ icon: "🔍", title: "Agent 按需检索正文", body: "Agent 自行决定要查哪些资料，可以用提示的条目名称，也可以用剧情里的其他线索搜索本局世界书。搜索返回文件路径和匹配片段，Agent 按路径读取需要的正文。" }
 		];
 		const WORLD_BOOK_RECALL_NOTES = [
 			"人物卡绑定的世界书与全局世界书合并使用，同一本书只加载一次。",
-			"条目的“位置”只用于分组排序，暂不映射到酒馆的精确消息深度。",
-			"酒馆的粘性、延迟、概率字段由冷却机制代替，字段本身原样保留。",
-			"MVU 变量更新规则条目、已禁用和空正文的条目不参与召回，也搜不到。",
-			"主动检索是词面搜索，只能搜到条目的静态正文；完全由模板动态生成的内容可改用条目标题或主关键词查找。"
+			"含模板或脚本的条目按运行时规则处理。可检索的动态条目使用最近一次渲染的快照。"
 		];
 		function WorldBookRecallGuide() {
 			const h = React.createElement;
 			return h("details", { className: "dsh-tavern-help dsh-tavern-recall-guide" },
 				h("summary", null,
 					h("span", { className: "dsh-tavern-recall-guide-icon", "aria-hidden": "true" }, "📖"),
-					h("span", { className: "dsh-tavern-recall-guide-heading" }, h("strong", null, "世界书如何召回"), h("span", null, "每轮自动挑选与剧情相关的条目放进上下文"))),
+					h("span", { className: "dsh-tavern-recall-guide-heading" }, h("strong", null, "世界书如何召回"), h("span", null, "常驻正文自动加入，其他资料由 Agent 按需检索"))),
 				h("ol", { className: "dsh-tavern-recall-steps" }, WORLD_BOOK_RECALL_STEPS.map(function (step, index) {
 					return h("li", { key: step.title },
 						h("span", { className: "dsh-tavern-recall-step-mark", "aria-hidden": "true" }, step.icon),
@@ -105,7 +99,7 @@
 				setEntryOpen(ref, true);
 				const entries = (draft.entries || []).concat([{
 					ref: ref, comment: "新条目", title: "新条目", content: "", enabled: true,
-					primaryKeys: [], secondaryKeys: [], constant: false, selective: false, selectiveLogic: 0, order: 100,
+					primaryKeys: [], secondaryKeys: [], constant: false, channelInherited: true, selective: false, selectiveLogic: 0, order: 100,
 					position: initial.format === "sillytavern-worldbook" ? 0 : "after_char", depth: 4, role: 0,
 					probabilityEnabled: true, probability: 100, caseSensitive: false, matchWholeWords: false,
 				}]);
@@ -118,7 +112,7 @@
 				editDraft(Object.assign({}, draft, { entries: (draft.entries || []).filter(function (_entry, itemIndex) { return itemIndex !== index; }) }));
 			}
 			function entryPatch(entry) {
-				return {
+				const patch = {
 					comment: entry.comment, content: entry.content, enabled: entry.enabled, primaryKeys: entry.primaryKeys,
 					secondaryKeys: entry.secondaryKeys, constant: entry.constant, selective: entry.selective,
 					selectiveLogic: entry.selectiveLogic, vectorized: entry.vectorized, order: entry.order,
@@ -128,6 +122,49 @@
 					excludeRecursion: entry.excludeRecursion, preventRecursion: entry.preventRecursion, group: entry.group,
 					groupOverride: entry.groupOverride, groupWeight: entry.groupWeight, useGroupScoring: entry.useGroupScoring, delayUntilRecursion: entry.delayUntilRecursion,
 				};
+				// An entry only owns a channel once someone overrides it here; otherwise it
+				// follows the book-wide default and this patch must not freeze a copy.
+				// Clearing an explicit channel has to write 'auto' so the key really goes away.
+				if (entry.channelInherited !== true || entry.channelCleared === true) patch.channel = channelOf(entry);
+				return patch;
+			}
+			const CHANNEL_OPTIONS = [
+				{ value: "auto", label: "自动" },
+				{ value: "prefix", label: "稳定前缀" },
+				{ value: "tail", label: "每轮尾部" },
+			];
+			const CHANNEL_LABELS = { auto: "自动", prefix: "稳定前缀", tail: "每轮尾部" };
+			const CHANNEL_INHERIT = "";
+			const CHANNEL_HINTS = {
+				auto: "自动：常驻且内容不变的进稳定前缀；会变、带模板或随机、或非常驻的进每轮尾部。",
+				prefix: "稳定前缀：固定设定放这里最省 token，改一次才重建一次；含模板或随机的条目仍走每轮尾部。",
+				tail: "每轮尾部：每轮都贴着最新消息出现，注意力最高；不看触发词、不吃冷却，但同样计入 Token 预算。",
+			};
+			function channelOf(entry) { const value = String(entry && entry.channel || "auto"); return CHANNEL_HINTS[value] ? value : "auto"; }
+			function bookChannel() { const value = String(draft.channel || "auto"); return CHANNEL_LABELS[value] ? value : "auto"; }
+			function channelSelect(entry, index) {
+				const inherited = entry.channelInherited !== false;
+				const options = [{ value: CHANNEL_INHERIT, label: "跟随整本（" + CHANNEL_LABELS[bookChannel()] + "）" }].concat(CHANNEL_OPTIONS);
+				return h("select", {
+					"aria-label": "注入通道",
+					value: inherited ? CHANNEL_INHERIT : channelOf(entry),
+					onChange: function (event) {
+						const next = event.target.value;
+						if (next === CHANNEL_INHERIT) updateEntry(index, { channel: "auto", channelInherited: true, channelCleared: true });
+						else updateEntry(index, { channel: next, channelInherited: false, channelCleared: false });
+					}
+				}, options.map(function (option) { return h("option", { key: option.value || "inherit", value: option.value }, option.label); }));
+			}
+			// One switch for the whole book: it moves the default and stamps every entry in
+			// the draft, so one save changes the book outright. Any entry can still be
+			// switched to 跟随整本 or to a different channel afterwards.
+			function applyBookChannel(value) {
+				editDraft(Object.assign({}, draft, {
+					channel: value,
+					entries: (draft.entries || []).map(function (entry) {
+						return Object.assign({}, entry, { channel: value, channelInherited: false, channelCleared: false });
+					})
+				}));
 			}
 			async function save() {
 				setBusy(true); setError("");
@@ -147,6 +184,7 @@
 					if (draft.tokenBudget !== initial.tokenBudget) update.tokenBudget = draft.tokenBudget;
 					if (draft.scanDepth !== initial.scanDepth) update.scanDepth = draft.scanDepth;
 					if (draft.recursiveScanning !== initial.recursiveScanning) update.recursiveScanning = draft.recursiveScanning;
+					if (bookChannel() !== (CHANNEL_LABELS[String(initial.channel || "auto")] ? String(initial.channel) : "auto")) update.channel = bookChannel();
 					const result = await rpc("updateWorldBook", { source: props.record.source, update: update }, props.sessionId);
 					props.onSaved(result); notifyTavernDataChanged(["worldbooks", "cards"], "worldbooks");
 				} catch (err) { setError(String(err && err.message || err)); }
@@ -183,6 +221,8 @@
 
                         h("details", null, h("summary", null, "激活规则"),
                           h("p", { className: "dsh-tavern-card-field-hint" }, "扫描当前输入和最近消息；非常驻条目共用估算 Token 软预算，沿用 10 轮冷却。排序越大越优先入选，同一位置内排序越小越靠前。位置用于分组编排，暂不映射到 ST 的精确消息锚点。"),
+                          h("div", { className: "dsh-tavern-card-field" }, h("label", null, "注入通道"), channelSelect(entry, index),
+                            h("span", { className: "dsh-tavern-card-field-hint" }, (entry.channelInherited === false ? "" : "跟随整本默认（" + CHANNEL_LABELS[bookChannel()] + "）。") + CHANNEL_HINTS[channelOf(entry)])),
                           h("div", { className: "dsh-tavern-worldbook-grid" },
                             h("label", null, "扫描消息数（留空跟随世界书）", h("input", { type: "number", min: 0, max: 1000, value: entry.scanDepth ?? "", onChange: function (event) { updateEntry(index, { scanDepth: event.target.value === "" ? null : numeric(event.target.value, 2) }); } })),
                             h("label", null, "二级条件逻辑", h("select", { value: entry.selectiveLogic || 0, onChange: function (event) { updateEntry(index, { selectiveLogic: Number(event.target.value) }); } }, ["至少一个命中", "不全部命中", "全部不命中", "全部命中"].map(function (label, value) { return h("option", { key: value, value: value }, label); }))),
@@ -230,6 +270,12 @@
 					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "世界书名称"), h("input", { value: draft.displayName || "", onChange: function (event) { editDraft(Object.assign({}, draft, { displayName: event.target.value })); } })),
 					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "说明"), h("textarea", { value: draft.description || "", onChange: function (event) { editDraft(Object.assign({}, draft, { description: event.target.value })); } })),
                     h("div", { className: "dsh-tavern-worldbook-summary" }, draft.entries.length + " 个条目 · " + draft.entries.filter(function (entry) { return entry.enabled !== false; }).length + " 个启用"),
+					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "整本注入通道"),
+						h("div", { className: "dsh-tavern-worldbook-checks" }, CHANNEL_OPTIONS.map(function (option) {
+							const active = bookChannel() === option.value;
+							return h("button", { key: option.value, type: "button", className: "dsh-tavern-worldbook-kind" + (active ? " is-active" : ""), "aria-pressed": active, onClick: function () { applyBookChannel(option.value); } }, option.label);
+						})),
+						h("span", { className: "dsh-tavern-card-field-hint" }, "一键把全部 " + draft.entries.length + " 个条目设为该通道，同时作为整本默认（之后新增的条目自动跟随）；设完还能在条目里单独改成别的通道。当前默认：" + CHANNEL_LABELS[bookChannel()] + "。固定设定用稳定前缀，随时会切换、需要更高注意力的用每轮尾部。")),
 					(initial.diagnostics || []).map(function (item, index) { return h("div", { key: index, className: "dsh-tavern-dock-error" }, item.message); }),
 					h("div", { className: "dsh-tavern-worldbook-head" }, h("span", { className: "dsh-tavern-worldbook-title" }, "条目"), h("button", { className: "dsh-tavern-worldbook-add", onClick: addEntry }, "＋ 新增条目")),
 					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "搜索条目"), h("input", { type: "search", value: query, placeholder: "搜索标题、正文或触发词", onChange: function (event) { setQuery(event.target.value); } }), h("span", null, "匹配 " + (entryGroups.constant.length + entryGroups.dynamic.length + entryGroups.background.length) + " / " + draft.entries.length + " 条")),
@@ -243,12 +289,18 @@
 		}
 		function WorldBookLibraryTab(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
-			const [catalog, setCatalog] = React.useState(null);
+			// 世界书库列表与会话无关（库文件 + 全局生效标记）。把上一次结果放在 window 上跨面板实例复用：
+			// 重开面板或切换会话先直接渲染，再后台刷新，不必再等一次空加载。
+			const initialCatalog = (function () {
+				try { const cached = window.__dshTavernWorldBookCatalog; return cached && typeof cached === "object" ? cached : null; }
+				catch (_) { return null; }
+			})();
+			const [catalog, setCatalog] = React.useState(initialCatalog);
 			const [catalogWarning, setCatalogWarning] = React.useState("");
 			const [record, setRecord] = React.useState(null);
 			const [associations, setAssociations] = React.useState(null);
 			const [selectedCardPath, setSelectedCardPath] = React.useState("");
-			const [loading, setLoading] = React.useState(true);
+			const [loading, setLoading] = React.useState(!initialCatalog);
 			const [recordLoading, setRecordLoading] = React.useState(false);
 			const [busy, setBusy] = React.useState(false);
 			const [bindingBusy, setBindingBusy] = React.useState(false);
@@ -271,7 +323,7 @@
 			const h = React.createElement;
 			if (!refreshModule.current) refreshModule.current = createWorldBookLibraryRefreshModule({
 				load: function () { return rpcWithTimeout("listWorldBooks", {}, props.scope.sessionId); },
-				onValue: function (result) { setCatalog(result || { standalone: [], embedded: [] }); setCatalogWarning(worldBookCatalogDiagnostic(result)); },
+				onValue: function (result) { const next = result || { standalone: [], embedded: [] }; try { window.__dshTavernWorldBookCatalog = next; } catch (_) {} setCatalog(next); setCatalogWarning(worldBookCatalogDiagnostic(result)); },
 				onError: function (err) { setError(String(err && err.message || err)); },
 				onBusyChange: setLoading
 			});
@@ -318,7 +370,10 @@
 				if (!record) return listed;
 				if (draftDirty.current) { setRecordStale(true); return listed; }
 				const source = record.source;
-				return Promise.all([listed, rpcWithTimeout("getWorldBook", { source: source }, props.scope.sessionId).then(function (result) {
+				// 书没改就只回一个空壳：切会话、重开面板不再把整本文档取回来再解析一遍。
+				const ifRevision = record.revision === undefined ? null : record.revision;
+				return Promise.all([listed, rpcWithTimeout("getWorldBook", { source: source, ifRevision: ifRevision }, props.scope.sessionId).then(function (result) {
+					if (result && result.unchanged === true) return;
 					setRecord(function (current) { return current && JSON.stringify(current.source) === JSON.stringify(source) && !draftDirty.current ? result : current; });
 				}, function () {})]);
 			}

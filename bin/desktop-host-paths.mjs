@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
+import { desktopResourceHostAnchors, desktopResourcesFromAnchor } from '../tavern-plugin/lib/domain/host-package-resolution.js'
 
 // 0.2.0-rc.2 适配：桌面把宿主 @deepseek-ai/* 全部打进了 app.asar
 // （app.asar/dsh/node_modules，289 个包），app.asar.unpacked 下只剩 4 个原生/受保护包。
@@ -55,7 +56,7 @@ export function isAsarPath(value) {
 // Desktop packaging can move dependencies between app and app.asar.unpacked.
 // A stale junction still identifies the selected installation; inspect its
 // target without requiring the missing package to resolve first.
-export function desktopHostAnchors(anchor) {
+export function desktopHostAnchors(anchor, { next = false } = {}) {
   const anchors = new Set([anchor])
   const require = createRequire(anchor)
   try { anchors.add(realpathSync(require.resolve('@deepseek-ai/dsh-agent'))) } catch {}
@@ -67,14 +68,9 @@ export function desktopHostAnchors(anchor) {
     } catch {}
   }
   for (const candidate of [...anchors]) {
-    const match = /^(.*[\\/]resources[\\/])(?:app|app\.asar|app\.asar\.unpacked)(?:[\\/]|$)/.exec(candidate)
-    if (!match) continue
-    anchors.add(path.join(match[1], 'app', 'package.json'))
-    anchors.add(path.join(match[1], 'app.asar.unpacked', 'package.json'))
-    // 0.2.0 布局：宿主包在 <resources>\app.asar\dsh\node_modules 内（Electron 模式），
-    // 受保护/原生包在 <resources>\app.asar.unpacked\dsh\node_modules 内（纯 Node 可读）。
-    anchors.add(path.join(match[1], 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-agent', 'package.json'))
-    anchors.add(path.join(match[1], 'app.asar.unpacked', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-agent', 'package.json'))
+    const resources = desktopResourcesFromAnchor(candidate)
+    if (!resources) continue
+    for (const { anchor } of desktopResourceHostAnchors(resources, { next })) anchors.add(anchor)
   }
   return [...anchors]
 }

@@ -24,11 +24,21 @@ const CHANGE_WINDOW=64
 // logical workers bounded too, and install results in the original order.
 // Message lists go newest first: maintenance lays a head's blocks out in that order
 // and older floors mostly reuse subtrees the newer ones already decoded.
-async function mapRead(values,read,newestFirst=false){
+export async function mapRead(values,read,newestFirst=false){
  const result=new Array(values.length)
- let next=0
+ let next=0,completed=0,lastYield=performance.now()
  await Promise.all(Array.from({length:Math.min(8,values.length)},async()=>{
-  while(next<values.length){const index=newestFirst?values.length-1-next++:next++;result[index]=await read(values[index])}
+  while(next<values.length){
+   const index=newestFirst?values.length-1-next++:next++
+   result[index]=await read(values[index])
+   completed++
+   // Cached decodes resolve as microtasks too. Without a macrotask boundary a large
+   // full Chat can starve every unrelated RPC even though each individual read awaits.
+   if(completed%16===0&&completed<values.length&&performance.now()-lastYield>=8){
+    await new Promise(resolve=>setImmediate(resolve))
+    lastYield=performance.now()
+   }
+  }
  }))
  return result
 }
@@ -45,24 +55,37 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  const domain=createConversationState({store:pages})
  const summaryCache=new Map(),summaryLoads=new Map()
  let summaryBytes=0
+ async function completeTailSummary(summary,runtimeRef,t){
+  const row=summary.message
+  // Older page summaries lack the incomplete flag. Only the tail assistant
+  // can be a cleanup target, so read just its missing metadata from the row.
+  if(row?.role==='assistant'&&row.greeting!==true&&!Object.hasOwn(row,'incomplete')){
+   const cleanup=await t.getFields(runtimeRef,['/incomplete','/messageUid','/nativeAnchor/turn'])
+   return {...summary,message:{...row,...cleanup}}
+  }
+  return summary
+ }
  async function sessionSummaries(id,view){
   const key=JSON.stringify([id,view.snapshotCursor.snapshotId])
   const cached=summaryCache.get(key)
   if(cached){summaryCache.delete(key);summaryCache.set(key,cached);return cached}
   if(summaryLoads.has(key))return summaryLoads.get(key)
+  const started=performance.now()
   const loading=(async()=>{
    const messages=new Array(view.messageCount),t=tree(id)
    let cursor=view.snapshotCursor,pending=null,bytes=messages.length*8
    while(cursor){
     const page=await pages.readHistoryPage(id,{cursor,limit:500})
     for(const {position,message} of [...page.messages].reverse()){
-     const summary=message.session || sessionSummary(await t.get(message.runtimeRef))
+     let summary=message.session || sessionSummary(await t.get(message.runtimeRef))
+     if(position===view.messageCount-1)summary=await completeTailSummary(summary,message.runtimeRef,t)
      messages[position]=projectSessionMessage(summary.message)
      bytes+=48+JSON.stringify(messages[position]).length*2
      if(pending===null&&summary.pending)pending=summary.pending
     }
     cursor=page.previousCursor
    }
+   onIO?.({kind:'phase',name:'chat.native.summary-scan',chatId:id,durationMs:performance.now()-started})
    const value={messages,pending,bytes}
    if(bytes<=8*1024*1024){
     while(summaryCache.size && (summaryCache.size>=4 || summaryBytes+bytes>16*1024*1024)){
@@ -80,11 +103,12 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  // reads must not evict the active game's entire decoder. Public reads remain
  // detached and every request resolves the authoritative head from disk.
  const decodedCache=createDecodedJsonCache(128*1024*1024)
- function tree(id){
+ function tree(id,{shared=false}={}){
   // Tree operations never mutate stored nodes. Reuse the page store's bounded
-  // immutable cache; only the resulting public JSON projection is detached.
+  // immutable cache; public projections detach, while the journal's private
+   // materialization can share it because journal owns the outer copy boundary.
   // Each tree() serves one operation, so its shared-subtree memo ends with it.
-  return createIncrementalJsonState({decodedCache,shareSubtrees:true,
+  return createIncrementalJsonState({decodedCache,shareSubtrees:true,detach:!shared,
    read:ref=>pages.readRecord(id,ref,{shared:true}),write:value=>pages.writeRecord(id,value)})
  }
  async function head(id,snapshotId){
@@ -114,10 +138,10 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   }
   return view
  }
- async function read(id,revision=Infinity,snapshotId){
+ async function read(id,revision=Infinity,snapshotId,shared=false){
   const view=snapshotId?await head(id,snapshotId):await headAtRevision(id,revision)
   if(!view)return null
-  const started=performance.now(),t=tree(id),chat=await selectedHeader(id,view)
+  const started=performance.now(),t=tree(id,{shared}),chat=await selectedHeader(id,view,undefined,shared)
   onIO?.({kind:'phase',name:'chat.native.header',chatId:id,durationMs:performance.now()-started})
   const historyStarted=performance.now(),messages=new Array(view.messageCount)
   let cursor=view.snapshotCursor
@@ -132,8 +156,11 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   if(chat.id!==id||chat._storageRevision!==view.state.chatRevision)throw failure('CHAT_STORAGE_DAMAGED','Native Chat revision mismatch')
   return result(chat,view)
  }
- async function selectedHeader(id,view,fields){
-  const t=tree(id),root=view.state.chatHeaderRef
+ // Private journal materialization: the store never exposes this tree without
+ // applying its existing public-copy or copy-on-write boundary first.
+ async function readShared(id,revision=Infinity){return read(id,revision,undefined,true)}
+ async function selectedHeader(id,view,fields,shared=false){
+  const t=tree(id,{shared}),root=view.state.chatHeaderRef
   // Cache resource fields independently: a new task revision must not retain
   // another whole header containing the same large card and evict the card.
   const complete=!Array.isArray(fields)&&fields!=='settlement'
@@ -215,16 +242,27 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  async function readRecentSummaries(id,count,options={}){
   const view=await headAtRevision(id,options.revision??Infinity)
   if(!view)return null
-  const start=Math.max(0,view.messageCount-Math.max(0,Number(count)||0)),messages=new Array(view.messageCount-start),t=tree(id)
+  const start=Math.max(0,view.messageCount-Math.max(0,Number(count)||0))
+  if(start===0){
+   // Session projections already build and cache this exact full-summary snapshot.
+   // Reuse it instead of walking every page again for each story-window read;
+   // project fresh rows so caller mutation cannot poison the shared cache.
+   const {messages}=await sessionSummaries(id,view)
+   return {messageCount:view.messageCount,from:0,messages:messages.map(projectSessionMessage),revision:view.state.chatRevision}
+  }
+  const messages=new Array(view.messageCount-start),t=tree(id),started=performance.now()
   let cursor=view.snapshotCursor
   while(cursor&&cursor.before>start){
    const page=await pages.readHistoryPage(id,{cursor,limit:Math.min(500,cursor.before-start)})
    for(const {position,message} of page.messages){
     if(position<start)continue
-    messages[position-start]=projectSessionMessage((message.session||sessionSummary(await t.get(message.runtimeRef))).message)
+    let summary=message.session || sessionSummary(await t.get(message.runtimeRef))
+    if(position===view.messageCount-1)summary=await completeTailSummary(summary,message.runtimeRef,t)
+    messages[position-start]=projectSessionMessage(summary.message)
    }
    cursor=page.previousCursor
   }
+  onIO?.({kind:'phase',name:'chat.native.summary-scan',chatId:id,durationMs:performance.now()-started})
   return {messageCount:view.messageCount,from:start,messages,revision:view.state.chatRevision}
  }
  async function readSlice(id,indices=[],fields,pinned){
@@ -493,12 +531,12 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    'backgroundConfigVersion','conversationFeaturesVersion','disabledWritingSkills','contextCompaction','updatedAt','timeline','candidateAgent',
    'cardName','requestMode','statusBarPlacement','statusSections','webSearchEnabled','candidates','taskMailbox','regenInProgress','settleError','scriptState',
    'hiddenDshErrorTurns','suppressedDshTurns','replacingDshTurns','failedRegenerationTarget','regeneratedDshTurns','tavernHelperLifecycleRevision','importHistory','rollbackUndo','pendingMvuSettlement'])
-  if(Object.values(chat.timeline?.operations??{}).some(op=>op?.kind==='body'&&op.status==='foreground-completed'))return projectChatSessionState((await read(id)).chat)
+  if(Object.values(chat.timeline?.operations??{}).some(op=>op?.kind==='body'&&op.status==='foreground-completed'))return projectChatSessionState((await read(id)).chat,{detach:false})
   // Cached rows never leave this module: full projections detach them below,
   // scoped projections clone each row on access. Snapshot identity pins validity.
   const {messages,pending}=await sessionSummaries(id,view)
   chat.messages=messages
-  return projectChatSessionState(chat,{pendingMvuSettlement:options.scoped!==true&&Object.hasOwn(chat,'pendingMvuSettlement')?chat.pendingMvuSettlement:pending,...(options.scoped===true?{messages:createScopedMessages(messages.length,[],position=>structuredClone(messages[position]))}:{})})
+  return projectChatSessionState(chat,{detach:false,pendingMvuSettlement:options.scoped!==true&&Object.hasOwn(chat,'pendingMvuSettlement')?chat.pendingMvuSettlement:pending,...(options.scoped===true?{messages:createScopedMessages(messages.length,[],position=>structuredClone(messages[position]))}:{})})
  }
  function sessionSummary(row){const variables=row.variables?.[Math.max(0,Number(row.swipeId)||0)];return JSON.parse(JSON.stringify({mvuSnapshot:Boolean(variables&&variables.stat_data!==undefined&&variables.schema!==undefined),message:projectSessionMessage(row),pending:row.role==='assistant'&&row.mvu?.pending===true?{
   hasSubmission:Boolean(row.mvu.pendingSubmission),prepared:Boolean(row.mvu.delivery?.prepared)}:null}))}
@@ -796,5 +834,5 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  }
  // Contiguous packs in read order for a fragmented current head; no lock while reading.
  async function relayout(id,options){return pages.relayout(id,options)}
- return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readWindow,readWorldSnapshot,openSnapshot,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
+ return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readShared,readWindow,readWorldSnapshot,openSnapshot,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
 }

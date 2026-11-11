@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { createDurableFilePromotion } from '../durable-file-promotion.js'
 import { createResourceMutationJournal } from './resource-mutation-journal.js'
 import { inspectPreset } from './preset-reading.js'
-import { isPng, pngCardTextChunk, pngRawTextChunks, pngWithTextChunks } from './card-assets.js'
+import { isPng, pngCardPayload, pngCardTextChunk, pngRawTextChunks, pngWithTextChunks } from './card-assets.js'
 
 const KIND_DIR = Object.freeze({ card: 'cards', preset: 'presets', source: 'materials', script: 'scripts', worldbook: 'worldbooks' })
 const INTERNAL_FILE_PATTERNS = Object.freeze([/\.write-lock$/i, /\.pending-\d+-[0-9a-f-]+$/i, /\.staging-[0-9a-f-]+$/i])
@@ -78,52 +78,9 @@ function originalCard(record, card, workingName) {
 // Card PNGs embed the whole card (often several MB of worldbook/scripts) in text
 // chunks. Thumbnails only need the pixels, so drop tEXt/zTXt/iTXt.
 export function stripPngTextChunks(buffer) {
-  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-  if (!Buffer.isBuffer(buffer) || buffer.length <= signature.length || !buffer.subarray(0, signature.length).equals(signature)) return buffer
-  const parts = [signature]
-  let offset = signature.length
-  while (offset + 12 <= buffer.length) {
-    const length = buffer.readUInt32BE(offset)
-    const type = buffer.toString('ascii', offset + 4, offset + 8)
-    const end = offset + 12 + length
-    if (end > buffer.length) return buffer
-    if (type !== 'tEXt' && type !== 'zTXt' && type !== 'iTXt') parts.push(buffer.subarray(offset, end))
-    offset = end
-    if (type === 'IEND') return Buffer.concat(parts)
-  }
-  return buffer
-}
-
-function pngCardPayload(buffer, name) {
-  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-  if (!Buffer.isBuffer(buffer) || buffer.length <= signature.length || !buffer.subarray(0, signature.length).equals(signature)) {
-    throw new Error('原版人物卡不是有效的 PNG: ' + name)
-  }
-  let offset = signature.length
-  while (offset + 12 <= buffer.length) {
-    const length = buffer.readUInt32BE(offset)
-    const type = buffer.toString('ascii', offset + 4, offset + 8)
-    const dataStart = offset + 8
-    const dataEnd = dataStart + length
-    if (dataEnd + 4 > buffer.length) throw new Error('原版人物卡 PNG 数据损坏: ' + name)
-    if (type === 'tEXt') {
-      const separator = buffer.indexOf(0, dataStart)
-      if (separator >= dataStart && separator < dataEnd) {
-        const keyword = buffer.toString('ascii', dataStart, separator)
-        if (keyword === 'chara' || keyword === 'ccv3') {
-          return {
-            kind: 'png',
-            name,
-            b64: buffer.toString('latin1', separator + 1, dataEnd),
-            fileB64: buffer.toString('base64')
-          }
-        }
-      }
-    }
-    if (type === 'IEND') break
-    offset = dataEnd + 4
-  }
-  throw new Error('原版人物卡 PNG 中没有 chara/ccv3 数据: ' + name)
+  if (!isPng(buffer)) return buffer
+  try { return pngWithTextChunks(buffer, []) }
+  catch { return buffer }
 }
 
 export function createFileResourceStore(options = {}) {
@@ -219,7 +176,11 @@ export function createFileResourceStore(options = {}) {
     const originalDir = path.dirname(absolute(normalized, true))
     const originalData = await readFile(path.join(originalDir, originalName))
     return path.extname(originalName).toLowerCase() === '.png'
-      ? pngCardPayload(originalData, originalName)
+      ? pngCardPayload(originalData, originalName, {
+        invalid: '原版人物卡不是有效的 PNG: ' + originalName,
+        damaged: '原版人物卡 PNG 数据损坏: ' + originalName,
+        missing: '原版人物卡 PNG 中没有 chara/ccv3 数据: ' + originalName
+      })
       : { kind: 'text', name: originalName, text: originalData.toString('utf8') }
   }
 

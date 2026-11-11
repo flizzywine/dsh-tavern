@@ -19,33 +19,60 @@ function response(body, mediaType, url) {
   }
 }
 
-test('static asset hostnames must resolve only to public addresses', async () => {
+test('static assets can pin public DNS answers without connecting to private addresses', async () => {
   const resolved = []
   const resolve = async hostname => {
     resolved.push(hostname)
-    return hostname === 'private.example' ? [{ address: '93.184.215.14' }, { address: '192.168.1.2' }] : [{ address: '93.184.215.14' }]
+    if (hostname === 'private.example') return [{ address: '192.168.1.2' }]
+    if (hostname === 'mixed.example') return [{ address: '93.184.215.14' }, { address: '192.168.1.2' }]
+    return [{ address: '93.184.215.14' }]
   }
   await assert.rejects(verifyPublicHostname('https://private.example/a.js', resolve), /private or reserved/)
-  await verifyPublicHostname('https://cdn.example/a.js', resolve)
+  assert.deepEqual(await verifyPublicHostname('https://mixed.example/a.js', resolve), [{ address: '93.184.215.14', family: 4 }])
+  assert.equal(await verifyPublicHostname('https://cdn.example/a.js', resolve), undefined)
   for (const host of ['127.0.0.1', '10.0.0.1', '169.254.1.1', '0.0.0.0', '198.51.100.1', '198.18.0.75', '198.19.255.1', '[::1]', '[::ffff:127.0.0.1]', '[fd00::1]', '[fe80::1]', '[fdfe:dcba:9876::52]', '[2001:2::52]']) {
     await assert.rejects(verifyPublicHostname('https://' + host + '/a.js', resolve), /private or reserved/)
     await assert.rejects(verifyPublicHostname('https://' + host + '/a.js', resolve, true), /private or reserved/)
   }
-  assert.deepEqual(resolved, ['private.example', 'cdn.example'], 'IP literals do not pass through DNS')
+  assert.deepEqual(resolved, ['private.example', 'mixed.example', 'cdn.example'], 'IP literals do not pass through DNS')
 })
 
-test('Fake-IP only admits DNS answers for opted-in CDN hosts on the default HTTPS port', async () => {
-  const addresses = [{ address: '198.19.255.1', family: 4 }, { address: 'fdfe:dcba:9876::52', family: 6 }, { address: '2001:2::52', family: 6 }]
-  const resolve = async () => addresses
-  await assert.rejects(verifyPublicHostname('https://cdn.jsdelivr.net/a.js', resolve, false), /private or reserved/)
-  for (const host of ['cdn.jsdelivr.net', 'testingcf.jsdelivr.net', 'fastly.jsdelivr.net']) {
-    assert.equal(await verifyPublicHostname('https://' + host + '/a.js', resolve, true), addresses)
+test('Fake-IP opt-in pins independently resolved public addresses for previously unseen domains', async () => {
+  const fake = [{ address: '198.19.255.1', family: 4 }, { address: 'fdfe:dcba:9876::52', family: 6 }, { address: '2001:2::52', family: 6 }]
+  const verified = [{ address: '93.184.215.14', family: 4 }, { address: '2606:4700::1111', family: 6 }]
+  const resolve = async () => fake
+  const names = []
+  const resolvePublic = async hostname => { names.push(hostname); return verified }
+  const host = 'new-image-host.example'
+  const url = 'https://' + host + '/asset.png'
+  await assert.rejects(verifyPublicHostname(url, resolve, false, resolvePublic), /private or reserved/)
+  for (const blocked of ['http://' + host, 'https://198.18.0.75',
+    'https://localhost', 'https://media.home.arpa.', 'https://workstation.lan']) {
+    await assert.rejects(verifyPublicHostname(blocked, resolve, true, resolvePublic), /private or reserved/)
   }
-  for (const host of ['cdn.example', 'cdn.jsdelivr.net.example', 'cdn.jsdelivr.net:8443']) {
-    await assert.rejects(verifyPublicHostname('https://' + host + '/a.js', resolve, true), /private or reserved/)
+  assert.deepEqual(names, [])
+  assert.deepEqual(await verifyPublicHostname(url, resolve, true, resolvePublic), verified)
+  assert.deepEqual(await verifyPublicHostname('https://' + host + ':8443/asset.png',
+    async () => [...fake, { address: '192.168.1.5', family: 4 }], true, resolvePublic), verified)
+  assert.deepEqual(names, [host, host])
+  assert.deepEqual(await verifyPublicHostname(url, resolve, true,
+    async () => [...verified, { address: '10.0.0.1', family: 4 }]), verified)
+  for (const unsafe of [[], fake, [{ address: '10.0.0.1', family: 4 }]]) {
+    await assert.rejects(verifyPublicHostname(url, resolve, true, async () => unsafe), /private or reserved/)
   }
-  await assert.rejects(verifyPublicHostname('https://cdn.jsdelivr.net/a.js',
-    async () => [...addresses, { address: '192.168.1.5', family: 4 }], true), /private or reserved/)
+  await assert.rejects(verifyPublicHostname(url, resolve, true, async () => { throw new Error('resolver offline') }), { status: 502 })
+})
+
+test('a failed public DNS address family does not block the other one', async t => {
+  let ipv4 = [{ type: 1, data: '93.184.215.14' }]
+  t.mock.method(globalThis, 'fetch', async url => url.searchParams.get('type') === '28'
+    ? new Response(null, { status: 503 })
+    : Response.json({ Status: 0, Answer: ipv4 }))
+  const url = 'https://partial-dns.example/cover.png'
+  const resolve = async () => [{ address: '198.18.0.75', family: 4 }]
+  assert.deepEqual(await verifyPublicHostname(url, resolve, true), [{ address: '93.184.215.14', family: 4 }])
+  ipv4 = []
+  await assert.rejects(verifyPublicHostname(url, resolve, true), { status: 502 })
 })
 
 test('static-assets returns typed errors through the real validation and download path', async t => {
@@ -103,20 +130,26 @@ test('static cache checks every redirect hop before fetching it', async t => {
   assert.deepEqual(calls, ['https://cdn.example/redirect.js'])
 })
 
-test('a CDN Fake-IP request gets a pinned dispatcher and cannot redirect to another Fake-IP host', async t => {
+test('a Fake-IP request gets a pinned dispatcher and rechecks the public DNS of each redirect', async t => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-static-fake-ip-'))
   t.after(() => rm(rootDir, { recursive: true, force: true }))
   const requests = []
+  const lookups = []
   const resolve = async () => [{ address: '198.18.0.75', family: 4 }]
+  const resolvePublic = async hostname => {
+    lookups.push(hostname)
+    return [{ address: hostname === 'new-cdn.example' ? '93.184.215.14' : '10.0.0.1', family: 4 }]
+  }
   const cache = createTavernStaticResourceCache({
     rootDir,
-    verifyHostname: url => verifyPublicHostname(url, resolve, true),
+    verifyHostname: url => verifyPublicHostname(url, resolve, true, resolvePublic),
     fetch: async (url, { dispatcher }) => {
       requests.push({ url, dispatcher })
       return new Response(null, { status: 302, headers: { Location: 'https://other.example/a.js' } })
     },
   })
-  await assert.rejects(cache.get('https://cdn.jsdelivr.net/a.js'), /private or reserved/)
-  assert.deepEqual(requests.map(request => request.url), ['https://cdn.jsdelivr.net/a.js'])
+  await assert.rejects(cache.get('https://new-cdn.example:8443/a.js'), /private or reserved/)
+  assert.deepEqual(lookups, ['new-cdn.example', 'other.example'])
+  assert.deepEqual(requests.map(request => request.url), ['https://new-cdn.example:8443/a.js'])
   assert.equal(requests[0].dispatcher?.destroyed, true)
 })

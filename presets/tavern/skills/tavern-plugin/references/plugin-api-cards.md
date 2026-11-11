@@ -229,6 +229,6 @@ const { data, mediaType } = await ctx.tavern.generateImage({
 })
 ```
 
-- 参考图至多 4 张，且不超过渠道自己的上限；`background` 为 `auto`/`transparent`/`opaque`，`quality` 为 `auto`/`low`/`medium`/`high`。
+- 参考图至多 4 张，且不超过渠道自己的上限。`background` 可选 `auto`、`transparent`、`opaque`。`quality` 可选 `auto`、`low`、`medium`、`high`、`xhigh`、`max`，实际支持的档位取决于渠道和模型。
 - 与素材库生图共用「同时至多四张」的限制；不重试、不缓存，一次调用就是一次请求。
 - 出错时错误带 `code`：`NOT_CONFIGURED`（没有配图插件或渠道没配好）、`UNSUPPORTED_CHANNEL`（参考图超出渠道上限）、`INVALID_ARGUMENT`、`BUSY`、`GENERATION_FAILED`。`mayHaveCharged === true` 表示请求已发出、可能已经计费，是否重试由你决定。

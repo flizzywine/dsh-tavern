@@ -72,5 +72,5 @@ test('closing an entry page leaves the stage; continueGame enters it; only an en
  assert.match(source,/onClose: configOpen \? closeConfig : galleryOpen \? closeGallery : entryOpen \? leaveEntryPage : closeCardPage/)
  assert.match(source,/if \(kind === 'continue'\) \{ closeCardPage\(\); return; \}/)
  const reveal=source.slice(source.indexOf('    const stageRevealed ='),source.indexOf('\n',source.indexOf('    const stageRevealed =')))
- assert.match(reveal,/&& !entryOpen;$/,'the reveal holds for the entry page only, not any open page')
+ assert.match(reveal,/&& !entryOpen;\r?$/,'the reveal holds for the entry page only, not any open page')
 })

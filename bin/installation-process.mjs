@@ -185,17 +185,22 @@ async function cleanTree({ directory, pid, root, childExited, killGraceMs, clean
   return { safe, processGroups: [...known], remainingProcessGroups: live, cleanupErrors: failures }
 }
 
-/** Read-only, conservative recovery check; never kills a recorded PID. */
+/** Verify stopped process trees. POSIX recovery can close a dead supervisor's launch gate. */
 export async function verifyInstallationProcessesStopped(processDirectory, options = {}) {
   const deadline = Date.now() + positiveInteger(options.timeoutMs, 2000)
   try {
-    if (!existsSync(path.join(processDirectory, 'stopping'))) return { safe: false, reason: 'launch-gate-open' }
+    const gate = path.join(processDirectory, 'stopping')
+    const gateOpen = !existsSync(gate)
+    if (gateOpen && (!options.orphanedSupervisorPid || process.platform === 'win32')) return { safe: false, reason: 'launch-gate-open' }
     const owner = JSON.parse(readFileSync(path.join(processDirectory, 'supervisor.json'), 'utf8'))
     if (!Number.isSafeInteger(owner.pid) || owner.pid <= 1) return { safe: false, reason: 'invalid-supervisor' }
+    if (options.orphanedSupervisorPid && owner.pid !== options.orphanedSupervisorPid) return { safe: false, reason: 'supervisor-changed' }
     try {
       process.kill(owner.pid, 0)
       return { safe: false, reason: 'supervisor-still-running', pid: owner.pid }
     } catch (error) { if (error.code !== 'ESRCH') return { safe: false, reason: 'supervisor-unverifiable' } }
+    // SIGKILL can stop both the supervisor and wrapper before either closes the gate.
+    if (gateOpen) writeFileSync(gate, '')
     const registered = records(processDirectory)
     const stoppedGroups = readdirSync(processDirectory).filter(name => /^stopped-\d+$/.test(name))
     if (registered.length === 0 && stoppedGroups.length === 0) return { safe: false, reason: 'missing-process-records' }
@@ -244,7 +249,9 @@ export async function runInstallationProcess(command, args = [], options = {}) {
   const directory = inheritedDirectory || options.processDirectory || mkdtempSync(path.join(os.tmpdir(), 'dsh-install-process-'))
   const removeDirectory = root && !options.processDirectory
   mkdirSync(directory, { recursive: true, mode: 0o700 })
-  if (root) writeFileSync(path.join(directory, 'supervisor.json'), JSON.stringify({ pid: process.pid, startedAt: Date.now() }), { flag: 'wx', mode: 0o600 })
+  const supervisorFile = path.join(directory, 'supervisor.json')
+  if (root) writeFileSync(supervisorFile, JSON.stringify({ pid: process.pid, startedAt: Date.now() }), { flag: 'wx', mode: 0o600 })
+  const supervisor = readFileSync(supervisorFile, 'utf8')
   const ancestors = root ? [] : JSON.parse(process.env[ANCESTORS_ENV] || environment[ANCESTORS_ENV] || '[]')
   if (stopped(directory, ancestors)) throw makeError('INSTALLATION_ABORTED', `${label} 已取消，安装进程正在停止`)
   let child
@@ -264,7 +271,7 @@ export async function runInstallationProcess(command, args = [], options = {}) {
       const streams = Array.isArray(stdio) ? stdio.slice(0, 3) : [stdio, stdio, stdio]
       while (streams.length < 3) streams.push('pipe')
       try {
-        child = spawn(process.execPath, [moduleFile, '--installation-process-child', JSON.stringify({ command, args, directory, ancestors, shell: options.shell || false })], {
+        child = spawn(process.execPath, [moduleFile, '--installation-process-child', JSON.stringify({ command, args, directory, ancestors, supervisor, shell: options.shell || false })], {
           cwd: options.cwd, env: { ...environment, [DIRECTORY_ENV]: directory, [ANCESTORS_ENV]: JSON.stringify(ancestors) },
           detached: process.platform !== 'win32', windowsHide: options.windowsHide !== false, stdio: [...streams, 'ipc'],
         })
@@ -575,8 +582,14 @@ export function clearStaleWrapperFiles(directory, pid, startedAt) {
 }
 
 function runChildWrapper(configuration) {
-  const { command, args, directory, ancestors, shell } = configuration
+  const { command, args, directory, ancestors, supervisor, shell } = configuration
   const pid = process.pid
+  const sameSupervisor = () => {
+    try { return readFileSync(path.join(directory, 'supervisor.json'), 'utf8') === supervisor }
+    catch (error) { if (error.code === 'ENOENT') return false; throw error }
+  }
+  // A delayed wrapper from a reclaimed installation must never enter a new registry.
+  if (!sameSupervisor()) throw new Error('Installation process supervisor changed')
   clearStaleWrapperFiles(directory, pid, Date.now() - process.uptime() * 1000 - 20)
   const registration = path.join(directory, `${pid}.json`)
   writeFileSync(`${registration}.tmp`, JSON.stringify({ pid, ancestors }), { flag: 'wx', mode: 0o600 })
@@ -587,7 +600,9 @@ function runChildWrapper(configuration) {
     // An abruptly lost supervisor must not leave its command running. This is
     // best effort; durable registrations remain for recovery/diagnostics.
     clearInterval(keepAlive)
-    try { writeFileSync(path.join(directory, ancestors.length === 0 ? 'stopping' : `stopping-${pid}`), '') } catch {}
+    try {
+      if (sameSupervisor()) writeFileSync(path.join(directory, ancestors.length === 0 ? 'stopping' : `stopping-${pid}`), '')
+    } catch {}
     if (process.platform !== 'win32') {
       let owned = []
       try { owned = records(directory).filter(record => belongsTo(record, pid)) } catch {}
@@ -603,7 +618,7 @@ function runChildWrapper(configuration) {
       }, 3500)
     }
   })
-  if (stopped(directory, [...ancestors, pid])) {
+  if (stopped(directory, [...ancestors, pid]) || !sameSupervisor()) {
     send({ error: { code: 'INSTALLATION_ABORTED', message: '安装进程正在停止' } })
     return
   }

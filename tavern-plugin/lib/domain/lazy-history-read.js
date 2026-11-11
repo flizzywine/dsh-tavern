@@ -56,7 +56,7 @@ function lazyRecord(source) {
 // Internal display/activity inputs only. Rollback payloads can contain entire
 // historical Chats; retain their immutable source version and detach on access.
 // Default public reads still materialize ordinary, structuredClone-safe arrays.
-export function copyLazyHistoryHeader(source) {
+export function copyLazyHistoryHeader(source, options = {}) {
   const timeline=source.timeline, undo=source.rollbackUndo
   const head={...source}
   const records = new Map()
@@ -71,7 +71,7 @@ export function copyLazyHistoryHeader(source) {
     if(Array.isArray(undo.background))head.rollbackUndo.background=[]
     if(Array.isArray(undo.foreground?.nodes))head.rollbackUndo.foreground={...undo.foreground,nodes:[]}
   }
-  const result=copyJsonTree(head)
+  const result=options.detach===false?head:copyJsonTree(head)
   for (const [key,value] of records) result[key]=lazyRecord(value)
   if(Array.isArray(timeline?.checkpoints))result.timeline.checkpoints=lazyArray(timeline.checkpoints)
   if(Array.isArray(undo?.foreground?.nodes))result.rollbackUndo.foreground.nodes=lazyArray(undo.foreground.nodes)

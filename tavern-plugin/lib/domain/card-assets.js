@@ -93,6 +93,31 @@ const crc32 = typeof zlib.crc32 === 'function' ? data => zlib.crc32(data) : data
 
 export function isPng(bytes) { return Buffer.isBuffer(bytes) && bytes.length > 8 && bytes.readUInt32BE(0) === 0x89504e47 && bytes.readUInt32BE(4) === 0x0d0a1a0a }
 
+/** Import payloads take the first card text chunk in file order. */
+export function pngCardPayload(buffer, name, errors = {}) {
+  if (!isPng(buffer)) throw new Error(errors.invalid ?? '无法识别的角色卡 PNG')
+  let offset = 8
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset)
+    const type = buffer.toString('ascii', offset + 4, offset + 8)
+    const start = offset + 8
+    const end = start + length
+    if (end + 4 > buffer.length) throw new Error(errors.damaged ?? '人物卡 PNG 数据损坏')
+    if (type === 'tEXt') {
+      const separator = buffer.indexOf(0, start)
+      if (separator >= start && separator < end) {
+        const keyword = buffer.toString('ascii', start, separator)
+        if (keyword === 'chara' || keyword === 'ccv3') {
+          return { kind: 'png', name, b64: buffer.toString('latin1', separator + 1, end), fileB64: buffer.toString('base64') }
+        }
+      }
+    }
+    if (type === 'IEND') break
+    offset = end + 4
+  }
+  throw new Error(errors.missing ?? 'PNG 中未找到角色卡数据（chara/ccv3 文本块）')
+}
+
 const PNG_TEXT_TYPES = ['tEXt', 'zTXt', 'iTXt']
 
 /** A `tEXt` chunk holding `text` base64-encoded under `keyword`, the way card PNGs store cards. */

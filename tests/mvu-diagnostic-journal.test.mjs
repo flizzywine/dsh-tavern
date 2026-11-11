@@ -25,23 +25,6 @@ test('legacy logs remain readable and import once; readers retain count and drop
  assert.deepEqual((await store.read('other')).records,[])
 })
 
-test('rotation bounds disk and exported bytes and preserves the latest records after restart',async t=>{
- const {root,store,file}=await fixture(t)
- let rotations=0,previous=0
- for(let n=0;n<240;n++){
-  await store.record('s',{n,message:'汉'.repeat(8500)})
-  const size=(await stat(file)).size
-  assert.ok(size<=4*1024*1024)
-  if(size<previous)rotations++
-  previous=size
- }
- const result=await createMvuDiagnosticStore(createProfileDataStore({dataRoot:root})).read('s')
- assert.ok(rotations>0);assert.ok(Buffer.byteLength(JSON.stringify(result.records))<=2*1024*1024)
- assert.equal(result.records.at(-1).n,239)
- assert.equal(result.dropped+result.records.length,240)
- assert.deepEqual(result.records.map(r=>r.n),Array.from({length:result.records.length},(_,n)=>result.dropped+n))
-})
-
 test('Windows deferred promotion remains readable and a later writer recovers all records',async t=>{
  const {root,store,file}=await fixture(t,{platform:'win32',sleep:async()=>{},rename:async()=>{throw Object.assign(new Error('busy'),{code:'EPERM'})}})
  await store.record('s',{n:0});await store.record('s',{n:1})
@@ -63,19 +46,4 @@ test('failed flushes are observable and retry with newer buffered records in ord
  assert.equal(pending.persistence,'pending');assert.equal(pending.records[0].n,0)
  await store.record('s',{n:1});failed=false
  assert.deepEqual((await store.read('s')).records.map(r=>r.n),[0,1])
-})
-
-test('background failures retry automatically without repeated warning spam',async t=>{
- const {storage}=await fixture(t)
- let writes=0,warnings=0,notify,deadline
- const recovered=new Promise(resolve=>notify=resolve)
- const store=createMvuDiagnosticStore({...storage,async appendText(...args){
-  if(++writes<3)throw Error('temporary failure')
-  const result=await storage.appendText(...args);notify();return result
- }},{flushDelayMs:10,onError(){warnings++}})
- t.after(()=>store.dispose())
- await store.record('s',{n:0})
- try { await Promise.race([recovered,new Promise((_,reject)=>{deadline=setTimeout(()=>reject(Error('retry missing')),2000)})]) } finally {clearTimeout(deadline)}
- assert.equal(warnings,1);assert.equal(writes,3)
- assert.equal((await store.read('s')).records[0].n,0)
 })

@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process'
 
+export const DESKTOP_EXIT_WAIT_MS = 120000
+
 // An executable name, command line or cwd is NOT evidence of ownership. Capture
 // ancestry while Desktop is alive, before the detached switch helper is spawned.
 // FILETIME strings preserve all 64 bits (JavaScript numbers cannot).
@@ -174,7 +176,7 @@ try { foreach ($item in $items) {
 }
 
 /** Wait on original process handles, not bare PIDs which can be recycled. */
-export async function waitForOwnedExit(ownership, { timeout = 120000, inspect = powershell } = {}) {
+export async function waitForOwnedExit(ownership, { timeout = DESKTOP_EXIT_WAIT_MS, inspect = powershell } = {}) {
   if (!Array.isArray(ownership?.roots) || !ownership.roots.length || !ownership.roots.every(valid)) throw new Error('无效的桌面进程身份记录')
   const payload = Buffer.from(JSON.stringify(ownership.roots), 'utf8').toString('base64')
   const result = await inspect(`
@@ -182,9 +184,10 @@ $roots = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}
 $watch = [Diagnostics.Stopwatch]::StartNew()
 foreach ($root in $roots) {
   $remaining = [Math]::Max(0, ${Math.max(0, Math.floor(timeout))} - $watch.ElapsedMilliseconds)
-  if (-not [BridgeProcesses]::WaitExit([int]$root.pid, [string]$root.created, [uint32]$remaining)) { throw '等待桌面退出超时，未修改 profile；请正常退出后重试' }
+  if (-not [BridgeProcesses]::WaitExit([int]$root.pid, [string]$root.created, [uint32]$remaining)) { 'false'; return }
 }
 ' true '
 `, { timeout: timeout + 30000 })
+  if (result === false) throw new Error('等待桌面退出超时，未修改 profile；请正常退出后重试')
   if (result !== true) throw new Error('无法确认桌面进程已退出')
 }

@@ -31,8 +31,8 @@ export function createModConfigStageReader({readChat,readRevision}) {
   }
 }
 
-export function createModConfigHost({workbenchAuthority,root,store:managedStore,manifests,managedManifests,listCards,readCard,getAssetLibrary,readSession,readWindow,readRevision,getEngine,readStage=async()=>null,invalidate,getGlobalEnabledPackIds=()=>[],resolveOptionValues=async(_modId,_card,_chat,values)=>values,projectOptions=async value=>value}) {
-  const schemas={...(managedManifests?managedConfigSchemas(managedManifests,manifests):builtinConfigSchemas(manifests)),'dsh.state':stateSourceSchema},registered=new Map(),cache=new Map()
+export function createModConfigHost({library,workbenchAuthority,root,store:managedStore,manifests,managedManifests,listCards,readCard,getAssetLibrary,readSession,readWindow,readRevision,getEngine,readStage=async()=>null,invalidate,getGlobalEnabledPackIds=()=>[],resolveOptionValues=async(_modId,_card,_chat,values)=>values,projectOptions=async value=>value}) {
+  const schemas={...(managedManifests?managedConfigSchemas(managedManifests,manifests,library):builtinConfigSchemas(manifests,library)),'dsh.state':stateSourceSchema},registered=new Map(),cache=new Map()
   let active=true
   function unregister(packs) {
     const stops=registered.get(packs) || []
@@ -153,19 +153,5 @@ export function createModConfigHost({workbenchAuthority,root,store:managedStore,
     const sources=await readCardVariableSources({path:chat.cardPath,indexed:chat,readWindow,readRevision})
     return resolveStateSource({preference,raw,chat,sources})
   },
-  readFile:args=>store.readFile(args),async bindings(manifest,card,chat,overrideSources) {
-    const ctx=overrideSources?{cardId:card.meta.id,raw:card.raw,sources:overrideSources}:await context({cardId:card.meta.id,sessionId:chat?.sessionId},chat?{card,chat}:undefined)
-    if(overrideSources)ctx.stateSource=resolveStateSource({preference:(await service.resolve('dsh.state','source')).value,raw:card.raw,chat,sources:overrideSources})
-    const data=await store.read({modId:manifest.id,cardId:card.meta.id}),result={}
-    for(const read of manifest.permissions.variables?.reads || [])if(read.slot) {
-      const entry=data.card[read.slot] ?? data.global[read.slot] ?? {auto:true}
-      const slot=manifest.variableSlots.find(slot=>slot.id===read.slot)
-      if(entry.ref && ['mvu','ledger'].includes(entry.ref.source))result[read.id]=entry.ref
-      else if(entry.auto) {
-        const resolved=await service.resolve(manifest.id,read.slot,ctx),field=schemas[manifest.id].fields.find(row=>row.key===read.slot),candidate=resolved.autoCandidates?.[0]
-        if(!resolved.error && candidate?.variable.source===slot.source && candidate.score>=(field.guessHints?.threshold ?? 65))result[read.id]=candidate.variable
-      }
-    }
-    return result
-  }})
+  readFile:args=>store.readFile(args)})
 }

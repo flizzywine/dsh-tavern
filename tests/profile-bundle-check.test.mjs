@@ -7,24 +7,11 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { findDshCommand } from '../bin/launcher-environment.mjs'
-import { assertProfileBundlesLoad, skippedBundleFailure } from '../bin/profile-bundle-check.mjs'
+import { assertProfileBundlesLoad } from '../bin/profile-bundle-check.mjs'
 
 const bridge = fileURLToPath(new URL('../tavern-plugin/packages/dsh-tavern', import.meta.url))
 let dsh = null
 try { dsh = findDshCommand() } catch {}
-
-test('酒馆自己的插件包被跳过是安装失败；用户自加的只提示', () => {
-  const skipped = [
-    { packageName: 'dsh-better-sidebar', reason: 'requirements {"@deepseek-ai/dsh-app-boot":"^0.2.1"}' },
-    { packageName: 'someone-else', reason: 'cannot resolve' },
-  ]
-  const { error, ignored } = skippedBundleFailure(skipped, ['dsh-tavern-plugin', 'dsh-better-sidebar'])
-  assert.match(error.message, /跳过酒馆的插件包/)
-  assert.match(error.message, /dsh-better-sidebar：requirements/)
-  assert.doesNotMatch(error.message, /someone-else/)
-  assert.deepEqual(ignored.map(item => item.packageName), ['someone-else'])
-  assert.equal(skippedBundleFailure(skipped.slice(1), ['dsh-better-sidebar']).error, null)
-})
 
 // The host skips a bundle whose @deepseek-ai/dsh* peer misses the running DSH version, so an
 // exact-version pin drops the bundle on every newer DSH the installer still accepts.

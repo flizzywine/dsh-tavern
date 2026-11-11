@@ -9,7 +9,7 @@ import { createRegenerationRecovery } from './regeneration-recovery.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
-import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, hasConflictingRegenerationSurface, planRegenerationSurface, regenerationProjection, replayableFailedTurn, replayablePersistedTurn, anchoredToSaveRow, unansweredTailIndex, surfaceTurnOfSeq } from './rollback-surface.js'
+import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, unclaimedRegenerationSurfaces, planRegenerationSurface, regenerationProjection, replayableFailedTurn, replayablePersistedTurn, anchoredToSaveRow, unansweredTailIndex, surfaceTurnOfSeq } from './rollback-surface.js'
 
 // Both regeneration paths (native and plugin) read the same tail rule.
 export { unansweredTailIndex }
@@ -21,6 +21,8 @@ import { createPluginBodyRegeneration } from './plugin-body-regeneration.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { consumeScriptPrompts } from './tavern-script-prompts.js'
 import { createRegenerationDiscard, restoreDiscardedRegeneration, installRegenerationDiscard, clearRegenerationFailure } from './regeneration-discard.js'
+import { compactUserInput, frameUserInput } from './agent-input-frame.js'
+import { legacyMessageUid } from './message-uid.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -67,9 +69,20 @@ function cloneChat(value) {
   return structuredClone(isScopedMessages(value.messages) ? { ...value, messages: Array.from(value.messages) } : value)
 }
 
-export function regenerationInputText(userText, guidance, rewriteBody) {
+// Regeneration takes the round's old body off the native surface before the model
+// runs, so the request itself is the only place the body can come back. A body the
+// player edited (正文编辑/精修) must therefore travel with the request even when no
+// guidance is given: otherwise the model rewrites from nothing and the edit is gone.
+function editedReplyBody(message) {
+  if (message === null || typeof message !== 'object') return false
+  if (message.bodyEdit) return true
+  return typeof message.projectionText === 'string' && typeof message.sourceText === 'string' && message.projectionText !== message.sourceText
+}
+
+export function regenerationInputText(userText, guidance, rewriteBody, options = {}) {
   const input = str(userText).trim(), guide = str(guidance).trim(), draft = str(rewriteBody).trim()
   if (draft !== '' && guide !== '') return input + '\n\n【当前正文】\n' + draft + '\n\n【改写要求】\n在当前正文基础上改写本轮正文：' + guide
+  if (draft !== '' && options.keepBody === true) return input + '\n\n【当前正文】\n' + draft + '\n\n【改写要求】\n这是玩家手上的正文版本（可能改过）：以它为准重写这一轮，保留其中的改动与设定，不要回到更早的版本。'
   return input + (guide !== '' ? '\n\n【本轮补充要求】\n' + guide : '')
 }
 
@@ -88,28 +101,44 @@ function cloneFrame(value) {
  * body's frozen frame is not a request recipe: preset, worldbook, card and state
  * may all have changed since it was written.
  */
-async function candidateRegenerationFrame(chat, operationId, nativeTurn, inputText, prepareFrame) {
+async function candidateRegenerationFrame(chat, operationId, nativeTurn, inputText, prepareFrame, reuse = null) {
   if (typeof prepareFrame !== 'function') throw new Error('当前宿主未提供正文重新生成准备接口')
-  const prepared = await prepareFrame({
-    sessionId: chat.sessionId,
-    turn: nativeTurn,
-    requestId: 'regeneration:' + operationId,
-    userText: inputText,
-    userContent: { role: 'user', content: [{ type: 'text', text: inputText }] }
-  })
+  let prepared
+  if (reuse?.frame) {
+    prepared = { frame: reuse.frame, userText: str(frameUserInput(reuse.frame).projectedText) }
+  } else {
+    prepared = await prepareFrame({
+      ...(reuse?.arguments && typeof reuse.arguments === 'object' ? reuse.arguments : {}),
+      sessionId: chat.sessionId,
+      turn: nativeTurn,
+      requestId: 'regeneration:' + operationId,
+      userText: inputText,
+      userContent: { role: 'user', content: [{ type: 'text', text: inputText }] }
+    })
+  }
   const built = prepared?.frame
   if (!built || built.kind !== 'foreground' || !Array.isArray(built.contributions)) {
     throw new Error('重新生成没有取得当前请求材料')
   }
   const frame = cloneFrame(built)
   const branchId = str(chat.timeline?.branchId || frame.branchId) || 'main'
+  const basedOnRevision = Math.max(0, Number(chat.timeline?.revision) || 0)
   frame.frameId = 'foreground:' + chat.id + ':' + branchId + ':' + operationId
   frame.chatId = chat.id
   frame.branchId = branchId
-  frame.basedOnRevision = Math.max(0, Number(chat.timeline?.revision) || 0)
+  frame.basedOnRevision = basedOnRevision
   frame.operationId = operationId
   frame.turn = nativeTurn
-  frame.userInput = { ...(frame.userInput || {}), sourceText: inputText, projectedText: str(prepared.userText) || inputText, source: { stage: 'player-input' } }
+  // A reused frame still describes the same request; only this operation's
+  // identity and base revision move with the save.
+  if (frame.source && typeof frame.source === 'object') {
+    frame.source = { ...frame.source,
+      state: { ...(frame.source.state && typeof frame.source.state === 'object' ? frame.source.state : {}), branchId, revision: basedOnRevision },
+      ...(frame.source.worldBook && typeof frame.source.worldBook === 'object'
+        ? { worldBook: { ...frame.source.worldBook, branchId, revision: basedOnRevision } }
+        : {}) }
+  }
+  frame.userInput = compactUserInput({ sourceText: inputText, projectedText: str(prepared.userText) || inputText, source: { stage: 'player-input' } })
   return frame
 }
 
@@ -207,37 +236,6 @@ export function attemptNativeAnchor(session, eventStart, turn) {
   return anchor
 }
 
-/**
- * The save kept its unanswered tail while the attempt ran. The host may have
- * finalized the attempt as its own temporary round; anything else is a change
- * this commit must not overwrite.
- */
-function assertUnansweredTailCurrent(original, current, operationId, syntheticTurn) {
-  const saved = current?.regenRecovery
-  if (saved?.id !== operationId || saved?.phase !== 'prepared') throw new Error('重新生成操作已失效')
-  const before = Array.isArray(original?.messages) ? original.messages : []
-  const messages = Array.isArray(current?.messages) ? current.messages : []
-  const unchanged = isDeepStrictEqual(messages, before)
-  const appended = !unchanged && messages.length === before.length + 2 &&
-    isDeepStrictEqual(messages.slice(0, before.length), before) &&
-    messages.at(-2)?.role === 'user' && messages.at(-1)?.role === 'assistant' &&
-    Number(messages.at(-1)?.turn) === Number(syntheticTurn)
-  if (!unchanged && !appended) throw new Error('重新生成期间剧情或后续输入已经变化')
-  const originalOperations = original?.timeline?.operations || {}
-  const currentOperations = current?.timeline?.operations || {}
-  const originalIntact = Object.entries(originalOperations).every(([id, operation]) => isDeepStrictEqual(currentOperations[id], operation))
-  const extras = Object.entries(currentOperations).filter(([id]) => !Object.hasOwn(originalOperations, id))
-  const originalCheckpoints = original?.timeline?.checkpoints || []
-  const checkpointsIntact = isDeepStrictEqual((current?.timeline?.checkpoints || []).slice(0, originalCheckpoints.length), originalCheckpoints)
-  const timelineKept = isDeepStrictEqual(current?.timeline, original?.timeline) ||
-    (originalIntact && checkpointsIntact && extras.length === 1 && extras[0][1]?.kind === 'body' &&
-      extras[0][1]?.status === 'completed' && Number(extras[0][1]?.turn) === Number(syntheticTurn))
-  if (!timelineKept) throw new Error('重新生成期间剧情状态已经变化')
-  for (const key of ['macroState', 'variables', 'posture', 'scriptState']) {
-    if (!isDeepStrictEqual(current[key], original[key])) throw new Error('重新生成期间本轮状态已经变化')
-  }
-}
-
 export function selectRegenerationTarget(chat, session, observe) {
   const nodes = (session.surface !== undefined && Array.isArray(session.surface.nodes)) ? session.surface.nodes : []
   const events = sessionEvents(session)
@@ -279,19 +277,21 @@ export function selectRegenerationTarget(chat, session, observe) {
     seq: Number.isSafeInteger(storedSeq) && storedSeq >= 0 ? storedSeq : undefined, turn: row.turn,
     // A projected reply may store the edit turn; its body still identifies it.
     texts: [row.text, row.sourceText, row.projectionText] })
-  if (target === null && hasConflictingRegenerationSurface({ events, nodes, messages: msgs0, assistantIndex: oldAssistantIndex })) {
-    report('native-target-conflict', null, inputIndex)
-    throw Object.assign(new Error('原生消息流中还有无法与存档对应的正文，请先检查这一轮，而不是追加另一份正文'), { code: 'NATIVE_TARGET_CONFLICT' })
-  }
+  // 这一轮的正文在消息面上找不到了。面上还留着、又没有别的存档行认领的正文，就是
+  // 这一轮（或它上一次没落盘就被摘掉的尝试）留下的旧输出——重新生成要删掉的正是它。
+  // 所以最后一条未被认领的正文直接当替换目标：原地换掉，既不拒绝，也不会在旁边
+  // 再挂一份新正文。真正一条都不剩时才退回补写。
+  const adopted = target !== null ? target
+    : (unclaimedRegenerationSurfaces({ events, nodes, messages: msgs0, assistantIndex: oldAssistantIndex }).at(-1) ?? null)
   const oldTurn = target !== null && Number.isSafeInteger(Number(target.turn)) && Number(target.turn) > 0
     ? Number(target.turn) : Number(row.turn) || 0
-  const oldSource = target !== null ? target.source
+  const oldSource = adopted !== null ? adopted.source
     : { kind: 'model', provider: 'dsh-tavern', model: 'plugin-regeneration' }
-  // A genuinely missing body may be appended. Other bodies already claimed by
-  // earlier rounds do not block it; an unclaimed body is a conflict above.
-  const saveOnly = target === null
-  report(saveOnly ? 'save-only' : 'selected', target, inputIndex)
-  return { nodes, eventStart, msgs0, oldAssistantIndex, inputIndex, oldSeq: saveOnly ? null : target.assistantSeq,
+  // A genuinely missing body may be appended; a body still on the surface is
+  // replaced in place, whoever wrote it and whether or not the save names it.
+  const saveOnly = adopted === null
+  report(target !== null ? 'selected' : saveOnly ? 'save-only' : 'native-orphan-replaced', saveOnly ? null : adopted, inputIndex)
+  return { nodes, eventStart, msgs0, oldAssistantIndex, inputIndex, oldSeq: saveOnly ? null : adopted.assistantSeq,
     oldTurn, oldSource, saveOnly }
 }
 
@@ -316,15 +316,20 @@ function commitOfRound(commits, assistant, userText) {
 }
 
 export function createRoundHistory({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement, present, diagnostics, sessionPatch,
-  readRegenerationMaterials, prepareRegenerationFrame, prepareRegenerationReply, notifyRegeneration }) {
-  const { read: readChat, forSession: chatForSession, readCard: readChatCard,
-    readRevision: readChatRevision, write: writeChat, update: updateChat } = chats
+  readRegenerationMaterials, prepareRegenerationFrame, prepareRegenerationFrameCache, prepareRegenerationReply, notifyRegeneration, trace }) {
+  const { read: readChat, forSession: chatForSession, readCard: readChatCard, readState: readChatState,
+    readRevision: readChatRevision, update: updateChat } = chats
+  const stage = (name, task) => trace?.stage ? trace.stage(name, task) : task()
   const { read: readScript, continuity: scriptContinuity } = scripts
   const tavernScriptHostAdapter = scripts
   const storyTimeline = timeline
   const view = present
   const pendingRollbacks = new Set()
   const pendingRegenerations = new Set()
+  // One prepared frame per save. It is only a request recipe: every hit is
+  // keyed by the current materials and still goes through the model request.
+  const regenerationFrames = new Map()
+  const REGENERATION_FRAME_CACHE_LIMIT = 8
   const regenerationRecovery = createRegenerationRecovery({ chats, sessions, timeline, isActive: id => pendingRegenerations.has(id) })
   const regenerateWithProvider = createPluginBodyRegeneration({ chats, sessions, scripts, timeline, queueSettlement, replyCommitted, cancelSettlement,
     sessionPatch, readRegenerationMaterials, prepareRegenerationReply, notifyRegeneration,
@@ -343,14 +348,16 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   async function regenerate(chatId, guidance, sessionId) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
     // Regeneration replaces one stored body: it needs the story rows, including the
-    // turn the caller picked, not the header-only activity view.
-    const chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
+    // turn the caller picked, not the header-only activity view. Reuse this complete
+    // snapshot for recovery and the pre-generation plan when recovery has no marker.
+    const chat = await stage('regen.load', () => str(chatId) === '' ? chatForSession(sessionId) : readChat(chatId))
     if (!chat) throw new Error('聊天不存在: ' + chatId)
     if (pendingRegenerations.has(chat.id) || pendingRollbacks.has(chat.id)) throw new Error('正文正在重新生成，请等待完成')
-    await regenerationRecovery.recover(chat.id)
+    const reusable = chat.regenInProgress ? null : chat
+    await stage('regen.recover', () => regenerationRecovery.recover(chat.id, chat))
     if (pendingRegenerations.has(chat.id) || pendingRollbacks.has(chat.id)) throw new Error('正文正在重新生成，请等待完成')
     pendingRegenerations.add(chat.id)
-    try { return await regenRecent(chat.id, guidance, sessionId) ?? await regenBody(chat.id, guidance, sessionId) }
+    try { return await regenBody(chat.id, guidance, sessionId, reusable) }
     finally { pendingRegenerations.delete(chat.id) }
   }
 
@@ -362,12 +369,57 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     await agent.whenIdle()
   }
 
-  function rollbackBodyMessages(chat) {
-    return (chat.messages || []).map(({ role, turn, text, sourceText, content, inputAttachments, greeting, swipes, swipeId }) => ({ role, turn, text, sourceText, content, inputAttachments, greeting, swipes, swipeId }))
+  async function stopRollbackBackground(chat, agent, warning = '') {
+    if (typeof cancelSettlement === 'function') {
+      try { await cancelSettlement(chat.id, { wait: false }) }
+      catch (error) { warning = '正文已回退，后台停止请求失败：' + str(error?.message || error) }
+    }
+    for (const participant of Object.values(storyTimeline.inspect({ chat }).participants || {})) {
+      const worker = sessions.get(participant.sessionId)
+      if (worker && worker !== agent && typeof worker.cancel === 'function') {
+        try { worker.cancel({ kind: 'parent' }) } catch { /* Old results are rejected by the new branch. */ }
+      }
+    }
+    return warning
   }
 
-  function assertRollbackSnapshot(current, expected) {
-    if (!isDeepStrictEqual(current, expected)) throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
+  function rollbackUndoRecord(chat, session, nodes, turn, beforeRevision) {
+    return { version: 1, id: randomUUID(), ready: false, turn, beforeRevision,
+      foreground: { formatVersion: 4, sessionId: session.id || chat.sessionId, nodes: [...nodes] }, background: [] }
+  }
+
+  function applyRollbackHeader(chat, { undo, hiddenTurn, regeneratedVisibleTurn, rollbackCommitKey }) {
+    chat.rollbackUndo = undo
+    chat.regenInProgress = false
+    delete chat.regenRecovery
+    if (rollbackCommitKey !== '') delete chat.nativeCommits[rollbackCommitKey]
+    chat.tavernHelperLifecycleRevision = Math.max(0, Number(chat.tavernHelperLifecycleRevision) || 0) + 1
+    const suppressed = Array.isArray(chat.suppressedDshTurns) ? [...chat.suppressedDshTurns, hiddenTurn] : [hiddenTurn]
+    if (Number.isSafeInteger(regeneratedVisibleTurn) && regeneratedVisibleTurn > 0) suppressed.push(regeneratedVisibleTurn)
+    chat.suppressedDshTurns = [...new Set(suppressed)].sort((left, right) => left - right)
+  }
+
+  function readyRollbackUndo(undo, chat, session, storageRevision) {
+    return { ...undo, ready: true, branchId: chat.timeline.branchId, revision: chat.timeline.revision,
+      lifecycleRevision: Number(chat.tavernHelperLifecycleRevision || 0), storageRevision,
+      foreground: { ...undo.foreground, afterCount: sessionEvents(session).length } }
+  }
+
+  // 回退守卫只认「正文身份 + 分支 + 剧情版本」。正文身份是行位置与文本：content/
+  // inputAttachments/swipes/swipeId 是同一行的展示投影与备选稿，投影写回、换剑、
+  // 重新生成追加 swipe 都会动它们却没换这一轮正文，算进来只会误判并发。
+  function rollbackBodyMessages(chat) {
+    return (chat.messages || []).map(({ role, turn, text, sourceText }) => ({ role, turn, text, sourceText }))
+  }
+
+  // 三个调用点都会把读到的整份快照写回（正文 / 整个头 / 历史 Chat），剧情版本只能
+  // 严格相等：向前推进意味着别人刚提交了新剧情，写回就会把它吞掉。存储计数
+  // （storageRevision/updatedAt）与后台自有字段不在比较范围内。
+  // revision:false 给失败轮清理用：那一轮自己的延迟记账仍会推进剧情版本。
+  function assertRollbackSnapshot(current, expected, { revision = true } = {}) {
+    const state = chat => ({ branch: chat?.timeline?.branchId, body: rollbackBodyMessages(chat),
+      ...(revision ? { revision: Math.max(0, Number(chat?.timeline?.revision) || 0) } : {}) })
+    if (!isDeepStrictEqual(state(current), state(expected))) throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
   }
 
   async function prepareRollbackIntent(chat, intent) {
@@ -377,9 +429,23 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (beforeChat === undefined) throw new Error('找不到剧情 checkpoint 对应的历史 Chat revision: ' + target.beforeRevision)
     return Object.assign({}, intent, { beforeChat })
   }
-  async function regenBody(chatId, guidance, sessionId) {
+  // The two reads between the begin marker and the commit only ask the save two
+  // questions: which regeneration marker it holds, and what its last floor is.
+  // Native saves answer both from their bounded tail window; a legacy save, a
+  // non-native store, a host without that reader or a failed window read keeps
+  // the complete read, which is what every host had before.
+  async function readRegenerationTail(chatId) {
+    if (typeof chats.readRecent === 'function') {
+      try {
+        const recent = await chats.readRecent(chatId)
+        if (recent && recent.id === chatId) return recent
+      } catch { /* The complete read below reports the same storage failure. */ }
+    }
+    return await readChat(chatId)
+  }
+  async function regenBody(chatId, guidance, sessionId, initialChat) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
-    let chat = str(chatId) === '' ? await chatForSession(sessionId) : await readChat(chatId)
+    let chat = initialChat || await stage('regen.load-body', () => str(chatId) === '' ? chatForSession(sessionId) : readChat(chatId))
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
     chat = restoreDiscardedRegeneration(chat)
     assertRescueHistoryEditable(chat)
@@ -412,7 +478,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     finally {
       if (evidence) {
         try { await diagnostics.record(effectiveSessionId, { stage: 'regeneration-target', diagnosticId: randomUUID(),
-          outcome: ['selected', 'unanswered-tail'].includes(evidence.reason) ? 'selected' : 'rejected', ...evidence,
+          outcome: ['selected', 'native-orphan-replaced', 'unanswered-tail'].includes(evidence.reason) ? 'selected' : 'rejected', ...evidence,
           guidanceProvided: typeof guidance === 'string' && guidance.trim().length > 0,
           binding: { requested: diagnosticIdentity(sessionId), stored: diagnosticIdentity(storedSessionId), effective: diagnosticIdentity(effectiveSessionId),
             overridden: Boolean(sessionId && sessionId !== storedSessionId) },
@@ -442,30 +508,71 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
 
     // Stop settlement before the immutable source snapshot. The begin update
     // replaces the old prose with an empty placeholder; failure never restores it.
+    // With no settlement to cancel, reuse the complete snapshot only when the
+    // cheap persisted revision proves that a concurrent story edit did not land.
     if (activeRound !== undefined && typeof cancelSettlement === 'function') await cancelSettlement(chat.id)
-    chat = restoreDiscardedRegeneration(await readChat(chat.id))
+    let sourceState = null
+    if (activeRound === undefined && typeof readChatState === 'function') {
+      sourceState = await stage('regen.source-state', () => readChatState(chat.id))
+    }
+    const sourceUnchanged = activeRound === undefined && sourceState &&
+      Number.isSafeInteger(sourceState._storageRevision) && Number.isSafeInteger(chat._storageRevision) &&
+      sourceState._storageRevision === chat._storageRevision
+    if (!sourceUnchanged) chat = await stage('regen.source', () => readChat(chat.id))
+    chat = restoreDiscardedRegeneration(chat)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
     chat.sessionId = effectiveSessionId
     if (agent.phase?.kind === 'running' || chat.regenInProgress) throw new Error('前台正在生成，请完成或停止后再重新生成')
-    if (failedTail) {
-      // The unanswered input is the round's start point: it must still be the
-      // tail of the save, and no story row may have changed around it.
-      if (!isDeepStrictEqual(chat.messages, msgs0)) throw new Error('重新生成前剧情已经变化，请刷新后重试')
-    } else assertRegenerationSourceCurrent({ originalChat: { ...chat, messages: msgs0 }, currentChat: chat, assistantIndex: oldAssistantIndex, inputIndex })
+    // An unanswered tail is a round whose reply is missing, not a save that must
+    // be frozen: background settlement, candidates and world bookkeeping keep
+    // writing while the panel opens, and none of it moves this round. Compare
+    // nothing and use the row the save shows now.
+    if (!failedTail) assertRegenerationSourceCurrent({ originalChat: { ...chat, messages: msgs0 }, currentChat: chat, assistantIndex: oldAssistantIndex, inputIndex })
 
-    const inputRow = inputIndex >= 0 ? msgs0[inputIndex] : null
+    const inputRow = inputIndex >= 0 ? (chat.messages[inputIndex] ?? msgs0[inputIndex]) : null
     const originalUserText = str(inputRow?.text).trim()
     const originalChat = cloneChat(chat)
     const operationId = randomUUID()
     const guide = str(guidance).trim()
     // There is no body to revise on an unanswered tail, so guidance is only an
     // extra instruction on the same input.
-    const syntheticText = regenerationInputText(originalUserText, guide, failedTail ? '' : replyTextOf(msgs0[oldAssistantIndex]))
+    // An edited body must reach the model even without guidance: the old body was
+    // already taken off the native surface, so this request is its only copy.
+    const currentBody = failedTail ? '' : replyTextOf(msgs0[oldAssistantIndex])
+    const editedBody = !failedTail && editedReplyBody(msgs0[oldAssistantIndex])
+    const syntheticText = regenerationInputText(originalUserText, guide, currentBody, { keepBody: editedBody })
+    // Only a body that the regeneration request actually carries can change the
+    // prepared frame. A plain reroll drops the old prose, so it stays out of the
+    // cache key while the player input and any guidance remain in it.
+    const cacheText = str(currentBody).trim() !== '' && (guide !== '' || editedBody)
+      ? syntheticText
+      : regenerationInputText(originalUserText, guide, '')
     const beforeLastTurn = agent.phase !== undefined && agent.phase !== null && Number.isFinite(Number(agent.phase.lastTurn)) ? Number(agent.phase.lastTurn) : 0
     const candidateTurn = beforeLastTurn + 1
-    const candidateFrame = await candidateRegenerationFrame(originalChat, operationId, candidateTurn, syntheticText, prepareRegenerationFrame)
-    const discarded = failedTail ? null : createRegenerationDiscard(msgs0[oldAssistantIndex], oldAssistantIndex, inputIndex)
-    const targetMessageUid = discarded?.assistant.messageUid || ''
+    // A fresh sample of the same round removes its old reply before the model
+    // request. When every other material is identical, the prepared frame is
+    // still the recipe for this request and the expensive preparation can be
+    // skipped; the model request itself is never skipped or cached.
+    const cacheProbe = typeof prepareRegenerationFrameCache === 'function'
+      ? await stage('regen.frame-key', async () => {
+          try {
+            return await prepareRegenerationFrameCache({ chat: originalChat, card, turn: candidateTurn, userText: cacheText,
+              target: failedTail ? null : msgs0[oldAssistantIndex], targetAssistantIndex: oldAssistantIndex })
+          } catch { return null }
+        })
+      : null
+    const cacheKey = typeof cacheProbe?.key === 'string' ? cacheProbe.key : ''
+    const cached = cacheKey !== '' ? regenerationFrames.get(chat.id) : null
+    const reusable = cached && cached.key === cacheKey ? cached : null
+    const candidateFrame = await stage('regen.prepare-frame', () => candidateRegenerationFrame(originalChat, operationId, candidateTurn,
+      syntheticText, prepareRegenerationFrame, reusable || (cacheProbe?.arguments ? { arguments: cacheProbe.arguments } : null)))
+    if (cacheKey !== '') {
+      regenerationFrames.delete(chat.id)
+      regenerationFrames.set(chat.id, { key: cacheKey, frame: cloneFrame(candidateFrame) })
+      while (regenerationFrames.size > REGENERATION_FRAME_CACHE_LIMIT) regenerationFrames.delete(regenerationFrames.keys().next().value)
+    } else {
+      regenerationFrames.delete(chat.id)
+    }
     let legacyBefore = null
     if (!failedTail && storyTimeline.inspect({ chat: originalChat }).checkpointCount === 0) {
       let rollbackCommit = null
@@ -500,41 +607,32 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // miss it whenever the two
     // numberings differ.
     const replacingTurn = appending ? null : surfaceTurnOfSeq(sessionEvents(session), oldSeq)
-    const lifecycleRevision = Math.max(0, Number(originalChat.tavernHelperLifecycleRevision) || 0) + 1
-    let marked = false, committed = false
-    await updateChat(chat.id, function (current) {
+    const attempt = regenerationRecovery.attempt({
+      originalChat, session, sessionId: effectiveSessionId, operationId, eventStart, replacingTurn,
+      assistantIndex: failedTail ? null : oldAssistantIndex, inputIndex
+    })
+    const { targetMessageUid } = attempt
+    let committed = false
+    await stage('regen.begin', () => attempt.begin(current => {
       if (agent.phase?.kind === 'running' || current.regenInProgress) throw new Error('前台正在生成，请完成或停止后再重新生成')
-      const logical = restoreDiscardedRegeneration(current)
-      if (!failedTail) assertRegenerationSourceCurrent({ originalChat, currentChat: logical, assistantIndex: oldAssistantIndex, inputIndex })
-      if (!isDeepStrictEqual(logical.messages, originalChat.messages) || !isDeepStrictEqual(current.timeline, originalChat.timeline)) {
-        throw new Error('重新生成前剧情已经变化，请刷新后重试')
-      }
-      current.regenRecovery = { id: operationId, phase: 'prepared', detached: true,
-        beforeRevision: Number(current._storageRevision || 0), sessionId: effectiveSessionId,
-        eventStart, candidateTurn, candidateFrame, targetMessageUid, temporaryReplacingTurn: replacingTurn,
-        ...(discarded ? { discarded } : {}),
-        ...(failedTail ? { unansweredTail: true, storyTurn } : {}) }
-      if (discarded) installRegenerationDiscard(current, discarded)
-      else clearRegenerationFailure(current)
-      current.regenInProgress = true
-      current.tavernHelperLifecycleRevision = lifecycleRevision
-      return current
-    }, { source: 'foreground.regen-begin', worldSelection: { preserveWorld: true } })
-    marked = true
+    }, { candidateTurn, candidateFrame, ...(failedTail ? { unansweredTail: true, storyTurn } : {}) }))
 
     let committedChat, body = '', syntheticTurn = candidateTurn, keptStreamed = false
     try {
       releaseOpeningTurn(agent.session, agent)
-      const ready = await readChat(chat.id)
-      if (ready?.regenRecovery?.id !== operationId || agent.phase?.kind === 'running') throw new Error('重新生成操作已失效或前台正在生成')
-      agent.followup({
-        id: randomUUID(),
-        role: 'user',
-        content: projectPlayerContent(inputRow?.inputAttachments, syntheticText),
-        source: { kind: 'plugin:dsh-tavern-regen', regenerationId: operationId }
-      })
+      const ready = await stage('regen.ready', () => readRegenerationTail(chat.id))
+      attempt.checkPrepared(ready)
+      if (agent.phase?.kind === 'running') throw new Error('重新生成操作已失效或前台正在生成')
       let generationError = null
-      try { await agent.whenIdle() } catch (error) { generationError = error }
+      await stage('regen.generate', async function () {
+        agent.followup({
+          id: randomUUID(),
+          role: 'user',
+          content: projectPlayerContent(inputRow?.inputAttachments, syntheticText),
+          source: { kind: 'plugin:dsh-tavern-regen', regenerationId: operationId }
+        })
+        try { await agent.whenIdle() } catch (error) { generationError = error }
+      })
       const ownStart = sessionEvents(session).slice(eventStart).find(event => event?.type === 'turn/start')
       if (ownStart) syntheticTurn = Number(ownStart.data?.turn) || syntheticTurn
       else if (Number.isFinite(Number(agent.phase?.lastTurn))) syntheticTurn = Number(agent.phase.lastTurn)
@@ -544,15 +642,15 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         throw new Error('这次重新生成没有完成（可能被内容审核拦截或已停止），旧正文已撤下，可以再试一次。' + FOREGROUND_TOOL_HINT)
       }
       keptStreamed = generationError !== null || attemptReachedOutputLimit(session, syntheticTurn, eventStart)
-      if (typeof sessions.flush === 'function') await sessions.flush(session)
-      const storedCandidate = await readChat(chat.id)
+      if (typeof sessions.flush === 'function') await stage('regen.flush-native', () => sessions.flush(session))
+      const storedCandidate = await stage('regen.read-candidate', () => readRegenerationTail(chat.id))
       const nativeCandidateRow = storedCandidate?.messages?.at(-1)?.role === 'assistant' &&
         Number(storedCandidate.messages.at(-1).turn) === Number(syntheticTurn) ? storedCandidate.messages.at(-1) : null
 
       // The checkpoint rollback exists only on this detached draft. It becomes
       // visible together with the validated replacement in one commit below.
       let draft = failedTail ? structuredClone(originalChat)
-        : storyTimeline.apply({ chat: structuredClone(originalChat), intent: rollbackIntent }).chat
+        : storyTimeline.apply({ chat: structuredClone(originalChat), detach: false, intent: rollbackIntent }).chat
       const inputState = candidateFrame.source?.regenerationState
       if (inputState?.version === 1) {
         for (const key of INPUT_STATE_FIELDS) {
@@ -586,7 +684,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         draft.scriptState = scriptContinuity.transition({ script, state: draft.scriptState,
           event: { kind: 'commit', userText: str(originalUser?.text), nativeTurn: storyTurn } }).state
       }
-      const begun = storyTimeline.apply({ chat: draft, intent: { kind: 'body.begin', turn: storyTurn, userText: str(originalUser?.text) } })
+      const begun = storyTimeline.apply({ chat: draft, detach: false, intent: { kind: 'body.begin', turn: storyTurn, userText: str(originalUser?.text) } })
       draft = begun.chat
       const bodyOperation = draft.timeline.operations[begun.value.operationId]
       const checkpoint = !failedTail && storyTimeline.inspect({ chat: originalChat }).checkpointCount ? originalChat.timeline?.checkpoints?.at(-1) : null
@@ -604,7 +702,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       const merged = failedTail ? { chat: { ...draft, messages: [...structuredClone(originalChat.messages), row] } }
         : replaceLastRound({ originalChat, regeneratedChat: draft, replacement: row, assistantIndex: oldAssistantIndex, inputIndex })
       if (!failedTail && targetMessageUid) merged.chat.messages[oldAssistantIndex].messageUid = targetMessageUid
-      const completed = storyTimeline.complete({ chat: merged.chat, operationId: bodyOperation.id, basedOn: bodyOperation.basedOn,
+      const completed = storyTimeline.complete({ chat: merged.chat, detach: false, operationId: bodyOperation.id, basedOn: bodyOperation.basedOn,
         outcome: { status: 'success' }, apply(current) {
           delete current.promptTemplateInput
           current.settleStatus = 'pending'
@@ -616,29 +714,20 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       if (completed.value.status !== 'committed') throw new Error('正文提交条件已失效')
       const next = completed.chat
       const appendAnchor = appending ? attemptNativeAnchor(session, eventStart, syntheticTurn) : null
-      // A save-only replacement must not retain the stale anchor of the body that
-      // disappeared. Recovery writes the new full or reply-only anchor below.
-      if (saveOnly && next.messages?.[oldAssistantIndex]) delete next.messages[oldAssistantIndex].nativeAnchor
       next.nativeCommits = originalChat.nativeCommits && typeof originalChat.nativeCommits === 'object' ? structuredClone(originalChat.nativeCommits) : {}
+      next.suppressedDshTurns = Array.isArray(originalChat.suppressedDshTurns) ? [...originalChat.suppressedDshTurns] : []
+      next.regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
+        ? structuredClone(originalChat.regeneratedDshTurns) : {}
       if (saveOnly) {
-        // Only a real native reply creates a new story-to-host mapping. A missing
-        // reply must not leave a mapping to an unrelated or empty host round.
-        next.suppressedDshTurns = Array.isArray(originalChat.suppressedDshTurns) ? [...originalChat.suppressedDshTurns] : []
-        next.regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
-          ? structuredClone(originalChat.regeneratedDshTurns) : {}
+        // Recovery anchors the new native reply, if one landed. Discard the
+        // vanished reply's anchor and any mapping we cannot replace.
+        if (next.messages?.[oldAssistantIndex]) delete next.messages[oldAssistantIndex].nativeAnchor
         if (appendAnchor) next.regeneratedDshTurns[String(oldTurn)] = syntheticTurn
         else delete next.regeneratedDshTurns[String(oldTurn)]
-      } else if (failedTail) {
-        // Nothing native was replaced: the attempt's own reply is the body, so no
-        // turn is hidden and no earlier body is remapped.
-        next.suppressedDshTurns = Array.isArray(originalChat.suppressedDshTurns) ? [...originalChat.suppressedDshTurns] : []
-        next.regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
-          ? structuredClone(originalChat.regeneratedDshTurns) : {}
-      } else {
+      } else if (!failedTail) {
+        // Only an in-place replacement hides the separate attempt's turn.
         delete next.nativeCommits[String(syntheticTurn)]
-        next.suppressedDshTurns = Array.from(new Set((Array.isArray(originalChat.suppressedDshTurns) ? originalChat.suppressedDshTurns : []).concat([syntheticTurn]))).sort((left, right) => left - right)
-        next.regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
-          ? structuredClone(originalChat.regeneratedDshTurns) : {}
+        next.suppressedDshTurns = [...new Set([...next.suppressedDshTurns, syntheticTurn])].sort((left, right) => left - right)
         next.regeneratedDshTurns[String(oldTurn)] = syntheticTurn
       }
       // A replacement rewrites the old reply in place; the answered tail only has
@@ -649,11 +738,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
           message: { id: 'tavern-regen:' + operationId, role: 'assistant', content: [{ type: 'text', text: prose.text }],
             source: { ...oldSource, tavernStoryTurn: storyTurn } } }, operationId)
 
-      committedChat = await updateChat(chat.id, function (current) {
-        if (failedTail) assertUnansweredTailCurrent(originalChat, current, operationId, syntheticTurn)
-        else if (current?.regenRecovery?.id !== operationId || current.regenRecovery?.phase !== 'prepared') {
-          throw new Error('重新生成操作已失效')
-        }
+      committedChat = await stage('regen.commit', () => attempt.commit({ projection, apply(current) {
         if (agent.phase?.kind === 'running') throw new Error('前台已开始新一轮，本次候选已作废')
         for (const key of ['messages', 'timeline', 'foregroundFrames', ...INPUT_STATE_FIELDS, 'tavernPluginMetadata', 'posture', 'ledger', 'candidates',
           'settleStatus', 'settleError', 'lastSettle', 'foregroundError', 'presentationWarnings', 'candidateAgent',
@@ -661,65 +746,50 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
           if (Object.hasOwn(next, key)) current[key] = structuredClone(next[key])
           else delete current[key]
         }
-        current.regenInProgress = true
-        current.regenRecovery = { ...current.regenRecovery, phase: 'committed', projection }
-        current.tavernHelperLifecycleRevision = Number(current.tavernHelperLifecycleRevision || 0) + 1
-        return current
-      }, { source: 'foreground.regen-commit', worldSelection: { preserveDetachedWorld: true } })
+      } }))
       committed = true
       const bodyIndex = failedTail ? (committedChat.messages?.length || 1) - 1 : oldAssistantIndex
       body = str(committedChat.messages?.[bodyIndex]?.text || prose.text).trim()
     } catch (error) {
-      if (marked && !committed) await regenerationRecovery.abort({ chatId: chat.id, originalChat, session, eventStart, operationId })
+      if (!committed) await attempt.abandon()
       throw error
     }
-    committedChat = await regenerationRecovery.complete({ chatId: chat.id, session, operationId }) || committedChat
-    replyCommitted?.(committedChat.sessionId)
+    committedChat = await attempt.project() || committedChat
+    replyCommitted?.(committedChat.sessionId, committedChat._storageRevision)
     // The body is already the save's truth; settlement is a background task. Waiting
     // for it unbounded held the whole response open, so the page sat on
     // 「正在重新生成正文…」 long after the reply was written and the replacement's
     // view never reached the transcript. A failed or slow settlement must not keep
     // the new body off the page: report what has been committed, and let the
     // settlement's own state (settleStatus / activity) arrive through the save.
-    let settledChat = committedChat
-    const settlement = Promise.resolve(queueSettlement(committedChat.id))
-    try {
-      const finished = await Promise.race([
-        settlement.then(() => true),
-        new Promise(function (resolve) { setTimeout(finished => resolve(finished), REGEN_SETTLEMENT_WAIT_MS, false) })
-      ])
-      if (finished) settledChat = await readChat(committedChat.id) || committedChat
-      else void settlement.catch(async error => {
-        const message = str(error?.message || error) || '后台结算失败'
-        try {
-          await updateChat(committedChat.id, function (current) {
-            if (!current || typeof current !== 'object') return current
-            current.settleStatus = 'failed'
-            current.settleError = message
-            return current
-          }, { source: 'settlement.regen-failed' })
-        } catch (failure) { console.warn('dsh-tavern: 重新生成结算失败状态未保存', str(failure?.message || failure)) }
-      })
-    } catch (error) {
+    const saveSettlementFailure = error => {
       const message = str(error?.message || error) || '后台结算失败'
-      settledChat = await updateChat(committedChat.id, function (current) {
+      return updateChat(committedChat.id, current => {
         if (!current || typeof current !== 'object') return current
         current.settleStatus = 'failed'
         current.settleError = message
         return current
       }, { source: 'settlement.regen-failed' })
     }
-    const result = await view(settledChat, card)
+    let settledChat = committedChat
+    const settlement = Promise.resolve(queueSettlement(committedChat.id))
+    try {
+      const finished = await stage('regen.settlement', () => Promise.race([
+        settlement.then(() => true),
+        new Promise(resolve => setTimeout(resolve, REGEN_SETTLEMENT_WAIT_MS, false))
+      ]))
+      if (finished) settledChat = await stage('regen.settled-read', () => readChat(committedChat.id)) || committedChat
+      else void settlement.catch(async error => {
+        try { await saveSettlementFailure(error) }
+        catch (failure) { console.warn('dsh-tavern: 重新生成结算失败状态未保存', str(failure?.message || failure)) }
+      })
+    } catch (error) {
+      settledChat = await saveSettlementFailure(error)
+    }
+    const result = await stage('regen.present', () => view(settledChat, card))
     result.adopted = { text: body, guidance: guide, hiddenTurn: failedTail ? storyTurn : oldTurn, syntheticTurn }
     if (keptStreamed) result.regenerationWarning = '这次重新生成没有完成（可能被内容审核拦截或已停止），已保留生成到的部分正文。' + FOREGROUND_TOOL_HINT
     return result
-  }
-
-  // The former bounded path rolled back a checkpoint before generation and
-  // restored later floors on failure. Both full and scoped saves now share the
-  // candidate-first transaction: story rows stay authoritative until one commit.
-  async function regenRecent(chatId, guidance, sessionId) {
-    return await regenBody(chatId, guidance, sessionId)
   }
 
   // ---------- 回退本轮（删除最近一次用户输入 + LLM 输出） ----------
@@ -742,12 +812,12 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     return anchoredToSaveRow(target, latestStoryRow(chat))
   }
 
-  async function rollbackTurn(sessionId, chatId, expectedTurn) {
+  async function rollbackTurn(sessionId, chatId, expectedTurn, { failedTailOnly = false } = {}) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
     // Identity and task flags only; rollbackChat reads the story it changes.
     const chat = str(chatId) === '' ? await (chats.stateForSession || chatForSession)(sessionId) : await (chats.readState || readChat)(chatId)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
-    await settleStaleRegeneration(chat)
+    if (!failedTailOnly) await settleStaleRegeneration(chat)
     if (pendingRollbacks.has(chat.id)) throw new Error('正在回退本轮，请等待完成')
     pendingRollbacks.add(chat.id)
     let restoredHandle
@@ -755,7 +825,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       if (!sessions.get(chat.sessionId)?.session && !sessions.getSession?.(chat.sessionId) && typeof sessions.resume === 'function') {
         restoredHandle = await sessions.resume(chat.sessionId)
       }
-      return await rollbackChat(chat, expectedTurn, restoredHandle?.agent)
+      return await rollbackChat(chat, expectedTurn, restoredHandle?.agent, failedTailOnly)
     } finally {
       try { await restoredHandle?.dispose?.() }
       finally { pendingRollbacks.delete(chat.id) }
@@ -802,7 +872,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (state?.regenInProgress) throw new Error('正文正在重新生成，请先完成恢复或生成')
   }
 
-  async function rollbackToTurn(sessionId, chatId, targetTurn) {
+  async function rollbackToTurn(sessionId, chatId, targetTurn, messageUid) {
     const target = Number(targetTurn)
     if (!Number.isSafeInteger(target) || target < 1) throw new Error('回退目标轮次无效')
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
@@ -815,6 +885,26 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     try {
       if (!sessions.get(state.sessionId)?.session && !sessions.getSession?.(state.sessionId) && typeof sessions.resume === 'function') {
         restoredHandle = await sessions.resume(state.sessionId)
+      }
+      if (messageUid !== undefined) {
+        const chat = await readChat(state.id)
+        const messages = chat.messages || []
+        const matches = messages.filter(row => row?.role === 'assistant' && Number(row.turn) === target)
+        const index = messages.indexOf(matches[0])
+        if (matches.length !== 1 || legacyMessageUid(matches[0], index) !== messageUid) {
+          throw new Error('回退目标楼层已变化，请刷新后重试')
+        }
+        // The rollback loop steps down by story turn. Reject ambiguous imported
+        // sequences before it removes anything.
+        let previous = target
+        for (const row of messages.slice(index + 1)) {
+          if (row?.role !== 'assistant' || row.greeting === true) continue
+          const turn = Number(row.turn)
+          if (row.placeholder === true || !Number.isSafeInteger(turn) || turn <= previous) {
+            throw new Error('此楼之后的剧情轮次无法安全回退，请使用「从这一轮分叉」')
+          }
+          previous = turn
+        }
       }
       const recent = async () => chats.readRecent ? await chats.readRecent(state.id) : await readChat(state.id)
       const latestOf = async () => latestStoryTurn(await recent())
@@ -866,11 +956,13 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     return await view(saved, await readChatCard(saved))
   }
 
-  async function rollbackChat(chat, requestedTurn, restoredAgent) {
+  async function rollbackChat(chat, requestedTurn, restoredAgent, failedTailOnly = false) {
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
-    await stopRollbackGeneration(chat)
-    const bounded = await rollbackRecent(chat, requestedTurn, restoredAgent)
-    if (bounded !== undefined) return bounded
+    if (!failedTailOnly) {
+      await stopRollbackGeneration(chat)
+      const bounded = await rollbackRecent(chat, requestedTurn, restoredAgent)
+      if (bounded !== undefined) return bounded
+    }
     chat = await readChat(chat.id)
     const originalChat = cloneChat(chat)
     const mode = chat.mode || 'story'
@@ -881,7 +973,19 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (!session) throw new Error('无法访问 DSH 会话: ' + chat.sessionId)
     const events = sessionEvents(session)
     const nodes = session.surface !== undefined && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
-    let availability = rollbackAvailability(chat, { events, nodes })
+    const availability = rollbackAvailability(chat, { events, nodes })
+    if (failedTailOnly) {
+      const started = events.findLastIndex(event => event?.type === 'turn/start')
+      const ended = events.findLastIndex(event => event?.type === 'turn/end')
+      if (agent?.phase?.kind === 'running' || started > ended || chat.regenInProgress ||
+        ['pending', 'running', 'waiting-runtime'].includes(chat.settleStatus)) {
+        throw new Error('请等待当前生成或后台处理完成后再清除未完成回复')
+      }
+      const target = availability.clearIncompleteReplyTarget
+      if (target?.kind !== 'failed-tail' || target.turn !== requestedTurn) {
+        throw new Error('清理目标已经变化，请刷新后重试')
+      }
+    }
     // Player input is persisted before Session acceptance. Withdrawing that tail must
     // remove its story row as well as any native failure, never roll back the previous
     // completed round merely because it is the latest assistant/user pair.
@@ -897,7 +1001,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       chat = await updateChat(chat.id, current => {
         // Clearing only hides uncommitted residue. The failed turn's own deferred
         // bookkeeping may still be landing in the timeline; only story text must hold.
-        assertRollbackSnapshot(rollbackBodyMessages(current), rollbackBodyMessages(originalChat))
+        // 失败轮自己的延迟记账还会推进剧情版本；这里只要求正文与分支没变。
+        assertRollbackSnapshot(current, originalChat, { revision: false })
         const next = { ...current, suppressedDshTurns: [...new Set([...(current.suppressedDshTurns || []), ...failedTurns])].sort((a, b) => a - b), foregroundError: null, updatedAt: Date.now() }
         if (persistedTail) {
           const currentTail = replayablePersistedTurn(current)
@@ -937,8 +1042,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // The native surface must still show the round: nothing is rewritten to make it.
     const rollbackSurface = surfaceShowsLatest(chat, availability, events) ? availability.target : null
     if (rollbackSurface === null) throw new Error(availability.target ? '该轮已不在当前模型上下文中，不能直接回退；历史正文仍可通过 history_recall 检索' : availability.reason)
-    const hiddenTurn = rollbackSurface ? rollbackSurface.turn : latestStoryTurn(chat)
-    const shadowedSeqs = rollbackSurface ? rollbackSurface.shadowedSeqs : []
+    const hiddenTurn = rollbackSurface.turn
     const regeneratedDshTurns = originalChat.regeneratedDshTurns && typeof originalChat.regeneratedDshTurns === 'object' && !Array.isArray(originalChat.regeneratedDshTurns)
       ? originalChat.regeneratedDshTurns : {}
     const regeneratedVisibleTurn = Number(regeneratedDshTurns[String(hiddenTurn)])
@@ -996,23 +1100,13 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       rollbackIntent = { kind: 'turn.rollback', turn: hiddenTurn, legacyBefore: { ...chat, messages: msgs.slice(0, assistantIndex - 1), candidates: null, settleStatus: 'idle', settleError: null }, allowMissingHistory: true }
     }
     await stopRollbackGeneration(chat)
-    if (typeof cancelSettlement === 'function') {
-      try { await cancelSettlement(chat.id, { wait: false }) }
-      catch (error) { rollbackWarning = '正文已回退，后台停止请求失败：' + str(error?.message || error) }
+    rollbackWarning = await stopRollbackBackground(chat, agent, rollbackWarning)
+    const beforeRevision = Number(originalChat._storageRevision || 0)
+    const undo = rollbackUndoRecord(chat, session, nodes, expectedTurn || hiddenTurn, beforeRevision)
+    if (!beforeRevision) {
+      undo.before = structuredClone(originalChat)
+      delete undo.before.rollbackUndo
     }
-    for (const participant of Object.values(storyTimeline.inspect({ chat }).participants || {})) {
-      const worker = sessions.get(participant.sessionId)
-      if (worker && worker !== agent && typeof worker.cancel === 'function') {
-        try { worker.cancel({ kind: 'parent' }) } catch { /* Old results are rejected by the new branch. */ }
-      }
-    }
-    const undo = {
-      version: 1, id: randomUUID(), ready: false, turn: expectedTurn || hiddenTurn,
-      beforeRevision: Number(originalChat._storageRevision || 0),
-      ...(Number(originalChat._storageRevision || 0) ? {} : { before: structuredClone(originalChat) }),
-      foreground: { formatVersion: 4, sessionId: session.id || chat.sessionId, nodes: [...nodes] }, background: []
-    }
-    if (undo.before) delete undo.before.rollbackUndo
     const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
     chat = rolled.chat
     // Player input can be saved before body.begin takes its checkpoint.
@@ -1020,13 +1114,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (chat.messages.length === assistantIndex && isRollbackInputPlaceholder(chat.messages.at(-1), msgs[assistantIndex - 1])) {
       chat.messages.pop()
     }
-    chat.rollbackUndo = undo
-    chat.regenInProgress = false
-    delete chat.regenRecovery
-    if (rollbackCommitKey !== '') delete chat.nativeCommits[rollbackCommitKey]
-    chat.tavernHelperLifecycleRevision = Math.max(0, Number(chat.tavernHelperLifecycleRevision) || 0) + 1
-    chat.suppressedDshTurns = Array.from(new Set((Array.isArray(chat.suppressedDshTurns) ? chat.suppressedDshTurns : []).concat(
-      [hiddenTurn], Number.isSafeInteger(regeneratedVisibleTurn) && regeneratedVisibleTurn > 0 ? [regeneratedVisibleTurn] : []))).sort(function (left, right) { return left - right })
+    applyRollbackHeader(chat, { undo, hiddenTurn, regeneratedVisibleTurn, rollbackCommitKey })
     chat.regeneratedDshTurns = chat.regeneratedDshTurns && typeof chat.regeneratedDshTurns === 'object' && !Array.isArray(chat.regeneratedDshTurns)
       ? structuredClone(chat.regeneratedDshTurns) : {}
     delete chat.regeneratedDshTurns[String(hiddenTurn)]
@@ -1036,21 +1124,21 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     chat.updatedAt = Date.now()
     chat = await updateChat(chat.id, current => {
-      if (!isDeepStrictEqual(rollbackBodyMessages(current), rollbackBodyMessages(originalChat)) || current.timeline?.branchId !== originalChat.timeline?.branchId) throw new Error('回退期间正文已被其他操作修改，请刷新后重试')
+      // 下面写回的是这一刻读到的整份头：正文没变也可能有结算刚写下变量/模板数据，
+      // 只比正文和分支会把那份提交覆盖掉，所以剧情版本也必须相等。
+      assertRollbackSnapshot(current, originalChat)
       return chat
     }, { source: 'rollback' })
-    return await finishRollback({ chat, card, agent, session, rollbackSurface, shadowedSeqs, undo, rollbackWarning, hiddenTurn, removedUserText, removedAssistantText,
+    return await finishRollback({ chat, card, agent, session, rollbackSurface, undo, rollbackWarning, removedUserText, removedAssistantText,
       messageCount: (chat.messages || []).length, dispatchChat: chat,
       abort: () => updateChat(chat.id, current => {
+        // 判据：正文 + 分支 + 剧情版本严格相等（存储计数与后台自有字段不参与）。
         assertRollbackSnapshot(current, chat)
         return storyTimeline.apply({ chat: current, intent: { kind: 'replacement.abort', restoreChat: originalChat } }).chat
       }, { source: 'rollback.abort' }),
       saveUndoPoint: () => updateChat(chat.id, current => {
         if (current.timeline?.branchId !== chat.timeline?.branchId || current.timeline?.revision !== chat.timeline?.revision) return current
-        current.rollbackUndo = { ...undo, ready: true, branchId: current.timeline.branchId, revision: current.timeline.revision,
-          lifecycleRevision: Number(current.tavernHelperLifecycleRevision || 0),
-          storageRevision: Number(current._storageRevision || 0) + 1,
-          foreground: { ...undo.foreground, afterCount: sessionEvents(session).length } }
+        current.rollbackUndo = readyRollbackUndo(undo, current, session, Number(current._storageRevision || 0) + 1)
         return current
       }, { source: 'rollback.undo-point' }) })
   }
@@ -1114,29 +1202,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const restoredCount = checkInput && isRollbackInputPlaceholder(restoredRows.chat.messages.at(-1), user) ? checkpointCount - 1 : checkpointCount
     const { messages: _checkpointRows, ...checkpointHeader } = checkpointHead.chat
     const card = await readChatCard(chat)
-    let rollbackWarning = ''
-    if (typeof cancelSettlement === 'function') {
-      try { await cancelSettlement(chat.id, { wait: false }) }
-      catch (error) { rollbackWarning = '正文已回退，后台停止请求失败：' + str(error?.message || error) }
-    }
-    for (const participant of Object.values(storyTimeline.inspect({ chat: header }).participants || {})) {
-      const worker = sessions.get(participant.sessionId)
-      if (worker && worker !== agent && typeof worker.cancel === 'function') {
-        try { worker.cancel({ kind: 'parent' }) } catch { /* Old results are rejected by the new branch. */ }
-      }
-    }
-    const undo = {
-      version: 1, id: randomUUID(), ready: false, turn: expectedTurn || hiddenTurn, beforeRevision: revision,
-      foreground: { formatVersion: 4, sessionId: session.id || chat.sessionId, nodes: [...nodes] }, background: []
-    }
+    const rollbackWarning = await stopRollbackBackground(header, agent)
+    const undo = rollbackUndoRecord(chat, session, nodes, expectedTurn || hiddenTurn, revision)
     const rolled = storyTimeline.apply({ chat: { ...header, messages: [] }, intent: { kind: 'turn.rollback', turn: hiddenTurn, beforeChat: { ...checkpointHeader, messages: [] } } }).chat
-    rolled.rollbackUndo = undo
-    rolled.regenInProgress = false
-    delete rolled.regenRecovery
-    if (rollbackCommitKey !== '') delete rolled.nativeCommits[rollbackCommitKey]
-    rolled.tavernHelperLifecycleRevision = Math.max(0, Number(rolled.tavernHelperLifecycleRevision) || 0) + 1
-    rolled.suppressedDshTurns = Array.from(new Set((Array.isArray(rolled.suppressedDshTurns) ? rolled.suppressedDshTurns : []).concat(
-      [hiddenTurn], Number.isSafeInteger(regeneratedVisibleTurn) && regeneratedVisibleTurn > 0 ? [regeneratedVisibleTurn] : []))).sort(function (left, right) { return left - right })
+    applyRollbackHeader(rolled, { undo, hiddenTurn, regeneratedVisibleTurn, rollbackCommitKey })
     rolled.regeneratedDshTurns = structuredClone(regeneratedDshTurns)
     delete rolled.regeneratedDshTurns[String(hiddenTurn)]
     const changes = diffJson({ ...header, messages: [] }, rolled).filter(change => !['_storageRevision', 'updatedAt'].includes(change.path[0]))
@@ -1149,20 +1218,24 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (!saved) return undefined
     // Header only: rows stay unread holes so presentation reads its own window.
     const committed = { ...rolled, _storageRevision: saved._storageRevision, updatedAt: saved.updatedAt, messages: createScopedMessages(restoredCount) }
-    return await finishRollback({ chat: committed, card, agent, session, rollbackSurface, shadowedSeqs: rollbackSurface.shadowedSeqs, undo, rollbackWarning,
-      hiddenTurn, removedUserText, removedAssistantText, messageCount: restoredCount, dispatchChat: undefined,
+    return await finishRollback({ chat: committed, card, agent, session, rollbackSurface, undo, rollbackWarning,
+      removedUserText, removedAssistantText, messageCount: restoredCount,
       abort: async () => {
         // Rare error path: restore the exact pre-rollback Chat as the complete path does.
         const original = await readChatRevision(chat.id, revision)
         await updateChat(chat.id, current => {
-          if (current._storageRevision !== saved._storageRevision) throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
+          // The story is what must not have moved. A settlement, a display capture
+          // or a worldbook sync bumps the storage counter without touching the
+          // rollback, and refusing the repair on those left the rollback half applied.
+          if (current.timeline?.branchId !== committed.timeline?.branchId
+            || Number(current.timeline?.revision) !== Number(committed.timeline?.revision)) {
+            throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
+          }
           return storyTimeline.apply({ chat: current, intent: { kind: 'replacement.abort', restoreChat: original } }).chat
         }, { source: 'rollback.abort' })
       },
       saveUndoPoint: async () => {
-        const point = { ...undo, ready: true, branchId: committed.timeline.branchId, revision: committed.timeline.revision,
-          lifecycleRevision: Number(committed.tavernHelperLifecycleRevision || 0), storageRevision: saved._storageRevision + 1,
-          foreground: { ...undo.foreground, afterCount: sessionEvents(session).length } }
+        const point = readyRollbackUndo(undo, committed, session, saved._storageRevision + 1)
         const head = await chats.patch(chat.id, saved._storageRevision, [{ op: 'set', path: ['rollbackUndo'], value: point }], { source: 'rollback.undo-point' })
         if (head) return { ...committed, ...head, messages: committed.messages }
         return updateChat(chat.id, current => {
@@ -1196,11 +1269,10 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   // After the story commit: hide the round on the native surface (aborting the
   // commit if the host refuses), rewind background contexts, notify scripts and
   // publish the undo point. Shared by the complete and the bounded rollback.
-  async function finishRollback({ chat, card, agent, session, rollbackSurface, shadowedSeqs, undo, hiddenTurn, removedUserText, removedAssistantText, messageCount, dispatchChat, abort, saveUndoPoint, ...state }) {
-    let rollbackWarning = state.rollbackWarning
+  async function finishRollback({ chat, card, agent, session, rollbackSurface, undo, rollbackWarning, removedUserText, removedAssistantText, messageCount, dispatchChat, abort, saveUndoPoint }) {
+    const { turn: hiddenTurn, shadowedSeqs } = rollbackSurface
     // 3) 原生消息面：用空消息替换最近一轮的所有 surface 节点（模型不再看到），UI 由客户端隐藏对应 turn tail
     try {
-      if (rollbackSurface === null) throw Object.assign(new Error('原生上下文中找不到这一轮'), { code: 'NATIVE_TARGET_MISSING' })
       // A rollback runs between turns, and the replacement is read at the log
       // tail: give it a turn of its own when none is open, so the archive keeps
       // loading instead of failing "does not match an open turn and step."
@@ -1351,7 +1423,21 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         const changes = diffJson({ ...header, messages: [] }, result).filter(change => !['_storageRevision', 'updatedAt'].includes(change.path[0]))
         if (changes.some(change => change.path[0] === 'messages' || change.path[0] === 'id')) throw new Error('找不到回退前的恢复点')
         changes.push(...bounded.changes)
-        const head = await chats.patch(chat.id, chat._storageRevision, changes, { source: 'rollback.undo' })
+        let head = await chats.patch(chat.id, chat._storageRevision, changes, { source: 'rollback.undo' })
+        if (!head) {
+          // CAS 落空只说明存储计数动了：结算、显示捕获、世界书同步都会推进它。
+          // 重读一次，确认没有行被改、这次撤销点也没被花掉，才按新 revision 重放
+          // 同一份补丁（补丁是 journal 操作，只碰表头与被回退的行，重放安全）；
+          // 撤销点已花（rollbackUndo 没了或换了 id）就绝不把正文再写一遍。
+          const latest = await chats.readRecent(chat.id)
+          const moved = await chats.changedSince(chat.id, chat._storageRevision)
+          if (!latest || !moved || moved.indices.length !== 0
+            || latest.rollbackUndo?.id !== chat.rollbackUndo?.id
+            || latest.timeline?.branchId !== chat.timeline?.branchId
+            || Number(latest.timeline?.revision) !== Number(chat.timeline?.revision)
+            || latest.messages.length !== chat.messages.length) throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
+          head = await chats.patch(chat.id, moved.revision, changes, { source: 'rollback.undo' })
+        }
         if (!head) throw new Error('回退期间聊天已被其他操作修改，请刷新后重试')
         restored = { ...result, ...head, messages: createScopedMessages(bounded.count) }
       } else {

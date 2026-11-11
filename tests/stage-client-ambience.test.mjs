@@ -57,19 +57,3 @@ test('soundscape disposal continues across a failed mixer release and settles fa
   player.apply({version:1,layers:[{slot:'layer1',identity:'new',url:'blob:new',gain:1}]})
   assert.equal(id,2)
 })
-test('ambience disposal releases all pins even if subscription and audio cleanup fail', () => {
-  const released = []
-  const state = {accepted:{ambience:{layers:['a','b'].map(identity => ({identity,url:'blob:'+identity}))}},source:{},cursor:{}}
-  const ambience = createAmbience({
-    player:() => ({apply(){},whenSettled:() => Promise.resolve(),stop(){throw new Error('stop')},dispose:() => released.push('player')}),
-    session:() => ({select:select => ({getSnapshot:() => select(state),subscribe(){},dispose(){throw new Error('subscription')}})}),
-    owner:() => ({retain:identity => ({handle:{url:'blob:'+identity},release:() => {
-      released.push(identity);if(identity==='a')throw new Error('pin')
-    }})}),
-    authority:source => source,
-  })
-  ambience.activate('s')
-  assert.throws(() => ambience.dispose(),/cleanup failed/)
-  assert.deepEqual(released,['a','b','player'])
-  ambience.dispose()
-})

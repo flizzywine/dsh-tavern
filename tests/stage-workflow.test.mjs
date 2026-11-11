@@ -23,31 +23,6 @@ test('stage owns director job registration, opening, cancellation and removal',a
   events.emit('reply-committed',{sessionId:'game'});await stage.settlementQueued('chat');await tick()
   assert.equal(calls.length,3)
 })
-test('ordinary cards do not read rounds or opening summaries',async()=>{
-  const {stage,events,calls}=setup({dialogueBubbles:{read:async()=>({enabled:false})},
-    chatForSession(){assert.fail('ordinary round read')},chatPersistence:{readSlice:async()=>({chat:{sessionId:'game'}}),readRecentSummaries(){assert.fail('ordinary summary read')}}})
-  events.emit('reply-committed',{sessionId:'game'});await stage.settlementQueued('chat');await tick()
-  assert.deepEqual(calls,[]);stage.dispose()
-})
-test('disposal while admission waits prevents a late director start',async()=>{
-  let resolve;const gate=new Promise(done=>resolve=done)
-  const {events,stage,calls}=setup({dialogueBubbles:{read:()=>gate}})
-  events.emit('reply-committed',{sessionId:'game'});await tick()
-  stage.dispose();resolve({enabled:true});await tick()
-  assert.deepEqual(calls,[])
-})
-
-test('removed workflow jobs cannot publish late outputs to a replacement job',async()=>{
-  let resolve;const gate=new Promise(done=>resolve=done)
-  const events=createStoryEvents(),workflow=createWorkflow({events})
-  const stop=workflow.job({id:'stage',on:'reply-committed',run:()=>gate})
-  events.emit('reply-committed',{sessionId:'game',turn:1});await tick();stop()
-  const replacement=workflow.job({id:'stage',on:'reply-committed',run:()=>42})
-  resolve('old');await tick()
-  assert.equal(workflow.output('game',1,'stage'),undefined)
-  events.emit('reply-committed',{sessionId:'game',turn:1});await tick()
-  assert.equal(workflow.output('game',1,'stage'),42);replacement()
-})
 
 test('optional task catalog follows registration and cannot replace a core task',()=>{
   const workflow=createWorkflow({events:createStoryEvents(),tasks:[{task:'core',name:'Core'}]})

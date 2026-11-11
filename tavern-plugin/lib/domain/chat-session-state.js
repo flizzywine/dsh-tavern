@@ -20,12 +20,21 @@ export function pendingMvuSettlementState(chat) {
 }
 
 // Detached inputs for session activity, retry eligibility and cache-hit view fields.
+// detach:false is an internal ownership transfer for native's already-detached read;
+// journal/cache callers keep the default copy boundary.
 // This is not a writable Chat or a source for rebuilding history projections.
 export function projectChatSessionState(chat, options = {}) {
+  const detach = options.detach !== false
   const pendingMvuSettlement = Object.hasOwn(options,"pendingMvuSettlement") ? options.pendingMvuSettlement : pendingMvuSettlementState(chat)
   // Legacy timeline inspection migrates a foreground body using its full text.
   if (Object.values(chat.timeline?.operations || {}).some(operation =>
-    operation?.kind === 'body' && operation.status === 'foreground-completed')) return { ...copyJsonTree(chat), pendingMvuSettlement }
+    operation?.kind === 'body' && operation.status === 'foreground-completed')) {
+    const complete = { ...(detach ? copyJsonTree(chat) : chat), pendingMvuSettlement }
+    // An internal, non-serialized hint: this legacy projection already owns the
+    // complete history. Cloning strips the hint and safely restores a full read.
+    Object.defineProperty(complete, '_sessionStateHistoryComplete', { value: true })
+    return complete
+  }
   const selected = { pendingMvuSettlement }
   if (chat.foregroundError) selected.foregroundError = {
     turn: chat.foregroundError.turn, requestId: chat.foregroundError.requestId,
@@ -51,9 +60,9 @@ export function projectChatSessionState(chat, options = {}) {
       ...(saved.background ? { background: saved.background.map(checkpoint => ({ sessionId: checkpoint.sessionId, formatVersion: checkpoint.formatVersion })) } : {})
     }
   }
-  if (options.messages) return {...copyLazyHistoryHeader(selected),messages:options.messages}
+  if (options.messages) return {...copyLazyHistoryHeader(selected,{detach}),messages:options.messages}
   selected.messages = (Array.isArray(chat.messages) ? chat.messages : []).map(projectSessionMessage)
-  return copyJsonTree(selected)
+  return detach ? copyJsonTree(selected) : selected
 }
 
 export function projectSessionMessage(message) {
@@ -62,6 +71,13 @@ export function projectSessionMessage(message) {
     role: message.role, turn: message.turn, greeting: message.greeting,
     ...(message.native === true ? { native: true } : {}),
     ...(message.placeholder === true ? { placeholder: true } : {}),
+    ...(message.role === 'assistant' && message.greeting !== true ? {
+      incomplete: message.incomplete === true,
+      ...(message.incomplete === true || message.placeholder === true ? {
+        ...(message.messageUid ? { messageUid: message.messageUid } : {}),
+        ...(message.nativeAnchor?.turn !== undefined ? { nativeAnchor: { turn: message.nativeAnchor.turn } } : {})
+      } : {})
+    } : {}),
     ...(message.source?.rpcId ? { source: { rpcId: message.source.rpcId } } : {}),
     ...(message.importSource ? {importSource:{operationId:message.importSource.operationId}} : {}),
     ...(message.mvu ? {mvu:{receipt:message.mvu.receipt,diagnostics:message.mvu.diagnostics,
@@ -159,8 +175,10 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
     const generation = session?.surface?.replaceGeneration
     const native = session?.header?.version >= 3 && typeof session.snapshotEvents === 'function'
       && Array.isArray(events) && Object.isFrozen(events) && Array.isArray(nodes) && Number.isSafeInteger(generation)
+    const tail = chat.messages?.at(-1)
     const key = native ? JSON.stringify([chat.sessionId,chat.messages?.length,chat.tavernHelperLifecycleRevision,
-      chat.foregroundError?.turn,chat.foregroundError?.requestId,chat.messages?.[chat.messages.length-1]?.source?.rpcId,chat.messages?.[chat.messages.length-1]?.placeholder,
+      chat.foregroundError?.turn,chat.foregroundError?.requestId,tail?.source?.rpcId,tail?.placeholder,
+      tail?.role,tail?.turn,tail?.incomplete,tail?.messageUid,tail?.nativeAnchor?.turn,
       chat.importHistory?.rescue,chat.importHistory?.operationId,chat.hiddenDshErrorTurns,chat.suppressedDshTurns,
       chat.replacingDshTurns, chat.failedRegenerationTarget, chat.regenInProgress, chat.regenRecovery?.temporaryReplacingTurn,
       sharedMappings ? mappingIds.get(mappings) : chat.regeneratedDshTurns,
@@ -236,6 +254,7 @@ export function createSessionStateView({ activity: activityOf, evidence: evidenc
       // The save decides: a round the native surface lost is repaired, not refused.
       canRollback: rollbackState.canRollback || hasRound,
       canClearIncompleteReply: rollbackState.canClearIncompleteReply,
+      clearIncompleteReplyTarget: rollbackState.clearIncompleteReplyTarget || null,
       undoRollbackTurn: canUndoRollback(chat, evidence.session) ? chat.rollbackUndo.turn : null,
       rollbackUnavailableReason: rollbackState.canRollback || hasRound ? '' : rollbackState.reason
     }

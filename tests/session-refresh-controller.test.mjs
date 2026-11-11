@@ -55,3 +55,20 @@ test('stop and immediate re-subscribe isolate a hung, abort-ignoring old task', 
   assert.deepEqual(h.seen, ['new lifetime']); assert.deepEqual(h.errors, []); assert.deepEqual(h.clock.delays(), [])
   h.loop.stop()
 })
+
+test('bounded retries stop after the configured attempts and allow a later refresh', async () => {
+  const h = harness({ retryDelaysMs: [25, 75], onError() {} })
+  h.loop.request()
+  for (const [index, nextDelay] of [25, 75, null].entries()) {
+    await h.clock.next()
+    h.loads[index].reject(new Error('offline'))
+    await flush()
+    assert.deepEqual(h.clock.delays(), nextDelay === null ? [] : [nextDelay])
+  }
+  h.loop.request()
+  await h.clock.next()
+  h.loads[3].resolve('recovered')
+  await flush()
+  assert.deepEqual(h.seen, ['recovered'])
+  h.loop.stop()
+})

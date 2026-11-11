@@ -1,3 +1,4 @@
+import { announceHelperDocument } from './fixtures/helper-document-handshake.mjs'
 import assert from 'node:assert/strict'
 
 import test from 'node:test'
@@ -36,7 +37,7 @@ function scriptHost(options = {}) {
   runtime.sync('A', { chatId: 'chat-A', tavernHelper: context(), tavernHelperScripts: [{ id: 'script', name: 'test', content: '' }] })
   const frame = frames.at(-1)
   frame.load()
-  const token = frame.contentWindow.messages[0].token
+  const token = announceHelperDocument(frame, event => h.deliver(event.source, event.data))
   h.deliver(frame.contentWindow, { token, type: 'dsh-tavern-helper-subscriptions', ready: true, names: ['UPDATE'] })
   return { ...h, runtime, frame, call(method, args = {}, extra = {}) {
     h.deliver(frame.contentWindow, { type: 'dsh-tavern-helper-call', token, requestId: 'request', scriptId: 'script', lifecycleRevision: 2, method, args, ...extra })

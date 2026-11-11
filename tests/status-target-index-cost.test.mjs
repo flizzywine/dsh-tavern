@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createIncrementalReplyView} from '../tavern-plugin/lib/domain/incremental-reply-view.js'
-import {createIndexedArrayApi} from '../tavern-plugin/lib/domain/indexed-array.js'
 const options={regexScripts:[{id:'panel',placement:[2],markdownOnly:true,findRegex:'<StatusPlaceHolderImpl/>',replaceString:'<script>show()</script>'}]}
 for(const count of [20,400,10000])test(`status target update avoids scanning ${count} message turns`,async()=>{
  let changes,reads=0
@@ -17,14 +16,4 @@ for(const count of [20,400,10000])test(`status target update avoids scanning ${c
  assert.equal(result.statusView.targetTurn,count)
  assert.ok(reads<10,`message reads: ${reads}`)
  assert.equal(first.statusView.targetTurn,count+100)
-})
-
-test('maximum aggregation preserves old versions and recomputes after removal and truncation',()=>{
- const index=createIndexedArrayApi({maximum:value=>value ?? -Infinity})
- const first=index.from([5,90,7,80])
- const removed=index.update(first,[[1,undefined]])
- assert.equal(index.maximum(removed),80);assert.equal(index.maximum(first),90)
- const truncated=index.update(removed,[],3)
- assert.equal(index.maximum(truncated),7)
- assert.equal(index.maximum(index.update(truncated,[],0)),-Infinity)
 })

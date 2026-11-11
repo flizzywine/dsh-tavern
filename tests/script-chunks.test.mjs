@@ -1,18 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { splitNovelText, scriptChunkLayout } from '../tavern-plugin/lib/domain/script-chunks.js'
+import { scriptChunkLayout } from '../tavern-plugin/lib/domain/script-chunks.js'
 import { createScriptContinuity } from '../tavern-plugin/lib/domain/script-continuity.js'
-const han = text => [...text.matchAll(/\p{Script=Han}/gu)].length
-
-test('500 Han is a soft budget; punctuation, whitespace and Latin text are retained but not charged', () => {
-  const sentence = '汉'.repeat(102) + '， hello 123 😀。\n'
-  const source = sentence.repeat(12).trim()
-  const chunks = splitNovelText(source)
-  assert.equal(chunks.map(c => c.text).join(''), source)
-  assert.equal(han(chunks[0].text), 510)
-  assert.ok(chunks[0].text.length > 550)
-  assert.ok(chunks.slice(0,-1).every(c => han(c.text) >= 450 && han(c.text) <= 550))
-})
 
 function fixture() {
   const source = ('汉'.repeat(100) + '，hello '.repeat(30) + '。\n').repeat(20)

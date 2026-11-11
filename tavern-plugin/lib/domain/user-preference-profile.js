@@ -90,8 +90,19 @@ function present(value) {
 
 /** Owns durable draft/confirmation boundaries for one Profile-wide preference model. */
 function createSingleProfile({ store, now = Date.now }) {
-  async function read() {
-    return present(await store.readJson(PROFILE_PATH))
+  async function write(change) {
+    const saved = await store.updateJson(PROFILE_PATH, value => {
+      const current = document(value)
+      change(current)
+      return current
+    })
+    return present(saved)
+  }
+
+  function advance(current) {
+    current.updatedAt = now()
+    current.revision += 1
+    return current
   }
 
   async function save(input) {
@@ -99,105 +110,52 @@ function createSingleProfile({ store, now = Date.now }) {
       if (typeof input.content !== 'string' || !input.content.trim() || input.content.length > 3000) throw new Error('画像正文须为 1 至 3000 字')
       input = { ...input, summary: input.content, injectionText: input.content, rawAnswers: [], dimensions: [], uncertainties: [] }
     }
-    const saved = await store.updateJson(PROFILE_PATH, value => {
-      const current = document(value)
-      const timestamp = now()
-      const revision = current.revision + 1
-      return { spec: SPEC, version: VERSION, revision,
-        defaultEnabled: current.defaultEnabled, draft: null,
-        confirmed: { ...normalizeDraft(input, revision, timestamp), profileRevision: revision, confirmedAt: timestamp },
-        updatedAt: timestamp }
+    return write(current => {
+      const { revision, updatedAt } = advance(current)
+      current.draft = null
+      current.confirmed = { ...normalizeDraft(input, revision, updatedAt), profileRevision: revision, confirmedAt: updatedAt }
     })
-    return present(saved)
   }
 
   async function saveDraft(input) {
-    const saved = await store.updateJson(PROFILE_PATH, function (value) {
-      const current = document(value)
-      const timestamp = now()
-      const revision = current.revision + 1
-      return {
-        spec: SPEC,
-        version: VERSION,
-        revision,
-        defaultEnabled: current.defaultEnabled,
-        draft: normalizeDraft(input, revision, timestamp),
-        confirmed: current.confirmed,
-        updatedAt: timestamp
-      }
+    return write(current => {
+      const { revision, updatedAt } = advance(current)
+      current.draft = normalizeDraft(input, revision, updatedAt)
     })
-    return present(saved)
   }
 
   async function confirm(input) {
     if (str(input && input.confirmation, 40) !== '确认保存用户画像') throw new Error('只有用户明确确认后才能保存用户画像')
     const expected = integer(input && input.draftRevision)
-    const saved = await store.updateJson(PROFILE_PATH, function (value) {
-      const current = document(value)
+    return write(current => {
       if (current.draft === null) throw new Error('尚无可确认的用户画像草案')
       if (expected === 0 || integer(current.draft.revision) !== expected) throw new Error('用户画像草案已变化，请重新展示最新草案并确认')
-      const timestamp = now()
-      const revision = current.revision + 1
-      return {
-        spec: SPEC,
-        version: VERSION,
-        revision,
-        defaultEnabled: current.defaultEnabled,
-        draft: null,
-        confirmed: Object.assign({}, current.draft, { profileRevision: revision, confirmedAt: timestamp }),
-        updatedAt: timestamp
-      }
+      const { revision, updatedAt } = advance(current)
+      current.confirmed = { ...current.draft, profileRevision: revision, confirmedAt: updatedAt }
+      current.draft = null
     })
-    return present(saved)
   }
 
   async function updateConfirmed(input) {
-    const saved = await store.updateJson(PROFILE_PATH, function (value) {
-      const current = document(value)
+    return write(current => {
       if (current.confirmed === null) throw new Error('尚无可修改的已确认用户画像')
       const expected = integer(input && input.expectedRevision)
       if (expected === 0 || integer(current.confirmed.profileRevision) !== expected) throw new Error('用户画像已被其他操作修改，请刷新后重试')
-      const timestamp = now()
-      const revision = current.revision + 1
+      const { revision, updatedAt } = advance(current)
       const summary = multiline(input && input.summary, 12000)
       const injectionText = multiline(input && input.injectionText, 3000)
       if (summary === '' || injectionText === '') throw new Error('完整画像和实际注入摘要不能为空')
-      return {
-        spec: SPEC,
-        version: VERSION,
-        revision,
-        defaultEnabled: current.defaultEnabled,
-        draft: null,
-        confirmed: Object.assign({}, current.confirmed, {
-          revision,
-          profileRevision: revision,
-          summary,
-          injectionText,
-          confirmedAt: timestamp,
-          updatedAt: timestamp
-        }),
-        updatedAt: timestamp
-      }
+      current.draft = null
+      current.confirmed = { ...current.confirmed, revision, profileRevision: revision, summary, injectionText, confirmedAt: updatedAt, updatedAt }
     })
-    return present(saved)
   }
 
   async function setDefaultEnabled(enabled) {
-    const saved = await store.updateJson(PROFILE_PATH, function (value) {
-      const current = document(value)
+    return write(current => {
       if (enabled === true && current.confirmed === null) throw new Error('尚无已确认用户画像，无法默认启用')
-      const timestamp = now()
-      return {
-        spec: SPEC,
-        version: VERSION,
-        revision: current.revision + 1,
-        defaultEnabled: enabled === true,
-        draft: current.draft,
-        confirmed: current.confirmed,
-        updatedAt: timestamp
-      }
+      advance(current)
+      current.defaultEnabled = enabled === true
     })
-    return present(saved)
   }
 
   async function stableContext() {
@@ -211,7 +169,7 @@ function createSingleProfile({ store, now = Date.now }) {
     }
   }
 
-  return Object.freeze({ read, save, saveDraft, confirm, updateConfirmed, setDefaultEnabled, stableContext })
+  return Object.freeze({ save, saveDraft, confirm, updateConfirmed, setDefaultEnabled, stableContext })
 }
 
 /** Resolve the configured default, independently of the profile being edited. */
@@ -238,6 +196,10 @@ export function createUserPreferenceProfile({ store, now = Date.now }) {
     if (!item) throw new Error('用户画像不存在，请刷新后重试')
     return item
   }
+  // Globally increasing revisions prevent a stale confirmation targeting another profile.
+  function latestRevision(value) {
+    return Math.max(...value.profiles.map(item => integer(item.data.revision)))
+  }
   function model(id) {
     return createSingleProfile({ now, store: {
       readJson: async () => entry(collection(await store.readJson(PROFILE_PATH)), id).data,
@@ -246,9 +208,7 @@ export function createUserPreferenceProfile({ store, now = Date.now }) {
         await store.updateJson(PROFILE_PATH, async raw => {
           const value = collection(raw)
           const item = entry(value, id)
-          // Globally increasing revisions prevent a stale confirmation targeting another profile.
-          const revision = Math.max(...value.profiles.map(item => integer(item.data.revision)))
-          result = await updater({ ...item.data, revision })
+          result = await updater({ ...item.data, revision: latestRevision(value) })
           item.data = result
           return value
         })
@@ -277,7 +237,7 @@ export function createUserPreferenceProfile({ store, now = Date.now }) {
         let data = document(null)
         if (Object.hasOwn(input, 'content')) {
           if (typeof input.content !== 'string' || !input.content.trim() || input.content.length > 3000) throw new Error('长期偏好正文须为 1 至 3000 字')
-          const revision = Math.max(...value.profiles.map(item => integer(item.data.revision))) + 1
+          const revision = latestRevision(value) + 1
           const timestamp = now()
           const content = input.content.trim()
           const summary = typeof input.summary === 'string' && input.summary.trim() ? input.summary.trim() : content

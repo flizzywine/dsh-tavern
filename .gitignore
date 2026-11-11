@@ -17,9 +17,13 @@ test-results/
 # 本地临时输出（截图、手动验证产物等）
 output/
 /website/dist/
+/.tmp/
+/.preview/synthetic-fixtures/
 
 # 本地代码分析资料、快照和缓存
 .ua/
+/.cache/
+/.local-backups/
 
 # 本机编辑器与 AI 助手配置（预览服务等）
 /.claude/

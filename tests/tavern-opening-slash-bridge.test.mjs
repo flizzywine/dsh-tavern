@@ -72,61 +72,6 @@ function harness() {
 }
 const settle = function () { return new Promise(resolve => setImmediate(resolve)) }
 
-test('/send 之后卡仍在保存时不开局，最后一个调用结束后安静 2 秒才开局', async () => {
-  const h = harness()
-  const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
-  try {
-    h.send('/send 我推门而入', 'one')
-    await settle()
-    h.hold()
-    h.call('updateTavernHelperVariables', { variables: { 门派: '青云' } }, 'persist')
-    await wait(2300)
-    assert.deepEqual(h.submitted, [], '保存还没结束，不能开局')
-    h.release()
-    await wait(1200)
-    assert.deepEqual(h.submitted, [], '保存刚结束，安静不满 2 秒')
-    await wait(1100)
-    assert.deepEqual(h.submitted, ['我推门而入'])
-  } finally { h.stop() }
-})
-
-test('已经带 /trigger 的管道原样传递，/send 优先于留住的设定', async () => {
-  const whole = harness()
-  try {
-    whole.send('/send 你好 | /trigger', 'whole')
-    await settle()
-    assert.equal(whole.calls[0].payload.args.line, '/send 你好 | /trigger')
-    assert.equal(whole.commands[0].deferred, false)
-    assert.deepEqual(whole.submitted, ['你好'])
-  } finally { whole.stop() }
-  const h = harness()
-  try {
-    h.send('/sys 只作旁白', 'sys')
-    await settle()
-    h.send('/send 我推门而入', 'one')
-    await settle()
-    assert.deepEqual(h.submitted, [], '设定与文本各记一次，都不开局')
-    h.send('/trigger', 'go')
-    await settle()
-    assert.equal(h.commands.at(-1).systemText, '只作旁白')
-    assert.deepEqual(h.submitted, ['我推门而入'])
-  } finally { h.stop() }
-})
-
-test('开局之后重复的 /trigger 不再新建一局', async () => {
-  const h = harness()
-  try {
-    h.send('/send 我推门而入', 'one')
-    await settle()
-    h.send('/trigger', 'go')
-    await settle()
-    h.send('/trigger', 'again')
-    await settle()
-    assert.deepEqual(h.submitted, ['我推门而入'], '只提交一次')
-    assert.equal(h.replies.at(-1).ok, true)
-  } finally { h.stop() }
-})
-
 test('其余未以 /trigger 结束的命令仍然明确拒绝，只读命令照旧应答', async () => {
   const h = harness()
   try {

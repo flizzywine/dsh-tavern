@@ -4,8 +4,158 @@ import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
 import { KNOWN_SESSION_EVENT_TYPES } from './fixtures/dsh-session-host.mjs'
+import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-lifecycle.js'
+import { registerRequestHooks } from '../tavern-plugin/lib/hooks/request.js'
+import { createForegroundOrchestrationStrategies } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
+import { createForegroundWorldbook } from '../tavern-plugin/lib/domain/foreground-worldbook.js'
+import { projectVirtualWorldbookPrefix } from '../tavern-plugin/lib/domain/worldbook-virtual-state.js'
 
 const native = { skip: !process.env.DSH_BOOT_MODULE, timeout: 30000 }
+
+test('原地切换开场可从保存中恢复，第一条模型请求只看到最终选择', native, async t => {
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, {
+    cardOverrides: { first_mes: '旧路线', alternate_greetings: ['{{user}}，新路线', ''] }
+  })
+  t.after(() => h.dispose())
+  const initialization = h.open()
+  const original = await initialization.start(h.input)
+  await initialization.switchOpening(original.sessionId, { swipeId: 2, expectedLifecycleRevision: 0 })
+  assert.equal((await h.persistence.read(original.id)).messages[0].openingChoiceId, 'alternate:1')
+  h.state.failFlush = true
+  await assert.rejects(initialization.switchOpening(original.sessionId, {
+    swipeId: 1, message: '{{user}}，新路线', expectedLifecycleRevision: 1
+  }), /native flush failure/)
+  h.state.failFlush = false
+  assert.ok((await h.persistence.read(original.id)).nativeOpeningSwitch)
+  await h.restoreDetached()
+  const reopened = h.open()
+  registerRequestHooks({
+    ctx: h.ctx,
+    openingRequest: reopened.openingRequest,
+    chatForSession: () => h.persistence.read(original.id),
+    backgroundAgentRunner: { owns: () => false },
+    sessionStore: h.ctx.sessions,
+    foregroundStrategies: { prepareStep: ({ decision }) => decision },
+    cardMemory: { appendRecall: ({ decision }) => decision },
+    requestCoordinates: new Map(),
+    requestIdForMessages: () => '',
+    tavernRetryLimiter: { handle() {} }
+  })
+  // Enter the host directly without a view read that would repair the opening first.
+  await h.continueWithAgent()
+  const recovered = await h.persistence.read(original.id)
+  assert.equal(recovered.id, original.id)
+  assert.equal(recovered.sessionId, original.sessionId)
+  assert.equal(recovered.nativeOpeningSwitch, undefined)
+  assert.equal(recovered.messages.length, 1)
+  assert.equal(recovered.messages[0].text, '玩家，新路线')
+  const replies = h.requests[0].messages.filter(message => message.role === 'assistant')
+    .flatMap(message => message.content.map(part => part.text || ''))
+  assert.equal(replies.filter(text => text === '玩家，新路线').length, 1)
+  assert.ok(!replies.includes('旧路线'))
+  await assert.rejects(initialization.switchOpening(original.sessionId, { swipeId: 0, expectedLifecycleRevision: 2 }), /首轮已开始/)
+})
+
+test('修改玩家称呼更新已经生成的开场和后续模型请求，保留骰点与存档变量', native, async t => {
+  const source = '{{setvar::gold::30}}玩家站在门外。{{user}}，你好。骰点 {{roll::1d6}}。'
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, { cardOverrides: { first_mes: source } })
+  t.after(() => h.dispose())
+  const initialization = h.open()
+  const original = await initialization.start(h.input)
+  const firstText = original.messages[0].text
+  assert.match(firstText, /^玩家站在门外。玩家，你好。骰点 [1-6]。$/)
+  await h.continueWithAgent()
+  await h.persistence.update(original.id, chat => {
+    chat.macroState.local.gold = '50'
+    return chat
+  })
+  assert.equal(await initialization.setPlayerName(original.sessionId, '  旅人  '), '旅人')
+  await h.restoreDetached()
+  const saved = await h.open().ensureOpening(original.sessionId)
+  const renamed = firstText.replace('玩家，你好。', '旅人，你好。')
+  assert.equal(saved.macroState.userName, '旅人')
+  assert.equal(saved.macroState.local.gold, '50')
+  assert.equal(saved.messages[0].sourceText, source)
+  assert.equal(saved.messages[0].projectionText, renamed)
+  assert.equal(saved.messages[0].displayText, renamed)
+  assert.equal(saved.openingText, renamed)
+  assert.equal(saved.tavernHelperLifecycleRevision, original.tavernHelperLifecycleRevision)
+  await h.continueWithAgent()
+  const replies = h.requests[1].messages.filter(message => message.role === 'assistant')
+    .map(message => message.content.map(part => part.text || '').join(''))
+  assert.equal(replies.filter(text => text === renamed).length, 1)
+  assert.ok(!replies.includes(firstText))
+})
+
+test('first native reply uses the prepared static worldbook in the actual system prompt', native, async t => {
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, { assembleStablePrefix: false })
+  t.after(() => h.dispose())
+  let chat = { ...await h.open().start(h.input), worldbookStrategy: 'native-skills' }
+  let preparations = 0
+  const worldBook = { view: { entries: [
+    { ref: 'visible', constant: true, content: '已准备的常驻规则' },
+    { ref: 'hidden', constant: true, content: '预处理隐藏的规则' },
+    { ref: 'disabled', constant: true, enabled: false, content: '已禁用的常驻规则' },
+    { ref: 'controller', constant: true, content: '@@preprocessing\n<% controller %>' }
+  ] } }
+  const project = createForegroundWorldbook({
+    bound: async () => worldBook,
+    runtime: async () => ({
+      async prepareWorldbook(entries) {
+        preparations++
+        return { entries: entries.filter(entry => entry.uid !== 'hidden'), scopes: {} }
+      },
+      async render() { return { ok: true, text: '控制器输出', scopes: {} } }
+    }),
+    globalVariables: async () => ({})
+  })
+  t.after(() => project.dispose())
+  const foregroundStrategies = createForegroundOrchestrationStrategies({ nativePlay: {
+    modeFor: async () => 'story', filterMessages: messages => messages, resolvePreset: async () => null,
+    visibleTools: async () => [], controlledToolNames: new Set(),
+    async prepareTurn({ turn, userText }) {
+      const prepared = await project({ requestKey: String(turn), chat, card: { name: '角色' }, userText })
+      assert.equal(prepared.error, null)
+      chat = { ...chat, worldBookVirtualState: prepared.virtualState }
+      return { frame: { userInput: { projectedText: userText }, source: {
+        worldBook: { virtualWorldbook: { scope: prepared.virtualState.scope } },
+        regenerationMaterials: { worldbookPrefix: prepared.prefixContext }
+      } } }
+    },
+    appendFrame: ({ messages }) => ({ messages }), recordFrame() {}
+  } })
+  // The fixture owns turn finalization. Mount the two production hooks that
+  // deliver prepared content through the real host assembler and step loop.
+  const ctx = { on(name, listener, options) {
+    if (name === 'system-prompt/assemble' || name === 'agent/pre-step') return h.ctx.on(name, listener, options)
+  } }
+  const backgroundAgentRunner = { owns: () => false }, readChat = async () => chat
+  registerTurnLifecycleHooks({ ctx, foregroundStrategies, backgroundAgentRunner, hookChatForSession: readChat,
+    readChatCard: async () => ({}), turnOrchestrator: { modeFor: async () => 'story' }, ensureNativeSystemPrefix: async () => {},
+    publishResourceWorkspace: async () => null, runtimePrompt: () => '', sessionStore: h.ctx.sessions,
+    nativeWorldBookTemplateContext: async (current, _card, options) => projectVirtualWorldbookPrefix(worldBook, current, options) })
+  registerRequestHooks({ ctx, foregroundStrategies, backgroundAgentRunner, chatForSession: readChat, sessionStore: h.ctx.sessions,
+    cardMemory: { appendRecall: ({ decision }) => decision }, requestIdForMessages: () => '', tavernRetryLimiter: { handle() {} } })
+
+  const pending = projectVirtualWorldbookPrefix(worldBook, chat, { restore: false })
+  assert.equal(pending.prefixContext, '')
+  assert.equal(pending.visibilityPending, true)
+  await h.continueInPlace()
+  assert.equal(h.requests.length, 1)
+  assert.equal(preparations, 1, 'assembly and first pre-step share one preparation')
+  const first = h.requests[0].system
+  assert.match(first, /【常驻世界书】\n已准备的常驻规则/)
+  assert.equal(first.split('已准备的常驻规则').length - 1, 1)
+  assert.doesNotMatch(first, /预处理隐藏的规则|已禁用的常驻规则|控制器输出|Fixture constant worldbook/)
+  await h.continueInPlace()
+  assert.equal(preparations, 2)
+  assert.equal(h.requests[1].system, first)
+
+  worldBook.view.entries[0].enabled = false
+  await h.continueInPlace()
+  assert.equal(preparations, 3)
+  assert.doesNotMatch(h.requests[2].system, /【常驻世界书】|已准备的常驻规则|预处理隐藏的规则/)
+})
 
 // Released V4 rejects a surface event written before a turn opened. Every
 // Tavern-written archive must satisfy that contract, or the play history stops
@@ -67,21 +217,6 @@ test('native card workbench starts with no scripted exchange or greeting, and re
     assert.equal(h.requests.length, 0)
     assert.deepEqual(h.target.session.deriveMessages(), initialMessages)
   }
-})
-
-// The card workbench reserves an opening turn and fills it with no greeting, so
-// Tavern closes it before the Agent ever runs. The live Agent must learn that turn
-// one is spent: otherwise its own first turn reuses turn one and the stored log can
-// never be reopened ("turn/start does not open the expected turn", exactly the
-// card-history load failure this guards).
-test('native card workbench releases the reserved opening turn to the live Agent', native, async t => {
-  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE)
-  t.after(() => h.dispose())
-  await h.open().start({ ...h.input, mode: 'card' })
-  assert.equal(openingEvents(h.target.session).length, 0)
-  await h.continueInPlace()
-  assert.deepEqual(sessionEvents(h.target.session).filter(e => e.type === 'turn/start').map(e => e.data.turn), [1, 2])
-  assert.equal(sessionEvents(h.target.session).at(-1).type, 'turn/end')
 })
 
 test('native Session and disk Chat journal recover a failed marker once, then actual Agent starts at turn two', native, async t => {

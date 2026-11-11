@@ -10,38 +10,6 @@ import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/bac
 import { createSettlementRun } from '../tavern-plugin/lib/domain/settlement-run.js'
 import { assertConversationForkable } from '../tavern-plugin/lib/domain/conversation-fork.js'
 
-// A settlement without official MVU variables commits no floor: everything it
-// writes is header state. Declaring those fields keeps the commit off the
-// whole-Chat path — on a long save, reading every floor to diff one posture was
-// the bulk of a plain settlement.
-test('无 MVU 的普通结算提交声明头部字段，不再整份写存档', async () => {
-  const chat = { id: 'chat', sessionId: 'session', mode: 'story', messages: [], timeline: { schemaVersion: 1 }, _storageRevision: 1 }
-  const commits = []
-  const taskRun = {
-    chat,
-    participantRequest: {},
-    participant: () => null,
-    commit: async input => { commits.push(input); return { status: 'committed', chat } }
-  }
-  const settlementRun = createSettlementRun({
-    backgroundTasks: { begin: async () => taskRun, activity: () => ({ role: 'settlement', phase: 'running' }) },
-    chatPersistence: { readWindow: async () => null },
-    readChat: async () => chat,
-    readChatCard: async () => ({}),
-    worldBookScanDepth: async () => 2,
-    writeChat: async () => assert.fail('结算不该整份写存档'),
-    mvuSettlementEngine: {
-      settings: () => ({ posture: false }), target: () => null, runs: () => false,
-      completion: () => ({ messageIndices: null, stateChanged: false, apply() {} })
-    },
-    plainSettlementEngine: { run: async () => ({ text: '', result: {} }) }
-  })
-  await settlementRun.runSettlement('chat')
-  assert.equal(commits.length, 1)
-  assert.deepEqual(commits[0].headerFields, ['posture', 'settleStatus', 'settleError', 'lastSettle'])
-  assert.equal('messageIndices' in commits[0], false)
-})
-
 // The same commit against a real save: the header fields land, and the store is
 // never asked for the whole Chat.
 test('结算只写头部字段：不读整份存档、不整份更新', async t => {

@@ -4,7 +4,21 @@ import { isMvuUpdateEntry } from './worldbook-recall.js'
 import { promptOrder } from './worldbook-activation.js'
 
 export const virtualHash = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex')
-export const virtualEntryVersion = entry => virtualHash(entry)
+// A view entry is immutable for as long as its book snapshot lives: readers copy it, nobody
+// edits it in place. One request chain (a history import, a retry, a candidate round) hashes the
+// same entries again and again, and a big book is thousands of kilobytes per pass, so remember
+// the digest by identity. A re-read book yields new objects, so an edited book always re-hashes.
+const entryVersions = new WeakMap()
+export const virtualEntryVersion = entry => {
+  if (entry === null || typeof entry !== 'object') return virtualHash(entry)
+  const known = entryVersions.get(entry)
+  if (known !== undefined) return known
+  const version = virtualHash(entry)
+  entryVersions.set(entry, version)
+  return version
+}
+/** The same digest `virtualHash(entries)` gives, computed from the per-entry versions. */
+export const virtualEntriesVersion = entries => virtualHash(entries.map(virtualEntryVersion))
 export const virtualScope = chat => JSON.stringify([chat.sessionId || chat.id || '', chat.cardPath || ''])
 function dependencyValues(classification, chat, card, globals) {
   return classification.dependencies.map(({ scope, key }) => {
@@ -35,14 +49,18 @@ export function currentVirtualState(chat, entries) {
 /** A preprocessed book can hide otherwise static resources. Discovery and
  * stable prefix reads must not execute its controller to test visibility. Until
  * the foreground runtime establishes a version-valid view, fail closed. */
-export function eligibleVirtualSourceEntries(worldBook, chat) {
+function visibleVirtualSourceEntries(worldBook, chat) {
   const entries = worldBook?.view?.entries || []
   const enabled = entries.filter(entry => entry.enabled !== false)
   if (!entries.some(hasWorldbookPreprocessingSyntax)) return enabled
   const state = chat.worldBookVirtualState
-  if (state?.scope !== virtualScope(chat) || state.visibility?.version !== virtualHash(entries)) return []
+  if (state?.scope !== virtualScope(chat) || state.visibility?.version !== virtualHash(entries)) return null
   const visible = new Set(state.visibility.refs || [])
   return enabled.filter(entry => visible.has(entry.ref))
+}
+
+export function eligibleVirtualSourceEntries(worldBook, chat) {
+  return visibleVirtualSourceEntries(worldBook, chat) ?? []
 }
 
 /** Request-prefix projection never evaluates templates. Constants are freshly
@@ -51,10 +69,12 @@ export function eligibleVirtualSourceEntries(worldBook, chat) {
  * A prefix is outside the compressible message history and is rebuilt on retry.
  */
 export function projectVirtualWorldbookPrefix(worldBook, chat, { restore = true, restoreRefs } = {}) {
-  const entries = promptOrder(eligibleVirtualSourceEntries(worldBook, chat).filter(entry => !isMvuUpdateEntry(entry)))
+  const visible = visibleVirtualSourceEntries(worldBook, chat)
+  const entries = promptOrder((visible ?? []).filter(entry => !isMvuUpdateEntry(entry)))
   const state = currentVirtualState(chat, entries)
   const staticPrefix = entries.filter(entry => classifyWorldbookEntry(entry).kind === 'static-constant').map(entry => String(entry.content ?? '')).join('\n\n')
   const allowed = restoreRefs === undefined ? null : new Set(restoreRefs)
   const snapshots = restore ? entries.filter(entry => classifyWorldbookEntry(entry).dynamic && isWorldbookRuntimeEntry(entry) && (!allowed || allowed.has(entry.ref)) && (state.entries[entry.ref]?.contextText ?? state.entries[entry.ref]?.text)).map(entry => state.entries[entry.ref].contextText ?? state.entries[entry.ref].text).join('\n\n') : ''
-  return { staticPrefix, snapshots, prefixContext: [staticPrefix, snapshots].filter(Boolean).join('\n\n') }
+  return { staticPrefix, snapshots, prefixContext: [staticPrefix, snapshots].filter(Boolean).join('\n\n'),
+    ...(visible === null ? { visibilityPending: true } : {}) }
 }

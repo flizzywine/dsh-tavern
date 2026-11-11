@@ -1,3 +1,4 @@
+import { announceHelperDocument } from './fixtures/helper-document-handshake.mjs'
 import { helperHostHarness } from './fixtures/helper-host-harness.mjs'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -205,15 +206,20 @@ function sandbox(options = {}) {
     onMutation(...args) { mutations.push(args) }, reportError(_source, error) { errors.push(error.message) }, resolveError() {}, ...options
   })
   function message(frame, type, data = {}) {
-    const token = frame.contentWindow.messages[0].token
+    const token = frame.contentWindow.messages.findLast(item => item.type === 'dsh-tavern-helper-context').token
     h.deliver(frame, { token, type, ...data })
   }
-  function ready(frame = frames.at(-1)) {
+  let documents = 0
+  function load(frame = frames.at(-1)) {
     frame.load()
+    return announceHelperDocument(frame, event => h.deliver(frame, event.data), 'document-' + ++documents)
+  }
+  function ready(frame = frames.at(-1)) {
+    load(frame)
     message(frame, 'dsh-tavern-helper-subscriptions', { ready: true, names: ['UPDATE'] })
     return frame
   }
-  return Object.assign(h, { runtime, frames, calls, mutations, errors, ready, message, respond(fn) { respond = fn } })
+  return Object.assign(h, { runtime, frames, calls, mutations, errors, load, ready, message, respond(fn) { respond = fn } })
 }
 
 test('helper sandbox accepts nested worldbooks and legacy aliases without overwriting explicit null', () => {
@@ -222,7 +228,7 @@ test('helper sandbox accepts nested worldbooks and legacy aliases without overwr
     input.tavernHelperWorldbook = { entries: [{ content: 'legacy' }] }
     if (nested !== undefined) input.tavernHelper.worldbook = nested
     h.runtime.sync('A', input)
-    h.frames[0].load()
+    h.load()
     const delivered = h.frames[0].contentWindow.messages.find(item => item.type === 'dsh-tavern-helper-context')
     assert.deepEqual(delivered.context.worldbook, nested === undefined ? input.tavernHelperWorldbook : nested)
     h.runtime.dispose()
@@ -233,7 +239,7 @@ test('下载等待暂停初始化超时，同一沙箱可手动恢复且拒绝�
   const states = [], h = sandbox({ onMvuLoadState: state => states.push(copy(state)) })
   const input = mvuView()
   h.runtime.sync('A', input)
-  const frame = h.frames[0]; frame.load()
+  const frame = h.frames[0]; h.load(frame)
   const report = state => h.message(frame, 'dsh-tavern-mvu-load-state', { state })
   assert.equal(h.timers.size, 1)
   report({ phase: 'loading', attempt: 1 })
@@ -265,6 +271,43 @@ test('下载等待暂停初始化超时，同一沙箱可手动恢复且拒绝�
   assert.equal(h.runtime.retryMvuLoad(), false)
   h.runtime.dispose()
   assert.equal(states.at(-1), null)
+})
+
+test('MVU 配套脚本各自有初始化期限，超时后可重建沙箱并继续结算', () => {
+  const states = [], h = sandbox({ companionTimeoutMs: 1234, onMvuLoadState: state => states.push(copy(state)) })
+  const input = mvuView()
+  input.tavernHelperScripts.push({ id: 'slow', name: '慢脚本', content: 'void 0' })
+  h.runtime.sync('A', input)
+  const first = h.frames[0]
+  h.load(first)
+  const report = (frame, ...statuses) => h.message(frame, 'dsh-tavern-helper-subscriptions', {
+    ready: statuses.length === 3, names: [], scripts: statuses.map(id => ({ id, ready: true }))
+  })
+  report(first, '__dsh_official_mvu__')
+  const initialDeadline = [...h.timers.keys()][0]
+  report(first, '__dsh_official_mvu__')
+  assert.deepEqual([...h.timers.keys()], [initialDeadline])
+  report(first, '__dsh_official_mvu__', 'script')
+  assert.equal(h.timers.has(initialDeadline), false)
+  assert.deepEqual([...h.timers.values()].map(timer => timer.delay), [1234])
+  h.runTimer()
+  assert.equal(first.removed, true)
+  assert.equal(h.runtime.inspect().frameCount, 0)
+  assert.equal(states.at(-1).phase, 'companion-timeout')
+  assert.match(states.at(-1).error, /「慢脚本」/)
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), false)
+  assert.equal(h.runtime.inspect().initializationError, undefined, '保留暂停等待的结算任务')
+  h.runtime.sync('A', input)
+  assert.equal(h.frames.length, 1, '普通视图刷新不会自动重跑配套脚本')
+  assert.equal(h.runtime.retryMvuLoad(), true)
+  assert.equal(h.runtime.retryMvuLoad(), false)
+  const next = h.frames[1]
+  h.load(next)
+  report(next, '__dsh_official_mvu__', 'script', 'slow')
+  assert.equal(states.at(-1).phase, 'ready')
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), true)
+  assert.equal(h.timers.size, 0)
+  h.runtime.dispose()
 })
 
 for (const fail of [false, true]) test(`事件收尾等待已接收的排队写入，保存${fail ? '失败不能报成功' : '成功不误判迟到'}`, async () => {

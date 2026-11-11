@@ -61,7 +61,10 @@ export function withWorldbookFileInstructions(sections, disabledForegroundTools)
   return fixed
 }
 
-export function withVirtualWorldbook(sections, context, disabledForegroundTools) {
-  const fixed = withWorldbookFileInstructions(sections.filter(section => section.name !== 'tavern:constant-worldbook'), disabledForegroundTools)
-  return context ? [{ name: 'tavern:constant-worldbook', text: '【常驻世界书】\n' + context }, ...fixed] : fixed
+export const VIRTUAL_WORLDBOOK_SECTION = 'tavern:constant-worldbook'
+export const virtualWorldbookPromptText = context => context ? '【常驻世界书】\n' + context : ''
+
+export function withVirtualWorldbook(sections, context, disabledForegroundTools, { defer = false } = {}) {
+  const fixed = withWorldbookFileInstructions(sections.filter(section => section.name !== VIRTUAL_WORLDBOOK_SECTION), disabledForegroundTools)
+  return context || defer ? [{ name: VIRTUAL_WORLDBOOK_SECTION, text: virtualWorldbookPromptText(context) }, ...fixed] : fixed
 }

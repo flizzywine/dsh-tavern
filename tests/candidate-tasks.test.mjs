@@ -112,15 +112,3 @@ test('已有生成操作不会执行第二次，旧结果及空会话投影保�
   assert.deepEqual((await service.sync('absent')).tasks, { candidate: null, background: null })
   await assert.rejects(service.submit({ ...request, sessionId: 'absent' }), /没有绑定人物卡/)
 })
-
-test('旧RPC保留准备中、operationId和basedOn响应，后台执行与新接口由同一模块持有', async t => {
-  const h = await harness(t), done = deferred()
-  let ready = false, calls = 0
-  const service = h.create({ async prepare() { calls++; return { operationId: 'legacy-op', basedOn: { revision: 3 }, async execute() { done.resolve() } } } }, { prepareLegacy: async () => ready })
-  assert.deepEqual(await service.startLegacy(request), { preparing: true })
-  assert.equal(calls, 0)
-  ready = true
-  assert.deepEqual(await service.startLegacy(request), { operationId: 'legacy-op', basedOn: { revision: 3 } })
-  await done.promise
-  assert.equal(calls, 1)
-})

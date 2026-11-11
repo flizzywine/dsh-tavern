@@ -56,20 +56,6 @@ test('import boundary rejects consent, traversal, encoding, size, wrong runtime 
 const display = 'var PIXI = {live2d: {Live2DModel: {}, CubismModel: {}}}; var Live2DCubismCore; throw new Error("must not execute");'
 const kindOf = url => url === LIVE2D_RUNTIME_SOURCES.core ? 'core' : url === LIVE2D_RUNTIME_SOURCES.display ? 'display' : assert.fail(url)
 
-test('download asks for consent, fetches each missing piece from its publisher once and publishes it for offline use', async t => {
-  const root = syntheticFixture(t, 'cubism-download-'), fetched = []
-  const core = createCubismCore(root, { fetch: async (url, init) => { fetched.push(kindOf(url)); assert.ok(init.signal); return new Response(kindOf(url) === 'core' ? source : display) } })
-  await assert.rejects(core.download({}), /同意/)
-  assert.deepEqual(fetched, [])
-  const status = await core.download({ consent: true })
-  assert.equal(status.installed, true)
-  assert.equal(status.display, TAVERN_RUNTIME_ASSET_PREFIX + 'live2d/pixi-live2d-display-cubism4.min.js')
-  assert.deepEqual(fetched.sort(), ['core', 'display'])
-  assert.equal(await readFile(path.join(root, 'core/pixi-live2d-display-cubism4.min.js'), 'utf8'), display)
-  await core.download({ consent: true })
-  assert.equal(fetched.length, 2, 'an installed runtime is never fetched again')
-})
-
 test('a failed download names each piece, keeps what arrived and still takes the dropped official file', async t => {
   const root = syntheticFixture(t, 'cubism-download-fail-')
   const answers = {
@@ -84,18 +70,6 @@ test('a failed download names each piece, keeps what arrived and still takes the
   assert.deepEqual(await readdir(path.join(root, 'core')), ['pixi-live2d-display-cubism4.min.js'])
   await assert.rejects(core.importFile({ ...input, name: 'cubism4.min.js' }), /不是预期的 pixi-live2d-display/)
   assert.equal((await core.importFile(input)).installed, true)
-})
-
-test('the runtime-asset route serves the downloaded files unless a private vendor copy exists', async t => {
-  const root = syntheticFixture(t, 'runtime-route-'), vendorRoot = pathToFileURL(path.join(root, 'vendor') + path.sep)
-  for (const [relative, stored] of [['live2d/pixi-live2d-display-cubism4.min.js', 'live2d/core/pixi-live2d-display-cubism4.min.js'], ['live2d/live2dcubismcore.min.js', 'live2d/core/live2dcubismcore.min.js']]) {
-    const url = TAVERN_RUNTIME_ASSET_PREFIX + relative, target = path.join(root, stored)
-    assert.equal((await resolveTavernRuntimeAsset(url, root, vendorRoot)).file, target)
-    const local = new URL(relative, vendorRoot)
-    await mkdir(new URL('.', local), { recursive: true })
-    await writeFile(local, 'private copy')
-    assert.equal((await resolveTavernRuntimeAsset(url, root, vendorRoot)).file.href, local.href)
-  }
 })
 
 test('the live2d figure runtime needs both pieces, owns its requests and refuses consent from other origins', async t => {

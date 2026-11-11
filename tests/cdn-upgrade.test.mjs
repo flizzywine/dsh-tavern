@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { copyFile, link, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
@@ -106,7 +106,12 @@ test('旧版 Desktop 经最新安装脚本走 CDN 覆盖升级：运行文件落
     await mkdir(path.dirname(path.join(resources, file)), { recursive: true })
     await writeFile(path.join(resources, file), body)
   }
-  const env = { ...process.env, DSH_HOME: root, DSH_TAVERN_HOST: 'desktop', DSH_TAVERN_APP_DIR: app, DSH_DESKTOP_APP_EXECUTABLE: executable,
+  // An upgrade starts with the Tavern profile already linked. Keep the
+  // first-install shutdown path away from the real desktop on this machine.
+  const profile = path.join(root, 'profiles/tavern')
+  await mkdir(profile, { recursive: true })
+  await symlink(profile, path.join(root, 'profiles/desktop'), isWindows ? 'junction' : 'dir')
+  const env = { ...process.env, DSH_TAVERN_LAUNCHER_INSTALL: '1', DSH_HOME: root, DSH_TAVERN_HOST: 'desktop', DSH_TAVERN_APP_DIR: app, DSH_DESKTOP_APP_EXECUTABLE: executable,
     DSH_TAVERN_CDN_METADATA_URL: `${base}/manifest`, DSH_TAVERN_CDN_ROOT_URL: `${base}/source`,
     DSH_TAVERN_ARCHIVE_URL: `${base}/missing-archive`, DSH_TAVERN_TARGET_COMMIT: revision,
   }

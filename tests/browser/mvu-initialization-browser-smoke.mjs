@@ -101,6 +101,14 @@ function state(id) {
       chat.mvu.openingInitialization = { version: 2, status: 'pending' }
       applyOpeningCommand(chat, { removeGreeting: true, systemText: 'Mira starts at affinity 25.' }, {}, Date.now)
     }
+    if (id.startsWith('opening-authored')) {
+      const swipes = ['Default greeting', 'Build a character<initvar>{"hp":0}</initvar>']
+      const chat = states.get(id).chat
+      chat.messages[0] = { role: 'assistant', greeting: true, text: swipes[1], swipeId: 1, swipes, variables: [{}, { stat_data: { hp: 5 } }] }
+      if (id.startsWith('opening-authored-helper')) {
+        chat.messages.push({ role: 'tavern-helper', tavernRole: 'user', text: 'Character setup context', variables: [{}] })
+      }
+    }
     if (id.includes('replay') && replayChat) states.get(id).chat = { ...structuredClone(replayChat), id, sessionId: id }
   }
   return states.get(id)
@@ -333,6 +341,30 @@ const server = createServer(async (req, res) => {
       }
       else if (method === 'flow-context') result = projectTavernHelperContext(state(sessionId).chat)
       else if (method === 'run-opening-flow') result = await runOpeningFlow(sessionId)
+      else if (method === 'run-authored-settlement') {
+        const s = state(sessionId)
+        const greeting = s.chat.messages[0]
+        const snapshot = s.chat.messages.at(-1).variables[s.chat.messages.at(-1).swipeId || 0]
+        assert.equal(snapshot.stat_data.hp, 5, 'initialization must use the authored value')
+        assert.ok(snapshot.schema?.properties?.hp)
+        if (s.chat.messages.length === 1) {
+          assert.equal(greeting.variables[0].stat_data.hp, 10, 'the other swipe keeps its worldbook defaults')
+        } else {
+          // Simulate a save made before the fix, where a later Helper floor
+          // contained defaults but the foreground turn captured the right data.
+          s.chat.messages[1].variables[0] = { ...snapshot, stat_data: { hp: 0, affection: 0 } }
+        }
+        const baseline = { stat_data: { hp: 5, affection: 1 } }
+        const messageId = s.chat.messages.length
+        s.chat.messages.push({ role: 'assistant', text: 'The friends gather.', variables: [baseline] })
+        s.operations = [{ op: 'replace', path: '/affection', value: 25 }]
+        const outcome = await settlement.settleVariables({ ...settlementInput(sessionId), messageId, currentVariables: baseline })
+        assert.equal(outcome.receipt.status, 'updated', JSON.stringify(outcome.receipt))
+        applyMvuSettlementEffect(s.chat, outcome.effect)
+        assert.deepEqual(s.chat.messages[messageId].variables[0].stat_data, { hp: 5, affection: 25 })
+        if (messageId === 2) assert.equal(s.chat.messages[1].variables[0].stat_data.hp, 0, 'history remains intact')
+        result = { pass: true }
+      }
       else if (method === 'run') {
         const s = state(sessionId); s.writes = 0; s.hpWrites = 0
         let input = settlementInput(sessionId), openingBefore
@@ -431,9 +463,10 @@ const server = createServer(async (req, res) => {
         const tavernSessionTransition = { getSnapshot:()=>active, subscribe(fn){transitionListeners.add(fn);return()=>transitionListeners.delete(fn)},
           begin(value){active=value;transitionListeners.forEach(fn=>fn())}, end(){active=null;transitionListeners.forEach(fn=>fn())} };
         const sessions = { list:{getSnapshot:()=>({current}), subscribe(fn){sessionListeners.add(fn);return()=>sessionListeners.delete(fn)}}, subagentAddress(){} };
+        const liveTavernView = {getSnapshot:()=>({phase:'ready',view}),invalidate(){},subscribe(id,fn){fn({phase:'ready',view});return()=>{}}};
         const owner = client.createTavernScriptSessionOwner({sessions,rpc,transition:tavernSessionTransition,
           signals:{subscribe(id,kind,run){const timer=setInterval(run,100);return()=>clearInterval(timer)}},
-          liveView:{invalidate(){},subscribe(id,fn){fn({phase:'ready',view});return()=>{}}}});
+          liveView:liveTavernView});
         owner.start();
         const openingPicker={openings:[]}, uiMode='play', setBusy=()=>{}, setError=()=>{}, setOpeningPicker=()=>{};
         const openingPerformance={begin:()=>({measure:(_name,run)=>run(),finish(){}})};

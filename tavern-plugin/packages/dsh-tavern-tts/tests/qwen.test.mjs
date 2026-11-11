@@ -77,7 +77,7 @@ test('Qwen intl host and explicit model always use Auto for mixed-language text'
   }
 })
 
-for (const [status, message] of [[401, /密钥无效/], [403, /访问被拒绝/], [429, /频繁.*限额/], [500, /500/]]) {
+for (const [status, message] of [[401, /API Key 无效/], [403, /访问被拒绝/], [429, /频繁.*限额/], [500, /500/]]) {
   test('Qwen reports Chinese error for HTTP ' + status, async () => {
     let calls = 0
     const adapter = createQwenAdapter({ fetch: async () => { calls++; return new Response('', { status }) } })
@@ -112,7 +112,7 @@ test('Qwen production settings route diagnostics through the injected host logge
   const service=createServiceSettings({tts,get:()=>settings,credentials:()=>({resolve:async()=>({value:'private-key'})}),warn:message=>logs.push(message),fetch:async()=>Response.json({code:'AllocationQuota.FreeTierOnly',message:'private'},{status:403})});
   t.after(async()=>{service.dispose();await tts.dispose()});
   // a failed test is reported as data in plain words, not thrown.
-  assert.deepEqual(await service.test({id:'qwen'}),{ok:false,status:'error',message:'Qwen 配音额度或账户余额不足，请检查阿里云用量与账单',voiceCount:0,reachable:false,synthesisTested:false,credentialScope:'models'});
+  assert.deepEqual(await service.test({id:'qwen'}),{ok:false,status:'error',message:'通义千问配音额度或账户余额不足，请检查阿里云用量与账单',voiceCount:0,reachable:false,synthesisTested:false,credentialScope:'models'});
   assert.deepEqual(logs,['[dsh-tts:qwen] HTTP 403 phase=discovery code=AllocationQuota.FreeTierOnly category=QWEN_BILLING_REQUIRED']);
 });
 
@@ -126,7 +126,7 @@ test('Qwen connection failure and timeout are sanitized; timeout budget is 45 se
   AbortSignal.timeout = ms => { budgets.push(ms); return timeout(ms) }
   try {
     const adapter = createQwenAdapter({ fetch: async () => { throw Error('private upstream details') } })
-    await assert.rejects(adapter.synthesize(provider, { key: 'fake' }, spec), /Qwen 语音连接失败或请求超时/)
+    await assert.rejects(adapter.synthesize(provider, { key: 'fake' }, spec), /通义千问语音连接失败或请求超时/)
     assert.deepEqual(budgets, [45000])
   } finally { AbortSignal.timeout = timeout }
 })
@@ -252,7 +252,7 @@ test('Qwen base voices are the documented system list; draft probe never synthes
   assert.equal(calls[0].url, 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models'); assert.equal(calls[0].options.headers.Authorization, 'Bearer typed-key')
   status = 401
   const denied = await service.probe({ kind: 'qwen', config: {}, secrets: { key: 'bad' } })
-  assert.equal(denied.status, 'error'); assert.equal(denied.message, 'Qwen API 密钥无效'); assert.equal('error' in denied, false)
+  assert.equal(denied.status, 'error'); assert.equal(denied.message, '通义千问 API Key 无效'); assert.equal('error' in denied, false)
   assert.equal((await service.probe({ kind: 'qwen', config: { region: 'mars' } })).status, 'invalid')
   assert.equal((await service.probe({ kind: 'reference', config: {} })).status, 'invalid')
   assert.equal(stored.size, 0); assert.equal(settings.providers.length, 0) // Probing never persists.
@@ -264,7 +264,7 @@ test('Qwen base voices are the documented system list; draft probe never synthes
   assert.equal((await service.list())[0].check.status, 'connected')
   assert.equal((await service.voices({ id: 'qwen-main' })).voices.length, voices.length)
   status = 403; assert.match((await service.test({ id: 'qwen-main' })).message, /访问被拒绝/)
-  assert.deepEqual([(await service.list())[0].check.status, (await service.list())[0].check.message], ['error', 'Qwen 配音访问被拒绝，请检查模型权限与账户状态'])
+  assert.deepEqual([(await service.list())[0].check.status, (await service.list())[0].check.message], ['error', '通义千问配音访问被拒绝，请检查模型权限与账户状态'])
   assert.equal(calls.every(c => c.options.method === 'GET'), true)
   assert.equal(service.kinds().some(k => k.kind === 'reference'), false)
   assert.deepEqual(service.kinds().filter(k => k.paid).map(k => k.kind).sort(), ['azure', 'fish-audio', 'minimax', 'openai-compatible', 'qwen', 'volcengine'])

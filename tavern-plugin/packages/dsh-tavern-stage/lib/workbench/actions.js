@@ -123,7 +123,6 @@ async function upload(c) {
   if(['blob','bundle'].includes(r.action))await c.snapshot()
   if(r.action==='bundle')return receipt(await c.library.putBundle({packId:r.packId,expectedRevision:r.expectedRevision,bundleKey:r.bundleKey,descriptor:{kind:r.kind,entry:r.entry},files:await c.files.directory(r.directory)}),r.bundleKey)
   const image=media(await c.files.read(r.file,60*1024**2))
-  if(r.action==='mod-media')return c.library.putModMedia({...omit(r,'action','file'),mime:image.descriptor.mime,bytes:image.bytes})
   if(r.action==='blob') {
     if(!image.descriptor.mime.startsWith('audio/'))throw featureError('INVALID_INPUT','$.purpose','Images must be atomically bound with action image.')
     const result=await c.library.putBlob({packId:r.packId,expectedRevision:r.expectedRevision,bytes:image.bytes,descriptor:image.descriptor})
@@ -179,10 +178,10 @@ async function stage(c) {
 }
 async function mods(c) {
   const r=c.input,args=omit(r,'action'),read=c.name==='mods_read'
-  const methods=read?{list:'listMods',mod:'getMod',packs:'listModPacks',config:'getModConfig',resolve:'resolveModConfig',sources:'listModConfigSources',formula:'evaluateModConfigFormula'}:
-    {settings:'saveModSettings',pack:'saveModPack',config:'setModConfig','clear-config':'clearModConfig'}
+  const methods=read?{list:'listMods',mod:'getMod',config:'getModConfig',resolve:'resolveModConfig',sources:'listModConfigSources',formula:'evaluateModConfigFormula'}:
+    {settings:'saveModSettings',config:'setModConfig','clear-config':'clearModConfig'}
   // An editor session is not a play snapshot; config sources here are card/global only.
-  if(!['settings','pack'].includes(r.action))args.cardId=await c.cardId()
+  if(r.action!=='settings')args.cardId=await c.cardId()
   return c.rpc(methods[r.action],args)
 }
 async function voice(c) {
@@ -191,7 +190,7 @@ async function voice(c) {
     if(r.action==='figure')return c.rpc('getFigureVoiceEditor',args)
     if(r.action==='choices')return c.rpc('listFigureVoiceChoices',{})
     if(r.action==='templates')return requireService(c.library).listVoiceTemplates()
-    const method={services:'services','provider-kinds':'providerKinds',voices:'listVoices',models:'listModels',presets:'voicePresets',readings:r.id?'readingPreset':'readingPresets'}[r.action]
+    const method={services:'services','provider-kinds':'providerKinds',voices:'listVoices',models:'listModels',presets:'voicePresets',reading:'reading',readings:r.id?'readingPreset':'readingPresets'}[r.action]
     const result=await requireService(c.tts).call(method,args)
     if(Array.isArray(result))return featurePage(result,r)
     if(result && ['voices','models','readings'].includes(r.action)) {

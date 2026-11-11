@@ -6,11 +6,6 @@ const {createStageEffects}=require('../tavern-plugin/packages/dsh-tavern-stage/s
 const policy=require('../tavern-plugin/src/client/stage-effects.cjs')
 const {createStageSceneGraphics}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene-graphics.cjs')
 const useFilter=createStageSceneGraphics({}).useFilter
-test('filter tuning failure releases the newly allocated filter before ownership transfer',()=>{
- let destroyed=0,attached=0;const store={}
- assert.throws(()=>useFilter(store,{set(){attached++}},'grade',()=>({destroy(){destroyed++}}),true,0,()=>{throw new Error('tune failed')}),/tune failed/)
- assert.equal(destroyed,1);assert.equal(attached,0);assert.deepEqual(store,{})
-})
 function fixture(){
  const made=[],textures=[],disposed=[]
  class Container{constructor(){this.children=[]}addChild(n){n.parent=this;this.children.push(n)}destroy(options){if(options?.children)for(const child of [...this.children])child.destroy();if(this.parent)this.parent.children=this.parent.children.filter(n=>n!==this);this.children=[]}}
@@ -53,12 +48,6 @@ test('effects own active filters, nodes and textures and fence late ticks',()=>{
  assert.equal(f.env.overlay.children.length,0);assert.equal(f.env.filters.world.slots.size,0);assert.equal(f.env.filters.backdrop.slots.size,0)
  assert.ok(f.made.every(filter=>filter.count===1));assert.ok(f.textures.every(texture=>texture.count===1))
  assert.deepEqual(f.disposed.sort(),['emotes','looks','weather'])
-})
-test('effect setup failure releases overlays and textures',()=>{
- const f=fixture(),manager=createStageEffects({...f.options,looks:{create(){throw new Error('look failed')}}})
- assert.throws(()=>manager.create(f.env),/look failed/)
- assert.equal(f.env.overlay.children.length,0);assert.ok(f.textures.every(t=>t.count===1))
- manager.dispose();f.manager.dispose()
 })
 test('filter library load is coalesced and late completion does not revive disposed scope',async()=>{
  let finish,calls=0

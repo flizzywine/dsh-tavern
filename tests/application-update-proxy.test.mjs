@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import test from 'node:test'
 
 const execute = promisify(execFile)
+const fixtureNode = process.env.DSH_TEST_NODE_EXECUTABLE || process.execPath
 const updateModule = new URL('../bin/application-update.mjs', import.meta.url).href
 const receiptModule = new URL('../bin/installation-receipt.mjs', import.meta.url).href
 const environmentModule = new URL('../bin/launcher-environment.mjs', import.meta.url).href
@@ -49,8 +50,8 @@ for (const [name, original, attempts = 1] of lifecycleCases) for (const rollback
       if (${rollback}) process.exit(23);
       await recordInstallationReceipt({ sourceRoot: ${JSON.stringify(sourceRoot)}, dshHome: process.env.DSH_HOME, host: 'cli', attemptId: process.env.DSH_TAVERN_INSTALL_ATTEMPT });
     `)
-    await writeFile(path.join(sourceRoot, 'install.sh'), `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(installerFile)}\n`)
-    await writeFile(path.join(sourceRoot, 'install.ps1'), `& ${psQuote(process.execPath)} ${psQuote(installerFile)}\nexit $LASTEXITCODE\n`)
+    await writeFile(path.join(sourceRoot, 'install.sh'), `#!/bin/sh\nexec ${shellQuote(fixtureNode)} ${shellQuote(installerFile)}\n`)
+    await writeFile(path.join(sourceRoot, 'install.ps1'), `& ${psQuote(fixtureNode)} ${psQuote(installerFile)}\nexit $LASTEXITCODE\n`)
     const serviceScript = `require('node:fs').writeFileSync(${JSON.stringify(serviceOutput)}, JSON.stringify(${select}))`
     await writeFile(path.join(sourceRoot, 'bin/dsh-tavern.mjs'), `
       import { spawnSync } from 'node:child_process';
@@ -100,7 +101,7 @@ for (const [name, original, attempts = 1] of lifecycleCases) for (const rollback
     `)
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !proxyKey.test(key) && !/^DSH_|^NODE_OPTIONS$/i.test(key)))
     Object.assign(env, original, { DSH_HOME: root, DSH_TAVERN_CLI_HOME: root, DSH_TAVERN_RUNTIME_HOST: 'cli', DSH_TAVERN_INSTALL_FIXTURE: 'must-not-leak' })
-    await execute(process.execPath, [runner], { env, timeout: 30000 })
+    await execute(fixtureNode, [runner], { env, timeout: 30000 })
     const read = async file => JSON.parse(await readFile(file, 'utf8'))
     // Windows environment keys are case insensitive: compare canonical names.
     const canonical = value => Object.fromEntries(Object.entries(value).map(([key, item]) => [key.toUpperCase(), item]))
@@ -138,6 +139,7 @@ for (const [name, original] of cases) {
         sourceRoot: ${JSON.stringify(root)}, dshHome: ${JSON.stringify(root)}, dataRoot: ${JSON.stringify(path.join(root, 'data'))}, runtimeHost: 'cli', platform: 'linux',
         readLocalIdentity: async () => ({ currentVersion: '3.2.0', currentCommit: 'a'.repeat(40) }),
         fetchManifest: async () => ({ version: '3.2.0' }), fetchLatestCommit: async () => 'b'.repeat(40),
+        fetchGithubManifest: async () => { throw new Error('offline fixture') },
         fetchCdnMetadata: async () => { throw new Error('offline fixture') }, compareCommits: async () => 'ahead',
         spawnProcess(_command, _args, options) {
           writeFileSync(${JSON.stringify(output)}, JSON.stringify(Object.fromEntries(Object.entries(options.env).filter(([key]) => ${proxyKey}.test(key)))));
@@ -148,7 +150,7 @@ for (const [name, original] of cases) {
     `)
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !proxyKey.test(key) && !/^DSH_|^NODE_OPTIONS$/i.test(key)))
     Object.assign(env, original)
-    await execute(process.execPath, [runner], { env, timeout: 30000 })
+    await execute(fixtureNode, [runner], { env, timeout: 30000 })
     const canonical = value => Object.fromEntries(Object.entries(value).map(([key, item]) => [key.toUpperCase(), item]))
     assert.deepEqual(canonical(JSON.parse(await readFile(output, 'utf8'))), canonical(original))
   })

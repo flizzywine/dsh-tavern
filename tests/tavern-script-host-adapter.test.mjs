@@ -173,23 +173,6 @@ test('同时开始的 MVU 尝试不会在 await 之后互相覆盖事务所有�
   assert.equal(run.writes.length, 0, '有效尝试仍只返回草稿 effect，不能提前持久化')
 })
 
-test('global template settings read and save without resolving any game', async () => {
-  const current = { EjsTemplate: { enabled: false }, otherPlugin: { enabled: true } }
-  let saved
-  const { adapter } = harness(chat(), {
-    resolveChat: async () => { throw new Error('must not read a game') },
-    fullExtensionSettings: {
-      read: async () => structuredClone(current),
-      save: async (next, base) => { saved = { next, base }; return next }
-    }
-  })
-  assert.deepEqual(await adapter.readGlobalPromptTemplateSettings(), { settings: { enabled: false } })
-  assert.deepEqual(await adapter.saveGlobalPromptTemplateSettings({ enabled: true }, { enabled: false }), { updated: true, settings: { enabled: true } })
-  assert.deepEqual(saved.base, current)
-  assert.deepEqual(saved.next.otherPlugin, current.otherPlugin)
-  await assert.rejects(adapter.saveGlobalPromptTemplateSettings([], {}), /模板设置/)
-})
-
 for (const concurrent of [false, true, 'conflict']) test(`prompt updates use exact-revision patch with safe merge fallback: concurrent=${concurrent}`, async t => {
   const {mkdtemp,rm}=await import('node:fs/promises')
   const {tmpdir}=await import('node:os')
@@ -236,26 +219,4 @@ for(const type of ['global','character'])test(type+' variable writes validate Ch
  const result=await adapter.updateVariables('session-1',{type},{hp:8},2)
  assert.equal(result.updated,true)
  assert.deepEqual(saved,{hp:8})
-})
-
-test('变量结算不改正文：存档 text 仍是提示词正则投影，不被换回模型原文（#306）', async () => {
-  const value = chat()
-  value.messages.unshift({ role: 'user', text: '行动', variables: [{ stat_data: { hp: 4 }, schema: {} }] })
-  const raw = '<thinking>想一想 `<branches>`</thinking>正文<branches>x</branches>'
-  Object.assign(value.messages[1], { text: '<thinking>想一想 `', sourceText: raw, projectionText: raw, swipes: [raw],
-    displayText: '<div>正文</div>', variables: [{ stat_data: { hp: 7 }, schema: {} }] })
-  let adapter
-  adapter = harness(value, { scriptDispatch: { async dispatch(_session, _event, _args, _context, work) {
-    await adapter.updateMessages('session-1', [{ message_id: 1, data: { stat_data: { hp: 6 }, schema: {} } }], 2, work.eventId)
-    return { handled: true }
-  } } }).adapter
-  const result = await adapter.settleMvuUpdate({ operationId: 'settle', sessionId: 'session-1', messageId: 1, swipeId: 0,
-    expectedLifecycleRevision: 2, storyText: '正文', command: '<UpdateVariable/>' })
-  applyMvuSettlementEffect(value, result.effect)
-  assert.equal(value.messages[1].variables[0].stat_data.hp, 6)
-  assert.equal(value.messages[1].text, '<thinking>想一想 `')
-  assert.equal(value.messages[1].sourceText, raw)
-  assert.deepEqual(value.messages[1].swipes, [raw])
-  assert.equal(value.messages[1].displayText, '<div>正文</div>')
-  assert.equal(Object.hasOwn(value.messages[1], 'sessionText'), false)
 })

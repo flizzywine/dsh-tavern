@@ -57,10 +57,11 @@ test('whole-book preprocessing is guarded once per request and decorator edits a
   const project = createForegroundWorldbook({ bound: async () => worldBook, runtime: async () => runtime, globalVariables: async () => ({}) })
   const chat = { sessionId: 'preprocess', worldbookStrategy: 'native-skills', messages: [] }
   await project({ chat, card: {}, requestKey: 'one' })
-  worldBook.view.entries[1].content = 'edited plain'
+  // A re-read book yields new entry objects; the view is never edited in place.
+  worldBook.view.entries = [worldBook.view.entries[0], { ...worldBook.view.entries[1], content: 'edited plain' }]
   await project({ chat, card: {}, requestKey: 'one' })
   assert.equal(preparations, 1)
-  worldBook.view.entries[0].content = '@@generate\n<% changed %>'
+  worldBook.view.entries = [{ ...worldBook.view.entries[0], content: '@@generate\n<% changed %>' }, worldBook.view.entries[1]]
   const deferred = await project({ chat, card: {}, requestKey: 'one' })
   assert.equal(preparations, 1)
   assert.ok(deferred.diagnostics.some(item => item.code === 'preprocessing-edit-deferred-to-next-request'))

@@ -6,6 +6,7 @@ import {PACK_GEN_STYLES} from '../../packages/dsh-asset-library/lib/asset-packs/
 import {skinSheetLayoutText} from './asset-skin-sheet.js'
 import {SPRITE_DEFAULT_FRAMING_SENTENCE,spriteFramingSpec,spriteFramingSentence,assertFramingAgreesWithNotes} from './asset-sprite-framing.js'
 export const ASSET_PRODUCTION_DEFAULTS = Object.freeze({avatarMode:'individual',quality:'high',blink:true})
+export const ASSET_IMAGE_QUALITIES = Object.freeze(['auto','low','medium','high','xhigh','max'])
 export const ASSET_REFERENCE_ROLES = Object.freeze({
   identity:'Approved identity settei: authority for cross-outfit face, body proportions, hair structure and inherent skin/eye/hair colours; outfit accessories are not identity traits',
   settei:'Approved outfit settei: authority for clothing, outfit colours and explicit hair/accessory differences against its parent identity version; not sheet layout',

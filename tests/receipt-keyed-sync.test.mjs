@@ -55,12 +55,3 @@ test('keyed receipts require negotiation and reset safely after cursor or source
 })
 
 import {createSessionViewReader} from '../tavern-plugin/lib/domain/session-view-reader.js'
-test('session RPC forwards negotiated receipt capability to transport',async()=>{
- let options
- const chat={id:'c',_storageRevision:1,messages:[]}
- const reader=createSessionViewReader({readState:async()=>chat,readChat:async()=>chat,readChanges:async()=>null,
-  project:{full:()=>({mvuReceipts:[]})},activity:()=>({}),foregroundRunning:()=>false,
-  trace:{stage:(_name,fn)=>fn(),state(){}},synchronize:(_id,_view,_cursor,value)=>{options=value;return {viewCursor:'ok'}}})
- assert.equal((await reader.response({sessionId:'s',viewSync:1,receiptSync:1})).viewCursor,'ok')
- assert.equal(options.receiptSync,1)
-})

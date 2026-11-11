@@ -62,6 +62,24 @@ test('NEXT 共用酒馆启动器和更新状态，通过原生 Profile 切换', 
   }
 })
 
+test('NEXT 区分链接的原版 Profile 和无法切换的原版 Profile', async () => {
+  const cases = [
+    [[{ ...tavernProfile, name: 'desktop', isLink: true, linkTargetName: 'tavern' }], /官方 DeepSeek Harness.*酒馆启动器.*切回原版 DSH/],
+    [[], /桌面设置 → Profile/],
+  ]
+  for (const [profiles, hint] of cases) {
+    const page = await mount({ host: 'next', activeName: 'tavern', appKind: 'desktop', desktopApp: true,
+      profiles: [...profiles, tavernProfile] }, [], { next() {} })
+    try {
+      assert.match(page.text(), hint)
+      assert.doesNotMatch(page.text(), /找不到原版 DSH 的备份/)
+      assert.equal(page.button(), null)
+    } finally {
+      await page.dispose()
+    }
+  }
+})
+
 test('NEXT 先准备更新，等用户确认后才请求原生退出', async () => {
   const order = []
   const status = { host: 'next', activeName: 'tavern', appKind: 'desktop', desktopApp: true,
@@ -192,6 +210,23 @@ test('官方酒馆启动器按提交检查同版本更新，并跟踪安装到�
   }
 })
 
+test('官方桌面在新版准备好后提供重启和手动退出提示', async () => {
+  const tavern = { ...managedStatus, activeIsLink: true, linkTargetName: 'tavern' }
+  const ready = { phase: 'running', canUpdate: true, cancellable: true, awaitingDesktopExit: true }
+  const page = await mount(tavern, [], { rpc: async endpoint => ({
+    ok: true, value: endpoint === 'status' ? tavern : endpoint === 'restart-desktop-update' ? { ...ready, closesApp: false } : ready,
+  }) })
+  try {
+    assert.match(page.text(), /新版已准备好/)
+    assert.equal(namedButton(page, '取消更新').disabled, false)
+    await page.act(async () => namedButton(page, '重启并应用更新').click())
+    assert.equal(page.calls.filter(([endpoint]) => endpoint === 'restart-desktop-update').length, 1)
+    assert.match(page.text(), /请从应用菜单或托盘退出 DeepSeek Harness/)
+  } finally {
+    await page.dispose()
+  }
+})
+
 test('原版桌面首次安装需要确认，排队后隐藏安装按钮', async () => {
   const page = await mount({ appKind: 'desktop', desktopApp: true, installAvailable: true, profiles: [] })
   try {
@@ -273,6 +308,36 @@ test('卸载需要独立确认，保留数据和原版 DSH；重复点击只提�
   page.dispose()
 })
 
+test('NEXT 从酒馆配置确认删除，排队成功后请求正常退出，失败时提示手动退出', async () => {
+  const steps = []
+  const status = { ...managedStatus, host: 'next', activeName: 'tavern', profiles: [tavernProfile] }
+  let queued = false
+  const page = await mount(status, [], {
+    next: async command => { steps.push(command); throw new Error('native quit unavailable') },
+    rpc: async (endpoint, payload) => {
+      if (endpoint === 'status') return { ok: true, value: status }
+      if (endpoint === 'update-status') return { ok: true, value: { phase: 'idle' } }
+      steps.push([endpoint, payload])
+      return queued ? { ok: true, value: { stamp: 'uninstall' } } : { ok: false, error: { message: '暂时无法排队' } }
+    },
+  })
+  try {
+    await page.act(async () => namedButton(page, '删除 DSH 酒馆').click())
+    assert.match(page.text(), /删除完成后会重新打开原版 DSH/)
+    assert.deepEqual(steps, [])
+    await page.act(async () => namedButton(page, '确认删除并重启').click())
+    assert.deepEqual(steps, [['uninstall', { confirmed: true }]])
+    assert.match(page.text(), /暂时无法排队/)
+    queued = true
+    await page.act(async () => namedButton(page, '确认删除并重启').click())
+    assert.deepEqual(steps.slice(1), [['uninstall', { confirmed: true }], { type: 'quit' }])
+    assert.match(page.text(), /两分钟内从应用菜单或托盘退出 NEXT/)
+    assert.equal(namedButton(page, '删除 DSH 酒馆').disabled, true)
+  } finally {
+    await page.dispose()
+  }
+})
+
 test('迁移只接受绝对路径，显示失败后保留输入允许取消或重试', async () => {
   const page = await mount(managedStatus, [], { rpc: async endpoint => endpoint === 'status'
     ? { ok: true, value: managedStatus } : { ok: false, error: { message: '目标目录非空' } } })
@@ -287,5 +352,30 @@ test('迁移只接受绝对路径，显示失败后保留输入允许取消或�
   assert.equal(page.dom.window.document.querySelector('#pb-destination').value, 'D:\\DSH-Tavern')
   await page.act(async () => namedButton(page, '取消').click())
   assert.equal(page.dom.window.document.querySelector('#pb-destination'), null)
+  page.dispose()
+})
+
+test('自动退出失败的待完成切换在新打开设置页时显示手动退出提示，且允许再次点击重试自动退出', async () => {
+  let status = {
+    appKind: 'desktop', desktopApp: true, profiles: [tavernProfile],
+    lastResult: { status: 'pending', mode: 'link', stamp: '1', closesApp: false },
+  }
+  const page = await mount(status, [], {
+    rpc: async endpoint => {
+      if (endpoint === 'status') return { ok: true, value: status }
+      if (endpoint === 'link') {
+        status = { ...status, lastResult: { status: 'pending', mode: 'link', stamp: '1', closesApp: true } }
+        return { ok: true, value: { stamp: '1', closesApp: true } }
+      }
+      return { ok: true, value: {} }
+    },
+  })
+  assert.match(page.text(), /请从托盘退出桌面版/)
+  assert.doesNotMatch(page.text(), /正在重启/)
+  assert.equal(page.button().disabled, false)
+  await page.act(async () => { page.button().click() })
+  assert.deepEqual(page.calls.at(-1), ['link', { target: 'tavern' }])
+  assert.match(page.text(), /正在重启/)
+  assert.equal(page.button(), null)
   page.dispose()
 })

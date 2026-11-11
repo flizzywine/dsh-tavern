@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { pathToFileURL } from 'node:url'
-import { loaderReload, readPatchedUserPlugins, syncUserPlugins, watchUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
+import { readPatchedUserPlugins, syncUserPlugins, userPluginPaths, watchUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
 
 async function home(t) {
   const dshHome = await mkdtemp(path.join(tmpdir(), 'user-plugins-'))
@@ -45,30 +45,6 @@ test('插件文件夹换了（托管模组启动时重新发布）：从 DSH 启
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(reloads, [['tavern-user-plugin-dsh-tavern-mod-phone', path.join(moved, '.tavern-entry.mjs')]])
   assert.equal(loaded.get('tavern-user-plugin-dsh-tavern-mod-phone'), path.join(moved, '.tavern-entry.mjs'), '重启一次后不再重复')
-})
-
-test('重启经 Cordis loader：同级条目改指新 guard 并停用，再启用（重新 import 新模块）', async () => {
-  const calls = [], fiber = {}
-  const loader = {
-    locate: f => { assert.equal(f, fiber); return 'profile:3:tavern' },
-    resolve: key => ({ update: async patch => { calls.push([key, { ...patch }]) } }),
-  }
-  const entry = path.join(tmpdir(), 'card-dsh-tavern-mod-phone-bbbbbbbbbbbb', '.tavern-entry.mjs')
-  await loaderReload(loader, fiber)('tavern-user-plugin-dsh-tavern-mod-phone', entry)
-  assert.deepEqual(calls, [
-    ['profile:3:tavern-user-plugin-dsh-tavern-mod-phone', { name: pathToFileURL(entry).href, disabled: true }],
-    ['profile:3:tavern-user-plugin-dsh-tavern-mod-phone', { disabled: null }],
-  ])
-  assert.equal(loaderReload(undefined, fiber), null, '没有 loader 时不重启，只同步 patch')
-})
-
-test('缺少宿主入口的插件不登记', async t => {
-  const { dataRoot } = await home(t)
-  await plugin(dataRoot, 'ui-only', { name: 'ui-only', exports: { './client': './client.js' } }, { 'client.js': '' })
-  await plugin(dataRoot, 'missing', { name: 'missing', main: 'nope.mjs' })
-  const result = await syncUserPlugins({ dataRoot, logger: { warn() {} } })
-  assert.deepEqual(result.plugins, [])
-  assert.deepEqual(result.problems.map(problem => problem.folder).sort(), ['missing', 'ui-only'])
 })
 
 test('插件经由 Tavern 的保护入口加载：导入失败或 apply 抛错只记日志，不让 DSH 起不来', async t => {
@@ -126,3 +102,35 @@ for (const pkg of [null, [], 'bad', {}, { name: 'broken' }, { name: 42, version:
     assert.equal((await syncUserPlugins({ dataRoot, logger: { warn() {} } })).plugins.length, 1)
   })
 }
+
+async function profileWith(dshHome, name, bundles) {
+  const dir = path.join(dshHome, 'profiles', name)
+  await mkdir(dir, { recursive: true })
+  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ dsh: { profile: { bundles } } }))
+  return dir
+}
+
+test('userPluginPaths：酒馆装在 web profile 里（dsh-go）时写到 web，而不是造一个空的 tavern', async t => {
+  const dshHome = await mkdtemp(path.join(tmpdir(), 'user-plugins-pick-'))
+  t.after(() => rm(dshHome, { recursive: true, force: true }))
+  const dataRoot = path.join(dshHome, 'profile-data', 'tavern', 'data')
+  const web = await profileWith(dshHome, 'web', ['@deepseek-ai/dsh-base', 'dsh-tavern-plugin'])
+  assert.equal(userPluginPaths(dataRoot, dshHome, 'cli').profile, web)
+})
+
+test('userPluginPaths：tavern 与 web 都有酒馆时用 tavern，保持既有安装不变', async t => {
+  const dshHome = await mkdtemp(path.join(tmpdir(), 'user-plugins-pick-'))
+  t.after(() => rm(dshHome, { recursive: true, force: true }))
+  const dataRoot = path.join(dshHome, 'profile-data', 'tavern', 'data')
+  const tavern = await profileWith(dshHome, 'tavern', ['dsh-tavern-plugin'])
+  await profileWith(dshHome, 'web', ['dsh-tavern-plugin'])
+  assert.equal(userPluginPaths(dataRoot, dshHome, 'cli').profile, tavern)
+})
+
+test('userPluginPaths：哪个 profile 都没有酒馆时按宿主老规矩回落，不猜 web', async t => {
+  const dshHome = await mkdtemp(path.join(tmpdir(), 'user-plugins-pick-'))
+  t.after(() => rm(dshHome, { recursive: true, force: true }))
+  const dataRoot = path.join(dshHome, 'profile-data', 'tavern', 'data')
+  await profileWith(dshHome, 'web', ['@deepseek-ai/dsh-base'])
+  assert.equal(userPluginPaths(dataRoot, dshHome, 'cli').profile, path.join(dshHome, 'profiles', 'tavern'))
+})

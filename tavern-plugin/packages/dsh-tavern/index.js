@@ -5,10 +5,10 @@ import { pathToFileURL } from 'node:url'
 import { inspectInstallation, validateInstallationRequest } from './lib/installation.mjs'
 import { captureOwnedProcesses } from './lib/processes.mjs'
 import { requestDesktopQuit } from './lib/quit.mjs'
-import { confirmNextUpdate, relaunchApp, scheduleSwitch } from './lib/helper.mjs'
+import { confirmNextUpdate, recordPendingQuitStatus, relaunchApp, scheduleSwitch } from './lib/helper.mjs'
 import { createTavernShortcut } from './lib/shortcut.mjs'
 import { canInstallTavern, detectAppExe, fail, isActiveTavern, isDesktopApp, isOfficialDesktopApp, isDesktopTavernWindow, launcherPaths, readLinkTarget, statusPayload, validateTarget } from './lib/state.mjs'
-import { initializeDefaultProfile, setDefaultProfile, startupSwitchMode } from './lib/startup-profile.mjs'
+import { consumeProfileContinuation, initializeDefaultProfile, setDefaultProfile, startupSwitchMode } from './lib/startup-profile.mjs'
 
 /** Shared RPC channel owned by this plugin; the browser half calls it by name. */
 const CHANNEL = '/profile-bridge'
@@ -18,7 +18,7 @@ const BODY_LIMIT_BYTES = 64 * 1024
 
 const updateActions = new Map([
   ['update-status', 'status'], ['check-update', 'check'],
-  ['start-update', 'start'], ['cancel-update', 'cancel'],
+  ['start-update', 'start'], ['cancel-update', 'cancel'], ['restart-desktop-update', 'restart'],
 ])
 let installedUpdater
 
@@ -33,7 +33,7 @@ async function runUpdate(method, paths) {
   // Official updates run from Tavern and refresh the inactive original launcher.
   // NEXT prepares the update from either managed Profile before asking to restart.
   const canUpdate = isActiveTavern(paths, installation) || (next && original)
-  if (['start', 'cancel'].includes(method) && !canUpdate) {
+  if (['start', 'cancel', 'restart'].includes(method) && !canUpdate) {
     fail('update-unavailable', next ? '请在 NEXT 的原版 DSH 或酒馆配置中更新。' : '请先切换到 DSH 酒馆，再在启动器中更新。')
   }
   const sourceRoot = installation.appDir
@@ -52,6 +52,13 @@ async function runUpdate(method, paths) {
     service.catch(() => { if (installedUpdater?.service === service) installedUpdater = undefined })
   }
   const updater = await installedUpdater.service
+  if (method === 'restart') {
+    if (next || !isOfficialDesktopApp()) fail('not-desktop', '请在官方 DeepSeek Harness 中重启应用。')
+    const current = await updater.status()
+    if (!current.awaitingDesktopExit) fail('update-not-ready', '新版尚未准备好，或当前更新已结束。')
+    const closesApp = await requestDesktopQuit({ pid: process.ppid, executable: process.execPath })
+    return { ...current, canUpdate, closesApp }
+  }
   if (next && method === 'start') {
     const current = await updater.check()
     if (!['update-available', 'repair-required'].includes(current.phase)) return { ...current, canUpdate }
@@ -66,7 +73,7 @@ export const inject = ['connection', 'profileContext', 'webServer']
 
 /**
  * Prepare and launch one switch operation.
- * @param {'link' | 'unlink'} mode - operation to perform.
+ * @param {'link' | 'unlink' | 'install' | 'relocate' | 'uninstall'} mode - operation to perform.
  * @param {ReturnType<typeof launcherPaths>} paths - resolved plugin paths.
  * @param {unknown} payload - browser request payload.
  * @returns {object} JSON-safe receipt for the UI.
@@ -88,14 +95,14 @@ async function runSwitch(mode, paths, payload, updateInstallation) {
   const management = ['relocate', 'uninstall'].includes(mode)
     ? validateInstallationRequest(paths, mode, request) : undefined
   const target = mode === 'link' ? validateTarget(paths, request.target) : undefined
-  const relaunch = mode === 'install' ? process.execPath : detectAppExe()
+  const relaunch = next || mode === 'install' ? process.execPath : detectAppExe()
   if (!process.versions.electron || !process.send || process.ppid <= 1) {
     fail('not-desktop', '请在 DSH 桌面中执行此操作。')
   }
   // Snapshot before quitting: detached children lose a trustworthy parent once it exits.
   const ownership = await captureOwnedProcesses([process.pid, process.ppid])
   const result = scheduleSwitch({ ...management, mode, host: paths.host, appDir: updateInstallation?.logicalAppDir,
-    home: paths.home, profilesRoot: paths.profilesDir, liveDir: paths.activeDir,
+    home: paths.home, profilesRoot: management?.profilesRoot ?? paths.profilesDir, liveDir: management?.liveDir ?? paths.activeDir,
     activeName: paths.activeName, targetDir: target?.dir, stateDir: paths.stateDir,
     stamp: new Date().toISOString().replace(/[:.]/g, '-') + '-' + process.pid,
     pids: [process.pid, process.ppid], ownership, relaunch })
@@ -105,6 +112,7 @@ async function runSwitch(mode, paths, payload, updateInstallation) {
       try { appendFileSync(result.logPath, new Date().toISOString() + ' 自动退出失败，可从托盘退出：' + error.message + '\n') } catch {}
     },
   })
+  if (!next) recordPendingQuitStatus(paths.stateDir, result.stamp, closesApp)
   return { ...result, mode, target: target?.name, warnings: target?.warnings ?? [], closesApp, reopensApp: true }
 }
 
@@ -222,7 +230,8 @@ export function apply(ctx) {
       const link = readLinkTarget(paths.activeDir)
       const current = link ? basename(link) : 'desktop'
       const preferred = initializeDefaultProfile(paths.home, current)
-      const mode = startupSwitchMode(current, preferred)
+      const continued = consumeProfileContinuation(paths.home, current)
+      const mode = continued ? undefined : startupSwitchMode(current, preferred)
       if (mode) await runSwitch(mode, paths, { target: 'tavern' })
     }).catch(error => ctx.logger?.warn?.(`默认配置未能应用：${error.message}`))
   }

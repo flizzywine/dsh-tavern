@@ -1,4 +1,3 @@
-import {modVersionMatches} from './permissions.js'
 import contract from '../../../packages/dsh-presentation-protocol/src/mod-contract.cjs'
 import widgetContract from '../../../src/client/widget-contracts.cjs'
 import directorCommands from '../../../packages/dsh-presentation-protocol/src/director-commands.cjs'
@@ -16,15 +15,15 @@ export function assertModCommandAdmission(operation,context) {
     {code:'REF_UNAVAILABLE',path:'$.op',modError:{candidates},canonicalOperation:operation})
 }
 
-export function registerModCommands(manifests, core = [], {checkVerbs = true} = {}) {
+export function registerModCommands(manifests, core = []) {
   const ops = new Map(), verbs = new Map(), rows = []
   const commands=manifests.flatMap(manifest=>manifest.commands.map(command=>({...command,modId:manifest.id})))
   const replaced=commands.map(command=>command.replaces).filter(Boolean)
   // Core noun reservations are not wire operations. A replacement may retain its existing short verb.
-  const native=checkVerbs?core.map(command=>command.dsl?.verb && core.some(row=>replaced.includes(row.op) && row.op.split('.')[0]===command.dsl.verb) && !core.some(row=>row.op?.split('.')[0]===command.dsl.verb && !replaced.includes(row.op))?{op:command.op}:command):core
+  const native=core.map(command=>command.dsl?.verb && core.some(row=>replaced.includes(row.op) && row.op.split('.')[0]===command.dsl.verb) && !core.some(row=>row.op?.split('.')[0]===command.dsl.verb && !replaced.includes(row.op))?{op:command.op}:command)
   for (const row of [...native.map(command=>({...command,modId:'core'})), ...commands]) {
     for (const [index,key] of [[ops,row.op],[verbs,row.dsl?.verb]]) {
-      if (!key || index===verbs && !checkVerbs) continue
+      if (!key) continue
       const previous=index.get(key)
       check(!previous, '$.commands', `Command ${key} conflicts: ${previous?.modId} / ${row.modId}`, 'MOD_COMMAND_CONFLICT')
       index.set(key,row)
@@ -32,16 +31,6 @@ export function registerModCommands(manifests, core = [], {checkVerbs = true} = 
     if (row.modId!=='core') rows.push(row)
   }
   return modFreeze(rows.sort(modOrder))
-}
-
-export function checkModCompatibility(manifests, nameOf) {
-  const declares=(a,b,kind)=>(a.compatibility?.[kind] || []).some(row=>row.id===b.id && modVersionMatches(b.version,row.range))
-  for(let i=0;i<manifests.length;i++) for(let j=i+1;j<manifests.length;j++) {
-    const a=manifests[i],b=manifests[j]
-    check(!declares(a,b,'incompatible') && !declares(b,a,'incompatible'), '$.scope', a.id+' / '+b.id+': explicitly incompatible', 'MOD_COMMAND_CONFLICT')
-    const shared=a.commands.map(command=>command.replaces).filter(target=>target && b.commands.some(command=>command.replaces===target))
-    for(const target of shared) check(declares(a,b,'compatible') || declares(b,a,'compatible'), '$.scope', nameOf(a)+' ('+a.id+') 与 '+nameOf(b)+' ('+b.id+') 都替换了 '+target+'，只能开一个', 'MOD_COMMAND_CONFLICT')
-  }
 }
 
 export function validateModCommand(command, params) {

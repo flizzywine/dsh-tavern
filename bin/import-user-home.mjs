@@ -55,9 +55,43 @@ function merge(from, to) {
   }
   if (!sameContent(from, to)) throw Error(`存在不同内容的同名存档或附件，已停止迁移：${to}`)
 }
+
+// The official host receives its actual project directory after the bundled
+// runtime path. Resolve it so an alias to Tavern still counts as Tavern.
+const hostEntry = /[\\/]dsh-desktop-host[\\/]lib[\\/]index\.js(?=["'\s]|$)/i
+const commandArguments = command => Array.from(command.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g), match => match[1] ?? match[2] ?? match[3])
+function desktopHostProject(command, resolveProject) {
+  if (!hostEntry.test(command)) return
+  const args = commandArguments(command)
+  const entry = args.findIndex(arg => hostEntry.test(arg))
+  const [runtime, project] = args.slice(entry + 1)
+  if (entry < 1 || !runtime || !project || !path.isAbsolute(runtime) || !path.isAbsolute(project)
+      || path.relative(path.join(runtime, 'node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js'), args[entry]) !== '') return
+  try { return resolveProject(project) } catch { /* An unverified path cannot clear the process. */ }
+}
+
+function officialProjects(processes, parents, resolveProject) {
+  const projects = new Map()
+  for (const row of processes) {
+    const project = desktopHostProject(row.command, resolveProject)
+    if (!project) continue
+    for (const pid of [row.id, row.parent]) {
+      if (!projects.has(pid)) projects.set(pid, new Set())
+      projects.get(pid).add(project)
+    }
+  }
+  return pid => {
+    const visited = new Set()
+    for (let current = pid; current && !visited.has(current); current = parents.get(current)) {
+      if (projects.has(current)) return projects.get(current)
+      visited.add(current)
+    }
+  }
+}
+
 // guiRoot limits the GUI check to executables inside that install root: other Harness
 // copies (another installation, a stale upgrade stage in the temp directory) cannot write this home.
-export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot, preparingForPid, exec = execFileSync, platform = process.platform, pid = process.pid } = {}) {
+export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot, preparingForPid, nextUpdate, exec = execFileSync, platform = process.platform, pid = process.pid, resolveProject = realpathSync } = {}) {
   let output
   try {
     output = platform === 'win32'
@@ -81,6 +115,10 @@ export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot,
   }
   const normalize = value => value.replaceAll('\\', '/').toLowerCase()
   const scope = guiRoot && normalize(path.resolve(guiRoot)).replace(/\/*$/, '/')
+  const projectFor = nextUpdate && officialProjects(processes, parents, resolveProject)
+  const affected = nextUpdate && [nextUpdate.profile, nextUpdate.app].map(directory => normalize(resolveProject(directory)))
+  const original = nextUpdate && normalize(resolveProject(nextUpdate.original))
+  let originalDesktopActive = false
   for (const row of processes) {
     if (own.has(row.id) || preparingTree.has(row.id)) continue
     const command = normalize(row.command).trim()
@@ -92,7 +130,20 @@ export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot,
       || command.match(/^(\/[^"\n]+?\.app\/contents\/macos\/(?:deepseek harness|dsh next|dsh desktop))(?=\s|$)/)?.[1]
       || command.match(/^((?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?)(?=\s|$)/)?.[1]
       || command.split(/\s/)[0]
-    if (requireGuiClosed && (!scope || executable.startsWith(scope)) && /(?:^|\/)(?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?$/.test(executable)) {
+    const official = /(?:^|\/)(?:deepseek harness|dsh desktop)(?:\.exe)?$/.test(executable)
+    const officialHost = hostEntry.test(row.command)
+    if (nextUpdate && (official || officialHost)) {
+      const projects = projectFor(row.id)
+      if (projects) {
+        const paths = [...projects].map(normalize)
+        if (paths.some(project => affected.some(root => project === root || project.startsWith(root + '/')))) {
+          throw Object.assign(Error(`原版 DSH 正在使用要更新的酒馆目录（PID ${row.id}）。请先退出该进程。`), { code: 'DSH_DESKTOP_RUNNING' })
+        }
+        originalDesktopActive ||= paths.includes(original)
+        continue
+      }
+    }
+    if (requireGuiClosed && (!scope || executable.startsWith(scope)) && (official || /(?:^|\/)dsh next(?:\.exe)?$/.test(executable))) {
       // Electron's crash reporter uses the same .exe and can outlive the GUI.
       const args = windowsCommand && command.slice(windowsCommand[0].length).trimStart()
       if (platform === 'win32' && args && /^--type=crashpad-handler(?:\s|$)/.test(args)) continue
@@ -101,6 +152,7 @@ export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot,
     if (!command.includes('dsh-desktop-host')) continue
     if (homes.some(home => command.includes(normalize(path.join(home, 'profiles'))))) throw Error('请完整退出使用源目录或目标目录的官方桌面，再迁移用户数据。')
   }
+  if (nextUpdate) return { originalDesktopActive }
 }
 function assertStopped(home) {
   const file = path.join(home, 'logs/tavern.pid.json')

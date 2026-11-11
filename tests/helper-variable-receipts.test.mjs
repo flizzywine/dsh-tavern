@@ -1,3 +1,4 @@
+import { announceHelperDocument } from './fixtures/helper-document-handshake.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { helperClient, helperHostHarness } from './fixtures/helper-host-harness.mjs'
@@ -64,6 +65,7 @@ for (const mismatch of [false,true]) test('parent runtime forwards compact recei
  })
  runtime.sync('audit',{chatId:'c',tavernHelper:baseline(),tavernHelperScripts:[{id:'a',content:'void 0'}]})
  frame.listeners.load()
+ announceHelperDocument(frame,listeners.message,'receipt-test')
  listeners.message({source:frame.contentWindow,data:{token:'receipt-test',type:'dsh-tavern-helper-subscriptions',ready:true,names:['MESSAGE_RECEIVED']}})
  await tick()
  listeners.message({source:frame.contentWindow,data:{token:'receipt-test',type:'dsh-tavern-helper-call',method:'updateTavernHelperVariables',requestId:'1',args:{option:{type:'chat'},variables:{hp:2}},scriptId:'a',lifecycleRevision:2}})

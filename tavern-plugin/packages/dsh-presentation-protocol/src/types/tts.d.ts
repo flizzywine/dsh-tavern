@@ -82,10 +82,11 @@ export interface ServiceSynthesis { voiceId: string; text: string; language: str
 export declare const TTS_UNAVAILABLE: 'TTS_UNAVAILABLE'
 /** A 台词朗读 voice, the same shape the figure voice picker produces: a browser system voice or a voice of a configured service. */
 export type ReadingVoiceBinding = {browser: string} | {serviceId: string; voice: string}
-/** Native setting tts.reading. dialogueVoice null = the browser's system default; narration reading is off by default. */
-export interface TtsReading { dialogueVoice: ReadingVoiceBinding | null; narrator: {enabled: boolean; voice: ReadingVoiceBinding | null} }
+/** Native setting tts.reading: 旁白配音's global switch (off by default) and 全文朗读's reader. 通用声音 / 旁白's voices are the asset
+ * library's reading voices, not settings. */
+export interface TtsReading { narrator: {enabled: boolean}; readAloud: {voice: ReadingVoiceBinding | null; auto: boolean} }
 /** ttsControl `setReading` input: omitted keys keep their value; null clears a voice. Invalid input rejects with INVALID_READING_VOICE. */
-export interface TtsReadingPatch { dialogueVoice?: ReadingVoiceBinding | null; narrator?: {enabled?: boolean; voice?: ReadingVoiceBinding | null} }
+export interface TtsReadingPatch { narrator?: {enabled?: boolean}; readAloud?: {voice?: ReadingVoiceBinding | null; auto?: boolean} }
 /** One configured voice service as UIs and other plugins list it: no keys, URLs or config. 浏览器朗读 (kind 'browser') is always listed;
  * so is every other plugin's registered provider that reports `voiceSources`. */
 export interface VoiceServiceEntry {

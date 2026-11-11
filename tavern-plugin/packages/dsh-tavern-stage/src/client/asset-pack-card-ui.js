@@ -19,7 +19,7 @@ const VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语']];
 // switch). 对话气泡 / 舞台模式 are two rows whose card layer is the card's own declaration (stage.enabled, or the
 // dialogue / stage pair for bubbles only; read through cardStageMode). Each resolves with the mods' own rule (modSwitchOn;
 // the host: card-stage-settings.js effectiveCardStage).
-const STAGE_SWITCH_DEFAULTS={dialogue:false,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true};
+const STAGE_SWITCH_DEFAULTS={dialogue:false,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true};
 const STAGE_DECLARED=['dialogue','stage'];
 // The card layer of 对话气泡 / 舞台模式 (the host: cardStageChoice); a card that declares nothing follows the global switch.
 function stageDeclared(stored,key) {
@@ -75,7 +75,13 @@ function stageDetailRows(rows,global,bound) {
   return rows.filter(row=>!row.error&&row.manifest&&(global.includes(row.manifest.id)||bound.includes(row.manifest.id)||builtin.includes(row.manifest.id)||packCount(row,'widgets')>0));
 }
 async function stageReadDetails(binding,rows) {
-  return (await Promise.all(rows.map(row=>row.summary?loadPackDetail(binding,row).catch(()=>null):row))).filter(pack=>pack?.manifest);
+  return (await Promise.all(rows.map(async row=>{
+    if(!row.summary)return row;
+    try{return await loadPackDetail(binding,row);}
+    catch(_){await new Promise(resolve=>setTimeout(resolve,300));}
+    try{return await loadPackDetail(binding,row);}
+    catch(error){console.warn('[dsh-tavern-stage] 读取素材包详情失败',row.manifest.id,error);return null;}
+  }))).filter(pack=>pack?.manifest);
 }
 function unbindPatch(ext,packId) { return {assetBindings:{...ext.assetBindings,boundPackIds:ext.assetBindings.boundPackIds.filter(id=>id!==packId)}}; }
 // Return intent shared with the 配音 panel (dsh-tts reads the same key, marks consumedBy and opens toTab).
@@ -121,12 +127,19 @@ function useStageWriter(binding,path,state,sessionId) {
   const apply=(base,fn)=>({...base,...fn(base)});
   async function refetchCard(){const fresh=await binding.rpc('getCardAssetBindings',{path});s.server={...s.server,...fresh};render();return fresh;}
   async function refetchRows(){const list=await loadPackRows(binding);s.rows=list.filter(p=>!p.error);render();return list;}
-  // Reads the full documents a row newly needs (a pack lit meanwhile, a changed revision): each row revision is asked once.
+  // Mark revisions before awaiting so re-renders share the same bounded read.
   async function ensureDetails(){
     if(!s)return;const rows=stageDetailRows(s.rows,binding.globalEnabledPackIds||[],(s.server.extension||emptyExtension()).assetBindings.boundPackIds)
       .filter(row=>row.summary?s.asked.get(row.manifest.id)!==row.revision:!s.packs.has(row.manifest.id));
     if(!rows.length)return;for(const row of rows)s.asked.set(row.manifest.id,row.revision);
-    const details=await stageReadDetails(binding,rows);for(const pack of details)s.packs.set(pack.manifest.id,pack);if(details.length)render();
+    const revisions=new Map(rows.map(row=>[row.manifest.id,row.revision]));
+    const details=await stageReadDetails(binding,rows);
+    if(store.current!==s)return;
+    for(const pack of details){
+      const id=pack.manifest.id,revision=revisions.get(id);
+      if(s.asked.get(id)===revision&&s.rows.some(row=>row.manifest.id===id&&row.revision===revision))s.packs.set(id,pack);
+    }
+    if(details.length)render();
   }
   async function refetchPacks(){const list=await refetchRows();await ensureDetails();return list;}
   // quiet: the caller says what failed where it happened (the 新人物 page's fields); the page head keeps no error for it.
@@ -201,16 +214,16 @@ function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,t
   const services=useLoad(binding,async()=>binding.tts?(await binding.tts.call('voiceServices')).services.filter(s=>s.kind!=='browser'):null,[binding.tts]);
   React.useEffect(()=>binding.tts?.subscribe?.(()=>services.reload()),[binding.tts]);
   const writer=useStageWriter(binding,path,state,sessionId);
-  // A pack lit after the load (or a changed revision) is read in full once; the page renders again when it arrives.
+  // A pack lit after the load (or a changed revision) is read in full; the page renders again when it arrives.
   React.useEffect(()=>{void writer.ensureDetails().catch(()=>{});});
-  const [confirm,setConfirm]=React.useState(null),[layer,setLayer]=React.useState(null),[packModal,setPackModal]=React.useState(null),[modPage,setModPage]=React.useState(null),[itemsPage,setItemsPage]=React.useState(false),[performancePage,setPerformancePage]=React.useState(false),[entrancePage,setEntrancePage]=React.useState(false),[voicePage,setVoicePage]=React.useState(false);
+  const [confirm,setConfirm]=React.useState(null),[layer,setLayer]=React.useState(null),[packModal,setPackModal]=React.useState(null),[modPage,setModPage]=React.useState(null),[itemsPage,setItemsPage]=React.useState(false),[performancePage,setPerformancePage]=React.useState(false),[voicePage,setVoicePage]=React.useState(false);
   // 设置向导 is a sub-page of this page (‹ / Esc back).
   const [wizard,setWizard]=React.useState(false),wizardReturn=React.useRef(null),[setupComplete,setSetupComplete]=React.useState(0),pageRef=React.useRef(null);
   // 人物's ＋ opens the 新人物 page as a sub-page (‹ / Esc back to the ＋).
   const [newFigure,setNewFigure]=React.useState(false),newFigureReturn=React.useRef(null);
   React.useEffect(()=>{if(!wizard && setupComplete){const section=pageRef.current?.querySelector(':scope > .ap-stage-basic');section?.scrollIntoView?.({block:'start'});section?.querySelector('.ap-section-toggle')?.focus?.({preventScroll:true});}},[wizard,setupComplete]);
   // the mod whose page was just left, so its row's 「›」 takes the focus back.
-  const modReturn=React.useRef(null),voiceReturn=React.useRef(false),itemsReturn=React.useRef(false),performanceReturn=React.useRef(false),entranceReturn=React.useRef(false);
+  const modReturn=React.useRef(null),voiceReturn=React.useRef(false),itemsReturn=React.useRef(false),performanceReturn=React.useRef(false);
   // the 演出规则 editor and its in-place engine writes are gone.
   const ext=writer.extension;
   useStageSetupAutoOpen({binding,path,ready,stageOn:!!state.value&&!!ext?.assetBindings&&stageActive(stagePrefs(ext,writer.engine)).stage,open:()=>setWizard(true)});
@@ -232,7 +245,6 @@ function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,t
     openMod:state.value.card.cardId&&binding.engineRpc?modId=>modId==='core.items'?setItemsPage(true):setModPage(modId):undefined,
     onPerformances:()=>setPerformancePage(true),takePerformanceFocus:()=>{const value=performanceReturn.current;performanceReturn.current=false;return value;},
     onVoice:()=>setVoicePage(true),takeVoiceFocus:()=>{const value=voiceReturn.current;voiceReturn.current=false;return value;},
-    onEntrances:()=>setEntrancePage(true),takeEntranceFocus:()=>{const value=entranceReturn.current;entranceReturn.current=false;return value;},
     onItems:()=>setItemsPage(true),takeItemsFocus:()=>{const value=itemsReturn.current;itemsReturn.current=false;return value;},
     takeModFocus:modId=>{if(modReturn.current!==modId)return false;modReturn.current=null;return true;}};
   // Dialogs render outside the page's size container so they position against the viewport.
@@ -245,8 +257,6 @@ function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,t
     h(StagePerformancePage,{ctx,onBack:()=>{performanceReturn.current=true;setPerformancePage(false);}})):
     voicePage?h('div',{className:'ap-card ap-stage-page'},
     h(StageVoicePage,{ctx,onBack:()=>{voiceReturn.current=true;setVoicePage(false);}})):
-    entrancePage?h('div',{className:'ap-card ap-stage-page'},
-    h(StageEntrancePage,{ctx,onBack:()=>{entranceReturn.current=true;setEntrancePage(false);}})):
     itemsPage?h('div',{className:'ap-card ap-stage-page'},
     h(StageItemsPage,{ctx,onBack:()=>{itemsReturn.current=true;setItemsPage(false);}})):
     modPage?h('div',{className:'ap-card ap-stage-page'},
@@ -391,7 +401,7 @@ function StageSwitchTag({name,global,card,disabled,busy,writeCard,writeGlobal}) 
   };
   return h(ModSwitchTag,{name,switches:{global,card:card??null,effective:modSwitchOn(global,card)},cardScoped:true,busy,disabled,onChange:change});
 }
-// A stageToggles switch (对话气泡 … 入场演出): global = engine stageToggles.<key>, card = the declaration (对话气泡 / 舞台模式)
+// A stageToggles switch (对话气泡 … 演出组合): global = engine stageToggles.<key>, card = the declaration (对话气泡 / 舞台模式)
 // or stage.switches.<key>.
 function stageSwitchTag(ctx,key,name,disabled) {
   const {global,card}=stageSwitchLayers(ctx.ext,ctx.engine);
@@ -415,8 +425,7 @@ function StageSwitches({ctx}) {
     h(StageAutoChoicesRow,{key:'auto-choices',ctx}),
     AUDIO_ROWS.map(sound),
     h(StageItemsRow,{key:'items',ctx}),
-    h(StagePerformanceRow,{key:'performance',ctx}),
-    h(StageEntranceRow,{key:'entrance',ctx}));
+    h(StagePerformanceRow,{key:'performance',ctx}));
 }
 // 旁白配音 — a row of 舞台设置 › 配音 (StageVoicePage). Two layers like a mod's settings
 // (ui-design.md R8 / §三.25): the global layer (the tts plugin's tts.reading.narrator, complete) and this card's (stage.narrator,
@@ -484,24 +493,6 @@ function StageVoicePage({ctx,onBack}) {
     h(SwitchRow,{label:'旁白配音',icon:'note',disabled:!bubble,help:bubble?VOICE_HELP.narr:VOICE_HELP.needBubble,tag:narratorTag}),
     narrator.effective.enabled&&h(NarratorVoiceField,{ctx,disabled:!bubble}));
 }
-// 「入场演出 ›」 - the four-state switch of the stage's opening
-// performance (engine stageToggles.entrance, default on, with this card's stage.switches.entrance), placed like 演出组合; a card differs only by its packs' 入场演出
-// entries (蓝灯 / 关闭). Its page lists this card's entries.
-function StageEntranceRow({ctx}) {
-  const jump=React.useRef(null),missing=stageMissing('stage',ctx.active);
-  React.useEffect(()=>{if(ctx.takeEntranceFocus?.())jump.current?.focus?.();},[]);
-  return h(SwitchRow,{label:'入场演出',icon:'entrances',disabled:missing.length>0,
-    help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
-    tag:stageSwitchTag(ctx,'entrance','入场演出',missing.length>0),onOpen:ctx.onEntrances?pressRowJump:undefined,
-    status:ctx.onEntrances?h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'入场演出素材',title:'入场演出素材',onClick:()=>ctx.onEntrances()},h(Glyph,{name:'chevRight'})):null});
-}
-function StageEntrancePage({ctx,onBack}) {
-  const root=React.useRef(null);
-  React.useEffect(()=>{root.current?.querySelector('button')?.focus();},[]);
-  return h('article',{ref:root,className:'ap-mod-detail',onKeyDown:subpageKeys(onBack)},
-    h(SubpageHead,{parent:'舞台设置',title:'入场演出',help:'进入舞台时代替「载入中」播放的开场演出；载入完成后单击可跳过。',onBack}),
-    h(ModEntries,{ctx,modId:'core.entrance',kind:'entrances'}));
-}
 function StagePerformanceRow({ctx}) {
   const jump=React.useRef(null),missing=stageMissing('stage',ctx.active);
   React.useEffect(()=>{if(ctx.takePerformanceFocus?.())jump.current?.focus?.();},[]);
@@ -554,11 +545,8 @@ function StageAutoChoicesSwitch({ctx}) {
 // the quiet 「›」 on a 基础设置 row — the 素材库 at that kind's tab (nav.openLibrary, the same
 // deep link the library consumes) for the packs this card uses (全局 first, then 本卡). One pack opens directly; several
 // list their names. Nothing when no pack the card uses has that kind or the library cannot be reached.
-// 入场演出 only ever come from the card's own packs (lib/domain/stage-entrance.js): a global pack's are not listed.
-const CARD_ONLY_KINDS=['entrances'];
 function stageKindPacks(ctx,kind) {
-  const cardOnly=CARD_ONLY_KINDS.includes(kind),global=cardOnly?[]:ctx.binding?.globalEnabledPackIds||[];
-  const bound=ctx.ext.assetBindings.boundPackIds.filter(id=>!cardOnly||id!==ctx.ext.modConfigPackId);
+  const global=ctx.binding?.globalEnabledPackIds||[],bound=ctx.ext.assetBindings.boundPackIds;
   // 人物 are the pack's figures, not assets (the 素材清单 group of 人物 jumps there too).
   const has=pack=>packCount(pack,kind)>0;
   const used=ctx.packs.filter(pack=>!pack.error&&pack.manifest&&(global.includes(pack.manifest.id)||bound.includes(pack.manifest.id))&&has(pack));
@@ -726,7 +714,7 @@ function stageFigureRows(ctx) {
   return ids.flatMap(packId=>{const pack=ctx.writer.pack(packId);return (pack?.manifest.figures||[]).map(figureId=>({ref:{packId,figureId},pack,figure:pack.figures[figureId],sprites:pack.sprites}));});
 }
 function stageFigure(ctx,key) {
-  return stageFigureRows(ctx).find(row=>typeof key==='object'?row.ref.packId===key.packId&&row.ref.figureId===key.figureId:row.ref.packId+'/'+row.ref.figureId===key)||{};
+  return stageFigureRows(ctx).find(row=>key&&typeof key==='object'?row.ref.packId===key.packId&&row.ref.figureId===key.figureId:row.ref.packId+'/'+row.ref.figureId===key)||{};
 }
 function StageAvatar({ctx,alias,className='ap-avatar'}) {
   const info=stageFigure(ctx,alias),figure=info.figure;

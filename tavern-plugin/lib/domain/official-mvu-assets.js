@@ -6,7 +6,7 @@ export const OFFICIAL_MVU_VERSION = Object.freeze({
   repository: 'https://github.com/MagicalAstrogy/MagVarUpdate',
   commit: '0a730cd4a9b99689d1135a49b542c780b977c24c',
   upstreamBundleSha256: '3b510787a95c7a51523dcbbb2beff5f13b3bd069abf973dec1fdb1f21eeea61f',
-  bundleSha256: '8333353800b525fb6e01bd433fa429b347676b18fdff9565e751f311673ca378',
+  bundleSha256: '56d2ff8d24553b8356be63e4669de49a8f3974ace4e3e9c661d11cfd36675472',
   assetUrl: '/api/dsh-tavern/vendor/magvarupdate/bundle.js'
 })
 

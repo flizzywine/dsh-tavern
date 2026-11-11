@@ -4,7 +4,7 @@
 import { lstatSync, realpathSync, readdirSync, readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync, rmdirSync } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { copyTreeSync } from './portable-fs.mjs'
+import { copyTreeSync, removeTreeSync } from './portable-fs.mjs'
 import installationLocation from './installation-location.cjs'
 import { assertDesktopStopped } from './import-user-home.mjs'
 import { acquirePendingLock, installPublishGate, processAlive, readLastResult } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
@@ -34,15 +34,15 @@ function moveWithRetry(from, to, rename) {
     }
   }
 }
-function holdProfileSwitches(state, launcherGate, trusted) {
+function holdProfileSwitches(state, launcherGate, trusted, prepareNext) {
   const gate = installPublishGate(state)
   if (launcherGate && same(trusted.map(launcherGate), gate)) {
     // The launcher keeps this lock until the installer exits, including rollback.
-    // Borrow its fence once it has explicitly allowed publication.
+    // A prepared NEXT update borrows the fence while it builds the new profile.
     const lock = path.dirname(path.dirname(gate))
     const jobFile = path.join(lock, 'request.json')
     const workerFile = path.join(lock, 'worker.json')
-    for (const file of [gate, jobFile, workerFile, path.join(state, 'last-result.json')]) {
+    for (const file of [...(prepareNext ? [] : [gate]), jobFile, workerFile, path.join(state, 'last-result.json')]) {
       ordinary(path.dirname(file))
       if (!lstatSync(file).isFile()) throw Error(`NEXT 更新记录不是普通文件：${file}`)
     }
@@ -50,17 +50,19 @@ function holdProfileSwitches(state, launcherGate, trusted) {
     const worker = JSON.parse(readFileSync(workerFile, 'utf8'))
     const result = readLastResult(state)
     if (request.mode !== 'install' || request.host !== 'next' || request.stamp !== result?.stamp
-        || result?.status !== 'pending' || result.mode !== 'install' || !processAlive(worker.pid) || readFileSync(gate, 'utf8') !== 'publish'
+        || result?.status !== 'pending' || result.mode !== 'install' || !processAlive(worker.pid)
+        || (!prepareNext && readFileSync(gate, 'utf8') !== 'publish')
         || present(path.join(state, 'pending'))) throw Error('NEXT 更新尚未获得发布许可，请刷新后重试。')
     return () => {}
   }
+  if (prepareNext) throw Error('缺少 NEXT 更新的发布许可文件。')
   const { lock } = acquirePendingLock(state)
   // A live PID prevents the switch helper from reclaiming a long-running install.
   try { writeFileSync(path.join(lock, 'worker.json'), JSON.stringify({ pid: process.pid, startedAt: Date.now() }), { flag: 'wx' }) }
   catch (error) { rmdirSync(lock); throw error }
   return () => { unlinkSync(path.join(lock, 'worker.json')); rmdirSync(lock) }
 }
-export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, checkStopped = () => assertDesktopStopped([home], { requireGuiClosed: true }), copy = copyTreeSync, rename = renameSync }) {
+export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, prepareNext = false, preparingForPid, checkStopped = () => assertDesktopStopped([home], { requireGuiClosed: true }), copy = copyTreeSync, rename = renameSync }) {
   // Trust only configured-home ancestors, never a redirect inside managed DSH.
   // Pin filesystem work to that physical identity for the whole transaction.
   const trusted = installationLocation.trustedHome(home)
@@ -69,9 +71,10 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, chec
   const profiles = path.join(home, 'profiles'), live = path.join(profiles, 'desktop')
   const state = path.join(home, 'profile-bridge'), journalFile = path.join(state, 'bridge-update.json')
   ordinary(profiles); ordinary(state)
+  let previous
   if (present(journalFile)) {
     if (lstatSync(journalFile).isSymbolicLink()) throw unsafe('切换组件事务记录不能是链接。')
-    const previous = JSON.parse(readFileSync(journalFile, 'utf8'))
+    previous = JSON.parse(readFileSync(journalFile, 'utf8'))
     if (previous.schemaVersion !== 1 || !['completed', 'rolled-back'].includes(previous.phase)) throw unsafe(`切换组件更新尚未恢复，请保留备份并检查：${journalFile}`)
   }
   installationLocation.resolveInstallationApp({ dshHome: trusted.logical })
@@ -87,7 +90,7 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, chec
   if (!relocated) ordinary(path.join(profiles, 'tavern'))
   const managementFile = path.join(state, 'installation-operation.json')
   const previousManagement = present(managementFile) ? readFileSync(managementFile, 'utf8') : null
-  const release = holdProfileSwitches(state, launcherGate, trusted)
+  const release = holdProfileSwitches(state, launcherGate, trusted, prepareNext)
   let journal, done = false, managementFenced = false
   const writeManagement = value => {
     const temporary = managementFile + '.' + randomUUID() + '.tmp'
@@ -139,6 +142,7 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, chec
   try {
     const linked = lstatSync(live).isSymbolicLink()
     let original = live
+    let originalActive = false
     if (linked) {
       if (!same(realpathSync(live), realpathSync(path.join(profiles, 'tavern')))) throw Error('desktop 当前链接到其他 profile，未更新切换组件。')
       // Match switchProfile(unlink) exactly: never update historical backups or
@@ -148,7 +152,7 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, chec
           try { return lstatSync(dir).isDirectory() && !lstatSync(dir).isSymbolicLink() && Array.isArray(read(dir)?.dsh?.profile?.bundles) } catch { return false }
         })
       if (!original) throw Error('找不到可恢复的原版 desktop 配置，未更新切换组件。')
-    } else checkStopped()
+    } else originalActive = checkStopped(preparingForPid)?.originalDesktopActive === true
     ordinary(original)
     const manifest = read(original)
     const bundle = launcherBundle(manifest, original)
@@ -156,6 +160,13 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, chec
     const source = path.join(sourceRoot, 'tavern-plugin/packages/dsh-tavern')
     plainTree(source)
     if (read(source).name !== LAUNCHER_BUNDLE) throw Error('切换组件源不完整。')
+    if (prepareNext && previous?.nextProfile && previous.phase === 'completed') {
+      const name = path.basename(previous.backup || '')
+      if (!/^bridge-update-[0-9a-f-]{36}$/i.test(name) || path.join(state, name) !== previous.backup) throw Error('上次 NEXT 更新备份路径异常。')
+      const previousProfile = path.join(previous.backup, 'previous-profile')
+      ordinary(previousProfile)
+      removeTreeSync(path.join(previousProfile, 'node_modules'))
+    }
     const backup = path.join(state, 'bridge-update-' + randomUUID())
     mkdirSync(backup)
     const targets = ['vendor', 'node_modules'].map(name => {
@@ -163,9 +174,24 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, chec
       ordinary(parent)
       return path.join(parent, bundle)
     })
-    journal = { schemaVersion: 1, phase: 'preparing', original, backup, actions: [], createdParents: [], previousManagement }; save()
+    const assertIndependentBridge = () => {
+      for (const target of targets) ordinary(path.dirname(target))
+      if (!prepareNext || !targets.some(present) || targets.some(target => present(target) && lstatSync(target).isSymbolicLink())) {
+        throw Error('原版 DSH 正在使用共享的切换组件，请先退出原版 DSH。')
+      }
+    }
+    if (originalActive) assertIndependentBridge()
+    journal = { schemaVersion: 1, phase: 'preparing', original, backup, actions: [], createdParents: [], previousManagement,
+      ...(prepareNext ? { nextProfile: true } : {}) }; save()
+    const bridgeProfile = prepareNext ? path.join(backup, 'prepared-desktop') : null
+    const preparedTargets = [path.join(backup, 'prepared-0'), bridgeProfile
+      ? path.join(bridgeProfile, 'node_modules', bundle) : path.join(backup, 'prepared-1')]
+    if (bridgeProfile) {
+      mkdirSync(path.dirname(preparedTargets[1]), { recursive: true })
+      writeFileSync(path.join(bridgeProfile, 'package.json'), JSON.stringify({ name: manifest.name, dsh: { profile: { bundles: [bundle] } } }))
+    }
     for (let i = 0; i < targets.length; i++) {
-      const prepared = path.join(backup, 'prepared-' + i)
+      const prepared = preparedTargets[i]
       copy(source, prepared)
       // Keep the original manifest and pnpm lockfile valid on older installs.
       // Refresh their launcher under the name the profile already resolves.
@@ -186,24 +212,55 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, chec
       journal.actions.push({ from, to }); save()
       moveWithRetry(from, to, rename)
     }
+    const ensureParent = parent => {
+      if (present(parent)) return
+      ensureParent(path.dirname(parent))
+      journal.createdParents.push(parent); save(); mkdirSync(parent)
+    }
     let finished = false
     return {
-      refreshOnly: true, bridgeUpdateId: path.basename(backup), backup, desktopStage: original,
-      finish() {
+      refreshOnly: true, bridgeUpdateId: path.basename(backup), backup, desktopStage: bridgeProfile || original,
+      finish(nextProfile, publishApp) {
         if (done || finished) return
         try {
-          if (!linked) checkStopped()
+          if (prepareNext) {
+            holdProfileSwitches(state, launcherGate, trusted, false)
+            ordinary(original)
+          }
+          const originalBridgeDeferred = !linked && checkStopped()?.originalDesktopActive === true
+          if (originalBridgeDeferred) assertIndependentBridge()
           // The already-running Host may still have the previous helper loaded.
           // Fence crashes through its existing management-journal check too.
           writeManagement(JSON.stringify({ schemaVersion: 1, phase: 'preparing', mode: 'bridge-update', bridgeUpdateId: path.basename(backup) }))
           managementFenced = true
-          for (let i = 0; i < targets.length; i++) {
-            const parent = path.dirname(targets[i])
-            if (!present(parent)) { journal.createdParents.push(parent); save(); mkdirSync(parent) }
-            if (present(targets[i])) move(targets[i], path.join(backup, 'previous-' + i))
-            move(path.join(backup, 'prepared-' + i), targets[i])
+          publishApp?.()
+          if (!originalBridgeDeferred) {
+            for (let i = 0; i < targets.length; i++) {
+              ensureParent(path.dirname(targets[i]))
+              if (present(targets[i])) move(targets[i], path.join(backup, 'previous-' + i))
+              move(preparedTargets[i], targets[i])
+            }
           }
+          if (nextProfile) {
+            const profile = path.join(profiles, 'tavern')
+            const previous = path.join(backup, 'previous-profile')
+            mkdirSync(previous)
+            for (const relative of nextProfile.files) {
+              const from = path.join(nextProfile.directory, relative)
+              const to = path.join(profile, relative)
+              const old = path.join(previous, relative)
+              ordinary(path.dirname(to))
+              ensureParent(path.dirname(to))
+              if (present(to)) {
+                mkdirSync(path.dirname(old), { recursive: true })
+                move(to, old)
+              }
+              move(from, to)
+            }
+          }
+          if (originalBridgeDeferred) journal.originalBridgeDeferred = true
           finished = true
+          return { originalBridgeDeferred }
         } catch (error) { rollback(); throw error }
       },
       commit() {

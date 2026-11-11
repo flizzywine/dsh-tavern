@@ -177,13 +177,13 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
   children[slot]=await setLeaf(dir,read,children[slot],height-1,page,messages,write)
   return write({kind:'index',children})
  }
- async function build(dir,messages){
+ async function build(dir,messages,write=value=>writeBlock(dir,value)){
   let refs=[]
-  for(let i=0;i<messages.length;i+=PAGE_SIZE)refs.push(await writeBlock(dir,{kind:'page',messages:messages.slice(i,i+PAGE_SIZE)}))
+  for(let i=0;i<messages.length;i+=PAGE_SIZE)refs.push(await write({kind:'page',messages:messages.slice(i,i+PAGE_SIZE)}))
   let height=0
   while(refs.length>1){
    const next=[]
-   for(let i=0;i<refs.length;i+=FANOUT)next.push(await writeBlock(dir,{kind:'index',children:refs.slice(i,i+FANOUT)}))
+   for(let i=0;i<refs.length;i+=FANOUT)next.push(await write({kind:'index',children:refs.slice(i,i+FANOUT)}))
    refs=next;height++
   }
   return {root:refs[0]??null,height}
@@ -217,10 +217,17 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
   let result
   await promotion.update(path.join(dir,'head.json'),async current=>{
    if(current!==undefined)throw conflict()
-   const messages=value.messages??[],tree=await build(dir,messages)
+   // Build the initial page/state/metadata/head graph in memory. One packed flush
+   // replaces four or more file fsyncs plus their per-block directory barriers.
+   const pending=new Map()
+   const write=async block=>{const ref=hash(JSON.stringify(block));pending.set(ref,block);return ref}
+   const messages=value.messages??[],tree=await build(dir,messages,write)
    const head={kind:'head',format:FORMAT,id,revision:1,count:messages.length,...tree,
-    stateId:await writeBlock(dir,{kind:'state',value:value.state}),metadataId:await writeBlock(dir,{kind:'metadata',value:value.metadata??{}})}
-   const headId=await writeBlock(dir,head)
+    stateId:await write({kind:'state',value:value.state}),metadataId:await write({kind:'metadata',value:value.metadata??{}})}
+   const headId=await write(head)
+   // Verification reads the flushed immutable graph before the mutable pointer
+   // names it, exactly as commit() does for every subsequent revision.
+   await writePacked(dir,[...pending.values()])
    result={revision:1,snapshotId:headId}
    await verifyBeforePublish?.(headId)
    assertCurrent?.()

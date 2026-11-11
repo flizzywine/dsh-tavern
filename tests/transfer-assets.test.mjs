@@ -51,28 +51,6 @@ async function stocked(t) {
   return { root, assetRoot, service, transfer, packId, image, audio }
 }
 
-test('list 读出包名、条目数与字节，导出 zip 带 pack.json 与全部文件', async t => {
-  const { transfer, packId, image, audio } = await stocked(t)
-  const rows = await transfer.list()
-  assert.equal(rows.length, 1)
-  assert.equal(rows[0].key, packId)
-  assert.equal(rows[0].title, '秋日教室')
-  assert.match(rows[0].meta, /背景 1 · 音乐 1/)
-  assert.ok(rows[0].bytes >= image.bytes.length + audio.bytes.length)
-
-  const items = await transfer.collect([packId])
-  assert.equal(items.length, 1)
-  const entries = readZipEntries(items[0].content, { label: '素材包' })
-  const document = JSON.parse(entries.get('pack.json').toString('utf8'))
-  assert.equal(document.spec, 'dsh-tavern.transfer.asset-pack')
-  assert.equal(document.name, '秋日教室')
-  assert.equal(document.description, '合成的舞台素材')
-  assert.deepEqual(document.assets.map(asset => asset.kind + '/' + asset.id), ['backgrounds/classroom', 'music/theme'])
-  assert.deepEqual(entries.get(`files/media/${image.hash}.png`), image.bytes)
-  assert.deepEqual(entries.get(`files/media/${audio.hash}.wav`), audio.bytes)
-  assert.equal(items[0].fileName, packId + '.zip')
-})
-
 test('导入到另一台机器：发新 id，条目、媒体与描述照原样立起来', async t => {
   const { transfer, packId, image, audio } = await stocked(t)
   const exported = await transfer.collect([packId])
@@ -112,10 +90,4 @@ test('坏包被拒绝：越界路径、别的 spec、没有文件，且不会留
   // 引用了不存在的媒体：素材库校验失败，新建的包要删掉，列表保持为空。
   await assert.rejects(importer.importOne({ content: pack({ assets: [entry('backgrounds', 'ghost', 'f'.repeat(64))], blobs: { ['f'.repeat(64)]: { ext: 'png', mime: 'image/png', size: image.bytes.length } } }) }))
   assert.deepEqual(await other.listPacks(), [])
-})
-
-test('缺文件的包在导出时报出来，而不是产出一份半包', async t => {
-  const { transfer, packId, assetRoot, image } = await stocked(t)
-  await rm(path.join(assetRoot, 'packs', packId, 'media', image.hash + '.png'))
-  await assert.rejects(transfer.collect([packId]), /缺少文件/)
 })

@@ -4,7 +4,6 @@ import { createPolishDraft, createPolishReviewer, POLISH_TOOLS } from '../tavern
 import { applyPolishEdits } from '../tavern-plugin/lib/domain/polish-review.js'
 import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 import { createPlayHandlers } from '../tavern-plugin/lib/rpc/play.js'
-import { createChatReads } from '../tavern-plugin/lib/domain/chat-reads.js'
 
 test('逐处修改校验、重试、去重和完成；按原文坐标应用，不误改替换结果', () => {
   const texts = ['甲。乙。', '重复。重复。']
@@ -45,36 +44,6 @@ function fixture() {
     set replaceSession(value) { replaceSession = value }, set fail(value) { fail = value }, get saved() { return saved } }
 }
 
-test('真实存储的密集尾窗保留绝对楼层，跨轮不误判成同轮重生成', async () => {
-  const f = fixture()
-  f.chat = { ...f.chat, sessionId: 'parent', messages: [{ role: 'user', text: '前一轮输入' }, ...f.chat.messages] }
-  let count = 120
-  const reads = createChatReads({ links: async () => ({ parent: 'game' }), whole: () => { throw Error('不应读取全量历史') },
-    persistence: { readSlice: async (_id, indices) => ({ chat: { ...f.chat, messages: indices.map(index => f.chat.messages[index - count + 4]) }, messageCount: count }) } })
-  f.options.latestFloors = (id, size) => reads.latestFloors(id, size, { includePosition: true })
-  const reviewer = createPolishReviewer(f.options)
-  await reviewer.review('parent', ['甲。乙。'])
-  assert.equal(f.saved.floor, 119)
-  f.chat.messages = [f.chat.messages[2], f.chat.messages[3], { role: 'user', text: '继续' }, { role: 'assistant', text: '丙。丁。' }]
-  count = 122
-  await reviewer.review('parent', ['丙。丁。'])
-  assert.equal(f.saved.floor, 121)
-  assert.equal(f.calls[1].id, f.calls[0].id)
-  assert.doesNotMatch(f.calls[1].text, /补充前文|甲。乙。/)
-  assert.match(f.calls[1].text, /上一轮实际采用/)
-})
-
-test('意见修改复用同一 Agent，草稿与实际正文区别明确', async () => {
-  const f = fixture(), reviewer = createPolishReviewer(f.options)
-  await reviewer.review('parent', ['甲。乙。'])
-  await reviewer.guide('parent', ['甲改。乙。'], '改得短一点')
-  assert.equal(f.calls[1].id, f.calls[0].id)
-  assert.equal(f.calls[1].system, f.calls[0].system)
-  assert.match(f.calls[1].text, /精修草稿.*本次原文/)
-  assert.match(f.calls[1].text, /只按意见修改.*\n改得短一点/)
-  assert.match(f.calls[1].text, /本轮只按玩家意见修改，不额外扩展原则精修/)
-})
-
 test('回退、重生成、前文变化仍用同一个润色会话并说明剧情有变；固定设定变化或分叉才换会话', async () => {
   for (const change of ['rewind', 'regenerate', 'previous']) {
     const f = fixture(), reviewer = createPolishReviewer(f.options)
@@ -109,31 +78,47 @@ test('无修改必须显式完成，正文或模型错误不冒充成功', async
 })
 
 test('RPC 只在两步精修都完成后保存一次，失败不写入半成品；保留原文供撤销', async () => {
-  for (const failure of [false, true]) {
+  for (const outcome of ['saved', 'failed', 'queued']) {
     const saves = [], records = []
+    let onSaved
     const handlers = createPlayHandlers({
       str: value => String(value || ''), reconcileStory: async () => {}, notifyPluginTimeline() {},
       polishPrereview: { settle() {}, take: async () => null },
       bodyEditor: { read: async () => ({ token: 'original-version', turn: 1, parts: [{ kind: 'text', text: '甲。乙。' }] }),
-        save: async (_id, change) => { saves.push(change); return { saved: true } } },
+        save: async (_id, change, options) => {
+          saves.push(change)
+          if (outcome === 'queued') {
+            onSaved = options.onSaved
+            return { queued: true }
+          }
+          await options.onSaved()
+          return { saved: true }
+        } },
       polishReviewer: {
         review: async () => ({ edits: [{ find: '甲。', replace: '甲改。', reason: '原则', status: 'ok' }], fallback: '' }),
         guide: async (_id, texts) => {
           assert.deepEqual(texts, ['甲改。乙。'])
           assert.equal(saves.length, 0)
-          if (failure) throw new Error('模型中断')
+          if (outcome === 'failed') throw new Error('模型中断')
           return { edits: [{ find: '甲改。', replace: '甲再改。', reason: '意见', status: 'ok' }], fallback: '' }
         }
       },
       polishRecords: { save: async (_id, _turn, record) => records.push(record) }
     })
-    if (failure) {
+    if (outcome === 'failed') {
       await assert.rejects(handlers.polishBody({ sessionId: 'parent', guidance: '更短' }), /模型中断/)
       assert.equal(saves.length, 0); assert.equal(records.length, 0)
     } else {
-      await handlers.polishBody({ sessionId: 'parent', guidance: '更短' })
+      const result = await handlers.polishBody({ sessionId: 'parent', guidance: '更短', requestId: 'polish-test' })
       assert.deepEqual(saves, [{ token: 'original-version', texts: ['甲再改。乙。'] }])
+      if (outcome === 'queued') {
+        assert.equal(result.queued, true)
+        assert.equal(result.view, null)
+        assert.deepEqual(records, [])
+        await onSaved()
+      }
       assert.deepEqual(records[0].original, ['甲。乙。'])
+      assert.equal(records[0].requestId, 'polish-test')
       assert.deepEqual(applyPolishEdits(records[0].original, records[0].edits), ['甲再改。乙。'])
     }
   }

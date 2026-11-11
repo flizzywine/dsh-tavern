@@ -235,6 +235,7 @@
 			let desired = createDocument();
 			let visible = desired;
 			let pending = null;
+				let previewRelayFrame = null, releasePreviewRelay = null;
 			let height = (props.openingPreview ? 160 : restoredTavernFrameHeight(visible.heightKey, visible.content));
 			function documentKey() {
 				const values = [props.sessionId, props.content, props.persistent === true ? 0 : props.turn, props.observeMvuView, props.runtimeReporting, props.persistent, props.trustedCardMode, Boolean(props.helperContext), JSON.stringify(props.openingPreview), JSON.stringify(props.frameSizing), refreshRevision, props.helperContext?.frameStorageScope?.cardPath];
@@ -253,7 +254,7 @@
 					heightKey: tavernFrameHeightKey(props), content: props.content,
                     sizing: tavernFrameSizing(props.content, props.frameSizing, props.persistent ? props.panelId : undefined),
 					sessionId: props.sessionId,
-					trustedCardMode: props.trustedCardMode, refreshRequested: false
+						trustedCardMode: props.trustedCardMode, openingPreview: Boolean(props.openingPreview), refreshRequested: false
 				};
 				document.storage = forkFrameStorage.capability({ sessionId: props.sessionId, cardPath: helperContext && helperContext.frameStorageScope && helperContext.frameStorageScope.cardPath }, hostWindow); // storage token is separate from helper tokens
 				document.zoomCard = helperContext?.frameStorageScope?.cardPath || "";
@@ -319,6 +320,7 @@
                         if (document.sizing.mode !== "content") applySizing(document, channel, layout.height);
                     }));
                     if (!node) { retireGenerations(document); channels.delete(document.token); }
+						syncPreviewRelay();
 				};
 				return document;
 			}
@@ -333,7 +335,16 @@
                 if (document === visible && (changed || height !== value || (config && Math.abs(node?.clientHeight - value) > 1))) { rememberHeight(document, value); publish(); }
             }
 			function snapshot() { return { visibleDocument: visible, pendingDocument: pending, height: height }; }
-			function publish() { if (listener) listener(snapshot()); }
+			function syncPreviewRelay() {
+				const frame = listener && visible.openingPreview && visible.trustedCardMode
+					? channels.get(visible.token)?.element() : null;
+				if (frame === previewRelayFrame) return;
+				const release = releasePreviewRelay;
+				previewRelayFrame = frame;
+				releasePreviewRelay = frame ? installTavernPreviewHostEventRelay(hostWindow.document, frame) : null;
+				if (release) release();
+			}
+			function publish() { syncPreviewRelay(); if (listener) listener(snapshot()); }
 			function cancelRuntimeReport() {
 				if (runtimeTimer !== null) hostWindow.clearTimeout(runtimeTimer);
 				runtimeTimer = null;
@@ -601,23 +612,18 @@
 						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error.message || error) }, "*");
 					}).finally(settleOpeningCall);
 				} else if (data.type === "dsh-tavern-helper-call" && props.sessionId) {
-					const allowedMethods = new Set(["generateTavernHelper", "generateTavernHelperRaw", "stopTavernHelperGeneration", "stopAllTavernHelperGeneration", "prepareSessionOpening", "createTavernHelperMessages", "updateTavernHelperPrompts", "updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook", "patchTavernHelperWorldbook"]);
-					if (data.method === "startSessionOpening") {
-						const request = sourceDocument.openingRequest;
-						const start = async function () {
-							if (!current() || !request || request.preparationId !== (data.args && data.args.preparationId)) throw new Error("请先保存开场选择");
-							if (!sourceDocument.openingStart) sourceDocument.openingStart = new Promise(function (resolve, reject) {
-								const detail = { request: request, sourceSessionId: props.sessionId, resolve: resolve, reject: reject, handled: false };
-								hostWindow.dispatchEvent(new CustomEvent("dsh-tavern-start-session-opening", { detail: detail }));
-								if (!detail.handled) reject(new Error("开局入口尚未就绪，请刷新页面"));
-							}).catch(function (error) { sourceDocument.openingStart = null; throw error; });
-							return sourceDocument.openingStart;
-						};
-						start().then(function (result) {
-							if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result: result }, "*");
+					const allowedMethods = new Set(["generateTavernHelper", "generateTavernHelperRaw", "stopTavernHelperGeneration", "stopAllTavernHelperGeneration", "createTavernHelperMessages", "updateTavernHelperPrompts", "updateTavernHelperVariables", "updateTavernHelperMessages", "getTavernHelperWorldbook", "replaceTavernHelperWorldbook", "patchTavernHelperWorldbook"]);
+					if (data.method === "switchSessionOpening") {
+						if (!current()) return;
+						invoke(data.method, data.args, requestProps.sessionId).then(function (result) {
+							tavernErrorHub.resolve("切换开场白");
+							if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result }, "*");
 						}, function (error) {
-							tavernErrorHub.report("开始旅程", error);
+							tavernErrorHub.report("切换开场白", error);
 							if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error.message || error) }, "*");
+						}).finally(function () {
+							invalidate(requestProps.sessionId);
+							tavernStoryInputChanged(hostWindow, requestProps.sessionId);
 						});
 						return;
 					}
@@ -647,12 +653,10 @@
                     }
 					const args = Object.assign({}, data.args || {}, { sessionId: props.sessionId, expectedLifecycleRevision: Math.max(0, Number(helperContext && helperContext.lifecycleRevision) || 0) });
 					frameCall(sourceDocument, data.method, args, requestProps.sessionId).then(function (result) {
-						if (current() && data.method === "prepareSessionOpening") sourceDocument.openingRequest = result;
 						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result: result }, "*");
 						// idle sessions do not poll; a swipe/message write must refresh its displayed projection.
 						if (current() && !(result && result.stale) && ["updateTavernHelperMessages", "createTavernHelperMessages"].includes(data.method)) invalidate(requestProps.sessionId);
 					}, function (error) {
-						if (data.method === "prepareSessionOpening") tavernErrorHub.report("开始旅程", error);
 						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error && error.message || error) }, "*");
 					});
 				}
@@ -697,6 +701,7 @@
 				update: update, snapshot: snapshot,
 				start: function (onChange) {
 					listener = onChange;
+						syncPreviewRelay();
 					tavernSessionFrameBeforeGenerate.add(beforeGenerateEntry);
 					// Preview companions can import modules that append UI to the real host.
 					// Give them the same lifetime cleanup as the conversation script runtime.
@@ -744,7 +749,8 @@
                         frameVisibility.forEach(stop => stop());
                         frameVisibility.clear();
                         for (const owner of Array.from(generationOwners)) retireGenerations(owner);
-						listener = null; lifetime++;
+							listener = null; lifetime++;
+							syncPreviewRelay();
 						hostWindow.removeEventListener("message", receive);
 						cancelRuntimeReport();
 					};

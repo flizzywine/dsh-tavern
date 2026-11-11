@@ -59,10 +59,6 @@ return widgetVariables.status(args)
       const { widgetVariables } = deps
 return {invalidated:widgetVariables.invalidate(args)}
     },
-    async readStageModMedia(args, method, serverTemplate, authority) {
-      const { modService } = deps
-return modService.readPerformanceMedia({context:{gameId:args.sessionId,turn:args.turn,source:args.source},performanceId:args.performanceId,ref:args.ref,slot:args.slot},authority)
-    },
     async getStageModHistory(args, method, serverTemplate, authority) {
       const { modService, readRoundView, stageDirector, stageModHistoryTurns } = deps
 

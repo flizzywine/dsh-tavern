@@ -16,8 +16,8 @@ APK_SHA256 = '1fedf883d431af658d89c28b86d85974cc1d11b74e0c5d46ef3d3cf8650b1961'
 # 与上游 v2.1 APK 并存：签名不同，无法覆盖安装，也不该让用户卸载旧包丢数据。
 APPLICATION_ID = 'io.github.flizzywine.dshtavern.standalone'
 # 同一酒馆版本的重新打包（例如只更新 APK 内置快照）也递增，避免和已发布的包同号。
-VERSION_CODE = 30200
-VERSION_NAME = '3.2.0'
+VERSION_CODE = 30300
+VERSION_NAME = '3.3.0'
 # 桌面名称；测试版用独立名称，避免与正式版混淆。
 APP_NAME = 'DSH Tavern'
 # 内置快照跟随的源码分支：写进安装器的 tarball 地址，决定后续更新取哪个分支。
@@ -31,6 +31,102 @@ def replace(file, before, after):
         raise ValueError(f'上游补丁锚点不唯一：{file}: {before[:80]}')
     file.write_text(text.replace(before, after))
 
+
+def patch_web_fullscreen_ui(web_ui):
+    """输入法弹出/收起是动画：只在动画结束跳一次内边距，WebView 里的酒馆就会「键盘先到、页面后到」。
+
+    改为按 WindowInsetsAnimation 的进度逐帧改，网页跟着窗口同帧重排。
+    """
+    replace(web_ui, 'import androidx.core.view.WindowInsetsControllerCompat;',
+            '''import androidx.core.view.WindowInsetsAnimationCompat;
+import androidx.core.view.WindowInsetsControllerCompat;''')
+    replace(web_ui, '''    ViewCompat.setOnApplyWindowInsetsListener(
+        content,
+        (view, insets) -> {
+          if (PictureInPictureActivity.showing(activity)) {
+            view.setPadding(0, 0, 0, 0);
+            return WindowInsetsCompat.CONSUMED;
+          }
+          Insets bars =
+              insets.getInsets(
+                  WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+          // 顶部保留稳定安全区，避免 ROM 在键盘/焦点切换时短暂报告状态栏不可见而把正文顶上去。
+          Insets stableTop =
+              insets.getInsetsIgnoringVisibility(
+                  WindowInsetsCompat.Type.statusBars()
+                      | WindowInsetsCompat.Type.displayCutout()
+                      | WindowInsetsCompat.Type.captionBar());
+          Insets safe = Insets.max(bars, stableTop);
+          int keyboard = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
+          view.setPadding(safe.left, safe.top, safe.right, Math.max(safe.bottom, keyboard));
+          return WindowInsetsCompat.CONSUMED;
+        });
+    applySystemBars(activity);''',
+            '''    final int[] keyboard = {0};
+    final boolean[] animating = {false};
+    ViewCompat.setOnApplyWindowInsetsListener(
+        content,
+        (view, insets) -> {
+          if (PictureInPictureActivity.showing(activity)) {
+            view.setPadding(0, 0, 0, 0);
+            return WindowInsetsCompat.CONSUMED;
+          }
+          Insets safe = safeInsets(insets);
+          // 动画开始时 insets 直接是终点值；逐帧值由 onProgress 给，这里不能先按终点铺一次。
+          if (!animating[0]) keyboard[0] = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
+          view.setPadding(safe.left, safe.top, safe.right, Math.max(safe.bottom, keyboard[0]));
+          return WindowInsetsCompat.CONSUMED;
+        });
+    if (android.os.Build.VERSION.SDK_INT >= 30) {
+      ViewCompat.setWindowInsetsAnimationCallback(
+          content,
+          new WindowInsetsAnimationCompat.Callback(
+              WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+            @Override
+            public void onPrepare(WindowInsetsAnimationCompat animation) {
+              if ((animation.getTypeMask() & WindowInsetsCompat.Type.ime()) != 0)
+                animating[0] = true;
+            }
+
+            @Override
+            public WindowInsetsCompat onProgress(
+                WindowInsetsCompat insets,
+                java.util.List<WindowInsetsAnimationCompat> running) {
+              boolean ime = false;
+              for (WindowInsetsAnimationCompat animation : running) {
+                if ((animation.getTypeMask() & WindowInsetsCompat.Type.ime()) != 0) ime = true;
+              }
+              if (!ime) return insets;
+              Insets safe = safeInsets(insets);
+              keyboard[0] = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
+              content.setPadding(safe.left, safe.top, safe.right, Math.max(safe.bottom, keyboard[0]));
+              return insets;
+            }
+
+            @Override
+            public void onEnd(WindowInsetsAnimationCompat animation) {
+              if ((animation.getTypeMask() & WindowInsetsCompat.Type.ime()) == 0) return;
+              animating[0] = false;
+              ViewCompat.requestApplyInsets(content);
+            }
+          });
+    }
+    applySystemBars(activity);''')
+    replace(web_ui, '  public static void applySystemBars(Activity activity) {',
+            '''  private static Insets safeInsets(WindowInsetsCompat insets) {
+    Insets bars =
+        insets.getInsets(
+            WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+    // 顶部保留稳定安全区，避免 ROM 在键盘/焦点切换时短暂报告状态栏不可见而把正文顶上去。
+    Insets stableTop =
+        insets.getInsetsIgnoringVisibility(
+            WindowInsetsCompat.Type.statusBars()
+                | WindowInsetsCompat.Type.displayCutout()
+                | WindowInsetsCompat.Type.captionBar());
+    return Insets.max(bars, stableTop);
+  }
+
+  public static void applySystemBars(Activity activity) {''')
 
 def prepare(source, apk, destination, offline=None, application_id=APPLICATION_ID,
             app_name=APP_NAME, version_code=VERSION_CODE, version_name=VERSION_NAME,
@@ -270,6 +366,7 @@ tasks.configureEach {
             '      WebView view = new WebView(new android.content.MutableContextWrapper(this));',
             '''      if (com.deepseekharness.app.BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true);
       WebView view = new WebView(new android.content.MutableContextWrapper(this));''')
+    patch_web_fullscreen_ui(java / 'ui/WebFullscreenUi.java')
     # 独立包不可接受上游 DSHA 的 APK 更新；Tavern 内的源码更新保持原样。
     replace(java / 'core/UpdateEngine.java', '  private void check(boolean startup) {',
             f'''  private void check(boolean startup) {{

@@ -10,7 +10,8 @@ const {performanceReferences} = contract
 const EVENT_KINDS = {skin:'skins', sfx:'sfx', bgm:'music', look:'looks', ambience:'ambience', widget:'widgets'}
 
 // source: a loaded pack (all files); manifest/files: the target being edited; retired: the target's retired identities.
-export function copyPackItems(source, itemRefs, manifest, files, retired) {
+// figureExtensions: figure id → extensions the copy carries in addition (its 配图 外貌, dsh.image-character).
+export function copyPackItems(source, itemRefs, manifest, files, retired, figureExtensions = {}) {
   check(Array.isArray(itemRefs) && itemRefs.length > 0, '$.itemRefs', 'Choose items to copy')
   const sourceId = source.manifest.id
   const asset = (kind, id) => source.manifest.assets.find(a => a.kind === kind && a.id === id)
@@ -73,7 +74,7 @@ export function copyPackItems(source, itemRefs, manifest, files, retired) {
   const local = (document, alias) => alias === 'self' || document.packs[alias] === sourceId
   // materialize the complete figure mapping before rewriting any CG.
   const voices = new Map()
-  const figureIds = new Map(queue.filter(item => item.kind === 'figures').map(({id}) => [id, copyFigureAssets(source, id, manifest, files, {credits:false,voices}).figureId]))
+  const figureIds = new Map(queue.filter(item => item.kind === 'figures').map(({id}) => [id, copyFigureAssets(source, id, manifest, files, {credits:false,voices,extensions:figureExtensions[id]}).figureId]))
   const rewriteRef = ref => {
     if (ref?.packId === sourceId && ids.has(ref.kind + '/' + ref.assetId)) {
       ref.packId = manifest.id; ref.assetId = ids.get(ref.kind + '/' + ref.assetId)

@@ -110,6 +110,25 @@ async function harness(t, overrides = {}) {
   return { root, api, media, published, errors, setLatest(value) { latest = value } }
 }
 
+test('共享预设 API 支持指定预设和跟随本局', { skip: !cordis }, async t => {
+  const id = 'presets/test.json'
+  let current = id
+  const h = await harness(t, { generationPresets: {
+    list: async () => [{ id, name: 'Test' }],
+    read: async id => ({ id, name: 'Test', revision: '1', text: '{}' }),
+    currentId: async sessionId => { assert.equal(sessionId, 'game-1'); return current }
+  } })
+  let tavern
+  await h.root.plugin({ name: 'preset-consumer', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
+  assert.equal(tavern.capabilities.generationPresets, 1)
+  assert.deepEqual(await tavern.listGenerationPresets(), [{ id, name: 'Test' }])
+  const selected = await tavern.readGenerationPreset({ id })
+  assert.equal(selected.id, id)
+  assert.deepEqual(await tavern.readGenerationPreset({ gameId: 'game-1' }), selected)
+  current = ''
+  await assert.rejects(tavern.readGenerationPreset({ gameId: 'game-1' }), /本局未绑定宿主预设/)
+})
+
 test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis 卸载撤销', { skip: !cordis }, async t => {
   let cardPath = '/cards/a.json'
   const h = await harness(t, {

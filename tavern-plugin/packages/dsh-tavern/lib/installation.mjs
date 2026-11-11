@@ -14,7 +14,13 @@ const save = (file, value) => {
   const temp = file + '.' + randomUUID() + '.tmp'
   const fd = fs.openSync(temp, 'wx', 0o600)
   try { fs.writeFileSync(fd, JSON.stringify(value, null, 2)); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
-  fs.renameSync(temp, file)
+  // A Windows reader or scanner can briefly lock the previous record.
+  for (let retry = 0; ; retry++) {
+    try { fs.renameSync(temp, file); break } catch (error) {
+      if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || retry >= 5) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10 * (retry + 1))
+    }
+  }
   // Directory fsync is not supported by every Windows/filesystem combination.
   let directory
   try { directory = fs.openSync(path.dirname(file), 'r'); fs.fsyncSync(directory) } catch { /* best-effort directory durability */ } finally { if (directory !== undefined) { try { fs.closeSync(directory) } catch { /* best-effort directory handle cleanup */ } } }
@@ -115,9 +121,14 @@ function destinationCheck(destination, installation, identity) {
 export function validateInstallationRequest(paths, mode, payload) {
   if (!['relocate', 'uninstall'].includes(mode) || payload?.confirmed !== true) fail('请先确认安装管理操作。')
   const installation = discover(paths)
-  if (paths.activeDir && !same(trustedHome(paths.home).map(paths.activeDir), path.join(installation.home, 'profiles/desktop'))) fail('只能在桌面的 desktop 配置管理酒馆安装。')
-  const destination = mode === 'relocate' ? destinationCheck(payload.destination, installation, trustedHome(paths.home)) : undefined
-  return { mode, home: paths.home, stateDir: installation.stateDir, profilesRoot: path.join(installation.home, 'profiles'), liveDir: paths.activeDir ? trustedHome(paths.home).map(paths.activeDir) : path.join(installation.home, 'profiles/desktop'), installation, destination }
+  const identity = trustedHome(paths.home)
+  const profilesRoot = path.join(installation.home, 'profiles')
+  const liveDir = path.join(profilesRoot, 'desktop')
+  const activeDir = paths.activeDir ? identity.map(paths.activeDir) : liveDir
+  const removingFromNextTavern = paths.host === 'next' && mode === 'uninstall' && same(activeDir, path.join(profilesRoot, 'tavern'))
+  if (!same(activeDir, liveDir) && !removingFromNextTavern) fail('请从原版桌面或 NEXT 的酒馆配置管理安装。')
+  const destination = mode === 'relocate' ? destinationCheck(payload.destination, installation, identity) : undefined
+  return { mode, host: paths.host, home: paths.home, stateDir: installation.stateDir, profilesRoot, liveDir, installation, destination }
 }
 function mapTarget(target, entries) {
   for (const e of entries) for (const base of [e.source, e.from]) if (within(target, base)) return path.join(e.to, path.relative(base, target))
@@ -198,9 +209,21 @@ export async function performInstallation(request, { retry = {}, rename = fs.ren
   }
   const registryFile = path.join(request.stateDir, 'installation.json')
   const previousRegistry = present(registryFile) ? fs.readFileSync(registryFile, 'utf8') : null
+  // NEXT remembers the selected Profile separately and would reopen Tavern after a restart.
+  const nextProfileFile = path.join(fresh.installation.home, 'desktop-next.json')
+  let previousNextProfile
+  if (request.mode === 'uninstall' && request.host === 'next') {
+    identity.ordinary(nextProfileFile)
+    if (present(nextProfileFile)) {
+      const selection = json(nextProfileFile)
+      if (selection?.active === 'tavern') previousNextProfile = selection
+    }
+  }
+  let nextProfileWritten = false
   let registryWritten = false
   const stamp = randomUUID(), journalFile = path.join(request.stateDir, 'installation-operation.json')
   const journal = { schemaVersion: 1, mode: request.mode, phase: 'preparing', stamp, actions: [], retained: [] }
+  if (previousNextProfile) journal.nextProfile = { file: nextProfileFile, previous: previousNextProfile }
   guard(() => fs.mkdirSync(request.stateDir, { recursive: true })); persist(journalFile, journal)
   const move = async (from, to) => {
     if (present(to)) fail(`备份路径已存在：${to}`)
@@ -238,6 +261,10 @@ export async function performInstallation(request, { retry = {}, rename = fs.ren
         await move(e.source, backup); journal.retained.push(backup); persist(journalFile, journal)
         if (e.from !== e.source) { const aliasBackup = e.from + '.switch-removed-' + stamp; await move(e.from, aliasBackup); journal.retained.push(aliasBackup); persist(journalFile, journal) }
       }
+      if (previousNextProfile) {
+        persist(nextProfileFile, { ...previousNextProfile, active: 'desktop' })
+        nextProfileWritten = true
+      }
       persist(registryFile, { schemaVersion: 1, phase: 'uninstalled', retained: journal.retained, dataDir: fresh.installation.dataDir }); registryWritten = true
     }
     journal.phase = 'completed'; persist(journalFile, journal)
@@ -262,6 +289,7 @@ export async function performInstallation(request, { retry = {}, rename = fs.ren
         if (previousRegistry === null) guard(() => fs.unlinkSync(registryFile))
         else persist(registryFile, JSON.parse(previousRegistry))
       }
+      if (nextProfileWritten) persist(nextProfileFile, previousNextProfile)
       journal.phase = 'rolled-back'; journal.error = error.message; persist(journalFile, journal)
     } catch (rollback) { throw Object.assign(new Error(`操作失败且需人工恢复；请保留所有目录和日志 ${journalFile}：${rollback.message}`, { cause: error }), { code: 'recovery-required', recoveryRequired: true }) }
     throw error

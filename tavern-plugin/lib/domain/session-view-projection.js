@@ -31,8 +31,8 @@ export const sessionViewMessageFields = Object.freeze([
   'sourceText', 'projectionText', 'text', 'displayText', 'displayMode', 'projectionVersion', 'projectionWarnings',
   // Sidebar origin uses frame receipts, not the external DOM/console capture.
   'displayRuntime.frames',
-  'stagePageVersion', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu',
-  'native', 'nativeAnchor', 'placeholder', 'bodyEdit', 'bodyRegenerationProcessed', 'importSource', 'templateHistoryEdit', 'templateInputSource'
+  'stagePageVersion', 'openingChoiceId', 'openingSelectionRevision', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu',
+  'native', 'nativeAnchor', 'placeholder', 'bodyEdit', 'bodyRegenerationProcessed', 'bodyHostRegexApplied', 'bodyPluginProjection', 'importSource', 'templateHistoryEdit', 'templateInputSource'
 ])
 
 const NO_STAGE = Object.freeze({dialogue: false, stage: false})
@@ -55,7 +55,27 @@ export function createSessionViewProjection({
     return {...extensions, helperScripts:pinned.helperScripts, regexScripts:pinned.regexScripts,
       remoteAssetDiagnostics:pinned.diagnostics, remoteAssetPins:pinned.pins}
   }
-  async function replyDisplayForChat(chat, card, persisted, extensions) {
+  function compactStoryReplyProjection(projection) {
+    const result = {...projection}
+    // Story rows render text/parts; the structured editable body belongs to the
+    // assistant editor and duplicates the complete reply a third time.
+    delete result.body
+    const parts = result.parts
+    if (Array.isArray(parts) && parts.length === 1 && parts[0]?.kind === 'markdown'
+      && result.mode !== 'html' && result.mode !== 'rich'
+      && String(parts[0].text || '') === String(result.text || '')) {
+      // Without parts, projectionPartsOf uses the mode and renders a single block.
+      // A sidebar status panel can leave Markdown parts in an HTML-mode projection.
+      delete result.parts
+    } else if (Array.isArray(parts) && parts.length > 0
+      && parts.map(part => part?.kind === 'markdown' ? String(part?.text || '')
+        : part?.kind === 'html' ? String(part?.content ?? part?.html ?? '') : '').join('') === String(result.text || '')) {
+      // Explicit parts preserve block boundaries and kinds without a second text.
+      delete result.text
+    }
+    return result
+  }
+  async function replyDisplayForChat(chat, card, persisted, extensions, { storyTranscript = false } = {}) {
     if (!['story','script'].includes(chat.mode || 'story')) return {projections:replyProjectionsOf(chat),presentation:null,latestSourceBacked:false}
     extensions ||= await replyExtensions(chat)
     // Authored live EJS may inspect arbitrary history; only that consumer requests the full view.
@@ -67,8 +87,10 @@ export function createSessionViewProjection({
       regexScripts:composeTavernRegexScripts(extensions,presetRegexScripts,chat.regexOverrides&&chat.regexOverrides.preset), placement:2, isMarkdown:true, isEdit:false, depth:0
     }, {charName:chat.cardName,macroState:chat.macroState,regexScripts:extensions.regexScripts}, {shared:true}))
     display = await liveCardUpdate.project(chat,card,display,{charName:chat.cardName,macroState:chat.macroState,regexScripts:extensions.regexScripts})
-    display.projections = withLegacyPresentationProjection(chat,display.projections).map(projection =>
-      projection.body ? projection : {...projection, body:replyBody(projection,chat)})
+    display.projections = withLegacyPresentationProjection(chat,display.projections).map(projection => {
+      if (storyTranscript) return compactStoryReplyProjection(projection)
+      return projection.body ? projection : {...projection, body:replyBody(projection,chat)}
+    })
     return display
   }
   async function view(chat, card, persistedProjection = false, options = {}) {
@@ -90,16 +112,16 @@ export function createSessionViewProjection({
     const activePresetSnapshot = groupOfMode(chat.mode) === 'play' && chat.runtimePresetSnapshot && typeof chat.runtimePresetSnapshot === 'object'
       ? chat.runtimePresetSnapshot
       : null
+    const storyTranscriptRead = options.storyTranscript === true
     let replyDisplay = { projections: replyProjectionsOf(chat), presentation: null, latestSourceBacked: false }
     let extensionSettings = {}
     let cardExtensions = { regexScripts: [], helperScripts: [] }
     if ((chat.mode || 'story') === 'story' || (chat.mode || 'story') === 'script') {
       extensionSettings = await tavernExtensionSettings.read()
       cardExtensions = await replyExtensions(chat, extensionSettings)
-      replyDisplay = await replyDisplayForChat(chat,card,persistedProjection,cardExtensions)
+      replyDisplay = await replyDisplayForChat(chat,card,persistedProjection,cardExtensions,{storyTranscript:storyTranscriptRead})
     }
     const activity = activityOf(chat)
-    const storyTranscriptRead = options.storyTranscript === true
     const { debugTurns, latestAssistantTurn: latestStoryTurn, latestAssistantMessageId, displayRoundOrder } = latestTurnFields(chat, !storyTranscriptRead)
     const forkTurnsByMessageId = storyTranscriptRead ? {} : forkTurnsForChat(chat)
     const {inputSources,inputTemplateDisplays}=inputFieldsProjection.project(persistedProjection ? chat : {...chat,_storageRevision:undefined}, options.inputChanges)
@@ -107,14 +129,16 @@ export function createSessionViewProjection({
       ? await cardUpdateStatus(chat, { card, fresh: options.freshSnapshot === true, busy: activity.busy || ['pending', 'running', 'waiting-runtime'].includes(chat.settleStatus)
         || (!storyTranscriptRead && agentRegistry.get(chat.sessionId)?.phase?.kind === 'running'), settings: runtimeSettings })
       : { available: false }
-    // Card Stage reads the live card so stage edits show without a card update.
-    const cardStage = ['story', 'script'].includes(chat.mode || 'story') && str(chat.cardPath) !== ''
-      ? await requestPerformance.stage('cardStage', () => readLiveCardStage(chat.cardPath)) : null
     // Dialogue bubbles / stage mode in effect for this card (card-stage-settings.js effectiveCardStage, decided by the host):
     // the client loads and asks the stage only when one is on, and never recomputes it.
     const stageMode = ['story', 'script'].includes(chat.mode || 'story') && str(chat.cardPath) !== ''
       ? await requestPerformance.stage('cardStageMode', () => readCardStageMode(chat.cardPath)) : NO_STAGE
-    const helperEnabled = hasTavernScriptRuntime(chat, cardExtensions.helperScripts) || (cardStage !== null && cardStage.html !== '')
+    // A disabled stage has no stage HTML to project. In particular, do not reread and
+    // parse the whole card merely to discover markup that cannot be displayed.
+    const cardStage = (stageMode.dialogue === true || stageMode.stage === true) && str(chat.cardPath) !== ''
+      ? await requestPerformance.stage('cardStage', () => readLiveCardStage(chat.cardPath)) : null
+    const openingHost = sessionOpeningDescriptor(chat, card)
+    const helperEnabled = openingHost !== null || hasTavernScriptRuntime(chat, cardExtensions.helperScripts) || (cardStage !== null && cardStage.html !== '')
     const helperRuntime = helperEnabled
       ? projectTavernHelperScripts(cardExtensions.helperScripts, chat.tavernHelperScriptVariables)
       : { scripts: [], diagnostics: [] }
@@ -218,7 +242,7 @@ export function createSessionViewProjection({
       // automatic ones (body.polish, they keep polishedFrom) are told apart in its title.
       polishedTurns: (Array.isArray(chat.messages) ? chat.messages : []).filter(message => message?.role === 'assistant' && (message.polished || message.polishedFrom)).map(message => Number(message.turn) || 0),
       autoPolishedTurns: (Array.isArray(chat.messages) ? chat.messages : []).filter(message => message?.role === 'assistant' && message.polishedFrom).map(message => Number(message.turn) || 0),
-      tavernHelper: helperContext ? { ...helperContext, frameStorageScope: { cardPath: chat.cardPath, sessionId: chat.sessionId }, playerName: str(chat.macroState?.userName).trim() || '你', characterName: str(card?.name || chat.cardName), character: {name:str(card?.name || chat.cardName), path:str(chat.cardPath)}, openingHost: sessionOpeningDescriptor(chat, card), worldbook: helperWorldbook, globalVariables: await readPromptTemplateGlobalVariables(), characterVariables: cardExtensions.variables || {}, compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings, regexScripts: { global: cardExtensions.globalRegexScripts || [], preset: applyRegexOverrides(activePresetSnapshot?.regexScripts || [], chat.regexOverrides && chat.regexOverrides.preset, 'preset'), character: cardExtensions.characterRegexScripts || [] } } : null,
+      tavernHelper: helperContext ? { ...helperContext, frameStorageScope: { cardPath: chat.cardPath, sessionId: chat.sessionId }, playerName: str(chat.macroState?.userName).trim() || '你', characterName: str(card?.name || chat.cardName), character: {name:str(card?.name || chat.cardName), path:str(chat.cardPath)}, openingHost, worldbook: helperWorldbook, globalVariables: await readPromptTemplateGlobalVariables(), characterVariables: cardExtensions.variables || {}, compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings, regexScripts: { global: cardExtensions.globalRegexScripts || [], preset: applyRegexOverrides(activePresetSnapshot?.regexScripts || [], chat.regexOverrides && chat.regexOverrides.preset, 'preset'), character: cardExtensions.characterRegexScripts || [] } } : null,
       tavernMvuRuntime: chat.mvu && chat.mvu.enabled === true ? {
         owner: chat.mvu.owner === 'official' ? 'official' : 'legacy',
         commit: OFFICIAL_MVU_VERSION.commit,
@@ -449,11 +473,11 @@ export function createSessionViewProjection({
         : null
     })
   }
-  async function projectDirtySessionView(chat, previous, dirtyMessageIndices, activity, {layoutChanged,layoutFrom,changedHeaderFields,runtimeInputChanges} = {}) {
+  async function projectDirtySessionView(chat, previous, dirtyMessageIndices, activity, {baseRevision,layoutChanged,layoutFrom,changedHeaderFields,runtimeInputChanges} = {}) {
     const card = await readChatCard(chat)
     const mode = chat.mode || 'story'
-    const previousMessages = previous.tavernHelper.messages
-    const changes = {baseRevision:previous.tavernHelper.stateRevision,indices:[...dirtyMessageIndices],layoutChanged,changedHeaderFields}
+    const previousMessages = previous.tavernHelper?.messages || []
+    const changes = {baseRevision:baseRevision ?? previous.tavernHelper?.stateRevision,indices:[...dirtyMessageIndices],layoutChanged,changedHeaderFields}
     const next = Object.assign({}, previous, await volatileSessionViewFields(chat, activity, changes), {
       playerName: str(chat.macroState?.userName).trim() || '你',
       posture: chat.posture || '',
@@ -470,25 +494,27 @@ export function createSessionViewProjection({
     })
     if (mode === 'script') next.scriptProgress = await scriptProgressOf(chat)
     Object.assign(next,inputFieldsProjection.project(chat,{baseRevision:changes.baseRevision,indices:dirtyMessageIndices,changedHeaderFields,runtimeInputChanges}))
-    const helperCore = await requestPerformance.stage('helperMessagesProjection', () => projectTavernHelperContext(chat, {
-      previousMessages, previousContext:previous.tavernHelper, indexed:true, layoutChanged, layoutFrom,
-      dirtyIndices: dirtyMessageIndices
-    }))
-    next.tavernHelper = Object.assign({}, previous.tavernHelper, helperCore, {
-      playerName: next.playerName,
-      openingHost: previous.tavernHelper.openingHost,
-      worldbook: previous.tavernHelper.worldbook,
-      globalVariables: previous.tavernHelper.globalVariables,
-      characterVariables: previous.tavernHelper.characterVariables,
-      compatibilityCapabilities: previous.tavernHelper.compatibilityCapabilities,
-      extensionSettings: previous.tavernHelper.extensionSettings,
-      regexScripts: {
-        global: previous.tavernHelper.regexScripts?.global || [],
-        preset: applyRegexOverrides(previous.tavernHelper.regexScripts?.preset || [], chat.regexOverrides && chat.regexOverrides.preset, 'preset'),
-        character: applyRegexOverrides(previous.tavernHelper.regexScripts?.character || [], chat.regexOverrides && chat.regexOverrides.card, 'card')
-      }
-    })
-    delete next.tavernHelper.messagesPending
+    if (previous.tavernHelper) {
+      const helperCore = await requestPerformance.stage('helperMessagesProjection', () => projectTavernHelperContext(chat, {
+        previousMessages, previousContext:previous.tavernHelper, indexed:true, layoutChanged, layoutFrom,
+        dirtyIndices: dirtyMessageIndices
+      }))
+      next.tavernHelper = Object.assign({}, previous.tavernHelper, helperCore, {
+        playerName: next.playerName,
+        openingHost: sessionOpeningDescriptor(chat, card),
+        worldbook: previous.tavernHelper.worldbook,
+        globalVariables: previous.tavernHelper.globalVariables,
+        characterVariables: previous.tavernHelper.characterVariables,
+        compatibilityCapabilities: previous.tavernHelper.compatibilityCapabilities,
+        extensionSettings: previous.tavernHelper.extensionSettings,
+        regexScripts: {
+          global: previous.tavernHelper.regexScripts?.global || [],
+          preset: applyRegexOverrides(previous.tavernHelper.regexScripts?.preset || [], chat.regexOverrides && chat.regexOverrides.preset, 'preset'),
+          character: applyRegexOverrides(previous.tavernHelper.regexScripts?.character || [], chat.regexOverrides && chat.regexOverrides.card, 'card')
+        }
+      })
+      delete next.tavernHelper.messagesPending
+    } else next.tavernHelper = null
     if (mode === 'story' || mode === 'script') {
       let cardExtensions = { regexScripts: [], helperScripts: [] }
       try { cardExtensions = await readCardExtensions(chat.cardPath, chat) || cardExtensions } catch (_error) { cardExtensions = { regexScripts: [], helperScripts: [] } }
@@ -508,7 +534,8 @@ export function createSessionViewProjection({
         regexScripts: composeTavernRegexScripts(cardExtensions, presetRegexScripts, chat.regexOverrides && chat.regexOverrides.preset),
         placement: 2, isMarkdown: true, isEdit: false, depth: 0
       }, { charName: chat.cardName, macroState: chat.macroState, regexScripts: cardExtensions.regexScripts }, {shared:true}))
-      const renderChat = {...chat,messages:createScopedMessages(chat.messages.length,[],index=>{const message=chat.messages[index];return message.variables ? message : {...message,variables:helperCore.messages[index]?.swipes_data || []}})}
+      const helperMessages = next.tavernHelper?.messages || []
+      const renderChat = {...chat,messages:createScopedMessages(chat.messages.length,[],index=>{const message=chat.messages[index];return message.variables ? message : {...message,variables:helperMessages[index]?.swipes_data || []}})}
       replyDisplay = await liveCardUpdate.project(renderChat, card, replyDisplay, {charName:chat.cardName,macroState:chat.macroState,regexScripts:cardExtensions.regexScripts})
       replyDisplay.projections = withLegacyPresentationProjection(chat, replyDisplay.projections)
       next.replyProjections = replyDisplay.projections

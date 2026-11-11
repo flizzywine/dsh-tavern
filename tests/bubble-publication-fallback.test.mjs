@@ -28,7 +28,7 @@ test('气泡渲染抛错时退回普通 Markdown，正文不消失', async t => 
     BubblePublication() { throw new Error('bubble failed') },
     TavernColoredMarkdown: props => React.createElement('p', { id: 'story' }, props.text) })
   vm.runInContext(fragment('let tavernStageBoundaryClass = null', '\n\t\t}\n') + '\n\t\t}', context)
-  const Safe = vm.runInContext(fragment('function BubbleSafePublication(props)', 'let bubblePublicationMemo') + '; BubbleSafePublication', context)
+  const Safe = vm.runInContext(fragment('function bubbleProseText(', 'let bubblePublicationMemo') + '; BubbleSafePublication', context)
   root = createRoot(document.getElementById('root'), { onCaughtError() {} })
   await act(() => root.render(React.createElement(Safe, { text: '她走进客舱。', sessionId: 's', voiceScope: '2:0' })))
   assert.equal(document.getElementById('story').textContent, '她走进客舱。')
@@ -60,7 +60,7 @@ test('舞台关闭时 @bubble 行仍渲染为气泡（不显示原始标记）�
     BubblePublication: props => { seen.push(props.staged); return React.createElement('div', { id: 'bubbles' }, props.text) },
     TavernColoredMarkdown: props => React.createElement('p', { id: 'story' }, props.text) })
   vm.runInContext(fragment('let tavernStageBoundaryClass = null', '\n\t\t}\n') + '\n\t\t}', context)
-  const Safe = vm.runInContext(fragment('function BubbleSafePublication(props)', 'let bubblePublicationMemo') + '; BubbleSafePublication', context)
+  const Safe = vm.runInContext(fragment('function bubbleProseText(', 'let bubblePublicationMemo') + '; BubbleSafePublication', context)
   root = createRoot(document.getElementById('root'))
   await act(() => root.render(React.createElement(Safe, { text: '@bubble:kaguya|辉夜|喜悦|[好耶]', sessionId: 's', voiceScope: '2:0' })))
   assert.ok(document.getElementById('bubbles'))

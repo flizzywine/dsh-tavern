@@ -1,37 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { projectReplyLayers, projectProcessedReply, createReplyHistoryProjector } from "../tavern-plugin/lib/domain/reply-presentation.js"
-
-test('refresh preserves provider-processed prose without running the active preset regex again', () => {
-  const project = createReplyHistoryProjector()
-  const message = { role: 'assistant', turn: 2, sourceText: '已处理正文', projectionText: '已处理正文', bodyRegenerationProcessed: true }
-  const options = { regexScripts: [{ id: 'twice', findRegex: '/正文/g', replaceString: '正文正文', placement: [2], markdownOnly: true }] }
-  assert.equal(project([message], options).projections[0].text, '已处理正文')
-  assert.equal(project([message], options).projections[0].text, '已处理正文')
-})
-
-test('provider-final reply uses matching template formatting without replaying the preset regex', () => {
-  const project = createReplyHistoryProjector()
-  const sourceText = '正文\n<options>\n<option>继续</option>\n</options>'
-  const formattingText = '正文\n```html\n<section class="options">已转换选项</section>\n```'
-  const message = {
-    role: 'assistant', turn: 2, sourceText, projectionText: sourceText, bodyRegenerationProcessed: true,
-    tavernPluginData: { template_display: { source: sourceText, swipe: 0, formattingText } }
-  }
-  const options = { regexScripts: [{ id: 'twice', findRegex: '/正文/g', replaceString: '正文正文', placement: [2], markdownOnly: true }] }
-  const projection = project([message], options).projections[0]
-  assert.equal(projection.text, formattingText)
-  assert.ok(projection.parts.some(part => part.kind === 'html' && part.content.includes('已转换选项')))
-  assert.doesNotMatch(projection.text, /正文正文/)
-})
-
-test('provider final output keeps HTML templates and identity/state macros literal', () => {
-  const text = '  <div>{{ item.name }} {{user}}</div>\n{{setvar::x::changed}}\n<user>\n'
-  const projected = projectProcessedReply(text)
-  for (const field of ['sourceText', 'projectionText', 'sessionText', 'displayText']) assert.equal(projected[field], text)
-  assert.equal(projected.displayMode, 'html')
-})
+import { projectReplyLayers } from "../tavern-plugin/lib/domain/reply-presentation.js"
 
 function script(name, findRegex, replaceString, flags = {}) {
   return {

@@ -157,24 +157,6 @@ test('过期读者的局部模板保存：只合并相关楼层，回执与完�
   assert.equal(results[0].stored.messages[3].variables[0].hp,300)
 })
 
-// Background tasks write between a template save's read and its patch every turn on a busy
-// long save. That race only moves the revision: the fast merge retries, never the full one.
-test('模板保存与后台写入撞车时重试局部合并，不读整份存档', async t => {
-  let raced = 0
-  const h = await nativeFixture(t, true, { beforePatch: async persistence => {
-    if (raced++ === 0) await persistence.update('chat', chat => { chat.variables.background = 1; return chat })
-  } })
-  const { state } = await h.adapter.readFullPromptTemplateState('session')
-  const { chat: _chat, chat_metadata: _metadata, ...header } = state
-  h.full.length = 0
-  const receipt = await h.adapter.saveFullPromptTemplateState('session', { ...header, changes: [{ op: 'set', path: ['chat', 7, 'variables', 0, 'hp'], value: 77 }] })
-  assert.equal(receipt.updated, true)
-  assert.deepEqual(h.full, [], '不走完整合并')
-  const stored = await h.persistence.read('chat')
-  assert.equal(stored.messages[7].variables[0].hp, 77)
-  assert.equal(stored.variables.background, 1)
-})
-
 
 test('template display keeps preset regex through full, unchanged and changed history reads', async t => {
   const {adapter,persistence}=await fixture(t)

@@ -144,6 +144,41 @@ window.__ModuleLoader__.load({
 			return notes.join("；");
 		}
 
+		async function importTavernCardSelection(picked, call, { cardZip, onProgress, onTransfer } = {}) {
+			const { cards, zips } = cardZip ? await splitCardFiles(picked) : { cards: picked, zips: [] };
+			const failures = [], notices = [];
+			let imported = 0, existing = 0, lastPath = "";
+			for (const [index, file] of cards.entries()) {
+				onProgress?.("正在导入 " + (index + 1) + "/" + cards.length + "：" + file.name);
+				try {
+					const { card } = await importTavernCardFile(file, call, onTransfer);
+					lastPath = card.path;
+					if (card.duplicate) {
+						existing++;
+						notices.push(file.name + "：已在卡库中（「" + card.name + "」）");
+					} else {
+						imported++;
+						const notice = tavernCardAssetNotice(card.assets, card);
+						if (notice) notices.push((cards.length > 1 ? file.name + "：" : "") + notice);
+					}
+				} catch (error) {
+					if (error?.code === 'TAVERN_CARD_IMPORT_CANCELLED') notices.push(file.name + "：已取消");
+					else failures.push({ name: file.name, message: String(error?.message || error) });
+				}
+			}
+			if (zips.length) {
+				// The interactive ZIP sheet handles one archive at a time, after any password prompts.
+				try { await cardZip.openFile(zips[0]); }
+				catch (error) { failures.push({ name: zips[0].name, message: String(error?.message || error) }); }
+				if (zips.length > 1) notices.push("卡片 ZIP 每次处理一个，其余 " + (zips.length - 1) + " 个请单独选择。");
+			}
+			const summary = cards.length || failures.length ? "已导入 " + imported + " 张"
+				+ (existing ? "，" + existing + " 张已在卡库中" : "")
+				+ (failures.length ? "，" + failures.length + " 个文件失败" : "") : "";
+			if (failures.length) notices.unshift("失败文件：" + failures.map(file => file.name).join("、"));
+			return { lastPath, failures: failures.map(file => file.name + "：" + file.message), summary: [summary, ...notices].filter(Boolean).join("\n") };
+		}
+
 		// No file filter on card import: macOS file dialogs (Chrome, Safari) grey out .dshcard and
 		// .charx however the accept list names them, since the system knows no type for them.
 		// The import checks the format and says what it accepts.
@@ -270,7 +305,7 @@ window.__ModuleLoader__.load({
 			React.useEffect(function () { load(); }, []);
 			async function activate() {
 				const current = catalog || await load();
-				if (current.available) { setOpen(true); load(); }
+				if (current.available) { setSelecting(props.batch === true); setOpen(true); load(); }
 				else if (props.inputRef.current) props.inputRef.current.click();
 			}
 			function close() {
@@ -346,7 +381,7 @@ window.__ModuleLoader__.load({
 				+ (selected.size ? "，已选 " + selected.size + " 个" : "")
 				+ (progress ? "，正在导入 " + progress.done + "/" + progress.total : "");
 			return h(React.Fragment, null,
-				h("button", { className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, "导入人物卡"),
+				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
 					h("div", { className: "dsh-tavern-question-sub" }, "把 PNG 或 JSON 人物卡放进手机 Download，回到这里点选。"),
@@ -488,6 +523,14 @@ window.__ModuleLoader__.load({
             const traced = ["getSession", "syncSession", "getCardOpenings", "initializeOpeningTemplate", "preparePlayStart", "startChat"].includes(method);
             const trace = traced ? { id: window.crypto?.randomUUID?.() || "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const n = Math.floor(Math.random() * 16); return (c === "x" ? n : (n & 3) | 8).toString(16); }), method, sentAt: started, active: ++performanceActiveRequests } : null;
             const payload = Object.assign({}, args || {});
+			if (!runtimeControl && window.crypto?.getRandomValues) {
+				const pageKey = Symbol.for("dsh-tavern.session-patch-page");
+				if (!window[pageKey]) {
+					const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+					window[pageKey] = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+				}
+				payload._sessionPatchPage = window[pageKey];
+			}
 			if (!runtimeControl && (started - performanceReportAt >= 60000 || /diagnostic|export/i.test(method))) {
 				pagePerformance.observedMs = started - pagePerformanceStarted;
 				payload._performance = Object.assign({}, pagePerformance, { requests: performanceRequests.slice(), openingRequests: typeof openingPerformance !== "undefined" ? openingPerformance.requests() : [], openings: typeof openingPerformance !== "undefined" ? openingPerformance.read() : [] });
@@ -795,9 +838,10 @@ window.__ModuleLoader__.load({
 		}
 
 
-		function useLiveTavernView(sessionId, revision, paths) {
+		function useLiveTavernView(sessionId, revision, paths, subscribeOptions) {
             const dependencyKey = JSON.stringify(paths);
-			const subscribe = React.useCallback(function (notify) { return liveTavernView.subscribe(sessionId, notify, paths); }, [sessionId, dependencyKey]);
+            const deferLoad = subscribeOptions && subscribeOptions.deferLoad === true;
+			const subscribe = React.useCallback(function (notify) { return liveTavernView.subscribe(sessionId, notify, paths, { deferLoad: deferLoad }); }, [sessionId, dependencyKey, deferLoad]);
 			const snapshot = React.useCallback(function () { return liveTavernView.getSnapshot(sessionId); }, [sessionId]);
 			const state = React.useSyncExternalStore(subscribe, snapshot, snapshot);
 			const previous = React.useRef({ sessionId: sessionId, revision: revision });
@@ -941,6 +985,7 @@ window.__ModuleLoader__.load({
 
 // @include features/story-transcript-data.js
 // @include modules/story-external-history.js
+// @include host/chat-flow.js
 // @include features/story-transcript-list.js
 
 // @include features/card-list.js
@@ -1013,7 +1058,18 @@ function clipReplayCore() {
 
 
 
-		const storyTranscriptFeature = createTavernStoryTranscriptFeature();
+		const storyTranscriptFeature = createTavernStoryTranscriptFeature({
+			replyActions: {
+				useReadAloudState: useTavernReadAloudState,
+				ReadAloud: TavernReplyReadAloudAction,
+				Receipt: playControlsFeature.TurnReceiptButton,
+				Latest: playControlsFeature.LatestReplyActions,
+				RollbackTo: playControlsFeature.RollbackToTurnButton,
+				Illustrate: assistantRendererFeature.IllustrateTurnAction,
+				IllustrationDraft: TavernIllustrationDraft,
+				PluginActions: TavernPluginMessageActions
+			}
+		});
 		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "commandUi", "betterSidebar", "remote", "remote.commands", "remote.session", "tavernSessionSignals", "theme", "modelDirectories", "remote.settings"]; // host theme, shared model directory, settings writes (「能看图」)
 
 		// @include tavern-presentation.js
@@ -1361,7 +1417,6 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.installFrameStorageBridge = installFrameStorageBridge;
 		exports.createTavernHelperScriptRuntime = createTavernHelperScriptRuntime;
 		exports.ensureTavernHostJQuery = ensureTavernHostJQuery;
-		exports.ensureTavernHostJQueryUi = ensureTavernHostJQueryUi;
 		exports.installTavernTrustedHostFacade = installTavernTrustedHostFacade;
         exports.loadTavernHelperModule = loadTavernHelperModule;
         exports.installTavernBackgroundModel = installTavernBackgroundModel;
@@ -1391,6 +1446,7 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.createLiveTavernViewModule = createLiveTavernViewModule;
         exports.createSessionViewReader = createSessionViewReader;
 		exports.createSessionCompat = createSessionCompat;
+		exports.createTavernRecentSessionRetention = createTavernRecentSessionRetention;
 		exports.tavernMainSessionId = tavernMainSessionId;
 		exports.sessionListAdapters = sessionListAdapters;
 		exports.applyBodyRegenerationResult = applyBodyRegenerationResult;
@@ -1403,6 +1459,9 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.askTavernCardChatRemoval = askTavernCardChatRemoval;
 		exports.removeTavernCardChats = removeTavernCardChats;
 		exports.groupTavernHistory = groupTavernHistory;
+		exports.orderTavernHistory = orderTavernHistory;
+		exports.sortTavernHistoryByActivity = sortTavernHistoryByActivity;
+		exports.tavernHistoryStamp = tavernHistoryStamp;
 		exports.createPlayWorkspaceResolver = createPlayWorkspaceResolver;
 		exports.createSessionListRecoveryModule = createSessionListRecoveryModule;
 		exports.createTavernFrameLifecycle = createTavernFrameLifecycle;

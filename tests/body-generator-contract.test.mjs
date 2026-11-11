@@ -46,17 +46,21 @@ test('replacement registration cannot use an old prepared operation', async () =
   await assert.rejects(providers.generate('plugin:body', { materials, snapshot }), /已更换/)
 })
 
-test('stop cancels a hanging prepare and rejects late config', async () => {
-  let started, release
-  const ready = new Promise(resolve => { started = resolve })
+test('optional regex payload is copied, bounded and isolated from body validation', async () => {
   const providers = createBodyGenerationProviders({ allowed: async () => true })
-  providers.register('plugin', { name: 'body', prepare: ({ signal }) => {
-    started(signal); return new Promise(resolve => { release = resolve })
-  }, generate() {} })
-  const pending = providers.prepare('plugin:body', { gameId: 'game', reason: 'normal' })
-  const signal = await ready
-  providers.stop('game')
-  await assert.rejects(pending, /取消/)
-  assert.equal(signal.aborted, true)
-  release({ preset: 'late' })
+  const rules = [{ findRegex: 'X', replaceString: 'Y', placement: [2], promptOnly: true }]
+  let value = { text: 'X', regexScripts: rules }
+  providers.register('p', { name: 'body', generate: () => value })
+  const result = await providers.generate('p:body', { materials })
+  rules[0].replaceString = 'changed'
+  assert.equal(result.regexScripts[0].replaceString, 'Y')
+  for (const invalid of [{}, [null], Array(257).fill(rules[0]), [{ ...rules[0], replaceString: 'x'.repeat(1024 * 1024) }]]) {
+    value = { text: 'valid body', regexScripts: invalid }
+    const result = await providers.generate('p:body', { materials })
+    assert.equal(result.text, 'valid body')
+    assert.ok(result.projectionWarning)
+    assert.equal(result.regexScripts, undefined)
+  }
+  value = { text: '', regexScripts: rules }
+  await assert.rejects(providers.generate('p:body', { materials }), /正文非空/)
 })

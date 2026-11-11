@@ -6255,6 +6255,16 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 /* the one large-picture view (image-viewer.js). The
    picture on a dark backdrop, nothing framed; only the round corner buttons. Above dialogs and their menus. */
 .fork-viewer { position: fixed; inset: 0; z-index: 10050; background: var(--fork-viewer-backdrop); outline: none; animation: fork-viewer-in 140ms ease-out; }
+/* 进 top layer：正文列和卡片会带 transform / contain（楼层用 content-visibility，卡片 iframe 自带包含块），
+   只看祖先的话 fixed 会被收进那一列，屏幕上就只剩右边一截「酒馆本体」露在大图外面。popover 提层后不受任何祖先的
+   包含块和裁切影响；下面把 UA 的 popover 默认样式（居中、fit-content 宽高、Canvas 底色、1em 边框内距）全部重设，
+   仍然铺满整个可视区。 */
+.fork-viewer[popover] {
+  position: fixed; inset: 0; width: auto; height: auto; max-width: none; max-height: none;
+  margin: 0; padding: 0; border: 0; overflow: hidden; overscroll-behavior: contain;
+  background: var(--fork-viewer-backdrop); color: var(--fork-viewer-ink);
+}
+.fork-viewer[popover]:not(:popover-open) { display: none; }
 .fork-viewer-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
 .fork-viewer-stage.is-dragging { cursor: grabbing; }
 .fork-viewer-img { position: absolute; left: 0; top: 0; max-width: none; max-height: none; transform-origin: 0 0; visibility: hidden; -webkit-user-drag: none; }

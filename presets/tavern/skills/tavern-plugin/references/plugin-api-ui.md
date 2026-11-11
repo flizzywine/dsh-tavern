@@ -295,7 +295,7 @@ ctx.tavernUi.registerReplyPresenter({
 
 ## `registerComposerSlot({ id, modes, render })`（第 6 版）
 
-在输入框正上方加一块插件自己的界面（与对话栏同宽），给卡片工作台的引导员这类需要常驻的角色用。
+在输入框正上方加一块插件自己的界面（与对话栏同宽），可用于工作台引导员、剧情建议选项和状态栏。`modes` 默认 `['card']`；`['play']` 覆盖剧情与剧本模式，也支持内部模式名 `story` / `script`。
 
 ```js
 ctx.tavernUi.registerComposerSlot({
@@ -304,7 +304,8 @@ ctx.tavernUi.registerComposerSlot({
 })
 ```
 
-- `render` 返回 React 元素，收到 `{ sessionId, busy }`（`busy` 是这一轮是否在跑）。
+- `render` 返回 React 元素或 null，收到 `{ sessionId, busy }`（`busy` 是这一轮是否在跑）。
+- 建议按钮通过 `setInput({ gameId: sessionId, text })` 填写或 `submitInput({ gameId: sessionId, text })` 发送；停靠区之外的内置输入框始终保留。
 - 同一会话只显示一个停靠区（先注册者），`modes` 不符合的会话不显示；插件卸载后移除。
 - 高度由内容决定，最高 40vh，超出内部滚动；Tavern 会把输入区上移，不会盖住最新一条消息。
 - 出错时只显示一行错误；卡内插件按它那张卡的局生效。

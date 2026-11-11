@@ -15,13 +15,18 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
     syncProbe();
   }
   function isUpdateBusy(status) {
-    return ['loading', 'checking', 'running', 'cancelling', 'blocked'].includes(status.phase);
+    // Loading only means the initial read has not answered. It must not block
+    // an explicit check, whose generation already supersedes that read.
+    return ['checking', 'running', 'cancelling', 'blocked'].includes(status.phase);
   }
   function isMissingUpdateApiError(error) {
     return String(error && error.message || error || '').includes('未知方法: getUpdateStatus');
   }
   async function callUpdate(method) {
     const controller = new AbortController();
+    // Metadata fallbacks can legitimately exceed 30s. Status and cancellation
+    // stay fast; check/start use the longer bound and publish their own phases.
+    const timeoutMs = method === "checkUpdate" || method === "startUpdate" ? 60000 : 30000;
     let timer, cancel;
     const interrupted = new Promise((_resolve, reject) => {
       cancel = () => { controller.abort(); reject(new Error('更新界面已关闭')); };
@@ -29,7 +34,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
         const error = new Error('更新服务请求超时，正在核实状态');
         error.retryable = true;
         controller.abort(); reject(error);
-      }, 30000);
+      }, timeoutMs);
     });
     requests.add(cancel);
     try { return await Promise.race([call(method, undefined, { signal: controller.signal }), interrupted]); }
@@ -37,7 +42,9 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
   }
   function syncProbe() {
     const awaitingDesktopRestart = statusValue.host === 'desktop' && statusValue.phase === 'completed' && statusValue.requiresRestart;
-    const key = active && (statusValue.phase === 'running' || awaitingDesktopRestart) ? statusValue.host || 'cli' : '';
+    // The native window belongs to the running Electron process. A page reload
+    // cannot switch it to a newly installed build.
+    const key = active && browser.location.protocol !== 'dsh-app:' && (statusValue.phase === 'running' || awaitingDesktopRestart) ? statusValue.host || 'cli' : '';
     if (key === probeKey) return;
     probeKey = key;
     const generation = ++probeGeneration;
@@ -61,11 +68,12 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
     void probe();
     probeTimer = browser.setInterval(probe, 400);
   }
-  // Poll fast only while an update is in flight; at rest a slow read still notices
-  // updates started elsewhere without asking the server every 2.5 seconds forever.
+  // Poll fast while an update is in flight or the first read is unresolved;
+  // at rest a slow read still notices updates started elsewhere without asking
+  // the server every 2.5 seconds forever.
   let lastPollAt = 0;
   function pollUpdateStatus() {
-    if (!isUpdateBusy(statusValue) && now() - lastPollAt < 30000) return;
+    if (statusValue.phase !== 'loading' && !isUpdateBusy(statusValue) && now() - lastPollAt < 30000) return;
     return refreshUpdateStatus();
   }
   async function refreshUpdateStatus() {
@@ -92,7 +100,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
         if ((err && err.retryable || err instanceof TypeError) && failures < 3) return;
         if ((err && err.retryable || err instanceof TypeError) && statusValue.host === 'desktop' && statusValue.phase === 'running') {
           publishUpdateStatus({ ...statusValue, connectionLost: true,
-            error: '桌面连接已断开，安装结果尚未确认。请勿重复安装；安装完成后请手动重启 DeepSeek Harness，连接恢复后页面会自动刷新。' });
+            error: '桌面连接已断开，安装结果尚未确认。请勿重复安装；安装完成后请手动重启 DeepSeek Harness。' });
         }
         if (isMissingUpdateApiError(err)) {
           if (!received) publishUpdateStatus({ phase: "restart-required", host: "desktop" });

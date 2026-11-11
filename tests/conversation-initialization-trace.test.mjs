@@ -6,7 +6,7 @@ import { createRequestPerformance } from '../tavern-plugin/lib/domain/request-pe
 const card = { name: '测试角色', first_mes: '开始的第一句正文', alternate_greetings: [] }
 const requestId = '00000000-0000-0000-0000-000000000001'
 
-function build(trace) {
+function build(trace, overrides = {}) {
   const published = [], prepared = []
   const initialization = createConversationInitialization({
     id: prefix => prefix + '-1',
@@ -19,8 +19,9 @@ function build(trace) {
     emptyCardWorkspace: () => ({}),
     // No native session: the opening only reaches the Chat store in this fixture.
     native: { wait: async () => ({ session: {} }), ensurePrefix: async () => {}, flush: async () => {}, selectModel: async () => {} },
-    present: async () => ({ presented: true }),
-    trace
+    present: async (_chat, _card, options) => ({ presented: true, options }),
+    trace,
+    ...overrides
   })
   return { initialization, published, prepared }
 }
@@ -30,6 +31,7 @@ test('新开局的分段计时覆盖每个耗时步骤且不记录正文', async
   const { initialization, published } = build(trace)
   const view = await trace.run('startChat', requestId, () => initialization.start({ cardPath: 'card.json', sessionId: '', mode: 'story', userName: '你' }))
   assert.equal(view.presented, true)
+  assert.equal(view.options.deferResources, true)
   assert.equal(published.length, 1)
   const row = trace.read().openings.at(-1)
   assert.equal(row.method, 'startChat')

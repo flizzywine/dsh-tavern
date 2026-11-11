@@ -7,6 +7,7 @@ import { inputEventForTurn } from './session-turn-input.js'
 import { inputAttachments } from './player-input-content.js'
 import { unansweredTailIndex } from './rollback-surface.js'
 import { bodyGenerationWorldbookResults } from './body-generation-worldbook.js'
+import { frameUserInput } from './agent-input-frame.js'
 
 export const BODY_GENERATION_PROMPT = '<output_method>本轮正文由插件生成。最终必须调用 tavern_generate_body，参数为 {}。不得自行撰写正文，不得调用 submit_story（历史中的调用仅是旧正文记录）。工具会取得完整材料、生成并提交正文；成功后结束本轮，不要转述或补充回复。调用失败则停止，不要换用其他生成方式或重试。</output_method>'
 const routeMismatch = Symbol('body-generation-route-mismatch')
@@ -16,7 +17,8 @@ const digest = value => createHash('sha256').update(JSON.stringify(value)).diges
 
 export function configuredBodyGeneration(chat, settings) {
   return { mode: chat?.storyGenerationMode ?? settings?.storyGenerationMode ?? 'host',
-    provider: chat?.storyGenerationProvider ?? settings?.storyGenerationProvider ?? '' }
+    provider: chat?.storyGenerationProvider ?? settings?.storyGenerationProvider ?? '',
+    hostRegex: (chat?.storyPluginOutputRegex ?? settings?.storyPluginOutputRegex) === true }
 }
 
 /** The selected route is frozen in the frame; changing global settings affects the next turn. */
@@ -43,7 +45,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
       || frame.basedOnRevision !== chat.timeline?.revision) throw error('本轮正文生成操作已过期')
     const beforeChat = await readRevision(chat.id, op.beforeRevision)
     return buildBodyRegenerationMaterials({ chat, beforeChat, turn, operationId: op.id, kind: 'generate',
-      targetInput: { raw: frame.userInput.sourceText } })
+      targetInput: { raw: frameUserInput(frame).sourceText } })
   }
   async function generate(session, signal) {
     const turn = activeStoryTurn(session)
@@ -100,7 +102,9 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
           if (provider.registration !== snapshot.registration) throw error('正文生成插件已更换，请重新生成')
           signal.throwIfAborted()
           current.timeline.operations[operationId].bodyGeneration = {
-            status: 'ready', materialsDigest: materials.digest, provider: selected.provider, receipt
+            status: 'ready', materialsDigest: materials.digest, provider: selected.provider, receipt,
+            ...(result.regexScripts !== undefined ? { regexScripts: result.regexScripts } : {}),
+            ...(result.projectionWarning ? { projectionWarning: result.projectionWarning } : {}),
           }
           return current
         }, { source: 'foreground.plugin-generation-ready' })
@@ -186,26 +190,26 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
       }
     },
     async regenerate(gameId, guidance = '') {
-      const selection = await providers.controlRoute?.(gameId) || configuredBodyGeneration(await routeChatForSession(gameId), await settings())
-      const selected = { storyGenerationMode: selection.mode, storyGenerationProvider: selection.provider }
-      if (!selected.storyGenerationMode?.startsWith('plugin-')) return null
+      const configured = configuredBodyGeneration(await routeChatForSession(gameId), await settings())
+      const selected = { ...configured, ...await providers.controlRoute?.(gameId) }
+      if (!selected.mode?.startsWith('plugin-')) return null
       // A tail player row has no assistant body of its own to replace: the native
       // path must answer it instead of replacing the round before it.
       if (unansweredTailIndex(await chatForSession(gameId)) >= 0) return null
       if (regenerations.has(gameId)) throw error('正文正在重新生成')
-      const provider = await providers.require(selected.storyGenerationProvider, gameId)
+      const provider = await providers.require(selected.provider, gameId)
       if (regenerations.has(gameId)) throw error('正文正在重新生成')
       const controller = new AbortController(), task = { controller, pending: null, committed: false }
       const pending = Promise.resolve().then(() => regenerateWithProvider({ gameId, signal: controller.signal,
         onPhase: phase => { if (phase === 'committed') task.committed = true },
-        providerId: selected.storyGenerationProvider,
-        prepare: input => providers.prepare(selected.storyGenerationProvider, input),
+        providerId: selected.provider, hostRegex: selected.hostRegex,
+        prepare: input => providers.prepare(selected.provider, input),
         guidance,
         validateProvider: async () => {
-          if (await providers.require(selected.storyGenerationProvider, gameId) !== provider) throw error('正文生成插件已更换，请重新生成')
+          if (await providers.require(selected.provider, gameId) !== provider) throw error('正文生成插件已更换，请重新生成')
         },
         generate: async ({ materials, signal, snapshot }) => {
-          try { return await providers.generate(selected.storyGenerationProvider, { materials, signal, snapshot }) }
+          try { return await providers.generate(selected.provider, { materials, signal, snapshot }) }
           catch (cause) { throw bodyGenerationError(cause) }
         } }))
       task.pending = pending

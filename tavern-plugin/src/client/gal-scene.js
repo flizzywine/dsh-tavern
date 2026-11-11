@@ -1,11 +1,7 @@
 // @include-shared canvas-resolution.cjs
 // @include spine.js
 // @include spine-preview.js
-
-
-// ---------- Scene helpers (pure; gal-scene-helpers.cjs) ----------
-// @include gal-scene-helpers.cjs
-// ---------- Scene runtime (pixi) ----------
+// @include-shared color-math.cjs
 
 // Machine preference: stage effects quality, "high" (default) or "low".
 const stageQuality = (function () {
@@ -18,6 +14,3 @@ const stageQuality = (function () {
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
     };
 })();
-function useStageQuality() { return React.useSyncExternalStore(stageQuality.subscribe, stageQuality.get); }
-
-function GalScene(props) { return React.createElement(stageViews.scene.Scene,props); }

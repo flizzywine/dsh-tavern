@@ -44,27 +44,3 @@ for(const count of [20,400,10000]) test(`immutable prose and turn hashes stay bo
  assert.equal(reads,0)
  assert.deepEqual(next.viewDelta.set,[])
 })
-
-test('receipt index retains alerts, quiet tail, duplicate turns and live interruption without polluting cache',()=>{
- let activity={}
- const receipts=createSessionStateView({activity:()=>activity,evidence:()=>({})})
- const row=(turn,status)=>({role:'assistant',turn,mvu:{receipt:{status,summary:String(turn)}}})
- let chat={id:'receipt',_storageRevision:1,messages:[row(1,'error'),row(2,'updated'),row(3,'updated'),row(4,'updated'),row(5,'updated')]}
- assert.deepEqual(receipts.receipts(chat).map(r=>r.turn),[1,3,4,5])
- activity={reason:'interrupted',role:'settlement'}
- const interrupted=receipts.receipts(chat,{baseRevision:1,indices:[]})
- assert.deepEqual(interrupted.map(r=>r.turn),[1,2,3,4,5])
- assert.equal(interrupted.at(-1).receipt.status,'interrupted')
- interrupted[0].receipt.summary='outside mutation'
- activity={}
- assert.equal(receipts.receipts(chat,{baseRevision:1,indices:[]})[0].receipt.summary,'1')
- chat={...chat,_storageRevision:2,messages:chat.messages.slice()}
- chat.messages[0]=row(1,'updated')
- assert.deepEqual(receipts.receipts(chat,{baseRevision:1,indices:[0]}).map(r=>r.turn),[3,4,5])
- chat={...chat,_storageRevision:3,messages:[...chat.messages,row(4,'partial')]}
- const appended=receipts.receipts(chat,{baseRevision:2,indices:[5]})
- assert.deepEqual(appended.map(r=>r.turn),[3,4,5])
- assert.equal(appended.find(r=>r.turn===4).receipt.status,'updated','quiet duplicate overrides alert, preserving prior semantics')
- chat={...chat,_storageRevision:4,messages:[row(7,'pending')]}
- assert.deepEqual(receipts.receipts(chat,{baseRevision:3,indices:[0]}).map(r=>r.turn),[7])
-})

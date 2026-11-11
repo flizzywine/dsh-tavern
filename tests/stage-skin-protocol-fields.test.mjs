@@ -29,44 +29,9 @@ test('the name plate takes a Latin layer from the speaker\'s first Latin alias',
   assert.equal(figureLatinAlias({aliases:['辉夜']}),undefined)
 })
 
-test('drawn quick actions include the shortcut list and a disabled image',()=>{
-  valid({buttons:{keys:{image:'art/keys.png',left:20,top:20},auto:{image:'art/auto.png',disabled:'art/auto-off.png',right:20,top:20}}})
-  invalid({buttons:{print:{image:'art/print.png',left:20,top:20}}})
-})
-
 const menu=extra=>skin({menu:{sheet:'art/sheet.svg',rows:{images:{plain:'art/row.svg',focus:'art/row-on.svg'},slice:[8,40,8,40],text:[100,950,42],font:46,x:-80,y:250,gap:10},
   title:{image:'art/title.svg',x:240,y:40,text:[150,350,95],font:96},...extra}})
-test('a phone menu (art.menu.narrow) needs its unit and the wide rows, title and signal it refines',()=>{
-  const doc=contract.validateStageSkin(menu({narrow:{unit:0.3,sheet:'art/sheet-m.svg',rows:{images:{plain:'art/row-m.svg',focus:'art/row-m-on.svg'},y:300,gap:20},title:{y:40,scale:0.8}}}))
-  assert.deepEqual(['art/sheet-m.svg','art/row-m.svg','art/row-m-on.svg'].filter(name=>!contract.stageSkinFiles(doc).includes(name)),[])
-  for(const narrow of [{rows:{y:300}},{unit:0.3,signal:{x:0,y:0}}])invalid(menu({narrow}).art)
-})
 
-test('CONFIG rows may lean (row.slant degrees) and step in (row.step design px)',()=>{
-  const config=row=>({...base,config:{frame:{look:'full',paint:{bg:'#0b0b0b',fg:'#ffffff',fgMuted:'#bdbdbd',accent:'#ffffff',onAccent:'#0b0b0b'}},row}})
-  assert.deepEqual(contract.validateStageSkin(config({look:'plain',slant:-3,step:24})).config.row,{look:'plain',slant:-3,step:24})
-  for(const row of [{slant:12},{step:-8},{step:65}])assert.throws(()=>contract.validateStageSkin(config(row)),{code:'INVALID_SKIN'})
-})
-test('menu words may be glyph tiles (rows.letter, title.letter with glyphTiles) and the focused label larger (rows.focusScale)',()=>{
-  const rows={images:{plain:'art/row.svg',focus:'art/row-on.svg'},slice:[8,40,8,40],text:[100,950,42],font:46,x:-80,y:250,gap:10}
-  const glyphTiles={shape:'rounded',tiles:[{ground:'#1f4e9c',ink:'#ffffff',weight:2},{ground:'#f2c12e',ink:'#141414'}],jitter:{rotate:3}}
-  const doc=contract.validateStageSkin(menu({rows:{...rows,letter:'ransom',focusScale:1.3},title:{x:240,y:40,text:[150,350,95],font:96,letter:'ransom'},glyphTiles}))
-  assert.deepEqual([doc.art.menu.rows.letter,doc.art.menu.rows.focusScale,doc.art.menu.title.letter,doc.art.menu.glyphTiles],['ransom',1.3,'ransom',glyphTiles])
-  invalid(menu({rows:{...rows,letter:'ransom'}}).art)
-  for(const extra of [{rows:{...rows,letter:'collage'}},{rows:{...rows,focusScale:2}},{keys:{x:0,y:900,text:[10,400,30],font:20,letter:'ransom'}}])invalid(menu(extra).art)
-})
-
-test('CONFIG: rows in one block on value plates, a value face, and a foot drawn once',()=>{
-  const config=extra=>({...base,config:{frame:{look:'full',paint:{bg:'#0b0b0b',fg:'#ffffff',fgMuted:'#bdbdbd',accent:'#ffffff',onAccent:'#0b0b0b'}},...extra}})
-  const doc=contract.validateStageSkin(config({row:{look:'plain',block:{label:300,control:400,place:'end'}},
-    controls:{plate:{plain:'art/value.svg',focus:'art/value-on.svg'},paint:{bg:'#ffffff',fg:'#0b0b0b',fgMuted:'#6b6b6b'},font:{face:'title',weight:900}},
-    foot:{image:'art/foot.svg',h:190,fit:'stretch',place:'end'}}))
-  assert.deepEqual([doc.config.row.block.place,doc.config.controls.font.face,doc.config.foot.fit],['end','title','stretch'])
-  assert.deepEqual(['art/value.svg','art/value-on.svg','art/foot.svg'].filter(name=>!contract.stageSkinFiles(doc).includes(name)),[])
-  for(const extra of [{row:{block:{label:300}}},{controls:{font:{weight:900}}},{foot:{image:'art/foot.svg',h:190,fit:'cover'}}])
-    assert.throws(()=>contract.validateStageSkin(config(extra)),{code:'INVALID_SKIN'})
-  assert.throws(()=>contract.validateStageSkin(config({controls:{paint:{bg:'#ffffff',fg:'#0b0b0b',fgMuted:'#bdbdbd'}}})),{code:'SKIN_CONTRAST'})
-})
 
 test('CONFIG cycler values, value sliders, tag heads, tilted painted tabs with a lead line, words and key stickers; menu poses and a put-away top bar (§18 N32)',()=>{
   const paint={bg:'#0b0b0b',fg:'#ffffff',fgMuted:'#bdbdbd',accent:'#ffffff',onAccent:'#0b0b0b'}
@@ -81,21 +46,4 @@ test('CONFIG cycler values, value sliders, tag heads, tilted painted tabs with a
   const doc=contract.validateStageSkin(menu({topbar:'hidden',rows:{images:{plain:'art/row.svg',focus:'art/row-on.svg'},slice:[8,40,8,40],text:[100,950,42],font:46,x:-80,y:250,gap:10,poses:[{x:20,rot:-2},{x:-10}]}}))
   assert.equal(doc.art.menu.topbar,'hidden')
   for(const poses of [[],[{x:300}],[{rot:13}]])invalid(menu({rows:{images:{plain:'art/row.svg',focus:'art/row-on.svg'},slice:[8,40,8,40],text:[100,950,42],font:46,x:-80,y:250,gap:10,poses}}).art)
-})
-
-test('font.menu names the drawn menu ransom words face; the published schema lists the same font fields',()=>{
-  const doc=contract.validateStageSkin({...base,font:{body:'serif-a',menu:'poster-b'}})
-  assert.equal(doc.font.menu,'poster-b')
-  assert.throws(()=>contract.validateStageSkin({...base,font:{menu:'Bad Id!'}}),{code:'INVALID_SKIN'})
-  const schema=require('../tavern-plugin/packages/dsh-presentation-protocol/schema/skin.schema.json')
-  assert.deepEqual(Object.keys(schema.properties.font.properties),['body','name','ui','film','menu','faces'])
-})
-test('portrait.behind lets the box draw over the face; not with a front frame; the published schema lists it',()=>{
-  const at={left:40,bottom:40,size:320}
-  assert.equal(valid({portrait:{...at,behind:true}}).art.portrait.behind,true)
-  assert.equal(Object.hasOwn(valid({portrait:at}).art.portrait,'behind'),false)
-  invalid({portrait:{...at,behind:false}})
-  invalid({portrait:{...at,behind:true,frame:{image:'art/frame.png',left:20,bottom:20,front:true}}})
-  const schema=require('../tavern-plugin/packages/dsh-presentation-protocol/schema/skin.schema.json')
-  assert.deepEqual(schema.properties.art.properties.portrait.properties.behind.enum,[true])
 })

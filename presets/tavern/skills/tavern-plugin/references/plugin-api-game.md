@@ -61,9 +61,51 @@ ctx.tavern.bodyGenerator({
 
 `prepare` 可选，可异步；`reason` 为 `normal | regenerate | retry`。宿主在操作开始时调用它，并保存返回的 JSON 配置快照（最多 2 MiB）；未提供时 `config` 为 `null`。正常轮次的配置在前台检索之前冻结。回调内部不要写游戏状态或启动收费模型请求。凭据继续由 DSH 服务管理，不放入配置快照。
 
-`generate` 得到材料和配置的独立副本。返回值必须为 `{ text: string }`，非空、最多 200000 个 JavaScript 字符。宿主将文本视为插件已经完成输出处理的最终正文：刷新、编辑和 Helper 更新不会重新执行宿主正文宏或输出正则；HTML 仍通过宿主的显示流程处理。需要输出正则的插件在返回之前执行一次。模型的工具调用参数应由插件校验和解析为正文，不交给宿主猜测。
+`generate` 得到材料和配置的独立副本。返回值必须为 `{ text: string }`，非空、最多 200000 个 JavaScript 字符。只返回 `text` 时，插件的输出处理在返回之前完成；使用下述 `regexScripts` 时交回未跑输出正则的原文。用户可选择在提交时追加一遍宿主正则，默认关闭。开启后，宿主按全局、预设、人物卡的顺序处理，并分别保存显示和模型上下文的结果。刷新读取已保存的结果，宿主正文宏不会执行。插件负责校验模型的工具调用并提取正文。
 
 两种回调都有取消信号和 10 分钟超时。传递 `signal` 到模型请求与 Worker；取消、超时、卸载后的迟到结果不会被采用。生成期间更改预设、模型或宿主生成方式只影响后续操作。生成器失败不自动重试、不切换模型或改用宿主生成。
+
+### 双通道投影（`capabilities.bodyProjection === 1`）
+
+生成器可以返回 `{ text: sourceText, regexScripts }`。`text` 是尚未跑输出正则的原文；宿主从同一原文分别计算提示词通道（写入模型上下文）和显示通道，`promptOnly` / `markdownOnly` 按宿主 ST 引擎解释。仅处理本次生成的回复，不改其他楼层。顺序为插件规则在前、用户开启的宿主规则在后；每个通道各自执行。旧插件只返回 `{ text }` 时行为保持原样。
+
+```js
+// generate 的返回值；适用于 normal / regenerate / retry。
+return {
+  text: '<think>计划</think>她推开了门。',
+  regexScripts: [
+    { findRegex: String.raw`/<think>[\s\S]*?<\/think>/g`, replaceString: '', placement: [2], promptOnly: true },
+    { findRegex: String.raw`/<think>([\s\S]*?)<\/think>/g`, replaceString: '<details><summary>思考</summary>$1</details>', placement: [2], markdownOnly: true },
+  ],
+}
+```
+
+- `regexScripts` 至多 256 条、JSON UTF-8 总计至多 1 MiB；每条需有字符串 `findRegex`、字符串 `replaceString`、整数数组 `placement`。其它 ST 规则字段沿用宿主语义。
+- 投影使用 `placement: 2, depth: 0, isEdit: false`，不执行正文宏。显示模式由宿主识别，无需返回 `displayMode`。
+- 宿主保存原文、两通道结果及投影标记。刷新、回退、分叉继续使用该正文版本的结果；下一次插件调用的 `history` 使用保存的提示词通道。历史深度变化不会重跑这些规则。编辑正文按现有插件正文编辑约定，把编辑后的文本直接作为新版本。
+- 规则非法、超限、超时或把提示词通道清空时，保留本次原文作为两个通道，记录日志及 `projectionWarnings`。新增投影在 Worker 中执行，限时 2 秒、结果至多 2 MiB。
+- 恢复未提交的候选会复用已保存的原文和规则，不重新请求模型。旧宿主缺少能力标记时，由插件继续走自己的输出处理。
+
+### ST 字符串服务（`capabilities.stContractService === 1`）
+
+宿主侧 `ctx.get('tavernStContract')` 提供异步服务，复用宿主正则、宏引擎。每次调用独立，不读取或写入会话、卡片、文件；宏产生的变量变化作为返回值交给插件管理。
+
+```js
+const st = ctx.get('tavernStContract')
+const projected = await st.applyRegex({
+  text, regexScripts, placement: 2, depth: 0, channel: 'prompt',
+})
+// projected: { text, sourceText, changed, applied, warnings }
+const rendered = await st.renderMacros({
+  text: '{{user}} / {{incvar::count}}',
+  env: { userName: '玩家', charName: '角色', localVariables: { count: 0 }, globalVariables: {} },
+})
+// rendered: { text, localVariables, globalVariables, diagnostics }
+```
+
+`channel` 必填，为 `prompt | display`；`placement` 默认 2，`depth` 默认 0（非负有限数），`isEdit` 默认 false。正则规则限制同上；`text` 至多 200000 字符。宏 `env` 为至多 1 MiB 的 JSON 对象，支持 `userName / charName / localVariables / globalVariables`，未知宏按宿主引擎保留。调用间的变量不会自动延续，插件可显式传入上次返回的变量快照。`allowScript` 省略或为 false；true 会拒绝。
+
+服务最多同时处理 4 次请求，每次限时 2 秒、输出至多 2 MiB；非法参数、容量已满、超时或处理失败会拒绝 Promise，由插件决定如何处理。预设脚本、DOM、网络和 live Tavern Helper 上下文继续由插件自己的运行时负责。本服务共享纯字符串引擎。
 
 ### 失败契约
 
@@ -92,6 +134,7 @@ message 必须是适合玩家阅读的安全摘要（宿主最多保留 500 字�
 | `identities` | `{ characterName, playerName }`，供预设的身份宏使用 |
 | `state` | `{ variables, messageVariables, status }`，输入预处理完成、正文生成之前的状态；与内部用于回退的轮前存档分开 |
 | `guidance` | 本次重生成指导；空字符串表示未提供 |
+| `outputProcessing?.hostRegex` | 本轮开始时选定的宿主正则开关。为 `true` 时，宿主在插件输出处理完成后应用自己的规则。旧宿主可能省略此字段。插件可用它说明处理顺序 |
 
 `context` 的世界书段已包含当轮有效设定和成功的查询补充。查询补充只接受本轮有效的 `worldbook_list/grep/search` 和宿主世界书文件的受限 `read`；失败、隐藏、其他轮次和任意文件读取结果不会传入。已保存材料不会在恢复时重新读文件或执行宏。
 
@@ -154,6 +197,16 @@ if (ctx.tavern.capabilities?.bodyGeneration === 1) {
 ```
 
 STcontext 的请求预览继续由插件维护；`operationId` 可用来区分不同尝试。模型响应同时含普通文本和工具正文时，插件应按声明的协议选择结果，不能简单取最长字符串。
+
+## 共享预设 `listGenerationPresets()` 和 `readGenerationPreset()`
+
+宿主提供 `ctx.tavern.capabilities?.generationPresets === 1` 时，插件可以读取预设库里的 SillyTavern 原始预设。
+
+- `await ctx.tavern.listGenerationPresets()` 返回 `[{ id, name }]`，可用于预设下拉框。
+- `await ctx.tavern.readGenerationPreset({ id })` 读取指定预设。传 `{ gameId }` 则读取本局绑定的预设。
+- 读取结果为 `{ id, name, revision, text }`。`text` 是原始 JSON 文本，保留提示词顺序和扩展字段。上限为 10 MiB。预设缺失、格式不符或本局未绑定时会抛出错误。
+
+插件可以只保存 `id` 或跟随本局的选项，每次 `prepare` 时再读取源文件，并将本次使用的内容冻结进生成配置。
 
 ## Provider 能力检查
 

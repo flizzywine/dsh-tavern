@@ -129,7 +129,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 				else if (e.key === "Escape") { e.preventDefault(); props.onCancel(); }
 			}
 			const body = props.loading
-				? h(React.Fragment, null, h("div", { className: "dsh-tavern-regen-loading" }, props.loading), props.loadingExtra || null)
+				? (props.loading || props.loadingExtra ? h(React.Fragment, null, props.loading ? h("div", { className: "dsh-tavern-regen-loading" }, props.loading) : null, props.loadingExtra || null) : null)
 				: h(React.Fragment, null,
 					props.error ? h("div", { className: "dsh-tavern-choice-error" }, props.error) : null,
 					h(TextArea, {
@@ -154,7 +154,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			return h("div", { className: "dsh-tavern-question dsh-tavern-regen" },
 				h("div", { className: "dsh-tavern-regen-head" },
 					h("span", { className: "dsh-tavern-regen-title" }, props.title),
-					h("span", { className: "dsh-tavern-question-sub" }, props.hint)
+					props.hint ? h("span", { className: "dsh-tavern-question-sub" }, props.hint) : null
 				),
 				body
 			);
@@ -170,6 +170,25 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const [reviewNote, setReviewNote] = React.useState("");
         const [reviewSeconds, setReviewSeconds] = React.useState(0);
         const [reviewProgress, setReviewProgress] = React.useState(null);
+        const polishRequest = React.useRef(null);
+        React.useEffect(function () {
+            setReviewing(false);
+            setReviewNote("");
+            if (!panel || panel.sessionId !== props.sessionId) return undefined;
+            const stop = tavernSessionSignals?.subscribe(props.sessionId, "polish-saved", signal => {
+                const pending = polishRequest.current;
+                if (!pending || pending.panel !== panel || pending.id !== signal.version) return;
+                polishRequest.current = null;
+                setReviewing(false);
+                setReviewNote("");
+                liveTavernView.invalidate(props.sessionId);
+                setRegenPanel(null);
+            });
+            return function () {
+                if (polishRequest.current?.panel === panel) polishRequest.current = null;
+                stop?.();
+            };
+        }, [panel, props.sessionId]);
         React.useEffect(function () {
             let disposed = false, loading = false;
             setReviewProgress(null);
@@ -232,33 +251,45 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const opened = panel && panel.sessionId === props.sessionId && panel.phase === "input";
         React.useEffect(function () { if (opened) setGuidance(interactions.guidance(props.sessionId)); }, [opened, props.sessionId]);
         const h = React.createElement;
-        if (!isPlayMode(sessionMode) || running || !panel || panel.sessionId !== props.sessionId) return null;
+        // 重新生成一提交，宿主就把会话报成运行中（页面上的发送键要立刻换成停止）；
+        // 这次还在等正文落盘的面板不能跟着消失，否则「正在重新生成正文…」只剩一瞬。
+        if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || (running && panel.phase !== "loading")) return null;
         function generate() {
             return interactions.regenerateBody(panel, guidance, { restyle: styleEnabled && Boolean(guidance.trim()) });
         }
         // 精修: like a regeneration, the panel waits and closes once the polished reply is in;
         // the comparison and its undo live on the 精修 page.
         async function runPolish() {
+            const pending = { panel, id: window.crypto?.randomUUID?.() || "polish-" + Date.now() + "-" + Math.random().toString(36).slice(2) };
+            polishRequest.current = pending;
+            let received = false;
             setReviewing(true); setReviewNote("");
             try {
-                const result = await rpc("polishBody", { guidance }, props.sessionId);
+                const result = await rpc("polishBody", { guidance, requestId: pending.id }, props.sessionId);
+                if (polishRequest.current !== pending) return;
+                received = !result.queued;
                 const skipped = result.edits.filter(edit => edit.status !== "ok").length;
-                if (result.guidance) { setGuidance(result.guidance); setReviewNote("审稿没有按格式输出修改清单，内容已填进意见框，可以按意见重新生成"); }
+                if (result.queued) setReviewNote("精修已排队，等当前回合结束后保存。");
+                else if (result.guidance) { setGuidance(result.guidance); setReviewNote("审稿没有按格式输出修改清单，内容已填进意见框，可以按意见重新生成"); }
                 else if (!result.view) setReviewNote(skipped ? "审稿给出的 " + skipped + " 条修改都没在正文里找到原文，正文没有改动" : "审稿没有发现需要修改的地方");
                 else {
                     liveTavernView.setView(props.sessionId, result.view);
                     notifyTavernDataChanged(["sessions"], "play-controls");
                     tavernCoordination.invalidate(props.sessionId);
-                    window.dispatchEvent(new CustomEvent("dsh-tavern-polished", { detail: { sessionId: props.sessionId } }));
                     setRegenPanel(null);
                 }
-            } catch (error) { setReviewNote("精修失败：" + String(error?.message || error)); }
-            finally { setReviewing(false); }
+            } catch (error) {
+                if (polishRequest.current === pending) setReviewNote("精修未确认完成：" + String(error?.message || error));
+            } finally {
+                if (polishRequest.current === pending) {
+                    if (received) polishRequest.current = null;
+                    setReviewing(false);
+                }
+            }
         }
         return h(RegenGuideForm, {
                 title: "重新生成正文",
-                hint: "留空则重新生成；填写意见则按要求改写正文。" + (styleEnabled ? "同一份意见也会用于更新文风联想。" : "") + "精修会按精修原则和意见修改正文，对比和撤销在「精修」页。",
-                loading: reviewing ? "正在精修正文… " + reviewSeconds + " 秒" + (reviewProgress?.edits?.length ? " · 已修 " + reviewProgress.edits.length + " 处" : "") : panel.phase === "loading" ? (panel.restyle ? "正在换文风联想并重新生成…" : panel.rewrite ? "正在按意见改写正文…" : "正在重新生成正文…") : "",
+                loading: reviewing ? "正在精修正文… " + reviewSeconds + " 秒" + (reviewProgress?.edits?.length ? " · 已修 " + reviewProgress.edits.length + " 处" : "") : panel.phase === "loading" ? (panel.restyle ? "正在换文风联想并重新生成…" : panel.rewrite ? "正在按意见改写正文…" : "") : "",
                 loadingExtra: reviewing && reviewProgress?.edits?.length ? h("div", { className: "dsh-tavern-settings-desc", role: "status" },
                     h("p", null, "逐处生成中，完成后统一保存："),
                     reviewProgress.edits.map(function (edit, index) { return h("details", { key: index },

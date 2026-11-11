@@ -1,29 +1,4 @@
-import {isDeepStrictEqual as equal} from 'node:util'
 import contract from '../../../packages/dsh-presentation-protocol/src/mod-contract.cjs'
-
-// Only explicitly declared display fields may retain runtime authority across a write.
-export function modPresentationChanges(before,after) {
-  const strip=snapshot=>{
-    const {revision,...value}=structuredClone(snapshot)
-    for(const [id,mod] of Object.entries(value.mods)) {
-      const row=value.global.mods[id] ||= {enabledPackIds:[],settings:{}}
-      row.settings ||= {}
-      for(const field of mod.manifest.settingsSchema.fields)if(field.presentation)delete row.settings[field.key]
-    }
-    return value
-  }
-  if(!equal(strip(before),strip(after)))return null
-  const changes={}
-  for(const [id,mod] of Object.entries(after.mods)) {
-    const values={}
-    for(const field of mod.manifest.settingsSchema.fields.filter(field=>field.presentation)) {
-      const prior=before.global.mods[id]?.settings?.[field.key] ?? field.default,next=after.global.mods[id]?.settings?.[field.key] ?? field.default
-      if(!equal(prior,next))values[field.key]=next
-    }
-    if(Object.keys(values).length)changes[id]=values
-  }
-  return changes
-}
 const {modCheck: check, modShape: shape, modPlain: plain, modSafeKey: key, MOD_FIELD_TYPES} = contract
 const text = (value, max = 240) => typeof value === 'string' && value.length > 0 && value.length <= max
 export const modHelp = value => value === undefined || (text(value, 240) && !/[\r\n]/.test(value) && !/(?:[!?\u3002\uff01\uff1f]\s*|\.\s+)\S/.test(value))

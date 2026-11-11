@@ -7,6 +7,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { installPublishGate, nextUpdateRestartMarker, processAlive, stagesNextUpdate, waitForExit, switchProfile, relaunchApp } from './helper.mjs'
 import { cleanupOwnedProcesses, waitForOwnedExit } from './processes.mjs'
 import { hasNextTavern } from './state.mjs'
+import { downloadInstaller } from './installer-download.mjs'
+import { recordProfileContinuation } from './startup-profile.mjs'
 
 async function installTavern(request, { log, waitForDesktop }) {
   const windows = process.platform === 'win32'
@@ -18,29 +20,9 @@ async function installTavern(request, { log, waitForDesktop }) {
   const transcriptPath = join(request.stateDir, 'last-run.log.out')
   writeFileSync(transcriptPath, '')
   writeFileSync(gate + '.progress', '正在下载安装脚本…')
-  const repository = 'flizzywine/dsh-tavern'
-  const sources = [
-    `https://cdn.jsdelivr.net/gh/${repository}@runtime-archive-main/${name}`,
-    `https://raw.githubusercontent.com/${repository}/main/${name}?launcher=${Date.now()}`,
-  ]
-  for (const source of sources) {
-    try {
-      const response = await fetch(source, { signal: AbortSignal.timeout(20000) })
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const content = await response.text()
-      if (waitForDesktop && !content.includes('.ready')) throw new Error('安装脚本尚未支持准备更新')
-      if (!content.includes('DSH_TAVERN_INSTALL_INACTIVE')) throw new Error('安装脚本尚未同步')
-      if (next && !content.includes('DSH_TAVERN_UNIFIED_DESKTOP')) throw new Error('安装脚本尚未同步统一桌面安装支持')
-      if (replacesNext && !content.includes('DSH_TAVERN_REQUIRE_NEXT_MIGRATION')) throw new Error('安装脚本尚未支持 NEXT 迁移')
-      writeFileSync(script, windows ? '\uFEFF' + content : content, { flag: 'wx', mode: 0o600 })
-      log('已下载酒馆安装脚本。')
-      break
-    } catch (error) {
-      log(`安装脚本下载失败 ${source}: ${error.message}`)
-      if (source === sources.at(-1)) throw new Error(`无法获取可用的酒馆安装脚本：${error.message}。请稍后重试。`)
-    }
-  }
-  const env = { ...process.env, DSH_HOME: request.home, DSH_TAVERN_HOST: next ? 'next' : 'desktop',
+  const { content, proxyEnv } = await downloadInstaller(name, { log, preparingUpdate: Boolean(waitForDesktop), next, replacesNext })
+  writeFileSync(script, windows ? '\uFEFF' + content : content, { flag: 'wx', mode: 0o600 })
+  const env = { ...process.env, ...proxyEnv, DSH_HOME: request.home, DSH_TAVERN_HOST: next ? 'next' : 'desktop',
     DSH_DESKTOP_APP_EXECUTABLE: request.relaunch, DSH_TAVERN_LAUNCHER_INSTALL: '1', DSH_TAVERN_PUBLISH_GATE: gate }
   if (next) {
     env.DSH_TAVERN_NEXT_EXECUTABLE = request.relaunch
@@ -136,7 +118,18 @@ async function performJob(request, options) {
     throw error
   } finally {
     // Unsafe transactions retain the install fence until explicit recovery.
-    try { if (!lease.owner.unsafeToRetry) lease.release() } catch { /* A lost lease cannot release its replacement. */ }
+    for (let retry = 0; ; retry++) {
+      try {
+        if (!lease.owner.unsafeToRetry) lease.release()
+        break
+      } catch (error) {
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || retry >= 5) {
+          options.log(`安装锁清理未完成：${error.message}`)
+          break
+        }
+        await delay(50 * (retry + 1))
+      }
+    }
   }
 }
 
@@ -185,6 +178,9 @@ export async function runSwitchJob(job, {
         }
       } } })
       log(JSON.stringify(result))
+      if (request.host !== 'next' && ['link', 'unlink'].includes(request.mode)) {
+        try { recordProfileContinuation(request.home || dirname(resolve(request.stateDir)), request.mode === 'link' ? 'tavern' : 'desktop') } catch {}
+      }
       const message = stagedUpdate ? '酒馆更新完成。' : request.mode === 'install' ? '酒馆安装完成。' : '切换完成。'
       persist({ status: 'succeeded', message, updated: stagedUpdate })
       log(message)

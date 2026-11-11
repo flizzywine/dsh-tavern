@@ -36,17 +36,22 @@ test('host MVU uses the current complete snapshot when earlier floors have no MV
     await cp(new URL('upstream/', root), dir, { recursive: true })
     execFileSync(process.execPath, [fileURLToPath(new URL('host-build/prepare-host-build.mjs', root)), join(dir, 'webpack.config.ts')])
     const source = await readFile(join(dir, 'src/function/update_variables.ts'), 'utf8')
-    const expression = source.slice(source.indexOf('export async function handleVariablesInMessage')).match(/const variables = ([\s\S]*?);\n    const settings/)[1]
+    const handler = source.slice(source.indexOf('export async function handleVariablesInMessage'))
+    const body = handler.slice(handler.indexOf('const current ='), handler.indexOf('const settings'))
+      .replace(' as MvuData', '')
+    const expression = '(() => {' + body + 'return variables})()'
     const current = { stat_data: { hp: 10 }, schema: { type: 'object' } }
-    const evaluate = previous => vm.runInNewContext(expression, {
+    const evaluate = (previous, useCurrentVariables = false) => vm.runInNewContext(expression, {
       request_message_id: 2, message_id: 2, getLastValidVariable: () => previous,
-      getVariables: () => structuredClone(current), _: { has: (object, key) => Object.hasOwn(object, key) }
+      useCurrentVariables, getVariables: () => structuredClone(current),
+      _: { has: (object, key) => Object.hasOwn(object, key), isPlainObject: value => value?.constructor === Object }
     })
     const recovered = evaluate(undefined)
     assert.ok(recovered, 'current-floor snapshot must reach the MVU updater')
     assert.deepEqual(JSON.parse(JSON.stringify(recovered)), current)
     const previous = { stat_data: { hp: 8 }, schema: { type: 'object' } }
     assert.equal(evaluate(previous), previous, 'existing prior-floor semantics must stay intact')
+    assert.deepEqual(evaluate(previous, true), current, 'host settlement must use the frozen baseline')
     delete current.schema
     assert.equal(evaluate(undefined), undefined, 'an incomplete snapshot is not a valid baseline')
   } finally { await rm(dir, { recursive: true, force: true }) }

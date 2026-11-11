@@ -33,12 +33,3 @@ test('skin selection waits for pages, withdraws immediately and unload restores 
   module.dispose();assert.ok(pendingFonts.length>0);for(const resolve of pendingFonts)resolve(new Blob(['font']));await act(async()=>{});assert.equal(provided,0);assert.equal(listeners.size,0);assert.equal(node.style.getPropertyValue('--gal-ui-font'),'');assert.equal(node.hasAttribute('data-fk-fonts'),false)
  }finally{await act(async()=>root.unmount());module.dispose();skin.dispose();dom.window.close();[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]=before}
 })
-test('skin control borrowing preserves owning controls while excluding their timer',()=>{
- const module=createStageSkinPresentation({skin:{},appearance:d=>d})
- const own={document:{id:'controls',quickMenu:{layout:'orb'},hud:{timer:{hide:true},reveal:'edge'}}}
- const lent=module.controls({id:'scene'},null,own)
- assert.equal(lent.id,'controls');assert.deepEqual(lent.hud,{reveal:'edge'});assert.deepEqual(lent.buttons,[])
- assert.equal(module.controls({art:{buttons:{}}},null,own),null)
- assert.equal(module.performed({builtin:true,document:{id:'classic'}},'"classic"'),false)
- module.dispose()
-})

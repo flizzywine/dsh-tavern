@@ -36,7 +36,7 @@ export function createClipHost(options) {
     const chat=await readChat(sessionId)
     if(!chat || chat.id!==chatId || chat.sessionId!==sessionId)throw clipUserError('对话与所选内容不匹配，请重新打开对话后选择片段')
     const [display,config,workspace]=await Promise.all([readDisplay(chat),readConfig(chat.cardPath),readWorkspace(chat.cardPath)])
-    const paragraphs=display.projections.flatMap(({turn,body})=>(body?.paragraphs || []).filter(row=>!row.pending).map(row=>({turn,para:row.para,kind:row.kind,text:row.text,source:row.source,segment:row.segment}))).sort((a,b)=>a.turn-b.turn || a.para-b.para)
+    const paragraphs=display.projections.flatMap(({turn,body})=>(body?.paragraphs || []).filter(row=>!row.pending).map(row=>({turn,para:row.para,kind:row.kind,text:row.text,source:row.source,segment:row.segment,...(row.speech!==undefined?{speech:row.speech}:{}),...(row.voiceHold?{voiceHold:true}:{})}))).sort((a,b)=>a.turn-b.turn || a.para-b.para)
     if(!range)return {chatId,paragraphs}
     const selected=clipRange(paragraphs,range)
     if(selected.length>100)throw clipUserError('一次最多导出 100 段，请缩小范围')
@@ -72,17 +72,21 @@ export function createClipHost(options) {
     return snapshot
   }
   // Each narration page's cached narrator voice (pageVoices; null = silent, counted missing). True when any is found.
+  // 旁白 in another language (config.narrator.wholeParagraph) reads the paragraph's whole voice text on its first page, as
+  // the stage does (speech.cjs stageNarratorHandle); its later pages carry none.
   async function narratorVoices(snapshot,measured) {
-    const own=consumer(snapshot)
+    const own=consumer(snapshot),narrator=snapshot.config?.narrator,language=narrator?.language || 'zh'
     let found=false
     try {
       for(const [index,row] of snapshot.paragraphs.entries()) {
-        const texts=measured[index].narration
-        if(!texts.some(Boolean))continue
+        const pages=measured[index].narration
+        if(!pages.some(Boolean))continue
+        const whole=row.voiceHold&&row.speech===undefined?null:row.speech ?? row.text
+        const texts=narrator?.wholeParagraph?pages.map((text,n)=>n===0?whole:null):pages
         row.pageVoices=[]
         for(const text of texts) {
           const input={text,mood:'default'},voice=text?await own.speech?.readCached(NARRATOR_VOICE,input):null
-          row.pageVoices.push(voice?{key:voice.key,durationMs:voice.durationMs,loudness:voice.loudness,alias:NARRATOR_VOICE,narration:true,input,language:'zh',audio:Buffer.from(voice.audio).toString('base64')}:null)
+          row.pageVoices.push(voice?{key:voice.key,durationMs:voice.durationMs,loudness:voice.loudness,alias:NARRATOR_VOICE,narration:true,input,language,audio:Buffer.from(voice.audio).toString('base64')}:null)
           if(text&&!voice)row.missingVoiceCount=(row.missingVoiceCount || 0)+1
           found||=!!voice
         }
@@ -138,11 +142,10 @@ export function createClipHost(options) {
           case 'releaseLease':tickets.delete(args.ticket);return library().releaseLease(args.ticket)
           case 'getStagePerformanceKinds':return {kinds:performanceKinds?.() || []}
           case 'getStageModHistory':return {turns:snapshot.turns.filter(row=>row.direction.modPerformances?.length).map(row=>({turn:row.turn,performances:row.direction.modPerformances})),kinds:performanceKinds?.() || []}
-          case 'getModStageViews':return {views:[]}
           case 'getMod':return {manifest:{id:args.modId},config:{}}
           case 'getDialogueBubbles':return {config:snapshot.config,cardPath:snapshot.cardPath}
           case 'getSession':return {view:{chatId:snapshot.chatId,card:{path:snapshot.cardPath},replyProjections:snapshot.turns}}
-          case 'getStageItems':case 'readStageModMedia':case 'getStagePhoneThreads':
+          case 'getStageItems':case 'getStagePhoneThreads':
             if(args.turn!==undefined&&!turn(args.turn))throw new Error('Export resource is outside the snapshot')
             if(!readStageResource)throw new Error('Recorded resource reader unavailable')
             return readStageResource(method,{...args,sessionId:snapshot.sessionId})

@@ -27,6 +27,95 @@ function tavernMainSessionId(sessions) {
 	return mainSessionId(snapshot);
 }
 
+// Native sessions are torn down as soon as mainView drops its reference. Keep a
+// few recently-visited sessions resident so A -> B -> A within the retention
+// window reuses the same event stream and streaming tail instead of reopening
+// readPage + follow. This is deliberately separate from the ten-minute browser
+// resource retention: it holds the host Session, not only Tavern's view cache.
+const TAVERN_RECENT_SESSION_RETENTIONS = new WeakMap()
+function createTavernRecentSessionRetention(sessions, options) {
+	if (!sessions || typeof sessions.retain !== 'function') return null
+	const existing = TAVERN_RECENT_SESSION_RETENTIONS.get(sessions)
+	if (existing) return existing
+	const settings = options || {}
+	const limit = Number.isSafeInteger(settings.limit) ? Math.max(1, settings.limit) : 4
+	const durationMs = Number.isSafeInteger(settings.durationMs) ? Math.max(1000, settings.durationMs) : 60 * 1000
+	const busyRetryMs = Number.isSafeInteger(settings.busyRetryMs) ? Math.max(1000, settings.busyRetryMs) : 5 * 1000
+	const records = new Map()
+	const setTimer = function (run, ms) {
+		if (typeof window !== 'undefined' && window && typeof window.setTimeout === 'function') return window.setTimeout(run, ms)
+		return setTimeout(run, ms)
+	}
+	const clearTimer = function (timer) {
+		if (typeof window !== 'undefined' && window && typeof window.clearTimeout === 'function') window.clearTimeout(timer)
+		else clearTimeout(timer)
+	}
+	function snapshotRow(id) {
+		const snapshot = sessions.list && typeof sessions.list.getSnapshot === 'function' ? sessions.list.getSnapshot() : null
+		return snapshot && snapshot.byId && snapshot.byId[id] || null
+	}
+	function busy(id) {
+		if (snapshotRow(id) && snapshotRow(id).running === true) return true
+		try {
+			const binding = typeof sessions.binding === 'function' ? sessions.binding(id) : null
+			const snapshot = binding && binding.session && typeof binding.session.getSnapshot === 'function'
+				? binding.session.getSnapshot() : null
+			return Boolean(snapshot && snapshot.running === true)
+		} catch (_) { return false }
+	}
+	function release(id) {
+		const record = records.get(id)
+		if (!record) return
+		records.delete(id)
+		if (record.timer !== null) clearTimer(record.timer)
+		try { if (record.reference && typeof record.reference.release === 'function') record.reference.release() } catch (_) {}
+	}
+	function schedule(record, delay) {
+		if (record.timer !== null) clearTimer(record.timer)
+		record.timer = setTimer(function () {
+			record.timer = null
+			if (records.get(record.id) !== record) return
+			if (busy(record.id)) { schedule(record, busyRetryMs); return }
+			release(record.id)
+		}, delay)
+	}
+	function prune() {
+		while (records.size > limit) {
+			let victim = null
+			for (const id of records.keys()) {
+				if (!busy(id)) { victim = id; break }
+			}
+			// A generating session keeps its stream until the turn settles; when every
+			// recent session is busy, let the map grow rather than detach live work.
+			if (victim === null) break
+			release(victim)
+		}
+	}
+	function hold(sessionId) {
+		const id = String(sessionId || '')
+		if (id === '') return
+		const existingRecord = records.get(id)
+		if (existingRecord) {
+			records.delete(id)
+			records.set(id, existingRecord)
+			schedule(existingRecord, durationMs)
+			return
+		}
+		let reference
+		try { reference = sessions.retain(id, { source: 'tavern:recent' }) } catch (_) { return }
+		const record = { id: id, reference: reference, timer: null }
+		records.set(id, record)
+		schedule(record, durationMs)
+		prune()
+	}
+	function dispose() {
+		for (const id of Array.from(records.keys())) release(id)
+		TAVERN_RECENT_SESSION_RETENTIONS.delete(sessions)
+	}
+	return Object.freeze({ hold: hold, release: release, dispose: dispose,
+		inspect: function () { return Array.from(records.keys()) } })
+}
+
 // createSessionCompat(sessions) -> 兼容后的 sessions 视图
 // 返回的新对象保留 list/binding/scope/create/fork/refresh 原样，并补回：
 //   current    —— 主会话 id（0.1.5 语义，随列表快照推导）
@@ -45,6 +134,10 @@ function createSessionCompat(sessions, uiWorkspace) {
 		retain: typeof sessions.retain === "function" ? sessions.retain.bind(sessions) : undefined,
 		subagentAddress: typeof sessions.subagentAddress === "function" ? sessions.subagentAddress.bind(sessions) : undefined,
 	};
+
+	const recentRetention = createTavernRecentSessionRetention(sessions);
+	compat.holdRecent = function (sessionId) { if (recentRetention) recentRetention.hold(sessionId); };
+	compat.disposeRecentRetention = function () { if (recentRetention) recentRetention.dispose(); };
 
 	Object.defineProperty(compat, "current", {
 		enumerable: true,
@@ -96,6 +189,10 @@ function createSessionCompat(sessions, uiWorkspace) {
 	};
 	function openTarget(target) {
 		if (uiWorkspace && typeof uiWorkspace.openSession === "function") {
+			// Acquire the previous Session before replaceMain releases it. The reference
+			// keeps its event stream (and any running turn) alive for the hot-return window.
+			const previous = compat.current;
+			if (previous && previous !== target) compat.holdRecent(previous);
 			return Promise.resolve(uiWorkspace.openSession(target));
 		}
 		// 兜底：至少 retain 一次，让 summary+binding 两个就绪条件成立。
@@ -108,6 +205,7 @@ function createSessionCompat(sessions, uiWorkspace) {
 
 	compat.clear = function () {
 		if (uiWorkspace && typeof uiWorkspace.clearMain === "function") {
+			compat.holdRecent(compat.current);
 			return Promise.resolve(uiWorkspace.clearMain());
 		}
 		return Promise.resolve();

@@ -1,10 +1,13 @@
-Create a character identity reference sheet on a plain opaque background. Establish a consistent face, hair structure, inherent colours and body proportions with clear front and side views. Keep presentation neutral and avoid inventing permanent identity traits from outfit accessories. No unrelated characters or watermarks.
-Character: {{figureName}}
-Identity: {{identityAppearance}}
-Outfit: {{outfitName}}
-Outfit details: {{outfitAppearance}}
-Reference image roles:
+Create an identity colour settei board for {{figureName}}.
+Identity description: {{identityAppearance}}
+Record cross-outfit face, body type/proportions, facial-feature drawing rules, hair structure and inherent skin, eye and hair colours. Signature accessories are identity features and must appear on the board: they appear in the official key visual and in most outfits (for example, Haruka Amami's red twin ribbons). Accessories appearing only with specific outfits remain outfit-level. Do not invent a signature colour or transfer another character's head-height ratio.
+Full-body views must wear the character's most representative outfit: official key visual, default costume or uniform, not a neutral gray T-shirt or shorts. The depicted outfit only defines identity and does not approve that outfit; outfit settei still requires separate creation and review.
+Use only evidenced anatomical landmarks and colour zones. Record which content is observed, inferred or reconstructed in the metadata notes, not on the board. Occluded parts are not measurements. Palette samples are reconstruction references, not official RGB values.
+Identity fidelity covers design and the source's drawing language: rebuild face shape, eye construction, hair silhouette, proportions, contour and line weight, shadow shapes, highlight density and colour relationships from the designated identity/style source. Matching clothing and palette is not enough; keep the character's own face, not a generic attractive anime face or beautification. A clean settei is an organised page in the source's rendering, not a cleaner, softer, glossier or different style.
+Source priority: the request names the authority for identity/style, outfit, colour and pose. For faithful reconstruction the designated original or official art is primary; earlier generated or installed assets, even approved ones, only support it and never override its face or drawing language. Never borrow another character's face.
+Anchors: honour the 3-6 visible source anchors listed in the request (face, eyes, hair, line/shadow, demeanour), drawing line weight, shadow edges and highlights as the source does rather than as generic "soft cel shading".
+Finish: {{style}} The source's line weight, shadow shapes, highlights and colouring come first; {{styleScope}}
+Show the character's name exactly once, as the board title; add the form when a variant has one (for example, a younger or transformed form). If the generated board already shows the name, add nothing; otherwise one name may be composited after generation. The board carries only design content useful for drawing the character (views, face, details, palette and short part labels). No status, provenance, review or candidate text, and no extra headers or subtitles.
+Include useful head angles, hair structure and evidenced feature details, with concise notes. Preserve character-specific proportions; native generations may be composed into a board, not claimed as native high-resolution generation.
 {{referenceRoles}}
-Finish: {{style}}
-Preserve the approved design and reference identity; {{styleScope}}
-User notes: """{{userPrompt}}"""
+{{userPrompt}}

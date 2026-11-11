@@ -86,45 +86,35 @@ function nativeEntry(entry) {
   }
 }
 
+function unrecognizedPreview(filename, valid, error) {
+  return {
+    valid,
+    recognized: false,
+    title: titleOf(filename),
+    error,
+    orderGroups: [],
+    selectedOrderGroupIndex: null,
+    sourceRows: [],
+    phases: { front: [], middle: [], back: [] },
+    excluded: { unordered: [], nativeMaterials: [] },
+    unconverted: { prompts: [], unselectedOrderGroups: [] },
+    diagnostics: []
+  }
+}
+
 export function previewPresetConversion(text, filename = '', options = {}) {
   let document
   try {
     document = JSON.parse(str(text))
   } catch {
-    return {
-      valid: false,
-      recognized: false,
-      title: titleOf(filename),
-      error: '文件不是有效的 JSON',
-      orderGroups: [],
-      selectedOrderGroupIndex: null,
-      sourceRows: [],
-      phases: { front: [], middle: [], back: [] },
-      excluded: { unordered: [], nativeMaterials: [] },
-      unconverted: { prompts: [], unselectedOrderGroups: [] },
-      diagnostics: []
-    }
+    return unrecognizedPreview(filename, false, '文件不是有效的 JSON')
   }
 
   const object = document !== null && typeof document === 'object' && !Array.isArray(document) ? document : null
-  const promptDefinitions = object && Array.isArray(object.prompts)
-    ? object.prompts.filter(function (item) { return item !== null && typeof item === 'object' && !Array.isArray(item) })
-    : []
   if (object === null || !Array.isArray(object.prompts)) {
-    return {
-      valid: true,
-      recognized: false,
-      title: titleOf(filename),
-      error: '尚未识别出 SillyTavern prompts 结构',
-      orderGroups: [],
-      selectedOrderGroupIndex: null,
-      sourceRows: [],
-      phases: { front: [], middle: [], back: [] },
-      excluded: { unordered: [], nativeMaterials: [] },
-      unconverted: { prompts: [], unselectedOrderGroups: [] },
-      diagnostics: []
-    }
+    return unrecognizedPreview(filename, true, '尚未识别出 SillyTavern prompts 结构')
   }
+  const promptDefinitions = object.prompts.filter(function (item) { return item !== null && typeof item === 'object' && !Array.isArray(item) })
 
   const occurrenceCounts = new Map()
   const records = promptDefinitions.map(function (prompt, sourceIndex) {

@@ -82,7 +82,7 @@ test('restore includes post-migration progress and retains historical revisions 
 test('process exit before cutover keeps old data and dead-lock recovery permits retry',async t=>{
  const {root,source}=await fixture(t)
  const moduleUrl=new URL('../tavern-plugin/lib/domain/chat-journal-store.js',import.meta.url).href
- const child=spawn(process.execPath,['--input-type=module','-e',`import {createChatJournalStore} from ${JSON.stringify(moduleUrl)};const store=createChatJournalStore({dataRoot:${JSON.stringify(root)},onCompatibilityIO:e=>{if(e.kind==='write'&&e.type==='head')process.exit(19)}});await store.migrateCompatibility('old');`],{stdio:'ignore'})
+ const child=spawn(process.execPath,['--input-type=module','-e',`import {createChatJournalStore} from ${JSON.stringify(moduleUrl)};const store=createChatJournalStore({dataRoot:${JSON.stringify(root)},onCompatibilityIO:e=>{if(e.kind==='write'&&e.type==='block-pack')process.exit(19)}});await store.migrateCompatibility('old');`],{stdio:'ignore'})
  const [code]=await once(child,'exit');assert.equal(code,19)
  const fresh=createChatJournalStore({dataRoot:root})
  assert.deepEqual(await fresh.read('old'),source)

@@ -1,7 +1,24 @@
-import { isRescuedHistoryMessage } from './chat-history-rescue.js'
 import { assistantResultForTurn } from './session-turn-result.js'
 import { sessionEvents } from './session-events.js'
 import { assertConversationForkable } from './conversation-fork.js'
+
+// How far back from the live head an unanchored snapshot search reads. A save keeps a
+// bounded number of revisions for its own history, so this bounds the fallback scan
+// instead of letting a fork read every revision a long game ever wrote.
+const MAX_HISTORY_SCAN = 64
+// A branch that can only take the story rows must not inherit the values of a later
+// turn: variables, ledger, MVU state, world-book reads and native context all belong to
+// the save this message was cut from. They are dropped, and the branch keeps the card's
+// own setup and its text, so it continues from nothing instead of from a made-up state.
+const TEXT_ONLY_STATE_KEYS = [
+  'variables', 'mvu', 'ledger', 'posture', 'scriptState', 'regenRecovery', 'regenInProgress',
+  'replacingDshTurns', 'failedRegenerationTarget', 'candidates', 'candidateAgent', 'foregroundError',
+  'preparedWorldBook', 'preparedWorldBookContext', 'lastWorldBookRecall', 'worldBookRandomState',
+  'worldBookReads', 'worldBookVirtualState', 'worldBookError', 'lastSettle', 'settleError',
+  'nativeCommits', 'nativeSync', 'nativeOpeningAppended', 'runtimeInputs', 'foregroundFrames',
+  'suppressedDshTurns', 'regeneratedDshTurns', 'pendingCardChanges', 'cardAutoReload',
+  'promptTemplateInitialVariables', 'messageDeletion', 'importedSave', 'lastOpenedAt'
+]
 
 const turnOf = message => Number(message?.turn || (message?.greeting ? 1 : 0))
 const lastAssistant = chat => (chat.messages || []).findLast(message => message?.role === 'assistant')
@@ -12,6 +29,16 @@ function str(value) {
 
 function rowsOf(state) {
   return Array.isArray(state?.messages) ? state.messages : []
+}
+
+// The branch a save can still cut when its snapshot of that row is gone: the story rows
+// of the chosen message and the card's own setup, with nothing carried over from the
+// turns that came after them.
+function textOnlyBranch(source, rows) {
+  const state = { ...source, messages: rows, settleStatus: 'done' }
+  for (const key of TEXT_ONLY_STATE_KEYS) delete state[key]
+  state.mvu = { enabled: false }
+  return state
 }
 
 // A snapshot is usable only when it holds exactly the story prefix the chosen
@@ -79,31 +106,40 @@ function holdsAvailablePrefix(state, sourceMessages) {
 }
 
 /**
- * Resolve the Chat state that a story message ends at, addressed by absolute message
- * index. The chosen snapshot's messages are the source prefix `[0..messageIndex]`; no
- * turn is consulted to find it. A request on the live head resolves to the source itself.
- * @returns `{ messageIndex, state, turn }` — `turn` is informational, for legacy receipts.
+ * Resolve the Chat state a story message ends at, addressed by absolute message index.
+ * The chosen prefix is `[0..messageIndex]`; no turn is consulted to find it.
+ *
+ * A fork never asks the player to wait for history: the live head resolves to the source
+ * itself, a retained snapshot of that row is used with its own values, and when the save
+ * no longer holds one the branch is cut from the story rows alone (`textOnly`).
+ * @returns `{ messageIndex, state, turn, textOnly }` — `turn` is informational, for legacy receipts.
  */
 export async function conversationStateAtMessage(source, messageIndex, readRevision) {
   if (!source) throw new Error('找不到要分叉的对话')
   const messages = Array.isArray(source.messages) ? source.messages : []
   const index = Number(messageIndex)
   if (!Number.isSafeInteger(index) || index < 0 || index >= messages.length) throw new Error('找不到指定分叉消息')
-  const message = messages[index]
-  if (message?.role !== 'assistant') throw new Error('分叉点必须是正文消息')
-  if (isRescuedHistoryMessage(source, message)) throw new Error('存档救援导入的历史没有状态快照，不能从这条消息分叉')
+  if (messages[index]?.role !== 'assistant') throw new Error('分叉点必须是正文消息')
   if (messages.length === index + 1) {
     assertConversationForkable(source)
     return { messageIndex: index, state: source, turn: turnOf(lastAssistant(source)) }
+  }
+  const exact = async state => {
+    try {
+      assertConversationForkable(state, { historical: true })
+      return { messageIndex: index, state, turn: turnOf(lastAssistant(state)) }
+    } catch (error) {
+      // A snapshot caught mid-settlement still names the row; its values are the only
+      // thing missing, so it falls through to the story-only branch like any other.
+      if (error?.forkTransient === true) return null
+      throw error
+    }
   }
   const queue = [], claimed = new Set()
   harvestSnapshots(source, queue, claimed)
   const visited = new Set()
   const MAX_FORWARD_PROBES = 64
   let forwardProbes = 0
-  let readable = false
-  let stale = false
-  let pendingError = null
   const queueForward = candidate => {
     if (!Number.isSafeInteger(candidate.scanUntil) || candidate.revision >= candidate.scanUntil || forwardProbes >= MAX_FORWARD_PROBES) return false
     const next = { chatId: candidate.chatId, revision: candidate.revision + 1, scanUntil: candidate.scanUntil, probe: true }
@@ -124,10 +160,8 @@ export async function conversationStateAtMessage(source, messageIndex, readRevis
       state = await readRevision(candidate.chatId, candidate.revision)
     } catch (error) {
       if (error?.code === 'DSH_TAVERN_REVISION_NOT_FOUND') {
-        // Sparse revisions and compaction holes do not end a bounded probe; the
-        // original anchor still reports that its requested history was reclaimed.
+        // Sparse revisions and compaction holes do not end a bounded probe.
         if (candidate.probe) queueForward(candidate)
-        else stale = true
         continue
       }
       throw error
@@ -136,15 +170,9 @@ export async function conversationStateAtMessage(source, messageIndex, readRevis
       if (candidate.probe) queueForward(candidate)
       continue
     }
-    readable = true
     if (holdsStoryPrefix(state, messages, index)) {
-      try {
-        assertConversationForkable(state, { historical: true })
-        return { messageIndex: index, state, turn: turnOf(lastAssistant(state)) }
-      } catch (error) {
-        if (error?.forkTransient !== true) throw error
-        pendingError ||= error
-      }
+      const resolved = await exact(state)
+      if (resolved) return resolved
     }
     // Legacy checkpoints point at the pre-reply row; early afterRevision values
     // point at the exact but still-settling row. Walk forward only inside this
@@ -153,10 +181,36 @@ export async function conversationStateAtMessage(source, messageIndex, readRevis
     // A later snapshot can still hold this prefix through its own parent chain.
     harvestSnapshots(state, queue, claimed)
   }
-  if (pendingError) throw pendingError
-  if (stale) throw new Error('这条消息的回合太早，历史状态已清理（只保留最近 50 轮），无法从这条消息分叉')
-  if (readable) throw new Error('历史快照与当前分支正文不一致，无法安全分叉')
-  throw new Error('这条消息的历史状态快照不可用，无法安全分叉')
+  // A save can stop naming its own history: a rollback drops the checkpoint it
+  // consumed, a story edit or import rewrites the timeline, and maintenance only keeps
+  // the revisions some feature still points at. The rows are what identifies a state,
+  // so when no anchor reaches the chosen message, walk the Chat's own revisions back
+  // from the head and take the newest one that ends exactly at it. The anchors above
+  // stay first: they name settled revisions without scanning.
+  const chatId = str(source.id)
+  const head = Number(source._storageRevision)
+  let missing = 0
+  for (let revision = head - 1, probes = 0; Number.isSafeInteger(revision) && revision >= 1 && probes < MAX_HISTORY_SCAN; revision--, probes++) {
+    const key = chatId + '\u0000' + revision
+    if (visited.has(key)) continue
+    visited.add(key)
+    let state
+    try {
+      state = await readRevision(chatId, revision)
+    } catch (error) {
+      if (error?.code !== 'DSH_TAVERN_REVISION_NOT_FOUND') throw error
+      // Two holes in a row mean the retained history ends here.
+      if (++missing >= 2) break
+      continue
+    }
+    missing = 0
+    if (!state || state._storageRevision !== revision) continue
+    if (!holdsStoryPrefix(state, messages, index)) continue
+    const resolved = await exact(state)
+    if (resolved) return resolved
+  }
+  const rows = messages.slice(0, index + 1)
+  return { messageIndex: index, state: textOnlyBranch(source, rows), turn: turnOf(rows[index]), textOnly: true }
 }
 
 // Legacy entry point: locate the story message by its turn, then select the state by

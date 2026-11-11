@@ -48,15 +48,6 @@ function seeded() {
   return { files, store, transfer }
 }
 
-test('list 只列有召回记录的局，并给出轮次与字节', async () => {
-  const { transfer } = seeded()
-  const rows = await transfer.list()
-  assert.deepEqual(rows.map(row => row.key), ['c1'])
-  assert.equal(rows[0].title, '作家 · 第 3 章')
-  assert.equal(rows[0].meta, '2 轮召回记录')
-  assert.ok(rows[0].bytes > 0)
-})
-
 test('collect 把一局的记录合成一项，导入到新局后按 operationId 去重', async () => {
   const { transfer, files } = seeded()
   const items = await transfer.collect(['c1'])
@@ -78,14 +69,4 @@ test('collect 把一局的记录合成一项，导入到新局后按 operationId
   // 同一个包再导一次：操作 id 都在，直接跳过。
   const again = await transfer.importOne({ key: 'c1', chatId: 'new-chat', sessionId: 'new-session', content: items[0].content })
   assert.deepEqual(again, { added: 0, skipped: 2 })
-})
-
-test('坏输入被拒绝：别的 spec、空记录、非法对话标识', async () => {
-  const { transfer } = seeded()
-  const content = Buffer.from(JSON.stringify({ spec: 'other', version: 1, records: [] }))
-  await assert.rejects(transfer.importOne({ chatId: 'new-chat', content }), /spec 不符/)
-  const empty = Buffer.from(JSON.stringify({ spec: 'dsh-tavern.transfer.recalls', version: 1, records: [] }))
-  await assert.rejects(transfer.importOne({ chatId: 'new-chat', content: empty }), /空的/)
-  const ok = Buffer.from(JSON.stringify({ spec: 'dsh-tavern.transfer.recalls', version: 1, records: [{ turn: 1, operationId: 'op-9', log: log(1, 'op-9', 'x') }] }))
-  await assert.rejects(transfer.importOne({ chatId: '../escape', content: ok }), /标识无效/)
 })

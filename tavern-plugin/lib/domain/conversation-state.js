@@ -1,6 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto'
 import {isDeepStrictEqual} from 'node:util'
 import {createIncrementalJsonState} from './incremental-json-state.js'
+import {createBufferedJsonRecords} from './buffered-json-records.js'
 
 const FORMAT='conversation-state-v2'
 const WORLD_FORMAT='incremental-world-v1'
@@ -43,8 +44,17 @@ export function createConversationState({store}){
    if(r.displayIndexRevision!==undefined&&(!r.sceneIndexRef||r.displayIndexRevision!==r.chatRevision))throw error('CONVERSATION_INPUT','Invalid display index')
    runtime={...(r.displayIndexRevision!==undefined?{displayIndexRevision:r.displayIndexRevision}:{}),...(r.sceneIndexRef?{sceneIndexRef:r.sceneIndexRef,sceneIndexRevision:r.sceneIndexRevision}:{}),chatHeaderRef:r.chatHeaderRef,chatRevision:r.chatRevision,worldMessage:r.worldMessage,...(r.worldMessageUid!==undefined?{worldMessageUid:r.worldMessageUid}:{}),worldSwipe:r.worldSwipe}
   }
+  // A new world may contain hundreds of immutable JSON nodes. Writing each node
+  // with its own fsync made a phone spend seconds creating an otherwise empty chat.
+  // Pack the reachable tree first; store.create still publishes its head only after
+  // every referenced record is durable, preserving the existing crash boundary.
+  const batch=typeof store.writeRecords==='function'?createBufferedJsonRecords({
+   read:ref=>store.readRecord(id,ref),writeMany:(values,refs)=>store.writeRecords(id,values,refs)
+  }):null
+  const worldRef=await (batch?batch.tree:tree(id)).create(value.world)
+  if(batch)await batch.flush([worldRef])
   return store.create(id,{metadata:{format:FORMAT,settings:value.metadata??{}},messages:value.messages??[],
-   state:{...runtime,branchId:randomUUID(),storyRevision:0,worldRevision:0,lifecycleRevision:0,activeSettlementId:null,worldRef:await tree(id).create(value.world)}},options)
+   state:{...runtime,branchId:randomUUID(),storyRevision:0,worldRevision:0,lifecycleRevision:0,activeSettlementId:null,worldRef}},options)
  }
  async function open(id,{limit=50,includeWorld=true}={}){
   const view=await store.openConversation(id,{limit})

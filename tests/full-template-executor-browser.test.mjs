@@ -7,7 +7,9 @@ test('global settings need no game and local commands remain session-bound', {sk
   try {
     const page=await browser.newPage()
     const source=await readFile(new URL('../tavern-plugin/src/client/full-template-executor.js',import.meta.url),'utf8')
+    const css=await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css',import.meta.url),'utf8')
     await page.setContent('<!doctype html><body></body>')
+    await page.addStyleTag({content:css + '\nbody { color-scheme: light; --dsw-alias-bg-base: #eee8; --dsw-specific-sidebar-fill: #ddd8; }'})
     await page.addScriptTag({content:'function isPlayMode(){return true}\n'+source})
     await page.evaluate(()=>{
       window.calls=[]
@@ -22,6 +24,13 @@ test('global settings need no game and local commands remain session-bound', {sk
       globalPanel.open()
     })
     assert.equal(await page.getByLabel('启用提示词模板').isChecked(),false)
+    const globalDialog=page.getByRole('dialog',{name:'提示词模板设置'})
+    const lightBackground=await globalDialog.evaluate(node=>getComputedStyle(node).backgroundColor)
+    assert.match(lightBackground,/^rgb\(/,'半透明皮肤下仍有不透明底色')
+    await page.evaluate(()=>document.body.style.colorScheme='dark')
+    const darkBackground=await globalDialog.evaluate(node=>getComputedStyle(node).backgroundColor)
+    assert.match(darkBackground,/^rgb\(/)
+    assert.notEqual(darkBackground,lightBackground)
     assert.equal(await page.getByLabel('模板命令',{exact:true}).count(),0)
     assert.equal(await page.getByLabel('世界书条目',{exact:true}).count(),0)
     await page.getByLabel('启用提示词模板').check()

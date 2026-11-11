@@ -56,6 +56,14 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 const storyWriteScenario = process.argv.includes('--story-write-ops')
+const inlineOpeningScenario = process.argv.includes('--inline-opening')
+const batchImportScenario = process.argv.includes('--batch-import')
+const routeMenu = '默认路线。\n\n' + [
+  '```html',
+  '<button id="e2e-route">READ STORY</button>',
+  '<script>document.getElementById("e2e-route").onclick=()=>SillyTavern.getContext().swipe.to(null,"right",{forceMesId:0,forceSwipeId:1,source:"slash_command"});</script>',
+  '```'
+].join('\n')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
 const stageDirectorFault=process.argv.includes('--stage-director-fault')
 const stageAudioFault = process.argv.includes('--stage-audio-fault')
@@ -173,7 +181,7 @@ async function waitForVisibleStoryText(text) {
 async function inspectScreen() {
   await page.locator('.dsh-tavern-user-bubble').filter({ hasText: '领取任务奖励' }).first().waitFor({ state: 'visible' })
   await waitForVisibleStoryText('你获得了十枚金币。')
-  await page.getByText(/变量已更新/).filter({ visible: true }).first().waitFor()
+  await page.getByRole('button', { name: /变量已更新/ }).first().waitFor({ state: 'visible' })
   await openStatus()
   await page.frameLocator('.dsh-tavern-status-runtime iframe.dsh-tavern-message-frame:not([aria-hidden="true"])')
     .locator('#e2e-gold').filter({ hasText: /^金币：10$/ }).waitFor()
@@ -252,7 +260,8 @@ try {
     // Storage audit: borrow a real large card's worldbook (its [initvar] entries give realistic MVU state).
     const auditBook = process.env.TAVERN_E2E_AUDIT_CARD ? (raw => (raw.data || raw).character_book)(JSON.parse(await readFile(process.env.TAVERN_E2E_AUDIT_CARD, 'utf8')).raw || JSON.parse(await readFile(process.env.TAVERN_E2E_AUDIT_CARD, 'utf8'))) : null
     await writeFile(join(data, 'resources/cards/e2e.json'), JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: {
-      name: 'E2E 奖励验收', description: '固定验收角色', first_mes: (process.argv.includes('--text-colors') ? '她说：“欢迎光临。” *窗外下着雨。*' : '欢迎领取奖励。') + (process.argv.includes('--opening-update') ? '\n<initvar>{"gold":0,"old":1}</initvar>' : '') + '\n\n<StatusPlaceHolderImpl/>',
+      name: 'E2E 奖励验收', description: '固定验收角色', first_mes: (inlineOpeningScenario ? routeMenu : process.argv.includes('--text-colors') ? '她说：“欢迎光临。” *窗外下着雨。*' : '欢迎领取奖励。') + (process.argv.includes('--opening-update') ? '\n<initvar>{"gold":0,"old":1}</initvar>' : '') + '\n\n<StatusPlaceHolderImpl/>',
+      ...(inlineOpeningScenario ? { alternate_greetings: ['{{user}}，第二条路线。\n<initvar>{"gold":30}</initvar>\n\n<StatusPlaceHolderImpl/>', '第三条路线。'] } : {}),
       mes_example: '', scenario: '', personality: '',
       character_book: { name: '验收初始变量', entries: [{ id: 1, keys: [], comment: '[initvar]初始值', content: process.argv.includes('--settlement-performance') || process.argv.includes('--storage-audit') ? JSON.stringify(settlementPerformanceInitialVariables()) : 'gold: 0', enabled: true, constant: true, insertion_order: 1 }, ...(auditBook ? auditBook.entries.filter(entry => !/initvar/i.test(String(entry.comment || '') + String(entry.content || '').slice(0, 200))).map((entry, index) => ({ ...entry, id: 1000 + index })) : []), ...(helperApiScenario ? [{ id: 2, keys: ['金币规则'], comment: '金币规则', content: '每次领取十枚金币。', enabled: true, insertion_order: 2 }] : [])] },
       extensions: { mvu: {}, ...(helperApiScenario ? { TavernHelper_scripts: [{ type: 'script', value: { id: 'e2e-helper-api', name: 'E2E 助手接口', enabled: true, content: helperApiScript } }] } : {}), regex_scripts: [{ id: 'e2e-status', scriptName: '金币状态', findRegex: '<StatusPlaceHolderImpl/>',
@@ -292,7 +301,7 @@ try {
           TAVERN_E2E_BACKGROUND_DUMP: process.argv.includes('--edit-candidates') ? join(output, 'background-requests.jsonl') : '',
           TAVERN_E2E_CAST: castScenario ? '1' : '',
           TAVERN_E2E_MEMORY_AUDIT: process.argv.includes('--card-memory') ? join(output, 'memory-requests.jsonl') : '',
-          TAVERN_E2E_CONTEXT_AUDIT: process.argv.includes('--native-repair') || process.argv.includes('--failure-resilience') ? join(output, 'context-requests.jsonl') : '',
+          TAVERN_E2E_CONTEXT_AUDIT: inlineOpeningScenario || process.argv.includes('--native-repair') || process.argv.includes('--failure-resilience') ? join(output, 'context-requests.jsonl') : '',
           TAVERN_E2E_LLM_MODULE: join(modules, '@deepseek-ai/dsh-llm/lib/index.js'),
           // Server card scripts are the default; ordinary scenarios keep exercising the page path.
           DSH_TAVERN_SERVER_SCRIPTS: process.argv.includes('--server-scripts') ? '1' : '0',
@@ -383,6 +392,39 @@ try {
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
   })
+  if (batchImportScenario) {
+    await step('普通入口和批量管理都能多选，单份失败不影响后续导入', async () => {
+      const cardFile = name => ({ name: name + '.json', mimeType: 'application/json',
+        buffer: Buffer.from(JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0',
+          data: { name, description: '批量导入验收', first_mes: '你好。' } })) })
+      const first = cardFile('批量验收甲'), second = cardFile('批量验收乙'), third = cardFile('批量验收丙')
+      await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
+      const picker = page.getByRole('dialog', { name: '选择人物卡开始游玩' })
+      async function choose(label, files) {
+        const [chooser] = await Promise.all([
+          page.waitForEvent('filechooser'),
+          picker.getByRole('button', { name: label, exact: true }).click()
+        ])
+        assert.equal(chooser.isMultiple(), true)
+        await chooser.setFiles(files)
+      }
+      await choose('导入人物卡', [first, { name: '损坏.json', mimeType: 'application/json', buffer: Buffer.from('{') }, second])
+      const summary = picker.getByRole('status').filter({ hasText: '已导入 2 张，1 个文件失败' })
+      await summary.filter({ hasText: '失败文件：损坏.json' }).waitFor()
+      await picker.getByText('批量验收甲', { exact: true }).waitFor()
+      await picker.getByText('批量验收乙', { exact: true }).waitFor()
+      await picker.getByRole('button', { name: '批量管理', exact: true }).click()
+      await choose('批量导入', [second, third])
+      await picker.getByRole('status').filter({ hasText: '已导入 1 张，1 个文件失败' })
+        .filter({ hasText: '失败文件：批量验收乙.json' }).waitFor()
+      await picker.getByText('批量验收丙', { exact: true }).waitFor()
+      assert.equal(await picker.getByText('批量验收乙', { exact: true }).count(), 1)
+    })
+    assert.deepEqual(errors, [])
+    report.status = 'passed'
+    delete report.currentStep
+    break scenario
+  }
   if (restoredSave) await step('打开存档中的这局游戏', async () => {
     const history = page.locator('.dsh-tavern-history-group-toggle').filter({ hasText: report.card || 'E2E 奖励验收' })
     await history.filter({ visible: true }).first().waitFor()
@@ -393,13 +435,67 @@ try {
   else await step('通过界面选择角色卡并新开一局', async () => {
     await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
     await page.getByText(report.card || 'E2E 奖励验收', { exact: true }).first().click()
-    await page.getByRole('button', { name: '开始新游戏', exact: true }).click()
     await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
+    await page.getByRole('dialog', { name: '选择人物卡开始游玩' }).waitFor({ state: 'hidden' })
+    if (inlineOpeningScenario) return
     if (process.argv.includes('--real-gameplay')) return
     await openStatus()
     await page.frameLocator('.dsh-tavern-status-runtime iframe.dsh-tavern-message-frame:not([aria-hidden="true"])')
       .locator('#e2e-gold').filter({ hasText: /^金币：0$/ }).waitFor()
   })
+  if (inlineOpeningScenario) {
+    const nav = page.getByRole('group', { name: '切换开场白' })
+    const next = nav.getByRole('button', { name: '下一条开场白' })
+    const previous = nav.getByRole('button', { name: '上一条开场白' })
+    let original
+    await step('从对话第 0 楼使用卡片按钮和酒馆箭头切换开场', async () => {
+      await nav.getByText('1 / 3').waitFor()
+      original = await savedChat()
+      const card = page.locator('[data-greeting] iframe:not([aria-hidden="true"])')
+      await card.first().contentFrame().getByRole('button', { name: 'READ STORY' }).click()
+      await nav.getByText('2 / 3').waitFor()
+      await waitForVisibleStoryText('第二条路线。')
+      await next.click()
+      await nav.getByText('3 / 3').waitFor()
+      await waitForVisibleStoryText('第三条路线。')
+      await previous.click()
+      await nav.getByText('2 / 3').waitFor()
+      await waitForVisibleStoryText('第二条路线。')
+      assert.equal((await savedChat()).id, original.id)
+    })
+    await step('本局设置改名后立即刷新开场，重载和模型请求继续使用新称呼', async () => {
+      await page.getByRole('tab', { name: '本局设置' }).filter({ visible: true }).first().click()
+      const name = page.getByLabel('玩家称呼', { exact: true })
+      await name.fill('新玩家')
+      await name.press('Tab')
+      await waitForVisibleStoryText('新玩家，第二条路线。')
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await nav.getByText('2 / 3').waitFor()
+      await waitForVisibleStoryText('新玩家，第二条路线。')
+      await openStatus()
+      await page.frameLocator('.dsh-tavern-status-runtime iframe:not([aria-hidden="true"])')
+        .locator('#e2e-gold').filter({ hasText: /^金币：30$/ }).waitFor()
+      const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+      await composer.fill('领取任务奖励')
+      await composer.press('Enter')
+      await waitForVisibleStoryText('你获得了十枚金币。')
+      await nav.waitFor({ state: 'hidden' })
+      const audit = (await readFile(join(output, 'context-requests.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse)
+      const request = audit.find(entry => entry.messages.some(message => message.role === 'user' && message.text.includes('领取任务奖励')))
+      assert.ok(request)
+      const greetings = request.messages.filter(message => message.role === 'assistant' && message.text.includes('第二条路线。'))
+      assert.equal(greetings.length, 1)
+      assert.match(greetings[0].text, /新玩家，第二条路线。/)
+      assert.doesNotMatch(JSON.stringify(request), /默认路线。|第三条路线。/)
+      const after = await savedChat()
+      assert.equal(after.id, original.id)
+      assert.equal(after.sessionId, original.sessionId)
+    })
+    assert.deepEqual(errors, [])
+    report.status = 'passed'
+    delete report.currentStep
+    break scenario
+  }
   if(process.argv.includes('--native-format'))await step('确认新局直接写入原生分页存档',assertNativeStorage)
   if (process.argv.includes('--text-colors')) {
     await step('实际正文挂载主题对白高亮', async () => {
@@ -792,7 +888,6 @@ try {
         assert.deepEqual((await savedChat()).messages.map(({role,text,turn,variables})=>({role,text,turn,variables})),preserved,'舞台故障不能修改剧情和变量')
         await page.getByRole('button',{name:/选择人物卡.*新开游玩/}).click()
         await page.locator('.dsh-tavern-picker-overlay').getByText('E2E 奖励验收',{exact:true}).click()
-        await page.getByRole('button',{name:'开始新游戏',exact:true}).click()
         await page.getByRole('textbox',{name:/发消息|Message/}).waitFor()
         await page.waitForFunction(()=>document.querySelectorAll('.dsh-tavern-side-row').length===2)
         assert.equal(await page.locator('[data-stage-failure]').count(),0)
@@ -1329,7 +1424,7 @@ try {
     if(captured?.profile)await writeFile(join(output,'browser.cpuprofile'),JSON.stringify(captured.profile))
   }
   // Read-only evidence, independent of the status iframe and its UI assertions.
-  const chat = process.argv.includes('--settlement-performance') || storyWriteScenario ? null : await savedChat().catch(error => { report.savedStateError = String(error.message || error); return null })
+  const chat = process.argv.includes('--settlement-performance') || storyWriteScenario || batchImportScenario ? null : await savedChat().catch(error => { report.savedStateError = String(error.message || error); return null })
   if (chat) await writeFile(join(output, 'saved-state.json'), JSON.stringify({ id: chat.id, posture: chat.posture, contextCompaction: chat.contextCompaction, timeline: chat.timeline,
     messages: chat.messages.map(message => ({ role: message.role, text: message.sourceText ?? message.text, turn: message.turn, variables: message.variables, mvu: message.mvu, ...(displayScenario ? {tavernPluginData:message.tavernPluginData} : {}) })) }, null, 2))
   await context?.tracing.stop({ path: join(output, 'trace.zip') }).catch(() => {})

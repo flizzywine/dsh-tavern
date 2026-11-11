@@ -20,5 +20,3 @@ function cgPaintFrame(element,frame) {
     });
     return !!frame.current && images[1].complete && images[1].naturalWidth > 0 && view.width > 0 && view.height > 0 && element.isConnected && !document.hidden && element.checkVisibility?.({checkVisibilityCSS:true,checkOpacity:true}) !== false;
 }
-function CgGallery(props) { return stageViews ? React.createElement(stageViews.gallery.Gallery, props) : null; }
-function useCgStage(...args) { return stageViews.cg.useStage(...args); }

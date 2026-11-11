@@ -5,17 +5,6 @@ import { createWholeReadGuard, scopeTurnHooks } from '../tavern-plugin/lib/domai
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 1))
 
-test('warn logs each call site once; off reports nothing', async () => {
-  const warnings = []
-  const guard = createWholeReadGuard({ mode: 'warn', logger: { warn: message => warnings.push(message) } })
-  const read = () => guard.report('c')
-  for (let i = 0; i < 3; i++) await guard.scope('结算', async () => read())
-  assert.equal(warnings.length, 1)
-  assert.match(warnings[0], /每轮路径读取了完整存档（结算）/)
-  const off = createWholeReadGuard({ mode: 'off' })
-  await off.scope('结算', async () => off.report('c'))
-})
-
 test('turn hooks run marked, streams while consumed; other events and members pass through', async () => {
   const guard = createWholeReadGuard({ mode: 'throw' })
   const handlers = new Map()

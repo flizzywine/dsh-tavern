@@ -266,6 +266,34 @@ export async function storyWriteOperationChecks(context) {
 		summary.rounds = rounds(ready).length
 	})
 
+	await step('从历史楼层回退并在最新楼层撤销', async () => {
+		const before = (await diskGames())[0]
+		const floors = assistantFloors(before)
+		const previous = assistantRows().nth(floors.length - 2)
+		const latest = assistantRows().last()
+		await latest.getByRole('button', { name: '重新生成这一轮正文', exact: true }).click()
+		await page.getByRole('button', { name: '生成并替换正文', exact: true }).waitFor()
+		await page.getByRole('button', { name: '取消', exact: true }).click()
+		await previous.hover()
+		await previous.getByRole('button', { name: '回退到这一轮', exact: true }).click()
+		const confirmation = page.getByRole('dialog', { name: '确认操作' })
+		await confirmation.getByText('回退到第 ' + (floors.length - 1) + ' 楼？', { exact: false }).waitFor()
+		await confirmation.getByRole('button', { name: '回退', exact: true }).click()
+		const rolled = await until('楼层回退落盘', async () => {
+			const chat = await readChat(before.id)
+			return assistantFloors(chat).length === floors.length - 1 ? chat : null
+		}, 15000)
+		assert.equal(textOf(assistantFloors(rolled).at(-1)), textOf(floors.at(-2)))
+		await until('故事楼层刷新', async () => await assistantRows().count() === floors.length - 1, 15000)
+		await assistantRows().last().getByRole('button', { name: '更多', exact: true }).click()
+		await page.getByRole('menuitem', { name: /撤销回退/ }).click()
+		await until('撤销回退还原正文', async () => {
+			const chat = await readChat(before.id)
+			return assistantFloors(chat).length === floors.length ? chat : null
+		}, 15000)
+		assert.deepEqual(prose(await readChat(before.id)), prose(before))
+	})
+
 	let edited = null
 	const editedStep = await step('编辑正文与玩家输入并保存', async () => {
 		const source = (await diskGames())[0]

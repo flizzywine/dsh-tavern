@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
+import { beginRelaxedSync, endRelaxedSync } from './conversation-page-store.js'
+import { cardNameFromText, inspectSillyTavernChatItem, isSillyTavernChatItem } from './transfer-chats.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -40,17 +42,20 @@ export function createTransferImport(deps) {
     removeCreated, readSettingsDocument, assets, memory } = deps
 
   async function cardIndex() {
-    const names = new Set(), stems = new Set()
+    const names = new Set(), stems = new Set(), byName = new Map(), byStem = new Map()
     for (const cardPath of await fileResources.list('card').catch(() => [])) {
-      stems.add(stemOf(cardPath))
+      const stem = stemOf(cardPath)
+      stems.add(stem)
+      if (!byStem.has(stem.toLowerCase())) byStem.set(stem.toLowerCase(), cardPath)
       const text = await fileResources.readText(cardPath).catch(() => undefined)
       if (text === undefined) continue
-      try {
-        const value = JSON.parse(text)
-        if (str(value && value.name)) names.add(str(value.name))
-      } catch { /* keep the stem only */ }
+      const name = cardNameFromText(text)
+      if (name) {
+        names.add(name)
+        if (!byName.has(name.toLowerCase())) byName.set(name.toLowerCase(), cardPath)
+      }
     }
-    return { names, stems }
+    return { names, stems, byName, byStem }
   }
 
   // Cards carry per-import ids and timestamps in meta/raw; compare only what a reader would call
@@ -180,6 +185,7 @@ export function createTransferImport(deps) {
     return {
       cardNames: new Set([...cards.names].map(value => value.toLowerCase())),
       cardStems: new Set([...cards.stems].map(value => value.toLowerCase())),
+      cardPathsByName: new Map([...cards.byStem, ...cards.byName]),
       worldNames: new Set(worlds.map(row => str(row.name || stemOf(row.path)).toLowerCase())),
       worldStems: new Set(worlds.map(row => stemOf(row.path).toLowerCase())),
       presetNames: new Set(presets.map(row => str(row.title || stemOf(row.path)).toLowerCase())),
@@ -223,6 +229,22 @@ export function createTransferImport(deps) {
     // 一局的召回记录没有地方可去，除非同一个包也带着那一局的存档。
     const chatKeys = new Set(manifest.parts.filter(function (part) { return part.kind === 'chats' })
       .flatMap(function (part) { return part.items.map(function (item) { return str(item.key) }) }))
+    // 同包附带的人物卡名称集合，供 SillyTavern .jsonl 聊天记录在预览阶段配对角色。
+    const bundleCardNames = new Set()
+    for (const part of manifest.parts) {
+      if (part.kind !== 'cards') continue
+      for (const item of part.items || []) {
+        const usable = item.usable !== false && (files.size === 0 || files.has(item.entry))
+        if (!usable) continue
+        if (str(item.title).trim()) bundleCardNames.add(str(item.title).trim().toLowerCase())
+        bundleCardNames.add(stemOf(item.entry).toLowerCase())
+        const packedCard = files.get(item.entry)
+        if (packedCard) {
+          const parsedName = cardNameFromText(packedCard.toString('utf8'))
+          if (parsedName) bundleCardNames.add(parsedName.toLowerCase())
+        }
+      }
+    }
     const parts = manifest.parts.map(function (part) {
       if (!IMPORTABLE.includes(part.kind)) {
         return { kind: part.kind, label: part.label, importable: false, conflicts: 0, selectable: 0,
@@ -238,6 +260,33 @@ export function createTransferImport(deps) {
         const conflictReason = itemConflict(index, part.kind, item)
         let duplicate = false, reason = conflictReason
         const packed = files.get(item.entry)
+        if (packed && part.kind === 'chats' && isSillyTavernChatItem(item.entry, packed)) {
+          let inspected
+          try {
+            inspected = inspectSillyTavernChatItem(packed)
+          } catch (error) {
+            return { key: item.key, title: item.title, bytes: item.bytes, usable: false, conflict: false, duplicate: false, reason: '聊天记录无效：' + errorText(error) }
+          }
+          const charKey = str(inspected.characterName).toLowerCase()
+          const hasCard = Boolean(charKey) && (index.cardNames.has(charKey) || index.cardStems.has(charKey) || bundleCardNames.has(charKey))
+          if (!hasCard) {
+            return {
+              key: item.key,
+              title: item.title,
+              bytes: item.bytes,
+              usable: false,
+              conflict: false,
+              duplicate: false,
+              reason: '缺少人物卡「' + (inspected.characterName || '未知角色') + '」，请先导入人物卡或在迁移包中附带该人物卡'
+            }
+          }
+          const hash = createHash('sha256').update(packed).digest('hex')
+          if (contents && contents.get('chats') && (contents.get('chats').has(hash) || (inspected.digest && contents.get('chats').has(inspected.digest)))) {
+            duplicate = true
+            reason = '本机已有相同内容的对话记录，默认不导入'
+          }
+          return { key: item.key, title: item.title, bytes: item.bytes, usable: true, conflict: false, duplicate, reason }
+        }
         if (contents && packed && part.kind === 'chats') {
           const hash = createHash('sha256').update(packed).digest('hex')
           if (contents.get('chats') && contents.get('chats').has(hash)) {
@@ -274,6 +323,7 @@ export function createTransferImport(deps) {
     const dedupe = new Set(DEDUPE_KINDS)
     // 这一趟已经处理过的内容，用来挡住同一个包里重复的条目。
     const handled = new Set()
+    const cardPathsByCharacter = new Map(index.cardPathsByName || [])
     const used = {
       cardStems: new Set(index.cardStems), worldStems: new Set(index.worldStems), presetStems: new Set(index.presetStems),
       promptNames: new Set(index.promptNames), profileNames: new Set(index.profileNames),
@@ -297,6 +347,21 @@ export function createTransferImport(deps) {
     }
 
     const results = []
+    const resultByPart = new Map()
+    for (const part of manifest.parts) {
+      const result = { kind: part.kind, label: part.label, added: 0, skipped: 0, overwritten: 0, failed: [], created: [] }
+      results.push(result)
+      resultByPart.set(part, result)
+    }
+    // 人物卡、世界书与预设先落盘，以便同包的聊天记录（尤其是 SillyTavern .jsonl）能关联到人物卡；召回记忆在对话之后导入。
+    const partPriority = function (kind) {
+      if (kind === 'cards') return 1
+      if (kind === 'worldbooks' || kind === 'presets') return 2
+      if (kind === 'chats') return 4
+      if (kind === 'memory') return 5
+      return 3
+    }
+    const orderedParts = [...manifest.parts].sort(function (left, right) { return partPriority(left.kind) - partPriority(right.kind) })
     let backupPath = ''
     // 新局 id：召回记录要落进刚导入的那一局，源 chatId 只用来配对。
     const chatIdMap = new Map()
@@ -311,9 +376,8 @@ export function createTransferImport(deps) {
       catch (_error) { /* 进度上报失败不该影响导入本身 */ }
     }
 
-    for (const part of manifest.parts) {
-      const result = { kind: part.kind, label: part.label, added: 0, skipped: 0, overwritten: 0, failed: [], created: [] }
-      results.push(result)
+    for (const part of orderedParts) {
+      const result = resultByPart.get(part)
       if (!IMPORTABLE.includes(part.kind)) { result.skipped = part.items.length; result.note = '下一版支持'; continue }
       const policy = policies[part.kind] === 'skip' ? 'skip' : 'apply'
       if (policy === 'skip') { result.skipped = part.items.length; finishedItems += part.items.length; continue }
@@ -351,7 +415,13 @@ export function createTransferImport(deps) {
             result.added += 1
             if (imported && imported.path) {
               result.created.push({ kind: 'cards', title: item.title, path: imported.path })
-              await dropDuplicate('cards', result, item.title, imported.path)
+              const dropped = await dropDuplicate('cards', result, item.title, imported.path)
+              if (!dropped) {
+                const parsedName = cardNameFromText(text)
+                if (parsedName) cardPathsByCharacter.set(parsedName.toLowerCase(), imported.path)
+                if (str(item.title).trim()) cardPathsByCharacter.set(str(item.title).trim().toLowerCase(), imported.path)
+                cardPathsByCharacter.set(target.toLowerCase(), imported.path)
+              }
             }
             continue
           }
@@ -493,13 +563,34 @@ export function createTransferImport(deps) {
             // 「只导最新进度」：不写可回退的存档点，一局少写 7 份快照。
             const latestOnly = policies[part.kind] === 'latest'
             const saveHash = createHash('sha256').update(content).digest('hex')
-            if (contents.get('chats').has(saveHash)) {
+            let stInspected = null
+            if (isSillyTavernChatItem(item.entry, content)) {
+              try { stInspected = inspectSillyTavernChatItem(content) } catch { /* importOne will report */ }
+            }
+            if (contents.get('chats').has(saveHash) || (stInspected && stInspected.digest && contents.get('chats').has(stInspected.digest))) {
               result.skipped += 1
               result.duplicates = (result.duplicates || []).concat(item.title)
               continue
             }
-            const imported = await chats.importOne({ title: item.title, content, sha256: saveHash, latestOnly })
+            // 一条记录要盖十来个目录，逐目录 fsync 在手机上是每条几十到上百毫秒。
+            // 这一条写完再一次性落盘：可见之前目录项已经是耐久的，中途崩只会留下这一条。
+            let imported
+            beginRelaxedSync()
+            try {
+              imported = await chats.importOne({
+                title: item.title,
+                entry: item.entry,
+                content,
+                sha256: saveHash,
+                latestOnly,
+                cardPathsByCharacter
+              })
+            } finally {
+              await endRelaxedSync()
+            }
             contents.get('chats').add(saveHash)
+            if (imported && imported.digest) contents.get('chats').add(imported.digest)
+            else if (stInspected && stInspected.digest) contents.get('chats').add(stInspected.digest)
             result.added += 1
             result.chatIds = (result.chatIds || []).concat(imported.chatId ? [imported.chatId] : [])
             if (imported.chatId) chatIdMap.set(str(item.key), imported)

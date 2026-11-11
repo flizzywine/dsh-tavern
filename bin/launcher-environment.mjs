@@ -241,7 +241,7 @@ export async function runInstallDsh(command, args, options = {}) {
   const invocation = nativeCli ? { command: process.execPath, args: [resolveDshCliEntry({ dsh: command }), ...args] } : resolveDshInvocation(command, args, options.host)
   try {
     const result = await runInstallationProcess(invocation.command, invocation.args, {
-      ...options, env: { ...runtimeEnvironment(), ...invocation.env }, shell: process.platform === 'win32' && !nativeCli && !invocation.env,
+      ...options, env: { ...runtimeEnvironment(), ...invocation.env, ...options.env }, shell: process.platform === 'win32' && !nativeCli && !invocation.env,
       timeoutMs: options.timeoutMs || 60_000, label: options.label || 'DSH 配置验证',
     })
     return options.capture ? result.stdout.trim() : ''

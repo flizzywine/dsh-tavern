@@ -36,18 +36,6 @@ export function resolveModCapabilities({manifests,enabled,authorized=enabled,adm
   return modFreeze(results)
 }
 
-export function assertRequiredDependencyGraph(manifests) {
-  const rows=new Map(manifests.map(row=>[row.id,row])),done=new Set(),visiting=new Set()
-  function visit(id) {
-    if(done.has(id) || !rows.has(id))return
-    check(!visiting.has(id),'$.dependencies.mods','Required mod dependencies must not form a cycle.','MOD_DEPENDENCY_MISSING')
-    visiting.add(id)
-    for(const edge of rows.get(id).dependencies.mods || [])if(!edge.optional)visit(edge.id)
-    visiting.delete(id);done.add(id)
-  }
-  for(const id of rows.keys())visit(id)
-}
-
 export function requireCapability(resolution,consumer,use,operation) {
   const edge=resolution[consumer]?.find(row=>row.use===use)
   check(edge,'$.interop.use','This capability is not declared by the consumer.','MOD_PERMISSION_DENIED')

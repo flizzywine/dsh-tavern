@@ -72,13 +72,3 @@ test('跨机器导入保持快照可读，损坏快照不产生登记或覆盖�
   await target.api.forgetChat('imported')
   assert.match((await target.api.read(later)).unavailable, /缺失/)
 })
-
-test('故事分叉只复制前缀实际包含的 turn，世界书引用不再按数值上界扩张', async t => {
-  const { store, api } = await fixture(t)
-  for (const turn of [1, 9, 2]) await api.capture({ worldBook: book('第' + turn + '轮'), chat: { id: 'source' }, turn })
-  await api.copyRefs('source', 'story-fork', new Set([2, 1]))
-  await api.copyRefs('source', 'legacy-fork', 2)
-  const turns = async chatId => (await store.readJson('scene-images/worldbook-refs/' + chatId + '.json')).refs.map(ref => ref.turn).sort((a, b) => a - b)
-  assert.deepEqual(await turns('story-fork'), [1, 2], '非单调前缀不能带入未来的第 9 轮')
-  assert.deepEqual(await turns('legacy-fork'), [1, 2], '旧调用仍保留数值上界语义')
-})

@@ -8,7 +8,7 @@
 # rootfs）；容器脚本走 --shared-tmp 传入、不支持时退回 stdin；探活只认端口和日志 token。
 set -euo pipefail
 
-VERSION=2026-11-07.1
+VERSION=2026-11-09.1
 DISTRO=ubuntu
 NODE_VERSION=24.20.0
 PORT=3081
@@ -446,24 +446,55 @@ write_wait() {
   cat > "$WAIT_SCRIPT" <<'WAIT_EOF'
 export PATH=/usr/local/node/bin:$HOME/.local/bin:$PATH
 LOG=$HOME/.dsh-tavern/logs/tavern.log
+PAT='http://127[.]0[.]0[.]1:[0-9]*/?token=[A-Za-z0-9_-]*'
+# 日志只追加：先记下启动前的行数，之后只认本次启动新增的行。
+# 上一次运行留下的 token 属于已经退出的进程，拿它打开只会得到 401。
+BASE=$(wc -l < "$LOG" 2>/dev/null || echo 0)
 # 端口探测用 bash 内建 /dev/tcp：连上就算就绪，不阻塞。
 port_open() { (exec 3<>/dev/tcp/127.0.0.1/3081) >/dev/null 2>&1; }
+# 用 token 换一次 cookie：303 才说明它是当前进程的凭证。
+url_ok() {
+  local code
+  code=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$1" 2>/dev/null || true)
+  [ "$code" = 303 ] || [ "$code" = 200 ]
+}
+new_url() { tail -n +"$((BASE + 1))" "$LOG" 2>/dev/null | grep -o "$PAT" | tail -n 1; }
+latest_url() {
+  local u
+  for u in $(grep -o "$PAT" "$LOG" 2>/dev/null | tail -n 20 | tac); do
+    url_ok "$u" && { printf '%s\n' "$u"; return 0; }
+  done
+  return 1
+}
 # 只把真正的启动行打出来（事件 / Web 地址 / 报错），同一行不会重复。
 tail -n 0 -F "$LOG" 2>/dev/null | grep --line-buffered -E '"event"|dsh web|error|Error|ERR' >&2 &
 TPID=$!
+# 服务本来就在跑（端口已通）且日志里还有一条能用的 token：沿用，不再等新行。
+if port_open && url=$(latest_url); then
+  printf '[  0s] 端口已就绪（服务已在运行）\n' >&2
+  kill "$TPID" 2>/dev/null || true
+  printf '%s\n' "$url"
+  exit 0
+fi
 i=0
 while [ $i -lt 300 ]; do
-  if port_open; then break; fi
+  # 端口通只说明监听起来了，dsh 打出「dsh web: <token 地址>」可能晚几秒到几十秒。
+  # 只看本次启动新增的行，绝不复用历史 token。
+  url=$(new_url)
+  if [ -n "$url" ] && url_ok "$url"; then
+    printf '[%3ss] 端口已就绪\n' "$i" >&2
+    kill "$TPID" 2>/dev/null || true
+    printf '%s\n' "$url"
+    exit 0
+  fi
   if [ $((i % 5)) -eq 0 ]; then printf '[%3ss] 等待端口…\n' "$i" >&2; fi
   sleep 1; i=$((i+1))
 done
 kill "$TPID" 2>/dev/null || true
-if [ $i -lt 300 ]; then
-  printf '[%3ss] 端口已就绪\n' "$i" >&2
-  grep -o 'http://127[.]0[.]0[.]1:[0-9]*/?token=[A-Za-z0-9_-]*' "$LOG" 2>/dev/null | tail -n 1
-else
-  printf '[%3ss] 300 秒内没有监听端口，服务没起来\n' "$i" >&2
-fi
+printf '[%3ss] 300 秒内没拿到本次启动的地址，服务没起来\n' "$i" >&2
+printf '日志尾部：\n' >&2
+tail -n 30 "$LOG" >&2 || true
+exit 1
 WAIT_EOF
 }
 
@@ -483,8 +514,11 @@ ensure_ready() {
   run_inner
 }
 
+# 只认当前进程的 token：日志是追加的，最后一条未必属于正在跑的实例，
+# 用历史 token 打开只会被 401 挡回来（dsh web authentication required）。
+# 从新到旧逐条用 curl 换 cookie，303/200 的第一条才是能用的。
 latest_url() {
-  proot-distro login "$DISTRO" -- bash -lc "$INNER; grep -o 'http://127[.]0[.]0[.]1:[0-9]*/?token=[A-Za-z0-9_-]*' \"\$HOME/.dsh-tavern/logs/tavern.log\" 2>/dev/null | tail -n 1" 2>/dev/null || true
+  proot-distro login "$DISTRO" -- bash -lc "$INNER; for u in \$(grep -o 'http://127[.]0[.]0[.]1:[0-9]*/?token=[A-Za-z0-9_-]*' \"\$HOME/.dsh-tavern/logs/tavern.log\" 2>/dev/null | tail -n 20 | tac); do c=\$(curl -s -o /dev/null -m 3 -w '%{http_code}' \"\$u\" 2>/dev/null || true); case \"\$c\" in 200|303) printf '%s\\n' \"\$u\"; break;; esac; done" 2>/dev/null || true
 }
 
 # 打开失败要能看出是哪一步失败的：Termux 的 PATH 默认没有 /system/bin，

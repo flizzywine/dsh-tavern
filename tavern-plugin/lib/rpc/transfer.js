@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { exportSillyTavernMigrationScript, MIGRATION_HELPER_FILENAME } from '../domain/sillytavern-migration-helper.js'
 import { buildTransferManifest, packTransferBundle, readTransferBundle, safeTransferFileName, TRANSFER_EXTENSION } from '../domain/transfer-bundle.js'
 import { createTransferAssets } from '../domain/transfer-assets.js'
 import { createTransferCatalog } from '../domain/transfer-catalog.js'
@@ -38,7 +39,7 @@ export function createTransferHandlers(deps) {
   const { dataRoot, uploads, fileResources, worldBooks, presetLibrary, promptDocuments, userPreferenceProfile,
     regexManager, readTavernSettings, updateTavernSettings, importCard, importPreset, readCardWorkspace,
     cardPreparation, TAVERN_PACKAGE_VERSION, listTavernSessions, readChat, exportGameSave, importGameSave,
-    userPluginInstaller, pluginDataStore, tavernSkills, transferExports, exportTavernLogs,
+    importChatHistoryText, userPluginInstaller, pluginDataStore, tavernSkills, transferExports, exportTavernLogs,
     deleteCard, deletePreset, deleteResource, readRawTavernSettings, updateChat, assetLibrary, profileData } = deps
 
   async function writeBackup(name, text) {
@@ -49,7 +50,15 @@ export function createTransferHandlers(deps) {
     return path.relative(path.join(dataRoot, '..'), target).split(path.sep).join('/')
   }
 
-  const chats = createTransferChats({ listSessions: listTavernSessions, readChat, exportSave: exportGameSave, importSave: importGameSave, updateChat })
+  const chats = createTransferChats({
+    listSessions: listTavernSessions,
+    readChat,
+    exportSave: exportGameSave,
+    importSave: importGameSave,
+    updateChat,
+    importChatHistory: importChatHistoryText,
+    fileResources
+  })
   const plugins = createTransferPlugins({ pluginsDir: userPluginInstaller.pluginsDir, listPlugins: () => userPluginInstaller.list() })
   const materials = createTransferMaterials({ fileResources })
   const fonts = createTransferFonts({ fontsDir: path.join(dataRoot, 'fonts') })
@@ -132,6 +141,13 @@ export function createTransferHandlers(deps) {
   return {
     async getTransferCatalog() {
       return await catalog.listParts()
+    },
+
+    async exportSillyTavernMigrationScript() {
+      return {
+        filename: MIGRATION_HELPER_FILENAME,
+        text: exportSillyTavernMigrationScript()
+      }
     },
 
     async createTransferExport(args) {

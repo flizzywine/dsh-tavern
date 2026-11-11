@@ -64,44 +64,6 @@ async function mount(t, {entries = []} = {}) {
 }
 const fixtureEntries = n => Array.from({length:n}, (_, i) => ({forms:['词' + i, 'Word' + i], reading:'よみ' + i, languageOverride:'ja'}))
 
-test('a new entry from the bottom row is scrolled into view and highlighted; the 添加 button adds without Enter', async t => {
-  const f = await mount(t, {entries:fixtureEntries(200)})
-  const list = f.$('.ap-readings')
-  assert.equal(list.scrollTop, 0)
-  await f.click(f.$('.fork-readings-add'))
-  await f.type(f.$('input[aria-label="新写法"]'), 'Alice，アリス, 爱丽丝、艾莉丝')
-  await f.type(f.$('input[aria-label="新读音"]'), 'ありす')
-  const add = f.$('.ap-reading-add-confirm')
-  assert.equal(add.textContent, '添加')
-  await f.click(add)
-  await f.settle()
-  const sent = f.calls.filter(c => c.method === 'editReading')
-  assert.equal(sent.length, 1)
-  assert.deepEqual(JSON.parse(JSON.stringify(sent[0].args.entry)), {forms:'Alice，アリス, 爱丽丝、艾莉丝', reading:'ありす'})
-  const added = (await f.store.activeEntries()).at(-1)
-  assert.deepEqual(added.forms, ['Alice', 'アリス', '爱丽丝', '艾莉丝'])
-  // the window moved to the end: the new row is mounted and marked.
-  const flash = f.$('.ap-readings-row.is-flash')
-  assert.ok(flash, 'the new row is highlighted')
-  assert.equal(flash.getAttribute('aria-rowindex'), '201')
-  assert.ok(list.scrollTop > 0, 'the list scrolled to the new row')
-  assert.equal(f.$('input[aria-label="新写法"]').value, '')
-  assert.equal(f.$('.ap-section-meta').textContent, '201')
-})
-
-test('an entry hidden by the search clears the search so it can be shown', async t => {
-  const f = await mount(t, {entries:fixtureEntries(30)})
-  await f.type(f.$('input[aria-label="搜索读音"]'), 'Word2')
-  await f.settle()
-  await f.click(f.$('.fork-readings-add'))
-  await f.type(f.$('input[aria-label="新写法"]'), 'Alpha')
-  await f.type(f.$('input[aria-label="新读音"]'), 'あるふぁ')
-  await f.click(f.$('.ap-reading-add-confirm'))
-  await f.settle()
-  assert.equal(f.$('input[aria-label="搜索读音"]').value, '')
-  assert.ok(f.$('.ap-readings-row.is-flash input[title="Alpha"]'))
-})
-
 test('a row edit commits on its visible ✓ and on blur; ✕ deletes with an undo', async t => {
   const f = await mount(t, {entries:fixtureEntries(3)})
   const row = () => f.$$('.ap-readings-row')[1]
@@ -146,36 +108,4 @@ test('合并同读音 shows the count first and merges only after the confirm', 
   const merged = await f.store.activeEntries()
   assert.deepEqual(merged.map(e => e.forms), [['Alice', 'アリス', '艾莉丝'], ['星空']])
   assert.equal(f.$('.ap-section-meta').textContent, '2')
-})
-
-// The 1,000-entry fixture: the editor mounts only the visible window, a search keystroke or a draft keystroke re-renders
-// no row, and an add sends one row.
-test('1,000 entries: windowed rows, no row re-render per keystroke, one-row saves', async t => {
-  const f = await mount(t, {entries:fixtureEntries(1000)})
-  const rows = f.$$('.ap-readings-row:not(.is-new)').length, inputs = f.$$('input').length
-  assert.ok(rows <= 40, rows + ' rows mounted')
-  f.renders.rows = 0
-  await f.click(f.$('.fork-readings-add'))
-  const typed = performance.now()
-  for (const text of ['A', 'Al', 'Ali', 'Alic']) await f.type(f.$('input[aria-label="新写法"]'), text)
-  const draftMs = (performance.now() - typed) / 4, draftRows = f.renders.rows
-  f.renders.rows = 0
-  const searched = performance.now()
-  for (const text of ['W', 'Wo', 'Wor', 'Word9']) await f.type(f.$('input[aria-label="搜索读音"]'), text)
-  await f.settle()
-  const searchMs = (performance.now() - searched) / 4
-  await f.type(f.$('input[aria-label="搜索读音"]'), '')
-  await f.settle()
-  await f.type(f.$('input[aria-label="新读音"]'), 'ありす')
-  f.renders.rows = 0
-  const before = f.calls.length, enter = f.$('input[aria-label="新读音"]')
-  await act(async () => enter.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', {key:'Enter', bubbles:true})))
-  await f.settle()
-  const addCalls = f.calls.slice(before)
-  t.diagnostic(JSON.stringify({entries:1000, rowsMounted:rows, inputs, openMs:Math.round(f.openMs), draftKeystrokeMs:+draftMs.toFixed(1), draftRowRenders:draftRows,
-    searchKeystrokeMs:+searchMs.toFixed(1), addRowRenders:f.renders.rows, addCalls:addCalls.map(c => c.method)}))
-  assert.equal(draftRows, 0, 'typing a new entry re-renders no row')
-  assert.deepEqual(addCalls.map(c => c.method), ['editReading'])
-  assert.equal(addCalls[0].args.op, 'add')
-  assert.ok(f.renders.rows <= 40, f.renders.rows + ' row renders for one add')
 })

@@ -4,8 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - tavern-plugin/packages/dsh-tavern/**
-      - '!tavern-plugin/packages/dsh-tavern/README.md'
+      - tavern-plugin/packages/dsh-tavern/package.json
       - .github/workflows/publish-official-launcher.yml
   workflow_dispatch:
 
@@ -19,7 +18,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Pack and publish the standard DSH bundle
@@ -33,38 +32,51 @@ jobs:
           version=$(node -p "require('./$source/package.json').version")
           tag="launcher-v$version"
           cdn_tag="launcher-cdn-v$version"
-          # A published launcher keeps the README that shipped with its version.
-          if git show-ref --verify --quiet "refs/tags/$tag"; then
-            git show "refs/tags/$tag:$source/README.md" > "$source/README.md"
-          fi
-          archive=$(npm pack "./$source" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP")
-          git restore -- "$source/README.md"
-          node .github/scripts/check-runtime-archive.mjs "$RUNNER_TEMP/$archive"
-          # jsDelivr can serve the small artifact tree behind this tag.
-          if git show-ref --verify --quiet "refs/tags/$cdn_tag"; then
-            git show "refs/tags/$cdn_tag:$archive" > "$RUNNER_TEMP/cdn-$archive"
-            cmp "$RUNNER_TEMP/$archive" "$RUNNER_TEMP/cdn-$archive"
+          archive="dsh-tavern-$version.tgz"
+          artifact="$RUNNER_TEMP/$archive"
+
+          # Use the immutable release asset when the same version runs again.
+          published=false
+          if gh release view "$tag" > /dev/null 2>&1; then
+            published=true
+            gh release download "$tag" --pattern "$archive" --dir "$RUNNER_TEMP"
           else
+            package="./$source"
+            if git show-ref --verify --quiet "refs/tags/$tag"; then
+              mkdir "$RUNNER_TEMP/launcher-source"
+              git archive "refs/tags/$tag" -- "$source" | tar -x -C "$RUNNER_TEMP/launcher-source"
+              package="$RUNNER_TEMP/launcher-source/$source"
+            fi
+            npm pack "$package" --ignore-scripts --silent --pack-destination "$RUNNER_TEMP"
+          fi
+          node .github/scripts/check-runtime-archive.mjs "$artifact"
+
+          cdn_published=false
+          if git show-ref --verify --quiet "refs/tags/$cdn_tag"; then
+            cdn_published=true
+            if ! git show "refs/tags/$cdn_tag:$archive" | cmp -s "$artifact" -; then
+              echo "::error::The versioned launcher release and CDN tag disagree for $archive."
+              exit 1
+            fi
+          fi
+
+          if [[ "$published" == false ]]; then
+            gh release create "$tag" "$artifact" --target "$GITHUB_SHA" --latest=false \
+              --title "dsh-tavern $version" --notes 'Shared launcher for DeepSeek Harness and DSH NEXT on Windows and macOS. Install it into the original desktop profile, then use Settings → Tavern Launcher to install Tavern.'
+          fi
+
+          if [[ "$cdn_published" == false ]]; then
             dist="$RUNNER_TEMP/official-launcher"
             git worktree add --detach "$dist"
             git -C "$dist" checkout --orphan "$cdn_tag"
             git -C "$dist" rm -rfq .
-            cp "$RUNNER_TEMP/$archive" "$dist/$archive"
+            cp "$artifact" "$dist/$archive"
             git -C "$dist" add "$archive"
             git -C "$dist" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -qm "Publish $archive"
             git -C "$dist" push origin "HEAD:refs/tags/$cdn_tag"
           fi
 
-          if gh release view "$tag" > /dev/null 2>&1; then
-            mkdir "$RUNNER_TEMP/launcher-release"
-            gh release download "$tag" --pattern "$archive" --dir "$RUNNER_TEMP/launcher-release"
-            cmp "$RUNNER_TEMP/$archive" "$RUNNER_TEMP/launcher-release/$archive"
-          else
-            gh release create "$tag" "$RUNNER_TEMP/$archive" --target "$GITHUB_SHA" --latest=false \
-              --title "dsh-tavern $version" --notes 'Shared launcher for DeepSeek Harness and DSH NEXT on Windows and macOS. Install it into the original desktop profile, then use Settings → Tavern Launcher to install Tavern.'
-          fi
-
-          printf 'archive=%s\nversion=%s\n' "$RUNNER_TEMP/$archive" "$version" >> "$GITHUB_OUTPUT"
+          printf 'archive=%s\nversion=%s\n' "$artifact" "$version" >> "$GITHUB_OUTPUT"
 
       - name: Publish the stable market download
         if: github.ref == 'refs/heads/main'

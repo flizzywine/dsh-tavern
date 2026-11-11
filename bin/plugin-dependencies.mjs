@@ -1,4 +1,5 @@
 import { desktopElectronExecutable, desktopHostAnchors, desktopResourcesRoot, isAsarPath } from './desktop-host-paths.mjs'
+import { desktopResourceHostAnchors } from '../tavern-plugin/lib/domain/host-package-resolution.js'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -84,9 +85,7 @@ export function resolveHostAnchor({ dsh, host = 'cli', env = process.env, execPa
       // 先按 环境变量 → execPath → dsh shim 的顺序找 Electron 可执行文件。
       const commandFile = desktopShimCommandFile(dsh, env, platform)
       const executable = desktopElectronExecutable({ env, execPath, platform, commandFile }) || env.DSH_DESKTOP_APP_EXECUTABLE || execPath
-      const resources = platform === 'darwin'
-        ? path.resolve(path.dirname(executable), '../Resources')
-        : path.join(path.dirname(executable), 'resources')
+      const resources = desktopResourcesRoot(executable, platform)
       const unpacked = [
         path.join(resources, 'app', 'package.json'),
         path.join(resources, 'app.asar.unpacked', 'package.json'),
@@ -147,15 +146,11 @@ for (const anchor of ${JSON.stringify(anchors)}) {
 process.stdout.write(JSON.stringify(resolved ?? { __error: lastError || '未找到可解析的宿主根' }))`
 }
 
-function resolveDesktopHostPackagesViaElectron({ env = process.env, execPath = process.execPath, platform = process.platform, requiredExports, commandFile = null }) {
+function resolveDesktopHostPackagesViaElectron({ host, env = process.env, execPath = process.execPath, platform = process.platform, requiredExports, commandFile = null }) {
   const electron = desktopElectronExecutable({ env, execPath, platform, commandFile })
   if (!electron) return null
   const resources = desktopResourcesRoot(electron, platform)
-  const anchors = [
-    path.join(resources, 'app.asar', 'dsh', 'package.json'),
-    path.join(resources, 'app.asar.unpacked', 'dsh', 'package.json'),
-    path.join(resources, 'app', 'package.json'),
-  ].map(candidate => pathToFileURL(candidate).href)
+  const anchors = desktopResourceHostAnchors(resources, { next: host === 'next' }).map(({ anchor }) => pathToFileURL(anchor).href)
   const directory = mkdtempSync(path.join(os.tmpdir(), 'tavern-host-probe-'))
   const scriptFile = path.join(directory, 'probe.mjs')
   const outputFile = path.join(directory, 'probe.json')
@@ -199,7 +194,7 @@ function resolveDesktopHostPackagesViaElectron({ env = process.env, execPath = p
 export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, execPath = process.execPath, platform = process.platform, requiredExports = REQUIRED_HOST_EXPORTS }) {
   let anchor = resolveHostAnchor({ dsh, host, env, execPath, platform })
   if (host === 'desktop' || host === 'next') {
-    const candidates = desktopHostAnchors(anchor)
+    const candidates = desktopHostAnchors(anchor, { next: host === 'next' })
     // Existing links point into the selected Desktop even when the detached
     // updater runs under system Node without Desktop environment variables.
     for (const name of Object.keys(REQUIRED_HOST_EXPORTS)) {
@@ -220,7 +215,7 @@ export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, 
       try { return Boolean(findPackage(name, anchor)) } catch { return false }
     })
     if (!plainNodeRoot) {
-      const viaElectron = resolveDesktopHostPackagesViaElectron({ env, execPath, platform, requiredExports, commandFile: desktopShimCommandFile(dsh, env, platform) })
+      const viaElectron = resolveDesktopHostPackagesViaElectron({ host, env, execPath, platform, requiredExports, commandFile: desktopShimCommandFile(dsh, env, platform) })
       if (viaElectron) return viaElectron
     }
   }

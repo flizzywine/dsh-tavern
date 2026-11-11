@@ -3,6 +3,7 @@ import { freezeJson } from './freeze-json.js'
 import { computeSceneTarget } from './scene-illustration.js'
 import { sessionStablePrefixSections } from './session-stable-prefix.js'
 import { cardSystemPromptText } from './card-system-prompt.js'
+import { frameUserInput } from './agent-input-frame.js'
 
 const CARD_FIELDS = ['name', 'description', 'personality', 'scenario', 'mes_example', 'system_prompt', 'post_history_instructions']
 const STATE_FIELDS = ['macroState', 'variables', 'tavernHelperScriptVariables', 'tavernScriptPrompts', 'promptTemplateInput',
@@ -92,6 +93,8 @@ function frozenProse(row) {
   // Editing a player floor updates text in place and intentionally leaves its
   // old template projection untouched. The visible edit is authoritative.
   if (row.role === 'user' && row.bodyEdit?.role === 'user') return text(row.text)
+  // Opted-in plugin replies use the saved model-context layer, just like the native session.
+  if ((row.bodyHostRegexApplied === true || row.bodyPluginProjection === true) && typeof row.text === 'string') return row.text
   if (typeof row.projectionText === 'string') return row.projectionText
   const selected = Math.max(0, Number(row.swipeId) || 0)
   const source = row.swipes?.[selected] ?? row.sourceText ?? row.text
@@ -169,12 +172,12 @@ function originalInput(chat, row, frame, turn) {
   const raw = row.bodyEdit?.role === 'user' ? text(row.text) : text(row.templateInputSource ?? row.sourceText ?? row.text)
   // Native regeneration frames may contain a synthetic instruction quoting the
   // previous body. It is never the player's input and must not escape to plugins.
-  const inputFrame = frame.userInput?.sourceText === raw ? frame
+  const inputFrame = frameUserInput(frame).sourceText === raw ? frame
     : Object.values(object(chat.foregroundFrames) ? chat.foregroundFrames : {}).reverse().find(item =>
-      item?.kind === 'foreground' && item.userInput?.sourceText === raw
+      item?.kind === 'foreground' && frameUserInput(item).sourceText === raw
       && (Number(item.turn) === Number(turn) || Number(item.storyTurn) === Number(turn)))
-  if (!inputFrame || typeof inputFrame.userInput?.projectedText !== 'string') fail('本轮输入已变化或缺少原始输入快照，不能用重生成指令代替玩家输入')
-  return { raw, projected: inputFrame.userInput.projectedText }
+  if (!inputFrame) fail('本轮输入已变化或缺少原始输入快照，不能用重生成指令代替玩家输入')
+  return { raw, projected: frameUserInput(inputFrame).projectedText }
 }
 
 /** Safe DTO for a plugin. Host checkpoints, hidden rows and source diagnostics never cross this boundary. */
@@ -226,11 +229,13 @@ export function buildBodyRegenerationMaterials({ chat, beforeChat, card: _liveCa
     writingRequirements: requirements,
     history,
     input,
+    ...(kind === 'generate' && typeof frame.source?.bodyGeneration?.hostRegex === 'boolean'
+      ? { outputProcessing: { hostRegex: frame.source.bodyGeneration.hostRegex } } : {}),
     generationState: clone(captured?.generationState),
     beforeState: { posture: text(beforeChat.posture), variables: clone(beforeChat.variables ?? null), messageVariables: lastMessageVariables(beforeChat) },
     completeness: { history: 'all-visible', materials: captured?.version === 1 ? 'captured' : 'checkpoint' }
   }
-  if (typeof frame.userInput.sourceText !== 'string' || typeof frame.userInput.projectedText !== 'string') fail('本轮原始输入快照不完整')
+  if (typeof frameUserInput(frame).sourceText !== 'string') fail('本轮原始输入快照不完整')
   dto.digest = hash(dto)
   return freezeJson(dto)
 }

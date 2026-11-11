@@ -234,6 +234,42 @@
 			win.document.addEventListener("submit", function (event) { event.preventDefault(); }, true);
 		}
 
+		// A card can ship a looping soundtrack and a looping trailer together.
+		// Start with the soundtrack, then let the card's native media controls switch sources.
+		function installTavernFrameSoundtrack(win) {
+			const document = win.document;
+			const soundtrack = "audio[autoplay][loop]";
+			const trailer = "video[autoplay][loop]";
+			const paired = new WeakSet();
+			const audible = node => !node.muted && node.volume > 0;
+			const tracks = () => Array.from(document.querySelectorAll(soundtrack)).filter(audible);
+			function silenceTrailers(except) {
+				for (const video of document.querySelectorAll(trailer)) {
+					if (video === except) continue;
+					paired.add(video);
+					video.muted = true;
+				}
+			}
+			document.addEventListener("DOMContentLoaded", function () {
+				if (tracks().length) silenceTrailers();
+			}, { once: true });
+			function onPlayback(event) {
+				const media = event.target;
+				if (media.paused || !audible(media)) return;
+				if (media.matches?.(soundtrack)) silenceTrailers();
+				else if (media.matches?.(trailer)) {
+					if (!paired.has(media)) {
+						if (tracks().length) silenceTrailers();
+					} else {
+						silenceTrailers(media);
+						for (const track of tracks()) if (!track.paused) track.pause();
+					}
+				}
+			}
+			document.addEventListener("play", onPlayback, true);
+			document.addEventListener("volumechange", onPlayback, true);
+		}
+
 		function buildTavernFrameDocument(input) {
 			const html = rewriteTavernStaticMarkup(String(input && (input.content !== undefined ? input.content : input.html) || ""));
 			const sizing = tavernFrameSizing(html, input && input.frameSizing, input && input.persistent ? input.panelId : undefined);
@@ -279,6 +315,7 @@
                 + '<script data-dsh-tavern-crypto>(' + installTavernCryptoSubtlePolyfill.toString() + ')(window);<\/script>'
                 + '<script data-dsh-tavern-tilt-guard>(' + installTavernPointerTiltGuard.toString() + ')(window);<\/script>'
                 + '<script data-dsh-tavern-form-guard>(' + installTavernFrameFormGuard.toString() + ')(window);<\/script>'
+                + (/<audio\b/i.test(html) && /<video\b/i.test(html) ? '<script data-dsh-tavern-soundtrack>(' + installTavernFrameSoundtrack.toString() + ')(window);<\/script>' : '')
 				+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
 				+ '<meta name="referrer" content="no-referrer">'
 				// No base-uri: srcdoc frames a card builds inherit this policy, and a page it
@@ -288,10 +325,10 @@
 				// embedding element's; "light dark" followed the OS and painted a white block
 				// inside a dark DSH theme.
 				+ '<style>@layer dsh-tavern-base,theme,base,components,utilities;html,body,*{scrollbar-width:none!important;scrollbar-gutter:auto!important}*::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}html[data-dsh-tavern-scroll]{overflow-y:auto!important}html[data-dsh-tavern-scroll] body{overflow-y:visible!important}@layer dsh-tavern-base{:root{color-scheme:' + (input && /^(light|dark)$/.test(input.colorScheme) ? input.colorScheme : 'light dark') + '}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere;white-space:pre-wrap}body>*{white-space:normal}maintext{display:block;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-tavern-plain-text{white-space:pre-wrap;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}}</style>' + (preparationRuntime ? preparationRuntime.head : helperDependencies) + ((!sizing || sizing.mode === "content") ? '<style data-dsh-tavern-content-roots>html:root,html:root body{height:auto!important;min-height:0!important}</style>' : '') + tavernStaticAssetShim() + '<script data-dsh-tavern-remote-document>(' + installTavernRemoteDocumentLoader.toString() + ')();<\/script>' + storageShim + forkStorageShim + helperShim + interactiveHelperShim + mvuViewObservationShim + cleanRuntimeReporter + sizingStyle
-				+ (input && input.helperContext && input.helperContext.openingHost ? '<script data-dsh-tavern-session-opening>(' + installSessionOpeningBridge.toString() + ')(' + token + ',' + JSON.stringify(Object.assign({}, input.helperContext.openingHost, { extensionSettings: input.helperContext.extensionSettings || {} })).replace(/</g, '\\u003c') + ');<\/script>' : '')
+				+ (input && input.helperContext && input.helperContext.openingHost ? '<script data-dsh-tavern-session-opening>(' + installSessionOpeningBridge.toString() + ')(' + token + ',' + JSON.stringify(Object.assign({}, input.helperContext.openingHost, { extensionSettings: input.helperContext.extensionSettings || {}, lifecycleRevision: input.helperContext.lifecycleRevision })).replace(/</g, '\\u003c') + ');<\/script>' : '')
 				+ (input && input.helperContext ? '<script data-dsh-tavern-frame-variable-aliases>(' + installTavernFrameVariableAliases.toString() + ')();<\/script>' : '')
 				+ (input && input.helperContext && input.persistent === true && input.preserveInstance !== true ? '<script data-dsh-tavern-status-refresh>(' + installTavernStatusRefresh.toString() + ')(' + token + ');<\/script>' : '')
-				+ (input && input.openingPreview ? '<script data-dsh-tavern-opening-preview>(function(){const releaseRelay=(' + installTavernPreviewHostEventRelay.toString() + ')(window.parent,window);if(typeof window.addEventListener==="function"){window.addEventListener("pagehide",releaseRelay,{once:true});window.addEventListener("unload",releaseRelay,{once:true});}const install=()=>(' + installOpeningPreviewBridge.toString() + ')(' + token + ',' + JSON.stringify(input.openingPreview).replace(/</g, '\\u003c') + ');if(window.__dshTavernHelperReady)window.__dshTavernHelperReady.then(install);else install();})();<\/script>' : '')
+				+ (input && input.openingPreview ? '<script data-dsh-tavern-opening-preview>(function(){const install=()=>(' + installOpeningPreviewBridge.toString() + ')(' + token + ',' + JSON.stringify(input.openingPreview).replace(/</g, '\\u003c') + ');if(window.__dshTavernHelperReady)window.__dshTavernHelperReady.then(install);else install();})();<\/script>' : '')
 				+ (preparationRuntime && input.trustedCardMode === true ? '<script data-dsh-tavern-opening-host>(function(){const release=(' + installTavernTrustedHostFacade.toString() + ')(window.parent,window,10);window.addEventListener("pagehide",release,{once:true});window.addEventListener("unload",release,{once:true});})();<\/script>' : '')
 				// Viewers without the execution lease still receive live variables. Legacy
 				// status panels read parent.Mvu; expose their Helper API below the executor.

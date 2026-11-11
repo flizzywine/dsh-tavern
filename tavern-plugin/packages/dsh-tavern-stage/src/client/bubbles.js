@@ -494,11 +494,24 @@ function bubblePublicationEqual(a, b) {
             Boolean(x.superseded || galIsSuperseded(x.view, x.nativeTurn, turn)) === Boolean(y.superseded || galIsSuperseded(y.view, y.nativeTurn, turn));
     });
 }
+// 外观 → 正文排版：模型常常把一整轮正文写成一整块（句子之间只有软换行，甚至没有换行），
+// CommonMark 把软换行当空格，整块就挤成一大段。这里只在把文字交给 Markdown 之前按句子重新分段
+// （features/prose-layout.js）；段落编号、配音和舞台定位仍按原文本算，@ 台词行原样交给对白气泡。
+function bubbleProseText(text, streaming) {
+    const value = String(text === undefined || text === null ? "" : text);
+    // DSH 的流式 Markdown 解析器要求输入只追加，分段可能改写已显示的前缀。
+    return streaming !== true && typeof layoutTavernProseText === "function" ? layoutTavernProseText(value) : value;
+}
+// 外观页改完排版，已经画出来的正文要按新设置重画。舞台自带的构建没有这份设置时保持原样。
+function useBubbleProseLayout() {
+    return typeof useTavernProseLayoutRevision === "function" ? useTavernProseLayoutRevision() : 0;
+}
 // Every story paragraph renders through the bubble/stage publication. A failure there must not take the text with it:
 // the plain transcript stands in, and the error goes to the error panel.
 function BubbleSafePublication(props) {
     const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
-    const plain = Object.assign({}, props);
+    useBubbleProseLayout();
+    const plain = Object.assign({}, props, { text: bubbleProseText(props.text, props.streaming) });
     for (const key of ["sessionId", "voiceScope", "stageParaBase", "stageParaOffset", "stageSource", "stageOrder", "stageSuperseded", "interrupted"]) delete plain[key];
     const staged = Boolean(enabled && stageViews);
     // @bubble lines are body text: with the stage off they still render as bubble rows (name, avatar), never raw.
@@ -513,11 +526,11 @@ function bubblePublicationType() {
 
 function BubbleMarkdown({ props, markdownProps, has, enter, segments, base, config, voice, turn }) {
     const h = React.createElement;
-    if (!has && !enter) return h(TavernColoredMarkdown, markdownProps);
+    if (!has && !enter) return h(TavernColoredMarkdown, Object.assign({}, markdownProps, { text: bubbleProseText(markdownProps.text, markdownProps.streaming) }));
     const paragraphs = galParagraphs([{ segments }], base);
     return h("div", { className: "fork-bubbles" }, segments.map(function (segment, index) {
         if (segment.kind === "markdown") {
-            if (!enter) return h(TavernColoredMarkdown, Object.assign({}, markdownProps, { key: "m" + index, text: segment.text }));
+            if (!enter) return h(TavernColoredMarkdown, Object.assign({}, markdownProps, { key: "m" + index, text: bubbleProseText(segment.text, markdownProps.streaming) }));
             const units = paragraphs.filter(unit => unit.index === index);
             return h(StageMarkdown, { key: "m" + index, sessionId: props.sessionId, turn, base: units.length ? units[0].para - 1 : base, text: segment.text,
                 markdownProps: Object.assign({}, markdownProps, { text: segment.text }) });

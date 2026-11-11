@@ -129,26 +129,13 @@ function createMessageDrawRunner(send, onStart) {
 // 表现成「查看器永远打不开、也没有任何报错」。
 let openImageOverlay = null
 
-    // 把浏览器里发生的事发回宿主：前端到底跑没跑、有没有抛错，宿主的 /state 里看得到
-    //
-    // ⚠ 性能守卫（2026-10-07 加入）：本函数被放在**渲染热路径**上调用
-    //   （renderAssistantText 每次渲染 → 'renderer-takeover'；
-    //     register 的渲染器每次被调 → 'renderer-calls'）。
-    //   原来每次调用都发一个 POST，一个几千条消息的会话每轮重渲染就会打出几千个请求，
-    //   连接池打满、事件循环被 fetch/JSON 反复占用 —— 实测导致渲染进程被 DSH 看门狗判为
-    //   「页面无响应」并反复终止（minidump 显示主线程持续在 V8 中执行、不 yield）。
-    //   现在：按 stage+data 指纹去重，同一指纹只在首次发送；并发与总量各有上限；
-    //   热路径上的指纹超预算直接丢弃。冷路径（错误、注册结果等）不受影响。
+    // 浏览器诊断发回宿主的 /state。按指纹去重，并限制普通上报的并发。
     const REPORT_CONCURRENCY = 6
     const REPORT_TOTAL_BUDGET = 60
     const seenReports = new Set()
     let reportInFlight = 0
     let reportSent = 0
-    // 这些 stage 出现在渲染热路径上，指纹超预算时必须丢弃，不能积压
-    const HOT_REPORT_STAGES = new Set(['renderer-takeover', 'renderer-called', 'plannedbody-mounted'])
-    // 这些是低频且关键的取证上报：不受总量与并发限制，必须发出去。
-    // 2026-10-07：history-fail 曾经一条都收不到 —— 因为聊天渲染的 renderer-called
-    // 把 6 个并发槽占满，非热路径的失败上报被静默丢弃，导致无法定位真因。
+    // 关键故障和注册结果不受并发限制。
     const CRITICAL_REPORT_STAGES = new Set([
       'history-fail', 'history-ok', 'fetch-retry', 'state-fail',
       'window-error', 'unhandled-rejection',
@@ -168,14 +155,8 @@ let openImageOverlay = null
         // 同一指纹只报一次（去重：这是原来请求量爆炸的主因）
         if (seenReports.has(key)) return
         if (!CRITICAL_REPORT_STAGES.has(stage)) {
-          if (reportSent >= REPORT_TOTAL_BUDGET) {
-            if (HOT_REPORT_STAGES.has(stage)) return   // 热路径：直接丢弃
-            if (seenReports.size > 2000) seenReports.clear()
-          }
-          if (reportInFlight >= REPORT_CONCURRENCY) {
-            if (HOT_REPORT_STAGES.has(stage)) return   // 热路径：宁可丢也不排队
-            return
-          }
+          if (reportSent >= REPORT_TOTAL_BUDGET && seenReports.size > 2000) seenReports.clear()
+          if (reportInFlight >= REPORT_CONCURRENCY) return
         }
         seenReports.add(key)
         reportSent += 1
@@ -206,47 +187,7 @@ let openImageOverlay = null
     } catch { /* 老环境没有这些事件就算了 */ }
     // 当前会话 id：设置页里点「让 agent 设计角色」时要拿它去读卡片设定
     let lastSessionId = ''
-    // 每条助手消息的正文（消息下方那个「生图」按钮要用它）
-    const textByMessage = new Map()
     const IMAGE_TAG = /image###((?:(?!image###|###)[^\r\n])*?)(?:###|(?=\r?\n)|$)/gi
-
-    function usablePrompt(raw) {
-      const prompt = String(raw ?? '').trim()
-      return /[^#]/.test(prompt) ? prompt : ''
-    }
-
-    /** 把正文切成 text / image 两种段落。
-     *  ⚠ 记忆化（2026-10-07）：本函数在渲染热路径上每条消息每次渲染都会被调用，
-     *  且正文可能上万字符。按 text 缓存最近一次结果（渲染是顺序的，命中率很高），
-     *  避免重复做正则扫描与切片。 */
-    let segmentCacheText = null
-    let segmentCacheValue = null
-    function splitSegments(text) {
-      const source = String(text ?? '')
-      if (source === segmentCacheText && segmentCacheValue) return segmentCacheValue
-      const segments = []
-      const regex = new RegExp(IMAGE_TAG.source, IMAGE_TAG.flags)
-      let cursor = 0
-      for (const match of source.matchAll(regex)) {
-        const index = match.index ?? 0
-        const prompt = usablePrompt(match[1])
-        if (index > cursor) segments.push({ type: 'text', value: source.slice(cursor, index) })
-        if (prompt) segments.push({ type: 'image', prompt })
-        cursor = index + match[0].length
-      }
-      if (cursor < source.length) segments.push({ type: 'text', value: source.slice(cursor) })
-      segmentCacheText = source
-      segmentCacheValue = segments
-      return segments
-    }
-
-    /** 正文指纹（和 host 侧一致），用来认领"模型主动调工具生成的那一批图"。 */
-    function textHash(value) {
-      let a = 2166136261
-      const source = String(value ?? '')
-      for (let i = 0; i < source.length; i++) a = Math.imul(a ^ source.charCodeAt(i), 16777619)
-      return (a >>> 0).toString(36)
-    }
 
     /** 内容键：同一段提示词在同一位置只画一次，翻历史、刷新页面都复用。 */
     function contentKey(messageId, turn, index, prompt) {
@@ -292,16 +233,12 @@ let openImageOverlay = null
     }
     const jsonFetch = createJsonTransport({ onRetry: ({ url, error }) => reportHost('fetch-retry', { tail: String(url).slice(-40), msg: String(error.message || '') }) })
 
-    // 正文兜底渲染：模块级常量，保证引用稳定（见 renderAssistantText 里的说明）
-    const FALLBACK_RENDER_TEXT = (value, key) => h('span', { key }, String(value ?? ''))
-
     // 注意：Tavern 的 .dsh-tavern-illustration 是 flex 列容器且 align-items:flex-start，
     // 子元素默认宽度由内容决定（图片多宽就多宽）。显式撑满，宽度设置与容器测量才有参照。
     // 不能写 width:100%：Tavern 插图容器是 flex 列容器且 align-items:flex-start，子元素宽度由内容决定，
     // 写 100% 会让「我的宽度依赖父容器、父容器又由我决定」形成循环，
     // 浏览器只能按最小内容解析，图会塔缩成缩略图大小（实测设 2000 只显示 95px）。
     const wrapStyle = { margin: '14px 0', textAlign: 'center' }
-    const imgStyle = { maxWidth: '100%', borderRadius: '10px', cursor: 'zoom-in', background: '#111' }
     const noteStyle = { display: 'inline-block', padding: '10px 16px', borderRadius: '10px', fontSize: '13px',
       color: 'var(--dsw-alias-label-tertiary)', border: '1px dashed var(--dsw-alias-border-l2)', background: 'transparent' }
     const buttonStyle = { padding: '8px 16px', borderRadius: '9px', border: '1px solid var(--dsw-alias-border-l2)',
@@ -487,76 +424,6 @@ let openImageOverlay = null
       return h('div', { style: wrapStyle },
         h('span', { style: noteStyle }, (state === 'running' ? '正在画…' : '排队中…') + ' ' + prompt.slice(0, 40)))
     }
-
-    /** 计划里的一张图：jobId 由 host 建好了，这里只负责等它画完。 */
-    function PlanImage(props) {
-      const { plan, index } = props
-      const displayWidth = useImageWidth()
-      const forcedWidthRef = useForcedImageWidth(displayWidth, { width: '100%', 'max-width': 'min(660px, 96vw)' })
-      // 一律先当 pending：宿主给的 status 可能已经过时（图还没真画好），靠轮询拿真实状态
-      const [state, setState] = useState('pending')
-      const [error, setError] = useState('')
-      // 图片自身加载失败 —— 最常见的原因是「作业已报 done，但文件还没写完」，这一小段窗口里
-      // 取图会返回 404。所以这里**自动重试**，别一失败就给用户看"取不到"。
-      const [imgError, setImgError] = useState('')
-      const [imgNonce, setImgNonce] = useState(0)
-      const [imgRetry, setImgRetry] = useState(0)
-
-      useEffect(() => {
-        if (!plan.jobId || state === 'done') return undefined
-        let cancelled = false
-        let timer = null
-        function poll() {
-          jsonFetch(BASE + '/jobs?id=' + encodeURIComponent(plan.jobId)).then(data => {
-            if (cancelled) return
-            const job = data?.job
-            if (!job) { timer = setTimeout(poll, 2000); return }
-            if (job.status === 'failed') { setState('failed'); setError(job.error || '画失败了'); return }
-            if (job.status === 'done') { setState('done'); return }
-            timer = setTimeout(poll, 1500)
-          }).catch(err => { if (!cancelled) { setState('failed'); setError(err?.message ?? String(err)) } })
-        }
-        poll()
-        return () => { cancelled = true; if (timer) clearTimeout(timer) }
-      }, [plan.jobId])
-
-      // 取图失败自动重试：最多 20 次 / 约 30 秒，之后才把「重试」按钮交给用户
-      useEffect(() => {
-        if (!imgError || imgRetry >= 20) return undefined
-        const timer = setTimeout(() => { setImgError(''); setImgRetry(n => n + 1); setImgNonce(x => x + 1) }, 1500)
-        return () => clearTimeout(timer)
-      }, [imgError, imgRetry])
-
-      if (state === 'done') {
-        const src = BASE + '/jobs?id=' + encodeURIComponent(plan.jobId) + '&image=1'
-        // 自动重试用尽后才显示"取不到"
-        if (imgError && imgRetry >= 20) {
-          return h('div', { style: wrapStyle },
-            h('span', { style: noteStyle }, '第 ' + (index + 1) + ' 张图取不到（' + imgError + '）　'),
-            h('button', {
-              type: 'button',
-              style: { fontSize: '12px', padding: '3px 12px', borderRadius: '8px', border: '1px solid rgba(160,180,210,.5)', background: 'transparent', color: '#dbe3ee', cursor: 'pointer' },
-              onClick: () => { setImgError(''); setImgRetry(0); setImgNonce(x => x + 1) },
-            }, '重试'),
-          )
-        }
-        // 正在自动重试中：给个安静的状态，不要露出破图
-        if (imgError) {
-          return h('div', { style: wrapStyle },
-            h('span', { style: noteStyle }, '🎨 第 ' + (index + 1) + ' 张正在取回…（第 ' + imgRetry + ' 次）'))
-        }
-        return h('div', { style: wrapStyle },
-          h('img', { ref: forcedWidthRef, key: 'img-' + imgNonce, src, loading: 'lazy', decoding: 'async', alt: plan.title || '插图',
-            onError: () => setImgError('加载失败'), title: '点一下在 DSH 里看大图', style: { display: 'block', ...imageWidthStyle({ width: '100%', maxWidth: 'min(660px, 96vw)' }, displayWidth), borderRadius: '10px', cursor: 'zoom-in', background: '#1a1d24', margin: '10px auto' }, onClick: () => viewImage(plan.jobId, plan.title), onContextMenu: (event) => { event.preventDefault(); openEditorFor(plan.jobId, plan.title) }, onMouseDown: () => beginPress(plan.jobId, plan.title), onMouseUp: cancelPress, onMouseLeave: cancelPress, onTouchStart: () => beginPress(plan.jobId, plan.title), onTouchEnd: cancelPress, onTouchMove: cancelPress }))
-      }
-      if (state === 'failed') {
-        return h('div', { style: wrapStyle },
-          h('span', { style: noteStyle }, '第 ' + (index + 1) + ' 张画失败：' + error + ' '))
-      }
-      return h('div', { style: wrapStyle },
-        h('span', { style: noteStyle }, '🎨 正在画第 ' + (index + 1) + ' 张…' + (plan.title ? '「' + plan.title + '」' : '')))
-    }
-
 
     /** 官方接口下的插图（kind = dsh-tavern-image/image）。
      *  item.data 里带着 jobId —— 所以放大、右键看提示词、长按、重画全都照用。
@@ -839,56 +706,6 @@ let openImageOverlay = null
     const mediaPostLocks = new Set()
     const mediaUncertainActions = new Set()
 
-    /** 段落：只渲染正文，不再带「画这段」按钮（生图入口统一在消息下方）。 */
-    function Segment(props) {
-      try {
-        return props.renderText(props.value, props.keyName || ('seg-' + props.index))
-      } catch (error) {
-        return h('span', null, String(props.value ?? ''))
-      }
-    }
-
-    /** 切段：每个非空行当成一段。 */
-    function paragraphsOf(text) {
-      return String(text ?? '').split(/\n+/).filter(line => line.trim())
-    }
-
-    /** 按 agent 给的挂载句把正文切开，在每句之后插一张图；每一段都带"画这段"按钮。 */
-    function splitByPlan(text, plans, renderText, info) {
-      const source = String(text ?? '')
-      const points = []
-      for (const plan of plans) {
-        const mount = String(plan.mount ?? '').trim()
-        if (!mount) continue
-        const at = source.indexOf(mount)
-        points.push({ plan, at: at < 0 ? source.length : at + mount.length })
-      }
-      points.sort((a, b) => a.at - b.at)
-      const nodes = []
-      let cursor = 0
-      points.forEach((point, i) => {
-        if (point.at > cursor) {
-          nodes.push(h(Segment, {
-            key: 'plan-seg-' + i, value: source.slice(cursor, point.at), index: i,
-            renderText, keyName: 'plan-text-' + i, ...info,
-          }))
-          cursor = point.at
-        }
-        nodes.push(h(PlanImage, { key: 'plan-img-' + i, plan: point.plan, index: i }))
-      })
-      if (cursor < source.length) {
-        nodes.push(h(Segment, { key: 'plan-tail', value: source.slice(cursor), index: points.length, renderText, keyName: 'plan-tail', ...info }))
-      }
-      return nodes
-    }
-
-    /**
-     * 正文渲染：默认什么都不做，只在末尾放一个「生图」按钮。
-     * 点了才去规划 —— 这样不会因为你翻历史就一排后台任务堆起来。
-     */
-    /**
-     * 整段正文 + 末尾一个「生图」按钮。正文整段交给宿主渲染一次（切段会让界面卡死）。
-     */
     /**
      * 长按 / 右键图片：打开编辑器，并把这张图的提示词读出来。
      */
@@ -1042,123 +859,6 @@ let openImageOverlay = null
 
     /** 设计完成后通知设置页刷新 */
     let onCardPick = null
-
-    /** 打开设计角色弹窗 */
-    let openDesignDialog = null
-    /** 设计完成后通知设置页刷新（peopleTab 挂载时设置） */
-    let onDesignResult = null
-
-    /**
-     * 角色与服装设计：说需求、给一张参考图，让后台按规范设计。
-     */
-    function DesignDialog(props) {
-      const [view, setView] = React.useState({ open: false, brief: '', photo: '', photoName: '', preview: '', busy: '', note: '' })
-      openDesignDialog = (next) => setView(cur => Object.assign({}, cur, next))
-      if (!view.open) return null
-
-      const close = () => openDesignDialog({ open: false, busy: '', note: '', brief: '', photo: '', preview: '', photoName: '' })
-
-      function pickFile(event) {
-        const file = event?.target?.files && event.target.files[0]
-        if (!file) return
-        if (file.size > 12 * 1024 * 1024) { openDesignDialog({ note: '图片太大了（上限 12MB）' }); return }
-        const reader = new FileReader()
-        reader.onload = () => {
-          const result = String(reader.result || '')
-          const base64 = result.includes(',') ? result.split(',')[1] : result
-          openDesignDialog({ photo: base64, photoName: file.name, preview: result, note: '' })
-        }
-        reader.onerror = () => openDesignDialog({ note: '读图失败' })
-        reader.readAsDataURL(file)
-      }
-
-      async function run() {
-        if (view.busy) return
-        const brief = String(view.brief || '').trim()
-        if (!brief) { openDesignDialog({ note: '先说说想要什么角色或服装' }); return }
-        openDesignDialog({ busy: 'working', note: '设计需要十几秒，请稍等…' })
-        try {
-          const payload = { brief, sessionId: String(lastSessionId || '') }
-          if (view.photo) { payload.data = view.photo; payload.mediaType = 'image/png'; payload.name = view.photoName || 'ref.png' }
-          const r = await jsonFetch(BASE + '/design', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
-          if (!r?.ok) { openDesignDialog({ note: '设计失败：' + (r?.error || ''), busy: '' }); return }
-          const people = r.people || []
-          if (!people.length) { openDesignDialog({ note: '模型没产出可用的人物，换个说法再试', busy: '' }); return }
-          // 宿主需要完整的 definitions（不是增量），所以先取当前的再合并
-          const cur = await jsonFetch(BASE + '/state').catch(() => null)
-          const defs = cur?.definitions ?? { characters: [], outfits: [] }
-          const merged = Object.assign({}, defs, {
-            characters: (defs.characters ?? []).concat(people),
-            outfits: defs.outfits ?? [],
-          })
-          const saved = await jsonFetch(BASE + '/definitions', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ definitions: merged }),
-          })
-          if (!saved?.ok) throw new Error(saved?.error || '服务器没有确认保存')
-          try { if (typeof onDesignResult === 'function') onDesignResult(people) } catch {}
-          openDesignDialog({ note: '已加入 ' + people.length + ' 位角色', busy: '' })
-          setTimeout(close, 1200)
-        } catch (error) {
-          openDesignDialog({ note: '失败：' + (error?.message ?? error), busy: '' })
-        }
-      }
-
-      const label = { fontSize: '12px', color: '#9aa3b2', marginBottom: '8px' }
-      const area = {
-        width: '100%', minHeight: '110px', boxSizing: 'border-box', background: '#11141a',
-        color: '#dbe3ee', border: '1px solid rgba(200,140,60,.55)', borderRadius: '12px',
-        padding: '12px 14px', fontSize: '13px', lineHeight: '1.6', fontFamily: 'inherit', resize: 'vertical',
-      }
-      const btn = (text, onClick, primary, extra) => React.createElement('button', {
-        type: 'button', onClick, disabled: Boolean(view.busy),
-        style: Object.assign({
-          padding: '9px 26px', fontSize: '14px', borderRadius: '10px', cursor: view.busy ? 'default' : 'pointer',
-          border: primary ? '1px solid rgba(230,160,60,.7)' : '1px solid rgba(120,140,170,.45)',
-          background: primary ? 'linear-gradient(180deg,#f0a63c,#e0861f)' : 'transparent',
-          color: primary ? '#1a1206' : '#dbe3ee', fontWeight: primary ? 600 : 400,
-        }, extra || {}),
-      }, view.busy && primary ? '设计中…' : text)
-
-      return React.createElement('div', {
-        style: { position: 'fixed', inset: '0', zIndex: 2147483002, background: 'rgba(0,0,0,.72)', overflowY: 'auto', padding: '40px 20px', display: 'flex', alignItems: 'flex-start', justifyContent: 'center' },
-        onClick: close,
-      }, React.createElement('div', {
-        style: { width: '520px', maxWidth: '100%', background: 'linear-gradient(180deg,#1b2029,#161a21)', border: '1px solid rgba(120,140,170,.3)', borderRadius: '16px', padding: '24px 26px', boxShadow: '0 20px 60px rgba(0,0,0,.5)' },
-        onClick: (event) => event.stopPropagation(),
-      },
-        React.createElement('div', { style: { textAlign: 'center', fontSize: '17px', fontWeight: 600, color: '#e8eef8', marginBottom: '6px' } }, '🎨 输入生成需求'),
-        React.createElement('div', { style: { height: '1px', background: 'rgba(120,140,170,.2)', margin: '14px 0 18px' } }),
-        React.createElement('div', { style: { textAlign: 'center', fontSize: '13px', color: '#9aa3b2', marginBottom: '12px' } }, '请描述您希望生成的角色或服装的具体需求'),
-        React.createElement('textarea', {
-          value: view.brief,
-          placeholder: '例如：生成一个穿着古风汉服的少女角色，温柔可爱…',
-          style: area,
-          onChange: (e) => openDesignDialog({ brief: e.target.value }),
-        }),
-        React.createElement('div', { style: { marginTop: '18px', padding: '14px', borderRadius: '12px', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(120,140,170,.18)' } },
-          React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
-            React.createElement('span', { style: Object.assign({}, label, { marginBottom: 0 }) }, '📎 参考图片（可选）'),
-            React.createElement('label', {
-              style: { padding: '7px 16px', fontSize: '13px', borderRadius: '9px', border: '1px solid rgba(230,160,60,.6)', color: '#f0b45c', cursor: 'pointer', background: 'rgba(240,166,60,.08)' },
-            },
-              '＋ 添加图片',
-              React.createElement('input', { type: 'file', accept: 'image/*', style: { display: 'none' }, onChange: pickFile }),
-            ),
-          ),
-          view.preview
-            ? React.createElement('img', { src: view.preview, style: { display: 'block', maxWidth: '150px', borderRadius: '10px', margin: '12px auto 0' } })
-            : React.createElement('div', { style: { textAlign: 'center', fontSize: '12px', color: '#6b7480', marginTop: '12px' } }, '点击上方按钮添加参考图片'),
-        ),
-        view.note ? React.createElement('div', { style: { fontSize: '12px', color: view.note.indexOf('失败') >= 0 || view.note.indexOf('太大') >= 0 ? '#f2686b' : '#9aa3b2', marginTop: '14px', textAlign: 'center' } }, view.note) : null,
-        React.createElement('div', { style: { display: 'flex', gap: '14px', justifyContent: 'center', marginTop: '22px' } },
-          btn('取消', close),
-          btn('确定生成', run, true),
-        ),
-        React.createElement('div', { style: { fontSize: '11px', color: '#6b7480', marginTop: '14px', textAlign: 'center' } }, '会按「角色与服装设计规范」产出人物与服装，并自动加进人物库'),
-      ))
-    }
 
     /** 重画后：旧作业 id → 新作业 id（同一条消息里就地换图） */
     // 重画版本链：旧 jobId → 新 jobId。持久化到 localStorage，刷新后还能翻历史版本。
@@ -1480,353 +1180,6 @@ function versionsOf(jobId) {
       } catch { /* 看图失败不影响正文 */ }
     }
 
-    function PlannedBody(props) {
-      const { text, messageId, turn, sessionId, renderText } = props
-      const [plans, setPlans] = React.useState(null)
-      const [jobIds, setJobIds] = React.useState([])
-      const [state, setState] = React.useState('idle')
-      const [note, setNote] = React.useState('')
-      const [hover, setHover] = React.useState(false)
-      const [progress, setProgress] = React.useState(0)
-
-      React.useEffect(() => {
-        // 恢复已有计划：切换页面 / 重新渲染 / 滚动回来时，宿主里可能早就存过这条的计划了。
-        // 之前只在"收到事件"时才查，所以一离开页面图就没了。
-        if (messageId) {
-          jsonFetch(BASE + '/plans?messageId=' + encodeURIComponent(String(messageId)))
-            .then(found => {
-              const list = found?.plans ?? []
-              if (!list.length) return
-              reportHost('inline-restored', { messageId: String(messageId).slice(0, 14), plans: list.length })
-              setPlans(list)
-              setJobIds(list.map(p => p.jobId).filter(Boolean))
-              setState('done')
-            })
-            .catch(() => {})
-        }
-
-        const handler = (event) => {
-          const target = event && event.detail ? String(event.detail.messageId ?? '') : ''
-          reportHost('inline-event', { target, mine: String(messageId ?? ''), match: target === String(messageId ?? '') })
-          // 只有被点的那一条才处理（广播会给所有消息，这里必须筛掉）
-          if (!messageId || !target || target !== String(messageId)) return
-          jsonFetch(BASE + '/plans?messageId=' + encodeURIComponent(String(messageId)))
-            .then(found => {
-              const list = found?.plans ?? []
-              reportHost('inline-fetched', { messageId: String(messageId ?? ''), got: list.length, mounts: list.map(p => String(p.mount ?? '').slice(0, 20)) })
-              if (list.length) { setPlans(list); setJobIds(list.map(p => p.jobId).filter(Boolean)); setState('done') }
-            })
-            .catch(() => {})
-        }
-        window.addEventListener('dsh-tavern-image:planned', handler)
-        return () => window.removeEventListener('dsh-tavern-image:planned', handler)
-      }, [messageId])
-
-      // 只有出过图才轮询进度，平时一声不响
-      React.useEffect(() => {
-        if (!jobIds.length) return
-        let alive = true
-        const timer = setInterval(async () => {
-          if (!alive) return
-          let done = 0
-          for (const id of jobIds) {
-            const r = await jsonFetch(BASE + '/jobs?id=' + encodeURIComponent(id)).catch(() => null)
-            if (r?.job?.status === 'done') done += 1
-          }
-          if (!alive) return
-          setProgress(done)
-          if (done >= jobIds.length) clearInterval(timer)
-        }, 4000)
-        return () => { alive = false; clearInterval(timer) }
-      }, [jobIds])
-
-      async function generate() {
-        if (state === 'working') return
-        setState('working')
-        setNote('')
-        setJobIds([])
-        try {
-          const r = await jsonFetch(BASE + '/plan', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ messageId, turn, text, sessionId, manual: true }),
-          })
-          const list = r.plans ?? []
-          if (!list.length) { setState('failed'); setNote(r.error || '没有产出画面'); return }
-          setState('done')
-          setPlans(list)
-          setJobIds(list.map(item => item.jobId).filter(Boolean))
-        } catch (error) {
-          setState('failed')
-          setNote(error && error.message ? error.message : String(error))
-        }
-      }
-
-      // 已经有图：按 host 给的「挂载句」把图插进正文对应位置
-      if (plans && plans.length) {
-        reportHost('inline-splitting', { messageId: String(messageId ?? ''), plans: plans.length, textLen: String(text ?? '').length })
-        return h(React.Fragment, null,
-          splitByPlan(text, plans, renderText, { messageId, turn, sessionId }),
-        )
-      }
-
-      // 没有计划：先看正文里有没有模型自己写的 image###Tag### 标记（自动生图开的那个通道）。
-      // 有就按标记切段、就地出图 —— 只按标记切（通常 4 段以内），不是按行切，不会把 markdown 渲染几十次。
-      // 宿主按 key 去重，同一条消息的同一个位置永远只画一次，翻历史、刷新页面都复用同一张。
-      const segments = splitSegments(text)
-      let markerCount = 0
-      for (const segment of segments) if (segment.type === 'image') markerCount += 1
-      if (markerCount) {
-        const owner = String(messageId ?? 'x')
-        reportHost('inline-markers', { messageId: owner.slice(0, 14), markers: markerCount, textLen: String(text ?? '').length })
-        return h(React.Fragment, null, segments.map((segment, index) => (
-          segment.type === 'image'
-            ? h(InlineImage, {
-              key: 'marker-img-' + index,
-              prompt: segment.prompt,
-              imageKey: contentKey(messageId, turn, index, segment.prompt),
-              auto: true,
-            })
-            : h(Segment, {
-              key: 'marker-text-' + index,
-              value: segment.value,
-              index,
-              renderText,
-              keyName: 'marker-text-' + owner + '-' + index,
-              messageId, turn, sessionId,
-            })
-        )))
-      }
-
-      // 没有计划、也没有待显示的图：正文照常渲染出来，不要返回 null。
-      // ⚠️ 宿主（message-frame.js 的 renderTavernProjection）只检查渲染器**函数**的返回值：
-      //    不是 null/undefined 就直接采用，不会再回落原生渲染。所以"返回 null 交回宿主"
-      //    只在 renderAssistantText 那一层成立，在 PlannedBody 这一层不成立 —— 在这里
-      //    返回 null 会让整段正文空白（2026-10-07 踩过）。
-      if (!jobIds.length) {
-        return h(Segment, {
-          key: 'rphub-plain',
-          value: text,
-          index: 0,
-          renderText,
-          keyName: 'rphub-plain-' + String(messageId ?? 'x'),
-          messageId, turn, sessionId,
-        })
-      }
-      const body = renderText(text, 'rphub-body-' + String(messageId ?? 'x'))
-      return h(React.Fragment, null,
-        body,
-        h('div', { style: { margin: '6px 0 12px' } },
-          jobIds.map(id => h('img', {
-            key: id,
-            src: BASE + '/jobs?id=' + encodeURIComponent(id) + '&image=1',
-            style: { display: 'block', width: '100%', maxWidth: '520px', borderRadius: '10px', margin: '8px 0' },
-            onClick: () => viewImage(id, ''),
-          })),
-          progress < jobIds.length ? h('div', { style: { fontSize: '11px', color: '#9aa3b2' } }, '画好了 ' + progress + ' / ' + jobIds.length) : null,
-        ),
-      )
-    }
-
-    /** 渲染器：有 image### 标记就走标记；没有就用 agent 规划。都没命中就返回 null。 */
-    /** 已经主动规划过的消息，避免重复调模型 */
-    const planEnsured = new Set()
-    /**
-     * 「自动生图」只认最新一轮，而且**要等渲染稳定下来**再动手。
-     *
-     * 为什么必须防抖：打开一个长会话时，历史消息是逐条渲染的，每一步的 turn 都比上一步大。
-     * 如果"见到更大的 turn 就规划"，一屏历史能一口气排出一串后台任务 —— 这个坑第一次上线就踩了
-     * （重启后冒出几十张图）。所以这里只记下见过的最大轮次，等 1.2 秒不再有更新的轮次出现，
-     * 它才真的是"最新一轮"，那时才去规划。
-     * turn 拿不到就什么都不做：宁可不自动，也不要乱触发。
-     */
-    let autoPlanSession = ''
-    let autoPlanTurn = -1
-    let autoPlanTimer = null
-    let autoPlanPending = null
-    function scheduleAutoPlan(sessionId, turn, messageId, text) {
-      const sid = String(sessionId ?? '')
-      if (sid !== autoPlanSession) { autoPlanSession = sid; autoPlanTurn = -1 }
-      const t = Number(turn)
-      if (!Number.isFinite(t) || t <= 0) return
-      if (t <= autoPlanTurn) return        // 比已见过的更旧：一定是历史消息，不规划
-      autoPlanTurn = t
-      autoPlanPending = { messageId, text, sessionId: sid, turn: t }
-      if (autoPlanTimer) clearTimeout(autoPlanTimer)
-      autoPlanTimer = setTimeout(() => {
-        autoPlanTimer = null
-        const job = autoPlanPending
-        autoPlanPending = null
-        // 期间又出现了更新的轮次 → 那一次会重新排，这次作废
-        if (!job || job.turn !== autoPlanTurn) return
-        ensurePlanFor(job.messageId, job.text, job.sessionId, job.turn)
-      }, 1200)
-    }
-    /**
-     * 渲染器一被调用就主动去要计划 —— 不等 React 组件挂载。
-     * （React 那边会不会挂载取决于宿主，不能把规划押在它身上。）
-     */
-    function ensurePlanFor(messageId, text, sessionId, turn) {
-      try {
-        if (!messageId) return
-        if (planEnsured.has(messageId)) return
-        planEnsured.add(messageId)
-        jsonFetch(BASE + '/plans?messageId=' + encodeURIComponent(messageId)).then(found => {
-          if (found?.plans?.length) return null
-          reportHost('plan-request', { messageId, textLen: String(text ?? '').length, source: 'renderer' })
-          return jsonFetch(BASE + '/plan', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ messageId, turn, text, sessionId }),
-          }).then(response => {
-            const got = (response?.plans ?? []).length
-            reportHost('plan-response', { ok: response?.ok, plans: got, error: response?.error ?? '' })
-            if (got) {
-              try { window.dispatchEvent(new CustomEvent('dsh-tavern-image:planned', { detail: { messageId } })) } catch {}
-            }
-            return null
-          })
-        }).catch(error => {
-          reportHost('plan-threw', { messageId, message: String(error?.message ?? error).slice(0, 400) })
-        })
-      } catch (error) {
-        reportHost('plan-ensure-failed', { message: String(error?.message ?? error).slice(0, 300) })
-      }
-    }
-
-    /**
-     * 正文渲染：整段交给宿主的渲染器（**不切段** —— 切段会让 markdown 渲染几十次、界面卡死），
-     * 末尾跟一个「生图」按钮。只在游玩时的回复里出现（那种消息带着 turn）。
-     */
-    function renderAssistantText(text, context, options) {
-      try {
-        if (context?.sessionId) lastSessionId = String(context.sessionId)
-        // ⚠️ 这是 v1.0「打补丁时代」的遗留函数，**当前没有任何地方注册它**，留着只为备查。
-        //    正文渲染已经交回 Tavern 原生：图由宿主侧 tavern.attach 按 anchor 挂上，
-        //    Tavern 自己渲染、自己跟 textVersion 绑定。
-        //    不要再注册它 —— 一旦注册，会和 attach 挂的图重复渲染。
-        if (context?.streaming) return null
-        const renderText = typeof context?.renderText === 'function' ? context.renderText : null
-        if (!renderText) return null
-        // 卡片工作台（Tavern 的 mode === "card"）不生成插图、也不接管正文：
-        // 这里是"改卡"的地方，正文里出现的 image### 标记不该在这里被画成图。
-        // 判定来自 Tavern 侧渲染补丁给出的 cardBench 字段（见 message-frame.js）。
-        // 注意：Tavern 宿主已经对"消息级动作"做了 isPlayMode 判定，所以「🎨 生图」按钮
-        // 本来就不在工作台出现，这里补的是正文渲染这一条路径。
-        if (context?.cardBench) {
-          // 卡片工作台：绝不出图。
-          // 正常情况这里没有任何标记，直接返回 null 让 Tavern 原生渲染，零影响；
-          // 万一模型还是写了 image### 标记（自动生图规则会跟到所有请求），就把它清掉再渲染，
-          // 免得工作台的正文里露出一串标记。
-          const original = String(text ?? '')
-          const cleaned = original.replace(new RegExp(IMAGE_TAG.source, 'gi'), '').replace(/\n{3,}/g, '\n\n').trim()
-          if (cleaned === original.trim()) return null
-          reportHost('cardbench-stripped', { messageId: String(context?.messageId ?? '').slice(0, 14), removed: original.length - cleaned.length })
-          return h(React.Fragment, null, renderText(cleaned, 'card-bench-' + String(context?.messageId ?? 'x')))
-        }
-        // 不再依赖 turn：Tavern 的渲染链路只服务游玩对话，工作台/设置页不走这里，
-        // 所以"只在游玩时出现"是天然成立的（之前按 turn 判定导致按钮永不出现）。
-        reportHost('renderer-takeover', { messageId: String(context?.messageId ?? ''), turn: context?.turn, cardBench: Boolean(context?.cardBench), textLen: String(text ?? '').length })
-        // 「自动生图」：生图规划开着时，正文渲染稳定后替**最新一轮**要一次计划，不用点按钮。
-        //   短消息（工具回执、寒暄）不配图；历史消息不规划；连续渲染时只认最后停下来的那一轮。
-        // 「🎨 生图」按钮完全不受影响 —— 点它依然是对那一条消息单独生图、重新生图。
-        // 自动配图已由**宿主侧**的 Tavern 官方接口桥接管（tavern.onTurnSettled → 规划 → attach），
-        // 图由 Tavern 自己按 anchor 渲染并与正文版本绑定。前端不再在渲染时发起规划 ——
-        // 否则同一条正文会被规划两次、出两批图。手动按钮不受影响，仍然可用。
-        return h(PlannedBody, {
-          text: String(text ?? ''),
-          messageId: context?.messageId,
-          turn: context?.turn,
-          sessionId: context?.sessionId,
-          renderText,
-        })
-      } catch (error) {
-        reportHost('render-error', { message: String(error?.message ?? error).slice(0, 300) })
-        return null
-      }
-    }
-
-    /**
-     * 消息级生图：挂在整条消息容器里（Tavern 的 extensionActions 通道），
-     * 不管这条消息是纯文本还是 HTML 面板卡，都能看到。图直接显示在消息下方。
-     */
-    function MessageImageButton(props) {
-      const { text, messageId, turn, sessionId } = props
-      const [plans, setPlans] = React.useState(null)
-      const [state, setState] = React.useState('idle')
-      const [note, setNote] = React.useState('')
-      const [hover, setHover] = React.useState(false)
-      const [progress, setProgress] = React.useState(0)
-
-      React.useEffect(() => {
-        if (!plans || !plans.length) return
-        let alive = true
-        const timer = setInterval(async () => {
-          if (!alive) return
-          let done = 0
-          for (const p of plans) {
-            const r = await jsonFetch(BASE + '/jobs?id=' + encodeURIComponent(p.jobId)).catch(() => null)
-            if (r?.job?.status === 'done') done += 1
-          }
-          if (!alive) return
-          setProgress(done)
-          if (done >= plans.length) clearInterval(timer)
-        }, 4000)
-        return () => { alive = false; clearInterval(timer) }
-      }, [plans])
-
-      async function generate() {
-        if (state === 'working') return
-        setState('working')
-        setNote('')
-        setPlans(null)
-        reportHost('plan-request', { messageId: String(messageId ?? ''), textLen: String(text ?? '').length, source: 'message-action' })
-        try {
-          const r = await jsonFetch(BASE + '/plan', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ messageId, turn, text, sessionId, manual: true }),
-          })
-          const list = r.plans ?? []
-          reportHost('plan-response', { ok: r?.ok, plans: list.length, error: r?.error ?? '' })
-          if (!list.length) { setState('failed'); setNote(r.error || '没有产出画面'); return }
-          setState('done')
-          setPlans(list)
-          try {
-            reportHost('inline-dispatch', { messageId: String(messageId ?? ''), textLen: String(text ?? '').length, plans: list.length })
-            window.dispatchEvent(new CustomEvent('dsh-tavern-image:planned', { detail: { messageId: String(messageId ?? '') } }))
-          } catch (error) { reportHost('inline-dispatch-failed', { message: String(error?.message ?? error) }) }
-        } catch (error) {
-          reportHost('plan-threw', { message: String(error?.message ?? error).slice(0, 300) })
-          setState('failed')
-          setNote(error && error.message ? error.message : String(error))
-        }
-      }
-
-      const busy = state === 'working'
-      return React.createElement('div', { style: { margin: '6px 0 10px' } },
-        React.createElement('div', { style: { textAlign: 'right' } },
-          React.createElement('button', {
-            type: 'button',
-            disabled: busy,
-            onClick: generate,
-            onMouseEnter: () => setHover(true),
-            onMouseLeave: () => setHover(false),
-            title: '按这一整段回复生成插图',
-            style: {
-              padding: '3px 12px', fontSize: '12px', borderRadius: '8px',
-              border: '1px solid rgba(120,140,170,.5)',
-              background: hover ? 'rgba(106,168,255,.16)' : 'rgba(106,168,255,.06)',
-              color: state === 'failed' ? '#f2686b' : '#b9c3d1',
-              cursor: busy ? 'default' : 'pointer',
-            },
-          }, busy ? '🎨 生成中…' : state === 'failed' ? '🎨 重试' : state === 'done' ? '🎨 重新生图' : '🎨 生图'),
-          note ? React.createElement('span', { style: { fontSize: '11px', color: '#f2686b', marginLeft: '8px' } }, note) : null,
-        ),
-        // 图只显示在正文里（这里不再重复显示），按钮留着触发
-      )
-    }
-
     function ImageOverlay() {
       const [view, setView] = React.useState({ open: false, jobIds: [], note: '', working: false, index: 0 })
       // 缩放与平移：滚轮缩放、按住拖动（触摸同样支持）
@@ -1981,56 +1334,16 @@ function versionsOf(jobId) {
       ))
     }
 
-    function DockImageButton(props) {
-      const [working, setWorking] = React.useState(false)
-      const [hover, setHover] = React.useState(false)
-      async function run() {
-        if (working) return
-        setWorking(true)
-        try {
-          if (openImageOverlay) openImageOverlay({ open: true, jobIds: [], note: '', working: true })
-          const r = await jsonFetch(BASE + '/plan', {
-            method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ sessionId: String(props?.sessionId ?? lastSessionId ?? ''), turn: 0, manual: true }),
-          })
-          const ids = (r.plans || []).map(p => p.jobId).filter(Boolean)
-          if (openImageOverlay) openImageOverlay({ open: true, jobIds: ids, note: ids.length ? ('本轮 ' + ids.length + ' 张') : (r.error || '没产出画面'), working: false })
-        } catch (error) {
-          if (openImageOverlay) openImageOverlay({ open: true, jobIds: [], note: '生成失败：' + (error && error.message ? error.message : error), working: false })
-        } finally {
-          setWorking(false)
-        }
-      }
-      return React.createElement('button', {
-        type: 'button',
-        title: '按最新一段正文生成插图',
-        disabled: working,
-        onClick: run,
-        onMouseEnter: () => setHover(true),
-        onMouseLeave: () => setHover(false),
-        style: {
-          padding: '4px 12px', fontSize: '13px', borderRadius: '8px',
-          border: '1px solid rgba(120,140,170,.55)',
-          background: hover ? 'rgba(106,168,255,.16)' : 'rgba(106,168,255,.07)',
-          color: '#dbe3ee', cursor: working ? 'default' : 'pointer', whiteSpace: 'nowrap',
-        },
-      }, working ? '🎨 生成中…' : '🎨 生图')
-    }
-
-    // ================= 助手消息下方的「生图」按钮（保留，万一以后能用） =================
-    /** 点了之后就地规划这一条消息的正文，并通知正文里的图重新取一次计划。 */
+    // 生图按钮兼容没有 registerIllustrator 的宿主。
     function ImageActionButton(props) {
       const messageId = String(props?.messageId ?? '')
       const sessionId = String(props?.sessionId ?? '')
       const [state, setState] = React.useState('idle')
       const [note, setNote] = React.useState('')
-      // 正文由宿主自己从会话里读（不依赖前端的渲染钩子）；这里只在已知太短时藏掉按钮
-      const cached = textByMessage.get(messageId)
-      const usable = cached === undefined ? true : cached.trim().length >= 12
       const [jobIds, setJobIds] = React.useState([])
 
       async function generate() {
-        if (state === 'working' || !usable) return
+        if (state === 'working') return
         setState('working')
         setNote('')
         try {
@@ -2048,7 +1361,6 @@ function versionsOf(jobId) {
           setState('done')
           setNote('已生成 ' + list.length + ' 张')
           setJobIds(list.map(item => item.jobId).filter(Boolean))
-          // 正文里那套渲染是另一个组件，靠这个事件让它去取新计划并插图
           try { window.dispatchEvent(new CustomEvent('dsh-tavern-image:planned', { detail: { messageId } })) } catch {}
         } catch (error) {
           setState('failed')
@@ -2056,7 +1368,6 @@ function versionsOf(jobId) {
         }
       }
 
-      if (!usable) return null
       const label = state === 'working' ? '🎨 生成中…' : state === 'done' ? '🎨 重新生图' : state === 'failed' ? '🎨 重试生图' : '🎨 生图'
       const images = state === 'done' && jobIds.length
         ? React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px', width: '100%' } },
@@ -2853,18 +2164,6 @@ function versionsOf(jobId) {
       }
       const [tab, setTab] = React.useState('plan')
       const promptFormatFocus = React.useRef(false)
-      const [updateOpen, setUpdateOpen] = React.useState(false)
-      const [pluginUpdateLocal, setPluginUpdateLocal] = React.useState(null)
-      const [pluginUpdateCheck, setPluginUpdateCheck] = React.useState(null)
-      const [pluginUpdateNote, setPluginUpdateNote] = React.useState('')
-      const [pluginUpdatePending, setPluginUpdatePending] = React.useState('')
-      const pluginUpdateLocalAttempted = React.useRef(false)
-      const pluginUpdateLocalInFlight = React.useRef(false)
-      const pluginUpdatePendingRef = React.useRef('')
-      const pluginUpdateView = React.useRef(0)
-      const pluginUpdateTabRef = React.useRef(updateOpen)
-      const pluginUpdateMounted = React.useRef(true)
-      pluginUpdateTabRef.current = updateOpen
       const [note, setNote] = React.useState('')
       // 正文图片显示大小：输入过程只改草稿（绝不边输边发请求），点「保存」才发一次 /config。
       // null = 跟随已保存的配置；保存成功后回到 null，输入框显示服务端确认过的值。
@@ -3082,20 +2381,6 @@ function versionsOf(jobId) {
       // 等 /state 到位再测 ComfyUI：那时才拿得到 comfyUrl，也避开首次渲染的 config TDZ
       React.useEffect(() => { if (data?.config?.imageBackend === 'comfyui') loadComfyStatus() }, [data?.config?.imageBackend])
       const channelTestsInFlight = React.useRef({})
-      React.useEffect(() => {
-        const view = ++pluginUpdateView.current
-        if (updateOpen && !pluginUpdateLocalAttempted.current) {
-          pluginUpdateLocalAttempted.current = true
-          void loadPluginUpdateLocal()
-        }
-        return () => {
-          if (pluginUpdateView.current === view) pluginUpdateView.current += 1
-        }
-      }, [updateOpen])
-      React.useEffect(() => {
-        pluginUpdateMounted.current = true
-        return () => { pluginUpdateMounted.current = false; pluginUpdateView.current += 1 }
-      }, [])
       // Poll only progress while a task runs. Load libraries/worldbooks/diagnostics
       // once on completion; slow requests never overlap and hidden pages stay idle.
       React.useEffect(() => {
@@ -3157,111 +2442,6 @@ function versionsOf(jobId) {
 
       function post(pathname, body) {
         return jsonFetch(BASE + pathname, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-      }
-      function mergePluginUpdateLocalStatus(status) {
-        setPluginUpdateLocal(current => {
-          const next = Object.assign({}, current, {
-            currentVersion: status?.currentVersion ?? current?.currentVersion,
-            restartRequired: status?.restartRequired ?? current?.restartRequired,
-            directoryMigrationRequired: status?.directoryMigrationRequired ?? current?.directoryMigrationRequired,
-            directoryMigrationMessage: status?.directoryMigrationMessage ?? current?.directoryMigrationMessage,
-          })
-          if (typeof status?.supported === 'boolean') {
-            next.supported = status.supported
-            next.reason = status.reason || ''
-          } else if (status?.reason) next.reason = status.reason
-          return next
-        })
-      }
-      async function loadPluginUpdateLocal() {
-        if (pluginUpdatePendingRef.current || pluginUpdateLocalInFlight.current) return
-        pluginUpdateLocalInFlight.current = true
-        pluginUpdatePendingRef.current = 'local'
-        setPluginUpdatePending('local')
-        setPluginUpdateNote('读取本地插件状态…')
-        const view = pluginUpdateView.current
-        try {
-          const status = await jsonFetch(BASE + '/plugin-update')
-          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
-          setPluginUpdateLocal(status)
-          setPluginUpdateNote(status?.supported === false
-            ? (status.reason || '当前安装方式暂不支持自动更新。')
-            : status?.restartRequired
-              ? '插件需要完整重启 DSH 后生效。'
-              : status?.directoryMigrationRequired ? status.directoryMigrationMessage : '')
-        } catch (error) {
-          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
-          setPluginUpdateNote('读取本地插件状态失败：' + (error?.message ?? error))
-        } finally {
-          pluginUpdateLocalInFlight.current = false
-          if (pluginUpdatePendingRef.current === 'local') {
-            pluginUpdatePendingRef.current = ''
-            if (pluginUpdateMounted.current) setPluginUpdatePending('')
-          }
-        }
-      }
-      async function checkPluginUpdate() {
-        if (pluginUpdatePendingRef.current || !(pluginUpdateLocal?.mode === 'release' || pluginUpdateLocal?.supported === true) || pluginUpdateLocal?.compatibility?.compatible === false) return
-        pluginUpdatePendingRef.current = 'check'
-        setPluginUpdatePending('check')
-        setPluginUpdateNote('正在检查插件更新…')
-        const view = pluginUpdateView.current
-        try {
-          const status = await post('/plugin-update/check', {})
-          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
-          setPluginUpdateCheck(status)
-          mergePluginUpdateLocalStatus(status)
-          const supported = status?.supported ?? pluginUpdateLocal?.supported
-          const reason = status?.reason ?? (status?.supported === false ? '' : pluginUpdateLocal?.reason)
-          setPluginUpdateNote(supported === false
-            ? (reason || '当前安装方式暂不支持自动更新。')
-            : status?.restartRequired
-              ? (status.message && status.message.includes('完整重启 DSH') ? status.message : [status.message, '插件已更新，需要完整重启 DSH 才会生效。'].filter(Boolean).join(' '))
-              : status?.directoryMigrationRequired
-                ? [status?.available ? '发现可用更新。' : '', status.directoryMigrationMessage].filter(Boolean).join(' ')
-                : reason
-                  ? reason
-                  : status?.available
-                    ? (status?.canUpdate ? '发现可用更新。' : (status?.reason || '发现新版本，但当前无法自动更新。'))
-                    : '当前已是最新版本。')
-        } catch (error) {
-          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
-          setPluginUpdateNote('检查更新失败：' + (error?.message ?? error))
-        } finally {
-          if (pluginUpdatePendingRef.current === 'check') {
-            pluginUpdatePendingRef.current = ''
-            if (pluginUpdateMounted.current) setPluginUpdatePending('')
-          }
-        }
-      }
-      async function applyPluginUpdate() {
-        if (pluginUpdatePendingRef.current || (!(pluginUpdateLocal?.mode === 'release' || pluginUpdateLocal?.supported) ) || !pluginUpdateCheck?.available || !pluginUpdateCheck?.canUpdate || pluginUpdateCheck?.restartRequired || pluginUpdateLocal?.restartRequired) return
-        if (libraryDirty.current) {
-          setPluginUpdateNote('请先保存人物库，再更新插件。')
-          return
-        }
-        pluginUpdatePendingRef.current = 'apply'
-        setPluginUpdatePending('apply')
-        setPluginUpdateNote('正在更新插件…')
-        const view = pluginUpdateView.current
-        try {
-          const status = await post('/plugin-update/apply', { target: pluginUpdateCheck.target })
-          if (!pluginUpdateMounted.current) return
-          const completedStatus = Object.assign({}, status, { restartRequired: true })
-          setPluginUpdateCheck(completedStatus)
-          mergePluginUpdateLocalStatus(completedStatus)
-          setPluginUpdateNote(status?.message && status.message.includes('完整重启 DSH')
-            ? status.message
-            : [status?.message, '插件更新完成，请完整重启 DSH 后生效。'].filter(Boolean).join(' '))
-        } catch (error) {
-          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
-          setPluginUpdateNote('更新插件失败：' + (error?.message ?? error))
-        } finally {
-          if (pluginUpdatePendingRef.current === 'apply') {
-            pluginUpdatePendingRef.current = ''
-            if (pluginUpdateMounted.current) setPluginUpdatePending('')
-          }
-        }
       }
       async function save(patch) {
         const operation = configSaveQueue.current.catch(() => {}).then(async () => {
@@ -3590,11 +2770,18 @@ function versionsOf(jobId) {
                   h('option', { value: 'true', style: optStyle }, '开（默认）'),
                   h('option', { value: 'false', style: optStyle }, '关'))),
               h('div', { style: { marginBottom: '10px' } }, label('多样性（variety_boost）'),
-                h('select', { 'aria-label': '多样性', value: String((localFields.options || {}).varietyBoost ?? false), style: full(), onChange: e => updateOption('varietyBoost', e.target.value === 'true') },
+                h('select', { 'aria-label': '多样性', value: String((localFields.options || {}).varietyBoost ?? false), style: full(), onChange: e => updateOption('varietyBoost', e.target.value === 'omit' ? 'omit' : e.target.value === 'true') },
                   h('option', { value: 'false', style: optStyle }, '关（默认）'),
-                  h('option', { value: 'true', style: optStyle }, '开（Variety Boost）')))) : null,
-            // 画质 only where the wire API has a quality tier (OpenAI Images, gpt-image models). 自动 saves an empty value, so requests stay exactly as before.
-            protocolBackend === 'openai' ? selectOptionField('quality', '画质', [['', '自动（默认）'], ['low', '低（最快）'], ['medium', '中'], ['high', '高（最慢）']], '', '仅 gpt-image 模型生效；越高越慢') : null,
+                  h('option', { value: 'true', style: optStyle }, '开（Variety Boost）'),
+                  // 有些第三方站点把 variety_boost 当未知字段直接 422，选这个就整条不发
+                  h('option', { value: 'omit', style: optStyle }, '不传（站点不认这条参数）')))) : null,
+            protocolBackend === 'openai' ? selectOptionField('quality', '画质', [
+              ['', '服务端默认（不传）'], ['auto', '自动（auto）'], ['low', '低'], ['medium', '中'], ['high', '高'],
+              ['xhigh', '超高（xhigh）'], ['max', '最高（max）'],
+            ], '', '画质档位取决于模型和中转服务，尤其是 xhigh 和 max。') : null,
+            protocolBackend === 'openai' ? selectOptionField('moderation', '内容审核级别', [
+              ['', '服务端默认（不传）'], ['auto', '自动（auto）'], ['low', '较宽松（low）'],
+            ], '', '实际支持情况取决于模型和中转服务。') : null,
             protocolBackend === 'novelai' ? h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '10px 12px' } },
               sizeField('sizeWidth', '宽（像素）', '如 832', legacySize.width),
               sizeField('sizeHeight', '高（像素）', '如 1216', legacySize.height),
@@ -4008,7 +3195,6 @@ function versionsOf(jobId) {
           patch(index, changes)
         }
         // 注意：peopleTab 是被调用的普通函数，不能用 hooks（会让 SettingsPanel 的 hooks 数不稳定）
-        onDesignResult = () => { refresh() }
         function setCharacters(update) {
           const current = dataRef.current
           const before = current?.definitions?.characters || []
@@ -6385,99 +5571,6 @@ function versionsOf(jobId) {
         )
       }
 
-      // ---- 工作流 ----
-      function pluginUpdateTab() {
-        const releaseMode = pluginUpdateLocal?.mode === 'release'
-        const supported = releaseMode || pluginUpdateLocal?.supported === true
-        const canCheck = (releaseMode || pluginUpdateLocal?.supported === true) && pluginUpdateLocal?.compatibility?.compatible !== false
-        const version = value => value ? String(value) : '暂无结果'
-        const restartNeeded = pluginUpdateCheck?.restartRequired === true || pluginUpdateLocal?.restartRequired === true
-        const canUpdate = supported && pluginUpdateCheck?.available === true && pluginUpdateCheck?.canUpdate === true && !restartNeeded
-        const latestConfirmed = pluginUpdateCheck?.available === false && pluginUpdateCheck?.restartRequired !== true && pluginUpdateCheck?.supported !== false && pluginUpdateLocal?.supported !== false && !pluginUpdateCheck?.reason && !pluginUpdateLocal?.reason
-        const migrationNeeded = pluginUpdateLocal?.directoryMigrationRequired === true && pluginUpdateLocal?.supported !== false
-        const downloads = data.pluginDownloads && typeof data.pluginDownloads === 'object' ? data.pluginDownloads : {}
-        const externalDownload = (key, hostname, pathname) => {
-          try {
-            const url = new URL(String(downloads[key] ?? ''))
-            if (url.protocol !== 'https:' || url.hostname !== hostname || url.port || url.username || url.password || url.search || url.hash || url.pathname !== pathname) return ''
-            return url.href
-          } catch { return '' }
-        }
-        const localDownloadPath = (() => {
-          try {
-            const value = String(downloads.local ?? '')
-            if (!value.startsWith('/') || value.startsWith('//')) return ''
-            const url = new URL(value, window.location.origin)
-            const validPath = ['/api/dsh-tavern-image/plugin-download', '/api/dsh-tavern-comfy/plugin-download', '/plugins/dsh-tavern-image/plugin-download', '/plugins/dsh-tavern-comfy/plugin-download'].includes(url.pathname)
-            return url.origin === window.location.origin && validPath && !url.username && !url.password && !url.search && !url.hash ? url.pathname : ''
-          } catch { return '' }
-        })()
-        const sourceUrl = externalDownload('source', 'github.com', '/weixinlll/dsh-tavern-image/archive/refs/heads/master.zip')
-        const alternateUrl = externalDownload('alternate', 'codeload.github.com', '/weixinlll/dsh-tavern-image/zip/refs/heads/master')
-        const releasesUrl = externalDownload('releases', 'github.com', '/weixinlll/dsh-tavern-image/releases')
-        const repositoryUrl = externalDownload('repository', 'github.com', '/weixinlll/dsh-tavern-image.git')
-        async function downloadLocalPackage() {
-          if (!localDownloadPath) return
-          setPluginUpdateNote('正在生成本机安装包…')
-          try {
-            const response = await fetch(localDownloadPath, { method: 'GET', credentials: 'same-origin', cache: 'no-store' })
-            if (!response.ok) {
-              let detail = ''
-              try { detail = (await response.json())?.error || '' } catch {}
-              throw new Error(detail || ('HTTP ' + response.status))
-            }
-            const type = String(response.headers.get('content-type') || '').toLowerCase()
-            if (!type.includes('application/zip')) throw new Error('服务没有返回 ZIP 安装包')
-            const blobUrl = URL.createObjectURL(await response.blob())
-            const anchor = document.createElement('a')
-            anchor.href = blobUrl
-            anchor.download = 'dsh-tavern-image-local.zip'
-            document.body.appendChild(anchor)
-            anchor.click()
-            anchor.remove()
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
-            setPluginUpdateNote('✓ 本机安装包已开始下载。它包含当前本机插件代码和测试改动。')
-          } catch (error) {
-            setPluginUpdateNote('本机安装包下载失败：' + String(error?.message ?? error))
-          }
-        }
-        const linkStyle = Object.assign({}, buttonStyle, { display: 'inline-block', textDecoration: 'none' })
-        return h('div', null,
-          h('div', { style: S.card },
-            h('div', { style: { fontSize: '14px', fontWeight: 600, marginBottom: '8px' } }, '插件更新'),
-            h('div', { role: 'note', style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } }, releaseMode ? 'Release 更新：下载官方发布包并校验 SHA-256。' : 'Git 更新：仅对官方、干净的 master checkout 执行 fast-forward。'),
-            pluginUpdateLocal?.compatibility?.compatible === false ? h('div', { role: 'alert', style: { fontSize: '12px', color: 'var(--dsw-alias-state-warning-primary)', marginBottom: '8px' } }, pluginUpdateLocal.compatibility.reason || '当前 Tavern 版本不兼容，请先更新 Tavern。') : null,
-            h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(120px, auto) 1fr', gap: '6px 12px', fontSize: '13px' } },
-              h('span', { style: S.label }, '当前版本'), h('span', null, version(pluginUpdateLocal?.currentVersion)),
-              h('span', { style: S.label }, '远端版本'), h('span', null, version(pluginUpdateCheck?.latestVersion)),
-            ),
-            latestConfirmed ? h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '8px' } }, '当前已是最新版本。') : null,
-            pluginUpdateLocal?.supported === false && repositoryUrl ? h('a', { href: repositoryUrl.slice(0, -4), target: '_blank', rel: 'noopener noreferrer', style: { display: 'inline-block', marginTop: '8px', color: 'var(--dsw-alias-brand-primary)' } }, '打开插件 GitHub 页面手动下载') : null,
-            h('div', { style: S.row },
-              h('button', { style: buttonStyle, disabled: !canCheck || Boolean(pluginUpdatePending), onClick: () => { setPluginUpdateCheck(null); void checkPluginUpdate() } }, pluginUpdatePending === 'check' ? '正在检查…' : '检查更新'),
-              h('button', { style: buttonStyle, disabled: !canUpdate || Boolean(pluginUpdatePending), onClick: applyPluginUpdate }, pluginUpdatePending === 'apply' ? '正在更新…' : '更新插件'),
-              !pluginUpdateLocal && pluginUpdatePending !== 'local' ? h('button', { style: buttonStyle, disabled: Boolean(pluginUpdatePending), onClick: () => { pluginUpdateLocalAttempted.current = true; void loadPluginUpdateLocal() } }, '重试读取本地状态') : null,
-            ),
-            h('div', { role: 'status', 'aria-live': 'polite', style: { minHeight: '18px', fontSize: '12px', color: restartNeeded || migrationNeeded ? 'var(--dsw-alias-state-warning-primary)' : 'var(--dsw-alias-label-tertiary)', marginTop: '8px' } },
-              pluginUpdateNote || (pluginUpdatePending === 'local' ? '读取本地插件状态…' : ''),
-            ),
-            migrationNeeded ? h('div', { role: 'note', style: { fontSize: '12px', color: 'var(--dsw-alias-state-warning-primary)', marginTop: '8px', lineHeight: 1.55 } }, pluginUpdateLocal.directoryMigrationMessage) : null,
-            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '8px', lineHeight: 1.55 } }, releaseMode ? 'Release 更新使用发布 metadata 中的版本和 SHA-256 校验；只更新插件代码，更新后请完整重启 DSH。' : 'Git 更新仅允许官方干净 master checkout 快进；只更新插件代码，更新后请完整重启 DSH。'),
-            h('div', { style: { borderTop: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)', marginTop: '12px', paddingTop: '10px' } },
-              h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-primary)', marginBottom: '6px' } }, '手动下载插件包'),
-              h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '9px', lineHeight: 1.55 } }, '本机安装包包含当前本机代码（包括未发布测试改动）；GitHub ZIP 与备用下载是公开仓库 master 版本，不包含本机测试改动。若公开 ZIP 下载较慢，可试备用下载；它也由 GitHub codeload 提供。历史发布可选稳定版本。'),
-              h('div', { style: S.row },
-                h('button', { type: 'button', style: buttonStyle, disabled: !localDownloadPath, onClick: downloadLocalPackage }, '本机安装包'),
-                sourceUrl ? h('a', { href: sourceUrl, target: '_blank', rel: 'noopener noreferrer', style: linkStyle }, 'GitHub 源码ZIP') : null,
-                alternateUrl ? h('a', { href: alternateUrl, target: '_blank', rel: 'noopener noreferrer', style: linkStyle }, '备用下载') : null,
-                releasesUrl ? h('a', { href: releasesUrl, target: '_blank', rel: 'noopener noreferrer', style: linkStyle }, '历史发布') : null,
-              ),
-              !localDownloadPath && !sourceUrl && !alternateUrl && !releasesUrl ? h('div', { role: 'status', style: { fontSize: '11px', color: 'var(--dsw-alias-state-warning-primary)', marginTop: '6px' } }, '下载地址尚不可用，请刷新控制台状态后重试。') : null,
-            ),
-          ),
-        )
-      }
-
       const tabs = [['plan', '设置'], ['style', '画风'], ['people', '人物库'], ['worldbook', '世界书'], ['gallery', '画廊']]
       const section = text => h('div', { style: { fontSize: '14px', fontWeight: 600, margin: '18px 0 2px', color: 'var(--dsw-alias-label-primary)' } }, text)
       return h('div', { className: 'dti-settings', style: Object.assign({}, S.surface, { padding: '4px 2px 20px', fontSize: '13px' }) },
@@ -6797,9 +5890,7 @@ function versionsOf(jobId) {
         })
       } catch (error) { reportHost('apply-report-failed', { message: String(error && error.message) }) }
       try {
-        // 默认：标记通道按配置走；规划通道读不到配置就先不开（免得每轮白跑一次模型）
-        // 默认先按「开」处理：渲染器可能在配置读回来之前就被调用，第一次太保守会整条消息都不接管
-        const settings = { autoImageGen: true, plannerEnabled: true, smartImageSelection: true, imageEnabled: true }
+        const settings = { smartImageSelection: true, imageEnabled: true }
         // 配图总开关变化时重新登记 illustrator（关掉时不给 draw，Tavern 就不显示配图按钮）。
         let refreshIllustrator = null
         const applyImageEnabled = value => {
@@ -6811,14 +5902,12 @@ function versionsOf(jobId) {
         window.addEventListener('dsh-tavern-image:config', event => applyImageEnabled(event?.detail?.imageEnabled))
         jsonFetch(`${BASE}/state`).then(state => {
           if (state?.config) {
-            settings.autoImageGen = state.config.autoImageGen !== false
-            settings.plannerEnabled = state.config.plannerEnabled !== false
             settings.smartImageSelection = state.config.smartImageSelection !== false
             applyImageEnabled(state.config.imageEnabled)
             // 正文插图统一宽度：每次启动都从 /state 读回来，所以刷新 / 重启之后依然生效。
             applyImageWidth(state.config.imageDisplayWidth)
           }
-        }).catch(() => { /* 拿不到配置就安静退化成只在有标记时出图 */ })
+        }).catch(() => { /* 读取失败时沿用默认值 */ })
 
         // 全屏看图浮层
         try {

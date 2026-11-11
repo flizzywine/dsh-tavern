@@ -39,7 +39,7 @@ test('世界书快捷面板：换书、开关条目、完整与关闭', async ()
 		'cards/阿珂.png': [{ ref: 'entry:0', title: '阿珂的家', content: '', enabled: true, primaryKeys: [] }]
 	}
 	const keyOf = source => source.kind === 'card' ? source.cardPath : source.path
-	const record = source => ({ source, view: { displayName: keyOf(source), entries: books[keyOf(source)] }, globalEnabled: true })
+	const record = source => ({ source, view: { displayName: keyOf(source), entries: books[keyOf(source)] }, globalEnabled: true, revision: 111 })
 	const calls = []
 	const rpc = async (method, args) => {
 		calls.push([method, args])
@@ -114,10 +114,13 @@ test('世界书快捷面板：换书、开关条目、完整与关闭', async ()
 	assert.deepEqual(opened, [[{ kind: 'card', cardPath: 'cards/阿珂.png' }, 'session-1']])
 	assert.equal(query('.dsh-tavern-wbsw-shell'), null)
 
-	// 重开记住上次的书；Esc 关闭；再点按钮也是关闭。
+	// 重开记住上次的书；缓存里的书只带 revision 做条件读取，不再整本重取。
 	await act(async () => { feature.open(anchor, 'session-1') })
 	await tick(); await tick()
 	assert.equal(query('.dsh-tavern-wbsw-select').value, 'card:cards/阿珂.png')
+	const bookReads = calls.filter(call => call[0] === 'getWorldBook')
+	assert.ok(bookReads.length > 1)
+	assert.equal(bookReads.at(-1)[1].ifRevision, 111, '重开面板按缓存的 revision 走条件读取')
 	await act(async () => { dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' })) })
 	assert.equal(query('.dsh-tavern-wbsw-shell'), null)
 	await act(async () => { feature.open(anchor, 'session-1') })

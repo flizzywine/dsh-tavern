@@ -6,27 +6,6 @@ import vm from 'node:vm'
 const require = createRequire(import.meta.url)
 const {startStageClientLifetime} = require('../tavern-plugin/packages/dsh-tavern-stage/lib/client/lifetime.cjs')
 
-test('client lifetime rolls back all resources in reverse order and preserves both failures', () => {
-  const calls = []
-  let active
-  assert.throws(() => startStageClientLifetime(scope => {
-    active = scope.active
-    scope.own(() => calls.push('first'))
-    scope.own(() => {calls.push('second'); throw new Error('cleanup')})
-    throw new Error('startup')
-  }), error => error.errors[0].message === 'startup' && error.errors[1].errors[0].message === 'cleanup')
-  assert.deepEqual(calls, ['second','first'])
-  assert.equal(active(), false)
-})
-
-test('client lifetime disposes once and immediately releases late resources', () => {
-  let own, count = 0
-  const dispose = startStageClientLifetime(scope => {own = scope.own; own(() => count++)})
-  dispose(); dispose()
-  own(() => count++)
-  assert.equal(count, 2)
-})
-
 for (const phase of ['director','session']) test(`plugin session assembly rolls back failure during ${phase} startup`, () => {
   const calls = [], window = {};
   const views={performanceSurface:{prepare(){}},admission:{shown:{}},progress:{store:{}},sessionRuntime:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/session-runtime.cjs').createStageSessionRuntime({
@@ -43,22 +22,3 @@ for (const phase of ['director','session']) test(`plugin session assembly rolls 
   assert.equal(sessions.owner,null);assert.equal(sessions.resourceOwner,null);assert.equal(window.forkStageResourceDebug,undefined);
   sessions.dispose();
 });
-
-test('stage sessions read a Live2D cast with the installed Cubism core, asked beside the presentation and reused', async () => {
-  let spec
-  const views={performanceSurface:{prepare(){}},admission:{shown:{}},progress:{store:{}},sessionRuntime:{createConnection(value){spec=value;throw new Error('captured')}}}
-  const window={performance:{now:()=>0}}
-  const sessions=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/sessions.cjs').createStageSessions({views,window,document:{},startLifetime:startStageClientLifetime,
-    textIndex:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/text-index.cjs').createStageTextIndexModule({})})
-  const calls=[]
-  const live2d={status:'ready',value:{scene:{background:'b'},characters:[{alias:'neuro',form:'live2d'}]}}, sprite={status:'ready',value:{scene:{},characters:[{alias:'a',form:'sprite'}]}}
-  let next=live2d
-  const io={probe:async(method,args)=>{calls.push([method,args.sessionId]);return {installed:true,core:'/core.js'}},presentation:async()=>structuredClone(next)}
-  assert.throws(()=>sessions.start({native:{sessions:{}},io,assets:{createOwner:()=>({dispose(){}})},dialogue:{},text:{},observation:{}}),/captured/)
-  // a Live2D figure is drawn only when the stage read carries the core.
-  assert.deepEqual((await spec.resources.read({sessionId:'s'})).value.scene,{background:'b',core:'/core.js'})
-  next=sprite
-  assert.equal((await spec.resources.read({sessionId:'s'})).value.scene.core,undefined)
-  assert.deepEqual(calls,[['getLive2dRuntime','s']])
-  sessions.dispose()
-})

@@ -37,24 +37,3 @@ test('layered scene figures own generated textures while borrowing source images
  assert.equal(a.spriteTexture,null);assert.equal(b.spriteCanvas,null);assert.equal(scope.tick(a,textures,PIXI,true),false)
  scope.dispose();assert.deepEqual(released,[1,2]);assert.equal(textures.get('atlas').texture.baseTexture.resource.source,image)
 })
-test('missing layered image retains the base and a later ready image retries',()=>{
- let paints=0;const scope=createStageLayeredFigures({document:{createElement:()=>({})},compositor:{urls:()=>['atlas'],voice:()=> 'open',paint:()=>paints++}})
- const base={},entry={figure:{identity:'i',spriteBundle:{revision:'r',view:{}}},loadedIdentity:'i',sprite:{},baseTexture:base},textures=new Map()
- const PIXI={Texture:{from:()=>({destroy(){}})}}
- scope.tick(entry,textures,PIXI,true);assert.equal(entry.sprite.texture,base);assert.equal(paints,0)
- textures.set('atlas',{ready:true,texture:{baseTexture:{resource:{source:{}}}}});scope.tick(entry,textures,PIXI,true)
- assert.equal(paints,1);assert.notEqual(entry.sprite.texture,base);scope.dispose()
-})
-
-test('renderer registration admits custom figures and is scoped to the scene owner',()=>{
- const scope=createStageScene({window:{},document:{},math,modules:{}})
- const remove=scope.figureRenderers.register('custom',()=>({}))
- assert.throws(()=>scope.figureRenderers.register('custom',()=>({})),/already registered/)
- assert.throws(()=>scope.figureRenderers.register('spine',()=>({})),/already registered/)
- remove();remove();scope.figureRenderers.register('custom',()=>({}))
- const {createStageCastLayout}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/cast-layout.cjs')
- const layout=createStageCastLayout({}).create({drawn:kind=>kind==='custom'})
- const figures=[{key:'x',kind:'custom'},{key:'y',kind:'static'},{key:'z',kind:'unknown'}]
- assert.deepEqual(layout.project(figures),figures.slice(0,2))
- scope.dispose();assert.throws(()=>scope.figureRenderers.register('new',()=>({})),/disposed/)
-})

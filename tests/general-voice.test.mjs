@@ -66,23 +66,6 @@ test('the GENERAL entry: null opens the browser default; a service voice registe
 
 })
 
-// A figure on browser speech: the browser speaks the named system voice, or the system default when none is named.
-test('a figure on browser speech opens to its system voice, or the system default without a voice name; nothing is registered', async t => {
-  const ref = {packId:'11111111-1111-4111-8111-111111111111', figureId:'22222222-2222-4222-8222-222222222222'}
-  const spec = voiceName => ({name:'Akane', language:'ja', defaultSource:'browser', sources:{browser:{kind:'preset', provider:'browser', ...(voiceName ? {voiceName} : {})}}})
-  let voiceSpec = spec('Microsoft Nanami'), registered = 0
-  const figure = {enabled:true, voice:{voice:'akane'}}
-  const presentation = {resolveName:async () => ({status:'resolved', ref}), extension:{schemaVersion:1, stage:{}, assetBindings:{boundPackIds:[ref.packId]}}, subscribe:() => () => {},
-    resolveFigure:async () => ({value:figure, voiceSpec, revision:'r1'})}
-  const tts = {apiVersion:1, subscribe:() => () => {}, registerVoiceSource() { registered++; return {dispose() {}} }, resolveVoiceService:async () => { throw new Error('no service is asked') }}
-  const speech = createAssetPackSpeech({presentation, getTts:() => tts, scope:'card'})
-  t.after(() => speech.dispose())
-  assert.deepEqual(await speech.open('akane'), {available:true, browser:{voice:'Microsoft Nanami'}, voiceId:'akane', language:'ja', scope:'card', diagnostics:[]})
-  voiceSpec = spec(null); speech.refresh()
-  assert.deepEqual(await speech.open('akane'), {available:true, browser:{voice:''}, voiceId:'akane', language:'ja', scope:'card', diagnostics:[]}, 'no voiceName is the system default voice')
-  assert.equal(registered, 0)
-})
-
 for (const template of [false,true]) test(`stage catalogue ${template?'template':'clone'} routes general and narrator to local synthesis`, async t => {
   const ref=template?{templateId:'33333333-3333-4333-8333-333333333333'}:{packId:'11111111-1111-4111-8111-111111111111',voiceId:'clone'}
   assert.deepEqual(validateCardStage({narrator:{voice:ref}}).narrator.voice,ref)

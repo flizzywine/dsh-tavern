@@ -2,7 +2,8 @@ import { sessionEvents } from './session-events.js'
 import { inputKind, isNewTurnInput, storyPlayerInputs } from './session-turn-input.js'
 import { clearRegenerationAttemptSurface, regenerationAttemptTurns, locateRegenerationSurface, applyRegenerationProjection } from './rollback-surface.js'
 import { isDeepStrictEqual } from 'node:util'
-import { createRegenerationDiscard, regenerationAttemptMessages, retainRegenerationFailure, clearRegenerationFailure } from './regeneration-discard.js'
+import { createRegenerationDiscard, regenerationAttemptMessages, restoreDiscardedRegeneration, installRegenerationDiscard, retainRegenerationFailure, clearRegenerationFailure } from './regeneration-discard.js'
+import { assertRegenerationSourceCurrent } from './last-round-replacement.js'
 
 // Older hosts may still have finalized the detached native candidate as one
 // temporary round. Remove it only when every original row and timeline entry is
@@ -40,6 +41,13 @@ function recoveryWithDiscard(current, original) {
   }
 }
 
+// Background writes may change variables and revision without changing the
+// story this attempt owns. Compare story identity and visible content.
+function storyRows(messages) {
+  return messages.map(row => [row?.role, row?.turn, row?.sourceText, row?.projectionText,
+    row?.text, row?.swipeId, row?.tavernHidden, row?.is_hidden, row?.hidden, row?.messageUid, row?.regenerationDiscarded])
+}
+
 /**
  * `replacingDshTurns` once the committed body is projected. The old reply stays
  * hidden until that very write: before it the log has no projection yet, and the
@@ -60,6 +68,88 @@ export function projectedReplacingTurns(chat) {
 export function createRegenerationRecovery({ chats, sessions, isActive }) {
   const recovering = new Set()
 
+  function attempt({ originalChat, session, sessionId, operationId, eventStart, replacingTurn, assistantIndex, inputIndex, provider = false }) {
+    const chatId = originalChat.id
+    const discarded = assistantIndex === null ? null
+      : createRegenerationDiscard(originalChat.messages[assistantIndex], assistantIndex, inputIndex)
+    const targetMessageUid = discarded?.assistant.messageUid || ''
+    const source = provider ? 'foreground.plugin-regen-' : 'foreground.regen-'
+
+    function stale(message) {
+      const failure = new Error(message)
+      if (provider) failure.code = 'TAVERN_PLUGIN_STALE_VERSION'
+      return failure
+    }
+
+    function checkPrepared(current) {
+      if (current?.regenRecovery?.id !== operationId || current?.regenRecovery?.phase !== 'prepared') {
+        throw stale(provider ? '正文重新生成操作已经失效' : '重新生成操作已失效')
+      }
+    }
+
+    function checkBranch(current) {
+      const originalBranch = originalChat.timeline?.branchId
+      // A legacy native save can acquire its first timeline during generation.
+      if ((provider || originalBranch) && current.timeline?.branchId !== originalBranch) throw stale('重新生成期间剧情状态已经变化')
+    }
+
+    function checkStoryRows(current) {
+      const expected = regenerationAttemptMessages(originalChat.messages, current.regenRecovery.discarded)
+      if (!isDeepStrictEqual(storyRows(current.messages), storyRows(expected))) throw stale('重新生成期间历史消息已经变化')
+    }
+
+    function begin(validate, details = {}) {
+      return chats.update(chatId, current => {
+        validate(current)
+        if (assistantIndex !== null) assertRegenerationSourceCurrent({
+          originalChat, currentChat: restoreDiscardedRegeneration(current), assistantIndex, inputIndex
+        })
+        current.regenRecovery = { ...details, id: operationId, phase: 'prepared', detached: true,
+          beforeRevision: Number(current._storageRevision || 0), sessionId, eventStart,
+          targetMessageUid, temporaryReplacingTurn: replacingTurn, ...(discarded ? { discarded } : {}) }
+        if (discarded) installRegenerationDiscard(current, discarded)
+        else clearRegenerationFailure(current)
+        current.regenInProgress = true
+        current.tavernHelperLifecycleRevision = provider
+          ? Number(current.tavernHelperLifecycleRevision || 0) + 1
+          : Math.max(0, Number(originalChat.tavernHelperLifecycleRevision) || 0) + 1
+        return current
+      }, { source: source + 'begin', worldSelection: { preserveWorld: true } })
+    }
+
+    function updatePrepared(stage, change) {
+      return chats.update(chatId, current => {
+        checkPrepared(current)
+        checkBranch(current)
+        checkStoryRows(current)
+        change(current.regenRecovery)
+        return current
+      }, { source: source + stage })
+    }
+
+    function commit({ projection, validate, apply }) {
+      return chats.update(chatId, async current => {
+        if (validate) await validate()
+        checkPrepared(current)
+        checkBranch(current)
+        if (provider) checkStoryRows(current)
+        apply(current)
+        current.regenInProgress = true
+        current.regenRecovery = { ...current.regenRecovery, phase: 'committed', projection }
+        if (provider) delete current.bodyGenerationCandidate
+        current.tavernHelperLifecycleRevision = Number(current.tavernHelperLifecycleRevision || 0) + 1
+        return current
+      }, { source: source + 'commit', ...(provider ? {} : { worldSelection: { preserveDetachedWorld: true } }) })
+    }
+
+    return Object.freeze({
+      targetMessageUid, begin, checkPrepared, updatePrepared, commit,
+      project: () => complete({ chatId, session, operationId }),
+      abandon: () => provider ? abandonDetached(chatId, operationId)
+        : abort({ chatId, originalChat, session, eventStart, operationId })
+    })
+  }
+
   function staleNative(chat, reason) {
     chat.nativeSync = { status: 'stale', reason: '重新生成恢复：' + String(reason?.message || reason || ''), at: Date.now() }
   }
@@ -69,6 +159,19 @@ export function createRegenerationRecovery({ chats, sessions, isActive }) {
     else delete chat.replacingDshTurns
     delete chat.regenInProgress
     delete chat.regenRecovery
+  }
+  function abandonDetached(chatId, operationId, interrupted = false) {
+    return chats.update(chatId, current => {
+      const marker = current?.regenRecovery
+      if (marker?.id !== operationId || marker?.phase !== 'prepared') return current
+      if (interrupted && marker.candidate) current.bodyGenerationCandidate = marker.candidate
+      if (!interrupted) delete current.bodyGenerationCandidate
+      endMarker(current)
+      retainRegenerationFailure(current, marker)
+      current.tavernHelperLifecycleRevision = Number(current.tavernHelperLifecycleRevision || 0) + 1
+      return current
+    }, { source: interrupted ? 'foreground.plugin-regen-recover' : 'foreground.plugin-regen-release',
+      worldSelection: { preserveWorld: true } })
   }
   async function repairAfter(chatId, session, reason) {
     console.warn('dsh-tavern: 重新生成恢复时模型上下文对不上，旧正文保持撤下，模型上下文保持不修：' + String(reason?.message || reason || ''))
@@ -197,27 +300,21 @@ export function createRegenerationRecovery({ chats, sessions, isActive }) {
     return saved
   }
 
-  async function recover(chatId) {
+  async function recover(chatId, initialChat = null) {
     if (isActive(chatId) || recovering.has(chatId)) return
     recovering.add(chatId)
     let handle
     try {
-      if (chats.readState && !(await chats.readState(chatId))?.regenInProgress) return
-      const chat = await chats.read(chatId)
+      // Regeneration already loaded the complete story to select its target. Other
+      // callers keep the cheap state-only guard instead of reconstructing Chat.
+      if (!initialChat && chats.readState && !(await chats.readState(chatId))?.regenInProgress) return
+      const chat = initialChat || await chats.read(chatId)
       if (!chat || chat.regenInProgress !== true) return
       // Independent providers have not changed the native model surface. Their
       // story placeholder stays discarded; a crash only abandons the lock and
       // never rewinds story or settings to an older revision.
       if (chat.regenRecovery?.detached === true && chat.regenRecovery.phase === 'prepared' && !chat.regenRecovery?.candidateFrame) {
-        return await chats.update(chatId, current => {
-          if (current?.regenRecovery?.id !== chat.regenRecovery.id || current.regenRecovery.phase !== 'prepared') return current
-          if (current.regenRecovery.candidate) current.bodyGenerationCandidate = current.regenRecovery.candidate
-          const recovery = current.regenRecovery
-          endMarker(current)
-          retainRegenerationFailure(current, recovery)
-          current.tavernHelperLifecycleRevision = Number(current.tavernHelperLifecycleRevision || 0) + 1
-          return current
-        }, { source: 'foreground.plugin-regen-recover', worldSelection: { preserveWorld: true } })
+        return await abandonDetached(chatId, chat.regenRecovery.id, true)
       }
       const sessionId = chat.regenRecovery?.sessionId || chat.sessionId
       let agent = sessions.get(sessionId)
@@ -257,5 +354,5 @@ export function createRegenerationRecovery({ chats, sessions, isActive }) {
     }
   }
 
-  return Object.freeze({ recover, abort, complete })
+  return Object.freeze({ attempt, recover, abort, complete })
 }

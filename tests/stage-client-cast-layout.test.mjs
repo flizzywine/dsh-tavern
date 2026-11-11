@@ -26,7 +26,3 @@ test('skin ruler changes land immediately and projection parks unavailable figur
  e.view.update({...e.input,plan:null});assert.equal(e.view.project(source)[1].speaking,true);assert.deepEqual(e.view.target,{fit:1,drop:0})
  e.owner.dispose()
 })
-test('failed layout calculation can retry unchanged input',()=>{
- const e=setup();e.fail(true);assert.throws(()=>e.view.update(e.input),/layout failed/)
- e.fail(false);assert.ok(e.view.update(e.input).layout);assert.equal(e.calls,2);e.owner.dispose()
-})

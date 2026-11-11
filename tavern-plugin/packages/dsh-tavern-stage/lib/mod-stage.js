@@ -56,10 +56,6 @@ export function createModStagePort({readChat,readTurn=readChat,readSource=readCh
       return {branchId:target.branchId,sourceKey:target.sourceKey,generation:row.stageDirectionGeneration || 0,textVersion:target.sourceKey}
     },
     async read(context) {return message(await readTurn(context.gameId,context.turn),context)[MOD_CORRECTIONS_FIELD]},
-    async readPresentation(context) {
-      const chat=await readTurn(context.gameId,context.turn),row=message(chat,context),card=await readCard(chat.cardPath)
-      return {cardId:card?.meta.id,store:row[MOD_CORRECTIONS_FIELD]}
-    },
     async update(context,mutate,current) {
       const chat=await readTurn(context.gameId,context.turn)
       if(!chat)throw stale()

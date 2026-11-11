@@ -1,12 +1,14 @@
 // One owner for a session's asynchronous reads. Notifications request work;
 // accepted replacements revoke it. Neither notification storms nor watchdogs
 // may shorten the retry deadline or let retired work publish into a new lifetime.
+const TAVERN_PROJECTION_RETRY_DELAYS_MS = [500, 1500, 3000];
+
 function createSessionRefreshController(options) {
 	const now = options.now || Date.now;
 	const schedule = options.schedule || ((run, delay) => window.setTimeout(run, delay));
 	const cancel = options.cancel || (timer => window.clearTimeout(timer));
 	let active = false, epoch = 0, operation = null, timer = null, timerAt = 0;
-	let requested = false, retryAt = 0;
+	let requested = false, retryAt = 0, retryAttempt = 0;
 	function clearTimer() {
 		const previous = timer;
 		timer = null;
@@ -17,6 +19,7 @@ function createSessionRefreshController(options) {
 		clearTimer();
 		requested = false;
 		retryAt = 0;
+		retryAttempt = 0;
 		const previous = operation;
 		operation = null;
 		if (previous) {
@@ -71,11 +74,15 @@ function createSessionRefreshController(options) {
 			// Hydration is part of this read's lifetime and deadline too.
 			next = await Promise.race([options.onResult(result, scope), cancelled]);
 			if (!current()) return;
+			retryAttempt = 0;
 			retryAt = next && next.retry !== undefined ? now() + next.retry : 0;
 		} catch (error) {
 			if (!current()) return;
 			next = options.onError(error, { ...scope, timedOut });
 			if (!current()) return;
+			const delay = next === undefined ? options.retryDelaysMs?.[retryAttempt] : undefined;
+			if (delay !== undefined) { retryAttempt++; next = { retry: delay }; }
+			else retryAttempt = 0;
 			if (next && next.retry !== undefined) retryAt = now() + next.retry;
 			else { retryAt = 0; requested = false; }
 		} finally {

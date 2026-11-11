@@ -41,7 +41,8 @@ export function cardAssetRawOperations(raw, patch) {
   const data = rawData(raw), pointer = cardAssetExtensionPointer(raw)
   if (data.extensions !== undefined) check(object(data.extensions), '$.extensions')
   const existing = data.extensions?.dsh_tavern
-  if (existing !== undefined) { check(object(existing), pointer); version(existing.schemaVersion, pointer + '.schemaVersion') }
+  // An extension the mod system opened (modSystem only) has no schemaVersion yet; this write stamps it.
+  if (existing !== undefined) { check(object(existing), pointer); if (existing.schemaVersion !== undefined) version(existing.schemaVersion, pointer + '.schemaVersion') }
   // the retired per-card director commands (stage.dimensions) cannot be written —
   // a stage patch may only carry an old card's stored value through unchanged (stage patches replace the whole object).
   if (patch.stage?.dimensions !== undefined) check(canonicalJson(patch.stage.dimensions) === canonicalJson(existing?.stage?.dimensions ?? null),

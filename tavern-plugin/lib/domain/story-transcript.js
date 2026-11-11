@@ -132,3 +132,23 @@ export function projectStoryTranscript(window, summaries) {
     messages
   }
 }
+
+/** Resolve the native turn owned by each reply in a story window. */
+export function storyReplyNativeTurns({ chat, from }, summaries) {
+  const mapped = chat.regeneratedDshTurns || {}
+  function nativeTurn(row) {
+    if (row?.role !== 'assistant' || row.greeting || !isPositiveTurn(row.turn)) return null
+    const turn = Number(mapped[row.turn]) || Number(row.nativeAnchor?.turn) || row.turn
+    return isPositiveTurn(turn) ? turn : null
+  }
+  const owners = new Map()
+  for (let index = 0; index < summaries.length; index++) {
+    const turn = nativeTurn(chat.messages[index - from] ?? summaries[index])
+    if (turn !== null) owners.set(turn, (owners.get(turn) || 0) + 1)
+  }
+  return chat.messages.map(row => {
+    const turn = nativeTurn(row)
+    // Legacy archives can contain two stories claiming the same native turn.
+    return !row?.placeholder && owners.get(turn) === 1 ? turn : null
+  })
+}

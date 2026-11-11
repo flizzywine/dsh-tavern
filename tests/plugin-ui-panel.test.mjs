@@ -220,12 +220,13 @@ test('人物卡封面加载失败时保持宫格尺寸并显示名字首字，�
 
  test('回合订阅忽略迟到的旧响应，卸载后不再通知', async () => {
   const requests = [], seen = []
-  let signal
+  let signal, subscriptionOptions
   const ui = loadWith({
     rpc: () => new Promise(resolve => requests.push(resolve)),
-    liveTavernView: { subscribe(_id, listener) { signal = listener; listener(); return () => {} } }
+    liveTavernView: { subscribe(_id, listener, _paths, options) { subscriptionOptions = options; signal = listener; listener(); return () => {} } }
   })
   const stop = ui.service.watchTurnState('g', state => seen.push(state))
+  assert.equal(subscriptionOptions.deferLoad, true)
   const flush = () => new Promise(resolve => setImmediate(resolve))
   await flush()
   signal()

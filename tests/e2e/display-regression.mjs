@@ -84,4 +84,42 @@ export async function displayRegressionChecks({page,step,savedChat,data,output,r
     report.legacyDisplay={scriptRecovered:true,storedSnapshotUnchanged:true,variablesUnchanged:true}
     await page.screenshot({path:join(output,'display-legacy-recovered.png'),fullPage:true})
   })
+  await step('重新生成正文完成后页面直接显示新正文，不需要刷新',async()=>{
+    await page.getByText('后台结算已完成').first().waitFor({timeout:60000}).catch(()=>{})
+    const before=await savedChat()
+    const oldText=String([...before.messages].reverse().find(m=>m.role==='assistant'&&!m.greeting)?.sourceText??'')
+    const button=page.getByRole('button',{name:'重新生成正文',exact:true}).filter({visible:true}).last()
+    await button.waitFor({state:'visible'})
+    // 视图缺失时按钮会自己补读（最多三次）；这里等它恢复，别把「正在读取这一局」当成回归。
+    let state=null
+    for(let i=0;i<80;i++){
+      state=await button.evaluate(b=>({disabled:b.disabled,title:b.title}))
+      if(!state.disabled)break
+      await pause(200)
+    }
+    report.regenerationButton=state
+    assert.equal(state.disabled,false,'重新生成正文按钮应可点：'+JSON.stringify(state))
+    await button.click()
+    await page.getByPlaceholder('指导意见（可选）').fill('雨夜重写')
+    await page.getByRole('button',{name:'生成并替换正文',exact:true}).click()
+    let next='',chat=null
+    for(let i=0;i<240;i++){
+      await pause(500)
+      chat=await savedChat()
+      const reply=[...chat.messages].reverse().find(m=>m.role==='assistant'&&!m.greeting&&m.placeholder!==true)
+      next=String(reply?.sourceText??reply?.text??'')
+      if(!chat.regenInProgress&&next&&next!==oldText)break
+    }
+    assert.ok(next&&next!==oldText,'重新生成应把新正文写进存档，实际：'+next.slice(0,40))
+    // 不刷新页面：生成结束后新正文必须已经在屏幕上。
+    const probe=next.replace(/\s+/g,'').slice(0,10)
+    let shown=false
+    for(let i=0;i<60;i++){
+      if((await page.locator('body').innerText()).replace(/\s+/g,'').includes(probe)){shown=true;break}
+      await pause(250)
+    }
+    await page.screenshot({path:join(output,'display-after-regenerate.png'),fullPage:true})
+    report.regeneration={probe,shown}
+    assert.ok(shown,'重新生成完成后正文应直接显示，不需要刷新页面（找不到：'+probe+'）')
+  })
 }

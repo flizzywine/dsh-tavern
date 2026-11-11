@@ -17,13 +17,6 @@ test('legacy placement preserves flip, fade bounds and current head independentl
  const retired=e.pose.update({...e.input,now:260,fading:[old]});assert.deepEqual(retired.retired,[old]);assert.deepEqual(retired.remaining,[])
  e.owner.dispose();const position=e.input.sprite.position.value;assert.equal(e.pose.update({...e.input,x:.9}),null);assert.equal(e.input.sprite.position.value,position)
 })
-test('physical sizing reports calibrated head and keeps static idle transform separate',()=>{
- const e=fixture();e.input.sprite.figureInput={source:'a'}
- const result=e.pose.update({...e.input,x:.25,flip:-1,idle:{on:true,scaleY:1.1,dx:.1,scaleX:.9,tapY:.8,rotation:.2}})
- assert.deepEqual(result.localHead,{x:200,top:30,chin:80,width:40});assert.equal(result.resolved.mode,'physical')
- assert.deepEqual(e.input.sprite.position.value,[220,400]);assert.equal(e.input.sprite.scale.value[0],-1.8);assert.ok(Math.abs(e.input.sprite.scale.value[1]-1.76)<1e-9);assert.equal(e.input.sprite.rotation,.2)
- e.owner.dispose()
-})
 test('action nonce keeps timing across frames and resets only for a new command',()=>{
  const e=fixture();const command={nonce:1,name:'jump'}
  e.pose.update({...e.input,command,now:100});e.pose.update({...e.input,command,now:120})

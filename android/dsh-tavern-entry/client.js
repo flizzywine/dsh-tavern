@@ -114,29 +114,53 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 
+		// 布局视口与可视区差这么多才算键盘把页面顶上去；更小的差值只是取整或浏览器界面高度。
+		const EMBED_KEYBOARD_INSET_MIN = 8;
+		// 输入法动画约 250ms；焦点进出后自己刷几帧，事件只给首尾两次时页面也不会慢半拍。
+		const EMBED_SETTLE_MS = 450;
+
 		function installEmbeddedViewport(root) {
 			if (!root) return function () {};
 			const view = root.ownerDocument.defaultView;
 			const viewport = view.visualViewport;
-			let pending = 0;
+			let chasing = 0, until = 0;
+			// 内嵌 iframe 看不到顶层软键盘的遮挡，必须由外壳决定 iframe 有多高。
+			// 顶层布局视口已经被键盘顶短（DSHA 原生按 ime insets 缩窗口）时，外壳铺满就是同帧
+			// 跟随，内部酒馆按 100% 重排也不会慢；只有键盘浮在页面上（Chrome 的 resizes-visual）
+			// 才按 visualViewport 缩像素，否则 iframe 里的输入条会被键盘盖住。
 			function sync() {
-				pending = 0;
 				if (viewport && Math.abs(viewport.scale - 1) > 0.02) return;
-				// 内嵌 iframe 看不到顶层软键盘的遮挡，必须先缩小外壳，再由内部酒馆自然重排。
-				root.style.top = (viewport ? viewport.offsetTop : 0) + "px";
-				root.style.height = (viewport ? viewport.height : view.innerHeight) + "px";
+				const layout = view.innerHeight;
+				const visual = viewport && viewport.height > 0 ? viewport.height : layout;
+				if (Math.round(layout - visual) < EMBED_KEYBOARD_INSET_MIN) {
+					root.style.top = "0px";
+					root.style.height = "100%";
+				} else {
+					root.style.top = (viewport ? viewport.offsetTop : 0) + "px";
+					root.style.height = Math.round(visual) + "px";
+				}
 				root.style.bottom = "auto";
 			}
-			function schedule() { if (!pending) pending = view.requestAnimationFrame(sync); }
-			viewport?.addEventListener("resize", schedule);
-			viewport?.addEventListener("scroll", schedule);
-			view.addEventListener("resize", schedule);
+			function chase() {
+				chasing = 0;
+				sync();
+				if (Date.now() < until) chasing = view.requestAnimationFrame(chase);
+			}
+			// 当场改样式，别再等一帧：等一帧就是键盘先到位、页面后到位的那段错位。
+			function apply() {
+				sync();
+				until = Math.max(until, Date.now() + EMBED_SETTLE_MS);
+				if (!chasing) chasing = view.requestAnimationFrame(chase);
+			}
+			viewport?.addEventListener("resize", apply);
+			viewport?.addEventListener("scroll", apply);
+			view.addEventListener("resize", apply);
 			sync();
 			return function () {
-				if (pending) view.cancelAnimationFrame(pending);
-				viewport?.removeEventListener("resize", schedule);
-				viewport?.removeEventListener("scroll", schedule);
-				view.removeEventListener("resize", schedule);
+				if (chasing) view.cancelAnimationFrame(chasing);
+				viewport?.removeEventListener("resize", apply);
+				viewport?.removeEventListener("scroll", apply);
+				view.removeEventListener("resize", apply);
 				root.style.removeProperty("top"); root.style.removeProperty("height"); root.style.removeProperty("bottom");
 			};
 		}
