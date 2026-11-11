@@ -6656,7 +6656,7 @@
   "devices": {
    "type": "object",
    "additionalProperties": false,
-   "description": "Last-resort per-device override (docs/fork/skin-interface.md §13.2): mobile = phones, pc = tablets and desktops. A partial skin document merged over the skin (objects key by key, arrays and values replaced, null removes the key); each merged side is validated as a whole skin. Use only where the engine's device classes and reading minimums cannot express the skin.",
+   "description": "Last-resort per-device override: mobile = phones, pc = tablets and desktops. A partial skin document merged over the skin (objects key by key, arrays and values replaced, null removes the key); each merged side is validated as a whole skin. Use only where the engine's device classes and reading minimums cannot express the skin.",
    "properties": {
     "mobile": {
      "$ref": "#/$defs/devicePatch"
