@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "cdeebc012c38e1216a07d9fc2cbe8b2d225e01d0",
-  "releaseSequence": 1466,
+  "revision": "a6ebf18ae1b436aa8209df04432c610a799812b8",
+  "releaseSequence": 1467,
   "version": "3.3.0",
   "files": [
     {
@@ -7301,8 +7301,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "2b4bfdee99704f458467caf6d0a403f8026293d5676c0b7bdce3e0e8d65f637a",
-      "size": 3384523
+      "sha256": "eb14881da5128c776af42621615be61c9ffcf0aafe3685da2cad3dcedb994f0f",
+      "size": 3385207
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -7381,8 +7381,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export-host.js",
-      "sha256": "5ce8b6c636ef3ce4ec2aa022c452105ea4bcc87f9c50c8b6da158e9b8dd3f922",
-      "size": 17098
+      "sha256": "dcb235e5763896a844d4498837f300ca452d1b34f5570ad129bb1c236db08585",
+      "size": 17588
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export-parallel.js",
@@ -8481,9 +8481,9 @@
     }
   ],
   "archive": {
-    "commit": "748aa8b632979d025bc6caafe2727c5b3f54cbf2",
+    "commit": "a6eb98bb4b872d0cd5832ec56c4d5a34f9a1ea92",
     "path": "runtime.zip",
-    "sha256": "793d56e9b0a401e63bf1d247d8bd65a319d337b81ca02b9e93e28d23c0371aaf",
-    "size": 15175407
+    "sha256": "ce1056873109315b4a2067d77d2a47b38bed01119e5f07f69314da750187545a",
+    "size": 15175816
   }
 }
