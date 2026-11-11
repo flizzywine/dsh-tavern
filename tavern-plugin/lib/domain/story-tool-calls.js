@@ -1,31 +1,14 @@
 import { toolResultsOf } from './tool-result-message.js'
 
 const previewLimit = 2400
-const validTurn = turn => Number.isSafeInteger(turn) && turn > 0
 const preview = text => text.length > previewLimit ? text.slice(0, previewLimit) + '…' : text
 
 /** Attach only calls made in the native turn that produced each visible reply. */
-export async function storyToolCalls({ chat, from }, summaries, readEvents) {
-  const mapped = chat.regeneratedDshTurns || {}
-  function nativeTurn(row) {
-    if (row?.role !== 'assistant' || row.greeting || !validTurn(row.turn)) return null
-    const turn = Number(mapped[row.turn]) || Number(row.nativeAnchor?.turn) || row.turn
-    return validTurn(turn) ? turn : null
-  }
-  const owners = new Map()
-  for (let index = 0; index < summaries.length; index++) {
-    const turn = nativeTurn(chat.messages[index - from] ?? summaries[index])
-    if (turn !== null) owners.set(turn, (owners.get(turn) || 0) + 1)
-  }
-  const turns = chat.messages.map(row => {
-    const turn = nativeTurn(row)
-    // Legacy archives can contain two stories claiming the same native turn.
-    return !row?.placeholder && owners.get(turn) === 1 ? turn : null
-  })
+export async function storyToolCalls(sessionId, turns, readEvents) {
   const calls = new Map(turns.filter(turn => turn !== null).map(turn => [turn, new Map()]))
   if (!calls.size) return []
 
-  for (const event of await readEvents(chat.sessionId)) {
+  for (const event of await readEvents(sessionId)) {
     if (event?.type !== 'tool/call' && event?.type !== 'tool/result') continue
     const data = event.data
     const turnCalls = calls.get(data?.turn)

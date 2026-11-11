@@ -1,5 +1,5 @@
 import { readRecentWindow } from './bounded-history.js'
-import { projectStoryTranscript } from './story-transcript.js'
+import { projectStoryTranscript, storyReplyNativeTurns } from './story-transcript.js'
 import { storyToolCalls } from './story-tool-calls.js'
 
 const summaryOf = message => ({
@@ -30,10 +30,12 @@ function transportMessage(message) {
 }
 async function projectWindow(window, summaries, readToolEvents) {
   const transcript = projectStoryTranscript(window, summaries)
-  const calls = readToolEvents ? await storyToolCalls(window, summaries, readToolEvents) : []
+  const nativeTurns = storyReplyNativeTurns(window, summaries)
+  const calls = readToolEvents ? await storyToolCalls(window.chat.sessionId, nativeTurns, readToolEvents) : []
   return {
     ...transcript,
     messages: transcript.messages.map((entry, index) => ({ ...entry, message: transportMessage(entry.message),
+      ...(nativeTurns[index] === null ? {} : { nativeTurn: nativeTurns[index] }),
       ...(calls[index]?.length ? { toolCalls: calls[index] } : {}) }))
   }
 }

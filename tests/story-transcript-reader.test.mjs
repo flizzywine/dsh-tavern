@@ -41,7 +41,7 @@ function fixture(messages, { paged = true, revision = 7, regeneratedDshTurns, re
 test('工具记录只按需读取，分页和旧存储都使用正文实际对应的原生轮次', async () => {
   const messages = [
     { role: 'assistant', turn: 1, greeting: true, text: '开场' },
-    { role: 'assistant', turn: 2, text: '旧楼层' },
+    { role: 'assistant', turn: 2, nativeAnchor: { turn: 6 }, text: '旧楼层' },
     { role: 'assistant', turn: 3, text: '较近楼层' },
     { role: 'user', turn: 4, text: '输入' },
     { role: 'assistant', turn: 4, text: '重生成后的正文' }
@@ -49,7 +49,7 @@ test('工具记录只按需读取，分页和旧存储都使用正文实际对�
   const call = (turn, callId, name, args = '{}') => ({ type: 'tool/call', data: { turn, callId, name, arguments: args } })
   const result = (turn, message) => ({ type: 'tool/result', data: { turn, message } })
   const output = text => [{ type: 'text', text }]
-  const events = [call(1, 'greeting', '不属于开场的工具'), call(2, 'old', '旧楼层的工具'),
+  const events = [call(1, 'greeting', '不属于开场的工具'), call(6, 'old', '旧楼层的工具'),
     call(3, 'shared-id', '查询'), result(3, { role: 'tool', toolCallId: 'shared-id', content: output('查询结果') }),
     result(3, { role: 'tool', toolCallId: 'shared-id', content: output('被压缩的替代结果') }),
     call(4, 'original', '被替换正文的工具'), call(15, 'shared-id', '重新查询', { query: '新参数' }),
@@ -67,6 +67,8 @@ test('工具记录只按需读取，分页和旧存储都使用正文实际对�
     const off = await reader('session')
     assert.equal(reads, 0)
     assert.ok(off.storyTranscript.messages.every(row => row.toolCalls === undefined))
+    assert.equal(off.storyTranscript.messages.at(-1).nativeTurn, 15)
+    assert.equal(off.storyTranscript.messages.at(-2).nativeTurn, undefined)
     const recent = (await reader('session', undefined, { includeToolCalls: true })).storyTranscript.messages
     assert.equal(reads, 1)
     assert.deepEqual(recent.find(row => row.legacyTurn === 3).toolCalls, [
@@ -81,6 +83,7 @@ test('工具记录只按需读取，分页和旧存储都使用正文实际对�
     if (paged) assert.ok(recent.every(row => row.legacyTurn !== 2))
     const older = (await reader('session', 0, { includeToolCalls: true })).storyTranscript.messages
     assert.equal(older.find(row => row.legacyTurn === 2).toolCalls[0].name, '旧楼层的工具')
+    assert.equal(older.find(row => row.legacyTurn === 2).nativeTurn, 6)
     assert.equal(older.find(row => row.legacyTurn === 1).toolCalls, undefined)
   }
 })

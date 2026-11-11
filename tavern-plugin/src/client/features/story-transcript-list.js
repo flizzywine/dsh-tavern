@@ -83,6 +83,22 @@ function createTavernStoryTranscriptFeature(deps) {
 		return h(replyActions.Receipt, { sessionId, storyTurn: turn, receipt, view: state.view })
 	}
 
+	const emptyTurnTail = { subscribe: () => () => {}, getSnapshot: () => undefined }
+	function StoryTranscriptTurnFooter({ host, nativeTurn }) {
+		// Location data survives the story view's pruning of old native Chat nodes.
+		const turn = host.useChat(snapshot => snapshot?.timeline?.turns?.get(nativeTurn))
+		const source = turn?.data?.source?.('turn-tail') || emptyTurnTail
+		const tail = React.useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
+		if (!tail?.closing) return null
+		// Without a messageId the host skips its assistant actions slot.
+		const closing = { ...tail.closing, finalNode: { ...tail.closing.finalNode, messageId: undefined } }
+		return h('div', { className: 'dsh-tavern-story-turn-footer' },
+			host.renderSlot('conversation.chat.node', {
+				node: { kind: 'turn-tail', location: { kind: 'turn', turn }, data: { ...tail, closing } },
+				openFile: host.openFile
+			}, { entryKey: 'turn-tail', hookContext: { turnData: turn.data } }))
+	}
+
 	function StoryTranscriptActions(props) {
 		const row = props.row, transcript = props.transcript
 		const [busy, setBusy] = React.useState('')
@@ -179,7 +195,9 @@ function createTavernStoryTranscriptFeature(deps) {
 			}) : null,
 			forkButton,
 			assistantActions && turn ? h(replyActions.Illustrate, actionProps) : null,
-			selector ? h(messageDeletionFeature.Checkbox, { sessionId: String(props.sessionId || ''), selector: selector }) : null)
+			selector ? h(messageDeletionFeature.Checkbox, { sessionId: String(props.sessionId || ''), selector: selector }) : null,
+			props.turnFooter && row.role === 'assistant' && !row.greeting && !row.streaming && row.nativeTurn > 0
+				? h(StoryTranscriptTurnFooter, { host: props.turnFooter, nativeTurn: row.nativeTurn }) : null)
 	}
 
 	const memoComponent = typeof React.memo === 'function' ? React.memo : function (component) { return component }
@@ -261,7 +279,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			hasTurn ? h(replyActions.IllustrationDraft, { sessionId: mediaSessionId, turn: projectionTurn, items: pluginMedia.items }) : null,
 			hasTurn ? h(replyActions.PluginActions, { sessionId: mediaSessionId, turn: projectionTurn, settled: true, text: row.text }) : null,
 			h(StoryTranscriptActions, { row, transcript: props.transcript, sessionId: props.sessionId, running: props.running,
-				view: props.helperView, latest: props.latest, latestTurn: props.latestTurn, readAloudState: props.readAloudState, host: props.host }))
+				view: props.helperView, latest: props.latest, latestTurn: props.latestTurn, readAloudState: props.readAloudState, host: props.host, turnFooter: props.turnFooter }))
 	})
 
 	function StoryToolCalls({ calls }) {
@@ -359,7 +377,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			return h(StoryTranscriptRow, { key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
 				sessionId: sessionId, view: projectionView, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
 				showPlayProcess: props.showPlayProcess, latest: row === latest, latestTurn: latest?.legacyTurn, readAloudState,
-				host: row === latest ? props.host : null })
+				host: row === latest ? props.host : null, turnFooter: props.turnFooter })
 		}))
 	}
 
@@ -400,7 +418,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		return h(React.Fragment, null, error, older,
 			h(TavernStoryTranscriptList, { transcript: transcript, partial: props.partial, running: props.running,
 				runningCalls: props.runningCalls, pendingInputs: props.pendingInputs, emptyLabel: props.emptyLabel, sessionId: props.sessionId, view: props.view,
-				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess, host: props.host }))
+				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess, host: props.host, turnFooter: props.turnFooter }))
 	}
 
 	function defaultStore() {
@@ -457,6 +475,10 @@ function createTavernStoryTranscriptFeature(deps) {
 			if (view && typeof view.mode === 'string' && typeof publishSessionMode === 'function') publishSessionMode(sessionId, view.mode)
 		}, [sessionId, view && view.mode])
 
+		const turnFooter = React.useMemo(() => typeof props.renderSlot === 'function'
+			? { useChat: props.useChat, renderSlot: props.renderSlot, openFile: props.openFile } : null,
+		[props.useChat, props.renderSlot, props.openFile])
+
 		if (!storyActive) {
 			return props.renderNative ? props.renderNative() : h('div', { role: 'alert' }, '原生聊天记录暂不可用')
 		}
@@ -472,6 +494,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			running: running,
 			runningCalls: runningCalls,
 			pendingInputs: pendingInputs,
+			turnFooter: turnFooter,
 			host: { useChat: props.useChat, useSession: props.useSession, useInput: props.useInput, inputActions: props.inputActions }
 		}))
 	}

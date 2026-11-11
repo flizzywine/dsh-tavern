@@ -11,7 +11,7 @@
 //   include 顺序：本文件先于 features/story-transcript-list.js（列表复用这里的纯投影）。
 //
 // 输入 transcript：{source:'story', revision, from, to, messageCount, floorCount,
-// floorOffset, messages:[{absoluteIndex, key, legacyTurn, floorNo, messageUid, message}]}，
+// floorOffset, messages:[{absoluteIndex, key, legacyTurn, nativeTurn, floorNo, messageUid, message}]}，
 // 由 lib/domain/story-transcript.js 的 projectStoryTranscript 产出。
 
 // 故事行正文：持久消息可能是 {text}（story 存档）、{message}（Helper 旁路）或
@@ -73,6 +73,7 @@ function tavernStoryTranscriptRows(transcript) {
 			floorNo: floorNo,
 			greeting: message.greeting === true,
 			legacyTurn: legacyTurn,
+			nativeTurn: Number.isSafeInteger(entry.nativeTurn) && entry.nativeTurn > 0 ? entry.nativeTurn : null,
 			absoluteIndex: absoluteIndex,
 			messageUid: typeof entry.messageUid === 'string' && entry.messageUid ? entry.messageUid
 				: (typeof message.messageUid === 'string' && message.messageUid ? message.messageUid : null),

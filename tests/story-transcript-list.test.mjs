@@ -72,6 +72,46 @@ async function mount(page, element) {
 	return root
 }
 
+test('故事正文使用所属原生轮次的用量和时间，重生成后跟随新轮次', async t => {
+	const page = createPage(t)
+	const renderSlotCalls = []
+	const saved = story([
+		{ role: 'assistant', greeting: true, turn: 1, text: '开场' },
+		{ role: 'assistant', turn: 2, text: '历史正文' },
+		{ role: 'assistant', turn: 3, text: '重生成后的正文' },
+		{ role: 'assistant', turn: 4, text: '未完成', placeholder: true },
+		{ role: 'assistant', turn: 5, text: '没有原生用量' }
+	])
+	saved.messages[0].nativeTurn = 1
+	saved.messages[1].nativeTurn = 9
+	saved.messages[2].nativeTurn = 12
+	saved.messages[3].nativeTurn = 4
+	function nativeTurn(turn, totalTokens) {
+		const tail = { turn, tokenUsage: { totalTokens }, closing: { time: turn, finalNode: { seq: turn + 100, messageId: 'out-' + turn } } }
+		const source = { subscribe: () => () => {}, getSnapshot: () => tail }
+		return { turn, data: { source: () => source } }
+	}
+	const turns = new Map([[1, nativeTurn(1, 0)], [9, nativeTurn(9, 38200)], [3, nativeTurn(3, 100)],
+		[12, nativeTurn(12, 19500)], [4, nativeTurn(4, 500)]])
+	const turnFooter = {
+		useChat: selector => selector({ timeline: { turns } }),
+		renderSlot: (slot, owner, options) => {
+			renderSlotCalls.push({ slot, owner, options })
+			return React.createElement('span', null, owner.node.data.tokenUsage.totalTokens)
+		}
+	}
+	const feature = page.context.createTavernStoryTranscriptFeature()
+	await mount(page, React.createElement(feature.StoryTranscriptList, {
+		transcript: saved, sessionId: 'game', turnFooter
+	}))
+	const rows = [...page.dom.window.document.querySelectorAll('[data-story-row]')]
+	assert.deepEqual(rows.map(row => row.querySelector('.dsh-tavern-story-turn-footer')?.textContent ?? null),
+		[null, '38200', '19500', null, null])
+	assert.deepEqual(renderSlotCalls.map(call => [call.slot, call.options.entryKey, call.owner.node.location.turn.turn]),
+		[['conversation.chat.node', 'turn-tail', 9], ['conversation.chat.node', 'turn-tail', 12]])
+	for (const { owner } of renderSlotCalls) assert.equal(owner.node.data.closing.finalNode.messageId, undefined)
+})
+
 test('楼层操作用故事正文和稳定轮次，回退提交确认过的消息 UID', async t => {
 	const calls = []
 	const page = createPage(t, {
