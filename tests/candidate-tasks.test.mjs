@@ -112,3 +112,30 @@ test('已有生成操作不会执行第二次，旧结果及空会话投影保�
   assert.deepEqual((await service.sync('absent')).tasks, { candidate: null, background: null })
   await assert.rejects(service.submit({ ...request, sessionId: 'absent' }), /没有绑定人物卡/)
 })
+// the stage's 停止 on the choices wait chip.
+test('玩家停止候选：立即取消；准备中的任务不再启动模型，运行中的迟到结果不改写取消', async t => {
+  const h = await harness(t), waiting = deferred(), finish = deferred()
+  let executions = 0
+  const recovered = []
+  const service = h.create({ async prepare(input) {
+    if (input.requestId === 'waiting') await waiting.promise
+    return { operationId: 'op-' + input.requestId, created: true, async execute() { executions++; await finish.promise; return { choices: ['迟到'] } } }
+  } }, { backgroundTasks: { operation: () => null, activity: () => ({ operationId: '', phase: 'idle' }), recover: async (chat, options) => { recovered.push(options.operationId) } } })
+  const preparing = (await service.submit({ ...request, requestId: 'waiting' })).task
+  const stopped = await service.cancel({ sessionId: 's', taskId: preparing.taskId })
+  assert.equal(stopped.sync.task.status, 'cancelled')
+  assert.equal(stopped.operationId, '')
+  waiting.resolve()
+  await until(() => recovered.length, count => count === 1)
+  assert.deepEqual(recovered, ['op-waiting'], 'an operation begun after the stop is closed, not run')
+  assert.equal(executions, 0)
+  const running = (await service.submit({ ...request, requestId: 'running' })).task
+  await until(() => executions, count => count === 1)
+  const late = await service.cancel({ sessionId: 's', taskId: running.taskId })
+  assert.equal(late.operationId, 'op-running')
+  finish.resolve()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal((await service.sync('s', { taskId: running.taskId })).task.status, 'cancelled')
+  const again = await service.cancel({ sessionId: 's', taskId: running.taskId })
+  assert.equal(again.operationId, '', 'an ended task is left as it is')
+})

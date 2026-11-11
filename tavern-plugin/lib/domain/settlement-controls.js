@@ -9,16 +9,19 @@ function str(value) {
 // `deps` is read on each call, so a test may swap a service after creation.
 export function createSettlementControls(deps) {
   async function stopBackground(sessionId, operationId) {
-    const { backgroundAgentRunner, backgroundTasks, cancelSettlement, chatForSession, pluginApi, readChatCard, view } = deps
+    const { backgroundAgentRunner, backgroundTasks, cancelSettlement, chatForSession, stageDirector, pluginApi, readChatCard, view } = deps
     const chat = await chatForSession(sessionId)
     if (!chat) throw new Error('对话不存在')
     const activity = backgroundTasks.activity(chat)
-    if (!operationId || activity.operationId !== operationId || (!activity.busy && activity.phase !== 'pending')) return view(chat, await readChatCard(chat))
+    const coreActive = activity.busy || activity.phase === 'pending'
+    if (!operationId || !(coreActive && activity.operationId === operationId || activity.director?.operationId === operationId)) return view(chat, await readChatCard(chat))
+    stageDirector?.cancel(chat)
+    backgroundAgentRunner.cancel(chat.sessionId, { task: 'stage-director' })
     // Abort the provider request first; interrupted operations reject late commits.
     pluginApi.stopTasks(chat.sessionId)
     backgroundAgentRunner.cancel(chat.sessionId)
     await cancelSettlement(chat.id, { wait: false })
-    const stopped = await backgroundTasks.recover(chat, { operationId })
+    const stopped = coreActive ? await backgroundTasks.recover(chat, { operationId: activity.operationId }) : { chat }
     return view(stopped.chat, await readChatCard(stopped.chat))
   }
 
