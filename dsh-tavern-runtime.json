@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "3b1f6af1cbb8ecb73dbfc8a6d59f788370f043e9",
-  "releaseSequence": 1447,
+  "revision": "1b57699401e1c41e2cb4c780cee6363f9d13f580",
+  "releaseSequence": 1448,
   "version": "3.3.0",
   "files": [
     {
@@ -966,8 +966,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "9b90192d8cd2fec40e78a8f0d6c812d7e64b8397ff9b3efd19c650ad9a8a60fb",
-      "size": 391632
+      "sha256": "a028bc6dbbfb97cc296c0d540cd60bf625f51cbb6e16be1ae5aeb81b8008d521",
+      "size": 392211
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1016,8 +1016,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "92287bcbae1cf9155aca24f6c560d2ecc506e75a556fe7fb6bb7a73149cd73c5",
-      "size": 5967402
+      "sha256": "e4a3321de41fb9ec099c633499e4a354097464c0ed230588f27b4fcd710293c0",
+      "size": 5969655
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -3301,8 +3301,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/story-tool-calls.js",
-      "sha256": "84f566deaa1f3972862798262021af3819d9f6e60ddfd7b5dccc2bd8d8c6da07",
-      "size": 2741
+      "sha256": "920abd4811fa9bd7a598e8a1658fac85ea100cfc6c0357695503c5e9c5db0b08",
+      "size": 1901
     },
     {
       "path": "tavern-plugin/lib/domain/story-tool-submission.js",
@@ -3311,13 +3311,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/story-transcript-reader.js",
-      "sha256": "cfd5c56f88573ee43772e500ba3ada1a77b1016e20184fbe57730fa4f87e7c5a",
-      "size": 4126
+      "sha256": "c544946ea7c21f4a3826366ee8cc72272a2f8b1ca52948cceed8a444e0b15446",
+      "size": 4311
     },
     {
       "path": "tavern-plugin/lib/domain/story-transcript.js",
-      "sha256": "848d3d127c23bb61e641898ff3f0aacae8c6de281c0227769cd8d7e1be60d271",
-      "size": 6654
+      "sha256": "9bd6b8e8acab7648a66281d0ace9529dc8b413b729b1b52e0a73da2e8f5b0486",
+      "size": 7558
     },
     {
       "path": "tavern-plugin/lib/domain/style-reference.js",
@@ -8461,9 +8461,9 @@
     }
   ],
   "archive": {
-    "commit": "c98ae8a09f598801465154cd44a258ff7172882b",
+    "commit": "98b2dd084a410fea14272bc81d0e250490bb3cd6",
     "path": "runtime.zip",
-    "sha256": "151f6312ef93c99a3c1ec627b6703a925ed40e3d39efca9b806e48123668d2df",
-    "size": 15153173
+    "sha256": "b1adc9daeeb0d45e4da115725f76bcf13ded92f9d50e6b5bff7369e01322a57d",
+    "size": 15153986
   }
 }
