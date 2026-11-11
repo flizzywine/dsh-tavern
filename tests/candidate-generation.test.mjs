@@ -154,7 +154,7 @@ test('自由故事只保存完整的 4 action + 1 scene', async () => {
   assert.equal(run.modelRequests[0].persistent, true)
   assert.equal(run.modelRequests[0].maxTokens, undefined)
   assert.equal(run.plannerCalls[0].purpose, 'candidate')
-  assert.match(run.plannerCalls[0].task, /剧情候选项生成器/)
+  assert.match(run.plannerCalls[0].task, /You generate plot choices/)
 
   const saved = await run.candidates.find({ sessionId: 'session-1', messageId: 'message-1' })
   assert.deepEqual(saved, result)
