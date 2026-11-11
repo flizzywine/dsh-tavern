@@ -105,7 +105,6 @@ async function openStage(t, {pages = [TITLE, MAP, STATUS], fresh = false, skipTi
     case 'getRoundBody': return body
     case 'getStageDirection': return {phase: 'off', revision: 0, generation: 0, token: null}
     case 'getStageModHistory': return {turns: []}
-    case 'getModStageViews': return {views: []}
     case 'getStageMusicTracks': return {tracks: []}
     case 'listFonts': return {fonts: []}
     case 'getDialogueBubbles': return {config}

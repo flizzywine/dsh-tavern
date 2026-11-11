@@ -33,7 +33,7 @@ test('a segment whose line is three text box pages shows pages 1, 2 and 3 in ord
       {turn:1,para:2,durationMs:1000,text:spoken,voice:{key,durationMs:voiceMs,loudness:{version:1,gain:1,gainDb:0},alias:'rin',input:{text:spoken,mood:'平静'},selectionKey:JSON.stringify(['subpages-session',1,1]),language:'zh'}}]}
   const plan={from:{turn:1,para:1},to:{turn:1,para:2},frames:0,fps:30,captureFormat:'jpeg',resolution:{width:1280,height:720}}
   const renderer=await createClipBrowser({snapshot,plan,
-    transport:async method=>{switch(method){case 'getRoundBody':return body;case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null};case 'getStageModHistory':return {turns:[]};case 'getModStageViews':return {views:[]};case 'getStageMusicTracks':return {tracks:[]};case 'listFonts':return {fonts:[]};case 'getDialogueBubbles':return {config:snapshot.config};default:throw new Error('Unexpected host RPC '+method)}},
+    transport:async method=>{switch(method){case 'getRoundBody':return body;case 'getStageDirection':return {phase:'off',revision:0,generation:0,token:null};case 'getStageModHistory':return {turns:[]};case 'getStageMusicTracks':return {tracks:[]};case 'listFonts':return {fonts:[]};case 'getDialogueBubbles':return {config:snapshot.config};default:throw new Error('Unexpected host RPC '+method)}},
     readAsset:async url=>{if(url.pathname==='/clip-voice/'+key)return {body:wav,mediaType:'audio/wav'};const client=await readTavernClientAsset(url.pathname);if(client)return client;const asset=await resolveTavernRuntimeAsset(url.pathname);if(asset)return {body:await readFile(asset.file),mediaType:asset.mediaType}}
   });t.after(()=>renderer.close())
   const [silent,voiced]=renderer.timeline.lines

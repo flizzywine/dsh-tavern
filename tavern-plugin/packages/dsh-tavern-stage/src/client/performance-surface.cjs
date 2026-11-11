@@ -692,7 +692,7 @@ function rawKeyframeLayer({root, owner, foreground, rects, safety = () => ({}), 
     };
 }
 // presentation-only layers borrow the session owner's handles; no leases or playback owner.
-function rawSkinLayer({root,owner,foreground,rects,onChange,onCue=()=>{},onPresented=()=>{},onPresentation=()=>{},onPlayback=()=>{},safety=()=>({}),load=createSkinOverlayLoader()},register) {
+function rawSkinLayer({root,owner,foreground,rects,onChange,onCue=()=>{},onPresentation=()=>{},onPlayback=()=>{},safety=()=>({}),load=createSkinOverlayLoader()},register) {
     let epoch=0,disposed=false,player=null,prepared=null,skinPin=null,skinKey='',phaseKey='',current=null,frame=null,flash=null,loading=null,phaseIntent=null,visibleSkin=null,loadingKey='';
     const under=document.createElement('canvas'),over=document.createElement('canvas'),pulse=document.createElement('div');
     under.className='fork-performance-under';over.className='fork-performance-over';pulse.className='fork-performance-flash';
@@ -729,18 +729,6 @@ function rawSkinLayer({root,owner,foreground,rects,onChange,onCue=()=>{},onPrese
                 root.style.setProperty('--performance-shake-x',Math.sin(t*51)*descriptor.amp*(1-t)+'px');root.style.setProperty('--performance-shake-y',Math.cos(t*37)*descriptor.amp*(1-t)+'px');frame=foreground.requestAnimationFrame(step);};step();
         }
     }
-    let presentedKey='';
-    const receiptFrames=new Set();
-    register(()=>{const ids=[...receiptFrames];receiptFrames.clear();cleanupAll(ids.map(id=>()=>foreground.cancelAnimationFrame(id)));});
-    function receiptFrame(callback){if(disposed)return;const id=foreground.requestAnimationFrame(()=>{receiptFrames.delete(id);if(!disposed)callback();});receiptFrames.add(id);}
-    function presented(intent) {
-        const key=JSON.stringify([intent.value.instanceKey,intent.token?.phaseKey]);
-        if(key===presentedKey)return;
-        // Wait through a rendered frame; accepting a director prefix is not presentation.
-        receiptFrame(()=>receiptFrame(()=>{
-            if(!disposed && current===intent && root.isConnected && key!==presentedKey) {presentedKey=key;onPresented(intent);}
-        }));
-    }
     function output(intent) {
         const {value,layer,snap}=intent,dependency=ref=>value.dependencies.find(item=>key(item.ref)===key(ref));
         const skin=layer.skin && dependency(layer.skin.ref),look=layer.look && dependency(layer.look.ref),ambience=layer.ambience && dependency(layer.ambience.ref);
@@ -764,7 +752,7 @@ function rawSkinLayer({root,owner,foreground,rects,onChange,onCue=()=>{},onPrese
         if(intent.descriptor?.do==='skin-off' && player && !intent.snap) {
             visibleSkin=null;phaseIntent=intent;player.setPhase({phase:'exit',level:intent.value.level,ordinal:intent.descriptor.ordinal});return;
         }
-        if(!desired?.document.overlay) {clearSkin();visibleSkin=desired;presented(intent);return;}
+        if(!desired?.document.overlay) {clearSkin();visibleSkin=desired;return;}
         const phase=intent.snap || intent.descriptor?.do === 'phase-end' ? 'idle' : intent.descriptor?.block === 'turn' ? 'turn' : intent.value.phase;
         const nextSkinKey=desired.identity, nextPhaseKey=JSON.stringify([intent.token?.phaseKey,desired.level,intent.snap,phase]);
         const setPhase=()=>{
@@ -772,7 +760,7 @@ function rawSkinLayer({root,owner,foreground,rects,onChange,onCue=()=>{},onPrese
             phaseKey=nextPhaseKey;phaseIntent=intent;
             player.setPhase({phase,level:desired.level,snap:intent.snap,ordinal:intent.descriptor?.ordinal ?? 0});
         };
-        if(player && skinKey===nextSkinKey) {if(intent.descriptor?.do === 'skin' || intent.descriptor?.do === 'phase-end' || intent.snap) setPhase();presented(intent);return;}
+        if(player && skinKey===nextSkinKey) {if(intent.descriptor?.do === 'skin' || intent.descriptor?.do === 'phase-end' || intent.snap) setPhase();return;}
         if(loading && loadingKey===nextSkinKey) return loading;
         const version=++epoch;loadingKey=nextSkinKey;
         let candidate=null,candidatePin=null;
@@ -793,7 +781,7 @@ function rawSkinLayer({root,owner,foreground,rects,onChange,onCue=()=>{},onPrese
                 reducedMotion:!!safety().reducedMotion,calm:!!safety().calm,snap:intent.snap,
                 onCue:cue=>onCue({...cue,atMs:(phaseIntent?.descriptor?.at || 0)+cue.atMs,token:phaseIntent?.token}),
                 onSkinSwap:()=>{if(version===epoch && current) onChange({...output(current),snap:true});},onError:error=>console.warn('Performance overlay rejected',error)});
-            setPhase();presented(intent);
+            setPhase();
         } catch(error) {candidate?.dispose();candidatePin?.release();if(version===epoch){onChange({...next,skin:visibleSkin});console.warn('Performance overlay rejected',error);}}
         finally {if(version===epoch){loading=null;loadingKey='';}}
     }
@@ -814,7 +802,6 @@ function usePerformanceLayer(rootRef,sessionId,reading) {
         const rects=createStageRects({root,schedule:fn=>forkForeground.requestAnimationFrame(fn),cancel:id=>forkForeground.cancelAnimationFrame(id)});
         register(()=>rects.dispose());
         ref.current=createPerformanceSkinLayer({root,rects,owner:sessions().resourceOwner,foreground:forkForeground,onChange:setValue,onPresentation:setPerformance,onPlayback:setPlayback,onCue:event=>cue.current?.(event),
-            onPresented:intent=>sessionRuntime.presented(sessionId,{performanceId:JSON.stringify(intent.value.instanceKey),phase:intent.value.phase || 'idle'}),
             // only the explicit CONFIG choice freezes; the OS preference (e.g. Windows
             // "show animations" off) is calm: rituals and idle stepping stay, softened.
             safety:()=>performanceSafety(policy.current,window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)});

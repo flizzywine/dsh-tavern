@@ -80,7 +80,6 @@ function GalSide(props){return React.createElement(stageViews.Side,props);}
 function GalTitle(props){return React.createElement(stageViews.Title,props);}
 function GalTypewriter(props){return React.createElement(stageViews.Typewriter,props);}
 function GalWidgets(props){return React.createElement(stageViews.widgets.Widgets,props);}
-function ModStageLayers(props){return React.createElement(stageViews.modSurface.Layers,props);}
 function SkinSweep(props){return React.createElement(stageViews.transitions.Sweep,props);}
 function StageSkinCursor(props){return React.createElement(stageViews.skinCursor.Cursor,props);}
 function StageSkinFrame(props){return React.createElement(stageViews.skinFrame.Frame,props);}
@@ -1312,7 +1311,6 @@ function GalStage(props) {
         // the item glow takes the speaker's 形象色.
         // art.item (stage-skin-adv.md): the skin draws the card as the original's frame.
         modPerformances.node && React.cloneElement(modPerformances.node,{accent:color || undefined,skinItem:skinItem || undefined}),
-        h(ModStageLayers,{sessionId,config,sourceKey:receivedDirection.token?.sourceKey,stage:{title:props.data?.cardName,turn,latestTurn,scene:place,bgm:track?.name}}),
         textcard.node,
         // the CG insert page over the scene and the box, under the top bar and its notices.
         insertPicture ? h(stageViews.pictures.Page, { key: insertPageKey, picture: insertPicture, onShown: () => setPictureShown(insertPageKey), onFailed: () => turnPicture(insert.view ? 0 : insert.delta) }) : null,

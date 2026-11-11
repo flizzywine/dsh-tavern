@@ -9,7 +9,6 @@ const {startStageClientLifetime} = require('../tavern-plugin/packages/dsh-tavern
 for (const phase of ['director','session']) test(`plugin session assembly rolls back failure during ${phase} startup`, () => {
   const calls = [], window = {};
   const views={performanceSurface:{prepare(){}},admission:{shown:{}},progress:{store:{}},sessionRuntime:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/session-runtime.cjs').createStageSessionRuntime({
-    createModNotifications:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/mod-notifications.cjs').createStageModNotifications,
     createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:()=>({start(){throw new Error('session failed')},dispose:()=>calls.push('session')})}),
     createResourceModule:()=>({createStageResourceRunner:()=>({dispose:()=>calls.push('runner')})}),
     createDirectorModule:()=>({createStageDirectorSource:()=>{if(phase==='director')throw new Error('director failed');return {dispose:()=>calls.push('director')}}})
