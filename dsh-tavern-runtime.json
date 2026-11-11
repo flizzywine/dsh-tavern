@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d088725147e237e63ca9ec6ad340150d4b7eea3f",
-  "releaseSequence": 1463,
+  "revision": "f94e43fbf99d871cd6bf7e1942fcab0011c82e9c",
+  "releaseSequence": 1464,
   "version": "3.3.0",
   "files": [
     {
@@ -1016,8 +1016,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "f75b7af8f90b89cf7855c2463db63965d6c1a281200d2596467e81cabc382ad4",
-      "size": 5979003
+      "sha256": "b49d72f5325be57e89e518227ed4d8f7d43239daf5edd6db89589782c174fe1d",
+      "size": 5980426
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1311,13 +1311,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-extension-reading.js",
-      "sha256": "e011ebae8affbe035178bd003d40103d5c5ade3517dfe02fc91c7e88a6c4b624",
-      "size": 8866
+      "sha256": "486628ef903b78fe2db35e36f14fa9efbc549d0d252d40fca6cfcebf92ca7e77",
+      "size": 9065
     },
     {
       "path": "tavern-plugin/lib/domain/card-files.js",
-      "sha256": "54526bfea72a89fe56d515f1bf8876247f0b242d3c18958eef593540256307dc",
-      "size": 25194
+      "sha256": "3e2196b21d869949f55f290334790d08e7dd5d6f9f4bbd6af618fbaa1fe907eb",
+      "size": 26242
     },
     {
       "path": "tavern-plugin/lib/domain/card-import-identity.js",
@@ -3926,8 +3926,8 @@
     },
     {
       "path": "tavern-plugin/lib/http/routes.js",
-      "sha256": "f8db15f3c696c984bf62329458a1dbbdabe76d0a3d772daaa7aafe35df4e1ea9",
-      "size": 30720
+      "sha256": "526e398f1222c819a98b4b5961ea17eb72f98cc3dab45dd64dbf2846f56a1808",
+      "size": 30699
     },
     {
       "path": "tavern-plugin/lib/index.js",
@@ -8481,9 +8481,9 @@
     }
   ],
   "archive": {
-    "commit": "1dc7e082f711bc0524ba4b3bc4f387a79cf353d2",
+    "commit": "af59eae6ad9848e9a54a0fa13b490584fa36cb68",
     "path": "runtime.zip",
-    "sha256": "9a3673adbf315fd9c0032cd23aaa9b16ff1b0cd98ceae13363332b2955ba9455",
-    "size": 15174045
+    "sha256": "e4155efbfda2b8867308065395422522332df7072abe4ca5cb1e88e83950f075",
+    "size": 15174791
   }
 }
