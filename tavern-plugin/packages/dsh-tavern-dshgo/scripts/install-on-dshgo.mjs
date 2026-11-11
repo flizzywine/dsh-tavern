@@ -7,8 +7,8 @@
 // 服务实例，版本对不上还会被 dsh 判定 incompatible 后整行禁用。
 //
 // 用法：node scripts/install-on-dshgo.mjs [--dry-run] [--dsh-home DIR] [--app-root DIR] [--src DIR]
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
@@ -53,6 +53,37 @@ export const PNPM_ARGS = [
   '--config.side-effects-cache=false',
 ]
 
+/**
+ * 真正要在 profile 里装的第三方包：只有启动路径会 import 的那两个。
+ *
+ * pnpm 对 link: 依赖不会递归安装它自己的 dependencies，所以缺了会 Cannot find package。
+ * 但也不能把六个包声明过的十五个全装进来——jsdom、@jsquash/*、undici 这些会带出几百个
+ * 传递依赖，在 proot 的 2GB 内存里跑不完，node_modules 半残后引擎直接起不来。
+ *
+ * 实测启动只碰这两个：dsh-tavern-tts 的 settings-migration 要 yaml，
+ * dsh-tavern-remote 的 typert 要 zod。其余按功能延迟加载，缺了只影响那个功能。
+ */
+export const REQUIRED_THIRD_PARTY = Object.freeze(['yaml', 'zod'])
+
+export function localDependencies(srcRoot = REPO_ROOT, read = readFileSync) {
+  const names = new Set(Object.keys(LOCAL_PACKAGES))
+  const merged = {}
+  for (const relativePath of Object.values(LOCAL_PACKAGES)) {
+    let manifest
+    try {
+      manifest = JSON.parse(read(join(srcRoot, relativePath, 'package.json'), 'utf8'))
+    } catch {
+      continue
+    }
+    for (const [name, version] of Object.entries(manifest.dependencies ?? {})) {
+      if (name.startsWith('@deepseek-ai/') || names.has(name)) continue
+      if (!REQUIRED_THIRD_PARTY.includes(name)) continue
+      merged[name] = version
+    }
+  }
+  return merged
+}
+
 function yamlValue(value) {
   // YAML 的 plain scalar 不能以 @ 开头（保留字符），裸写会让整份文件解析失败。
   const plain = /^[A-Za-z0-9@/._-]+$/.test(value) && !value.startsWith('@')
@@ -93,13 +124,15 @@ export function workspaceYaml(patches, appRoot = '/opt/dsh', hosts = declaredHos
  * 把酒馆的依赖与 bundle 合并进 profile 的 package.json。
  * 已有条目一律保留顺序，只补缺的。
  */
-export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot = REPO_ROOT, bundles = installBundles(), hosts } = {}) {
+export function mergeProfileManifest(manifest, { appRoot = '/opt/dsh', srcRoot = REPO_ROOT, bundles = installBundles(), hosts, readManifest = readFileSync } = {}) {
   const next = structuredClone(manifest)
   if (next.dependencies === undefined || next.dependencies === null) next.dependencies = {}
   for (const [name, relative] of Object.entries(LOCAL_PACKAGES)) {
     next.dependencies[name] = `link:${join(srcRoot, relative)}`
   }
   for (const [name, version] of Object.entries(NPM_PACKAGES)) next.dependencies[name] = version
+  // pnpm 不会递归安装 link: 依赖自己的 dependencies，这里补上，否则插件 import zod/yaml 会失败。
+  for (const [name, version] of Object.entries(localDependencies(srcRoot, readManifest))) next.dependencies[name] = version
   // overrides 只影响「依赖图里已经出现」的包，它本身不往 node_modules 放东西。
   // 宿主包必须作为直接依赖 link 进去，profile 的 node_modules/@deepseek-ai 才是真的存在的。
   // 早先的版本把宿主目录里 331 个包全 link 了进来，连 dsh-host-webserver 这种
@@ -143,6 +176,15 @@ export function planInstall({ srcRoot = REPO_ROOT, dshHome = join('/root', '.dsh
   const hosts = declaredHostPackages({ srcRoot, appRoot })
   steps.push({ kind: 'manifest', name: 'package.json', to: join(profile, 'package.json'), appRoot, srcRoot, hosts, bundles: installBundles({ withOptional }) })
   steps.push({ kind: 'workspace', name: 'pnpm-workspace.yaml', to: join(profile, 'pnpm-workspace.yaml'), patches: PATCH_FILES, appRoot })
+  // 被 link 的包不在 profile 里，它们 import 时从源码目录往上找 node_modules；
+  // 在仓库根放一个指回 profile 的软链，@deepseek-ai/* 与第三方依赖才解析得到。
+  const modulesLink = join(srcRoot, 'node_modules')
+  steps.push({
+    kind: 'link-modules',
+    name: modulesLink,
+    to: modulesLink,
+    target: relative(dirname(modulesLink), join(profile, 'node_modules')),
+  })
   steps.push({ kind: 'pnpm', name: 'pnpm install', cwd: profile, args: PNPM_ARGS })
   steps.push({ kind: 'verify', name: 'verify', profile, appRoot })
   const sources = Object.values(LOCAL_PACKAGES).map(relative => join(srcRoot, relative, 'package.json'))
@@ -191,6 +233,22 @@ export function applyInstall(plan, { dry = false, log = console.log } = {}) {
       if (dry) continue
       backup(step.to)
       writeFileSync(step.to, workspaceYaml(step.patches, step.appRoot))
+    } else if (step.kind === 'link-modules') {
+      log(`让 ${step.to} 指向 ${step.target}`)
+      if (dry) continue
+      let current = null
+      try {
+        current = lstatSync(step.to).isSymbolicLink() ? readlinkSync(step.to) : 'directory'
+      } catch {}
+      if (current === step.target) {
+        log('已经在了')
+      } else if (current === 'directory') {
+        // 实体目录里可能有别人装的东西，不动它。
+        log('是实体目录，跳过（不影响解析就没关系）')
+      } else {
+        if (current !== null) unlinkSync(step.to)
+        symlinkSync(step.target, step.to)
+      }
     } else if (step.kind === 'pnpm') {
       log(`在 ${step.cwd} 跑 pnpm ${step.args.join(' ')}`)
       if (dry) continue
@@ -198,15 +256,27 @@ export function applyInstall(plan, { dry = false, log = console.log } = {}) {
     } else if (step.kind === 'verify') {
       log('校验酒馆的 bundle 与宿主的 @deepseek-ai 包能否解析')
       if (dry) continue
-      const missing = []
+      const problems = []
       for (const name of installBundles()) {
-        if (!existsSync(join(step.profile, 'node_modules', name, 'package.json'))) missing.push(name)
+        if (!existsSync(join(step.profile, 'node_modules', name, 'package.json'))) problems.push(`酒馆包 ${name} 不在`)
       }
-      for (const name of step.hosts ?? declaredHostPackages({ srcRoot: step.srcRoot ?? REPO_ROOT, appRoot: step.appRoot })) {
-        if (!existsSync(join(step.profile, 'node_modules', name, 'package.json'))) missing.push(name)
+      const hosts = step.hosts ?? declaredHostPackages({ srcRoot: step.srcRoot ?? REPO_ROOT, appRoot: step.appRoot })
+      const hostMissing = hosts.filter(name => !existsSync(join(step.profile, 'node_modules', name, 'package.json')))
+      if (hostMissing.length > 0) problems.push(`宿主包缺 ${hostMissing.length}/${hosts.length}：${hostMissing.slice(0, 3).join(' ')}`)
+      // 启动路径只 import 这两个；缺了 dsh-tavern / dsh-tavern-tts 会 failed to import。
+      for (const name of REQUIRED_THIRD_PARTY) {
+        if (!existsSync(join(step.profile, 'node_modules', name, 'package.json'))) problems.push(`第三方 ${name} 不在`)
       }
-      if (missing.length > 0) throw new Error(`装完仍解析不到：\n${missing.join('\n')}`)
-      log('OK')
+      if (problems.length > 0) {
+        // 半残的 node_modules 会让引擎起不来；把清单退回安装前，让下次 pnpm 按旧清单收敛。
+        const backup = `${step.profile}/package.json.pre-tavern`
+        if (existsSync(backup)) {
+          cpSync(backup, `${step.profile}/package.json`)
+          throw new Error(`装完校验没过，已把 package.json 退回安装前：\n${problems.join('\n')}\n下一步：cd ${step.profile} && pnpm install`)
+        }
+        throw new Error(`装完校验没过：\n${problems.join('\n')}`)
+      }
+      log(`OK（酒馆 ${installBundles().length} + 宿主 ${hosts.length} + ${REQUIRED_THIRD_PARTY.join('/')}）`)
     }
   }
 }
