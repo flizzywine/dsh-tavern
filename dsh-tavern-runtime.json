@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "53dab81855bc6e27f7a70892bc38da83a0fbec92",
-  "releaseSequence": 1498,
+  "revision": "9712f8474d208e9b1929b10ff6027c1bf4acdcdc",
+  "releaseSequence": 1499,
   "version": "3.3.0",
   "files": [
     {
@@ -1586,8 +1586,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/compaction-request.js",
-      "sha256": "a8fdc541022345ae9bc94df35976526ab5dd38e946b0d83205c5caee192b1b5a",
-      "size": 4893
+      "sha256": "4b3885313d9d5171f8749004c54069bfcbc9c909886e446aaf3a219980ffa486",
+      "size": 5736
     },
     {
       "path": "tavern-plugin/lib/domain/context-planner.js",
@@ -8611,9 +8611,9 @@
     }
   ],
   "archive": {
-    "commit": "e60e00713754ded121f5de72053293c9203924ee",
+    "commit": "e29771eb25f5368909a6b71e9bc2231accd20565",
     "path": "runtime.zip",
-    "sha256": "67cfb8ca95f6165808f06f7ac94aa6e88b6bc0b8272aacd83875ac5cb6c77248",
-    "size": 15299308
+    "sha256": "1699115705d73164335428ff09dc4cf9814a7ef35bbfd77d6611d379f6a5c090",
+    "size": 15299584
   }
 }
