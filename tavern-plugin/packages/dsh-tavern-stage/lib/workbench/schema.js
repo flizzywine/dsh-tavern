@@ -35,7 +35,6 @@ export const WORKBENCH_ACTIONS = {
     ["image", {"packId":s,"expectedRevision":s,"file":s,"target":o}],
     ["bundle", {"packId":s,"expectedRevision":s,"directory":s,"bundleKey":s,"kind":e(...BUNDLE_KINDS),"entry":s}],
     ["mod-file", {"modId":s,"expectedRevision":s,"layer":e("global","card"),"file":s}],
-    ["mod-media", {"modId":s,"packId":s,"kind":s,"slot":s,"file":s}],
   ],
   assets_transfer: [
     ["inspect", {"kind":e("pack","card"),"file":s,"path?":s}],
@@ -67,13 +66,12 @@ export const WORKBENCH_ACTIONS = {
   ],
   mods_read: [
     ["list|sources", {}],
-    ["mod|packs|config", {"modId":s}],
+    ["mod|config", {"modId":s}],
     ["resolve", {"modId":s,"key":s}],
     ["formula", {"formula":s}],
   ],
   mods_patch: [
     ["settings", {"modId":s,"expectedRevision":s,"values":o}],
-    ["pack", {"modId":s,"expectedRevision":s,"pack":o}],
     ["config", {"modId":s,"expectedRevision":s,"key":s,"layer":e("global","card"),"value":o}],
     ["clear-config", {"modId":s,"expectedRevision":s,"key":s,"layer":e("global","card")}],
   ],

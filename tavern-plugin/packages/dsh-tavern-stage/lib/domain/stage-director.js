@@ -271,7 +271,7 @@ export function createStageDirector(deps) {
     const scope = JSON.stringify([chat.cardPath,target.branchId,target.sourceKey,prepared.binding.unitsDigest,engine.judge])
     const reused = retryPreparation?.scope === scope ? retryPreparation : null
     if (!authorityOnly && prepared && deps.judge && judgeConfigured) {
-      const questions = [...prepared.judgeQuestions,...(mods?.judgeQuestions || [])]
+      const questions = prepared.judgeQuestions
       const request = {material:judgeMaterial(engine.judge.preamble,units),questions:questions.map(({id,text}) => ({id,text}))}
       judge = deps.judge.preview(request,engine.judge)
       const inputKey = assetPackDigest({request,config:engine.judge,target:target.sourceKey,revision:assets.engine.judge,generation:input.generation})
@@ -293,7 +293,7 @@ export function createStageDirector(deps) {
     const preparation = {scope,...(judgeResult ? {judgeResult} : {}),judgeRecall:[...(judgeRecall || [])]}
     capturePreparation?.(preparation)
     // The mods read only the recalled catalogue here; the full preparation follows with their result.
-    if (mods) mods=await deps.mods.prepare(chat,turn,{target,preview:preview || authorityOnly,isCurrent:assets.current,judgeRecall,
+    if (mods) mods=await deps.mods.prepare(chat,turn,{target,preview:preview || authorityOnly,isCurrent:assets.current,
       assetCatalogue:judgeRecall ? assetPackDirectorCatalogue({...input,judgeRecall}) : prepared.context.catalogue,stageState:prepared.baseline.modState})
     if (mods?.selection) preparation.modSelection = mods.selection
     capturePreparation?.(preparation)
@@ -358,13 +358,13 @@ export function createStageDirector(deps) {
             let judgeRecall, catalogue
             if (deps.judge && judgeEnabled(engine.judge)) {
               const prepared = prepareAssetPackDirector({...source,mods:windowMods,modPrompts:windowMods?.fragments || []})
-              const questions = [...prepared.judgeQuestions,...(windowMods?.judgeQuestions || [])]
+              const questions = prepared.judgeQuestions
               const probabilities = await deps.judge.judge({sessionId:chat.sessionId,material:judgeMaterial(engine.judge.preamble,source.units),questions:questions.map(({id,text}) => ({id,text}))})
               judgeRecall = selectJudgeRecall(questions,probabilities,engine.judge)
             }
             if (!current() || signal.aborted) throw expired()
             if (deps.mods) catalogue = assetPackDirectorCatalogue({...source,mods:windowMods,judgeRecall})
-            windowMods = await deps.mods?.prepare(chat,turn,{...options,judgeRecall,assetCatalogue:catalogue})
+            windowMods = await deps.mods?.prepare(chat,turn,{...options,assetCatalogue:catalogue})
             const prepared = prepareAssetPackDirector({...source,mods:windowMods,modPrompts:windowMods?.fragments || [],judgeRecall})
             return {prepared,mods:windowMods}
           },
