@@ -63,12 +63,11 @@ async function compareCdnRuntime(sourceRoot, metadata) {
   const files = Array.isArray(metadata?.files) ? metadata.files.map((file) => ({ path: runtimePath(file?.path), hash: String(file?.sha256 || '').toLowerCase() })).filter((file) => file.path && /^[0-9a-f]{64}$/.test(file.hash)) : []
   if (files.length === 0) throw new Error('jsDelivr 未返回运行文件清单')
   files.sort((left, right) => left.path.localeCompare(right.path))
-  const remoteDigest = createHash('sha256')
-  const localDigest = createHash('sha256')
   let matches = true
   // Small bounded batches avoid thousands of serial open/read syscalls on Android
   // storage without opening the whole runtime tree at once.
-  for (let offset = 0; offset < files.length; offset += RUNTIME_COMPARE_BATCH_SIZE) {
+  // Only the boolean is consumed; the first differing batch decides it.
+  for (let offset = 0; matches && offset < files.length; offset += RUNTIME_COMPARE_BATCH_SIZE) {
     const batch = files.slice(offset, offset + RUNTIME_COMPARE_BATCH_SIZE)
     const localHashes = await Promise.all(batch.map(async file => {
       try { return createHash('sha256').update(await readFile(path.join(sourceRoot, ...file.path.split('/')))).digest('hex') } catch (error) {
@@ -76,13 +75,7 @@ async function compareCdnRuntime(sourceRoot, metadata) {
         return ''
       }
     }))
-    for (let index = 0; index < batch.length; index += 1) {
-      const file = batch[index]
-      const localHash = localHashes[index]
-      remoteDigest.update(`${file.path}\0${file.hash}\n`)
-      localDigest.update(`${file.path}\0${localHash}\n`)
-      if (localHash !== file.hash) matches = false
-    }
+    if (batch.some((file, index) => localHashes[index] !== file.hash)) matches = false
   }
   const version = String(metadata?.version || '')
   const releaseSequence = Number(metadata?.releaseSequence)
@@ -91,8 +84,6 @@ async function compareCdnRuntime(sourceRoot, metadata) {
     revision: metadata.revision,
     version,
     releaseSequence: Number.isSafeInteger(releaseSequence) && releaseSequence > 0 ? releaseSequence : null,
-    currentFingerprint: localDigest.digest('hex'),
-    latestFingerprint: remoteDigest.digest('hex'),
     fileCount: files.length,
   }
 }

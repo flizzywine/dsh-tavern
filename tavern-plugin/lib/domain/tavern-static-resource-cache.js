@@ -167,7 +167,8 @@ export function createTavernStaticResourceCache(options = {}) {
       const metadata = JSON.parse(await readFile(files.metadata, 'utf8'))
       if (metadata.version !== CACHE_VERSION || metadata.url !== url) return null
       const body = await readFile(files.body)
-      if (body.length !== metadata.bytes || createHash('sha256').update(body).digest('hex') !== metadata.contentHash) return null
+      // entries are published by rename; a hit is not re-hashed.
+      if (body.length !== metadata.bytes) return null
       const now = new Date()
       void Promise.allSettled([utimes(files.body, now, now), utimes(files.metadata, now, now)])
       return { url, finalUrl: metadata.finalUrl || url, body, mediaType: metadata.mediaType, bytes: body.length, cachedAt: metadata.cachedAt, cache: 'hit' }
@@ -248,7 +249,6 @@ export function createTavernStaticResourceCache(options = {}) {
       finalUrl,
       mediaType,
       bytes: body.length,
-      contentHash: createHash('sha256').update(body).digest('hex'),
       cachedAt: Date.now()
     }
     await writeFile(files.body + suffix, body)

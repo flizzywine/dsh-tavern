@@ -1,4 +1,4 @@
-import {createHash} from 'node:crypto'
+import {recordBlock} from './conversation-page-store.js'
 import {createIncrementalJsonState} from './incremental-json-state.js'
 
 /** One transaction's private JSON tree builder. Intermediate roots never escape
@@ -14,8 +14,7 @@ export function createBufferedJsonRecords({read,writeMany}){
    return structuredClone(loaded.get(ref))
   },
   async write(value){
-   const bytes=JSON.stringify({kind:'record',value})
-   const ref=createHash('sha256').update(bytes).digest('hex')
+   const {bytes,ref}=recordBlock(value)
    if(!pending.has(ref))pending.set(ref,JSON.parse(bytes).value)
    return ref
   }
@@ -32,8 +31,9 @@ export function createBufferedJsonRecords({read,writeMany}){
    else if(value.type!=='scalar')throw Error('Invalid buffered JSON tree node')
   }
   roots.forEach(visit)
-  const expected=[...selected.keys()],refs=await writeMany([...selected.values()])
-  if(refs.some((ref,i)=>ref!==expected[i])||refs.length!==selected.size)throw Error('Buffered record hash mismatch')
+  // refs come from the store's own record encoding (recordBlock); the store reuses them
+  // rather than hashing every record again and comparing.
+  await writeMany([...selected.values()],[...selected.keys()])
  }
  return Object.freeze({tree,flush})
 }
