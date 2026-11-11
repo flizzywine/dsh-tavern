@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import {createHash} from 'node:crypto'
-import {fileURLToPath} from 'node:url'
+import {fileURLToPath,pathToFileURL} from 'node:url'
 import {validateDistributionManifest} from './domain/mod-system.js'
 
 const root=fileURLToPath(new URL('../../',import.meta.url))
@@ -22,6 +22,7 @@ async function filesIn(directory,prefix='') {
 // Only the user-plugin loader imports the installed entry after code consent.
 // Every folder under tavern-plugin/mods is one first-party mod (docs/mod-authoring.md); the folder list is the only list.
 export const firstPartyModIds = (await fs.readdir(path.join(root,'tavern-plugin/mods'),{withFileTypes:true})).filter(entry=>entry.isDirectory()).map(entry=>entry.name).sort()
+export const firstPartyModDirectory = folder => pathToFileURL(path.join(root,'tavern-plugin/mods',folder)+path.sep)
 export async function firstPartyDistributions() {
   const results=[]
   for(const id of firstPartyModIds) {

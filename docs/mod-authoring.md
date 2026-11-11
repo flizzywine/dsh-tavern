@@ -16,6 +16,7 @@ tavern-plugin/mods/<name>/
   runtime.js        指令执行、提示词准备等宿主侧逻辑，纯函数优先
   stage.js          可选：导演事务钩子
   host/             可选：舞台宿主服务
+  tools.js          可选：前台工具，按文件夹自动发现并登记（§3）
   client/           可选：舞台画面（视图与样式）
   view/             可选：独立界面文档（如手机）
   prompts/ assets/  提示词片段、内置素材
@@ -26,7 +27,7 @@ tavern-plugin/mods/<name>/
 
 - 模组只 import 自己文件夹里的文件和 `tavern-plugin/packages/dsh-presentation-protocol/src/`；需要宿主或舞台的能力时经 `ctx` 注入的服务取得。两个模组之间不互相 import，用模组 API（§3）。
 - 模组文件夹以外的代码不 import 模组，也不出现任何第一方模组 id。舞台和本体只认声明和接口，不认识具体模组。
-- 模组代码只由舞台加载：舞台关闭或不用舞台的卡不加载、不执行任何模组代码。
+- 模组代码只由舞台加载：舞台关闭或不用舞台的卡不加载、不执行任何模组代码。唯一例外是前台工具 `tools.js`：工具表按已安装的模组在启动时冻结，所以由本体在启动时读取；工具只在本卡开着该模组、或本局历史已经调用过它时提供。
 
 ## 2. 清单 `mod.json`
 
@@ -56,6 +57,7 @@ tavern-plugin/mods/<name>/
 | 提示词 | 清单 `prompts` | 本轮准入时注入的说明 |
 | 导演事务钩子 | `stage.js`，`registerModStageContribution`（`lib/domain/mods/stage-contributions.js` 头注释列出全部钩子） | 状态归约、提示词里的状态、本轮事实与进度 |
 | 舞台宿主服务 | `ctx` 的 `stageExtensions.register` | 跨请求的宿主侧服务与请求路由 |
+| 前台工具 | `tools.js` 默认导出 `[{name, create(core)}]`；`lib/mod-tools.js` 按文件夹发现，本体据此登记、提供和管控，不点名工具 | 正文模型可调用的工具（如骰子的 `tavern_roll`）；`core` 给出回合读取与 `authorize(chat)`、`markUsed(chat)` 两个按本模组生效的回调 |
 | 舞台画面 | `ctx` 的 `stageFeatures.register` | 舞台上的视图与样式；HUD 用演出的 `regions` |
 | 独立界面 | `registerMod` 的 `render` | 手机这类自带文档的界面 |
 | 素材 | 清单 `assetKinds`、`coreAssets` | 素材库条目与内置素材 |
@@ -102,7 +104,7 @@ export function apply(ctx) {
 | M2 | 舞台包里的模组宿主代码 `dsh-tavern-stage/lib/mods/{timer,phone}/`，舞台按名 import | 移进 `mods/<name>/host/`，由模组自己登记 |
 | M3 | 舞台客户端里的模组画面（textcard-*、timer、phone-*、call-views 等） | 移进 `mods/<name>/client/` |
 | M4 | 本体客户端里的模组代码（dice-roll、dice-throw、phone-*、textcard-stage、timer-stage） | 同 M3 |
-| M5 | 本体点名模组（骰子前台工具 `tools/dice.js`、`turn-orchestration.js`、`asset-pack-ui.js` 等） | 通用接口或清单声明 |
+| M5 | 本体点名模组（`asset-pack-ui.js` 等；骰子前台工具已迁到 `mods/dice/tools.js`） | 通用接口或清单声明 |
 | M6 | 手机模组 import 本体内部（`lib/domain/*`、`prompt-catalog`、`bubble-line.cjs`） | 移进协议包或经 `ctx` 取得 |
 | M7 | 两份清单与旧注册表 | 并为一份 `mod.json` |
 | M9 | 所有模组的 Skill 挤在 `references/first-party.md` | 每模组一份 |

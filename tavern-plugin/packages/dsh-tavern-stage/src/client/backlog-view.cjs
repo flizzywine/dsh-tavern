@@ -1,4 +1,4 @@
-function createStageBacklogView({React:react, window, document, stageViews, voicePlayer, useDiceBacklog, diceBacklogEntries, diceLine, useClipBacklog, useJumpLatest, JumpLatest, useFigureTextContrast, stageSkinBacklogPlateStyle, stageSkinBacklogPlate, bubbleCharacter, galQuoted, VoiceButton, PackImage, Icon, HelpTip, Spinner, ransom, getComputedStyle, ResizeObserver, setTimeout:hostSetTimeout, clearTimeout:hostClearTimeout, requestAnimationFrame:hostRequestFrame, cancelAnimationFrame:hostCancelFrame}) {
+function createStageBacklogView({React:react, window, document, stageViews, voicePlayer, modClients, useClipBacklog, useJumpLatest, JumpLatest, useFigureTextContrast, stageSkinBacklogPlateStyle, stageSkinBacklogPlate, bubbleCharacter, galQuoted, VoiceButton, PackImage, Icon, HelpTip, Spinner, ransom, getComputedStyle, ResizeObserver, setTimeout:hostSetTimeout, clearTimeout:hostClearTimeout, requestAnimationFrame:hostRequestFrame, cancelAnimationFrame:hostCancelFrame}) {
 let disposed=false;
 const cleanups=new Set(),timers=new Map(),frames=new Map();
 function own(cleanup){let active=true;const release=()=>{if(!active)return;active=false;cleanups.delete(release);cleanup();};cleanups.add(release);return release;}
@@ -36,8 +36,10 @@ function GalBacklog(props) {
     const modHistory = stageViews.backlogHistory.useHistory(props.sessionId);
     // Isolated text-only fixtures load the backlog without the kind registry (and so without performance rows).
     const registry = React.useMemo(() => stageViews.backlogRows.backlogPerformanceRegistry(modHistory?.kinds), [modHistory?.kinds]);
-    // each round's open checks, one line each (dice-roll.js); isolated fixtures run without it.
-    const rolls = typeof useDiceBacklog === 'function' ? useDiceBacklog(props.useChat) : null;
+    // the mods' 履历 rows (mod-clients.js backlog parts, e.g. each round's open checks); isolated fixtures run without them.
+    // The parts are fixed for the client's life, so their hooks run in the same order on every render.
+    const backlogParts = modClients ? modClients.slot('backlog') : [];
+    const modRows = backlogParts.map(part => part.value.use(props.useChat));
     const [markDirections,setMarkDirections]=React.useState(()=>new Map());
     const lineKinds = React.useMemo(() => stageViews.backlogRows.backlogLineKinds(registry), [registry]);
     const looks = props.looks || BACKLOG_LIST;
@@ -59,12 +61,15 @@ function GalBacklog(props) {
         const directions=new Map(markDirections);directions.set(props.turn,props.direction);
         const text = stageViews.backlogRows.stageHistoryEntries(props.textIndex, props.turn, props.pages || [], props.page, inputs);
         const rows = stageViews.backlogRows.backlogLineKindEntries(registry ? stageViews.backlogRows.stageModHistoryEntries(text,modHistory?.turns,registry,directions) : text,directions,lineKinds);
-        const roll = registry?.get('core.dice.roll');
-        const all = rolls && roll ? diceBacklogEntries(rows, rolls, turn => props.textIndex?.get(turn)?.nativeTurn,
-            (value, turn) => stageViews.backlogRows.backlogPerformanceEntry(roll, value, {turn, id:{roll:value.callId}})) : rows;
+        let all = rows;
+        backlogParts.forEach((part, i) => {
+            const kind = registry?.get(part.value.kind);
+            if (kind && modRows[i]) all = part.value.entries(all, modRows[i], turn => props.textIndex?.get(turn)?.nativeTurn,
+                (value, turn) => { const row = stageViews.backlogRows.backlogPerformanceEntry(kind, value, {turn, id:{call:value.callId}}); return row && {...row, line:part.value.line}; });
+        });
         // A role the skin draws as none leaves no row (the overlay's round separators).
         return looks.roles.divider?.look === 'none' ? all.filter(entry => entry.type !== 'turn') : all;
-    }, [props.lease, props.textIndex, props.turn, props.pages, props.page, props.direction, inputs,modHistory,registry,lineKinds,markDirections,rolls,looks]);
+    }, [props.lease, props.textIndex, props.turn, props.pages, props.page, props.direction, inputs,modHistory,registry,lineKinds,markDirections,...modRows,looks]);
     // art.backlog.plates (C1): each entry's place among its role's entries, which picks its plate image and pose.
     const places = React.useMemo(() => {
         if (!looks.plates) return null;
@@ -340,7 +345,7 @@ function GalBacklog(props) {
             const die = h(Icon, { key: "lead", name: "die", size: 16 });
             const lead = !entry.roll ? h("span", { key: "lead", className: "fork-gal-backlog-card-tag" }, entry.tag)
                 : looks.roll ? h(React.Fragment, { key: "lead" }, die, h("i", { className: "fork-gal-backlog-roll-mark", "aria-hidden": true })) : die;
-            const words = entry.roll ? diceLine(h, entry.roll) : entry.parts ? entry.parts.flatMap((part, i) => i ? [h("span", { key: i, className: "fork-gal-backlog-card-sep", "aria-hidden": true }, " / "), part] : [part]) : entry.text;
+            const words = entry.roll ? entry.line(h, entry.roll) : entry.parts ? entry.parts.flatMap((part, i) => i ? [h("span", { key: i, className: "fork-gal-backlog-card-sep", "aria-hidden": true }, " / "), part] : [part]) : entry.text;
             return h("div", { key: entry.key, ref, className: "fork-gal-backlog-card fork-gal-backlog-perf is-look-" + look + (entry.roll ? " fork-gal-backlog-roll" : "") + bandClass(index),
                 "data-tier": entry.roll ? entry.roll.tier : undefined, "data-perf-kind": entry.kind, "data-bl-role": entry.role, ...plated(entry, index, look) },
                 plateArt(entry, look), ...(look === "row" ? [lead, h("p", { key: "p" }, words)] : [h("p", { key: "p", style: looks.roles[entry.role]?.plate }, lead, wrap ? [wrap[0], h(React.Fragment, { key: "w" }, words), wrap[1]] : words)]));

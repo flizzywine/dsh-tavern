@@ -25,7 +25,7 @@ const tavernUiExtensions = {presentReply: () => null};
 const messageDeletionFeature = {Checkbox: () => null, assistantSelector: () => null};
 const tavernModelRefusalNotice = () => '';
 const tavernMvuReceiptForTurn = () => null;
-const DiceRolls = () => null, tavernStageBoundary = (_, child) => child;
+const tavernModClients = {slot: () => []}, tavernStageBoundary = (_, child) => child;
 const installTavernReplyRuns = noop, disposeTavernReplyRuns = noop;
 const createSessionCompat = () => ({});
 const createTavernFrameSlashExecutor = () => noop;

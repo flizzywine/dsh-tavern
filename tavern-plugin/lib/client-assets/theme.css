@@ -6220,10 +6220,10 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 /* ==== end fork inline edit ==== */
 
 @keyframes fork-timer-breathe { 50% { transform: scale(1.025); } }
-/* ==== round dice rolls (dice-roll.js) ==== */
+/* ==== round dice rolls (mods/dice/client/roll.js) ==== */
 /* A compact card per tavern_roll, ahead of the round's story text: one line 「魔力检定 · 20 · 成功」. Tier colours alias existing
    tokens only; the stage (and its 履历 line) re-point them at the --gal-ui-* paints. A covered die and a peeked card are
-   both static; the stage strip only fades out when the reader moves on (dice-roll.js). */
+   both static; the stage strip only fades out when the reader moves on (mods/dice/client/roll.js). */
 .fork-roll-list { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 0 0 12px; text-indent: 0; }
 .fork-roll { --roll-critical: var(--fork-accent); --roll-success: var(--fork-state-card); --roll-costly: var(--fork-warn); --roll-failure: var(--fork-ink-2); --roll-fumble: var(--fork-danger);
   box-sizing: border-box; max-width: 100%; border-radius: var(--fork-radius); background: var(--fork-surface-2); color: var(--fork-ink); font: 400 var(--fork-fs-body)/1.5 var(--fork-font-ui); }
@@ -6245,7 +6245,7 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-roll-details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; margin: 0; padding: 0 12px 8px 34px; }
 .fork-roll-details dt { font-size: var(--fork-fs-meta); font-weight: 600; line-height: inherit; }
 .fork-roll-details dd { margin: 0; overflow-wrap: anywhere; }
-/* ==== round dice throw (dice-throw.js) ==== */
+/* ==== round dice throw (mods/dice/client/throw.js) ==== */
 /* A roll arriving live: two d10s thrown into the band just above the stage text box, centred on it (placed by the script
    from the box, out of every flow; it never takes pointer events and may pass over the figures). The round's card waits
    hidden in place meanwhile; the result is stamped in the middle of the band, then the throw shrinks into the card while it

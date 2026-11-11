@@ -17,7 +17,8 @@ const exists = file => stat(file).then(() => true, () => false)
 
 // rule:subject. Rules: manifest (mod.json missing or invalid), legacy-manifest (a second manifest.json), skill (no
 // references/<name>.md or no index line), import-out (a mod file imports outside its folder), import-in (code outside
-// mods/ imports a mod file), names-mod (code outside mods/ names a first-party mod id).
+// mods/ imports a mod file), names-mod (code outside mods/ names a first-party mod id), names-part (code outside mods/
+// names a client part a mod registers in client/core.js).
 const PENDING = new Set([
   'legacy-manifest:dice', 'legacy-manifest:phone', 'legacy-manifest:textcard', 'legacy-manifest:timer',
   'skill:dice', 'skill:phone', 'skill:textcard', 'skill:timer',
@@ -30,9 +31,7 @@ const PENDING = new Set([
   'import-in:tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/stage-service.js',
   'import-in:tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/stage.js',
   'import-in:tavern-plugin/packages/dsh-tavern-stage/lib/rpc.js',
-  'names-mod:tavern-plugin/lib/domain/turn-orchestration.js',
   'names-mod:tavern-plugin/lib/domain/user-plugin-install.js', 'names-mod:tavern-plugin/lib/mod-builtins.js',
-  'names-mod:tavern-plugin/lib/tools/dice.js',
   'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/mod-service.js',
   'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/mods/phone/host.js',
   'names-mod:tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/extension.js',
@@ -109,10 +108,18 @@ test('a mod imports only its own folder and the presentation protocol; nothing o
   const generated = rel => /\/lib\/client\.js$/.test(rel) || /^tavern-plugin\/lib\/host\/mod-[^/]+\.mjs$/.test(rel)
   const skip = rel => rel.startsWith('tavern-plugin/mods/') || /\/(node_modules|vendor|tests)\//.test(rel) || generated(rel)
   const ids = new RegExp(`['"\`]dsh\\.(?:${names.join('|')})['"\`]`)
+  // The names a mod's core client parts register (client/core.js): core and stage render parts by slot, never by name.
+  const parts = []
+  for (const name of names) {
+    const core = await readFile(path.join(modsRoot, name, 'client/core.js'), 'utf8').catch(() => '')
+    for (const match of core.matchAll(/\b(?:floor|page|overlay|use|entries|line):\s*([A-Za-z_$][\w$]*)/g)) parts.push(match[1])
+  }
+  const partNames = parts.length ? new RegExp(`\\b(?:${[...new Set(parts)].join('|')})\\b`) : null
   for (const file of await walk(path.join(root, 'tavern-plugin'), skip)) {
     const text = await readFile(file, 'utf8'), rel = posix(file)
     if (specifiers(text).some(spec => posix(path.resolve(path.dirname(file), spec)).startsWith('tavern-plugin/mods/'))) found.add('import-in:' + rel)
     if (ids.test(text)) found.add('names-mod:' + rel)
+    if (partNames?.test(text)) found.add('names-part:' + rel)
   }
 })
 
