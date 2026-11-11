@@ -36,6 +36,7 @@ async function app(t, chat, scoped, template = false) {
   let duringWorldbook = null
   let beforePlan = null
   let beforePatch = null
+  let beforeHelperPatch = null
   const store = {
     async chatForSession() { calls.full++; return persistence.read(chat.id) },
     readCard: async () => ({ name: 'Card' }),
@@ -56,7 +57,12 @@ async function app(t, chat, scoped, template = false) {
   const turns = createTurnOrchestrator({
     store, now: () => clock,
     timeline: createStoryTimeline({ id: prefix => prefix + '-' + (++ids), now: () => clock }), frameBuilder: createForegroundFrameBuilder(),
-    planner: { plan: async () => { await beforePlan?.(); return { text: 'context' } } },
+    planner: { plan: async () => {
+      const hook = beforePlan
+      beforePlan = null
+      await hook?.()
+      return { text: 'context', systemPromptText: '' }
+    } },
     projectReply: text => ({ sourceText: text, projectionText: text, sessionText: text, displayText: text, warnings: [] }),
     ...(template ? {
       projectForegroundWorldbook: async () => { await duringWorldbook?.(); return { context: '' } },
@@ -65,7 +71,13 @@ async function app(t, chat, scoped, template = false) {
     } : {})
   })
   const helper = createTavernScriptHostAdapter({
-    resolveChat: store.chatForSession, resolveChatSlice: store.readChatSlice, patchChat: persistence.patch,
+    resolveChat: store.chatForSession, resolveChatSlice: store.readChatSlice, readChatRevision: persistence.readRevision,
+    async patchChat(...args) {
+      const hook = beforeHelperPatch
+      beforeHelperPatch = null
+      await hook?.()
+      return persistence.patch(...args)
+    },
     writeChat: store.writeChat, readCard: store.readCard, worldBooks: {}, scriptDispatch: {}
   })
   async function play(turn, userText = '继续') {
@@ -76,7 +88,8 @@ async function app(t, chat, scoped, template = false) {
     return turns.finalize({ sessionId: chat.sessionId, turn, userText, assistantText: '回复 ' + turn })
   }
   return { persistence, turns, calls, play, helper, stored: () => persistence.read(chat.id),
-    duringWorldbook: fn => { duringWorldbook = fn }, beforePlan: fn => { beforePlan = fn }, beforePatch: fn => { beforePatch = fn } }
+    duringWorldbook: fn => { duringWorldbook = fn }, beforePlan: fn => { beforePlan = fn },
+    beforePatch: fn => { beforePatch = fn }, beforeHelperPatch: fn => { beforeHelperPatch = fn } }
 }
 
 function base(messages, extra = {}) {
@@ -140,7 +153,10 @@ for (const timing of ['beforePlan', 'beforePatch']) {
       await writeHelperVariables(scoped, { type: 'chat' }, { turn: 13, playerName: '新名字' })
     })
 
-    assert.equal((await scoped.turns.prepare(input)).ready, true)
+    const preparation = await scoped.turns.prepare(input)
+    assert.equal(preparation.ready, true)
+    assert.equal(preparation.frame.source.regenerationMaterials.generationState.messageVariables.stat_data.hp, 200)
+    assert.equal(preparation.frame.source.regenerationMaterials.persona.name, '新名字')
     const prepared = await scoped.stored()
     assert.equal(prepared.messages.length, 26)
     assert.equal(prepared.messages[1].variables[0].stat_data.hp, 100)
@@ -148,6 +164,7 @@ for (const timing of ['beforePlan', 'beforePatch']) {
     assert.equal(prepared.macroState.userName, '新名字')
     assert.deepEqual(prepared.variables, { turn: 13, playerName: '新名字' })
     assert.equal(prepared.messages[25].placeholder, true)
+    assert.deepEqual(prepared.foregroundFrames[preparation.frame.operationId], preparation.frame)
 
     await scoped.turns.finalize({ ...input, assistantText: '回复' })
     const saved = await scoped.stored()
@@ -202,3 +219,88 @@ test('失败清理只撤销模板写入，保留 Helper 后续写入的聊天变
   assert.equal(saved.promptTemplateInput, undefined)
   assert.equal(saved.messages.length, 25)
 })
+
+test('上一楼层的显示捕获和回退记录版本戳不作废正文准备', async t => {
+  const scoped = await app(t, base(history(12, () => true), { rollbackUndo: { ready: true, storageRevision: 1 } }), true)
+  const receipt = { version: 2, frames: [] }
+  scoped.beforePatch(async () => {
+    const { _storageRevision } = (await scoped.persistence.readSlice('chat-1')).chat
+    assert.ok(await scoped.persistence.patch('chat-1', _storageRevision, [
+      { op: 'set', path: ['messages', 23, 'displayRuntime'], value: receipt },
+      { op: 'set', path: ['rollbackUndo', 'storageRevision'], value: _storageRevision + 1 }
+    ], { source: 'display.capture', touchUpdatedAt: false }))
+  })
+  assert.equal((await scoped.turns.prepare({ sessionId: 's', turn: 13, userText: '继续' })).ready, true)
+  const saved = await scoped.stored()
+  assert.deepEqual(saved.messages[23].displayRuntime, receipt)
+  assert.equal(saved.messages.length, 26)
+})
+
+test('Helper 写入时保留其他楼层的并发变量变更', async t => {
+  const scoped = await app(t, base(history(12, () => true)), true)
+  scoped.beforeHelperPatch(async () => {
+    const { _storageRevision } = (await scoped.persistence.readSlice('chat-1')).chat
+    assert.ok(await scoped.persistence.patch('chat-1', _storageRevision, [
+      { op: 'set', path: ['messages', 23, 'variables', 0, 'stat_data', 'hp'], value: 300 }
+    ], { source: 'test.disjoint-variables' }))
+  })
+  const { _storageRevision: stateRevision, id: chatId } = (await scoped.persistence.readSlice('chat-1')).chat
+  const result = await scoped.helper.updateVariables('s', { type: 'message', message_id: 1 },
+    { stat_data: { hp: 200 }, schema: {} }, 0, '', { chatId, stateRevision, lifecycleRevision: 0 })
+  assert.equal(result.updated, true)
+  assert.equal(result.context.stateRevision, stateRevision + 2)
+  const saved = await scoped.stored()
+  assert.equal(saved.messages[1].variables[0].stat_data.hp, 200)
+  assert.equal(saved.messages[23].variables[0].stat_data.hp, 300)
+})
+
+test('空白开场初始化遇到并发写入后，变量与完成状态一起提交', async t => {
+  const scoped = await app(t, base([], {
+    mvu: { enabled: true, owner: 'official', openingInitialization: { status: 'pending' } },
+    variables: {}
+  }), true)
+  const { _storageRevision: stateRevision, id: chatId } = (await scoped.persistence.readSlice('chat-1')).chat
+  scoped.beforeHelperPatch(async () => {
+    assert.ok(await scoped.persistence.patch(chatId, stateRevision, [
+      { op: 'set', path: ['variables', 'note'], value: '并发写入' }
+    ], { source: 'test.concurrent-opening' }))
+  })
+  const variables = { stat_data: { hp: 10 }, schema: {} }
+  const result = await scoped.helper.updateVariables('s', { type: 'chat' }, variables, 0, '',
+    { chatId, stateRevision, lifecycleRevision: 0 })
+  assert.equal(result.updated, true)
+  const saved = await scoped.stored()
+  assert.deepEqual(saved.variables, { ...variables, note: '并发写入' })
+  assert.equal(saved.mvu.openingInitialization.status, 'complete')
+  assert.equal(saved.messages.length, 0)
+})
+
+for (const [kind, path, value] of [
+  ['不同字段', ['variables', 0, 'stat_data', 'mp'], 30],
+  ['相同字段', ['variables', 0, 'stat_data', 'hp'], 30],
+  ['切换 swipe', ['swipeId'], 1]
+]) {
+  test('Helper 基于目标楼层的实际变更判定冲突：' + kind, async t => {
+    const rows = history(3, () => true)
+    rows[1].swipes.push('另一个版本')
+    rows[1].variables = [{ stat_data: { hp: 1, mp: 5 }, schema: {} }, { stat_data: { hp: 2 }, schema: {} }]
+    const scoped = await app(t, base(rows), true)
+    const { _storageRevision: stateRevision, id: chatId } = (await scoped.persistence.readSlice('chat-1')).chat
+    scoped.beforeHelperPatch(async () => {
+      assert.ok(await scoped.persistence.patch(chatId, stateRevision, [
+        { op: 'set', path: ['messages', 1, ...path], value }
+      ], { source: 'test.concurrent-edit' }))
+    })
+    const write = scoped.helper.updateVariables('s', { type: 'message', message_id: 1 },
+      { stat_data: { hp: 20, mp: 5 }, schema: {} }, 0, '', { chatId, stateRevision, lifecycleRevision: 0 })
+    if (kind === '不同字段') assert.equal((await write).updated, true)
+    else await assert.rejects(write, { code: 'DSH_TAVERN_CHAT_CONFLICT' })
+    const row = (await scoped.stored()).messages[1]
+    if (kind === '不同字段') assert.deepEqual(row.variables[0].stat_data, { hp: 20, mp: 30 })
+    if (kind === '相同字段') assert.deepEqual(row.variables[0].stat_data, { hp: 30, mp: 5 })
+    if (kind === '切换 swipe') {
+      assert.equal(row.swipeId, 1)
+      assert.deepEqual(row.variables, rows[1].variables)
+    }
+  })
+}
