@@ -2571,7 +2571,10 @@ export async function apply(ctx) {
   })
   const pluginSettlementProgress = createPluginSettlementProgress()
   // What each 精修 changed, shown on the 精修对比 page.
-  const polishRecords = createPolishRecords({ data: pluginData, turns: pluginTurns })
+  const polishRecords = createPolishRecords({
+    data: pluginData, turns: pluginTurns,
+    onSaved: (sessionId, requestId) => sessionSignals.publish(sessionId, { kind: 'polish-saved', version: requestId || randomUUID() })
+  })
   const polishReviewer = createPolishReviewer({ latestFloors: (sessionId, count) => chatHeaderWithLatestFloors(sessionId, count, { includePosition: true }), readCard, prompt: runtimePrompt, runAgent: input => backgroundAgentRunner.run(input), selection: async sessionId => {
     // 精修模型 (setting polishModel): one model for every game's 精修; unset, or a model no longer
     // offered, follows the game's own story model.

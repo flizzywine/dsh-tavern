@@ -477,6 +477,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
         ? await saveStoryText(sessionId, input, 'body.edit', options)
         : await saveText(sessionId, input, 'body.edit', options)
       if (carry) await carry()
+      await options?.onSaved?.()
       return saved
     })
   }

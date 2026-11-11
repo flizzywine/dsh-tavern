@@ -9,6 +9,7 @@ import { JSDOM } from 'jsdom'
 import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transcript.js'
 
 const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8')
+const refreshSource = await readFile(new URL('../tavern-plugin/src/client/modules/session-refresh-controller.js', import.meta.url), 'utf8')
 const listSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-list.js', import.meta.url), 'utf8')
 const deletionSource = await readFile(new URL('../tavern-plugin/src/client/features/message-deletion.js', import.meta.url), 'utf8')
 const playControlsSource = await readFile(new URL('../tavern-plugin/src/client/features/play-controls.js', import.meta.url), 'utf8')
@@ -26,7 +27,7 @@ function createPage(t, extra) {
 		dom.window.close()
 	})
 	const context = vm.createContext(Object.assign({
-		React, console,
+		React, AbortController, console,
 		window: dom.window, document: dom.window.document, CustomEvent: dom.window.CustomEvent,
 		// 宿主 Markdown 原语的替身：记录文本，证明正文走 Markdown 而不是纯文本 <pre>。
 		DshUi: {
@@ -39,6 +40,7 @@ function createPage(t, extra) {
 		tavernProjectionForTurn: (view, turn) => (view && Array.isArray(view.replyProjections) ? view.replyProjections : []).findLast(item => Number(item.turn) === Number(turn)) || null,
 		tavernLatestProjectionTurn: view => (view && Array.isArray(view.replyProjections) ? view.replyProjections : []).reduce((latest, item) => Math.max(latest, Number(item.turn) || 0), 0)
 	}, extra || {}))
+	vm.runInContext(refreshSource, context)
 	vm.runInContext(dataSource, context)
 	if (extra && extra.enableStoryDeletion) {
 		vm.runInContext(deletionSource, context)

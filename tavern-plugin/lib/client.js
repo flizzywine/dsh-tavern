@@ -14998,12 +14998,14 @@ window.__ModuleLoader__.load({
 		// One owner for a session's asynchronous reads. Notifications request work;
 		// accepted replacements revoke it. Neither notification storms nor watchdogs
 		// may shorten the retry deadline or let retired work publish into a new lifetime.
+		const TAVERN_PROJECTION_RETRY_DELAYS_MS = [500, 1500, 3000];
+
 		function createSessionRefreshController(options) {
 			const now = options.now || Date.now;
 			const schedule = options.schedule || ((run, delay) => window.setTimeout(run, delay));
 			const cancel = options.cancel || (timer => window.clearTimeout(timer));
 			let active = false, epoch = 0, operation = null, timer = null, timerAt = 0;
-			let requested = false, retryAt = 0;
+			let requested = false, retryAt = 0, retryAttempt = 0;
 			function clearTimer() {
 				const previous = timer;
 				timer = null;
@@ -15014,6 +15016,7 @@ window.__ModuleLoader__.load({
 				clearTimer();
 				requested = false;
 				retryAt = 0;
+				retryAttempt = 0;
 				const previous = operation;
 				operation = null;
 				if (previous) {
@@ -15068,11 +15071,15 @@ window.__ModuleLoader__.load({
 					// Hydration is part of this read's lifetime and deadline too.
 					next = await Promise.race([options.onResult(result, scope), cancelled]);
 					if (!current()) return;
+					retryAttempt = 0;
 					retryAt = next && next.retry !== undefined ? now() + next.retry : 0;
 				} catch (error) {
 					if (!current()) return;
 					next = options.onError(error, { ...scope, timedOut });
 					if (!current()) return;
+					const delay = next === undefined ? options.retryDelaysMs?.[retryAttempt] : undefined;
+					if (delay !== undefined) { retryAttempt++; next = { retry: delay }; }
+					else retryAttempt = 0;
 					if (next && next.retry !== undefined) retryAt = now() + next.retry;
 					else { retryAt = 0; requested = false; }
 				} finally {
@@ -37858,7 +37865,7 @@ function useTavernStoryTranscript(store, sessionId, hookOptions) {
 // Story windows and live views are separate projections. Coordinate reads here
 // so rendering does not have to order their refresh triggers.
 function useTavernStoryProjectionRefresh(store, sessionId, {
-	historyFrom, enabled, active, running, partial, transcript, view, status, externalHistory
+	historyFrom, enabled, active, running, partial, transcript, view, externalHistory
 }) {
 	const live = typeof useLiveTavernView === 'function'
 		? useLiveTavernView(sessionId, 'story-transcript-revision', undefined, { deferLoad: !view }) : null
@@ -37868,14 +37875,51 @@ function useTavernStoryProjectionRefresh(store, sessionId, {
 	const storyTurn = nativeTurn !== null && typeof tavernStoryTurnForDshTurn === 'function'
 		? tavernStoryTurnForDshTurn(view, nativeTurn) : nativeTurn
 	const previous = React.useRef(null)
+	const requireRevision = React.useRef(null)
+
+	React.useEffect(function () {
+		if (!active || !sessionId || typeof window === 'undefined') return undefined
+		let wantedRevision = 0
+		const refresh = createSessionRefreshController({
+			loadTimeoutMs: 10000,
+			retryDelaysMs: TAVERN_PROJECTION_RETRY_DELAYS_MS,
+			async load({ signal }) {
+				const read = store.snapshotFor(sessionId, historyFrom)
+				if (read.revision >= wantedRevision) return read
+				return await store.read(sessionId, { historyFrom, force: true, signal, minimumRevision: wantedRevision })
+			},
+			onResult(read) {
+				if (!(read.revision >= wantedRevision)) throw read.error || new Error('故事历史尚未读到已提交版本')
+			},
+			onError() {}
+		})
+		refresh.start()
+		function requestVersion(revision) {
+			if (!Number.isSafeInteger(revision) || revision <= wantedRevision || revision <= store.snapshotFor(sessionId, historyFrom).revision) return
+			wantedRevision = revision
+			refresh.request()
+		}
+		requireRevision.current = requestVersion
+		function changed(event) {
+			if (String(event.detail?.sessionId || '') === sessionId) void store.read(sessionId, { historyFrom, force: true })
+		}
+		window.addEventListener('dsh-tavern-story-mutated', changed)
+		const unsubscribe = typeof tavernSessionSignals !== 'undefined' && tavernSessionSignals?.subscribe(sessionId, 'story-regenerated', signal => {
+			requestVersion(Number(signal.version))
+		})
+		return function () {
+			requireRevision.current = null
+			refresh.stop()
+			window.removeEventListener('dsh-tavern-story-mutated', changed)
+			if (unsubscribe) unsubscribe()
+		}
+	}, [store, sessionId, historyFrom, active])
 
 	React.useEffect(function () {
 		const last = previous.current
 		const sameSession = last?.store === store && last.sessionId === sessionId
 		const sameWindow = sameSession && last.historyFrom === historyFrom
-		const checkedRevision = sameWindow ? last.checkedRevision : null
-		const current = { store, sessionId, historyFrom, enabled, active, running, nativeTurn, storyTurn, checkedRevision }
-		previous.current = current
+		previous.current = { store, sessionId, historyFrom, enabled, active, running, nativeTurn, storyTurn }
 		if (!active) return
 
 		const resumed = sameSession && enabled && !last.enabled
@@ -37889,35 +37933,13 @@ function useTavernStoryProjectionRefresh(store, sessionId, {
 			return message?.role === 'assistant' && message.placeholder !== true
 				&& (Number(message.turn) === Number(last.storyTurn) || (entry.messageUid && entry.messageUid === view?.streamingMessageUid))
 		})
-		const behind = status !== 'loading' && status !== 'refreshing'
-			&& Number.isSafeInteger(liveRevision) && Number.isSafeInteger(storyRevision)
-			&& liveRevision > storyRevision && liveRevision !== checkedRevision
-
 		if (turnEnded) externalHistory?.refresh(sessionId, { force: true })
-		if (resumed || turnEnded || streamStarted || (streamStopped && !settled) || behind) {
-			if (behind) current.checkedRevision = liveRevision
+		if (resumed || turnEnded || streamStarted || (streamStopped && !settled)) {
 			void store.read(sessionId, { historyFrom, force: true })
 		}
+		if (Number.isSafeInteger(storyRevision) && liveRevision > storyRevision) requireRevision.current?.(liveRevision)
 	}, [store, sessionId, historyFrom, enabled, active, running, nativeTurn, storyTurn,
-		transcript, view, status, liveRevision, storyRevision, externalHistory])
-
-	React.useEffect(function () {
-		if (!active || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined
-		const refresh = () => { void store.read(sessionId, { historyFrom, force: true }) }
-		function changed(event) {
-			if (String(event.detail?.sessionId || '') === sessionId) refresh()
-		}
-		window.addEventListener('dsh-tavern-story-mutated', changed)
-		const unsubscribe = typeof tavernSessionSignals !== 'undefined' && tavernSessionSignals?.subscribe(sessionId, 'story-regenerated', signal => {
-			// The stream can replay the last commit after a reconnect or a window change.
-			const committedRevision = Number(signal.version)
-			if (committedRevision > (store.snapshotFor?.(sessionId, historyFrom)?.revision ?? 0)) refresh()
-		})
-		return function () {
-			window.removeEventListener('dsh-tavern-story-mutated', changed)
-			if (unsubscribe) unsubscribe()
-		}
-	}, [store, sessionId, historyFrom, active])
+		transcript, view, liveRevision, storyRevision, externalHistory])
 }
 
 function createTavernStoryTranscriptModeStore(storeOptions) {
@@ -37957,9 +37979,9 @@ function createTavernStoryTranscriptDataModule(deps) {
 	}
 
 	// 宿主 HTTP 通道是 main.js 的 rpc(method, args, sessionId)；测试通过 deps.rpc 注入。
-	function request(method, args, sessionId) {
-		if (typeof options.rpc === 'function') return options.rpc(method, args, sessionId)
-		if (typeof rpc === 'function') return rpc(method, args, sessionId)
+	function request(method, args, sessionId, requestOptions) {
+		if (typeof options.rpc === 'function') return options.rpc(method, args, sessionId, requestOptions)
+		if (typeof rpc === 'function') return rpc(method, args, sessionId, requestOptions)
 		return Promise.reject(fail('故事历史缺少 RPC 通道', 'STORY_TRANSCRIPT_NO_RPC'))
 	}
 
@@ -37970,7 +37992,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 		const historyFrom = tavernStoryTranscriptHistoryFrom(readOptions && readOptions.historyFrom)
 		const args = historyFrom === null ? { sessionId: id } : { sessionId: id, historyFrom: historyFrom }
 		if (readOptions?.includeToolCalls === true) args.includeToolCalls = true
-		const result = await request('getStoryTranscript', args, id)
+		const result = await request('getStoryTranscript', args, id, readOptions?.signal ? { signal: readOptions.signal } : undefined)
 		return {
 			sessionId: id,
 			historyFrom: historyFrom,
@@ -38062,6 +38084,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 			const id = String(sessionId || '')
 			const historyFrom = tavernStoryTranscriptHistoryFrom(readOptions && readOptions.historyFrom)
 			const force = readOptions && readOptions.force === true
+			const signal = readOptions?.signal
 			const includeToolCalls = showPlayProcess()
 			const key = cacheKey(id, historyFrom)
 			const sameSession = state.sessionId === id
@@ -38107,8 +38130,12 @@ function createTavernStoryTranscriptDataModule(deps) {
 			}
 			try {
 				const result = await load(id, { historyFrom: historyFrom === null ? undefined : historyFrom,
-					...(includeToolCalls ? { includeToolCalls: true } : {}) })
+					...(includeToolCalls ? { includeToolCalls: true } : {}), ...(signal ? { signal } : {}) })
 				if (current !== ticket) return state
+				signal?.throwIfAborted()
+				if (readOptions?.minimumRevision && !(result?.revision >= readOptions.minimumRevision)) {
+					throw new Error('故事历史尚未读到已提交版本')
+				}
 				const transcript = result && result.transcript ? result.transcript : null
 				const next = {
 					sessionId: id, historyFrom: historyFrom, includeToolCalls: includeToolCalls,
@@ -38797,7 +38824,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		const pendingInputs = props.useSession(function (snapshot) { return snapshot && Array.isArray(snapshot.pendingSubmissions) ? snapshot.pendingSubmissions : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		data.useProjectionRefresh(store, sessionId, {
 			historyFrom: controller.historyFrom, enabled, active: storyActive, running, partial,
-			transcript, view, status: state.status, externalHistory: storyExternalHistory
+			transcript, view, externalHistory: storyExternalHistory
 		})
 		React.useEffect(function () {
 			// An ordinary chat with no Tavern story falls back to the native flow;
@@ -52719,6 +52746,25 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const [reviewNote, setReviewNote] = React.useState("");
         const [reviewSeconds, setReviewSeconds] = React.useState(0);
         const [reviewProgress, setReviewProgress] = React.useState(null);
+        const polishRequest = React.useRef(null);
+        React.useEffect(function () {
+            setReviewing(false);
+            setReviewNote("");
+            if (!panel || panel.sessionId !== props.sessionId) return undefined;
+            const stop = tavernSessionSignals?.subscribe(props.sessionId, "polish-saved", signal => {
+                const pending = polishRequest.current;
+                if (!pending || pending.panel !== panel || pending.id !== signal.version) return;
+                polishRequest.current = null;
+                setReviewing(false);
+                setReviewNote("");
+                liveTavernView.invalidate(props.sessionId);
+                setRegenPanel(null);
+            });
+            return function () {
+                if (polishRequest.current?.panel === panel) polishRequest.current = null;
+                stop?.();
+            };
+        }, [panel, props.sessionId]);
         React.useEffect(function () {
             let disposed = false, loading = false;
             setReviewProgress(null);
@@ -52790,21 +52836,32 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         // 精修: like a regeneration, the panel waits and closes once the polished reply is in;
         // the comparison and its undo live on the 精修 page.
         async function runPolish() {
+            const pending = { panel, id: window.crypto?.randomUUID?.() || "polish-" + Date.now() + "-" + Math.random().toString(36).slice(2) };
+            polishRequest.current = pending;
+            let received = false;
             setReviewing(true); setReviewNote("");
             try {
-                const result = await rpc("polishBody", { guidance }, props.sessionId);
+                const result = await rpc("polishBody", { guidance, requestId: pending.id }, props.sessionId);
+                if (polishRequest.current !== pending) return;
+                received = !result.queued;
                 const skipped = result.edits.filter(edit => edit.status !== "ok").length;
-                if (result.guidance) { setGuidance(result.guidance); setReviewNote("审稿没有按格式输出修改清单，内容已填进意见框，可以按意见重新生成"); }
+                if (result.queued) setReviewNote("精修已排队，等当前回合结束后保存。");
+                else if (result.guidance) { setGuidance(result.guidance); setReviewNote("审稿没有按格式输出修改清单，内容已填进意见框，可以按意见重新生成"); }
                 else if (!result.view) setReviewNote(skipped ? "审稿给出的 " + skipped + " 条修改都没在正文里找到原文，正文没有改动" : "审稿没有发现需要修改的地方");
                 else {
                     liveTavernView.setView(props.sessionId, result.view);
                     notifyTavernDataChanged(["sessions"], "play-controls");
                     tavernCoordination.invalidate(props.sessionId);
-                    window.dispatchEvent(new CustomEvent("dsh-tavern-polished", { detail: { sessionId: props.sessionId } }));
                     setRegenPanel(null);
                 }
-            } catch (error) { setReviewNote("精修失败：" + String(error?.message || error)); }
-            finally { setReviewing(false); }
+            } catch (error) {
+                if (polishRequest.current === pending) setReviewNote("精修未确认完成：" + String(error?.message || error));
+            } finally {
+                if (polishRequest.current === pending) {
+                    if (received) polishRequest.current = null;
+                    setReviewing(false);
+                }
+            }
         }
         return h(RegenGuideForm, {
                 title: "重新生成正文",
@@ -56722,7 +56779,7 @@ function createStoryFloorRail(root, options) {
 			const [notice, setNotice] = React.useState("");
 			const [saving, setSaving] = React.useState(false);
 			const [catalog, setCatalog] = React.useState([]);
-			const revision = React.useRef(0);
+			const refresh = React.useRef(null);
 			React.useEffect(function () {
 				let active = true;
 				rpc("getTavernSettings").then(function (result) { if (active) setCatalog(Array.isArray(result.modelCatalog) ? result.modelCatalog : []); }, function () {});
@@ -56737,23 +56794,33 @@ function createStoryFloorRail(root, options) {
 						onClick: function (event) { if (tip && tip.n === segment.n) setTip(null); else show(event); } };
 				}
 			};
-			const load = React.useCallback(async function () {
-				const requested = ++revision.current;
-				setBusy(true);
-				try {
-					const result = await rpc("polishComparison", {}, sessionId);
-					if (requested === revision.current) setState({ sessionId: sessionId, comparison: result.comparison || null, prereview: result.prereview === true, polishModel: result.polishModel || null, error: "" });
-				} catch (error) {
-					if (requested === revision.current) setState({ sessionId: sessionId, comparison: null, error: String(error && error.message || error) });
-				} finally { if (requested === revision.current) setBusy(false); }
-			}, [sessionId]);
 			React.useEffect(function () {
 				setState(null);
-				void load();
-				function changed(event) { if (!event.detail || event.detail.sessionId === sessionId) void load(); }
-				window.addEventListener("dsh-tavern-polished", changed);
-				return function () { window.removeEventListener("dsh-tavern-polished", changed); };
-			}, [sessionId, load]);
+				const controller = createSessionRefreshController({
+					loadTimeoutMs: 10000,
+					retryDelaysMs: TAVERN_PROJECTION_RETRY_DELAYS_MS,
+					onStart: () => setBusy(true),
+					load: ({ signal }) => rpc("polishComparison", {}, sessionId, { signal }),
+					onResult(result) {
+						setState({ sessionId, comparison: result.comparison || null, prereview: result.prereview === true, polishModel: result.polishModel || null, error: "" });
+						setBusy(false);
+					},
+					onError(error) {
+						setState(previous => ({ ...(previous?.sessionId === sessionId ? previous : { sessionId, comparison: null }), error: String(error?.message || error) }));
+						setBusy(false);
+					}
+				});
+				refresh.current = controller;
+				controller.start();
+				const unsubscribe = tavernSessionSignals?.subscribe(sessionId, "polish-saved", () => controller.request());
+				controller.request();
+				return function () {
+					unsubscribe?.();
+					controller.stop();
+					refresh.current = null;
+				};
+			}, [sessionId]);
+			function load() { refresh.current?.request(); }
 			// 自动精修 is one switch for every game: each reply is reviewed as it is written and reworded in place.
 			async function togglePrereview(enabled) {
 				setSaving(true); setNotice("");
@@ -56780,7 +56847,7 @@ function createStoryFloorRail(root, options) {
 					notifyTavernDataChanged(["sessions"], "polish-compare");
 					tavernCoordination.invalidate(sessionId);
 					setNotice("已撤销精修，正文恢复成精修前的样子。");
-					await load();
+					load();
 				} catch (error) { setNotice("撤销失败：" + String(error && error.message || error)); }
 				finally { setUndoing(false); }
 			}

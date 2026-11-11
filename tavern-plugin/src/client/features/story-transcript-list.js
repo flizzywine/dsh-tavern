@@ -463,7 +463,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		const pendingInputs = props.useSession(function (snapshot) { return snapshot && Array.isArray(snapshot.pendingSubmissions) ? snapshot.pendingSubmissions : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
 		data.useProjectionRefresh(store, sessionId, {
 			historyFrom: controller.historyFrom, enabled, active: storyActive, running, partial,
-			transcript, view, status: state.status, externalHistory: storyExternalHistory
+			transcript, view, externalHistory: storyExternalHistory
 		})
 		React.useEffect(function () {
 			// An ordinary chat with no Tavern story falls back to the native flow;

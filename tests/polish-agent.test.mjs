@@ -78,31 +78,47 @@ test('无修改必须显式完成，正文或模型错误不冒充成功', async
 })
 
 test('RPC 只在两步精修都完成后保存一次，失败不写入半成品；保留原文供撤销', async () => {
-  for (const failure of [false, true]) {
+  for (const outcome of ['saved', 'failed', 'queued']) {
     const saves = [], records = []
+    let onSaved
     const handlers = createPlayHandlers({
       str: value => String(value || ''), reconcileStory: async () => {}, notifyPluginTimeline() {},
       polishPrereview: { settle() {}, take: async () => null },
       bodyEditor: { read: async () => ({ token: 'original-version', turn: 1, parts: [{ kind: 'text', text: '甲。乙。' }] }),
-        save: async (_id, change) => { saves.push(change); return { saved: true } } },
+        save: async (_id, change, options) => {
+          saves.push(change)
+          if (outcome === 'queued') {
+            onSaved = options.onSaved
+            return { queued: true }
+          }
+          await options.onSaved()
+          return { saved: true }
+        } },
       polishReviewer: {
         review: async () => ({ edits: [{ find: '甲。', replace: '甲改。', reason: '原则', status: 'ok' }], fallback: '' }),
         guide: async (_id, texts) => {
           assert.deepEqual(texts, ['甲改。乙。'])
           assert.equal(saves.length, 0)
-          if (failure) throw new Error('模型中断')
+          if (outcome === 'failed') throw new Error('模型中断')
           return { edits: [{ find: '甲改。', replace: '甲再改。', reason: '意见', status: 'ok' }], fallback: '' }
         }
       },
       polishRecords: { save: async (_id, _turn, record) => records.push(record) }
     })
-    if (failure) {
+    if (outcome === 'failed') {
       await assert.rejects(handlers.polishBody({ sessionId: 'parent', guidance: '更短' }), /模型中断/)
       assert.equal(saves.length, 0); assert.equal(records.length, 0)
     } else {
-      await handlers.polishBody({ sessionId: 'parent', guidance: '更短' })
+      const result = await handlers.polishBody({ sessionId: 'parent', guidance: '更短', requestId: 'polish-test' })
       assert.deepEqual(saves, [{ token: 'original-version', texts: ['甲再改。乙。'] }])
+      if (outcome === 'queued') {
+        assert.equal(result.queued, true)
+        assert.equal(result.view, null)
+        assert.deepEqual(records, [])
+        await onSaved()
+      }
       assert.deepEqual(records[0].original, ['甲。乙。'])
+      assert.equal(records[0].requestId, 'polish-test')
       assert.deepEqual(applyPolishEdits(records[0].original, records[0].edits), ['甲再改。乙。'])
     }
   }

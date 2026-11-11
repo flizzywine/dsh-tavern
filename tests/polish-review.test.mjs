@@ -77,12 +77,16 @@ test('精修对比按原文顺序切出未改与改动段，找不到或重叠�
 test('只保留最近一次精修，那轮正文换了版本就不再显示、不能撤销', async () => {
   const { createPolishRecords } = await import('../tavern-plugin/lib/domain/polish-records.js')
   let game = null, key = 'k1'
+  const saved = []
   const records = createPolishRecords({
     data: { saveGame: async ({ data }) => { game = data }, readGame: async () => game },
     turns: { resolveGame: async () => ({ chatId: 'c', sessionId: 's' }), currentKey: async () => key },
-    now: () => 5
+    now: () => 5,
+    onSaved(sessionId, requestId) { saved.push({ sessionId, requestId, record: game }) }
   })
-  await records.save('s', 3, { original: ['甲。乙。', '丙。'], edits: [{ find: '乙。', replace: '乙改。', reason: '套话' }], seconds: 20 })
+  await records.save('s', 3, { original: ['甲。乙。', '丙。'], edits: [{ find: '乙。', replace: '乙改。', reason: '套话' }], seconds: 20, requestId: 'manual-polish' })
+  assert.deepEqual(saved, [{ sessionId: 's', requestId: 'manual-polish', record: game }])
+  assert.equal(game.key, 'k1')
   assert.deepEqual(await records.latest('s'), { turn: 3, at: 5, seconds: 20, count: 1, auto: false, segments: [{ kind: 'same', text: '甲。' }, { kind: 'edit', n: 1, find: '乙。', replace: '乙改。', reason: '套话' }, { kind: 'same', text: '\n\n丙。' }] })
   assert.deepEqual((await records.current('s')).original, ['甲。乙。', '丙。'])
   key = 'k2'

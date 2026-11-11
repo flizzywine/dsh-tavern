@@ -28,7 +28,9 @@ test('a queued edit applies once the turn ends, not while it still runs', async 
   const h = fixture()
   const edit = await h.editor.read(h.session.id)
   h.agent.phase.kind = 'running'
-  const queued = await h.editor.save(h.session.id, { token: edit.token, texts: ['排队后的正文'] })
+  const saved = []
+  const queued = await h.editor.save(h.session.id, { token: edit.token, texts: ['排队后的正文'] },
+    { onSaved: () => saved.push(h.chat.messages.at(-1).text) })
   assert.equal(queued.queued, true)
   assert.equal(h.editor.queuedCount(h.session.id), 1)
   assert.equal(h.chat.messages.at(-1).text, '原正文')
@@ -36,11 +38,13 @@ test('a queued edit applies once the turn ends, not while it still runs', async 
   assert.equal(await h.editor.flushQueued(h.session.id), 0)
   assert.equal(h.editor.queuedCount(h.session.id), 1)
   assert.equal(h.chat.messages.at(-1).text, '原正文')
+  assert.deepEqual(saved, [])
   h.agent.phase.kind = 'idle'
   assert.equal(await h.editor.flushQueued(h.session.id), 1)
   assert.equal(h.editor.queuedCount(h.session.id), 0)
   assert.equal(h.chat.messages.at(-1).text, '排队后的正文')
   assert.equal(h.session.deriveMessages().at(-1).content[0].text, '排队后的正文')
+  assert.deepEqual(saved, ['排队后的正文'])
 })
 
 test('a queued edit drops its text when the row changed before the turn ended', async () => {

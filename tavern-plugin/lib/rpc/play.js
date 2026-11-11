@@ -217,13 +217,16 @@ export function createPlayHandlers(deps) {
         edits = [...review.edits, ...followed.edits]
       }
       if (!chosen.length && !guided.length) return { edits, guidance: '', view: null }
-      const view = await bodyEditor.save(sessionId, { token: edit.token, texts: polished }, { polished: true })
-      polishPrereview.settle(sessionId, polished)
-      notifyPluginTimeline(sessionId, 'edit', { settled: true })
-      // The record backs the 精修对比 page and its undo; one that cannot be kept never fails the 精修.
       const recorded = guided.length ? composePolishEdits(texts.join('\n\n'), chosen, guided) : chosen
-      await polishRecords.save(sessionId, edit.turn, { original: texts, edits: recorded, seconds: Math.round((Date.now() - started) / 1000) })
-        .catch(error => console.warn('dsh-tavern: 精修记录保存失败', error))
+      const view = await bodyEditor.save(sessionId, { token: edit.token, texts: polished }, { polished: true, async onSaved() {
+        // This also runs after a queued edit finally applies.
+        polishPrereview.settle(sessionId, polished)
+        notifyPluginTimeline(sessionId, 'edit', { settled: true })
+        await polishRecords.save(sessionId, edit.turn, { original: texts, edits: recorded,
+          seconds: Math.round((Date.now() - started) / 1000), requestId: str(args?.requestId).slice(0, 128) })
+          .catch(error => console.warn('dsh-tavern: 精修记录保存失败', error))
+      } })
+      if (view?.queued) return { edits, view: null, queued: true }
       return { edits, view }
     },
     async polishProgress(args) {

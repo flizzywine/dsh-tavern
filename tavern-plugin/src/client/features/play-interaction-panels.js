@@ -170,6 +170,25 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const [reviewNote, setReviewNote] = React.useState("");
         const [reviewSeconds, setReviewSeconds] = React.useState(0);
         const [reviewProgress, setReviewProgress] = React.useState(null);
+        const polishRequest = React.useRef(null);
+        React.useEffect(function () {
+            setReviewing(false);
+            setReviewNote("");
+            if (!panel || panel.sessionId !== props.sessionId) return undefined;
+            const stop = tavernSessionSignals?.subscribe(props.sessionId, "polish-saved", signal => {
+                const pending = polishRequest.current;
+                if (!pending || pending.panel !== panel || pending.id !== signal.version) return;
+                polishRequest.current = null;
+                setReviewing(false);
+                setReviewNote("");
+                liveTavernView.invalidate(props.sessionId);
+                setRegenPanel(null);
+            });
+            return function () {
+                if (polishRequest.current?.panel === panel) polishRequest.current = null;
+                stop?.();
+            };
+        }, [panel, props.sessionId]);
         React.useEffect(function () {
             let disposed = false, loading = false;
             setReviewProgress(null);
@@ -241,21 +260,32 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         // 精修: like a regeneration, the panel waits and closes once the polished reply is in;
         // the comparison and its undo live on the 精修 page.
         async function runPolish() {
+            const pending = { panel, id: window.crypto?.randomUUID?.() || "polish-" + Date.now() + "-" + Math.random().toString(36).slice(2) };
+            polishRequest.current = pending;
+            let received = false;
             setReviewing(true); setReviewNote("");
             try {
-                const result = await rpc("polishBody", { guidance }, props.sessionId);
+                const result = await rpc("polishBody", { guidance, requestId: pending.id }, props.sessionId);
+                if (polishRequest.current !== pending) return;
+                received = !result.queued;
                 const skipped = result.edits.filter(edit => edit.status !== "ok").length;
-                if (result.guidance) { setGuidance(result.guidance); setReviewNote("审稿没有按格式输出修改清单，内容已填进意见框，可以按意见重新生成"); }
+                if (result.queued) setReviewNote("精修已排队，等当前回合结束后保存。");
+                else if (result.guidance) { setGuidance(result.guidance); setReviewNote("审稿没有按格式输出修改清单，内容已填进意见框，可以按意见重新生成"); }
                 else if (!result.view) setReviewNote(skipped ? "审稿给出的 " + skipped + " 条修改都没在正文里找到原文，正文没有改动" : "审稿没有发现需要修改的地方");
                 else {
                     liveTavernView.setView(props.sessionId, result.view);
                     notifyTavernDataChanged(["sessions"], "play-controls");
                     tavernCoordination.invalidate(props.sessionId);
-                    window.dispatchEvent(new CustomEvent("dsh-tavern-polished", { detail: { sessionId: props.sessionId } }));
                     setRegenPanel(null);
                 }
-            } catch (error) { setReviewNote("精修失败：" + String(error?.message || error)); }
-            finally { setReviewing(false); }
+            } catch (error) {
+                if (polishRequest.current === pending) setReviewNote("精修未确认完成：" + String(error?.message || error));
+            } finally {
+                if (polishRequest.current === pending) {
+                    if (received) polishRequest.current = null;
+                    setReviewing(false);
+                }
+            }
         }
         return h(RegenGuideForm, {
                 title: "重新生成正文",

@@ -7,8 +7,10 @@ import { createRoot } from 'react-dom/client'
 import { JSDOM } from 'jsdom'
 import { createSessionSignalTransport } from '../tavern-plugin/lib/domain/session-signal-transport.js'
 import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transcript.js'
+import { syncClock } from './fixtures/sync-clock.mjs'
 
 const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8')
+const refreshSource = await readFile(new URL('../tavern-plugin/src/client/modules/session-refresh-controller.js', import.meta.url), 'utf8')
 const hostChatFlowSource = await readFile(new URL('../tavern-plugin/src/client/host/chat-flow.js', import.meta.url), 'utf8')
 const listSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-list.js', import.meta.url), 'utf8')
 
@@ -23,7 +25,7 @@ function page(t) {
 		Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act })
 		dom.window.close()
 	})
-	const context = vm.createContext({ React, console, window: dom.window, document: dom.window.document,
+	const context = vm.createContext({ React, AbortController, console, window: dom.window, document: dom.window.document,
 		DshUi: {
 			MarkdownText: props => React.createElement('span', { className: 'md-text' }, props.text),
 			Tooltip: props => props.children,
@@ -33,6 +35,7 @@ function page(t) {
 		},
 		useTavernSessionMode: () => 'story', publishSessionMode: () => {}, isPlayMode: mode => mode === 'story' || mode === 'script'
 	})
+	vm.runInContext(refreshSource, context)
 	vm.runInContext(dataSource, context)
 	vm.runInContext(hostChatFlowSource, context)
 	vm.runInContext(listSource, context)
@@ -61,6 +64,8 @@ test('宿主先空闲时，落盘信号刷新故事并挡住迟到的旧读取',
 	const p = page(t)
 	const signals = createSessionSignalTransport()
 	p.context.tavernSessionSignals = signals
+	const clock = syncClock(), createRefresh = p.context.createSessionRefreshController
+	p.context.createSessionRefreshController = options => createRefresh({ ...options, ...clock })
 	const earlyRead = Promise.withResolvers()
 	const old = { storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1 }
 	const replacement = '重新生成的长正文'.repeat(800)
@@ -78,13 +83,54 @@ test('宿主先空闲时，落盘信号刷新故事并挡住迟到的旧读取',
 	assert.equal(reads, 2, '宿主先变空闲，提前发出了读取')
 
 	committed = { ...old, storyTranscript: transcript([...messages.slice(0, -1), { ...messages.at(-1), text: replacement }], 2), revision: 2 }
-	await act(async () => { signals.publish('s1', { kind: 'story-regenerated', version: '2' }) })
+	await act(async () => {
+		signals.publish('s1', { kind: 'story-regenerated', version: '2' })
+		await clock.advance(0)
+	})
 	assert.equal(reads, 3, '正文提交后独立触发重新读取')
 	await act(async () => earlyRead.resolve(old))
 	assert.ok(p.dom.window.document.querySelector('[data-chat-flow-key="turn:9"]').textContent.includes(replacement))
 
 	await act(async () => { signals.publish('s1', { kind: 'story-regenerated', version: '1' }) })
 	assert.equal(reads, 3, '已经读过的旧提交无需再次刷新')
+})
+
+test('提交信号只到一次时，重读失败或读到旧版本会自动恢复', async t => {
+	const p = page(t)
+	const clock = syncClock(), signals = createSessionSignalTransport()
+	const createRefresh = p.context.createSessionRefreshController
+	p.context.createSessionRefreshController = options => createRefresh({ ...options, ...clock })
+	p.context.tavernSessionSignals = signals
+	let reads = 0
+	const data = p.context.createTavernStoryTranscriptDataModule({ rpc: async (_method, _args, _sessionId, options) => {
+		reads++
+		if (reads === 2) {
+			assert.ok(options.signal instanceof AbortSignal)
+			throw new Error('暂时断网')
+		}
+		const updated = reads >= 4
+		const revision = updated ? 2 : 1
+		const body = updated ? [...messages.slice(0, -1), { ...messages.at(-1), text: '已提交的新正文' }] : messages
+		return { storyTranscript: transcript(body, revision), view: { mode: 'story' }, revision }
+	} })
+	const store = data.createStoryTranscriptStore()
+	const feature = p.context.createTavernStoryTranscriptFeature({ dataModule: data })
+	await mount(p, React.createElement(feature.StoryTranscriptFlow, { store, sessionId: 's1', renderNative: () => null,
+		useChat: selector => selector({ legacy: {} }), useSession: selector => selector({ running: false }) }))
+	await act(async () => {
+		signals.publish('s1', { kind: 'story-regenerated', version: '2' })
+		await clock.advance(0)
+	})
+	assert.equal(store.getSnapshot().status, 'error')
+	assert.deepEqual(clock.delays(), [500])
+	await act(async () => clock.advance(500))
+	assert.equal(store.getSnapshot().revision, 1, '落后的响应不覆盖已显示的版本')
+	assert.deepEqual(clock.delays(), [1500])
+	await act(async () => clock.advance(1500))
+	assert.equal(reads, 4)
+	assert.equal(store.getSnapshot().revision, 2)
+	assert.match(p.dom.window.document.querySelector('main').textContent, /已提交的新正文/)
+	assert.deepEqual(clock.delays(), [])
 })
 
 test('打开游玩工作过程后只在对应故事楼层显示可展开的工具记录', async t => {
