@@ -1,5 +1,6 @@
 import { projectSceneImageState, projectChatBackgroundConfig } from './chat-session-state.js'
 import { currentBackgroundSessionId, referencedBackgroundSessionIds } from './background-identity.js'
+import { isScopedMessages } from './scoped-messages.js'
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -20,9 +21,114 @@ function createdAtFromId(id) {
   return value > Date.UTC(2020, 0, 1) && value < Date.UTC(2100, 0, 1) ? value : 0
 }
 
-function chatSummary(chat, preservedLastOpenedAt = 0) {
+function cleanPreviewText(raw, maxLines = 5, maxChars = 240) {
+  let text = str(raw)
+  if (!text) return ''
+  text = text
+    .replace(/<(?:think|thinking|initvar|UpdateVariable|StatusPlaceHolderImpl)\b[\s\S]*?<\/(?:think|thinking|initvar|UpdateVariable|StatusPlaceHolderImpl)>/gi, '\n')
+    .replace(/<StatusPlaceHolderImpl\b[^>]*\/?>/gi, '\n')
+    .replace(/<(?:style|script)\b[\s\S]*?<\/(?:style|script)>/gi, '\n')
+    .replace(/<!--[\s\S]*?-->/g, '\n')
+    .replace(/```(?:yaml|json|initvar|status|xml|html)?\s*\n[\s\S]*?```/gi, '\n')
+    .replace(/<\/?(?:br|p|div|li|tr|h[1-6]|blockquote|section|article|header|footer)\b[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+  const lines = []
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.replace(/\s+/g, ' ').trim()
+    if (!line || /^[-*_—=~]{3,}$/.test(line)) continue
+    lines.push(line)
+    if (lines.length >= maxLines) break
+  }
+  const joined = lines.join('\n')
+  return joined.length > maxChars ? joined.slice(0, maxChars).trimEnd() + '…' : joined
+}
+
+function messageRawText(msg) {
+  if (typeof msg === 'string') return msg
+  if (!msg || typeof msg !== 'object') return ''
+  const swipeId = Math.max(0, Number(msg.swipeId) || 0)
+  const swipeText = Array.isArray(msg.swipes) && typeof msg.swipes[swipeId] === 'string' ? msg.swipes[swipeId] : ''
+  return str(msg.displayText || msg.text || msg.projectionText || msg.sourceText || swipeText)
+}
+
+function normalizePreview(preview) {
+  if (!preview || typeof preview !== 'object' || Array.isArray(preview)) return undefined
+  return {
+    turnCount: Math.max(0, Number(preview.turnCount) || 0),
+    messageCount: Math.max(0, Number(preview.messageCount) || 0),
+    userText: str(preview.userText),
+    replyText: str(preview.replyText),
+    openingText: str(preview.openingText)
+  }
+}
+
+export function extractChatPreview(chat, preservedPreview = undefined, options = {}) {
+  const existing = normalizePreview(chat?.preview) ?? normalizePreview(preservedPreview)
+  if (options?.metadataOnly === true || !Array.isArray(chat?.messages)) return existing
+  const messages = chat.messages
+  const totalMessages = Number.isSafeInteger(options.messageCount) && options.messageCount >= 0 ? options.messageCount : messages.length
+  // A projected header or sparse scoped window without floor 0 keeps the previously extracted opening/first-turn lines.
+  if (totalMessages === 0 && existing && existing.messageCount > 0 && !options.allowEmptyReset) return existing
+  if (isScopedMessages(messages) && messages.length > 0 && messages[0] === undefined && existing) {
+    let maxTurn = existing.turnCount
+    const last = messages[messages.length - 1]
+    if (last && typeof last === 'object' && Number(last.turn) > 0) {
+      maxTurn = Math.max(maxTurn, Number(last.turn))
+    }
+    return { ...existing, messageCount: totalMessages, turnCount: Math.max(existing.turnCount, maxTurn, totalMessages > 1 ? 1 : 0) }
+  }
+  let openingText = '', userText = '', replyText = ''
+  let userCount = 0, replyCount = 0, maxTurn = 0, firstIsGreeting = false
+  const limit = Math.min(messages.length, 2000)
+  for (let i = 0; i < limit; i++) {
+    const msg = messages[i]
+    if (!msg) continue
+    if (typeof msg === 'string') {
+      if (!openingText) openingText = cleanPreviewText(msg, 4, 200)
+      continue
+    }
+    const turn = Number(msg.turn) || 0
+    if (turn > maxTurn) maxTurn = turn
+    const isGreeting = msg.greeting === true || (i === 0 && msg.role === 'assistant')
+    if (i === 0 && isGreeting) firstIsGreeting = true
+    if (isGreeting) {
+      if (!openingText) openingText = cleanPreviewText(messageRawText(msg), 4, 200)
+    } else if (msg.role === 'user') {
+      userCount++
+      if (!userText) userText = cleanPreviewText(messageRawText(msg), 3, 140)
+    } else if (msg.role === 'assistant') {
+      replyCount++
+      if (!replyText) replyText = cleanPreviewText(messageRawText(msg), 5, 240)
+    }
+  }
+  let turnCount = 0
+  // 开场白自带 turn 1，真正算「聊了几轮」时把它扣掉；开场后没有交互的存档就是「仅开场」。
+  const greetingSlots = firstIsGreeting ? 1 : 0
+  const exchangeMessages = Math.max(0, totalMessages - greetingSlots)
+  if (userCount > 0 || replyCount > 0 || exchangeMessages > 0) {
+    if (maxTurn > 0 && totalMessages <= messages.length) turnCount = Math.max(1, maxTurn - greetingSlots)
+    // 只扫了前 2000 条的长存档：按总消息数估一代，别把 200 轮说成 1 轮。
+    else if (maxTurn > 0) turnCount = Math.max(1, Math.ceil(exchangeMessages / 2), maxTurn - greetingSlots)
+    else turnCount = Math.max(1, userCount, replyCount, Math.ceil(exchangeMessages / 2))
+  }
+  return {
+    turnCount,
+    messageCount: totalMessages,
+    userText,
+    replyText,
+    openingText: (userText || replyText) ? '' : openingText
+  }
+}
+
+function chatSummary(chat, preservedLastOpenedAt = 0, preservedPreview = undefined, options = {}) {
   const updatedAt = Math.max(0, Number(chat && (chat.updatedAt || chat.createdAt)) || 0)
   const createdAt = Math.max(0, Number(chat && chat.createdAt) || 0) || createdAtFromId(chat && chat.id) || updatedAt
+  const preview = extractChatPreview(chat, preservedPreview, options)
   return {
     id: str(chat && chat.id),
     cardPath: str(chat && chat.cardPath),
@@ -35,6 +141,7 @@ function chatSummary(chat, preservedLastOpenedAt = 0) {
     sessionId: str(chat && chat.sessionId),
     ...(currentBackgroundSessionId(chat) === null ? {} : { backgroundSessionId: currentBackgroundSessionId(chat) }),
     ...(Array.isArray(chat?.backgroundHistoryIds) ? { backgroundHistoryIds: chat.backgroundHistoryIds } : {}),
+    ...(preview !== undefined ? { preview } : {}),
     createdAt,
     updatedAt,
     lastOpenedAt: Math.max(0, Number(chat && chat.lastOpenedAt) || 0, Number(preservedLastOpenedAt) || 0) || updatedAt
@@ -51,6 +158,7 @@ function sameSummary(left, right) {
   // Rows written before summaries carried the bound Session have no column; both
   // missing and empty mean "no Session", so an old row migrates once and then stops.
   if (str(left.sessionId) !== str(right.sessionId)) return false
+  if (JSON.stringify(left.preview || null) !== JSON.stringify(right.preview || null)) return false
   return JSON.stringify(left.backgroundHistoryIds || []) === JSON.stringify(right.backgroundHistoryIds || []) && ['id', 'cardPath', 'cardName', 'title', 'mode', 'requestMode', 'createdAt', 'updatedAt', 'lastOpenedAt', 'backgroundSessionId'].every(function (key) { return left[key] === right[key] })
 }
 
@@ -189,13 +297,13 @@ export function createTavernConversationRegistry(options = {}) {
     }
   }
 
-  async function sync(chat) {
+  async function sync(chat, options = {}) {
     if (!chat || str(chat.id) === '') throw new Error('不能同步没有 id 的 Tavern Chat 摘要')
     let summary
     await store.updateIndex(index => {
       const rows = chatRows(index)
       const current = rows.find(item => item && item.id === str(chat.id))
-      summary = chatSummary(chat, current && current.lastOpenedAt)
+      summary = chatSummary(chat, current && current.lastOpenedAt, current && current.preview, options)
       const previousIds = [...(current?.backgroundHistoryIds || []), current?.backgroundSessionId, ...referencedBackgroundSessionIds(chat)].filter(id => typeof id === 'string' && id && id !== summary.backgroundSessionId)
       if (previousIds.length) summary.backgroundHistoryIds = [...new Set(previousIds)].slice(-200)
       if (sameSummary(current, summary)) return undefined
@@ -220,11 +328,76 @@ export function createTavernConversationRegistry(options = {}) {
       const summary = summaries.get(chatId)
       if (!summary) continue
       const normalized = chatSummary(summary)
-      rows.push({ sessionId, chatId, ...(normalized.backgroundHistoryIds ? { backgroundHistoryIds: normalized.backgroundHistoryIds } : {}), ...(typeof normalized.backgroundSessionId === 'string' ? { backgroundSessionId: normalized.backgroundSessionId } : {}), cardPath: normalized.cardPath, cardName: normalized.cardName, title: normalized.title, mode: normalized.mode, requestMode: normalized.requestMode, createdAt: normalized.createdAt, updatedAt: normalized.updatedAt, lastOpenedAt: normalized.lastOpenedAt })
+      rows.push({ sessionId, chatId, ...(normalized.backgroundHistoryIds ? { backgroundHistoryIds: normalized.backgroundHistoryIds } : {}), ...(typeof normalized.backgroundSessionId === 'string' ? { backgroundSessionId: normalized.backgroundSessionId } : {}), ...(normalized.preview !== undefined ? { preview: normalized.preview } : {}), cardPath: normalized.cardPath, cardName: normalized.cardName, title: normalized.title, mode: normalized.mode, requestMode: normalized.requestMode, createdAt: normalized.createdAt, updatedAt: normalized.updatedAt, lastOpenedAt: normalized.lastOpenedAt })
     }
     // Conversations keep a fixed place: opening or continuing one must not move it.
     rows.sort(function (left, right) { return right.createdAt - left.createdAt || right.lastOpenedAt - left.lastOpenedAt })
     return rows
+  }
+
+  async function readPreviewForBackfill(chatId) {
+    if (typeof store.readChatSlice === 'function') {
+      const meta = await store.readChatSlice(chatId, [], ['id'])
+      if (meta && Number.isSafeInteger(meta.messageCount) && meta.messageCount >= 0) {
+        if (meta.messageCount === 0) {
+          return extractChatPreview({ id: chatId, messages: [] }, undefined, { messageCount: 0, allowEmptyReset: true })
+        }
+        const indices = []
+        const headCount = Math.min(6, meta.messageCount)
+        for (let i = 0; i < headCount; i++) indices.push(i)
+        if (meta.messageCount > headCount) indices.push(meta.messageCount - 1)
+        const sliced = await store.readChatSlice(chatId, indices, ['id'])
+        if (sliced?.chat) {
+          return extractChatPreview(sliced.chat, undefined, { messageCount: sliced.messageCount })
+        }
+      }
+    }
+    const chat = await store.readChat(chatId)
+    if (!chat) return undefined
+    return extractChatPreview(chat, undefined, { allowEmptyReset: true })
+  }
+
+  async function backfillPreviews(chatIds = [], { limit = 60 } = {}) {
+    const requested = Array.isArray(chatIds) ? chatIds.map(id => str(id)).filter(Boolean) : []
+    const maxBatch = Math.max(1, Math.min(200, Number(limit) || 60))
+    const index = await store.readIndex()
+    const rows = chatRows(index)
+    const byId = new Map(rows.map(item => [str(item && item.id), item]))
+    const candidates = (requested.length ? requested : rows.map(item => str(item && item.id)))
+      .filter(id => {
+        const row = byId.get(id)
+        return row && normalizePreview(row.preview) === undefined
+      })
+    const batch = [...new Set(candidates)].slice(0, maxBatch)
+    if (!batch.length) return { previews: {}, remaining: 0 }
+    const extracted = new Map()
+    for (const id of batch) {
+      try {
+        const preview = await readPreviewForBackfill(id)
+        if (preview) extracted.set(id, preview)
+      } catch (error) {
+        console.warn('dsh-tavern: 提取会话预览失败', id, error?.message || error)
+      }
+    }
+    if (extracted.size > 0) {
+      await store.updateIndex(current => {
+        const currentRows = chatRows(current)
+        let changed = false
+        const nextRows = currentRows.map(item => {
+          const id = str(item && item.id)
+          if (!extracted.has(id) || normalizePreview(item?.preview) !== undefined) return item
+          changed = true
+          return { ...item, preview: extracted.get(id) }
+        })
+        return changed ? { ...current, chats: nextRows } : undefined
+      })
+    }
+    const previews = {}
+    for (const [id, preview] of extracted.entries()) previews[id] = preview
+    return {
+      previews,
+      remaining: Math.max(0, new Set(candidates).size - batch.length)
+    }
   }
 
   async function touch(sessionId, openedAt = Date.now()) {
@@ -298,5 +471,5 @@ export function createTavernConversationRegistry(options = {}) {
     return { deleted: true }
   }
 
-  return { links, resolve, resolveState, resolveSceneImageState, resolveBackgroundConfig, publish, sync, list, touch, remove, recoverUnlisted }
+  return { links, resolve, resolveState, resolveSceneImageState, resolveBackgroundConfig, publish, sync, list, backfillPreviews, touch, remove, recoverUnlisted }
 }

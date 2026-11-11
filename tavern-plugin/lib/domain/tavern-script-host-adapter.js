@@ -3,6 +3,7 @@ import { applyRegexOverrides } from './regex-manager.js'
 import { templateStateFields } from './template-window-reader.js'
 import { createScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
+import { commitChatFields, rebaseChatChanges, sameChatMessageIdentity } from './chat-field-transaction.js'
 import { createFullPromptTemplateSync } from './full-prompt-template-sync.js'
 import { createJsonValueProjectionCache } from './immutable-json-projection.js'
 import { resourceSaveSummary, observeResourceSave } from './resource-save-summary.js'
@@ -15,6 +16,7 @@ import { applyChatPluginData, validateChatPluginRequest, assertPluginJson } from
 import {
   appendTavernHelperMessages,
   lastTavernHelperVariables,
+  normalizeMessageId,
   projectTavernHelperContext,
   projectTavernHelperMessage,
   replaceTavernHelperMessages,
@@ -30,6 +32,37 @@ import {
 
 // The fast template patch lost its revision race to another write: worth retrying.
 const TEMPLATE_PATCH_CONFLICT = Symbol('template patch conflict')
+
+function variableConflict() {
+  return Object.assign(new Error('变量写入目标或字段已变化，请重新读取后重试'), { code: 'DSH_TAVERN_CHAT_CONFLICT' })
+}
+
+function variableMutationFields(type) {
+  return ['id', 'sessionId', '_storageRevision', 'tavernHelperLifecycleRevision', 'mode', 'cardPath', 'cardContextRevision', 'mvu', 'timeline.branchId',
+    ...(type === 'chat' ? ['variables', 'macroState'] : type === 'script' ? ['tavernHelperScriptVariables'] : [])]
+}
+
+function variableChanges(target, before, current) {
+  const prefix = target.type === 'message' ? ['messages', target.messageId] : []
+  const fields = target.type === 'script' ? ['tavernHelperScriptVariables'] : target.type === 'chat' ? ['variables', 'macroState'] : ['variables']
+  return fields.flatMap(field => diffJson(before[field], current[field]).map(change => ({
+    ...change, path: [...prefix, field, ...change.path]
+  })))
+}
+
+function sameVariableMessage(before, current, index) {
+  if (!before || !current || before.role !== current.role
+    || (before.swipeId ?? 0) !== (current.swipeId ?? 0)) return false
+  const requestId = str(before.source?.rpcId).trim()
+  // Preparation may project the body text of the same durable user input.
+  if (before.role === 'user' && before.placeholder === true && requestId
+    && requestId === current.source?.rpcId && before.sourceText === current.sourceText) {
+    return !before.messageUid || before.messageUid === current.messageUid
+  }
+  return sameChatMessageIdentity(before, current, index)
+    && ['id', 'turn', 'greeting', 'text', 'sourceText', 'projectionText', 'swipes', 'source', 'nativeAnchor']
+    .every(field => isDeepStrictEqual(before[field], current[field]))
+}
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -143,10 +176,9 @@ export function createTavernScriptHostAdapter(options = {}) {
 
   async function variableMutationSlice(sessionId, option, expectedLifecycleRevision, eventId, baseline) {
     settlement.assertEvent(sessionId, eventId)
-    if (!baseline || !options.patchChat || !options.resolveChatSlice || !options.readChatRevision || settlement.has(str(sessionId))
+    if (!baseline || !options.patchChat || !options.resolveChatSlice || settlement.has(str(sessionId))
       || !['message','chat','script'].includes(option?.type)) return null
-    const fields = ['id','sessionId','_storageRevision','tavernHelperLifecycleRevision','mode','cardPath','mvu',
-      ...(option.type === 'chat' ? ['variables', 'macroState'] : option.type === 'script' ? ['tavernHelperScriptVariables'] : [])]
+    const fields = variableMutationFields(option.type)
     let selected = await options.resolveChatSlice(str(sessionId), [], fields)
     const matches = value => value?.denseMessages && value.chat.id === baseline.chatId
       && value.chat._storageRevision === baseline.stateRevision
@@ -167,7 +199,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     return { chat:selected.chat, messageId }
   }
 
-  async function updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, allowSlice = true, fallbackChat) {
+  async function updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, allowSlice = true) {
     const scoped = allowSlice ? await variableMutationSlice(sessionId, option, expectedLifecycleRevision, eventId, contextBaseline) : null
     // Global/card variables live outside Chat history. Validate the same
     // lifecycle and script permissions from the header, without decoding messages.
@@ -176,7 +208,7 @@ export function createTavernScriptHostAdapter(options = {}) {
       settlement.assertEvent(sessionId, eventId)
       resourceHeader = await options.resolveChatSlice?.(str(sessionId), [], 'settlement')
     }
-    const chat = scoped?.chat || resourceHeader?.chat || fallbackChat || await mutationChat(sessionId, eventId)
+    const chat = scoped?.chat || resourceHeader?.chat || await mutationChat(sessionId, eventId)
     await assertScriptEnabled(chat)
     if (scoped && settlement.has(str(sessionId))) return updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, false)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(resourceHeader ? await resolveChat(sessionId) : chat)
@@ -197,87 +229,72 @@ export function createTavernScriptHostAdapter(options = {}) {
     }
     const canPatch = options.patchChat && Number.isSafeInteger(chat._storageRevision) && chat._storageRevision > 0
       && !settlement.has(str(sessionId))
-    // Capture references to replaced values, not copies of the entire history.
-    // Message variable arrays are mutated in place by the compatibility API.
-    const before = canPatch ? {
-      variables: chat.variables,
-      macroState: chat.macroState,
-      scripts: chat.tavernHelperScriptVariables && { ...chat.tavernHelperScriptVariables },
-      messages: scoped ? (scoped.messageId === undefined ? {} : { [scoped.messageId]: Array.isArray(chat.messages[scoped.messageId].variables) ? chat.messages[scoped.messageId].variables.slice() : chat.messages[scoped.messageId].variables }) : option?.type === 'message' ? (chat.messages || []).map(message =>
-        Array.isArray(message?.variables) ? message.variables.slice() : message?.variables) : []
-    } : null
+    const messageId = canPatch && option?.type === 'message' ? scoped?.messageId ?? normalizeMessageId(chat.messages ?? [], option.message_id) : undefined
+    const row = messageId === undefined ? null : chat.messages[messageId]
+    // Helper mutates the swipe array and script variable map in place.
+    const before = !canPatch ? null : row ? { ...row, variables: Array.isArray(row.variables) ? row.variables.slice() : row.variables } : {
+      variables: chat.variables, macroState: chat.macroState,
+      tavernHelperScriptVariables: chat.tavernHelperScriptVariables && { ...chat.tavernHelperScriptVariables }
+    }
     const baseRevision = chat._storageRevision
     const compact = canPatch && contextBaseline?.chatId === chat.id
       && contextBaseline.stateRevision === baseRevision
       && contextBaseline.lifecycleRevision === (chat.tavernHelperLifecycleRevision || 0)
       && (scoped || (chat.messages || []).every(message => message && typeof message === 'object'))
-    let patched = false
     if (!option?.type || option.type === 'message') await settlement.touchMessage(sessionId, option?.message_id, eventId)
+    if (canPatch && settlement.has(str(sessionId))) return updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, false)
     const updated = replaceTavernHelperVariables(chat, { option, variables })
     // A blank opening has no floor: official MVU initializes it in the chat scope.
+    const beforeOpening = chat.mvu?.openingInitialization
     const initializedChat = updated.type === 'chat' && !chat.messages?.length
       && chat.mvu?.owner === 'official' && isOfficialMvuData(chat.variables)
-      && chat.mvu.openingInitialization?.status !== 'complete'
+      && beforeOpening?.status !== 'complete'
     if (initializedChat) chat.mvu.openingInitialization = { version: 2, status: 'complete', completedAt: Date.now() }
     const transactional = await transactionResult(sessionId, updated, false, eventId)
     if (transactional !== null) return transactional
     try {
-      let saved
       if (canPatch) {
-        const path = updated.type === 'message' ? ['messages', updated.messageId, 'variables']
-          : [updated.type === 'chat' ? 'variables' : 'tavernHelperScriptVariables']
-        const previous = updated.type === 'message' ? before.messages[updated.messageId]
-          : updated.type === 'chat' ? before.variables : before.scripts
-        const current = updated.type === 'message' ? chat.messages[updated.messageId].variables
-          : updated.type === 'chat' ? chat.variables : chat.tavernHelperScriptVariables
-        // Match the existing JSON store's normalization (including sparse swipes).
-        const normalized = JSON.parse(JSON.stringify(current))
-        const changes = diffJson(previous, normalized).map(change => ({ ...change, path: [...path, ...change.path] }))
-        if (updated.type === 'chat' && chat.macroState !== before.macroState) {
-          changes.push(...diffJson(before.macroState, chat.macroState).map(change => ({ ...change, path: ['macroState', ...change.path] })))
-        }
-        if (initializedChat) changes.push({ op: 'set', path: ['mvu', 'openingInitialization'], value: chat.mvu.openingInitialization })
+        const changes = variableChanges(updated, before, row ?? chat)
+        const openingChange = initializedChat
+          ? [{ op: 'set', path: ['mvu', 'openingInitialization'], value: chat.mvu.openingInitialization }] : []
         const metadata = {
           source: 'tavern-helper.variables',
-          assertCurrent: () => settlement.assertEvent(sessionId, eventId)
-        }
-        saved = await options.patchChat(chat.id, chat._storageRevision, changes, metadata)
-        if (!saved && compact && !eventId && updated.type === 'message') {
-          const input = chat.messages[updated.messageId]
-          const requestId = str(input?.source?.rpcId).trim()
-          if (input?.role === 'user' && input.placeholder === true && requestId) {
-            // Foreground preparation can update the same durable input while a
-            // Helper write is in flight. Retry only the unchanged variables.
-            const latest = await options.resolveChat(str(sessionId))
-            const row = latest?.messages?.[updated.messageId]
-            if (latest?.id === chat.id && mutationIsCurrent(latest, contextBaseline.lifecycleRevision) && !settlement.has(str(sessionId))
-              && row?.role === 'user' && str(row.source?.rpcId).trim() === requestId && row.sourceText === input.sourceText
-              && (row.swipeId ?? 0) === (input.swipeId ?? 0) && isDeepStrictEqual(row.variables, previous)) {
-              const rebased = await options.patchChat(latest.id, latest._storageRevision, changes, metadata)
-              if (rebased) {
-                const { messages: _messages, ...header } = rebased
-                Object.assign(latest, header)
-                row.variables = normalized
-                return { updated: true, target: updated, context: await fullContext(latest) }
-              }
-            }
+          assertCurrent: () => {
+            settlement.assertEvent(sessionId, eventId)
+            if (settlement.has(str(sessionId))) throw variableConflict()
           }
         }
-        if (saved) {
-          patched = true
-          const { messages: _messages, ...header } = saved
-          Object.assign(chat, header)
-          if (updated.type === 'message') chat.messages[updated.messageId].variables = normalized
-        }
-      }
-      // A competing revision needs the existing three-way merge/conflict checks.
-      if (!saved && scoped) {
-        settlement.assertEvent(sessionId, eventId)
-        const baseline = await options.readChatRevision(chat.id, baseRevision)
-        if (!baseline) { const error = new Error('变量写入基线已失效');error.code = 'DSH_TAVERN_CHAT_CONFLICT';throw error }
-        return updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline, false, baseline)
-      }
-      if (!saved) await options.writeChat(chat, { source: 'tavern-helper.variables' })
+        const receipt = await commitChatFields(options.patchChat, chat.id, metadata, async attempt => {
+          if (attempt === 0) return { revision: baseRevision, changes: changes.concat(openingChange) }
+          metadata.assertCurrent()
+          const indices = messageId === undefined ? [] : [messageId]
+          const selected = await options.resolveChatSlice?.(str(sessionId), indices, variableMutationFields(updated.type))
+          const latest = selected?.denseMessages ? selected.chat : await resolveChat(sessionId)
+          if (latest.id !== chat.id || latest.sessionId !== chat.sessionId || latest.cardPath !== chat.cardPath
+            || latest.cardContextRevision !== chat.cardContextRevision || latest.mode !== chat.mode
+            || latest.timeline?.branchId !== chat.timeline?.branchId
+            || !mutationIsCurrent(latest, chat.tavernHelperLifecycleRevision ?? 0)) throw variableConflict()
+          let target = latest
+          if (messageId !== undefined) {
+            target = latest.messages[selected?.denseMessages ? 0 : messageId]
+            if (!sameVariableMessage(before, target, messageId)) throw variableConflict()
+          }
+          const pending = rebaseChatChanges(changes, variableChanges(updated, before, target))
+          if (!pending) throw variableConflict()
+          const latestOpening = latest.mvu?.openingInitialization
+          if (initializedChat && latestOpening?.status !== 'complete') {
+            if (latest.mvu?.owner !== 'official' || !isDeepStrictEqual(latestOpening, beforeOpening)) throw variableConflict()
+            pending.push(...openingChange)
+          }
+          return { revision: latest._storageRevision, changes: pending }
+        })
+        if (!receipt) throw variableConflict()
+        // A compact receipt cannot account for fields written by someone else.
+        if (receipt.rebased) return { updated: true, target: updated, context: await fullContext(await resolveChat(sessionId)) }
+        const { messages: _messages, ...header } = receipt.saved
+        Object.assign(chat, header)
+        if (row) row.variables = JSON.parse(JSON.stringify(row.variables))
+      } else await options.writeChat(chat, { source: 'tavern-helper.variables' })
     }
     catch (error) {
       if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
@@ -286,7 +303,7 @@ export function createTavernScriptHostAdapter(options = {}) {
       }
       throw error
     }
-    if (compact && patched) {
+    if (compact) {
       // Project only the affected floor, never the complete history. Keep the
       // selected swipe semantics of the full compatibility projection.
       const changes = updated.type === 'message'
