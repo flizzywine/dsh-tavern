@@ -9,7 +9,7 @@ REPOSITORY="${DSH_TAVERN_REPOSITORY:-${DEFAULT_REPOSITORY}}"
 BRANCH="${DSH_TAVERN_BRANCH:-main}"
 DEFAULT_TARBALL_URL="https://codeload.github.com/flizzywine/dsh-tavern/tar.gz/refs/heads/main"
 TARBALL_URL="${DSH_TAVERN_TARBALL_URL:-${DEFAULT_TARBALL_URL}}"
-# 运行清单与 CDN 源：按文件哈希逐个比对，只下载有变化的文件（整包压缩包为备用方案）。
+# 运行清单与 CDN 源：优先使用校验过的整包，清单支持时也可按文件增量下载。
 CDN_METADATA_URL="${DSH_TAVERN_CDN_METADATA_URL:-https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/dsh-tavern-runtime.json}"
 CDN_ROOT_URL="${DSH_TAVERN_CDN_ROOT_URL:-https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern}"
 SOURCE_CDN="${DSH_TAVERN_SOURCE_CDN:-1}"
@@ -270,8 +270,7 @@ restore_previous() {
   printf 'DSH_STATUS 已恢复更新前的源码%s\n' "${version:+ v${version}}"
 }
 
-# 增量更新：按 jsDelivr 运行清单逐文件比对，只下载有变化的文件，其余直接复用
-# 已安装目录。完整源码包十几 MB，而一次更新真正变化的文件往往只有几百 KB。
+# 下载器优先校验并解压清单中的 runtime.zip，也支持从旧目录复用文件的增量下载。
 install_from_cdn() {
   [ "${SOURCE_CDN}" != 0 ] || return 1
   [ -f "${APP_DIR}/bin/download.cjs" ] || return 1
@@ -281,9 +280,9 @@ install_from_cdn() {
   version="$(node -e 'process.stdout.write(String(require(process.argv[1]).version || ""))' "${APP_DIR}/package.json" 2>/dev/null || true)"
   local args=(runtime "${CDN_METADATA_URL}" "${CDN_ROOT_URL}" "${candidate}" "${APP_DIR}" --stall 15 --budget 90)
   if [ -n "${version}" ]; then args+=(--min-version "${version}"); fi
-  stage "增量下载源码（只下载有变化的文件）"
+  stage "通过 CDN 下载源码"
   if ! node "${APP_DIR}/bin/download.cjs" "${args[@]}"; then
-    info '增量下载不可用，改用完整源码包。'
+    info 'CDN 下载不可用，切换下载源。'
     return 1
   fi
   # 旧版运行清单还没有 android/：保留已安装的安装脚本，保证源码校验通过。
@@ -295,7 +294,7 @@ install_from_cdn() {
     fi
   fi
   # 快照没有 .git：写 tarball 标记，之后继续走 CDN/压缩包覆盖。
-  printf '%s\n' "${DEFAULT_TARBALL_URL}" >"${candidate}/${SOURCE_MARKER}"
+  printf '%s\n' "${TARBALL_URL}" >"${candidate}/${SOURCE_MARKER}"
   replace_source "${candidate}"
   return 0
 }
@@ -305,7 +304,7 @@ install_from_tarball() {
   prepare_temp_root
   local archive="${TEMP_ROOT}/dsh-tavern.tar.gz"
   local candidate="${TEMP_ROOT}/tarball-source"
-  printf '正在改用 GitHub 压缩包下载源码……\n'
+  printf 'DSH_STATUS 正在改用 GitHub 压缩包下载源码……\n'
   if ! download_file "${TARBALL_URL}" "${archive}"; then
     info 'GitHub 压缩包下载失败。'
     return 1
@@ -408,8 +407,14 @@ update_source() {
       TARBALL_URL="$(sed -n '1p' "${APP_DIR}/${SOURCE_MARKER}")"
       [ -n "${TARBALL_URL}" ] || TARBALL_URL="${DEFAULT_TARBALL_URL}"
     fi
-    if install_from_tarball; then return; fi
-    if install_from_cdn; then return; fi
+    # Keep custom sources opt-in to CDN; the official APK snapshot uses the default tarball marker.
+    if [ "${TARBALL_URL}" = "${DEFAULT_TARBALL_URL}" ] || [ -n "${DSH_TAVERN_CDN_METADATA_URL:-}" ]; then
+      if install_from_cdn; then return; fi
+      if install_from_tarball; then return; fi
+    else
+      if install_from_tarball; then return; fi
+      if install_from_cdn; then return; fi
+    fi
     fail "GitHub 压缩包与 jsDelivr 均未能取到源码，请检查网络后重试。"
     return
   fi

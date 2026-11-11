@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { EventEmitter } from 'node:events'
+import { EventEmitter, once } from 'node:events'
 
 import test, { beforeEach, afterEach, mock } from 'node:test'
 
@@ -503,6 +503,39 @@ test('状态查询按与安装相同的规则回收残留锁，更新按钮不�
   assert.equal(status.phase, 'failed')
   assert.equal(status.repairRequired, true)
   await assert.rejects(readFile(path.join(lock, 'owner.json')), { code: 'ENOENT' })
+})
+
+test('Android 更新被强杀后关闭启动门，等安装进程组退出就解除锁', { skip: process.platform === 'win32' }, async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'update-android-dead-supervisor-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const live = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' })
+  const exited = once(live, 'exit')
+  t.after(() => { live.kill('SIGKILL') })
+  await once(live, 'spawn')
+
+  const lock = path.join(root, '.tavern-install.lock')
+  const registry = path.join(lock, 'processes')
+  const dead = 2 ** 22 + 12345
+  const startedAt = Date.now()
+  await mkdir(registry, { recursive: true })
+  await writeFile(path.join(registry, 'supervisor.json'), JSON.stringify({ pid: dead, startedAt }))
+  await writeFile(path.join(registry, `${live.pid}.json`), JSON.stringify({ pid: live.pid, ancestors: [] }))
+  await writeFile(path.join(lock, 'owner.json'), JSON.stringify({ attemptId: 'a', generation: 'g', pid: dead,
+    launcherPid: dead, childPid: live.pid, state: 'running', supervised: true, startedAt }))
+  await writeFile(path.join(root, 'update-status.json'), JSON.stringify({ phase: 'running', attemptId: 'a', startedAt, cancellable: true }))
+  const updater = createApplicationUpdater({ dataRoot: root, sourceRoot: root, runtimeHost: 'android', readLocalIdentity: async () => knownIdentity })
+  assert.equal((await updater.status()).phase, 'blocked')
+  assert.equal(await readFile(path.join(registry, 'stopping'), 'utf8'), '')
+
+  live.kill('SIGKILL')
+  await exited
+  // The first status request may arrive only after both processes were killed.
+  await rm(path.join(registry, 'stopping'))
+  const status = await updater.status()
+  assert.equal(status.phase, 'failed')
+  assert.equal(status.repairRequired, true)
+  await assert.rejects(readFile(path.join(lock, 'owner.json')), { code: 'ENOENT' })
+  assert.equal((await updater.status()).phase, 'failed')
 })
 
 test('没有安装锁的遗留「进行中」记录：超过 1 小时转为可修复，不再永久禁用更新', async t => {

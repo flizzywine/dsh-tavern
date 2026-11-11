@@ -476,14 +476,22 @@ export function createApplicationUpdater(options) {
       return { ...identity, host: 'next', phase: 'package-managed' }
     }
     const saved = await statusState.read()
-    const current = saved === undefined ? undefined : { ...saved, host: await host() }
+    const installHost = await host()
+    const current = saved === undefined ? undefined : { ...saved, host: installHost }
     let owner = installationState.readInstallation(dshHome)
+    const processDirectory = owner && path.join(owner.lockDir, 'processes')
+    const supervisedAndroid = installHost === 'android' && owner?.supervised && existsSync(path.join(processDirectory, 'supervisor.json'))
     if (owner?.supervised && owner.pid > 0 && !isProcessAlive(owner.pid)) {
-      const proof = await verifyInstallationProcessesStopped(path.join(owner.lockDir, 'processes'))
+      const proof = await verifyInstallationProcessesStopped(processDirectory, supervisedAndroid ? { orphanedSupervisorPid: owner.pid } : {})
       if (proof.safe) {
-        installationState.releaseStoppedInstallation({ dshHome, attemptId: owner.attemptId, generation: owner.generation, processesVerifiedStopped: true })
+        try {
+          installationState.releaseStoppedInstallation({ dshHome, attemptId: owner.attemptId, generation: owner.generation, processesVerifiedStopped: true })
+        } catch (error) {
+          if (error.code === 'INSTALLATION_OWNERSHIP_LOST') return statusWithIdentity(identity)
+          throw error
+        }
         if (current?.phase === 'completed' && current.attemptId === owner.attemptId) return { ...current, ...identity }
-        const interrupted = { phase: 'failed', attemptId: owner.attemptId, repairRequired: true, repairSince: now(), host: await host(), failedAt: now(), error: '更新已中断，已确认安装执行链停止，可以修复安装。' }
+        const interrupted = { phase: 'failed', attemptId: owner.attemptId, repairRequired: true, repairSince: now(), host: installHost, failedAt: now(), error: '更新已中断，已确认安装执行链停止，可以修复安装。' }
         await writeStatus(interrupted, { expectedAttemptId: current?.attemptId })
         return { ...interrupted, ...identity }
       }
@@ -493,7 +501,9 @@ export function createApplicationUpdater(options) {
     // A reservation is never adopted when the launched updater dies before its first
     // line of Tavern code; nothing inside it can report that, so say it here.
     const notAdopted = owner?.state === 'reserved' && owner.launcherPid > 1
-    if (owner && installationState.reclaimStaleInstallation(dshHome, owner)) {
+    // A supervised Android registry can contain live process groups whose leaders
+    // have exited. Preserve the lock while process-group verification is pending.
+    if (owner && !supervisedAndroid && installationState.reclaimStaleInstallation(dshHome, owner)) {
       if (current?.phase === 'completed' && current.attemptId === owner.attemptId) return { ...current, ...identity }
       if (notAdopted) record('updater.notadopted', { attemptId: owner.attemptId, launcherPid: owner.launcherPid, reservedForMs: now() - (Number(owner.startedAt) || now()) })
       const interrupted = { phase: 'failed', attemptId: owner.attemptId, repairRequired: true, repairSince: now(), host: await host(), failedAt: now(),

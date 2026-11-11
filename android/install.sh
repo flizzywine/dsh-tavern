@@ -251,17 +251,20 @@ if [ "${DSH_TAVERN_ANDROID_STANDALONE:-0}" != 1 ] && [ -f "${TAVERN_PROFILE_DIR}
 fi
 
 stage "写入 tavern Profile 配置"
-DSH_HOME="${DSH_ROOT}" node "${REPO_ROOT}/bin/dsh-tavern.mjs" install --host android
+# CI lets pnpm rebuild Profile modules without a TTY if the store moved.
+# The nested Profile install already passes --no-frozen-lockfile.
+CI=true DSH_HOME="${DSH_ROOT}" node "${REPO_ROOT}/bin/dsh-tavern.mjs" install --host android
 
 stage "把安卓插件加入 tavern 与 ${WEB_PROFILE_NAME} Profile"
 node "${SCRIPT_DIR}/configure-profiles.mjs" "${REPO_ROOT}" "${TAVERN_PROFILE_DIR}" "${WEB_PROFILE_DIR}"
 
 stage "安装 Profile 依赖（tavern / ${WEB_PROFILE_NAME}）"
+# configure-profiles can add links after the previous lockfile was written.
 info "tavern：${TAVERN_PROFILE_DIR}"
-pnpm_install --dir "${TAVERN_PROFILE_DIR}" install
+CI=true pnpm_install --dir "${TAVERN_PROFILE_DIR}" install --no-frozen-lockfile
 info "tavern Profile 完成"
 info "${WEB_PROFILE_NAME}：${WEB_PROFILE_DIR}"
-pnpm_install --dir "${WEB_PROFILE_DIR}" install
+CI=true pnpm_install --dir "${WEB_PROFILE_DIR}" install --no-frozen-lockfile
 info "${WEB_PROFILE_NAME} Profile 完成"
 # pnpm 处理 link: 依赖时可能重新生成绝对链接。最后再规范化一次，确保
 # DSHA 从 Android 宿主 rootfs 检查 bundle 时也能解析酒馆入口。

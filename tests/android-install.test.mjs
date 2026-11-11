@@ -205,8 +205,13 @@ case " \$* " in *" --store-dir"*) exit 98;; esac
 [ "\${pnpm_config_prefer_offline:-}" = true ] || exit 100
 [ "\${pnpm_config_registry:-}" = "${expectedRegistry}" ] || exit 101
 if [ "\$1" = "--dir" ] && [ "\$2" = "${new URL('..', import.meta.url).pathname.replace(/\/$/, '')}" ]; then
+  case " \$* " in *" --frozen-lockfile "*) ;; *) exit 103;; esac
   printf 'dependencies\\n' >> "${events}"
   : > "${dependenciesReady}"
+fi
+if [ "\$1" = "--dir" ] && [[ "\$2" == "${dshHome}/profiles/"* ]]; then
+  [ "\${CI:-}" = true ] || exit 104
+  case " \$* " in *" --no-frozen-lockfile "*) ;; *) exit 105;; esac
 fi
 `, { mode: 0o755 })
   if (initialVersion !== 'missing') await writeFile(path.join(mockBin, 'pnpm'), '#!/usr/bin/env bash\nprintf "10.34.5\\n"\n', { mode: 0o755 })
@@ -244,6 +249,7 @@ case "\${1:-}" in
     [ "$(command -v pnpm)" = "${managedPnpm}" ] || exit 94
     [ "\${pnpm_config_update_notifier:-}" = false ] || exit 95
     action="\${2:-}"
+    if [ "\${action}" = install ]; then [ "\${CI:-}" = true ] || exit 106; fi
     if [ "\${action}" = stop ] && [ ! -f "${dependenciesReady}" ]; then
       printf 'stop-before-dependencies\\n' >> "${events}"
       exit 91
@@ -644,13 +650,13 @@ test('更新按运行清单增量下载：只取有变化的文件，保留用�
   const environment = {
     ...process.env, DSH_HOME: dshHome, DSH_TAVERN_BRANCH: 'main', DSH_TAVERN_REPOSITORY: path.join(directory, 'missing.git'),
     DSH_TAVERN_CDN_METADATA_URL: `${base}/manifest`, DSH_TAVERN_CDN_ROOT_URL: `${base}/source`,
-    DSH_TAVERN_TARBALL_URL: 'https://example.invalid/should-not-download.tar.gz',
+    DSH_TAVERN_TARBALL_URL: `${base}/should-not-download.tar.gz`,
   }
   // 本地清单/文件服务器跑在本进程里，必须异步等待，否则事件循环会被阻塞而无法响应。
   let output = ''
   try { ({ stdout: output } = await execute('bash', [setupPath], { env: environment, timeout: 60000, maxBuffer: 2 * 1024 * 1024 })) }
   catch (error) { assert.fail(`${error.stdout || ''}\n${error.stderr || error.message}`) }
-  assert.match(output, /增量下载源码/)
+  assert.match(output, /通过 CDN 下载源码/)
   assert.equal(await readFile(path.join(appDir, 'package.json'), 'utf8'), next.get('package.json'))
   assert.equal(await readFile(path.join(appDir, 'android/install.sh'), 'utf8'), installScript)
   assert.equal(await readFile(path.join(appDir, 'tavern-plugin/lib/stable.js'), 'utf8'), unchanged)
