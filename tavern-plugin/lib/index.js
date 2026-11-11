@@ -1018,10 +1018,12 @@ export async function apply(ctx) {
     } catch (error) { return skip(error) }
   }
   let conversationRegistry
-  async function syncChatSummary(chat, metadata) {
+  // summaryOptions 与 metadata 分开：启动恢复只读到尾部一行窗口，不能拿它当首轮正文
+  // 写进索引预览，但又不能把「这是局部读取」混进展示观察者的写入元数据。
+  async function syncChatSummary(chat, metadata, summaryOptions) {
     if (chat) presentationObservers.saved(chat, metadata)
     if (!conversationRegistry || chat === undefined) return
-    try { await conversationRegistry.sync(chat) }
+    try { await conversationRegistry.sync(chat, summaryOptions || metadata) }
     catch (error) { console.warn('dsh-tavern: 会话摘要索引同步失败，将在下次启动修复:', str(error && error.message || error)) }
   }
   const deletedChatIds = new Set()
@@ -1079,6 +1081,7 @@ export async function apply(ctx) {
       readIndex,
       updateIndex,
       readChat,
+      readChatSlice: chatPersistence.readSlice,
       readChatState: id => chatPersistence.readSessionState(id, {scoped:true}),
       readBackgroundConfig: chatPersistence.readBackgroundConfig,
       readSceneImageState: chatPersistence.readSceneImageState,
@@ -3550,7 +3553,7 @@ export async function apply(ctx) {
           if (await presetLibrary.restoreChat(chat)) await writeChat(chat)
         }
       } catch (error) { console.warn('dsh-tavern: 对话预设恢复失败', chat.id, error) }
-      await syncChatSummary(chat)
+      await syncChatSummary(chat, undefined, { metadataOnly: true })
     }
     // Runs after the service is ready: work started since startup belongs to this process and is left alone.
     await foregroundHandoff.recover(activeChatIds, { startedBefore })

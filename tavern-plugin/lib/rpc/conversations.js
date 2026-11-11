@@ -9,6 +9,10 @@ export function createConversationHandlers(deps) {
       const settings = await readTavernSettings()
       return { sessions: (await listTavernSessions()).filter(chat => chat.requestMode !== 'sillytavern'), capabilities: { trustedCardMode: settings.trustedCardMode } }
     },
+    async loadSessionPreviews(args) {
+      const chatIds = Array.isArray(args?.chatIds) ? args.chatIds.map(str).filter(Boolean) : []
+      return await deps.conversationRegistry.backfillPreviews(chatIds, { limit: Number(args?.limit) || 60 })
+    },
     async renameConversation(args) {
       const chat = await chatForSession(args && args.sessionId)
       if (!chat) throw new Error('当前会话没有绑定 Tavern 对话')
