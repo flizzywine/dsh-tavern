@@ -36,7 +36,7 @@ export function createImageGenerator(getConfig, generate) {
       const draw = generate || (await import('./image-providers.js')).generateImage
       const result = await draw(channel, { positive: String(prompt || ''), references, width, height, exactSize: true, background, quality },
         { signal, maxImageBytes })
-      return { data: result.bytes, mediaType: result.mediaType }
+      return { data: result.bytes, mediaType: result.mediaType, ...(result.usage ? { usage: result.usage } : {}) }
     },
   }
 }

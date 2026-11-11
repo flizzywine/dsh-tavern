@@ -187,6 +187,11 @@ async function fromDataObject(data, fetchImpl, max, signal, channel) {
   if (url) return fetchBytes(fetchImpl, checkedRemoteUrl(url), { method: 'GET', headers: {} }, max, signal, channel)
   throw new Error('生图服务没有返回可用图片数据')
 }
+// OpenAI Images (gpt-image-*) reports token usage beside the picture: usage {input_tokens, output_tokens, total_tokens,
+// input_tokens_details {text_tokens, image_tokens}, output_tokens_details}. Pass it on untouched so a caller can price the request.
+function withUsage(image, data) {
+  return data?.usage && typeof data.usage === 'object' ? { ...image, usage: data.usage } : image
+}
 function zipImage(bytes, max) {
   if (bytes.length < 22 || bytes.readUInt32LE(0) !== 0x04034b50) throw new Error('NovelAI 返回了无效 ZIP 图片')
   let eocd = -1
@@ -363,12 +368,12 @@ async function generateOpenai(channel, request, ctx, provider) {
         image: { url: imageDataUrl(refs[0]), type: 'image_url' } }
       const data = await fetchJson(fetchImpl, joinUrl(base, endpointFromOption(ch, 'editPath', '/images/edits')),
         { method: 'POST', headers: requestHeaders(ch, provider), body: JSON.stringify(edit) }, jsonLimit, signal, ch)
-      return fromDataObject(data.data, fetchImpl, max, signal, ch)
+      return withUsage(await fromDataObject(data.data, fetchImpl, max, signal, ch), data)
     }
     if (provider === 'seedream') {
       payload.image = refs.map(imageDataUrl)
       const data = await fetchJson(fetchImpl, joinUrl(base, path), { method: 'POST', headers: requestHeaders(ch, provider), body: JSON.stringify(payload) }, jsonLimit, signal, ch)
-      return fromDataObject(data.data, fetchImpl, max, signal, ch)
+      return withUsage(await fromDataObject(data.data, fetchImpl, max, signal, ch), data)
     }
     const body = new FormData()
     body.append('model', payload.model)
@@ -381,10 +386,10 @@ async function generateOpenai(channel, request, ctx, provider) {
     for (const [index, ref] of refs.entries()) body.append('image[]', new Blob([ref.bytes], { type: ref.mediaType }), `reference-${index + 1}.${imageExtension(ref.mediaType)}`)
     const data = await fetchJson(fetchImpl, joinUrl(base, endpointFromOption(ch, 'editPath', '/images/edits')),
       { method: 'POST', headers: requestHeaders(ch, provider, false), body }, jsonLimit, signal, ch)
-    return fromDataObject(data.data, fetchImpl, max, signal, ch)
+    return withUsage(await fromDataObject(data.data, fetchImpl, max, signal, ch), data)
   }
   const data = await fetchJson(fetchImpl, joinUrl(base, path), { method: 'POST', headers: requestHeaders(ch, provider), body: JSON.stringify(payload) }, jsonLimit, signal, ch)
-  return fromDataObject(data.data, fetchImpl, max, signal, ch)
+  return withUsage(await fromDataObject(data.data, fetchImpl, max, signal, ch), data)
 }
 
 async function generateGemini(channel, request, ctx) {
