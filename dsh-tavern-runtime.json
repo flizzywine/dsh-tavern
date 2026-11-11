@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "bf048aa3b71e007c864bf1745df7b755a97a16e5",
-  "releaseSequence": 1470,
+  "revision": "594a2f22090a6aee583d213fdaab50a6d8716b94",
+  "releaseSequence": 1471,
   "version": "3.3.0",
   "files": [
     {
@@ -7271,8 +7271,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/card-stage.js",
-      "sha256": "923939d2f9561c515a3b53bb304d32f7f990e5597ef13ef94284e70b163b27a1",
-      "size": 17882
+      "sha256": "3053bc911f9a10c64a3adeed9e580f04d1084b65d11d585c769fc81252746cca",
+      "size": 18176
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/card-zip-target.js",
@@ -7591,8 +7591,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/figure-voice-authoring.js",
-      "sha256": "1926629e13def3161113e42867a2b37dc415ae95262c238cb66c16fffddbbdb6",
-      "size": 12372
+      "sha256": "dbbdac8c4b7d2dbefabfb2d4606923550e16faee6aaf05a3ab113430bfa331c6",
+      "size": 12705
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/index.js",
@@ -8476,9 +8476,9 @@
     }
   ],
   "archive": {
-    "commit": "6225f1b8b0b915b1f809f7f651ccb537489ddb70",
+    "commit": "56d2f2f8c252a476ab7ae2cc97c65db6912b05d8",
     "path": "runtime.zip",
-    "sha256": "57e15f94a69f533735d95c56d2f38156552f0edf432503f33e2f5436340bbdbc",
-    "size": 15173809
+    "sha256": "1460166132eed0a48583869ad0ff57723d1a88797e9d4e80b6d73777954e848c",
+    "size": 15174053
   }
 }
