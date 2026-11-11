@@ -237,12 +237,25 @@ test('DSH card download streams its attachment, forwards the pack choice and exc
   assert.equal(res.headers['Content-Length'],6)
   assert.match(res.headers['Content-Disposition'],/card.dshcard/)
   assert.equal(Buffer.concat(chunks).toString(),'abcdef')
-  assert.deepEqual(args,['cards/a.json',{excludeFigures:['figure-id'],packIds:['pack-id']}])
+  assert.deepEqual(args,['cards/a.json',{format:undefined,excludeFigures:['figure-id'],packIds:['pack-id']}])
   assert.equal(disposed,true)
   const bad = await call(handler,{host:PUBLIC,url:'/api/dsh-tavern/card-export?path=cards/a.json&excludeFigures=bad'})
   assert.equal(bad.status,400)
   const badPacks = await call(handler,{host:PUBLIC,url:'/api/dsh-tavern/card-export?path=cards/a.json&packIds=bad'})
   assert.equal(badPacks.status,400)
+})
+
+test('standalone card export sends the requested format as an attachment', async () => {
+  const handler = handle(undefined, {runtimeReadiness:{ok:true}, fontLibrary:{serve:async () => false}, exportCardFile:async (path, {format}) => {
+    assert.equal(path, 'cards/a.json')
+    assert.equal(format, 'json')
+    return {name:'角色', extension:format, contentType:'application/json; charset=utf-8', bytes:Buffer.from('{"spec":"chara_card_v3"}')}
+  }})
+  const res = await call(handler, {host:PUBLIC, url:'/api/dsh-tavern/card-export?path=cards/a.json&format=json'})
+  assert.equal(res.status, 200)
+  assert.equal(res.headers['Content-Type'], 'application/json; charset=utf-8')
+  assert.match(res.headers['Content-Disposition'], /filename\*=UTF-8''%E8%A7%92%E8%89%B2\.json/)
+  assert.equal(JSON.parse(res.body).spec, 'chara_card_v3')
 })
 test('舞台脚本 HTTP 资源仅在插件注册期间可用，保留旧 URL', async () => {
   const registry = createTavernClientAssets(), handler = handle(registry)

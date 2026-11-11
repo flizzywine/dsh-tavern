@@ -4,6 +4,23 @@ function cardLibraryDisplayName(card) {
     return card.name + (suffix ? suffix[1] : '');
 }
 
+function CardExportMenu({ disabled, hasImage, onExport }) {
+    const h = React.createElement, popup = useInlinePopup();
+    const formats = [
+        { value: "dshcard", label: "DSH 人物卡", note: "可打包素材和插件" },
+        { value: "json", label: "JSON", note: "卡片数据" },
+        { value: "png", label: "PNG", note: hasImage === false ? "需要封面" : "封面和卡片数据", disabled: hasImage === false }
+    ];
+    return h("span", { className: "fork-inline-anchor", ref: popup.root, onKeyDown: popup.keys },
+        h("button", { ref: popup.trigger, className: "dsh-tavern-btn", type: "button", disabled,
+            "aria-haspopup": "menu", "aria-expanded": popup.open, onClick: () => popup.setOpen(!popup.open),
+            onKeyDown: event => { if (event.key === "ArrowDown" && !popup.open) { event.preventDefault(); popup.setOpen(true); } } }, "导出"),
+        popup.open ? popup.layer({ className: "fork-inline-pop", role: "menu", "aria-label": "导出格式", onKeyDown: inlineMenuKeys },
+            formats.map(format => h("button", { key: format.value, className: "fork-inline-option", type: "button", role: "menuitem",
+                disabled: disabled || format.disabled, onClick: () => { popup.close(true); onExport(format.value); } },
+                h("span", null, format.label), h("span", { className: "fork-inline-option-note" }, format.note)))) : null);
+}
+
 		function createCardLibraryFeatureModule() {
 		function CardLibraryTab(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
@@ -157,20 +174,21 @@ function cardLibraryDisplayName(card) {
                 } catch (error) { setError(String(error?.message || error)); }
                 finally { progress.close(); setBusy(false); }
             }
-			function exportCardFile() {
+			function exportCardFile(format) {
 				if (!card) return;
-				if (dshExport.open && card.extensions?.hasSelectableAssetPacks !== false) {
+				if (format === "dshcard" && dshExport.open && card.extensions?.hasSelectableAssetPacks !== false) {
 					dshExport.open(card);
 					return;
 				}
 				const link = document.createElement("a");
-				link.href = "/api/dsh-tavern/card-export?path=" + encodeURIComponent(card.path);
+				link.href = "/api/dsh-tavern/card-export?" + new URLSearchParams({ path: card.path, format });
 				document.body.appendChild(link); link.click(); link.remove();
 			}
 			const h = React.createElement;
 			if (selectedPath) {
 				if (!card) return h("div", { className: "dsh-tavern-library dsh-tavern-card-library" }, h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: clearCard }, "← 返回人物卡库")), loading ? h(PanelLoading, { shape: "fields", label: "正在读取人物卡…" }) : error ? h("div", { className: "dsh-tavern-dock-error" }, error, h("button", { className: "dsh-tavern-btn", onClick: function () { loadCard(selectedPath); } }, "重新读取")) : h("div", { className: "dsh-tavern-empty" }, "人物卡读取失败", h("button", { className: "dsh-tavern-btn", onClick: function () { loadCard(selectedPath); } }, "重新读取")));
-				return h(React.Fragment, null, h(TavernCardPluginsBox, { path: selectedPath }), error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null, importStatus ? h("div", { role: "status" }, importStatus) : null, h(CardFieldsPanel, { view: { card: card }, library: true, organizationSettings: organization.detailSettings(cards.find(item => item.path === selectedPath)), busy: busy, onBack: clearCard, onAttach: sessionMode === "card" ? function () { props.appendMention(card.path, card.name); } : null, onOpenWorldBook: props.openWorldBook, onRename: renameCard, onDuplicate: duplicateCardFile, onExport: exportCardFile, onEncrypt: encryptCurrentCard, onDelete: deleteCardFile, onSaved: function (saved) { setCard(Object.assign({}, saved, { path: selectedPath })); refreshCards(); } }), dshExport.element);
+				const listedCard = cards.find(item => item.path === selectedPath);
+				return h(React.Fragment, null, h(TavernCardPluginsBox, { path: selectedPath }), error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null, importStatus ? h("div", { role: "status" }, importStatus) : null, h(CardFieldsPanel, { view: { card: card }, library: true, organizationSettings: organization.detailSettings(listedCard), hasImage: listedCard?.hasImage, busy: busy, onBack: clearCard, onAttach: sessionMode === "card" ? function () { props.appendMention(card.path, card.name); } : null, onOpenWorldBook: props.openWorldBook, onRename: renameCard, onDuplicate: duplicateCardFile, onExport: exportCardFile, onEncrypt: encryptCurrentCard, onDelete: deleteCardFile, onSaved: function (saved) { setCard(Object.assign({}, saved, { path: selectedPath })); refreshCards(); } }), dshExport.element);
 			}
 			const visible = organization.visible;
 			// "@" quotes a card into the card workspace conversation; only there does it mean anything.
@@ -517,7 +535,7 @@ function cardLibraryDisplayName(card) {
 					props.onBack ? h("button", { className: "dsh-tavern-btn", onClick: props.onBack }, "← 返回") : null,
 					h("div", { className: props.library ? "dsh-tavern-status-title" : "dsh-tavern-status-role" }, props.library ? cardLibraryDisplayName(props.view.card) : props.view.card.name),
 					h("div", { className: "dsh-tavern-question-sub" }, props.view.card.path ? props.view.card.path.split("/").pop() : ""),
-					props.library ? h("div", { className: "dsh-tavern-library-head-actions" }, props.onAttach ? h("button", { className: "dsh-tavern-btn", onClick: props.onAttach }, "在对话中引用") : null, props.onDuplicate ? h("button", { className: "dsh-tavern-btn", disabled: props.busy, onClick: props.onDuplicate }, "另存副本") : null, h("button", { className: "dsh-tavern-btn", onClick: props.onRename }, "重命名"), h("button", { className: "dsh-tavern-btn", onClick: props.onExport, disabled: props.busy, title: "导出无密码的 .dshcard 卡包" }, "导出"), props.onEncrypt ? h("button", { className: "dsh-tavern-btn", disabled: props.busy, onClick: props.onEncrypt, title: "为当前人物卡设置导出密码" }, "加密导出") : null, h("button", { className: "dsh-tavern-btn danger", onClick: props.onDelete }, "删除")) : null
+					props.library ? h("div", { className: "dsh-tavern-library-head-actions" }, props.onAttach ? h("button", { className: "dsh-tavern-btn", onClick: props.onAttach }, "在对话中引用") : null, props.onDuplicate ? h("button", { className: "dsh-tavern-btn", disabled: props.busy, onClick: props.onDuplicate }, "另存副本") : null, h("button", { className: "dsh-tavern-btn", onClick: props.onRename }, "重命名"), h(CardExportMenu, { onExport: props.onExport, disabled: props.busy, hasImage: props.hasImage }), props.onEncrypt ? h("button", { className: "dsh-tavern-btn", disabled: props.busy, onClick: props.onEncrypt, title: "为当前人物卡设置导出密码" }, "加密导出") : null, h("button", { className: "dsh-tavern-btn danger", onClick: props.onDelete }, "删除")) : null
 				),
 				props.organizationSettings,
 				scriptHero,

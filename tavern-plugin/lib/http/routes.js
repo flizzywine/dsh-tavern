@@ -274,8 +274,7 @@ export function registerTavernHttpRoutes({
             stream.on('error', () => res.destroy()).pipe(res)
             return
           }
-          // The DSH card export (card-files.js exportCardFile): packIds (JSON array) chooses the packs that go along, absent
-          // means every bound pack; excludeFigures (JSON array) leaves figures out. The spool file streams and is removed after.
+          // Native .dshcard is the default for existing callers. Only it accepts pack and figure selections.
           if (req.method === 'GET' && pathname === '/api/dsh-tavern/card-export') {
             let file
             try {
@@ -285,20 +284,21 @@ export function registerTavernHttpRoutes({
               catch { throw Object.assign(new Error('packIds 不是有效的 JSON 数组'), { code: 'TAVERN_EXPORT_INVALID' }) }
               try { excludeFigures = JSON.parse(query.get('excludeFigures') || '[]') }
               catch { throw Object.assign(new Error('excludeFigures 不是有效的 JSON 数组'), { code: 'TAVERN_EXPORT_INVALID' }) }
-              file = await exportCardFile(query.get('path'), { excludeFigures, packIds })
+              file = await exportCardFile(query.get('path'), { format: query.get('format') ?? undefined, excludeFigures, packIds })
             } catch (error) {
               const status = error?.code === 'TAVERN_EXPORT_INVALID' ? 400 : error?.code === 'TAVERN_NOT_FOUND' || /路径|不存在/.test(String(error?.message)) ? 404 : error?.code === 'REVISION_CONFLICT' ? 409 : 500
               res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
               res.end(String(error?.message || error)); return
             }
             const name = file.name.replace(/[\\/:*?"<>|\r\n]/g, '_') + '.' + file.extension
-            if (res.destroyed) { await file.dispose(); return }
+            if (res.destroyed) { await file.dispose?.(); return }
+            res.writeHead(200, { 'Content-Type': file.contentType, 'Content-Length': file.size ?? file.bytes.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+              'Content-Disposition': 'attachment; filename="card.' + file.extension + '"; filename*=UTF-8\'\'' + encodeURIComponent(name) })
+            if (file.bytes) { res.end(file.bytes); return }
             const stream = file.stream()
             res.once('close', () => stream.destroy())
             stream.once('close', () => { void file.dispose() })
             stream.once('error', () => res.destroy())
-            res.writeHead(200, { 'Content-Type': file.contentType, 'Content-Length': file.size, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
-              'Content-Disposition': 'attachment; filename="card.' + file.extension + '"; filename*=UTF-8\'\'' + encodeURIComponent(name) })
             stream.pipe(res)
             return
           }

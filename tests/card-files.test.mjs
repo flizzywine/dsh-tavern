@@ -16,7 +16,7 @@ import { createCastAssets } from '../tavern-plugin/lib/domain/cast-assets.js'
 import { createFileResourceStore } from '../tavern-plugin/lib/domain/file-resources.js'
 import { readZipEntries, writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 import { encryptCardArchiveFile } from '../tavern-plugin/lib/domain/card-encryption.js'
-import { pngWithCard } from '../tavern-plugin/lib/domain/card-assets.js'
+import { pngCardPayload, pngWithCard } from '../tavern-plugin/lib/domain/card-assets.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 
 // An export is a spool file; read its entries and remove it.
@@ -87,12 +87,14 @@ test('a CHARX imports once and a card without packs exports as DSH without the s
 
   const detail = cardPreparation.present({ card: await readCardWorkspace(first.path), as: 'detail' })
   assert.equal(detail.extensions.hasSelectableAssetPacks, false)
+  await assert.rejects(files.exportCardFile(first.path, { format: 'png' }), { code: 'TAVERN_NOT_FOUND' })
+  await assert.rejects(files.exportCardFile(first.path, { format: 'zip' }), { code: 'TAVERN_EXPORT_INVALID' })
   const exported = await files.exportCardFile(first.path)
   assert.equal(exported.extension, 'dshcard')
   assert.equal(JSON.parse((await exportedEntries(exported)).get('card.json').toString()).data.description, '一条鱼')
 })
 
-test('an encrypted ST PNG imports its cover into the library and exports a single DSH container', async t => {
+test('an imported card with a cover exports as JSON, PNG or a DSH container', async t => {
   const { root, files, fileResources } = await library(t)
   const cover = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8V8AAAAASUVORK5CYII=', 'base64')
   const input = join(root, 'source.png'), locked = join(root, 'locked.dshcard')
@@ -100,6 +102,12 @@ test('an encrypted ST PNG imports its cover into the library and exports a singl
   await encryptCardArchiveFile(input, locked, 'test-password', { name: 'source.png' })
   const card = await files.importCardArchiveFile(locked, 'locked.dshcard', { password: 'test-password' })
   assert.ok((await fileResources.readCardImage(card.path)).length >= cover.length)
+  const json = await files.exportCardFile(card.path, { format: 'json' })
+  const png = await files.exportCardFile(card.path, { format: 'png' })
+  assert.equal(json.extension, 'json')
+  assert.equal(png.extension, 'png')
+  assert.equal(JSON.parse(json.bytes).data.description, 'private')
+  assert.deepEqual(Buffer.from(pngCardPayload(png.bytes, 'export.png').b64, 'base64'), json.bytes)
   const exported = await files.exportCardFile(card.path)
   assert.equal(exported.extension, 'dshcard')
   assert.equal((await readFile(exported.file)).readUInt32LE(0), 0x04034b50)
