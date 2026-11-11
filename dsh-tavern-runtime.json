@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0509daace0cc7feef1b57ec048bfb9999485920e",
-  "releaseSequence": 1480,
+  "revision": "b53c019598e909ea0a41e867147bdb7dab537b8e",
+  "releaseSequence": 1481,
   "version": "3.3.0",
   "files": [
     {
@@ -928,6 +928,11 @@
       "path": "tavern-plugin/lib/card-asset-bindings.js",
       "sha256": "c50fc4a80cf29a72ee15b3ac8c4d584225f8b5894c6406f68e21d17b8ab93f92",
       "size": 11753
+    },
+    {
+      "path": "tavern-plugin/lib/card-bundle.d.ts",
+      "sha256": "d45e96f24e7b4dafb865797c13237be9011b7aa45df87b7cc812eb494b8952f0",
+      "size": 1259
     },
     {
       "path": "tavern-plugin/lib/card-scripts.js",
@@ -4130,6 +4135,11 @@
       "size": 2254
     },
     {
+      "path": "tavern-plugin/lib/stage-audio.js",
+      "sha256": "33344269a4b2a598adb3275543b6661de08a7ab22eec16e45d4be2bbb071e65c",
+      "size": 192
+    },
+    {
       "path": "tavern-plugin/lib/stage-switch.js",
       "sha256": "5716942158ab10796a5658b8e10f335fe5bcea09e3e93159c750ba8949339c34",
       "size": 1893
@@ -5258,6 +5268,11 @@
       "path": "tavern-plugin/lib/vendor/zipjs/zip-native.js",
       "sha256": "a061a4d854f048c12ac00f9f9f01fe1fcb32b02e035eae55042f29e7f3d67f6a",
       "size": 211090
+    },
+    {
+      "path": "tavern-plugin/lib/voice-readings.js",
+      "sha256": "ef29ba87667a7087f668a0d62ce807234f69d25e628d6365b7f06549c49ede62",
+      "size": 417
     },
     {
       "path": "tavern-plugin/mods/dice/manifest.json",
@@ -8551,9 +8566,9 @@
     }
   ],
   "archive": {
-    "commit": "58ddb0a92198787e835a81f6d01a4c2e3d4a5bbe",
+    "commit": "c15cd0dce2585fc47266dfbc8f89787945bb75de",
     "path": "runtime.zip",
-    "sha256": "d383e29b68223476802b295e7b14a456b72846b4bfb663f90e475ebbf1185c27",
-    "size": 15256374
+    "sha256": "d681e9c647d21ca96fe6ac2dc3967f0ffb198f13018607c1bedb3bc3718e9856",
+    "size": 15257783
   }
 }
