@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import vm from './fixtures/client-vm.mjs'
 import { chatAnswerBootScript } from '../tavern-plugin/lib/domain/chat-answer-boot-patch.js'
 import { CHAT_ANSWER_STEP_MARKER } from '../tavern-plugin/lib/domain/chat-answer-step.js'
@@ -10,6 +12,19 @@ const bootRoot = process.env.DSH_BOOT_MODULE ? process.env.DSH_BOOT_MODULE.split
 const runtime = process.env.TAVERN_DSH_RUNTIME || bootRoot || path.resolve('config/cli-runtime')
 let chatClient = ''
 try { chatClient = readFileSync(path.join(runtime, 'node_modules', '@deepseek-ai', 'dsh-client-ui-chat', 'lib', 'client.js'), 'utf8') } catch {}
+
+test('the built host embeds a self-contained page patch with keepNames enabled', async () => {
+  const { build } = createRequire(import.meta.url)('esbuild')
+  const result = await build({ entryPoints: [fileURLToPath(new URL('../tavern-plugin/lib/domain/chat-answer-boot-patch.js', import.meta.url))], bundle: true, write: false, keepNames: true, format: 'iife', globalName: 'built' })
+  const host = vm.createContext({})
+  vm.runInContext(result.outputFiles[0].text, host)
+  const warnings = [], context = vm.createContext({ console: { warn: (...args) => warnings.push(args) } })
+  context.window = context
+  vm.runInContext(host.built.chatAnswerBootScript(), context)
+  vm.runInContext('window.__ModuleLoader__ = { load(value) { window.registration = value } }; window.__ModuleLoader__.load({id:"@deepseek-ai/dsh-client-ui-chat",factory:function(){function latestAnswer(turn){return turn.steps.at(-1)};return latestAnswer}})', context)
+  assert.match(String(context.registration.factory), /dsh-tavern:answer-step/)
+  assert.deepEqual(warnings, [])
+})
 
 function page() {
   const window = { console: { warn() {}, info() {} } }
