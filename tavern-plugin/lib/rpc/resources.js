@@ -35,7 +35,13 @@ export function createResourceHandlers(deps) {
       return worldBookForClient(await worldBooks.setGlobal(args && args.source, args && args.enabled))
     },
     async listWorldBooks(args) {
-      return await worldBooks.catalog()
+      const catalog = await worldBooks.catalog()
+      const sessionId = str(args && args.sessionId)
+      if (!sessionId) return catalog
+      // 人物卡内置的世界书属于它那张卡：带上本局会话的卡，面板只列这一本，
+      // 别的卡的书换到对应会话（或世界书库）里才出现。
+      const chat = await chatHeaderForSession(sessionId, ['cardPath', 'cardName']).catch(() => null)
+      return Object.assign({}, catalog, { sessionCardPath: str(chat && chat.cardPath), sessionCardName: str(chat && chat.cardName) })
     },
     async getWorldBook(args) {
       const source = args && args.source

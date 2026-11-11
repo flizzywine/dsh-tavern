@@ -74,3 +74,30 @@ test('世界书读取命中 revision 时连领域读取都不发生', async () =
   assert.equal((await handlers.getWorldBook({ source, ifRevision: 8 })).view.entryCount, 2)
   assert.equal(gets, 1)
 })
+
+test('世界书目录带回本局会话的卡，内置书据此按卡过滤', async () => {
+  const catalog = {
+    standalone: [{ kind: 'standalone', path: 'worldbooks/甲.json', name: '甲世界', globalEnabled: true, entryCount: 2, enabledCount: 1 }],
+    embedded: [
+      { kind: 'card', cardPath: 'cards/阿珂.png', name: '阿珂世界书', cardName: '阿珂', entryCount: 1, enabledCount: 1 },
+      { kind: 'card', cardPath: 'cards/小白.png', name: '小白世界书', cardName: '小白', entryCount: 1, enabledCount: 1 }
+    ],
+    diagnostics: []
+  }
+  const reads = []
+  const handlers = createResourceHandlers({
+    str: value => (value === undefined || value === null ? '' : String(value)),
+    worldBooks: { catalog: async () => catalog },
+    chatHeaderForSession: async (sessionId, fields) => { reads.push([sessionId, fields]); return { id: 'chat-1', cardPath: 'cards/阿珂.png', cardName: '阿珂' } }
+  })
+  const scoped = await handlers.listWorldBooks({ sessionId: 'session-1' })
+  assert.equal(scoped.sessionCardPath, 'cards/阿珂.png')
+  assert.equal(scoped.sessionCardName, '阿珂')
+  assert.deepEqual(reads, [['session-1', ['cardPath', 'cardName']]], '只读会话头里的卡字段，不整本读档')
+  assert.equal(scoped.embedded.length, 2, '目录本身不裁剪，按卡过滤留给各个面板')
+
+  // 没有会话（还没开局、或自由游玩）时不带卡路径，面板保持原样。
+  const anonymous = await handlers.listWorldBooks({})
+  assert.equal(anonymous.sessionCardPath, undefined)
+  assert.equal(anonymous.embedded.length, 2)
+})

@@ -36,7 +36,8 @@ test('世界书快捷面板：换书、开关条目、完整与关闭', async ()
 			{ ref: 'entry:1', title: '雨季', content: '每年七月进入雨季。', enabled: true, primaryKeys: ['雨'] }
 		],
 		'worldbooks/备用.json': [{ ref: 'entry:0', title: '备用条目', content: '', enabled: false, primaryKeys: [] }],
-		'cards/阿珂.png': [{ ref: 'entry:0', title: '阿珂的家', content: '', enabled: true, primaryKeys: [] }]
+		'cards/阿珂.png': [{ ref: 'entry:0', title: '阿珂的家', content: '', enabled: true, primaryKeys: [] }],
+		'cards/小白.png': [{ ref: 'entry:0', title: '小白的书房', content: '', enabled: true, primaryKeys: [] }]
 	}
 	const keyOf = source => source.kind === 'card' ? source.cardPath : source.path
 	const record = source => ({ source, view: { displayName: keyOf(source), entries: books[keyOf(source)] }, globalEnabled: true, revision: 111 })
@@ -49,7 +50,13 @@ test('世界书快捷面板：换书、开关条目、完整与关闭', async ()
 					{ kind: 'standalone', path: 'worldbooks/备用.json', name: '备用世界书', globalEnabled: false, entryCount: 1, enabledCount: 0 },
 					{ kind: 'standalone', path: 'worldbooks/测试.json', name: '测试世界书', globalEnabled: true, entryCount: 2, enabledCount: 2 }
 				],
-				embedded: [{ kind: 'card', cardPath: 'cards/阿珂.png', name: '阿珂世界书', cardName: '阿珂', entryCount: 1, enabledCount: 1 }]
+				// 本局用的是阿珂：内置书里只该留下她那一本，小白的书留到她自己的对局。
+				embedded: [
+					{ kind: 'card', cardPath: 'cards/阿珂.png', name: '阿珂世界书', cardName: '阿珂', entryCount: 1, enabledCount: 1 },
+					{ kind: 'card', cardPath: 'cards/小白.png', name: '小白世界书', cardName: '小白', entryCount: 1, enabledCount: 1 }
+				],
+				sessionCardPath: 'cards/阿珂.png',
+				sessionCardName: '阿珂'
 			}
 		}
 		if (method === 'getWorldBook') return record(args.source)
@@ -89,6 +96,9 @@ test('世界书快捷面板：换书、开关条目、完整与关闭', async ()
 	assert.equal(query('.dsh-tavern-wbsw-select').value, 'standalone:worldbooks/测试.json')
 	assert.deepEqual(names(), ['王城设定', '雨季'])
 	assert.deepEqual(queryAll('.dsh-tavern-wbsw-select optgroup').map(node => node.label), ['全局生效', '其他世界书', '人物卡内置'])
+	// 人物卡内置只列本局这张卡的那本：换到别的卡的对局不该看见人家的书。
+	assert.deepEqual(queryAll('.dsh-tavern-wbsw-select optgroup')[2].querySelectorAll('option').length, 1)
+	assert.match(queryAll('.dsh-tavern-wbsw-select optgroup')[2].textContent, /阿珂世界书/)
 
 	// 开关即时写入，只改 enabled；点整行也能切换。
 	await act(async () => { queryAll('.dsh-tavern-wbsw-switch input')[0].click() })

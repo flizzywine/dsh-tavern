@@ -45667,7 +45667,11 @@ function createWorldBookSwitcherFeatureModule() {
 		const result = await rpcWithTimeout("listWorldBooks", {}, sessionId);
 		const tag = function (row, source) { return Object.assign({}, row, { key: wbSourceKey(source), source: source }); };
 		const standalone = (result && Array.isArray(result.standalone) ? result.standalone : []).map(row => tag(row, { kind: "standalone", path: row.path }));
-		const embedded = (result && Array.isArray(result.embedded) ? result.embedded : []).map(row => tag(row, { kind: "card", cardPath: row.cardPath }));
+		const cardRows = (result && Array.isArray(result.embedded) ? result.embedded : []).map(row => tag(row, { kind: "card", cardPath: row.cardPath }));
+		// 人物卡内置的世界书属于它那张卡：本局用的是别的卡，就不该在这里看见。
+		// 宿主没带回会话卡（老版本、或这一局没有卡）时保持原样，全部列出。
+		const scoped = Boolean(result && typeof result.sessionCardPath === "string");
+		const embedded = scoped ? cardRows.filter(row => row.cardPath === result.sessionCardPath) : cardRows;
 		return { standalone: standalone, embedded: embedded, all: standalone.concat(embedded) };
 	}
 
