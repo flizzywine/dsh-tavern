@@ -1752,3 +1752,81 @@ test('加载器来源：宿主/profile 条目加载的插件是全局；Tavern g
   await assert.rejects(caller(fiber('dsh-tavern-local', 'tavern-user-plugin-spoof')).readCardRaw({ card: 'cards/b.json' }), { code: 'TAVERN_PLUGIN_SCOPE' })
   await assert.rejects(caller(hostLocal).readCardRaw({ card: 'cards/b.json' }), { code: 'TAVERN_PLUGIN_SCOPE' })
 })
+
+test('owner-bound read declarations revoke snapshots on update, unregister and fiber unload', { skip: !cordis }, async t => {
+  const h = await harness(t)
+  const seen = []
+  const trusted = { owner: 'reader-a', name: 'archive', sessionId: 'game-1', consumer: { id: 'worker' },
+    anchor: { branchId: 'branch-a', turn: 3, para: 2 }, scope: { chatId: 'chat-1', contact: 'actor-7' },
+    readHistory: async context => context }
+  assert.equal(await h.api.resolveReadCapability(trusted), null)
+  assert.equal(h.api.service.resolveReadCapability, undefined)
+  let a, b, service
+  const definition = enabled => ({ sources: [{ name: 'raw', readRaw: async context => { seen.push(context); return 'raw' } }],
+    authorize: ({ sessionId, consumer, scope }) => enabled && sessionId === 'game-1' && consumer.id === 'worker' && scope.contact === 'actor-7' })
+  const first = await h.root.plugin({ name: 'reader-a', inject: ['tavern'], apply(ctx) {
+    service = ctx.tavern
+    a = service.readCapability({ name: 'archive', ...definition(true) })
+    assert.throws(() => service.readCapability({ name: 'archive', ...definition(true) }), /already registered/)
+  } })
+  await h.root.plugin({ name: 'reader-b', inject: ['tavern'], apply(ctx) {
+    b = ctx.tavern.readCapability({ name: 'archive', ...definition(true) })
+    assert.throws(() => ctx.tavern.readCapability({ name: 'reader-a:archive', ...definition(true) }))
+  } })
+  const view = await h.api.resolveReadCapability(trusted)
+  const other = await h.api.resolveReadCapability({ ...trusted, owner: 'reader-b' })
+  assert.deepEqual(view.sources, ['reader-a:archive:raw'])
+  assert.deepEqual(other.sources, ['reader-b:archive:raw'])
+  const query = { args: { sourceId: view.sources[0], turn: 3, para: 2 } }
+  assert.equal(await view.readSource({ ...query, sessionId: 'evil', consumer: { id: 'evil' }, anchor: { turn: 99 }, scope: {} }), 'raw')
+  assert.deepEqual(seen[0], { sessionId: trusted.sessionId, anchor: trusted.anchor, scope: trusted.scope, args: query.args, signal: undefined })
+  assert.throws(() => other.readSource(query), /not authorized/)
+  assert.throws(() => view.readSource({ args: { ...query.args, consumer: 'evil' } }), /unsupported/)
+  assert.throws(() => view.readSource({ args: { ...query.args, turn: 4 } }), /anchor/)
+  assert.throws(() => view.readSource({ args: { ...query.args, para: 3 } }), /anchor/)
+  assert.equal(await h.api.resolveReadCapability({ ...trusted, consumer: { id: 'stranger' } }), null)
+  assert.equal(await h.api.resolveReadCapability({ ...trusted, scope: { contact: 'other' } }), null)
+  assert.equal(seen.length, 1)
+  assert.equal((await view.readHistory({ args: { query: 'hello' }, sessionId: 'evil' })).sessionId, 'game-1')
+  a.update(definition(false))
+  a.update(definition(true)) // No resolver observes the intermediate disabled state.
+  await assert.rejects(view.readSource(query), { code: 'TAVERN_PLUGIN_READ_REVOKED' })
+  await assert.rejects(view.readHistory({ args: {} }), { code: 'TAVERN_PLUGIN_READ_REVOKED' })
+  const reopened = await h.api.resolveReadCapability(trusted)
+  assert.notEqual(reopened.generation, view.generation)
+  a.update(definition(false))
+  assert.equal(await h.api.resolveReadCapability(trusted), null)
+  a.update(definition(true))
+  const beforeRevoke = await h.api.resolveReadCapability(trusted)
+  a.revoke()
+  await assert.rejects(beforeRevoke.readSource(query), { code: 'TAVERN_PLUGIN_READ_REVOKED' })
+  assert.throws(() => a.update(definition(true)), { code: 'TAVERN_PLUGIN_READ_REVOKED' })
+  a = service.readCapability({ name: 'archive', ...definition(true) })
+  const registeredAgain = await h.api.resolveReadCapability(trusted)
+  assert.notEqual(registeredAgain.generation, beforeRevoke.generation)
+  await first.dispose(); await tick()
+  assert.equal(await h.api.resolveReadCapability(trusted), null)
+  await assert.rejects(registeredAgain.readSource(query), { code: 'TAVERN_PLUGIN_READ_REVOKED' })
+  assert.equal(await other.readSource({ args: { sourceId: other.sources[0], turn: 1 } }), 'raw')
+  b.revoke()
+})
+
+test('read declaration update rejects in-flight results and pending authorizations', { skip: !cordis }, async t => {
+  const h = await harness(t)
+  let handle, finish, allow
+  const input = { owner: 'reader', name: 'archive', sessionId: 'game-1', consumer: 'worker', anchor: { turn: 3 }, scope: {}, readHistory: async () => 'history' }
+  const sources = [{ name: 'raw', readRaw: () => new Promise(resolve => { finish = resolve }) }]
+  await h.root.plugin({ name: 'reader', inject: ['tavern'], apply(ctx) {
+    handle = ctx.tavern.readCapability({ name: 'archive', sources, authorize: () => true })
+  } })
+  const view = await h.api.resolveReadCapability(input)
+  const pending = view.readSource({ args: { sourceId: view.sources[0], turn: 1 } })
+  handle.update({ sources, authorize: () => new Promise(resolve => { allow = resolve }) })
+  finish('late')
+  await assert.rejects(pending, { code: 'TAVERN_PLUGIN_READ_REVOKED' })
+  const resolving = h.api.resolveReadCapability(input)
+  await tick()
+  handle.revoke()
+  allow(true)
+  assert.equal(await resolving, null)
+})

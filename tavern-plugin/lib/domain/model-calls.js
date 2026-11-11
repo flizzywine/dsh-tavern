@@ -55,6 +55,9 @@ export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, se
     }))
     return groups.filter(function (group) { return group.models.length > 0 })
   }
+  // Optional tools use SDK ToolDefinition / ToolCallBlock shapes. onToolCall(call, {signal})
+  // returns {content: ContentBlock[], isError?}; thrown errors become repairable tool results.
+  // maxToolCalls (default 8) counts attempted calls across rounds; overflow rejects the batch.
   async function callModel(opts) {
     opts.signal?.throwIfAborted()
     const sel = opts.selection || (opts.background === true ? backgroundModelSelection(await backgroundConfigForSession(opts.sessionId)) : modelSelection(opts.sessionId))
@@ -64,34 +67,84 @@ export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, se
     // Codex Responses API 不接受 temperature；其他模型仍保留候选温度阶梯。
     if (typeof opts.temperature === 'number' && sel.provider !== 'openai-codex') cfg.temperature = opts.temperature
     if (typeof opts.maxTokens === 'number') cfg.maxTokens = opts.maxTokens
-    const prepared = await llm.prepareCall(cfg, opts.signal)
+    const withTools = Array.isArray(opts.tools) && opts.tools.length > 0
+    if (withTools && typeof opts.onToolCall !== 'function') throw new Error('工具调用需要 onToolCall')
+    const maxToolCalls = opts.maxToolCalls ?? 8
+    if (withTools && (!Number.isSafeInteger(maxToolCalls) || maxToolCalls < 0)) throw new Error('maxToolCalls 必须是非负整数')
+    const sdk = withTools ? await import('@deepseek-ai/dsh-llm') : null
+    let prepared = await llm.prepareCall(cfg, opts.signal)
     opts.signal?.throwIfAborted()
     const options = Object.assign({}, prepared.config, { messages: identifyHelperModelMessages(opts.messages), system: opts.system }, opts.signal ? { signal: opts.signal } : {})
-    let text = ''
-    let finish = null, usage = null
-    try {
-      for await (const chunk of prepared.stream(options)) {
+    if (withTools) options.tools = opts.tools
+    // Each prepared call is single-use; retain the first resolved controls, not its stream.
+    const roundConfig = { ...prepared.config }
+    let toolCalls = 0
+    let totalUsage = null
+    for (;;) {
+      const assembled = withTools ? new sdk.BlockAssembler() : null
+      let text = ''
+      let finish = null, usage = null
+      try {
+        for await (const chunk of prepared.stream(options)) {
+          opts.signal?.throwIfAborted()
+          opts.onChunk?.(chunk)
+          assembled?.push(chunk)
+          if (chunk.type === 'text-delta') { text += chunk.text; opts.onText?.(chunk.text) }
+          else if (chunk.type === 'finish') finish = chunk.reason
+          else if (chunk.type === 'usage') usage = chunk.usage
+        }
+      } catch (err) {
         opts.signal?.throwIfAborted()
-        opts.onChunk?.(chunk)
-        if (chunk.type === 'text-delta') { text += chunk.text; opts.onText?.(chunk.text) }
-        else if (chunk.type === 'finish') finish = chunk.reason
-        else if (chunk.type === 'usage') usage = chunk.usage
+        throw new Error('模型流失败: ' + (err && (err.message || err.code) || err))
       }
-    } catch (err) {
       opts.signal?.throwIfAborted()
-      throw new Error('模型流失败: ' + (err && (err.message || err.code) || err))
+      if (finish !== null && finish !== undefined && (finish.kind === 'error' || finish.kind === 'aborted')) {
+        const f = finish.failure
+        throw new Error('模型调用失败: ' + (f !== undefined && f !== null ? (f.message || f.code) : finish.kind))
+      }
+      if (finish !== null && finish !== undefined && finish.kind === 'max-tokens') {
+        throw new Error('模型输出达到 token 上限')
+      }
+      if (withTools) {
+        if (usage) {
+          totalUsage ??= {}
+          for (const key of ['inputTokens', 'outputTokens', 'totalTokens', 'cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens']) {
+            if (usage[key] !== undefined) totalUsage[key] = (totalUsage[key] || 0) + usage[key]
+          }
+        }
+        const message = assembled.message({ provider: roundConfig.provider, model: roundConfig.model,
+          ...(assembled.replayState === undefined ? {} : { replayState: assembled.replayState }) })
+        const calls = message.content.filter(block => block.type === 'tool-call')
+        if (calls.length) {
+          if (toolCalls + calls.length > maxToolCalls) throw new Error('工具调用已达上限')
+          options.messages.push(message)
+          for (const call of calls) {
+            opts.signal?.throwIfAborted()
+            toolCalls++
+            let result
+            try {
+              if (!options.tools.some(tool => tool.name === call.name)) throw new Error('未声明的工具：' + call.name)
+              JSON.parse(call.arguments)
+              result = await opts.onToolCall(call, { signal: opts.signal })
+            } catch (error) {
+              opts.signal?.throwIfAborted()
+              result = { content: [{ type: 'text', text: String(error?.message || error) }], isError: true }
+            }
+            opts.signal?.throwIfAborted()
+            options.messages.push(sdk.createToolResultMessage({ ...result, callId: call.id }))
+          }
+          opts.signal?.throwIfAborted()
+          prepared = await llm.prepareCall(roundConfig, opts.signal)
+          opts.signal?.throwIfAborted()
+          Object.assign(options, prepared.config)
+          continue
+        }
+        usage = totalUsage
+      }
+      const out = text.trim()
+      if (out === '') throw new Error('模型返回为空')
+      return opts.returnUsage ? {output:out,...(usage?{usage}:{})} : out
     }
-    opts.signal?.throwIfAborted()
-    if (finish !== null && finish !== undefined && (finish.kind === 'error' || finish.kind === 'aborted')) {
-      const f = finish.failure
-      throw new Error('模型调用失败: ' + (f !== undefined && f !== null ? (f.message || f.code) : finish.kind))
-    }
-    if (finish !== null && finish !== undefined && finish.kind === 'max-tokens') {
-      throw new Error('模型输出达到 token 上限')
-    }
-    const out = text.trim()
-    if (out === '') throw new Error('模型返回为空')
-    return opts.returnUsage ? {output:out,...(usage?{usage}:{})} : out
   }
 
   return { modelSelection, backgroundModelSelection, tavernModelCatalog, callModel }

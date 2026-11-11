@@ -382,6 +382,7 @@ export function createCandidateGenerator(options) {
       return JSON.stringify({ ok: false, retryable: true, error: '当前候选任务只允许调用 candidate_submit_choices' })
     }
     const callOptions = {
+      ...options.requestAnchor?.(chat, taskRun),
       onPersistentSessionReady: id => taskRun.bindSession(id, { stateOnly: true }),
       preparedWorldbook,
       sessionId: input.sessionId,

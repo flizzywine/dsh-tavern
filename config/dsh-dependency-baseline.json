@@ -56,7 +56,8 @@
     "@deepseek-ai/dsh-subagent"
   ],
   "tavern-plugin/lib/background-agent-task.js": [
-    "@deepseek-ai/dsh-agent"
+    "@deepseek-ai/dsh-agent",
+    "@deepseek-ai/dsh-llm"
   ],
   "tavern-plugin/lib/director-probe.js": [
     "@deepseek-ai/schemastery"
@@ -95,6 +96,9 @@
   ],
   "tavern-plugin/lib/domain/message-source.js": [
     "@deepseek-ai/dsh-system-prompt"
+  ],
+  "tavern-plugin/lib/domain/model-calls.js": [
+    "@deepseek-ai/dsh-llm"
   ],
   "tavern-plugin/lib/domain/session-events.js": [
     "@deepseek-ai/dsh-system-prompt"
