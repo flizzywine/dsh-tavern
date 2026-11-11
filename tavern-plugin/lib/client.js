@@ -35921,7 +35921,7 @@ function tavernFloorHeightRecall(key, width) {
 
             const place = () => {
                 const box = body.getBoundingClientRect();
-                frame.style.cssText = (previousStyle || "") + ";position:fixed!important;inset:auto!important;left:" + box.left + "px!important;top:" + box.top + "px!important;width:" + box.width + "px!important;height:" + box.height + "px!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;box-sizing:border-box!important;border:0!important;border-radius:8px!important;overflow:hidden!important;opacity:1!important;pointer-events:auto!important;background:transparent!important;";
+                frame.style.cssText = (previousStyle || "") + ";position:fixed!important;inset:auto!important;left:" + box.left + "px!important;top:" + box.top + "px!important;width:" + box.width + "px!important;height:" + box.height + "px!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;box-sizing:border-box!important;border:0!important;border-radius:8px!important;overflow:hidden!important;pointer-events:auto!important;";
             };
             let observer, resize, unstack, frameWindow = null;
             const onFrameKey = event => { if (event.key === "Escape") { event.preventDefault(); restore(); } };
