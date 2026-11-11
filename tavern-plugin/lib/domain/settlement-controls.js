@@ -62,7 +62,7 @@ export function createSettlementControls(deps) {
       // merge. CAS the requested fields; on conflict re-read and revalidate the
       // latest body, activity and MVU baseline before trying again.
       const saved = await patchChat(chat.id, chat._storageRevision, [
-        ...(mvuRetry === 'reset' ? [{op:'set',path:['messages',target.messageId,'mvu'],value:target.message.mvu}] : []),
+        ...(mvuRetry === 'reset' ? [{op:'set',path:['messages',target.messageId,'mvu'],value:target.message.mvu}, ...(target.message.stageItems ? [{op:'set',path:['messages',target.messageId,'stageItems'],value:target.message.stageItems}] : [])] : []),
         {op:'set',path:['settleStatus'],value:'pending'}, {op:'set',path:['settleError'],value:null}
       ], { source: 'settlement.retry' })
       if (!saved) continue

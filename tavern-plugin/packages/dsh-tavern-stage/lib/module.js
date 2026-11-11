@@ -19,6 +19,7 @@ import {createModStagePort} from './mod-stage.js'
 import {createModelStreamTiming} from './domain/mods/models.js'
 import {managedConfigStore} from './mod-system-execution.js'
 import {createStageDirector} from './domain/stage-director.js'
+import {finalizeStageItems, invalidateStageItems} from './domain/stage-items.js'
 import {normalizeResourcePath} from '../../../lib/domain/file-resources.js'
 import directorCommands from '../../dsh-presentation-protocol/src/director-commands.cjs'
 import {createAssetEngineSettings} from './asset-engine.js'
@@ -243,6 +244,13 @@ export async function createStageModule(core) {
     writeMessage:(chatId, index, mutate) => updateChatMessage(chatId, index, mutate, {source:'voice-backfill'}),
     runAgent:input => backgroundAgentRunner.run(input), selection:sessionId => modelSelection(sessionId), blocked:chat => core.backgroundBlocked(chat)})
   ctx.effect(() => () => voiceBackfill.dispose(), 'dsh-tavern: voice backfill')
+  // A reply's stage items follow its variable settlement, inside the settlement's own commit.
+  const finalizeItems = (chat, messageId) => {if (chat.messages[messageId]?.stageDirectionAssetPacks?.binding?.items) finalizeStageItems(chat, messageId)}
+  ctx.effect(() => core.settlementParticipants.register('dsh-tavern-stage', {
+    capture:(snapshot, target) => draft => {if (target) finalizeItems(draft, target.messageId)},
+    closed:finalizeItems,
+    retrying:message => {if (message.stageItems) invalidateStageItems(message)}
+  }), 'dsh-tavern: stage settlement participant')
   const stageWorkflow = createStageWorkflow({workflow:core.workflow, chatHeaderForSession:core.chatHeaderForSession,
     dialogueBubbles:core.dialogueBubbles,chatForSession,chatPersistence,stageDirector})
   ctx.effect(() => () => stageWorkflow.dispose(), 'dsh-tavern: stage workflow')

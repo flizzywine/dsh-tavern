@@ -64,6 +64,11 @@ export function createSettlementRun(deps) {
             draft.lastSettle = { ts: Date.now(), posture: stat.postureUpdated, raw: text.slice(0, 200) }
           }
         }
+        if (deps.settlementParticipants) {
+          const participate = await deps.settlementParticipants.capture(snapshot, mvuTarget, mvuResult)
+          const apply = completion.apply
+          completion.apply = (draft, ...args) => { apply(draft, ...args); participate(draft) }
+        }
         const completed = await taskRun.commit(completion)
         if (completed.status === 'missing') return
         if (completed.status === 'stale') {
@@ -71,6 +76,7 @@ export function createSettlementRun(deps) {
           if (await retryStale(completed.chat)) continue
           return
         }
+        if (mvuTarget) deps.settlementParticipants?.settled(snapshot, completed.chat, mvuTarget, mvuResult)
         console.log('dsh-tavern: 结算完成', chatId, '姿势', stat.postureUpdated ? '已更新' : '未更新')
         console.log('dsh-tavern: 结算原始输出:', text.slice(0, 200))
         return
