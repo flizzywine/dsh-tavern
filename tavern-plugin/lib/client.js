@@ -3131,7 +3131,9 @@ window.__ModuleLoader__.load({
 		    return new Proxy({}, { get(_target, key) {
 		        if (!methods.has(key)) methods.set(key, (...args) => (real || (real = create()))[key](...args));
 		        return methods.get(key);
-		    } });
+		    },
+		    // An assigned member replaces that method for every later caller, as on the plain object before.
+		    set(_target, key, value) { methods.set(key, value); return true; } });
 		}
 		const forkForeground = window.forkForeground || (window.forkForeground = lazyForeground(() => createForeground(window, document)));
 		// give every Tavern sidebar tab a meaningful host icon
