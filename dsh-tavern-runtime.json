@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c6ceab2b0667a8a6a6d69b01b3b0325e5760ecb7",
-  "releaseSequence": 1521,
+  "revision": "363312972c84d10296771d518d838984cf23c07b",
+  "releaseSequence": 1522,
   "version": "3.3.0",
   "files": [
     {
@@ -911,13 +911,13 @@
     },
     {
       "path": "tavern-plugin/lib/background-agent-sessions.js",
-      "sha256": "3de9d1861fc1ee4d874b8e46794c0b95b7a653750ccf8dda5e3cabf178484a0f",
-      "size": 32602
+      "sha256": "3ebc46f586f13e27e8bcc72cf11fc65f35c135f3110b0d6aab0ef6874945a3eb",
+      "size": 33516
     },
     {
       "path": "tavern-plugin/lib/background-agent-task.js",
-      "sha256": "d365e148f09f8f74266a71bbf46613b19cc5ab19adb1db0a9378e43fc223e692",
-      "size": 41455
+      "sha256": "4825bb2c3e89f243a897e68d44bdc8bcec154ce05336b3783846e8c348fd382c",
+      "size": 43862
     },
     {
       "path": "tavern-plugin/lib/background-run-ledger.js",
@@ -1208,6 +1208,11 @@
       "path": "tavern-plugin/lib/domain/background-task-coordinator.js",
       "sha256": "d13c7393194315b14da443b7250b698be1ed0568723eb3dd0eaff7bd2f96de2f",
       "size": 29491
+    },
+    {
+      "path": "tavern-plugin/lib/domain/background-task-prompt.js",
+      "sha256": "1cc30eb025edaa9cb2929ea080e360793dce4886fe556900fc076a69189d2034",
+      "size": 5322
     },
     {
       "path": "tavern-plugin/lib/domain/background-tasks.js",
@@ -4006,8 +4011,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "61139c1cb0ea146a79e04af74190350139c9343df81b34005788bda47c537b39",
-      "size": 292265
+      "sha256": "1d407a4f72b8cfd24a687f28663effd2c179bd8fd591cbfb230bb4b5b5d3efd4",
+      "size": 292477
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -8656,9 +8661,9 @@
     }
   ],
   "archive": {
-    "commit": "752b8cc3676c4f0f37e9f0fb47cd2ae937d05058",
+    "commit": "cab01042b41b6b85631e0842dc6a6d523f87d061",
     "path": "runtime.zip",
-    "sha256": "857177966f1f4c10205ad6b58a392a703708a76cff6bacaed1a6c26611931e09",
-    "size": 15386800
+    "sha256": "d341177455aa649f81d560fa179e705904bd87391d094ff608a57dfa09a8739b",
+    "size": 15390160
   }
 }
