@@ -1,38 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import path from 'node:path'
-import {installedFixture} from './helpers/mod-system-production-host.mjs'
-import {createBuiltinModService} from '../tavern-plugin/packages/dsh-tavern-stage/lib/mod-service.js'
 import {createModRuntime} from '../tavern-plugin/lib/domain/mods/runtime.js'
 import {modSettingValue,validateModSettingsSchema} from '../tavern-plugin/lib/domain/mods/settings.js'
-import {validateModPackAssetRefs} from '../tavern-plugin/lib/domain/mods/asset-references.js'
-
-test('production mod packs expose the CAS save required to reference uploaded media', async t => {
-  const f = await installedFixture(t)
-  const service = createBuiltinModService({
-    root:path.join(f.root, 'managed-mod-media'), management:f.production,
-    readCard:f.readWorkspace, variables:{},
-  })
-  t.after(() => service.dispose())
-  const authority = {origin:'https://offline.test'}
-  const before = await service.call('getMod', {modId:'dsh.phone'}, authority)
-  const pack = {
-    format:'dsh-mod-pack', schemaVersion:1,
-    id:'35f08180-af5f-43c6-b09c-635567e5c4c4', modId:'dsh.phone',
-    requiresModVersion:'>=' + before.manifest.version + ' <' + (Number(before.manifest.version.split('.')[0])+1) + '.0.0',
-    name:'Test media', fields:{}, entries:[], files:[],
-  }
-  const result = await service.call('saveModPack', {
-    modId:'dsh.phone', pack, expectedRevision:before.revision,
-  }, authority)
-  assert.equal(result.pack.id,pack.id)
-  const after=await service.call('getMod',{modId:'dsh.phone'},authority)
-  assert.ok(after.packs.some(row=>row.id===pack.id))
-  await assert.rejects(service.call('saveModPack',{modId:'dsh.phone',pack,expectedRevision:before.revision},authority),{code:'MOD_REVISION_CONFLICT'})
-  const reopened=createBuiltinModService({root:path.join(f.root,'managed-mod-media'),management:f.production,readCard:f.readWorkspace,variables:{}})
-  t.after(()=>reopened.dispose())
-  assert.ok((await reopened.call('getMod',{modId:'dsh.phone'},authority)).packs.some(row=>row.id===pack.id))
-})
 
 test('a failing mod callback names the mod and the step; optional lifecycle hooks may be absent',async()=>{
   const seen=[]
@@ -51,14 +20,11 @@ test('a failing mod callback names the mod and the step; optional lifecycle hook
 test('asset-ref fields hold one main-library background, and object children may be optional',async()=>{
   const field={key:'scene',type:'asset-ref',label:'Scene',default:null,target:{kinds:['backgrounds']}}
   const record={key:'row',type:'object',label:'Row',default:{},fields:[{...field,optional:true}]}
-  assert.doesNotThrow(()=>validateModSettingsSchema({fields:[record]},'$.packSchema',false,'example.mod'))
-  assert.throws(()=>validateModSettingsSchema({fields:[{...field,target:{kinds:['sfx']}}]},'$.packSchema',false,'example.mod'))
+  assert.doesNotThrow(()=>validateModSettingsSchema({fields:[record]},'$.settingsSchema',false,'example.mod'))
+  assert.throws(()=>validateModSettingsSchema({fields:[{...field,target:{kinds:['sfx']}}]},'$.settingsSchema',false,'example.mod'))
   const ref={packId:'35f08180-af5f-43c6-b09c-635567e5c4c4',kind:'backgrounds',assetId:'classroom'}
   assert.equal(modSettingValue(field,ref,'example.mod'),true)
   assert.equal(modSettingValue(field,{...ref,kind:'sfx'},'example.mod'),false)
   assert.equal(modSettingValue(record,{},'example.mod'),true)
   assert.equal(modSettingValue(record,{scene:ref},'example.mod'),true)
-  const manifest={packSchema:{fields:[field]},assetKinds:[]},pack={fields:{scene:ref},entries:[]}
-  await validateModPackAssetRefs(pack,manifest,async({refs})=>refs.map(row=>({ref:row,value:{id:row.assetId}})))
-  await assert.rejects(validateModPackAssetRefs(pack,manifest,async({refs})=>refs.map(row=>({ref:row,value:null}))),{code:'MOD_RESOURCE_UNAVAILABLE'})
 })

@@ -1,13 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {join} from 'node:path'
 import {fixture} from './helpers/mod-system-production-host.mjs'
 import {firstPartyDistributions} from '../tavern-plugin/lib/mod-system-distributions.js'
 import {createBuiltinModService} from '../tavern-plugin/packages/dsh-tavern-stage/lib/mod-service.js'
 
 test('startup reads installed mod releases without scanning cards except to reconcile locks',async t=>{
   let scans=0
-  const {production,root}=await fixture(t,{listPaths:async()=>{scans++;return ['card.json']}})
+  const {production}=await fixture(t,{listPaths:async()=>{scans++;return ['card.json']}})
   await production.ready
   assert.equal(scans,0)
   await production.installBuiltins()
@@ -18,7 +17,7 @@ test('startup reads installed mod releases without scanning cards except to reco
   const selected=await production.selection()
   assert.ok(selected.manifests.some(row=>row.id==='dsh.phone'))
   const manifest={id:'dsh.phone'},pack={id:'test-pack'},published=[]
-  const service=createBuiltinModService({root:join(root,'media'),management:production,builtins:{
+  const service=createBuiltinModService({management:production,builtins:{
     catalogue:()=>[manifest],manifest:()=>manifest,assetPacks:()=>[pack]
   }})
   t.after(()=>service.dispose())
