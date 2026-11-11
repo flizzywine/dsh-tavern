@@ -30,6 +30,8 @@ export function stageSkinPreview(document) {
 // A figure's 配音语言 (bubble-line.cjs: its own choice, else its voice's language, else 中文) → its primary language,
 // the only part the dialogue rules compare.
 const figureVoiceLanguage = (figure, pack) => effectiveVoiceLanguage(figure?.voice?.language, pack?.manifest.voiceLibrary?.voices[figure?.voice?.voice]?.language).split('-')[0].toLowerCase()
+// Every figure a card can resolve, enabled or not: the automatic figure writer checks speakers against these rows.
+export const cardFigureRows = ({raw, snapshots, globalEnabledPackIds}) => figureCatalogue({snapshots, bindings:readCardAssetExtension(raw)?.assetBindings, globalEnabledPackIds})
 // Dialogue text is projected from Card Preparation; no card-local media catalogue.
 // services: getTts().listServices(); chooseService: the tts service's sync choice among them (getTts().chooseService) —
 // the source's own serviceId, else the sole service of its provider; none = no voice-direction flag.
