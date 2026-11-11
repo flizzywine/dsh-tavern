@@ -26,7 +26,7 @@ export function createStageClipExport({ctx, deps, stageDirector, modService, car
     extras:async chat => ({fonts:await fonts.listFonts(),live2d:!!(await live2dFiles?.available()),live2dStatus:await live2dFiles?.coreStatus(),
       spine:await spineRuntimeAvailable(),spineStatus:await spineRuntimeStatus(),performanceEnabled:await cardStageSwitch(chat.cardPath,'performance')}),
     readHostAsset:async url => url.pathname.startsWith(FONT_ROUTE) ? clipServedAsset(fonts.serve,url) : null,
-    readWidgets:value => modService.readPhonePresentation(value),
+    readWidgets:value => modService.readSourcePresentation(value),
     performanceKinds:() => modService.performanceKinds(),
     readStageResource:(method,args) => call(method,args,{origin:CLIP_ORIGIN}),
     // Finished clips and the run's scratch (frame streams, two-pass stats, receipts) both live in the Desktop data area.
