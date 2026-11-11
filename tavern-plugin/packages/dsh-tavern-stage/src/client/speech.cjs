@@ -25,13 +25,18 @@ function stageVoiceHandle(sessionId, descriptor, config, paragraphId, availabili
 }
 
 // 旁白配音: the same player, queue, mixer bus and cache as a line; config.narrator exists only while it speaks on this card.
+// In another language (narrator.wholeParagraph) only a paragraph's first card speaks: the paragraph's 配音补译 voice text
+// (its display text once that task failed), held while the task runs; the stage keeps it sounding across the paragraph's
+// later pages (runtime-kernel.cjs PAGE).
 function stageNarratorHandle(sessionId, descriptor, config, paragraphId, availability) {
     if (closed) return null;
     const narrator = config?.narrator;
     if (!narrator || !(availability ?? available())) return null;
-    const owner = sessionId + ':stage', text = descriptor.text, id = JSON.stringify([paragraphId, descriptor.lineIdentity, 'narrator', text, narrator.voiceKey]);
+    if (narrator.wholeParagraph && (descriptor.lineIdentity.at(-1) !== 0 || descriptor.voiceHold && descriptor.speech === undefined)) return null;
+    const text = narrator.wholeParagraph ? descriptor.speech ?? descriptor.paragraphText : descriptor.text, language = narrator.language || 'zh';
+    const owner = sessionId + ':stage', id = JSON.stringify([paragraphId, descriptor.lineIdentity, 'narrator', text, narrator.voiceKey]);
     const selectionKey = JSON.stringify([sessionId, ...descriptor.lineIdentity]);
-    const request = {text, mood:null, owner, id, selectionKey, cacheKey:JSON.stringify([[sessionId, 'narrator', narrator.voiceKey, 'zh', text], selectionKey])};
+    const request = {text, mood:null, owner, id, selectionKey, cacheKey:JSON.stringify([[sessionId, 'narrator', narrator.voiceKey, language, text], selectionKey])};
     const resource = () => readVoice(sessionId,{narrator:true});
     // options.id: a 履历 narration row plays its pages under the row's one id (galBacklogNarration).
     return {...request, narration:true, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request),
