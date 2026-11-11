@@ -40,14 +40,14 @@ export function createQwenAdapter({ fetch: fetchImpl = globalThis.fetch, warn = 
         : upstream === 'InvalidParameter' && body.message === 'Model not exist.' ? 'QWEN_MODEL_NOT_FOUND' : 'QWEN_RESOURCE_NOT_FOUND' : 'QWEN_REQUEST_FAILED';
     warn('[dsh-tts:qwen] HTTP ' + status + ' phase=' + phase + ' code=' + upstream + ' category=' + code);
     const error = new TtsError(code, status);
-    error.message = {QWEN_INVALID_TEXT:'Qwen 文本没有可朗读内容或被服务拒绝，请修改台词后重播',QWEN_MODEL_NOT_FOUND:'Qwen 当前服务无法访问此配音模型（404），请在百炼控制台检查模型开通状态与区域',QWEN_AUDIO_NOT_FOUND:'Qwen 合成音频下载失败（404），请重试',QWEN_RESOURCE_NOT_FOUND:'Qwen 语音服务资源不存在（404），请检查区域、模型与音色',QWEN_BILLING_REQUIRED:'Qwen 配音额度或账户余额不足，请检查阿里云用量与账单',QWEN_AUTH_FAILED:'Qwen API 密钥无效',QWEN_RATE_LIMITED:'Qwen 语音请求过于频繁或达到限额',QWEN_ACCESS_DENIED:'Qwen 配音访问被拒绝，请检查模型权限与账户状态'}[code] || 'Qwen 语音服务请求失败（' + status + '）';
+    error.message = {QWEN_INVALID_TEXT:'通义千问文本没有可朗读内容或被服务拒绝，请修改台词后重播',QWEN_MODEL_NOT_FOUND:'通义千问当前服务无法访问此配音模型（404），请在百炼控制台检查模型开通状态与区域',QWEN_AUDIO_NOT_FOUND:'通义千问合成音频下载失败（404），请重试',QWEN_RESOURCE_NOT_FOUND:'通义千问语音服务资源不存在（404），请检查区域、模型与音色',QWEN_BILLING_REQUIRED:'通义千问配音额度或账户余额不足，请检查阿里云用量与账单',QWEN_AUTH_FAILED:'通义千问 API Key 无效',QWEN_RATE_LIMITED:'通义千问语音请求过于频繁或达到限额',QWEN_ACCESS_DENIED:'通义千问配音访问被拒绝，请检查模型权限与账户状态'}[code] || '通义千问语音服务请求失败（' + status + '）';
     throw error;
   }
   async function request(url, options, phase = 'synthesis') {
     let response
     try { response = await fetchImpl(url, { ...options, redirect: 'error' }) } catch {
       const error = new TtsError(options.signal?.aborted ? options.signal.reason?.name === 'TimeoutError' ? 'TIMEOUT' : 'ABORTED' : 'SERVICE_OFFLINE');
-      error.message = 'Qwen 语音连接失败或请求超时'; throw error;
+      error.message = '通义千问语音连接失败或请求超时'; throw error;
     }
     if (!response.ok) failure(response.status, await response.json().catch(() => ({})), phase);
     return response
@@ -60,8 +60,8 @@ export function createQwenAdapter({ fetch: fetchImpl = globalThis.fetch, warn = 
       const host = provider.config.region === 'intl' ? 'dashscope-intl.aliyuncs.com' : 'dashscope.aliyuncs.com'
       const response = await request('https://' + host + '/compatible-mode/v1/models', { method:'GET', headers:{...(secret.key ? {Authorization:'Bearer ' + secret.key} : {})}, signal:AbortSignal.timeout(10000) }, 'discovery')
       let body
-      try { body = await response.json() } catch { throw new Error('Qwen 模型列表无效') }
-      if (!Array.isArray(body?.data)) throw new Error('Qwen 模型列表无效')
+      try { body = await response.json() } catch { throw new Error('通义千问模型列表无效') }
+      if (!Array.isArray(body?.data)) throw new Error('通义千问模型列表无效')
       // Qwen-Audio uses SpeechSynthesizer and a different voice list (Bella is rejected).
       // Do not offer it through this Qwen3 transport, or reintroduce the unavailable instruct model.
       const models = body.data.filter(m => typeof m?.id === 'string' && /^qwen3-tts-flash(?:-\d{4}-\d{2}-\d{2})?$/.test(m.id)).map(m => ({id:m.id,label:m.id,instruct:false}))
@@ -88,9 +88,9 @@ export function createQwenAdapter({ fetch: fetchImpl = globalThis.fetch, warn = 
       const result = await response.json()
       if (result.code) failure(response.status, result)
       let url
-      try { url = new URL(result.output?.audio?.url) } catch { throw new Error('Qwen 未返回有效的音频地址') }
+      try { url = new URL(result.output?.audio?.url) } catch { throw new Error('通义千问未返回有效的音频地址') }
       // The official examples return signed http:// OSS URLs; the key is never sent there.
-      if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('Qwen 未返回有效的音频地址')
+      if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('通义千问未返回有效的音频地址')
       // Download only the returned URL, without forwarding the API key or following redirects.
       return qwenWav(await (await request(url.href, { signal }, 'audio')).arrayBuffer())
     }
