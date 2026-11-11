@@ -1,2 +1,3 @@
-Revise the previous image according to the following correction. Preserve the approved subject, identity, outfit, framing and all details unrelated to this correction.
-<note>
+
+REDRAW CORRECTION from the user, to apply in this image: <note>
+Change only what this correction asks. Keep identity, outfit, art style, framing and transparency exactly as specified above.
