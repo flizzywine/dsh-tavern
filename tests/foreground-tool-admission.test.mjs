@@ -35,7 +35,7 @@ test('native host adapter receives only the approved foreground tools', { skip: 
     turnOrchestrator: { modeFor: async () => 'story' }, ensureNativeSystemPrefix: async () => {},
     publishResourceWorkspace: async () => null, readChatCard: async () => ({}),
     nativeWorldBookTemplateContext: async () => ({}), runtimePrompt: () => '',
-    clearRuntimePresetRequestState() {}, userMessageForTurn: () => null, contentText: () => '', foregroundHandoff: { end() {} }
+    clearRuntimePresetRequestState() {}, userMessageForTurn: () => null, contentText: () => '', foregroundHandoff: { end() {}, awaitOpening: async () => {} }
   })
   registerModelStreamHooks({ ctx: h.ctx, foregroundStrategies: strategies,
     backgroundAgentRunner: { owns: () => false, requestContext: () => undefined },

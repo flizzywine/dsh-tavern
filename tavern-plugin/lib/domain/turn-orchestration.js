@@ -1080,8 +1080,11 @@ export function createTurnOrchestrator(options) {
     // attempt is cleaned by regenerationRecovery.abort(), without touching the
     // old body, later inputs or their variables.
     if (chat.regenInProgress === true && chat.regenRecovery?.candidateFrame?.kind === 'foreground') return false
+    const turn = Math.max(0, Number(input.turn) || 0)
+    // The turn's own check names its failure first; the turn end then reports the same one.
+    if (chat.foregroundError && Number(chat.foregroundError.turn) === turn) return false
     chat.foregroundError = {
-      turn: Math.max(0, Number(input.turn) || 0),
+      turn,
       requestId: str(input.requestId).trim(),
       code: str(input.code).trim() || 'foreground-failed',
       message: str(input.message).trim() || '前台正文生成失败，请重新生成本轮正文。',

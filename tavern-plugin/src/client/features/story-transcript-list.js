@@ -372,13 +372,17 @@ function createTavernStoryTranscriptFeature(deps) {
 				role: 'status'
 			}, props.emptyLabel || '还没有故事内容')
 		}
+		// A failed round keeps its input as the last row; the reason stands right under it
+		// (its withdraw and regenerate actions are the tail buttons below the transcript).
+		const failure = !generating && rows.at(-1)?.role === 'user' && props.view?.foregroundError?.message
 		return h(React.Fragment, null, rows.map(function (row) {
 			const renderKey = row.requestId ? 'request:' + row.requestId : row.key
 			return h(StoryTranscriptRow, { key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
 				sessionId: sessionId, view: projectionView, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
 				showPlayProcess: props.showPlayProcess, latest: row === latest, latestTurn: latest?.legacyTurn, readAloudState,
 				host: row === latest ? props.host : null, turnFooter: props.turnFooter })
-		}))
+		}), failure ? h('div', { key: 'foreground-error', className: 'dsh-tavern-story-transcript-row dsh-tavern-story-error', role: 'alert' },
+			h('span', null, '\u26a0 ' + failure)) : null)
 	}
 
 	function useStoryController(store, sessionId, controllerOptions) {

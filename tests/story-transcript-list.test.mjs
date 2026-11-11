@@ -250,3 +250,17 @@ test('缓存会话快照按目标读取，不从当前槽继承', async t => {
 	assert.equal(store.snapshotFor('s1', null).transcript.messages[0].message.text, '开场正文')
 	assert.equal(store.snapshotFor('missing', null).status, 'idle', '没有缓存的会话不从 s2 继承正文')
 })
+
+test('a failed round shows its reason under the kept input, and only while that input is the tail', async t => {
+	const page = createPage(t)
+	const feature = page.context.createTavernStoryTranscriptFeature()
+	const failed = story([{ role: 'assistant', greeting: true, turn: 1, text: '开场' }, { role: 'user', text: '叫我陈默' }])
+	const view = { mode: 'story', foregroundError: { turn: 3, message: '这一轮没有生成正文：API error (400)' } }
+	const root = await mount(page, React.createElement(feature.StoryTranscriptList, { transcript: failed, view, sessionId: 's' }))
+	const alert = page.dom.window.document.querySelector('[role="alert"]')
+	assert.equal(alert.textContent, '⚠ 这一轮没有生成正文：API error (400)')
+	assert.ok(page.dom.window.document.querySelector('[data-story-row]:last-of-type').compareDocumentPosition(alert) & page.dom.window.Node.DOCUMENT_POSITION_FOLLOWING)
+	// A retry is running: the reason leaves with the failure.
+	await act(async () => root.render(React.createElement(feature.StoryTranscriptList, { transcript: failed, view, sessionId: 's', running: true })))
+	assert.equal(page.dom.window.document.querySelector('[role="alert"]'), null)
+})
