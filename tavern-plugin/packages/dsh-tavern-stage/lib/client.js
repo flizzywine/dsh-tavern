@@ -11178,7 +11178,8 @@ return {usePlayback,dispose(){
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStagePlayback};
 
         // Reads the plugin's existing session state; no duplicate observation or player state.
-function createStageRuntimeUi({React,sessions,kernel,performances,report=error=>console.warn('Stage performance kinds unavailable:',error)}) {
+// skipShows: kind => whether a stage feature shows that kind of its own while skipping (features.cjs skipShows).
+function createStageRuntimeUi({React,sessions,kernel,performances,skipShows=()=>false,report=error=>console.warn('Stage performance kinds unavailable:',error)}) {
 let closed=false;
 const selectors=new Set();
 function track(selector){
@@ -11213,7 +11214,7 @@ function useStagePerformanceKinds(sessionId,store) {
         let active=true;
         performances.read(sessionId).then(value=>{
             if(!active || closed)return;
-            const kinds=performances.registry([{owner:'core',performances:performances.core},...value.kinds]).list();
+            const kinds=performances.registry([{owner:'core',performances:performances.core},...value.kinds]).list().map(row=>skipShows(row.kind)?{...row,skipShows:true}:row);
             store.dispatch({type:'SESSION_INPUTS',performanceKinds:kinds});
             setRead({sessionId,replayable:kinds.filter(row=>row.replay.stage).map(row=>row.kind)});
         }).catch(error=>{
