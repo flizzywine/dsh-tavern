@@ -737,7 +737,7 @@ function VoiceTry({said,setText,state,binding,onPlay,disabled,children}) {
 // re-read on its events; point(role, ref|null) writes one through setReading (the plugin checks it once there).
 const READING_ROLES=[{id:'general',label:'通用声音'},{id:'narrator',label:'旁白声音'}];
 const samePointer=(a,b)=>!!a&&!!b&&a.packId===b.packId&&a.figureId===b.figureId;
-// What a delete confirmation adds about 通用声音 / 旁白声音: the 系统设置包 (dsh-presentation-protocol/src/system-pack.cjs) is rebuilt from its default, so
+// What a delete confirmation adds about 通用声音 / 旁白声音: the 系统设置包 (system-pack.cjs in the presentation protocol package) is rebuilt from its default, so
 // the edits go (its own figures have no 删除人物); any other pack or figure they point at leaves them silent.
 const readingUsers=(reading,packId,figureId)=>READING_ROLES.filter(r=>{const f=reading?.[r.id]?.figure;return !!f&&f.packId===packId&&(figureId===undefined||f.figureId===figureId);}).map(r=>r.label);
 const readingLossText=(reading,packId,figureId)=>{
