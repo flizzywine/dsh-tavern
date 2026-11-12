@@ -11,7 +11,7 @@ import {writeZip} from '../tavern-plugin/packages/dsh-asset-library/src/zip.js'
 import {sealPack,jsonBytes} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/validation.js'
 import {figureRefTtsVoice} from '../tavern-plugin/lib/domain/figure-voice.js'
 import {syntheticPack,PACK_ID,FIGURE_ID} from './fixtures/asset-packs/pack.mjs'
-import {setupSystemVoices, ensureSystemPack, systemPackKeeper} from '../tavern-plugin/packages/dsh-tavern-stage/lib/system-pack.js'
+import {setupSystemVoices, ensureSystemPack} from '../tavern-plugin/packages/dsh-tavern-stage/lib/system-pack.js'
 import systemPack from '../tavern-plugin/packages/dsh-presentation-protocol/src/system-pack.cjs'
 import {validateCardStage} from '../tavern-plugin/lib/domain/card-stage-settings.js'
 
@@ -111,17 +111,6 @@ test('a deleted 系统设置包 comes back under the same ids with its defaults,
   assert.equal(pack.manifest.name, SYSTEM_PACK.name)
   const effective = {serviceId:'browser', serviceRevision:'1', capabilities:{}}
   for (const role of ['general', 'narrator']) assert.ok(await figureRefTtsVoice(f.library, {apiVersion:1, resolveVoiceService:async () => ({effective, issues:[]})}, tts.reading()[role].figure), 'the old pointer speaks again')
-})
-test('one keeper run at a time; a change during a run asks for exactly one more', async () => {
-  let runs = 0, release
-  const keep = systemPackKeeper(() => { runs++; return new Promise(resolve => { release = resolve }) })
-  const first = keep(); keep(); keep()
-  await Promise.resolve(); await Promise.resolve()
-  assert.equal(runs, 1)
-  release(['x']); assert.deepEqual(await first, ['x'])
-  await new Promise(resolve => setTimeout(resolve, 0))
-  assert.equal(runs, 2, 'the asks during the run became one more run')
-  release([])
 })
 test('a pointed figure speaks with its own voice in its own 配音语言; none = the browser; one gone = VOICE_NOT_FOUND', async t => {
   const {library, snapshot} = await fixture(t), effective = {serviceId:'local', serviceRevision:'1', capabilities:{}}

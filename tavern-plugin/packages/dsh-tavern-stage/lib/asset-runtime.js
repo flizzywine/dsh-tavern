@@ -7,7 +7,7 @@ import { assetRefKey, resolveAssetSnapshot } from '../../dsh-presentation-protoc
 
 import { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
 import { migrateServiceSourceModels } from './service-model-migration.js'
-import { setupSystemVoices, ensureSystemPack, systemPackKeeper, isSystemPackEvent } from './system-pack.js'
+import { setupSystemVoices } from './system-pack.js'
 export { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
 
 // The authenticated Tavern carrier owns sessions; pack services own bytes and leases.
@@ -27,14 +27,11 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
     for (const listener of listeners) listener(cardPath,event)
     onInvalidate(cardPath,event)
   }
-  // The 系统设置包 is kept whole one run at a time: at startup and after any change to it (an entry or the whole pack
-  // deleted), what is missing is rebuilt from its default at once (system-pack.js).
-  const keepSystemPack = systemPackKeeper(() => ensureSystemPack(service()))
   // the Fish / MiniMax model moves once from 配音后端 to each figure's source (service-model-migration.js).
   ctx.inject(['assetLibrary', 'tts'], child => { migrateServiceSourceModels({library:child.get('assetLibrary'), tts:child.get('tts')})
     .then(done => done && ctx.logger.info('service model migration %s', JSON.stringify(done)), error => ctx.logger.warn('service model migration failed: %s', error?.code || error?.message))
     // The 系统设置包 is made whole and 通用声音 / 旁白's retired reading voices move onto its figures (system-pack.js).
-    setupSystemVoices({library:child.get('assetLibrary'), tts:child.get('tts'), ensure:keepSystemPack})
+    setupSystemVoices({library:child.get('assetLibrary'), tts:child.get('tts')})
       .then(done => done && ctx.logger.info('system pack setup %s', JSON.stringify(done)), error => ctx.logger.warn('system pack setup failed: %s', error?.code || error?.message)) })
   for (const name of ['assetLibrary', 'assetPackSettings', 'tts']) ctx.inject([name], child => {
     const lifecycle = reason => {
@@ -45,7 +42,6 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
     const off = child.get(name)?.subscribe?.(event => {
       // A pack 通用声音 / 旁白 point at changed: the same as a readingChanged (their figure may be in no card's packs).
       if (name !== 'tts') {
-        if (name === 'assetLibrary' && isSystemPackEvent(event) && service()) keepSystemPack().then(created => created.length && ctx.logger.info('system pack rebuilt %s', created.join(',')), error => ctx.logger.warn('system pack rebuild failed: %s', error?.code || error?.message))
         if (name === 'assetLibrary' && pointsAt(event.packId)) for (const entry of consumers.values()) {entry.speech?.dispose(); entry.speech = null}
         clear(undefined,{kind:event.revision === null ? 'revoked' : 'refresh',scope:{packId:event.packId},reason:'service-event'})
       }

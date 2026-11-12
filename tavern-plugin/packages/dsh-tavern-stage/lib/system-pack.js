@@ -1,6 +1,6 @@
 // The 系统设置包 (dsh-presentation-protocol/src/system-pack.cjs): the host keeps it whole. A missing pack or system figure is
 // created again from its default (fixed ids, so 通用声音 / 旁白声音's pointers at them stay valid); what exists is never
-// rewritten, so the owner's edits stay. Runs at startup and again whenever the library reports a change to that pack.
+// rewritten, so the owner's edits stay. Runs at startup only: what the owner deleted comes back at the next start.
 import systemPack from '../../dsh-presentation-protocol/src/system-pack.cjs'
 import { migrateReadingVoices } from './reading-voice-migration.js'
 
@@ -31,15 +31,3 @@ export async function setupSystemVoices({library, tts, ensure = () => ensureSyst
   if (Object.keys(patch).length) await tts.setReading(patch)
   return created.length || migrated || Object.keys(patch).length ? {created, migrated, pointed:Object.keys(patch)} : null
 }
-
-// One run at a time; a change during a run asks for one more (a caller during a run gets that run's result).
-export function systemPackKeeper(run) {
-  let running = null, again = false
-  const tick = () => {
-    if (running) { again = true; return running }
-    running = Promise.resolve().then(run).finally(() => { running = null; if (again) { again = false; tick() } })
-    return running
-  }
-  return tick
-}
-export const isSystemPackEvent = event => event?.packId === SYSTEM_PACK.id

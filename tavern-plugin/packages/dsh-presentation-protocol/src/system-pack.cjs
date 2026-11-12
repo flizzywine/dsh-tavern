@@ -6,7 +6,7 @@
 const SYSTEM_PACK = Object.freeze({
   id:'a6048e6c-e74d-4ef8-ab6f-1162d97659ed',
   name:'系统设置（请勿删除）',
-  description:'系统自己要用的兜底素材：通用声音和旁白声音用的就是这里的人物，可以改它们的声音。删掉这个包会按默认内容重建，改过的声音会丢失。这个包不用对卡启用。',
+  description:'系统自己要用的兜底素材：通用声音和旁白声音用的就是这里的人物，可以改它们的声音。删掉这个包，下次启动时会按默认内容重建，改过的声音会丢失。这个包不用对卡启用。',
 });
 // The figures: role → fixed figure id; their default voice is the browser's own, read in 中文.
 const SYSTEM_FIGURES = Object.freeze({
