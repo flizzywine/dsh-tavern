@@ -71,7 +71,7 @@ function merged(character, patch) {
   return next
 }
 
-export function createCharacterLibrary({ getDefinitions, updateDefinitions, normalizeCharacter, traitKeys, putImage }) {
+export function createCharacterLibrary({ getDefinitions, updateDefinitions, normalizeCharacter, traitKeys, putImage, readImage }) {
   const snapshot = character => ({ version: CHARACTER_LIBRARY_VERSION, character: structuredClone(character) })
   function find({ characterId, figureId, figurePackId } = {}, definitions = getDefinitions()) {
     if (Boolean(characterId) === Boolean(figureId) || characterId && typeof characterId !== 'string' || figureId && typeof figureId !== 'string') throw fail('INVALID_ARGUMENT', '请只给 characterId 或 figureId 其中一个')
@@ -123,6 +123,11 @@ export function createCharacterLibrary({ getDefinitions, updateDefinitions, norm
     async putReferenceImage({ data, mediaType, name } = {}) {
       if (!(data instanceof Uint8Array)) throw fail('INVALID_ARGUMENT', 'data 必须是图片字节')
       return await putImage({ data: Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('base64'), mediaType, name })
+    },
+    /** A stored descriptor (referenceImage / characterOutfitImage) → its bytes, so a host can carry an uploaded reference along. */
+    async readReferenceImage({ referenceImage } = {}) {
+      const { data, mediaType } = await readImage(referenceImage)
+      return { data: new Uint8Array(data), mediaType }
     },
   }
 }
