@@ -1,12 +1,3 @@
-import { promptSection } from './prompt-section.js'
-
-// Prompt prose source. Keys are stable; interpolation arguments are data.
-export const PROMPT_PROSE = Object.freeze({
-  p001: "Current ledger (settled):\n",
-  p002: "Play ledger, updated through turn ",
-  p003: " (this turn only, for checking items, characters and places; the story text wins on conflict; omitted counts entries left out for space, not deleted):\n"
-})
-
 /** Generic ledger fields and selection rules informed by ST-BaiBai-Book.
  * Reference: docs/research/baibai-book-ledger-2026-09-09.md.
  * Persistence and rollback belong to Tavern's Story Timeline, not ST message extras.
@@ -69,15 +60,17 @@ export const LEDGER_SUBMIT_TOOL = Object.freeze({
   description: '提交本批正文确认的物品、角色和地点更新。只输出涉及的条目；出场人物的性格和关系按当前事实核对重写，无变化也须提交 {}。物品 add.qty 为新增数量，update.qty 为变更后的总数。只记账，不改变剧情或人物卡变量。',
   parameters: { type: 'object', additionalProperties: false, properties: { location: { type: 'string' }, locationPath: { type: 'array', items: { type: 'string' }, minItems: 1 }, ...groups } }
 })
-export const LEDGER_RULES = `## Ledger upkeep
-In this background agent, keep the items, characters and places ledgers and submit with ledger_submit. Record only facts the latest story text confirms; the player's plans, choices and hidden reasoning are not facts. Submit {} if nothing changed. Finish the ledger before submitting posture or variables, and work within this agent.
-The current ledger is settled. Submit only this batch's new item quantities and movements; review the current personality and relationships of characters appearing in this batch. Unmentioned old entries stay, so don't record them twice. add/update/remove reuse existing names and places reuse the full path; aliases of one thing share one entry.
-- Items: only things deliberately obtained and kept, with story use or emotional meaning; ordinary surroundings, everyday food and worn clothes stay off. add.qty for new quantities, update.qty for the remaining total after partial use, remove when used up; add nothing unshown. carried=true by default; carried=false with location only when explicitly stored. Update fields on retrieval or transfer.
-- Characters: only key characters with meaningful interaction or repeated mentions; no one-off staff or passers-by, and never the player in npcs. title is their role. For characters appearing in this batch, review and rewrite personality, relation and ties against established facts and this batch, rather than appending a change to an obsolete conclusion. Unchanged facts may stay; invent nothing to fill space. personality is usually 60-120 Chinese characters: stable traits, supporting behavior and known vulnerabilities or boundaries; keep it shorter when evidence is scarce, without guessing hidden feelings. relation records the current relationship, trust or caution, affection and boundaries with the player; cite the turn and event for a qualitative change. Neither infer love from one friendly moment nor preserve an early debt after explicit love over several turns. ties describes each known relationship with other characters, attitudes and evidence for changes; leave unknown relations empty and do not force symmetry. Keep appearance desc and personality apart from current outfit and condition. Record outfit on first entry when the story establishes it, then update changes. Main leads important=true; companions follow=true, otherwise record location. Temporary departures stay listed.
-- Places: named places actually reached and concretely described; path runs largest to smallest, and the map grows only with the story. Give desc on add; updates keep old key points. Hierarchy changes use reparent with node (old path) and newPath (new path); child places move along. location is the current position; locationPath points to a recorded place; with no fitting place, update only location.
-Keep items.desc within about 25 Chinese characters and scenes.desc within about 60 when possible: distinguishing features, uses or environmental state, not a plot log. Preserve essential information and compact only entries touched by this batch.
-No full rewrite needed. Invent no numbers, relationships or post-departure changes. MVU variables and character design files keep their own tasks; the ledger never edits them.`
-export function ledgerContext(value) { return promptSection('current_ledger', PROMPT_PROSE.p001 + JSON.stringify(readLedger(value))) }
+export const LEDGER_RULES = `【台账维护】
+在当前后台 Agent 内维护物品、角色、地点三类台账，调用 ledger_submit 提交。只整理最新正文确认发生的事实；玩家的打算、候选项和隐藏思考不算事实。无变化提交 {}。先完成台账，再提交姿势或变量；不要创建其他 Agent。
+当前台账是已经结算的状态。物品数量、移动等事实只提交本批新变化，不重复记账；人物的性格和关系按下述规则核对当前状态。只输出本批剧情涉及的条目，未提及的旧条目保留，不要为了保持完整而重抄全表。add/update/remove 均复用已有名称，地点复用完整 path；同一实体的别称不要另建条目。
+物品：只收录主动获得并保留、有剧情用途或情感意义的东西。普通环境摆设、日常食品和当前穿着不进入物品清单。新增数量用 add.qty，部分消耗用 update.qty 写剩余总数，用尽用 remove；不要凭空补充。默认 carried=true；明确寄存才 carried=false 并给 location。取回或转移时更新相应字段。
+角色：只登记有重要互动或反复提及的关键人物，不登记一次性服务人员和路人，也不将玩家本人写入 npcs。title 是身份。对本批实际出场的人，结合已有事实与本批经历，按“现在”核对并重写 personality、relation、ties，不要只追加一句变化而留下过时结论；事实未变可保留，不得为凑字数编造。
+personality 通常 60–120 字：稳定底色、能作证的行为、已知的软肋或雷区，不能仅写三五个形容词；证据不足时如实简写，不推测未知心理。relation 写与玩家当前的关系、信任或戒备、情感与边界；有质变时写明第几轮、什么事件使其改变，既不能因一次友善推断相爱，也不能在多轮明确相爱后仍沿用早期欠情。ties 按对象逐一写与其他人物的关系、态度和变化依据；有已知关系就记，无证据时可空，不凭空补亲友或强行双向对称。
+外貌 desc、性格 personality 与当前 outfit、condition 分开。首次登记时，正文有衣着依据就写 outfit，后续有变化再更新。核心主演 important=true；同行 follow=true，否则记录 location。暂时离场不删除。
+地点：记录有名字、实际到达、具有具体描述的地方，path 从大到小，不凭空扩充地图；add 时给出 desc。更新描述保留旧要点。层级变化用 reparent 的 node（原路径）和 newPath（新路径），子地点一起迁移。location 为当前位置，locationPath 指向已记录地点；没有合适地点时只更新 location。
+描述压缩：items.desc 尽量不超过 25 字，scenes.desc 尽量不超过 60 字，只写辨识特征、用途或环境状态，不写剧情流水账；必要的关键信息优先保留。只在本批涉及该条目时整理，不为压缩而重写无关旧账。
+不要求重写完整台账，不编造数值、关系或人物离场后的变化。MVU 变量与人物设计档案各自继续原任务，不从台账直接改它们。`
+export function ledgerContext(value) { return '【当前台账（已结算）】\n' + JSON.stringify(readLedger(value)) }
 
 const MAX_INJECTED_LEDGER = 12000
 function frameLedgerText(ledger) {
@@ -112,7 +105,7 @@ export function ledgerFrameInputs(chat) {
   if (!ledger.location && !['items', 'npcs', 'scenes'].some(kind => ledger[kind]?.length)) return []
   const text = frameLedgerText(ledger)
   return [{ kind: 'foreground.current-state', required: false, source: { stage: 'ledger', through: chat.ledgerInjection.through },
-    text: promptSection('story_ledger', PROMPT_PROSE.p002 + chat.ledgerInjection.through + PROMPT_PROSE.p003 + text) }]
+    text: '【游玩台账 · 整理至第 ' + chat.ledgerInjection.through + ' 轮（只在这一轮提供，用来核对物品、人物与地点；与正文冲突时以正文为准；omitted 如有值表示因篇幅省略的条目数，不代表删除）】\n' + text }]
 }
 
 /** Pure, atomic delta projection. A failed call leaves the authoritative ledger untouched. */

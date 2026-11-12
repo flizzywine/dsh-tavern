@@ -99,7 +99,7 @@ test('production system/task assemblers retain fixed/current worldbook/read/Guid
   for (const sentinel of ['PREFERENCE', 'CARD_DESCRIPTION Player', 'CARD_PERSONALITY', 'CARD_SCENARIO', 'CARD_STYLE_EXAMPLE', 'CURRENT_CONSTANT_BOOK', 'BACKGROUND_PERSONA', 'SYSTEM_APPEND']) assert.ok(system.includes(sentinel), sentinel)
   assert.ok(!system.includes('CONSTANT_BOOK Soyo'), 'only current worldbook replaces the fixed opening worldbook')
   assert.ok(fixed.some(section => section.text.includes('CONSTANT_BOOK Soyo')), 'stored prefix is not rewritten')
-  ordered(task, ['FOREGROUND_READS', 'TURN_WORLDBOOK_SNAPSHOT', 'CARD_SYSTEM Soyo', 'GUIDE Soyo Player', 'POSTURE Soyo', 'Task type: stage direction', 'FULL_STORY', 'STAGE_PROTOCOL', 'CARD_POST_HISTORY Player'])
+  ordered(task, ['FOREGROUND_READS', 'TURN_WORLDBOOK_SNAPSHOT', 'CARD_SYSTEM Soyo', 'GUIDE Soyo Player', 'POSTURE Soyo', '任务类型：舞台导演', 'FULL_STORY', 'STAGE_PROTOCOL', 'CARD_POST_HISTORY Player'])
   assert.ok(task.includes(input.messages[0].content[0].text))
 })
 
@@ -130,9 +130,9 @@ test('existing candidate and settlement tasks retain their ordering and roles', 
   const messages = [{ role: 'assistant', content: [{ type: 'text', text: 'STORY' }] }]
   // candidate system updates use the persistent snapshot seam.
   const text = backgroundTaskPrompt({ input: { task: 'candidate', messages, turnContext: 'STATE', system: 'CANDIDATE_PROTOCOL', postHistoryText: 'POST_HISTORY' }, systemUpdate: { rendered: 'CARD_SYSTEM' } })
-  ordered(text, ['CARD_SYSTEM', 'STATE', 'Task type: choice generation', '[Story]\nSTORY', 'CANDIDATE_PROTOCOL', 'POST_HISTORY'])
+  ordered(text, ['CARD_SYSTEM', 'STATE', '任务类型：候选生成', '[正文]\nSTORY', 'CANDIDATE_PROTOCOL', 'POST_HISTORY'])
   const settlement = backgroundPrompt(messages, 'VARIABLES', 'settlement', 'MVU_PROTOCOL', { systemPromptText: 'EXCLUDED_SYSTEM', postHistoryText: 'EXCLUDED_POST' })
-  assert.ok(settlement.includes('Task type: state settlement'))
+  assert.ok(settlement.includes('任务类型：状态结算'))
   assert.ok(!settlement.includes('EXCLUDED_'), 'this change does not silently alter MVU instructions')
 })
 
