@@ -1,6 +1,6 @@
 import {createPhoneCalls} from '../call.js'
 import {callGreeting, createCallGreetings} from '../call-greeting.js'
-import {callRoundWorldbook, callDesignPersona, callRecognitionContext, storyRoundMessages, phoneMarkRounds, roundPhoneMessages, callStorySection, callPhoneRecords} from '../call-context.js'
+import {callDesignPersona, storyRoundMessages, phoneMarkRounds, roundPhoneMessages, createCallSections} from '../call-context.js'
 import {phoneThreadDirectory, phonePeople} from '../threads.js'
 import figureResolution from '../../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'
 const {figureSpeakerHandle} = figureResolution
@@ -8,11 +8,13 @@ const {figureSpeakerHandle} = figureResolution
 // The dsh.phone mod's host side, its stage service (stage.js hostExtension; stage-extensions.js): the phone's directory
 // (getStagePhoneThreads) and its calls (phoneCall*, phone-call.md). Speech recognition stays the core's shared service
 // (ctx 'asr'); the call's voice goes through the card's asset consumer as the stage's own voices do. The core helpers it
-// shares with the stage come in hostLibrary (the stage's request bindings), never by import.
+// shares with the stage come in hostLibrary (the stage's request bindings: the core's mod library, lib/mod-library.js), never by import.
 export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspace, stageDirector, chatForSession, assetRuntime, profileData, callModel,
   readRoundOps, readChatCard, readModCard, modConfigHost, replyDisplayForChat, pluginApi, resolveSlot, agentRegistry, backgroundTasks, speech,
   speechRecognition, readStageChat, readRoundView, worldbookRecallLog, dialogueBubbles, figureRuntimes,
-  hostLibrary:{recognitionAudio, figureCatalogue, bubbleCharacter, bubbleVoiceSwitches, effectiveBubbleMoods, projectAgentMessageText}}) {
+  hostLibrary}) {
+  const {recognitionAudio, figureCatalogue, bubbleCharacter, bubbleVoiceSwitches, effectiveBubbleMoods, projectAgentMessageText} = hostLibrary
+  const {callRoundWorldbook, callRecognitionContext, callStorySection, callPhoneRecords} = createCallSections(hostLibrary)
   async function stagePhoneDirectory(chat) {
     if(!await managedModManagement.enabled({modId:'dsh.phone',cardPath:chat.cardPath}))return {enabled:false,contacts:[],threads:[]}
     const raw=(await readCardWorkspace(chat.cardPath))?.raw,bindings=(raw?.data || raw)?.extensions?.dsh_tavern?.assetBindings
@@ -35,7 +37,7 @@ export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspa
   // calls with one phone contact. Each contact's calls are
   // its own context window, stored beside the chat (phone-calls/<chatId>.json), anchored to the story position; the
   // story is read, never written. Recognition comes from the shared speech service, local by default.
-  const phoneCalls = createPhoneCalls({
+  const phoneCalls = createPhoneCalls({library:hostLibrary,
     serviceState:async ({sessionId, contact, origin}) => {
       const whole = await chatForSession(sessionId)
       const consumer = whole?.cardPath && await assetRuntime.consumer(whole, origin)

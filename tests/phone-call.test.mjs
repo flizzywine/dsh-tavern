@@ -3,18 +3,21 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {callRequest,createCallReplyParser,createPhoneCalls,storyAnchor} from '../tavern-plugin/mods/phone/call.js'
 import {callGreeting,createCallGreetings} from '../tavern-plugin/mods/phone/call-greeting.js'
-import {callStorySection,callPhoneRecords,roundPhoneMessages,storyRoundMessages} from '../tavern-plugin/mods/phone/call-context.js'
+import {createCallSections,roundPhoneMessages,storyRoundMessages} from '../tavern-plugin/mods/phone/call-context.js'
 
 import {effectiveBubbleMoods, bubbleVoiceSwitches, bubbleInstructionPreview} from '../tavern-plugin/lib/domain/dialogue-bubbles.js'
 import {parseBubbles} from '../tavern-plugin/src/client/bubble-line.cjs'
 import {fishSpeechText} from '../tavern-plugin/packages/dsh-tavern-tts/src/providers/fish-audio.js'
+import {modLibrary} from '../tavern-plugin/lib/mod-library.js'
+// the phone's prompt sections, built with the core's mod library as the stage service builds them.
+const {callStorySection,callPhoneRecords,callRoundWorldbook,callRecognitionContext}=createCallSections(modLibrary)
 
 test('call voice switches match story rules for every language, enabled and direction combination', () => {
   for (const language of ['ja','zh']) for (const enabled of [false,true]) for (const bound of [false,true]) for (const direction of [false,true]) {
     const character = {alias:'actor_17',name:'辉夜',voice:bound ? 'voice_17' : '',voiceLang:language,voiceDirection:direction}
     const config = {enabled:true,voice:{enabled},characters:[character]}
     const voiceRules = bubbleVoiceSwitches(config, character)
-    const request = callRequest({contact:{...callee,voiceRules},language,lines:[]})
+    const request = callRequest({library:modLibrary, contact:{...callee,voiceRules},language,lines:[]})
     const story = bubbleInstructionPreview(config).sections.find(row => row.key === 'voice').text
     assert.equal(request.system.includes('Voice direction ('), story.includes('Voice direction ('))
     assert.equal(request.system.includes('|[voice]'), enabled && bound && language !== 'zh')
@@ -30,14 +33,14 @@ test('call mode supplies contact identity and keeps direction cues on the shared
   for (const language of ['zh','ja']) {
     const spoken = language === 'zh' ? '你好，接着说。' : 'もしもし。'
     const wire = '平和|[' + (language === 'zh' ? '{softly}' + spoken : '你好。') + ']' + (language === 'ja' ? '|[{softly}' + spoken + ']' : '')
-    const parser = createCallReplyParser({language,contact:identity})
+    const parser = createCallReplyParser({library:modLibrary, language,contact:identity})
     for (const char of wire) parser.feed(char)
     parser.finish()
     assert.match(parser.segments[0].say, /\{softly\}/)
     assert.match(fishSpeechText(parser.segments[0].say, {}, true), /\[softly\]/)
     assert.doesNotMatch(parser.segments.map(row => row.sub).join(''), /softly|[{}]/)
     const files = new Map()
-    const calls = createPhoneCalls({store:{read:async () => null,update:async (id, fn) => files.set(id,fn(files.get(id)))},model:async ({onText}) => onText(wire)})
+    const calls = createPhoneCalls({library:modLibrary, store:{read:async () => null,update:async (id, fn) => files.set(id,fn(files.get(id)))},model:async ({onText}) => onText(wire)})
     const contact = {...callee,voiceRules:{voiceTranslates:language === 'ja',voiceDirection:true}}
     const {callId} = await calls.start({sessionId:'s',chat:chat(1),contact,language})
     contact.voiceRules.voiceDirection = false
@@ -52,7 +55,6 @@ test('call mode supplies contact identity and keeps direction cues on the shared
 
 const callee = {id:'actor-17', handle:'辉夜', name:'辉夜', defaultEmotion:'m04', moods:effectiveBubbleMoods({characters:[{alias:'actor-17', name:'辉夜', emotions:[{id:'m00',label:'喜悦',words:['开心']},{id:'m04',label:'平和'}]},{alias:'actor-99',name:'无关人物',emotions:[{id:'m99',label:'无关差分'}]}]}, 'actor-17')}
 
-import { callRoundWorldbook } from '../tavern-plugin/mods/phone/call-context.js'
 import {createWorldbookRecallLog} from '../tavern-plugin/lib/domain/worldbook-recall-log.js'
 
 test('call uses only anchored card worldbook entries by source ref, in recorded order and frozen at dial', async () => {
@@ -76,7 +78,7 @@ test('call uses only anchored card worldbook entries by source ref, in recorded 
   const recallLog = createWorldbookRecallLog({store:{readJson:async path => files.get(path)}})
   const requests = [], source = {...chat(3),id:'chat-fixture',timeline:{branchId:'branch-a'}}
   assert.equal(await callRoundWorldbook({chat:source,turn:0,recallLog,fallback:() => ''}), '', 'opening without a record must not read the latest round')
-  const calls = createPhoneCalls({
+  const calls = createPhoneCalls({library:modLibrary, 
     store:{read:async () => null,update:async () => {}},
     context:async ({chat,anchor,phase}) => phase === 'start' ? {promptSections:[{name:'persona',text:await callRoundWorldbook({chat,turn:anchor.turn,recallLog,fallback:() => '不应读取档案'})}]} : {},
     model:async request => {requests.push(request.system)},
@@ -96,7 +98,7 @@ test('call uses only anchored card worldbook entries by source ref, in recorded 
 test('call input is append-only across changing story/plugins, interruption and retraction', async t => {
   const requests = [], files = new Map()
   let serial = 0, plugin = '拨号时的插件', calls
-  calls = createPhoneCalls({
+  calls = createPhoneCalls({library:modLibrary, 
     store:{read:async () => null, update:async (id, fn) => files.set(id, fn(files.get(id)))},
     id:() => String(++serial),
     context:async ({phase, chat}) => ({promptSections:[{name:'recent-story', text:chat.messages.at(-1).text}, {name:'plugin',text:plugin}], turnSections:[{text:plugin,position:'before'}]}),
@@ -150,7 +152,7 @@ test('dial context: the latest four rounds in full, then every phone record of t
     ]},
   }}]])
   let given
-  const calls = createPhoneCalls({store:{read:async id => structuredClone(files.get(id)), update:async () => {}}, model:async () => {},
+  const calls = createPhoneCalls({library:modLibrary, store:{read:async id => structuredClone(files.get(id)), update:async () => {}}, model:async () => {},
     context:async input => { if (input.phase === 'start') given = input; return {} }})
   await calls.start({sessionId:'s', chat:{...chat(6), messages:[5, 6].map(turn => ({role:'assistant', turn, text:'x'}))}, ...contact('A'), at:{turn:5, para:2}})
   assert.deepEqual(given.calls.map(row => row.call.id).sort(), ['a1', 'b1'], 'every contact on this branch through the dial page')
@@ -175,7 +177,7 @@ function harness() {
     await new Promise((resolve, reject) => { gate = resolve; signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), {name:'AbortError'}))) })
     onText('|[第一句]|[一行目]\n'); onText('|[第二句]|[二行目、続き]')
   }
-  const calls = createPhoneCalls({store, model, now:() => 1000 + serial * 10, id:() => 'id' + ++serial})
+  const calls = createPhoneCalls({library:modLibrary, store, model, now:() => 1000 + serial * 10, id:() => 'id' + ++serial})
   return {files, requests, calls, release:() => gate?.()}
 }
 const chat = (turn, branchId = 'main') => ({id:'chat-1', timeline:{branchId}, messages:[{role:'assistant', turn, text:'<p>放学后，她在车站等你。</p>'}]})
@@ -222,7 +224,7 @@ test('model completion does not publish unplayed transcript; only audio-clock re
 })
 test('call records retain numeric timing, usage and model identity through greeting, retract and hang-up', async () => {
   let doc, tick = 0, serial = 0
-  const calls = createPhoneCalls({
+  const calls = createPhoneCalls({library:modLibrary, 
     store:{read:async () => doc,update:async (id, fn) => { doc = fn(doc) }},
     clock:() => ++tick, id:() => String(++serial),
     serviceState:async () => ({serviceId:'fake',state:'loading'}),
@@ -264,7 +266,7 @@ test('call records retain numeric timing, usage and model identity through greet
 // the model before the player's words, once, and never into the transcript or the 电话 app.
 test('a FaceTime call is recorded as video and its camera note reaches only the model', async () => {
   const files=new Map(),requests=[];let serial=0
-  const calls=createPhoneCalls({id:()=>String(++serial),store:{read:async id=>files.get(id),update:async(id,fn)=>files.set(id,fn(files.get(id)))},
+  const calls=createPhoneCalls({library:modLibrary, id:()=>String(++serial),store:{read:async id=>files.get(id),update:async(id,fn)=>files.set(id,fn(files.get(id)))},
     model:async input=>{requests.push(structuredClone(input.messages));input.onText('|[看到了。]')}})
   const {callId}=await calls.start({sessionId:'s',chat:chat(3),...contact('A'),language:'zh'})
   await calls.video({sessionId:'s',callId})
@@ -312,7 +314,6 @@ test('call resampling preserves every voiced frame across 48/44.1 kHz chunks', a
 })
 
 test('call recognition hints use roster names only and leave all other prompt bytes intact', async t => {
-  const {callRecognitionContext} = await import('../tavern-plugin/mods/phone/call-context.js')
   const {phonePeople} = await import('../tavern-plugin/mods/phone/threads.js')
   const people = phonePeople([
     {actorKey:'actor-17',name:'\u8f89\u591c'},
@@ -327,8 +328,8 @@ test('call recognition hints use roster names only and leave all other prompt by
   assert.equal(callRecognitionContext({}, []), '')
   const sections = [{name:'existing',text:'<existing>\nUnchanged context.\n</existing>'}]
   const args = {contact:callee,language:'zh',lines:[{role:'player',text:'misheard name'}]}
-  const before = callRequest({...args,context:{promptSections:sections}})
-  const after = callRequest({...args,context:{promptSections:[...sections,{name:'call-speech-recognition',text:hint}]}})
+  const before = callRequest({library:modLibrary, ...args,context:{promptSections:sections}})
+  const after = callRequest({library:modLibrary, ...args,context:{promptSections:[...sections,{name:'call-speech-recognition',text:hint}]}})
   assert.equal(after.system, before.system + '\n\n' + hint)
   assert.deepEqual(after.messages, before.messages)
   for (const [key, bytes] of Object.entries(before.bytes.sections)) assert.equal(after.bytes.sections[key], bytes)
@@ -357,13 +358,13 @@ for (const roundCount of [0, 12]) test(`production dial context and call start a
     pluginApi:{promptSections:async () => [], turnContext:async () => []}, resolveSlot:async () => ({}),
     storyRoundMessages, phoneMarkRounds:(await import('../tavern-plugin/mods/phone/call-context.js')).phoneMarkRounds,
     roundPhoneMessages, callStorySection, callPhoneRecords,
-    callRecognitionContext:(await import('../tavern-plugin/mods/phone/call-context.js')).callRecognitionContext,
+    callRecognitionContext,
   }, {filename:'tavern-plugin/mods/phone/host/extension.js', lineOffset:source.slice(0,start).split('\n').length - 1})
   const sections = await context({sessionId:empty.sessionId, contact:callee, anchor:storyAnchor(empty), phase:'start', calls:[], playerName:'Player'})
   const story = sections.promptSections.find(row => row.name === 'recent-story').text
   if (roundCount) assert.match(story, /Story round 12/)
   else assert.equal(story, '')
-  const calls = createPhoneCalls({store:{read:async () => null, update:async () => {}}, context})
+  const calls = createPhoneCalls({library:modLibrary, store:{read:async () => null, update:async () => {}}, context})
   try {
     const started = await calls.start({sessionId:empty.sessionId, chat:empty, contact:callee, language:'zh'})
     assert.ok(started.callId)

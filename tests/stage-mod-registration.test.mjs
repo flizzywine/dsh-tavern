@@ -2,8 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createModPrivateMethods} from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/mod-private.js'
 import {createModConfigHost} from '../tavern-plugin/packages/dsh-tavern-stage/lib/mod-config-host.js'
+import {modLibrary} from '../tavern-plugin/lib/mod-library.js'
 const manifest=id=>({id,name:id,settingsSchema:{fields:[]}})
-function host(manifests) {return createModConfigHost({manifests,store:{},listCards:async()=>[],readCard:async()=>null})}
+function host(manifests) {return createModConfigHost({library:modLibrary, manifests,store:{},listCards:async()=>[],readCard:async()=>null})}
 
 test('mod config owner releases validators and refuses registration after disposal',()=>{
   const validators=new Map(),packs={apiVersion:2,...createModPrivateMethods({validators})},owner=host([manifest('test.mod')])
@@ -18,7 +19,7 @@ test('mod config owner releases validators and refuses registration after dispos
 // installed manifest; it once took the whole stage runtime down at start (舞台不可用).
 test('installed managed mods are named by their own manifests, not the built-in catalogue',async()=>{
   const gone={id:'test.gone',name:'已移除',config:{schema:{properties:{note:{type:'string',maxLength:8}}},defaults:{note:''}},preferences:{schema:{properties:{}}}}
-  const owner=createModConfigHost({manifests:[],managedManifests:[gone],store:{},listCards:async()=>[],readCard:async()=>null})
+  const owner=createModConfigHost({library:modLibrary, manifests:[],managedManifests:[gone],store:{},listCards:async()=>[],readCard:async()=>null})
   const {sources:rows}=await owner.sources.list({mods:{'test.gone':{note:'x'}}})
   assert.equal(rows.find(row=>row.id==='mod:test.gone')?.label,'已移除')
 })

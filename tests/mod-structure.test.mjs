@@ -22,8 +22,6 @@ const exists = file => stat(file).then(() => true, () => false)
 const PENDING = new Set([
   'legacy-manifest:dice', 'legacy-manifest:phone', 'legacy-manifest:textcard', 'legacy-manifest:timer',
   'skill:dice', 'skill:phone', 'skill:textcard', 'skill:timer',
-  'import-out:tavern-plugin/mods/phone/call-context.js', 'import-out:tavern-plugin/mods/phone/call.js',
-  'import-out:tavern-plugin/mods/phone/stage.js',
   'names-mod:tavern-plugin/lib/domain/user-plugin-install.js',
 ])
 

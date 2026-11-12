@@ -6,7 +6,8 @@
 //   floorFields                                      -> [field]: the assistant-message fields the mod saves; stage reads carry them
 //   hostExtension(core)                              -> {deps?, requests?, dispose?}: the mod's stage service (stage-extensions.js),
 //                                                       started with the stage services; requests are its own RPC methods
-//   configFields(fields)                             -> its settings page fields beyond the manifest's settingsSchema
+//   configFields(fields, library)                    -> its settings page fields beyond the manifest's settingsSchema; library is
+//                                                       the core's mod library (lib/mod-library.js), as bindings.hostLibrary
 //   admitParams(command,params,state,context,metadata,check) -> canonical params for an admitted command
 //   applyStageState(state,command,params,metadata)   -> next stage draft, or undefined when the command is generic
 //   promptState(own,command)                         -> the saved state the director sees for an admitted command

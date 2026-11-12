@@ -264,8 +264,7 @@ import { createTavernScriptDispatch } from './domain/tavern-script-dispatch.js'
 import { createTavernExtensionSettings } from './domain/tavern-extension-settings.js'
 import { createDialogueBubblePresets, DEFAULT_BUBBLE_TEMPLATE } from './domain/dialogue-bubble-presets.js'
 import { bubbleCharacter } from '../src/client/bubble-line.cjs'
-import { recognitionAudio } from './domain/speech-recognition.js'
-import { figureCatalogue } from './domain/figure-catalogue.js'
+import { modLibrary } from './mod-library.js'
 import { normalizeBubbleConfig, bubbleVoiceSwitches, effectiveBubbleMoods, resolveBubbleMood, bubbleInstructionPreview, bubbleInjection, readDialogueBubblePlacement } from './domain/dialogue-bubbles.js'
 import { createCardStorage } from './card-storage.js'
 import { isAbsolute, join as joinPath } from 'node:path'
@@ -954,6 +953,8 @@ export async function apply(ctx) {
   ctx.effect(() => modelSlots.register('core',{rows:() => modelSlotRows(CORE_MODEL_MANIFESTS,CORE_MODEL_MANIFESTS.map(row=>row.id))}))
   const clientAssets = createTavernClientAssets()
   ctx.provide('tavernClientAssets', clientAssets)
+  // hostLibrary: the core helpers a mod may use (lib/mod-library.js holds their one list; a mod never imports core files).
+  const hostLibrary = modLibrary
   const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents,
     // The mods' stage contributions (their host extensions) and the stage reads a mod's stage service scopes its chat with.
     modStageContributions, stageReads:Object.freeze({readCarries:stageReadCarries, readScope:stageReadScope, markRead:markStageRead})}, {enabled:false,onStatus:status=>sessionSignals.publish('plugin:dsh-tavern-stage',{kind:'plugin-lifecycle',version:status+':'+Date.now()+':'+Math.random()})})
@@ -2781,7 +2782,7 @@ export async function apply(ctx) {
   // 舞台、导演与 mod（stage-module.js）。
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
-  await stageRuntime.start({contextHost, dataRoot, activeStageSkin,
+  await stageRuntime.start({hostLibrary, contextHost, dataRoot, activeStageSkin,
     presentationObservers, settlementParticipants, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies, voiceBackfillLines, voiceBackfillKept,
     // No background task starts while the game is compacted (ADR 0003); the coordinator's own guard.
     backgroundBlocked: chat => Boolean(autoCompaction?.blocked(chat)),
@@ -3998,8 +3999,6 @@ export async function apply(ctx) {
 
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
   // paragraphSpeech: a paragraph's spoken line, the core's voice selection (the stage's clip export reads it).
-  // hostLibrary: core helpers a mod's stage service shares with the core (it never imports core files; docs/mod-authoring.md).
-  const hostLibrary = Object.freeze({ recognitionAudio, figureCatalogue, bubbleCharacter, bubbleVoiceSwitches, effectiveBubbleMoods, projectAgentMessageText })
   const rpcDeps = { hostLibrary, readCardAssetExtension, frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
     applicationUpdater, autoChoices, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow,
     backgroundConfigForSession, bindScript, bodyEditor, branchOrigin, callModel, candidateGenerator, candidateTasks, polishPrereview, polishRecords, polishReviewer, chatHeaderWithLatestFloors, cardUpdates, messageDeletion,

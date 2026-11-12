@@ -1,5 +1,4 @@
 import {isDeepStrictEqual as same} from 'node:util'
-import {variableGuessHints} from '../../lib/domain/variable-bindings/index.js'
 import {withBuiltinPhoneDevice,phoneDevices} from './logic.js'
 import {phoneSourceView} from './source-view.js'
 import {phoneModMarker,phoneModSourceMarker} from './stage-phone.cjs'
@@ -16,7 +15,8 @@ export default {
   hostExtension:createPhoneExtension,
   // Builtins and uploaded settings are presentation resources, never recall candidates.
   catalogue:withBuiltinPhoneDevice,
-  configFields(fields) {
+  // library: the core's mod library (lib/mod-library.js), for its variable guess hints.
+  configFields(fields, {variableGuessHints}) {
     // The settings page names what the player sees on the phone.
     Object.assign(fields.find(row=>row.key==='clockText'),{label:'状态栏时间',guessHints:variableGuessHints.time,ui:{control:'time'}})
     Object.assign(fields.find(row=>row.key==='cutout'),{label:'机型'})

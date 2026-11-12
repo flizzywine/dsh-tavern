@@ -1,5 +1,6 @@
 import {modStageContribution} from './stage-contributions.js'
-export function builtinConfigSchemas(manifests) {
+// library: the core's mod library (lib/mod-library.js, the stage's hostLibrary) a mod's configFields hook uses.
+export function builtinConfigSchemas(manifests, library) {
   const schemas={}
   for(const manifest of manifests) {
     const fields=manifest.settingsSchema.fields.map(field=>({
@@ -9,7 +10,7 @@ export function builtinConfigSchemas(manifests) {
       ...(field.choices?{choices:field.choices.map(row=>row.value)}:{}),
       ui:{...(field.type==='colour'?{control:'colour'}:field.type==='segmented'?{control:'choice',choices:field.choices}:field.type==='text'?{control:'text'}:{}),...(field.unit?{unit:field.unit}:{}),...(field.type==='slider'?{integer:Number.isInteger(field.step)}:{})},
     }))
-    modStageContribution(manifest.id)?.configFields?.(fields)
+    modStageContribution(manifest.id)?.configFields?.(fields, library)
     for(const slot of manifest.variableSlots || [])if(!fields.some(field=>field.key===slot.id))fields.push({key:slot.id,label:slot.label,valueType:slot.valueType,default:[],fieldMapping:slot.fieldMapping || {}})
     schemas[manifest.id]={fields}
   }

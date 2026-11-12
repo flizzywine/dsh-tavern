@@ -146,7 +146,7 @@ export async function createStageModule(core) {
   }))
   ctx.effect(() => core.modelSlots.register('dsh-tavern-stage-mods',{rows:() => modService.modelSlots()}), 'dsh-tavern: mod model slots')
   const configCards=async()=>Promise.all((await fileResources.list('card')).map(async path=>({path,workspace:await readModCard(path)})))
-  modConfigHost=createModConfigHost({workbenchAuthority,store:({cardPacks})=>managedConfigStore({management:managedModManagement,readCard:readModCard,listCards:configCards,files:createModConfigFiles({root:dataRoot+'/mod-library/config',cardPacks})}),manifests:await modService.manifests(),managedManifests:(await managedModManagement.selection()).manifests,listCards:configCards,readCard:readModCard,
+  modConfigHost=createModConfigHost({library:core.hostLibrary,workbenchAuthority,store:({cardPacks})=>managedConfigStore({management:managedModManagement,readCard:readModCard,listCards:configCards,files:createModConfigFiles({root:dataRoot+'/mod-library/config',cardPacks})}),manifests:await modService.manifests(),managedManifests:(await managedModManagement.selection()).manifests,listCards:configCards,readCard:readModCard,
     getAssetLibrary:()=>ctx.get('assetLibrary'),getEngine:()=>({...assetEngineSettings.read(),assetRevision:assetRuntime.revision}),
     getGlobalEnabledPackIds:()=>ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || [],
     readSession:sessionId=>readStageChat.view(sessionId,{configOnly:true}),readWindow:chatPersistence.readWindow,readRevision:chatPersistence.readRevision,
