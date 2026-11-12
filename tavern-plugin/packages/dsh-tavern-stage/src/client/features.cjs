@@ -1,13 +1,20 @@
 // Feature factories run once per view scope, after the scene and shared surfaces exist.
 // Factories return named views; own() ties resources and CSS to the view's rollback/disposal.
 // backlog: optional 履历 row projections by the renderer name a performance declaration gives (backlog-rows.cjs).
+// takeover: optional views => the feature's view that takes the stage over for its performances (useStage, controller.cjs
+// useStageTakeovers); mount lists them in views.takeovers.
 function createStageFeatures() {
     const features=new Map();
     return {
-        register(id,{views,css,backlog}){
+        register(id,{views,css,backlog,takeover,skipShows}){
             if(features.has(id))throw new Error('Stage feature already registered: '+id);
-            const feature={views,css,backlog};features.set(id,feature);
+            const feature={views,css,backlog,takeover,skipShows};features.set(id,feature);
             return ()=>{if(features.get(id)===feature)features.delete(id);};
+        },
+        // whether a feature shows this performance kind of its own while skipping: page DOM alone (runtime-kernel.cjs stageSkipShows).
+        skipShows(kind){
+            for(const feature of features.values())if(feature.skipShows?.(kind))return true;
+            return false;
         },
         backlogRenderers(){
             const renderers={};
@@ -16,6 +23,8 @@ function createStageFeatures() {
         },
         mount(context){
             const {document,own,views}=context;
+            if(Object.hasOwn(views,'takeovers'))throw new Error('Occupied stage view: takeovers');
+            const takeovers=[];views.takeovers=takeovers;
             for(const [id,feature] of features){
                 if(feature.css){
                     const style=document.createElement('style');
@@ -28,6 +37,7 @@ function createStageFeatures() {
                     if(Object.hasOwn(views,key))throw new Error('Occupied stage view: '+key);
                     views[key]=value;
                 }
+                if(feature.takeover)takeovers.push(feature.takeover(views));
             }
         }
     };

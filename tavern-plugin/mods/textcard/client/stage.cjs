@@ -1,6 +1,7 @@
 'use strict';
 // The 「文字演出」 stage feature (src/client/features.cjs): the full-screen text card view, built per view scope, and its
-// 履历 row (the declarations' backlog renderer "textcard"); client/stage.css is its CSS.
+// 履历 row (the declarations' backlog renderer "textcard"); client/stage.css is its CSS. The card takes the stage over while it
+// plays (takeover: the controller's useStageTakeovers).
 const {planTextcard, textcardHistory, createTextcardGate, textcardPeak} = require('./presets.cjs');
 const {createStageTextcard} = require('./card.cjs');
 const {createStageTextcardFonts} = require('./fonts.cjs');
@@ -15,6 +16,9 @@ module.exports = {
         // Explicit placement survives pagination; unmarked historical cards still precede their paragraph.
         return card && {tag:card.tag, parts:card.parts, place:performance.payload.placement === 'after' ? 'end' : 'before'};
     }},
+    takeover:views => views.textcard,
+    // a text card is page DOM alone, so it still flashes by while skipping.
+    skipShows:kind => /^dsh\.textcard(?:\.|$)/.test(kind),
     views:({options, own, window, document}) => {
         const center = own(createStageTextcardCenter({metrics:TEXTCARD_VERT_INK}));
         const layout = createStageTextcardLayout(options.textcardLayout || {});

@@ -55,7 +55,12 @@ const useStageRuntime=(...args)=>stageViews.runtimeUi.useRuntime(...args);
 const useStageSelector=(...args)=>stageViews.runtimeUi.useSelector(...args);
 const useStageSkin=(...args)=>stageViews.skinPresentation.useSkin(...args);
 const useStageTimerSlot=(...args)=>stageViews.timer.useSlot(...args);
-const useTextcardStage=(...args)=>stageViews.textcard.useStage(...args);
+// The stage features that take the stage over for a performance (features.cjs takeovers; a full-screen text card): each view's
+// useStage({sessionId,reducedMotion,blocked}) returns {accepts,play,skip,cancel,up,busy,node}, and the controller drives them as one.
+const useStageTakeovers=props=>{const list=stageViews.takeovers.map(view=>view.useStage(props));return {
+    accepts:performance=>list.some(item=>item.accepts(performance)),play:(effect,options)=>list.find(item=>item.accepts(effect.performance)).play(effect,options),
+    skip:()=>list.some(item=>item.skip()),cancel:()=>{for(const item of list)item.cancel();},up:list.some(item=>item.up),busy:list.some(item=>item.busy),
+    node:React.createElement(React.Fragment,null,...list.map(item=>item.node))};};
 const useWidgetStage=(...args)=>stageViews.sourceWidgets.useStage(...args);
 const stageVoiceAvailable=(...args)=>stageViews.speech.available(...args);
 const stageVoiceHandle=(...args)=>stageViews.speech.handle(...args);
@@ -867,7 +872,7 @@ function GalStage(props) {
     function input(delta) {
         if (hidden) { setHidden(false); return; }
         if (controlsInput.consumeInterrupted()) return;
-        if (textcard.skip()) return; // input during a 文字演出 card ends the card (mods/textcard/client/card.cjs)
+        if (takeover.skip()) return; // input during a takeover (a 文字演出 card) ends it
         // while the line waits for this page's blocking performances, an input skips
         // them (a title ends, a combination's phase lands on its sustained state) and the line starts at once; it does not turn
         // the page. Nothing skips the loader here (the entrance takes its own clicks).
@@ -912,9 +917,9 @@ function GalStage(props) {
     const endTitle = () => setTitle(old => { old?.done?.(); return null; });
     // The surface also takes a settled history page's plays (HISTORY_DWELL); the runtime decides what plays, and cancels it.
     const modPerformances=useModPerformances(sessionId,{live:true,overlay:backlog||configOpen||galleryOpen||pageOpen||menuOpen||hidden,sourceKey:receivedDirection.token?.sourceKey,generation:receivedDirection.token?.generation,assetRevision:receivedDirection.assetRevision});
-    const textcard=useTextcardStage({sessionId,reducedMotion:reading.reducedMotion,blocked:backlog||configOpen||galleryOpen||pageOpen||menuOpen});
+    const takeover=useStageTakeovers({sessionId,reducedMotion:reading.reducedMotion,blocked:backlog||configOpen||galleryOpen||pageOpen||menuOpen});
     // Auto and skip wait for each presentation's own clock; manual navigation still cancels immediately.
-    const presentationBusy = textcard.busy || modPerformances.busy || !!title;
+    const presentationBusy = takeover.busy || modPerformances.busy || !!title;
     // The timer owns a stage-open wall clock. UI playback and the selected history floor do not hold the live budget.
     // A reply timeout may offer a fallback only while the choices' input lock still permits it.
     // skinKey: the drawn skin - its mod options and locks are the timer's look (mod-options.js).
@@ -950,9 +955,9 @@ function GalStage(props) {
     const [debugEmote, setDebugEmote] = React.useState(null);
     const cg = useCgStage(sessionId,runtime.store,{paused:backlog || configOpen || galleryOpen || pageOpen || menuOpen || sceneHolding,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,forward:forwardReading && !skipping});
     // The card's accent is its anchored line's speaker's 形象色, before or after that line.
-    const textcardAccent = anchor => { const line = pages.find(row => row.anchor?.para === anchor?.para && row.kind === 'line'); const alias = line ? bubbleCharacter(config,line)?.alias : ''; return alias ? colorOf(alias) : ''; };
+    const takeoverAccent = anchor => { const line = pages.find(row => row.anchor?.para === anchor?.para && row.kind === 'line'); const alias = line ? bubbleCharacter(config,line)?.alias : ''; return alias ? colorOf(alias) : ''; };
     const onPresented = useStageConsumers(sessionId,runtime.store,(effect,token) => {
-        if (effect.kind === 'mod-performance' && textcard.accepts(effect.performance)) return textcard.play(effect,{accent:textcardAccent(token.anchor)});
+        if (effect.kind === 'mod-performance' && takeover.accepts(effect.performance)) return takeover.play(effect,{accent:takeoverAccent(token.anchor)});
         if (effect.kind === 'mod-performance') return modPerformances.play(effect,token);
         if (effect.kind === 'title') return new Promise(done => setTitle(old => { old?.done?.(); return {text:effect.value,nonce:token.id,done}; }));
         // The shot belongs to the token's own page: a forward page turn plays its events inside the same runtime dispatch,
@@ -962,7 +967,7 @@ function GalStage(props) {
             effects:effect.kind === 'beat' ? [{...effect,nonce:token.id}] : old.effects,
             emotes:effect.kind === 'emote' ? [{...effect,nonce:token.id}] : old.emotes}));
     // A page turn while skipping also ends the title it showed (stageSkipShows: nothing outlives its page).
-    },performanceLayer.accept,cg.accept,{play:modPerformances.play,cancel:intent=>{modPerformances.cancel(intent);textcard.cancel();if(skippingRef.current)endTitle();}});
+    },performanceLayer.accept,cg.accept,{play:modPerformances.play,cancel:intent=>{modPerformances.cancel(intent);takeover.cancel();if(skippingRef.current)endTitle();}});
     React.useLayoutEffect(() => { runtime.store.dispatch({type:'STAGE_REVEAL', revealed:stageRevealed}); }, [stageRevealed, runtime.store]);
     // The runtime voices story lines as they are presented; a lease line speaks when it is first shown, unread, through the
     // same stage speech handle and player (skip is silent: a line shown under SKIP stays silent when the skip stops on it).
@@ -1057,7 +1062,7 @@ function GalStage(props) {
     // the box is hidden (the click brings it back), a click just stopped SKIP, a text card plays, or a menu, the backlog,
     // CONFIG, the gallery or a widget reader is open. Read at click time (gal-scene.js onStageTap).
     const tapGateRef = React.useRef(() => false);
-    tapGateRef.current = () => !hidden && !controlsInput.wasInterrupted() && !textcard.up && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen && !sourceWidget.openKey;
+    tapGateRef.current = () => !hidden && !controlsInput.wasInterrupted() && !takeover.up && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen && !sourceWidget.openKey;
     const tapGate = React.useCallback(() => tapGateRef.current(), []);
     // A reaction still is acquired under this session's stage authority on the first tap only (gal-scene.js).
     const tapMedia = React.useCallback(descriptor => {
@@ -1198,7 +1203,7 @@ function GalStage(props) {
     const historyRolls=stageViews.playback.usePlayback({sessionId,runtime,reading,auto,skipping,hidden,
         overlay:backlog||configOpen||galleryOpen||pageOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
         line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
-        performance:{replayable:performanceKinds.replayable,holds:modPerformances.holds,blocking:textcard.busy||!!title,dialogueHeld,busy:presentationBusy}},
+        performance:{replayable:performanceKinds.replayable,holds:modPerformances.holds,blocking:takeover.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{turnPastEnd();stopSkip();},finishTyping:()=>setTyped(true)});
     // An insert page holds the playback clock (overlay above): AUTO turns it a wordless page's wait (the CONFIG auto wait,
     // galAutoDelay), at least the picture minimum, after its picture has shown, or passes it once the grace from reaching
@@ -1265,7 +1270,7 @@ function GalStage(props) {
         if (sourceWidget.scrollOwner) { if (!event.fromView) sourceWidget.scroll(event); return; }
         if (backlog || configOpen || galleryOpen || pageOpen || menuOpen || Date.now() - backlogClosedAt.current < 450) return;
         if (controlsInput.consumeInterrupted()) return; // this notch only stopped a fast-forward
-        if (event.deltaY > 0 && !hidden && textcard.skip()) return; // hidden → the box comes back first
+        if (event.deltaY > 0 && !hidden && takeover.skip()) return; // hidden → the box comes back first
         const decision = stageViews.controls.wheel(wheelGesture.current, { now: Date.now(), deltaY: event.deltaY, deltaMode: event.deltaMode, typed, hidden });
         wheelGesture.current = decision.state;
         if (decision.action === 'backlog') openBacklog();
@@ -1296,7 +1301,7 @@ function GalStage(props) {
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
         busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch,
         letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles, pages: pageList }, menuActions);
-    return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (textcard.up ? " is-textcard" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
+    return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
         "data-stage-lease": leasing ? leaseView.lease.owner : undefined,
         "data-fk-tx-leaving": stageLeaving || undefined, "data-fk-tx-entering": stageEntering || undefined, "data-fk-veil": veilShown.current || undefined,
         // the current skin's text percent; theme.css multiplies the skin's own sizes by it
@@ -1315,7 +1320,7 @@ function GalStage(props) {
         // the item glow takes the speaker's 形象色.
         // art.item (stage-skin-adv.md): the skin draws the card as the original's frame.
         modPerformances.node && React.cloneElement(modPerformances.node,{accent:color || undefined,skinItem:skinItem || undefined}),
-        textcard.node,
+        takeover.node,
         // the CG insert page over the scene and the box, under the top bar and its notices.
         insertPicture ? h(stageViews.pictures.Page, { key: insertPageKey, picture: insertPicture, onShown: () => setPictureShown(insertPageKey), onFailed: () => turnPicture(insert.view ? 0 : insert.delta) }) : null,
         h("div", {className:"fork-gal-scene-hold" + (entryGate.visible ? " is-resolved" : ""), "aria-hidden":true}),
