@@ -4252,7 +4252,7 @@ window.__ModuleLoader__.load({
 		const SYSTEM_PACK = Object.freeze({
 		  id:'a6048e6c-e74d-4ef8-ab6f-1162d97659ed',
 		  name:'系统设置（请勿删除）',
-		  description:'系统自己要用的兜底素材：通用声音和旁白声音用的就是这里的人物，可以改它们的声音。删掉这个包会按默认内容重建，改过的声音会丢失。这个包不用对卡启用。',
+		  description:'系统自己要用的兜底素材：通用声音和旁白声音用的就是这里的人物，可以改它们的声音。删掉这个包，下次启动时会按默认内容重建，改过的声音会丢失。这个包不用对卡启用。',
 		});
 		// The figures: role → fixed figure id; their default voice is the browser's own, read in 中文.
 		const SYSTEM_FIGURES = Object.freeze({
@@ -10758,7 +10758,7 @@ window.__ModuleLoader__.load({
 		  // the edits go (its own figures have no 删除人物); any other pack or figure they point at leaves them silent.
 		  const readingUsers=(reading,packId,figureId)=>READING_ROLES.filter(r=>{const f=reading?.[r.id]?.figure;return !!f&&f.packId===packId&&(figureId===undefined||f.figureId===figureId);}).map(r=>r.label);
 		  const readingLossText=(reading,packId,figureId)=>{
-		    if(figureId===undefined&&isSystemEntry(packId))return '这是系统设置包：删掉后会按默认内容重建，改过的声音会丢失。';
+		    if(figureId===undefined&&isSystemEntry(packId))return '这是系统设置包：删掉后下次启动时会按默认内容重建，改过的声音会丢失。';
 		    const users=readingUsers(reading,packId,figureId);
 		    return users.length?users.join('、')+'正在用'+(figureId===undefined?'它里面的人物':'它的声音')+'，删除后'+(users.length>1?'它们':'它')+'不出声，要在素材库里另选人物。':'';
 		  };

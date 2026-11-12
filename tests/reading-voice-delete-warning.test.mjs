@@ -19,7 +19,7 @@ test('the words: the system pack is rebuilt, a pointed pack or figure goes silen
   assert.equal(readingLossText(reading, 'p', 'n'), '旁白声音正在用它的声音，删除后它不出声，要在素材库里另选人物。')
   assert.equal(readingLossText(reading, 'other'), '')
   assert.equal(readingLossText(null, 'p'), '', 'pointers not read yet')
-  assert.equal(readingLossText(reading, SYSTEM_PACK.id), '这是系统设置包：删掉后会按默认内容重建，改过的声音会丢失。')
+  assert.equal(readingLossText(reading, SYSTEM_PACK.id), '这是系统设置包：删掉后下次启动时会按默认内容重建，改过的声音会丢失。')
 })
 
 test('the pack and figure delete confirmations add those words; the client takes the system ids from the shared module', async () => {
