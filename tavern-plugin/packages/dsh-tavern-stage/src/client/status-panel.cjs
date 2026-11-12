@@ -16,7 +16,10 @@
 //   the card's 游戏准备 for another chat after the core confirm, on an unsaved one the card's
 //   游戏准备 when it has one (the game made there replaces this chat), else starts this chat as continueGame(); continueGame() closes the page and reading goes on where it is
 //   (on an entry page close() is 返回主页面 instead: closing a title page is not entering),
-//   openGallery() 回想 and openBacklog() 履历 over the page (a jump from the 履历 enters the stage there), exit() 返回主页面; sound(name) the shown skin's own move / confirm / open / close cue
+//   openGallery() 回想 and openBacklog() 履历 over the page (a jump from the 履历 enters the stage there), exit() 返回主页面;
+//   title(text) the sheet's title line while the page is open (a sheet about one figure
+//   names it in the title, not in a heading of its own under it); '' gives the declared label back; at most 60 characters;
+//   sound(name) the shown skin's own move / confirm / open / close cue
 //   (a skin without that cue stays silent). Every action's Promise settles, so a page that disables its buttons while one
 //   runs can enable them again. An element with data-dsh-sound sounds move on hover / focus and confirm on click.
 // The data is the page's ledger sections (readCardPage), the declared figures' faces as data: URLs (useFaces) and the
@@ -77,7 +80,7 @@ function cardPagePrelude(token, page, snapshot, shortcut, scrollbars, owned) {
         + 'fillInput:function(text){return call("fillInput",{text:String(text==null?"":text)});},assets:function(kind){return call("assets",{kind:String(kind||"")});},'
         + 'opening:function(userName){return call("opening",{userName:String(userName==null?"":userName)});},startGame:function(choice){return call("startGame",choice||{});},'
         + 'newGame:function(){return call("newGame");},continueGame:function(){return call("continue");},openGallery:function(){return call("gallery");},openBacklog:function(){return call("backlog");},exit:function(){return call("exit");},'
-        + 'sound:function(name){return call("sound",{name:String(name||"")});},'
+        + 'sound:function(name){return call("sound",{name:String(name||"")});},title:function(text){return call("title",{text:String(text==null?"":text)});},'
         + 'asset:function(ref){var key=JSON.stringify(ref||{});if(!assets.has(key)){var task=call("asset",ref||{}).then(function(blob){return URL.createObjectURL(blob);});task.catch(function(){assets.delete(key);});assets.set(key,task);}return assets.get(key);}});})();<\/script>';
 }
 
@@ -137,7 +140,7 @@ function createAssetReader(sessionId, page) {
 // closeControl 'page': the page answers close requests itself; onEscape() is its Esc / shortcut (the Overlay decides
 // whether it closes a page over this one or asks this page by requestClose()).
 function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, openingPage, opening, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction}) {
-    let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = helperContext || null;
+    let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = helperContext || null, phaseNow = 'loading', title = '';
     let inFlight = false, again = false, faceJob = 0, token = '', content = '', readAsset = null, heldFaces = null;
     let lifecycle = null, stopLifecycle = null, stopSignals = null, stopMessages = null;
     const frames = new Map(); // document token → {node, descriptor}
@@ -154,9 +157,11 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         for (const target of windows()) post(target, value);
     }
     function state(phase, extra) {
-        if (!closed) onState({phase, label: raw?.label || label || '', size: raw?.size || size || 'window', figures: raw?.figures || [], shown, ...extra});
+        phaseNow = phase;
+        if (!closed) onState({phase, label: raw?.label || label || '', title, size: raw?.size || size || 'window', figures: raw?.figures || [], shown, ...extra});
     }
     async function answer(method, args) {
+        if (method === 'title') { title = String(args?.text ?? '').trim().slice(0, 60); state(phaseNow); return {title}; }
         if (method === 'asset') return await readAsset(args);
         if (method === 'assets') return await readAsset.list(String(args?.kind || ''));
         if (method === 'fillInput') {
@@ -425,12 +430,12 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     const pageCloses = owned && state.shown && state.phase === 'ready';
     return h('div', {className: 'fork-gal-status', 'data-size': state.size, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, 'data-close-control': pageCloses ? 'page' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) request(); },
         onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); request(); }},
-        h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': label, 'data-phase': state.phase},
+        h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': state.title || label, 'data-phase': state.phase},
             // the empty first child: dsh-pocket's phone stylesheet otherwise takes a page-closed sheet whose body ends in 重试 for DSH's
             // settings dialog — the stopgap of Modal in src/client/asset-pack-ui.js (bug:asset-figure-dialog-phone), deleted with it.
             h('i', {hidden: true}),
             pageCloses ? null : h('header', {className: 'fork-gal-status-head'},
-                state.size === 'full' ? null : h('b', {className: 'fork-gal-status-title'}, label),
+                state.size === 'full' ? null : h('b', {className: 'fork-gal-status-title'}, state.title || label),
                 h('button', {type: 'button', className: 'fork-gal-status-close', title: closeLabel, 'aria-label': closeLabel, onClick: () => close.current?.()},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),
             h('div', {ref: body, className: 'fork-gal-status-body'},

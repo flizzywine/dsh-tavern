@@ -107,6 +107,29 @@ test('close, open, openSettings and fillInput reach onClose / onAction; fillInpu
   page.dispose()
 })
 
+test('title(text) sets the sheet title over the declared label, empty gives the label back', async () => {
+  const h = harness()
+  const states = []
+  const page = openPage(h, {onState: next => states.push(next)})
+  await settle()
+  const source = h.frames[0].contentWindow
+  h.send(source, 'title', {text: '  人物档案·小林  '})
+  await settle()
+  assert.deepEqual([states.at(-1).title, states.at(-1).label, states.at(-1).phase], ['人物档案·小林', PAGE.label, 'ready'])
+  assert.deepEqual(responses(h.frames[0]).at(-1).result, {title: '人物档案·小林'})
+  h.send(source, 'title', {text: ''})
+  await settle()
+  assert.equal(states.at(-1).title, '')
+  assert.match(h.lifecycles[0].props.content, /title:function\(text\)\{return call\("title"/)
+  // the sheet shows it
+  const {React} = fakeReact({phase: 'ready', label: PAGE.label, title: '人物档案·小林', size: 'window', figures: [], shown: true})
+  const panels = createStageStatusPanel({React, window: {console, addEventListener() {}, removeEventListener() {}}, document: {}, rpc: () => new Promise(() => {}), signals: {subscribe: () => () => {}}})
+  const tree = panels.Overlay({sessionId: 's1', pageId: 'status', label: PAGE.label, onClose() {}})
+  assert.equal(text(find(tree, node => node.props.className === 'fork-gal-status-title')), '人物档案·小林')
+  panels.dispose()
+  page.dispose()
+})
+
 test('an entry page draws no chrome (data-bare) until its document is shown, or its read comes back empty or failed', () => {
   for (const [entry, phase, shown, bare] of [[true, 'loading', false, true], [true, 'ready', false, true], [true, 'ready', true, false],
     [true, 'empty', false, false], [true, 'error', false, false], [false, 'loading', false, false], [false, 'ready', false, false]]) {

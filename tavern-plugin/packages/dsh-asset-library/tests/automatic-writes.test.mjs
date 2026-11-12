@@ -187,3 +187,21 @@ test('renaming the card preserves automatic routing and its existing pack name',
   assert.equal(second.packId,first.packId)
   assert.equal((await f.service.getPackSnapshot({packId:first.packId})).manifest.name,name)
 })
+
+// 场景生图's CG (scene-cg.js) goes to the same pack as the figures: cardAutomaticPack is that one rule for writers outside the receipts.
+test('cardAutomaticPack: the card’s 自动素材 pack, made empty and bound once; the figures’ first write then uses it; null while detached', async t => {
+  const f = await fixture(t)
+  assert.equal(await f.service.cardAutomaticPack({path:'test'}), null, 'nothing is made without create')
+  assert.deepEqual(await f.service.listPackSummaries(), [])
+  const [made, again] = await Promise.all([f.service.cardAutomaticPack({path:'test', create:true}), f.service.cardAutomaticPack({path:'test', create:true})])
+  assert.equal(again.packId, made.packId)
+  const pack = await f.service.getPackSnapshot({packId:made.packId})
+  assert.equal(pack.manifest.name, 'Test card · 自动素材'); assert.equal(pack.automatic, true)
+  assert.deepEqual(f.cards.inspectRaw((await f.cards.snapshot({path:'test'})).raw).boundPackIds, [made.packId])
+  assert.equal((await f.write('First speaker')).packId, made.packId)
+  await f.lock('test-card', async () => {
+    await writeFile(f.file, JSON.stringify(f.preparation.create({kind:'import', payload:{name:'Test card'}})))
+  })
+  assert.equal(await f.service.cardAutomaticPack({path:'test', create:true}), null, 'an unbound automatic pack is not used, and no second one is made')
+  assert.equal((await f.service.listPackSummaries()).length, 1)
+})

@@ -1317,7 +1317,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       current==='directions'&&selected?h(StyleDetail,{key:'directions/'+selected.id,pack,asset:selected,commit,remove:removeStyle,busy:work.busy,back:narrowBack}):
       !selected?null:current==='figures'?h(FigureDetail,{key:selected.id,binding,pack,figure:selected,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions:figureActions(selected.id),nav:tabNav,narrow,onBack:()=>setDetail(false),onClose:close,onChanged:automaticChanged,backLabel:kinds[current],
           gen,importSettei,removeFigureImage,identityBoard:{upload:importIdentitySettei,remove:removeIdentitySettei},tab:figureTab,setTab:setFigureTab,voiceOpen:initial?.tab==='voice'&&selected.id===initial.figureId}):
-        current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,card:ctx||scope?.ctx||null,back:narrowBack,fresh:fresh===selected.id}):
+        current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,remove:removeEntry,card:ctx||scope?.ctx||null,back:narrowBack,fresh:fresh===selected.id}):
         h(EntryDetail,{key:current+'/'+selected.id,binding,pack,packs,asset:selected,commit,audio,gen,uploadBackground,uploadVariant,card:ctx||scope?.ctx||null,remove:removeEntry,busy:work.busy,back:narrowBack,fresh:fresh===selected.id,
           onCategory:path=>{setCategory(path);setSel(selected.id);if(narrow)setDetail(false);},
           onOpenPack:onOpenPack&&((id,k,item)=>{audio.stop();onPacksChanged?.();onOpenPack(id,k,item);})})));

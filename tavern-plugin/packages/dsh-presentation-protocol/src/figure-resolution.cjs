@@ -90,6 +90,20 @@ function resolveFigureName(rows, segment = {}) {
   if (named.length && !named.some(row => speakerIdentity(row) === speakerIdentity(found))) return {status:'conflict', actorKey:found.actorKey, ref:found.ref};
   return {status:'resolved', actorKey:found.actorKey, ref:found.ref, row:found};
 }
-return {normalizeCatalogueText, codepointCompare, promptHandleStem, figureSpeakerHandle, createSpeakerHandleResolver, resolveFigureName, figureLatinAlias};
+// Every figure name that several enabled rows carry, so resolveFigureName answers 'ambiguous' and names no one on the
+// stage: [{name, rows}], `name` as first written, `rows` the rows of that name, in row order. Only names: a shared alias
+// is a deliberate choice (a family's surname), owner 11-12. The resolver gives the verdict.
+function figureNameConflicts(rows) {
+  const groups = new Map()
+  for (const row of rows) {
+    const value = normalizeCatalogueText(row.name)
+    if (row.enabled === false || !value) continue
+    if (!groups.has(value)) groups.set(value, {name:String(row.name).trim(), rows:[]})
+    groups.get(value).rows.push(row)
+  }
+  return [...groups].filter(([value, group]) => new Set(group.rows.map(speakerIdentity)).size > 1 && resolveFigureName(rows, value).status === 'ambiguous')
+    .map(([, group]) => group).sort((a, b) => codepointCompare(a.name, b.name))
+}
+return {normalizeCatalogueText, codepointCompare, promptHandleStem, figureSpeakerHandle, createSpeakerHandleResolver, resolveFigureName, figureNameConflicts, figureLatinAlias};
 })();
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = figureResolution;

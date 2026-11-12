@@ -1,5 +1,6 @@
-// Finished plugin pictures (the illustrator's 场景生图) become CG entries of the card's own pack - the pack named after the
-// card, created and lit green for it when missing - and are unlocked in 回想 at once. Deleting one from 回想 takes it out of
+// Finished plugin pictures (the illustrator's 场景生图) become CG entries of the card's 自动素材 pack - the same pack 自动素材
+// writes its figures to (the library's cardAutomaticPack), made and bound when missing; never a pack the owner made - and
+// are unlocked in 回想 at once. While the owner has unbound that pack, pictures stay in the story only. Deleting one from 回想 takes it out of
 // the pack, the gallery and the turn's plugin media; history pages then show nothing in its place.
 import {createHash, randomBytes} from 'node:crypto'
 
@@ -25,17 +26,8 @@ export function createSceneCg({library, attachments, chatForSession, cardAssetBi
     return {chat, card, boundPackIds:card.extension?.assetBindings?.boundPackIds || []}
   }
   async function cardPack(service, context) {
-    const name = String(context.chat.cardName || '').trim()
-    for (const packId of context.boundPackIds) {
-      const pack = await service.getPackSnapshot({packId}).catch(() => null)
-      if (pack && !pack.privateConfig && pack.manifest.name === name) return pack
-    }
-    if (!name) return null
-    const made = await service.createPack({name, expectedRevision:null}), packId = made.snapshot.manifest.id
-    const bindings = context.card.extension?.assetBindings || {}
-    await cardAssetBindings.update({path:context.chat.cardPath, expectedRevision:context.card.revision,
-      patch:{assetBindings:{...bindings, boundPackIds:[...context.boundPackIds, packId]}}})
-    return made.snapshot
+    const target = await service.cardAutomaticPack({path:context.chat.cardPath, create:true})
+    return target && service.getPackSnapshot({packId:target.packId})
   }
   async function sync({gameId, item}) {
     const service = library(), files = attachments(), ext = EXT[item.attachment?.mediaType]
@@ -66,6 +58,16 @@ export function createSceneCg({library, attachments, chatForSession, cardAssetBi
       return {...ref, changed:true}
     })
   }
+  // Takes pictures out of a pack: the entries, then each file nothing else in the pack shows (removeBlob refuses a used one).
+  async function drop(service, pack, ids) {
+    const assets = pack.manifest.assets.filter(row => row.kind === 'cg' && ids.includes(row.id)), gone = new Set(assets), media = [...new Set(assets.flatMap(asset => (asset.variants?.entries || []).map(entry => entry.content?.media)).filter(Boolean))]
+    let revision = (await service.patchPack({packId:pack.manifest.id, expectedRevision:pack.revision,
+      patch:{assets:pack.manifest.assets.filter(row => !gone.has(row))}})).snapshot.revision
+    for (const hash of media) {
+      try { revision = (await service.removeBlob({packId:pack.manifest.id, expectedRevision:revision, hash})).snapshot.revision }
+      catch (error) { log.info?.('dsh-tavern: scene CG media kept', error?.code || error?.message) }
+    }
+  }
   // 回想 › 删除这张 CG: only an entry this sync made, in a pack bound to the playing card.
   async function remove({sessionId, ref}) {
     const service = library(), context = await cardOf(sessionId)
@@ -75,18 +77,48 @@ export function createSceneCg({library, attachments, chatForSession, cardAssetBi
       const pack = await service.getPackSnapshot({packId:ref.packId})
       const asset = pack?.manifest.assets.find(row => row.kind === 'cg' && row.id === ref.assetId), origin = scenePictureOf(asset)
       if (!origin) throw Object.assign(new Error('这张 CG 不是自动配图'), {code:'NOT_FOUND'})
-      const media = [...new Set((asset.variants?.entries || []).map(entry => entry.content?.media).filter(Boolean))]
-      let revision = (await service.patchPack({packId:ref.packId, expectedRevision:pack.revision,
-        patch:{assets:pack.manifest.assets.filter(row => row !== asset)}})).snapshot.revision
-      // The picture's file goes too when nothing else in the pack shows it (removeBlob refuses a used one).
-      for (const hash of media) {
-        try { revision = (await service.removeBlob({packId:ref.packId, expectedRevision:revision, hash})).snapshot.revision }
-        catch (error) { log.info?.('dsh-tavern: scene CG media kept', error?.code || error?.message) }
-      }
+      await drop(service, pack, [asset.id])
       await cgGallery.forget(await resolveCard(context.chat.cardPath), {packId:ref.packId, kind:'cg', assetId:ref.assetId})
       if (origin.chatId === context.chat.id) await removePicture(sessionId, origin.itemId, origin.attachmentId)
       return {removed:true}
     })
   }
-  return {sync, remove}
+  // Pictures made before 11-12 went to the owner's pack named after the card. relocate moves the ones this card's 回想 unlocked
+  // into its 自动素材 pack (cardAutomaticPack, made and bound when missing): copy (copyItems, ids kept unless taken), point 回想
+  // at the copies, then take them and their files out of the old pack. A rerun after a stop finds what already arrived by its
+  // attachment and does not copy it twice. Turns whose director showed one keep the old ref and show no CG there; the
+  // picture in the story text is the plugin's and stays. dryRun lists and writes nothing.
+  async function relocate({cardPath, dryRun = true}) {
+    const service = library()
+    if (!service) throw Object.assign(new Error('素材库不可用'), {code:'UNAVAILABLE'})
+    const cardId = await resolveCard(cardPath)
+    return serial(cardPath, async () => {
+      const target = await service.cardAutomaticPack({path:cardPath, create:!dryRun}), packs = new Map(), moves = []
+      for (const ref of await cgGallery.unlocked(cardId)) {
+        if (ref.kind !== 'cg' || ref.packId === target?.packId) continue
+        if (!packs.has(ref.packId)) packs.set(ref.packId, await service.getPackSnapshot({packId:ref.packId}))
+        const pack = packs.get(ref.packId), asset = pack?.manifest.assets.find(row => row.kind === 'cg' && row.id === ref.assetId)
+        if (scenePictureOf(asset)) moves.push({pack, asset})
+      }
+      const rows = moves.map(({pack, asset}) => ({packId:pack.manifest.id, packName:pack.manifest.name, assetId:asset.id, name:asset.name,
+        bytes:(asset.variants?.entries || []).reduce((sum, entry) => sum + (pack.manifest.blobs[entry.content?.media]?.size || 0), 0)}))
+      const result = {cardId, cardPath, target:target?.packId ?? null, moves:rows}
+      if (dryRun || !rows.length) return result
+      // the owner unbound the card's 自动素材 pack: nothing moves
+      if (!target) return {...result, moved:0, skipped:'unbound'}
+      for (const pack of new Set(moves.map(move => move.pack))) {
+        const assets = moves.filter(move => move.pack === pack).map(move => move.asset), into = await service.getPackSnapshot({packId:target.packId})
+        const arrived = new Map(into.manifest.assets.filter(scenePictureOf).map(asset => [scenePictureOf(asset).attachmentId, asset.id]))
+        const pending = assets.filter(asset => !arrived.has(scenePictureOf(asset).attachmentId))
+        const copied = pending.length ? (await service.copyItems({sourcePackId:pack.manifest.id, itemRefs:pending.map(asset => ({kind:'cg', id:asset.id})),
+          target:{packId:target.packId, expectedRevision:into.revision}})).copied : []
+        const toId = new Map(copied.map(row => [row.fromId, row.toId]))
+        await cgGallery.move(cardId, assets.map(asset => [{packId:pack.manifest.id, kind:'cg', assetId:asset.id},
+          {packId:target.packId, kind:'cg', assetId:toId.get(asset.id) ?? arrived.get(scenePictureOf(asset).attachmentId)}]))
+        await drop(service, await service.getPackSnapshot({packId:pack.manifest.id}), assets.map(asset => asset.id))
+      }
+      return {...result, moved:rows.length}
+    })
+  }
+  return {sync, remove, relocate}
 }

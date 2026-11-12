@@ -4,6 +4,7 @@ import { transcriptOutfitSpans } from './domain/transcript-outfits.js'
 import {projectStageLease} from './domain/stage-lease-projection.js'
 import {cardGreetings, messageOpeningId, resolveOpeningScene} from './domain/stage-opening-scene.js'
 import { NARRATOR_VOICE, GENERAL_VOICE } from '../../../lib/domain/asset-pack-speech.js'
+import figureResolution from '../../dsh-presentation-protocol/src/figure-resolution.cjs'
 // The stage's requests: director, asset packs, figures and voices, widgets, mods, phone, CG gallery.
 // They run on the same authenticated dispatcher as every other area; core requests live in the other rpc/ files.
 // A source mod's mark (modService.sources, mod-source-views.js): the phone reads in full only the earlier rounds whose record
@@ -107,6 +108,10 @@ return cgGallery.list(args,authority?.origin)
     // 回想 › 删除这张 CG: a 场景生图 entry leaves the card's pack, the gallery and its turn (scene-cg.js).
     async removeSceneCg(args) {
       return deps.sceneCg.remove({sessionId:args.sessionId, ref:args.ref})
+    },
+    // relocate: this card's earlier 场景生图 CG into its 自动素材 pack (scene-cg.js); dryRun unless false.
+    async relocateSceneCg(args) {
+      return deps.sceneCg.relocate({cardPath:args.path, dryRun:args.dryRun !== false})
     },
     async ackCgPlayed(args, method, serverTemplate, authority) {
       const { cgGallery } = deps
@@ -261,6 +266,17 @@ return cgGallery.ack(args,authority?.origin)
         const chat = await requestPerformance.stage('backgrounds.chat', () => readStageChat.view(args?.sessionId,{configOnly:true}))
         const consumer = chat?.cardPath && await requestPerformance.stage('backgrounds.consumer', () => assetRuntime.consumer(chat,authority?.origin))
         return {backgrounds:consumer ? await requestPerformance.stage('backgrounds.list', () => consumer.presentation.backgrounds()) : []}
+
+    },
+    async getStageNameConflicts(args, method, serverTemplate, authority) {
+      const { assetRuntime, readStageChat } = deps
+
+        // the stage notice 「人物重名」: figure names several figures of the card's packs share, so the stage
+        // shows none of them (figureNameConflicts, the resolver's own verdict).
+        const chat = await readStageChat.view(args?.sessionId,{configOnly:true})
+        const consumer = chat?.cardPath && await assetRuntime.consumer(chat,authority?.origin)
+        return {conflicts:consumer ? figureResolution.figureNameConflicts(await consumer.presentation.figureRows()).map(conflict => ({name:conflict.name,
+          figures:conflict.rows.map(row => ({packId:row.ref.packId, figureId:row.ref.figureId, name:row.name, packName:row.packName}))})) : []}
 
     },
     async getCardVariableBindings(args, method, serverTemplate, authority) {
