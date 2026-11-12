@@ -6539,7 +6539,7 @@ window.__ModuleLoader__.load({
 		      current==='directions'&&selected?h(StyleDetail,{key:'directions/'+selected.id,pack,asset:selected,commit,remove:removeStyle,busy:work.busy,back:narrowBack}):
 		      !selected?null:current==='figures'?h(FigureDetail,{key:selected.id,binding,pack,figure:selected,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions:figureActions(selected.id),nav:tabNav,narrow,onBack:()=>setDetail(false),onClose:close,onChanged:automaticChanged,backLabel:kinds[current],
 		          gen,importSettei,removeFigureImage,identityBoard:{upload:importIdentitySettei,remove:removeIdentitySettei},tab:figureTab,setTab:setFigureTab,voiceOpen:initial?.tab==='voice'&&selected.id===initial.figureId}):
-		        current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,card:ctx||scope?.ctx||null,back:narrowBack,fresh:fresh===selected.id}):
+		        current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,remove:removeEntry,card:ctx||scope?.ctx||null,back:narrowBack,fresh:fresh===selected.id}):
 		        h(EntryDetail,{key:current+'/'+selected.id,binding,pack,packs,asset:selected,commit,audio,gen,uploadBackground,uploadVariant,card:ctx||scope?.ctx||null,remove:removeEntry,busy:work.busy,back:narrowBack,fresh:fresh===selected.id,
 		          onCategory:path=>{setCategory(path);setSel(selected.id);if(narrow)setDetail(false);},
 		          onOpenPack:onOpenPack&&((id,k,item)=>{audio.stop();onPacksChanged?.();onOpenPack(id,k,item);})})));
@@ -7444,7 +7444,19 @@ window.__ModuleLoader__.load({
 		      const match=/copied pack: ([0-9a-f-]{36})/i.exec(String(error?.message||''));
 		      return match?{packId:match[1]}:null;
 		    }
-		    function WidgetCopyMenu({card,pack,asset,onCopied,onError}) {
+		    // 删除单条素材 — the name row's ⋯ › 删除… on every kind (背景 / CG / 物品 / 音乐 / 音效 / 环境音 / 模组 / 舞台皮肤 …). remove(kind, id) is
+		    // the one CAS write (PackModal removeEntry). A just-created entry nothing has been put into (no file, no 触发词, no 使用情景)
+		    // is removed at once; anything else asks first. Returns close => MenuItem, so a kind's own menu (替换媒体…, 复制…) can list it.
+		    const entryIsBlank=asset=>asset.pendingMedia===true&&asset.media==null&&!asset.variants&&!asset.directorNote&&!asset.recall?.keywords?.length;
+		    function entryRemoveItem({asset,pack,remove,ask,onError}) {
+		      const run=()=>Promise.resolve(remove(asset.kind,asset.id)).catch(e=>onError(errorText(e)));
+		      return close=>h(MenuItem,{key:'remove',danger:true,onClick:()=>{close();if(entryIsBlank(asset))run();
+		        else ask({title:'删除'+(kinds[asset.kind]||'素材')+'「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除它和它的文件，'+(asset.kind==='skins'?'以它为默认舞台皮肤的卡改回经典皮肤。':'用到它的卡会少掉这条素材，不会自动换成别的。'),confirmLabel:'删除',danger:true,onConfirm:run});}},'删除…');
+		    }
+		    function EntryMoreMenu({asset,busy,items}) {
+		      return h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:toggle}),content:close=>items(close)});
+		    }
+		    function WidgetCopyMenu({card,pack,asset,extra,onCopied,onError}) {
 		      const [copying,setCopying]=React.useState(false),[busy,setBusy]=React.useState(false);
 		      const bound=card.ext.assetBindings.boundPackIds,targets=(card.packs||[]).filter(p=>p?.manifest&&bound.includes(p.manifest.id)&&p.manifest.id!==pack.manifest.id);
 		      async function copy(target){
@@ -7464,7 +7476,7 @@ window.__ModuleLoader__.load({
 		      }
 		      return h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:()=>{setCopying(false);toggle();}}),
 		        content:close=>copying?h(PackTargetMenu,{packs:targets,exclude:pack.manifest.id,close,onPick:copy}):
-		          h(MenuItem,{onClick:()=>setCopying(true)},h(Glyph,{name:'copy'}),h('span',null,'复制到本卡素材包…'))});
+		          h(React.Fragment,null,h(MenuItem,{onClick:()=>setCopying(true)},h(Glyph,{name:'copy'}),h('span',null,'复制到本卡素材包…')),extra&&extra(close))});
 		    }
 		    // one 演出风格 — 名称 (the title), 状态 (启用 / 关闭) and 正文 (an inline field
 		    // that keeps line breaks), each saved as it is committed. No hero, 触发词 or 详情: nothing reads them for a style.
@@ -7504,14 +7516,12 @@ window.__ModuleLoader__.load({
 		    const entryHelp=(label,text)=>text?h(Help,{text,label:label+' 说明'}):null;
 		    function EntryDetail({binding,pack,packs=[],asset,commit,audio,gen,uploadBackground,uploadVariant,card=null,onOpenPack,onCategory,remove,busy,back=null,fresh=false}) {
 		      const packId=pack.manifest.id,kind=asset.kind,[error,setError]=React.useState(''),lampless=LAMPLESS_KINDS.includes(kind),stateless=STATELESS_KINDS.includes(kind);
-		      // ⋯ › 删除 for a standalone 舞台皮肤, after a confirmation (remove(kind, id) is one CAS write).
+		      // ⋯ › 删除… on every kind's name row (entryRemoveItem); the confirmation dialog it opens is this one.
 		      const [confirm,setConfirm]=React.useState(null);
-		      const removeMenu=remove&&stateless&&h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:toggle}),
-		        content:close=>h(MenuItem,{danger:true,onClick:()=>{close();setConfirm({title:'删除舞台皮肤「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除。以它为默认舞台皮肤的卡改回经典皮肤。',confirmLabel:'删除',danger:true,
-		          onConfirm:()=>Promise.resolve(remove(kind,asset.id)).catch(e=>setError(errorText(e)))});}},'删除')});
+		      const removeItem=remove&&entryRemoveItem({asset,pack,remove,ask:setConfirm,onError:message=>setError(message)});
 		      const write=update=>{setError('');return commit(kind,asset.id,update).catch(e=>setError(errorText(e)));};
 		      const [copyIssue,setCopyIssue]=React.useState(null);
-		      const copyMenu=kind==='widgets'&&card?.writer?.cardOp&&card.path&&card.ext?.assetBindings&&h(WidgetCopyMenu,{card,pack,asset,
+		      const copyMenu=kind==='widgets'&&card?.writer?.cardOp&&card.path&&card.ext?.assetBindings&&h(WidgetCopyMenu,{card,pack,asset,extra:removeItem,
 		        onCopied:(packId,itemId)=>{setCopyIssue(null);onOpenPack?.(packId,'widgets',itemId);},onError:(text,packId)=>setCopyIssue(text?{text,packId}:null)});
 		      const [variantChoice,setVariant]=React.useState(undefined),selected=asset.variants&&(assetVariantRow(asset.variants,variantChoice)||assetVariantRow(asset.variants));
 		      const content=selected?selected.content:asset,view={...asset,...content};delete view.variants;
@@ -7547,7 +7557,7 @@ window.__ModuleLoader__.load({
 		      const performancePacks=useFullPacksOfKinds(binding,kind==='timers'?(packs.length?packs:[pack]).map(p=>p?.manifest?.id===packId?pack:p):[],['performances']);
 		      // on a phone (ack) the name row carries the sub-page ‹ and leads the page.
 		      const title=h('div',{className:'ap-detail-title'+(back?' ap-subhead':'')},back&&h(SubpageBack,back),h(CommitInput,{className:'ap-title-input','aria-label':'名称',value:asset.name,validate:v=>!v.trim()?'名称不能为空':chars(v)>256?'名称最多 256 字':'',onCommit:v=>write(c=>({...c,name:v.trim()}))}),
-		          copyMenu||removeMenu||(!asset.variants&&!!hash&&VARIANT_MEDIA_KINDS.includes(kind)&&uploadVariant&&h(MediaReplaceMenu,{asset,busy,onError:setError,upload:(id,file)=>uploadVariant(kind,asset.id,id,file)}))||null);
+		          copyMenu||((!asset.variants&&!!hash&&VARIANT_MEDIA_KINDS.includes(kind)&&uploadVariant)?h(MediaReplaceMenu,{asset,busy,onError:setError,extra:removeItem,upload:(id,file)=>uploadVariant(kind,asset.id,id,file)}):removeItem&&h(EntryMoreMenu,{asset,busy,items:removeItem})));
 		      // on every size the name row leads the pane, above the preview / player,
 		      // and is the only place the name is shown (the player card dropped its own title).
 		      return h('div',{className:'ap-detail-pane','data-disabled':asset.enabled===false||undefined},title,h(ErrorBox,{error}),hero,
@@ -7632,11 +7642,11 @@ window.__ModuleLoader__.load({
 		        content:close=>[...times.map(([id,name])=>h(MenuItem,{key:id,onClick:()=>{close();add(id);}},name)),h(MenuItem,{key:'new',onClick:()=>{close();add();}},'新变体')]});
 		    }
 		    // A media entry without a table replaces its one file from the name row's ⋯ (替换媒体…); with a table each chip has its own.
-		    function MediaReplaceMenu({asset,busy,upload,onError}) {
+		    function MediaReplaceMenu({asset,busy,upload,onError,extra}) {
 		      const input=React.useRef(null);
 		      return h(React.Fragment,null,
 		        h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:toggle}),
-		          content:close=>h(MenuItem,{onClick:()=>{close();input.current?.click?.();}},'替换媒体…')}),
+		          content:close=>h(React.Fragment,null,h(MenuItem,{onClick:()=>{close();input.current?.click?.();}},'替换媒体…'),extra&&extra(close))}),
 		        h('input',{ref:input,type:'file',hidden:true,tabIndex:-1,accept:AUDIO_KINDS.includes(asset.kind)?AUDIO_ACCEPT:IMAGE_ACCEPT,
 		          onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)Promise.resolve(upload(undefined,file)).catch(error=>onError(errorText(error)));}}));
 		    }
@@ -7936,7 +7946,8 @@ window.__ModuleLoader__.load({
 		  // `back` ({parent, onBack}, a phone's detail): like EntryDetail, the name row carries the sub-page ‹.
 		  // as in EntryDetail the name row leads the pane on every size, above the preview.
 		  const cgDraft=asset=>clone(entryWithVariants(asset,entryVariantTable(asset)));
-		  function CgEntryEditor({binding,pack,asset,save,back=null,fresh=false}) {
+		  function CgEntryEditor({binding,pack,asset,save,remove,back=null,fresh=false}) {
+		    const [confirm,setConfirm]=React.useState(null);
 		    const [draft,setDraft]=React.useState(()=>cgDraft(asset)),[revision,setRevision]=React.useState(pack.revision);
 		    const [files,setFiles]=React.useState(()=>new Map()),[blobs,setBlobs]=React.useState({}),[selected,setSelected]=React.useState(entryVariantTable(asset).default);
 		    const [busy,setBusy]=React.useState(false),[error,setError]=React.useState(''),[focusOpen,setFocusOpen]=React.useState(null);
@@ -7974,7 +7985,8 @@ window.__ModuleLoader__.load({
 		    const help=(label,text)=>h(Help,{text,label:label+' 说明'});
 		    const keywordSuggest=React.useMemo(()=>entryWordCandidates(pack,'cg',a=>a.recall?.keywords),[pack]);
 		    const title=h('div',{className:'ap-detail-title'+(back?' ap-subhead':'')},back&&h(SubpageBack,back),
-		      h(CommitInput,{className:'ap-title-input','aria-label':'名称',value:draft.name,validate:v=>!v.trim()?'名称不能为空':chars(v)>256?'名称最多 256 字':'',onCommit:v=>set({name:v.trim()})}));
+		      h(CommitInput,{className:'ap-title-input','aria-label':'名称',value:draft.name,validate:v=>!v.trim()?'名称不能为空':chars(v)>256?'名称最多 256 字':'',onCommit:v=>set({name:v.trim()})}),
+		      remove&&h(EntryMoreMenu,{asset,busy:false,items:entryRemoveItem({asset,pack,remove,ask:setConfirm,onError:setError})}));
 		    const setFocus=next=>setDraft(old=>({...old,variants:{...old.variants,entries:old.variants.entries.map(row=>row.id===variant.id?{...row,content:{...row.content,focusHints:(row.content.focusHints||[]).map(f=>f.key===focusOpen?{...f,...next}:f)}}:row)}}));
 		    return h('div',{ref:pane,className:'ap-detail-pane ap-cg-editor','data-disabled':draft.enabled===false||undefined},title,h(ErrorBox,{error}),
 		      blank?h('div',{className:'ap-hero-wrap'},busy?h('div',{className:'ap-media-drop','data-busy':true},h(Spinner,{key:'upload'})):h(MediaEmpty,{onFile:file=>upload([file]),onError:setError})):
@@ -7994,7 +8006,8 @@ window.__ModuleLoader__.load({
 		      !blank&&h(CgFocusHints,{draft:{...draft,editingVariant:variant.id},open:focusOpen,setOpen:setFocusOpen,set}),
 		      // Sticky while there is something to save (the engine settings page's foot); nothing when the draft is clean.
 		      dirty&&h('div',{className:'ap-cg-savebar'},h('span',{className:'ap-save-state',role:'status','data-state':'dirty'},'有未保存的修改'),
-		        h(Button,{disabled:busy,onClick:discard},'放弃修改'),h(Button,{primary:true,disabled:busy,onClick:commit},busy?'正在保存…':'保存')));
+		        h(Button,{disabled:busy,onClick:discard},'放弃修改'),h(Button,{primary:true,disabled:busy,onClick:commit},busy?'正在保存…':'保存')),
+		      confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)}));
 		  }
 		  // figure-owned authoring (character v3). Every edit uses the pack modal's serialized CAS writer.
 		  // Layout: desktop and phone are designed separately.
@@ -13377,13 +13390,6 @@ window.__ModuleLoader__.load({
 		          entries || null);
 		  }
 		  modClients.register('dsh.phone', { settings: PhoneConfigPage });
-		  // The text card mod's settings page: its 设置 section (强度) from the config schema, above its entry sections.
-		  const TextcardConfigPage = props => React.createElement(ModConfigList, { ...props, modId: 'dsh.textcard' });
-		  modClients.register('dsh.textcard', { settings: TextcardConfigPage });
-		  // The timer mod's settings page: the player options (its features) in the two layers; the look, placement and art are the
-		  // active skin's, so they are not rows; a skin lock shows read-only (CfgField).
-		  const TimerConfigPage = props => React.createElement(ModConfigList, { ...props, modId: 'dsh.timer' });
-		  modClients.register('dsh.timer', { settings: TimerConfigPage });
 		  for (const part of modClients.slot('settings')) MOD_CONFIG_PAGES[part.modId] = part.value;
 		  // the page opens only in 舞台设置 (no 模组库 tab), so ‹ always reads 舞台设置.
 		  // every page is ModPageHead (name, its (?) description, the global switch) over the mod's settings page: the one
@@ -26067,7 +26073,21 @@ function tavernModelRefusalNotice(text) {
 		  if (named.length && !named.some(row => speakerIdentity(row) === speakerIdentity(found))) return {status:'conflict', actorKey:found.actorKey, ref:found.ref};
 		  return {status:'resolved', actorKey:found.actorKey, ref:found.ref, row:found};
 		}
-		return {normalizeCatalogueText, codepointCompare, promptHandleStem, figureSpeakerHandle, createSpeakerHandleResolver, resolveFigureName, figureLatinAlias};
+		// Every figure name that several enabled rows carry, so resolveFigureName answers 'ambiguous' and names no one on the
+		// stage: [{name, rows}], `name` as first written, `rows` the rows of that name, in row order. Only names: a shared alias
+		// is a deliberate choice (a family's surname), owner 11-12. The resolver gives the verdict.
+		function figureNameConflicts(rows) {
+		  const groups = new Map()
+		  for (const row of rows) {
+		    const value = normalizeCatalogueText(row.name)
+		    if (row.enabled === false || !value) continue
+		    if (!groups.has(value)) groups.set(value, {name:String(row.name).trim(), rows:[]})
+		    groups.get(value).rows.push(row)
+		  }
+		  return [...groups].filter(([value, group]) => new Set(group.rows.map(speakerIdentity)).size > 1 && resolveFigureName(rows, value).status === 'ambiguous')
+		    .map(([, group]) => group).sort((a, b) => codepointCompare(a.name, b.name))
+		}
+		return {normalizeCatalogueText, codepointCompare, promptHandleStem, figureSpeakerHandle, createSpeakerHandleResolver, resolveFigureName, figureNameConflicts, figureLatinAlias};
 		})();
 		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = figureResolution;
 		// Voice directions are projections; the story's raw text remains authoritative; the protocol's voice-cues.cjs projects them.
@@ -26473,7 +26493,7 @@ function tavernModelRefusalNotice(text) {
 		                const refresh = () => load(sessionId, true);
 		                const timer = setInterval(refresh, 60000);
 		                timer.unref?.();
-		                const resourceChanged = event => { if (tavernDataChangeAffects(event, ["cards", "worldbooks"])) refresh(); };
+		                const resourceChanged = event => { if (tavernDataChangeAffects(event, ["cards", "worldbooks", "asset-packs"])) refresh(); };
 		                if (typeof document !== "undefined") document.addEventListener("visibilitychange", refresh);
 		                window.addEventListener("dsh-tavern-data-changed", resourceChanged);
 		                watch = {count:0, stop() {
@@ -28280,7 +28300,11 @@ function tavernModelRefusalNotice(text) {
 		    emotions:{moods:BUBBLE_MOODS,max:CUSTOM_MOOD_MAX,colors:customMoodColors,upsert:(list,value)=>emotionUpsert(list,value)}});
 		const packListeners = new Set();
 		let packRevision = 0;
-		function notifyPackChange(event) { packRevision++; for (const fn of packListeners) fn(event); }
+		function notifyPackChange(event) {
+		    packRevision++; for (const fn of packListeners) fn(event);
+		    // a pack's new revision changes who its names and aliases name: open chats' speakers re-resolve (bubbles.js watch).
+		    if (event?.packId && event.revision !== undefined) notifyTavernDataChanged(['asset-packs'], 'asset-library');
+		}
 		function usePackRevision(select) { return React.useSyncExternalStore(fn => { packListeners.add(fn); return () => packListeners.delete(fn); }, select || (() => packRevision)); }
 		function packClient() { return packTransport?.available() ? packTransport.service : undefined; }
 		// 舞台设置 ↔ 素材库 deep links. The target waits here until the library tab consumes it.
@@ -53934,7 +53958,9 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        menu:{sounds:forkUiSfx},
 		        position:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), setTimeout, clearTimeout},
 		        subtitles:{foreground:forkForeground, fonts:tavernFonts, getComputedStyle, ResizeObserver, heldTail:stagePageHeldTail, quote:galQuoted},
-		        notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText},
+		        notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText,
+		            // 「人物重名」: the card's ambiguous names, and a figure's page in 素材库 (asset-launcher.js stageNav).
+		            nameConflicts:{read:id => rpc('getStageNameConflicts',{},id), openLibrary:(sessionId,target)=>stageNav(sessionId).openLibrary(target)}},
 		        hints:{storage:forkFrameStorage,setTimeout,clearTimeout},
 		        presentation:{foreground:forkForeground, titleTiming:STAGE_EFFECTS.title, matchMedia, getComputedStyle, ResizeObserver, MutationObserver},
 		        portraits:{foreground:forkForeground, SpriteImage, PackImage, MutationObserver, getComputedStyle, matchMedia},

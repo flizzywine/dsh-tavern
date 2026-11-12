@@ -96,7 +96,7 @@ const bubbleStore = (function () {
                 const refresh = () => load(sessionId, true);
                 const timer = setInterval(refresh, 60000);
                 timer.unref?.();
-                const resourceChanged = event => { if (tavernDataChangeAffects(event, ["cards", "worldbooks"])) refresh(); };
+                const resourceChanged = event => { if (tavernDataChangeAffects(event, ["cards", "worldbooks", "asset-packs"])) refresh(); };
                 if (typeof document !== "undefined") document.addEventListener("visibilitychange", refresh);
                 window.addEventListener("dsh-tavern-data-changed", resourceChanged);
                 watch = {count:0, stop() {

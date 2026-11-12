@@ -716,6 +716,10 @@ body:not(.dsh-fork-debug) .fork-gal-runtime-status[data-tone="debug"] { display:
 /* The list's last row while the 调试视图 is off: 「打开调试视图」. */
 .fork-gal-runtime-rows .fork-gal-runtime-howto { color: var(--gal-ui-ink-2); }
 .fork-gal-runtime-rows .fork-gal-runtime-open-debug { margin-left: 0; color: var(--gal-ui-ink); }
+/* 「人物重名」: under each name, the figures it names, each a quiet link to its page in 素材库. */
+.fork-gal-runtime-rows .fork-gal-runtime-links { display: flex; flex-wrap: wrap; column-gap: 12px; min-width: 0; }
+.fork-gal-runtime-rows .fork-gal-runtime-links .fork-gal-runtime-action { padding: 0; color: var(--gal-ui-ink); overflow-wrap: anywhere; text-align: start; }
+.fork-gal-runtime-rows .fork-gal-runtime-links .fork-gal-runtime-action:focus-visible { outline-color: var(--gal-ui-accent); }
 /* 「打开调试视图」: a quiet text button (R16), the summary's focus. */
 .fork-gal-runtime-text .fork-gal-runtime-open-debug, .fork-gal-runtime-text .fork-gal-runtime-action { display: inline-flex; align-items: center; min-height: 30px; margin-left: 4px; padding: 0 4px; border: 0; background: none; color: var(--gal-ui-hud-ink-on); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .fork-gal-runtime-text .fork-gal-runtime-open-debug:disabled, .fork-gal-runtime-text .fork-gal-runtime-action:disabled { cursor: default; text-decoration: none; }

@@ -231,7 +231,9 @@ function bindStageViews(createViews) {
         menu:{sounds:forkUiSfx},
         position:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), setTimeout, clearTimeout},
         subtitles:{foreground:forkForeground, fonts:tavernFonts, getComputedStyle, ResizeObserver, heldTail:stagePageHeldTail, quote:galQuoted},
-        notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText},
+        notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText,
+            // 「人物重名」: the card's ambiguous names, and a figure's page in 素材库 (asset-launcher.js stageNav).
+            nameConflicts:{read:id => rpc('getStageNameConflicts',{},id), openLibrary:(sessionId,target)=>stageNav(sessionId).openLibrary(target)}},
         hints:{storage:forkFrameStorage,setTimeout,clearTimeout},
         presentation:{foreground:forkForeground, titleTiming:STAGE_EFFECTS.title, matchMedia, getComputedStyle, ResizeObserver, MutationObserver},
         portraits:{foreground:forkForeground, SpriteImage, PackImage, MutationObserver, getComputedStyle, matchMedia},

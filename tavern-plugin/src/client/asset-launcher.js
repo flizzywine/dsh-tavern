@@ -11,7 +11,11 @@ const packUi = createAssetPackUI(React,{VoicePicker:BubbleLibraryPicker,AvatarIm
     emotions:{moods:BUBBLE_MOODS,max:CUSTOM_MOOD_MAX,colors:customMoodColors,upsert:(list,value)=>emotionUpsert(list,value)}});
 const packListeners = new Set();
 let packRevision = 0;
-function notifyPackChange(event) { packRevision++; for (const fn of packListeners) fn(event); }
+function notifyPackChange(event) {
+    packRevision++; for (const fn of packListeners) fn(event);
+    // a pack's new revision changes who its names and aliases name: open chats' speakers re-resolve (bubbles.js watch).
+    if (event?.packId && event.revision !== undefined) notifyTavernDataChanged(['asset-packs'], 'asset-library');
+}
 function usePackRevision(select) { return React.useSyncExternalStore(fn => { packListeners.add(fn); return () => packListeners.delete(fn); }, select || (() => packRevision)); }
 function packClient() { return packTransport?.available() ? packTransport.service : undefined; }
 // 舞台设置 ↔ 素材库 deep links. The target waits here until the library tab consumes it.

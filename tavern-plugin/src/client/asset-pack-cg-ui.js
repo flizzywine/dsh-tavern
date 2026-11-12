@@ -228,7 +228,8 @@ function CgFocusHints({draft,open,setOpen,set}) {
 // `back` ({parent, onBack}, a phone's detail): like EntryDetail, the name row carries the sub-page ‹.
 // as in EntryDetail the name row leads the pane on every size, above the preview.
 const cgDraft=asset=>clone(entryWithVariants(asset,entryVariantTable(asset)));
-function CgEntryEditor({binding,pack,asset,save,back=null,fresh=false}) {
+function CgEntryEditor({binding,pack,asset,save,remove,back=null,fresh=false}) {
+  const [confirm,setConfirm]=React.useState(null);
   const [draft,setDraft]=React.useState(()=>cgDraft(asset)),[revision,setRevision]=React.useState(pack.revision);
   const [files,setFiles]=React.useState(()=>new Map()),[blobs,setBlobs]=React.useState({}),[selected,setSelected]=React.useState(entryVariantTable(asset).default);
   const [busy,setBusy]=React.useState(false),[error,setError]=React.useState(''),[focusOpen,setFocusOpen]=React.useState(null);
@@ -266,7 +267,8 @@ function CgEntryEditor({binding,pack,asset,save,back=null,fresh=false}) {
   const help=(label,text)=>h(Help,{text,label:label+' 说明'});
   const keywordSuggest=React.useMemo(()=>entryWordCandidates(pack,'cg',a=>a.recall?.keywords),[pack]);
   const title=h('div',{className:'ap-detail-title'+(back?' ap-subhead':'')},back&&h(SubpageBack,back),
-    h(CommitInput,{className:'ap-title-input','aria-label':'名称',value:draft.name,validate:v=>!v.trim()?'名称不能为空':chars(v)>256?'名称最多 256 字':'',onCommit:v=>set({name:v.trim()})}));
+    h(CommitInput,{className:'ap-title-input','aria-label':'名称',value:draft.name,validate:v=>!v.trim()?'名称不能为空':chars(v)>256?'名称最多 256 字':'',onCommit:v=>set({name:v.trim()})}),
+    remove&&h(EntryMoreMenu,{asset,busy:false,items:entryRemoveItem({asset,pack,remove,ask:setConfirm,onError:setError})}));
   const setFocus=next=>setDraft(old=>({...old,variants:{...old.variants,entries:old.variants.entries.map(row=>row.id===variant.id?{...row,content:{...row.content,focusHints:(row.content.focusHints||[]).map(f=>f.key===focusOpen?{...f,...next}:f)}}:row)}}));
   return h('div',{ref:pane,className:'ap-detail-pane ap-cg-editor','data-disabled':draft.enabled===false||undefined},title,h(ErrorBox,{error}),
     blank?h('div',{className:'ap-hero-wrap'},busy?h('div',{className:'ap-media-drop','data-busy':true},h(Spinner,{key:'upload'})):h(MediaEmpty,{onFile:file=>upload([file]),onError:setError})):
@@ -286,5 +288,6 @@ function CgEntryEditor({binding,pack,asset,save,back=null,fresh=false}) {
     !blank&&h(CgFocusHints,{draft:{...draft,editingVariant:variant.id},open:focusOpen,setOpen:setFocusOpen,set}),
     // Sticky while there is something to save (the engine settings page's foot); nothing when the draft is clean.
     dirty&&h('div',{className:'ap-cg-savebar'},h('span',{className:'ap-save-state',role:'status','data-state':'dirty'},'有未保存的修改'),
-      h(Button,{disabled:busy,onClick:discard},'放弃修改'),h(Button,{primary:true,disabled:busy,onClick:commit},busy?'正在保存…':'保存')));
+      h(Button,{disabled:busy,onClick:discard},'放弃修改'),h(Button,{primary:true,disabled:busy,onClick:commit},busy?'正在保存…':'保存')),
+    confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)}));
 }

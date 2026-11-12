@@ -1,6 +1,10 @@
 # DSH Tavern Image
 
 
+## 3.15.2 ComfyUI 工作流导入修复
+
+导入时可命名工作流。无内置名称的 JSON 默认使用文件名，同名工作流自动编号并分别保存，保留当前默认工作流及模板绑定。
+
 ## 3.15.1 画廊回收站修复
 
 回收站支持单张、批量彻底删除和清空全部图片，删除前在面板中确认。删除会清理图片缓存、作业记录与插图计划引用，刷新或重启后不再出现。
@@ -563,7 +567,7 @@ Tavern 内置配图插件 3.8.0 支持素材库「人物 → 生图 → 配图�
 
 ## 兼容与许可
 
-当前 Tavern 内置生图插件版本为 **3.15.1**。插件清单声明的 DSH 兼容范围为 `>=0.1.0-rc.8 <0.3.0`，覆盖 DSH 0.1.5 与 0.2.x（含 DeepSeek Harness 0.2.1-rc.2 / Tavern 3.0）；角色历史另外需要 Tavern 插件接口 v2。
+当前 Tavern 内置生图插件版本为 **3.15.2**。插件清单声明的 DSH 兼容范围为 `>=0.1.0-rc.8 <0.3.0`，覆盖 DSH 0.1.5 与 0.2.x（含 DeepSeek Harness 0.2.1-rc.2 / Tavern 3.0）；角色历史另外需要 Tavern 插件接口 v2。
 
 在 DSH 0.2.1-rc.2 + Tavern 3.0.0 上核对过：插件 bundle 正常加载（宿主加载器返回 0 个被跳过的包），本插件调用的 14 个 Tavern 接口（`attach`、`update`、`remove`、`list`、`getTurn`、`readTurnData`、`saveTurnData`、`promptSection`、`onTurnSettled`、`onGameRemoved`、`onTimelineChanged`、`getCardContext`、`backgroundModel`、`apiVersion`）在 Tavern 3.0 中全部保留，3.0 相对 2.7 的接口变化是纯新增（例如 `versionSignal`）。
 

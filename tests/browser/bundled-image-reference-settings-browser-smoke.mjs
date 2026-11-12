@@ -178,8 +178,15 @@ try {
       }
       response = { ok: true, workflow: clone(workflowDetail), fields: comfyWorkflowFields(workflowDetail), revision: 'workflow-1' }
     }
-    else if (path === '/workflow-import') response = body.preview ? { ok: true, name: '预检工作流', nodes: 5,
-      bindings: { positive: [{ node: '1', input: 'text' }] }, outputs: [{ id: '10', label: 'SaveImage' }], outputNode: '10' } : { ok: true, name: '预检工作流' }
+    else if (path === '/workflow-import') {
+      if (body.preview) response = { ok: true, name: body.filename?.replace(/\.json$/i, '') || '预检工作流', nodes: 5,
+        bindings: { positive: [] }, hasImageInput: true, outputs: [{ id: '10', label: 'SaveImage' }], outputNode: '10' }
+      else {
+        const file = 'imported-workflow.json'
+        state.workflows.push({ id: 'imported-workflow', label: body.name, file, enabled: true, current: false })
+        response = { ok: true, name: body.name, file }
+      }
+    }
     else if (path === '/workflow-series') response = { ok: true, jobs: body.weights.map((_, index) => ({ id: 'series-' + index, state: 'pending' })) }
     else if (path === '/workflow-values') response = { ok: true, values: { positive: '', negative: '' } }
     else if (path === '/loras-available') response = { ok: true, loras: [] }
@@ -469,7 +476,10 @@ try {
 
   await page.getByRole('button', { name: '返回概览', exact: true }).click()
   await characterTile.locator('img').waitFor()
-  assert.ok(await characterTile.locator('img').evaluate(img => img.decode().then(() => img.naturalWidth)))
+  // The tile is loading=lazy: decode() on a lazy image whose load has not started rejects with EncodingError, so wait for it.
+  assert.ok(await characterTile.locator('img').evaluate(img => (img.complete ? Promise.resolve() : new Promise((resolve, reject) => {
+    img.addEventListener('load', resolve, { once: true }); img.addEventListener('error', reject, { once: true })
+  })).then(() => img.decode()).then(() => img.naturalWidth)))
   const bounds = await characterTile.boundingBox()
   assert.ok(bounds && bounds.width <= 92 && Math.abs(bounds.width - bounds.height) <= 1, 'character thumbnail stays compact and square')
   await page.getByLabel('人物概览').screenshot({ path: join(tmpdir(), 'dsh-image-character-grid.png') })
@@ -597,11 +607,18 @@ try {
   assert.equal(await editImages.getByRole('button', { name: 'image1', exact: true }).count(), 1)
   await editImages.getByRole('button', { name: '返回画廊', exact: true }).click()
   await page.getByRole('button', { name: '📥 导入工作流', exact: true }).click()
-  await page.getByPlaceholder('粘贴 ComfyUI 的 API 格式 JSON…').fill(JSON.stringify({ '1': { class_type: 'CLIPTextEncode', inputs: { text: 'test' } } }))
-  await page.getByRole('button', { name: '解析预览', exact: true }).click()
-  await page.getByLabel('工作流导入预检', { exact: true }).waitFor()
+  const importGraph = { '1': { class_type: 'LoadImage', inputs: { image: 'test.png' } } }
+  await page.getByLabel('选 JSON 文件').setInputFiles({ name: '放大用.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(importGraph)) })
+  const preview = page.getByLabel('工作流导入预检', { exact: true })
+  await preview.waitFor()
+  const importName = preview.getByLabel('工作流名称', { exact: true })
+  assert.equal(await importName.inputValue(), '放大用')
   assert.equal(calls.some(call => call.path === '/workflow-import' && call.body.preview !== true), false)
-  await page.getByRole('button', { name: '✖ 收起导入', exact: true }).click()
+  await importName.fill('局部放大')
+  await preview.getByRole('button', { name: '确认导入', exact: true }).click()
+  await page.getByText('局部放大', { exact: true }).waitFor()
+  await page.getByText('Reference workflow', { exact: true }).waitFor()
+  assert.deepEqual(calls.filter(call => call.path === '/workflow-import').at(-1).body, { workflow: importGraph, name: '局部放大', outputNode: '10' })
   await page.getByRole('button', { name: '启用选定的完整工作流' }).click()
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.waitForFunction(() => document.querySelector('[aria-label="生图提供商"]')?.value === 'comfyui')
