@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2092dfb4894485ded0540796d732abfa1ed6f019",
-  "releaseSequence": 1564,
+  "revision": "892122cd6544bcf4b42ddeaa463ff8756ffeb7b2",
+  "releaseSequence": 1565,
   "version": "3.3.0",
   "files": [
     {
@@ -841,8 +841,8 @@
     },
     {
       "path": "presets/tavern/skills/stage-status-panel/references/panel-contract.md",
-      "sha256": "326d9de3fc33b445b5abbfa36ab86c0e180960bcc9db7afab189ac7daa23d8b0",
-      "size": 17622
+      "sha256": "249fe59f0d65a8b787436d7a9da28749812322ec7924c9fba196a7ece3e21304",
+      "size": 17562
     },
     {
       "path": "presets/tavern/skills/stage-status-panel/SKILL.md",
@@ -7981,8 +7981,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "2ff329e251da0d46b46f87f3f1be972dfff18815014031877c1ec29f1eb4d1d1",
-      "size": 3642813
+      "sha256": "d81d86653bf46da78c5330b9811a0387f3568bd5ca3d42915959c9d4c3237337",
+      "size": 3642086
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -9191,9 +9191,9 @@
     }
   ],
   "archive": {
-    "commit": "cfc739e8faebcd4c3844da4ccac8c8a4ac15ca5a",
+    "commit": "8d6e3b5e1067fe384c826a9e8aec55144590428d",
     "path": "runtime.zip",
-    "sha256": "9609409850a6468fde097883f491f32dc3f14da077d9e8bbf9306bce7891eed9",
-    "size": 16332826
+    "sha256": "b98fc8c9dc78df69d5a8e442f02c5f75f4c11faba4b11dedc83db97111d44786",
+    "size": 16332556
   }
 }
