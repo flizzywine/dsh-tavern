@@ -11,16 +11,16 @@
 
 // The page head's (?): one sentence a player understands (a manifest summary is written for the director); another
 // mod shows its manifest summary.
+// The mods' own sentences come from their parts (mod-clients.js: description / glyph / fieldHelp).
+const modPartMap = name => Object.fromEntries(modClients.slot(name).map(part => [part.modId, part.value]));
 const MOD_HELP = Object.freeze({
     'dsh.performance': '场景专属的持续演出（如场景光效），导演按本卡的演出素材播放。',
-    'dsh.timer': '舞台上的倒计时：剧情限时，或等你回应的时限，时间到时自动替你回应；打开菜单、履历时暂停，刷新也不会扣时。',
-    'dsh.phone': '角色用手机收发消息时，舞台上显示成手机画面。',
-    'dsh.textcard': '情绪转折、回忆、章节切换时，用全屏文字卡强调。'
+    ...modPartMap('description')
 });
 // The 舞台设置 › 模组 row icon of a first-party mod (glyph names of the panel's one Glyph); another mod shows 'widgets'.
-const MOD_GLYPHS = Object.freeze({ 'dsh.performance': 'performances', 'dsh.phone': 'phone', 'dsh.textcard': 'textcard', 'dsh.timer': 'timers' });
+const MOD_GLYPHS = Object.freeze({ 'dsh.performance': 'performances', ...modPartMap('glyph') });
 // A setting's (?) where the config schema carries none (the manifest's settingsSchema help is used first).
-const MOD_FIELD_HELP = Object.freeze({ 'dsh.textcard': { intensity: '每轮最多几张文字卡、播放快慢：克制 5 张偏慢，标准 8 张，浓烈 12 张偏快。' } });
+const MOD_FIELD_HELP = Object.freeze(modPartMap('fieldHelp'));
 const MOD_ENTRY_HELP = '蓝灯每轮可用，绿灯在正文提到触发词时可用；一轮里一条都用不上时，这个模组那一轮不启用。';
 
 // {key: help text} for a config page's rows: the manifest field's own help, else the client's line above.

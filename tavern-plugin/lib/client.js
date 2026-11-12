@@ -4714,7 +4714,7 @@ window.__ModuleLoader__.load({
 		  if(raw&&said!==raw&&!playerErrorSeen.has(raw)&&typeof console!=='undefined'){if(playerErrorSeen.size>200)playerErrorSeen.clear();playerErrorSeen.add(raw);console.warn('dsh-tavern:',raw);}
 		  return said;
 		}
-		function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, prepareImage: prepareImageOverride, live2d: live2dOption, spine: spineKit, timeGrade, autoChoices} = {}) {
+		function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, prepareImage: prepareImageOverride, live2d: live2dOption, spine: spineKit, timeGrade, autoChoices, modClients = typeof tavernModClients === 'undefined' ? { slot: () => [], register() {} } : tavernModClients} = {}) {
 		  const h = React.createElement;
 		  // The Live2D preview kit: the stage's Live2D module, bound with the stage pages (stageScope.bind, views.live2dKit), else
 		  // the one given here. The pages that read it draw only once the stage is bound.
@@ -4734,7 +4734,7 @@ window.__ModuleLoader__.load({
 		  // the one order every kind list uses (library tabs + 更多, pack-row chips, pack window tabs, setup, add/copy menus).
 		  // 入场演出 (`entrances`, dsh.entrance/1) - what the stage plays as it opens; 蓝灯 or 关闭.
 		  const BUILTIN_KINDS = {figures:'人物', backgrounds:'背景', cg:'CG', props:'物品', performances:'演出组合', music:'音乐', sfx:'音效', ambience:'环境音', looks:'滤镜', skins:'舞台皮肤', entrances:'入场演出', videos:'视频', widgets:'模组', directions:'演出风格'};
-		  const MOD_KINDS = [['timers','dsh.timer','计时器']];
+		  const MOD_KINDS = modClients.slot('assetKind').map(part=>[part.value[0],part.modId,part.value[1]]);
 		  const KIND_ORDER = kindOrder(Object.keys(BUILTIN_KINDS), MOD_KINDS);
 		  const kinds = Object.fromEntries(KIND_ORDER.map(key => [key, BUILTIN_KINDS[key] ?? MOD_KINDS.find(row => row[0] === key)[2]]));
 		  // shorter labels for the library's one-row kind filter (full name stays the tab's name).
@@ -12227,16 +12227,16 @@ window.__ModuleLoader__.load({
 
 		  // The page head's (?): one sentence a player understands (a manifest summary is written for the director); another
 		  // mod shows its manifest summary.
+		  // The mods' own sentences come from their parts (mod-clients.js: description / glyph / fieldHelp).
+		  const modPartMap = name => Object.fromEntries(modClients.slot(name).map(part => [part.modId, part.value]));
 		  const MOD_HELP = Object.freeze({
 		      'dsh.performance': '场景专属的持续演出（如场景光效），导演按本卡的演出素材播放。',
-		      'dsh.timer': '舞台上的倒计时：剧情限时，或等你回应的时限，时间到时自动替你回应；打开菜单、履历时暂停，刷新也不会扣时。',
-		      'dsh.phone': '角色用手机收发消息时，舞台上显示成手机画面。',
-		      'dsh.textcard': '情绪转折、回忆、章节切换时，用全屏文字卡强调。'
+		      ...modPartMap('description')
 		  });
 		  // The 舞台设置 › 模组 row icon of a first-party mod (glyph names of the panel's one Glyph); another mod shows 'widgets'.
-		  const MOD_GLYPHS = Object.freeze({ 'dsh.performance': 'performances', 'dsh.phone': 'phone', 'dsh.textcard': 'textcard', 'dsh.timer': 'timers' });
+		  const MOD_GLYPHS = Object.freeze({ 'dsh.performance': 'performances', ...modPartMap('glyph') });
 		  // A setting's (?) where the config schema carries none (the manifest's settingsSchema help is used first).
-		  const MOD_FIELD_HELP = Object.freeze({ 'dsh.textcard': { intensity: '每轮最多几张文字卡、播放快慢：克制 5 张偏慢，标准 8 张，浓烈 12 张偏快。' } });
+		  const MOD_FIELD_HELP = Object.freeze(modPartMap('fieldHelp'));
 		  const MOD_ENTRY_HELP = '蓝灯每轮可用，绿灯在正文提到触发词时可用；一轮里一条都用不上时，这个模组那一轮不启用。';
 
 		  // {key: help text} for a config page's rows: the manifest field's own help, else the client's line above.
@@ -12301,11 +12301,6 @@ window.__ModuleLoader__.load({
 		  // They replace the generic pack-editor page (ModDetail picks them by mod ID). 物品 is no longer a mod: its page (StageItemsPage,
 		  // at the end) is a built-in capability page. Every write goes through useModConfig (getModConfig / setModConfig /
 		  // clearModConfig / uploadModConfigFile); thumbnails of uploaded files through readModConfigFile.
-		  // the phone's look
-		  // (壁纸, 主题色, 内容底色, 机身颜色, 机型, 状态栏 and its parts, 来信提示音) is edited only in the phone's own 设置 app on the stage
-		  // (phone-settings.js), the same two layers; this page keeps what is not the phone's look:
-		  // 状态来源, the date / weekday bindings and 联系人 (card content).
-		  const PHONE_APP_SETTINGS = new Set(['photos', 'wallpaper', 'accentColor', 'surfaceColor', 'bodyColor', 'cutout', 'statusBar', 'clockText', 'carrier', 'signal', 'battery', 'sound']);
 		  const cfgOwn = (layer, key) => !!layer && Object.prototype.hasOwnProperty.call(layer, key);
 		  function cfgResolved(config, key) { const r = config.data && config.data.resolved && config.data.resolved[key]; return r && !r.error ? r : null; }
 		  // Uploaded files of one mod as data: URLs (readModConfigFile is an authenticated RPC, not a GET route), cached per layer
@@ -12328,83 +12323,6 @@ window.__ModuleLoader__.load({
 		          }
 		          return null;
 		      }, [files, rpc, modId, cardId]);
-		  }
-		  // The phone's contacts. exactly the stage's — the stage source's /contacts
-		  // (mod-config-host.js: the enabled figures of the card's packs through the one figure catalogue, keyed by the actor
-		  // key the stage uses), each with its figure ref for the face. Without them (no card): the stage's characters of an open
-		  // chat, then the stage source's characters. Plus any alias the settings already name.
-		  const cfgNodeValue = node => node.children ? Object.fromEntries(node.children.map(child => [child.name, cfgNodeValue(child)])) : node.value;
-		  function phoneModContacts(config, characters) {
-		      const rows = [], seen = new Set(), add = row => { if (row && row.alias && !seen.has(row.alias)) { seen.add(row.alias); rows.push(row); } };
-		      const stage = (config.sources || []).find(s => s.id === 'stage'), node = path => stage && (stage.tree || []).find(n => n.path === path);
-		      const listed = node('/contacts');
-		      if (listed && listed.children && listed.children.length) for (const row of listed.children.map(cfgNodeValue)) add({ alias: row.id, name: row.name || row.id, color: row.color, figure: row.figure && row.figure.packId ? row.figure : null, face: null });
-		      else {
-		          for (const c of characters || []) add({ alias: c.alias, name: c.name || c.alias, color: c.color, face: typeof c.avatar === 'string' ? c.avatar : c.avatar && c.avatar.src || null });
-		          const list = node('/characters');
-		          for (const row of (list && list.children || []).map(cfgNodeValue)) add({ alias: row.id, name: row.name || row.id, color: row.color, figure: row.figure && row.figure.packId ? row.figure : null, face: null });
-		      }
-		      const set = cfgResolved(config, 'contacts'), value = set && set.value && typeof set.value === 'object' ? set.value : {};
-		      for (const alias of Object.keys(value)) add({ alias, name: alias, color: null, face: null });
-		      return rows;
-		  }
-		  function phoneModContactView(config, files, contact) {
-		      const r = cfgResolved(config, 'contacts'), own = r && r.value && r.value[contact.alias] || {};
-		      const avatar = own.avatar && own.avatar.file ? files({ layer: r.layer, path: own.avatar.file }) : null;
-		      return { name: own.name || contact.name, avatar: avatar || contact.face, overridden: !!(own.name || own.avatar) };
-		  }
-		  // One round face: the uploaded / given picture, else the figure's own avatar (faceOf), else the initial on its colour.
-		  function PhoneFace({ shown, contact, faceOf, className }) {
-		      const h = React.createElement, art = !shown.avatar && contact && contact.figure && faceOf ? faceOf(contact.figure, shown.name) : null;
-		      return h('span', { className, 'data-art': art ? true : undefined, style: shown.avatar ? { backgroundImage: 'url("' + shown.avatar + '")' } : contact && contact.color ? { background: contact.color } : undefined },
-		          shown.avatar ? '' : art || Array.from(String(shown.name || '?'))[0]);
-		  }
-		  // 联系人: one row per character — 备注名 (empty = the card's name) and 头像 (upload; 恢复 = the card's face). The map is one
-		  // setting, written whole at the layer being edited; removing the last override clears the key (恢复为全局 / 自动).
-		  function PhoneContactsEditor({ config, files, contacts, faceOf, anchor, beside, placement, onClose }) {
-		      const h = React.createElement, pop = React.useRef(null), input = React.useRef(null), target = React.useRef(null), titleId = 'fork-phone-contacts-t';
-		      const [place, setPlace] = React.useState(null), [sheet, setSheet] = React.useState(false), [busy, setBusy] = React.useState('');
-		      const close = reason => { onClose && onClose(reason); if (reason === 'escape' && anchor && anchor.focus) anchor.focus(); };
-		      useOverlay(true, () => [pop.current, anchor, ...(typeof document !== 'undefined' ? document.querySelectorAll('[data-fork-cfg-keep]') : [])], close);
-		      useCfgPlacement(pop, { anchor, beside, placement }, setPlace, setSheet);
-		      React.useEffect(() => { config.needSources(); }, []);
-		      const focused = React.useRef(false);
-		      React.useEffect(() => { if (focused.current || !(place || sheet) || !pop.current) return; focused.current = true; const first = pop.current.querySelector('button'); if (first) first.focus({ preventScroll: true }); }, [place, sheet]);
-		      const data = config.data || {}, layer = config.layerFor('contacts'), own = cfgOwn(data[layer], 'contacts');
-		      // The map being edited: this layer's own value, else what this layer shows now (so a first edit keeps the others).
-		      const base = latest => { const d = latest || data, mine = d[layer] && d[layer].contacts; if (mine && mine.fixed) return mine.fixed; const r = d.resolved && d.resolved.contacts; return r && !r.error && r.value && typeof r.value === 'object' ? r.value : {}; };
-		      const write = next => Object.keys(next).length ? config.set('contacts', { fixed: next }) : config.clear('contacts');
-		      const change = (alias, patch) => {
-		          const all = { ...base() }, row = { ...(all[alias] || {}), ...patch };
-		          for (const k of Object.keys(row)) if (row[k] === undefined || row[k] === '') delete row[k];
-		          if (Object.keys(row).length) all[alias] = row; else delete all[alias];
-		          return write(all);
-		      };
-		      const upload = file => {
-		          const alias = target.current; if (!alias) return;
-		          setBusy(alias);
-		          Promise.resolve(config.upload('contacts', file, (path, latest) => { const all = { ...base(latest) }; all[alias] = { ...(all[alias] || {}), avatar: { file: path } }; return { fixed: all }; })).finally(() => setBusy(''));
-		      };
-		      const current = base(), rows = contacts.length ? contacts : [];
-		      const style = sheet || !place ? (sheet ? undefined : { visibility: 'hidden', left: -9999, top: 0 }) : { left: place.left, top: place.top };
-		      const node = h('section', { ref: pop, className: 'fork-cfg-pop fk-surface fork-phone-contacts', 'data-level': 'popover', 'data-sheet': sheet || undefined, role: 'dialog', 'aria-modal': false, 'aria-labelledby': titleId, style },
-		          h('header', { className: 'fork-cfg-pop-head' }, h('span', { className: 'fork-cfg-pop-title', id: titleId }, '联系人'),
-		              own ? h(OverrideDot, { layer }) : null,
-		              own ? h(ResetButton, { label: cfgResetLabel(layer), onClick: () => config.clear('contacts') }) : null,
-		              h('button', { type: 'button', className: 'fork-cfg-icon', 'aria-label': '关闭', title: '关闭', onClick: () => close('button') }, h(InlineGlyph, { name: 'close' }))),
-		          h('div', { className: 'fork-cfg-pop-body' },
-		              rows.length ? rows.map(contact => {
-		                  const mine = current[contact.alias] || {}, shown = phoneModContactView(config, files, contact), face = mine.avatar && mine.avatar.file ? files({ layer: own ? layer : (cfgResolved(config, 'contacts') || {}).layer, path: mine.avatar.file }) : contact.face;
-		                  return h('div', { key: contact.alias, className: 'fork-phone-contact' },
-		                      face ? h('span', { className: 'fork-cfg-thumb is-round' }, h('img', { src: face, alt: '' })) : h(PhoneFace, { shown: { name: shown.name, avatar: null }, contact, faceOf, className: 'fork-cfg-thumb is-round' }),
-		                      h(InlineField, { kind: 'text', label: contact.name + ' 备注名', hideLabel: true, value: mine.name || '', placeholder: contact.name, maxLength: 64, trim: true, onCommit: next => change(contact.alias, { name: next || undefined }) }),
-		                      config.fields.get('contacts')?.recordAssetMedia ? h(CfgAssetPicker, { config, fieldKey: 'contacts', label: contact.name + ' 头像', value: mine.avatarRef, onChange: ref => change(contact.alias, { avatarRef: ref.packId ? ref : undefined }) }) :
-		                          h('button', { type: 'button', className: 'fork-cfg-link', disabled: !!busy, 'aria-label': contact.name + ' 上传头像', onClick: () => { target.current = contact.alias; input.current && input.current.click(); } }, busy === contact.alias ? h(Spinner, null) : null, '头像'),
-		                      mine.name || mine.avatar || mine.avatarRef ? h('button', { type: 'button', className: 'fork-cfg-link', 'aria-label': contact.name + ' 恢复', onClick: () => change(contact.alias, { name: undefined, avatar: undefined, avatarRef: undefined }) }, '恢复') : null);
-		              }) : h('div', { className: 'fork-cfg-meta' }, '这张卡还没有人物')),
-		          config.error ? h('div', { className: 'fork-cfg-result is-warn', role: 'alert' }, '⚠ ', config.error) : null,
-		          h('input', { ref: input, type: 'file', accept: 'image/png,image/jpeg,image/webp', hidden: true, onChange: event => { const file = event.target.files && event.target.files[0]; event.target.value = ''; if (file) upload(file); } }));
-		      return inlineCanPortal() ? ReactDOM.createPortal(h('div', { className: 'ap-ui ap-layer fork-cfg-layer' }, node), document.body) : node;
 		  }
 		  // beside the scope switch, the page-level reset (ResetButton) of the layer
 		  // being edited — 全局: every value back to its default / 自动; 本卡: every 本卡 value cleared (the card follows 全局) — after
@@ -12443,30 +12361,6 @@ window.__ModuleLoader__.load({
 		              config.data ? cfgUserKeys(config, keys).map(key => h(CfgField, { key, config, fieldKey: key, help: tip(key) })) : null),
 		          !config.data ? config.error ? h(ErrorBox, { error: config.error, reload: config.reload }) : h(Spinner, { label: '正在载入' }) :
 		              config.error ? h(ErrorBox, { error: config.error, reload: config.reload }) : null);
-		  }
-		  // a compact page like the other settings — 状态来源, the date /
-		  // weekday bindings and 联系人 (备注名 / 头像, opened as a popover beside its row; a bottom sheet on a narrow window). The page's 设置
-		  // section carries the 全局 / 本卡 switch in its head.
-		  // faceOf(figureRef, name): the panel's face of a figure (the stage settings pass it; without it the initial shows).
-		  function PhoneConfigPage({ rpc, cardId, cardName, sessionId, faceOf, manifest, entries }) {
-		      const h = React.createElement, files = useCfgFiles(rpc, 'dsh.phone', cardId);
-		      const config = useModConfig({ call: rpc, modId: 'dsh.phone', cardId, sessionId, cardName, fileUrl: files });
-		      const bubbles = useBubbles(sessionId || '', !!sessionId), characters = bubbles && bubbles.config && bubbles.config.characters || [];
-		      const [editing, setEditing] = React.useState(false), opener = React.useRef(null);
-		      React.useEffect(() => { config.needSources(); }, []);
-		      const contacts = phoneModContacts(config, characters);
-		      const listed = config.data ? Array.from(config.fields.keys()).filter(key => key !== 'contacts' && !PHONE_APP_SETTINGS.has(key)) : [];
-		      const own = config.data && cfgOwn(config.data[config.layerFor('contacts')], 'contacts');
-		      const renamed = contacts.filter(contact => phoneModContactView(config, files, contact).overridden).length;
-		      return h('div', { className: 'fork-cfg-page fork-phone-page', 'data-compact': true },
-		          h(ModSettings, { modId: 'dsh.phone', config, help: '壁纸、提示音素材和联系人头像从素材库选择；主题色、机身和状态栏也能在手机自己的「设置」里改。' },
-		              h(CfgList, { rpc, config, keys: listed, state: true, help: modFieldHelp('dsh.phone', manifest) }),
-		              config.data ? h(InlineRow, { label: '联系人', help: h(Help, { text: '手机里显示的备注名和头像；空着就用卡里的名字和头像。', label: '联系人 说明' }) },
-		                  h('button', { ref: opener, type: 'button', className: 'fork-inline-trigger fork-phone-contacts-open', 'aria-haspopup': 'dialog', 'aria-expanded': editing, 'data-fork-cfg-keep': true,
-		                      onClick: () => setEditing(open => !open) }, contacts.length ? contacts.length + ' 人' + (renamed ? ' · 改了 ' + renamed + ' 人' : '') : '还没有人物'),
-		                  own ? h(OverrideDot, { layer: config.layerFor('contacts') }) : null) : null,
-		              editing ? h(PhoneContactsEditor, { config, files, contacts, faceOf, anchor: opener.current, placement: 'below', onClose: () => setEditing(false) }) : null),
-		          entries || null);
 		  }
 		  // A mod whose settings need no preview (文字演出: 强度): the 设置 section with one row per setting, above the mod's own
 		  // packs when it has any, then its entry sections.
@@ -12670,11 +12564,125 @@ window.__ModuleLoader__.load({
 		              h(ModEntries, { ctx, modId: 'core.items', kind: 'props' }),
 		              h(ItemsInventory, { ctx, state })));
 		  }
+		  // The mods' settings pages register themselves (mods/<name>/client/settings.js, built into this scope) by mod id.
+		  const MOD_CONFIG_PAGES = {};
+		  // The phone mod's settings page (core's mod-config-pages.js lays the page out by the parts registered in mod-clients.js).
+		  // Built into the settings factory scope (// @include-mods client/settings.js in mod-config-pages.js).
+		  // the phone's look
+		  // (壁纸, 主题色, 内容底色, 机身颜色, 机型, 状态栏 and its parts, 来信提示音) is edited only in the phone's own 设置 app on the stage
+		  // (phone-settings.js), the same two layers; this page keeps what is not the phone's look:
+		  // 状态来源, the date / weekday bindings and 联系人 (card content).
+		  const PHONE_APP_SETTINGS = new Set(['photos', 'wallpaper', 'accentColor', 'surfaceColor', 'bodyColor', 'cutout', 'statusBar', 'clockText', 'carrier', 'signal', 'battery', 'sound']);
+		  // The phone's contacts. exactly the stage's — the stage source's /contacts
+		  // (mod-config-host.js: the enabled figures of the card's packs through the one figure catalogue, keyed by the actor
+		  // key the stage uses), each with its figure ref for the face. Without them (no card): the stage's characters of an open
+		  // chat, then the stage source's characters. Plus any alias the settings already name.
+		  const cfgNodeValue = node => node.children ? Object.fromEntries(node.children.map(child => [child.name, cfgNodeValue(child)])) : node.value;
+		  function phoneModContacts(config, characters) {
+		      const rows = [], seen = new Set(), add = row => { if (row && row.alias && !seen.has(row.alias)) { seen.add(row.alias); rows.push(row); } };
+		      const stage = (config.sources || []).find(s => s.id === 'stage'), node = path => stage && (stage.tree || []).find(n => n.path === path);
+		      const listed = node('/contacts');
+		      if (listed && listed.children && listed.children.length) for (const row of listed.children.map(cfgNodeValue)) add({ alias: row.id, name: row.name || row.id, color: row.color, figure: row.figure && row.figure.packId ? row.figure : null, face: null });
+		      else {
+		          for (const c of characters || []) add({ alias: c.alias, name: c.name || c.alias, color: c.color, face: typeof c.avatar === 'string' ? c.avatar : c.avatar && c.avatar.src || null });
+		          const list = node('/characters');
+		          for (const row of (list && list.children || []).map(cfgNodeValue)) add({ alias: row.id, name: row.name || row.id, color: row.color, figure: row.figure && row.figure.packId ? row.figure : null, face: null });
+		      }
+		      const set = cfgResolved(config, 'contacts'), value = set && set.value && typeof set.value === 'object' ? set.value : {};
+		      for (const alias of Object.keys(value)) add({ alias, name: alias, color: null, face: null });
+		      return rows;
+		  }
+		  function phoneModContactView(config, files, contact) {
+		      const r = cfgResolved(config, 'contacts'), own = r && r.value && r.value[contact.alias] || {};
+		      const avatar = own.avatar && own.avatar.file ? files({ layer: r.layer, path: own.avatar.file }) : null;
+		      return { name: own.name || contact.name, avatar: avatar || contact.face, overridden: !!(own.name || own.avatar) };
+		  }
+		  // One round face: the uploaded / given picture, else the figure's own avatar (faceOf), else the initial on its colour.
+		  function PhoneFace({ shown, contact, faceOf, className }) {
+		      const h = React.createElement, art = !shown.avatar && contact && contact.figure && faceOf ? faceOf(contact.figure, shown.name) : null;
+		      return h('span', { className, 'data-art': art ? true : undefined, style: shown.avatar ? { backgroundImage: 'url("' + shown.avatar + '")' } : contact && contact.color ? { background: contact.color } : undefined },
+		          shown.avatar ? '' : art || Array.from(String(shown.name || '?'))[0]);
+		  }
+		  // 联系人: one row per character — 备注名 (empty = the card's name) and 头像 (upload; 恢复 = the card's face). The map is one
+		  // setting, written whole at the layer being edited; removing the last override clears the key (恢复为全局 / 自动).
+		  function PhoneContactsEditor({ config, files, contacts, faceOf, anchor, beside, placement, onClose }) {
+		      const h = React.createElement, pop = React.useRef(null), input = React.useRef(null), target = React.useRef(null), titleId = 'fork-phone-contacts-t';
+		      const [place, setPlace] = React.useState(null), [sheet, setSheet] = React.useState(false), [busy, setBusy] = React.useState('');
+		      const close = reason => { onClose && onClose(reason); if (reason === 'escape' && anchor && anchor.focus) anchor.focus(); };
+		      useOverlay(true, () => [pop.current, anchor, ...(typeof document !== 'undefined' ? document.querySelectorAll('[data-fork-cfg-keep]') : [])], close);
+		      useCfgPlacement(pop, { anchor, beside, placement }, setPlace, setSheet);
+		      React.useEffect(() => { config.needSources(); }, []);
+		      const focused = React.useRef(false);
+		      React.useEffect(() => { if (focused.current || !(place || sheet) || !pop.current) return; focused.current = true; const first = pop.current.querySelector('button'); if (first) first.focus({ preventScroll: true }); }, [place, sheet]);
+		      const data = config.data || {}, layer = config.layerFor('contacts'), own = cfgOwn(data[layer], 'contacts');
+		      // The map being edited: this layer's own value, else what this layer shows now (so a first edit keeps the others).
+		      const base = latest => { const d = latest || data, mine = d[layer] && d[layer].contacts; if (mine && mine.fixed) return mine.fixed; const r = d.resolved && d.resolved.contacts; return r && !r.error && r.value && typeof r.value === 'object' ? r.value : {}; };
+		      const write = next => Object.keys(next).length ? config.set('contacts', { fixed: next }) : config.clear('contacts');
+		      const change = (alias, patch) => {
+		          const all = { ...base() }, row = { ...(all[alias] || {}), ...patch };
+		          for (const k of Object.keys(row)) if (row[k] === undefined || row[k] === '') delete row[k];
+		          if (Object.keys(row).length) all[alias] = row; else delete all[alias];
+		          return write(all);
+		      };
+		      const upload = file => {
+		          const alias = target.current; if (!alias) return;
+		          setBusy(alias);
+		          Promise.resolve(config.upload('contacts', file, (path, latest) => { const all = { ...base(latest) }; all[alias] = { ...(all[alias] || {}), avatar: { file: path } }; return { fixed: all }; })).finally(() => setBusy(''));
+		      };
+		      const current = base(), rows = contacts.length ? contacts : [];
+		      const style = sheet || !place ? (sheet ? undefined : { visibility: 'hidden', left: -9999, top: 0 }) : { left: place.left, top: place.top };
+		      const node = h('section', { ref: pop, className: 'fork-cfg-pop fk-surface fork-phone-contacts', 'data-level': 'popover', 'data-sheet': sheet || undefined, role: 'dialog', 'aria-modal': false, 'aria-labelledby': titleId, style },
+		          h('header', { className: 'fork-cfg-pop-head' }, h('span', { className: 'fork-cfg-pop-title', id: titleId }, '联系人'),
+		              own ? h(OverrideDot, { layer }) : null,
+		              own ? h(ResetButton, { label: cfgResetLabel(layer), onClick: () => config.clear('contacts') }) : null,
+		              h('button', { type: 'button', className: 'fork-cfg-icon', 'aria-label': '关闭', title: '关闭', onClick: () => close('button') }, h(InlineGlyph, { name: 'close' }))),
+		          h('div', { className: 'fork-cfg-pop-body' },
+		              rows.length ? rows.map(contact => {
+		                  const mine = current[contact.alias] || {}, shown = phoneModContactView(config, files, contact), face = mine.avatar && mine.avatar.file ? files({ layer: own ? layer : (cfgResolved(config, 'contacts') || {}).layer, path: mine.avatar.file }) : contact.face;
+		                  return h('div', { key: contact.alias, className: 'fork-phone-contact' },
+		                      face ? h('span', { className: 'fork-cfg-thumb is-round' }, h('img', { src: face, alt: '' })) : h(PhoneFace, { shown: { name: shown.name, avatar: null }, contact, faceOf, className: 'fork-cfg-thumb is-round' }),
+		                      h(InlineField, { kind: 'text', label: contact.name + ' 备注名', hideLabel: true, value: mine.name || '', placeholder: contact.name, maxLength: 64, trim: true, onCommit: next => change(contact.alias, { name: next || undefined }) }),
+		                      config.fields.get('contacts')?.recordAssetMedia ? h(CfgAssetPicker, { config, fieldKey: 'contacts', label: contact.name + ' 头像', value: mine.avatarRef, onChange: ref => change(contact.alias, { avatarRef: ref.packId ? ref : undefined }) }) :
+		                          h('button', { type: 'button', className: 'fork-cfg-link', disabled: !!busy, 'aria-label': contact.name + ' 上传头像', onClick: () => { target.current = contact.alias; input.current && input.current.click(); } }, busy === contact.alias ? h(Spinner, null) : null, '头像'),
+		                      mine.name || mine.avatar || mine.avatarRef ? h('button', { type: 'button', className: 'fork-cfg-link', 'aria-label': contact.name + ' 恢复', onClick: () => change(contact.alias, { name: undefined, avatar: undefined, avatarRef: undefined }) }, '恢复') : null);
+		              }) : h('div', { className: 'fork-cfg-meta' }, '这张卡还没有人物')),
+		          config.error ? h('div', { className: 'fork-cfg-result is-warn', role: 'alert' }, '⚠ ', config.error) : null,
+		          h('input', { ref: input, type: 'file', accept: 'image/png,image/jpeg,image/webp', hidden: true, onChange: event => { const file = event.target.files && event.target.files[0]; event.target.value = ''; if (file) upload(file); } }));
+		      return inlineCanPortal() ? ReactDOM.createPortal(h('div', { className: 'ap-ui ap-layer fork-cfg-layer' }, node), document.body) : node;
+		  }
+		  // a compact page like the other settings — 状态来源, the date /
+		  // weekday bindings and 联系人 (备注名 / 头像, opened as a popover beside its row; a bottom sheet on a narrow window). The page's 设置
+		  // section carries the 全局 / 本卡 switch in its head.
+		  // faceOf(figureRef, name): the panel's face of a figure (the stage settings pass it; without it the initial shows).
+		  function PhoneConfigPage({ rpc, cardId, cardName, sessionId, faceOf, manifest, entries }) {
+		      const h = React.createElement, files = useCfgFiles(rpc, 'dsh.phone', cardId);
+		      const config = useModConfig({ call: rpc, modId: 'dsh.phone', cardId, sessionId, cardName, fileUrl: files });
+		      const bubbles = useBubbles(sessionId || '', !!sessionId), characters = bubbles && bubbles.config && bubbles.config.characters || [];
+		      const [editing, setEditing] = React.useState(false), opener = React.useRef(null);
+		      React.useEffect(() => { config.needSources(); }, []);
+		      const contacts = phoneModContacts(config, characters);
+		      const listed = config.data ? Array.from(config.fields.keys()).filter(key => key !== 'contacts' && !PHONE_APP_SETTINGS.has(key)) : [];
+		      const own = config.data && cfgOwn(config.data[config.layerFor('contacts')], 'contacts');
+		      const renamed = contacts.filter(contact => phoneModContactView(config, files, contact).overridden).length;
+		      return h('div', { className: 'fork-cfg-page fork-phone-page', 'data-compact': true },
+		          h(ModSettings, { modId: 'dsh.phone', config, help: '壁纸、提示音素材和联系人头像从素材库选择；主题色、机身和状态栏也能在手机自己的「设置」里改。' },
+		              h(CfgList, { rpc, config, keys: listed, state: true, help: modFieldHelp('dsh.phone', manifest) }),
+		              config.data ? h(InlineRow, { label: '联系人', help: h(Help, { text: '手机里显示的备注名和头像；空着就用卡里的名字和头像。', label: '联系人 说明' }) },
+		                  h('button', { ref: opener, type: 'button', className: 'fork-inline-trigger fork-phone-contacts-open', 'aria-haspopup': 'dialog', 'aria-expanded': editing, 'data-fork-cfg-keep': true,
+		                      onClick: () => setEditing(open => !open) }, contacts.length ? contacts.length + ' 人' + (renamed ? ' · 改了 ' + renamed + ' 人' : '') : '还没有人物'),
+		                  own ? h(OverrideDot, { layer: config.layerFor('contacts') }) : null) : null,
+		              editing ? h(PhoneContactsEditor, { config, files, contacts, faceOf, anchor: opener.current, placement: 'below', onClose: () => setEditing(false) }) : null),
+		          entries || null);
+		  }
+		  modClients.register('dsh.phone', { settings: PhoneConfigPage });
+		  // The text card mod's settings page: its 设置 section (强度) from the config schema, above its entry sections.
 		  const TextcardConfigPage = props => React.createElement(ModConfigList, { ...props, modId: 'dsh.textcard' });
-		  // the timer's player options (its features) in the two layers; the
-		  // look, placement and art are the active skin's, so they are not rows; a skin lock shows read-only (CfgField).
+		  modClients.register('dsh.textcard', { settings: TextcardConfigPage });
+		  // The timer mod's settings page: the player options (its features) in the two layers; the look, placement and art are the
+		  // active skin's, so they are not rows; a skin lock shows read-only (CfgField).
 		  const TimerConfigPage = props => React.createElement(ModConfigList, { ...props, modId: 'dsh.timer' });
-		  const MOD_CONFIG_PAGES = { 'dsh.phone': PhoneConfigPage, 'dsh.textcard': TextcardConfigPage, 'dsh.timer': TimerConfigPage };
+		  modClients.register('dsh.timer', { settings: TimerConfigPage });
+		  for (const part of modClients.slot('settings')) MOD_CONFIG_PAGES[part.modId] = part.value;
 		  // one renderer for every manifest — no branch on a mod ID.
 		  // A reference field (pack / entry data) offers the mod's own entries of its target kinds; a main-library target has no
 		  // editor here yet (P4+), so it renders nothing rather than a fake picker.
@@ -21146,10 +21154,24 @@ function tavernModelRefusalNotice(text) {
 		//            replay, live}) over the stage, after the text box
 		//   backlog: {kind, use(useChat), entries(rows, value, nativeTurnOf, rowOf), line(h, record)}: 履历 rows of the
 		//            performance kind `kind`, merged into the rows by entries(); line() writes one row's words
+		// How the panel (舞台设置 › 模组, the mod's page) shows a mod, read by mod id from slot(name):
+		//   description: one sentence a player understands, the (?) of the mod's page head
+		//   glyph:       the icon name (the panel's Glyph) of the mod's row
+		//   fieldHelp:   {settingKey: text}, a setting's (?) where the config schema carries none
+		//   assetKind:   [kind, label], the asset kind the mod brings (kind lists order it after the built-in kinds)
+		//   settings:    component({rpc, cardId, cardName, sessionId, faceOf, manifest, data, entries}), the mod's settings page; it uses the
+		//                settings factory's helpers, so it is registered from mods/<name>/client/settings.js (`// @include-mods client/settings.js`,
+		//                built into mod-config-pages.js) and not core.js
+		// createAssetPackUI reads them through its `modClients` option (default: tavernModClients when the bundle has it, else no parts).
+		// A mod may register more than once (core.js, settings.js): the parts of one mod id merge into one.
 		const tavernModClients = (function () {
 		    const parts = [];
 		    return {
-		        register(modId, part) { parts.push(Object.freeze(Object.assign({ modId }, part))); },
+		        register(modId, part) {
+		            const at = parts.findIndex(row => row.modId === modId);
+		            const merged = Object.freeze(Object.assign({}, parts[at], part, { modId }));
+		            if (at < 0) parts.push(merged); else parts[at] = merged;
+		        },
 		        slot(name) { return parts.filter(part => part[name]).map(part => ({ modId: part.modId, label: part.label, value: part[name] })); }
 		    };
 		})();
@@ -22235,6 +22257,17 @@ function tavernModelRefusalNotice(text) {
 		    "M50 64 L60 71 L71 68 L80 76 L92 74", "M50 64 L52 76 L47 86 L51 98"];
 		tavernModClients.register("dsh.dice", { label: "骰子", floor: DiceRolls, page: DiceRolls, overlay: DiceThrow,
 		    backlog: { kind: "core.dice.roll", use: useDiceBacklog, entries: diceBacklogEntries, line: diceLine } });
+		// The phone mod's core client parts (src/client/mod-clients.js): how 舞台设置 › 模组 shows it (description, icon). Its settings page
+		// is mods/phone/client/settings.js, built into the settings factory scope.
+		tavernModClients.register("dsh.phone", { label: "手机", description: '角色用手机收发消息时，舞台上显示成手机画面。', glyph: 'phone' });
+		// The text card mod's core client parts (src/client/mod-clients.js): how 舞台设置 › 模组 shows it. Its settings page is
+		// mods/textcard/client/settings.js, built into the settings factory scope.
+		tavernModClients.register("dsh.textcard", { label: "文字演出", description: '情绪转折、回忆、章节切换时，用全屏文字卡强调。', glyph: 'textcard',
+		    fieldHelp: { intensity: '每轮最多几张文字卡、播放快慢：克制 5 张偏慢，标准 8 张，浓烈 12 张偏快。' } });
+		// The timer mod's core client parts (src/client/mod-clients.js): how 舞台设置 › 模组 shows it, and the asset kind it brings. Its
+		// settings page is mods/timer/client/settings.js, built into the settings factory scope.
+		tavernModClients.register("dsh.timer", { label: "计时器", description: '舞台上的倒计时：剧情限时，或等你回应的时限，时间到时自动替你回应；打开菜单、履历时暂停，刷新也不会扣时。', glyph: 'timers',
+		    assetKind: ['timers', '计时器'] });
 		// the large centered settings modal (about 80vw × 80vh,
 		// at most 1200px wide) with an optional left nav. Opaque on translucent skins, Esc and a backdrop click
 		// close it, focus moves in on open, stays inside (Tab wraps) and returns to the opener on close.

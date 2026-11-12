@@ -51,7 +51,7 @@ function playerErrorText(error,{codes,fallback='出错了，请稍后再试'}={}
   if(raw&&said!==raw&&!playerErrorSeen.has(raw)&&typeof console!=='undefined'){if(playerErrorSeen.size>200)playerErrorSeen.clear();playerErrorSeen.add(raw);console.warn('dsh-tavern:',raw);}
   return said;
 }
-function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, prepareImage: prepareImageOverride, live2d: live2dOption, spine: spineKit, timeGrade, autoChoices} = {}) {
+function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, prepareImage: prepareImageOverride, live2d: live2dOption, spine: spineKit, timeGrade, autoChoices, modClients = typeof tavernModClients === 'undefined' ? { slot: () => [], register() {} } : tavernModClients} = {}) {
   const h = React.createElement;
   // The Live2D preview kit: the stage's Live2D module, bound with the stage pages (stageScope.bind, views.live2dKit), else
   // the one given here. The pages that read it draw only once the stage is bound.
@@ -71,7 +71,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // the one order every kind list uses (library tabs + 更多, pack-row chips, pack window tabs, setup, add/copy menus).
   // 入场演出 (`entrances`, dsh.entrance/1) - what the stage plays as it opens; 蓝灯 or 关闭.
   const BUILTIN_KINDS = {figures:'人物', backgrounds:'背景', cg:'CG', props:'物品', performances:'演出组合', music:'音乐', sfx:'音效', ambience:'环境音', looks:'滤镜', skins:'舞台皮肤', entrances:'入场演出', videos:'视频', widgets:'模组', directions:'演出风格'};
-  const MOD_KINDS = [['timers','dsh.timer','计时器']];
+  const MOD_KINDS = modClients.slot('assetKind').map(part=>[part.value[0],part.modId,part.value[1]]);
   const KIND_ORDER = kindOrder(Object.keys(BUILTIN_KINDS), MOD_KINDS);
   const kinds = Object.fromEntries(KIND_ORDER.map(key => [key, BUILTIN_KINDS[key] ?? MOD_KINDS.find(row => row[0] === key)[2]]));
   // shorter labels for the library's one-row kind filter (full name stays the tab's name).

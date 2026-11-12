@@ -28,8 +28,7 @@ const PENDING = new Set([
   'names-mod:tavern-plugin/packages/dsh-tavern-stage/src/client/phone-layout.cjs',
   'names-mod:tavern-plugin/packages/dsh-tavern-stage/src/client/source-widgets.cjs',
   'names-mod:tavern-plugin/packages/dsh-tavern-stage/src/client/widgets.cjs',
-  'names-mod:tavern-plugin/src/client/asset-pack-ui.js', 'names-mod:tavern-plugin/src/client/mod-config-pages.js',
-  'names-mod:tavern-plugin/src/client/mod-page.js', 'names-mod:tavern-plugin/src/client/phone-beat.cjs',
+  'names-mod:tavern-plugin/src/client/phone-beat.cjs',
 ])
 
 async function walk(directory, skip) {
