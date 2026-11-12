@@ -190,4 +190,6 @@ button.fork-cfg-hotspot:disabled { cursor: default; filter: none; }
 .fork-cfg-thumb[data-art] { overflow: hidden; background: none; }
 .fork-cfg-thumb > .fork-phone-face { display: block; width: 100%; height: 100%; border-radius: 50%; overflow: hidden; }
 .fork-phone-face img { display: block; width: 100%; height: 100%; object-fit: cover; }
-
+/* 数据删除 (mod-clients.js TavernRedacted): a value kept from the player - a bar of full blocks in the text's own colour,
+   closed up into one bar; it cannot be opened. */
+.dsh-redact[data-redact] { letter-spacing: -.06em; user-select: none; -webkit-user-select: none; cursor: default; }

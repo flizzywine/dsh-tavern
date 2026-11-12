@@ -29,3 +29,10 @@ const tavernModClients = (function () {
         slot(name) { return parts.filter(part => part[name]).map(part => ({ modId: part.modId, label: part.label, value: part[name] })); }
     };
 })();
+// A value kept from the player (数据删除's second kind: a resource only the model reads, such as a card's 混沌): a black
+// bar in its place that cannot be opened, the shared look of every mod's floor, HUD and record card (mod-config.css
+// `.dsh-redact`). glyphs: how wide it is, in glyphs (default 3); label: what is hidden, for screen readers.
+function TavernRedacted(props) {
+    const glyphs = Math.max(1, Math.min(16, Math.round(props.glyphs || 3)));
+    return React.createElement("span", { className: "dsh-redact", "data-redact": "hidden", role: "img", "aria-label": (props.label ? props.label + "：" : "") + "已隐藏", title: "已隐藏" }, "\u2588".repeat(glyphs));
+}

@@ -1,0 +1,163 @@
+{
+  "format": "dsh-tavern-mod",
+  "schemaVersion": 5,
+  "experimental": true,
+  "id": "dsh.redaction",
+  "name": "数据删除",
+  "summary": "导演把正文里的机密词涂黑或换成乱码，玩家点三下揭开；存档和下一轮上下文里仍是原文。",
+  "packageName": "dsh-tavern-mod-redaction",
+  "version": "1.0.0",
+  "hostApi": ">=1.0.0 <2.0.0",
+  "dependencies": [],
+  "config": {
+    "version": 1,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "bar",
+            "glitch"
+          ],
+          "type": "string",
+          "userAdjustable": true
+        },
+        "guidance": {
+          "type": "string",
+          "maxLength": 600,
+          "userAdjustable": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "guidance"
+      ]
+    },
+    "defaults": {
+      "kind": "bar",
+      "guidance": ""
+    }
+  },
+  "preferences": {
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "defaults": {}
+  },
+  "dataVersion": 1,
+  "assetKinds": [],
+  "coreAssets": [],
+  "permissions": [],
+  "performances": [],
+  "entry": "plugin.mjs",
+  "commandPrompts": [
+    {
+      "id": "redact-rule",
+      "path": "prompts/redaction.txt",
+      "placement": {
+        "section": "director.rules.presentation",
+        "order": 50
+      }
+    },
+    {
+      "id": "redact-guidance",
+      "path": "prompts/guidance.txt",
+      "placement": {
+        "section": "director.rules.presentation",
+        "order": 51
+      }
+    }
+  ],
+  "commands": [
+    {
+      "id": "redact",
+      "op": "mod.dsh.redaction.redact",
+      "dsl": {
+        "verb": "redact",
+        "syntax": "redact quote=\"exact words of this paragraph\" [kind=bar|glitch]"
+      },
+      "paramsStyle": "flat",
+      "params": {
+        "type": "object",
+        "properties": {
+          "quote": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "description": "Copied verbatim from beat.at's text."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "bar",
+              "glitch"
+            ]
+          }
+        },
+        "required": [
+          "quote"
+        ],
+        "additionalProperties": false
+      },
+      "textMark": {
+        "quote": "quote"
+      },
+      "persistence": "marker",
+      "handler": "command",
+      "promptId": "redact-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 50
+      },
+      "caps": {
+        "perTurn": 24,
+        "bytes": 512
+      },
+      "mode": "adds"
+    }
+  ],
+  "settingsSchema": {
+    "fields": [
+      {
+        "key": "kind",
+        "type": "segmented",
+        "label": "默认样式",
+        "default": "bar",
+        "scope": "global",
+        "choices": [
+          {
+            "value": "bar",
+            "label": "黑条"
+          },
+          {
+            "value": "glitch",
+            "label": "乱码"
+          }
+        ]
+      },
+      {
+        "key": "guidance",
+        "type": "text",
+        "label": "遮挡指引",
+        "help": "写给导演看：这张卡里哪些内容该遮，例如异常的真名、伤亡人数、机构内部代号",
+        "default": "",
+        "scope": "global",
+        "maxLength": 600,
+        "placeholder": "异常的真名、伤亡人数、机构内部代号"
+      }
+    ],
+    "sections": [
+      {
+        "id": "redaction",
+        "title": "数据删除",
+        "fields": [
+          "kind",
+          "guidance"
+        ]
+      }
+    ]
+  }
+}

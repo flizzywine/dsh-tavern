@@ -519,7 +519,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // ✦ — generation's mark inside the dashed add tile.
     spark:'M7 2.5c.5 2.7 1.3 3.5 4 4-2.7.5-3.5 1.3-4 4-.5-2.7-1.3-3.5-4-4 2.7-.5 3.5-1.3 4-4zM12.2 9.8c.2 1.1.6 1.5 1.7 1.7-1.1.2-1.5.6-1.7 1.7-.2-1.1-.6-1.5-1.7-1.7 1.1-.2 1.5-.6 1.7-1.7z',
     // the 舞台设置 › 模组 row icons of 物品 / 手机 / 文字演出 (MOD_GLYPHS).
-    item:'M3.5 5.5h9l-.8 8h-7.4zM6 5.5v-1a2 2 0 0 1 4 0v1',phone:'M5 2h6a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zM7 11.5h2',textcard:'M2.5 3.5h11v9h-11zM5.5 6h5M8 6v4'};
+    item:'M3.5 5.5h9l-.8 8h-7.4zM6 5.5v-1a2 2 0 0 1 4 0v1',phone:'M5 2h6a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zM7 11.5h2',textcard:'M2.5 3.5h11v9h-11zM5.5 6h5M8 6v4',redact:'M2.5 4.5h11M2.5 11.5h6M3 7h8v2H3z'};
   function Glyph({name}) { return h('svg',{className:'ap-glyph',width:16,height:16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},h('path',{d:glyphs[name]||kindGlyphs[name],stroke:'currentColor',strokeWidth:1.3,strokeLinecap:'round',strokeLinejoin:'round'})); }
   function IconButton({icon,label,danger,...props}) { return h(Button,{className:'ap-icon-button'+(danger?' is-danger':''),'aria-label':label,title:label,...props},h(Glyph,{name:icon})); }
   // the one multi-select mode. useSelection holds the checked

@@ -16,7 +16,7 @@ test('stage overlay builds and imports with only its own package files, the shar
   // The sibling protocol package: build.mjs inlines the stage-only contracts (stage-entrance.cjs, and card-stage-mode.cjs for
   // the asset-pack card page) into the stage client.
   await mkdir(path.join(packages, 'dsh-presentation-protocol/src'), {recursive:true})
-  for (const name of ['stage-entrance.cjs', 'card-stage-mode.cjs'])
+  for (const name of ['stage-entrance.cjs', 'card-stage-mode.cjs', 'text-marks.cjs'])
     await copyFile(new URL('../tavern-plugin/packages/dsh-presentation-protocol/src/' + name, import.meta.url), path.join(packages, 'dsh-presentation-protocol/src', name))
   await cp(new URL('src/',pkg), path.join(root,'src'), {recursive:true})
   await copyFile(new URL('build.mjs',pkg),path.join(root,'build.mjs'))

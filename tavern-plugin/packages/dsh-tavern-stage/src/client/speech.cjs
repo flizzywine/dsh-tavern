@@ -5,6 +5,15 @@ function readVoice(sessionId,input){
     if(closed)return Promise.reject(Object.assign(new Error('Stage speech disposed'),{name:'AbortError'}));
     return open(sessionId,input);
 }
+// A line over covered words (descriptor.cover, the controller's text marks): synthesized whole and turned down under noise
+// where a cover is still shut (stage-audio.js mask); a voice that reads other words (a translation) is not heard.
+// (the stage bundle defines stageTextMarks; a page fixture that loads this file alone has no marks)
+const voiceMarks = typeof stageTextMarks !== 'undefined' ? stageTextMarks : typeof require === 'function' ? require('../../../dsh-presentation-protocol/src/text-marks.cjs') : null;
+function covered(request, cover) {
+    if (!cover) return request;
+    const voice = voiceMarks.textMarkVoice(request.text, cover);
+    return voice && {...request, ...voice};
+}
 function stageVoiceHandle(sessionId, descriptor, config, paragraphId, availability) {
     if (closed) return null;
     if (descriptor?.narration) return stageNarratorHandle(sessionId, descriptor, config, paragraphId, availability);
@@ -18,7 +27,8 @@ function stageVoiceHandle(sessionId, descriptor, config, paragraphId, availabili
     // Match transcript identity after authored/legacy names resolve to the same figure.
     const cacheKey = JSON.stringify([sessionId,...speaker,input.text,input.mood]);
     const selectionKey=descriptor.lineIdentity ? JSON.stringify([sessionId,...descriptor.lineIdentity]) : undefined;
-    const request = {...input, owner, id, selectionKey, cacheKey:JSON.stringify([cacheKey,selectionKey])};
+    const request = covered({...input, owner, id, selectionKey, cacheKey:JSON.stringify([cacheKey,selectionKey])}, descriptor.cover);
+    if (!request) return null;
     const resource = () => readVoice(sessionId,input.general ? {general:true} : {alias:character.alias});
     return {...request, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request),
         click:options => closed ? Promise.resolve() : player.play(resource, {...request, handoff:options?.handoff === true, automatic:options?.automatic === true})};
@@ -36,7 +46,8 @@ function stageNarratorHandle(sessionId, descriptor, config, paragraphId, availab
     const text = narrator.wholeParagraph ? descriptor.speech ?? descriptor.paragraphText : descriptor.text, language = narrator.language || 'zh';
     const owner = sessionId + ':stage', id = JSON.stringify([paragraphId, descriptor.lineIdentity, 'narrator', text, narrator.voiceKey]);
     const selectionKey = JSON.stringify([sessionId, ...descriptor.lineIdentity]);
-    const request = {text, mood:null, owner, id, selectionKey, cacheKey:JSON.stringify([[sessionId, 'narrator', narrator.voiceKey, language, text], selectionKey])};
+    const request = covered({text, mood:null, owner, id, selectionKey, cacheKey:JSON.stringify([[sessionId, 'narrator', narrator.voiceKey, language, text], selectionKey])}, descriptor.cover);
+    if (!request) return null;
     const resource = () => readVoice(sessionId,{narrator:true});
     // options.id: a 履历 narration row plays its pages under the row's one id (galBacklogNarration).
     return {...request, narration:true, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request),

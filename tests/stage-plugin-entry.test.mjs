@@ -97,8 +97,8 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
     views.sessions.get = originalGet
     views.sessions.owner = originalOwner
   }
-  // the theme, the source widgets' CSS and the phone, textcard and timer mods' stage feature CSS (mods/*/client/stage.css)
-  assert.equal(styles.size,5)
+  // the theme, the source widgets' CSS and the phone, redaction, textcard and timer mods' stage feature CSS (mods/*/client/stage.css)
+  assert.equal(styles.size,6)
   // Styles inserted after boot name their owner, or the module loader claims them for the next plugin it materializes.
   for (const style of styles) assert.equal(style.dataset.plugin, 'dsh-tavern-stage')
   assert.match([...styles][1].textContent, /fork-widget-source-controls/)

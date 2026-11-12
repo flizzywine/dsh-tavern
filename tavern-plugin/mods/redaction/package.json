@@ -1,0 +1,12 @@
+{
+  "name": "dsh-tavern-mod-redaction",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "AGPL-3.0",
+  "exports": {
+    ".": "./plugin.mjs"
+  },
+  "dsh": {
+    "tavernModule": "./mod.json"
+  }
+}

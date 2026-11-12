@@ -1,0 +1,6 @@
+<mod_redaction>
+- redact covers classified words on screen; the player taps a cover to open it. The story text and the next turn's context keep the words.
+- Put it in the beat of the paragraph that contains the words and copy them exactly (same characters). Mark every paragraph where they appear.
+- Cover only what the card treats as classified: a name, a number, a place or a code word, never a whole sentence. kind=glitch reads as corrupted data; omit kind for the card's default.
+- Example: {"op":"mod.dsh.redaction.redact","quote":"长青大厦十三楼"}.
+</mod_redaction>

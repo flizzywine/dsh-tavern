@@ -63,7 +63,14 @@ export function validateModDeclarations(manifest) {
   })
   const ops = new Set(), verbs = new Set()
   declarations(value.commands, '$.commands', (command, at) => {
-    shape(command, ['id','op','dsl','params','persistence','handler','promptId','placement','caps','paramsStyle','replaces','mode','resourceUse'], ['mode','id','op','dsl','params','persistence','handler','promptId','placement','caps'], at)
+    shape(command, ['id','op','dsl','params','persistence','handler','promptId','placement','caps','paramsStyle','replaces','mode','resourceUse','textMark'], ['mode','id','op','dsl','params','persistence','handler','promptId','placement','caps'], at)
+    // textMark {quote}: the command marks words of its beat's paragraph for display; params[quote] is quoted verbatim from
+    // that paragraph (the director's submit tool checks it, stage-asset-pack-validation.js; views project it, text-marks.cjs).
+    if (command.textMark !== undefined) {
+      shape(command.textMark, ['quote'], undefined, at + '.textMark')
+      const quote = command.params.properties?.[command.textMark.quote]
+      check(quote?.type === 'string' && command.params.required?.includes(command.textMark.quote), at + '.textMark.quote', 'Name a required string parameter that holds the quoted words')
+    }
     if (command.resourceUse !== undefined) {
       shape(command.resourceUse, ['capability','access'], undefined, at + '.resourceUse')
       check(providedIds.has(command.resourceUse.capability) && ['control','observe'].includes(command.resourceUse.access), at + '.resourceUse')

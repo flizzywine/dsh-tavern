@@ -23,6 +23,7 @@ const browserSpeechService = (function () {
 const voicePlayer = createPackVoicePlayer({now: forkForeground.now, schedule: forkForeground.setInterval, cancel: forkForeground.clearInterval, getClient:pageTtsClient,
     createSpeech:line => browserSpeechClip(line),
     prepareAudio:(audio,blob,result) => {if(audio.browserSpeech){audio.playbackRate=stageReading.get().voiceRate;return;}forkForeground.media(audio);forkStageAudio.prepareVoice(audio,blob,result.loudness);audio.preservesPitch=true;audio.playbackRate=stageReading.get().voiceRate;},
+    maskAudio:(audio,cover) => { if (!audio.browserSpeech) forkStageAudio.mask(audio,cover); },
     disposeAudio:audio => { if (!audio.browserSpeech) forkStageAudio.release(audio); },
     onAudio:audio => forkStageAudio.voice(Boolean(audio))});
 // Whether the voice service is on for this page (ttsClient): the stage voices and a reply's 🔊 show only then.

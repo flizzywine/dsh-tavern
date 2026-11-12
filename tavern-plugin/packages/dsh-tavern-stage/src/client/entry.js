@@ -3,6 +3,8 @@
 // and starts it with ctx.plugin(). A card without the stage never downloads or runs this file.
 const stageClientPlugin = (() => {
         __STAGE_NAVIGATION__
+        // dsh-presentation-protocol text-marks.cjs: where the mods' text marks fall in the words a view shows.
+        __STAGE_TEXT_MARKS__
         __STAGE_TEXT__
         __STAGE_SPEAKER__
         __STAGE_CHAT_ENTRY__
