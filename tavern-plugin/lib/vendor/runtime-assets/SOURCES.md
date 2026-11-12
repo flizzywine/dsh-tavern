@@ -15,5 +15,7 @@ The corresponding license or notice is retained in each package directory.
 - `@chenglou/pretext@1.0.0`: jsDelivr `+esm` single-file browser bundle (multiline text measurement & layout)
 - `yaml@2.9.0`: jsDelivr `+esm` single-file browser bundle
 - `zod@4.4.3`: jsDelivr `+esm` single-file browser bundle
+- `three@0.186.1` (Card Stage and the dice throw): `build/three.module.js`, `build/three.core.js`, and a curated
+  closure of `examples/jsm` under `three/addons/` (bare `three` imports rewritten to the relative build path)
 
 The package files come from the exact pinned npm packages or jsDelivr npm URLs recorded above.
