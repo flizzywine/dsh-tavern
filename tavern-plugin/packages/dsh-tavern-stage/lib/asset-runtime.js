@@ -7,7 +7,7 @@ import { assetRefKey, resolveAssetSnapshot } from '../../dsh-presentation-protoc
 
 import { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
 import { migrateServiceSourceModels } from './service-model-migration.js'
-import { setupSystemVoices } from './system-pack.js'
+import { migrateReadingVoices } from './reading-voice-migration.js'
 export { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
 
 // The authenticated Tavern carrier owns sessions; pack services own bytes and leases.
@@ -30,9 +30,9 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
   // the Fish / MiniMax model moves once from 配音后端 to each figure's source (service-model-migration.js).
   ctx.inject(['assetLibrary', 'tts'], child => { migrateServiceSourceModels({library:child.get('assetLibrary'), tts:child.get('tts')})
     .then(done => done && ctx.logger.info('service model migration %s', JSON.stringify(done)), error => ctx.logger.warn('service model migration failed: %s', error?.code || error?.message))
-    // The 系统设置包 is made whole and 通用声音 / 旁白's retired reading voices move onto its figures (system-pack.js).
-    setupSystemVoices({library:child.get('assetLibrary'), tts:child.get('tts')})
-      .then(done => done && ctx.logger.info('system pack setup %s', JSON.stringify(done)), error => ctx.logger.warn('system pack setup failed: %s', error?.code || error?.message)) })
+    // 通用声音 / 旁白 get their figures once: the retired reading voices move onto them, or a new library makes the default ones (reading-voice-migration.js).
+    migrateReadingVoices({library:child.get('assetLibrary'), tts:child.get('tts')})
+      .then(done => done && ctx.logger.info('reading voice migration %s', JSON.stringify(done)), error => ctx.logger.warn('reading voice migration failed: %s', error?.code || error?.message)) })
   for (const name of ['assetLibrary', 'assetPackSettings', 'tts']) ctx.inject([name], child => {
     const lifecycle = reason => {
       if (name === 'tts') for (const entry of consumers.values()) {entry.speech?.dispose(); entry.speech = null}

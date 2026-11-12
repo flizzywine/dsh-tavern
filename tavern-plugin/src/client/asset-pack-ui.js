@@ -3,7 +3,6 @@
 // @include-shared figure-auto-color.cjs
 // @include-shared asset-image-publication.cjs
 // @include-shared figure-outfit-removal.cjs
-// @include-protocol system-pack.cjs
 // @include-domain pack-avatar.cjs
 // @include-protocol director-commands.cjs
 // @include-protocol asset-tags.cjs
@@ -399,8 +398,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   function Impact({binding,packId}) {
     const state=useLoad(binding,()=>binding.rpc('getAssetPackDependencies',{packId}),[packId]);
     const lose='删除后，用到它的卡会少掉里面的素材，不会自动换成别的。',used=state.value?.available?state.value.count>0:null;
-    const voices=readingLossText(useReadingPointers(binding).value,packId);
-    return h('p',{className:'ap-impact',role:'status'},(binding.globalEnabledPackIds?.includes(packId)?'它现在对所有卡启用。'+lose:used===false?'现在没有卡在用它。':used?'有卡正在用它。'+lose:lose)+voices);
+    return h('p',{className:'ap-impact',role:'status'},binding.globalEnabledPackIds?.includes(packId)?'它现在对所有卡启用。'+lose:used===false?'现在没有卡在用它。':used?'有卡正在用它。'+lose:lose);
   }
   // panel language — hairlines instead of boxes. Neither 素材库 nor 舞台设置 has a
   // basic/advanced split (option A).
@@ -1222,8 +1220,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       } else result=await binding.service.copyItems({sourcePackId:packId,itemRefs,target:{newPackName:target.name}});
       stopSelect();setNotice({text:'已复制 '+ids.length+' 项到「'+target.name+'」',packId:result?.packId||target.packId});onPacksChanged?.();
     });
-    // the figure page's ⋯ — 复制到… (copyItems) and 删除人物 (removeFigure, on the CAS queue; none for a system figure).
-    const figureActions=id=>({packs:packs||[],packId,copy:target=>copyTo(target,id),systemFigure:isSystemEntry(packId,id),
+    // the figure page's ⋯ — 复制到… (copyItems) and 删除人物 (removeFigure, on the CAS queue).
+    const figureActions=id=>({packs:packs||[],packId,copy:target=>copyTo(target,id),
       removeEmotion:emotionId=>enqueue(c=>binding.service.removeFigureEmotion({packId,expectedRevision:c.revision,figureId:id,emotionId})),
       // mark / unmark one outfit × 差分 as 「不需要（用默认图）」 on the CAS
       // queue. A conflict is not retried (the owner decides on what is current): the snapshot is reloaded and the error shown.
@@ -1243,8 +1241,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
           return {snapshot:c};
         } catch(error) { latest.current=c;state.setValue(c);throw error; }
       }),
-      // a figure of the 系统设置包 is not deleted here: the library retires a deleted figure's id, so it could not come back.
-      remove:isSystemEntry(packId,id)?null:()=>work.task(async()=>{await enqueue(c=>binding.service.removeFigure({packId,expectedRevision:c.revision,figureId:id}));setSel(null);setDetail(false);setNotice({text:'已删除人物'});onPacksChanged?.();})});
+      remove:()=>work.task(async()=>{await enqueue(c=>binding.service.removeFigure({packId,expectedRevision:c.revision,figureId:id}));setSel(null);setDetail(false);setNotice({text:'已删除人物'});onPacksChanged?.();})});
     const automaticChanged=()=>{changed.current=true;setSel(null);setDetail(false);state.reload();onPacksChanged?.();};
     const actions=usePackActions(binding,{onRemoved:()=>{changed.current=true;close();},onChanged:()=>onPacksChanged?.()});
     const menu=pack&&h(Popover,{label:name+' 操作',trigger:({toggle:t,open})=>h(IconButton,{icon:'more',label:'更多操作 '+name,'aria-expanded':open,disabled:actions.work.busy,onClick:t}),content:closeMenu=>h(React.Fragment,null,

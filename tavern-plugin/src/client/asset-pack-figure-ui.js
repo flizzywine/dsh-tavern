@@ -872,9 +872,7 @@ function FigureMoreMenu({figure,actions,onRemove}) {
   return h(Popover,{label:'人物操作',className:'ap-figure-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'人物操作 '+figure.name,'aria-expanded':open,onClick:()=>{setCopying(false);toggle();}}),
     content:close=>copying?h(PackTargetMenu,{packs:actions.packs||[],exclude:actions.packId,close,onPick:target=>actions.copy(target)}):h(React.Fragment,null,
       actions?.copy&&h(MenuItem,{onClick:()=>setCopying(true)},'复制到…'),
-      actions?.remove&&h(MenuItem,{danger:true,onClick:()=>{close();onRemove();}},'删除人物…'),
-      // a 系统设置 figure (通用声音 / 旁白声音) is not deleted: its id could not be used again, so it could not be rebuilt. Said in the item itself (touch has no hover).
-      actions?.systemFigure&&h(MenuItem,{disabled:true},'系统设置里的人物，不能删除'))});
+      actions?.remove&&h(MenuItem,{danger:true,onClick:()=>{close();onRemove();}},'删除人物…'))});
 }
 const BASIC_HELP='人物本身的资料，所有服装共用。';
 // 方案甲: a deleted figure's 配图 外貌 either stays as an ordinary 人物库 record (the host ends the link) or goes with it.
@@ -1226,8 +1224,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   // the one LampMenu, read as 「● 绿灯 ⌄」 (was the segmented LampSwitch).
   const enable=h('span',{className:'ap-figure-lamp-slot'},h(LampMenu,{label:'人物灯',named:true,mode:outfitLamp(figure),onChange:mode=>write(f=>mode==='off'?{enabled:false}:{enabled:true,recall:{...f.recall,mode}})}));
   const paneRef=React.useRef(null),[automaticReview,setAutomaticReview]=React.useState(false);
-  const imageChoice=React.useRef(null),reading=useReadingPointers(binding).value;
-  const removeFigure=()=>{imageChoice.current=null;setConfirm({title:'删除人物「'+figure.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。'+readingLossText(reading,pack.manifest.id,figure.id),confirmLabel:'删除',danger:true,
+  const imageChoice=React.useRef(null);
+  const removeFigure=()=>{imageChoice.current=null;setConfirm({title:'删除人物「'+figure.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true,
     children:h(FigureImageRemoval,{binding,target:{packId:pack.manifest.id,figureId:figure.id},choice:imageChoice}),
     onConfirm:async()=>{const record=imageChoice.current;if(record)await binding.rpc('deleteFigureImageCharacter',{packId:pack.manifest.id,figureId:figure.id,providerId:record.providerId,characterId:record.character.id,expected:record.character});await figureActions.remove();}});};
   const more=(figureActions?.copy||figureActions?.remove)&&h(FigureMoreMenu,{figure,actions:figureActions,onRemove:removeFigure});
