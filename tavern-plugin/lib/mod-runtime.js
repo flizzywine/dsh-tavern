@@ -2,8 +2,6 @@ import {randomUUID} from 'node:crypto'
 import {isDeepStrictEqual as equal} from 'node:util'
 import contract from '../packages/dsh-presentation-protocol/src/mod-contract.cjs'
 import {createModRuntime} from './domain/mods/runtime.js'
-import {createModJudge} from './domain/mods/judge.js'
-import {createModAssets} from './domain/mods/assets.js'
 import {createModVariables} from './domain/mods/variables.js'
 import {compileModPrompts,replaceModPromptSections} from './domain/mods/prompts.js'
 import {registerModCommands,validateModCommand} from './domain/mods/commands.js'
@@ -12,7 +10,7 @@ import {modTurnActive} from './domain/mods/catalogue.js'
 const {modCheck:check,modShape:shape,modJson,modFreeze} = contract
 
 // Source/Timeline/lease adapters are supplied by the existing host owners. No raw RPC or FS facade.
-export function createModHostRuntime({library,builtins,engineJudge,sourceCurrent,readText,assetPort,variablePort,stagePort,sourcePort,coreCommands=[],onError=()=>{}}) {
+export function createModHostRuntime({library,builtins,sourceCurrent,readText,variablePort,stagePort,sourcePort,coreCommands=[],onError=()=>{}}) {
   const contexts=new WeakSet(),prepareCalls=new Map()
   let active=true
   const current=context=>active && contexts.has(context) && sourceCurrent(context)===true && library.authority(context.modId,context.cardId)===context.authority
@@ -41,7 +39,7 @@ export function createModHostRuntime({library,builtins,engineJudge,sourceCurrent
     createHost(value,callCurrent) {
       const manifest=library.snapshot().mods[value.modId].manifest
       const own=()=>library.getMod({modId:value.modId,cardId:value.cardId})
-      const correctionOnly=()=>check(false,'$.settlement','Corrections cannot call models or write variables','MOD_PERMISSION_DENIED')
+      const correctionOnly=()=>check(false,'$.settlement','Corrections cannot write variables','MOD_PERMISSION_DENIED')
       const variableHost=variablePort?createModVariables({...variablePort,manifest,context:value,current:callCurrent}):{getTurn:unavailable,patch:unavailable,setVariables:unavailable}
       const bridge=method=>async args=>{assertModPermission(manifest,'stage.'+method);check(stagePort && typeof stagePort[method]==='function','$.stage','Stage capability unavailable','MOD_RESOURCE_UNAVAILABLE');return stagePort[method]({...value,readIds:(manifest.permissions.variables?.reads || []).map(row=>row.id)},args,callCurrent)}
       return {
@@ -51,8 +49,6 @@ export function createModHostRuntime({library,builtins,engineJudge,sourceCurrent
           list:async args=>{shape(args,['packId','kind'],[]);return own().packs.filter(pack=>!args.packId || pack.id===args.packId).map(pack=>({...pack,entries:pack.entries.filter(entry=>!args.kind || entry.kind===args.kind)}))},
           read:async args=>{shape(args,['ref']);check(args.ref.modId===value.modId,'$.ref','Cross-mod library access denied','MOD_PERMISSION_DENIED');return own().packs.find(pack=>pack.id===args.ref.packId)?.entries.find(entry=>entry.id===args.ref.entryId && entry.kind===args.ref.kind) || null},
         },
-        judge:value.settlementRevision?correctionOnly:createModJudge({engineJudge,manifest,context:value,current:callCurrent}),
-        assets:assetPort?createModAssets({...assetPort,manifest,context:value,current:callCurrent}):{read:unavailable},
         variables:value.settlementRevision?{getTurn:variableHost.getTurn,patch:correctionOnly,setVariables:correctionOnly}:variableHost,
         source:{window:async args=>{check(manifest.permissions.source?.includes('dialogue'),'$.source','Source permission required','MOD_PERMISSION_DENIED');return sourcePort?sourcePort.window(value,args,callCurrent):unavailable()}},
         stage:{...Object.fromEntries(['place','playDeclarative','reviseAfterSettlement'].map(method=>[method,bridge(method)])),state:{

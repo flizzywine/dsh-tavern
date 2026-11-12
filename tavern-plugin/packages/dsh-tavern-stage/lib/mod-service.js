@@ -34,7 +34,7 @@ const installedCommands=snapshot=>Object.values(snapshot.mods).flatMap(({manifes
 ).sort((a,b)=>a.op<b.op?-1:a.op>b.op?1:0)
 
 // First-party-only composition. Archive/transfer code deliberately does not enter this graph.
-export function createBuiltinModService({workbenchAuthority,management,readCard,engineJudge,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,connected,models,assetSnapshot,publishView,sourceViews=createModSourceViews(modStageContributions),builtins=createFirstPartyMods({host:management.modHost})}) {
+export function createBuiltinModService({workbenchAuthority,management,readCard,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,connected,models,assetSnapshot,publishView,sourceViews=createModSourceViews(modStageContributions),builtins=createFirstPartyMods({host:management.modHost})}) {
   let service,library,runtime,sessionEvents,settledSource,dirty=true,active=true,epoch=0,tail=Promise.resolve()
   const modelTasks=models?createModModelTasks(models):null
   const eventCatalogue=assetSnapshot?createModEventCatalogue({snapshot:assetSnapshot,builtinPacks:async()=>(await builtins).assetPacks?.() || []}):null
@@ -121,7 +121,7 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
         try {const chosen=await models?.select({modId:manifest.id,slotId:slot.id,sessionId,slot});return [slot.id,{selection:'follow-foreground',provider:chosen?.provider || null,model:chosen?.model || null,label:chosen?.model || slot.label,available:!!chosen?.provider && !!chosen?.model}]}
         catch{return [slot.id,{selection:'follow-foreground',provider:null,model:null,label:slot.label,available:false}]}
       })))}):null
-    runtime=createModHostRuntime({library,builtins:builtin,engineJudge,sourceCurrent:current,coreCommands,
+    runtime=createModHostRuntime({library,builtins:builtin,sourceCurrent:current,coreCommands,
       onError:diagnostic=>onLog({kind:'mod-runtime-failure',...diagnostic}),
       readText:async(id,name)=>builtin.file(library.snapshot().mods[id].origin?.builtinId || id,name)?.toString('utf8'),
       variablePort,stagePort,sourcePort,
