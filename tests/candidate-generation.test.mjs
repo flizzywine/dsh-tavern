@@ -188,6 +188,40 @@ test('first candidate interrupted before a result keeps its bound session for re
   assert.equal(run.modelRequests[1].persistentSessionId, 'background-bound-before-result');
 });
 
+test('choices after unseen turns still carry the recent story and the player name', async () => {
+  const opening = [{ role: 'assistant', turn: 1, text: '你在旅店醒来，阿芙拉坐在床边。' }]
+  const run = harness({ messages: opening, macroState: { userName: '阿舟', local: {}, global: {} }, outputs: [JSON.stringify({ choices: storyChoices })] })
+  await run.candidates.generate({ sessionId: 'session-1', messageId: 'turn1' })
+  const later = [...opening]
+  for (let turn = 2; turn <= 20; turn++) later.push({ role: 'user', text: '继续' }, { role: 'assistant', turn,
+    text: turn === 19 ? '旅店老板改口叫你阿舟，你们离开旅店前往钟楼。' : turn === 20 ? '午夜，阿舟向阿芙拉道晚安，她已经在卧室睡着。' : '第' + turn + '轮：调查继续。' })
+  run.setMessages(later)
+  await run.candidates.generate({ sessionId: 'session-1', messageId: 'turn20' })
+  const request = run.modelRequests[1]
+  assert.equal(request.persistentSessionId, 'candidate-trace-1', 'second request resumes the persistent background session')
+  const bodies = request.messages.filter(message => message.role === 'assistant').map(message => message.content[0].text)
+  const task = request.messages.at(-1).content[0].text
+  assert.equal(bodies.length, 3, 'the three newest story turns reach the background agent')
+  assert.ok(bodies.some(text => text.includes('钟楼')))
+  assert.match(task, /latest story turn 20/)
+  assert.match(task, /Player.s name in this session: 阿舟/)
+})
+
+test('a synced background session still receives the latest story, renamed player and bedtime after twenty turns', async () => {
+  const messages = Array.from({ length: 20 }, (_, i) => ({ role: 'assistant', turn: i + 1, text: i === 19 ? '阿舟在午夜向阿芙拉道晚安，她已经在卧室睡着。' : '阿舟继续处理当天的事情，第' + (i + 1) + '轮。' }))
+  const run = harness({ messages, macroState: { userName: '阿舟', local: {}, global: {} }, outputs: [JSON.stringify({ choices: storyChoices })] })
+  await run.candidates.generate({ sessionId: 'session-1', messageId: 'turn20' })
+  // The second task shares both the persistent participant and its synced revision.
+  await run.candidates.generate({ sessionId: 'session-1', messageId: 'turn20-again' })
+  const request = run.modelRequests[1]
+  assert.equal(request.persistentSessionId, 'candidate-trace-1')
+  const bodies = request.messages.filter(message => message.role === 'assistant')
+  assert.equal(bodies.length, 3)
+  assert.equal(bodies.at(-1).content[0].text, messages.at(-1).text)
+  assert.match(request.messages.at(-1).content[0].text, /latest story turn 20/)
+  assert.match(request.messages.at(-1).content[0].text, /Player.s name in this session: 阿舟/)
+})
+
 test('前台生成候选项：提示词门控与正文尾部 <story_choices> 提取、宏替换与剥离', () => {
   assert.equal(foregroundCandidatePrompt({ mode: 'story', backgroundTasks: { foregroundCandidates: false } }), '')
   assert.equal(foregroundCandidatePrompt({ mode: 'script', backgroundTasks: { foregroundCandidates: true } }), '')
