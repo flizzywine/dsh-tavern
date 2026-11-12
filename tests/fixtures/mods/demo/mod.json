@@ -1,0 +1,168 @@
+{
+  "format": "dsh-tavern-mod",
+  "schemaVersion": 5,
+  "experimental": true,
+  "id": "dsh.demo",
+  "name": "Contract demo",
+  "packageName": "dsh-tavern-mod-demo",
+  "version": "1.0.0",
+  "hostApi": ">=1.0.0 <2.0.0",
+  "dependencies": [],
+  "config": {
+    "version": 1,
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "defaults": {}
+  },
+  "preferences": {
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "defaults": {}
+  },
+  "dataVersion": 1,
+  "coreAssets": [],
+  "permissions": [
+    "stage.presentation"
+  ],
+  "performances": [],
+  "entry": "runtime.js",
+  "summary": "A first-party framework demonstration.",
+  "commandPrompts": [
+    {
+      "id": "marker-rule",
+      "path": "prompts/demo.txt",
+      "placement": {
+        "section": "director.rules.presentation",
+        "order": 10
+      }
+    }
+  ],
+  "commands": [
+    {
+      "id": "mark",
+      "op": "mod.dsh.demo.mark",
+      "dsl": {
+        "verb": "demo",
+        "syntax": "demo mark label=<text>"
+      },
+      "params": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "additionalProperties": false
+      },
+      "persistence": "marker",
+      "handler": "command",
+      "promptId": "marker-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 20
+      },
+      "caps": {
+        "perTurn": 4,
+        "bytes": 1024
+      },
+      "mode": "adds"
+    }
+  ],
+  "settingsSchema": {
+    "fields": [
+      {
+        "key": "caption",
+        "type": "text",
+        "label": "Caption",
+        "help": "A static label, not a prompt.",
+        "default": "Demo",
+        "maxLength": 80,
+        "scope": "global"
+      },
+      {
+        "key": "visible",
+        "type": "toggle",
+        "label": "Visible",
+        "default": true,
+        "scope": "global"
+      },
+      {
+        "key": "opacity",
+        "type": "slider",
+        "label": "Opacity",
+        "default": 1,
+        "min": 0,
+        "max": 1,
+        "step": 0.1,
+        "scope": "global",
+        "dependsOn": {
+          "key": "visible",
+          "equals": true
+        }
+      },
+      {
+        "key": "size",
+        "type": "segmented",
+        "label": "Size",
+        "default": "small",
+        "scope": "global",
+        "choices": [
+          {
+            "value": "small",
+            "label": "Small"
+          },
+          {
+            "value": "large",
+            "label": "Large"
+          }
+        ]
+      },
+      {
+        "key": "accent",
+        "type": "colour",
+        "label": "Accent",
+        "default": "#225566",
+        "scope": "global"
+      }
+    ],
+    "sections": [
+      {
+        "id": "appearance",
+        "title": "Appearance",
+        "help": "Offline layout example.",
+        "groups": [
+          {
+            "id": "general",
+            "title": "General",
+            "fields": [
+              "caption",
+              "visible"
+            ]
+          },
+          {
+            "id": "visual",
+            "title": "Visual",
+            "help": "Second-level fold state has its own ID.",
+            "fields": [
+              "opacity",
+              "size",
+              "accent"
+            ],
+            "folded": true
+          }
+        ],
+        "folded": false
+      }
+    ]
+  }
+}
