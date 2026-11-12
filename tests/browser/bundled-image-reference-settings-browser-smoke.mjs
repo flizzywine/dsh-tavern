@@ -20,6 +20,7 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR
 const clone = value => JSON.parse(JSON.stringify(value))
 const calls = [], errors = []
 let uploads = 0, libraryRevision = 1, promptRevision = 1, cardEnabled = false
+let playDeleted = false, failGalleryDelete = false
 let cardBook = { version: 3, revision: 'card-1', buckets: ['rules', 'examples'].map(id => ({ id, label: id, entries: [{ id: 'shared-entry', title: id + ' title', content: id + ' original', enabled: true, mode: 'always' }] })) }
 let cardRevision = 1
 let failCardWrites = 0
@@ -184,12 +185,16 @@ try {
     else if (path === '/loras-available') response = { ok: true, loras: [] }
     else if (path === '/history') {
       const mode = url.searchParams.get('gallery')
-      response = { ok: true, jobs: [playGalleryJob].filter(job => mode === 'trash' ? job.trashedAt : !job.trashedAt && (mode !== 'favorite' || job.favorite)) }
+      response = { ok: true, jobs: (playDeleted ? [] : [playGalleryJob]).filter(job => mode === 'trash' ? job.trashedAt : !job.trashedAt && (mode !== 'favorite' || job.favorite)) }
     }
     else if (path === '/gallery-item') {
       if (body.operation === 'favorite' || body.operation === 'unfavorite') playGalleryJob.favorite = body.operation === 'favorite'
       else playGalleryJob.trashedAt = body.operation === 'trash' ? 1 : null
       response = { ok: true, job: clone(playGalleryJob) }
+    }
+    else if (path === '/gallery-delete') {
+      if (failGalleryDelete) response = { ok: true, deleted: [], failed: [{ id: playGalleryJob.id, error: '测试文件被占用' }] }
+      else { playDeleted = true; response = { ok: true, deleted: [playGalleryJob.id], failed: [] } }
     }
     else if (path === '/jobs') response = { ok: true, job: url.searchParams.get('id') === 'tryout-image' ? { id: 'tryout-image', state: 'done' } : url.searchParams.get('id') === 'play-only' ? { ...clone(playGalleryJob), positive: '完整测试正面提示词：茶室门口的成年旅人', negative: '' } : {} }
     else if (path === '/tasks') response = { tasks: [] }
@@ -1049,6 +1054,41 @@ try {
   await viewer.waitFor()
   await page.keyboard.press('Escape')
   await viewer.waitFor({ state: 'hidden' })
+  // Permanent deletion works even when the host disables native confirmation dialogs.
+  await page.evaluate(() => { window.confirm = () => false })
+  await page.getByLabel('回收 剧情配图', { exact: true }).click()
+  await page.getByRole('button', { name: '回收站', exact: true }).click()
+  await page.getByLabel('彻底删除 剧情配图', { exact: true }).click()
+  const galleryDeletion = page.getByRole('group', { name: '确认彻底删除图片', exact: true })
+  await galleryDeletion.getByRole('button', { name: '取消', exact: true }).click()
+  assert.equal(calls.filter(call => call.path === '/gallery-delete').length, 0)
+  await page.getByLabel('恢复 剧情配图', { exact: true }).waitFor()
+  failGalleryDelete = true
+  await page.getByLabel('彻底删除 剧情配图', { exact: true }).click()
+  await galleryDeletion.getByRole('button', { name: '确认彻底删除', exact: true }).click()
+  await page.getByText('已彻底删除 0 张图，1 张删除失败：测试文件被占用', { exact: true }).waitFor()
+  await page.getByLabel('恢复 剧情配图', { exact: true }).waitFor()
+  failGalleryDelete = false
+  await page.getByRole('button', { name: '☑ 批量选择', exact: true }).click()
+  await page.getByRole('button', { name: '全选', exact: true }).click()
+  await page.getByRole('button', { name: '彻底删除（1）', exact: true }).click()
+  await galleryDeletion.getByRole('button', { name: '确认彻底删除', exact: true }).click()
+  await page.getByText('回收站是空的', { exact: true }).waitFor()
+  assert.deepEqual(calls.filter(call => call.path === '/gallery-delete').at(-1).body, { ids: ['play-only'], all: false })
+  // Refill only the stubbed gallery to exercise single delete and clearing all.
+  for (const clearAll of [false, true]) {
+    playDeleted = false
+    await page.getByRole('button', { name: '🔄 刷新', exact: true }).click()
+    await page.getByRole('img', { name: '剧情配图', exact: true }).waitFor()
+    if (await page.getByRole('button', { name: '✖ 退出批量', exact: true }).count()) await page.getByRole('button', { name: '✖ 退出批量', exact: true }).click()
+    if (clearAll) await page.getByRole('button', { name: '清空回收站', exact: true }).click()
+    else await page.getByLabel('彻底删除 剧情配图', { exact: true }).click()
+    await galleryDeletion.getByRole('button', { name: '确认彻底删除', exact: true }).click()
+    await page.getByText('回收站是空的', { exact: true }).waitFor()
+    assert.equal(calls.filter(call => call.path === '/gallery-delete').at(-1).body.all, clearAll)
+  }
+  await page.getByRole('button', { name: '🔄 刷新', exact: true }).click()
+  await page.getByText('回收站是空的', { exact: true }).waitFor()
   await page.getByRole('button', { name: '卡片画廊', exact: true }).click()
   await page.getByRole('img', { name: '卡片专用图片', exact: true }).waitFor()
   assert.equal(await page.getByRole('img', { name: '剧情配图', exact: true }).count(), 0)

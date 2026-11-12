@@ -2368,10 +2368,12 @@ function createRuntime(ctx, overrides, logger, deps) {
       const job = jobs.get(id)
       job?.controller?.abort()
       if (withMedia && job?.gameId) await removeMountedPicture(deps.tavern, job).catch(error => logger.warn?.('dsh-tavern-image: 撤下对话里的图失败：' + (error?.message ?? error)))
-      if (job?.file) await rm(job.file, { force: true }).catch(() => {})
+      if (job?.file) await rm(job.file, { force: true })
       // 接住返回值：不存在的话就是 0，别报假成功
       const existed = jobs.delete(id) ? 1 : 0
-      persistJobs()
+      try { await persistJobs({ required: true }) }
+      catch (error) { if (job) jobs.set(id, job); throw error }
+      if (job?.key && byKey.get(job.key) === id) byKey.delete(job.key)
       // 从所有计划里摘掉这个 jobId（重画版本链也要清）
       let touched = 0
       for (const [key, plan] of plansByMessage) {
@@ -2380,7 +2382,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         const kept = list.filter(item => String(item.jobId) !== id)
         if (kept.length !== list.length) { plansByMessage.set(key, Object.assign({}, plan, { plans: kept })); touched++ }
       }
-      if (touched) persistPlans()
+      if (touched) await persistPlans()
       logger.info?.('dsh-tavern-image: 已删除历史图 ' + id.slice(0, 8))
       return existed
     }
@@ -4673,6 +4675,38 @@ function createRuntime(ctx, overrides, logger, deps) {
             Object.assign(job, previous)
             sendJson(response, 500, { ok: false, error: String(error?.message ?? error) })
           } finally { galleryWrites.delete(job.id) }
+          return
+        }
+
+        // 只永久删除游玩画廊回收站里的图；清空在服务端取全量，避免历史列表 60 张的分页限制。
+        if (action === 'gallery-delete') {
+          const ids = body.all === true
+            ? [...jobs.values()].filter(job => jobSource(job) === 'play' && job.trashedAt && job.state === 'done' && job.file).map(job => job.id)
+            : Array.isArray(body.ids) ? [...new Set(body.ids.map(id => String(id)))] : null
+          if (!ids || !ids.length && body.all !== true) {
+            sendJson(response, 400, { ok: false, error: '请选择回收站里要彻底删除的图片' })
+            return
+          }
+          if (ids.some(id => {
+            const job = jobs.get(id)
+            return !job || jobSource(job) !== 'play' || !job.trashedAt || job.state !== 'done' || !job.file
+          })) {
+            sendJson(response, 409, { ok: false, error: '只能彻底删除回收站里的图片，请刷新后重试' })
+            return
+          }
+          if (ids.some(id => galleryWrites.has(id))) {
+            sendJson(response, 409, { ok: false, error: '图片正在更新，请稍后重试' })
+            return
+          }
+          for (const id of ids) galleryWrites.add(id)
+          const deleted = [], failed = []
+          try {
+            for (const id of ids) {
+              try { await deleteJob(id); deleted.push(id) }
+              catch (error) { failed.push({ id, error: String(error?.message ?? error) }) }
+            }
+            sendJson(response, 200, { ok: true, deleted, failed })
+          } finally { for (const id of ids) galleryWrites.delete(id) }
           return
         }
 

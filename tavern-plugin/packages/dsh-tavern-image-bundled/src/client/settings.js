@@ -155,6 +155,10 @@
       // 历史图：批量选择模式
       const [gallerySelect, setGallerySelect] = React.useState(false)
       const [galleryPicked, setGalleryPicked] = React.useState({})
+      const [galleryDeletion, setGalleryDeletion] = React.useState(null)
+      const [galleryDeleting, setGalleryDeleting] = React.useState(false)
+      const galleryDeleteBusy = React.useRef(false)
+      const [galleryDeleteNote, setGalleryDeleteNote] = React.useState('')
       // 画廊页签的切换：默认游玩画廊，卡片画廊按需切过去。
       const [gallerySource, setGallerySource] = React.useState('play')
 
@@ -287,7 +291,7 @@
           if (!alive) return
           const list = r?.jobs ?? []
           setHistoryJobs(list)
-          setHistoryNote(list.length ? '' : '还没有生成过图片')
+          setHistoryNote(list.length || galleryMode === 'trash' ? '' : '还没有生成过图片')
           reportHost('history-ok', { jobs: list.length })
         }).catch(error => {
           if (!alive) return
@@ -1867,6 +1871,7 @@
       }
 
       async function updateGalleryItem(id, operation) {
+        if (galleryDeleteBusy.current) return false
         try {
           const response = await post('/gallery-item', { id, operation })
           if (!response?.job) throw new Error('未收到画廊操作结果')
@@ -1888,6 +1893,36 @@
         if (!ids.length || !confirm('将 ' + ids.length + ' 张图移到回收站？')) return
         for (const id of ids) await updateGalleryItem(id, 'trash')
         setGalleryPicked({})
+      }
+
+      function requestGalleryDeletion(ids, all = false) {
+        if (galleryDeleteBusy.current || !all && !ids.length) return
+        setGalleryDeleteNote('')
+        setGalleryDeletion({ ids, all })
+      }
+
+      async function deleteGalleryImages() {
+        if (!galleryDeletion || galleryDeleteBusy.current) return
+        galleryDeleteBusy.current = true
+        setGalleryDeleting(true)
+        setGalleryDeleteNote('')
+        try {
+          const response = await post('/gallery-delete', galleryDeletion)
+          if (!Array.isArray(response.deleted)) throw new Error('未收到删除结果')
+          const deleted = new Set(response.deleted)
+          setHistoryJobs(list => list.filter(job => !deleted.has(job.id)))
+          setGalleryPicked(current => Object.fromEntries(Object.entries(current).filter(([id]) => !deleted.has(id))))
+          setGalleryPrompt(current => deleted.has(current?.id) ? null : current)
+          setGalleryDeletion(null)
+          setHistoryTick(n => n + 1)
+          const failed = response.failed || []
+          setGalleryDeleteNote('已彻底删除 ' + deleted.size + ' 张图' + (failed.length ? '，' + failed.length + ' 张删除失败：' + failed[0].error : ''))
+        } catch (error) {
+          setGalleryDeleteNote('删除失败：' + (error?.message ?? error))
+        } finally {
+          galleryDeleteBusy.current = false
+          setGalleryDeleting(false)
+        }
       }
 
       /** 工作流：导入、查看、LoRA 管理。 */
@@ -2354,6 +2389,7 @@
                     { label: '查看负面提示词', onClick: () => showGalleryPrompt(job, 'negative') },
                     ...(galleryMode === 'trash' ? [
                       { label: '恢复到画廊', onClick: () => updateGalleryItem(job.id, 'restore') },
+                      { label: '彻底删除', onClick: () => requestGalleryDeletion([job.id]) },
                     ] : [
                       { label: '用这张图编辑', onClick: () => setImageEditSource({ url: BASE + '/jobs?id=' + encodeURIComponent(job.id) + '&image=1', name: job.label || '已有图片' }) },
                       { label: job.favorite ? '取消收藏' : '收藏', onClick: () => updateGalleryItem(job.id, job.favorite ? 'unfavorite' : 'favorite') },
@@ -2369,6 +2405,7 @@
             !gallerySelect ? h('button', {
               type: 'button',
               title: galleryMode === 'trash' ? '恢复到画廊' : '移到回收站',
+              disabled: galleryDeleting,
               'aria-label': (galleryMode === 'trash' ? '恢复 ' : '回收 ') + (job.label || job.id),
               onClick: function (e) { e.stopPropagation(); updateGalleryItem(job.id, galleryMode === 'trash' ? 'restore' : 'trash') },
               style: {
@@ -2386,6 +2423,7 @@
             !gallerySelect ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 4, padding: '0 6px 6px' } },
               h('button', { type: 'button', style: { ...buttonStyle, padding: '3px 5px', flex: '1 0 auto' }, 'aria-label': '查看提示词 ' + (job.label || job.id), onClick: () => showGalleryPrompt(job, 'positive') }, '提示词'),
               h('button', { type: 'button', style: { ...buttonStyle, padding: '3px 5px', flex: '1 0 auto' }, 'aria-label': '查看负面词 ' + (job.label || job.id), onClick: () => showGalleryPrompt(job, 'negative') }, '负面'),
+              galleryMode === 'trash' ? h('button', { type: 'button', disabled: galleryDeleting, style: { ...buttonStyle, padding: '3px 5px', color: 'var(--dsw-alias-state-error-primary)' }, 'aria-label': '彻底删除 ' + (job.label || job.id), onClick: () => requestGalleryDeletion([job.id]) }, '彻底删除') : null,
               galleryMode !== 'trash' ? h('button', { type: 'button', style: { ...buttonStyle, padding: '3px 5px' }, 'aria-label': '图生图 ' + (job.label || job.id), onClick: () => setImageEditSource({ url: BASE + '/jobs?id=' + encodeURIComponent(job.id) + '&image=1', name: job.label || '已有图片' }) }, '图生图') : null) : null,
             !gallerySelect && galleryPrompt?.id === job.id ? h('section', { 'aria-label': '图片提示词详情', style: { padding: 6, minWidth: 0 } },
               h('div', { style: { ...S.row, justifyContent: 'space-between' } }, h('strong', { style: { fontSize: 12 } }, galleryPrompt.field === 'negative' ? '完整负面提示词' : '完整正面提示词'),
@@ -2424,15 +2462,16 @@
           h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } }, '点缩略图查看原图，按页面顺序切图。右键插件图可查看操作。'),
           h('div', { style: S.row },
             [['', '全部图片'], ['favorite', '收藏'], ['trash', '回收站']].map(([key, label]) =>
-              h('button', { key, type: 'button', style: S.tab(galleryMode === key), 'aria-pressed': galleryMode === key, onClick: () => {
+              h('button', { key, type: 'button', style: S.tab(galleryMode === key), 'aria-pressed': galleryMode === key, disabled: galleryDeleting, onClick: () => {
                 if (galleryMode === key) return
-                setGalleryMode(key); setHistoryJobs([]); setGalleryPicked({}); setGallerySelect(false)
+                setGalleryMode(key); setHistoryJobs([]); setGalleryPicked({}); setGallerySelect(false); setGalleryDeletion(null); setGalleryDeleteNote('')
               } }, label)),
             h('button', { style: buttonStyle, onClick: function () { setHistoryNote('读取中…'); setHistoryTick(n => n + 1) } }, '🔄 刷新'),
             h('button', { style: buttonStyle, onClick: () => preview(), disabled: !ordered.length }, '浏览全部'),
-            galleryMode !== 'trash' ? h('button', { style: buttonStyle, onClick: function () {
-              setGallerySelect(v => !v); setGalleryPicked({})
-            } }, gallerySelect ? '✖ 退出批量' : '☑ 批量选择') : null,
+            h('button', { style: buttonStyle, disabled: galleryDeleting, onClick: function () {
+              setGallerySelect(v => !v); setGalleryPicked({}); setGalleryDeletion(null)
+            } }, gallerySelect ? '✖ 退出批量' : '☑ 批量选择'),
+            galleryMode === 'trash' ? h('button', { style: { ...buttonStyle, color: 'var(--dsw-alias-state-error-primary)' }, disabled: galleryDeleting || !done.length, onClick: () => requestGalleryDeletion([], true) }, '清空回收站') : null,
             gallerySelect ? h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px' }), onClick: function () {
               const next = {}
               for (const job of done) next[job.id] = true
@@ -2441,15 +2480,26 @@
             gallerySelect ? h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px' }), onClick: function () { setGalleryPicked({}) } }, '取消全选') : null,
             gallerySelect ? h('button', {
               style: Object.assign({}, buttonStyle, { borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 70%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }),
-              onClick: function () { trashSelected(Object.keys(galleryPicked).filter(k => galleryPicked[k])) },
-            }, '移到回收站（' + Object.keys(galleryPicked).filter(k => galleryPicked[k]).length + '）') : null,
+              disabled: galleryDeleting || !Object.values(galleryPicked).some(Boolean),
+              onClick: function () {
+                const ids = Object.keys(galleryPicked).filter(k => galleryPicked[k])
+                if (galleryMode === 'trash') requestGalleryDeletion(ids)
+                else trashSelected(ids)
+              },
+            }, (galleryMode === 'trash' ? '彻底删除（' : '移到回收站（') + Object.keys(galleryPicked).filter(k => galleryPicked[k]).length + '）') : null,
             historyNote ? h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, historyNote) : null,
           ),
+          galleryMode === 'trash' && galleryDeletion ? h('div', { role: 'group', 'aria-label': '确认彻底删除图片', style: { ...S.card, marginTop: 10 } },
+            h('p', { style: { margin: '0 0 8px', fontSize: 13 } }, galleryDeletion.all ? '清空回收站中的全部图片？删除后无法恢复。' : '彻底删除这 ' + galleryDeletion.ids.length + ' 张图片？删除后无法恢复。'),
+            h('div', { style: S.row },
+              h('button', { type: 'button', style: buttonStyle, disabled: galleryDeleting, onClick: () => setGalleryDeletion(null) }, '取消'),
+              h('button', { type: 'button', style: { ...buttonStyle, color: 'var(--dsw-alias-state-error-primary)' }, disabled: galleryDeleting, onClick: deleteGalleryImages }, galleryDeleting ? '正在删除…' : '确认彻底删除'))) : null,
+          galleryDeleteNote ? h('p', { role: 'status', style: { fontSize: 12 } }, galleryDeleteNote) : null,
           ordered.length ? ordered.map(group => h('details', { key: group.key, open: true, style: { marginTop: '14px' } },
             h('summary', { style: { cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } },
               groupTitle(group), h('span', { style: { fontWeight: 400, fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginLeft: '8px' } }, group.items.length + ' 张')),
             h('div', { style: GALLERY_GRID }, group.items.map(item => item.node))))
-            : historyNote ? null : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', padding: '14px 0 0' } }, '还没有图片'),
+            : historyNote ? null : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', padding: '14px 0 0' } }, galleryMode === 'trash' ? '回收站是空的' : '还没有图片'),
           legacyTiles.length ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '14px' } }, '「早期插图」是换用插件之前 Tavern 自带生图画的，只读；要删除请到对应那局的「画廊」。') : null,
 
         )

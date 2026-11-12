@@ -17,6 +17,7 @@ const CONSOLE_ROUTES = [
   ["generate","generate"],
   ["history","history"],
   ["gallery-item","gallery-item"],
+  ["gallery-delete","gallery-delete"],
   ["character-history","character-history"],
   ["plan","plan"],
   ["plans","plans"],
