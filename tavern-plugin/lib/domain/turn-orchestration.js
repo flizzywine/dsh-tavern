@@ -56,8 +56,10 @@ function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 }
 
-function preparationConflict() {
-  return Object.assign(new Error('存档在准备正文期间发生冲突，本轮已停止'), { code: 'TAVERN_PREPARE_CONFLICT' })
+function preparationConflict(reason, details) {
+  return Object.assign(new Error('存档在准备正文期间发生冲突，本轮已停止'), {
+    code: 'TAVERN_PREPARE_CONFLICT', conflict: { reason, ...details }
+  })
 }
 
 function storageStamp(change) {
@@ -518,7 +520,7 @@ export function createTurnOrchestrator(options) {
         const baseline = preparationBase
         const revision = Number(baseline?._storageRevision)
         const count = chat.messages.length
-        if (!Number.isSafeInteger(revision)) throw preparationConflict()
+        if (!Number.isSafeInteger(revision)) throw preparationConflict('invalid-base-revision')
         const userIndex = savedUserIndex >= 0 ? savedUserIndex : withUser ? count : null
         const assistantIndex = count + rows.length - 1
         operation.placeholder = { userIndex, assistantIndex }
@@ -527,8 +529,11 @@ export function createTurnOrchestrator(options) {
         let refreshedFrame
         const receipt = await commitChatFields(store.patchChat, chat.id, { source: 'foreground.prepare' }, async attempt => {
           if (attempt > 0) selected = await store.readChatSlice(input.sessionId, [])
-          if (!selected?.denseMessages || selected.chat.id !== chat.id || selected.messageCount !== count) throw preparationConflict()
+          if (!selected?.denseMessages || selected.chat.id !== chat.id || selected.messageCount !== count) {
+            throw preparationConflict('message-layout-changed', { revision, count, currentCount: selected?.messageCount })
+          }
           const currentRevision = selected.chat._storageRevision
+          const versions = { revision, currentRevision }
           let latestUser = savedUser
           let changes = [...prepared]
           const changedRows = new Map()
@@ -536,12 +541,16 @@ export function createTurnOrchestrator(options) {
           refreshedFrame = undefined
           if (currentRevision !== revision) {
             const concurrent = diffJson(baseline, captureChatHeader(selected.chat)).filter(change => !storageStamp(change))
-            if (!concurrent.every(compatiblePreparationHeaderChange)) throw preparationConflict()
+            const incompatible = concurrent.find(change => !compatiblePreparationHeaderChange(change))
+            if (incompatible) throw preparationConflict('header-changed', { ...versions, field: incompatible.path[0] })
             refreshNeeded = concurrent.some(change => change.path[0] !== 'rollbackUndo')
             changes = rebaseChatChanges(prepared, concurrent)
-            if (!changes) throw preparationConflict()
+            if (!changes) throw preparationConflict('overlapping-header-changes', versions)
             const changed = await store.readChangedSlice?.(chat.id, revision)
-            if (!changed?.denseMessages || changed.layoutChanged || changed.messageCount !== count) throw preparationConflict()
+            if (!changed?.denseMessages) throw preparationConflict('missing-change-history', versions)
+            if (changed.layoutChanged || changed.messageCount !== count) {
+              throw preparationConflict('message-layout-changed', { ...versions, count, currentCount: changed.messageCount })
+            }
             if (changed.chat._storageRevision !== currentRevision) return undefined
             const unloaded = changed.indices.filter(index => !chat.messages[index])
             const historical = unloaded.length && store.readWindow ? await readRowsAt(store.readWindow, chat.id, revision, unloaded) : null
@@ -549,10 +558,12 @@ export function createTurnOrchestrator(options) {
             for (const [offset, index] of changed.indices.entries()) {
               const before = chat.messages[index] ?? historicalRows.get(index)
               const after = changed.chat.messages[offset]
-              if (!before || !after) throw preparationConflict()
+              if (!before || !after) throw preparationConflict('missing-message', { ...versions, index })
               const { variables: _beforeVariables, messageUid: _beforeUid, displayRuntime: _beforeDisplay, ...beforeMessage } = before
               const { variables: _afterVariables, messageUid: _afterUid, displayRuntime: _afterDisplay, ...afterMessage } = after
-              if (!sameChatMessageIdentity(before, after, index) || !isDeepStrictEqual(beforeMessage, afterMessage)) throw preparationConflict()
+              if (!sameChatMessageIdentity(before, after, index) || !isDeepStrictEqual(beforeMessage, afterMessage)) {
+                throw preparationConflict('message-changed', { ...versions, index })
+              }
               changedRows.set(index, after)
               if (!isDeepStrictEqual(before.variables, after.variables)) refreshNeeded = true
               if (index === savedUserIndex) latestUser = after
@@ -587,7 +598,7 @@ export function createTurnOrchestrator(options) {
           changes.push({ op: 'splice', path: ['messages'], index: count, deleteCount: 0, items: rows })
           return { revision: currentRevision, changes }
         })
-        if (!receipt) throw preparationConflict()
+        if (!receipt) throw preparationConflict('revision-retries-exhausted', { revision, currentRevision: selected?.chat._storageRevision })
         return refreshedFrame
       }
       // Legacy/flat saves use the same identity rule as the scoped patch path.
@@ -744,7 +755,7 @@ export function createTurnOrchestrator(options) {
       }
       const current = chat && timeline.inspect({ chat })
       if (!current || current.branchId !== foregroundOperation.basedOn.branchId || current.revision !== foregroundOperation.basedOn.revision ||
-          current.operations[foregroundOperation.operationId]?.status !== 'running') throw preparationConflict()
+          current.operations[foregroundOperation.operationId]?.status !== 'running') throw preparationConflict('timeline-changed-during-worldbook')
       const stage = chat.promptTemplateInput
       const row = chat.messages[requestUserIndex(chat.messages, requestId)]
       if (stage?.turn === turn && inputVariablesChanged(stage, row, row)) copyInputVariables(stage.message, row)

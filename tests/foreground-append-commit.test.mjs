@@ -182,7 +182,13 @@ test('准备正文时改写历史正文：拒绝旧帧，即使楼层数量不�
       { op: 'set', path: ['messages', 1, 'text'], value: '改写过的正文' }
     ], { source: 'tavern-helper.messages' })
   })
-  await assert.rejects(scoped.turns.prepare({ sessionId: 's', turn: 13, userText: '继续' }), { code: 'TAVERN_PREPARE_CONFLICT' })
+  await assert.rejects(scoped.turns.prepare({ sessionId: 's', turn: 13, userText: '继续' }), error => {
+    assert.equal(error.code, 'TAVERN_PREPARE_CONFLICT')
+    assert.equal(error.conflict.reason, 'message-changed')
+    assert.equal(error.conflict.index, 1)
+    assert.ok(error.conflict.currentRevision > error.conflict.revision)
+    return true
+  })
   const saved = await scoped.stored()
   assert.equal(saved.messages[1].text, '改写过的正文')
   assert.equal(saved.messages.length, 24)
