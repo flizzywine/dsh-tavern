@@ -251,9 +251,19 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const opened = panel && panel.sessionId === props.sessionId && panel.phase === "input";
         React.useEffect(function () { if (opened) setGuidance(interactions.guidance(props.sessionId)); }, [opened, props.sessionId]);
         const h = React.createElement;
+        // 面板上这一行字就是「请求已经被接住了」的唯一凭据：留空则重新生成没有可显示的理由，
+        // 表单会原样留在原地（输入框、生成并替换正文都在），玩家以为刚才那一下没被接住。
+        const loadingText = reviewing
+            ? "正在精修正文… " + reviewSeconds + " 秒" + (reviewProgress?.edits?.length ? " · 已修 " + reviewProgress.edits.length + " 处" : "")
+            : panel && panel.phase === "loading"
+                ? (panel.restyle ? "正在换文风联想并重新生成…" : panel.rewrite ? "正在按意见改写正文…" : "")
+                : "";
         // 重新生成一提交，宿主就把会话报成运行中（页面上的发送键要立刻换成停止）；
         // 这次还在等正文落盘的面板不能跟着消失，否则「正在重新生成正文…」只剩一瞬。
         if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || (running && panel.phase !== "loading")) return null;
+        // 没填意见的普通重新生成不等面板收尾：这一步没有要玩家跟踪的进度（按钮上已写「重生成中…」，
+        // 正文区也在等新正文），表单留在原地只会让人再点一次「生成并替换正文」。
+        if (panel.phase === "loading" && !loadingText) return null;
         function generate() {
             return interactions.regenerateBody(panel, guidance, { restyle: styleEnabled && Boolean(guidance.trim()) });
         }
@@ -289,7 +299,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         }
         return h(RegenGuideForm, {
                 title: "重新生成正文",
-                loading: reviewing ? "正在精修正文… " + reviewSeconds + " 秒" + (reviewProgress?.edits?.length ? " · 已修 " + reviewProgress.edits.length + " 处" : "") : panel.phase === "loading" ? (panel.restyle ? "正在换文风联想并重新生成…" : panel.rewrite ? "正在按意见改写正文…" : "") : "",
+                loading: loadingText,
                 loadingExtra: reviewing && reviewProgress?.edits?.length ? h("div", { className: "dsh-tavern-settings-desc", role: "status" },
                     h("p", null, "逐处生成中，完成后统一保存："),
                     reviewProgress.edits.map(function (edit, index) { return h("details", { key: index },

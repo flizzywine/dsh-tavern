@@ -73,8 +73,14 @@ test('panels use the flow interface and candidate selection preserves user edits
   await act(async () => interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'loading' }))
   running = true
   await render(panels.RegenPanel)
-  assert.match(dom.window.document.querySelector('.dsh-tavern-regen-title').textContent, /重新生成正文/)
-  assert.equal(dom.window.document.querySelector('.dsh-tavern-regen-loading'), null, '重新生成时不再挂提示标签')
+  // 没填意见的普通重新生成没有要跟踪的进度（按钮上写着「重生成中…」），表单立刻让位；
+  // 留着输入框和「生成并替换正文」，看上去就像刚才那一下没被接住。
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-regen'), null, '普通重新生成一提交，填意见的表单就让位')
+  assert.equal(interactions.regeneration.getSnapshot().phase, 'loading', '面板状态仍在跑，按钮保持「重生成中…」')
+  await act(async () => interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'loading', rewrite: true }))
+  await render(panels.RegenPanel)
+  assert.match(dom.window.document.querySelector('.dsh-tavern-regen-loading').textContent, /正在按意见改写正文/)
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-regen-input'), null, '在跑的改写不再露出表单')
   assert.equal(dom.window.document.querySelector('.dsh-tavern-question-sub'), null, '面板头不再显示提示小字')
   await act(async () => interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'input' }))
   await render(panels.RegenPanel)
