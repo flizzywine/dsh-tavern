@@ -28405,6 +28405,14 @@ function tavernModelRefusalNotice(text) {
 		    const sessionId=props.scope?.sessionId || '',data=useBubbles(sessionId,true),prompts=React.useMemo(() => stagePrompts(sessionId),[sessionId]);
 		    return React.createElement(PackWorkbench,{key:sessionId,sessionId,page:'stage',cardPath:data?.cardPath,cardName:data?.cardName,loading:!data,prompts});
 		}
+		// One provider for the library tab body: client apply offers it at startup (so `dsh-asset-library`
+		// never waits for a play session), and the launcher below offers it again when the host starts there.
+		let assetPackWorkbenchProvided = false;
+		function provideAssetPackWorkbench(ctx) {
+		    if (assetPackWorkbenchProvided) return;
+		    assetPackWorkbenchProvided = true;
+		    ctx.provide('assetPackWorkbench',{render:props=>React.createElement(AssetLibraryTab,props)});
+		}
 		function installTavernAssetLaunchers(ctx, slots) {
 		    if (ctx.betterSidebar) { const sidebar = ctx.betterSidebar; stageSidebar = sidebar; ctx.effect(() => () => { if (stageSidebar === sidebar) stageSidebar = undefined; }); }
 		    ctx.inject(['ttsClient'], child => {
@@ -28431,7 +28439,7 @@ function tavernModelRefusalNotice(text) {
 		        transport.start();
 		        return () => { stop(); transport.dispose(); if (packTransport === transport) packTransport = undefined; notifyPackChange(); };
 		    });
-		    ctx.provide('assetPackWorkbench',{render:props=>React.createElement(AssetLibraryTab,props)});
+		    provideAssetPackWorkbench(ctx);
 		    // the global 读音词典 drawn with the shared panel components; the 配音
 		    // page (dsh-tavern-tts) places it and supplies its control RPC.
 		    ctx.provide('ttsReadingsEditor',{render:props=>React.createElement(StagePackView,{view:ui=>ui.ReadingsEditor,...props})});
@@ -61742,6 +61750,19 @@ function clipReplayCore() {
 			ctx.effect(() => tavernInteractionDiagnostics.start(), "dsh-tavern: interaction diagnostics");
 			ctx.effect(() => syncTavernSubagentCatalogs(ctx.sessions, ctx.tavernSessionSignals), "dsh-tavern: subagent catalog synchronization");
 			ctx.effect(() => syncTavernCardAgentResources(ctx.sessions), "dsh-tavern: card Agent resource refresh");
+			// Public browser API for third-party plugins (docs/plugin-api.md). Provided before the
+			// slot-renderer guard: on a host without the slot service this apply returns early, and
+			// every client plugin that injects `tavernUi` (worldbook panel, runninghub, …) then stays
+			// pending forever — one pending entry fails the whole web boot audit and the page dies
+			// with "Failed to load plugins".
+			tavernUiExtensions.service.ctx = ctx;
+			tavernUiExtensions.attachHost(ctx);
+			if (typeof ctx.provide === "function") ctx.provide("tavernUi", tavernUiExtensions.service);
+			// The asset workbench is a plain render endpoint this plugin owns (the library tab body).
+			// Provide it here as well: `dsh-asset-library` injects it, and when only the play session
+			// registered it the library stayed pending until a chat was opened — a pending client entry
+			// fails the whole web boot audit.
+			if (typeof ctx.provide === "function") provideAssetPackWorkbench(ctx);
 			const slots = ctx.slots;
 			if (slots === undefined) return;
 			if (ctx.betterSidebar) stageEffect(() => registerTab(ctx.betterSidebar, {
@@ -61777,10 +61798,6 @@ function clipReplayCore() {
                 return dispose;
             }, "dsh-tavern: view tab catalog");
             ctx.effect(function () { return installTavernViewTabLayout({ document: document, slots: slots }); }, "dsh-tavern: view tab layout");
-			// Public browser API for third-party plugins (docs/plugin-api.md).
-			tavernUiExtensions.service.ctx = ctx;
-			tavernUiExtensions.attachHost(ctx);
-			if (typeof ctx.provide === "function") ctx.provide("tavernUi", tavernUiExtensions.service);
 			const signals = ctx.tavernSessionSignals;
 			if (!signals || typeof signals.subscribe !== "function") throw new Error("DSH Tavern Remote 状态流不可用");
 			tavernSessionSignals = signals;
