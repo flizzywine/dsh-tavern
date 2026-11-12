@@ -14474,7 +14474,7 @@ function GalStage(props) {
     };
     const reading = useStageReading();
     // showOn stage-enter: each entry from text mode (navigation.visit(), bumped by galOpen) opens the page stageEnterPage picks,
-    // once the declarations are read. It stands in front of that visit's entrance, which waits behind it and plays once the page lets the player in.
+    // once the declarations are read. It stands in for that visit's entrance; closing it continues with the normal resume.
     const stageVisit = React.useSyncExternalStore(galActive.subscribe, galVisitCount);
     React.useLayoutEffect(() => {
         if (!cardPages || !stageVisit || galActive.get() !== sessionId || cardPageVisits.get(sessionId) === stageVisit) return;
@@ -14488,13 +14488,9 @@ function GalStage(props) {
             if (reading.skipTitlePage === true && cardPages.pages.some(page => page.showOn && !page.initial)) jumpLatest();
             return;
         }
-        setHidden(false); setOpenPage(id); setEntryCardPage(id); entrance.hold();
+        setHidden(false); setOpenPage(id); setEntryCardPage(id); entrance.end();
     // a layout effect: the page is open in the same paint its declarations arrive in, never a frame of the stage before it
     }, [cardPages, stageVisit, sessionId, reading.skipTitlePage]);
-    // the entry page has let the player in (继续, a 履历 jump, fillInput): the entrance held behind it plays now (owner 11-12:
-    // 潜入月读 after 继续). Only a page that was open and closed releases it, never the render before the page opens.
-    const entryWasOpen = React.useRef(false);
-    React.useEffect(() => { if (entryWasOpen.current && !entryOpen) entrance.release(); entryWasOpen.current = entryOpen; }, [entryOpen]);
     const narrow = useGalNarrow(); // the one stage breakpoint, 640px
     // on phones the top bar's icons are one group centred at the top of the stage.
     const [topbarNode, topbarRef] = React.useState(null);
@@ -20323,7 +20319,7 @@ function entranceRun(entrance) {
 function useStageEntrance(store, entrance, loadGate) {
     // One run per stage entry, fixed as it opens; a later settings change waits for the next entry.
     const run = React.useMemo(() => entrance && entrance.document && renderer.supported() ? entranceRun(entrance) : null, [store]);
-    const fresh = {run, started: false, covered: false, done: false, failed: false, held: false};
+    const fresh = {run, started: false, covered: false, done: false, failed: false};
     const [held, setHeld] = React.useState(fresh);
     const status = held.run === run ? held : fresh;
     const patch = React.useCallback(change => !disposed && setHeld(prev => ({...(prev.run === run ? prev : {...fresh}), ...change})), [run]);
@@ -20336,13 +20332,13 @@ function useStageEntrance(store, entrance, loadGate) {
     // ready ENTRANCE_LOAD_WAIT_MS past the entrance's own length drops the entrance; the plain veil then says 「仍在载入…」
     // with the Esc menu reachable (a load that never settles must not hide behind the entrance's hold).
     useEffect(() => {
-        if (!active || status.held) return undefined;
+        if (!active) return undefined;
         const length = stageEntrance.stageEntranceDuration(run.doc);
         const left = !status.started ? 3000 + (run.video ? ENTRANCE_VIDEO_WAIT_MS : 0) : status.covered ? 8000 : length + (ready ? 4000 : ENTRANCE_LOAD_WAIT_MS);
         if (!left) return undefined;
         const timer = setTimeout(() => patch(status.covered ? {done: true} : {failed: true}), left);
         return () => clearTimeout(timer);
-    }, [active, status.held, status.started, status.covered, ready]);
+    }, [active, status.started, status.covered, ready]);
     const onEvent = React.useCallback(event => {
         if(disposed)return;
         if (event.type === 'started') patch({started: true});
@@ -20364,10 +20360,9 @@ function useStageEntrance(store, entrance, loadGate) {
         return () => clearTimeout(timer);
     }, [run, active, loading]);
     const overlay = !run || late && !active ? null : {loadPhase: hidden ? loadGate.phase : 'ended', bright: hidden && !!bright};
-    // hold(): a card's showOn page stands in front of the stage on this visit; the entrance waits behind it, not started, and
-    // release() plays it when the page lets the player in (继续), so entering through a title page still plays the entrance.
-    return {gate, active, hold: () => { if (active) patch({held: true}); }, release: () => { if (status.held) patch({held: false}); }, stageAttr: active ? status.covered ? 'covered' : 'playing' : undefined, overlay,
-        element: active && !status.held ? React.createElement(StageEntrance, {key: 'entrance', run, ready, covered: status.covered, started: status.started, onEvent,
+    // end(): the run is over without playing on (a card's showOn page stands in for the entrance on that visit).
+    return {gate, active, end: () => { if (active) patch({done: true}); }, stageAttr: active ? status.covered ? 'covered' : 'playing' : undefined, overlay,
+        element: active ? React.createElement(StageEntrance, {key: 'entrance', run, ready, covered: status.covered, started: status.started, onEvent,
             onBright: () => {if(!disposed)setBright(Date.now());}}) : null};
 }
 

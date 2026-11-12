@@ -44,7 +44,7 @@ test('the controller handles each navigation visit once and skipping resumes the
  const stop=navigation.galStageLifetime(), opened=[], entries=[]
  let latest=0,ended=0
  const context={cardPages:{pages:[intro],fresh:false},sessionId:'s',cardPageVisits:new Map(),galActive:navigation.galActive,galEntryPage:navigation.getEntryPage,
-  stageViews:{controls:{stageEnterPage}},reading:{skipTitlePage:false},setHidden(){},setOpenPage:id=>opened.push(id),setEntryCardPage:id=>entries.push(id),entrance:{hold:()=>ended++},jumpLatest:()=>latest++}
+  stageViews:{controls:{stageEnterPage}},reading:{skipTitlePage:false},setHidden(){},setOpenPage:id=>opened.push(id),setEntryCardPage:id=>entries.push(id),entrance:{end:()=>ended++},jumpLatest:()=>latest++}
  const run=()=>{context.stageVisit=navigation.visit();vm.runInNewContext('(function(){'+effect+'})()',context)}
  navigation.galOpen('s');run()
  run();context.reading.skipTitlePage=true;run();context.cardPages={...context.cardPages};run()
@@ -65,6 +65,8 @@ test('the controller handles each navigation visit once and skipping resumes the
  assert.deepEqual(opened.slice(3),['intro'])
  navigation.galLeave();navigation.galOpen('s',{page:''});run()
  assert.deepEqual(opened.slice(3),['intro'],'page \'\' opens none');assert.equal(latest,1,'and does not skip to the latest round')
+ // the entry page stands in for that visit's entrance (继续 from the title page plays none; a new game plays it after the opening, owner 11-12)
+ assert.equal(ended,opened.length,'every entry page ends its entrance');assert.equal(ended,4,'page \'\' ends none')
  stop()
 })
 
