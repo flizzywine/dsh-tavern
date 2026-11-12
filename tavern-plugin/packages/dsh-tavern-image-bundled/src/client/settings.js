@@ -2058,13 +2058,13 @@
           if (r?.ok) { setLoraList(r.loras ?? []); setWfNote(r.loras?.length ? ('读到 ' + r.loras.length + ' 个已安装的 LoRA') : '没读到 LoRA 列表（ComfyUI 开了吗）') }
         }
 
-        async function previewImport(text) {
+        async function previewImport(text, filename) {
           if (wfImportBusy) return
           setWfImportBusy(true)
           setWfImportPreview(null)
           try {
             const payload = JSON.parse(text)
-            const result = await post('/workflow-import', { workflow: payload, preview: true })
+            const result = await post('/workflow-import', { workflow: payload, filename, preview: true })
             setWfImportPreview({ ...result, payload })
             setWfNote('')
           } catch (error) { setWfNote('预检失败：' + (error?.message ?? error)) }
@@ -2075,7 +2075,7 @@
           if (wfImportBusy || !wfImportPreview?.outputNode) return
           setWfImportBusy(true)
           try {
-            const r = await post('/workflow-import', { workflow: wfImportPreview.payload, outputNode: wfImportPreview.outputNode })
+            const r = await post('/workflow-import', { workflow: wfImportPreview.payload, name: wfImportPreview.name, outputNode: wfImportPreview.outputNode })
             setWfNote('已导入《' + r.name + '》')
             setWfImportOpen(false); setWfPaste(''); setWfImportPreview(null)
             const state = await jsonFetch(BASE + '/state', { cache: 'no-store' }).catch(() => null)
@@ -2087,7 +2087,7 @@
           const file = event.target.files?.[0]
           event.target.value = ''
           if (!file) return
-          try { const text = await file.text(); setWfPaste(text); await previewImport(text) }
+          try { const text = await file.text(); setWfPaste(text); await previewImport(text, file.name) }
           catch { setWfNote('读文件失败') }
         }
 
@@ -2136,7 +2136,9 @@
               h('button', { type: 'button', style: buttonStyle, onClick: () => { setWfPaste(''); setWfNote(''); setWfImportPreview(null) } }, '清空'),
             ),
             wfImportPreview ? h('section', { style: S.card, 'aria-label': '工作流导入预检' },
-              h('strong', null, wfImportPreview.name + ' · ' + wfImportPreview.nodes + ' 个节点'),
+              promptField('工作流名称', h('input', { style: S.input, 'aria-label': '工作流名称', value: wfImportPreview.name,
+                maxLength: 80, disabled: wfImportBusy, onChange: event => setWfImportPreview(value => ({ ...value, name: event.target.value })) })),
+              h('div', null, wfImportPreview.nodes + ' 个节点'),
               h('dl', null, [['positive', '正面'], ['negative', '负面'], ['size', '尺寸'], ['seed', '种子'], ['loras', 'LoRA']].map(([key, label]) =>
                 h('div', { key, style: S.row }, h('dt', null, label),
                   h('dd', { style: { margin: 0 } }, (wfImportPreview.bindings?.[key] || []).map(item => item.node + ' · ' + (item.name || item.input)).join('、') || '未识别')))),
@@ -2145,7 +2147,7 @@
                 h('option', { value: '' }, '选择输出节点'),
                 wfImportPreview.outputs?.map(item => h('option', { key: item.id, value: item.id }, item.id + ' · ' + item.label)))),
               h('button', { type: 'button', style: S.tab(true), disabled: wfImportBusy || !wfImportPreview.outputNode ||
-                !wfImportPreview.bindings?.positive?.length, onClick: doImport }, '确认导入')) : null,
+                (!wfImportPreview.bindings?.positive?.length && !wfImportPreview.hasImageInput), onClick: doImport }, '确认导入')) : null,
           ) : null,
 
           h('div', { style: { marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' } },

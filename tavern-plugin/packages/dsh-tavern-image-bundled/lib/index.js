@@ -4453,8 +4453,11 @@ function createRuntime(ctx, overrides, logger, deps) {
             if (typeof src === 'string') {
               try { src = JSON.parse(src) } catch { sendJson(response, 400, { ok: false, error: '不是合法的 JSON' }); return }
             }
-            const norm = normalizeWorkflow(src, String(body?.name ?? '').trim() || undefined)
+            const name = String(body?.name ?? '').trim().slice(0, 80)
+            const fallbackName = String(body?.filename ?? '').replace(/\.json$/i, '').trim().slice(0, 80)
+            const norm = normalizeWorkflow(src, fallbackName || undefined)
             if (!norm) { sendJson(response, 400, { ok: false, error: '没找到 ComfyUI 节点（需要 API 格式的 JSON）' }); return }
+            norm.name = name || norm.name.trim().slice(0, 80) || '导入的工作流'
             if (Object.values(norm.prompt).some(node => !norm.nodeSchemas?.[node.class_type])) {
               const { schemas } = await discoverComfyNodes(norm)
               norm.nodeSchemas = { ...norm.nodeSchemas, ...schemas }
@@ -4472,25 +4475,47 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             if (body.preview === true) {
               sendJson(response, 200, { ok: true, name: norm.name, nodes: Object.keys(norm.prompt).length,
-                bindings: withComfyPromptMarkers(norm).bindings, outputs, outputNode: norm.outputNode })
+                bindings: withComfyPromptMarkers(norm).bindings, outputs, outputNode: norm.outputNode,
+                hasImageInput: comfyWorkflowFields(norm).some(field => field.image) })
               return
             }
             if (body.outputNode !== undefined) {
               if (!outputs.some(item => item.id === String(body.outputNode))) throw new Error('请选择可用的图片输出节点')
               norm.outputNode = String(body.outputNode)
             }
-            const safe = String(norm.name).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60) || 'imported'
-            const file = join(ROOT, 'workflows', safe + '.tavern-comfy-v1.json')
-            await writeJsonAtomic(file, norm)
-            config.workflows = await scanWorkflows(config)
-            await loadAllWorkflows()
-            const imported = workflows.find(item => item.file === 'workflows/' + safe + '.tavern-comfy-v1.json' && !item.error)
-            if (imported) config.defaultWorkflow = imported.id
-            config.comfyMode = 'workflow'
-            await saveConfig(config)
+            // Serialize imports so identical names cannot choose the same destination.
+            const file = await withWorkflowWrite(WORKFLOW_DIR, async () => {
+              const files = new Set([...(await readdir(WORKFLOW_DIR)),
+                ...config.workflows.map(item => String(item.file ?? '').split(/[\\/]/).at(-1)),
+              ].map(item => item.toLowerCase()))
+              const ids = new Set(config.workflows.map(item => String(item.id).toLowerCase()))
+              const labels = new Set(config.workflows.map(item => String(item.label || item.id).toLowerCase()))
+              const name = norm.name
+              const stem = name.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 60).replace(/\.{2,}|\.$/g, '_')
+              let id, file, label
+              for (let number = 1; ; number++) {
+                const suffix = number === 1 ? '' : ' (' + number + ')'
+                id = stem + suffix + '.tavern-comfy-v1'
+                file = id + '.json'
+                label = name + suffix
+                if (!files.has(file.toLowerCase()) && !ids.has(id.toLowerCase()) && !labels.has(label.toLowerCase())) break
+              }
+              norm.name = label
+              await writeJsonAtomic(join(WORKFLOW_DIR, file), norm)
+              const relative = 'workflows/' + file
+              config.workflows = await scanWorkflows({ ...config, workflows: [...config.workflows, { id, label, file: relative }] })
+              await loadAllWorkflows()
+              const imported = workflows.find(item => item.file === relative && !item.error)
+              if (imported && !workflows.some(item => item.id === config.defaultWorkflow && !item.error && item.enabled)) {
+                config.defaultWorkflow = imported.id
+              }
+              config.comfyMode = 'workflow'
+              await saveConfig(config)
+              return file
+            })
             logger.info?.('dsh-tavern-image: 已导入工作流《' + norm.name + '》节点 ' + Object.keys(norm.prompt).length + ' 个')
             sendJson(response, 200, {
-              ok: true, name: norm.name, file: safe + '.tavern-comfy-v1.json',
+              ok: true, name: norm.name, file,
               nodes: Object.keys(norm.prompt).length,
               bindings: {
                 positive: withComfyPromptMarkers(norm).bindings.positive?.length ?? 0, negative: withComfyPromptMarkers(norm).bindings.negative?.length ?? 0,

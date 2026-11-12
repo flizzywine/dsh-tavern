@@ -40,6 +40,34 @@ test('LoRA stack slots retain their graph shape and independent model/CLIP weigh
   assert.deepEqual(loraOrderPairs(graph.prompt, scanWorkflowLoras(graph.prompt)), [['2', '3']])
 })
 
+test('multiple unnamed ComfyUI API imports keep separate files, bindings and the original default after restart', async t => {
+  const fixture = await imagePluginFixture(t, { config: { imageBackend: 'comfyui', comfyMode: 'workflow' } })
+  const runtime = await fixture.start()
+  globalThis.fetch = async () => imageJson({})
+  const makeGraph = text => ({ ...graph.prompt, '1': { class_type: 'CLIPTextEncode', inputs: { text: '%prompt ' + text } } })
+  const first = await runtime.request('workflow-import', { workflow: makeGraph('original') })
+  assert.equal(first.status, 200, JSON.stringify(first.body))
+  const original = (await runtime.request('state')).body.workflows.find(item => item.current)
+  const others = await Promise.all(['second', 'third'].map(text => runtime.request('workflow-import', { workflow: makeGraph(text) })))
+  for (const imported of others) assert.equal(imported.status, 200, JSON.stringify(imported.body))
+  const files = [first, ...others].map(result => result.body.file)
+  assert.equal(new Set(files).size, 3)
+  assert.match((await fixture.read('workflows/' + files[0])).prompt['1'].inputs.text, /original/)
+  const detail = await runtime.request('workflow-graph', { file: files[1] })
+  const save = await runtime.request('workflow-graph', { file: files[1], revision: detail.body.revision, patch: { outputNode: '10' } })
+  assert.equal(save.status, 200, JSON.stringify(save.body))
+  runtime.close()
+  const reopened = await fixture.start()
+  const state = (await reopened.request('state')).body
+  assert.equal(state.workflows.length, 3)
+  assert.equal(new Set(state.workflows.map(item => item.id)).size, 3)
+  assert.equal(new Set(state.workflows.map(item => item.label)).size, 3)
+  assert.equal(state.workflows.find(item => item.current).id, original.id)
+  assert.equal((await fixture.read('workflows/' + files[0])).outputNode, '9')
+  assert.equal((await fixture.read('workflows/' + files[1])).outputNode, '10')
+  assert.equal((await fixture.read('workflows/' + files[2])).outputNode, '9')
+})
+
 test('workflow preflight does not write files; LoRA ordering and series compile through real job routes', async t => {
   const fixture = await imagePluginFixture(t, {
     config: { imageBackend: 'comfyui', comfyMode: 'workflow', generationMode: 'text',
@@ -56,8 +84,9 @@ test('workflow preflight does not write files; LoRA ordering and series compile 
     }
     return imageJson({ queue_running: [], queue_pending: [] })
   }
-  const preflight = await runtime.request('workflow-import', { workflow: graph, preview: true })
+  const preflight = await runtime.request('workflow-import', { workflow: graph.prompt, filename: 'LoRA试跑.json', preview: true })
   assert.equal(preflight.status, 200, JSON.stringify(preflight.body))
+  assert.equal(preflight.body.name, 'LoRA试跑')
   assert.equal(preflight.body.outputs.length, 2)
   assert.deepEqual((await fixture.read('workflows/series.json')).prompt, graph.prompt)
   const swap = await runtime.request('workflow-bindings', { file: 'series.json', patch: { loraSwap: ['2', '3'] } })
