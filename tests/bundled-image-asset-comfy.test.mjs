@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { pathToFileURL } from 'node:url'
+import { join } from 'node:path'
 import { imagePluginFixture, IMAGE_PNG, imageJson } from './fixtures/image-plugin-runtime.mjs'
 
 const graph = {
@@ -23,7 +25,7 @@ test('the stage image provider renders raw reference pictures through the select
     config: { imageBackend: 'comfyui', comfyMode: 'workflow', comfyUrl: 'http://127.0.0.1:8188', defaultWorkflow: 'asset', workflows: [{ id: 'asset', file: 'workflows/asset.json', label: 'asset fixture' }] },
     files: { 'workflows/asset.json': graph },
   })
-  await fixture.start()
+  const runtime = await fixture.start()
   for (let i = 0; i < 200 && !provider; i++) await new Promise(resolve => setTimeout(resolve, 10))
   assert.ok(provider, 'the plugin registers its image provider')
   assert.deepEqual(provider.status(), { ready: true, model: 'asset fixture', maxReferences: 1 })
@@ -52,6 +54,16 @@ test('the stage image provider renders raw reference pictures through the select
   assert.match(submitted['1'].inputs.text, /a lone traveler/)
   assert.doesNotMatch(submitted['1'].inputs.text, /参考图/)
   assert.deepEqual([submitted['3'].inputs.width, submitted['3'].inputs.height], [128, 192])
+  // Both explicit and selected plugin presets use this same persistent ComfyUI runner.
+  const { registerPromptPreset } = await import(pathToFileURL(join(fixture.pluginRoot, 'lib/prompt-presets.js')).href)
+  const dispose = registerPromptPreset({ id: 'asset.flat', name: 'Flat asset', positive: 'flat sheet style', negative: 'busy scenery' })
+  t.after(dispose)
+  await provider.generate({ prompt: 'a knight', promptPreset: 'asset.flat', references: [{ data: new Uint8Array(IMAGE_PNG), mediaType: 'image/png' }] })
+  assert.match(submitted['1'].inputs.text, /flat sheet style/)
+  const switched = await runtime.request('config', { config: { promptSystem: 'workbench', activePromptPreset: 'asset.flat' } })
+  assert.equal(switched.status, 200, JSON.stringify(switched.body))
+  await provider.generate({ prompt: 'a knight', references: [{ data: new Uint8Array(IMAGE_PNG), mediaType: 'image/png' }] })
+  assert.match(submitted['1'].inputs.text, /flat sheet style/)
   // A workflow with a reference input must not silently reuse its stale imported picture.
   await assert.rejects(provider.generate({ prompt: 'no refs' }), /工作流需要输入图片/)
 })

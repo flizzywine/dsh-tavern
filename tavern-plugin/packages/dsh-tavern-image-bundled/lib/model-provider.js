@@ -12,7 +12,7 @@ export function createImageGenerator(getConfig, generate, defaultUsage = 'plugin
   const current = (modelId, promptPreset) => {
     const config = withPromptPreset(getConfig(), promptPreset)
     // An explicit style preset replaces the default workbench template; named templates still win.
-    if (library.generateTemplate && (typeof modelId === 'string' && modelId.startsWith('template:') || modelId === undefined && promptPreset === undefined && config.promptSystem === 'workbench')) {
+    if (library.generateTemplate && (typeof modelId === 'string' && modelId.startsWith('template:') || modelId === undefined && promptPreset === undefined && config.promptSystem === 'workbench' && !effectivePromptPreset(config)?.registered)) {
       const models = library.templates?.() || []
       const template = modelId ? models.find(item => item.id === modelId) : models.find(item => item.templateId === config.activePromptPreset) || models[0]
       if (template) return { config, template }

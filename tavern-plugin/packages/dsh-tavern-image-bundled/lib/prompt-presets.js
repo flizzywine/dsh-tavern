@@ -183,6 +183,7 @@ export function promptConfigForTarget(config, workflow = null, channel = null) {
       .find(preset => preset?.id === config.activePromptPreset && preset.enabled !== false)
     return { ...config, activePromptPreset: selected?.id || '', promptPresets: presets, promptDefault: null, resolvedPromptTemplate: undefined }
   }
+  if (registeredPresets.has(config.activePromptPreset)) return config
   const presets = Array.isArray(config.promptPresets) ? config.promptPresets : []
   const kind = workflow ? 'workflow' : 'channel'
   const targetId = workflow ? workflow.id : channel?.id || (config.imageBackend !== 'comfyui' ? config.activeImageChannel : '')

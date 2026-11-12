@@ -13,7 +13,7 @@ import {listTemplateModules} from '../../tavern-plugin/packages/dsh-tavern-image
 const source=await readFile(new URL('../../tavern-plugin/packages/dsh-tavern-image-bundled/client.js',import.meta.url),'utf8')
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==','base64')
 const clone=value=>JSON.parse(JSON.stringify(value))
-const state={config:{promptSystem:'worldbook',imageEnabled:true,imageBackend:'openai',activeImageChannel:'test',imageDisplayPosition:'inline',imageDisplayWidth:0,promptDefaultEditable:true,promptWorkbench:true,promptWorkbenchDraw:true,promptDefault:clone(DEFAULT_MODULAR_TEMPLATE),promptPresets:[],promptEntries:[],promptEntryLimit:1000,promptPresetLimit:200,promptRevision:'1',promptModuleTypes:listTemplateModules(),imageChannels:[{id:'test',provider:'openai',name:'本地验证',model:'test',options:{}}]},definitions:{revision:'1',characters:[],outfits:[]},outfits:[],workflows:[],tasks:[],imageProviders:[{id:'openai',label:'OpenAI 兼容'}],worldbookFormat:'natural',worldbookBooks:[]}
+const state={config:{promptSystem:'worldbook',imageEnabled:true,imageBackend:'openai',activeImageChannel:'test',imageDisplayPosition:'inline',imageDisplayWidth:0,promptDefaultEditable:true,promptWorkbench:true,promptWorkbenchDraw:true,promptDefault:clone(DEFAULT_MODULAR_TEMPLATE),promptPresets:[],promptPresetLibrary:[{id:'sheet.flat',name:'平涂设定',positive:'flat sheet',source:'sheet',registered:true}],promptEntries:[],promptEntryLimit:1000,promptPresetLimit:200,promptRevision:'1',promptModuleTypes:listTemplateModules(),imageChannels:[{id:'test',provider:'openai',name:'本地验证',model:'test',options:{}}]},definitions:{revision:'1',characters:[],outfits:[]},outfits:[],workflows:[],tasks:[],imageProviders:[{id:'openai',label:'OpenAI 兼容'}],worldbookFormat:'natural',worldbookBooks:[]}
 const patches=[],errors=[]
 const executablePath=[process.env.DSH_BROWSER_EXECUTABLE,'C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(path=>path&&existsSync(path))||chromium.executablePath()
 const browser=await chromium.launch({headless:true,executablePath})
@@ -96,6 +96,14 @@ try{
  await page.getByLabel('生图显示位置').selectOption('inline')
  await page.getByLabel('生图系统模式',{exact:true}).selectOption('workbench')
  await page.getByRole('button',{name:'保存工作台',exact:true}).waitFor()
+ await page.getByRole('button',{name:'设置',exact:true}).click()
+ const presetPicker=page.getByLabel('生图使用的模板',{exact:true})
+ await presetPicker.selectOption('sheet.flat')
+ await page.waitForFunction(()=>document.querySelector('[aria-label="生图使用的模板"]').value==='sheet.flat')
+ assert.equal(state.config.activePromptPreset,'sheet.flat')
+ assert.match(await presetPicker.locator('option:checked').textContent(),/平涂设定.*sheet/)
+ await presetPicker.selectOption('')
+ await page.getByRole('button',{name:'生图工作台',exact:true}).click()
  await page.getByLabel('场景模式设置',{exact:true}).locator('summary').first().click()
  await page.getByLabel('启用场景模式',{exact:true}).check()
  await page.getByLabel('场景判断方式',{exact:true}).selectOption('model')

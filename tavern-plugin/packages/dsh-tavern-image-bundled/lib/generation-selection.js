@@ -1,3 +1,5 @@
+import { effectivePromptPreset } from './prompt-presets.js'
+
 /** Template selection and routing are shared by story, card, stage and image editing. */
 export const usesWorldbook = config => config?.promptSystem === 'worldbook'
 const eligibleFor = (template, purpose) => template?.enabled !== false && template?.structure?.blocks?.length
@@ -11,6 +13,10 @@ export function generationTemplates(config, purpose = 'generate') {
 export function selectGenerationConfig(config, workflows = [], { templateId, purpose = 'generate', random, randomValue = Math.random } = {}) {
   if (usesWorldbook(config)) return { config, template: null, workflow: null }
   if (config.promptSelectionResolved && !templateId && !random) return { config, template: config.promptSelectionTemplate || null, workflow: null }
+  // A selected plugin style is a complete selection; don't silently replace it with the modular default.
+  if (!templateId && !(random ?? config.randomPromptTemplates) && effectivePromptPreset(config)?.registered) {
+    return { config: { ...config, promptSelectionResolved: true, promptSelectionTemplate: null }, template: null, workflow: null }
+  }
   const available = generationTemplates(config, purpose)
   let selected
   if (templateId) {
