@@ -28405,6 +28405,14 @@ function tavernModelRefusalNotice(text) {
 		    const sessionId=props.scope?.sessionId || '',data=useBubbles(sessionId,true),prompts=React.useMemo(() => stagePrompts(sessionId),[sessionId]);
 		    return React.createElement(PackWorkbench,{key:sessionId,sessionId,page:'stage',cardPath:data?.cardPath,cardName:data?.cardName,loading:!data,prompts});
 		}
+		// One provider for the library tab body: client apply offers it at startup (so `dsh-asset-library`
+		// never waits for a play session), and the launcher below offers it again when the host starts there.
+		let assetPackWorkbenchProvided = false;
+		function provideAssetPackWorkbench(ctx) {
+		    if (assetPackWorkbenchProvided) return;
+		    assetPackWorkbenchProvided = true;
+		    ctx.provide('assetPackWorkbench',{render:props=>React.createElement(AssetLibraryTab,props)});
+		}
 		function installTavernAssetLaunchers(ctx, slots) {
 		    if (ctx.betterSidebar) { const sidebar = ctx.betterSidebar; stageSidebar = sidebar; ctx.effect(() => () => { if (stageSidebar === sidebar) stageSidebar = undefined; }); }
 		    ctx.inject(['ttsClient'], child => {
@@ -28431,7 +28439,7 @@ function tavernModelRefusalNotice(text) {
 		        transport.start();
 		        return () => { stop(); transport.dispose(); if (packTransport === transport) packTransport = undefined; notifyPackChange(); };
 		    });
-		    ctx.provide('assetPackWorkbench',{render:props=>React.createElement(AssetLibraryTab,props)});
+		    provideAssetPackWorkbench(ctx);
 		    // the global 读音词典 drawn with the shared panel components; the 配音
 		    // page (dsh-tavern-tts) places it and supplies its control RPC.
 		    ctx.provide('ttsReadingsEditor',{render:props=>React.createElement(StagePackView,{view:ui=>ui.ReadingsEditor,...props})});
@@ -55428,6 +55436,19 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     function submitCandidateTask(sessionId, messageId, guidance) {
         return once(pendingCandidates, JSON.stringify([sessionId, messageId, guidance || ""]), () => sendCandidateTask(sessionId, messageId, guidance));
     }
+    // 前台生成把候选项写在正文自己身上（chat.candidates），没有任务把结果送到页面，
+    // 所以落地后要按这一轮的消息读一次，否则「写完即显示」只在生成的那一页成立。
+    async function loadSavedCandidates(sessionId, messageId) {
+        if (!sessionId || !messageId) return null;
+        const shown = panel => panel && panel.sessionId === sessionId && panel.messageId === messageId && panel.phase !== "error";
+        if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
+        const result = await rpc("getChoices", { sessionId, messageId }, sessionId);
+        const saved = result && result.candidates;
+        if (!saved || !Array.isArray(saved.choices) || saved.choices.length === 0) return null;
+        // The player may have started a task or dismissed a failure while this read ran.
+        if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
+        return candidates.set(readyCandidatePanel(sessionId, messageId, saved));
+    }
     async function regenerateCandidates(panel, guidance) {
         if (!panel || guide.getSnapshot() !== panel || panel.phase === "loading") return;
         const loading = guide.set({ ...panel, phase: "loading", error: "" });
@@ -55496,7 +55517,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             } finally { notifyRegenerating(sessionId, false); }
         });
     }
-    return Object.freeze({ candidates, guide, regeneration, readyCandidatePanel, submitCandidateTask,
+    return Object.freeze({ candidates, guide, regeneration, readyCandidatePanel, submitCandidateTask, loadSavedCandidates,
         regenerateCandidates, cancelGuide, regenerateBody, submitBodyRegeneration,
         guidance: sessionId => guidanceBySession.get(sessionId) || "" });
 }
@@ -57265,6 +57286,11 @@ function createStoryFloorRail(root, options) {
 		        else if (taskForMessage.terminal)
 		            setCandidatePanel({ sessionId, messageId, phase: "error", choices: [], error: playerErrorText(taskForMessage.error || "选项生成未完成", { fallback: "选项生成未完成" }) });
 		    }, [sessionId, messageId, taskForMessage && taskForMessage.taskId, taskForMessage && taskForMessage.version, taskForMessage && taskForMessage.status]);
+		    // 前台候选项随正文存好，没有任务送到页面：这一轮落地后按消息读一次。
+		    React.useEffect(function () {
+		        if (!messageId || taskForMessage) return;
+		        loadSavedCandidates(sessionId, messageId).catch(function () {});
+		    }, [sessionId, messageId, taskForMessage && taskForMessage.taskId]);
 		    const commands={
 		        clear:()=>setCandidatePanel(null),
 		        async stop(taskId){try{await rpc('stopChoices',{taskId},sessionId);setCandidatePanel(null);}finally{liveTavernView.invalidate(sessionId);tavernCoordination.invalidate(sessionId);}},
@@ -57372,7 +57398,7 @@ function createStoryFloorRail(root, options) {
         const setCandidatePanel = interactions.candidates.set;
         const setCandidateGuidePanel = interactions.guide.set;
         const setRegenPanel = interactions.regeneration.set;
-        const { readyCandidatePanel, submitCandidateTask, submitBodyRegeneration } = interactions;
+        const { readyCandidatePanel, submitCandidateTask, submitBodyRegeneration, loadSavedCandidates } = interactions;
         function useInteractionPanel(store) { return React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot); }
         function useCandidatePanel() { return useInteractionPanel(interactions.candidates); }
         function useCandidateGuidePanel() { return useInteractionPanel(interactions.guide); }
@@ -57816,6 +57842,11 @@ function createStoryFloorRail(root, options) {
 			}, [canRollback, frontRunning, compacting, regenBusy, activity.busy, props.sessionId, latestMessageId]);
 			const [withdrawBusy, setWithdrawBusy] = React.useState(false);
 			const draft = props.useInput(snapshot => snapshot.draft);
+			// 前台候选项随正文一起存好，没有任务送到页面：这一轮落地后按消息读一次。
+			React.useEffect(function () {
+				if (!props.messageId || taskForMessage) return;
+				loadSavedCandidates(props.sessionId, props.messageId).catch(function () {});
+			}, [props.sessionId, props.messageId, taskForMessage && taskForMessage.taskId]);
 			const projectedTaskRef = React.useRef("");
 			React.useEffect(function () {
 				if (!taskForMessage) return;
@@ -61719,6 +61750,19 @@ function clipReplayCore() {
 			ctx.effect(() => tavernInteractionDiagnostics.start(), "dsh-tavern: interaction diagnostics");
 			ctx.effect(() => syncTavernSubagentCatalogs(ctx.sessions, ctx.tavernSessionSignals), "dsh-tavern: subagent catalog synchronization");
 			ctx.effect(() => syncTavernCardAgentResources(ctx.sessions), "dsh-tavern: card Agent resource refresh");
+			// Public browser API for third-party plugins (docs/plugin-api.md). Provided before the
+			// slot-renderer guard: on a host without the slot service this apply returns early, and
+			// every client plugin that injects `tavernUi` (worldbook panel, runninghub, …) then stays
+			// pending forever — one pending entry fails the whole web boot audit and the page dies
+			// with "Failed to load plugins".
+			tavernUiExtensions.service.ctx = ctx;
+			tavernUiExtensions.attachHost(ctx);
+			if (typeof ctx.provide === "function") ctx.provide("tavernUi", tavernUiExtensions.service);
+			// The asset workbench is a plain render endpoint this plugin owns (the library tab body).
+			// Provide it here as well: `dsh-asset-library` injects it, and when only the play session
+			// registered it the library stayed pending until a chat was opened — a pending client entry
+			// fails the whole web boot audit.
+			if (typeof ctx.provide === "function") provideAssetPackWorkbench(ctx);
 			const slots = ctx.slots;
 			if (slots === undefined) return;
 			if (ctx.betterSidebar) stageEffect(() => registerTab(ctx.betterSidebar, {
@@ -61754,10 +61798,6 @@ function clipReplayCore() {
                 return dispose;
             }, "dsh-tavern: view tab catalog");
             ctx.effect(function () { return installTavernViewTabLayout({ document: document, slots: slots }); }, "dsh-tavern: view tab layout");
-			// Public browser API for third-party plugins (docs/plugin-api.md).
-			tavernUiExtensions.service.ctx = ctx;
-			tavernUiExtensions.attachHost(ctx);
-			if (typeof ctx.provide === "function") ctx.provide("tavernUi", tavernUiExtensions.service);
 			const signals = ctx.tavernSessionSignals;
 			if (!signals || typeof signals.subscribe !== "function") throw new Error("DSH Tavern Remote 状态流不可用");
 			tavernSessionSignals = signals;

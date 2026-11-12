@@ -121,9 +121,10 @@ export async function prepareExpandedPatch(runtime) {
       text.replace(/\bnew SessionQueryError\(/g, 'new NativeQueryError(').replace(/\binstanceof SessionQueryError\b/g, 'instanceof NativeQueryError') +
       '\nexport { SessionCorpus, SessionObservationReader };')
     const { text: originalClient } = await source('@deepseek-ai/dsh-api-session-controller/client')
-    const clientSource = once(originalClient,
-      'if (event.type === "assistant/message" && raw !== void 0) throw',
-      `if (event.type === "assistant/message" && raw !== void 0 && !${own}) throw`)
+    // DSH 0.2.2-rc.2 minifies the browser bundle and uses template literals.
+    const clientAnchor = /\bif\s*\(event\.type\s*===\s*(?:"assistant\/message"|`assistant\/message`)\s*&&\s*raw\s*!==\s*void 0(?=\)\s*throw\b)/g
+    assert.equal(originalClient.match(clientAnchor)?.length ?? 0, 1, '浏览器会话补丁锚点已变化：assistant/message 的 sourceEventSeqs 校验')
+    const clientSource = originalClient.replace(clientAnchor, match => `${match} && !${own}`)
     const undoPersistence = []
     // Prove the relaxation end to end before any live instance is touched: an
     // in-memory session replaces an assistant reply while citing it, and the
