@@ -25,3 +25,15 @@ test('a record library may offer deleteCharacter; hosts can ask whether it does'
   assert.deepEqual(deleted, [{ characterId: 'a' }])
   await assert.rejects(newer.record('dropEverything', {}, {}), { code: 'INVALID_ARGUMENT' })
 })
+
+test('a record library may offer readReferenceImage and the host passes it through', async () => {
+  const bytes = new Uint8Array([1, 2, 3]), asked = []
+  const plain = catalog()
+  plain.registerLibrary('old', { id: 'people', label: '人物库', characters: async () => [], schemaVersion: IMAGE_CHARACTER_SCHEMA, ...records })
+  await assert.rejects(plain.record('readReferenceImage', {}, { referenceImage: { id: 'a' } }), { code: 'NOT_SUPPORTED' })
+  const newer = catalog()
+  newer.registerLibrary('new', { id: 'people', label: '人物库', characters: async () => [], schemaVersion: IMAGE_CHARACTER_SCHEMA, ...records,
+    async readReferenceImage(input) { asked.push(input); return { data: bytes, mediaType: 'image/png' } } })
+  assert.deepEqual(await newer.record('readReferenceImage', {}, { referenceImage: { id: 'a' } }), { data: bytes, mediaType: 'image/png', providerId: 'new/people' })
+  assert.deepEqual(asked, [{ referenceImage: { id: 'a' } }])
+})

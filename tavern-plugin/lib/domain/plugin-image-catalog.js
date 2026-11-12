@@ -11,7 +11,7 @@ const TRAITS = [...IMAGE_CHARACTER_TRAITS, 'fullSFW', 'fullNSFW']
 export const IMAGE_CHARACTER_SCHEMA = 4
 const RECORD_OPS = ['getCharacter', 'patchCharacter', 'createCharacter', 'putReferenceImage']
 // Offered by newer libraries only; a host asks recordLibraries() whether one can.
-const OPTIONAL_RECORD_OPS = ['deleteCharacter']
+const OPTIONAL_RECORD_OPS = ['deleteCharacter', 'readReferenceImage']
 const PARTS = ['upper', 'lower', 'shoes', 'accessory', 'full', 'back']
 
 function rows(value) {

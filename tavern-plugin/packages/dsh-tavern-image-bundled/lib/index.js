@@ -1297,7 +1297,7 @@ function createRuntime(ctx, overrides, logger, deps) {
     const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024 })
     const characterLibrary = createCharacterLibrary({
       getDefinitions: () => definitions, updateDefinitions: change => definitionStore.update(change),
-      normalizeCharacter, traitKeys: CHARACTER_TRAITS.map(([key]) => key), putImage: input => referenceStore.put(input),
+      normalizeCharacter, traitKeys: CHARACTER_TRAITS.map(([key]) => key), putImage: input => referenceStore.put(input), readImage: reference => referenceStore.read(reference),
     })
     let workflows = []
     const jobs = new Map()
