@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f4523dba47e35fbc657f53c29bdc46a9fbff5334",
-  "releaseSequence": 1529,
+  "revision": "2a0e31f88f7688bc45494e72730a17e2bca464d3",
+  "releaseSequence": 1530,
   "version": "3.3.0",
   "files": [
     {
@@ -1126,8 +1126,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/asset-sprite-framing.js",
-      "sha256": "eae8c96dfb70cf29f6ccca5d4dadc995f7105fde78edb455775bdf1464c182b0",
-      "size": 10692
+      "sha256": "0f5c8885493822f2aa26312d966643747f750534a2d3dea169bfdfa71588b504",
+      "size": 10988
     },
     {
       "path": "tavern-plugin/lib/domain/auto-choices.js",
@@ -3216,8 +3216,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/sprite-blink-patch.js",
-      "sha256": "495fae02e62fe14f2571041264c72ae7405fd059900bc9118f49372c30235a61",
-      "size": 25325
+      "sha256": "f6d5443fbd0b550e15ae3ffeaf59c21551931859ac289c219a079efe001f0566",
+      "size": 27873
     },
     {
       "path": "tavern-plugin/lib/domain/sprite-mouth-matte.js",
@@ -8941,9 +8941,9 @@
     }
   ],
   "archive": {
-    "commit": "d9f72bd7a36960141e4c381044e35cd15562987d",
+    "commit": "3a37b6a977ad662004d813e6ecf2d90774153115",
     "path": "runtime.zip",
-    "sha256": "ec5a316ddb73f086975f788b5e8c716d71e3eaa5645ad0ead0f8c9f0198d5faa",
-    "size": 16029799
+    "sha256": "3b798c99783db83db37ff2bf7e18829d4855d3527d547950a538381bbc7933a1",
+    "size": 16030756
   }
 }
