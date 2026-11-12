@@ -1,3 +1,4 @@
+import { resolveTemplateScenarioSync } from './prompt-scenarios.js'
 import { selectPromptMaterials, fillPromptInputs } from './prompt-materials.js'
 import { normalizePromptUsage } from './prompt-structure.js'
 import { activeChannel } from './image-channels.js'
@@ -48,7 +49,7 @@ export function createImageGenerator(getConfig, generate, defaultUsage = 'plugin
         ...(library.workflows?.() || []).map(({ workflowId, ...item }) => item)]
     },
     status({ modelId } = {}) { return status(current(modelId)) },
-    async generate({ prompt, negative, references = [], width, height, background, quality, signal, modelId, templateId, usage, inputs, subjects, definitions } = {}) {
+    async generate({ prompt, negative, references = [], width, height, background, quality, signal, modelId, templateId, usage, inputs, subjects, definitions, chooseScenario } = {}) {
       const { config, channel: selected, workflow, template: templateModel, reason } = current(templateId ? 'template:' + templateId : modelId)
       if (templateModel) {
         if (!templateModel.ready) throw new Error(templateModel.reason || '模板还没有可用的生图接口')
@@ -70,10 +71,10 @@ export function createImageGenerator(getConfig, generate, defaultUsage = 'plugin
       const promptUsage = normalizePromptUsage(usage, defaultUsage)
       const maxImageBytes = config.maxImageBytes
       const records = definitions || library.definitions?.() || {}
-      const prepared = await composePluginImagePromptAsync(config, { channel, prompt, negative, usage: promptUsage, inputs, subjects, definitions: records, signal })
+      const prepared = await composePluginImagePromptAsync(config, { channel, prompt, negative, usage: promptUsage, inputs, subjects, definitions: records, signal, chooseScenario })
       if (prepared.workflowValues?.length) throw new Error('当前模板的节点参数需要 ComfyUI 工作流')
       const template = effectivePromptPreset(promptConfigForTarget(config, null, channel))
-      const materials = selectPromptMaterials(fillPromptInputs(template?.structure, inputs).structure, records, { usage: promptUsage, subjects })
+      const materials = selectPromptMaterials(resolveTemplateScenarioSync(fillPromptInputs(template?.structure, inputs).structure, { scene: prompt, selected: prepared.scenario?.id }).structure, records, { usage: promptUsage, subjects })
       const available = Math.max(0, imageReferenceLimit(channel) - references.length)
       if (library.readReference && available) {
         const bound = materials.selected.flatMap(item => item.references)

@@ -41,7 +41,7 @@ test('literal workflow inputs are patched per request while the saved graph and 
 })
 test('runtime jobs and planner use a registered asynchronous module, with explicit request seed taking precedence',async t=>{
  const saved=template([{kind:'extension',title:'插件能力',moduleId:'test.runtime',values:{tone:'amber'}}])
- const fixture=await imagePluginFixture(t,{config:{imageBackend:'sdwebui',activeImageChannel:'sd',imageChannels:[{id:'sd',provider:'sdwebui',name:'SD',baseUrl:'https://sd.example.test',authMode:'none',options:{}}],promptDefault:saved,promptPresets:[]},llm:{async *stream(input){assert.match(input.system,/RUNTIME_MODULE_RULE/);yield{type:'text-delta',text:'<image><regex>A tea room.</regex><prompts>A tea room</prompts></image>'}}}})
+ const fixture=await imagePluginFixture(t,{config:{promptSystem:'workbench',imageBackend:'sdwebui',activeImageChannel:'sd',imageChannels:[{id:'sd',provider:'sdwebui',name:'SD',baseUrl:'https://sd.example.test',authMode:'none',options:{}}],promptDefault:saved,promptPresets:[]},llm:{async *stream(input){assert.match(input.system,/RUNTIME_MODULE_RULE/);yield{type:'text-delta',text:'<image><regex>A tea room.</regex><prompts>A tea room</prompts></image>'}}}})
  const api=await import(pathToFileURL(join(fixture.pluginRoot,'lib/template-modules.js')).href)
  const remove=api.registerTemplateModule({id:'test.runtime',name:'测试模块',fields:[{key:'tone',label:'色调',type:'text'}],async resolve({values}){return{positive:values.tone+' light',negative:'watermark',rules:'RUNTIME_MODULE_RULE',parameters:{seed:44,steps:18,cfg:6,width:640,height:384}}}});t.after(remove)
  const runtime=await fixture.start(),calls=[]
@@ -71,7 +71,7 @@ test('ComfyUI module sampler parameters work without global overrides and ordina
 
 test('online jobs reject template node values before submitting to the provider', async t => {
   const promptDefault = template([{ ...block, values: { workflowValues: '[{"node":"1","input":"caption","value":"custom"}]' } }])
-  const fixture = await imagePluginFixture(t, { config: { promptDefault } })
+  const fixture = await imagePluginFixture(t, { config: { promptDefault, promptSystem: 'workbench' } })
   const runtime = await fixture.start()
   let submissions = 0
   globalThis.fetch = async () => { submissions++; throw new Error('unexpected provider request') }

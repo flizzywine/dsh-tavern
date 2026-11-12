@@ -68,7 +68,7 @@ test('card calls route a channel-bound template consistently on the first select
 
 test('the single modular default persists its target and generation follows that target rather than the previous channel', async t => {
  const channels=['a','b'].map(id=>({id,provider:'openai',name:id,baseUrl:'https://'+id+'.example.test/v1',model:id,authMode:'none'}))
- const fixture=await imagePluginFixture(t,{config:{imageBackend:'openai',activeImageChannel:'a',imageChannels:channels,promptPresets:[],promptDefault:null,lockWorkflow:true}})
+ const fixture=await imagePluginFixture(t,{config:{promptSystem:'workbench',imageBackend:'openai',activeImageChannel:'a',imageChannels:channels,promptPresets:[],promptDefault:null,lockWorkflow:true}})
  const runtime=await fixture.start(),requests=[]
  globalThis.fetch=async(url)=>{requests.push(String(url));return imageJson({data:[{b64_json:IMAGE_PNG.toString('base64')}]})}
  const saved=await runtime.request('config',{config:{promptDefault:{name:'模块化模板',independent:true,structure:{format:'natural',targets:[{kind:'channel',id:'b'}],blocks:[{kind:'scene',title:'画面',text:''}]}}}})

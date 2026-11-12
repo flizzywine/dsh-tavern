@@ -32,6 +32,10 @@
       const next = normalizeImageWidth(value)
       if (next === bodyImageWidth) return
       bodyImageWidth = next
+      if (typeof imagePlacement !== 'undefined') {
+        imagePlacement = { ...imagePlacement, width: next }
+        for (const listener of placementListeners) listener(imagePlacement)
+      }
       for (const notify of imageWidthListeners) notify(next)
     }
 

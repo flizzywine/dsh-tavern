@@ -57,6 +57,7 @@
         h('summary', null, '查看组装过程'),
         trace ? h('div', { className: 'dti-tryout-text' },
           h('div', null, '用途 · ' + (trace.usage || 'story')),
+          trace.scenario ? h('div', null, '场景模式 · ' + trace.scenario.name + '（' + ({ model: '模型判断', keywords: '关键词', fixed: '固定选择', inherited: '沿用本轮判断' }[trace.scenario.reason] || trace.scenario.reason) + '）') : null,
           trace.contextChars ? h('div', null, '本次模型输入约 ' + trace.contextChars + ' 字符') : null,
           trace.modules?.length ? h('div', null, '模块顺序 · ' + trace.modules.map(item => item.title).join(' → ')) : null,
           Object.entries(trace.inputs || {}).map(([key, value]) => h('div', { key }, key + ' · ' + (value || '空'))),

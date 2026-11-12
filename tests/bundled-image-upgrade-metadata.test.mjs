@@ -12,7 +12,7 @@ const usage={input_tokens:60,output_tokens:80,total_tokens:140,input_tokens_deta
 const channel={id:'official',provider:'openai',name:'OpenAI',baseUrl:'https://api.openai.com/v1',model:'gpt-image-2',authMode:'none',options:{quality:'high',moderation:'low'}}
 test('template stage generation and editing retain usage and transparent PNG with global JPEG enabled',async t=>{
  let provider
- const fixture=await imagePluginFixture(t,{config:{imageBackend:'openai',activeImageChannel:channel.id,imageChannels:[channel],jpegOutput:true},tavern:{apiVersion:5,attach(){},promptSection(){},onTurnSettled(){},list:async()=>[],imageProvider(value){provider=value;return()=>{}}}})
+ const fixture=await imagePluginFixture(t,{config:{promptSystem:'workbench',imageBackend:'openai',activeImageChannel:channel.id,imageChannels:[channel],jpegOutput:true},tavern:{apiVersion:5,attach(){},promptSection(){},onTurnSettled(){},list:async()=>[],imageProvider(value){provider=value;return()=>{}}}})
  const runtime=await fixture.start();await runtime.request('state')
  for(let i=0;i<100&&!provider;i++)await new Promise(r=>setTimeout(r,10))
  assert.equal(provider.status().transparent,true)

@@ -10,7 +10,7 @@ export interface ImageConfiguration {
   imageBackend: string; activeImageChannel?: string; imageChannels: ImageChannel[]; maxImageBytes?: number;
   activePromptPreset?: string; promptMode?: string; promptPresets?: unknown[]; promptDefault?: unknown;
   activePreset?: string; stylePresets?: unknown[]; styleArtists?: string; styleNegative?: string;
-  promptManualPositive?: string; promptManualNegative?: string;
+  promptManualPositive?: string; promptManualNegative?: string; promptEntries?: unknown[];
 }
 export interface ImageStatus { ready: boolean; reason?: string; model?: string; maxReferences: number; transparent?: boolean }
 export interface ImageReference { data: Uint8Array; mediaType: string; name?: string }
@@ -29,10 +29,13 @@ export interface PromptLibrary {
 export interface GenerateRequest {
   inputs?: Record<string, string>; subjects?: PromptSubject[]; definitions?: PromptDefinitions;
   prompt: string; negative?: string; usage?: string; modelId?: string; templateId?: string; references?: ImageReference[]; width?: number; height?: number;
-  background?: string; quality?: string; signal?: AbortSignal;
+  background?: string; quality?: string; signal?: AbortSignal; chooseScenario?: ScenarioChooser;
 }
 export interface ImageResult { data: Uint8Array; mediaType: string; seed?: number; usage?: Record<string, unknown> }
+export interface ScenarioDecision { id: string; name: string; reason: string }
+export type ScenarioChooser = (context: { modes: Array<{ id: string; name: string; description: string; keywords: string[] }>; fallback: string; scene: string; signal?: AbortSignal }) => Promise<string>;
 export interface ComposedImagePrompt {
+  scenario?: ScenarioDecision;
   positive: string; negative?: string; promptMode?: string;
   parameters?: ModuleParameters; workflowValues?: WorkflowValue[]; moduleTrace?: MaterializedModules['trace'];
 }
@@ -50,5 +53,5 @@ export type ImageAdapter = (channel: ImageChannel, request: {
 /** Server-side, stateless online generator. No UI, jobs, gallery or story hooks are installed. */
 export function createImageGenerator(getConfig: () => ImageConfiguration, adapter?: ImageAdapter, defaultUsage?: string, library?: PromptLibrary): ImageGenerator;
 export function composePluginImagePrompt(config: ImageConfiguration, input: { channel?: ImageChannel; prompt: string; negative?: string; usage?: string; inputs?: Record<string, string>; subjects?: PromptSubject[]; definitions?: PromptDefinitions }): ComposedImagePrompt;
-export function composePluginImagePromptAsync(config: ImageConfiguration, input: { channel?: ImageChannel; prompt: string; negative?: string; usage?: string; inputs?: Record<string, string>; subjects?: PromptSubject[]; definitions?: PromptDefinitions; signal?: AbortSignal }): Promise<ComposedImagePrompt>;
+export function composePluginImagePromptAsync(config: ImageConfiguration, input: { channel?: ImageChannel; prompt: string; negative?: string; usage?: string; inputs?: Record<string, string>; subjects?: PromptSubject[]; definitions?: PromptDefinitions; signal?: AbortSignal; chooseScenario?: ScenarioChooser }): Promise<ComposedImagePrompt>;
 export function stageImageProvider(getConfig: () => ImageConfiguration, adapter?: ImageAdapter, library?: PromptLibrary): ImageGenerator;

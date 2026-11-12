@@ -174,6 +174,7 @@ let openImageOverlay = null
     // @include legacy-worldbook.js
     // @include draft-state.js
     // @include prompt-forms.js
+    // @include prompt-entry-catalog.js
     // @include prompt-entry-library.js
     // @include prompt-workspace.js
     // @include prompt-style.js

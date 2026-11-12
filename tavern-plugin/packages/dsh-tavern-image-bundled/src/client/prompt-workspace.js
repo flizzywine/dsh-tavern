@@ -42,6 +42,7 @@
         const blocks = structure.blocks.filter(block => promptBlockLabel(block?.kind)).slice(0, PROMPT_BLOCK_LIMIT).map(block => ({
           kind: block.kind, title: String(block.title ?? '').slice(0, 60), text: String(block.text ?? '').slice(0, ['rule', 'library', 'output'].includes(block.kind) ? 4000 : 1000),
           ...(block.kind === 'output' ? { format: PROMPT_MODES_UI.some(([id]) => id === block.format) ? block.format : structure.format } : {}),
+          ...(Array.isArray(block.modes) ? { modes: [...block.modes] } : {}),
           ...(typeof block.usage === 'string' ? { usage: block.usage.slice(0, 64) } : {}),
           ...(block.enabled === false ? { enabled: false } : {}),
           ...(block.kind === 'extension' ? { moduleId: block.moduleId || 'core.custom', values: JSON.parse(JSON.stringify(block.values || {})) } : {}),
@@ -54,7 +55,7 @@
         }))
         const targets = Array.isArray(structure.targets) ? structure.targets.filter(target => ['channel', 'workflow'].includes(target?.kind) && typeof target.id === 'string').slice(0, 60) : []
         const generationRules = typeof structure.generationRules === 'string' ? structure.generationRules.slice(0, 4000) : ''
-        return exposePromptGeneration({ ...rest, structure: { format: structure.format, purpose: structure.purpose || 'both', blocks, ...(Array.isArray(structure.inputs) ? { inputs: JSON.parse(JSON.stringify(structure.inputs)) } : {}), targets, ...(generationRules ? { generationRules } : {}) } })
+        return exposePromptGeneration({ ...rest, structure: { format: structure.format, purpose: structure.purpose || 'both', blocks, ...(structure.scenarios ? { scenarios: JSON.parse(JSON.stringify(structure.scenarios)) } : {}), ...(Array.isArray(structure.inputs) ? { inputs: JSON.parse(JSON.stringify(structure.inputs)) } : {}), targets, ...(generationRules ? { generationRules } : {}) } })
       }
       const [tryoutOpen, setTryoutOpen] = React.useState(false)
       const workspace = useImageDraft('templates' + (config.promptCatalogEpoch ? ':' + config.promptCatalogEpoch : ''), {

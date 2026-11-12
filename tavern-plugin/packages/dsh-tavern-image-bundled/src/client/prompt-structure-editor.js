@@ -93,6 +93,7 @@
         setOpenBlock(blocks.length)
       }
       return h('div', { className: 'dti-inline-structure' },
+        h(PromptScenarioEditor, { structure, editable, onChange }),
         h('div', { className: 'dti-structure-heading' }, h('strong', null, '模块清单'),
           h('span', { style: STRUCTURE_MUTED }, blocks.length + ' 个模块')),
         h('ol', { className: 'dti-inline-blocks', 'aria-label': '提示词分节顺序' },
@@ -160,11 +161,15 @@
                   h('option', { value: '' }, '所有分组'),
                   block.entryGroup && !groups.includes(block.entryGroup) ? h('option', { value: block.entryGroup }, block.entryGroup + '（当前无词条）') : null,
                   groups.map(group => h('option', { key: group, value: group }, group)))),
-                h('span', { style: STRUCTURE_MUTED }, '只在试规划和正文自动规划时，按本轮正文匹配词条。'))
+                h('span', { style: STRUCTURE_MUTED }, '规划时按正文匹配；直接加入提示词的词条在出图时也会匹配，保留标签串。每轮最多 32 条、16000 字符。'))
               : promptField(textLabel,
               h('textarea', { 'aria-label': textLabel, style: promptArea(64), value: block.text, readOnly: !editable, maxLength: block.kind === 'rule' ? 4000 : 1000,
                 placeholder: block.kind === 'rule' ? '例如：先写人物动作，再补镜头和光线。' : undefined,
                 onChange: event => patchBlock(index, { text: event.target.value }) })),
+            structure.scenarios?.modes?.length ? h('fieldset', { disabled: !editable, style: { border: 0, padding: '8px 0', margin: 0 } },
+              h('legend', { style: STRUCTURE_MUTED }, '在哪些模式启用（全不选表示所有模式）'),
+              h('div', { style: S.row }, structure.scenarios.modes.map(mode => h('label', { key: mode.id, style: S.row },
+                h('input', { type: 'checkbox', checked: block.modes?.includes(mode.id) || false, onChange: event => patchBlock(index, { modes: event.target.checked ? [...(block.modes || []), mode.id] : (block.modes || []).filter(id => id !== mode.id) }) }), mode.name)))) : null,
             h('div', { style: S.row },
               h('label', { style: S.row }, h('input', { type: 'checkbox', checked: block.enabled !== false, disabled: !editable,
                 onChange: event => patchBlock(index, { enabled: event.target.checked }) }), '启用'),
@@ -303,4 +308,34 @@
         !definition ? h('p', { role: 'status', style: STRUCTURE_MUTED }, '请启用提供此模块的插件，原有设置会保留。') : null,
         (definition?.fields || []).filter(field => field.type !== 'json').map(fieldControl),
         definition?.fields?.some(field => field.type === 'json') ? h('details', null, h('summary', { style: PROMPT_DISCLOSURE }, '高级参数'), definition.fields.filter(field => field.type === 'json').map(fieldControl)) : null)
+    }
+
+    function PromptScenarioEditor({ structure, editable, onChange }) {
+      const settings = structure.scenarios
+      const update = patch => onChange({ scenarios: { ...settings, ...patch } })
+      const setMode = (id, patch) => update({ modes: settings.modes.map(mode => mode.id === id ? { ...mode, ...patch } : mode) })
+      return h('details', { style: S.card, 'aria-label': '场景模式设置' },
+        h('summary', { style: PROMPT_DISCLOSURE }, '场景模式', settings ? ' · ' + ({ model: '模型判断', keywords: '关键词判断', fixed: '固定模式' }[settings.policy]) : ' · 未启用'),
+        h('p', { style: STRUCTURE_MUTED }, '先判断本次场景，再启用对应模块。画风、词条、角色引用、排除词与插件模块均可限定模式。'),
+        h('label', { style: S.row }, h('input', { type: 'checkbox', 'aria-label': '启用场景模式', disabled: !editable, checked: !!settings,
+          onChange: event => onChange({ scenarios: event.target.checked ? { policy: 'keywords', fallback: 'normal', fixed: 'normal', modes: [
+            { id: 'normal', name: '普通', description: '日常、对话、冒险等普通画面。', keywords: [] },
+            { id: 'nsfw', name: 'NSFW', description: '正文当前画面明确涉及成人裸露或性内容。', keywords: ['nsfw', 'NSFW场景'] },
+          ] } : null }) }), '启用场景模式'),
+        settings ? h('div', { style: PROMPT_FIELDS },
+          promptField('判断方式', h('select', { 'aria-label': '场景判断方式', style: S.input, disabled: !editable, value: settings.policy, onChange: event => update({ policy: event.target.value }) },
+            h('option', { value: 'keywords' }, '关键词规则（按列表顺序匹配）'), h('option', { value: 'model' }, '模型自行判断'), h('option', { value: 'fixed' }, '固定使用指定模式'))),
+          promptField(settings.policy === 'fixed' ? '固定场景模式' : '未命中时使用', h('select', { 'aria-label': '默认场景模式', style: S.input, disabled: !editable, value: settings.policy === 'fixed' ? settings.fixed : settings.fallback,
+            onChange: event => update({ [settings.policy === 'fixed' ? 'fixed' : 'fallback']: event.target.value }) }, settings.modes.map(mode => h('option', { key: mode.id, value: mode.id }, mode.name)))),
+          settings.policy === 'model' ? h('small', { style: STRUCTURE_MUTED }, '每次规划前调用当前后台文字模型判断一次；同批出图沿用判断结果。') : null,
+          settings.modes.map(mode => h('fieldset', { key: mode.id, disabled: !editable, style: { ...S.card, margin: 0 } },
+            promptField('模式名称', h('input', { 'aria-label': '模式名称 ' + mode.id, style: S.input, maxLength: 60, value: mode.name, onChange: event => setMode(mode.id, { name: event.target.value }) })),
+            promptField('判断说明', h('textarea', { 'aria-label': '模式判断说明 ' + mode.id, style: promptArea(60), maxLength: 1000, value: mode.description || '', placeholder: '告诉模型什么画面属于这个模式', onChange: event => setMode(mode.id, { description: event.target.value }) })),
+            promptField('触发词（逗号分隔）', h('input', { 'aria-label': '模式触发词 ' + mode.id, style: S.input, value: (mode.keywords || []).join('，'), placeholder: '例如：nsfw，成人场景', onChange: event => setMode(mode.id, { keywords: event.target.value.split(/[,，\n]/) }) })),
+            h('button', { type: 'button', style: buttonStyle, disabled: settings.modes.length < 2, onClick: () => {
+              const modes = settings.modes.filter(item => item.id !== mode.id)
+              onChange({ scenarios: { ...settings, modes, fallback: settings.fallback === mode.id ? modes[0].id : settings.fallback, fixed: settings.fixed === mode.id ? modes[0].id : settings.fixed },
+                blocks: structure.blocks.map(block => ({ ...block, modes: block.modes?.filter(id => id !== mode.id) })) })
+            } }, '删除模式'))),
+          h('button', { type: 'button', style: buttonStyle, disabled: !editable || settings.modes.length >= 20, onClick: () => update({ modes: [...settings.modes, { id: 'mode-' + crypto.randomUUID().slice(0, 8), name: '自定义模式', description: '', keywords: [] }] }) }, '添加场景模式')) : null)
     }

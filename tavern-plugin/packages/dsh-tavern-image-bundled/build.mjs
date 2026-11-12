@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 const root = new URL('./', import.meta.url)
-const sharedFragments = { 'transport.js': 'lib/client/transport.js', 'capabilities.js': 'lib/image-provider-capabilities.js', 'library-prompts.js': 'lib/library-prompts.js' }
+const sharedFragments = { 'prompt-entry-catalog.js': 'lib/prompt-entry-catalog.js', 'transport.js': 'lib/client/transport.js', 'capabilities.js': 'lib/image-provider-capabilities.js', 'library-prompts.js': 'lib/library-prompts.js' }
 const fragments = new Set(['media.js', 'image-display.js', 'workflow-lora.js', 'workflow-inputs.js', 'image-editor.js', 'legacy-worldbook.js', 'settings-fields.js', 'prompt-structure-editor.js', 'prompt-workspace.js', 'prompt-entry-library.js', 'draft-state.js', 'prompt-forms.js', 'prompt-style.js', 'settings.js', 'card-worldbook.js', 'card-gallery.js', ...Object.keys(sharedFragments)])
 const normalize = value => value.replace(/\r\n?/g, '\n')
 

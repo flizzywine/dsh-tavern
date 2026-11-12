@@ -22,7 +22,7 @@ export function fillPromptInputs(structure, supplied = {}) {
 
 export function bindPromptConfig(config, preset, structure) {
   if (!preset || !structure) return config
-  if (structure.modulesResolved) config = { ...config, resolvedPromptTemplate: { ...preset, structure } }
+  if (structure.modulesResolved || structure.scenarioResolved) config = { ...config, resolvedPromptTemplate: { ...preset, structure } }
   if (!config.activePromptPreset) return { ...config, promptDefault: { ...preset, structure } }
   return { ...config, promptPresets: (config.promptPresets || []).map(item => item.id === preset.id ? { ...item, structure } : item) }
 }

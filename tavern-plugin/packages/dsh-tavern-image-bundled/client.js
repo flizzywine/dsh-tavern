@@ -274,6 +274,10 @@ let openImageOverlay = null
       const next = normalizeImageWidth(value)
       if (next === bodyImageWidth) return
       bodyImageWidth = next
+      if (typeof imagePlacement !== 'undefined') {
+        imagePlacement = { ...imagePlacement, width: next }
+        for (const listener of placementListeners) listener(imagePlacement)
+      }
       for (const notify of imageWidthListeners) notify(next)
     }
 
@@ -1433,6 +1437,7 @@ function versionsOf(jobId) {
       const [selected, select] = React.useState('')
       const [collapsed, setCollapsed] = React.useState(false)
       const [offset, setOffset] = React.useState(null)
+      const [sizeNote, setSizeNote] = React.useState('')
       const drag = React.useRef(null)
       React.useEffect(() => {
         placementListeners.add(setSettings)
@@ -1532,7 +1537,7 @@ function versionsOf(jobId) {
         }
       }, [settings.position, settings.follow])
 
-      const widthRule = settings.width ? `:is(${DISPLAY_FIGURES}) img { width: min(${settings.width}px, 100%, 96vw) !important; max-height: none !important; height: auto !important; }` : ''
+      const widthRule = settings.width && settings.position === 'inline' ? `:is(${DISPLAY_FIGURES}) img { width: min(${settings.width}px, 100%, 96vw) !important; max-height: none !important; height: auto !important; }` : ''
       if (settings.position === 'inline') return widthRule ? h('style', null, widthRule) : null
       const index = Math.max(0, pictures.findIndex(item => item.src === selected))
       const picture = pictures[index]
@@ -1550,7 +1555,7 @@ function versionsOf(jobId) {
       return h(React.Fragment, null,
         h('style', null, widthRule, `:is(${DISPLAY_FIGURES}) { min-height: 1px; min-width: 1px; } :is(${DISPLAY_FIGURES}) img { display: none !important; }`),
         picture ? h('aside', { 'data-dti-placement': settings.position, 'aria-label': '正文图片查看器',
-          style: { position: 'fixed', ...position, zIndex: 110, width, maxHeight: 'min(80vh, 900px)', overflow: 'auto', boxSizing: 'border-box',
+          style: { position: 'fixed', ...position, zIndex: 110, width, maxHeight: '90vh', overflow: 'auto', boxSizing: 'border-box',
             border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 10, padding: 8, boxShadow: '0 8px 24px #0003',
             background: 'var(--dsw-specific-input-major, Canvas)', color: 'var(--dsw-alias-label-primary, CanvasText)' } },
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, cursor: floating ? 'move' : 'default', touchAction: floating ? 'none' : 'auto' },
@@ -1567,7 +1572,21 @@ function versionsOf(jobId) {
             h('button', { type: 'button', style: btn, onClick: () => setCollapsed(value => !value) }, collapsed ? '展开' : '收起')),
           collapsed ? null : h('button', { type: 'button', style: { display: 'block', width: '100%', border: 0, background: 'transparent', padding: 0, marginTop: 6, cursor: 'zoom-in' },
             onClick: () => openImageOverlay?.({ open: true, images: pictures.map(item => ({ url: item.src, alt: item.title })), index, note: '正文插图' }) },
-            h('img', { src: picture.src, alt: picture.title, style: { display: 'block', width: '100%', maxHeight: '65vh', objectFit: 'contain', borderRadius: 6 } }))) : null)
+            h('img', { src: picture.src, alt: picture.title, style: { display: 'block', width: '100%', height: 'auto', objectFit: 'contain', borderRadius: 6 } })),
+          collapsed ? null : h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 } },
+            h('input', { type: 'range', min: IMAGE_WIDTH_LIMIT.min, max: IMAGE_WIDTH_LIMIT.max, step: 10,
+              'aria-label': '悬浮图片宽度', value: settings.width || (floating ? 420 : 300), style: { flex: 1, minWidth: 0 },
+              onChange: event => { applyImageWidth(event.target.value); setSizeNote('预览中') } }),
+            h('span', { style: { fontSize: 12, whiteSpace: 'nowrap' } }, (settings.width || (floating ? 420 : 300)) + ' px'),
+            h('button', { type: 'button', style: btn, disabled: sizeNote === '保存中…', onClick: async () => {
+              setSizeNote('保存中…')
+              try {
+                const response = await jsonFetch(BASE + '/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ config: { imageDisplayWidth: settings.width } }) })
+                window.dispatchEvent(new CustomEvent('dsh-tavern-image:config', { detail: response.state?.config }))
+                setSizeNote('已保存')
+              } catch { setSizeNote('保存失败，请重试') }
+            } }, '保存大小')),
+          sizeNote && !collapsed ? h('small', { role: 'status' }, sizeNote) : null) : null)
     }
     const imageLoraKey = binding => binding.slot ? String(binding.node) + ':' + binding.slot : String(binding.node)
 
@@ -3083,6 +3102,7 @@ function versionsOf(jobId) {
         h('summary', null, '查看组装过程'),
         trace ? h('div', { className: 'dti-tryout-text' },
           h('div', null, '用途 · ' + (trace.usage || 'story')),
+          trace.scenario ? h('div', null, '场景模式 · ' + trace.scenario.name + '（' + ({ model: '模型判断', keywords: '关键词', fixed: '固定选择', inherited: '沿用本轮判断' }[trace.scenario.reason] || trace.scenario.reason) + '）') : null,
           trace.contextChars ? h('div', null, '本次模型输入约 ' + trace.contextChars + ' 字符') : null,
           trace.modules?.length ? h('div', null, '模块顺序 · ' + trace.modules.map(item => item.title).join(' → ')) : null,
           Object.entries(trace.inputs || {}).map(([key, value]) => h('div', { key }, key + ' · ' + (value || '空'))),
@@ -3095,10 +3115,78 @@ function versionsOf(jobId) {
           skipped.length ? h('details', null, h('summary', null, '未采用的词条 · ' + skipped.length),
             skipped.map(item => h('div', { key: item.id }, item.title + ' · ' + (reasons[item.reason] || item.reason)))) : null) : null)
     }
+    // Optional starter entries. Users add only the groups they want.
+    const BUILTIN_PROMPT_ENTRIES = [
+      {"id":"builtin-visual-1-1","group":"镜头构图","title":"特写","content":"close-up, detailed face","format":"tags","injection":"guidance","any":["特写","脸部","close-up"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-1-2","group":"镜头构图","title":"半身","content":"upper body, medium shot","format":"tags","injection":"guidance","any":["半身","胸像","upper body"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-1-3","group":"镜头构图","title":"全身","content":"full body, feet in frame","format":"tags","injection":"guidance","any":["全身","full body"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-1-4","group":"镜头构图","title":"远景","content":"wide shot, environmental composition","format":"tags","injection":"guidance","any":["远景","wide shot"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-1-5","group":"镜头构图","title":"俯视","content":"from above, high angle","format":"tags","injection":"guidance","any":["俯视","从上方","from above"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-1-6","group":"镜头构图","title":"仰视","content":"from below, low angle","format":"tags","injection":"guidance","any":["仰视","从下方","from below"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-1-7","group":"镜头构图","title":"背影","content":"from behind, back view","format":"tags","injection":"guidance","any":["背影","背面","from behind"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-1-8","group":"镜头构图","title":"侧面","content":"profile, side view","format":"tags","injection":"guidance","any":["侧面","侧脸","side view"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-2-1","group":"光线","title":"逆光","content":"backlighting, rim light","format":"tags","injection":"guidance","any":["逆光","轮廓光","backlight"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-2-2","group":"光线","title":"柔光","content":"soft lighting, diffused light","format":"tags","injection":"guidance","any":["柔光","漫射光","soft light"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-2-3","group":"光线","title":"月光","content":"moonlight, cool lighting","format":"tags","injection":"guidance","any":["月光","moonlight"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-2-4","group":"光线","title":"烛光","content":"candlelight, warm shadows","format":"tags","injection":"guidance","any":["烛光","蜡烛","candlelight"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-2-5","group":"光线","title":"霓虹","content":"neon lighting, colored reflections","format":"tags","injection":"guidance","any":["霓虹","neon"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-2-6","group":"光线","title":"窗光","content":"window light, soft shadows","format":"tags","injection":"guidance","any":["窗光","窗边光","window light"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-2-7","group":"光线","title":"夕阳","content":"golden hour, warm sunlight","format":"tags","injection":"guidance","any":["夕阳","日落","golden hour"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-2-8","group":"光线","title":"聚光","content":"spotlight, dramatic shadows","format":"tags","injection":"guidance","any":["聚光灯","舞台灯","spotlight"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-3-1","group":"环境","title":"森林","content":"forest, layered foliage, tree canopy","format":"tags","injection":"guidance","any":["森林","树林","forest"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-3-2","group":"环境","title":"海岸","content":"seaside, ocean horizon, coastal rocks","format":"tags","injection":"guidance","any":["海岸","海边","seaside"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-3-3","group":"环境","title":"车站","content":"train station, platform, railway tracks","format":"tags","injection":"guidance","any":["车站","站台","train station"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-3-4","group":"环境","title":"图书馆","content":"library, bookshelves, reading tables","format":"tags","injection":"guidance","any":["图书馆","藏书室","library"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-3-5","group":"环境","title":"咖啡馆","content":"cafe interior, wooden tables, cups","format":"tags","injection":"guidance","any":["咖啡馆","咖啡店","cafe"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-3-6","group":"环境","title":"庭院","content":"courtyard, stone path, garden plants","format":"tags","injection":"guidance","any":["庭院","院落","courtyard"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-3-7","group":"环境","title":"街道","content":"city street, sidewalks, storefronts","format":"tags","injection":"guidance","any":["街道","街头","city street"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-3-8","group":"环境","title":"山间","content":"mountain landscape, distant peaks, valley","format":"tags","injection":"guidance","any":["山间","山谷","mountain"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-4-1","group":"天气时间","title":"雨天","content":"rain, wet surfaces, raindrops","format":"tags","injection":"guidance","any":["雨天","下雨","rain"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-4-2","group":"天气时间","title":"雪天","content":"snowfall, snow-covered ground","format":"tags","injection":"guidance","any":["雪天","下雪","snowfall"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-4-3","group":"天气时间","title":"雾天","content":"fog, atmospheric perspective, soft distance","format":"tags","injection":"guidance","any":["浓雾","雾天","fog"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-4-4","group":"天气时间","title":"晴天","content":"clear sky, sunlight","format":"tags","injection":"guidance","any":["晴天","晴空","clear sky"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-4-5","group":"天气时间","title":"风中","content":"wind, flowing hair, fluttering fabric","format":"tags","injection":"guidance","any":["风中","起风","wind"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-4-6","group":"天气时间","title":"清晨","content":"early morning, pale dawn light","format":"tags","injection":"guidance","any":["清晨","黎明","dawn"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-4-7","group":"天气时间","title":"深夜","content":"night, dark sky, sparse lights","format":"tags","injection":"guidance","any":["深夜","午夜","night"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-4-8","group":"天气时间","title":"黄昏","content":"dusk, fading sky, long shadows","format":"tags","injection":"guidance","any":["黄昏","暮色","dusk"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-5-1","group":"色彩","title":"暖色","content":"warm color palette, amber tones","format":"tags","injection":"guidance","any":["暖色","琥珀色","warm palette"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-5-2","group":"色彩","title":"冷色","content":"cool color palette, blue tones","format":"tags","injection":"guidance","any":["冷色","蓝色调","cool palette"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-5-3","group":"色彩","title":"低饱和","content":"muted colors, low saturation","format":"tags","injection":"guidance","any":["低饱和","灰调","muted colors"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-5-4","group":"色彩","title":"高对比","content":"high contrast, deep shadows","format":"tags","injection":"guidance","any":["高对比","强反差","high contrast"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-5-5","group":"色彩","title":"单色","content":"monochrome, tonal composition","format":"tags","injection":"guidance","any":["单色","黑白","monochrome"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-5-6","group":"色彩","title":"粉彩","content":"pastel colors, soft palette","format":"tags","injection":"guidance","any":["粉彩","马卡龙","pastel"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-5-7","group":"色彩","title":"青橙","content":"teal and orange color palette","format":"tags","injection":"guidance","any":["青橙","teal and orange"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-5-8","group":"色彩","title":"大地色","content":"earth tones, ochre, muted green","format":"tags","injection":"guidance","any":["大地色","earth tones"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-6-1","group":"服装","title":"衬衫","content":"collared shirt, button front","format":"tags","injection":"guidance","any":["衬衫","shirt"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-6-2","group":"服装","title":"外套","content":"coat, layered clothing","format":"tags","injection":"guidance","any":["外套","大衣","coat"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-6-3","group":"服装","title":"针织衫","content":"knit sweater, knitted texture","format":"tags","injection":"guidance","any":["针织衫","毛衣","sweater"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-6-4","group":"服装","title":"连衣裙","content":"dress, fabric folds","format":"tags","injection":"guidance","any":["连衣裙","dress"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-6-5","group":"服装","title":"披风","content":"cape, draped fabric","format":"tags","injection":"guidance","any":["披风","斗篷","cape"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-6-6","group":"服装","title":"围巾","content":"scarf, wrapped fabric","format":"tags","injection":"guidance","any":["围巾","scarf"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-6-7","group":"服装","title":"皮靴","content":"leather boots, visible seams","format":"tags","injection":"guidance","any":["皮靴","leather boots"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-6-8","group":"服装","title":"运动服","content":"sportswear, breathable fabric","format":"tags","injection":"guidance","any":["运动服","sportswear"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-7-1","group":"材质","title":"金属","content":"metallic surface, specular highlights","format":"tags","injection":"guidance","any":["金属","metallic"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-7-2","group":"材质","title":"玻璃","content":"glass, transparency, reflections","format":"tags","injection":"guidance","any":["玻璃","glass"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-7-3","group":"材质","title":"丝绸","content":"silk fabric, smooth sheen","format":"tags","injection":"guidance","any":["丝绸","silk"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-7-4","group":"材质","title":"皮革","content":"leather texture, subtle grain","format":"tags","injection":"guidance","any":["皮革","leather"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-7-5","group":"材质","title":"木纹","content":"wood grain, natural texture","format":"tags","injection":"guidance","any":["木纹","wood grain"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-7-6","group":"材质","title":"石材","content":"stone texture, weathered surface","format":"tags","injection":"guidance","any":["石材","石墙","stone texture"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-7-7","group":"材质","title":"陶瓷","content":"ceramic glaze, smooth surface","format":"tags","injection":"guidance","any":["陶瓷","瓷器","ceramic"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-7-8","group":"材质","title":"水面","content":"water surface, ripples, reflections","format":"tags","injection":"guidance","any":["水面","涟漪","ripples"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-8-1","group":"画面表现","title":"浅景深","content":"shallow depth of field, background bokeh","format":"tags","injection":"guidance","any":["浅景深","背景虚化","bokeh"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-8-2","group":"画面表现","title":"动态","content":"dynamic pose, motion in fabric","format":"tags","injection":"guidance","any":["动态姿势","跃起","dynamic pose"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-8-3","group":"画面表现","title":"静谧","content":"quiet atmosphere, balanced composition","format":"tags","injection":"guidance","any":["静谧","宁静","quiet atmosphere"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-8-4","group":"画面表现","title":"紧张","content":"tense atmosphere, dramatic composition","format":"tags","injection":"guidance","any":["紧张气氛","tense atmosphere"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-8-5","group":"画面表现","title":"水彩","content":"watercolor, translucent pigment, paper texture","format":"tags","injection":"guidance","any":["水彩","watercolor"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-8-6","group":"画面表现","title":"油画","content":"oil painting, visible brushstrokes","format":"tags","injection":"guidance","any":["油画","oil painting"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-8-7","group":"画面表现","title":"素描","content":"pencil drawing, graphite strokes","format":"tags","injection":"guidance","any":["素描","铅笔画","pencil drawing"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0},
+      {"id":"builtin-visual-8-8","group":"画面表现","title":"赛璐璐","content":"cel shading, clean linework, flat colors","format":"tags","injection":"guidance","any":["赛璐璐","cel shading"],"all":[],"exclude":[],"always":false,"enabled":true,"priority":0}
+    ]
     function PromptEntryLibrary({ entries, limit, revision, save, compact = false, group = '' }) {
       const editor = useImageDraft('entry-editor', null, revision)
       const draft = editor.value
       const setDraft = editor.update
+      const [catalogGroup, setCatalogGroup] = React.useState('')
       const [query, setQuery] = React.useState('')
       const [busy, setBusy] = React.useState(false)
       const [note, setNote] = React.useState('')
@@ -3110,7 +3198,7 @@ function versionsOf(jobId) {
       const existing = entries.some(entry => entry.id === draft?.id)
       const edit = entry => { setDraft(entry); setNote('') }
       const patch = change => setDraft(current => ({ ...current, ...change }))
-      const parseTerms = value => [...new Set(value.split(/[,，\n]/).map(term => term.trim().slice(0, 80)).filter(Boolean))].slice(0, 16)
+      const parseTerms = value => [...new Set(value.split(/[,，\n]/).map(term => term.trim().slice(0, 80)).filter(Boolean))].slice(0, 32)
       async function persist(remove = false) {
         if (!draft || busy) return
         const entry = { ...draft, title: draft.title.trim(), content: draft.content.trim(), group: draft.group.trim(),
@@ -3135,12 +3223,23 @@ function versionsOf(jobId) {
         !compact ? h('summary', { className: 'dti-structure-heading' }, h('strong', null, '生图词条库'),
           h('span', { style: STRUCTURE_MUTED }, entries.length + ' / ' + limit)) : null,
         h('fieldset', { className: 'dti-entry-library', disabled: busy },
-          !compact ? h('p', { style: STRUCTURE_MUTED }, '给地点、道具或画面设定写一份视觉资料，再用模板中的「词条库」模块引用。只有命中本轮正文的词条会交给规划模型。') : null,
+          !compact ? h('p', { style: STRUCTURE_MUTED }, '支持自然语言、标签串和混合内容。用模板里的「词条库」模块引用分组；可交给模型参考，也可命中后原样加入提示词。最多保存 1000 条，每轮匹配 32 条。') : null,
           !compact ? h('div', { style: S.row },
             h('input', { style: S.input, 'aria-label': '搜索词条', placeholder: '搜索名称或分组', value: query, onChange: event => setQuery(event.target.value) }),
             h('button', { type: 'button', style: buttonStyle, disabled: entries.length >= limit, onClick: () => edit({
               id: 'entry-' + Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join(''), title: '', group: '', content: '', any: '', all: '', exclude: '', priority: 0, enabled: true, always: false,
             }) }, '新建词条')) : null,
+          !compact ? h('div', { style: S.row },
+            promptField('内置词条分组', h('select', { 'aria-label': '内置词条分组', style: S.input, value: catalogGroup, onChange: event => setCatalogGroup(event.target.value) },
+              h('option', { value: '' }, '全部内置词条（64 条）'), [...new Set(BUILTIN_PROMPT_ENTRIES.map(entry => entry.group))].map(group => h('option', { key: group, value: group }, group)))),
+            h('button', { type: 'button', style: buttonStyle, disabled: busy, onClick: async () => {
+              const additions = BUILTIN_PROMPT_ENTRIES.filter(entry => (!catalogGroup || entry.group === catalogGroup) && !entries.some(saved => saved.id === entry.id))
+              if (!additions.length) { setNote('这些内置词条已经添加过'); return }
+              if (entries.length + additions.length > limit) { setNote('词条数量已达上限，请选择更小的分组'); return }
+              setBusy(true)
+              try { if (await save({ promptEntries: [...entries, ...additions], ...(revision ? { promptRevision: revision } : {}) })) setNote('已添加 ' + additions.length + ' 条，可继续编辑触发词和内容') }
+              finally { setBusy(false) }
+            } }, '添加内置词条')) : null,
           compact ? promptField('编辑引用词条', h('select', { 'aria-label': '编辑引用词条', style: S.input, value: shownDraft?.id || '', onChange: event => {
             const entry = visible.find(item => item.id === event.target.value)
             if (entry) edit({ ...entry, any: entry.any.join('，'), all: entry.all.join('，'), exclude: entry.exclude.join('，') })
@@ -3157,8 +3256,13 @@ function versionsOf(jobId) {
               promptField('分组', h('input', { style: S.input, list: groupList, value: draft.group, maxLength: 60,
                 placeholder: '例如：城镇地点', onChange: event => patch({ group: event.target.value }) }))),
             h('datalist', { id: groupList }, groups.map(group => h('option', { key: group, value: group }))),
-            promptField('视觉资料', h('textarea', { 'aria-label': '视觉资料', style: promptArea(96), value: draft.content, maxLength: 1200,
-              placeholder: '例如：候车厅有墨绿瓷砖、黄铜吊灯，站牌是深蓝色珐琅。',
+            h('div', { style: S.row },
+              promptField('内容写法', h('select', { 'aria-label': '词条内容写法', style: S.input, value: draft.format || 'auto', onChange: event => patch({ format: event.target.value }) },
+                [['auto', '跟随模板'], ['natural', '自然语言'], ['tags', '标签串'], ['mixed', '混合']].map(([value, label]) => h('option', { key: value, value }, label)))),
+              promptField('命中后用途', h('select', { 'aria-label': '词条命中后用途', style: S.input, value: draft.injection || 'guidance', onChange: event => patch({ injection: event.target.value }) },
+                [['guidance', '交给模型参考'], ['positive', '原样加入正面提示词'], ['negative', '原样加入负面提示词']].map(([value, label]) => h('option', { key: value, value }, label))))),
+            promptField('词条内容', h('textarea', { 'aria-label': '视觉资料', style: promptArea(96), value: draft.content, maxLength: 4000,
+              placeholder: '可写完整描述，或标签串：cinematic lighting, rim light, depth of field',
               onChange: event => patch({ content: event.target.value }) })),
             h('label', { style: S.row }, h('input', { type: 'checkbox', checked: draft.always, onChange: event => patch({ always: event.target.checked }) }), '始终候选'),
             !draft.always ? field('any', '命中任一词', 1328, '例如：旧车站，北站，候车厅') : null,
@@ -3232,6 +3336,7 @@ function versionsOf(jobId) {
         const blocks = structure.blocks.filter(block => promptBlockLabel(block?.kind)).slice(0, PROMPT_BLOCK_LIMIT).map(block => ({
           kind: block.kind, title: String(block.title ?? '').slice(0, 60), text: String(block.text ?? '').slice(0, ['rule', 'library', 'output'].includes(block.kind) ? 4000 : 1000),
           ...(block.kind === 'output' ? { format: PROMPT_MODES_UI.some(([id]) => id === block.format) ? block.format : structure.format } : {}),
+          ...(Array.isArray(block.modes) ? { modes: [...block.modes] } : {}),
           ...(typeof block.usage === 'string' ? { usage: block.usage.slice(0, 64) } : {}),
           ...(block.enabled === false ? { enabled: false } : {}),
           ...(block.kind === 'extension' ? { moduleId: block.moduleId || 'core.custom', values: JSON.parse(JSON.stringify(block.values || {})) } : {}),
@@ -3244,7 +3349,7 @@ function versionsOf(jobId) {
         }))
         const targets = Array.isArray(structure.targets) ? structure.targets.filter(target => ['channel', 'workflow'].includes(target?.kind) && typeof target.id === 'string').slice(0, 60) : []
         const generationRules = typeof structure.generationRules === 'string' ? structure.generationRules.slice(0, 4000) : ''
-        return exposePromptGeneration({ ...rest, structure: { format: structure.format, purpose: structure.purpose || 'both', blocks, ...(Array.isArray(structure.inputs) ? { inputs: JSON.parse(JSON.stringify(structure.inputs)) } : {}), targets, ...(generationRules ? { generationRules } : {}) } })
+        return exposePromptGeneration({ ...rest, structure: { format: structure.format, purpose: structure.purpose || 'both', blocks, ...(structure.scenarios ? { scenarios: JSON.parse(JSON.stringify(structure.scenarios)) } : {}), ...(Array.isArray(structure.inputs) ? { inputs: JSON.parse(JSON.stringify(structure.inputs)) } : {}), targets, ...(generationRules ? { generationRules } : {}) } })
       }
       const [tryoutOpen, setTryoutOpen] = React.useState(false)
       const workspace = useImageDraft('templates' + (config.promptCatalogEpoch ? ':' + config.promptCatalogEpoch : ''), {
@@ -4157,6 +4262,7 @@ function versionsOf(jobId) {
         setOpenBlock(blocks.length)
       }
       return h('div', { className: 'dti-inline-structure' },
+        h(PromptScenarioEditor, { structure, editable, onChange }),
         h('div', { className: 'dti-structure-heading' }, h('strong', null, '模块清单'),
           h('span', { style: STRUCTURE_MUTED }, blocks.length + ' 个模块')),
         h('ol', { className: 'dti-inline-blocks', 'aria-label': '提示词分节顺序' },
@@ -4224,11 +4330,15 @@ function versionsOf(jobId) {
                   h('option', { value: '' }, '所有分组'),
                   block.entryGroup && !groups.includes(block.entryGroup) ? h('option', { value: block.entryGroup }, block.entryGroup + '（当前无词条）') : null,
                   groups.map(group => h('option', { key: group, value: group }, group)))),
-                h('span', { style: STRUCTURE_MUTED }, '只在试规划和正文自动规划时，按本轮正文匹配词条。'))
+                h('span', { style: STRUCTURE_MUTED }, '规划时按正文匹配；直接加入提示词的词条在出图时也会匹配，保留标签串。每轮最多 32 条、16000 字符。'))
               : promptField(textLabel,
               h('textarea', { 'aria-label': textLabel, style: promptArea(64), value: block.text, readOnly: !editable, maxLength: block.kind === 'rule' ? 4000 : 1000,
                 placeholder: block.kind === 'rule' ? '例如：先写人物动作，再补镜头和光线。' : undefined,
                 onChange: event => patchBlock(index, { text: event.target.value }) })),
+            structure.scenarios?.modes?.length ? h('fieldset', { disabled: !editable, style: { border: 0, padding: '8px 0', margin: 0 } },
+              h('legend', { style: STRUCTURE_MUTED }, '在哪些模式启用（全不选表示所有模式）'),
+              h('div', { style: S.row }, structure.scenarios.modes.map(mode => h('label', { key: mode.id, style: S.row },
+                h('input', { type: 'checkbox', checked: block.modes?.includes(mode.id) || false, onChange: event => patchBlock(index, { modes: event.target.checked ? [...(block.modes || []), mode.id] : (block.modes || []).filter(id => id !== mode.id) }) }), mode.name)))) : null,
             h('div', { style: S.row },
               h('label', { style: S.row }, h('input', { type: 'checkbox', checked: block.enabled !== false, disabled: !editable,
                 onChange: event => patchBlock(index, { enabled: event.target.checked }) }), '启用'),
@@ -4367,6 +4477,36 @@ function versionsOf(jobId) {
         !definition ? h('p', { role: 'status', style: STRUCTURE_MUTED }, '请启用提供此模块的插件，原有设置会保留。') : null,
         (definition?.fields || []).filter(field => field.type !== 'json').map(fieldControl),
         definition?.fields?.some(field => field.type === 'json') ? h('details', null, h('summary', { style: PROMPT_DISCLOSURE }, '高级参数'), definition.fields.filter(field => field.type === 'json').map(fieldControl)) : null)
+    }
+
+    function PromptScenarioEditor({ structure, editable, onChange }) {
+      const settings = structure.scenarios
+      const update = patch => onChange({ scenarios: { ...settings, ...patch } })
+      const setMode = (id, patch) => update({ modes: settings.modes.map(mode => mode.id === id ? { ...mode, ...patch } : mode) })
+      return h('details', { style: S.card, 'aria-label': '场景模式设置' },
+        h('summary', { style: PROMPT_DISCLOSURE }, '场景模式', settings ? ' · ' + ({ model: '模型判断', keywords: '关键词判断', fixed: '固定模式' }[settings.policy]) : ' · 未启用'),
+        h('p', { style: STRUCTURE_MUTED }, '先判断本次场景，再启用对应模块。画风、词条、角色引用、排除词与插件模块均可限定模式。'),
+        h('label', { style: S.row }, h('input', { type: 'checkbox', 'aria-label': '启用场景模式', disabled: !editable, checked: !!settings,
+          onChange: event => onChange({ scenarios: event.target.checked ? { policy: 'keywords', fallback: 'normal', fixed: 'normal', modes: [
+            { id: 'normal', name: '普通', description: '日常、对话、冒险等普通画面。', keywords: [] },
+            { id: 'nsfw', name: 'NSFW', description: '正文当前画面明确涉及成人裸露或性内容。', keywords: ['nsfw', 'NSFW场景'] },
+          ] } : null }) }), '启用场景模式'),
+        settings ? h('div', { style: PROMPT_FIELDS },
+          promptField('判断方式', h('select', { 'aria-label': '场景判断方式', style: S.input, disabled: !editable, value: settings.policy, onChange: event => update({ policy: event.target.value }) },
+            h('option', { value: 'keywords' }, '关键词规则（按列表顺序匹配）'), h('option', { value: 'model' }, '模型自行判断'), h('option', { value: 'fixed' }, '固定使用指定模式'))),
+          promptField(settings.policy === 'fixed' ? '固定场景模式' : '未命中时使用', h('select', { 'aria-label': '默认场景模式', style: S.input, disabled: !editable, value: settings.policy === 'fixed' ? settings.fixed : settings.fallback,
+            onChange: event => update({ [settings.policy === 'fixed' ? 'fixed' : 'fallback']: event.target.value }) }, settings.modes.map(mode => h('option', { key: mode.id, value: mode.id }, mode.name)))),
+          settings.policy === 'model' ? h('small', { style: STRUCTURE_MUTED }, '每次规划前调用当前后台文字模型判断一次；同批出图沿用判断结果。') : null,
+          settings.modes.map(mode => h('fieldset', { key: mode.id, disabled: !editable, style: { ...S.card, margin: 0 } },
+            promptField('模式名称', h('input', { 'aria-label': '模式名称 ' + mode.id, style: S.input, maxLength: 60, value: mode.name, onChange: event => setMode(mode.id, { name: event.target.value }) })),
+            promptField('判断说明', h('textarea', { 'aria-label': '模式判断说明 ' + mode.id, style: promptArea(60), maxLength: 1000, value: mode.description || '', placeholder: '告诉模型什么画面属于这个模式', onChange: event => setMode(mode.id, { description: event.target.value }) })),
+            promptField('触发词（逗号分隔）', h('input', { 'aria-label': '模式触发词 ' + mode.id, style: S.input, value: (mode.keywords || []).join('，'), placeholder: '例如：nsfw，成人场景', onChange: event => setMode(mode.id, { keywords: event.target.value.split(/[,，\n]/) }) })),
+            h('button', { type: 'button', style: buttonStyle, disabled: settings.modes.length < 2, onClick: () => {
+              const modes = settings.modes.filter(item => item.id !== mode.id)
+              onChange({ scenarios: { ...settings, modes, fallback: settings.fallback === mode.id ? modes[0].id : settings.fallback, fixed: settings.fixed === mode.id ? modes[0].id : settings.fixed },
+                blocks: structure.blocks.map(block => ({ ...block, modes: block.modes?.filter(id => id !== mode.id) })) })
+            } }, '删除模式'))),
+          h('button', { type: 'button', style: buttonStyle, disabled: !editable || settings.modes.length >= 20, onClick: () => update({ modes: [...settings.modes, { id: 'mode-' + crypto.randomUUID().slice(0, 8), name: '自定义模式', description: '', keywords: [] }] }) }, '添加场景模式')) : null)
     }
     function CharacterDesignSettings({ config, save }) {
       const [draft, setDraft] = React.useState({})
@@ -4672,6 +4812,17 @@ function versionsOf(jobId) {
         return () => { alive = false }
       }, [tab, historyTick, galleryMode])
 
+      React.useEffect(() => {
+        const receive = event => {
+          if (!event.detail) return
+          setDisplayWidthDraft(null)
+          setDisplayWidthNote('')
+          setData(current => current ? { ...current, config: { ...current.config, ...event.detail } } : current)
+        }
+        window.addEventListener('dsh-tavern-image:config', receive)
+        return () => window.removeEventListener('dsh-tavern-image:config', receive)
+      }, [])
+
       function post(pathname, body) {
         return jsonFetch(BASE + pathname, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
       }
@@ -4710,7 +4861,7 @@ function versionsOf(jobId) {
         if (!saved) { setDisplayWidthNote('保存失败，请重试'); return }
         applyImageWidth(value)
         setDisplayWidthDraft(null)
-        setDisplayWidthNote(value ? ('已保存：正文插图统一按 ' + value + ' px 显示') : '已恢复默认大小')
+        setDisplayWidthNote(value ? ('已保存：图片统一按 ' + value + ' px 显示') : '已恢复默认大小')
       }
 
       if (!data) return h('div', { style: Object.assign({}, S.surface, { padding: '18px', fontSize: '13px' }) }, note || '正在读取…')
@@ -5090,7 +5241,8 @@ function versionsOf(jobId) {
         const valid = /^\s*\d*\s*$/.test(draftText)
         const draftValue = normalizeImageWidth(draftText)
         const busy = displayWidthNote === '保存中…'
-        const previewWidth = draftValue || saved || IMAGE_WIDTH_LIMIT.fallback
+        const defaultWidth = config.imageDisplayPosition === 'floating' ? 420 : ['left', 'right'].includes(config.imageDisplayPosition) ? 300 : IMAGE_WIDTH_LIMIT.fallback
+        const previewWidth = draftValue || defaultWidth
         // 有没保存的改动 = 正在预览：此时正文插图已经按草稿宽度显示了，只是还没写盘。
         const dirty = displayWidthDraft !== null && draftValue !== saved
         const sampleSrc = widthSampleJob ? BASE + '/jobs?id=' + encodeURIComponent(widthSampleJob.id) + '&image=1' : ''
@@ -5101,7 +5253,7 @@ function versionsOf(jobId) {
         // 只列两个**确定**的值：设置值和默认值。聊天区宽度因面板不同而变，放进来只会让人怀疑数字。
         const compareRows = [
           { key: 'mine', label: '你设的宽度', width: previewWidth, color: 'var(--dsw-alias-brand-primary)', image: sampleSrc },
-          { key: 'default', label: '默认', width: IMAGE_WIDTH_LIMIT.fallback, color: 'var(--dsw-alias-label-tertiary)', dashed: true },
+          { key: 'default', label: '默认', width: defaultWidth, color: 'var(--dsw-alias-label-tertiary)', dashed: true },
         ]
         const rulerBg = 'repeating-linear-gradient(to right, color-mix(in srgb, var(--dsw-alias-label-tertiary) 18%, transparent) 0 1px, transparent 1px 100px)'
         const compareBar = row => h('div', { key: row.key, style: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px' } },
@@ -5138,7 +5290,7 @@ function versionsOf(jobId) {
             h('input', {
               'aria-label': '正文图片显示宽度', type: 'range',
               min: String(IMAGE_WIDTH_LIMIT.min), max: String(IMAGE_WIDTH_LIMIT.max), step: '10',
-              value: String(draftValue || IMAGE_WIDTH_LIMIT.fallback), disabled: busy,
+              value: String(draftValue || defaultWidth), disabled: busy,
               style: { width: 'min(240px, 52vw)', accentColor: 'var(--dsw-alias-brand-primary)', cursor: 'pointer' },
               onChange: e => { setDisplayWidthNote(''); setDisplayWidthDraft(String(e.target.value)); applyImageWidth(e.target.value) },
             }),
@@ -5155,7 +5307,7 @@ function versionsOf(jobId) {
             h('button', { style: buttonStyle, disabled: busy || !saved, onClick: () => { void saveDisplayWidth('') } }, '恢复默认'),
             !valid ? h('span', { role: 'alert', style: { fontSize: '12px', color: 'var(--dsw-alias-state-error-primary)' } }, '宽度只能是数字') : null,
             dirty
-              ? h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: '12px', color: 'var(--dsw-alias-state-warning-primary)' } }, '预览中（未保存）：正文已临时按 ' + (draftValue ? draftValue + ' px' : '默认') + ' 显示')
+              ? h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: '12px', color: 'var(--dsw-alias-state-warning-primary)' } }, '预览中（未保存）：图片已临时按 ' + (draftValue ? draftValue + ' px' : '默认') + ' 显示')
               : (displayWidthNote ? h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: '12px', color: /失败/.test(displayWidthNote) ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)' } }, displayWidthNote) : null),
           ),
           h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '6px' } },
@@ -6916,7 +7068,7 @@ function versionsOf(jobId) {
         return workflow ? h(WorkflowGraphEditor, { key: workflow.file, file: workflow.file, post, embedded: true, onClose: close })
           : h('p', { style: STRUCTURE_MUTED }, '先选择此模块使用的工作流。')
       }
-      const worldbookMode = config.promptSystem === 'worldbook'
+      const worldbookMode = config.promptSystem !== 'workbench'
       const tabs = [['plan', '设置'], ...(!worldbookMode ? [['style', '生图工作台']] : [['worldbook', '世界书']]), ...(cardEnabled === true ? [['card-worldbook', '卡片世界书']] : []), ['library', '资料库'], ['people', '人物库'], ['gallery', '画廊']]
       const section = text => h('div', { style: { fontSize: '14px', fontWeight: 600, margin: '18px 0 2px', color: 'var(--dsw-alias-label-primary)' } }, text)
       return h('div', { className: 'dti-settings', style: Object.assign({}, S.surface, { padding: '4px 2px 20px', fontSize: '13px' }) },
@@ -6930,8 +7082,8 @@ function versionsOf(jobId) {
             h('span', { style: { display: 'block', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '2px' } },
               config.imageEnabled === false ? '已关闭：不再自动或手动配图，正文里不显示配图按钮；已有插图照常显示' : '为剧情自动或手动配图；关掉后正文里不显示配图按钮，已有插图照常显示')),
           h('input', { type: 'checkbox', role: 'switch', className: 'dti-switch', 'aria-label': '启用配图', checked: config.imageEnabled !== false, onChange: e => save({ imageEnabled: e.target.checked }) })),
-        h('div', { style: S.row }, promptField('生图模式', h('select', { 'aria-label': '生图系统模式', style: S.input, value: config.promptSystem || 'workbench', onChange: async event => { const mode = event.target.value; if (await save({ promptSystem: mode })) setTab(mode === 'worldbook' ? 'worldbook' : 'style') } },
-          h('option', { value: 'workbench' }, '生图工作台'), h('option', { value: 'worldbook' }, '世界书模式')))),
+        h('div', { style: S.row }, promptField('生图模式', h('select', { 'aria-label': '生图系统模式', style: S.input, value: config.promptSystem || 'worldbook', onChange: async event => { const mode = event.target.value; if (await save({ promptSystem: mode })) setTab(mode === 'worldbook' ? 'worldbook' : 'style') } },
+          h('option', { value: 'worldbook' }, '世界书模式（默认）'), h('option', { value: 'workbench' }, '生图工作台（高级模式）')))),
         taskPanel(),
         h('div', { style: S.row }, tabs.map(([key, label]) => h('button', { key, style: S.tab(tab === key), onClick: () => setTab(key) }, label))),
         tab === 'plan' ? h('div', null,

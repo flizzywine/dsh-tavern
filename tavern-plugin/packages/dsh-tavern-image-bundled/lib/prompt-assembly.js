@@ -1,3 +1,5 @@
+import { resolveTemplateScenario, resolveTemplateScenarioSync } from './prompt-scenarios.js'
+import { matchPromptEntries } from './prompt-entries.js'
 import { materializeTemplateModules, materializeTemplateModulesAsync } from './template-modules.js'
 import { fillPromptInputs, bindPromptConfig, selectPromptMaterials } from './prompt-materials.js'
 import { activePromptBlocks, normalizePromptUsage } from './prompt-structure.js'
@@ -72,6 +74,12 @@ export function prepareImagePrompt({ workflow, params, config, definitions, onSt
   let preset = effectivePromptPreset(config)
   const inputs = fillPromptInputs(preset?.structure, params.inputs)
   if (inputs.missing.length) throw new Error('请填写模板输入：' + inputs.missing.join('、'))
+  inputs.structure = resolveTemplateScenarioSync(inputs.structure, { scene: inputs.render(params.tag), selected: config.promptScenario?.id }).structure
+  if (inputs.structure && !inputs.structure.entriesResolved) {
+    const matches = config.promptEntryMatches ?? matchPromptEntries(config.promptEntries, activePromptBlocks(inputs.structure, usage), inputs.render(params.tag))
+    inputs.structure = { ...inputs.structure, entriesResolved: true, modulesResolved: true, blocks: [...inputs.structure.blocks,
+      ...matches.filter(entry => ['positive', 'negative'].includes(entry.injection)).map(entry => ({ kind: entry.injection, title: entry.title, text: entry.content }))] }
+  }
   const modules = materializeTemplateModules(inputs.structure, { scene: inputs.render(params.tag), inputs: inputs.values, usage, backend: channel ? effectiveImageProvider(channel) : promptBackendContext(config, workflow), definitions, subjects: params.promptSubjects })
   const moduleResult = modules.trace.length ? { parameters: modules.parameters, workflowValues: modules.workflowValues, moduleTrace: modules.trace } : {}
   config = bindPromptConfig(config, preset, modules.structure)
@@ -172,7 +180,9 @@ export async function composePluginImagePromptAsync(config, request = {}) {
   const inputs = fillPromptInputs(preset?.structure, request.inputs)
   if (inputs.missing.length) throw new Error('请填写模板输入：' + inputs.missing.join('、'))
   request.signal?.throwIfAborted()
+  const scenario = await resolveTemplateScenario(inputs.structure, { scene: inputs.render(request.prompt), choose: request.chooseScenario, selected: config.promptScenario?.id, signal: request.signal })
+  inputs.structure = scenario.structure
   const modules = await materializeTemplateModulesAsync(inputs.structure, { scene: inputs.render(request.prompt), inputs: inputs.values, usage: normalizePromptUsage(request.usage, 'plugin'), backend: request.channel ? effectiveImageProvider(request.channel) : promptBackendContext(selected), definitions: request.definitions, subjects: request.subjects, signal: request.signal })
   request.signal?.throwIfAborted()
-  return { ...composePluginImagePrompt(bindPromptConfig(selected, preset, modules.structure), request), ...(modules.trace.length ? { parameters: modules.parameters, workflowValues: modules.workflowValues, moduleTrace: modules.trace } : {}) }
+  return { ...composePluginImagePrompt(bindPromptConfig(selected, preset, modules.structure), request), ...(scenario.decision ? { scenario: scenario.decision } : {}), ...(modules.trace.length ? { parameters: modules.parameters, workflowValues: modules.workflowValues, moduleTrace: modules.trace } : {}) }
 }

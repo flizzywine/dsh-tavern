@@ -21,6 +21,7 @@
       const [selected, select] = React.useState('')
       const [collapsed, setCollapsed] = React.useState(false)
       const [offset, setOffset] = React.useState(null)
+      const [sizeNote, setSizeNote] = React.useState('')
       const drag = React.useRef(null)
       React.useEffect(() => {
         placementListeners.add(setSettings)
@@ -120,7 +121,7 @@
         }
       }, [settings.position, settings.follow])
 
-      const widthRule = settings.width ? `:is(${DISPLAY_FIGURES}) img { width: min(${settings.width}px, 100%, 96vw) !important; max-height: none !important; height: auto !important; }` : ''
+      const widthRule = settings.width && settings.position === 'inline' ? `:is(${DISPLAY_FIGURES}) img { width: min(${settings.width}px, 100%, 96vw) !important; max-height: none !important; height: auto !important; }` : ''
       if (settings.position === 'inline') return widthRule ? h('style', null, widthRule) : null
       const index = Math.max(0, pictures.findIndex(item => item.src === selected))
       const picture = pictures[index]
@@ -138,7 +139,7 @@
       return h(React.Fragment, null,
         h('style', null, widthRule, `:is(${DISPLAY_FIGURES}) { min-height: 1px; min-width: 1px; } :is(${DISPLAY_FIGURES}) img { display: none !important; }`),
         picture ? h('aside', { 'data-dti-placement': settings.position, 'aria-label': '正文图片查看器',
-          style: { position: 'fixed', ...position, zIndex: 110, width, maxHeight: 'min(80vh, 900px)', overflow: 'auto', boxSizing: 'border-box',
+          style: { position: 'fixed', ...position, zIndex: 110, width, maxHeight: '90vh', overflow: 'auto', boxSizing: 'border-box',
             border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 10, padding: 8, boxShadow: '0 8px 24px #0003',
             background: 'var(--dsw-specific-input-major, Canvas)', color: 'var(--dsw-alias-label-primary, CanvasText)' } },
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, cursor: floating ? 'move' : 'default', touchAction: floating ? 'none' : 'auto' },
@@ -155,5 +156,19 @@
             h('button', { type: 'button', style: btn, onClick: () => setCollapsed(value => !value) }, collapsed ? '展开' : '收起')),
           collapsed ? null : h('button', { type: 'button', style: { display: 'block', width: '100%', border: 0, background: 'transparent', padding: 0, marginTop: 6, cursor: 'zoom-in' },
             onClick: () => openImageOverlay?.({ open: true, images: pictures.map(item => ({ url: item.src, alt: item.title })), index, note: '正文插图' }) },
-            h('img', { src: picture.src, alt: picture.title, style: { display: 'block', width: '100%', maxHeight: '65vh', objectFit: 'contain', borderRadius: 6 } }))) : null)
+            h('img', { src: picture.src, alt: picture.title, style: { display: 'block', width: '100%', height: 'auto', objectFit: 'contain', borderRadius: 6 } })),
+          collapsed ? null : h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 } },
+            h('input', { type: 'range', min: IMAGE_WIDTH_LIMIT.min, max: IMAGE_WIDTH_LIMIT.max, step: 10,
+              'aria-label': '悬浮图片宽度', value: settings.width || (floating ? 420 : 300), style: { flex: 1, minWidth: 0 },
+              onChange: event => { applyImageWidth(event.target.value); setSizeNote('预览中') } }),
+            h('span', { style: { fontSize: 12, whiteSpace: 'nowrap' } }, (settings.width || (floating ? 420 : 300)) + ' px'),
+            h('button', { type: 'button', style: btn, disabled: sizeNote === '保存中…', onClick: async () => {
+              setSizeNote('保存中…')
+              try {
+                const response = await jsonFetch(BASE + '/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ config: { imageDisplayWidth: settings.width } }) })
+                window.dispatchEvent(new CustomEvent('dsh-tavern-image:config', { detail: response.state?.config }))
+                setSizeNote('已保存')
+              } catch { setSizeNote('保存失败，请重试') }
+            } }, '保存大小')),
+          sizeNote && !collapsed ? h('small', { role: 'status' }, sizeNote) : null) : null)
     }

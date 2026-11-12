@@ -4223,3 +4223,7 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
   .dsh-opening-setup[data-layout="split"] .dsh-opening-art { display: none; }
   .dsh-opening-cards { grid-template-columns: 1fr; }
 }
+
+/* Keep native and plugin image controls together, including on narrow screens. */
+.dsh-tavern-illustration .dsh-tavern-image-actions { flex-wrap: nowrap; max-width: 100%; overflow-x: auto; box-sizing: border-box; }
+.dsh-tavern-image-actions > button { flex-shrink: 0; white-space: nowrap; }

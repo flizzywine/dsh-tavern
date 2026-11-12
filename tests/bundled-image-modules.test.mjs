@@ -133,7 +133,7 @@ test('frontend build is reproducible and rejects stale or invalid sources before
   t.after(() => rm(directory, { recursive: true, force: true }))
   await mkdir(join(directory, 'lib/client'), { recursive: true })
   await cp(new URL('src', packageRoot), join(directory, 'src'), { recursive: true })
-  for (const file of ['lib/client/transport.js', 'lib/image-provider-capabilities.js', 'lib/library-prompts.js', 'client.js']) await cp(new URL(file, packageRoot), join(directory, file))
+  for (const file of ['lib/client/transport.js', 'lib/image-provider-capabilities.js', 'lib/library-prompts.js', 'lib/prompt-entry-catalog.js', 'client.js']) await cp(new URL(file, packageRoot), join(directory, file))
   const target = join(directory, 'client.js'), original = await readFile(target, 'utf8')
   await writeFile(join(directory, 'src/client/settings.js'), '\nfunction broken( {')
   await assert.rejects(buildImageClient({ packageRoot: fixture }), SyntaxError)

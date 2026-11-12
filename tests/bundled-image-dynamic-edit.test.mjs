@@ -65,7 +65,7 @@ test('node editor rewires typed inputs; generation mechanisms preserve one seed 
 })
 
 test('image edit route accepts two uploaded sources, submits dynamic nodes and reuses its completed result', async t => {
-  const fixture = await imagePluginFixture(t, { config: { jpegOutput: true, imageBackend: 'comfyui', comfyMode: 'workflow', comfyUrl: 'http://localhost:8188', defaultWorkflow: 'edit', promptDefault: null, activePromptPreset: 'stage-edit', promptPresets: [{ id: 'stage-edit', name: '舞台编辑', independent: true, structure: { format: 'natural', purpose: 'edit', targets: [{ kind: 'workflow', id: 'edit' }], blocks: [{ kind: 'scene', title: '编辑指令', text: '' }] } }], workflows: [{ id: 'edit', file: 'workflows/edit.json' }] }, files: { 'workflows/edit.json': graph } })
+  const fixture = await imagePluginFixture(t, { config: { promptSystem: 'workbench', jpegOutput: true, imageBackend: 'comfyui', comfyMode: 'workflow', comfyUrl: 'http://localhost:8188', defaultWorkflow: 'edit', promptDefault: null, activePromptPreset: 'stage-edit', promptPresets: [{ id: 'stage-edit', name: '舞台编辑', independent: true, structure: { format: 'natural', purpose: 'edit', targets: [{ kind: 'workflow', id: 'edit' }], blocks: [{ kind: 'scene', title: '编辑指令', text: '' }] } }], workflows: [{ id: 'edit', file: 'workflows/edit.json' }] }, files: { 'workflows/edit.json': graph } })
   const runtime = await fixture.start(), submissions = [], uploads = []
   globalThis.fetch = async (url, init = {}) => {
     const path = new URL(url).pathname
@@ -95,7 +95,7 @@ test('stage uses the same ComfyUI image upload, dynamic graph and persistent job
   let provider
   const fixture = await imagePluginFixture(t, {
     tavern: { apiVersion: 5, attach() {}, promptSection() {}, onTurnSettled() {}, list: async () => [], imageProvider(value) { provider = value; return () => {} } },
-    config: { jpegOutput: true, imageBackend: 'comfyui', comfyMode: 'workflow', comfyUrl: 'http://localhost:8188', defaultWorkflow: 'edit', promptDefault: null, activePromptPreset: 'stage-edit', promptPresets: [{ id: 'stage-edit', name: '舞台编辑', independent: true, structure: { format: 'natural', purpose: 'edit', targets: [{ kind: 'workflow', id: 'edit' }], blocks: [{ kind: 'scene', title: '编辑指令', text: '' }] } }], workflows: [{ id: 'edit', file: 'workflows/edit.json' }] }, files: { 'workflows/edit.json': graph },
+    config: { promptSystem: 'workbench', jpegOutput: true, imageBackend: 'comfyui', comfyMode: 'workflow', comfyUrl: 'http://localhost:8188', defaultWorkflow: 'edit', promptDefault: null, activePromptPreset: 'stage-edit', promptPresets: [{ id: 'stage-edit', name: '舞台编辑', independent: true, structure: { format: 'natural', purpose: 'edit', targets: [{ kind: 'workflow', id: 'edit' }], blocks: [{ kind: 'scene', title: '编辑指令', text: '' }] } }], workflows: [{ id: 'edit', file: 'workflows/edit.json' }] }, files: { 'workflows/edit.json': graph },
   })
   const runtime = await fixture.start(), submitted = []
   globalThis.fetch = async (url, init = {}) => {

@@ -9,6 +9,7 @@ on:
       - 'tests/bundled-scene-image-plugin.test.mjs'
       - 'tests/browser/bundled-image-prompt-editor-browser-smoke.mjs'
       - 'tests/browser/bundled-image-reference-settings-browser-smoke.mjs'
+      - 'tests/browser/bundled-image-scenarios-browser-smoke.mjs'
       - 'tests/browser/tavern-illustrator-manual-direction-browser-smoke.mjs'
       - 'tests/browser/tavern-gallery-provider-browser-smoke.mjs'
       - 'tests/plugin-api.test.mjs'
@@ -101,6 +102,9 @@ jobs:
       - name: Run reference settings browser check
         if: matrix.os == 'ubuntu-22.04'
         run: node tests/browser/bundled-image-reference-settings-browser-smoke.mjs
+      - name: Run scenario modes and image layout browser check
+        if: matrix.os == 'ubuntu-22.04'
+        run: node tests/browser/bundled-image-scenarios-browser-smoke.mjs
       - name: Run manual illustration direction browser check
         if: matrix.os == 'ubuntu-22.04'
         run: node tests/browser/tavern-illustrator-manual-direction-browser-smoke.mjs

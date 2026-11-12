@@ -125,7 +125,7 @@ test('规划只收文字及清单，结构化subjects到实际图片编号绑定
   const prompts = [], calls = []
   let output = '<images><image><regex>林月站在窗边。</regex><prompts>【人物】\n林月\n\n【动作】\n站在窗边。</prompts><subjects>[{"characterId":"lin","outfitId":""}]</subjects></image></images>'
   globalThis.fetch = atlasMock(calls)
-  const { runtime } = await prepare(t, { llm: { async *stream(input) { prompts.push(input); yield { type: 'text-delta', text: output } } } })
+  const { runtime } = await prepare(t, { config: { promptSystem: 'workbench' }, llm: { async *stream(input) { prompts.push(input); yield { type: 'text-delta', text: output } } } })
   const result = await runtime.request('plan', { text: '林月站在窗边。', messageId: 'turn-1', count: 1, manual: true })
   assert.equal(result.status, 200, JSON.stringify(result.body))
   assert.equal(result.body.plans.length, 1, JSON.stringify(result.body))

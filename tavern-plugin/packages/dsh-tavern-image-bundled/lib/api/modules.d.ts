@@ -17,7 +17,7 @@ export interface TemplateModuleDefinition {
   id: string; name: string; fields?: ModuleField[];
   resolve(context: ModuleContext): ModuleContribution | Promise<ModuleContribution>;
 }
-export interface ExtensionBlock { kind: 'extension'; title: string; moduleId: string; values: Record<string, ModuleValue>; usage?: string; enabled?: boolean }
+export interface ExtensionBlock { kind: 'extension'; title: string; moduleId: string; values: Record<string, ModuleValue>; usage?: string; enabled?: boolean; modes?: string[] }
 export interface MaterializedModules {
   structure: object | undefined; parameters: ModuleParameters; workflowValues: WorkflowValue[];
   trace: Array<{ title: string; moduleId: string; parameters: ModuleParameters; workflowValues: WorkflowValue[] }>;

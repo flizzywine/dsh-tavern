@@ -1,3 +1,4 @@
+import { normalizeScenarioSettings } from './prompt-scenarios.js'
 import { normalizeModuleValues } from './template-modules.js'
 const FORMATS = ['auto', 'tags', 'natural', 'mixed', 'structured']
 const KINDS = ['section', 'positive', 'negative', 'scene', 'rule', 'style', 'lora', 'entries', 'library', 'output', 'mechanism', 'extension']
@@ -36,6 +37,7 @@ export function normalizePromptStructure(value) {
     if (block.kind === 'extension') { result.moduleId = String(block.moduleId || 'core.custom').slice(0, 120); result.values = normalizeModuleValues(block.values) }
     if (block.kind === 'output') result.format = FORMATS.includes(block.format) ? block.format : value.format
     else if (usage) result.usage = usage
+    if (Array.isArray(block.modes)) result.modes = [...new Set(block.modes.filter(id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,40}$/.test(id)))].slice(0, 20)
     if (block.enabled === false) result.enabled = false
     if (block.kind === 'style' && typeof block.styleId === 'string' && block.styleId.trim()) {
       result.styleId = block.styleId.trim().slice(0, 120)
@@ -78,7 +80,7 @@ export function normalizePromptStructure(value) {
     keys.add(key)
     return [{ key, label: String(input.label || key).trim().slice(0, 60), default: String(input.default ?? '').slice(0, 2000), required: input.required === true }]
   })
-  return { format, blocks, ...( ['generate', 'edit', 'both'].includes(value.purpose) ? { purpose: value.purpose } : {}), ...(inputs.length ? { inputs } : {}), targets: [...targets.values()], ...(generationRules ? { generationRules } : {}) }
+  return { format, blocks, ...(normalizeScenarioSettings(value.scenarios) ? { scenarios: normalizeScenarioSettings(value.scenarios) } : {}), ...( ['generate', 'edit', 'both'].includes(value.purpose) ? { purpose: value.purpose } : {}), ...(inputs.length ? { inputs } : {}), targets: [...targets.values()], ...(generationRules ? { generationRules } : {}) }
 }
 
 export function structureGuidance(structure, format = structure?.format, usage) {
