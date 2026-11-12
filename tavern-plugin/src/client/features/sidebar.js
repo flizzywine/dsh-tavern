@@ -115,7 +115,10 @@
 			const [managerStatusFilter, setManagerStatusFilter] = React.useState("all");
 			const [managerRenaming, setManagerRenaming] = React.useState(null);
 			const attemptedPreviewIds = React.useRef(new Set());
-			const pickerOpen = (picking && uiMode === "play") || historyManagerOpen;
+			const pickerOpen = !collapsed && (picking || historyManagerOpen || updatingCard);
+			function portalOverlay(node) {
+				return node && typeof ReactDOM !== "undefined" && ReactDOM && typeof ReactDOM.createPortal === "function" && typeof document !== "undefined" && document.body ? ReactDOM.createPortal(node, document.body) : node;
+			}
 			React.useEffect(function () {
 				if (!pickerOpen) return;
 				document.body.classList.add("dsh-tavern-picker-open");
@@ -1659,7 +1662,7 @@
 					void importPickedCards(files);
 				} }),
                     h('input',{ref:updateInput,type:'file',accept:'.json,.png,.charx,.dshcard',style:{display:'none'},onChange:e=>{const file=e.target.files?.[0]; if(!file)return; setUpdateFile(file); setUpdatingCard(true);setUpdateNotice('');setUpdateError('');setUpdateResult(null);e.target.value='';}}),
-                updatingCard ? h(TavernCardUpdateDialog, { target: updateTarget, name: cards.find(card => card.path === updateTarget)?.name || updateTarget, file: updateFile, notice: updateNotice, error: updateError, result: updateResult, busy, call, pick: () => updateInput.current.click(), close: () => setUpdatingCard(false), replace: replaceSelectedCard }) : null,
+                !collapsed && updatingCard ? portalOverlay(h(TavernCardUpdateDialog, { target: updateTarget, name: cards.find(card => card.path === updateTarget)?.name || updateTarget, file: updateFile, notice: updateNotice, error: updateError, result: updateResult, busy, call, pick: () => updateInput.current.click(), close: () => setUpdatingCard(false), replace: replaceSelectedCard })) : null,
 				h("div", { className: "dsh-tavern-side-title dsh-tavern-history-heading" },
 					h("span", null, uiMode === "play" ? "游玩历史" : "卡片历史"),
 					h("button", { className: "dsh-tavern-history-action", disabled: busy, onClick: function () { setManaging(!managing); setSelectedChats([]); setMenuSession(null); setDeleteNotice(""); } }, managing ? "取消" : "管理"),
@@ -1681,9 +1684,9 @@
                     h(TavernHostCompatibility),
 					!updateMessage || updateStatus.phase === "idle" || updateStatus.phase === "loading" || upToDateQuiet ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : ""), role: "status" }, updateMessage)
 				),
-				historyManagerPanel,
-				(openingPicker || (picking && uiMode === "play")) ? h("div", { key: "play-picker", className: "dsh-tavern-picker-overlay", style: { display: picking && uiMode === "play" && !updatingCard ? undefined : "none" }, onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, playPicker) : null,
-                picking && uiMode === "card" ? h("div", { key: "card-picker", className: "dsh-tavern-picker-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, cardPicker) : null,
+				!collapsed ? portalOverlay(historyManagerPanel) : null,
+				!collapsed && (openingPicker || (picking && uiMode === "play")) ? portalOverlay(h("div", { key: "play-picker", className: "dsh-tavern-picker-overlay", style: { display: picking && uiMode === "play" && !updatingCard ? undefined : "none" }, onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, playPicker)) : null,
+                !collapsed && picking && uiMode === "card" ? portalOverlay(h("div", { key: "card-picker", className: "dsh-tavern-picker-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closePicker(); } }, cardPicker)) : null,
 				cardZipImport ? cardZipImport.element : null
 			));
 		}

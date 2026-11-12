@@ -220,4 +220,135 @@ test('移动端侧栏整屏铺开，右上角有收回按钮，▾ 仍然在行�
   assert.doesNotMatch(css, /\.dsh-tavern-side-row-preview \{ -webkit-line-clamp: 2; \}/)
 })
 
+test('宽屏管理面板在移动端铺满卡片正文宽度、动作按钮下沉且 portal 压过宿主壳层', async t => {
+  assert.match(sidebar, /portalOverlay\(historyManagerPanel\)/)
+  assert.match(css, /\.dsh-tavern-picker-overlay \{ position: fixed; z-index: 1450;/)
+  assert.match(css, /body:not\(\.dsh-tavern-picker-open\) \.dsh-tavern-story-return/)
+
+  const { chromium } = await import('playwright')
+  const themeCss = readFileSync(new URL('../tavern-plugin/lib/client-assets/theme.css', import.meta.url), 'utf8')
+  const paperCss = readFileSync(new URL('../tavern-plugin/packages/dsh-dream-skin/lib/skins/paper.css', import.meta.url), 'utf8')
+  const browser = await chromium.launch({ headless: true })
+  t.after(() => browser.close())
+
+  const html = `<!doctype html>
+<html class="dsh-tavern-viewport-pinned" style="--dsh-vv-top: 0px; --dsh-vv-height: 823px;">
+<head><meta name="viewport" content="width=device-width, initial-scale=1" /></head>
+<body class="dsh-tavern-shell-active dsh-tavern-picker-open" data-dream-skin="paper">
+  <div data-slot="root">
+    <div class="host_frame" data-mobile-nav="frame">
+      <div class="host_sidebarCol" style="position: fixed; inset: 0; z-index: 1300;">
+        <div class="hHd-Xa_root" style="width: 280px;">
+          <div class="hHd-Xa_logoRow"><button class="hHd-Xa_toggle" aria-label="收起侧边栏">◧</button></div>
+          <div class="hHd-Xa_regionArea"><div data-slot="sidebar.workspaces"><div class="dsh-tavern-sidebar"></div></div></div>
+          <div data-slot="sidebar.settings"><div><div data-slot="settings.launcher"><button data-signed-out="true" data-collapsed="false">··· </button></div></div></div>
+        </div>
+      </div>
+      <div class="host_rightbarCol"><div data-sidebar-right-panel="fullscreen" data-sidebar-right-open="true"></div></div>
+    </div>
+  </div>
+  <button type="button" class="dsh-tavern-story-return">‹ 回到故事</button>
+  <div class="dsh-tavern-picker-overlay dsh-tavern-history-manager-overlay">
+    <div class="dsh-tavern-history-manager" role="dialog" aria-modal="true" aria-label="会话管理">
+      <div class="dsh-tavern-history-manager-head">
+        <span>游玩历史 · 管理</span>
+        <span class="dsh-tavern-history-manager-count">共 223 · 当前 223</span>
+        <span class="dsh-tavern-spacer"></span>
+        <button class="dsh-tavern-btn">关闭</button>
+      </div>
+      <div class="dsh-tavern-history-manager-toolbar">
+        <input class="dsh-tavern-library-search dsh-tavern-history-manager-search" placeholder="搜索标题或对话内容" />
+        <select class="dsh-tavern-history-manager-select"><option value="all">全部人物卡</option></select>
+        <div class="dsh-tavern-history-manager-filters">
+          <button class="dsh-tavern-history-manager-filter" aria-pressed="true">全部</button>
+          <button class="dsh-tavern-history-manager-filter" aria-pressed="false">有交互</button>
+          <button class="dsh-tavern-history-manager-filter" aria-pressed="false">仅开场</button>
+          <button class="dsh-tavern-history-manager-filter" aria-pressed="false">已归档</button>
+        </div>
+      </div>
+      <div class="dsh-tavern-history-manager-list">
+        <div class="dsh-tavern-history-manager-row current">
+          <input type="checkbox" class="dsh-tavern-history-manager-check" />
+          <div class="dsh-tavern-history-manager-body">
+            <div class="dsh-tavern-history-manager-headline">
+              <button class="dsh-tavern-history-manager-title">11/7 20:25 开局</button>
+              <span class="dsh-tavern-history-manager-turn">23 轮</span>
+              <span class="dsh-tavern-history-manager-time">11/12 11:42</span>
+            </div>
+            <div class="dsh-tavern-history-manager-card">示例角色卡</div>
+            <div class="dsh-tavern-history-manager-preview">你：ok\n角色：多行预览文本在窄屏下应占满整行宽度，不在右侧留下大片空白。</div>
+          </div>
+          <div class="dsh-tavern-history-manager-actions">
+            <button>打开</button><button>归档</button><button class="danger">删除</button>
+          </div>
+        </div>
+      </div>
+      <div class="dsh-tavern-history-manager-foot">
+        <button class="dsh-tavern-btn">全选筛选结果</button>
+        <button class="dsh-tavern-btn">取消选择</button>
+        <span class="dsh-tavern-history-manager-selected">已选 1 个</span>
+        <span class="dsh-tavern-spacer"></span>
+        <button class="dsh-tavern-btn">归档所选（1）</button>
+        <button class="dsh-tavern-btn" disabled>恢复所选</button>
+        <button class="dsh-tavern-btn danger">彻底删除（1）</button>
+      </div>
+    </div>
+  </div>
+</body></html>`
+
+  const mobileContext = await browser.newContext({ viewport: { width: 386, height: 823 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
+  const mobile = await mobileContext.newPage()
+  await mobile.setContent(html)
+  await mobile.addStyleTag({ content: css + '\n' + themeCss + '\n' + paperCss })
+  const m = await mobile.evaluate(() => {
+    const dialog = document.querySelector('.dsh-tavern-history-manager')
+    const row = document.querySelector('.dsh-tavern-history-manager-row')
+    const body = row.querySelector('.dsh-tavern-history-manager-body')
+    const actions = row.querySelector('.dsh-tavern-history-manager-actions')
+    const search = document.querySelector('.dsh-tavern-history-manager-search').getBoundingClientRect()
+    const select = document.querySelector('.dsh-tavern-history-manager-select').getBoundingClientRect()
+    const footButtons = [...document.querySelectorAll('.dsh-tavern-history-manager-foot .dsh-tavern-btn')]
+    const rr = row.getBoundingClientRect(), br = body.getBoundingClientRect(), ar = actions.getBoundingClientRect()
+    const archiveHit = (() => {
+      const btn = footButtons[2], r = btn.getBoundingClientRect()
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      return btn === hit || btn.contains(hit)
+    })()
+    return {
+      bodyRatio: br.width / rr.width,
+      actionsBelowBody: ar.top >= br.bottom - 1,
+      actionsAlignedWithBody: Math.abs(ar.left - br.left) <= 2,
+      selectMatchesSearchWidth: Math.abs(select.width - search.width) <= 2,
+      archiveRowBelowSelectAll: footButtons[2].getBoundingClientRect().top >= footButtons[0].getBoundingClientRect().bottom - 1,
+      archiveHit,
+      storyReturnDisplay: getComputedStyle(document.querySelector('.dsh-tavern-story-return')).display,
+      logoRowDisplay: getComputedStyle(document.querySelector('.hHd-Xa_logoRow')).display,
+      opaqueDialogBg: /^rgb\(/.test(getComputedStyle(dialog).backgroundColor)
+    }
+  })
+  assert.ok(m.bodyRatio > 0.82, `移动端会话正文应占满卡片宽度：${m.bodyRatio}`)
+  assert.equal(m.actionsBelowBody, true, '移动端操作按钮应排在预览下方而不是挤占右列')
+  assert.equal(m.actionsAlignedWithBody, true, '移动端操作按钮左边缘应与正文列对齐')
+  assert.equal(m.selectMatchesSearchWidth, true, '移动端人物卡筛选下拉应占满整行宽度')
+  assert.equal(m.archiveRowBelowSelectAll, true, '移动端底栏批量操作应独立换到下一行')
+  assert.equal(m.archiveHit, true, '底栏归档按钮不应被宿主侧栏设置或回到故事浮层遮挡')
+  assert.equal(m.storyReturnDisplay, 'none')
+  assert.equal(m.logoRowDisplay, 'none')
+  assert.equal(m.opaqueDialogBg, true)
+  await mobileContext.close()
+
+  const desktopContext = await browser.newContext({ viewport: { width: 1280, height: 800 } })
+  const desktop = await desktopContext.newPage()
+  await desktop.setContent(html)
+  await desktop.addStyleTag({ content: css + '\n' + themeCss + '\n' + paperCss })
+  const d = await desktop.evaluate(() => {
+    const row = document.querySelector('.dsh-tavern-history-manager-row')
+    const body = row.querySelector('.dsh-tavern-history-manager-body').getBoundingClientRect()
+    const actions = row.querySelector('.dsh-tavern-history-manager-actions').getBoundingClientRect()
+    return { actionsOnRight: actions.left >= body.right - 1 }
+  })
+  assert.equal(d.actionsOnRight, true, '桌面端保留右侧动作列')
+  await desktopContext.close()
+})
+
 
