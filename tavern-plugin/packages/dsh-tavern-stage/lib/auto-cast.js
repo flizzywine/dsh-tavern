@@ -2,10 +2,13 @@ import {createHash} from 'node:crypto'
 import resolution from '../../dsh-presentation-protocol/src/figure-resolution.cjs'
 import {matchBubbleMood} from '../../dsh-asset-library/lib/asset-packs/figure-emotions.js'
 import {planAutoFigures} from './domain/auto-figure.js'
-import {emptyAutoCastRecord, noteRound, planAutoCast, jobKey, figureKey, jobReady, jobFailed, jobsLanded, channelOpaque, channelDrawsSprites, noteCasting, castDrawn, noteDrawn, noteWriteFailure, autoCastProblem, looksDelivered} from './domain/auto-cast-queue.js'
+import {emptyAutoCastRecord, noteRound, planAutoCast, jobKey, figureKey, jobReady, jobFailed, jobsLanded, channelOpaque, channelDrawsSprites, noteCasting, castDrawn, noteDrawn, noteWriteFailure, autoCastProblem, looksDelivered, wantSettei, setteiGivenUp} from './domain/auto-cast-queue.js'
 
 const {resolveFigureName} = resolution
 const ROOT = 'auto-cast/', INDEX = ROOT + 'index.json', PER_CARD = 2
+// How long a CG of the image plugin waits: for a round's casting (the 选角助理, about 20 s), for a 人设图 (50–100 s, after
+// the card's pictures in flight).
+const CAST_WAIT_MS = 90_000, SETTEI_WAIT_MS = 300_000
 const recordPath = cardId => ROOT + sha(cardId).slice(0, 32) + '.json'
 const sha = text => createHash('sha256').update(text).digest('hex')
 // 人设图 (主人 11-11 选 C): front and back of the whole body plus part close-ups, in one board; the back serves CG and 配图.
@@ -78,12 +81,22 @@ const keyBackground = key => 'Background: one flat solid ' + key + ' colour fill
 export function createAutoCast({store, settings, library, images, cast:castAssistant = null, now = Date.now, onError = () => {}}) {
   let active = true, chain = Promise.resolve()
   const records = new Map(), busy = new Map(), pumps = new Map(), landing = new Map(), controllers = new Set()
+  // sessionId → the last turn round() has finished with; the waits of awaitCast and awaitSettei, tried again on every change.
+  const castTurns = new Map(), waits = new Set()
+  const wake = () => { for (const wait of [...waits]) wait() }
+  const until = (check, ms, signal) => new Promise(resolve => {
+    const done = () => { clearTimeout(timer); waits.delete(test); signal?.removeEventListener('abort', done); resolve() }
+    const test = () => void Promise.resolve().then(check).then(ok => ok && done(), done)
+    const timer = setTimeout(done, ms)
+    waits.add(test); signal?.addEventListener('abort', done, {once:true}); test()
+  })
   const serial = task => { const next = chain.then(task); chain = next.catch(() => {}); return next }
   const read = async cardId => records.get(cardId) || {...emptyAutoCastRecord(), ...await store.readJson(recordPath(cardId))}
   const update = (cardId, change) => serial(async () => {
     const next = change(await read(cardId))
     records.set(cardId, next)
     await store.writeJson(recordPath(cardId), next)
+    wake()
     return next
   })
   const remember = (cardId, cardPath) => serial(() => store.updateJson(INDEX, index => ({...index, [cardId]:cardPath})))
@@ -215,6 +228,33 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
     await update(cast.cardId, current => looksDelivered(current, waiting.map(figure => figureKey(figure.ref))))
   }
 
+  // round()'s work; done() once its speakers are written (before the drawing it starts), so awaitCast does not wait for pictures.
+  async function castRound(cardPath, body, chat, opening, done) {
+    const choice = active && library.writable() && await settings(cardPath)
+    if (!choice?.enabled || opening && choice.level === 'late') return
+    let cast = await library.readCast(cardPath)
+    if (!cast) return
+    const source = sourceOf(chat, body), last = (await read(cast.cardId)).source
+    if (last && ['chatId', 'branchId', 'messageId'].every(key => last[key] === source[key])) return
+    await remember(cast.cardId, cardPath)
+    const speakers = newSpeakers(body, cast, await read(cast.cardId), {actorKey:'player', name:chat.macroState?.userName?.trim() || '你', aliases:[]})
+    if (speakers.length && active) {
+      let failure = null
+      const decided = castAssistant ? await castAssistant({cardPath, chat, speakers, cast}).catch(error => {
+        onError(error); failure = {at:now(), error:String(error?.code || error?.message || error).slice(0, 200)}; return null }) : null
+      const plan = castChanges(speakers, decided)
+      // a write the library refuses is kept for the player (status), not only the host log; the round's speakers are asked again next round
+      const written = plan.changes.length ? await library.write({cardPath, changes:plan.changes, sources:plan.sources, source, requestId:sha(JSON.stringify([source, plan.changes]))}).catch(async error => {
+        onError(error); await update(cast.cardId, current => noteWriteFailure(current, {at:now(), error:String(error?.code || error?.message || error).slice(0, 200)})); return null }) : {refs:[]}
+      if (!written) return
+      await update(cast.cardId, current => noteCasting(current, plan.entries.map((entry, index) => ({...entry, ref:written.refs[index]})), decided?.same || {}, failure))
+      cast = await library.readCast(cardPath)
+    }
+    await update(cast.cardId, current => ({...noteRound(current, roundRequests(body, cast), cast.figures), source}))
+    done()
+    return pump(cardPath)
+  }
+
   const handles = async cardPath => active && library.writable() && (await settings(cardPath))?.enabled === true
   return {
     // Whether 自动选角 takes this card's new speakers (自动建人物 then leaves them to it).
@@ -223,28 +263,30 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
     // counts only from 积极 up: 晚一轮 waits for what the story itself asks. A round seen again (the same message of the
     // same branch) is not counted twice.
     async round(cardPath, body, chat, {opening = false} = {}) {
-      const choice = active && library.writable() && await settings(cardPath)
-      if (!choice?.enabled || opening && choice.level === 'late') return
-      let cast = await library.readCast(cardPath)
-      if (!cast) return
-      const source = sourceOf(chat, body), last = (await read(cast.cardId)).source
-      if (last && ['chatId', 'branchId', 'messageId'].every(key => last[key] === source[key])) return
-      await remember(cast.cardId, cardPath)
-      const speakers = newSpeakers(body, cast, await read(cast.cardId), {actorKey:'player', name:chat.macroState?.userName?.trim() || '你', aliases:[]})
-      if (speakers.length && active) {
-        let failure = null
-        const decided = castAssistant ? await castAssistant({cardPath, chat, speakers, cast}).catch(error => {
-          onError(error); failure = {at:now(), error:String(error?.code || error?.message || error).slice(0, 200)}; return null }) : null
-        const plan = castChanges(speakers, decided)
-        // a write the library refuses is kept for the player (status), not only the host log; the round's speakers are asked again next round
-        const written = plan.changes.length ? await library.write({cardPath, changes:plan.changes, sources:plan.sources, source, requestId:sha(JSON.stringify([source, plan.changes]))}).catch(async error => {
-          onError(error); await update(cast.cardId, current => noteWriteFailure(current, {at:now(), error:String(error?.code || error?.message || error).slice(0, 200)})); return null }) : {refs:[]}
-        if (!written) return
-        await update(cast.cardId, current => noteCasting(current, plan.entries.map((entry, index) => ({...entry, ref:written.refs[index]})), decided?.same || {}, failure))
-        cast = await library.readCast(cardPath)
-      }
-      await update(cast.cardId, current => ({...noteRound(current, roundRequests(body, cast), cast.figures), source}))
-      return pump(cardPath)
+      const turn = Number(chat.messages.findLast(row => row.role === 'assistant')?.turn || 0)
+      const done = () => { castTurns.set(chat.sessionId, Math.max(castTurns.get(chat.sessionId) || 0, turn)); wake() }
+      try { return await castRound(cardPath, body, chat, opening, done) } finally { done() }
+    },
+    // The image plugin plans a settled turn's CG after this: the people the turn brought in are written (with their 外貌 in
+    // their 人物库 record), so the plan names them by their record. At once for a card 自动选角 does not take.
+    async awaitCast(cardPath, sessionId, turn, signal) {
+      if (await handles(cardPath)) await until(() => (castTurns.get(sessionId) || 0) >= turn, CAST_WAIT_MS, signal)
+    },
+    // A CG of these figures (refs of the card's 自动生成 pack; others are not ours) waits for their 人设图: each one without is
+    // drawn first, and this resolves once it has landed (the host then puts it on the record). → {unavailable: refs whose
+    // 人设图 did not come: it failed, or the wait ran out}.
+    async awaitSettei(cardPath, refs, signal) {
+      const cast = active && await library.readCast(cardPath)
+      const pending = () => library.readCast(cardPath).then(async current => {
+        const record = await read(cast.cardId), figures = current?.figures || []
+        return refs.filter(ref => { const figure = figures.find(row => figureKey(row.ref) === figureKey(ref)); return figure && !figure.settei && castDrawn(record, figure) })
+      })
+      const waiting = cast?.packId ? await pending() : []
+      if (!waiting.length) return {unavailable:[]}
+      await update(cast.cardId, current => wantSettei(current, waiting))
+      void pump(cardPath)
+      await until(async () => { const left = await pending(), record = await read(cast.cardId); return left.every(ref => setteiGivenUp(record, ref, now())) }, SETTEI_WAIT_MS, signal)
+      return {unavailable:await pending()}
     },
     // After a restart: land what was drawn and continue the queue of every card that has one.
     async resume() {

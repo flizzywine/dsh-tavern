@@ -275,6 +275,14 @@ async function settle({ currentVariables, signal }) {
 
 处理函数里抛错不会影响游戏，错误会写进日志。处理函数不必等生图完成才返回。
 
+## `beforeImagePlan({ gameId, turn, manual, signal })`、`beforeImageGenerate({ gameId, turn, subjects, manual, signal })`
+
+给场景配图类插件的两个放行口子（插件按 `typeof tavern.beforeImagePlan === 'function'` 判断，宿主没有就照旧）。宿主在这一轮还要先准备东西时，用它们让插件等：Tavern 的自动素材会给正文里新出场的人物建人物库记录、写外貌，再画人设图并设成记录的参考图，等到了再画，画出来的人才和立绘一致。
+
+- `beforeImagePlan`：规划这一轮的画面之前调用，返回后再规划（插件应重读这一轮）。这一轮新来的人物写好后返回；这张卡不用自动素材时立即返回。
+- `beforeImageGenerate`：出某一张图之前调用，`subjects` 是这张图规划出的人物 `[{ characterId, … }]`（最多 16 个）。其中关联了素材库人物、记录还没有参考图的，等他的人设图挂上；返回 `{}` 放行，或 `{ skip: true, reason }`：人设图画不出来，这张不出（不凭名字另画一个人），`reason` 给玩家看。
+
+两个口子都有上限（选角约 90 秒，人设图约 5 分钟），到时照常返回；`signal` 中止时立即返回。
 ## `getTurn({ gameId, turn })`
 
 读某一轮**当前显示版本**的同一份内容（含 `variables`，不含 `settledAt`）。这一轮不存在、或者是还没结算完的最新一轮时返回 `null`。用于插件自己的「手动生成」按钮。只读这一轮，不读整局历史，可以按需随时调用。
