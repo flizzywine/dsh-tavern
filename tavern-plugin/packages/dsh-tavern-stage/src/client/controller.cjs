@@ -54,7 +54,11 @@ const useStagePosition=(...args)=>stageViews.position.usePosition(...args);
 const useStageRuntime=(...args)=>stageViews.runtimeUi.useRuntime(...args);
 const useStageSelector=(...args)=>stageViews.runtimeUi.useSelector(...args);
 const useStageSkin=(...args)=>stageViews.skinPresentation.useSkin(...args);
-const useStageTimerSlot=(...args)=>stageViews.timer.useSlot(...args);
+// The stage HUD slots (features.cjs huds; a countdown): each view's useSlot(props) returns {shown,element,onInputActivity,fallbackRef}; the
+// controller merges them: shown if any is, every element, every input callback, the first fallbackRef.
+const useStageHuds=props=>{const list=stageViews.huds.map(view=>view.useSlot(props));return {
+    shown:list.some(item=>item.shown),elements:list.map(item=>item.element),
+    onInputActivity:(...args)=>{for(const item of list)item.onInputActivity?.(...args);},fallbackRef:list.find(item=>item.fallbackRef)?.fallbackRef};};
 // The stage features that take the stage over for a performance (features.cjs takeovers; a full-screen text card): each view's
 // useStage({sessionId,reducedMotion,blocked}) returns {accepts,play,skip,cancel,up,busy,node}, and the controller drives them as one.
 const useStageTakeovers=props=>{const list=stageViews.takeovers.map(view=>view.useStage(props));return {
@@ -920,10 +924,10 @@ function GalStage(props) {
     const takeover=useStageTakeovers({sessionId,reducedMotion:reading.reducedMotion,blocked:backlog||configOpen||galleryOpen||pageOpen||menuOpen});
     // Auto and skip wait for each presentation's own clock; manual navigation still cancels immediately.
     const presentationBusy = takeover.busy || modPerformances.busy || !!title;
-    // The timer owns a stage-open wall clock. UI playback and the selected history floor do not hold the live budget.
+    // A HUD view may own a stage-open wall clock. UI playback and the selected history floor do not hold the live budget.
     // A reply timeout may offer a fallback only while the choices' input lock still permits it.
-    // skinKey: the drawn skin - its mod options and locks are the timer's look (mod-options.js).
-    const stageTimer = useStageTimerSlot({sessionId, rootRef, reading, source:runtime.source, token:receivedDirection.token, turn, skinKey:drawnSkin?.id || '',
+    // skinKey: the drawn skin - its mod options and locks are a HUD view's look (mod-options.js).
+    const stageHuds = useStageHuds({sessionId, rootRef, reading, source:runtime.source, token:receivedDirection.token, turn, skinKey:drawnSkin?.id || '',
         mode:replaying ? 'replay' : runtime.cursor.mode === 'history' || turn !== latestTurn ? 'history' : 'live', visit:runtime.cursor.visitId,
         at:Math.min(pages[page]?.para || 1, runtime.director.through || 0), offset:runtime.cursor.anchor?.offset || 0, sending:!!waiting, running,
         waiting:!leasing && atEnd && (typed || openingOnly) && !hidden && !awaiting && !running && !sourceWidget.openKey && !!props.Choices});
@@ -1293,8 +1297,8 @@ function GalStage(props) {
     const skinItem = film ? null : activeSkin?.resolvedArt?.item || null;
     const itemHidesText = Boolean(skinItem?.hideText && modPerformances.visibleRows.some(row => row.performance?.payload?.action === 'gain'));
     // A mode's hud.hide puts drawn buttons away while it is on (the debate has no menu gear; Esc still opens the menu); the skin's
-    // hud.timer.hide while a timer shows, in every mode, so the clock stands in one place across dialogue and debate.
-    const timerHide = stageTimer.shown ? activeSkin?.resolvedArt?.timerHide || [] : [];
+    // hud.timer.hide while a HUD view shows, in every mode, so the clock stands in one place across dialogue and debate.
+    const timerHide = stageHuds.shown ? activeSkin?.resolvedArt?.timerHide || [] : [];
     const skinButtons = [...(activeSkin?.resolvedArt?.buttons || []).filter(button => !skinMode?.hide.includes(button.action) && !timerHide.includes(button.action)), ...(skinMode && !dialogueHeld && !narrow ? activeSkin?.resolvedArt?.modeButtons?.[skinMode.id] || [] : [])];
     const backDisabled = (leasing || turnIndex <= 0) && page === 0 && card === 0 && !transitioning;
     // data-reduced-motion mirrors CONFIG 「减少动态」 for CSS-only theme motion (the crt power-on/blink).
@@ -1422,10 +1426,10 @@ function GalStage(props) {
                     id === "backlog" ? control("backlog", "履历（L）", openBacklog) :
                     // ≡ opens the system menu for touch and mouse too; Esc still opens it.
                     menuButton()))),
-        // the countdown plate (timer-stage.js); its own pause button is the only control on it.
+        // the HUD slots (a countdown plate); its own pause button is the only control on it.
         // After the text box: a skin's box art may span the whole stage (e.g. a frame that carries the top-right flourish), and the
         // digits stay above it; the top bar, drawn buttons and panels stay above the plate (theme.css).
-        stageTimer.element,
+        ...stageHuds.elements,
         // The entry veil: it covers the whole stage until the gate is ready (gal-entry.js), never a notice over the scene.
         h(GalEntryOverlay, {phase:entryGate.phase, progress:loadProgress, nameOf, loader:entryLoader, entrance:entrance.overlay}),
         entrance.element,
@@ -1444,7 +1448,7 @@ function GalStage(props) {
             onRegenerate: props.Regenerate && !openingOnly ? openRegenerate : undefined, regenerateDisabled: regenerateBlocked,
             withdrawnText: withdrawal && withdrawal.landed ? withdrawal.text : "",
             onSending: (text, how) => { setAuto(false); setWithdrawal(null); pickRef.current = { text: String(text || ""), offered: Boolean(how && how.offered) }; setWaiting({ turn, text: String(text || ""), seen: false }); },
-            onSendFailed: () => setWaiting(null), onInputActivity: stageTimer.onInputActivity, fallbackRef: stageTimer.fallbackRef })) : null,
+            onSendFailed: () => setWaiting(null), onInputActivity: stageHuds.onInputActivity, fallbackRef: stageHuds.fallbackRef })) : null,
         galleryOpen ? h(CgGallery,{key:sessionId,sessionId,store:runtime.store,onClose:closeGallery,
             // 在素材库中编辑 leaves the stage for the 素材库 tab (the stage covers the chat and its sidebar).
             onExit:()=>{setGallery(false);props.onExit();}}) : null,

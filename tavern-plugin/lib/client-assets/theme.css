@@ -6224,7 +6224,6 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-inline-trigger:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 1px; }
 /* ==== end fork inline edit ==== */
 
-@keyframes fork-timer-breathe { 50% { transform: scale(1.025); } }
 /* ==== round dice rolls (mods/dice/client/roll.js) ==== */
 /* A compact card per tavern_roll, ahead of the round's story text: one line 「魔力检定 · 20 · 成功」. Tier colours alias existing
    tokens only; the stage (and its 履历 line) re-point them at the --gal-ui-* paints. A covered die and a peeked card are

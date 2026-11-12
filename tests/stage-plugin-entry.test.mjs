@@ -97,13 +97,14 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
     views.sessions.get = originalGet
     views.sessions.owner = originalOwner
   }
-  // the theme, the presentation CSS and the textcard mod's stage feature CSS (mods/textcard/client/stage.css)
-  assert.equal(styles.size,3)
+  // the theme, the presentation CSS and the textcard and timer mods' stage feature CSS (mods/*/client/stage.css)
+  assert.equal(styles.size,4)
   // Styles inserted after boot name their owner, or the module loader claims them for the next plugin it materializes.
   for (const style of styles) assert.equal(style.dataset.plugin, 'dsh-tavern-stage')
   assert.match([...styles][1].textContent, /fork-widget-source-controls/)
-  assert.equal([...styles][2].dataset.stageFeature, 'textcard')
-  assert.match([...styles][2].textContent, /fork-tc-layer/)
+  const feature = id => [...styles].find(style => style.dataset.stageFeature === id)
+  assert.match(feature('textcard').textContent, /fork-tc-layer/)
+  assert.match(feature('timer').textContent, /fork-timer-pill/)
   await first.dispose()
   assert.deepEqual(seen,['tab','sessions','stop-sessions','remove-tab'])
   assert.equal(styles.size,0)
