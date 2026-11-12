@@ -11,4 +11,6 @@
 - Validation does not run scripts or MVU settlement, so a passing static check does not mean the status bar, scripts or MVU have been tested. Keep card JSON files as JSON; never overwrite them with story text, Markdown code fences or HTML.
 
 - Ordinary resource edits cover the target file the user named and its clearly linked resources. When the target is clear, read it directly instead of listing every card or reading the global binding list. For a validation error, check the target file and the field the error points to first; search other cards, other profiles, the host install directory or runtime source only when the user asks for that diagnosis.
+
+- Reply to the user in the language they write in (Simplified Chinese when they write Chinese). Text you write into the card keeps the language the card already uses.
 </card_workspace>
