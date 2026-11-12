@@ -127,7 +127,7 @@ function bindStageViews(createViews) {
         transcriptOutfits:{rpc,signals:tavernSessionSignals},
         // what every stage feature (a mod's client/stage.cjs, features.cjs) may use: the host's RPC for its own requests
         features:{rpc},
-        sourceWidgets:{storage:(()=>{try{return localStorage;}catch{return null;}})(),foreground:forkForeground,rpc,signals:tavernSessionSignals,characters:{character:bubbleCharacter,mood:bubbleMood,moods:bubbleMoodList,actor:stageActorCharacter},avatarCache,phoneProtocol:tavernModClients.slot('source')[0]?.value.protocol,figureResolution,playerErrorText,fetch,createImageBitmap,
+        sourceWidgets:{storage:(()=>{try{return localStorage;}catch{return null;}})(),foreground:forkForeground,rpc,signals:tavernSessionSignals,characters:{character:bubbleCharacter,mood:bubbleMood,moods:bubbleMoodList,actor:stageActorCharacter,face:bubbleCardFace},avatarCache,phoneProtocol:tavernModClients.slot('source')[0]?.value.protocol,figureResolution,playerErrorText,fetch,createImageBitmap,
             sandbox:{stopSfx:()=>stageWidgetMediaOwner?.stopSfx(),scroll:(id,...args)=>stageWidgetScrollTargets.get(id)?.wheel(...args),theme:root=>stageWidgetThemeOwners.get(root)}},
         modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readItems:(id,turn)=>rpc('getStageItems',{turn},id)},
         performanceSurface:{fonts:tavernFonts,resolution:galResolution,subscribeResolution:galResolutionSubscribe,policy:{stageFlashAt,stageFlashDark,stageFlashGate,stageFlashSafe,stageSafety,stageEffectHex,stageEffectRgb}},

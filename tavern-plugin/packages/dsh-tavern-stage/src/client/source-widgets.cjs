@@ -1,7 +1,7 @@
 // Stage widget placement, reading projection, phone settings and avatar preparation.
 function createStageSourceWidgets({React:react,window,document,views,sessions,storage:localStorage,foreground:forkForeground,rpc:hostRpc,signals:tavernSessionSignals,characters,avatarCache,phoneProtocol,figureResolution,sandbox,playerErrorText,fetch,createImageBitmap}) {
 const {Image,FileReader,ResizeObserver,CustomEvent,crypto,performance,Blob,AbortController}=window;
-const {character:bubbleCharacter,actor:stageActorCharacter}=characters || {};
+const {character:bubbleCharacter,actor:stageActorCharacter,face:bubbleCardFace}=characters || {};
 // The handheld source device (a stage feature's sourceDevice, features.cjs), or null: its widget is laid out and adjusted as a phone.
 const phoneDevice=views.sourceDevice,phoneModPrefs=phoneDevice?.prefs,phoneModSizeMin=phoneDevice?.min,phoneModRun=phoneProtocol?.run;
 const matchMedia=(...args)=>window.matchMedia(...args),getComputedStyle=(...args)=>window.getComputedStyle(...args);
@@ -332,16 +332,15 @@ function stageWidgetThreadBody({candidates,threadKey,cursor,unavailable,limited,
 
 // Card figure faces for stage widgets and the live room (see useCardFaces).
 const cardFaceJobs=new Set(),cardFaceNoSubscribe=()=>()=>{};
-// the faces of card figures named by alias or name — the
-// identity resolver's card figure (config.characters[] holds every enabled figure of the card's and the global packs;
-// its avatarMedia.default is the face the transcript shows), prepared in the session avatar cache whether or not the
+// the faces of card figures named by alias or name — the card face (characters.face, the core bubbleCardFace: the face
+// the transcript shows; the chat card frames' DshCardFaces read the same), prepared in the session avatar cache whether or not the
 // figure is on stage (the stage only hands over its visible cast's faces). Shared by the phone's contacts and the live
 // room's host bar. Returns Map name → ready face URL (cropped thumbnail); a name with no figure or no face is absent.
 // px: the face's CSS size when it must be sharp at that size (the live-room bar asks 96 so a 1.5× screen gets 144 px);
 // without it any prepared size of the face will do. A smaller one already prepared shows until the sharp one is ready.
 function useCardFaces({config,sessionId,source,names,px}) {
     const faceCache=avatarCache;
-    const cardFace=name=>{const descriptor=name ? bubbleCharacter(config,name)?.avatarMedia?.default : null;return descriptor ? {...descriptor,sessionId} : null;};
+    const cardFace=name=>bubbleCardFace(config,name,sessionId);
     const faces=React.useSyncExternalStore(faceCache?.subscribe || cardFaceNoSubscribe,()=>faceCache ? names.map(name=>{const face=cardFace(name);return face && (px && faceCache.get(face,px) || faceCache.ready(face)) || '';}).join('\n') : '');
     const urls=new Map(faces ? names.map((name,i)=>[name,faces.split('\n')[i]]).filter(([,url])=>url) : []);
     const missing=names.filter(name=>cardFace(name) && (!urls.has(name) || px && !faceCache.get(cardFace(name),px)));
@@ -1005,7 +1004,7 @@ function useWidgetStage(props) {
     const [phoneFaceWidth,setPhoneFaceWidth]=React.useState(0),dpr=window.devicePixelRatio || 1;
     const facePx=phoneOpenWidth ? stageWidgetFacePx(Math.max(phoneOpenWidth,phoneFaceWidth),dpr) : 64;
     const cardUrls=useCardFaces({config:props.config,sessionId:props.sessionId,source:props.source,names:personAliases,px:facePx/dpr});
-    const hasCardFace=alias=>Boolean(bubbleCharacter(props.config,alias)?.avatarMedia?.default);
+    const hasCardFace=alias=>Boolean(bubbleCardFace(props.config,alias,props.sessionId));
     const avatarInputsResolved=avatarInputs.map(([id,alias])=>{const card=cardUrls.get(alias);return [id,card ? JSON.stringify([card,null,facePx]) : null,alias];});
     // Independent image budget (stageWidgetAvatarBudget): every listed person's face (lossy WebP at the shown size);
     // missing decoration never delays reading. Thumbnails are kept per image (stageWidgetThumbs),
