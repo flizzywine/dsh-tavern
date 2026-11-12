@@ -726,6 +726,25 @@ function sameCharacterFamily(a, b) {
 }
 
 /**
+ * Names, ids and match words that point at more than one distinct person among the usable characters
+ * (forms of one character count as one person). Map of lower-cased alias -> alias as written.
+ * Name-based injection must not use these: it would mix several people's looks into one picture.
+ */
+function ambiguousAliases(characters) {
+  const owners = new Map()
+  for (const character of characters ?? []) {
+    if (!character || character.enabled === false) continue
+    for (const alias of new Set([character.name, character.id, ...splitTags(character.match)].map(value => String(value ?? '').trim()).filter(Boolean))) {
+      const key = alias.toLowerCase()
+      if (!owners.has(key)) owners.set(key, { alias, people: [] })
+      const entry = owners.get(key)
+      if (!entry.people.some(other => other === character || sameCharacterFamily(character, other))) entry.people.push(character)
+    }
+  }
+  return new Map([...owners].filter(([, entry]) => entry.people.length > 1).map(([key, entry]) => [key, entry.alias]))
+}
+
+/**
  * 自然语言后端（Z-Image、Flux、在线 API…）里，把一个人的外貌和衣服写成绑定到他本人的一句话：
  *   "<英文名> is the woman in this scene: <外貌>; she is wearing <衣服>"
  * 逗号堆在一起的特征没有主语，多人画面里模型会把一个人的发色、耳朵套到另一个人身上。
@@ -3035,6 +3054,9 @@ function createRuntime(ctx, overrides, logger, deps) {
             // Reference jobs must expand against the per-picture reference scope,
             // not the full library here (which would reintroduce conflicting traits).
             const normalizedTag = planningGenerationMode === 'reference' ? sceneText : expandOne(sceneText, true)
+            for (const [key, alias] of ambiguousAliases(scoped.characters)) {
+              if (!unmatchedCharacters.has(key) && containsNameToken(sceneText, alias)) unmatchedCharacters.set(key, { asked: alias, ambiguous: true })
+            }
             const characters = planCharacters.map(item => ({ prompt: planningGenerationMode === 'reference' ? item.prompt : expandOne(item.prompt), centers: String(item.centers ?? '').trim(), uc: String(item.uc ?? '').trim() })).filter(item => item.prompt)
             if (traceId) {
               const T = diag.text
@@ -6853,6 +6875,7 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
   // 所以先按人收集，最后只在画面里只有一个库中人物时才用上。
   const personNegatives = []
   const unqualifiedName = value => String(value ?? '').replace(/\s*[（(][^）)]*[）)]\s*$/, '').trim()
+  const ambiguous = ambiguousAliases(definitions.characters)
   const nameCounts = new Map()
   if (options?.style === 'natural') {
     for (const character of definitions.characters ?? []) {
@@ -6894,6 +6917,7 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
       const nameKeys = [fullName, nameCounts.get(bareName) === 1 ? bareName : ''].filter(value => [...value].length >= 2)
       keys = [...new Set([...matchKeys, ...nameKeys])]
     }
+    keys = keys.filter(key => !ambiguous.has(String(key).trim().toLowerCase()))
     if (!keys.some(key => containsNameToken(source, key))) continue
     hits.push(character.name || character.id)
     // 露的画面（nsfw 或写着洗澡/裸体/内衣）不自动补衣服：既不补「当前穿着」，也不补常穿。
