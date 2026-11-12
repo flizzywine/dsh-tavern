@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "ed57ee17f8b9f7707b42669e74aee2611d5c169f",
-  "releaseSequence": 1527,
+  "revision": "d7fa6aeed109a9d0366c90b56ca6d0a8a2d0a4cf",
+  "releaseSequence": 1528,
   "version": "3.3.0",
   "files": [
     {
@@ -1811,8 +1811,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-capabilities.js",
-      "sha256": "c6d19503ba07bda54f01adc5191f1b7af9dd7fa23ff9176f2c6b093063ecadb3",
-      "size": 11973
+      "sha256": "b63e5851e59cf362b1b1a95d5ebd2d3a716213ea819502544826fe843b8eded7",
+      "size": 12209
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-compaction.js",
@@ -8771,9 +8771,9 @@
     }
   ],
   "archive": {
-    "commit": "a0c0d93efe39a4ea4fc793cbfa2f46c977e5c936",
+    "commit": "7a4fd52ef283ec7b82dab1f6f915109c5c48ee05",
     "path": "runtime.zip",
-    "sha256": "70a69668ad2ccec371d96847beec838cd70927ff804eeda46045b2eb7bf00ebc",
-    "size": 15502263
+    "sha256": "059e913780038302bf5e09e188428f4a8396cddbb13661a1994f0de370a94704",
+    "size": 15502384
   }
 }
