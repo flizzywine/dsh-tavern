@@ -30523,6 +30523,21 @@ function bindTavernFontZoom(node, win) {
 				closedEventOrder.push(id);
 				while (closedEventOrder.length > 100) closedEventIds.delete(closedEventOrder.shift());
 			}
+			function announceMountedScriptLayers(sessionId) {
+				if (!sessionId || !hostDocument || typeof hostDocument.querySelectorAll !== "function") return;
+				for (const record of records.values()) {
+					if (record.sessionId !== String(sessionId) || !record.trustedCardMode || !record.subscriptionsReady
+						|| !record.subscriptions.has("character_message_rendered")) continue;
+					const seen = new Set();
+					for (const node of hostDocument.querySelectorAll("[data-dsh-script-layer]")) {
+						if (!node.isConnected || !node.hidden || node.getAttribute("data-session") !== String(sessionId)) continue;
+						const id = Number(node.getAttribute("data-mesid"));
+						if (!Number.isSafeInteger(id) || id < 0 || seen.has(id)) continue;
+						seen.add(id);
+						emitToRecord(record, "character_message_rendered", [id]).catch(function () {});
+					}
+				}
+			}
 			function maybeAnnounceReady() {
 				if (!readinessKey || records.size === 0 || announcedReadinessKey === readinessKey) return;
 				if (Array.from(records.values()).some(function (record) { return mvuInitializationError(record); })) return;
@@ -30532,7 +30547,9 @@ function bindTavernFontZoom(node, win) {
 				const refreshAfterSuppress = suppressedCompactMutations > 0;
 				suppressedCompactMutations = 0;
 				for (const record of records.values()) record.suppressCompactViewRefresh = false;
-				Promise.resolve(onReady(readySessionId)).catch(function (error) { reportError("人物卡脚本初始化", error); });
+				Promise.resolve(onReady(readySessionId))
+					.then(function () { announceMountedScriptLayers(readySessionId); })
+					.catch(function (error) { reportError("人物卡脚本初始化", error); });
 				if (readySessionId && refreshAfterSuppress) {
 					clearPendingMutation(readySessionId);
 					notifyMutation(readySessionId, "initialization-ready", null);
@@ -30828,13 +30845,14 @@ function bindTavernFontZoom(node, win) {
 			}
 			// The host renderer announces a settled message DOM; scripts that decorate
 			// messages (SillyTavern CHARACTER_MESSAGE_RENDERED) apply their edits then.
-			if (typeof hostWindow.addEventListener === "function") hostWindow.addEventListener("dsh-tavern-message-rendered", function (event) {
+			function onMessageRendered(event) {
 				const detail = event && event.detail || {};
 				for (const record of records.values()) {
 					if (record.sessionId !== String(detail.sessionId || "") || !record.trustedCardMode) continue;
 					emitToRecord(record, "character_message_rendered", [Number(detail.messageId)]).catch(function () {});
 				}
-			});
+			}
+			if (typeof hostWindow.addEventListener === "function") hostWindow.addEventListener("dsh-tavern-message-rendered", onMessageRendered);
 			async function emit(name, args, context, diagnostics, hostEventId) {
 				let current = clone(Array.isArray(args) ? args : []);
 				for (const record of records.values()) current = await emitToRecord(record, name, current, context, diagnostics, hostEventId);
@@ -31504,7 +31522,7 @@ function bindTavernFontZoom(node, win) {
 				},
                 // An overdue probe means the page itself stalled; the watchdog re-probes before judging.
                 eventResponsive: function (eventId) { const pending = pendingEvents.get(eventId); return Boolean(pending && (now() - pending.contactAt < eventTimeoutMs || now() - pending.probeDueAt > pending.probeIntervalMs)); },
-				dispose: function () { hostWindow.removeEventListener("message", receive); clear(); releaseHostStylesheetBridge(); },
+				dispose: function () { hostWindow.removeEventListener("message", receive); if (typeof hostWindow.removeEventListener === "function") hostWindow.removeEventListener("dsh-tavern-message-rendered", onMessageRendered); clear(); releaseHostStylesheetBridge(); },
 				inspect: function () {
 					const record = records.get("shared");
 						const scripts = record ? Array.from(record.scripts.values()).map(function (script) { return { id: script.id, loaded: script.loaded, subscriptionsReady: !record.reloading && script.subscriptionsReady, initializationFailed: script.initializationFailed }; }) : [];
@@ -38180,6 +38198,10 @@ function tavernStoryTranscriptRows(transcript) {
 		const source = message.source && typeof message.source === 'object' ? message.source
 			: entry.source && typeof entry.source === 'object' ? entry.source : null
 		const requestId = source && typeof source.rpcId === 'string' && source.rpcId ? source.rpcId : null
+		const nextEntry = entries[position + 1]
+		const nextMessage = nextEntry && nextEntry.message && typeof nextEntry.message === 'object' ? nextEntry.message : null
+		const nextReplyTurn = role === 'user' && nextMessage && nextMessage.role === 'assistant' && Number.isSafeInteger(nextMessage.turn) && nextMessage.turn > 0
+			? String(nextMessage.turn) : null
 		rows.push({
 			key: key,
 			position: position,
@@ -38189,6 +38211,7 @@ function tavernStoryTranscriptRows(transcript) {
 			greeting: message.greeting === true,
 			legacyTurn: legacyTurn,
 			nativeTurn: Number.isSafeInteger(entry.nativeTurn) && entry.nativeTurn > 0 ? entry.nativeTurn : null,
+			inputTurnKey: nextReplyTurn,
 			absoluteIndex: absoluteIndex,
 			messageUid: typeof entry.messageUid === 'string' && entry.messageUid ? entry.messageUid
 				: (typeof message.messageUid === 'string' && message.messageUid ? message.messageUid : null),
@@ -38613,6 +38636,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 				publish(Object.assign({}, cacheHit, { ticket: shown }))
 			}
 			const current = ++ticket
+			expectLiveView(id)
 			if (cacheHit === null) {
 				publish({
 					sessionId: id,
@@ -38647,6 +38671,7 @@ function createTavernStoryTranscriptDataModule(deps) {
 				publish(next)
 			} catch (error) {
 				if (current !== ticket) return state
+				cancelLiveView(id)
 				// 有缓存就已经有东西可看：后台补读失败不打扰玩家，缓存留着，
 				// 下一次切换、故事变更或 force 读取会再试。
 				if (cacheHit) return state
@@ -39057,6 +39082,16 @@ function createTavernStoryTranscriptFeature(deps) {
 				? h(StoryTranscriptTurnFooter, { host: props.turnFooter, nativeTurn: row.nativeTurn }) : null)
 	}
 
+	function StoryLegacyGreeting(props) {
+		const native = React.useRef(null), node = React.useRef(null)
+		React.useLayoutEffect(function () {
+			return mountTavernLegacyMessage({ node: node.current, native: native.current, source: props.source })
+		}, [props.source])
+		return h('div', { className: 'mes', mesid: '0', is_user: 'false' },
+			h('div', { ref: native }, props.children),
+			h('div', { ref: node, 'data-dsh-legacy-message': '0' }))
+	}
+
 	const memoComponent = typeof React.memo === 'function' ? React.memo : function (component) { return component }
 	const StoryTranscriptRow = memoComponent(function StoryTranscriptRow(props) {
 		const row = props.row
@@ -39083,35 +39118,55 @@ function createTavernStoryTranscriptFeature(deps) {
 			? createTavernPluginTextContext({ items: pluginMedia.items, extras: [], sessionId: mediaSessionId, turn: projectionTurn, streaming: row.streaming === true })
 			: null
 		if (row.role === 'user') {
+			const editedText = props.helperView?.userInputEdits && row.nativeTurn > 0 ? props.helperView.userInputEdits[String(row.nativeTurn)] : undefined
+			const userText = typeof editedText === 'string' ? editedText : row.text
+			const templateDisplay = typeof editedText === 'string' ? null
+				: (row.inputTurnKey && (props.view?.inputTemplateDisplays?.[row.inputTurnKey] ?? props.storyView?.inputTemplateDisplays?.[row.inputTurnKey]))
 			return h('article', Object.assign({}, attributes, {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-user-row dsh-tavern-story-input'
 			}),
 				h('div', { className: 'dsh-tavern-user-bubble' },
-					h('div', { className: 'dsh-tavern-story-body', style: { whiteSpace: 'pre-wrap' } }, row.text)),
+					templateDisplay && typeof TavernMessageFrame === 'function'
+						? h(TavernMessageFrame, { content: templateDisplay, sessionId: String(props.sessionId || ''), turn: Number(row.inputTurnKey) || 0, partIndex: 'user-template', frameOwner: props.frameOwner, eager: true })
+						: h('div', { className: 'dsh-tavern-story-body', style: { whiteSpace: 'pre-wrap' } }, userText)),
 				h(StoryTranscriptActions, { row: row, transcript: props.transcript, sessionId: props.sessionId, running: props.running }))
 		}
 		const sharedProjection = !row.streaming && row.key === 'turn:' + String(projectionTurn) && typeof tavernProjectionForTurn === 'function'
-			? tavernProjectionForTurn(props.view, projectionTurn) : null
+			? (tavernProjectionForTurn(props.view, projectionTurn) || tavernProjectionForTurn(props.storyView, projectionTurn)) : null
 		const projection = sharedProjection || row.projection
+		const trustedCardMode = Boolean(props.helperView && props.helperView.tavernRuntimePolicy && props.helperView.tavernRuntimePolicy.trustedCardMode)
+		const helper = props.helperView && props.helperView.tavernHelper
+		const helperMessageId = Number.isSafeInteger(row.absoluteIndex) && row.absoluteIndex >= 0
+			? row.absoluteIndex
+			: helper?.turnMessageIds?.[String(projectionTurn)]
+		const scriptLayer = !row.streaming && trustedCardMode && Number.isSafeInteger(helperMessageId)
+			? { sessionId: String(props.sessionId || ''), messageId: helperMessageId } : null
 		const rendered = projection && renderProjection ? renderProjection(projection, {
 			sessionId: String(props.sessionId || ''),
 			turn: projectionTurn,
 			streaming: row.streaming === true,
 			codeLabels: labels.code,
 			plugin: pluginText,
-			helperContext: props.helperView && props.helperView.tavernHelper,
+			helperContext: helper,
 			helperContextReader: function () {
 				const current = typeof liveTavernView !== 'undefined' && liveTavernView && typeof liveTavernView.getSnapshot === 'function'
 					? liveTavernView.getSnapshot(String(props.sessionId || '')).view : null
 				return current && current.tavernHelper || props.helperView && props.helperView.tavernHelper
 			},
 			frameSizing: props.helperView && props.helperView.tavernRuntimePolicy && props.helperView.tavernRuntimePolicy.frameSizing,
-			trustedCardMode: Boolean(props.helperView && props.helperView.tavernRuntimePolicy && props.helperView.tavernRuntimePolicy.trustedCardMode),
+			trustedCardMode: trustedCardMode,
 			frameOwner: props.frameOwner,
 			executeSlash: props.executeSlash,
-			eagerFrame: row.streaming === true || (typeof tavernLatestProjectionTurn === 'function' && projectionTurn === tavernLatestProjectionTurn(props.view)),
+			scriptLayer: scriptLayer,
+			eagerFrame: row.streaming === true || props.latest === true || (typeof tavernLatestProjectionTurn === 'function' && projectionTurn === tavernLatestProjectionTurn(props.view)),
 			deferHtml: deferHtml
 		}) : null
+		const rawBody = rendered || markdown(row.text, { greeting: row.greeting, streaming: row.streaming })
+		const legacyGreeting = !row.streaming && row.greeting && trustedCardMode && typeof mountTavernLegacyMessage === 'function'
+		const greetingSource = helper?.messages?.[0]?.message ?? row.text ?? ''
+		const bodyNode = legacyGreeting
+			? h(StoryLegacyGreeting, { key: String(props.sessionId || '') + ':greeting', source: greetingSource }, rawBody)
+			: rawBody
 		// 与原生渲染一致：正文渲染会登记已落位的 anchor；其余媒体只追加一次。
 		const trailingMedia = pluginMedia.items.filter(function (item) { return !(pluginText && pluginText.placed.has(item.id)) })
 		const pluginMediaNode = trailingMedia.length && typeof TavernPluginMediaItem === 'function'
@@ -39119,6 +39174,10 @@ function createTavernStoryTranscriptFeature(deps) {
 				return h(TavernPluginMediaItem, { key: item.id, item: item, sessionId: mediaSessionId, turn: projectionTurn })
 			})) : null
 		const hasTurn = replyActions && playView && !row.streaming && row.key === 'turn:' + projectionTurn
+		const inlineStatus = props.latest === true && !row.streaming && props.helperView?.statusBarPlacement === 'body'
+			&& typeof TavernPersistentStatusRuntime === 'function'
+			? h(TavernPersistentStatusRuntime, { sessionId: String(props.sessionId || ''), view: props.helperView, executeSlash: props.executeSlash, panels: 'status' })
+			: null
 		return h('article', Object.assign({}, attributes, {
 			className: 'dsh-tavern-story-transcript-row dsh-tavern-assistant dsh-tavern-story-floor' + (row.streaming ? ' dsh-tavern-story-streaming' : ''),
 			'aria-live': row.streaming ? 'polite' : undefined
@@ -39128,7 +39187,7 @@ function createTavernStoryTranscriptFeature(deps) {
 				row.greeting ? h('span', { className: 'dsh-tavern-story-floor-tag' }, '开场') : null,
 				row.streaming ? h('span', { className: 'dsh-tavern-story-floor-tag' }, row.tool ? '正在调用 ' + row.tool : '正在生成') : null),
 			props.showPlayProcess && !row.streaming && row.toolCalls?.length > 0 ? h(StoryToolCalls, { calls: row.toolCalls }) : null,
-			h('div', { className: 'dsh-tavern-story-body' }, rendered || markdown(row.text, { greeting: row.greeting, streaming: row.streaming })),
+			h('div', { className: 'dsh-tavern-story-body' }, bodyNode),
 			row.greeting && !props.running && props.helperView?.tavernHelper?.openingHost
 				? h(TavernOpeningNav, { sessionId: props.sessionId, opening: props.helperView.tavernHelper.openingHost,
 					lifecycleRevision: Number(props.helperView.tavernHelper.lifecycleRevision) || 0 }) : null,
@@ -39136,6 +39195,7 @@ function createTavernStoryTranscriptFeature(deps) {
 			pluginMediaNode,
 			hasTurn ? h(replyActions.IllustrationDraft, { sessionId: mediaSessionId, turn: projectionTurn, items: pluginMedia.items }) : null,
 			hasTurn ? h(replyActions.PluginActions, { sessionId: mediaSessionId, turn: projectionTurn, settled: true, text: row.text }) : null,
+			inlineStatus,
 			h(StoryTranscriptActions, { row, transcript: props.transcript, sessionId: props.sessionId, running: props.running,
 				view: props.helperView, latest: props.latest, latestTurn: props.latestTurn, readAloudState: props.readAloudState, host: props.host, turnFooter: props.turnFooter }))
 	})
@@ -39236,7 +39296,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		return h(React.Fragment, null, rows.map(function (row) {
 			const renderKey = row.requestId ? 'request:' + row.requestId : row.key
 			return h(StoryTranscriptRow, { key: renderKey, row: row, transcript: transcript, markdown: renderText, running: storyBusy,
-				sessionId: sessionId, view: projectionView, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
+				sessionId: sessionId, view: projectionView, storyView: props.view, helperView: helperView, executeSlash: props.executeSlash, frameOwner: props.frameOwner,
 				showPlayProcess: props.showPlayProcess, latest: row === latest, latestTurn: latest?.legacyTurn, readAloudState,
 				host: row === latest ? props.host : null, turnFooter: props.turnFooter })
 		}), failure ? h('div', { key: 'foreground-error', className: 'dsh-tavern-story-transcript-row dsh-tavern-story-error', role: 'alert' },

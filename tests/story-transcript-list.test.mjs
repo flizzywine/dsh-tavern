@@ -264,3 +264,70 @@ test('a failed round shows its reason under the kept input, and only while that 
 	await act(async () => root.render(React.createElement(feature.StoryTranscriptList, { transcript: failed, view, sessionId: 's', running: true })))
 	assert.equal(page.dom.window.document.querySelector('[role="alert"]'), null)
 })
+
+test('故事楼层保留受信任脚本层、开场脚本挂载、正文下方状态栏与长历史旧楼层投影回退', async t => {
+	const receivedOptions = []
+	let legacyMounted = 0
+	const page = createPage(t, {
+		isPlayMode: mode => mode === 'story',
+		useLiveTavernView: () => ({ view: liveWindowView }),
+		mountTavernLegacyMessage: ({ node }) => {
+			legacyMounted++
+			node.textContent = 'legacy-mounted'
+			return () => {}
+		},
+		TavernPersistentStatusRuntime: props => React.createElement('div', { 'data-inline-status': props.panels }, props.sessionId),
+		TavernMessageFrame: props => React.createElement('div', { 'data-user-template': props.partIndex }, props.content)
+	})
+	const saved = story([
+		{ role: 'assistant', greeting: true, turn: 1, text: '开场原文' },
+		{ role: 'user', text: '原始输入' },
+		{ role: 'assistant', turn: 2, text: '第二楼原文' },
+		{ role: 'assistant', turn: 50, text: '最新楼原文' }
+	], 10)
+	// storyView 覆盖当前读取的旧楼层 turn 2；liveWindowView 只包含最近窗口 turn 50。
+	const storyView = {
+		mode: 'story',
+		statusBarPlacement: 'body',
+		tavernRuntimePolicy: { trustedCardMode: true },
+		tavernHelper: { stateRevision: 10, messages: [{ message_id: 0, role: 'assistant', message: '开场完整脚本源' }] },
+		inputTemplateDisplays: { '2': '<b>模板化玩家输入</b>' },
+		replyProjections: [
+			{ version: 2, turn: 1, mode: 'markdown', text: '开场正则投影' },
+			{ version: 2, turn: 2, mode: 'html', text: '<div>旧楼层人物卡面板</div>' },
+			{ version: 2, turn: 50, mode: 'markdown', text: '最新楼投影' }
+		]
+	}
+	const liveWindowView = {
+		mode: 'story',
+		statusBarPlacement: 'body',
+		historyWindow: { onDemand: true, from: 40, to: 50, messageCount: 51, revision: 10 },
+		tavernRuntimePolicy: { trustedCardMode: true },
+		tavernHelper: { stateRevision: 10, messages: [{ message_id: 0, role: 'assistant', message: '开场完整脚本源' }] },
+		replyProjections: [
+			{ version: 2, turn: 50, mode: 'markdown', text: '最新楼窗口投影' }
+		]
+	}
+	const feature = page.context.createTavernStoryTranscriptFeature({
+		renderProjection: (projection, options) => {
+			receivedOptions.push({ turn: options.turn, mode: projection.mode, text: projection.text, scriptLayer: options.scriptLayer, eagerFrame: options.eagerFrame })
+			return React.createElement('div', { 'data-rendered-turn': String(options.turn), 'data-mode': projection.mode }, projection.text)
+		}
+	})
+	await mount(page, React.createElement(feature.StoryTranscriptList, {
+		transcript: saved, view: storyView, sessionId: 's-switch'
+	}))
+	const doc = page.dom.window.document
+	assert.equal(legacyMounted, 1, '受信任模式开场楼层应挂载 legacy greeting 容器')
+	assert.equal(doc.querySelector('[data-user-template="user-template"]')?.textContent, '<b>模板化玩家输入</b>', '玩家输入模板应渲染')
+	assert.equal(doc.querySelector('[data-rendered-turn="2"]')?.getAttribute('data-mode'), 'html', '超出 liveView 窗口的旧楼层应回退使用 storyView 的完整 HTML 投影而非退回纯文本')
+	assert.equal(doc.querySelector('[data-rendered-turn="50"]')?.textContent, '最新楼窗口投影')
+	assert.equal(JSON.stringify(receivedOptions.map(item => item.scriptLayer)), JSON.stringify([
+		{ sessionId: 's-switch', messageId: 0 },
+		{ sessionId: 's-switch', messageId: 2 },
+		{ sessionId: 's-switch', messageId: 3 }
+	]), '每层正文应传递绝对 messageId 供 retrieveDisplayedMessage 脚本改写')
+	const inlineStatuses = doc.querySelectorAll('[data-inline-status="status"]')
+	assert.equal(inlineStatuses.length, 1, 'statusBarPlacement=body 时仅在最新楼层下方渲染状态栏')
+	assert.equal(inlineStatuses[0].closest('article')?.getAttribute('data-row-key'), 'turn:50')
+})

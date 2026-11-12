@@ -83,6 +83,21 @@
 				closedEventOrder.push(id);
 				while (closedEventOrder.length > 100) closedEventIds.delete(closedEventOrder.shift());
 			}
+			function announceMountedScriptLayers(sessionId) {
+				if (!sessionId || !hostDocument || typeof hostDocument.querySelectorAll !== "function") return;
+				for (const record of records.values()) {
+					if (record.sessionId !== String(sessionId) || !record.trustedCardMode || !record.subscriptionsReady
+						|| !record.subscriptions.has("character_message_rendered")) continue;
+					const seen = new Set();
+					for (const node of hostDocument.querySelectorAll("[data-dsh-script-layer]")) {
+						if (!node.isConnected || !node.hidden || node.getAttribute("data-session") !== String(sessionId)) continue;
+						const id = Number(node.getAttribute("data-mesid"));
+						if (!Number.isSafeInteger(id) || id < 0 || seen.has(id)) continue;
+						seen.add(id);
+						emitToRecord(record, "character_message_rendered", [id]).catch(function () {});
+					}
+				}
+			}
 			function maybeAnnounceReady() {
 				if (!readinessKey || records.size === 0 || announcedReadinessKey === readinessKey) return;
 				if (Array.from(records.values()).some(function (record) { return mvuInitializationError(record); })) return;
@@ -92,7 +107,9 @@
 				const refreshAfterSuppress = suppressedCompactMutations > 0;
 				suppressedCompactMutations = 0;
 				for (const record of records.values()) record.suppressCompactViewRefresh = false;
-				Promise.resolve(onReady(readySessionId)).catch(function (error) { reportError("人物卡脚本初始化", error); });
+				Promise.resolve(onReady(readySessionId))
+					.then(function () { announceMountedScriptLayers(readySessionId); })
+					.catch(function (error) { reportError("人物卡脚本初始化", error); });
 				if (readySessionId && refreshAfterSuppress) {
 					clearPendingMutation(readySessionId);
 					notifyMutation(readySessionId, "initialization-ready", null);
@@ -388,13 +405,14 @@
 			}
 			// The host renderer announces a settled message DOM; scripts that decorate
 			// messages (SillyTavern CHARACTER_MESSAGE_RENDERED) apply their edits then.
-			if (typeof hostWindow.addEventListener === "function") hostWindow.addEventListener("dsh-tavern-message-rendered", function (event) {
+			function onMessageRendered(event) {
 				const detail = event && event.detail || {};
 				for (const record of records.values()) {
 					if (record.sessionId !== String(detail.sessionId || "") || !record.trustedCardMode) continue;
 					emitToRecord(record, "character_message_rendered", [Number(detail.messageId)]).catch(function () {});
 				}
-			});
+			}
+			if (typeof hostWindow.addEventListener === "function") hostWindow.addEventListener("dsh-tavern-message-rendered", onMessageRendered);
 			async function emit(name, args, context, diagnostics, hostEventId) {
 				let current = clone(Array.isArray(args) ? args : []);
 				for (const record of records.values()) current = await emitToRecord(record, name, current, context, diagnostics, hostEventId);
@@ -1064,7 +1082,7 @@
 				},
                 // An overdue probe means the page itself stalled; the watchdog re-probes before judging.
                 eventResponsive: function (eventId) { const pending = pendingEvents.get(eventId); return Boolean(pending && (now() - pending.contactAt < eventTimeoutMs || now() - pending.probeDueAt > pending.probeIntervalMs)); },
-				dispose: function () { hostWindow.removeEventListener("message", receive); clear(); releaseHostStylesheetBridge(); },
+				dispose: function () { hostWindow.removeEventListener("message", receive); if (typeof hostWindow.removeEventListener === "function") hostWindow.removeEventListener("dsh-tavern-message-rendered", onMessageRendered); clear(); releaseHostStylesheetBridge(); },
 				inspect: function () {
 					const record = records.get("shared");
 						const scripts = record ? Array.from(record.scripts.values()).map(function (script) { return { id: script.id, loaded: script.loaded, subscriptionsReady: !record.reloading && script.subscriptionsReady, initializationFailed: script.initializationFailed }; }) : [];

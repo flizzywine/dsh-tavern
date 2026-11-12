@@ -19,6 +19,10 @@ const companion = `
   eventOn('CHAT_CHANGED',()=>{parent.initializations=(parent.initializations||0)+1});
   eventOn('MESSAGE_RECEIVED',()=>{parent.settlements=(parent.settlements||0)+1});
   eventOn('mag_variable_update_ended',()=>{parent.derivedUpdates=(parent.derivedUpdates||0)+1});
+  eventOn('character_message_rendered',id=>{
+    const layers=window.retrieveDisplayedMessage(id);
+    if(layers&&layers[0])layers[0].innerHTML='<div class="decorated-bubble">rendered-'+id+'</div>';
+  });
 `
 const status = `<button data-tab="equipment">Equipment</button><button data-tab="quests">Quests</button><script>
   document.addEventListener('click',event=>{
@@ -42,9 +46,10 @@ test('second HTTP touch browser opens local panels, mirrors variables and leaves
   const client = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
   const runner = `window.__ModuleLoader__={load(d){window.client=d.factory(()=>({}))}};\n${client}\n
     window.view=${JSON.stringify(view(10))};
+    client.mountTavernScriptLayer({native:document.querySelector('#native-msg'),layer:document.querySelector('#script-layer'),sessionId:'session',messageId:0});
     window.owner=client.createTavernScriptExecutionModule({window,rpc:serverRpc,signals:{subscribe(){return ()=>{}}},invalidate(){}});
     document.querySelector('#status').srcdoc=client.buildTavernFrameDocument({token:'status',helperContext:view.tavernHelper,trustedCardMode:true,persistent:true,content:${JSON.stringify(status)}});
-    owner.sync('session',view);`
+    setTimeout(()=>owner.sync('session',view),150);`
   const server = createServer(async (req, res) => {
     try {
       const pathname = new URL(req.url, 'http://fixture').pathname
@@ -57,7 +62,7 @@ test('second HTTP touch browser opens local panels, mirrors variables and leaves
         return
       }
       res.setHeader('content-type', 'text/html; charset=utf-8')
-      res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><iframe id="status" style="width:100%;height:150px"></iframe><script src="/runner.js"></script>')
+      res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="native-msg"><p>raw</p></div><div id="script-layer" data-dsh-script-layer data-session="session" data-mesid="0"></div><iframe id="status" style="width:100%;height:150px"></iframe><script src="/runner.js"></script>')
     } catch (error) { res.statusCode = 500; res.end(String(error)) }
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -89,6 +94,9 @@ test('second HTTP touch browser opens local panels, mirrors variables and leaves
   }
   const desktop = await open(false)
   await desktop.waitForFunction(() => initializations === 1)
+  await desktop.waitForFunction(() => document.querySelector('#script-layer .decorated-bubble')?.textContent === 'rendered-0')
+  assert.equal(await desktop.evaluate(() => document.querySelector('#native-msg').hidden), true)
+  assert.equal(await desktop.evaluate(() => document.querySelector('#script-layer').hidden), false)
   const phone = await open(true)
   assert.equal(await phone.evaluate(() => isSecureContext), false)
   assert.equal(await phone.evaluate(() => owner.inspect().active), false)

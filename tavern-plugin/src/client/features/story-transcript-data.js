@@ -65,6 +65,10 @@ function tavernStoryTranscriptRows(transcript) {
 		const source = message.source && typeof message.source === 'object' ? message.source
 			: entry.source && typeof entry.source === 'object' ? entry.source : null
 		const requestId = source && typeof source.rpcId === 'string' && source.rpcId ? source.rpcId : null
+		const nextEntry = entries[position + 1]
+		const nextMessage = nextEntry && nextEntry.message && typeof nextEntry.message === 'object' ? nextEntry.message : null
+		const nextReplyTurn = role === 'user' && nextMessage && nextMessage.role === 'assistant' && Number.isSafeInteger(nextMessage.turn) && nextMessage.turn > 0
+			? String(nextMessage.turn) : null
 		rows.push({
 			key: key,
 			position: position,
@@ -74,6 +78,7 @@ function tavernStoryTranscriptRows(transcript) {
 			greeting: message.greeting === true,
 			legacyTurn: legacyTurn,
 			nativeTurn: Number.isSafeInteger(entry.nativeTurn) && entry.nativeTurn > 0 ? entry.nativeTurn : null,
+			inputTurnKey: nextReplyTurn,
 			absoluteIndex: absoluteIndex,
 			messageUid: typeof entry.messageUid === 'string' && entry.messageUid ? entry.messageUid
 				: (typeof message.messageUid === 'string' && message.messageUid ? message.messageUid : null),
