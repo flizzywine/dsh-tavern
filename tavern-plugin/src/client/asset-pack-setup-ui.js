@@ -140,7 +140,7 @@ function StageSetupWizard({ctx,onClose,onComplete=onClose}) {
   if(person&&value)return h('div',{className:'ap-wizard',role:'region','aria-label':'设置向导',onKeyDown:keys},
     person.figureId?h(StageSetupPerson,{key:person.figureId,ctx,status:value,pack,library,person,merge,run,busy,failure,onBack:closePerson}):
     h(NewFigurePage,{key:'@new:'+(person.name||''),ctx,parent:'设置向导',initialName:person.name||'',ensurePack,onBack:closePerson,onCreated:closePerson,
-      existing:{pack,packId,figures:setupFigures(pack),library,use:(choice,{name,triggers})=>setupUseFigure({ctx,packId,merge,choice,name,own:triggers})}}));
+      existing:{pack,packId,figures:setupFigures(pack).filter(f=>f.enabled!==false),library,use:(choice,{name,triggers})=>setupUseFigure({ctx,packId,merge,choice,name,own:triggers})}}));
   const body=!value?(status.error?h(ErrorBox,{error:stageSetupError({code:status.error,message:status.error}),reload:status.reload}):h(Loading,{shape:'fields'})):
     step===0?h(StageSetupPacks,{ctx,status:value,packId,picked,setPicked,onCurated:()=>setCurated(true)}):
     step===1?h(StageSetupCast,{ctx,status:value,pack,found,library,run,busy,onPerson:openPerson}):
@@ -413,14 +413,17 @@ function PersonChoice({binding,row,on,applying,onUse}) {
 // 舞台设置 › 人物's ＋ and 设置向导 › 自定义角色's ＋ (and its names) open this
 // one page. Everything on it: 设定图 (up to four pictures, uploaded or pasted), 人物介绍 (figure.description), 名称 · 触发词
 // (the name's forms until edited) · 身高 (what the user types; else set silently when the draft is made, newFigureHeightCm) ·
-// 声音 (the figure's voice page). 「生成形象」
-// is the only paid step: one 立绘 request through the asset-generation RPCs from the
-// pictures and the text, its 头像 as the request's follow-up. Those RPCs write into a figure, so the first press makes a
-// hidden draft in the card pack (enabled:false — never on stage, not linted) and each picture is adopted into it as it
-// arrives; the page shows the 立绘 and 头像, 「重新生成」 asks again. 「创建人物」 (only once both are there) checks the form
-// once — plain Chinese on the field, focus moves there — and turns the draft into the figure in one patchFigure (the host's
-// trigger lint runs there; its issues land on 触发词). Leaving without creating removes the draft. Nothing is checked or red
-// before a press; there is no error code or 重新载入 here.
+// 声音 (the figure's voice page). A picture is optional (players without an image API create and voice figures too):
+// 「上传立绘」 imports one picture as the default outfit's calm 立绘 (its 头像 is cut from it; size / transparency
+// warnings are a quiet hint), 「生成形象」 is the only paid step: one 立绘 request through the asset-generation RPCs
+// from the 设定图 and the text (one of them is its precondition), its 头像 as the request's follow-up. Both write into a
+// figure, so the first press makes a hidden draft in the card pack (enabled:false — never on stage, not linted) and each
+// picture is adopted into it as it arrives; the page shows the 立绘 and 头像, 「重新生成」 asks again. 「创建人物」 (always
+// there) checks the form once — plain Chinese on the field, focus moves there — and turns the draft (made then if there
+// is none) into the figure in one patchFigure (the host's trigger lint runs there; its issues land on 触发词); a figure
+// without a picture keeps its empty default outfit, so a 立绘 can be added later in the figure editor. Leaving without
+// creating removes the draft, after asking when it holds pictures. Nothing is checked or red before a press; there is no
+// error code or 重新载入 here.
 const NEW_FIGURE_OUTFIT='default',NEW_FIGURE_FACE='calm',NEW_FIGURE_NAME='新人物';
 const NEW_FIGURE_FIELDS=['refs','name','triggers'];
 // a height nobody typed is the median heightCm of the pack's enabled figures,
@@ -456,7 +459,8 @@ function NewFigurePage({ctx,parent,initialName='',ensurePack,onBack,onCreated,ex
   const [height,setHeight]=React.useState(null),autoHeight=React.useRef(null),[about,setAbout]=React.useState(''),[refs,setRefs]=React.useState([]);
   const [errors,setErrors]=React.useState({}),[problem,setProblem]=React.useState(''),[busy,setBusy]=React.useState(false),[request,setRequest]=React.useState(0);
   const [draft,setDraftState]=React.useState(null),draftRef=React.useRef(null),[query,setQuery]=React.useState(''),[drawing,setDrawing]=React.useState(false);
-  const root=React.useRef(null),title=React.useRef(null),fileInput=React.useRef(null),sent=React.useRef(null);
+  const [uploading,setUploading]=React.useState(false),[notes,setNotes]=React.useState([]);
+  const root=React.useRef(null),title=React.useRef(null),fileInput=React.useRef(null),spriteInput=React.useRef(null),sent=React.useRef(null);
   React.useEffect(()=>{title.current?.focus?.({preventScroll:true});},[]);
   const pack=draft?ctx.writer.pack(draft.packId):null,figure=draft&&pack?.figures?.[draft.figureId]||null;
   const outfit=figure?.outfits.find(o=>o.key===NEW_FIGURE_OUTFIT)||null,manifest=outfit?.sprite&&pack?.sprites?.[outfit.sprite.manifestKey];
@@ -468,13 +472,16 @@ function NewFigurePage({ctx,parent,initialName='',ensurePack,onBack,onCreated,ex
     (box.querySelector('.fork-inline-chip-add input')||box.querySelector('input:not([type=file]),textarea,button'))?.focus?.();box.scrollIntoView?.({block:'nearest'});},0);
   const run=job=>{if(busy)return;setBusy(true);setProblem('');Promise.resolve().then(job).catch(e=>setProblem(newFigureSaveText(e))).finally(()=>setBusy(false));};
   const write=(fn)=>ctx.writer.packOp(draftRef.current.packId,fn,{quiet:true});
+  // A 设定图 the request does not take as it is (GIF, BMP, AVIF…) goes in as the still prepareImage makes of it.
+  const refFile=async file=>{if(/^image\/(png|jpeg|webp)$/.test(file.type))return file;
+    const image=await prepareImage(file,'settei',false);return new File([image.bytes],file.name.replace(/\.[^.]*$/,'')+'.'+image.descriptor.ext,{type:image.descriptor.mime});};
   const addFiles=files=>{
-    const room=GEN_REF_LIMIT-refs.length,list=[...files].filter(f=>/^image\//.test(f.type));if(!list.length)return;
+    const room=GEN_REF_LIMIT-refs.length,list=[...files].filter(f=>/^image\//.test(f.type)||IMAGE_ACCEPT.split(',').some(ext=>f.name?.toLowerCase().endsWith(ext)));if(!list.length)return;
     if(room<=0){setErrors(e=>({...e,refs:'设定图最多 '+GEN_REF_LIMIT+' 张'}));return;}
-    Promise.all(list.slice(0,room).map(genReadUpload)).then(made=>{setRefs(r=>[...r,...made].slice(0,GEN_REF_LIMIT));clear('refs');},e=>setErrors(x=>({...x,refs:errorText(e)})));
+    Promise.all(list.slice(0,room).map(f=>refFile(f).then(genReadUpload))).then(made=>{setRefs(r=>[...r,...made].slice(0,GEN_REF_LIMIT));clear('refs');},e=>setErrors(x=>({...x,refs:errorText(e)})));
   };
   const paste=e=>{const files=[...(e.clipboardData?.files||[])].filter(f=>/^image\//.test(f.type));if(!files.length)return;e.preventDefault();addFiles(files);};
-  // The hidden draft: made by the first 生成形象 (or the 声音 page), brought up to the page before each request.
+  // The hidden draft: made by the first 生成形象 / 上传立绘 (or the 声音 page, or 创建人物), brought up to the page before each request.
   const heightCm=()=>height??autoHeight.current;
   const draftDoc=()=>({schemaVersion:1,name:name.trim()||NEW_FIGURE_NAME,enabled:false,appearance:'sprite',recall:{mode:'keyword'},emotions:[{id:NEW_FIGURE_FACE}],heightCm:heightCm(),
     ...(about.trim()?{description:about.trim()}:{}),outfits:[{key:NEW_FIGURE_OUTFIT,label:'默认',enabled:true,defaultEmotion:NEW_FIGURE_FACE,recall:{mode:'keyword',keywords:[name.trim()||NEW_FIGURE_NAME]}}]});
@@ -504,10 +511,24 @@ function NewFigurePage({ctx,parent,initialName='',ensurePack,onBack,onCreated,ex
   const generate=()=>{
     if(busy)return;
     if(!refs.length&&!about.trim()){setErrors({refs:'放一张设定图，或写几句人物介绍'});focusField('refs');return;}
-    setErrors({});
+    setErrors({});setNotes([]);
     run(async()=>{const d=await ensureDraft();sent.current={references:refs.map(u=>({base64:u.base64,mediaType:u.mediaType,role:GEN_ART_ROLE})),userPrompt:about.trim()};setRequest(n=>n+1);return d;});
   };
-  // 创建人物: the form is checked once, then the draft becomes the figure (one patchFigure; the lint runs in it).
+  // 上传立绘: one picture becomes the draft's calm 立绘. The importer writes the emotion's own state of a v1 figure (replacing an
+  // earlier one); an image pool (schemaVersion 2) adds it as a candidate behind the earlier default, which is then retired
+  // the way the figure editor deletes a 立绘 (removeSpriteEmotion), so the pool holds the new picture only.
+  const uploadSprite=file=>{if(!file)return;
+    run(async()=>{setUploading(true);setNotes([]);
+      try{const d=await ensureDraft(),enqueue=job=>ctx.writer.packOp(d.packId,job,{quiet:true}),importer=figureImageImporter({binding,packId:d.packId,enqueue});
+        const warnings=await importer(d.figureId,NEW_FIGURE_OUTFIT,NEW_FIGURE_FACE,file,'sprite')||[];
+        await enqueue(c=>{const f=c.figures[d.figureId],o=f.outfits.find(x=>x.key===NEW_FIGURE_OUTFIT);
+          if(!(o.sprite?.imagePools?.[NEW_FIGURE_FACE]?.imageIds.length>1))return {snapshot:c};
+          const made=removeSpriteEmotion(o,c.sprites[o.sprite.manifestKey],NEW_FIGURE_FACE);
+          return binding.service.patchFigure({packId:d.packId,expectedRevision:c.revision,figureId:d.figureId,patch:{outfits:f.outfits.map(x=>x.key===NEW_FIGURE_OUTFIT?made.outfit:x)}});});
+        setNotes(warnings);}finally{setUploading(false);}});
+  };
+  // 创建人物: the form is checked once, then the draft (made now if there is none) becomes the figure (one patchFigure;
+  // the lint runs in it).
   const create=()=>{
     if(busy)return;
     const next={},words=triggers.filter(Boolean);
@@ -516,10 +537,10 @@ function NewFigurePage({ctx,parent,initialName='',ensurePack,onBack,onCreated,ex
     setErrors(next);const first=NEW_FIGURE_FIELDS.find(key=>next[key]);if(first)return focusField(first);
     const finalName=name.trim(),norm=figureResolution.normalizeCatalogueText,shortest=[...words].sort((a,b)=>[...a].length-[...b].length)[0];
     setBusy(true);setProblem('');
-    write(c=>{const f=c.figures[draftRef.current.figureId];
+    Promise.resolve(draftRef.current||ensureDraft()).then(()=>write(c=>{const f=c.figures[draftRef.current.figureId];
       return binding.service.patchFigure({packId:draftRef.current.packId,expectedRevision:c.revision,figureId:draftRef.current.figureId,patch:{
         name:finalName,enabled:true,aliases:namesPatch(f,words).aliases.filter(w=>norm(w)!==norm(finalName)),heightCm:heightCm(),description:about.trim()||null,
-        outfits:f.outfits.map(o=>o.key===NEW_FIGURE_OUTFIT?{...o,recall:{mode:'keyword',keywords:[shortest]}}:o)}});})
+        outfits:f.outfits.map(o=>o.key===NEW_FIGURE_OUTFIT?{...o,recall:{mode:'keyword',keywords:[shortest]}}:o)}});}))
       .then(async()=>{draftRef.current=null;await ctx.writer.reload();onCreated?.();},
         e=>{if(e?.code==='TRIGGER_LINT'){setErrors({triggers:newFigureLintText(e.issues)});focusField('triggers');}else setProblem(newFigureSaveText(e));})
       .finally(()=>setBusy(false));
@@ -528,7 +549,7 @@ function NewFigurePage({ctx,parent,initialName='',ensurePack,onBack,onCreated,ex
   const leave=()=>{
     if(busy&&!draftRef.current)return;
     const quit=()=>run(async()=>{await discard();onBack();});
-    if(figure&&(sprite||avatar))return ctx.setConfirm({title:'放弃这个新人物？',body:'生成的立绘和头像会被删除。',confirmLabel:'放弃',danger:true,onConfirm:quit});
+    if(figure&&(sprite||avatar))return ctx.setConfirm({title:'放弃这个新人物？',body:'图片会被删除。',confirmLabel:'放弃',danger:true,onConfirm:quit});
     quit();
   };
   const openVoice=()=>run(async()=>{const d=await ensureDraft();ctx.openPack(d.packId,'figures',d.figureId,'voice');});
@@ -537,17 +558,21 @@ function NewFigurePage({ctx,parent,initialName='',ensurePack,onBack,onCreated,ex
     h('div',{className:'ap-gd-refs ap-nf-ref-list',role:'group','aria-label':'设定图'},
       refs.map((u,i)=>h(GenRefChip,{key:u.id,url:u.url,name:'设定图 '+(i+1),bare:true,onRemove:()=>setRefs(list=>list.filter(x=>x!==u))})),
       refs.length<GEN_REF_LIMIT&&h(CatAddTile,{label:'添加设定图',className:'ap-gd-ref-add',onClick:()=>fileInput.current?.click?.()}),
-      h('input',{ref:fileInput,type:'file',hidden:true,multiple:true,tabIndex:-1,accept:'image/png,image/webp,image/jpeg','aria-label':'添加设定图',
+      h('input',{ref:fileInput,type:'file',hidden:true,multiple:true,tabIndex:-1,accept:IMAGE_ACCEPT,'aria-label':'添加设定图',
         onChange:e=>{const files=[...(e.target.files||[])];e.target.value='';addFiles(files);}})),
     errors.refs&&h('span',{className:'fork-inline-error',role:'alert'},errors.refs));
   const voice=figure?h(FigureVoiceField,{pack,figure,status:null,onOpen:openVoice}):
     h(InlineField,{kind:'link',label:'声音',className:'is-voice',value:'',placeholder:'选择声音',controlClassName:'ap-voice-pill',disabled:busy,onOpen:openVoice});
-  const primary=done?h(Button,{primary:true,className:'ap-primary ap-nf-go',disabled:busy||drawing,onClick:create},busy?'正在保存…':'创建人物'):
-    h(Button,{primary:true,className:'ap-primary ap-nf-go',disabled:busy||drawing,onClick:generate},h(Glyph,{name:'spark'}),drawing?'正在生成…':'生成形象');
+  const upload=h(Button,{className:'ap-manage ap-nf-upload',disabled:busy||drawing,onClick:()=>spriteInput.current?.click?.()},h(Glyph,{name:'upload'}),uploading?'正在上传…':'上传立绘'),
+    spritePicker=h('input',{ref:spriteInput,type:'file',hidden:true,tabIndex:-1,accept:IMAGE_ACCEPT,'aria-label':'上传立绘',
+      onChange:e=>{const file=e.target.files?.[0];e.target.value='';uploadSprite(file);}});
+  const draw=done?h(Button,{className:'ap-manage',disabled:busy||drawing,onClick:generate},h(Glyph,{name:'reset'}),'重新生成'):
+    h(Button,{className:'ap-manage ap-nf-draw',disabled:busy||drawing,onClick:generate},h(Glyph,{name:'spark'}),drawing?'正在生成…':'生成形象');
+  const primary=h(Button,{primary:true,className:'ap-primary ap-nf-go',disabled:busy||drawing,onClick:create},busy&&!uploading?'正在保存…':'创建人物');
   return h('div',{ref:root,className:'ap-person ap-new-figure',role:'region','aria-label':'新人物',onKeyDown:keys,onPaste:paste},
     h(SubpageHead,{parent,title:name.trim()||NEW_FIGURE_NAME,onBack:leave,titleRef:title,tools:busy&&h(Spinner,{label:'正在保存'})}),
     h('div',{className:'ap-nf-body'},
-      draft&&request>0&&h(NewFigureStudio,{key:draft.figureId,ctx,draft,pack,figure,sprite,avatar,request,input:()=>sent.current,onRetry:generate,onDrawing:setDrawing}),
+      draft&&(request>0||sprite)&&h(NewFigureStudio,{key:draft.figureId,ctx,draft,pack,figure,sprite,avatar,request,notes,input:()=>sent.current,onRetry:generate,onDrawing:setDrawing}),
       h(InlineGrid,{label:'新人物',columns:1,className:'ap-nf-fields'},
         refsRow,
         h(InlineField,{kind:'text',multiline:true,lines:true,count:true,maxLength:FIGURE_DESCRIPTION_MAX,label:'人物介绍',wide:true,className:'ap-nf-about',value:about,
@@ -559,17 +584,17 @@ function NewFigurePage({ctx,parent,initialName='',ensurePack,onBack,onCreated,ex
         voice),
       existing&&h(StagePersonChoices,{ctx,pack:existing.pack,packId:existing.packId,name,figures:existing.figures,library:existing.library,query,setQuery,origin:null,applying:null,
         onUse:choice=>{if(busy)return;const go=()=>run(async()=>{await discard();await existing.use(choice,{name,triggers});onBack();});
-          if(figure&&(sprite||avatar))return ctx.setConfirm({title:'改用「'+choice.figure.name+'」？',body:'生成的立绘和头像会被删除。',confirmLabel:'改用',danger:true,onConfirm:go});go();}})),
+          if(figure&&(sprite||avatar))return ctx.setConfirm({title:'改用「'+choice.figure.name+'」？',body:'图片会被删除。',confirmLabel:'改用',danger:true,onConfirm:go});go();}})),
     h('footer',{className:'ap-wizard-foot ap-nf-foot'},
       problem&&h('p',{className:'ap-nf-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,problem)),
       h('span',{className:'ap-wizard-foot-gap'}),
-      done&&h(Button,{className:'ap-manage',disabled:busy||drawing,onClick:generate},h(Glyph,{name:'reset'}),'重新生成'),
-      primary));
+      upload,spritePicker,draw,primary));
 }
 // The request and its pictures (one per draft): 立绘 with its 头像 as follow-up through the pack's own generation
 // controller (useAssetGen) on the card writer's queue; each picture is adopted into the hidden draft as it arrives (the
-// draft is the confirmation step — nothing is on stage before 「创建人物」). Shows the request's state, the 立绘 and 头像.
-function NewFigureStudio({ctx,draft,pack,figure,sprite,avatar,request,input,onRetry,onDrawing}) {
+// draft is the confirmation step — nothing is on stage before 「创建人物」). Shows the request's state, the 立绘 and 头像
+// (an uploaded 立绘 too, with its warnings as `notes`); request 0 asks for nothing.
+function NewFigureStudio({ctx,draft,pack,figure,sprite,avatar,request,notes,input,onRetry,onDrawing}) {
   const {binding}=ctx,packId=draft.packId;
   const enqueue=job=>ctx.writer.packOp(packId,job,{quiet:true}),importFigureImage=figureImageImporter({binding,packId,enqueue});
   const gen=useAssetGen({binding,packId,enqueue,importFigureImage});
@@ -593,15 +618,20 @@ function NewFigureStudio({ctx,draft,pack,figure,sprite,avatar,request,input,onRe
   const elapsed=useElapsed(running?.since,!!running?.since);
   React.useEffect(()=>{onDrawing(!!running);},[!!running]);
   React.useEffect(()=>()=>onDrawing(false),[]);
+  // Before its own 头像 the face is cut from the 立绘 as the cast shows it (the draft is hidden, so shown as enabled); with
+  // neither and nothing being made there is no 头像 cell.
+  const shown=figure&&{...figure,enabled:true,outfits:figure.outfits.map(o=>({...o,enabled:true}))},bust=!avatar&&shown?castFaceBust(shown,pack?.sprites):null;
   const art=sprite?h(StandArt,{key:sprite,binding,packId,hash:sprite,label:(figure?.name||'')+'立绘',heightCm:figure?.heightCm}):
     h('span',{className:'ap-nf-wait'},running?h(Spinner,{delay:0}):null);
-  return h('section',{className:'ap-nf-result','aria-label':'生成的形象'},
+  return h('section',{className:'ap-nf-result','aria-label':'形象'},
     h('div',{className:'ap-nf-stand ap-stand-wrap',style:{'--figure-color':figure?figureColor(figure):undefined}},art),
     h('div',{className:'ap-nf-side'},
-      h('span',{className:'ap-nf-avatar'},avatar?h(Thumb,{binding,packId,hash:avatar,label:(figure?.name||'')+'头像',className:'ap-avatar ap-nf-avatar-art'}):
+      (avatar||bust||running)&&h('span',{className:'ap-nf-avatar'},avatar?h(Thumb,{binding,packId,hash:avatar,label:(figure?.name||'')+'头像',className:'ap-avatar ap-nf-avatar-art'}):
+        bust?h(FigureCastFace,{binding,packId,figure:shown,sprites:pack.sprites,avatar:null,label:(figure?.name||'')+'头像',className:'ap-avatar ap-nf-avatar-art'}):
         h('span',{className:'ap-nf-wait'},running&&sprite?h(Spinner,{delay:0}):null)),
       word&&h('p',{className:'ap-nf-status',role:'status'},h('span',null,word),running?.since&&h('span',{className:'ap-gen-time'},elapsed)),
       gen.problem&&h(HintLine,{text:GEN_PROBLEMS[gen.problem]}),
+      notes.map(text=>h(HintLine,{key:text,text})),
       error&&!gen.problem&&!running&&h('p',{className:'ap-nf-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,error)),
       error&&!running&&h(Button,{className:'ap-manage',onClick:onRetry},h(Glyph,{name:'reset'}),'重新生成')),
     gen.dialogs);

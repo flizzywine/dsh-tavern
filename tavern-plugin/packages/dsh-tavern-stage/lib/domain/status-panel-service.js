@@ -4,6 +4,7 @@ import { readLedger } from '../../../../lib/domain/story-ledger.js'
 import { locateCardPageAsset, listCardPageAssets } from './card-page-assets.js'
 
 const LEDGER_BUDGET = 12288
+const USER = '{{user}}'
 const bytes = value => Buffer.byteLength(JSON.stringify(value))
 
 // Only the declared ledger sections (checked when the card was written, card-status-panel.js); the longest list is trimmed from its end until the projection fits the budget.
@@ -49,7 +50,9 @@ export function createCardPagesService({ readWorkspace, chatForSession, index, p
       if (!definition) return null
       return {
         id: definition.id, label: definition.label, size: definition.size || 'window',
-        figures: definition.figures || [], card: { name: value.card.name },
+        // {{user}} is the player's name in this chat (an agent sheet shows the player's own face from the library)
+        figures: (definition.figures || []).map(figure => figure.name === USER ? { ...figure, name: value.chat.macroState?.userName?.trim() || figure.name } : figure),
+        card: { name: value.card.name },
         preload: await Promise.all((definition.preload || []).map(async ref => ({ ref, place: await locateCardPageAsset(packSnapshot, value.packs, ref) }))),
         ...(withHtml === true ? { html: definition.html } : {}),
         data: { ledger: projectStatusPanelLedger(readLedger(value.chat.ledger), definition.ledger) }

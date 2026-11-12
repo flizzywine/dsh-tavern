@@ -22,6 +22,8 @@ async function filesIn(directory,prefix='') {
 // Only the user-plugin loader imports the installed entry after code consent.
 // Every folder under tavern-plugin/mods is one first-party mod (docs/mod-authoring.md); the folder list is the only list.
 export const firstPartyModIds = (await fs.readdir(path.join(root,'tavern-plugin/mods'),{withFileTypes:true})).filter(entry=>entry.isDirectory()).map(entry=>entry.name).sort()
+// Their manifest ids (mod.json id, dsh.<folder>), for the readers that tell a first-party managed mod from others.
+export const firstPartyManifestIds = await Promise.all(firstPartyModIds.map(async folder => JSON.parse(await fs.readFile(path.join(root,'tavern-plugin/mods',folder,'mod.json'),'utf8')).id))
 export const firstPartyModDirectory = folder => pathToFileURL(path.join(root,'tavern-plugin/mods',folder)+path.sep)
 export async function firstPartyDistributions() {
   const results=[]

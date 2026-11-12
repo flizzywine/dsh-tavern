@@ -1,4 +1,5 @@
-function createStageSkinAdapter({contract:stageSkinContract,motion,backlog}) {
+// readableInk: the one secondary-ink rule (the host's surfaces.cjs readableInk), passed in by the host.
+function createStageSkinAdapter({contract:stageSkinContract,motion,backlog,readableInk}) {
 let disposed=false;const applications=new Set();
 function apply(paint,args) {
     if(disposed)return ()=>{};
@@ -15,7 +16,7 @@ function dispose() {
 }
 
 const {stageSkinFrames,stageSkinFramePosition,STAGE_SKIN_FRAME_SLOTS,STAGE_SKIN_TX_EASE,stageSkinTxEase,stageSkinTransitionList,stageSkinTransitionTokens,stageSkinWipeClip,stageSkinTransitionKeyframes,STAGE_SKIN_EASE,stageSkinPoseScale,STAGE_SKIN_PAGE_RISE_MS,stageSkinPageFromRest,stageSkinMotionKeyframes,stageSkinGlyphPoses}=motion;
-const {STAGE_BACKLOG_DEFAULTS,STAGE_BACKLOG_OPACITY,STAGE_BACKLOG_METRICS,stageSkinBacklog,stageSkinBacklogBadge,stageSkinBacklogOutline,stageSkinChamfer,stageSkinInset,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogClose}=backlog;
+const {STAGE_BACKLOG_DEFAULTS,STAGE_BACKLOG_OPACITY,STAGE_BACKLOG_METRICS,stageSkinBacklog,stageSkinBacklogBadge,stageSkinBadgeToken,stageSkinBacklogOutline,stageSkinChamfer,stageSkinInset,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogClose}=backlog;
 // One stage-local adapter; surface tokens and text roles share the skin paint. Skins are validated once, where they enter
 // (install / import / a performance's theme at its install, AGENTS rule 8): every composition drawn here (a level's look, a
 // mode, borrowed controls) is applied as composed, never re-validated, and a missing optional part only leaves that part out.
@@ -79,11 +80,14 @@ function stageSkinPanelTokens(document,fonts,theme,builtin=false,lead=false) {
     const contrast=stageSkinContract.skinContrast;
     const accent=[p.accent,document.textStyle?.emphasis,ink].find(value=>value && contrast(value,p.bg)>=4.5);
     const onAccent=p.onAccent && contrast(p.onAccent,accent)>=4.5 ? p.onAccent : contrast('#ffffff',accent)>=4.5 ? '#ffffff' : '#000000';
-    const surface=p.bg, muted=p.fgMuted || ink, border=p.border || muted;
+    const surface=p.bg;
     // opaque accent-tinted states, bounded by both body and selected-accent text contrast.
     const mix=(a,b,t)=>'#'+[1,3,5].map(i=>Math.round(parseInt(a.slice(i,i+2),16)*t+parseInt(b.slice(i,i+2),16)*(1-t)).toString(16).padStart(2,'0')).join('');
     const tint=share=>{for(let t=share;t>0;t-=.01){const paint=mix(accent,surface,t);if([ink,accent].every(fg=>contrast(fg,paint)+1e-6>=4.5))return paint;}return surface;};
     const dark=contrast(surface,'#000000')<8, raised=tint(.06),hover=tint(dark?.10:.12),selected=tint(dark?.18:.16);
+    // panel secondary text (backlog narration, the 「你」 badge, separators, section and menu row labels) reads at 4.5:1 on the
+    // surface and the raised panel paint it sits on (skin audit 10-31 R5); the border keeps the skin's own muted ink.
+    const muted=[surface,raised].reduce((out,paint)=>readableInk ? readableInk(out,ink,paint) : out,p.fgMuted || ink), border=p.border || p.fgMuted || ink;
     const veil=document.ui?.veil;
     const veilColor=veil?.color || (dark?'#040818':'#0f1c46'),opacity=veil?.opacity ?? (dark?.68:.45);
     const dim='rgb('+[1,3,5].map(i=>parseInt(veilColor.slice(i,i+2),16)).join(' ')+' / '+opacity+')';
@@ -173,13 +177,60 @@ function stageSkinConfigSurface(document) {
         marks['data-fk-cs-nav-paint']='';
         Object.assign(tokens,{'--cs-nav-bg':p.bg,'--cs-nav-fg':p.fg,'--cs-nav-muted':p.fgMuted || p.fg,'--cs-nav-accent':p.accent || p.fg,'--cs-nav-on':p.onBg || c.frame?.paint?.fg || document.ui?.fg || document.textbox.paint.fg});
     }
+    // nav.tilt / lead (§18 N32): each tab's own angle (cycled over eight places), the line under the tabs
+    if (c.nav?.tilt) {marks['data-fk-cs-nav-tilt']=''; for (let i=0; i < 8; i++) tokens['--cs-tab-tilt-' + (i + 1)]=c.nav.tilt[i % c.nav.tilt.length] + 'deg';}
+    if (c.nav?.lead === 'line') marks['data-fk-cs-lead']='';
+    if (c.nav?.platePaint) {marks['data-fk-cs-tab-paint']=''; Object.assign(tokens,{'--cs-tab-fg':c.nav.platePaint.fg,'--cs-tab-on-fg':c.nav.platePaint.onFg});}
+    // words (§18 N32): the labels', tabs', tags' and lead's weight (900: the heaviest face thickened by a stroke), skew and lift
+    if (c.words) {
+        marks['data-fk-cs-words']='';
+        if (c.words.weight) {tokens['--cs-words-weight']=String(Math.min(c.words.weight,700)); if (c.words.weight === 900) marks['data-fk-cs-words-heavy']='';}
+        if (c.words.skew) tokens['--cs-words-skew']=-c.words.skew + 'deg';
+        if (c.words.lift) marks['data-fk-cs-lift']='';
+    }
+    // hints (§18 N32): the key guide's stickers and their inks
+    if (c.hints) {marks['data-fk-cs-hints']=''; Object.assign(tokens,{'--cs-hints-bg':c.hints.paint.bg,'--cs-hints-fg':c.hints.paint.fg});}
     if (c.section?.sticky) marks['data-fk-cs-sticky']='';
-    mark('label',c.row?.label,'start'); mark('density',c.row?.density,'regular'); mark('columns',c.row?.columns,1);
+    // section.paint (§18 N20): the heads' words on their own ground (a paper strip): bg under the words, fg their ink.
+    if (c.section?.paint) {marks['data-fk-cs-section-paint']=''; Object.assign(tokens,{'--cs-section-bg':c.section.paint.bg,'--cs-section-fg':c.section.paint.fg});}
+    // row.focusPaint (§18 N22): the focused row's inks on its focus plate
+    if (c.row?.focusPaint) {marks['data-fk-cs-row-focus-paint']=''; Object.assign(tokens,{'--cs-row-focus-fg':c.row.focusPaint.fg,'--cs-row-focus-muted':c.row.focusPaint.fgMuted});}
+    mark('label',c.row?.label,'start'); mark('label-align',c.row?.labelAlign,'start'); mark('density',c.row?.density,'regular'); mark('columns',c.row?.columns,1);
+    // row.slant / step (§18 N29): the rows along a leaning column - the plate turned, each row stepped in (theme.css)
+    if (c.row?.slant) {marks['data-fk-cs-row-slant']=''; tokens['--cs-row-slant']=c.row.slant + 'deg';}
+    if (c.row?.step) {marks['data-fk-cs-row-step']=''; tokens['--cs-row-step']=stageSkinConfigLength(c.row.step);}
+    // row.block (§18 N30): the rows and section heads in one block of two columns, placed in the page (wide stages)
+    if (c.row?.block) {
+        marks['data-fk-cs-row-block']=c.row.block.place || 'start';
+        Object.assign(tokens,{'--cs-block-label':stageSkinConfigLength(c.row.block.label),'--cs-block-control':stageSkinConfigLength(c.row.block.control)});
+    }
+    // controls.paint (§18 N30): the words on the value plate, kept on a focused row
+    if (c.controls?.paint) {marks['data-fk-cs-value-paint']=''; Object.assign(tokens,{'--cs-value-bg':c.controls.paint.bg,'--cs-value-fg':c.controls.paint.fg,'--cs-value-muted':c.controls.paint.fgMuted});}
+    // foot (§18 X15): the strip's height is layout (the page ends above it) whether or not its image is served; close moves the ✕ onto it.
+    if (c.foot) {marks['data-fk-cs-foot']=''; tokens['--cs-foot-h']=stageSkinConfigLength(c.foot.h); if (c.foot.close) marks['data-fk-cs-foot-close']='';}
+    // foot.fit / place (§18 N31): one stretched or contained copy instead of the tiled strip, from its start, centre or end
+    if (c.foot?.fit && c.foot.fit !== 'tile') marks['data-fk-cs-foot-fit']=c.foot.fit;
+    if (c.foot?.place) tokens['--cs-foot-place']={start:'left',center:'center',end:'right'}[c.foot.place];
+    // controls.font (§18 N31): the values' own face and weight beside the labels'
+    if (c.controls?.font) {marks['data-fk-cs-value-font']=c.controls.font.face; if (c.controls.font.weight) tokens['--cs-value-weight']=String(c.controls.font.weight);}
     mark('fade',c.scroll?.fade,'none'); mark('motion',c.motion?.rows,'none');
     if (c.title?.word) {marks['data-fk-cs-word']=''; tokens['--cs-word']=JSON.stringify(c.title.word);}
+    // frame.tilt: the sheet turned in depth, as one axis-angle rotate (rotateX x then rotateY y for these small angles) so it
+    // composes with the sheet's own entrance transform.
+    if (c.frame?.tilt) {
+        const x=c.frame.tilt.x || 0, y=c.frame.tilt.y || 0, r=n => Math.round(n * 1000) / 1000;
+        marks['data-fk-cs-tilt']='';
+        tokens['--cs-tilt']=r(x) + ' ' + r(y) + ' 0 ' + r(Math.hypot(x,y)) + 'deg';
+    }
+    // a frame plate drawn past the sheet (outset) is the sheet's surroundings: a phone's sheet is the whole screen, so there
+    // it is not drawn (its edges would lie over the rows).
+    if (c.frame?.plate?.outset !== undefined) marks['data-fk-cs-frame-outset']='';
     if (c.frame?.width) tokens['--cs-width']=Math.round(c.frame.width * 1000) / 10 + '%';
     if (c.frame?.corner !== undefined) tokens['--cs-corner']=c.frame.corner + 'px';
     if (c.motion?.stagger !== undefined) tokens['--cs-stagger']=c.motion.stagger + 'ms';
+    // scale: the size ladder's base (phone body px) and step; theme.css «stage CONFIG size ladder» derives every size from them.
+    if (c.scale?.base !== undefined) tokens['--cs-base']=String(c.scale.base);
+    if (c.scale?.ratio !== undefined) tokens['--cs-ratio']=String(c.scale.ratio);
     const veil=c.frame?.backdrop?.veil;
     if (veil) {marks['data-fk-cs-veil']=''; tokens['--cs-veil-color']=veil.color; tokens['--cs-veil-alpha']=Math.round(veil.opacity * 100) + '%';}
     // frame.paint: the engine derives the panel's shades from the seeds exactly as for ui (stageSkinPanelTokens), here as --cs-ui-*.
@@ -191,11 +242,14 @@ function stageSkinConfigSurface(document) {
     return {marks,tokens};
 }
 // The CONFIG surface's images from the skin's bundle: each part's url, its nine-slice and the sliced edges' CSS width; one
-// data-fk-cs-art mark lists the parts drawn. A missing image leaves only that part out (its look stays).
-const STAGE_CONFIG_ART_PARTS = Object.freeze([['frame',c => c.frame?.plate],['backdrop',c => c.frame?.backdrop?.image && {image:c.frame.backdrop.image}],['title',c => c.title?.plate],
-    ['nav',c => c.nav?.plate],['section',c => c.section?.plate],['row',c => c.row?.plate],
+// data-fk-cs-art mark lists the parts drawn. A missing image leaves only that part out (its look stays). Every length is
+// in art units (--gal-cfg-u: 1 CSS px at a ladder base of 20, the wide 1920 screen), so the art grows and shrinks with the type.
+const stageSkinConfigLength = px => 'calc(' + Math.round(px * 100) / 100 + ' * var(--gal-cfg-u))';
+const STAGE_CONFIG_ART_PARTS = Object.freeze([['frame',c => c.frame?.plate],['backdrop',c => c.frame?.backdrop?.image && {image:c.frame.backdrop.image}],['crest',c => c.frame?.crest],['title',c => c.title?.plate],
+    ['nav',c => c.nav?.plate],['mark',c => c.nav?.mark],['section',c => c.section?.plate],['row',c => c.row?.plate],
     ...['segmented','toggle','select','text','colour','picker','other'].map(type => [type,c => c.controls?.[type]?.plate]),
-    ['track',c => c.controls?.slider?.track],['fill',c => c.controls?.slider?.fill],['thumb',c => c.controls?.slider?.thumb]]);
+    ['value',c => c.controls?.plate],['track',c => c.controls?.slider?.track],['fill',c => c.controls?.slider?.fill],['thumb',c => c.controls?.slider?.thumb],['ends',c => c.controls?.slider?.ends],
+    ['foot',c => c.foot && {image:c.foot.image}],['close',c => c.foot?.close]]);
 function stageSkinConfigArt(document, files, entry = '') {
     const c=document?.config;
     if (!c || !files) return null;
@@ -212,13 +266,37 @@ function stageSkinConfigArt(document, files, entry = '') {
         for (const [suffix,name] of states) tokens[p + suffix]=url(name);
         const edges=stageSkinSlice(plate.slice) || [0,0,0,0], scale=plate.scale || 1;
         tokens[p + '-slice']=edges.join(' ') + ' fill';
-        tokens[p + '-edge']=edges.map(n => Math.round(n * scale * 100) / 100 + 'px').join(' ');
-        // A placed image (the slider thumb) keeps its natural size times scale.
+        tokens[p + '-edge']=edges.map(n => stageSkinConfigLength(n * scale)).join(' ');
+        // outset / repeat: the plate drawn past its part / its edges and centre tiled (theme.css reads them with 0 / stretch).
+        if (plate.outset !== undefined) tokens[p + '-outset']=[plate.outset].flat().map(stageSkinConfigLength).join(' ');
+        // the frame's surroundings above and below the sheet: a wide sheet makes room for them on the stage (theme.css).
+        if (part === 'frame' && plate.outset !== undefined) {const [top,,bottom=top]=[plate.outset].flat(); tokens['--cs-frame-room-top']=stageSkinConfigLength(top); tokens['--cs-frame-room-bottom']=stageSkinConfigLength(bottom);}
+        if (plate.repeat) tokens[p + '-repeat']=plate.repeat;
+        // A placed image (the slider thumb, a toggle) keeps its proportions; its height is its control type's size on the ladder.
         const image=file(plate.image || plate.plain).image;
-        if (image) {tokens[p + '-w']=Math.round((image.naturalWidth || image.width) * scale * 100) / 100 + 'px'; tokens[p + '-h']=Math.round((image.naturalHeight || image.height) * scale * 100) / 100 + 'px';}
+        if (image) tokens[p + '-ratio']=String(Math.round((image.naturalWidth || image.width) / (image.naturalHeight || image.height) * 1000) / 1000);
+        // the foot's close stamp is drawn at its own size (natural x scale).
+        if (part === 'close' && image) {tokens[p + '-w']=stageSkinConfigLength((image.naturalWidth || image.width) * scale); tokens[p + '-h']=stageSkinConfigLength((image.naturalHeight || image.height) * scale);}
+        // the crest is drawn at its own size (natural x scale) on the frame's top edge, its centre y design px above it.
+        // A crest standing taller than wide (a torii's plaque) sets a title on it top to bottom (title.look crest).
+        if (part === 'crest') {
+            if (image) {tokens[p + '-w']=stageSkinConfigLength((image.naturalWidth || image.width) * scale); tokens[p + '-h']=stageSkinConfigLength((image.naturalHeight || image.height) * scale);}
+            if (image && (image.naturalHeight || image.height) > (image.naturalWidth || image.width)) marks['data-fk-cs-crest-tall']='';
+            tokens[p + '-y']=stageSkinConfigLength(plate.y || 0);
+        }
     }
-    if (!parts.length) return null;
-    marks['data-fk-cs-art']=parts.join(' ');
+    // ambient: each looping layer's image, tile size (natural size x scale), drift in whole tiles, period and opacity.
+    const layers=(c.ambient || []).filter(layer => file(layer.image)?.url);
+    for (const layer of layers) {
+        const p='--cs-amb-' + layer.layer, image=file(layer.image).image, scale=layer.scale || 1, [dx,dy]=layer.drift || [0,0];
+        tokens[p]=url(layer.image);
+        if (image) {tokens[p + '-w']=stageSkinConfigLength((image.naturalWidth || image.width) * scale); tokens[p + '-h']=stageSkinConfigLength((image.naturalHeight || image.height) * scale);}
+        Object.assign(tokens,{[p + '-dx']:String(dx),[p + '-dy']:String(dy),[p + '-ax']:String(Math.abs(dx)),[p + '-ay']:String(Math.abs(dy)),[p + '-period']:(layer.period || 0) + 's',[p + '-opacity']:String(layer.opacity ?? 1)});
+        if (dx || dy) marks['data-fk-cs-drift']=[marks['data-fk-cs-drift'],layer.layer].filter(Boolean).join(' ');
+    }
+    if (layers.length) marks['data-fk-cs-ambient']=layers.map(layer => layer.layer).join(' ');
+    if (!parts.length && !layers.length) return null;
+    if (parts.length) marks['data-fk-cs-art']=parts.join(' ');
     return {marks,tokens};
 }
 function stageSkinControlIcons(document, files, entry = '') {
@@ -270,11 +348,11 @@ function stageSkinArt(document, files, entry = '') {
     if (!art || !files) return null;
     const dir=entry.includes('/') ? entry.replace(/[^/]*$/,'') : '', file=name => files[dir + name];
     const url=name => 'url("' + file(name).url + '")';
-    const names=[...Object.values(art.textbox?.images || {}),...Object.values(art.textbox?.tint?.masks || {}),...Object.values(art.choices?.images || {}),...[art.choices?.tint,art.choices?.tool?.image,art.choices?.tool?.tint,art.choices?.tool?.send,art.choices?.focus?.image,art.choices?.focus?.alt,...(art.choices?.tool?.button ? [art.choices.tool.button.normal,art.choices.tool.button.hover,art.choices.tool.button.disabled] : [])].filter(Boolean),...(art.textbox?.lamp ? [art.textbox.lamp.image] : []),...[stageSkinImage(art.textbox?.next),art.nameplate?.image].filter(Boolean),...Object.values(art.buttons || {}).flatMap(button => [button.image,button.on,button.tint,button.narrow?.image,button.narrow?.on].filter(Boolean)),
+    const names=[...Object.values(art.textbox?.images || {}),...Object.values(art.textbox?.tint?.masks || {}),...Object.values(art.choices?.images || {}),...[art.choices?.tint,art.choices?.tool?.image,art.choices?.tool?.tint,art.choices?.tool?.send,art.choices?.focus?.image,art.choices?.focus?.alt,art.choices?.hover?.image,art.choices?.hover?.alt,...(art.choices?.tool?.button ? [art.choices.tool.button.normal,art.choices.tool.button.hover,art.choices.tool.button.disabled] : [])].filter(Boolean),...(art.textbox?.lamp ? [art.textbox.lamp.image] : []),...[stageSkinImage(art.textbox?.next),art.nameplate?.image].filter(Boolean),...Object.values(art.buttons || {}).flatMap(button => [button.image,button.on,button.disabled,button.tint,button.narrow?.image,button.narrow?.on].filter(Boolean)),
         ...(art.nameplate?.band ? [art.nameplate.band.image] : []),...Object.values(art.cast || {}).flatMap(entry => [entry.box,entry.plate,entry.band?.image].filter(Boolean)),...(art.decor || []).map(item => item.image),
         ...stageSkinContract.stageSkinScreenFiles(art),...(art.portrait?.frame ? [art.portrait.frame.image,art.portrait.frame.glass,art.portrait.frame.back,art.portrait.frame.speaking,art.portrait.frame.tint].filter(Boolean) : []),...(art.portrait?.placeholder?.image ? [art.portrait.placeholder.image] : []),...(art.item ? [art.item.frame,art.item.gain?.toast?.image].filter(Boolean) : []),
-        ...Object.values(document.modes || {}).flatMap(mode => Object.values(mode.buttons || {}).flatMap(button => [button.image,button.on,button.tint].filter(Boolean)))];
-    if (!names.length && !art.portrait && !art.narration && !art.shape && art.voice?.box !== false || names.some(name => !file(name)?.url || !file(name).image)) return null;
+        ...Object.values(document.modes || {}).flatMap(mode => Object.values(mode.buttons || {}).flatMap(button => [button.image,button.on,button.disabled,button.tint].filter(Boolean)))];
+    if (!names.length && !art.portrait && !art.faceChip && !art.narration && !art.shape || names.some(name => !file(name)?.url || !file(name).image)) return null;
     // An element's `scale` (design px per image px, or [x, y]; the original's sprite scale) sizes its images; 1 = natural size.
     const size=(name,scale = 1) => [file(name).image.naturalWidth || file(name).image.width,file(name).image.naturalHeight || file(name).image.height].map((n,i) => Math.round(n * [].concat(scale)[Math.min(i,[].concat(scale).length - 1)] * 1000) / 1000);
     // --art-screen-w: the width that bounds the art px. A declared design width fits the game area's aspect into the stage;
@@ -302,7 +380,9 @@ function stageSkinArt(document, files, entry = '') {
         }
         else if (box.cue === 'inline') marks['data-fk-skin-art-cue']='inline';
         // controls (§18 E2): the quick menu row on the box image; slice (§13): the phone box 9-sliced from the same image.
-        if (box.controls) {marks['data-fk-skin-art-controls']=''; Object.assign(tokens,{'--art-qc-x':String(box.controls.x),'--art-qc-y':String(box.controls.y),'--art-qc-size':String(box.controls.size),'--art-qc-w':String(box.controls.w || box.controls.size),'--art-qc-gap':String(box.controls.gap || 0)}); if (box.controls.rows > 1) {marks['data-fk-skin-art-controls']='grid'; tokens['--art-qc-rows']=String(box.controls.rows);}}
+        if (box.controls) {marks['data-fk-skin-art-controls']=''; Object.assign(tokens,{'--art-qc-x':String(box.controls.x),'--art-qc-y':String(box.controls.y),'--art-qc-size':String(box.controls.size),'--art-qc-w':String(box.controls.w || box.controls.size),'--art-qc-gap':String(box.controls.gap || 0)}); if (box.controls.rows > 1) {marks['data-fk-skin-art-controls']='grid'; tokens['--art-qc-rows']=String(box.controls.rows);}
+            // a row in the body's lower half keeps its distance from the bottom edge when floored lines grow the box (theme.css band)
+            else if (box.controls.y > y + bh / 2) {marks['data-fk-skin-art-controls-edge']='bottom'; tokens['--art-qc-below']=String(Math.round((y + bh - box.controls.y) * 100) / 100);}}
         // readout (N2): the live clock printed on the box image (StageSkinReadout, stage-skin-decoration.js)
         // narrow: its own phone place, CSS px in from the box's edge on its align side and down from its top edge.
         if (box.readout) {const r=box.readout; marks['data-fk-skin-art-readout']=r.align || 'end'; Object.assign(tokens,{'--art-ro-x':String(r.x),'--art-ro-y':String(r.y),'--art-ro-font':String(r.font)}); if (r.ink) tokens['--art-ro-ink']=r.ink;
@@ -315,6 +395,9 @@ function stageSkinArt(document, files, entry = '') {
             // (never inside the body's own top / bottom edge: those stay as drawn too)
             const edges=stageSkinSlice(box.slice) || [Math.max(y,top) / sy,Math.max(0,w - right) / sx,Math.max(h - y - bh,h - top - block) / sy,Math.max(0,left) / sx];
             Object.assign(tokens,{'--art-sl':edges.map(round).join(' '),'--art-sl-t':round(edges[0] * sy),'--art-sl-r':round(edges[1] * sx),'--art-sl-b':round(edges[2] * sy),'--art-sl-l':round(edges[3] * sx)});
+            // the body's own margins above and below that block (design px): a narrow stage whose words stand at the reading
+            // floor keeps them in the floored scale (theme.css --art-pad-t / -b), so a grown box breathes as the drawn one
+            Object.assign(tokens,{'--art-m-t':round(Math.max(0,top - y)),'--art-m-b':round(Math.max(0,y + bh - top - block))});
         }
         if (box.bob) marks['data-fk-skin-art-bob']=box.bob;
         // 「代表色」: the masked trim of each box image takes the speaker's own colour (theme.css
@@ -371,11 +454,14 @@ function stageSkinArt(document, files, entry = '') {
             if (plate.shadow) {marks['data-fk-skin-art-np-shadow']=''; Object.assign(tokens,{'--art-np-sx':String(plate.shadow[0]),'--art-np-sy':String(plate.shadow[1])});}
             if (plate.spacing != null) tokens['--art-np-spacing']=plate.spacing + 'em';
             // narrow: pill: on phones the name leaves the drawn plate for a pill in the speaker's colour
-            // (under follows the phone face: without art.portrait.phone the name keeps the phone's own plate)
-            const phoneFace=art.portrait?.narrow && art.portrait.phone === true, narrowName=plate.narrow === 'under' && !phoneFace ? null : plate.narrow;
-            if (narrowName) marks['data-fk-skin-art-name-narrow']=narrowName;
+            // (on: the under tag set on the face, its bottom on the face's lower edge - name-on below)
+            // (under / on follow the phone face: without art.portrait.phone the name keeps the phone's own plate)
+            const phoneFace=art.portrait?.narrow && art.portrait.phone === true, narrowName=['under','on'].includes(plate.narrow) && !phoneFace ? null : plate.narrow;
+            if (narrowName) marks['data-fk-skin-art-name-narrow']=narrowName === 'on' ? 'under' : narrowName;
             // wide under (§18 N16): on wide stages the plate under the face window on its axis (theme.css «art name wide under»)
-            if (plate.wide) marks['data-fk-skin-art-name-wide']=plate.wide;
+            if (plate.wide) marks['data-fk-skin-art-name-wide']=plate.wide === 'on' ? 'under' : plate.wide;
+            // on (skin-fix r7): the under plate stands on the face's lower edge instead of under it, inside the box (theme.css «art name on»)
+            if (narrowName === 'on' || plate.wide === 'on') marks['data-fk-skin-art-name-on']=[narrowName === 'on' && 'narrow',plate.wide === 'on' && 'wide'].filter(Boolean).join(' ');
         if (plate.lead) marks['data-fk-skin-art-name-lead']='';
             // tint: the name in the speaker's colour at the plate ink's luminance (the stage sets --art-np-tint per speaker)
             if (plate.tint) marks['data-fk-skin-art-name-tint']='';
@@ -405,6 +491,13 @@ function stageSkinArt(document, files, entry = '') {
             // the name's halo, and the name set by part (GalNamePlate splits it, galNameParts).
             if (plate.lift) {marks['data-fk-skin-art-name-lift']=''; tokens['--art-np-lift']=String(plate.lift);}
             if (plate.halo) {marks['data-fk-skin-art-name-halo']=''; tokens['--art-np-halo']=stageSkinHalo(plate.halo);}
+            // latin (bauhaus C01): the speaker's Latin alias as the plate's second layer (theme.css «art name latin»)
+            if (plate.latin) {
+                const l=plate.latin;
+                marks['data-fk-skin-art-name-latin']=l.upper ? 'upper' : '';
+                Object.assign(tokens,{'--art-np-latin-x':String(l.x),'--art-np-latin-y':String(l.y),'--art-np-latin-size':String(l.size),'--art-np-latin-spacing':(l.spacing || 0) + 'em'});
+                if (l.color) tokens['--art-np-latin-color']=l.color;
+            }
             if (plate.initials) {
                 const i=plate.initials;
                 marks['data-fk-skin-art-initials']='';
@@ -478,13 +571,17 @@ function stageSkinArt(document, files, entry = '') {
         if (c.weight) tokens['--art-choice-weight']=String(c.weight);
         if (c.spacing) tokens['--art-choice-spacing']=c.spacing + 'em';
         if (c.focus) {marks['data-fk-skin-choices-focus']=''; tokens['--art-choice-focus']=url(c.focus.image); if (c.focus.ink) tokens['--art-choice-focus-ink']=c.focus.ink; if (c.focus.dx) tokens['--art-choice-focus-dx']=String(c.focus.dx);}
+        // hover: the bar and ink under a hovering pointer, apart from the keyboard focus's (without it hover is the light
+        // ink change in theme.css「stage skin: art choices」).
+        if (c.hover) {marks['data-fk-skin-choices-hover']=''; tokens['--art-choice-hover']=url(c.hover.image); if (c.hover.ink) tokens['--art-choice-hover-ink']=c.hover.ink;}
         // ray: the focused bar's laser line on to the stage's edges
         if (c.focus?.ray) {marks['data-fk-skin-choices-ray']=''; Object.assign(tokens,{'--art-choice-ray':c.focus.ray.color,'--art-choice-ray-alt':c.focus.ray.alt || c.focus.ray.color,'--art-choice-ray-w':String(c.focus.ray.width)});}
         // alt: the even rows' own bar / focus images
-        if (c.images.alt || c.focus?.alt) {
+        if (c.images.alt || c.focus?.alt || c.hover?.alt) {
             marks['data-fk-skin-choices-alt']='';
             tokens['--art-choice-alt']=url(c.images.alt || c.images.plain);
             if (c.focus) tokens['--art-choice-focus-alt']=url(c.focus.alt || c.focus.image);
+            if (c.hover) tokens['--art-choice-hover-alt']=url(c.hover.alt || c.hover.image);
         }
         // number: the suggestion rows numbered 01, 02, ... (a CSS counter) centred at x on the bar.
         if (c.number) {
@@ -505,6 +602,8 @@ function stageSkinArt(document, files, entry = '') {
             '--art-mr-st':String(st),'--art-mr-sr':String(sr),'--art-mr-sb':String(sb),'--art-mr-sl':String(sl),'--art-mr-l':String(left),'--art-mr-r':String(right),'--art-mr-y':String(middle),
             '--art-mr-font':String(r.font),'--art-mr-x':String(r.x),'--art-mr-top':String(r.y),'--art-mr-gap':String(r.gap),'--art-mr-weight':String(r.weight || 500)});
         if (r.align) tokens['--art-mr-justify']=r.align === 'center' ? 'center' : r.align === 'end' ? 'flex-end' : 'flex-start';
+        // slant (§18 N27): the bars set along a leaning axis drawn on the sheet, each this many design px right of the one above
+        if (r.slant) {marks['data-fk-skin-art-menu-slant']=''; tokens['--art-mr-slant']=String(r.slant);}
         if (r.ink) tokens['--art-mr-ink']=r.ink;
         if (r.focusInk) tokens['--art-mr-focus-ink']=r.focusInk;
         // fit (the menu's capacity): past it the bars scroll inside it
@@ -513,10 +612,25 @@ function stageSkinArt(document, files, entry = '') {
         if (r.letter) marks['data-fk-skin-art-menu-letter']=r.letter;
         if (r.focusScale) Object.assign(tokens,{'--art-mr-focus-scale':String(r.focusScale),'--art-mr-origin':({center:'50%',end:'100%'}[r.align] || '0%') + ' 50%'});
         if (r.spacing !== undefined) tokens['--art-mr-spacing']=r.spacing + 'em';
+        // poses (§18 N32): each label's own offset and turn, cycled over twelve places (wide --art-mr-p*, phone --art-mn-p*)
+        const poses=(p,list) => {for (let i=0; i < 12; i++) {const pose=list[i % list.length]; Object.assign(tokens,{[p + 'x-' + (i + 1)]:String(pose.x || 0),[p + 'r-' + (i + 1)]:(pose.rot || 0) + 'deg'});}};
+        if (r.poses) {marks['data-fk-skin-art-menu-poses']=''; poses('--art-mr-p',r.poses);}
         if (r.cursor) {
             const [cw,ch]=size(r.cursor.image);
             marks['data-fk-skin-art-menu-cursor']='';
             Object.assign(tokens,{'--art-mr-cursor':url(r.cursor.image),'--art-mr-cursor-x':String(r.cursor.x),'--art-mr-cursor-y':String(r.cursor.y),'--art-mr-cursor-w':String(cw),'--art-mr-cursor-h':String(ch)});
+        }
+        // narrow (§18 N28): the same menu on phones in portrait (theme.css «art menu: narrow»), the wide fields merged under the
+        // phone's own (like art.backlog.narrow); --art-mn-* in design px, one design px = --art-mn-u CSS px.
+        if (m.narrow) {
+            const n=m.narrow, nr={...r,...n.rows,x:n.rows?.x || 0,slant:n.rows?.slant ?? r.slant ?? 0}, [nw,nh]=size(nr.images.plain), [nt,ns,nb,nl]=stageSkinSlice(nr.slice), [nleft,nright]=nr.text, sheet=n.sheet || m.sheet;
+            marks['data-fk-skin-art-menu-narrow']='';
+            Object.assign(tokens,{'--art-mn-u':n.unit + 'px','--art-mn-sheet':sheet ? url(sheet) : 'none','--art-mn-r':url(nr.images.plain),'--art-mn-r-focus':url(nr.images.focus),'--art-mn-r-off':url(nr.images.off || nr.images.plain),
+                '--art-mn-r-w':String(nw),'--art-mn-r-h':String(nh),'--art-mn-r-st':String(nt),'--art-mn-r-sr':String(ns),'--art-mn-r-sb':String(nb),'--art-mn-r-sl':String(nl),'--art-mn-r-l':String(nleft),'--art-mn-r-r':String(nright),
+                '--art-mn-r-font':String(nr.font),'--art-mn-r-x':String(nr.x),'--art-mn-r-y':String(nr.y),'--art-mn-r-gap':String(nr.gap),'--art-mn-r-slant':String(nr.slant)});
+            if (m.title) Object.assign(tokens,{'--art-mn-t-x':String(n.title?.x || 0),'--art-mn-t-y':String(n.title?.y ?? m.title.y),'--art-mn-t-scale':String(n.title?.scale || 1)});
+            if (n.signal) {marks['data-fk-skin-art-menu-narrow-signal']=''; Object.assign(tokens,{'--art-mn-sig-x':String(n.signal.x),'--art-mn-sig-y':String(n.signal.y)});}
+            if (nr.poses) {marks['data-fk-skin-art-menu-narrow-poses']=''; poses('--art-mn-p',nr.poses);}
         }
     }
     // art.menu.tiles / frame (phone menu): the items as a grid of drawn tiles keyed by action id, on a
@@ -570,6 +684,8 @@ function stageSkinArt(document, files, entry = '') {
         // dim / blur / grey: the stage behind the menu darkened, blurred (design px) and greyed
         if (m.dim !== undefined || m.blur || m.grey) {marks['data-fk-skin-art-menu-dim']=''; Object.assign(tokens,{'--art-menu-dim':String(m.dim ?? 0),'--art-menu-blur':String(m.blur || 0),'--art-menu-grey':String(m.grey || 0)});}
         if (m.decor === 'hide') marks['data-fk-skin-art-menu-decor']='hide';
+        // topbar hidden (§18 N32): the stage's top bar put away while the drawn menu is open
+        if (m.topbar === 'hidden') marks['data-fk-skin-art-menu-topbar']='hidden';
         // signal: the lamp on the frame, its alert image while one of its actions has the focus
         if (m.signal) {
             const [w,h]=size(m.signal.image);
@@ -619,7 +735,7 @@ function stageSkinArt(document, files, entry = '') {
     const screen=(key,s) => {
         const p='--art-' + key;
         marks['data-fk-skin-art-' + key]=['sheet','title','close'].filter(part => s[part]).join(' ');
-        if (s.sheet) tokens[p + '-sheet']=url(s.sheet);
+        if (s.sheet) {const [w,h]=size(s.sheet); Object.assign(tokens,{[p + '-sheet']:url(s.sheet),[p + '-sheet-w']:String(w),[p + '-sheet-h']:String(h)});}
         tokens[p + '-dim']=String(s.dim ?? 0);
         tokens[p + '-font']=String(s.font);
         if (s.ink) tokens[p + '-ink']=s.ink;
@@ -628,6 +744,8 @@ function stageSkinArt(document, files, entry = '') {
     if (art.backlog) {
         const b=art.backlog, p='--art-bl';
         screen('backlog',b);
+        // badges (§18 N26): a line kind's badge image (backlog-view points the badge at its stageSkinBadgeToken)
+        for (const [kind,image] of Object.entries(b.badges || {})) tokens[stageSkinBadgeToken(kind)]=url(image);
         const [lx,ly,lw,lh]=b.list;
         Object.assign(tokens,{[p + '-list-x']:String(lx),[p + '-list-y']:String(ly),[p + '-list-w']:String(lw),[p + '-list-h']:String(lh),[p + '-pitch']:String(b.pitch),
             [p + '-text-l']:String(b.text[0]),[p + '-text-r']:String(b.text[1]),[p + '-top']:String(b.top || 0),[p + '-gap']:String(b.gap)});
@@ -728,8 +846,6 @@ function stageSkinArt(document, files, entry = '') {
         // waves: the backlog speaker's arcs as their own layers over the body (theme.css 「backlog voice waves」).
         if (art.voice.waves) {marks['data-fk-skin-art-voice-waves']=String(art.voice.waves.length); art.voice.waves.forEach((image,index) => {tokens['--art-voice-wave-' + (index + 1)]=url(image);});}
     }
-    // box false: the textbox has no replay control (the original's has none); replay stays on R and in the backlog.
-    if (art.voice?.box === false) marks['data-fk-skin-art-voice-box']='none';
     // art.confirm (lead 2026-10-20): the stage's confirm dialogs as the original's dialog band (theme.css 「stage skin: art
     // confirm」), marks data-fk-skin-art-confirm, tokens --art-cd-*.
     if (art.confirm) {
@@ -752,7 +868,7 @@ function stageSkinArt(document, files, entry = '') {
     const placeButton=([action,button]) => {
         const [w,h]=size(button.image,button.scale);
         // hint: the image's own prompt gives way to a key cap of the action's real key (stage-skin-buttons.js).
-        return {action,url:file(button.image).url,on:button.on ? file(button.on).url : null,tint:button.tint ? file(button.tint).url : null,width:w,height:h,
+        return {action,url:file(button.image).url,on:button.on ? file(button.on).url : null,disabled:button.disabled ? file(button.disabled).url : null,tint:button.tint ? file(button.tint).url : null,width:w,height:h,
             hint:button.hint ? {action:button.hint.action || action,w:button.hint.w,h:button.hint.h} : null,...(Object.hasOwn(button,'top') ? {top:button.top} : {bottom:button.bottom}),...(Object.hasOwn(button,'left') ? {left:button.left} : {right:button.right}),
             // narrow: its own phone art and place (P5), in the phones' touch unit
             ...(button.narrow ? {narrow:(([nw,nh]) => ({url:file(button.narrow.image).url,on:button.narrow.on ? file(button.narrow.on).url : null,width:nw,height:nh,ntop:button.narrow.top,
@@ -778,12 +894,23 @@ function stageSkinArt(document, files, entry = '') {
         const col='left' in group[0] ? Math.min(...group.map(button => button.left)) : Math.max(...group.map(button => button.right + button.width));
         for (const button of group) button.col=col;
     }
-    // art.decor: the original's still HUD prints (no action), placed like the buttons and drawn with them.
+    // art.decor: the original's still HUD prints (no action), placed like the buttons and drawn with them - at their design
+    // place on every width, in the stage's design-to-screen factor (theme.css --art-ud), not the buttons' phone touch unit.
     const decor=(art.decor || []).map(item => {
         const [w,h]=size(item.image,item.scale);
-        return {url:file(item.image).url,width:w,height:h,...(Object.hasOwn(item,'top') ? {top:item.top,ntop:item.top} : {bottom:item.bottom}),...(Object.hasOwn(item,'left') ? {left:item.left} : {right:item.right})};
+        return {url:file(item.image).url,width:w,height:h,...(Object.hasOwn(item,'top') ? {top:item.top} : {bottom:item.bottom}),...(Object.hasOwn(item,'left') ? {left:item.left} : {right:item.right})};
     });
-    if (decor.length) marks['data-fk-skin-decor']='';
+    // --art-decor-w: the design width the prints need side by side - the left-anchored prints' outer edge plus the right-anchored
+    // ones' and, between the two sides, the prints' own smallest edge margin - so a phone can scale them up to the width they fit
+    // in without the two sides meeting (theme.css --art-ud).
+    if (decor.length) {
+        marks['data-fk-skin-decor']='';
+        const reach=side => Math.max(0,...decor.filter(item => side in item).map(item => item[side] + item.width));
+        const margin=Math.min(...decor.map(item => 'left' in item ? item.left : item.right));
+        tokens['--art-decor-w']=String(reach('left') + reach('right') + Math.max(0,margin));
+        // prints on one side only (a lone corner badge) have no opposite side to frame: they keep the words' share (theme.css)
+        if (!reach('left') || !reach('right')) marks['data-fk-skin-decor-side']='';
+    }
     if (buttons.length) {
         marks['data-fk-skin-buttons']='';
         // A drawn menu button stands in for the folded menu control.
@@ -820,13 +947,33 @@ function stageSkinArt(document, files, entry = '') {
     if (art.shape) {
         const [x,y,w,h]=art.shape.view;
         marks['data-fk-skin-shape']='';
+        // thought (§18 N25): an inner-thought line is drawn in the narration box (theme.css places it as narration)
+        if (art.shape.thought) marks['data-fk-skin-shape-thought']='';
         Object.assign(tokens,{'--art-shape-x':String(x),'--art-shape-y':String(y),'--art-shape-w':String(w),'--art-shape-h':String(h)});
     }
     // The portrait (art.portrait): the face window of an ADV layout, a square placed on the design screen.
     let faceName=null, placeholder=null;
+    // faceChip: a portrait-less skin's opt-in to the phone face chip (theme.css「phone face chip」); without it no width shows a face.
+    if (art.faceChip && !art.portrait) marks['data-fk-skin-face-chip']='';
+    // a phone portrait shows a face only where the skin places one for it (skin-fix r4, owner「p5 手机的话就不要显示头像了，
+    // 太勉强了吧」): the chip it opts into, or its own phone side on the box (narrow, below) - a wide stage's face window or bust
+    // scaled down is no phone face (GalStage faceMode).
+    if (art.faceChip) marks['data-fk-skin-phone-face']='';
     if (art.portrait) {
-        marks['data-fk-skin-portrait']=art.portrait.source || 'avatar';
+        // the declared source (an ordered list as its words, e.g. "sprite avatar bust"; avatar alone stays "avatar").
+        marks['data-fk-skin-portrait']=Array.isArray(art.portrait.source) ? art.portrait.source.join(' ') : art.portrait.source || 'avatar';
         Object.assign(tokens,{'--art-face-l':String(art.portrait.left),'--art-face-b':String(art.portrait.bottom),'--art-face-s':String(art.portrait.size)});
+        // a face standing in the body's upper half (its bottom there) stands on the box's top edge: a box grown by floored
+        // lines lifts it with that edge; a bust rising from the stage's bottom over the box stays on the bottom (a
+        // face left on the bottom floated over a grown box)
+        if (box && art.portrait.bottom - (box.bottom + size(box.images.plain,box.scale)[1] - box.body[1] - box.body[3]) > box.body[3] / 2) marks['data-fk-skin-portrait-edge']='top';
+        // a face window beside the box (its middle left of the body, e.g. a handheld's face frame): a narrow stage widens the
+        // body by that window's room on its right, so the face and the box stand as one centred group (theme.css «box
+        // beside a face»; else the box left a wide empty strip on its right); --art-face-gl is the group's left edge
+        {
+            const [wl,,ww]=art.portrait.frame?.window || [art.portrait.left,0,art.portrait.size];
+            if (box && wl + ww / 2 < box.body[0]) {marks['data-fk-skin-portrait-beside']=''; tokens['--art-face-gl']=String(Math.min(art.portrait.left,art.portrait.frame?.left ?? art.portrait.left));}
+        }
         // bare: a face square standing in the box's left gutter (inside the
         // body, left of text[0]) is a column only while a face shows; a page without one starts its lines where the face stands.
         if (box && art.portrait.left >= box.body[0] && art.portrait.left + art.portrait.size <= box.text[0]) {marks['data-fk-skin-art-bare']=''; tokens['--art-text-bare']=String(art.portrait.left);}
@@ -862,6 +1009,8 @@ function stageSkinArt(document, files, entry = '') {
             // round / front / glass / speaking (skin-interface.md「通用部件能力」): the window's shape, the frame's layer, the sheen over
             // the face and the frame while the line is delivered (theme.css「art portrait frame」).
             if (frame.round) marks['data-fk-skin-portrait-round']='';
+            // cutout (bauhaus C01): a paper edge round the face picture's own silhouette, width design px (theme.css «art portrait cutout»).
+            if (frame.cutout) {marks['data-fk-skin-portrait-cutout']=''; Object.assign(tokens,{'--art-face-cut':frame.cutout.color,'--art-face-cut-w':String(frame.cutout.width)});}
             // swap fade (§18 N14): a new face crossfades in the still window instead of the cut (theme.css «art portrait frame swap»)
             if (frame.swap) marks['data-fk-skin-portrait-swap']=frame.swap;
             if (frame.front) marks['data-fk-skin-portrait-front']='';
@@ -914,6 +1063,9 @@ function stageSkinArt(document, files, entry = '') {
             tokens['--art-face-nleft']=String(nw.left ?? 12);
             if (faceName && nw.nameMin) faceName.narrowMin=nw.nameMin;
             Object.assign(tokens,{'--art-face-nw':String(nw.width),'--art-face-nh':String(Math.round(nw.width * sh / sw * 10) / 10),'--art-face-nx':String(nw.x),'--art-face-ny':String(nw.y),'--art-face-nsw':String(sw)});
+            // the phone face: a side standing at least partly on the box - one wholly above its top edge floats over the scene
+            // (it read as squeezed in) and shows none (the lines keep their own flow)
+            if (nw.y + nw.width * sh / sw > 0) marks['data-fk-skin-phone-face']='';
         }
         // nameplate axis portrait (§18 N14): the face's vertical axis - the window's middle on the design screen, and on a phone
         // the narrow side's (CSS px from the box's left) - the plate's name is centred on (theme.css «art name axis»).
@@ -932,8 +1084,10 @@ function stageSkinArt(document, files, entry = '') {
     // A bust portrait (stage-skin-adv.md「portrait source」) is drawn by the scene (the plugin bust renderer): the
     // design screen (centred, standing on the stage's bottom edge; `fit` = the width bounding one art px, as --art-u) and the
     // framing words, in its px.
+    // order: the sources the stage walks per speaker (stageSkinPortraitOrder); a sprite source has no crop (uncropped picture).
     const bust=art.portrait?.bust ? {screen:art.screen,width:art.screenWidth,fit:Math.max(wide,box ? size(box.images.plain,box.scale)[0] / (box.fit || .96) : 0),
-        head:art.portrait.bust.head,crop:art.portrait.bust.crop,enter:art.portrait.bust.enter || null} : null;
+        head:art.portrait.bust.head,crop:art.portrait.bust.crop || null,enter:art.portrait.bust.enter || null,
+        order:stageSkinContract.stageSkinPortraitOrder(art.portrait)} : null;
     // art.item (stage-skin-adv.md「art.item」): the items mod's card as the original's frame, placed by the showcase
     // (mod-performance.js ForkSkinItemShowcase) on this design screen.
     const item=art.item ? {screen:art.screen,width:art.screenWidth,frame:file(art.item.frame).url,box:art.item.box,media:art.item.media,enter:{ms:400,rise:0,...art.item.enter},
@@ -1103,6 +1257,17 @@ function stageSkinBacklogLooks(document) {
     return {...looks,...(roll ? {roll} : null),...(plates ? {plates:Object.fromEntries(Object.entries(plates).map(([role,plate]) => [role,{images:plate.images.length,poses:plate.poses?.length || 0,slant:plate.slant !== undefined}]))} : null),...(letter ? {letter} : null),...(avatar ? {avatar} : null)};
 }
 
-return {dispose,STAGE_SKIN_EASE,STAGE_SKIN_TX_EASE,stageSkinTxEase,stageSkinWipeClip,stageSkinTransitionList,STAGE_BACKLOG_DEFAULTS,stageSkinBacklog:stageSkinBacklogLooks,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogOutline,stageSkinInset,stageSkinSfx,stageSkinMotionKeyframes,stageSkinGlyphPoses,stageSkinEffects,stageSkinTokens,stageSkinPanelTokens,stageSkinQuickMenu,stageSkinMarks,stageSkinConfigSurface,stageSkinConfigArt,STAGE_CONFIG_DEFAULT_LOOKS,stageSkinControlIcons,stageSkinArt,stageSkinSpinner,stageSkinTint,stageSkinMenuTint,stageSkinFontFaces,applyStageSkin,stageSkinMode,applyStageSkinMode};
+// The text box's replay control (skin checklist「框内是否有重播按钮」: no speaker
+// in the box by default): most originals keep the box clean and replay from the backlog row (and a key), so the box shows
+// none unless the skin asks - art.voice.box true (its art.voice image, else the name plate's glyph), or an art.voice image
+// without box false. control = the button; notice = only a failed voice's warning chip (it retries); none = nothing (box
+// false: the original's box has none). Replay stays on R and in the backlog row everywhere.
+function stageSkinVoiceBox(document) {
+    const voice=document?.art?.voice;
+    if (voice?.box === false) return 'none';
+    return voice?.box === true || voice?.image ? 'control' : 'notice';
+}
+
+return {dispose,STAGE_SKIN_EASE,STAGE_SKIN_TX_EASE,stageSkinTxEase,stageSkinWipeClip,stageSkinTransitionList,STAGE_BACKLOG_DEFAULTS,stageSkinBacklog:stageSkinBacklogLooks,stageSkinVoiceBox,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogOutline,stageSkinInset,stageSkinSfx,stageSkinMotionKeyframes,stageSkinGlyphPoses,stageSkinEffects,stageSkinTokens,stageSkinPanelTokens,stageSkinQuickMenu,stageSkinMarks,stageSkinConfigSurface,stageSkinConfigArt,STAGE_CONFIG_DEFAULT_LOOKS,stageSkinControlIcons,stageSkinArt,stageSkinSpinner,stageSkinTint,stageSkinMenuTint,stageSkinFontFaces,applyStageSkin,stageSkinMode,applyStageSkinMode};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSkinAdapter};

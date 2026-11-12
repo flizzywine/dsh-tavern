@@ -81,8 +81,8 @@ test('closing an entry page leaves the stage; continueGame enters it; only an en
  const context={props:{onExit:()=>calls.push('exit')},forkUiSfx:{play:cue=>calls.push('sfx:'+cue)},backlogClosedAt:{current:0},setOpenPage:id=>calls.push('open:'+id)}
  vm.runInNewContext(fn('leaveEntryPage')+';'+fn('closeCardPage')+';leaveEntryPage();closeCardPage();',context)
  assert.deepEqual(calls,['sfx:close','exit','sfx:close','open:null'])
- // the Overlay's close (×, Esc, the backdrop, the page's close()) on an entry page is leaveEntryPage, CONFIG / 回想 over it first
- assert.match(source,/onClose: configOpen \? closeConfig : galleryOpen \? closeGallery : entryOpen \? leaveEntryPage : closeCardPage/)
+ // the Overlay's close (×, Esc, the backdrop, the page's close()) on an entry page is leaveEntryPage, CONFIG / 回想 / 履历 over it first
+ assert.match(source,/onClose: configOpen \? closeConfig : galleryOpen \? closeGallery : backlog \? closeBacklog : entryOpen \? leaveEntryPage : closeCardPage/)
  assert.match(source,/if \(kind === 'continue'\) \{ closeCardPage\(\); return; \}/)
  const reveal=source.slice(source.indexOf('    const stageRevealed ='),source.indexOf('\n',source.indexOf('    const stageRevealed =')))
  assert.match(reveal,/&& !entryOpen;\r?$/,'the reveal holds for the entry page only, not any open page')

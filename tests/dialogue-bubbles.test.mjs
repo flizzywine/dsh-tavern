@@ -188,7 +188,7 @@ test('one managed entry replaces both legacy entries without treating a figure d
   const description = '月见八千代身边会说话的白色毛绒海兔，嘴毒爱吐槽。'
   const config = {enabled:true, characters:[{
     alias:'f_1234567890abcdef', name:'不死', aliases:['FUSHI'],
-    ref:{packId:'pack-42',figureId:'figure-73'}, description,
+    ref:{packId:'pack-42',figureId:'figure-73'}, guidance:description,
     emotions:[{id:'calm',label:'平和'}, {id:'grin',label:'坏笑'}]
   }]}
   const parts = bubbleInjection(config)
@@ -306,4 +306,32 @@ test('placement reports live fields, preserves untouched fields, moves across bo
   assert.deepEqual(await Promise.all([cardSource, standaloneSource].map(source => books.export(source))), before)
   await assert.rejects(syncDialogueBubbleWorldbook(books, cardSource.cardPath, { enabled: true, injection: { placement: { book: 'standalone:unbound' } } }), /不在本卡绑定列表/)
   assert.deepEqual(await Promise.all([cardSource, standaloneSource].map(source => books.export(source))), before)
+})
+test('a figure without any face shows its name initial; unknown speakers and pending or failed leases stay empty', async () => {
+  const source = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/bubbles.js', import.meta.url), 'utf8')
+  const start = source.indexOf('function bubbleMediaDescriptor'), end = source.indexOf('// Transcript avatars are body text',start)
+  const avatarStart = source.indexOf('function BubbleAvatar(props)')
+  const rowEnd = source.indexOf('\nfunction ',source.indexOf('function BubbleRow(props)')+1)
+  const context = {React:{createElement:(type,props,...children) => ({type,props,children}),useRef:value => ({current:value}),useState:value => [value,() => {}],useEffect() {},useSyncExternalStore:(subscribe,get) => get()},
+    bubbleMoodBadge:() => null,PackImage:() => {},Spinner:() => {},bubbleMood:() => null,bubbleMoodList:() => [],bubbleColor:() => '#888',useFigureTextContrast() {},useBubbleMedia:() => null,
+    bubbleViewport:{watch() {}},bubbleCharacter:(config,segment) => config.characters.find(row => row.alias === segment.alias),bubbleDisplayName:segment => segment.name}
+  vm.runInNewContext(source.slice(start,end)+source.slice(avatarStart,rowEnd)+'\n;this.avatar = BubbleAvatar;this.row = BubbleRow',context)
+  const avatarOf = (alias, name, characters) => context.row({sessionId:'s',segment:{alias,name,text:'…'},config:{characters}}).children[0].children[0].props
+  const faceless = {alias:'figure-7c1',name:'新来客'}, faced = {alias:'figure-2b9',name:'白井',avatarMedia:{default:{identity:'face'}}}
+  for (const name of ['新来客','𠮷野']) {
+    const props = avatarOf('figure-7c1',name,[faceless]), result = context.avatar(props)
+    assert.equal(result.children[0],Array.from(name)[0])
+    assert.equal(result.props['aria-hidden'],true)
+    assert.match(result.props.className,/avatar-ph/)
+  }
+  for (const props of [avatarOf('figure-2b9','白井',[faced]),avatarOf('stranger','路人甲',[faceless])]) {
+    const result = context.avatar(props)
+    assert.doesNotMatch(result.props.className,/avatar-ph/)
+    assert.equal(result.children[0],null)
+  }
+  const loading = context.avatar({name:'白井',media:{loading:true}})
+  assert.equal(loading.children[0].type,context.Spinner)
+  const image = context.avatar({name:'白井',media:{src:'test.png'},zoomable:true})
+  assert.equal(image.type,'button')
+  assert.equal(image.children[0].type,context.PackImage)
 })

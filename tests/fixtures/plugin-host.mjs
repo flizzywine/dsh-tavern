@@ -8,7 +8,8 @@ const { HostConnectionService } = await import(pathToFileURL(require.resolve('@d
 
 // Host adapters only: apply(), HTTP dispatch, storage, and projections stay real.
 // Call from an isolated child process with its own DSH_HOME.
-export async function createPluginHost({ withTools = false, composition, config } = {}) {
+// provide: extra host services, set before any plugin applies (the real Cordis composition reads them once).
+export async function createPluginHost({ withTools = false, composition, config, provide = {} } = {}) {
   globalThis.fetch = async () => new Response('/* test asset */', { headers: { 'content-type': 'text/css' } })
   const { apply } = await import('../../tavern-plugin/lib/index.js')
   const routes = new Map(), nativeRoutes = new Map(), events = new Set(), disposers = []
@@ -38,6 +39,7 @@ export async function createPluginHost({ withTools = false, composition, config 
       requestRejection(req) { return HostConnectionService.prototype.requestRejection.call(this, req) } }],
     ['webServer', { register(route) { routes.set(route.path, route.handler); return () => routes.delete(route.path) } }]
   ])
+  for (const [name, value] of Object.entries(provide)) services.set(name, value)
   const registeredTools = new Map()
   if (withTools) services.set('tools', {
     get: name => registeredTools.get(name),
@@ -81,21 +83,30 @@ export async function createPluginHost({ withTools = false, composition, config 
       }
     } else {
       const ctx = {
+        fiber: { name: 'dsh-tavern' },
         logger: { info() {}, warn() {}, error() {}, debug() {} },
-        get: name => services.get(name),
+        // Like the Cordis service proxy: the tavern service sees the calling context (its fiber names the caller).
+        get(name) { const value = services.get(name); return name === 'tavern' && value ? Object.assign(Object.create(value), { ctx: this }) : value },
         inject(names, callback) { if (names.every(name => services.has(name))) return callback(this) },
         llm: services.get('llm'),
         settings: services.get('settings'),
         // The host's tool registry is a context property at apply time (lib/tools/web-access.js reads it directly).
         tools: services.get('tools') || { get: () => undefined, register: () => () => {} },
-        effect(callback) { const stop = callback(); if (typeof stop === 'function') disposers.push(stop) },
+        // Cordis returns the effect's disposer; the stage's runtime control disposes its effects on disable.
+        effect(callback) {
+          const stop = callback()
+          if (typeof stop !== 'function') return () => {}
+          disposers.push(stop)
+          return () => { const at = disposers.indexOf(stop); if (at >= 0) { disposers.splice(at, 1); stop() } }
+        },
         on: name => events.add(name),
         provide(name,value) {services.set(name,value);return () => {if(services.get(name)===value)services.delete(name)}}
       }
       await apply(ctx)
       if(config?.stage !== false) {
         const stage=await import('../../tavern-plugin/packages/dsh-tavern-stage/lib/index.js')
-        await stage.apply(ctx)
+        // Like Cordis: the stage applies on its own fiber.
+        await stage.apply(Object.assign(Object.create(ctx), { fiber: { name: stage.name } }))
       }
       await new Promise(resolve => setImmediate(resolve))
     }

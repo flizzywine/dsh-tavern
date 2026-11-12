@@ -250,6 +250,15 @@ var mod_default = {
           title: "\u9759\u97F3",
           userAdjustable: true
         },
+        summaryRelay: {
+          type: "string",
+          enum: [
+            "on",
+            "off"
+          ],
+          title: "\u624B\u673A\u6458\u8981\u4E2D\u8F6C\u7AD9\uFF08\u5B9E\u9A8C\uFF09",
+          userAdjustable: true
+        },
         volume: {
           type: "number",
           minimum: 0,
@@ -278,7 +287,8 @@ var mod_default = {
         "wallpaper",
         "notificationToneRef",
         "muted",
-        "volume"
+        "volume",
+        "summaryRelay"
       ]
     },
     defaults: {
@@ -300,7 +310,8 @@ var mod_default = {
       wallpaper: {},
       notificationToneRef: {},
       muted: false,
-      volume: 1
+      volume: 1,
+      summaryRelay: "off"
     }
   },
   preferences: {
@@ -619,6 +630,25 @@ var mod_default = {
         default: true,
         scope: "global",
         bindable: false
+      },
+      {
+        key: "summaryRelay",
+        type: "segmented",
+        label: "\u624B\u673A\u6458\u8981\u4E2D\u8F6C\u7AD9\uFF08\u5B9E\u9A8C\uFF09",
+        default: "off",
+        choices: [
+          {
+            value: "on",
+            label: "\u5F00\u542F"
+          },
+          {
+            value: "off",
+            label: "\u5173\u95ED"
+          }
+        ],
+        help: "\u5B9E\u9A8C\u529F\u80FD\uFF1A\u5F00\u542F\u540E\u624B\u673A\u901A\u8BDD\u7684\u4E0A\u4E0B\u6587\u7531\u6458\u8981\u4E2D\u8F6C\u7AD9\u6574\u7406\uFF0C\u9700\u5148\u5F00\u542F\u624B\u673A\uFF0C\u672C\u5361\u8BBE\u7F6E\u4F18\u5148\u3002",
+        scope: "global",
+        bindable: false
       }
     ],
     sections: [
@@ -634,6 +664,13 @@ var mod_default = {
           "surfaceColor",
           "bodyColor",
           "sound"
+        ]
+      },
+      {
+        id: "experimental",
+        title: "\u5B9E\u9A8C",
+        fields: [
+          "summaryRelay"
         ]
       }
     ]

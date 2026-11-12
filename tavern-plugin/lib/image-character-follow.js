@@ -1,4 +1,4 @@
-import { aliasesMeet, appearanceMove, findFigureImageCharacter, identityPatchFromFigure, imageCharacterFromFigure, IMAGE_CHARACTER_EXTENSION } from './domain/image-character-appearance.js'
+import { aliasesMeet, appearanceMove, findFigureImageCharacter, identityPatchFromFigure, imageCharacterFromFigure, IMAGE_CHARACTER_EXTENSION, putPackReference } from './domain/image-character-appearance.js'
 
 // 方案甲: a figure's name and 触发词 live in its pack; its linked 配图 人物库 record shows them. After every pack write the
 // records of that pack's figures, and of figures whose 人物库 aliases its old or new names can change, are brought along;
@@ -18,8 +18,8 @@ export function followImageCharacters({ library, api, log = () => {} }) {
   let queue = listed().then(async packs => {
     const groups = Map.groupBy(figuresOf(packs), item => item.packId)
     for (const [packId, items] of groups) remember(packId, items.map(item => item.figure))
-    // a pack with an automatic figure whose 人设图 landed before this follow set it as the record's 参考图 (11-11) is followed once
-    for (const [packId, items] of groups) if (items.some(item => item.figure.extensions?.['dsh.automatic-write'] && item.figure.identitySettei?.board)) await follow(packId)
+    // a pack with a 人设图 that may not be its record's 参考图 yet (drawn or installed before this follow set them) is followed once
+    for (const [packId, items] of groups) if (items.some(item => item.figure.identitySettei?.board)) await follow(packId)
   }).catch(error => log('配图人物库跟随素材包失败：' + (error?.message || error)))
   async function release(packId, figureId) {
     const state = await findFigureImageCharacter(api, { packId, figureId })
@@ -44,12 +44,11 @@ export function followImageCharacters({ library, api, log = () => {} }) {
         const patch = identityPatchFromFigure(state.character, item.figure, others)
         if (patch) state = await api.imageCharacters('patchCharacter', { providerId: state.providerId, characterId: state.character.id, expected: state.character, patch })
       }
-      // 自动素材: a figure the library wrote automatically has its 人设图 as its record's 参考图 (as 「设定图→参考图」 would), so
-      // 场景配图 draws the person of its 立绘. A record that has one keeps it.
-      const board = item.packId === packId && item.figure.extensions?.['dsh.automatic-write'] && item.figure.identitySettei?.board
+      // Any figure with a 人设图 (自动素材's, the owner's, an installed pack's alike) has it as its record's 参考图 (as
+      // 「设定图→参考图」 would), so 场景配图 draws the person of its 立绘. A record that has one keeps it.
+      const board = item.packId === packId && item.figure.identitySettei?.board
       if (board && !state.character.referenceImage) {
-        const { bytes, descriptor } = await library.readMedia({ packId, expectedRevision: packs.find(pack => pack.manifest?.id === packId).revision, hash: board })
-        const { referenceImage } = await api.imageCharacters('putReferenceImage', { providerId: state.providerId, data: new Uint8Array(bytes), mediaType: descriptor.mime, name: item.figure.name + ' 设定图' })
+        const referenceImage = await putPackReference(api, library, { providerId: state.providerId, packId, revision: packs.find(pack => pack.manifest?.id === packId).revision, hash: board, name: item.figure.name + ' 设定图' })
         state = await api.imageCharacters('patchCharacter', { providerId: state.providerId, characterId: state.character.id, expected: state.character, patch: { referenceImage } })
       }
       const replace = item.packId === packId && !!item.figure.extensions?.[IMAGE_CHARACTER_EXTENSION] && !!adopting.get(packId)?.delete(item.figure.id)

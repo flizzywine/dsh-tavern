@@ -43,8 +43,11 @@ function createStageTextIndex({paginate, storyTurn, superseded, projectionForTur
         }
         const next = new Map();
         for (const [turn,nativeTurn] of represented) {
-            const projected = projectionForTurn(view,turn)?.body;
-            const body = running.has(turn) ? (bodies.get(turn) || (projected?.streaming ? projected : null)) : projected || bodies.get(turn);
+            const projected = projectionForTurn(view,turn)?.body, streamed = bodies.get(turn);
+            // A round that just settled can still have its placeholder projection (no paragraphs) in the view until the
+            // view catches up: the text already streamed for it stays on screen instead of blinking out and replaying.
+            const body = running.has(turn) ? (streamed || (projected?.streaming ? projected : null))
+                : projected?.paragraphs?.length || !streamed ? projected || streamed : streamed;
             next.set(turn,rowFor(turn,nativeTurn,body,snapshot.get(turn),!body));
         }
         if (next.size !== snapshot.size || [...next].some(([turn,row]) => snapshot.get(turn) !== row)) snapshot = next;

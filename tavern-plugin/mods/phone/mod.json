@@ -243,6 +243,15 @@
           "title": "静音",
           "userAdjustable": true
         },
+        "summaryRelay": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off"
+          ],
+          "title": "手机摘要中转站（实验）",
+          "userAdjustable": true
+        },
         "volume": {
           "type": "number",
           "minimum": 0,
@@ -271,7 +280,8 @@
         "wallpaper",
         "notificationToneRef",
         "muted",
-        "volume"
+        "volume",
+        "summaryRelay"
       ]
     },
     "defaults": {
@@ -293,7 +303,8 @@
       "wallpaper": {},
       "notificationToneRef": {},
       "muted": false,
-      "volume": 1
+      "volume": 1,
+      "summaryRelay": "off"
     }
   },
   "preferences": {
@@ -612,6 +623,25 @@
         "default": true,
         "scope": "global",
         "bindable": false
+      },
+      {
+        "key": "summaryRelay",
+        "type": "segmented",
+        "label": "手机摘要中转站（实验）",
+        "default": "off",
+        "choices": [
+          {
+            "value": "on",
+            "label": "开启"
+          },
+          {
+            "value": "off",
+            "label": "关闭"
+          }
+        ],
+        "help": "实验功能：开启后手机通话的上下文由摘要中转站整理，需先开启手机，本卡设置优先。",
+        "scope": "global",
+        "bindable": false
       }
     ],
     "sections": [
@@ -627,6 +657,13 @@
           "surfaceColor",
           "bodyColor",
           "sound"
+        ]
+      },
+      {
+        "id": "experimental",
+        "title": "实验",
+        "fields": [
+          "summaryRelay"
         ]
       }
     ]

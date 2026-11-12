@@ -262,7 +262,7 @@ test('entering the stage opens title; triggerSlash reaches the slash executor; M
   const track = await skip.locator('.fork-gal-config-switch-track').evaluate(el => ({background: getComputedStyle(el).backgroundColor, shadow: getComputedStyle(el).boxShadow, width: el.getBoundingClientRect().width}))
   assert.notEqual(track.background, 'rgba(0, 0, 0, 0)', 'classic skin draws the off track')
   assert.notEqual(track.shadow, 'none', 'classic skin draws the track outline')
-  assert.equal(track.width, 52)
+  assert.equal(track.width, 45, '1280 px viewport: 20 px config base times 2.25')
   await shot(page, 'config-1920.png')
 
   // (e) with the switch on, a second entry into this (non-fresh) chat opens no page
@@ -328,11 +328,11 @@ test('a card page gets its declared figures\' faces as data: URLs from the stage
 })
 
 // A title menu built on the DshCardPage actions: every button is disabled while its action runs and enabled again once
-// the action's Promise settles (继续 only while the chat is saved).
-const MENU_SCRIPT = '<script>var page=DshCardPage,buttons=[].slice.call(document.querySelectorAll("nav button"));function enable(){buttons.forEach(function(b){b.disabled=b.id==="continue"&&!page.data().saved;});}enable();'
+// the action's Promise settles (继续 and 履历 only while the chat is saved).
+const MENU_SCRIPT = '<script>var page=DshCardPage,buttons=[].slice.call(document.querySelectorAll("nav button"));function enable(){buttons.forEach(function(b){b.disabled=(b.id==="continue"||b.id==="backlog")&&!page.data().saved;});}enable();'
   + 'function go(action){buttons.forEach(function(b){b.disabled=true;});action().then(function(v){window.lastResult=JSON.stringify(v);},function(e){window.lastResult="error:"+e.message;}).finally(enable);}'
-  + '[["new","newGame"],["continue","continueGame"],["gallery","openGallery"],["settings","openSettings"],["exit","exit"]].forEach(function(row){document.getElementById(row[0]).onclick=function(){go(page[row[1]]);};});</script>'
-const MENU_BUTTONS = '<nav><button data-dsh-sound id="new" type="button">新游戏</button><button data-dsh-sound id="continue" type="button">继续</button><button data-dsh-sound id="gallery" type="button">回想</button><button data-dsh-sound id="settings" type="button">设置</button><button data-dsh-sound id="exit" type="button">退出</button></nav>'
+  + '[["new","newGame"],["continue","continueGame"],["gallery","openGallery"],["backlog","openBacklog"],["settings","openSettings"],["exit","exit"]].forEach(function(row){document.getElementById(row[0]).onclick=function(){go(page[row[1]]);};});</script>'
+const MENU_BUTTONS = '<nav><button data-dsh-sound id="new" type="button">新游戏</button><button data-dsh-sound id="continue" type="button">继续</button><button data-dsh-sound id="gallery" type="button">回想</button><button data-dsh-sound id="backlog" type="button">履历</button><button data-dsh-sound id="settings" type="button">设置</button><button data-dsh-sound id="exit" type="button">退出</button></nav>'
 const ACTION_TITLE = {id: 'title', label: '标题', size: 'full', showOn: {event: 'stage-enter'},
   html: sheet('<div><h1 id="title-name">夜色旅馆</h1>' + MENU_BUTTONS + '</div>', 'linear-gradient(160deg,#2a1f3d,#0d0a14)').replace('</style>', 'nav{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}</style>') + MENU_SCRIPT}
 const ACTION_OPENING = {...ACTION_TITLE, id: 'opening', label: '开场', initial: true}
@@ -343,12 +343,13 @@ async function waitEnabled(page, id, expected) {
   assert.deepEqual(await enabled(page, id), expected)
 }
 
-test('title actions: the line waits behind the page, 回想 stands over it, 新游戏 asks first, no button stays disabled', {timeout: 90000}, async t => {
+const TITLE_MENU = ['new', 'continue', 'gallery', 'backlog', 'settings', 'exit']
+test('title actions: the line waits behind the page, 回想 and 履历 stand over it, 新游戏 asks first, no button stays disabled', {timeout: 90000}, async t => {
   const {page} = await openStage(t, {pages: [ACTION_TITLE, MAP], viewport: {width: 1920, height: 1080}})
   await page.evaluate(() => { window.newGames = []; window.addEventListener('dsh-tavern-new-game', event => window.newGames.push(event.detail.sessionId)) })
   await waitPage(page, 'title')
   await frameOf(page, 'title').locator('#title-name').waitFor()
-  assert.deepEqual(await enabled(page, 'title'), ['new', 'continue', 'gallery', 'settings', 'exit'], 'a saved chat can continue')
+  assert.deepEqual(await enabled(page, 'title'), TITLE_MENU, 'a saved chat can continue')
   // entering mid-chat: the current line (its typing, voice and AUTO) holds while the title page is up
   await page.waitForTimeout(1500)
   assert.equal(await typedGlyphs(page), 0, 'no glyph of the line typed behind the title page')
@@ -361,7 +362,17 @@ test('title actions: the line waits behind the page, 回想 stands over it, 新�
   await page.keyboard.press('Escape')
   await page.locator('.fork-cg-gallery').waitFor({state: 'detached'})
   assert.equal(await openPage(page), 'title')
-  await waitEnabled(page, 'title', ['new', 'continue', 'gallery', 'settings', 'exit'])
+  await waitEnabled(page, 'title', TITLE_MENU)
+
+  // 履历 opens over the page (on top of it, not under it); Esc closes it and the page is still there
+  await frameOf(page, 'title').locator('#backlog').click()
+  await page.locator('.fork-gal-backlog').waitFor()
+  assert.equal(await openPage(page), 'title')
+  assert.equal(await page.evaluate(() => Boolean(document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('.fork-gal-backlog'))), true, '履历 stands over the page')
+  await page.keyboard.press('Escape')
+  await page.locator('.fork-gal-backlog').waitFor({state: 'detached'})
+  assert.equal(await openPage(page), 'title')
+  await waitEnabled(page, 'title', TITLE_MENU)
 
   // 新游戏 on a saved chat asks with the core confirm; 取消 keeps the page and enables its buttons again
   await frameOf(page, 'title').locator('#new').click()
@@ -369,7 +380,7 @@ test('title actions: the line waits behind the page, 回想 stands over it, 新�
   await prompt.waitFor()
   assert.match(await prompt.textContent(), /开始新游戏？/)
   await prompt.getByRole('button', {name: '取消'}).click()
-  await waitEnabled(page, 'title', ['new', 'continue', 'gallery', 'settings', 'exit'])
+  await waitEnabled(page, 'title', TITLE_MENU)
   assert.equal(await frameOf(page, 'title').locator('body').evaluate(() => window.lastResult), '{"started":false}')
   assert.deepEqual(await page.evaluate(() => window.newGames), [])
   await frameOf(page, 'title').locator('#new').click()
@@ -381,6 +392,20 @@ test('title actions: the line waits behind the page, 回想 stands over it, 新�
   await frameOf(page, 'title').locator('#continue').click()
   await waitPage(page, null)
   await page.waitForFunction(() => document.querySelectorAll('.fork-gal-stage .fork-gal-type-shown, .fork-gal-stage .fork-gal-glyph').length > 0)
+})
+
+// A jump from the 履历 opened over the title page enters the stage at that line: the page closes with the 履历.
+test('title 履历: a jump from it closes the title page and the stage reads there', {timeout: 60000}, async t => {
+  const {page} = await openStage(t, {pages: [ACTION_TITLE, MAP], viewport: {width: 1920, height: 1080}})
+  await waitPage(page, 'title')
+  await frameOf(page, 'title').locator('#backlog').click()
+  const row = page.locator('.fork-gal-backlog-row.is-jump').last()
+  await row.waitFor()
+  await page.waitForTimeout(400)
+  await row.focus()
+  await page.keyboard.press('Enter')
+  await page.locator('.fork-gal-backlog').waitFor({state: 'detached'})
+  await waitPage(page, null)
 })
 
 // closeControl 'page': a full page that closes itself; Esc / its shortcut go back inside it first (onCloseRequest).
@@ -457,7 +482,9 @@ test('a fresh chat: the opening page holds the first line too and 继续 is off'
 test('every stage entry, frame by frame: a title page covers the stage from its first frame; a card without one never mounts a page', {timeout: 90000}, async t => {
   const titled = await openStage(t, {pages: [ACTION_TITLE, MAP], sample: true})
   const frames = await entryFrames(titled.page)
-  assert.ok(frames.length >= 20, 'sampled the first 600 ms: ' + frames.length + ' frames')
+  // Each sample is a requestAnimationFrame, i.e. a frame the player is shown: a loaded machine paints fewer frames,
+  // and every one it paints is still checked below. Guard only that the samples cover the whole 600 ms window.
+  assert.ok(frames.length >= 2 && frames[0].t === 0 && frames.at(-1).t >= 600, 'sampled the first 600 ms: ' + JSON.stringify(frames.map(frame => frame.t)))
   assert.deepEqual(frames.filter(frame => frame.note), [], 'no 正在读取 frame')
   assert.deepEqual(frames.filter(frame => frame.scene > 0 && frame.page !== 'title'), [], 'the scene never shows without the title over it')
   assert.deepEqual(frames.filter(frame => frame.page !== null && frame.opacity !== 1), [], 'the title page does not fade in over the stage')

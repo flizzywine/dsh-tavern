@@ -108,6 +108,18 @@ function GalChoices(props) {
     // only a field taller than its bar grows the menu (and may shrink it once more). A fresh fit painted every bar at full
     // size for a frame or more before it shrank them again.
     const resnapRef = React.useRef(null), fieldRowRef = React.useRef(null);
+    // The rows' entrance waits (data-fk-wait, set before the first paint) until the skin's bar images have decoded.
+    (React.useLayoutEffect || React.useEffect)(function () {
+        const el = rootRef.current;
+        if (!el || state === "hidden" || typeof window.Image !== "function" || !el.closest || !el.closest("[data-fk-skin-choices]")) return;
+        const urls = layout.galChoiceBarUrls(el);
+        if (!urls.length) return;
+        let live = true;
+        el.setAttribute("data-fk-wait", "");
+        Promise.all(urls.map(url => { const image = new window.Image(); image.src = url; return image.decode().then(() => layout.galChoiceBarsDecoded.add(url), () => {}); }))
+            .then(() => { if (live) el.removeAttribute("data-fk-wait"); });
+        return function () { live = false; el.removeAttribute("data-fk-wait"); };
+    }, [state, choiceCount]);
     (React.useLayoutEffect || React.useEffect)(function () {
         const el = rootRef.current;
         if (!el || state === "hidden" || typeof window === "undefined" || !el.closest || !el.closest("[data-fk-skin-choices]")) return;

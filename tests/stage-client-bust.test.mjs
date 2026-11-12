@@ -6,8 +6,8 @@ const {createStageBust}=require('../tavern-plugin/packages/dsh-tavern-stage/src/
 function fixture(){
  const textures=[],renders=[];let failRender=false,failTexture=false
  class Matrix {set(...values){this.values=values;return this}append(){return this}invert(){return this}copyTo(to){return to}}
- class Sprite {constructor(texture){this.texture=texture;this.position={set(...values){this.values=values}}}destroy(){this.destroyed=true}}
- const PIXI={Matrix,Sprite,Texture:{EMPTY:{}},RenderTexture:{create(size){if(failTexture)throw Error('allocation failed');const texture={...size,dead:0,destroy(deep){assert.equal(deep,true);this.dead++}};textures.push(texture);return texture}}}
+ class Sprite {constructor(texture){this.texture=texture;this.position={set(...values){this.values=values}}}addChild(){}destroy(){this.destroyed=true}}
+ const PIXI={Matrix,Sprite,Graphics:class{},Texture:{EMPTY:{}},RenderTexture:{create(size){if(failTexture)throw Error('allocation failed');const texture={...size,dead:0,destroy(deep){assert.equal(deep,true);this.dead++}};textures.push(texture);return texture}}}
  const renderer={resolution:1,render(container,options){assert.equal(container.filters,null);if(failRender)throw Error('render failed');renders.push(options)}}
  const owner=createStageBust({ease:{outCubic:t=>1-(1-t)**3},clamp:t=>Math.max(0,Math.min(1,t)),framedHead:n=>n})
  const filters=[{}],container={visible:true,filters,transform:{localTransform:new Matrix(),updateLocalTransform(){},_parentID:2}}

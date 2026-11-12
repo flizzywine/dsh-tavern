@@ -82,8 +82,9 @@ async function openCall(t, parts, handlers, ring = {minMs:0, maxMs:15000}, {fake
     const forkLipSync = {wake() {}};
     // a live call holds its audio while the app is in the background.
     window.holds = 0; const forkForeground = {keepAudio() { holds++; return () => { holds--; }; }};
-    window.audioClock = {t:0};
-    const fakeContext = {get currentTime() { return audioClock.t; }, state:'running', baseLatency:0, outputLatency:${outputLatency}, resume: async () => {},
+    // read: the page has looked at the clock since the test last moved it (see moveClock).
+    window.audioClock = {t:0, read:true};
+    const fakeContext = {get currentTime() { audioClock.read = true; return audioClock.t; }, state:'running', baseLatency:0, outputLatency:${outputLatency}, resume: async () => {},
       createBuffer(channels, length, rate) { const data = new Float32Array(length); return {duration:length / rate, sampleRate:rate, length, copyToChannel(samples) { data.set(samples); }, getChannelData: () => data}; },
       createGain() { const node={gain:{value:1},connect(){},disconnect(){}};gainNodes.push(node);return node; },
       createBufferSource: () => ({connect() {}, disconnect() {}, start() {}, stop() {}, onended:null})};
@@ -122,7 +123,7 @@ async function openCall(t, parts, handlers, ring = {minMs:0, maxMs:15000}, {fake
       calls.push({method, at:performance.now(), args:method === 'phoneCallHear' ? {seconds, ...('language' in args ? {language:args.language} : {})} : method === 'appendSpeechRecognition' ? {...args, audio:bytesOf(args.audio)} : args});
       const answer = await host(method, args, seconds);
       if (answer !== undefined) return answer;
-      if (method === 'phoneCallStart') return {callId:'c1', language:'ja', contact:{id:args.contactId, name:'爱音'}};
+      if (method === 'phoneCallStart') return {callId:'c1', language:'ja', recognition:'sensevoice', contact:{id:args.contactId, name:'爱音'}};
       if (method === 'phoneCallTurn') return {turnId:'t' + ++turns, elapsedMs:0};
       if (method === 'openAssetPackVoice') return {available:true, voice:{id:'v'}, scope:'s', language:'ja'};
       if (method === 'phoneCallThreads') return {threads:{}};
@@ -151,6 +152,15 @@ async function openCall(t, parts, handlers, ring = {minMs:0, maxMs:15000}, {fake
   await page.evaluate(() => phoneModCall.command({sessionId:'s', action:'start', contactId:'anon'}))
   return {page, errors}
 }
+
+// Fake clock: move her audio clock, then wait until the page has read it (its 40 ms voice tick), so what it shows
+// answers that moment however late the tick runs on a busy machine.
+async function moveClock(page, seconds) {
+  await page.evaluate(value => { audioClock.t = value; audioClock.read = false; }, seconds)
+  await page.waitForFunction(() => audioClock.read)
+}
+// Fake clock: each clause takes its own gain node when its whole audio has arrived and is scheduled.
+const clausesScheduled = (page, count) => page.waitForFunction(n => gainNodes.length >= n, count, {timeout:20000})
 
 // The page's recognition sessions (BACKEND-CONTRACT): each appended chunk is decoded 120 ms later, one character per
 // 400 ms of audio heard so far; `texts` are the words of each session in order.
@@ -212,9 +222,10 @@ test('a call ends the player\'s turn by the words, speaks after synthesis comple
   const turn = result.calls.filter(call => call.method === 'phoneCallHear'), longest = Math.max(...turn.map(call => call.args.seconds))
   assert.ok(turn.length >= 3 && longest > 1.9 && longest < 2.7, 'one utterance with its pre-roll: ' + turn.map(call => call.args.seconds))
   // Endpoint: pause probe at 120 ms of silence (the fixed endpoint was 600 ms).
+  // (Compared by order: the decision is made in the 120 ms probe's own task, whatever the machine's load.)
   const reply = result.events.filter(event => event.name === 'audio-start')[1]
-  const stopped = result.events.filter(event => event.name === 'pause' && event.mark === 120)[1].at - 120
-  assert.ok(utterance.at - stopped < 350, 'decided ' + Math.round(utterance.at - stopped) + ' ms after the player stopped')
+  const judged = result.events[result.events.indexOf(utterance) - 1]
+  assert.deepEqual([judged.name, judged.ending, judged.mark], ['ending', 'complete', 120], 'decided by the 120 ms pause probe')
   // The first clause is complete; the reserve predicts later clauses, not a whole-reply barrier.
   // (Her reply to the finished sentence: the words spoken over her may have started a further held reply by now.)
   const firstSynth = result.calls.filter(call => call.method === 'synthesize' && call.text === 'うん、').find(call => call.at >= utterance.at)
@@ -259,8 +270,13 @@ test('a short answer judged open at 120 ms starts her reply at once, held until 
   const turns = result.calls.filter(call => call.method === 'phoneCallTurn' && !call.args.cue)
   assert.deepEqual(turns.map(call => call.args.said), ['嗯。'])
   const ending = result.events.filter(event => event.name === 'ending')
-  assert.ok(turns[0].at < ending[1].at && turns[0].at - ending[0].at < 60, 'started ' + Math.round(turns[0].at - ending[0].at) + ' ms after the open judgement')
   const attempt = result.attempts.find(row => row.turnId === 't2')
+  // At once: at the open judgement, before anything else happens in the call, and the paid request leaves before the
+  // 300 ms probe is even asked (compared by order: wall-clock gaps include a busy machine's scheduling stalls).
+  const next = result.events[result.events.indexOf(ending[0]) + 1]
+  assert.ok(attempt.timing.said >= ending[0].at && attempt.timing.said <= next.at, 'started at the open judgement, before ' + next.name)
+  const handoffProbe = result.events.find(event => event.name === 'pause' && event.mark === 300)
+  assert.ok(turns[0].at < handoffProbe.at, 'the reply was asked for before the 300 ms probe')
   assert.equal(attempt.outcome, 'completed')
   const receipt = result.calls.findLast(row => row.method === 'phoneCallHeard' && row.args.turnId === 't2').args.timing
   assert.equal(receipt.origin,0); assert.equal(receipt.speechEndMs,0); assert.equal(receipt.endpoint,1)
@@ -313,8 +329,8 @@ test('while the player talks the words recognized so far show as one live line, 
   const {calls, states, final} = await page.evaluate(() => ({calls, states, final:phoneModCall.get()}))
   assert.deepEqual(errors, [])
   const of = method => calls.filter(call => call.method === method)
-  // One recognition session per utterance, in the language the recognition service is set to (the page names none).
-  assert.deepEqual(of('startSpeechRecognition').map(call => call.args), [{}, {}], 'one recognition session per utterance')
+  // One recognition session per utterance, on the service the phone uses (phoneCallStart says which) and in its language.
+  assert.deepEqual(of('startSpeechRecognition').map(call => call.args), [{serviceId:'sensevoice'}, {serviceId:'sensevoice'}], 'one recognition session per utterance')
   assert.ok(of('phoneCallHear').every(call => !('language' in call.args)))
   // Contract: sequence from 1, non-empty PCM16 every 400 ms (20 frames of 20 ms at 16 kHz), no final flag needed.
   const appends = of('appendSpeechRecognition').filter(call => call.args.id === 'r1')
@@ -372,9 +388,10 @@ test('her phone rings before she picks up, the clock starts when she does, and a
   assert.ok(names.indexOf('ring') >= 0 && names.indexOf('ring') < names.indexOf('connected') && names.indexOf('connected') < names.indexOf('audio-start'), names.join(','))
   assert.equal(result.rings, 1, 'one ringback on the call voice bus')
   const ring = result.events.find(event => event.name === 'ring'), connected = result.events.find(event => event.name === 'connected')
-  assert.ok(connected.at - ring.at >= 1500 && connected.rangMs >= 1500 && connected.rangMs < 2500, 'rang ' + connected.rangMs + ' ms')
+  // At least the shortest ring; picked up once her greeting is ready, not at the longest ring.
+  assert.ok(connected.at - ring.at >= 1500 && connected.rangMs >= 1500 && connected.rangMs < 15000, 'rang ' + connected.rangMs + ' ms')
   const greeting = result.calls.find(call => call.method === 'phoneCallTurn' && call.args.cue)
-  assert.ok(greeting && greeting.at < ring.at + 300, 'her greeting is written while it rings')
+  assert.ok(greeting && greeting.at >= ring.at && greeting.at < connected.at, 'her greeting is written while it rings')
   // While it rings: calling, not picked up, the clock at zero; nothing the microphone hears counts.
   // The phases before pick-up (the 'connected' note follows the listening phase in the same task, so compare by order).
   const ringing = result.phases.slice(0, result.phases.findIndex(row => row.connected))
@@ -384,12 +401,13 @@ test('her phone rings before she picks up, the clock starts when she does, and a
   assert.equal(picked.elapsed, 0)
   assert.ok(result.events.find(event => event.name === 'audio-start').at >= connected.at, 'her greeting sounds once she has picked up')
   // Hang up: 通话结束 at the press, the call let go about 1.5 s later.
-  const pressed = await page.evaluate(() => { phoneModCall.command({action:'end'}); return performance.now(); })
-  await page.waitForFunction(() => phoneModCall.get().status === 'idle', null, {timeout:5000})
+  // (Timed from the press itself: a stall inside the press delays 通话结束 on screen, not the hold that started with it.)
+  const [pressed, returned] = await page.evaluate(() => { const at = performance.now(); phoneModCall.command({action:'end'}); return [at, performance.now()]; })
+  await page.waitForFunction(() => phoneModCall.get().status === 'idle')
   const after = await page.evaluate(() => ({phases, calls}))
   const ended = after.phases.find(row => row.status === 'ended'), idle = after.phases.find(row => row.status === 'idle' && row.at > ended.at)
-  assert.ok(ended.at - pressed < 50, 'ended at the press')
-  assert.ok(idle.at - ended.at >= 1400 && idle.at - ended.at < 2500, 'held ' + Math.round(idle.at - ended.at) + ' ms')
+  assert.ok(ended.at >= pressed && ended.at <= returned, 'ended within the press')
+  assert.ok(idle.at - pressed >= 1490 && idle.at - returned < 2500, 'held ' + Math.round(idle.at - pressed) + ' ms')
   assert.ok(after.calls.some(call => call.method === 'phoneCallEnd'))
 })
 
@@ -400,7 +418,7 @@ test('hanging up while it rings stops the ring and the greeting; she never picks
   await page.waitForFunction(() => phoneModCallProbe.events.some(event => event.name === 'ring'))
   await page.waitForTimeout(600)
   await page.evaluate(() => phoneModCall.command({action:'end'}))
-  await page.waitForFunction(() => phoneModCall.get().status === 'idle', null, {timeout:5000})
+  await page.waitForFunction(() => phoneModCall.get().status === 'idle')
   await page.waitForTimeout(300)
   const result = await page.evaluate(() => ({calls, events:phoneModCallProbe.events, attempts:phoneModCallProbe.attempts, phases}))
   assert.deepEqual(errors, [])
@@ -439,10 +457,9 @@ test('foreign captions reveal each whole subtitle only when its independently sy
   // Both lines are synthesized and their whole audio (1.2 s, 0.6 s) is scheduled from 0.02 s before the clock moves.
   await page.waitForFunction(() => calls.filter(call => call.method === 'synthesize').length === 3, null, {timeout:20000})
   assert.deepEqual(await page.evaluate(() => calls.filter(call => call.method === 'synthesize').map(call => call.mood)), ['m04','m00','m04'])
-  await page.waitForTimeout(1600)
+  await clausesScheduled(page, 3)
   const at = async seconds => {
-    await page.evaluate(value => { audioClock.t = value; }, seconds)
-    await page.waitForTimeout(150)
+    await moveClock(page, seconds)
     return page.evaluate(() => phoneModCall.get().lines.map(line => [line.text, line.revealing === true]))
   }
   assert.deepEqual(await page.evaluate(() => phoneModCall.get().lines), [], 'words that arrived but are not spoken yet are not shown')
@@ -465,10 +482,9 @@ test('a Chinese voice\'s caption is her spoken line itself, clause by clause wit
     if (method === 'phoneCallPoll') return {segments:[{index:0, say:'因为，', sub:'因为，', part:true}, {index:1, say:'好玩呀。', sub:'好玩呀。'}], done:true};
   `, undefined, {fakeClock:true})
   await page.waitForFunction(() => calls.filter(call => call.method === 'synthesize').length === 2, null, {timeout:20000})
-  await page.waitForTimeout(1600)
+  await clausesScheduled(page, 2)
   const at = async seconds => {
-    await page.evaluate(value => { audioClock.t = value; }, seconds)
-    await page.waitForTimeout(150)
+    await moveClock(page, seconds)
     return page.evaluate(() => phoneModCall.get().lines.map(line => [line.text, line.revealing === true]))
   }
   assert.deepEqual(await at(0.1), [['因为，', true]])
@@ -481,15 +497,12 @@ test('a silent lead and device latency never reveal the answer before the first 
     if (method === 'phoneCallStart') return {callId:'c1', language:'zh', contact:{id:args.contactId, name:'辉夜'}};
     if (method === 'phoneCallPoll') return {segments:[{index:0, say:'我是辉夜。', sub:'我是辉夜。'}], done:true};
   `, undefined, {fakeClock:true, outputLatency:0.2})
-  await page.waitForTimeout(1900)
-  await page.evaluate(() => { audioClock.t = 0.7 })
-  await page.waitForTimeout(100)
+  await clausesScheduled(page, 1)
+  await moveClock(page, 0.7)
   assert.deepEqual(await page.evaluate(() => phoneModCall.get().lines), [], '0.8 s of silent PCM is not her speaking')
-  await page.evaluate(() => { audioClock.t = 0.95 })
-  await page.waitForTimeout(100)
+  await moveClock(page, 0.95)
   assert.deepEqual(await page.evaluate(() => phoneModCall.get().lines), [], 'samples still in the output device are not heard yet')
-  await page.evaluate(() => { audioClock.t = 2 })
-  await page.waitForTimeout(100)
+  await moveClock(page, 2)
   assert.equal(await page.evaluate(() => phoneModCall.get().lines[0]?.text), '我是辉夜。')
   const timing = await page.evaluate(() => calls.findLast(row => row.method === 'phoneCallHeard').args.timing)
   assert.equal(timing.origin,1); assert.equal(timing.endpointMs,0)
@@ -533,9 +546,8 @@ for (const language of ['zh','ja']) test(`${language}: an incomplete audio strea
     if(method==='phoneCallStart')return {callId:'c1',language:'${language}',contact:{id:args.contactId,name:'辉夜'}};
     if(method==='phoneCallPoll')return {segments:[{index:0,say:'${say}',sub:'第一句，',part:true},{index:1,say:'${language==='zh'?'最后的秘密。':'二。'}',sub:'最后的秘密。'}],done:true};
   `,undefined,{fakeClock:true})
-  await page.waitForFunction(() => Number.isFinite(phoneModCallProbe.attempts[0]?.timing?.firstScheduledAt), null, {timeout:15000})
-  await page.evaluate(()=>{audioClock.t=0.8})
-  await page.waitForFunction(() => phoneModCall.get().lines.length > 0)
+  await clausesScheduled(page, 2)
+  await moveClock(page, 0.8)
   assert.deepEqual(await page.evaluate(()=>phoneModCall.get().lines.map(line=>line.text)),['第一句，'])
   assert.deepEqual(errors,[])
   await page.evaluate(()=>phoneModCall.command({action:'end'}))

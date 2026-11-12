@@ -96,8 +96,14 @@ const bubbleStore = (function () {
                 const refresh = () => load(sessionId, true);
                 const timer = setInterval(refresh, 60000);
                 timer.unref?.();
+                const resourceChanged = event => { if (tavernDataChangeAffects(event, ["cards", "worldbooks"])) refresh(); };
                 if (typeof document !== "undefined") document.addEventListener("visibilitychange", refresh);
-                watch = {count:0, stop() { clearInterval(timer); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", refresh); }};
+                window.addEventListener("dsh-tavern-data-changed", resourceChanged);
+                watch = {count:0, stop() {
+                    clearInterval(timer);
+                    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", refresh);
+                    window.removeEventListener("dsh-tavern-data-changed", resourceChanged);
+                }};
                 watches.set(sessionId, watch);
             }
             watch.count++;
@@ -208,9 +214,12 @@ function showPortrait(media, caption, preview = media?.src) {
         finally { sharp.onload = sharp.onerror = null; }
     }, () => { /* Keep the already displayed preview on lease/crop failure. */ });
 }
-function bubbleMediaDescriptor(character, mood, moods) {
+// `outfitKey`: the outfit the round's stage state dresses this figure in (transcript-outfits.cjs). The opening outfit, or
+// one the card no longer enables, reads the top level, as the stage projection degrades a retired costume.
+function bubbleMediaDescriptor(character, mood, moods, outfitKey) {
     const group = bubbleMood(mood, moods);
-    return character?.avatarMedia?.moods?.[group?.id] || character?.avatarMedia?.default || null;
+    const media = outfitKey && character?.avatarMedia?.outfits?.[outfitKey] || character?.avatarMedia;
+    return media?.moods?.[group?.id] || media?.default || null;
 }
 // Transcript avatars are body text and work with the stage off: without the stage client's resource owner a row holds
 // the pack media lease itself until the avatar cache has its bitmap.
@@ -283,8 +292,8 @@ const bubbleViewport = (() => {
         };
     }};
 })();
-function useBubbleMedia(sessionId, character, mood, moods, wanted = true) {
-    const descriptor = bubbleMediaDescriptor(character, mood, moods);
+function useBubbleMedia(sessionId, character, mood, moods, wanted = true, outfitKey) {
+    const descriptor = bubbleMediaDescriptor(character, mood, moods, outfitKey);
     const session = stageSessions.get(sessionId);
     const authority = React.useSyncExternalStore(session?.subscribe || (() => () => {}), () => {
         const source = session?.getSnapshot().source;
@@ -338,7 +347,6 @@ function useBubbleMedia(sessionId, character, mood, moods, wanted = true) {
     return media || cached ? {...media,identity:descriptor.identity,src:media?.src || cached,crop:descriptor.crop,avatar,originalSrc:media?.src}
         : enabled && loaded?.key === key && loaded.loading ? {loading:true} : null;
 }
-
 function BubbleAvatar(props) {
     const h = React.createElement;
     const moodLabel = bubbleMoodBadge(props.mood, props.moods, props.config, props.alias)?.label;
@@ -348,7 +356,9 @@ function BubbleAvatar(props) {
         onClick: function (event) { showPortrait(props.media, (props.name || "") + (moodLabel ? " · " + moodLabel : ""), portraitPreview(props.media, event.currentTarget)); } },
         image);
     if (src) return h("span", { className: "fork-bubble-avatar" }, image);
-    // Still loading: the shared spinner, centred on the plate after 150 ms; a new face (alias/mood) restarts the delay.
+    // A faceless figure shows its name's first glyph. Loading: the shared spinner after 150 ms, restarted by a new
+    // face (alias/mood); a failed lease stays empty.
+    if (props.initial) return h("span", { className: "fork-bubble-avatar fork-bubble-avatar-ph", "aria-hidden": true }, props.initial);
     return h("span", { className: "fork-bubble-avatar" }, props.media?.loading ? h(Spinner, { key: JSON.stringify([props.alias,props.mood]), fill: true }) : null);
 }
 
@@ -364,14 +374,17 @@ function BubbleRow(props) {
     const badge = bubbleMoodBadge(segment.mood, moods, config, character?.alias);
     const row = React.useRef(null), [visible, setVisible] = React.useState(false);
     React.useEffect(() => bubbleViewport.watch(row.current, setVisible), []);
-    // the name glyphs are painted in the image colour and checked against the background they
-    // actually sit on; only a shortfall moves the lightness. Rows are checked when they come near the viewport (the watcher's
-    // margin is one screen). The badge is the emotion's colour pill, or the neutral pill when it has none.
+    // Name glyphs take the image colour, checked near the viewport against their real background; only a shortfall
+    // moves the lightness. The badge is the emotion's colour pill, else the neutral pill.
     useFigureTextContrast(React, row, visible && figureName, color);
-    const media = useBubbleMedia(props.sessionId, character, segment.mood, moods, visible);
+    // The round's stage outfit (transcript-outfits.cjs); only staged bubbles have a turn.
+    const outfits = props.turn != null && character?.ref ? stageViews.transcriptOutfits : null;
+    const outfitKey = React.useSyncExternalStore(outfits ? outfits.subscribe(props.sessionId, props.turn) : () => () => {}, () => outfits ? outfits.outfit(props.sessionId, props.turn, props.para, character.ref) : null);
+    const media = useBubbleMedia(props.sessionId, character, segment.mood, moods, visible, outfitKey);
     return h("div", { ref:row, className: "fork-bubble" + (segment.thought ? " fork-bubble-thought" : ""), style: { "--bubble-color": color, "--bubble-name-ink": figureName ? color : undefined }, "data-alias": segment.alias },
         h("div", { className: "fork-bubble-portrait" },
-            h(BubbleAvatar, { media: media, config: config, mood: segment.mood, moods: moods, color: color, name: name, alias: character?.alias, zoomable: true }),
+            h(BubbleAvatar, { media: media, config: config, mood: segment.mood, moods: moods, color: color, name: name, alias: character?.alias, zoomable: true,
+                initial: character && !character.avatarMedia?.default ? chars[0] : "" }),
             props.voice ? h(VoiceButton, { voice: props.voice }) : null),
         h("div", { className: "fork-bubble-body" },
             h("div", { className: "fork-bubble-head" },
@@ -397,9 +410,8 @@ function BubblePublication(props) {
     if (!props.sessionId || active !== props.sessionId || props.voicePreview) cached.current = React.createElement(BubbleContent, props);
     return cached.current;
 }
-// thoughts are set in the font library's Noto Serif SC (bundled with the plugin).
-// The face is registered on the first transcript that shows a thought and exposed as --fork-font-thought; until then
-// (and when the library is unavailable) the CSS stack falls back to the system serifs.
+// Thoughts use the bundled Noto Serif SC, registered on first use as --fork-font-thought; until then (or without
+// the font library) the CSS falls back to system serifs.
 let thoughtFace = null;
 function useThoughtFace(shown) {
     React.useEffect(() => {
@@ -416,8 +428,8 @@ function BubbleContent(props) {
     const segments = React.useMemo(() => parseBubbles(text, props.streaming), [text, props.streaming]);
     useThoughtFace(segments.some(segment => segment.thought));
     const select = React.useMemo(() => bubbleMessageSelector(segments), [segments]);
-    // A session whose card has dialogue bubbles off (view.stage.dialogue, host-decided) asks for bubble settings only
-    // when its text has @bubble lines: those rows still need their speakers' names and avatars. Settings pages pass their own wanted flag.
+    // Bubbles off for the card (view.stage.dialogue): settings are fetched only for @bubble text, whose rows still need
+    // names and avatars. Settings pages pass their own flag.
     const dialogue = useStageDialogue(props.sessionId);
     const data = useBubbles(props.sessionId, has || dialogue && Boolean(props.voiceScope), select);
     const match = /^(\d+):(\d+)(?::plugin:\d+)?$/.exec(String(props.voiceScope || ""));
@@ -536,52 +548,10 @@ function BubbleMarkdown({ props, markdownProps, has, enter, segments, base, conf
                 markdownProps: Object.assign({}, markdownProps, { text: segment.text }) });
         }
         const para = enter ? paragraphs.find(unit => unit.index === index).para : 0;
-        const row = h(BubbleRow, { sessionId: props.sessionId, segment: segment, config: config, voice: voice[index],
+        const row = h(BubbleRow, { sessionId: props.sessionId, segment: segment, config: config, voice: voice[index], turn: enter ? turn : null, para,
             enter: enter ? h(StageEnterHere, { sessionId: props.sessionId, turn, para }) : null });
         return enter ? h(StageParagraph, { key: "b" + index, sessionId: props.sessionId, turn, para }, row) : h(React.Fragment, { key: "b" + index }, row);
     }));
-}
-
-// ---------------------------------------------------------------------------
-// Avatar import: single images, many images, or a .zip. File naming:
-//   alice.png             → default avatar of alias "alice"
-//   alice@喜悦.png         → mood variant (label or id: joy/anger/sad/anxious/calm/shy/disgust/love)
-//   alice/默认.png, alice/喜悦.png → same, one folder per alias
-function pickFiles(options) {
-    return new Promise(function (resolve) {
-        const input = document.createElement("input");
-        input.type = "file"; input.accept = options.accept; input.multiple = Boolean(options.multiple);
-        input.addEventListener("change", function () { resolve(Array.from(input.files || [])); }, { once: true });
-        forkForeground.picker(true);
-        input.addEventListener("change", () => forkForeground.picker(false), { once: true });
-        input.addEventListener("cancel", () => { forkForeground.picker(false); resolve([]); }, { once: true });
-        input.click();
-    });
-}
-
-// Worldbook changes (bubble format entry) only reach a running game after a card reload.
-function BubbleReloadLine(props) {
-    const h = React.createElement;
-    const live = useLiveTavernView(props.sessionId);
-    const askConfirm = useTavernConfirm(props.sessionId);
-    const [busy, setBusy] = React.useState(false);
-    const [error, setError] = React.useState("");
-    const view = live && live.view;
-    const update = view && ["story", "script"].includes(view.mode || "story") && view.requestMode !== "sillytavern" ? view.cardUpdate : null;
-    if (!update || update.error || !(update.available || update.worldbookSyncRequired || update.legacy)) return error ? h("p", { className: "fork-bubble-note is-error", role: "alert" }, error) : null;
-    const blocked = busy || view.settleStatus === "running" || Boolean(view.activity && view.activity.busy) || Boolean(view.regenInProgress);
-    async function reload() {
-        if (blocked) return;
-        if (!await askConfirm("从资源库重新加载人物卡和世界书，让新的气泡格式立即生效。\n剧情和数值保留；本局脚本对世界书的修改会被替换；下一轮会重建提示词缓存（多花一些 Token 和等待时间）。是否继续？" + (update.migrations && update.migrations.length ? "\n\n声明的变量迁移：\n" + update.migrations.join("\n") : ""))) return;
-        setBusy(true); setError("");
-        try { await rpc("applyUpdatedCard", { digest: update.digest }, props.sessionId); liveTavernView.invalidate(props.sessionId); }
-        catch (err) { setError("重新加载失败：" + String(err && err.message || err)); }
-        finally { setBusy(false); }
-    }
-    return h("div", { className: "fork-bubble-reload-line", role: "status" },
-        h("span", null, update.worldbookChanged || update.worldbookSyncRequired ? "本局仍在用旧世界书，气泡格式改动尚未生效" : "本局仍在用旧版人物卡"),
-        h("button", { type: "button", className: "dsh-tavern-btn fork-bubble-primary", disabled: blocked, title: blocked && !busy ? "等本轮生成 / 结算结束后再加载" : "保留剧情和数值，替换本局人物卡与世界书", onClick: reload }, busy ? "加载中…" : "立即生效"),
-        error ? h("span", { className: "fork-bubble-note is-error", role: "alert" }, error) : null);
 }
 
 // Voice chip on a roster card; opens a small listbox of the voices the TTS service offers.

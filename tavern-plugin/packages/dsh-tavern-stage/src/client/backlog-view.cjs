@@ -401,9 +401,12 @@ function GalBacklog(props) {
         // 「只是图标变为"手机"，点击以后效果仍然是播放，而不是跳转到手机」): the row reads and plays as any line.
         const badgePlace = line && entry.lineKind && looks.badge?.show !== false ? looks.badge?.place || "name" : null;
         const kind = entry.lineKind;
-        const badge = badgePlace ? h("span", { className: "fork-gal-backlog-badge is-badge-" + (looks.badge?.look || "pill") + (kind.icon ? " has-icon" + (looks.badge?.icon === "bold" ? " is-icon-bold" : "") : ""), "data-line-kind": kind.kind, style: looks.badge?.style,
-                ...(kind.icon ? { role: "img", "aria-label": kind.label, title: kind.label } : null) },
-            kind.icon ? h("svg", { viewBox: "0 0 24 24", "aria-hidden": true, focusable: "false" }, h("path", { d: kind.icon, fill: "currentColor", fillRule: "evenodd" })) : kind.label) : null;
+        // (art.backlog.badges, §18 N26: the skin's own image for this kind, the label its accessible name)
+        const drawn = badgePlace && looks.badge?.art && Object.hasOwn(looks.badge.art, kind.kind) && looks.badge.art[kind.kind];
+        const badge = badgePlace ? h("span", { className: "fork-gal-backlog-badge is-badge-" + (looks.badge?.look || "pill") + (drawn ? " has-art" : kind.icon ? " has-icon" + (looks.badge?.icon === "bold" ? " is-icon-bold" : "") : ""), "data-line-kind": kind.kind,
+                style: drawn ? { ...looks.badge?.style, "--bl-badge-art": "var(" + drawn + ")" } : looks.badge?.style,
+                ...(kind.icon || drawn ? { role: "img", "aria-label": kind.label, title: kind.label } : null) },
+            drawn ? null : kind.icon ? h("svg", { viewBox: "0 0 24 24", "aria-hidden": true, focusable: "false" }, h("path", { d: kind.icon, fill: "currentColor", fillRule: "evenodd" })) : kind.label) : null;
         const classes = "fork-gal-backlog-row is-look-" + look + (line ? " is-line" : " is-narration") + (entry.thought ? " is-thought" : "") + (jump ? " is-jump" : " is-past") + (entry.here ? " is-here" : "") + bandClass(index) + (clip.on ? " is-picking" : "");
         const go = event => { if (!pick(pos, event)) props.onJump(entry.page, entry.turn, entry.targetPara); };
         // The voice control follows the speaker's name in every look;

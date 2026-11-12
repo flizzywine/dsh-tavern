@@ -1,7 +1,7 @@
 import { promptSection } from './prompt-section.js'
 import { prompt } from '../prompt-catalog.js'
 import figureResolution from '../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'
-const { figureSpeakerHandle } = figureResolution
+const { createSpeakerHandleResolver } = figureResolution
 // optional height fields never infer a height for legacy characters.
 import { figureCharacter } from './figure-scale.js'
 import { matchBubbleMood, figureBubbleMoods, bubbleCharacter, effectiveVoiceLanguage, voiceTranslates } from '../../src/client/bubble-line.cjs'
@@ -150,7 +150,7 @@ export function normalizeBubbleConfig(value) {
       emotions: figureEmotions,
       ...(Array.isArray(raw.promptEmotionIds) ? {promptEmotionIds:[...raw.promptEmotionIds]} : {}),
       name: str(raw.name, 40),
-      ...(raw.ref && raw.description ? {description:str(raw.description, 1000)} : {}),
+      ...(raw.ref && raw.guidance ? {guidance:str(raw.guidance, 1000)} : {}),
       // Any well-formed voice-library ID is kept, even if that voice is offline or retired:
       // the binding must survive until the user changes it.
       voice: BACKEND_VOICE_ID.test(str(raw.voice, 82)) ? str(raw.voice, 82) : '',
@@ -259,13 +259,14 @@ function voicedBubblesSection(current, characters) {
 }
 function rosterGroups(current, speakerRows, characters) {
   const groups = new Map(), packIds = []
+  const speakerHandle = createSpeakerHandleResolver(speakerRows)
   let hasTranslation = false
   for (const character of characters) {
     const translated = bubbleVoiceSwitches(current, character).voiceTranslates
     if (translated) hasTranslation = true
-    const name = figureSpeakerHandle(speakerRows, character) + '|' + (character.name || character.alias)
+    const name = speakerHandle(character) + '|' + (character.name || character.alias)
       + (translated ? PROMPT_PROSE.p018 + languageDisplayName(character.voiceLang, 'en') + ']' : '')
-    const rows = effectiveBubbleMoods(current, character.alias)
+    const rows = figureBubbleMoods([], character.emotions)
       .filter(row => !character.promptEmotionIds || character.promptEmotionIds.includes(row.id))
 
     // the migration's exact stock sentence is not authored guidance.
@@ -277,7 +278,7 @@ function rosterGroups(current, speakerRows, characters) {
     if (!groups.has(key)) groups.set(key, {names:[], lines:[], variants, guidance:new Map()})
     const group = groups.get(key)
     group.names.push(name)
-    group.lines.push('- ' + name + (character.description ? ' — ' + character.description : ''))
+    group.lines.push('- ' + name + (character.guidance ? ' — ' + character.guidance : ''))
     for (const row of variants) if (row.note) {
       if (!group.guidance.has(row.label)) group.guidance.set(row.label, new Map())
       const notes = group.guidance.get(row.label)
@@ -286,7 +287,7 @@ function rosterGroups(current, speakerRows, characters) {
     }
     if (character.ref && !packIds.includes(character.ref.packId)) packIds.push(character.ref.packId)
   }
-  // each group opens with its options, then one speaker line per figure (description after an em dash).
+  // each group opens with its options, then one speaker line per figure (its 使用情景 after an em dash).
   const lines = [...groups.values()].map(group => PROMPT_PROSE.p024 + (group.variants.length ? group.variants.map(row => {
     const notes = [...(group.guidance.get(row.label) || [])].map(([note, names]) =>
       names.length === group.names.length ? note : names.join('、') + '：' + note)

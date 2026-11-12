@@ -52,10 +52,10 @@ export const modSystemSchemas = {
   lock:object({lockVersion:{const:2},hostApi:version,
     mods:map(object({packageName:text,version,sha256:hash,files:list(file),dependencies:list(id)})),
     packs:map(object({contentHash:hash,files:{type:'array',items:file,maxItems:50000}}))}),
-  archive:object({format:{const:'dshcard'},formatVersion:{const:2},card:object({title:text,version:text},['title']),
+  archive:object({format:{const:'dshcard'},formatVersion:{const:1},card:object({title:text,version:text,author:text},['title']),
     requires:object({modHostApi:range,features:{type:'array',items:{enum:['managed-mods/1','mod-lock/2','mod-dependencies/1']},minItems:3,maxItems:3,uniqueItems:true}}),lock:{const:'dsh-lock.json'},
     plugins:list(object({name:text,path,purpose:text},['name','path'])),
-    packs:list(object({id:text,path,contentHash:hash,format:text},['id','path','contentHash']))}),
+    packs:list(object({id:text,path,contentHash:hash,format:text},['id','path','contentHash'])),defaults:schema},['format','formatVersion','card','plugins','packs']),
 }
 for (const [name, value] of Object.entries(modSystemSchemas)) {
   value.$schema = 'https://json-schema.org/draft/2020-12/schema'

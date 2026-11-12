@@ -1,7 +1,9 @@
 // Mods' parts in the core client (docs/mod-authoring.md): each mod's client/core.js is built in by `// @include-mods`
 // and registers its parts here under its mod id, with a label for error reports. Core and stage render the parts by slot and never name a mod:
-//   floor:   component({useChat, nativeTurn, nodeKey}) before a round's story text on its chat floor
-//   page:    component({useChat, nativeTurn, pageKey}) on the stage text box's top edge
+//   floor:   component({useChat, nativeTurn, nodeKey, input}) before a round's story text on its chat floor
+//   page:    component({useChat, nativeTurn, pageKey, input}) on the stage text box's top edge
+//            input = modClients.input(executeSlash, sessionId): {submit(text)} sends text as the player's next message,
+//            the way the stage's own choices do; floor and page parts get it, so a record can hand over an answer by a click
 //   overlay: component({sessionId, useChat, nativeTurn, running, following, device, rootRef, calm, safety, veiled,
 //            replay, live}) over the stage, after the text box
 //   backlog: {kind, use(useChat), entries(rows, value, nativeTurnOf, rowOf), line(h, record)}: 履历 rows of the
@@ -25,6 +27,9 @@ const tavernModClients = (function () {
             const at = parts.findIndex(row => row.modId === modId);
             const merged = Object.freeze(Object.assign({}, parts[at], part, { modId }));
             if (at < 0) parts.push(merged); else parts[at] = merged;
+        },
+        input(executeSlash, sessionId) {
+            return typeof executeSlash === "function" ? { submit(text) { return executeSlash("/send " + String(text).replace(/\|/g, "｜") + "|/trigger", sessionId); } } : undefined;
         },
         slot(name) { return parts.filter(part => part[name]).map(part => ({ modId: part.modId, label: part.label, value: part[name] })); }
     };

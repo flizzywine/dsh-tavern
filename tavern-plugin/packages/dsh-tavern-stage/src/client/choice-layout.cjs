@@ -12,12 +12,22 @@ function galPixelStep(dpr) {
     for (let n = 1; n <= 4; n++) if (Math.abs(n * dpr - Math.round(n * dpr)) < 1e-6) return n;
     return 1;
 }
-// a skin with a focus bar draws each row's bar and focus bar in
-// this decorative child (theme.css「stage skin: art choices」) - two still layers the highlight shows and hides - instead
+// a skin with a focus or hover bar draws each row's bar, focus bar and hover bar in
+// this decorative child (theme.css「stage skin: art choices」) - still layers the highlight shows and hides - instead
 // of swapping the row's border image. Last in the row, aria-hidden, out of the flow; display none for every other skin.
 function galChoiceArt() {
     return React.createElement("i", { key: "art", className: "fork-gal-choice-art", "data-fk-layer": "", "aria-hidden": "true" },
-        React.createElement("i", { className: "is-bar" }, React.createElement("i")), React.createElement("i", { className: "is-focus" }, React.createElement("i")));
+        React.createElement("i", { className: "is-bar" }, React.createElement("i")), React.createElement("i", { className: "is-focus" }, React.createElement("i")),
+        React.createElement("i", { className: "is-hover" }, React.createElement("i")));
+}
+// The bar images of a skin's choice menu (the stage's --art-choice* tokens), decoded once per page: a row enters only after
+// its bars can paint, so its words never show on a bare stage for a frame (theme.css [data-fk-wait]).
+const GAL_CHOICE_BARS = ["--art-choice", "--art-choice-alt", "--art-choice-off", "--art-choice-focus", "--art-choice-focus-alt", "--art-choice-hover", "--art-choice-hover-alt", "--art-choice-tint"];
+const galChoiceBarsDecoded = new Set();
+function galChoiceBarUrls(list) {
+    const style = getComputedStyle(list), urls = new Set();
+    for (const name of GAL_CHOICE_BARS) for (const m of style.getPropertyValue(name).matchAll(/url\(\s*(["']?)(.*?)\1\s*\)/g)) if (m[2] && !galChoiceBarsDecoded.has(m[2])) urls.add(m[2]);
+    return [...urls];
 }
 function galChoiceArtShown(row) {
     const art = row.lastElementChild;
@@ -59,6 +69,6 @@ function galFitChoices(list) {
     for (const row of [list, ...(list.children || [])]) row.style.removeProperty("--fk-snap-h");
     return true;
 }
-return {galPixelStep,galSnapChoices,galFitChoices,galChoiceArt};
+return {galPixelStep,galSnapChoices,galFitChoices,galChoiceArt,galChoiceBarUrls,galChoiceBarsDecoded};
 }
 if(typeof module!=="undefined"&&typeof window==="undefined")module.exports={createStageChoiceLayout};

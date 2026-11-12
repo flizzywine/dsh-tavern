@@ -8,7 +8,7 @@ export const outfitJudgeId = (actor,key) => JSON.stringify(['outfit',actor,key])
 export const figureJudgeId = ref => 'figure:' + figureRefKey(ref)
 export function greenJudgeQuestions({catalogue,actors,figures,units,state,dimensions}) {
   const rows = catalogue.rows.filter(row => row.excluded === 'no-trigger').map(row => ({id:assetRefKey(row.ref),kind:row.ref.kind,title:row.asset.name,description:row.asset.directorNote || row.asset.description || ''}))
-  for (const row of figures.all.filter(row => !row.reasons.length)) rows.push({id:figureJudgeId(row.ref),kind:'figures',title:row.name,description:row.figure?.description || ''})
+  for (const row of figures.all.filter(row => !row.reasons.length)) rows.push({id:figureJudgeId(row.ref),kind:'figures',title:row.name,description:row.figure?.guidance || ''})
   const text = units.map(unit => normalizeCatalogueText(typeof unit === 'string' ? unit : unit.text || ''))
   if (dimensions.actors && dimensions.outfit) for (const [alias,actor] of Object.entries(actors)) {
     for (const [index,outfit] of actor.outfits.entries()) {

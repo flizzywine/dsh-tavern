@@ -115,7 +115,7 @@
                 };
                 refreshRef.current = read;
                 void read();
-                const off = forkTtsScope?.get("ttsClient")?.subscribe(event => { if (event.type === "readingChanged") void read(); });
+                const off = pageTtsClient()?.subscribe(event => { if (event.type === "readingChanged") void read(); });
                 return () => { live = false; refreshRef.current = null; off?.(); };
             }, [sessionId, available]);
             const state = available && snapshot?.sessionId === sessionId ? snapshot.value : null;
