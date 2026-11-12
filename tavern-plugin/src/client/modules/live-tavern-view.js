@@ -134,7 +134,6 @@ function createLiveTavernViewModule(options) {
 					record.seededView = undefined;
 					return result;
 				}
-				if (record.pendingSeed) return record.pendingSeed.promise;
 				return options.load(record.id, { signal: scope.signal });
 			},
 			onResult: async function (result, scope) {
@@ -261,24 +260,6 @@ function createLiveTavernViewModule(options) {
 		},
 		evict: evict,
 		getSnapshot: function (sessionId) { return recordFor(sessionId).state; },
-		expectSeed: function (sessionId) {
-			const record = recordFor(sessionId);
-			if (record.pendingSeed) return;
-			let resolve;
-			const promise = new Promise(function (done) { resolve = done; });
-			record.pendingSeed = { promise: promise, resolve: resolve };
-			record.seededView = undefined;
-			record.refresh.replace();
-			if (record.listeners.size) record.refresh.request();
-		},
-		cancelSeed: function (sessionId) {
-			const record = recordFor(sessionId), pending = record.pendingSeed;
-			if (!pending) return;
-			record.pendingSeed = null;
-			record.refresh.replace();
-			pending.resolve(null);
-			if (record.listeners.size > record.passiveListeners) record.refresh.request();
-		},
 		seed: function (sessionId, view) {
 			// 没有视图就没有可种的东西：种一个空视图会让这一局在别人眼里「没有正文」，
 			// 而 phase 还是 ready，再没人去重读。
@@ -286,13 +267,9 @@ function createLiveTavernViewModule(options) {
 			const record = recordFor(sessionId);
 			const revisionOf = function (value) { return Number((value && value.historyWindow && value.historyWindow.revision) ?? (value && value.tavernHelper && value.tavernHelper.stateRevision)); };
 			const nextRevision = revisionOf(view), currentRevision = revisionOf(record.state.view);
-			if (record.state.view && Number.isSafeInteger(nextRevision) && Number.isSafeInteger(currentRevision) && nextRevision < currentRevision) {
-				if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve({ view: record.state.view }); }
-				return;
-			}
+			if (record.state.view && Number.isSafeInteger(nextRevision) && Number.isSafeInteger(currentRevision) && nextRevision < currentRevision) return;
 			const result = { view: view };
-			if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve(result); }
-			// A story/startChat response is already a complete first-paint view for
+			// A startChat response is already a complete first-paint view for
 			// its consumer. Publish it now; the subscriber's scheduled first refresh
 			// consumes seededView and therefore performs no duplicate getSession.
 			record.refresh.replace();
@@ -309,7 +286,6 @@ function createLiveTavernViewModule(options) {
 				if (record.listeners.size > record.passiveListeners) record.refresh.request();
 				return function () {};
 			}
-			if (record.pendingSeed) { const pending = record.pendingSeed; record.pendingSeed = null; pending.resolve({ view: view }); }
 			record.seededView = undefined;
 			record.refresh.replace();
 			const owner = {};

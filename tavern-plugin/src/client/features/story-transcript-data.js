@@ -421,9 +421,6 @@ function createTavernStoryTranscriptDataModule(deps) {
 		// force/read-after-mutation still bypasses it and replaces the cached revision.
 		const cacheSize = Number.isSafeInteger(settings.cacheSize) ? Math.max(0, settings.cacheSize) : 4
 		const cache = new Map()
-		const expectedLiveViews = new Set()
-		const liveViews = settings.liveTavernView || options.liveTavernView
-			|| (typeof liveTavernView !== 'undefined' && liveTavernView ? liveTavernView : null)
 		let ticket = 0
 		let state = IDLE
 
@@ -442,27 +439,12 @@ function createTavernStoryTranscriptDataModule(deps) {
 			while (cache.size > cacheSize) cache.delete(cache.keys().next().value)
 		}
 
-		function expectLiveView(sessionId) {
-			if (!liveViews || typeof liveViews.expectSeed !== 'function') return
-			expectedLiveViews.add(sessionId)
-			liveViews.expectSeed(sessionId)
-		}
-		function cancelLiveView(sessionId) {
-			if (!expectedLiveViews.delete(sessionId)) return
-			if (liveViews && typeof liveViews.cancelSeed === 'function') liveViews.cancelSeed(sessionId)
-		}
-
+		// The story response's view is the story's own reduced projection (no round bodies,
+		// fork turns or editable inputs); it stays here. The live session view (getSession) is
+		// another projection with its own readers: publishing this one into it made the stage
+		// lose and regain the round's text on every story read while a round was running.
 		function publish(next) {
 			state = next
-			// The story response already carries the bounded Helper/projection view.
-			// Seed liveView so its first subscriber does not download the same window
-			// again through getSession; later invalidations still refresh normally.
-			if (next && (next.status === 'ready' || next.status === 'empty')) {
-				if (next.view && liveViews && typeof liveViews.seed === 'function') {
-					expectedLiveViews.delete(next.sessionId)
-					liveViews.seed(next.sessionId, next.view)
-				} else cancelLiveView(next.sessionId)
-			}
 			listeners.forEach(function (listener) {
 				try { listener(state) } catch (_) { /* 订阅方自己处理 */ }
 			})
@@ -496,12 +478,10 @@ function createTavernStoryTranscriptDataModule(deps) {
 			if (id === '') {
 				if (state !== IDLE) {
 					ticket += 1
-					cancelLiveView(state.sessionId)
 					publish(IDLE)
 				}
 				return state
 			}
-			if (!sameSession) cancelLiveView(state.sessionId)
 			if (!force && sameTarget && (state.status === 'loading' || state.status === 'refreshing')) return state
 			if (!force && sameTarget && (state.status === 'ready' || state.status === 'empty')) {
 				touch(key)
@@ -519,7 +499,6 @@ function createTavernStoryTranscriptDataModule(deps) {
 			}
 			const current = ++ticket
 			if (cacheHit === null) {
-				expectLiveView(id)
 				publish({
 					sessionId: id,
 					historyFrom: historyFrom,
@@ -556,7 +535,6 @@ function createTavernStoryTranscriptDataModule(deps) {
 				// 有缓存就已经有东西可看：后台补读失败不打扰玩家，缓存留着，
 				// 下一次切换、故事变更或 force 读取会再试。
 				if (cacheHit) return state
-				cancelLiveView(id)
 				const preserve = state.sessionId === id && state.transcript
 				publish({ sessionId: id, historyFrom: historyFrom, status: 'error', transcript: preserve ? state.transcript : null,
 					view: preserve ? state.view : null, revision: preserve ? state.revision : null, error: error, ticket: current })
@@ -566,7 +544,6 @@ function createTavernStoryTranscriptDataModule(deps) {
 
 		function reset() {
 			ticket += 1
-			for (const sessionId of Array.from(expectedLiveViews)) cancelLiveView(sessionId)
 			cache.clear()
 			publish(IDLE)
 		}
