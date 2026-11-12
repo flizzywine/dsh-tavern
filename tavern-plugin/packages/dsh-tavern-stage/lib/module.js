@@ -229,8 +229,8 @@ export async function createStageModule(core) {
   return {modService, managedModManagement, modConfigHost, stageDirector,
     requests(deps, registry) {
       // The mods' stage services build their requests from these bindings (stage-extensions.js bind) and report their
-      // in-flight work to deployment.
-      deps.stageExtensions.bind(registry, Object.create(deps, {readModCard:{value:readModCard}, resolveSlot:{value:resolveSlot},
+      // in-flight work to deployment; hostLibrary is the core helpers a mod may use (lib/mod-library.js).
+      deps.stageExtensions.bind(registry, Object.create(deps, {hostLibrary:{value:core.hostLibrary}, readModCard:{value:readModCard}, resolveSlot:{value:resolveSlot},
         managedModManagement:{value:managedModManagement}, modConfigHost:{value:modConfigHost}, stageDirector:{value:stageDirector}}))
       ctx.effect(() => {
         const works = deps.stageExtensions.works()
