@@ -4,10 +4,9 @@ const {modCheck: check, modFreeze, modResultError} = contract
 export function assertModCurrent(context, current) {
   check(current(context), '$.source', 'Mod authority or source is no longer current', 'MOD_SOURCE_STALE')
 }
-export function assertModPermission(manifest, capability) {
-  const [group, name] = capability.split('.')
-  const allowed = name ? manifest.permissions[group]?.includes(name) : manifest.permissions[group] === true
-  check(allowed, '$.permission', 'Mod capability not granted: ' + capability, 'MOD_PERMISSION_DENIED')
+// permission: one of the manifest's permissions (stage.presentation, stage.state, source.dialogue).
+export function assertModPermission(manifest, permission) {
+  check(manifest.permissions.includes(permission), '$.permission', 'Mod capability not granted: ' + permission, 'MOD_PERMISSION_DENIED')
 }
 export async function modBoundary(work) {
   try { return modFreeze({ok:true, value:await work()}) }

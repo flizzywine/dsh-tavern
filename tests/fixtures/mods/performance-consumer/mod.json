@@ -1,6 +1,6 @@
 {
-  "format": "dsh-mod",
-  "schemaVersion": 4,
+  "format": "dsh-tavern-mod",
+  "schemaVersion": 5,
   "id": "dsh.performance",
   "name": "Performance",
   "packageName": "dsh-tavern-mod-performance",
@@ -58,7 +58,7 @@
       "schema": {
         "type": "object"
       },
-      "label": "\u6f14\u51fa"
+      "label": "演出"
     }
   ],
   "coreAssets": [],
@@ -68,5 +68,126 @@
   ],
   "performances": [],
   "entry": "plugin.mjs",
-  "summary": "\u6309\u5267\u60c5\u8282\u62cd\u64ad\u653e\u6f14\u51fa\uff0c\u53ef\u914d\u5408\u5012\u8ba1\u65f6\u8fdb\u884c\u8fa9\u8bba\u3002"
+  "summary": "按剧情节拍播放演出，可配合倒计时进行辩论。",
+  "commandPrompts": [
+    {
+      "id": "performance-rule",
+      "path": "prompts/performance.txt",
+      "placement": {
+        "section": "director.rules.presentation",
+        "order": 40
+      }
+    }
+  ],
+  "commands": [
+    {
+      "id": "set",
+      "op": "mod.dsh.performance.set",
+      "mode": "adds",
+      "dsl": {
+        "verb": "performance-set",
+        "syntax": "mod.dsh.performance.set {ref,level?}"
+      },
+      "paramsStyle": "flat",
+      "params": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "object",
+            "properties": {
+              "packId": {
+                "type": "string",
+                "minLength": 36,
+                "maxLength": 36
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "performances"
+                ]
+              },
+              "assetId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "packId",
+              "kind",
+              "assetId"
+            ],
+            "additionalProperties": false
+          },
+          "topic": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "sec": {
+            "type": "number",
+            "minimum": 0.001,
+            "maximum": 86400
+          },
+          "level": {
+            "type": "integer",
+            "enum": [
+              1,
+              2,
+              3
+            ],
+            "minimum": 1,
+            "maximum": 3
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "additionalProperties": false
+      },
+      "persistence": "state",
+      "handler": "command",
+      "promptId": "performance-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 40
+      },
+      "caps": {
+        "perTurn": 8,
+        "bytes": 2048
+      }
+    },
+    {
+      "id": "off",
+      "op": "mod.dsh.performance.off",
+      "mode": "adds",
+      "dsl": {
+        "verb": "performance-off",
+        "syntax": "mod.dsh.performance.off {}"
+      },
+      "paramsStyle": "flat",
+      "params": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "persistence": "state",
+      "handler": "command",
+      "promptId": "performance-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 40
+      },
+      "caps": {
+        "perTurn": 8,
+        "bytes": 2048
+      }
+    }
+  ],
+  "admission": {
+    "entryKinds": [
+      "performances"
+    ]
+  }
 }

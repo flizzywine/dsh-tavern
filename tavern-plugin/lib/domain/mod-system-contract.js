@@ -26,7 +26,7 @@ const promptContribution=object({
 export const MOD_HOST_API = '1.0.0'
 export const modSystemSchemas = {
   manifest: object({
-    format:{const:'dsh-mod'},schemaVersion:{const:4},id,name:text,summary:text,experimental:{type:'boolean'},packageName:text,version,hostApi:range,
+    format:{const:'dsh-tavern-mod'},schemaVersion:{const:5},id,name:text,summary:text,experimental:{type:'boolean'},packageName:text,version,hostApi:range,
     dependencies:list(object({id,range,optional:{type:'boolean',default:false},onMissing:policy,operations:list(text)},['id','range'])),
     api:object({operations:list(text),resource:{const:'instance-exclusive'}}),
     config:object({version:{type:'integer',minimum:1},schema,defaults:map({})}),
@@ -42,6 +42,9 @@ export const modSystemSchemas = {
     callVideo:object({backdrop:{enum:['stage','avatar','none']},
       remote:object({head:{type:'array',items:{type:'number',minimum:0,maximum:1},minItems:3,maxItems:3}}),
       self:object({head:{type:'array',items:{type:'number',minimum:0,maximum:1},minItems:3,maxItems:3}})}),
+    // Director declarations. Optional (absent = empty); their field rules live in mods/declarations.js, run with the schema.
+    commands:list(schema),commandPrompts:list(schema),settingsSchema:schema,admission:object({entryKinds:list(text)}),
+    modelSlots:list(schema),provides:list(schema),
   },['format','schemaVersion','id','name','packageName','version','hostApi','dependencies','config','preferences','dataVersion','coreAssets','permissions','entry','performances']),
   card:object({version:{const:2},mods:map({enum:['on','off']}),packs:map({enum:['on','off']}),config:map(configValue)}),
   global:object({version:{const:1},mods:map({type:'boolean'}),packs:map({type:'boolean'}),config:map(configValue),preferences:map(map({}))}),
@@ -56,7 +59,7 @@ export const modSystemSchemas = {
 }
 for (const [name, value] of Object.entries(modSystemSchemas)) {
   value.$schema = 'https://json-schema.org/draft/2020-12/schema'
-  value.$id = `https://dsh-tavern.org/schemas/mod-system/${name}-${name==='manifest'?4:['card','lock'].includes(name)?2:1}.json`
+  value.$id = `https://dsh-tavern.org/schemas/mod-system/${name}-${name==='manifest'?5:['card','lock'].includes(name)?2:1}.json`
 }
 const validators = new Map()
 export function assertSchema(schema, value) {

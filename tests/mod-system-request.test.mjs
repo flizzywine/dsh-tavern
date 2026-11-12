@@ -11,7 +11,7 @@ import {emptyCardMods,emptyGlobalMods} from '../tavern-plugin/lib/domain/mod-sys
 
 const id='example.counter',packageName='example-counter'
 function manifest() {
-  return {format:'dsh-mod',schemaVersion:4,performances:[],id,name:'Counter',packageName,version:'1.0.0',hostApi:'^1.0.0',entry:'plugin.mjs',dependencies:[],
+  return {format:'dsh-tavern-mod',schemaVersion:5,performances:[],id,name:'Counter',packageName,version:'1.0.0',hostApi:'^1.0.0',entry:'plugin.mjs',dependencies:[],
     config:{version:1,schema:{type:'object',properties:{count:{type:'integer'}},required:['count'],additionalProperties:false},defaults:{count:1}},
     preferences:{schema:{type:'object',properties:{},additionalProperties:false},defaults:{}},dataVersion:1,coreAssets:[],permissions:['stage.state'],
     api:{operations:['add'],resource:'instance-exclusive'}}

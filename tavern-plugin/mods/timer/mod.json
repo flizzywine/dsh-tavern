@@ -1,6 +1,6 @@
 {
-  "format": "dsh-mod",
-  "schemaVersion": 4,
+  "format": "dsh-tavern-mod",
+  "schemaVersion": 5,
   "experimental": true,
   "id": "dsh.timer",
   "name": "计时器",
@@ -259,6 +259,14 @@
     {
       "id": "default",
       "path": "assets/default.svg"
+    },
+    {
+      "id": "plate",
+      "path": "assets/plate.svg"
+    },
+    {
+      "id": "plate-digits",
+      "path": "assets/plate-digits.svg"
     }
   ],
   "permissions": [
@@ -295,5 +303,108 @@
     ],
     "resource": "instance-exclusive"
   },
-  "summary": "为剧情与辩论演出提供可暂停、继续的倒计时。"
+  "summary": "为剧情与辩论演出提供可暂停、继续的倒计时。",
+  "commandPrompts": [
+    {
+      "id": "timer-rule",
+      "path": "prompts/timer.txt",
+      "placement": {
+        "section": "director.rules.presentation",
+        "order": 50
+      }
+    }
+  ],
+  "commands": [
+    {
+      "id": "set",
+      "resourceUse": {
+        "capability": "dsh.timer.countdown",
+        "access": "control"
+      },
+      "op": "mod.dsh.timer.set",
+      "mode": "adds",
+      "dsl": {
+        "verb": "timer",
+        "positional": "set",
+        "syntax": "timer <set> [key=value]"
+      },
+      "paramsStyle": "flat",
+      "params": {
+        "type": "object",
+        "properties": {
+          "set": {
+            "type": "string",
+            "enum": [
+              "start",
+              "add",
+              "pause",
+              "resume",
+              "stop"
+            ]
+          },
+          "sec": {
+            "type": "number",
+            "minimum": 0.001,
+            "maximum": 86400
+          },
+          "ref": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "story",
+              "reply"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "onTimeout": {
+            "type": "string",
+            "maxLength": 160
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "persistence": "state",
+      "handler": "command",
+      "promptId": "timer-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 50
+      },
+      "caps": {
+        "perTurn": 8,
+        "bytes": 1024
+      }
+    }
+  ],
+  "admission": {
+    "entryKinds": [
+      "timers"
+    ]
+  },
+  "provides": [
+    {
+      "id": "dsh.timer.countdown",
+      "version": "1.0.0",
+      "contract": "countdown/1",
+      "operations": [
+        "start",
+        "resume",
+        "release",
+        "read"
+      ],
+      "handler": "countdown",
+      "resource": {
+        "scope": "chat-branch",
+        "key": "timer/main",
+        "policy": "exclusive"
+      }
+    }
+  ]
 }

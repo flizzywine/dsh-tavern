@@ -1,6 +1,6 @@
 {
-  "format": "dsh-mod",
-  "schemaVersion": 4,
+  "format": "dsh-tavern-mod",
+  "schemaVersion": 5,
   "experimental": true,
   "id": "dsh.dice",
   "name": "AI检定",

@@ -1,6 +1,6 @@
 {
-  "format": "dsh-mod",
-  "schemaVersion": 4,
+  "format": "dsh-tavern-mod",
+  "schemaVersion": 5,
   "experimental": true,
   "id": "dsh.phone",
   "name": "手机",
@@ -411,5 +411,234 @@
       "markdown": "- A phone message is sent on a device from one person to a recipient or group: SMS, chat-app messages, calls, voice messages. Mark each such paragraph on kind=line, not narration. Cite its at; keep source text unchanged. Holding a phone alone needs no mark.\n- Livestream danmaku and viewer comments, forum or social posts, broadcasts and narration are not phone messages: leave them unmarked in the prose.\n- Infer the channel from surrounding narration: kind=line identifies a speaker, not face-to-face speech. A reply following typing/sending is still a text message; mark its own at. Keep the exchange through intervening narration until the story ends it or returns to in-person speech.\n- Direct: to is the recipient's handle, or $player for the player. The cited line supplies the sender. Mark both directions of NPC and player exchanges, each with its actual recipient. Text uses form=text; calls/voice messages use form=voice.\n- Groups: phone-group defines a stable thread id, name and participants: listed contacts, plus $player when present. Use only source-established members, never the whole contact roster. Use thread instead of to. Reuse a carried group only if its name and members match the source; otherwise create one. Omission keeps groups."
     }
   ],
-  "summary": "将剧情中的通话与消息呈现在手机界面中。"
+  "summary": "将剧情中的通话与消息呈现在手机界面中。",
+  "commandPrompts": [
+    {
+      "id": "phone-rule",
+      "path": "prompts/phone.txt",
+      "placement": {
+        "section": "director.rules.presentation",
+        "order": 30
+      }
+    }
+  ],
+  "commands": [
+    {
+      "id": "mark",
+      "op": "mod.dsh.phone.mark",
+      "dsl": {
+        "verb": "phone-mark",
+        "syntax": "phone-mark mark to=<recipient|$player> form=text|voice; groups: thread=<id> instead of to"
+      },
+      "paramsStyle": "flat",
+      "params": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Recipient handle or $player."
+          },
+          "thread": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Existing group id; replaces to."
+          },
+          "form": {
+            "type": "string",
+            "enum": [
+              "text",
+              "voice"
+            ],
+            "description": "text 纯文字；voice 语音气泡，按需播放角色配音，可展开原文。由导演按剧情选择。"
+          }
+        },
+        "required": [
+          "form"
+        ],
+        "additionalProperties": false
+      },
+      "persistence": "marker",
+      "handler": "command",
+      "promptId": "phone-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 30
+      },
+      "caps": {
+        "perTurn": 40,
+        "bytes": 2048
+      },
+      "mode": "adds"
+    },
+    {
+      "id": "group",
+      "op": "mod.dsh.phone.group",
+      "dsl": {
+        "verb": "phone-group",
+        "syntax": "phone-group group thread=<id> name=<title> participants=<JSON array>"
+      },
+      "paramsStyle": "flat",
+      "params": {
+        "type": "object",
+        "properties": {
+          "thread": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "participants": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 16,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "required": [
+          "thread",
+          "name",
+          "participants"
+        ],
+        "additionalProperties": false
+      },
+      "persistence": "state",
+      "handler": "command",
+      "promptId": "phone-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 31
+      },
+      "caps": {
+        "perTurn": 8,
+        "bytes": 4096
+      },
+      "mode": "adds"
+    }
+  ],
+  "settingsSchema": {
+    "fields": [
+      {
+        "key": "clockText",
+        "type": "text",
+        "label": "状态栏文字",
+        "default": "09:41",
+        "maxLength": 16,
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "statusBar",
+        "type": "toggle",
+        "label": "显示状态栏",
+        "default": true,
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "battery",
+        "type": "slider",
+        "label": "装饰电量",
+        "default": 80,
+        "min": 5,
+        "max": 100,
+        "step": 5,
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "cutout",
+        "type": "segmented",
+        "label": "顶部样式",
+        "default": "island",
+        "choices": [
+          {
+            "value": "island",
+            "label": "灵动岛"
+          },
+          {
+            "value": "notch",
+            "label": "刘海"
+          },
+          {
+            "value": "none",
+            "label": "无开孔"
+          }
+        ],
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "accentColor",
+        "label": "强调色",
+        "stageToken": "--gal-ui-accent",
+        "type": "colour",
+        "default": "auto",
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "surfaceColor",
+        "label": "内容底色",
+        "stageToken": "--gal-ui-surface",
+        "type": "colour",
+        "default": "auto",
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "bodyColor",
+        "label": "机身颜色",
+        "stageToken": "--gal-ui-line",
+        "type": "colour",
+        "default": "auto",
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "sound",
+        "type": "toggle",
+        "label": "来信提示音",
+        "default": true,
+        "scope": "global",
+        "bindable": false
+      }
+    ],
+    "sections": [
+      {
+        "id": "appearance",
+        "title": "外观",
+        "fields": [
+          "clockText",
+          "statusBar",
+          "battery",
+          "cutout",
+          "accentColor",
+          "surfaceColor",
+          "bodyColor",
+          "sound"
+        ]
+      }
+    ]
+  },
+  "modelSlots": [
+    {
+      "id": "call",
+      "label": "通话模型",
+      "purpose": "与联系人进行独立电话对话",
+      "kind": "chat",
+      "fallback": "foreground",
+      "reasoning": "off"
+    }
+  ]
 }

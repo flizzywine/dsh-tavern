@@ -38,7 +38,7 @@ export function createModHostRuntime({library,builtins,sourceCurrent,readText,st
     createHost(value,callCurrent) {
       const manifest=library.snapshot().mods[value.modId].manifest
       const own=()=>library.getMod({modId:value.modId,cardId:value.cardId})
-      const bridge=method=>async args=>{assertModPermission(manifest,'stage.'+method);check(stagePort && typeof stagePort[method]==='function','$.stage','Stage capability unavailable','MOD_RESOURCE_UNAVAILABLE');return stagePort[method](value,args,callCurrent)}
+      const bridge=(method,permission)=>async args=>{assertModPermission(manifest,permission);check(stagePort && typeof stagePort[method]==='function','$.stage','Stage capability unavailable','MOD_RESOURCE_UNAVAILABLE');return stagePort[method](value,args,callCurrent)}
       return {
         settings:{get:async args=>{shape(args,[],[]);return value.settings || own().settings}},
         library:{
@@ -46,8 +46,8 @@ export function createModHostRuntime({library,builtins,sourceCurrent,readText,st
           list:async args=>{shape(args,['packId','kind'],[]);return own().packs.filter(pack=>!args.packId || pack.id===args.packId).map(pack=>({...pack,entries:pack.entries.filter(entry=>!args.kind || entry.kind===args.kind)}))},
           read:async args=>{shape(args,['ref']);check(args.ref.modId===value.modId,'$.ref','Cross-mod library access denied','MOD_PERMISSION_DENIED');return own().packs.find(pack=>pack.id===args.ref.packId)?.entries.find(entry=>entry.id===args.ref.entryId && entry.kind===args.ref.kind) || null},
         },
-        source:{window:async args=>{check(manifest.permissions.source?.includes('dialogue'),'$.source','Source permission required','MOD_PERMISSION_DENIED');return sourcePort?sourcePort.window(value,args,callCurrent):unavailable()}},
-        stage:{...Object.fromEntries(['place','playDeclarative'].map(method=>[method,bridge(method)])),state:{
+        source:{window:async args=>{assertModPermission(manifest,'source.dialogue');return sourcePort?sourcePort.window(value,args,callCurrent):unavailable()}},
+        stage:{place:bridge('place','stage.presentation'),state:{
           get:async()=>{assertModPermission(manifest,'stage.state');return stagePort?.state?.get ? stagePort.state.get(value,callCurrent) : unavailable()},
           propose:async args=>{assertModPermission(manifest,'stage.state');return stagePort?.state?.propose ? stagePort.state.propose(value,args,callCurrent) : unavailable()},
         }},
@@ -89,7 +89,7 @@ export function createModHostRuntime({library,builtins,sourceCurrent,readText,st
       const manifests=library.active(input.cardId).filter(manifest=>(!input.selectedModIds || input.selectedModIds.includes(manifest.id)) && modTurnActive(manifest,input.catalogues?.[manifest.id]) && (!manifest.commands.length || commands.some(command=>command.modId===manifest.id)))
       if (!manifests.length) return null
       const contextsForTurn=manifests.map(manifest=>issue(context(input,manifest.id))),texts=new Map()
-      await Promise.all(manifests.flatMap(manifest=>manifest.prompts.filter(prompt=>prompt.target==='director').map(async prompt=>texts.set(manifest.id+'\0'+prompt.path,await readText(manifest.id,prompt.path)))))
+      await Promise.all(manifests.flatMap(manifest=>manifest.commandPrompts.map(async prompt=>texts.set(manifest.id+'\0'+prompt.path,await readText(manifest.id,prompt.path)))))
       let fragments=compileModPrompts(manifests,(id,path)=>texts.get(id+'\0'+path),'director',commands)
       for (const value of contextsForTurn) {
         const key=value.invocationId,preparation={fragments}

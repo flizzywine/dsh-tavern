@@ -6,8 +6,8 @@ var __export = (target, all) => {
 
 // tavern-plugin/mods/phone/mod.json
 var mod_default = {
-  format: "dsh-mod",
-  schemaVersion: 4,
+  format: "dsh-tavern-mod",
+  schemaVersion: 5,
   experimental: true,
   id: "dsh.phone",
   name: "\u624B\u673A",
@@ -418,48 +418,17 @@ var mod_default = {
       markdown: "- A phone message is sent on a device from one person to a recipient or group: SMS, chat-app messages, calls, voice messages. Mark each such paragraph on kind=line, not narration. Cite its at; keep source text unchanged. Holding a phone alone needs no mark.\n- Livestream danmaku and viewer comments, forum or social posts, broadcasts and narration are not phone messages: leave them unmarked in the prose.\n- Infer the channel from surrounding narration: kind=line identifies a speaker, not face-to-face speech. A reply following typing/sending is still a text message; mark its own at. Keep the exchange through intervening narration until the story ends it or returns to in-person speech.\n- Direct: to is the recipient's handle, or $player for the player. The cited line supplies the sender. Mark both directions of NPC and player exchanges, each with its actual recipient. Text uses form=text; calls/voice messages use form=voice.\n- Groups: phone-group defines a stable thread id, name and participants: listed contacts, plus $player when present. Use only source-established members, never the whole contact roster. Use thread instead of to. Reuse a carried group only if its name and members match the source; otherwise create one. Omission keeps groups."
     }
   ],
-  summary: "\u5C06\u5267\u60C5\u4E2D\u7684\u901A\u8BDD\u4E0E\u6D88\u606F\u5448\u73B0\u5728\u624B\u673A\u754C\u9762\u4E2D\u3002"
-};
-
-// tavern-plugin/mods/phone/manifest.json
-var manifest_default = {
-  format: "dsh-mod",
-  schemaVersion: 2,
-  id: "dsh.phone",
-  name: "\u624B\u673A",
-  summary: "\u5C06\u539F\u6587\u624B\u673A\u5BF9\u767D\u5448\u73B0\u4E3A\u624B\u673A\u6D88\u606F\u5E76\u4FDD\u7559\u6240\u9009\u58C1\u7EB8",
-  relevance: "\u89D2\u8272\u4E4B\u95F4\u7528\u624B\u673A\u6536\u53D1\u6D88\u606F\u3001\u6765\u7535",
-  version: "1.7.0",
-  apiVersion: 1,
-  dependencies: {
-    hostApi: 1,
-    capabilities: [
-      "stage.place",
-      "stage.state"
-    ]
-  },
-  modelSlots: [
+  summary: "\u5C06\u5267\u60C5\u4E2D\u7684\u901A\u8BDD\u4E0E\u6D88\u606F\u5448\u73B0\u5728\u624B\u673A\u754C\u9762\u4E2D\u3002",
+  commandPrompts: [
     {
-      id: "call",
-      label: "\u901A\u8BDD\u6A21\u578B",
-      purpose: "\u4E0E\u8054\u7CFB\u4EBA\u8FDB\u884C\u72EC\u7ACB\u7535\u8BDD\u5BF9\u8BDD",
-      kind: "chat",
-      fallback: "foreground",
-      reasoning: "off"
+      id: "phone-rule",
+      path: "prompts/phone.txt",
+      placement: {
+        section: "director.rules.presentation",
+        order: 30
+      }
     }
   ],
-  permissions: {
-    models: ["call"],
-    stage: [
-      "place",
-      "state"
-    ],
-    source: [
-      "dialogue",
-      "avatar",
-      "voice-replay"
-    ]
-  },
   commands: [
     {
       id: "mark",
@@ -562,17 +531,6 @@ var manifest_default = {
         bytes: 4096
       },
       mode: "adds"
-    }
-  ],
-  prompts: [
-    {
-      id: "phone-rule",
-      target: "director",
-      path: "prompts/phone.txt",
-      placement: {
-        section: "director.rules.presentation",
-        order: 30
-      }
     }
   ],
   settingsSchema: {
@@ -680,103 +638,14 @@ var manifest_default = {
       }
     ]
   },
-  assetKinds: [],
-  uiPages: [],
-  runtime: {
-    entry: "runtime.js"
-  },
-  files: [
-    { path: "audio-loudness.json", size: 246 },
+  modelSlots: [
     {
-      path: "runtime.js",
-      size: 944
-    },
-    {
-      path: "logic.js",
-      size: 395
-    },
-    {
-      path: "package.json",
-      size: 128
-    },
-    {
-      path: "prompts/phone.txt",
-      size: 1284
-    },
-    {
-      path: "builtin/device.json",
-      size: 144
-    },
-    {
-      path: "view/index.html",
-      size: 21867
-    },
-    {
-      path: "view/battery.js",
-      size: 3583
-    },
-    {
-      path: "view/dialer.js",
-      size: 22222
-    },
-    {
-      path: "view/photos.js",
-      size: 11279
-    },
-    {
-      path: "view/index.js",
-      size: 104865
-    },
-    {
-      path: "view/style.css",
-      size: 98060
-    },
-    {
-      path: "view/assets/message.wav",
-      size: 13274
-    },
-    {
-      path: "view/assets/chime.wav",
-      size: 27386
-    },
-    {
-      path: "view/assets/pop.wav",
-      size: 7100
-    }
-  ],
-  license: {
-    privateUse: false,
-    notes: [
-      "First-party phone presentation code: AGPL-3.0; owner-created notification sounds: CC BY-NC-SA 4.0, see LICENSE-ASSETS.md"
-    ]
-  },
-  compatibility: {
-    compatible: [],
-    incompatible: []
-  },
-  admission: {
-    entryKinds: []
-  },
-  builtinAssets: [
-    {
-      id: "device",
-      path: "builtin/device.json",
-      type: "bundle"
-    },
-    {
-      id: "message",
-      path: "view/assets/message.wav",
-      type: "audio"
-    },
-    {
-      id: "chime",
-      path: "view/assets/chime.wav",
-      type: "audio"
-    },
-    {
-      id: "pop",
-      path: "view/assets/pop.wav",
-      type: "audio"
+      id: "call",
+      label: "\u901A\u8BDD\u6A21\u578B",
+      purpose: "\u4E0E\u8054\u7CFB\u4EBA\u8FDB\u884C\u72EC\u7ACB\u7535\u8BDD\u5BF9\u8BDD",
+      kind: "chat",
+      fallback: "foreground",
+      reasoning: "off"
     }
   ]
 };
@@ -917,8 +786,8 @@ var inject = ["tavern"];
 function apply(ctx) {
   ctx.tavern.registerMod(mod_default, {
     execution: runtime_exports,
-    commands: manifest_default.commands,
-    prepare: ({ catalogue = {} }) => configure({ manifest: manifest_default, catalogue: withBuiltinPhoneDevice(catalogue) }),
+    commands: mod_default.commands,
+    prepare: ({ catalogue = {} }) => configure({ manifest: mod_default, catalogue: withBuiltinPhoneDevice(catalogue) }),
     command: (input, host) => command(input, { ...host, library: { snapshot: async () => withBuiltinPhoneDevice(input.catalogue || {}) } }),
     render: renderPhone,
     dispose

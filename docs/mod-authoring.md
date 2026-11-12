@@ -32,21 +32,19 @@ tavern-plugin/mods/<name>/
 
 ## 2. 清单 `mod.json`
 
-字段由 `tavern-plugin/lib/domain/mod-system-contract.js` 校验（`validateDistributionManifest`），在安装和加载时校验一次，读取时不再校验。
+字段由 `tavern-plugin/lib/domain/mod-system-contract.js` 校验（`validateDistributionManifest`；导演那几组的字段规则在 `lib/domain/mods/declarations.js`），在安装和加载时校验一次，读取时不再校验。`commands` `commandPrompts` `settingsSchema` `admission` `modelSlots` `provides` 可以不写，不写就是空。发行文件表与字节数在打包时计算，不写进清单；许可证写在 package.json 的 `license`。
 
 | 分组 | 字段 | 说明 |
 |---|---|---|
-| 身份 | `format` `schemaVersion` `id` `name` `summary` `packageName` `version` `hostApi` | `id` = `dsh.<name>`；`version` 是语义化版本，公开 API 跟随它 |
+| 身份 | `format` `schemaVersion` `id` `name` `summary` `packageName` `version` `hostApi` | `format` = `dsh-tavern-mod`，`schemaVersion` = 5；`id` = `dsh.<name>`；`version` 是语义化版本，公开 API 跟随它 |
 | 依赖 | `dependencies[]` `conflicts[]` `api` | 依赖写其他模组 id + 版本范围 + `onMissing`（默认 notify）；`api.operations` 是对其他模组公开的操作 |
-| 设置 | `config` `preferences` | `config` 可随卡携带，全局 / 本卡两层叠加，`userAdjustable` 决定玩家能否在设置页调；`preferences` 只在全局（如音量）。设置页由 schema 生成，模组不自绘设置页 |
-| 素材 | `assetKinds` `coreAssets` | `assetKinds` 是本模组自己的素材条目种类（走蓝灯 / 绿灯 / 关）；`coreAssets` 是随代码发行的内置素材，没有灯态 |
-| 导演 | `prompts[]` `performances[]` | 提示词贡献（slot、order、`byteBudget`、`when`）；本模组放的演出种类（hold、区域、履历行、回放） |
-| 权限 | `permissions` | `stage.state` `stage.presentation` `source.dialogue` `models.*`；声明不是授权 |
-| 入口 | `entry` `dataVersion` | `entry` 是 plugin.mjs |
+| 设置 | `config` `preferences` `settingsSchema` | `config` 可随卡携带，全局 / 本卡两层叠加，`userAdjustable` 决定玩家能否在设置页调；`preferences` 只在全局（如音量）。设置页由 schema 生成，模组不自绘设置页；`settingsSchema` 给设置项的标题、控件与分组 |
+| 素材 | `assetKinds` `coreAssets` `admission` | `assetKinds` 是本模组带进素材库的条目种类（走蓝灯 / 绿灯 / 关）；`coreAssets` 是随代码发行的内置素材与界面文件，没有灯态（图片按扩展名认）；`admission.entryKinds` 是本轮召回到这些种类的条目时才准入导演的种类 |
+| 导演 | `commands[]` `commandPrompts[]` `prompts[]` `performances[]` | 导演指令语法（op、DSL、参数 schema、每轮上限，进导演工具 schema）；指令的导演规则（`{id, path, placement}`，文本在 `prompts/*.txt`）；提示词贡献（slot、order、`byteBudget`、`when`）；本模组放的演出种类（hold、区域、履历行、回放） |
+| 权限与模型 | `permissions` `modelSlots[]` | `stage.state` `stage.presentation` `source.dialogue` `models.*`，声明不是授权；`modelSlots` 是本模组自己的模型槽（如手机的通话模型） |
+| 入口与 API | `entry` `dataVersion` `provides[]` | `entry` 是 plugin.mjs；`provides` 是给本体用途（如演出组合）的能力，如计时器的 countdown |
 
 清单里**没有开关字段**。新装模组一律全局关闭；四态开关（全局开启 / 全局关闭 / 本卡开启 / 本卡关闭，按「本卡关闭 > 全局开启 > 本卡开启 > 全局关闭」生效）由宿主统一管理，模组不能改默认值。授权与开关独立。
-
-> 迁移中：导演指令语法（`commands`）、准入（`admission.entryKinds`）、内置素材表与文件表目前还在旧发行清单 `manifest.json` 里，由旧注册表读取。迁移把它们并进 `mod.json` 并删除 `manifest.json` 与旧注册表（§7 M7）；新模组届时只写 `mod.json`。
 
 ## 3. 能用的接口
 
@@ -55,7 +53,7 @@ tavern-plugin/mods/<name>/
 | 接口 | 登记方式 | 用途 |
 |---|---|---|
 | 导演指令 | 清单 `commands`；`registerMod` 的 `command` | 导演能下的结构化指令，op 为 `mod.<id>.<cmd>`，带每轮次数和字节上限 |
-| 提示词 | 清单 `prompts` | 本轮准入时注入的说明 |
+| 提示词 | 清单 `commandPrompts`（导演规则）、`prompts`（提示词贡献） | 本轮准入时注入的说明 |
 | 导演事务钩子 | `stage.js` 的默认导出；`lib/mod-builtins.js` 按文件夹发现并 `registerModStageContribution`（`lib/domain/mods/stage-contributions.js` 头注释列出全部钩子） | 状态归约、提示词里的状态、本轮事实与进度、导演目录片段（`catalogueFragments`） |
 | 楼层字段 | `stage.js` 的 `floorFields` | 模组存在助手消息上的字段；舞台读取每层时带上 |
 | 舞台宿主服务 | `stage.js` 的 `hostExtension(core)`，舞台在服务启动前按模组 id 登记（`stage-extensions.js`） | 跨请求的宿主侧服务（`deps`）与本模组自己的 RPC 方法（`requests`：`{methods, call}`，或 `bindings => {methods, call, work?}`，用舞台的请求绑定建起，`work()` 向部署报告在途活动）；`core.stage` 提供状态折叠与读取范围工具，`bindings.hostLibrary` 提供与本体共用的辅助函数（不 import 本体文件） |
@@ -64,8 +62,8 @@ tavern-plugin/mods/<name>/
 | 本体客户端部件 | `client/core.js` 调 `tavernModClients.register(modId, part)`，用 `// @include-mod <name>/client/…` 引入本文件夹文件；本体构建的 `// @include-mods client/core.js` 按文件夹编入（`src/client/mod-clients.js` 头注释列出插槽与 props）；同一模组 id 多次登记会合并 | `floor` 聊天楼层正文前、`page` 舞台文本框上沿、`overlay` 舞台叠层、`backlog` 履历行（按演出种类）；面板显示字段 `description` 说明、`glyph` 图标、`fieldHelp` 设置项说明、`assetKind` 带来的素材种类 `[kind, label]`、`settings` 设置页组件（用设置页工厂内的部件，所以放 `client/settings.js`，由 `mod-config-pages.js` 的 `// @include-mods client/settings.js` 编入）。本体与舞台按插槽渲染，不出现部件名（`tests/mod-structure.test.mjs` 的 names-part）；聊天楼层不经舞台，所以这部分随本体客户端加载 |
 | 独立界面 | `registerMod` 的 `render` | 手机这类自带文档的界面 |
 | 素材 | 清单 `assetKinds`、`coreAssets` | 素材库条目与内置素材 |
-| 模型 | 清单 `permissions` 的 `models.*` | 本模组的模型槽 |
-| 模组 API | 清单 `dependencies` / `api`；`registerMod` 的 `api` | 调用另一个模组（如计时器的 countdown） |
+| 模型 | 清单 `modelSlots` | 本模组的模型槽 |
+| 模组 API | 清单 `dependencies` / `api`；`registerMod` 的 `api`；`provides` | 调用另一个模组（如计时器的 countdown） |
 
 **缺接口时**：先在 README 写清缺什么、现有接口为什么不够，再给舞台或宿主加一个**不点名任何模组**的通用接口（单独提交，带测试），之后模组使用它。不在核心里为某个模组加分支或特例。
 
@@ -103,11 +101,5 @@ export function apply(ctx) {
 
 | # | 偏差 | 去向 |
 |---|---|---|
-| M1 | 第一方模组表写死在 `lib/mod-builtins.js`、`lib/mod-system-distributions.js`、`lib/domain/user-plugin-install.js`，由本体加载 | 扫描 `mods/*/mod.json`，由舞台加载 |
-| M2 | 舞台包里按名 import 的模组宿主代码（计时器、手机的目录与通话已迁到 `mods/<name>/host/`；手机的呈现读取仍在 `mod-service.js` / `rpc.js`） | 移进 `mods/<name>/host/`，由模组自己登记 |
-| M3 | 舞台客户端里的模组画面（phone-*、call-views 等；计时器、文字卡已迁） | 移进 `mods/<name>/client/` |
-| M4 | 本体客户端里的模组代码（phone-*；骰子已迁到 `mods/dice/client/`，文字卡的本体适配已删） | 同 M3，聊天楼层上的部件走 `client/core.js` |
-| M5 | 本体点名模组（`asset-pack-ui.js` 等；骰子前台工具已迁到 `mods/dice/tools.js`；设置页、说明、图标、素材种类已由各模组 `client/core.js` / `client/settings.js` 登记，`asset-pack-ui.js`、`mod-config-pages.js`、`mod-page.js` 不再点名） | 通用接口或清单声明 |
-| M6 | 手机模组 import 本体内部（`lib/domain/*`、`prompt-catalog`、`bubble-line.cjs`）（已改为经 `hostLibrary` 取得，`lib/mod-library.js`） | 经 `bindings.hostLibrary` 取得 |
-| M7 | 两份清单与旧注册表 | 并为一份 `mod.json` |
+| M1 | `lib/domain/user-plugin-install.js` 按 id 点名第一方模组 | 读 `mods/*/mod.json`，不再点名 |
 | M9 | 所有模组的 Skill 挤在 `references/first-party.md` | 每模组一份 |

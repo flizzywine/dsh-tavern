@@ -6,8 +6,8 @@ var __export = (target, all) => {
 
 // tavern-plugin/mods/textcard/mod.json
 var mod_default = {
-  format: "dsh-mod",
-  schemaVersion: 4,
+  format: "dsh-tavern-mod",
+  schemaVersion: 5,
   experimental: true,
   id: "dsh.textcard",
   name: "\u6587\u5B57\u6F14\u51FA",
@@ -104,30 +104,17 @@ var mod_default = {
       markdown: '- Follow the request performance budget; one template is one performance. Safe colours, automatic layout/timing; live-once.\n- beat.at is the source paragraph; after follows its last page, before precedes its first. Default after; title before.\n- show: word/name/marker/vertical/punct; one-glyph word is enlarged. title: chapters. sequence: echoes or colour signals.\n- count: seconds to zero; relate: people and directed links; compare: viewpoints; reveal: clues to an answer; repeat: obsession; read: a dossier.\n- People IDs are local keys, names are display text. Link endpoints use those IDs. All strings are nonblank.\n- Example: {"op":"mod.dsh.textcard.count","from":3,"label":"Door closes"}.'
     }
   ],
-  summary: "\u7528\u6587\u5B57\u5361\u5448\u73B0\u5267\u60C5\u4E2D\u7684\u91CD\u8981\u63D0\u793A\u4E0E\u62A5\u5E55\u3002"
-};
-
-// tavern-plugin/mods/textcard/manifest.json
-var manifest_default = {
-  format: "dsh-mod",
-  schemaVersion: 2,
-  id: "dsh.textcard",
-  name: "\u6587\u5B57\u6F14\u51FA",
-  summary: "\u5BFC\u6F14\u9A71\u52A8\u7684\u7269\u8BED\u5F0F\u6587\u5B57\u5361\uFF1B\u4EC5\u64AD\u653E\u4E00\u6B21\uFF0C\u5B8C\u6574\u4FDD\u7559\u5C65\u5386",
-  relevance: "\u60C5\u7EEA\u8F6C\u6298\u3001\u5F3A\u8C03\u3001\u56DE\u5FC6\u3001\u7AE0\u8282\u5207\u6362\u7B49\u9002\u5408\u6587\u5B57\u5361\u6F14\u51FA\u7684\u65F6\u523B",
-  version: "2.0.0",
-  apiVersion: 1,
-  dependencies: {
-    hostApi: 1,
-    capabilities: [
-      "stage.place"
-    ]
-  },
-  permissions: {
-    stage: [
-      "place"
-    ]
-  },
+  summary: "\u7528\u6587\u5B57\u5361\u5448\u73B0\u5267\u60C5\u4E2D\u7684\u91CD\u8981\u63D0\u793A\u4E0E\u62A5\u5E55\u3002",
+  commandPrompts: [
+    {
+      id: "text-rule",
+      path: "prompts/textcard.txt",
+      placement: {
+        section: "director.rules.presentation",
+        order: 30
+      }
+    }
+  ],
   commands: [
     {
       id: "show",
@@ -694,17 +681,6 @@ var manifest_default = {
       mode: "adds"
     }
   ],
-  prompts: [
-    {
-      id: "text-rule",
-      target: "director",
-      path: "prompts/textcard.txt",
-      placement: {
-        section: "director.rules.presentation",
-        order: 30
-      }
-    }
-  ],
   settingsSchema: {
     fields: [
       {
@@ -738,41 +714,7 @@ var manifest_default = {
         ]
       }
     ]
-  },
-  assetKinds: [],
-  uiPages: [],
-  runtime: {
-    entry: "runtime.js"
-  },
-  files: [
-    {
-      path: "runtime.js",
-      size: 1740
-    },
-    {
-      path: "presets.js",
-      size: 4272
-    },
-    {
-      path: "prompts/textcard.txt",
-      size: 719
-    },
-    {
-      path: "templates.js",
-      size: 9762
-    }
-  ],
-  license: {
-    privateUse: false
-  },
-  compatibility: {
-    compatible: [],
-    incompatible: []
-  },
-  admission: {
-    entryKinds: []
-  },
-  builtinAssets: []
+  }
 };
 
 // tavern-plugin/mods/textcard/runtime.js
@@ -1001,8 +943,8 @@ var inject = ["tavern"];
 function apply(ctx) {
   ctx.tavern.registerMod(mod_default, {
     execution: runtime_exports,
-    commands: manifest_default.commands,
-    prepare: (_input, _host, config) => configure({ manifest: manifest_default, settings: { values: config.values } }),
+    commands: mod_default.commands,
+    prepare: (_input, _host, config) => configure({ manifest: mod_default, settings: { values: config.values } }),
     command: (input, host, config) => command(input, { ...host, settings: { get: async () => ({ values: config.values }) } }),
     dispose
   });

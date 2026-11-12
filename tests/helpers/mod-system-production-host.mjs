@@ -63,7 +63,7 @@ export async function installedFixture(t,{enabled=[]}={}) {
 export async function authoredPackage(root) {
   const {packageMod}=await import('../../bin/lib/mod-system-package.mjs')
   const source=path.join(root,'author');await fs.mkdir(source)
-  const manifest={format:'dsh-mod',schemaVersion:4,performances:[],id:'example.author',name:'Authored',packageName:'example-author',version:'1.0.0',hostApi:'>=1.0.0 <2.0.0',dependencies:[],config:{version:1,schema:{type:'object',properties:{},additionalProperties:false},defaults:{}},preferences:{schema:{type:'object',properties:{},additionalProperties:false},defaults:{}},dataVersion:1,coreAssets:[],permissions:[],entry:'plugin.mjs'}
+  const manifest={format:'dsh-tavern-mod',schemaVersion:5,performances:[],id:'example.author',name:'Authored',packageName:'example-author',version:'1.0.0',hostApi:'>=1.0.0 <2.0.0',dependencies:[],config:{version:1,schema:{type:'object',properties:{},additionalProperties:false},defaults:{}},preferences:{schema:{type:'object',properties:{},additionalProperties:false},defaults:{}},dataVersion:1,coreAssets:[],permissions:[],entry:'plugin.mjs'}
   await fs.writeFile(path.join(source,'mod.json'),JSON.stringify(manifest))
   await fs.writeFile(path.join(source,'package.json'),JSON.stringify({name:manifest.packageName,version:manifest.version,type:'module',exports:{'.':'./plugin.mjs'}}))
   await fs.writeFile(path.join(source,'plugin.mjs'),"throw new Error('Inspection must never execute');export const name='example-author',inject=['tavern'];export function apply(ctx){}")

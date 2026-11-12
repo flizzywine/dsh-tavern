@@ -1,6 +1,5 @@
 import * as runtime from './runtime.js'
 import manifest from './mod.json' with {type:'json'}
-import grammar from './manifest.json' with {type:'json'}
 import {reduceCountdown,countdownWithProgress} from './countdown.cjs'
 import {advanceTimer,timerCheckpoint} from './state.cjs'
 
@@ -20,5 +19,5 @@ export function reduceClock(state,action,boundary) {
   return {...next,phase:action.operation==='release'?'released':'entry',checkpoint:timerCheckpoint(next.timer,state.checkpoint)}
 }
 export function apply(ctx) {
-  ctx.tavern.registerMod(manifest,{execution:runtime,commands:grammar.commands,api:reduceClock})
+  ctx.tavern.registerMod(manifest,{execution:runtime,commands:manifest.commands,api:reduceClock})
 }

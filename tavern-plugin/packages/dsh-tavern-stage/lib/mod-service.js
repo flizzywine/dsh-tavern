@@ -128,7 +128,7 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
       : modCatalogue(manifest)]))
   }
   function catalogue(catalogues,settingsByMod) {
-    return Object.entries(catalogues).filter(([modId])=>library.snapshot().mods[modId].manifest.prompts.some(row=>row.target==='director') || library.snapshot().mods[modId].manifest.commands.length).flatMap(([modId,view])=>modStageContribution(modId)?.catalogueFragments?.(view) ?? view.recalled.filter(ref=>view.packs.find(pack=>pack.id===ref.packId)?.scope!=='builtin').map(ref=>{
+    return Object.entries(catalogues).filter(([modId])=>library.snapshot().mods[modId].manifest.commandPrompts.length || library.snapshot().mods[modId].manifest.commands.length).flatMap(([modId,view])=>modStageContribution(modId)?.catalogueFragments?.(view) ?? view.recalled.filter(ref=>view.packs.find(pack=>pack.id===ref.packId)?.scope!=='builtin').map(ref=>{
       const id=ref.assetId ?? ref.entryId,entry=view.packs.find(pack=>pack.id===ref.packId).entries.find(row=>row.id===id)
       return {modId,id:ref.packId+'.'+id,type:'catalogue',source:'library',placement:{section:'director.catalogue',order:0},
         text:JSON.stringify({ref,name:entry.name,...(entry.performanceLevels?{levels:entry.performanceLevels,default:entry.performanceDefault}:{}),...(entry.directorNote?{directorNote:entry.directorNote}:{})})}
@@ -143,10 +143,10 @@ export function createBuiltinModService({workbenchAuthority,management,readCard,
     },
     // Only enabled installed mods contribute rows to the shared model settings.
     modelSlots:()=>run(()=>library.active().flatMap(manifest=>(manifest.modelSlots || []).map(slot=>({...slot,modId:manifest.id,modName:manifest.name})))),
-    // A first-party mod's declared image files (manifest builtinAssets type image) as data URLs (a mod's built-in looks).
+    // A first-party mod's core-asset images (by extension) as data URLs (a mod's built-in looks).
     async builtinImages(modId) {
       const builtin=await builtins,manifest=builtin.manifest(modId),files=builtin.files(modId)
-      return Object.fromEntries(manifest.builtinAssets.filter(row=>row.type==='image').map(row=>[row.id,'data:image/'+(row.path.endsWith('.svg')?'svg+xml':row.path.split('.').pop())+';base64,'+files.get(row.path).toString('base64')]))
+      return Object.fromEntries(manifest.coreAssets.filter(row=>/\.(?:svg|png|webp|jpe?g|gif)$/.test(row.path)).map(row=>[row.id,'data:image/'+(row.path.endsWith('.svg')?'svg+xml':row.path.split('.').pop())+';base64,'+files.get(row.path).toString('base64')]))
     },
     async manifests() {
       check(active,'$','Mod service is disposed','MOD_RESOURCE_UNAVAILABLE')

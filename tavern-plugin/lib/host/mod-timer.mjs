@@ -230,8 +230,8 @@ function dispose() {
 
 // tavern-plugin/mods/timer/mod.json
 var mod_default = {
-  format: "dsh-mod",
-  schemaVersion: 4,
+  format: "dsh-tavern-mod",
+  schemaVersion: 5,
   experimental: true,
   id: "dsh.timer",
   name: "\u8BA1\u65F6\u5668",
@@ -490,6 +490,14 @@ var mod_default = {
     {
       id: "default",
       path: "assets/default.svg"
+    },
+    {
+      id: "plate",
+      path: "assets/plate.svg"
+    },
+    {
+      id: "plate-digits",
+      path: "assets/plate-digits.svg"
     }
   ],
   permissions: [
@@ -526,35 +534,24 @@ var mod_default = {
     ],
     resource: "instance-exclusive"
   },
-  summary: "\u4E3A\u5267\u60C5\u4E0E\u8FA9\u8BBA\u6F14\u51FA\u63D0\u4F9B\u53EF\u6682\u505C\u3001\u7EE7\u7EED\u7684\u5012\u8BA1\u65F6\u3002"
-};
-
-// tavern-plugin/mods/timer/manifest.json
-var manifest_default = {
-  format: "dsh-mod",
-  schemaVersion: 2,
-  id: "dsh.timer",
-  name: "\u8BA1\u65F6\u5668",
-  summary: "\u9605\u8BFB\u5012\u8BA1\u65F6\u4E0E\u56DE\u590D\u65F6\u9650",
-  relevance: "Visible countdown and reply deadline",
-  version: "1.0.0",
-  apiVersion: 1,
-  dependencies: {
-    hostApi: 1,
-    capabilities: [
-      "stage.state"
-    ]
-  },
-  permissions: {
-    stage: [
-      "state"
-    ]
-  },
-  provides: [{ id: "dsh.timer.countdown", version: "1.0.0", contract: "countdown/1", operations: ["start", "resume", "release", "read"], handler: "countdown", resource: { scope: "chat-branch", key: "timer/main", policy: "exclusive" } }],
+  summary: "\u4E3A\u5267\u60C5\u4E0E\u8FA9\u8BBA\u6F14\u51FA\u63D0\u4F9B\u53EF\u6682\u505C\u3001\u7EE7\u7EED\u7684\u5012\u8BA1\u65F6\u3002",
+  commandPrompts: [
+    {
+      id: "timer-rule",
+      path: "prompts/timer.txt",
+      placement: {
+        section: "director.rules.presentation",
+        order: 50
+      }
+    }
+  ],
   commands: [
     {
       id: "set",
-      resourceUse: { capability: "dsh.timer.countdown", access: "control" },
+      resourceUse: {
+        capability: "dsh.timer.countdown",
+        access: "control"
+      },
       op: "mod.dsh.timer.set",
       mode: "adds",
       dsl: {
@@ -617,91 +614,30 @@ var manifest_default = {
       }
     }
   ],
-  prompts: [
-    {
-      id: "timer-rule",
-      target: "director",
-      path: "prompts/timer.txt",
-      placement: {
-        section: "director.rules.presentation",
-        order: 50
-      }
-    }
-  ],
-  settingsSchema: {
-    fields: [],
-    sections: []
-  },
-  assetKinds: [],
-  uiPages: [],
-  runtime: {
-    entry: "runtime.js"
-  },
-  files: [
-    { path: "activity.cjs", size: 443 },
-    { path: "countdown.cjs", size: 3604 },
-    {
-      path: "runtime.js",
-      size: 1083
-    },
-    {
-      path: "state.cjs",
-      size: 5530
-    },
-    {
-      path: "package.json",
-      size: 172
-    },
-    {
-      path: "prompts/timer.txt",
-      size: 80
-    },
-    {
-      path: "assets/default.svg",
-      size: 493
-    },
-    {
-      path: "catalogue.js",
-      size: 448
-    },
-    {
-      path: "assets/plate.svg",
-      size: 183266
-    },
-    {
-      path: "assets/plate-digits.svg",
-      size: 6426
-    }
-  ],
-  license: {
-    privateUse: false
-  },
-  compatibility: {
-    compatible: [],
-    incompatible: []
-  },
-  builtinAssets: [
-    {
-      id: "default",
-      path: "assets/default.svg",
-      type: "image"
-    },
-    {
-      id: "plate",
-      path: "assets/plate.svg",
-      type: "image"
-    },
-    {
-      id: "plate-digits",
-      path: "assets/plate-digits.svg",
-      type: "image"
-    }
-  ],
   admission: {
     entryKinds: [
       "timers"
     ]
-  }
+  },
+  provides: [
+    {
+      id: "dsh.timer.countdown",
+      version: "1.0.0",
+      contract: "countdown/1",
+      operations: [
+        "start",
+        "resume",
+        "release",
+        "read"
+      ],
+      handler: "countdown",
+      resource: {
+        scope: "chat-branch",
+        key: "timer/main",
+        policy: "exclusive"
+      }
+    }
+  ]
 };
 
 // tavern-plugin/mods/timer/plugin.mjs
@@ -727,7 +663,7 @@ function reduceClock(state, action, boundary) {
   return { ...next, phase: action.operation === "release" ? "released" : "entry", checkpoint: (0, import_state2.timerCheckpoint)(next.timer, state.checkpoint) };
 }
 function apply(ctx) {
-  ctx.tavern.registerMod(mod_default, { execution: runtime_exports, commands: manifest_default.commands, api: reduceClock });
+  ctx.tavern.registerMod(mod_default, { execution: runtime_exports, commands: mod_default.commands, api: reduceClock });
 }
 export {
   apply,

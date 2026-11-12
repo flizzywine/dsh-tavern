@@ -21,8 +21,8 @@ function dispose() {
 
 // tavern-plugin/mods/dice/mod.json
 var mod_default = {
-  format: "dsh-mod",
-  schemaVersion: 4,
+  format: "dsh-tavern-mod",
+  schemaVersion: 5,
   experimental: true,
   id: "dsh.dice",
   name: "AI\u68C0\u5B9A",

@@ -1,7 +1,8 @@
 import contract from '../../../packages/dsh-presentation-protocol/src/mod-contract.cjs'
-import {isModId,isModPackId} from './manifest.js'
 const {modCheck:check,modShape:shape,modJson,modFreeze} = contract
 const admitted=new WeakSet()
+const isModId = value => typeof value === 'string' && value.length <= 128 && /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(value)
+const isModPackId = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
 
 // This is the card-owner envelope. Manifest-specific field/slot checks belong to the mod library.
 export function validateModCardBindings(input) {
