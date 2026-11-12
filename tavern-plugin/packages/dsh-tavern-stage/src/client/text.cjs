@@ -26,6 +26,27 @@ function stageGlyphPause(glyphs, index) {
 function stageGlyphDelay(glyphs, index, speed) {
 	return speed * (1 + (index >= 0 ? stageGlyphPause(glyphs, index) : 0));
 }
+// Text marks (a mod's words drawn its own way, features.cjs textMark; text-marks.cjs finds them): props.marks =
+// [{start, end, render(text, key)}], UTF-16 ranges of the page's text. A mark is one typing step (it is stamped in
+// whole and never broken over two lines); render draws the words of it it is given.
+// (the stage bundle defines stageTextMarks; a page fixture that loads this file alone has no marks)
+const stageMarkText = typeof stageTextMarks !== 'undefined' ? stageTextMarks : typeof require === 'function' ? require('../../../dsh-presentation-protocol/src/text-marks.cjs') : null;
+const stageTextMarkKey = marks => (marks || []).map(row => row.start + '-' + row.end).join();
+// The page's typing steps: graphemes of the plain runs and one step per mark; marked: step index -> its index in marks.
+function stageMarkedGlyphs(text, marks) {
+    if (!marks?.length) return {glyphs:stageGlyphs(text), marked:null};
+    const value = String(text || ''), glyphs = [], marked = new Map();
+    let at = 0;
+    for (const mark of marks) {
+        if (mark.start < at || mark.end > value.length || mark.start >= mark.end) continue;
+        glyphs.push(...stageGlyphs(value.slice(at, mark.start)));
+        marked.set(glyphs.length, marks.indexOf(mark));
+        glyphs.push(value.slice(mark.start, mark.end));
+        at = mark.end;
+    }
+    glyphs.push(...stageGlyphs(value.slice(at)));
+    return {glyphs, marked};
+}
 // How long a glyph fades in (tavern.css 「stage typewriter」 dsh-tavern-stage-glyph-in).
 const STAGE_GLYPH_FADE_MS = 220;
 
@@ -119,7 +140,11 @@ function GalNarrationLines(props) {
         return () => timers.forEach(timer => forkForeground.clearTimeout(timer));
     }, [lines, instant, fontsReady, props.hold, props.pending, props.lines.fade, props.lines.stagger]);
     return h('span', {ref, className:'fork-gal-narration-lines', 'data-instant':instant || undefined, 'data-held':props.hold || !fontsReady || undefined},
-        lines.map((line, i) => h('span', {key:i, className:'fork-gal-narration-line', style:{'--nar-fade':props.lines.fade+'s', '--nar-delay':(i * props.lines.stagger)+'s', '--nar-rise':'calc('+(props.lines.rise || 0)+' * var(--nar-u))'}, 'data-visible':i < visible || undefined}, line.replace(/\r?\n$/, '') || '\u200b')));
+        lines.map((line, i) => {
+            const from = lines.slice(0, i).join('').length, words = line.replace(/\r?\n$/, '');
+            return h('span', {key:i, className:'fork-gal-narration-line', style:{'--nar-fade':props.lines.fade+'s', '--nar-delay':(i * props.lines.stagger)+'s', '--nar-rise':'calc('+(props.lines.rise || 0)+' * var(--nar-u))'}, 'data-visible':i < visible || undefined},
+                words ? (props.marks?.length ? stageMarkText.textMarkNodes(text, from, from + words.length, props.marks) : words) : '\u200b');
+        }));
 }
 function GalTypewriter(props) {
     const speed = props.speed == null ? defaultTextSpeed : props.speed;
@@ -131,7 +156,18 @@ function GalTypewriter(props) {
     // Skin hop clock (stepped reveals only): the current hop step and the step each glyph appeared on.
     const [skinStep,setSkinStep] = React.useState(0);
     const hop = React.useRef({step:0,t0:null,base:0,born:[]});
-    const glyphs = React.useMemo(() => stageGlyphs(props.text), [props.text]);
+    const markKey = stageTextMarkKey(props.marks);
+    const steps = React.useMemo(() => stageMarkedGlyphs(props.text, props.marks), [props.text, markKey]);
+    const glyphs = steps.glyphs;
+    // a mark step draws the page's current mark (its render follows the taps); plain steps are their glyphs
+    const markOf = at => { const index = steps.marked?.get(at); return index === undefined ? null : props.marks[index]; };
+    const stepRun = (a, b) => {
+        if (!steps.marked) return [glyphs.slice(a, b).join('')];
+        const out = []; let run = '';
+        for (let i = a; i < b; i++) { const mark = markOf(i); if (!mark) { run += glyphs[i]; continue; } if (run) out.push(run); run = ''; out.push(mark.render(glyphs[i], 'm' + i)); }
+        if (run) out.push(run);
+        return out;
+    };
     // props.movable: the tail a streaming page may still hand to the next page (stagePageMovableTail); held too.
     const limit = Math.max(0, Math.min(galRevealLimit(glyphs, pending), glyphs.length - (pending && props.movable ? stageGlyphs(props.movable).length : 0)));
     const fontsReady = useGalFontsReady();
@@ -223,13 +259,15 @@ function GalTypewriter(props) {
     React.useLayoutEffect(() => {
         const type = typeRef.current, host = type && type.parentElement;
         if (instant || !fontsReady || !host || !host.parentNode || typeof ResizeObserver !== "function") return;
-        const measure = () => { const starts = galTypeLineStarts(type, whole); setLaid(old => old && old.text === whole && old.starts.join() === starts.join() ? old : { text: whole, starts }); };
+        const measure = () => { const starts = galTypeLineStarts(type, whole, glyphs); setLaid(old => old && old.text === whole && old.starts.join() === starts.join() ? old : { text: whole, starts }); };
         measure();
         const observer = new ResizeObserver(measure); observer.observe(host);
         document.fonts?.addEventListener('loadingdone', measure);
         return () => { observer.disconnect(); document.fonts?.removeEventListener('loadingdone', measure); };
     }, [whole, instant, fontsReady]);
     const glyphNode = (glyph, at) => {
+        const mark = markOf(at);
+        if (mark) return h("span", { key: at, className: "fork-gal-glyph" }, mark.render(glyph, 'g' + at));
         const jitter = reveal?.jitter ? stageSkinGlyphJitter(at, reveal.jitter) : null;
         return h("span", { key: at, className: "fork-gal-glyph" }, glyph,
             stepped ? h('span',{className:'fork-skin-glyph-paint','data-glyph':glyph,'data-hop':Math.min(reveal.poses,Math.floor((skinStep-(hop.current.born[at] ?? skinStep))/reveal.hold)),'aria-hidden':true,
@@ -238,10 +276,10 @@ function GalTypewriter(props) {
     // the shown run, the fading glyphs and the hidden rest within [from, to)
     const runs = (from, to) => {
         const a = Math.max(from, 0), b = Math.min(to, done), out = [];
-        if (b > a) out.push(h("span", { key: "shown", className: "fork-gal-type-shown" }, glyphs.slice(a, b).join("")));
+        if (b > a) out.push(h("span", { key: "shown", className: "fork-gal-type-shown" }, ...stepRun(a, b)));
         for (let at = Math.max(from, done); at < Math.min(to, visible); at++) out.push(glyphNode(glyphs[at], at));
         const r = Math.max(from, visible);
-        if (to > r) out.push(h("span", { key: "rest", className: "fork-gal-type-rest" }, glyphs.slice(r, to).join("")));
+        if (to > r) out.push(h("span", { key: "rest", className: "fork-gal-type-rest" }, ...stepRun(r, to)));
         return out;
     };
     const lines = !instant && done < glyphs.length && laid && laid.text === whole && laid.starts.length ? [0, ...laid.starts, glyphs.length] : null;
@@ -252,7 +290,7 @@ function GalTypewriter(props) {
 }
 // The glyph indexes that start a new line when the page's text is laid out as one run in its text element (a hidden
 // copy of the element, its width and styles, the cue and indicator included, as the pager's measuring clone).
-function galTypeLineStarts(type, text) {
+function galTypeLineStarts(type, text, steps = stageGlyphs(text)) {
     const host = type.parentElement, probe = host.cloneNode(true), copy = probe.querySelector(".fork-gal-type");
     copy.textContent = text;
     probe.removeAttribute("id"); probe.removeAttribute("aria-live"); probe.setAttribute("aria-hidden", "true");
@@ -261,7 +299,7 @@ function galTypeLineStarts(type, text) {
     const node = copy.firstChild, range = document.createRange(), starts = [], style = getComputedStyle(copy);
     const half = (parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2) / 2;
     let offset = 0, top = null;
-    if (node) stageGlyphs(text).forEach((glyph, i) => {
+    if (node) steps.forEach((glyph, i) => {
         range.setStart(node, offset); range.setEnd(node, offset += glyph.length);
         const rect = range.getClientRects()[0];
         if (!rect) return;

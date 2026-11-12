@@ -243,7 +243,7 @@ function PackImage({identity,src,crop,avatar,originalSrc,cropOverflow=false,...p
             onLoad:event => { const image = event.currentTarget; setSize({url,width:image.naturalWidth,height:image.naturalHeight});
                 if (avatar) void cache?.prepare(avatar,url,px || 64,dpr,image); }}));
 }
-function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url), createSpeech = null, urls = globalThis.URL, prepareAudio = () => {}, disposeAudio = () => {}, onAudio = () => {}, now = Date.now, schedule = (fn, ms) => setInterval(fn, ms), cancel = id => clearInterval(id), maxBytes = 256 * 1024 ** 2, maxClips = 4096, maxPrefetch = 64 }) {
+function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url), createSpeech = null, urls = globalThis.URL, prepareAudio = () => {}, maskAudio = () => {}, disposeAudio = () => {}, onAudio = () => {}, now = Date.now, schedule = (fn, ms) => setInterval(fn, ms), cancel = id => clearInterval(id), maxBytes = 256 * 1024 ** 2, maxClips = 4096, maxPrefetch = 64 }) {
     // decoded Audio objects survive page/turn unmounts for session revisits.
     const clips = new Map(), pending = new Map(), failures = new Map(), listeners = new Set(), queue = [];
     let running = 0;
@@ -347,7 +347,8 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
             // service: its clip is an Audio-like utterance with nothing to download.
             if (descriptor.browser) {
                 if (!createSpeech) throw new Error('voice-unavailable');
-                const audio = createSpeech({...descriptor.browser, text:input.text, language:descriptor.language});
+                // a line over covered words (input.maskedText) is read without them: no mixer reaches the system's speech
+                const audio = createSpeech({...descriptor.browser, text:input.maskedText ?? input.text, language:descriptor.language});
                 prepareAudio(audio, null, {});
                 const clip = {url:'', audio, size:0, key:null};
                 remember(key, clip);
@@ -434,6 +435,9 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
                 clip.audio.volume = 1;
                 clip.audio.onended = () => { if (current === entry) { retire(false); emit(); } };
                 clip.audio.onpause = clip.audio.onplay = emit;
+                // covered words (input.masks, a stage line's text marks): the covers still shut as it starts; a clip covered
+                // before and now played without them is heard as is again
+                if (input.masks || clip.covered) { clip.covered = Boolean(input.masks); maskAudio(clip.audio, input.masks?.() || null); }
                 await clip.audio.play();
                 if (current !== entry || !enabled || !service.available()) return false;
                 emit(); return true;

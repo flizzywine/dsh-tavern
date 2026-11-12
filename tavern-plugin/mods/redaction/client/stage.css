@@ -1,0 +1,21 @@
+/* 数据删除 (mods/redaction): a mark is one typing step of the page. bar: the words laid out under an ink bar of their size
+   (a canvas), so rubbing it off never moves a glyph; glitch: flickering mojibake of the words' width with a split shadow,
+   settling left to right. The ink is the text box's own text colour, the split shadow its accent. */
+.fork-redact { position: relative; display: inline; white-space: nowrap; user-select: none; -webkit-user-select: none;
+  --redact-ink: var(--fk-s-stage-textbox-fg, currentColor); --redact-accent: var(--fk-s-stage-textbox-accent, #c8202f);
+  transform: translateX(var(--shake, 0)); }
+.fork-redact:not([data-revealed]) { cursor: pointer; }
+.fork-redact:focus-visible { outline: 2px solid var(--redact-accent); outline-offset: 2px; }
+/* z-index: an art skin's box image is a composited layer of its own (themes.css), painted over a canvas left at z-index auto */
+.fork-erase-canvas { position: absolute; z-index: 1; pointer-events: none; color: var(--redact-ink); }
+.fork-erase-crumbs { position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; height: 0; pointer-events: none; }
+.fork-erase-crumbs > i[data-fk-layer] { position: absolute; top: 0; border-radius: 40%; background: color-mix(in srgb, var(--redact-ink) 55%, #b9a99a); opacity: var(--fk-layer-opacity, 1); }
+/* an opened bar keeps a faint red ground: the words were covered once */
+.fork-redact[data-redact="bar"][data-revealed] { background: color-mix(in srgb, var(--redact-accent) 10%, transparent); }
+.fork-redact[data-redact="glitch"]:not([data-revealed]) { color: color-mix(in srgb, var(--redact-ink) 82%, var(--redact-accent));
+  text-shadow: .05em 0 color-mix(in srgb, var(--redact-accent) 70%, transparent), -.05em 0 rgb(0 160 200 / .45); animation: fork-redact-jitter .45s steps(3) infinite; }
+.fork-redact[data-redact="glitch"][data-fresh] { text-shadow: .04em 0 color-mix(in srgb, var(--redact-accent) 50%, transparent); }
+.fork-redact[data-redact="glitch"][data-revealed]:not([data-fresh]) { text-decoration: underline 1px color-mix(in srgb, var(--redact-accent) 60%, transparent); text-underline-offset: .2em; }
+/* only the shadow moves: a moving box would never settle for a pointer */
+@keyframes fork-redact-jitter { 33% { text-shadow: .09em .02em color-mix(in srgb, var(--redact-accent) 70%, transparent), -.03em 0 rgb(0 160 200 / .45); } 66% { text-shadow: -.02em -.02em color-mix(in srgb, var(--redact-accent) 70%, transparent), -.09em 0 rgb(0 160 200 / .45); } }
+@media (prefers-reduced-motion: reduce) { .fork-redact[data-redact="glitch"] { animation: none; } }

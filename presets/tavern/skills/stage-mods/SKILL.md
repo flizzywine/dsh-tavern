@@ -34,7 +34,7 @@ description: "配置已安装的舞台模组（文字演出、手机、计时器
 
 用 `tavern_mods_read config {modId}` 读取该模组的设置字段、全局与本卡两层的值和最终解析结果，按 [设置值与变量来源](references/mod-config.md) 写入。本卡层只放数据和展示配置，不能当作本卡开关。写入用读取到的 revision；冲突时重新读取，只重做本次修改。
 
-各模组的特点（物品分类、手机外观、文字演出强度等）见 [第一方模组](references/first-party.md)。
+各模组的特点（物品分类、手机外观、文字演出强度等）见 [第一方模组](references/first-party.md)。数据删除（`dsh.redaction`：导演把正文里的机密词盖住，玩家点三下揭开）见 [数据删除](references/redaction.md)。
 
 ## 不制造状态
 

@@ -244,6 +244,13 @@ export function foldAssetPackWindow(prepared, base, slots, validateModCommand) {
             throw error
           }
         }
+        // A text mark quotes its paragraph verbatim (the command's textMark declaration, mods/declarations.js).
+        if (definition.mod && definition.command.textMark) {
+          const field=definition.command.textMark.quote,flat=definition.command.paramsStyle==='flat',words=(flat?op:op.params)?.[field]
+          const unit=prepared.units[slot.at - 1],source=typeof unit==='string' ? unit : unit?.text || ''
+          check(typeof words==='string' && words.length>0 && source.includes(words),flat?'$.'+field:'$.params.'+field,
+            `Quote words exactly as they appear in paragraph at=${slot.at} (same characters, no paraphrase); or mark them in the paragraph where they appear`,'ARG_INVALID')
+        }
         if (op.op === 'cast.set') {
           const cast = state.cg?.resumeCast || state.cast
           op.actors = cast.filter(id => op.actors.includes(id)).concat(op.actors.filter(id => !cast.includes(id)))

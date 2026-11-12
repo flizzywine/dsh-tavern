@@ -193,6 +193,128 @@ return {galKeyboardFocus:() => document.documentElement.hasAttribute("data-fork-
 }
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageNavigation};
 
+        // dsh-presentation-protocol text-marks.cjs: where the mods' text marks fall in the words a view shows.
+        'use strict';
+// Text marks: a mod command that marks words of its beat's paragraph for display (the manifest command's
+// textMark {quote}, mods/declarations.js; the director's submit tool admits only words quoted verbatim from that paragraph,
+// stage-asset-pack-validation.js). The story text itself stays as written - saved, sent to the model, edited as written;
+// each view projects the marks over the words it shows. One authority for which marks a paragraph has, where they fall
+// in the text a view shows, the text a voice reads without them and when a voice reading the whole line reaches them.
+const stageTextMarks = (() => {
+// direction: a director record view ({phase, through, entries: [{at, ops}]}); kinds: the declared text marks
+// [{modId, command, quote}]. -> the paragraph's marks in record order, [{modId, commandId, params, quote, index, kind}];
+// index counts the paragraph's marks (第几处), the identity a mark keeps across views.
+function textMarksAt(direction, para, kinds) {
+    if (!kinds?.length || !direction || !['partial', 'done'].includes(direction.phase) || !(para <= direction.through)) return [];
+    const out = [];
+    for (const entry of direction.entries || []) {
+        if (entry.at !== para) continue;
+        for (const op of entry.ops || []) {
+            const kind = op.op === 'mod.command' && kinds.find(row => row.modId === op.modId && row.command === op.commandId);
+            const quote = kind && op.params?.[kind.quote];
+            if (typeof quote === 'string' && quote.length) out.push({modId: op.modId, commandId: op.commandId, params: op.params, quote, index: out.length, kind});
+        }
+    }
+    return out;
+}
+// Where the marks fall in text: every occurrence of each quote, the earlier mark first where two overlap.
+// -> [{start, end, mark}] in text order (UTF-16 offsets).
+function textMarkRanges(text, marks) {
+    const value = String(text || ''), out = [];
+    for (const mark of marks || []) {
+        if (!mark.quote) continue;
+        for (let at = value.indexOf(mark.quote); at >= 0; at = value.indexOf(mark.quote, at + mark.quote.length)) {
+            const end = at + mark.quote.length;
+            if (!out.some(row => at < row.end && end > row.start)) out.push({start: at, end, mark});
+        }
+    }
+    return out.sort((a, b) => a.start - b.start);
+}
+// A paragraph laid out as several pages: the marks are found in the pages joined (a quote may run over a page break),
+// then cut to page `index`. pages: the paragraph's page texts in order. -> ranges in that page's text; a range cut at a
+// page edge keeps its mark and says which part it is ({head, tail}: it starts / ends on this page).
+function textMarkPageRanges(pages, index, marks) {
+    let base = 0;
+    for (let i = 0; i < index; i++) base += String(pages[i] || '').length;
+    const length = String(pages[index] || '').length, out = [];
+    for (const row of textMarkRanges(pages.join(''), marks)) {
+        const start = Math.max(row.start, base), end = Math.min(row.end, base + length);
+        if (start < end) out.push({start: start - base, end: end - base, mark: row.mark, head: row.start >= base, tail: row.end <= base + length});
+    }
+    return out;
+}
+// Ranges moved into another text that shows `text` at `shift` (a quoted line, a subtitle card), cut to [shift, shift + length).
+function textMarkShift(ranges, shift, length) {
+    return ranges.flatMap(row => {
+        const start = Math.max(0, row.start - shift), end = Math.min(length, row.end - shift);
+        return start < end ? [{...row, start, end, head: row.head !== false && row.start - shift >= 0, tail: row.tail !== false && row.end - shift <= length}] : [];
+    });
+}
+// [{text}] plain runs and [{text, range}] marked runs, in order.
+function textMarkSegments(text, ranges) {
+    const value = String(text || ''), out = [];
+    let at = 0;
+    for (const range of ranges || []) {
+        if (range.start > at) out.push({text: value.slice(at, range.start)});
+        out.push({text: value.slice(range.start, range.end), range});
+        at = range.end;
+    }
+    if (at < value.length) out.push({text: value.slice(at)});
+    return out;
+}
+// text[from, to) as plain strings and its marks drawn: marks [{start, end, render(text, key)}] in order (a mark cut by the
+// range draws the part inside it).
+function textMarkNodes(text, from, to, marks, key = 'm') {
+    const value = String(text || '');
+    if (!marks?.length) return [value.slice(from, to)];
+    const out = [];
+    let at = from;
+    for (const [i, mark] of marks.entries()) {
+        const start = Math.max(mark.start, from), end = Math.min(mark.end, to);
+        if (start >= end || start < at) continue;
+        if (start > at) out.push(value.slice(at, start));
+        out.push(mark.render(value.slice(start, end), key + i));
+        at = end;
+    }
+    if (at < to) out.push(value.slice(at, to));
+    return out;
+}
+// How long a voice dwells on a character, in syllables: a CJK character (or kana, hangul) is one, a Latin letter about a
+// third; a comma or colon is heard as a short pause, a full stop as a longer one.
+function speakingWeight(c) {
+    if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(c)) return 1;
+    if (/[\p{L}\p{N}]/u.test(c)) return 0.35;
+    if (/[。！？.!?…]/u.test(c)) return 2.5;
+    if (/[，、；：,;:—]/u.test(c)) return 1.5;
+    return /\s/u.test(c) ? 0.2 : 0.3;
+}
+// Where ranges of `text` are heard while a voice reads it whole, as shares of its length: [{...range, from, to}] (0..1),
+// estimated from the speaking weight of the characters before and inside each range (no word timings needed).
+function textMarkTimes(text, ranges) {
+    const value = String(text || ''), sums = [0];
+    for (let i = 0; i < value.length; i++) sums.push(sums[i] + speakingWeight(value[i]));
+    const total = sums[value.length] || 1;
+    return (ranges || []).map(range => ({...range, from: sums[range.start] / total, to: sums[range.end] / total}));
+}
+// A voice that reads `text` whole over the words a view covers. cover: {text: the words the view shows, ranges: the marks
+// there (textMarkPageRanges), place: where their taps are kept}. -> {maskedText: what a voice no mixer reaches (browser
+// speech) reads instead, masks(): read as the line starts, the spans still shut {spans: [[from, to]], noise: the first
+// mark's cover sound} or null}; false when the voice reads other words (a translation): it cannot be covered.
+function textMarkVoice(text, cover) {
+    const value = String(text || '');
+    const found = value === cover.text ? cover.ranges : textMarkRanges(value, [...new Set(cover.ranges.map(row => row.mark))]);
+    if (!found.length) return false;
+    const times = textMarkTimes(value, found);
+    return {maskedText: textMarkSegments(value, found).filter(row => !row.range).map(row => row.text).join(''),
+        masks: () => {
+            const shut = times.filter(row => !row.mark.kind.open?.(cover.place, row.mark.index));
+            return shut.length ? {spans: shut.map(row => [row.from, row.to]), noise: shut[0].mark.kind.noise} : null;
+        }};
+}
+return {textMarksAt, textMarkRanges, textMarkPageRanges, textMarkShift, textMarkSegments, textMarkNodes, textMarkTimes, textMarkVoice};
+})();
+if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = stageTextMarks;
+
         'use strict';
 function createStageText({React, document, performance, ResizeObserver, getComputedStyle,
     clock:forkForeground, fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed}) {
@@ -220,6 +342,27 @@ function stageGlyphPause(glyphs, index) {
 // Milliseconds before glyphs[index + 1] shows: one step at the reader's speed, plus the pause after glyphs[index].
 function stageGlyphDelay(glyphs, index, speed) {
 	return speed * (1 + (index >= 0 ? stageGlyphPause(glyphs, index) : 0));
+}
+// Text marks (a mod's words drawn its own way, features.cjs textMark; text-marks.cjs finds them): props.marks =
+// [{start, end, render(text, key)}], UTF-16 ranges of the page's text. A mark is one typing step (it is stamped in
+// whole and never broken over two lines); render draws the words of it it is given.
+// (the stage bundle defines stageTextMarks; a page fixture that loads this file alone has no marks)
+const stageMarkText = typeof stageTextMarks !== 'undefined' ? stageTextMarks : typeof require === 'function' ? require('../../../dsh-presentation-protocol/src/text-marks.cjs') : null;
+const stageTextMarkKey = marks => (marks || []).map(row => row.start + '-' + row.end).join();
+// The page's typing steps: graphemes of the plain runs and one step per mark; marked: step index -> its index in marks.
+function stageMarkedGlyphs(text, marks) {
+    if (!marks?.length) return {glyphs:stageGlyphs(text), marked:null};
+    const value = String(text || ''), glyphs = [], marked = new Map();
+    let at = 0;
+    for (const mark of marks) {
+        if (mark.start < at || mark.end > value.length || mark.start >= mark.end) continue;
+        glyphs.push(...stageGlyphs(value.slice(at, mark.start)));
+        marked.set(glyphs.length, marks.indexOf(mark));
+        glyphs.push(value.slice(mark.start, mark.end));
+        at = mark.end;
+    }
+    glyphs.push(...stageGlyphs(value.slice(at)));
+    return {glyphs, marked};
 }
 // How long a glyph fades in (tavern.css 「stage typewriter」 dsh-tavern-stage-glyph-in).
 const STAGE_GLYPH_FADE_MS = 220;
@@ -314,7 +457,11 @@ function GalNarrationLines(props) {
         return () => timers.forEach(timer => forkForeground.clearTimeout(timer));
     }, [lines, instant, fontsReady, props.hold, props.pending, props.lines.fade, props.lines.stagger]);
     return h('span', {ref, className:'fork-gal-narration-lines', 'data-instant':instant || undefined, 'data-held':props.hold || !fontsReady || undefined},
-        lines.map((line, i) => h('span', {key:i, className:'fork-gal-narration-line', style:{'--nar-fade':props.lines.fade+'s', '--nar-delay':(i * props.lines.stagger)+'s', '--nar-rise':'calc('+(props.lines.rise || 0)+' * var(--nar-u))'}, 'data-visible':i < visible || undefined}, line.replace(/\r?\n$/, '') || '\u200b')));
+        lines.map((line, i) => {
+            const from = lines.slice(0, i).join('').length, words = line.replace(/\r?\n$/, '');
+            return h('span', {key:i, className:'fork-gal-narration-line', style:{'--nar-fade':props.lines.fade+'s', '--nar-delay':(i * props.lines.stagger)+'s', '--nar-rise':'calc('+(props.lines.rise || 0)+' * var(--nar-u))'}, 'data-visible':i < visible || undefined},
+                words ? (props.marks?.length ? stageMarkText.textMarkNodes(text, from, from + words.length, props.marks) : words) : '\u200b');
+        }));
 }
 function GalTypewriter(props) {
     const speed = props.speed == null ? defaultTextSpeed : props.speed;
@@ -326,7 +473,18 @@ function GalTypewriter(props) {
     // Skin hop clock (stepped reveals only): the current hop step and the step each glyph appeared on.
     const [skinStep,setSkinStep] = React.useState(0);
     const hop = React.useRef({step:0,t0:null,base:0,born:[]});
-    const glyphs = React.useMemo(() => stageGlyphs(props.text), [props.text]);
+    const markKey = stageTextMarkKey(props.marks);
+    const steps = React.useMemo(() => stageMarkedGlyphs(props.text, props.marks), [props.text, markKey]);
+    const glyphs = steps.glyphs;
+    // a mark step draws the page's current mark (its render follows the taps); plain steps are their glyphs
+    const markOf = at => { const index = steps.marked?.get(at); return index === undefined ? null : props.marks[index]; };
+    const stepRun = (a, b) => {
+        if (!steps.marked) return [glyphs.slice(a, b).join('')];
+        const out = []; let run = '';
+        for (let i = a; i < b; i++) { const mark = markOf(i); if (!mark) { run += glyphs[i]; continue; } if (run) out.push(run); run = ''; out.push(mark.render(glyphs[i], 'm' + i)); }
+        if (run) out.push(run);
+        return out;
+    };
     // props.movable: the tail a streaming page may still hand to the next page (stagePageMovableTail); held too.
     const limit = Math.max(0, Math.min(galRevealLimit(glyphs, pending), glyphs.length - (pending && props.movable ? stageGlyphs(props.movable).length : 0)));
     const fontsReady = useGalFontsReady();
@@ -418,13 +576,15 @@ function GalTypewriter(props) {
     React.useLayoutEffect(() => {
         const type = typeRef.current, host = type && type.parentElement;
         if (instant || !fontsReady || !host || !host.parentNode || typeof ResizeObserver !== "function") return;
-        const measure = () => { const starts = galTypeLineStarts(type, whole); setLaid(old => old && old.text === whole && old.starts.join() === starts.join() ? old : { text: whole, starts }); };
+        const measure = () => { const starts = galTypeLineStarts(type, whole, glyphs); setLaid(old => old && old.text === whole && old.starts.join() === starts.join() ? old : { text: whole, starts }); };
         measure();
         const observer = new ResizeObserver(measure); observer.observe(host);
         document.fonts?.addEventListener('loadingdone', measure);
         return () => { observer.disconnect(); document.fonts?.removeEventListener('loadingdone', measure); };
     }, [whole, instant, fontsReady]);
     const glyphNode = (glyph, at) => {
+        const mark = markOf(at);
+        if (mark) return h("span", { key: at, className: "fork-gal-glyph" }, mark.render(glyph, 'g' + at));
         const jitter = reveal?.jitter ? stageSkinGlyphJitter(at, reveal.jitter) : null;
         return h("span", { key: at, className: "fork-gal-glyph" }, glyph,
             stepped ? h('span',{className:'fork-skin-glyph-paint','data-glyph':glyph,'data-hop':Math.min(reveal.poses,Math.floor((skinStep-(hop.current.born[at] ?? skinStep))/reveal.hold)),'aria-hidden':true,
@@ -433,10 +593,10 @@ function GalTypewriter(props) {
     // the shown run, the fading glyphs and the hidden rest within [from, to)
     const runs = (from, to) => {
         const a = Math.max(from, 0), b = Math.min(to, done), out = [];
-        if (b > a) out.push(h("span", { key: "shown", className: "fork-gal-type-shown" }, glyphs.slice(a, b).join("")));
+        if (b > a) out.push(h("span", { key: "shown", className: "fork-gal-type-shown" }, ...stepRun(a, b)));
         for (let at = Math.max(from, done); at < Math.min(to, visible); at++) out.push(glyphNode(glyphs[at], at));
         const r = Math.max(from, visible);
-        if (to > r) out.push(h("span", { key: "rest", className: "fork-gal-type-rest" }, glyphs.slice(r, to).join("")));
+        if (to > r) out.push(h("span", { key: "rest", className: "fork-gal-type-rest" }, ...stepRun(r, to)));
         return out;
     };
     const lines = !instant && done < glyphs.length && laid && laid.text === whole && laid.starts.length ? [0, ...laid.starts, glyphs.length] : null;
@@ -447,7 +607,7 @@ function GalTypewriter(props) {
 }
 // The glyph indexes that start a new line when the page's text is laid out as one run in its text element (a hidden
 // copy of the element, its width and styles, the cue and indicator included, as the pager's measuring clone).
-function galTypeLineStarts(type, text) {
+function galTypeLineStarts(type, text, steps = stageGlyphs(text)) {
     const host = type.parentElement, probe = host.cloneNode(true), copy = probe.querySelector(".fork-gal-type");
     copy.textContent = text;
     probe.removeAttribute("id"); probe.removeAttribute("aria-live"); probe.setAttribute("aria-hidden", "true");
@@ -456,7 +616,7 @@ function galTypeLineStarts(type, text) {
     const node = copy.firstChild, range = document.createRange(), starts = [], style = getComputedStyle(copy);
     const half = (parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2) / 2;
     let offset = 0, top = null;
-    if (node) stageGlyphs(text).forEach((glyph, i) => {
+    if (node) steps.forEach((glyph, i) => {
         range.setStart(node, offset); range.setEnd(node, offset += glyph.length);
         const rect = range.getClientRects()[0];
         if (!rect) return;
@@ -10780,6 +10940,15 @@ function readVoice(sessionId,input){
     if(closed)return Promise.reject(Object.assign(new Error('Stage speech disposed'),{name:'AbortError'}));
     return open(sessionId,input);
 }
+// A line over covered words (descriptor.cover, the controller's text marks): synthesized whole and turned down under noise
+// where a cover is still shut (stage-audio.js mask); a voice that reads other words (a translation) is not heard.
+// (the stage bundle defines stageTextMarks; a page fixture that loads this file alone has no marks)
+const voiceMarks = typeof stageTextMarks !== 'undefined' ? stageTextMarks : typeof require === 'function' ? require('../../../dsh-presentation-protocol/src/text-marks.cjs') : null;
+function covered(request, cover) {
+    if (!cover) return request;
+    const voice = voiceMarks.textMarkVoice(request.text, cover);
+    return voice && {...request, ...voice};
+}
 function stageVoiceHandle(sessionId, descriptor, config, paragraphId, availability) {
     if (closed) return null;
     if (descriptor?.narration) return stageNarratorHandle(sessionId, descriptor, config, paragraphId, availability);
@@ -10793,7 +10962,8 @@ function stageVoiceHandle(sessionId, descriptor, config, paragraphId, availabili
     // Match transcript identity after authored/legacy names resolve to the same figure.
     const cacheKey = JSON.stringify([sessionId,...speaker,input.text,input.mood]);
     const selectionKey=descriptor.lineIdentity ? JSON.stringify([sessionId,...descriptor.lineIdentity]) : undefined;
-    const request = {...input, owner, id, selectionKey, cacheKey:JSON.stringify([cacheKey,selectionKey])};
+    const request = covered({...input, owner, id, selectionKey, cacheKey:JSON.stringify([cacheKey,selectionKey])}, descriptor.cover);
+    if (!request) return null;
     const resource = () => readVoice(sessionId,input.general ? {general:true} : {alias:character.alias});
     return {...request, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request),
         click:options => closed ? Promise.resolve() : player.play(resource, {...request, handoff:options?.handoff === true, automatic:options?.automatic === true})};
@@ -10811,7 +10981,8 @@ function stageNarratorHandle(sessionId, descriptor, config, paragraphId, availab
     const text = narrator.wholeParagraph ? descriptor.speech ?? descriptor.paragraphText : descriptor.text, language = narrator.language || 'zh';
     const owner = sessionId + ':stage', id = JSON.stringify([paragraphId, descriptor.lineIdentity, 'narrator', text, narrator.voiceKey]);
     const selectionKey = JSON.stringify([sessionId, ...descriptor.lineIdentity]);
-    const request = {text, mood:null, owner, id, selectionKey, cacheKey:JSON.stringify([[sessionId, 'narrator', narrator.voiceKey, language, text], selectionKey])};
+    const request = covered({text, mood:null, owner, id, selectionKey, cacheKey:JSON.stringify([[sessionId, 'narrator', narrator.voiceKey, language, text], selectionKey])}, descriptor.cover);
+    if (!request) return null;
     const resource = () => readVoice(sessionId,{narrator:true});
     // options.id: a 履历 narration row plays its pages under the row's one id (galBacklogNarration).
     return {...request, narration:true, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request),
@@ -13459,6 +13630,29 @@ const useWidgetStage=(...args)=>stageViews.sourceWidgets.useStage(...args);
 const stageVoiceAvailable=(...args)=>stageViews.speech.available(...args);
 const stageVoiceHandle=(...args)=>stageViews.speech.handle(...args);
 const stageVoiceWindowFromIndex=(...args)=>stageViews.speech.window(...args);
+// The round's text marks per page (features.cjs textMark, text-marks.cjs): a paragraph's marks are found in its pages
+// joined, so words that run over a page break are covered on both pages. -> [{ranges}] by page.
+function stageTextMarkPages(pages, direction, kinds) {
+    if (!kinds?.length) return pages.map(() => ({ranges:[]}));
+    const byPara = new Map();
+    for (const page of pages) { if (!byPara.has(page.anchor.para)) byPara.set(page.anchor.para, []); byPara.get(page.anchor.para).push(page.text); }
+    const marks = new Map([...byPara.keys()].map(para => [para, stageTextMarks.textMarksAt(direction, para, kinds)])), seen = new Map();
+    return pages.map(page => {
+        const para = page.anchor.para, index = seen.get(para) || 0, own = marks.get(para);
+        seen.set(para, index + 1);
+        return {ranges:own.length ? stageTextMarks.textMarkPageRanges(byPara.get(para), index, own) : []};
+    });
+}
+// A page's voice over its covered words (speech.cjs covered: a covered name is heard as noise, never as words).
+// text: the words the view shows; ranges: its marks there; place: where their taps are kept.
+function stageTextMarkVoice(voice, text, ranges, place) {
+    return voice && ranges.length ? {...voice, cover:{text, ranges, place}} : voice;
+}
+// The marks of a text a view shows, drawn by their mods' Mark (place: where the taps are kept, still: reduced motion).
+function stageTextMarkRender(ranges, place, still) {
+    return ranges.map(range => ({start:range.start, end:range.end,
+        render:(text, key) => React.createElement(range.mark.kind.Mark, {key, mark:range.mark, text, place, still})}));
+}
 const galCallView=(...args)=>stageViews.sceneMath.galCallView(...args);
 const stageHistoryModPlays=(...args)=>stageViews.runtimeKernel.stageHistoryModPlays(...args);
 const galPlaceholderFace=(...args)=>stageViews.placeholderFace(...args);
@@ -13646,8 +13840,12 @@ function GalStage(props) {
     const resumeReady = true;
     const parts = grouped.get(turn) || [];
     const voiceAvailable = stageVoiceAvailable();
-    const storyPages = runtime.text.pages.map(page => ({...page, para:page.anchor.para,
-        voice:stageVoiceHandle(sessionId,page.voice,config,page.anchor.paragraphId,voiceAvailable)}));
+    // the mods' text marks over this round's words (features.cjs textMark, text-marks.cjs): each page carries its ranges,
+    // and its voice covers the marked words with noise.
+    const textMarkPages = stageTextMarkPages(runtime.text.pages, runtime.director, stageViews.textMarks);
+    const markTurn = {sessionId, turn:runtime.textIndex.get(turn)?.nativeTurn ?? turn, source:runtime.director.token?.sourceKey || ''};
+    const storyPages = runtime.text.pages.map((page, index) => ({...page, para:page.anchor.para, textMarks:textMarkPages[index].ranges,
+        voice:stageVoiceHandle(sessionId,stageTextMarkVoice(page.voice,page.text,textMarkPages[index].ranges,{...markTurn, para:page.anchor.para}),config,page.anchor.paragraphId,voiceAvailable)}));
     const turnIndex = turns.indexOf(turn);
     const [restored, setRestored] = React.useState(null);
     const restoreLoading = React.useRef(null);
@@ -14650,6 +14848,14 @@ function GalStage(props) {
     const classic = theme === "classic" && !advLayout;
     useFigureTextContrast(React,rootRef,true,theme,film,boxColor,boxName,boxLine?.mood);
     const shownText = current ? (transitioning ? inputSubtitles.text : !film && classic && current.kind === "line" ? galQuoted(subtitles.text, current.pending) : subtitles.text) : "";
+    // the page's text marks in the words the box shows (a subtitle card of the page, a quoted line)
+    const boxMarks = (function () {
+        const shift = current?.textMarks?.length && !transitioning ? shownText.indexOf(subtitles.text) : -1;
+        if (shift < 0) return undefined;
+        const start = Array.from(current.text).slice(0, subtitles.cards[card]?.start || 0).join('').length;
+        const ranges = stageTextMarks.textMarkShift(current.textMarks, start, subtitles.text.length).map(row => ({...row, start:row.start + shift, end:row.end + shift}));
+        return stageTextMarkRender(ranges, {...markTurn, para:current.para}, reading.reducedMotion === true);
+    })();
     // the unfinished sentence that may still move to the next page stays
     // hidden on the last card of a streaming narration page, so the page never takes back text it showed. Only the last
     // card is the live tail: an earlier card of a streaming page is complete and types to its end (the typewriter's
@@ -14789,7 +14995,7 @@ function GalStage(props) {
             transitioning ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
             h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite" },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
-                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
+                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, marks: boxMarks, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
                     visibleKey:sourceWidget.readingKey,onVisible:value=>sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
                     onReveal:ordinal=>performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]}), onDone: () => setTyped(true) }))
                     : h("span", { className: "stage-waiting" }, streaming || leasing ? "……" : "还没有正文"),
@@ -18765,6 +18971,35 @@ function GalBacklog(props) {
         // A role the skin draws as none leaves no row (the overlay's round separators).
         return looks.roles.divider?.look === 'none' ? all.filter(entry => entry.type !== 'turn') : all;
     }, [props.lease, props.textIndex, props.turn, props.pages, props.page, props.direction, inputs,modHistory,registry,lineKinds,markDirections,...modRows,looks]);
+    // the mods' text marks over the rows' words (features.cjs textMark, text-marks.cjs): a paragraph's marks are found in
+    // its page rows joined, as the stage finds them. -> index -> {ranges, place}
+    const textMarkRows = React.useMemo(() => {
+        const kinds = stageViews.textMarks;
+        if (!kinds?.length || props.lease) return null;
+        const directions = new Map(markDirections); directions.set(props.turn, props.direction);
+        const groups = new Map(), out = new Map();
+        entries.forEach((entry, index) => {
+            if (entry.type !== 'page' || typeof entry.text !== 'string') return;
+            const para = entry.para || entry.anchor?.para || entry.targetPara || entry.page + 1, key = entry.turn + ':' + para;
+            if (!groups.has(key)) groups.set(key, {turn:entry.turn, para, rows:[]});
+            groups.get(key).rows.push(index);
+        });
+        for (const {turn, para, rows} of groups.values()) {
+            const direction = directions.get(turn), marks = stageTextMarks.textMarksAt(direction, para, kinds);
+            if (!marks.length) continue;
+            const place = {sessionId:props.sessionId, turn:props.textIndex?.get(turn)?.nativeTurn ?? turn, source:direction?.token?.sourceKey || '', para};
+            rows.forEach((index, n) => out.set(index, {ranges:stageTextMarks.textMarkPageRanges(rows.map(i => entries[i].text), n, marks), place}));
+        }
+        return out;
+    }, [entries, markDirections, props.direction, props.turn, props.lease]);
+    // A row's words with its marks drawn; shown: the words as the row writes them (a quoted line), which contain the row's text.
+    function markedText(index, text, shown = text) {
+        const row = textMarkRows?.get(index), shift = row?.ranges.length ? shown.indexOf(text) : -1;
+        if (shift < 0) return shown;
+        const marks = row.ranges.map(range => ({start:range.start + shift, end:range.end + shift,
+            render:(words, key) => h(range.mark.kind.Mark, {key, mark:range.mark, text:words, place:row.place, still:false})}));
+        return stageTextMarks.textMarkNodes(shown, 0, shown.length, marks);
+    }
     // art.backlog.plates (C1): each entry's place among its role's entries, which picks its plate image and pose.
     const places = React.useMemo(() => {
         if (!looks.plates) return null;
@@ -18851,7 +19086,7 @@ function GalBacklog(props) {
             Promise.resolve(props.readDirection({turn,readOnly:true})).then(async value=>{
                 if(!active)return;
                 const entries=value.entries || [];
-                const direction={phase:value.phase,through:value.through,entries:entries.filter(entry=>entry.ops?.some(op=>op.op==='mod.command') || entry.events?.some(event=>event.kind==='title'))};
+                const direction={phase:value.phase,through:value.through,token:value.token,entries:entries.filter(entry=>entry.ops?.some(op=>op.op==='mod.command') || entry.events?.some(event=>event.kind==='title'))};
                 setMarkDirections(old=>new Map(old).set(turn,direction));
             }).catch(()=>{});
         }
@@ -19055,8 +19290,10 @@ function GalBacklog(props) {
         const name = line ? entry.name || props.nameOf(speaker) || entry.alias : "";
         const jump = true;
         // A narration page's handle is the narrator's (null while it is silent on this card).
-        const handle = line ? entry.voice || (entry.descriptor ? props.voiceOf?.(entry.descriptor) : null)
-            : entry.voice?.narration ? entry.voice : stageViews.backlogVoice.narration((entry.descriptors || []).map(descriptor => props.voiceOf?.(descriptor)).filter(Boolean));
+        // An earlier round's voice covers the row's marked words as the stage's does (speech.cjs covered).
+        const marked = textMarkRows?.get(index), voiceOf = descriptor => props.voiceOf?.(marked?.ranges.length ? {...descriptor, cover:{text:entry.text, ranges:marked.ranges, place:marked.place}} : descriptor);
+        const handle = line ? entry.voice || (entry.descriptor ? voiceOf(entry.descriptor) : null)
+            : entry.voice?.narration ? entry.voice : stageViews.backlogVoice.narration((entry.descriptors || []).map(voiceOf).filter(Boolean));
         // A skin whose original log has no replay control (art.voice.backlog false, stageSkinBacklog) shows none; R still replays.
         const voice = looks.voice !== false ? stageViews.backlogVoice.voice(handle, player) : null;
         const pos = clip.posOf(entry), mark = band[index];
@@ -19075,7 +19312,7 @@ function GalBacklog(props) {
         const nameRow = !line ? (voice ? h("div", { className: "fork-gal-backlog-name is-narrator" }, h(VoiceButton, { voice, glyph: "speaker" })) : null) : h("div", { className: "fork-gal-backlog-name" }, looks.letter?.name ? h("b", { "data-text": name }, lettered(name, true)) : h("b", { "data-figure-ink": "4.5", "data-text": name },
                     props.nameParts ? props.nameParts(name, entry).map((text, index) => text ? h("i", { key: index, "data-np": ["lead", "rest", "given-lead", "given-rest"][index] }, text) : null) : name), voice ? h(VoiceButton, { voice, glyph: "speaker" }) : null, entry.thought ? h("span", { className: "fork-gal-backlog-tag" }, "心声") : null, badgePlace === "name" ? badge : null);
         const wrap = looks.roles[role]?.wrap;
-        const text = h("p", { className: "fork-gal-backlog-text" }, badgePlace === "text" ? badge : null, look === "band" && wrap ? [wrap[0], entry.text, wrap[1]] : props.quote && line && look === "row" ? galQuoted(entry.text, entry.pending) : entry.text, entry.pending ? h("span", { className: "fork-gal-typing", "aria-label": "正在生成" }, h("i"), h("i"), h("i")) : null);
+        const text = h("p", { className: "fork-gal-backlog-text" }, badgePlace === "text" ? badge : null, look === "band" && wrap ? [wrap[0], markedText(index, entry.text), wrap[1]] : props.quote && line && look === "row" ? markedText(index, entry.text, galQuoted(entry.text, entry.pending)) : markedText(index, entry.text), entry.pending ? h("span", { className: "fork-gal-typing", "aria-label": "正在生成" }, h("i"), h("i"), h("i")) : null);
         const face = h("div", { className: "fork-gal-backlog-face" },
             line && avatar && look === "row" ? h(PackImage, { identity:avatar.identity, src: avatar.src, crop: avatar.crop, avatar:avatar.avatar, alt: "" }) : null);
         const column = line && look === "row" && looks.avatar ? avatarColumn(avatar, name) : null;
@@ -30000,7 +30237,8 @@ function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
 
             return {CandidateArt, CandidateImageView, DshCardExportSheet, EnginePage, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenPromptSettings, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, ModManager, ModManagerEntry, PackPreviews, PromptAt, PromptCatalogue, PromptOps, PromptPieces, PromptTools, ReadingsEditor, STAGE_RETURN_KEY, StageAvatar, StageKindJump, StagePage, StagePanel, catalogueEntries, commandInfo, directorPieceName, directorPromptRow, directorPromptRows, directorWire, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, judgeDraftProblem, judgePromptRows, judgeWithProvider, modSwitchWord, promptHeadClick, promptJson, promptJsonText, promptPackScope, promptSources, promptTokenEstimate, promptToolDefs, stageActive, stageBytesText, stageEnable, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stagePatch, stagePrefs, stageSwitchTag, storyPromptRows, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter, writeStageReturn};
         }
-        // Feature factories run once per view scope, after the scene and shared surfaces exist.
+        // Feature factories run once per view scope, after the scene and shared surfaces exist. options.features is what every
+// feature may use ({rpc}: the host's RPC, for the requests its stage service (stage.js hostExtension) answers).
 // Factories return named views; own() ties resources and CSS to the view's rollback/disposal.
 // backlog: optional 履历 row projections by the renderer name a performance declaration gives (backlog-rows.cjs).
 // takeover: optional views => the feature's view that takes the stage over for its performances (useStage, controller.cjs
@@ -30009,12 +30247,17 @@ function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
 // useStageHuds); mount lists them in views.huds.
 // sourceDevice: optional views => the handheld source device the source widgets lay out and adjust ({modId, presentation,
 // glyph, mark, group, threads(state), prefs, min, useAdjust}); at most one, in views.sourceDevice (null without one).
+// textMark: optional views => the feature's text mark {modId, command, quote, Mark}: the mod's command (manifest commands[].textMark)
+// that marks words of its paragraph, and Mark({mark, text, place, still}), drawn in place of those words wherever the stage
+// shows them (the text box, the 履历; text-marks.cjs finds them); mount lists them in views.textMarks. Optional open(place,
+// index): whether a mark is open (its voice heard as words again); noise(sampleRate, seed) -> Float32Array: what the
+// voice sounds like over a shut mark (speech.cjs covered, stage-audio.js mask).
 function createStageFeatures() {
     const features=new Map();
     return {
-        register(id,{views,css,backlog,takeover,hud,sourceDevice,skipShows}){
+        register(id,{views,css,backlog,takeover,hud,sourceDevice,skipShows,textMark}){
             if(features.has(id))throw new Error('Stage feature already registered: '+id);
-            const feature={views,css,backlog,takeover,hud,sourceDevice,skipShows};features.set(id,feature);
+            const feature={views,css,backlog,takeover,hud,sourceDevice,skipShows,textMark};features.set(id,feature);
             return ()=>{if(features.get(id)===feature)features.delete(id);};
         },
         // whether a feature shows this performance kind of its own while skipping: page DOM alone (runtime-kernel.cjs stageSkipShows).
@@ -30035,6 +30278,8 @@ function createStageFeatures() {
             views.huds=huds;
             if(Object.hasOwn(views,'sourceDevice'))throw new Error('Occupied stage view: sourceDevice');
             views.sourceDevice=null;
+            if(Object.hasOwn(views,'textMarks'))throw new Error('Occupied stage view: textMarks');
+            const textMarks=[];views.textMarks=textMarks;
             for(const [id,feature] of features){
                 if(feature.css){
                     const style=document.createElement('style');
@@ -30049,6 +30294,7 @@ function createStageFeatures() {
                 }
                 if(feature.takeover)takeovers.push(feature.takeover(views));
                 if(feature.hud)huds.push(feature.hud(views));
+                if(feature.textMark)textMarks.push(feature.textMark(views));
                 if(feature.sourceDevice){
                     if(views.sourceDevice)throw new Error('A second stage source device: '+id);
                     views.sourceDevice=feature.sourceDevice(views);
@@ -30409,6 +30655,275 @@ return {useAdjust:usePhoneAdjust,dispose(){if(disposed)return;disposed=true;clea
 module.exports={createStagePhoneAdjust};
 
 }]},"client/stage.cjs","/* The phone's stage presentation (its stage feature CSS, client/stage.cjs): the notification banner, the scene shade\n   while it is open, its adjust ring and grips, the full-screen sheet and the invisible phone line reader. */\n/* the incoming banner is a real phone's notification card — exactly as wide as the phone's\n   screen, rounded and frosted (the stage blurs through the view's translucent paint), with a soft shadow. It slides down\n   from the top edge with a light spring, stays ~3.5 s and slides back up; CONFIG 「减少动态」 fades it instead. */\n.fork-widget-panel.is-custom.is-banner{overflow:hidden;border-radius:calc(var(--phone-zoom,1) * 18px);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);box-shadow:var(--gal-ui-shadow);animation:fork-phone-banner-in .42s cubic-bezier(.22,1.22,.36,1) both}\n.fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-out .3s cubic-bezier(.55,0,.75,.2) both}\n.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner{animation:fork-phone-banner-fade .14s linear both}\n.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-fade .14s linear reverse both}\n@keyframes fork-phone-banner-in{from{transform:translateY(calc(-100% - 24px))}}\n@keyframes fork-phone-banner-out{to{transform:translateY(calc(-100% - 24px))}}\n@keyframes fork-phone-banner-fade{from{opacity:0}}\n/* while the phone is open the scene stays and dims behind it (the Pixi\n   layer eases a shade in over 280 ms, CONFIG 「减少动态」 120 ms); stand-ins dim the same way. Nothing moves or leaves. */\n.fork-gal-standins{transition:filter .28s cubic-bezier(.4,0,.2,1)}\n.fork-gal-stage[data-phone-open] .fork-gal-standins{filter:brightness(.58)}\n.fork-gal-stage[data-reduced-motion] .fork-gal-standins{transition-duration:.12s}\n/* The phone is not movable: its bottom hit ring stays outside the device, so the home indicator (and a swipe up from the\n   screen's bottom edge) belongs to the phone. A long press on the ring or the status bar strip (over the view's status bar,\n   7.2% of the device height: no controls) enters adjust mode (adjust.cjs useAdjust); in it a cover takes\n   the whole phone and 24px round it, a corner handle resizes, and a quiet accent outline says so, fading out on lock. */\n.fork-widget-panel.is-phone{outline:2px dashed transparent;outline-offset:6px;border-radius:calc(var(--phone-zoom,1) * 44px);transition:outline-color .45s ease}\n.fork-widget-panel.is-phone .fork-widget-grip:is(.is-ring,.is-status){cursor:default}\n.fork-widget-panel.is-phone .fork-widget-grip.is-ring.is-bottom{bottom:-14px;height:12px}\n.fork-widget-panel.is-phone .fork-widget-grip.is-status{left:0;right:0;top:0;height:7.2%}\n.fork-widget-panel.is-phone[data-unlocked]{outline-color:var(--gal-ui-accent);transition-duration:.12s}\n.fork-gal-stage > .fork-widget-layer.is-adjusting{z-index:7}\n/* The framed phone sheet (no band above the box) has a fixed size: its ring, cover and corner handle reach past its edge. */\n.fork-widget-panel.is-phone.is-sheet:not(.is-fill){overflow:visible}\n.fork-widget-panel.is-phone .fork-widget-grip.is-adjust{inset:-24px;z-index:2;cursor:grab}\n.fork-widget-panel.is-phone .fork-widget-grip.is-corner{right:-30px;bottom:-30px;width:40px;height:40px;z-index:3;cursor:nwse-resize}\n.fork-widget-panel.is-phone .fork-widget-grip.is-corner::after{content:\"\";position:absolute;right:12px;bottom:12px;width:14px;height:14px;border:solid var(--gal-ui-accent);border-width:0 3px 3px 0;border-bottom-right-radius:7px}\n/* on a narrow stage the open phone fills the screen (PHONE_FULL_WIDTH) and the dialogue\n   box is hidden under it - out of sight and out of the screen reader's reach - until the phone is put away. */\n.fork-gal-stage:has(.fork-widget-panel.is-phone.is-sheet.is-fill[data-presentation=open]) :is(.fork-gal-box,.fork-gal-box *){visibility:hidden!important}\n.fork-widget-panel.is-phone.is-fill{border-radius:0}\n/* The phone line still types (driving the phone reveal, AUTO and the next cue) in an invisible reader inside the box. */\n.fork-gal-phone-reader{position:absolute;left:0;top:0;width:100%;height:0;overflow:hidden;visibility:hidden;pointer-events:none}\n")],
+["redaction",loadStageModFeature({"client/stage.cjs":[{"./marks.cjs":"client/marks.cjs","./noise.cjs":"client/noise.cjs"},function(module,exports,require){
+'use strict';
+// The redaction mod's stage feature (src/client/features.cjs): its text mark, the redact command's words drawn as a
+// cover the player opens (marks.cjs); client/stage.css is its CSS. The stage finds the marks in the director record and
+// lays them out (text-marks.cjs); this feature only draws one.
+const {createRedactionMarks} = require('./marks.cjs');
+const {redactionNoise} = require('./noise.cjs');
+module.exports = {
+    views:({options, window}) => ({redaction:createRedactionMarks({React:options.React, window, rpc:options.features?.rpc})}),
+    // the command and its quoted-words parameter, as mod.json declares them (commands[].textMark); open: whether a mark is
+    // open again; noise: what its words sound like while it is shut (noise.cjs)
+    textMark:views => ({modId:'dsh.redaction', command:'redact', quote:'quote', Mark:views.redaction.RedactionMark,
+        open:views.redaction.open, noise:redactionNoise}),
+};
+
+}],
+"client/marks.cjs":[{},function(module,exports,require){
+'use strict';
+// 数据删除 on the stage: a mark the director put over words of a paragraph (the redact command, a text mark; the stage
+// lays it out as one typing step, text-marks.cjs). Tapping it REDACTION_TAPS times opens it:
+//   bar     an ink bar the size of the words; each tap rubs a patch of it off with an eraser drawn on a canvas (seeded by
+//           the mark and the tap, so it rubs differently every time but the same on every redraw), the words show where
+//           it rubbed; what the eraser leaves (grit, graphite) stays, redrawn from the taps after a reload too.
+//   glitch  flickering mojibake of the words' width; each tap settles a third of it, the last tap the rest.
+// A tap on a mark never turns the page. With reduced motion nothing shakes or flickers and the third tap shows the words.
+// Taps are kept per game in the host (host/extension.js), so an opened mark stays open on another device and after a reload.
+const REDACTION_TAPS = 3;
+const ERASE_MS = 420, SETTLE_MS = 1600;
+// Full-width cover glyphs for full-width words, ASCII ones for ASCII: a cover keeps the words' width.
+const MOJIBAKE_WIDE = '锟斤拷烫屯＃％＆＠￥※縺繧譁', MOJIBAKE_NARROW = '#%&@$?*!';
+const wide = glyph => glyph.codePointAt(0) > 0x2e7f;
+function stageRandom(seed) {
+    let s = (seed >>> 0) || 1;
+    return () => { s = (Math.imul(s ^ (s >>> 15), 2246822507) + 0x9e3779b9) >>> 0; s = (s ^ (s >>> 13)) >>> 0; return s / 4294967296; };
+}
+function textSeed(text) { let h = 2166136261; for (const c of String(text)) h = Math.imul(h ^ c.codePointAt(0), 16777619); return h >>> 0; }
+// What a glitch cover shows at `tick`: the words' glyphs, the first `settled` of them already in place.
+function glitchCover(words, settled, tick) {
+    return words.map((glyph, i) => {
+        if (i < settled || /\s/.test(glyph)) return glyph;
+        const pool = wide(glyph) ? MOJIBAKE_WIDE : MOJIBAKE_NARROW;
+        return pool[(Math.imul(i * 31 + tick * 17 + 7, 2654435761) >>> 16) % pool.length];
+    }).join('');
+}
+// One tap's dabs, [x, y, angle, pressure, last] in bar units (0..1 across, 0..1 down): the first taps rub back and forth
+// over their own third (3-5 passes), the last over the whole bar (8-11 passes, a little harder).
+function eraserDabs(seed, tap, aspect) {
+    const r = stageRandom(seed + tap * 7919), dabs = [];
+    const last = tap === REDACTION_TAPS - 1;
+    const centre = last ? 0.5 : (tap + 0.5) / REDACTION_TAPS + (r() - 0.5) * 0.12, half = last ? 0.62 : 0.12 + r() * 0.1;
+    const passes = last ? 8 + Math.floor(r() * 4) : 3 + Math.floor(r() * 3);
+    let x = centre - half * (0.4 + r() * 0.6), y = 0.3 + r() * 0.4;
+    for (let p = 0; p < passes; p++) {
+        const to = Math.min(1.04, Math.max(-0.04, centre + (p % 2 ? 1 : -1) * half * (0.55 + r() * 0.45)));
+        const toY = last ? 0.08 + r() * 0.84 : 0.1 + r() * 0.8, bend = (r() - 0.5) * 0.5, angle = (r() - 0.5) * 0.5, pressure = last ? 0.35 + r() * 0.3 : 0.25 + r() * 0.35;
+        const steps = Math.max(6, Math.round(Math.abs(to - x) * aspect * 9));
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            dabs.push([x + (to - x) * t, y + (toY - y) * t + bend * Math.sin(Math.PI * t), angle + (r() - 0.5) * 0.2, Math.min(1, Math.max(0.1, pressure + (r() - 0.5) * 0.25)), last]);
+        }
+        x = to; y = toY;
+    }
+    return dabs;
+}
+
+// rpc: the host's RPC (absent in an offline page: taps stay in this page)
+function createRedactionMarks({React, window, rpc}) {
+    const h = React.createElement, document = window.document;
+    // ---- taps, per game: {turns: {<turn>: {source, marks: {"para:index": taps}}}}, read once, written per tap ----
+    const games = new Map(), fresh = new Map(), subscribers = new Set();
+    let version = 0;
+    const changed = () => { version++; subscribers.forEach(fn => fn()); };
+    const subscribe = fn => { subscribers.add(fn); return () => subscribers.delete(fn); };
+    const keyOf = (place, index) => JSON.stringify([place.sessionId, place.turn, place.source, place.para, index]);
+    function game(sessionId) {
+        if (!games.has(sessionId)) {
+            const value = {turns:{}};
+            games.set(sessionId, value);
+            if (sessionId && rpc) rpc('getStageRedactions', {sessionId}, sessionId).then(result => {
+                if (result?.status !== 'ready') return;
+                // taps made while it loaded stay: they are in the host too, and at least as many
+                for (const [turn, row] of Object.entries(result.turns || {})) {
+                    const mine = value.turns[turn];
+                    value.turns[turn] = mine && mine.source === row.source
+                        ? {source:row.source, marks:Object.fromEntries([...new Set([...Object.keys(row.marks), ...Object.keys(mine.marks)])].map(key => [key, Math.max(row.marks[key] || 0, mine.marks[key] || 0)]))}
+                        : mine && mine.source !== row.source ? mine : row;
+                }
+                changed();
+            }, () => {});
+        }
+        return games.get(sessionId);
+    }
+    function tapsOf(place, index) {
+        const row = game(place.sessionId).turns[place.turn];
+        return row && row.source === place.source ? row.marks[place.para + ':' + index] || 0 : 0;
+    }
+    function tap(place, index) {
+        const value = game(place.sessionId), now = tapsOf(place, index);
+        if (now >= REDACTION_TAPS) return;
+        const row = value.turns[place.turn]?.source === place.source ? value.turns[place.turn] : {source:place.source, marks:{}};
+        value.turns[place.turn] = {source:place.source, marks:{...row.marks, [place.para + ':' + index]:now + 1}};
+        fresh.set(keyOf(place, index), Date.now());
+        changed();
+        if (rpc && place.sessionId && place.source) rpc('tapStageRedaction', {sessionId:place.sessionId, turn:place.turn, source:place.source, para:place.para, index}, place.sessionId).catch(() => {});
+    }
+    function useTaps(place, index) {
+        React.useSyncExternalStore(subscribe, () => version);
+        return {count:tapsOf(place, index), at:fresh.get(keyOf(place, index)) || 0};
+    }
+    // Milliseconds since `at`, redrawn every 40 ms until `until`.
+    function useElapsed(at, until) {
+        const [, setTick] = React.useState(0);
+        const elapsed = at ? Date.now() - at : Infinity;
+        React.useEffect(() => {
+            if (!(elapsed < until)) return;
+            const timer = window.setTimeout(() => setTick(n => n + 1), 40);
+            return () => window.clearTimeout(timer);
+        });
+        return elapsed;
+    }
+    // ---- bar: the ink bar and its eraser ----
+    // The eraser tip: a worn rectangle with a gritty grip (22% of it lifts only a little), soft at the edges.
+    function eraserTip(size, seed) {
+        const tip = document.createElement('canvas'), w = Math.max(4, Math.round(size * 0.55)), hgt = Math.max(4, Math.round(size));
+        tip.width = w; tip.height = hgt;
+        const g = tip.getContext('2d'), img = g.createImageData(w, hgt), r = stageRandom(seed);
+        for (let j = 0; j < hgt; j++) for (let i = 0; i < w; i++) {
+            const ex = Math.min(i, w - 1 - i) / (w * 0.22), ey = Math.min(j, hgt - 1 - j) / (hgt * 0.18);
+            const edge = Math.min(1, ex) * Math.min(1, ey), grit = r();
+            img.data[(j * w + i) * 4 + 3] = Math.round(255 * edge * (grit < 0.22 ? 0.1 : 0.5 + grit * 0.5));
+        }
+        g.putImageData(img, 0, 0);
+        return tip;
+    }
+    function EraserCanvas({seed, count, since, still}) {
+        const ref = React.useRef(null), tips = React.useRef(null);
+        React.useLayoutEffect(() => {
+            const canvas = ref.current, host = canvas?.parentElement;
+            if (!canvas || !host) return;
+            const box = host.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+            const em = parseFloat(window.getComputedStyle(host).fontSize) || 16, pad = 0.3 * em;
+            const W = Math.max(1, Math.round((box.width + 2 * pad) * dpr)), H = Math.max(1, Math.round((box.height + 2 * pad) * dpr));
+            if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+            Object.assign(canvas.style, {left:-pad + 'px', top:-pad + 'px', width:(box.width + 2 * pad) + 'px', height:(box.height + 2 * pad) + 'px'});
+            const g = canvas.getContext('2d'), ink = window.getComputedStyle(canvas).color;
+            const x0 = pad * dpr, bw = box.width * dpr, y0 = (pad + 0.1 * em) * dpr, bh = Math.max(1, (box.height - 0.12 * em) * dpr);
+            g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.clearRect(0, 0, W, H);
+            g.fillStyle = ink; g.fillRect(x0 - 0.04 * em * dpr, y0, bw + 0.08 * em * dpr, bh);
+            if (still) return;
+            if (!tips.current || tips.current.size !== Math.round(bh)) tips.current = {size:Math.round(bh), tip:eraserTip(bh * 0.95, seed), smear:eraserTip(bh * 1.3, seed + 1)};
+            const {tip, smear} = tips.current;
+            for (let t = 0; t < count; t++) {
+                const dabs = eraserDabs(seed, t, bw / bh);
+                const shown = t < count - 1 ? dabs.length : Math.floor(dabs.length * Math.min(1, since / ERASE_MS));
+                for (let i = 0; i < shown; i++) {
+                    const [u, v, angle, pressure, last] = dabs[i], cx = x0 + u * bw, cy = y0 + v * bh;
+                    g.setTransform(Math.cos(angle), Math.sin(angle), -Math.sin(angle), Math.cos(angle), cx, cy);
+                    g.globalCompositeOperation = 'destination-out'; g.globalAlpha = pressure;
+                    g.drawImage(tip, -tip.width / 2, -tip.height / 2);
+                    // graphite dragged along: a faint smear behind the tip (too much would ink the rubbed patch again)
+                    if (i % 5 === 0) { g.globalCompositeOperation = 'source-over'; g.globalAlpha = (last ? 0.008 : 0.02) * (1.2 - pressure); g.drawImage(smear, -smear.width / 2 - tip.width * 0.6, -smear.height / 2); }
+                }
+            }
+            g.setTransform(1, 0, 0, 1, 0, 0);
+        });
+        return h('canvas', {ref, className:'fork-erase-canvas', 'aria-hidden':true});
+    }
+    // Eraser crumbs shaken off by a tap: rolled bits of different sizes that drop and tumble out of the box.
+    function Crumbs({seed, since}) {
+        const r = stageRandom(seed), t = since / 700;
+        return h('span', {className:'fork-erase-crumbs', 'aria-hidden':true}, Array.from({length:5 + Math.floor(r() * 4)}, (_, i) => {
+            const x = r() * 100, size = 0.06 + r() * 0.09, drift = (r() - 0.5) * 0.8, fall = 0.6 + r() * 0.9;
+            return h('i', {key:i, 'data-fk-layer':'', style:{left:x + '%', width:size + 'em', height:size * (0.6 + r() * 0.6) + 'em',
+                transform:'translate(' + (drift * t).toFixed(3) + 'em,' + (fall * t * t + 0.1).toFixed(3) + 'em) rotate(' + Math.round(r() * 360 + t * 200) + 'deg)', '--fk-layer-opacity':(1 - t).toFixed(2)}});
+        }));
+    }
+    // ---- glitch ----
+    function Glitch({text, settled, settling, still}) {
+        const [tick, setTick] = React.useState(0);
+        const words = Array.from(text), done = settled >= words.length;
+        const shown = settling ? Math.min(words.length, settled + Math.floor(settling / 70)) : settled;
+        React.useEffect(() => {
+            if (still || done && !settling) return;
+            const timer = window.setTimeout(() => setTick(n => n + 1), 90);
+            return () => window.clearTimeout(timer);
+        }, [tick, done, settling, still]);
+        return glitchCover(words, shown, still ? 0 : tick);
+    }
+    // ---- the mark ----
+    // mark: {params: {quote, kind}, index}; text: the words of it shown here (a mark cut at a page edge shows part);
+    // place: {sessionId, turn, source, para}, where its taps are kept; still: no motion (reduced motion).
+    function RedactionMark({mark, text, place, still}) {
+        const kind = mark.params?.kind === 'glitch' ? 'glitch' : 'bar';
+        const {count, at} = useTaps(place, mark.index);
+        const open = count >= REDACTION_TAPS, since = useElapsed(still ? 0 : at, SETTLE_MS);
+        const stop = event => event.stopPropagation();
+        const press = event => { stop(event); event.preventDefault?.(); tap(place, mark.index); };
+        const shake = since < 240 ? [0, .06, -.06, .04, -.03, 0][Math.floor(since / 40)] : 0;
+        const props = {className:'fork-redact', 'data-redact':kind, 'data-revealed':open || undefined, 'data-taps':count || undefined,
+            'data-fresh':open && since < SETTLE_MS || undefined, style:shake ? {'--shake':shake + 'em'} : undefined,
+            ...(open ? {} : {role:'button', tabIndex:0, 'aria-label':'已删除的内容，点三下揭开',
+                onPointerDown:stop, onMouseDown:stop, onTouchStart:stop, onClick:press,
+                onKeyDown:event => { if (event.key === 'Enter' || event.key === ' ') press(event); else if (event.key !== 'Tab') stop(event); }})};
+        if (kind === 'glitch') {
+            const words = Array.from(text), third = Math.ceil(words.length / REDACTION_TAPS);
+            const settled = open && !(since < SETTLE_MS) ? words.length : Math.min(count, REDACTION_TAPS - 1) * third;
+            return h('span', props, open && still ? text : h(Glitch, {text, settled, settling:open && since < SETTLE_MS ? since : 0, still}));
+        }
+        const words = h('span', {key:'w', className:'fork-redact-words', 'aria-hidden':open ? undefined : true}, text);
+        if (open && (still || !count)) return h('span', props, words);
+        const seed = textSeed(mark.params?.quote + ':' + place.para + ':' + mark.index);
+        return h('span', props, words, h(EraserCanvas, {key:'e', seed, count:still ? 0 : count, since, still}),
+            !still && count && since < 700 ? h(Crumbs, {key:'c', seed:seed + count, since}) : null);
+    }
+    // Whether a mark is open (its voice is heard as words again): place and index as RedactionMark's.
+    const open = (place, index) => tapsOf(place, index) >= REDACTION_TAPS;
+    return {RedactionMark, open};
+}
+module.exports = {createRedactionMarks, glitchCover, eraserDabs, REDACTION_TAPS};
+
+}],
+"client/noise.cjs":[{},function(module,exports,require){
+'use strict';
+// What a covered word sounds like (mods/redaction/README.md 配音): the line is synthesized whole, and where a cover is
+// still shut the stage's mixer turns the voice down under this noise (stage-audio.js mask). No recorded asset: every
+// play draws it from a fresh seed, so no two bleeps are the same, and a fixed seed (a clip export) gives the same
+// samples again. Layers, as a radio losing its signal: a brown/pink rumble, a band-limited hiss, sparse crackles, and
+// short dropouts where it all cuts out. Levelled to an RMS of 0.1 (about -20 dBFS, the nominal voice level), so the
+// mixer scales it with the line's own gain.
+function noiseRandom(seed) {
+    let s = (seed >>> 0) || 1;
+    return () => { s = (Math.imul(s ^ (s >>> 15), 2246822507) + 0x9e3779b9) >>> 0; s = (s ^ (s >>> 13)) >>> 0; return s / 4294967296; };
+}
+// sampleRate: the audio context's; seconds: the loop's length. -> Float32Array of mono samples.
+function redactionNoise(sampleRate, seed, seconds = 2) {
+    const r = noiseRandom(seed), length = Math.round(sampleRate * seconds), out = new Float32Array(length);
+    // pink (Paul Kellet's economy filter) and brown (leaky integrator) from the same white source
+    let b0 = 0, b1 = 0, b2 = 0, brown = 0, low = 0, prev = 0, pop = 0, gap = 0, gapGain = 1;
+    const hissCut = Math.exp(-2 * Math.PI * 1800 / sampleRate), lowCut = Math.exp(-2 * Math.PI * 6500 / sampleRate);
+    for (let i = 0; i < length; i++) {
+        const white = r() * 2 - 1;
+        b0 = 0.99765 * b0 + white * 0.0990460; b1 = 0.96300 * b1 + white * 0.2965164; b2 = 0.57000 * b2 + white * 1.0526913;
+        const pink = (b0 + b1 + b2 + white * 0.1848) * 0.11;
+        brown = (brown + white * 0.02) * 0.998;
+        // hiss: white with its rumble taken out (high-pass at ~1.8 kHz) and its top softened (low-pass at ~6.5 kHz)
+        const high = white - prev * hissCut; prev = white;
+        low = low * lowCut + high * (1 - lowCut);
+        // a crackle about every 60 ms, a few samples long
+        if (pop <= 0 && r() < 1 / (0.06 * sampleRate)) pop = 4 + Math.floor(r() * 24);
+        const crackle = pop > 0 ? (pop--, (r() * 2 - 1) * 1.6) : 0;
+        // a dropout about every 0.7 s, 20-90 ms long, faded in and out over ~3 ms
+        if (gap <= 0 && r() < 1 / (0.7 * sampleRate)) gap = Math.floor((0.02 + r() * 0.07) * sampleRate);
+        const target = gap > 0 ? (gap--, 0.08) : 1;
+        gapGain += (target - gapGain) * Math.min(1, 330 / sampleRate);
+        out[i] = (pink * 0.5 + brown * 0.9 + low * 0.55 + crackle * 0.25) * gapGain;
+    }
+    // level to RMS 0.1; both ends fade over 3 ms, so the loop's seam is a dip in the noise rather than a click
+    let sum = 0;
+    for (const value of out) sum += value * value;
+    const scale = 0.1 / (Math.sqrt(sum / length) || 1), fade = Math.min(length >> 1, Math.round(sampleRate * 0.003));
+    for (let i = 0; i < length; i++) {
+        const edge = Math.min(1, Math.min(i, length - 1 - i) / fade);
+        out[i] = Math.max(-1, Math.min(1, out[i] * scale * edge));
+    }
+    return out;
+}
+module.exports = {redactionNoise};
+
+}]},"client/stage.cjs","/* 数据删除 (mods/redaction): a mark is one typing step of the page. bar: the words laid out under an ink bar of their size\n   (a canvas), so rubbing it off never moves a glyph; glitch: flickering mojibake of the words' width with a split shadow,\n   settling left to right. The ink is the text box's own text colour, the split shadow its accent. */\n.fork-redact { position: relative; display: inline; white-space: nowrap; user-select: none; -webkit-user-select: none;\n  --redact-ink: var(--fk-s-stage-textbox-fg, currentColor); --redact-accent: var(--fk-s-stage-textbox-accent, #c8202f);\n  transform: translateX(var(--shake, 0)); }\n.fork-redact:not([data-revealed]) { cursor: pointer; }\n.fork-redact:focus-visible { outline: 2px solid var(--redact-accent); outline-offset: 2px; }\n/* z-index: an art skin's box image is a composited layer of its own (themes.css), painted over a canvas left at z-index auto */\n.fork-erase-canvas { position: absolute; z-index: 1; pointer-events: none; color: var(--redact-ink); }\n.fork-erase-crumbs { position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; height: 0; pointer-events: none; }\n.fork-erase-crumbs > i[data-fk-layer] { position: absolute; top: 0; border-radius: 40%; background: color-mix(in srgb, var(--redact-ink) 55%, #b9a99a); opacity: var(--fk-layer-opacity, 1); }\n/* an opened bar keeps a faint red ground: the words were covered once */\n.fork-redact[data-redact=\"bar\"][data-revealed] { background: color-mix(in srgb, var(--redact-accent) 10%, transparent); }\n.fork-redact[data-redact=\"glitch\"]:not([data-revealed]) { color: color-mix(in srgb, var(--redact-ink) 82%, var(--redact-accent));\n  text-shadow: .05em 0 color-mix(in srgb, var(--redact-accent) 70%, transparent), -.05em 0 rgb(0 160 200 / .45); animation: fork-redact-jitter .45s steps(3) infinite; }\n.fork-redact[data-redact=\"glitch\"][data-fresh] { text-shadow: .04em 0 color-mix(in srgb, var(--redact-accent) 50%, transparent); }\n.fork-redact[data-redact=\"glitch\"][data-revealed]:not([data-fresh]) { text-decoration: underline 1px color-mix(in srgb, var(--redact-accent) 60%, transparent); text-underline-offset: .2em; }\n/* only the shadow moves: a moving box would never settle for a pointer */\n@keyframes fork-redact-jitter { 33% { text-shadow: .09em .02em color-mix(in srgb, var(--redact-accent) 70%, transparent), -.03em 0 rgb(0 160 200 / .45); } 66% { text-shadow: -.02em -.02em color-mix(in srgb, var(--redact-accent) 70%, transparent), -.09em 0 rgb(0 160 200 / .45); } }\n@media (prefers-reduced-motion: reduce) { .fork-redact[data-redact=\"glitch\"] { animation: none; } }\n")],
 ["textcard",loadStageModFeature({"client/stage.cjs":[{"./presets.cjs":"client/presets.cjs","./card.cjs":"client/card.cjs","./fonts.cjs":"client/fonts.cjs","./player.cjs":"client/player.cjs","./center.cjs":"client/center.cjs","./vert-ink.cjs":"client/vert-ink.cjs","./layout.cjs":"client/layout.cjs"},function(module,exports,require){
 'use strict';
 // The 「文字演出」 stage feature (src/client/features.cjs): the full-screen text card view, built per view scope, and its

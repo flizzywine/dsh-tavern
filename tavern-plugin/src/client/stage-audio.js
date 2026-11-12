@@ -172,7 +172,51 @@ const forkStageAudio = (function () {
             lufs: audioMeasurement(loudness) ? loudness.lufs : undefined, trackDb: trackGain > 0 ? 20 * Math.log10(trackGain) : undefined,
             trim: record.trim, duck: buses[record.layer] ? buses[record.layer].to : undefined, duration, position, error: extra.error });
     }
-    const level = record => held(record) ? 0 : (voiceGains.get(record.node) ?? audioGain(record.layer, measured(record), record.gainDb)) * record.trim;
+    const sourceLevel = record => held(record) ? 0 : (voiceGains.get(record.node) ?? audioGain(record.layer, measured(record), record.gainDb)) * record.trim;
+    const level = record => sourceLevel(record) * (record.covered ? COVER_GAIN : 1);
+    // ---- covered words (a stage line's text marks: speech.cjs covered, pack-playback.cjs maskAudio) ----
+    // While a bound voice plays inside a span of a cover still shut (shares of its length, COVER_PAD s either side) it is
+    // turned down to COVER_GAIN under the cover's noise, which sounds on the voice bus at the line's own level. A 20 ms
+    // watch follows the element's own time, so a pause, the reading speed and a seek are followed as they happen. Each
+    // play draws the noise from a fresh seed.
+    const COVER_GAIN = 0.05, COVER_PAD = 0.15, COVER_GLIDE = 0.01, COVER_TICK_MS = 20;
+    const covers = new Set();
+    let coverTimer = null;
+    function dropNoise(record) {
+        if (!record.noise) return;
+        try { record.noise.source.stop(); } catch (_) {}
+        record.noise.source.disconnect(); record.noise.gain.disconnect(); record.noise = null;
+    }
+    function coverNoise(record) {
+        if (record.noise || !record.cover.noise) return record.noise;
+        const samples = record.cover.noise(context.sampleRate, Math.floor(Math.random() * 4294967296));
+        const buffer = context.createBuffer(1, samples.length, context.sampleRate), source = context.createBufferSource(), gain = context.createGain();
+        buffer.copyToChannel(samples, 0);
+        source.buffer = buffer; source.loop = true; gain.gain.value = 0;
+        source.connect(gain); gain.connect(buses.voice.gain); source.start();
+        return record.noise = { source, gain };
+    }
+    function cover(record, inside, glide) {
+        record.covered = inside; update(record, glide);
+        const noise = inside ? coverNoise(record) : record.noise;
+        if (!noise) return;
+        const now = context.currentTime;
+        noise.gain.gain.cancelScheduledValues(now); noise.gain.gain.setTargetAtTime(inside ? sourceLevel(record) : 0, now, glide);
+    }
+    function insideCover(record, at) {
+        const length = record.node.duration;
+        return Number.isFinite(length) && length > 0
+            ? record.cover.spans.some(([from, to]) => at >= from * length - COVER_PAD && at <= to * length + COVER_PAD)
+            : record.cover.spans.some(([from]) => from <= 0.02);
+    }
+    function watchCovers() {
+        for (const record of covers) {
+            if (record.released || record.node.ended) { covers.delete(record); cover(record, false, COVER_GLIDE); dropNoise(record); continue; }
+            const inside = !record.node.paused && insideCover(record, record.node.currentTime);
+            if (inside !== record.covered) cover(record, inside, COVER_GLIDE);
+        }
+        if (!covers.size) { clearInterval(coverTimer); coverTimer = null; }
+    }
     function update(record, glide = 0.05) {
         if (record.released) return;
         const gain = level(record);
@@ -344,9 +388,20 @@ const forkStageAudio = (function () {
         }, bind,
         // Terminal opt-in teardown. Retain the WeakMap tombstone: a media element may only
         // have one MediaElementSource, even after that source has been disconnected.
+        // Covered words over a bound voice about to play: cover {spans: [[from, to]] shares of its length, noise(sampleRate,
+        // seed) -> Float32Array}, or null to hear it as is. A cover over the line's first words holds from its first sample.
+        mask(node, value) {
+            const record = nodes.get(node);
+            if (!record || record.released || !record.gain) return;
+            dropNoise(record); record.cover = value?.spans?.length ? value : null;
+            if (!record.cover) { covers.delete(record); if (record.covered) cover(record, false, COVER_GLIDE); return; }
+            covers.add(record); coverTimer ||= setInterval(watchCovers, COVER_TICK_MS);
+            cover(record, insideCover(record, node.ended ? 0 : node.currentTime), 0.001);
+        },
         release(node) {
             const record = nodes.get(node);
             if (!record || record.released) return;
+            covers.delete(record); dropNoise(record);
             if (active.has(record)) trace('stop', record);
             if (solo === record) { solo = null; active.forEach(other => { if (other !== record) update(other, AUDIO_EXCLUSIVE_RETURN); }); }
             record.released = true; active.delete(record); voiceActivity(node, false); sounding();

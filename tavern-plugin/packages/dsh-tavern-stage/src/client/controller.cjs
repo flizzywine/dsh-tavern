@@ -69,6 +69,29 @@ const useWidgetStage=(...args)=>stageViews.sourceWidgets.useStage(...args);
 const stageVoiceAvailable=(...args)=>stageViews.speech.available(...args);
 const stageVoiceHandle=(...args)=>stageViews.speech.handle(...args);
 const stageVoiceWindowFromIndex=(...args)=>stageViews.speech.window(...args);
+// The round's text marks per page (features.cjs textMark, text-marks.cjs): a paragraph's marks are found in its pages
+// joined, so words that run over a page break are covered on both pages. -> [{ranges}] by page.
+function stageTextMarkPages(pages, direction, kinds) {
+    if (!kinds?.length) return pages.map(() => ({ranges:[]}));
+    const byPara = new Map();
+    for (const page of pages) { if (!byPara.has(page.anchor.para)) byPara.set(page.anchor.para, []); byPara.get(page.anchor.para).push(page.text); }
+    const marks = new Map([...byPara.keys()].map(para => [para, stageTextMarks.textMarksAt(direction, para, kinds)])), seen = new Map();
+    return pages.map(page => {
+        const para = page.anchor.para, index = seen.get(para) || 0, own = marks.get(para);
+        seen.set(para, index + 1);
+        return {ranges:own.length ? stageTextMarks.textMarkPageRanges(byPara.get(para), index, own) : []};
+    });
+}
+// A page's voice over its covered words (speech.cjs covered: a covered name is heard as noise, never as words).
+// text: the words the view shows; ranges: its marks there; place: where their taps are kept.
+function stageTextMarkVoice(voice, text, ranges, place) {
+    return voice && ranges.length ? {...voice, cover:{text, ranges, place}} : voice;
+}
+// The marks of a text a view shows, drawn by their mods' Mark (place: where the taps are kept, still: reduced motion).
+function stageTextMarkRender(ranges, place, still) {
+    return ranges.map(range => ({start:range.start, end:range.end,
+        render:(text, key) => React.createElement(range.mark.kind.Mark, {key, mark:range.mark, text, place, still})}));
+}
 const galCallView=(...args)=>stageViews.sceneMath.galCallView(...args);
 const stageHistoryModPlays=(...args)=>stageViews.runtimeKernel.stageHistoryModPlays(...args);
 const galPlaceholderFace=(...args)=>stageViews.placeholderFace(...args);
@@ -256,8 +279,12 @@ function GalStage(props) {
     const resumeReady = true;
     const parts = grouped.get(turn) || [];
     const voiceAvailable = stageVoiceAvailable();
-    const storyPages = runtime.text.pages.map(page => ({...page, para:page.anchor.para,
-        voice:stageVoiceHandle(sessionId,page.voice,config,page.anchor.paragraphId,voiceAvailable)}));
+    // the mods' text marks over this round's words (features.cjs textMark, text-marks.cjs): each page carries its ranges,
+    // and its voice covers the marked words with noise.
+    const textMarkPages = stageTextMarkPages(runtime.text.pages, runtime.director, stageViews.textMarks);
+    const markTurn = {sessionId, turn:runtime.textIndex.get(turn)?.nativeTurn ?? turn, source:runtime.director.token?.sourceKey || ''};
+    const storyPages = runtime.text.pages.map((page, index) => ({...page, para:page.anchor.para, textMarks:textMarkPages[index].ranges,
+        voice:stageVoiceHandle(sessionId,stageTextMarkVoice(page.voice,page.text,textMarkPages[index].ranges,{...markTurn, para:page.anchor.para}),config,page.anchor.paragraphId,voiceAvailable)}));
     const turnIndex = turns.indexOf(turn);
     const [restored, setRestored] = React.useState(null);
     const restoreLoading = React.useRef(null);
@@ -1260,6 +1287,14 @@ function GalStage(props) {
     const classic = theme === "classic" && !advLayout;
     useFigureTextContrast(React,rootRef,true,theme,film,boxColor,boxName,boxLine?.mood);
     const shownText = current ? (transitioning ? inputSubtitles.text : !film && classic && current.kind === "line" ? galQuoted(subtitles.text, current.pending) : subtitles.text) : "";
+    // the page's text marks in the words the box shows (a subtitle card of the page, a quoted line)
+    const boxMarks = (function () {
+        const shift = current?.textMarks?.length && !transitioning ? shownText.indexOf(subtitles.text) : -1;
+        if (shift < 0) return undefined;
+        const start = Array.from(current.text).slice(0, subtitles.cards[card]?.start || 0).join('').length;
+        const ranges = stageTextMarks.textMarkShift(current.textMarks, start, subtitles.text.length).map(row => ({...row, start:row.start + shift, end:row.end + shift}));
+        return stageTextMarkRender(ranges, {...markTurn, para:current.para}, reading.reducedMotion === true);
+    })();
     // the unfinished sentence that may still move to the next page stays
     // hidden on the last card of a streaming narration page, so the page never takes back text it showed. Only the last
     // card is the live tail: an earlier card of a streaming page is complete and types to its end (the typewriter's
@@ -1399,7 +1434,7 @@ function GalStage(props) {
             transitioning ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
             h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite" },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
-                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
+                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, marks: boxMarks, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
                     visibleKey:sourceWidget.readingKey,onVisible:value=>sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
                     onReveal:ordinal=>performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]}), onDone: () => setTyped(true) }))
                     : h("span", { className: "stage-waiting" }, streaming || leasing ? "……" : "还没有正文"),
