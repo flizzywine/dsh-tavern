@@ -140,6 +140,10 @@
 			// 手机端侧栏整屏 fixed（见 tavern.css），宿主的侧栏底部还留着「设置」那一行
 			// （宿主 footArea 排在 regionArea 之后），整屏侧栏的版本行和更新状态会压到它上面。
 			// 宿主底栏高度随宿主版本和账号状态变化，量出来写进变量，让侧栏底部自己让位。
+			// 量的是「宿主侧栏根下沿到 regionArea 下沿」这一段（footArea + 根内边距），
+			// 用宿主自己的盒子做基准：手机上布局视口常比外壳可视区高一截（系统手势条、浏览器
+			// 工具栏），fixed 侧栏又被外壳的 transform 收进更矮的包含块，拿 window.innerHeight
+			// 减底栏上沿就会多让出那段差值，底部留出一整块空白。
 			React.useEffect(function () {
 				if (collapsed || typeof document === "undefined" || typeof window === "undefined") return function () {};
 				const root = document.documentElement;
@@ -154,14 +158,15 @@
 					frame = 0;
 					const own = document.querySelector(".dsh-tavern-sidebar:not(.collapsed)");
 					const region = own && own.closest ? own.closest('[data-slot="sidebar.workspaces"]') : null;
-					const host = region ? region.parentElement : null;
+					const area = region ? region.parentElement : null;
+					const column = area ? area.parentElement : null;
 					// 桌面端侧栏不是 fixed（宿主 regionArea 自己让出了底栏），这时不需要让位。
-					if (!own || !host || window.getComputedStyle(own).position !== "fixed") { settle(0); return; }
-					settle(Math.max(0, Math.round(window.innerHeight - host.getBoundingClientRect().bottom)));
-					if (observer && watching !== host) {
+					if (!own || !area || !column || window.getComputedStyle(own).position !== "fixed") { settle(0); return; }
+					settle(Math.max(0, Math.round(column.getBoundingClientRect().bottom - area.getBoundingClientRect().bottom)));
+					if (observer && watching !== column) {
 						if (watching) observer.unobserve(watching);
-						watching = host;
-						observer.observe(host);
+						watching = column;
+						observer.observe(column);
 					}
 				}
 				function schedule() { if (!frame) frame = window.requestAnimationFrame(measure); }
