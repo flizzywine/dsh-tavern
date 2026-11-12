@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "e3c62ce0da74aa631cb51ebaef57c03db2159819",
-  "releaseSequence": 1552,
+  "revision": "0fcff028b8adef0e0d20ea2212964234fe58154d",
+  "releaseSequence": 1553,
   "version": "3.3.0",
   "files": [
     {
@@ -1051,8 +1051,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "e5deed53e799ecd50e4eff4491486712a220d82b133e79044c1781633ba0c6f7",
-      "size": 6207332
+      "sha256": "53c9b0e34479a260c36c62f936ed577151c662506152ba6d93ae5e66b8f5d2f4",
+      "size": 6210286
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2631,8 +2631,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/play-interaction-flow.js",
-      "sha256": "7a7a90c4a5c9e95917f3d362e4e078ff273aed28ab33fb62a7e9ea489d4781dc",
-      "size": 8560
+      "sha256": "b5a4131940b9484b7c3bf406c7aba71d07d5151a6c57de64e8a87bffdd75fe8d",
+      "size": 9626
     },
     {
       "path": "tavern-plugin/lib/domain/play-world-book.js",
@@ -9171,9 +9171,9 @@
     }
   ],
   "archive": {
-    "commit": "ec5e985e9946f4c0b27f1272e5176614bf15a6e6",
+    "commit": "24e22594d814f79d6269549beca0b5d22a180407",
     "path": "runtime.zip",
-    "sha256": "7fe8c6a3d820c871900772a7fa345e443c934db56a9252bf8c6890db68a62146",
-    "size": 16319788
+    "sha256": "fbf14c2400254c180b8222dc2f167d7839ecd3437148a908f60f38c96e42502e",
+    "size": 16321096
   }
 }
