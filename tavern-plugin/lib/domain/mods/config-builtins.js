@@ -11,7 +11,6 @@ export function builtinConfigSchemas(manifests, library) {
       ui:{...(field.type==='colour'?{control:'colour'}:field.type==='segmented'?{control:'choice',choices:field.choices}:field.type==='text'?{control:'text'}:{}),...(field.unit?{unit:field.unit}:{}),...(field.type==='slider'?{integer:Number.isInteger(field.step)}:{})},
     }))
     modStageContribution(manifest.id)?.configFields?.(fields, library)
-    for(const slot of manifest.variableSlots || [])if(!fields.some(field=>field.key===slot.id))fields.push({key:slot.id,label:slot.label,valueType:slot.valueType,default:[],fieldMapping:slot.fieldMapping || {}})
     schemas[manifest.id]={fields}
   }
   return schemas

@@ -39,7 +39,7 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
     },
     cards(bindings) {
       assert('assets')
-      try {return cardAssets = createStageCardAssets({...bindings,...assets,modManifests:() => module?.modService.manifests() || [],ctx:scope.ctx,active:scope.active})}
+      try {return cardAssets = createStageCardAssets({...bindings,...assets,ctx:scope.ctx,active:scope.active})}
       catch(error) {return failed(error)}
     },
     async start(bindings) {

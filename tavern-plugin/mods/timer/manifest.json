@@ -114,7 +114,7 @@
     {"path": "countdown.cjs", "size": 3604},
     {
       "path": "runtime.js",
-      "size": 1125
+      "size": 1083
     },
     {
       "path": "state.cjs",

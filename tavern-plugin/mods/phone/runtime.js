@@ -12,5 +12,4 @@ export async function command({commandId,params},host) {
   if(!device)throw Object.assign(new Error('Phone is not available'),{code:'MOD_DISABLED'})
   return host.stage.place({id:'message',kind:'dsh.phone.message',payload:{device,marker:{op:'phone.message',...params}}})
 }
-export function settled() {return null}
 export function dispose() {}

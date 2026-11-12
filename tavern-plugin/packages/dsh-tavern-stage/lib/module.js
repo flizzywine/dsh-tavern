@@ -328,7 +328,6 @@ export function createStageServices(core) {
     return chatId ? chatPersistence.readSessionState(chatId) : null
   }
   const widgetVariables = createWidgetVariableService({
-    prepareCommit:input=>modService.variableCommit(input),
     index: readSessionIndex,
     readWindow: chatPersistence.readWindow, timeline: storyTimeline, patch: patchChat,
     execute: input => tavernScriptHostAdapter.editMvuVariables(input),

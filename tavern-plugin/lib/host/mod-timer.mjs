@@ -204,7 +204,6 @@ __export(runtime_exports, {
   configure: () => configure,
   dispose: () => dispose,
   prepare: () => prepare,
-  settled: () => settled,
   validateCommand: () => validateCommand
 });
 var import_state = __toESM(require_state(), 1);
@@ -225,9 +224,6 @@ function prepare() {
 }
 async function command(_input, host) {
   return { accepted: true, state: await host.stage.state.get() };
-}
-function settled() {
-  return null;
 }
 function dispose() {
 }
@@ -650,7 +646,7 @@ var manifest_default = {
     { path: "countdown.cjs", size: 3604 },
     {
       path: "runtime.js",
-      size: 1125
+      size: 1083
     },
     {
       path: "state.cjs",

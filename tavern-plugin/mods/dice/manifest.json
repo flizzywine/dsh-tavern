@@ -32,7 +32,7 @@
   "files": [
     {
       "path": "runtime.js",
-      "size": 188
+      "size": 159
     },
     {
       "path": "package.json",

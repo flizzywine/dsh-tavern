@@ -693,7 +693,7 @@ var manifest_default = {
     { path: "audio-loudness.json", size: 246 },
     {
       path: "runtime.js",
-      size: 984
+      size: 944
     },
     {
       path: "logic.js",
@@ -791,8 +791,7 @@ __export(runtime_exports, {
   command: () => command,
   configure: () => configure,
   dispose: () => dispose,
-  prepare: () => prepare,
-  settled: () => settled
+  prepare: () => prepare
 });
 
 // tavern-plugin/mods/phone/builtin/device.json
@@ -827,9 +826,6 @@ async function command({ commandId, params }, host) {
   const device = phoneDevices(await host.library.snapshot({}))[0];
   if (!device) throw Object.assign(new Error("Phone is not available"), { code: "MOD_DISABLED" });
   return host.stage.place({ id: "message", kind: "dsh.phone.message", payload: { device, marker: { op: "phone.message", ...params } } });
-}
-function settled() {
-  return null;
 }
 function dispose() {
 }

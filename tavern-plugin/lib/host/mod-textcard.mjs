@@ -751,7 +751,7 @@ var manifest_default = {
   files: [
     {
       path: "runtime.js",
-      size: 1782
+      size: 1740
     },
     {
       path: "presets.js",
@@ -787,7 +787,6 @@ __export(runtime_exports, {
   configure: () => configure,
   dispose: () => dispose,
   prepare: () => prepare,
-  settled: () => settled,
   validateCommand: () => assertTextcardSemantics
 });
 
@@ -996,9 +995,6 @@ async function prepare(_input, host) {
 async function command({ commandId, params }, host) {
   const payload = compileTextcard(commandId, params, intensityOf(await host.settings.get({})));
   return host.stage.place({ id: "text", kind: TEXTCARD_COMPOUND_KIND, payload });
-}
-function settled() {
-  return null;
 }
 function dispose() {
 }

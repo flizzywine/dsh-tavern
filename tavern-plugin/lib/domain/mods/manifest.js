@@ -3,9 +3,8 @@ import contract from '../../../packages/dsh-presentation-protocol/src/mod-contra
 import widgetContract from '../../../src/client/widget-contracts.cjs'
 import {validateAssetRef, ASSET_KINDS} from '../../../packages/dsh-presentation-protocol/src/asset-packs.js'
 import {validateModSettingsSchema, modSettingValue, modHelp} from './settings.js'
-import {validateModVariableSlots} from './variable-slots.js'
 const {modCheck: check, modShape: shape, modJson, modPlacement, modFreeze, modSafeKey: key, MOD_STAGE_CAPABILITIES} = contract
-const {stageWidgetSchemaValid, validateStageWidgetVariables} = widgetContract
+const {stageWidgetSchemaValid} = widgetContract
 const validatedManifests = new WeakSet(), validatedPacks = new WeakMap()
 const modId = value => typeof value === 'string' && value.length <= 128 && /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(value)
 const version = value => typeof value === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value)
@@ -56,7 +55,7 @@ function files(value, at) {
   check(total <= 256 * 1024 * 1024, at, 'Archive size limit')
 }
 function permissions(value, at) {
-  shape(value, ['variables','mainAssets','source','stage','judge','models'], ['stage'], at)
+  shape(value, ['mainAssets','source','stage','judge','models'], ['stage'], at)
   uniqueStrings(value.stage, at + '.stage', v => MOD_STAGE_CAPABILITIES.includes(v))
   if (value.models !== undefined) uniqueStrings(value.models, at + '.models')
   if (value.judge !== undefined) check(typeof value.judge === 'boolean', at + '.judge')
@@ -78,22 +77,6 @@ function permissions(value, at) {
         }
       }
     }
-  }
-  if (value.variables !== undefined) {
-    shape(value.variables, ['reads','writes'], [], at + '.variables')
-    const mapped = {reads:{}, writes:{}}
-    for (const mode of ['reads','writes']) declarations(value.variables[mode] || [], at + '.variables.' + mode, (row, location) => {
-      const {id,...declaration} = row
-      if(mode === 'reads' && row.slot !== undefined) {
-        shape(row,['id','slot'],undefined,location)
-        check(key(row.slot),location + '.slot')
-      } else {
-        shape(row, mode === 'reads' ? ['id','source','path'] : ['id','source','path','scope','ops'], undefined, location)
-        mapped[mode][id] = declaration
-      }
-    }, mode === 'reads' ? 32 : 16)
-    // Reuse the existing pointer/overlap/op capability rules; never a second resolver.
-    validateStageWidgetVariables(mapped)
   }
 }
 
@@ -148,7 +131,7 @@ export function validateModManifest(input) {
   try {
     modJson(input)
     const value = structuredClone(input), at = '$'
-    shape(value, ['format','schemaVersion','id','name','summary','relevance','i18n','ui','version','apiVersion','dependencies','permissions','variableSlots','commands','prompts','settingsSchema','packSchema','assetKinds','uiPages','runtime','defaultPacks','files','license','compatibility','builtinAssets','admission','subscriptions','modelSlots','uiLayers','provides','consumes'], ['format','schemaVersion','id','name','summary','relevance','version','apiVersion','dependencies','permissions','commands','prompts','settingsSchema','assetKinds','uiPages','runtime','defaultPacks','files','license','compatibility','builtinAssets','admission'], at)
+    shape(value, ['format','schemaVersion','id','name','summary','relevance','i18n','ui','version','apiVersion','dependencies','permissions','commands','prompts','settingsSchema','packSchema','assetKinds','uiPages','runtime','defaultPacks','files','license','compatibility','builtinAssets','admission','subscriptions','modelSlots','uiLayers','provides','consumes'], ['format','schemaVersion','id','name','summary','relevance','version','apiVersion','dependencies','permissions','commands','prompts','settingsSchema','assetKinds','uiPages','runtime','defaultPacks','files','license','compatibility','builtinAssets','admission'], at)
     check(text(value.relevance,120) && value.relevance.trim() === value.relevance && !/[\r\n]/.test(value.relevance), '$.relevance', 'Expected a single-line relevance description, at most 120 characters')
     check(text(value.summary) && modHelp(value.summary), '$.summary', 'Expected one-sentence summary')
     check(value.format === 'dsh-mod' && value.schemaVersion === 2 && value.apiVersion === 1, at, 'Unsupported mod API or format')
@@ -224,9 +207,6 @@ export function validateModManifest(input) {
       check(slot.kind === undefined || ['chat','scoring'].includes(slot.kind),location+'.kind')
     })
     for(const id of value.permissions.models || [])check(value.modelSlots?.some(slot=>slot.id===id),'$.permissions.models','Unknown model slot')
-    validateModVariableSlots(value.variableSlots)
-    for(const read of value.permissions.variables?.reads || []) if(read.slot)
-      check(value.variableSlots?.some(slot=>slot.id===read.slot),'$.permissions.variables.reads','Unknown variable slot')
     files(value.files, '$.files')
     const fileSet = new Set(value.files.map(file => file.path))
     const entry = (name, location) => { validateModPath(name, location); check(fileSet.has(name), location, 'Entry missing from files') }
@@ -250,7 +230,7 @@ export function validateModManifest(input) {
       shape(prompt, ['id','target','path','placement','modelSlot'], ['id','target','path','placement'], location)
       check(prompt.target==='model' ? value.modelSlots?.some(slot=>slot.id===prompt.modelSlot) : prompt.modelSlot===undefined,location+'.modelSlot','Unknown model slot')
       // Mod prompts never instruct the foreground writer; presentation belongs to director commands.
-      check(['director','settlement','model'].includes(prompt.target), location + '.target', 'Body-placement snippets and output markers are not supported; use director commands')
+      check(['director','model'].includes(prompt.target), location + '.target', 'Body-placement snippets and output markers are not supported; use director commands')
       modPlacement(prompt.placement, prompt.target, location + '.placement')
       entry(prompt.path, location + '.path')
     })
@@ -306,7 +286,7 @@ export function validateModManifest(input) {
       if (value.ui.layout !== undefined) {
         list(value.ui.layout, '$.ui.layout', 64)
         const seen = new Set()
-        const hosts = {assets:value.assetKinds.length > 0, variables:!!(value.permissions.variables?.reads?.length || value.permissions.variables?.writes?.length), advanced:true}
+        const hosts = {assets:value.assetKinds.length > 0, advanced:true}
         for (const [index, item] of value.ui.layout.entries()) {
           const at = '$.ui.layout.' + index
           shape(item, ['section','host','page','title','help'], [], at)

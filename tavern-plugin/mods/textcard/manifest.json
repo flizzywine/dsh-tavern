@@ -641,7 +641,7 @@
   "files": [
     {
       "path": "runtime.js",
-      "size": 1782
+      "size": 1740
     },
     {
       "path": "presets.js",

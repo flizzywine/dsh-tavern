@@ -9,15 +9,12 @@ var runtime_exports = {};
 __export(runtime_exports, {
   command: () => command,
   dispose: () => dispose,
-  prepare: () => prepare,
-  settled: () => settled
+  prepare: () => prepare
 });
 function prepare() {
   return {};
 }
 function command() {
-}
-function settled() {
 }
 function dispose() {
 }

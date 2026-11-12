@@ -3,7 +3,7 @@ import contract from '../../../packages/dsh-presentation-protocol/src/mod-contra
 import {validateModManifest} from './manifest.js'
 import {assertModCurrent} from './permissions.js'
 const {modCheck:check, modFreeze, modJson, modResultError} = contract
-const hooks = ['prepare','command','settled','dispose']
+const hooks = ['prepare','command','dispose']
 
 // The caller supplies application imports, never modules or paths obtained from an archive.
 export function createBuiltinModRegistry(releases) {

@@ -148,7 +148,7 @@
   "files": [
     {
       "path": "runtime.js",
-      "size": 657
+      "size": 615
     },
     {
       "path": "prompts/performance.txt",

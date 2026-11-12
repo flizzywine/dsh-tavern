@@ -269,7 +269,7 @@
     {"path": "audio-loudness.json", "size": 246},
     {
       "path": "runtime.js",
-      "size": 984
+      "size": 944
     },
     {
       "path": "logic.js",

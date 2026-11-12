@@ -16,5 +16,4 @@ export async function command({commandId,params},host) {
   const payload=compileTextcard(commandId,params,intensityOf(await host.settings.get({})))
   return host.stage.place({id:'text',kind:TEXTCARD_COMPOUND_KIND,payload})
 }
-export function settled() { return null }
 export function dispose() {}
