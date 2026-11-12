@@ -1,5 +1,5 @@
 <story_compaction>
-Summarize prior history to continue the story. Include the main story and worldbook snapshot facts; newer story text overrides conflicting old summaries.
+Summarize prior history to continue the story. Include the main story and worldbook snapshot facts; newer story text overrides conflicting old summaries. Write the summary in the story's language, section headings included.
 
 Output only these eight sections; leave out any section that has nothing to record, without placeholders such as "none" or "not covered".
 
