@@ -253,3 +253,30 @@ test('beforeImageGenerate: the host releases each picture with its subjects, or 
     if (skip) assert.ok(JSON.stringify(result.body).includes('not ready yet'), 'the reason reaches the turn warnings')
   })
 })
+test('a waiting picture uses the reference added by the host while other pictures can proceed', async t => {
+  let release, entered = false
+  const ready = new Promise(resolve => { release = resolve })
+  const calls = []; globalThis.fetch = atlasMock(calls)
+  const output = '<images><image><regex>林月站在窗边。</regex><prompts>林月站在窗边。</prompts><subjects>[{"characterId":"lin"}]</subjects></image><image><regex>花园里开着白花。</regex><prompts>花园里开着白花。</prompts><subjects>[]</subjects></image></images>'
+  const tavern = { async beforeImageGenerate({ subjects }) { if (subjects.some(item => item.characterId === 'lin')) { entered = true; await ready } } }
+  const fixture = await imagePluginFixture(t, { tavern, definitions: { characters: [character] }, config: { generationMode: 'auto', promptMode: 'structured' }, llm: { async *stream() { yield { type: 'text-delta', text: output } } } })
+  const runtime = await fixture.start()
+  const drawing = runtime.request('plan', { text: '林月站在窗边。花园里开着白花。', messageId: 'independent-gates', count: 2, manual: true, sessionId: 'game-1' })
+  try {
+    for (let i = 0; i < 200 && !entered; i++) await new Promise(resolve => setTimeout(resolve, 5))
+    assert.ok(entered)
+    for (let i = 0; i < 200 && !calls.some(item => item.url.endsWith('/generateImage')); i++) await new Promise(resolve => setTimeout(resolve, 5))
+    assert.ok(calls.some(item => item.url.endsWith('/generateImage')), 'the garden picture proceeds while the character reference waits')
+    const referenceImage = (await runtime.request('reference-image', { data: IMAGE_PNG.toString('base64'), mediaType: 'image/png', name: 'new-reference.png' })).body.referenceImage
+    const update = await runtime.request('definitions', { definitions: { characters: [{ ...structuredClone(character), referenceImage }] } })
+    assert.equal(update.status, 200)
+    release()
+    const result = await drawing
+    assert.equal(result.status, 200, JSON.stringify(result.body))
+    assert.equal(result.body.plans.length, 2)
+    const person = result.body.plans.find(item => item.subjects?.some(subject => subject.characterId === 'lin'))
+    const job = await runtime.terminal(person.jobId)
+    assert.equal(job.state, 'done', job.error)
+    assert.equal(job.references[0].image.id, referenceImage.id)
+  } finally { release(); await drawing }
+})

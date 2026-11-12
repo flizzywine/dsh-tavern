@@ -3057,24 +3057,33 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (seen.has(identity) || seenPrompts.has(promptIdentity) || seen.size >= want) continue
           seen.add(identity)
           seenPrompts.add(promptIdentity)
-          submitChain = submitChain.then(async () => {
+          const submitPicture = async () => {
             task.controller.signal.throwIfAborted()
             if (submissionStopped || !imageGeneration || (smart && (!decisionFrozen || streamDecision !== 'draw' || streamConflict))) return
             if (image.subjectsError) throw new Error(image.subjectsError)
+            // 可选的宿主口子：出这张图之前由宿主放行；宿主说跳过就不出这张，原因写进这一轮的提示。没有这个口子就照旧。
+            if (sessionId && typeof deps.tavern?.beforeImageGenerate === 'function') {
+              const answer = await deps.tavern.beforeImageGenerate({ gameId: sessionId, turn, subjects: image.subjects || [], manual: Boolean(manual), signal: task.controller.signal })
+              task.controller.signal.throwIfAborted()
+              if (answer?.skip) { if (answer.reason) heldBack.push(String(answer.reason).slice(0, 200)); return }
+            }
+            if (submissionStopped || (smart && (!decisionFrozen || streamDecision !== 'draw' || streamConflict))) return
+            const latest = sessionId && typeof deps.tavern?.beforeImageGenerate === 'function' ? applyCharacterSnapshot(definitions, visualSnapshot) : null
+            const pictureScope = latest ? { ...latest, characters: scopeCharacters(latest.characters, card) } : scoped
             const key = ('plan|' + planningGenerationMode + '|' + (manualBatch ? 'manual:' + manualBatch + '|' : '') + (messageId ?? '') + '|' + image.mount + '|' + promptIdentity).slice(0, 3800)
             const imageIndex = ++traceImageIndex
             const macros = traceId ? [] : null
             // 诊断里记录的「展开后、清理前」的场景提示词（以前引用了不存在的 expanded，开着诊断时每张图都提交失败）。
             let expandedScene = ''
             const expandOne = (text, keep = false) => {
-              const expanded = expandRosterCalls(text, scoped, plannerConfig.traitMode, { style: rosterStyle(plannerConfig, plannerWorkflow), onMacro: entry => { macros?.push(entry); noteMacro(entry) } })
+              const expanded = expandRosterCalls(text, pictureScope, plannerConfig.traitMode, { style: rosterStyle(plannerConfig, plannerWorkflow), onMacro: entry => { macros?.push(entry); noteMacro(entry) } })
               if (keep) expandedScene = expanded
-              return normalizePrompts(expanded, scoped, { backend: effectiveConfiguredProvider(plannerConfig), style: rosterStyle(plannerConfig, plannerWorkflow), allowChinese: chineseAllowed(plannerConfig, plannerWorkflow) })
+              return normalizePrompts(expanded, pictureScope, { backend: effectiveConfiguredProvider(plannerConfig), style: rosterStyle(plannerConfig, plannerWorkflow), allowChinese: chineseAllowed(plannerConfig, plannerWorkflow) })
             }
             // Reference jobs must expand against the per-picture reference scope,
             // not the full library here (which would reintroduce conflicting traits).
             const normalizedTag = planningGenerationMode === 'reference' ? sceneText : expandOne(sceneText, true)
-            for (const [key, alias] of ambiguousAliases(scoped.characters)) {
+            for (const [key, alias] of ambiguousAliases(pictureScope.characters)) {
               if (!unmatchedCharacters.has(key) && containsNameToken(sceneText, alias)) unmatchedCharacters.set(key, { asked: alias, ambiguous: true })
             }
             const characters = planCharacters.map(item => ({ prompt: planningGenerationMode === 'reference' ? item.prompt : expandOne(item.prompt), centers: String(item.centers ?? '').trim(), uc: String(item.uc ?? '').trim() })).filter(item => item.prompt)
@@ -3082,12 +3091,6 @@ function createRuntime(ctx, overrides, logger, deps) {
               const T = diag.text
               diag.record(traceId, 'image-adopted', { mount: T(image.mount), size: image.size ?? null, prompts: T(image.prompts), adoptedAtStreamChars: streamed.length }, { imageIndex })
               diag.record(traceId, 'macro-expansion', { macros: macros.map(m => ({ ...m, origins: (m.origins ?? []).map(o => ({ ...o, text: T(o.text) })) })), expanded: T(expandedScene), normalized: T(normalizedTag) }, { imageIndex })
-            }
-            // 可选的宿主口子：出这张图之前由宿主放行；宿主说跳过就不出这张，原因写进这一轮的提示。没有这个口子就照旧。
-            if (sessionId && typeof deps.tavern?.beforeImageGenerate === 'function') {
-              const answer = await deps.tavern.beforeImageGenerate({ gameId: sessionId, turn, subjects: image.subjects || [], manual: Boolean(manual), signal: task.controller.signal })
-              task.controller.signal.throwIfAborted()
-              if (answer?.skip) { if (answer.reason) heldBack.push(String(answer.reason).slice(0, 200)); return }
             }
             const job = await startJob({
               tag: normalizedTag,
@@ -3099,7 +3102,12 @@ function createRuntime(ctx, overrides, logger, deps) {
             plans.push(item)
             onPlan?.(item)
             task.controller.signal.throwIfAborted()
-          }).catch(error => { submitError ||= error })
+          }
+          if (sessionId && typeof deps.tavern?.beforeImageGenerate === 'function') {
+            // Host waits are per picture: a missing character reference must not hold up unrelated scenes.
+            const pending = submitPicture().catch(error => { submitError ||= error })
+            submitChain = Promise.all([submitChain, pending]).then(() => {})
+          } else submitChain = submitChain.then(submitPicture).catch(error => { submitError ||= error })
         }
       }
       let result = { text: '', usage: null, failure: null }
