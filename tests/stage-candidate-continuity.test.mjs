@@ -6,8 +6,8 @@ import {directorPromptData} from './fixtures/asset-packs/prompt.mjs'
 import {createCandidateGenerator} from '../tavern-plugin/lib/domain/candidate-generation.js'
 import {createStageDirector} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-director.js'
 import {createStoryTimeline} from '../tavern-plugin/lib/domain/story-timeline.js'
-import phoneBeat from '../tavern-plugin/src/client/phone-beat.cjs'
-const {phoneModAutoVoiceAllowed} = phoneBeat
+import {phoneBeatKernel} from './helpers/phone-source-beat.mjs'
+const {phoneModAutoVoiceAllowed} = phoneBeatKernel
 
 const text = Array.from({length:7}, (_, i) => `Synthetic paragraph ${i + 1}.`).join('\n\n')
 const music = {...answer.beats[0].ops[0].background, kind:'music'}

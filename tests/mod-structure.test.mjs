@@ -25,7 +25,6 @@ const PENDING = new Set([
   'import-out:tavern-plugin/mods/phone/call-context.js', 'import-out:tavern-plugin/mods/phone/call.js',
   'import-out:tavern-plugin/mods/phone/stage.js',
   'names-mod:tavern-plugin/lib/domain/user-plugin-install.js',
-  'names-mod:tavern-plugin/src/client/phone-beat.cjs',
 ])
 
 async function walk(directory, skip) {

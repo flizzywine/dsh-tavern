@@ -6,6 +6,8 @@
 //            replay, live}) over the stage, after the text box
 //   backlog: {kind, use(useChat), entries(rows, value, nativeTurnOf, rowOf), line(h, record)}: 履历 rows of the
 //            performance kind `kind`, merged into the rows by entries(); line() writes one row's words
+//   source:  {beat(direction, para), protocol}: a mod whose director mark shows a page on its own surface (source-beat.cjs; the
+//            stage's source widgets get protocol: {phoneModDirect, phoneModOwnership, run})
 // How the panel (舞台设置 › 模组, the mod's page) shows a mod, read by mod id from slot(name):
 //   description: one sentence a player understands, the (?) of the mod's page head
 //   glyph:       the icon name (the panel's Glyph) of the mod's row

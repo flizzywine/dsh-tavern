@@ -25,7 +25,7 @@ const HOST_SOURCES = ['shared/color-math.cjs', 'packages/dsh-presentation-protoc
   'packages/dsh-asset-library/src/shared/emotion-identity.cjs', 'packages/dsh-asset-library/src/shared/layered-sprite.cjs',
   'src/client/pack-playback.cjs',
   // The runtime protocol kernels the core hands the stage (gal-stage.js runtimeProtocol).
-  'packages/dsh-presentation-protocol/src/performance-state.cjs', 'src/client/mod-projection.cjs', 'src/client/phone-beat.cjs',
+  'packages/dsh-presentation-protocol/src/performance-state.cjs', 'src/client/mod-projection.cjs', 'src/client/source-beat.cjs',
   // The narration presentation the controller reads for a skin's art.narration (options.controller.narration).
   'lib/domain/stage-narration.cjs',
   // The core's waiting lines and stoppable wait (options.choices / regenerate / notices: the text box's and the end panel's waits).
@@ -93,7 +93,7 @@ export function stageHostScript() {
     playbackTiming:{delay:stageAutoDelay,remaining:stageAutoRemaining},
     performances:{read:async()=>({kinds:[]}),registry:createStagePerformanceRegistry,core:STAGE_PERFORMANCE_CORE},
     runtimeProtocol:{performanceKindsKernel:{stagePerformanceKindOf,stagePerformanceBlocks,stagePerformancePhaseBlocks,STAGE_PERFORMANCE_CORE},
-      performanceStateKernel:{performanceSustained,reducePerformanceEvent},modProjectionKernel:{modPerformanceLedgerKey},phoneBeatKernel:{phoneModAutoVoiceAllowed}},
+      performanceStateKernel:{performanceSustained,reducePerformanceEvent},modProjectionKernel:{modPerformanceLedgerKey},phoneBeatKernel:{phoneModAutoVoiceAllowed:stageAutoVoiceAllowed}},
     entrance:{reading,safety:stageSafety,flashGate:stageFlashGate},
     text:{performance,ResizeObserver,getComputedStyle,clock:foreground,fonts,sounds,defaultTextSpeed:28},
     music:{audio,foreground,fetch,AbortController},

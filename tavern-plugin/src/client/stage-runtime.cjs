@@ -9,7 +9,7 @@ const performanceStateKernel = typeof module !== 'undefined' && typeof window ==
 const modProjectionKernel = typeof module !== 'undefined' && typeof window === 'undefined'
     ? require('./mod-projection.cjs') : {modPerformanceLedgerKey:(...args) => modPerformanceLedgerKey(...args)};
 const phoneBeatKernel = typeof module !== 'undefined' && typeof window === 'undefined'
-    ? require('./phone-beat.cjs') : {phoneModAutoVoiceAllowed:(...args) => phoneModAutoVoiceAllowed(...args)};
+    ? {phoneModAutoVoiceAllowed:require('./source-beat.cjs').stageAutoVoiceAllowed} : {phoneModAutoVoiceAllowed:(...args) => stageAutoVoiceAllowed(...args)};
 const performanceKindsKernel = typeof module !== 'undefined' && typeof window === 'undefined'
     ? require('./stage-performance-kinds.cjs') : {stagePerformanceKindOf:descriptor => stagePerformanceKindOf(descriptor),
         stagePerformanceBlocks:(kinds,descriptor) => stagePerformanceBlocks(kinds,descriptor), stagePerformancePhaseBlocks:(kinds,value) => stagePerformancePhaseBlocks(kinds,value),

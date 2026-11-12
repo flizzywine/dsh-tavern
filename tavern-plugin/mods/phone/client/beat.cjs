@@ -1,6 +1,7 @@
 'use strict';
 
-// Only accepted director marks choose a surface; story text is never parsed for phone tags.
+// The phone's source beat (client/core.js source.beat, src/client/source-beat.cjs): the page an accepted director mark shows
+// on the phone. Only accepted director marks choose a surface; story text is never parsed for phone tags.
 function phoneModBeat(direction,para) {
     if (!direction || !['partial','done'].includes(direction.phase) || para>direction.through) return null;
     for (const entry of direction.entries || []) {
@@ -36,9 +37,4 @@ function phoneModRun(direction,para) {
     const open=marks.some(at=>at>=para && !breaks.some(b=>b>para && b<=at)) || direction.phase!=='done' && para>=through;
     return open ? {start,key:JSON.stringify([direction.token?.sourceKey || '',direction.token?.generation ?? '',start])} : null;
 }
-function phoneModAutoVoiceAllowed(direction,para,directorEnabled) {
-    if (phoneModBeat(direction,para)) return false;
-    // Do not start speech before a sealed prefix can choose the phone-only surface.
-    return !directorEnabled || ['off','error'].includes(direction.phase) || direction.through>=para;
-}
-if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports={phoneModBeat,phoneModRun,phoneModAutoVoiceAllowed};
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports={phoneModBeat,phoneModRun};

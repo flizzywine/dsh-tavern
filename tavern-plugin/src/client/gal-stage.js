@@ -4,7 +4,6 @@
 // The chat view can stay frozen or unmounted; backlog reads the same session index.
 
 // @include-domain stage-narration.cjs
-// @include-mod phone/stage-phone.cjs
 // @include stage-offstage.cjs
 // @include-protocol stage-pacing.cjs
 // @include-protocol stage-soundscape.cjs
@@ -125,7 +124,7 @@ function bindStageViews(createViews) {
     if (stageViews) throw new Error('Stage views already mounted');
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
         speech:{player:voicePlayer,available:()=>!!forkTtsScope?.get('ttsClient')?.available(),speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
-        sourceWidgets:{storage:(()=>{try{return localStorage;}catch{return null;}})(),foreground:forkForeground,rpc,signals:tavernSessionSignals,characters:{character:bubbleCharacter,mood:bubbleMood,moods:bubbleMoodList,actor:stageActorCharacter},avatarCache,phoneProtocol:{phoneModDirect,phoneModOwnership,run:phoneModRun},figureResolution,playerErrorText,fetch,createImageBitmap,
+        sourceWidgets:{storage:(()=>{try{return localStorage;}catch{return null;}})(),foreground:forkForeground,rpc,signals:tavernSessionSignals,characters:{character:bubbleCharacter,mood:bubbleMood,moods:bubbleMoodList,actor:stageActorCharacter},avatarCache,phoneProtocol:tavernModClients.slot('source')[0]?.value.protocol,figureResolution,playerErrorText,fetch,createImageBitmap,
             sandbox:{stopSfx:()=>stageWidgetMediaOwner?.stopSfx(),scroll:(id,...args)=>stageWidgetScrollTargets.get(id)?.wheel(...args),theme:root=>stageWidgetThemeOwners.get(root)}},
         modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readItems:(id,turn)=>rpc('getStageItems',{turn},id)},
         performanceSurface:{fonts:tavernFonts,resolution:galResolution,subscribeResolution:galResolutionSubscribe,policy:{stageFlashAt,stageFlashDark,stageFlashGate,stageFlashSafe,stageSafety,stageEffectHex,stageEffectRgb}},
@@ -134,7 +133,7 @@ function bindStageViews(createViews) {
         performances:{read:id=>rpc('getStagePerformanceKinds',{},id),registry:createStagePerformanceRegistry,core:STAGE_PERFORMANCE_CORE},
         directorCommands,
         resourceDependencies:{createPerformanceTimeline,performanceSustained},
-        runtimeProtocol:{performanceStateKernel:{performanceSustained,reducePerformanceEvent},modProjectionKernel:{modPerformanceLedgerKey},phoneBeatKernel:{phoneModAutoVoiceAllowed},
+        runtimeProtocol:{performanceStateKernel:{performanceSustained,reducePerformanceEvent},modProjectionKernel:{modPerformanceLedgerKey},phoneBeatKernel:{phoneModAutoVoiceAllowed:stageAutoVoiceAllowed},
             performanceKindsKernel:{stagePerformanceKindOf,stagePerformanceBlocks,stagePerformancePhaseBlocks,STAGE_PERFORMANCE_CORE}},
         entrance:{reading:stageReading,safety:stageSafety,flashGate:stageFlashGate},
         entranceMedia:{getService:()=>packTransport.service,fetch,AbortController},
@@ -144,7 +143,7 @@ function bindStageViews(createViews) {
         useBubbles, Icon,
         controller:{useLiveView:useLiveTavernView,storyTurn:tavernStoryTurnForDshTurn,useCoordination:useTavernCoordination,rpc,phoneCall:()=>typeof phoneModCall==='object'?phoneModCall:null,
             dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
-            modClients:tavernModClients,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,playEvents:tavernPlayEvents,
+            modClients:tavernModClients,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:stageSourceBeat,playEvents:tavernPlayEvents,
             // 场景生图 pictures of the round on screen (stage-scene-images.js): the CG insert pages and the 「正在生成 CG…」 notice.
             pictures:{use:useStagePictures}},
         // Clip export (clip-export.cjs) lives in the stage package; these are the core names it uses.

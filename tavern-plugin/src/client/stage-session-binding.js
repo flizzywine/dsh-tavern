@@ -3,7 +3,7 @@
 // @include-protocol performance-state.cjs
 // @include-protocol performance-timeline.cjs
 // @include mod-projection.cjs
-// @include phone-beat.cjs
+// @include source-beat.cjs
 // @include stage-runtime.cjs
 // @include stage-page-index.cjs
 // @include-protocol stage-skin.cjs

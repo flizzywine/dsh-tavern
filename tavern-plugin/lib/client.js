@@ -21154,6 +21154,8 @@ function tavernModelRefusalNotice(text) {
 		//            replay, live}) over the stage, after the text box
 		//   backlog: {kind, use(useChat), entries(rows, value, nativeTurnOf, rowOf), line(h, record)}: 履历 rows of the
 		//            performance kind `kind`, merged into the rows by entries(); line() writes one row's words
+		//   source:  {beat(direction, para), protocol}: a mod whose director mark shows a page on its own surface (source-beat.cjs; the
+		//            stage's source widgets get protocol: {phoneModDirect, phoneModOwnership, run})
 		// How the panel (舞台设置 › 模组, the mod's page) shows a mod, read by mod id from slot(name):
 		//   description: one sentence a player understands, the (?) of the mod's page head
 		//   glyph:       the icon name (the panel's Glyph) of the mod's row
@@ -22257,9 +22259,202 @@ function tavernModelRefusalNotice(text) {
 		    "M50 64 L60 71 L71 68 L80 76 L92 74", "M50 64 L52 76 L47 86 L51 98"];
 		tavernModClients.register("dsh.dice", { label: "骰子", floor: DiceRolls, page: DiceRolls, overlay: DiceThrow,
 		    backlog: { kind: "core.dice.roll", use: useDiceBacklog, entries: diceBacklogEntries, line: diceLine } });
-		// The phone mod's core client parts (src/client/mod-clients.js): how 舞台设置 › 模组 shows it (description, icon). Its settings page
-		// is mods/phone/client/settings.js, built into the settings factory scope.
-		tavernModClients.register("dsh.phone", { label: "手机", description: '角色用手机收发消息时，舞台上显示成手机画面。', glyph: 'phone' });
+		// The phone mod's core client parts (src/client/mod-clients.js): how 舞台设置 › 模组 shows it (description, icon), and its
+		// source (the page its message mark shows on the phone, beat.cjs; the thread ownership and runs the stage's source widgets
+		// read, stage-phone.cjs). Its settings page is mods/phone/client/settings.js, built into the settings factory scope.
+		// Read-only phone presentation. Paragraph IDs belong to the existing GAL source index.
+		function phoneModMarker(raw, unit, characters, threads = {}) {
+		    if (!raw || Object.keys(raw).some(key => !['op', 'contact', 'to', 'thread', 'sender', 'side', 'form'].includes(key)) || raw.op !== 'phone.message'
+		        || !unit || unit.kind !== 'line' || !['in', 'out'].includes(raw.side) || raw.form !== undefined && !['text', 'voice'].includes(raw.form)) return null;
+		    // both source speakers and marker contacts resolve before identity comparisons.
+		    const resolver = typeof figureResolution !== 'undefined' ? figureResolution : require('../../packages/dsh-presentation-protocol/src/figure-resolution.cjs');
+		    const rows = characters.map(row => ({...row, actorKey:row.alias}));
+		    if (raw.thread !== undefined) {
+		        const thread = Object.hasOwn(threads, raw.thread) && threads[raw.thread];
+		        if (!thread || raw.contact !== undefined || raw.to !== undefined || typeof raw.sender !== 'string') return null;
+		        const sender = raw.sender === '$player' ? '$player' : resolver.resolveFigureName(rows, raw.sender).actorKey;
+		        const speaker = unit.alias === '$player' ? '$player' : resolver.resolveFigureName(rows, unit).actorKey;
+		        if (!sender || sender !== speaker || !thread.participants.includes(sender) || raw.side !== (sender === '$player' ? 'out' : 'in')) return null;
+		        return {op:'phone.message',thread:raw.thread,sender,side:raw.side,...(raw.form ? {form:raw.form} : {})};
+		    }
+		    if (typeof raw.contact !== 'string' || raw.sender !== undefined) return null;
+		    const contact = resolver.resolveFigureName(rows, raw.contact);
+		    if (contact.status !== 'resolved' || !contact.row.name?.trim()) return null;
+		    const speaker = resolver.resolveFigureName(rows, unit);
+		    if (speaker.status !== 'resolved' || (raw.side === 'in' ? speaker.actorKey !== contact.actorKey : speaker.actorKey === contact.actorKey)) return null;
+		    let to;
+		    if (raw.to !== undefined && raw.to !== '$player') {
+		        const recipient = resolver.resolveFigureName(rows, raw.to);
+		        if (recipient.status !== 'resolved' || !recipient.row.name?.trim() || recipient.actorKey === speaker.actorKey || raw.side !== 'in') return null;
+		        to = recipient.actorKey;
+		    }
+		    return { op: 'phone.message', contact: contact.actorKey, ...(to ? {to} : {}), side: raw.side, ...(raw.form ? {form:raw.form} : {}) };
+		}
+		// New director input names only a destination; source owns the sender, never a bubble side.
+		function phoneModSourceMarker(raw, unit, characters, threads = {}, playerId = null) {
+		    if (unit?.kind !== 'line' || (raw.to === undefined) === (raw.thread === undefined)) return null;
+		    const resolver = typeof figureResolution !== 'undefined' ? figureResolution : require('../../packages/dsh-presentation-protocol/src/figure-resolution.cjs');
+		    const rows = characters.map(row=>({...row,actorKey:row.alias}));
+		    const identity = value => {
+		        if (value === '$player' || value?.alias === '$player') return '$player';
+		        const found = resolver.resolveFigureName(rows,value);
+		        return found.status === 'resolved' && found.row.name?.trim() ? found.actorKey === playerId ? '$player' : found.actorKey : null;
+		    };
+		    const sender = identity(unit);
+		    if (!sender) return null;
+		    if (raw.thread !== undefined) {
+		        const thread = Object.hasOwn(threads,raw.thread) && threads[raw.thread];
+		        if (!thread || !thread.participants.some(id=>identity(id) === sender)) return null;
+		        return {op:'phone.message',thread:raw.thread,sender,side:sender === '$player' ? 'out' : 'in',form:raw.form};
+		    }
+		    const recipient = identity(raw.to);
+		    if (!recipient || recipient === sender) return null;
+		    return {op:'phone.message',contact:sender === '$player' ? recipient : sender,
+		        ...(sender !== '$player' && recipient !== '$player' ? {to:recipient} : {}),side:sender === '$player' ? 'out' : 'in',form:raw.form};
+		}
+		// These helpers consume canonical marks/threads; identity resolution stays at admission and source projection.
+		function phoneModDirect(mark, playerId = null) {
+		    const player = id => id === playerId ? '$player' : id;
+		    const sender = player(mark.side === 'out' ? '$player' : mark.contact);
+		    const recipient = player(mark.side === 'out' ? mark.contact : mark.to || '$player');
+		    const participants = [sender, recipient].sort();
+		    return {threadId:participants.includes('$player') ? participants.find(id=>id !== '$player') : 'direct:' + JSON.stringify(participants),sender,recipient,participants};
+		}
+		function phoneModOwnership(threads, latestMessage = null, playerId = null) {
+		    const player = id => id === playerId ? '$player' : id;
+		    const phones = new Map();
+		    for (const source of threads) {
+		        if (source.kind !== 'group' && !source.messages?.length && !source.typing) continue;
+		        const thread = {...source,participants:[...new Map(source.participants.map(person=>[player(person.id),{...person,id:player(person.id)}])).values()]};
+		        for (const owner of thread.participants) {
+		            if (!phones.has(owner.id)) phones.set(owner.id,{id:owner.id,name:owner.name,threads:[]});
+		            const side = message => ({...message,sender:player(message.sender),...(message.recipient ? {recipient:player(message.recipient)} : {}),side:player(message.sender) === owner.id ? 'out' : 'in'});
+		            phones.get(owner.id).threads.push({...thread,
+		                name:thread.kind === 'direct' ? thread.participants.find(person=>person.id !== owner.id).name : thread.name,
+		                messages:(thread.messages || []).map(side),typing:thread.typing ? side(thread.typing) : null});
+		        }
+		    }
+		    const list = [...phones.values()].sort((a,b)=>(b.id === '$player') - (a.id === '$player'));
+		    const recipient = latestMessage?.recipient ? player(latestMessage.recipient) : null;
+		    return {phones:list,latestRecipientPhoneId:phones.has(recipient) ? recipient : null};
+		}
+		function phoneModProjection(pages, at, record, characters) {
+		    const empty = { active: false, current: null, messages: [], key: '' };
+		    // validated pack prefixes have ops and a stable binding, not a legacy key.
+		    const pack = Boolean(record?.token?.bindingKey);
+		    const key = pack ? record.token.bindingKey + ':' + record.token.generation : record?.key;
+		    const ready = pack ? ['partial', 'done'].includes(record.phase) && pages[at]?.para <= record.through : record?.status === 'done';
+		    if (!ready || typeof key !== 'string' || !key || !Array.isArray(record.entries) || !pages[at]) return empty;
+		    const marks = new Map();
+		    for (const entry of record.entries) {
+		        const ops = pack ? entry?.at <= record.through && entry.ops : entry?.commands;
+		        for (const raw of Array.isArray(ops) ? ops : []) {
+		            if (!raw || raw.op !== 'phone.message') continue;
+		            const unit = pages.find(page => page.para === entry.at);
+		            const mark = phoneModMarker(raw, unit, characters || []);
+		            if (marks.has(entry.at) || !mark) marks.set(entry.at, null); else marks.set(entry.at, mark);
+		        }
+		    }
+		    const ordered = [...marks].filter(([, mark]) => mark).sort((a, b) => a[0] - b[0]);
+		    const groups = [];
+		    for (const [para, mark] of ordered) {
+		        let group = groups[groups.length - 1];
+		        if (!group || group.contact !== mark.contact || pages.some(item => item.para > group.last && item.para < para && item.kind === 'line' && !marks.get(item.para))) {
+		            group = { first: para, last: para, contact: mark.contact, marks: new Map() }; groups.push(group);
+		        }
+		        group.last = para; group.marks.set(para, mark);
+		    }
+		    const current = pages[at], group = groups.find(item => current.para >= item.first && current.para <= item.last);
+		    if (!group) return empty;
+		    const seen = new Set(), messages = [];
+		    for (const line of pages.slice(0, at + 1)) {
+		        const mark = group.marks.get(line.para);
+		        if (!mark || seen.has(line.para)) continue;
+		        seen.add(line.para);
+		        const prior = messages[messages.length - 1];
+		        const resolver = typeof figureResolution !== 'undefined' ? figureResolution : require('../../packages/dsh-presentation-protocol/src/figure-resolution.cjs');
+		        const rows = (characters || []).map(row => ({...row, actorKey:row.alias}));
+		        messages.push({ line, mark, continued: Boolean(prior && resolver.resolveFigureName(rows, prior.line).actorKey === resolver.resolveFigureName(rows, line).actorKey
+		            && prior.mark.side === mark.side && prior.line.para + 1 === line.para) });
+		    }
+		    return { active: true, current: group.marks.get(current.para) || null, messages, contact: group.contact,
+		        first: group.first, last: group.last, key: key + ':' + group.first + ':' + group.contact };
+		}
+		function phoneModSize(screenWidth) { return { screenWidth, width: screenWidth + 14, height: screenWidth * 932 / 430 + 14 }; }
+		function phoneModPlace({ width, height, size, figures = [], blocked = [], previous }) {
+		    const w = size.width, h = size.height, padding = 16;
+		    const valid = r => r && !r.hidden && [r.x, r.y, r.width, r.height].every(Number.isFinite) && r.width > 0 && r.height > 0;
+		    const inflate = (r, n) => ({ x: r.x - n, y: r.y - n, width: r.width + n * 2, height: r.height + n * 2 });
+		    const obstacles = [...blocked.filter(valid).map(r => inflate(r, 12)), ...figures.flatMap(f => [valid(f.body) && inflate(f.body, 18), valid(f.head) && inflate(f.head, 24)]).filter(Boolean)];
+		    const safe = r => r.x >= padding && r.y >= padding && r.x + w <= width - padding + 1e-7 && r.y + h <= height - padding + 1e-7
+		        && !obstacles.some(b => r.x < b.x + b.width - 1e-7 && r.x + w > b.x + 1e-7 && r.y < b.y + b.height - 1e-7 && r.y + h > b.y + 1e-7);
+		    const box = (x, y) => ({ x, y, width: w, height: h });
+		    if (previous && previous.width === w && previous.height === h && safe(previous)) return box(previous.x, previous.y);
+		    const cx = (width - w) / 2, cy = (height - h) / 2, xs = new Set([cx, padding, width - w - padding]), ys = new Set([cy, padding, height - h - padding]);
+		    for (const r of obstacles) { xs.add(r.x - w); xs.add(r.x + r.width); ys.add(r.y - h); ys.add(r.y + r.height); }
+		    const candidates = [];
+		    for (const x of xs) for (const y of ys) { const r = box(x, y); if (safe(r)) candidates.push(r); }
+		    candidates.sort((a, b) => ((a.x - cx) ** 2 + (a.y - cy) ** 2) - ((b.x - cx) ** 2 + (b.y - cy) ** 2) || Math.abs(a.y - cy) - Math.abs(b.y - cy) || a.x - b.x);
+		    return candidates[0] || null;
+		}
+		function phoneModLayout({ width, height, figures, blocked, caption, previous, compactPrevious }) {
+		    const normalWidth = Math.min(280, width - 46, (height - 110 - 14) * 430 / 932);
+		    if (normalWidth < 200) return null;
+		    const normal = phoneModSize(normalWidth), place = (size, prior) => phoneModPlace({ width, height, figures, blocked, size, previous: prior });
+		    let bounds = place(normal, previous);
+		    if (bounds) return { ...bounds, compact: false };
+		    if (!caption) return null;
+		    const attempt = value => { const size = phoneModSize(value), found = place(size, compactPrevious); return found && { ...found, compact: true }; };
+		    let low = 200, high = Math.min(normalWidth, (caption.y - 28 - 14) * 430 / 932);
+		    if (high < low) return null;
+		    bounds = attempt(high); if (bounds) return bounds;
+		    bounds = attempt(low); if (!bounds) return null;
+		    for (let i = 0; i < 12 && high - low > .1; i++) { const mid = (low + high) / 2, candidate = attempt(mid); if (candidate) { low = mid; bounds = candidate; } else high = mid; }
+		    return bounds;
+		}
+		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = { phoneModMarker, phoneModSourceMarker, phoneModDirect, phoneModOwnership, phoneModProjection, phoneModSize, phoneModPlace, phoneModLayout };
+		'use strict';
+
+		// The phone's source beat (client/core.js source.beat, src/client/source-beat.cjs): the page an accepted director mark shows
+		// on the phone. Only accepted director marks choose a surface; story text is never parsed for phone tags.
+		function phoneModBeat(direction,para) {
+		    if (!direction || !['partial','done'].includes(direction.phase) || para>direction.through) return null;
+		    for (const entry of direction.entries || []) {
+		        if (entry.at!==para) continue;
+		        const mark=entry.ops?.find(op=>op.op==='mod.command' && op.modId==='dsh.phone' && op.commandId==='mark')?.params;
+		        if (mark && ['in','out'].includes(mark.side) && typeof mark.contact==='string') return {...mark,form:mark.form || 'text'};
+		    }
+		    return null;
+		}
+		// once a phone line has been read the phone stays in hand through the narration between
+		// its lines. The run ends after the director's last sealed phone mark of the turn or when the scene (background) moves
+		// on; no new director command is involved. An unsealed tail keeps the run open until the director decides.
+		function phoneModRun(direction,para) {
+		    if (!direction || !['partial','done'].includes(direction.phase) || !(para>0)) return null;
+		    const through=Number.isFinite(direction.through) ? direction.through : 0;
+		    const entries=(direction.entries || []).filter(entry=>entry.at<=through).slice().sort((a,b)=>a.at-b.at);
+		    const sceneOf=op=>op.op==='scene.set' ? JSON.stringify(op.value?.background ?? op.value ?? null) : op.op==='scene.clear' ? 'clear' : undefined;
+		    let scene=direction.baseline?.scene===undefined ? undefined : JSON.stringify(direction.baseline.scene?.background ?? direction.baseline.scene);
+		    const marks=[],breaks=[];
+		    for (const entry of entries) {
+		        for (const op of entry.ops || []) {
+		            const next=sceneOf(op);
+		            if (next===undefined) continue;
+		            if (next!==scene) breaks.push(entry.at);
+		            scene=next;
+		        }
+		        if (phoneModBeat(direction,entry.at)) marks.push(entry.at);
+		    }
+		    // The run starts at its first phone line after the latest scene change (a line in the changing beat counts).
+		    const since=Math.max(0,...breaks.filter(at=>at<=para)),start=marks.find(at=>at>=since && at<=para);
+		    if (start===undefined) return null;
+		    // It continues while a later phone line of the same scene follows (a line in a changing beat starts a new run).
+		    const open=marks.some(at=>at>=para && !breaks.some(b=>b>para && b<=at)) || direction.phase!=='done' && para>=through;
+		    return open ? {start,key:JSON.stringify([direction.token?.sourceKey || '',direction.token?.generation ?? '',start])} : null;
+		}
+		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports={phoneModBeat,phoneModRun};
+		tavernModClients.register("dsh.phone", { label: "手机", description: '角色用手机收发消息时，舞台上显示成手机画面。', glyph: 'phone',
+		    source: { beat: phoneModBeat, protocol: { phoneModDirect, phoneModOwnership, run: phoneModRun } } });
 		// The text card mod's core client parts (src/client/mod-clients.js): how 舞台设置 › 模组 shows it. Its settings page is
 		// mods/textcard/client/settings.js, built into the settings factory scope.
 		tavernModClients.register("dsh.textcard", { label: "文字演出", description: '情绪转折、回忆、章节切换时，用全屏文字卡强调。', glyph: 'textcard',
@@ -51020,157 +51215,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		}
 
 		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {stageNarrationLayout, stageNarrationPresentation, stagePerformanceImageShown};
-		// Read-only phone presentation. Paragraph IDs belong to the existing GAL source index.
-		function phoneModMarker(raw, unit, characters, threads = {}) {
-		    if (!raw || Object.keys(raw).some(key => !['op', 'contact', 'to', 'thread', 'sender', 'side', 'form'].includes(key)) || raw.op !== 'phone.message'
-		        || !unit || unit.kind !== 'line' || !['in', 'out'].includes(raw.side) || raw.form !== undefined && !['text', 'voice'].includes(raw.form)) return null;
-		    // both source speakers and marker contacts resolve before identity comparisons.
-		    const resolver = typeof figureResolution !== 'undefined' ? figureResolution : require('../../packages/dsh-presentation-protocol/src/figure-resolution.cjs');
-		    const rows = characters.map(row => ({...row, actorKey:row.alias}));
-		    if (raw.thread !== undefined) {
-		        const thread = Object.hasOwn(threads, raw.thread) && threads[raw.thread];
-		        if (!thread || raw.contact !== undefined || raw.to !== undefined || typeof raw.sender !== 'string') return null;
-		        const sender = raw.sender === '$player' ? '$player' : resolver.resolveFigureName(rows, raw.sender).actorKey;
-		        const speaker = unit.alias === '$player' ? '$player' : resolver.resolveFigureName(rows, unit).actorKey;
-		        if (!sender || sender !== speaker || !thread.participants.includes(sender) || raw.side !== (sender === '$player' ? 'out' : 'in')) return null;
-		        return {op:'phone.message',thread:raw.thread,sender,side:raw.side,...(raw.form ? {form:raw.form} : {})};
-		    }
-		    if (typeof raw.contact !== 'string' || raw.sender !== undefined) return null;
-		    const contact = resolver.resolveFigureName(rows, raw.contact);
-		    if (contact.status !== 'resolved' || !contact.row.name?.trim()) return null;
-		    const speaker = resolver.resolveFigureName(rows, unit);
-		    if (speaker.status !== 'resolved' || (raw.side === 'in' ? speaker.actorKey !== contact.actorKey : speaker.actorKey === contact.actorKey)) return null;
-		    let to;
-		    if (raw.to !== undefined && raw.to !== '$player') {
-		        const recipient = resolver.resolveFigureName(rows, raw.to);
-		        if (recipient.status !== 'resolved' || !recipient.row.name?.trim() || recipient.actorKey === speaker.actorKey || raw.side !== 'in') return null;
-		        to = recipient.actorKey;
-		    }
-		    return { op: 'phone.message', contact: contact.actorKey, ...(to ? {to} : {}), side: raw.side, ...(raw.form ? {form:raw.form} : {}) };
-		}
-		// New director input names only a destination; source owns the sender, never a bubble side.
-		function phoneModSourceMarker(raw, unit, characters, threads = {}, playerId = null) {
-		    if (unit?.kind !== 'line' || (raw.to === undefined) === (raw.thread === undefined)) return null;
-		    const resolver = typeof figureResolution !== 'undefined' ? figureResolution : require('../../packages/dsh-presentation-protocol/src/figure-resolution.cjs');
-		    const rows = characters.map(row=>({...row,actorKey:row.alias}));
-		    const identity = value => {
-		        if (value === '$player' || value?.alias === '$player') return '$player';
-		        const found = resolver.resolveFigureName(rows,value);
-		        return found.status === 'resolved' && found.row.name?.trim() ? found.actorKey === playerId ? '$player' : found.actorKey : null;
-		    };
-		    const sender = identity(unit);
-		    if (!sender) return null;
-		    if (raw.thread !== undefined) {
-		        const thread = Object.hasOwn(threads,raw.thread) && threads[raw.thread];
-		        if (!thread || !thread.participants.some(id=>identity(id) === sender)) return null;
-		        return {op:'phone.message',thread:raw.thread,sender,side:sender === '$player' ? 'out' : 'in',form:raw.form};
-		    }
-		    const recipient = identity(raw.to);
-		    if (!recipient || recipient === sender) return null;
-		    return {op:'phone.message',contact:sender === '$player' ? recipient : sender,
-		        ...(sender !== '$player' && recipient !== '$player' ? {to:recipient} : {}),side:sender === '$player' ? 'out' : 'in',form:raw.form};
-		}
-		// These helpers consume canonical marks/threads; identity resolution stays at admission and source projection.
-		function phoneModDirect(mark, playerId = null) {
-		    const player = id => id === playerId ? '$player' : id;
-		    const sender = player(mark.side === 'out' ? '$player' : mark.contact);
-		    const recipient = player(mark.side === 'out' ? mark.contact : mark.to || '$player');
-		    const participants = [sender, recipient].sort();
-		    return {threadId:participants.includes('$player') ? participants.find(id=>id !== '$player') : 'direct:' + JSON.stringify(participants),sender,recipient,participants};
-		}
-		function phoneModOwnership(threads, latestMessage = null, playerId = null) {
-		    const player = id => id === playerId ? '$player' : id;
-		    const phones = new Map();
-		    for (const source of threads) {
-		        if (source.kind !== 'group' && !source.messages?.length && !source.typing) continue;
-		        const thread = {...source,participants:[...new Map(source.participants.map(person=>[player(person.id),{...person,id:player(person.id)}])).values()]};
-		        for (const owner of thread.participants) {
-		            if (!phones.has(owner.id)) phones.set(owner.id,{id:owner.id,name:owner.name,threads:[]});
-		            const side = message => ({...message,sender:player(message.sender),...(message.recipient ? {recipient:player(message.recipient)} : {}),side:player(message.sender) === owner.id ? 'out' : 'in'});
-		            phones.get(owner.id).threads.push({...thread,
-		                name:thread.kind === 'direct' ? thread.participants.find(person=>person.id !== owner.id).name : thread.name,
-		                messages:(thread.messages || []).map(side),typing:thread.typing ? side(thread.typing) : null});
-		        }
-		    }
-		    const list = [...phones.values()].sort((a,b)=>(b.id === '$player') - (a.id === '$player'));
-		    const recipient = latestMessage?.recipient ? player(latestMessage.recipient) : null;
-		    return {phones:list,latestRecipientPhoneId:phones.has(recipient) ? recipient : null};
-		}
-		function phoneModProjection(pages, at, record, characters) {
-		    const empty = { active: false, current: null, messages: [], key: '' };
-		    // validated pack prefixes have ops and a stable binding, not a legacy key.
-		    const pack = Boolean(record?.token?.bindingKey);
-		    const key = pack ? record.token.bindingKey + ':' + record.token.generation : record?.key;
-		    const ready = pack ? ['partial', 'done'].includes(record.phase) && pages[at]?.para <= record.through : record?.status === 'done';
-		    if (!ready || typeof key !== 'string' || !key || !Array.isArray(record.entries) || !pages[at]) return empty;
-		    const marks = new Map();
-		    for (const entry of record.entries) {
-		        const ops = pack ? entry?.at <= record.through && entry.ops : entry?.commands;
-		        for (const raw of Array.isArray(ops) ? ops : []) {
-		            if (!raw || raw.op !== 'phone.message') continue;
-		            const unit = pages.find(page => page.para === entry.at);
-		            const mark = phoneModMarker(raw, unit, characters || []);
-		            if (marks.has(entry.at) || !mark) marks.set(entry.at, null); else marks.set(entry.at, mark);
-		        }
-		    }
-		    const ordered = [...marks].filter(([, mark]) => mark).sort((a, b) => a[0] - b[0]);
-		    const groups = [];
-		    for (const [para, mark] of ordered) {
-		        let group = groups[groups.length - 1];
-		        if (!group || group.contact !== mark.contact || pages.some(item => item.para > group.last && item.para < para && item.kind === 'line' && !marks.get(item.para))) {
-		            group = { first: para, last: para, contact: mark.contact, marks: new Map() }; groups.push(group);
-		        }
-		        group.last = para; group.marks.set(para, mark);
-		    }
-		    const current = pages[at], group = groups.find(item => current.para >= item.first && current.para <= item.last);
-		    if (!group) return empty;
-		    const seen = new Set(), messages = [];
-		    for (const line of pages.slice(0, at + 1)) {
-		        const mark = group.marks.get(line.para);
-		        if (!mark || seen.has(line.para)) continue;
-		        seen.add(line.para);
-		        const prior = messages[messages.length - 1];
-		        const resolver = typeof figureResolution !== 'undefined' ? figureResolution : require('../../packages/dsh-presentation-protocol/src/figure-resolution.cjs');
-		        const rows = (characters || []).map(row => ({...row, actorKey:row.alias}));
-		        messages.push({ line, mark, continued: Boolean(prior && resolver.resolveFigureName(rows, prior.line).actorKey === resolver.resolveFigureName(rows, line).actorKey
-		            && prior.mark.side === mark.side && prior.line.para + 1 === line.para) });
-		    }
-		    return { active: true, current: group.marks.get(current.para) || null, messages, contact: group.contact,
-		        first: group.first, last: group.last, key: key + ':' + group.first + ':' + group.contact };
-		}
-		function phoneModSize(screenWidth) { return { screenWidth, width: screenWidth + 14, height: screenWidth * 932 / 430 + 14 }; }
-		function phoneModPlace({ width, height, size, figures = [], blocked = [], previous }) {
-		    const w = size.width, h = size.height, padding = 16;
-		    const valid = r => r && !r.hidden && [r.x, r.y, r.width, r.height].every(Number.isFinite) && r.width > 0 && r.height > 0;
-		    const inflate = (r, n) => ({ x: r.x - n, y: r.y - n, width: r.width + n * 2, height: r.height + n * 2 });
-		    const obstacles = [...blocked.filter(valid).map(r => inflate(r, 12)), ...figures.flatMap(f => [valid(f.body) && inflate(f.body, 18), valid(f.head) && inflate(f.head, 24)]).filter(Boolean)];
-		    const safe = r => r.x >= padding && r.y >= padding && r.x + w <= width - padding + 1e-7 && r.y + h <= height - padding + 1e-7
-		        && !obstacles.some(b => r.x < b.x + b.width - 1e-7 && r.x + w > b.x + 1e-7 && r.y < b.y + b.height - 1e-7 && r.y + h > b.y + 1e-7);
-		    const box = (x, y) => ({ x, y, width: w, height: h });
-		    if (previous && previous.width === w && previous.height === h && safe(previous)) return box(previous.x, previous.y);
-		    const cx = (width - w) / 2, cy = (height - h) / 2, xs = new Set([cx, padding, width - w - padding]), ys = new Set([cy, padding, height - h - padding]);
-		    for (const r of obstacles) { xs.add(r.x - w); xs.add(r.x + r.width); ys.add(r.y - h); ys.add(r.y + r.height); }
-		    const candidates = [];
-		    for (const x of xs) for (const y of ys) { const r = box(x, y); if (safe(r)) candidates.push(r); }
-		    candidates.sort((a, b) => ((a.x - cx) ** 2 + (a.y - cy) ** 2) - ((b.x - cx) ** 2 + (b.y - cy) ** 2) || Math.abs(a.y - cy) - Math.abs(b.y - cy) || a.x - b.x);
-		    return candidates[0] || null;
-		}
-		function phoneModLayout({ width, height, figures, blocked, caption, previous, compactPrevious }) {
-		    const normalWidth = Math.min(280, width - 46, (height - 110 - 14) * 430 / 932);
-		    if (normalWidth < 200) return null;
-		    const normal = phoneModSize(normalWidth), place = (size, prior) => phoneModPlace({ width, height, figures, blocked, size, previous: prior });
-		    let bounds = place(normal, previous);
-		    if (bounds) return { ...bounds, compact: false };
-		    if (!caption) return null;
-		    const attempt = value => { const size = phoneModSize(value), found = place(size, compactPrevious); return found && { ...found, compact: true }; };
-		    let low = 200, high = Math.min(normalWidth, (caption.y - 28 - 14) * 430 / 932);
-		    if (high < low) return null;
-		    bounds = attempt(high); if (bounds) return bounds;
-		    bounds = attempt(low); if (!bounds) return null;
-		    for (let i = 0; i < 12 && high - low > .1; i++) { const mid = (low + high) / 2, candidate = attempt(mid); if (candidate) { low = mid; bounds = candidate; } else high = mid; }
-		    return bounds;
-		}
-		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = { phoneModMarker, phoneModSourceMarker, phoneModDirect, phoneModOwnership, phoneModProjection, phoneModSize, phoneModPlace, phoneModLayout };
 		// Shared by the host director and the bundled client; no platform dependencies.
 		function stageOffstage(config) {
 		    const offstage = new Set((config && config.characters || []).filter(character => character.offstage).map(character => character.alias));
@@ -51996,7 +52040,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    if (stageViews) throw new Error('Stage views already mounted');
 		    const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
 		        speech:{player:voicePlayer,available:()=>!!forkTtsScope?.get('ttsClient')?.available(),speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
-		        sourceWidgets:{storage:(()=>{try{return localStorage;}catch{return null;}})(),foreground:forkForeground,rpc,signals:tavernSessionSignals,characters:{character:bubbleCharacter,mood:bubbleMood,moods:bubbleMoodList,actor:stageActorCharacter},avatarCache,phoneProtocol:{phoneModDirect,phoneModOwnership,run:phoneModRun},figureResolution,playerErrorText,fetch,createImageBitmap,
+		        sourceWidgets:{storage:(()=>{try{return localStorage;}catch{return null;}})(),foreground:forkForeground,rpc,signals:tavernSessionSignals,characters:{character:bubbleCharacter,mood:bubbleMood,moods:bubbleMoodList,actor:stageActorCharacter},avatarCache,phoneProtocol:tavernModClients.slot('source')[0]?.value.protocol,figureResolution,playerErrorText,fetch,createImageBitmap,
 		            sandbox:{stopSfx:()=>stageWidgetMediaOwner?.stopSfx(),scroll:(id,...args)=>stageWidgetScrollTargets.get(id)?.wheel(...args),theme:root=>stageWidgetThemeOwners.get(root)}},
 		        modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readItems:(id,turn)=>rpc('getStageItems',{turn},id)},
 		        performanceSurface:{fonts:tavernFonts,resolution:galResolution,subscribeResolution:galResolutionSubscribe,policy:{stageFlashAt,stageFlashDark,stageFlashGate,stageFlashSafe,stageSafety,stageEffectHex,stageEffectRgb}},
@@ -52005,7 +52049,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        performances:{read:id=>rpc('getStagePerformanceKinds',{},id),registry:createStagePerformanceRegistry,core:STAGE_PERFORMANCE_CORE},
 		        directorCommands,
 		        resourceDependencies:{createPerformanceTimeline,performanceSustained},
-		        runtimeProtocol:{performanceStateKernel:{performanceSustained,reducePerformanceEvent},modProjectionKernel:{modPerformanceLedgerKey},phoneBeatKernel:{phoneModAutoVoiceAllowed},
+		        runtimeProtocol:{performanceStateKernel:{performanceSustained,reducePerformanceEvent},modProjectionKernel:{modPerformanceLedgerKey},phoneBeatKernel:{phoneModAutoVoiceAllowed:stageAutoVoiceAllowed},
 		            performanceKindsKernel:{stagePerformanceKindOf,stagePerformanceBlocks,stagePerformancePhaseBlocks,STAGE_PERFORMANCE_CORE}},
 		        entrance:{reading:stageReading,safety:stageSafety,flashGate:stageFlashGate},
 		        entranceMedia:{getService:()=>packTransport.service,fetch,AbortController},
@@ -52015,7 +52059,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        useBubbles, Icon,
 		        controller:{useLiveView:useLiveTavernView,storyTurn:tavernStoryTurnForDshTurn,useCoordination:useTavernCoordination,rpc,phoneCall:()=>typeof phoneModCall==='object'?phoneModCall:null,
 		            dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
-		            modClients:tavernModClients,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,playEvents:tavernPlayEvents,
+		            modClients:tavernModClients,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:stageSourceBeat,playEvents:tavernPlayEvents,
 		            // 场景生图 pictures of the round on screen (stage-scene-images.js): the CG insert pages and the 「正在生成 CG…」 notice.
 		            pictures:{use:useStagePictures}},
 		        // Clip export (clip-export.cjs) lives in the stage package; these are the core names it uses.
@@ -58103,48 +58147,22 @@ function modPerformanceLedgerKey(source, id, generation = 0) {
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {projectModPerformances, modPerformanceLedgerKey};
 'use strict';
 
-// Only accepted director marks choose a surface; story text is never parsed for phone tags.
-function phoneModBeat(direction,para) {
-    if (!direction || !['partial','done'].includes(direction.phase) || para>direction.through) return null;
-    for (const entry of direction.entries || []) {
-        if (entry.at!==para) continue;
-        const mark=entry.ops?.find(op=>op.op==='mod.command' && op.modId==='dsh.phone' && op.commandId==='mark')?.params;
-        if (mark && ['in','out'].includes(mark.side) && typeof mark.contact==='string') return {...mark,form:mark.form || 'text'};
+// A source mod's beat (its client/core.js part `source`, mod-clients.js): beat(direction, para) gives the params of the accepted
+// director mark that shows that page on the mod's own surface (the phone's message), or null.
+function stageSourceBeat(direction,para) {
+    for (const {value} of typeof tavernModClients === 'undefined' ? [] : tavernModClients.slot('source')) {
+        const beat=value.beat(direction,para);
+        if (beat) return beat;
     }
     return null;
 }
-// once a phone line has been read the phone stays in hand through the narration between
-// its lines. The run ends after the director's last sealed phone mark of the turn or when the scene (background) moves
-// on; no new director command is involved. An unsealed tail keeps the run open until the director decides.
-function phoneModRun(direction,para) {
-    if (!direction || !['partial','done'].includes(direction.phase) || !(para>0)) return null;
-    const through=Number.isFinite(direction.through) ? direction.through : 0;
-    const entries=(direction.entries || []).filter(entry=>entry.at<=through).slice().sort((a,b)=>a.at-b.at);
-    const sceneOf=op=>op.op==='scene.set' ? JSON.stringify(op.value?.background ?? op.value ?? null) : op.op==='scene.clear' ? 'clear' : undefined;
-    let scene=direction.baseline?.scene===undefined ? undefined : JSON.stringify(direction.baseline.scene?.background ?? direction.baseline.scene);
-    const marks=[],breaks=[];
-    for (const entry of entries) {
-        for (const op of entry.ops || []) {
-            const next=sceneOf(op);
-            if (next===undefined) continue;
-            if (next!==scene) breaks.push(entry.at);
-            scene=next;
-        }
-        if (phoneModBeat(direction,entry.at)) marks.push(entry.at);
-    }
-    // The run starts at its first phone line after the latest scene change (a line in the changing beat counts).
-    const since=Math.max(0,...breaks.filter(at=>at<=para)),start=marks.find(at=>at>=since && at<=para);
-    if (start===undefined) return null;
-    // It continues while a later phone line of the same scene follows (a line in a changing beat starts a new run).
-    const open=marks.some(at=>at>=para && !breaks.some(b=>b>para && b<=at)) || direction.phase!=='done' && para>=through;
-    return open ? {start,key:JSON.stringify([direction.token?.sourceKey || '',direction.token?.generation ?? '',start])} : null;
-}
-function phoneModAutoVoiceAllowed(direction,para,directorEnabled) {
-    if (phoneModBeat(direction,para)) return false;
-    // Do not start speech before a sealed prefix can choose the phone-only surface.
+// Automatic voice never speaks a page a source mod shows; with the director on it does not start before a sealed prefix can
+// choose that surface.
+function stageAutoVoiceAllowed(direction,para,directorEnabled,beat=stageSourceBeat) {
+    if (beat(direction,para)) return false;
     return !directorEnabled || ['off','error'].includes(direction.phase) || direction.through>=para;
 }
-if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports={phoneModBeat,phoneModRun,phoneModAutoVoiceAllowed};
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports={stageSourceBeat,stageAutoVoiceAllowed};
 'use strict';
 
 // Temporary UI delegates; the browser state machine is owned by the stage package.
@@ -58156,7 +58174,7 @@ const performanceStateKernel = typeof module !== 'undefined' && typeof window ==
 const modProjectionKernel = typeof module !== 'undefined' && typeof window === 'undefined'
     ? require('./mod-projection.cjs') : {modPerformanceLedgerKey:(...args) => modPerformanceLedgerKey(...args)};
 const phoneBeatKernel = typeof module !== 'undefined' && typeof window === 'undefined'
-    ? require('./phone-beat.cjs') : {phoneModAutoVoiceAllowed:(...args) => phoneModAutoVoiceAllowed(...args)};
+    ? {phoneModAutoVoiceAllowed:require('./source-beat.cjs').stageAutoVoiceAllowed} : {phoneModAutoVoiceAllowed:(...args) => stageAutoVoiceAllowed(...args)};
 const performanceKindsKernel = typeof module !== 'undefined' && typeof window === 'undefined'
     ? require('./stage-performance-kinds.cjs') : {stagePerformanceKindOf:descriptor => stagePerformanceKindOf(descriptor),
         stagePerformanceBlocks:(kinds,descriptor) => stagePerformanceBlocks(kinds,descriptor), stagePerformancePhaseBlocks:(kinds,value) => stagePerformancePhaseBlocks(kinds,value),
