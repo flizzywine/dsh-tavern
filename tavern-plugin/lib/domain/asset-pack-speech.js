@@ -64,7 +64,7 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     const voiceSpec = figure?.voice && pack.manifest.voiceLibrary?.voices[figure.voice.voice]
     return voiceSpec ? {ref, resolved:{value:figure, voiceSpec}, pack} : null
   }
-  async function prepare(alias, service, generation, readOnly) {
+  async function prepare(alias, service, generation) {
     const drop = () => {
       const old = entries.get(alias)
       if (old) { old.grant.dispose(); old.source.dispose(); entries.delete(alias) }
@@ -82,7 +82,9 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
       return {available:true,browser:{voice:spoken.voiceName ?? ''},voiceId:figure.voice.voice,language:voice.languages[0],scope,diagnostics:[]}
     }
     const declaration = {voice:resolved.voiceSpec,binding:figure.voice}
-    const binding = getBinding ? await getBinding(ref, declaration, {readOnly}) : await assetVoiceBinding(service, declaration, {readOnly})
+    // Opening a voice names its service without asking it: a cached line plays with the service stopped, and a new line
+    // reports the service's own answer (SERVICE_OFFLINE, credentials, model) when it is synthesized.
+    const binding = getBinding ? await getBinding(ref, declaration, {readOnly:true}) : await assetVoiceBinding(service, declaration, {readOnly:true})
     if (!binding) throw failure('SERVICE_REQUIRED')
     // readings are the global active preset, applied (and part of the line
     // identity) inside dsh-tts. The empty `readings` keeps every figure's source id — and so its cached audio — unchanged.
@@ -115,9 +117,9 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     async voiced(alias) { return Boolean(await declared(alias)) },
     async open(alias, {readOnly = onlyCached} = {}) {
       try {
-        const service = tts(), generation = epoch, pendingKey = JSON.stringify([alias,readOnly])
+        const service = tts(), generation = epoch, pendingKey = alias
         if (!pending.has(pendingKey)) {
-          const promise = prepare(alias,service,generation,readOnly).catch(error => {
+          const promise = prepare(alias,service,generation).catch(error => {
             // an unavailable replacement must revoke the browser's old scoped ref.
             // A superseded request cannot revoke a newer generation's successful registration.
             if (epoch === generation) {
