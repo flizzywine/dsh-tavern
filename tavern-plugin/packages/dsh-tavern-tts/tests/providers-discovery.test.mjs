@@ -580,3 +580,13 @@ test('a failed cloud check expires, so a service that came back stops reading �
   Date.now = () => now() + 16000
   assert.equal((await services.list())[0].check,undefined)
 })
+
+// bug:fish-preview-fails: the cloud's /model answers any key, so 测试连接 reported 可用 for a key Fish rejects.
+test('Fish cloud connection test asks an endpoint that checks the key', async () => {
+  const {createFishAudioAdapter} = await import('../src/providers/fish-audio.js')
+  const calls = [], fetch = async (url, options) => { calls.push({url, auth:options.headers.Authorization}); return new Response('{}', {status:options.headers.Authorization === 'Bearer good' ? 200 : 401}) }
+  const adapter = createFishAudioAdapter({fetch}), provider = {config:{url:'https://api.fish.audio'}}
+  await adapter.probe(provider, {key:'good'})
+  await assert.rejects(adapter.probe(provider, {key:'wrong'}), {code:'FISH_AUTH_FAILED'})
+  assert.deepEqual(calls.map(c => c.url), ['https://api.fish.audio/wallet/self/api-credit', 'https://api.fish.audio/wallet/self/api-credit'])
+})

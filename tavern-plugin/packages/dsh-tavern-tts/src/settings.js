@@ -305,13 +305,6 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
       knownFishVoices(p).set(voice.voiceId,voice)
       return voice
     },
-    // A self-made MiniMax voice (clone / design) typed by id: it must be one this account can speak with (/v1/get_voice, free).
-    async validateMinimaxVoice({serviceId,voiceId}) {
-      const configured = get().providers.filter(p => p.kind === 'minimax')
-      if (!serviceId && configured.length !== 1) fail('SERVICE_REQUIRED')
-      const p = serviceId ? record(serviceId) : configured[0]; if (p.kind !== 'minimax') fail('INVALID_INPUT')
-      return adapters.minimax.findVoice(p,await draftSecrets(p.kind,p.id),voiceId)
-    },
     async searchFishVoices(input) {
       const p = record(input.serviceId); if (p.kind !== 'fish-audio') fail('INVALID_INPUT')
       const result = await discovery.search(p,await secrets(p),input)

@@ -4588,6 +4588,8 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-layer .ap-popover-anchor.is-floating { display: contents; }
 .ap-modal-scrim:has(> .ap-confirm) { z-index: 10002; }
 .ap-layer .ap-popover.is-floating { position: fixed; z-index: 10010; right: auto; bottom: auto; transform: none; max-width: min(340px, calc(100vw - 16px)); }
+/* A menu left open when a dialog opens over it (a paid ▶ in a voice pick) stays under that dialog. */
+.ap-layer:has(~ .ap-layer > .ap-modal-scrim) .ap-popover.is-floating { z-index: 2200; }
 
 /* declaration-driven widget settings in the GAL panel language — hairline rows, one quiet
    origin tag per field, ⚠ chips for anything that needs attention, custom switch / segmented / slider / swatches (no

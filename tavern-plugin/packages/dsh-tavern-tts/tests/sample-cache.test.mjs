@@ -53,3 +53,14 @@ test('clips over the size limit are refused and the cache keeps under its total 
   assert.ok(!files.some(name => name.startsWith(a.key)), 'the oldest clip left first')
   await assert.rejects(samples.read(a.key), { code:'SAMPLE_UNAVAILABLE' })
 })
+
+// bug:fish-preview-fails: Fish serves some demos as audio/vnd.wave; the clip is audio all the same.
+test('a vendor wav label (audio/vnd.wave) is a wav clip, not an unavailable sample', async t => {
+  const dataDir = await temp(t)
+  const samples = createSampleCache({ dataDir, fetch:async () => new Response(Buffer.alloc(64, 1), { headers:{ 'content-type':'audio/vnd.wave' } }), measureLoudness:async () => level })
+  // the vendor's own bytes are never a reason to refuse the sample: loudness is only measured when they parse as a plain WAV
+  const { key, mime } = await samples.clip({ provider:'fish-audio', voiceId:'wav', url:'https://cdn.example/task/a.wav' })
+  assert.equal(mime, 'audio/wav'); assert.equal((await samples.read(key)).bytes.length, 64)
+  const html = createSampleCache({ dataDir, fetch:async () => new Response('<script>', { headers:{ 'content-type':'text/html' } }) })
+  await assert.rejects(html.clip({ provider:'fish-audio', voiceId:'x', url:'https://cdn.example/x.mp3' }), { code:'SAMPLE_UNAVAILABLE' })
+})

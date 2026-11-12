@@ -111,7 +111,8 @@ export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, s
     async probe(provider, secret) {
       const p = {...provider,config:providerConfig('fish-audio',provider.config)}
       if (!isFishCloud(p.config)) { await info(p, secret, true); return }
-      try { await request(p,secret.key,'/model?page_size=1',{method:'GET'},AbortSignal.timeout(10000)) }
+      // /model is public (any key, even a wrong one, answers 200); the account's credit is the free read that checks the key itself.
+      try { await request(p,secret.key,'/wallet/self/api-credit',{method:'GET'},AbortSignal.timeout(10000)) }
       catch (error) { if (error instanceof TtsError) throw error; fail('SERVICE_OFFLINE') }
     },
     synthesize(provider, secret, spec) {

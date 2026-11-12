@@ -20,9 +20,12 @@ function voiceLanguages(id, name) {
 }
 // /v1/get_voice (free): every voice this account can speak with — system voices, its clones and designed voices.
 // The account's own voices (mine) are not tied to a language: a clone or design speaks in any of them, so the language filter keeps them.
+// `description` is MiniMax's own words for the voice (a system voice's character, what was typed when one was made); it has
+// no gender, age or tag fields, no likes or use counts and no sample audio.
+const described = v => { const text = (Array.isArray(v.description) ? v.description : []).filter(s => typeof s === 'string').join(' ').trim().slice(0, 300); return text ? {description:text} : {} }
 const listed = body => ['system_voice', 'voice_cloning', 'voice_generation'].flatMap(group => (body[group] || []).filter(v => typeof v?.voice_id === 'string' && v.voice_id)
-  .map(v => group === 'system_voice' ? {id:v.voice_id, label:v.voice_name || v.voice_id, languages:voiceLanguages(v.voice_id, v.voice_name)}
-    : {id:v.voice_id, label:v.voice_name || v.voice_id, languages:[], mine:true}))
+  .map(v => group === 'system_voice' ? {id:v.voice_id, label:v.voice_name || v.voice_id, languages:voiceLanguages(v.voice_id, v.voice_name), ...described(v)}
+    : {id:v.voice_id, label:v.voice_name || v.voice_id, languages:[], mine:true, ...described(v)}))
 // Upstream's emotion → MiniMax style table; a mood outside it speaks neutral.
 const STYLES = {
   happy: ['joy', 'amusement', 'excitement', 'love', 'gratitude', 'pride', 'optimism', 'relief', 'admiration', 'approval', 'caring', 'desire'],
@@ -39,6 +42,8 @@ function failureCode(code, status) {
   if ([1004, 2049].includes(code) || [401, 403].includes(status)) return 'MINIMAX_AUTH_FAILED'
   if ([1002, 1039].includes(code) || status === 429) return 'MINIMAX_RATE_LIMITED'
   if (code === 1008) return 'MINIMAX_BALANCE_REQUIRED'
+  // A pasted voice id that is not (or not this account's) voice: told when it is first spoken.
+  if ([2042, 2054].includes(code)) return 'MINIMAX_VOICE_NOT_FOUND'
   if ([1026, 1027, 1042].includes(code)) return 'MINIMAX_TEXT_REJECTED'
   if (code === 2013) return 'MINIMAX_INVALID_REQUEST'
   return 'MINIMAX_REQUEST_FAILED'
@@ -75,12 +80,6 @@ export function createMinimaxAdapter({ fetch: fetchImpl = globalThis.fetch } = {
     async voices(provider, secret) {
       const body = await post(provider, secret, '/v1/get_voice', {voice_type:'all'}, undefined, 10000)
       return { voices:listed(body), models:structuredClone(MINIMAX_MODELS), source:'live' }
-    },
-    // An id this account can speak with (its clones and designed voices included), checked against the live list.
-    async findVoice(provider, secret, voiceId) {
-      const hit = (await this.voices(provider, secret)).voices.find(v => v.id === voiceId)
-      if (!hit) throw failure('MINIMAX_VOICE_NOT_FOUND')
-      return hit
     },
     async synthesize(provider, secret, spec) {
       // The figure's model; a service saved before the model moved still names one until the startup move

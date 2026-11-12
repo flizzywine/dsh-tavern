@@ -56,7 +56,7 @@ test('minimax is a paid service kind with a key credential; 测试连接 and the
   assert.throws(() => providerConfig('minimax',{url:'https://u:p@api.minimaxi.com'}))
   const calls = [], registered = []
   // 300+ in a real account; the older Chinese voices carry no language prefix, the newer ones name it.
-  const voices = [{voice_id:'female-shaonv',voice_name:'少女'},{voice_id:'Japanese_IntellectualSenior',voice_name:'Intellectual Senior'},{voice_id:'Chinese (Mandarin)_News_Anchor',voice_name:'新闻女声'},
+  const voices = [{voice_id:'female-shaonv',voice_name:'少女'},{voice_id:'Japanese_IntellectualSenior',voice_name:'Intellectual Senior'},{voice_id:'Chinese (Mandarin)_News_Anchor',voice_name:'新闻女声',description:['一位专业、播音腔的中年女性新闻主播，标准普通话。']},
     ...Array.from({length:300},(_, i) => ({voice_id:'English_voice_' + i,voice_name:'Voice ' + i}))]
   const settings = {enabled:true,providers:[provider],voices:[]}
   const services = createServiceSettings({get:() => settings,replace:async () => {},credentials:() => ({resolve:async () => ({value:'k'}),describe:async () => ({configured:true})}),
@@ -75,6 +75,7 @@ test('minimax is a paid service kind with a key credential; 测试连接 and the
   for (let i = 0; i < 50 && listing.refreshing; i++) { await new Promise(r => setTimeout(r,5)); listing = await services.listOnlinePresetVoices({provider:'minimax'}) }
   assert.equal(listing.voices.length,result.voiceCount,'the figure picker lists what 测试连接 counted')
   assert.deepEqual(listing.voices.slice(0,3).map(v => [v.id,v.label,v.languages]),[['female-shaonv','少女',['zh']],['Japanese_IntellectualSenior','Intellectual Senior',['ja']],['Chinese (Mandarin)_News_Anchor','新闻女声',['zh']]])
+  assert.equal(listing.voices[2].description,'一位专业、播音腔的中年女性新闻主播，标准普通话。','MiniMax own description is kept (searched and shown); an empty one is left out')
   assert.deepEqual(listing.voices.at(-1),{id:'my-clone-1',label:'my-clone-1',languages:[],mine:true},'the account clones are listed too, marked as the account own and tied to no language')
   assert.equal(presetParams('minimax',{voice:'Chinese (Mandarin)_News_Anchor'}).voice,'Chinese (Mandarin)_News_Anchor')
   const catalog = await services.voiceServices()
@@ -82,19 +83,18 @@ test('minimax is a paid service kind with a key credential; 测试连接 and the
   services.dispose()
 })
 
-test('a self-made voice id is checked once against the account list; a read that fails says why instead of listing nothing quietly', async () => {
+test('a pasted voice id goes to T2A as it is (an unknown one says so when spoken); a read that fails says why instead of listing nothing quietly', async () => {
   let reply2 = () => reply({base_resp:{status_code:0},system_voice:[{voice_id:'female-shaonv',voice_name:'少女'}],voice_cloning:[{voice_id:'my-clone-1'}],voice_generation:[{voice_id:'designed-7',voice_name:'设计音色'}]})
   const settings = {enabled:true,providers:[provider],voices:[]}
   const services = createServiceSettings({get:() => settings,replace:async () => {},credentials:() => ({resolve:async () => ({value:'k'}),describe:async () => ({configured:true})}),
     fetch:async () => reply2(),
     tts:{registerProvider:() => () => {},registerVoiceSource:() => ({replace() {},dispose() {}}),providerVoiceSources:async () => []}})
-  assert.equal((await services.validateMinimaxVoice({serviceId:'minimax',voiceId:'my-clone-1'})).id,'my-clone-1')
-  assert.equal((await services.validateMinimaxVoice({voiceId:'designed-7'})).label,'设计音色')
-  await assert.rejects(services.validateMinimaxVoice({serviceId:'minimax',voiceId:'nope'}),error => error.code === 'MINIMAX_VOICE_NOT_FOUND' && /[\u3400-\u9fff]/.test(error.message))
   // the saved voice goes to T2A as the request's voice_id
   const bodies = [], adapter = createMinimaxAdapter({fetch:async (_url, options) => { bodies.push(JSON.parse(options.body)); return reply({data:{audio:pcm},base_resp:{status_code:0}}) }})
   await adapter.synthesize(provider,{key:'k'},{text:'x',params:presetParams('minimax',{voice:'my-clone-1'})})
   assert.equal(bodies[0].voice_setting.voice_id,'my-clone-1')
+  // MiniMax: 2054 voice_id 不存在, 2042 not this account's voice.
+  for (const status of [2054, 2042]) await assert.rejects(createMinimaxAdapter({fetch:async () => reply({base_resp:{status_code:status}})}).synthesize(provider,{key:'k'},{text:'x',params:{voice:'nope'}}),error => error.code === 'MINIMAX_VOICE_NOT_FOUND' && /[\u3400-\u9fff]/.test(error.message))
   // a failed read: no key voices, the message names the cause, and the next open asks again
   reply2 = () => reply({base_resp:{status_code:1004,status_msg:'auth failed'}})
   const settle = async () => { let r; for (let i = 0; i < 50; i++) { r = await services.listOnlinePresetVoices({provider:'minimax'}); if (!r.refreshing) return r; await new Promise(x => setTimeout(x,5)) } return r }

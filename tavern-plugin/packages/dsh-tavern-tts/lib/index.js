@@ -142,7 +142,6 @@ export function apply(ctx, config = {}) {
       case 'providerKinds': return services.kinds()
       case 'listRecommendedFishVoices': return services.listRecommendedFishVoices(args)
       case 'validateFishVoice': return services.validateFishVoice(args)
-      case 'validateMinimaxVoice': return services.validateMinimaxVoice(args)
       case 'searchFishVoices': return services.searchFishVoices(args)
       case 'fishSample': return services.fishSample(args)
       case 'voicePilot': return services.voicePilot(args)
