@@ -47,9 +47,12 @@ export function foregroundCapabilityInjection(snapshot) {
 }
 
 // Authored voice/availability changes invalidate the roster, not provider health or visual media.
-export function foregroundVoiceConfigurationKey(config) {
+// figures: the roster's frozen aliases. A figure that joins later (automatic figures, a pack added mid-game) is not part of the
+// key: it reaches the per-turn tail (rosterAddendum), so the session's system prompt stays byte-identical between rounds.
+export function foregroundVoiceConfigurationKey(config,figures) {
+  const frozen=figures && new Set(figures)
   return createHash('sha256').update(JSON.stringify({enabled:config.enabled,voice:config.voice,
-    characters:config.characters.map(row=>({alias:row.alias,ref:row.ref,
+    characters:config.characters.filter(row=>!frozen || frozen.has(row.alias)).map(row=>({alias:row.alias,ref:row.ref,
       name:row.name,aliases:row.aliases,recall:row.recall,voice:row.voice,language:row.voiceLang,
       voiceDirection:row.voiceDirection}))})).digest('hex')
 }
@@ -61,7 +64,7 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
   const pending=new Map(),accepted=new Map()
   const roundKey = (chat,epoch,native) => JSON.stringify([chat.id,chat.sessionId,epoch,
     sessionEvents(native).findLast(event=>event.type==='turn/start')?.data?.turn ?? chat.messages?.at(-1)?.turn ?? 0])
-  async function capture(chat,epoch,userText,config,configurationKey) {
+  async function capture(chat,epoch,userText,config) {
     assertCurrent()
     config ||= await readConfig(chat.cardPath)
     assertCurrent()
@@ -81,8 +84,9 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
       (({foregroundCapability,...value})=>value)(entry))))
     assertCurrent()
     if(rendered.diagnostics?.length)throw new Error('Foreground capability template projection failed')
-    return {version:1,sessionId:chat.sessionId,epoch,configurationKey:configurationKey || foregroundVoiceConfigurationKey(config),
-      figures:config.enabled ? [...aliases] : [],...(contributions?{modPrompts:structuredClone(contributions)}:{}),entries:entries.flatMap(entry=>{
+    const figures=config.enabled ? [...aliases] : []
+    return {version:1,sessionId:chat.sessionId,epoch,configurationKey:foregroundVoiceConfigurationKey(config,figures),
+      figures,...(contributions?{modPrompts:structuredClone(contributions)}:{}),entries:entries.flatMap(entry=>{
       const output=rendered.renderedEntries.find(row=>row.ref===entry.ref)
       return output?[{...entry,content:output.text}]:[]
     })}
@@ -93,10 +97,9 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     const epoch=native ? foregroundCapabilityEpoch(native) : old?.epoch || ''
     const key=roundKey(chat,epoch,native)
     const config=nextRound ? await previewConfig(chat.cardPath) : null
-    const configurationKey=nextRound ? foregroundVoiceConfigurationKey(config) : null
-    const matches=old?.sessionId===chat.sessionId && old.epoch===epoch && !!old.figures && (!nextRound || old.configurationKey===configurationKey)
+    const matches=old?.sessionId===chat.sessionId && old.epoch===epoch && !!old.figures && (!nextRound || old.configurationKey===foregroundVoiceConfigurationKey(config,old.figures))
     const saved=matches ? old : nextRound ? undefined : accepted.get(key) || (pending.has(key) ? await pending.get(key) : undefined)
-    const snapshot=saved ?? await capture(chat,epoch,userText,config ?? await previewConfig(chat.cardPath),configurationKey)
+    const snapshot=saved ?? await capture(chat,epoch,userText,config ?? await previewConfig(chat.cardPath))
     // Preview never accepts/persists a new epoch. Frozen entries render in the actual body order.
     const rendered=await render(chat,replace(null,snapshot.entries))
     assertCurrent()
@@ -119,9 +122,8 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     if(!pending.has(key))pending.set(key,(async()=>{
       const config=await readConfig(chat.cardPath)
       assertCurrent()
-      const configurationKey=foregroundVoiceConfigurationKey(config)
-      const unchanged=old?.sessionId===chat.sessionId && old.epoch===epoch && old.configurationKey===configurationKey && !!old.figures
-      const snapshot=unchanged ? old : await capture(chat,epoch,userText,config,configurationKey)
+      const unchanged=old?.sessionId===chat.sessionId && old.epoch===epoch && !!old.figures && old.configurationKey===foregroundVoiceConfigurationKey(config,old.figures)
+      const snapshot=unchanged ? old : await capture(chat,epoch,userText,config)
       assertCurrent()
       if(persist && !unchanged)await save(chat,snapshot,{assertCurrent})
       assertCurrent()
@@ -160,7 +162,7 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
   async function rosterAddendum(chat,{userText='',snapshot=chat.foregroundCapabilities,read=readConfig}={}) {
     if(!active || !snapshot?.figures || snapshot.sessionId!==chat.sessionId)return ''
     const config=await read(chat.cardPath)
-    if(!active || foregroundVoiceConfigurationKey(config)!==snapshot.configurationKey)return ''
+    if(!active || foregroundVoiceConfigurationKey(config,snapshot.figures)!==snapshot.configurationKey)return ''
     const frozenAliases=new Set(snapshot.figures)
     const aliases=new Set([...foregroundRecalledFigures(config,chat,{userText,judge:judge()})].filter(alias=>!frozenAliases.has(alias)))
     return aliases.size ? bubbleRosterAddendum(config,{speakerRows:config.characters,aliases,frozenAliases}) : ''
