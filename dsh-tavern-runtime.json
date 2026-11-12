@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "892122cd6544bcf4b42ddeaa463ff8756ffeb7b2",
-  "releaseSequence": 1565,
+  "revision": "8c8f11af61b0c0c54cd09c61c12ec821f39775e5",
+  "releaseSequence": 1566,
   "version": "3.3.0",
   "files": [
     {
@@ -1881,8 +1881,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-handoff.js",
-      "sha256": "c069d489d7472fb02047f1eff326630a265ae5e199498d7423c767efc64547d1",
-      "size": 6774
+      "sha256": "78204724e1b3d0a253049bd77b6b51686fb74dfcedd46db0ab4741d4b612b13a",
+      "size": 7491
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
@@ -3711,8 +3711,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "ce0eef6650f3a16b9a6be2940878efe64b67afbb2e0f7bdf05ab6f300bd5a0e6",
-      "size": 80440
+      "sha256": "aef97f4c4033ffd7a9e8f542a1762e69319d59c5dde42f2c4d93e7cb5f18b67f",
+      "size": 81280
     },
     {
       "path": "tavern-plugin/lib/domain/uncommitted-rounds.js",
@@ -9191,9 +9191,9 @@
     }
   ],
   "archive": {
-    "commit": "8d6e3b5e1067fe384c826a9e8aec55144590428d",
+    "commit": "2217781b415569b7882136b9e1781d59baf89217",
     "path": "runtime.zip",
-    "sha256": "b98fc8c9dc78df69d5a8e442f02c5f75f4c11faba4b11dedc83db97111d44786",
-    "size": 16332556
+    "sha256": "4681a8180c997e1eb31643b5584f6921a717e827a70800869401012e7f943e1d",
+    "size": 16333015
   }
 }
