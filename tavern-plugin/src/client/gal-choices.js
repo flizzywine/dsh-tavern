@@ -25,8 +25,8 @@ function GalChoices(props) {
     }, [sessionId, messageId, taskForMessage && taskForMessage.taskId, taskForMessage && taskForMessage.version, taskForMessage && taskForMessage.status]);
     // 前台候选项随正文存好，没有任务送到页面：这一轮落地后按消息读一次。
     React.useEffect(function () {
-        if (!messageId || taskForMessage) return;
-        loadSavedCandidates(sessionId, messageId).catch(function () {});
+        if (!sessionId || taskForMessage) return;
+        loadSavedCandidates(sessionId, messageId || null).catch(function () {});
     }, [sessionId, messageId, taskForMessage && taskForMessage.taskId]);
     const commands={
         clear:()=>setCandidatePanel(null),

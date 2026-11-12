@@ -450,4 +450,9 @@ test('前台正文结尾包含 <story_choices> 时，落盘自动剥离标签并
   assert.equal(chat.candidates.choices.length, 5)
   assert.equal(chat.candidates.choices[0].text, 'User顺势贴近阿芙拉，继续深入刚才的话题')
   assert.equal(chat.candidates.choices[4].type, 'scene')
+  // 下一轮正文没有候选项：上一轮留下的选项不能继续挂在新正文下面。
+  await h.orchestrator.prepare({ sessionId: 'session', turn: 3, userText: '继续', requestId: 'req-fg-2' })
+  await h.orchestrator.finalize({ sessionId: 'session', turn: 3, userText: '继续', requestId: 'req-fg-2',
+    assistantText: '窗外的雨停了。', replyMessageId: 'msg-projected-2' })
+  assert.ok(h.chat().candidates == null, '这一轮没有候选项就清掉上一轮的那一份')
 })

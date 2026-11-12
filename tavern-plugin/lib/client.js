@@ -55409,6 +55409,7 @@ function createTavernHeaderFeature({ StatusAction, ExportAction, openPage, openW
     return Object.freeze({ HeaderItems: TavernHeaderItems });
 }
 /** Candidate and regeneration interaction state, independent of React and the host composer. */
+function panelMessageKey(value) { return String(value == null ? "" : value); }
 function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyBodyResult, reportError, notifyRegenerating = function () {}, timers = globalThis }) {
     function store(normalize = value => value) {
         let value = null;
@@ -55472,13 +55473,23 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     }
     // 前台生成把候选项写在正文自己身上（chat.candidates），没有任务把结果送到页面，
     // 所以落地后要按这一轮的消息读一次，否则「写完即显示」只在生成的那一页成立。
+    // 面板认页面手里的这一轮消息 id：存下来的 id 可能是工具回复或重新生成的那一套，
+    // 跟宿主给页面的 id 不一致，对不上不该当成「没有候选项」。
     async function loadSavedCandidates(sessionId, messageId) {
-        if (!sessionId || !messageId) return null;
-        const shown = panel => panel && panel.sessionId === sessionId && panel.messageId === messageId && panel.phase !== "error";
+        if (!sessionId) return null;
+        const key = panelMessageKey(messageId);
+        const shown = panel => panel && panel.sessionId === sessionId && panelMessageKey(panel.messageId) === key && panel.phase !== "error";
         if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
-        const result = await rpc("getChoices", { sessionId, messageId }, sessionId);
+        let result = null;
+        try { result = await rpc("getChoices", { sessionId, messageId: key, latest: true }, sessionId); }
+        catch (error) { console.warn("[dsh-tavern] 读取前台候选项失败", error); return null; }
         const saved = result && result.candidates;
-        if (!saved || !Array.isArray(saved.choices) || saved.choices.length === 0) return null;
+        if (!saved || !Array.isArray(saved.choices) || saved.choices.length === 0) {
+            // 这一轮没有候选项：上一轮留下的、已经显示好的选项不能继续挂在新的正文下面。
+            const current = candidates.getSnapshot();
+            if (current && current.sessionId === sessionId && panelMessageKey(current.messageId) !== key && current.phase === "ready") candidates.set(null);
+            return null;
+        }
         // The player may have started a task or dismissed a failure while this read ran.
         if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
         return candidates.set(readyCandidatePanel(sessionId, messageId, saved));
@@ -55588,7 +55599,9 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         React.useEffect(function () {
                 setAdded([]);
             }, [panel?.choices]);
-        if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || panel.messageId !== latestMessageId || running) {
+        // 候选项属于这一局最近一轮（服务端只留那一份）。页面手里的消息 id 可能为空（宿主
+        // 没有投影节点）或另一套 id，判断只认这一局，不认两个 id 是否相等。
+        if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || running) {
             return null;
         }
         const h = React.createElement;
@@ -55653,7 +55666,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			const [guidance, setGuidance] = React.useState("");
             React.useEffect(() => setGuidance(""), [props.sessionId, panel?.messageId]);
 			const h = React.createElement;
-			if (!isPlayMode(sessionMode) || running || !panel || panel.sessionId !== props.sessionId || panel.messageId !== latestMessageId) {
+			if (!isPlayMode(sessionMode) || running || !panel || panel.sessionId !== props.sessionId) {
 				return null;
 			}
 			const isScript = sessionMode === "script";
@@ -57322,8 +57335,8 @@ function createStoryFloorRail(root, options) {
 		    }, [sessionId, messageId, taskForMessage && taskForMessage.taskId, taskForMessage && taskForMessage.version, taskForMessage && taskForMessage.status]);
 		    // 前台候选项随正文存好，没有任务送到页面：这一轮落地后按消息读一次。
 		    React.useEffect(function () {
-		        if (!messageId || taskForMessage) return;
-		        loadSavedCandidates(sessionId, messageId).catch(function () {});
+		        if (!sessionId || taskForMessage) return;
+		        loadSavedCandidates(sessionId, messageId || null).catch(function () {});
 		    }, [sessionId, messageId, taskForMessage && taskForMessage.taskId]);
 		    const commands={
 		        clear:()=>setCandidatePanel(null),
@@ -57878,8 +57891,8 @@ function createStoryFloorRail(root, options) {
 			const draft = props.useInput(snapshot => snapshot.draft);
 			// 前台候选项随正文一起存好，没有任务送到页面：这一轮落地后按消息读一次。
 			React.useEffect(function () {
-				if (!props.messageId || taskForMessage) return;
-				loadSavedCandidates(props.sessionId, props.messageId).catch(function () {});
+				if (!props.sessionId || taskForMessage) return;
+				loadSavedCandidates(props.sessionId, props.messageId || null).catch(function () {});
 			}, [props.sessionId, props.messageId, taskForMessage && taskForMessage.taskId]);
 			const projectedTaskRef = React.useRef("");
 			React.useEffect(function () {
@@ -57944,7 +57957,8 @@ function createStoryFloorRail(root, options) {
 			}
 			const h = React.createElement;
 			const isScript = sessionMode === "script";
-			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "ready";
+			// 这一局最近一轮的候选项：页面拿不到宿主消息 id 时也照样算数（服务端只留最近一轮）。
+			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.phase === "ready";
 			if (!isPlayMode(sessionMode)) return null;
 			// only="choices" in the composer, only="regen" under the latest reply.
 			return h(React.Fragment, null,

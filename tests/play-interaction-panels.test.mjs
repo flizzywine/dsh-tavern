@@ -146,3 +146,35 @@ test('已打开的精修对比收到保存信号后自动刷新，首次读取�
   assert.equal(reads, 3)
   assert.match(document.querySelector('main').textContent, /自动精修 · 第 9 轮/)
 })
+
+test('宿主没有消息 id 时，候选面板仍然显示这一局的候选项', async t => {
+  const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
+  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
+  t.after(() => { Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act }); dom.window.close() })
+  const { createRoot } = await import('react-dom/client')
+  const signals = createSessionSignalTransport()
+  const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
+    coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
+  const context = vm.createContext({ React, ...clientControls(React),
+    tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
+    window: dom.window, document: dom.window.document,
+    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    latestTavernAssistantMessageId: () => null, isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
+    useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
+  vm.runInContext(source, context)
+  const panels = context.createPlayInteractionPanels({ interactions,
+    useCandidatePanel: () => React.useSyncExternalStore(interactions.candidates.subscribe, interactions.candidates.getSnapshot, interactions.candidates.getSnapshot),
+    useCandidateGuidePanel: () => React.useSyncExternalStore(interactions.guide.subscribe, interactions.guide.getSnapshot, interactions.guide.getSnapshot),
+    useRegenPanel: () => null, usePhonePlay: () => false })
+  const props = { sessionId: 'a', useSession: select => select({ running: false }),
+    useChat: select => select({ legacy: { nodes: [] } }), useInput: select => select({ draft: '' }),
+    inputActions: { setDraft() {} } }
+  const root = createRoot(dom.window.document.querySelector('main'))
+  // 存档里的候选项属于这一局最近一轮；面板记的是页面手里的消息 id，宿主没给就是 null。
+  interactions.candidates.set({ sessionId: 'a', messageId: null, phase: 'ready', choices: [{ type: 'action', text: '走近' }] })
+  await act(async () => root.render(React.createElement(panels.CandidateQuestion, props)))
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question').length, 1, '宿主没有消息 id 也要显示这一轮的候选项')
+  assert.match(dom.window.document.querySelector('.dsh-tavern-question-head').textContent, /接下来的行动/)
+  await act(async () => root.unmount())
+})

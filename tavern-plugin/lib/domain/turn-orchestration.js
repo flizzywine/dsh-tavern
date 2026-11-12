@@ -1256,9 +1256,11 @@ export function createTurnOrchestrator(options) {
     })
     chat = completed.chat
     if (completed.value.status !== 'committed') throw new Error('正文生成期间剧情状态已变化，本轮结果已作废')
-    if (input.adopt !== true && extractedForegroundChoices.choices) {
+    // 这一局只留最近一轮的候选项：没有的一轮必须把上一轮清掉，否则旧选项会被
+    // 当成这一轮的选项显示出来（页面按「最近一轮」读，不靠消息 id 对齐）。
+    if (input.adopt !== true) {
       const messageId = str(input.replyMessageId)
-      if (messageId !== '') {
+      if (extractedForegroundChoices.choices && messageId !== '') {
         chat.candidates = {
           messageId,
           choices: extractedForegroundChoices.choices,
@@ -1271,7 +1273,7 @@ export function createTurnOrchestrator(options) {
           traceMode: 'one-shot',
           basedOn: { branchId: chat.timeline.branchId, revision: chat.timeline.revision }
         }
-      }
+      } else if (chat.candidates) delete chat.candidates
     }
     await writeChat(chat, { source: 'foreground.commit', operationId: operation.id })
     return { saved: true, mode, changed: false, chatId: chat.id, cardName: chat.cardName, reply, candidates: chat.candidates || null }

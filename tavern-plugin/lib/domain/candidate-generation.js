@@ -564,7 +564,12 @@ export function createCandidateGenerator(options) {
 
   async function find(input) {
     const chat = await (store.stateForSession || store.chatForSession)(input.sessionId)
-    if (chat === undefined || chat.candidates === null || typeof chat.candidates !== 'object' || str(chat.candidates.messageId) !== str(input.messageId)) return null
+    if (chat === undefined || chat.candidates === null || typeof chat.candidates !== 'object') return null
+    // 前台候选项只留最近一轮（提交时无候选即清空）。页面手里的消息 id 可能是宿主
+    // 生成的另一套（工具回复、重新生成各有一个），所以页面按「最近一轮」读（latest），
+    // 其余调用方仍按消息 id 精确核对。
+    const asked = str(input.messageId)
+    if (input.latest !== true && str(chat.candidates.messageId) !== asked) return null
     const limit = (chat.mode || 'story') === 'script' ? 1 : 5
     const choices = Array.isArray(chat.candidates.choices) ? chat.candidates.choices.map(function (item) {
       return { type: item.type === 'scene' || item.type === 'scene2' ? 'scene' : 'action', text: str(item.text).trim() }

@@ -611,8 +611,8 @@
 			const draft = props.useInput(snapshot => snapshot.draft);
 			// 前台候选项随正文一起存好，没有任务送到页面：这一轮落地后按消息读一次。
 			React.useEffect(function () {
-				if (!props.messageId || taskForMessage) return;
-				loadSavedCandidates(props.sessionId, props.messageId).catch(function () {});
+				if (!props.sessionId || taskForMessage) return;
+				loadSavedCandidates(props.sessionId, props.messageId || null).catch(function () {});
 			}, [props.sessionId, props.messageId, taskForMessage && taskForMessage.taskId]);
 			const projectedTaskRef = React.useRef("");
 			React.useEffect(function () {
@@ -677,7 +677,8 @@
 			}
 			const h = React.createElement;
 			const isScript = sessionMode === "script";
-			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.messageId === props.messageId && candidatePanelState.phase === "ready";
+			// 这一局最近一轮的候选项：页面拿不到宿主消息 id 时也照样算数（服务端只留最近一轮）。
+			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.phase === "ready";
 			if (!isPlayMode(sessionMode)) return null;
 			// only="choices" in the composer, only="regen" under the latest reply.
 			return h(React.Fragment, null,
