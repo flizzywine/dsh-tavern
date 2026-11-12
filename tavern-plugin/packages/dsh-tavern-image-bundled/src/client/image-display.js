@@ -23,6 +23,44 @@
       const [offset, setOffset] = React.useState(null)
       const [sizeNote, setSizeNote] = React.useState('')
       const drag = React.useRef(null)
+      const resize = React.useRef(null)
+      const saveTimer = React.useRef(null)
+      const pendingWidth = React.useRef(null)
+      const savingWidth = React.useRef(false)
+      React.useEffect(() => () => clearTimeout(saveTimer.current), [])
+      async function saveWidth(value) {
+        clearTimeout(saveTimer.current)
+        pendingWidth.current = normalizeImageWidth(value)
+        if (savingWidth.current) return
+        savingWidth.current = true
+        try {
+          while (pendingWidth.current !== null) {
+            const width = pendingWidth.current
+            pendingWidth.current = null
+            try {
+              const response = await jsonFetch(BASE + '/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ config: { imageDisplayWidth: width } }) })
+              // A completed request must not reset a newer live preview.
+              if (pendingWidth.current === null && !resize.current && imagePlacement.width === width) {
+                window.dispatchEvent(new CustomEvent('dsh-tavern-image:config', { detail: response.state?.config }))
+                setSizeNote('')
+              }
+            } catch {
+              if (pendingWidth.current === null) setSizeNote('大小保存失败，请重新调节重试')
+            }
+          }
+        } finally { savingWidth.current = false }
+      }
+      function previewWidth(value) {
+        applyImageWidth(value)
+        setSizeNote('')
+        clearTimeout(saveTimer.current)
+        if (!resize.current) saveTimer.current = setTimeout(() => saveWidth(imagePlacement.width), 300)
+      }
+      function finishResize() {
+        if (!resize.current) return
+        resize.current = null
+        saveWidth(imagePlacement.width)
+      }
       React.useEffect(() => {
         placementListeners.add(setSettings)
         setSettings(imagePlacement)
@@ -139,10 +177,10 @@
       return h(React.Fragment, null,
         h('style', null, widthRule, `:is(${DISPLAY_FIGURES}) { min-height: 1px; min-width: 1px; } :is(${DISPLAY_FIGURES}) img { display: none !important; }`),
         picture ? h('aside', { 'data-dti-placement': settings.position, 'aria-label': '正文图片查看器',
-          style: { position: 'fixed', ...position, zIndex: 110, width, maxHeight: '90vh', overflow: 'auto', boxSizing: 'border-box',
+          style: { position: 'fixed', ...position, zIndex: 110, width, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxSizing: 'border-box',
             border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 10, padding: 8, boxShadow: '0 8px 24px #0003',
             background: 'var(--dsw-specific-input-major, Canvas)', color: 'var(--dsw-alias-label-primary, CanvasText)' } },
-          h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, cursor: floating ? 'move' : 'default', touchAction: floating ? 'none' : 'auto' },
+          h('div', { style: { display: 'flex', flexShrink: 0, alignItems: 'center', gap: 4, cursor: floating ? 'move' : 'default', touchAction: floating ? 'none' : 'auto' },
             onPointerDown: startDrag, onPointerUp: () => { drag.current = null }, onLostPointerCapture: () => { drag.current = null },
             onPointerMove: event => {
               if (!drag.current) return
@@ -154,21 +192,34 @@
             collapsed ? null : h('button', { type: 'button', style: btn, 'aria-label': '上一张正文图片', disabled: index < 1, onClick: () => select(pictures[index - 1].src) }, '‹'),
             collapsed ? null : h('button', { type: 'button', style: btn, 'aria-label': '下一张正文图片', disabled: index + 1 >= pictures.length, onClick: () => select(pictures[index + 1].src) }, '›'),
             h('button', { type: 'button', style: btn, onClick: () => setCollapsed(value => !value) }, collapsed ? '展开' : '收起')),
-          collapsed ? null : h('button', { type: 'button', style: { display: 'block', width: '100%', border: 0, background: 'transparent', padding: 0, marginTop: 6, cursor: 'zoom-in' },
+          collapsed ? null : h('button', { type: 'button', style: { display: 'flex', flex: '0 1 auto', minHeight: 0, width: '100%', overflow: 'hidden', border: 0, background: 'transparent', padding: 0, marginTop: 6, cursor: 'zoom-in' },
             onClick: () => openImageOverlay?.({ open: true, images: pictures.map(item => ({ url: item.src, alt: item.title })), index, note: '正文插图' }) },
-            h('img', { src: picture.src, alt: picture.title, style: { display: 'block', width: '100%', height: 'auto', objectFit: 'contain', borderRadius: 6 } })),
-          collapsed ? null : h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 } },
-            h('input', { type: 'range', min: IMAGE_WIDTH_LIMIT.min, max: IMAGE_WIDTH_LIMIT.max, step: 10,
-              'aria-label': '悬浮图片宽度', value: settings.width || (floating ? 420 : 300), style: { flex: 1, minWidth: 0 },
-              onChange: event => { applyImageWidth(event.target.value); setSizeNote('预览中') } }),
-            h('span', { style: { fontSize: 12, whiteSpace: 'nowrap' } }, (settings.width || (floating ? 420 : 300)) + ' px'),
-            h('button', { type: 'button', style: btn, disabled: sizeNote === '保存中…', onClick: async () => {
-              setSizeNote('保存中…')
-              try {
-                const response = await jsonFetch(BASE + '/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ config: { imageDisplayWidth: settings.width } }) })
-                window.dispatchEvent(new CustomEvent('dsh-tavern-image:config', { detail: response.state?.config }))
-                setSizeNote('已保存')
-              } catch { setSizeNote('保存失败，请重试') }
-            } }, '保存大小')),
+            h('img', { src: picture.src, alt: picture.title, style: { display: 'block', width: '100%', minHeight: 0, objectFit: 'contain', borderRadius: 6 } })),
+          collapsed ? null : h('div', { style: { display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8, marginTop: 8 } },
+            h('input', { type: 'range', min: IMAGE_WIDTH_LIMIT.min, max: IMAGE_WIDTH_LIMIT.max, step: 1,
+              'aria-label': '悬浮图片宽度', value: settings.width || (floating ? 420 : 300), style: { flex: 1, minWidth: 0, touchAction: 'none' },
+              onPointerDown: event => {
+                if (event.button !== 0) return
+                event.preventDefault()
+                event.currentTarget.focus()
+                const rect = event.currentTarget.getBoundingClientRect()
+                const span = IMAGE_WIDTH_LIMIT.max - IMAGE_WIDTH_LIMIT.min
+                const track = Math.max(1, rect.width - 16)
+                const value = imagePlacement.width || (floating ? 420 : 300)
+                const thumbX = rect.left + 8 + (value - IMAGE_WIDTH_LIMIT.min) / span * track
+                const start = Math.abs(event.clientX - thumbX) <= 12 ? value : normalizeImageWidth(IMAGE_WIDTH_LIMIT.min + (event.clientX - rect.left - 8) / track * span)
+                // Keep the initial track as the ruler: the viewer itself changes width while dragging.
+                resize.current = { x: event.clientX, value: start, scale: span / track }
+                event.currentTarget.setPointerCapture(event.pointerId)
+                previewWidth(start)
+              },
+              onPointerMove: event => {
+                if (!resize.current) return
+                previewWidth(resize.current.value + (event.clientX - resize.current.x) * resize.current.scale)
+              },
+              onPointerUp: finishResize, onPointerCancel: finishResize, onLostPointerCapture: finishResize,
+              onChange: event => { if (!resize.current) previewWidth(event.target.value) },
+              onBlur: () => { if (!resize.current) saveWidth(imagePlacement.width) } }),
+            h('span', { style: { fontSize: 12, minWidth: '7ch', textAlign: 'right', whiteSpace: 'nowrap' } }, (settings.width || (floating ? 420 : 300)) + ' px')),
           sizeNote && !collapsed ? h('small', { role: 'status' }, sizeNote) : null) : null)
     }
