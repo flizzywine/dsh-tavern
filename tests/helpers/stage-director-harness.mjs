@@ -30,7 +30,7 @@ export async function fixture(model, {bound = true, tts, getBinding, greeting = 
     Object.values(pack.figures)[0].voice = {id:'fixture/voice',language:'ja',preset:{kind:'azure',label:'Fixture',languages:['ja'],params:{voiceName:'ja-JP-NanamiNeural'}}}
   }
   const services = new Map([['assetLibrary',library],...(tts ? [['tts',tts]] : [])])
-  const ctx = {get:key => services.get(key), inject(names, fn) {if(names.every(name => services.has(name))) fn(this)}, effect(fn) {effects.push(fn())}}
+  const ctx = {get:key => services.get(key), inject(names, fn) {if(names.every(name => services.has(name))) fn(this)}, effect(fn) {effects.push(fn())}, logger:{info() {}, warn() {}}}
   // engineValues overrides engine settings (e.g. directorModel).
   const engineSettings = {read:() => ({values:{...defaultAssetEngineSettings(),...engineValues},revision:engineRevision}), subscribe(fn) {engineListeners.add(fn); return () => engineListeners.delete(fn)}}
   const assets = createAssetRuntime({ctx,readWorkspace:async () => clone(workspace),engineSettings,getBinding})
