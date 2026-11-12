@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "61d752fc8a0c97a09df298d4bcc5ed0f8d468f06",
-  "releaseSequence": 1534,
+  "revision": "4e6dc02e2541682e6f3d9e38c1d0ad4ff75cc1fc",
+  "releaseSequence": 1535,
   "version": "3.3.0",
   "files": [
     {
@@ -2781,8 +2781,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/read-variables.js",
-      "sha256": "62dee72a7674f3177e4836771ea0f9af6a5b7dcca679d55c0477db0a638a2045",
-      "size": 5707
+      "sha256": "40627fa1c934d09cfcbccff19ea65993ea9a05a888ce2b48b49968ae05e250ed",
+      "size": 5928
     },
     {
       "path": "tavern-plugin/lib/domain/regeneration-diagnostics.js",
@@ -4216,8 +4216,8 @@
     },
     {
       "path": "tavern-plugin/lib/tools/gameplay.js",
-      "sha256": "cd582d67ee92241ddaa2241846a89929a5e2da3ebf9ed516fb76e3c0b48e3fd4",
-      "size": 3899
+      "sha256": "ed7f9f45c3874bf7af02dfca65c4d13cced31552861e2820bb702ed625a5abc6",
+      "size": 4135
     },
     {
       "path": "tavern-plugin/lib/tools/play-chat.js",
@@ -9066,9 +9066,9 @@
     }
   ],
   "archive": {
-    "commit": "f41ad240b9d05f7bb9bde5c7d440b5b2dc914f29",
+    "commit": "b885008456ae89fee7a03edf1837b9c893bca73f",
     "path": "runtime.zip",
-    "sha256": "ddbd8547a60c8ee646094591bbbd4fc8a16cdfb1961d97dcb7ac9c35e566dc9b",
-    "size": 16119293
+    "sha256": "f9ef52c168c63f1e0d2e1d3fe4217f6ccf39774f01c53079cd06a063c925c683",
+    "size": 16119480
   }
 }
