@@ -54,7 +54,7 @@ test('official MVU initializes a greeting or no-greeting start before its first 
       if (process.env.MVU_SMOKE_REPORT) await writeFile(process.env.MVU_SMOKE_REPORT, JSON.stringify(flow, null, 2) + '\n')
       assert.ok(Object.keys(flow.before.stat_data || {}).length, JSON.stringify(flow))
       assert.ok(Object.keys(flow.before.schema?.properties || {}).length, JSON.stringify(flow))
-      assert.doesNotMatch(flow.prompt, /Variable schema:\s*\{\s*\}|Current variable snapshot:\s*\{\s*\}/)
+      assert.doesNotMatch(flow.prompt, /【变量结构】\s*\{\s*\}|【当前变量快照】\s*\{\s*\}/)
       assert.deepEqual(flow.foregroundVariables.stat_data, flow.before.stat_data)
       if (mode.includes('greeting')) greetingVariables = flow.before.stat_data
       else {
